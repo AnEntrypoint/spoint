@@ -99,6 +99,8 @@ export class PhysicsWorld {
       this._charUpdateSettings.mStickToFloorStepDown = new J.Vec3(0, -0.5, 0)
       this._charUpdateSettings.mWalkStairsStepUp = new J.Vec3(0, 0.4, 0)
       this._charGravity = new J.Vec3(this.gravity[0], this.gravity[1], this.gravity[2])
+      this._tmpVec3 = new J.Vec3(0, 0, 0)
+      this._tmpRVec3 = new J.RVec3(0, 0, 0)
     }
     const id = this._nextCharId = (this._nextCharId || 0) + 1
     if (!this.characters) this.characters = new Map()
@@ -121,11 +123,13 @@ export class PhysicsWorld {
   }
   setCharacterVelocity(charId, velocity) {
     const ch = this.characters?.get(charId); if (!ch) return
-    ch.SetLinearVelocity(new this.Jolt.Vec3(velocity[0], velocity[1], velocity[2]))
+    const v = this._tmpVec3; v.Set(velocity[0], velocity[1], velocity[2])
+    ch.SetLinearVelocity(v)
   }
   setCharacterPosition(charId, position) {
     const ch = this.characters?.get(charId); if (!ch) return
-    ch.SetPosition(new this.Jolt.RVec3(position[0], position[1], position[2]))
+    const p = this._tmpRVec3; p.Set(position[0], position[1], position[2])
+    ch.SetPosition(p)
   }
   getCharacterGroundState(charId) {
     const ch = this.characters?.get(charId); if (!ch) return false
@@ -150,19 +154,23 @@ export class PhysicsWorld {
   }
   setBodyPosition(bodyId, position) {
     const b = this._getBody(bodyId); if (!b) return
-    this.bodyInterface.SetPosition(b.GetID(), new this.Jolt.RVec3(position[0], position[1], position[2]), this.Jolt.EActivation_Activate)
+    const p = this._tmpRVec3 || new this.Jolt.RVec3(0, 0, 0); p.Set(position[0], position[1], position[2])
+    this.bodyInterface.SetPosition(b.GetID(), p, this.Jolt.EActivation_Activate)
   }
   setBodyVelocity(bodyId, velocity) {
     const b = this._getBody(bodyId); if (!b) return
-    this.bodyInterface.SetLinearVelocity(b.GetID(), new this.Jolt.Vec3(velocity[0], velocity[1], velocity[2]))
+    const v = this._tmpVec3 || new this.Jolt.Vec3(0, 0, 0); v.Set(velocity[0], velocity[1], velocity[2])
+    this.bodyInterface.SetLinearVelocity(b.GetID(), v)
   }
   addForce(bodyId, force) {
     const b = this._getBody(bodyId); if (!b) return
-    this.bodyInterface.AddForce(b.GetID(), new this.Jolt.Vec3(force[0], force[1], force[2]))
+    const v = this._tmpVec3 || new this.Jolt.Vec3(0, 0, 0); v.Set(force[0], force[1], force[2])
+    this.bodyInterface.AddForce(b.GetID(), v)
   }
   addImpulse(bodyId, impulse) {
     const b = this._getBody(bodyId); if (!b) return
-    this.bodyInterface.AddImpulse(b.GetID(), new this.Jolt.Vec3(impulse[0], impulse[1], impulse[2]))
+    const v = this._tmpVec3 || new this.Jolt.Vec3(0, 0, 0); v.Set(impulse[0], impulse[1], impulse[2])
+    this.bodyInterface.AddImpulse(b.GetID(), v)
   }
   step(deltaTime) { if (!this.jolt) return; this.jolt.Step(deltaTime, deltaTime > 1 / 55 ? 2 : 1) }
   removeBody(bodyId) {
