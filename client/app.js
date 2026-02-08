@@ -159,7 +159,7 @@ function renderAppUI(state) {
       createElement('div', { id: 'health-fill', style: `width:${hp}%;background:${hp > 60 ? '#0f0' : hp > 30 ? '#ff0' : '#f00'}` }),
       createElement('span', { id: 'health-text' }, String(hp))
     ),
-    createElement('div', { id: 'info' }, `FPS: ${fpsDisplay} | Players: ${state.players.length} | Tick: ${client.currentTick}`),
+    createElement('div', { id: 'info' }, `FPS: ${fpsDisplay} | Players: ${state.players.length} | Tick: ${client.currentTick} | Speed: ${local?.velocity ? Math.sqrt(local.velocity[0]**2 + local.velocity[2]**2).toFixed(1) : '0.0'}`),
     ...uiFragments.map(f => createElement('div', { 'data-app': f.id }, f.ui))
   )
   try { applyDiff(uiRoot, hudVdom) } catch (e) { console.error('[ui] diff:', e.message) }
