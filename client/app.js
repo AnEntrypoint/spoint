@@ -28,8 +28,8 @@ const sun = new THREE.DirectionalLight(0xffffff, 1.6)
 sun.position.set(30, 50, 20)
 sun.castShadow = true
 sun.shadow.mapSize.set(2048, 2048)
-sun.shadow.bias = -0.0005
-sun.shadow.normalBias = 0.02
+sun.shadow.bias = -0.001
+sun.shadow.normalBias = 0.005
 sun.shadow.camera.near = 1
 sun.shadow.camera.far = 150
 const sc = sun.shadow.camera
@@ -146,7 +146,14 @@ function evaluateAppModule(code) {
 }
 
 function loadEntityModel(entityId, entityState) {
-  if (!entityState.model) return
+  if (!entityState.model) {
+    const box = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0xff8800, roughness: 1, metalness: 0 }))
+    box.position.set(...entityState.position)
+    box.castShadow = true; box.receiveShadow = true
+    scene.add(box)
+    entityMeshes.set(entityId, box)
+    return
+  }
   const url = entityState.model.startsWith('./') ? '/' + entityState.model.slice(2) : entityState.model
   gltfLoader.load(url, (gltf) => {
     const model = gltf.scene
