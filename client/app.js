@@ -16,7 +16,7 @@ renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.setPixelRatio(window.devicePixelRatio)
 renderer.shadowMap.enabled = true
 renderer.shadowMap.type = THREE.PCFShadowMap
-renderer.xr.enabled = true
+renderer.xr.enabled = false
 document.body.appendChild(renderer.domElement)
 document.body.appendChild(VRButton.createButton(renderer))
 
@@ -58,6 +58,8 @@ const clickPrompt = document.getElementById('click-prompt')
 const cam = createCameraController(camera, scene)
 cam.restore(JSON.parse(sessionStorage.getItem('cam') || 'null'))
 sessionStorage.removeItem('cam')
+let latestState = null
+let uiTimer = 0
 let lastShootTime = 0
 let lastFrameTime = performance.now()
 let fpsFrames = 0, fpsLast = performance.now(), fpsDisplay = 0
@@ -196,7 +198,7 @@ const client = new PhysicsNetworkClient({
       playerStates.set(p.id, p)
       if (!mesh.userData.initialized) { mesh.position.set(tx, ty, tz); mesh.userData.initialized = true }
     }
-    renderAppUI(state)
+    latestState = state
   },
   onPlayerJoined: (id) => { if (!playerMeshes.has(id)) createPlayerVRM(id) },
   onPlayerLeft: (id) => removePlayerMesh(id),
@@ -282,6 +284,8 @@ function animate(timestamp) {
       mesh.rotation.y += diff * lerpFactor
     }
   }
+  uiTimer += frameDt
+  if (latestState && uiTimer >= 0.25) { uiTimer = 0; renderAppUI(latestState) }
   const local = client.state?.players?.find(p => p.id === client.playerId)
   const inVR = renderer.xr.isPresenting
   if (!inVR) cam.update(local, playerMeshes.get(client.playerId), frameDt)
