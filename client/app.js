@@ -21,6 +21,10 @@ document.body.appendChild(renderer.domElement)
 document.body.appendChild(VRButton.createButton(renderer))
 
 scene.add(new THREE.HemisphereLight(0x87ceeb, 0x444444, 2.0))
+const fillLight = new THREE.DirectionalLight(0xffffff, 0.6)
+fillLight.castShadow = false
+camera.add(fillLight)
+scene.add(camera)
 const sun = new THREE.DirectionalLight(0xffffff, 1.6)
 sun.position.set(30, 50, 20)
 sun.castShadow = true
