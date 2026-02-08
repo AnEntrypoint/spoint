@@ -5,7 +5,6 @@ import { PhysicsNetworkClient, InputHandler, MSG } from '/src/index.client.js'
 import { createElement, applyDiff } from 'webjsx'
 import { createCameraController } from './camera.js'
 import { loadAnimationLibrary, createPlayerAnimator } from './animation.js'
-import { VRButton } from 'three/addons/webxr/VRButton.js'
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x87ceeb)
@@ -18,9 +17,9 @@ renderer.shadowMap.enabled = true
 renderer.shadowMap.type = THREE.PCFShadowMap
 renderer.xr.enabled = false
 document.body.appendChild(renderer.domElement)
-document.body.appendChild(VRButton.createButton(renderer))
 
-scene.add(new THREE.HemisphereLight(0x87ceeb, 0x444444, 2.0))
+const hemi = new THREE.HemisphereLight(0x87ceeb, 0x444444, 2.0)
+scene.add(hemi)
 const fillLight = new THREE.DirectionalLight(0xffffff, 0.6)
 fillLight.castShadow = false
 camera.add(fillLight)
@@ -97,7 +96,7 @@ async function createPlayerVRM(id) {
     VRMUtils.combineSkeletons(vrm.scene)
     vrm.scene.traverse(c => {
       if (c.isMesh) {
-        c.castShadow = true; c.receiveShadow = true; c.frustumCulled = false
+        c.castShadow = true; c.receiveShadow = true
         if (c.material && c.material.isMToonMaterial) {
           const old = c.material
           const mat = new THREE.MeshToonMaterial({
@@ -153,7 +152,7 @@ function loadEntityModel(entityId, entityState) {
     const model = gltf.scene
     model.position.set(...entityState.position)
     if (entityState.rotation) model.quaternion.set(...entityState.rotation)
-    model.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+    model.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; if (c.material?.specularIntensity !== undefined) c.material.specularIntensity = 0 } })
     scene.add(model)
     entityMeshes.set(entityId, model)
     scene.remove(ground)
@@ -287,8 +286,7 @@ function animate(timestamp) {
   uiTimer += frameDt
   if (latestState && uiTimer >= 0.25) { uiTimer = 0; renderAppUI(latestState) }
   const local = client.state?.players?.find(p => p.id === client.playerId)
-  const inVR = renderer.xr.isPresenting
-  if (!inVR) cam.update(local, playerMeshes.get(client.playerId), frameDt)
+  cam.update(local, playerMeshes.get(client.playerId), frameDt)
   renderer.render(scene, camera)
 }
 renderer.setAnimationLoop(animate)
