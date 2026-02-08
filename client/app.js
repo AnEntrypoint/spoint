@@ -81,7 +81,7 @@ function detectVrmVersion(buffer) {
 function initAssets(playerModelUrl) {
   assetsReady = fetch(playerModelUrl).then(r => r.arrayBuffer()).then(b => {
     vrmBuffer = b
-    return loadAnimationLibrary(detectVrmVersion(b))
+    return loadAnimationLibrary(detectVrmVersion(b), null)
   }).then(c => { animClips = c })
 }
 
@@ -96,31 +96,62 @@ async function createPlayerVRM(id) {
     const vrm = gltf.userData.vrm
     VRMUtils.removeUnnecessaryVertices(vrm.scene)
     VRMUtils.combineSkeletons(vrm.scene)
-    vrm.scene.traverse(c => {
-      if (c.isMesh) {
-        c.castShadow = true; c.receiveShadow = true
-        if (c.material && c.material.isMToonMaterial) {
-          const old = c.material
-          const mat = new THREE.MeshToonMaterial({
-            map: old.map || null,
-            color: old.color || 0xffffff,
-            emissive: old.emissiveMap ? 0x000000 : 0x888888,
-            emissiveMap: old.emissiveMap || null,
-            side: old.side ?? THREE.FrontSide
-          })
-          c.material = mat
-        }
-      }
-    })
-    vrm.scene.rotation.y = Math.PI
+    const vrmVersion = detectVrmVersion(vrmBuffer)
+    if (vrmVersion === '0') VRMUtils.rotateVRM0(vrm.scene)
+    vrm.scene.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
     group.add(vrm.scene)
     playerVrms.set(id, vrm)
+    initVRMFeatures(id, vrm)
     if (animClips) {
-      const animator = createPlayerAnimator(vrm.scene, animClips)
+      const animator = createPlayerAnimator(vrm, animClips, vrmVersion)
       playerAnimators.set(id, animator)
     }
   } catch (e) { console.error('[vrm]', id, e.message) }
   return group
+}
+
+const playerExpressions = new Map()
+const playerBlinkTimers = new Map()
+
+function initVRMFeatures(id, vrm) {
+  const features = { vrm, expressions: null, lookAt: null, springBone: null, meta: null, blinkTimer: 0, nextBlink: Math.random() * 2 + 2 }
+  if (vrm.expressionManager) {
+    features.expressions = vrm.expressionManager
+    features.expressions.setValue('blink', 0)
+  }
+  if (vrm.lookAt) {
+    features.lookAt = vrm.lookAt
+    features.lookAt.smoothFactor = 0.1
+  }
+  if (vrm.springBoneManager) features.springBone = vrm.springBoneManager
+  if (vrm.meta) features.meta = vrm.meta
+  playerExpressions.set(id, features)
+}
+
+function updateVRMFeatures(id, dt, targetPosition) {
+  const features = playerExpressions.get(id)
+  if (!features) return
+  if (features.springBone) features.springBone.update(dt)
+  if (features.lookAt && targetPosition) {
+    const lookTarget = new THREE.Vector3(targetPosition.x, targetPosition.y + 1.6, targetPosition.z)
+    features.lookAt.lookAt(lookTarget)
+  }
+  if (features.expressions) {
+    features.blinkTimer += dt
+    if (features.blinkTimer >= features.nextBlink) {
+      features.expressions.setValue('blink', 1)
+      if (features.blinkTimer >= features.nextBlink + 0.15) {
+        features.expressions.setValue('blink', 0)
+        features.blinkTimer = 0
+        features.nextBlink = Math.random() * 3 + 2
+      }
+    }
+  }
+}
+
+function setVRMExpression(id, expressionName, value) {
+  const features = playerExpressions.get(id)
+  if (features?.expressions) features.expressions.setValue(expressionName, value)
 }
 
 function removePlayerMesh(id) {
@@ -137,6 +168,7 @@ function removePlayerMesh(id) {
   playerMeshes.delete(id)
   playerTargets.delete(id)
   playerStates.delete(id)
+  playerExpressions.delete(id)
 }
 
 function evaluateAppModule(code) {
@@ -220,7 +252,15 @@ const client = new PhysicsNetworkClient({
   },
   onAppModule: (d) => { const a = evaluateAppModule(d.code); if (a?.client) appModules.set(d.app, a.client) },
   onAssetUpdate: () => {},
-  onAppEvent: () => {},
+  onAppEvent: (payload) => {
+    if (payload.type === 'hit' && payload.target) {
+      setVRMExpression(payload.target, 'angry', 0.6)
+      setTimeout(() => setVRMExpression(payload.target, 'angry', 0), 500)
+    }
+    if (payload.type === 'death' && payload.victim) {
+      setVRMExpression(payload.victim, 'sorrow', 1.0)
+    }
+  },
   onHotReload: () => { sessionStorage.setItem('cam', JSON.stringify(cam.save())); location.reload() },
   debug: false
 })
@@ -294,6 +334,8 @@ function animate(timestamp) {
       while (diff < -Math.PI) diff += Math.PI * 2
       mesh.rotation.y += diff * lerpFactor
     }
+    const target = playerTargets.get(id)
+    updateVRMFeatures(id, frameDt, target)
   }
   uiTimer += frameDt
   if (latestState && uiTimer >= 0.25) { uiTimer = 0; renderAppUI(latestState) }

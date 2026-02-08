@@ -18,7 +18,7 @@ const q1 = new THREE.Quaternion()
 const restInv = new THREE.Quaternion()
 const parentRest = new THREE.Quaternion()
 
-function normalizeClips(gltf, vrmVersion) {
+function normalizeClips(gltf, vrmVersion, vrmHumanoid) {
   const scene = gltf.scene
   scene.updateMatrixWorld(true)
   const clips = new Map()
@@ -42,7 +42,8 @@ function normalizeClips(gltf, vrmVersion) {
         }
         continue
       }
-      const bone = scene.getObjectByName(boneName)
+      let bone = scene.getObjectByName(boneName)
+      if (!bone && vrmHumanoid) bone = vrmHumanoid.getNormalizedBoneNode(boneName)
       if (!bone || !bone.parent) { tracks.push(track); continue }
       if (property === 'quaternion') {
         bone.getWorldQuaternion(restInv).invert()
@@ -64,13 +65,14 @@ function normalizeClips(gltf, vrmVersion) {
   return clips
 }
 
-export async function loadAnimationLibrary(vrmVersion) {
+export async function loadAnimationLibrary(vrmVersion, vrmHumanoid) {
   const loader = new GLTFLoader()
   const gltf = await loader.loadAsync('/anim-lib.glb')
-  return normalizeClips(gltf, vrmVersion || '1')
+  return normalizeClips(gltf, vrmVersion || '1', vrmHumanoid)
 }
 
-export function createPlayerAnimator(root, clips) {
+export function createPlayerAnimator(vrm, clips, vrmVersion) {
+  const root = vrm.scene
   const mixer = new THREE.AnimationMixer(root)
   mixer.timeScale = 1.3
   const actions = new Map()
