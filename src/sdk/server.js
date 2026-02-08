@@ -133,6 +133,7 @@ export async function createServer(config = {}) {
     setTickHandler: (fn) => { ctx.handlerState.fn = fn }
   }
 
+  const worldConfigUrl = pathToFileURL(existsSync(resolve(process.cwd(), 'apps/world/index.js')) ? resolve(process.cwd(), 'apps/world/index.js') : join(dirname(fileURLToPath(import.meta.url)), '../../apps/world/index.js')).href
   const reloadHandlers = createReloadHandlers({
     networkState,
     playerManager,
@@ -140,7 +141,9 @@ export async function createServer(config = {}) {
     lagCompensator,
     physics,
     appRuntime,
-    connections
+    connections,
+    movement,
+    worldConfigPath: worldConfigUrl
   })
   ctx.reloadHandlers = reloadHandlers
 
@@ -165,6 +168,7 @@ export async function createServer(config = {}) {
     const w = [
       ['tick-handler', './src/sdk/TickHandler.js', reloadTick],
       ['movement', './src/shared/movement.js', reloadTick],
+      ['world-config', './apps/world/index.js', reloadTick],
       ['physics-integration', './src/netcode/PhysicsIntegration.js', reloadHandlers.reloadPhysicsIntegration],
       ['lag-compensator', './src/netcode/LagCompensator.js', reloadHandlers.reloadLagCompensator],
       ['player-manager', './src/netcode/PlayerManager.js', reloadHandlers.reloadPlayerManager],
