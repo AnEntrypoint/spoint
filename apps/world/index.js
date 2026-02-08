@@ -8,7 +8,7 @@ export default {
     airAccel: 1.0,
     friction: 6.0,
     stopSpeed: 2.0,
-    jumpImpulse: 3.5
+    jumpImpulse: 1.0
   },
   entities: [
     { id: 'environment', model: './apps/tps-game/schwust.glb', position: [0, 0, 0], app: 'environment' },
