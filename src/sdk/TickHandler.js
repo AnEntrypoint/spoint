@@ -34,9 +34,12 @@ export function createTickHandler(deps) {
       }
 
       applyMovement(st, inp, movement, dt)
+      const wishedVx = st.velocity[0], wishedVz = st.velocity[2]
       const updated = physicsIntegration.updatePlayerPhysics(player.id, st, dt)
       st.position = updated.position
       st.velocity = updated.velocity
+      st.velocity[0] = wishedVx
+      st.velocity[2] = wishedVz
       st.onGround = updated.onGround
       lagCompensator.recordPlayerPosition(player.id, st.position, st.rotation, st.velocity, tick)
       networkState.updatePlayer(player.id, {
