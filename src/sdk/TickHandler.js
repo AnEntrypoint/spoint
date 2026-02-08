@@ -20,15 +20,15 @@ export function createTickHandler(deps) {
     for (const player of playerManager.getConnectedPlayers()) {
       const inputs = playerManager.getInputs(player.id)
       const st = player.state
-      let inp = null
 
       if (inputs.length > 0) {
-        inp = inputs[inputs.length - 1].data
-        if (inp) {
-          const yaw = inp.yaw || 0
-          st.rotation = [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)]
-        }
+        player.lastInput = inputs[inputs.length - 1].data
         playerManager.clearInputs(player.id)
+      }
+      const inp = player.lastInput || null
+      if (inp) {
+        const yaw = inp.yaw || 0
+        st.rotation = [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)]
       }
 
       applyMovement(st, inp, movement, dt)
