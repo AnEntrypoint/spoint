@@ -88,7 +88,19 @@ async function createPlayerVRM(id) {
     VRMUtils.removeUnnecessaryVertices(vrm.scene)
     VRMUtils.combineSkeletons(vrm.scene)
     vrm.scene.traverse(c => {
-      if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; c.frustumCulled = false }
+      if (c.isMesh) {
+        c.castShadow = true; c.receiveShadow = true; c.frustumCulled = false
+        if (c.material && c.material.isMToonMaterial) {
+          const old = c.material
+          const mat = new THREE.MeshStandardMaterial({
+            map: old.map || null,
+            color: old.color || 0xffffff,
+            skinning: true,
+            side: old.side ?? THREE.FrontSide
+          })
+          c.material = mat
+        }
+      }
     })
     vrm.scene.rotation.y = Math.PI
     group.add(vrm.scene)
