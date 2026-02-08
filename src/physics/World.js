@@ -143,7 +143,11 @@ export class PhysicsWorld {
   }
   removeCharacter(charId) {
     if (!this.characters) return
-    this.characters.delete(charId)
+    const ch = this.characters.get(charId)
+    if (ch) {
+      this.Jolt.destroy(ch)
+      this.characters.delete(charId)
+    }
   }
   _getBody(bodyId) { return this.bodies.get(bodyId) }
   getBodyPosition(bodyId) {
