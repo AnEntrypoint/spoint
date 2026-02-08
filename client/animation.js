@@ -158,8 +158,8 @@ export function createPlayerAnimator(root, clips) {
           oneShotTimer = STATES.JumpLand.duration
         } else if (effectiveOnGround) {
           const idle2walk = current === 'IdleLoop' ? 0.8 : 0.3
-          const walk2jog = current === 'WalkLoop' ? 6.0 : 5.5
-          const jog2sprint = current === 'JogFwdLoop' ? 7.5 : 7.0
+          const walk2jog = current === 'WalkLoop' ? 5.0 : 4.5
+          const jog2sprint = current === 'JogFwdLoop' ? 6.0 : 5.5
           if (smoothSpeed < idle2walk) transitionTo('IdleLoop')
           else if (smoothSpeed < walk2jog) transitionTo('WalkLoop')
           else if (smoothSpeed < jog2sprint) transitionTo('JogFwdLoop')
