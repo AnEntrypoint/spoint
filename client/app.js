@@ -28,11 +28,11 @@ scene.add(studio)
 const sun = new THREE.DirectionalLight(0xffffff, 1.6)
 sun.position.set(30, 50, 20)
 sun.castShadow = true
-sun.shadow.mapSize.set(512, 512)
+sun.shadow.mapSize.set(2048, 2048)
 sun.shadow.bias = -0.0001
 sun.shadow.normalBias = 0.0
-sun.shadow.radius = 8
-sun.shadow.blurSamples = 16
+sun.shadow.radius = 3
+sun.shadow.blurSamples = 8
 sun.shadow.camera.near = 1
 sun.shadow.camera.far = 150
 const sc = sun.shadow.camera
