@@ -3,7 +3,7 @@ export default {
   tickRate: 128,
   gravity: [0, -9.81, 0],
   movement: {
-    maxSpeed: 8.0,
+    maxSpeed: 6.0,
     groundAccel: 10.0,
     airAccel: 1.0,
     friction: 6.0,
