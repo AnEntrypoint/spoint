@@ -83,7 +83,7 @@ export function createPlayerAnimator(root, clips) {
       action.clampWhenFinished = cfg.clamp || false
     }
     if (name === 'WalkLoop') action.timeScale = 2.0
-    if (name === 'SprintLoop') action.timeScale = 0.8
+    if (name === 'SprintLoop') action.timeScale = 0.56
     actions.set(name, action)
   }
   let current = null
