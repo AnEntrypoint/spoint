@@ -228,10 +228,13 @@ document.addEventListener('pointerlockchange', () => {
 renderer.domElement.addEventListener('wheel', cam.onWheel, { passive: false })
 window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight) })
 
-function animate() {
-  const now = performance.now()
-  const frameDt = Math.min((now - lastFrameTime) / 1000, 0.1)
+let smoothDt = 1 / 60
+function animate(timestamp) {
+  const now = timestamp || performance.now()
+  const rawDt = Math.min((now - lastFrameTime) / 1000, 0.1)
   lastFrameTime = now
+  smoothDt += (rawDt - smoothDt) * 0.2
+  const frameDt = smoothDt
   fpsFrames++
   if (now - fpsLast >= 1000) { fpsDisplay = fpsFrames; fpsFrames = 0; fpsLast = now }
   const lerpFactor = 1.0 - Math.exp(-16.0 * frameDt)
