@@ -115,11 +115,17 @@ export class PhysicsWorld {
   }
   getCharacterPosition(charId) {
     const ch = this.characters?.get(charId); if (!ch) return [0, 0, 0]
-    const p = ch.GetPosition(); return [p.GetX(), p.GetY(), p.GetZ()]
+    const p = ch.GetPosition()
+    const r = [p.GetX(), p.GetY(), p.GetZ()]
+    this.Jolt.destroy(p)
+    return r
   }
   getCharacterVelocity(charId) {
     const ch = this.characters?.get(charId); if (!ch) return [0, 0, 0]
-    const v = ch.GetLinearVelocity(); return [v.GetX(), v.GetY(), v.GetZ()]
+    const v = ch.GetLinearVelocity()
+    const r = [v.GetX(), v.GetY(), v.GetZ()]
+    this.Jolt.destroy(v)
+    return r
   }
   setCharacterVelocity(charId, velocity) {
     const ch = this.characters?.get(charId); if (!ch) return
@@ -142,15 +148,24 @@ export class PhysicsWorld {
   _getBody(bodyId) { return this.bodies.get(bodyId) }
   getBodyPosition(bodyId) {
     const b = this._getBody(bodyId); if (!b) return [0, 0, 0]
-    const p = this.bodyInterface.GetPosition(b.GetID()); return [p.GetX(), p.GetY(), p.GetZ()]
+    const p = this.bodyInterface.GetPosition(b.GetID())
+    const r = [p.GetX(), p.GetY(), p.GetZ()]
+    this.Jolt.destroy(p)
+    return r
   }
   getBodyRotation(bodyId) {
     const b = this._getBody(bodyId); if (!b) return [0, 0, 0, 1]
-    const r = this.bodyInterface.GetRotation(b.GetID()); return [r.GetX(), r.GetY(), r.GetZ(), r.GetW()]
+    const q = this.bodyInterface.GetRotation(b.GetID())
+    const r = [q.GetX(), q.GetY(), q.GetZ(), q.GetW()]
+    this.Jolt.destroy(q)
+    return r
   }
   getBodyVelocity(bodyId) {
     const b = this._getBody(bodyId); if (!b) return [0, 0, 0]
-    const v = this.bodyInterface.GetLinearVelocity(b.GetID()); return [v.GetX(), v.GetY(), v.GetZ()]
+    const v = this.bodyInterface.GetLinearVelocity(b.GetID())
+    const r = [v.GetX(), v.GetY(), v.GetZ()]
+    this.Jolt.destroy(v)
+    return r
   }
   setBodyPosition(bodyId, position) {
     const b = this._getBody(bodyId); if (!b) return
