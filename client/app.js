@@ -24,7 +24,7 @@ sun.position.set(30, 50, 20)
 sun.castShadow = true
 sun.shadow.mapSize.set(2048, 2048)
 sun.shadow.bias = -0.0005
-sun.shadow.normalBias = 0.15
+sun.shadow.normalBias = 0.3
 sun.shadow.radius = 1.5
 sun.shadow.camera.near = 1
 sun.shadow.camera.far = 150
