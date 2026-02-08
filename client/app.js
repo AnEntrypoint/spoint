@@ -6,10 +6,6 @@ import { createElement, applyDiff } from 'webjsx'
 import { createCameraController } from './camera.js'
 import { loadAnimationLibrary, createPlayerAnimator } from './animation.js'
 import { VRButton } from 'three/addons/webxr/VRButton.js'
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
-import { SSAOPass } from 'three/addons/postprocessing/SSAOPass.js'
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x87ceeb)
@@ -40,16 +36,6 @@ sun.shadow.camera.far = 200
 const sc = sun.shadow.camera
 sc.left = -60; sc.right = 60; sc.top = 60; sc.bottom = -60
 scene.add(sun)
-
-const composer = new EffectComposer(renderer)
-composer.addPass(new RenderPass(scene, camera))
-const ssaoPass = new SSAOPass(scene, camera, window.innerWidth, window.innerHeight)
-ssaoPass.kernelRadius = 0.5
-ssaoPass.minDistance = 0.001
-ssaoPass.maxDistance = 0.1
-ssaoPass.intensity = 1.5
-composer.addPass(ssaoPass)
-composer.addPass(new OutputPass())
 
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x444444 }))
 ground.rotation.x = -Math.PI / 2
@@ -259,7 +245,7 @@ document.addEventListener('pointerlockchange', () => {
   else document.removeEventListener('mousemove', cam.onMouseMove)
 })
 renderer.domElement.addEventListener('wheel', cam.onWheel, { passive: false })
-window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); composer.setSize(window.innerWidth, window.innerHeight) })
+window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight) })
 
 let smoothDt = 1 / 60
 function animate(timestamp) {
@@ -299,10 +285,9 @@ function animate(timestamp) {
   const local = client.state?.players?.find(p => p.id === client.playerId)
   const inVR = renderer.xr.isPresenting
   if (!inVR) cam.update(local, playerMeshes.get(client.playerId), frameDt)
-  composer.render()
+  renderer.render(scene, camera)
 }
 renderer.setAnimationLoop(animate)
-window.debug_composer = composer
 
 client.connect().then(() => { console.log('Connected'); startInputLoop() }).catch(err => console.error('Connection failed:', err))
 window.debug = { scene, camera, renderer, client, playerMeshes, entityMeshes, appModules, inputHandler, playerVrms, playerAnimators }
