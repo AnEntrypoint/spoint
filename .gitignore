@@ -1,0 +1,53 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Playwright testing artifacts - do not commit
+.playwright*
+playwright-report/
+playwright/
+
+# Dev server
+.dev-server.log
+.dev-server.pid
+
+# Auto Claude data directory
+.auto-claude/
+
+.code-search/
+
+# Database files
+*.db
+world/hyperfy.db
+.glootie-stop-verified
+
+# Workflow state machine (temporary working file)
+.prd
+
+# Temporary files
+/tmp/
+/todo/

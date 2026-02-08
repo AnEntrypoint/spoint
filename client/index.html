@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Spawnpoint</title>
+  <link rel="stylesheet" href="/style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://esm.sh/three@0.171.0",
+      "three/addons/": "https://esm.sh/three@0.171.0/examples/jsm/",
+      "@pixiv/three-vrm": "https://esm.sh/@pixiv/three-vrm@3?external=three",
+      "webjsx": "/node_modules/webjsx/dist/index.js",
+      "webjsx/jsx-runtime": "/node_modules/webjsx/dist/jsx-runtime.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="ui-root"></div>
+  <div id="click-prompt">Click to play</div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

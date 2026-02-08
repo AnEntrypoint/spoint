@@ -1,0 +1,84 @@
+import { MSG } from '../protocol/MessageTypes.js'
+import { SnapshotEncoder } from '../netcode/SnapshotEncoder.js'
+import { applyMovement, DEFAULT_MOVEMENT } from '../shared/movement.js'
+
+export function createTickHandler(deps) {
+  const {
+    networkState, playerManager, physicsIntegration,
+    lagCompensator, physics, appRuntime, connections,
+    movement: m = {}, stageLoader, eventLog
+  } = deps
+  const movement = { ...DEFAULT_MOVEMENT, ...m }
+  const collisionRestitution = m.collisionRestitution || 0.2
+  const collisionDamping = m.collisionDamping || 0.25
+  let snapshotSeq = 0
+
+  return function onTick(tick, dt) {
+    networkState.setTick(tick, Date.now())
+    for (const player of playerManager.getConnectedPlayers()) {
+      const inputs = playerManager.getInputs(player.id)
+      const st = player.state
+      let inp = null
+
+      if (inputs.length > 0) {
+        inp = inputs[inputs.length - 1].data
+        if (inp) {
+          const yaw = inp.yaw || 0
+          st.rotation = [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)]
+        }
+        playerManager.clearInputs(player.id)
+      }
+
+      applyMovement(st, inp, movement, dt)
+      const updated = physicsIntegration.updatePlayerPhysics(player.id, st, dt)
+      st.position = updated.position
+      st.velocity = updated.velocity
+      st.onGround = updated.onGround
+      lagCompensator.recordPlayerPosition(player.id, st.position, st.rotation, st.velocity, tick)
+      networkState.updatePlayer(player.id, {
+        position: st.position, rotation: st.rotation,
+        velocity: st.velocity, onGround: st.onGround,
+        health: st.health, inputSequence: player.inputSequence
+      })
+    }
+    const players = playerManager.getConnectedPlayers()
+    for (const player of players) {
+      const collisions = physicsIntegration.checkCollisionWithOthers(player.id, players)
+      for (const collision of collisions) {
+        const other = playerManager.getPlayer(collision.playerId)
+        if (!other) continue
+        const dx = collision.normal[0], dy = collision.normal[1], dz = collision.normal[2]
+        const relVx = other.state.velocity[0] - player.state.velocity[0]
+        const relVz = other.state.velocity[2] - player.state.velocity[2]
+        const relDotNorm = relVx * dx + relVz * dz
+        if (relDotNorm >= 0) continue
+        const impulse = (1 + collisionRestitution) * relDotNorm * 0.5
+        player.state.velocity[0] += impulse * dx * collisionDamping * 0.1
+        player.state.velocity[2] += impulse * dz * collisionDamping * 0.1
+        other.state.velocity[0] -= impulse * dx * collisionDamping * 0.1
+        other.state.velocity[2] -= impulse * dz * collisionDamping * 0.1
+      }
+    }
+    physics.step(dt)
+    appRuntime.tick(tick, dt)
+    const playerSnap = networkState.getSnapshot()
+    snapshotSeq++
+    if (stageLoader && stageLoader.getActiveStage()) {
+      for (const player of players) {
+        const pos = player.state.position
+        const entitySnap = appRuntime.getSnapshotForPlayer(pos, stageLoader.getActiveStage().spatial.relevanceRadius)
+        const combined = { tick: playerSnap.tick, timestamp: playerSnap.timestamp, players: playerSnap.players, entities: entitySnap.entities }
+        connections.send(player.id, MSG.SNAPSHOT, { seq: snapshotSeq, ...SnapshotEncoder.encode(combined) })
+      }
+    } else {
+      const entitySnap = appRuntime.getSnapshot()
+      const combined = { tick: playerSnap.tick, timestamp: playerSnap.timestamp, players: playerSnap.players, entities: entitySnap.entities }
+      connections.broadcast(MSG.SNAPSHOT, { seq: snapshotSeq, ...SnapshotEncoder.encode(combined) })
+    }
+    try {
+      appRuntime._drainReloadQueue()
+    } catch (e) {
+      console.error('[TickHandler] reload queue error:', e.message)
+    }
+  }
+}
