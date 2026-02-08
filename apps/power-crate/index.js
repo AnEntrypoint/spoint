@@ -1,5 +1,5 @@
 const CONFIG = {
-  spawnInterval: 120,
+  spawnInterval: 30,
   pickupRadius: 2.5,
   pickupLifetime: 30,
   crateHitRadius: 1.5,
@@ -30,6 +30,7 @@ export default {
       })
 
       console.log(`[power-crate] ${ctx.state.spawnPoints.length} spawn points, interval ${CONFIG.spawnInterval}s`)
+      spawnCrate(ctx)
     },
 
     update(ctx, dt) {
