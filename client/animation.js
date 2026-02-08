@@ -146,6 +146,10 @@ export function createPlayerAnimator(root, clips) {
         if (health <= 0) {
           transitionTo('Death')
           oneShot = 'Death'
+        } else if (oneShot === 'Death') {
+          oneShot = null
+          oneShotTimer = 0
+          transitionTo('IdleLoop')
         } else if (!effectiveOnGround && !wasOnGround) {
           transitionTo('JumpLoop')
         } else if (!wasOnGround && effectiveOnGround && smoothSpeed < 1.5) {
