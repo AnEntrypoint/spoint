@@ -29,7 +29,7 @@ const sun = new THREE.DirectionalLight(0xffffff, 1.6)
 sun.position.set(30, 50, 20)
 sun.castShadow = true
 sun.shadow.mapSize.set(2048, 2048)
-sun.shadow.bias = -0.003
+sun.shadow.bias = 0.0
 sun.shadow.normalBias = 0.0
 sun.shadow.camera.near = 1
 sun.shadow.camera.far = 150
@@ -160,7 +160,7 @@ function loadEntityModel(entityId, entityState) {
     const model = gltf.scene
     model.position.set(...entityState.position)
     if (entityState.rotation) model.quaternion.set(...entityState.rotation)
-    model.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; if (c.material) { c.material.roughness = 1; c.material.metalness = 0; if (c.material.specularIntensity !== undefined) c.material.specularIntensity = 0 } } })
+    model.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; if (c.material) { c.material.shadowSide = THREE.BackSide; c.material.roughness = 1; c.material.metalness = 0; if (c.material.specularIntensity !== undefined) c.material.specularIntensity = 0 } } })
     scene.add(model)
     entityMeshes.set(entityId, model)
     const colliders = []
