@@ -289,7 +289,8 @@ function animate(timestamp) {
   cam.update(local, playerMeshes.get(client.playerId), frameDt)
   renderer.render(scene, camera)
 }
-renderer.setAnimationLoop(animate)
+function loop(ts) { animate(ts); requestAnimationFrame(loop) }
+requestAnimationFrame(loop)
 
 client.connect().then(() => { console.log('Connected'); startInputLoop() }).catch(err => console.error('Connection failed:', err))
 window.debug = { scene, camera, renderer, client, playerMeshes, entityMeshes, appModules, inputHandler, playerVrms, playerAnimators }
