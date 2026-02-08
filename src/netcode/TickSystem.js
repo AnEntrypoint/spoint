@@ -25,11 +25,13 @@ export class TickSystem {
   loop() {
     if (!this.running) return
     const now = Date.now()
-    const elapsed = now - this.lastTickTime
-    if (elapsed >= this.tickDuration && !this._reloadLocked) {
+    let elapsed = now - this.lastTickTime
+    let steps = 0
+    const maxSteps = 4
+    while (elapsed >= this.tickDuration && !this._reloadLocked && steps < maxSteps) {
       this._tickInProgress = true
       this.currentTick++
-      this.lastTickTime = now
+      this.lastTickTime += this.tickDuration
       for (const callback of this.callbacks) {
         callback(this.currentTick, this.tickDuration / 1000)
       }
@@ -38,6 +40,11 @@ export class TickSystem {
         this._reloadResolve()
         this._reloadResolve = null
       }
+      elapsed = now - this.lastTickTime
+      steps++
+    }
+    if (now - this.lastTickTime > this.tickDuration * maxSteps) {
+      this.lastTickTime = now
     }
     setImmediate(() => this.loop())
   }
