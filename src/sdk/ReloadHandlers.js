@@ -34,8 +34,10 @@ export function createReloadHandlers(deps) {
   } = deps
 
   const reloadTickHandler = async () => {
-    const { createTickHandler: refreshHandler } = await import('./TickHandler.js?' + Date.now())
-    return refreshHandler(deps)
+    const t = Date.now()
+    const { applyMovement, DEFAULT_MOVEMENT } = await import('../shared/movement.js?' + t)
+    const { createTickHandler: refreshHandler } = await import('./TickHandler.js?' + t)
+    return refreshHandler({ ...deps, _movement: { applyMovement, DEFAULT_MOVEMENT } })
   }
 
   const reloadPhysicsIntegration = async () => {
