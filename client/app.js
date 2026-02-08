@@ -19,13 +19,19 @@ renderer.xr.enabled = false
 document.body.appendChild(renderer.domElement)
 
 scene.add(camera)
+const ambient = new THREE.AmbientLight(0xfff4d6, 0.3)
+scene.add(ambient)
+const studio = new THREE.DirectionalLight(0x4488ff, 0.4)
+studio.position.set(-20, 30, -10)
+studio.castShadow = false
+scene.add(studio)
 const sun = new THREE.DirectionalLight(0xffffff, 1.6)
 sun.position.set(30, 50, 20)
 sun.castShadow = true
-sun.shadow.mapSize.set(4096, 4096)
+sun.shadow.mapSize.set(512, 512)
 sun.shadow.bias = -0.0001
 sun.shadow.normalBias = 0.0
-sun.shadow.radius = 4
+sun.shadow.radius = 8
 sun.shadow.blurSamples = 16
 sun.shadow.camera.near = 1
 sun.shadow.camera.far = 150
