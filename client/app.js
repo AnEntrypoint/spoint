@@ -14,7 +14,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'hi
 renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.setPixelRatio(window.devicePixelRatio)
 renderer.shadowMap.enabled = true
-renderer.shadowMap.type = THREE.PCFSoftShadowMap
+renderer.shadowMap.type = THREE.VSMShadowMap
 renderer.xr.enabled = false
 document.body.appendChild(renderer.domElement)
 
@@ -23,9 +23,10 @@ const sun = new THREE.DirectionalLight(0xffffff, 1.6)
 sun.position.set(30, 50, 20)
 sun.castShadow = true
 sun.shadow.mapSize.set(4096, 4096)
-sun.shadow.bias = -0.001
-sun.shadow.normalBias = 0.1
-sun.shadow.radius = 1.5
+sun.shadow.bias = -0.0001
+sun.shadow.normalBias = 0.0
+sun.shadow.radius = 4
+sun.shadow.blurSamples = 16
 sun.shadow.camera.near = 1
 sun.shadow.camera.far = 150
 const sc = sun.shadow.camera
