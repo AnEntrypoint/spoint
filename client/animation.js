@@ -72,6 +72,7 @@ export async function loadAnimationLibrary(vrmVersion) {
 
 export function createPlayerAnimator(root, clips) {
   const mixer = new THREE.AnimationMixer(root)
+  mixer.timeScale = 1.2
   const actions = new Map()
   for (const [name, clip] of clips) {
     if (!STATES[name]) continue
