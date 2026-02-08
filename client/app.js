@@ -30,7 +30,7 @@ sun.position.set(30, 50, 20)
 sun.castShadow = true
 sun.shadow.mapSize.set(512, 512)
 sun.shadow.bias = 0.001
-sun.shadow.normalBias = 0.05
+sun.shadow.normalBias = 0.25
 sun.shadow.camera.near = 1
 sun.shadow.camera.far = 150
 const sc = sun.shadow.camera
