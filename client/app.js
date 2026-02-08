@@ -29,8 +29,8 @@ const sun = new THREE.DirectionalLight(0xffffff, 1.6)
 sun.position.set(30, 50, 20)
 sun.castShadow = true
 sun.shadow.mapSize.set(1024, 1024)
-sun.shadow.bias = -0.0005
-sun.shadow.normalBias = 0.1
+sun.shadow.bias = -0.0002
+sun.shadow.normalBias = 0.2
 sun.shadow.camera.near = 1
 sun.shadow.camera.far = 150
 const sc = sun.shadow.camera
