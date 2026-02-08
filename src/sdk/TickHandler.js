@@ -1,13 +1,15 @@
 import { MSG } from '../protocol/MessageTypes.js'
 import { SnapshotEncoder } from '../netcode/SnapshotEncoder.js'
-import { applyMovement, DEFAULT_MOVEMENT } from '../shared/movement.js'
+import { applyMovement as _applyMovement, DEFAULT_MOVEMENT as _DEFAULT_MOVEMENT } from '../shared/movement.js'
 
 export function createTickHandler(deps) {
   const {
     networkState, playerManager, physicsIntegration,
     lagCompensator, physics, appRuntime, connections,
-    movement: m = {}, stageLoader, eventLog
+    movement: m = {}, stageLoader, eventLog, _movement
   } = deps
+  const applyMovement = _movement?.applyMovement || _applyMovement
+  const DEFAULT_MOVEMENT = _movement?.DEFAULT_MOVEMENT || _DEFAULT_MOVEMENT
   const movement = { ...DEFAULT_MOVEMENT, ...m }
   const collisionRestitution = m.collisionRestitution || 0.2
   const collisionDamping = m.collisionDamping || 0.25

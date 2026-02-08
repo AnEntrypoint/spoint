@@ -164,6 +164,7 @@ export async function createServer(config = {}) {
     const reloadTick = async () => { ctx.setTickHandler(await reloadHandlers.reloadTickHandler()) }
     const w = [
       ['tick-handler', './src/sdk/TickHandler.js', reloadTick],
+      ['movement', './src/shared/movement.js', reloadTick],
       ['physics-integration', './src/netcode/PhysicsIntegration.js', reloadHandlers.reloadPhysicsIntegration],
       ['lag-compensator', './src/netcode/LagCompensator.js', reloadHandlers.reloadLagCompensator],
       ['player-manager', './src/netcode/PlayerManager.js', reloadHandlers.reloadPlayerManager],
