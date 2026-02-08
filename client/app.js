@@ -29,12 +29,12 @@ const sun = new THREE.DirectionalLight(0xffffff, 1.6)
 sun.position.set(30, 50, 20)
 sun.castShadow = true
 sun.shadow.mapSize.set(4096, 4096)
-sun.shadow.bias = -0.0005
-sun.shadow.normalBias = 0.02
+sun.shadow.bias = -0.001
+sun.shadow.normalBias = 0.05
 sun.shadow.camera.near = 0.5
 sun.shadow.camera.far = 200
 const sc = sun.shadow.camera
-sc.left = -80; sc.right = 80; sc.top = 80; sc.bottom = -80
+sc.left = -60; sc.right = 60; sc.top = 60; sc.bottom = -60
 scene.add(sun)
 
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x444444 }))
