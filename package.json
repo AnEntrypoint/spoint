@@ -1,0 +1,51 @@
+{
+  "name": "spoint",
+  "version": "0.1.0",
+  "description": "Physics and netcode SDK for multiplayer game servers",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "spoint": "./server.js"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "files": [
+    "src/",
+    "apps/",
+    "client/",
+    "server.js",
+    "LICENSE",
+    "README.md"
+  ],
+  "keywords": [
+    "gamedev",
+    "multiplayer",
+    "physics",
+    "netcode",
+    "websocket",
+    "jolt-physics",
+    "game-server"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AnEntrypoint/spawnpoint.git"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "d3-octree": "^1.1.0",
+    "jolt-physics": "^0.29.0",
+    "webjsx": "^0.0.73",
+    "ws": "^8.18.0"
+  },
+  "optionalDependencies": {
+    "@fails-components/webtransport": "^1.5.3",
+    "@fails-components/webtransport-transport-http3-quiche": "^1.5.3"
+  },
+  "devDependencies": {
+    "playwright": "^1.58.1"
+  }
+}
