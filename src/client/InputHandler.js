@@ -6,6 +6,9 @@ export class InputHandler {
     this.mouseDown = false
     this.callbacks = []
     this.enabled = true
+    this.renderer = config.renderer || null
+    this.vrYaw = 0
+    this.snapCooldown = false
 
     if (config.enableKeyboard !== false) {
       this.setupKeyboardListeners()
@@ -59,6 +62,9 @@ export class InputHandler {
       }
     }
 
+    const xr = this._getXRInput()
+    if (xr) return xr
+
     return {
       forward: this.keys.get('w') || this.keys.get('arrowup') || false,
       backward: this.keys.get('s') || this.keys.get('arrowdown') || false,
@@ -70,6 +76,44 @@ export class InputHandler {
       mouseX: this.mouseX,
       mouseY: this.mouseY
     }
+  }
+
+  _getXRInput() {
+    if (!this.renderer?.xr?.isPresenting) return null
+    const session = this.renderer.xr.getSession()
+    if (!session) return null
+    let forward = false, backward = false, left = false, right = false
+    let jump = false, shoot = false, sprint = false
+    const DEAD = 0.15, THRESH = 0.5
+    for (const source of session.inputSources) {
+      const gp = source.gamepad
+      if (!gp) continue
+      const axes = gp.axes
+      const btns = gp.buttons
+      if (source.handedness === 'left') {
+        const ax = axes.length >= 4 ? axes[2] : (axes[0] || 0)
+        const ay = axes.length >= 4 ? axes[3] : (axes[1] || 0)
+        if (ay < -THRESH) forward = true
+        if (ay > THRESH) backward = true
+        if (ax < -THRESH) left = true
+        if (ax > THRESH) right = true
+        if (btns[4]?.pressed) jump = true
+        if (btns[0]?.pressed) sprint = true
+      }
+      if (source.handedness === 'right') {
+        const ax = axes.length >= 4 ? axes[2] : (axes[0] || 0)
+        if (Math.abs(ax) > DEAD) {
+          if (!this.snapCooldown && Math.abs(ax) > THRESH) {
+            this.vrYaw += ax > 0 ? -Math.PI / 6 : Math.PI / 6
+            this.snapCooldown = true
+          }
+        } else {
+          this.snapCooldown = false
+        }
+        if (btns[0]?.pressed) shoot = true
+      }
+    }
+    return { forward, backward, left, right, jump, sprint, shoot, yaw: this.vrYaw, mouseX: 0, mouseY: 0 }
   }
 
   onInput(callback) {

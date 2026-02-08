@@ -5,6 +5,7 @@ import { PhysicsNetworkClient, InputHandler, MSG } from '/src/index.client.js'
 import { createElement, applyDiff } from 'webjsx'
 import { createCameraController } from './camera.js'
 import { loadAnimationLibrary, createPlayerAnimator } from './animation.js'
+import { VRButton } from 'three/addons/webxr/VRButton.js'
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x87ceeb)
@@ -15,7 +16,9 @@ renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
 renderer.shadowMap.enabled = true
 renderer.shadowMap.type = THREE.PCFSoftShadowMap
+renderer.xr.enabled = true
 document.body.appendChild(renderer.domElement)
+document.body.appendChild(VRButton.createButton(renderer))
 
 scene.add(new THREE.AmbientLight(0xffffff, 0.6))
 const sun = new THREE.DirectionalLight(0xffffff, 1.0)
@@ -43,7 +46,7 @@ const entityMeshes = new Map()
 const appModules = new Map()
 const entityAppMap = new Map()
 const playerTargets = new Map()
-const inputHandler = new InputHandler()
+const inputHandler = new InputHandler({ renderer })
 const uiRoot = document.getElementById('ui-root')
 const clickPrompt = document.getElementById('click-prompt')
 const cam = createCameraController(camera, scene)
@@ -196,7 +199,7 @@ function startInputLoop() {
   inputLoopId = setInterval(() => {
     if (!client.connected) return
     const input = inputHandler.getInput()
-    input.yaw = cam.yaw; input.pitch = cam.pitch
+    if (!input.yaw) { input.yaw = cam.yaw; input.pitch = cam.pitch }
     client.sendInput(input)
     if (input.shoot && Date.now() - lastShootTime > 100) {
       lastShootTime = Date.now()
@@ -224,7 +227,6 @@ renderer.domElement.addEventListener('wheel', cam.onWheel, { passive: false })
 window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight) })
 
 function animate() {
-  requestAnimationFrame(animate)
   const now = performance.now()
   const frameDt = Math.min((now - lastFrameTime) / 1000, 0.1)
   lastFrameTime = now
@@ -257,10 +259,11 @@ function animate() {
     }
   }
   const local = client.state?.players?.find(p => p.id === client.playerId)
-  cam.update(local, playerMeshes.get(client.playerId), frameDt)
+  const inVR = renderer.xr.isPresenting
+  if (!inVR) cam.update(local, playerMeshes.get(client.playerId), frameDt)
   renderer.render(scene, camera)
 }
-animate()
+renderer.setAnimationLoop(animate)
 
 client.connect().then(() => { console.log('Connected'); startInputLoop() }).catch(err => console.error('Connection failed:', err))
 window.debug = { scene, camera, renderer, client, playerMeshes, entityMeshes, appModules, inputHandler, playerVrms, playerAnimators }
