@@ -97,7 +97,7 @@ async function createPlayerVRM(id) {
           const mat = new THREE.MeshToonMaterial({
             map: old.map || null,
             color: old.color || 0xffffff,
-            emissive: old.emissiveMap ? 0x000000 : 0x333333,
+            emissive: old.emissiveMap ? 0x000000 : 0x888888,
             emissiveMap: old.emissiveMap || null,
             side: old.side ?? THREE.FrontSide
           })
