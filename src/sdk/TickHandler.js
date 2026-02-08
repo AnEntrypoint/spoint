@@ -47,21 +47,25 @@ export function createTickHandler(deps) {
     }
     const t1 = performance.now()
     const players = playerManager.getConnectedPlayers()
+    const separated = new Set()
     for (const player of players) {
       const collisions = physicsIntegration.checkCollisionWithOthers(player.id, players)
       for (const collision of collisions) {
+        const pairKey = player.id < collision.playerId ? `${player.id}-${collision.playerId}` : `${collision.playerId}-${player.id}`
+        if (separated.has(pairKey)) continue
+        separated.add(pairKey)
         const other = playerManager.getPlayer(collision.playerId)
         if (!other) continue
-        const dx = collision.normal[0], dy = collision.normal[1], dz = collision.normal[2]
-        const relVx = other.state.velocity[0] - player.state.velocity[0]
-        const relVz = other.state.velocity[2] - player.state.velocity[2]
-        const relDotNorm = relVx * dx + relVz * dz
-        if (relDotNorm >= 0) continue
-        const impulse = (1 + collisionRestitution) * relDotNorm * 0.5
-        player.state.velocity[0] += impulse * dx * collisionDamping * 0.1
-        player.state.velocity[2] += impulse * dz * collisionDamping * 0.1
-        other.state.velocity[0] -= impulse * dx * collisionDamping * 0.1
-        other.state.velocity[2] -= impulse * dz * collisionDamping * 0.1
+        const nx = collision.normal[0], nz = collision.normal[2]
+        const minDist = physicsIntegration.config.capsuleRadius * 2
+        const overlap = minDist - collision.distance
+        const halfPush = overlap * 0.5
+        player.state.position[0] -= nx * halfPush
+        player.state.position[2] -= nz * halfPush
+        other.state.position[0] += nx * halfPush
+        other.state.position[2] += nz * halfPush
+        physicsIntegration.setPlayerPosition(player.id, player.state.position)
+        physicsIntegration.setPlayerPosition(other.id, other.state.position)
       }
     }
     const t2 = performance.now()
