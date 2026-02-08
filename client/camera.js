@@ -25,6 +25,9 @@ function isDescendant(obj, ancestor) {
 export function createCameraController(camera, scene) {
   let yaw = 0, pitch = 0, zoomIndex = 2, camInitialized = false
   const envMeshes = []
+  let rayTimer = 0, cachedClipDist = 10, cachedAimPoint = null
+  camRaycaster.firstHitOnly = true
+  aimRaycaster.firstHitOnly = true
 
   function setEnvironment(meshes) { envMeshes.length = 0; envMeshes.push(...meshes) }
 
@@ -83,16 +86,22 @@ export function createCameraController(camera, scene) {
       )
       camDir.subVectors(camDesired, camTarget).normalize()
       const fullDist = camTarget.distanceTo(camDesired)
-      camRaycaster.set(camTarget, camDir)
-      camRaycaster.far = fullDist
-      camRaycaster.near = 0
-      const hits = camRaycaster.intersectObjects(envMeshes.length ? envMeshes : scene.children, true)
-      let clippedDist = fullDist
-      for (const hit of hits) {
-        if (localMesh && isDescendant(hit.object, localMesh)) continue
-        if (hit.distance < clippedDist) clippedDist = hit.distance - 0.2
+      rayTimer += frameDt
+      const doRaycast = rayTimer >= 0.05
+      if (doRaycast) {
+        rayTimer = 0
+        camRaycaster.set(camTarget, camDir)
+        camRaycaster.far = fullDist
+        camRaycaster.near = 0
+        const hits = camRaycaster.intersectObjects(envMeshes.length ? envMeshes : scene.children, true)
+        cachedClipDist = fullDist
+        for (const hit of hits) {
+          if (localMesh && isDescendant(hit.object, localMesh)) continue
+          if (hit.distance < cachedClipDist) cachedClipDist = hit.distance - 0.2
+        }
+        if (cachedClipDist < 0.3) cachedClipDist = 0.3
       }
-      if (clippedDist < 0.3) clippedDist = 0.3
+      const clippedDist = Math.min(cachedClipDist, fullDist)
       camDesired.set(
         camTarget.x + camDir.x * clippedDist,
         camTarget.y + camDir.y * clippedDist,
@@ -105,16 +114,19 @@ export function createCameraController(camera, scene) {
         camera.position.lerp(camDesired, 1.0 - Math.exp(-speed * frameDt))
       }
       aimDir.set(fwdX, fwdY, fwdZ)
-      aimRaycaster.set(camera.position, aimDir)
-      aimRaycaster.far = 500
-      aimRaycaster.near = 0.5
-      const aimHits = aimRaycaster.intersectObjects(envMeshes.length ? envMeshes : scene.children, true)
-      let aimPoint = null
-      for (const ah of aimHits) {
-        if (localMesh && isDescendant(ah.object, localMesh)) continue
-        aimPoint = ah.point; break
+      if (doRaycast) {
+        aimRaycaster.set(camera.position, aimDir)
+        aimRaycaster.far = 500
+        aimRaycaster.near = 0.5
+        const aimHits = aimRaycaster.intersectObjects(envMeshes.length ? envMeshes : scene.children, true)
+        cachedAimPoint = null
+        for (const ah of aimHits) {
+          if (localMesh && isDescendant(ah.object, localMesh)) continue
+          cachedAimPoint = ah.point; break
+        }
       }
-      if (aimPoint) {
+      if (cachedAimPoint) {
+        const aimPoint = cachedAimPoint
         if (!camLookTarget.lengthSq()) camLookTarget.copy(aimPoint)
         camLookTarget.lerp(aimPoint, 1.0 - Math.exp(-camFollowSpeed * frameDt))
       } else {
