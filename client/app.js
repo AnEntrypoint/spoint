@@ -13,9 +13,9 @@ scene.fog = new THREE.Fog(0x87ceeb, 80, 200)
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 500)
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
 renderer.setSize(window.innerWidth, window.innerHeight)
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
+renderer.setPixelRatio(window.devicePixelRatio)
 renderer.shadowMap.enabled = true
-renderer.shadowMap.type = THREE.PCFSoftShadowMap
+renderer.shadowMap.type = THREE.PCFShadowMap
 renderer.xr.enabled = true
 document.body.appendChild(renderer.domElement)
 document.body.appendChild(VRButton.createButton(renderer))
@@ -28,11 +28,11 @@ scene.add(camera)
 const sun = new THREE.DirectionalLight(0xffffff, 1.6)
 sun.position.set(30, 50, 20)
 sun.castShadow = true
-sun.shadow.mapSize.set(4096, 4096)
-sun.shadow.bias = -0.001
-sun.shadow.normalBias = 0.05
-sun.shadow.camera.near = 0.5
-sun.shadow.camera.far = 200
+sun.shadow.mapSize.set(2048, 2048)
+sun.shadow.bias = -0.0005
+sun.shadow.normalBias = 0.02
+sun.shadow.camera.near = 1
+sun.shadow.camera.far = 150
 const sc = sun.shadow.camera
 sc.left = -60; sc.right = 60; sc.top = 60; sc.bottom = -60
 scene.add(sun)
