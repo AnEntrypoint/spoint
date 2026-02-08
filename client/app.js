@@ -207,6 +207,8 @@ function startInputLoop() {
       if (local) {
         const pos = local.position
         client.sendFire({ origin: [pos[0], pos[1] + 0.9, pos[2]], direction: cam.getAimDirection(pos) })
+        const animator = playerAnimators.get(client.playerId)
+        if (animator) animator.shoot()
         const flash = new THREE.PointLight(0xffaa00, 3, 8)
         flash.position.set(pos[0], pos[1] + 0.5, pos[2])
         scene.add(flash)

@@ -11,7 +11,7 @@ const STATES = {
   JumpLoop: { loop: true },
   JumpLand: { loop: false, next: 'IdleLoop', duration: 0.4 },
   Death: { loop: false, clamp: true },
-  PistolShoot: { loop: false, next: null, duration: 0.3 }
+  PistolShoot: { loop: false, next: null, duration: 0.3, overlay: true }
 }
 
 const q1 = new THREE.Quaternion()
@@ -165,6 +165,13 @@ export function createPlayerAnimator(root, clips) {
 
       wasOnGround = effectiveOnGround
       mixer.update(dt)
+    },
+    shoot() {
+      const action = actions.get('PistolShoot')
+      if (!action) return
+      action.reset().fadeIn(0.05).play()
+      oneShot = 'PistolShoot'
+      oneShotTimer = STATES.PistolShoot.duration
     },
     dispose() {
       mixer.stopAllAction()
