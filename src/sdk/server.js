@@ -72,7 +72,7 @@ export async function createServer(config = {}) {
 
   const emitter = new EventEmitter()
   const eventBus = new EventBus()
-  const eventLog = new EventLog()
+  const eventLog = new EventLog({ maxSize: 1000 })
   const storage = new FSAdapter(storageDir)
   const tickSystem = new TickSystem(tickRate)
   const playerManager = new PlayerManager()

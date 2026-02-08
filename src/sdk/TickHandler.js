@@ -76,19 +76,21 @@ export function createTickHandler(deps) {
     const t3 = performance.now()
     appRuntime.tick(tick, dt)
     const t4 = performance.now()
-    const playerSnap = networkState.getSnapshot()
-    snapshotSeq++
-    if (stageLoader && stageLoader.getActiveStage()) {
-      for (const player of players) {
-        const pos = player.state.position
-        const entitySnap = appRuntime.getSnapshotForPlayer(pos, stageLoader.getActiveStage().spatial.relevanceRadius)
+    if (players.length > 0) {
+      const playerSnap = networkState.getSnapshot()
+      snapshotSeq++
+      if (stageLoader && stageLoader.getActiveStage()) {
+        for (const player of players) {
+          const pos = player.state.position
+          const entitySnap = appRuntime.getSnapshotForPlayer(pos, stageLoader.getActiveStage().spatial.relevanceRadius)
+          const combined = { tick: playerSnap.tick, timestamp: playerSnap.timestamp, players: playerSnap.players, entities: entitySnap.entities }
+          connections.send(player.id, MSG.SNAPSHOT, { seq: snapshotSeq, ...SnapshotEncoder.encode(combined) })
+        }
+      } else {
+        const entitySnap = appRuntime.getSnapshot()
         const combined = { tick: playerSnap.tick, timestamp: playerSnap.timestamp, players: playerSnap.players, entities: entitySnap.entities }
-        connections.send(player.id, MSG.SNAPSHOT, { seq: snapshotSeq, ...SnapshotEncoder.encode(combined) })
+        connections.broadcast(MSG.SNAPSHOT, { seq: snapshotSeq, ...SnapshotEncoder.encode(combined) })
       }
-    } else {
-      const entitySnap = appRuntime.getSnapshot()
-      const combined = { tick: playerSnap.tick, timestamp: playerSnap.timestamp, players: playerSnap.players, entities: entitySnap.entities }
-      connections.broadcast(MSG.SNAPSHOT, { seq: snapshotSeq, ...SnapshotEncoder.encode(combined) })
     }
     const t5 = performance.now()
     try {

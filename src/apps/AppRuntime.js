@@ -128,7 +128,7 @@ export class AppRuntime {
     return { tick: this.currentTick, timestamp: Date.now(), entities }
   }
 
-  queryEntities(f) { return f ? Array.from(this.entities.values()).filter(f) : Array.from(this.entities.values()) }
+  queryEntities(f) { const r = []; for (const e of this.entities.values()) { if (!f || f(e)) r.push(e) } return r }
   getEntity(id) { return this.entities.get(id) || null }
   fireEvent(eid, en, ...a) { const ad = this.apps.get(eid), c = this.contexts.get(eid); if (!ad || !c) return; this._log('app_event', { entityId: eid, event: en, args: a }, { sourceEntity: eid }); const s = ad.server || ad; if (s[en]) this._safeCall(s, en, [c, ...a], `${en}(${eid})`) }
   fireInteract(eid, p) { this.fireEvent(eid, 'onInteract', p) }
@@ -149,7 +149,8 @@ export class AppRuntime {
   }
 
   _tickCollisions() {
-    const c = Array.from(this.entities.values()).filter(e => e.collider && this.apps.has(e.id))
+    const c = []
+    for (const e of this.entities.values()) { if (e.collider && this.apps.has(e.id)) c.push(e) }
     for (let i = 0; i < c.length; i++) for (let j = i + 1; j < c.length; j++) {
       const a = c[i], b = c[j], d = Math.hypot(b.position[0]-a.position[0], b.position[1]-a.position[1], b.position[2]-a.position[2])
       if (d < this._colR(a.collider) + this._colR(b.collider)) {
