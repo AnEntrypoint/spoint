@@ -13,7 +13,9 @@ export function createTickHandler(deps) {
   const collisionDamping = m.collisionDamping || 0.25
   let snapshotSeq = 0
 
+  let profileLog = 0
   return function onTick(tick, dt) {
+    const t0 = performance.now()
     networkState.setTick(tick, Date.now())
     for (const player of playerManager.getConnectedPlayers()) {
       const inputs = playerManager.getInputs(player.id)
@@ -41,6 +43,7 @@ export function createTickHandler(deps) {
         health: st.health, inputSequence: player.inputSequence
       })
     }
+    const t1 = performance.now()
     const players = playerManager.getConnectedPlayers()
     for (const player of players) {
       const collisions = physicsIntegration.checkCollisionWithOthers(player.id, players)
@@ -59,8 +62,11 @@ export function createTickHandler(deps) {
         other.state.velocity[2] -= impulse * dz * collisionDamping * 0.1
       }
     }
+    const t2 = performance.now()
     physics.step(dt)
+    const t3 = performance.now()
     appRuntime.tick(tick, dt)
+    const t4 = performance.now()
     const playerSnap = networkState.getSnapshot()
     snapshotSeq++
     if (stageLoader && stageLoader.getActiveStage()) {
@@ -75,10 +81,16 @@ export function createTickHandler(deps) {
       const combined = { tick: playerSnap.tick, timestamp: playerSnap.timestamp, players: playerSnap.players, entities: entitySnap.entities }
       connections.broadcast(MSG.SNAPSHOT, { seq: snapshotSeq, ...SnapshotEncoder.encode(combined) })
     }
+    const t5 = performance.now()
     try {
       appRuntime._drainReloadQueue()
     } catch (e) {
       console.error('[TickHandler] reload queue error:', e.message)
+    }
+    profileLog++
+    if (profileLog % 256 === 0) {
+      const total = t5 - t0
+      console.log(`[tick-profile] players:${players.length} total:${total.toFixed(2)}ms | movement:${(t1-t0).toFixed(2)} collision:${(t2-t1).toFixed(2)} physics:${(t3-t2).toFixed(2)} apps:${(t4-t3).toFixed(2)} snapshot:${(t5-t4).toFixed(2)} budget:${(7.81).toFixed(2)}ms`)
     }
   }
 }
