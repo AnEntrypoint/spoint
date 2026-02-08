@@ -45,12 +45,7 @@ export class PhysicsIntegration {
     const charId = data.charId
     const currentVel = this.physicsWorld.getCharacterVelocity(charId)
     const onGround = this.physicsWorld.getCharacterGroundState(charId)
-    let vy
-    if (onGround) {
-      vy = state.velocity[1] > 0 ? state.velocity[1] : 0
-    } else {
-      vy = currentVel[1] + this.config.gravity[1] * deltaTime
-    }
+    const vy = onGround ? (state.velocity[1] > 0 ? state.velocity[1] : 0) : currentVel[1]
     this.physicsWorld.setCharacterVelocity(charId, [state.velocity[0], vy, state.velocity[2]])
     this.physicsWorld.updateCharacter(charId, deltaTime)
     const pos = this.physicsWorld.getCharacterPosition(charId)
