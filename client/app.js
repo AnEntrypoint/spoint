@@ -94,10 +94,11 @@ async function createPlayerVRM(id) {
         c.castShadow = true; c.receiveShadow = true; c.frustumCulled = false
         if (c.material && c.material.isMToonMaterial) {
           const old = c.material
-          const mat = new THREE.MeshStandardMaterial({
+          const mat = new THREE.MeshToonMaterial({
             map: old.map || null,
             color: old.color || 0xffffff,
-            skinning: true,
+            emissive: old.emissiveMap ? 0x000000 : 0x333333,
+            emissiveMap: old.emissiveMap || null,
             side: old.side ?? THREE.FrontSide
           })
           c.material = mat
