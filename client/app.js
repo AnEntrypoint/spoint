@@ -11,11 +11,11 @@ const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x87ceeb)
 scene.fog = new THREE.Fog(0x87ceeb, 80, 200)
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 500)
-const renderer = new THREE.WebGLRenderer({ antialias: true })
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
 renderer.setSize(window.innerWidth, window.innerHeight)
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
 renderer.shadowMap.enabled = true
-renderer.shadowMap.type = THREE.PCFSoftShadowMap
+renderer.shadowMap.type = THREE.PCFShadowMap
 renderer.xr.enabled = true
 document.body.appendChild(renderer.domElement)
 document.body.appendChild(VRButton.createButton(renderer))
