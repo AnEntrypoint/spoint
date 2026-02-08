@@ -155,6 +155,9 @@ function loadEntityModel(entityId, entityState) {
     model.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; if (c.material?.specularIntensity !== undefined) c.material.specularIntensity = 0 } })
     scene.add(model)
     entityMeshes.set(entityId, model)
+    const meshes = []
+    model.traverse(c => { if (c.isMesh) meshes.push(c) })
+    cam.setEnvironment(meshes)
     scene.remove(ground)
   }, undefined, (err) => console.error('[gltf]', entityId, err))
 }

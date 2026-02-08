@@ -24,6 +24,9 @@ function isDescendant(obj, ancestor) {
 
 export function createCameraController(camera, scene) {
   let yaw = 0, pitch = 0, zoomIndex = 2, camInitialized = false
+  const envMeshes = []
+
+  function setEnvironment(meshes) { envMeshes.length = 0; envMeshes.push(...meshes) }
 
   function restore(saved) {
     if (saved) { yaw = saved.yaw || 0; pitch = saved.pitch || 0; zoomIndex = saved.zoomIndex ?? 2 }
@@ -83,7 +86,7 @@ export function createCameraController(camera, scene) {
       camRaycaster.set(camTarget, camDir)
       camRaycaster.far = fullDist
       camRaycaster.near = 0
-      const hits = camRaycaster.intersectObjects(scene.children, true)
+      const hits = camRaycaster.intersectObjects(envMeshes.length ? envMeshes : scene.children, true)
       let clippedDist = fullDist
       for (const hit of hits) {
         if (localMesh && isDescendant(hit.object, localMesh)) continue
@@ -105,7 +108,7 @@ export function createCameraController(camera, scene) {
       aimRaycaster.set(camera.position, aimDir)
       aimRaycaster.far = 500
       aimRaycaster.near = 0.5
-      const aimHits = aimRaycaster.intersectObjects(scene.children, true)
+      const aimHits = aimRaycaster.intersectObjects(envMeshes.length ? envMeshes : scene.children, true)
       let aimPoint = null
       for (const ah of aimHits) {
         if (localMesh && isDescendant(ah.object, localMesh)) continue
@@ -121,5 +124,5 @@ export function createCameraController(camera, scene) {
     }
   }
 
-  return { restore, save, onMouseMove, onWheel, getAimDirection, update, get yaw() { return yaw }, get pitch() { return pitch } }
+  return { restore, save, onMouseMove, onWheel, getAimDirection, update, setEnvironment, get yaw() { return yaw }, get pitch() { return pitch } }
 }
