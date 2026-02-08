@@ -20,8 +20,8 @@ renderer.xr.enabled = true
 document.body.appendChild(renderer.domElement)
 document.body.appendChild(VRButton.createButton(renderer))
 
-scene.add(new THREE.HemisphereLight(0x87ceeb, 0x444444, 1.0))
-const sun = new THREE.DirectionalLight(0xffffff, 0.8)
+scene.add(new THREE.HemisphereLight(0x87ceeb, 0x444444, 2.0))
+const sun = new THREE.DirectionalLight(0xffffff, 1.6)
 sun.position.set(30, 50, 20)
 sun.castShadow = true
 sun.shadow.mapSize.set(2048, 2048)
