@@ -285,7 +285,7 @@ const client = new PhysicsNetworkClient({
     for (const p of state.players) {
       if (!playerMeshes.has(p.id)) createPlayerVRM(p.id)
       const mesh = playerMeshes.get(p.id)
-      const tx = p.position[0], ty = p.position[1] - 1.3, tz = p.position[2]
+      const tx = p.position[0], ty = p.position[1] - 1.6, tz = p.position[2]
       playerTargets.set(p.id, { x: tx, y: ty, z: tz })
       playerStates.set(p.id, p)
       if (!mesh.userData.initialized) { mesh.position.set(tx, ty, tz); mesh.userData.initialized = true }
