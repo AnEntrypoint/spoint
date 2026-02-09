@@ -168,8 +168,8 @@ export function createCameraController(camera, scene) {
 
   let punchYawTarget = 0, punchPitchTarget = 0, punchYaw = 0, punchPitch = 0
   function punch(intensity) {
-    punchYawTarget += (Math.random() - 0.5) * intensity * 0.1
-    punchPitchTarget += (Math.random() * 0.5 + 0.25) * intensity * 0.1
+    punchYawTarget += (Math.random() - 0.5) * intensity * 0.3
+    punchPitchTarget += (Math.random() - 0.3) * intensity * 0.3
   }
 
   return { restore, save, onMouseMove, onWheel, getAimDirection, update, setEnvironment, applyConfig, setMode, getMode, setPosition, setTarget, punch, get yaw() { return yaw }, get pitch() { return pitch }, get mode() { return mode } }
