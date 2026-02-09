@@ -241,7 +241,7 @@ function loadEntityModel(entityId, entityState) {
     const model = gltf.scene
     model.position.set(...entityState.position)
     if (entityState.rotation) model.quaternion.set(...entityState.rotation)
-    model.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; if (c.material) { c.material.shadowSide = THREE.BackSide; c.material.roughness = 1; c.material.metalness = 0; if (c.material.specularIntensity !== undefined) c.material.specularIntensity = 0 } } })
+    model.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; if (c.material) { c.material.shadowSide = THREE.DoubleSide; c.material.roughness = 1; c.material.metalness = 0; if (c.material.specularIntensity !== undefined) c.material.specularIntensity = 0 } } })
     scene.add(model)
     entityMeshes.set(entityId, model)
     const colliders = []
