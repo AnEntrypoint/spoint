@@ -66,28 +66,84 @@ export default {
         ctx.state.respawning.delete(msg.playerId)
       }
       if (msg.type === 'fire') {
-        ctx.bus.emit('combat.fire', {
-          shooterId: msg.shooterId,
-          origin: msg.origin,
-          direction: msg.direction
-        })
-        handleFire(ctx, msg)
+        const shooterId = msg.senderId || msg.shooterId
+        const shooter = ctx.players.getAll().find(p => p.id === shooterId)
+        const pos = shooter?.state?.position || [0, 0, 0]
+        const origin = [pos[0], pos[1] + 0.9, pos[2]]
+        const fireData = { shooterId, origin, direction: msg.direction }
+        ctx.bus.emit('combat.fire', fireData)
+        handleFire(ctx, fireData)
       }
     }
   },
 
   client: {
+    setup(engine) {
+      engine._tps = { lastShootTime: 0, isAiming: false, boost: null }
+    },
+    onMouseDown(e, engine) {
+      if (e.button === 2 && engine._tps) engine._tps.isAiming = true
+    },
+    onMouseUp(e, engine) {
+      if (e.button === 2 && engine._tps) engine._tps.isAiming = false
+    },
+    onInput(input, engine) {
+      const tps = engine._tps
+      if (!tps) return
+      if (input.shoot && Date.now() - tps.lastShootTime > 100) {
+        tps.lastShootTime = Date.now()
+        const local = engine.client.state?.players?.find(p => p.id === engine.playerId)
+        if (local) {
+          const pos = local.position
+          engine.client.sendFire({ origin: [pos[0], pos[1] + 0.9, pos[2]], direction: engine.cam.getAimDirection(pos) })
+          const animator = engine.players.getAnimator(engine.playerId)
+          if (animator) animator.shoot()
+          const flash = new engine.THREE.PointLight(0xffaa00, 3, 8)
+          flash.position.set(pos[0], pos[1] + 0.5, pos[2])
+          engine.scene.add(flash)
+          setTimeout(() => engine.scene.remove(flash), 60)
+        }
+      }
+    },
+    onEvent(payload, engine) {
+      const tps = engine._tps
+      if (payload.type === 'hit' && payload.target) {
+        engine.players.setExpression(payload.target, 'angry', 0.6)
+        setTimeout(() => engine.players.setExpression(payload.target, 'angry', 0), 500)
+      }
+      if (payload.type === 'death' && payload.victim) {
+        engine.players.setExpression(payload.victim, 'sorrow', 1.0)
+      }
+      if (payload.type === 'buff_applied' && tps) {
+        tps.boost = { expiresAt: Date.now() + (payload.duration || 45) * 1000 }
+      }
+      if (payload.type === 'buff_expired' && tps) { tps.boost = null }
+    },
+    onFrame(dt, engine) {
+      const tps = engine._tps
+      if (!tps) return
+      if (tps.boost && Date.now() >= tps.boost.expiresAt) tps.boost = null
+      engine.players.setAiming(engine.playerId, tps.isAiming)
+    },
     render(ctx) {
       const h = ctx.h
+      if (!h) return { position: ctx.entity.position }
       const s = ctx.state || {}
-      const ui = h ? h('div', { class: 'game-info' },
-        h('span', null, s.mode || 'ffa'),
-        h('span', null, s.time || '0')
-      ) : null
+      const local = ctx.players?.find(p => p.id === ctx.engine?.playerId)
+      const hp = local?.health ?? 100
+      const tps = ctx.engine?._tps
+      const boostSec = tps?.boost ? Math.ceil((tps.boost.expiresAt - Date.now()) / 1000) : 0
       return {
         position: ctx.entity.position,
-        custom: { game: s.map, mode: s.mode, time: s.gameTime?.toFixed(1) || '0' },
-        ui
+        custom: { game: s.map, mode: s.mode },
+        ui: h('div', { class: 'tps-hud' },
+          h('div', { id: 'crosshair', style: 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:24px;color:#fff;text-shadow:0 0 2px #000' }, '+'),
+          h('div', { id: 'health-bar', style: 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);width:200px;height:20px;background:#333;border-radius:4px;overflow:hidden' },
+            h('div', { style: `width:${hp}%;height:100%;background:${hp > 60 ? '#0f0' : hp > 30 ? '#ff0' : '#f00'};transition:width 0.2s` }),
+            h('span', { style: 'position:absolute;width:100%;text-align:center;color:#fff;font-size:12px;line-height:20px' }, String(hp))
+          ),
+          boostSec > 0 ? h('div', { style: 'position:fixed;top:80px;right:20px;padding:8px 16px;background:linear-gradient(135deg,#ffd700,#ff8c00);color:#000;font-weight:bold;border-radius:6px;font-size:14px;box-shadow:0 0 12px rgba(255,215,0,0.6)' }, `BOOSTED ${boostSec}s`) : null
+        )
       }
     }
   }

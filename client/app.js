@@ -61,8 +61,6 @@ cam.restore(JSON.parse(sessionStorage.getItem('cam') || 'null'))
 sessionStorage.removeItem('cam')
 let latestState = null
 let uiTimer = 0
-let lastShootTime = 0
-let isAiming = false
 let lastFrameTime = performance.now()
 let fpsFrames = 0, fpsLast = performance.now(), fpsDisplay = 0
 let vrmBuffer = null
@@ -180,13 +178,37 @@ function evaluateAppModule(code) {
   } catch (e) { console.error('[app-eval]', e.message); return null }
 }
 
+const MESH_BUILDERS = {
+  box: (c) => new THREE.BoxGeometry(c.sx || 1, c.sy || 1, c.sz || 1),
+  cylinder: (c) => new THREE.CylinderGeometry(c.r || 0.4, c.r || 0.4, c.h || 0.1, c.seg || 16),
+  sphere: (c) => new THREE.SphereGeometry(c.r || 0.5, c.seg || 16, c.seg || 16)
+}
+
+function buildEntityMesh(entityId, custom) {
+  const c = custom || {}
+  const geoType = c.mesh || 'box'
+  const geo = MESH_BUILDERS[geoType] ? MESH_BUILDERS[geoType](c) : MESH_BUILDERS.box(c)
+  const mat = new THREE.MeshStandardMaterial({
+    color: c.color ?? 0xff8800, roughness: c.roughness ?? 1, metalness: c.metalness ?? 0,
+    emissive: c.emissive ?? 0x000000, emissiveIntensity: c.emissiveIntensity ?? 0
+  })
+  const group = new THREE.Group()
+  const mesh = new THREE.Mesh(geo, mat)
+  if (c.rotX) mesh.rotation.x = c.rotX
+  if (c.rotZ) mesh.rotation.z = c.rotZ
+  mesh.castShadow = true; mesh.receiveShadow = true
+  group.add(mesh)
+  if (c.light) { group.add(new THREE.PointLight(c.light, c.lightIntensity || 1, c.lightRange || 4)) }
+  if (c.spin) group.userData.spin = c.spin
+  return group
+}
+
 function loadEntityModel(entityId, entityState) {
   if (!entityState.model) {
-    const box = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial({ color: 0xff8800, roughness: 1, metalness: 0 }))
-    box.position.set(...entityState.position)
-    box.castShadow = true; box.receiveShadow = true
-    scene.add(box)
-    entityMeshes.set(entityId, box)
+    const group = buildEntityMesh(entityId, entityState.custom)
+    group.position.set(...entityState.position)
+    scene.add(group)
+    entityMeshes.set(entityId, group)
     return
   }
   const url = entityState.model.startsWith('./') ? '/' + entityState.model.slice(2) : entityState.model
@@ -212,19 +234,12 @@ function renderAppUI(state) {
     const appClient = appModules.get(appName)
     if (!appClient?.render) continue
     try {
-      const result = appClient.render({ entity, state: entity.custom || {}, h: createElement })
+      const result = appClient.render({ entity, state: entity.custom || {}, h: createElement, engine: engineCtx, players: state.players })
       if (result?.ui) uiFragments.push({ id: entity.id, ui: result.ui })
     } catch (e) { console.error('[ui]', entity.id, e.message) }
   }
-  const local = state.players.find(p => p.id === client.playerId)
-  const hp = local?.health ?? 100
   const hudVdom = createElement('div', { id: 'hud' },
-    createElement('div', { id: 'crosshair' }, '+'),
-    createElement('div', { id: 'health-bar' },
-      createElement('div', { id: 'health-fill', style: `width:${hp}%;background:${hp > 60 ? '#0f0' : hp > 30 ? '#ff0' : '#f00'}` }),
-      createElement('span', { id: 'health-text' }, String(hp))
-    ),
-    createElement('div', { id: 'info' }, `FPS: ${fpsDisplay} | Players: ${state.players.length} | Tick: ${client.currentTick} | Speed: ${local?.velocity ? Math.sqrt(local.velocity[0]**2 + local.velocity[2]**2).toFixed(1) : '0.0'}`),
+    createElement('div', { id: 'info' }, `FPS: ${fpsDisplay} | Players: ${state.players.length} | Tick: ${client.currentTick}`),
     ...uiFragments.map(f => createElement('div', { 'data-app': f.id }, f.ui))
   )
   try { applyDiff(uiRoot, hudVdom) } catch (e) { console.error('[ui] diff:', e.message) }
@@ -242,6 +257,12 @@ const client = new PhysicsNetworkClient({
       playerStates.set(p.id, p)
       if (!mesh.userData.initialized) { mesh.position.set(tx, ty, tz); mesh.userData.initialized = true }
     }
+    for (const e of state.entities) {
+      const mesh = entityMeshes.get(e.id)
+      if (mesh && e.position) mesh.position.set(...e.position)
+      if (mesh && e.rotation) mesh.quaternion.set(...e.rotation)
+      if (!entityMeshes.has(e.id)) loadEntityModel(e.id, e)
+    }
     latestState = state
   },
   onPlayerJoined: (id) => { if (!playerMeshes.has(id)) createPlayerVRM(id) },
@@ -252,20 +273,36 @@ const client = new PhysicsNetworkClient({
     if (wd.playerModel) initAssets(wd.playerModel.startsWith('./') ? '/' + wd.playerModel.slice(2) : wd.playerModel)
     if (wd.entities) for (const e of wd.entities) { if (e.app) entityAppMap.set(e.id, e.app); if (e.model && !entityMeshes.has(e.id)) loadEntityModel(e.id, e) }
   },
-  onAppModule: (d) => { const a = evaluateAppModule(d.code); if (a?.client) appModules.set(d.app, a.client) },
+  onAppModule: (d) => {
+    const a = evaluateAppModule(d.code)
+    if (a?.client) {
+      appModules.set(d.app, a.client)
+      if (a.client.setup) try { a.client.setup(engineCtx) } catch (e) { console.error('[app-setup]', d.app, e.message) }
+    }
+  },
   onAssetUpdate: () => {},
   onAppEvent: (payload) => {
-    if (payload.type === 'hit' && payload.target) {
-      setVRMExpression(payload.target, 'angry', 0.6)
-      setTimeout(() => setVRMExpression(payload.target, 'angry', 0), 500)
-    }
-    if (payload.type === 'death' && payload.victim) {
-      setVRMExpression(payload.victim, 'sorrow', 1.0)
-    }
+    for (const [, mod] of appModules) { if (mod.onEvent) try { mod.onEvent(payload, engineCtx) } catch (e) { console.error('[app-event]', e.message) } }
   },
   onHotReload: () => { sessionStorage.setItem('cam', JSON.stringify(cam.save())); location.reload() },
   debug: false
 })
+
+const engineCtx = {
+  scene, camera, renderer,
+  get client() { return client },
+  get playerId() { return client.playerId },
+  get cam() { return cam },
+  players: {
+    getMesh: (id) => playerMeshes.get(id),
+    getState: (id) => playerStates.get(id),
+    getAnimator: (id) => playerAnimators.get(id),
+    setExpression: (id, name, val) => setVRMExpression(id, name, val),
+    setAiming: (id, val) => { const s = playerStates.get(id); if (s) s._aiming = val }
+  },
+  createElement,
+  THREE
+}
 
 let inputLoopId = null
 function startInputLoop() {
@@ -274,21 +311,8 @@ function startInputLoop() {
     if (!client.connected) return
     const input = inputHandler.getInput()
     if (!input.yaw) { input.yaw = cam.yaw; input.pitch = cam.pitch }
+    for (const [, mod] of appModules) { if (mod.onInput) try { mod.onInput(input, engineCtx) } catch (e) { console.error('[app-input]', e.message) } }
     client.sendInput(input)
-    if (input.shoot && Date.now() - lastShootTime > 100) {
-      lastShootTime = Date.now()
-      const local = client.state?.players?.find(p => p.id === client.playerId)
-      if (local) {
-        const pos = local.position
-        client.sendFire({ origin: [pos[0], pos[1] + 0.9, pos[2]], direction: cam.getAimDirection(pos) })
-        const animator = playerAnimators.get(client.playerId)
-        if (animator) animator.shoot()
-        const flash = new THREE.PointLight(0xffaa00, 3, 8)
-        flash.position.set(pos[0], pos[1] + 0.5, pos[2])
-        scene.add(flash)
-        setTimeout(() => scene.remove(flash), 60)
-      }
-    }
   }, 1000 / 60)
 }
 
@@ -300,8 +324,8 @@ document.addEventListener('pointerlockchange', () => {
   else document.removeEventListener('mousemove', cam.onMouseMove)
 })
 renderer.domElement.addEventListener('wheel', cam.onWheel, { passive: false })
-renderer.domElement.addEventListener('mousedown', (e) => { if (e.button === 2) isAiming = true })
-renderer.domElement.addEventListener('mouseup', (e) => { if (e.button === 2) isAiming = false })
+renderer.domElement.addEventListener('mousedown', (e) => { for (const [, mod] of appModules) { if (mod.onMouseDown) try { mod.onMouseDown(e, engineCtx) } catch (ex) {} } })
+renderer.domElement.addEventListener('mouseup', (e) => { for (const [, mod] of appModules) { if (mod.onMouseUp) try { mod.onMouseUp(e, engineCtx) } catch (ex) {} } })
 renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault())
 window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight) })
 
@@ -328,8 +352,7 @@ function animate(timestamp) {
   for (const [id, animator] of playerAnimators) {
     const ps = playerStates.get(id)
     if (!ps) continue
-    const aiming = id === client.playerId ? isAiming : false
-    animator.update(frameDt, ps.velocity, ps.onGround, ps.health, aiming)
+    animator.update(frameDt, ps.velocity, ps.onGround, ps.health, ps._aiming || false)
     const mesh = playerMeshes.get(id)
     if (!mesh) continue
     const vx = ps.velocity?.[0] || 0, vz = ps.velocity?.[2] || 0
@@ -343,6 +366,10 @@ function animate(timestamp) {
     const target = playerTargets.get(id)
     updateVRMFeatures(id, frameDt, target)
   }
+  for (const [eid, mesh] of entityMeshes) {
+    if (mesh.userData.spin) mesh.rotation.y += mesh.userData.spin * frameDt
+  }
+  for (const [, mod] of appModules) { if (mod.onFrame) try { mod.onFrame(frameDt, engineCtx) } catch (e) {} }
   uiTimer += frameDt
   if (latestState && uiTimer >= 0.25) { uiTimer = 0; renderAppUI(latestState) }
   const local = client.state?.players?.find(p => p.id === client.playerId)

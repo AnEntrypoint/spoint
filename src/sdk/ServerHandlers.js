@@ -24,7 +24,7 @@ export function createConnectionHandlers(ctx) {
     }
     const snap = appRuntime.getSnapshot()
     connections.send(playerId, MSG.SNAPSHOT, { seq: ++ctx.snapshotSeq, ...SnapshotEncoder.encode(snap) })
-    appRuntime.fireMessage('game', { type: 'player_join', playerId })
+    for (const [entityId] of appRuntime.apps) appRuntime.fireMessage(entityId, { type: 'player_join', playerId })
     emitter.emit('playerJoin', { id: playerId })
   }
 
@@ -36,11 +36,9 @@ export function createConnectionHandlers(ctx) {
     }
     if (msg.type === MSG.APP_EVENT) {
       if (msg.payload?.entityId) appRuntime.fireInteract(msg.payload.entityId, { id: clientId })
-      if (msg.payload?.type === 'fire') {
-        const shooter = playerManager.getPlayer(clientId)
-        const pos = shooter?.state?.position || [0, 0, 0]
-        const origin = [pos[0], pos[1] + 0.9, pos[2]]
-        appRuntime.fireMessage('game', { ...msg.payload, shooterId: clientId, origin })
+      const eventData = { ...msg.payload, senderId: clientId }
+      for (const [entityId] of appRuntime.apps) {
+        appRuntime.fireMessage(entityId, eventData)
       }
       return
     }
@@ -62,7 +60,7 @@ export function createConnectionHandlers(ctx) {
   connections.on('disconnect', (clientId, reason) => {
     const client = connections.getClient(clientId)
     if (client?.sessionToken) { const p = playerManager.getPlayer(clientId); if (p) sessions.update(client.sessionToken, { state: p.state }) }
-    appRuntime.fireMessage('game', { type: 'player_leave', playerId: clientId })
+    for (const [entityId] of appRuntime.apps) appRuntime.fireMessage(entityId, { type: 'player_leave', playerId: clientId })
     physicsIntegration.removePlayerCollider(clientId)
     lagCompensator.clearPlayerHistory(clientId)
     inspector.removeClient(clientId)
