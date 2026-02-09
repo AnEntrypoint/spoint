@@ -6,6 +6,7 @@ import { createElement, applyDiff } from 'webjsx'
 import { createCameraController } from './camera.js'
 import { loadAnimationLibrary, createPlayerAnimator } from './animation.js'
 import { VRButton } from 'three/addons/webxr/VRButton.js'
+import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js'
 import { LoadingManager } from './LoadingManager.js'
 import { createLoadingScreen } from './createLoadingScreen.js'
 
@@ -27,6 +28,182 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap
 renderer.xr.enabled = true
 document.body.appendChild(renderer.domElement)
 document.body.appendChild(VRButton.createButton(renderer))
+
+const controllerModels = new Map()
+const controllerGrips = new Map()
+const laserPointers = new Map()
+const controllerModelFactory = new XRControllerModelFactory()
+
+let teleportArc = null
+let teleportMarker = null
+let teleportTarget = null
+let isTeleporting = false
+const ARC_SEGMENTS = 20
+const ARC_GRAVITY = -9.8
+const ARC_VELOCITY = 8
+
+function createLaserPointer() {
+  const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -5)])
+  const material = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 })
+  const line = new THREE.Line(geometry, material)
+  line.name = 'laserPointer'
+  return line
+}
+
+function createTeleportArc() {
+  const geometry = new THREE.BufferGeometry()
+  const positions = new Float32Array(ARC_SEGMENTS * 3)
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+  const material = new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.6 })
+  const line = new THREE.Line(geometry, material)
+  line.name = 'teleportArc'
+  line.visible = false
+  return line
+}
+
+function createTeleportMarker() {
+  const geometry = new THREE.RingGeometry(0.3, 0.4, 32)
+  const material = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.5, side: THREE.DoubleSide })
+  const mesh = new THREE.Mesh(geometry, material)
+  mesh.name = 'teleportMarker'
+  mesh.rotation.x = -Math.PI / 2
+  mesh.visible = false
+  return mesh
+}
+
+function setupControllers() {
+  for (const handedness of [0, 1]) {
+    const controller = renderer.xr.getController(handedness)
+    const grip = renderer.xr.getControllerGrip(handedness)
+    const laser = createLaserPointer()
+    controller.add(laser)
+    laserPointers.set(handedness, laser)
+
+    const model = controllerModelFactory.createControllerModel(grip)
+    grip.add(model)
+    controllerModels.set(handedness, model)
+    controllerGrips.set(handedness, grip)
+
+    scene.add(controller)
+    scene.add(grip)
+
+    controller.visible = false
+    grip.visible = false
+  }
+  teleportArc = createTeleportArc()
+  scene.add(teleportArc)
+  teleportMarker = createTeleportMarker()
+  scene.add(teleportMarker)
+}
+
+function updateControllerVisibility() {
+  const inVR = renderer.xr.isPresenting
+  for (const handedness of [0, 1]) {
+    const grip = controllerGrips.get(handedness)
+    const controller = renderer.xr.getController(handedness)
+    if (grip) grip.visible = inVR
+    if (controller) controller.visible = inVR
+  }
+}
+
+function updateTeleportArc() {
+  if (!renderer.xr.isPresenting || !teleportArc || !teleportMarker) {
+    if (teleportArc) teleportArc.visible = false
+    if (teleportMarker) teleportMarker.visible = false
+    return
+  }
+  const session = renderer.xr.getSession()
+  if (!session) return
+  let leftController = null
+  let leftPressed = false
+  let rightPressed = false
+  for (const source of session.inputSources) {
+    if (source.handedness === 'left' && source.gamepad) {
+      leftController = renderer.xr.getController(0)
+      leftPressed = source.gamepad.buttons[0]?.pressed
+    }
+    if (source.handedness === 'right' && source.gamepad) {
+      rightPressed = source.gamepad.buttons[1]?.pressed
+    }
+  }
+  if (!leftController || (!leftPressed && !rightPressed)) {
+    teleportArc.visible = false
+    teleportMarker.visible = false
+    teleportTarget = null
+    return
+  }
+  leftController.getWorldPosition(_tmpOrigin)
+  leftController.getWorldDirection(_tmpDir).multiplyScalar(-1)
+  const hit = computeParabolicArc(_tmpOrigin, _tmpDir, ARC_VELOCITY, ARC_GRAVITY)
+  if (hit && hit.valid) {
+    teleportTarget = hit.point
+    teleportMarker.position.set(hit.point.x, hit.point.y + 0.02, hit.point.z)
+    teleportMarker.material.color.setHex(0x00ff00)
+    teleportMarker.visible = true
+    if (rightPressed && !isTeleporting) {
+      executeTeleport(teleportTarget)
+    }
+  } else {
+    teleportTarget = null
+    teleportMarker.visible = false
+  }
+}
+
+const _tmpOrigin = new THREE.Vector3()
+const _tmpDir = new THREE.Vector3()
+const _tmpPoints = []
+
+function computeParabolicArc(origin, direction, velocity, gravity) {
+  _tmpPoints.length = 0
+  const dt = 0.05
+  const positions = teleportArc.geometry.attributes.position.array
+  let idx = 0
+  let hit = null
+  for (let i = 0; i < ARC_SEGMENTS; i++) {
+    const t = i * dt
+    const x = origin.x + direction.x * velocity * t
+    const y = origin.y + direction.y * velocity * t + 0.5 * gravity * t * t
+    const z = origin.z + direction.z * velocity * t
+    if (idx < positions.length) {
+      positions[idx++] = x
+      positions[idx++] = y
+      positions[idx++] = z
+    }
+    if (!hit && y < 0.1) {
+      const prevT = (i - 1) * dt
+      const prevY = origin.y + direction.y * velocity * prevT + 0.5 * gravity * prevT * prevT
+      if (prevY > 0.1) {
+        const frac = (0.1 - prevY) / (y - prevY)
+        const hitT = prevT + frac * dt
+        hit = {
+          point: new THREE.Vector3(
+            origin.x + direction.x * velocity * hitT,
+            0,
+            origin.z + direction.z * velocity * hitT
+          ),
+          valid: true
+        }
+      }
+    }
+  }
+  teleportArc.geometry.attributes.position.needsUpdate = true
+  teleportArc.visible = true
+  return hit
+}
+
+function executeTeleport(targetPoint) {
+  isTeleporting = true
+  const baseReferenceSpace = renderer.xr.getReferenceSpace()
+  if (!baseReferenceSpace) {
+    isTeleporting = false
+    return
+  }
+  const offsetPosition = { x: -targetPoint.x, y: 0, z: -targetPoint.z }
+  const transform = new XRRigidTransform(offsetPosition, { x: 0, y: 0, z: 0, w: 1 })
+  const teleportSpace = baseReferenceSpace.getOffsetReferenceSpace(transform)
+  renderer.xr.setReferenceSpace(teleportSpace)
+  setTimeout(() => { isTeleporting = false }, 100)
+}
 
 scene.add(camera)
 const ambient = new THREE.AmbientLight(0xfff4d6, 0.3)
@@ -391,6 +568,8 @@ let inputLoopId = null
 let loadingScreenHidden = false
 let environmentLoaded = false
 let firstSnapshotReceived = false
+let lastShootState = false
+let lastHealth = 100
 
 function checkAllLoaded() {
   if (loadingScreenHidden) return
@@ -413,6 +592,18 @@ function startInputLoop() {
     } else {
       input.yaw = cam.yaw
       input.pitch = cam.pitch
+    }
+    if (input.shoot && !lastShootState) {
+      inputHandler.pulse('right', 0.5, 100)
+    }
+    lastShootState = input.shoot
+    const local = client.state?.players?.find(p => p.id === client.playerId)
+    if (local) {
+      if (local.health < lastHealth) {
+        inputHandler.pulse('left', 0.8, 200)
+        inputHandler.pulse('right', 0.8, 200)
+      }
+      lastHealth = local.health
     }
     for (const [, mod] of appModules) { if (mod.onInput) try { mod.onInput(input, engineCtx) } catch (e) { console.error('[app-input]', e.message) } }
     client.sendInput(input)
@@ -488,9 +679,12 @@ function animate(timestamp) {
     const headHeight = 1.6
     camera.position.set(local.position[0], local.position[1] + headHeight, local.position[2])
   }
+  updateControllerVisibility()
+  updateTeleportArc()
   renderer.render(scene, camera)
 }
 renderer.setAnimationLoop(animate)
 
 client.connect().then(() => { console.log('Connected'); startInputLoop() }).catch(err => console.error('Connection failed:', err))
-window.debug = { scene, camera, renderer, client, playerMeshes, entityMeshes, appModules, inputHandler, playerVrms, playerAnimators, loadingMgr, loadingScreen }
+setupControllers()
+window.debug = { scene, camera, renderer, client, playerMeshes, entityMeshes, appModules, inputHandler, playerVrms, playerAnimators, loadingMgr, loadingScreen, controllerModels, controllerGrips }
