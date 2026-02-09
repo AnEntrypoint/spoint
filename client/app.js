@@ -120,7 +120,7 @@ async function createPlayerVRM(id) {
     const vrmVersion = detectVrmVersion(vrmBuffer)
     vrm.scene.rotation.y = Math.PI
     vrm.scene.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
-    const modelScale = 1.47
+    const modelScale = 1.323
     vrm.scene.scale.multiplyScalar(modelScale)
     vrm.scene.position.y = -(0.212) * modelScale
     group.userData.feetOffset = 1.3
