@@ -126,7 +126,7 @@ async function createPlayerVRM(id) {
     const scale = capsuleHeight / modelHeight
     vrm.scene.scale.multiplyScalar(scale)
     vrm.scene.position.y = -bbox.min.y * scale
-    group.userData.feetOffset = capsuleHeight / 2
+    group.userData.feetOffset = capsuleHeight / 2 + 0.1
     group.add(vrm.scene)
     playerVrms.set(id, vrm)
     initVRMFeatures(id, vrm)
