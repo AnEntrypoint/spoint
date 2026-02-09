@@ -3,7 +3,7 @@ export default {
     setup(ctx) {
       ctx.state.map = 'schwust'
       ctx.state.mode = 'ffa'
-      ctx.state.config = { respawnTime: 3, health: 100, damagePerHit: 25 }
+      ctx.state.config = { respawnTime: 3, health: 100, damagePerHit: 25, hitKnockback: 4, shootKnockback: 2 }
       ctx.state.spawnPoints = findSpawnPoints(ctx)
       ctx.state.playerStats = new Map()
       ctx.state.respawning = new Map()
@@ -98,6 +98,12 @@ export default {
         const origin = [pos[0], pos[1] + 0.9, pos[2]]
         const fireData = { shooterId, origin, direction: msg.direction }
         ctx.bus.emit('combat.fire', fireData)
+        const dir = msg.direction
+        if (shooter?.state) {
+          shooter.state.velocity[0] -= dir[0] * ctx.state.config.shootKnockback
+          shooter.state.velocity[2] -= dir[2] * ctx.state.config.shootKnockback
+        }
+        ctx.players.send(shooterId, { type: 'aimpunch', intensity: 0.3 })
         handleFire(ctx, fireData)
       }
     }
@@ -137,6 +143,9 @@ export default {
       if (payload.type === 'hit' && payload.target) {
         engine.players.setExpression(payload.target, 'angry', 0.6)
         setTimeout(() => engine.players.setExpression(payload.target, 'angry', 0), 500)
+      }
+      if (payload.type === 'aimpunch' && engine.cam?.punch) {
+        engine.cam.punch(payload.intensity || 0.3)
       }
       if (payload.type === 'death' && payload.victim) {
         engine.players.setExpression(payload.victim, 'sorrow', 1.0)
@@ -235,6 +244,9 @@ function handleFire(ctx, msg) {
     const newHp = Math.max(0, hp - damage)
     target.state.health = newHp
 
+    target.state.velocity[0] += direction[0] * ctx.state.config.hitKnockback
+    target.state.velocity[2] += direction[2] * ctx.state.config.hitKnockback
+    ctx.players.send(target.id, { type: 'aimpunch', intensity: 0.6 })
     ctx.network.broadcast({ type: 'hit', shooter: shooterId, target: target.id, damage, health: newHp })
 
     if (newHp <= 0) {

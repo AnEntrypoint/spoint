@@ -159,5 +159,11 @@ export function createCameraController(camera, scene) {
     if (cfg.fov) { camera.fov = cfg.fov; camera.updateProjectionMatrix() }
   }
 
-  return { restore, save, onMouseMove, onWheel, getAimDirection, update, setEnvironment, applyConfig, setMode, getMode, setPosition, setTarget, get yaw() { return yaw }, get pitch() { return pitch }, get mode() { return mode } }
+  function punch(intensity) {
+    yaw += (Math.random() - 0.5) * intensity
+    pitch += (Math.random() * 0.5 + 0.25) * intensity
+    pitch = Math.max(pitchMin, Math.min(pitchMax, pitch))
+  }
+
+  return { restore, save, onMouseMove, onWheel, getAimDirection, update, setEnvironment, applyConfig, setMode, getMode, setPosition, setTarget, punch, get yaw() { return yaw }, get pitch() { return pitch }, get mode() { return mode } }
 }
