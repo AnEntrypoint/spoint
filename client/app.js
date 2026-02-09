@@ -48,6 +48,12 @@ const ARC_SEGMENTS = 20
 const ARC_GRAVITY = -9.8
 const ARC_VELOCITY = 8
 
+let fadeQuad = null
+let fadeOpacity = 0
+let fadeState = 'none'
+const FADE_SPEED = 5
+const FADE_DELAY = 50
+
 function createLaserPointer() {
   const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -5)])
   const material = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 })
@@ -299,18 +305,64 @@ function computeParabolicArc(origin, direction, velocity, gravity) {
   return hit
 }
 
+function createFadeQuad() {
+  const geometry = new THREE.PlaneGeometry(2, 2)
+  const material = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    transparent: true,
+    opacity: 0,
+    depthTest: false,
+    depthWrite: false
+  })
+  const quad = new THREE.Mesh(geometry, material)
+  quad.renderOrder = 9999
+  return quad
+}
+
+function updateFade(dt) {
+  if (!fadeQuad) {
+    fadeQuad = createFadeQuad()
+    camera.add(fadeQuad)
+    fadeQuad.position.z = -0.1
+  }
+
+  if (fadeState === 'in') {
+    fadeOpacity += FADE_SPEED * dt
+    if (fadeOpacity >= 1) {
+      fadeOpacity = 1
+      fadeState = 'delay'
+      setTimeout(() => { fadeState = 'out' }, FADE_DELAY)
+    }
+  } else if (fadeState === 'out') {
+    fadeOpacity -= FADE_SPEED * dt
+    if (fadeOpacity <= 0) {
+      fadeOpacity = 0
+      fadeState = 'none'
+    }
+  }
+
+  fadeQuad.material.opacity = fadeOpacity
+  fadeQuad.visible = fadeOpacity > 0.01
+}
+
 function executeTeleport(targetPoint) {
   isTeleporting = true
-  const baseReferenceSpace = renderer.xr.getReferenceSpace()
-  if (!baseReferenceSpace) {
-    isTeleporting = false
-    return
-  }
-  const offsetPosition = { x: -targetPoint.x, y: 0, z: -targetPoint.z }
-  const transform = new XRRigidTransform(offsetPosition, { x: 0, y: 0, z: 0, w: 1 })
-  const teleportSpace = baseReferenceSpace.getOffsetReferenceSpace(transform)
-  renderer.xr.setReferenceSpace(teleportSpace)
-  setTimeout(() => { isTeleporting = false }, 100)
+  fadeState = 'in'
+
+  setTimeout(() => {
+    const baseReferenceSpace = renderer.xr.getReferenceSpace()
+    if (!baseReferenceSpace) {
+      isTeleporting = false
+      fadeState = 'out'
+      return
+    }
+    const offsetPosition = { x: -targetPoint.x, y: 0, z: -targetPoint.z }
+    const transform = new XRRigidTransform(offsetPosition, { x: 0, y: 0, z: 0, w: 1 })
+    const teleportSpace = baseReferenceSpace.getOffsetReferenceSpace(transform)
+    renderer.xr.setReferenceSpace(teleportSpace)
+  }, 200)
+
+  setTimeout(() => { isTeleporting = false }, 400)
 }
 
 scene.add(camera)
@@ -789,6 +841,7 @@ function animate(timestamp) {
   }
   updateControllerVisibility()
   updateTeleportArc()
+  updateFade(frameDt)
   renderer.render(scene, camera)
 }
 renderer.setAnimationLoop(animate)
