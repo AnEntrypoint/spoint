@@ -49,7 +49,8 @@ let vrSettings = {
   snapTurnAngle: 30,
   smoothTurnSpeed: 0,
   vignetteEnabled: false,
-  playerHeight: 1.6
+  playerHeight: 1.6,
+  teleportEnabled: false
 }
 
 let teleportArc = null
@@ -238,10 +239,15 @@ function updateVRSettingsPanel() {
   ctx.fillText(`Height: ${vrSettings.playerHeight.toFixed(2)}m`, 40, 300)
   ctx.fillText('[Menu] adjust', 280, 300)
 
+  ctx.fillStyle = vrSettings.teleportEnabled ? '#00ff00' : '#ff0000'
+  ctx.fillText(`Teleport: ${vrSettings.teleportEnabled ? 'ON' : 'OFF'}`, 40, 360)
+  ctx.fillStyle = '#ffffff'
+  ctx.fillText('[Trigger] toggle', 280, 360)
+
   ctx.fillStyle = '#888888'
   ctx.font = '20px sans-serif'
   ctx.textAlign = 'center'
-  ctx.fillText('Press [Menu] button to close', 256, 460)
+  ctx.fillText('Press [Menu] button to close', 256, 480)
 
   vrSettingsPanel.texture.needsUpdate = true
 }
@@ -343,7 +349,7 @@ function updateControllerVisibility() {
 }
 
 function updateTeleportArc() {
-  if (!renderer.xr.isPresenting || !teleportArc || !teleportMarker) {
+  if (!renderer.xr.isPresenting || !teleportArc || !teleportMarker || !vrSettings.teleportEnabled) {
     if (teleportArc) teleportArc.visible = false
     if (teleportMarker) teleportMarker.visible = false
     return
@@ -950,6 +956,8 @@ function initInputHandler() {
   })
 }
 
+let settingsTriggerCooldown = false
+
 function startInputLoop() {
   if (inputLoopId) return
   if (!inputHandler) initInputHandler()
@@ -962,6 +970,14 @@ function startInputLoop() {
       input.yaw = cam.yaw
       input.pitch = cam.pitch
     }
+
+    if (vrSettingsPanel?.visible && input.shoot && !settingsTriggerCooldown) {
+      vrSettings.teleportEnabled = !vrSettings.teleportEnabled
+      settingsTriggerCooldown = true
+      updateVRSettingsPanel()
+      setTimeout(() => { settingsTriggerCooldown = false }, 300)
+    }
+
     if (input.shoot && !lastShootState) {
       inputHandler.pulse('right', 0.5, 100)
     }
