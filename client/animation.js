@@ -11,7 +11,8 @@ const STATES = {
   JumpLoop: { loop: true },
   JumpLand: { loop: false, next: 'IdleLoop', duration: 0.4 },
   Death: { loop: false, clamp: true },
-  PistolShoot: { loop: false, next: null, duration: 0.3, overlay: true }
+  PistolShoot: { loop: false, next: null, duration: 0.3, additive: true },
+  Aim: { loop: true, additive: true }
 }
 
 const q1 = new THREE.Quaternion()
@@ -76,17 +77,28 @@ export function createPlayerAnimator(vrm, clips, vrmVersion) {
   const mixer = new THREE.AnimationMixer(root)
   mixer.timeScale = 1.3
   const actions = new Map()
+  const additiveActions = new Map()
   for (const [name, clip] of clips) {
     if (!STATES[name]) continue
-    const action = mixer.clipAction(clip)
     const cfg = STATES[name]
-    if (!cfg.loop) {
-      action.loop = THREE.LoopOnce
-      action.clampWhenFinished = cfg.clamp || false
+    if (cfg.additive) {
+      const action = mixer.clipAction(clip)
+      action.blendMode = THREE.AdditiveAnimationBlendMode
+      if (!cfg.loop) {
+        action.loop = THREE.LoopOnce
+        action.clampWhenFinished = cfg.clamp || false
+      }
+      additiveActions.set(name, action)
+    } else {
+      const action = mixer.clipAction(clip)
+      if (!cfg.loop) {
+        action.loop = THREE.LoopOnce
+        action.clampWhenFinished = cfg.clamp || false
+      }
+      if (name === 'WalkLoop') action.timeScale = 2.0
+      if (name === 'SprintLoop') action.timeScale = 0.56
+      actions.set(name, action)
     }
-    if (name === 'WalkLoop') action.timeScale = 2.0
-    if (name === 'SprintLoop') action.timeScale = 0.56
-    actions.set(name, action)
   }
   let current = null
   let oneShot = null
@@ -118,7 +130,7 @@ export function createPlayerAnimator(vrm, clips, vrmVersion) {
   }
 
   mixer.addEventListener('finished', () => {
-    if (oneShot) {
+    if (oneShot && !STATES[oneShot]?.additive) {
       const cfg = STATES[oneShot]
       oneShot = null
       oneShotTimer = 0
@@ -127,7 +139,7 @@ export function createPlayerAnimator(vrm, clips, vrmVersion) {
   })
 
   return {
-    update(dt, velocity, onGround, health) {
+    update(dt, velocity, onGround, health, aiming) {
       if (locomotionCooldown > 0) locomotionCooldown -= dt
       if (oneShotTimer > 0) {
         oneShotTimer -= dt
@@ -142,7 +154,7 @@ export function createPlayerAnimator(vrm, clips, vrmVersion) {
       else airTime = 0
       const effectiveOnGround = onGround || airTime < AIR_GRACE
 
-      if (!oneShot) {
+      if (!oneShot || STATES[oneShot]?.additive) {
         const vx = velocity?.[0] || 0, vz = velocity?.[2] || 0
         const rawSpeed = Math.sqrt(vx * vx + vz * vz)
         smoothSpeed += (rawSpeed - smoothSpeed) * Math.min(1, SPEED_SMOOTH * dt)
@@ -171,15 +183,23 @@ export function createPlayerAnimator(vrm, clips, vrmVersion) {
         }
       }
 
+      this.aim(aiming)
       wasOnGround = effectiveOnGround
       mixer.update(dt)
     },
     shoot() {
-      const action = actions.get('PistolShoot')
+      const action = additiveActions.get('PistolShoot')
       if (!action) return
       action.reset().fadeIn(0.05).play()
-      oneShot = 'PistolShoot'
-      oneShotTimer = STATES.PistolShoot.duration
+    },
+    aim(active) {
+      const action = additiveActions.get('Aim')
+      if (!action) return
+      if (active) {
+        if (!action.isRunning()) action.fadeIn(FADE_TIME).play()
+      } else {
+        if (action.isRunning()) action.fadeOut(FADE_TIME)
+      }
     },
     dispose() {
       mixer.stopAllAction()

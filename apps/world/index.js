@@ -15,6 +15,6 @@ export default {
     { id: 'game', position: [0, 0, 0], app: 'tps-game' },
     { id: 'power-crates', position: [0, 0, 0], app: 'power-crate' }
   ],
-  playerModel: './apps/tps-game/teknopath.vrm',
+  playerModel: './apps/tps-game/Cleetus.vrm',
   spawnPoint: [-35, 3, -65]
 }
