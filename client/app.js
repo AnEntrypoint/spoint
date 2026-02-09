@@ -120,12 +120,9 @@ async function createPlayerVRM(id) {
     const vrmVersion = detectVrmVersion(vrmBuffer)
     vrm.scene.rotation.y = Math.PI
     vrm.scene.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
-    let toeLocalY = null
-    vrm.scene.traverse(c => { if (c.isBone && /^toes/i.test(c.name)) { let y = 0; let n = c; while (n && n !== vrm.scene) { y += n.position.y; n = n.parent }; toeLocalY = toeLocalY === null ? y : Math.min(toeLocalY, y) } })
-    if (toeLocalY === null) { const bbox = new THREE.Box3().setFromObject(vrm.scene); toeLocalY = bbox.min.y }
     const modelScale = 1.47
     vrm.scene.scale.multiplyScalar(modelScale)
-    vrm.scene.position.y = -toeLocalY * modelScale
+    vrm.scene.position.y = -(0.212) * modelScale
     group.userData.feetOffset = 1.3
     group.add(vrm.scene)
     playerVrms.set(id, vrm)
