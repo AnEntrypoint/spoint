@@ -9,6 +9,9 @@ export class InputHandler {
     this.renderer = config.renderer || null
     this.vrYaw = 0
     this.snapCooldown = false
+    this.snapTurnAngle = config.snapTurnAngle || 30
+    this.onMenuPressed = config.onMenuPressed || null
+    this.menuCooldown = false
 
     if (config.enableKeyboard !== false) {
       this.setupKeyboardListeners()
@@ -134,15 +137,21 @@ export class InputHandler {
     return { pinch, grab, pinchDist }
   }
 
+  setSnapTurnAngle(angle) {
+    this.snapTurnAngle = angle
+  }
+
   _getXRInput() {
     if (!this.renderer?.xr?.isPresenting) return null
     const session = this.renderer.xr.getSession()
     if (!session) return null
     let forward = false, backward = false, left = false, right = false
     let jump = false, shoot = false, sprint = false, reload = false
+    let menu = false
     const DEAD = 0.15, THRESH = 0.5
     let snapTurned = false
     let hasHands = false
+    const snapAngleRad = (this.snapTurnAngle * Math.PI) / 180
 
     for (const source of session.inputSources) {
       if (source.hand) {
@@ -171,12 +180,21 @@ export class InputHandler {
         if (btns[4]?.pressed) jump = true
         if (btns[1]?.pressed) sprint = true
         if (btns[3]?.pressed) reload = true
+        if (btns[2]?.pressed) {
+          if (!this.menuCooldown) {
+            menu = true
+            this.menuCooldown = true
+            if (this.onMenuPressed) this.onMenuPressed()
+          }
+        } else {
+          this.menuCooldown = false
+        }
       }
       if (source.handedness === 'right') {
         const ax = axes.length >= 4 ? axes[2] : (axes[0] || 0)
         if (Math.abs(ax) > DEAD) {
           if (!this.snapCooldown && Math.abs(ax) > THRESH) {
-            this.vrYaw += ax > 0 ? -Math.PI / 6 : Math.PI / 6
+            this.vrYaw += ax > 0 ? -snapAngleRad : snapAngleRad
             this.snapCooldown = true
             snapTurned = true
           }
@@ -191,7 +209,7 @@ export class InputHandler {
       }
     }
     if (snapTurned) this.pulse('right', 0.3, 50)
-    return { forward, backward, left, right, jump, sprint, shoot, reload, yaw: this.vrYaw, mouseX: 0, mouseY: 0, hasHands }
+    return { forward, backward, left, right, jump, sprint, shoot, reload, menu, yaw: this.vrYaw, mouseX: 0, mouseY: 0, hasHands }
   }
 
   onInput(callback) {

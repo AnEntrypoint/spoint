@@ -44,6 +44,14 @@ let wristUI = null
 let wristUICanvas = null
 let wristUIContext = null
 
+let vrSettingsPanel = null
+let vrSettings = {
+  snapTurnAngle: 30,
+  smoothTurnSpeed: 0,
+  vignetteEnabled: false,
+  playerHeight: 1.6
+}
+
 let teleportArc = null
 let teleportMarker = null
 let teleportTarget = null
@@ -168,6 +176,80 @@ function updateWristUI(health, ammo, reloading) {
   ctx.fillText('SPAWNPOINT VR', 128, 100)
 
   wristUI.texture.needsUpdate = true
+}
+
+function createVRSettingsPanel() {
+  const canvas = document.createElement('canvas')
+  canvas.width = 512
+  canvas.height = 512
+  const ctx = canvas.getContext('2d')
+
+  const texture = new THREE.CanvasTexture(canvas)
+  const geometry = new THREE.PlaneGeometry(0.5, 0.5)
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    opacity: 0.95,
+    side: THREE.DoubleSide
+  })
+  const mesh = new THREE.Mesh(geometry, material)
+  mesh.name = 'vrSettingsPanel'
+  mesh.visible = false
+  mesh.position.set(0, 0, -0.6)
+
+  return { mesh, canvas, ctx, texture, visible: false }
+}
+
+function updateVRSettingsPanel() {
+  if (!vrSettingsPanel) return
+
+  const ctx = vrSettingsPanel.ctx
+  const canvas = vrSettingsPanel.canvas
+
+  ctx.fillStyle = 'rgba(20, 20, 40, 0.95)'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+  ctx.strokeStyle = '#00ffff'
+  ctx.lineWidth = 4
+  ctx.strokeRect(10, 10, canvas.width - 20, canvas.height - 20)
+
+  ctx.font = 'bold 32px sans-serif'
+  ctx.fillStyle = '#00ffff'
+  ctx.textAlign = 'center'
+  ctx.fillText('VR SETTINGS', 256, 50)
+
+  ctx.font = '24px sans-serif'
+  ctx.textAlign = 'left'
+  ctx.fillStyle = '#ffffff'
+
+  ctx.fillText(`Snap Turn: ${vrSettings.snapTurnAngle}°`, 40, 120)
+  ctx.fillText('[Y/B] to change', 280, 120)
+
+  ctx.fillText(`Smooth Turn: ${vrSettings.smoothTurnSpeed === 0 ? 'OFF' : vrSettings.smoothTurnSpeed}`, 40, 180)
+  ctx.fillText('[X/A] to toggle', 280, 180)
+
+  ctx.fillText(`Vignette: ${vrSettings.vignetteEnabled ? 'ON' : 'OFF'}`, 40, 240)
+  ctx.fillText('[Grip] to toggle', 280, 240)
+
+  ctx.fillText(`Height: ${vrSettings.playerHeight.toFixed(2)}m`, 40, 300)
+  ctx.fillText('[Menu] adjust', 280, 300)
+
+  ctx.fillStyle = '#888888'
+  ctx.font = '20px sans-serif'
+  ctx.textAlign = 'center'
+  ctx.fillText('Press [Menu] button to close', 256, 460)
+
+  vrSettingsPanel.texture.needsUpdate = true
+}
+
+function toggleVRSettings() {
+  if (!vrSettingsPanel) {
+    vrSettingsPanel = createVRSettingsPanel()
+    camera.add(vrSettingsPanel.mesh)
+  }
+  vrSettingsPanel.visible = !vrSettingsPanel.visible
+  vrSettingsPanel.mesh.visible = vrSettingsPanel.visible
+  if (vrSettingsPanel.visible) updateVRSettingsPanel()
 }
 
 function setupHands() {
@@ -499,7 +581,7 @@ const entityMeshes = new Map()
 const appModules = new Map()
 const entityAppMap = new Map()
 const playerTargets = new Map()
-const inputHandler = new InputHandler({ renderer })
+let inputHandler = null
 const uiRoot = document.getElementById('ui-root')
 const clickPrompt = document.getElementById('click-prompt')
 const cam = createCameraController(camera, scene)
@@ -807,8 +889,19 @@ function checkAllLoaded() {
   loadingScreenHidden = true
 }
 
+function initInputHandler() {
+  inputHandler = new InputHandler({
+    renderer,
+    snapTurnAngle: vrSettings.snapTurnAngle,
+    onMenuPressed: () => {
+      if (renderer.xr.isPresenting) toggleVRSettings()
+    }
+  })
+}
+
 function startInputLoop() {
   if (inputLoopId) return
+  if (!inputHandler) initInputHandler()
   inputLoopId = setInterval(() => {
     if (!client.connected) return
     const input = inputHandler.getInput()
