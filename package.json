@@ -14,6 +14,8 @@
     "src/",
     "apps/",
     "client/",
+    "!client/test-*.html",
+    "!client/vrm-test.html",
     "server.js",
     "LICENSE",
     "README.md"
