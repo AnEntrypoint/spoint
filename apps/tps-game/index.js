@@ -3,11 +3,13 @@ export default {
     setup(ctx) {
       ctx.state.map = 'schwust'
       ctx.state.mode = 'ffa'
-      ctx.state.config = { respawnTime: 3, health: 100, damagePerHit: 20, headshotMultiplier: 2.5, headshotZone: 0.7, hitKnockback: 4, shootKnockback: 2 }
+      ctx.state.config = { respawnTime: 3, health: 100, damagePerHit: 20, headshotMultiplier: 2.5, headshotZone: 0.7, hitKnockback: 4, shootKnockback: 2, magazineSize: 30, reloadTime: 2000 }
       ctx.state.spawnPoints = findSpawnPoints(ctx)
       ctx.state.playerStats = new Map()
       ctx.state.respawning = new Map()
       ctx.state.buffs = new Map()
+      ctx.state.ammo = new Map()
+      ctx.state.reloading = new Map()
       ctx.state.started = Date.now()
       ctx.state.gameTime = 0
       ctx.state.fallTimers = new Map()
@@ -85,14 +87,38 @@ export default {
         const p = ctx.players.getAll().find(pl => pl.id === msg.playerId)
         if (p && p.state) p.state.health = ctx.state.config.health
         ctx.state.playerStats.set(msg.playerId, { kills: 0, deaths: 0, damage: 0 })
+        ctx.state.ammo.set(msg.playerId, ctx.state.config.magazineSize)
+        ctx.state.reloading.delete(msg.playerId)
       }
       if (msg.type === 'player_leave') {
         ctx.state.playerStats.delete(msg.playerId)
         ctx.state.respawning.delete(msg.playerId)
         ctx.state.fallTimers.delete(msg.playerId)
+        ctx.state.ammo.delete(msg.playerId)
+        ctx.state.reloading.delete(msg.playerId)
+      }
+      if (msg.type === 'reload') {
+        const playerId = msg.senderId || msg.playerId
+        if (ctx.state.reloading.has(playerId)) return
+        const currentAmmo = ctx.state.ammo.get(playerId) ?? 0
+        if (currentAmmo >= ctx.state.config.magazineSize) return
+        ctx.state.reloading.set(playerId, { startTime: Date.now() })
+        ctx.players.send(playerId, { type: 'reload_start', duration: ctx.state.config.reloadTime })
+        setTimeout(() => {
+          ctx.state.ammo.set(playerId, ctx.state.config.magazineSize)
+          ctx.state.reloading.delete(playerId)
+          ctx.players.send(playerId, { type: 'reload_complete' })
+        }, ctx.state.config.reloadTime)
       }
       if (msg.type === 'fire') {
         const shooterId = msg.senderId || msg.shooterId
+        if (ctx.state.reloading.has(shooterId)) return
+        const ammo = ctx.state.ammo.get(shooterId) ?? 0
+        if (ammo <= 0) {
+          ctx.players.send(shooterId, { type: 'empty_click' })
+          return
+        }
+        ctx.state.ammo.set(shooterId, ammo - 1)
         const shooter = ctx.players.getAll().find(p => p.id === shooterId)
         const pos = shooter?.state?.position || [0, 0, 0]
         const origin = [pos[0], pos[1] + 0.9, pos[2]]
@@ -113,7 +139,7 @@ export default {
     setup(engine) {
       const flash = new engine.THREE.PointLight(0xffaa00, 0, 8)
       engine.scene.add(flash)
-      engine._tps = { lastShootTime: 0, isAiming: false, boost: null, flash, flashOff: 0 }
+      engine._tps = { lastShootTime: 0, isAiming: false, boost: null, flash, flashOff: 0, ammo: 30, reloading: false, lastReloadTime: 0 }
     },
     onMouseDown(e, engine) {
       if (e.button === 2 && engine._tps) engine._tps.isAiming = true
@@ -124,7 +150,11 @@ export default {
     onInput(input, engine) {
       const tps = engine._tps
       if (!tps) return
-      if (input.shoot && Date.now() - tps.lastShootTime > 100) {
+      if (input.reload && !tps.reloading && Date.now() - tps.lastReloadTime > 100) {
+        tps.lastReloadTime = Date.now()
+        engine.client.sendReload()
+      }
+      if (input.shoot && !tps.reloading && Date.now() - tps.lastShootTime > 100) {
         tps.lastShootTime = Date.now()
         const local = engine.client.state?.players?.find(p => p.id === engine.playerId)
         if (local) {
@@ -135,6 +165,7 @@ export default {
           tps.flash.position.set(pos[0], pos[1] + 0.5, pos[2])
           tps.flash.intensity = 3
           tps.flashOff = Date.now() + 60
+          tps.ammo = Math.max(0, tps.ammo - 1)
         }
       }
     },
@@ -154,6 +185,17 @@ export default {
         tps.boost = { expiresAt: Date.now() + (payload.duration || 45) * 1000 }
       }
       if (payload.type === 'buff_expired' && tps) { tps.boost = null }
+      if (payload.type === 'reload_start' && tps) {
+        tps.reloading = true
+        tps.reloadEndTime = Date.now() + (payload.duration || 2000)
+      }
+      if (payload.type === 'reload_complete' && tps) {
+        tps.reloading = false
+        tps.ammo = 30
+      }
+      if (payload.type === 'empty_click' && tps) {
+        // Could play empty click sound here
+      }
     },
     onFrame(dt, engine) {
       const tps = engine._tps
@@ -170,11 +212,17 @@ export default {
       const hp = local?.health ?? 100
       const tps = ctx.engine?._tps
       const boostSec = tps?.boost ? Math.ceil((tps.boost.expiresAt - Date.now()) / 1000) : 0
+      const ammo = tps?.ammo ?? 0
+      const reloading = tps?.reloading ?? false
+      const reloadProgress = reloading && tps?.reloadEndTime ? Math.min(100, Math.round((1 - (tps.reloadEndTime - Date.now()) / 2000) * 100)) : 0
       return {
         position: ctx.entity.position,
         custom: { game: s.map, mode: s.mode },
         ui: h('div', { class: 'tps-hud' },
           h('div', { id: 'crosshair', style: 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:24px;color:#fff;text-shadow:0 0 2px #000' }, '+'),
+          h('div', { id: 'ammo-counter', style: 'position:fixed;bottom:50px;right:20px;font-size:24px;font-weight:bold;color:#fff;text-shadow:0 0 4px #000;font-family:monospace' },
+            reloading ? h('span', { style: 'color:#ff0' }, `RELOADING ${reloadProgress}%`) : h('span', null, `${ammo}/30`)
+          ),
           h('div', { id: 'health-bar', style: 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);width:200px;height:20px;background:#333;border-radius:4px;overflow:hidden' },
             h('div', { style: `width:${hp}%;height:100%;background:${hp > 60 ? '#0f0' : hp > 30 ? '#ff0' : '#f00'};transition:width 0.2s` }),
             h('span', { style: 'position:absolute;width:100%;text-align:center;color:#fff;font-size:12px;line-height:20px' }, String(hp))

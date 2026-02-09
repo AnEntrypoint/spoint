@@ -57,6 +57,7 @@ export class InputHandler {
         right: false,
         jump: false,
         shoot: this.mouseDown,
+        reload: false,
         mouseX: this.mouseX,
         mouseY: this.mouseY
       }
@@ -73,6 +74,7 @@ export class InputHandler {
       jump: this.keys.get(' ') || false,
       sprint: this.keys.get('shift') || false,
       shoot: this.mouseDown,
+      reload: this.keys.get('r') || false,
       mouseX: this.mouseX,
       mouseY: this.mouseY
     }
@@ -97,7 +99,7 @@ export class InputHandler {
     const session = this.renderer.xr.getSession()
     if (!session) return null
     let forward = false, backward = false, left = false, right = false
-    let jump = false, shoot = false, sprint = false
+    let jump = false, shoot = false, sprint = false, reload = false
     const DEAD = 0.15, THRESH = 0.5
     let snapTurned = false
     for (const source of session.inputSources) {
@@ -114,6 +116,7 @@ export class InputHandler {
         if (ax > THRESH) right = true
         if (btns[4]?.pressed) jump = true
         if (btns[1]?.pressed) sprint = true
+        if (btns[3]?.pressed) reload = true
       }
       if (source.handedness === 'right') {
         const ax = axes.length >= 4 ? axes[2] : (axes[0] || 0)
@@ -130,10 +133,11 @@ export class InputHandler {
         if (btns[1]?.pressed) {
           // Right grip - interact/grab (placeholder for future)
         }
+        if (btns[4]?.pressed) reload = true
       }
     }
     if (snapTurned) this.pulse('right', 0.3, 50)
-    return { forward, backward, left, right, jump, sprint, shoot, yaw: this.vrYaw, mouseX: 0, mouseY: 0 }
+    return { forward, backward, left, right, jump, sprint, shoot, reload, yaw: this.vrYaw, mouseX: 0, mouseY: 0 }
   }
 
   onInput(callback) {
