@@ -39,6 +39,13 @@ export default {
         if (now >= buff.expiresAt) {
           ctx.state.buffs.delete(pid)
           ctx.players.send(pid, { type: 'buff_expired' })
+        } else {
+          const player = ctx.players.getAll().find(p => p.id === pid)
+          if (player?.state) {
+            const maxHp = ctx.state.config.health
+            const healRate = maxHp / 10
+            player.state.health = Math.min(maxHp, (player.state.health ?? maxHp) + healRate * dt)
+          }
         }
       }
       for (const player of ctx.players.getAll()) {
