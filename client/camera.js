@@ -81,6 +81,13 @@ export function createCameraController(camera, scene) {
     const dist = mode === 'fps' ? 0 : zoomStages[zoomIndex]
     camTarget.set(localPlayer.position[0], localPlayer.position[1] + headHeight, localPlayer.position[2])
     if (localMesh) localMesh.visible = dist > 0.5
+    const punchLerp = 1 - Math.exp(-12 * frameDt)
+    punchYaw += (punchYawTarget - punchYaw) * punchLerp
+    punchPitch += (punchPitchTarget - punchPitch) * punchLerp
+    punchYawTarget *= 1 - Math.min(1, 6 * frameDt)
+    punchPitchTarget *= 1 - Math.min(1, 6 * frameDt)
+    yaw += punchYaw * frameDt
+    pitch = Math.max(pitchMin, Math.min(pitchMax, pitch + punchPitch * frameDt))
     const sy = Math.sin(yaw), cy = Math.cos(yaw)
     const sp = Math.sin(pitch), cp = Math.cos(pitch)
     const fwdX = sy * cp, fwdY = sp, fwdZ = cy * cp
@@ -159,10 +166,10 @@ export function createCameraController(camera, scene) {
     if (cfg.fov) { camera.fov = cfg.fov; camera.updateProjectionMatrix() }
   }
 
+  let punchYawTarget = 0, punchPitchTarget = 0, punchYaw = 0, punchPitch = 0
   function punch(intensity) {
-    yaw += (Math.random() - 0.5) * intensity
-    pitch += (Math.random() * 0.5 + 0.25) * intensity
-    pitch = Math.max(pitchMin, Math.min(pitchMax, pitch))
+    punchYawTarget += (Math.random() - 0.5) * intensity * 0.1
+    punchPitchTarget += (Math.random() * 0.5 + 0.25) * intensity * 0.1
   }
 
   return { restore, save, onMouseMove, onWheel, getAimDirection, update, setEnvironment, applyConfig, setMode, getMode, setPosition, setTarget, punch, get yaw() { return yaw }, get pitch() { return pitch }, get mode() { return mode } }
