@@ -81,7 +81,7 @@ export function createCameraController(camera, scene) {
     const dist = mode === 'fps' ? 0 : zoomStages[zoomIndex]
     camTarget.set(localPlayer.position[0], localPlayer.position[1] + headHeight, localPlayer.position[2])
     if (localMesh) localMesh.visible = dist > 0.5
-    const punchLerp = 1 - Math.exp(-12 * frameDt)
+    const punchLerp = 1 - Math.exp(-36 * frameDt)
     punchYaw += (punchYawTarget - punchYaw) * punchLerp
     punchPitch += (punchPitchTarget - punchPitch) * punchLerp
     punchYawTarget *= 1 - Math.min(1, 6 * frameDt)
