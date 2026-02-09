@@ -7,11 +7,13 @@ const camDesired = new THREE.Vector3()
 const camLookTarget = new THREE.Vector3()
 const aimRaycaster = new THREE.Raycaster()
 const aimDir = new THREE.Vector3()
-const shoulderOffset = 0.35
-const headHeight = 0.4
-const camFollowSpeed = 12.0
-const camSnapSpeed = 30.0
-const zoomStages = [0, 1.5, 3, 5, 8]
+let shoulderOffset = 0.35
+let headHeight = 0.4
+let camFollowSpeed = 12.0
+let camSnapSpeed = 30.0
+let zoomStages = [0, 1.5, 3, 5, 8]
+let mouseSensitivity = 0.002
+let pitchMin = -1.4, pitchMax = 1.4
 
 function isDescendant(obj, ancestor) {
   let cur = obj
@@ -24,12 +26,19 @@ function isDescendant(obj, ancestor) {
 
 export function createCameraController(camera, scene) {
   let yaw = 0, pitch = 0, zoomIndex = 2, camInitialized = false
+  let mode = 'tps'
   const envMeshes = []
   let rayTimer = 0, cachedClipDist = 10, cachedAimPoint = null
   camRaycaster.firstHitOnly = true
   aimRaycaster.firstHitOnly = true
 
   function setEnvironment(meshes) { envMeshes.length = 0; envMeshes.push(...meshes) }
+
+  function setMode(m) { mode = m }
+  function getMode() { return mode }
+
+  function setPosition(x, y, z) { camera.position.set(x, y, z) }
+  function setTarget(x, y, z) { camera.lookAt(x, y, z) }
 
   function restore(saved) {
     if (saved) { yaw = saved.yaw || 0; pitch = saved.pitch || 0; zoomIndex = saved.zoomIndex ?? 2 }
@@ -38,9 +47,9 @@ export function createCameraController(camera, scene) {
   function save() { return { yaw, pitch, zoomIndex } }
 
   function onMouseMove(e) {
-    yaw -= e.movementX * 0.002
-    pitch -= e.movementY * 0.002
-    pitch = Math.max(-1.4, Math.min(1.4, pitch))
+    yaw -= e.movementX * mouseSensitivity
+    pitch -= e.movementY * mouseSensitivity
+    pitch = Math.max(pitchMin, Math.min(pitchMax, pitch))
   }
 
   function onWheel(e) {
@@ -67,8 +76,9 @@ export function createCameraController(camera, scene) {
   }
 
   function update(localPlayer, localMesh, frameDt) {
+    if (mode === 'custom' || mode === 'fixed') return
     if (!localPlayer) return
-    const dist = zoomStages[zoomIndex]
+    const dist = mode === 'fps' ? 0 : zoomStages[zoomIndex]
     camTarget.set(localPlayer.position[0], localPlayer.position[1] + headHeight, localPlayer.position[2])
     if (localMesh) localMesh.visible = dist > 0.5
     const sy = Math.sin(yaw), cy = Math.cos(yaw)
@@ -136,5 +146,18 @@ export function createCameraController(camera, scene) {
     }
   }
 
-  return { restore, save, onMouseMove, onWheel, getAimDirection, update, setEnvironment, get yaw() { return yaw }, get pitch() { return pitch } }
+  function applyConfig(cfg) {
+    if (cfg.mode != null) mode = cfg.mode
+    if (cfg.shoulderOffset != null) shoulderOffset = cfg.shoulderOffset
+    if (cfg.headHeight != null) headHeight = cfg.headHeight
+    if (cfg.zoomStages) zoomStages = cfg.zoomStages
+    if (cfg.defaultZoomIndex != null) zoomIndex = cfg.defaultZoomIndex
+    if (cfg.followSpeed != null) camFollowSpeed = cfg.followSpeed
+    if (cfg.snapSpeed != null) camSnapSpeed = cfg.snapSpeed
+    if (cfg.mouseSensitivity != null) mouseSensitivity = cfg.mouseSensitivity
+    if (cfg.pitchRange) { pitchMin = cfg.pitchRange[0]; pitchMax = cfg.pitchRange[1] }
+    if (cfg.fov) { camera.fov = cfg.fov; camera.updateProjectionMatrix() }
+  }
+
+  return { restore, save, onMouseMove, onWheel, getAimDirection, update, setEnvironment, applyConfig, setMode, getMode, setPosition, setTarget, get yaw() { return yaw }, get pitch() { return pitch }, get mode() { return mode } }
 }
