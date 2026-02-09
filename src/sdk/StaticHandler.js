@@ -1,5 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { join, extname } from 'node:path'
+import { gzipSync } from 'node:zlib'
 
 const MIME_TYPES = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
@@ -7,6 +8,8 @@ const MIME_TYPES = {
   '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp',
   '.svg': 'image/svg+xml', '.wasm': 'application/wasm'
 }
+
+const GZIP_EXTENSIONS = new Set(['.glb', '.vrm', '.gltf', '.js', '.css', '.html', '.json'])
 
 export function createStaticHandler(dirs) {
   return (req, res) => {
@@ -21,8 +24,14 @@ export function createStaticHandler(dirs) {
         if (ext === '.js' || ext === '.html' || ext === '.css') {
           headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
         }
+        let content = readFileSync(fp)
+        if (GZIP_EXTENSIONS.has(ext) && content.length > 100) {
+          content = gzipSync(content)
+          headers['Content-Encoding'] = 'gzip'
+        }
+        headers['Content-Length'] = content.length
         res.writeHead(200, headers)
-        res.end(readFileSync(fp))
+        res.end(content)
         return
       }
     }
