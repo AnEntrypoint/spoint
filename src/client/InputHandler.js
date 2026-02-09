@@ -94,6 +94,46 @@ export class InputHandler {
     }
   }
 
+  _detectHandGesture(hand) {
+    const joints = hand.joints
+    if (!joints) return { pinch: false, grab: false, point: false }
+
+    const thumbTip = joints['thumb-tip']
+    const indexTip = joints['index-finger-tip']
+    const middleTip = joints['middle-finger-tip']
+    const ringTip = joints['ring-finger-tip']
+    const pinkyTip = joints['pinky-finger-tip']
+    const wrist = joints['wrist']
+
+    if (!thumbTip || !indexTip || !wrist) return { pinch: false, grab: false, point: false }
+
+    const pinchDist = Math.sqrt(
+      Math.pow(thumbTip.position.x - indexTip.position.x, 2) +
+      Math.pow(thumbTip.position.y - indexTip.position.y, 2) +
+      Math.pow(thumbTip.position.z - indexTip.position.z, 2)
+    )
+    const pinch = pinchDist < 0.02
+
+    let grab = false
+    if (middleTip && ringTip && pinkyTip) {
+      const palmDist = Math.sqrt(
+        Math.pow(wrist.position.x - middleTip.position.x, 2) +
+        Math.pow(wrist.position.y - middleTip.position.y, 2) +
+        Math.pow(wrist.position.z - middleTip.position.z, 2)
+      )
+      grab = [middleTip, ringTip, pinkyTip].every(tip => {
+        const d = Math.sqrt(
+          Math.pow(wrist.position.x - tip.position.x, 2) +
+          Math.pow(wrist.position.y - tip.position.y, 2) +
+          Math.pow(wrist.position.z - tip.position.z, 2)
+        )
+        return d < palmDist * 0.7
+      })
+    }
+
+    return { pinch, grab, pinchDist }
+  }
+
   _getXRInput() {
     if (!this.renderer?.xr?.isPresenting) return null
     const session = this.renderer.xr.getSession()
@@ -102,7 +142,21 @@ export class InputHandler {
     let jump = false, shoot = false, sprint = false, reload = false
     const DEAD = 0.15, THRESH = 0.5
     let snapTurned = false
+    let hasHands = false
+
     for (const source of session.inputSources) {
+      if (source.hand) {
+        hasHands = true
+        const gestures = this._detectHandGesture(source.hand)
+        if (source.handedness === 'left') {
+          forward = gestures.grab
+        }
+        if (source.handedness === 'right') {
+          shoot = gestures.pinch
+        }
+        continue
+      }
+
       const gp = source.gamepad
       if (!gp) continue
       const axes = gp.axes
@@ -137,7 +191,7 @@ export class InputHandler {
       }
     }
     if (snapTurned) this.pulse('right', 0.3, 50)
-    return { forward, backward, left, right, jump, sprint, shoot, reload, yaw: this.vrYaw, mouseX: 0, mouseY: 0 }
+    return { forward, backward, left, right, jump, sprint, shoot, reload, yaw: this.vrYaw, mouseX: 0, mouseY: 0, hasHands }
   }
 
   onInput(callback) {
