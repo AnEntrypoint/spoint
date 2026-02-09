@@ -49,10 +49,36 @@ export function createConnectionHandlers(ctx) {
         connections.send(clientId, MSG.DISCONNECT_REASON, { code: DISCONNECT_REASONS.INVALID_SESSION })
         return
       }
+      const oldId = session.playerId
+      const savedState = session.state || {}
+      const client = connections.getClient(clientId)
+      const transport = client?.transport
+      if (!transport) return
+      const playerConfig = ctx.currentWorldDef?.player || {}
+      const sp = savedState.position || [...ctx.worldSpawnPoint]
+      playerManager.removePlayer(clientId)
+      networkState.removePlayer(clientId)
+      physicsIntegration.removePlayerCollider(clientId)
+      lagCompensator.clearPlayerHistory(clientId)
+      connections.removeClient(clientId)
+      const newId = playerManager.addPlayer(transport, { position: sp, health: savedState.health ?? playerConfig.health ?? 100, velocity: savedState.velocity, rotation: savedState.rotation })
+      networkState.addPlayer(newId, { position: sp })
+      physicsIntegration.addPlayerCollider(newId, playerConfig.capsuleRadius || 0.4)
+      physicsIntegration.setPlayerPosition(newId, sp)
+      const reconnClient = connections.addClient(newId, transport)
+      reconnClient.sessionToken = msg.payload.sessionToken
+      sessions.update(msg.payload.sessionToken, { state: playerManager.getPlayer(newId).state })
+      connections.send(newId, MSG.RECONNECT_ACK, { playerId: newId, tick: tickSystem.currentTick, sessionToken: msg.payload.sessionToken })
+      if (ctx.currentWorldDef) connections.send(newId, MSG.WORLD_DEF, ctx.currentWorldDef)
+      const clientModules = appLoader.getClientModules()
+      for (const [appName, code] of Object.entries(clientModules)) {
+        connections.send(newId, MSG.APP_MODULE, { app: appName, code })
+      }
       const snap = networkState.getSnapshot()
       const ents = appRuntime.getSnapshot()
-      connections.send(clientId, MSG.RECONNECT_ACK, { playerId: session.playerId, tick: tickSystem.currentTick, sessionToken: msg.payload.sessionToken })
-      connections.send(clientId, MSG.STATE_RECOVERY, { snapshot: SnapshotEncoder.encode({ tick: snap.tick, timestamp: snap.timestamp, players: snap.players, entities: ents.entities }), tick: tickSystem.currentTick })
+      connections.send(newId, MSG.STATE_RECOVERY, { snapshot: SnapshotEncoder.encode({ tick: snap.tick, timestamp: snap.timestamp, players: snap.players, entities: ents.entities }), tick: tickSystem.currentTick })
+      for (const [entityId] of appRuntime.apps) appRuntime.fireMessage(entityId, { type: 'player_join', playerId: newId })
+      emitter.emit('playerJoin', { id: newId, reconnected: true })
       return
     }
     emitter.emit('message', clientId, msg)
