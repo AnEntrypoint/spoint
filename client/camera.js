@@ -172,5 +172,8 @@ export function createCameraController(camera, scene) {
     punchPitchTarget += (Math.random() - 0.3) * intensity * 0.9
   }
 
-  return { restore, save, onMouseMove, onWheel, getAimDirection, update, setEnvironment, applyConfig, setMode, getMode, setPosition, setTarget, punch, get yaw() { return yaw }, get pitch() { return pitch }, get mode() { return mode } }
+  function setVRYaw(vrYaw) { yaw = vrYaw }
+  function getVRYaw() { return yaw }
+
+  return { restore, save, onMouseMove, onWheel, getAimDirection, update, setEnvironment, applyConfig, setMode, getMode, setPosition, setTarget, punch, setVRYaw, getVRYaw, get yaw() { return yaw }, get pitch() { return pitch }, get mode() { return mode } }
 }
