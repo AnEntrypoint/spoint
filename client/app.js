@@ -130,7 +130,7 @@ function initAssets(playerModelUrl) {
     vrmBuffer = b
     loadingMgr.setStage('PROCESS')
     return loadAnimationLibrary(detectVrmVersion(b), null)
-  }).then(c => { animClips = c })
+  }).then(c => { animClips = c; checkAllLoaded() })
 }
 
 async function createPlayerVRM(id) {
@@ -270,6 +270,7 @@ function loadEntityModel(entityId, entityState) {
     scene.add(group)
     entityMeshes.set(entityId, group)
     pendingLoads.delete(entityId)
+    if (!environmentLoaded) { environmentLoaded = true; checkAllLoaded() }
     return
   }
   loadingMgr.setStage('RESOURCES')
@@ -287,6 +288,7 @@ function loadEntityModel(entityId, entityState) {
     scene.remove(ground)
     fitShadowFrustum()
     pendingLoads.delete(entityId)
+    if (!environmentLoaded) { environmentLoaded = true; checkAllLoaded() }
   }, undefined, (err) => { console.error('[gltf]', entityId, err); pendingLoads.delete(entityId) })
 }
 
@@ -330,6 +332,7 @@ const client = new PhysicsNetworkClient({
       if (!entityMeshes.has(e.id)) loadEntityModel(e.id, e)
     }
     latestState = state
+    if (!firstSnapshotReceived) { firstSnapshotReceived = true; checkAllLoaded() }
   },
   onPlayerJoined: (id) => { if (!playerMeshes.has(id)) createPlayerVRM(id) },
   onPlayerLeft: (id) => removePlayerMesh(id),
@@ -339,6 +342,7 @@ const client = new PhysicsNetworkClient({
     loadingMgr.setStage('SERVER_SYNC')
     worldConfig = wd
     if (wd.playerModel) initAssets(wd.playerModel.startsWith('./') ? '/' + wd.playerModel.slice(2) : wd.playerModel)
+    else { assetsReady = Promise.resolve(); checkAllLoaded() }
     if (wd.entities) for (const e of wd.entities) { if (e.app) entityAppMap.set(e.id, e.app); if (e.model && !entityMeshes.has(e.id)) loadEntityModel(e.id, e) }
     if (wd.scene) applySceneConfig(wd.scene)
     if (wd.camera) cam.applyConfig(wd.camera)
@@ -384,16 +388,22 @@ const engineCtx = {
 
 let inputLoopId = null
 let loadingScreenHidden = false
+let environmentLoaded = false
+let firstSnapshotReceived = false
+
+function checkAllLoaded() {
+  if (loadingScreenHidden) return
+  if (!assetsReady && !vrmBuffer) return
+  if (!environmentLoaded) return
+  if (!firstSnapshotReceived) return
+  loadingMgr.setStage('INIT')
+  loadingMgr.complete()
+  loadingScreen.hide().catch(() => {})
+  loadingScreenHidden = true
+}
+
 function startInputLoop() {
   if (inputLoopId) return
-  loadingMgr.setStage('INIT')
-  setTimeout(() => {
-    if (!loadingScreenHidden) {
-      loadingMgr.complete()
-      loadingScreen.hide().catch(() => {})
-      loadingScreenHidden = true
-    }
-  }, 100)
   inputLoopId = setInterval(() => {
     if (!client.connected) return
     const input = inputHandler.getInput()
