@@ -79,7 +79,9 @@ export default {
 
   client: {
     setup(engine) {
-      engine._tps = { lastShootTime: 0, isAiming: false, boost: null }
+      const flash = new engine.THREE.PointLight(0xffaa00, 0, 8)
+      engine.scene.add(flash)
+      engine._tps = { lastShootTime: 0, isAiming: false, boost: null, flash, flashOff: 0 }
     },
     onMouseDown(e, engine) {
       if (e.button === 2 && engine._tps) engine._tps.isAiming = true
@@ -98,10 +100,9 @@ export default {
           engine.client.sendFire({ origin: [pos[0], pos[1] + 0.9, pos[2]], direction: engine.cam.getAimDirection(pos) })
           const animator = engine.players.getAnimator(engine.playerId)
           if (animator) animator.shoot()
-          const flash = new engine.THREE.PointLight(0xffaa00, 3, 8)
-          flash.position.set(pos[0], pos[1] + 0.5, pos[2])
-          engine.scene.add(flash)
-          setTimeout(() => engine.scene.remove(flash), 60)
+          tps.flash.position.set(pos[0], pos[1] + 0.5, pos[2])
+          tps.flash.intensity = 3
+          tps.flashOff = Date.now() + 60
         }
       }
     },
@@ -123,6 +124,7 @@ export default {
       const tps = engine._tps
       if (!tps) return
       if (tps.boost && Date.now() >= tps.boost.expiresAt) tps.boost = null
+      if (tps.flash && tps.flashOff && Date.now() >= tps.flashOff) { tps.flash.intensity = 0; tps.flashOff = 0 }
       engine.players.setAiming(engine.playerId, tps.isAiming)
     },
     render(ctx) {

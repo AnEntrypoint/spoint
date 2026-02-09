@@ -32,8 +32,8 @@ sun.position.set(30, 50, 20)
 sun.castShadow = true
 sun.shadow.mapSize.set(1024, 1024)
 sun.shadow.bias = -0.0005
-sun.shadow.normalBias = 0.3
-sun.shadow.radius = 8
+sun.shadow.normalBias = 0.8
+sun.shadow.radius = 10
 sun.shadow.camera.left = -80; sun.shadow.camera.right = 80; sun.shadow.camera.top = 80; sun.shadow.camera.bottom = -80
 sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 200
 scene.add(sun)
@@ -294,7 +294,7 @@ const client = new PhysicsNetworkClient({
   onPlayerJoined: (id) => { if (!playerMeshes.has(id)) createPlayerVRM(id) },
   onPlayerLeft: (id) => removePlayerMesh(id),
   onEntityAdded: (id, state) => loadEntityModel(id, state),
-  onEntityRemoved: (id) => { const m = entityMeshes.get(id); if (m) { scene.remove(m); m.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose() }); entityMeshes.delete(id) } },
+  onEntityRemoved: (id) => { const m = entityMeshes.get(id); if (m) { scene.remove(m); m.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose() }); entityMeshes.delete(id) }; pendingLoads.delete(id) },
   onWorldDef: (wd) => {
     if (wd.playerModel) initAssets(wd.playerModel.startsWith('./') ? '/' + wd.playerModel.slice(2) : wd.playerModel)
     if (wd.entities) for (const e of wd.entities) { if (e.app) entityAppMap.set(e.id, e.app); if (e.model && !entityMeshes.has(e.id)) loadEntityModel(e.id, e) }
