@@ -35,7 +35,7 @@ sun.shadow.radius = 8
 sun.shadow.camera.near = 1
 sun.shadow.camera.far = 150
 const sc = sun.shadow.camera
-sc.left = -120; sc.right = 120; sc.top = 120; sc.bottom = -120
+sc.left = -80; sc.right = 80; sc.top = 80; sc.bottom = -80
 scene.add(sun)
 
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x444444 }))
