@@ -313,7 +313,7 @@ function renderAppUI(state) {
 }
 
 const client = new PhysicsNetworkClient({
-  url: `ws://${window.location.host}/ws`,
+  url: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`,
   predictionEnabled: false,
   onStateUpdate: (state) => {
     for (const p of state.players) {
