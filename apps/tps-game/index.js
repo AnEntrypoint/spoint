@@ -190,16 +190,21 @@ function findSpawnPoints(ctx) {
 }
 
 function getAvailableSpawnPoint(ctx, spawnPoints) {
-  const MIN_SAFE_DISTANCE = 6
+  const MIN_SAFE_DISTANCE = 15
   const activePlayers = ctx.players.getAll().filter(p => p.state && !ctx.state.respawning.has(p.id))
-  const safePoints = spawnPoints.filter(sp => {
-    return activePlayers.every(player => {
-      const dist = Math.hypot(sp[0] - player.state.position[0], sp[1] - player.state.position[1], sp[2] - player.state.position[2])
-      return dist >= MIN_SAFE_DISTANCE
-    })
+  if (activePlayers.length === 0) return spawnPoints[Math.floor(Math.random() * spawnPoints.length)]
+  const scored = spawnPoints.map(sp => {
+    let minDist = Infinity
+    for (const player of activePlayers) {
+      const dist = Math.hypot(sp[0] - player.state.position[0], sp[2] - player.state.position[2])
+      if (dist < minDist) minDist = dist
+    }
+    return { sp, minDist }
   })
-  const availablePoints = safePoints.length > 0 ? safePoints : spawnPoints
-  return availablePoints[Math.floor(Math.random() * availablePoints.length)]
+  const safe = scored.filter(s => s.minDist >= MIN_SAFE_DISTANCE)
+  if (safe.length > 0) return safe[Math.floor(Math.random() * safe.length)].sp
+  scored.sort((a, b) => b.minDist - a.minDist)
+  return scored[0].sp
 }
 
 function handleFire(ctx, msg) {
