@@ -320,7 +320,8 @@ const client = new PhysicsNetworkClient({
       const tx = p.position[0], ty = p.position[1] - feetOff, tz = p.position[2]
       playerTargets.set(p.id, { x: tx, y: ty, z: tz })
       playerStates.set(p.id, p)
-      if (!mesh.userData.initialized) { mesh.position.set(tx, ty, tz); mesh.userData.initialized = true }
+      const dx = tx - mesh.position.x, dy = ty - mesh.position.y, dz = tz - mesh.position.z
+      if (!mesh.userData.initialized || dx * dx + dy * dy + dz * dz > 100) { mesh.position.set(tx, ty, tz); mesh.userData.initialized = true }
     }
     for (const e of state.entities) {
       const mesh = entityMeshes.get(e.id)
