@@ -5,6 +5,7 @@ import { PhysicsNetworkClient, InputHandler, MSG } from '/src/index.client.js'
 import { createElement, applyDiff } from 'webjsx'
 import { createCameraController } from './camera.js'
 import { loadAnimationLibrary, createPlayerAnimator } from './animation.js'
+import { VRButton } from 'three/addons/webxr/VRButton.js'
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x87ceeb)
@@ -15,8 +16,9 @@ renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.setPixelRatio(window.devicePixelRatio)
 renderer.shadowMap.enabled = true
 renderer.shadowMap.type = THREE.PCFSoftShadowMap
-renderer.xr.enabled = false
+renderer.xr.enabled = true
 document.body.appendChild(renderer.domElement)
+document.body.appendChild(VRButton.createButton(renderer))
 
 scene.add(camera)
 const ambient = new THREE.AmbientLight(0xfff4d6, 0.3)
@@ -32,11 +34,23 @@ sun.shadow.mapSize.set(1024, 1024)
 sun.shadow.bias = -0.0005
 sun.shadow.normalBias = 0.3
 sun.shadow.radius = 8
-sun.shadow.camera.near = 1
-sun.shadow.camera.far = 150
-const sc = sun.shadow.camera
-sc.left = -80; sc.right = 80; sc.top = 80; sc.bottom = -80
 scene.add(sun)
+
+function fitShadowFrustum() {
+  const box = new THREE.Box3()
+  scene.traverse(o => { if (o.isMesh && (o.castShadow || o.receiveShadow) && o.geometry) box.expandByObject(o) })
+  if (box.isEmpty()) return
+  const center = box.getCenter(new THREE.Vector3())
+  const size = box.getSize(new THREE.Vector3())
+  const pad = 2
+  const half = Math.max(size.x, size.z) / 2 + pad
+  const sc = sun.shadow.camera
+  sc.left = -half; sc.right = half; sc.top = half; sc.bottom = -half
+  sc.near = 0.5; sc.far = size.y + 50
+  sc.updateProjectionMatrix()
+  sun.target.position.copy(center)
+  sun.target.updateMatrixWorld()
+}
 
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x444444 }))
 ground.rotation.x = -Math.PI / 2
@@ -227,6 +241,7 @@ function loadEntityModel(entityId, entityState) {
     model.traverse(c => { if (c.isMesh && c.name === 'Collider') colliders.push(c) })
     if (colliders.length) cam.setEnvironment(colliders)
     scene.remove(ground)
+    fitShadowFrustum()
   }, undefined, (err) => console.error('[gltf]', entityId, err))
 }
 
@@ -377,11 +392,11 @@ function animate(timestamp) {
   uiTimer += frameDt
   if (latestState && uiTimer >= 0.25) { uiTimer = 0; renderAppUI(latestState) }
   const local = client.state?.players?.find(p => p.id === client.playerId)
-  cam.update(local, playerMeshes.get(client.playerId), frameDt)
+  const inVR = renderer.xr.isPresenting
+  if (!inVR) cam.update(local, playerMeshes.get(client.playerId), frameDt)
   renderer.render(scene, camera)
 }
-function loop(ts) { animate(ts); requestAnimationFrame(loop) }
-requestAnimationFrame(loop)
+renderer.setAnimationLoop(animate)
 
 client.connect().then(() => { console.log('Connected'); startInputLoop() }).catch(err => console.error('Connection failed:', err))
 window.debug = { scene, camera, renderer, client, playerMeshes, entityMeshes, appModules, inputHandler, playerVrms, playerAnimators }
