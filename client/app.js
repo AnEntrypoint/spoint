@@ -433,7 +433,8 @@ function animate(timestamp) {
     if (mesh.userData.spin) mesh.rotation.y += mesh.userData.spin * frameDt
     if (mesh.userData.hover) {
       mesh.userData.hoverTime = (mesh.userData.hoverTime || 0) + frameDt
-      mesh.position.y += Math.sin(mesh.userData.hoverTime * 2) * mesh.userData.hover
+      const child = mesh.children[0]
+      if (child) child.position.y = Math.sin(mesh.userData.hoverTime * 2) * mesh.userData.hover
     }
   }
   for (const [, mod] of appModules) { if (mod.onFrame) try { mod.onFrame(frameDt, engineCtx) } catch (e) {} }
