@@ -124,7 +124,7 @@ function handleFireEvent(ctx, data) {
 function spawnPickup(ctx, pos) {
   const id = `powerup_${ctx.state.nextCrateId++}`
   const e = ctx.world.spawn(id, { position: [...pos] })
-  if (e) e.custom = { mesh: 'cylinder', r: 0.4, h: 0.1, seg: 16, color: 0xffd700, roughness: 0.3, metalness: 0.8, emissive: 0xffa000, emissiveIntensity: 0.3, rotZ: Math.PI / 2, light: 0xffd700, lightIntensity: 1, lightRange: 4, spin: 3 }
+  if (e) e.custom = { mesh: 'cylinder', r: 0.4, h: 0.1, seg: 16, color: 0xffd700, roughness: 0.3, metalness: 0.8, emissive: 0xffa000, emissiveIntensity: 0.3, rotZ: Math.PI / 2, light: 0xffd700, lightIntensity: 1, lightRange: 4, spin: 3, hover: 0.3 }
   ctx.state.pickups.set(id, { position: [...pos], lifetime: CONFIG.pickupLifetime })
 }
 
