@@ -6,6 +6,12 @@ import { createElement, applyDiff } from 'webjsx'
 import { createCameraController } from './camera.js'
 import { loadAnimationLibrary, createPlayerAnimator } from './animation.js'
 import { VRButton } from 'three/addons/webxr/VRButton.js'
+import { LoadingManager } from './LoadingManager.js'
+import { createLoadingScreen } from './createLoadingScreen.js'
+
+const loadingMgr = new LoadingManager()
+const loadingScreen = createLoadingScreen(loadingMgr)
+loadingMgr.setStage('CONNECTING')
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x87ceeb)
@@ -109,17 +115,20 @@ let assetsReady = null
 
 function detectVrmVersion(buffer) {
   try {
-    const view = new DataView(buffer)
+    const arrayBuffer = buffer instanceof ArrayBuffer ? buffer : buffer.buffer
+    const view = new DataView(arrayBuffer)
     const jsonLen = view.getUint32(12, true)
-    const json = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 20, jsonLen)))
+    const json = JSON.parse(new TextDecoder().decode(new Uint8Array(arrayBuffer, 20, jsonLen)))
     if (json.extensions?.VRM) return '0'
   } catch (e) {}
   return '1'
 }
 
 function initAssets(playerModelUrl) {
-  assetsReady = fetch(playerModelUrl).then(r => r.arrayBuffer()).then(b => {
+  loadingMgr.setStage('DOWNLOAD')
+  assetsReady = loadingMgr.fetchWithProgress(playerModelUrl).then(b => {
     vrmBuffer = b
+    loadingMgr.setStage('PROCESS')
     return loadAnimationLibrary(detectVrmVersion(b), null)
   }).then(c => { animClips = c })
 }
@@ -260,8 +269,10 @@ function loadEntityModel(entityId, entityState) {
     group.position.set(...entityState.position)
     scene.add(group)
     entityMeshes.set(entityId, group)
+    pendingLoads.delete(entityId)
     return
   }
+  loadingMgr.setStage('RESOURCES')
   const url = entityState.model.startsWith('./') ? '/' + entityState.model.slice(2) : entityState.model
   gltfLoader.load(url, (gltf) => {
     const model = gltf.scene
@@ -275,7 +286,8 @@ function loadEntityModel(entityId, entityState) {
     if (colliders.length) cam.setEnvironment(colliders)
     scene.remove(ground)
     fitShadowFrustum()
-  }, undefined, (err) => console.error('[gltf]', entityId, err))
+    pendingLoads.delete(entityId)
+  }, undefined, (err) => { console.error('[gltf]', entityId, err); pendingLoads.delete(entityId) })
 }
 
 function renderAppUI(state) {
@@ -323,6 +335,7 @@ const client = new PhysicsNetworkClient({
   onEntityAdded: (id, state) => loadEntityModel(id, state),
   onEntityRemoved: (id) => { const m = entityMeshes.get(id); if (m) { scene.remove(m); m.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose() }); entityMeshes.delete(id) }; pendingLoads.delete(id) },
   onWorldDef: (wd) => {
+    loadingMgr.setStage('SERVER_SYNC')
     worldConfig = wd
     if (wd.playerModel) initAssets(wd.playerModel.startsWith('./') ? '/' + wd.playerModel.slice(2) : wd.playerModel)
     if (wd.entities) for (const e of wd.entities) { if (e.app) entityAppMap.set(e.id, e.app); if (e.model && !entityMeshes.has(e.id)) loadEntityModel(e.id, e) }
@@ -334,6 +347,7 @@ const client = new PhysicsNetworkClient({
     }
   },
   onAppModule: (d) => {
+    loadingMgr.setStage('APPS')
     const a = evaluateAppModule(d.code)
     if (a?.client) {
       appModules.set(d.app, a.client)
@@ -368,8 +382,17 @@ const engineCtx = {
 }
 
 let inputLoopId = null
+let loadingScreenHidden = false
 function startInputLoop() {
   if (inputLoopId) return
+  loadingMgr.setStage('INIT')
+  setTimeout(() => {
+    if (!loadingScreenHidden) {
+      loadingMgr.complete()
+      loadingScreen.hide().catch(() => {})
+      loadingScreenHidden = true
+    }
+  }, 100)
   inputLoopId = setInterval(() => {
     if (!client.connected) return
     const input = inputHandler.getInput()
@@ -448,4 +471,4 @@ function animate(timestamp) {
 renderer.setAnimationLoop(animate)
 
 client.connect().then(() => { console.log('Connected'); startInputLoop() }).catch(err => console.error('Connection failed:', err))
-window.debug = { scene, camera, renderer, client, playerMeshes, entityMeshes, appModules, inputHandler, playerVrms, playerAnimators }
+window.debug = { scene, camera, renderer, client, playerMeshes, entityMeshes, appModules, inputHandler, playerVrms, playerAnimators, loadingMgr, loadingScreen }
