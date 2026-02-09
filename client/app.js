@@ -140,7 +140,7 @@ async function createPlayerVRM(id) {
   if (assetsReady) await assetsReady
   if (!vrmBuffer) return group
   try {
-    const gltf = await gltfLoader.parseAsync(vrmBuffer, '')
+    const gltf = await gltfLoader.parseAsync(vrmBuffer.buffer.slice(0), '')
     const vrm = gltf.userData.vrm
     VRMUtils.removeUnnecessaryVertices(vrm.scene)
     VRMUtils.combineSkeletons(vrm.scene)
