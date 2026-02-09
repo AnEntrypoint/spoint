@@ -112,6 +112,7 @@ let fpsFrames = 0, fpsLast = performance.now(), fpsDisplay = 0
 let vrmBuffer = null
 let animClips = null
 let assetsReady = null
+let assetsLoaded = false
 
 function detectVrmVersion(buffer) {
   try {
@@ -130,7 +131,7 @@ function initAssets(playerModelUrl) {
     vrmBuffer = b
     loadingMgr.setStage('PROCESS')
     return loadAnimationLibrary(detectVrmVersion(b), null)
-  }).then(c => { animClips = c; checkAllLoaded() })
+  }).then(c => { animClips = c; assetsLoaded = true; checkAllLoaded() })
 }
 
 async function createPlayerVRM(id) {
@@ -342,7 +343,7 @@ const client = new PhysicsNetworkClient({
     loadingMgr.setStage('SERVER_SYNC')
     worldConfig = wd
     if (wd.playerModel) initAssets(wd.playerModel.startsWith('./') ? '/' + wd.playerModel.slice(2) : wd.playerModel)
-    else { assetsReady = Promise.resolve(); checkAllLoaded() }
+    else { assetsReady = Promise.resolve(); assetsLoaded = true; checkAllLoaded() }
     if (wd.entities) for (const e of wd.entities) { if (e.app) entityAppMap.set(e.id, e.app); if (e.model && !entityMeshes.has(e.id)) loadEntityModel(e.id, e) }
     if (wd.scene) applySceneConfig(wd.scene)
     if (wd.camera) cam.applyConfig(wd.camera)
@@ -393,7 +394,7 @@ let firstSnapshotReceived = false
 
 function checkAllLoaded() {
   if (loadingScreenHidden) return
-  if (!assetsReady && !vrmBuffer) return
+  if (!assetsLoaded) return
   if (!environmentLoaded) return
   if (!firstSnapshotReceived) return
   loadingMgr.setStage('INIT')
