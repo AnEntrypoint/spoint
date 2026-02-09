@@ -49,7 +49,11 @@ function fitShadowFrustum() {
   const half = Math.max(size.x, size.z) / 2 + pad
   const sc = sun.shadow.camera
   sc.left = -half; sc.right = half; sc.top = half; sc.bottom = -half
-  sc.near = 0.5; sc.far = size.y + 50
+  const lightDir = new THREE.Vector3().subVectors(sun.target.position, sun.position).normalize()
+  const corners = [new THREE.Vector3(box.min.x, box.min.y, box.min.z), new THREE.Vector3(box.max.x, box.max.y, box.max.z)]
+  let minProj = Infinity, maxProj = -Infinity
+  for (const c of corners) { const d = new THREE.Vector3().subVectors(c, sun.position).dot(lightDir); minProj = Math.min(minProj, d); maxProj = Math.max(maxProj, d) }
+  sc.near = Math.max(0.5, minProj - 10); sc.far = maxProj + 10
   sc.updateProjectionMatrix()
   sun.target.position.copy(center)
   sun.target.updateMatrixWorld()
