@@ -46,7 +46,7 @@ function fitShadowFrustum() {
   const center = box.getCenter(new THREE.Vector3())
   const size = box.getSize(new THREE.Vector3())
   const pad = 2
-  const half = Math.max(size.x, size.z) / 2 + pad
+  const half = (Math.max(size.x, size.z) / 2 + pad) * 1.03
   const sc = sun.shadow.camera
   sc.left = -half; sc.right = half; sc.top = half; sc.bottom = -half
   const lightDir = new THREE.Vector3().subVectors(sun.target.position, sun.position).normalize()
