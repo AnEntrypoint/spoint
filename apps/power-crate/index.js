@@ -82,9 +82,9 @@ function spawnCrate(ctx) {
   const pos = sp[Math.floor(Math.random() * sp.length)]
   const id = `power_crate_${ctx.state.nextCrateId++}`
   ctx.world.spawn(id, {
-    model: null,
     position: [...pos],
-    app: 'physics-crate'
+    app: 'physics-crate',
+    config: { type: 'power-crate' }
   })
   ctx.state.crates.set(id, [...pos])
 }
@@ -123,7 +123,8 @@ function handleFireEvent(ctx, data) {
 
 function spawnPickup(ctx, pos) {
   const id = `powerup_${ctx.state.nextCrateId++}`
-  ctx.world.spawn(id, { position: [...pos] })
+  const e = ctx.world.spawn(id, { position: [...pos] })
+  if (e) e.custom = { mesh: 'cylinder', r: 0.4, h: 0.1, seg: 16, color: 0xffd700, roughness: 0.3, metalness: 0.8, emissive: 0xffa000, emissiveIntensity: 0.3, rotZ: Math.PI / 2, light: 0xffd700, lightIntensity: 1, lightRange: 4, spin: 3 }
   ctx.state.pickups.set(id, { position: [...pos], lifetime: CONFIG.pickupLifetime })
 }
 
