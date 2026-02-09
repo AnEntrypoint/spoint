@@ -33,7 +33,7 @@ sun.castShadow = true
 sun.shadow.mapSize.set(1024, 1024)
 sun.shadow.bias = 0
 sun.shadow.normalBias = 0
-sun.shadow.radius = 10
+sun.shadow.radius = 6
 sun.shadow.camera.left = -80; sun.shadow.camera.right = 80; sun.shadow.camera.top = 80; sun.shadow.camera.bottom = -80
 sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 200
 scene.add(sun)
