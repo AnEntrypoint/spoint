@@ -64,7 +64,7 @@ export function createTickHandler(deps) {
         const minDist = physicsIntegration.config.capsuleRadius * 2
         const overlap = minDist - collision.distance
         const halfPush = overlap * 0.5
-        const pushVel = halfPush / dt
+        const pushVel = Math.min(halfPush / dt, 3.0)
         player.state.position[0] -= nx * halfPush
         player.state.position[2] -= nz * halfPush
         player.state.velocity[0] -= nx * pushVel
