@@ -15,7 +15,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'hi
 renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.setPixelRatio(window.devicePixelRatio)
 renderer.shadowMap.enabled = true
-renderer.shadowMap.type = THREE.VSMShadowMap
+renderer.shadowMap.type = THREE.PCFSoftShadowMap
 renderer.xr.enabled = true
 document.body.appendChild(renderer.domElement)
 document.body.appendChild(VRButton.createButton(renderer))
