@@ -95,7 +95,7 @@ export async function createServer(config = {}) {
   const inspector = new Inspector()
   const reloadManager = new ReloadManager()
 
-  const sdkRoot = config.sdkRoot || null
+  const sdkRoot = config.sdkRoot || join(dirname(fileURLToPath(import.meta.url)), '../..')
   const appRuntime = new AppRuntime({ gravity, playerManager, physics, physicsIntegration, connections, eventBus, eventLog, storage, sdkRoot })
   appRuntime.setPlayerManager(playerManager)
   const appLoader = new AppLoader(appRuntime, { dirs: appsDirs })
@@ -174,25 +174,26 @@ export async function createServer(config = {}) {
 
   ctx.setupSDKWatchers = () => {
     const reloadTick = async () => { ctx.setTickHandler(await reloadHandlers.reloadTickHandler()) }
+    const sdk = (p) => join(sdkRoot, p)
     const w = [
-      ['tick-handler', './src/sdk/TickHandler.js', reloadTick],
-      ['movement', './src/shared/movement.js', reloadTick],
-      ['world-config', './apps/world/index.js', reloadTick],
-      ['physics-integration', './src/netcode/PhysicsIntegration.js', reloadHandlers.reloadPhysicsIntegration],
-      ['lag-compensator', './src/netcode/LagCompensator.js', reloadHandlers.reloadLagCompensator],
-      ['player-manager', './src/netcode/PlayerManager.js', reloadHandlers.reloadPlayerManager],
-      ['network-state', './src/netcode/NetworkState.js', reloadHandlers.reloadNetworkState]
+      ['tick-handler', sdk('src/sdk/TickHandler.js'), reloadTick],
+      ['movement', sdk('src/shared/movement.js'), reloadTick],
+      ['world-config', sdk('apps/world/index.js'), reloadTick],
+      ['physics-integration', sdk('src/netcode/PhysicsIntegration.js'), reloadHandlers.reloadPhysicsIntegration],
+      ['lag-compensator', sdk('src/netcode/LagCompensator.js'), reloadHandlers.reloadLagCompensator],
+      ['player-manager', sdk('src/netcode/PlayerManager.js'), reloadHandlers.reloadPlayerManager],
+      ['network-state', sdk('src/netcode/NetworkState.js'), reloadHandlers.reloadNetworkState]
     ]
     for (const [id, path, reload] of w) reloadManager.addWatcher(id, path, reload)
     const clientReload = () => { connections.broadcast(MSG.HOT_RELOAD, { timestamp: Date.now() }) }
     const clientFiles = [
-      ['client-app', './client/app.js'],
-      ['client-camera', './client/camera.js'],
-      ['client-input', './src/client/InputHandler.js'],
-      ['client-network', './src/client/PhysicsNetworkClient.js'],
-      ['client-prediction', './src/client/PredictionEngine.js'],
-      ['client-reconciliation', './src/client/ReconciliationEngine.js'],
-      ['client-index', './src/index.client.js']
+      ['client-app', sdk('client/app.js')],
+      ['client-camera', sdk('client/camera.js')],
+      ['client-input', sdk('src/client/InputHandler.js')],
+      ['client-network', sdk('src/client/PhysicsNetworkClient.js')],
+      ['client-prediction', sdk('src/client/PredictionEngine.js')],
+      ['client-reconciliation', sdk('src/client/ReconciliationEngine.js')],
+      ['client-index', sdk('src/index.client.js')]
     ]
     for (const [id, path] of clientFiles) reloadManager.addWatcher(id, path, clientReload)
   }
