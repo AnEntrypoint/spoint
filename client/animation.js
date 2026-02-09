@@ -150,6 +150,7 @@ export function createPlayerAnimator(vrm, clips, vrmVersion, animConfig = {}) {
   mixer.addEventListener('finished', () => {
     if (oneShot && !STATES[oneShot]?.additive) {
       const cfg = STATES[oneShot]
+      if (cfg?.clamp) return
       oneShot = null
       oneShotTimer = 0
       if (cfg?.next) transitionTo(cfg.next)

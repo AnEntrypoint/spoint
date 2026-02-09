@@ -10,6 +10,7 @@ export default {
       ctx.state.buffs = new Map()
       ctx.state.started = Date.now()
       ctx.state.gameTime = 0
+      ctx.state.fallTimers = new Map()
 
       ctx.bus.on('powerup.collected', (event) => {
         const d = event.data
@@ -40,6 +41,23 @@ export default {
           ctx.players.send(pid, { type: 'buff_expired' })
         }
       }
+      for (const player of ctx.players.getAll()) {
+        if (!player.state || ctx.state.respawning.has(player.id)) continue
+        if ((player.state.health ?? ctx.state.config.health) <= 0) continue
+        const y = player.state.position?.[1] ?? 0
+        if (y < -20) {
+          const t = ctx.state.fallTimers.get(player.id) || 0
+          ctx.state.fallTimers.set(player.id, t + dt)
+          if (t + dt >= 5) {
+            player.state.health = 0
+            ctx.state.respawning.set(player.id, { respawnAt: now + ctx.state.config.respawnTime * 1000, killer: null })
+            ctx.network.broadcast({ type: 'death', victim: player.id, killer: null })
+            ctx.state.fallTimers.delete(player.id)
+          }
+        } else {
+          ctx.state.fallTimers.delete(player.id)
+        }
+      }
       for (const [pid, data] of ctx.state.respawning) {
         if (now < data.respawnAt) continue
         const sp = getAvailableSpawnPoint(ctx, ctx.state.spawnPoints)
@@ -64,6 +82,7 @@ export default {
       if (msg.type === 'player_leave') {
         ctx.state.playerStats.delete(msg.playerId)
         ctx.state.respawning.delete(msg.playerId)
+        ctx.state.fallTimers.delete(msg.playerId)
       }
       if (msg.type === 'fire') {
         const shooterId = msg.senderId || msg.shooterId
