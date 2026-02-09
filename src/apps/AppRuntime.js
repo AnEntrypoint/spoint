@@ -3,6 +3,8 @@ import { HotReloadQueue } from './HotReloadQueue.js'
 import { EventBus } from './EventBus.js'
 import { mulQuat, rotVec } from '../math.js'
 import { MSG } from '../protocol/MessageTypes.js'
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 export class AppRuntime {
   constructor(c = {}) {
@@ -16,6 +18,7 @@ export class AppRuntime {
     this._eventBus = c.eventBus || new EventBus()
     this._eventLog = c.eventLog || null
     this._storage = c.storage || null
+    this._sdkRoot = c.sdkRoot || null
     this._eventBus.on('*', (event) => {
       if (event.channel.startsWith('system.')) return
       this._log('bus_event', { channel: event.channel, data: event.data }, event.meta)
@@ -24,6 +27,14 @@ export class AppRuntime {
       const { targetEntityId, stateData } = event.data || {}
       if (targetEntityId) this.fireEvent(targetEntityId, 'onHandover', event.meta.sourceEntity, stateData)
     })
+  }
+
+  resolveAssetPath(p) {
+    if (!p) return p
+    const local = resolve(p)
+    if (existsSync(local)) return local
+    if (this._sdkRoot) { const sdk = resolve(this._sdkRoot, p); if (existsSync(sdk)) return sdk }
+    return local
   }
 
   registerApp(name, appDef) { this._appDefs.set(name, appDef) }
@@ -47,7 +58,7 @@ export class AppRuntime {
     }
     if (config.autoTrimesh && entity.model && this._physics) {
       entity.collider = { type: 'trimesh', model: entity.model }
-      entity._physicsBodyId = this._physics.addStaticTrimesh(entity.model, 0)
+      entity._physicsBodyId = this._physics.addStaticTrimesh(this.resolveAssetPath(entity.model), 0)
     }
     if (config.app) this._attachApp(entityId, config.app)
     this._spatialInsert(entity)

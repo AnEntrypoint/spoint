@@ -34,17 +34,23 @@ export async function boot(overrides = {}) {
   const worldMod = await import(worldUrl)
   const worldDef = worldMod.default || worldMod
   const localApps = resolve(PROJECT, 'apps')
-  const appsDir = existsSync(localApps) ? localApps : join(SDK_ROOT, 'apps')
+  const sdkApps = join(SDK_ROOT, 'apps')
+  const hasLocalApps = existsSync(localApps)
+  const appsDirs = hasLocalApps ? [localApps, sdkApps] : [sdkApps]
+  const appsStaticDirs = hasLocalApps
+    ? [{ prefix: '/apps/', dir: localApps }, { prefix: '/apps/', dir: sdkApps }]
+    : [{ prefix: '/apps/', dir: sdkApps }]
   const config = {
     port: parseInt(process.env.PORT || String(worldDef.port || 8080), 10),
     tickRate: worldDef.tickRate || 128,
-    appsDir,
+    appsDirs,
+    sdkRoot: SDK_ROOT,
     gravity: worldDef.gravity,
     movement: worldDef.movement,
     playerConfig: worldDef.player,
     staticDirs: [
       { prefix: '/src/', dir: join(SDK_ROOT, 'src') },
-      { prefix: '/apps/', dir: appsDir },
+      ...appsStaticDirs,
       { prefix: '/node_modules/', dir: join(SDK_ROOT, 'node_modules') },
       { prefix: '/', dir: join(SDK_ROOT, 'client') }
     ],
@@ -62,7 +68,7 @@ export async function boot(overrides = {}) {
 export async function createServer(config = {}) {
   const port = config.port || 8080
   const tickRate = config.tickRate || 128
-  const appsDir = config.appsDir || './apps'
+  const appsDirs = config.appsDirs || [config.appsDir || './apps']
   const gravity = config.gravity || [0, -9.81, 0]
   const movement = config.movement || {}
   const staticDirs = config.staticDirs || []
@@ -89,9 +95,10 @@ export async function createServer(config = {}) {
   const inspector = new Inspector()
   const reloadManager = new ReloadManager()
 
-  const appRuntime = new AppRuntime({ gravity, playerManager, physics, physicsIntegration, connections, eventBus, eventLog, storage })
+  const sdkRoot = config.sdkRoot || null
+  const appRuntime = new AppRuntime({ gravity, playerManager, physics, physicsIntegration, connections, eventBus, eventLog, storage, sdkRoot })
   appRuntime.setPlayerManager(playerManager)
-  const appLoader = new AppLoader(appRuntime, { dir: appsDir })
+  const appLoader = new AppLoader(appRuntime, { dirs: appsDirs })
   const stageLoader = new StageLoader(appRuntime)
   appRuntime.setStageLoader(stageLoader)
 
@@ -103,7 +110,7 @@ export async function createServer(config = {}) {
     config,
     port,
     tickRate,
-    appsDir,
+    appsDirs,
     gravity,
     movement,
     staticDirs,

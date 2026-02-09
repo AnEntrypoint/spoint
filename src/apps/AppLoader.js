@@ -10,33 +10,39 @@ const BLOCKED_PATTERNS = [
 export class AppLoader {
   constructor(runtime, config = {}) {
     this._runtime = runtime
-    this._dir = config.dir || './apps'
+    this._dirs = config.dirs || [config.dir || './apps']
     this._watchers = new Map()
     this._loaded = new Map()
     this._onReloadCallback = null
   }
 
   async _resolvePath(name) {
-    const flat = join(this._dir, `${name}.js`)
-    try { await access(flat); return flat } catch {}
-    const folder = join(this._dir, name, 'index.js')
-    try { await access(folder); return folder } catch {}
+    for (const dir of this._dirs) {
+      const flat = join(dir, `${name}.js`)
+      try { await access(flat); return flat } catch {}
+      const folder = join(dir, name, 'index.js')
+      try { await access(folder); return folder } catch {}
+    }
     return null
   }
 
   async loadAll() {
-    const entries = await readdir(this._dir, { withFileTypes: true }).catch(() => [])
+    const seen = new Set()
     const results = []
-    for (const entry of entries) {
-      let name = null
-      if (entry.isFile() && entry.name.endsWith('.js')) {
-        name = basename(entry.name, extname(entry.name))
-      } else if (entry.isDirectory()) {
-        try { await access(join(this._dir, entry.name, 'index.js')); name = entry.name } catch {}
-      }
-      if (name) {
-        const loaded = await this.loadApp(name)
-        if (loaded) results.push(name)
+    for (const dir of this._dirs) {
+      const entries = await readdir(dir, { withFileTypes: true }).catch(() => [])
+      for (const entry of entries) {
+        let name = null
+        if (entry.isFile() && entry.name.endsWith('.js')) {
+          name = basename(entry.name, extname(entry.name))
+        } else if (entry.isDirectory()) {
+          try { await access(join(dir, entry.name, 'index.js')); name = entry.name } catch {}
+        }
+        if (name && !seen.has(name)) {
+          seen.add(name)
+          const loaded = await this.loadApp(name)
+          if (loaded) results.push(name)
+        }
       }
     }
     return results
@@ -82,28 +88,30 @@ export class AppLoader {
   }
 
   async watchAll() {
-    try {
-      const ac = new AbortController()
-      const watcher = watch(this._dir, { recursive: true, signal: ac.signal })
-      this._watchers.set('__dir__', ac)
-      ;(async () => {
-        try {
-          for await (const event of watcher) {
-            if (!event.filename || !event.filename.endsWith('.js')) continue
-            const parts = event.filename.replace(/\\/g, '/').split('/')
-            const name = parts.length > 1
-              ? parts[0]
-              : basename(event.filename, extname(event.filename))
-            await this._onFileChange(name)
+    for (const dir of this._dirs) {
+      try {
+        const ac = new AbortController()
+        const watcher = watch(dir, { recursive: true, signal: ac.signal })
+        this._watchers.set(dir, ac)
+        ;(async () => {
+          try {
+            for await (const event of watcher) {
+              if (!event.filename || !event.filename.endsWith('.js')) continue
+              const parts = event.filename.replace(/\\/g, '/').split('/')
+              const name = parts.length > 1
+                ? parts[0]
+                : basename(event.filename, extname(event.filename))
+              await this._onFileChange(name)
+            }
+          } catch (e) {
+            if (e.name !== 'AbortError') {
+              console.error(`[AppLoader] watch error:`, e.message)
+            }
           }
-        } catch (e) {
-          if (e.name !== 'AbortError') {
-            console.error(`[AppLoader] watch error:`, e.message)
-          }
-        }
-      })()
-    } catch (e) {
-      console.error(`[AppLoader] watchAll error:`, e.message)
+        })()
+      } catch (e) {
+        console.error(`[AppLoader] watchAll error:`, e.message)
+      }
     }
   }
 

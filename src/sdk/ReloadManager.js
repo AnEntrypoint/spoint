@@ -1,4 +1,5 @@
 import { watch } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 export class ReloadManager {
@@ -16,6 +17,7 @@ export class ReloadManager {
   addWatcher(moduleId, filePath, onReload, validator) {
     const absPath = resolve(filePath)
     if (this._watchers.has(moduleId)) return
+    if (!existsSync(absPath)) return
     this._reloadState.set(moduleId, { inProgress: false, lastSuccess: null, failureCount: 0 })
     this._failureCounters.set(moduleId, 0)
     if (validator) this._validators.set(moduleId, validator)

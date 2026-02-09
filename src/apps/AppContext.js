@@ -70,7 +70,7 @@ export class AppContext {
       addTrimeshCollider: () => {
         ent.collider = { type: 'trimesh', model: ent.model }
         if (runtime._physics && ent.model) {
-          const bodyId = runtime._physics.addStaticTrimesh(ent.model, 0)
+          const bodyId = runtime._physics.addStaticTrimesh(runtime.resolveAssetPath(ent.model), 0)
           ent._physicsBodyId = bodyId
         }
       },
