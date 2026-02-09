@@ -203,7 +203,11 @@ function buildEntityMesh(entityId, custom) {
   return group
 }
 
+const pendingLoads = new Set()
+
 function loadEntityModel(entityId, entityState) {
+  if (entityMeshes.has(entityId) || pendingLoads.has(entityId)) return
+  pendingLoads.add(entityId)
   if (!entityState.model) {
     const group = buildEntityMesh(entityId, entityState.custom)
     group.position.set(...entityState.position)
