@@ -120,13 +120,14 @@ async function createPlayerVRM(id) {
     const vrmVersion = detectVrmVersion(vrmBuffer)
     vrm.scene.rotation.y = Math.PI
     vrm.scene.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+    const capsuleHeight = 1.8
     const bbox = new THREE.Box3().setFromObject(vrm.scene)
     const modelHeight = bbox.max.y - bbox.min.y
-    const capsuleHeight = 2.6
     const scale = capsuleHeight / modelHeight
     vrm.scene.scale.multiplyScalar(scale)
-    vrm.scene.position.y = -bbox.min.y * scale
-    group.userData.feetOffset = capsuleHeight / 2 + 0.1
+    const scaledBox = new THREE.Box3().setFromObject(vrm.scene)
+    vrm.scene.position.y = -scaledBox.min.y
+    group.userData.feetOffset = capsuleHeight / 2
     group.add(vrm.scene)
     playerVrms.set(id, vrm)
     initVRMFeatures(id, vrm)
