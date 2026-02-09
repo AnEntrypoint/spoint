@@ -46,7 +46,9 @@ export class TickSystem {
     if (now - this.lastTickTime > this.tickDuration * maxSteps) {
       this.lastTickTime = now
     }
-    setImmediate(() => this.loop())
+    const gap = this.tickDuration - (Date.now() - this.lastTickTime)
+    if (gap > 2) setTimeout(() => this.loop(), 1)
+    else setImmediate(() => this.loop())
   }
 
   pauseForReload() {
