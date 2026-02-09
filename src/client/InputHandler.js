@@ -78,6 +78,20 @@ export class InputHandler {
     }
   }
 
+  pulse(handedness, intensity, durationMs) {
+    if (!this.renderer?.xr?.isPresenting) return
+    const session = this.renderer.xr.getSession()
+    if (!session) return
+    for (const source of session.inputSources) {
+      if (source.handedness === handedness) {
+        const gp = source.gamepad
+        if (gp?.hapticActuators?.length > 0) {
+          gp.hapticActuators[0].pulse(intensity, durationMs)
+        }
+      }
+    }
+  }
+
   _getXRInput() {
     if (!this.renderer?.xr?.isPresenting) return null
     const session = this.renderer.xr.getSession()
@@ -85,6 +99,7 @@ export class InputHandler {
     let forward = false, backward = false, left = false, right = false
     let jump = false, shoot = false, sprint = false
     const DEAD = 0.15, THRESH = 0.5
+    let snapTurned = false
     for (const source of session.inputSources) {
       const gp = source.gamepad
       if (!gp) continue
@@ -98,7 +113,7 @@ export class InputHandler {
         if (ax < -THRESH) left = true
         if (ax > THRESH) right = true
         if (btns[4]?.pressed) jump = true
-        if (btns[0]?.pressed) sprint = true
+        if (btns[1]?.pressed) sprint = true
       }
       if (source.handedness === 'right') {
         const ax = axes.length >= 4 ? axes[2] : (axes[0] || 0)
@@ -106,13 +121,18 @@ export class InputHandler {
           if (!this.snapCooldown && Math.abs(ax) > THRESH) {
             this.vrYaw += ax > 0 ? -Math.PI / 6 : Math.PI / 6
             this.snapCooldown = true
+            snapTurned = true
           }
         } else {
           this.snapCooldown = false
         }
         if (btns[0]?.pressed) shoot = true
+        if (btns[1]?.pressed) {
+          // Right grip - interact/grab (placeholder for future)
+        }
       }
     }
+    if (snapTurned) this.pulse('right', 0.3, 50)
     return { forward, backward, left, right, jump, sprint, shoot, yaw: this.vrYaw, mouseX: 0, mouseY: 0 }
   }
 
