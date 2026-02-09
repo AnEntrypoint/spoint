@@ -7,6 +7,7 @@ import { createCameraController } from './camera.js'
 import { loadAnimationLibrary, createPlayerAnimator } from './animation.js'
 import { VRButton } from 'three/addons/webxr/VRButton.js'
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js'
+import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js'
 import { LoadingManager } from './LoadingManager.js'
 import { createLoadingScreen } from './createLoadingScreen.js'
 
@@ -27,12 +28,17 @@ renderer.shadowMap.enabled = true
 renderer.shadowMap.type = THREE.PCFSoftShadowMap
 renderer.xr.enabled = true
 document.body.appendChild(renderer.domElement)
-document.body.appendChild(VRButton.createButton(renderer))
+document.body.appendChild(VRButton.createButton(renderer, { optionalFeatures: ['hand-tracking'] }))
 
 const controllerModels = new Map()
 const controllerGrips = new Map()
 const laserPointers = new Map()
 const controllerModelFactory = new XRControllerModelFactory()
+
+const handModels = new Map()
+const handRays = new Map()
+const handModelFactory = new XRHandModelFactory()
+let handsDetected = false
 
 let teleportArc = null
 let teleportMarker = null
@@ -71,6 +77,14 @@ function createTeleportMarker() {
   return mesh
 }
 
+function createHandRay() {
+  const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -2)])
+  const material = new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.5 })
+  const line = new THREE.Line(geometry, material)
+  line.name = 'handRay'
+  return line
+}
+
 function setupControllers() {
   for (const handedness of [0, 1]) {
     const controller = renderer.xr.getController(handedness)
@@ -96,13 +110,80 @@ function setupControllers() {
   scene.add(teleportMarker)
 }
 
+function setupHands() {
+  for (const handedness of [0, 1]) {
+    const hand = renderer.xr.getHand(handedness)
+    const handModel = handModelFactory.createHandModel(hand)
+    hand.add(handModel)
+    handModels.set(handedness, { hand, model: handModel })
+
+    const ray = createHandRay()
+    hand.add(ray)
+    handRays.set(handedness, ray)
+
+    scene.add(hand)
+    hand.visible = false
+  }
+}
+
+function detectHandGestures(hand, handedness) {
+  const joints = hand.joints
+  if (!joints) return { pinch: false, grab: false, point: false }
+
+  const thumbTip = joints['thumb-tip']
+  const indexTip = joints['index-finger-tip']
+  const middleTip = joints['middle-finger-tip']
+  const ringTip = joints['ring-finger-tip']
+  const pinkyTip = joints['pinky-finger-tip']
+  const indexMcp = joints['index-finger-metacarpal']
+  const wrist = joints['wrist']
+
+  if (!thumbTip || !indexTip || !wrist) return { pinch: false, grab: false, point: false }
+
+  const pinchDist = thumbTip.position.distanceTo(indexTip.position)
+  const pinch = pinchDist < 0.02
+
+  let grab = false
+  if (middleTip && ringTip && pinkyTip) {
+    const palmDist = wrist.position.distanceTo(middleTip.position)
+    const tipsToPalm = [middleTip, ringTip, pinkyTip].every(tip => wrist.position.distanceTo(tip.position) < palmDist * 0.7)
+    grab = tipsToPalm
+  }
+
+  let point = false
+  if (indexMcp && middleTip && ringTip && pinkyTip) {
+    const indexExtended = indexTip.position.distanceTo(wrist.position) > indexMcp.position.distanceTo(wrist.position) * 1.5
+    const othersCurled = [middleTip, ringTip, pinkyTip].every(tip => wrist.position.distanceTo(tip.position) < 0.08)
+    point = indexExtended && othersCurled
+  }
+
+  return { pinch, grab, point, pinchDist }
+}
+
 function updateControllerVisibility() {
   const inVR = renderer.xr.isPresenting
+  const session = renderer.xr.getSession()
+  let hasHands = false
+
+  if (session) {
+    for (const source of session.inputSources) {
+      if (source.hand) {
+        hasHands = true
+        break
+      }
+    }
+  }
+
+  handsDetected = hasHands
+
   for (const handedness of [0, 1]) {
     const grip = controllerGrips.get(handedness)
     const controller = renderer.xr.getController(handedness)
-    if (grip) grip.visible = inVR
-    if (controller) controller.visible = inVR
+    const handData = handModels.get(handedness)
+
+    if (grip) grip.visible = inVR && !handsDetected
+    if (controller) controller.visible = inVR && !handsDetected
+    if (handData) handData.hand.visible = inVR && handsDetected
   }
 }
 
@@ -114,33 +195,60 @@ function updateTeleportArc() {
   }
   const session = renderer.xr.getSession()
   if (!session) return
-  let leftController = null
-  let leftPressed = false
-  let rightPressed = false
-  for (const source of session.inputSources) {
-    if (source.handedness === 'left' && source.gamepad) {
-      leftController = renderer.xr.getController(0)
-      leftPressed = source.gamepad.buttons[0]?.pressed
+
+  let origin = null
+  let direction = null
+  let triggerTeleport = false
+
+  if (handsDetected) {
+    const leftHand = handModels.get(0)
+    if (leftHand) {
+      const gestures = detectHandGestures(leftHand.hand, 0)
+      const joints = leftHand.hand.joints
+      if (joints && joints['index-finger-tip']) {
+        joints['index-finger-tip'].getWorldPosition(_tmpOrigin)
+        joints['index-finger-tip'].getWorldDirection(_tmpDir)
+        origin = _tmpOrigin.clone()
+        direction = _tmpDir.clone().multiplyScalar(-1)
+        triggerTeleport = gestures.pinch
+      }
     }
-    if (source.handedness === 'right' && source.gamepad) {
-      rightPressed = source.gamepad.buttons[1]?.pressed
+  } else {
+    let leftPressed = false
+    let rightPressed = false
+    let leftController = null
+    for (const source of session.inputSources) {
+      if (source.handedness === 'left' && source.gamepad) {
+        leftController = renderer.xr.getController(0)
+        leftPressed = source.gamepad.buttons[0]?.pressed
+      }
+      if (source.handedness === 'right' && source.gamepad) {
+        rightPressed = source.gamepad.buttons[1]?.pressed
+      }
+    }
+    if (leftController && (leftPressed || rightPressed)) {
+      leftController.getWorldPosition(_tmpOrigin)
+      leftController.getWorldDirection(_tmpDir).multiplyScalar(-1)
+      origin = _tmpOrigin.clone()
+      direction = _tmpDir.clone()
+      triggerTeleport = rightPressed
     }
   }
-  if (!leftController || (!leftPressed && !rightPressed)) {
+
+  if (!origin || !direction) {
     teleportArc.visible = false
     teleportMarker.visible = false
     teleportTarget = null
     return
   }
-  leftController.getWorldPosition(_tmpOrigin)
-  leftController.getWorldDirection(_tmpDir).multiplyScalar(-1)
-  const hit = computeParabolicArc(_tmpOrigin, _tmpDir, ARC_VELOCITY, ARC_GRAVITY)
+
+  const hit = computeParabolicArc(origin, direction, ARC_VELOCITY, ARC_GRAVITY)
   if (hit && hit.valid) {
     teleportTarget = hit.point
     teleportMarker.position.set(hit.point.x, hit.point.y + 0.02, hit.point.z)
     teleportMarker.material.color.setHex(0x00ff00)
     teleportMarker.visible = true
-    if (rightPressed && !isTeleporting) {
+    if (triggerTeleport && !isTeleporting) {
       executeTeleport(teleportTarget)
     }
   } else {
@@ -687,4 +795,5 @@ renderer.setAnimationLoop(animate)
 
 client.connect().then(() => { console.log('Connected'); startInputLoop() }).catch(err => console.error('Connection failed:', err))
 setupControllers()
-window.debug = { scene, camera, renderer, client, playerMeshes, entityMeshes, appModules, inputHandler, playerVrms, playerAnimators, loadingMgr, loadingScreen, controllerModels, controllerGrips }
+setupHands()
+window.debug = { scene, camera, renderer, client, playerMeshes, entityMeshes, appModules, inputHandler, playerVrms, playerAnimators, loadingMgr, loadingScreen, controllerModels, controllerGrips, handModels }
