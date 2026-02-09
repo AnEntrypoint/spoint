@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>VRM Fix Test</title>
+    <meta charset="UTF-8">
+    <style>
+        body { font-family: monospace; background: #222; color: #0f0; padding: 20px; }
+        h1 { color: #0ff; }
+        .log { border: 1px solid #0f0; padding: 15px; margin: 10px 0; max-height: 500px; overflow-y: auto; }
+        .error { color: #f00; }
+        .success { color: #0f0; }
+        .info { color: #0ff; }
+        button { padding: 10px 20px; margin: 10px 0; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>VRM Fix Verification Test</h1>
+    <button onclick="runTest()">Run Test</button>
+    <div class="log" id="log"></div>
+    
+    <script type="module">
+        window.log = function(msg, type = 'info') {
+            const div = document.createElement('div');
+            if (type === 'error') div.className = 'error';
+            else if (type === 'success') div.className = 'success';
+            else div.className = 'info';
+            const time = new Date().toISOString().split('T')[1].substring(0, 8);
+            div.textContent = time + ' ' + msg;
+            document.getElementById('log').appendChild(div);
+            document.getElementById('log').scrollTop = document.getElementById('log').scrollHeight;
+            console.log('[' + type + ']', msg);
+        };
+        
+        window.runTest = async function() {
+            try {
+                window.log('=== VRM Fix Test Starting ===');
+                
+                // Test 1: Fetch VRM
+                window.log('Fetching VRM from /apps/tps-game/Cleetus.vrm...');
+                const response = await fetch('/apps/tps-game/Cleetus.vrm');
+                const arrayBuffer = await response.arrayBuffer();
+                const vrmBuffer = new Uint8Array(arrayBuffer);
+                window.log('Downloaded VRM: ' + (vrmBuffer.length / 1024 / 1024).toFixed(2) + ' MB', 'success');
+                
+                // Test 2: Test with .slice(0) - old broken way
+                window.log('Testing GLTFLoader with vrmBuffer.slice(0) (BROKEN)...');
+                const { GLTFLoader } = await import('/node_modules/three/examples/jsm/loaders/GLTFLoader.js');
+                const { VRMLoaderPlugin } = await import('/@pixiv/three-vrm');
+                const loader1 = new GLTFLoader();
+                loader1.register((parser) => new VRMLoaderPlugin(parser));
+                
+                try {
+                    const sliced = vrmBuffer.slice(0);
+                    window.log('slice(0) buffer type: ' + sliced.constructor.name);
+                    window.log('slice(0) has different ArrayBuffer: ' + (sliced.buffer !== vrmBuffer.buffer));
+                    const gltf1 = await loader1.parseAsync(sliced, '');
+                    window.log('SUCCESS with .slice(0)', 'success');
+                } catch (e) {
+                    window.log('FAILED with .slice(0): ' + e.message, 'error');
+                }
+                
+                // Test 3: Test without .slice(0) - new fixed way
+                window.log('Testing GLTFLoader with vrmBuffer directly (FIXED)...');
+                const loader2 = new GLTFLoader();
+                loader2.register((parser) => new VRMLoaderPlugin(parser));
+                
+                try {
+                    const gltf2 = await loader2.parseAsync(vrmBuffer, '');
+                    window.log('SUCCESS without .slice(0)! Got VRM: ' + (!!gltf2.userData.vrm), 'success');
+                    window.log('=== TEST PASSED ===', 'success');
+                } catch (e) {
+                    window.log('FAILED without .slice(0): ' + e.message, 'error');
+                }
+                
+            } catch (error) {
+                window.log('Test error: ' + error.message, 'error');
+                if (error.stack) window.log('Stack: ' + error.stack.substring(0, 300), 'error');
+            }
+        };
+    </script>
+</body>
+</html>
