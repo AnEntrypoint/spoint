@@ -3,7 +3,7 @@ export default {
     setup(ctx) {
       ctx.state.map = 'schwust'
       ctx.state.mode = 'ffa'
-      ctx.state.config = { respawnTime: 3, health: 100, damagePerHit: 25, hitKnockback: 4, shootKnockback: 2 }
+      ctx.state.config = { respawnTime: 3, health: 100, damagePerHit: 20, headshotMultiplier: 2.5, headshotZone: 0.7, hitKnockback: 4, shootKnockback: 2 }
       ctx.state.spawnPoints = findSpawnPoints(ctx)
       ctx.state.playerStats = new Map()
       ctx.state.respawning = new Map()
@@ -240,19 +240,24 @@ function handleFire(ctx, msg) {
     const dist = Math.hypot(proj[0] - tp[0], proj[1] - (tp[1] + 0.9), proj[2] - tp[2])
     if (dist > 0.6) continue
 
+    const hitY = proj[1]
+    const playerHeight = 1.8
+    const hitRatio = (hitY - tp[1]) / playerHeight
+    const isHeadshot = hitRatio >= ctx.state.config.headshotZone
+    const finalDamage = isHeadshot ? Math.round(damage * ctx.state.config.headshotMultiplier) : damage
     const hp = target.state.health ?? ctx.state.config.health
-    const newHp = Math.max(0, hp - damage)
+    const newHp = Math.max(0, hp - finalDamage)
     target.state.health = newHp
 
     target.state.velocity[0] += direction[0] * ctx.state.config.hitKnockback
     target.state.velocity[2] += direction[2] * ctx.state.config.hitKnockback
     ctx.players.send(target.id, { type: 'aimpunch', intensity: 0.6 })
-    ctx.network.broadcast({ type: 'hit', shooter: shooterId, target: target.id, damage, health: newHp })
+    ctx.network.broadcast({ type: 'hit', shooter: shooterId, target: target.id, damage: finalDamage, health: newHp, headshot: isHeadshot })
 
     if (newHp <= 0) {
       const shooterStats = ctx.state.playerStats.get(shooterId) || { kills: 0, deaths: 0, damage: 0 }
       shooterStats.kills++
-      shooterStats.damage += damage
+      shooterStats.damage += finalDamage
       ctx.state.playerStats.set(shooterId, shooterStats)
       const targetStats = ctx.state.playerStats.get(target.id) || { kills: 0, deaths: 0, damage: 0 }
       targetStats.deaths++
@@ -261,7 +266,7 @@ function handleFire(ctx, msg) {
       ctx.network.broadcast({ type: 'death', victim: target.id, killer: shooterId })
     } else {
       const shooterStats = ctx.state.playerStats.get(shooterId) || { kills: 0, deaths: 0, damage: 0 }
-      shooterStats.damage += damage
+      shooterStats.damage += finalDamage
       ctx.state.playerStats.set(shooterId, shooterStats)
     }
     break
