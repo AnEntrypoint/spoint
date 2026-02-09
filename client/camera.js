@@ -84,8 +84,8 @@ export function createCameraController(camera, scene) {
     const punchLerp = 1 - Math.exp(-972 * frameDt)
     punchYaw += (punchYawTarget - punchYaw) * punchLerp
     punchPitch += (punchPitchTarget - punchPitch) * punchLerp
-    punchYawTarget *= 1 - Math.min(1, 6 * frameDt)
-    punchPitchTarget *= 1 - Math.min(1, 6 * frameDt)
+    punchYawTarget *= 1 - Math.min(1, 18 * frameDt)
+    punchPitchTarget *= 1 - Math.min(1, 18 * frameDt)
     yaw += punchYaw * frameDt
     pitch = Math.max(pitchMin, Math.min(pitchMax, pitch + punchPitch * frameDt))
     const sy = Math.sin(yaw), cy = Math.cos(yaw)
