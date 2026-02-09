@@ -218,5 +218,14 @@ export class PhysicsWorld {
     J.destroy(ray); J.destroy(rs); J.destroy(col); J.destroy(bp); J.destroy(ol); J.destroy(bf); J.destroy(sf)
     return result
   }
-  destroy() { for (const [id] of this.bodies) this.removeBody(id); if (this.jolt) { this.Jolt.destroy(this.jolt); this.jolt = null } }
+  destroy() {
+    if (this.characters) {
+      for (const [id, ch] of this.characters) {
+        this.Jolt.destroy(ch)
+      }
+      this.characters.clear()
+    }
+    for (const [id] of this.bodies) this.removeBody(id)
+    if (this.jolt) { this.Jolt.destroy(this.jolt); this.jolt = null }
+  }
 }
