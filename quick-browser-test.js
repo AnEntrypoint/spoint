@@ -16,7 +16,7 @@ async function runTest() {
 
   try {
     console.log('Opening test page...')
-    await page.goto('http://localhost:8080/test-vrm-browser.html', { waitUntil: 'networkidle', timeout: 15000 })
+    await page.goto('http://localhost:3000/test-vrm-browser.html', { waitUntil: 'networkidle', timeout: 15000 })
     console.log('✓ Page loaded\n')
 
     // Inject and run fetch test directly

@@ -5,7 +5,7 @@ console.log('Test 1: Fetching Cleetus.vrm from server...\n')
 
 const options = {
   hostname: 'localhost',
-  port: 8080,
+  port: 3000,
   path: '/apps/tps-game/Cleetus.vrm',
   method: 'GET'
 }

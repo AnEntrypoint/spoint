@@ -41,7 +41,7 @@ export async function boot(overrides = {}) {
     ? [{ prefix: '/apps/', dir: localApps }, { prefix: '/apps/', dir: sdkApps }]
     : [{ prefix: '/apps/', dir: sdkApps }]
   const config = {
-    port: parseInt(process.env.PORT || String(worldDef.port || 8080), 10),
+    port: parseInt(process.env.PORT || String(worldDef.port || 3000), 10),
     tickRate: worldDef.tickRate || 128,
     appsDirs,
     sdkRoot: SDK_ROOT,
@@ -66,7 +66,7 @@ export async function boot(overrides = {}) {
 }
 
 export async function createServer(config = {}) {
-  const port = config.port || 8080
+  const port = config.port || 3000
   const tickRate = config.tickRate || 128
   const appsDirs = config.appsDirs || [config.appsDir || './apps']
   const gravity = config.gravity || [0, -9.81, 0]
