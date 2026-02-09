@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, statSync } from 'node:fs'
 import { join, extname } from 'node:path'
 import { gzipSync } from 'node:zlib'
 
@@ -18,7 +18,7 @@ export function createStaticHandler(dirs) {
       if (!url.startsWith(prefix)) continue
       const relative = url === prefix ? '/index.html' : url.slice(prefix.length)
       const fp = join(dir, relative)
-      if (existsSync(fp)) {
+      if (existsSync(fp) && statSync(fp).isFile()) {
         const ext = extname(fp)
         const headers = { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' }
         if (ext === '.js' || ext === '.html' || ext === '.css') {
