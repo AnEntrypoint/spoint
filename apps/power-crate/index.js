@@ -19,7 +19,7 @@ const CONFIG = {
 export default {
   server: {
     setup(ctx) {
-      ctx.state.crates = ctx.state.crates || new Map()
+      ctx.state.crates = ctx.state.crates || new Set()
       ctx.state.pickups = ctx.state.pickups || new Map()
       ctx.state.spawnPoints = findSpawnPoints(ctx)
       ctx.state.nextCrateId = ctx.state.nextCrateId || 0
@@ -30,7 +30,8 @@ export default {
       })
 
       console.log(`[power-crate] ${ctx.state.spawnPoints.length} spawn points, interval ${CONFIG.spawnInterval}s`)
-      spawnCrate(ctx)
+      const initialCount = Math.min(5, ctx.state.spawnPoints.length)
+      for (let i = 0; i < initialCount; i++) spawnCrate(ctx)
     },
 
     update(ctx, dt) {
@@ -45,7 +46,7 @@ export default {
     },
 
     teardown(ctx) {
-      for (const id of ctx.state.crates.keys()) ctx.world.destroy(id)
+      for (const id of ctx.state.crates) ctx.world.destroy(id)
       for (const id of ctx.state.pickups.keys()) ctx.world.destroy(id)
       ctx.state.crates.clear()
       ctx.state.pickups.clear()
@@ -86,7 +87,7 @@ function spawnCrate(ctx) {
     app: 'physics-crate',
     config: { type: 'power-crate' }
   })
-  ctx.state.crates.set(id, [...pos])
+  ctx.state.crates.add(id)
 }
 
 function handleFireEvent(ctx, data) {
@@ -94,7 +95,10 @@ function handleFireEvent(ctx, data) {
   const origin = data.origin
   const direction = data.direction
 
-  for (const [crateId, cratePos] of ctx.state.crates) {
+  for (const crateId of ctx.state.crates) {
+    const ent = ctx.world.getEntity(crateId)
+    if (!ent) continue
+    const cratePos = ent.position
     const toTarget = [
       cratePos[0] - origin[0],
       cratePos[1] - origin[1],
@@ -114,9 +118,10 @@ function handleFireEvent(ctx, data) {
     )
     if (dist > CONFIG.crateHitRadius) continue
 
+    const hitPos = [cratePos[0], cratePos[1], cratePos[2]]
     ctx.world.destroy(crateId)
     ctx.state.crates.delete(crateId)
-    spawnPickup(ctx, cratePos)
+    spawnPickup(ctx, hitPos)
     break
   }
 }
