@@ -126,6 +126,7 @@ async function createPlayerVRM(id) {
     const scale = capsuleHeight / modelHeight
     vrm.scene.scale.multiplyScalar(scale)
     vrm.scene.position.y = -bbox.min.y * scale
+    group.userData.feetOffset = capsuleHeight / 2
     group.add(vrm.scene)
     playerVrms.set(id, vrm)
     initVRMFeatures(id, vrm)
@@ -285,7 +286,8 @@ const client = new PhysicsNetworkClient({
     for (const p of state.players) {
       if (!playerMeshes.has(p.id)) createPlayerVRM(p.id)
       const mesh = playerMeshes.get(p.id)
-      const tx = p.position[0], ty = p.position[1] - 1.6, tz = p.position[2]
+      const feetOff = mesh?.userData?.feetOffset || 1.3
+      const tx = p.position[0], ty = p.position[1] - feetOff, tz = p.position[2]
       playerTargets.set(p.id, { x: tx, y: ty, z: tz })
       playerStates.set(p.id, p)
       if (!mesh.userData.initialized) { mesh.position.set(tx, ty, tz); mesh.userData.initialized = true }
