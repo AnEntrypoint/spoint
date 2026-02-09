@@ -82,11 +82,8 @@ function spawnCrate(ctx) {
   if (sp.length === 0) return
   const pos = sp[Math.floor(Math.random() * sp.length)]
   const id = `power_crate_${ctx.state.nextCrateId++}`
-  ctx.world.spawn(id, {
-    position: [...pos],
-    app: 'physics-crate',
-    config: { type: 'power-crate' }
-  })
+  const e = ctx.world.spawn(id, { position: [...pos] })
+  if (e) e.custom = { mesh: 'box', color: 0xff8800, sx: 1, sy: 1, sz: 1, hover: 0.15, spin: 1 }
   ctx.state.crates.add(id)
 }
 
