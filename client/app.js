@@ -66,6 +66,10 @@ let fadeState = 'none'
 const FADE_SPEED = 5
 const FADE_DELAY = 50
 
+let vignetteMesh = null
+let vignetteOpacity = 0
+let vignetteTargetOpacity = 0
+
 function createLaserPointer() {
   const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -5)])
   const material = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 })
@@ -488,6 +492,53 @@ function updateFade(dt) {
 
   fadeQuad.material.opacity = fadeOpacity
   fadeQuad.visible = fadeOpacity > 0.01
+}
+
+function createVignette() {
+  const canvas = document.createElement('canvas')
+  canvas.width = 512
+  canvas.height = 512
+  const ctx = canvas.getContext('2d')
+
+  const gradient = ctx.createRadialGradient(256, 256, 100, 256, 256, 400)
+  gradient.addColorStop(0, 'rgba(0, 0, 0, 0)')
+  gradient.addColorStop(0.5, 'rgba(0, 0, 0, 0.3)')
+  gradient.addColorStop(1, 'rgba(0, 0, 0, 0.8)')
+
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, 512, 512)
+
+  const texture = new THREE.CanvasTexture(canvas)
+  const geometry = new THREE.PlaneGeometry(2, 2)
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    opacity: 0,
+    depthTest: false,
+    depthWrite: false
+  })
+  const mesh = new THREE.Mesh(geometry, material)
+  mesh.renderOrder = 9998
+  return mesh
+}
+
+function updateVignette(dt, isMoving) {
+  if (!vrSettings.vignetteEnabled) {
+    if (vignetteMesh) vignetteMesh.visible = false
+    return
+  }
+
+  if (!vignetteMesh) {
+    vignetteMesh = createVignette()
+    camera.add(vignetteMesh)
+    vignetteMesh.position.z = -0.15
+  }
+
+  vignetteTargetOpacity = isMoving ? 0.6 : 0
+  vignetteOpacity += (vignetteTargetOpacity - vignetteOpacity) * 5 * dt
+
+  vignetteMesh.material.opacity = vignetteOpacity
+  vignetteMesh.visible = vignetteOpacity > 0.01
 }
 
 function executeTeleport(targetPoint) {
@@ -1006,6 +1057,14 @@ function animate(timestamp) {
   updateControllerVisibility()
   updateTeleportArc()
   updateFade(frameDt)
+
+  let isMoving = false
+  if (inVR && local?.velocity) {
+    const speed = Math.sqrt(local.velocity[0] ** 2 + local.velocity[2] ** 2)
+    isMoving = speed > 0.5
+  }
+  updateVignette(frameDt, isMoving)
+
   renderer.render(scene, camera)
 }
 renderer.setAnimationLoop(animate)
