@@ -1,7 +1,9 @@
 export class EventLog {
   constructor(config = {}) {
-    this._log = []
-    this._maxSize = config.maxSize || 100000
+    this._maxSize = config.maxSize || 1000
+    this._buf = new Array(this._maxSize)
+    this._head = 0
+    this._count = 0
     this._nextId = 1
     this._recording = true
   }
@@ -16,13 +18,19 @@ export class EventLog {
       data,
       meta: { actor: meta.actor || null, reason: meta.reason || null, context: meta.context || null, sourceApp: meta.sourceApp || null, sourceEntity: meta.sourceEntity || null, causalEventId: meta.causalEventId || null, ...meta }
     }
-    this._log.push(event)
-    if (this._log.length > this._maxSize) this._log.shift()
+    this._buf[this._head] = event
+    this._head = (this._head + 1) % this._maxSize
+    if (this._count < this._maxSize) this._count++
     return event
   }
 
+  _toArray() {
+    if (this._count < this._maxSize) return this._buf.slice(0, this._count)
+    return [...this._buf.slice(this._head), ...this._buf.slice(0, this._head)]
+  }
+
   query(filter = {}) {
-    return this._log.filter(e => {
+    return this._toArray().filter(e => {
       if (filter.type && e.type !== filter.type) return false
       if (filter.tick !== undefined && e.tick !== filter.tick) return false
       if (filter.tickRange && (e.tick < filter.tickRange[0] || e.tick > filter.tickRange[1])) return false
@@ -34,30 +42,36 @@ export class EventLog {
   }
 
   getRange(startTick, endTick) {
-    return this._log.filter(e => e.tick >= startTick && e.tick <= endTick)
+    return this._toArray().filter(e => e.tick >= startTick && e.tick <= endTick)
   }
 
-  get size() { return this._log.length }
-  get lastTick() { return this._log.length > 0 ? this._log[this._log.length - 1].tick : 0 }
+  get size() { return this._count }
+  get lastTick() {
+    if (this._count === 0) return 0
+    const idx = (this._head - 1 + this._maxSize) % this._maxSize
+    return this._buf[idx].tick
+  }
 
   pause() { this._recording = false }
   resume() { this._recording = true }
-  clear() { this._log = []; this._nextId = 1 }
+  clear() { this._buf = new Array(this._maxSize); this._head = 0; this._count = 0; this._nextId = 1 }
 
-  serialize() { return JSON.stringify(this._log) }
+  serialize() { return JSON.stringify(this._toArray()) }
 
   static deserialize(json) {
-    const log = new EventLog()
-    log._log = JSON.parse(json)
-    log._nextId = log._log.length > 0 ? log._log[log._log.length - 1].id + 1 : 1
+    const arr = JSON.parse(json)
+    const log = new EventLog({ maxSize: Math.max(arr.length, 1000) })
+    for (const e of arr) log._buf[log._head++] = e
+    log._count = arr.length
+    log._head = log._head % log._maxSize
+    log._nextId = arr.length > 0 ? arr[arr.length - 1].id + 1 : 1
     return log
   }
 
   replay(runtime, options = {}) {
-    const speed = options.speed || 1
     const startTick = options.startTick || 0
     const endTick = options.endTick || Infinity
-    const events = this._log.filter(e => e.tick >= startTick && e.tick <= endTick)
+    const events = this._toArray().filter(e => e.tick >= startTick && e.tick <= endTick)
     const result = { eventsReplayed: 0, errors: [] }
     for (const event of events) {
       try {

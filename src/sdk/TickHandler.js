@@ -16,6 +16,7 @@ export function createTickHandler(deps) {
   let snapshotSeq = 0
 
   let profileLog = 0
+  const separated = new Set()
   return function onTick(tick, dt) {
     const t0 = performance.now()
     networkState.setTick(tick, Date.now())
@@ -50,7 +51,7 @@ export function createTickHandler(deps) {
     }
     const t1 = performance.now()
     const players = playerManager.getConnectedPlayers()
-    const separated = new Set()
+    separated.clear()
     for (const player of players) {
       const collisions = physicsIntegration.checkCollisionWithOthers(player.id, players)
       for (const collision of collisions) {
