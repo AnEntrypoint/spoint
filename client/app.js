@@ -246,6 +246,7 @@ function buildEntityMesh(entityId, custom) {
   group.add(mesh)
   if (c.light) { group.add(new THREE.PointLight(c.light, c.lightIntensity || 1, c.lightRange || 4)) }
   if (c.spin) group.userData.spin = c.spin
+  if (c.hover) group.userData.hover = c.hover
   return group
 }
 
@@ -430,6 +431,10 @@ function animate(timestamp) {
   }
   for (const [eid, mesh] of entityMeshes) {
     if (mesh.userData.spin) mesh.rotation.y += mesh.userData.spin * frameDt
+    if (mesh.userData.hover) {
+      mesh.userData.hoverTime = (mesh.userData.hoverTime || 0) + frameDt
+      mesh.position.y += Math.sin(mesh.userData.hoverTime * 2) * mesh.userData.hover
+    }
   }
   for (const [, mod] of appModules) { if (mod.onFrame) try { mod.onFrame(frameDt, engineCtx) } catch (e) {} }
   uiTimer += frameDt
