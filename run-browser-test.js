@@ -26,8 +26,8 @@ async function runTest() {
   page.on('error', (err) => console.error('[PAGE ERROR]', err))
 
   try {
-    console.log('Opening http://localhost:8080/test-vrm-browser.html\n')
-    await page.goto('http://localhost:8080/test-vrm-browser.html')
+    console.log('Opening http://localhost:3000/test-vrm-browser.html\n')
+    await page.goto('http://localhost:3000/test-vrm-browser.html')
 
     // Wait for page to load
     await page.waitForLoadState('networkidle')

@@ -4,7 +4,7 @@ import { MSG } from '../protocol/MessageTypes.js'
 
 export class PhysicsNetworkClient {
   constructor(config = {}) {
-    this.config = { url: config.url || 'ws://localhost:8080/ws', tickRate: config.tickRate || 128, predictionEnabled: config.predictionEnabled !== false, debug: config.debug || false, ...config }
+    this.config = { url: config.url || 'ws://localhost:3000/ws', tickRate: config.tickRate || 128, predictionEnabled: config.predictionEnabled !== false, debug: config.debug || false, ...config }
     this.ws = null
     this.playerId = null
     this.connected = false

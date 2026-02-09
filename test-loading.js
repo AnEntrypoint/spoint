@@ -10,8 +10,8 @@ const puppeteer = require('puppeteer');
     await page.setViewport({ width: 1280, height: 720 });
     
     // Navigate to the app
-    console.log('Navigating to http://localhost:8080...');
-    await page.goto('http://localhost:8080', { waitUntil: 'domcontentloaded', timeout: 10000 });
+    console.log('Navigating to http://localhost:3000...');
+    await page.goto('http://localhost:3000', { waitUntil: 'domcontentloaded', timeout: 10000 });
     
     // Wait a bit for loading to progress
     await page.waitForTimeout(1000);
