@@ -17,7 +17,7 @@ export class PlayerManager {
         velocity: initialState.velocity || [0, 0, 0],
         angularVelocity: initialState.angularVelocity || [0, 0, 0],
         onGround: true,
-        health: 100
+        health: initialState.health ?? 100
       },
       inputSequence: 0,
       lastInputTime: 0,

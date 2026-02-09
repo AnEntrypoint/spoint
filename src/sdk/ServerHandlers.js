@@ -6,9 +6,10 @@ export function createConnectionHandlers(ctx) {
 
   function onClientConnect(transport) {
     const sp = [...ctx.worldSpawnPoint]
-    const playerId = playerManager.addPlayer(transport, { position: sp })
+    const playerConfig = ctx.currentWorldDef?.player || {}
+    const playerId = playerManager.addPlayer(transport, { position: sp, health: playerConfig.health })
     networkState.addPlayer(playerId, { position: sp })
-    physicsIntegration.addPlayerCollider(playerId, 0.4)
+    physicsIntegration.addPlayerCollider(playerId, playerConfig.capsuleRadius || 0.4)
     physicsIntegration.setPlayerPosition(playerId, sp)
     const playerState = playerManager.getPlayer(playerId).state
     lagCompensator.recordPlayerPosition(playerId, playerState.position, playerState.rotation, playerState.velocity, tickSystem.currentTick)

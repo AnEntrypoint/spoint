@@ -41,6 +41,7 @@ export async function boot(overrides = {}) {
     appsDir,
     gravity: worldDef.gravity,
     movement: worldDef.movement,
+    playerConfig: worldDef.player,
     staticDirs: [
       { prefix: '/src/', dir: join(SDK_ROOT, 'src') },
       { prefix: '/apps/', dir: appsDir },
@@ -78,7 +79,8 @@ export async function createServer(config = {}) {
   const playerManager = new PlayerManager()
   const networkState = new NetworkState()
   const lagCompensator = new LagCompensator()
-  const physicsIntegration = new PhysicsIntegration({ gravity, physicsWorld: physics })
+  const playerConfig = config.playerConfig || {}
+  const physicsIntegration = new PhysicsIntegration({ gravity, physicsWorld: physics, capsuleRadius: playerConfig.capsuleRadius, capsuleHalfHeight: playerConfig.capsuleHalfHeight, playerMass: playerConfig.mass })
   const connections = new ConnectionManager({
     heartbeatInterval: config.heartbeatInterval || 1000,
     heartbeatTimeout: config.heartbeatTimeout || 3000

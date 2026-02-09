@@ -11,8 +11,8 @@ export function createTickHandler(deps) {
   const applyMovement = _movement?.applyMovement || _applyMovement
   const DEFAULT_MOVEMENT = _movement?.DEFAULT_MOVEMENT || _DEFAULT_MOVEMENT
   const movement = { ...DEFAULT_MOVEMENT, ...m }
-  const collisionRestitution = m.collisionRestitution || 0.2
-  const collisionDamping = m.collisionDamping || 0.25
+  const collisionRestitution = movement.collisionRestitution || 0.2
+  const collisionDamping = movement.collisionDamping || 0.25
   let snapshotSeq = 0
 
   let profileLog = 0

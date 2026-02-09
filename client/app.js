@@ -11,6 +11,8 @@ const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x87ceeb)
 scene.fog = new THREE.Fog(0x87ceeb, 80, 200)
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 500)
+let worldConfig = {}
+let inputConfig = { pointerLock: true }
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
 renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.setPixelRatio(window.devicePixelRatio)
@@ -58,6 +60,22 @@ function fitShadowFrustum() {
   sc.updateProjectionMatrix()
   sun.target.position.copy(center)
   sun.target.updateMatrixWorld()
+}
+
+function applySceneConfig(s) {
+  if (s.skyColor != null) { scene.background = new THREE.Color(s.skyColor) }
+  if (s.fogColor != null) { scene.fog = new THREE.Fog(s.fogColor, s.fogNear ?? 80, s.fogFar ?? 200) }
+  if (s.ambientColor != null) { ambient.color.set(s.ambientColor); ambient.intensity = s.ambientIntensity ?? 0.3 }
+  if (s.sunColor != null) { sun.color.set(s.sunColor); sun.intensity = s.sunIntensity ?? 1.5 }
+  if (s.sunPosition) sun.position.set(...s.sunPosition)
+  if (s.fillColor != null) { studio.color.set(s.fillColor); studio.intensity = s.fillIntensity ?? 0.4 }
+  if (s.fillPosition) studio.position.set(...s.fillPosition)
+  if (s.shadowMapSize) sun.shadow.mapSize.set(s.shadowMapSize, s.shadowMapSize)
+  if (s.shadowBias != null) sun.shadow.bias = s.shadowBias
+  if (s.shadowNormalBias != null) sun.shadow.normalBias = s.shadowNormalBias
+  if (s.shadowRadius != null) sun.shadow.radius = s.shadowRadius
+  if (s.shadowBlurSamples != null) sun.shadow.blurSamples = s.shadowBlurSamples
+  if (s.fov) { camera.fov = s.fov; camera.updateProjectionMatrix() }
 }
 
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x444444 }))
@@ -120,15 +138,17 @@ async function createPlayerVRM(id) {
     const vrmVersion = detectVrmVersion(vrmBuffer)
     vrm.scene.rotation.y = Math.PI
     vrm.scene.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
-    const modelScale = 1.323
+    const pc = worldConfig.player || {}
+    const modelScale = pc.modelScale || 1.323
+    const feetOffsetRatio = pc.feetOffset || 0.212
     vrm.scene.scale.multiplyScalar(modelScale)
-    vrm.scene.position.y = -(0.212) * modelScale
+    vrm.scene.position.y = -feetOffsetRatio * modelScale
     group.userData.feetOffset = 1.3
     group.add(vrm.scene)
     playerVrms.set(id, vrm)
     initVRMFeatures(id, vrm)
     if (animClips) {
-      const animator = createPlayerAnimator(vrm, animClips, vrmVersion)
+      const animator = createPlayerAnimator(vrm, animClips, vrmVersion, worldConfig.animation || {})
       playerAnimators.set(id, animator)
     }
   } catch (e) { console.error('[vrm]', id, e.message) }
@@ -302,8 +322,15 @@ const client = new PhysicsNetworkClient({
   onEntityAdded: (id, state) => loadEntityModel(id, state),
   onEntityRemoved: (id) => { const m = entityMeshes.get(id); if (m) { scene.remove(m); m.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose() }); entityMeshes.delete(id) }; pendingLoads.delete(id) },
   onWorldDef: (wd) => {
+    worldConfig = wd
     if (wd.playerModel) initAssets(wd.playerModel.startsWith('./') ? '/' + wd.playerModel.slice(2) : wd.playerModel)
     if (wd.entities) for (const e of wd.entities) { if (e.app) entityAppMap.set(e.id, e.app); if (e.model && !entityMeshes.has(e.id)) loadEntityModel(e.id, e) }
+    if (wd.scene) applySceneConfig(wd.scene)
+    if (wd.camera) cam.applyConfig(wd.camera)
+    if (wd.input) {
+      inputConfig = { pointerLock: true, ...wd.input }
+      if (!inputConfig.pointerLock) { clickPrompt.style.display = 'none' }
+    }
   },
   onAppModule: (d) => {
     const a = evaluateAppModule(d.code)
@@ -325,6 +352,9 @@ const engineCtx = {
   get client() { return client },
   get playerId() { return client.playerId },
   get cam() { return cam },
+  get worldConfig() { return worldConfig },
+  get inputConfig() { return inputConfig },
+  setInputConfig(cfg) { Object.assign(inputConfig, cfg); if (!inputConfig.pointerLock) { clickPrompt.style.display = 'none'; if (document.pointerLockElement) document.exitPointerLock() } },
   players: {
     getMesh: (id) => playerMeshes.get(id),
     getState: (id) => playerStates.get(id),
@@ -348,10 +378,10 @@ function startInputLoop() {
   }, 1000 / 60)
 }
 
-renderer.domElement.addEventListener('click', () => { if (!document.pointerLockElement) renderer.domElement.requestPointerLock() })
+renderer.domElement.addEventListener('click', () => { if (inputConfig.pointerLock && !document.pointerLockElement) renderer.domElement.requestPointerLock() })
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === renderer.domElement
-  clickPrompt.style.display = locked ? 'none' : 'block'
+  clickPrompt.style.display = locked ? 'none' : (inputConfig.pointerLock ? 'block' : 'none')
   if (locked) document.addEventListener('mousemove', cam.onMouseMove)
   else document.removeEventListener('mousemove', cam.onMouseMove)
 })

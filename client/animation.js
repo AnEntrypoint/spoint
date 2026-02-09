@@ -88,10 +88,11 @@ export async function loadAnimationLibrary(vrmVersion, vrmHumanoid) {
   return normalizeClips(gltf, vrmVersion || '1', vrmHumanoid)
 }
 
-export function createPlayerAnimator(vrm, clips, vrmVersion) {
+export function createPlayerAnimator(vrm, clips, vrmVersion, animConfig = {}) {
+  const FADE = animConfig.fadeTime || FADE_TIME
   const root = vrm.scene
   const mixer = new THREE.AnimationMixer(root)
-  mixer.timeScale = 1.3
+  mixer.timeScale = animConfig.mixerTimeScale || 1.3
   const actions = new Map()
   const additiveActions = new Map()
   for (const [name, clip] of clips) {
@@ -112,8 +113,8 @@ export function createPlayerAnimator(vrm, clips, vrmVersion) {
         action.loop = THREE.LoopOnce
         action.clampWhenFinished = cfg.clamp || false
       }
-      if (name === 'WalkLoop') action.timeScale = 2.0
-      if (name === 'SprintLoop') action.timeScale = 0.56
+      if (name === 'WalkLoop') action.timeScale = animConfig.walkTimeScale || 2.0
+      if (name === 'SprintLoop') action.timeScale = animConfig.sprintTimeScale || 0.56
       actions.set(name, action)
     }
   }
@@ -135,8 +136,8 @@ export function createPlayerAnimator(vrm, clips, vrmVersion) {
     const prev = actions.get(current)
     const next = actions.get(name)
     if (!next) return
-    if (prev) prev.fadeOut(FADE_TIME)
-    next.reset().fadeIn(FADE_TIME).play()
+    if (prev) prev.fadeOut(FADE)
+    next.reset().fadeIn(FADE).play()
     current = name
     if (LOCO_STATES.has(name)) locomotionCooldown = LOCO_COOLDOWN
   }
@@ -213,9 +214,9 @@ export function createPlayerAnimator(vrm, clips, vrmVersion) {
       const action = additiveActions.get('Aim')
       if (!action) return
       if (active) {
-        if (!action.isRunning()) action.fadeIn(FADE_TIME).play()
+        if (!action.isRunning()) action.fadeIn(FADE).play()
       } else {
-        if (action.isRunning()) action.fadeOut(FADE_TIME)
+        if (action.isRunning()) action.fadeOut(FADE)
       }
     },
     dispose() {
