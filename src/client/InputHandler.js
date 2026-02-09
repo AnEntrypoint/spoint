@@ -168,19 +168,37 @@ export class InputHandler {
 
       const gp = source.gamepad
       if (!gp) continue
+
+      // Debug logging
+      if (window.__VR_DEBUG__) {
+        console.log(`[VR] ${source.handedness} axes:`, gp.axes.map((a, i) => `${i}:${a?.toFixed(2)}`).join(', '))
+        console.log(`[VR] ${source.handedness} btns:`, gp.buttons.map((b, i) => `${i}:${b?.pressed ? '1' : '0'}`).join(', '))
+      }
+
       const axes = gp.axes
       const btns = gp.buttons
+
+      // Find primary joystick axes (usually first 2, but varies by controller)
+      const primaryX = axes[0] ?? 0
+      const primaryY = axes[1] ?? 0
+      const secondaryX = axes.length > 2 ? (axes[2] ?? 0) : 0
+
       if (source.handedness === 'left') {
-        const ax = axes.length >= 4 ? axes[2] : (axes[0] || 0)
-        const ay = axes.length >= 4 ? axes[3] : (axes[1] || 0)
-        if (ay < -THRESH) forward = true
-        if (ay > THRESH) backward = true
-        if (ax < -THRESH) left = true
-        if (ax > THRESH) right = true
-        if (btns[4]?.pressed) jump = true
-        if (btns[1]?.pressed) sprint = true
-        if (btns[3]?.pressed) reload = true
-        if (btns[2]?.pressed) {
+        // Use primary stick for movement
+        if (primaryY < -THRESH) forward = true
+        if (primaryY > THRESH) backward = true
+        if (primaryX < -THRESH) left = true
+        if (primaryX > THRESH) right = true
+
+        // Try common button mappings
+        if (btns[0]?.pressed) jump = true
+        if (btns[1]?.pressed || btns[2]?.pressed) sprint = true
+
+        // X/A button for reload (common indices: 2, 3, 4)
+        if (btns[2]?.pressed || btns[3]?.pressed || btns[4]?.pressed) reload = true
+
+        // Y/B or menu button for settings
+        if (btns[4]?.pressed || btns[5]?.pressed || btns[3]?.pressed) {
           if (!this.menuCooldown) {
             menu = true
             this.menuCooldown = true
@@ -190,22 +208,30 @@ export class InputHandler {
           this.menuCooldown = false
         }
       }
+
       if (source.handedness === 'right') {
-        const ax = axes.length >= 4 ? axes[2] : (axes[0] || 0)
-        if (Math.abs(ax) > DEAD) {
-          if (!this.snapCooldown && Math.abs(ax) > THRESH) {
-            this.vrYaw += ax > 0 ? -snapAngleRad : snapAngleRad
+        // Use secondary stick (or primary if only 2 axes) for snap turn
+        const turnX = axes.length > 2 ? secondaryX : primaryX
+        if (Math.abs(turnX) > DEAD) {
+          if (!this.snapCooldown && Math.abs(turnX) > THRESH) {
+            this.vrYaw += turnX > 0 ? -snapAngleRad : snapAngleRad
             this.snapCooldown = true
             snapTurned = true
           }
         } else {
           this.snapCooldown = false
         }
+
+        // Trigger to shoot
         if (btns[0]?.pressed) shoot = true
-        if (btns[1]?.pressed) {
-          // Right grip - interact/grab (placeholder for future)
+
+        // Grip for grab/interact
+        if (btns[1]?.pressed || btns[2]?.pressed) {
+          // Right grip - interact/grab
         }
-        if (btns[4]?.pressed) reload = true
+
+        // B/Y button for reload
+        if (btns[2]?.pressed || btns[3]?.pressed || btns[4]?.pressed || btns[5]?.pressed) reload = true
       }
     }
     if (snapTurned) this.pulse('right', 0.3, 50)

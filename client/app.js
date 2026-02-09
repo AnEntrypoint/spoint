@@ -954,6 +954,14 @@ function initInputHandler() {
       if (renderer.xr.isPresenting) toggleVRSettings()
     }
   })
+
+  // Initialize vrYaw from camera when entering VR
+  renderer.xr.addEventListener('sessionstart', () => {
+    if (inputHandler) {
+      inputHandler.vrYaw = cam.yaw
+      console.log('[VR] Session started, vrYaw initialized to:', cam.yaw)
+    }
+  })
 }
 
 let settingsTriggerCooldown = false
@@ -1088,4 +1096,11 @@ renderer.setAnimationLoop(animate)
 client.connect().then(() => { console.log('Connected'); startInputLoop() }).catch(err => console.error('Connection failed:', err))
 setupControllers()
 setupHands()
-window.debug = { scene, camera, renderer, client, playerMeshes, entityMeshes, appModules, inputHandler, playerVrms, playerAnimators, loadingMgr, loadingScreen, controllerModels, controllerGrips, handModels }
+window.__VR_DEBUG__ = false
+window.debug = {
+  scene, camera, renderer, client, playerMeshes, entityMeshes, appModules, inputHandler, playerVrms, playerAnimators, loadingMgr, loadingScreen, controllerModels, controllerGrips, handModels,
+  enableVRDebug: () => { window.__VR_DEBUG__ = true; console.log('[VR] Debug enabled - button/axis logging active') },
+  disableVRDebug: () => { window.__VR_DEBUG__ = false; console.log('[VR] Debug disabled') },
+  vrInput: () => inputHandler?.getInput() || null,
+  vrSettings: () => vrSettings
+}
