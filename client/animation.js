@@ -180,9 +180,12 @@ export function createPlayerAnimator(vrm, clips, vrmVersion, animConfig = {}) {
         if (health <= 0) {
           transitionTo('Death')
           oneShot = 'Death'
-        } else if (oneShot === 'Death') {
+        } else if (oneShot === 'Death' || current === 'Death') {
+          const deathAction = actions.get('Death')
+          if (deathAction) { deathAction.stop(); deathAction.reset() }
           oneShot = null
           oneShotTimer = 0
+          current = null
           transitionTo('IdleLoop')
         } else if (!effectiveOnGround && !wasOnGround) {
           transitionTo('JumpLoop')
