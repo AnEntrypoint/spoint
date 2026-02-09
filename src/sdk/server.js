@@ -52,6 +52,7 @@ export async function boot(overrides = {}) {
       { prefix: '/src/', dir: join(SDK_ROOT, 'src') },
       ...appsStaticDirs,
       { prefix: '/node_modules/', dir: join(SDK_ROOT, 'node_modules') },
+      { prefix: '/editor/', dir: join(SDK_ROOT, 'client/editor') },
       { prefix: '/', dir: join(SDK_ROOT, 'client') }
     ],
     ...overrides
