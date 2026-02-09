@@ -3,7 +3,7 @@
 Multiplayer game server SDK. 128 TPS authoritative server, Jolt Physics WASM, WebSocket transport, hot reload.
 
 ## Quick Start
-
+ 
 ```bash
 npm install
 node server.js
