@@ -15,6 +15,12 @@ export class PhysicsNetworkClient {
     this.currentTick = 0
     this.state = { players: [], entities: [] }
     this.heartbeatTimer = null
+    this._sessionToken = null
+    this._reconnectAttempts = 0
+    this._reconnectTimer = null
+    this._reconnecting = false
+    this._maxReconnectDelay = 5000
+    this._destroyed = false
     this.callbacks = {
       onConnect: config.onConnect || (() => {}),
       onDisconnect: config.onDisconnect || (() => {}),
@@ -28,37 +34,73 @@ export class PhysicsNetworkClient {
       onWorldDef: config.onWorldDef || (() => {}),
       onAppModule: config.onAppModule || (() => {}),
       onAssetUpdate: config.onAssetUpdate || (() => {}),
-      onAppEvent: config.onAppEvent || (() => {})
+      onAppEvent: config.onAppEvent || (() => {}),
+      onHotReload: config.onHotReload || (() => {})
     }
   }
 
   async connect() {
     return new Promise((resolve, reject) => {
+      let settled = false
       try {
         this.ws = new WebSocket(this.config.url)
         this.ws.binaryType = 'arraybuffer'
-        this.ws.onopen = () => this._onOpen(resolve)
+        this.ws.onopen = () => { settled = true; this._onOpen(resolve) }
         this.ws.onmessage = (event) => this.onMessage(event.data)
         this.ws.onclose = () => this._onClose()
-        this.ws.onerror = (error) => this._onError(error, reject)
-      } catch (error) { reject(error) }
+        this.ws.onerror = (error) => { if (!settled) { settled = true; resolve() }  }
+      } catch (error) { resolve() }
     })
   }
 
   _onOpen(resolve) {
     this.connected = true
+    this._reconnectAttempts = 0
     this._startHeartbeat()
+    if (this._sessionToken && this._reconnecting) {
+      this.ws.send(pack({ type: MSG.RECONNECT, payload: { sessionToken: this._sessionToken } }))
+    }
+    this._reconnecting = false
     this.callbacks.onConnect()
-    resolve()
+    if (resolve) resolve()
   }
 
   _onClose() {
     this.connected = false
     this._stopHeartbeat()
     this.callbacks.onDisconnect()
+    this._scheduleReconnect()
   }
 
-  _onError(error, reject) { reject(error) }
+  _onError(error, reject) {
+    if (reject) reject(error)
+  }
+
+  _scheduleReconnect() {
+    if (this._destroyed) return
+    if (this._reconnectTimer) return
+    const delay = Math.min(1000 * Math.pow(1.5, this._reconnectAttempts), this._maxReconnectDelay)
+    this._reconnectAttempts++
+    this._reconnecting = true
+    this._reconnectTimer = setTimeout(() => {
+      this._reconnectTimer = null
+      if (this._destroyed) return
+      this._doReconnect()
+    }, delay)
+  }
+
+  _doReconnect() {
+    try {
+      this.ws = new WebSocket(this.config.url)
+      this.ws.binaryType = 'arraybuffer'
+      this.ws.onopen = () => this._onOpen(null)
+      this.ws.onmessage = (event) => this.onMessage(event.data)
+      this.ws.onclose = () => this._onClose()
+      this.ws.onerror = () => {}
+    } catch (e) {
+      this._scheduleReconnect()
+    }
+  }
 
   sendInput(input) {
     if (!this._isOpen()) return
@@ -85,8 +127,24 @@ export class PhysicsNetworkClient {
     if (type === MSG.HANDSHAKE_ACK) {
       this.playerId = payload.playerId
       this.currentTick = payload.tick
+      if (payload.sessionToken) this._sessionToken = payload.sessionToken
       this._predEngine = new PredictionEngine(this.config.tickRate)
       this._predEngine.init(this.playerId)
+    } else if (type === MSG.RECONNECT_ACK) {
+      this.playerId = payload.playerId
+      this.currentTick = payload.tick
+      if (payload.sessionToken) this._sessionToken = payload.sessionToken
+      if (!this._predEngine) {
+        this._predEngine = new PredictionEngine(this.config.tickRate)
+        this._predEngine.init(this.playerId)
+      }
+    } else if (type === MSG.STATE_RECOVERY) {
+      if (payload.snapshot) this._onSnapshot(payload.snapshot)
+    } else if (type === MSG.DISCONNECT_REASON) {
+      if (payload.code === 4) {
+        this._sessionToken = null
+        this._reconnecting = false
+      }
     } else if (type === MSG.SNAPSHOT || type === MSG.STATE_CORRECTION) {
       this._onSnapshot(payload)
     } else if (type === MSG.PLAYER_LEAVE) {
@@ -159,6 +217,8 @@ export class PhysicsNetworkClient {
   getAllEntities() { return new Map(this._entityStates) }
 
   disconnect() {
+    this._destroyed = true
+    if (this._reconnectTimer) { clearTimeout(this._reconnectTimer); this._reconnectTimer = null }
     this._stopHeartbeat()
     if (this.ws) this.ws.close()
   }

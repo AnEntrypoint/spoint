@@ -85,7 +85,7 @@ export async function createServer(config = {}) {
     heartbeatInterval: config.heartbeatInterval || 1000,
     heartbeatTimeout: config.heartbeatTimeout || 3000
   })
-  const sessions = new SessionStore({ ttl: config.sessionTTL || 30000 })
+  const sessions = new SessionStore({ ttl: config.sessionTTL || 60000 })
   const inspector = new Inspector()
   const reloadManager = new ReloadManager()
 
