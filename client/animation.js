@@ -172,22 +172,22 @@ export function createPlayerAnimator(vrm, clips, vrmVersion, animConfig = {}) {
       else airTime = 0
       const effectiveOnGround = onGround || airTime < AIR_GRACE
 
-      if (!oneShot || STATES[oneShot]?.additive) {
+      if (health <= 0 && current !== 'Death') {
+        transitionTo('Death')
+        oneShot = 'Death'
+      } else if (health > 0 && (oneShot === 'Death' || current === 'Death')) {
+        const deathAction = actions.get('Death')
+        if (deathAction) { deathAction.stop(); deathAction.reset() }
+        oneShot = null
+        oneShotTimer = 0
+        current = null
+        transitionTo('IdleLoop')
+      } else if (!oneShot || STATES[oneShot]?.additive) {
         const vx = velocity?.[0] || 0, vz = velocity?.[2] || 0
         const rawSpeed = Math.sqrt(vx * vx + vz * vz)
         smoothSpeed += (rawSpeed - smoothSpeed) * Math.min(1, SPEED_SMOOTH * dt)
 
-        if (health <= 0) {
-          transitionTo('Death')
-          oneShot = 'Death'
-        } else if (oneShot === 'Death' || current === 'Death') {
-          const deathAction = actions.get('Death')
-          if (deathAction) { deathAction.stop(); deathAction.reset() }
-          oneShot = null
-          oneShotTimer = 0
-          current = null
-          transitionTo('IdleLoop')
-        } else if (!effectiveOnGround && !wasOnGround) {
+        if (!effectiveOnGround && !wasOnGround) {
           transitionTo('JumpLoop')
         } else if (!wasOnGround && effectiveOnGround && smoothSpeed < 1.5) {
           transitionTo('JumpLand')
