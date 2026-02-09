@@ -40,6 +40,10 @@ const handRays = new Map()
 const handModelFactory = new XRHandModelFactory()
 let handsDetected = false
 
+let wristUI = null
+let wristUICanvas = null
+let wristUIContext = null
+
 let teleportArc = null
 let teleportMarker = null
 let teleportTarget = null
@@ -116,6 +120,56 @@ function setupControllers() {
   scene.add(teleportMarker)
 }
 
+function createWristUI() {
+  const canvas = document.createElement('canvas')
+  canvas.width = 256
+  canvas.height = 128
+  const ctx = canvas.getContext('2d')
+
+  const texture = new THREE.CanvasTexture(canvas)
+  const geometry = new THREE.PlaneGeometry(0.12, 0.06)
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    opacity: 0.9,
+    side: THREE.DoubleSide
+  })
+  const mesh = new THREE.Mesh(geometry, material)
+  mesh.name = 'wristUI'
+
+  return { mesh, canvas, ctx, texture }
+}
+
+function updateWristUI(health, ammo, reloading) {
+  if (!wristUIContext) return
+
+  const ctx = wristUIContext
+  const canvas = wristUICanvas
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+  ctx.strokeStyle = '#00ffff'
+  ctx.lineWidth = 4
+  ctx.strokeRect(0, 0, canvas.width, canvas.height)
+
+  ctx.font = 'bold 36px monospace'
+  ctx.textAlign = 'left'
+  ctx.fillStyle = health > 60 ? '#00ff00' : health > 30 ? '#ffff00' : '#ff0000'
+  ctx.fillText(`HP ${Math.round(health)}`, 10, 45)
+
+  ctx.textAlign = 'right'
+  ctx.fillStyle = reloading ? '#ffff00' : '#00ffff'
+  ctx.fillText(reloading ? 'RELOAD' : `${ammo}/30`, 246, 45)
+
+  ctx.font = '24px monospace'
+  ctx.textAlign = 'center'
+  ctx.fillStyle = '#ffffff'
+  ctx.fillText('SPAWNPOINT VR', 128, 100)
+
+  wristUI.texture.needsUpdate = true
+}
+
 function setupHands() {
   for (const handedness of [0, 1]) {
     const hand = renderer.xr.getHand(handedness)
@@ -126,6 +180,15 @@ function setupHands() {
     const ray = createHandRay()
     hand.add(ray)
     handRays.set(handedness, ray)
+
+    if (handedness === 0 && !wristUI) {
+      wristUI = createWristUI()
+      wristUICanvas = wristUI.canvas
+      wristUIContext = wristUI.ctx
+      wristUI.mesh.position.set(0, -0.05, 0.08)
+      wristUI.mesh.rotation.x = -Math.PI / 3
+      hand.add(wristUI.mesh)
+    }
 
     scene.add(hand)
     hand.visible = false
@@ -712,6 +775,8 @@ const engineCtx = {
   get cam() { return cam },
   get worldConfig() { return worldConfig },
   get inputConfig() { return inputConfig },
+  get _tps() { return engineCtx._tpsState },
+  set _tps(val) { engineCtx._tpsState = val },
   setInputConfig(cfg) { Object.assign(inputConfig, cfg); if (!inputConfig.pointerLock) { clickPrompt.style.display = 'none'; if (document.pointerLockElement) document.exitPointerLock() } },
   players: {
     getMesh: (id) => playerMeshes.get(id),
@@ -838,6 +903,12 @@ function animate(timestamp) {
   } else if (local?.position) {
     const headHeight = 1.6
     camera.position.set(local.position[0], local.position[1] + headHeight, local.position[2])
+  }
+  if (inVR && local && wristUI) {
+    const tps = appModules.get('tps-game')?._tps
+    const ammo = tps?.ammo ?? 0
+    const reloading = tps?.reloading ?? false
+    updateWristUI(local.health ?? 100, ammo, reloading)
   }
   updateControllerVisibility()
   updateTeleportArc()

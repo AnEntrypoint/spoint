@@ -136,10 +136,12 @@ export default {
   },
 
   client: {
+    _tps: null,
     setup(engine) {
       const flash = new engine.THREE.PointLight(0xffaa00, 0, 8)
       engine.scene.add(flash)
       engine._tps = { lastShootTime: 0, isAiming: false, boost: null, flash, flashOff: 0, ammo: 30, reloading: false, lastReloadTime: 0 }
+      this._tps = engine._tps
     },
     onMouseDown(e, engine) {
       if (e.button === 2 && engine._tps) engine._tps.isAiming = true
