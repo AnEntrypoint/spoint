@@ -62,6 +62,7 @@ sessionStorage.removeItem('cam')
 let latestState = null
 let uiTimer = 0
 let lastShootTime = 0
+let isAiming = false
 let lastFrameTime = performance.now()
 let fpsFrames = 0, fpsLast = performance.now(), fpsDisplay = 0
 let vrmBuffer = null
@@ -298,6 +299,9 @@ document.addEventListener('pointerlockchange', () => {
   else document.removeEventListener('mousemove', cam.onMouseMove)
 })
 renderer.domElement.addEventListener('wheel', cam.onWheel, { passive: false })
+renderer.domElement.addEventListener('mousedown', (e) => { if (e.button === 2) isAiming = true })
+renderer.domElement.addEventListener('mouseup', (e) => { if (e.button === 2) isAiming = false })
+renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault())
 window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight) })
 
 let smoothDt = 1 / 60
@@ -323,7 +327,8 @@ function animate(timestamp) {
   for (const [id, animator] of playerAnimators) {
     const ps = playerStates.get(id)
     if (!ps) continue
-    animator.update(frameDt, ps.velocity, ps.onGround, ps.health)
+    const aiming = id === client.playerId ? isAiming : false
+    animator.update(frameDt, ps.velocity, ps.onGround, ps.health, aiming)
     const mesh = playerMeshes.get(id)
     if (!mesh) continue
     const vx = ps.velocity?.[0] || 0, vz = ps.velocity?.[2] || 0
