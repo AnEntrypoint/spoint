@@ -15,6 +15,22 @@ const STATES = {
   Aim: { loop: true, additive: true }
 }
 
+const LOWER_BODY_BONES = new Set([
+  'root', 'hips', 'pelvis',
+  'leftUpperLeg', 'leftLowerLeg', 'leftFoot', 'leftToes',
+  'rightUpperLeg', 'rightLowerLeg', 'rightFoot', 'rightToes',
+  'LeftUpperLeg', 'LeftLowerLeg', 'LeftFoot', 'LeftToes',
+  'RightUpperLeg', 'RightLowerLeg', 'RightFoot', 'RightToes'
+])
+
+function filterUpperBodyTracks(clip) {
+  const filteredTracks = clip.tracks.filter(track => {
+    const boneName = track.name.split('.')[0]
+    return !LOWER_BODY_BONES.has(boneName)
+  })
+  return new THREE.AnimationClip(clip.name, clip.duration, filteredTracks)
+}
+
 const q1 = new THREE.Quaternion()
 const restInv = new THREE.Quaternion()
 const parentRest = new THREE.Quaternion()
@@ -82,7 +98,8 @@ export function createPlayerAnimator(vrm, clips, vrmVersion) {
     if (!STATES[name]) continue
     const cfg = STATES[name]
     if (cfg.additive) {
-      const action = mixer.clipAction(clip)
+      const upperBodyClip = filterUpperBodyTracks(clip)
+      const action = mixer.clipAction(upperBodyClip)
       action.blendMode = THREE.AdditiveAnimationBlendMode
       if (!cfg.loop) {
         action.loop = THREE.LoopOnce
