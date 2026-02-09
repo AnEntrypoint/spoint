@@ -97,6 +97,7 @@ async function createPlayerVRM(id) {
     VRMUtils.removeUnnecessaryVertices(vrm.scene)
     VRMUtils.combineSkeletons(vrm.scene)
     const vrmVersion = detectVrmVersion(vrmBuffer)
+    vrm.scene.rotation.y = Math.PI
     vrm.scene.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
     group.add(vrm.scene)
     playerVrms.set(id, vrm)
