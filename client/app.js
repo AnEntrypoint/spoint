@@ -408,7 +408,12 @@ function startInputLoop() {
   inputLoopId = setInterval(() => {
     if (!client.connected) return
     const input = inputHandler.getInput()
-    if (!input.yaw) { input.yaw = cam.yaw; input.pitch = cam.pitch }
+    if (input.yaw !== undefined) {
+      cam.setVRYaw(input.yaw)
+    } else {
+      input.yaw = cam.yaw
+      input.pitch = cam.pitch
+    }
     for (const [, mod] of appModules) { if (mod.onInput) try { mod.onInput(input, engineCtx) } catch (e) { console.error('[app-input]', e.message) } }
     client.sendInput(input)
   }, 1000 / 60)
@@ -477,7 +482,12 @@ function animate(timestamp) {
   if (latestState && uiTimer >= 0.25) { uiTimer = 0; renderAppUI(latestState) }
   const local = client.state?.players?.find(p => p.id === client.playerId)
   const inVR = renderer.xr.isPresenting
-  if (!inVR) cam.update(local, playerMeshes.get(client.playerId), frameDt)
+  if (!inVR) {
+    cam.update(local, playerMeshes.get(client.playerId), frameDt)
+  } else if (local?.position) {
+    const headHeight = 1.6
+    camera.position.set(local.position[0], local.position[1] + headHeight, local.position[2])
+  }
   renderer.render(scene, camera)
 }
 renderer.setAnimationLoop(animate)
