@@ -56,6 +56,16 @@ function findElbowBones(bones) {
   return bones.filter(b => elbowPatterns.test(b))
 }
 
+function findSkinnedMesh(obj) {
+  let skinnedMesh = null
+  obj.traverse(child => {
+    if (child.isSkinnedMesh && !skinnedMesh) {
+      skinnedMesh = child
+    }
+  })
+  return skinnedMesh
+}
+
 const q1 = new THREE.Quaternion()
 const restInv = new THREE.Quaternion()
 const parentRest = new THREE.Quaternion()
@@ -152,6 +162,10 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {},
   // Debug: Store retargeting status for inspection
   const retargetingStatus = new Map()
 
+  // Extract SkinnedMesh for retargeting (retargetClip needs the actual mesh with skeleton)
+  const targetSkinnedMesh = findSkinnedMesh(root)
+  const sourceSkinnedMesh = sourceRig ? findSkinnedMesh(sourceRig) : null
+
   for (const [name, clip] of clips) {
     if (!STATES[name]) continue
     const cfg = STATES[name]
@@ -165,10 +179,11 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {},
     const clipBones = getBonesInClip(clip)
     const elbowsInClip = findElbowBones(clipBones)
 
-    if (sourceRig && root) {
+    if (sourceSkinnedMesh && targetSkinnedMesh) {
       try {
         // Attempt per-VRM retargeting for better skeleton compatibility
-        const retargeted = retargetClip(clip, sourceRig, root)
+        // retargetClip signature: retargetClip(target, source, clip, options)
+        const retargeted = retargetClip(targetSkinnedMesh, sourceSkinnedMesh, clip)
         if (retargeted) {
           targetClip = retargeted
           retargetingUsed = true
@@ -185,8 +200,8 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {},
         // Fall back to normalized clip - these work across all VRM models
       }
     } else {
-      console.warn(`[anim] ${name}: skipping retargeting - sourceRig=${!!sourceRig}, root=${!!root} (elbows in source: ${elbowsInClip.join(',')})`)
-      retargetingError = 'sourceRig or root missing'
+      console.warn(`[anim] ${name}: skipping retargeting - sourceMesh=${!!sourceSkinnedMesh}, targetMesh=${!!targetSkinnedMesh} (elbows in source: ${elbowsInClip.join(',')})`)
+      retargetingError = 'sourceSkinnedMesh or targetSkinnedMesh missing'
     }
 
     retargetingStatus.set(name, { used: retargetingUsed, error: retargetingError, trackCount: targetClip.tracks.length, hasProblemElbows: elbowsInClip.length > 0 })
