@@ -151,6 +151,10 @@ All hot-reloaded imports use `?t=${Date.now()}` query param to bust Node's ESM m
 
 Jolt CapsuleShape constructor takes `(halfHeight, radius)` NOT `(radius, halfHeight)`. World.js line 82 passes them correctly. AppContext.js line 66 passes `[r, h/2]` to `addBody('capsule', ...)` which World.js receives as `params` and uses `params[1]` for halfHeight, `params[0]` for radius (line 57).
 
+## Animation Retargeting Track Filtering
+
+Animation retargeting (client/animation.js) uses `THREE.SkeletonUtils.retargetClip()` to adapt source animations to each player's VRM skeleton. The retargeted clip may reference bones that don't exist in the target VRM. `filterValidClipTracks()` removes these invalid bone references before passing clips to the THREE.AnimationMixer. Without filtering, THREE.js PropertyBinding throws "Can not bind to bones as node does not have a skeleton" errors for each invalid track. The filter is applied to all clips (both retargeted and normalized) at line 237 in animation.js before `mixer.clipAction()` is called.
+
 ## Entry Points
 
 Server: `node server.js` (port 8080, 128 TPS). World config: `apps/world/index.js`. Apps: `apps/<name>/index.js` with `server` and `client` exports.

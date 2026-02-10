@@ -51,6 +51,33 @@ function getSkeletonBones(obj) {
   return Array.from(bones).sort()
 }
 
+function filterValidClipTracks(clip, targetObj) {
+  // Get all bone/mesh names that exist in target
+  const validBones = new Set()
+  targetObj.traverse(child => {
+    if (child.isBone || child.isSkinnedMesh) {
+      validBones.add(child.name)
+    }
+  })
+
+  // Filter tracks to only those referencing valid bones
+  const validTracks = clip.tracks.filter(track => {
+    const boneName = track.name.split('.')[0]
+    if (!validBones.has(boneName)) {
+      console.warn(`[anim] Filtering out track for missing bone: ${boneName}`)
+      return false
+    }
+    return true
+  })
+
+  if (validTracks.length < clip.tracks.length) {
+    console.log(`[anim] Filtered clip ${clip.name}: ${clip.tracks.length} → ${validTracks.length} tracks`)
+    return new THREE.AnimationClip(clip.name, clip.duration, validTracks)
+  }
+
+  return clip
+}
+
 function findElbowBones(bones) {
   const elbowPatterns = /[Ee]lbow|[Ff]ore[Aa]rm|[Uu]pper[Aa]rm|[Aa]rm[1-3]/
   return bones.filter(b => elbowPatterns.test(b))
@@ -206,8 +233,11 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {},
 
     retargetingStatus.set(name, { used: retargetingUsed, error: retargetingError, trackCount: targetClip.tracks.length, hasProblemElbows: elbowsInClip.length > 0 })
 
+    // Filter out tracks that reference bones not in the VRM
+    let playClip = filterValidClipTracks(targetClip, root)
+
     if (cfg.additive) {
-      const upperBodyClip = filterUpperBodyTracks(targetClip)
+      const upperBodyClip = filterUpperBodyTracks(playClip)
       const action = mixer.clipAction(upperBodyClip)
       action.blendMode = THREE.AdditiveAnimationBlendMode
       if (!cfg.loop) {
@@ -216,7 +246,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {},
       }
       additiveActions.set(name, action)
     } else {
-      const action = mixer.clipAction(targetClip)
+      const action = mixer.clipAction(playClip)
       if (!cfg.loop) {
         action.loop = THREE.LoopOnce
         action.clampWhenFinished = cfg.clamp || false
