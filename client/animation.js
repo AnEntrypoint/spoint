@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { retargetClip } from 'three/addons/utils/SkeletonUtils.js'
 
 const FADE_TIME = 0.15
 const STATES = {
@@ -85,21 +86,49 @@ function normalizeClips(gltf, vrmVersion, vrmHumanoid) {
 export async function loadAnimationLibrary(vrmVersion, vrmHumanoid) {
   const loader = new GLTFLoader()
   const gltf = await loader.loadAsync('/anim-lib.glb')
-  return normalizeClips(gltf, vrmVersion || '1', vrmHumanoid)
+  const clips = normalizeClips(gltf, vrmVersion || '1', vrmHumanoid)
+
+  // Extract the source armature (skeleton) from the animation library
+  const sourceArmature = new THREE.Skeleton([])
+  gltf.scene.traverse(bone => {
+    if (bone.isBone) sourceArmature.bones.push(bone)
+  })
+
+  return { clips, sourceArmature }
 }
 
-export function createPlayerAnimator(vrm, clips, vrmVersion, animConfig = {}) {
+export function createPlayerAnimator(vrm, clips, vrmVersion, animConfig = {}, sourceArmature = null) {
   const FADE = animConfig.fadeTime || FADE_TIME
   const root = vrm.scene
   const mixer = new THREE.AnimationMixer(root)
   mixer.timeScale = animConfig.mixerTimeScale || 1.3
   const actions = new Map()
   const additiveActions = new Map()
+
+  // Find skeleton bones in VRM for retargeting
+  const vrmSkeleton = new THREE.Skeleton([])
+  root.traverse(bone => {
+    if (bone.isBone) vrmSkeleton.bones.push(bone)
+  })
+
   for (const [name, clip] of clips) {
     if (!STATES[name]) continue
     const cfg = STATES[name]
+
+    // Retarget the clip to the VRM skeleton if source armature is available
+    let targetClip = clip
+    if (sourceArmature && vrmSkeleton.bones.length > 0) {
+      try {
+        targetClip = retargetClip(clip, sourceArmature, vrmSkeleton)
+      } catch (e) {
+        console.warn(`Failed to retarget clip ${name}:`, e.message)
+        // Fall back to original clip if retargeting fails
+        targetClip = clip
+      }
+    }
+
     if (cfg.additive) {
-      const upperBodyClip = filterUpperBodyTracks(clip)
+      const upperBodyClip = filterUpperBodyTracks(targetClip)
       const action = mixer.clipAction(upperBodyClip)
       action.blendMode = THREE.AdditiveAnimationBlendMode
       if (!cfg.loop) {
@@ -108,7 +137,7 @@ export function createPlayerAnimator(vrm, clips, vrmVersion, animConfig = {}) {
       }
       additiveActions.set(name, action)
     } else {
-      const action = mixer.clipAction(clip)
+      const action = mixer.clipAction(targetClip)
       if (!cfg.loop) {
         action.loop = THREE.LoopOnce
         action.clampWhenFinished = cfg.clamp || false
