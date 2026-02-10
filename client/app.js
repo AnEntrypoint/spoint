@@ -649,8 +649,7 @@ let uiTimer = 0
 let lastFrameTime = performance.now()
 let fpsFrames = 0, fpsLast = performance.now(), fpsDisplay = 0
 let vrmBuffer = null
-let animClips = null
-let sourceArmature = null
+let animAssets = null
 let assetsReady = null
 let assetsLoaded = false
 
@@ -672,8 +671,7 @@ function initAssets(playerModelUrl) {
     loadingMgr.setStage('PROCESS')
     return loadAnimationLibrary(detectVrmVersion(b), null)
   }).then(result => {
-    animClips = result.clips
-    sourceArmature = result.sourceArmature
+    animAssets = result
     assetsLoaded = true
     checkAllLoaded()
   })
@@ -702,8 +700,8 @@ async function createPlayerVRM(id) {
     group.add(vrm.scene)
     playerVrms.set(id, vrm)
     initVRMFeatures(id, vrm)
-    if (animClips) {
-      const animator = createPlayerAnimator(vrm, animClips, vrmVersion, worldConfig.animation || {}, sourceArmature)
+    if (animAssets) {
+      const animator = createPlayerAnimator(vrm, animAssets, vrmVersion, worldConfig.animation || {}, animAssets.sourceRig)
       playerAnimators.set(id, animator)
     }
   } catch (e) { console.error('[vrm]', id, e.message) }

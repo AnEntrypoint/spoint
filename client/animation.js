@@ -86,18 +86,24 @@ function normalizeClips(gltf, vrmVersion, vrmHumanoid) {
 export async function loadAnimationLibrary(vrmVersion, vrmHumanoid) {
   const loader = new GLTFLoader()
   const gltf = await loader.loadAsync('/anim-lib.glb')
-  const clips = normalizeClips(gltf, vrmVersion || '1', vrmHumanoid)
 
-  // Extract the source armature (skeleton) from the animation library
-  const sourceArmature = new THREE.Skeleton([])
-  gltf.scene.traverse(bone => {
-    if (bone.isBone) sourceArmature.bones.push(bone)
-  })
+  // Return raw animations and normalized version for fallback
+  const rawClips = new Map()
+  for (const clip of gltf.animations) {
+    const name = clip.name.replace(/^VRM\|/, '').replace(/@\d+$/, '')
+    rawClips.set(name, clip)
+  }
 
-  return { clips, sourceArmature }
+  const normalizedClips = normalizeClips(gltf, vrmVersion || '1', vrmHumanoid)
+
+  // Store source rig object directly for retargeting
+  const sourceRig = gltf.scene
+  console.log('[anim] Loaded animation library')
+
+  return { rawClips, normalizedClips, sourceRig }
 }
 
-export function createPlayerAnimator(vrm, clips, vrmVersion, animConfig = {}, sourceArmature = null) {
+export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {}, sourceRig = null) {
   const FADE = animConfig.fadeTime || FADE_TIME
   const root = vrm.scene
   const mixer = new THREE.AnimationMixer(root)
@@ -105,25 +111,22 @@ export function createPlayerAnimator(vrm, clips, vrmVersion, animConfig = {}, so
   const actions = new Map()
   const additiveActions = new Map()
 
-  // Find skeleton bones in VRM for retargeting
-  const vrmSkeleton = new THREE.Skeleton([])
-  root.traverse(bone => {
-    if (bone.isBone) vrmSkeleton.bones.push(bone)
-  })
+  // Use rawClips if available for retargeting, otherwise use normalized/regular clips
+  const clips = allClips.rawClips || allClips
 
   for (const [name, clip] of clips) {
     if (!STATES[name]) continue
     const cfg = STATES[name]
 
-    // Retarget the clip to the VRM skeleton if source armature is available
-    let targetClip = clip
-    if (sourceArmature && vrmSkeleton.bones.length > 0) {
+    // Attempt to retarget the clip to the VRM's skeleton, fall back to pre-normalized version
+    let targetClip = allClips.normalizedClips?.get(name) || clip
+    if (sourceRig && root) {
       try {
-        targetClip = retargetClip(clip, sourceArmature, vrmSkeleton)
+        // Attempt per-VRM retargeting for better skeleton compatibility
+        const retargeted = retargetClip(clip, sourceRig, root)
+        if (retargeted) targetClip = retargeted
       } catch (e) {
-        console.warn(`Failed to retarget clip ${name}:`, e.message)
-        // Fall back to original clip if retargeting fails
-        targetClip = clip
+        // Silently fall back to normalized clip - these work across all VRM models
       }
     }
 
