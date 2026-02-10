@@ -32,6 +32,30 @@ function filterUpperBodyTracks(clip) {
   return new THREE.AnimationClip(clip.name, clip.duration, filteredTracks)
 }
 
+function getBonesInClip(clip) {
+  const bones = new Set()
+  for (const track of clip.tracks) {
+    const boneName = track.name.split('.')[0]
+    bones.add(boneName)
+  }
+  return Array.from(bones).sort()
+}
+
+function getSkeletonBones(obj) {
+  const bones = new Set()
+  obj.traverse(child => {
+    if (child.isBone || child.isSkinnedMesh) {
+      bones.add(child.name)
+    }
+  })
+  return Array.from(bones).sort()
+}
+
+function findElbowBones(bones) {
+  const elbowPatterns = /[Ee]lbow|[Ff]ore[Aa]rm|[Uu]pper[Aa]rm|[Aa]rm[1-3]/
+  return bones.filter(b => elbowPatterns.test(b))
+}
+
 const q1 = new THREE.Quaternion()
 const restInv = new THREE.Quaternion()
 const parentRest = new THREE.Quaternion()
@@ -98,7 +122,18 @@ export async function loadAnimationLibrary(vrmVersion, vrmHumanoid) {
 
   // Store source rig object directly for retargeting
   const sourceRig = gltf.scene
+
+  // Log source skeleton structure
+  const sourceBones = getSkeletonBones(sourceRig)
   console.log('[anim] Loaded animation library')
+  console.log(`[anim] Source skeleton has ${sourceBones.length} bones: ${sourceBones.join(', ').slice(0, 100)}...`)
+
+  // Log first clip bones for reference
+  const firstClip = Array.from(rawClips.values())[0]
+  if (firstClip) {
+    const clipBones = getBonesInClip(firstClip)
+    console.log(`[anim] First clip (${firstClip.name}) animates ${clipBones.length} bones: ${clipBones.join(', ').slice(0, 100)}...`)
+  }
 
   return { rawClips, normalizedClips, sourceRig }
 }
@@ -114,21 +149,47 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {},
   // Use rawClips if available for retargeting, otherwise use normalized/regular clips
   const clips = allClips.rawClips || allClips
 
+  // Debug: Store retargeting status for inspection
+  const retargetingStatus = new Map()
+
   for (const [name, clip] of clips) {
     if (!STATES[name]) continue
     const cfg = STATES[name]
 
     // Attempt to retarget the clip to the VRM's skeleton, fall back to pre-normalized version
     let targetClip = allClips.normalizedClips?.get(name) || clip
+    let retargetingUsed = false
+    let retargetingError = null
+
+    // Check for elbow bones in clip
+    const clipBones = getBonesInClip(clip)
+    const elbowsInClip = findElbowBones(clipBones)
+
     if (sourceRig && root) {
       try {
         // Attempt per-VRM retargeting for better skeleton compatibility
         const retargeted = retargetClip(clip, sourceRig, root)
-        if (retargeted) targetClip = retargeted
+        if (retargeted) {
+          targetClip = retargeted
+          retargetingUsed = true
+          const retargetedBones = getBonesInClip(retargeted)
+          const elbowsInRetargeted = findElbowBones(retargetedBones)
+          console.log(`[anim] ${name}: RETARGETED (${clip.tracks.length} → ${retargeted.tracks.length} tracks) | Elbows: ${elbowsInClip.join(',')} → ${elbowsInRetargeted.join(',')}`)
+        } else {
+          console.warn(`[anim] ${name}: retargetClip returned null/undefined, using fallback (elbows in source: ${elbowsInClip.join(',')})`)
+          retargetingError = 'retargetClip returned null'
+        }
       } catch (e) {
-        // Silently fall back to normalized clip - these work across all VRM models
+        console.error(`[anim] ${name}: retargetClip failed: ${e.message} (elbows in source: ${elbowsInClip.join(',')})`)
+        retargetingError = e.message
+        // Fall back to normalized clip - these work across all VRM models
       }
+    } else {
+      console.warn(`[anim] ${name}: skipping retargeting - sourceRig=${!!sourceRig}, root=${!!root} (elbows in source: ${elbowsInClip.join(',')})`)
+      retargetingError = 'sourceRig or root missing'
     }
+
+    retargetingStatus.set(name, { used: retargetingUsed, error: retargetingError, trackCount: targetClip.tracks.length, hasProblemElbows: elbowsInClip.length > 0 })
 
     if (cfg.additive) {
       const upperBodyClip = filterUpperBodyTracks(targetClip)
@@ -190,6 +251,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {},
   })
 
   return {
+    getRetargetingStatus() { return new Map(retargetingStatus) },
     update(dt, velocity, onGround, health, aiming) {
       if (locomotionCooldown > 0) locomotionCooldown -= dt
       if (oneShotTimer > 0) {
