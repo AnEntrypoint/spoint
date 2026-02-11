@@ -701,16 +701,9 @@ async function createPlayerVRM(id) {
     playerVrms.set(id, vrm)
     initVRMFeatures(id, vrm)
     if (animAssets) {
-      const animator = createPlayerAnimator(vrm, animAssets, vrmVersion, worldConfig.animation || {}, animAssets.sourceRig)
+      const animator = createPlayerAnimator(vrm, animAssets, vrmVersion, worldConfig.animation || {})
       playerAnimators.set(id, animator)
 
-      // Log VRM skeleton structure
-      const vrmBones = []
-      vrm.scene.traverse(child => {
-        if (child.isBone || child.isSkinnedMesh) vrmBones.push(child.name)
-      })
-      console.log(`[vrm] Player ${id} VRM has ${vrmBones.length} bones: ${vrmBones.sort().join(', ').slice(0, 100)}...`)
-      console.log(`[vrm] Player ${id} retargeting status:`, animator.getRetargetingStatus?.() || 'N/A')
     }
   } catch (e) { console.error('[vrm]', id, e.message) }
   return group

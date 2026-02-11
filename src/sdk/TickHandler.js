@@ -140,7 +140,7 @@ export function createTickHandler(deps) {
       const rss = (mem.rss / 1048576).toFixed(1)
       const ext = (mem.external / 1048576).toFixed(1)
       const ab = (mem.arrayBuffers / 1048576).toFixed(1)
-      console.log(`[tick-profile] tick:${tick} players:${players.length} total:${total.toFixed(2)}ms | mv:${(t1-t0).toFixed(2)} col:${(t2-t1).toFixed(2)} phys:${(t3-t2).toFixed(2)} app:${(t4-t3).toFixed(2)} snap:${(t5-t4).toFixed(2)} | heap:${heap}MB rss:${rss}MB ext:${ext}MB ab:${ab}MB`)
+      try { console.log(`[tick-profile] tick:${tick} players:${players.length} total:${total.toFixed(2)}ms | mv:${(t1-t0).toFixed(2)} col:${(t2-t1).toFixed(2)} phys:${(t3-t2).toFixed(2)} app:${(t4-t3).toFixed(2)} snap:${(t5-t4).toFixed(2)} | heap:${heap}MB rss:${rss}MB ext:${ext}MB ab:${ab}MB`) } catch (_) {}
     }
   }
 }
