@@ -10,6 +10,8 @@ const STATES = {
   JumpStart: { loop: false, next: 'JumpLoop' },
   JumpLoop: { loop: true },
   JumpLand: { loop: false, next: 'IdleLoop', duration: 0.4 },
+  CrouchIdleLoop: { loop: true },
+  CrouchFwdLoop: { loop: true },
   Death: { loop: false, clamp: true },
   PistolShoot: { loop: false, next: null, duration: 0.3, additive: true },
   Aim: { loop: true, additive: true }
@@ -164,13 +166,10 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   let airTime = 0
   let smoothSpeed = 0
   let locomotionCooldown = 0
-  let smoothCrouch = 0
-  const spineNode = vrm.humanoid?.getNormalizedBoneNode('spine')
-  const CROUCH_SPINE_ANGLE = 0.4
   const AIR_GRACE = 0.15
   const SPEED_SMOOTH = 8.0
   const LOCO_COOLDOWN = 0.3
-  const LOCO_STATES = new Set(['IdleLoop', 'WalkLoop', 'JogFwdLoop', 'SprintLoop'])
+  const LOCO_STATES = new Set(['IdleLoop', 'WalkLoop', 'JogFwdLoop', 'SprintLoop', 'CrouchIdleLoop', 'CrouchFwdLoop'])
 
   function transitionTo(name) {
     if (current === name) return
@@ -237,24 +236,23 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
           oneShot = 'JumpLand'
           oneShotTimer = STATES.JumpLand.duration
         } else if (effectiveOnGround) {
-          const idle2walk = current === 'IdleLoop' ? 0.8 : 0.3
-          const walk2jog = current === 'WalkLoop' ? 5.0 : 4.5
-          const jog2sprint = current === 'JogFwdLoop' ? 6.0 : 5.5
-          if (smoothSpeed < idle2walk) transitionTo('IdleLoop')
-          else if (smoothSpeed < walk2jog) transitionTo('WalkLoop')
-          else if (smoothSpeed < jog2sprint) transitionTo('JogFwdLoop')
-          else transitionTo('SprintLoop')
+          if (crouching) {
+            if (smoothSpeed < 0.8) transitionTo('CrouchIdleLoop')
+            else transitionTo('CrouchFwdLoop')
+          } else {
+            const idle2walk = current === 'IdleLoop' ? 0.8 : 0.3
+            const walk2jog = current === 'WalkLoop' ? 5.0 : 4.5
+            const jog2sprint = current === 'JogFwdLoop' ? 6.0 : 5.5
+            if (smoothSpeed < idle2walk) transitionTo('IdleLoop')
+            else if (smoothSpeed < walk2jog) transitionTo('WalkLoop')
+            else if (smoothSpeed < jog2sprint) transitionTo('JogFwdLoop')
+            else transitionTo('SprintLoop')
+          }
         }
       }
 
       this.aim(aiming)
       wasOnGround = effectiveOnGround
-      if (crouching && smoothSpeed < 0.8) {
-        if (current !== 'IdleLoop') transitionTo('IdleLoop')
-      }
-      const crouchTarget = crouching ? 1 : 0
-      smoothCrouch += (crouchTarget - smoothCrouch) * (1 - Math.exp(-10 * dt))
-      if (spineNode) spineNode.rotation.x = smoothCrouch * CROUCH_SPINE_ANGLE
       mixer.update(dt)
     },
     shoot() {
