@@ -60,7 +60,7 @@ export function createConnectionHandlers(ctx) {
       networkState.removePlayer(clientId)
       physicsIntegration.removePlayerCollider(clientId)
       lagCompensator.clearPlayerHistory(clientId)
-      connections.removeClient(clientId)
+      connections.detachClient(clientId)
       const newId = playerManager.addPlayer(transport, { position: sp, health: savedState.health ?? playerConfig.health ?? 100, velocity: savedState.velocity, rotation: savedState.rotation })
       networkState.addPlayer(newId, { position: sp })
       physicsIntegration.addPlayerCollider(newId, playerConfig.capsuleRadius || 0.4)
