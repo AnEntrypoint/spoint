@@ -864,7 +864,8 @@ const client = new PhysicsNetworkClient({
       if (!playerMeshes.has(p.id)) createPlayerVRM(p.id)
       const mesh = playerMeshes.get(p.id)
       const feetOff = mesh?.userData?.feetOffset ?? 1.3
-      const tx = p.position[0], ty = p.position[1] - feetOff, tz = p.position[2]
+      const crouchOff = p.crouch ? 0.45 : 0
+      const tx = p.position[0], ty = p.position[1] - feetOff - crouchOff, tz = p.position[2]
       playerTargets.set(p.id, { x: tx, y: ty, z: tz })
       playerStates.set(p.id, p)
       const dx = tx - mesh.position.x, dy = ty - mesh.position.y, dz = tz - mesh.position.z
@@ -1044,7 +1045,7 @@ function animate(timestamp) {
   for (const [id, animator] of playerAnimators) {
     const ps = playerStates.get(id)
     if (!ps) continue
-    animator.update(frameDt, ps.velocity, ps.onGround, ps.health, ps._aiming || false)
+    animator.update(frameDt, ps.velocity, ps.onGround, ps.health, ps._aiming || false, ps.crouch || 0)
     const mesh = playerMeshes.get(id)
     if (!mesh) continue
     const vx = ps.velocity?.[0] || 0, vz = ps.velocity?.[2] || 0
@@ -1057,6 +1058,13 @@ function animate(timestamp) {
     }
     const target = playerTargets.get(id)
     updateVRMFeatures(id, frameDt, target)
+    if (id !== client.playerId && ps.lookPitch !== undefined) {
+      const vrm = playerVrms.get(id)
+      if (vrm?.humanoid) {
+        const head = vrm.humanoid.getNormalizedBoneNode('head')
+        if (head) head.rotation.x = -(ps.lookPitch || 0) * 0.6
+      }
+    }
   }
   for (const [eid, mesh] of entityMeshes) {
     if (mesh.userData.spin) mesh.rotation.y += mesh.userData.spin * frameDt
@@ -1074,7 +1082,7 @@ function animate(timestamp) {
   if (!inVR) {
     cam.update(local, playerMeshes.get(client.playerId), frameDt)
   } else if (local?.position) {
-    const headHeight = 1.6
+    const headHeight = local.crouch ? 1.1 : 1.6
     camera.position.set(local.position[0], local.position[1] + headHeight, local.position[2])
   }
   if (inVR && local && wristUI) {

@@ -50,7 +50,10 @@ export class NetworkState {
         velocity: p.velocity,
         onGround: p.onGround,
         health: p.health,
-        inputSequence: p.inputSequence
+        inputSequence: p.inputSequence,
+        crouch: p.crouch || 0,
+        lookPitch: p.lookPitch || 0,
+        lookYaw: p.lookYaw || 0
       }))
     }
   }

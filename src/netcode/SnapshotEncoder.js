@@ -10,7 +10,10 @@ function encodePlayer(p) {
     quantize(p.velocity[0], 100), quantize(p.velocity[1], 100), quantize(p.velocity[2], 100),
     p.onGround ? 1 : 0,
     Math.round(p.health || 0),
-    p.inputSequence || 0
+    p.inputSequence || 0,
+    p.crouch || 0,
+    Math.round(((p.lookPitch || 0) + Math.PI) / (2 * Math.PI) * 255),
+    Math.round(((p.lookYaw || 0) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) / (2 * Math.PI) * 255)
   ]
 }
 
@@ -72,7 +75,10 @@ export class SnapshotEncoder {
           id: p[0], position: [p[1], p[2], p[3]],
           rotation: [p[4], p[5], p[6], p[7]],
           velocity: [p[8], p[9], p[10]],
-          onGround: p[11] === 1, health: p[12], inputSequence: p[13]
+          onGround: p[11] === 1, health: p[12], inputSequence: p[13],
+          crouch: p[14] || 0,
+          lookPitch: (p[15] || 0) / 255 * 2 * Math.PI - Math.PI,
+          lookYaw: (p[16] || 0) / 255 * 2 * Math.PI
         }
         return p
       })
