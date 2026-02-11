@@ -161,12 +161,18 @@ export class AppRuntime {
 
   _tickCollisions() {
     const c = []
-    for (const e of this.entities.values()) { if (e.collider && this.apps.has(e.id)) c.push(e) }
-    for (let i = 0; i < c.length; i++) for (let j = i + 1; j < c.length; j++) {
-      const a = c[i], b = c[j], d = Math.hypot(b.position[0]-a.position[0], b.position[1]-a.position[1], b.position[2]-a.position[2])
-      if (d < this._colR(a.collider) + this._colR(b.collider)) {
-        this.fireEvent(a.id, 'onCollision', { id: b.id, position: b.position, velocity: b.velocity })
-        this.fireEvent(b.id, 'onCollision', { id: a.id, position: a.position, velocity: a.velocity })
+    for (const e of this.entities.values()) {
+      if (e.collider && this.apps.has(e.id)) { e._cachedColR = this._colR(e.collider); c.push(e) }
+    }
+    for (let i = 0; i < c.length; i++) {
+      const a = c[i], ar = a._cachedColR, ax = a.position[0], ay = a.position[1], az = a.position[2]
+      for (let j = i + 1; j < c.length; j++) {
+        const b = c[j], dx = b.position[0]-ax, dy = b.position[1]-ay, dz = b.position[2]-az
+        const rr = ar + b._cachedColR
+        if (dx*dx+dy*dy+dz*dz < rr*rr) {
+          this.fireEvent(a.id, 'onCollision', { id: b.id, position: b.position, velocity: b.velocity })
+          this.fireEvent(b.id, 'onCollision', { id: a.id, position: a.position, velocity: a.velocity })
+        }
       }
     }
   }

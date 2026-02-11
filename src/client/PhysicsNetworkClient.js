@@ -177,15 +177,28 @@ export class PhysicsNetworkClient {
         this._predEngine.onServerSnapshot({ players: [state] }, this.currentTick)
       }
     }
-    const seen = new Set()
-    for (const e of data.entities || []) {
-      const { entityId, state } = this._parseEntity(e)
-      seen.add(entityId)
-      if (!this._entityStates.has(entityId)) this.callbacks.onEntityAdded(entityId, state)
-      this._entityStates.set(entityId, state)
-    }
-    for (const eid of this._entityStates.keys()) {
-      if (!seen.has(eid)) { this._entityStates.delete(eid); this.callbacks.onEntityRemoved(eid) }
+    if (data.delta) {
+      for (const e of data.entities || []) {
+        const { entityId, state } = this._parseEntity(e)
+        if (!this._entityStates.has(entityId)) this.callbacks.onEntityAdded(entityId, state)
+        this._entityStates.set(entityId, state)
+      }
+      if (data.removed) {
+        for (const eid of data.removed) {
+          if (this._entityStates.has(eid)) { this._entityStates.delete(eid); this.callbacks.onEntityRemoved(eid) }
+        }
+      }
+    } else {
+      const seen = new Set()
+      for (const e of data.entities || []) {
+        const { entityId, state } = this._parseEntity(e)
+        seen.add(entityId)
+        if (!this._entityStates.has(entityId)) this.callbacks.onEntityAdded(entityId, state)
+        this._entityStates.set(entityId, state)
+      }
+      for (const eid of this._entityStates.keys()) {
+        if (!seen.has(eid)) { this._entityStates.delete(eid); this.callbacks.onEntityRemoved(eid) }
+      }
     }
     this.state.players = Array.from(this._playerStates.values())
     this.state.entities = Array.from(this._entityStates.values())

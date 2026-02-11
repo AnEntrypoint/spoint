@@ -3,6 +3,9 @@ export class PlayerManager {
     this.players = new Map()
     this.nextPlayerId = 1
     this.inputBuffers = new Map()
+    this._connectedCache = null
+    this._connectedGen = 0
+    this._cachedGen = -1
   }
 
   addPlayer(socket, initialState = {}) {
@@ -26,12 +29,14 @@ export class PlayerManager {
     }
     this.players.set(playerId, player)
     this.inputBuffers.set(playerId, [])
+    this._connectedGen++
     return playerId
   }
 
   removePlayer(playerId) {
     this.players.delete(playerId)
     this.inputBuffers.delete(playerId)
+    this._connectedGen++
   }
 
   getPlayer(playerId) {
@@ -43,7 +48,10 @@ export class PlayerManager {
   }
 
   getConnectedPlayers() {
-    return this.getAllPlayers().filter(p => p.connected)
+    if (this._cachedGen === this._connectedGen) return this._connectedCache
+    this._connectedCache = this.getAllPlayers().filter(p => p.connected)
+    this._cachedGen = this._connectedGen
+    return this._connectedCache
   }
 
   getPlayerCount() {

@@ -95,6 +95,7 @@ export function pack(value) {
   return buf.slice(0, pos)
 }
 
+
 export function unpack(buffer) {
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer)
   let offset = 0
