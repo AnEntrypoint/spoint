@@ -864,8 +864,7 @@ const client = new PhysicsNetworkClient({
       if (!playerMeshes.has(p.id)) createPlayerVRM(p.id)
       const mesh = playerMeshes.get(p.id)
       const feetOff = mesh?.userData?.feetOffset ?? 1.3
-      const crouchOff = p.crouch ? 0.45 : 0
-      const tx = p.position[0], ty = p.position[1] - feetOff - crouchOff, tz = p.position[2]
+      const tx = p.position[0], ty = p.position[1] - feetOff, tz = p.position[2]
       playerTargets.set(p.id, { x: tx, y: ty, z: tz })
       playerStates.set(p.id, p)
       const dx = tx - mesh.position.x, dy = ty - mesh.position.y, dz = tz - mesh.position.z
