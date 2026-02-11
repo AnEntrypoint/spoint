@@ -27,7 +27,6 @@ function isDescendant(obj, ancestor) {
 export function createCameraController(camera, scene) {
   let yaw = 0, pitch = 0, zoomIndex = 2, camInitialized = false
   let mode = 'tps'
-  let smoothCrouchOffset = 0
   const envMeshes = []
   let rayTimer = 0, cachedClipDist = 10, cachedAimPoint = null
   camRaycaster.firstHitOnly = true
@@ -80,9 +79,7 @@ export function createCameraController(camera, scene) {
     if (mode === 'custom' || mode === 'fixed') return
     if (!localPlayer) return
     const dist = mode === 'fps' ? 0 : zoomStages[zoomIndex]
-    const crouchGoal = localPlayer.crouch ? -0.5 : 0
-    smoothCrouchOffset += (crouchGoal - smoothCrouchOffset) * (1 - Math.exp(-16 * frameDt))
-    camTarget.set(localPlayer.position[0], localPlayer.position[1] + headHeight + smoothCrouchOffset, localPlayer.position[2])
+    camTarget.set(localPlayer.position[0], localPlayer.position[1] + headHeight, localPlayer.position[2])
     if (localMesh) localMesh.visible = true
     const punchLerp = 1 - Math.exp(-972 * frameDt)
     punchYaw += (punchYawTarget - punchYaw) * punchLerp
