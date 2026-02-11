@@ -38,6 +38,9 @@ export function createTickHandler(deps) {
       if (inp) {
         const yaw = inp.yaw || 0
         st.rotation = [0, Math.sin(yaw / 2), 0, Math.cos(yaw / 2)]
+        st.crouch = inp.crouch ? 1 : 0
+        st.lookPitch = inp.pitch || 0
+        st.lookYaw = yaw
       }
 
       applyMovement(st, inp, movement, dt)
@@ -52,7 +55,8 @@ export function createTickHandler(deps) {
       networkState.updatePlayer(player.id, {
         position: st.position, rotation: st.rotation,
         velocity: st.velocity, onGround: st.onGround,
-        health: st.health, inputSequence: player.inputSequence
+        health: st.health, inputSequence: player.inputSequence,
+        crouch: st.crouch || 0, lookPitch: st.lookPitch || 0, lookYaw: st.lookYaw || 0
       })
     }
     const t1 = performance.now()

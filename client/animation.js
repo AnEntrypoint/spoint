@@ -197,7 +197,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   })
 
   return {
-    update(dt, velocity, onGround, health, aiming) {
+    update(dt, velocity, onGround, health, aiming, crouching) {
       if (locomotionCooldown > 0) locomotionCooldown -= dt
       if (oneShotTimer > 0) {
         oneShotTimer -= dt
@@ -246,6 +246,9 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
 
       this.aim(aiming)
       wasOnGround = effectiveOnGround
+      if (crouching && smoothSpeed < 0.8) {
+        if (current !== 'IdleLoop') transitionTo('IdleLoop')
+      }
       mixer.update(dt)
     },
     shoot() {

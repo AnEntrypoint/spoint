@@ -15,7 +15,8 @@ export function applyMovement(state, input, movement, dt) {
     const cy = Math.cos(yaw), sy = Math.sin(yaw)
     wishX = fz * sy - fx * cy
     wishZ = fx * sy + fz * cy
-    wishSpeed = flen > 0 ? (input.sprint ? (movement.sprintSpeed || maxSpeed * 1.75) : maxSpeed) : 0
+    const baseSpeed = input.crouch ? maxSpeed * (movement.crouchSpeedMul || 0.4) : maxSpeed
+    wishSpeed = flen > 0 ? (input.sprint && !input.crouch ? (movement.sprintSpeed || maxSpeed * 1.75) : baseSpeed) : 0
     if (input.jump && state.onGround) {
       state.velocity[1] = jumpImpulse
       state.onGround = false
