@@ -18,7 +18,7 @@ loadingMgr.setStage('CONNECTING')
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x87ceeb)
 scene.fog = new THREE.Fog(0x87ceeb, 80, 200)
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 500)
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 500)
 let worldConfig = {}
 let inputConfig = { pointerLock: true }
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
