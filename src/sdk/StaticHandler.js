@@ -28,6 +28,8 @@ export function createStaticHandler(dirs) {
         const headers = { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' }
         if (ext === '.js' || ext === '.html' || ext === '.css') {
           headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        } else if (ext === '.glb' || ext === '.vrm' || ext === '.gltf') {
+          headers['Cache-Control'] = 'public, max-age=86400, immutable'
         }
         let content = readFileSync(fp)
         if (GZIP_EXTENSIONS.has(ext) && content.length > 100) {
@@ -40,7 +42,7 @@ export function createStaticHandler(dirs) {
         return
       }
     }
-    res.writeHead(404)
+    res.writeHead(404, { 'Cache-Control': 'no-store' })
     res.end('not found')
   }
 }

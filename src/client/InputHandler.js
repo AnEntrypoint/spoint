@@ -76,7 +76,7 @@ export class InputHandler {
       right: this.keys.get('d') || this.keys.get('arrowright') || false,
       jump: this.keys.get(' ') || false,
       sprint: this.keys.get('shift') || false,
-      crouch: this.keys.get('control') || false,
+      crouch: this.keys.get('c') || this.keys.get('control') || false,
       shoot: this.mouseDown,
       reload: this.keys.get('r') || false,
       mouseX: this.mouseX,

@@ -156,7 +156,7 @@ export default {
         tps.lastReloadTime = Date.now()
         engine.client.sendReload()
       }
-      if (input.shoot && !tps.reloading && Date.now() - tps.lastShootTime > 100) {
+      if (input.shoot && !tps.reloading && tps.ammo > 0 && Date.now() - tps.lastShootTime > 100) {
         tps.lastShootTime = Date.now()
         const local = engine.client.state?.players?.find(p => p.id === engine.playerId)
         if (local) {

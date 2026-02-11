@@ -164,6 +164,9 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   let airTime = 0
   let smoothSpeed = 0
   let locomotionCooldown = 0
+  let smoothCrouch = 0
+  const spineNode = vrm.humanoid?.getNormalizedBoneNode('spine')
+  const CROUCH_SPINE_ANGLE = 0.4
   const AIR_GRACE = 0.15
   const SPEED_SMOOTH = 8.0
   const LOCO_COOLDOWN = 0.3
@@ -249,6 +252,9 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       if (crouching && smoothSpeed < 0.8) {
         if (current !== 'IdleLoop') transitionTo('IdleLoop')
       }
+      const crouchTarget = crouching ? 1 : 0
+      smoothCrouch += (crouchTarget - smoothCrouch) * (1 - Math.exp(-10 * dt))
+      if (spineNode) spineNode.rotation.x = smoothCrouch * CROUCH_SPINE_ANGLE
       mixer.update(dt)
     },
     shoot() {
