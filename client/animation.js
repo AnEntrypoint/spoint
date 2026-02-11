@@ -1,6 +1,5 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-import { retargetClip } from 'three/addons/utils/SkeletonUtils.js'
 
 const FADE_TIME = 0.15
 const STATES = {
@@ -24,31 +23,17 @@ const LOWER_BODY_BONES = new Set([
   'RightUpperLeg', 'RightLowerLeg', 'RightFoot', 'RightToes'
 ])
 
+function extractBoneName(trackName) {
+  const m = trackName.match(/\.bones\[([^\]]+)\]/)
+  if (m) return m[1]
+  return trackName.split('.')[0]
+}
+
 function filterUpperBodyTracks(clip) {
   const filteredTracks = clip.tracks.filter(track => {
-    const boneName = track.name.split('.')[0]
-    return !LOWER_BODY_BONES.has(boneName)
+    return !LOWER_BODY_BONES.has(extractBoneName(track.name))
   })
   return new THREE.AnimationClip(clip.name, clip.duration, filteredTracks)
-}
-
-function getBonesInClip(clip) {
-  const bones = new Set()
-  for (const track of clip.tracks) {
-    const boneName = track.name.split('.')[0]
-    bones.add(boneName)
-  }
-  return Array.from(bones).sort()
-}
-
-function getSkeletonBones(obj) {
-  const bones = new Set()
-  obj.traverse(child => {
-    if (child.isBone || child.isSkinnedMesh) {
-      bones.add(child.name)
-    }
-  })
-  return Array.from(bones).sort()
 }
 
 function filterValidClipTracks(clip, targetObj) {
@@ -60,9 +45,8 @@ function filterValidClipTracks(clip, targetObj) {
     }
   })
 
-  // Filter tracks to only those referencing valid bones
   const validTracks = clip.tracks.filter(track => {
-    const boneName = track.name.split('.')[0]
+    const boneName = extractBoneName(track.name)
     if (!validBones.has(boneName)) {
       console.warn(`[anim] Filtering out track for missing bone: ${boneName}`)
       return false
@@ -76,21 +60,6 @@ function filterValidClipTracks(clip, targetObj) {
   }
 
   return clip
-}
-
-function findElbowBones(bones) {
-  const elbowPatterns = /[Ee]lbow|[Ff]ore[Aa]rm|[Uu]pper[Aa]rm|[Aa]rm[1-3]/
-  return bones.filter(b => elbowPatterns.test(b))
-}
-
-function findSkinnedMesh(obj) {
-  let skinnedMesh = null
-  obj.traverse(child => {
-    if (child.isSkinnedMesh && !skinnedMesh) {
-      skinnedMesh = child
-    }
-  })
-  return skinnedMesh
 }
 
 const q1 = new THREE.Quaternion()
@@ -147,35 +116,12 @@ function normalizeClips(gltf, vrmVersion, vrmHumanoid) {
 export async function loadAnimationLibrary(vrmVersion, vrmHumanoid) {
   const loader = new GLTFLoader()
   const gltf = await loader.loadAsync('/anim-lib.glb')
-
-  // Return raw animations and normalized version for fallback
-  const rawClips = new Map()
-  for (const clip of gltf.animations) {
-    const name = clip.name.replace(/^VRM\|/, '').replace(/@\d+$/, '')
-    rawClips.set(name, clip)
-  }
-
   const normalizedClips = normalizeClips(gltf, vrmVersion || '1', vrmHumanoid)
-
-  // Store source rig object directly for retargeting
-  const sourceRig = gltf.scene
-
-  // Log source skeleton structure
-  const sourceBones = getSkeletonBones(sourceRig)
-  console.log('[anim] Loaded animation library')
-  console.log(`[anim] Source skeleton has ${sourceBones.length} bones: ${sourceBones.join(', ').slice(0, 100)}...`)
-
-  // Log first clip bones for reference
-  const firstClip = Array.from(rawClips.values())[0]
-  if (firstClip) {
-    const clipBones = getBonesInClip(firstClip)
-    console.log(`[anim] First clip (${firstClip.name}) animates ${clipBones.length} bones: ${clipBones.join(', ').slice(0, 100)}...`)
-  }
-
-  return { rawClips, normalizedClips, sourceRig }
+  console.log(`[anim] Loaded animation library (${normalizedClips.size} clips)`)
+  return { normalizedClips }
 }
 
-export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {}, sourceRig = null) {
+export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {}) {
   const FADE = animConfig.fadeTime || FADE_TIME
   const root = vrm.scene
   const mixer = new THREE.AnimationMixer(root)
@@ -183,58 +129,13 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {},
   const actions = new Map()
   const additiveActions = new Map()
 
-  // Use rawClips if available for retargeting, otherwise use normalized/regular clips
-  const clips = allClips.rawClips || allClips
-
-  // Debug: Store retargeting status for inspection
-  const retargetingStatus = new Map()
-
-  // Extract SkinnedMesh for retargeting (retargetClip needs the actual mesh with skeleton)
-  const targetSkinnedMesh = findSkinnedMesh(root)
-  const sourceSkinnedMesh = sourceRig ? findSkinnedMesh(sourceRig) : null
+  const clips = allClips.normalizedClips || allClips.rawClips || allClips
 
   for (const [name, clip] of clips) {
     if (!STATES[name]) continue
     const cfg = STATES[name]
 
-    // Attempt to retarget the clip to the VRM's skeleton, fall back to pre-normalized version
-    let targetClip = allClips.normalizedClips?.get(name) || clip
-    let retargetingUsed = false
-    let retargetingError = null
-
-    // Check for elbow bones in clip
-    const clipBones = getBonesInClip(clip)
-    const elbowsInClip = findElbowBones(clipBones)
-
-    if (sourceSkinnedMesh && targetSkinnedMesh) {
-      try {
-        // Attempt per-VRM retargeting for better skeleton compatibility
-        // retargetClip signature: retargetClip(target, source, clip, options)
-        const retargeted = retargetClip(targetSkinnedMesh, sourceSkinnedMesh, clip)
-        if (retargeted) {
-          targetClip = retargeted
-          retargetingUsed = true
-          const retargetedBones = getBonesInClip(retargeted)
-          const elbowsInRetargeted = findElbowBones(retargetedBones)
-          console.log(`[anim] ${name}: RETARGETED (${clip.tracks.length} → ${retargeted.tracks.length} tracks) | Elbows: ${elbowsInClip.join(',')} → ${elbowsInRetargeted.join(',')}`)
-        } else {
-          console.warn(`[anim] ${name}: retargetClip returned null/undefined, using fallback (elbows in source: ${elbowsInClip.join(',')})`)
-          retargetingError = 'retargetClip returned null'
-        }
-      } catch (e) {
-        console.error(`[anim] ${name}: retargetClip failed: ${e.message} (elbows in source: ${elbowsInClip.join(',')})`)
-        retargetingError = e.message
-        // Fall back to normalized clip - these work across all VRM models
-      }
-    } else {
-      console.warn(`[anim] ${name}: skipping retargeting - sourceMesh=${!!sourceSkinnedMesh}, targetMesh=${!!targetSkinnedMesh} (elbows in source: ${elbowsInClip.join(',')})`)
-      retargetingError = 'sourceSkinnedMesh or targetSkinnedMesh missing'
-    }
-
-    retargetingStatus.set(name, { used: retargetingUsed, error: retargetingError, trackCount: targetClip.tracks.length, hasProblemElbows: elbowsInClip.length > 0 })
-
-    // Filter out tracks that reference bones not in the VRM
-    let playClip = filterValidClipTracks(targetClip, root)
+    let playClip = filterValidClipTracks(clip, root)
 
     if (cfg.additive) {
       const upperBodyClip = filterUpperBodyTracks(playClip)
@@ -296,7 +197,6 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {},
   })
 
   return {
-    getRetargetingStatus() { return new Map(retargetingStatus) },
     update(dt, velocity, onGround, health, aiming) {
       if (locomotionCooldown > 0) locomotionCooldown -= dt
       if (oneShotTimer > 0) {

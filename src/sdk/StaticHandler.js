@@ -6,7 +6,7 @@ const MIME_TYPES = {
   '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
   '.json': 'application/json', '.glb': 'model/gltf-binary', '.gltf': 'model/gltf+json', '.vrm': 'model/gltf-binary',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp',
-  '.svg': 'image/svg+xml', '.wasm': 'application/wasm'
+  '.svg': 'image/svg+xml', '.wasm': 'application/wasm', '.ico': 'image/x-icon'
 }
 
 const GZIP_EXTENSIONS = new Set(['.glb', '.vrm', '.gltf', '.js', '.css', '.html', '.json'])
@@ -14,6 +14,11 @@ const GZIP_EXTENSIONS = new Set(['.glb', '.vrm', '.gltf', '.js', '.css', '.html'
 export function createStaticHandler(dirs) {
   return (req, res) => {
     const url = req.url.split('?')[0]
+    if (url === '/favicon.ico') {
+      res.writeHead(204)
+      res.end()
+      return
+    }
     for (const { prefix, dir } of dirs) {
       if (!url.startsWith(prefix)) continue
       const relative = url === prefix ? '/index.html' : url.slice(prefix.length)
