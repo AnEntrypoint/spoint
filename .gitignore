@@ -51,3 +51,5 @@ world/hyperfy.db
 # Temporary files
 /tmp/
 /todo/
+.server-log
+nul
