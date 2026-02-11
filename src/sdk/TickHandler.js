@@ -2,6 +2,8 @@ import { MSG } from '../protocol/MessageTypes.js'
 import { SnapshotEncoder } from '../netcode/SnapshotEncoder.js'
 import { applyMovement as _applyMovement, DEFAULT_MOVEMENT as _DEFAULT_MOVEMENT } from '../shared/movement.js'
 
+const KEYFRAME_INTERVAL = 128
+
 export function createTickHandler(deps) {
   const {
     networkState, playerManager, physicsIntegration,
@@ -15,12 +17,16 @@ export function createTickHandler(deps) {
   const collisionDamping = movement.collisionDamping || 0.25
   let snapshotSeq = 0
 
+  const playerEntityMaps = new Map()
+  let broadcastEntityMap = new Map()
+
   let profileLog = 0
   const separated = new Set()
   return function onTick(tick, dt) {
     const t0 = performance.now()
     networkState.setTick(tick, Date.now())
-    for (const player of playerManager.getConnectedPlayers()) {
+    const players = playerManager.getConnectedPlayers()
+    for (const player of players) {
       const inputs = playerManager.getInputs(player.id)
       const st = player.state
 
@@ -50,7 +56,6 @@ export function createTickHandler(deps) {
       })
     }
     const t1 = performance.now()
-    const players = playerManager.getConnectedPlayers()
     separated.clear()
     for (const player of players) {
       const collisions = physicsIntegration.checkCollisionWithOthers(player.id, players)
@@ -85,18 +90,41 @@ export function createTickHandler(deps) {
     if (players.length > 0) {
       const playerSnap = networkState.getSnapshot()
       snapshotSeq++
+      const isKeyframe = snapshotSeq % KEYFRAME_INTERVAL === 0
       if (stageLoader && stageLoader.getActiveStage()) {
         for (const player of players) {
           const pos = player.state.position
           const entitySnap = appRuntime.getSnapshotForPlayer(pos, stageLoader.getActiveStage().spatial.relevanceRadius)
           const combined = { tick: playerSnap.tick, timestamp: playerSnap.timestamp, players: playerSnap.players, entities: entitySnap.entities }
-          connections.send(player.id, MSG.SNAPSHOT, { seq: snapshotSeq, ...SnapshotEncoder.encode(combined) })
+          if (isKeyframe || !playerEntityMaps.has(player.id)) {
+            const encoded = SnapshotEncoder.encode(combined)
+            const { entityMap } = SnapshotEncoder.encodeDelta(combined, new Map())
+            playerEntityMaps.set(player.id, entityMap)
+            connections.send(player.id, MSG.SNAPSHOT, { seq: snapshotSeq, ...encoded })
+          } else {
+            const prevMap = playerEntityMaps.get(player.id)
+            const { encoded, entityMap } = SnapshotEncoder.encodeDelta(combined, prevMap)
+            playerEntityMaps.set(player.id, entityMap)
+            connections.send(player.id, MSG.SNAPSHOT, { seq: snapshotSeq, ...encoded })
+          }
         }
       } else {
         const entitySnap = appRuntime.getSnapshot()
         const combined = { tick: playerSnap.tick, timestamp: playerSnap.timestamp, players: playerSnap.players, entities: entitySnap.entities }
-        connections.broadcast(MSG.SNAPSHOT, { seq: snapshotSeq, ...SnapshotEncoder.encode(combined) })
+        if (isKeyframe || broadcastEntityMap.size === 0) {
+          const encoded = SnapshotEncoder.encode(combined)
+          const { entityMap } = SnapshotEncoder.encodeDelta(combined, new Map())
+          broadcastEntityMap = entityMap
+          connections.broadcast(MSG.SNAPSHOT, { seq: snapshotSeq, ...encoded })
+        } else {
+          const { encoded, entityMap } = SnapshotEncoder.encodeDelta(combined, broadcastEntityMap)
+          broadcastEntityMap = entityMap
+          connections.broadcast(MSG.SNAPSHOT, { seq: snapshotSeq, ...encoded })
+        }
       }
+    }
+    for (const id of playerEntityMaps.keys()) {
+      if (!playerManager.getPlayer(id)) playerEntityMaps.delete(id)
     }
     const t5 = performance.now()
     try {
