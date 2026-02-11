@@ -31,14 +31,14 @@ export class ConnectionManager extends EventEmitter {
     })
 
     transport.on('close', () => {
-      this.removeClient(clientId)
       this.emit('disconnect', clientId, 'closed')
+      this.removeClient(clientId)
     })
 
     transport.on('error', (err) => {
       console.error(`[connection] transport error for ${clientId}:`, err.message)
-      this.removeClient(clientId)
       this.emit('disconnect', clientId, 'error')
+      this.removeClient(clientId)
     })
 
     this.clients.set(clientId, client)
@@ -52,8 +52,8 @@ export class ConnectionManager extends EventEmitter {
       if (!client) return
       const age = Date.now() - client.lastHeartbeat
       if (age > this.heartbeatTimeout) {
-        this.removeClient(clientId)
         this.emit('disconnect', clientId, 'timeout')
+        this.removeClient(clientId)
         return
       }
       const timer = setTimeout(check, this.heartbeatInterval)
@@ -68,6 +68,19 @@ export class ConnectionManager extends EventEmitter {
     if (!client) return
     if (client.transport && client.transport.isOpen) {
       client.transport.close()
+    }
+    this.clients.delete(clientId)
+    const timer = this.timers.get(`hb-${clientId}`)
+    if (timer) clearTimeout(timer)
+    this.timers.delete(`hb-${clientId}`)
+  }
+
+  detachClient(clientId) {
+    const client = this.clients.get(clientId)
+    if (client?.transport) {
+      client.transport.removeAllListeners('message')
+      client.transport.removeAllListeners('close')
+      client.transport.removeAllListeners('error')
     }
     this.clients.delete(clientId)
     const timer = this.timers.get(`hb-${clientId}`)
