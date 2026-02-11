@@ -2,6 +2,7 @@ const CONFIG = {
   spawnInterval: 30,
   pickupRadius: 2.5,
   pickupLifetime: 30,
+  maxCrates: 20,
   crateHitRadius: 1.5,
   buffDuration: 45,
   speedMultiplier: 1.2,
@@ -80,6 +81,7 @@ function findSpawnPoints(ctx) {
 function spawnCrate(ctx) {
   const sp = ctx.state.spawnPoints
   if (sp.length === 0) return
+  if (ctx.state.crates.size >= CONFIG.maxCrates) return
   const pos = sp[Math.floor(Math.random() * sp.length)]
   const id = `power_crate_${ctx.state.nextCrateId++}`
   const e = ctx.world.spawn(id, { position: [...pos] })
