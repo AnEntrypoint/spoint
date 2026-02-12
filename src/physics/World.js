@@ -107,21 +107,22 @@ export class PhysicsWorld {
     const id = this._nextCharId = (this._nextCharId || 0) + 1
     if (!this.characters) this.characters = new Map()
     this.characters.set(id, ch)
-    const standShape = new J.CapsuleShape(halfHeight, radius)
-    const crouchShape = new J.CapsuleShape(this.crouchHalfHeight, radius)
-    this._charShapes.set(id, { stand: standShape, crouch: crouchShape, radius, standHeight: halfHeight, crouchHeight: this.crouchHalfHeight })
+    this._charShapes.set(id, { radius, standHeight: halfHeight, crouchHeight: this.crouchHalfHeight })
     return id
   }
   setCharacterCrouch(charId, isCrouching) {
+    const data = this._charShapes.get(charId)
+    if (!data) return
+    const heightDiff = (data.standHeight - data.crouchHeight) * 0.5
     const ch = this.characters?.get(charId)
     if (!ch) return
-    const shapes = this._charShapes.get(charId)
-    if (!shapes) return
-    try {
-      ch.SetShape(isCrouching ? shapes.crouch : shapes.stand, 0.1)
-    } catch (e) {
-      console.error('[Physics] setCrouch error:', e.message)
+    const pos = this.getCharacterPosition(charId)
+    if (isCrouching) {
+      pos[1] -= heightDiff
+    } else {
+      pos[1] += heightDiff
     }
+    this.setCharacterPosition(charId, pos)
   }
   updateCharacter(charId, dt) {
     const ch = this.characters?.get(charId)
