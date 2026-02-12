@@ -44,6 +44,7 @@ export function createTickHandler(deps) {
       }
 
       applyMovement(st, inp, movement, dt)
+      if (inp) physicsIntegration.setCrouch(player.id, !!inp.crouch)
       const wishedVx = st.velocity[0], wishedVz = st.velocity[2]
       const updated = physicsIntegration.updatePlayerPhysics(player.id, st, dt)
       st.position = updated.position

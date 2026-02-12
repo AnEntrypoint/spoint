@@ -75,7 +75,8 @@ export async function createServer(config = {}) {
   const staticDirs = config.staticDirs || []
 
   const storageDir = config.storageDir || './data'
-  const physics = new PhysicsWorld({ gravity })
+  const playerConfig = config.playerConfig || {}
+  const physics = new PhysicsWorld({ gravity, crouchHalfHeight: playerConfig.crouchHalfHeight })
   await physics.init()
 
   const emitter = new EventEmitter()
@@ -86,8 +87,7 @@ export async function createServer(config = {}) {
   const playerManager = new PlayerManager()
   const networkState = new NetworkState()
   const lagCompensator = new LagCompensator()
-  const playerConfig = config.playerConfig || {}
-  const physicsIntegration = new PhysicsIntegration({ gravity, physicsWorld: physics, capsuleRadius: playerConfig.capsuleRadius, capsuleHalfHeight: playerConfig.capsuleHalfHeight, playerMass: playerConfig.mass })
+  const physicsIntegration = new PhysicsIntegration({ gravity, physicsWorld: physics, capsuleRadius: playerConfig.capsuleRadius, capsuleHalfHeight: playerConfig.capsuleHalfHeight, crouchHalfHeight: playerConfig.crouchHalfHeight, playerMass: playerConfig.mass })
   const connections = new ConnectionManager({
     heartbeatInterval: config.heartbeatInterval || 1000,
     heartbeatTimeout: config.heartbeatTimeout || 3000

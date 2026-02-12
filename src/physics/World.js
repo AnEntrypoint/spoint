@@ -6,9 +6,11 @@ async function getJolt() { if (!joltInstance) joltInstance = await initJolt(); r
 export class PhysicsWorld {
   constructor(config = {}) {
     this.gravity = config.gravity || [0, -9.81, 0]
+    this.crouchHalfHeight = config.crouchHalfHeight || 0.45
     this.Jolt = null; this.jolt = null; this.physicsSystem = null; this.bodyInterface = null
     this.bodies = new Map(); this.bodyMeta = new Map()
     this._objFilter = null; this._ovbp = null
+    this._charShapes = new Map()
   }
   async init() {
     const J = await getJolt()
@@ -105,7 +107,16 @@ export class PhysicsWorld {
     const id = this._nextCharId = (this._nextCharId || 0) + 1
     if (!this.characters) this.characters = new Map()
     this.characters.set(id, ch)
+    const crouchShape = new J.CapsuleShape(this.crouchHalfHeight, radius)
+    this._charShapes.set(id, { stand: new J.CapsuleShape(halfHeight, radius), crouch: crouchShape })
     return id
+  }
+  setCharacterCrouch(charId, isCrouching) {
+    const ch = this.characters?.get(charId)
+    if (!ch) return
+    const shapes = this._charShapes.get(charId)
+    if (!shapes) return
+    ch.SetShape(isCrouching ? shapes.crouch : shapes.stand, 0.1)
   }
   updateCharacter(charId, dt) {
     const ch = this.characters?.get(charId)
