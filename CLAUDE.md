@@ -158,3 +158,46 @@ Animation retargeting (client/animation.js) uses `THREE.SkeletonUtils.retargetCl
 ## Entry Points
 
 Server: `node server.js` (port 8080, 128 TPS). World config: `apps/world/index.js`. Apps: `apps/<name>/index.js` with `server` and `client` exports.
+
+## Mobile Support Foundation (Phase 0)
+
+Planned minimal foundation for eventual mobile support. Not implementing touch controls yet, but preparing architecture so it's possible later without major refactoring.
+
+### Goals
+- Device-agnostic architecture (webXR already enforces performance constraints)
+- Input abstraction (keyboard/mouse/gamepad/touch all emit same normalized events)
+- No mobile UI yet - just foundation
+
+### Phase 0: Foundation (Do Now)
+
+**1. Input Abstraction**
+Refactor InputHandler to emit normalized events regardless of source:
+```javascript
+{ move: {x, y}, look: {yaw, pitch}, action: 'jump' }
+```
+Keyboard, gamepad, and future touch all feed into same interface.
+
+**2. Device Detection Utility**
+```javascript
+const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+const isMobile = /Android|webOS|iPhone|iPad|iPod/i.test(navigator.userAgent)
+```
+
+**3. Performance Telemetry**
+Track FPS on client, expose to server. When mobile is added, we'll have data on what devices can handle 128 TPS + Three.js.
+
+### Phase 1: Minimal Touch (Later)
+If/when mobile is prioritized:
+- One virtual joystick (nipple.js) for movement
+- "Jump" button
+- Tap-to-shoot
+- That's it. No aim, no crouch, no swipe-to-look.
+
+### Skipped (Not Worth It)
+- Swipe-to-look (awkward, use device orientation or don't bother)
+- Complex button layouts (screen clutter)
+- Gyroscope (permissions headache)
+- Full PWA, native wrappers, advanced haptics
+
+### Rationale
+The 80/20 rule: joystick + jump + shoot = 80% of "playable on mobile" with 20% effort. Everything else is diminishing returns against desktop polish.
