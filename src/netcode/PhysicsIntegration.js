@@ -5,10 +5,12 @@ export class PhysicsIntegration {
       gravity: config.gravity || [0, -9.81, 0],
       capsuleRadius: config.capsuleRadius || 0.4,
       capsuleHalfHeight: config.capsuleHalfHeight || 0.9,
+      crouchHalfHeight: config.crouchHalfHeight || 0.45,
       playerMass: config.playerMass || 120,
       ...config
     }
     this.playerBodies = new Map()
+    this._crouchStates = new Map()
   }
 
   setPhysicsWorld(world) {
@@ -128,5 +130,14 @@ export class PhysicsIntegration {
     )
     if (distance > 2.0) return { valid: false, reason: 'move_too_far', distance }
     return { valid: true }
+  }
+
+  setCrouch(playerId, isCrouching) {
+    const data = this.playerBodies.get(playerId)
+    if (!data?.charId || !this.physicsWorld) return
+    const currentState = this._crouchStates.get(playerId)
+    if (currentState === isCrouching) return
+    this.physicsWorld.setCharacterCrouch(data.charId, isCrouching)
+    this._crouchStates.set(playerId, isCrouching)
   }
 }
