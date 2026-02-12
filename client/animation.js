@@ -13,7 +13,7 @@ const STATES = {
   CrouchIdleLoop: { loop: true },
   CrouchFwdLoop: { loop: true },
   Death: { loop: false, clamp: true },
-  PistolShoot: { loop: false, next: null, duration: 0.3, additive: true },
+  PistolShoot: { loop: false, next: null, duration: 0.3, upperBody: true },
   Aim: { loop: true, additive: true }
 }
 
@@ -139,7 +139,15 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
 
     let playClip = filterValidClipTracks(clip, root)
 
-    if (cfg.additive) {
+    if (cfg.upperBody) {
+      const upperBodyClip = filterUpperBodyTracks(playClip)
+      const action = mixer.clipAction(upperBodyClip)
+      if (!cfg.loop) {
+        action.loop = THREE.LoopOnce
+        action.clampWhenFinished = cfg.clamp || false
+      }
+      additiveActions.set(name, action)
+    } else if (cfg.additive) {
       const upperBodyClip = filterUpperBodyTracks(playClip)
       const action = mixer.clipAction(upperBodyClip)
       action.blendMode = THREE.AdditiveAnimationBlendMode
