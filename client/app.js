@@ -1060,8 +1060,6 @@ function animate(timestamp) {
       while (diff < -Math.PI) diff += Math.PI * 2
       mesh.rotation.y += diff * lerpFactor
     }
-    const vrm = playerVrms.get(id)
-    if (vrm) vrm.update(frameDt)
     const target = playerTargets.get(id)
     updateVRMFeatures(id, frameDt, target)
     if (id !== client.playerId && ps.lookPitch !== undefined) {
