@@ -24,15 +24,21 @@ function isDescendant(obj, ancestor) {
   return false
 }
 
+const _boneWorldPos = new THREE.Vector3()
+const _boneForward = new THREE.Vector3()
+
 export function createCameraController(camera, scene) {
   let yaw = 0, pitch = 0, zoomIndex = 2, camInitialized = false
   let mode = 'tps'
   const envMeshes = []
   let rayTimer = 0, cachedClipDist = 10, cachedAimPoint = null
+  let headBone = null
+  let fpsForwardOffset = 0.15
   camRaycaster.firstHitOnly = true
   aimRaycaster.firstHitOnly = true
 
   function setEnvironment(meshes) { envMeshes.length = 0; envMeshes.push(...meshes) }
+  function setHeadBone(bone) { headBone = bone }
 
   function setMode(m) { mode = m }
   function getMode() { return mode }
@@ -80,7 +86,7 @@ export function createCameraController(camera, scene) {
     if (!localPlayer) return
     const dist = mode === 'fps' ? 0 : zoomStages[zoomIndex]
     camTarget.set(localPlayer.position[0], localPlayer.position[1] + headHeight, localPlayer.position[2])
-    if (localMesh) localMesh.visible = true
+    if (localMesh) localMesh.visible = dist >= 0.01
     const punchLerp = 1 - Math.exp(-972 * frameDt)
     punchYaw += (punchYawTarget - punchYaw) * punchLerp
     punchPitch += (punchPitchTarget - punchPitch) * punchLerp
@@ -93,8 +99,14 @@ export function createCameraController(camera, scene) {
     const fwdX = sy * cp, fwdY = sp, fwdZ = cy * cp
     const rightX = -cy, rightZ = sy
     if (dist < 0.01) {
-      camera.position.copy(camTarget)
-      camera.lookAt(camTarget.x + fwdX, camTarget.y + fwdY, camTarget.z + fwdZ)
+      if (headBone) {
+        headBone.getWorldPosition(_boneWorldPos)
+        _boneForward.set(fwdX, fwdY, fwdZ)
+        camera.position.copy(_boneWorldPos).addScaledVector(_boneForward, fpsForwardOffset)
+      } else {
+        camera.position.copy(camTarget)
+      }
+      camera.lookAt(camera.position.x + fwdX, camera.position.y + fwdY, camera.position.z + fwdZ)
     } else {
       camDesired.set(
         camTarget.x - fwdX * dist + rightX * shoulderOffset,
@@ -175,5 +187,5 @@ export function createCameraController(camera, scene) {
   function setVRYaw(vrYaw) { yaw = vrYaw }
   function getVRYaw() { return yaw }
 
-  return { restore, save, onMouseMove, onWheel, getAimDirection, update, setEnvironment, applyConfig, setMode, getMode, setPosition, setTarget, punch, setVRYaw, getVRYaw, get yaw() { return yaw }, get pitch() { return pitch }, get mode() { return mode } }
+  return { restore, save, onMouseMove, onWheel, getAimDirection, update, setEnvironment, setHeadBone, applyConfig, setMode, getMode, setPosition, setTarget, punch, setVRYaw, getVRYaw, get yaw() { return yaw }, get pitch() { return pitch }, get mode() { return mode } }
 }

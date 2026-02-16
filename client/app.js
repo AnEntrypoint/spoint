@@ -703,7 +703,10 @@ async function createPlayerVRM(id) {
     if (animAssets) {
       const animator = createPlayerAnimator(vrm, animAssets, vrmVersion, worldConfig.animation || {})
       playerAnimators.set(id, animator)
-
+    }
+    if (id === client.playerId && vrm.humanoid) {
+      const head = vrm.humanoid.getNormalizedBoneNode('head')
+      if (head) cam.setHeadBone(head)
     }
   } catch (e) { console.error('[vrm]', id, e.message) }
   return group
