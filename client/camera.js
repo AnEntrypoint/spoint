@@ -34,7 +34,7 @@ export function createCameraController(camera, scene) {
   let rayTimer = 0, cachedClipDist = 10, cachedAimPoint = null
   let cameraBone = null
   let headBone = null
-  let fpsForwardOffset = 0.4
+  let fpsForwardOffset = 0.55
   camRaycaster.firstHitOnly = true
   aimRaycaster.firstHitOnly = true
 
