@@ -34,7 +34,7 @@ export function createCameraController(camera, scene) {
   let rayTimer = 0, cachedClipDist = 10, cachedAimPoint = null
   let cameraBone = null
   let headBone = null
-  let fpsForwardOffset = 0.22
+  let fpsForwardOffset = 0.3
   camRaycaster.firstHitOnly = true
   aimRaycaster.firstHitOnly = true
 
@@ -110,7 +110,7 @@ export function createCameraController(camera, scene) {
         cameraBone.getWorldPosition(_boneWorldPos)
         _boneForward.set(fwdX, fwdY, fwdZ)
         camera.position.copy(_boneWorldPos).addScaledVector(_boneForward, fpsForwardOffset)
-        camera.position.y += 0.12
+        camera.position.y += 0.18
       } else {
         camera.position.copy(camTarget)
       }
