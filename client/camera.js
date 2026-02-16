@@ -110,9 +110,11 @@ export function createCameraController(camera, scene) {
         cameraBone.getWorldPosition(_boneWorldPos)
         _boneForward.set(fwdX, fwdY, fwdZ)
         camera.position.copy(_boneWorldPos).addScaledVector(_boneForward, fpsForwardOffset)
+        camera.position.y += 0.12
       } else {
         camera.position.copy(camTarget)
       }
+      if (headBone) headBone.scale.set(0, 0, 0)
       camera.lookAt(camera.position.x + fwdX, camera.position.y + fwdY, camera.position.z + fwdZ)
     } else {
       camDesired.set(
