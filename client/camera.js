@@ -115,8 +115,26 @@ export function createCameraController(camera, scene) {
         camera.position.copy(camTarget)
       }
       if (headBone) headBone.scale.set(0, 0, 0)
+      rayTimer += frameDt
+      if (rayTimer >= 0.05) {
+        rayTimer = 0
+        camRaycaster.set(camera.position, camDir.set(fwdX, fwdY, fwdZ))
+        camRaycaster.far = 0.4
+        camRaycaster.near = 0
+        const hits = camRaycaster.intersectObjects(envMeshes.length ? envMeshes : scene.children, true)
+        cachedClipDist = 0
+        for (const hit of hits) {
+          if (localMesh && isDescendant(hit.object, localMesh)) continue
+          cachedClipDist = hit.distance + 0.05
+          break
+        }
+      }
+      if (cachedClipDist > 0) {
+        camera.position.addScaledVector(camDir.set(fwdX, fwdY, fwdZ), cachedClipDist)
+      }
       camera.lookAt(camera.position.x + fwdX, camera.position.y + fwdY, camera.position.z + fwdZ)
     } else {
+      if (headBone) headBone.scale.set(1, 1, 1)
       camDesired.set(
         camTarget.x - fwdX * dist + rightX * shoulderOffset,
         camTarget.y - fwdY * dist + 0.2,
