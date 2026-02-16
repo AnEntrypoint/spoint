@@ -32,15 +32,22 @@ export function createCameraController(camera, scene) {
   let mode = 'tps'
   const envMeshes = []
   let rayTimer = 0, cachedClipDist = 10, cachedAimPoint = null
+  let cameraBone = null
   let headBone = null
-  let fpsForwardOffset = 0.15
+  let fpsForwardOffset = 0.22
   camRaycaster.firstHitOnly = true
   aimRaycaster.firstHitOnly = true
 
   function setEnvironment(meshes) { envMeshes.length = 0; envMeshes.push(...meshes) }
+  function setCameraBone(bone) { cameraBone = bone }
   function setHeadBone(bone) { headBone = bone }
 
-  function setMode(m) { mode = m }
+  function setMode(m) {
+    const prev = mode
+    mode = m
+    if (m === 'fps' && headBone) headBone.scale.set(0, 0, 0)
+    if (prev === 'fps' && m !== 'fps' && headBone) headBone.scale.set(1, 1, 1)
+  }
   function getMode() { return mode }
 
   function setPosition(x, y, z) { camera.position.set(x, y, z) }
@@ -86,7 +93,6 @@ export function createCameraController(camera, scene) {
     if (!localPlayer) return
     const dist = mode === 'fps' ? 0 : zoomStages[zoomIndex]
     camTarget.set(localPlayer.position[0], localPlayer.position[1] + headHeight, localPlayer.position[2])
-    if (localMesh) localMesh.visible = dist >= 0.01
     const punchLerp = 1 - Math.exp(-972 * frameDt)
     punchYaw += (punchYawTarget - punchYaw) * punchLerp
     punchPitch += (punchPitchTarget - punchPitch) * punchLerp
@@ -99,8 +105,8 @@ export function createCameraController(camera, scene) {
     const fwdX = sy * cp, fwdY = sp, fwdZ = cy * cp
     const rightX = -cy, rightZ = sy
     if (dist < 0.01) {
-      if (headBone) {
-        headBone.getWorldPosition(_boneWorldPos)
+      if (cameraBone) {
+        cameraBone.getWorldPosition(_boneWorldPos)
         _boneForward.set(fwdX, fwdY, fwdZ)
         camera.position.copy(_boneWorldPos).addScaledVector(_boneForward, fpsForwardOffset)
       } else {
@@ -187,5 +193,5 @@ export function createCameraController(camera, scene) {
   function setVRYaw(vrYaw) { yaw = vrYaw }
   function getVRYaw() { return yaw }
 
-  return { restore, save, onMouseMove, onWheel, getAimDirection, update, setEnvironment, setHeadBone, applyConfig, setMode, getMode, setPosition, setTarget, punch, setVRYaw, getVRYaw, get yaw() { return yaw }, get pitch() { return pitch }, get mode() { return mode } }
+  return { restore, save, onMouseMove, onWheel, getAimDirection, update, setEnvironment, setCameraBone, setHeadBone, applyConfig, setMode, getMode, setPosition, setTarget, punch, setVRYaw, getVRYaw, get yaw() { return yaw }, get pitch() { return pitch }, get mode() { return mode } }
 }
