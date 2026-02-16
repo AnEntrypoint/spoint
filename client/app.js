@@ -707,7 +707,7 @@ async function createPlayerVRM(id) {
     if (id === client.playerId && vrm.humanoid) {
       const neck = vrm.humanoid.getNormalizedBoneNode('neck')
       const head = vrm.humanoid.getNormalizedBoneNode('head')
-      if (neck) cam.setCameraBone(neck)
+      if (head) cam.setCameraBone(head)
       if (head) cam.setHeadBone(head)
       if (cam.getMode() === 'fps' && head) head.scale.set(0, 0, 0)
     }
