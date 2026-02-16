@@ -105,8 +105,8 @@ export function createCameraController(camera, scene) {
     const fwdX = sy * cp, fwdY = sp, fwdZ = cy * cp
     const rightX = -cy, rightZ = sy
     if (dist < 0.01) {
-      if (cameraBone) {
-        cameraBone.updateWorldMatrix(true, false)
+      if (cameraBone && localMesh) {
+        localMesh.updateMatrixWorld(true)
         cameraBone.getWorldPosition(_boneWorldPos)
         _boneForward.set(fwdX, fwdY, fwdZ)
         camera.position.copy(_boneWorldPos).addScaledVector(_boneForward, fpsForwardOffset)
