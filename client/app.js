@@ -705,8 +705,7 @@ async function createPlayerVRM(id) {
       playerAnimators.set(id, animator)
     }
     if (id === client.playerId && vrm.humanoid) {
-      const neck = vrm.humanoid.getNormalizedBoneNode('neck')
-      const head = vrm.humanoid.getNormalizedBoneNode('head')
+      const head = vrm.humanoid.getRawBoneNode('head')
       if (head) cam.setCameraBone(head)
       if (head) cam.setHeadBone(head)
       if (cam.getMode() === 'fps' && head) head.scale.set(0, 0, 0)
@@ -1061,6 +1060,8 @@ function animate(timestamp) {
       while (diff < -Math.PI) diff += Math.PI * 2
       mesh.rotation.y += diff * lerpFactor
     }
+    const vrm = playerVrms.get(id)
+    if (vrm) vrm.update(frameDt)
     const target = playerTargets.get(id)
     updateVRMFeatures(id, frameDt, target)
     if (id !== client.playerId && ps.lookPitch !== undefined) {
