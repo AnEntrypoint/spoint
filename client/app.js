@@ -5,6 +5,7 @@ import { PhysicsNetworkClient, InputHandler, MSG } from '/src/index.client.js'
 import { createElement, applyDiff } from 'webjsx'
 import { createCameraController } from './camera.js'
 import { loadAnimationLibrary, createPlayerAnimator } from './animation.js'
+import { initFacialSystem } from './facial-animation.js'
 import { VRButton } from 'three/addons/webxr/VRButton.js'
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js'
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js'
@@ -926,6 +927,7 @@ const engineCtx = {
   get inputConfig() { return inputConfig },
   get _tps() { return engineCtx._tpsState },
   set _tps(val) { engineCtx._tpsState = val },
+  playerVrms,
   setInputConfig(cfg) { Object.assign(inputConfig, cfg); if (!inputConfig.pointerLock) { clickPrompt.style.display = 'none'; if (document.pointerLockElement) document.exitPointerLock() } },
   players: {
     getMesh: (id) => playerMeshes.get(id),
@@ -937,6 +939,8 @@ const engineCtx = {
   createElement,
   THREE
 }
+
+initFacialSystem(engineCtx)
 
 let inputLoopId = null
 let loadingScreenHidden = false
@@ -1079,6 +1083,7 @@ function animate(timestamp) {
     }
   }
   for (const [, mod] of appModules) { if (mod.onFrame) try { mod.onFrame(frameDt, engineCtx) } catch (e) {} }
+  if (engineCtx.facial) engineCtx.facial.update(frameDt)
   uiTimer += frameDt
   if (latestState && uiTimer >= 0.25) { uiTimer = 0; renderAppUI(latestState) }
   const local = client.state?.players?.find(p => p.id === client.playerId)
