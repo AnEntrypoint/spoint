@@ -31,7 +31,7 @@ export function createCameraController(camera, scene) {
   let yaw = 0, pitch = 0, zoomIndex = 2, camInitialized = false
   let mode = 'tps'
   const envMeshes = []
-  let rayTimer = 0, cachedClipDist = 10, cachedAimPoint = null
+  let rayTimer = 0, cachedClipDist = 10, cachedAimPoint = null, fpsClipDist = 0
   let cameraBone = null
   let headBone = null
   let fpsForwardOffset = 0.55
@@ -105,32 +105,34 @@ export function createCameraController(camera, scene) {
     const fwdX = sy * cp, fwdY = sp, fwdZ = cy * cp
     const rightX = -cy, rightZ = sy
     if (dist < 0.01) {
+      const pitchExtra = pitch < 0 ? Math.abs(pitch) * 0.5 : 0
+      const effectiveForward = fpsForwardOffset + pitchExtra
       if (cameraBone && localMesh) {
         localMesh.updateMatrixWorld(true)
         cameraBone.getWorldPosition(_boneWorldPos)
         _boneForward.set(fwdX, fwdY, fwdZ)
-        camera.position.copy(_boneWorldPos).addScaledVector(_boneForward, fpsForwardOffset)
+        camera.position.copy(_boneWorldPos).addScaledVector(_boneForward, effectiveForward)
         camera.position.y += 0.25
       } else {
         camera.position.copy(camTarget)
       }
       if (headBone) headBone.scale.set(0, 0, 0)
-      rayTimer += frameDt
-      if (rayTimer >= 0.05) {
-        rayTimer = 0
-        camRaycaster.set(camera.position, camDir.set(fwdX, fwdY, fwdZ))
-        camRaycaster.far = 0.7
-        camRaycaster.near = 0
-        const hits = camRaycaster.intersectObjects(envMeshes.length ? envMeshes : scene.children, true)
-        cachedClipDist = 0
-        for (const hit of hits) {
-          if (localMesh && isDescendant(hit.object, localMesh)) continue
-          cachedClipDist = 0.7 - hit.distance + 0.15
-          break
-        }
+      camDir.set(fwdX, fwdY, fwdZ)
+      camRaycaster.set(camera.position, camDir)
+      camRaycaster.far = 1.2
+      camRaycaster.near = 0
+      const hits = camRaycaster.intersectObjects(envMeshes.length ? envMeshes : scene.children, true)
+      let targetClip = 0
+      for (const hit of hits) {
+        if (localMesh && isDescendant(hit.object, localMesh)) continue
+        targetClip = Math.max(0.05, 1.2 - hit.distance + 0.2)
+        break
       }
-      if (cachedClipDist > 0) {
-        camera.position.addScaledVector(camDir.set(fwdX, fwdY, fwdZ), -cachedClipDist)
+      const clipSpeed = targetClip > fpsClipDist ? 40 : 8
+      fpsClipDist += (targetClip - fpsClipDist) * (1 - Math.exp(-clipSpeed * frameDt))
+      if (fpsClipDist < 0.001) fpsClipDist = 0
+      if (fpsClipDist > 0) {
+        camera.position.addScaledVector(camDir, -fpsClipDist)
       }
       camera.lookAt(camera.position.x + fwdX, camera.position.y + fwdY, camera.position.z + fwdZ)
     } else {
