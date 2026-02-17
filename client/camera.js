@@ -34,7 +34,7 @@ export function createCameraController(camera, scene) {
   let rayTimer = 0, cachedClipDist = 10, cachedAimPoint = null, fpsClipDist = 0
   let cameraBone = null
   let headBone = null
-  let fpsForwardOffset = 0.55
+  let fpsForwardOffset = 0.7
   camRaycaster.firstHitOnly = true
   aimRaycaster.firstHitOnly = true
 
@@ -112,22 +112,45 @@ export function createCameraController(camera, scene) {
         cameraBone.getWorldPosition(_boneWorldPos)
         _boneForward.set(fwdX, fwdY, fwdZ)
         camera.position.copy(_boneWorldPos).addScaledVector(_boneForward, effectiveForward)
-        camera.position.y += 0.25
+        camera.position.y += 0.35
       } else {
         camera.position.copy(camTarget)
       }
       if (headBone) headBone.scale.set(0, 0, 0)
       camDir.set(fwdX, fwdY, fwdZ)
+      const fpsRayRange = 2.0
       camRaycaster.set(camera.position, camDir)
-      camRaycaster.far = 1.2
+      camRaycaster.far = fpsRayRange
       camRaycaster.near = 0
-      const hits = camRaycaster.intersectObjects(envMeshes.length ? envMeshes : scene.children, true)
+      const rayTargets = envMeshes.length ? envMeshes : scene.children
+      const hits = camRaycaster.intersectObjects(rayTargets, true)
       let targetClip = 0
       for (const hit of hits) {
         if (localMesh && isDescendant(hit.object, localMesh)) continue
-        targetClip = Math.max(0.05, 1.2 - hit.distance + 0.2)
+        targetClip = Math.max(0.05, fpsRayRange - hit.distance + 0.2)
         break
       }
+      const sideRange = 0.35
+      const sideDirs = [
+        [-rightX, 0, -rightZ],
+        [rightX, 0, rightZ],
+        [0, 1, 0],
+        [0, -1, 0]
+      ]
+      for (const sd of sideDirs) {
+        camDir.set(sd[0], sd[1], sd[2])
+        camRaycaster.set(camera.position, camDir)
+        camRaycaster.far = sideRange
+        camRaycaster.near = 0
+        const sideHits = camRaycaster.intersectObjects(rayTargets, true)
+        for (const hit of sideHits) {
+          if (localMesh && isDescendant(hit.object, localMesh)) continue
+          const pull = Math.max(0.05, sideRange - hit.distance + 0.1)
+          targetClip = Math.max(targetClip, pull)
+          break
+        }
+      }
+      camDir.set(fwdX, fwdY, fwdZ)
       const clipSpeed = targetClip > fpsClipDist ? 40 : 8
       fpsClipDist += (targetClip - fpsClipDist) * (1 - Math.exp(-clipSpeed * frameDt))
       if (fpsClipDist < 0.001) fpsClipDist = 0
