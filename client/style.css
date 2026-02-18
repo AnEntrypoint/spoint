@@ -157,3 +157,106 @@ canvas { display: block; width: 100%; height: 100vh; }
     font-size: 0.7rem;
   }
 }
+
+#mobile-controls {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 1000;
+  touch-action: none;
+}
+
+.mobile-joystick {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.mobile-joystick-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+  transform: translate(-50%, -50%);
+  touch-action: none;
+}
+
+.mobile-joystick-knob.active {
+  background: rgba(255, 255, 255, 0.7) !important;
+}
+
+.mobile-buttons {
+  position: absolute;
+  display: grid;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.mobile-button {
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.mobile-button.active {
+  background: rgba(255, 255, 255, 0.5) !important;
+  transform: scale(0.95);
+}
+
+.mobile-button-shoot {
+  background: rgba(255, 100, 100, 0.4);
+}
+
+.mobile-button-reload {
+  background: rgba(100, 100, 255, 0.4);
+}
+
+#ar-button {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 24px;
+  background: rgba(0, 150, 0, 0.8);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  z-index: 1001;
+  touch-action: none;
+}
+
+@media (max-width: 480px) {
+  .mobile-joystick {
+    width: 100px !important;
+    height: 100px !important;
+  }
+  
+  .mobile-joystick-knob {
+    width: 40px !important;
+    height: 40px !important;
+  }
+  
+  .mobile-button {
+    width: 44px !important;
+    height: 44px !important;
+    font-size: 14px !important;
+  }
+}
