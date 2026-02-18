@@ -24,9 +24,10 @@ scene.fog = new THREE.Fog(0x87ceeb, 80, 200)
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 500)
 let worldConfig = {}
 let inputConfig = { pointerLock: true }
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
+const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+const renderer = new THREE.WebGLRenderer({ antialias: !isMobileDevice, powerPreference: 'high-performance' })
 renderer.setSize(window.innerWidth, window.innerHeight)
-renderer.setPixelRatio(window.devicePixelRatio)
+renderer.setPixelRatio(isMobileDevice ? Math.min(window.devicePixelRatio, 2) : window.devicePixelRatio)
 renderer.shadowMap.enabled = true
 renderer.shadowMap.type = THREE.PCFSoftShadowMap
 renderer.xr.enabled = true
