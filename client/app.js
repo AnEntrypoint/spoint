@@ -11,6 +11,8 @@ import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFa
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js'
 import { LoadingManager } from './LoadingManager.js'
 import { createLoadingScreen } from './createLoadingScreen.js'
+import { MobileControls, detectDevice } from './MobileControls.js'
+import { ARControls, createARButton } from './ARControls.js'
 
 const loadingMgr = new LoadingManager()
 const loadingScreen = createLoadingScreen(loadingMgr)
@@ -29,7 +31,13 @@ renderer.shadowMap.enabled = true
 renderer.shadowMap.type = THREE.PCFSoftShadowMap
 renderer.xr.enabled = true
 document.body.appendChild(renderer.domElement)
-document.body.appendChild(VRButton.createButton(renderer, { optionalFeatures: ['hand-tracking'] }))
+
+async function initVRButton() {
+  if (navigator.xr && await navigator.xr.isSessionSupported('immersive-vr')) {
+    document.body.appendChild(VRButton.createButton(renderer, { optionalFeatures: ['hand-tracking'] }))
+  }
+}
+initVRButton()
 
 const controllerModels = new Map()
 const controllerGrips = new Map()
@@ -71,6 +79,29 @@ const FADE_DELAY = 50
 let vignetteMesh = null
 let vignetteOpacity = 0
 let vignetteTargetOpacity = 0
+
+let mobileControls = null
+let arControls = null
+let arButton = null
+let arEnabled = false
+const deviceInfo = detectDevice()
+
+if (deviceInfo.isTouch || deviceInfo.isMobile) {
+  mobileControls = new MobileControls({
+    joystickRadius: 55,
+    joystickPosition: { x: 70, y: -100 },
+    lookJoystickPosition: { x: 70, y: -100 },
+    lookJoystickRadius: 55,
+    rotationSensitivity: 0.003,
+    zoomSensitivity: 0.008
+  })
+  inputConfig.pointerLock = false
+  console.log('[Mobile] Touch controls initialized:', deviceInfo)
+}
+
+arControls = new ARControls({ placementMode: true, planeDetection: true })
+const arReticle = arControls.createReticle()
+scene.add(arReticle)
 
 function createLaserPointer() {
   const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -5)])
@@ -228,11 +259,11 @@ function updateVRSettingsPanel() {
   ctx.textAlign = 'left'
   ctx.fillStyle = '#ffffff'
 
-  ctx.fillText(`Snap Turn: ${vrSettings.snapTurnAngle}°`, 40, 120)
-  ctx.fillText('[Y/B] to change', 280, 120)
+ctx.fillText(`Snap Turn: ${vrSettings.snapTurnAngle}°`, 40, 120)
+  ctx.fillText('[B/Y] to cycle', 280, 120)
 
-  ctx.fillText(`Smooth Turn: ${vrSettings.smoothTurnSpeed === 0 ? 'OFF' : vrSettings.smoothTurnSpeed}`, 40, 180)
-  ctx.fillText('[X/A] to toggle', 280, 180)
+  ctx.fillText(`Smooth Turn: ${vrSettings.smoothTurnSpeed === 0 ? 'OFF' : vrSettings.smoothTurnSpeed.toFixed(1)}`, 40, 180)
+  ctx.fillText('[X/A] to cycle', 280, 180)
 
   ctx.fillText(`Vignette: ${vrSettings.vignetteEnabled ? 'ON' : 'OFF'}`, 40, 240)
   ctx.fillText('[Grip] to toggle', 280, 240)
@@ -964,12 +995,16 @@ function initInputHandler() {
   inputHandler = new InputHandler({
     renderer,
     snapTurnAngle: vrSettings.snapTurnAngle,
+    smoothTurnSpeed: vrSettings.smoothTurnSpeed,
     onMenuPressed: () => {
       if (renderer.xr.isPresenting) toggleVRSettings()
     }
   })
 
-  // Initialize vrYaw from camera when entering VR
+  if (mobileControls) {
+    inputHandler.setMobileControls(mobileControls)
+  }
+
   renderer.xr.addEventListener('sessionstart', () => {
     if (inputHandler) {
       inputHandler.vrYaw = cam.yaw
@@ -978,7 +1013,56 @@ function initInputHandler() {
   })
 }
 
+async function initAR() {
+  const supported = await arControls.init(renderer)
+  if (supported) {
+    arButton = await createARButton(renderer, async () => {
+      const started = await arControls.start()
+      if (started) {
+        arEnabled = true
+        scene.background = null
+        ground.visible = false
+        console.log('[AR] AR mode started')
+        return true
+      }
+      return false
+    }, async () => {
+      await arControls.end()
+      arEnabled = false
+      scene.background = new THREE.Color(0x87ceeb)
+      ground.visible = true
+      if (arButton) {
+        arButton.textContent = 'Enter AR'
+        arButton.style.background = 'rgba(0, 150, 0, 0.8)'
+      }
+      console.log('[AR] AR mode ended')
+    })
+    if (arButton) {
+      document.body.appendChild(arButton)
+    }
+  }
+}
+
 let settingsTriggerCooldown = false
+let settingsSnapCooldown = false
+let settingsSmoothCooldown = false
+
+const SMOOTH_TURN_SPEEDS = [0, 1.5, 3.0, 4.5]
+const SNAP_TURN_ANGLES = [15, 30, 45, 60, 90]
+
+function cycleSmoothTurnSpeed() {
+  const idx = SMOOTH_TURN_SPEEDS.indexOf(vrSettings.smoothTurnSpeed)
+  vrSettings.smoothTurnSpeed = SMOOTH_TURN_SPEEDS[(idx + 1) % SMOOTH_TURN_SPEEDS.length]
+  if (inputHandler) inputHandler.setSmoothTurnSpeed(vrSettings.smoothTurnSpeed)
+  updateVRSettingsPanel()
+}
+
+function cycleSnapTurnAngle() {
+  const idx = SNAP_TURN_ANGLES.indexOf(vrSettings.snapTurnAngle)
+  vrSettings.snapTurnAngle = SNAP_TURN_ANGLES[(idx + 1) % SNAP_TURN_ANGLES.length]
+  if (inputHandler) inputHandler.setSnapTurnAngle(vrSettings.snapTurnAngle)
+  updateVRSettingsPanel()
+}
 
 function startInputLoop() {
   if (inputLoopId) return
@@ -993,11 +1077,41 @@ function startInputLoop() {
       input.pitch = cam.pitch
     }
 
-    if (vrSettingsPanel?.visible && input.shoot && !settingsTriggerCooldown) {
-      vrSettings.teleportEnabled = !vrSettings.teleportEnabled
-      settingsTriggerCooldown = true
-      updateVRSettingsPanel()
-      setTimeout(() => { settingsTriggerCooldown = false }, 300)
+    if (input.zoom !== undefined && input.zoom !== 0) {
+      cam.onWheel({ deltaY: -input.zoom * 100, preventDefault: () => {} })
+    }
+
+    if (input.isMobile && input.yawDelta !== undefined) {
+      cam.setVRYaw(input.yaw)
+    }
+    if (input.isMobile && input.pitchDelta !== undefined) {
+      cam.adjustVRPitch(input.pitchDelta)
+    }
+
+    if (vrSettingsPanel?.visible) {
+      if (input.shoot && !settingsTriggerCooldown) {
+        vrSettings.teleportEnabled = !vrSettings.teleportEnabled
+        settingsTriggerCooldown = true
+        updateVRSettingsPanel()
+      }
+      if (input.sprint && !settingsSmoothCooldown) {
+        cycleSmoothTurnSpeed()
+        settingsSmoothCooldown = true
+      }
+      if (input.reload && !settingsSnapCooldown) {
+        cycleSnapTurnAngle()
+        settingsSnapCooldown = true
+      }
+    }
+
+    if (!vrSettingsPanel?.visible || !input.shoot) {
+      settingsTriggerCooldown = false
+    }
+    if (!vrSettingsPanel?.visible || !input.sprint) {
+      settingsSmoothCooldown = false
+    }
+    if (!vrSettingsPanel?.visible || !input.reload) {
+      settingsSnapCooldown = false
     }
 
     if (input.shoot && !lastShootState) {
@@ -1109,20 +1223,33 @@ function animate(timestamp) {
     const speed = Math.sqrt(local.velocity[0] ** 2 + local.velocity[2] ** 2)
     isMoving = speed > 0.5
   }
-  updateVignette(frameDt, isMoving)
+updateVignette(frameDt, isMoving)
+
+  if (arEnabled) {
+    const xrFrame = renderer.xr.getFrame()
+    if (xrFrame) {
+      arControls.update(xrFrame, camera, scene)
+      const local = client.state?.players?.find(p => p.id === client.playerId)
+      if (local?.position && !arControls.anchorPlaced) {
+        arControls.setInitialFPSPosition(local.position, cam.yaw)
+      }
+    }
+  }
 
   renderer.render(scene, camera)
 }
 renderer.setAnimationLoop(animate)
 
-client.connect().then(() => { console.log('Connected'); startInputLoop() }).catch(err => console.error('Connection failed:', err))
+client.connect().then(() => { console.log('Connected'); startInputLoop(); initAR() }).catch(err => console.error('Connection failed:', err))
 setupControllers()
 setupHands()
 window.__VR_DEBUG__ = false
 window.debug = {
-  scene, camera, renderer, client, playerMeshes, entityMeshes, appModules, inputHandler, playerVrms, playerAnimators, loadingMgr, loadingScreen, controllerModels, controllerGrips, handModels,
+  scene, camera, renderer, client, playerMeshes, entityMeshes, appModules, inputHandler, playerVrms, playerAnimators, loadingMgr, loadingScreen, controllerModels, controllerGrips, handModels, mobileControls, arControls,
   enableVRDebug: () => { window.__VR_DEBUG__ = true; console.log('[VR] Debug enabled - button/axis logging active') },
   disableVRDebug: () => { window.__VR_DEBUG__ = false; console.log('[VR] Debug disabled') },
   vrInput: () => inputHandler?.getInput() || null,
-  vrSettings: () => vrSettings
+  vrSettings: () => vrSettings,
+  deviceInfo: () => deviceInfo,
+  placeARAnchor: () => arControls?.placeAnchor() || arControls?.placeAtCamera()
 }
