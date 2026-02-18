@@ -8,10 +8,16 @@ export class InputHandler {
     this.enabled = true
     this.renderer = config.renderer || null
     this.vrYaw = 0
+    this.vrPitch = 0
+    this.vrPitchDelta = 0
+    this.vrYawDelta = 0
     this.snapCooldown = false
     this.snapTurnAngle = config.snapTurnAngle || 30
+    this.smoothTurnSpeed = config.smoothTurnSpeed || 0
     this.onMenuPressed = config.onMenuPressed || null
     this.menuCooldown = false
+    this.mobileControls = null
+    this.mobileInput = null
 
     if (config.enableKeyboard !== false) {
       this.setupKeyboardListeners()
@@ -20,6 +26,14 @@ export class InputHandler {
     if (config.enableMouse !== false) {
       this.setupMouseListeners()
     }
+  }
+
+  setMobileControls(mobileControls) {
+    this.mobileControls = mobileControls
+  }
+
+  setSmoothTurnSpeed(speed) {
+    this.smoothTurnSpeed = speed
   }
 
   setupKeyboardListeners() {
@@ -63,6 +77,40 @@ export class InputHandler {
         reload: false,
         mouseX: this.mouseX,
         mouseY: this.mouseY
+      }
+    }
+
+    if (this.mobileControls) {
+      const mobileInput = this.mobileControls.getInput()
+      if (mobileInput) {
+        this.vrYawDelta = mobileInput.yaw
+        this.vrPitchDelta = mobileInput.pitch
+        this.vrYaw += mobileInput.yaw
+        this.vrPitch += mobileInput.pitch
+        this.mobileControls.resetLookDelta()
+        return {
+          forward: mobileInput.forward,
+          backward: mobileInput.backward,
+          left: mobileInput.left,
+          right: mobileInput.right,
+          jump: mobileInput.jump,
+          sprint: mobileInput.sprint,
+          crouch: mobileInput.crouch,
+          shoot: mobileInput.shoot,
+          reload: mobileInput.reload,
+          yaw: this.vrYaw,
+          pitch: this.vrPitch,
+          yawDelta: this.vrYawDelta,
+          pitchDelta: this.vrPitchDelta,
+          zoom: mobileInput.zoom,
+          mouseX: 0,
+          mouseY: 0,
+          isMobile: true,
+          interact: mobileInput.interact || false,
+          weapon: mobileInput.weapon || false,
+          analogForward: mobileInput.analogForward || 0,
+          analogRight: mobileInput.analogRight || 0
+        }
       }
     }
 
@@ -147,6 +195,7 @@ export class InputHandler {
     const session = this.renderer.xr.getSession()
     if (!session) return null
     let forward = false, backward = false, left = false, right = false
+    let analogForward = 0, analogRight = 0
     let jump = false, shoot = false, sprint = false, reload = false
     let menu = false
     const DEAD = 0.15, THRESH = 0.5
@@ -170,7 +219,6 @@ export class InputHandler {
       const gp = source.gamepad
       if (!gp) continue
 
-      // Debug logging
       if (window.__VR_DEBUG__) {
         console.log(`[VR] ${source.handedness} axes:`, gp.axes.map((a, i) => `${i}:${a?.toFixed(2)}`).join(', '))
         console.log(`[VR] ${source.handedness} btns:`, gp.buttons.map((b, i) => `${i}:${b?.pressed ? '1' : '0'}`).join(', '))
@@ -179,26 +227,27 @@ export class InputHandler {
       const axes = gp.axes
       const btns = gp.buttons
 
-      // Find primary joystick axes (usually first 2, but varies by controller)
       const primaryX = axes[0] ?? 0
       const primaryY = axes[1] ?? 0
       const secondaryX = axes.length > 2 ? (axes[2] ?? 0) : 0
+      const secondaryY = axes.length > 3 ? (axes[3] ?? 0) : 0
 
       if (source.handedness === 'left') {
-        // Use primary stick for movement
-        if (primaryY < -THRESH) forward = true
-        if (primaryY > THRESH) backward = true
-        if (primaryX < -THRESH) left = true
-        if (primaryX > THRESH) right = true
+        if (Math.abs(primaryX) > DEAD) {
+          analogRight = primaryX
+          if (primaryX > THRESH) right = true
+          if (primaryX < -THRESH) left = true
+        }
+        if (Math.abs(primaryY) > DEAD) {
+          analogForward = -primaryY
+          if (primaryY < -THRESH) forward = true
+          if (primaryY > THRESH) backward = true
+        }
 
-        // Try common button mappings
         if (btns[0]?.pressed) jump = true
         if (btns[1]?.pressed || btns[2]?.pressed) sprint = true
-
-        // X/A button for reload (common indices: 2, 3, 4)
         if (btns[2]?.pressed || btns[3]?.pressed || btns[4]?.pressed) reload = true
 
-        // Y/B or menu button for settings
         if (btns[4]?.pressed || btns[5]?.pressed || btns[3]?.pressed) {
           if (!this.menuCooldown) {
             menu = true
@@ -211,9 +260,13 @@ export class InputHandler {
       }
 
       if (source.handedness === 'right') {
-        // Use secondary stick (or primary if only 2 axes) for snap turn
         const turnX = axes.length > 2 ? secondaryX : primaryX
-        if (Math.abs(turnX) > DEAD) {
+        const turnY = axes.length > 3 ? secondaryY : 0
+
+        if (this.smoothTurnSpeed > 0 && Math.abs(turnX) > DEAD) {
+          this.vrYaw -= turnX * this.smoothTurnSpeed * 0.016
+          snapTurned = true
+        } else if (Math.abs(turnX) > DEAD) {
           if (!this.snapCooldown && Math.abs(turnX) > THRESH) {
             this.vrYaw += turnX > 0 ? -snapAngleRad : snapAngleRad
             this.snapCooldown = true
@@ -223,20 +276,18 @@ export class InputHandler {
           this.snapCooldown = false
         }
 
-        // Trigger to shoot
         if (btns[0]?.pressed) shoot = true
-
-        // Grip for grab/interact
-        if (btns[1]?.pressed || btns[2]?.pressed) {
-          // Right grip - interact/grab
-        }
-
-        // B/Y button for reload
         if (btns[2]?.pressed || btns[3]?.pressed || btns[4]?.pressed || btns[5]?.pressed) reload = true
       }
     }
     if (snapTurned) this.pulse('right', 0.3, 50)
-    return { forward, backward, left, right, jump, sprint, shoot, reload, menu, yaw: this.vrYaw, mouseX: 0, mouseY: 0, hasHands }
+    return { 
+      forward, backward, left, right, 
+      analogForward, analogRight,
+      jump, sprint, shoot, reload, menu, 
+      yaw: this.vrYaw, pitch: this.vrPitch, 
+      mouseX: 0, mouseY: 0, hasHands 
+    }
   }
 
   onInput(callback) {
