@@ -188,16 +188,18 @@ export class PhysicsNetworkClient {
 
   _onSnapshot(data) {
     this.lastSnapshotTick = this.currentTick = data.tick || 0
-    
+
     const snapshotForBuffer = {
       tick: data.tick || 0,
       timestamp: data.timestamp || Date.now(),
       players: [],
       entities: []
     }
-    
+
+    const seenPlayers = new Set()
     for (const p of data.players || []) {
       const { playerId, state } = this._parsePlayer(p)
+      seenPlayers.add(playerId)
       if (!this._playerStates.has(playerId)) this.callbacks.onPlayerJoined(playerId, state)
       this._playerStates.set(playerId, state)
       snapshotForBuffer.players.push(state)
@@ -205,6 +207,15 @@ export class PhysicsNetworkClient {
         this._predEngine.onServerSnapshot({ players: [state] }, this.currentTick)
       }
     }
+
+    for (const playerId of this._playerStates.keys()) {
+      if (!seenPlayers.has(playerId)) {
+        this._playerStates.delete(playerId)
+        if (this._smoothInterp) this._smoothInterp.removePlayer(playerId)
+        this.callbacks.onPlayerLeft(playerId)
+      }
+    }
+
     if (data.delta) {
       for (const e of data.entities || []) {
         const { entityId, state } = this._parseEntity(e)
@@ -230,11 +241,11 @@ export class PhysicsNetworkClient {
         if (!seen.has(eid)) { this._entityStates.delete(eid); this.callbacks.onEntityRemoved(eid) }
       }
     }
-    
+
     if (this._smoothInterp) {
       this._smoothInterp.addSnapshot(snapshotForBuffer)
     }
-    
+
     this.state.players = Array.from(this._playerStates.values())
     this.state.entities = Array.from(this._entityStates.values())
     this.callbacks.onSnapshot(data)
