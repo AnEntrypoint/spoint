@@ -31,6 +31,10 @@ export function createConnectionHandlers(ctx) {
 
   connections.on('message', (clientId, msg) => {
     if (inspector.handleMessage(clientId, msg)) return
+    if (msg.type === MSG.HEARTBEAT) {
+      connections.send(clientId, MSG.HEARTBEAT_ACK, { timestamp: msg.payload?.timestamp || Date.now() })
+      return
+    }
     if (msg.type === MSG.INPUT || msg.type === MSG.PLAYER_INPUT) {
       playerManager.addInput(clientId, msg.payload?.input || msg.payload)
       return
