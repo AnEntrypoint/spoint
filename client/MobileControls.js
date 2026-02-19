@@ -8,8 +8,8 @@ export class MobileControls {
     this.enabled = isTouch || options.forceEnable
     this.options = {
       joystickRadius: 55,
-      joystickPosition: { x: 70, y: -100 },
-      lookJoystickPosition: { x: -70, y: -100 },
+      joystickPosition: { x: 20, y: -30 },
+      lookJoystickPosition: { x: -20, y: -30 },
       lookJoystickRadius: 55,
       buttonSize: 52,
       buttonSpacing: 64,
@@ -202,13 +202,13 @@ export class MobileControls {
       
       .mobile-buttons-container {
         position: absolute;
-        bottom: 0;
-        right: 0;
+        bottom: 180px;
+        right: 16px;
         display: flex;
         flex-direction: column;
         align-items: flex-end;
         gap: 10px;
-        padding: 20px;
+        padding: 0;
         pointer-events: auto;
         opacity: 0;
         animation: fadeIn 0.4s ease-out forwards;
@@ -307,10 +307,11 @@ export class MobileControls {
       
       .mobile-zoom-controls {
         position: absolute;
-        right: 90px;
-        bottom: 140px;
+        left: 50%;
+        bottom: 16px;
+        transform: translateX(-50%);
         display: flex;
-        flex-direction: column;
+        flex-direction: row;
         gap: 8px;
         pointer-events: auto;
         opacity: 0;
@@ -367,7 +368,7 @@ export class MobileControls {
       
       .mobile-interact-btn {
         position: absolute;
-        bottom: 200px;
+        bottom: 76px;
         left: 50%;
         transform: translateX(-50%);
         padding: 10px 24px;
@@ -438,7 +439,7 @@ export class MobileControls {
     this.lookJoystickContainer.className = 'mobile-joystick-container'
     this.lookJoystickContainer.id = 'look-joystick'
     this.lookJoystickContainer.style.cssText = `
-      right: ${-joyPos.x}px;
+      right: ${Math.abs(joyPos.x)}px;
       transform: translateY(${joyPos.y}px);
     `
 
@@ -562,30 +563,30 @@ export class MobileControls {
   updateJoystickPositions() {
     const screenHeight = window.innerHeight
     const screenWidth = window.innerWidth
-    
+
     const moveBottom = -this.options.joystickPosition.y
     const moveLeft = this.options.joystickPosition.x
-    
+
     const lookBottom = -this.options.lookJoystickPosition.y
-    const lookRight = this.options.lookJoystickPosition.x
-    
+    const lookRight = -this.options.lookJoystickPosition.x
+
     if (this.moveJoystickContainer) {
       this.moveJoystickContainer.style.left = `${moveLeft}px`
       this.moveJoystickContainer.style.bottom = `${moveBottom}px`
       this.moveJoystickContainer.style.transform = 'none'
     }
-    
+
     if (this.lookJoystickContainer) {
       this.lookJoystickContainer.style.right = `${lookRight}px`
       this.lookJoystickContainer.style.bottom = `${lookBottom}px`
       this.lookJoystickContainer.style.transform = 'none'
     }
-    
+
     this.moveJoystick.centerX = moveLeft + 70
-    this.moveJoystick.centerY = screenHeight - moveBottom + 70
-    
+    this.moveJoystick.centerY = screenHeight - moveBottom - 70
+
     this.lookJoystick.centerX = screenWidth - lookRight - 70
-    this.lookJoystick.centerY = screenHeight - lookBottom + 70
+    this.lookJoystick.centerY = screenHeight - lookBottom - 70
   }
 
   setupListeners() {

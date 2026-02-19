@@ -67,6 +67,7 @@ let teleportArc = null
 let teleportMarker = null
 let teleportTarget = null
 let isTeleporting = false
+let xrBaseReferenceSpace = null
 const ARC_SEGMENTS = 20
 const ARC_GRAVITY = -9.8
 const ARC_VELOCITY = 8
@@ -585,16 +586,15 @@ function executeTeleport(targetPoint) {
   fadeState = 'in'
 
   setTimeout(() => {
-    const baseReferenceSpace = renderer.xr.getReferenceSpace()
-    if (!baseReferenceSpace) {
+    const base = xrBaseReferenceSpace || renderer.xr.getReferenceSpace()
+    if (!base) {
       isTeleporting = false
       fadeState = 'out'
       return
     }
-    const offsetPosition = { x: -targetPoint.x, y: 0, z: -targetPoint.z }
+    const offsetPosition = { x: -targetPoint.x, y: -targetPoint.y, z: -targetPoint.z }
     const transform = new XRRigidTransform(offsetPosition, { x: 0, y: 0, z: 0, w: 1 })
-    const teleportSpace = baseReferenceSpace.getOffsetReferenceSpace(transform)
-    renderer.xr.setReferenceSpace(teleportSpace)
+    renderer.xr.setReferenceSpace(base.getOffsetReferenceSpace(transform))
   }, 200)
 
   setTimeout(() => { isTeleporting = false }, 400)
@@ -1013,6 +1013,20 @@ function initInputHandler() {
       inputHandler.vrYaw = cam.yaw
       console.log('[VR] Session started, vrYaw initialized to:', cam.yaw)
     }
+    setTimeout(() => {
+      xrBaseReferenceSpace = renderer.xr.getReferenceSpace()
+      if (!xrBaseReferenceSpace) return
+      const local = client.state?.players?.find(p => p.id === client.playerId)
+      if (local?.position) {
+        const pos = { x: -local.position[0], y: -local.position[1], z: -local.position[2] }
+        const t = new XRRigidTransform(pos, { x: 0, y: 0, z: 0, w: 1 })
+        renderer.xr.setReferenceSpace(xrBaseReferenceSpace.getOffsetReferenceSpace(t))
+        console.log('[VR] Reference space offset to player position:', local.position)
+      }
+    }, 100)
+  })
+  renderer.xr.addEventListener('sessionend', () => {
+    xrBaseReferenceSpace = null
   })
 }
 
@@ -1207,9 +1221,11 @@ function animate(timestamp) {
   const inVR = renderer.xr.isPresenting
   if (!inVR) {
     cam.update(local, playerMeshes.get(client.playerId), frameDt)
-  } else if (local?.position) {
+  } else if (local?.position && xrBaseReferenceSpace && !isTeleporting) {
     const headHeight = local.crouch ? 1.1 : 1.6
-    camera.position.set(local.position[0], local.position[1] + headHeight, local.position[2])
+    const pos = { x: -local.position[0], y: -(local.position[1] + headHeight), z: -local.position[2] }
+    const t = new XRRigidTransform(pos, { x: 0, y: 0, z: 0, w: 1 })
+    renderer.xr.setReferenceSpace(xrBaseReferenceSpace.getOffsetReferenceSpace(t))
   }
   if (inVR && local && wristUI) {
     const tps = appModules.get('tps-game')?._tps
