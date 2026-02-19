@@ -176,6 +176,13 @@ export class PhysicsNetworkClient {
     } else if (type === MSG.HOT_RELOAD || type === MSG.APP_MODULE || type === MSG.ASSET_UPDATE) {
       const cb = { [MSG.HOT_RELOAD]: 'onHotReload', [MSG.APP_MODULE]: 'onAppModule', [MSG.ASSET_UPDATE]: 'onAssetUpdate' }[type]
       this.callbacks[cb]?.(payload)
+    } else if (type === MSG.HEARTBEAT_ACK) {
+      const pongTime = Date.now()
+      const pingTime = this._pingSent
+      this._pingSent = 0
+      if (pingTime > 0 && this._smoothInterp) {
+        this._smoothInterp.updateRTT(pingTime, pongTime)
+      }
     }
   }
 
@@ -295,7 +302,10 @@ export class PhysicsNetworkClient {
   _startHeartbeat() {
     this._stopHeartbeat()
     this.heartbeatTimer = setInterval(() => {
-      if (this._isOpen()) this.ws.send(pack({ type: MSG.HEARTBEAT, payload: {} }))
+      if (this._isOpen()) {
+        this._pingSent = Date.now()
+        this.ws.send(pack({ type: MSG.HEARTBEAT, payload: { timestamp: this._pingSent } }))
+      }
     }, 1000)
   }
 
