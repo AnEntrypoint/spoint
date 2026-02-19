@@ -68,6 +68,7 @@ export class MobileControls {
       touchIds: []
     }
 
+    this.buttons = new Map()
     this.activeButtons = new Map()
     this.initialized = false
 
