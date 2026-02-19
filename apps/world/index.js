@@ -1,5 +1,5 @@
 export default {
-  port: 3000,
+  port: 8080,
   tickRate: 128,
   gravity: [0, -9.81, 0],
   movement: {
