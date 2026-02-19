@@ -887,8 +887,8 @@ function renderAppUI(state) {
       if (result?.ui) uiFragments.push({ id: entity.id, ui: result.ui })
     } catch (e) { console.error('[ui]', entity.id, e.message) }
   }
-  const hudVdom = createElement('div', { id: 'hud' },
-    createElement('div', { id: 'info' }, `FPS: ${fpsDisplay} | Players: ${state.players.length} | Tick: ${client.currentTick}`),
+const hudVdom = createElement('div', { id: 'hud' },
+    createElement('div', { id: 'info' }, `FPS: ${fpsDisplay} | Players: ${state.players.length} | Tick: ${client.currentTick} | RTT: ${Math.round(client.getRTT())}ms | Buf: ${client.getBufferHealth()}`),
     ...uiFragments.map(f => createElement('div', { 'data-app': f.id }, f.ui))
   )
   try { applyDiff(uiRoot, hudVdom) } catch (e) { console.error('[ui] diff:', e.message) }
@@ -896,9 +896,11 @@ function renderAppUI(state) {
 
 const client = new PhysicsNetworkClient({
   url: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`,
-  predictionEnabled: false,
+  predictionEnabled: true,
+  smoothInterpolation: true,
   onStateUpdate: (state) => {
-    for (const p of state.players) {
+    const smoothState = client.getSmoothState()
+    for (const p of smoothState.players) {
       if (!playerMeshes.has(p.id)) createPlayerVRM(p.id)
       const mesh = playerMeshes.get(p.id)
       const feetOff = mesh?.userData?.feetOffset ?? 1.3
@@ -908,7 +910,7 @@ const client = new PhysicsNetworkClient({
       const dx = tx - mesh.position.x, dy = ty - mesh.position.y, dz = tz - mesh.position.z
       if (!mesh.userData.initialized || dx * dx + dy * dy + dz * dz > 100) { mesh.position.set(tx, ty, tz); mesh.userData.initialized = true }
     }
-    for (const e of state.entities) {
+    for (const e of smoothState.entities) {
       const mesh = entityMeshes.get(e.id)
       if (mesh && e.position) mesh.position.set(...e.position)
       if (mesh && e.rotation) mesh.quaternion.set(...e.rotation)
