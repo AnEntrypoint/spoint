@@ -24,6 +24,7 @@ export class PhysicsNetworkClient {
     this._maxReconnectDelay = 5000
     this._destroyed = false
     this._pingSent = 0
+    this._visibilityListener = null
     this.callbacks = {
       onConnect: config.onConnect || (() => {}),
       onDisconnect: config.onDisconnect || (() => {}),
@@ -143,9 +144,15 @@ export class PhysicsNetworkClient {
         this._smoothInterp.setLocalPlayer(this.playerId)
       }
     } else if (type === MSG.RECONNECT_ACK) {
+      const oldPlayerId = this.playerId
       this.playerId = payload.playerId
       this.currentTick = payload.tick
       if (payload.sessionToken) this._sessionToken = payload.sessionToken
+      if (oldPlayerId && oldPlayerId !== this.playerId) {
+        this._playerStates.delete(oldPlayerId)
+        if (this._smoothInterp) this._smoothInterp.removePlayer(oldPlayerId)
+        this.callbacks.onPlayerLeft(oldPlayerId)
+      }
       if (!this._predEngine) {
         this._predEngine = new PredictionEngine(this.config.tickRate)
         this._predEngine.init(this.playerId)
@@ -318,9 +325,22 @@ export class PhysicsNetworkClient {
         this.ws.send(pack({ type: MSG.HEARTBEAT, payload: { timestamp: this._pingSent } }))
       }
     }, 1000)
+    if (typeof document !== 'undefined' && !this._visibilityListener) {
+      this._visibilityListener = () => {
+        if (!document.hidden && this._isOpen()) {
+          this._pingSent = Date.now()
+          this.ws.send(pack({ type: MSG.HEARTBEAT, payload: { timestamp: this._pingSent } }))
+        }
+      }
+      document.addEventListener('visibilitychange', this._visibilityListener)
+    }
   }
 
   _stopHeartbeat() {
     if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null }
+    if (this._visibilityListener && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this._visibilityListener)
+      this._visibilityListener = null
+    }
   }
 }
