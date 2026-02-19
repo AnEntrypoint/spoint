@@ -668,6 +668,8 @@ const playerAnimators = new Map()
 const playerVrms = new Map()
 const playerStates = new Map()
 const entityMeshes = new Map()
+const entityParentMap = new Map()
+const entityGroups = new Map()
 const appModules = new Map()
 const entityAppMap = new Map()
 const playerTargets = new Map()
@@ -816,6 +818,32 @@ function evaluateAppModule(code) {
   } catch (e) { console.error('[app-eval]', e.message); return null }
 }
 
+const PLACEHOLDER_DIMS = {
+  door: [1.5, 2.5, 0.1],
+  platform: [4, 0.5, 4],
+  trigger: [2, 3, 2],
+  hazard: [2, 2, 2],
+  lootBox: [1, 1.5, 1],
+  pillar: [1, 4, 1]
+}
+
+function createEditorPlaceholder(entityId, templateName, custom) {
+  const dims = PLACEHOLDER_DIMS[templateName] || [1, 1, 1]
+  const geo = new THREE.BoxGeometry(dims[0], dims[1], dims[2])
+  const color = custom?.color ?? 0xcccccc
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.8, metalness: 0.1, transparent: true, opacity: 0.7 })
+  const group = new THREE.Group()
+  const mesh = new THREE.Mesh(geo, mat)
+  mesh.castShadow = true
+  mesh.receiveShadow = true
+  mesh.userData.isPlaceholder = true
+  mesh.userData.templateName = templateName
+  group.add(mesh)
+  group.userData.spin = custom?.spin || 0
+  group.userData.hover = custom?.hover || 0
+  return group
+}
+
 const MESH_BUILDERS = {
   box: (c) => new THREE.BoxGeometry(c.sx || 1, c.sy || 1, c.sz || 1),
   cylinder: (c) => new THREE.CylinderGeometry(c.r || 0.4, c.r || 0.4, c.h || 0.1, c.seg || 16),
@@ -844,12 +872,48 @@ function buildEntityMesh(entityId, custom) {
 
 const pendingLoads = new Set()
 
+function rebuildEntityHierarchy(entities) {
+  for (const e of entities) {
+    entityParentMap.set(e.id, e.parent || null)
+  }
+
+  for (const e of entities) {
+    const mesh = entityMeshes.get(e.id)
+    if (!mesh) continue
+
+    const parentId = entityParentMap.get(e.id)
+    const currentParent = mesh.parent && mesh.parent !== scene ? mesh.parent : null
+    const currentParentId = Array.from(entityParentMap.entries()).find(([k, v]) => v === null || entityMeshes.get(k) === currentParent)?.[0]
+
+    if (parentId === null) {
+      if (currentParent && currentParent !== scene) {
+        scene.add(mesh)
+      }
+    } else {
+      const parentMesh = entityMeshes.get(parentId)
+      if (parentMesh && parentMesh !== currentParent) {
+        parentMesh.add(mesh)
+      }
+    }
+  }
+}
+
 function loadEntityModel(entityId, entityState) {
   if (entityMeshes.has(entityId) || pendingLoads.has(entityId)) return
   pendingLoads.add(entityId)
-  if (!entityState.model) {
-    const group = buildEntityMesh(entityId, entityState.custom)
+
+  const isEditorPlaceholder = entityState.custom?.editorPlaceholder === true
+  const smartObjectTemplate = entityState.custom?.template
+
+  if (!entityState.model || isEditorPlaceholder) {
+    let group
+    if (isEditorPlaceholder && smartObjectTemplate) {
+      group = createEditorPlaceholder(entityId, smartObjectTemplate, entityState.custom)
+    } else {
+      group = buildEntityMesh(entityId, entityState.custom)
+    }
     group.position.set(...entityState.position)
+    if (entityState.rotation) group.quaternion.set(...entityState.rotation)
     scene.add(group)
     entityMeshes.set(entityId, group)
     pendingLoads.delete(entityId)
@@ -916,6 +980,7 @@ const client = new PhysicsNetworkClient({
       if (mesh && e.rotation) mesh.quaternion.set(...e.rotation)
       if (!entityMeshes.has(e.id)) loadEntityModel(e.id, e)
     }
+    rebuildEntityHierarchy(smoothState.entities)
     latestState = state
     if (!firstSnapshotReceived) { firstSnapshotReceived = true; checkAllLoaded() }
   },
