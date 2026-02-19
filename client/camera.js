@@ -35,6 +35,7 @@ export function createCameraController(camera, scene) {
   let cameraBone = null
   let headBone = null
   let fpsForwardOffset = 0.7
+  let fpsHeadDownOffset = 0.2
   camRaycaster.firstHitOnly = true
   aimRaycaster.firstHitOnly = true
 
@@ -45,8 +46,14 @@ export function createCameraController(camera, scene) {
   function setMode(m) {
     const prev = mode
     mode = m
-    if (m === 'fps' && headBone) headBone.scale.set(0, 0, 0)
-    if (prev === 'fps' && m !== 'fps' && headBone) headBone.scale.set(1, 1, 1)
+    if (m === 'fps' && headBone) {
+      headBone.scale.set(0, 0, 0)
+      headBone.position.y -= fpsHeadDownOffset
+    }
+    if (prev === 'fps' && m !== 'fps' && headBone) {
+      headBone.scale.set(1, 1, 1)
+      headBone.position.y += fpsHeadDownOffset
+    }
   }
   function getMode() { return mode }
 
@@ -117,26 +124,28 @@ export function createCameraController(camera, scene) {
       if (headBone) headBone.scale.set(0, 0, 0)
       const rayTargets = envMeshes.length ? envMeshes : scene.children
       const wallDist = 0.35
-      const pushDirs = [
+      const fpsRayOrigin = new THREE.Vector3().copy(camera.position)
+      const rayDirs = [
         [fwdX, fwdY, fwdZ],
-        [-fwdX, -fwdY, -fwdZ],
         [rightX, 0, rightZ],
         [-rightX, 0, -rightZ],
         [0, 1, 0],
         [0, -1, 0]
       ]
-      for (const d of pushDirs) {
-        camDir.set(d[0], d[1], d[2])
-        camRaycaster.set(camera.position, camDir)
+      for (const d of rayDirs) {
+        camDir.set(-d[0], -d[1], -d[2])
+        camRaycaster.set(fpsRayOrigin, camDir)
         camRaycaster.far = wallDist
         camRaycaster.near = 0
         const hits = camRaycaster.intersectObjects(rayTargets, true)
         for (const hit of hits) {
           if (localMesh && isDescendant(hit.object, localMesh)) continue
           const push = wallDist - hit.distance
-          camera.position.x -= d[0] * push
-          camera.position.y -= d[1] * push
-          camera.position.z -= d[2] * push
+          if (push > 0) {
+            camera.position.x += d[0] * push
+            camera.position.y += d[1] * push
+            camera.position.z += d[2] * push
+          }
           break
         }
       }
