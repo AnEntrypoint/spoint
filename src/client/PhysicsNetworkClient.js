@@ -1,14 +1,16 @@
 import { PredictionEngine } from './PredictionEngine.js'
+import { SmoothInterpolation } from './SmoothInterpolation.js'
 import { pack, unpack } from '../protocol/msgpack.js'
 import { MSG } from '../protocol/MessageTypes.js'
 
 export class PhysicsNetworkClient {
   constructor(config = {}) {
-    this.config = { url: config.url || 'ws://localhost:3000/ws', tickRate: config.tickRate || 128, predictionEnabled: config.predictionEnabled !== false, debug: config.debug || false, ...config }
+    this.config = { url: config.url || 'ws://localhost:3000/ws', tickRate: config.tickRate || 128, predictionEnabled: config.predictionEnabled !== false, smoothInterpolation: config.smoothInterpolation !== false, debug: config.debug || false, ...config }
     this.ws = null
     this.playerId = null
     this.connected = false
     this._predEngine = null
+    this._smoothInterp = null
     this._playerStates = new Map()
     this._entityStates = new Map()
     this.lastSnapshotTick = 0
@@ -21,6 +23,7 @@ export class PhysicsNetworkClient {
     this._reconnecting = false
     this._maxReconnectDelay = 5000
     this._destroyed = false
+    this._pingSent = 0
     this.callbacks = {
       onConnect: config.onConnect || (() => {}),
       onDisconnect: config.onDisconnect || (() => {}),
@@ -135,6 +138,10 @@ export class PhysicsNetworkClient {
       if (payload.sessionToken) this._sessionToken = payload.sessionToken
       this._predEngine = new PredictionEngine(this.config.tickRate)
       this._predEngine.init(this.playerId)
+      if (this.config.smoothInterpolation) {
+        this._smoothInterp = new SmoothInterpolation({ predictionEnabled: this.config.predictionEnabled })
+        this._smoothInterp.setLocalPlayer(this.playerId)
+      }
     } else if (type === MSG.RECONNECT_ACK) {
       this.playerId = payload.playerId
       this.currentTick = payload.tick
@@ -142,6 +149,10 @@ export class PhysicsNetworkClient {
       if (!this._predEngine) {
         this._predEngine = new PredictionEngine(this.config.tickRate)
         this._predEngine.init(this.playerId)
+      }
+      if (this.config.smoothInterpolation && !this._smoothInterp) {
+        this._smoothInterp = new SmoothInterpolation({ predictionEnabled: this.config.predictionEnabled })
+        this._smoothInterp.setLocalPlayer(this.playerId)
       }
     } else if (type === MSG.STATE_RECOVERY) {
       if (payload.snapshot) this._onSnapshot(payload.snapshot)
@@ -152,8 +163,9 @@ export class PhysicsNetworkClient {
       }
     } else if (type === MSG.SNAPSHOT || type === MSG.STATE_CORRECTION) {
       this._onSnapshot(payload)
-    } else if (type === MSG.PLAYER_LEAVE) {
+} else if (type === MSG.PLAYER_LEAVE) {
       this._playerStates.delete(payload.playerId)
+      if (this._smoothInterp) this._smoothInterp.removePlayer(payload.playerId)
       this.callbacks.onPlayerLeft(payload.playerId)
     } else if (type === MSG.WORLD_DEF) {
       if (payload.movement && this._predEngine) this._predEngine.setMovement(payload.movement)
@@ -169,10 +181,19 @@ export class PhysicsNetworkClient {
 
   _onSnapshot(data) {
     this.lastSnapshotTick = this.currentTick = data.tick || 0
+    
+    const snapshotForBuffer = {
+      tick: data.tick || 0,
+      timestamp: data.timestamp || Date.now(),
+      players: [],
+      entities: []
+    }
+    
     for (const p of data.players || []) {
       const { playerId, state } = this._parsePlayer(p)
       if (!this._playerStates.has(playerId)) this.callbacks.onPlayerJoined(playerId, state)
       this._playerStates.set(playerId, state)
+      snapshotForBuffer.players.push(state)
       if (playerId === this.playerId && this.config.predictionEnabled && this._predEngine) {
         this._predEngine.onServerSnapshot({ players: [state] }, this.currentTick)
       }
@@ -182,6 +203,7 @@ export class PhysicsNetworkClient {
         const { entityId, state } = this._parseEntity(e)
         if (!this._entityStates.has(entityId)) this.callbacks.onEntityAdded(entityId, state)
         this._entityStates.set(entityId, state)
+        snapshotForBuffer.entities.push(state)
       }
       if (data.removed) {
         for (const eid of data.removed) {
@@ -195,11 +217,17 @@ export class PhysicsNetworkClient {
         seen.add(entityId)
         if (!this._entityStates.has(entityId)) this.callbacks.onEntityAdded(entityId, state)
         this._entityStates.set(entityId, state)
+        snapshotForBuffer.entities.push(state)
       }
       for (const eid of this._entityStates.keys()) {
         if (!seen.has(eid)) { this._entityStates.delete(eid); this.callbacks.onEntityRemoved(eid) }
       }
     }
+    
+    if (this._smoothInterp) {
+      this._smoothInterp.addSnapshot(snapshotForBuffer)
+    }
+    
     this.state.players = Array.from(this._playerStates.values())
     this.state.entities = Array.from(this._entityStates.values())
     this.callbacks.onSnapshot(data)
@@ -219,10 +247,33 @@ export class PhysicsNetworkClient {
 
   _render() {
     const displayStates = new Map()
-    for (const [playerId, serverState] of this._playerStates) {
-      displayStates.set(playerId, playerId === this.playerId && this.config.predictionEnabled && this._predEngine ? this._predEngine.getDisplayState(this.currentTick, 0) : serverState)
+    
+    if (this._smoothInterp) {
+      const smoothState = this._smoothInterp.getDisplayState()
+      for (const p of smoothState.players) {
+        displayStates.set(p.id, p)
+      }
+    } else {
+      for (const [playerId, serverState] of this._playerStates) {
+        displayStates.set(playerId, playerId === this.playerId && this.config.predictionEnabled && this._predEngine ? this._predEngine.getDisplayState(this.currentTick, 0) : serverState)
+      }
     }
     this.callbacks.onRender(displayStates)
+  }
+  
+  getSmoothState() {
+    if (this._smoothInterp) {
+      return this._smoothInterp.getDisplayState()
+    }
+    return { players: this.state.players, entities: this.state.entities }
+  }
+  
+  getRTT() {
+    return this._smoothInterp?.getRTT() || 0
+  }
+  
+  getBufferHealth() {
+    return this._smoothInterp?.getBufferHealth() || 0
   }
 
   getLocalState() {
