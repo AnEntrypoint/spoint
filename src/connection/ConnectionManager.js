@@ -63,6 +63,11 @@ export class ConnectionManager extends EventEmitter {
     this.timers.set(`hb-${clientId}`, timer)
   }
 
+  resetHeartbeat(clientId) {
+    const client = this.clients.get(clientId)
+    if (client) client.lastHeartbeat = Date.now()
+  }
+
   removeClient(clientId) {
     const client = this.clients.get(clientId)
     if (!client) return
