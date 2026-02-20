@@ -1,11 +1,10 @@
 import * as THREE from 'three'
 
-const isTouch = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)
 const isMobile = typeof window !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
 
 export class MobileControls {
   constructor(options = {}) {
-    this.enabled = isTouch || options.forceEnable
+    this.enabled = isMobile || options.forceEnable
     this.responsive = this.calculateResponsiveSizes()
     this.layout = this.calculateLayout()
 
@@ -90,19 +89,19 @@ export class MobileControls {
     const isPortrait = h > w
     const isTablet = diagonal > 600
 
-    let baseUnit = minDim / 320
-    baseUnit = Math.max(0.8, Math.min(1.5, baseUnit))
+    let baseUnit = minDim / 360
+    baseUnit = Math.max(0.7, Math.min(1.2, baseUnit))
 
-    let joystickRadius = 55 * baseUnit
-    if (isTablet && isPortrait) joystickRadius *= 1.1
+    let joystickRadius = 45 * baseUnit
+    if (isTablet && isPortrait) joystickRadius *= 1.05
 
-    let buttonSize = 52 * baseUnit
-    let primaryButtonSize = 64 * baseUnit
+    let buttonSize = 44 * baseUnit
+    let primaryButtonSize = 54 * baseUnit
 
-    let spacing = Math.max(8, 10 * baseUnit)
-    let edgeMargin = Math.max(12, 16 * baseUnit)
-    let bottomMargin = Math.max(16, 20 * baseUnit)
-    let buttonAreaGap = Math.max(12, 15 * baseUnit)
+    let spacing = Math.max(6, 8 * baseUnit)
+    let edgeMargin = Math.max(10, 14 * baseUnit)
+    let bottomMargin = Math.max(20, 40 * baseUnit)
+    let buttonAreaGap = Math.max(10, 12 * baseUnit)
 
     return {
       joystickRadius,
@@ -137,8 +136,8 @@ export class MobileControls {
       y: -bottomMargin - joystickDiameter / 2
     }
 
-    const buttonsBottomOffset = bottomMargin + joystickDiameter + this.responsive.spacing
-    const buttonsRightOffset = margin
+    const buttonsBottomOffset = bottomMargin + 60
+    const buttonsRightOffset = 100
 
     return {
       moveJoystickPos,
@@ -449,22 +448,27 @@ export class MobileControls {
   }
 
   createMovementJoystick() {
-    const joyPos = this.options.joystickPosition
+    const margin = this.responsive.edgeMargin
+    const bottomMargin = this.responsive.bottomMargin
+    const joystickRadius = this.responsive.joystickRadius
+    const joystickDiameter = joystickRadius * 2
+    const moveLeft = margin + 80
+    const moveBottom = bottomMargin + joystickDiameter / 2
 
     this.moveJoystickContainer = document.createElement('div')
     this.moveJoystickContainer.className = 'mobile-joystick-container'
     this.moveJoystickContainer.id = 'move-joystick'
     this.moveJoystickContainer.style.cssText = `
-      left: ${joyPos.x}px;
-      bottom: ${-joyPos.y}px;
-      width: ${this.options.joystickRadius * 2}px;
-      height: ${this.options.joystickRadius * 2}px;
+      left: ${moveLeft}px;
+      bottom: ${moveBottom}px;
+      width: ${joystickDiameter}px;
+      height: ${joystickDiameter}px;
     `
 
     const base = document.createElement('div')
     base.className = 'mobile-joystick-base'
     base.id = 'move-joystick-base'
-    
+
     const directions = document.createElement('div')
     directions.className = 'mobile-joystick-directions'
     directions.innerHTML = `
@@ -473,39 +477,46 @@ export class MobileControls {
       <span class="dir-left">A</span>
       <span class="dir-right">D</span>
     `
-    
+
     this.moveJoystickKnob = document.createElement('div')
     this.moveJoystickKnob.className = 'mobile-joystick-knob'
     this.moveJoystickKnob.id = 'move-joystick-knob'
-    
+
     const label = document.createElement('div')
     label.className = 'mobile-joystick-label'
     label.textContent = 'MOVE'
-    
+
     base.appendChild(directions)
     this.moveJoystickContainer.appendChild(base)
     this.moveJoystickContainer.appendChild(this.moveJoystickKnob)
     this.moveJoystickContainer.appendChild(label)
     this.container.appendChild(this.moveJoystickContainer)
+
+    this.moveJoystick.dynamicPosition = true
   }
 
   createLookJoystick() {
-    const joyPos = this.options.lookJoystickPosition
+    const margin = this.responsive.edgeMargin
+    const bottomMargin = this.responsive.bottomMargin
+    const joystickRadius = this.responsive.joystickRadius
+    const joystickDiameter = joystickRadius * 2
+    const lookRight = 400
+    const lookBottom = bottomMargin + joystickDiameter / 2 + 20
 
     this.lookJoystickContainer = document.createElement('div')
     this.lookJoystickContainer.className = 'mobile-joystick-container'
     this.lookJoystickContainer.id = 'look-joystick'
     this.lookJoystickContainer.style.cssText = `
-      right: ${Math.abs(joyPos.x)}px;
-      bottom: ${-joyPos.y}px;
-      width: ${this.options.lookJoystickRadius * 2}px;
-      height: ${this.options.lookJoystickRadius * 2}px;
+      right: ${lookRight}px;
+      bottom: ${lookBottom}px;
+      width: ${joystickDiameter}px;
+      height: ${joystickDiameter}px;
     `
 
     const base = document.createElement('div')
     base.className = 'mobile-joystick-base'
     base.id = 'look-joystick-base'
-    
+
     const directions = document.createElement('div')
     directions.className = 'mobile-joystick-directions'
     directions.innerHTML = `
@@ -514,15 +525,15 @@ export class MobileControls {
       <span class="dir-left">←</span>
       <span class="dir-right">→</span>
     `
-    
+
     this.lookJoystickKnob = document.createElement('div')
     this.lookJoystickKnob.className = 'mobile-joystick-knob'
     this.lookJoystickKnob.id = 'look-joystick-knob'
-    
+
     const label = document.createElement('div')
     label.className = 'mobile-joystick-label'
     label.textContent = 'LOOK'
-    
+
     base.appendChild(directions)
     this.lookJoystickContainer.appendChild(base)
     this.lookJoystickContainer.appendChild(this.lookJoystickKnob)
@@ -532,48 +543,55 @@ export class MobileControls {
 
   createActionButtons() {
     this.buttonsContainer = document.createElement('div')
-    this.buttonsContainer.className = 'mobile-buttons-container'
     this.buttonsContainer.style.cssText = `
+      position: absolute;
       bottom: ${this.layout.buttonsBottomOffset}px;
       right: ${this.layout.buttonsRightOffset}px;
+      pointer-events: auto;
+      z-index: 9999;
     `
-    
-    const primaryRow = document.createElement('div')
-    primaryRow.className = 'mobile-button-row'
-    
-    const shootBtn = this.createActionButton('shoot', '●', 'FIRE', 'primary large')
-    primaryRow.appendChild(shootBtn)
-    
-    const actionRow = document.createElement('div')
-    actionRow.className = 'mobile-button-row'
-    
-    const jumpBtn = this.createActionButton('jump', '▲', 'JUMP', 'jump')
-    const crouchBtn = this.createActionButton('crouch', '▼', 'CROUCH', 'crouch')
-    const reloadBtn = this.createActionButton('reload', '↻', 'RELOAD', 'reload')
-    
-    actionRow.appendChild(crouchBtn)
-    actionRow.appendChild(jumpBtn)
-    actionRow.appendChild(reloadBtn)
-    
-    const secondaryRow = document.createElement('div')
-    secondaryRow.className = 'mobile-button-row'
-    
-    const sprintBtn = this.createActionButton('sprint', '▶▶', 'SPRINT', 'sprint')
-    const weaponBtn = this.createActionButton('weapon', '⚔', 'WEAPON', 'weapon')
-    
-    secondaryRow.appendChild(sprintBtn)
-    secondaryRow.appendChild(weaponBtn)
-    
-    this.buttonsContainer.appendChild(primaryRow)
-    this.buttonsContainer.appendChild(actionRow)
-    this.buttonsContainer.appendChild(secondaryRow)
+
+    const diamondContainer = document.createElement('div')
+    diamondContainer.style.cssText = `
+      display: grid !important;
+      grid-template-columns: repeat(3, auto);
+      grid-template-rows: repeat(3, auto);
+      gap: 12px;
+      align-items: center;
+      justify-items: center;
+      width: auto;
+      height: auto;
+    `
+
+    const jumpBtn = this.createActionButton('jump', 'A', 'JUMP', 'jump')
+    jumpBtn.style.cssText += '; grid-column: 2; grid-row: 3;'
+
+    const crouchBtn = this.createActionButton('crouch', 'X', 'CROUCH', 'crouch')
+    crouchBtn.style.cssText += '; grid-column: 1; grid-row: 2;'
+
+    const reloadBtn = this.createActionButton('reload', 'RB', 'RELOAD', 'reload')
+    reloadBtn.style.cssText += '; grid-column: 1; grid-row: 1;'
+
+    const sprintBtn = this.createActionButton('sprint', 'Y', 'SPRINT', 'sprint')
+    sprintBtn.style.cssText += '; grid-column: 2; grid-row: 1;'
+
+    const weaponBtn = this.createActionButton('weapon', 'B', 'WEAPON', 'weapon')
+    weaponBtn.style.cssText += '; grid-column: 3; grid-row: 2;'
+
+    diamondContainer.appendChild(reloadBtn)
+    diamondContainer.appendChild(crouchBtn)
+    diamondContainer.appendChild(jumpBtn)
+    diamondContainer.appendChild(sprintBtn)
+    diamondContainer.appendChild(weaponBtn)
+
+    this.buttonsContainer.appendChild(diamondContainer)
     this.container.appendChild(this.buttonsContainer)
-    
+
     this.interactBtn = document.createElement('div')
     this.interactBtn.className = 'mobile-interact-btn'
     this.interactBtn.textContent = 'INTERACT [E]'
     this.interactBtn.dataset.action = 'interact'
-    const interactBottom = this.layout.buttonsBottomOffset + 60
+    const interactBottom = Math.min(this.layout.buttonsBottomOffset + 140, window.innerHeight * 0.35)
     this.interactBtn.style.cssText = `bottom: ${interactBottom}px;`
     this.container.appendChild(this.interactBtn)
   }
@@ -640,23 +658,28 @@ export class MobileControls {
 
     const screenHeight = window.innerHeight
     const screenWidth = window.innerWidth
-    const moveBottom = -this.options.joystickPosition.y
-    const moveLeft = this.options.joystickPosition.x
-    const lookBottom = -this.options.lookJoystickPosition.y
-    const lookRight = -this.options.lookJoystickPosition.x
+    const margin = this.responsive.edgeMargin
+    const bottomMargin = this.responsive.bottomMargin
+    const joystickRadius = this.responsive.joystickRadius
+    const joystickDiameter = joystickRadius * 2
+
+    const moveLeft = margin + 120
+    const moveBottom = bottomMargin + joystickDiameter / 2
+    const lookBottom = bottomMargin + joystickDiameter / 2
+    const lookRight = 400
 
     if (this.moveJoystickContainer) {
       this.moveJoystickContainer.style.left = `${moveLeft}px`
       this.moveJoystickContainer.style.bottom = `${moveBottom}px`
-      this.moveJoystickContainer.style.width = `${this.options.joystickRadius * 2}px`
-      this.moveJoystickContainer.style.height = `${this.options.joystickRadius * 2}px`
+      this.moveJoystickContainer.style.width = `${joystickDiameter}px`
+      this.moveJoystickContainer.style.height = `${joystickDiameter}px`
     }
 
     if (this.lookJoystickContainer) {
-      this.lookJoystickContainer.style.right = `${lookRight}px`
+      this.lookJoystickContainer.style.right = `400px`
       this.lookJoystickContainer.style.bottom = `${lookBottom}px`
-      this.lookJoystickContainer.style.width = `${this.options.lookJoystickRadius * 2}px`
-      this.lookJoystickContainer.style.height = `${this.options.lookJoystickRadius * 2}px`
+      this.lookJoystickContainer.style.width = `${joystickDiameter}px`
+      this.lookJoystickContainer.style.height = `${joystickDiameter}px`
     }
 
     if (this.buttonsContainer) {
@@ -665,19 +688,19 @@ export class MobileControls {
     }
 
     if (this.interactBtn) {
-      const interactBottom = this.layout.buttonsBottomOffset + 60
-      this.interactBtn.style.bottom = `${interactBottom}px`
+      const interactBottom = this.layout.buttonsBottomOffset + 140
+      this.interactBtn.style.bottom = `${Math.min(interactBottom, window.innerHeight * 0.35)}px`
     }
 
     if (this.zoomContainer) {
       this.zoomContainer.style.bottom = `${this.responsive.bottomMargin}px`
     }
 
-    this.moveJoystick.centerX = moveLeft + this.options.joystickRadius
-    this.moveJoystick.centerY = screenHeight - moveBottom - this.options.joystickRadius
+    this.moveJoystick.centerX = moveLeft + joystickRadius
+    this.moveJoystick.centerY = screenHeight - moveBottom - joystickRadius
 
-    this.lookJoystick.centerX = screenWidth - lookRight - this.options.lookJoystickRadius
-    this.lookJoystick.centerY = screenHeight - lookBottom - this.options.lookJoystickRadius
+    this.lookJoystick.centerX = screenWidth - lookRight - joystickRadius
+    this.lookJoystick.centerY = screenHeight - lookBottom - joystickRadius
   }
 
   setupListeners() {
@@ -685,24 +708,29 @@ export class MobileControls {
     document.addEventListener('touchmove', this.onTouchMove.bind(this), { passive: false })
     document.addEventListener('touchend', this.onTouchEnd.bind(this), { passive: false })
     document.addEventListener('touchcancel', this.onTouchEnd.bind(this), { passive: false })
-    
+
     window.addEventListener('resize', () => {
       this.updateJoystickPositions()
+    })
+    window.addEventListener('orientationchange', () => {
+      setTimeout(() => this.updateJoystickPositions(), 100)
     })
   }
 
   isTouchOnMoveJoystick(x, y) {
-    const rect = this.moveJoystickContainer.getBoundingClientRect()
-    const buffer = Math.max(20, this.options.joystickRadius * 0.4)
-    return x >= rect.left - buffer && x <= rect.right + buffer &&
-           y >= rect.top - buffer && y <= rect.bottom + buffer
+    const screenWidth = window.innerWidth
+    const screenHeight = window.innerHeight
+    // Left half of screen, excluding top area for UI, and not on a button
+    if (this.getButtonAtPosition(x, y)) return false
+    return x < screenWidth / 2 && y > screenHeight * 0.3
   }
 
   isTouchOnLookJoystick(x, y) {
-    const rect = this.lookJoystickContainer.getBoundingClientRect()
-    const buffer = Math.max(20, this.options.lookJoystickRadius * 0.4)
-    return x >= rect.left - buffer && x <= rect.right + buffer &&
-           y >= rect.top - buffer && y <= rect.bottom + buffer
+    const screenWidth = window.innerWidth
+    const screenHeight = window.innerHeight
+    // Only activate look joystick if not touching a button
+    if (this.getButtonAtPosition(x, y)) return false
+    return x >= screenWidth / 2 && y > screenHeight * 0.3
   }
 
   getButtonAtPosition(x, y) {
@@ -710,15 +738,15 @@ export class MobileControls {
       const rect = btn.getBoundingClientRect()
       return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
     }
-    
+
     for (const [id, btn] of this.buttons) {
       if (checkButton(btn)) return id
     }
-    
+
     if (this.interactBtn && checkButton(this.interactBtn)) return 'interact'
     if (this.zoomButtons.zoomIn && checkButton(this.zoomButtons.zoomIn)) return 'zoomIn'
     if (this.zoomButtons.zoomOut && checkButton(this.zoomButtons.zoomOut)) return 'zoomOut'
-    
+
     return null
   }
 
@@ -736,11 +764,16 @@ export class MobileControls {
         this.moveJoystick.startY = y
         this.moveJoystick.currentX = x
         this.moveJoystick.currentY = y
-        
-        const rect = this.moveJoystickContainer.getBoundingClientRect()
-        this.moveJoystick.centerX = rect.left + rect.width / 2
-        this.moveJoystick.centerY = rect.top + rect.height / 2
-        
+
+        // Dynamic positioning - move joystick to touch location
+        const joystickRadius = this.options.joystickRadius || 45
+        this.moveJoystickContainer.style.left = `${x - joystickRadius}px`
+        this.moveJoystickContainer.style.top = `${y - joystickRadius}px`
+        this.moveJoystickContainer.style.bottom = 'auto'
+
+        this.moveJoystick.centerX = x
+        this.moveJoystick.centerY = y
+
         document.getElementById('move-joystick-base')?.classList.add('active')
         this.moveJoystickKnob.classList.add('active')
         e.preventDefault()
@@ -756,11 +789,11 @@ export class MobileControls {
         this.lookJoystick.currentY = y
         this.lookJoystick.lastX = x
         this.lookJoystick.lastY = y
-        
+
         const rect = this.lookJoystickContainer.getBoundingClientRect()
         this.lookJoystick.centerX = rect.left + rect.width / 2
         this.lookJoystick.centerY = rect.top + rect.height / 2
-        
+
         document.getElementById('look-joystick-base')?.classList.add('look-active')
         this.lookJoystickKnob.classList.add('look-active')
         e.preventDefault()
@@ -802,7 +835,7 @@ export class MobileControls {
           this.lookJoystick.lastY = y
           this.lookJoystick.centerX = x
           this.lookJoystick.centerY = y
-          
+
           document.getElementById('look-joystick-base')?.classList.add('look-active')
           this.lookJoystickKnob.classList.add('look-active')
         }
@@ -841,7 +874,7 @@ export class MobileControls {
         } else {
           const scale = (normalizedDist - deadzone) / (1 - deadzone)
           this.state.move.x = (dx / maxDist) * scale
-          this.state.move.y = -(dy / maxDist) * scale
+          this.state.move.y = (dy / maxDist) * scale
         }
         e.preventDefault()
       }
@@ -863,7 +896,7 @@ export class MobileControls {
           lx = (lx / lookDist) * lookMaxDist
           ly = (ly / lookDist) * lookMaxDist
         }
-        
+
         this.lookJoystickKnob.style.transform = `translate(calc(-50% + ${lx}px), calc(-50% + ${ly}px))`
 
         this.lookJoystick.lastX = x
@@ -893,6 +926,13 @@ export class MobileControls {
         this.moveJoystickKnob.style.transform = 'translate(-50%, -50%)'
         this.moveJoystickKnob.classList.remove('active')
         document.getElementById('move-joystick-base')?.classList.remove('active')
+        // Reset position to default
+        const margin = this.responsive.edgeMargin
+        const bottomMargin = this.responsive.bottomMargin
+        const joystickDiameter = (this.options.joystickRadius || 45) * 2
+        this.moveJoystickContainer.style.left = `${margin + 120}px`
+        this.moveJoystickContainer.style.bottom = `${bottomMargin + joystickDiameter / 2}px`
+        this.moveJoystickContainer.style.top = 'auto'
       }
 
       if (this.lookJoystick.active && touch.identifier === this.lookJoystick.touchId) {
@@ -967,16 +1007,16 @@ export class MobileControls {
   }
 
   hasInteraction() {
-    return this.moveJoystick.active || 
-           this.lookJoystick.active || 
-           this.pinch.active ||
-           this.state.jump ||
-           this.state.shoot ||
-           this.state.reload ||
-           this.state.sprint ||
-           this.state.crouch ||
-           this.state.interact ||
-           this.state.weapon
+    return this.moveJoystick.active ||
+      this.lookJoystick.active ||
+      this.pinch.active ||
+      this.state.jump ||
+      this.state.shoot ||
+      this.state.reload ||
+      this.state.sprint ||
+      this.state.crouch ||
+      this.state.interact ||
+      this.state.weapon
   }
 
   resetLookDelta() {
@@ -985,7 +1025,7 @@ export class MobileControls {
   }
 
   setEnabled(enabled) {
-    this.enabled = enabled && (isTouch || this.options.forceEnable)
+    this.enabled = enabled && (isMobile || this.options.forceEnable)
     if (this.container) {
       this.container.style.display = this.enabled ? 'block' : 'none'
     }
@@ -1010,7 +1050,7 @@ export class MobileControls {
     }
     const style = document.getElementById('mobile-controls-style')
     if (style) style.remove()
-    
+
     document.removeEventListener('touchstart', this.onTouchStart)
     document.removeEventListener('touchmove', this.onTouchMove)
     document.removeEventListener('touchend', this.onTouchEnd)
@@ -1021,9 +1061,8 @@ export class MobileControls {
 
 export function detectDevice() {
   return {
-    isTouch,
     isMobile,
-    isDesktop: !isMobile && !isTouch,
+    isDesktop: !isMobile,
     hasGamepad: typeof navigator !== 'undefined' && 'getGamepads' in navigator
   }
 }

@@ -80,7 +80,7 @@ export class InputHandler {
       }
     }
 
-    if (this.mobileControls) {
+    if (this.mobileControls && this.mobileControls.hasInteraction && this.mobileControls.hasInteraction()) {
       const mobileInput = this.mobileControls.getInput()
       if (mobileInput) {
         this.vrYawDelta = mobileInput.yaw

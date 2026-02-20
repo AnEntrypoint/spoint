@@ -88,18 +88,14 @@ let arButton = null
 let arEnabled = false
 const deviceInfo = detectDevice()
 
-if (deviceInfo.isTouch || deviceInfo.isMobile) {
-  mobileControls = new MobileControls({
-    joystickRadius: 55,
-    joystickPosition: { x: 70, y: -100 },
-    lookJoystickPosition: { x: 70, y: -100 },
-    lookJoystickRadius: 55,
-    rotationSensitivity: 0.003,
-    zoomSensitivity: 0.008
-  })
-  inputConfig.pointerLock = false
-  console.log('[Mobile] Touch controls initialized:', deviceInfo)
-}
+mobileControls = new MobileControls({
+  forceEnable: true,
+  joystickRadius: 45,
+  rotationSensitivity: 0.003,
+  zoomSensitivity: 0.008
+})
+inputConfig.pointerLock = false
+console.log('[Mobile] Touch controls initialized (force enabled):', deviceInfo)
 
 arControls = new ARControls({ placementMode: true, planeDetection: true })
 const arReticle = arControls.createReticle()
@@ -813,9 +809,9 @@ function removePlayerMesh(id) {
 function evaluateAppModule(code) {
   try {
     const stripped = code.replace(/^import\s+.*$/gm, '')
-    const wrapped = stripped.replace(/export\s+default\s+/, 'return ')
+    const wrapped = stripped.replace(/export\s+default\s*/, 'return ').replace(/export\s+/g, '')
     return new Function(wrapped)()
-  } catch (e) { console.error('[app-eval]', e.message); return null }
+  } catch (e) { console.error('[app-eval]', e.message, e.stack); return null }
 }
 
 const PLACEHOLDER_DIMS = {
