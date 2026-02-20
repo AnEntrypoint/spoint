@@ -88,6 +88,8 @@ export class InputHandler {
         this.vrYaw += mobileInput.yaw
         this.vrPitch += mobileInput.pitch
         this.mobileControls.resetLookDelta()
+        const zoomValue = mobileInput.zoom
+        if (mobileInput.resetZoom) mobileInput.resetZoom()
         return {
           forward: mobileInput.forward,
           backward: mobileInput.backward,
@@ -102,7 +104,7 @@ export class InputHandler {
           pitch: this.vrPitch,
           yawDelta: this.vrYawDelta,
           pitchDelta: this.vrPitchDelta,
-          zoom: mobileInput.zoom,
+          zoom: zoomValue,
           mouseX: 0,
           mouseY: 0,
           isMobile: true,

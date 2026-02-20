@@ -266,7 +266,7 @@ export async function createARButton(renderer, onStart, onEnd) {
 
   const button = document.createElement('button')
   button.id = 'ar-button'
-  button.textContent = 'Enter AR'
+  button.textContent = 'Enter XR'
   button.style.cssText = `
     position: fixed;
     bottom: 20px;
