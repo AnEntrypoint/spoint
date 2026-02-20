@@ -89,13 +89,12 @@ let arEnabled = false
 const deviceInfo = detectDevice()
 
 mobileControls = new MobileControls({
-  forceEnable: true,
   joystickRadius: 45,
   rotationSensitivity: 0.003,
   zoomSensitivity: 0.008
 })
-inputConfig.pointerLock = false
-console.log('[Mobile] Touch controls initialized (force enabled):', deviceInfo)
+inputConfig.pointerLock = !deviceInfo.isMobile
+console.log('[Mobile] Touch controls initialized:', deviceInfo)
 
 arControls = new ARControls({ placementMode: true, planeDetection: true })
 const arReticle = arControls.createReticle()
