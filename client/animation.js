@@ -14,7 +14,8 @@ const STATES = {
   CrouchFwdLoop: { loop: true },
   Death: { loop: false, clamp: true },
   PistolShoot: { loop: false, next: null, duration: 0.3, upperBody: true },
-  Aim: { loop: true, additive: true }
+  Aim: { loop: true, additive: true },
+  PistolReload: { loop: false, next: 'IdleLoop', duration: 2.0, upperBody: true }
 }
 
 const LOWER_BODY_BONES = new Set([
@@ -22,7 +23,14 @@ const LOWER_BODY_BONES = new Set([
   'leftUpperLeg', 'leftLowerLeg', 'leftFoot', 'leftToes',
   'rightUpperLeg', 'rightLowerLeg', 'rightFoot', 'rightToes',
   'LeftUpperLeg', 'LeftLowerLeg', 'LeftFoot', 'LeftToes',
-  'RightUpperLeg', 'RightLowerLeg', 'RightFoot', 'RightToes'
+  'RightUpperLeg', 'RightLowerLeg', 'RightFoot', 'RightToes',
+  // Additional leg bones that might appear
+  'LeftUpLeg', 'LeftLeg', 'LeftFoot', 'LeftToeBase',
+  'RightUpLeg', 'RightLeg', 'RightFoot', 'RightToeBase',
+  'leftUpLeg', 'leftLeg', 'leftFoot', 'leftToeBase',
+  'rightUpLeg', 'rightLeg', 'rightFoot', 'rightToeBase',
+  'lUpLeg', 'lLeg', 'lFoot', 'lToe',
+  'rUpLeg', 'rLeg', 'rFoot', 'rToe'
 ])
 
 function extractBoneName(trackName) {
@@ -119,7 +127,7 @@ export async function loadAnimationLibrary(vrmVersion, vrmHumanoid) {
   const loader = new GLTFLoader()
   const gltf = await loader.loadAsync('/anim-lib.glb')
   const normalizedClips = normalizeClips(gltf, vrmVersion || '1', vrmHumanoid)
-  console.log(`[anim] Loaded animation library (${normalizedClips.size} clips)`)
+  console.log(`[anim] Loaded animation library (${normalizedClips.size} clips):`, [...normalizedClips.keys()])
   return { normalizedClips }
 }
 
@@ -137,6 +145,10 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
     if (!STATES[name]) continue
     const cfg = STATES[name]
 
+    if (cfg.upperBody) {
+      console.log(`[anim] ${name} tracks:`, clip.tracks.map(t => extractBoneName(t.name)))
+    }
+
     let playClip = filterValidClipTracks(clip, root)
 
     if (cfg.upperBody) {
@@ -146,7 +158,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
         action.loop = THREE.LoopOnce
         action.clampWhenFinished = cfg.clamp || false
       }
-      additiveActions.set(name, action)
+      actions.set(name, action)
     } else if (cfg.additive) {
       const upperBodyClip = filterUpperBodyTracks(playClip)
       const action = mixer.clipAction(upperBodyClip)
@@ -264,7 +276,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       mixer.update(dt)
     },
     shoot() {
-      const action = additiveActions.get('PistolShoot')
+      const action = actions.get('PistolShoot')
       if (!action) return
       action.reset().fadeIn(0.05).play()
     },
@@ -276,6 +288,15 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       } else {
         if (action.isRunning()) action.fadeOut(FADE)
       }
+    },
+    reload() {
+      const action = actions.get('PistolReload')
+      if (!action) {
+        console.log('[anim] PistolReload animation not found')
+        return
+      }
+      console.log('[anim] Playing reload animation')
+      action.reset().fadeIn(0.1).play()
     },
     dispose() {
       mixer.stopAllAction()

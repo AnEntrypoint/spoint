@@ -190,6 +190,8 @@ export default {
       if (payload.type === 'reload_start' && tps) {
         tps.reloading = true
         tps.reloadEndTime = Date.now() + (payload.duration || 2000)
+        const animator = engine.players?.getAnimator(engine.playerId)
+        if (animator) animator.reload()
       }
       if (payload.type === 'reload_complete' && tps) {
         tps.reloading = false
