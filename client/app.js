@@ -671,6 +671,7 @@ const playerTargets = new Map()
 let inputHandler = null
 const uiRoot = document.getElementById('ui-root')
 const clickPrompt = document.getElementById('click-prompt')
+if (deviceInfo.isMobile && clickPrompt) clickPrompt.style.display = 'none'
 const cam = createCameraController(camera, scene)
 cam.restore(JSON.parse(sessionStorage.getItem('cam') || 'null'))
 sessionStorage.removeItem('cam')
@@ -1031,7 +1032,8 @@ const engineCtx = {
     setAiming: (id, val) => { const s = playerStates.get(id); if (s) s._aiming = val }
   },
   createElement,
-  THREE
+  THREE,
+  get mobileControls() { return mobileControls }
 }
 
 initFacialSystem(engineCtx)
@@ -1109,7 +1111,7 @@ async function initAR() {
       scene.background = new THREE.Color(0x87ceeb)
       ground.visible = true
       if (arButton) {
-        arButton.textContent = 'Enter AR'
+        arButton.textContent = 'Enter XR'
         arButton.style.background = 'rgba(0, 150, 0, 0.8)'
       }
       console.log('[AR] AR mode ended')

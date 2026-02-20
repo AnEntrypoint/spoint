@@ -33,8 +33,7 @@ export class MobileControls {
       sprint: false,
       crouch: false,
       zoom: 0,
-      zoomLevel: 0,
-      weapon: false,
+      zoomDelta: 0,
       interact: false,
       menu: false
     }
@@ -47,7 +46,8 @@ export class MobileControls {
       currentY: 0,
       touchId: null,
       centerX: 0,
-      centerY: 0
+      centerY: 0,
+      maxHoldStart: 0
     }
 
     this.lookJoystick = {
@@ -72,6 +72,7 @@ export class MobileControls {
 
     this.buttons = new Map()
     this.activeButtons = new Map()
+    this.interactableTargets = new Map()
     this.initialized = false
 
     if (this.enabled) {
@@ -125,25 +126,41 @@ export class MobileControls {
     const bottomMargin = this.responsive.bottomMargin
     const joystickRadius = this.responsive.joystickRadius
     const joystickDiameter = joystickRadius * 2
+    const buttonSize = this.responsive.buttonSize
+    const spacing = this.responsive.spacing
 
     const moveJoystickPos = {
       x: margin,
       y: -bottomMargin - joystickDiameter / 2
     }
 
-    const lookJoystickPos = {
-      x: -margin,
-      y: -bottomMargin - joystickDiameter / 2
-    }
+    const moveLeft = margin + 80
+    const moveBottom = bottomMargin + joystickDiameter / 2
 
+    const buttonAreaWidth = buttonSize * 3 + spacing * 4
+    const buttonsRightOffset = Math.max(10, margin)
     const buttonsBottomOffset = bottomMargin + 60
-    const buttonsRightOffset = 100
+
+    const lookRight = Math.min(350, w * 0.25)
+    const lookBottom = bottomMargin + joystickDiameter / 2 + 20
+
+    const lookJoystickPos = {
+      x: w - lookRight - joystickDiameter,
+      y: -lookBottom
+    }
 
     return {
       moveJoystickPos,
       lookJoystickPos,
+      moveLeft,
+      moveBottom,
+      lookRight,
+      lookBottom,
       buttonsBottomOffset,
-      buttonsRightOffset
+      buttonsRightOffset,
+      buttonAreaWidth,
+      w,
+      h
     }
   }
 
@@ -365,8 +382,6 @@ export class MobileControls {
       
       .mobile-zoom-controls {
         position: absolute;
-        left: 50%;
-        transform: translateX(-50%);
         display: flex;
         flex-direction: row;
         gap: 8px;
@@ -448,12 +463,10 @@ export class MobileControls {
   }
 
   createMovementJoystick() {
-    const margin = this.responsive.edgeMargin
-    const bottomMargin = this.responsive.bottomMargin
     const joystickRadius = this.responsive.joystickRadius
     const joystickDiameter = joystickRadius * 2
-    const moveLeft = margin + 80
-    const moveBottom = bottomMargin + joystickDiameter / 2
+    const moveLeft = this.layout.moveLeft
+    const moveBottom = this.layout.moveBottom
 
     this.moveJoystickContainer = document.createElement('div')
     this.moveJoystickContainer.className = 'mobile-joystick-container'
@@ -500,8 +513,8 @@ export class MobileControls {
     const bottomMargin = this.responsive.bottomMargin
     const joystickRadius = this.responsive.joystickRadius
     const joystickDiameter = joystickRadius * 2
-    const lookRight = 400
-    const lookBottom = bottomMargin + joystickDiameter / 2 + 20
+    const lookRight = this.layout.lookRight
+    const lookBottom = this.layout.lookBottom
 
     this.lookJoystickContainer = document.createElement('div')
     this.lookJoystickContainer.className = 'mobile-joystick-container'
@@ -569,37 +582,50 @@ export class MobileControls {
     const crouchBtn = this.createActionButton('crouch', 'X', 'CROUCH', 'crouch')
     crouchBtn.style.cssText += '; grid-column: 1; grid-row: 2;'
 
-    const reloadBtn = this.createActionButton('reload', 'RB', 'RELOAD', 'reload')
-    reloadBtn.style.cssText += '; grid-column: 1; grid-row: 1;'
+    const shootBtn = this.createActionButton('shoot', 'B', 'SHOOT', 'weapon')
+    shootBtn.style.cssText += '; grid-column: 3; grid-row: 2;'
 
-    const sprintBtn = this.createActionButton('sprint', 'Y', 'SPRINT', 'sprint')
-    sprintBtn.style.cssText += '; grid-column: 2; grid-row: 1;'
+    const useBtn = this.createActionButton('use', 'Y', 'RELOAD', 'reload', 'reload')
+    useBtn.style.cssText += '; grid-column: 2; grid-row: 1;'
+    this.useBtn = useBtn
 
-    const weaponBtn = this.createActionButton('weapon', 'B', 'WEAPON', 'weapon')
-    weaponBtn.style.cssText += '; grid-column: 3; grid-row: 2;'
-
-    diamondContainer.appendChild(reloadBtn)
     diamondContainer.appendChild(crouchBtn)
     diamondContainer.appendChild(jumpBtn)
-    diamondContainer.appendChild(sprintBtn)
-    diamondContainer.appendChild(weaponBtn)
+    diamondContainer.appendChild(useBtn)
+    diamondContainer.appendChild(shootBtn)
 
     this.buttonsContainer.appendChild(diamondContainer)
     this.container.appendChild(this.buttonsContainer)
-
-    this.interactBtn = document.createElement('div')
-    this.interactBtn.className = 'mobile-interact-btn'
-    this.interactBtn.textContent = 'INTERACT [E]'
-    this.interactBtn.dataset.action = 'interact'
-    const interactBottom = Math.min(this.layout.buttonsBottomOffset + 140, window.innerHeight * 0.35)
-    this.interactBtn.style.cssText = `bottom: ${interactBottom}px;`
-    this.container.appendChild(this.interactBtn)
   }
 
-  createActionButton(id, icon, label, className) {
+  updateUseButton() {
+    const hasInteractables = this.interactableTargets.size > 0
+    if (!this.useBtn) return
+
+    const label = hasInteractables ? 'USE' : 'RELOAD'
+    const action = hasInteractables ? 'interact' : 'reload'
+
+    this.useBtn.dataset.action = action
+    this.useBtn.className = `mobile-action-btn ${action}`
+    const labelSpan = this.useBtn.querySelector('.btn-label')
+    if (labelSpan) labelSpan.textContent = label
+  }
+
+  registerInteractable(id, label = 'INTERACT') {
+    if (this.interactableTargets.has(id)) return
+    this.interactableTargets.set(id, label)
+    this.updateUseButton()
+  }
+
+  unregisterInteractable(id) {
+    this.interactableTargets.delete(id)
+    this.updateUseButton()
+  }
+
+  createActionButton(id, icon, label, className, action) {
     const btn = document.createElement('div')
     btn.className = `mobile-action-btn ${className}`
-    btn.dataset.action = id
+    btn.dataset.action = action || id
 
     const isPrimary = className.includes('primary')
     const size = isPrimary ? this.responsive.primaryButtonSize : this.responsive.buttonSize
@@ -623,7 +649,8 @@ export class MobileControls {
   createZoomControls() {
     this.zoomContainer = document.createElement('div')
     this.zoomContainer.className = 'mobile-zoom-controls'
-    this.zoomContainer.style.cssText = `bottom: ${this.responsive.bottomMargin}px;`
+    const zoomRight = this.layout.lookRight + this.responsive.joystickRadius
+    this.zoomContainer.style.cssText = `bottom: ${this.responsive.bottomMargin}px; right: ${zoomRight}px; transform: translateX(50%);`
 
     const zoomSize = Math.max(40, this.responsive.buttonSize * 0.8)
 
@@ -644,6 +671,8 @@ export class MobileControls {
     this.container.appendChild(this.zoomContainer)
 
     this.zoomButtons = { zoomIn: zoomInBtn, zoomOut: zoomOutBtn }
+    this.buttons.set('zoomIn', zoomInBtn)
+    this.buttons.set('zoomOut', zoomOutBtn)
   }
 
   createTopBar() {
@@ -656,17 +685,15 @@ export class MobileControls {
     this.responsive = this.calculateResponsiveSizes()
     this.layout = this.calculateLayout()
 
-    const screenHeight = window.innerHeight
-    const screenWidth = window.innerWidth
-    const margin = this.responsive.edgeMargin
-    const bottomMargin = this.responsive.bottomMargin
+    const screenHeight = this.layout.h
+    const screenWidth = this.layout.w
     const joystickRadius = this.responsive.joystickRadius
     const joystickDiameter = joystickRadius * 2
 
-    const moveLeft = margin + 120
-    const moveBottom = bottomMargin + joystickDiameter / 2
-    const lookBottom = bottomMargin + joystickDiameter / 2
-    const lookRight = 400
+    const moveLeft = this.layout.moveLeft
+    const moveBottom = this.layout.moveBottom
+    const lookBottom = this.layout.lookBottom
+    const lookRight = this.layout.lookRight
 
     if (this.moveJoystickContainer) {
       this.moveJoystickContainer.style.left = `${moveLeft}px`
@@ -676,7 +703,7 @@ export class MobileControls {
     }
 
     if (this.lookJoystickContainer) {
-      this.lookJoystickContainer.style.right = `400px`
+      this.lookJoystickContainer.style.right = `${lookRight}px`
       this.lookJoystickContainer.style.bottom = `${lookBottom}px`
       this.lookJoystickContainer.style.width = `${joystickDiameter}px`
       this.lookJoystickContainer.style.height = `${joystickDiameter}px`
@@ -687,13 +714,11 @@ export class MobileControls {
       this.buttonsContainer.style.right = `${this.layout.buttonsRightOffset}px`
     }
 
-    if (this.interactBtn) {
-      const interactBottom = this.layout.buttonsBottomOffset + 140
-      this.interactBtn.style.bottom = `${Math.min(interactBottom, window.innerHeight * 0.35)}px`
-    }
-
     if (this.zoomContainer) {
+      const zoomRight = this.layout.lookRight + this.responsive.joystickRadius
       this.zoomContainer.style.bottom = `${this.responsive.bottomMargin}px`
+      this.zoomContainer.style.right = `${zoomRight}px`
+      this.zoomContainer.style.transform = 'translateX(50%)'
     }
 
     this.moveJoystick.centerX = moveLeft + joystickRadius
@@ -720,8 +745,9 @@ export class MobileControls {
   isTouchOnMoveJoystick(x, y) {
     const screenWidth = window.innerWidth
     const screenHeight = window.innerHeight
-    // Left half of screen, excluding top area for UI, and not on a button
-    if (this.getButtonAtPosition(x, y)) return false
+    // Left half of screen, excluding top area for UI
+    // Only check button overlap if touch is on the right side (where buttons are)
+    if (x >= screenWidth / 2 && this.getButtonAtPosition(x, y)) return false
     return x < screenWidth / 2 && y > screenHeight * 0.3
   }
 
@@ -742,10 +768,6 @@ export class MobileControls {
     for (const [id, btn] of this.buttons) {
       if (checkButton(btn)) return id
     }
-
-    if (this.interactBtn && checkButton(this.interactBtn)) return 'interact'
-    if (this.zoomButtons.zoomIn && checkButton(this.zoomButtons.zoomIn)) return 'zoomIn'
-    if (this.zoomButtons.zoomOut && checkButton(this.zoomButtons.zoomOut)) return 'zoomOut'
 
     return null
   }
@@ -776,7 +798,7 @@ export class MobileControls {
 
         document.getElementById('move-joystick-base')?.classList.add('active')
         this.moveJoystickKnob.classList.add('active')
-        e.preventDefault()
+        if (e.cancelable) e.preventDefault()
         continue
       }
 
@@ -796,48 +818,64 @@ export class MobileControls {
 
         document.getElementById('look-joystick-base')?.classList.add('look-active')
         this.lookJoystickKnob.classList.add('look-active')
-        e.preventDefault()
+        if (e.cancelable) e.preventDefault()
         continue
       }
 
       const buttonId = this.getButtonAtPosition(x, y)
       if (buttonId) {
-        if (buttonId === 'zoomIn') {
-          this.state.zoomLevel = Math.min(this.state.zoomLevel + 1, 3)
-        } else if (buttonId === 'zoomOut') {
-          this.state.zoomLevel = Math.max(this.state.zoomLevel - 1, 0)
-        } else if (buttonId === 'interact') {
-          this.state.interact = true
-          this.interactBtn.classList.add('active')
-        } else {
-          this.state[buttonId] = true
-          const btn = this.buttons.get(buttonId)
-          if (btn) btn.classList.add('active')
-        }
         this.activeButtons.set(touch.identifier, buttonId)
-        e.preventDefault()
+        const btn = this.buttons.get(buttonId)
+        const action = btn?.dataset?.action || buttonId
+
+        if (buttonId === 'zoomIn') {
+          this.state.zoomDelta = 1
+        } else if (buttonId === 'zoomOut') {
+          this.state.zoomDelta = -1
+        } else {
+          this.state[action] = true
+        }
+        if (btn) btn.classList.add('active')
+        if (e.cancelable) e.preventDefault()
         continue
       }
 
-      if (!this.moveJoystick.active && !this.lookJoystick.active && !this.pinch.active) {
-        if (this.lookJoystick.active) {
-          this.pinch.active = true
-          this.pinch.touchIds = [this.lookJoystick.touchId, touch.identifier]
-          this.pinch.startDist = this.getPinchDistance(e.touches)
-          this.pinch.lastDist = this.pinch.startDist
-          this.lookJoystick.active = false
-        } else {
-          this.lookJoystick.active = true
-          this.lookJoystick.touchId = touch.identifier
-          this.lookJoystick.startX = x
-          this.lookJoystick.startY = y
-          this.lookJoystick.lastX = x
-          this.lookJoystick.lastY = y
-          this.lookJoystick.centerX = x
-          this.lookJoystick.centerY = y
+      if (!this.moveJoystick.active && !this.pinch.active) {
+        if (this.lookJoystick.active && e.touches.length >= 2) {
+          const secondTouch = Array.from(e.touches).find(t => t.identifier !== this.lookJoystick.touchId)
+          if (secondTouch) {
+            this.pinch.active = true
+            this.pinch.touchIds = [this.lookJoystick.touchId, secondTouch.identifier]
+            this.pinch.startDist = this.getPinchDistance(e.touches)
+            this.pinch.lastDist = this.pinch.startDist
+            this.lookJoystick.active = false
+            this.lookJoystick.touchId = null
+            document.getElementById('look-joystick-base')?.classList.remove('look-active')
+            this.lookJoystickKnob.classList.remove('look-active')
+            this.lookJoystickKnob.style.transform = 'translate(-50%, -50%)'
+          }
+        } else if (!this.lookJoystick.active) {
+          if (e.touches.length >= 2) {
+            const otherTouch = Array.from(e.touches).find(t => t.identifier !== touch.identifier)
+            if (otherTouch) {
+              this.pinch.active = true
+              this.pinch.touchIds = [touch.identifier, otherTouch.identifier]
+              this.pinch.startDist = this.getPinchDistance(e.touches)
+              this.pinch.lastDist = this.pinch.startDist
+            }
+          } else {
+            this.lookJoystick.active = true
+            this.lookJoystick.touchId = touch.identifier
+            this.lookJoystick.startX = x
+            this.lookJoystick.startY = y
+            this.lookJoystick.lastX = x
+            this.lookJoystick.lastY = y
+            this.lookJoystick.centerX = x
+            this.lookJoystick.centerY = y
 
-          document.getElementById('look-joystick-base')?.classList.add('look-active')
-          this.lookJoystickKnob.classList.add('look-active')
+            document.getElementById('look-joystick-base')?.classList.add('look-active')
+            this.lookJoystickKnob.classList.add('look-active')
+          }
         }
       }
     }
@@ -859,6 +897,18 @@ export class MobileControls {
         const dist = Math.sqrt(dx * dx + dy * dy)
         const maxDist = this.options.joystickRadius
 
+        const normalizedDist = Math.min(dist / maxDist, 1)
+        if (normalizedDist > 0.85) {
+          if (!this.moveJoystick.maxHoldStart) {
+            this.moveJoystick.maxHoldStart = Date.now()
+          } else if (Date.now() - this.moveJoystick.maxHoldStart > 420) {
+            this.state.sprint = true
+          }
+        } else {
+          this.moveJoystick.maxHoldStart = 0
+          this.state.sprint = false
+        }
+
         if (dist > maxDist) {
           dx = (dx / dist) * maxDist
           dy = (dy / dist) * maxDist
@@ -867,7 +917,6 @@ export class MobileControls {
         this.moveJoystickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`
 
         const deadzone = this.options.movementDeadzone
-        const normalizedDist = Math.min(dist / maxDist, 1)
         if (normalizedDist < deadzone) {
           this.state.move.x = 0
           this.state.move.y = 0
@@ -876,7 +925,7 @@ export class MobileControls {
           this.state.move.x = (dx / maxDist) * scale
           this.state.move.y = (dy / maxDist) * scale
         }
-        e.preventDefault()
+        if (e.cancelable) e.preventDefault()
       }
 
       if (this.lookJoystick.active && touch.identifier === this.lookJoystick.touchId) {
@@ -901,16 +950,26 @@ export class MobileControls {
 
         this.lookJoystick.lastX = x
         this.lookJoystick.lastY = y
-        e.preventDefault()
+        if (e.cancelable) e.preventDefault()
       }
     }
 
     if (this.pinch.active && e.touches.length >= 2) {
       const dist = this.getPinchDistance(e.touches)
       const delta = dist - this.pinch.lastDist
-      this.state.zoomLevel = Math.max(0, Math.min(3, this.state.zoomLevel + delta * 0.005))
+      if (Math.abs(delta) > 5) {
+        this.state.zoomDelta = delta > 0 ? 1 : -1
+      }
       this.pinch.lastDist = dist
-      e.preventDefault()
+      if (e.cancelable) e.preventDefault()
+    }
+
+    for (const [touchId, buttonId] of this.activeButtons) {
+      if (buttonId === 'zoomIn') {
+        this.state.zoomDelta = 1
+      } else if (buttonId === 'zoomOut') {
+        this.state.zoomDelta = -1
+      }
     }
   }
 
@@ -921,17 +980,16 @@ export class MobileControls {
       if (this.moveJoystick.active && touch.identifier === this.moveJoystick.touchId) {
         this.moveJoystick.active = false
         this.moveJoystick.touchId = null
+        this.moveJoystick.maxHoldStart = 0
         this.state.move.x = 0
         this.state.move.y = 0
+        this.state.sprint = false
         this.moveJoystickKnob.style.transform = 'translate(-50%, -50%)'
         this.moveJoystickKnob.classList.remove('active')
         document.getElementById('move-joystick-base')?.classList.remove('active')
         // Reset position to default
-        const margin = this.responsive.edgeMargin
-        const bottomMargin = this.responsive.bottomMargin
-        const joystickDiameter = (this.options.joystickRadius || 45) * 2
-        this.moveJoystickContainer.style.left = `${margin + 120}px`
-        this.moveJoystickContainer.style.bottom = `${bottomMargin + joystickDiameter / 2}px`
+        this.moveJoystickContainer.style.left = `${this.layout.moveLeft}px`
+        this.moveJoystickContainer.style.bottom = `${this.layout.moveBottom}px`
         this.moveJoystickContainer.style.top = 'auto'
       }
 
@@ -955,14 +1013,10 @@ export class MobileControls {
 
       const activeButton = this.activeButtons.get(touch.identifier)
       if (activeButton) {
-        if (activeButton === 'interact') {
-          this.state.interact = false
-          this.interactBtn.classList.remove('active')
-        } else if (activeButton !== 'zoomIn' && activeButton !== 'zoomOut') {
-          this.state[activeButton] = false
-          const btn = this.buttons.get(activeButton)
-          if (btn) btn.classList.remove('active')
-        }
+        const btn = this.buttons.get(activeButton)
+        const action = btn?.dataset?.action || activeButton
+        this.state[action] = false
+        if (btn) btn.classList.remove('active')
         this.activeButtons.delete(touch.identifier)
       }
     }
@@ -994,13 +1048,13 @@ export class MobileControls {
       crouch: this.state.crouch,
       yaw: this.state.lookDelta.yaw,
       pitch: this.state.lookDelta.pitch,
-      zoom: this.state.zoomLevel,
+      zoom: this.state.zoomDelta,
+      resetZoom: () => { this.state.zoomDelta = 0 },
       moveX: move.x,
       moveY: move.y,
       mouseX: 0,
       mouseY: 0,
       interact: this.state.interact,
-      weapon: this.state.weapon,
       analogForward: move.y,
       analogRight: move.x
     }
@@ -1016,7 +1070,7 @@ export class MobileControls {
       this.state.sprint ||
       this.state.crouch ||
       this.state.interact ||
-      this.state.weapon
+      this.state.zoomDelta !== 0
   }
 
   resetLookDelta() {
