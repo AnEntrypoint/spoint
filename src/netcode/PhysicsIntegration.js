@@ -18,6 +18,9 @@ export class PhysicsIntegration {
   }
 
   addPlayerCollider(playerId, radius = 0.4) {
+    if (this.playerBodies.has(playerId)) {
+      this.removePlayerCollider(playerId)
+    }
     if (!this.physicsWorld) {
       this.playerBodies.set(playerId, { id: playerId, charId: null, onGround: true })
       return
