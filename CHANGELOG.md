@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.4](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.3...v0.1.4) (2026-02-21)
+
+
+### Features
+
+* add comprehensive spoint-app-creator skill with CLI, documentation, and templates ([a48b5ed](https://github.com/AnEntrypoint/spawnpoint/commit/a48b5ed262d5435bb468fad41c22fe4ead9bd169))
+
 ### [0.1.3](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.2...v0.1.3) (2026-02-21)
 
 
