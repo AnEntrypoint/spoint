@@ -676,6 +676,7 @@ const cam = createCameraController(camera, scene)
 cam.restore(JSON.parse(sessionStorage.getItem('cam') || 'null'))
 sessionStorage.removeItem('cam')
 let latestState = null
+let latestInput = null
 let uiTimer = 0
 let lastFrameTime = performance.now()
 let fpsFrames = 0, fpsLast = performance.now(), fpsDisplay = 0
@@ -1080,10 +1081,12 @@ function initInputHandler() {
       if (!xrBaseReferenceSpace) return
       const local = client.state?.players?.find(p => p.id === client.playerId)
       if (local?.position) {
-        const pos = { x: -local.position[0], y: -local.position[1], z: -local.position[2] }
+        const headHeight = local.crouch ? 1.1 : 1.6
+        const pos = { x: -local.position[0], y: -(local.position[1] + headHeight), z: -local.position[2] }
         const t = new XRRigidTransform(pos, { x: 0, y: 0, z: 0, w: 1 })
         renderer.xr.setReferenceSpace(xrBaseReferenceSpace.getOffsetReferenceSpace(t))
-        console.log('[VR] Reference space offset to player position:', local.position)
+        camera.position.set(local.position[0], local.position[1] + headHeight, local.position[2])
+        console.log('[VR] Camera synced to player position:', local.position, 'headHeight:', headHeight)
       }
     }, 100)
   })
@@ -1149,6 +1152,16 @@ function startInputLoop() {
   inputLoopId = setInterval(() => {
     if (!client.connected) return
     const input = inputHandler.getInput()
+    latestInput = input
+
+    if (input.editToggle && !cam.getEditMode()) {
+      cam.setEditMode(true)
+      console.log('[EditMode] Enabled')
+    } else if (!input.editToggle && cam.getEditMode() && inputHandler.editModeCooldown === false) {
+      cam.setEditMode(false)
+      console.log('[EditMode] Disabled')
+    }
+
     if (input.yaw !== undefined) {
       cam.setVRYaw(input.yaw)
     } else {
@@ -1223,6 +1236,113 @@ renderer.domElement.addEventListener('mouseup', (e) => { for (const [, mod] of a
 renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault())
 window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight) })
 
+let modelLoadQueue = []
+function createGimbal(scale = 1) {
+  const gimbal = new THREE.Group()
+  const lineGeom = new THREE.BufferGeometry()
+  const linePoints = [
+    new THREE.Vector3(-scale, 0, 0), new THREE.Vector3(scale, 0, 0),
+    new THREE.Vector3(0, -scale, 0), new THREE.Vector3(0, scale, 0),
+    new THREE.Vector3(0, 0, -scale), new THREE.Vector3(0, 0, scale)
+  ]
+  lineGeom.setFromPoints(linePoints)
+  const lineMat = new THREE.LineBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.6 })
+  const lines = new THREE.LineSegments(lineGeom, lineMat)
+  gimbal.add(lines)
+  const ringGeoms = [
+    { rot: [Math.PI / 2, 0, 0], color: 0xff0000 },
+    { rot: [0, Math.PI / 2, 0], color: 0x00ff00 },
+    { rot: [0, 0, 0], color: 0x0000ff }
+  ]
+  for (const r of ringGeoms) {
+    const ringGeo = new THREE.TorusGeometry(scale * 0.9, scale * 0.08, 16, 100)
+    const ringMat = new THREE.MeshBasicMaterial({ color: r.color, transparent: true, opacity: 0.5 })
+    const ring = new THREE.Mesh(ringGeo, ringMat)
+    ring.rotation.fromArray(r.rot)
+    gimbal.add(ring)
+  }
+  gimbal.userData.isGimbal = true
+  return gimbal
+}
+
+function loadQueuedModels() {
+  if (modelLoadQueue.length === 0) return
+  const file = modelLoadQueue.shift()
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    try {
+      const buffer = e.target.result
+      gltfLoader.parse(buffer, '', (gltf) => {
+        const local = client.state?.players?.find(p => p.id === client.playerId)
+        if (!local) return
+        const sy = Math.sin(cam.yaw), cy = Math.cos(cam.yaw)
+        const spawnDist = 1.0
+        const spawnHeight = 0.3
+        const standingHeight = local.crouch ? 1.1 : 1.6
+        const x = local.position[0] + sy * spawnDist
+        const y = local.position[1] + standingHeight + spawnHeight
+        const z = local.position[2] + cy * spawnDist
+        const group = new THREE.Group()
+        if (gltf.scene) group.add(gltf.scene)
+        const gimbal = createGimbal(0.5)
+        gimbal.position.copy(group.position)
+        group.add(gimbal)
+        group.position.set(x, y, z)
+        group.userData.isDroppedModel = true
+        scene.add(group)
+        const envApp = appModules.get('environment')
+        if (envApp?.onEvent) {
+          envApp.onEvent({
+            type: 'dropModel',
+            position: [x, y, z],
+            rotation: [0, 0, 0, 1],
+            modelPath: file.name,
+            scale: [1, 1, 1]
+          }, engineCtx)
+        }
+        console.log('[ModelLoader] Loaded:', file.name, 'position:', [x, y, z])
+        setTimeout(loadQueuedModels, 100)
+      }, (err) => {
+        console.error('[ModelLoader] Parse error:', err.message)
+        setTimeout(loadQueuedModels, 100)
+      })
+    } catch (err) {
+      console.error('[ModelLoader] Load error:', err.message)
+      setTimeout(loadQueuedModels, 100)
+    }
+  }
+  reader.readAsArrayBuffer(file)
+}
+
+document.addEventListener('dragover', (e) => {
+  if (!cam.getEditMode()) return
+  e.preventDefault()
+  e.stopPropagation()
+  renderer.domElement.style.opacity = '0.8'
+})
+
+document.addEventListener('dragleave', (e) => {
+  if (!cam.getEditMode()) return
+  renderer.domElement.style.opacity = '1'
+})
+
+document.addEventListener('drop', (e) => {
+  if (!cam.getEditMode()) return
+  e.preventDefault()
+  e.stopPropagation()
+  renderer.domElement.style.opacity = '1'
+  const files = e.dataTransfer.files
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i]
+    if (file.type === 'model/gltf-binary' || file.type === 'model/gltf+json' || file.name.endsWith('.glb') || file.name.endsWith('.gltf')) {
+      modelLoadQueue.push(file)
+    }
+  }
+  if (modelLoadQueue.length > 0) {
+    loadQueuedModels()
+  }
+})
+
 let smoothDt = 1 / 60
 function animate(timestamp) {
   const now = timestamp || performance.now()
@@ -1281,9 +1401,10 @@ function animate(timestamp) {
   if (latestState && uiTimer >= 0.25) { uiTimer = 0; renderAppUI(latestState) }
   const local = client.state?.players?.find(p => p.id === client.playerId)
   const inVR = renderer.xr.isPresenting
-  if (!inVR) {
-    cam.update(local, playerMeshes.get(client.playerId), frameDt)
-  } else if (local?.position && xrBaseReferenceSpace && !isTeleporting) {
+  if (!inVR || cam.getEditMode()) {
+    cam.update(local, playerMeshes.get(client.playerId), frameDt, latestInput)
+  }
+  if (inVR && !cam.getEditMode() && local?.position && xrBaseReferenceSpace && !isTeleporting) {
     const headHeight = local.crouch ? 1.1 : 1.6
     const pos = { x: -local.position[0], y: -(local.position[1] + headHeight), z: -local.position[2] }
     const t = new XRRigidTransform(pos, { x: 0, y: 0, z: 0, w: 1 })

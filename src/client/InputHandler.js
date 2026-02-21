@@ -18,6 +18,8 @@ export class InputHandler {
     this.menuCooldown = false
     this.mobileControls = null
     this.mobileInput = null
+    this.editModeCooldown = false
+    this.lastEditModeToggle = 0
 
     if (config.enableKeyboard !== false) {
       this.setupKeyboardListeners()
@@ -119,6 +121,15 @@ export class InputHandler {
     const xr = this._getXRInput()
     if (xr) return xr
 
+    const now = Date.now()
+    const pPressed = this.keys.get('p') || false
+    if (pPressed && !this.editModeCooldown && now - this.lastEditModeToggle > 200) {
+      this.editModeCooldown = true
+      this.lastEditModeToggle = now
+    } else if (!pPressed) {
+      this.editModeCooldown = false
+    }
+
     return {
       forward: this.keys.get('w') || this.keys.get('arrowup') || false,
       backward: this.keys.get('s') || this.keys.get('arrowdown') || false,
@@ -129,6 +140,7 @@ export class InputHandler {
       crouch: this.keys.get('c') || this.keys.get('control') || false,
       shoot: this.mouseDown,
       reload: this.keys.get('r') || false,
+      editToggle: this.editModeCooldown,
       mouseX: this.mouseX,
       mouseY: this.mouseY
     }

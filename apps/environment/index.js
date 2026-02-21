@@ -1,4 +1,25 @@
 import { SMART_OBJECT_TEMPLATES, getTemplate, isValidTemplate, getPlaceholderColor, getPlaceholderDimensions } from './smartObjects.js'
+import { readdirSync, statSync } from 'fs'
+import { join } from 'path'
+import { fileURLToPath } from 'url'
+
+const __dirname = fileURLToPath(new URL('.', import.meta.url))
+const modelsDir = join(__dirname, 'models')
+
+function discoverModels() {
+  const registry = {}
+  try {
+    const categories = readdirSync(modelsDir).filter(f => statSync(join(modelsDir, f)).isDirectory())
+    for (const cat of categories) {
+      const catPath = join(modelsDir, cat)
+      const files = readdirSync(catPath).filter(f => f.endsWith('.glb') || f.endsWith('.gltf'))
+      registry[cat] = files
+    }
+  } catch (e) {
+    console.log('[Environment] Model discovery skipped (models dir not found)')
+  }
+  return registry
+}
 
 export default {
   server: {
@@ -9,14 +30,34 @@ export default {
       ctx.state.smartObjects = new Map()
       ctx.state.editorMode = false
       ctx.state.nextSmartObjectId = 0
+      ctx.state.modelRegistry = discoverModels()
 
-      ctx.debug.log(`[Environment] Initialized with ${Object.keys(SMART_OBJECT_TEMPLATES).length} smart object templates`)
+      ctx.debug.log(`[Environment] Initialized with ${Object.keys(SMART_OBJECT_TEMPLATES).length} smart object templates, ${Object.values(ctx.state.modelRegistry).flat().length} models discovered`)
     },
 
     update(ctx, dt) {
       for (const [id, obj] of ctx.state.smartObjects) {
         if (obj.template === 'platform') updatePlatform(ctx, id, obj, dt)
         if (obj.template === 'hazard') updateHazard(ctx, id, obj, dt)
+      }
+    },
+
+    onEvent(payload, ctx) {
+      if (payload.type === 'dropModel' && payload.position && payload.modelPath) {
+        const id = `dropped_model_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        const entity = ctx.world.spawn(id, {
+          position: payload.position,
+          rotation: payload.rotation || [0, 0, 0, 1],
+          model: payload.modelPath
+        })
+        if (entity) {
+          entity.custom = {
+            droppedModel: true,
+            modelPath: payload.modelPath,
+            scale: payload.scale || [1, 1, 1]
+          }
+          ctx.debug.log(`[Environment] Dropped model spawned: ${id}`)
+        }
       }
     },
 
