@@ -30,6 +30,9 @@ export async function boot(overrides = {}) {
   const localWorld = resolve(PROJECT, 'apps/world/index.js')
   const sdkWorld = resolve(SDK_ROOT, 'apps/world/index.js')
   const worldPath = existsSync(localWorld) ? localWorld : sdkWorld
+  if (!existsSync(localWorld)) {
+    console.log('[boot] no local apps found, using bundled SDK defaults')
+  }
   const worldUrl = pathToFileURL(worldPath).href + `?t=${Date.now()}`
   const worldMod = await import(worldUrl)
   const worldDef = worldMod.default || worldMod
@@ -40,6 +43,7 @@ export async function boot(overrides = {}) {
   const appsStaticDirs = hasLocalApps
     ? [{ prefix: '/apps/', dir: localApps }, { prefix: '/apps/', dir: sdkApps }]
     : [{ prefix: '/apps/', dir: sdkApps }]
+  console.debug(`[boot] loading from: ${appsDirs.join(', ')}`)
   const config = {
     port: parseInt(process.env.PORT || String(worldDef.port || 3000), 10),
     tickRate: worldDef.tickRate || 128,

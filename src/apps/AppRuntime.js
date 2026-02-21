@@ -33,7 +33,13 @@ export class AppRuntime {
     if (!p) return p
     const local = resolve(p)
     if (existsSync(local)) return local
-    if (this._sdkRoot) { const sdk = resolve(this._sdkRoot, p); if (existsSync(sdk)) return sdk }
+    if (this._sdkRoot) {
+      const sdk = resolve(this._sdkRoot, p)
+      if (existsSync(sdk)) {
+        console.debug(`[SDK-DEFAULT] using bundled asset: ${p}`)
+        return sdk
+      }
+    }
     return local
   }
 
