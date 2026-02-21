@@ -90,7 +90,7 @@ export async function createServer(config = {}) {
   const physicsIntegration = new PhysicsIntegration({ gravity, physicsWorld: physics, capsuleRadius: playerConfig.capsuleRadius, capsuleHalfHeight: playerConfig.capsuleHalfHeight, crouchHalfHeight: playerConfig.crouchHalfHeight, playerMass: playerConfig.mass })
   const connections = new ConnectionManager({
     heartbeatInterval: config.heartbeatInterval || 1000,
-    heartbeatTimeout: config.heartbeatTimeout || 3000
+    heartbeatTimeout: config.heartbeatTimeout || 10000
   })
   const sessions = new SessionStore({ ttl: config.sessionTTL || 60000 })
   const inspector = new Inspector()

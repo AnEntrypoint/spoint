@@ -60,12 +60,21 @@ export function createConnectionHandlers(ctx) {
       if (!transport) return
       const playerConfig = ctx.currentWorldDef?.player || {}
       const sp = savedState.position || [...ctx.worldSpawnPoint]
-      playerManager.removePlayer(oldId)
-      networkState.removePlayer(oldId)
-      physicsIntegration.removePlayerCollider(oldId)
-      lagCompensator.clearPlayerHistory(oldId)
+      if (playerManager.getPlayer(oldId)) {
+        playerManager.removePlayer(oldId)
+        networkState.removePlayer(oldId)
+        physicsIntegration.removePlayerCollider(oldId)
+        lagCompensator.clearPlayerHistory(oldId)
+        connections.broadcast(MSG.PLAYER_LEAVE, { playerId: oldId })
+      }
+      if (clientId !== oldId && playerManager.getPlayer(clientId)) {
+        playerManager.removePlayer(clientId)
+        networkState.removePlayer(clientId)
+        physicsIntegration.removePlayerCollider(clientId)
+        lagCompensator.clearPlayerHistory(clientId)
+        connections.broadcast(MSG.PLAYER_LEAVE, { playerId: clientId })
+      }
       connections.detachClient(clientId)
-      connections.broadcast(MSG.PLAYER_LEAVE, { playerId: oldId })
       const newId = playerManager.addPlayer(transport, { position: sp, health: savedState.health ?? playerConfig.health ?? 100, velocity: savedState.velocity, rotation: savedState.rotation })
       networkState.addPlayer(newId, { position: sp })
       physicsIntegration.addPlayerCollider(newId, playerConfig.capsuleRadius || 0.4)
