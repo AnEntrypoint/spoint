@@ -17,6 +17,11 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Configure git
+        run: |
+          git config --global user.email "action@github.com"
+          git config --global user.name "GitHub Action"
+
       - name: Install standard-version
         run: npm install -g standard-version
 
