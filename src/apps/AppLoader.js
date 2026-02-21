@@ -1,4 +1,5 @@
 import { readdir, readFile, watch, access } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { join, basename, extname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -89,6 +90,10 @@ export class AppLoader {
 
   async watchAll() {
     for (const dir of this._dirs) {
+      if (!existsSync(dir)) {
+        console.debug(`[AppLoader] skipping watch for missing directory: ${dir}`)
+        continue
+      }
       try {
         const ac = new AbortController()
         const watcher = watch(dir, { recursive: true, signal: ac.signal })
