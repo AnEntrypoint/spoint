@@ -5,7 +5,8 @@
   "type": "module",
   "main": "src/index.js",
   "bin": {
-    "spoint": "./server.js"
+    "spoint": "./server.js",
+    "spoint-create-app": "./bin/create-app.js"
   },
   "scripts": {
     "start": "node server.js"
