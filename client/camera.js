@@ -30,6 +30,9 @@ const _boneForward = new THREE.Vector3()
 export function createCameraController(camera, scene) {
   let yaw = 0, pitch = 0, zoomIndex = 2, camInitialized = false
   let mode = 'tps'
+  let editMode = false
+  let editCamPos = new THREE.Vector3(0, 5, 10)
+  let editCamSpeed = 8
   const envMeshes = []
   let rayTimer = 0, cachedClipDist = 10, cachedAimPoint = null
   let cameraBone = null
@@ -95,9 +98,31 @@ export function createCameraController(camera, scene) {
     return len > 0.001 ? [dx / len, dy / len, dz / len] : [fwdX, fwdY, fwdZ]
   }
 
-  function update(localPlayer, localMesh, frameDt) {
+  function update(localPlayer, localMesh, frameDt, inputState) {
     if (mode === 'custom' || mode === 'fixed') return
-    if (!localPlayer) return
+    if (!localPlayer && !editMode) return
+
+    if (editMode && inputState) {
+      const sy = Math.sin(yaw), cy = Math.cos(yaw)
+      const fwdX = sy, fwdZ = cy
+      const rightX = -cy, rightZ = sy
+      const moveForward = (inputState.forward ? 1 : 0) - (inputState.backward ? 1 : 0)
+      const moveRight = (inputState.right ? 1 : 0) - (inputState.left ? 1 : 0)
+      const moveUp = (inputState.jump ? 1 : 0) - (inputState.crouch ? 1 : 0)
+      const speed = editCamSpeed * frameDt
+      editCamPos.x += (moveForward * fwdX + moveRight * rightX) * speed
+      editCamPos.y += moveUp * speed
+      editCamPos.z += (moveForward * fwdZ + moveRight * rightZ) * speed
+      camera.position.copy(editCamPos)
+      const sp = Math.sin(pitch), cp = Math.cos(pitch)
+      camera.lookAt(
+        camera.position.x + fwdX * 100,
+        camera.position.y + sp * 100,
+        camera.position.z + fwdZ * 100
+      )
+      return
+    }
+
     const dist = mode === 'fps' ? 0 : zoomStages[zoomIndex]
     camTarget.set(localPlayer.position[0], localPlayer.position[1] + headHeight, localPlayer.position[2])
     const punchLerp = 1 - Math.exp(-972 * frameDt)
@@ -236,5 +261,14 @@ function adjustVRPitch(delta) {
   pitch = Math.max(pitchMin, Math.min(pitchMax, pitch + delta))
 }
 
-return { restore, save, onMouseMove, onWheel, getAimDirection, update, setEnvironment, setCameraBone, setHeadBone, applyConfig, setMode, getMode, setPosition, setTarget, punch, setVRYaw, getVRYaw, setVRPitch, getVRPitch, adjustVRPitch, get yaw() { return yaw }, get pitch() { return pitch }, get mode() { return mode } }
+function setEditMode(enabled) {
+  if (enabled && !editMode) {
+    editCamPos.copy(camera.position)
+  }
+  editMode = enabled
+}
+function getEditMode() { return editMode }
+function getEditCameraPosition() { return editCamPos }
+
+return { restore, save, onMouseMove, onWheel, getAimDirection, update, setEnvironment, setCameraBone, setHeadBone, applyConfig, setMode, getMode, setPosition, setTarget, punch, setVRYaw, getVRYaw, setVRPitch, getVRPitch, adjustVRPitch, setEditMode, getEditMode, getEditCameraPosition, get yaw() { return yaw }, get pitch() { return pitch }, get mode() { return mode } }
 }
