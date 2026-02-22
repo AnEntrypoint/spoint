@@ -13,45 +13,85 @@ SKILL.md and CLAUDE.md MUST both be reviewed and updated whenever code changes.
 
 ## GLB/VRM IndexedDB Model Cache
 
-`client/ModelCache.js` (mirrored to `skills/spoint/client/`) caches raw GLB/VRM ArrayBuffers in IndexedDB keyed by URL. On repeat page loads, a HEAD request validates the cached entry against the server ETag. If the ETag matches, the cached ArrayBuffer is returned directly, bypassing the network fetch entirely. On a miss or stale entry, the full GET response is streamed, stored in IndexedDB, and returned.
+`client/ModelCache.js` (mirrored to `skills/spoint/client/`) caches raw GLB/VRM ArrayBuffers in IndexedDB keyed by URL. On repeat page loads, a HEAD request validates the cached entry against the server ETag. If the ETag matches, the cached ArrayBuffer is returned directly, bypassing the network fetch entirely. On a miss or stale entry, the full GET response is streamed via `ReadableStream`, stored in IndexedDB, and returned.
 
-`fetchCached(url, onProgress)` is used by `LoadingManager.fetchWithProgress` (for the player VRM) and by `loadEntityModel` in `app.js` (for environment GLBs). `gltfLoader.load(url)` has been replaced with `fetchCached(url).then(buf => gltfLoader.parse(...))` so the parse path is the same whether data comes from network or cache.
+`fetchCached(url, onProgress)` is the exported function. It checks gzip via the `content-encoding` response header — when gzip is present, the `content-length` header (compressed size) is not used as a progress denominator since the stream delivers decompressed bytes. `onProgress(received, total)` is only called when `content-length` is available AND the response is not gzip-encoded.
 
-`StaticHandler.js` now emits an `ETag` header for GLB/VRM/GLTF responses (hex-encoded mtime). It also handles `If-None-Match` and returns 304 when the ETag matches. The ETag is the cache validation key — without it, `fetchCached` always does a full fetch.
+`StaticHandler.js` emits an `ETag` header for GLB/VRM/GLTF responses (hex-encoded mtime) and handles `If-None-Match` returning 304 when matched. Without the ETag, `fetchCached` always does a full fetch.
 
-Cache failures (IndexedDB unavailable, quota exceeded) are silently caught; the code falls back to a normal fetch transparently.
+Cache failures (IndexedDB unavailable, quota exceeded) are silently caught and fall back to a normal fetch transparently.
 
 ## Engine-Level Interactable System
 
-`ctx.interactable({ prompt, radius, cooldown })` in `AppContext.js` is the unified interactable API. It sets `ent._interactable=true`, `ent._interactRadius`, `ent._interactCooldown`, and writes `ent.custom._interactable = { prompt, radius }` into the entity's custom data so the client snapshot carries the config.
+`ctx.interactable({ prompt, radius, cooldown })` in `AppContext.js` is a top-level ctx method (NOT under `ctx.physics`). It sets `ent._interactable=true`, `ent._interactRadius`, `ent._interactCooldown`, and writes `ent.custom._interactable = { prompt, radius }` into the entity's custom data so the client snapshot carries the config.
 
-`_tickInteractables()` in `AppRuntime.js` runs every tick: for each entity with `_interactable=true`, it checks all players within `_interactRadius`. If a player's `lastInput.interact` is true and the per-player-per-entity cooldown has elapsed, it fires `onInteract(ctx, player)` on that entity's app. Cooldown defaults to 500ms if `_interactCooldown` is not set.
+`_tickInteractables()` in `AppRuntime.js` runs every tick: for each entity with `_interactable=true`, it checks all players within `_interactRadius`. If a player's `lastInput.interact` is true and the per-player-per-entity cooldown (keyed as `entityId:playerId`) has elapsed, it fires `onInteract(ctx, player)` on that entity's app. Cooldown defaults to 500ms if `_interactCooldown` is not set.
 
-`_buildInteractPrompt(state)` in `client/app.js` runs inside `renderAppUI()` on the client. It iterates all entities in the snapshot, finds the first with `custom._interactable` where the local player is within `cfg.radius`, and renders the prompt string as a fixed HUD element. No app client code is needed for basic prompts.
+`_buildInteractPrompt(state)` in `client/app.js` runs inside `renderAppUI()` on the client every frame. It iterates all entities in the snapshot, finds the first with `custom._interactable` where the local player is within `cfg.radius` (distance-squared check), and renders the prompt string as a fixed HUD element via `createElement`. No app client code is needed for basic prompts.
 
-`InputHandler.getInput()` in `src/client/InputHandler.js` now includes `interact: this.keys.get('e') || false` in the keyboard path. The E key fires the interact signal. Mobile/VR paths already had `interact` support.
+`InputHandler.getInput()` in `src/client/InputHandler.js` includes `interact: this.keys.get('e') || false` in the keyboard path. The E key fires the interact signal.
 
-Apps that previously used `ctx.physics.setInteractable(radius)` + manual proximity polling in `ctx.time.every()` should migrate to `ctx.interactable()` + `onInteract` callback. The old `ctx.physics.setInteractable()` method still works for backwards compatibility (it sets the same `_interactable` and `_interactRadius` flags) but does not set the prompt or write `custom._interactable`, so the engine client prompt won't appear.
+`ctx.physics.setInteractable(radius)` still exists for backward compatibility — it sets `_interactable` and `_interactRadius` but does NOT set `_interactCooldown` or write `custom._interactable`, so the engine client prompt will not appear. Prefer `ctx.interactable()`.
 
-## Animation Library Global Cache
+## Animation Library Two-Phase Cache
 
-`loadAnimationLibrary()` in `client/animation.js` uses a module-level cache (`_animLibCache`, `_animLibPromise`). The first call loads `/anim-lib.glb` and stores the result. All subsequent calls return the cached value immediately. The cache prevents loading the library once per connecting player - it is now loaded once globally. `initAssets` in `client/app.js` kicks off the library load in parallel with the VRM download so both complete concurrently.
+`client/animation.js` exports two functions with separate module-level caches (`_gltfPromise`, `_normalizedCache`):
+
+- `preloadAnimationLibrary()` — synchronously returns or creates the GLB fetch promise (`_gltfPromise`). Does not block on normalization. Called during `initAssets` in `app.js` to kick off the GLB download in parallel with the VRM download.
+- `loadAnimationLibrary(vrmVersion, vrmHumanoid)` — awaits `preloadAnimationLibrary()`, then normalizes the clips into `_normalizedCache`. The double-check `if (_normalizedCache) return _normalizedCache` inside handles concurrent callers racing past the first check.
+
+`initAssets` calls `preloadAnimationLibrary()` early (fire-and-forget) so the GLB is fetching while VRM loads. When the VRM is ready, `loadAnimationLibrary()` is called and the GLB is already in flight or done.
 
 ## Loading Screen Gate Conditions
 
-`checkAllLoaded()` in `client/app.js` gates on four conditions simultaneously: `assetsLoaded`, `environmentLoaded`, `firstSnapshotReceived`, and `firstSnapshotEntityPending.size === 0`. The last condition ensures all entity GLBs from the first snapshot are fully loaded and in the scene before the loading screen hides. When the first snapshot arrives, any entity with a model that is not yet in `entityMeshes` is added to `firstSnapshotEntityPending`. Each `loadEntityModel` success/error callback removes the entity from that set and calls `checkAllLoaded()` when it empties. This means `warmupShaders()` (which does `compileAsync` + 2x render) runs with all first-snapshot models already in the scene, eliminating mid-gameplay GPU stalls from first-draw uploads.
+`checkAllLoaded()` in `client/app.js` gates on four conditions simultaneously: `assetsLoaded`, `environmentLoaded`, `firstSnapshotReceived`, and `firstSnapshotEntityPending.size === 0`. The last condition ensures all entity GLBs from the first snapshot are fully loaded and in the scene before the loading screen hides.
 
-## LoadingManager fetchWithProgress Gzip Skip
+When the first snapshot arrives, any entity with a model not yet in `entityMeshes` is added to `firstSnapshotEntityPending`. Each `loadEntityModel` success/error callback removes the entity from that set and calls `checkAllLoaded()` when it empties.
 
-`fetchWithProgress` in `LoadingManager.js` checks the `content-encoding` response header. If the value contains `gzip`, the `content-length` header is ignored as a progress denominator (it reports compressed size, but the stream reader delivers decompressed bytes, causing >100% progress). When gzip is detected, `updateProgress` is not called during streaming. The gltf progress callback in `loadEntityModel` also clamps `progress.loaded` to `progress.total` via `Math.min` before computing percentage, preventing the `[gltf] url 132%` log noise from Three.js's XHR progress events.
+When all four conditions pass: `loadingScreen.hide()` fires immediately, then `warmupShaders()` runs asynchronously in the background. The loading screen does not wait for shader warmup.
+
+## warmupShaders Sequence
+
+`warmupShaders()` in `client/app.js` runs AFTER `loadingScreen.hide()` (async, `.catch(() => {})`). It is guarded by `_shaderWarmupDone` flag. Sequence:
+
+1. `renderer.compileAsync(scene, camera)` — compiles all shaders in the scene (falls back to `renderer.compile` if async not supported)
+2. Disable `frustumCulled` on all scene objects (so off-screen geometry is uploaded)
+3. `renderer.render(scene, camera)` — first GPU upload pass
+4. `await requestAnimationFrame` — yield one frame
+5. `renderer.render(scene, camera)` — second GPU upload pass
+6. Restore `frustumCulled` on all previously-culled objects
+
+This covers all entity models already in the scene when `checkAllLoaded()` fires. For entities loaded AFTER the loading screen is hidden, `loadEntityModel` calls `renderer.compileAsync(scene, camera)` immediately after the new model is added to the scene.
+
+## compileAsync Per Dynamic Entity (Post-Loading-Screen)
+
+After the loading screen is hidden, `loadEntityModel` in `client/app.js` calls `renderer.compileAsync(scene, camera).catch(() => renderer.compile(scene, camera))` after adding a new mesh to the scene. This covers entities that load dynamically after initial load. It does NOT run per-entity during the initial load phase — scene-level `warmupShaders()` handles those collectively.
+
+VRM player warmup uses a separate one-time flag (`_vrmWarmupDone`) that calls `renderer.compileAsync(scene, camera)` after the first player model loads.
+
+## PointLight Warmup Dummy
+
+A zero-intensity `THREE.PointLight` (`_warmupPointLight`) is added to the scene at startup. This forces Three.js to compile the point-light shader variant upfront. Without it, the first dynamic entity that uses a point light causes a GPU stall on first render.
+
+## Three.js Performance Settings
+
+- `THREE.Cache.enabled = true` — enables Three.js's built-in asset cache for URL-keyed loads.
+- `matrixAutoUpdate = false` on all static environment meshes — prevents Three.js from recomputing world matrices every frame for non-moving geometry. Set after environment GLB loads.
+- `material.shadowSide = THREE.DoubleSide` on environment meshes — prevents bright corner-line artifacts at geometry seams. Note: the current code uses `DoubleSide`, NOT `BackSide`.
+- `PCFSoftShadowMap` must be used — `VSMShadowMap` causes blurred cutout artifacts.
+- `Map.forEach` is used instead of `for...of` in the `animate()` loop for player iteration. This avoids iterator object allocation per frame.
 
 ## evaluateAppModule Helper Function Hoisting
 
 `evaluateAppModule()` in `client/app.js` converts `export default` to `return`. If the app file declares helper functions AFTER the `export default { ... }` block closes, those functions become unreachable dead code after the return statement. The fix: the regex now locates the `default` keyword and splits the source into code-before-default (helper functions hoist to before the return) and the object/function being exported (becomes the return value). A `//# sourceURL=app-module.js` comment is appended so Firefox attributes warnings to the correct virtual file.
 
+## App Module List Cache
+
+`appModules` is a `Map` of app name to client module object. A parallel `_appModuleList` array is kept as a cached `[...appModules.values()]` snapshot. This avoids `Map` iteration inside the hot `onAppEvent` handler which runs for every server event. `_appModuleList` is rebuilt (via spread) whenever `appModules` changes.
+
 ## Convex Hull Collider
 
-`World.js addBody()` now accepts `shapeType === 'convex'` with `params` as a flat array of vertex positions `[x,y,z,x,y,z,...]`. It uses Jolt's `ConvexHullShapeSettings` + `VertexList`. The VertexList and settings object are destroyed after the shape is created to avoid WASM leaks. `AppContext.js` exposes `addConvexCollider(points)` and `addConvexFromModel(meshIndex)`. `addConvexFromModel` uses `extractMeshFromGLB` (imported at module top) to read vertices from the entity's GLB file at setup time.
+`World.js addBody()` accepts `shapeType === 'convex'` with `params` as a flat array of vertex positions `[x,y,z,x,y,z,...]`. It uses Jolt's `ConvexHullShapeSettings` + `VertexList`. The VertexList and settings object are destroyed after the shape is created to avoid WASM leaks. `AppContext.js` exposes `addConvexCollider(points)` and `addConvexFromModel(meshIndex)`. `addConvexFromModel` uses `extractMeshFromGLB` (imported at module top) to read vertices from the entity's GLB file at setup time.
 
 ---
 
@@ -166,14 +206,6 @@ EventBus supports `*` suffix patterns: subscribing to `combat.*` receives `comba
 
 Each entity gets a scoped EventBus via `bus.scope(entityId)`. The scope tracks all subscriptions. When entity is destroyed or app is detached, `destroyScope()` unsubscribes everything. Forgetting to use the scoped bus means listeners leak across hot reloads.
 
-## GLB Shader Warmup Coverage
-
-Every dynamic model added to the scene calls `renderer.compileAsync(object, camera)` immediately after `scene.add()`. This covers three sites in `client/app.js`: (1) the GLB entity/environment path in `loadEntityModel`, (2) the procedural mesh path in `loadEntityModel`, (3) the drag-and-drop editor path in `loadQueuedModels`. VRM player warmup uses a separate one-time flag (`_vrmWarmupDone`) that compiles against the full scene after the first player model loads. Omitting `compileAsync` after `scene.add` causes a visible GPU stall on first render of that object.
-
-## Three.js Shadow Artifacts
-
-`material.shadowSide = THREE.BackSide` on environment meshes prevents bright corner-line artifacts at geometry seams. VSMShadowMap causes blurred cutout artifacts - must use PCFSoftShadowMap (set in app.js).
-
 ## Shadow Frustum Auto-Fit
 
 `fitShadowFrustum()` in app.js dynamically adjusts directional light shadow camera bounds to fit scene geometry. Called once after environment model loads. Shadow near/far are computed from actual geometry projection onto light direction.
@@ -192,13 +224,17 @@ Locomotion transitions use hysteresis: idle-to-walk threshold differs from walk-
 
 ## Camera Collision Raycast Rate
 
-Camera raycasts against environment run every 50ms (20Hz) in both TPS and FPS modes, not every frame. Cached clip distance is used between raycasts. Camera snaps faster toward player (speed 30) than away (speed 12) to prevent seeing through walls.
+Camera raycasts against environment run every 50ms (20Hz) via `fpsRayTimer` / `tpsRayTimer` trackers (separate timers per mode). Cached clip distance is used between raycasts. Camera snaps faster toward player (speed 30) than away (speed 12) to prevent seeing through walls.
 
-FPS mode fires 1 forward ray (wall-push). TPS mode fires 2 rays (clip distance + aim point). All raycasts use BVH acceleration via `three-mesh-bvh` — `computeBoundsTree()` is called on each collider mesh at environment load time in `app.js`. Without BVH, raw triangle iteration in `BufferGeometry._computeIntersections` consumed ~65% of frame CPU in FPS mode (5 rays per tick vs 1 ray with BVH).
+FPS mode fires 1 forward ray (wall-push). TPS mode fires 2 rays (clip distance + aim point). All raycasts use BVH acceleration via `three-mesh-bvh` vendored locally at `client/vendor/three-mesh-bvh.module.js` — `computeBoundsTree()` is called on each collider mesh geometry at environment load time. Without BVH, raw triangle iteration consumed ~65% of frame CPU in FPS mode.
 
 ## Camera Environment Mesh List
 
-`cam.setEnvironment(meshes)` in camera.js defines what the camera raycasts against for collision and aim. In app.js, this is populated from all non-skinned static meshes in the loaded environment model (any `isMesh && !isSkinnedMesh`). If this list is empty, raycasts are skipped entirely — never falling back to `scene.children` which would include skinned VRM player meshes and cause massive CPU overhead (bone transform per triangle). The old behavior only collected meshes named `'Collider'`, which was wrong for models without that naming convention.
+`cam.setEnvironment(meshes)` in camera.js defines what the camera raycasts against for collision and aim. In app.js, this is populated from all non-skinned static meshes in the loaded environment model (any `isMesh && !isSkinnedMesh`). If this list is empty, raycasts are skipped entirely — never falling back to `scene.children` which would include skinned VRM player meshes and cause massive CPU overhead.
+
+## three-mesh-bvh Vendored Locally
+
+`three-mesh-bvh` is vendored at `client/vendor/three-mesh-bvh.module.js`. It is NOT loaded from npm or a CDN. This avoids MIME/CORS/CSP issues with external module loading. The vendor file must be updated manually when upgrading the library.
 
 ## Debug Globals
 
@@ -208,9 +244,11 @@ Server: `globalThis.__DEBUG__.server` exposes full server API. Client: `window.d
 
 server.js staticDirs order matters: `/src/` first, then `/apps/`, then `/node_modules/`, then `/` (client). The SDK's own paths take priority. Project-local `apps/` directory overrides SDK `apps/` if it exists.
 
-## StaticHandler In-Memory Cache
+## StaticHandler In-Memory Cache + ETag
 
-StaticHandler caches gzip-compressed file content in memory keyed by file path, invalidated by mtime. This avoids re-reading disk and re-gzipping on every request. Large binary assets (GLB, VRM, WASM) are gzipped once on first request and served from memory thereafter. The `getCached(fp, ext)` function handles the mtime check and compression.
+StaticHandler caches gzip-compressed file content in memory keyed by file path, invalidated by mtime. Large binary assets (GLB, VRM, WASM) are gzipped once on first request and served from memory thereafter. The `getCached(fp, ext)` function handles the mtime check and compression.
+
+For GLB/VRM/GLTF files, StaticHandler also emits an `ETag` header (hex-encoded mtime) and handles `If-None-Match` returning 304 Not Modified when the ETag matches. This feeds `fetchCached()` in ModelCache.js.
 
 ## DRACOLoader Worker Pool
 
