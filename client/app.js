@@ -750,6 +750,10 @@ async function createPlayerVRM(id) {
       if (head) cam.setHeadBone(head)
       if (cam.getMode() === 'fps' && head) head.scale.set(0, 0, 0)
     }
+    if (!_vrmWarmupDone) {
+      _vrmWarmupDone = true
+      requestAnimationFrame(() => { renderer.compile(scene, camera); console.log('[shader] vrm warmup compile done') })
+    }
   } catch (e) { console.error('[vrm]', id, e.message) }
   return group
 }
@@ -1066,6 +1070,18 @@ let firstSnapshotReceived = false
 let lastShootState = false
 let lastHealth = 100
 
+let _shaderWarmupDone = false
+let _vrmWarmupDone = false
+
+function warmupShaders() {
+  if (_shaderWarmupDone) return
+  _shaderWarmupDone = true
+  const ext = renderer.extensions.get('KHR_parallel_shader_compile')
+  if (ext) console.log('[shader] KHR_parallel_shader_compile active')
+  renderer.compile(scene, camera)
+  console.log('[shader] warmup compile done')
+}
+
 function checkAllLoaded() {
   if (loadingScreenHidden) return
   if (!assetsLoaded) return
@@ -1073,7 +1089,7 @@ function checkAllLoaded() {
   if (!firstSnapshotReceived) return
   loadingMgr.setStage('INIT')
   loadingMgr.complete()
-  loadingScreen.hide().catch(() => {})
+  loadingScreen.hide().then(() => requestAnimationFrame(warmupShaders)).catch(() => requestAnimationFrame(warmupShaders))
   loadingScreenHidden = true
 }
 
