@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.56](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.55...v0.1.56) (2026-02-22)
+
+
+### Bug Fixes
+
+* quote SKILL.md description to prevent YAML colon-space parse failure ([d62738a](https://github.com/AnEntrypoint/spawnpoint/commit/d62738a599d4eaeba4aaead83ef987393d762821))
+
 ### [0.1.55](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.54...v0.1.55) (2026-02-22)
 
 ### [0.1.54](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.53...v0.1.54) (2026-02-22)
