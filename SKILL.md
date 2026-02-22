@@ -1,6 +1,6 @@
 ---
 name: spoint
-description: Build multiplayer physics games with the Spawnpoint engine. Use when asked to: create a game, add physics objects, spawn entities, build an arena, handle player interaction, add weapons/respawn/scoring, create moving platforms, manage world config, load 3D models, add HUD/UI, work with the EventBus, or develop any app inside an apps/ directory.
+description: "Build multiplayer physics games with the Spawnpoint engine. Use when asked to: create a game, add physics objects, spawn entities, build an arena, handle player interaction, add weapons, respawn, scoring, create moving platforms, manage world config, load 3D models, add HUD/UI, work with the EventBus, or develop any app inside an apps/ directory."
 ---
 
 # Spawnpoint App Development Reference
