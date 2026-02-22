@@ -17,7 +17,9 @@
     "client/",
     "!client/test-*.html",
     "!client/vrm-test.html",
+    "bin/",
     "server.js",
+    "SKILL.md",
     "LICENSE",
     "README.md"
   ],
