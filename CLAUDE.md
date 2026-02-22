@@ -158,6 +158,14 @@ Server: `globalThis.__DEBUG__.server` exposes full server API. Client: `window.d
 
 server.js staticDirs order matters: `/src/` first, then `/apps/`, then `/node_modules/`, then `/` (client). The SDK's own paths take priority. Project-local `apps/` directory overrides SDK `apps/` if it exists.
 
+## StaticHandler In-Memory Cache
+
+StaticHandler caches gzip-compressed file content in memory keyed by file path, invalidated by mtime. This avoids re-reading disk and re-gzipping on every request. Large binary assets (GLB, VRM, WASM) are gzipped once on first request and served from memory thereafter. The `getCached(fp, ext)` function handles the mtime check and compression.
+
+## DRACOLoader Worker Pool
+
+`DRACOLoader` spawns a worker pool (default 4 workers) that each independently initialize a Draco WASM module. If the scene has no Draco-compressed meshes, all 4 workers still spin up and initialize WASM on first use, costing ~1 second of startup. `dracoLoader.setWorkerLimit(1)` caps this to 1 worker. Set this in app.js after `setDecoderPath`. If a scene uses many large Draco meshes in parallel, increasing the limit may help decode throughput.
+
 ## Module Cache Busting
 
 All hot-reloaded imports use `?t=${Date.now()}` query param to bust Node's ESM module cache. Without this, `import()` returns the cached module.
