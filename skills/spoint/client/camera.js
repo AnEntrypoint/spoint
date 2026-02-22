@@ -27,7 +27,7 @@ function isDescendant(obj, ancestor) {
 const _boneWorldPos = new THREE.Vector3()
 const _boneForward = new THREE.Vector3()
 const _fpsRayOrigin = new THREE.Vector3()
-const _fpsRayDirs = [[0,0,0],[0,0,0],[0,0,0],[0,1,0],[0,-1,0]]
+const _fpsRayDir = new THREE.Vector3()
 
 export function createCameraController(camera, scene) {
   let yaw = 0, pitch = 0, zoomIndex = 2, camInitialized = false
@@ -153,29 +153,23 @@ export function createCameraController(camera, scene) {
       if (headBone && !headBoneHidden) { headBone.scale.set(0, 0, 0); headBoneHidden = true }
       const wallDist = 0.35
       fpsRayTimer += frameDt
-      const doFpsRaycast = fpsRayTimer >= 0.05
-      if (doFpsRaycast && envMeshes.length) {
+      if (fpsRayTimer >= 0.05 && envMeshes.length) {
         fpsRayTimer = 0
         _fpsRayOrigin.copy(camera.position)
-        _fpsRayDirs[0][0] = fwdX; _fpsRayDirs[0][1] = fwdY; _fpsRayDirs[0][2] = fwdZ
-        _fpsRayDirs[1][0] = rightX; _fpsRayDirs[1][1] = 0; _fpsRayDirs[1][2] = rightZ
-        _fpsRayDirs[2][0] = -rightX; _fpsRayDirs[2][1] = 0; _fpsRayDirs[2][2] = -rightZ
-        for (const d of _fpsRayDirs) {
-          camDir.set(-d[0], -d[1], -d[2])
-          camRaycaster.set(_fpsRayOrigin, camDir)
-          camRaycaster.far = wallDist
-          camRaycaster.near = 0
-          const hits = camRaycaster.intersectObjects(envMeshes, true)
-          for (const hit of hits) {
-            if (localMesh && isDescendant(hit.object, localMesh)) continue
-            const push = wallDist - hit.distance
-            if (push > 0) {
-              camera.position.x += d[0] * push
-              camera.position.y += d[1] * push
-              camera.position.z += d[2] * push
-            }
-            break
+        _fpsRayDir.set(-fwdX, -fwdY, -fwdZ)
+        camRaycaster.set(_fpsRayOrigin, _fpsRayDir)
+        camRaycaster.far = wallDist
+        camRaycaster.near = 0
+        const hits = camRaycaster.intersectObjects(envMeshes, true)
+        for (const hit of hits) {
+          if (localMesh && isDescendant(hit.object, localMesh)) continue
+          const push = wallDist - hit.distance
+          if (push > 0) {
+            camera.position.x += fwdX * push
+            camera.position.y += fwdY * push
+            camera.position.z += fwdZ * push
           }
+          break
         }
       }
       camera.lookAt(camera.position.x + fwdX, camera.position.y + fwdY, camera.position.z + fwdZ)

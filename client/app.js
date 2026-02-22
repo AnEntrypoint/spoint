@@ -1,4 +1,8 @@
 import * as THREE from 'three'
+import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh'
+THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree
+THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree
+THREE.Mesh.prototype.raycast = acceleratedRaycast
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
@@ -953,7 +957,7 @@ function loadEntityModel(entityId, entityState) {
       if (c.isMesh) {
         c.castShadow = true
         c.receiveShadow = true
-        if (!c.isSkinnedMesh) { c.matrixAutoUpdate = false; colliders.push(c) }
+        if (!c.isSkinnedMesh) { c.matrixAutoUpdate = false; c.geometry.computeBoundsTree(); colliders.push(c) }
         if (c.material) { c.material.shadowSide = THREE.DoubleSide; c.material.roughness = 1; c.material.metalness = 0; if (c.material.specularIntensity !== undefined) c.material.specularIntensity = 0 }
       }
     })
