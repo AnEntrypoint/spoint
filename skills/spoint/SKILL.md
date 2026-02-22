@@ -202,9 +202,15 @@ ctx.physics.setMass(kg)
 ctx.physics.addBoxCollider(size)              // number or [hx,hy,hz] half-extents
 ctx.physics.addSphereCollider(radius)
 ctx.physics.addCapsuleCollider(radius, fullHeight)  // fullHeight=total height, halved internally
-ctx.physics.addTrimeshCollider()              // static-only, uses entity.model
+ctx.physics.addTrimeshCollider()              // STATIC ONLY — exact triangle mesh from entity.model GLB
 ctx.physics.addConvexCollider(points)         // flat [x,y,z,...], all motion types
-ctx.physics.addConvexFromModel(meshIndex=0)   // extracts verts from entity.model GLB
+ctx.physics.addConvexFromModel(meshIndex=0)   // extracts verts from entity.model GLB — dynamic/kinematic ok
+```
+
+**Shape rules:**
+- **box/sphere/capsule** — fastest, any motion type. Use for walls, floors, triggers.
+- **trimesh** — exact GLB triangle mesh, **static only**. Use for terrain/environments.
+- **convex hull** — approximate wrap of GLB mesh, any motion type. Use for all dynamic props (crates, vehicles). `addConvexFromModel()` extracts verts automatically.
 ctx.physics.addForce([fx,fy,fz])              // velocity += force/mass
 ctx.physics.setVelocity([vx,vy,vz])
 ```
