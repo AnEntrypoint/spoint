@@ -141,8 +141,8 @@ export class MobileControls {
     const buttonsRightOffset = Math.max(10, margin)
     const buttonsBottomOffset = bottomMargin + 60
 
-    const lookRight = Math.min(350, w * 0.25)
-    const lookBottom = bottomMargin + joystickDiameter / 2 + 20
+    const lookRight = Math.min(80, w * 0.15)
+    const lookBottom = bottomMargin + joystickDiameter / 2
 
     const lookJoystickPos = {
       x: w - lookRight - joystickDiameter,
