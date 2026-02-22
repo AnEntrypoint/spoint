@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.37](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.36...v0.1.37) (2026-02-22)
+
+
+### Bug Fixes
+
+* compileAsync crash and VRM visibility ([785246a](https://github.com/AnEntrypoint/spawnpoint/commit/785246afc7de75838c58d0efe8aa79968dddf10c))
+
 ### [0.1.36](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.35...v0.1.36) (2026-02-22)
 
 
