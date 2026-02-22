@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.19](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.18...v0.1.19) (2026-02-22)
+
+
+### Features
+
+* bundle DRACO decoder files locally for self-contained GLB loading ([1269d22](https://github.com/AnEntrypoint/spawnpoint/commit/1269d22206fee3499eeaef85ca8916e045d3841d))
+
+
+### Bug Fixes
+
+* simplify publish workflow to use standard-version auto-bump ([f6995d3](https://github.com/AnEntrypoint/spawnpoint/commit/f6995d32a80dba88c6d6f988687a97981c645ec7))
+
 ### 0.1.18 (2026-02-22)
 
 
