@@ -10,6 +10,20 @@ const MIME_TYPES = {
 }
 
 const GZIP_EXTENSIONS = new Set(['.glb', '.vrm', '.gltf', '.js', '.css', '.html', '.json'])
+const fileCache = new Map()
+
+function getCached(fp, ext) {
+  const mtime = statSync(fp).mtimeMs
+  const key = fp
+  const cached = fileCache.get(key)
+  if (cached && cached.mtime === mtime) return cached
+  let raw = readFileSync(fp)
+  const shouldGzip = GZIP_EXTENSIONS.has(ext) && raw.length > 100
+  const content = shouldGzip ? gzipSync(raw) : raw
+  const entry = { mtime, content, gzipped: shouldGzip }
+  fileCache.set(key, entry)
+  return entry
+}
 
 export function createStaticHandler(dirs) {
   return (req, res) => {
@@ -31,11 +45,8 @@ export function createStaticHandler(dirs) {
         } else if (ext === '.glb' || ext === '.vrm' || ext === '.gltf') {
           headers['Cache-Control'] = 'public, max-age=86400, immutable'
         }
-        let content = readFileSync(fp)
-        if (GZIP_EXTENSIONS.has(ext) && content.length > 100) {
-          content = gzipSync(content)
-          headers['Content-Encoding'] = 'gzip'
-        }
+        const { content, gzipped } = getCached(fp, ext)
+        if (gzipped) headers['Content-Encoding'] = 'gzip'
         headers['Content-Length'] = content.length
         res.writeHead(200, headers)
         res.end(content)
