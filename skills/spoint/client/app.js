@@ -659,6 +659,7 @@ scene.add(ground)
 
 const loadingManager = new THREE.LoadingManager()
 loadingManager.onError = (url) => console.warn('[THREE] Failed to load:', url)
+THREE.Cache.enabled = true
 const gltfLoader = new GLTFLoader(loadingManager)
 const dracoLoader = new DRACOLoader(loadingManager)
 dracoLoader.setDecoderPath('/draco/')
@@ -711,6 +712,10 @@ function initAssets(playerModelUrl) {
     return loadAnimationLibrary(detectVrmVersion(b), null)
   }).then(result => {
     animAssets = result
+    assetsLoaded = true
+    checkAllLoaded()
+  }).catch(err => {
+    console.warn('[assets] player model unavailable:', err.message)
     assetsLoaded = true
     checkAllLoaded()
   })
