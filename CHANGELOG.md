@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.42](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.41...v0.1.42) (2026-02-22)
+
+
+### Bug Fixes
+
+* vendor three-mesh-bvh locally to resolve MIME/CORS/CSP blocking ([ad48172](https://github.com/AnEntrypoint/spawnpoint/commit/ad48172275e7dd4cf1c1612c40e8d6f51e5cc279))
+
 ### [0.1.41](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.40...v0.1.41) (2026-02-22)
 
 ### [0.1.40](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.39...v0.1.40) (2026-02-22)
