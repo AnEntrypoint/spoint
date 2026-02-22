@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.21](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.20...v0.1.21) (2026-02-22)
+
+
+### Bug Fixes
+
+* provide Node utility stubs in app module evaluation ([bfdbc9b](https://github.com/AnEntrypoint/spawnpoint/commit/bfdbc9b72f6b813bb95f69456679e901b308b9d4))
+
 ### [0.1.20](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.19...v0.1.20) (2026-02-22)
 
 
