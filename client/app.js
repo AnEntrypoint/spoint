@@ -813,11 +813,14 @@ function removePlayerMesh(id) {
 
 function evaluateAppModule(code) {
   try {
-    // Strip imports and import.meta usage
     let stripped = code.replace(/^import\s+.*$/gm, '')
     stripped = stripped.replace(/const\s+__dirname\s*=.*import\.meta\.url.*$/gm, 'const __dirname = "/"')
     const wrapped = stripped.replace(/export\s+default\s*/, 'return ').replace(/export\s+/g, '')
-    return new Function(wrapped)()
+    const join = (...parts) => parts.filter(Boolean).join('/')
+    const readdirSync = () => []
+    const statSync = () => ({ isDirectory: () => false })
+    const fileURLToPath = (url) => '/'
+    return new Function('join', 'readdirSync', 'statSync', 'fileURLToPath', wrapped)(join, readdirSync, statSync, fileURLToPath)
   } catch (e) { console.error('[app-eval]', e.message, e.stack); return null }
 }
 
