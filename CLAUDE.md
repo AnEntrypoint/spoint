@@ -1,5 +1,32 @@
 # Technical Caveats
 
+## Reusable Apps: box-static, prop-static
+
+Two reusable apps are bundled in `apps/`:
+
+- `box-static` — visual box primitive + static box collider. Config: `{ hx, hy, hz, color, roughness }`. Half-extents drive both the collider and the visual (visual `sx/sy/sz` = `hx/hy/hz * 2`). Spawn via `ctx.world.spawn(id, { app: 'box-static', config: { hx, hy, hz, color } })`.
+- `prop-static` — static GLB prop with convex hull collider. No config needed. Entity must have `model` set. Calls `addConvexFromModel(0)` in setup.
+
+These enable building full scenes without any GLB for structure. See `apps/arena/index.js` for a complete working example.
+
+## Physics Bodies Only Created Via App setup()
+
+Setting `entity.bodyType` or `entity.collider` directly on a spawned entity (e.g. `e.bodyType = 'static'`) has NO effect on the physics simulation. A Jolt physics body is only created when `ctx.physics.addBoxCollider()`, `addSphereCollider()`, etc. is called inside an app's `setup(ctx)`. To give a spawned entity physics, attach an app to it (`app: 'box-static'` or similar) that calls the physics API.
+
+## Primitive Rendering (No GLB Required)
+
+Box, sphere, and cylinder meshes are created client-side from `entity.custom` when `entity.model` is null. Fields:
+- `mesh`: `'box'` | `'sphere'` | `'cylinder'`
+- `sx/sy/sz`: full width/height/depth (box)
+- `r`: radius (sphere, cylinder)
+- `h`: height (cylinder)
+- `seg`: polygon segments
+- `color`: hex integer
+- `roughness`, `metalness`, `emissive`, `emissiveIntensity`
+- `hover`: Y oscillation amplitude
+- `spin`: rotation speed (rad/s)
+- `light`: point light color, `lightIntensity`, `lightRange`
+
 ## Documentation Sync Rule
 
 SKILL.md and CLAUDE.md MUST both be reviewed and updated whenever code changes.
