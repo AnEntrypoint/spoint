@@ -616,6 +616,9 @@ sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 200
 scene.add(sun)
 scene.add(sun.target)
 
+const _warmupPointLight = new THREE.PointLight(0xffffff, 0, 1)
+scene.add(_warmupPointLight)
+
 function fitShadowFrustum() {
   const box = new THREE.Box3()
   scene.traverse(o => { if (o.isMesh && (o.castShadow || o.receiveShadow) && o.geometry) box.expandByObject(o) })
