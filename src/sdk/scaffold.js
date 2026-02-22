@@ -1,6 +1,7 @@
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { existsSync, mkdirSync, readdirSync, copyFileSync, statSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 
 const SDK_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..')
 
@@ -24,5 +25,7 @@ export async function scaffold() {
   const sdkApps = join(SDK_ROOT, 'apps')
   copyDir(sdkApps, localApps)
   console.log(`[scaffold] created apps/ at ${localApps}`)
+  const result = spawnSync('bunx', ['skills', 'add', 'AnEntrypoint/spawnpoint'], { stdio: 'inherit', shell: true })
+  if (result.status !== 0) console.warn('[scaffold] skills install failed, continuing without it')
   console.log(`[scaffold] run 'spoint' to start the server`)
 }
