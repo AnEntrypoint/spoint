@@ -1,5 +1,16 @@
 # Technical Caveats
 
+## Documentation Sync Rule
+
+SKILL.md and CLAUDE.md MUST both be reviewed and updated whenever code changes.
+
+- **SKILL.md** is the agent-facing API reference. Agents working in user projects have NO access to engine source. Every new `ctx` API, lifecycle hook, config field, caveat, or behavior change must be reflected in SKILL.md immediately.
+- **CLAUDE.md** documents engine internals and gotchas for contributors working on the engine itself.
+- Both files must be kept accurate. Stale documentation causes agents to generate broken app code.
+- Do NOT add line numbers to either file. Line numbers are stale the moment code changes. Reference function names, file names, and behavior instead.
+
+---
+
 ## Jolt Physics WASM Memory
 
 Jolt getter methods (GetPosition, GetRotation, GetLinearVelocity) return WASM heap objects. Every call MUST be followed by `Jolt.destroy(returnedObj)` or WASM heap grows unbounded (~30MB/5min). See World.js `getCharacterPosition`, `getBodyPosition` etc for correct pattern.
@@ -10,15 +21,15 @@ Raycast creates 7 temporary Jolt objects (ray, settings, collector, 2 filters, b
 
 ## CharacterVirtual Gravity
 
-`CharacterVirtual.ExtendedUpdate()` does NOT apply gravity internally despite accepting a gravity vector (the gravity param only affects sticking-to-floor behavior). PhysicsIntegration.js line 52 manually applies `gravity[1] * dt` to vy. Removing this line causes zero gravity. The gravity vector passed to ExtendedUpdate controls step-down/step-up only.
+`CharacterVirtual.ExtendedUpdate()` does NOT apply gravity internally despite accepting a gravity vector (the gravity param only affects sticking-to-floor behavior). PhysicsIntegration.js manually applies `gravity[1] * dt` to vy inside `updatePlayerPhysics`. Removing this causes zero gravity. The gravity vector passed to ExtendedUpdate controls step-down/step-up only.
 
 ## Physics Step Substeps
 
-World.js line 194: `jolt.Step(dt, dt > 1/55 ? 2 : 1)` - uses 2 substeps when dt exceeds ~18ms. At 128 TPS (7.8ms ticks) this is always 1 substep. Only matters if tick rate drops below 55.
+World.js `step()`: `jolt.Step(dt, dt > 1/55 ? 2 : 1)` - uses 2 substeps when dt exceeds ~18ms. At 128 TPS (7.8ms ticks) this is always 1 substep. Only matters if tick rate drops below 55.
 
 ## TickHandler Velocity Override
 
-TickHandler.js lines 38-41: After `physicsIntegration.updatePlayerPhysics()`, the wished XZ velocity from `applyMovement()` is written BACK over the physics result. Only Y velocity comes from physics. This means horizontal movement is pure wish-based, physics only controls vertical (gravity/jumping). Changing this breaks movement feel entirely.
+In TickHandler.js, after `physicsIntegration.updatePlayerPhysics()`, the wished XZ velocity from `applyMovement()` is written BACK over the physics result (`st.velocity[0] = wishedVx`, `st.velocity[2] = wishedVz`). Only Y velocity comes from physics. This means horizontal movement is pure wish-based, physics only controls vertical (gravity/jumping). Changing this breaks movement feel entirely.
 
 ## Movement Uses Quake-style Air Strafing
 
@@ -38,7 +49,7 @@ MessageTypes.js uses hex grouping (0x01-0x04 handshake, 0x10-0x13 state, 0x20-0x
 
 ## Snapshot Skip at 0 Players
 
-TickHandler.js line 80: `if (players.length > 0)` guards snapshot creation AND broadcast. Without this, msgpack encoding runs 128x/sec encoding empty snapshots for no recipients.
+TickHandler.js guards snapshot creation AND broadcast with `if (players.length > 0)`. Without this, msgpack encoding runs 128x/sec encoding empty snapshots for no recipients.
 
 ## Per-Player Spatial Snapshots
 
@@ -52,7 +63,7 @@ Fixed 128-slot ring buffer with head/len tracking. Old entries are pruned by tim
 
 Three independent hot reload systems run simultaneously:
 1. **ReloadManager** watches SDK source files (TickHandler, PhysicsIntegration, etc). Uses `swapInstance()` which replaces prototype and non-state properties while preserving state properties (e.g. `playerBodies` survives PhysicsIntegration reload).
-2. **AppLoader** watches `apps/` directory. Queues reloads into HotReloadQueue which drains at end of each tick (TickHandler.js line 98). This ensures app reload never happens mid-tick.
+2. **AppLoader** watches `apps/` directory. Queues reloads into HotReloadQueue which drains at the end of each tick via `appRuntime._drainReloadQueue()`. This ensures app reload never happens mid-tick.
 3. **Client hot reload** sends MSG.HOT_RELOAD (0x70) which triggers full `location.reload()` on all browsers. Camera state is preserved via sessionStorage.
 
 ## HotReloadQueue Resets Heartbeats
@@ -85,7 +96,7 @@ AppRuntime._tickCollisions() uses distance-based sphere collision between entiti
 
 ## Player-Player Collision is Custom
 
-TickHandler lines 54-73 implement custom player-player separation using capsule radius overlap check and position push-apart. This runs AFTER physics step. Uses a `separated` Set to avoid processing the same pair twice.
+TickHandler.js implements custom player-player separation after the physics step using capsule radius overlap check and position push-apart. Uses a `separated` Set to avoid processing the same pair twice.
 
 ## ReloadManager Max 3 Failures
 
@@ -93,7 +104,7 @@ After 3 consecutive reload failures for a module, ReloadManager stops auto-reloa
 
 ## TickSystem Max 4 Steps Per Loop
 
-TickSystem.loop() processes max 4 ticks per loop iteration. If server falls behind more than 4 ticks, it resets lastTickTime to now (line 46-48), dropping those ticks entirely. This prevents death spirals where catching up causes more falling behind.
+TickSystem.loop() processes max 4 ticks per loop iteration. If server falls behind more than 4 ticks, it resets lastTickTime to now, dropping those ticks entirely. This prevents death spirals where catching up causes more falling behind.
 
 ## TickSystem Timer Strategy
 
@@ -149,11 +160,11 @@ All hot-reloaded imports use `?t=${Date.now()}` query param to bust Node's ESM m
 
 ## Capsule Shape Parameter Order
 
-Jolt CapsuleShape constructor takes `(halfHeight, radius)` NOT `(radius, halfHeight)`. World.js line 82 passes them correctly. AppContext.js line 66 passes `[r, h/2]` to `addBody('capsule', ...)` which World.js receives as `params` and uses `params[1]` for halfHeight, `params[0]` for radius (line 57).
+Jolt CapsuleShape constructor takes `(halfHeight, radius)` NOT `(radius, halfHeight)`. World.js `addPlayerCharacter` passes them correctly. AppContext.js `addCapsuleCollider(r, h)` passes `[r, h/2]` to `addBody('capsule', ...)` which World.js receives as `params` and uses `params[1]` for halfHeight, `params[0]` for radius.
 
 ## Animation Retargeting Track Filtering
 
-Animation retargeting (client/animation.js) uses `THREE.SkeletonUtils.retargetClip()` to adapt source animations to each player's VRM skeleton. The retargeted clip may reference bones that don't exist in the target VRM. `filterValidClipTracks()` removes these invalid bone references before passing clips to the THREE.AnimationMixer. Without filtering, THREE.js PropertyBinding throws "Can not bind to bones as node does not have a skeleton" errors for each invalid track. The filter is applied to all clips (both retargeted and normalized) at line 237 in animation.js before `mixer.clipAction()` is called.
+Animation retargeting (client/animation.js) uses `THREE.SkeletonUtils.retargetClip()` to adapt source animations to each player's VRM skeleton. The retargeted clip may reference bones that don't exist in the target VRM. `filterValidClipTracks()` removes these invalid bone references before passing clips to the THREE.AnimationMixer. Without filtering, THREE.js PropertyBinding throws "Can not bind to bones as node does not have a skeleton" errors for each invalid track. The filter is applied to all clips (both retargeted and normalized) before `mixer.clipAction()` is called.
 
 ## Entry Points
 
@@ -200,4 +211,4 @@ If/when mobile is prioritized:
 - Full PWA, native wrappers, advanced haptics
 
 ### Rationale
-The 80/20 rule: joystick + jump + shoot = 80% of "playable on mobile" with 20% effort. Everything else is diminishing returns against desktop polish.
+The 80/20 rule: joystick + jump + shoot = 80% of "playable on mobile" with 20% effort. Everything else is diminishing returns against desktop pulls.
