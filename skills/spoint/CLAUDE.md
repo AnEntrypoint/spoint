@@ -10,15 +10,15 @@ Raycast creates 7 temporary Jolt objects (ray, settings, collector, 2 filters, b
 
 ## CharacterVirtual Gravity
 
-`CharacterVirtual.ExtendedUpdate()` does NOT apply gravity internally despite accepting a gravity vector (the gravity param only affects sticking-to-floor behavior). PhysicsIntegration.js line 52 manually applies `gravity[1] * dt` to vy. Removing this line causes zero gravity. The gravity vector passed to ExtendedUpdate controls step-down/step-up only.
+`CharacterVirtual.ExtendedUpdate()` does NOT apply gravity internally despite accepting a gravity vector (the gravity param only affects sticking-to-floor behavior). PhysicsIntegration.js manually applies `gravity[1] * dt` to vy inside `updatePlayerPhysics`. Removing this causes zero gravity. The gravity vector passed to ExtendedUpdate controls step-down/step-up only.
 
 ## Physics Step Substeps
 
-World.js line 194: `jolt.Step(dt, dt > 1/55 ? 2 : 1)` - uses 2 substeps when dt exceeds ~18ms. At 128 TPS (7.8ms ticks) this is always 1 substep. Only matters if tick rate drops below 55.
+World.js `step()`: `jolt.Step(dt, dt > 1/55 ? 2 : 1)` — uses 2 substeps when dt exceeds ~18ms. At 128 TPS (7.8ms ticks) this is always 1 substep. Only matters if tick rate drops below 55.
 
 ## TickHandler Velocity Override
 
-TickHandler.js lines 38-41: After `physicsIntegration.updatePlayerPhysics()`, the wished XZ velocity from `applyMovement()` is written BACK over the physics result. Only Y velocity comes from physics. This means horizontal movement is pure wish-based, physics only controls vertical (gravity/jumping). Changing this breaks movement feel entirely.
+In TickHandler.js, after `physicsIntegration.updatePlayerPhysics()`, the wished XZ velocity from `applyMovement()` is written BACK over the physics result. Only Y velocity comes from physics. This means horizontal movement is pure wish-based, physics only controls vertical (gravity/jumping). Changing this breaks movement feel entirely.
 
 ## Movement Uses Quake-style Air Strafing
 
@@ -27,6 +27,16 @@ TickHandler.js lines 38-41: After `physicsIntegration.updatePlayerPhysics()`, th
 ## Snapshot Encoding Format
 
 SnapshotEncoder.js quantizes positions to 2 decimal places (precision 100) and rotations to 4 decimal places (precision 10000). Player arrays are positional: `[id, px, py, pz, rx, ry, rz, rw, vx, vy, vz, onGround, health, inputSeq]`. Entity arrays: `[id, model, px, py, pz, rx, ry, rz, rw, bodyType, custom]`. Changing field order or count breaks all clients silently (no error, just wrong positions).
+
+**Entity scale is NOT in the snapshot wire format.** The only way to transmit scale to the client is via `entity.custom.scale = [x, y, z]`. The client reads `entityState.custom?.scale` and applies it to the mesh on both initial load and per-frame updates.
+
+## Spawned Entity Physics
+
+`AppRuntime.spawnEntity()` creates entities with `bodyType: 'static'` and no Jolt physics body. `AppContext.physics.*` methods operate only on the manager entity (`ctx.entity`), not on dynamically spawned children. To animate spawned entities (e.g., falling), manually integrate gravity in the app's `update()` and mutate `entity.position` directly — this is reflected in the next snapshot.
+
+## Client App Module Hot Reload
+
+When an app file changes, `AppLoader` broadcasts `MSG.APP_MODULE` with the new source. The client's `onAppModule` handler: (1) calls `teardown(engineCtx)` on the old module if it exists, (2) evaluates the new code via `evaluateAppModule()`, (3) calls `setup(engineCtx)` on the new module. Entity meshes are not removed on hot reload — they persist and update positions from the next snapshot.
 
 ## Message Types Are Hex Not Sequential
 

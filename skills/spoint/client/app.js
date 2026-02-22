@@ -923,6 +923,8 @@ function loadEntityModel(entityId, entityState) {
     const model = gltf.scene
     model.position.set(...entityState.position)
     if (entityState.rotation) model.quaternion.set(...entityState.rotation)
+    const scl = entityState.custom?.scale
+    if (scl) model.scale.set(...scl)
     model.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; if (c.material) { c.material.shadowSide = THREE.DoubleSide; c.material.roughness = 1; c.material.metalness = 0; if (c.material.specularIntensity !== undefined) c.material.specularIntensity = 0 } } })
     scene.add(model)
     entityMeshes.set(entityId, model)
@@ -975,6 +977,7 @@ const client = new PhysicsNetworkClient({
       const mesh = entityMeshes.get(e.id)
       if (mesh && e.position) mesh.position.set(...e.position)
       if (mesh && e.rotation) mesh.quaternion.set(...e.rotation)
+      if (mesh && e.custom?.scale) mesh.scale.set(...e.custom.scale)
       if (!entityMeshes.has(e.id)) loadEntityModel(e.id, e)
     }
     rebuildEntityHierarchy(smoothState.entities)
@@ -1000,6 +1003,8 @@ const client = new PhysicsNetworkClient({
   },
   onAppModule: (d) => {
     loadingMgr.setStage('APPS')
+    const old = appModules.get(d.app)
+    if (old?.teardown) try { old.teardown(engineCtx) } catch (e) { console.error('[app-teardown]', d.app, e.message) }
     const a = evaluateAppModule(d.code)
     if (a?.client) {
       appModules.set(d.app, a.client)
