@@ -19,31 +19,15 @@ jobs:
         run: |
           git config --global user.email "action@github.com"
           git config --global user.name "GitHub Action"
-      - name: Check if version is already published
-        id: check-version
-        run: |
-          CURRENT_VERSION=$(node -p "require('./package.json').version")
-          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-          NPM_VERSION=$(npm view spoint@$CURRENT_VERSION version 2>/dev/null || echo "")
-          if [ "$NPM_VERSION" = "$CURRENT_VERSION" ]; then
-            echo "already_published=true" >> $GITHUB_OUTPUT
-          else
-            echo "already_published=false" >> $GITHUB_OUTPUT
-          fi
       - name: Install standard-version
-        if: steps.check-version.outputs.already_published == 'false'
         run: npm install -g standard-version
       - name: Bump version
-        if: steps.check-version.outputs.already_published == 'false'
         run: |
           standard-version
           git push --follow-tags
-      - run: npm install
+      - name: Install dependencies
+        run: npm install
       - name: Publish to npm
-        if: steps.check-version.outputs.already_published == 'false'
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - name: Version already published - skipping
-        if: steps.check-version.outputs.already_published == 'true'
-        run: echo "Version ${{ steps.check-version.outputs.current_version }} already published to npm. Skipping publish step."
