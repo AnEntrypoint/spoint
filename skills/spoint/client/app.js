@@ -1,4 +1,8 @@
 import * as THREE from 'three'
+import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh'
+THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree
+THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree
+THREE.Mesh.prototype.raycast = acceleratedRaycast
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
@@ -945,7 +949,7 @@ function loadEntityModel(entityId, entityState) {
     scene.add(model)
     entityMeshes.set(entityId, model)
     const colliders = []
-    model.traverse(c => { if (c.isMesh && !c.isSkinnedMesh) colliders.push(c) })
+    model.traverse(c => { if (c.isMesh && !c.isSkinnedMesh) { c.geometry.computeBoundsTree(); colliders.push(c) } })
     cam.setEnvironment(colliders)
     scene.remove(ground)
     fitShadowFrustum()

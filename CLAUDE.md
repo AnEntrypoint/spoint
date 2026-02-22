@@ -150,6 +150,8 @@ Locomotion transitions use hysteresis: idle-to-walk threshold differs from walk-
 
 Camera raycasts against environment run every 50ms (20Hz) in both TPS and FPS modes, not every frame. Cached clip distance is used between raycasts. Camera snaps faster toward player (speed 30) than away (speed 12) to prevent seeing through walls.
 
+FPS mode fires 1 forward ray (wall-push). TPS mode fires 2 rays (clip distance + aim point). All raycasts use BVH acceleration via `three-mesh-bvh` — `computeBoundsTree()` is called on each collider mesh at environment load time in `app.js`. Without BVH, raw triangle iteration in `BufferGeometry._computeIntersections` consumed ~65% of frame CPU in FPS mode (5 rays per tick vs 1 ray with BVH).
+
 ## Camera Environment Mesh List
 
 `cam.setEnvironment(meshes)` in camera.js defines what the camera raycasts against for collision and aim. In app.js, this is populated from all non-skinned static meshes in the loaded environment model (any `isMesh && !isSkinnedMesh`). If this list is empty, raycasts are skipped entirely — never falling back to `scene.children` which would include skinned VRM player meshes and cause massive CPU overhead (bone transform per triangle). The old behavior only collected meshes named `'Collider'`, which was wrong for models without that naming convention.
