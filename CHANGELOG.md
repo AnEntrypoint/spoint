@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.11](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.10...v0.1.11) (2026-02-22)
+
+
+### Features
+
+* run skills install after scaffold copies apps/ ([b163486](https://github.com/AnEntrypoint/spawnpoint/commit/b16348658017dda8fc3ef224a826b011b66a95e9))
+
 ### [0.1.10](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.9...v0.1.10) (2026-02-22)
 
 
