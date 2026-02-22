@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.38](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.37...v0.1.38) (2026-02-22)
+
+
+### Bug Fixes
+
+* pre-warm PointLight shader to eliminate ~1s freeze on crate shoot ([1b75f18](https://github.com/AnEntrypoint/spawnpoint/commit/1b75f189e10b532188fae339f32340942921f467))
+
 ### [0.1.37](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.36...v0.1.37) (2026-02-22)
 
 
