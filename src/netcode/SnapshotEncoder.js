@@ -29,12 +29,10 @@ function encodeEntity(e) {
 }
 
 function entityKey(encoded) {
-  let k = ''
-  for (let i = 1; i < encoded.length; i++) {
-    const v = encoded[i]
-    k += v === null ? 'N' : typeof v === 'object' ? JSON.stringify(v) : v
-    k += '|'
-  }
+  let k = encoded[1]
+  for (let i = 2; i < 10; i++) k += '|' + encoded[i]
+  k += '|' + encoded[9]
+  if (encoded[10] !== null && encoded[10] !== undefined) k += '|' + JSON.stringify(encoded[10])
   return k
 }
 
