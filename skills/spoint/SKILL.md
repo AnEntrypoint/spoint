@@ -799,7 +799,13 @@ App reloads never happen mid-tick. Queue drains at end of each tick. After each 
 
 ### GLB Shader Stall Prevention
 
-The engine automatically calls `renderer.compileAsync(object, camera)` immediately after adding any GLB or procedural mesh to the scene. This prevents first-draw GPU stall for dynamically loaded entities (environment models, physics crates, power crates, smart objects, drag-and-drop models). No action is needed from app code — warmup is handled in `loadEntityModel` and `loadQueuedModels`. VRM players use a separate one-time warmup path.
+The engine handles GPU shader warmup in two phases — no action is needed from app code:
+
+1. **Initial load**: After the loading screen gates pass (assets, environment, first snapshot, first-snapshot entities all loaded), the loading screen hides and `warmupShaders()` runs asynchronously. It calls `renderer.compileAsync(scene, camera)`, disables frustum culling, renders twice to upload GPU data, then restores culling. This covers all entities present at startup.
+
+2. **Post-load dynamic entities**: For GLBs added after the loading screen is hidden, `loadEntityModel` calls `renderer.compileAsync(scene, camera)` immediately after adding the mesh to the scene.
+
+VRM players use a separate one-time warmup (`_vrmWarmupDone`) that fires `renderer.compileAsync(scene, camera)` after the first player model loads.
 
 ### render(ctx) Return Value
 
@@ -1097,9 +1103,9 @@ The engine manually applies `gravity[1] * dt` to Y velocity. This is already han
 
 Use `addConvexCollider(points)` or `addConvexFromModel()` for dynamic/kinematic bodies that need shape-accurate physics (vehicles, crates). Convex hulls support all motion types unlike trimesh. `addConvexFromModel()` reads vertices from the entity's GLB at setup time - call it after setting `entity.model`.
 
-### Animation library is cached globally
+### Animation library uses two-phase cache
 
-`loadAnimationLibrary()` loads `/anim-lib.glb` only once and caches the result. All subsequent calls return the cached result immediately. The library is also pre-fetched in parallel with the VRM download during initialization.
+`preloadAnimationLibrary()` kicks off the `/anim-lib.glb` fetch and caches the promise (`_gltfPromise`). `loadAnimationLibrary(vrmVersion, vrmHumanoid)` awaits that fetch and caches the normalized clip result (`_normalizedCache`). The engine calls `preloadAnimationLibrary()` early during asset init so the GLB is already fetching while the VRM downloads. Subsequent calls to `loadAnimationLibrary()` return the normalized cache immediately. Both functions are idempotent and safe to call concurrently.
 
 ### Tick drops under load
 
@@ -1120,6 +1126,14 @@ If any blocked string (including in comments) appears anywhere in the source, th
 ### Client apps cannot use import statements
 
 All `import` statements in client app source are stripped by regex before evaluation. Use `engine.THREE`, `engine.scene`, etc. for all dependencies.
+
+### GLB/VRM assets are cached in IndexedDB
+
+On repeat page loads, `fetchCached()` in `client/ModelCache.js` validates cached GLB/VRM ArrayBuffers against the server ETag via a HEAD request. If the ETag matches, the cached bytes are returned without a network fetch. Cache misses or stale entries trigger a full fetch and re-store. Cache failures (quota, unavailable) fall back to normal fetch transparently. This is fully automatic — no app code needed.
+
+### Loading screen hides before shader warmup completes
+
+After the four gate conditions pass, the loading screen hides immediately. `warmupShaders()` then runs asynchronously in the background. The very first rendered frame after the loading screen hides may have a brief GPU stall if shader compilation is not yet complete. This is a deliberate tradeoff to avoid the loading screen adding warmup time on top of actual asset loading.
 
 ### setTimeout not cleared on hot reload
 
