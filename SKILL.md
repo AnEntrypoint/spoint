@@ -9,6 +9,227 @@ Complete reference for building apps in a spawnpoint project. Engine source code
 
 ---
 
+## Quick Start — Minimal Working Arena
+
+This is the fastest path to a playable scene. Copy this pattern exactly.
+
+### Step 1: World config (`apps/world/index.js`)
+
+```js
+export default {
+  port: 3001,
+  tickRate: 128,
+  gravity: [0, -9.81, 0],
+  movement: { maxSpeed: 4.0, groundAccel: 10.0, airAccel: 1.0, friction: 6.0, stopSpeed: 2.0, jumpImpulse: 4.0 },
+  player: { health: 100, capsuleRadius: 0.4, capsuleHalfHeight: 0.9, modelScale: 1.323, feetOffset: 0.212 },
+  scene: { skyColor: 0x87ceeb, fogColor: 0x87ceeb, fogNear: 80, fogFar: 200, sunIntensity: 1.5, sunPosition: [20, 40, 20] },
+  entities: [
+    { id: 'arena', position: [0, 0, 0], app: 'arena' }
+  ],
+  spawnPoint: [0, 2, 0]
+}
+```
+
+### Step 2: Arena app (`apps/arena/index.js`)
+
+This creates a ground plane and 4 walls using box primitives (visual + physics), no GLB required:
+
+```js
+const HALF = 12, WALL_H = 3, WALL_T = 0.5
+const WALLS = [
+  { id: 'wall-n', x: 0,      y: WALL_H/2, z: -HALF,  hx: HALF,      hy: WALL_H/2, hz: WALL_T/2 },
+  { id: 'wall-s', x: 0,      y: WALL_H/2, z:  HALF,  hx: HALF,      hy: WALL_H/2, hz: WALL_T/2 },
+  { id: 'wall-e', x:  HALF,  y: WALL_H/2, z: 0,      hx: WALL_T/2, hy: WALL_H/2, hz: HALF },
+  { id: 'wall-w', x: -HALF,  y: WALL_H/2, z: 0,      hx: WALL_T/2, hy: WALL_H/2, hz: HALF },
+]
+
+export default {
+  server: {
+    setup(ctx) {
+      ctx.state.ids = ctx.state.ids || []
+      if (ctx.state.ids.length > 0) return  // hot-reload guard
+
+      // Ground — this entity IS the ground
+      ctx.entity.custom = { mesh: 'box', color: 0x5a7a4a, roughness: 1, sx: HALF*2, sy: 0.5, sz: HALF*2 }
+      ctx.physics.setStatic(true)
+      ctx.physics.addBoxCollider([HALF, 0.25, HALF])
+
+      // Walls — spawn children each with box-static app
+      for (const w of WALLS) {
+        const e = ctx.world.spawn(w.id, {
+          position: [w.x, w.y, w.z],
+          app: 'box-static',
+          config: { hx: w.hx, hy: w.hy, hz: w.hz, color: 0x7a6a5a }
+        })
+        if (e) ctx.state.ids.push(w.id)
+      }
+    },
+    teardown(ctx) {
+      for (const id of ctx.state.ids || []) ctx.world.destroy(id)
+      ctx.state.ids = []
+    }
+  },
+  client: {
+    render(ctx) {
+      return { position: ctx.entity.position, rotation: ctx.entity.rotation, custom: ctx.entity.custom }
+    }
+  }
+}
+```
+
+### Step 3: box-static reusable app (`apps/box-static/index.js`)
+
+Reusable app for any static box primitive with physics. Config drives size and color:
+
+```js
+export default {
+  server: {
+    setup(ctx) {
+      const c = ctx.config
+      ctx.entity.custom = {
+        mesh: 'box',
+        color: c.color ?? 0x888888,
+        roughness: c.roughness ?? 0.9,
+        sx: (c.hx ?? 1) * 2, sy: (c.hy ?? 1) * 2, sz: (c.hz ?? 1) * 2
+      }
+      ctx.physics.setStatic(true)
+      ctx.physics.addBoxCollider([c.hx ?? 1, c.hy ?? 1, c.hz ?? 1])
+    }
+  },
+  client: {
+    render(ctx) {
+      return { position: ctx.entity.position, rotation: ctx.entity.rotation, custom: ctx.entity.custom }
+    }
+  }
+}
+```
+
+---
+
+## Asset Loading — How It Works
+
+### Loading Sequence Gate
+
+The loading screen stays up until ALL of these pass simultaneously:
+1. WebSocket connected
+2. Player VRM model downloaded
+3. Environment model loaded (first entity with a `model` field, OR any entity without a model that creates a mesh)
+4. First snapshot received from server
+5. All entities from the **world config `entities` array** that have a `model` field are loaded
+
+**Critical:** Entities declared in `world.entities` that have a `model` are tracked by the client loading gate. Entities spawned later by `ctx.world.spawn()` at runtime are NOT part of the loading gate — they appear after the game starts.
+
+If you want a model to be part of the loading sequence, declare it in `world.entities`:
+
+```js
+// world/index.js
+entities: [
+  { id: 'environment', model: './apps/tps-game/schwust.glb', app: 'environment' },
+  //                   ^^ This model blocks the loading screen until loaded
+]
+```
+
+### Local Models
+
+Place GLB files inside your app folder. Reference with `./apps/<app-name>/file.glb`:
+
+```
+apps/my-arena/
+  index.js
+  floor.glb       <-- served automatically by StaticHandler
+  wall.glb
+```
+
+```js
+// In world/index.js:
+{ id: 'env', model: './apps/my-arena/floor.glb', app: 'environment' }
+
+// Or spawned at runtime:
+ctx.world.spawn('floor', { model: './apps/my-arena/floor.glb', ... })
+```
+
+The StaticHandler serves everything under `apps/` at the same path. No CDN, no hosting needed.
+
+### Remote Models (Verified Asset Library)
+
+The `https://github.com/anEntrypoint/assets` repository contains ~170 free GLB models.
+
+**URL pattern:** `https://raw.githubusercontent.com/anEntrypoint/assets/main/FILENAME.glb`
+
+**Verified filenames** (use these exactly — wrong filenames silently 404):
+
+```
+Vehicles & Junk:
+  broken_car_b6d2e66d_v1.glb          broken_car_b6d2e66d_v2.glb
+  crashed_car_f2b577ae_v1.glb         crashed_car_f2b577ae_v2.glb
+  crashed_pickup_truck_ae555020_v1.glb
+  crashed_rusty_minivan_f872ff37_v1.glb
+  Bus_junk_1.glb
+
+Containers & Industrial:
+  blue_shipping_container_60b5ea93_v1.glb
+  blue_shipping_container_63cc3905_v1.glb
+  dumpster_b076662a_v1.glb            dumpster_b076662a_v2.glb
+  garbage_can_6b3d052b_v1.glb         garbage_can_6b3d052b_v2.glb
+  crushed_oil_barrel_e450f43f_v1.glb  crushed_oil_barrel_e450f43f_v2.glb
+  fire_hydrant_ba0175c1_v1.glb        fire_hydrant_ba0175c1_v2.glb
+  fire_extinguisher_wall_mounted_bc0dddd4_v1.glb
+
+Office & Furniture:
+  break_room_chair_14a39c7b_v1.glb    break_room_chair_14a39c7b_v2.glb
+  break_room_couch_444abf63_v1.glb    break_room_table_09b9fd0d_v1.glb
+  filing_cabinet_0194476c_v1.glb      filing_cabinet_0194476c_v2.glb
+  fancy_reception_desk_58fde71d_v1.glb
+  cash_register_0c0dcad2_v1.glb
+  espresso_machine_e722ed8c_v1.glb
+  Couch.glb  Couch_2.glb  3chairs.glb
+
+Natural & Rocks:
+  large_rock_051293c4_v1.glb          large_rock_051293c4_v2.glb
+
+Misc:
+  Tin_Man_1.glb  Tin_Man_2.glb  Plants_3.glb  Urinals.glb  V_Machine_2.glb
+```
+
+**Remote models are NOT part of the loading gate.** They appear after game starts. Use them for decorative props, not required environment geometry.
+
+**NEVER guess asset filenames.** Only use names from the verified list above. Wrong URLs silently 404 — no model appears, no error thrown.
+
+### prop-static reusable app
+
+For remote GLB props that need convex hull physics:
+
+```js
+// apps/prop-static/index.js
+export default {
+  server: {
+    setup(ctx) {
+      ctx.physics.setStatic(true)
+      if (ctx.entity.model) ctx.physics.addConvexFromModel(0)
+    }
+  },
+  client: {
+    render(ctx) {
+      return { position: ctx.entity.position, rotation: ctx.entity.rotation, model: ctx.entity.model }
+    }
+  }
+}
+```
+
+Spawn remote props:
+
+```js
+const BASE = 'https://raw.githubusercontent.com/anEntrypoint/assets/main'
+ctx.world.spawn('dumpster-1', {
+  model: `${BASE}/dumpster_b076662a_v1.glb`,
+  position: [5, 0, -3],
+  rotation: [0, Math.sin(0.5), 0, Math.cos(0.5)],
+  app: 'prop-static'
+})
+```
+
+---
+
 ## Setup
 
 When no `apps/` directory exists in the working directory, scaffold it:
@@ -821,16 +1042,16 @@ return {
 
 ### Entity custom Field - Procedural Mesh Conventions
 
-When no GLB model is set, `custom` drives procedural geometry:
+When no GLB model is set, `custom` drives procedural geometry. This is the primary way to create walls, floors, and visible primitives without any GLB file.
 
 ```js
-// Box
-custom: { mesh: 'box', color: 0xff8800, sx: 1, sy: 1, sz: 1 }
+// Box — sx/sy/sz are FULL dimensions (width/height/depth in world units)
+custom: { mesh: 'box', color: 0xff8800, roughness: 0.8, sx: 2, sy: 1, sz: 2 }
 
-// Sphere
-custom: { mesh: 'sphere', color: 0x00ff00, radius: 1 }
+// Sphere — r is radius
+custom: { mesh: 'sphere', color: 0x00ff00, r: 1, seg: 16 }
 
-// Cylinder
+// Cylinder — r is radius, h is full height, seg is polygon count
 custom: {
   mesh: 'cylinder',
   r: 0.4, h: 0.1, seg: 16,
@@ -852,6 +1073,10 @@ custom: { ..., glow: true, glowColor: 0x00ff88, glowIntensity: 0.5 }
 // Label
 custom: { mesh: 'box', label: 'PRESS E' }
 ```
+
+**Note on sx/sy/sz vs collider half-extents:** The `custom.sx/sy/sz` fields are the FULL visual size. The `addBoxCollider([hx, hy, hz])` takes HALF-extents. Always halve the visual size when computing the collider: `sx: 4, sy: 2, sz: 4` → `addBoxCollider([2, 1, 2])`.
+
+**Primitives with physics require an app.** Setting `entity.custom` only affects rendering. Physics colliders only activate when `ctx.physics.addBoxCollider()` etc. is called inside an app's `setup()`. Use the `box-static` app pattern (see Quick Start above) for primitive walls/floors.
 
 ---
 
@@ -1062,6 +1287,29 @@ ctx.bus.on('combat.*', (event) => {
 ---
 
 ## Critical Caveats
+
+### Spawned entities need their own app to have physics
+
+Calling `ctx.world.spawn()` creates an entity but does NOT create a physics body. Physics is only created when `ctx.physics.addBoxCollider()` (or any other physics call) runs inside that entity's app `setup()`.
+
+To create a wall/floor with physics via `ctx.world.spawn()`, give it an app:
+
+```js
+// WRONG — entity appears visually but has no physics, players fall through
+const e = ctx.world.spawn('floor', { position: [0, 0, 0] })
+e.custom = { mesh: 'box', sx: 10, sy: 0.5, sz: 10 }
+e.bodyType = 'static'          // does nothing without an app physics call
+e.collider = { ... }           // does nothing without an app physics call
+
+// CORRECT — use box-static app which calls ctx.physics.addBoxCollider in setup
+ctx.world.spawn('floor', {
+  position: [0, 0, 0],
+  app: 'box-static',
+  config: { hx: 5, hy: 0.25, hz: 5, color: 0x448844 }
+})
+```
+
+Alternatively, the entity's own app can create child entities with their own apps, or the entity itself can call `ctx.physics.*` for its own body (the entity the app is attached to).
 
 ### ctx.state survives hot reload; timers and bus subscriptions do not
 
