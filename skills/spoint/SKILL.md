@@ -322,52 +322,155 @@ ctx.debug.state(entity, key, value) / perf(label, ms) / error(category, message)
 
 ---
 
-## Client API
+## GLB Loading Pipeline
 
-### render() — return value
+How a local GLB file (e.g. `schwust.glb`) travels from disk to physics and display.
 
-`render()` return value is **only used for `ui`**. Entity position/rotation/model/custom are driven by the server snapshot — returning them from render() has no effect.
+### 1. File placement and URL
+
+Put the file anywhere under `apps/<appname>/`:
+```
+apps/tps-game/schwust.glb
+```
+
+The static server maps `GET /apps/tps-game/schwust.glb` → `apps/tps-game/schwust.glb` on disk. Project-local `apps/` is checked first; if not found, the SDK's own `apps/` directory is checked. GLB files are gzip-compressed on first serve and cached in memory (ETag + 24h Cache-Control). The client fetches the URL exactly as written in `entity.model`.
+
+### 2. Declare in world config (loading gate)
 
 ```js
-client: {
-  render({ entity, state, h, engine, players }) {
-    // entity: snapshot entity { id, position, rotation, scale, model, custom, parent }
-    // state: alias for entity.custom
-    // players: array of all player snapshot objects
-    return { ui: h('div', { style:'color:white' }, `Score: ${state.score}`) }
-  }
+entities: [
+  { id: 'environment', model: './apps/tps-game/schwust.glb', position: [0,0,0], app: 'environment' }
+]
+```
+
+`model` here is a path resolved relative to `process.cwd()` (the project root). The `./` prefix is required — bare `apps/...` paths are resolved from cwd so both work, but `./apps/...` is unambiguous. Declaring the entity in `world.entities` with a `model` field adds it to the client loading gate. The loading screen will not clear until the client has loaded this GLB.
+
+Entities spawned at runtime via `ctx.world.spawn()` are NOT in the gate. To block on a runtime model, declare a placeholder in `world.entities` instead.
+
+### 3. Server-side physics load
+
+The server resolves `entity.model` via `resolveAssetPath()`: tries `resolve(path)` first (absolute or cwd-relative), then falls back to the SDK bundle directory if not found locally.
+
+```js
+// apps/environment/index.js — server side
+setup(ctx) {
+  ctx.physics.setStatic(true)
+  ctx.physics.addTrimeshCollider()   // reads entity.model from disk, builds exact triangle mesh
 }
 ```
 
-### Client lifecycle signatures
+`addTrimeshCollider()` is static-only — it reads the resolved GLB path synchronously via `GLBLoader.js`. For dynamic/kinematic objects use `addConvexFromModel(meshIndex)` which extracts vertices and builds a convex hull (any motion type). `meshIndex` selects which mesh primitive in the GLB (0 = first).
+
+### 4. Client-side display load
+
+The client receives entity snapshots containing `{ id, model, position, rotation, scale, custom }`. When `model` is set and is a local path, the client fetches `GET /apps/tps-game/schwust.glb` and loads it with THREE.js GLTFLoader. The loaded scene is added to THREE.js scene and `renderer.compileAsync()` is called immediately after `scene.add()` to avoid GPU stall on first render.
+
+The client entity mesh is entirely driven by the snapshot — the `client.render()` function cannot affect model, position, or rotation. Those come from the server.
+
+### 5. Complete example (schwust pattern)
+
 ```js
-onEvent(payload, engine) {}   // payload = whatever server passed to ctx.players.send/broadcast
-onInput(input, engine) {}     // 60Hz; read-only — mutating input does NOT change what is sent
-onFrame(dt, engine) {}        // every animation frame; dt in seconds
+// apps/world/index.js
+entities: [
+  { id: 'environment', model: './apps/tps-game/schwust.glb', position: [0,0,0], app: 'environment' }
+]
+
+// apps/environment/index.js
+export default {
+  server: {
+    setup(ctx) {
+      ctx.physics.setStatic(true)
+      ctx.physics.addTrimeshCollider()  // exact collision from the GLB triangles
+    }
+  }
+  // No client: needed — display is automatic from model field in snapshot
+}
 ```
 
-### engine object
+### 6. Remote model path (no physics from model)
+
+Remote URLs (`https://...`) cannot be read server-side by `addTrimeshCollider`/`addConvexFromModel` — those read from disk. For remote models, add physics manually or use primitive colliders:
+
 ```js
-engine.THREE / scene / camera / renderer
-engine.playerId                              // local player ID string
-engine.cam.getAimDirection(position)         // normalized [dx,dy,dz] from camera aim
-engine.cam.punch(intensity)                  // visual camera recoil
-engine.worldConfig                           // full world config (read-only)
-engine.inputConfig                           // current input config
-engine.setInputConfig(cfg)                   // merge cfg; set {pointerLock:false} to release mouse
-engine.playerVrms                            // Map<playerId, VRM> for direct VRM access
-engine.mobileControls                        // mobile controls instance or null on desktop
-engine.players.getMesh(playerId)             // THREE.Group|undefined
-engine.players.getState(playerId)            // player snapshot state|undefined
-engine.players.getAnimator(playerId)         // AnimationMixer|undefined
-engine.players.setExpression(playerId, name, weight)
-engine.players.setAiming(playerId, isAiming)
+ctx.world.spawn('thing', {
+  model: 'https://raw.githubusercontent.com/anEntrypoint/assets/main/dumpster_b076662a_v1.glb',
+  position: [5, 0, -3],
+  app: 'prop-static'
+})
+// prop-static/index.js: ctx.physics.setStatic(true); ctx.physics.addBoxCollider([1,1,1])
+```
+
+---
+
+## Client API
+
+### App module shape — full client hooks
+
+```js
+client: {
+  setup(engine) {},                              // called once when app module first loads
+  render({ entity, state, h, engine, players }) { return { ui: null } },
+  onEvent(payload, engine) {},                   // server sent via ctx.players.send/broadcast
+  onInput(input, engine) {},                     // 60Hz before input sent to server
+  onFrame(dt, engine) {},                        // every animation frame; dt in seconds
+  onMouseDown(event, engine) {},                 // raw MouseEvent on renderer canvas
+  onMouseUp(event, engine) {}                    // raw MouseEvent on renderer canvas
+}
+```
+
+`setup` fires once at module load time, not per entity. Use it to initialize module-level state (e.g. Three.js objects). All other hooks fire per-tick or per-event for every registered app module — they are not scoped to a single entity.
+
+### render() — return value
+
+`render()` is called once per entity per frame. Return value is **only used for `ui`**. Entity position/rotation/model/custom are server-driven — returning them from render() has no effect.
+
+```js
+render({ entity, state, h, engine, players }) {
+  // entity: snapshot { id, position, rotation, scale, model, custom, parent }
+  // state:   alias for entity.custom (same object reference)
+  // players: array of ALL player snapshot objects (not just local player)
+  // h:       hyperscript createElement
+  // engine:  full engine object (see below)
+  return { ui: h('div', { style:'color:white' }, `Score: ${state.score}`) }
+}
+```
+
+### engine object — complete API
+
+```js
+engine.THREE            // Three.js library
+engine.scene            // THREE.Scene — add meshes here
+engine.camera           // THREE.PerspectiveCamera
+engine.renderer         // THREE.WebGLRenderer
+
+engine.playerId         // local player ID string
+
+engine.cam.getAimDirection()      // normalized [dx,dy,dz] from camera look direction (no position arg needed)
+engine.cam.punch(intensity)       // visual camera recoil (number, e.g. 0.05)
+
+engine.worldConfig      // full world config object (read-only)
+engine.inputConfig      // current input config object
+engine.setInputConfig(cfg)        // merge cfg into inputConfig; {pointerLock:false} releases mouse lock
+
+engine.playerVrms       // Map<playerId, VRM> — direct VRM object access for advanced animation
+
+engine.mobileControls   // mobile controls instance or null on desktop
+
+engine.players.getMesh(playerId)              // THREE.Group|undefined — the player's visual group
+engine.players.getState(playerId)             // player snapshot state|undefined
+engine.players.getAnimator(playerId)          // THREE.AnimationMixer|undefined
+engine.players.setExpression(playerId, expressionName, weight)  // VRM facial expression (0–1)
+engine.players.setAiming(playerId, isAiming)  // controls VRM aim IK blend
+
+engine.createElement    // same as h — hyperscript function (available as named ref)
+engine.client           // raw network client object — do not use directly
 ```
 
 ### h — hyperscript
 ```js
 h(tag, props, ...children)  // props = attrs/inline styles or null; null children ignored
 h('div', { style:'color:red' }, 'Hello')
+h('button', { onclick: () => {} }, 'Click')
 ```
 Client apps cannot use `import` — all import statements stripped before evaluation. Use `engine.*` for deps.
 
@@ -378,6 +481,7 @@ yaw      pitch     mouseX  mouseY  editToggle
 // yaw/pitch: cumulative radians (not delta). mouseX/mouseY: screen pixel coords.
 // editToggle: true while P key held (engine edit mode — not for app use)
 // On mobile additionally: isMobile=true  analogForward  analogRight  zoom  weapon
+// Mutating input inside onInput does NOT affect what is sent to the server (read-only)
 ```
 
 ---
