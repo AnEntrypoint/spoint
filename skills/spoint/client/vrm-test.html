@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>VRM Load Diagnostic Test</title>
+    <style>
+        body { font-family: monospace; background: #1e1e1e; color: #d4d4d4; padding: 20px; }
+        .log { background: #252526; padding: 10px; margin: 10px 0; border-left: 4px solid #007acc; overflow-x: auto; max-height: 500px; }
+        .error { border-left-color: #f44747; color: #f48771; }
+        .success { border-left-color: #4ec9b0; color: #4ec9b0; }
+        .info { border-left-color: #dcdcaa; color: #dcdcaa; }
+        button { padding: 10px 20px; margin: 5px; background: #007acc; color: white; border: none; cursor: pointer; }
+        button:hover { background: #005a9e; }
+        .section { margin: 20px 0; border: 1px solid #3e3e42; padding: 15px; }
+    </style>
+</head>
+<body>
+    <h1>VRM Load Diagnostic</h1>
+
+    <div class="section">
+        <button onclick="testFetch()">Test 1: Fetch Cleetus.vrm</button>
+        <div id="test1" class="log"></div>
+    </div>
+
+    <div class="section">
+        <button onclick="testGzip()">Test 2: Check Gzip Encoding</button>
+        <div id="test2" class="log"></div>
+    </div>
+
+    <div class="section">
+        <button onclick="testGLTF()">Test 3: Parse with GLTFLoader</button>
+        <div id="test3" class="log"></div>
+    </div>
+
+    <div class="section">
+        <button onclick="testHeadBytes()">Test 4: Inspect Header Bytes</button>
+        <div id="test4" class="log"></div>
+    </div>
+
+    <script type="module">
+        import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@r150/examples/jsm/loaders/GLTFLoader.js'
+
+        window.testState = {
+            buffer: null,
+            loader: new GLTFLoader()
+        }
+
+        window.log = function(elementId, message, isError = false) {
+            const el = document.getElementById(elementId)
+            const line = document.createElement('div')
+            line.textContent = message
+            line.style.color = isError ? '#f48771' : '#d4d4d4'
+            el.appendChild(line)
+            el.scrollTop = el.scrollHeight
+        }
+
+        window.testFetch = async function() {
+            const testId = 'test1'
+            document.getElementById(testId).innerHTML = ''
+
+            try {
+                window.log(testId, 'Fetching Cleetus.vrm...')
+                const response = await fetch('/apps/tps-game/Cleetus.vrm')
+
+                window.log(testId, `Status: ${response.status}`)
+                window.log(testId, `Content-Length: ${response.headers.get('content-length')} bytes`)
+                window.log(testId, `Content-Type: ${response.headers.get('content-type')}`)
+                window.log(testId, `Content-Encoding: ${response.headers.get('content-encoding')}`)
+
+                const buffer = await response.arrayBuffer()
+                window.testState.buffer = buffer
+
+                window.log(testId, `Buffer received: ${buffer.byteLength} bytes`)
+
+                const uint8 = new Uint8Array(buffer)
+                const hex = Array.from(uint8.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' ')
+                window.log(testId, `First 16 bytes: ${hex}`)
+
+                // Check for gzip magic number
+                if (uint8[0] === 0x1f && uint8[1] === 0x8b) {
+                    window.log(testId, 'GZIP MAGIC NUMBER DETECTED (0x1f 0x8b)')
+                } else {
+                    window.log(testId, `First byte: 0x${uint8[0].toString(16)} (expected 0x1f for gzip or 0x67 for glb)`)
+                }
+
+                // Check for GLB magic number
+                if (uint8[0] === 0x67 && uint8[1] === 0x6c && uint8[2] === 0x62 && uint8[3] === 0x20) {
+                    window.log(testId, 'GLB MAGIC NUMBER DETECTED (glb )')
+                }
+            } catch (e) {
+                window.log(testId, `ERROR: ${e.message}`, true)
+            }
+        }
+
+        window.testGzip = async function() {
+            const testId = 'test2'
+            document.getElementById(testId).innerHTML = ''
+
+            try {
+                if (!window.testState.buffer) {
+                    window.log(testId, 'Run Test 1 first', true)
+                    return
+                }
+
+                const buffer = window.testState.buffer
+                const uint8 = new Uint8Array(buffer)
+
+                // Check if gzipped
+                if (uint8[0] === 0x1f && uint8[1] === 0x8b) {
+                    window.log(testId, 'Buffer is gzipped, attempting decompression...')
+
+                    // Create a Blob and use DecompressionStream
+                    const blob = new Blob([uint8], { type: 'application/gzip' })
+                    const stream = blob.stream()
+                    const decompressed = await new Response(
+                        stream.pipeThrough(new DecompressionStream('gzip'))
+                    ).arrayBuffer()
+
+                    window.log(testId, `Original: ${buffer.byteLength} bytes`)
+                    window.log(testId, `Decompressed: ${decompressed.byteLength} bytes`)
+
+                    const decUint8 = new Uint8Array(decompressed)
+                    const hex = Array.from(decUint8.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' ')
+                    window.log(testId, `Decompressed first 16 bytes: ${hex}`)
+
+                    // Check for GLB magic
+                    if (decUint8[0] === 0x67 && decUint8[1] === 0x6c && decUint8[2] === 0x62 && decUint8[3] === 0x20) {
+                        window.log(testId, 'SUCCESS: Decompressed buffer starts with GLB magic number')
+                    } else {
+                        window.log(testId, `ERROR: Decompressed buffer does not start with GLB magic. First bytes: 0x${decUint8[0].toString(16)} 0x${decUint8[1].toString(16)} 0x${decUint8[2].toString(16)} 0x${decUint8[3].toString(16)}`, true)
+                    }
+
+                    window.testState.decompressed = decompressed
+                } else {
+                    window.log(testId, 'Buffer is NOT gzipped')
+                    const uint8 = new Uint8Array(buffer)
+                    const hex = Array.from(uint8.slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join(' ')
+                    window.log(testId, `First 16 bytes: ${hex}`)
+                }
+            } catch (e) {
+                window.log(testId, `ERROR: ${e.message}`, true)
+            }
+        }
+
+        window.testGLTF = async function() {
+            const testId = 'test3'
+            document.getElementById(testId).innerHTML = ''
+
+            try {
+                let buffer = window.testState.buffer
+                if (!buffer) {
+                    window.log(testId, 'Run Test 1 first', true)
+                    return
+                }
+
+                // If we decompressed it, use the decompressed version
+                if (window.testState.decompressed) {
+                    window.log(testId, 'Using decompressed buffer...')
+                    buffer = window.testState.decompressed
+                }
+
+                window.log(testId, `Attempting parseAsync with buffer of ${buffer.byteLength} bytes...`)
+
+                const gltf = await window.testState.loader.parseAsync(buffer, '')
+
+                window.log(testId, 'SUCCESS: GLTFLoader.parseAsync() completed')
+                window.log(testId, `GLTF userData keys: ${Object.keys(gltf.userData).join(', ')}`)
+
+                if (gltf.userData.vrm) {
+                    window.log(testId, 'SUCCESS: VRM plugin loaded correctly')
+                    window.log(testId, `VRM scene: ${gltf.userData.vrm.scene ? 'Present' : 'Missing'}`)
+                } else {
+                    window.log(testId, 'WARNING: No VRM data in userData', true)
+                }
+            } catch (e) {
+                window.log(testId, `ERROR: ${e.message}`, true)
+                window.log(testId, `Stack: ${e.stack}`, true)
+            }
+        }
+
+        window.testHeadBytes = async function() {
+            const testId = 'test4'
+            document.getElementById(testId).innerHTML = ''
+
+            try {
+                const buffer = window.testState.buffer
+                if (!buffer) {
+                    window.log(testId, 'Run Test 1 first', true)
+                    return
+                }
+
+                const uint8 = new Uint8Array(buffer)
+                window.log(testId, `Total buffer size: ${buffer.byteLength} bytes`)
+                window.log(testId, '')
+
+                // Show first 64 bytes in hex and ASCII
+                window.log(testId, 'First 64 bytes (hex):')
+                for (let i = 0; i < Math.min(64, uint8.length); i += 16) {
+                    const hex = Array.from(uint8.slice(i, i + 16)).map(b => b.toString(16).padStart(2, '0')).join(' ')
+                    const ascii = Array.from(uint8.slice(i, i + 16))
+                        .map(b => b >= 32 && b < 127 ? String.fromCharCode(b) : '.')
+                        .join('')
+                    window.log(testId, `${i.toString(16).padStart(4, '0')}: ${hex.padEnd(48, ' ')} | ${ascii}`)
+                }
+
+                window.log(testId, '')
+                window.log(testId, 'Analysis:')
+
+                // Check magic numbers
+                if (uint8[0] === 0x1f && uint8[1] === 0x8b) {
+                    window.log(testId, '- GZIP magic number detected (1f 8b)')
+                } else if (uint8[0] === 0x67 && uint8[1] === 0x6c && uint8[2] === 0x62 && uint8[3] === 0x20) {
+                    window.log(testId, '- GLB magic number detected (67 6c 62 20)')
+                } else {
+                    window.log(testId, `- Unknown magic: ${uint8[0].toString(16)} ${uint8[1].toString(16)}`, true)
+                }
+            } catch (e) {
+                window.log(testId, `ERROR: ${e.message}`, true)
+            }
+        }
+
+        window.log('test1', 'Ready. Click "Test 1: Fetch Cleetus.vrm" to start.')
+    </script>
+</body>
+</html>

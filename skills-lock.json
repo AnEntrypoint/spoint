@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "spoint": {
+      "source": "AnEntrypoint/spawnpoint",
+      "sourceType": "github",
+      "computedHash": "5bde762879f9552e71fe03e4d5204894d3665c2e5e8ea3f8b833e371c6362d9c"
+    }
+  }
+}
