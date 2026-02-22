@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
 import { PhysicsNetworkClient, InputHandler, MSG } from '/src/index.client.js'
 import { createElement, applyDiff } from 'webjsx'
@@ -657,6 +658,9 @@ ground.receiveShadow = true
 scene.add(ground)
 
 const gltfLoader = new GLTFLoader()
+const dracoLoader = new DRACOLoader()
+dracoLoader.setDecoderPath('https://esm.sh/v135/three@0.171.0/examples/jsm/libs/draco/')
+gltfLoader.setDRACOLoader(dracoLoader)
 gltfLoader.register((parser) => new VRMLoaderPlugin(parser))
 const playerMeshes = new Map()
 const playerAnimators = new Map()
