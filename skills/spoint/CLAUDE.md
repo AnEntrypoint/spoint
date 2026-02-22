@@ -13,11 +13,25 @@ SKILL.md and CLAUDE.md MUST both be reviewed and updated whenever code changes.
 
 ## GLB/VRM IndexedDB Model Cache
 
-`client/ModelCache.js` caches raw GLB/VRM ArrayBuffers in IndexedDB keyed by URL. On repeat page loads, a HEAD request validates the cached entry against the server ETag. If the ETag matches, the cached ArrayBuffer is returned directly, bypassing the network fetch entirely. On a miss or stale entry, the full GET response is streamed, stored in IndexedDB, and returned.
+`client/ModelCache.js` (mirrored to `skills/spoint/client/`) caches raw GLB/VRM ArrayBuffers in IndexedDB keyed by URL. On repeat page loads, a HEAD request validates the cached entry against the server ETag. If the ETag matches, the cached ArrayBuffer is returned directly, bypassing the network fetch entirely. On a miss or stale entry, the full GET response is streamed, stored in IndexedDB, and returned.
 
 `fetchCached(url, onProgress)` is used by `LoadingManager.fetchWithProgress` (for the player VRM) and by `loadEntityModel` in `app.js` (for environment GLBs). `gltfLoader.load(url)` has been replaced with `fetchCached(url).then(buf => gltfLoader.parse(...))` so the parse path is the same whether data comes from network or cache.
 
+`StaticHandler.js` now emits an `ETag` header for GLB/VRM/GLTF responses (hex-encoded mtime). It also handles `If-None-Match` and returns 304 when the ETag matches. The ETag is the cache validation key — without it, `fetchCached` always does a full fetch.
+
 Cache failures (IndexedDB unavailable, quota exceeded) are silently caught; the code falls back to a normal fetch transparently.
+
+## Engine-Level Interactable System
+
+`ctx.interactable({ prompt, radius, cooldown })` in `AppContext.js` is the unified interactable API. It sets `ent._interactable=true`, `ent._interactRadius`, `ent._interactCooldown`, and writes `ent.custom._interactable = { prompt, radius }` into the entity's custom data so the client snapshot carries the config.
+
+`_tickInteractables()` in `AppRuntime.js` runs every tick: for each entity with `_interactable=true`, it checks all players within `_interactRadius`. If a player's `lastInput.interact` is true and the per-player-per-entity cooldown has elapsed, it fires `onInteract(ctx, player)` on that entity's app. Cooldown defaults to 500ms if `_interactCooldown` is not set.
+
+`_buildInteractPrompt(state)` in `client/app.js` runs inside `renderAppUI()` on the client. It iterates all entities in the snapshot, finds the first with `custom._interactable` where the local player is within `cfg.radius`, and renders the prompt string as a fixed HUD element. No app client code is needed for basic prompts.
+
+`InputHandler.getInput()` in `src/client/InputHandler.js` now includes `interact: this.keys.get('e') || false` in the keyboard path. The E key fires the interact signal. Mobile/VR paths already had `interact` support.
+
+Apps that previously used `ctx.physics.setInteractable(radius)` + manual proximity polling in `ctx.time.every()` should migrate to `ctx.interactable()` + `onInteract` callback. The old `ctx.physics.setInteractable()` method still works for backwards compatibility (it sets the same `_interactable` and `_interactRadius` flags) but does not set the prompt or write `custom._interactable`, so the engine client prompt won't appear.
 
 ## Animation Library Global Cache
 

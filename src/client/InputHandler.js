@@ -142,6 +142,7 @@ export class InputHandler {
       crouch: this.keys.get('c') || this.keys.get('control') || false,
       shoot: this.mouseDown,
       reload: this.keys.get('r') || false,
+      interact: this.keys.get('e') || false,
       editToggle: this.editModeCooldown,
       mouseX: this.mouseX,
       mouseY: this.mouseY

@@ -219,6 +219,27 @@ Read-only. Set in the world entities array under `config: {}`.
 ctx.config.radius  // 5
 ```
 
+### ctx.interactable
+
+Declares this entity as interactable. The engine handles proximity detection, the E-key prompt UI, and cooldown automatically. The app only needs to implement `onInteract`.
+
+```js
+setup(ctx) {
+  ctx.interactable({ prompt: 'Press E to open', radius: 2, cooldown: 1000 })
+},
+
+onInteract(ctx, player) {
+  ctx.players.send(player.id, { type: 'opened', message: 'Opened!' })
+}
+```
+
+Options:
+- `prompt` — text shown in the HUD when player is within range (default: `'Press E'`)
+- `radius` — interaction distance in world units (default: `3`)
+- `cooldown` — milliseconds between allowed interactions per player (default: `500`)
+
+The engine client automatically shows and hides the prompt when the local player enters or leaves the radius. No client-side code is needed for basic interactables.
+
 ### ctx.physics
 
 ```js
@@ -909,21 +930,16 @@ onMessage(ctx, msg) {
 
 ### Interact detection with cooldown
 
+Use `ctx.interactable()` — the engine handles proximity, prompt UI, and cooldown automatically.
+
 ```js
 setup(ctx) {
-  ctx.state.cooldowns = new Map()
-  ctx.time.every(0.1, () => {
-    const player = ctx.players.getNearest(ctx.entity.position, 4)
-    if (!player?.state?.interact) return
-    const now = Date.now()
-    if (now - (ctx.state.cooldowns.get(player.id) || 0) < 500) return
-    ctx.state.cooldowns.set(player.id, now)
-    ctx.players.send(player.id, { type: 'interact_response', message: 'Hello!' })
-    ctx.network.broadcast({ type: 'interact_effect', position: ctx.entity.position })
-  })
+  ctx.interactable({ prompt: 'Press E', radius: 4, cooldown: 500 })
 },
-teardown(ctx) {
-  ctx.state.cooldowns?.clear()
+
+onInteract(ctx, player) {
+  ctx.players.send(player.id, { type: 'interact_response', message: 'Hello!' })
+  ctx.network.broadcast({ type: 'interact_effect', position: ctx.entity.position })
 }
 ```
 
@@ -977,19 +993,14 @@ update(ctx, dt) {
 }
 ```
 
-### Client UI with proximity check
+### Client UI with custom HUD
+
+For interaction prompts, use `ctx.interactable()` on the server — the engine renders the prompt automatically. For custom HUD elements (health bars, messages), use `render()`:
 
 ```js
 client: {
-  onFrame(dt, engine) {
-    const ent = engine.client?.state?.entities?.find(e => e.app === 'my-app')
-    const local = engine.client?.state?.players?.find(p => p.id === engine.playerId)
-    if (!ent?.position || !local?.position) { this._canInteract = false; return }
-    const dist = Math.hypot(
-      ent.position[0] - local.position[0],
-      ent.position[2] - local.position[2]
-    )
-    this._canInteract = dist < 4
+  onEvent(payload) {
+    if (payload.type === 'interact_response') { this._msg = payload.message; this._expire = Date.now() + 3000 }
   },
 
   render(ctx) {
@@ -998,8 +1009,8 @@ client: {
     return {
       position: ctx.entity.position,
       custom: ctx.entity.custom,
-      ui: this._canInteract
-        ? h('div', { style: 'position:fixed;bottom:40%;left:50%;transform:translateX(-50%);color:#fff;background:rgba(0,0,0,0.7);padding:8px 16px;border-radius:8px' }, 'Press E to interact')
+      ui: this._msg && Date.now() < this._expire
+        ? h('div', { style: 'position:fixed;top:30%;left:50%;transform:translate(-50%,-50%);padding:16px 32px;background:rgba(0,0,0,0.8);border-radius:12px;color:#0f0;font-weight:bold' }, this._msg)
         : null
     }
   }
