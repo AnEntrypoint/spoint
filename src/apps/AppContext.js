@@ -40,6 +40,7 @@ export class AppContext {
     const ent = this._entity
     const runtime = this._runtime
     return {
+      setInteractable: (radius = 3) => { ent._interactable = true; ent._interactRadius = radius },
       setStatic: (v) => { ent.bodyType = v ? 'static' : ent.bodyType },
       setDynamic: (v) => { ent.bodyType = v ? 'dynamic' : ent.bodyType },
       setKinematic: (v) => { ent.bodyType = v ? 'kinematic' : ent.bodyType },
