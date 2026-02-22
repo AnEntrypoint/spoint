@@ -714,6 +714,10 @@ function initAssets(playerModelUrl) {
     animAssets = result
     assetsLoaded = true
     checkAllLoaded()
+  }).catch(err => {
+    console.warn('[assets] player model unavailable:', err.message)
+    assetsLoaded = true
+    checkAllLoaded()
   })
 }
 
