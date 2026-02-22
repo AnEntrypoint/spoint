@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.22](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.21...v0.1.22) (2026-02-22)
+
+
+### Bug Fixes
+
+* improve THREE.js loader configuration and error handling ([35b0ace](https://github.com/AnEntrypoint/spawnpoint/commit/35b0ace8ef78bcb4e6832ad77574e99c5c010004))
+
 ### [0.1.21](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.20...v0.1.21) (2026-02-22)
 
 
