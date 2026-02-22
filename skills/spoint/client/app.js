@@ -1015,12 +1015,13 @@ const client = new PhysicsNetworkClient({
     const a = evaluateAppModule(d.code)
     if (a?.client) {
       appModules.set(d.app, a.client)
+      _appModuleList = [...appModules.values()]
       if (a.client.setup) try { a.client.setup(engineCtx) } catch (e) { console.error('[app-setup]', d.app, e.message) }
     }
   },
   onAssetUpdate: () => {},
   onAppEvent: (payload) => {
-    for (const [, mod] of appModules) { if (mod.onEvent) try { mod.onEvent(payload, engineCtx) } catch (e) { console.error('[app-event]', e.message) } }
+    for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onEvent) try { mod.onEvent(payload, engineCtx) } catch (e) { console.error('[app-event]', e.message) } }
   },
   onHotReload: () => { sessionStorage.setItem('cam', JSON.stringify(cam.save())); location.reload() },
   debug: false
@@ -1091,7 +1092,7 @@ function initInputHandler() {
     setTimeout(() => {
       xrBaseReferenceSpace = renderer.xr.getReferenceSpace()
       if (!xrBaseReferenceSpace) return
-      const local = client.state?.players?.find(p => p.id === client.playerId)
+      const local = playerStates.get(client.playerId)
       if (local?.position) {
         const headHeight = local.crouch ? 1.1 : 1.6
         const pos = { x: -local.position[0], y: -(local.position[1] + headHeight), z: -local.position[2] }
@@ -1220,7 +1221,7 @@ function startInputLoop() {
       inputHandler.pulse('right', 0.5, 100)
     }
     lastShootState = input.shoot
-    const local = client.state?.players?.find(p => p.id === client.playerId)
+    const local = playerStates.get(client.playerId)
     if (local) {
       if (local.health < lastHealth) {
         inputHandler.pulse('left', 0.8, 200)
@@ -1228,7 +1229,7 @@ function startInputLoop() {
       }
       lastHealth = local.health
     }
-    for (const [, mod] of appModules) { if (mod.onInput) try { mod.onInput(input, engineCtx) } catch (e) { console.error('[app-input]', e.message) } }
+    for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onInput) try { mod.onInput(input, engineCtx) } catch (e) { console.error('[app-input]', e.message) } }
     client.sendInput(input)
   }, 1000 / 60)
 }
@@ -1241,8 +1242,8 @@ document.addEventListener('pointerlockchange', () => {
   else document.removeEventListener('mousemove', cam.onMouseMove)
 })
 renderer.domElement.addEventListener('wheel', cam.onWheel, { passive: false })
-renderer.domElement.addEventListener('mousedown', (e) => { for (const [, mod] of appModules) { if (mod.onMouseDown) try { mod.onMouseDown(e, engineCtx) } catch (ex) {} } })
-renderer.domElement.addEventListener('mouseup', (e) => { for (const [, mod] of appModules) { if (mod.onMouseUp) try { mod.onMouseUp(e, engineCtx) } catch (ex) {} } })
+renderer.domElement.addEventListener('mousedown', (e) => { for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onMouseDown) try { mod.onMouseDown(e, engineCtx) } catch (ex) {} } })
+renderer.domElement.addEventListener('mouseup', (e) => { for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onMouseUp) try { mod.onMouseUp(e, engineCtx) } catch (ex) {} } })
 renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault())
 window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight) })
 
@@ -1283,7 +1284,7 @@ function loadQueuedModels() {
     try {
       const buffer = e.target.result
       gltfLoader.parse(buffer, '', (gltf) => {
-        const local = client.state?.players?.find(p => p.id === client.playerId)
+        const local = playerStates.get(client.playerId)
         if (!local) return
         const sy = Math.sin(cam.yaw), cy = Math.cos(cam.yaw)
         const spawnDist = 1.0
@@ -1354,6 +1355,7 @@ document.addEventListener('drop', (e) => {
 })
 
 let smoothDt = 1 / 60
+let _appModuleList = []
 function animate(timestamp) {
   const now = timestamp || performance.now()
   const rawDt = Math.min((now - lastFrameTime) / 1000, 0.1)
@@ -1363,28 +1365,27 @@ function animate(timestamp) {
   fpsFrames++
   if (now - fpsLast >= 1000) { fpsDisplay = fpsFrames; fpsFrames = 0; fpsLast = now }
   const lerpFactor = 1.0 - Math.exp(-16.0 * frameDt)
-  for (const [id, target] of playerTargets) {
+  playerTargets.forEach((target, id) => {
     const mesh = playerMeshes.get(id)
-    if (!mesh) continue
+    if (!mesh) return
     const ps = playerStates.get(id)
     const vx = ps?.velocity?.[0] || 0, vy = ps?.velocity?.[1] || 0, vz = ps?.velocity?.[2] || 0
     const goalX = target.x + vx * frameDt, goalY = target.y + vy * frameDt, goalZ = target.z + vz * frameDt
     mesh.position.x += (goalX - mesh.position.x) * lerpFactor
     mesh.position.y += (goalY - mesh.position.y) * lerpFactor
     mesh.position.z += (goalZ - mesh.position.z) * lerpFactor
-  }
-  for (const [id, animator] of playerAnimators) {
+  })
+  playerAnimators.forEach((animator, id) => {
     const ps = playerStates.get(id)
-    if (!ps) continue
+    if (!ps) return
     animator.update(frameDt, ps.velocity, ps.onGround, ps.health, ps._aiming || false, ps.crouch || 0)
     const mesh = playerMeshes.get(id)
-    if (!mesh) continue
+    if (!mesh) return
     const vx = ps.velocity?.[0] || 0, vz = ps.velocity?.[2] || 0
-    if (Math.sqrt(vx * vx + vz * vz) > 0.5) mesh.userData.lastYaw = Math.atan2(vx, vz)
+    if (vx * vx + vz * vz > 0.25) mesh.userData.lastYaw = Math.atan2(vx, vz)
     if (mesh.userData.lastYaw !== undefined) {
       let diff = mesh.userData.lastYaw - mesh.rotation.y
-      while (diff > Math.PI) diff -= Math.PI * 2
-      while (diff < -Math.PI) diff += Math.PI * 2
+      diff = diff - Math.PI * 2 * Math.round(diff / (Math.PI * 2))
       mesh.rotation.y += diff * lerpFactor
     }
     const target = playerTargets.get(id)
@@ -1396,20 +1397,20 @@ function animate(timestamp) {
         if (head) head.rotation.x = -(ps.lookPitch || 0) * 0.6
       }
     }
-  }
-  for (const [eid, mesh] of entityMeshes) {
+  })
+  entityMeshes.forEach((mesh) => {
     if (mesh.userData.spin) mesh.rotation.y += mesh.userData.spin * frameDt
     if (mesh.userData.hover) {
       mesh.userData.hoverTime = (mesh.userData.hoverTime || 0) + frameDt
       const child = mesh.children[0]
       if (child) child.position.y = Math.sin(mesh.userData.hoverTime * 2) * mesh.userData.hover
     }
-  }
-  for (const [, mod] of appModules) { if (mod.onFrame) try { mod.onFrame(frameDt, engineCtx) } catch (e) {} }
+  })
+  for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onFrame) try { mod.onFrame(frameDt, engineCtx) } catch (e) {} }
   if (engineCtx.facial) engineCtx.facial.update(frameDt)
   uiTimer += frameDt
   if (latestState && uiTimer >= 0.25) { uiTimer = 0; renderAppUI(latestState) }
-  const local = client.state?.players?.find(p => p.id === client.playerId)
+  const local = playerStates.get(client.playerId)
   const inVR = renderer.xr.isPresenting
   if (!inVR || cam.getEditMode()) {
     cam.update(local, playerMeshes.get(client.playerId), frameDt, latestInput)
@@ -1435,15 +1436,15 @@ function animate(timestamp) {
     const speed = Math.sqrt(local.velocity[0] ** 2 + local.velocity[2] ** 2)
     isMoving = speed > 0.5
   }
-updateVignette(frameDt, isMoving)
+  updateVignette(frameDt, isMoving)
 
   if (arEnabled) {
     const xrFrame = renderer.xr.getFrame()
     if (xrFrame) {
       arControls.update(xrFrame, camera, scene)
-      const local = client.state?.players?.find(p => p.id === client.playerId)
-      if (local?.position && !arControls.anchorPlaced) {
-        arControls.setInitialFPSPosition(local.position, cam.yaw)
+      const arLocal = playerStates.get(client.playerId)
+      if (arLocal?.position && !arControls.anchorPlaced) {
+        arControls.setInitialFPSPosition(arLocal.position, cam.yaw)
       }
     }
   }
