@@ -1,5 +1,34 @@
 # Technical Caveats
 
+## Documentation Sync Rule
+
+SKILL.md and CLAUDE.md MUST both be reviewed and updated whenever code changes.
+
+- **SKILL.md** is the agent-facing API reference. Agents working in user projects have NO access to engine source. Every new `ctx` API, lifecycle hook, config field, caveat, or behavior change must be reflected in SKILL.md immediately.
+- **CLAUDE.md** documents engine internals and gotchas for contributors working on the engine itself.
+- Both files must be kept accurate. Stale documentation causes agents to generate broken app code.
+- Do NOT add line numbers to either file. Line numbers are stale the moment code changes. Reference function names, file names, and behavior instead.
+
+---
+
+## Animation Library Global Cache
+
+`loadAnimationLibrary()` in `client/animation.js` uses a module-level cache (`_animLibCache`, `_animLibPromise`). The first call loads `/anim-lib.glb` and stores the result. All subsequent calls return the cached value immediately. The cache prevents loading the library once per connecting player - it is now loaded once globally. `initAssets` in `client/app.js` kicks off the library load in parallel with the VRM download so both complete concurrently.
+
+## Loading Screen Hides Before Warmup
+
+`checkAllLoaded()` now calls `loadingScreen.hide()` immediately when all loading conditions pass, then fires `warmupShaders()` asynchronously in the background. Previously the loading screen blocked on the full warmup (compileAsync + 2x render). This means the first rendered frame may have a brief shader compile stall, but the loading screen no longer adds warmup time on top of actual asset loading.
+
+## evaluateAppModule Helper Function Hoisting
+
+`evaluateAppModule()` in `client/app.js` converts `export default` to `return`. If the app file declares helper functions AFTER the `export default { ... }` block closes, those functions become unreachable dead code after the return statement. The fix: the regex now locates the `default` keyword and splits the source into code-before-default (helper functions hoist to before the return) and the object/function being exported (becomes the return value). A `//# sourceURL=app-module.js` comment is appended so Firefox attributes warnings to the correct virtual file.
+
+## Convex Hull Collider
+
+`World.js addBody()` now accepts `shapeType === 'convex'` with `params` as a flat array of vertex positions `[x,y,z,x,y,z,...]`. It uses Jolt's `ConvexHullShapeSettings` + `VertexList`. The VertexList and settings object are destroyed after the shape is created to avoid WASM leaks. `AppContext.js` exposes `addConvexCollider(points)` and `addConvexFromModel(meshIndex)`. `addConvexFromModel` uses `extractMeshFromGLB` (imported at module top) to read vertices from the entity's GLB file at setup time.
+
+---
+
 ## Jolt Physics WASM Memory
 
 Jolt getter methods (GetPosition, GetRotation, GetLinearVelocity) return WASM heap objects. Every call MUST be followed by `Jolt.destroy(returnedObj)` or WASM heap grows unbounded (~30MB/5min). See World.js `getCharacterPosition`, `getBodyPosition` etc for correct pattern.
@@ -14,11 +43,11 @@ Raycast creates 7 temporary Jolt objects (ray, settings, collector, 2 filters, b
 
 ## Physics Step Substeps
 
-World.js `step()`: `jolt.Step(dt, dt > 1/55 ? 2 : 1)` — uses 2 substeps when dt exceeds ~18ms. At 128 TPS (7.8ms ticks) this is always 1 substep. Only matters if tick rate drops below 55.
+World.js `step()`: `jolt.Step(dt, dt > 1/55 ? 2 : 1)` - uses 2 substeps when dt exceeds ~18ms. At 128 TPS (7.8ms ticks) this is always 1 substep. Only matters if tick rate drops below 55.
 
 ## TickHandler Velocity Override
 
-In TickHandler.js, after `physicsIntegration.updatePlayerPhysics()`, the wished XZ velocity from `applyMovement()` is written BACK over the physics result. Only Y velocity comes from physics. This means horizontal movement is pure wish-based, physics only controls vertical (gravity/jumping). Changing this breaks movement feel entirely.
+In TickHandler.js, after `physicsIntegration.updatePlayerPhysics()`, the wished XZ velocity from `applyMovement()` is written BACK over the physics result (`st.velocity[0] = wishedVx`, `st.velocity[2] = wishedVz`). Only Y velocity comes from physics. This means horizontal movement is pure wish-based, physics only controls vertical (gravity/jumping). Changing this breaks movement feel entirely.
 
 ## Movement Uses Quake-style Air Strafing
 
@@ -27,16 +56,6 @@ In TickHandler.js, after `physicsIntegration.updatePlayerPhysics()`, the wished 
 ## Snapshot Encoding Format
 
 SnapshotEncoder.js quantizes positions to 2 decimal places (precision 100) and rotations to 4 decimal places (precision 10000). Player arrays are positional: `[id, px, py, pz, rx, ry, rz, rw, vx, vy, vz, onGround, health, inputSeq]`. Entity arrays: `[id, model, px, py, pz, rx, ry, rz, rw, bodyType, custom]`. Changing field order or count breaks all clients silently (no error, just wrong positions).
-
-**Entity scale is NOT in the snapshot wire format.** The only way to transmit scale to the client is via `entity.custom.scale = [x, y, z]`. The client reads `entityState.custom?.scale` and applies it to the mesh on both initial load and per-frame updates.
-
-## Spawned Entity Physics
-
-`AppRuntime.spawnEntity()` creates entities with `bodyType: 'static'` and no Jolt physics body. `AppContext.physics.*` methods operate only on the manager entity (`ctx.entity`), not on dynamically spawned children. To animate spawned entities (e.g., falling), manually integrate gravity in the app's `update()` and mutate `entity.position` directly — this is reflected in the next snapshot.
-
-## Client App Module Hot Reload
-
-When an app file changes, `AppLoader` broadcasts `MSG.APP_MODULE` with the new source. The client's `onAppModule` handler: (1) calls `teardown(engineCtx)` on the old module if it exists, (2) evaluates the new code via `evaluateAppModule()`, (3) calls `setup(engineCtx)` on the new module. Entity meshes are not removed on hot reload — they persist and update positions from the next snapshot.
 
 ## Message Types Are Hex Not Sequential
 
@@ -48,7 +67,7 @@ MessageTypes.js uses hex grouping (0x01-0x04 handshake, 0x10-0x13 state, 0x20-0x
 
 ## Snapshot Skip at 0 Players
 
-TickHandler.js line 80: `if (players.length > 0)` guards snapshot creation AND broadcast. Without this, msgpack encoding runs 128x/sec encoding empty snapshots for no recipients.
+TickHandler.js guards snapshot creation AND broadcast with `if (players.length > 0)`. Without this, msgpack encoding runs 128x/sec encoding empty snapshots for no recipients.
 
 ## Per-Player Spatial Snapshots
 
@@ -62,7 +81,7 @@ Fixed 128-slot ring buffer with head/len tracking. Old entries are pruned by tim
 
 Three independent hot reload systems run simultaneously:
 1. **ReloadManager** watches SDK source files (TickHandler, PhysicsIntegration, etc). Uses `swapInstance()` which replaces prototype and non-state properties while preserving state properties (e.g. `playerBodies` survives PhysicsIntegration reload).
-2. **AppLoader** watches `apps/` directory. Queues reloads into HotReloadQueue which drains at end of each tick (TickHandler.js line 98). This ensures app reload never happens mid-tick.
+2. **AppLoader** watches `apps/` directory. Queues reloads into HotReloadQueue which drains at the end of each tick via `appRuntime._drainReloadQueue()`. This ensures app reload never happens mid-tick.
 3. **Client hot reload** sends MSG.HOT_RELOAD (0x70) which triggers full `location.reload()` on all browsers. Camera state is preserved via sessionStorage.
 
 ## HotReloadQueue Resets Heartbeats
@@ -95,7 +114,7 @@ AppRuntime._tickCollisions() uses distance-based sphere collision between entiti
 
 ## Player-Player Collision is Custom
 
-TickHandler lines 54-73 implement custom player-player separation using capsule radius overlap check and position push-apart. This runs AFTER physics step. Uses a `separated` Set to avoid processing the same pair twice.
+TickHandler.js implements custom player-player separation after the physics step using capsule radius overlap check and position push-apart. Uses a `separated` Set to avoid processing the same pair twice.
 
 ## ReloadManager Max 3 Failures
 
@@ -103,7 +122,7 @@ After 3 consecutive reload failures for a module, ReloadManager stops auto-reloa
 
 ## TickSystem Max 4 Steps Per Loop
 
-TickSystem.loop() processes max 4 ticks per loop iteration. If server falls behind more than 4 ticks, it resets lastTickTime to now (line 46-48), dropping those ticks entirely. This prevents death spirals where catching up causes more falling behind.
+TickSystem.loop() processes max 4 ticks per loop iteration. If server falls behind more than 4 ticks, it resets lastTickTime to now, dropping those ticks entirely. This prevents death spirals where catching up causes more falling behind.
 
 ## TickSystem Timer Strategy
 
@@ -123,7 +142,7 @@ Each entity gets a scoped EventBus via `bus.scope(entityId)`. The scope tracks a
 
 ## GLB Shader Warmup Coverage
 
-Shader warmup is handled scene-wide by `warmupShaders()` in `client/app.js`, which calls `renderer.compileAsync(scene, camera)` once after all loading completes (assets loaded + environment loaded + first snapshot received). Per-object `compileAsync` calls after `scene.add()` are NOT used because they crash with `currentProgram is undefined` when called before the WebGL program has been initialized by a render pass. The scene-level warmup in `warmupShaders()` covers all objects added before it runs. Objects added after warmup (e.g. drag-and-drop models) rely on Three.js lazy compilation on first render frame.
+Every dynamic model added to the scene calls `renderer.compileAsync(object, camera)` immediately after `scene.add()`. This covers three sites in `client/app.js`: (1) the GLB entity/environment path in `loadEntityModel`, (2) the procedural mesh path in `loadEntityModel`, (3) the drag-and-drop editor path in `loadQueuedModels`. VRM player warmup uses a separate one-time flag (`_vrmWarmupDone`) that compiles against the full scene after the first player model loads. Omitting `compileAsync` after `scene.add` causes a visible GPU stall on first render of that object.
 
 ## Three.js Shadow Artifacts
 
@@ -147,7 +166,13 @@ Locomotion transitions use hysteresis: idle-to-walk threshold differs from walk-
 
 ## Camera Collision Raycast Rate
 
-Camera raycasts against environment run every 50ms (20Hz), not every frame. Cached clip distance is used between raycasts. Camera snaps faster toward player (speed 30) than away (speed 12) to prevent seeing through walls.
+Camera raycasts against environment run every 50ms (20Hz) in both TPS and FPS modes, not every frame. Cached clip distance is used between raycasts. Camera snaps faster toward player (speed 30) than away (speed 12) to prevent seeing through walls.
+
+FPS mode fires 1 forward ray (wall-push). TPS mode fires 2 rays (clip distance + aim point). All raycasts use BVH acceleration via `three-mesh-bvh` — `computeBoundsTree()` is called on each collider mesh at environment load time in `app.js`. Without BVH, raw triangle iteration in `BufferGeometry._computeIntersections` consumed ~65% of frame CPU in FPS mode (5 rays per tick vs 1 ray with BVH).
+
+## Camera Environment Mesh List
+
+`cam.setEnvironment(meshes)` in camera.js defines what the camera raycasts against for collision and aim. In app.js, this is populated from all non-skinned static meshes in the loaded environment model (any `isMesh && !isSkinnedMesh`). If this list is empty, raycasts are skipped entirely — never falling back to `scene.children` which would include skinned VRM player meshes and cause massive CPU overhead (bone transform per triangle). The old behavior only collected meshes named `'Collider'`, which was wrong for models without that naming convention.
 
 ## Debug Globals
 
@@ -157,17 +182,25 @@ Server: `globalThis.__DEBUG__.server` exposes full server API. Client: `window.d
 
 server.js staticDirs order matters: `/src/` first, then `/apps/`, then `/node_modules/`, then `/` (client). The SDK's own paths take priority. Project-local `apps/` directory overrides SDK `apps/` if it exists.
 
+## StaticHandler In-Memory Cache
+
+StaticHandler caches gzip-compressed file content in memory keyed by file path, invalidated by mtime. This avoids re-reading disk and re-gzipping on every request. Large binary assets (GLB, VRM, WASM) are gzipped once on first request and served from memory thereafter. The `getCached(fp, ext)` function handles the mtime check and compression.
+
+## DRACOLoader Worker Pool
+
+`DRACOLoader` spawns a worker pool (default 4 workers) that each independently initialize a Draco WASM module. If the scene has no Draco-compressed meshes, all 4 workers still spin up and initialize WASM on first use, costing ~1 second of startup. `dracoLoader.setWorkerLimit(1)` caps this to 1 worker. Set this in app.js after `setDecoderPath`. If a scene uses many large Draco meshes in parallel, increasing the limit may help decode throughput.
+
 ## Module Cache Busting
 
 All hot-reloaded imports use `?t=${Date.now()}` query param to bust Node's ESM module cache. Without this, `import()` returns the cached module.
 
 ## Capsule Shape Parameter Order
 
-Jolt CapsuleShape constructor takes `(halfHeight, radius)` NOT `(radius, halfHeight)`. World.js line 82 passes them correctly. AppContext.js line 66 passes `[r, h/2]` to `addBody('capsule', ...)` which World.js receives as `params` and uses `params[1]` for halfHeight, `params[0]` for radius (line 57).
+Jolt CapsuleShape constructor takes `(halfHeight, radius)` NOT `(radius, halfHeight)`. World.js `addPlayerCharacter` passes them correctly. AppContext.js `addCapsuleCollider(r, h)` passes `[r, h/2]` to `addBody('capsule', ...)` which World.js receives as `params` and uses `params[1]` for halfHeight, `params[0]` for radius.
 
 ## Animation Retargeting Track Filtering
 
-Animation retargeting (client/animation.js) uses `THREE.SkeletonUtils.retargetClip()` to adapt source animations to each player's VRM skeleton. The retargeted clip may reference bones that don't exist in the target VRM. `filterValidClipTracks()` removes these invalid bone references before passing clips to the THREE.AnimationMixer. Without filtering, THREE.js PropertyBinding throws "Can not bind to bones as node does not have a skeleton" errors for each invalid track. The filter is applied to all clips (both retargeted and normalized) at line 237 in animation.js before `mixer.clipAction()` is called.
+Animation retargeting (client/animation.js) uses `THREE.SkeletonUtils.retargetClip()` to adapt source animations to each player's VRM skeleton. The retargeted clip may reference bones that don't exist in the target VRM. `filterValidClipTracks()` removes these invalid bone references before passing clips to the THREE.AnimationMixer. Without filtering, THREE.js PropertyBinding throws "Can not bind to bones as node does not have a skeleton" errors for each invalid track. The filter is applied to all clips (both retargeted and normalized) before `mixer.clipAction()` is called.
 
 ## Entry Points
 
@@ -214,4 +247,4 @@ If/when mobile is prioritized:
 - Full PWA, native wrappers, advanced haptics
 
 ### Rationale
-The 80/20 rule: joystick + jump + shoot = 80% of "playable on mobile" with 20% effort. Everything else is diminishing returns against desktop polish.
+The 80/20 rule: joystick + jump + shoot = 80% of "playable on mobile" with 20% effort. Everything else is diminishing returns against desktop pulls.

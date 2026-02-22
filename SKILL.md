@@ -239,6 +239,14 @@ ctx.physics.addCapsuleCollider(radius, fullHeight)
 ctx.physics.addTrimeshCollider()
 // Builds static mesh from entity.model path. Static only.
 
+ctx.physics.addConvexCollider(points)
+// points: flat Float32Array or Array of [x,y,z,x,y,z,...] vertex positions
+// Builds a ConvexHullShape from the provided point cloud. Supports all motion types.
+
+ctx.physics.addConvexFromModel(meshIndex = 0)
+// Extracts vertex positions from entity.model GLB and builds ConvexHullShape.
+// Simpler and faster than trimesh for dynamic objects like vehicles/crates.
+
 ctx.physics.addForce([fx, fy, fz])    // Impulse: velocity += force / mass
 ctx.physics.setVelocity([vx, vy, vz]) // Set velocity directly
 ```
@@ -543,6 +551,12 @@ ctx.physics.addCapsuleCollider(radius, fullHeight)
 
 ctx.physics.addTrimeshCollider()
 // Static trimesh from entity.model. Only for static bodies.
+
+ctx.physics.addConvexCollider(points)
+// points: flat array [x,y,z,x,y,z,...]. Supports all motion types (dynamic/kinematic/static).
+
+ctx.physics.addConvexFromModel(meshIndex = 0)
+// Extracts vertices from entity.model GLB and builds ConvexHullShape. Good for dynamic vehicles/crates.
 
 ctx.physics.addForce([fx, fy, fz])     // velocity += force / mass
 ctx.physics.setVelocity([vx, vy, vz])
@@ -1067,6 +1081,14 @@ The engine manually applies `gravity[1] * dt` to Y velocity. This is already han
 ### Trimesh colliders are static only
 
 `addTrimeshCollider()` creates a static mesh. No dynamic or kinematic trimesh support.
+
+### Convex hull for dynamic objects
+
+Use `addConvexCollider(points)` or `addConvexFromModel()` for dynamic/kinematic bodies that need shape-accurate physics (vehicles, crates). Convex hulls support all motion types unlike trimesh. `addConvexFromModel()` reads vertices from the entity's GLB at setup time - call it after setting `entity.model`.
+
+### Animation library is cached globally
+
+`loadAnimationLibrary()` loads `/anim-lib.glb` only once and caches the result. All subsequent calls return the cached result immediately. The library is also pre-fetched in parallel with the VRM download during initialization.
 
 ### Tick drops under load
 

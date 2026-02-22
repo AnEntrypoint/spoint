@@ -713,16 +713,16 @@ function detectVrmVersion(buffer) {
 
 function initAssets(playerModelUrl) {
   loadingMgr.setStage('DOWNLOAD')
-  assetsReady = loadingMgr.fetchWithProgress(playerModelUrl).then(b => {
+  const animLibPromise = loadAnimationLibrary('1', null)
+  assetsReady = loadingMgr.fetchWithProgress(playerModelUrl).then(async b => {
     vrmBuffer = b
     loadingMgr.setStage('PROCESS')
-    return loadAnimationLibrary(detectVrmVersion(b), null)
-  }).then(result => {
-    animAssets = result
+    animAssets = await animLibPromise
     assetsLoaded = true
     checkAllLoaded()
   }).catch(err => {
     console.warn('[assets] player model unavailable:', err.message)
+    animLibPromise.then(r => { animAssets = r }).catch(() => {})
     assetsLoaded = true
     checkAllLoaded()
   })
@@ -840,7 +840,16 @@ function evaluateAppModule(code) {
   try {
     let stripped = code.replace(/^import\s+.*$/gm, '')
     stripped = stripped.replace(/const\s+__dirname\s*=.*import\.meta\.url.*$/gm, 'const __dirname = "/"')
-    const wrapped = stripped.replace(/export\s+default\s*/, 'return ').replace(/export\s+/g, '')
+    stripped = stripped.replace(/export\s+/g, '')
+    const exportDefaultIdx = stripped.search(/\bdefault\s*[\{(]/)
+    let wrapped
+    if (exportDefaultIdx !== -1) {
+      const before = stripped.slice(0, exportDefaultIdx)
+      const after = stripped.slice(exportDefaultIdx + 'default'.length).trimStart()
+      wrapped = before + '\nreturn ' + after + '\n//# sourceURL=app-module.js'
+    } else {
+      wrapped = stripped.replace(/\bdefault\s*/, 'return ') + '\n//# sourceURL=app-module.js'
+    }
     const join = (...parts) => parts.filter(Boolean).join('/')
     const readdirSync = () => []
     const statSync = () => ({ isDirectory: () => false })
@@ -969,6 +978,7 @@ function loadEntityModel(entityId, entityState) {
     fitShadowFrustum()
     pendingLoads.delete(entityId)
     if (!environmentLoaded) { environmentLoaded = true; checkAllLoaded() }
+    if (loadingScreenHidden) renderer.compileAsync(scene, camera).catch(() => renderer.compile(scene, camera))
   }, (progress) => { if (progress.total > 0) console.log('[gltf]', url, Math.round(progress.loaded / progress.total * 100) + '%') }, (err) => { console.error('[gltf]', url, err); pendingLoads.delete(entityId) })
 }
 
@@ -1117,7 +1127,8 @@ function checkAllLoaded() {
   loadingMgr.setStage('INIT')
   loadingMgr.complete()
   loadingScreenHidden = true
-  warmupShaders().then(() => loadingScreen.hide()).catch(() => loadingScreen.hide())
+  loadingScreen.hide()
+  warmupShaders().catch(() => {})
 }
 
 function initInputHandler() {
