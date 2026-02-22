@@ -13,7 +13,7 @@ export class AppRuntime {
     this.currentTick = 0; this.deltaTime = 0; this.elapsed = 0
     this._playerManager = c.playerManager || null; this._physics = c.physics || null; this._physicsIntegration = c.physicsIntegration || null
     this._connections = c.connections || null; this._stageLoader = c.stageLoader || null
-    this._nextEntityId = 1; this._appDefs = new Map(); this._timers = new Map()
+    this._nextEntityId = 1; this._appDefs = new Map(); this._timers = new Map(); this._interactCooldowns = new Map()
     this._hotReload = new HotReloadQueue(this)
     this._eventBus = c.eventBus || new EventBus()
     this._eventLog = c.eventLog || null
@@ -124,7 +124,7 @@ export class AppRuntime {
       const ctx = this.contexts.get(entityId); if (!ctx) continue
       this._safeCall(appDef.server || appDef, 'update', [ctx, dt], `update(${entityId})`)
     }
-    this._tickTimers(dt); this._spatialSync(); this._tickCollisions()
+    this._tickTimers(dt); this._spatialSync(); this._tickCollisions(); this._tickInteractables()
   }
 
   _encodeEntity(id, e) {
@@ -178,6 +178,27 @@ export class AppRuntime {
         if (dx*dx+dy*dy+dz*dz < rr*rr) {
           this.fireEvent(a.id, 'onCollision', { id: b.id, position: b.position, velocity: b.velocity })
           this.fireEvent(b.id, 'onCollision', { id: a.id, position: a.position, velocity: a.velocity })
+        }
+      }
+    }
+  }
+
+  _tickInteractables() {
+    const now = Date.now()
+    for (const e of this.entities.values()) {
+      if (!e._interactable) continue
+      const players = this.getPlayers()
+      for (const p of players) {
+        const pp = p.state?.position; if (!pp) continue
+        const dx = pp[0]-e.position[0], dy = pp[1]-e.position[1], dz = pp[2]-e.position[2]
+        if (dx*dx+dy*dy+dz*dz > e._interactRadius**2) continue
+        const key = `${e.id}:${p.id}`
+        const last = this._interactCooldowns.get(key) || 0
+        if (p.lastInput?.interact && now - last > 500) {
+          this._interactCooldowns.set(key, now)
+          this.fireEvent(e.id, 'onInteract', p)
+          const bus = this._eventBus.scope ? this._eventBus : null
+          if (bus) bus.emit(`interact.${e.id}`, { player: p, entity: e })
         }
       }
     }

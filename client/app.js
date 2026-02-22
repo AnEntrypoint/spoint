@@ -1154,12 +1154,10 @@ function startInputLoop() {
     const input = inputHandler.getInput()
     latestInput = input
 
-    if (input.editToggle && !cam.getEditMode()) {
-      cam.setEditMode(true)
-      console.log('[EditMode] Enabled')
-    } else if (!input.editToggle && cam.getEditMode() && inputHandler.editModeCooldown === false) {
-      cam.setEditMode(false)
-      console.log('[EditMode] Disabled')
+    const wantsEdit = !!input.editToggle
+    if (wantsEdit !== cam.getEditMode()) {
+      cam.setEditMode(wantsEdit)
+      console.log('[EditMode]', wantsEdit ? 'Enabled' : 'Disabled')
     }
 
     if (input.yaw !== undefined) {
