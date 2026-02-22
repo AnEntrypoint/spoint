@@ -45,9 +45,18 @@ export function createStaticHandler(dirs) {
         } else if (ext === '.glb' || ext === '.vrm' || ext === '.gltf') {
           headers['Cache-Control'] = 'public, max-age=86400, immutable'
         }
-        const { content, gzipped } = getCached(fp, ext)
+        const { content, gzipped, mtime } = getCached(fp, ext)
         if (gzipped) headers['Content-Encoding'] = 'gzip'
         headers['Content-Length'] = content.length
+        if (ext === '.glb' || ext === '.vrm' || ext === '.gltf') {
+          headers['ETag'] = `"${mtime.toString(16)}"`
+          const ifNoneMatch = req.headers['if-none-match']
+          if (ifNoneMatch === headers['ETag']) {
+            res.writeHead(304, { 'ETag': headers['ETag'], 'Cache-Control': headers['Cache-Control'] })
+            res.end()
+            return
+          }
+        }
         res.writeHead(200, headers)
         res.end(content)
         return

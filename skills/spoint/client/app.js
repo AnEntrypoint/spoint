@@ -15,6 +15,7 @@ import { VRButton } from 'three/addons/webxr/VRButton.js'
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js'
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js'
 import { LoadingManager } from './LoadingManager.js'
+import { fetchCached } from './ModelCache.js'
 import { createLoadingScreen } from './createLoadingScreen.js'
 import { MobileControls, detectDevice } from './MobileControls.js'
 import { ARControls, createARButton } from './ARControls.js'
@@ -956,7 +957,7 @@ function loadEntityModel(entityId, entityState) {
   }
   loadingMgr.setStage('RESOURCES')
   const url = entityState.model.startsWith('./') ? '/' + entityState.model.slice(2) : entityState.model
-  gltfLoader.load(url, (gltf) => {
+  const onGltfLoad = (gltf) => {
     const model = gltf.scene
     const mp = entityState.position; model.position.set(mp[0], mp[1], mp[2])
     const mr = entityState.rotation; if (mr) model.quaternion.set(mr[0], mr[1], mr[2], mr[3])
@@ -979,7 +980,11 @@ function loadEntityModel(entityId, entityState) {
     if (!environmentLoaded) { environmentLoaded = true; checkAllLoaded() }
     if (firstSnapshotEntityPending.has(entityId)) { firstSnapshotEntityPending.delete(entityId); if (firstSnapshotEntityPending.size === 0) checkAllLoaded() }
     if (loadingScreenHidden) renderer.compileAsync(scene, camera).catch(() => renderer.compile(scene, camera))
-  }, (progress) => { if (progress.total > 0) console.log('[gltf]', url, Math.round(Math.min(progress.loaded, progress.total) / progress.total * 100) + '%') }, (err) => { console.error('[gltf]', url, err); pendingLoads.delete(entityId); if (firstSnapshotEntityPending.has(entityId)) { firstSnapshotEntityPending.delete(entityId); if (firstSnapshotEntityPending.size === 0) checkAllLoaded() } })
+  }
+  const onGltfErr = (err) => { console.error('[gltf]', url, err); pendingLoads.delete(entityId); if (firstSnapshotEntityPending.has(entityId)) { firstSnapshotEntityPending.delete(entityId); if (firstSnapshotEntityPending.size === 0) checkAllLoaded() } }
+  fetchCached(url).then(buf => {
+    gltfLoader.parse(buf.buffer.slice(0), '', onGltfLoad, onGltfErr)
+  }).catch(onGltfErr)
 }
 
 function renderAppUI(state) {
