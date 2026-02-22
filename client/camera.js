@@ -27,6 +27,7 @@ function isDescendant(obj, ancestor) {
 const _boneWorldPos = new THREE.Vector3()
 const _boneForward = new THREE.Vector3()
 const _fpsRayOrigin = new THREE.Vector3()
+const _fpsRayDirs = [[0,0,0],[0,0,0],[0,0,0],[0,1,0],[0,-1,0]]
 
 export function createCameraController(camera, scene) {
   let yaw = 0, pitch = 0, zoomIndex = 2, camInitialized = false
@@ -35,9 +36,10 @@ export function createCameraController(camera, scene) {
   let editCamPos = new THREE.Vector3(0, 5, 10)
   let editCamSpeed = 8
   const envMeshes = []
-  let rayTimer = 0, cachedClipDist = 10, cachedAimPoint = null
+  let fpsRayTimer = 0, tpsRayTimer = 0, cachedClipDist = 10, cachedAimPoint = null
   let cameraBone = null
   let headBone = null
+  let headBoneHidden = false
   let fpsForwardOffset = 0.7
   let fpsHeadDownOffset = 0.2
   camRaycaster.firstHitOnly = true
@@ -53,10 +55,12 @@ export function createCameraController(camera, scene) {
     if (m === 'fps' && headBone) {
       headBone.scale.set(0, 0, 0)
       headBone.position.y -= fpsHeadDownOffset
+      headBoneHidden = true
     }
     if (prev === 'fps' && m !== 'fps' && headBone) {
       headBone.scale.set(1, 1, 1)
       headBone.position.y += fpsHeadDownOffset
+      headBoneHidden = false
     }
   }
   function getMode() { return mode }
@@ -139,7 +143,6 @@ export function createCameraController(camera, scene) {
     const rightX = -cy, rightZ = sy
     if (dist < 0.01) {
       if (cameraBone && localMesh) {
-        localMesh.updateMatrixWorld(true)
         cameraBone.getWorldPosition(_boneWorldPos)
         _boneForward.set(fwdX, 0, fwdZ).normalize()
         camera.position.copy(_boneWorldPos).addScaledVector(_boneForward, fpsForwardOffset)
@@ -147,27 +150,22 @@ export function createCameraController(camera, scene) {
       } else {
         camera.position.copy(camTarget)
       }
-      if (headBone) headBone.scale.set(0, 0, 0)
-      const rayTargets = envMeshes
+      if (headBone && !headBoneHidden) { headBone.scale.set(0, 0, 0); headBoneHidden = true }
       const wallDist = 0.35
-      rayTimer += frameDt
-      const doFpsRaycast = rayTimer >= 0.05
-      if (doFpsRaycast && rayTargets.length) {
-        rayTimer = 0
+      fpsRayTimer += frameDt
+      const doFpsRaycast = fpsRayTimer >= 0.05
+      if (doFpsRaycast && envMeshes.length) {
+        fpsRayTimer = 0
         _fpsRayOrigin.copy(camera.position)
-        const rayDirs = [
-          [fwdX, fwdY, fwdZ],
-          [rightX, 0, rightZ],
-          [-rightX, 0, -rightZ],
-          [0, 1, 0],
-          [0, -1, 0]
-        ]
-        for (const d of rayDirs) {
+        _fpsRayDirs[0][0] = fwdX; _fpsRayDirs[0][1] = fwdY; _fpsRayDirs[0][2] = fwdZ
+        _fpsRayDirs[1][0] = rightX; _fpsRayDirs[1][1] = 0; _fpsRayDirs[1][2] = rightZ
+        _fpsRayDirs[2][0] = -rightX; _fpsRayDirs[2][1] = 0; _fpsRayDirs[2][2] = -rightZ
+        for (const d of _fpsRayDirs) {
           camDir.set(-d[0], -d[1], -d[2])
           camRaycaster.set(_fpsRayOrigin, camDir)
           camRaycaster.far = wallDist
           camRaycaster.near = 0
-          const hits = camRaycaster.intersectObjects(rayTargets, true)
+          const hits = camRaycaster.intersectObjects(envMeshes, true)
           for (const hit of hits) {
             if (localMesh && isDescendant(hit.object, localMesh)) continue
             const push = wallDist - hit.distance
@@ -182,7 +180,7 @@ export function createCameraController(camera, scene) {
       }
       camera.lookAt(camera.position.x + fwdX, camera.position.y + fwdY, camera.position.z + fwdZ)
     } else {
-      if (headBone) headBone.scale.set(1, 1, 1)
+      if (headBone && headBoneHidden) { headBone.scale.set(1, 1, 1); headBoneHidden = false }
       camDesired.set(
         camTarget.x - fwdX * dist + rightX * shoulderOffset,
         camTarget.y - fwdY * dist + 0.2,
@@ -190,10 +188,10 @@ export function createCameraController(camera, scene) {
       )
       camDir.subVectors(camDesired, camTarget).normalize()
       const fullDist = camTarget.distanceTo(camDesired)
-      rayTimer += frameDt
-      const doRaycast = rayTimer >= 0.05
+      tpsRayTimer += frameDt
+      const doRaycast = tpsRayTimer >= 0.05
       if (doRaycast) {
-        rayTimer = 0
+        tpsRayTimer = 0
         camRaycaster.set(camTarget, camDir)
         camRaycaster.far = fullDist
         camRaycaster.near = 0
