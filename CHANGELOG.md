@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.20](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.19...v0.1.20) (2026-02-22)
+
+
+### Bug Fixes
+
+* handle import.meta.url in app module evaluation ([9ca5692](https://github.com/AnEntrypoint/spawnpoint/commit/9ca56929cdb695cfd71eddc10137a34dd41f45c8))
+
 ### [0.1.19](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.18...v0.1.19) (2026-02-22)
 
 
