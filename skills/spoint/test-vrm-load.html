@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>VRM Load Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #222; color: #0f0; }
+        .log { border: 1px solid #0f0; padding: 10px; margin: 10px 0; max-height: 400px; overflow: auto; }
+        .error { color: #f00; }
+        .success { color: #0f0; }
+    </style>
+</head>
+<body>
+    <h1>VRM Loading Test</h1>
+    <div class="log" id="log"></div>
+    
+    <script>
+        const log = document.getElementById('log');
+        function addLog(msg, type = 'normal') {
+            const div = document.createElement('div');
+            div.className = type;
+            div.textContent = new Date().toISOString().split('T')[1] + ' ' + msg;
+            log.appendChild(div);
+            log.scrollTop = log.scrollHeight;
+            console.log(msg);
+        }
+        
+        class LoadingManager extends EventTarget {
+            async fetchWithProgress(url) {
+                try {
+                    const response = await fetch(url);
+                    if (!response.ok) throw new Error();
+                    const contentLength = parseInt(response.headers.get('content-length') || '0', 10);
+                    const reader = response.body.getReader();
+                    const chunks = [];
+                    let receivedLength = 0;
+
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        chunks.push(value);
+                        receivedLength += value.length;
+                        addLog();
+                    }
+
+                    const result = new Uint8Array(receivedLength);
+                    let position = 0;
+                    for (const chunk of chunks) {
+                        result.set(chunk, position);
+                        position += chunk.length;
+                    }
+                    return result;
+                } catch (error) {
+                    addLog(, 'error');
+                    throw error;
+                }
+            }
+        }
+        
+        function detectVrmVersion(buffer) {
+            try {
+                addLog();
+                const arrayBuffer = buffer instanceof ArrayBuffer ? buffer : buffer.buffer;
+                const view = new DataView(arrayBuffer);
+                const jsonLen = view.getUint32(12, true);
+                const json = JSON.parse(new TextDecoder().decode(new Uint8Array(arrayBuffer, 20, jsonLen)));
+                addLog(, 'success');
+                if (json.extensions?.VRM) return '0';
+            } catch (e) {
+                addLog(, 'error');
+            }
+            return '1';
+        }
+        
+        async function testVRMLoad() {
+            try {
+                const mgr = new LoadingManager();
+                const vrmUrl = '/apps/tps-game/Cleetus.vrm';
+                
+                addLog();
+                const vrmBuffer = await mgr.fetchWithProgress(vrmUrl);
+                addLog(, 'success');
+                
+                addLog();
+                const version = detectVrmVersion(vrmBuffer);
+                addLog(, 'success');
+                
+                // Now test THREE.js loading
+                addLog();
+                const { GLTFLoader } = await import('https://cdn.jsdelivr.net/npm/three/examples/jsm/loaders/GLTFLoader.js');
+                const { VRMLoaderPlugin } = await import('https://cdn.jsdelivr.net/npm/@pixiv/three-vrm/index.js');
+                
+                const loader = new GLTFLoader();
+                loader.register((parser) => new VRMLoaderPlugin(parser));
+                
+                addLog();
+                const gltf = await loader.parseAsync(vrmBuffer.slice(0), '');
+                addLog(, gltf.userData.vrm ? 'success' : 'error');
+                
+            } catch (error) {
+                addLog(, 'error');
+                if (error.stack) addLog(, 'error');
+            }
+        }
+        
+        addLog('Starting VRM load test...');
+        testVRMLoad();
+    </script>
+</body>
+</html>

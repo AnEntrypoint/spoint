@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Browser VRM Load Test</title>
+    <style>
+        body { font-family: monospace; background: #1e1e1e; color: #d4d4d4; padding: 20px; }
+        .log { background: #252526; padding: 10px; margin: 10px 0; border-left: 4px solid #007acc; overflow-x: auto; max-height: 600px; }
+        .error { border-left-color: #f44747; color: #f48771; }
+        .success { border-left-color: #4ec9b0; color: #4ec9b0; }
+        .info { border-left-color: #dcdcaa; color: #dcdcaa; }
+        button { padding: 10px 20px; margin: 5px; background: #007acc; color: white; border: none; cursor: pointer; font-weight: bold; }
+        button:hover { background: #005a9e; }
+        button:disabled { background: #555; cursor: not-allowed; }
+        .section { margin: 20px 0; border: 1px solid #3e3e42; padding: 15px; }
+        h2 { color: #4ec9b0; margin-top: 0; }
+    </style>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://esm.sh/three@0.171.0",
+            "three/addons/": "https://esm.sh/three@0.171.0/examples/jsm/",
+            "@pixiv/three-vrm": "https://esm.sh/@pixiv/three-vrm@3?external=three"
+        }
+    }
+    </script>
+</head>
+<body>
+    <h1>Browser VRM Load Test</h1>
+    <p>Testing VRM loading with THREE.GLTFLoader + VRMLoaderPlugin</p>
+
+    <div class="section">
+        <h2>Step 1: Fetch Cleetus.vrm</h2>
+        <button onclick="testFetchVRM()">Fetch from /apps/tps-game/Cleetus.vrm</button>
+        <div id="test1" class="log"></div>
+    </div>
+
+    <div class="section">
+        <h2>Step 2: Parse with GLTFLoader</h2>
+        <button id="btn2" onclick="testParseGLTF()" disabled>Parse with GLTFLoader</button>
+        <div id="test2" class="log"></div>
+    </div>
+
+    <div class="section">
+        <h2>Step 3: Check VRM in userData</h2>
+        <button id="btn3" onclick="testVRMData()" disabled>Check VRM Data</button>
+        <div id="test3" class="log"></div>
+    </div>
+
+    <div class="section">
+        <h2>Detailed Analysis</h2>
+        <button id="btn4" onclick="testDetailedAnalysis()" disabled>Run Detailed Analysis</button>
+        <div id="test4" class="log"></div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three'
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+        import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
+
+        window.testState = {
+            buffer: null,
+            arrayBuffer: null,
+            gltf: null,
+            loader: null
+        }
+
+        window.log = function(elementId, message, isError = false, isSuccess = false) {
+            const el = document.getElementById(elementId)
+            const line = document.createElement('pre')
+            line.textContent = message
+            if (isError) {
+                line.style.color = '#f48771'
+            } else if (isSuccess) {
+                line.style.color = '#4ec9b0'
+            }
+            el.appendChild(line)
+            el.scrollTop = el.scrollHeight
+        }
+
+        window.testFetchVRM = async function() {
+            const testId = 'test1'
+            document.getElementById(testId).innerHTML = ''
+
+            try {
+                window.log(testId, 'Fetching /apps/tps-game/Cleetus.vrm...')
+
+                const response = await fetch('/apps/tps-game/Cleetus.vrm')
+                window.log(testId, `✓ HTTP ${response.status}`)
+                window.log(testId, `  Content-Type: ${response.headers.get('content-type')}`)
+                window.log(testId, `  Content-Length: ${response.headers.get('content-length')} bytes`)
+
+                const arrayBuffer = await response.arrayBuffer()
+                window.testState.arrayBuffer = arrayBuffer
+
+                const uint8 = new Uint8Array(arrayBuffer)
+                window.log(testId, `✓ Received ${arrayBuffer.byteLength} bytes`, false, true)
+
+                // Show magic
+                const magic = String.fromCharCode(uint8[0], uint8[1], uint8[2], uint8[3])
+                window.log(testId, `  Magic: "${magic}" (0x${uint8[0].toString(16)} 0x${uint8[1].toString(16)} 0x${uint8[2].toString(16)} 0x${uint8[3].toString(16)})`)
+
+                if (magic === 'glTF') {
+                    window.log(testId, '  ✓ Valid GLB format', false, true)
+                } else {
+                    window.log(testId, '  ✗ Invalid magic number', true)
+                }
+
+                // Show first bytes
+                const hex = Array.from(uint8.slice(0, 32)).map(b => b.toString(16).padStart(2, '0')).join(' ')
+                window.log(testId, `  First 32 bytes: ${hex}`)
+
+                // Enable next button
+                document.getElementById('btn2').disabled = false
+                window.log(testId, '\n✓ Ready for step 2', false, true)
+            } catch (e) {
+                window.log(testId, `✗ ERROR: ${e.message}`, true)
+            }
+        }
+
+        window.testParseGLTF = async function() {
+            const testId = 'test2'
+            document.getElementById(testId).innerHTML = ''
+
+            try {
+                if (!window.testState.arrayBuffer) {
+                    window.log(testId, '✗ No buffer fetched. Run step 1 first', true)
+                    return
+                }
+
+                window.log(testId, 'Setting up GLTFLoader with VRM plugin...')
+
+                // Initialize loader if not done
+                if (!window.testState.loader) {
+                    window.testState.loader = new GLTFLoader()
+                    window.testState.loader.register((parser) => new VRMLoaderPlugin(parser))
+                    window.log(testId, '✓ GLTFLoader created and VRM plugin registered')
+                } else {
+                    window.log(testId, '✓ Using existing GLTFLoader')
+                }
+
+                window.log(testId, `Calling parseAsync with buffer of ${window.testState.arrayBuffer.byteLength} bytes...`)
+
+                const startTime = performance.now()
+                const gltf = await window.testState.loader.parseAsync(window.testState.arrayBuffer, '')
+                const elapsed = performance.now() - startTime
+
+                window.testState.gltf = gltf
+
+                window.log(testId, `✓ parseAsync completed in ${elapsed.toFixed(0)}ms`, false, true)
+                window.log(testId, `  Scene type: ${gltf.scene.constructor.name}`)
+                window.log(testId, `  userData keys: ${Object.keys(gltf.userData).join(', ')}`)
+
+                // Check for VRM
+                if (gltf.userData.vrm) {
+                    window.log(testId, '✓ VRM found in userData!', false, true)
+                    window.log(testId, `  VRM scene: ${gltf.userData.vrm.scene ? 'Present' : 'Missing'}`)
+                    document.getElementById('btn3').disabled = false
+                    document.getElementById('btn4').disabled = false
+                    window.log(testId, '\n✓ Ready for step 3', false, true)
+                } else {
+                    window.log(testId, '✗ NO VRM IN USERDATA!', true)
+                    window.log(testId, 'Available in userData:')
+                    for (const key of Object.keys(gltf.userData)) {
+                        const val = gltf.userData[key]
+                        window.log(testId, `  ${key}: ${typeof val} (${val?.constructor?.name || 'null'})`)
+                    }
+                }
+            } catch (e) {
+                window.log(testId, `✗ parseAsync FAILED: ${e.message}`, true)
+                window.log(testId, `  Stack: ${e.stack}`, true)
+            }
+        }
+
+        window.testVRMData = async function() {
+            const testId = 'test3'
+            document.getElementById(testId).innerHTML = ''
+
+            try {
+                if (!window.testState.gltf) {
+                    window.log(testId, '✗ No GLTF loaded. Run step 2 first', true)
+                    return
+                }
+
+                const vrm = window.testState.gltf.userData.vrm
+                if (!vrm) {
+                    window.log(testId, '✗ No VRM data', true)
+                    return
+                }
+
+                window.log(testId, 'VRM Object Structure:', false, true)
+                window.log(testId, `  Type: ${vrm.constructor.name}`)
+                window.log(testId, `  scene: ${vrm.scene ? vrm.scene.constructor.name : 'null'}`)
+                window.log(testId, `  expressionManager: ${vrm.expressionManager ? 'present' : 'null'}`)
+                window.log(testId, `  lookAt: ${vrm.lookAt ? 'present' : 'null'}`)
+                window.log(testId, `  springBoneManager: ${vrm.springBoneManager ? 'present' : 'null'}`)
+                window.log(testId, `  humanoid: ${vrm.humanoid ? 'present' : 'null'}`)
+
+                if (vrm.scene) {
+                    const children = vrm.scene.children.length
+                    window.log(testId, `  scene.children: ${children} items`)
+                }
+
+                window.log(testId, '\n✓ VRM data is accessible', false, true)
+            } catch (e) {
+                window.log(testId, `✗ ERROR: ${e.message}`, true)
+            }
+        }
+
+        window.testDetailedAnalysis = async function() {
+            const testId = 'test4'
+            document.getElementById(testId).innerHTML = ''
+
+            try {
+                const gltf = window.testState.gltf
+                if (!gltf) {
+                    window.log(testId, '✗ No GLTF loaded', true)
+                    return
+                }
+
+                window.log(testId, 'GLTF Structure:')
+                window.log(testId, `  gltf.scene: ${gltf.scene?.constructor.name}`)
+                window.log(testId, `  gltf.scenes: ${gltf.scenes?.length || 0} scenes`)
+                window.log(testId, `  gltf.cameras: ${gltf.cameras?.length || 0} cameras`)
+                window.log(testId, `  gltf.animations: ${gltf.animations?.length || 0} animations`)
+
+                window.log(testId, '\nGLTF userData contents:')
+                for (const [key, val] of Object.entries(gltf.userData)) {
+                    const type = typeof val
+                    const constructor = val?.constructor?.name || 'null'
+                    let desc = ''
+
+                    if (key === 'vrm') {
+                        desc = '[VRM Object]'
+                    } else if (key === 'gltfExtensions') {
+                        desc = `${Object.keys(val || {}).join(', ')}`
+                    } else if (type === 'object') {
+                        if (Array.isArray(val)) {
+                            desc = `[Array, ${val.length} items]`
+                        } else {
+                            desc = `[${constructor}]`
+                        }
+                    }
+
+                    window.log(testId, `  ${key}: ${type} (${constructor}) ${desc}`)
+                }
+
+                window.log(testId, '\n✓ Full analysis complete', false, true)
+            } catch (e) {
+                window.log(testId, `✗ ERROR: ${e.message}`, true)
+            }
+        }
+
+        // Auto-log when page loads
+        window.log('test1', 'Ready. Click "Fetch from..." to begin test.')
+    </script>
+</body>
+</html>

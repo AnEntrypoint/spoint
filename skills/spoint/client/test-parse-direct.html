@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Direct VRM Parse Test</title>
+    <style>
+        body { font-family: monospace; background: #1e1e1e; color: #d4d4d4; padding: 20px; }
+        .section { margin: 20px 0; border: 1px solid #3e3e42; padding: 15px; }
+        button { padding: 10px 20px; background: #007acc; color: white; border: none; cursor: pointer; }
+        button:hover { background: #005a9e; }
+        #output { background: #252526; padding: 10px; max-height: 600px; overflow-y: auto; white-space: pre-wrap; }
+        .error { color: #f48771; }
+        .success { color: #4ec9b0; }
+        .warn { color: #dcdcaa; }
+    </style>
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://esm.sh/three@0.171.0",
+            "three/addons/": "https://esm.sh/three@0.171.0/examples/jsm/",
+            "@pixiv/three-vrm": "https://esm.sh/@pixiv/three-vrm@3?external=three"
+        }
+    }
+    </script>
+</head>
+<body>
+    <h1>Direct VRM Parse Test</h1>
+    <p>This test simulates exactly what app.js does</p>
+
+    <div class="section">
+        <button onclick="runTest()">Run Parse Test</button>
+        <div id="output"></div>
+    </div>
+
+    <script type="module">
+        const output = document.getElementById('output')
+
+        function log(msg, type = 'normal') {
+            const line = document.createElement('div')
+            line.textContent = msg
+            if (type === 'error') line.className = 'error'
+            else if (type === 'success') line.className = 'success'
+            else if (type === 'warn') line.className = 'warn'
+            output.appendChild(line)
+            output.scrollTop = output.scrollHeight
+        }
+
+        window.runTest = async function() {
+            output.innerHTML = ''
+
+            try {
+                log('Starting test...')
+
+                // Step 1: Fetch
+                log('\n1. Fetching /apps/tps-game/Cleetus.vrm')
+                const response = await fetch('/apps/tps-game/Cleetus.vrm')
+                log(`   HTTP ${response.status}`, 'success')
+
+                const arrayBuffer = await response.arrayBuffer()
+                log(`   Received ${arrayBuffer.byteLength} bytes`, 'success')
+
+                // Create Uint8Array like LoadingManager does
+                const chunks = [arrayBuffer]
+                let receivedLength = arrayBuffer.byteLength
+                const vrmBuffer = new Uint8Array(receivedLength)
+                let position = 0
+                for (const chunk of chunks) {
+                    const uint8 = new Uint8Array(chunk)
+                    vrmBuffer.set(uint8, position)
+                    position += uint8.length
+                }
+
+                log(`   Reconstructed as Uint8Array (${vrmBuffer.constructor.name})`, 'success')
+
+                // Step 2: Check format
+                log('\n2. Checking buffer format')
+                const magic = String.fromCharCode(vrmBuffer[0], vrmBuffer[1], vrmBuffer[2], vrmBuffer[3])
+                log(`   Magic: "${magic}"`)
+                if (magic === 'glTF') {
+                    log('   ✓ Valid GLB', 'success')
+                }
+
+                // Step 3: Import and setup
+                log('\n3. Importing THREE and VRM libraries')
+                const THREE = await import('three')
+                const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js')
+                const { VRMLoaderPlugin, VRMUtils } = await import('@pixiv/three-vrm')
+                log('   ✓ Imports successful', 'success')
+
+                // Step 4: Create loader and register plugin
+                log('\n4. Creating GLTFLoader and registering VRM plugin')
+                const gltfLoader = new GLTFLoader.GLTFLoader()
+                gltfLoader.register((parser) => new VRMLoaderPlugin(parser))
+                log('   ✓ Loader created', 'success')
+
+                // Step 5: Parse (THIS IS WHERE THE ERROR HAPPENS)
+                log('\n5. Calling gltfLoader.parseAsync(vrmBuffer, "")')
+                log(`   Buffer type: ${vrmBuffer.constructor.name}`)
+                log(`   Buffer size: ${vrmBuffer.length}`)
+
+                const startTime = performance.now()
+                let gltf
+                try {
+                    gltf = await gltfLoader.parseAsync(vrmBuffer, '')
+                    const elapsed = (performance.now() - startTime).toFixed(0)
+                    log(`   ✓ parseAsync succeeded in ${elapsed}ms`, 'success')
+                } catch (parseError) {
+                    const elapsed = (performance.now() - startTime).toFixed(0)
+                    log(`   ✗ parseAsync FAILED after ${elapsed}ms`, 'error')
+                    log(`   Error: ${parseError.message}`, 'error')
+
+                    if (parseError.stack) {
+                        log('\n   Stack trace:')
+                        for (const line of parseError.stack.split('\n')) {
+                            log(`   ${line}`)
+                        }
+                    }
+
+                    throw parseError
+                }
+
+                // Step 6: Check for VRM
+                log('\n6. Checking for VRM in userData')
+                const vrm = gltf.userData.vrm
+                if (vrm) {
+                    log('   ✓ VRM found!', 'success')
+                    log(`   VRM scene: ${vrm.scene ? 'Present' : 'Missing'}`)
+                    log(`   VRM type: ${vrm.constructor.name}`)
+                } else {
+                    log('   ✗ NO VRM in userData', 'error')
+                    log(`   userData keys: ${Object.keys(gltf.userData).join(', ')}`)
+                }
+
+                log('\n✓✓✓ TEST PASSED ✓✓✓', 'success')
+            } catch (e) {
+                log(`\n✗✗✗ TEST FAILED ✗✗✗`, 'error')
+                log(`Error: ${e.message}`, 'error')
+            }
+        }
+
+        // Auto-run on load
+        window.addEventListener('load', () => {
+            log('Ready. Click "Run Parse Test" or check console.')
+        })
+    </script>
+</body>
+</html>
