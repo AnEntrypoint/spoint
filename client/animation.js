@@ -46,15 +46,15 @@ function filterUpperBodyTracks(clip) {
   return new THREE.AnimationClip(clip.name, clip.duration, filteredTracks)
 }
 
-function filterValidClipTracks(clip, targetObj) {
-  // Get all bone/mesh names that exist in target
+function buildValidBoneSet(targetObj) {
   const validBones = new Set()
   targetObj.traverse(child => {
-    if (child.isBone || child.isSkinnedMesh) {
-      validBones.add(child.name)
-    }
+    if (child.isBone || child.isSkinnedMesh) validBones.add(child.name)
   })
+  return validBones
+}
 
+function filterValidClipTracks(clip, validBones) {
   const validTracks = clip.tracks.filter(track => {
     const boneName = extractBoneName(track.name)
     if (!validBones.has(boneName)) {
@@ -140,6 +140,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   const additiveActions = new Map()
 
   const clips = allClips.normalizedClips || allClips.rawClips || allClips
+  const validBones = buildValidBoneSet(root)
 
   for (const [name, clip] of clips) {
     if (!STATES[name]) continue
@@ -149,7 +150,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       console.log(`[anim] ${name} tracks:`, clip.tracks.map(t => extractBoneName(t.name)))
     }
 
-    let playClip = filterValidClipTracks(clip, root)
+    let playClip = filterValidClipTracks(clip, validBones)
 
     if (cfg.upperBody) {
       const upperBodyClip = filterUpperBodyTracks(playClip)

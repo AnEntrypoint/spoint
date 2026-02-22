@@ -659,6 +659,7 @@ scene.add(ground)
 
 const loadingManager = new THREE.LoadingManager()
 loadingManager.onError = (url) => console.warn('[THREE] Failed to load:', url)
+THREE.Cache.enabled = true
 const gltfLoader = new GLTFLoader(loadingManager)
 const dracoLoader = new DRACOLoader(loadingManager)
 dracoLoader.setDecoderPath('/draco/')
@@ -771,13 +772,15 @@ function initVRMFeatures(id, vrm) {
   playerExpressions.set(id, features)
 }
 
+const _lookTargetVec = new THREE.Vector3()
+
 function updateVRMFeatures(id, dt, targetPosition) {
   const features = playerExpressions.get(id)
   if (!features) return
   if (features.springBone) features.springBone.update(dt)
   if (features.lookAt && targetPosition) {
-    const lookTarget = new THREE.Vector3(targetPosition.x, targetPosition.y + 1.6, targetPosition.z)
-    features.lookAt.lookAt(lookTarget)
+    _lookTargetVec.set(targetPosition.x, targetPosition.y + 1.6, targetPosition.z)
+    features.lookAt.lookAt(_lookTargetVec)
   }
   if (features.expressions) {
     features.blinkTimer += dt
@@ -891,18 +894,13 @@ function rebuildEntityHierarchy(entities) {
     if (!mesh) continue
 
     const parentId = entityParentMap.get(e.id)
-    const currentParent = mesh.parent && mesh.parent !== scene ? mesh.parent : null
-    const currentParentId = Array.from(entityParentMap.entries()).find(([k, v]) => v === null || entityMeshes.get(k) === currentParent)?.[0]
+    const currentParent = mesh.parent !== scene ? mesh.parent : null
 
     if (parentId === null) {
-      if (currentParent && currentParent !== scene) {
-        scene.add(mesh)
-      }
+      if (currentParent) scene.add(mesh)
     } else {
       const parentMesh = entityMeshes.get(parentId)
-      if (parentMesh && parentMesh !== currentParent) {
-        parentMesh.add(mesh)
-      }
+      if (parentMesh && parentMesh !== currentParent) parentMesh.add(mesh)
     }
   }
 }
@@ -921,8 +919,8 @@ function loadEntityModel(entityId, entityState) {
     } else {
       group = buildEntityMesh(entityId, entityState.custom)
     }
-    group.position.set(...entityState.position)
-    if (entityState.rotation) group.quaternion.set(...entityState.rotation)
+    const ep = entityState.position; group.position.set(ep[0], ep[1], ep[2])
+    const er = entityState.rotation; if (er) group.quaternion.set(er[0], er[1], er[2], er[3])
     scene.add(group)
     entityMeshes.set(entityId, group)
     pendingLoads.delete(entityId)
@@ -933,13 +931,20 @@ function loadEntityModel(entityId, entityState) {
   const url = entityState.model.startsWith('./') ? '/' + entityState.model.slice(2) : entityState.model
   gltfLoader.load(url, (gltf) => {
     const model = gltf.scene
-    model.position.set(...entityState.position)
-    if (entityState.rotation) model.quaternion.set(...entityState.rotation)
-    model.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; if (c.material) { c.material.shadowSide = THREE.DoubleSide; c.material.roughness = 1; c.material.metalness = 0; if (c.material.specularIntensity !== undefined) c.material.specularIntensity = 0 } } })
+    const mp = entityState.position; model.position.set(mp[0], mp[1], mp[2])
+    const mr = entityState.rotation; if (mr) model.quaternion.set(mr[0], mr[1], mr[2], mr[3])
+    const colliders = []
+    model.traverse(c => {
+      if (c.isMesh) {
+        c.castShadow = true
+        c.receiveShadow = true
+        if (!c.isSkinnedMesh) { c.matrixAutoUpdate = false; colliders.push(c) }
+        if (c.material) { c.material.shadowSide = THREE.DoubleSide; c.material.roughness = 1; c.material.metalness = 0; if (c.material.specularIntensity !== undefined) c.material.specularIntensity = 0 }
+      }
+    })
+    model.updateMatrixWorld(true)
     scene.add(model)
     entityMeshes.set(entityId, model)
-    const colliders = []
-    model.traverse(c => { if (c.isMesh && !c.isSkinnedMesh) colliders.push(c) })
     cam.setEnvironment(colliders)
     scene.remove(ground)
     fitShadowFrustum()
@@ -978,15 +983,17 @@ const client = new PhysicsNetworkClient({
       const mesh = playerMeshes.get(p.id)
       const feetOff = mesh?.userData?.feetOffset ?? 1.3
       const tx = p.position[0], ty = p.position[1] - feetOff, tz = p.position[2]
-      playerTargets.set(p.id, { x: tx, y: ty, z: tz })
+      const existingTarget = playerTargets.get(p.id)
+      if (existingTarget) { existingTarget.x = tx; existingTarget.y = ty; existingTarget.z = tz }
+      else playerTargets.set(p.id, { x: tx, y: ty, z: tz })
       playerStates.set(p.id, p)
       const dx = tx - mesh.position.x, dy = ty - mesh.position.y, dz = tz - mesh.position.z
       if (!mesh.userData.initialized || dx * dx + dy * dy + dz * dz > 100) { mesh.position.set(tx, ty, tz); mesh.userData.initialized = true }
     }
     for (const e of smoothState.entities) {
       const mesh = entityMeshes.get(e.id)
-      if (mesh && e.position) mesh.position.set(...e.position)
-      if (mesh && e.rotation) mesh.quaternion.set(...e.rotation)
+      if (mesh && e.position) mesh.position.set(e.position[0], e.position[1], e.position[2])
+      if (mesh && e.rotation) mesh.quaternion.set(e.rotation[0], e.rotation[1], e.rotation[2], e.rotation[3])
       if (!entityMeshes.has(e.id)) loadEntityModel(e.id, e)
     }
     rebuildEntityHierarchy(smoothState.entities)
@@ -1380,21 +1387,21 @@ function animate(timestamp) {
     const mesh = playerMeshes.get(id)
     if (!mesh) continue
     const vx = ps.velocity?.[0] || 0, vz = ps.velocity?.[2] || 0
-    if (Math.sqrt(vx * vx + vz * vz) > 0.5) mesh.userData.lastYaw = Math.atan2(vx, vz)
+    if (vx * vx + vz * vz > 0.25) mesh.userData.lastYaw = Math.atan2(vx, vz)
     if (mesh.userData.lastYaw !== undefined) {
       let diff = mesh.userData.lastYaw - mesh.rotation.y
-      while (diff > Math.PI) diff -= Math.PI * 2
-      while (diff < -Math.PI) diff += Math.PI * 2
+      diff = diff - Math.PI * 2 * Math.round(diff / (Math.PI * 2))
       mesh.rotation.y += diff * lerpFactor
     }
     const target = playerTargets.get(id)
     updateVRMFeatures(id, frameDt, target)
     if (id !== client.playerId && ps.lookPitch !== undefined) {
-      const vrm = playerVrms.get(id)
-      if (vrm?.humanoid) {
-        const head = vrm.humanoid.getNormalizedBoneNode('head')
-        if (head) head.rotation.x = -(ps.lookPitch || 0) * 0.6
+      const features = playerExpressions.get(id)
+      if (features && !features._headBone) {
+        const vrm = playerVrms.get(id)
+        if (vrm?.humanoid) features._headBone = vrm.humanoid.getNormalizedBoneNode('head')
       }
+      if (features?._headBone) features._headBone.rotation.x = -(ps.lookPitch || 0) * 0.6
     }
   }
   for (const [eid, mesh] of entityMeshes) {
@@ -1409,7 +1416,7 @@ function animate(timestamp) {
   if (engineCtx.facial) engineCtx.facial.update(frameDt)
   uiTimer += frameDt
   if (latestState && uiTimer >= 0.25) { uiTimer = 0; renderAppUI(latestState) }
-  const local = client.state?.players?.find(p => p.id === client.playerId)
+  const local = playerStates.get(client.playerId)
   const inVR = renderer.xr.isPresenting
   if (!inVR || cam.getEditMode()) {
     cam.update(local, playerMeshes.get(client.playerId), frameDt, latestInput)
