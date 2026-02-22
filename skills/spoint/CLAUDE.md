@@ -15,9 +15,13 @@ SKILL.md and CLAUDE.md MUST both be reviewed and updated whenever code changes.
 
 `loadAnimationLibrary()` in `client/animation.js` uses a module-level cache (`_animLibCache`, `_animLibPromise`). The first call loads `/anim-lib.glb` and stores the result. All subsequent calls return the cached value immediately. The cache prevents loading the library once per connecting player - it is now loaded once globally. `initAssets` in `client/app.js` kicks off the library load in parallel with the VRM download so both complete concurrently.
 
-## Loading Screen Hides Before Warmup
+## Loading Screen Gate Conditions
 
-`checkAllLoaded()` now calls `loadingScreen.hide()` immediately when all loading conditions pass, then fires `warmupShaders()` asynchronously in the background. Previously the loading screen blocked on the full warmup (compileAsync + 2x render). This means the first rendered frame may have a brief shader compile stall, but the loading screen no longer adds warmup time on top of actual asset loading.
+`checkAllLoaded()` in `client/app.js` gates on four conditions simultaneously: `assetsLoaded`, `environmentLoaded`, `firstSnapshotReceived`, and `firstSnapshotEntityPending.size === 0`. The last condition ensures all entity GLBs from the first snapshot are fully loaded and in the scene before the loading screen hides. When the first snapshot arrives, any entity with a model that is not yet in `entityMeshes` is added to `firstSnapshotEntityPending`. Each `loadEntityModel` success/error callback removes the entity from that set and calls `checkAllLoaded()` when it empties. This means `warmupShaders()` (which does `compileAsync` + 2x render) runs with all first-snapshot models already in the scene, eliminating mid-gameplay GPU stalls from first-draw uploads.
+
+## LoadingManager fetchWithProgress Gzip Skip
+
+`fetchWithProgress` in `LoadingManager.js` checks the `content-encoding` response header. If the value contains `gzip`, the `content-length` header is ignored as a progress denominator (it reports compressed size, but the stream reader delivers decompressed bytes, causing >100% progress). When gzip is detected, `updateProgress` is not called during streaming. The gltf progress callback in `loadEntityModel` also clamps `progress.loaded` to `progress.total` via `Math.min` before computing percentage, preventing the `[gltf] url 132%` log noise from Three.js's XHR progress events.
 
 ## evaluateAppModule Helper Function Hoisting
 

@@ -79,6 +79,8 @@ export class LoadingManager extends EventTarget {
       const response = await fetch(url)
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const contentLength = parseInt(response.headers.get('content-length') || '0', 10)
+      const isGzip = (response.headers.get('content-encoding') || '').includes('gzip')
+      const useTotal = contentLength > 0 && !isGzip
       const reader = response.body.getReader()
       const chunks = []
       let receivedLength = 0
@@ -88,7 +90,7 @@ export class LoadingManager extends EventTarget {
         if (done) break
         chunks.push(value)
         receivedLength += value.length
-        if (contentLength > 0) {
+        if (useTotal) {
           this.updateProgress(receivedLength, contentLength)
         }
       }
