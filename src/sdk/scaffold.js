@@ -25,7 +25,7 @@ export async function scaffold() {
   const sdkApps = join(SDK_ROOT, 'apps')
   copyDir(sdkApps, localApps)
   console.log(`[scaffold] created apps/ at ${localApps}`)
-  const result = spawnSync('bunx', ['skills', 'add', 'AnEntrypoint/spawnpoint', '--agent', 'claude-code', '--skill', 'spoint', '--yes', '--global'], { stdio: 'inherit', shell: true })
+  const result = spawnSync('bunx', ['skills', 'add', 'AnEntrypoint/spawnpoint', '--agent', '*', '--skill', 'spoint', '--yes'], { stdio: 'inherit', shell: true })
   if (result.status !== 0) console.warn('[scaffold] skills install failed, continuing without it')
   console.log(`[scaffold] run 'spoint' to start the server`)
 }
