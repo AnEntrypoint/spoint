@@ -929,6 +929,7 @@ function loadEntityModel(entityId, entityState) {
     const ep = entityState.position; group.position.set(ep[0], ep[1], ep[2])
     const er = entityState.rotation; if (er) group.quaternion.set(er[0], er[1], er[2], er[3])
     scene.add(group)
+    renderer.compileAsync(group, camera).catch(() => renderer.compile(group, camera))
     entityMeshes.set(entityId, group)
     pendingLoads.delete(entityId)
     if (!environmentLoaded) { environmentLoaded = true; checkAllLoaded() }
@@ -951,6 +952,7 @@ function loadEntityModel(entityId, entityState) {
     })
     model.updateMatrixWorld(true)
     scene.add(model)
+    renderer.compileAsync(model, camera).catch(() => renderer.compile(model, camera))
     entityMeshes.set(entityId, model)
     cam.setEnvironment(colliders)
     scene.remove(ground)
@@ -1332,6 +1334,7 @@ function loadQueuedModels() {
         group.position.set(x, y, z)
         group.userData.isDroppedModel = true
         scene.add(group)
+        renderer.compileAsync(group, camera).catch(() => renderer.compile(group, camera))
         const envApp = appModules.get('environment')
         if (envApp?.onEvent) {
           envApp.onEvent({

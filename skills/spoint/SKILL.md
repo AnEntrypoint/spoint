@@ -115,6 +115,10 @@ update(ctx, dt) {
 
 Mutating `ent.position` directly updates the snapshot sent to all clients.
 
+## GLB Shader Stall Prevention
+
+The engine automatically calls `renderer.compileAsync(object, camera)` immediately after adding any GLB or procedural mesh to the scene. This prevents first-draw GPU stall for dynamically loaded entities (environment models, physics crates, power crates, smart objects, drag-and-drop models). No action is needed from app code — warmup is handled in `loadEntityModel` and `loadQueuedModels`. VRM players use a separate one-time warmup path.
+
 ## Key Facts
 
 - Engine files (src/, client/) come from the npm package — never edit them

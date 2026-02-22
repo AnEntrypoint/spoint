@@ -924,6 +924,7 @@ function loadEntityModel(entityId, entityState) {
     group.position.set(...entityState.position)
     if (entityState.rotation) group.quaternion.set(...entityState.rotation)
     scene.add(group)
+    renderer.compileAsync(group, camera).catch(() => renderer.compile(group, camera))
     entityMeshes.set(entityId, group)
     pendingLoads.delete(entityId)
     if (!environmentLoaded) { environmentLoaded = true; checkAllLoaded() }
@@ -937,6 +938,7 @@ function loadEntityModel(entityId, entityState) {
     if (entityState.rotation) model.quaternion.set(...entityState.rotation)
     model.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; if (c.material) { c.material.shadowSide = THREE.DoubleSide; c.material.roughness = 1; c.material.metalness = 0; if (c.material.specularIntensity !== undefined) c.material.specularIntensity = 0 } } })
     scene.add(model)
+    renderer.compileAsync(model, camera).catch(() => renderer.compile(model, camera))
     entityMeshes.set(entityId, model)
     const colliders = []
     model.traverse(c => { if (c.isMesh && !c.isSkinnedMesh) colliders.push(c) })
@@ -1301,6 +1303,7 @@ function loadQueuedModels() {
         group.position.set(x, y, z)
         group.userData.isDroppedModel = true
         scene.add(group)
+        renderer.compileAsync(group, camera).catch(() => renderer.compile(group, camera))
         const envApp = appModules.get('environment')
         if (envApp?.onEvent) {
           envApp.onEvent({
