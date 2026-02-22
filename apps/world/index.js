@@ -63,6 +63,6 @@ export default {
     { id: 'power-crates', position: [0, 0, 0], app: 'power-crate' },
     { id: 'interact-box', position: [-100, 3, -100], app: 'interactable' }
   ],
-  playerModel: './apps/tps-game/Cleetus.vrm',
+  playerModel: './apps/tps-game/cleetus.vrm',
   spawnPoint: [-35, 3, -65]
 }

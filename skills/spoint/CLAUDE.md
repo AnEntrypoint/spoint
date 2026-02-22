@@ -123,7 +123,7 @@ Each entity gets a scoped EventBus via `bus.scope(entityId)`. The scope tracks a
 
 ## GLB Shader Warmup Coverage
 
-Every dynamic model added to the scene calls `renderer.compileAsync(object, camera)` immediately after `scene.add()`. This covers three sites in `client/app.js`: (1) the GLB entity/environment path in `loadEntityModel`, (2) the procedural mesh path in `loadEntityModel`, (3) the drag-and-drop editor path in `loadQueuedModels`. VRM player warmup uses a separate one-time flag (`_vrmWarmupDone`) that compiles against the full scene after the first player model loads. Omitting `compileAsync` after `scene.add` causes a visible GPU stall on first render of that object.
+Shader warmup is handled scene-wide by `warmupShaders()` in `client/app.js`, which calls `renderer.compileAsync(scene, camera)` once after all loading completes (assets loaded + environment loaded + first snapshot received). Per-object `compileAsync` calls after `scene.add()` are NOT used because they crash with `currentProgram is undefined` when called before the WebGL program has been initialized by a render pass. The scene-level warmup in `warmupShaders()` covers all objects added before it runs. Objects added after warmup (e.g. drag-and-drop models) rely on Three.js lazy compilation on first render frame.
 
 ## Three.js Shadow Artifacts
 
