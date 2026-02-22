@@ -152,6 +152,7 @@ export function createCameraController(camera, scene) {
       }
       if (headBone && !headBoneHidden) { headBone.scale.set(0, 0, 0); headBoneHidden = true }
       const wallDist = 0.35
+      const fwdWallDist = 0.25
       fpsRayTimer += frameDt
       if (fpsRayTimer >= 0.05 && envMeshes.length) {
         fpsRayTimer = 0
@@ -168,6 +169,21 @@ export function createCameraController(camera, scene) {
             camera.position.x += fwdX * push
             camera.position.y += fwdY * push
             camera.position.z += fwdZ * push
+          }
+          break
+        }
+        _fpsRayDir.set(fwdX, fwdY, fwdZ)
+        camRaycaster.set(camera.position, _fpsRayDir)
+        camRaycaster.far = fwdWallDist
+        camRaycaster.near = 0
+        const fwdHits = camRaycaster.intersectObjects(envMeshes, true)
+        for (const hit of fwdHits) {
+          if (localMesh && isDescendant(hit.object, localMesh)) continue
+          const push = fwdWallDist - hit.distance
+          if (push > 0) {
+            camera.position.x -= fwdX * push
+            camera.position.y -= fwdY * push
+            camera.position.z -= fwdZ * push
           }
           break
         }
