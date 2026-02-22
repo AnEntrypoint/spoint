@@ -657,8 +657,10 @@ ground.rotation.x = -Math.PI / 2
 ground.receiveShadow = true
 scene.add(ground)
 
-const gltfLoader = new GLTFLoader()
-const dracoLoader = new DRACOLoader()
+const loadingManager = new THREE.LoadingManager()
+loadingManager.onError = (url) => console.warn('[THREE] Failed to load:', url)
+const gltfLoader = new GLTFLoader(loadingManager)
+const dracoLoader = new DRACOLoader(loadingManager)
 dracoLoader.setDecoderPath('/draco/')
 gltfLoader.setDRACOLoader(dracoLoader)
 gltfLoader.register((parser) => new VRMLoaderPlugin(parser))
@@ -942,7 +944,7 @@ function loadEntityModel(entityId, entityState) {
     fitShadowFrustum()
     pendingLoads.delete(entityId)
     if (!environmentLoaded) { environmentLoaded = true; checkAllLoaded() }
-  }, undefined, (err) => { console.error('[gltf]', entityId, err); pendingLoads.delete(entityId) })
+  }, (progress) => { if (progress.total > 0) console.log('[gltf]', url, Math.round(progress.loaded / progress.total * 100) + '%') }, (err) => { console.error('[gltf]', url, err); pendingLoads.delete(entityId) })
 }
 
 function renderAppUI(state) {
