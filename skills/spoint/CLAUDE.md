@@ -11,6 +11,14 @@ SKILL.md and CLAUDE.md MUST both be reviewed and updated whenever code changes.
 
 ---
 
+## GLB/VRM IndexedDB Model Cache
+
+`client/ModelCache.js` caches raw GLB/VRM ArrayBuffers in IndexedDB keyed by URL. On repeat page loads, a HEAD request validates the cached entry against the server ETag. If the ETag matches, the cached ArrayBuffer is returned directly, bypassing the network fetch entirely. On a miss or stale entry, the full GET response is streamed, stored in IndexedDB, and returned.
+
+`fetchCached(url, onProgress)` is used by `LoadingManager.fetchWithProgress` (for the player VRM) and by `loadEntityModel` in `app.js` (for environment GLBs). `gltfLoader.load(url)` has been replaced with `fetchCached(url).then(buf => gltfLoader.parse(...))` so the parse path is the same whether data comes from network or cache.
+
+Cache failures (IndexedDB unavailable, quota exceeded) are silently caught; the code falls back to a normal fetch transparently.
+
 ## Animation Library Global Cache
 
 `loadAnimationLibrary()` in `client/animation.js` uses a module-level cache (`_animLibCache`, `_animLibPromise`). The first call loads `/anim-lib.glb` and stores the result. All subsequent calls return the cached value immediately. The cache prevents loading the library once per connecting player - it is now loaded once globally. `initAssets` in `client/app.js` kicks off the library load in parallel with the VRM download so both complete concurrently.

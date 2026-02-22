@@ -1,3 +1,5 @@
+import { fetchCached } from './ModelCache.js'
+
 export class LoadingManager extends EventTarget {
   static STAGES = {
     CONNECTING: { name: 'CONNECTING', label: 'Connecting...', range: [0, 10] },
@@ -76,32 +78,7 @@ export class LoadingManager extends EventTarget {
 
   async fetchWithProgress(url) {
     try {
-      const response = await fetch(url)
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      const contentLength = parseInt(response.headers.get('content-length') || '0', 10)
-      const isGzip = (response.headers.get('content-encoding') || '').includes('gzip')
-      const useTotal = contentLength > 0 && !isGzip
-      const reader = response.body.getReader()
-      const chunks = []
-      let receivedLength = 0
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        chunks.push(value)
-        receivedLength += value.length
-        if (useTotal) {
-          this.updateProgress(receivedLength, contentLength)
-        }
-      }
-
-      const result = new Uint8Array(receivedLength)
-      let position = 0
-      for (const chunk of chunks) {
-        result.set(chunk, position)
-        position += chunk.length
-      }
-      return result
+      return await fetchCached(url, (received, total) => this.updateProgress(received, total))
     } catch (error) {
       console.error('[loading] fetch failed:', url, error)
       throw error
