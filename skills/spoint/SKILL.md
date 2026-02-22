@@ -103,13 +103,17 @@ Holds until all pass simultaneously: WebSocket connected, player VRM downloaded,
 
 ## Remote Models
 
-URL base: `https://raw.githubusercontent.com/anEntrypoint/assets/main/FILENAME.glb`
+URL base: `https://raw.githubusercontent.com/AnEntrypoint/assets/master/FILENAME.glb`
+
+Note: the GitHub org is `AnEntrypoint` (capital A) and branch is `master`, not `main`. Wrong case = 404.
 
 Never guess filenames — wrong URLs 404 silently.
 
-Known filenames: `broken_car_b6d2e66d_v1.glb`, `broken_car_b6d2e66d_v2.glb`, `crashed_car_f2b577ae_v1.glb`, `crashed_pickup_truck_ae555020_v1.glb`, `crashed_rusty_minivan_f872ff37_v1.glb`, `Bus_junk_1.glb`, `blue_shipping_container_60b5ea93_v1.glb`, `blue_shipping_container_63cc3905_v1.glb`, `dumpster_b076662a_v1.glb`, `dumpster_b076662a_v2.glb`, `garbage_can_6b3d052b_v1.glb`, `crushed_oil_barrel_e450f43f_v1.glb`, `fire_hydrant_ba0175c1_v1.glb`, `fire_extinguisher_wall_mounted_bc0dddd4_v1.glb`, `break_room_chair_14a39c7b_v1.glb`, `break_room_couch_444abf63_v1.glb`, `break_room_table_09b9fd0d_v1.glb`, `filing_cabinet_0194476c_v1.glb`, `fancy_reception_desk_58fde71d_v1.glb`, `cash_register_0c0dcad2_v1.glb`, `espresso_machine_e722ed8c_v1.glb`, `Couch.glb`, `Couch_2.glb`, `3chairs.glb`, `large_rock_051293c4_v1.glb`, `Tin_Man_1.glb`, `Tin_Man_2.glb`, `Plants_3.glb`, `Urinals.glb`, `V_Machine_2.glb`.
+Known filenames: `broken_car_b6d2e66d_v1.glb`, `broken_car_b6d2e66d_v2.glb`, `crashed_car_f2b577ae_v1.glb`, `crashed_pickup_truck_ae555020_v1.glb`, `crashed_rusty_minivan_f872ff37_v1.glb`, `Bus_junk_1.glb`, `blue_shipping_container_60b5ea93_v1.glb`, `blue_shipping_container_63cc3905_v1.glb`, `dumpster_b076662a_v1.glb`, `dumpster_b076662a_v2.glb`, `garbage_can_6b3d052b_v1.glb`, `garbage_can_6b3d052b_v2.glb`, `crushed_oil_barrel_e450f43f_v1.glb`, `crushed_oil_barrel_e450f43f_v2.glb`, `fire_hydrant_ba0175c1_v1.glb`, `fire_hydrant_ba0175c1_v2.glb`, `fire_extinguisher_wall_mounted_bc0dddd4_v1.glb`, `break_room_chair_14a39c7b_v1.glb`, `break_room_couch_444abf63_v1.glb`, `break_room_table_09b9fd0d_v1.glb`, `filing_cabinet_0194476c_v1.glb`, `fancy_reception_desk_58fde71d_v1.glb`, `cash_register_0c0dcad2_v1.glb`, `espresso_machine_e722ed8c_v1.glb`, `Couch.glb`, `Couch_2.glb`, `3chairs.glb`, `large_rock_051293c4_v1.glb`, `Tin_Man_1.glb`, `Tin_Man_2.glb`, `Plants_3.glb`, `Urinals.glb`, `V_Machine_2.glb`, `broken_beer_bottles_d16e9f56_v1.glb`, `broken_office_chair_1dc3c50c_v1.glb`, `broken_water_cooler_with_scattered_cups_aa26c38a_v1.glb`, `rusty_car_a9d09db5_v1.glb`, `rusty_oil_barrel_a1ef5c6b_v1.glb`, `smashed_oil_barrel_6a965a03_v1.glb`, `traffic_light_b1babccc_v1.glb`, `warehouse_crate_6e8a0927_v1.glb`, `warehouse_shelf_b7b87618_v1.glb`, `server_rack_03b09d1f_v1.glb`, `rocky_outcrop_90599d8a_v1.glb`.
 
 Remote models are not in the loading gate. Remote URLs cannot be read server-side by `addTrimeshCollider` or `addConvexFromModel` — use primitive colliders instead.
+
+**Remote model + physics pattern:** To use a remote model visually AND have server-side physics, download the GLB locally into `apps/<appname>/` and set `entity.model` to the local path (`./apps/<appname>/file.glb`). The server reads local paths; the client fetches the same path as an HTTP URL. Never set `entity.model` to an absolute filesystem path — the client will try to HTTP-fetch it and fail.
 
 ---
 
@@ -362,6 +366,8 @@ Browser console: `window.debug` — exposes `scene`, `camera`, `renderer`, `clie
 **`ctx.world.nearby()` returns entity id strings, not entity objects** — call `ctx.world.getEntity(id)` to resolve.
 
 **`render()` return value only drives `ui`** — returning position/rotation/model/custom from render is ignored.
+
+**Never use absolute filesystem paths for `entity.model`** — e.g. `C:/dev/myproject/apps/foo/bar.glb` causes the client to HTTP-fetch that string as a URL, which always fails. Always use `./apps/<appname>/file.glb` relative to project root.
 
 **No `ctx` on the client side** — client hooks receive `engine` as argument. There is no `ctx` in any client hook.
 
