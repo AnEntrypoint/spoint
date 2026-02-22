@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>Spawnpoint Editor</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+</head>
+<body>
+  <link rel="stylesheet" href="css/main.css">
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://esm.sh/three@0.171.0",
+      "three/addons/": "https://esm.sh/three@0.171.0/examples/jsm/",
+      "three/examples/": "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r171/examples/",
+      "three-gpu-pathtracer": "https://cdn.jsdelivr.net/npm/three-gpu-pathtracer@0.0.23/build/index.module.js",
+      "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.7.4/build/index.module.js"
+    }
+  }
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/gh/mrdoob/three.js@r171/examples/jsm/libs/draco/draco_encoder.js"></script>
+
+  <link rel="stylesheet" href="js/libs/codemirror/codemirror.css">
+  <link rel="stylesheet" href="js/libs/codemirror/theme/monokai.css">
+  <script src="js/libs/codemirror/codemirror.js"></script>
+  <script src="js/libs/codemirror/mode/javascript.js"></script>
+  <script src="js/libs/codemirror/mode/glsl.js"></script>
+
+  <script src="js/libs/esprima.js"></script>
+  <script src="js/libs/jsonlint.js"></script>
+
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+
+  <link rel="stylesheet" href="js/libs/codemirror/addon/dialog.css">
+  <link rel="stylesheet" href="js/libs/codemirror/addon/show-hint.css">
+  <link rel="stylesheet" href="js/libs/codemirror/addon/tern.css">
+
+  <script src="js/libs/codemirror/addon/dialog.js"></script>
+  <script src="js/libs/codemirror/addon/show-hint.js"></script>
+  <script src="js/libs/codemirror/addon/tern.js"></script>
+  <script src="js/libs/acorn/acorn.js"></script>
+  <script src="js/libs/acorn/acorn_loose.js"></script>
+  <script src="js/libs/acorn/walk.js"></script>
+  <script src="js/libs/ternjs/polyfill.js"></script>
+  <script src="js/libs/ternjs/signal.js"></script>
+  <script src="js/libs/ternjs/tern.js"></script>
+  <script src="js/libs/ternjs/def.js"></script>
+  <script src="js/libs/ternjs/comment.js"></script>
+  <script src="js/libs/ternjs/infer.js"></script>
+  <script src="js/libs/ternjs/doc_comment.js"></script>
+  <script src="js/libs/tern-threejs/threejs.js"></script>
+  <script src="js/libs/signals.min.js"></script>
+
+  <script type="module">
+    import * as THREE from 'three';
+
+    import { Editor } from './js/Editor.js';
+    import { Viewport } from './js/Viewport.js';
+    import { Toolbar } from './js/Toolbar.js';
+    import { Script } from './js/Script.js';
+    import { Player } from './js/Player.js';
+    import { Sidebar } from './js/Sidebar.js';
+    import { Menubar } from './js/Menubar.js';
+    import { Resizer } from './js/Resizer.js';
+
+    window.URL = window.URL || window.webkitURL;
+    window.BlobBuilder = window.BlobBuilder || window.WebKitBlobBuilder || window.MozBlobBuilder;
+
+    const editor = new Editor();
+    window.editor = editor;
+    window.THREE = THREE;
+
+    const viewport = new Viewport(editor);
+    document.body.appendChild(viewport.dom);
+
+    const toolbar = new Toolbar(editor);
+    document.body.appendChild(toolbar.dom);
+
+    const script = new Script(editor);
+    document.body.appendChild(script.dom);
+
+    const player = new Player(editor);
+    document.body.appendChild(player.dom);
+
+    const sidebar = new Sidebar(editor);
+    document.body.appendChild(sidebar.dom);
+
+    const menubar = new Menubar(editor);
+    document.body.appendChild(menubar.dom);
+
+    const resizer = new Resizer(editor);
+    document.body.appendChild(resizer.dom);
+
+    editor.signals.windowResize.dispatch();
+    window.addEventListener('resize', () => editor.signals.windowResize.dispatch());
+
+    import { connectEditorToGame } from './bridge.js';
+    connectEditorToGame(editor, THREE);
+  </script>
+</body>
+</html>

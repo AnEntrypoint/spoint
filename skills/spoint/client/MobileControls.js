@@ -1,0 +1,1122 @@
+import * as THREE from 'three'
+
+const isMobile = typeof window !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+
+export class MobileControls {
+  constructor(options = {}) {
+    this.enabled = isMobile || options.forceEnable
+    this.responsive = this.calculateResponsiveSizes()
+    this.layout = this.calculateLayout()
+
+    this.options = {
+      joystickRadius: this.responsive.joystickRadius,
+      joystickPosition: this.layout.moveJoystickPos,
+      lookJoystickPosition: this.layout.lookJoystickPos,
+      lookJoystickRadius: this.responsive.joystickRadius,
+      buttonSize: this.responsive.buttonSize,
+      buttonSpacing: this.responsive.spacing,
+      deadzone: 0.12,
+      movementDeadzone: 0.15,
+      rotationSensitivity: 0.003,
+      zoomSensitivity: 0.008,
+      autoShow: true,
+      ...options
+    }
+
+    this.state = {
+      move: { x: 0, y: 0 },
+      look: { x: 0, y: 0 },
+      lookDelta: { yaw: 0, pitch: 0 },
+      jump: false,
+      shoot: false,
+      reload: false,
+      sprint: false,
+      crouch: false,
+      zoom: 0,
+      zoomDelta: 0,
+      interact: false,
+      menu: false
+    }
+
+    this.moveJoystick = {
+      active: false,
+      startX: 0,
+      startY: 0,
+      currentX: 0,
+      currentY: 0,
+      touchId: null,
+      centerX: 0,
+      centerY: 0,
+      maxHoldStart: 0
+    }
+
+    this.lookJoystick = {
+      active: false,
+      startX: 0,
+      startY: 0,
+      currentX: 0,
+      currentY: 0,
+      touchId: null,
+      centerX: 0,
+      centerY: 0,
+      lastX: 0,
+      lastY: 0
+    }
+
+    this.pinch = {
+      active: false,
+      startDist: 0,
+      lastDist: 0,
+      touchIds: []
+    }
+
+    this.buttons = new Map()
+    this.activeButtons = new Map()
+    this.interactableTargets = new Map()
+    this.initialized = false
+
+    if (this.enabled) {
+      this.createUI()
+      this.setupListeners()
+      this.initialized = true
+    }
+  }
+
+  calculateResponsiveSizes() {
+    const w = window.innerWidth
+    const h = window.innerHeight
+    const minDim = Math.min(w, h)
+    const diagonal = Math.sqrt(w * w + h * h)
+    const isPortrait = h > w
+    const isTablet = diagonal > 600
+
+    let baseUnit = minDim / 360
+    baseUnit = Math.max(0.7, Math.min(1.2, baseUnit))
+
+    let joystickRadius = 45 * baseUnit
+    if (isTablet && isPortrait) joystickRadius *= 1.05
+
+    let buttonSize = 44 * baseUnit
+    let primaryButtonSize = 54 * baseUnit
+
+    let spacing = Math.max(6, 8 * baseUnit)
+    let edgeMargin = Math.max(10, 14 * baseUnit)
+    let bottomMargin = Math.max(20, 40 * baseUnit)
+    let buttonAreaGap = Math.max(10, 12 * baseUnit)
+
+    return {
+      joystickRadius,
+      buttonSize,
+      primaryButtonSize,
+      spacing,
+      edgeMargin,
+      bottomMargin,
+      buttonAreaGap,
+      baseUnit,
+      isPortrait,
+      isTablet,
+      viewport: { w, h, diagonal }
+    }
+  }
+
+  calculateLayout() {
+    const w = this.responsive.viewport.w
+    const h = this.responsive.viewport.h
+    const margin = this.responsive.edgeMargin
+    const bottomMargin = this.responsive.bottomMargin
+    const joystickRadius = this.responsive.joystickRadius
+    const joystickDiameter = joystickRadius * 2
+    const buttonSize = this.responsive.buttonSize
+    const spacing = this.responsive.spacing
+
+    const moveJoystickPos = {
+      x: margin,
+      y: -bottomMargin - joystickDiameter / 2
+    }
+
+    const moveLeft = margin + 80
+    const moveBottom = bottomMargin + joystickDiameter / 2
+
+    const buttonAreaWidth = buttonSize * 3 + spacing * 4
+    const buttonsRightOffset = Math.max(10, margin)
+    const buttonsBottomOffset = bottomMargin + 60
+
+    const lookRight = Math.min(350, w * 0.25)
+    const lookBottom = bottomMargin + joystickDiameter / 2 + 20
+
+    const lookJoystickPos = {
+      x: w - lookRight - joystickDiameter,
+      y: -lookBottom
+    }
+
+    return {
+      moveJoystickPos,
+      lookJoystickPos,
+      moveLeft,
+      moveBottom,
+      lookRight,
+      lookBottom,
+      buttonsBottomOffset,
+      buttonsRightOffset,
+      buttonAreaWidth,
+      w,
+      h
+    }
+  }
+
+  createUI() {
+    this.container = document.createElement('div')
+    this.container.id = 'mobile-controls'
+    this.container.style.cssText = `
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      pointer-events: none;
+      z-index: 9999;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      overflow: hidden;
+    `
+
+    this.createStyle()
+    this.createMovementJoystick()
+    this.createLookJoystick()
+    this.createActionButtons()
+    this.createZoomControls()
+    this.createTopBar()
+
+    document.body.appendChild(this.container)
+    this.updateJoystickPositions()
+  }
+
+  createStyle() {
+    const style = document.createElement('style')
+    style.id = 'mobile-controls-style'
+    style.textContent = `
+      @keyframes buttonPulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(0.92); }
+        100% { transform: scale(1); }
+      }
+      @keyframes joyGlow {
+        0% { box-shadow: 0 0 15px rgba(100, 200, 255, 0.4), inset 0 0 20px rgba(100, 200, 255, 0.1); }
+        100% { box-shadow: 0 0 25px rgba(100, 200, 255, 0.6), inset 0 0 30px rgba(100, 200, 255, 0.2); }
+      }
+      @keyframes joyGlowLook {
+        0% { box-shadow: 0 0 15px rgba(255, 150, 100, 0.4), inset 0 0 20px rgba(255, 150, 100, 0.1); }
+        100% { box-shadow: 0 0 25px rgba(255, 150, 100, 0.6), inset 0 0 30px rgba(255, 150, 100, 0.2); }
+      }
+      @keyframes fadeIn {
+        from { opacity: 0; transform: scale(0.9); }
+        to { opacity: 1; transform: scale(1); }
+      }
+      .mobile-joystick-container {
+        position: absolute;
+        pointer-events: auto;
+        touch-action: none;
+        opacity: 0;
+        animation: fadeIn 0.4s ease-out forwards;
+        animation-delay: 0.1s;
+      }
+      .mobile-joystick-base {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        border-radius: 50%;
+        background: radial-gradient(circle at 30% 30%, rgba(60, 80, 100, 0.5), rgba(20, 30, 40, 0.7));
+        border: 2px solid rgba(150, 200, 255, 0.25);
+        box-shadow: 
+          0 4px 20px rgba(0, 0, 0, 0.4),
+          inset 0 2px 10px rgba(255, 255, 255, 0.05);
+        transition: border-color 0.15s, box-shadow 0.15s;
+      }
+      .mobile-joystick-base.active {
+        border-color: rgba(100, 200, 255, 0.6);
+        animation: joyGlow 1.5s ease-in-out infinite;
+      }
+      .mobile-joystick-base.look-active {
+        border-color: rgba(255, 180, 100, 0.6);
+        animation: joyGlowLook 1.5s ease-in-out infinite;
+      }
+      .mobile-joystick-knob {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 35% 35%, rgba(180, 200, 220, 0.6), rgba(100, 130, 160, 0.5));
+        border: 2px solid rgba(200, 220, 255, 0.4);
+        transform: translate(-50%, -50%);
+        box-shadow: 
+          0 3px 12px rgba(0, 0, 0, 0.3),
+          inset 0 2px 6px rgba(255, 255, 255, 0.2);
+        transition: transform 0.05s ease-out, background 0.1s;
+      }
+      .mobile-joystick-knob.active {
+        background: radial-gradient(circle at 35% 35%, rgba(120, 220, 255, 0.7), rgba(60, 150, 200, 0.6));
+        border-color: rgba(150, 220, 255, 0.7);
+      }
+      .mobile-joystick-knob.look-active {
+        background: radial-gradient(circle at 35% 35%, rgba(255, 180, 120, 0.7), rgba(200, 120, 60, 0.6));
+        border-color: rgba(255, 200, 150, 0.7);
+      }
+      .mobile-joystick-directions {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        opacity: 0.3;
+      }
+      .mobile-joystick-directions span {
+        position: absolute;
+        font-size: 10px;
+        color: rgba(200, 220, 255, 0.6);
+        font-weight: 600;
+      }
+      .mobile-joystick-directions .dir-up { top: 8px; left: 50%; transform: translateX(-50%); }
+      .mobile-joystick-directions .dir-down { bottom: 8px; left: 50%; transform: translateX(-50%); }
+      .mobile-joystick-directions .dir-left { left: 8px; top: 50%; transform: translateY(-50%); }
+      .mobile-joystick-directions .dir-right { right: 8px; top: 50%; transform: translateY(-50%); }
+      
+      .mobile-buttons-container {
+        position: absolute;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 10px;
+        padding: 0;
+        pointer-events: auto;
+        opacity: 0;
+        animation: fadeIn 0.4s ease-out forwards;
+        animation-delay: 0.2s;
+      }
+      .mobile-button-row {
+        display: flex;
+        gap: 10px;
+        align-items: flex-end;
+      }
+      .mobile-action-btn {
+        border-radius: 50%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        font-size: 11px;
+        font-weight: 700;
+        color: rgba(255, 255, 255, 0.9);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+        cursor: pointer;
+        transition: all 0.08s ease-out;
+        border: 2px solid rgba(200, 220, 255, 0.3);
+        box-shadow:
+          0 4px 15px rgba(0, 0, 0, 0.35),
+          inset 0 1px 3px rgba(255, 255, 255, 0.15);
+        user-select: none;
+        -webkit-user-select: none;
+        touch-action: none;
+      }
+      .mobile-action-btn:active, .mobile-action-btn.active {
+        transform: scale(0.92);
+        border-color: rgba(255, 255, 255, 0.6);
+      }
+      .mobile-action-btn.primary {
+        background: linear-gradient(145deg, rgba(255, 100, 80, 0.7), rgba(200, 60, 50, 0.7));
+      }
+      .mobile-action-btn.primary:active, .mobile-action-btn.primary.active {
+        background: linear-gradient(145deg, rgba(255, 130, 100, 0.85), rgba(230, 80, 70, 0.85));
+        box-shadow: 0 2px 20px rgba(255, 100, 80, 0.5), inset 0 1px 5px rgba(255, 255, 255, 0.3);
+      }
+      .mobile-action-btn.jump {
+        background: linear-gradient(145deg, rgba(80, 200, 120, 0.65), rgba(50, 150, 80, 0.65));
+      }
+      .mobile-action-btn.jump:active, .mobile-action-btn.jump.active {
+        background: linear-gradient(145deg, rgba(100, 230, 150, 0.8), rgba(70, 180, 100, 0.8));
+        box-shadow: 0 2px 20px rgba(80, 200, 120, 0.4);
+      }
+      .mobile-action-btn.sprint {
+        background: linear-gradient(145deg, rgba(255, 200, 60, 0.65), rgba(200, 150, 30, 0.65));
+      }
+      .mobile-action-btn.sprint:active, .mobile-action-btn.sprint.active {
+        background: linear-gradient(145deg, rgba(255, 220, 100, 0.8), rgba(230, 180, 60, 0.8));
+        box-shadow: 0 2px 20px rgba(255, 200, 60, 0.4);
+      }
+      .mobile-action-btn.crouch {
+        background: linear-gradient(145deg, rgba(150, 130, 255, 0.65), rgba(100, 80, 200, 0.65));
+      }
+      .mobile-action-btn.crouch:active, .mobile-action-btn.crouch.active {
+        background: linear-gradient(145deg, rgba(180, 160, 255, 0.8), rgba(130, 110, 230, 0.8));
+        box-shadow: 0 2px 20px rgba(150, 130, 255, 0.4);
+      }
+      .mobile-action-btn.reload {
+        background: linear-gradient(145deg, rgba(100, 180, 255, 0.65), rgba(60, 130, 200, 0.65));
+      }
+      .mobile-action-btn.reload:active, .mobile-action-btn.reload.active {
+        background: linear-gradient(145deg, rgba(130, 210, 255, 0.8), rgba(90, 160, 230, 0.8));
+        box-shadow: 0 2px 20px rgba(100, 180, 255, 0.4);
+      }
+      .mobile-action-btn.weapon {
+        background: linear-gradient(145deg, rgba(255, 150, 50, 0.65), rgba(200, 100, 30, 0.65));
+      }
+      .mobile-action-btn.weapon:active, .mobile-action-btn.weapon.active {
+        background: linear-gradient(145deg, rgba(255, 180, 100, 0.8), rgba(230, 130, 60, 0.8));
+        box-shadow: 0 2px 20px rgba(255, 150, 50, 0.4);
+      }
+      .mobile-action-btn .btn-icon {
+        font-size: 18px;
+        line-height: 1;
+      }
+      .mobile-action-btn .btn-label {
+        font-size: 9px;
+        opacity: 0.8;
+        margin-top: 2px;
+      }
+      .mobile-action-btn.large {
+      }
+      .mobile-action-btn.large .btn-icon {
+        font-size: 24px;
+      }
+      
+      .mobile-zoom-controls {
+        position: absolute;
+        display: flex;
+        flex-direction: row;
+        gap: 8px;
+        pointer-events: auto;
+        opacity: 0;
+        animation: fadeIn 0.4s ease-out forwards;
+        animation-delay: 0.25s;
+      }
+      .mobile-zoom-btn {
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(40, 50, 60, 0.75);
+        border: 2px solid rgba(150, 200, 255, 0.25);
+        color: rgba(200, 220, 255, 0.8);
+        font-size: 20px;
+        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.3);
+        transition: all 0.1s ease-out;
+      }
+      .mobile-zoom-btn:active {
+        background: rgba(60, 80, 100, 0.85);
+        border-color: rgba(150, 200, 255, 0.5);
+        transform: scale(0.92);
+      }
+      
+      .mobile-top-bar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 20px;
+        background: linear-gradient(to bottom, rgba(0, 0, 0, 0.4), transparent);
+        pointer-events: none;
+        opacity: 0;
+        animation: fadeIn 0.4s ease-out forwards;
+      }
+      .mobile-joystick-label {
+        position: absolute;
+        bottom: -24px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 10px;
+        color: rgba(200, 220, 255, 0.5);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        white-space: nowrap;
+      }
+      
+      .mobile-interact-btn {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 10px 24px;
+        border-radius: 24px;
+        background: rgba(80, 200, 150, 0.7);
+        border: 2px solid rgba(150, 255, 200, 0.4);
+        color: white;
+        font-size: 13px;
+        font-weight: 600;
+        pointer-events: auto;
+        opacity: 0;
+        animation: fadeIn 0.4s ease-out forwards;
+        animation-delay: 0.3s;
+        box-shadow: 0 4px 20px rgba(80, 200, 150, 0.3);
+        transition: all 0.1s ease-out;
+      }
+      .mobile-interact-btn:active {
+        transform: translateX(-50%) scale(0.95);
+        background: rgba(100, 220, 170, 0.85);
+      }
+    `
+    document.head.appendChild(style)
+  }
+
+  createMovementJoystick() {
+    const joystickRadius = this.responsive.joystickRadius
+    const joystickDiameter = joystickRadius * 2
+    const moveLeft = this.layout.moveLeft
+    const moveBottom = this.layout.moveBottom
+
+    this.moveJoystickContainer = document.createElement('div')
+    this.moveJoystickContainer.className = 'mobile-joystick-container'
+    this.moveJoystickContainer.id = 'move-joystick'
+    this.moveJoystickContainer.style.cssText = `
+      left: ${moveLeft}px;
+      bottom: ${moveBottom}px;
+      width: ${joystickDiameter}px;
+      height: ${joystickDiameter}px;
+    `
+
+    const base = document.createElement('div')
+    base.className = 'mobile-joystick-base'
+    base.id = 'move-joystick-base'
+
+    const directions = document.createElement('div')
+    directions.className = 'mobile-joystick-directions'
+    directions.innerHTML = `
+      <span class="dir-up">W</span>
+      <span class="dir-down">S</span>
+      <span class="dir-left">A</span>
+      <span class="dir-right">D</span>
+    `
+
+    this.moveJoystickKnob = document.createElement('div')
+    this.moveJoystickKnob.className = 'mobile-joystick-knob'
+    this.moveJoystickKnob.id = 'move-joystick-knob'
+
+    const label = document.createElement('div')
+    label.className = 'mobile-joystick-label'
+    label.textContent = 'MOVE'
+
+    base.appendChild(directions)
+    this.moveJoystickContainer.appendChild(base)
+    this.moveJoystickContainer.appendChild(this.moveJoystickKnob)
+    this.moveJoystickContainer.appendChild(label)
+    this.container.appendChild(this.moveJoystickContainer)
+
+    this.moveJoystick.dynamicPosition = true
+  }
+
+  createLookJoystick() {
+    const margin = this.responsive.edgeMargin
+    const bottomMargin = this.responsive.bottomMargin
+    const joystickRadius = this.responsive.joystickRadius
+    const joystickDiameter = joystickRadius * 2
+    const lookRight = this.layout.lookRight
+    const lookBottom = this.layout.lookBottom
+
+    this.lookJoystickContainer = document.createElement('div')
+    this.lookJoystickContainer.className = 'mobile-joystick-container'
+    this.lookJoystickContainer.id = 'look-joystick'
+    this.lookJoystickContainer.style.cssText = `
+      right: ${lookRight}px;
+      bottom: ${lookBottom}px;
+      width: ${joystickDiameter}px;
+      height: ${joystickDiameter}px;
+    `
+
+    const base = document.createElement('div')
+    base.className = 'mobile-joystick-base'
+    base.id = 'look-joystick-base'
+
+    const directions = document.createElement('div')
+    directions.className = 'mobile-joystick-directions'
+    directions.innerHTML = `
+      <span class="dir-up">↑</span>
+      <span class="dir-down">↓</span>
+      <span class="dir-left">←</span>
+      <span class="dir-right">→</span>
+    `
+
+    this.lookJoystickKnob = document.createElement('div')
+    this.lookJoystickKnob.className = 'mobile-joystick-knob'
+    this.lookJoystickKnob.id = 'look-joystick-knob'
+
+    const label = document.createElement('div')
+    label.className = 'mobile-joystick-label'
+    label.textContent = 'LOOK'
+
+    base.appendChild(directions)
+    this.lookJoystickContainer.appendChild(base)
+    this.lookJoystickContainer.appendChild(this.lookJoystickKnob)
+    this.lookJoystickContainer.appendChild(label)
+    this.container.appendChild(this.lookJoystickContainer)
+  }
+
+  createActionButtons() {
+    this.buttonsContainer = document.createElement('div')
+    this.buttonsContainer.style.cssText = `
+      position: absolute;
+      bottom: ${this.layout.buttonsBottomOffset}px;
+      right: ${this.layout.buttonsRightOffset}px;
+      pointer-events: auto;
+      z-index: 9999;
+    `
+
+    const diamondContainer = document.createElement('div')
+    diamondContainer.style.cssText = `
+      display: grid !important;
+      grid-template-columns: repeat(3, auto);
+      grid-template-rows: repeat(3, auto);
+      gap: 12px;
+      align-items: center;
+      justify-items: center;
+      width: auto;
+      height: auto;
+    `
+
+    const jumpBtn = this.createActionButton('jump', 'A', 'JUMP', 'jump')
+    jumpBtn.style.cssText += '; grid-column: 2; grid-row: 3;'
+
+    const crouchBtn = this.createActionButton('crouch', 'X', 'CROUCH', 'crouch')
+    crouchBtn.style.cssText += '; grid-column: 1; grid-row: 2;'
+
+    const shootBtn = this.createActionButton('shoot', 'B', 'SHOOT', 'weapon')
+    shootBtn.style.cssText += '; grid-column: 3; grid-row: 2;'
+
+    const useBtn = this.createActionButton('use', 'Y', 'RELOAD', 'reload', 'reload')
+    useBtn.style.cssText += '; grid-column: 2; grid-row: 1;'
+    this.useBtn = useBtn
+
+    diamondContainer.appendChild(crouchBtn)
+    diamondContainer.appendChild(jumpBtn)
+    diamondContainer.appendChild(useBtn)
+    diamondContainer.appendChild(shootBtn)
+
+    this.buttonsContainer.appendChild(diamondContainer)
+    this.container.appendChild(this.buttonsContainer)
+  }
+
+  updateUseButton() {
+    const hasInteractables = this.interactableTargets.size > 0
+    if (!this.useBtn) return
+
+    const label = hasInteractables ? 'USE' : 'RELOAD'
+    const action = hasInteractables ? 'interact' : 'reload'
+
+    this.useBtn.dataset.action = action
+    this.useBtn.className = `mobile-action-btn ${action}`
+    const labelSpan = this.useBtn.querySelector('.btn-label')
+    if (labelSpan) labelSpan.textContent = label
+  }
+
+  registerInteractable(id, label = 'INTERACT') {
+    if (this.interactableTargets.has(id)) return
+    this.interactableTargets.set(id, label)
+    this.updateUseButton()
+  }
+
+  unregisterInteractable(id) {
+    this.interactableTargets.delete(id)
+    this.updateUseButton()
+  }
+
+  createActionButton(id, icon, label, className, action) {
+    const btn = document.createElement('div')
+    btn.className = `mobile-action-btn ${className}`
+    btn.dataset.action = action || id
+
+    const isPrimary = className.includes('primary')
+    const size = isPrimary ? this.responsive.primaryButtonSize : this.responsive.buttonSize
+    btn.style.cssText = `width: ${size}px; height: ${size}px;`
+
+    const iconSpan = document.createElement('span')
+    iconSpan.className = 'btn-icon'
+    iconSpan.textContent = icon
+
+    const labelSpan = document.createElement('span')
+    labelSpan.className = 'btn-label'
+    labelSpan.textContent = label
+
+    btn.appendChild(iconSpan)
+    btn.appendChild(labelSpan)
+
+    this.buttons.set(id, btn)
+    return btn
+  }
+
+  createZoomControls() {
+    this.zoomContainer = document.createElement('div')
+    this.zoomContainer.className = 'mobile-zoom-controls'
+    const zoomRight = this.layout.lookRight + this.responsive.joystickRadius
+    this.zoomContainer.style.cssText = `bottom: ${this.responsive.bottomMargin}px; right: ${zoomRight}px; transform: translateX(50%);`
+
+    const zoomSize = Math.max(40, this.responsive.buttonSize * 0.8)
+
+    const zoomInBtn = document.createElement('div')
+    zoomInBtn.className = 'mobile-zoom-btn'
+    zoomInBtn.textContent = '+'
+    zoomInBtn.dataset.action = 'zoomIn'
+    zoomInBtn.style.cssText = `width: ${zoomSize}px; height: ${zoomSize}px;`
+
+    const zoomOutBtn = document.createElement('div')
+    zoomOutBtn.className = 'mobile-zoom-btn'
+    zoomOutBtn.textContent = '−'
+    zoomOutBtn.dataset.action = 'zoomOut'
+    zoomOutBtn.style.cssText = `width: ${zoomSize}px; height: ${zoomSize}px;`
+
+    this.zoomContainer.appendChild(zoomInBtn)
+    this.zoomContainer.appendChild(zoomOutBtn)
+    this.container.appendChild(this.zoomContainer)
+
+    this.zoomButtons = { zoomIn: zoomInBtn, zoomOut: zoomOutBtn }
+    this.buttons.set('zoomIn', zoomInBtn)
+    this.buttons.set('zoomOut', zoomOutBtn)
+  }
+
+  createTopBar() {
+    this.topBar = document.createElement('div')
+    this.topBar.className = 'mobile-top-bar'
+    this.container.appendChild(this.topBar)
+  }
+
+  updateJoystickPositions() {
+    this.responsive = this.calculateResponsiveSizes()
+    this.layout = this.calculateLayout()
+
+    const screenHeight = this.layout.h
+    const screenWidth = this.layout.w
+    const joystickRadius = this.responsive.joystickRadius
+    const joystickDiameter = joystickRadius * 2
+
+    const moveLeft = this.layout.moveLeft
+    const moveBottom = this.layout.moveBottom
+    const lookBottom = this.layout.lookBottom
+    const lookRight = this.layout.lookRight
+
+    if (this.moveJoystickContainer) {
+      this.moveJoystickContainer.style.left = `${moveLeft}px`
+      this.moveJoystickContainer.style.bottom = `${moveBottom}px`
+      this.moveJoystickContainer.style.width = `${joystickDiameter}px`
+      this.moveJoystickContainer.style.height = `${joystickDiameter}px`
+    }
+
+    if (this.lookJoystickContainer) {
+      this.lookJoystickContainer.style.right = `${lookRight}px`
+      this.lookJoystickContainer.style.bottom = `${lookBottom}px`
+      this.lookJoystickContainer.style.width = `${joystickDiameter}px`
+      this.lookJoystickContainer.style.height = `${joystickDiameter}px`
+    }
+
+    if (this.buttonsContainer) {
+      this.buttonsContainer.style.bottom = `${this.layout.buttonsBottomOffset}px`
+      this.buttonsContainer.style.right = `${this.layout.buttonsRightOffset}px`
+    }
+
+    if (this.zoomContainer) {
+      const zoomRight = this.layout.lookRight + this.responsive.joystickRadius
+      this.zoomContainer.style.bottom = `${this.responsive.bottomMargin}px`
+      this.zoomContainer.style.right = `${zoomRight}px`
+      this.zoomContainer.style.transform = 'translateX(50%)'
+    }
+
+    this.moveJoystick.centerX = moveLeft + joystickRadius
+    this.moveJoystick.centerY = screenHeight - moveBottom - joystickRadius
+
+    this.lookJoystick.centerX = screenWidth - lookRight - joystickRadius
+    this.lookJoystick.centerY = screenHeight - lookBottom - joystickRadius
+  }
+
+  setupListeners() {
+    document.addEventListener('touchstart', this.onTouchStart.bind(this), { passive: false })
+    document.addEventListener('touchmove', this.onTouchMove.bind(this), { passive: false })
+    document.addEventListener('touchend', this.onTouchEnd.bind(this), { passive: false })
+    document.addEventListener('touchcancel', this.onTouchEnd.bind(this), { passive: false })
+
+    window.addEventListener('resize', () => {
+      this.updateJoystickPositions()
+    })
+    window.addEventListener('orientationchange', () => {
+      setTimeout(() => this.updateJoystickPositions(), 100)
+    })
+  }
+
+  isTouchOnMoveJoystick(x, y) {
+    const screenWidth = window.innerWidth
+    const screenHeight = window.innerHeight
+    // Left half of screen, excluding top area for UI
+    // Only check button overlap if touch is on the right side (where buttons are)
+    if (x >= screenWidth / 2 && this.getButtonAtPosition(x, y)) return false
+    return x < screenWidth / 2 && y > screenHeight * 0.3
+  }
+
+  isTouchOnLookJoystick(x, y) {
+    const screenWidth = window.innerWidth
+    const screenHeight = window.innerHeight
+    // Only activate look joystick if not touching a button
+    if (this.getButtonAtPosition(x, y)) return false
+    return x >= screenWidth / 2 && y > screenHeight * 0.3
+  }
+
+  getButtonAtPosition(x, y) {
+    const checkButton = (btn) => {
+      const rect = btn.getBoundingClientRect()
+      return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+    }
+
+    for (const [id, btn] of this.buttons) {
+      if (checkButton(btn)) return id
+    }
+
+    return null
+  }
+
+  onTouchStart(e) {
+    if (!this.enabled) return
+
+    for (const touch of e.changedTouches) {
+      const x = touch.clientX
+      const y = touch.clientY
+
+      if (this.isTouchOnMoveJoystick(x, y)) {
+        this.moveJoystick.active = true
+        this.moveJoystick.touchId = touch.identifier
+        this.moveJoystick.startX = x
+        this.moveJoystick.startY = y
+        this.moveJoystick.currentX = x
+        this.moveJoystick.currentY = y
+
+        // Dynamic positioning - move joystick to touch location
+        const joystickRadius = this.options.joystickRadius || 45
+        this.moveJoystickContainer.style.left = `${x - joystickRadius}px`
+        this.moveJoystickContainer.style.top = `${y - joystickRadius}px`
+        this.moveJoystickContainer.style.bottom = 'auto'
+
+        this.moveJoystick.centerX = x
+        this.moveJoystick.centerY = y
+
+        document.getElementById('move-joystick-base')?.classList.add('active')
+        this.moveJoystickKnob.classList.add('active')
+        if (e.cancelable) e.preventDefault()
+        continue
+      }
+
+      if (this.isTouchOnLookJoystick(x, y)) {
+        this.lookJoystick.active = true
+        this.lookJoystick.touchId = touch.identifier
+        this.lookJoystick.startX = x
+        this.lookJoystick.startY = y
+        this.lookJoystick.currentX = x
+        this.lookJoystick.currentY = y
+        this.lookJoystick.lastX = x
+        this.lookJoystick.lastY = y
+
+        const rect = this.lookJoystickContainer.getBoundingClientRect()
+        this.lookJoystick.centerX = rect.left + rect.width / 2
+        this.lookJoystick.centerY = rect.top + rect.height / 2
+
+        document.getElementById('look-joystick-base')?.classList.add('look-active')
+        this.lookJoystickKnob.classList.add('look-active')
+        if (e.cancelable) e.preventDefault()
+        continue
+      }
+
+      const buttonId = this.getButtonAtPosition(x, y)
+      if (buttonId) {
+        this.activeButtons.set(touch.identifier, buttonId)
+        const btn = this.buttons.get(buttonId)
+        const action = btn?.dataset?.action || buttonId
+
+        if (buttonId === 'zoomIn') {
+          this.state.zoomDelta = 1
+        } else if (buttonId === 'zoomOut') {
+          this.state.zoomDelta = -1
+        } else {
+          this.state[action] = true
+        }
+        if (btn) btn.classList.add('active')
+        if (e.cancelable) e.preventDefault()
+        continue
+      }
+
+      if (!this.moveJoystick.active && !this.pinch.active) {
+        if (this.lookJoystick.active && e.touches.length >= 2) {
+          const secondTouch = Array.from(e.touches).find(t => t.identifier !== this.lookJoystick.touchId)
+          if (secondTouch) {
+            this.pinch.active = true
+            this.pinch.touchIds = [this.lookJoystick.touchId, secondTouch.identifier]
+            this.pinch.startDist = this.getPinchDistance(e.touches)
+            this.pinch.lastDist = this.pinch.startDist
+            this.lookJoystick.active = false
+            this.lookJoystick.touchId = null
+            document.getElementById('look-joystick-base')?.classList.remove('look-active')
+            this.lookJoystickKnob.classList.remove('look-active')
+            this.lookJoystickKnob.style.transform = 'translate(-50%, -50%)'
+          }
+        } else if (!this.lookJoystick.active) {
+          if (e.touches.length >= 2) {
+            const otherTouch = Array.from(e.touches).find(t => t.identifier !== touch.identifier)
+            if (otherTouch) {
+              this.pinch.active = true
+              this.pinch.touchIds = [touch.identifier, otherTouch.identifier]
+              this.pinch.startDist = this.getPinchDistance(e.touches)
+              this.pinch.lastDist = this.pinch.startDist
+            }
+          } else {
+            this.lookJoystick.active = true
+            this.lookJoystick.touchId = touch.identifier
+            this.lookJoystick.startX = x
+            this.lookJoystick.startY = y
+            this.lookJoystick.lastX = x
+            this.lookJoystick.lastY = y
+            this.lookJoystick.centerX = x
+            this.lookJoystick.centerY = y
+
+            document.getElementById('look-joystick-base')?.classList.add('look-active')
+            this.lookJoystickKnob.classList.add('look-active')
+          }
+        }
+      }
+    }
+  }
+
+  onTouchMove(e) {
+    if (!this.enabled) return
+
+    for (const touch of e.changedTouches) {
+      const x = touch.clientX
+      const y = touch.clientY
+
+      if (this.moveJoystick.active && touch.identifier === this.moveJoystick.touchId) {
+        this.moveJoystick.currentX = x
+        this.moveJoystick.currentY = y
+
+        let dx = x - this.moveJoystick.centerX
+        let dy = y - this.moveJoystick.centerY
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        const maxDist = this.options.joystickRadius
+
+        const normalizedDist = Math.min(dist / maxDist, 1)
+        if (normalizedDist > 0.85) {
+          if (!this.moveJoystick.maxHoldStart) {
+            this.moveJoystick.maxHoldStart = Date.now()
+          } else if (Date.now() - this.moveJoystick.maxHoldStart > 420) {
+            this.state.sprint = true
+          }
+        } else {
+          this.moveJoystick.maxHoldStart = 0
+          this.state.sprint = false
+        }
+
+        if (dist > maxDist) {
+          dx = (dx / dist) * maxDist
+          dy = (dy / dist) * maxDist
+        }
+
+        this.moveJoystickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`
+
+        const deadzone = this.options.movementDeadzone
+        if (normalizedDist < deadzone) {
+          this.state.move.x = 0
+          this.state.move.y = 0
+        } else {
+          const scale = (normalizedDist - deadzone) / (1 - deadzone)
+          this.state.move.x = (dx / maxDist) * scale
+          this.state.move.y = (dy / maxDist) * scale
+        }
+        if (e.cancelable) e.preventDefault()
+      }
+
+      if (this.lookJoystick.active && touch.identifier === this.lookJoystick.touchId) {
+        const dx = x - this.lookJoystick.lastX
+        const dy = y - this.lookJoystick.lastY
+
+        this.state.lookDelta.yaw -= dx * this.options.rotationSensitivity
+        this.state.lookDelta.pitch -= dy * this.options.rotationSensitivity
+        this.state.lookDelta.pitch = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, this.state.lookDelta.pitch))
+
+        let lx = x - this.lookJoystick.centerX
+        let ly = y - this.lookJoystick.centerY
+        const lookDist = Math.sqrt(lx * lx + ly * ly)
+        const lookMaxDist = this.options.lookJoystickRadius
+
+        if (lookDist > lookMaxDist) {
+          lx = (lx / lookDist) * lookMaxDist
+          ly = (ly / lookDist) * lookMaxDist
+        }
+
+        this.lookJoystickKnob.style.transform = `translate(calc(-50% + ${lx}px), calc(-50% + ${ly}px))`
+
+        this.lookJoystick.lastX = x
+        this.lookJoystick.lastY = y
+        if (e.cancelable) e.preventDefault()
+      }
+    }
+
+    if (this.pinch.active && e.touches.length >= 2) {
+      const dist = this.getPinchDistance(e.touches)
+      const delta = dist - this.pinch.lastDist
+      if (Math.abs(delta) > 5) {
+        this.state.zoomDelta = delta > 0 ? 1 : -1
+      }
+      this.pinch.lastDist = dist
+      if (e.cancelable) e.preventDefault()
+    }
+
+    for (const [touchId, buttonId] of this.activeButtons) {
+      if (buttonId === 'zoomIn') {
+        this.state.zoomDelta = 1
+      } else if (buttonId === 'zoomOut') {
+        this.state.zoomDelta = -1
+      }
+    }
+  }
+
+  onTouchEnd(e) {
+    if (!this.enabled) return
+
+    for (const touch of e.changedTouches) {
+      if (this.moveJoystick.active && touch.identifier === this.moveJoystick.touchId) {
+        this.moveJoystick.active = false
+        this.moveJoystick.touchId = null
+        this.moveJoystick.maxHoldStart = 0
+        this.state.move.x = 0
+        this.state.move.y = 0
+        this.state.sprint = false
+        this.moveJoystickKnob.style.transform = 'translate(-50%, -50%)'
+        this.moveJoystickKnob.classList.remove('active')
+        document.getElementById('move-joystick-base')?.classList.remove('active')
+        // Reset position to default
+        this.moveJoystickContainer.style.left = `${this.layout.moveLeft}px`
+        this.moveJoystickContainer.style.bottom = `${this.layout.moveBottom}px`
+        this.moveJoystickContainer.style.top = 'auto'
+      }
+
+      if (this.lookJoystick.active && touch.identifier === this.lookJoystick.touchId) {
+        this.lookJoystick.active = false
+        this.lookJoystick.touchId = null
+        this.lookJoystickKnob.style.transform = 'translate(-50%, -50%)'
+        this.lookJoystickKnob.classList.remove('active')
+        document.getElementById('look-joystick-base')?.classList.remove('look-active')
+      }
+
+      if (this.pinch.active) {
+        const idx = this.pinch.touchIds.indexOf(touch.identifier)
+        if (idx !== -1) {
+          this.pinch.touchIds.splice(idx, 1)
+        }
+        if (this.pinch.touchIds.length < 2) {
+          this.pinch.active = false
+        }
+      }
+
+      const activeButton = this.activeButtons.get(touch.identifier)
+      if (activeButton) {
+        const btn = this.buttons.get(activeButton)
+        const action = btn?.dataset?.action || activeButton
+        this.state[action] = false
+        if (btn) btn.classList.remove('active')
+        this.activeButtons.delete(touch.identifier)
+      }
+    }
+  }
+
+  getPinchDistance(touches) {
+    const touchArray = Array.from(touches)
+    if (touchArray.length < 2) return 0
+    const dx = touchArray[0].clientX - touchArray[1].clientX
+    const dy = touchArray[0].clientY - touchArray[1].clientY
+    return Math.sqrt(dx * dx + dy * dy)
+  }
+
+  getInput() {
+    if (!this.enabled) return null
+
+    const move = this.state.move
+    const deadzone = 0.3
+
+    return {
+      forward: move.y < -deadzone,
+      backward: move.y > deadzone,
+      left: move.x < -deadzone,
+      right: move.x > deadzone,
+      jump: this.state.jump,
+      shoot: this.state.shoot,
+      reload: this.state.reload,
+      sprint: this.state.sprint,
+      crouch: this.state.crouch,
+      yaw: this.state.lookDelta.yaw,
+      pitch: this.state.lookDelta.pitch,
+      zoom: this.state.zoomDelta,
+      resetZoom: () => { this.state.zoomDelta = 0 },
+      moveX: move.x,
+      moveY: move.y,
+      mouseX: 0,
+      mouseY: 0,
+      interact: this.state.interact,
+      analogForward: move.y,
+      analogRight: move.x
+    }
+  }
+
+  hasInteraction() {
+    return this.moveJoystick.active ||
+      this.lookJoystick.active ||
+      this.pinch.active ||
+      this.state.jump ||
+      this.state.shoot ||
+      this.state.reload ||
+      this.state.sprint ||
+      this.state.crouch ||
+      this.state.interact ||
+      this.state.zoomDelta !== 0
+  }
+
+  resetLookDelta() {
+    this.state.lookDelta.yaw = 0
+    this.state.lookDelta.pitch = 0
+  }
+
+  setEnabled(enabled) {
+    this.enabled = enabled && (isMobile || this.options.forceEnable)
+    if (this.container) {
+      this.container.style.display = this.enabled ? 'block' : 'none'
+    }
+  }
+
+  show() {
+    if (this.container) {
+      this.container.style.display = 'block'
+    }
+  }
+
+  hide() {
+    if (this.container) {
+      this.container.style.display = 'none'
+    }
+  }
+
+  dispose() {
+    if (this.container) {
+      this.container.remove()
+      this.container = null
+    }
+    const style = document.getElementById('mobile-controls-style')
+    if (style) style.remove()
+
+    document.removeEventListener('touchstart', this.onTouchStart)
+    document.removeEventListener('touchmove', this.onTouchMove)
+    document.removeEventListener('touchend', this.onTouchEnd)
+    document.removeEventListener('touchcancel', this.onTouchEnd)
+    window.removeEventListener('resize', this.updateJoystickPositions)
+  }
+}
+
+export function detectDevice() {
+  return {
+    isMobile,
+    isDesktop: !isMobile,
+    hasGamepad: typeof navigator !== 'undefined' && 'getGamepads' in navigator
+  }
+}
