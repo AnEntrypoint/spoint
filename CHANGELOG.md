@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.15](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.14...v0.1.15) (2026-02-22)
+
+
+### Bug Fixes
+
+* install spoint skill for all agents at project level on scaffold ([a285875](https://github.com/AnEntrypoint/spawnpoint/commit/a2858755e6505d8a932a000a9b1569f8527d3cb1))
+
 ### [0.1.14](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.13...v0.1.14) (2026-02-22)
 
 
