@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.34](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.33...v0.1.34) (2026-02-22)
+
+
+### Bug Fixes
+
+* remove missing Cleetus.vrm reference, add initAssets error recovery, sync THREE.Cache to skills ([fc2d0a7](https://github.com/AnEntrypoint/spawnpoint/commit/fc2d0a7c778771a3d3698c291c1d2ce064ada548))
+
 ### [0.1.33](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.32...v0.1.33) (2026-02-22)
 
 
