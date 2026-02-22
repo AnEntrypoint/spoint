@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.10](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.9...v0.1.10) (2026-02-22)
+
+
+### Bug Fixes
+
+* use fetch-depth 0 in publish workflow for tag checkout compatibility ([d59077b](https://github.com/AnEntrypoint/spawnpoint/commit/d59077bf5c0f8b994723c390ec553e6c28054b8c))
+
 ### [0.1.9](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.8...v0.1.9) (2026-02-22)
 
 
