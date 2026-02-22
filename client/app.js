@@ -659,7 +659,7 @@ scene.add(ground)
 
 const gltfLoader = new GLTFLoader()
 const dracoLoader = new DRACOLoader()
-dracoLoader.setDecoderPath('https://esm.sh/v135/three@0.171.0/examples/jsm/libs/draco/')
+dracoLoader.setDecoderPath('/draco/')
 gltfLoader.setDRACOLoader(dracoLoader)
 gltfLoader.register((parser) => new VRMLoaderPlugin(parser))
 const playerMeshes = new Map()
