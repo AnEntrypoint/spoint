@@ -999,11 +999,30 @@ function renderAppUI(state) {
       if (result?.ui) uiFragments.push({ id: entity.id, ui: result.ui })
     } catch (e) { console.error('[ui]', entity.id, e.message) }
   }
-const hudVdom = createElement('div', { id: 'hud' },
+  const interactPrompt = _buildInteractPrompt(state)
+  const hudVdom = createElement('div', { id: 'hud' },
     createElement('div', { id: 'info' }, `FPS: ${fpsDisplay} | Players: ${state.players.length} | Tick: ${client.currentTick} | RTT: ${Math.round(client.getRTT())}ms | Buf: ${client.getBufferHealth()}`),
-    ...uiFragments.map(f => createElement('div', { 'data-app': f.id }, f.ui))
+    ...uiFragments.map(f => createElement('div', { 'data-app': f.id }, f.ui)),
+    interactPrompt
   )
   try { applyDiff(uiRoot, hudVdom) } catch (e) { console.error('[ui] diff:', e.message) }
+}
+
+function _buildInteractPrompt(state) {
+  const local = state.players.find(p => p.id === client.playerId)
+  if (!local?.position) return null
+  const lx = local.position[0], ly = local.position[1], lz = local.position[2]
+  for (const entity of state.entities) {
+    const cfg = entity.custom?._interactable
+    if (!cfg || !entity.position) continue
+    const dx = entity.position[0] - lx, dy = entity.position[1] - ly, dz = entity.position[2] - lz
+    if (dx * dx + dy * dy + dz * dz < cfg.radius * cfg.radius) {
+      return createElement('div', {
+        style: 'position:fixed;bottom:40%;left:50%;transform:translateX(-50%);color:#fff;background:rgba(0,0,0,0.7);padding:8px 16px;border-radius:8px;pointer-events:none'
+      }, cfg.prompt)
+    }
+  }
+  return null
 }
 
 const client = new PhysicsNetworkClient({

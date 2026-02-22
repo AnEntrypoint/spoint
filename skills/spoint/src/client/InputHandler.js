@@ -18,6 +18,8 @@ export class InputHandler {
     this.menuCooldown = false
     this.mobileControls = null
     this.mobileInput = null
+    this._editActive = false
+    this._pWasDown = false
     this.editModeCooldown = false
     this.lastEditModeToggle = 0
 
@@ -123,12 +125,12 @@ export class InputHandler {
 
     const now = Date.now()
     const pPressed = this.keys.get('p') || false
-    if (pPressed && !this.editModeCooldown && now - this.lastEditModeToggle > 200) {
-      this.editModeCooldown = true
+    if (pPressed && !this._pWasDown && now - this.lastEditModeToggle > 200) {
+      this._editActive = !this._editActive
       this.lastEditModeToggle = now
-    } else if (!pPressed) {
-      this.editModeCooldown = false
     }
+    this._pWasDown = pPressed
+    this.editModeCooldown = this._editActive
 
     return {
       forward: this.keys.get('w') || this.keys.get('arrowup') || false,
@@ -140,6 +142,7 @@ export class InputHandler {
       crouch: this.keys.get('c') || this.keys.get('control') || false,
       shoot: this.mouseDown,
       reload: this.keys.get('r') || false,
+      interact: this.keys.get('e') || false,
       editToggle: this.editModeCooldown,
       mouseX: this.mouseX,
       mouseY: this.mouseY

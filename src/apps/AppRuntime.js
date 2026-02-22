@@ -194,7 +194,8 @@ export class AppRuntime {
         if (dx*dx+dy*dy+dz*dz > e._interactRadius**2) continue
         const key = `${e.id}:${p.id}`
         const last = this._interactCooldowns.get(key) || 0
-        if (p.lastInput?.interact && now - last > 500) {
+        const cooldown = e._interactCooldown ?? 500
+        if (p.lastInput?.interact && now - last > cooldown) {
           this._interactCooldowns.set(key, now)
           this.fireEvent(e.id, 'onInteract', p)
           const bus = this._eventBus.scope ? this._eventBus : null

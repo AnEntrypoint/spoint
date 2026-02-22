@@ -21,6 +21,18 @@ SKILL.md and CLAUDE.md MUST both be reviewed and updated whenever code changes.
 
 Cache failures (IndexedDB unavailable, quota exceeded) are silently caught; the code falls back to a normal fetch transparently.
 
+## Engine-Level Interactable System
+
+`ctx.interactable({ prompt, radius, cooldown })` in `AppContext.js` is the unified interactable API. It sets `ent._interactable=true`, `ent._interactRadius`, `ent._interactCooldown`, and writes `ent.custom._interactable = { prompt, radius }` into the entity's custom data so the client snapshot carries the config.
+
+`_tickInteractables()` in `AppRuntime.js` runs every tick: for each entity with `_interactable=true`, it checks all players within `_interactRadius`. If a player's `lastInput.interact` is true and the per-player-per-entity cooldown has elapsed, it fires `onInteract(ctx, player)` on that entity's app. Cooldown defaults to 500ms if `_interactCooldown` is not set.
+
+`_buildInteractPrompt(state)` in `client/app.js` runs inside `renderAppUI()` on the client. It iterates all entities in the snapshot, finds the first with `custom._interactable` where the local player is within `cfg.radius`, and renders the prompt string as a fixed HUD element. No app client code is needed for basic prompts.
+
+`InputHandler.getInput()` in `src/client/InputHandler.js` now includes `interact: this.keys.get('e') || false` in the keyboard path. The E key fires the interact signal. Mobile/VR paths already had `interact` support.
+
+Apps that previously used `ctx.physics.setInteractable(radius)` + manual proximity polling in `ctx.time.every()` should migrate to `ctx.interactable()` + `onInteract` callback. The old `ctx.physics.setInteractable()` method still works for backwards compatibility (it sets the same `_interactable` and `_interactRadius` flags) but does not set the prompt or write `custom._interactable`, so the engine client prompt won't appear.
+
 ## Animation Library Global Cache
 
 `loadAnimationLibrary()` in `client/animation.js` uses a module-level cache (`_animLibCache`, `_animLibPromise`). The first call loads `/anim-lib.glb` and stores the result. All subsequent calls return the cached value immediately. The cache prevents loading the library once per connecting player - it is now loaded once globally. `initAssets` in `client/app.js` kicks off the library load in parallel with the VRM download so both complete concurrently.

@@ -173,6 +173,18 @@ export class AppContext {
 
   get debug() { return this._debugger }
 
+  interactable(config = {}) {
+    const ent = this._entity
+    const radius = config.radius ?? 3
+    const prompt = config.prompt ?? 'Press E'
+    const cooldown = config.cooldown ?? 500
+    ent._interactable = true
+    ent._interactRadius = radius
+    ent._interactCooldown = cooldown
+    if (!ent.custom) ent.custom = {}
+    ent.custom._interactable = { prompt, radius }
+  }
+
   get collider() {
     const ent = this._entity
     return {
