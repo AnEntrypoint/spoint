@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.33](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.32...v0.1.33) (2026-02-22)
+
+
+### Bug Fixes
+
+* compileAsync warmup for all dynamic GLB/mesh loads ([0d5a9bd](https://github.com/AnEntrypoint/spawnpoint/commit/0d5a9bda47ddded84296a53af6414b3e757aed60))
+
 ### [0.1.32](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.31...v0.1.32) (2026-02-22)
 
 ### [0.1.31](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.30...v0.1.31) (2026-02-22)
