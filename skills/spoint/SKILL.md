@@ -1,6 +1,6 @@
 ---
 name: spoint
-description: Build multiplayer physics games with the Spawnpoint engine. Use when asked to: create a game, add physics objects, spawn entities, build an arena, handle player interaction, add weapons/respawn/scoring, create moving platforms, manage world config, load 3D models, add HUD/UI, work with the EventBus, or develop any app inside an apps/ directory.
+description: Build multiplayer physics games with the Spawnpoint engine. Use when asked to: create a game, add physics objects, spawn entities, build an arena, handle player interaction, add weapons respawn scoring, create moving platforms, manage world config, load 3D models, add HUD/UI, work with the EventBus, or develop any app inside an apps directory.
 ---
 
 # Spawnpoint App Development Reference
@@ -13,33 +13,7 @@ bunx spoint-create-app my-app
 bunx spoint-create-app --template physics my-crate
 ```
 
-Project structure: `apps/world/index.js` (world config) + `apps/<name>/index.js` (apps). Engine is from npm — never in user project.
-
----
-
-## App Module Shape
-
-Every app file exports a plain object with `server` and/or `client` keys:
-
-```js
-export default {
-  server: {
-    setup(ctx) {},
-    update(ctx, dt) {},
-    teardown(ctx) {},
-    onInteract(ctx, player) {},
-    onMessage(ctx, msg) {},
-    onCollision(ctx, other) {},       // entity-entity sphere overlap; other = { id, position, velocity }
-    onHandover(ctx, sourceEntityId, data) {}  // fired by ctx.bus.handover() targeting this entity
-  },
-  client: {
-    render({ entity, state, h, engine, players }) { return { ui: null } },
-    onEvent(payload, engine) {},      // server sent msg via ctx.players.send/broadcast
-    onInput(input, engine) {},        // called at 60Hz before input sent to server
-    onFrame(dt, engine) {}            // called every animation frame
-  }
-}
-```
+Project structure: `apps/world/index.js` (world config) + `apps/<name>/index.js` (apps). Engine is from npm — never edit engine source.
 
 ---
 
@@ -85,7 +59,7 @@ export default {
 }
 ```
 
-### `apps/box-static/index.js` — reusable static box primitive
+### `apps/box-static/index.js`
 ```js
 export default {
   server: {
@@ -96,478 +70,303 @@ export default {
       ctx.physics.addBoxCollider([c.hx??1, c.hy??1, c.hz??1])
     }
   }
-  // No client: needed — entity mesh driven by snapshot, not render()
 }
 ```
 
 ---
 
-## World Config Schema
+## World Config
 
-All fields optional. `apps/world/index.js` exports a plain object.
+`apps/world/index.js` exports a plain object. All fields optional.
 
-```js
-export default {
-  port: 3001, tickRate: 128, gravity: [0,-9.81,0],
-  movement: {
-    maxSpeed: 4.0,         // code default is 8.0 — always override explicitly
-    groundAccel: 10.0, airAccel: 1.0, friction: 6.0, stopSpeed: 2.0,
-    jumpImpulse: 4.0,      // velocity SET (not added) on jump
-    crouchSpeedMul: 0.4, sprintSpeed: null,  // null = maxSpeed * 1.75
-    collisionRestitution: 0.2, collisionDamping: 0.25
-  },
-  player: {
-    health: 100, capsuleRadius: 0.4, capsuleHalfHeight: 0.9, crouchHalfHeight: 0.45,
-    mass: 120, modelScale: 1.323,
-    feetOffset: 0.212      // feetOffset * modelScale = negative Y on model
-  },
-  scene: {
-    skyColor: 0x87ceeb, fogColor: 0x87ceeb, fogNear: 80, fogFar: 200,
-    ambientColor: 0xfff4d6, ambientIntensity: 0.3,
-    sunColor: 0xffffff, sunIntensity: 1.5, sunPosition: [21,50,20],
-    fillColor: 0x4488ff, fillIntensity: 0.4, fillPosition: [-20,30,-10],
-    shadowMapSize: 1024, shadowBias: 0.0038, shadowNormalBias: 0.6, shadowRadius: 12, shadowBlurSamples: 8
-  },
-  camera: {
-    fov: 70, shoulderOffset: 0.35, headHeight: 0.4,
-    zoomStages: [0,1.5,3,5,8], defaultZoomIndex: 2,
-    followSpeed: 12.0, snapSpeed: 30.0, mouseSensitivity: 0.002, pitchRange: [-1.4,1.4]
-  },
-  animation: { mixerTimeScale: 1.3, walkTimeScale: 2.0, sprintTimeScale: 0.56, fadeTime: 0.15 },
-  entities: [{ id:'env', model:'./apps/my-app/env.glb', position:[0,0,0], app:'environment', config:{} }],
-  playerModel: './apps/tps-game/Cleetus.vrm',
-  spawnPoint: [0,2,0]
-}
-```
+**Top-level:** `port` (default 3001), `tickRate` (default 128), `gravity` — `[x,y,z]` array (default `[0,-9.81,0]`), `playerModel` — path to `.vrm` file, `spawnPoint` — `[x,y,z]`.
+
+**`movement`:** `maxSpeed` (code default 8.0 — always override; world template uses 4.0), `groundAccel`, `airAccel`, `friction`, `stopSpeed`, `jumpImpulse` (velocity SET, not added), `crouchSpeedMul` (default 0.4), `sprintSpeed` (null = maxSpeed x 1.75), `collisionRestitution`, `collisionDamping`.
+
+**`player`:** `health`, `capsuleRadius`, `capsuleHalfHeight`, `crouchHalfHeight`, `mass`, `modelScale` (default 1.323), `feetOffset` (feetOffset x modelScale = negative Y on model, default 0.212).
+
+**`scene`:** `skyColor`, `fogColor`, `fogNear`, `fogFar`, `ambientColor`, `ambientIntensity`, `sunColor`, `sunIntensity`, `sunPosition` — `[x,y,z]`, `fillColor`, `fillIntensity`, `fillPosition`, `shadowMapSize`, `shadowBias`, `shadowNormalBias`, `shadowRadius`, `shadowBlurSamples`.
+
+**`camera`:** `fov`, `shoulderOffset`, `headHeight`, `zoomStages` — array of distances, `defaultZoomIndex`, `followSpeed`, `snapSpeed`, `mouseSensitivity`, `pitchRange` — `[min,max]` radians.
+
+**`animation`:** `mixerTimeScale`, `walkTimeScale`, `sprintTimeScale`, `fadeTime`.
+
+**`entities`:** array of `{ id, app, model, position, rotation, scale, config }`. Entities listed here are part of the loading gate. Entities spawned at runtime via `ctx.world.spawn()` are not.
 
 ---
 
-## Asset Loading Gate
+## Loading Screen Gate
 
-Loading screen holds until ALL pass simultaneously:
-1. WebSocket connected
-2. Player VRM downloaded
-3. Any entity with `model` field (or entity creating a mesh) loaded
-4. First snapshot received
-5. All `world.entities` entries with `model` field loaded
-
-Entities spawned via `ctx.world.spawn()` at runtime are NOT in the gate. Declare in `world.entities` to block loading screen on a model.
+Holds until all pass simultaneously: WebSocket connected, player VRM downloaded, first snapshot received, all `world.entities` entries with a `model` field loaded. Runtime-spawned entities never block the gate.
 
 ---
 
-## Remote Models — Verified Filenames
+## Remote Models
 
-URL: `https://raw.githubusercontent.com/anEntrypoint/assets/main/FILENAME.glb`
+URL base: `https://raw.githubusercontent.com/anEntrypoint/assets/main/FILENAME.glb`
 
-**Never guess filenames** — wrong URLs silently 404, no error.
+Never guess filenames — wrong URLs 404 silently.
 
-```
-broken_car_b6d2e66d_v1.glb  broken_car_b6d2e66d_v2.glb  crashed_car_f2b577ae_v1.glb
-crashed_pickup_truck_ae555020_v1.glb  crashed_rusty_minivan_f872ff37_v1.glb  Bus_junk_1.glb
-blue_shipping_container_60b5ea93_v1.glb  blue_shipping_container_63cc3905_v1.glb
-dumpster_b076662a_v1.glb  dumpster_b076662a_v2.glb  garbage_can_6b3d052b_v1.glb
-crushed_oil_barrel_e450f43f_v1.glb  fire_hydrant_ba0175c1_v1.glb
-fire_extinguisher_wall_mounted_bc0dddd4_v1.glb
-break_room_chair_14a39c7b_v1.glb  break_room_couch_444abf63_v1.glb
-break_room_table_09b9fd0d_v1.glb  filing_cabinet_0194476c_v1.glb
-fancy_reception_desk_58fde71d_v1.glb  cash_register_0c0dcad2_v1.glb
-espresso_machine_e722ed8c_v1.glb  Couch.glb  Couch_2.glb  3chairs.glb
-large_rock_051293c4_v1.glb  Tin_Man_1.glb  Tin_Man_2.glb  Plants_3.glb  Urinals.glb  V_Machine_2.glb
-```
+Known filenames: `broken_car_b6d2e66d_v1.glb`, `broken_car_b6d2e66d_v2.glb`, `crashed_car_f2b577ae_v1.glb`, `crashed_pickup_truck_ae555020_v1.glb`, `crashed_rusty_minivan_f872ff37_v1.glb`, `Bus_junk_1.glb`, `blue_shipping_container_60b5ea93_v1.glb`, `blue_shipping_container_63cc3905_v1.glb`, `dumpster_b076662a_v1.glb`, `dumpster_b076662a_v2.glb`, `garbage_can_6b3d052b_v1.glb`, `crushed_oil_barrel_e450f43f_v1.glb`, `fire_hydrant_ba0175c1_v1.glb`, `fire_extinguisher_wall_mounted_bc0dddd4_v1.glb`, `break_room_chair_14a39c7b_v1.glb`, `break_room_couch_444abf63_v1.glb`, `break_room_table_09b9fd0d_v1.glb`, `filing_cabinet_0194476c_v1.glb`, `fancy_reception_desk_58fde71d_v1.glb`, `cash_register_0c0dcad2_v1.glb`, `espresso_machine_e722ed8c_v1.glb`, `Couch.glb`, `Couch_2.glb`, `3chairs.glb`, `large_rock_051293c4_v1.glb`, `Tin_Man_1.glb`, `Tin_Man_2.glb`, `Plants_3.glb`, `Urinals.glb`, `V_Machine_2.glb`.
 
-Remote models are NOT in the loading gate. Use `prop-static` app for physics:
-```js
-// apps/prop-static/index.js
-export default {
-  server: { setup(ctx) { ctx.physics.setStatic(true); if (ctx.entity.model) ctx.physics.addConvexFromModel(0) } }
-  // No client: needed — position/rotation/model driven by snapshot automatically
-}
-// Spawn:
-const BASE = 'https://raw.githubusercontent.com/anEntrypoint/assets/main'
-ctx.world.spawn('dumpster-1', { model:`${BASE}/dumpster_b076662a_v1.glb`, position:[5,0,-3], app:'prop-static' })
-```
+Remote models are not in the loading gate. Remote URLs cannot be read server-side by `addTrimeshCollider` or `addConvexFromModel` — use primitive colliders instead.
+
+---
+
+## App Module Shape
+
+Every app exports a plain object with `server` and/or `client` keys. All hooks are optional.
+
+Server hooks: `setup(ctx)`, `update(ctx, dt)`, `teardown(ctx)`, `onInteract(ctx, player)`, `onMessage(ctx, msg)`, `onCollision(ctx, other)`, `onHandover(ctx, sourceEntityId, data)`.
+
+Client hooks: `setup(engine)`, `render({ entity, state, h, engine, players })`, `onEvent(payload, engine)`, `onInput(input, engine)`, `onFrame(dt, engine)`, `onMouseDown(event, engine)`, `onMouseUp(event, engine)`.
+
+`onCollision` — other is `{ id, position, velocity }`. Entity-entity sphere overlap only; separate from Jolt physics collisions.
+
+`onHandover` — fired when another entity calls `ctx.bus.handover(thisEntityId, data)`.
+
+`onMessage` — receives all APP_EVENT messages from clients and system events. Player join/leave arrive here as `{ type: 'player_join', playerId }` and `{ type: 'player_leave', playerId }`. Client-sent custom events include `senderId` (the client's player id).
+
+Client `setup(engine)` fires once at module load time, not per entity. All other client hooks fire for every registered app module per event.
 
 ---
 
 ## Server ctx API
 
 ### ctx.entity
-```js
-ctx.entity.id / model / position / rotation / scale / velocity / custom / parent / children / worldTransform
-ctx.entity.destroy()
-// position: [x,y,z]  rotation: [x,y,z,w] quaternion  custom: any (sent in every snapshot — keep small)
-// children: returns a copy of the Set as an array — mutating it does not affect the entity
-// worldTransform: { position, rotation, scale } — computed recursively through parent chain
-```
+
+- `id` — string, read-only
+- `model` — string|null, read-only
+- `position` — `[x,y,z]`, readable and writable
+- `rotation` — `[x,y,z,w]` quaternion, readable and writable
+- `scale` — `[x,y,z]`, readable and writable
+- `velocity` — `[x,y,z]`, readable and writable
+- `custom` — any value; sent in every snapshot — keep small
+- `parent` — entity id string|null, read-only
+- `children` — copy of child id Set as array; mutating the array does not affect the entity
+- `worldTransform` — `{ position, rotation, scale }` computed recursively up parent chain, read-only
+- `destroy()` — destroys this entity
 
 ### ctx.state
 
-Persists across hot reloads. Re-register timers and bus subscriptions in every setup:
-```js
-setup(ctx) {
-  ctx.state.score = ctx.state.score || 0      // || preserves value on reload
-  ctx.state.data  = ctx.state.data  || new Map()
-  ctx.bus.on('event', handler)                // always re-register
-  ctx.time.every(1, ticker)                   // always re-register
-}
-```
+Persists across hot reloads. `ctx.state` is a plain object reference stored on the entity. Re-register all timers and bus subscriptions in every `setup()` call — they are cleared on teardown. Use `ctx.state.x = ctx.state.x || defaultValue` to preserve values across reloads.
 
 ### ctx.config
 
-Read-only. Set in world: `{ id:'x', app:'y', config:{ radius:5 } }` → `ctx.config.radius`
-
-### ctx.interactable
-
-Engine handles proximity, E-key prompt, and cooldown. App only needs `onInteract`:
-```js
-setup(ctx) { ctx.interactable({ prompt:'Press E', radius:2, cooldown:1000 }) },
-onInteract(ctx, player) { ctx.players.send(player.id, { type:'opened' }) }
-```
+Read-only. Populated from the `config` field in `world.entities` or `ctx.world.spawn()` config.
 
 ### ctx.physics
-```js
-ctx.physics.setStatic(true) / setDynamic(true) / setKinematic(true)
-ctx.physics.setMass(kg)
-ctx.physics.addBoxCollider(size)              // number or [hx,hy,hz] half-extents
-ctx.physics.addSphereCollider(radius)
-ctx.physics.addCapsuleCollider(radius, fullHeight)  // fullHeight=total height, halved internally
-ctx.physics.addTrimeshCollider()              // STATIC ONLY — exact triangle mesh from entity.model GLB
-ctx.physics.addConvexCollider(points)         // flat [x,y,z,...], all motion types
-ctx.physics.addConvexFromModel(meshIndex=0)   // extracts verts from entity.model GLB — dynamic/kinematic ok
-ctx.physics.addForce([fx,fy,fz])              // velocity += force/mass (instant impulse, not continuous)
-ctx.physics.setVelocity([vx,vy,vz])
-```
 
-**Shape rules:**
-- **box/sphere/capsule** — fastest, any motion type. Use for walls, floors, triggers.
-- **trimesh** — exact GLB triangle mesh, **static only**. Use for terrain/environments.
-- **convex hull** — approximate wrap of GLB mesh, any motion type. Use for all dynamic props (crates, vehicles). `addConvexFromModel()` extracts verts automatically.
+- `setStatic(true)` — marks entity bodyType static
+- `setDynamic(true)` — marks entity bodyType dynamic
+- `setKinematic(true)` — marks entity bodyType kinematic
+- `setMass(kg)` — sets entity mass
+- `addBoxCollider(size)` — size is a number (cube) or `[hx,hy,hz]` half-extents. Creates Jolt physics body.
+- `addSphereCollider(radius)` — creates sphere physics body
+- `addCapsuleCollider(radius, fullHeight)` — fullHeight is total height; halved internally before passing to Jolt
+- `addTrimeshCollider()` — exact triangle mesh from `entity.model` GLB. Static only. Reads from disk.
+- `addConvexCollider(points)` — flat `[x,y,z,x,y,z,...]` vertex array. Any motion type.
+- `addConvexFromModel(meshIndex=0)` — extracts vertices from `entity.model` GLB and builds convex hull. Any motion type.
+- `addForce([fx,fy,fz])` — instant velocity change: velocity += force / mass. Not continuous.
+- `setVelocity([vx,vy,vz])` — sets velocity directly
+
+Shape rules: box/sphere/capsule are fastest and work with any motion type. Trimesh is static only — use for terrain and environments. Convex hull works with any motion type — use for all dynamic props.
+
+### ctx.interactable(config)
+
+Registers entity as interactable. Engine handles proximity detection, E-key prompt, and cooldown. Config fields: `prompt` (string, default `'Press E'`), `radius` (number, default 3), `cooldown` (milliseconds, default 500). The `onInteract(ctx, player)` hook fires when a player presses E within range.
 
 ### ctx.world
-```js
-ctx.world.spawn(id, config)   // id: string|null (null=auto-generate). Returns entity|null.
-ctx.world.destroy(id)
-ctx.world.getEntity(id)       // entity|null
-ctx.world.query(filterFn)     // entity[] — filterFn receives raw entity object
-ctx.world.nearby(pos, radius) // entity IDs (strings), NOT entity objects — call getEntity() to resolve
-ctx.world.reparent(eid, parentId)  // parentId null = detach
-ctx.world.attach(entityId, appName) / detach(entityId)
-ctx.world.gravity             // [x,y,z] read-only
 
-// spawn config keys: model, position, rotation, scale, parent, app, config, autoTrimesh
-// autoTrimesh:true — automatically calls addStaticTrimesh on entity.model at spawn (static only)
-```
+- `spawn(id, config)` — id is string|null (null auto-generates id). Returns entity object or null. Config fields: `model`, `position`, `rotation`, `scale`, `parent`, `app`, `config`, `autoTrimesh`. Setting `autoTrimesh: true` automatically calls `addStaticTrimesh` on `entity.model` at spawn — static only.
+- `destroy(id)` — destroys entity by id string. Cascades to all children.
+- `getEntity(id)` — returns entity object or null
+- `query(filterFn)` — returns array of entity objects passing the filter. filterFn receives the raw entity object.
+- `nearby(pos, radius)` — returns array of entity id strings, not entity objects. Call `getEntity(id)` to resolve each.
+- `reparent(entityId, parentId)` — parentId null detaches from parent
+- `attach(entityId, appName)` — attaches a named app to an existing entity
+- `detach(entityId)` — detaches current app from entity
+- `gravity` — `[x,y,z]`, read-only
 
 ### ctx.players
-```js
-ctx.players.getAll()
-// Player: { id, state: { position, velocity, health, onGround, crouch, lookPitch, lookYaw, interact } }
-// interact: bool — true the tick the player pressed E (server checks this against interactable entities)
-ctx.players.getNearest([x,y,z], radius)  // Player|null
-ctx.players.send(playerId, msg)           // client receives in onEvent(payload, engine)
-ctx.players.broadcast(msg)
-ctx.players.setPosition(playerId, [x,y,z])  // teleport — no collision check
-```
-Mutate `player.state.health` / `player.state.velocity` directly — propagates in next snapshot.
+
+- `getAll()` — returns array of player objects. Each player: `{ id, state: { position, velocity, health, onGround, crouch, lookPitch, lookYaw, interact } }`. `interact` is true the tick the player pressed E.
+- `getNearest(pos, radius)` — returns nearest player object within radius or null
+- `send(playerId, msg)` — client receives in `onEvent(payload, engine)`
+- `broadcast(msg)` — sends to all connected clients
+- `setPosition(playerId, [x,y,z])` — teleports player; no collision check
+
+Mutate `player.state.health` and `player.state.velocity` directly — changes propagate in next snapshot.
 
 ### ctx.bus
-```js
-const unsub = ctx.bus.on('channel', (e) => { e.data; e.channel; e.meta })  // returns unsubscribe fn
-ctx.bus.once('channel', handler)
-ctx.bus.emit('channel', data)            // meta.sourceEntity set automatically to this entity's id
-ctx.bus.on('combat.*', handler)          // wildcard: matches combat.fire, combat.hit, etc.
-ctx.bus.handover(targetEntityId, data)   // fires onHandover(ctx, sourceEntityId, data) on target entity
-```
-`system.*` prefix is reserved — do not emit on it. All subscriptions auto-cleaned on teardown — no manual cleanup needed.
+
+- `on(channel, handler)` — subscribes; returns unsubscribe function. Handler receives `{ data, channel, meta }`. `meta.sourceEntity` is the emitting entity's id.
+- `once(channel, handler)` — one-time subscription
+- `emit(channel, data)` — emits event; `meta.sourceEntity` auto-set to this entity's id
+- `handover(targetEntityId, data)` — fires `onHandover(ctx, sourceEntityId, data)` on target entity
+- Wildcard: subscribing to `'combat.*'` matches `combat.fire`, `combat.hit`, etc.
+- `system.*` prefix is reserved — do not emit on it
+- All subscriptions auto-cleaned on teardown — no manual cleanup needed
 
 ### ctx.time
-```js
-ctx.time.tick / deltaTime / elapsed
-ctx.time.after(seconds, fn)  // one-shot, cleared on teardown
-ctx.time.every(seconds, fn)  // repeating, cleared on teardown
-```
 
-### ctx.raycast
-```js
-const hit = ctx.raycast([x,y,z], [dx,dy,dz], maxDist)
-// { hit:bool, distance:number, body:bodyId|null, position:[x,y,z]|null }
-// Returns { hit:false } if physics not initialized
-```
+- `tick` — current tick count, read-only
+- `deltaTime` — seconds since last tick, read-only
+- `elapsed` — total elapsed seconds, read-only
+- `after(seconds, fn)` — one-shot timer; cleared on teardown
+- `every(seconds, fn)` — repeating timer; cleared on teardown
+
+### ctx.raycast(origin, direction, maxDistance)
+
+Returns `{ hit: bool, distance: number, body: bodyId|null, position: [x,y,z]|null }`. Returns `{ hit: false }` if physics not initialized.
 
 ### ctx.storage
-```js
-if (ctx.storage) {   // null if no storage adapter configured — always guard
-  await ctx.storage.set('key', value)     // keys auto-namespaced as appName/key
-  const val = await ctx.storage.get('key')   // returns undefined if missing
-  await ctx.storage.delete('key')
-  const keys = await ctx.storage.list('')    // list keys with given prefix (after namespace)
-  const exists = await ctx.storage.has('key')  // Promise<bool>
-}
-```
+
+Null if no storage adapter is configured — always guard with `if (ctx.storage)`. Keys are auto-namespaced as `appName/key`.
+
+- `get(key)` — Promise resolving to value or undefined
+- `set(key, value)` — Promise
+- `delete(key)` — Promise
+- `list(prefix)` — Promise resolving to array of keys matching prefix (after namespace)
+- `has(key)` — Promise resolving to bool
 
 ### ctx.network
-```js
-ctx.network.broadcast(msg)        // alias for ctx.players.broadcast
-ctx.network.sendTo(playerId, msg) // alias for ctx.players.send
-```
+
+- `broadcast(msg)` — alias for `ctx.players.broadcast`
+- `sendTo(playerId, msg)` — alias for `ctx.players.send`
 
 ### ctx.debug
-```js
-ctx.debug.log(message)
-ctx.debug.spawn(entity, position) / collision(a, b, pos) / hit(shooter, target, damage)
-ctx.debug.death(entity, damage) / respawn(entity, position)
-ctx.debug.state(entity, key, value) / perf(label, ms) / error(category, message)
-// All methods prefix output with entity id and elapsed time; output goes to server console
-```
+
+All methods prefix output with entity id and elapsed time; output goes to server console.
+
+- `log(message)`
+- `spawn(entity, position)` — logs spawn event
+- `collision(a, b, position)` — logs collision between two entity ids
+- `hit(shooter, target, damage)` — logs hit event with hp value
+- `death(entity, damage)`
+- `respawn(entity, position)`
+- `state(entity, key, value)` — logs state change
+- `perf(label, ms)` — logs timing with pass/warn/fail indicator (green <10ms, yellow <20ms, red >=20ms)
+- `error(category, message)` — logs to stderr
 
 ---
 
-## GLB Loading Pipeline
+## GLB File Pipeline
 
-How a local GLB file (e.g. `schwust.glb`) travels from disk to physics and display.
+Place GLB under `apps/<appname>/`. The static server resolves `GET /apps/<appname>/file.glb` from disk; project-local `apps/` checked before SDK `apps/`. Files are gzip-compressed on first serve and memory-cached with ETag.
 
-### 1. File placement and URL
+Declare in `world.entities` with a `model` field to add the model to the loading gate. The `model` path is resolved relative to `process.cwd()`. Use `./apps/...` prefix.
 
-Put the file anywhere under `apps/<appname>/`:
-```
-apps/tps-game/schwust.glb
-```
+Server-side physics: `addTrimeshCollider()` reads `entity.model` from disk synchronously and builds an exact triangle mesh (static only). `addConvexFromModel(meshIndex)` reads vertices and builds a convex hull (any motion type). Remote URLs cannot be used by either method.
 
-The static server maps `GET /apps/tps-game/schwust.glb` → `apps/tps-game/schwust.glb` on disk. Project-local `apps/` is checked first; if not found, the SDK's own `apps/` directory is checked. GLB files are gzip-compressed on first serve and cached in memory (ETag + 24h Cache-Control). The client fetches the URL exactly as written in `entity.model`.
-
-### 2. Declare in world config (loading gate)
-
-```js
-entities: [
-  { id: 'environment', model: './apps/tps-game/schwust.glb', position: [0,0,0], app: 'environment' }
-]
-```
-
-`model` here is a path resolved relative to `process.cwd()` (the project root). The `./` prefix is required — bare `apps/...` paths are resolved from cwd so both work, but `./apps/...` is unambiguous. Declaring the entity in `world.entities` with a `model` field adds it to the client loading gate. The loading screen will not clear until the client has loaded this GLB.
-
-Entities spawned at runtime via `ctx.world.spawn()` are NOT in the gate. To block on a runtime model, declare a placeholder in `world.entities` instead.
-
-### 3. Server-side physics load
-
-The server resolves `entity.model` via `resolveAssetPath()`: tries `resolve(path)` first (absolute or cwd-relative), then falls back to the SDK bundle directory if not found locally.
-
-```js
-// apps/environment/index.js — server side
-setup(ctx) {
-  ctx.physics.setStatic(true)
-  ctx.physics.addTrimeshCollider()   // reads entity.model from disk, builds exact triangle mesh
-}
-```
-
-`addTrimeshCollider()` is static-only — it reads the resolved GLB path synchronously via `GLBLoader.js`. For dynamic/kinematic objects use `addConvexFromModel(meshIndex)` which extracts vertices and builds a convex hull (any motion type). `meshIndex` selects which mesh primitive in the GLB (0 = first).
-
-### 4. Client-side display load
-
-The client receives entity snapshots containing `{ id, model, position, rotation, scale, custom }`. When `model` is set and is a local path, the client fetches `GET /apps/tps-game/schwust.glb` and loads it with THREE.js GLTFLoader. The loaded scene is added to THREE.js scene and `renderer.compileAsync()` is called immediately after `scene.add()` to avoid GPU stall on first render.
-
-The client entity mesh is entirely driven by the snapshot — the `client.render()` function cannot affect model, position, or rotation. Those come from the server.
-
-### 5. Complete example (schwust pattern)
-
-```js
-// apps/world/index.js
-entities: [
-  { id: 'environment', model: './apps/tps-game/schwust.glb', position: [0,0,0], app: 'environment' }
-]
-
-// apps/environment/index.js
-export default {
-  server: {
-    setup(ctx) {
-      ctx.physics.setStatic(true)
-      ctx.physics.addTrimeshCollider()  // exact collision from the GLB triangles
-    }
-  }
-  // No client: needed — display is automatic from model field in snapshot
-}
-```
-
-### 6. Remote model path (no physics from model)
-
-Remote URLs (`https://...`) cannot be read server-side by `addTrimeshCollider`/`addConvexFromModel` — those read from disk. For remote models, add physics manually or use primitive colliders:
-
-```js
-ctx.world.spawn('thing', {
-  model: 'https://raw.githubusercontent.com/anEntrypoint/assets/main/dumpster_b076662a_v1.glb',
-  position: [5, 0, -3],
-  app: 'prop-static'
-})
-// prop-static/index.js: ctx.physics.setStatic(true); ctx.physics.addBoxCollider([1,1,1])
-```
+Client-side display: the client receives entity snapshots and fetches the model URL automatically. `renderer.compileAsync()` is called immediately after `scene.add()` to avoid GPU stall on first render. The `client.render()` function cannot affect model, position, or rotation — those are driven by the server snapshot.
 
 ---
 
 ## Client API
 
-### App module shape — full client hooks
+### engine object
 
-```js
-client: {
-  setup(engine) {},                              // called once when app module first loads
-  render({ entity, state, h, engine, players }) { return { ui: null } },
-  onEvent(payload, engine) {},                   // server sent via ctx.players.send/broadcast
-  onInput(input, engine) {},                     // 60Hz before input sent to server
-  onFrame(dt, engine) {},                        // every animation frame; dt in seconds
-  onMouseDown(event, engine) {},                 // raw MouseEvent on renderer canvas
-  onMouseUp(event, engine) {}                    // raw MouseEvent on renderer canvas
-}
-```
+- `engine.THREE` — Three.js library
+- `engine.scene` — `THREE.Scene`
+- `engine.camera` — `THREE.PerspectiveCamera`
+- `engine.renderer` — `THREE.WebGLRenderer`
+- `engine.playerId` — local player id string
+- `engine.worldConfig` — full world config object, read-only
+- `engine.inputConfig` — current input config object
+- `engine.setInputConfig(cfg)` — merges cfg into inputConfig; `{ pointerLock: false }` releases mouse lock
+- `engine.playerVrms` — `Map<playerId, VRM>` for direct VRM object access
+- `engine.mobileControls` — mobile controls instance or null on desktop
+- `engine.createElement` — hyperscript function (same as `h` in render)
+- `engine.client` — raw network client; do not use directly
+- `engine.cam.getAimDirection()` — normalized `[dx,dy,dz]` from camera look direction
+- `engine.cam.punch(intensity)` — visual camera recoil (number, e.g. 0.05)
+- `engine.players.getMesh(playerId)` — `THREE.Group|undefined`
+- `engine.players.getState(playerId)` — player snapshot state or undefined
+- `engine.players.getAnimator(playerId)` — `THREE.AnimationMixer|undefined`
+- `engine.players.setExpression(playerId, expressionName, weight)` — VRM facial expression, weight 0-1
+- `engine.players.setAiming(playerId, isAiming)` — controls VRM aim IK blend
 
-`setup` fires once at module load time, not per entity. Use it to initialize module-level state (e.g. Three.js objects). All other hooks fire per-tick or per-event for every registered app module — they are not scoped to a single entity.
+### render()
 
-### render() — return value
-
-`render()` is called once per entity per frame. Return value is **only used for `ui`**. Entity position/rotation/model/custom are server-driven — returning them from render() has no effect.
-
-```js
-render({ entity, state, h, engine, players }) {
-  // entity: snapshot { id, position, rotation, scale, model, custom, parent }
-  // state:   alias for entity.custom (same object reference)
-  // players: array of ALL player snapshot objects (not just local player)
-  // h:       hyperscript createElement
-  // engine:  full engine object (see below)
-  return { ui: h('div', { style:'color:white' }, `Score: ${state.score}`) }
-}
-```
-
-### engine object — complete API
-
-```js
-engine.THREE            // Three.js library
-engine.scene            // THREE.Scene — add meshes here
-engine.camera           // THREE.PerspectiveCamera
-engine.renderer         // THREE.WebGLRenderer
-
-engine.playerId         // local player ID string
-
-engine.cam.getAimDirection()      // normalized [dx,dy,dz] from camera look direction (no position arg needed)
-engine.cam.punch(intensity)       // visual camera recoil (number, e.g. 0.05)
-
-engine.worldConfig      // full world config object (read-only)
-engine.inputConfig      // current input config object
-engine.setInputConfig(cfg)        // merge cfg into inputConfig; {pointerLock:false} releases mouse lock
-
-engine.playerVrms       // Map<playerId, VRM> — direct VRM object access for advanced animation
-
-engine.mobileControls   // mobile controls instance or null on desktop
-
-engine.players.getMesh(playerId)              // THREE.Group|undefined — the player's visual group
-engine.players.getState(playerId)             // player snapshot state|undefined
-engine.players.getAnimator(playerId)          // THREE.AnimationMixer|undefined
-engine.players.setExpression(playerId, expressionName, weight)  // VRM facial expression (0–1)
-engine.players.setAiming(playerId, isAiming)  // controls VRM aim IK blend
-
-engine.createElement    // same as h — hyperscript function (available as named ref)
-engine.client           // raw network client object — do not use directly
-```
+Called once per entity per frame. Return shape: `{ ui: element|null }`. Only `ui` is consumed — returning position, rotation, model, or custom has no effect on display. Parameters: `entity` (snapshot: `{ id, position, rotation, scale, model, custom, parent }`), `state` (alias for `entity.custom`, same object reference), `players` (array of all player snapshot objects), `h` (hyperscript), `engine`.
 
 ### h — hyperscript
-```js
-h(tag, props, ...children)  // props = attrs/inline styles or null; null children ignored
-h('div', { style:'color:red' }, 'Hello')
-h('button', { onclick: () => {} }, 'Click')
-```
-Client apps cannot use `import` — all import statements stripped before evaluation. Use `engine.*` for deps.
+
+`h(tag, props, ...children)` — props are attributes/inline styles or null; null children are ignored. Client apps cannot use `import` — all import statements are stripped before evaluation. Use `engine.*` for all dependencies.
 
 ### onInput fields
-```
-forward  backward  left  right  jump  crouch  sprint  shoot  reload  interact
-yaw      pitch     mouseX  mouseY  editToggle
-// yaw/pitch: cumulative radians (not delta). mouseX/mouseY: screen pixel coords.
-// editToggle: true while P key held (engine edit mode — not for app use)
-// On mobile additionally: isMobile=true  analogForward  analogRight  zoom  weapon
-// Mutating input inside onInput does NOT affect what is sent to the server (read-only)
-```
+
+Desktop: `forward`, `backward`, `jump`, `sprint`, `crouch`, `shoot`, `reload`, `interact`, `editToggle`, `mouseX` (screen pixels), `mouseY` (screen pixels), `yaw` (cumulative radians), `pitch` (cumulative radians). `editToggle` is true while P key is held — engine edit mode, not for app use.
+
+Mobile additionally provides: `isMobile: true`, `analogForward`, `analogRight`, `zoom`, `weapon`, `yawDelta`, `pitchDelta`.
+
+Mutating input inside `onInput` does not affect what is sent to the server — treat as read-only.
 
 ---
 
 ## Procedural Mesh (custom field)
 
-When no GLB set, `custom` drives geometry — primary way to create primitives without any GLB file.
+When no `model` is set on an entity, `entity.custom` drives client-side geometry.
 
-```js
-{ mesh:'box',      color:0xff8800, roughness:0.8, sx:2, sy:1, sz:2 }   // sx/sy/sz = FULL dimensions
-{ mesh:'sphere',   color:0x00ff00, r:1, seg:16 }
-{ mesh:'cylinder', r:0.4, h:0.1, seg:16, color:0xffd700, metalness:0.8,
-                   emissive:0xffa000, emissiveIntensity:0.3,
-                   light:0xffd700, lightIntensity:1, lightRange:4 }
-{ ..., hover:0.15, spin:1 }                  // Y oscillation amplitude (units), rotation (rad/sec)
-{ ..., rotX:0.5, rotZ:0.2 }                  // static mesh rotation offset in radians
-{ mesh:'box', label:'PRESS E' }
-```
+Box: `{ mesh:'box', color:0xff8800, roughness:0.8, sx:2, sy:1, sz:2 }` — sx/sy/sz are FULL dimensions.
 
-**sx/sy/sz are FULL size. addBoxCollider takes HALF-extents.** `sx:4,sy:2` → `addBoxCollider([2,1,...])`
+Sphere: `{ mesh:'sphere', color:0x00ff00, r:1, seg:16 }`.
 
-`glow`/`glowColor`/`glowIntensity` are NOT rendered — no glow post-process exists. Use `emissive` + `emissiveIntensity` for bright materials instead.
+Cylinder: `{ mesh:'cylinder', r:0.4, h:0.1, seg:16, color:0xffd700, metalness:0.8, emissive:0xffa000, emissiveIntensity:0.3, light:0xffd700, lightIntensity:1, lightRange:4 }`.
 
----
+Animation fields (any mesh type): `hover` — Y oscillation amplitude in units per cycle; `spin` — Y rotation in rad/sec; `rotX` — static X rotation offset in radians; `rotZ` — static Z rotation offset in radians.
 
-## AppLoader — Blocked Strings
+Label: add `label: 'text'` to any custom object to display text above the entity.
 
-Any of these anywhere in source (including comments) silently prevents load, no throw:
+`glow`, `glowColor`, `glowIntensity` do not exist — no glow post-process is implemented. Use `emissive` + `emissiveIntensity` for bright materials.
 
-`process.exit`  `child_process`  `require(`  `__proto__`  `Object.prototype`  `globalThis`  `eval(`  `import(`
+`addBoxCollider` takes HALF-extents. If `custom` has `sx:4, sy:2`, use `addBoxCollider([2, 1, ...])`.
 
 ---
 
-## Critical Caveats
+## AppLoader Blocked Strings
 
-**Physics only activates inside app setup().** `entity.bodyType = 'static'` does nothing without an app calling `ctx.physics.*`.
+Any of these anywhere in app source — including comments — silently prevents the app from loading with no error thrown:
 
-```js
-// WRONG — entity renders but players fall through:
-const e = ctx.world.spawn('floor', {...}); e.bodyType = 'static'  // ignored
-
-// CORRECT:
-ctx.world.spawn('floor', { app:'box-static', config:{ hx:5, hy:0.25, hz:5 } })
-```
-
-**maxSpeed default mismatch.** Code default is 8.0. Always set `movement.maxSpeed` explicitly.
-
-**Horizontal velocity is wish-based.** After physics step, wish velocity overwrites XZ physics result. `player.state.velocity[0/2]` = wish velocity. Only `velocity[1]` (Y) comes from physics.
-
-**Capsule parameter order.** `addCapsuleCollider(radius, fullHeight)` — full height, halved internally. Reversed from Jolt's direct API which takes (halfHeight, radius).
-
-**Trimesh is static-only.** Use `addConvexCollider` or `addConvexFromModel` for dynamic/kinematic.
-
-**`setTimeout` not cleared on hot reload.** `ctx.time.*` IS cleared. Manage raw timers manually in teardown.
-
-**Destroying parent destroys all children.** Reparent first to preserve: `ctx.world.reparent(childId, null)`
-
-**setPosition teleports through walls** — physics pushes out next tick.
-
-**App sphere collision is O(n²).** Keep interactive entity count under ~50. The collision hook is `onCollision` not `onCollide`.
-
-**Snapshots only sent when players > 0.** Entity state still updates, nothing broadcast.
-
-**TickSystem max 4 steps per loop.** >4 ticks behind (~31ms at 128TPS) = silent drop.
-
-**ctx.world.nearby() returns entity IDs (strings), not entity objects.** Call `ctx.world.getEntity(id)` to resolve.
-
-**render() return value only drives ui.** Returning position/rotation/model/custom from render() is ignored — entity mesh is driven by the server snapshot. Only return `{ ui: ... }`.
-
-**Client lifecycle has no ctx argument.** render/onEvent/onInput/onFrame receive `engine` (and other positional args) — there is no `ctx` on the client side.
-
-**Player join/leave arrive via onMessage:**
-```js
-onMessage(ctx, msg) {
-  if (!msg) return
-  const pid = msg.playerId || msg.senderId
-  if (msg.type === 'player_join') { /* ... */ }
-  if (msg.type === 'player_leave') { /* ... */ }
-}
-```
+`process.exit`, `child_process`, `require(`, `__proto__`, `Object.prototype`, `globalThis`, `eval(`, `import(`
 
 ---
 
 ## Debug Globals
 
-```
-Server (Node REPL): globalThis.__DEBUG__.server
-Client (browser):   window.debug  →  scene, camera, renderer, client, players, input
-```
+Server Node REPL: `globalThis.__DEBUG__.server` — full server API.
+
+Browser console: `window.debug` — exposes `scene`, `camera`, `renderer`, `client`, player mesh maps, and input handler.
+
+---
+
+## Critical Caveats
+
+**Physics only activates inside app `setup()`** — setting `entity.bodyType = 'static'` outside an app does nothing. Always use `ctx.physics.setStatic(true)` plus a collider method inside setup.
+
+**`maxSpeed` code default is 8.0** — always set `movement.maxSpeed` explicitly in world config.
+
+**Horizontal velocity is wish-based** — after the physics step, wish velocity overwrites XZ physics. `player.state.velocity[0]` and `[2]` reflect wish velocity. Only `velocity[1]` (Y) comes from physics.
+
+**`addCapsuleCollider(radius, fullHeight)`** — second argument is total height, halved internally. This is reversed from Jolt's native `(halfHeight, radius)` order.
+
+**Trimesh is static only** — use `addConvexCollider` or `addConvexFromModel` for dynamic or kinematic bodies.
+
+**`ctx.time.*` timers are cleared on teardown — raw `setTimeout` calls are not.** Manage raw timers in teardown manually.
+
+**Destroying a parent destroys all children** — reparent to null first to preserve children: `ctx.world.reparent(childId, null)`.
+
+**`setPosition` teleports through walls** — physics resolves overlap next tick.
+
+**`ctx.world.nearby()` returns entity id strings, not entity objects** — call `ctx.world.getEntity(id)` to resolve.
+
+**`render()` return value only drives `ui`** — returning position/rotation/model/custom from render is ignored.
+
+**No `ctx` on the client side** — client hooks receive `engine` as argument. There is no `ctx` in any client hook.
+
+**`ctx.world.spawn()` returns the entity object, not its id** — access `entity.id` for the string id.
+
+**Snapshots only broadcast when players > 0** — entity state still updates server-side; nothing is sent with zero connected players.
+
+**App sphere collision is O(n^2)** — keep interactive entity count under ~50. The hook name is `onCollision`, not `onCollide`.
