@@ -977,8 +977,9 @@ function loadEntityModel(entityId, entityState) {
     fitShadowFrustum()
     pendingLoads.delete(entityId)
     if (!environmentLoaded) { environmentLoaded = true; checkAllLoaded() }
+    if (firstSnapshotEntityPending.has(entityId)) { firstSnapshotEntityPending.delete(entityId); if (firstSnapshotEntityPending.size === 0) checkAllLoaded() }
     if (loadingScreenHidden) renderer.compileAsync(scene, camera).catch(() => renderer.compile(scene, camera))
-  }, (progress) => { if (progress.total > 0) console.log('[gltf]', url, Math.round(progress.loaded / progress.total * 100) + '%') }, (err) => { console.error('[gltf]', url, err); pendingLoads.delete(entityId) })
+  }, (progress) => { if (progress.total > 0) console.log('[gltf]', url, Math.round(Math.min(progress.loaded, progress.total) / progress.total * 100) + '%') }, (err) => { console.error('[gltf]', url, err); pendingLoads.delete(entityId); if (firstSnapshotEntityPending.has(entityId)) { firstSnapshotEntityPending.delete(entityId); if (firstSnapshotEntityPending.size === 0) checkAllLoaded() } })
 }
 
 function renderAppUI(state) {
@@ -1026,7 +1027,13 @@ const client = new PhysicsNetworkClient({
     }
     rebuildEntityHierarchy(smoothState.entities)
     latestState = state
-    if (!firstSnapshotReceived) { firstSnapshotReceived = true; checkAllLoaded() }
+    if (!firstSnapshotReceived) {
+      firstSnapshotReceived = true
+      for (const e of smoothState.entities) {
+        if (e.model && !entityMeshes.has(e.id)) firstSnapshotEntityPending.add(e.id)
+      }
+      checkAllLoaded()
+    }
   },
   onPlayerJoined: (id) => { if (!playerMeshes.has(id)) createPlayerVRM(id) },
   onPlayerLeft: (id) => removePlayerMesh(id),
@@ -1091,6 +1098,7 @@ let inputLoopId = null
 let loadingScreenHidden = false
 let environmentLoaded = false
 let firstSnapshotReceived = false
+const firstSnapshotEntityPending = new Set()
 let lastShootState = false
 let lastHealth = 100
 
@@ -1123,6 +1131,7 @@ function checkAllLoaded() {
   if (!assetsLoaded) return
   if (!environmentLoaded) return
   if (!firstSnapshotReceived) return
+  if (firstSnapshotEntityPending.size > 0) return
   loadingMgr.setStage('INIT')
   loadingMgr.complete()
   loadingScreenHidden = true
