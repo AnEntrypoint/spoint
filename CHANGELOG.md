@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.12](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.11...v0.1.12) (2026-02-22)
+
+
+### Bug Fixes
+
+* pass explicit flags to skills add so it does not hang on interactive prompts ([b145ec1](https://github.com/AnEntrypoint/spawnpoint/commit/b145ec11bfbefca6fd48bfb3309ddad168281099))
+
 ### [0.1.11](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.10...v0.1.11) (2026-02-22)
 
 
