@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
 import { PhysicsNetworkClient, InputHandler, MSG } from '/src/index.client.js'
 import { createElement, applyDiff } from 'webjsx'
@@ -656,7 +657,12 @@ ground.rotation.x = -Math.PI / 2
 ground.receiveShadow = true
 scene.add(ground)
 
-const gltfLoader = new GLTFLoader()
+const loadingManager = new THREE.LoadingManager()
+loadingManager.onError = (url) => console.warn('[THREE] Failed to load:', url)
+const gltfLoader = new GLTFLoader(loadingManager)
+const dracoLoader = new DRACOLoader(loadingManager)
+dracoLoader.setDecoderPath('/draco/')
+gltfLoader.setDRACOLoader(dracoLoader)
 gltfLoader.register((parser) => new VRMLoaderPlugin(parser))
 const playerMeshes = new Map()
 const playerAnimators = new Map()
@@ -809,9 +815,14 @@ function removePlayerMesh(id) {
 
 function evaluateAppModule(code) {
   try {
-    const stripped = code.replace(/^import\s+.*$/gm, '')
+    let stripped = code.replace(/^import\s+.*$/gm, '')
+    stripped = stripped.replace(/const\s+__dirname\s*=.*import\.meta\.url.*$/gm, 'const __dirname = "/"')
     const wrapped = stripped.replace(/export\s+default\s*/, 'return ').replace(/export\s+/g, '')
-    return new Function(wrapped)()
+    const join = (...parts) => parts.filter(Boolean).join('/')
+    const readdirSync = () => []
+    const statSync = () => ({ isDirectory: () => false })
+    const fileURLToPath = (url) => '/'
+    return new Function('join', 'readdirSync', 'statSync', 'fileURLToPath', wrapped)(join, readdirSync, statSync, fileURLToPath)
   } catch (e) { console.error('[app-eval]', e.message, e.stack); return null }
 }
 
@@ -923,19 +934,17 @@ function loadEntityModel(entityId, entityState) {
     const model = gltf.scene
     model.position.set(...entityState.position)
     if (entityState.rotation) model.quaternion.set(...entityState.rotation)
-    const scl = entityState.custom?.scale
-    if (scl) model.scale.set(...scl)
     model.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; if (c.material) { c.material.shadowSide = THREE.DoubleSide; c.material.roughness = 1; c.material.metalness = 0; if (c.material.specularIntensity !== undefined) c.material.specularIntensity = 0 } } })
     scene.add(model)
     entityMeshes.set(entityId, model)
     const colliders = []
-    model.traverse(c => { if (c.isMesh && c.name === 'Collider') colliders.push(c) })
-    if (colliders.length) cam.setEnvironment(colliders)
+    model.traverse(c => { if (c.isMesh && !c.isSkinnedMesh) colliders.push(c) })
+    cam.setEnvironment(colliders)
     scene.remove(ground)
     fitShadowFrustum()
     pendingLoads.delete(entityId)
     if (!environmentLoaded) { environmentLoaded = true; checkAllLoaded() }
-  }, undefined, (err) => { console.error('[gltf]', entityId, err); pendingLoads.delete(entityId) })
+  }, (progress) => { if (progress.total > 0) console.log('[gltf]', url, Math.round(progress.loaded / progress.total * 100) + '%') }, (err) => { console.error('[gltf]', url, err); pendingLoads.delete(entityId) })
 }
 
 function renderAppUI(state) {
@@ -977,7 +986,6 @@ const client = new PhysicsNetworkClient({
       const mesh = entityMeshes.get(e.id)
       if (mesh && e.position) mesh.position.set(...e.position)
       if (mesh && e.rotation) mesh.quaternion.set(...e.rotation)
-      if (mesh && e.custom?.scale) mesh.scale.set(...e.custom.scale)
       if (!entityMeshes.has(e.id)) loadEntityModel(e.id, e)
     }
     rebuildEntityHierarchy(smoothState.entities)
@@ -1003,8 +1011,6 @@ const client = new PhysicsNetworkClient({
   },
   onAppModule: (d) => {
     loadingMgr.setStage('APPS')
-    const old = appModules.get(d.app)
-    if (old?.teardown) try { old.teardown(engineCtx) } catch (e) { console.error('[app-teardown]', d.app, e.message) }
     const a = evaluateAppModule(d.code)
     if (a?.client) {
       appModules.set(d.app, a.client)
@@ -1159,12 +1165,10 @@ function startInputLoop() {
     const input = inputHandler.getInput()
     latestInput = input
 
-    if (input.editToggle && !cam.getEditMode()) {
-      cam.setEditMode(true)
-      console.log('[EditMode] Enabled')
-    } else if (!input.editToggle && cam.getEditMode() && inputHandler.editModeCooldown === false) {
-      cam.setEditMode(false)
-      console.log('[EditMode] Disabled')
+    const wantsEdit = !!input.editToggle
+    if (wantsEdit !== cam.getEditMode()) {
+      cam.setEditMode(wantsEdit)
+      console.log('[EditMode]', wantsEdit ? 'Enabled' : 'Disabled')
     }
 
     if (input.yaw !== undefined) {
