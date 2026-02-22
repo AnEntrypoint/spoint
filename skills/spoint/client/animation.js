@@ -46,15 +46,15 @@ function filterUpperBodyTracks(clip) {
   return new THREE.AnimationClip(clip.name, clip.duration, filteredTracks)
 }
 
-function filterValidClipTracks(clip, targetObj) {
-  // Get all bone/mesh names that exist in target
+function buildValidBoneSet(targetObj) {
   const validBones = new Set()
   targetObj.traverse(child => {
-    if (child.isBone || child.isSkinnedMesh) {
-      validBones.add(child.name)
-    }
+    if (child.isBone || child.isSkinnedMesh) validBones.add(child.name)
   })
+  return validBones
+}
 
+function filterValidClipTracks(clip, validBones) {
   const validTracks = clip.tracks.filter(track => {
     const boneName = extractBoneName(track.name)
     if (!validBones.has(boneName)) {
@@ -123,12 +123,21 @@ function normalizeClips(gltf, vrmVersion, vrmHumanoid) {
   return clips
 }
 
+let _animLibCache = null
+let _animLibPromise = null
+
 export async function loadAnimationLibrary(vrmVersion, vrmHumanoid) {
-  const loader = new GLTFLoader()
-  const gltf = await loader.loadAsync('/anim-lib.glb')
-  const normalizedClips = normalizeClips(gltf, vrmVersion || '1', vrmHumanoid)
-  console.log(`[anim] Loaded animation library (${normalizedClips.size} clips):`, [...normalizedClips.keys()])
-  return { normalizedClips }
+  if (_animLibCache) return _animLibCache
+  if (_animLibPromise) return _animLibPromise
+  _animLibPromise = (async () => {
+    const loader = new GLTFLoader()
+    const gltf = await loader.loadAsync('/anim-lib.glb')
+    const normalizedClips = normalizeClips(gltf, vrmVersion || '1', vrmHumanoid)
+    console.log(`[anim] Loaded animation library (${normalizedClips.size} clips):`, [...normalizedClips.keys()])
+    _animLibCache = { normalizedClips }
+    return _animLibCache
+  })()
+  return _animLibPromise
 }
 
 export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {}) {
@@ -140,6 +149,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   const additiveActions = new Map()
 
   const clips = allClips.normalizedClips || allClips.rawClips || allClips
+  const validBones = buildValidBoneSet(root)
 
   for (const [name, clip] of clips) {
     if (!STATES[name]) continue
@@ -149,7 +159,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       console.log(`[anim] ${name} tracks:`, clip.tracks.map(t => extractBoneName(t.name)))
     }
 
-    let playClip = filterValidClipTracks(clip, root)
+    let playClip = filterValidClipTracks(clip, validBones)
 
     if (cfg.upperBody) {
       const upperBodyClip = filterUpperBodyTracks(playClip)

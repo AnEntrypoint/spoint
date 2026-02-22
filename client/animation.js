@@ -123,12 +123,21 @@ function normalizeClips(gltf, vrmVersion, vrmHumanoid) {
   return clips
 }
 
+let _animLibCache = null
+let _animLibPromise = null
+
 export async function loadAnimationLibrary(vrmVersion, vrmHumanoid) {
-  const loader = new GLTFLoader()
-  const gltf = await loader.loadAsync('/anim-lib.glb')
-  const normalizedClips = normalizeClips(gltf, vrmVersion || '1', vrmHumanoid)
-  console.log(`[anim] Loaded animation library (${normalizedClips.size} clips):`, [...normalizedClips.keys()])
-  return { normalizedClips }
+  if (_animLibCache) return _animLibCache
+  if (_animLibPromise) return _animLibPromise
+  _animLibPromise = (async () => {
+    const loader = new GLTFLoader()
+    const gltf = await loader.loadAsync('/anim-lib.glb')
+    const normalizedClips = normalizeClips(gltf, vrmVersion || '1', vrmHumanoid)
+    console.log(`[anim] Loaded animation library (${normalizedClips.size} clips):`, [...normalizedClips.keys()])
+    _animLibCache = { normalizedClips }
+    return _animLibCache
+  })()
+  return _animLibPromise
 }
 
 export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {}) {

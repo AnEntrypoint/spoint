@@ -11,6 +11,7 @@ export class PhysicsWorld {
     this.bodies = new Map(); this.bodyMeta = new Map()
     this._objFilter = null; this._ovbp = null
     this._charShapes = new Map()
+    this._tmpVec3 = null; this._tmpRVec3 = null
   }
   async init() {
     const J = await getJolt()
@@ -27,6 +28,7 @@ export class PhysicsWorld {
     this._objFilter = objFilter; this._ovbp = ovbp
     this.jolt = new J.JoltInterface(settings); J.destroy(settings)
     this.physicsSystem = this.jolt.GetPhysicsSystem(); this.bodyInterface = this.physicsSystem.GetBodyInterface()
+    this._tmpVec3 = new J.Vec3(0, 0, 0); this._tmpRVec3 = new J.RVec3(0, 0, 0)
     const [gx, gy, gz] = this.gravity
     this.physicsSystem.SetGravity(new J.Vec3(gx, gy, gz))
     return this
@@ -57,6 +59,13 @@ export class PhysicsWorld {
     if (shapeType === 'box') shape = new J.BoxShape(new J.Vec3(params[0], params[1], params[2]), 0.05, null)
     else if (shapeType === 'sphere') shape = new J.SphereShape(params)
     else if (shapeType === 'capsule') shape = new J.CapsuleShape(params[1], params[0])
+    else if (shapeType === 'convex') {
+      const pts = new J.VertexList()
+      for (let i = 0; i < params.length; i += 3) pts.push_back(new J.Float3(params[i], params[i + 1], params[i + 2]))
+      const cvx = new J.ConvexHullShapeSettings(pts)
+      shape = cvx.Create().Get()
+      J.destroy(pts); J.destroy(cvx)
+    }
     else return null
     const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
     layer = motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC

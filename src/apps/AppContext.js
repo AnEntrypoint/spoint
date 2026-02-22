@@ -1,4 +1,5 @@
 import { CliDebugger } from '../debug/CliDebugger.js'
+import { extractMeshFromGLB } from '../physics/GLBLoader.js'
 
 export class AppContext {
   constructor(entity, runtime) {
@@ -73,6 +74,23 @@ export class AppContext {
         if (runtime._physics && ent.model) {
           const bodyId = runtime._physics.addStaticTrimesh(runtime.resolveAssetPath(ent.model), 0)
           ent._physicsBodyId = bodyId
+        }
+      },
+      addConvexCollider: (points) => {
+        ent.collider = { type: 'convex', points }
+        if (runtime._physics) {
+          const mt = ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
+          ent._physicsBodyId = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+        }
+      },
+      addConvexFromModel: (meshIndex = 0) => {
+        if (!ent.model) return
+        const mesh = extractMeshFromGLB(runtime.resolveAssetPath(ent.model), meshIndex)
+        const points = Array.from(mesh.vertices)
+        ent.collider = { type: 'convex', points }
+        if (runtime._physics) {
+          const mt = ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
+          ent._physicsBodyId = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
         }
       },
       addForce: (f) => {

@@ -11,6 +11,24 @@ SKILL.md and CLAUDE.md MUST both be reviewed and updated whenever code changes.
 
 ---
 
+## Animation Library Global Cache
+
+`loadAnimationLibrary()` in `client/animation.js` uses a module-level cache (`_animLibCache`, `_animLibPromise`). The first call loads `/anim-lib.glb` and stores the result. All subsequent calls return the cached value immediately. The cache prevents loading the library once per connecting player - it is now loaded once globally. `initAssets` in `client/app.js` kicks off the library load in parallel with the VRM download so both complete concurrently.
+
+## Loading Screen Hides Before Warmup
+
+`checkAllLoaded()` now calls `loadingScreen.hide()` immediately when all loading conditions pass, then fires `warmupShaders()` asynchronously in the background. Previously the loading screen blocked on the full warmup (compileAsync + 2x render). This means the first rendered frame may have a brief shader compile stall, but the loading screen no longer adds warmup time on top of actual asset loading.
+
+## evaluateAppModule Helper Function Hoisting
+
+`evaluateAppModule()` in `client/app.js` converts `export default` to `return`. If the app file declares helper functions AFTER the `export default { ... }` block closes, those functions become unreachable dead code after the return statement. The fix: the regex now locates the `default` keyword and splits the source into code-before-default (helper functions hoist to before the return) and the object/function being exported (becomes the return value). A `//# sourceURL=app-module.js` comment is appended so Firefox attributes warnings to the correct virtual file.
+
+## Convex Hull Collider
+
+`World.js addBody()` now accepts `shapeType === 'convex'` with `params` as a flat array of vertex positions `[x,y,z,x,y,z,...]`. It uses Jolt's `ConvexHullShapeSettings` + `VertexList`. The VertexList and settings object are destroyed after the shape is created to avoid WASM leaks. `AppContext.js` exposes `addConvexCollider(points)` and `addConvexFromModel(meshIndex)`. `addConvexFromModel` uses `extractMeshFromGLB` (imported at module top) to read vertices from the entity's GLB file at setup time.
+
+---
+
 ## Jolt Physics WASM Memory
 
 Jolt getter methods (GetPosition, GetRotation, GetLinearVelocity) return WASM heap objects. Every call MUST be followed by `Jolt.destroy(returnedObj)` or WASM heap grows unbounded (~30MB/5min). See World.js `getCharacterPosition`, `getBodyPosition` etc for correct pattern.

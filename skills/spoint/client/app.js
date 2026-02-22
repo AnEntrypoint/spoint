@@ -620,6 +620,9 @@ sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 200
 scene.add(sun)
 scene.add(sun.target)
 
+const _warmupPointLight = new THREE.PointLight(0xffffff, 0, 1)
+scene.add(_warmupPointLight)
+
 function fitShadowFrustum() {
   const box = new THREE.Box3()
   scene.traverse(o => { if (o.isMesh && (o.castShadow || o.receiveShadow) && o.geometry) box.expandByObject(o) })
@@ -710,16 +713,16 @@ function detectVrmVersion(buffer) {
 
 function initAssets(playerModelUrl) {
   loadingMgr.setStage('DOWNLOAD')
-  assetsReady = loadingMgr.fetchWithProgress(playerModelUrl).then(b => {
+  const animLibPromise = loadAnimationLibrary('1', null)
+  assetsReady = loadingMgr.fetchWithProgress(playerModelUrl).then(async b => {
     vrmBuffer = b
     loadingMgr.setStage('PROCESS')
-    return loadAnimationLibrary(detectVrmVersion(b), null)
-  }).then(result => {
-    animAssets = result
+    animAssets = await animLibPromise
     assetsLoaded = true
     checkAllLoaded()
   }).catch(err => {
     console.warn('[assets] player model unavailable:', err.message)
+    animLibPromise.then(r => { animAssets = r }).catch(() => {})
     assetsLoaded = true
     checkAllLoaded()
   })
@@ -759,6 +762,13 @@ async function createPlayerVRM(id) {
       if (head) cam.setHeadBone(head)
       if (cam.getMode() === 'fps' && head) head.scale.set(0, 0, 0)
     }
+    if (!_vrmWarmupDone) {
+      _vrmWarmupDone = true
+      renderer.compileAsync(scene, camera).then(() => console.log('[shader] vrm warmup compileAsync done')).catch(() => {
+        renderer.compile(scene, camera)
+        console.log('[shader] vrm warmup compile done (fallback)')
+      })
+    }
   } catch (e) { console.error('[vrm]', id, e.message) }
   return group
 }
@@ -781,13 +791,15 @@ function initVRMFeatures(id, vrm) {
   playerExpressions.set(id, features)
 }
 
+const _lookTargetVec = new THREE.Vector3()
+
 function updateVRMFeatures(id, dt, targetPosition) {
   const features = playerExpressions.get(id)
   if (!features) return
   if (features.springBone) features.springBone.update(dt)
   if (features.lookAt && targetPosition) {
-    const lookTarget = new THREE.Vector3(targetPosition.x, targetPosition.y + 1.6, targetPosition.z)
-    features.lookAt.lookAt(lookTarget)
+    _lookTargetVec.set(targetPosition.x, targetPosition.y + 1.6, targetPosition.z)
+    features.lookAt.lookAt(_lookTargetVec)
   }
   if (features.expressions) {
     features.blinkTimer += dt
@@ -828,7 +840,16 @@ function evaluateAppModule(code) {
   try {
     let stripped = code.replace(/^import\s+.*$/gm, '')
     stripped = stripped.replace(/const\s+__dirname\s*=.*import\.meta\.url.*$/gm, 'const __dirname = "/"')
-    const wrapped = stripped.replace(/export\s+default\s*/, 'return ').replace(/export\s+/g, '')
+    stripped = stripped.replace(/export\s+/g, '')
+    const exportDefaultIdx = stripped.search(/\bdefault\s*[\{(]/)
+    let wrapped
+    if (exportDefaultIdx !== -1) {
+      const before = stripped.slice(0, exportDefaultIdx)
+      const after = stripped.slice(exportDefaultIdx + 'default'.length).trimStart()
+      wrapped = before + '\nreturn ' + after + '\n//# sourceURL=app-module.js'
+    } else {
+      wrapped = stripped.replace(/\bdefault\s*/, 'return ') + '\n//# sourceURL=app-module.js'
+    }
     const join = (...parts) => parts.filter(Boolean).join('/')
     const readdirSync = () => []
     const statSync = () => ({ isDirectory: () => false })
@@ -901,18 +922,13 @@ function rebuildEntityHierarchy(entities) {
     if (!mesh) continue
 
     const parentId = entityParentMap.get(e.id)
-    const currentParent = mesh.parent && mesh.parent !== scene ? mesh.parent : null
-    const currentParentId = Array.from(entityParentMap.entries()).find(([k, v]) => v === null || entityMeshes.get(k) === currentParent)?.[0]
+    const currentParent = mesh.parent !== scene ? mesh.parent : null
 
     if (parentId === null) {
-      if (currentParent && currentParent !== scene) {
-        scene.add(mesh)
-      }
+      if (currentParent) scene.add(mesh)
     } else {
       const parentMesh = entityMeshes.get(parentId)
-      if (parentMesh && parentMesh !== currentParent) {
-        parentMesh.add(mesh)
-      }
+      if (parentMesh && parentMesh !== currentParent) parentMesh.add(mesh)
     }
   }
 }
@@ -931,8 +947,8 @@ function loadEntityModel(entityId, entityState) {
     } else {
       group = buildEntityMesh(entityId, entityState.custom)
     }
-    group.position.set(...entityState.position)
-    if (entityState.rotation) group.quaternion.set(...entityState.rotation)
+    const ep = entityState.position; group.position.set(ep[0], ep[1], ep[2])
+    const er = entityState.rotation; if (er) group.quaternion.set(er[0], er[1], er[2], er[3])
     scene.add(group)
     entityMeshes.set(entityId, group)
     pendingLoads.delete(entityId)
@@ -943,18 +959,26 @@ function loadEntityModel(entityId, entityState) {
   const url = entityState.model.startsWith('./') ? '/' + entityState.model.slice(2) : entityState.model
   gltfLoader.load(url, (gltf) => {
     const model = gltf.scene
-    model.position.set(...entityState.position)
-    if (entityState.rotation) model.quaternion.set(...entityState.rotation)
-    model.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; if (c.material) { c.material.shadowSide = THREE.DoubleSide; c.material.roughness = 1; c.material.metalness = 0; if (c.material.specularIntensity !== undefined) c.material.specularIntensity = 0 } } })
+    const mp = entityState.position; model.position.set(mp[0], mp[1], mp[2])
+    const mr = entityState.rotation; if (mr) model.quaternion.set(mr[0], mr[1], mr[2], mr[3])
+    const colliders = []
+    model.traverse(c => {
+      if (c.isMesh) {
+        c.castShadow = true
+        c.receiveShadow = true
+        if (!c.isSkinnedMesh) { c.matrixAutoUpdate = false; c.geometry.computeBoundsTree(); colliders.push(c) }
+        if (c.material) { c.material.shadowSide = THREE.DoubleSide; c.material.roughness = 1; c.material.metalness = 0; if (c.material.specularIntensity !== undefined) c.material.specularIntensity = 0 }
+      }
+    })
+    model.updateMatrixWorld(true)
     scene.add(model)
     entityMeshes.set(entityId, model)
-    const colliders = []
-    model.traverse(c => { if (c.isMesh && !c.isSkinnedMesh) { c.geometry.computeBoundsTree(); colliders.push(c) } })
     cam.setEnvironment(colliders)
     scene.remove(ground)
     fitShadowFrustum()
     pendingLoads.delete(entityId)
     if (!environmentLoaded) { environmentLoaded = true; checkAllLoaded() }
+    if (loadingScreenHidden) renderer.compileAsync(scene, camera).catch(() => renderer.compile(scene, camera))
   }, (progress) => { if (progress.total > 0) console.log('[gltf]', url, Math.round(progress.loaded / progress.total * 100) + '%') }, (err) => { console.error('[gltf]', url, err); pendingLoads.delete(entityId) })
 }
 
@@ -988,15 +1012,17 @@ const client = new PhysicsNetworkClient({
       const mesh = playerMeshes.get(p.id)
       const feetOff = mesh?.userData?.feetOffset ?? 1.3
       const tx = p.position[0], ty = p.position[1] - feetOff, tz = p.position[2]
-      playerTargets.set(p.id, { x: tx, y: ty, z: tz })
+      const existingTarget = playerTargets.get(p.id)
+      if (existingTarget) { existingTarget.x = tx; existingTarget.y = ty; existingTarget.z = tz }
+      else playerTargets.set(p.id, { x: tx, y: ty, z: tz })
       playerStates.set(p.id, p)
       const dx = tx - mesh.position.x, dy = ty - mesh.position.y, dz = tz - mesh.position.z
       if (!mesh.userData.initialized || dx * dx + dy * dy + dz * dz > 100) { mesh.position.set(tx, ty, tz); mesh.userData.initialized = true }
     }
     for (const e of smoothState.entities) {
       const mesh = entityMeshes.get(e.id)
-      if (mesh && e.position) mesh.position.set(...e.position)
-      if (mesh && e.rotation) mesh.quaternion.set(...e.rotation)
+      if (mesh && e.position) mesh.position.set(e.position[0], e.position[1], e.position[2])
+      if (mesh && e.rotation) mesh.quaternion.set(e.rotation[0], e.rotation[1], e.rotation[2], e.rotation[3])
       if (!entityMeshes.has(e.id)) loadEntityModel(e.id, e)
     }
     rebuildEntityHierarchy(smoothState.entities)
@@ -1069,6 +1095,30 @@ let firstSnapshotReceived = false
 let lastShootState = false
 let lastHealth = 100
 
+let _shaderWarmupDone = false
+let _vrmWarmupDone = false
+
+async function warmupShaders() {
+  if (_shaderWarmupDone) return
+  _shaderWarmupDone = true
+  const ext = renderer.extensions.get('KHR_parallel_shader_compile')
+  if (ext) console.log('[shader] KHR_parallel_shader_compile active')
+  try {
+    await renderer.compileAsync(scene, camera)
+    console.log('[shader] warmup compileAsync done')
+  } catch {
+    renderer.compile(scene, camera)
+    console.log('[shader] warmup compile done (fallback)')
+  }
+  const culled = []
+  scene.traverse(obj => { if (obj.frustumCulled) { culled.push(obj); obj.frustumCulled = false } })
+  renderer.render(scene, camera)
+  await new Promise(r => requestAnimationFrame(r))
+  renderer.render(scene, camera)
+  for (const obj of culled) obj.frustumCulled = true
+  console.log('[shader] GPU upload render done, culled restored:', culled.length)
+}
+
 function checkAllLoaded() {
   if (loadingScreenHidden) return
   if (!assetsLoaded) return
@@ -1076,8 +1126,9 @@ function checkAllLoaded() {
   if (!firstSnapshotReceived) return
   loadingMgr.setStage('INIT')
   loadingMgr.complete()
-  loadingScreen.hide().catch(() => {})
   loadingScreenHidden = true
+  loadingScreen.hide()
+  warmupShaders().catch(() => {})
 }
 
 function initInputHandler() {
@@ -1401,11 +1452,12 @@ function animate(timestamp) {
     const target = playerTargets.get(id)
     updateVRMFeatures(id, frameDt, target)
     if (id !== client.playerId && ps.lookPitch !== undefined) {
-      const vrm = playerVrms.get(id)
-      if (vrm?.humanoid) {
-        const head = vrm.humanoid.getNormalizedBoneNode('head')
-        if (head) head.rotation.x = -(ps.lookPitch || 0) * 0.6
+      const features = playerExpressions.get(id)
+      if (features && !features._headBone) {
+        const vrm = playerVrms.get(id)
+        if (vrm?.humanoid) features._headBone = vrm.humanoid.getNormalizedBoneNode('head')
       }
+      if (features?._headBone) features._headBone.rotation.x = -(ps.lookPitch || 0) * 0.6
     }
   })
   entityMeshes.forEach((mesh) => {
