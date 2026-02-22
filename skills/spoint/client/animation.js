@@ -123,21 +123,23 @@ function normalizeClips(gltf, vrmVersion, vrmHumanoid) {
   return clips
 }
 
-let _animLibCache = null
-let _animLibPromise = null
+let _gltfPromise = null
+let _normalizedCache = null
+
+export function preloadAnimationLibrary() {
+  if (_gltfPromise) return _gltfPromise
+  _gltfPromise = new GLTFLoader().loadAsync('/anim-lib.glb')
+  return _gltfPromise
+}
 
 export async function loadAnimationLibrary(vrmVersion, vrmHumanoid) {
-  if (_animLibCache) return _animLibCache
-  if (_animLibPromise) return _animLibPromise
-  _animLibPromise = (async () => {
-    const loader = new GLTFLoader()
-    const gltf = await loader.loadAsync('/anim-lib.glb')
-    const normalizedClips = normalizeClips(gltf, vrmVersion || '1', vrmHumanoid)
-    console.log(`[anim] Loaded animation library (${normalizedClips.size} clips):`, [...normalizedClips.keys()])
-    _animLibCache = { normalizedClips }
-    return _animLibCache
-  })()
-  return _animLibPromise
+  if (_normalizedCache) return _normalizedCache
+  const gltf = await preloadAnimationLibrary()
+  if (_normalizedCache) return _normalizedCache
+  const normalizedClips = normalizeClips(gltf, vrmVersion || '1', vrmHumanoid)
+  console.log(`[anim] Loaded animation library (${normalizedClips.size} clips):`, [...normalizedClips.keys()])
+  _normalizedCache = { normalizedClips }
+  return _normalizedCache
 }
 
 export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {}) {

@@ -9,7 +9,7 @@ import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
 import { PhysicsNetworkClient, InputHandler, MSG } from '/src/index.client.js'
 import { createElement, applyDiff } from 'webjsx'
 import { createCameraController } from './camera.js'
-import { loadAnimationLibrary, createPlayerAnimator } from './animation.js'
+import { loadAnimationLibrary, preloadAnimationLibrary, createPlayerAnimator } from './animation.js'
 import { initFacialSystem } from './facial-animation.js'
 import { VRButton } from 'three/addons/webxr/VRButton.js'
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js'
@@ -713,16 +713,15 @@ function detectVrmVersion(buffer) {
 
 function initAssets(playerModelUrl) {
   loadingMgr.setStage('DOWNLOAD')
-  const animLibPromise = loadAnimationLibrary('1', null)
+  preloadAnimationLibrary()
   assetsReady = loadingMgr.fetchWithProgress(playerModelUrl).then(async b => {
     vrmBuffer = b
     loadingMgr.setStage('PROCESS')
-    animAssets = await animLibPromise
+    animAssets = await loadAnimationLibrary(detectVrmVersion(b), null)
     assetsLoaded = true
     checkAllLoaded()
   }).catch(err => {
     console.warn('[assets] player model unavailable:', err.message)
-    animLibPromise.then(r => { animAssets = r }).catch(() => {})
     assetsLoaded = true
     checkAllLoaded()
   })
