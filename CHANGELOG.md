@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.45](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.44...v0.1.45) (2026-02-22)
+
+
+### Bug Fixes
+
+* wait for first-snapshot GLBs before warmup, clamp gzip progress ([8f85a60](https://github.com/AnEntrypoint/spawnpoint/commit/8f85a60f4afb26263871649007c053411709f2b7))
+
 ### [0.1.44](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.43...v0.1.44) (2026-02-22)
 
 
