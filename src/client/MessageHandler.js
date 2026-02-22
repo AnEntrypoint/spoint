@@ -74,7 +74,7 @@ export class MessageHandler {
 
   _handleHeartbeat(payload) {
     if (this._smoothInterp) {
-      this._smoothInterp.updateRTT(payload.pingTime || 0, Date.now())
+      this._smoothInterp.updateRTT(payload.timestamp || 0, Date.now())
     }
   }
 
