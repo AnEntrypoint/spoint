@@ -122,6 +122,10 @@ EventBus supports `*` suffix patterns: subscribing to `combat.*` receives `comba
 
 Each entity gets a scoped EventBus via `bus.scope(entityId)`. The scope tracks all subscriptions. When entity is destroyed or app is detached, `destroyScope()` unsubscribes everything. Forgetting to use the scoped bus means listeners leak across hot reloads.
 
+## GLB Shader Warmup Coverage
+
+Every dynamic model added to the scene calls `renderer.compileAsync(object, camera)` immediately after `scene.add()`. This covers three sites in `client/app.js`: (1) the GLB entity/environment path in `loadEntityModel`, (2) the procedural mesh path in `loadEntityModel`, (3) the drag-and-drop editor path in `loadQueuedModels`. VRM player warmup uses a separate one-time flag (`_vrmWarmupDone`) that compiles against the full scene after the first player model loads. Omitting `compileAsync` after `scene.add` causes a visible GPU stall on first render of that object.
+
 ## Three.js Shadow Artifacts
 
 `material.shadowSide = THREE.BackSide` on environment meshes prevents bright corner-line artifacts at geometry seams. VSMShadowMap causes blurred cutout artifacts - must use PCFSoftShadowMap (set in app.js).
