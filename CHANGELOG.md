@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.58](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.57...v0.1.58) (2026-02-22)
+
+
+### Bug Fixes
+
+* **skill:** correct remote model URL base (AnEntrypoint/master), add absolute path caveat and remote+physics pattern, expand known filenames ([908151d](https://github.com/AnEntrypoint/spawnpoint/commit/908151d598b8b32f443977a3e29ca216a30b5e69))
+
 ### [0.1.57](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.56...v0.1.57) (2026-02-22)
 
 
