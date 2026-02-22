@@ -17,6 +17,32 @@ Project structure: `apps/world/index.js` (world config) + `apps/<name>/index.js`
 
 ---
 
+## App Module Shape
+
+Every app file exports a plain object with `server` and/or `client` keys:
+
+```js
+export default {
+  server: {
+    setup(ctx) {},
+    update(ctx, dt) {},
+    teardown(ctx) {},
+    onInteract(ctx, player) {},
+    onMessage(ctx, msg) {},
+    onCollision(ctx, other) {},       // entity-entity sphere overlap; other = { id, position, velocity }
+    onHandover(ctx, sourceEntityId, data) {}  // fired by ctx.bus.handover() targeting this entity
+  },
+  client: {
+    render({ entity, state, h, engine, players }) { return { ui: null } },
+    onEvent(payload, engine) {},      // server sent msg via ctx.players.send/broadcast
+    onInput(input, engine) {},        // called at 60Hz before input sent to server
+    onFrame(dt, engine) {}            // called every animation frame
+  }
+}
+```
+
+---
+
 ## Quick Start — Minimal Working Arena
 
 ### `apps/world/index.js`
@@ -55,7 +81,7 @@ export default {
     },
     teardown(ctx) { for (const id of ctx.state.ids||[]) ctx.world.destroy(id); ctx.state.ids = [] }
   },
-  client: { render(ctx) { return { position:ctx.entity.position, rotation:ctx.entity.rotation, custom:ctx.entity.custom } } }
+  client: { render({ entity }) { return { ui: null } } }
 }
 ```
 
@@ -69,8 +95,8 @@ export default {
       ctx.physics.setStatic(true)
       ctx.physics.addBoxCollider([c.hx??1, c.hy??1, c.hz??1])
     }
-  },
-  client: { render(ctx) { return { position:ctx.entity.position, rotation:ctx.entity.rotation, custom:ctx.entity.custom } } }
+  }
+  // No client: needed — entity mesh driven by snapshot, not render()
 }
 ```
 
@@ -87,7 +113,8 @@ export default {
     maxSpeed: 4.0,         // code default is 8.0 — always override explicitly
     groundAccel: 10.0, airAccel: 1.0, friction: 6.0, stopSpeed: 2.0,
     jumpImpulse: 4.0,      // velocity SET (not added) on jump
-    crouchSpeedMul: 0.4, sprintSpeed: null  // null = maxSpeed * 1.75
+    crouchSpeedMul: 0.4, sprintSpeed: null,  // null = maxSpeed * 1.75
+    collisionRestitution: 0.2, collisionDamping: 0.25
   },
   player: {
     health: 100, capsuleRadius: 0.4, capsuleHalfHeight: 0.9, crouchHalfHeight: 0.45,
@@ -152,8 +179,8 @@ Remote models are NOT in the loading gate. Use `prop-static` app for physics:
 ```js
 // apps/prop-static/index.js
 export default {
-  server: { setup(ctx) { ctx.physics.setStatic(true); if (ctx.entity.model) ctx.physics.addConvexFromModel(0) } },
-  client: { render(ctx) { return { position:ctx.entity.position, rotation:ctx.entity.rotation, model:ctx.entity.model } } }
+  server: { setup(ctx) { ctx.physics.setStatic(true); if (ctx.entity.model) ctx.physics.addConvexFromModel(0) } }
+  // No client: needed — position/rotation/model driven by snapshot automatically
 }
 // Spawn:
 const BASE = 'https://raw.githubusercontent.com/anEntrypoint/assets/main'
@@ -169,6 +196,8 @@ ctx.world.spawn('dumpster-1', { model:`${BASE}/dumpster_b076662a_v1.glb`, positi
 ctx.entity.id / model / position / rotation / scale / velocity / custom / parent / children / worldTransform
 ctx.entity.destroy()
 // position: [x,y,z]  rotation: [x,y,z,w] quaternion  custom: any (sent in every snapshot — keep small)
+// children: returns a copy of the Set as an array — mutating it does not affect the entity
+// worldTransform: { position, rotation, scale } — computed recursively through parent chain
 ```
 
 ### ctx.state
@@ -205,34 +234,35 @@ ctx.physics.addCapsuleCollider(radius, fullHeight)  // fullHeight=total height, 
 ctx.physics.addTrimeshCollider()              // STATIC ONLY — exact triangle mesh from entity.model GLB
 ctx.physics.addConvexCollider(points)         // flat [x,y,z,...], all motion types
 ctx.physics.addConvexFromModel(meshIndex=0)   // extracts verts from entity.model GLB — dynamic/kinematic ok
+ctx.physics.addForce([fx,fy,fz])              // velocity += force/mass (instant impulse, not continuous)
+ctx.physics.setVelocity([vx,vy,vz])
 ```
 
 **Shape rules:**
 - **box/sphere/capsule** — fastest, any motion type. Use for walls, floors, triggers.
 - **trimesh** — exact GLB triangle mesh, **static only**. Use for terrain/environments.
 - **convex hull** — approximate wrap of GLB mesh, any motion type. Use for all dynamic props (crates, vehicles). `addConvexFromModel()` extracts verts automatically.
-ctx.physics.addForce([fx,fy,fz])              // velocity += force/mass
-ctx.physics.setVelocity([vx,vy,vz])
-```
 
 ### ctx.world
 ```js
 ctx.world.spawn(id, config)   // id: string|null (null=auto-generate). Returns entity|null.
 ctx.world.destroy(id)
 ctx.world.getEntity(id)       // entity|null
-ctx.world.query(filterFn)     // entity[]
-ctx.world.nearby(pos, radius) // entity IDs within radius
+ctx.world.query(filterFn)     // entity[] — filterFn receives raw entity object
+ctx.world.nearby(pos, radius) // entity IDs (strings), NOT entity objects — call getEntity() to resolve
 ctx.world.reparent(eid, parentId)  // parentId null = detach
 ctx.world.attach(entityId, appName) / detach(entityId)
 ctx.world.gravity             // [x,y,z] read-only
 
 // spawn config keys: model, position, rotation, scale, parent, app, config, autoTrimesh
+// autoTrimesh:true — automatically calls addStaticTrimesh on entity.model at spawn (static only)
 ```
 
 ### ctx.players
 ```js
 ctx.players.getAll()
 // Player: { id, state: { position, velocity, health, onGround, crouch, lookPitch, lookYaw, interact } }
+// interact: bool — true the tick the player pressed E (server checks this against interactable entities)
 ctx.players.getNearest([x,y,z], radius)  // Player|null
 ctx.players.send(playerId, msg)           // client receives in onEvent(payload, engine)
 ctx.players.broadcast(msg)
@@ -242,13 +272,13 @@ Mutate `player.state.health` / `player.state.velocity` directly — propagates i
 
 ### ctx.bus
 ```js
-ctx.bus.on('channel', (e) => { e.data; e.channel; e.meta })
+const unsub = ctx.bus.on('channel', (e) => { e.data; e.channel; e.meta })  // returns unsubscribe fn
 ctx.bus.once('channel', handler)
-ctx.bus.emit('channel', data)            // meta.sourceEntity set automatically
-ctx.bus.on('combat.*', handler)          // wildcard prefix
-ctx.bus.handover(targetEntityId, data)   // fires onHandover on target
+ctx.bus.emit('channel', data)            // meta.sourceEntity set automatically to this entity's id
+ctx.bus.on('combat.*', handler)          // wildcard: matches combat.fire, combat.hit, etc.
+ctx.bus.handover(targetEntityId, data)   // fires onHandover(ctx, sourceEntityId, data) on target entity
 ```
-`system.*` prefix is reserved — do not emit on it.
+`system.*` prefix is reserved — do not emit on it. All subscriptions auto-cleaned on teardown — no manual cleanup needed.
 
 ### ctx.time
 ```js
@@ -261,48 +291,94 @@ ctx.time.every(seconds, fn)  // repeating, cleared on teardown
 ```js
 const hit = ctx.raycast([x,y,z], [dx,dy,dz], maxDist)
 // { hit:bool, distance:number, body:bodyId|null, position:[x,y,z]|null }
+// Returns { hit:false } if physics not initialized
 ```
 
 ### ctx.storage
 ```js
-if (ctx.storage) {
-  await ctx.storage.set('key', value)
-  const val = await ctx.storage.get('key')
+if (ctx.storage) {   // null if no storage adapter configured — always guard
+  await ctx.storage.set('key', value)     // keys auto-namespaced as appName/key
+  const val = await ctx.storage.get('key')   // returns undefined if missing
   await ctx.storage.delete('key')
-  const keys = await ctx.storage.list('')
+  const keys = await ctx.storage.list('')    // list keys with given prefix (after namespace)
+  const exists = await ctx.storage.has('key')  // Promise<bool>
 }
+```
+
+### ctx.network
+```js
+ctx.network.broadcast(msg)        // alias for ctx.players.broadcast
+ctx.network.sendTo(playerId, msg) // alias for ctx.players.send
+```
+
+### ctx.debug
+```js
+ctx.debug.log(message)
+ctx.debug.spawn(entity, position) / collision(a, b, pos) / hit(shooter, target, damage)
+ctx.debug.death(entity, damage) / respawn(entity, position)
+ctx.debug.state(entity, key, value) / perf(label, ms) / error(category, message)
+// All methods prefix output with entity id and elapsed time; output goes to server console
 ```
 
 ---
 
 ## Client API
 
-### render(ctx) — return value
+### render() — return value
+
+`render()` return value is **only used for `ui`**. Entity position/rotation/model/custom are driven by the server snapshot — returning them from render() has no effect.
+
 ```js
-{ position:[x,y,z], rotation:[x,y,z,w], model:'path.glb', custom:{...}, ui:ctx.h('div',...) }
+client: {
+  render({ entity, state, h, engine, players }) {
+    // entity: snapshot entity { id, position, rotation, scale, model, custom, parent }
+    // state: alias for entity.custom
+    // players: array of all player snapshot objects
+    return { ui: h('div', { style:'color:white' }, `Score: ${state.score}`) }
+  }
+}
+```
+
+### Client lifecycle signatures
+```js
+onEvent(payload, engine) {}   // payload = whatever server passed to ctx.players.send/broadcast
+onInput(input, engine) {}     // 60Hz; read-only — mutating input does NOT change what is sent
+onFrame(dt, engine) {}        // every animation frame; dt in seconds
 ```
 
 ### engine object
 ```js
 engine.THREE / scene / camera / renderer
-engine.playerId                              // local player ID
-engine.client.state                          // { players:[...], entities:[...] }
-engine.cam.getAimDirection(position)         // normalized [dx,dy,dz]
-engine.cam.punch(intensity)                  // visual recoil
-engine.players.getAnimator(playerId)
+engine.playerId                              // local player ID string
+engine.cam.getAimDirection(position)         // normalized [dx,dy,dz] from camera aim
+engine.cam.punch(intensity)                  // visual camera recoil
+engine.worldConfig                           // full world config (read-only)
+engine.inputConfig                           // current input config
+engine.setInputConfig(cfg)                   // merge cfg; set {pointerLock:false} to release mouse
+engine.playerVrms                            // Map<playerId, VRM> for direct VRM access
+engine.mobileControls                        // mobile controls instance or null on desktop
+engine.players.getMesh(playerId)             // THREE.Group|undefined
+engine.players.getState(playerId)            // player snapshot state|undefined
+engine.players.getAnimator(playerId)         // AnimationMixer|undefined
 engine.players.setExpression(playerId, name, weight)
 engine.players.setAiming(playerId, isAiming)
 ```
 
-### ctx.h — hyperscript
+### h — hyperscript
 ```js
-ctx.h(tag, props, ...children)  // props = attrs/inline styles or null; null children ignored
-ctx.h('div', { style:'color:red' }, 'Hello')
+h(tag, props, ...children)  // props = attrs/inline styles or null; null children ignored
+h('div', { style:'color:red' }, 'Hello')
 ```
 Client apps cannot use `import` — all import statements stripped before evaluation. Use `engine.*` for deps.
 
 ### onInput fields
-`forward backward left right jump crouch sprint shoot reload interact yaw pitch`
+```
+forward  backward  left  right  jump  crouch  sprint  shoot  reload  interact
+yaw      pitch     mouseX  mouseY  editToggle
+// yaw/pitch: cumulative radians (not delta). mouseX/mouseY: screen pixel coords.
+// editToggle: true while P key held (engine edit mode — not for app use)
+// On mobile additionally: isMobile=true  analogForward  analogRight  zoom  weapon
+```
 
 ---
 
@@ -317,11 +393,13 @@ When no GLB set, `custom` drives geometry — primary way to create primitives w
                    emissive:0xffa000, emissiveIntensity:0.3,
                    light:0xffd700, lightIntensity:1, lightRange:4 }
 { ..., hover:0.15, spin:1 }                  // Y oscillation amplitude (units), rotation (rad/sec)
-{ ..., glow:true, glowColor:0x00ff88, glowIntensity:0.5 }
+{ ..., rotX:0.5, rotZ:0.2 }                  // static mesh rotation offset in radians
 { mesh:'box', label:'PRESS E' }
 ```
 
 **sx/sy/sz are FULL size. addBoxCollider takes HALF-extents.** `sx:4,sy:2` → `addBoxCollider([2,1,...])`
+
+`glow`/`glowColor`/`glowIntensity` are NOT rendered — no glow post-process exists. Use `emissive` + `emissiveIntensity` for bright materials instead.
 
 ---
 
@@ -359,11 +437,17 @@ ctx.world.spawn('floor', { app:'box-static', config:{ hx:5, hy:0.25, hz:5 } })
 
 **setPosition teleports through walls** — physics pushes out next tick.
 
-**App sphere collision is O(n²).** Keep interactive entity count under ~50.
+**App sphere collision is O(n²).** Keep interactive entity count under ~50. The collision hook is `onCollision` not `onCollide`.
 
 **Snapshots only sent when players > 0.** Entity state still updates, nothing broadcast.
 
 **TickSystem max 4 steps per loop.** >4 ticks behind (~31ms at 128TPS) = silent drop.
+
+**ctx.world.nearby() returns entity IDs (strings), not entity objects.** Call `ctx.world.getEntity(id)` to resolve.
+
+**render() return value only drives ui.** Returning position/rotation/model/custom from render() is ignored — entity mesh is driven by the server snapshot. Only return `{ ui: ... }`.
+
+**Client lifecycle has no ctx argument.** render/onEvent/onInput/onFrame receive `engine` (and other positional args) — there is no `ctx` on the client side.
 
 **Player join/leave arrive via onMessage:**
 ```js
