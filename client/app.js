@@ -1096,6 +1096,13 @@ async function warmupShaders() {
     renderer.compile(scene, camera)
     console.log('[shader] warmup compile done (fallback)')
   }
+  const culled = []
+  scene.traverse(obj => { if (obj.frustumCulled) { culled.push(obj); obj.frustumCulled = false } })
+  renderer.render(scene, camera)
+  await new Promise(r => requestAnimationFrame(r))
+  renderer.render(scene, camera)
+  for (const obj of culled) obj.frustumCulled = true
+  console.log('[shader] GPU upload render done, culled restored:', culled.length)
 }
 
 function checkAllLoaded() {
@@ -1105,8 +1112,8 @@ function checkAllLoaded() {
   if (!firstSnapshotReceived) return
   loadingMgr.setStage('INIT')
   loadingMgr.complete()
-  loadingScreen.hide().then(() => warmupShaders()).catch(() => warmupShaders())
   loadingScreenHidden = true
+  warmupShaders().then(() => loadingScreen.hide()).catch(() => loadingScreen.hide())
 }
 
 function initInputHandler() {
