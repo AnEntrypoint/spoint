@@ -144,7 +144,11 @@ Locomotion transitions use hysteresis: idle-to-walk threshold differs from walk-
 
 ## Camera Collision Raycast Rate
 
-Camera raycasts against environment run every 50ms (20Hz), not every frame. Cached clip distance is used between raycasts. Camera snaps faster toward player (speed 30) than away (speed 12) to prevent seeing through walls.
+Camera raycasts against environment run every 50ms (20Hz) in both TPS and FPS modes, not every frame. Cached clip distance is used between raycasts. Camera snaps faster toward player (speed 30) than away (speed 12) to prevent seeing through walls.
+
+## Camera Environment Mesh List
+
+`cam.setEnvironment(meshes)` in camera.js defines what the camera raycasts against for collision and aim. In app.js, this is populated from all non-skinned static meshes in the loaded environment model (any `isMesh && !isSkinnedMesh`). If this list is empty, raycasts are skipped entirely — never falling back to `scene.children` which would include skinned VRM player meshes and cause massive CPU overhead (bone transform per triangle). The old behavior only collected meshes named `'Collider'`, which was wrong for models without that naming convention.
 
 ## Debug Globals
 

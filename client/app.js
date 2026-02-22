@@ -938,8 +938,8 @@ function loadEntityModel(entityId, entityState) {
     scene.add(model)
     entityMeshes.set(entityId, model)
     const colliders = []
-    model.traverse(c => { if (c.isMesh && c.name === 'Collider') colliders.push(c) })
-    if (colliders.length) cam.setEnvironment(colliders)
+    model.traverse(c => { if (c.isMesh && !c.isSkinnedMesh) colliders.push(c) })
+    cam.setEnvironment(colliders)
     scene.remove(ground)
     fitShadowFrustum()
     pendingLoads.delete(entityId)
