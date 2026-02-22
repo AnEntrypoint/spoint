@@ -6,5 +6,6 @@ const cmd = process.argv[2]
 if (cmd === 'scaffold') {
   await scaffold()
 } else {
+  await scaffold()
   await boot()
 }
