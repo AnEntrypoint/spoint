@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.35](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.34...v0.1.35) (2026-02-22)
+
+
+### Features
+
+* restore playerModel config pointing to Cleetus.vrm ([280784f](https://github.com/AnEntrypoint/spawnpoint/commit/280784f65cc2a20848fc4220ad002f1bf7821e99))
+
 ### [0.1.34](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.33...v0.1.34) (2026-02-22)
 
 
