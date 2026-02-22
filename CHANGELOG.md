@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.44](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.43...v0.1.44) (2026-02-22)
+
+
+### Bug Fixes
+
+* animation regression from cache poisoning with wrong vrmVersion ([624a1df](https://github.com/AnEntrypoint/spawnpoint/commit/624a1df21734248765f0210d3a994a7b401e88d3))
+
 ### [0.1.43](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.42...v0.1.43) (2026-02-22)
 
 ### [0.1.42](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.41...v0.1.42) (2026-02-22)
