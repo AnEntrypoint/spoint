@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.8](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.7...v0.1.8) (2026-02-22)
+
+
+### Features
+
+* add scaffold command and SKILL.md for skills npm package ([bd573d3](https://github.com/AnEntrypoint/spawnpoint/commit/bd573d35e30662d227365ffd509d0cd4409f5c10))
+
 ### [0.1.7](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.6...v0.1.7) (2026-02-21)
 
 ### [0.1.6](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.5...v0.1.6) (2026-02-21)
