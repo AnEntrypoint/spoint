@@ -11,6 +11,7 @@ export class PhysicsWorld {
     this.bodies = new Map(); this.bodyMeta = new Map()
     this._objFilter = null; this._ovbp = null
     this._charShapes = new Map()
+    this._tmpVec3 = null; this._tmpRVec3 = null
   }
   async init() {
     const J = await getJolt()
@@ -27,6 +28,7 @@ export class PhysicsWorld {
     this._objFilter = objFilter; this._ovbp = ovbp
     this.jolt = new J.JoltInterface(settings); J.destroy(settings)
     this.physicsSystem = this.jolt.GetPhysicsSystem(); this.bodyInterface = this.physicsSystem.GetBodyInterface()
+    this._tmpVec3 = new J.Vec3(0, 0, 0); this._tmpRVec3 = new J.RVec3(0, 0, 0)
     const [gx, gy, gz] = this.gravity
     this.physicsSystem.SetGravity(new J.Vec3(gx, gy, gz))
     return this
