@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.57](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.56...v0.1.57) (2026-02-22)
+
+
+### Bug Fixes
+
+* add forward wall ray in FPS mode to prevent camera penetration ([2b6844a](https://github.com/AnEntrypoint/spawnpoint/commit/2b6844aa1b00e488c5ac45064e214974b07516b0))
+
 ### [0.1.56](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.55...v0.1.56) (2026-02-22)
 
 
