@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.63](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.62...v0.1.63) (2026-02-23)
+
+
+### Bug Fixes
+
+* fps wall collision, ar→xr rename, vr joystick movement ([07d01ce](https://github.com/AnEntrypoint/spawnpoint/commit/07d01cee52981e983c9390240f661b6011347805))
+
 ### [0.1.62](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.61...v0.1.62) (2026-02-23)
 
 
