@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.60](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.59...v0.1.60) (2026-02-23)
+
+
+### Bug Fixes
+
+* **netcode:** overhaul interpolation pipeline for high-latency smoothness ([19b0c6d](https://github.com/AnEntrypoint/spawnpoint/commit/19b0c6d2b54dbe6677f3ed1ba44223a6b80a8d89))
+
 ### [0.1.59](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.58...v0.1.59) (2026-02-23)
 
 
