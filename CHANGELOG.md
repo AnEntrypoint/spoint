@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.61](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.60...v0.1.61) (2026-02-23)
+
+
+### Bug Fixes
+
+* **netcode:** reduce visual lag on high-latency connections ([8751448](https://github.com/AnEntrypoint/spawnpoint/commit/875144848a0e413683a92efc7289c0233e5dc270))
+
 ### [0.1.60](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.59...v0.1.60) (2026-02-23)
 
 
