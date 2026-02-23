@@ -1212,6 +1212,7 @@ async function initAR() {
         arEnabled = true
         scene.background = null
         ground.visible = false
+        renderer.domElement.style.display = 'none'
         console.log('[AR] AR mode started')
         return true
       }
@@ -1221,6 +1222,7 @@ async function initAR() {
       arEnabled = false
       scene.background = new THREE.Color(0x87ceeb)
       ground.visible = true
+      renderer.domElement.style.display = 'block'
       if (arButton) {
         arButton.textContent = 'Enter XR'
         arButton.style.background = 'rgba(0, 150, 0, 0.8)'
