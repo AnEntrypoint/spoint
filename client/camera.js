@@ -37,6 +37,7 @@ export function createCameraController(camera, scene) {
   let editCamSpeed = 8
   const envMeshes = []
   let fpsRayTimer = 0, tpsRayTimer = 0, cachedClipDist = 10, cachedAimPoint = null
+  let fpsPushX = 0, fpsPushY = 0, fpsPushZ = 0
   let cameraBone = null
   let headBone = null
   let headBoneHidden = false
@@ -150,12 +151,16 @@ export function createCameraController(camera, scene) {
       } else {
         camera.position.copy(camTarget)
       }
+      camera.position.x += fpsPushX
+      camera.position.y += fpsPushY
+      camera.position.z += fpsPushZ
       if (headBone && !headBoneHidden) { headBone.scale.set(0, 0, 0); headBoneHidden = true }
       const wallDist = 0.35
       const fwdWallDist = 0.25
       fpsRayTimer += frameDt
       if (fpsRayTimer >= 0.05 && envMeshes.length) {
         fpsRayTimer = 0
+        fpsPushX = 0; fpsPushY = 0; fpsPushZ = 0
         _fpsRayOrigin.copy(camera.position)
         _fpsRayDir.set(-fwdX, -fwdY, -fwdZ)
         camRaycaster.set(_fpsRayOrigin, _fpsRayDir)
@@ -166,6 +171,9 @@ export function createCameraController(camera, scene) {
           if (localMesh && isDescendant(hit.object, localMesh)) continue
           const push = wallDist - hit.distance
           if (push > 0) {
+            fpsPushX += fwdX * push
+            fpsPushY += fwdY * push
+            fpsPushZ += fwdZ * push
             camera.position.x += fwdX * push
             camera.position.y += fwdY * push
             camera.position.z += fwdZ * push
@@ -181,6 +189,9 @@ export function createCameraController(camera, scene) {
           if (localMesh && isDescendant(hit.object, localMesh)) continue
           const push = fwdWallDist - hit.distance
           if (push > 0) {
+            fpsPushX -= fwdX * push
+            fpsPushY -= fwdY * push
+            fpsPushZ -= fwdZ * push
             camera.position.x -= fwdX * push
             camera.position.y -= fwdY * push
             camera.position.z -= fwdZ * push

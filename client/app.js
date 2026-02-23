@@ -18,7 +18,7 @@ import { LoadingManager } from './LoadingManager.js'
 import { fetchCached } from './ModelCache.js'
 import { createLoadingScreen } from './createLoadingScreen.js'
 import { MobileControls, detectDevice } from './MobileControls.js'
-import { ARControls, createARButton } from './ARControls.js'
+import { XRControls, createXRButton } from './XRControls.js'
 
 const loadingMgr = new LoadingManager()
 const loadingScreen = createLoadingScreen(loadingMgr)
@@ -89,7 +89,7 @@ let vignetteOpacity = 0
 let vignetteTargetOpacity = 0
 
 let mobileControls = null
-let arControls = null
+let xrControls = null
 let arButton = null
 let arEnabled = false
 const deviceInfo = detectDevice()
@@ -104,8 +104,8 @@ if (deviceInfo.isMobile) {
   console.log('[Mobile] Touch controls initialized:', deviceInfo)
 }
 
-arControls = new ARControls({ placementMode: true, planeDetection: true })
-const arReticle = arControls.createReticle()
+xrControls = new XRControls({ placementMode: true, planeDetection: true })
+const arReticle = xrControls.createReticle()
 scene.add(arReticle)
 
 function createLaserPointer() {
@@ -1199,10 +1199,10 @@ function initInputHandler() {
 }
 
 async function initAR() {
-  const supported = await arControls.init(renderer)
+  const supported = await xrControls.init(renderer)
   if (supported) {
-    arButton = await createARButton(renderer, async () => {
-      const started = await arControls.start()
+    arButton = await createXRButton(renderer, async () => {
+      const started = await xrControls.start()
       if (started) {
         arEnabled = true
         scene.background = null
@@ -1213,7 +1213,7 @@ async function initAR() {
       }
       return false
     }, async () => {
-      await arControls.end()
+      await xrControls.end()
       arEnabled = false
       scene.background = new THREE.Color(0x87ceeb)
       ground.visible = true
@@ -1566,10 +1566,10 @@ function animate(timestamp) {
   if (arEnabled) {
     const xrFrame = renderer.xr.getFrame()
     if (xrFrame) {
-      arControls.update(xrFrame, camera, scene)
+      xrControls.update(xrFrame, camera, scene)
       const arLocal = playerStates.get(client.playerId)
-      if (arLocal?.position && !arControls.anchorPlaced) {
-        arControls.setInitialFPSPosition(arLocal.position, cam.yaw)
+      if (arLocal?.position && !xrControls.anchorPlaced) {
+        xrControls.setInitialFPSPosition(arLocal.position, cam.yaw)
       }
     }
   }
@@ -1583,11 +1583,11 @@ setupControllers()
 setupHands()
 window.__VR_DEBUG__ = false
 window.debug = {
-  scene, camera, renderer, client, playerMeshes, entityMeshes, appModules, inputHandler, playerVrms, playerAnimators, loadingMgr, loadingScreen, controllerModels, controllerGrips, handModels, mobileControls, arControls,
+  scene, camera, renderer, client, playerMeshes, entityMeshes, appModules, inputHandler, playerVrms, playerAnimators, loadingMgr, loadingScreen, controllerModels, controllerGrips, handModels, mobileControls, xrControls,
   enableVRDebug: () => { window.__VR_DEBUG__ = true; console.log('[VR] Debug enabled - button/axis logging active') },
   disableVRDebug: () => { window.__VR_DEBUG__ = false; console.log('[VR] Debug disabled') },
   vrInput: () => inputHandler?.getInput() || null,
   vrSettings: () => vrSettings,
   deviceInfo: () => deviceInfo,
-  placeARAnchor: () => arControls?.placeAnchor() || arControls?.placeAtCamera()
+  placeARAnchor: () => xrControls?.placeAnchor() || xrControls?.placeAtCamera()
 }

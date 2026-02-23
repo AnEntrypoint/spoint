@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 
-export class ARControls {
+export class XRControls {
   constructor(options = {}) {
     this.enabled = false
     this.options = {
@@ -57,13 +57,13 @@ export class ARControls {
 
   async init(renderer) {
     if (!navigator.xr) {
-      console.warn('[AR] WebXR not supported')
+      console.warn('[XR] WebXR not supported')
       return false
     }
 
     const isSupported = await navigator.xr.isSessionSupported('immersive-ar')
     if (!isSupported) {
-      console.warn('[AR] immersive-ar not supported')
+      console.warn('[XR] immersive-ar not supported')
       return false
     }
 
@@ -96,10 +96,10 @@ export class ARControls {
       this.session.addEventListener('planesdetected', (e) => this.onPlanesDetected(e))
 
       this.enabled = true
-      console.log('[AR] Session started')
+      console.log('[XR] Session started')
       return true
     } catch (err) {
-      console.error('[AR] Failed to start session:', err)
+      console.error('[XR] Failed to start session:', err)
       return false
     }
   }
@@ -116,7 +116,7 @@ export class ARControls {
     this.hitTestSource = null
     this.planeDetected = false
     this.anchorPlaced = false
-    console.log('[AR] Session ended')
+    console.log('[XR] Session ended')
   }
 
   onPlanesDetected(event) {
@@ -180,7 +180,7 @@ export class ARControls {
     this.anchorRotation.copy(this.reticle.quaternion)
     this.anchorPlaced = true
     this.hideReticle()
-    console.log('[AR] Anchor placed at:', this.anchorPosition)
+    console.log('[XR] Anchor placed at:', this.anchorPosition)
     return true
   }
 
@@ -200,7 +200,7 @@ export class ARControls {
     this.anchorRotation.copy(this.cameraQuaternion)
     this.anchorPlaced = true
     this.hideReticle()
-    console.log('[AR] Anchor placed at camera:', this.anchorPosition)
+    console.log('[XR] Anchor placed at camera:', this.anchorPosition)
     return true
   }
 
@@ -233,7 +233,7 @@ export class ARControls {
     this.anchorRotation.copy(yawQuat)
     this.anchorPlaced = true
     this.hideReticle()
-    console.log('[AR] Set initial FPS position:', this.anchorPosition)
+    console.log('[XR] Set initial FPS position:', this.anchorPosition)
     return true
   }
 
@@ -258,7 +258,7 @@ export class ARControls {
   }
 }
 
-export async function createARButton(renderer, onStart, onEnd) {
+export async function createXRButton(renderer, onStart, onEnd) {
   if (!navigator.xr) return null
 
   const isSupported = await navigator.xr.isSessionSupported('immersive-ar')
@@ -288,7 +288,7 @@ export async function createARButton(renderer, onStart, onEnd) {
     if (onStart) {
       const started = await onStart()
       if (started) {
-        button.textContent = 'Exit AR'
+        button.textContent = 'Exit XR'
         button.style.background = 'rgba(150, 0, 0, 0.8)'
         if (onEnd) {
           button.onclick = onEnd
