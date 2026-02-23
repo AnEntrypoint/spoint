@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.59](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.58...v0.1.59) (2026-02-23)
+
+
+### Bug Fixes
+
+* hide non-AR canvas when entering AR mode ([5bdfe22](https://github.com/AnEntrypoint/spawnpoint/commit/5bdfe22ce0e67953f4f9ceeab1d74c6d7ad71e6e))
+
 ### [0.1.58](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.57...v0.1.58) (2026-02-22)
 
 
