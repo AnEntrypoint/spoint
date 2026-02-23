@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.62](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.61...v0.1.62) (2026-02-23)
+
+
+### Bug Fixes
+
+* clear stale snapshot state on reconnect to prevent ghost player clones\n\nOn reconnect, MessageHandler now calls snapProc.clear() and\nsmoothInterp.reset() before firing onPlayerLeft for the old player ID.\nThis ensures the jitter buffer and SnapshotProcessor have no pre-disconnect\nplayer data that could cause ghost meshes to be created in the animate loop.\nAlso reinitializes PredictionEngine with the new player ID unconditionally.\n\nCo-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com> ([c2cd715](https://github.com/AnEntrypoint/spawnpoint/commit/c2cd71592da4c5f7de3b02cc434d114ff542ec2a))
+
 ### [0.1.61](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.60...v0.1.61) (2026-02-23)
 
 
