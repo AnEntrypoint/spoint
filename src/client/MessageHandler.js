@@ -56,15 +56,14 @@ export class MessageHandler {
     const oldPlayerId = this._playerId
     this._playerId = payload.playerId
     this._currentTick = payload.tick
-    if (oldPlayerId && oldPlayerId !== this._playerId) {
-      snapProc?.removePlayer(oldPlayerId)
-      if (this._smoothInterp) this._smoothInterp.removePlayer(oldPlayerId)
-      this._callbacks.onPlayerLeft?.(oldPlayerId)
+    snapProc?.clear()
+    if (this._smoothInterp) {
+      this._smoothInterp.reset()
+      this._smoothInterp.setLocalPlayer(this._playerId)
     }
-    if (!this._predEngine) {
-      this._predEngine = new PredictionEngine(this._config.tickRate || 128)
-      this._predEngine.init(this._playerId)
-    }
+    if (oldPlayerId) this._callbacks.onPlayerLeft?.(oldPlayerId)
+    this._predEngine = new PredictionEngine(this._config.tickRate || 128)
+    this._predEngine.init(this._playerId)
     if (this._config.smoothInterpolation !== false && !this._smoothInterp) {
       this._smoothInterp = new SmoothInterpolation({ predictionEnabled: this._config.predictionEnabled !== false })
       this._smoothInterp.setLocalPlayer(this._playerId)
