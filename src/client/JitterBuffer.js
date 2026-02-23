@@ -34,7 +34,7 @@ export class JitterBuffer {
 
     while (this.buffer.length > this.maxSize) this.buffer.shift()
 
-    const maxAge = Math.max(300, this.rtt + this.jitter * 3)
+    const maxAge = Math.max(400, this.rtt + this.jitter * 3 + 150)
     const cutoff = now - maxAge
     while (this.buffer.length > 0 && this.buffer[0].clientTime < cutoff) this.buffer.shift()
   }
@@ -111,8 +111,9 @@ export class JitterBuffer {
   updateRTT(pingTime, pongTime) {
     const instant = pongTime - pingTime
     this.rttVariance = this.rttVariance * 0.75 + Math.abs(instant - this.rtt) * 0.25
-    this.rtt = this.rtt * 0.875 + instant * 0.125
-    this.targetDelay = this.baseDelay + this.rtt * 0.5 + this.jitter * 2
+    const alpha = instant > this.rtt ? 0.5 : 0.1
+    this.rtt = this.rtt * (1 - alpha) + instant * alpha
+    this.targetDelay = Math.min(250, this.baseDelay + this.rtt * 0.5 + this.jitter * 2)
   }
 
   getBufferHealth() { return this.buffer.length }

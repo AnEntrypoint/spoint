@@ -1033,20 +1033,10 @@ const client = new PhysicsNetworkClient({
   predictionEnabled: true,
   smoothInterpolation: true,
   onStateUpdate: (state) => {
-    const smoothState = client.getSmoothState()
-    for (const p of smoothState.players) {
+    for (const p of state.players) {
       if (!playerMeshes.has(p.id)) createPlayerVRM(p.id)
-      const mesh = playerMeshes.get(p.id)
-      const feetOff = mesh?.userData?.feetOffset ?? 1.3
-      const tx = p.position[0], ty = p.position[1] - feetOff, tz = p.position[2]
-      const existingTarget = playerTargets.get(p.id)
-      if (existingTarget) { existingTarget.x = tx; existingTarget.y = ty; existingTarget.z = tz }
-      else playerTargets.set(p.id, { x: tx, y: ty, z: tz })
-      playerStates.set(p.id, p)
-      const dx = tx - mesh.position.x, dy = ty - mesh.position.y, dz = tz - mesh.position.z
-      if (!mesh.userData.initialized || dx * dx + dy * dy + dz * dz > 100) { mesh.position.set(tx, ty, tz); mesh.userData.initialized = true }
     }
-    for (const e of smoothState.entities) {
+    for (const e of state.entities) {
       const mesh = entityMeshes.get(e.id)
       if (mesh && e.position) {
         const et = entityTargets.get(e.id)
@@ -1057,11 +1047,10 @@ const client = new PhysicsNetworkClient({
       }
       if (!entityMeshes.has(e.id)) loadEntityModel(e.id, e)
     }
-    rebuildEntityHierarchy(smoothState.entities)
     latestState = state
     if (!firstSnapshotReceived) {
       firstSnapshotReceived = true
-      for (const e of smoothState.entities) {
+      for (const e of state.entities) {
         if (e.model && !entityMeshes.has(e.id)) firstSnapshotEntityPending.add(e.id)
       }
       checkAllLoaded()
@@ -1467,7 +1456,27 @@ function animate(timestamp) {
   const frameDt = smoothDt
   fpsFrames++
   if (now - fpsLast >= 1000) { fpsDisplay = fpsFrames; fpsFrames = 0; fpsLast = now }
-  const lerpFactor = 1.0 - Math.exp(-16.0 * frameDt)
+  const rttMs = client.getRTT?.() || 0
+  const lerpConstant = rttMs > 100 ? 24.0 : 16.0
+  const lerpFactor = 1.0 - Math.exp(-lerpConstant * frameDt)
+  const smoothState = client.getSmoothState()
+  for (const p of smoothState.players) {
+    if (!playerMeshes.has(p.id)) continue
+    const mesh = playerMeshes.get(p.id)
+    const feetOff = mesh?.userData?.feetOffset ?? 1.3
+    const tx = p.position[0], ty = p.position[1] - feetOff, tz = p.position[2]
+    const existingTarget = playerTargets.get(p.id)
+    if (existingTarget) { existingTarget.x = tx; existingTarget.y = ty; existingTarget.z = tz }
+    else playerTargets.set(p.id, { x: tx, y: ty, z: tz })
+    playerStates.set(p.id, p)
+    if (!mesh.userData.initialized) { mesh.position.set(tx, ty, tz); mesh.userData.initialized = true }
+  }
+  for (const e of smoothState.entities) {
+    const mesh = entityMeshes.get(e.id)
+    if (mesh && e.position) mesh.position.set(e.position[0], e.position[1], e.position[2])
+    if (mesh && e.rotation) mesh.quaternion.set(e.rotation[0], e.rotation[1], e.rotation[2], e.rotation[3])
+  }
+  if (smoothState.entities.length > 0) rebuildEntityHierarchy(smoothState.entities)
   playerTargets.forEach((target, id) => {
     const mesh = playerMeshes.get(id)
     if (!mesh) return

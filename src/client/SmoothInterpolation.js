@@ -12,7 +12,6 @@ export class SmoothInterpolation {
     this.entityKalmanConfig = config.entityKalman || {
       positionQ: 2.0, velocityQ: 4.0, positionR: 0.01, velocityR: 0.5
     }
-
     this.localPlayerId = null
     this.predictionEnabled = config.predictionEnabled !== false
     this._lastDisplayTime = 0
