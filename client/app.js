@@ -686,6 +686,7 @@ const entityGroups = new Map()
 const appModules = new Map()
 const entityAppMap = new Map()
 const playerTargets = new Map()
+const entityTargets = new Map()
 let inputHandler = null
 const uiRoot = document.getElementById('ui-root')
 const clickPrompt = document.getElementById('click-prompt')
@@ -1047,8 +1048,13 @@ const client = new PhysicsNetworkClient({
     }
     for (const e of smoothState.entities) {
       const mesh = entityMeshes.get(e.id)
-      if (mesh && e.position) mesh.position.set(e.position[0], e.position[1], e.position[2])
-      if (mesh && e.rotation) mesh.quaternion.set(e.rotation[0], e.rotation[1], e.rotation[2], e.rotation[3])
+      if (mesh && e.position) {
+        const et = entityTargets.get(e.id)
+        if (et) { et.x = e.position[0]; et.y = e.position[1]; et.z = e.position[2]; et.rx = e.rotation?.[0] || 0; et.ry = e.rotation?.[1] || 0; et.rz = e.rotation?.[2] || 0; et.rw = e.rotation?.[3] || 1 }
+        else entityTargets.set(e.id, { x: e.position[0], y: e.position[1], z: e.position[2], rx: e.rotation?.[0] || 0, ry: e.rotation?.[1] || 0, rz: e.rotation?.[2] || 0, rw: e.rotation?.[3] || 1 })
+        const dx = e.position[0] - mesh.position.x, dy = e.position[1] - mesh.position.y, dz = e.position[2] - mesh.position.z
+        if (!mesh.userData.entInit || dx * dx + dy * dy + dz * dz > 100) { mesh.position.set(e.position[0], e.position[1], e.position[2]); if (e.rotation) mesh.quaternion.set(e.rotation[0], e.rotation[1], e.rotation[2], e.rotation[3]); mesh.userData.entInit = true }
+      }
       if (!entityMeshes.has(e.id)) loadEntityModel(e.id, e)
     }
     rebuildEntityHierarchy(smoothState.entities)
@@ -1064,7 +1070,7 @@ const client = new PhysicsNetworkClient({
   onPlayerJoined: (id) => { if (!playerMeshes.has(id)) createPlayerVRM(id) },
   onPlayerLeft: (id) => removePlayerMesh(id),
   onEntityAdded: (id, state) => loadEntityModel(id, state),
-  onEntityRemoved: (id) => { const m = entityMeshes.get(id); if (m) { scene.remove(m); m.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose() }); entityMeshes.delete(id) }; pendingLoads.delete(id) },
+  onEntityRemoved: (id) => { const m = entityMeshes.get(id); if (m) { scene.remove(m); m.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose() }); entityMeshes.delete(id) }; entityTargets.delete(id); pendingLoads.delete(id) },
   onWorldDef: (wd) => {
     loadingMgr.setStage('SERVER_SYNC')
     worldConfig = wd
@@ -1495,6 +1501,18 @@ function animate(timestamp) {
       }
       if (features?._headBone) features._headBone.rotation.x = -(ps.lookPitch || 0) * 0.6
     }
+  })
+  entityTargets.forEach((target, id) => {
+    const mesh = entityMeshes.get(id)
+    if (!mesh) return
+    mesh.position.x += (target.x - mesh.position.x) * lerpFactor
+    mesh.position.y += (target.y - mesh.position.y) * lerpFactor
+    mesh.position.z += (target.z - mesh.position.z) * lerpFactor
+    mesh.quaternion.x += (target.rx - mesh.quaternion.x) * lerpFactor
+    mesh.quaternion.y += (target.ry - mesh.quaternion.y) * lerpFactor
+    mesh.quaternion.z += (target.rz - mesh.quaternion.z) * lerpFactor
+    mesh.quaternion.w += (target.rw - mesh.quaternion.w) * lerpFactor
+    mesh.quaternion.normalize()
   })
   entityMeshes.forEach((mesh) => {
     if (mesh.userData.spin) mesh.rotation.y += mesh.userData.spin * frameDt

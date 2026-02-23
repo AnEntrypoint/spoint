@@ -1,89 +1,92 @@
 export class KalmanFilter3D {
   constructor(config = {}) {
-    this.processNoise = config.processNoise || 0.1
-    this.measurementNoise = config.measurementNoise || 0.5
-    this.uncertainty = config.uncertainty || 1.0
-    
+    this.positionQ = config.positionQ ?? 2.0
+    this.velocityQ = config.velocityQ ?? 4.0
+    this.positionR = config.positionR ?? 0.01
+    this.velocityR = config.velocityR ?? 0.1
+
     this.x = [0, 0, 0]
     this.v = [0, 0, 0]
-    
-    this.P = [
-      [this.uncertainty, 0, 0],
-      [0, this.uncertainty, 0],
-      [0, 0, this.uncertainty]
-    ]
-    
+
+    this.Pp = [1, 1, 1]
+    this.Pv = [1, 1, 1]
+
     this.initialized = false
+    this._prevPos = null
+    this._lastUpdateMs = 0
   }
-  
-  init(position, velocity = [0, 0, 0]) {
+
+  init(position, velocity = null, now = Date.now()) {
     this.x = [...position]
-    this.v = [...velocity]
+    this.v = velocity ? [...velocity] : [0, 0, 0]
+    this._prevPos = [...position]
+    this._lastUpdateMs = now
     this.initialized = true
   }
-  
+
   predict(dt) {
-    if (!this.initialized) return { position: this.x, velocity: this.v }
-    
+    if (!this.initialized || dt <= 0) return { position: [...this.x], velocity: [...this.v] }
+
     for (let i = 0; i < 3; i++) {
       this.x[i] += this.v[i] * dt
+      this.Pp[i] += this.positionQ * dt
+      this.Pv[i] += this.velocityQ * dt
     }
-    
-    const q = this.processNoise * dt * dt
-    for (let i = 0; i < 3; i++) {
-      this.P[i][i] += q
-    }
-    
+
     return { position: [...this.x], velocity: [...this.v] }
   }
-  
-  update(measuredPosition, measuredVelocity = null) {
+
+  update(measuredPosition, measuredVelocity = null, now = Date.now()) {
     if (!this.initialized) {
-      this.init(measuredPosition, measuredVelocity || [0, 0, 0])
+      this.init(measuredPosition, measuredVelocity, now)
       return { position: [...this.x], velocity: [...this.v] }
     }
-    
-    const R = this.measurementNoise
-    
+
+    const elapsedMs = now - this._lastUpdateMs
+    if (elapsedMs < 1) return { position: [...this.x], velocity: [...this.v] }
+    const elapsed = elapsedMs / 1000
+    this._lastUpdateMs = now
+
     for (let i = 0; i < 3; i++) {
-      const P = this.P[i][i]
-      const K = P / (P + R)
-      
-      this.x[i] += K * (measuredPosition[i] - this.x[i])
-      
-      if (measuredVelocity) {
-        this.v[i] = measuredVelocity[i]
-      }
-      
-      this.P[i][i] = (1 - K) * P
+      this.x[i] += this.v[i] * elapsed
+      this.Pp[i] += this.positionQ * elapsed
+      this.Pv[i] += this.velocityQ * elapsed
     }
-    
+
+    for (let i = 0; i < 3; i++) {
+      const Kp = this.Pp[i] / (this.Pp[i] + this.positionR)
+      this.x[i] += Kp * (measuredPosition[i] - this.x[i])
+      this.Pp[i] = (1 - Kp) * this.Pp[i]
+
+      let measuredV
+      if (measuredVelocity) {
+        measuredV = measuredVelocity[i]
+      } else if (this._prevPos) {
+        measuredV = (measuredPosition[i] - this._prevPos[i]) / elapsed
+      } else {
+        measuredV = 0
+      }
+
+      const Kv = this.Pv[i] / (this.Pv[i] + this.velocityR)
+      this.v[i] += Kv * (measuredV - this.v[i])
+      this.Pv[i] = (1 - Kv) * this.Pv[i]
+    }
+
+    this._prevPos = [...measuredPosition]
     return { position: [...this.x], velocity: [...this.v] }
   }
-  
-  getState() {
-    return {
-      position: [...this.x],
-      velocity: [...this.v]
-    }
-  }
-  
-  setPosition(pos) {
-    this.x = [...pos]
-  }
-  
-  setVelocity(vel) {
-    this.v = [...vel]
-  }
-  
+
+  getState() { return { position: [...this.x], velocity: [...this.v] } }
+  setPosition(pos) { this.x = [...pos]; this._prevPos = [...pos] }
+  setVelocity(vel) { this.v = [...vel] }
+
   reset(position = [0, 0, 0]) {
     this.x = [...position]
     this.v = [0, 0, 0]
-    this.P = [
-      [this.uncertainty, 0, 0],
-      [0, this.uncertainty, 0],
-      [0, 0, this.uncertainty]
-    ]
+    this.Pp = [1, 1, 1]
+    this.Pv = [1, 1, 1]
+    this._prevPos = null
+    this._lastUpdateMs = 0
     this.initialized = false
   }
 }
@@ -94,7 +97,7 @@ export class SmoothStateTracker {
     this.maxAge = config.maxAge || 5000
     this.defaultConfig = config.filterConfig || {}
   }
-  
+
   getFilter(id) {
     let filter = this.filters.get(id)
     if (!filter) {
@@ -103,23 +106,17 @@ export class SmoothStateTracker {
     }
     return filter
   }
-  
+
   update(id, position, velocity, dt) {
     const filter = this.getFilter(id)
-    filter.predict(dt)
     return filter.update(position, velocity)
   }
-  
+
   predict(id, dt) {
     const filter = this.getFilter(id)
     return filter.predict(dt)
   }
-  
-  remove(id) {
-    this.filters.delete(id)
-  }
-  
-  clear() {
-    this.filters.clear()
-  }
+
+  remove(id) { this.filters.delete(id) }
+  clear() { this.filters.clear() }
 }

@@ -1,207 +1,130 @@
 export class JitterBuffer {
   constructor(config = {}) {
-    this.maxSize = config.maxSize || 32
-    this.maxAge = config.maxAge || 200
+    this.maxSize = config.maxSize || 64
     this.minBufferSize = config.minBufferSize || 2
-    this.targetDelay = config.targetDelay || 50
-    
+    this.baseDelay = config.baseDelay || 30
+
     this.buffer = []
-    this.lastProcessTime = 0
     this.lastServerTime = 0
-    this.lastTick = 0
+    this.lastClientTime = 0
     this.rtt = config.initialRtt || 50
     this.rttVariance = 0
-    this.clockDelta = 0
-    this.clockDeltaVariance = 0
-    this.lastClientTime = 0
+    this.jitter = 0
+    this.targetDelay = this.baseDelay
   }
-  
+
   addSnapshot(snapshot) {
     const now = Date.now()
-    const clientTime = now
     const serverTime = snapshot.timestamp || now
-    
-    if (this.lastServerTime > 0) {
+
+    if (this.lastServerTime > 0 && this.lastClientTime > 0) {
       const serverDelta = serverTime - this.lastServerTime
-      const clientDelta = clientTime - this.lastClientTime
-      
+      const clientDelta = now - this.lastClientTime
       if (serverDelta > 0 && clientDelta > 0) {
-        const instantClockDelta = clientDelta - serverDelta
-        this.clockDeltaVariance = this.clockDeltaVariance * 0.9 + Math.abs(instantClockDelta - this.clockDelta) * 0.1
-        this.clockDelta = this.clockDelta * 0.9 + instantClockDelta * 0.1
+        const instantJitter = Math.abs(clientDelta - serverDelta)
+        this.jitter = this.jitter * 0.9 + instantJitter * 0.1
       }
     }
-    
+
     this.lastServerTime = serverTime
-    this.lastClientTime = clientTime
-    
-    this.buffer.push({
-      snapshot,
-      clientTime,
-      serverTime,
-      tick: snapshot.tick || 0
-    })
-    
+    this.lastClientTime = now
+
+    this.buffer.push({ snapshot, clientTime: now, serverTime, tick: snapshot.tick || 0 })
     this.buffer.sort((a, b) => a.tick - b.tick)
-    
-    while (this.buffer.length > this.maxSize) {
-      this.buffer.shift()
-    }
-    
-    this._pruneOld(now)
+
+    while (this.buffer.length > this.maxSize) this.buffer.shift()
+
+    const maxAge = Math.max(300, this.rtt + this.jitter * 3)
+    const cutoff = now - maxAge
+    while (this.buffer.length > 0 && this.buffer[0].clientTime < cutoff) this.buffer.shift()
   }
-  
-  _pruneOld(now) {
-    const cutoff = now - this.maxAge
-    while (this.buffer.length > 0 && this.buffer[0].clientTime < cutoff) {
-      this.buffer.shift()
-    }
-  }
-  
+
   getSnapshotToRender(now = Date.now()) {
+    if (this.buffer.length === 0) return null
     if (this.buffer.length < this.minBufferSize) {
-      if (this.buffer.length === 0) return null
       return this.buffer[this.buffer.length - 1].snapshot
     }
-    
+
     const renderTime = now - this.targetDelay
-    
-    let newest = this.buffer[this.buffer.length - 1]
-    let oldest = this.buffer[0]
-    
-    if (renderTime >= newest.clientTime) {
-      return newest.snapshot
-    }
-    
-    if (renderTime <= oldest.clientTime) {
-      return oldest.snapshot
-    }
-    
+    const newest = this.buffer[this.buffer.length - 1]
+    const oldest = this.buffer[0]
+
+    if (renderTime >= newest.clientTime) return newest.snapshot
+    if (renderTime <= oldest.clientTime) return oldest.snapshot
+
     for (let i = 0; i < this.buffer.length - 1; i++) {
       const curr = this.buffer[i]
       const next = this.buffer[i + 1]
-      
       if (renderTime >= curr.clientTime && renderTime <= next.clientTime) {
         const range = next.clientTime - curr.clientTime
         if (range === 0) return curr.snapshot
-        
         const alpha = (renderTime - curr.clientTime) / range
         return this._interpolateSnapshots(curr.snapshot, next.snapshot, alpha)
       }
     }
-    
+
     return newest.snapshot
   }
-  
+
   _interpolateSnapshots(older, newer, alpha) {
-    const interpolated = {
-      tick: Math.round(older.tick + (newer.tick - older.tick) * alpha),
-      timestamp: older.timestamp + (newer.timestamp - older.timestamp) * alpha,
-      players: [],
-      entities: []
-    }
-    
-    const olderPlayers = new Map()
-    for (const p of older.players || []) {
-      olderPlayers.set(p.id, p)
-    }
-    
+    const result = { tick: newer.tick, timestamp: newer.timestamp, players: [], entities: [] }
+
+    const oldP = new Map()
+    for (const p of older.players || []) oldP.set(p.id, p)
     for (const np of newer.players || []) {
-      const op = olderPlayers.get(np.id)
+      const op = oldP.get(np.id)
       if (op) {
-        interpolated.players.push(this._interpolatePlayer(op, np, alpha))
+        result.players.push({
+          id: np.id,
+          position: [_l(op.position[0], np.position[0], alpha), _l(op.position[1], np.position[1], alpha), _l(op.position[2], np.position[2], alpha)],
+          rotation: np.rotation,
+          velocity: [_l(op.velocity?.[0] || 0, np.velocity?.[0] || 0, alpha), _l(op.velocity?.[1] || 0, np.velocity?.[1] || 0, alpha), _l(op.velocity?.[2] || 0, np.velocity?.[2] || 0, alpha)],
+          onGround: np.onGround, health: np.health, inputSequence: np.inputSequence,
+          crouch: np.crouch,
+          lookPitch: _l(op.lookPitch || 0, np.lookPitch || 0, alpha),
+          lookYaw: _l(op.lookYaw || 0, np.lookYaw || 0, alpha)
+        })
       } else {
-        interpolated.players.push({ ...np })
+        result.players.push({ ...np })
       }
     }
-    
-    const olderEntities = new Map()
-    for (const e of older.entities || []) {
-      olderEntities.set(e.id, e)
-    }
-    
+
+    const oldE = new Map()
+    for (const e of older.entities || []) oldE.set(e.id, e)
     for (const ne of newer.entities || []) {
-      const oe = olderEntities.get(ne.id)
+      const oe = oldE.get(ne.id)
       if (oe) {
-        interpolated.entities.push(this._interpolateEntity(oe, ne, alpha))
+        result.entities.push({
+          id: ne.id, model: ne.model,
+          position: [_l(oe.position[0], ne.position[0], alpha), _l(oe.position[1], ne.position[1], alpha), _l(oe.position[2], ne.position[2], alpha)],
+          rotation: [_l(oe.rotation[0], ne.rotation[0], alpha), _l(oe.rotation[1], ne.rotation[1], alpha), _l(oe.rotation[2], ne.rotation[2], alpha), _l(oe.rotation[3], ne.rotation[3], alpha)],
+          bodyType: ne.bodyType, custom: ne.custom
+        })
       } else {
-        interpolated.entities.push({ ...ne })
+        result.entities.push({ ...ne })
       }
     }
-    
-    return interpolated
+
+    return result
   }
-  
-  _interpolatePlayer(older, newer, alpha) {
-    return {
-      id: newer.id,
-      position: [
-        this._lerp(older.position[0], newer.position[0], alpha),
-        this._lerp(older.position[1], newer.position[1], alpha),
-        this._lerp(older.position[2], newer.position[2], alpha)
-      ],
-      rotation: newer.rotation,
-      velocity: [
-        this._lerp(older.velocity?.[0] || 0, newer.velocity?.[0] || 0, alpha),
-        this._lerp(older.velocity?.[1] || 0, newer.velocity?.[1] || 0, alpha),
-        this._lerp(older.velocity?.[2] || 0, newer.velocity?.[2] || 0, alpha)
-      ],
-      onGround: newer.onGround,
-      health: this._lerp(older.health || 100, newer.health || 100, alpha),
-      inputSequence: newer.inputSequence,
-      crouch: newer.crouch,
-      lookPitch: this._lerp(older.lookPitch || 0, newer.lookPitch || 0, alpha),
-      lookYaw: this._lerp(older.lookYaw || 0, newer.lookYaw || 0, alpha)
-    }
-  }
-  
-  _interpolateEntity(older, newer, alpha) {
-    return {
-      id: newer.id,
-      model: newer.model,
-      position: [
-        this._lerp(older.position[0], newer.position[0], alpha),
-        this._lerp(older.position[1], newer.position[1], alpha),
-        this._lerp(older.position[2], newer.position[2], alpha)
-      ],
-      rotation: [
-        this._lerp(older.rotation[0], newer.rotation[0], alpha),
-        this._lerp(older.rotation[1], newer.rotation[1], alpha),
-        this._lerp(older.rotation[2], newer.rotation[2], alpha),
-        this._lerp(older.rotation[3], newer.rotation[3], alpha)
-      ],
-      bodyType: newer.bodyType,
-      custom: newer.custom
-    }
-  }
-  
-  _lerp(a, b, t) {
-    return a + (b - a) * t
-  }
-  
+
   updateRTT(pingTime, pongTime) {
-    const instantRtt = pongTime - pingTime
-    this.rttVariance = this.rttVariance * 0.75 + Math.abs(instantRtt - this.rtt) * 0.25
-    this.rtt = this.rtt * 0.875 + instantRtt * 0.125
-    
-    this.targetDelay = Math.min(100, Math.max(20, this.rtt / 2 + this.rttVariance))
+    const instant = pongTime - pingTime
+    this.rttVariance = this.rttVariance * 0.75 + Math.abs(instant - this.rtt) * 0.25
+    this.rtt = this.rtt * 0.875 + instant * 0.125
+    this.targetDelay = this.baseDelay + this.rtt * 0.5 + this.jitter * 2
   }
-  
-  getBufferHealth() {
-    return this.buffer.length
-  }
-  
-  getRTT() {
-    return this.rtt
-  }
-  
-  getClockDelta() {
-    return this.clockDelta
-  }
-  
+
+  getBufferHealth() { return this.buffer.length }
+  getRTT() { return this.rtt }
+  getJitter() { return this.jitter }
+  getTargetDelay() { return this.targetDelay }
+
   clear() {
     this.buffer = []
     this.lastServerTime = 0
     this.lastClientTime = 0
   }
 }
+
+function _l(a, b, t) { return a + (b - a) * t }
