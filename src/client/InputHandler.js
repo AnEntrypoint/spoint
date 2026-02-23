@@ -248,17 +248,19 @@ export class InputHandler {
       const primaryY = axes[1] ?? 0
       const secondaryX = axes.length > 2 ? (axes[2] ?? 0) : 0
       const secondaryY = axes.length > 3 ? (axes[3] ?? 0) : 0
+      const moveX = axes.length > 2 ? secondaryX : primaryX
+      const moveY = axes.length > 3 ? secondaryY : primaryY
 
       if (source.handedness === 'left') {
-        if (Math.abs(primaryX) > DEAD) {
-          analogRight = primaryX
-          if (primaryX > THRESH) right = true
-          if (primaryX < -THRESH) left = true
+        if (Math.abs(moveX) > DEAD) {
+          analogRight = moveX
+          if (moveX > THRESH) right = true
+          if (moveX < -THRESH) left = true
         }
-        if (Math.abs(primaryY) > DEAD) {
-          analogForward = -primaryY
-          if (primaryY < -THRESH) forward = true
-          if (primaryY > THRESH) backward = true
+        if (Math.abs(moveY) > DEAD) {
+          analogForward = -moveY
+          if (moveY < -THRESH) forward = true
+          if (moveY > THRESH) backward = true
         }
 
         if (btns[0]?.pressed) jump = true
