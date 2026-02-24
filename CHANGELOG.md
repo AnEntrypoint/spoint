@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.69](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.68...v0.1.69) (2026-02-24)
+
+
+### Bug Fixes
+
+* add Draco compression support to physics engine ([1c5279a](https://github.com/AnEntrypoint/spawnpoint/commit/1c5279ae44cb065c28b11dd46b851d475b450663))
+
 ### [0.1.68](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.67...v0.1.68) (2026-02-24)
 
 
