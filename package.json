@@ -1,6 +1,6 @@
 {
   "name": "spoint",
-  "version": "0.1.71",
+  "version": "0.1.72",
   "description": "Physics and netcode SDK for multiplayer game servers",
   "type": "module",
   "main": "src/index.js",

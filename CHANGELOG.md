@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.72](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.71...v0.1.72) (2026-02-24)
+
+
+### Bug Fixes
+
+* remove hardcoded Y=0 clamping that trapped players at collider boundary ([eeca8cc](https://github.com/AnEntrypoint/spawnpoint/commit/eeca8cc20ed24fd572f8043bea4a04f0670799f8))
+
 ### [0.1.71](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.70...v0.1.71) (2026-02-24)
 
 
