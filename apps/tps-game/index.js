@@ -246,7 +246,7 @@ function findSpawnPoints(ctx) {
       if (hit.hit && hit.position[1] > -3) valid.push([x, hit.position[1] + 2, z])
     }
   }
-  if (valid.length < 4) valid.push([0, 25, 0], [-35, 25, -65], [20, 25, -20], [-20, 25, 20])
+  if (valid.length < 4) valid.push([0, 5, 0], [-35, 3, -65], [20, 5, -20], [-20, 5, 20])
   return valid
 }
 
