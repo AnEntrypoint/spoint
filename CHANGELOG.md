@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.68](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.67...v0.1.68) (2026-02-24)
+
+
+### Bug Fixes
+
+* add missing anim-lib.glb and improve animation error handling ([a953668](https://github.com/AnEntrypoint/spawnpoint/commit/a953668f5bb87a9a19271da60c7c18621733433c))
+
 ### [0.1.67](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.66...v0.1.67) (2026-02-24)
 
 
