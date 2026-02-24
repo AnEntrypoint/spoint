@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.70](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.69...v0.1.70) (2026-02-24)
+
+
+### Bug Fixes
+
+* align environment collider position with visual model to prevent falling through floor ([5cf07ef](https://github.com/AnEntrypoint/spawnpoint/commit/5cf07eff13be108619fdf64ffc44038ad5db0049))
+
 ### [0.1.69](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.68...v0.1.69) (2026-02-24)
 
 
