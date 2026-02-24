@@ -1,6 +1,6 @@
 ---
 name: spoint
-description: "Build multiplayer physics games with the Spawnpoint engine. Use when asked to: create a game, add physics objects, spawn entities, build an arena, handle player interaction, add weapons, respawn, scoring, create moving platforms, manage world config, load 3D models, add HUD/UI, work with the EventBus, or develop any app inside an apps/ directory."
+description: "Build multiplayer physics games with the Spawnpoint engine. Use when asked to: create a game, add physics objects, spawn entities, build a map/level, handle player interaction, add weapons, respawn, scoring, create moving platforms, manage world config, load 3D models, add HUD/UI, work with the EventBus, or develop any app inside an apps/ directory."
 ---
 
 # Spawnpoint App Development Reference
@@ -26,36 +26,30 @@ export default {
   movement: { maxSpeed: 4.0, groundAccel: 10.0, airAccel: 1.0, friction: 6.0, stopSpeed: 2.0, jumpImpulse: 4.0 },
   player: { health: 100, capsuleRadius: 0.4, capsuleHalfHeight: 0.9, modelScale: 1.323, feetOffset: 0.212 },
   scene: { skyColor: 0x87ceeb, fogColor: 0x87ceeb, fogNear: 80, fogFar: 200, sunIntensity: 1.5, sunPosition: [20, 40, 20] },
-  entities: [{ id: 'arena', position: [0,0,0], app: 'arena' }],
+  entities: [{ id: 'environment', model: './apps/game/map.glb', position: [0,0,0], app: 'environment' }],
   spawnPoint: [0, 2, 0]
 }
 ```
 
-### `apps/arena/index.js`
+### `apps/environment/index.js` — static environment with trimesh physics
 ```js
-const HALF = 12, WH = 3, WT = 0.5
-const WALLS = [
-  { id:'wn', x:0,     y:WH/2, z:-HALF, hx:HALF,  hy:WH/2, hz:WT/2 },
-  { id:'ws', x:0,     y:WH/2, z: HALF, hx:HALF,  hy:WH/2, hz:WT/2 },
-  { id:'we', x: HALF, y:WH/2, z:0,     hx:WT/2,  hy:WH/2, hz:HALF },
-  { id:'ww', x:-HALF, y:WH/2, z:0,     hx:WT/2,  hy:WH/2, hz:HALF },
-]
 export default {
   server: {
-    setup(ctx) {
-      ctx.state.ids = ctx.state.ids || []
-      if (ctx.state.ids.length > 0) return  // hot-reload guard
-      ctx.entity.custom = { mesh:'box', color:0x5a7a4a, sx:HALF*2, sy:0.5, sz:HALF*2 }
+    async setup(ctx) {
       ctx.physics.setStatic(true)
-      ctx.physics.addBoxCollider([HALF, 0.25, HALF])
-      for (const w of WALLS) {
-        const e = ctx.world.spawn(w.id, { position:[w.x,w.y,w.z], app:'box-static', config:{ hx:w.hx, hy:w.hy, hz:w.hz, color:0x7a6a5a } })
-        if (e) ctx.state.ids.push(w.id)
+      try {
+        await ctx.physics.addTrimeshCollider()
+      } catch (e) {
+        console.log(\`Trimesh failed: \${e.message}, using box fallback\`)
+        ctx.physics.addBoxCollider([100, 25, 100])
       }
-    },
-    teardown(ctx) { for (const id of ctx.state.ids||[]) ctx.world.destroy(id); ctx.state.ids = [] }
+    }
   },
-  client: { render(ctx) { return { position:ctx.entity.position, rotation:ctx.entity.rotation, custom:ctx.entity.custom } } }
+  client: {
+    render(ctx) {
+      return { model: ctx.entity.model, position: ctx.entity.position, rotation: ctx.entity.rotation }
+    }
+  }
 }
 ```
 

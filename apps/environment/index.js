@@ -23,11 +23,16 @@ function discoverModels() {
 
 export default {
   server: {
-    setup(ctx) {
+    async setup(ctx) {
       ctx.physics.setStatic(true)
-      // Use simple box collider for environment - trimesh creation is too slow for large meshes
-      // The environment is primarily visual; players collide with box bounds instead
-      ctx.physics.addBoxCollider([50, 15, 50])
+      // Use trimesh collider for accurate environment collision
+      // Deferred to background so server startup isn't blocked
+      try {
+        await ctx.physics.addTrimeshCollider()
+      } catch (e) {
+        console.log(`[Environment] Trimesh collider failed: ${e.message}, using box collider`)
+        ctx.physics.addBoxCollider([100, 25, 100])
+      }
 
       ctx.state.smartObjects = new Map()
       ctx.state.editorMode = false

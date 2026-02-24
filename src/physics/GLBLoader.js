@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 
 let _dracoDecoderPromise = null
+let _meshoptDecoderPromise = null
 
 async function getDracoDecoder() {
   if (!_dracoDecoderPromise) {
@@ -12,6 +13,19 @@ async function getDracoDecoder() {
     }
   }
   return _dracoDecoderPromise
+}
+
+async function getMeshoptDecoder() {
+  if (!_meshoptDecoderPromise) {
+    try {
+      const meshopt = await import('meshoptimizer')
+      _meshoptDecoderPromise = meshopt.MeshoptDecoder
+      await _meshoptDecoderPromise.ready
+    } catch(e) {
+      throw new Error(`Failed to load Meshopt decoder: ${e.message}`)
+    }
+  }
+  return _meshoptDecoderPromise
 }
 
 /**
@@ -42,6 +56,13 @@ export function extractMeshFromGLB(filepath, meshIndex = 0) {
     throw new Error('Draco-compressed mesh detected. Use extractMeshFromGLBAsync() instead.')
   }
 
+  // Check for meshopt compression (not supported)
+  const hasMeshopt = json.bufferViews?.some(bv => bv.extensions?.EXT_meshopt_compression) ||
+    json.meshes.some(m => m.primitives.some(p => p.extensions?.EXT_meshopt_compression))
+  if (hasMeshopt) {
+    throw new Error('Meshopt-compressed mesh detected. Decompress with gltfpack first: gltfpack -i input.glb -o output.glb -noq')
+  }
+
   // Standard uncompressed GLB mesh extraction
   const posAcc = json.accessors[prim.attributes.POSITION]
   const posView = json.bufferViews[posAcc.bufferView]
@@ -61,13 +82,24 @@ export function extractMeshFromGLB(filepath, meshIndex = 0) {
     }
   }
 
-  return {
+  const result = {
     vertices,
     indices,
     vertexCount: posAcc.count,
     triangleCount: indices ? indices.length / 3 : 0,
     name: mesh.name
   }
+  
+  const node = json.nodes?.find(n => n.mesh === meshIndex)
+  if (node) {
+    result.nodeTransform = {
+      scale: node.scale ? [...node.scale] : null,
+      rotation: node.rotation ? [...node.rotation] : null,
+      translation: node.translation ? [...node.translation] : null
+    }
+  }
+
+  return result
 }
 
 /**
@@ -92,12 +124,29 @@ export async function extractMeshFromGLBAsync(filepath, meshIndex = 0) {
 
   const prim = mesh.primitives[0]
 
-  // Handle Draco-compressed mesh
+  let result
+  
   if (prim.extensions?.KHR_draco_mesh_compression) {
-    return decompressDracoMesh(buf, json, prim, binOffset, mesh.name)
+    result = await decompressDracoMesh(buf, json, prim, binOffset, mesh.name)
+  } else if (json.bufferViews?.some(bv => bv.extensions?.EXT_meshopt_compression)) {
+    result = await extractMeshWithMeshopt(buf, json, prim, binOffset, mesh.name)
+  } else {
+    result = extractStandardMesh(buf, json, prim, binOffset, mesh.name)
   }
 
-  // Standard uncompressed extraction
+  const node = json.nodes?.find(n => n.mesh === meshIndex)
+  if (node) {
+    result.nodeTransform = {
+      scale: node.scale ? [...node.scale] : null,
+      rotation: node.rotation ? [...node.rotation] : null,
+      translation: node.translation ? [...node.translation] : null
+    }
+  }
+
+  return result
+}
+
+function extractStandardMesh(buf, json, prim, binOffset, meshName) {
   const posAcc = json.accessors[prim.attributes.POSITION]
   const posView = json.bufferViews[posAcc.bufferView]
   const posOff = binOffset + (posView.byteOffset || 0) + (posAcc.byteOffset || 0)
@@ -121,7 +170,40 @@ export async function extractMeshFromGLBAsync(filepath, meshIndex = 0) {
     indices,
     vertexCount: posAcc.count,
     triangleCount: indices ? indices.length / 3 : 0,
-    name: mesh.name
+    name: meshName
+  }
+}
+
+function applyNodeTransform(vertices, node) {
+  const scale = node.scale ? [node.scale[0], node.scale[1], node.scale[2]] : [1, 1, 1]
+  const translation = node.translation ? [node.translation[0], node.translation[1], node.translation[2]] : [0, 0, 0]
+  
+  if (node.rotation) {
+    const [qx, qy, qz, qw] = node.rotation
+    for (let i = 0; i < vertices.length / 3; i++) {
+      let x = vertices[i * 3] * scale[0]
+      let y = vertices[i * 3 + 1] * scale[1]
+      let z = vertices[i * 3 + 2] * scale[2]
+      
+      const ix = qw * x + qy * z - qz * y
+      const iy = qw * y + qz * x - qx * z
+      const iz = qw * z + qx * y - qy * x
+      const iw = -qx * x - qy * y - qz * z
+      
+      x = ix * qw - iw * qx - iy * qz + iz * qy
+      y = iy * qw - iw * qy - iz * qx + ix * qz
+      z = iz * qw - iw * qz - ix * qy + iy * qx
+      
+      vertices[i * 3] = x + translation[0]
+      vertices[i * 3 + 1] = y + translation[1]
+      vertices[i * 3 + 2] = z + translation[2]
+    }
+  } else {
+    for (let i = 0; i < vertices.length / 3; i++) {
+      vertices[i * 3] = vertices[i * 3] * scale[0] + translation[0]
+      vertices[i * 3 + 1] = vertices[i * 3 + 1] * scale[1] + translation[1]
+      vertices[i * 3 + 2] = vertices[i * 3 + 2] * scale[2] + translation[2]
+    }
   }
 }
 
@@ -135,50 +217,150 @@ async function decompressDracoMesh(buf, json, prim, binOffset, meshName) {
   const length = bufView.byteLength
   const dracoData = buf.slice(offset, offset + length)
 
-  // Create decoder and buffer
   const d = new decoder.Decoder()
   const db = new decoder.DecoderBuffer()
+  const decodedGeom = new decoder.Mesh()
 
   try {
-    // Initialize buffer
     const dracoArray = new Uint8Array(dracoData)
     db.Init(dracoArray, dracoArray.length)
 
-    // Decode mesh
-    const decodedGeom = d.DecodeBufferToMesh(db)
-    if (!decodedGeom) {
-      throw new Error('Draco decompression failed: empty result')
+    const status = d.DecodeBufferToMesh(db, decodedGeom)
+    if (!status.ok()) {
+      throw new Error(`Draco decompression failed: ${status.error_msg()}`)
     }
 
-    // Get position attribute
-    const posAttrId = d.GetAttributeIdByName(decodedGeom, 'POSITION')
+    const posAttrId = d.GetAttributeId(decodedGeom, decoder.POSITION)
     if (posAttrId < 0) {
       throw new Error('No POSITION attribute in decompressed mesh')
     }
 
     const posAttr = d.GetAttribute(decodedGeom, posAttrId)
-    const posData = d.GetAttributeFloatForAllPoints(decodedGeom, posAttr)
-    const vertices = new Float32Array(posData)
-
-    // Get indices if available
-    let indices = null
-    if (decodedGeom.num_faces() > 0) {
-      const indicesData = d.GetTrianglesUInt32Array(decodedGeom, decodedGeom.num_faces())
-      indices = new Uint32Array(indicesData)
+    const numPoints = decodedGeom.num_points()
+    const posData = new decoder.DracoFloat32Array()
+    d.GetAttributeFloatForAllPoints(decodedGeom, posAttr, posData)
+    
+    const vertices = new Float32Array(numPoints * 3)
+    for (let i = 0; i < numPoints * 3; i++) {
+      vertices[i] = posData.GetValue(i)
     }
 
-    decoder.destroy(decodedGeom)
+    let indices = null
+    const numFaces = decodedGeom.num_faces()
+    if (numFaces > 0) {
+      indices = new Uint32Array(numFaces * 3)
+      const faceIndices = new decoder.DracoUInt32Array()
+      for (let i = 0; i < numFaces; i++) {
+        d.GetFaceFromMesh(decodedGeom, i, faceIndices)
+        indices[i * 3] = faceIndices.GetValue(0)
+        indices[i * 3 + 1] = faceIndices.GetValue(1)
+        indices[i * 3 + 2] = faceIndices.GetValue(2)
+      }
+      decoder.destroy(faceIndices)
+    }
+
+    decoder.destroy(posData)
+    decoder.destroy(status)
 
     return {
       vertices,
       indices,
-      vertexCount: decodedGeom.num_points(),
-      triangleCount: decodedGeom.num_faces(),
+      vertexCount: numPoints,
+      triangleCount: numFaces,
       name: meshName
     }
   } finally {
+    decoder.destroy(decodedGeom)
     decoder.destroy(d)
     decoder.destroy(db)
+  }
+}
+
+async function extractMeshWithMeshopt(buf, json, prim, binOffset, meshName) {
+  const decoder = await getMeshoptDecoder()
+  
+  const posAcc = json.accessors[prim.attributes.POSITION]
+  const posView = json.bufferViews[posAcc.bufferView]
+  const posExt = posView.extensions?.EXT_meshopt_compression
+  
+  if (!posExt) {
+    throw new Error('Position buffer view has no EXT_meshopt_compression extension')
+  }
+  
+  const posSrcOff = binOffset + (posExt.byteOffset || 0)
+  const posSrcLen = posExt.byteLength
+  const posSrc = new Uint8Array(buf.buffer.slice(posSrcOff, posSrcOff + posSrcLen))
+  
+  const numVertices = posExt.count
+  const stride = posExt.byteStride || 12
+  const posDst = new Uint8Array(numVertices * stride)
+  
+  const mode = posExt.mode || 'ATTRIBUTES'
+  const filter = posExt.filter || 'NONE'
+  decoder.decodeGltfBuffer(posDst, numVertices, stride, posSrc, mode, filter)
+  
+  const vertices = new Float32Array(numVertices * 3)
+  
+  // Handle normalized INT16 positions (common in meshopt-compressed models)
+  // Normalized INT16: float = raw / 32767.0
+  if (stride === 8 && posAcc.normalized && posAcc.componentType === 5122) {
+    const raw = new Int16Array(posDst.buffer)
+    for (let i = 0; i < numVertices; i++) {
+      vertices[i * 3] = raw[i * 4] / 32767.0
+      vertices[i * 3 + 1] = raw[i * 4 + 1] / 32767.0
+      vertices[i * 3 + 2] = raw[i * 4 + 2] / 32767.0
+    }
+  } else if (stride === 12) {
+    vertices.set(new Float32Array(posDst.buffer))
+  } else {
+    const floats = new Float32Array(posDst.buffer)
+    for (let i = 0; i < numVertices; i++) {
+      vertices[i * 3] = floats[i * (stride / 4)]
+      vertices[i * 3 + 1] = floats[i * (stride / 4) + 1]
+      vertices[i * 3 + 2] = floats[i * (stride / 4) + 2]
+    }
+  }
+  
+  let indices = null
+  if (prim.indices !== undefined) {
+    const idxAcc = json.accessors[prim.indices]
+    const idxView = json.bufferViews[idxAcc.bufferView]
+    const idxExt = idxView.extensions?.EXT_meshopt_compression
+    
+    if (idxExt) {
+      const idxSrcOff = binOffset + (idxExt.byteOffset || 0)
+      const idxSrcLen = idxExt.byteLength
+      const idxSrc = new Uint8Array(buf.buffer.slice(idxSrcOff, idxSrcOff + idxSrcLen))
+      
+      const idxStride = idxExt.byteStride || 2
+      const numIndices = idxExt.count
+      const idxDst = new Uint8Array(numIndices * idxStride)
+      
+      const idxMode = idxExt.mode || 'TRIANGLES'
+      const idxFilter = idxExt.filter || 'NONE'
+      decoder.decodeGltfBuffer(idxDst, numIndices, idxStride, idxSrc, idxMode, idxFilter)
+      
+      if (idxAcc.componentType === 5123) {
+        indices = new Uint32Array(new Uint16Array(idxDst.buffer))
+      } else {
+        indices = new Uint32Array(idxDst.buffer)
+      }
+    } else {
+      const idxOff = binOffset + (idxView.byteOffset || 0) + (idxAcc.byteOffset || 0)
+      if (idxAcc.componentType === 5123) {
+        indices = new Uint32Array(new Uint16Array(buf.buffer.slice(idxOff, idxOff + idxAcc.count * 2)))
+      } else {
+        indices = new Uint32Array(buf.buffer.slice(idxOff, idxOff + idxAcc.count * 4))
+      }
+    }
+  }
+  
+  return {
+    vertices,
+    indices,
+    vertexCount: numVertices,
+    triangleCount: indices ? indices.length / 3 : 0,
+    name: meshName
   }
 }
 
@@ -187,24 +369,31 @@ async function decompressDracoMesh(buf, json, prim, binOffset, meshName) {
  * Useful for validation and error reporting.
  * 
  * @param {string} filepath - Path to GLB file
- * @returns {Object} {hasDraco: boolean, meshes: Array<{name, hasDraco}>}
+ * @returns {Object} {hasDraco: boolean, hasMeshopt: boolean, meshes: Array<{name, hasDraco, hasMeshopt}>}
  */
 export function detectDracoInGLB(filepath) {
   try {
     const buf = readFileSync(filepath)
-    if (buf.toString('ascii', 0, 4) !== 'glTF') return { hasDraco: false, meshes: [] }
+    if (buf.toString('ascii', 0, 4) !== 'glTF') return { hasDraco: false, hasMeshopt: false, meshes: [] }
     
     const jsonLen = buf.readUInt32LE(12)
     const json = JSON.parse(buf.toString('utf-8', 20, 20 + jsonLen))
     
-    const meshes = (json.meshes || []).map(mesh => ({
-      name: mesh.name || 'unnamed',
-      hasDraco: mesh.primitives?.some(p => p.extensions?.KHR_draco_mesh_compression) || false
-    }))
+    const bufferViewHasMeshopt = (bv) => bv.extensions?.EXT_meshopt_compression
+    const hasMeshoptGlobally = (json.bufferViews || []).some(bufferViewHasMeshopt)
     
-    const hasDraco = meshes.some(m => m.hasDraco)
-    return { hasDraco, meshes }
+    const meshes = (json.meshes || []).map(mesh => {
+      const hasDraco = mesh.primitives?.some(p => p.extensions?.KHR_draco_mesh_compression) || false
+      const hasMeshopt = hasMeshoptGlobally || mesh.primitives?.some(p => p.extensions?.EXT_meshopt_compression) || false
+      return { name: mesh.name || 'unnamed', hasDraco, hasMeshopt }
+    })
+    
+    return {
+      hasDraco: meshes.some(m => m.hasDraco),
+      hasMeshopt: meshes.some(m => m.hasMeshopt),
+      meshes
+    }
   } catch (e) {
-    return { hasDraco: false, meshes: [], error: e.message }
+    return { hasDraco: false, hasMeshopt: false, meshes: [], error: e.message }
   }
 }

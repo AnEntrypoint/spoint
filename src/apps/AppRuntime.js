@@ -64,25 +64,27 @@ export class AppRuntime {
     }
     if (config.autoTrimesh && entity.model && this._physics) {
       entity.collider = { type: 'trimesh', model: entity.model }
-      entity._physicsBodyId = this._physics.addStaticTrimesh(this.resolveAssetPath(entity.model), 0)
+      this._physics.addStaticTrimeshAsync(this.resolveAssetPath(entity.model), 0)
+        .then(id => { entity._physicsBodyId = id })
+        .catch(e => console.error(`[AppRuntime] Failed to create trimesh for ${entity.model}:`, e.message))
     }
-    if (config.app) this._attachApp(entityId, config.app)
+    if (config.app) this._attachApp(entityId, config.app).catch(e => console.error(`[AppRuntime] Failed to attach app ${config.app}:`, e.message))
     this._spatialInsert(entity)
     return entity
   }
 
-  _attachApp(entityId, appName) {
+  async _attachApp(entityId, appName) {
     const entity = this.entities.get(entityId), appDef = this._appDefs.get(appName)
     if (!entity || !appDef) return
     const ctx = new AppContext(entity, this)
     this.contexts.set(entityId, ctx); this.apps.set(entityId, appDef)
-    this._safeCall(appDef.server || appDef, 'setup', [ctx], `setup(${appName})`)
+    await this._safeCall(appDef.server || appDef, 'setup', [ctx], `setup(${appName})`)
   }
 
-  attachApp(entityId, appName) { this._attachApp(entityId, appName) }
-  spawnWithApp(id, cfg = {}, app) { return this.spawnEntity(id, { ...cfg, app }) }
-  attachAppToEntity(eid, app, cfg = {}) { const e = this.getEntity(eid); if (!e) return false; e._config = cfg; this._attachApp(eid, app); return true }
-  reattachAppToEntity(eid, app) { this.detachApp(eid); this._attachApp(eid, app) }
+  async attachApp(entityId, appName) { await this._attachApp(entityId, appName) }
+  async spawnWithApp(id, cfg = {}, app) { return await this.spawnEntity(id, { ...cfg, app }) }
+  async attachAppToEntity(eid, app, cfg = {}) { const e = this.getEntity(eid); if (!e) return false; e._config = cfg; await this._attachApp(eid, app); return true }
+  async reattachAppToEntity(eid, app) { this.detachApp(eid); await this._attachApp(eid, app) }
   getEntityWithApp(eid) { const e = this.entities.get(eid); return { entity: e, appName: e?._appName, hasApp: !!e?._appName } }
 
   detachApp(entityId) {
@@ -234,5 +236,17 @@ export class AppRuntime {
   relevantEntities(position, radius) { if (!this._stageLoader) return Array.from(this.entities.keys()); return this._stageLoader.getRelevantEntities(position, radius) }
 
   _log(type, data, meta = {}) { if (this._eventLog) this._eventLog.record(type, data, { ...meta, tick: this.currentTick }) }
-  _safeCall(o, m, a, l) { if (!o?.[m]) return; try { o[m](...a) } catch (e) { console.error(`[AppRuntime] ${l}: ${e.message}\n  ${e.stack?.split('\n').slice(1, 3).join('\n  ') || ''}`) } }
+  _safeCall(o, m, a, l) {
+    if (!o?.[m]) return Promise.resolve()
+    try {
+      const result = o[m](...a)
+      if (result && typeof result.catch === 'function') {
+        return result.catch(e => console.error(`[AppRuntime] ${l}: ${e.message}\n  ${e.stack?.split('\n').slice(1, 3).join('\n  ') || ''}`))
+      }
+      return Promise.resolve()
+    } catch (e) {
+      console.error(`[AppRuntime] ${l}: ${e.message}\n  ${e.stack?.split('\n').slice(1, 3).join('\n  ') || ''}`)
+      return Promise.reject(e)
+    }
+  }
 }

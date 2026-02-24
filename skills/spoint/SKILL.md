@@ -1,6 +1,6 @@
 ---
 name: spoint
-description: "Build multiplayer physics games with the Spawnpoint engine. Use when asked to: create a game, add physics objects, spawn entities, build an arena, handle player interaction, add weapons, respawn, scoring, create moving platforms, manage world config, load 3D models, add HUD/UI, work with the EventBus, or develop any app inside an apps directory."
+description: "Build multiplayer physics games with the Spawnpoint engine. Use when asked to: create a game, add physics objects, spawn entities, build a map/level, handle player interaction, add weapons, respawn, scoring, create moving platforms, manage world config, load 3D models, add HUD/UI, work with the EventBus, or develop any app inside an apps directory."
 ---
 
 # Spawnpoint App Development Reference
@@ -108,13 +108,13 @@ Read-only. Populated from the `config` field in `world.entities` or `ctx.world.s
 - `addBoxCollider(size)` — size is a number (cube) or `[hx,hy,hz]` half-extents. Creates Jolt physics body.
 - `addSphereCollider(radius)` — creates sphere physics body
 - `addCapsuleCollider(radius, fullHeight)` — fullHeight is total height; halved internally before passing to Jolt
-- `addTrimeshCollider()` — exact triangle mesh from `entity.model` GLB. Static only. Reads `entity.model` as a LOCAL DISK PATH — remote URLs (https://...) cause ENOENT and crash setup. `entity.model` must be `./apps/<appname>/file.glb`.
+- `addTrimeshCollider()` — async, exact triangle mesh from `entity.model` GLB. Static only. Handles Draco-compressed meshes automatically. Reads `entity.model` as a LOCAL DISK PATH — remote URLs (https://...) cause ENOENT and crash setup. `entity.model` must be `./apps/<appname>/file.glb`. Meshopt-compressed meshes are NOT supported — decompress with `gltfpack -i input.glb -o output.glb -noq` first.
 - `addConvexCollider(points)` — flat `[x,y,z,x,y,z,...]` vertex array. Any motion type.
-- `addConvexFromModel(meshIndex=0)` — extracts vertices from `entity.model` GLB and builds convex hull. Any motion type. Reads `entity.model` as a LOCAL DISK PATH — remote URLs (https://...) cause ENOENT and crash setup. `entity.model` must be `./apps/<appname>/file.glb`.
+- `addConvexFromModel(meshIndex=0)` — extracts vertices from `entity.model` GLB and builds convex hull. Any motion type. Throws on Draco/meshopt compression. Reads `entity.model` as a LOCAL DISK PATH — remote URLs (https://...) cause ENOENT and crash setup. `entity.model` must be `./apps/<appname>/file.glb`.
 - `addForce([fx,fy,fz])` — instant velocity change: velocity += force / mass. Not continuous.
 - `setVelocity([vx,vy,vz])` — sets velocity directly
 
-Shape rules: box/sphere/capsule are fastest and work with any motion type. Trimesh is static only — use for terrain and environments. Convex hull works with any motion type — use for all dynamic props.
+Shape rules: box/sphere/capsule are fastest and work with any motion type. Trimesh is static only — use for terrain and environments. Convex hull works with any motion type — use for all dynamic props. Draco-compressed models work with trimesh (async decompression) but not convex hull — decompress first or use box/sphere/capsule.
 
 ### ctx.interactable(config)
 
@@ -122,7 +122,7 @@ Registers entity as interactable. Engine handles proximity detection, E-key prom
 
 ### ctx.world
 
-- `spawn(id, config)` — id is string|null (null auto-generates id). Returns entity object or null. Config fields: `model`, `position`, `rotation`, `scale`, `parent`, `app`, `config`, `autoTrimesh`. Setting `autoTrimesh: true` automatically calls `addStaticTrimesh` on `entity.model` at spawn — static only.
+- `spawn(id, config)` — id is string|null (null auto-generates id). Returns entity object or null. Config fields: `model`, `position`, `rotation`, `scale`, `parent`, `app`, `config`, `autoTrimesh`. Setting `autoTrimesh: true` automatically creates a trimesh collider from `entity.model` at spawn (async, handles Draco) — static only.
 - `destroy(id)` — destroys entity by id string. Cascades to all children.
 - `getEntity(id)` — returns entity object or null
 - `query(filterFn)` — returns array of entity objects passing the filter. filterFn receives the raw entity object.
@@ -201,7 +201,7 @@ Place GLB under `apps/<appname>/`. The static server resolves `GET /apps/<appnam
 
 Declare in `world.entities` with a `model` field to add the model to the loading gate. The `model` path is resolved relative to `process.cwd()`. Use `./apps/...` prefix.
 
-Server-side physics: `addTrimeshCollider()` reads `entity.model` from disk synchronously and builds an exact triangle mesh (static only). `addConvexFromModel(meshIndex)` reads vertices and builds a convex hull (any motion type). Remote URLs cannot be used by either method.
+Server-side physics: `addTrimeshCollider()` is async and handles Draco-compressed meshes automatically. `addConvexFromModel(meshIndex)` reads vertices synchronously and throws on Draco/meshopt compression — use `gltfpack -i input.glb -o output.glb -noq` to decompress first. Remote URLs cannot be used by either method.
 
 Client-side display: the client receives entity snapshots and fetches the model URL automatically. `renderer.compileAsync()` is called immediately after `scene.add()` to avoid GPU stall on first render. The `client.render()` function cannot affect model, position, or rotation — those are driven by the server snapshot.
 

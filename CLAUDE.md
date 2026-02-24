@@ -7,7 +7,7 @@ Two reusable apps are bundled in `apps/`:
 - `box-static` — visual box primitive + static box collider. Config: `{ hx, hy, hz, color, roughness }`. Half-extents drive both the collider and the visual (visual `sx/sy/sz` = `hx/hy/hz * 2`). Spawn via `ctx.world.spawn(id, { app: 'box-static', config: { hx, hy, hz, color } })`.
 - `prop-static` — static GLB prop with convex hull collider. No config needed. Entity must have `model` set. Calls `addConvexFromModel(0)` in setup.
 
-These enable building full scenes without any GLB for structure. See `apps/arena/index.js` for a complete working example.
+These enable building full scenes without any GLB for structure.
 
 ## Physics Bodies Only Created Via App setup()
 
@@ -124,31 +124,24 @@ A zero-intensity `THREE.PointLight` (`_warmupPointLight`) is added to the scene 
 
 ## Draco Compressed Model Support
 
-Physics collider extraction requires uncompressed vertex geometry. Models using Draco compression (KHR_draco_mesh_compression extension) cannot be used with `addConvexFromModel()` or `addTrimeshCollider()` because the geometry is compressed and requires decompression.
+Physics collider extraction supports Draco-compressed meshes (KHR_draco_mesh_compression extension) via `extractMeshFromGLBAsync()` which uses the `draco3dgltf` package for decompression.
 
-`extractMeshFromGLB()` in `src/physics/GLBLoader.js` detects Draco-compressed primitives and throws a clear error with solutions:
+**Sync vs Async:**
+- `extractMeshFromGLB(filepath)` — synchronous, throws on Draco/meshopt
+- `extractMeshFromGLBAsync(filepath)` — async, handles Draco via decompression
 
-1. **Decompress the model** using gltfpack:
-   ```bash
-   gltfpack -i model-compressed.glb -o model-uncompressed.glb -noq
-   ```
-   This creates an uncompressed GLB suitable for physics.
+**Trimesh colliders with Draco:**
+- `world.addStaticTrimesh(glbPath)` — sync, throws on Draco
+- `world.addStaticTrimeshAsync(glbPath)` — async, handles Draco automatically
 
-2. **Use trigger colliders instead** - for cosmetic props that don't need precise collision:
-   ```js
-   ctx.physics.setStatic(true)
-   // Skip addConvexFromModel, use box/sphere/capsule colliders instead
-   ctx.physics.addBoxCollider([1, 1, 1])
-   ```
+The async methods allocate temporary Draco objects (`Decoder`, `DecoderBuffer`, `Mesh`, `DracoFloat32Array`, `DracoUInt32Array`) which are destroyed after extraction to prevent WASM memory leaks.
 
-3. **Skip physics entirely** - if the model is purely visual:
-   ```js
-   ctx.physics.setStatic(true)
-   // Don't add any collider
-   ```
+**Meshopt compression (EXT_meshopt_compression) is NOT supported.** Models using meshopt must be decompressed first:
+```bash
+gltfpack -i model-compressed.glb -o model-uncompressed.glb -noq
+```
 
-The `detectDracoInGLB(filepath)` utility function can be used to pre-check models without attempting extraction.
-
+The `detectDracoInGLB(filepath)` utility returns `{hasDraco, hasMeshopt, meshes}` for pre-checking models.
 
 ## Jolt Physics WASM Memory
 

@@ -58,13 +58,8 @@ export default {
     fadeTime: 0.15
   },
   entities: [
-    { id: 'environment', model: './apps/tps-game/schwust.glb', position: [0, -10, 0], app: 'environment' },
-    { id: 'game', position: [0, 0, 0], app: 'tps-game' },
-    { id: 'power-crates', position: [0, 0, 0], app: 'power-crate' },
-    { id: 'interact-box', position: [-100, 3, -100], app: 'interactable' }
-    // To use the primitive arena instead of schwust.glb, replace above with:
-    // { id: 'arena', position: [0, 0, 0], app: 'arena' }
+    { id: 'environment', model: './apps/tps-game/schwust.glb', position: [0, 0, 0], app: 'environment' }
   ],
   playerModel: './apps/tps-game/cleetus.vrm',
-  spawnPoint: [-35, 3, -65]
+  spawnPoint: [-30, 7.6, -30]
 }

@@ -69,10 +69,10 @@ export class AppContext {
         }
       },
       addMeshCollider: (m) => { ent.collider = { type: 'mesh', mesh: m } },
-      addTrimeshCollider: () => {
+      addTrimeshCollider: async () => {
         ent.collider = { type: 'trimesh', model: ent.model }
         if (runtime._physics && ent.model) {
-          const bodyId = runtime._physics.addStaticTrimesh(runtime.resolveAssetPath(ent.model), 0)
+          const bodyId = await runtime._physics.addStaticTrimeshAsync(runtime.resolveAssetPath(ent.model), 0, ent.position)
           ent._physicsBodyId = bodyId
         }
       },

@@ -1,5 +1,5 @@
 import initJolt from 'jolt-physics/wasm-compat'
-import { extractMeshFromGLB } from './GLBLoader.js'
+import { extractMeshFromGLB, extractMeshFromGLBAsync } from './GLBLoader.js'
 const LAYER_STATIC = 0, LAYER_DYNAMIC = 1, NUM_LAYERS = 2
 let joltInstance = null
 async function getJolt() { if (!joltInstance) joltInstance = await initJolt(); return joltInstance }
@@ -74,16 +74,106 @@ export class PhysicsWorld {
   addStaticTrimesh(glbPath, meshIndex = 0) {
     const J = this.Jolt
     const mesh = extractMeshFromGLB(glbPath, meshIndex)
+    
+    // Apply node transform if present (scale, rotation, translation)
+    let vertices = mesh.vertices
+    const nodeT = mesh.nodeTransform
+    if (nodeT) {
+      const numVerts = mesh.vertexCount
+      vertices = new Float32Array(numVerts * 3)
+      
+      const scale = nodeT.scale || [1, 1, 1]
+      const translation = nodeT.translation || [0, 0, 0]
+      const rotation = nodeT.rotation
+      
+      for (let i = 0; i < numVerts; i++) {
+        let x = mesh.vertices[i * 3] * scale[0]
+        let y = mesh.vertices[i * 3 + 1] * scale[1]
+        let z = mesh.vertices[i * 3 + 2] * scale[2]
+        
+        if (rotation) {
+          const [qx, qy, qz, qw] = rotation
+          const ix = qw * x + qy * z - qz * y
+          const iy = qw * y + qz * x - qx * z
+          const iz = qw * z + qx * y - qy * x
+          const iw = -qx * x - qy * y - qz * z
+          x = ix * qw - iw * qx - iy * qz + iz * qy
+          y = iy * qw - iw * qy - iz * qx + ix * qz
+          z = iz * qw - iw * qz - ix * qy + iy * qx
+        }
+        
+        vertices[i * 3] = x + translation[0]
+        vertices[i * 3 + 1] = y + translation[1]
+        vertices[i * 3 + 2] = z + translation[2]
+      }
+    }
+    
     const triangles = new J.TriangleList(); triangles.resize(mesh.triangleCount)
     for (let t = 0; t < mesh.triangleCount; t++) {
       const tri = triangles.at(t)
       for (let v = 0; v < 3; v++) {
         const idx = mesh.indices[t * 3 + v]
-        tri.set_mV(v, new J.Float3(mesh.vertices[idx * 3], mesh.vertices[idx * 3 + 1], mesh.vertices[idx * 3 + 2]))
+        tri.set_mV(v, new J.Float3(vertices[idx * 3], vertices[idx * 3 + 1], vertices[idx * 3 + 2]))
       }
     }
     const shape = new J.MeshShapeSettings(triangles).Create().Get()
     return this._addBody(shape, [0, 0, 0], J.EMotionType_Static, LAYER_STATIC, { meta: { type: 'static', shape: 'trimesh', mesh: mesh.name, triangles: mesh.triangleCount } })
+  }
+
+  addStaticTrimeshAsync(glbPath, meshIndex = 0, position = [0, 0, 0]) {
+    return new Promise(async (resolve, reject) => {
+      try {
+        const J = this.Jolt
+        const mesh = await extractMeshFromGLBAsync(glbPath, meshIndex)
+        
+        // Apply node transform if present (scale, rotation, translation)
+        let vertices = mesh.vertices
+        const nodeT = mesh.nodeTransform
+        if (nodeT) {
+          const numVerts = mesh.vertexCount
+          vertices = new Float32Array(numVerts * 3)
+          
+          const scale = nodeT.scale || [1, 1, 1]
+          const translation = nodeT.translation || [0, 0, 0]
+          const rotation = nodeT.rotation
+          
+          for (let i = 0; i < numVerts; i++) {
+            let x = mesh.vertices[i * 3] * scale[0]
+            let y = mesh.vertices[i * 3 + 1] * scale[1]
+            let z = mesh.vertices[i * 3 + 2] * scale[2]
+            
+            if (rotation) {
+              const [qx, qy, qz, qw] = rotation
+              const ix = qw * x + qy * z - qz * y
+              const iy = qw * y + qz * x - qx * z
+              const iz = qw * z + qx * y - qy * x
+              const iw = -qx * x - qy * y - qz * z
+              x = ix * qw - iw * qx - iy * qz + iz * qy
+              y = iy * qw - iw * qy - iz * qx + ix * qz
+              z = iz * qw - iw * qz - ix * qy + iy * qx
+            }
+            
+            vertices[i * 3] = x + translation[0]
+            vertices[i * 3 + 1] = y + translation[1]
+            vertices[i * 3 + 2] = z + translation[2]
+          }
+        }
+        
+        const triangles = new J.TriangleList(); triangles.resize(mesh.triangleCount)
+        for (let t = 0; t < mesh.triangleCount; t++) {
+          const tri = triangles.at(t)
+          for (let v = 0; v < 3; v++) {
+            const idx = mesh.indices[t * 3 + v]
+            tri.set_mV(v, new J.Float3(vertices[idx * 3], vertices[idx * 3 + 1], vertices[idx * 3 + 2]))
+          }
+        }
+        const shape = new J.MeshShapeSettings(triangles).Create().Get()
+        const id = this._addBody(shape, position, J.EMotionType_Static, LAYER_STATIC, { meta: { type: 'static', shape: 'trimesh', mesh: mesh.name, triangles: mesh.triangleCount } })
+        resolve(id)
+      } catch (e) {
+        reject(e)
+      }
+    })
   }
   addPlayerCharacter(radius, halfHeight, position, mass) {
     const J = this.Jolt

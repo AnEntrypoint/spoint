@@ -5,6 +5,7 @@ THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree
 THREE.Mesh.prototype.raycast = acceleratedRaycast
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
 import { PhysicsNetworkClient, InputHandler, MSG } from '/src/index.client.js'
 import { createElement, applyDiff } from 'webjsx'
@@ -675,6 +676,7 @@ const dracoLoader = new DRACOLoader(loadingManager)
 dracoLoader.setDecoderPath('/draco/')
 dracoLoader.setWorkerLimit(1)
 gltfLoader.setDRACOLoader(dracoLoader)
+gltfLoader.setMeshoptDecoder(MeshoptDecoder)
 gltfLoader.register((parser) => new VRMLoaderPlugin(parser))
 const playerMeshes = new Map()
 const playerAnimators = new Map()
