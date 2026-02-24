@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.78](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.77...v0.1.78) (2026-02-24)
+
+
+### Bug Fixes
+
+* implement proper Draco compression support and restore cleetus.vrm ([0a44582](https://github.com/AnEntrypoint/spawnpoint/commit/0a44582a8395240511e36c26d9ae7f748045eadc))
+
 ### [0.1.77](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.76...v0.1.77) (2026-02-24)
 
 
