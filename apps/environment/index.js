@@ -25,12 +25,12 @@ export default {
   server: {
     setup(ctx) {
       ctx.physics.setStatic(true)
-      // schwust.glb decompressed - use real geometry-based collider
+      // Use trimesh collider for environment - handles both compressed and uncompressed
       try {
         ctx.physics.addTrimeshCollider()
       } catch (e) {
-        // Fallback if convex hull extraction fails
-        console.log(`[Environment] Convex extraction failed: ${e.message}`); console.log(e.stack)
+        // Fallback if trimesh extraction fails (e.g., unsupported model format)
+        console.log(`[Environment] Trimesh collider failed: ${e.message}`)
         ctx.physics.addBoxCollider([50, 0.5, 50])
       }
 

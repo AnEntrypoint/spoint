@@ -1,5 +1,5 @@
 import { CliDebugger } from '../debug/CliDebugger.js'
-import { extractMeshFromGLB } from '../physics/GLBLoader.js'
+import { extractMeshFromGLB, extractMeshFromGLBAsync } from '../physics/GLBLoader.js'
 
 export class AppContext {
   constructor(entity, runtime) {
@@ -95,7 +95,12 @@ export class AppContext {
           }
         } catch (err) {
           if (err.message.includes('Draco-compressed')) {
-            runtime._debug?.warn(`[physics] ${err.message}`)
+            runtime._debug?.warn(`[physics] Draco mesh detected - use addTrimeshCollider() for physics or box/sphere/capsule for trigger`)
+            if (runtime._physics) {
+              const mt = ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
+              ent.collider = { type: 'box', size: [0.5, 0.5, 0.5] }
+              ent._physicsBodyId = runtime._physics.addBody('box', [0.5, 0.5, 0.5], ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+            }
           } else {
             throw err
           }
