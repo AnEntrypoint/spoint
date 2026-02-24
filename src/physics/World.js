@@ -230,8 +230,8 @@ export class PhysicsWorld {
     const dir = len > 0 ? [direction[0] / len, direction[1] / len, direction[2] / len] : direction
     const ray = new J.RRayCast(new J.RVec3(origin[0], origin[1], origin[2]), new J.Vec3(dir[0] * maxDistance, dir[1] * maxDistance, dir[2] * maxDistance))
     const rs = new J.RayCastSettings(), col = new J.CastRayClosestHitCollisionCollector()
-    const bp = new J.DefaultBroadPhaseLayerFilter(this._ovbp, LAYER_DYNAMIC)
-    const ol = new J.DefaultObjectLayerFilter(this._objFilter, LAYER_DYNAMIC)
+    const bp = new J.DefaultBroadPhaseLayerFilter(this._ovbp)
+    const ol = new J.DefaultObjectLayerFilter(this._objFilter)
     const eb = excludeBodyId != null ? this._getBody(excludeBodyId) : null
     const bf = eb ? new J.IgnoreSingleBodyFilter(eb.GetID()) : new J.BodyFilter()
     const sf = new J.ShapeFilter()

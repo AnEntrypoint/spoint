@@ -740,30 +740,42 @@ async function createPlayerVRM(id) {
   try {
     const gltf = await gltfLoader.parseAsync(vrmBuffer.buffer.slice(0), '')
     const vrm = gltf.userData.vrm
-    if (!vrm) { console.error('[vrm]', id, 'VRMLoaderPlugin did not produce vrm - file may not be VRM format'); return group }
-    VRMUtils.removeUnnecessaryVertices(vrm.scene)
-    VRMUtils.combineSkeletons(vrm.scene)
-    const vrmVersion = detectVrmVersion(vrmBuffer)
-    vrm.scene.rotation.y = Math.PI
-    vrm.scene.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
-    const pc = worldConfig.player || {}
-    const modelScale = pc.modelScale || 1.323
-    const feetOffsetRatio = pc.feetOffset || 0.212
-    vrm.scene.scale.multiplyScalar(modelScale)
-    vrm.scene.position.y = -feetOffsetRatio * modelScale
-    group.userData.feetOffset = 1.3
-    group.add(vrm.scene)
-    playerVrms.set(id, vrm)
-    initVRMFeatures(id, vrm)
-    if (animAssets) {
-      const animator = createPlayerAnimator(vrm, animAssets, vrmVersion, worldConfig.animation || {})
-      playerAnimators.set(id, animator)
-    }
-    if (id === client.playerId && vrm.humanoid) {
-      const head = vrm.humanoid.getRawBoneNode('head')
-      if (head) cam.setCameraBone(head)
-      if (head) cam.setHeadBone(head)
-      if (cam.getMode() === 'fps' && head) head.scale.set(0, 0, 0)
+    if (vrm) {
+      VRMUtils.removeUnnecessaryVertices(vrm.scene)
+      VRMUtils.combineSkeletons(vrm.scene)
+      const vrmVersion = detectVrmVersion(vrmBuffer)
+      vrm.scene.rotation.y = Math.PI
+      vrm.scene.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+      const pc = worldConfig.player || {}
+      const modelScale = pc.modelScale || 1.323
+      const feetOffsetRatio = pc.feetOffset || 0.212
+      vrm.scene.scale.multiplyScalar(modelScale)
+      vrm.scene.position.y = -feetOffsetRatio * modelScale
+      group.userData.feetOffset = 1.3
+      group.add(vrm.scene)
+      playerVrms.set(id, vrm)
+      initVRMFeatures(id, vrm)
+      if (animAssets) {
+        const animator = createPlayerAnimator(vrm, animAssets, vrmVersion, worldConfig.animation || {})
+        playerAnimators.set(id, animator)
+      }
+      if (id === client.playerId && vrm.humanoid) {
+        const head = vrm.humanoid.getRawBoneNode('head')
+        if (head) cam.setCameraBone(head)
+        if (head) cam.setHeadBone(head)
+        if (cam.getMode() === 'fps' && head) head.scale.set(0, 0, 0)
+      }
+    } else {
+      const scene = gltf.scene
+      scene.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+      const pc = worldConfig.player || {}
+      const modelScale = pc.modelScale || 1.323
+      const feetOffsetRatio = pc.feetOffset || 0.212
+      scene.scale.multiplyScalar(modelScale)
+      scene.position.y = -feetOffsetRatio * modelScale
+      group.userData.feetOffset = 1.3
+      group.add(scene)
+      console.log('[player]', id, 'loaded as plain GLB (not VRM)')
     }
     if (!_vrmWarmupDone) {
       _vrmWarmupDone = true
