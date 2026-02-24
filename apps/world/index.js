@@ -65,6 +65,6 @@ export default {
     // To use the primitive arena instead of schwust.glb, replace above with:
     // { id: 'arena', position: [0, 0, 0], app: 'arena' }
   ],
-  playerModel: './apps/tps-game/cleetus.glb',
+  playerModel: './apps/tps-game/cleetus.vrm',
   spawnPoint: [-35, 3, -65]
 }

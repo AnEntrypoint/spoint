@@ -25,7 +25,12 @@ export default {
   server: {
     setup(ctx) {
       ctx.physics.setStatic(true)
-      ctx.physics.addTrimeshCollider()
+      try {
+        ctx.physics.addTrimeshCollider()
+      } catch (e) {
+        ctx.debug.log(`[Environment] Trimesh collider failed (likely Draco compression), using fallback box collider: ${e.message}`)
+        ctx.physics.addBoxCollider([50, 0.5, 50])
+      }
 
       ctx.state.smartObjects = new Map()
       ctx.state.editorMode = false
