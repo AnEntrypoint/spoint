@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.77](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.76...v0.1.77) (2026-02-24)
+
+
+### Bug Fixes
+
+* resolve meshopt compression and collider extraction issues ([fa7cf57](https://github.com/AnEntrypoint/spawnpoint/commit/fa7cf570f9a1054e9a28a307ac7f19fcb18ef1c2))
+
 ### [0.1.76](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.75...v0.1.76) (2026-02-24)
 
 
