@@ -122,6 +122,34 @@ A zero-intensity `THREE.PointLight` (`_warmupPointLight`) is added to the scene 
 
 ---
 
+## Draco Compressed Model Support
+
+Physics collider extraction requires uncompressed vertex geometry. Models using Draco compression (KHR_draco_mesh_compression extension) cannot be used with `addConvexFromModel()` or `addTrimeshCollider()` because the geometry is compressed and requires decompression.
+
+`extractMeshFromGLB()` in `src/physics/GLBLoader.js` detects Draco-compressed primitives and throws a clear error with solutions:
+
+1. **Decompress the model** using gltfpack:
+   ```bash
+   gltfpack -i model-compressed.glb -o model-uncompressed.glb -noq
+   ```
+   This creates an uncompressed GLB suitable for physics.
+
+2. **Use trigger colliders instead** - for cosmetic props that don't need precise collision:
+   ```js
+   ctx.physics.setStatic(true)
+   // Skip addConvexFromModel, use box/sphere/capsule colliders instead
+   ctx.physics.addBoxCollider([1, 1, 1])
+   ```
+
+3. **Skip physics entirely** - if the model is purely visual:
+   ```js
+   ctx.physics.setStatic(true)
+   // Don't add any collider
+   ```
+
+The `detectDracoInGLB(filepath)` utility function can be used to pre-check models without attempting extraction.
+
+
 ## Jolt Physics WASM Memory
 
 Jolt getter methods (GetPosition, GetRotation, GetLinearVelocity) return WASM heap objects. Every call MUST be followed by `Jolt.destroy(returnedObj)` or WASM heap grows unbounded (~30MB/5min). See World.js `getCharacterPosition`, `getBodyPosition` etc for correct pattern.

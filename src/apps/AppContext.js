@@ -85,12 +85,20 @@ export class AppContext {
       },
       addConvexFromModel: (meshIndex = 0) => {
         if (!ent.model) return
-        const mesh = extractMeshFromGLB(runtime.resolveAssetPath(ent.model), meshIndex)
-        const points = Array.from(mesh.vertices)
-        ent.collider = { type: 'convex', points }
-        if (runtime._physics) {
-          const mt = ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
-          ent._physicsBodyId = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+        try {
+          const mesh = extractMeshFromGLB(runtime.resolveAssetPath(ent.model), meshIndex)
+          const points = Array.from(mesh.vertices)
+          ent.collider = { type: 'convex', points }
+          if (runtime._physics) {
+            const mt = ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
+            ent._physicsBodyId = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+          }
+        } catch (err) {
+          if (err.message.includes('Draco-compressed')) {
+            runtime._debug?.warn(`[physics] ${err.message}`)
+          } else {
+            throw err
+          }
         }
       },
       addForce: (f) => {
