@@ -128,7 +128,7 @@ let _normalizedCache = null
 
 export function preloadAnimationLibrary() {
   if (_gltfPromise) return _gltfPromise
-  _gltfPromise = new GLTFLoader().loadAsync('/anim-lib.glb')
+  _gltfPromise = new GLTFLoader().loadAsync('/anim-lib.glb').catch(err => { console.warn('[anim] Failed to load animation library:', err.message); return { scene: new THREE.Scene(), animations: [] } })
   return _gltfPromise
 }
 
