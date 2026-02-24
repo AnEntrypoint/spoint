@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.76](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.75...v0.1.76) (2026-02-24)
+
+
+### Bug Fixes
+
+* add animations to anim-lib.glb, add Draco fallback collider, switch playerModel to cleetus.vrm ([c4bb299](https://github.com/AnEntrypoint/spawnpoint/commit/c4bb299f0baf02bdd574fffef93df8ecb21a6829))
+
 ### [0.1.75](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.74...v0.1.75) (2026-02-24)
 
 
