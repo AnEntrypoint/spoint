@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.67](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.66...v0.1.67) (2026-02-24)
+
+
+### Bug Fixes
+
+* lower schwust.glb map position to prevent spawning under map ([a0ee7f6](https://github.com/AnEntrypoint/spawnpoint/commit/a0ee7f649b27af2773e5394ba000111c9bf56d49))
+
 ### 0.1.66 (2026-02-24)
 
 
