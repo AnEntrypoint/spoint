@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.74](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.73...v0.1.74) (2026-02-24)
+
+
+### Bug Fixes
+
+* move environment to Y=-10 to position geometry correctly for spawn points ([61e1da2](https://github.com/AnEntrypoint/spawnpoint/commit/61e1da2f30fb647bb475c219685b5325a32d2787))
+
 ### [0.1.73](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.72...v0.1.73) (2026-02-24)
 
 
