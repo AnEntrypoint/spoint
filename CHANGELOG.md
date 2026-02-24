@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.79](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.78...v0.1.79) (2026-02-24)
+
+
+### Bug Fixes
+
+* use box collider for environment to prevent server hang ([42dcb98](https://github.com/AnEntrypoint/spawnpoint/commit/42dcb982a2cae4835e4607886ebc2d09620c4d95))
+
 ### [0.1.78](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.77...v0.1.78) (2026-02-24)
 
 
