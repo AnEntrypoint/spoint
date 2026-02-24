@@ -41,8 +41,12 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
+    "@gltf-transform/extensions": "^4.3.0",
     "d3-octree": "^1.1.0",
+    "draco3d": "^1.5.7",
+    "draco3dgltf": "^1.5.7",
     "jolt-physics": "^0.29.0",
+    "meshoptimizer": "^1.0.1",
     "webjsx": "^0.0.73",
     "ws": "^8.18.0"
   },
@@ -51,6 +55,9 @@
     "@fails-components/webtransport-transport-http3-quiche": "^1.5.3"
   },
   "devDependencies": {
-    "playwright": "^1.58.1"
+    "@gltf-transform/cli": "^4.3.0",
+    "@gltf-transform/core": "^4.3.0",
+    "playwright": "^1.58.1",
+    "three": "^0.183.1"
   }
 }

@@ -58,7 +58,7 @@ export default {
     fadeTime: 0.15
   },
   entities: [
-    { id: 'environment', model: './apps/tps-game/schwust.glb', position: [0, -10, 0], app: 'environment' },
+    { id: 'environment', model: './apps/tps-game/schwust-uncompressed.glb', position: [0, -10, 0], app: 'environment' },
     { id: 'game', position: [0, 0, 0], app: 'tps-game' },
     { id: 'power-crates', position: [0, 0, 0], app: 'power-crate' },
     { id: 'interact-box', position: [-100, 3, -100], app: 'interactable' }
