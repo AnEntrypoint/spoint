@@ -36,6 +36,9 @@ export default {
     },
 
     update(ctx, dt) {
+      if (!ctx.state.smartObjects || typeof ctx.state.smartObjects[Symbol.iterator] !== 'function') {
+        return
+      }
       for (const [id, obj] of ctx.state.smartObjects) {
         if (obj.template === 'platform') updatePlatform(ctx, id, obj, dt)
         if (obj.template === 'hazard') updateHazard(ctx, id, obj, dt)
@@ -62,10 +65,12 @@ export default {
     },
 
     teardown(ctx) {
-      for (const id of ctx.state.smartObjects.keys()) {
-        ctx.world.destroy(id)
+      if (ctx.state.smartObjects && typeof ctx.state.smartObjects.keys === 'function') {
+        for (const id of ctx.state.smartObjects.keys()) {
+          ctx.world.destroy(id)
+        }
+        ctx.state.smartObjects.clear()
       }
-      ctx.state.smartObjects.clear()
     }
   },
 
