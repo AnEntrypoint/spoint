@@ -25,14 +25,9 @@ export default {
   server: {
     setup(ctx) {
       ctx.physics.setStatic(true)
-      // Use trimesh collider for environment - handles both compressed and uncompressed
-      try {
-        ctx.physics.addTrimeshCollider()
-      } catch (e) {
-        // Fallback if trimesh extraction fails (e.g., unsupported model format)
-        console.log(`[Environment] Trimesh collider failed: ${e.message}`)
-        ctx.physics.addBoxCollider([50, 0.5, 50])
-      }
+      // Use simple box collider for environment - trimesh creation is too slow for large meshes
+      // The environment is primarily visual; players collide with box bounds instead
+      ctx.physics.addBoxCollider([50, 15, 50])
 
       ctx.state.smartObjects = new Map()
       ctx.state.editorMode = false
