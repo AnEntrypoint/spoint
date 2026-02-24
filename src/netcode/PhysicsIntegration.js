@@ -72,13 +72,8 @@ export class PhysicsIntegration {
     state.position[0] += state.velocity[0] * deltaTime
     state.position[1] += state.velocity[1] * deltaTime
     state.position[2] += state.velocity[2] * deltaTime
-    if (state.position[1] <= 0) {
-      state.position[1] = 0
-      state.velocity[1] = 0
-      state.onGround = true
-    } else {
-      state.onGround = false
-    }
+    state.position[1] = Math.max(state.position[1], -100)
+    state.onGround = false
     return state
   }
 
