@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.71](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.70...v0.1.71) (2026-02-24)
+
+
+### Bug Fixes
+
+* move environment geometry above spawn plane to prevent spawning under map ([adaceae](https://github.com/AnEntrypoint/spawnpoint/commit/adaceae85484f38e962d7fa8e423f538c88f3db3))
+
 ### [0.1.70](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.69...v0.1.70) (2026-02-24)
 
 
