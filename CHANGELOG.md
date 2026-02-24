@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.75](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.74...v0.1.75) (2026-02-24)
+
+
+### Bug Fixes
+
+* switch player model to cleetus.glb and fix raycast layer filtering for spawn detection ([77615c9](https://github.com/AnEntrypoint/spawnpoint/commit/77615c9ef02875de9f31df0265e939643f4da639))
+
 ### [0.1.74](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.73...v0.1.74) (2026-02-24)
 
 
