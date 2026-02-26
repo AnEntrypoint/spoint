@@ -46,10 +46,7 @@ export class Stage {
   }
 
   getRelevantEntities(position, radius) {
-    const nearby = this.spatial.nearby(position, radius || this.spatial.relevanceRadius)
-    const set = new Set(nearby)
-    for (const sid of this._staticIds) set.add(sid)
-    return Array.from(set)
+    return this.spatial.nearby(position, radius || this.spatial.relevanceRadius)
   }
 
   getStaticIds() {

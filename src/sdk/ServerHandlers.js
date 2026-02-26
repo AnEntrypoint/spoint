@@ -24,8 +24,11 @@ export function createConnectionHandlers(ctx) {
     for (const [appName, code] of Object.entries(clientModules)) {
       connections.send(playerId, MSG.APP_MODULE, { app: appName, code })
     }
-    const snap = appRuntime.getSnapshot()
-    connections.send(playerId, MSG.SNAPSHOT, { seq: ++ctx.snapshotSeq, ...SnapshotEncoder.encode(snap) })
+    const relevanceRadius = ctx.currentWorldDef?.relevanceRadius || 0
+    const snapEntities = relevanceRadius > 0 ? appRuntime.getSnapshotForPlayer(sp, relevanceRadius) : appRuntime.getSnapshot()
+    const playerSnap = networkState.getSnapshot()
+    const combined = { tick: playerSnap.tick, timestamp: playerSnap.timestamp, players: playerSnap.players, entities: snapEntities.entities }
+    connections.send(playerId, MSG.SNAPSHOT, { seq: ++ctx.snapshotSeq, ...SnapshotEncoder.encode(combined) })
     for (const [entityId] of appRuntime.apps) appRuntime.fireMessage(entityId, { type: 'player_join', playerId })
     emitter.emit('playerJoin', { id: playerId })
   }

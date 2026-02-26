@@ -389,6 +389,9 @@ export async function extractAllMeshesFromGLBAsync(filepath) {
 
   // Build a node->transform map for node hierarchy
   const nodeTransforms = buildNodeTransforms(json)
+  const materials = json.materials || []
+  // Source Engine / CS:GO invisible/trigger materials — exclude from physics
+  const SKIP_MATS = new Set(['aaatrigger', '{invisible', 'playerclip', 'clip', 'nodraw', 'trigger', 'sky', 'toolsclip', 'toolsplayerclip', 'toolsnodraw', 'toolsskybox', 'toolstrigger'])
 
   for (let meshIdx = 0; meshIdx < (json.meshes || []).length; meshIdx++) {
     const mesh = json.meshes[meshIdx]
@@ -398,6 +401,9 @@ export async function extractAllMeshesFromGLBAsync(filepath) {
 
     for (let primIdx = 0; primIdx < mesh.primitives.length; primIdx++) {
       const prim = mesh.primitives[primIdx]
+      // Skip invisible/trigger materials that should not have physics collision
+      const matName = prim.material !== undefined ? (materials[prim.material]?.name || '') : ''
+      if (SKIP_MATS.has(matName)) continue
       let result
       try {
         if (prim.extensions?.KHR_draco_mesh_compression) {

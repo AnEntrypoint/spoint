@@ -267,6 +267,10 @@ export class PhysicsWorld {
     this.Jolt.destroy(v)
     return r
   }
+  isBodyActive(bodyId) {
+    const b = this._getBody(bodyId); if (!b) return false
+    const id = b.GetID(); const r = this.bodyInterface.IsActive(id); this.Jolt.destroy(id); return r
+  }
   setBodyPosition(bodyId, position) {
     const b = this._getBody(bodyId); if (!b) return
     const p = this._tmpRVec3 || new this.Jolt.RVec3(0, 0, 0); p.Set(position[0], position[1], position[2])

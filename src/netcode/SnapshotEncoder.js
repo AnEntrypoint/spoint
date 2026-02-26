@@ -29,8 +29,12 @@ function encodeEntity(e) {
 }
 
 export class SnapshotEncoder {
-  static encodeDelta(snapshot, prevEntityMap) {
-    const players = (snapshot.players || []).map(encodePlayer)
+  static encodePlayers(players) {
+    return (players || []).map(encodePlayer)
+  }
+
+  static encodeDelta(snapshot, prevEntityMap, preEncodedPlayers) {
+    const players = preEncodedPlayers || (snapshot.players || []).map(encodePlayer)
     const currentIds = new Set()
     const entities = []
     const nextMap = new Map()

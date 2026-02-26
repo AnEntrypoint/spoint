@@ -21,6 +21,37 @@ import { createLoadingScreen } from './createLoadingScreen.js'
 import { MobileControls, detectDevice } from './MobileControls.js'
 import { XRControls, createXRButton } from './XRControls.js'
 
+function patchGLB(arrayBuffer) {
+  try {
+    const v = new DataView(arrayBuffer)
+    if (v.getUint32(0, true) !== 0x46546C67) return arrayBuffer
+    const jsonLen = v.getUint32(12, true)
+    const jsonBytes = new Uint8Array(arrayBuffer, 20, jsonLen)
+    const json = JSON.parse(new TextDecoder().decode(jsonBytes))
+    if (!json.textures) return arrayBuffer
+    json.textures = json.textures.map(t => {
+      if (t.source === undefined && (!t.extensions || !Object.keys(t.extensions).some(k => t.extensions[k]?.source !== undefined))) {
+        return { ...t, source: 0 }
+      }
+      return t
+    })
+    const patched = new TextEncoder().encode(JSON.stringify(json))
+    const pad = (4 - (patched.length % 4)) % 4
+    const out = new ArrayBuffer(12 + 8 + patched.length + pad + (arrayBuffer.byteLength - 20 - jsonLen))
+    const ov = new DataView(out)
+    const ou = new Uint8Array(out)
+    ov.setUint32(0, 0x46546C67, true)
+    ov.setUint32(4, v.getUint32(4, true), true)
+    ov.setUint32(8, out.byteLength, true)
+    ov.setUint32(12, patched.length + pad, true)
+    ov.setUint32(16, 0x4E4F534A, true)
+    ou.set(patched, 20)
+    for (let i = 0; i < pad; i++) ou[20 + patched.length + i] = 0x20
+    ou.set(new Uint8Array(arrayBuffer, 20 + jsonLen), 20 + patched.length + pad)
+    return out
+  } catch (_) { return arrayBuffer }
+}
+
 const loadingMgr = new LoadingManager()
 const loadingScreen = createLoadingScreen(loadingMgr)
 loadingMgr.setStage('CONNECTING')
@@ -705,6 +736,21 @@ let vrmBuffer = null
 let animAssets = null
 let assetsReady = null
 let assetsLoaded = false
+const MAX_VRM_CONCURRENT = 6
+let _vrmActive = 0
+const _vrmQueue = []
+function _vrmSlot() {
+  if (_vrmActive >= MAX_VRM_CONCURRENT || _vrmQueue.length === 0) return
+  _vrmActive++
+  const resolve = _vrmQueue.shift()
+  resolve()
+}
+function acquireVrmSlot() {
+  return new Promise(r => { _vrmQueue.push(r); _vrmSlot() })
+}
+function releaseVrmSlot() {
+  _vrmActive--; _vrmSlot()
+}
 
 function detectVrmVersion(buffer) {
   try {
@@ -739,6 +785,8 @@ async function createPlayerVRM(id) {
   playerMeshes.set(id, group)
   if (assetsReady) await assetsReady
   if (!vrmBuffer) return group
+  await acquireVrmSlot()
+  if (!playerMeshes.has(id)) { releaseVrmSlot(); return group }
   try {
     const gltf = await gltfLoader.parseAsync(vrmBuffer.buffer.slice(0), '')
     const vrm = gltf.userData.vrm
@@ -786,7 +834,7 @@ async function createPlayerVRM(id) {
         console.log('[shader] vrm warmup compile done (fallback)')
       })
     }
-  } catch (e) { console.error('[vrm]', id, e.message) }
+  } catch (e) { console.error('[vrm]', id, e.message) } finally { releaseVrmSlot() }
   return group
 }
 
@@ -979,8 +1027,11 @@ function loadEntityModel(entityId, entityState) {
     const mp = entityState.position; model.position.set(mp[0], mp[1], mp[2])
     const mr = entityState.rotation; if (mr) model.quaternion.set(mr[0], mr[1], mr[2], mr[3])
     const colliders = []
+    const SKIP_MATS = new Set(['aaatrigger', '{invisible', 'playerclip', 'clip', 'nodraw', 'trigger', 'sky', 'toolsclip', 'toolsplayerclip', 'toolsnodraw', 'toolsskybox', 'toolstrigger'])
     model.traverse(c => {
       if (c.isMesh) {
+        const matName = (c.material?.name || '').toLowerCase()
+        if (SKIP_MATS.has(matName) || SKIP_MATS.has(c.material?.name)) { c.visible = false; return }
         c.castShadow = true
         c.receiveShadow = true
         if (!c.isSkinnedMesh) { c.matrixAutoUpdate = false; c.geometry.computeBoundsTree(); colliders.push(c) }
@@ -1000,7 +1051,7 @@ function loadEntityModel(entityId, entityState) {
   }
   const onGltfErr = (err) => { console.error('[gltf]', url, err); pendingLoads.delete(entityId); if (firstSnapshotEntityPending.has(entityId)) { firstSnapshotEntityPending.delete(entityId); if (firstSnapshotEntityPending.size === 0) checkAllLoaded() } }
   fetchCached(url).then(buf => {
-    gltfLoader.parse(buf.buffer.slice(0), '', onGltfLoad, onGltfErr)
+    gltfLoader.parse(patchGLB(buf.buffer.slice(0)), '', onGltfLoad, onGltfErr)
   }).catch(onGltfErr)
 }
 
@@ -1047,8 +1098,24 @@ const client = new PhysicsNetworkClient({
   predictionEnabled: true,
   smoothInterpolation: true,
   onStateUpdate: (state) => {
-    for (const p of state.players) {
-      if (!playerMeshes.has(p.id)) createPlayerVRM(p.id)
+    const myPos = state.players.find(p => p.id === client.playerId)?.position
+    const sorted = myPos ? [...state.players].sort((a, b) => {
+      if (a.id === client.playerId) return -1
+      if (b.id === client.playerId) return 1
+      const da = (a.position[0]-myPos[0])**2+(a.position[1]-myPos[1])**2+(a.position[2]-myPos[2])**2
+      const db = (b.position[0]-myPos[0])**2+(b.position[1]-myPos[1])**2+(b.position[2]-myPos[2])**2
+      return da - db
+    }) : state.players
+    const MAX_VISIBLE_PLAYERS = 32
+    for (let i = 0; i < sorted.length; i++) {
+      const p = sorted[i]
+      if (!playerMeshes.has(p.id)) {
+        if (i < MAX_VISIBLE_PLAYERS) createPlayerVRM(p.id)
+        else { const g = new THREE.Group(); scene.add(g); playerMeshes.set(p.id, g) }
+      }
+    }
+    for (const [id] of playerMeshes) {
+      if (!state.players.find(p => p.id === id)) removePlayerMesh(id)
     }
     for (const e of state.entities) {
       const mesh = entityMeshes.get(e.id)
@@ -1079,7 +1146,7 @@ const client = new PhysicsNetworkClient({
     worldConfig = wd
     if (wd.playerModel) initAssets(wd.playerModel.startsWith('./') ? '/' + wd.playerModel.slice(2) : wd.playerModel)
     else { assetsReady = Promise.resolve(); assetsLoaded = true; checkAllLoaded() }
-    if (wd.entities) for (const e of wd.entities) { if (e.app) entityAppMap.set(e.id, e.app); if (e.model && !entityMeshes.has(e.id)) loadEntityModel(e.id, e) }
+    if (wd.entities) for (const e of wd.entities) { if (e.app) entityAppMap.set(e.id, e.app) }
     if (wd.scene) applySceneConfig(wd.scene)
     if (wd.camera) cam.applyConfig(wd.camera)
     if (wd.input) {

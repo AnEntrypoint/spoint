@@ -126,7 +126,21 @@ export class AppRuntime {
       const ctx = this.contexts.get(entityId); if (!ctx) continue
       this._safeCall(appDef.server || appDef, 'update', [ctx, dt], `update(${entityId})`)
     }
-    this._tickTimers(dt); this._spatialSync(); this._tickCollisions(); this._tickInteractables()
+    this._tickTimers(dt); this._syncDynamicBodies(); this._spatialSync(); this._tickCollisions(); this._tickInteractables()
+  }
+
+  _syncDynamicBodies() {
+    if (!this._physics) return
+    for (const e of this.entities.values()) {
+      if (e.bodyType !== 'dynamic' || e._physicsBodyId === undefined) continue
+      const active = this._physics.isBodyActive(e._physicsBodyId)
+      if (!active && e._dynSleeping) continue
+      e._dynSleeping = !active
+      const p = this._physics.getBodyPosition(e._physicsBodyId)
+      const r = this._physics.getBodyRotation(e._physicsBodyId)
+      e.position[0] = p[0]; e.position[1] = p[1]; e.position[2] = p[2]
+      e.rotation[0] = r[0]; e.rotation[1] = r[1]; e.rotation[2] = r[2]; e.rotation[3] = r[3]
+    }
   }
 
   _encodeEntity(id, e) {
@@ -143,7 +157,9 @@ export class AppRuntime {
   getSnapshotForPlayer(playerPosition, radius) {
     const relevant = new Set(this.relevantEntities(playerPosition, radius))
     const entities = []
-    for (const [id, e] of this.entities) { if (relevant.has(id)) entities.push(this._encodeEntity(id, e)) }
+    for (const [id, e] of this.entities) {
+      if (relevant.has(id) || e._appName === 'environment') entities.push(this._encodeEntity(id, e))
+    }
     return { tick: this.currentTick, timestamp: Date.now(), entities }
   }
 
@@ -207,7 +223,19 @@ export class AppRuntime {
     }
   }
 
-  _colR(c) { return !c ? 0 : c.type === 'sphere' ? (c.radius||1) : c.type === 'capsule' ? Math.max(c.radius||0.5,(c.height||1)/2) : c.type === 'box' ? Math.max(...(c.size||c.halfExtents||[1,1,1])) : 1 }
+  _colR(c) {
+    if (!c) return 0
+    if (c.type === 'sphere') return c.radius || 1
+    if (c.type === 'capsule') return Math.max(c.radius || 0.5, (c.height || 1) / 2)
+    if (c.type === 'box') {
+      const s = c.size; const h = c.halfExtents
+      if (Array.isArray(s)) return Math.max(...s)
+      if (typeof s === 'number') return s
+      if (Array.isArray(h)) return Math.max(...h)
+      return 1
+    }
+    return 1
+  }
   setPlayerManager(pm) { this._playerManager = pm }
   setStageLoader(sl) { this._stageLoader = sl }
   getPlayers() { return this._playerManager ? this._playerManager.getConnectedPlayers() : [] }
