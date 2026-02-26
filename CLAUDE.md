@@ -122,6 +122,18 @@ A zero-intensity `THREE.PointLight` (`_warmupPointLight`) is added to the scene 
 
 ---
 
+## Invisible/Trigger Material Filtering
+
+CS:GO and Source Engine maps exported as GLB contain special materials that must be excluded from both physics and rendering:
+
+- `aaatrigger` — buy zones, bomb plant zones, trigger volumes (invisible in CS:GO)
+- `{invisible` — explicitly invisible surfaces
+- `playerclip`, `clip`, `nodraw`, `toolsclip`, `toolsplayerclip`, `toolsnodraw`, `toolsskybox`, `toolstrigger` — various Source Engine tool textures
+
+`extractAllMeshesFromGLBAsync` in `GLBLoader.js` skips primitives whose material name is in this set (`SKIP_MATS`). Without this, CS:GO maps have phantom collision walls where there's no visible geometry.
+
+On the client side, `loadEntityModel` in `client/app.js` sets `c.visible = false` for meshes with these material names during the `model.traverse()` pass.
+
 ## Draco Compressed Model Support
 
 Physics collider extraction supports Draco-compressed meshes (KHR_draco_mesh_compression extension) via `extractMeshFromGLBAsync()` which uses the `draco3dgltf` package for decompression.
@@ -133,6 +145,12 @@ Physics collider extraction supports Draco-compressed meshes (KHR_draco_mesh_com
 **Trimesh colliders with Draco:**
 - `world.addStaticTrimesh(glbPath)` — sync, throws on Draco
 - `world.addStaticTrimeshAsync(glbPath)` — async, combines ALL meshes and ALL primitives via `extractAllMeshesFromGLBAsync`. The `meshIndex` parameter is ignored (deprecated). This is critical for map GLBs which have dozens of meshes with hundreds of Draco primitives.
+
+## Dynamic Body Position Sync
+
+`AppRuntime._syncDynamicBodies()` runs every tick before `_spatialSync()`. It reads position and rotation back from Jolt for all entities with `bodyType === 'dynamic'` and `_physicsBodyId` set. Uses `World.isBodyActive()` (Jolt's `bodyInterface.IsActive()`) to skip sleeping bodies — a settled dynamic body costs 1 `IsActive` check instead of 3 calls (position + rotation). The `e._dynSleeping` flag tracks sleep state between ticks.
+
+Without this sync, dynamic entity positions never update from Jolt simulation and stay frozen at their spawn position in the snapshot.
 
 **Multi-mesh map GLBs:** Maps like de_dust2_kosovo.glb have 56 meshes with 99 Draco primitives total. The old code only extracted mesh[0] prim[0] — 98% of geometry had no collision. `extractAllMeshesFromGLBAsync` iterates all meshes, all primitives, decompresses each Draco primitive, applies node world-space transforms (full scene graph hierarchy), and returns one combined vertex/index buffer.
 
