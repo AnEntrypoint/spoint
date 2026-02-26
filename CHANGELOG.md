@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.84](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.83...v0.1.84) (2026-02-26)
+
+
+### Bug Fixes
+
+* exclude invisible/trigger material geometry from physics and rendering ([08ec417](https://github.com/AnEntrypoint/spawnpoint/commit/08ec417e4065f27b66f870d018d5ae800e20351d))
+
 ### [0.1.83](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.82...v0.1.83) (2026-02-26)
 
 
