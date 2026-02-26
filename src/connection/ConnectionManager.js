@@ -127,6 +127,18 @@ export class ConnectionManager extends EventEmitter {
     return count
   }
 
+  sendPacked(clientId, data, unreliable) {
+    const client = this.clients.get(clientId)
+    if (!client || !client.transport.isOpen) return false
+    try {
+      if (unreliable) return client.transport.sendUnreliable(data)
+      return client.transport.send(data)
+    } catch (err) {
+      console.error(`[connection] sendPacked error to ${clientId}:`, err.message)
+      return false
+    }
+  }
+
   getAllStats() {
     return {
       activeConnections: this.clients.size,

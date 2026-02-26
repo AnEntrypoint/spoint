@@ -190,11 +190,25 @@ MessageTypes.js uses hex grouping (0x01-0x04 handshake, 0x10-0x13 state, 0x20-0x
 
 ## Snapshot Skip at 0 Players
 
-TickHandler.js guards snapshot creation AND broadcast with `if (players.length > 0)`. Without this, msgpack encoding runs 128x/sec encoding empty snapshots for no recipients.
+TickHandler.js guards snapshot encoding with `if (players.length > 0)`. Without this, msgpack encoding runs 128x/sec encoding empty snapshots for no recipients.
+
+## Player-Player Collision: Spatial Grid
+
+TickHandler uses a spatial grid (cell size = `capsuleRadius * 8`) instead of O(n²) brute-force collision checks. Players are bucketed by XZ cell. Each player checks only the 9 neighboring cells. The `other.id <= player.id` guard processes each pair exactly once, replacing the old string-keyed `separated` Set. At 100 players spread over a map, this reduces collision checks from 4,950 pairs to near-zero. Profile: col=0.04ms at 100 players (vs would have been ~5ms with O(n²)). Collision uses `player.state.position` (already updated by physics) — no additional WASM calls.
+
+## Snapshot Delivery: SNAP_GROUPS Rotation
+
+TickHandler delivers snapshots to `1/SNAP_GROUPS` of players per tick (default SNAP_GROUPS=4). Players are bucketed by `player.id % SNAP_GROUPS` and each bucket gets a snapshot every 4 ticks = 32 Hz effective snapshot rate (physics remains 128 Hz). This keeps per-tick socket send cost proportional to `N/SNAP_GROUPS` rather than `N`, making 100-player ticks fit within 7.8ms budget.
+
+**Why this matters**: At SNAP_GROUPS=1 (old behavior), 100 players × 128 TPS = 12,800 socket writes/sec. On Windows, each WebSocket write costs ~166μs of kernel I/O. 100 writes = 16.6ms/tick which blows the 7.8ms budget. With SNAP_GROUPS=4: 25 writes/tick = 4ms/tick — within budget.
+
+**sendPacked optimization**: On the broadcast path (no StageLoader), the snapshot is msgpack-encoded ONCE via `pack()` and the raw buffer is sent to all recipients via `connections.sendPacked()`. Without this, `connections.send()` would re-encode the same payload per recipient.
+
+**Entity key caching in SnapshotEncoder**: `encodeDelta` stores `[key, customRef, customStr]` per entity in the entityMap. When the `entity.custom` object reference is unchanged between ticks, JSON.stringify is skipped and the cached string is reused. This eliminates redundant serialization for static entities.
 
 ## Per-Player Spatial Snapshots
 
-When a StageLoader with spatial indexing is active, each player gets a DIFFERENT snapshot containing only entities within `relevanceRadius` (default 200 units). This means players in different areas see different entities. Without StageLoader, all players get identical full snapshots via broadcast.
+When a StageLoader with spatial indexing is active, each player gets a DIFFERENT snapshot containing only entities within `relevanceRadius` (default 200 units). This means players in different areas see different entities. Without StageLoader, all players get identical full snapshots (packed once, sent to current SNAP_GROUP bucket).
 
 ## LagCompensator Ring Buffer
 

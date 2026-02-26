@@ -28,21 +28,7 @@ function encodeEntity(e) {
   ]
 }
 
-function entityKey(encoded) {
-  let k = encoded[1]
-  for (let i = 2; i < 10; i++) k += '|' + encoded[i]
-  k += '|' + encoded[9]
-  if (encoded[10] !== null && encoded[10] !== undefined) k += '|' + JSON.stringify(encoded[10])
-  return k
-}
-
 export class SnapshotEncoder {
-  static encode(snapshot) {
-    const players = (snapshot.players || []).map(encodePlayer)
-    const entities = (snapshot.entities || []).map(encodeEntity)
-    return { tick: snapshot.tick || 0, timestamp: snapshot.timestamp || 0, players, entities }
-  }
-
   static encodeDelta(snapshot, prevEntityMap) {
     const players = (snapshot.players || []).map(encodePlayer)
     const currentIds = new Set()
@@ -50,11 +36,16 @@ export class SnapshotEncoder {
     const nextMap = new Map()
     for (const e of snapshot.entities || []) {
       const encoded = encodeEntity(e)
-      const key = entityKey(encoded)
       currentIds.add(e.id)
-      nextMap.set(e.id, key)
       const prev = prevEntityMap.get(e.id)
-      if (prev !== key) entities.push(encoded)
+      let k = encoded[1]
+      for (let i = 2; i < 10; i++) k += '|' + encoded[i]
+      k += '|' + encoded[9]
+      const cust = encoded[10]
+      const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? JSON.stringify(cust) : '')
+      k += '|' + custStr
+      nextMap.set(e.id, [k, cust, custStr])
+      if (!prev || prev[0] !== k) entities.push(encoded)
     }
     const removed = []
     for (const id of prevEntityMap.keys()) {
@@ -64,6 +55,12 @@ export class SnapshotEncoder {
       encoded: { tick: snapshot.tick || 0, timestamp: snapshot.timestamp || 0, players, entities, removed: removed.length ? removed : undefined, delta: 1 },
       entityMap: nextMap
     }
+  }
+
+  static encode(snapshot) {
+    const players = (snapshot.players || []).map(encodePlayer)
+    const entities = (snapshot.entities || []).map(encodeEntity)
+    return { tick: snapshot.tick || 0, timestamp: snapshot.timestamp || 0, players, entities }
   }
 
   static decode(data) {
