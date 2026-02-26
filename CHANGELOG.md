@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.83](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.82...v0.1.83) (2026-02-26)
+
+
+### Features
+
+* multi-map world, spatial snapshots, random spawn distribution ([5614253](https://github.com/AnEntrypoint/spawnpoint/commit/5614253f4ff1b81e494bc4d7832440e12d7dce8a))
+
 ### [0.1.82](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.81...v0.1.82) (2026-02-26)
 
 ### [0.1.81](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.80...v0.1.81) (2026-02-26)
