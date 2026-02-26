@@ -788,7 +788,11 @@ async function createPlayerVRM(id) {
   await acquireVrmSlot()
   if (!playerMeshes.has(id)) { releaseVrmSlot(); return group }
   try {
-    const gltf = await gltfLoader.parseAsync(vrmBuffer.buffer.slice(0), '')
+    const vrmMgr = new THREE.LoadingManager()
+    const vrmLoader = new GLTFLoader(vrmMgr)
+    vrmLoader.setMeshoptDecoder(MeshoptDecoder)
+    vrmLoader.register((parser) => new VRMLoaderPlugin(parser))
+    const gltf = await vrmLoader.parseAsync(vrmBuffer.buffer.slice(0), '')
     const vrm = gltf.userData.vrm
     if (vrm) {
       VRMUtils.removeUnnecessaryVertices(vrm.scene)
@@ -1027,6 +1031,7 @@ function loadEntityModel(entityId, entityState) {
     const mp = entityState.position; model.position.set(mp[0], mp[1], mp[2])
     const mr = entityState.rotation; if (mr) model.quaternion.set(mr[0], mr[1], mr[2], mr[3])
     const colliders = []
+    const isDynamic = entityState.bodyType === 'dynamic'
     const SKIP_MATS = new Set(['aaatrigger', '{invisible', 'playerclip', 'clip', 'nodraw', 'trigger', 'sky', 'toolsclip', 'toolsplayerclip', 'toolsnodraw', 'toolsskybox', 'toolstrigger'])
     model.traverse(c => {
       if (c.isMesh) {
@@ -1034,20 +1039,22 @@ function loadEntityModel(entityId, entityState) {
         if (SKIP_MATS.has(matName) || SKIP_MATS.has(c.material?.name)) { c.visible = false; return }
         c.castShadow = true
         c.receiveShadow = true
-        if (!c.isSkinnedMesh) { c.matrixAutoUpdate = false; c.geometry.computeBoundsTree(); colliders.push(c) }
+        if (!c.isSkinnedMesh && !isDynamic) { c.matrixAutoUpdate = false; c.geometry.computeBoundsTree(); colliders.push(c) }
         if (c.material) { c.material.shadowSide = THREE.DoubleSide; c.material.roughness = 1; c.material.metalness = 0; if (c.material.specularIntensity !== undefined) c.material.specularIntensity = 0 }
       }
     })
     model.updateMatrixWorld(true)
     scene.add(model)
     entityMeshes.set(entityId, model)
-    cam.setEnvironment(colliders)
-    scene.remove(ground)
-    fitShadowFrustum()
+    if (!isDynamic) {
+      cam.setEnvironment(colliders)
+      scene.remove(ground)
+      fitShadowFrustum()
+    }
     pendingLoads.delete(entityId)
     if (!environmentLoaded) { environmentLoaded = true; checkAllLoaded() }
     if (firstSnapshotEntityPending.has(entityId)) { firstSnapshotEntityPending.delete(entityId); if (firstSnapshotEntityPending.size === 0) checkAllLoaded() }
-    if (loadingScreenHidden) renderer.compileAsync(scene, camera).catch(() => renderer.compile(scene, camera))
+    if (loadingScreenHidden) _scheduleDynamicCompile()
   }
   const onGltfErr = (err) => { console.error('[gltf]', url, err); pendingLoads.delete(entityId); if (firstSnapshotEntityPending.has(entityId)) { firstSnapshotEntityPending.delete(entityId); if (firstSnapshotEntityPending.size === 0) checkAllLoaded() } }
   fetchCached(url).then(buf => {
@@ -1206,6 +1213,14 @@ let lastHealth = 100
 
 let _shaderWarmupDone = false
 let _vrmWarmupDone = false
+let _dynamicCompileTimer = null
+function _scheduleDynamicCompile() {
+  if (_dynamicCompileTimer) clearTimeout(_dynamicCompileTimer)
+  _dynamicCompileTimer = setTimeout(() => {
+    _dynamicCompileTimer = null
+    renderer.compileAsync(scene, camera).catch(() => renderer.compile(scene, camera))
+  }, 500)
+}
 
 async function warmupShaders() {
   if (_shaderWarmupDone) return

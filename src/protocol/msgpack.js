@@ -92,7 +92,7 @@ function write(value) {
 export function pack(value) {
   pos = 0
   write(value)
-  return buf.slice(0, pos)
+  return buf.subarray(0, pos)
 }
 
 
@@ -136,8 +136,8 @@ export function unpack(buffer) {
   function readInt8() { const v = bytes[offset++]; return v > 127 ? v - 256 : v }
   function readInt16() { const v = (bytes[offset] << 8) | bytes[offset + 1]; offset += 2; return v > 32767 ? v - 65536 : v }
   function readInt32() { const v = (bytes[offset] << 24) | (bytes[offset + 1] << 16) | (bytes[offset + 2] << 8) | bytes[offset + 3]; offset += 4; return v }
-  function readFloat32() { const b = new ArrayBuffer(4); const v = new Uint8Array(b); for (let i = 0; i < 4; i++) v[i] = bytes[offset++]; return new DataView(b).getFloat32(0, false) }
-  function readFloat64() { const b = new ArrayBuffer(8); const v = new Uint8Array(b); for (let i = 0; i < 8; i++) v[i] = bytes[offset++]; return new DataView(b).getFloat64(0, false) }
+  function readFloat32() { for (let i = 0; i < 4; i++) f64Bytes[i] = bytes[offset++]; return f64View.getFloat32(0, false) }
+  function readFloat64() { for (let i = 0; i < 8; i++) f64Bytes[i] = bytes[offset++]; return f64View.getFloat64(0, false) }
   function readString(len) { const slice = bytes.subarray(offset, offset + len); offset += len; return decoder.decode(slice) }
   function readBin(len) { const slice = bytes.slice(offset, offset + len); offset += len; return slice }
   function readArray(len) { const arr = new Array(len); for (let i = 0; i < len; i++) arr[i] = read(); return arr }

@@ -214,7 +214,9 @@ export class PhysicsWorld {
   getCharacterPosition(charId) {
     const ch = this.characters?.get(charId); if (!ch) return [0, 0, 0]
     const p = ch.GetPosition()
-    return [p.GetX(), p.GetY(), p.GetZ()]
+    const r = [p.GetX(), p.GetY(), p.GetZ()]
+    this.Jolt.destroy(p)
+    return r
   }
   getCharacterVelocity(charId) {
     const ch = this.characters?.get(charId); if (!ch) return [0, 0, 0]
