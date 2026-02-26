@@ -5,7 +5,8 @@ export function createConnectionHandlers(ctx) {
   const { tickSystem, playerManager, networkState, lagCompensator, physicsIntegration, connections, sessions, appLoader, appRuntime, emitter, inspector } = ctx
 
   function onClientConnect(transport) {
-    const sp = [...ctx.worldSpawnPoint]
+    const spawnPoints = ctx.worldSpawnPoints || [ctx.worldSpawnPoint]
+    const sp = [...spawnPoints[Math.floor(Math.random() * spawnPoints.length)]]
     const playerConfig = ctx.currentWorldDef?.player || {}
     const playerId = playerManager.addPlayer(transport, { position: sp, health: playerConfig.health })
     networkState.addPlayer(playerId, { position: sp })

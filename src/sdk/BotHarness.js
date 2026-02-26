@@ -2,12 +2,12 @@ import { WebSocket } from 'ws'
 import { pack, unpack } from '../protocol/msgpack.js'
 
 const CONFIG = {
-  botCount: 100,
-  durationMs: 60000,
-  inputHz: 60,
+  botCount: parseInt(process.env.BOT_COUNT || '100'),
+  durationMs: parseInt(process.env.BOT_DURATION || '60000'),
+  inputHz: parseInt(process.env.BOT_HZ || '60'),
   serverUrl: process.env.BOT_URL || 'ws://localhost:3001/ws',
-  batchSize: 10,
-  batchDelayMs: 200
+  batchSize: parseInt(process.env.BOT_BATCH || '20'),
+  batchDelayMs: parseInt(process.env.BOT_DELAY || '100')
 }
 
 const MSG_INPUT = 0x11

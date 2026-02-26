@@ -33,7 +33,9 @@ export function createServerAPI(ctx) {
 
     async loadWorld(worldDef) {
       ctx.currentWorldDef = worldDef
-      if (worldDef.spawnPoint) ctx.worldSpawnPoint = [...worldDef.spawnPoint]
+      if (worldDef.spawnPoints?.length) ctx.worldSpawnPoints = worldDef.spawnPoints
+      else if (worldDef.spawnPoint) ctx.worldSpawnPoints = [worldDef.spawnPoint]
+      ctx.worldSpawnPoint = ctx.worldSpawnPoints?.[0] || worldDef.spawnPoint || [0, 5, 0]
       await appLoader.loadAll()
       const stage = stageLoader.loadFromDefinition('main', worldDef)
       return { entities: new Map(), apps: new Map(), count: stage.entityCount }

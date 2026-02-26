@@ -2,6 +2,7 @@ export default {
   port: 3001,
   tickRate: 128,
   gravity: [0, -9.81, 0],
+  relevanceRadius: 150,
   movement: {
     maxSpeed: 4.0,
     groundAccel: 10.0,
@@ -58,8 +59,19 @@ export default {
     fadeTime: 0.15
   },
   entities: [
-    { id: 'environment', model: './apps/tps-game/schwust.glb', position: [0, 0, 0], app: 'environment' }
+    { id: 'env-schwust',   model: './apps/tps-game/schwust.glb',          position: [0,   0, 0], app: 'environment' },
+    { id: 'env-kosova',    model: './apps/maps/aim_kosova_ak47.glb',       position: [200, 0, 0], app: 'environment' },
+    { id: 'env-sillos',    model: './apps/maps/aim_sillos.glb',            position: [400, 0, 0], app: 'environment' },
+    { id: 'env-dust2',     model: './apps/maps/de_dust2_kosovo.glb',       position: [600, 0, 0], app: 'environment' },
+    { id: 'env-gash',      model: './apps/maps/de_gash.glb',               position: [800, 0, 0], app: 'environment' }
   ],
-  playerModel: './apps/tps-game/cleetus.vrm',
-  spawnPoint: [-30, 7.6, -30]
+  spawnPoints: [
+    [-30,  20, -30],
+    [212,  20,  12],
+    [412,  20,  12],
+    [612,  20,  12],
+    [812,  20,  12]
+  ],
+  spawnPoint: [-30, 20, -30],
+  playerModel: './apps/tps-game/cleetus.vrm'
 }

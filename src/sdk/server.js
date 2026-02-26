@@ -171,7 +171,8 @@ export async function createServer(config = {}) {
     connections,
     movement,
     stageLoader,
-    eventLog
+    eventLog,
+    getRelevanceRadius: () => ctx.currentWorldDef?.relevanceRadius || 0
   }))
 
   const { onClientConnect } = createConnectionHandlers(ctx)

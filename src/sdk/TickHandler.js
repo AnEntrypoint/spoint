@@ -5,13 +5,13 @@ import { isUnreliable } from '../protocol/MessageTypes.js'
 import { applyMovement as _applyMovement, DEFAULT_MOVEMENT as _DEFAULT_MOVEMENT } from '../shared/movement.js'
 
 const KEYFRAME_INTERVAL = 128
-const SNAP_GROUPS = 4
+const MAX_SENDS_PER_TICK = 25
 
 export function createTickHandler(deps) {
   const {
     networkState, playerManager, physicsIntegration,
     lagCompensator, physics, appRuntime, connections,
-    movement: m = {}, stageLoader, eventLog, _movement
+    movement: m = {}, stageLoader, eventLog, _movement, getRelevanceRadius
   } = deps
   const applyMovement = _movement?.applyMovement || _applyMovement
   const DEFAULT_MOVEMENT = _movement?.DEFAULT_MOVEMENT || _DEFAULT_MOVEMENT
@@ -119,12 +119,15 @@ export function createTickHandler(deps) {
       const playerSnap = networkState.getSnapshot()
       snapshotSeq++
       const isKeyframe = snapshotSeq % KEYFRAME_INTERVAL === 0
-      const curGroup = tick % SNAP_GROUPS
+      const snapGroups = Math.max(1, Math.ceil(players.length / MAX_SENDS_PER_TICK))
+      const curGroup = tick % snapGroups
 
-      if (stageLoader && stageLoader.getActiveStage()) {
-        const relevanceRadius = stageLoader.getActiveStage().spatial.relevanceRadius
+      const relevanceRadius = (stageLoader && stageLoader.getActiveStage())
+        ? stageLoader.getActiveStage().spatial.relevanceRadius
+        : (getRelevanceRadius ? getRelevanceRadius() : 0)
+      if (relevanceRadius > 0) {
         for (const player of players) {
-          if (!isKeyframe && player.id % SNAP_GROUPS !== curGroup) continue
+          if (!isKeyframe && player.id % snapGroups !== curGroup) continue
           const entitySnap = appRuntime.getSnapshotForPlayer(player.state.position, relevanceRadius)
           const combined = { tick: playerSnap.tick, timestamp: playerSnap.timestamp, players: playerSnap.players, entities: entitySnap.entities }
           const prevMap = (isKeyframe || !playerEntityMaps.has(player.id)) ? new Map() : playerEntityMaps.get(player.id)
@@ -140,7 +143,7 @@ export function createTickHandler(deps) {
         broadcastEntityMap = entityMap
         const data = pack({ type: MSG.SNAPSHOT, payload: { seq: snapshotSeq, ...encoded } })
         for (const player of players) {
-          if (!isKeyframe && player.id % SNAP_GROUPS !== curGroup) continue
+          if (!isKeyframe && player.id % snapGroups !== curGroup) continue
           connections.sendPacked(player.id, data, snapUnreliable)
         }
       }
