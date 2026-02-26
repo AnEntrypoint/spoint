@@ -132,7 +132,11 @@ Physics collider extraction supports Draco-compressed meshes (KHR_draco_mesh_com
 
 **Trimesh colliders with Draco:**
 - `world.addStaticTrimesh(glbPath)` — sync, throws on Draco
-- `world.addStaticTrimeshAsync(glbPath)` — async, handles Draco automatically
+- `world.addStaticTrimeshAsync(glbPath)` — async, combines ALL meshes and ALL primitives via `extractAllMeshesFromGLBAsync`. The `meshIndex` parameter is ignored (deprecated). This is critical for map GLBs which have dozens of meshes with hundreds of Draco primitives.
+
+**Multi-mesh map GLBs:** Maps like de_dust2_kosovo.glb have 56 meshes with 99 Draco primitives total. The old code only extracted mesh[0] prim[0] — 98% of geometry had no collision. `extractAllMeshesFromGLBAsync` iterates all meshes, all primitives, decompresses each Draco primitive, applies node world-space transforms (full scene graph hierarchy), and returns one combined vertex/index buffer.
+
+**Jolt Float3 WASM leak in trimesh building:** `new J.Float3(x,y,z)` inside the triangle loop leaks WASM heap. The fix reuses a single `J.Float3` instance with `.x/.y/.z` property assignment. Also `J.TriangleList` and `J.MeshShapeSettings` must be explicitly destroyed after shape creation.
 
 The async methods allocate temporary Draco objects (`Decoder`, `DecoderBuffer`, `Mesh`, `DracoFloat32Array`, `DracoUInt32Array`) which are destroyed after extraction to prevent WASM memory leaks.
 
@@ -145,7 +149,12 @@ The `detectDracoInGLB(filepath)` utility returns `{hasDraco, hasMeshopt, meshes}
 
 ## Jolt Physics WASM Memory
 
-Jolt getter methods (GetPosition, GetRotation, GetLinearVelocity) return WASM heap objects. Every call MUST be followed by `Jolt.destroy(returnedObj)` or WASM heap grows unbounded (~30MB/5min). See World.js `getCharacterPosition`, `getBodyPosition` etc for correct pattern.
+Jolt getter methods return WASM heap objects in some cases but NOT all — depends on whether C++ returns by value vs const reference:
+- `BodyInterface::GetPosition/GetRotation/GetLinearVelocity` → return by VALUE → MUST call `J.destroy(result)` after extracting values
+- `CharacterVirtual::GetPosition()` → returns `const RVec3&` (INTERNAL REFERENCE) → do NOT call `J.destroy()` on the result — doing so frees memory Jolt still owns, corrupting the WASM heap and causing `memory access out of bounds` crashes
+- `CharacterVirtual::GetLinearVelocity()` → returns by VALUE → MUST call `J.destroy(result)`
+
+See World.js `getCharacterPosition` (no destroy) vs `getBodyPosition` (destroy) for the correct patterns.
 
 Jolt setter methods: reuse pre-allocated `_tmpVec3` and `_tmpRVec3` via `.Set()` instead of `new`. Creating new Vec3/RVec3 per call leaks WASM memory. World.js stores these as instance fields.
 

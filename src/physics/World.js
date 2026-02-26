@@ -1,5 +1,5 @@
 import initJolt from 'jolt-physics/wasm-compat'
-import { extractMeshFromGLB, extractMeshFromGLBAsync } from './GLBLoader.js'
+import { extractMeshFromGLB, extractMeshFromGLBAsync, extractAllMeshesFromGLBAsync } from './GLBLoader.js'
 const LAYER_STATIC = 0, LAYER_DYNAMIC = 1, NUM_LAYERS = 2
 let joltInstance = null
 async function getJolt() { if (!joltInstance) joltInstance = await initJolt(); return joltInstance }
@@ -109,14 +109,20 @@ export class PhysicsWorld {
     }
     
     const triangles = new J.TriangleList(); triangles.resize(mesh.triangleCount)
+    const f3 = new J.Float3(0, 0, 0)
     for (let t = 0; t < mesh.triangleCount; t++) {
       const tri = triangles.at(t)
       for (let v = 0; v < 3; v++) {
         const idx = mesh.indices[t * 3 + v]
-        tri.set_mV(v, new J.Float3(vertices[idx * 3], vertices[idx * 3 + 1], vertices[idx * 3 + 2]))
+        f3.x = vertices[idx * 3]; f3.y = vertices[idx * 3 + 1]; f3.z = vertices[idx * 3 + 2]
+        tri.set_mV(v, f3)
       }
     }
-    const shape = new J.MeshShapeSettings(triangles).Create().Get()
+    const settings = new J.MeshShapeSettings(triangles)
+    const shape = settings.Create().Get()
+    J.destroy(f3)
+    J.destroy(triangles)
+    J.destroy(settings)
     return this._addBody(shape, [0, 0, 0], J.EMotionType_Static, LAYER_STATIC, { meta: { type: 'static', shape: 'trimesh', mesh: mesh.name, triangles: mesh.triangleCount } })
   }
 
@@ -124,51 +130,27 @@ export class PhysicsWorld {
     return new Promise(async (resolve, reject) => {
       try {
         const J = this.Jolt
-        const mesh = await extractMeshFromGLBAsync(glbPath, meshIndex)
-        
-        // Apply node transform if present (scale, rotation, translation)
-        let vertices = mesh.vertices
-        const nodeT = mesh.nodeTransform
-        if (nodeT) {
-          const numVerts = mesh.vertexCount
-          vertices = new Float32Array(numVerts * 3)
-          
-          const scale = nodeT.scale || [1, 1, 1]
-          const translation = nodeT.translation || [0, 0, 0]
-          const rotation = nodeT.rotation
-          
-          for (let i = 0; i < numVerts; i++) {
-            let x = mesh.vertices[i * 3] * scale[0]
-            let y = mesh.vertices[i * 3 + 1] * scale[1]
-            let z = mesh.vertices[i * 3 + 2] * scale[2]
-            
-            if (rotation) {
-              const [qx, qy, qz, qw] = rotation
-              const ix = qw * x + qy * z - qz * y
-              const iy = qw * y + qz * x - qx * z
-              const iz = qw * z + qx * y - qy * x
-              const iw = -qx * x - qy * y - qz * z
-              x = ix * qw - iw * qx - iy * qz + iz * qy
-              y = iy * qw - iw * qy - iz * qx + ix * qz
-              z = iz * qw - iw * qz - ix * qy + iy * qx
-            }
-            
-            vertices[i * 3] = x + translation[0]
-            vertices[i * 3 + 1] = y + translation[1]
-            vertices[i * 3 + 2] = z + translation[2]
-          }
-        }
-        
-        const triangles = new J.TriangleList(); triangles.resize(mesh.triangleCount)
-        for (let t = 0; t < mesh.triangleCount; t++) {
+        // Use combined extraction: all meshes + all primitives (handles Draco, multi-mesh maps)
+        const mesh = await extractAllMeshesFromGLBAsync(glbPath)
+        const { vertices, indices, triangleCount } = mesh
+
+        const triangles = new J.TriangleList(); triangles.resize(triangleCount)
+        // Reuse a single Float3 to avoid WASM heap growth from per-vertex allocations
+        const f3 = new J.Float3(0, 0, 0)
+        for (let t = 0; t < triangleCount; t++) {
           const tri = triangles.at(t)
           for (let v = 0; v < 3; v++) {
-            const idx = mesh.indices[t * 3 + v]
-            tri.set_mV(v, new J.Float3(vertices[idx * 3], vertices[idx * 3 + 1], vertices[idx * 3 + 2]))
+            const idx = indices[t * 3 + v]
+            f3.x = vertices[idx * 3]; f3.y = vertices[idx * 3 + 1]; f3.z = vertices[idx * 3 + 2]
+            tri.set_mV(v, f3)
           }
         }
-        const shape = new J.MeshShapeSettings(triangles).Create().Get()
-        const id = this._addBody(shape, position, J.EMotionType_Static, LAYER_STATIC, { meta: { type: 'static', shape: 'trimesh', mesh: mesh.name, triangles: mesh.triangleCount } })
+        const settings = new J.MeshShapeSettings(triangles)
+        const shape = settings.Create().Get()
+        J.destroy(f3)
+        J.destroy(triangles)
+        J.destroy(settings)
+        const id = this._addBody(shape, position, J.EMotionType_Static, LAYER_STATIC, { meta: { type: 'static', shape: 'trimesh', triangles: triangleCount } })
         resolve(id)
       } catch (e) {
         reject(e)
@@ -232,9 +214,7 @@ export class PhysicsWorld {
   getCharacterPosition(charId) {
     const ch = this.characters?.get(charId); if (!ch) return [0, 0, 0]
     const p = ch.GetPosition()
-    const r = [p.GetX(), p.GetY(), p.GetZ()]
-    this.Jolt.destroy(p)
-    return r
+    return [p.GetX(), p.GetY(), p.GetZ()]
   }
   getCharacterVelocity(charId) {
     const ch = this.characters?.get(charId); if (!ch) return [0, 0, 0]
@@ -320,8 +300,8 @@ export class PhysicsWorld {
     const dir = len > 0 ? [direction[0] / len, direction[1] / len, direction[2] / len] : direction
     const ray = new J.RRayCast(new J.RVec3(origin[0], origin[1], origin[2]), new J.Vec3(dir[0] * maxDistance, dir[1] * maxDistance, dir[2] * maxDistance))
     const rs = new J.RayCastSettings(), col = new J.CastRayClosestHitCollisionCollector()
-    const bp = new J.DefaultBroadPhaseLayerFilter(this._ovbp)
-    const ol = new J.DefaultObjectLayerFilter(this._objFilter)
+    const bp = new J.DefaultBroadPhaseLayerFilter(this.jolt.GetObjectVsBroadPhaseLayerFilter(), LAYER_DYNAMIC)
+    const ol = new J.DefaultObjectLayerFilter(this.jolt.GetObjectLayerPairFilter(), LAYER_DYNAMIC)
     const eb = excludeBodyId != null ? this._getBody(excludeBodyId) : null
     const bf = eb ? new J.IgnoreSingleBodyFilter(eb.GetID()) : new J.BodyFilter()
     const sf = new J.ShapeFilter()
@@ -335,13 +315,25 @@ export class PhysicsWorld {
     return result
   }
   destroy() {
+    if (!this.Jolt) return
+    const J = this.Jolt
     if (this.characters) {
-      for (const [id, ch] of this.characters) {
-        this.Jolt.destroy(ch)
-      }
+      for (const ch of this.characters.values()) J.destroy(ch)
       this.characters.clear()
     }
+    if (this._charFilters) {
+      J.destroy(this._charFilters.bp)
+      J.destroy(this._charFilters.ol)
+      J.destroy(this._charFilters.body)
+      J.destroy(this._charFilters.shape)
+      this._charFilters = null
+    }
+    if (this._charUpdateSettings) { J.destroy(this._charUpdateSettings); this._charUpdateSettings = null }
+    if (this._charGravity) { J.destroy(this._charGravity); this._charGravity = null }
     for (const [id] of this.bodies) this.removeBody(id)
-    if (this.jolt) { this.Jolt.destroy(this.jolt); this.jolt = null }
+    if (this._tmpVec3) { J.destroy(this._tmpVec3); this._tmpVec3 = null }
+    if (this._tmpRVec3) { J.destroy(this._tmpRVec3); this._tmpRVec3 = null }
+    if (this.jolt) { J.destroy(this.jolt); this.jolt = null }
+    this.physicsSystem = null; this.bodyInterface = null
   }
 }

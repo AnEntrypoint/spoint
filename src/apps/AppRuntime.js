@@ -64,7 +64,7 @@ export class AppRuntime {
     }
     if (config.autoTrimesh && entity.model && this._physics) {
       entity.collider = { type: 'trimesh', model: entity.model }
-      this._physics.addStaticTrimeshAsync(this.resolveAssetPath(entity.model), 0)
+      this._physics.addStaticTrimeshAsync(this.resolveAssetPath(entity.model), 0, entity.position || [0,0,0])
         .then(id => { entity._physicsBodyId = id })
         .catch(e => console.error(`[AppRuntime] Failed to create trimesh for ${entity.model}:`, e.message))
     }

@@ -102,8 +102,7 @@ export function createTickHandler(deps) {
           const entitySnap = appRuntime.getSnapshotForPlayer(pos, stageLoader.getActiveStage().spatial.relevanceRadius)
           const combined = { tick: playerSnap.tick, timestamp: playerSnap.timestamp, players: playerSnap.players, entities: entitySnap.entities }
           if (isKeyframe || !playerEntityMaps.has(player.id)) {
-            const encoded = SnapshotEncoder.encode(combined)
-            const { entityMap } = SnapshotEncoder.encodeDelta(combined, new Map())
+            const { encoded, entityMap } = SnapshotEncoder.encodeDelta(combined, new Map())
             playerEntityMaps.set(player.id, entityMap)
             connections.send(player.id, MSG.SNAPSHOT, { seq: snapshotSeq, ...encoded })
           } else {
