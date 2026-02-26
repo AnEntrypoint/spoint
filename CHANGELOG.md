@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.81](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.80...v0.1.81) (2026-02-26)
+
+
+### Bug Fixes
+
+* **physics:** resolve WASM OOB crash and multi-mesh Draco map collision ([af99241](https://github.com/AnEntrypoint/spawnpoint/commit/af99241bc0f7f687168ce331aca61ad2a6159f9c))
+
 ### [0.1.80](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.79...v0.1.80) (2026-02-24)
 
 ### [0.1.79](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.78...v0.1.79) (2026-02-24)
