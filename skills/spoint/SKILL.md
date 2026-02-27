@@ -39,13 +39,7 @@ Holds until all pass simultaneously: WebSocket connected, player VRM downloaded,
 
 URL base: `https://raw.githubusercontent.com/AnEntrypoint/assets/master/FILENAME.glb`
 
-Note: the GitHub org is `AnEntrypoint` (capital A) and branch is `master`, not `main`. Wrong case = 404.
-
-Never guess filenames — wrong URLs 404 silently.
-
-Known filenames: `broken_car_b6d2e66d_v1.glb`, `broken_car_b6d2e66d_v2.glb`, `crashed_car_f2b577ae_v1.glb`, `crashed_pickup_truck_ae555020_v1.glb`, `crashed_rusty_minivan_f872ff37_v1.glb`, `Bus_junk_1.glb`, `blue_shipping_container_60b5ea93_v1.glb`, `blue_shipping_container_63cc3905_v1.glb`, `dumpster_b076662a_v1.glb`, `dumpster_b076662a_v2.glb`, `garbage_can_6b3d052b_v1.glb`, `garbage_can_6b3d052b_v2.glb`, `crushed_oil_barrel_e450f43f_v1.glb`, `crushed_oil_barrel_e450f43f_v2.glb`, `fire_hydrant_ba0175c1_v1.glb`, `fire_hydrant_ba0175c1_v2.glb`, `fire_extinguisher_wall_mounted_bc0dddd4_v1.glb`, `break_room_chair_14a39c7b_v1.glb`, `break_room_couch_444abf63_v1.glb`, `break_room_table_09b9fd0d_v1.glb`, `filing_cabinet_0194476c_v1.glb`, `fancy_reception_desk_58fde71d_v1.glb`, `cash_register_0c0dcad2_v1.glb`, `espresso_machine_e722ed8c_v1.glb`, `Couch.glb`, `Couch_2.glb`, `3chairs.glb`, `large_rock_051293c4_v1.glb`, `Tin_Man_1.glb`, `Tin_Man_2.glb`, `Plants_3.glb`, `Urinals.glb`, `V_Machine_2.glb`, `broken_beer_bottles_d16e9f56_v1.glb`, `broken_office_chair_1dc3c50c_v1.glb`, `broken_water_cooler_with_scattered_cups_aa26c38a_v1.glb`, `rusty_car_a9d09db5_v1.glb`, `rusty_oil_barrel_a1ef5c6b_v1.glb`, `smashed_oil_barrel_6a965a03_v1.glb`, `traffic_light_b1babccc_v1.glb`, `warehouse_crate_6e8a0927_v1.glb`, `warehouse_shelf_b7b87618_v1.glb`, `server_rack_03b09d1f_v1.glb`, `rocky_outcrop_90599d8a_v1.glb`.
-
-Remote models are not in the loading gate.
+Org is `AnEntrypoint` (capital A), branch is `master` not `main`. Wrong case = 404. Never guess filenames — wrong URLs 404 silently. Obtain exact filenames from the user or the repository. Remote models are not in the loading gate.
 
 **CRITICAL — remote URLs and physics DO NOT mix.** `addTrimeshCollider()` and `addConvexFromModel()` read `entity.model` from the LOCAL DISK at setup time. If `entity.model` is a remote URL (`https://raw.githubusercontent.com/...`), the server throws ENOENT and the app fails to initialize. There are exactly two valid approaches:
 
@@ -181,16 +175,10 @@ Null if no storage adapter is configured — always guard with `if (ctx.storage)
 
 ### ctx.debug
 
-All methods prefix output with entity id and elapsed time; output goes to server console.
+All methods prefix output with entity id and elapsed time.
 
-- `log(message)`
-- `spawn(entity, position)` — logs spawn event
-- `collision(a, b, position)` — logs collision between two entity ids
-- `hit(shooter, target, damage)` — logs hit event with hp value
-- `death(entity, damage)`
-- `respawn(entity, position)`
-- `state(entity, key, value)` — logs state change
-- `perf(label, ms)` — logs timing with pass/warn/fail indicator (green <10ms, yellow <20ms, red >=20ms)
+- `log(message)`, `spawn`, `collision`, `hit`, `death`, `respawn`, `state` — semantic log helpers
+- `perf(label, ms)` — timing with pass/warn/fail indicator (green <10ms, yellow <20ms, red ≥20ms)
 - `error(category, message)` — logs to stderr
 
 ---

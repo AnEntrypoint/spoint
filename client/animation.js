@@ -1,6 +1,5 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 
 // anim-lib bone name → Blender default humanoid bone name (post Three.js sanitizeNodeName — dots stripped)
 const ANIM_TO_BLENDER = {
@@ -185,13 +184,10 @@ function normalizeClips(gltf, vrmVersion, vrmHumanoid) {
 let _gltfPromise = null
 let _normalizedCache = null
 
-export function preloadAnimationLibrary() {
+export function preloadAnimationLibrary(loader) {
   if (_gltfPromise) return _gltfPromise
-  const loader = new GLTFLoader()
-  const draco = new DRACOLoader()
-  draco.setDecoderPath('/draco/')
-  loader.setDRACOLoader(draco)
-  _gltfPromise = loader.loadAsync('/anim-lib.glb').catch(err => { console.warn('[anim] Failed to load animation library:', err.message); return { scene: new THREE.Scene(), animations: [] } })
+  const l = loader || new GLTFLoader()
+  _gltfPromise = l.loadAsync('/anim-lib.glb')
   return _gltfPromise
 }
 

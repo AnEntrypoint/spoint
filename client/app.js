@@ -63,10 +63,10 @@ scene.fog = new THREE.Fog(0x87ceeb, 80, 200)
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 500)
 let worldConfig = {}
 let inputConfig = { pointerLock: true }
-const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent))
 const renderer = new THREE.WebGLRenderer({ antialias: !isMobileDevice, powerPreference: 'high-performance' })
 renderer.setSize(window.innerWidth, window.innerHeight)
-renderer.setPixelRatio(isMobileDevice ? Math.min(window.devicePixelRatio, 2) : window.devicePixelRatio)
+renderer.setPixelRatio(isMobileDevice ? window.devicePixelRatio * 0.5 : window.devicePixelRatio)
 renderer.shadowMap.enabled = true
 renderer.shadowMap.type = THREE.PCFSoftShadowMap
 renderer.xr.enabled = true
@@ -774,7 +774,7 @@ function getGLBExts(buf) {
 
 function initAssets(playerModelUrl) {
   loadingMgr.setStage('DOWNLOAD')
-  preloadAnimationLibrary()
+  preloadAnimationLibrary(gltfLoader)
   assetsReady = loadingMgr.fetchWithProgress(playerModelUrl).then(async b => {
     // If .vrm URL but no VRM extension in buffer, cache is corrupt — re-fetch directly
     if (playerModelUrl.endsWith('.vrm')) {

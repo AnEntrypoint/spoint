@@ -84,17 +84,17 @@ function encodeMode(slotName) {
 }
 
 /**
- * Convert a WebP buffer to KTX2 buffer.
- * Pipeline: WebP → PNG (sharp) → KTX2 (ktx create)
+ * Convert an image buffer (WebP, PNG, JPEG) to KTX2 buffer.
+ * Pipeline: image → PNG (sharp) → KTX2 (ktx create)
  * Returns null if ktx binary is unavailable or conversion fails.
  */
-async function webpToKtx2(webpBuffer, mode = 'basis-lz', tmpBase = 'tex') {
+async function imageToKtx2(imageBuffer, mode = 'basis-lz', tmpBase = 'tex') {
   if (!existsSync(KTX_BIN)) return null
   const tmp = join(tmpdir(), `${tmpBase}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
   const pngPath = tmp + '.png'
   const ktxPath = tmp + '.ktx2'
   try {
-    await sharp(webpBuffer).resize(1024, 1024, { fit: 'fill' }).png().toFile(pngPath)
+    await sharp(imageBuffer).resize(1024, 1024, { fit: 'fill' }).png().toFile(pngPath)
     const args = [
       'create',
       '--format', 'R8G8B8A8_SRGB',
@@ -177,7 +177,7 @@ async function applyKtx2(inputBuffer) {
   const images = json.images || []
   const bufferViews = json.bufferViews || []
 
-  // Build slot name map: imageIndex → texture slot hint
+  // Build slot name map: imageIndex → texture slot hint (standard glTF materials)
   const imageSlotHints = new Map()
   for (const mat of json.materials || []) {
     const slots = { normalTexture: 'normal', occlusionTexture: 'occlusion', emissiveTexture: 'emissive' }
@@ -193,18 +193,29 @@ async function applyKtx2(inputBuffer) {
     }
   }
 
-  // Convert each WebP image to KTX2
+  // VRM v0: pull normal map hints from materialProperties._BumpMap
+  for (const mp of json.extensions?.VRM?.materialProperties || []) {
+    const bumpIdx = mp.textureProperties?._BumpMap
+    if (bumpIdx !== undefined) {
+      const tex = json.textures?.[bumpIdx]
+      const imgIdx = tex?.extensions?.EXT_texture_webp?.source ?? tex?.source
+      if (imgIdx !== undefined) imageSlotHints.set(imgIdx, 'normal')
+    }
+  }
+
+  // Convert each WebP / PNG / JPEG image to KTX2
+  const CONVERTIBLE = new Set(['image/webp', 'image/png', 'image/jpeg'])
   const replacements = new Map()
   for (let i = 0; i < images.length; i++) {
     const img = images[i]
-    if (img.mimeType !== 'image/webp') continue
+    if (!CONVERTIBLE.has(img.mimeType)) continue
     const bvIdx = img.bufferView
     if (bvIdx === undefined) continue
     const bv = bufferViews[bvIdx]
     if (!bv) continue
-    const webpBytes = originalBin.slice(bv.byteOffset, bv.byteOffset + bv.byteLength)
+    const imgBytes = originalBin.slice(bv.byteOffset, bv.byteOffset + bv.byteLength)
     const mode = encodeMode(imageSlotHints.get(i))
-    const ktx2 = await webpToKtx2(webpBytes, mode, `img${i}`)
+    const ktx2 = await imageToKtx2(imgBytes, mode, `img${i}`)
     if (ktx2) replacements.set(bvIdx, ktx2)
   }
 
@@ -239,22 +250,28 @@ async function applyKtx2(inputBuffer) {
   // Update image mimeTypes and texture extensions
   const newImages = images.map((img, i) => {
     const bvIdx = img.bufferView
-    if (img.mimeType !== 'image/webp' || bvIdx === undefined || !replacements.has(bvIdx)) return img
+    if (!CONVERTIBLE.has(img.mimeType) || bvIdx === undefined || !replacements.has(bvIdx)) return img
     return { ...img, mimeType: 'image/ktx2' }
   })
 
   const newTextures = (json.textures || []).map(tex => {
+    // Handle WebP extension textures
     const webpSrc = tex.extensions?.EXT_texture_webp?.source
-    if (webpSrc === undefined) return tex
-    const img = images[webpSrc]
-    if (!img || img.mimeType !== 'image/webp') return tex
-    if (!replacements.has(img.bufferView)) return tex
-    const { EXT_texture_webp, ...otherExts } = tex.extensions || {}
-    return {
-      ...tex,
-      source: undefined,
-      extensions: { ...otherExts, KHR_texture_basisu: { source: webpSrc } }
+    if (webpSrc !== undefined) {
+      const img = images[webpSrc]
+      if (!img || !CONVERTIBLE.has(img.mimeType) || !replacements.has(img.bufferView)) return tex
+      const { EXT_texture_webp, ...otherExts } = tex.extensions || {}
+      return { ...tex, source: undefined, extensions: { ...otherExts, KHR_texture_basisu: { source: webpSrc } } }
     }
+    // Handle plain PNG/JPEG textures (no WebP extension — typical in VRM/standard GLB)
+    const plainSrc = tex.source
+    if (plainSrc !== undefined) {
+      const img = images[plainSrc]
+      if (!img || !CONVERTIBLE.has(img.mimeType) || img.mimeType === 'image/webp' || !replacements.has(img.bufferView)) return tex
+      const otherExts = tex.extensions || {}
+      return { ...tex, source: undefined, extensions: { ...otherExts, KHR_texture_basisu: { source: plainSrc } } }
+    }
+    return tex
   })
 
   const extsUsed = [...new Set([
@@ -318,8 +335,12 @@ async function transformGLB(inputBuffer) {
 
   let current = inputBuffer
 
+  // VRM files use extensions (VRM, VRMC_vrm) that gltf-transform doesn't know about.
+  // Running applyDraco strips those extensions. Skip Draco for VRM files.
+  const isVRM = !!(json.extensions?.VRM || json.extensions?.VRMC_vrm)
+
   // Step 1: Draco compress if not already compressed — only keep if smaller
-  if (!hasDraco(json)) {
+  if (!isVRM && !hasDraco(json)) {
     const dracoResult = await applyDraco(current)
     if (dracoResult && dracoResult.length < current.length) {
       current = dracoResult
@@ -406,7 +427,7 @@ export function prewarm(dirs) {
     for (const e of entries) {
       const fp = join(dir, e.name)
       if (e.isDirectory() && e.name !== CACHE_DIR_NAME && e.name !== 'node_modules') scan(fp)
-      else if (e.isFile() && e.name.endsWith('.glb')) getTransformed(fp)
+      else if (e.isFile() && (e.name.endsWith('.glb') || e.name.endsWith('.vrm'))) getTransformed(fp)
     }
   }
   for (const dir of dirs) scan(dir)

@@ -58,8 +58,8 @@ export function createStaticHandler(dirs) {
           headers['Cache-Control'] = 'public, max-age=86400, immutable'
         }
 
-        // For GLB files, try to serve transformed (KTX2+Draco) version
-        if (ext === '.glb') {
+        // For GLB/VRM files, try to serve transformed (KTX2+Draco) version
+        if (ext === '.glb' || ext === '.vrm') {
           const srcMtime = statSync(fp).mtimeMs
           const transformed = getTransformed(fp)
           if (transformed) {
