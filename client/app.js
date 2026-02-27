@@ -714,11 +714,6 @@ const ktx2Loader = new KTX2Loader(loadingManager)
 ktx2Loader.setTranscoderPath('/basis/')
 ktx2Loader.detectSupport(renderer)
 gltfLoader.setKTX2Loader(ktx2Loader)
-const vrmLoader = new GLTFLoader()
-const vrmDraco = new DRACOLoader()
-vrmDraco.setDecoderPath('/draco/')
-vrmLoader.setDRACOLoader(vrmDraco)
-vrmLoader.register((parser) => new VRMLoaderPlugin(parser))
 const playerMeshes = new Map()
 const playerAnimators = new Map()
 const playerVrms = new Map()
@@ -773,29 +768,28 @@ function detectVrmVersion(buffer) {
   return '1'
 }
 
+function getGLBExts(buf) {
+  try { const av = buf instanceof ArrayBuffer ? buf : buf.buffer; const dv = new DataView(av); const jl = dv.getUint32(12, true); const j = JSON.parse(new TextDecoder().decode(new Uint8Array(av, 20, jl))); return j.extensions || {} } catch { return {} }
+}
+
 function initAssets(playerModelUrl) {
-  console.log('[initAssets] playerModelUrl:', playerModelUrl)
   loadingMgr.setStage('DOWNLOAD')
   preloadAnimationLibrary()
-  const getGLBExts = (buf) => { try { const av = buf instanceof ArrayBuffer ? buf : buf.buffer; const dv = new DataView(av); const jl = dv.getUint32(12, true); const j = JSON.parse(new TextDecoder().decode(new Uint8Array(av, 20, jl))); return j.extensions || {} } catch { return {} } }
   assetsReady = loadingMgr.fetchWithProgress(playerModelUrl).then(async b => {
-    // Validate VRM format: if URL is .vrm but buffer has no VRM extension, cache is corrupt — clear and re-fetch
-    const isVrmUrl = playerModelUrl.endsWith('.vrm')
-    let exts = getGLBExts(b)
-    if (isVrmUrl && !exts.VRM && !exts.VRMC_vrm) {
-      console.warn('[initAssets] corrupt VRM cache detected (' + b.byteLength + ' bytes, exts: ' + Object.keys(exts) + '), clearing and re-fetching')
-      await dbDelete(playerModelUrl)
-      const resp = await fetch(playerModelUrl)
-      if (!resp.ok) throw new Error('VRM re-fetch failed: ' + resp.status)
-      b = new Uint8Array(await resp.arrayBuffer())
-      exts = getGLBExts(b)
-      const etag = resp.headers.get('etag') || ''
-      if (etag) dbPut(playerModelUrl, etag, b.buffer)
-      console.log('[initAssets] re-fetch done:', b.byteLength, 'bytes, exts:', Object.keys(exts))
+    // If .vrm URL but no VRM extension in buffer, cache is corrupt — re-fetch directly
+    if (playerModelUrl.endsWith('.vrm')) {
+      const exts = getGLBExts(b)
+      if (!exts.VRM && !exts.VRMC_vrm) {
+        await dbDelete(playerModelUrl)
+        const resp = await fetch(playerModelUrl)
+        if (!resp.ok) throw new Error('VRM re-fetch failed: ' + resp.status)
+        b = new Uint8Array(await resp.arrayBuffer())
+        const etag = resp.headers.get('etag') || ''
+        if (etag) dbPut(playerModelUrl, etag, b.buffer)
+      }
     }
     vrmBuffer = b
     const vv = detectVrmVersion(b)
-    console.log('[initAssets] vrmBuffer bytes:', b.byteLength, 'url:', playerModelUrl, 'version:', vv, 'extensions:', Object.keys(exts))
     loadingMgr.setStage('PROCESS')
     animAssets = await loadAnimationLibrary(vv, null)
     assetsLoaded = true
@@ -816,9 +810,7 @@ async function createPlayerVRM(id) {
   await acquireVrmSlot()
   if (!playerMeshes.has(id)) { releaseVrmSlot(); return group }
   try {
-    const origWarn = console.warn; console.warn = (...a) => { if(String(a[0]).includes('VRM')) console.error('[vrm-warn]', ...a); else origWarn(...a); };
-    const gltf = await vrmLoader.parseAsync(vrmBuffer.buffer.slice(0), '').finally(() => { console.warn = origWarn; })
-    console.log('[vrm] userData keys:', Object.keys(gltf.userData), 'vrm:', !!gltf.userData.vrm, 'humanoid:', gltf.userData.vrmHumanoid?.constructor?.name)
+    const gltf = await gltfLoader.parseAsync(vrmBuffer.buffer.slice(0), '')
     const vrm = gltf.userData.vrm
     if (vrm) {
       VRMUtils.removeUnnecessaryVertices(vrm.scene)
@@ -869,26 +861,7 @@ async function createPlayerVRM(id) {
         console.log('[shader] vrm warmup compile done (fallback)')
       })
     }
-  } catch (e) {
-    console.error('[vrm]', id, e.message, e.stack)
-    // Fallback: try gltfLoader (has KTX2 support) so player is at least visible
-    try {
-      const gltf2 = await new Promise((res, rej) => gltfLoader.parse(vrmBuffer.buffer.slice(0), '', res, rej))
-      const glbScene = gltf2.scene
-      glbScene.rotation.y = Math.PI
-      glbScene.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
-      const pc = worldConfig.player || {}
-      glbScene.scale.multiplyScalar(pc.modelScale || 1.323)
-      glbScene.position.y = -(pc.feetOffset || 0.212) * (pc.modelScale || 1.323)
-      group.userData.feetOffset = 1.3
-      if (playerMeshes.has(id)) group.add(glbScene)
-      if (animAssets && playerMeshes.has(id)) {
-        const animator = createGLBAnimator(glbScene, gltf2.animations || [], animAssets, worldConfig.animation || {})
-        playerAnimators.set(id, animator)
-      }
-      console.log('[player]', id, 'loaded via gltfLoader fallback')
-    } catch (e2) { console.error('[vrm-fallback]', id, e2.message) }
-  } finally { releaseVrmSlot() }
+  } catch (e) { console.error('[vrm]', id, e.message) } finally { releaseVrmSlot() }
   return group
 }
 
@@ -1201,7 +1174,6 @@ const client = new PhysicsNetworkClient({
   onWorldDef: (wd) => {
     loadingMgr.setStage('SERVER_SYNC')
     worldConfig = wd
-    console.log('[onWorldDef] playerModel from server:', wd.playerModel)
     if (wd.playerModel) initAssets(wd.playerModel.startsWith('./') ? '/' + wd.playerModel.slice(2) : wd.playerModel)
     else { assetsReady = Promise.resolve(); assetsLoaded = true; checkAllLoaded() }
     if (wd.entities) for (const e of wd.entities) { if (e.app) entityAppMap.set(e.id, e.app) }
@@ -1731,7 +1703,6 @@ setupHands()
 window.__VR_DEBUG__ = false
 window.debug = {
   scene, camera, renderer, client, playerMeshes, entityMeshes, appModules, inputHandler, playerVrms, playerAnimators, loadingMgr, loadingScreen, controllerModels, controllerGrips, handModels, mobileControls, xrControls,
-  getVrmBuffer: () => vrmBuffer,
   enableVRDebug: () => { window.__VR_DEBUG__ = true; console.log('[VR] Debug enabled - button/axis logging active') },
   disableVRDebug: () => { window.__VR_DEBUG__ = false; console.log('[VR] Debug disabled') },
   vrInput: () => inputHandler?.getInput() || null,
