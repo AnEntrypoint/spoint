@@ -6,17 +6,25 @@ export function createLoadingScreen(loadingManager) {
     <div class="loading-container">
       <div class="loading-header">
         <h1>Spawnpoint</h1>
-        <p class="loading-stage-text">Connecting...</p>
+        <p class="loading-label">Connecting...</p>
       </div>
-      <div class="loading-progress-wrapper">
-        <div class="loading-progress-bar">
-          <div class="loading-progress-fill"></div>
+      <div class="loading-bars">
+        <div class="loading-bar-row">
+          <span class="loading-bar-name">Download</span>
+          <div class="loading-bar-track">
+            <div class="loading-bar-fill loading-bar-download"></div>
+          </div>
+          <span class="loading-bar-pct dl-pct">0%</span>
         </div>
-        <div class="loading-percent">0%</div>
+        <div class="loading-bar-row">
+          <span class="loading-bar-name">Processing</span>
+          <div class="loading-bar-track">
+            <div class="loading-bar-fill loading-bar-process"></div>
+          </div>
+          <span class="loading-bar-pct proc-pct">0%</span>
+        </div>
       </div>
-      <div class="loading-details">
-        <span class="loading-current">0</span> / <span class="loading-total">0</span> bytes
-      </div>
+      <div class="loading-detail-text"></div>
       <div class="loading-spinner">
         <div class="spinner-dot"></div>
         <div class="spinner-dot"></div>
@@ -26,44 +34,39 @@ export function createLoadingScreen(loadingManager) {
   `
   document.body.insertBefore(overlay, document.body.firstChild)
 
-  const progressFill = overlay.querySelector('.loading-progress-fill')
-  const percentText = overlay.querySelector('.loading-percent')
-  const stageText = overlay.querySelector('.loading-stage-text')
-  const currentBytes = overlay.querySelector('.loading-current')
-  const totalBytes = overlay.querySelector('.loading-total')
+  const labelEl = overlay.querySelector('.loading-label')
+  const dlFill = overlay.querySelector('.loading-bar-download')
+  const procFill = overlay.querySelector('.loading-bar-process')
+  const dlPct = overlay.querySelector('.dl-pct')
+  const procPct = overlay.querySelector('.proc-pct')
+  const detailEl = overlay.querySelector('.loading-detail-text')
 
-  const updateUI = (detail) => {
-    const percent = detail.percent || 0
-    progressFill.style.width = percent + '%'
-    percentText.textContent = Math.round(percent) + '%'
-    stageText.textContent = detail.label || ''
+  loadingManager.addEventListener('download', (e) => {
+    const { percent, done, total } = e.detail
+    dlFill.style.width = percent + '%'
+    dlPct.textContent = Math.round(percent) + '%'
+    if (total > 0) detailEl.textContent = `${done} / ${total} assets`
+  })
 
-    if (detail.current !== undefined && detail.total !== undefined) {
-      currentBytes.textContent = formatBytes(detail.current)
-      totalBytes.textContent = formatBytes(detail.total)
-    }
-  }
+  loadingManager.addEventListener('processing', (e) => {
+    const { percent, done, total } = e.detail
+    procFill.style.width = percent + '%'
+    procPct.textContent = Math.round(percent) + '%'
+    if (total > 0) detailEl.textContent = `Compiling shaders ${done} / ${total}`
+  })
 
-  const formatBytes = (bytes) => {
-    if (bytes === 0) return '0'
-    const k = 1024
-    const sizes = ['B', 'KB', 'MB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return Math.round((bytes / Math.pow(k, i)) * 10) / 10 + sizes[i]
-  }
-
-  loadingManager.addEventListener('progress', (e) => updateUI(e.detail))
-  loadingManager.addEventListener('stagechange', (e) => updateUI(e.detail))
+  loadingManager.addEventListener('label', (e) => {
+    labelEl.textContent = e.detail.label
+  })
 
   return {
     element: overlay,
+    setLabel: (text) => { labelEl.textContent = text },
     hide: async () => {
       overlay.classList.add('fade-out')
       await new Promise(resolve => setTimeout(resolve, 500))
       overlay.remove()
     },
-    dispose: () => {
-      overlay.remove()
-    }
+    dispose: () => { overlay.remove() }
   }
 }

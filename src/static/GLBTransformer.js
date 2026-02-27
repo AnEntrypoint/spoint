@@ -76,11 +76,10 @@ function sanitizeJson(json) {
 
 /**
  * Determine KTX2 encode mode for a texture slot.
- * Normal maps → uastc (higher quality). Everything else → basis-lz (smaller).
+ * All textures use uastc for broad Three.js KTX2Loader compatibility.
  */
 function encodeMode(slotName) {
-  if (slotName && /normal/i.test(slotName)) return 'uastc'
-  return 'basis-lz'
+  return 'uastc'
 }
 
 /**

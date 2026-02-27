@@ -55,7 +55,7 @@ function patchGLB(arrayBuffer) {
 
 const loadingMgr = new LoadingManager()
 const loadingScreen = createLoadingScreen(loadingMgr)
-loadingMgr.setStage('CONNECTING')
+loadingMgr.setLabel('Connecting...')
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x87ceeb)
@@ -773,9 +773,9 @@ function getGLBExts(buf) {
 }
 
 function initAssets(playerModelUrl) {
-  loadingMgr.setStage('DOWNLOAD')
+  loadingMgr.setLabel('Downloading player model...')
   preloadAnimationLibrary(gltfLoader)
-  assetsReady = loadingMgr.fetchWithProgress(playerModelUrl).then(async b => {
+  assetsReady = loadingMgr.fetchWithProgress(playerModelUrl, 'vrm').then(async b => {
     // If .vrm URL but no VRM extension in buffer, cache is corrupt — re-fetch directly
     if (playerModelUrl.endsWith('.vrm')) {
       const exts = getGLBExts(b)
@@ -790,7 +790,7 @@ function initAssets(playerModelUrl) {
     }
     vrmBuffer = b
     const vv = detectVrmVersion(b)
-    loadingMgr.setStage('PROCESS')
+    loadingMgr.setLabel('Loading animations...')
     animAssets = await loadAnimationLibrary(vv, null)
     assetsLoaded = true
     checkAllLoaded()
@@ -856,9 +856,8 @@ async function createPlayerVRM(id) {
     }
     if (!_vrmWarmupDone) {
       _vrmWarmupDone = true
-      renderer.compileAsync(scene, camera).then(() => console.log('[shader] vrm warmup compileAsync done')).catch(() => {
+      renderer.compileAsync(scene, camera).then(() => console.log('[shader] vrm warmup done')).catch(() => {
         renderer.compile(scene, camera)
-        console.log('[shader] vrm warmup compile done (fallback)')
       })
     }
   } catch (e) { console.error('[vrm]', id, e.message) } finally { releaseVrmSlot() }
@@ -1047,7 +1046,7 @@ function loadEntityModel(entityId, entityState) {
     if (!environmentLoaded) { environmentLoaded = true; checkAllLoaded() }
     return
   }
-  loadingMgr.setStage('RESOURCES')
+  loadingMgr.setLabel('Loading world...')
   const url = entityState.model.startsWith('./') ? '/' + entityState.model.slice(2) : entityState.model
   const onGltfLoad = (gltf) => {
     const model = gltf.scene
@@ -1080,9 +1079,11 @@ function loadEntityModel(entityId, entityState) {
     if (loadingScreenHidden) _scheduleDynamicCompile()
   }
   const onGltfErr = (err) => { console.error('[gltf]', url, err); pendingLoads.delete(entityId); if (firstSnapshotEntityPending.has(entityId)) { firstSnapshotEntityPending.delete(entityId); if (firstSnapshotEntityPending.size === 0) checkAllLoaded() } }
+  loadingMgr.beginDownload(url)
   fetchCached(url).then(buf => {
+    loadingMgr.completeDownload(url)
     gltfLoader.parse(patchGLB(buf.buffer.slice(0)), '', onGltfLoad, onGltfErr)
-  }).catch(onGltfErr)
+  }).catch(err => { loadingMgr.completeDownload(url); onGltfErr(err) })
 }
 
 function renderAppUI(state) {
@@ -1172,7 +1173,7 @@ const client = new PhysicsNetworkClient({
   onEntityAdded: (id, state) => loadEntityModel(id, state),
   onEntityRemoved: (id) => { const m = entityMeshes.get(id); if (m) { scene.remove(m); m.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose() }); entityMeshes.delete(id) }; entityTargets.delete(id); pendingLoads.delete(id) },
   onWorldDef: (wd) => {
-    loadingMgr.setStage('SERVER_SYNC')
+    loadingMgr.setLabel('Syncing with server...')
     worldConfig = wd
     if (wd.playerModel) initAssets(wd.playerModel.startsWith('./') ? '/' + wd.playerModel.slice(2) : wd.playerModel)
     else { assetsReady = Promise.resolve(); assetsLoaded = true; checkAllLoaded() }
@@ -1185,7 +1186,7 @@ const client = new PhysicsNetworkClient({
     }
   },
   onAppModule: (d) => {
-    loadingMgr.setStage('APPS')
+    // apps loading
     const a = evaluateAppModule(d.code)
     if (a?.client) {
       appModules.set(d.app, a.client)
@@ -1245,25 +1246,62 @@ function _scheduleDynamicCompile() {
   }, 500)
 }
 
+// Warmup runs BEFORE loading screen hides.
+// Uses a warmup camera positioned in front of each model in turn so the GPU
+// compiles its shaders. The main scene camera and entity positions are untouched.
 async function warmupShaders() {
   if (_shaderWarmupDone) return
   _shaderWarmupDone = true
-  const ext = renderer.extensions.get('KHR_parallel_shader_compile')
-  if (ext) console.log('[shader] KHR_parallel_shader_compile active')
-  try {
-    await renderer.compileAsync(scene, camera)
-    console.log('[shader] warmup compileAsync done')
-  } catch {
-    renderer.compile(scene, camera)
-    console.log('[shader] warmup compile done (fallback)')
+
+  loadingMgr.setLabel('Compiling shaders...')
+
+  // Collect all meshes: entity GLBs + any player VRMs already in scene
+  const allMeshes = [...entityMeshes.values(), ...playerMeshes.values()]
+  const total = allMeshes.length
+  loadingMgr.reportProcessing(0, total)
+
+  // Warmup camera: orthographic, looks straight at each mesh from close range
+  const wCam = new THREE.PerspectiveCamera(60, 1, 0.1, 1000)
+
+  for (let i = 0; i < allMeshes.length; i++) {
+    const mesh = allMeshes[i]
+
+    // Compute mesh world bounding box center so the warmup camera faces it
+    const box = new THREE.Box3().setFromObject(mesh)
+    const center = box.getCenter(new THREE.Vector3())
+    const size = box.getSize(new THREE.Vector3()).length()
+    wCam.position.copy(center).addScaledVector(new THREE.Vector3(0, 0, 1), size * 1.5 + 1)
+    wCam.lookAt(center)
+
+    // Force all children visible and frustum-unculled for this compile pass
+    const restored = []
+    mesh.traverse(obj => {
+      if (!obj.frustumCulled || !obj.visible) {
+        restored.push([obj, obj.frustumCulled, obj.visible])
+        obj.frustumCulled = false
+        obj.visible = true
+      }
+    })
+
+    try { await renderer.compileAsync(scene, wCam) } catch { renderer.compile(scene, wCam) }
+    renderer.render(scene, wCam)
+
+    // Restore traversed objects
+    for (const [obj, fc, vis] of restored) { obj.frustumCulled = fc; obj.visible = vis }
+
+    loadingMgr.reportProcessing(i + 1, total)
+    await new Promise(r => requestAnimationFrame(r))
   }
+
+  // Final pass with main camera, frustum culling disabled for all objects
   const culled = []
   scene.traverse(obj => { if (obj.frustumCulled) { culled.push(obj); obj.frustumCulled = false } })
+  try { await renderer.compileAsync(scene, camera) } catch { renderer.compile(scene, camera) }
   renderer.render(scene, camera)
   await new Promise(r => requestAnimationFrame(r))
   renderer.render(scene, camera)
   for (const obj of culled) obj.frustumCulled = true
-  console.log('[shader] GPU upload render done, culled restored:', culled.length)
+  console.log('[shader] warmup done, meshes:', total)
 }
 
 function checkAllLoaded() {
@@ -1272,11 +1310,9 @@ function checkAllLoaded() {
   if (!environmentLoaded) return
   if (!firstSnapshotReceived) return
   if (firstSnapshotEntityPending.size > 0) return
-  loadingMgr.setStage('INIT')
-  loadingMgr.complete()
   loadingScreenHidden = true
-  loadingScreen.hide()
-  warmupShaders().catch(() => {})
+  loadingMgr.setLabel('Starting game...')
+  warmupShaders().then(() => loadingScreen.hide()).catch(() => loadingScreen.hide())
 }
 
 function initInputHandler() {
