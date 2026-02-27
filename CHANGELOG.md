@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.89](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.88...v0.1.89) (2026-02-27)
+
+
+### Features
+
+* loading screen with dual progress bars + fix KTX2 UASTC encoding ([32a9cd2](https://github.com/AnEntrypoint/spawnpoint/commit/32a9cd2d235aedf1da06949b10e73c67df6d2cdb))
+* VRM KTX2 transform, mobile renderer optimizations, docs condensed ([b58d2c1](https://github.com/AnEntrypoint/spawnpoint/commit/b58d2c1b4d80c4e9fae008073536fbf58796cd65))
+
 ### [0.1.88](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.87...v0.1.88) (2026-02-27)
 
 ### [0.1.87](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.86...v0.1.87) (2026-02-27)
