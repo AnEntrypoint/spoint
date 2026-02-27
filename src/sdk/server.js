@@ -1,6 +1,7 @@
 import { join, dirname, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { existsSync } from 'node:fs'
+import { prewarm } from '../static/GLBTransformer.js'
 import { MSG } from '../protocol/MessageTypes.js'
 import { ConnectionManager } from '../connection/ConnectionManager.js'
 import { SessionStore } from '../connection/SessionStore.js'
@@ -67,6 +68,8 @@ export async function boot(overrides = {}) {
   server.on('playerLeave', ({ id }) => console.log())
   const info = await server.start()
   console.log(`[server] http://localhost:${info.port} @ ${info.tickRate} TPS`)
+  // Kick off background GLB optimization for all app directories
+  prewarm(appsDirs)
   return server
 }
 

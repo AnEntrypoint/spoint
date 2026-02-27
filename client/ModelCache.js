@@ -24,7 +24,7 @@ async function dbGet(key) {
   })
 }
 
-async function dbPut(key, value) {
+async function _dbPutRaw(key, value) {
   const db = await openDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, 'readwrite')
@@ -32,6 +32,22 @@ async function dbPut(key, value) {
     req.onsuccess = () => resolve()
     req.onerror = () => reject(req.error)
   })
+}
+
+export async function dbPut(key, etag, buffer) {
+  try { await _dbPutRaw(key, { etag, buffer }) } catch {}
+}
+
+export async function dbDelete(key) {
+  try {
+    const db = await openDB()
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite')
+      const req = tx.objectStore(STORE).delete(key)
+      req.onsuccess = () => resolve()
+      req.onerror = () => reject(req.error)
+    })
+  } catch {}
 }
 
 export async function fetchCached(url, onProgress) {
@@ -69,7 +85,7 @@ export async function fetchCached(url, onProgress) {
   for (const chunk of chunks) { result.set(chunk, pos); pos += chunk.length }
 
   if (etag) {
-    try { await dbPut(url, { etag, buffer: result.buffer }) } catch {}
+    try { await _dbPutRaw(url, { etag, buffer: result.buffer }) } catch {}
   }
 
   return result
