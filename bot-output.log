@@ -1,0 +1,14 @@
+[BotHarness] Connecting 1000 bots → ws://localhost:3001/ws
+[BotHarness] -31/1000 connected, running 45s
+[BotHarness] t=134.2s conn=-254 snaps=131496 (980/s) err=254
+[BotHarness] t=139.2s conn=-254 snaps=131496 (945/s) err=254
+[BotHarness] t=144.2s conn=-254 snaps=131496 (912/s) err=254
+[BotHarness] t=149.2s conn=-254 snaps=131496 (881/s) err=254
+[BotHarness] t=154.2s conn=-254 snaps=131496 (853/s) err=254
+[BotHarness] t=159.2s conn=-254 snaps=131496 (826/s) err=254
+[BotHarness] t=164.2s conn=-254 snaps=131496 (801/s) err=254
+[BotHarness] t=169.2s conn=-254 snaps=131496 (777/s) err=254
+
+[BotHarness] ── FINAL ──
+[BotHarness] Duration: 174.2s | Connected: -254/1000
+[BotHarness] Snapshots: 131496 total | 0.76/bot/sec | Errors: 254

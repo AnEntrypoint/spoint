@@ -1,0 +1,17 @@
+[BotHarness] Connecting 100 bots → ws://localhost:3001/ws
+[BotHarness] 100/100 connected, running 60s
+[BotHarness] t=7.6s conn=100 snaps=21808 (2869/s) err=0
+[BotHarness] t=12.6s conn=100 snaps=34752 (2758/s) err=0
+[BotHarness] t=17.6s conn=100 snaps=47940 (2724/s) err=0
+[BotHarness] t=22.6s conn=100 snaps=60533 (2678/s) err=0
+[BotHarness] t=27.6s conn=100 snaps=73157 (2651/s) err=0
+[BotHarness] t=32.6s conn=100 snaps=86010 (2638/s) err=0
+[BotHarness] t=37.6s conn=100 snaps=98757 (2627/s) err=0
+[BotHarness] t=42.6s conn=100 snaps=111357 (2614/s) err=0
+[BotHarness] t=47.6s conn=100 snaps=123914 (2603/s) err=0
+[BotHarness] t=52.6s conn=100 snaps=136507 (2595/s) err=0
+[BotHarness] t=57.6s conn=100 snaps=150977 (2621/s) err=0
+
+[BotHarness] ── FINAL ──
+[BotHarness] Duration: 62.6s | Connected: 100/100
+[BotHarness] Snapshots: 165657 total | 26.48/bot/sec | Errors: 0
