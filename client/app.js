@@ -1003,18 +1003,25 @@ function buildEntityMesh(entityId, custom) {
 
 const pendingLoads = new Set()
 
-// Entity model loading queue - sequential to prevent RAM exhaustion
+// Entity model loading queue - concurrent with max 4 simultaneous loads
+const MAX_CONCURRENT_LOADS = 4
 const loadQueue = []
-let _loadQueueProcessing = false
+let _activeLoads = 0
+const _loadWaiters = []
 
-async function processLoadQueue() {
-  if (_loadQueueProcessing || loadQueue.length === 0) return
-  _loadQueueProcessing = true
-  while (loadQueue.length > 0) {
+function _processLoadQueue() {
+  while (_activeLoads < MAX_CONCURRENT_LOADS && loadQueue.length > 0) {
+    _activeLoads++
     const { entityId, entityState } = loadQueue.shift()
-    await _doLoadEntityModel(entityId, entityState)
+    _doLoadEntityModel(entityId, entityState).finally(() => {
+      _activeLoads--
+      _processLoadQueue()
+    })
   }
-  _loadQueueProcessing = false
+}
+
+function processLoadQueue() {
+  _processLoadQueue()
 }
 
 function rebuildEntityHierarchy(entities) {
@@ -1042,11 +1049,12 @@ function loadEntityModel(entityId, entityState) {
   if (entityMeshes.has(entityId) || pendingLoads.has(entityId)) return
   pendingLoads.add(entityId)
   loadQueue.push({ entityId, entityState })
+  if (loadQueue.length === 1) console.log(`[queue] entity load queue active: max ${MAX_CONCURRENT_LOADS} concurrent`)
   processLoadQueue()
 }
 
 async function _doLoadEntityModel(entityId, entityState) {
-
+  if (entityState.model) console.log(`[load:${_activeLoads}/${MAX_CONCURRENT_LOADS}] ${entityId}`)
   const isEditorPlaceholder = entityState.custom?.editorPlaceholder === true
   const smartObjectTemplate = entityState.custom?.template
 
