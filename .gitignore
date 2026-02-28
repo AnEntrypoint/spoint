@@ -63,3 +63,5 @@ profile.json
 # Temporary test files
 profile-test.*
 spawn.log
+server.pid
+server*.log
