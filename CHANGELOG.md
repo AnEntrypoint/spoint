@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.96](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.95...v0.1.96) (2026-02-28)
+
+
+### Bug Fixes
+
+* disable compileAsync to prevent shader compilation RAM exhaustion ([9227027](https://github.com/AnEntrypoint/spawnpoint/commit/922702755f6a0d790a8b85b392f9cb797806bb4a))
+* make entity model loading queue truly sequential to prevent RAM exhaustion ([7c1aed2](https://github.com/AnEntrypoint/spawnpoint/commit/7c1aed2af47af05b7635a710bf4f8a789dc1a514))
+
 ### [0.1.95](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.94...v0.1.95) (2026-02-28)
 
 ### [0.1.94](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.93...v0.1.94) (2026-02-28)
