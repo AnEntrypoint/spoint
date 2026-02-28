@@ -56,3 +56,10 @@ nul
 server.log
 profile.json
 .gm-stop-verified
+
+# GLB transform cache
+**/.glb-cache/
+
+# Temporary test files
+profile-test.*
+spawn.log
