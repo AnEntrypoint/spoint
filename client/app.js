@@ -1003,6 +1003,19 @@ function buildEntityMesh(entityId, custom) {
 
 const pendingLoads = new Set()
 
+// Entity model loading queue to prevent RAM exhaustion
+const MAX_CONCURRENT_LOADS = 4
+let currentLoadCount = 0
+const loadQueue = []
+
+function processLoadQueue() {
+  while (currentLoadCount < MAX_CONCURRENT_LOADS && loadQueue.length > 0) {
+    const { entityId, entityState } = loadQueue.shift()
+    currentLoadCount++
+    _doLoadEntityModel(entityId, entityState)
+  }
+}
+
 function rebuildEntityHierarchy(entities) {
   for (const e of entities) {
     entityParentMap.set(e.id, e.parent || null)
@@ -1027,6 +1040,11 @@ function rebuildEntityHierarchy(entities) {
 function loadEntityModel(entityId, entityState) {
   if (entityMeshes.has(entityId) || pendingLoads.has(entityId)) return
   pendingLoads.add(entityId)
+  loadQueue.push({ entityId, entityState })
+  processLoadQueue()
+}
+
+function _doLoadEntityModel(entityId, entityState) {
 
   const isEditorPlaceholder = entityState.custom?.editorPlaceholder === true
   const smartObjectTemplate = entityState.custom?.template
@@ -1077,8 +1095,9 @@ function loadEntityModel(entityId, entityState) {
     if (!environmentLoaded) { environmentLoaded = true; checkAllLoaded() }
     if (firstSnapshotEntityPending.has(entityId)) { firstSnapshotEntityPending.delete(entityId); if (firstSnapshotEntityPending.size === 0) checkAllLoaded() }
     if (loadingScreenHidden) _scheduleDynamicCompile()
+    currentLoadCount--; processLoadQueue()
   }
-  const onGltfErr = (err) => { console.error('[gltf]', url, err); pendingLoads.delete(entityId); if (firstSnapshotEntityPending.has(entityId)) { firstSnapshotEntityPending.delete(entityId); if (firstSnapshotEntityPending.size === 0) checkAllLoaded() } }
+  const onGltfErr = (err) => { console.error('[gltf]', url, err); pendingLoads.delete(entityId); if (firstSnapshotEntityPending.has(entityId)) { firstSnapshotEntityPending.delete(entityId); if (firstSnapshotEntityPending.size === 0) checkAllLoaded() }; currentLoadCount--; processLoadQueue() }
   loadingMgr.beginDownload(url)
   fetchCached(url).then(buf => {
     loadingMgr.completeDownload(url)
