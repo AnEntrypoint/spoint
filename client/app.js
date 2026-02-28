@@ -1003,17 +1003,18 @@ function buildEntityMesh(entityId, custom) {
 
 const pendingLoads = new Set()
 
-// Entity model loading queue to prevent RAM exhaustion
-const MAX_CONCURRENT_LOADS = 4
-let currentLoadCount = 0
+// Entity model loading queue - sequential to prevent RAM exhaustion
 const loadQueue = []
+let _loadQueueProcessing = false
 
-function processLoadQueue() {
-  while (currentLoadCount < MAX_CONCURRENT_LOADS && loadQueue.length > 0) {
+async function processLoadQueue() {
+  if (_loadQueueProcessing || loadQueue.length === 0) return
+  _loadQueueProcessing = true
+  while (loadQueue.length > 0) {
     const { entityId, entityState } = loadQueue.shift()
-    currentLoadCount++
-    _doLoadEntityModel(entityId, entityState)
+    await _doLoadEntityModel(entityId, entityState)
   }
+  _loadQueueProcessing = false
 }
 
 function rebuildEntityHierarchy(entities) {
@@ -1044,7 +1045,7 @@ function loadEntityModel(entityId, entityState) {
   processLoadQueue()
 }
 
-function _doLoadEntityModel(entityId, entityState) {
+async function _doLoadEntityModel(entityId, entityState) {
 
   const isEditorPlaceholder = entityState.custom?.editorPlaceholder === true
   const smartObjectTemplate = entityState.custom?.template
@@ -1066,7 +1067,11 @@ function _doLoadEntityModel(entityId, entityState) {
   }
   loadingMgr.setLabel('Loading world...')
   const url = entityState.model.startsWith('./') ? '/' + entityState.model.slice(2) : entityState.model
-  const onGltfLoad = (gltf) => {
+  try {
+    const buf = await fetchCached(url)
+    loadingMgr.beginDownload(url)
+    const gltf = await gltfLoader.parseAsync(patchGLB(buf.buffer.slice(0)), '')
+    loadingMgr.completeDownload(url)
     const model = gltf.scene
     const mp = entityState.position; model.position.set(mp[0], mp[1], mp[2])
     const mr = entityState.rotation; if (mr) model.quaternion.set(mr[0], mr[1], mr[2], mr[3])
@@ -1095,14 +1100,12 @@ function _doLoadEntityModel(entityId, entityState) {
     if (!environmentLoaded) { environmentLoaded = true; checkAllLoaded() }
     if (firstSnapshotEntityPending.has(entityId)) { firstSnapshotEntityPending.delete(entityId); if (firstSnapshotEntityPending.size === 0) checkAllLoaded() }
     if (loadingScreenHidden) _scheduleDynamicCompile()
-    currentLoadCount--; processLoadQueue()
-  }
-  const onGltfErr = (err) => { console.error('[gltf]', url, err); pendingLoads.delete(entityId); if (firstSnapshotEntityPending.has(entityId)) { firstSnapshotEntityPending.delete(entityId); if (firstSnapshotEntityPending.size === 0) checkAllLoaded() }; currentLoadCount--; processLoadQueue() }
-  loadingMgr.beginDownload(url)
-  fetchCached(url).then(buf => {
+  } catch (err) {
+    console.error('[gltf]', url, err)
+    pendingLoads.delete(entityId)
+    if (firstSnapshotEntityPending.has(entityId)) { firstSnapshotEntityPending.delete(entityId); if (firstSnapshotEntityPending.size === 0) checkAllLoaded() }
     loadingMgr.completeDownload(url)
-    gltfLoader.parse(patchGLB(buf.buffer.slice(0)), '', onGltfLoad, onGltfErr)
-  }).catch(err => { loadingMgr.completeDownload(url); onGltfErr(err) })
+  }
 }
 
 function renderAppUI(state) {
