@@ -856,9 +856,9 @@ async function createPlayerVRM(id) {
     }
     if (!_vrmWarmupDone) {
       _vrmWarmupDone = true
-      renderer.compileAsync(scene, camera).then(() => console.log('[shader] vrm warmup done')).catch(() => {
-        renderer.compile(scene, camera)
-      })
+      // compileAsync causes memory exhaustion and THREE.js errors on some systems
+      // Skip async warmup - shaders will compile on-demand as needed
+      console.log('[shader] vrm warmup skipped (async disabled)')
     }
   } catch (e) { console.error('[vrm]', id, e.message) } finally { releaseVrmSlot() }
   return group
@@ -1264,7 +1264,8 @@ function _scheduleDynamicCompile() {
   if (_dynamicCompileTimer) clearTimeout(_dynamicCompileTimer)
   _dynamicCompileTimer = setTimeout(() => {
     _dynamicCompileTimer = null
-    renderer.compileAsync(scene, camera).catch(() => renderer.compile(scene, camera))
+    // Skip async shader compilation - causes memory exhaustion
+    // Shaders compile on-demand as entities render
   }, 500)
 }
 
@@ -1305,7 +1306,8 @@ async function warmupShaders() {
       }
     })
 
-    try { await renderer.compileAsync(scene, wCam) } catch { renderer.compile(scene, wCam) }
+    // Use sync compile instead of async to avoid memory exhaustion
+    renderer.compile(scene, wCam)
     renderer.render(scene, wCam)
 
     // Restore traversed objects
@@ -1318,7 +1320,8 @@ async function warmupShaders() {
   // Final pass with main camera, frustum culling disabled for all objects
   const culled = []
   scene.traverse(obj => { if (obj.frustumCulled) { culled.push(obj); obj.frustumCulled = false } })
-  try { await renderer.compileAsync(scene, camera) } catch { renderer.compile(scene, camera) }
+  // Use sync compile to avoid memory exhaustion
+  renderer.compile(scene, camera)
   renderer.render(scene, camera)
   await new Promise(r => requestAnimationFrame(r))
   renderer.render(scene, camera)
