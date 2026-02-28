@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.92](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.91...v0.1.92) (2026-02-28)
+
+
+### Bug Fixes
+
+* prevent RAM exhaustion during client model loading - implement concurrent load queue ([1fa2fe1](https://github.com/AnEntrypoint/spawnpoint/commit/1fa2fe134c5da86d4974702455a200d3c0449dc7))
+
 ### [0.1.91](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.90...v0.1.91) (2026-02-28)
 
 
