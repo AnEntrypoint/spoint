@@ -7,8 +7,9 @@ export default {
       try {
         await ctx.physics.addTrimeshCollider()
       } catch (e) {
-        // Fallback to box collider if trimesh fails (e.g., missing model)
-        ctx.physics.addBoxCollider(0.5, 0.5, 0.5)
+        console.warn(`[prop-dynamic] Trimesh failed for ${ctx.entity.id}: ${e.message}, using box collider`)
+        // Fallback to box collider if trimesh fails (e.g., missing model or Draco issues)
+        ctx.physics.addBoxCollider(2, 2, 2)  // larger box to contain most props
       }
     }
   },
