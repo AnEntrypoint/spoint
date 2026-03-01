@@ -107,11 +107,31 @@ export class AppContext {
       },
       addConvexFromModelAsync: async (meshIndex = 0) => {
         if (!ent.model) return
-        const mesh = await extractMeshFromGLBAsync(runtime.resolveAssetPath(ent.model), meshIndex)
-        const points = Array.from(mesh.vertices)
+        const mt = ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
+        let mesh
+        try {
+          mesh = await extractMeshFromGLBAsync(runtime.resolveAssetPath(ent.model), meshIndex)
+        } catch (err) {
+          console.warn(`[physics] ${ent.model}: mesh extraction failed (${err.message}), using box fallback`)
+          if (runtime._physics) {
+            ent.collider = { type: 'box', size: [0.5, 0.5, 0.5] }
+            ent._physicsBodyId = runtime._physics.addBody('box', [0.5, 0.5, 0.5], ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+          }
+          return
+        }
+        const v = mesh.vertices
+        let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity
+        for (let i = 0; i < v.length; i += 3) {
+          if (v[i] < minX) minX = v[i]; if (v[i] > maxX) maxX = v[i]
+          if (v[i+1] < minY) minY = v[i+1]; if (v[i+1] > maxY) maxY = v[i+1]
+          if (v[i+2] < minZ) minZ = v[i+2]; if (v[i+2] > maxZ) maxZ = v[i+2]
+        }
+        const points = [
+          minX,minY,minZ, maxX,minY,minZ, minX,maxY,minZ, maxX,maxY,minZ,
+          minX,minY,maxZ, maxX,minY,maxZ, minX,maxY,maxZ, maxX,maxY,maxZ
+        ]
         ent.collider = { type: 'convex', points }
         if (runtime._physics) {
-          const mt = ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
           ent._physicsBodyId = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
         }
       },
