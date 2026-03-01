@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.123](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.122...v0.1.123) (2026-03-01)
+
+
+### Bug Fixes
+
+* three Jolt WASM lifecycle bugs causing memory access crashes ([77c0636](https://github.com/AnEntrypoint/spawnpoint/commit/77c0636185a5234eb977a62ab0c5dfc642a7d916))
+
 ### [0.1.122](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.121...v0.1.122) (2026-03-01)
 
 
