@@ -22,6 +22,10 @@ export class MessageHandler {
     } else if (type === MSG.DISCONNECT_REASON) {
       if (payload.code === 4) return { invalidate: true }
     } else if (type === MSG.SNAPSHOT || type === MSG.STATE_CORRECTION) {
+      if (payload.timestamp && this._smoothInterp) {
+        const rtt = Date.now() - payload.timestamp
+        this._smoothInterp.updateRTT(payload.timestamp, Date.now())
+      }
       return payload
     } else if (type === MSG.PLAYER_LEAVE) {
       snapProc?.removePlayer(payload.playerId)

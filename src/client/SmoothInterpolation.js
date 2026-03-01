@@ -57,7 +57,13 @@ export class SmoothInterpolation {
       const filter = this.playerFilters.get(player.id)
       if (filter && dt > 0) {
         const predicted = filter.predict(dt)
-        displayPlayers.push({ ...player, position: predicted.position, velocity: predicted.velocity })
+        const extrapolated = {
+          ...predicted.position,
+          x: predicted.position.x + (predicted.velocity?.x || 0) * dt,
+          y: predicted.position.y + (predicted.velocity?.y || 0) * dt,
+          z: predicted.position.z + (predicted.velocity?.z || 0) * dt
+        }
+        displayPlayers.push({ ...player, position: extrapolated, velocity: predicted.velocity })
       } else {
         displayPlayers.push(player)
       }

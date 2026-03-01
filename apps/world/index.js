@@ -162,9 +162,9 @@ export default {
     { id: 'dyn-99', model: './apps/props/dynamic/water_tank_c27c18f7_v4.glb', position: [40, 10, 40], app: 'prop-dynamic' }
   ],
   spawnPoints: [
-    [0, 20, 0]
+    [0, 5, 0]
   ],
-  spawnPoint: [0, 20, 0],
+  spawnPoint: [0, 5, 0],
   playerModel: './apps/tps-game/cleetus.vrm'
 }
 

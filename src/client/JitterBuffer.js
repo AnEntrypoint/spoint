@@ -77,7 +77,7 @@ export class JitterBuffer {
         result.players.push({
           id: np.id,
           position: [_l(op.position[0], np.position[0], alpha), _l(op.position[1], np.position[1], alpha), _l(op.position[2], np.position[2], alpha)],
-          rotation: np.rotation,
+          rotation: _slerp(op.rotation || np.rotation, np.rotation, alpha),
           velocity: [_l(op.velocity?.[0] || 0, np.velocity?.[0] || 0, alpha), _l(op.velocity?.[1] || 0, np.velocity?.[1] || 0, alpha), _l(op.velocity?.[2] || 0, np.velocity?.[2] || 0, alpha)],
           onGround: np.onGround, health: np.health, inputSequence: np.inputSequence,
           crouch: np.crouch,
@@ -97,7 +97,7 @@ export class JitterBuffer {
         result.entities.push({
           id: ne.id, model: ne.model,
           position: [_l(oe.position[0], ne.position[0], alpha), _l(oe.position[1], ne.position[1], alpha), _l(oe.position[2], ne.position[2], alpha)],
-          rotation: [_l(oe.rotation[0], ne.rotation[0], alpha), _l(oe.rotation[1], ne.rotation[1], alpha), _l(oe.rotation[2], ne.rotation[2], alpha), _l(oe.rotation[3], ne.rotation[3], alpha)],
+          rotation: _slerp(oe.rotation || ne.rotation, ne.rotation, alpha),
           bodyType: ne.bodyType, custom: ne.custom
         })
       } else {
@@ -129,3 +129,20 @@ export class JitterBuffer {
 }
 
 function _l(a, b, t) { return a + (b - a) * t }
+
+function _slerp(q1, q2, t) {
+  let [x1, y1, z1, w1] = q1
+  let [x2, y2, z2, w2] = q2
+  let dot = x1 * x2 + y1 * y2 + z1 * z2 + w1 * w2
+  if (dot < 0) {
+    x2 = -x2; y2 = -y2; z2 = -z2; w2 = -w2
+    dot = -dot
+  }
+  dot = Math.max(-1, Math.min(1, dot))
+  const theta = Math.acos(dot)
+  const sinTheta = Math.sin(theta)
+  if (sinTheta < 0.001) return [_l(x1, x2, t), _l(y1, y2, t), _l(z1, z2, t), _l(w1, w2, t)]
+  const w1sin = Math.sin((1 - t) * theta) / sinTheta
+  const w2sin = Math.sin(t * theta) / sinTheta
+  return [x1 * w1sin + x2 * w2sin, y1 * w1sin + y2 * w2sin, z1 * w1sin + z2 * w2sin, w1 * w1sin + w2 * w2sin]
+}

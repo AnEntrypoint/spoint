@@ -2,7 +2,7 @@ export class KalmanFilter3D {
   constructor(config = {}) {
     this.positionQ = config.positionQ ?? 2.0
     this.velocityQ = config.velocityQ ?? 4.0
-    this.positionR = config.positionR ?? 0.01
+    this.positionR = config.positionR ?? 0.1
     this.velocityR = config.velocityR ?? 0.1
 
     this.x = [0, 0, 0]
