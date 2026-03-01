@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.119](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.118...v0.1.119) (2026-03-01)
+
+
+### Bug Fixes
+
+* move dynamic props inside map bounds so they are visible ([9d3d4ff](https://github.com/AnEntrypoint/spawnpoint/commit/9d3d4ff348fd5f11174d31890df408b5c6fbc7b2))
+
 ### [0.1.118](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.117...v0.1.118) (2026-03-01)
 
 
