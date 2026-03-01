@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.103](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.102...v0.1.103) (2026-03-01)
+
+
+### Features
+
+* increase socket backlog to 2048 for 1000+ concurrent connections ([08c4735](https://github.com/AnEntrypoint/spawnpoint/commit/08c473569778af302608fa3bc14f64e6db45cb30))
+
 ### [0.1.102](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.101...v0.1.102) (2026-03-01)
 
 
