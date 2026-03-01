@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.110](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.109...v0.1.110) (2026-03-01)
+
+
+### Bug Fixes
+
+* distribute spawn positions across full map area ([39af7bb](https://github.com/AnEntrypoint/spawnpoint/commit/39af7bba563f77c47d65d3e43bceff20114f7216))
+
 ### [0.1.109](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.108...v0.1.109) (2026-03-01)
 
 
