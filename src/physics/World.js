@@ -61,7 +61,9 @@ export class PhysicsWorld {
     else if (shapeType === 'capsule') shape = new J.CapsuleShape(params[1], params[0])
     else if (shapeType === 'convex') {
       const pts = new J.VertexList()
-      for (let i = 0; i < params.length; i += 3) pts.push_back(new J.Float3(params[i], params[i + 1], params[i + 2]))
+      const f3 = new J.Float3(0, 0, 0)
+      for (let i = 0; i < params.length; i += 3) { f3.x = params[i]; f3.y = params[i + 1]; f3.z = params[i + 2]; pts.push_back(f3) }
+      J.destroy(f3)
       const cvx = new J.ConvexHullShapeSettings(pts)
       shape = cvx.Create().Get()
       J.destroy(pts); J.destroy(cvx)

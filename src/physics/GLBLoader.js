@@ -119,13 +119,15 @@ export async function extractMeshFromGLBAsync(filepath, meshIndex = 0) {
   const json = JSON.parse(buf.toString('utf-8', 20, 20 + jsonLen))
   const binOffset = 20 + jsonLen + 8
 
+  if (!json.meshes || json.meshes.length === 0) throw new Error('GLB has no meshes')
   const mesh = json.meshes[meshIndex]
   if (!mesh) throw new Error(`Mesh index ${meshIndex} not found`)
+  if (!mesh.primitives || mesh.primitives.length === 0) throw new Error(`Mesh ${meshIndex} has no primitives`)
 
   const prim = mesh.primitives[0]
 
   let result
-  
+
   if (prim.extensions?.KHR_draco_mesh_compression) {
     result = await decompressDracoMesh(buf, json, prim, binOffset, mesh.name)
   } else if (json.bufferViews?.some(bv => bv.extensions?.EXT_meshopt_compression)) {
