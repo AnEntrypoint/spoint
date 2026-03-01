@@ -255,9 +255,9 @@ export class AppRuntime {
 
   _tickInteractables() {
     const now = Date.now()
+    const players = this.getPlayers()
     for (const e of this.entities.values()) {
       if (!e._interactable) continue
-      const players = this.getPlayers()
       for (const p of players) {
         const pp = p.state?.position; if (!pp) continue
         const dx = pp[0]-e.position[0], dy = pp[1]-e.position[1], dz = pp[2]-e.position[2]
