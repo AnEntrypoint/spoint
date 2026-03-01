@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.120](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.119...v0.1.120) (2026-03-01)
+
+
+### Bug Fixes
+
+* props now visibly fall and land by fixing respawn threshold and spawn height ([0104b05](https://github.com/AnEntrypoint/spawnpoint/commit/0104b05a06bd31dce913f3e08c3a9ff82abc2bc3))
+
 ### [0.1.119](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.118...v0.1.119) (2026-03-01)
 
 
