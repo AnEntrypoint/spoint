@@ -1,58 +1,20 @@
+import { get, put, remove } from './IndexedDBStore.js'
+
 const DB_NAME = 'spawnpoint-model-cache'
 const DB_VERSION = 1
 const STORE = 'models'
 
-let _db = null
-
-async function openDB() {
-  if (_db) return _db
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION)
-    req.onupgradeneeded = e => e.target.result.createObjectStore(STORE)
-    req.onsuccess = e => { _db = e.target.result; resolve(_db) }
-    req.onerror = () => reject(req.error)
-  })
-}
-
-async function dbGet(key) {
-  const db = await openDB()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readonly')
-    const req = tx.objectStore(STORE).get(key)
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
-}
-
-async function _dbPutRaw(key, value) {
-  const db = await openDB()
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite')
-    const req = tx.objectStore(STORE).put(value, key)
-    req.onsuccess = () => resolve()
-    req.onerror = () => reject(req.error)
-  })
-}
-
 export async function dbPut(key, etag, buffer) {
-  try { await _dbPutRaw(key, { etag, buffer }) } catch {}
+  try { await put(DB_NAME, DB_VERSION, STORE, key, { etag, buffer }) } catch {}
 }
 
 export async function dbDelete(key) {
-  try {
-    const db = await openDB()
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE, 'readwrite')
-      const req = tx.objectStore(STORE).delete(key)
-      req.onsuccess = () => resolve()
-      req.onerror = () => reject(req.error)
-    })
-  } catch {}
+  try { await remove(DB_NAME, DB_VERSION, STORE, key) } catch {}
 }
 
 export async function fetchCached(url, onProgress) {
   let cached = null
-  try { cached = await dbGet(url) } catch {}
+  try { cached = await get(DB_NAME, DB_VERSION, STORE, url) } catch {}
 
   if (cached?.etag) {
     const head = await fetch(url, { method: 'HEAD' }).catch(() => null)
@@ -85,7 +47,7 @@ export async function fetchCached(url, onProgress) {
   for (const chunk of chunks) { result.set(chunk, pos); pos += chunk.length }
 
   if (etag) {
-    try { await _dbPutRaw(url, { etag, buffer: result.buffer }) } catch {}
+    try { await put(DB_NAME, DB_VERSION, STORE, url, { etag, buffer: result.buffer }) } catch {}
   }
 
   return result

@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { getCachedClips, cacheClips } from './AnimationClipCache.js'
 
 // anim-lib bone name → Blender default humanoid bone name (post Three.js sanitizeNodeName — dots stripped)
 const ANIM_TO_BLENDER = {
@@ -193,10 +194,16 @@ export function preloadAnimationLibrary(loader) {
 
 export async function loadAnimationLibrary(vrmVersion, vrmHumanoid) {
   if (_normalizedCache) return _normalizedCache
+  const cacheKey = `anim-lib-v${vrmVersion || '1'}`
+  const cached = await getCachedClips(cacheKey)
+  if (cached) {
+    console.log(`[anim] Loaded ${cached.size} clips from cache`)
+    _normalizedCache = { normalizedClips: cached, rawClips: cached }
+    return _normalizedCache
+  }
   const gltf = await preloadAnimationLibrary()
   if (_normalizedCache) return _normalizedCache
   const normalizedClips = normalizeClips(gltf, vrmVersion || '1', vrmHumanoid)
-  // Raw clips: strip VRM| prefix / @N suffix, no retargeting — for direct Blender-to-Blender GLB use
   const rawClips = new Map()
   for (const clip of gltf.animations) {
     const name = clip.name.replace(/^VRM\|/, '').replace(/@\d+$/, '')
@@ -204,6 +211,7 @@ export async function loadAnimationLibrary(vrmVersion, vrmHumanoid) {
   }
   console.log(`[anim] Loaded animation library (${normalizedClips.size} clips):`, [...normalizedClips.keys()])
   _normalizedCache = { normalizedClips, rawClips }
+  cacheClips(cacheKey, normalizedClips)
   return _normalizedCache
 }
 

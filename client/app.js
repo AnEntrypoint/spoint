@@ -1293,11 +1293,17 @@ async function warmupShaders() {
   if (_shaderWarmupDone) return
   _shaderWarmupDone = true
 
-  loadingMgr.setLabel('Compiling shaders...')
-
-  // Collect all meshes: entity GLBs + any player VRMs already in scene
   const allMeshes = [...entityMeshes.values(), ...playerMeshes.values()]
   const total = allMeshes.length
+  const sceneKey = `shader-warmup-v1:${total}`
+  const lastKey = sessionStorage.getItem('lastShaderWarmupKey')
+  if (lastKey === sceneKey) {
+    console.log('[shader] skipped warmup (scene unchanged)')
+    return
+  }
+  sessionStorage.setItem('lastShaderWarmupKey', sceneKey)
+
+  loadingMgr.setLabel('Compiling shaders...')
   loadingMgr.reportProcessing(0, total)
 
   // Warmup camera: orthographic, looks straight at each mesh from close range
