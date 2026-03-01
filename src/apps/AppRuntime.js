@@ -13,7 +13,7 @@ export class AppRuntime {
     this.currentTick = 0; this.deltaTime = 0; this.elapsed = 0
     this._playerManager = c.playerManager || null; this._physics = c.physics || null; this._physicsIntegration = c.physicsIntegration || null
     this._connections = c.connections || null; this._stageLoader = c.stageLoader || null
-    this._nextEntityId = 1; this._appDefs = new Map(); this._timers = new Map(); this._interactCooldowns = new Map()
+    this._nextEntityId = 1; this._appDefs = new Map(); this._timers = new Map(); this._interactCooldowns = new Map(); this._respawnTimer = new Map()
     this._hotReload = new HotReloadQueue(this)
     this._eventBus = c.eventBus || new EventBus()
     this._eventLog = c.eventLog || null
@@ -216,18 +216,35 @@ export class AppRuntime {
   }
 
   _tickRespawn() {
+    const now = Date.now()
     for (const e of this.entities.values()) {
-      if (e.position[1] < -50) {
-        const spawnPos = e._spawnPosition || [0, 20, 0]
-        e.position[0] = spawnPos[0]
-        e.position[1] = spawnPos[1]
-        e.position[2] = spawnPos[2]
-        e.velocity[0] = 0
-        e.velocity[1] = 0
-        e.velocity[2] = 0
-        if (e._physicsBodyId !== undefined && this._physics) {
-          this._physics.setBodyPosition(e._physicsBodyId, spawnPos)
-          this._physics.setBodyVelocity(e._physicsBodyId, [0, 0, 0])
+      if (e.position[1] < 0) {
+        if (!this._respawnTimer.has(e.id)) {
+          this._respawnTimer.set(e.id, { startTime: now, lastRespawn: 0 })
+        }
+        const timer = this._respawnTimer.get(e.id)
+        const fallDuration = (now - timer.startTime) / 1000
+        if (fallDuration >= 5) {
+          const respawnCooldown = 1000
+          if (now - timer.lastRespawn >= respawnCooldown) {
+            const spawnPos = e._spawnPosition || [0, 20, 0]
+            e.position[0] = spawnPos[0]
+            e.position[1] = spawnPos[1]
+            e.position[2] = spawnPos[2]
+            e.velocity[0] = 0
+            e.velocity[1] = 0
+            e.velocity[2] = 0
+            if (e._physicsBodyId !== undefined && this._physics) {
+              this._physics.setBodyPosition(e._physicsBodyId, spawnPos)
+              this._physics.setBodyVelocity(e._physicsBodyId, [0, 0, 0])
+            }
+            timer.lastRespawn = now
+            this._respawnTimer.set(e.id, { startTime: now, lastRespawn: now })
+          }
+        }
+      } else {
+        if (this._respawnTimer.has(e.id)) {
+          this._respawnTimer.delete(e.id)
         }
       }
     }

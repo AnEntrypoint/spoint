@@ -59,8 +59,7 @@ export default {
     fadeTime: 0.15
   },
   entities: [
-    { id: 'env-sillos', model: './apps/maps/aim_sillos.glb', position: [0, 0, 0], app: 'environment' },
-    { id: 'dyn-ground', app: 'box-static', position: [0, -1, 0], config: { hx: 80, hy: 1, hz: 80, color: 0x888888 } },
+    { id: 'env-sillos', model: './apps/maps/aim_sillos.glb', position: [0, 0, 0], app: 'environment', autoTrimesh: true },
     { id: 'dyn-0', model: './apps/props/dynamic/3dPrinter1.glb', position: [-50, 10, -50], app: 'prop-dynamic' },
     { id: 'dyn-1', model: './apps/props/dynamic/3dPrinter2.glb', position: [-50, 10, -40], app: 'prop-dynamic' },
     { id: 'dyn-2', model: './apps/props/dynamic/AirConditioner1.glb', position: [-50, 10, -30], app: 'prop-dynamic' },
