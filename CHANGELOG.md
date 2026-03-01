@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.108](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.107...v0.1.108) (2026-03-01)
+
+
+### Bug Fixes
+
+* correct dynamic prop spawn height from Y=10 to Y=5 ([ed29848](https://github.com/AnEntrypoint/spawnpoint/commit/ed298482178f4fc8db905d8c83b6ed3991f9117b))
+
 ### [0.1.107](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.106...v0.1.107) (2026-03-01)
 
 
