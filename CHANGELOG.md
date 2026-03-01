@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.118](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.117...v0.1.118) (2026-03-01)
+
+
+### Bug Fixes
+
+* increase relevanceRadius to 900 to include all dynamic props in snapshots ([5c11289](https://github.com/AnEntrypoint/spawnpoint/commit/5c112891a5948e7ef2be3952c17558f99c788d45))
+
 ### [0.1.117](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.116...v0.1.117) (2026-03-01)
 
 
