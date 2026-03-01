@@ -67,3 +67,6 @@ profiling*.png
 spawn.log
 server.pid
 server*.log
+test-*.js
+run-test.sh
+kill
