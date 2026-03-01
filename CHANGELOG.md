@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.109](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.108...v0.1.109) (2026-03-01)
+
+
+### Features
+
+* use trimesh collision for dynamic props ([209debd](https://github.com/AnEntrypoint/spawnpoint/commit/209debdb1141827db6a969c5aa5f2f6a598a6f4c))
+
+
+### Bug Fixes
+
+* improve trimesh collision fallback for dynamic props ([d197101](https://github.com/AnEntrypoint/spawnpoint/commit/d197101252362f504276d96faee171302cb25be2))
+
 ### [0.1.108](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.107...v0.1.108) (2026-03-01)
 
 
