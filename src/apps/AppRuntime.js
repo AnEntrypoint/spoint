@@ -221,7 +221,7 @@ export class AppRuntime {
   _tickRespawn() {
     const now = Date.now()
     for (const e of this.entities.values()) {
-      if (e.position[1] < 0) {
+      if (e.position[1] < -20) {
         if (!this._respawnTimer.has(e.id)) {
           this._respawnTimer.set(e.id, { startTime: now, lastRespawn: 0 })
         }
