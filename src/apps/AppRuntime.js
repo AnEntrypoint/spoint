@@ -47,14 +47,16 @@ export class AppRuntime {
 
   spawnEntity(id, config = {}) {
     const entityId = id || `entity_${this._nextEntityId++}`
+    const spawnPos = config.position ? [...config.position] : [0, 0, 0]
     const entity = {
       id: entityId, model: config.model || null,
-      position: config.position ? [...config.position] : [0, 0, 0],
+      position: [...spawnPos],
       rotation: config.rotation || [0, 0, 0, 1],
       scale: config.scale ? [...config.scale] : [1, 1, 1],
       velocity: [0, 0, 0], mass: 1, bodyType: 'static', collider: null,
       parent: null, children: new Set(),
-      _appState: null, _appName: config.app || null, _config: config.config || null, custom: null
+      _appState: null, _appName: config.app || null, _config: config.config || null, custom: null,
+      _spawnPosition: spawnPos
     }
     this.entities.set(entityId, entity)
     this._log('entity_spawn', { id: entityId, config }, { sourceEntity: entityId })
@@ -126,7 +128,7 @@ export class AppRuntime {
       const ctx = this.contexts.get(entityId); if (!ctx) continue
       this._safeCall(appDef.server || appDef, 'update', [ctx, dt], `update(${entityId})`)
     }
-    this._tickTimers(dt); this._syncDynamicBodies(); this._spatialSync(); this._tickCollisions(); this._tickInteractables()
+    this._tickTimers(dt); this._syncDynamicBodies(); this._tickRespawn(); this._spatialSync(); this._tickCollisions(); this._tickInteractables()
   }
 
   _syncDynamicBodies() {
@@ -196,6 +198,24 @@ export class AppRuntime {
         if (dx*dx+dy*dy+dz*dz < rr*rr) {
           this.fireEvent(a.id, 'onCollision', { id: b.id, position: b.position, velocity: b.velocity })
           this.fireEvent(b.id, 'onCollision', { id: a.id, position: a.position, velocity: a.velocity })
+        }
+      }
+    }
+  }
+
+  _tickRespawn() {
+    for (const e of this.entities.values()) {
+      if (e.position[1] < -50) {
+        const spawnPos = e._spawnPosition || [0, 20, 0]
+        e.position[0] = spawnPos[0]
+        e.position[1] = spawnPos[1]
+        e.position[2] = spawnPos[2]
+        e.velocity[0] = 0
+        e.velocity[1] = 0
+        e.velocity[2] = 0
+        if (e._physicsBodyId !== undefined && this._physics) {
+          this._physics.setBodyPosition(e._physicsBodyId, spawnPos)
+          this._physics.setBodyVelocity(e._physicsBodyId, [0, 0, 0])
         }
       }
     }
