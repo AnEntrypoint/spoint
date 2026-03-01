@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.122](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.121...v0.1.122) (2026-03-01)
+
+
+### Bug Fixes
+
+* two addConvexFromModelAsync bugs - null mesh guard and Jolt Float3 WASM leak ([d50e660](https://github.com/AnEntrypoint/spawnpoint/commit/d50e66015b5b8acdc871baf589c775ba98f4e933))
+
 ### [0.1.121](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.120...v0.1.121) (2026-03-01)
 
 
