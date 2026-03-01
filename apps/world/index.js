@@ -15,9 +15,9 @@ export default {
   },
   player: {
     health: 100,
-    capsuleRadius: 0.4,
-    capsuleHalfHeight: 0.9,
-    crouchHalfHeight: 0.45,
+    capsuleRadius: 0.28,
+    capsuleHalfHeight: 0.63,
+    crouchHalfHeight: 0.315,
     mass: 120,
     modelScale: 1.323,
     feetOffset: 0.212
