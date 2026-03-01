@@ -695,10 +695,6 @@ function applySceneConfig(s) {
   if (s.fov) { camera.fov = s.fov; camera.updateProjectionMatrix() }
 }
 
-const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.MeshStandardMaterial({ color: 0x444444 }))
-ground.rotation.x = -Math.PI / 2
-ground.receiveShadow = true
-scene.add(ground)
 
 const loadingManager = new THREE.LoadingManager()
 loadingManager.onError = (url) => console.warn('[THREE] Failed to load:', url)
@@ -1101,7 +1097,6 @@ async function _doLoadEntityModel(entityId, entityState) {
     entityMeshes.set(entityId, model)
     if (!isDynamic) {
       cam.setEnvironment(colliders)
-      scene.remove(ground)
       fitShadowFrustum()
     }
     pendingLoads.delete(entityId)
@@ -1394,7 +1389,6 @@ async function initAR() {
       if (started) {
         arEnabled = true
         scene.background = null
-        ground.visible = false
         renderer.domElement.style.display = 'none'
         console.log('[AR] AR mode started')
         return true
@@ -1404,7 +1398,6 @@ async function initAR() {
       await xrControls.end()
       arEnabled = false
       scene.background = new THREE.Color(0x87ceeb)
-      ground.visible = true
       renderer.domElement.style.display = 'block'
       if (arButton) {
         arButton.textContent = 'Enter XR'
