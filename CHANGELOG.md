@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.106](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.105...v0.1.106) (2026-03-01)
+
+
+### Bug Fixes
+
+* correct msgpack corruption from timestamp field ([281bfae](https://github.com/AnEntrypoint/spawnpoint/commit/281bfaecd161ff2defc4f147d7d1661f6b5ac980))
+
 ### [0.1.105](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.104...v0.1.105) (2026-03-01)
 
 
