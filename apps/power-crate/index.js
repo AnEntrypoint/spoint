@@ -12,9 +12,9 @@ const CONFIG = {
   raycastRange: 30,
   minGroundY: -3,
   spawnAboveGround: 1.5,
-  gridStart: [-31, -61],
-  gridEnd: [17, -1],
-  gridStep: 12
+  gridStart: [-770, -310],
+  gridEnd: [800, 70],
+  gridStep: 160
 }
 
 export default {
