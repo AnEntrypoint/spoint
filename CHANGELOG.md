@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.126](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.125...v0.1.126) (2026-03-01)
+
+
+### Bug Fixes
+
+* reduce player capsule collider by 30% ([b655a00](https://github.com/AnEntrypoint/spawnpoint/commit/b655a00c31c322ee7383fc7f9ceefae38d5fb1f3))
+
 ### [0.1.125](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.124...v0.1.125) (2026-03-01)
 
 
