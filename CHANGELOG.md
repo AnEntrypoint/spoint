@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.113](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.112...v0.1.113) (2026-03-01)
+
+
+### Bug Fixes
+
+* distribute item and prop spawns across full map area ([33152d0](https://github.com/AnEntrypoint/spawnpoint/commit/33152d038d0037398148e819400c19a8cccea8a4))
+
 ### [0.1.112](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.111...v0.1.112) (2026-03-01)
 
 ### [0.1.111](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.110...v0.1.111) (2026-03-01)
