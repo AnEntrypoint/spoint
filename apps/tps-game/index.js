@@ -240,13 +240,13 @@ export default {
 
 function findSpawnPoints(ctx) {
   const valid = []
-  for (let x = -56; x <= 44; x += 13) {
-    for (let z = -90; z <= 34; z += 12) {
+  for (let x = -850; x <= 1050; x += 180) {
+    for (let z = -80; z <= 960; z += 160) {
       const hit = ctx.raycast([x, 20, z], [0, -1, 0], 30)
       if (hit.hit && hit.position[1] > -3) valid.push([x, hit.position[1] + 2, z])
     }
   }
-  if (valid.length < 4) valid.push([0, 5, 0], [-35, 3, -65], [20, 5, -20], [-20, 5, 20])
+  if (valid.length < 4) valid.push([0, 5, 0], [100, 5, 200], [-100, 5, -100], [200, 5, 500])
   return valid
 }
 
