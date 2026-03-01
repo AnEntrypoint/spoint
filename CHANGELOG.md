@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.107](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.106...v0.1.107) (2026-03-01)
+
+
+### Bug Fixes
+
+* eliminate physics object jittering via velocity sync and smooth interpolation ([920a5a3](https://github.com/AnEntrypoint/spawnpoint/commit/920a5a34caaba6165b7f5f522d6c3310ab60af9e))
+
 ### [0.1.106](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.105...v0.1.106) (2026-03-01)
 
 
