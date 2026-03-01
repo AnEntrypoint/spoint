@@ -68,7 +68,6 @@ export class AppContext {
           ent._physicsBodyId = runtime._physics.addBody('capsule', [r, h / 2], ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
         }
       },
-      addMeshCollider: (m) => { ent.collider = { type: 'mesh', mesh: m } },
       addTrimeshCollider: async () => {
         ent.collider = { type: 'trimesh', model: ent.model }
         if (runtime._physics && ent.model) {
@@ -104,6 +103,16 @@ export class AppContext {
           } else {
             throw err
           }
+        }
+      },
+      addConvexFromModelAsync: async (meshIndex = 0) => {
+        if (!ent.model) return
+        const mesh = await extractMeshFromGLBAsync(runtime.resolveAssetPath(ent.model), meshIndex)
+        const points = Array.from(mesh.vertices)
+        ent.collider = { type: 'convex', points }
+        if (runtime._physics) {
+          const mt = ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
+          ent._physicsBodyId = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
         }
       },
       addForce: (f) => {
@@ -196,15 +205,6 @@ export class AppContext {
     ent._interactCooldown = cooldown
     if (!ent.custom) ent.custom = {}
     ent.custom._interactable = { prompt, radius }
-  }
-
-  get collider() {
-    const ent = this._entity
-    return {
-      box: (hx, hy, hz) => { ent.collider = { type: 'box', halfExtents: [hx, hy, hz] } },
-      capsule: (r, h) => { ent.collider = { type: 'capsule', radius: r, halfHeight: h } },
-      sphere: (r) => { ent.collider = { type: 'sphere', radius: r } }
-    }
   }
 
   raycast(origin, direction, maxDistance = 1000) {
