@@ -23,6 +23,7 @@ function encodeEntity(e) {
     e.model || '',
     quantize(e.position[0], 100), quantize(e.position[1], 100), quantize(e.position[2], 100),
     quantize(e.rotation[0], 10000), quantize(e.rotation[1], 10000), quantize(e.rotation[2], 10000), quantize(e.rotation[3], 10000),
+    quantize(e.velocity?.[0] || 0, 100), quantize(e.velocity?.[1] || 0, 100), quantize(e.velocity?.[2] || 0, 100),
     e.bodyType || 'static',
     e.custom || null
   ]
@@ -43,9 +44,9 @@ export class SnapshotEncoder {
       currentIds.add(e.id)
       const prev = prevEntityMap.get(e.id)
       let k = encoded[1]
-      for (let i = 2; i < 10; i++) k += '|' + encoded[i]
-      k += '|' + encoded[9]
-      const cust = encoded[10]
+      for (let i = 2; i < 12; i++) k += '|' + encoded[i]
+      k += '|' + encoded[12]
+      const cust = encoded[13]
       const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? JSON.stringify(cust) : '')
       k += '|' + custStr
       nextMap.set(e.id, [k, cust, custStr])
@@ -56,7 +57,7 @@ export class SnapshotEncoder {
       if (!currentIds.has(id)) removed.push(id)
     }
     return {
-      encoded: { tick: snapshot.tick || 0, timestamp: snapshot.timestamp || 0, players, entities, removed: removed.length ? removed : undefined, delta: 1 },
+      encoded: { tick: snapshot.tick || 0, serverTime: snapshot.serverTime, players, entities, removed: removed.length ? removed : undefined, delta: 1 },
       entityMap: nextMap
     }
   }
@@ -64,7 +65,7 @@ export class SnapshotEncoder {
   static encode(snapshot) {
     const players = (snapshot.players || []).map(encodePlayer)
     const entities = (snapshot.entities || []).map(encodeEntity)
-    return { tick: snapshot.tick || 0, timestamp: snapshot.timestamp || 0, players, entities }
+    return { tick: snapshot.tick || 0, serverTime: snapshot.serverTime, players, entities }
   }
 
   static decode(data) {
@@ -84,11 +85,11 @@ export class SnapshotEncoder {
       const entities = (data.entities || []).map(e => {
         if (Array.isArray(e)) return {
           id: e[0], model: e[1], position: [e[2], e[3], e[4]],
-          rotation: [e[5], e[6], e[7], e[8]], bodyType: e[9], custom: e[10]
+          rotation: [e[5], e[6], e[7], e[8]], velocity: [e[9], e[10], e[11]], bodyType: e[12], custom: e[13]
         }
         return e
       })
-      return { tick: data.tick, timestamp: data.timestamp, players, entities, delta: data.delta, removed: data.removed }
+      return { tick: data.tick, serverTime: data.serverTime, players, entities, delta: data.delta, removed: data.removed }
     }
     return data
   }

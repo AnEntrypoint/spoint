@@ -131,7 +131,7 @@ export function createTickHandler(deps) {
           const nearbyPlayers = appRuntime.getNearbyPlayers(player.state.position, relevanceRadius, playerSnap.players)
           const preEncodedPlayers = SnapshotEncoder.encodePlayers(nearbyPlayers)
           const entitySnap = appRuntime.getSnapshotForPlayer(player.state.position, relevanceRadius)
-          const combined = { tick: playerSnap.tick, timestamp: playerSnap.timestamp, entities: entitySnap.entities }
+          const combined = { tick: playerSnap.tick, entities: entitySnap.entities, serverTime: Date.now() }
           const prevMap = (isKeyframe || !playerEntityMaps.has(player.id)) ? new Map() : playerEntityMaps.get(player.id)
           const { encoded, entityMap } = SnapshotEncoder.encodeDelta(combined, prevMap, preEncodedPlayers)
           playerEntityMaps.set(player.id, entityMap)
@@ -139,7 +139,7 @@ export function createTickHandler(deps) {
         }
       } else {
         const entitySnap = appRuntime.getSnapshot()
-        const combined = { tick: playerSnap.tick, timestamp: playerSnap.timestamp, players: playerSnap.players, entities: entitySnap.entities }
+        const combined = { tick: playerSnap.tick, players: playerSnap.players, entities: entitySnap.entities, serverTime: Date.now() }
         const prevMap = (isKeyframe || broadcastEntityMap.size === 0) ? new Map() : broadcastEntityMap
         const { encoded, entityMap } = SnapshotEncoder.encodeDelta(combined, prevMap)
         broadcastEntityMap = entityMap

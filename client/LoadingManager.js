@@ -8,17 +8,24 @@ export class LoadingManager extends EventTarget {
     this._dlDone = new Set()
     this._dlTotal = 0
     this._dlCompleted = 0
+    this._fixedTotal = null
     // Processing: count-based (entity shader warmup)
     this._procDone = 0
     this._procTotal = 0
     this.label = 'Connecting...'
   }
 
+  setFixedTotal(count) {
+    this._fixedTotal = count
+    this._dlTotal = count
+    this._emitDownload()
+  }
+
   // Register an asset as "about to download" (call before fetchCached)
   beginDownload(key) {
     if (this._dlStarted.has(key)) return
     this._dlStarted.add(key)
-    this._dlTotal++
+    if (this._fixedTotal === null) this._dlTotal++
     this._emitDownload()
   }
 

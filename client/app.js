@@ -768,6 +768,17 @@ function getGLBExts(buf) {
   try { const av = buf instanceof ArrayBuffer ? buf : buf.buffer; const dv = new DataView(av); const jl = dv.getUint32(12, true); const j = JSON.parse(new TextDecoder().decode(new Uint8Array(av, 20, jl))); return j.extensions || {} } catch { return {} }
 }
 
+function preCalculateAssets(worldDef) {
+  const assets = new Set()
+  if (worldDef.playerModel) assets.add(worldDef.playerModel)
+  if (worldDef.entities) {
+    for (const e of worldDef.entities) {
+      if (e.model) assets.add(e.model)
+    }
+  }
+  return assets.size
+}
+
 function initAssets(playerModelUrl) {
   loadingMgr.setLabel('Downloading player model...')
   preloadAnimationLibrary(gltfLoader)
@@ -1177,8 +1188,9 @@ const client = new PhysicsNetworkClient({
       const mesh = entityMeshes.get(e.id)
       if (mesh && e.position) {
         const et = entityTargets.get(e.id)
-        if (et) { et.x = e.position[0]; et.y = e.position[1]; et.z = e.position[2]; et.rx = e.rotation?.[0] || 0; et.ry = e.rotation?.[1] || 0; et.rz = e.rotation?.[2] || 0; et.rw = e.rotation?.[3] || 1 }
-        else entityTargets.set(e.id, { x: e.position[0], y: e.position[1], z: e.position[2], rx: e.rotation?.[0] || 0, ry: e.rotation?.[1] || 0, rz: e.rotation?.[2] || 0, rw: e.rotation?.[3] || 1 })
+        const vx = e.velocity?.[0] || 0, vy = e.velocity?.[1] || 0, vz = e.velocity?.[2] || 0
+        if (et) { et.x = e.position[0]; et.y = e.position[1]; et.z = e.position[2]; et.vx = vx; et.vy = vy; et.vz = vz; et.rx = e.rotation?.[0] || 0; et.ry = e.rotation?.[1] || 0; et.rz = e.rotation?.[2] || 0; et.rw = e.rotation?.[3] || 1 }
+        else entityTargets.set(e.id, { x: e.position[0], y: e.position[1], z: e.position[2], vx, vy, vz, rx: e.rotation?.[0] || 0, ry: e.rotation?.[1] || 0, rz: e.rotation?.[2] || 0, rw: e.rotation?.[3] || 1 })
         const dx = e.position[0] - mesh.position.x, dy = e.position[1] - mesh.position.y, dz = e.position[2] - mesh.position.z
         if (!mesh.userData.entInit || dx * dx + dy * dy + dz * dz > 100) { mesh.position.set(e.position[0], e.position[1], e.position[2]); if (e.rotation) mesh.quaternion.set(e.rotation[0], e.rotation[1], e.rotation[2], e.rotation[3]); mesh.userData.entInit = true }
       }
@@ -1200,6 +1212,8 @@ const client = new PhysicsNetworkClient({
   onWorldDef: (wd) => {
     loadingMgr.setLabel('Syncing with server...')
     worldConfig = wd
+    const totalAssets = preCalculateAssets(wd)
+    if (totalAssets > 0) loadingMgr.setFixedTotal(totalAssets)
     if (wd.playerModel) initAssets(wd.playerModel.startsWith('./') ? '/' + wd.playerModel.slice(2) : wd.playerModel)
     else { assetsReady = Promise.resolve(); assetsLoaded = true; checkAllLoaded() }
     if (wd.entities) for (const e of wd.entities) { if (e.app) entityAppMap.set(e.id, e.app) }
@@ -1695,9 +1709,12 @@ function animate(timestamp) {
   entityTargets.forEach((target, id) => {
     const mesh = entityMeshes.get(id)
     if (!mesh) return
-    mesh.position.x += (target.x - mesh.position.x) * lerpFactor
-    mesh.position.y += (target.y - mesh.position.y) * lerpFactor
-    mesh.position.z += (target.z - mesh.position.z) * lerpFactor
+    const goalX = target.x + (target.vx || 0) * frameDt
+    const goalY = target.y + (target.vy || 0) * frameDt
+    const goalZ = target.z + (target.vz || 0) * frameDt
+    mesh.position.x += (goalX - mesh.position.x) * lerpFactor
+    mesh.position.y += (goalY - mesh.position.y) * lerpFactor
+    mesh.position.z += (goalZ - mesh.position.z) * lerpFactor
     mesh.quaternion.x += (target.rx - mesh.quaternion.x) * lerpFactor
     mesh.quaternion.y += (target.ry - mesh.quaternion.y) * lerpFactor
     mesh.quaternion.z += (target.rz - mesh.quaternion.z) * lerpFactor

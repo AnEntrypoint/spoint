@@ -147,7 +147,8 @@ export class AppRuntime {
 
   _encodeEntity(id, e) {
     const r = Array.isArray(e.rotation) ? [...e.rotation] : [e.rotation.x || 0, e.rotation.y || 0, e.rotation.z || 0, e.rotation.w || 1]
-    return { id, model: e.model, position: [...e.position], rotation: r, scale: [...e.scale], bodyType: e.bodyType, custom: e.custom || null, parent: e.parent || null }
+    const v = e.velocity || [0, 0, 0]
+    return { id, model: e.model, position: [...e.position], rotation: r, scale: [...e.scale], velocity: [...v], bodyType: e.bodyType, custom: e.custom || null, parent: e.parent || null }
   }
 
   getSnapshot() {

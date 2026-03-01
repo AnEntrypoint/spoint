@@ -104,7 +104,7 @@ export class SnapshotProcessor {
         entityId: e[0],
         state: {
           id: e[0], model: e[1], position: [e[2], e[3], e[4]], rotation: [e[5], e[6], e[7], e[8]],
-          bodyType: e[9], custom: e[10]
+          velocity: [e[9], e[10], e[11]], bodyType: e[12], custom: e[13]
         }
       }
     }
@@ -112,7 +112,7 @@ export class SnapshotProcessor {
       entityId: e.id,
       state: {
         id: e.id, model: e.model, position: e.position || [0, 0, 0], rotation: e.rotation || [0, 0, 0, 1],
-        bodyType: e.bodyType || 'static', custom: e.custom || null
+        velocity: e.velocity || [0, 0, 0], bodyType: e.bodyType || 'static', custom: e.custom || null
       }
     }
   }
