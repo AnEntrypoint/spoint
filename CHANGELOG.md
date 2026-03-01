@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.125](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.124...v0.1.125) (2026-03-01)
+
+
+### Bug Fixes
+
+* addConvexFromModelAsync uses real mesh vertices instead of AABB hull ([e19905a](https://github.com/AnEntrypoint/spawnpoint/commit/e19905a34ed25d00d83432492b03a5cd3a869795))
+
 ### [0.1.124](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.123...v0.1.124) (2026-03-01)
 
 
