@@ -1666,11 +1666,6 @@ function animate(timestamp) {
     playerStates.set(p.id, p)
     if (!mesh.userData.initialized) { mesh.position.set(tx, ty, tz); mesh.userData.initialized = true }
   }
-  for (const e of smoothState.entities) {
-    const mesh = entityMeshes.get(e.id)
-    if (mesh && e.position) mesh.position.set(e.position[0], e.position[1], e.position[2])
-    if (mesh && e.rotation) mesh.quaternion.set(e.rotation[0], e.rotation[1], e.rotation[2], e.rotation[3])
-  }
   if (smoothState.entities.length > 0) rebuildEntityHierarchy(smoothState.entities)
   playerTargets.forEach((target, id) => {
     const mesh = playerMeshes.get(id)

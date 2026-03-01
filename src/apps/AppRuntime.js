@@ -140,8 +140,10 @@ export class AppRuntime {
       e._dynSleeping = !active
       const p = this._physics.getBodyPosition(e._physicsBodyId)
       const r = this._physics.getBodyRotation(e._physicsBodyId)
+      const v = this._physics.getBodyVelocity(e._physicsBodyId)
       e.position[0] = p[0]; e.position[1] = p[1]; e.position[2] = p[2]
       e.rotation[0] = r[0]; e.rotation[1] = r[1]; e.rotation[2] = r[2]; e.rotation[3] = r[3]
+      e.velocity[0] = v[0]; e.velocity[1] = v[1]; e.velocity[2] = v[2]
     }
   }
 
