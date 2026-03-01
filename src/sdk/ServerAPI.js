@@ -48,12 +48,15 @@ export function createServerAPI(ctx) {
           ctx.httpServer = createHttpServer(createStaticHandler(staticDirs))
           ctx.wss = new WSServer({ server: ctx.httpServer, path: '/ws' })
           ctx.httpServer.on('error', reject)
-          ctx.httpServer.listen(port, () => {
+          ctx.httpServer.listen(port, '0.0.0.0', 2048, () => {
             attachWSHandlers(ctx)
             resolve({ port: ctx.port, tickRate: ctx.tickRate })
           })
         } else {
-          ctx.wss = new WSServer({ port }, () => {
+          ctx.httpServer = createHttpServer()
+          ctx.wss = new WSServer({ server: ctx.httpServer, path: '/ws' })
+          ctx.httpServer.on('error', reject)
+          ctx.httpServer.listen(port, '0.0.0.0', 2048, () => {
             attachWSHandlers(ctx)
             resolve({ port: ctx.port, tickRate: ctx.tickRate })
           })
