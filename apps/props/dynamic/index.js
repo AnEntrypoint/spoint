@@ -3,11 +3,7 @@ export default {
     async setup(ctx) {
       ctx.physics.setDynamic(true)
       if (ctx.entity.model) {
-        try {
-          await ctx.physics.addConvexFromModel(0)
-        } catch (e) {
-          ctx.physics.addBoxCollider(0.5, 0.5, 0.5)
-        }
+        await ctx.physics.addConvexFromModelAsync(0)
       } else {
         ctx.physics.addBoxCollider(0.5, 0.5, 0.5)
       }
