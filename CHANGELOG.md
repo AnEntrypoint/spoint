@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.114](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.113...v0.1.114) (2026-03-01)
+
+
+### Bug Fixes
+
+* expand player and dynamic entity spawn points to cover entire map bounds ([8688cd0](https://github.com/AnEntrypoint/spawnpoint/commit/8688cd0ea05f6ab221a5e4e1939dbd03abcefb03))
+
 ### [0.1.113](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.112...v0.1.113) (2026-03-01)
 
 
