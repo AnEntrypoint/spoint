@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.105](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.104...v0.1.105) (2026-03-01)
+
+
+### Bug Fixes
+
+* reduce client-side jitter via spawn height, velocity extrapolation, rotation SLERP, Kalman tuning, and RTT fixes ([43f4ee1](https://github.com/AnEntrypoint/spawnpoint/commit/43f4ee1528c722c6c07befc2eca0d2f13682af48))
+
 ### [0.1.104](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.103...v0.1.104) (2026-03-01)
 
 
