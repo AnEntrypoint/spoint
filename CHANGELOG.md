@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.117](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.116...v0.1.117) (2026-03-01)
+
+
+### Bug Fixes
+
+* discover and position spawn points on actual map terrain via raycasting ([55224f2](https://github.com/AnEntrypoint/spawnpoint/commit/55224f2e9d522d4d6ffffefed2f19626b521a188))
+
 ### [0.1.116](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.115...v0.1.116) (2026-03-01)
 
 
