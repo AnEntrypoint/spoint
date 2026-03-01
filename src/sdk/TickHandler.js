@@ -126,9 +126,10 @@ export function createTickHandler(deps) {
         ? stageLoader.getActiveStage().spatial.relevanceRadius
         : (getRelevanceRadius ? getRelevanceRadius() : 0)
       if (relevanceRadius > 0) {
-        const preEncodedPlayers = SnapshotEncoder.encodePlayers(playerSnap.players)
         for (const player of players) {
           if (!isKeyframe && player.id % snapGroups !== curGroup) continue
+          const nearbyPlayers = appRuntime.getNearbyPlayers(player.state.position, relevanceRadius, playerSnap.players)
+          const preEncodedPlayers = SnapshotEncoder.encodePlayers(nearbyPlayers)
           const entitySnap = appRuntime.getSnapshotForPlayer(player.state.position, relevanceRadius)
           const combined = { tick: playerSnap.tick, timestamp: playerSnap.timestamp, entities: entitySnap.entities }
           const prevMap = (isKeyframe || !playerEntityMaps.has(player.id)) ? new Map() : playerEntityMaps.get(player.id)

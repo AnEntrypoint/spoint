@@ -165,6 +165,18 @@ export class AppRuntime {
     return { tick: this.currentTick, timestamp: Date.now(), entities }
   }
 
+  getNearbyPlayers(viewerPosition, radius, allPlayers) {
+    if (!allPlayers || allPlayers.length === 0) return []
+    const cx = viewerPosition[0], cy = viewerPosition[1], cz = viewerPosition[2]
+    const r2 = radius * radius
+    const nearby = []
+    for (const p of allPlayers) {
+      const dx = p.position[0] - cx, dy = p.position[1] - cy, dz = p.position[2] - cz
+      if (dx * dx + dy * dy + dz * dz <= r2) nearby.push(p)
+    }
+    return nearby
+  }
+
   queryEntities(f) { const r = []; for (const e of this.entities.values()) { if (!f || f(e)) r.push(e) } return r }
   getEntity(id) { return this.entities.get(id) || null }
   fireEvent(eid, en, ...a) { const ad = this.apps.get(eid), c = this.contexts.get(eid); if (!ad || !c) return; this._log('app_event', { entityId: eid, event: en, args: a }, { sourceEntity: eid }); const s = ad.server || ad; if (s[en]) this._safeCall(s, en, [c, ...a], `${en}(${eid})`) }
