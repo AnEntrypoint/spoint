@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.104](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.103...v0.1.104) (2026-03-01)
+
+
+### Features
+
+* setup GLB map collision and respawn system ([0825a0c](https://github.com/AnEntrypoint/spawnpoint/commit/0825a0cb5a5ba02a1bfb9557229f3e9a571dc2f9))
+
 ### [0.1.103](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.102...v0.1.103) (2026-03-01)
 
 
