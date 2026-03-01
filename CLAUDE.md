@@ -156,6 +156,23 @@ MessageTypes.js uses hex grouping. Snapshot = 0x10, input = 0x11. Old docs liste
 
 `src/protocol/msgpack.js` is hand-rolled, NOT `msgpackr`. Reuses a single growing buffer, resets `pos` on each `pack()`. Not thread-safe (irrelevant — Node is single-threaded).
 
+## Static Entity Snapshot Optimization
+
+With `relevanceRadius > 0`, static entities are pre-encoded once per tick via `SnapshotEncoder.encodeStaticEntities()` and only when `appRuntime._staticVersion` changes (incremented on `spawnEntity`/`destroyEntity`). In steady state the 1000-entity scan is skipped entirely.
+
+`encodeDelta` receives:
+- `staticEntries` (all statics) for new players — sends full initial world state
+- `changedEntries` (only mutated statics) for existing players when statics change
+- `null` for existing players when statics are unchanged — zero static encoding cost
+
+`AppRuntime._dynamicEntityIds` caches the Set of non-static entity IDs, rebuilt on spawn/destroy. `getSnapshotForPlayer(pos, radius, skipStatic=true)` iterates only `_dynamicEntityIds` instead of all 1100 entities — O(n_dynamic) per player.
+
+`AppRuntime._updateList` caches `[entityId, server, ctx]` tuples where `server.update` is a function. Built in `_rebuildUpdateList()` called from `_attachApp`/`detachApp`. `tick()` iterates `_updateList` instead of all `this.apps` — skips static entities with no update function.
+
+Per-player `entityMap` tracks only dynamic entity delta keys. Static entity IDs in `staticEntityIds` (a cached Set from `buildStaticIds()`) prevent false `removed` entries without per-player static Map copies.
+
+Measured result: 87ms snap phase → ~10ms at 1000 static + 100 dynamic + 100 players (10x speedup).
+
 ## Snapshot Delivery: SNAP_GROUPS Rotation
 
 TickHandler sends snapshots to `1/SNAP_GROUPS` of players per tick (default 4). Effective snapshot rate = 32 Hz. At 100 players: 25 sends/tick × 166μs (Windows WebSocket kernel I/O) = 4ms/tick — within 7.8ms budget. SNAP_GROUPS is computed dynamically from player count.

@@ -19,6 +19,10 @@ export function createTickHandler(deps) {
   let snapshotSeq = 0
   const playerEntityMaps = new Map()
   let broadcastEntityMap = new Map()
+  let staticEntityMap = new Map()
+  let staticEntityIds = new Set()
+  let lastStaticEntries = null
+  let lastStaticVersion = -1
   let profileLog = 0
   const snapUnreliable = isUnreliable(MSG.SNAPSHOT)
 
@@ -126,14 +130,31 @@ export function createTickHandler(deps) {
         ? stageLoader.getActiveStage().spatial.relevanceRadius
         : (getRelevanceRadius ? getRelevanceRadius() : 0)
       if (relevanceRadius > 0) {
+        const curStaticVersion = appRuntime._staticVersion
+        let activeStaticEntries = null
+        if (isKeyframe || curStaticVersion !== lastStaticVersion) {
+          const allEntitiesSnap = appRuntime.getSnapshot()
+          const prevStaticMap = isKeyframe ? new Map() : staticEntityMap
+          const { staticEntries, changedEntries, staticMap, staticChanged } = SnapshotEncoder.encodeStaticEntities(allEntitiesSnap.entities, prevStaticMap)
+          lastStaticEntries = staticEntries
+          if (staticChanged || isKeyframe) {
+            staticEntityMap = staticMap
+            staticEntityIds = SnapshotEncoder.buildStaticIds(staticMap)
+            activeStaticEntries = isKeyframe ? staticEntries : changedEntries
+          }
+          lastStaticVersion = curStaticVersion
+        }
+        const serverTime = Date.now()
         for (const player of players) {
           if (!isKeyframe && player.id % snapGroups !== curGroup) continue
+          const isNewPlayer = !playerEntityMaps.has(player.id)
           const nearbyPlayers = appRuntime.getNearbyPlayers(player.state.position, relevanceRadius, playerSnap.players)
           const preEncodedPlayers = SnapshotEncoder.encodePlayers(nearbyPlayers)
-          const entitySnap = appRuntime.getSnapshotForPlayer(player.state.position, relevanceRadius)
-          const combined = { tick: playerSnap.tick, entities: entitySnap.entities, serverTime: Date.now() }
-          const prevMap = (isKeyframe || !playerEntityMaps.has(player.id)) ? new Map() : playerEntityMaps.get(player.id)
-          const { encoded, entityMap } = SnapshotEncoder.encodeDelta(combined, prevMap, preEncodedPlayers)
+          const entitySnap = appRuntime.getSnapshotForPlayer(player.state.position, relevanceRadius, true)
+          const combined = { tick: playerSnap.tick, entities: entitySnap.entities, serverTime }
+          const prevMap = isNewPlayer ? new Map() : playerEntityMaps.get(player.id)
+          const staticForPlayer = isNewPlayer ? lastStaticEntries : activeStaticEntries
+          const { encoded, entityMap } = SnapshotEncoder.encodeDelta(combined, prevMap, preEncodedPlayers, staticForPlayer, staticEntityMap, staticEntityIds)
           playerEntityMaps.set(player.id, entityMap)
           connections.send(player.id, MSG.SNAPSHOT, { seq: snapshotSeq, ...encoded })
         }

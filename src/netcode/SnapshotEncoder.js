@@ -34,14 +34,45 @@ export class SnapshotEncoder {
     return (players || []).map(encodePlayer)
   }
 
-  static encodeDelta(snapshot, prevEntityMap, preEncodedPlayers) {
+  static encodeStaticEntities(entities, prevStaticMap) {
+    const nextMap = new Map()
+    const allEntries = []
+    const changedEntries = []
+    let changed = false
+    for (const e of entities) {
+      if (e.bodyType !== 'static') continue
+      const enc = encodeEntity(e)
+      const prev = prevStaticMap.get(e.id)
+      let k = enc[1]
+      for (let i = 2; i < 12; i++) k += '|' + enc[i]
+      k += '|' + enc[12]
+      const cust = enc[13]
+      const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? JSON.stringify(cust) : '')
+      k += '|' + custStr
+      nextMap.set(e.id, [k, cust, custStr])
+      allEntries.push({ enc, k, id: e.id })
+      if (!prev || prev[0] !== k) { changedEntries.push({ enc, k, id: e.id }); changed = true }
+    }
+    if (nextMap.size !== prevStaticMap.size) changed = true
+    return { staticEntries: allEntries, changedEntries, staticMap: nextMap, staticChanged: changed }
+  }
+
+  static buildStaticIds(staticMap) {
+    return new Set(staticMap.keys())
+  }
+
+  static encodeDelta(snapshot, prevEntityMap, preEncodedPlayers, staticEntries, staticMap, staticIds) {
     const players = preEncodedPlayers || (snapshot.players || []).map(encodePlayer)
-    const currentIds = new Set()
+    const dynIds = new Set()
     const entities = []
     const nextMap = new Map()
+    if (staticEntries) {
+      for (const { enc } of staticEntries) entities.push(enc)
+    }
     for (const e of snapshot.entities || []) {
+      if (e.bodyType === 'static' && staticEntries) continue
       const encoded = encodeEntity(e)
-      currentIds.add(e.id)
+      dynIds.add(e.id)
       const prev = prevEntityMap.get(e.id)
       let k = encoded[1]
       for (let i = 2; i < 12; i++) k += '|' + encoded[i]
@@ -54,7 +85,7 @@ export class SnapshotEncoder {
     }
     const removed = []
     for (const id of prevEntityMap.keys()) {
-      if (!currentIds.has(id)) removed.push(id)
+      if (!dynIds.has(id) && !(staticIds && staticIds.has(id))) removed.push(id)
     }
     return {
       encoded: { tick: snapshot.tick || 0, serverTime: snapshot.serverTime, players, entities, removed: removed.length ? removed : undefined, delta: 1 },

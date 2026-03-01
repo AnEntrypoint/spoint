@@ -8,7 +8,7 @@ import { resolve } from 'node:path'
 
 export class AppRuntime {
   constructor(c = {}) {
-    this.entities = new Map(); this.apps = new Map(); this.contexts = new Map()
+    this.entities = new Map(); this.apps = new Map(); this.contexts = new Map(); this._updateList = []; this._staticVersion = 0; this._dynamicEntityIds = new Set()
     this.gravity = c.gravity || [0, -9.81, 0]
     this.currentTick = 0; this.deltaTime = 0; this.elapsed = 0
     this._playerManager = c.playerManager || null; this._physics = c.physics || null; this._physicsIntegration = c.physicsIntegration || null
@@ -59,6 +59,8 @@ export class AppRuntime {
       _spawnPosition: spawnPos
     }
     this.entities.set(entityId, entity)
+    this._staticVersion++
+    if (entity.bodyType !== 'static') this._dynamicEntityIds.add(entityId)
     this._log('entity_spawn', { id: entityId, config }, { sourceEntity: entityId })
     if (config.parent) {
       const p = this.entities.get(config.parent)
@@ -81,6 +83,7 @@ export class AppRuntime {
     const ctx = new AppContext(entity, this)
     this.contexts.set(entityId, ctx); this.apps.set(entityId, appDef)
     await this._safeCall(appDef.server || appDef, 'setup', [ctx], `setup(${appName})`)
+    this._rebuildUpdateList()
   }
 
   async attachApp(entityId, appName) { await this._attachApp(entityId, appName) }
@@ -94,10 +97,22 @@ export class AppRuntime {
     if (appDef && ctx) this._safeCall(appDef.server || appDef, 'teardown', [ctx], 'teardown')
     this._eventBus.destroyScope(entityId)
     this.clearTimers(entityId); this.apps.delete(entityId); this.contexts.delete(entityId)
+    this._rebuildUpdateList()
+  }
+
+  _rebuildUpdateList() {
+    this._updateList = []
+    for (const [entityId, appDef] of this.apps) {
+      const ctx = this.contexts.get(entityId); if (!ctx) continue
+      const server = appDef.server || appDef
+      if (typeof server.update === 'function') this._updateList.push([entityId, server, ctx])
+    }
   }
 
   destroyEntity(entityId) {
     const entity = this.entities.get(entityId); if (!entity) return
+    this._staticVersion++
+    this._dynamicEntityIds.delete(entityId)
     this._log('entity_destroy', { id: entityId }, { sourceEntity: entityId })
     for (const childId of [...entity.children]) this.destroyEntity(childId)
     if (entity.parent) { const p = this.entities.get(entity.parent); if (p) p.children.delete(entityId) }
@@ -124,9 +139,8 @@ export class AppRuntime {
 
   tick(tickNum, dt) {
     this.currentTick = tickNum; this.deltaTime = dt; this.elapsed += dt
-    for (const [entityId, appDef] of this.apps) {
-      const ctx = this.contexts.get(entityId); if (!ctx) continue
-      this._safeCall(appDef.server || appDef, 'update', [ctx, dt], `update(${entityId})`)
+    for (const [entityId, server, ctx] of this._updateList) {
+      this._safeCall(server, 'update', [ctx, dt], `update(${entityId})`)
     }
     this._tickTimers(dt); this._syncDynamicBodies(); this._tickRespawn(); this._spatialSync(); this._tickCollisions(); this._tickInteractables()
   }
@@ -159,11 +173,19 @@ export class AppRuntime {
     return { tick: this.currentTick, timestamp: Date.now(), entities }
   }
 
-  getSnapshotForPlayer(playerPosition, radius) {
-    const relevant = new Set(this.relevantEntities(playerPosition, radius))
+  getSnapshotForPlayer(playerPosition, radius, skipStatic = false) {
     const entities = []
-    for (const [id, e] of this.entities) {
-      if (relevant.has(id) || e._appName === 'environment') entities.push(this._encodeEntity(id, e))
+    if (skipStatic) {
+      const relevant = new Set(this.relevantEntities(playerPosition, radius))
+      for (const id of this._dynamicEntityIds) {
+        const e = this.entities.get(id)
+        if (e && (relevant.has(id) || e._appName === 'environment')) entities.push(this._encodeEntity(id, e))
+      }
+    } else {
+      const relevant = new Set(this.relevantEntities(playerPosition, radius))
+      for (const [id, e] of this.entities) {
+        if (relevant.has(id) || e._appName === 'environment') entities.push(this._encodeEntity(id, e))
+      }
     }
     return { tick: this.currentTick, timestamp: Date.now(), entities }
   }
