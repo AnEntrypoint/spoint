@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.124](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.123...v0.1.124) (2026-03-01)
+
+
+### Bug Fixes
+
+* addConvexFromModelAsync uses AABB hull and handles empty mesh GLBs ([921d2f3](https://github.com/AnEntrypoint/spawnpoint/commit/921d2f3fb272bc012c184ea8d7ea120133e50510))
+
 ### [0.1.123](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.122...v0.1.123) (2026-03-01)
 
 
