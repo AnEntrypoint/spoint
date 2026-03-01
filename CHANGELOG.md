@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.116](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.115...v0.1.116) (2026-03-01)
+
+
+### Bug Fixes
+
+* lower spawn point Y from 5 to 1 to match terrain height ([038b28b](https://github.com/AnEntrypoint/spawnpoint/commit/038b28bbe8462b9da048bd917f8fc65b0a8fcd49))
+
 ### [0.1.115](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.114...v0.1.115) (2026-03-01)
 
 ### [0.1.114](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.113...v0.1.114) (2026-03-01)
