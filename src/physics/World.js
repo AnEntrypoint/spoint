@@ -64,9 +64,15 @@ export class PhysicsWorld {
       const f3 = new J.Float3(0, 0, 0)
       for (let i = 0; i < params.length; i += 3) { f3.x = params[i]; f3.y = params[i + 1]; f3.z = params[i + 2]; pts.push_back(f3) }
       J.destroy(f3)
-      const cvx = new J.ConvexHullShapeSettings(pts)
-      shape = cvx.Create().Get()
-      J.destroy(pts); J.destroy(cvx)
+      const cvx = new J.ConvexHullShapeSettings()
+      cvx.set_mPoints(pts)
+      const shapeResult = cvx.Create()
+      shape = shapeResult.Get()
+      const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
+      const layer2 = motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC
+      const id = this._addBody(shape, position, mt, layer2, { ...opts, meta: { type: motionType, shape: shapeType } })
+      J.destroy(shapeResult); J.destroy(pts); J.destroy(cvx)
+      return id
     }
     else return null
     const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
@@ -121,11 +127,12 @@ export class PhysicsWorld {
       }
     }
     const settings = new J.MeshShapeSettings(triangles)
-    const shape = settings.Create().Get()
-    J.destroy(f3)
-    J.destroy(triangles)
-    J.destroy(settings)
-    return this._addBody(shape, [0, 0, 0], J.EMotionType_Static, LAYER_STATIC, { meta: { type: 'static', shape: 'trimesh', mesh: mesh.name, triangles: mesh.triangleCount } })
+    const shapeResult = settings.Create()
+    const shape = shapeResult.Get()
+    J.destroy(f3); J.destroy(triangles); J.destroy(settings)
+    const id = this._addBody(shape, [0, 0, 0], J.EMotionType_Static, LAYER_STATIC, { meta: { type: 'static', shape: 'trimesh', mesh: mesh.name, triangles: mesh.triangleCount } })
+    J.destroy(shapeResult)
+    return id
   }
 
   addStaticTrimeshAsync(glbPath, meshIndex = 0, position = [0, 0, 0]) {
@@ -148,11 +155,11 @@ export class PhysicsWorld {
           }
         }
         const settings = new J.MeshShapeSettings(triangles)
-        const shape = settings.Create().Get()
-        J.destroy(f3)
-        J.destroy(triangles)
-        J.destroy(settings)
+        const shapeResult = settings.Create()
+        const shape = shapeResult.Get()
+        J.destroy(f3); J.destroy(triangles); J.destroy(settings)
         const id = this._addBody(shape, position, J.EMotionType_Static, LAYER_STATIC, { meta: { type: 'static', shape: 'trimesh', triangles: triangleCount } })
+        J.destroy(shapeResult)
         resolve(id)
       } catch (e) {
         reject(e)
@@ -216,9 +223,7 @@ export class PhysicsWorld {
   getCharacterPosition(charId) {
     const ch = this.characters?.get(charId); if (!ch) return [0, 0, 0]
     const p = ch.GetPosition()
-    const r = [p.GetX(), p.GetY(), p.GetZ()]
-    this.Jolt.destroy(p)
-    return r
+    return [p.GetX(), p.GetY(), p.GetZ()]
   }
   getCharacterVelocity(charId) {
     const ch = this.characters?.get(charId); if (!ch) return [0, 0, 0]
