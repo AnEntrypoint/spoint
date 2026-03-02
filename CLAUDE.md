@@ -33,6 +33,20 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 - `box-static` — visual box primitive + static collider. Config: `{ hx, hy, hz, color, roughness }`. Half-extents drive both collider and visual (`sx/sy/sz = hx/hy/hz * 2`). Spawn via `ctx.world.spawn(id, { app: 'box-static', config: { hx, hy, hz, color } })`.
 - `prop-static` — static GLB prop with convex hull collider. No config needed. Entity must have `model` set. Calls `addConvexFromModel(0)` in setup.
 
+## Spatial Physics LOD
+
+`physicsRadius` in world config (default 0 = disabled) enables spatial LOD for dynamic Jolt bodies. When enabled, `AppRuntime._tickPhysicsLOD(players)` runs each tick after `_syncDynamicBodies`.
+
+**Suspend flow** (entity exits all players' radius): `_physics.removeBody` removes the Jolt body; entity position/rotation preserved in JS; `entity._bodyActive = false`; `entity._physicsBodyId = undefined`; entity added to `_suspendedEntityIds`.
+
+**Restore flow** (entity enters any player's radius): `_physics.addBody` re-creates Jolt body at entity's current position; `entity._physicsBodyId` set to new body id; `entity._bodyActive = true`; `_physicsBodyToEntityId` updated with new id.
+
+**`entity._bodyDef`** — stored by `AppContext` collider methods when `bodyType === 'dynamic'`. Contains `{ shapeType, params, motionType, opts }` needed to re-create the body. Static bodies never get `_bodyDef` and are never subject to LOD.
+
+**destroyEntity** — `_suspendedEntityIds.delete` ensures suspended entity ids are cleaned up. No `removeBody` call needed for suspended entities (body already removed from Jolt).
+
+**Jolt body id stability** — Jolt reuses sequence numbers after `DestroyBody`. Restored bodies get new ids. `_physicsBodyToEntityId` is always updated on restore so activation callbacks map correctly.
+
 ## Physics Bodies Only Created Via App setup()
 
 Setting `entity.bodyType` or `entity.collider` directly has NO effect. A Jolt body is only created when `ctx.physics.addBoxCollider()` etc. is called inside `setup(ctx)`.

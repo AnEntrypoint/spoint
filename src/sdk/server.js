@@ -104,7 +104,7 @@ export async function createServer(config = {}) {
   const reloadManager = new ReloadManager()
 
   const sdkRoot = config.sdkRoot || join(dirname(fileURLToPath(import.meta.url)), '../..')
-  const appRuntime = new AppRuntime({ gravity, playerManager, physics, physicsIntegration, connections, eventBus, eventLog, storage, sdkRoot })
+  const appRuntime = new AppRuntime({ gravity, playerManager, physics, physicsIntegration, connections, eventBus, eventLog, storage, sdkRoot, physicsRadius: config.physicsRadius || 0 })
   appRuntime.setPlayerManager(playerManager)
   const appLoader = new AppLoader(appRuntime, { dirs: appsDirs })
   const stageLoader = new StageLoader(appRuntime)

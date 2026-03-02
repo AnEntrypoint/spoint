@@ -16,6 +16,8 @@ export class AppRuntime {
     this._nextEntityId = 1; this._appDefs = new Map(); this._timers = new Map(); this._interactCooldowns = new Map(); this._respawnTimer = new Map()
     this._activeDynamicIds = new Set()
     this._physicsBodyToEntityId = new Map()
+    this._physicsLODRadius = c.physicsRadius || 0
+    this._suspendedEntityIds = new Set()
     this._collisionEntities = []
     this._interactableIds = new Set()
     if (this._physics) this._registerPhysicsCallbacks()
@@ -130,6 +132,7 @@ export class AppRuntime {
     this._staticVersion++
     this._dynamicEntityIds.delete(entityId)
     this._activeDynamicIds.delete(entityId)
+    this._suspendedEntityIds.delete(entityId)
     this._interactableIds.delete(entityId)
     if (entity._physicsBodyId !== undefined) this._physicsBodyToEntityId.delete(entity._physicsBodyId)
     this._log('entity_destroy', { id: entityId }, { sourceEntity: entityId })
@@ -164,6 +167,8 @@ export class AppRuntime {
     this._tickTimers(dt)
     const _ts0 = performance.now()
     this._syncDynamicBodies()
+    const players = this.getPlayers()
+    this._tickPhysicsLOD(players)
     this._lastSyncMs = performance.now() - _ts0
     const _ts1 = performance.now()
     this._tickRespawn()
@@ -202,6 +207,37 @@ export class AppRuntime {
       const e = this.entities.get(id)
       if (!e || e._physicsBodyId === undefined) continue
       this._physics.syncDynamicBody(e._physicsBodyId, e)
+    }
+  }
+
+  _tickPhysicsLOD(players) {
+    if (!this._physics || !this._physicsLODRadius || this._dynamicEntityIds.size === 0) return
+    const r2 = this._physicsLODRadius * this._physicsLODRadius
+    for (const entityId of this._dynamicEntityIds) {
+      const e = this.entities.get(entityId)
+      if (!e || !e._bodyDef) continue
+      let inRange = false
+      for (const p of players) {
+        const pp = p.state?.position; if (!pp) continue
+        const dx = pp[0] - e.position[0], dy = pp[1] - e.position[1], dz = pp[2] - e.position[2]
+        if (dx * dx + dy * dy + dz * dz <= r2) { inRange = true; break }
+      }
+      if (inRange && e._bodyActive === false) {
+        const d = e._bodyDef
+        const bid = this._physics.addBody(d.shapeType, d.params, e.position, d.motionType, { rotation: e.rotation, mass: d.opts.mass })
+        e._physicsBodyId = bid; e._bodyActive = true
+        this._physicsBodyToEntityId.set(bid, entityId)
+        this._suspendedEntityIds.delete(entityId)
+      } else if (!inRange && e._bodyActive !== false) {
+        if (e._physicsBodyId !== undefined) {
+          this._physicsBodyToEntityId.delete(e._physicsBodyId)
+          this._activeDynamicIds.delete(entityId)
+          this._physics.removeBody(e._physicsBodyId)
+          e._physicsBodyId = undefined
+        }
+        e._bodyActive = false
+        this._suspendedEntityIds.add(entityId)
+      }
     }
   }
 
