@@ -53,7 +53,7 @@ export class AppContext {
         if (mt === 'dynamic') ent._bodyDef = { shapeType: 'box', params: he, motionType: mt, opts: { mass: ent.mass } }
         if (runtime._physics) {
           const bid = runtime._physics.addBody('box', he, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
-          ent._physicsBodyId = bid; ent._bodyActive = true; runtime._physicsBodyToEntityId?.set(bid, ent.id)
+          ent._physicsBodyId = bid; ent._bodyActive = true; ent._bodyCreatedTick = runtime.currentTick; runtime._physicsBodyToEntityId?.set(bid, ent.id)
           if (mt === 'dynamic') runtime._activeDynamicIds?.add(ent.id)
         }
       },
@@ -63,7 +63,7 @@ export class AppContext {
         if (mt === 'dynamic') ent._bodyDef = { shapeType: 'sphere', params: r, motionType: mt, opts: { mass: ent.mass } }
         if (runtime._physics) {
           const bid = runtime._physics.addBody('sphere', r, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
-          ent._physicsBodyId = bid; ent._bodyActive = true; runtime._physicsBodyToEntityId?.set(bid, ent.id)
+          ent._physicsBodyId = bid; ent._bodyActive = true; ent._bodyCreatedTick = runtime.currentTick; runtime._physicsBodyToEntityId?.set(bid, ent.id)
           if (mt === 'dynamic') runtime._activeDynamicIds?.add(ent.id)
         }
       },
@@ -73,7 +73,7 @@ export class AppContext {
         if (mt === 'dynamic') ent._bodyDef = { shapeType: 'capsule', params: [r, h / 2], motionType: mt, opts: { mass: ent.mass } }
         if (runtime._physics) {
           const bid = runtime._physics.addBody('capsule', [r, h / 2], ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
-          ent._physicsBodyId = bid; ent._bodyActive = true; runtime._physicsBodyToEntityId?.set(bid, ent.id)
+          ent._physicsBodyId = bid; ent._bodyActive = true; ent._bodyCreatedTick = runtime.currentTick; runtime._physicsBodyToEntityId?.set(bid, ent.id)
           if (mt === 'dynamic') runtime._activeDynamicIds?.add(ent.id)
         }
       },
@@ -90,7 +90,7 @@ export class AppContext {
         if (mt === 'dynamic') ent._bodyDef = { shapeType: 'convex', params: points, motionType: mt, opts: { mass: ent.mass } }
         if (runtime._physics) {
           const bid = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
-          ent._physicsBodyId = bid; ent._bodyActive = true; runtime._physicsBodyToEntityId?.set(bid, ent.id)
+          ent._physicsBodyId = bid; ent._bodyActive = true; ent._bodyCreatedTick = runtime.currentTick; runtime._physicsBodyToEntityId?.set(bid, ent.id)
           if (mt === 'dynamic') runtime._activeDynamicIds?.add(ent.id)
         }
       },
@@ -104,7 +104,7 @@ export class AppContext {
             const mt = ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
             if (mt === 'dynamic') ent._bodyDef = { shapeType: 'convex', params: points, motionType: mt, opts: { mass: ent.mass } }
             const bid = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
-            ent._physicsBodyId = bid; ent._bodyActive = true; runtime._physicsBodyToEntityId?.set(bid, ent.id)
+            ent._physicsBodyId = bid; ent._bodyActive = true; ent._bodyCreatedTick = runtime.currentTick; runtime._physicsBodyToEntityId?.set(bid, ent.id)
             if (mt === 'dynamic') runtime._activeDynamicIds?.add(ent.id)
           }
         } catch (err) {
@@ -115,7 +115,7 @@ export class AppContext {
               ent.collider = { type: 'box', size: [0.5, 0.5, 0.5] }
               if (mt === 'dynamic') ent._bodyDef = { shapeType: 'box', params: [0.5, 0.5, 0.5], motionType: mt, opts: { mass: ent.mass } }
               const bid = runtime._physics.addBody('box', [0.5, 0.5, 0.5], ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
-              ent._physicsBodyId = bid; ent._bodyActive = true; runtime._physicsBodyToEntityId?.set(bid, ent.id)
+              ent._physicsBodyId = bid; ent._bodyActive = true; ent._bodyCreatedTick = runtime.currentTick; runtime._physicsBodyToEntityId?.set(bid, ent.id)
               if (mt === 'dynamic') runtime._activeDynamicIds?.add(ent.id)
             }
           } else {
@@ -135,7 +135,7 @@ export class AppContext {
             ent.collider = { type: 'box', size: [0.5, 0.5, 0.5] }
             if (mt === 'dynamic') ent._bodyDef = { shapeType: 'box', params: [0.5, 0.5, 0.5], motionType: mt, opts: { mass: ent.mass } }
             const bid = runtime._physics.addBody('box', [0.5, 0.5, 0.5], ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
-            ent._physicsBodyId = bid; ent._bodyActive = true; runtime._physicsBodyToEntityId?.set(bid, ent.id)
+            ent._physicsBodyId = bid; ent._bodyActive = true; ent._bodyCreatedTick = runtime.currentTick; runtime._physicsBodyToEntityId?.set(bid, ent.id)
             if (mt === 'dynamic') runtime._activeDynamicIds?.add(ent.id)
           }
           return
@@ -145,7 +145,7 @@ export class AppContext {
         if (runtime._physics) {
           if (mt === 'dynamic') ent._bodyDef = { shapeType: 'convex', params: points, motionType: mt, opts: { mass: ent.mass } }
           const bid = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
-          ent._physicsBodyId = bid; ent._bodyActive = true; runtime._physicsBodyToEntityId?.set(bid, ent.id)
+          ent._physicsBodyId = bid; ent._bodyActive = true; ent._bodyCreatedTick = runtime.currentTick; runtime._physicsBodyToEntityId?.set(bid, ent.id)
           if (mt === 'dynamic') runtime._activeDynamicIds?.add(ent.id)
         }
       },
