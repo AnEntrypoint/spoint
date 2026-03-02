@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.137](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.136...v0.1.137) (2026-03-02)
+
+
+### Bug Fixes
+
+* grace period prevents LOD from immediately suspending newly created bodies, increase prop grid to 20x20 ([8655572](https://github.com/AnEntrypoint/spawnpoint/commit/86555725d7953ee1bd85f6f6914b8a9b64f18244))
+
 ### [0.1.136](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.135...v0.1.136) (2026-03-02)
 
 ### [0.1.135](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.134...v0.1.135) (2026-03-02)
