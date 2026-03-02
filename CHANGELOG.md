@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.145](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.144...v0.1.145) (2026-03-02)
+
+
+### Bug Fixes
+
+* attach hull wireframe as child of mesh node to inherit node rotation ([5b9a8ca](https://github.com/AnEntrypoint/spawnpoint/commit/5b9a8caeb04331c237643ffb6570b2f53abe8ab1))
+
 ### [0.1.144](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.143...v0.1.144) (2026-03-02)
 
 
