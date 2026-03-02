@@ -229,13 +229,11 @@ export class AppRuntime {
         this._physicsBodyToEntityId.set(bid, entityId)
         this._activeDynamicIds.add(entityId)
         this._suspendedEntityIds.delete(entityId)
-      } else if (!inRange && e._bodyActive !== false && !(e._bodyCreatedTick !== undefined && this.currentTick - e._bodyCreatedTick < 10)) {
-        if (e._physicsBodyId !== undefined) {
-          this._physicsBodyToEntityId.delete(e._physicsBodyId)
-          this._activeDynamicIds.delete(entityId)
-          this._physics.removeBody(e._physicsBodyId)
-          e._physicsBodyId = undefined
-        }
+      } else if (!inRange && e._bodyActive !== false && e._physicsBodyId !== undefined && !this._physics.isBodyActive(e._physicsBodyId)) {
+        this._physicsBodyToEntityId.delete(e._physicsBodyId)
+        this._activeDynamicIds.delete(entityId)
+        this._physics.removeBody(e._physicsBodyId)
+        e._physicsBodyId = undefined
         e._bodyActive = false
         this._suspendedEntityIds.add(entityId)
       }
