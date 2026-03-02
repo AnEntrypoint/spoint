@@ -30,7 +30,7 @@ function encodeEntity(e) {
 }
 
 function buildEntityKey(enc, custStr) {
-  return enc[1] + '|' + enc[2] + '|' + enc[3] + '|' + enc[4] + '|' + enc[5] + '|' + enc[6] + '|' + enc[7] + '|' + enc[8] + '|' + enc[9] + '|' + enc[10] + '|' + enc[11] + '|' + enc[12] + '|' + custStr
+  return [enc[1], enc[2], enc[3], enc[4], enc[5], enc[6], enc[7], enc[8], enc[9], enc[10], enc[11], enc[12], custStr].join('|')
 }
 
 export class SnapshotEncoder {
@@ -79,23 +79,27 @@ export class SnapshotEncoder {
 
   static encodeDynamicEntitiesOnce(entities, prevCache) {
     const cache = new Map()
+    const envIds = []
     for (const e of entities) {
       if (e.bodyType === 'static') continue
       if (e._sleeping && prevCache) {
         const prev = prevCache.get(e.id)
-        if (prev) { cache.set(e.id, prev); continue }
+        if (prev) { cache.set(e.id, prev); if (prev.isEnv) envIds.push(e.id); continue }
       }
       const enc = encodeEntity(e)
       const prev = prevCache ? prevCache.get(e.id) : null
       const cust = enc[13]
       const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? JSON.stringify(cust) : '')
       const k = buildEntityKey(enc, custStr)
-      cache.set(e.id, { enc, k, cust, custStr, isEnv: e._isEnv || false })
+      const isEnv = e._isEnv || false
+      cache.set(e.id, { enc, k, cust, custStr, isEnv })
+      if (isEnv) envIds.push(e.id)
     }
+    cache._envIds = envIds
     return cache
   }
 
-  static encodeDeltaFromCache(tick, serverTime, dynCache, relevantIds, prevEntityMap, preEncodedPlayers, staticEntries, staticEntityMap, staticEntityIds) {
+  static encodeDeltaFromCache(tick, serverTime, dynCache, relevantIds, prevEntityMap, preEncodedPlayers, staticEntries, staticEntityMap, staticEntityIds, precomputedRemoved) {
     const entities = []
     const nextMap = new Map()
     if (staticEntries) {
@@ -111,16 +115,18 @@ export class SnapshotEncoder {
         const prev = prevEntityMap.get(id)
         if (!prev || prev[0] !== k) entities.push(enc)
       }
-      for (const [id, entry] of dynCache) {
-        if (entry.isEnv) {
-          const { enc, k, cust, custStr } = entry
-          nextMap.set(id, [k, cust, custStr])
-          const prev = prevEntityMap.get(id)
-          if (!prev || prev[0] !== k) entities.push(enc)
-        }
+      const envIds = dynCache._envIds || []
+      for (const id of envIds) {
+        const entry = dynCache.get(id)
+        if (!entry) continue
+        const { enc, k, cust, custStr } = entry
+        nextMap.set(id, [k, cust, custStr])
+        const prev = prevEntityMap.get(id)
+        if (!prev || prev[0] !== k) entities.push(enc)
       }
     } else {
       for (const [id, entry] of dynCache) {
+        if (entry._envIds !== undefined) continue
         if (!entry.isEnv && relevantIds && !relevantIds.has(id)) continue
         const { enc, k, cust, custStr } = entry
         nextMap.set(id, [k, cust, custStr])
@@ -128,9 +134,12 @@ export class SnapshotEncoder {
         if (!prev || prev[0] !== k) entities.push(enc)
       }
     }
-    const removed = []
-    for (const id of prevEntityMap.keys()) {
-      if (!dynCache.has(id) && !(staticEntityIds && staticEntityIds.has(id))) removed.push(id)
+    let removed = precomputedRemoved
+    if (!removed) {
+      removed = []
+      for (const id of prevEntityMap.keys()) {
+        if (!dynCache.has(id) && !(staticEntityIds && staticEntityIds.has(id))) removed.push(id)
+      }
     }
     return {
       encoded: { tick: tick || 0, serverTime, players: preEncodedPlayers, entities, removed: removed.length ? removed : undefined, delta: 1 },

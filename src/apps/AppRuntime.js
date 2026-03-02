@@ -8,7 +8,7 @@ import { resolve } from 'node:path'
 
 export class AppRuntime {
   constructor(c = {}) {
-    this.entities = new Map(); this.apps = new Map(); this.contexts = new Map(); this._updateList = []; this._staticVersion = 0; this._dynamicEntityIds = new Set()
+    this.entities = new Map(); this.apps = new Map(); this.contexts = new Map(); this._updateList = []; this._staticVersion = 0; this._dynamicEntityIds = new Set(); this._staticEntityIds = new Set()
     this.gravity = c.gravity || [0, -9.81, 0]
     this.currentTick = 0; this.deltaTime = 0; this.elapsed = 0
     this._playerManager = c.playerManager || null; this._physics = c.physics || null; this._physicsIntegration = c.physicsIntegration || null
@@ -69,6 +69,7 @@ export class AppRuntime {
     this.entities.set(entityId, entity)
     this._staticVersion++
     if (entity.bodyType !== 'static') this._dynamicEntityIds.add(entityId)
+    else this._staticEntityIds.add(entityId)
     this._log('entity_spawn', { id: entityId, config }, { sourceEntity: entityId })
     if (config.parent) {
       const p = this.entities.get(config.parent)
@@ -132,6 +133,7 @@ export class AppRuntime {
     const entity = this.entities.get(entityId); if (!entity) return
     this._staticVersion++
     this._dynamicEntityIds.delete(entityId)
+    this._staticEntityIds.delete(entityId)
     this._activeDynamicIds.delete(entityId)
     this._suspendedEntityIds.delete(entityId)
     this._interactableIds.delete(entityId)

@@ -159,6 +159,7 @@ export function createTickHandler(deps) {
           prevDynCache = dynCache
         }
         const serverTime = Date.now()
+        const precomputedRemoved = []
         for (const player of players) {
           if (player.id % snapGroups !== curGroup) continue
           const isNewPlayer = !playerEntityMaps.has(player.id)
@@ -167,10 +168,16 @@ export function createTickHandler(deps) {
           const relevantIds = appRuntime.getRelevantDynamicIds(player.state.position, relevanceRadius)
           const prevMap = isNewPlayer ? new Map() : playerEntityMaps.get(player.id)
           const staticForPlayer = isNewPlayer ? lastStaticEntries : activeStaticEntries
+          const removed = isNewPlayer ? undefined : precomputedRemoved
           const { encoded, entityMap } = SnapshotEncoder.encodeDeltaFromCache(
             playerSnap.tick, serverTime, dynCache, relevantIds,
-            prevMap, preEncodedPlayers, staticForPlayer, staticEntityMap, staticEntityIds
+            prevMap, preEncodedPlayers, staticForPlayer, staticEntityMap, staticEntityIds, removed
           )
+          if (isNewPlayer) {
+            for (const id of prevMap.keys()) {
+              if (!dynCache.has(id) && !(staticEntityIds && staticEntityIds.has(id))) precomputedRemoved.push(id)
+            }
+          }
           playerEntityMaps.set(player.id, entityMap)
           connections.send(player.id, MSG.SNAPSHOT, { seq: snapshotSeq, ...encoded })
         }
