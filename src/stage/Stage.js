@@ -73,10 +73,10 @@ export class Stage {
 
   syncPositions() {
     if (!this._runtime) return
-    for (const id of this._runtime._dynamicEntityIds) {
+    for (const id of this._runtime._activeDynamicIds) {
       if (!this.entityIds.has(id)) continue
       const e = this._runtime.getEntity(id)
-      if (e && !e._dynSleeping) this.spatial.update(id, e.position)
+      if (e) this.spatial.update(id, e.position)
     }
   }
 

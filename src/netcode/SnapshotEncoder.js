@@ -65,6 +65,21 @@ export class SnapshotEncoder {
     return new Set(staticMap.keys())
   }
 
+  static updateDynamicCache(prevCache, activeIds, entities) {
+    const cache = new Map(prevCache)
+    for (const id of activeIds) {
+      const e = entities.get(id)
+      if (!e || e.bodyType === 'static') continue
+      const enc = encodeEntity(e)
+      const prev = prevCache.get(id)
+      const cust = enc[13]
+      const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? JSON.stringify(cust) : '')
+      const k = buildEntityKey(enc, custStr)
+      cache.set(id, { enc, k, cust, custStr, isEnv: false })
+    }
+    return cache
+  }
+
   static encodeDynamicEntitiesOnce(entities, prevCache) {
     const cache = new Map()
     for (const e of entities) {

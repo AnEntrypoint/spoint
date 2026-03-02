@@ -16,6 +16,8 @@ export class AppRuntime {
     this._nextEntityId = 1; this._appDefs = new Map(); this._timers = new Map(); this._interactCooldowns = new Map(); this._respawnTimer = new Map()
     this._activeDynamicIds = new Set()
     this._physicsBodyToEntityId = new Map()
+    this._collisionEntities = []
+    this._interactableIds = new Set()
     if (this._physics) this._registerPhysicsCallbacks()
     this._hotReload = new HotReloadQueue(this)
     this._eventBus = c.eventBus || new EventBus()
@@ -87,6 +89,7 @@ export class AppRuntime {
     this.contexts.set(entityId, ctx); this.apps.set(entityId, appDef)
     await this._safeCall(appDef.server || appDef, 'setup', [ctx], `setup(${appName})`)
     this._rebuildUpdateList()
+    this._rebuildCollisionList()
   }
 
   async attachApp(entityId, appName) { await this._attachApp(entityId, appName) }
@@ -101,6 +104,7 @@ export class AppRuntime {
     this._eventBus.destroyScope(entityId)
     this.clearTimers(entityId); this.apps.delete(entityId); this.contexts.delete(entityId)
     this._rebuildUpdateList()
+    this._rebuildCollisionList()
   }
 
   _rebuildUpdateList() {
@@ -112,11 +116,21 @@ export class AppRuntime {
     }
   }
 
+  _rebuildCollisionList() {
+    this._collisionEntities = []
+    for (const [entityId, appDef] of this.apps) {
+      const e = this.entities.get(entityId); if (!e) continue
+      const server = appDef.server || appDef
+      if (e.collider && typeof server.onCollision === 'function') this._collisionEntities.push(e)
+    }
+  }
+
   destroyEntity(entityId) {
     const entity = this.entities.get(entityId); if (!entity) return
     this._staticVersion++
     this._dynamicEntityIds.delete(entityId)
     this._activeDynamicIds.delete(entityId)
+    this._interactableIds.delete(entityId)
     if (entity._physicsBodyId !== undefined) this._physicsBodyToEntityId.delete(entity._physicsBodyId)
     this._log('entity_destroy', { id: entityId }, { sourceEntity: entityId })
     for (const childId of [...entity.children]) this.destroyEntity(childId)
@@ -157,7 +171,12 @@ export class AppRuntime {
     const _ts2 = performance.now()
     this._spatialSync()
     this._lastSpatialMs = performance.now() - _ts2
-    this._tickCollisions(); this._tickInteractables()
+    const _ts3 = performance.now()
+    this._tickCollisions()
+    this._lastCollisionMs = performance.now() - _ts3
+    const _ts4 = performance.now()
+    this._tickInteractables()
+    this._lastInteractMs = performance.now() - _ts4
   }
 
   _registerPhysicsCallbacks() {
@@ -262,12 +281,9 @@ export class AppRuntime {
   }
 
   _tickCollisions() {
-    const c = []
-    for (const e of this.entities.values()) {
-      const app = this.apps.get(e.id)
-      const server = app?.server || app
-      if (e.collider && server?.onCollision) { e._cachedColR = this._colR(e.collider); c.push(e) }
-    }
+    const c = this._collisionEntities
+    if (c.length === 0) return
+    for (let i = 0; i < c.length; i++) c[i]._cachedColR = this._colR(c[i].collider)
     for (let i = 0; i < c.length; i++) {
       const a = c[i], ar = a._cachedColR, ax = a.position[0], ay = a.position[1], az = a.position[2]
       for (let j = i + 1; j < c.length; j++) {
@@ -305,10 +321,11 @@ export class AppRuntime {
   }
 
   _tickInteractables() {
+    if (this._interactableIds.size === 0) return
     const now = Date.now()
     const players = this.getPlayers()
-    for (const e of this.entities.values()) {
-      if (!e._interactable) continue
+    for (const id of this._interactableIds) {
+      const e = this.entities.get(id); if (!e || !e._interactable) continue
       for (const p of players) {
         const pp = p.state?.position; if (!pp) continue
         const dx = pp[0]-e.position[0], dy = pp[1]-e.position[1], dz = pp[2]-e.position[2]

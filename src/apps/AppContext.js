@@ -41,7 +41,7 @@ export class AppContext {
     const ent = this._entity
     const runtime = this._runtime
     return {
-      setInteractable: (radius = 3) => { ent._interactable = true; ent._interactRadius = radius },
+      setInteractable: (radius = 3) => { ent._interactable = true; ent._interactRadius = radius; runtime._interactableIds?.add(ent.id) },
       setStatic: (v) => { ent.bodyType = v ? 'static' : ent.bodyType; if (v) { runtime._dynamicEntityIds?.delete(ent.id) } },
       setDynamic: (v) => { ent.bodyType = v ? 'dynamic' : ent.bodyType; if (v) { runtime._dynamicEntityIds?.add(ent.id) } },
       setKinematic: (v) => { ent.bodyType = v ? 'kinematic' : ent.bodyType; if (v) { runtime._dynamicEntityIds?.add(ent.id) } },
@@ -223,6 +223,7 @@ export class AppContext {
     ent._interactCooldown = cooldown
     if (!ent.custom) ent.custom = {}
     ent.custom._interactable = { prompt, radius }
+    this._runtime._interactableIds.add(ent.id)
   }
 
   raycast(origin, direction, maxDistance = 1000) {

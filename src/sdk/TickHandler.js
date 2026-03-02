@@ -148,6 +148,9 @@ export function createTickHandler(deps) {
         let dynCache
         if (activeDynCount === 0 && prevDynCache !== null) {
           dynCache = prevDynCache
+        } else if (prevDynCache !== null && activeDynCount < prevDynCache.size * 0.1) {
+          dynCache = SnapshotEncoder.updateDynamicCache(prevDynCache, appRuntime._activeDynamicIds, appRuntime.entities)
+          prevDynCache = dynCache
         } else {
           const dynEntitiesRaw = appRuntime.getDynamicEntitiesRaw()
           dynCache = SnapshotEncoder.encodeDynamicEntitiesOnce(dynEntitiesRaw, prevDynCache)
@@ -199,9 +202,11 @@ export function createTickHandler(deps) {
       const syncMs = (appRuntime._lastSyncMs || 0).toFixed(2)
       const respawnMs = (appRuntime._lastRespawnMs || 0).toFixed(2)
       const spatialMs = (appRuntime._lastSpatialMs || 0).toFixed(2)
+      const colMs = (appRuntime._lastCollisionMs || 0).toFixed(2)
+      const intMs = (appRuntime._lastInteractMs || 0).toFixed(2)
       const dynIds = appRuntime._dynamicEntityIds?.size || 0
       const activeDyn = appRuntime._activeDynamicIds?.size || 0
-      try { console.log(`[tick-profile] tick:${tick} players:${players.length} entities:${appRuntime.entities.size} dynIds:${dynIds} activeDyn:${activeDyn} total:${total.toFixed(2)}ms | mv:${(t1 - t0).toFixed(2)} col:${(t2 - t1).toFixed(2)} phys:${(t3 - t2).toFixed(2)} app:${(t4 - t3).toFixed(2)} sync:${syncMs} respawn:${respawnMs} spatial:${spatialMs} snap:${(t5 - t4).toFixed(2)} | heap:${heap}MB rss:${rss}MB ext:${ext}MB ab:${ab}MB`) } catch (_) {}
+      try { console.log(`[tick-profile] tick:${tick} players:${players.length} entities:${appRuntime.entities.size} dynIds:${dynIds} activeDyn:${activeDyn} total:${total.toFixed(2)}ms | mv:${(t1 - t0).toFixed(2)} col:${(t2 - t1).toFixed(2)} phys:${(t3 - t2).toFixed(2)} app:${(t4 - t3).toFixed(2)} sync:${syncMs} respawn:${respawnMs} spatial:${spatialMs} col2:${colMs} int:${intMs} snap:${(t5 - t4).toFixed(2)} | heap:${heap}MB rss:${rss}MB ext:${ext}MB ab:${ab}MB`) } catch (_) {}
     }
   }
 }
