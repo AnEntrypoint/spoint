@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.133](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.132...v0.1.133) (2026-03-02)
+
+
+### Features
+
+* spatial physics LOD — suspend dynamic Jolt bodies outside player radius ([83b6b5e](https://github.com/AnEntrypoint/spawnpoint/commit/83b6b5e1b983c1eae369c21530883c585079ee1d))
+
 ### [0.1.132](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.131...v0.1.132) (2026-03-02)
 
 ### [0.1.131](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.130...v0.1.131) (2026-03-02)
