@@ -20,6 +20,7 @@ export class AppRuntime {
     this._suspendedEntityIds = new Set()
     this._collisionEntities = []
     this._interactableIds = new Set()
+    this._lastSyncMs = 0; this._lastRespawnMs = 0; this._lastSpatialMs = 0; this._lastCollisionMs = 0; this._lastInteractMs = 0
     if (this._physics) this._registerPhysicsCallbacks()
     this._hotReload = new HotReloadQueue(this)
     this._eventBus = c.eventBus || new EventBus()
@@ -318,7 +319,10 @@ export class AppRuntime {
   _tickCollisions() {
     const c = this._collisionEntities
     if (c.length === 0) return
-    for (let i = 0; i < c.length; i++) c[i]._cachedColR = this._colR(c[i].collider)
+    for (let i = 0; i < c.length; i++) {
+      const r = this._colR(c[i].collider)
+      c[i]._cachedColR = r
+    }
     for (let i = 0; i < c.length; i++) {
       const a = c[i], ar = a._cachedColR, ax = a.position[0], ay = a.position[1], az = a.position[2]
       for (let j = i + 1; j < c.length; j++) {
@@ -380,16 +384,19 @@ export class AppRuntime {
 
   _colR(c) {
     if (!c) return 0
-    if (c.type === 'sphere') return c.radius || 1
-    if (c.type === 'capsule') return Math.max(c.radius || 0.5, (c.height || 1) / 2)
-    if (c.type === 'box') {
+    if (c._cachedRadius !== undefined) return c._cachedRadius
+    let r = 0
+    if (c.type === 'sphere') r = c.radius || 1
+    else if (c.type === 'capsule') r = Math.max(c.radius || 0.5, (c.height || 1) / 2)
+    else if (c.type === 'box') {
       const s = c.size; const h = c.halfExtents
-      if (Array.isArray(s)) return Math.max(...s)
-      if (typeof s === 'number') return s
-      if (Array.isArray(h)) return Math.max(...h)
-      return 1
-    }
-    return 1
+      if (Array.isArray(s)) r = Math.max(...s)
+      else if (typeof s === 'number') r = s
+      else if (Array.isArray(h)) r = Math.max(...h)
+      else r = 1
+    } else r = 1
+    c._cachedRadius = r
+    return r
   }
   setPlayerManager(pm) { this._playerManager = pm }
   setStageLoader(sl) { this._stageLoader = sl }
