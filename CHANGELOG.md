@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.134](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.133...v0.1.134) (2026-03-02)
+
+
+### Bug Fixes
+
+* dynamic body activation race and expand prop grid layout ([9d12e39](https://github.com/AnEntrypoint/spawnpoint/commit/9d12e39ad0d4b22e1863193585090dde73e2fcd0))
+
 ### [0.1.133](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.132...v0.1.133) (2026-03-02)
 
 
