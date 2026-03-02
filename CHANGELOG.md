@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.135](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.134...v0.1.135) (2026-03-02)
+
+
+### Bug Fixes
+
+* update feetOffset from 1.3 to 0.91 to match reduced capsule size ([5fa8af8](https://github.com/AnEntrypoint/spawnpoint/commit/5fa8af8eea27d2b07707ceb8d02520acc9531bb3))
+
 ### [0.1.134](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.133...v0.1.134) (2026-03-02)
 
 
