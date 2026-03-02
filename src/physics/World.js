@@ -71,7 +71,7 @@ export class PhysicsWorld {
   addBody(shapeType, params, position, motionType, opts = {}) {
     const J = this.Jolt
     let shape, layer
-    if (shapeType === 'box') shape = new J.BoxShape(new J.Vec3(params[0], params[1], params[2]), 0.05, null)
+    if (shapeType === 'box') shape = new J.BoxShape(new J.Vec3(params[0], params[1], params[2]), 0.001, null)
     else if (shapeType === 'sphere') shape = new J.SphereShape(params)
     else if (shapeType === 'capsule') shape = new J.CapsuleShape(params[1], params[0])
     else if (shapeType === 'convex') {
