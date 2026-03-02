@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.138](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.137...v0.1.138) (2026-03-02)
+
+
+### Bug Fixes
+
+* only LOD-suspend dynamic bodies after Jolt marks them as sleeping ([644c92f](https://github.com/AnEntrypoint/spawnpoint/commit/644c92ff7cbb4356d67cffc06dcc61147ba41b4c))
+
 ### [0.1.137](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.136...v0.1.137) (2026-03-02)
 
 
