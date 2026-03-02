@@ -28,9 +28,16 @@ const KTX_BIN = join(__dirname, '../../bin/ktx.exe')
 const CACHE_DIR_NAME = '.glb-cache'
 
 // Concurrency limit: max simultaneous transform jobs (ktx.exe + sharp are CPU/memory intensive)
-const MAX_CONCURRENT = 2
+// During prewarm: use high concurrency to speed up initial transforms
+// During runtime: use conservative 2 to avoid blocking requests
+const MAX_CONCURRENT = 8
 let _active = 0
 const _waitQueue = []
+let _isPrewarming = false
+
+export function setPrewarmMode(isPrewarming) {
+  _isPrewarming = isPrewarming
+}
 function _acquireSlot() {
   return new Promise(resolve => {
     if (_active < MAX_CONCURRENT) { _active++; resolve() }
@@ -418,16 +425,47 @@ export function getTransformed(filepath) {
 
 /**
  * Pre-warm: kick off transforms for all GLBs in a directory tree at startup.
+ * Uses high concurrency during startup to speed up transformation pipeline.
  */
-export function prewarm(dirs) {
+export async function prewarm(dirs) {
+  setPrewarmMode(true)
+  let fileCount = 0
+
   function scan(dir) {
     let entries
     try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return }
     for (const e of entries) {
       const fp = join(dir, e.name)
       if (e.isDirectory() && e.name !== CACHE_DIR_NAME && e.name !== 'node_modules') scan(fp)
-      else if (e.isFile() && (e.name.endsWith('.glb') || e.name.endsWith('.vrm'))) getTransformed(fp)
+      else if (e.isFile() && (e.name.endsWith('.glb') || e.name.endsWith('.vrm'))) {
+        getTransformed(fp)
+        fileCount++
+      }
     }
   }
+
   for (const dir of dirs) scan(dir)
+
+  // Wait for all in-flight transforms to complete
+  if (fileCount > 0) {
+    console.log(`[glb-transform] prewarming ${fileCount} GLBs (max ${MAX_CONCURRENT} concurrent)...`)
+    // Wait for all in-flight transforms to finish
+    const waitForAll = async () => {
+      let lastSize = _inFlight.size
+      let stable = 0
+      while (_inFlight.size > 0 || stable < 2) {
+        await new Promise(resolve => setTimeout(resolve, 100))
+        if (_inFlight.size === lastSize) {
+          stable++
+        } else {
+          stable = 0
+          lastSize = _inFlight.size
+        }
+      }
+    }
+    await waitForAll()
+    console.log(`[glb-transform] prewarm complete`)
+  }
+
+  setPrewarmMode(false)
 }

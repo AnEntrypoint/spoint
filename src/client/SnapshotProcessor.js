@@ -122,7 +122,7 @@ export class SnapshotProcessor {
   }
 
   getAllPlayerStates() {
-    return new Map(this._playerStates)
+    return this._playerStates
   }
 
   getEntity(entityId) {
@@ -130,7 +130,7 @@ export class SnapshotProcessor {
   }
 
   getAllEntities() {
-    return new Map(this._entityStates)
+    return this._entityStates
   }
 
   removePlayer(playerId) {

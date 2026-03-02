@@ -22,18 +22,22 @@ import { createLoadingScreen } from './createLoadingScreen.js'
 import { MobileControls, detectDevice } from './MobileControls.js'
 import { XRControls, createXRButton } from './XRControls.js'
 
-function patchGLB(arrayBuffer) {
+const _patchCache = new WeakMap()
+function patchGLB(uint8) {
+  if (_patchCache.has(uint8)) return _patchCache.get(uint8)
+  let result
   try {
+    const arrayBuffer = uint8.buffer
     const v = new DataView(arrayBuffer)
-    if (v.getUint32(0, true) !== 0x46546C67) return arrayBuffer
+    if (v.getUint32(0, true) !== 0x46546C67) { result = arrayBuffer; _patchCache.set(uint8, result); return result }
     const jsonLen = v.getUint32(12, true)
     const jsonBytes = new Uint8Array(arrayBuffer, 20, jsonLen)
     const json = JSON.parse(new TextDecoder().decode(jsonBytes))
-    if (!json.textures) return arrayBuffer
+    if (!json.textures) { result = arrayBuffer; _patchCache.set(uint8, result); return result }
+    const needsPatch = json.textures.some(t => t.source === undefined && (!t.extensions || !Object.keys(t.extensions).some(k => t.extensions[k]?.source !== undefined)))
+    if (!needsPatch) { result = arrayBuffer; _patchCache.set(uint8, result); return result }
     json.textures = json.textures.map(t => {
-      if (t.source === undefined && (!t.extensions || !Object.keys(t.extensions).some(k => t.extensions[k]?.source !== undefined))) {
-        return { ...t, source: 0 }
-      }
+      if (t.source === undefined && (!t.extensions || !Object.keys(t.extensions).some(k => t.extensions[k]?.source !== undefined))) return { ...t, source: 0 }
       return t
     })
     const patched = new TextEncoder().encode(JSON.stringify(json))
@@ -49,13 +53,26 @@ function patchGLB(arrayBuffer) {
     ou.set(patched, 20)
     for (let i = 0; i < pad; i++) ou[20 + patched.length + i] = 0x20
     ou.set(new Uint8Array(arrayBuffer, 20 + jsonLen), 20 + patched.length + pad)
-    return out
-  } catch (_) { return arrayBuffer }
+    result = out
+  } catch (_) { result = uint8.buffer }
+  _patchCache.set(uint8, result)
+  return result
 }
 
 const loadingMgr = new LoadingManager()
 const loadingScreen = createLoadingScreen(loadingMgr)
 loadingMgr.setLabel('Connecting...')
+
+// Track unique entity models as they arrive in snapshots (discovered dynamically)
+const _discoveredModelUrls = new Set()
+function _updateDynamicAssetCount() {
+  // Total = base assets (player VRM + anim lib) + discovered unique models
+  const baseAssets = 2 // player VRM + animation library
+  const totalAssets = baseAssets + _discoveredModelUrls.size
+  if (totalAssets > 1 && loadingMgr._fixedTotal === null) {
+    loadingMgr.setFixedTotal(totalAssets)
+  }
+}
 
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x87ceeb)
@@ -297,7 +314,7 @@ function updateVRSettingsPanel() {
   ctx.textAlign = 'left'
   ctx.fillStyle = '#ffffff'
 
-ctx.fillText(`Snap Turn: ${vrSettings.snapTurnAngle}°`, 40, 120)
+  ctx.fillText(`Snap Turn: ${vrSettings.snapTurnAngle}°`, 40, 120)
   ctx.fillText('[B/Y] to cycle', 280, 120)
 
   ctx.fillText(`Smooth Turn: ${vrSettings.smoothTurnSpeed === 0 ? 'OFF' : vrSettings.smoothTurnSpeed.toFixed(1)}`, 40, 180)
@@ -702,7 +719,7 @@ THREE.Cache.enabled = true
 const gltfLoader = new GLTFLoader(loadingManager)
 const dracoLoader = new DRACOLoader(loadingManager)
 dracoLoader.setDecoderPath('/draco/')
-dracoLoader.setWorkerLimit(1)
+dracoLoader.setWorkerLimit(4)
 gltfLoader.setDRACOLoader(dracoLoader)
 gltfLoader.setMeshoptDecoder(MeshoptDecoder)
 gltfLoader.register((parser) => new VRMLoaderPlugin(parser))
@@ -762,7 +779,7 @@ function detectVrmVersion(buffer) {
     const jsonLen = view.getUint32(12, true)
     const json = JSON.parse(new TextDecoder().decode(new Uint8Array(arrayBuffer, 20, jsonLen)))
     if (json.extensions?.VRM) return '0'
-  } catch (e) {}
+  } catch (e) { }
   return '1'
 }
 
@@ -1085,10 +1102,17 @@ async function _doLoadEntityModel(entityId, entityState) {
   }
   loadingMgr.setLabel('Loading world...')
   const url = entityState.model.startsWith('./') ? '/' + entityState.model.slice(2) : entityState.model
+
+  // Track unique models for dynamic asset counting
+  if (!_discoveredModelUrls.has(url)) {
+    _discoveredModelUrls.add(url)
+    _updateDynamicAssetCount()
+  }
+
   try {
-    const buf = await fetchCached(url)
     loadingMgr.beginDownload(url)
-    const gltf = await gltfLoader.parseAsync(patchGLB(buf.buffer.slice(0)), '')
+    const buf = await fetchCached(url)
+    const gltf = await gltfLoader.parseAsync(patchGLB(buf), '')
     loadingMgr.completeDownload(url)
     const model = gltf.scene
     const mp = entityState.position; model.position.set(mp[0], mp[1], mp[2])
@@ -1185,8 +1209,8 @@ const client = new PhysicsNetworkClient({
     const sorted = myPos ? [...state.players].sort((a, b) => {
       if (a.id === client.playerId) return -1
       if (b.id === client.playerId) return 1
-      const da = (a.position[0]-myPos[0])**2+(a.position[1]-myPos[1])**2+(a.position[2]-myPos[2])**2
-      const db = (b.position[0]-myPos[0])**2+(b.position[1]-myPos[1])**2+(b.position[2]-myPos[2])**2
+      const da = (a.position[0] - myPos[0]) ** 2 + (a.position[1] - myPos[1]) ** 2 + (a.position[2] - myPos[2]) ** 2
+      const db = (b.position[0] - myPos[0]) ** 2 + (b.position[1] - myPos[1]) ** 2 + (b.position[2] - myPos[2]) ** 2
       return da - db
     }) : state.players
     const MAX_VISIBLE_PLAYERS = 32
@@ -1249,7 +1273,7 @@ const client = new PhysicsNetworkClient({
       if (a.client.setup) try { a.client.setup(engineCtx) } catch (e) { console.error('[app-setup]', d.app, e.message) }
     }
   },
-  onAssetUpdate: () => {},
+  onAssetUpdate: () => { },
   onAppEvent: (payload) => {
     for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onEvent) try { mod.onEvent(payload, engineCtx) } catch (e) { console.error('[app-event]', e.message) } }
   },
@@ -1495,7 +1519,7 @@ function startInputLoop() {
     }
 
     if (input.zoom !== undefined && input.zoom !== 0) {
-      cam.onWheel({ deltaY: -input.zoom * 100, preventDefault: () => {} })
+      cam.onWheel({ deltaY: -input.zoom * 100, preventDefault: () => { } })
     }
 
     if (input.isMobile && input.yawDelta !== undefined) {
@@ -1556,8 +1580,8 @@ document.addEventListener('pointerlockchange', () => {
   else document.removeEventListener('mousemove', cam.onMouseMove)
 })
 renderer.domElement.addEventListener('wheel', cam.onWheel, { passive: false })
-renderer.domElement.addEventListener('mousedown', (e) => { for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onMouseDown) try { mod.onMouseDown(e, engineCtx) } catch (ex) {} } })
-renderer.domElement.addEventListener('mouseup', (e) => { for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onMouseUp) try { mod.onMouseUp(e, engineCtx) } catch (ex) {} } })
+renderer.domElement.addEventListener('mousedown', (e) => { for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onMouseDown) try { mod.onMouseDown(e, engineCtx) } catch (ex) { } } })
+renderer.domElement.addEventListener('mouseup', (e) => { for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onMouseUp) try { mod.onMouseUp(e, engineCtx) } catch (ex) { } } })
 renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault())
 window.addEventListener('resize', () => { camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight) })
 
@@ -1751,7 +1775,7 @@ function animate(timestamp) {
       if (child) child.position.y = Math.sin(mesh.userData.hoverTime * 2) * mesh.userData.hover
     }
   })
-  for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onFrame) try { mod.onFrame(frameDt, engineCtx) } catch (e) {} }
+  for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onFrame) try { mod.onFrame(frameDt, engineCtx) } catch (e) { } }
   if (engineCtx.facial) engineCtx.facial.update(frameDt)
   uiTimer += frameDt
   if (latestState && uiTimer >= 0.25) { uiTimer = 0; renderAppUI(latestState) }

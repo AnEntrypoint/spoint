@@ -5,22 +5,28 @@ const DB_VERSION = 1
 const STORE = 'models'
 
 export async function dbPut(key, etag, buffer) {
-  try { await put(DB_NAME, DB_VERSION, STORE, key, { etag, buffer }) } catch {}
+  try { await put(DB_NAME, DB_VERSION, STORE, key, { etag, buffer }) } catch { }
 }
 
 export async function dbDelete(key) {
-  try { await remove(DB_NAME, DB_VERSION, STORE, key) } catch {}
+  try { await remove(DB_NAME, DB_VERSION, STORE, key) } catch { }
 }
 
+const _memCache = new Map()
+
 export async function fetchCached(url, onProgress) {
+  if (_memCache.has(url)) return _memCache.get(url)
+
   let cached = null
-  try { cached = await get(DB_NAME, DB_VERSION, STORE, url) } catch {}
+  try { cached = await get(DB_NAME, DB_VERSION, STORE, url) } catch { }
 
   if (cached?.etag) {
     const head = await fetch(url, { method: 'HEAD' }).catch(() => null)
     const serverEtag = head?.headers?.get('etag')
     if (serverEtag && serverEtag === cached.etag) {
-      return new Uint8Array(cached.buffer)
+      const arr = new Uint8Array(cached.buffer)
+      _memCache.set(url, arr)
+      return arr
     }
   }
 
@@ -47,8 +53,9 @@ export async function fetchCached(url, onProgress) {
   for (const chunk of chunks) { result.set(chunk, pos); pos += chunk.length }
 
   if (etag) {
-    try { await put(DB_NAME, DB_VERSION, STORE, url, { etag, buffer: result.buffer }) } catch {}
+    try { await put(DB_NAME, DB_VERSION, STORE, url, { etag, buffer: result.buffer }) } catch { }
   }
 
+  _memCache.set(url, result)
   return result
 }
