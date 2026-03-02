@@ -91,12 +91,8 @@ export function extractMeshFromGLB(filepath, meshIndex = 0) {
   }
   
   const node = json.nodes?.find(n => n.mesh === meshIndex)
-  if (node) {
-    result.nodeTransform = {
-      scale: node.scale ? [...node.scale] : null,
-      rotation: node.rotation ? [...node.rotation] : null,
-      translation: node.translation ? [...node.translation] : null
-    }
+  if (node && (node.scale || node.rotation || node.translation)) {
+    applyNodeTransform(result.vertices, node)
   }
 
   return result
@@ -137,12 +133,8 @@ export async function extractMeshFromGLBAsync(filepath, meshIndex = 0) {
   }
 
   const node = json.nodes?.find(n => n.mesh === meshIndex)
-  if (node) {
-    result.nodeTransform = {
-      scale: node.scale ? [...node.scale] : null,
-      rotation: node.rotation ? [...node.rotation] : null,
-      translation: node.translation ? [...node.translation] : null
-    }
+  if (node && (node.scale || node.rotation || node.translation)) {
+    applyNodeTransform(result.vertices, node)
   }
 
   return result
