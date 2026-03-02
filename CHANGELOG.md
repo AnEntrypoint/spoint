@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.140](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.139...v0.1.140) (2026-03-02)
+
+
+### Bug Fixes
+
+* align prop spawn grid to map floor, add mass to prop-dynamic ([671fe72](https://github.com/AnEntrypoint/spawnpoint/commit/671fe72128d9e06cde558c34abaa976a021c5500))
+
 ### [0.1.139](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.138...v0.1.139) (2026-03-02)
 
 
