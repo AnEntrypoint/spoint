@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.146](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.145...v0.1.146) (2026-03-02)
+
+
+### Bug Fixes
+
+* msgpack pack returns copied buffer to prevent WebTransport async write corruption ([e8cfc32](https://github.com/AnEntrypoint/spawnpoint/commit/e8cfc32dfe061f304a867dc5987b8dae78013546))
+
 ### [0.1.145](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.144...v0.1.145) (2026-03-02)
 
 
