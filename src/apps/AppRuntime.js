@@ -142,22 +142,19 @@ export class AppRuntime {
     for (const [entityId, server, ctx] of this._updateList) {
       this._safeCall(server, 'update', [ctx, dt], `update(${entityId})`)
     }
-    this._tickTimers(dt); this._syncDynamicBodies(); this._tickRespawn(); this._spatialSync(); this._tickCollisions(); this._tickInteractables()
+    this._tickTimers(dt)
+    const _ts0 = performance.now()
+    this._syncDynamicBodies()
+    this._lastSyncMs = performance.now() - _ts0
+    this._tickRespawn(); this._spatialSync(); this._tickCollisions(); this._tickInteractables()
   }
 
   _syncDynamicBodies() {
     if (!this._physics) return
     for (const e of this.entities.values()) {
       if (e.bodyType !== 'dynamic' || e._physicsBodyId === undefined) continue
-      const active = this._physics.isBodyActive(e._physicsBodyId)
-      if (!active && e._dynSleeping) continue
+      const active = this._physics.syncDynamicBody(e._physicsBodyId, e)
       e._dynSleeping = !active
-      const p = this._physics.getBodyPosition(e._physicsBodyId)
-      const r = this._physics.getBodyRotation(e._physicsBodyId)
-      const v = this._physics.getBodyVelocity(e._physicsBodyId)
-      e.position[0] = p[0]; e.position[1] = p[1]; e.position[2] = p[2]
-      e.rotation[0] = r[0]; e.rotation[1] = r[1]; e.rotation[2] = r[2]; e.rotation[3] = r[3]
-      e.velocity[0] = v[0]; e.velocity[1] = v[1]; e.velocity[2] = v[2]
     }
   }
 
@@ -225,7 +222,9 @@ export class AppRuntime {
   _tickCollisions() {
     const c = []
     for (const e of this.entities.values()) {
-      if (e.collider && this.apps.has(e.id)) { e._cachedColR = this._colR(e.collider); c.push(e) }
+      const app = this.apps.get(e.id)
+      const server = app?.server || app
+      if (e.collider && server?.onCollision) { e._cachedColR = this._colR(e.collider); c.push(e) }
     }
     for (let i = 0; i < c.length; i++) {
       const a = c[i], ar = a._cachedColR, ax = a.position[0], ay = a.position[1], az = a.position[2]

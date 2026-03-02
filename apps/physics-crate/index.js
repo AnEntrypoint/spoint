@@ -12,13 +12,6 @@ export default {
         ctx._runtime._physics.removeBody(ent._physicsBodyId)
         ent._physicsBodyId = null
       }
-    },
-    update(ctx, dt) {
-      const ent = ctx._entity
-      if (!ent?._physicsBodyId || !ctx._runtime?._physics) return
-      const pw = ctx._runtime._physics
-      ent.position = pw.getBodyPosition(ent._physicsBodyId)
-      ent.rotation = pw.getBodyRotation(ent._physicsBodyId)
     }
   },
   client: {

@@ -8,10 +8,11 @@ export class PhysicsWorld {
     this.gravity = config.gravity || [0, -9.81, 0]
     this.crouchHalfHeight = config.crouchHalfHeight || 0.45
     this.Jolt = null; this.jolt = null; this.physicsSystem = null; this.bodyInterface = null
-    this.bodies = new Map(); this.bodyMeta = new Map()
+    this.bodies = new Map(); this.bodyMeta = new Map(); this.bodyIds = new Map()
     this._objFilter = null; this._ovbp = null
     this._charShapes = new Map()
     this._tmpVec3 = null; this._tmpRVec3 = null
+    this._bulkOutP = null; this._bulkOutR = null; this._bulkOutLV = null; this._bulkOutAV = null
   }
   async init() {
     const J = await getJolt()
@@ -29,6 +30,8 @@ export class PhysicsWorld {
     this.jolt = new J.JoltInterface(settings); J.destroy(settings)
     this.physicsSystem = this.jolt.GetPhysicsSystem(); this.bodyInterface = this.physicsSystem.GetBodyInterface()
     this._tmpVec3 = new J.Vec3(0, 0, 0); this._tmpRVec3 = new J.RVec3(0, 0, 0)
+    this._bulkOutP = new J.RVec3(0, 0, 0); this._bulkOutR = new J.Quat(0, 0, 0, 1)
+    this._bulkOutLV = new J.Vec3(0, 0, 0); this._bulkOutAV = new J.Vec3(0, 0, 0)
     const [gx, gy, gz] = this.gravity
     this.physicsSystem.SetGravity(new J.Vec3(gx, gy, gz))
     return this
@@ -46,6 +49,7 @@ export class PhysicsWorld {
     J.destroy(cs)
     const id = body.GetID().GetIndexAndSequenceNumber()
     this.bodies.set(id, body); this.bodyMeta.set(id, opts.meta || {})
+    this.bodyIds.set(id, body.GetID())
     return id
   }
   addStaticBox(halfExtents, position, rotation) {
@@ -255,6 +259,22 @@ export class PhysicsWorld {
     }
   }
   _getBody(bodyId) { return this.bodies.get(bodyId) }
+  isBodyActive(bodyId) {
+    const b = this._getBody(bodyId); if (!b) return false
+    return b.IsActive()
+  }
+  syncDynamicBody(bodyId, entity) {
+    const b = this._getBody(bodyId); if (!b) return false
+    if (!b.IsActive()) return false
+    const id = this.bodyIds.get(bodyId)
+    const bi = this.bodyInterface
+    bi.GetPositionAndRotation(id, this._bulkOutP, this._bulkOutR)
+    bi.GetLinearAndAngularVelocity(id, this._bulkOutLV, this._bulkOutAV)
+    entity.position[0] = this._bulkOutP.GetX(); entity.position[1] = this._bulkOutP.GetY(); entity.position[2] = this._bulkOutP.GetZ()
+    entity.rotation[0] = this._bulkOutR.GetX(); entity.rotation[1] = this._bulkOutR.GetY(); entity.rotation[2] = this._bulkOutR.GetZ(); entity.rotation[3] = this._bulkOutR.GetW()
+    entity.velocity[0] = this._bulkOutLV.GetX(); entity.velocity[1] = this._bulkOutLV.GetY(); entity.velocity[2] = this._bulkOutLV.GetZ()
+    return true
+  }
   getBodyPosition(bodyId) {
     const b = this._getBody(bodyId); if (!b) return [0, 0, 0]
     const p = this.bodyInterface.GetPosition(b.GetID())
@@ -275,10 +295,6 @@ export class PhysicsWorld {
     const r = [v.GetX(), v.GetY(), v.GetZ()]
     this.Jolt.destroy(v)
     return r
-  }
-  isBodyActive(bodyId) {
-    const b = this._getBody(bodyId); if (!b) return false
-    const id = b.GetID(); const r = this.bodyInterface.IsActive(id); this.Jolt.destroy(id); return r
   }
   setBodyPosition(bodyId, position) {
     const b = this._getBody(bodyId); if (!b) return
@@ -304,7 +320,7 @@ export class PhysicsWorld {
   removeBody(bodyId) {
     const b = this._getBody(bodyId); if (!b) return
     this.bodyInterface.RemoveBody(b.GetID()); this.bodyInterface.DestroyBody(b.GetID())
-    this.bodies.delete(bodyId); this.bodyMeta.delete(bodyId)
+    this.bodies.delete(bodyId); this.bodyMeta.delete(bodyId); this.bodyIds.delete(bodyId)
   }
   raycast(origin, direction, maxDistance = 1000, excludeBodyId = null) {
     if (!this.physicsSystem) return { hit: false, distance: maxDistance, body: null, position: null }

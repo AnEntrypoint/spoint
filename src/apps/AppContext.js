@@ -42,9 +42,9 @@ export class AppContext {
     const runtime = this._runtime
     return {
       setInteractable: (radius = 3) => { ent._interactable = true; ent._interactRadius = radius },
-      setStatic: (v) => { ent.bodyType = v ? 'static' : ent.bodyType },
-      setDynamic: (v) => { ent.bodyType = v ? 'dynamic' : ent.bodyType },
-      setKinematic: (v) => { ent.bodyType = v ? 'kinematic' : ent.bodyType },
+      setStatic: (v) => { ent.bodyType = v ? 'static' : ent.bodyType; if (v) { runtime._dynamicEntityIds?.delete(ent.id) } },
+      setDynamic: (v) => { ent.bodyType = v ? 'dynamic' : ent.bodyType; if (v) { runtime._dynamicEntityIds?.add(ent.id) } },
+      setKinematic: (v) => { ent.bodyType = v ? 'kinematic' : ent.bodyType; if (v) { runtime._dynamicEntityIds?.add(ent.id) } },
       setMass: (v) => { ent.mass = v },
       addBoxCollider: (s) => {
         ent.collider = { type: 'box', size: s }
