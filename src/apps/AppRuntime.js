@@ -227,6 +227,7 @@ export class AppRuntime {
         const bid = this._physics.addBody(d.shapeType, d.params, e.position, d.motionType, { rotation: e.rotation, mass: d.opts.mass })
         e._physicsBodyId = bid; e._bodyActive = true
         this._physicsBodyToEntityId.set(bid, entityId)
+        this._activeDynamicIds.add(entityId)
         this._suspendedEntityIds.delete(entityId)
       } else if (!inRange && e._bodyActive !== false) {
         if (e._physicsBodyId !== undefined) {
