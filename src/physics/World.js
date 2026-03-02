@@ -11,6 +11,7 @@ export class PhysicsWorld {
     this.bodies = new Map(); this.bodyMeta = new Map(); this.bodyIds = new Map()
     this._objFilter = null; this._ovbp = null
     this._charShapes = new Map()
+    this._shapeCache = new Map()
     this._tmpVec3 = null; this._tmpRVec3 = null
     this._bulkOutP = null; this._bulkOutR = null; this._bulkOutLV = null; this._bulkOutAV = null
   }
@@ -75,19 +76,26 @@ export class PhysicsWorld {
     else if (shapeType === 'sphere') shape = new J.SphereShape(params)
     else if (shapeType === 'capsule') shape = new J.CapsuleShape(params[1], params[0])
     else if (shapeType === 'convex') {
-      const pts = new J.VertexList()
-      const f3 = new J.Float3(0, 0, 0)
-      for (let i = 0; i < params.length; i += 3) { f3.x = params[i]; f3.y = params[i + 1]; f3.z = params[i + 2]; pts.push_back(f3) }
-      J.destroy(f3)
-      const cvx = new J.ConvexHullShapeSettings()
-      cvx.set_mPoints(pts)
-      const shapeResult = cvx.Create()
-      shape = shapeResult.Get()
+      const cacheKey = opts.shapeKey || null
+      let shape
+      if (cacheKey && this._shapeCache.has(cacheKey)) {
+        shape = this._shapeCache.get(cacheKey)
+      } else {
+        const pts = new J.VertexList()
+        const f3 = new J.Float3(0, 0, 0)
+        for (let i = 0; i < params.length; i += 3) { f3.x = params[i]; f3.y = params[i + 1]; f3.z = params[i + 2]; pts.push_back(f3) }
+        J.destroy(f3)
+        const cvx = new J.ConvexHullShapeSettings()
+        cvx.set_mPoints(pts)
+        const shapeResult = cvx.Create()
+        shape = shapeResult.Get()
+        J.destroy(pts); J.destroy(cvx)
+        if (cacheKey) this._shapeCache.set(cacheKey, shape)
+        else J.destroy(shapeResult)
+      }
       const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
       const layer2 = motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC
-      const id = this._addBody(shape, position, mt, layer2, { ...opts, meta: { type: motionType, shape: shapeType } })
-      J.destroy(shapeResult); J.destroy(pts); J.destroy(cvx)
-      return id
+      return this._addBody(shape, position, mt, layer2, { ...opts, meta: { type: motionType, shape: shapeType } })
     }
     else return null
     const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
