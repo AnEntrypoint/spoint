@@ -173,6 +173,18 @@ Per-player `entityMap` tracks only dynamic entity delta keys. Static entity IDs 
 
 Measured result: 87ms snap phase → ~10ms at 1000 static + 100 dynamic + 100 players (10x speedup).
 
+## Pre-Encoded Dynamic Entity Cache (Snap Phase Optimization)
+
+In the spatial snapshot path (relevanceRadius > 0), dynamic entities are encoded once per tick before the per-player loop via `SnapshotEncoder.encodeDynamicEntitiesOnce(rawEntities, prevCache)`. This returns a `Map<id, {enc, k, cust, custStr, isEnv}>` cache used by all players. Per-player work is reduced to relevance filtering + delta key comparison only — no re-encoding per player.
+
+`AppRuntime.getDynamicEntitiesRaw()` returns lightweight entity objects (no array copies) for the cache builder. `AppRuntime.getRelevantDynamicIds(pos, radius)` returns a Set of ids for per-player relevance filtering.
+
+`SnapshotEncoder.encodeDeltaFromCache(tick, serverTime, dynCache, relevantIds, prevEntityMap, ...)` uses the pre-encoded cache: iterates dynCache, skips non-relevant ids, skips unchanged entities (key match vs prevEntityMap). Only changed entities are pushed into the snapshot payload.
+
+`prevDynCache` in TickHandler carries the cache between ticks to enable custom-string caching (`custStr` reuse when `entity.custom` object reference is unchanged). Reset to null on keyframe ticks.
+
+Cost reduction: O(N × P) encodeEntity calls → O(N) where N = dynamic entities, P = players. For 1000 entities × 100 players: 100,000 → 1,000 encodeEntity calls per tick.
+
 ## Snapshot Delivery: SNAP_GROUPS Rotation
 
 TickHandler sends snapshots to `1/SNAP_GROUPS` of players per tick (default 4). Effective snapshot rate = 32 Hz. At 100 players: 25 sends/tick × 166μs (Windows WebSocket kernel I/O) = 4ms/tick — within 7.8ms budget. SNAP_GROUPS is computed dynamically from player count.

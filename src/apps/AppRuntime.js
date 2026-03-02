@@ -187,6 +187,20 @@ export class AppRuntime {
     return { tick: this.currentTick, timestamp: Date.now(), entities }
   }
 
+  getDynamicEntitiesRaw() {
+    const out = []
+    for (const id of this._dynamicEntityIds) {
+      const e = this.entities.get(id)
+      if (e) out.push({ id, model: e.model, position: e.position, rotation: e.rotation, velocity: e.velocity, bodyType: e.bodyType, custom: e.custom, _isEnv: e._appName === 'environment' })
+    }
+    return out
+  }
+
+  getRelevantDynamicIds(playerPosition, radius) {
+    const relevant = new Set(this.relevantEntities(playerPosition, radius))
+    return relevant
+  }
+
   getNearbyPlayers(viewerPosition, radius, allPlayers) {
     if (!allPlayers || allPlayers.length === 0) return []
     const cx = viewerPosition[0], cy = viewerPosition[1], cz = viewerPosition[2]

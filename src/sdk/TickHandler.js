@@ -23,6 +23,7 @@ export function createTickHandler(deps) {
   let staticEntityIds = new Set()
   let lastStaticEntries = null
   let lastStaticVersion = -1
+  let prevDynCache = null
   let profileLog = 0
   const snapUnreliable = isUnreliable(MSG.SNAPSHOT)
 
@@ -144,17 +145,22 @@ export function createTickHandler(deps) {
           }
           lastStaticVersion = curStaticVersion
         }
+        const dynEntitiesRaw = appRuntime.getDynamicEntitiesRaw()
+        const dynCache = SnapshotEncoder.encodeDynamicEntitiesOnce(dynEntitiesRaw, isKeyframe ? null : prevDynCache)
+        prevDynCache = dynCache
         const serverTime = Date.now()
         for (const player of players) {
           if (!isKeyframe && player.id % snapGroups !== curGroup) continue
           const isNewPlayer = !playerEntityMaps.has(player.id)
           const nearbyPlayers = appRuntime.getNearbyPlayers(player.state.position, relevanceRadius, playerSnap.players)
           const preEncodedPlayers = SnapshotEncoder.encodePlayers(nearbyPlayers)
-          const entitySnap = appRuntime.getSnapshotForPlayer(player.state.position, relevanceRadius, true)
-          const combined = { tick: playerSnap.tick, entities: entitySnap.entities, serverTime }
+          const relevantIds = appRuntime.getRelevantDynamicIds(player.state.position, relevanceRadius)
           const prevMap = isNewPlayer ? new Map() : playerEntityMaps.get(player.id)
           const staticForPlayer = isNewPlayer ? lastStaticEntries : activeStaticEntries
-          const { encoded, entityMap } = SnapshotEncoder.encodeDelta(combined, prevMap, preEncodedPlayers, staticForPlayer, staticEntityMap, staticEntityIds)
+          const { encoded, entityMap } = SnapshotEncoder.encodeDeltaFromCache(
+            playerSnap.tick, serverTime, dynCache, relevantIds,
+            prevMap, preEncodedPlayers, staticForPlayer, staticEntityMap, staticEntityIds
+          )
           playerEntityMaps.set(player.id, entityMap)
           connections.send(player.id, MSG.SNAPSHOT, { seq: snapshotSeq, ...encoded })
         }

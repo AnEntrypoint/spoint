@@ -29,6 +29,13 @@ function encodeEntity(e) {
   ]
 }
 
+function buildEntityKey(enc, custStr) {
+  let k = enc[1]
+  for (let i = 2; i < 12; i++) k += '|' + enc[i]
+  k += '|' + enc[12] + '|' + custStr
+  return k
+}
+
 export class SnapshotEncoder {
   static encodePlayers(players) {
     return (players || []).map(encodePlayer)
@@ -43,12 +50,9 @@ export class SnapshotEncoder {
       if (e.bodyType !== 'static') continue
       const enc = encodeEntity(e)
       const prev = prevStaticMap.get(e.id)
-      let k = enc[1]
-      for (let i = 2; i < 12; i++) k += '|' + enc[i]
-      k += '|' + enc[12]
       const cust = enc[13]
       const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? JSON.stringify(cust) : '')
-      k += '|' + custStr
+      const k = buildEntityKey(enc, custStr)
       nextMap.set(e.id, [k, cust, custStr])
       allEntries.push({ enc, k, id: e.id })
       if (!prev || prev[0] !== k) { changedEntries.push({ enc, k, id: e.id }); changed = true }
@@ -59,6 +63,43 @@ export class SnapshotEncoder {
 
   static buildStaticIds(staticMap) {
     return new Set(staticMap.keys())
+  }
+
+  static encodeDynamicEntitiesOnce(entities, prevCache) {
+    const cache = new Map()
+    for (const e of entities) {
+      if (e.bodyType === 'static') continue
+      const enc = encodeEntity(e)
+      const prev = prevCache ? prevCache.get(e.id) : null
+      const cust = enc[13]
+      const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? JSON.stringify(cust) : '')
+      const k = buildEntityKey(enc, custStr)
+      cache.set(e.id, { enc, k, cust, custStr, isEnv: e._isEnv || false })
+    }
+    return cache
+  }
+
+  static encodeDeltaFromCache(tick, serverTime, dynCache, relevantIds, prevEntityMap, preEncodedPlayers, staticEntries, staticEntityMap, staticEntityIds) {
+    const entities = []
+    const nextMap = new Map()
+    if (staticEntries) {
+      for (const { enc } of staticEntries) entities.push(enc)
+    }
+    for (const [id, entry] of dynCache) {
+      if (!entry.isEnv && relevantIds && !relevantIds.has(id)) continue
+      const { enc, k, cust, custStr } = entry
+      nextMap.set(id, [k, cust, custStr])
+      const prev = prevEntityMap.get(id)
+      if (!prev || prev[0] !== k) entities.push(enc)
+    }
+    const removed = []
+    for (const id of prevEntityMap.keys()) {
+      if (!dynCache.has(id) && !(staticEntityIds && staticEntityIds.has(id))) removed.push(id)
+    }
+    return {
+      encoded: { tick: tick || 0, serverTime, players: preEncodedPlayers, entities, removed: removed.length ? removed : undefined, delta: 1 },
+      entityMap: nextMap
+    }
   }
 
   static encodeDelta(snapshot, prevEntityMap, preEncodedPlayers, staticEntries, staticMap, staticIds) {
@@ -74,12 +115,9 @@ export class SnapshotEncoder {
       const encoded = encodeEntity(e)
       dynIds.add(e.id)
       const prev = prevEntityMap.get(e.id)
-      let k = encoded[1]
-      for (let i = 2; i < 12; i++) k += '|' + encoded[i]
-      k += '|' + encoded[12]
       const cust = encoded[13]
       const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? JSON.stringify(cust) : '')
-      k += '|' + custStr
+      const k = buildEntityKey(encoded, custStr)
       nextMap.set(e.id, [k, cust, custStr])
       if (!prev || prev[0] !== k) entities.push(encoded)
     }
