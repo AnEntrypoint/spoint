@@ -51,35 +51,39 @@ export class AppContext {
         if (runtime._physics) {
           const he = Array.isArray(s) ? s : [s, s, s]
           const mt = ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
-          ent._physicsBodyId = runtime._physics.addBody('box', he, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+          const bid = runtime._physics.addBody('box', he, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+          ent._physicsBodyId = bid; runtime._physicsBodyToEntityId?.set(bid, ent.id)
         }
       },
       addSphereCollider: (r) => {
         ent.collider = { type: 'sphere', radius: r }
         if (runtime._physics) {
           const mt = ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
-          ent._physicsBodyId = runtime._physics.addBody('sphere', r, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+          const bid = runtime._physics.addBody('sphere', r, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+          ent._physicsBodyId = bid; runtime._physicsBodyToEntityId?.set(bid, ent.id)
         }
       },
       addCapsuleCollider: (r, h) => {
         ent.collider = { type: 'capsule', radius: r, height: h }
         if (runtime._physics) {
           const mt = ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
-          ent._physicsBodyId = runtime._physics.addBody('capsule', [r, h / 2], ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+          const bid = runtime._physics.addBody('capsule', [r, h / 2], ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+          ent._physicsBodyId = bid; runtime._physicsBodyToEntityId?.set(bid, ent.id)
         }
       },
       addTrimeshCollider: async () => {
         ent.collider = { type: 'trimesh', model: ent.model }
         if (runtime._physics && ent.model) {
-          const bodyId = await runtime._physics.addStaticTrimeshAsync(runtime.resolveAssetPath(ent.model), 0, ent.position)
-          ent._physicsBodyId = bodyId
+          const bid = await runtime._physics.addStaticTrimeshAsync(runtime.resolveAssetPath(ent.model), 0, ent.position)
+          ent._physicsBodyId = bid; runtime._physicsBodyToEntityId?.set(bid, ent.id)
         }
       },
       addConvexCollider: (points) => {
         ent.collider = { type: 'convex', points }
         if (runtime._physics) {
           const mt = ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
-          ent._physicsBodyId = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+          const bid = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+          ent._physicsBodyId = bid; runtime._physicsBodyToEntityId?.set(bid, ent.id)
         }
       },
       addConvexFromModel: (meshIndex = 0) => {
@@ -90,7 +94,8 @@ export class AppContext {
           ent.collider = { type: 'convex', points }
           if (runtime._physics) {
             const mt = ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
-            ent._physicsBodyId = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+            const bid = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+            ent._physicsBodyId = bid; runtime._physicsBodyToEntityId?.set(bid, ent.id)
           }
         } catch (err) {
           if (err.message.includes('Draco-compressed')) {
@@ -98,7 +103,8 @@ export class AppContext {
             if (runtime._physics) {
               const mt = ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
               ent.collider = { type: 'box', size: [0.5, 0.5, 0.5] }
-              ent._physicsBodyId = runtime._physics.addBody('box', [0.5, 0.5, 0.5], ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+              const bid = runtime._physics.addBody('box', [0.5, 0.5, 0.5], ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+              ent._physicsBodyId = bid; runtime._physicsBodyToEntityId?.set(bid, ent.id)
             }
           } else {
             throw err
@@ -115,14 +121,16 @@ export class AppContext {
           console.warn(`[physics] ${ent.model}: mesh extraction failed (${err.message}), using box fallback`)
           if (runtime._physics) {
             ent.collider = { type: 'box', size: [0.5, 0.5, 0.5] }
-            ent._physicsBodyId = runtime._physics.addBody('box', [0.5, 0.5, 0.5], ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+            const bid = runtime._physics.addBody('box', [0.5, 0.5, 0.5], ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+            ent._physicsBodyId = bid; runtime._physicsBodyToEntityId?.set(bid, ent.id)
           }
           return
         }
         const points = Array.from(mesh.vertices)
         ent.collider = { type: 'convex', points }
         if (runtime._physics) {
-          ent._physicsBodyId = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+          const bid = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+          ent._physicsBodyId = bid; runtime._physicsBodyToEntityId?.set(bid, ent.id)
         }
       },
       addForce: (f) => {

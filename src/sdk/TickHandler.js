@@ -144,9 +144,15 @@ export function createTickHandler(deps) {
           }
           lastStaticVersion = curStaticVersion
         }
-        const dynEntitiesRaw = appRuntime.getDynamicEntitiesRaw()
-        const dynCache = SnapshotEncoder.encodeDynamicEntitiesOnce(dynEntitiesRaw, prevDynCache)
-        prevDynCache = dynCache
+        const activeDynCount = appRuntime._activeDynamicIds.size
+        let dynCache
+        if (activeDynCount === 0 && prevDynCache !== null) {
+          dynCache = prevDynCache
+        } else {
+          const dynEntitiesRaw = appRuntime.getDynamicEntitiesRaw()
+          dynCache = SnapshotEncoder.encodeDynamicEntitiesOnce(dynEntitiesRaw, prevDynCache)
+          prevDynCache = dynCache
+        }
         const serverTime = Date.now()
         for (const player of players) {
           if (player.id % snapGroups !== curGroup) continue

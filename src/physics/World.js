@@ -34,6 +34,17 @@ export class PhysicsWorld {
     this._bulkOutLV = new J.Vec3(0, 0, 0); this._bulkOutAV = new J.Vec3(0, 0, 0)
     const [gx, gy, gz] = this.gravity
     this.physicsSystem.SetGravity(new J.Vec3(gx, gy, gz))
+    this._heap32 = new Int32Array(J.HEAP8.buffer)
+    this._activationListener = new J.BodyActivationListenerJS()
+    this._activationListener.OnBodyActivated = (bodyIdPtr) => {
+      const seq = this._heap32[bodyIdPtr >> 2]
+      if (this.onBodyActivated) this.onBodyActivated(seq)
+    }
+    this._activationListener.OnBodyDeactivated = (bodyIdPtr) => {
+      const seq = this._heap32[bodyIdPtr >> 2]
+      if (this.onBodyDeactivated) this.onBodyDeactivated(seq)
+    }
+    this.physicsSystem.SetBodyActivationListener(this._activationListener)
     return this
   }
   _addBody(shape, position, motionType, layer, opts = {}) {
