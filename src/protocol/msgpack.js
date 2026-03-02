@@ -92,7 +92,7 @@ function write(value) {
 export function pack(value) {
   pos = 0
   write(value)
-  return buf.subarray(0, pos)
+  return buf.slice(0, pos)
 }
 
 
