@@ -358,7 +358,8 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
 
       this.aim(aiming)
       wasOnGround = effectiveOnGround
-      mixer.update(dt)
+      const hasActiveAction = actions.get(current)?._isActive || oneShot
+      if (hasActiveAction) mixer.update(dt)
     },
     shoot() {
       const action = actions.get('PistolShoot')

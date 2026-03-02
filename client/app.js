@@ -1231,6 +1231,7 @@ const client = new PhysicsNetworkClient({
         const vx = e.velocity?.[0] || 0, vy = e.velocity?.[1] || 0, vz = e.velocity?.[2] || 0
         if (et) { et.x = e.position[0]; et.y = e.position[1]; et.z = e.position[2]; et.vx = vx; et.vy = vy; et.vz = vz; et.rx = e.rotation?.[0] || 0; et.ry = e.rotation?.[1] || 0; et.rz = e.rotation?.[2] || 0; et.rw = e.rotation?.[3] || 1 }
         else entityTargets.set(e.id, { x: e.position[0], y: e.position[1], z: e.position[2], vx, vy, vz, rx: e.rotation?.[0] || 0, ry: e.rotation?.[1] || 0, rz: e.rotation?.[2] || 0, rw: e.rotation?.[3] || 1 })
+        _dirtyEntityTargets.add(e.id)
         const dx = e.position[0] - mesh.position.x, dy = e.position[1] - mesh.position.y, dz = e.position[2] - mesh.position.z
         if (!mesh.userData.entInit || dx * dx + dy * dy + dz * dz > 100) { mesh.position.set(e.position[0], e.position[1], e.position[2]); if (e.rotation) mesh.quaternion.set(e.rotation[0], e.rotation[1], e.rotation[2], e.rotation[3]); mesh.userData.entInit = true }
       }
@@ -1694,6 +1695,8 @@ document.addEventListener('drop', (e) => {
 
 let smoothDt = 1 / 60
 let _appModuleList = []
+const _dirtyEntityTargets = new Set()
+const _sinTable = Array(360).fill(0).map((_, i) => Math.sin(i * Math.PI / 180))
 function animate(timestamp) {
   const now = timestamp || performance.now()
   const rawDt = Math.min((now - lastFrameTime) / 1000, 0.1)
@@ -1752,9 +1755,10 @@ function animate(timestamp) {
       if (features?._headBone) features._headBone.rotation.x = -(ps.lookPitch || 0) * 0.6
     }
   })
-  entityTargets.forEach((target, id) => {
+  for (const id of _dirtyEntityTargets) {
+    const target = entityTargets.get(id)
     const mesh = entityMeshes.get(id)
-    if (!mesh) return
+    if (!target || !mesh) continue
     const goalX = target.x + (target.vx || 0) * frameDt
     const goalY = target.y + (target.vy || 0) * frameDt
     const goalZ = target.z + (target.vz || 0) * frameDt
@@ -1766,13 +1770,14 @@ function animate(timestamp) {
     mesh.quaternion.z += (target.rz - mesh.quaternion.z) * lerpFactor
     mesh.quaternion.w += (target.rw - mesh.quaternion.w) * lerpFactor
     mesh.quaternion.normalize()
-  })
+  }
+  _dirtyEntityTargets.clear()
   entityMeshes.forEach((mesh) => {
     if (mesh.userData.spin) mesh.rotation.y += mesh.userData.spin * frameDt
     if (mesh.userData.hover) {
       mesh.userData.hoverTime = (mesh.userData.hoverTime || 0) + frameDt
       const child = mesh.children[0]
-      if (child) child.position.y = Math.sin(mesh.userData.hoverTime * 2) * mesh.userData.hover
+      if (child) child.position.y = _sinTable[Math.floor(mesh.userData.hoverTime * 2 * 180 / Math.PI) % 360] * mesh.userData.hover
     }
   })
   for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onFrame) try { mod.onFrame(frameDt, engineCtx) } catch (e) { } }
