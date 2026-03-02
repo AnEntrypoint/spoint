@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.139](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.138...v0.1.139) (2026-03-02)
+
+
+### Bug Fixes
+
+* dynamic box collider fit and mass ([177a85d](https://github.com/AnEntrypoint/spawnpoint/commit/177a85dac1945d5afb5047c50311c2a9193399e8))
+
 ### [0.1.138](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.137...v0.1.138) (2026-03-02)
 
 
