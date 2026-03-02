@@ -14,6 +14,7 @@ export class AppRuntime {
     this._playerManager = c.playerManager || null; this._physics = c.physics || null; this._physicsIntegration = c.physicsIntegration || null
     this._connections = c.connections || null; this._stageLoader = c.stageLoader || null
     this._nextEntityId = 1; this._appDefs = new Map(); this._timers = new Map(); this._interactCooldowns = new Map(); this._respawnTimer = new Map()
+    this._activeDynamicIds = new Set()
     this._hotReload = new HotReloadQueue(this)
     this._eventBus = c.eventBus || new EventBus()
     this._eventLog = c.eventLog || null
@@ -113,6 +114,7 @@ export class AppRuntime {
     const entity = this.entities.get(entityId); if (!entity) return
     this._staticVersion++
     this._dynamicEntityIds.delete(entityId)
+    this._activeDynamicIds.delete(entityId)
     this._log('entity_destroy', { id: entityId }, { sourceEntity: entityId })
     for (const childId of [...entity.children]) this.destroyEntity(childId)
     if (entity.parent) { const p = this.entities.get(entity.parent); if (p) p.children.delete(entityId) }
@@ -146,15 +148,25 @@ export class AppRuntime {
     const _ts0 = performance.now()
     this._syncDynamicBodies()
     this._lastSyncMs = performance.now() - _ts0
-    this._tickRespawn(); this._spatialSync(); this._tickCollisions(); this._tickInteractables()
+    const _ts1 = performance.now()
+    this._tickRespawn()
+    this._lastRespawnMs = performance.now() - _ts1
+    const _ts2 = performance.now()
+    this._spatialSync()
+    this._lastSpatialMs = performance.now() - _ts2
+    this._tickCollisions(); this._tickInteractables()
   }
 
   _syncDynamicBodies() {
     if (!this._physics) return
-    for (const e of this.entities.values()) {
-      if (e.bodyType !== 'dynamic' || e._physicsBodyId === undefined) continue
+    const fullScan = this.currentTick % 128 === 0
+    const ids = fullScan ? this._dynamicEntityIds : this._activeDynamicIds
+    for (const id of ids) {
+      const e = this.entities.get(id)
+      if (!e || e._physicsBodyId === undefined) continue
       const active = this._physics.syncDynamicBody(e._physicsBodyId, e)
-      e._dynSleeping = !active
+      if (active) { this._activeDynamicIds.add(id); e._dynSleeping = false }
+      else { this._activeDynamicIds.delete(id); e._dynSleeping = true }
     }
   }
 
@@ -191,7 +203,7 @@ export class AppRuntime {
     const out = []
     for (const id of this._dynamicEntityIds) {
       const e = this.entities.get(id)
-      if (e) out.push({ id, model: e.model, position: e.position, rotation: e.rotation, velocity: e.velocity, bodyType: e.bodyType, custom: e.custom, _isEnv: e._appName === 'environment' })
+      if (e) out.push({ id, model: e.model, position: e.position, rotation: e.rotation, velocity: e.velocity, bodyType: e.bodyType, custom: e.custom, _isEnv: e._appName === 'environment', _sleeping: e._dynSleeping || false })
     }
     return out
   }
@@ -255,35 +267,23 @@ export class AppRuntime {
 
   _tickRespawn() {
     const now = Date.now()
-    for (const e of this.entities.values()) {
+    for (const id of this._activeDynamicIds) {
+      const e = this.entities.get(id); if (!e) continue
       if (e.position[1] < -20) {
-        if (!this._respawnTimer.has(e.id)) {
-          this._respawnTimer.set(e.id, { startTime: now, lastRespawn: 0 })
-        }
-        const timer = this._respawnTimer.get(e.id)
-        const fallDuration = (now - timer.startTime) / 1000
-        if (fallDuration >= 5) {
-          const respawnCooldown = 1000
-          if (now - timer.lastRespawn >= respawnCooldown) {
-            const spawnPos = e._spawnPosition || [0, 20, 0]
-            e.position[0] = spawnPos[0]
-            e.position[1] = spawnPos[1]
-            e.position[2] = spawnPos[2]
-            e.velocity[0] = 0
-            e.velocity[1] = 0
-            e.velocity[2] = 0
-            if (e._physicsBodyId !== undefined && this._physics) {
-              this._physics.setBodyPosition(e._physicsBodyId, spawnPos)
-              this._physics.setBodyVelocity(e._physicsBodyId, [0, 0, 0])
-            }
-            timer.lastRespawn = now
-            this._respawnTimer.set(e.id, { startTime: now, lastRespawn: now })
+        if (!this._respawnTimer.has(id)) this._respawnTimer.set(id, { startTime: now, lastRespawn: 0 })
+        const timer = this._respawnTimer.get(id)
+        if ((now - timer.startTime) / 1000 >= 5 && now - timer.lastRespawn >= 1000) {
+          const spawnPos = e._spawnPosition || [0, 20, 0]
+          e.position[0] = spawnPos[0]; e.position[1] = spawnPos[1]; e.position[2] = spawnPos[2]
+          e.velocity[0] = 0; e.velocity[1] = 0; e.velocity[2] = 0
+          if (e._physicsBodyId !== undefined && this._physics) {
+            this._physics.setBodyPosition(e._physicsBodyId, spawnPos)
+            this._physics.setBodyVelocity(e._physicsBodyId, [0, 0, 0])
           }
+          timer.startTime = now; timer.lastRespawn = now
         }
       } else {
-        if (this._respawnTimer.has(e.id)) {
-          this._respawnTimer.delete(e.id)
-        }
+        this._respawnTimer.delete(id)
       }
     }
   }

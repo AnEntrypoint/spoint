@@ -6,6 +6,28 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 
 ---
 
+## Reusable Apps: box-static, prop-static, box-dynamic
+
+- `box-dynamic` — dynamic physics box with primitive mesh (no GLB). Config: `{ hx, hy, hz, color, roughness }`. Calls `ctx.physics.setDynamic(true)` then `ctx.physics.addBoxCollider([hx, hy, hz])`. Writes `entity.custom` with `mesh:'box'` and full dimensions for client rendering.
+
+## Active Dynamic Body Tracking
+
+`AppRuntime` maintains `_dynamicEntityIds` (all dynamic) and `_activeDynamicIds` (awake only). `_syncDynamicBodies()` does a full scan every 128 ticks; between scans only iterates `_activeDynamicIds`. `World.syncDynamicBody()` returns `true` when body is active, `false` when sleeping. Sleeping entities set `e._dynSleeping = true` — used by SnapshotEncoder to skip re-encoding and by Stage to skip octree updates. `_tickRespawn()` and spatial sync also skip sleeping bodies.
+
+## WORLD_DEF Does Not Include Entities
+
+`ServerHandlers.onClientConnect()` strips the `entities` array from the world definition before sending `MSG.WORLD_DEF` to connecting clients. The server spawns entities internally; sending 10k+ entity definitions over WebSocket on connect causes event loop stalls. Pattern: `const { entities: _ignored, ...worldDefForClient } = ctx.currentWorldDef`.
+
+## Keyframe Interval
+
+`KEYFRAME_INTERVAL` in TickHandler.js is 1280 ticks (10 seconds at 128 TPS). At 128, mass player connections caused simultaneous full-snapshot bursts (71KB × 100 players) that exceeded WebSocket buffers. Snap group rotation (`player.id % snapGroups`) is now ALWAYS applied — including keyframe ticks — to prevent burst.
+
+## SnapshotEncoder Sleeping Skip
+
+`encodeDynamicEntitiesOnce()` checks `e._sleeping` before re-encoding. If sleeping and previous cache entry exists, reuses it directly. This skips position quantization, key building, and JSON.stringify for settled bodies — critical when thousands of dynamic bodies are at rest.
+
+`encodeDeltaFromCache()` iterates `relevantIds` (player's visible set) instead of the full `dynCache` when `relevantIds.size < dynCache.size`. This cuts per-player inner loop from O(all dynamic) to O(nearby dynamic). Env entities (isEnv=true) are always included via a separate pass.
+
 ## Reusable Apps: box-static, prop-static
 
 - `box-static` — visual box primitive + static collider. Config: `{ hx, hy, hz, color, roughness }`. Half-extents drive both collider and visual (`sx/sy/sz = hx/hy/hz * 2`). Spawn via `ctx.world.spawn(id, { app: 'box-static', config: { hx, hy, hz, color } })`.

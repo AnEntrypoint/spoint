@@ -69,6 +69,10 @@ export class SnapshotEncoder {
     const cache = new Map()
     for (const e of entities) {
       if (e.bodyType === 'static') continue
+      if (e._sleeping && prevCache) {
+        const prev = prevCache.get(e.id)
+        if (prev) { cache.set(e.id, prev); continue }
+      }
       const enc = encodeEntity(e)
       const prev = prevCache ? prevCache.get(e.id) : null
       const cust = enc[13]
@@ -85,12 +89,32 @@ export class SnapshotEncoder {
     if (staticEntries) {
       for (const { enc } of staticEntries) entities.push(enc)
     }
-    for (const [id, entry] of dynCache) {
-      if (!entry.isEnv && relevantIds && !relevantIds.has(id)) continue
-      const { enc, k, cust, custStr } = entry
-      nextMap.set(id, [k, cust, custStr])
-      const prev = prevEntityMap.get(id)
-      if (!prev || prev[0] !== k) entities.push(enc)
+    const iterIds = (relevantIds && dynCache.size > relevantIds.size) ? relevantIds : null
+    if (iterIds) {
+      for (const id of iterIds) {
+        const entry = dynCache.get(id)
+        if (!entry) continue
+        const { enc, k, cust, custStr } = entry
+        nextMap.set(id, [k, cust, custStr])
+        const prev = prevEntityMap.get(id)
+        if (!prev || prev[0] !== k) entities.push(enc)
+      }
+      for (const [id, entry] of dynCache) {
+        if (entry.isEnv) {
+          const { enc, k, cust, custStr } = entry
+          nextMap.set(id, [k, cust, custStr])
+          const prev = prevEntityMap.get(id)
+          if (!prev || prev[0] !== k) entities.push(enc)
+        }
+      }
+    } else {
+      for (const [id, entry] of dynCache) {
+        if (!entry.isEnv && relevantIds && !relevantIds.has(id)) continue
+        const { enc, k, cust, custStr } = entry
+        nextMap.set(id, [k, cust, custStr])
+        const prev = prevEntityMap.get(id)
+        if (!prev || prev[0] !== k) entities.push(enc)
+      }
     }
     const removed = []
     for (const id of prevEntityMap.keys()) {

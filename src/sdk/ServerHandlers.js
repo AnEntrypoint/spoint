@@ -18,7 +18,8 @@ export function createConnectionHandlers(ctx) {
     client.sessionToken = sessions.create(playerId, playerManager.getPlayer(playerId).state)
     connections.send(playerId, MSG.HANDSHAKE_ACK, { playerId, tick: tickSystem.currentTick, sessionToken: client.sessionToken, tickRate: ctx.tickRate })
     if (ctx.currentWorldDef) {
-      connections.send(playerId, MSG.WORLD_DEF, ctx.currentWorldDef)
+      const { entities: _ignored, ...worldDefForClient } = ctx.currentWorldDef
+      connections.send(playerId, MSG.WORLD_DEF, worldDefForClient)
     }
     const clientModules = appLoader.getClientModules()
     for (const [appName, code] of Object.entries(clientModules)) {

@@ -75,7 +75,7 @@ export class Stage {
     if (!this._runtime) return
     for (const id of this.entityIds) {
       const e = this._runtime.getEntity(id)
-      if (e && e.bodyType !== 'static') {
+      if (e && e.bodyType !== 'static' && !e._dynSleeping) {
         this.spatial.update(id, e.position)
       }
     }

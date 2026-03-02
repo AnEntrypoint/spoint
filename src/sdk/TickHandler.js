@@ -4,7 +4,7 @@ import { pack } from '../protocol/msgpack.js'
 import { isUnreliable } from '../protocol/MessageTypes.js'
 import { applyMovement as _applyMovement, DEFAULT_MOVEMENT as _DEFAULT_MOVEMENT } from '../shared/movement.js'
 
-const KEYFRAME_INTERVAL = 128
+const KEYFRAME_INTERVAL = 1280
 const MAX_SENDS_PER_TICK = 25
 
 export function createTickHandler(deps) {
@@ -31,7 +31,6 @@ export function createTickHandler(deps) {
     const t0 = performance.now()
     networkState.setTick(tick, Date.now())
     const players = playerManager.getConnectedPlayers()
-
     for (const player of players) {
       const inputs = playerManager.getInputs(player.id)
       const st = player.state
@@ -146,11 +145,11 @@ export function createTickHandler(deps) {
           lastStaticVersion = curStaticVersion
         }
         const dynEntitiesRaw = appRuntime.getDynamicEntitiesRaw()
-        const dynCache = SnapshotEncoder.encodeDynamicEntitiesOnce(dynEntitiesRaw, isKeyframe ? null : prevDynCache)
+        const dynCache = SnapshotEncoder.encodeDynamicEntitiesOnce(dynEntitiesRaw, prevDynCache)
         prevDynCache = dynCache
         const serverTime = Date.now()
         for (const player of players) {
-          if (!isKeyframe && player.id % snapGroups !== curGroup) continue
+          if (player.id % snapGroups !== curGroup) continue
           const isNewPlayer = !playerEntityMaps.has(player.id)
           const nearbyPlayers = appRuntime.getNearbyPlayers(player.state.position, relevanceRadius, playerSnap.players)
           const preEncodedPlayers = SnapshotEncoder.encodePlayers(nearbyPlayers)
@@ -192,7 +191,11 @@ export function createTickHandler(deps) {
       const ext = (mem.external / 1048576).toFixed(1)
       const ab = (mem.arrayBuffers / 1048576).toFixed(1)
       const syncMs = (appRuntime._lastSyncMs || 0).toFixed(2)
-      try { console.log(`[tick-profile] tick:${tick} players:${players.length} total:${total.toFixed(2)}ms | mv:${(t1 - t0).toFixed(2)} col:${(t2 - t1).toFixed(2)} phys:${(t3 - t2).toFixed(2)} app:${(t4 - t3).toFixed(2)} sync:${syncMs} snap:${(t5 - t4).toFixed(2)} | heap:${heap}MB rss:${rss}MB ext:${ext}MB ab:${ab}MB`) } catch (_) {}
+      const respawnMs = (appRuntime._lastRespawnMs || 0).toFixed(2)
+      const spatialMs = (appRuntime._lastSpatialMs || 0).toFixed(2)
+      const dynIds = appRuntime._dynamicEntityIds?.size || 0
+      const activeDyn = appRuntime._activeDynamicIds?.size || 0
+      try { console.log(`[tick-profile] tick:${tick} players:${players.length} entities:${appRuntime.entities.size} dynIds:${dynIds} activeDyn:${activeDyn} total:${total.toFixed(2)}ms | mv:${(t1 - t0).toFixed(2)} col:${(t2 - t1).toFixed(2)} phys:${(t3 - t2).toFixed(2)} app:${(t4 - t3).toFixed(2)} sync:${syncMs} respawn:${respawnMs} spatial:${spatialMs} snap:${(t5 - t4).toFixed(2)} | heap:${heap}MB rss:${rss}MB ext:${ext}MB ab:${ab}MB`) } catch (_) {}
     }
   }
 }

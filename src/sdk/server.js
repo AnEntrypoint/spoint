@@ -64,8 +64,8 @@ export async function boot(overrides = {}) {
   }
   const server = await createServer(config)
   await server.loadWorld(worldDef)
-  server.on('playerJoin', ({ id }) => console.log())
-  server.on('playerLeave', ({ id }) => console.log())
+  server.on('playerJoin', ({ id }) => {})
+  server.on('playerLeave', ({ id }) => {})
   const info = await server.start()
   console.log(`[server] http://localhost:${info.port} @ ${info.tickRate} TPS`)
   // Kick off background GLB optimization for all app directories
