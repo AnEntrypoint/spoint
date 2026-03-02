@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.141](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.140...v0.1.141) (2026-03-02)
+
+
+### Features
+
+* add client-side convex hull wireframe debug rendering ([ebf58e3](https://github.com/AnEntrypoint/spawnpoint/commit/ebf58e387b9bf4ade695397ccc57a266bf34b7b2))
+
 ### [0.1.140](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.139...v0.1.140) (2026-03-02)
 
 
