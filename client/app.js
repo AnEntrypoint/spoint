@@ -731,6 +731,7 @@ sessionStorage.removeItem('cam')
 let latestState = null
 let latestInput = null
 let uiTimer = 0
+let _hierarchyDirty = false
 let lastFrameTime = performance.now()
 let fpsFrames = 0, fpsLast = performance.now(), fpsDisplay = 0
 let vrmBuffer = null
@@ -830,7 +831,7 @@ async function createPlayerVRM(id) {
       const feetOffsetRatio = pc.feetOffset || 0.212
       vrm.scene.scale.multiplyScalar(modelScale)
       vrm.scene.position.y = -feetOffsetRatio * modelScale
-      group.userData.feetOffset = 1.3
+      group.userData.feetOffset = 0.91
       group.add(vrm.scene)
       playerVrms.set(id, vrm)
       initVRMFeatures(id, vrm)
@@ -853,7 +854,7 @@ async function createPlayerVRM(id) {
       const feetOffsetRatio = pc.feetOffset || 0.212
       glbScene.scale.multiplyScalar(modelScale)
       glbScene.position.y = -feetOffsetRatio * modelScale
-      group.userData.feetOffset = 1.3
+      group.userData.feetOffset = 0.91
       group.add(glbScene)
       if (animAssets) {
         const animator = createGLBAnimator(glbScene, gltf.animations || [], animAssets, worldConfig.animation || {})
@@ -1076,6 +1077,7 @@ async function _doLoadEntityModel(entityId, entityState) {
     const er = entityState.rotation; if (er) group.quaternion.set(er[0], er[1], er[2], er[3])
     scene.add(group)
     entityMeshes.set(entityId, group)
+    _hierarchyDirty = true
     pendingLoads.delete(entityId)
     if (!environmentLoaded) { environmentLoaded = true; checkAllLoaded() }
     return
@@ -1106,9 +1108,10 @@ async function _doLoadEntityModel(entityId, entityState) {
     model.updateMatrixWorld(true)
     scene.add(model)
     entityMeshes.set(entityId, model)
+    _hierarchyDirty = true
     if (!isDynamic) {
       cam.setEnvironment(colliders)
-      fitShadowFrustum()
+      _scheduleFitShadow()
     }
     pendingLoads.delete(entityId)
     if (!environmentLoaded) { environmentLoaded = true; checkAllLoaded() }
@@ -1208,7 +1211,7 @@ const client = new PhysicsNetworkClient({
   onPlayerJoined: (id) => { if (!playerMeshes.has(id)) createPlayerVRM(id) },
   onPlayerLeft: (id) => removePlayerMesh(id),
   onEntityAdded: (id, state) => loadEntityModel(id, state),
-  onEntityRemoved: (id) => { const m = entityMeshes.get(id); if (m) { scene.remove(m); m.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose() }); entityMeshes.delete(id) }; entityTargets.delete(id); pendingLoads.delete(id) },
+  onEntityRemoved: (id) => { const m = entityMeshes.get(id); if (m) { scene.remove(m); m.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose() }); entityMeshes.delete(id); _hierarchyDirty = true }; entityTargets.delete(id); pendingLoads.delete(id) },
   onWorldDef: (wd) => {
     loadingMgr.setLabel('Syncing with server...')
     worldConfig = wd
@@ -1284,6 +1287,11 @@ function _scheduleDynamicCompile() {
     // Skip async shader compilation - causes memory exhaustion
     // Shaders compile on-demand as entities render
   }, 500)
+}
+let _fitShadowTimer = null
+function _scheduleFitShadow() {
+  if (_fitShadowTimer) clearTimeout(_fitShadowTimer)
+  _fitShadowTimer = setTimeout(() => { _fitShadowTimer = null; fitShadowFrustum() }, 200)
 }
 
 // Warmup runs BEFORE loading screen hides.
@@ -1664,7 +1672,7 @@ function animate(timestamp) {
   for (const p of smoothState.players) {
     if (!playerMeshes.has(p.id)) continue
     const mesh = playerMeshes.get(p.id)
-    const feetOff = mesh?.userData?.feetOffset ?? 1.3
+    const feetOff = mesh?.userData?.feetOffset ?? 0.91
     const tx = p.position[0], ty = p.position[1] - feetOff, tz = p.position[2]
     const existingTarget = playerTargets.get(p.id)
     if (existingTarget) { existingTarget.x = tx; existingTarget.y = ty; existingTarget.z = tz }
@@ -1672,7 +1680,7 @@ function animate(timestamp) {
     playerStates.set(p.id, p)
     if (!mesh.userData.initialized) { mesh.position.set(tx, ty, tz); mesh.userData.initialized = true }
   }
-  if (smoothState.entities.length > 0) rebuildEntityHierarchy(smoothState.entities)
+  if (_hierarchyDirty && smoothState.entities.length > 0) { rebuildEntityHierarchy(smoothState.entities); _hierarchyDirty = false }
   playerTargets.forEach((target, id) => {
     const mesh = playerMeshes.get(id)
     if (!mesh) return
