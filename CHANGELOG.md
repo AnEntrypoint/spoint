@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.148](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.147...v0.1.148) (2026-03-02)
+
+
+### Bug Fixes
+
+* adjust power-crate spawn grid to map boundaries ([f66f5ad](https://github.com/AnEntrypoint/spawnpoint/commit/f66f5ad3f82b01703fd07ab47e34e7ce827e49ce))
+
 ### [0.1.147](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.146...v0.1.147) (2026-03-02)
 
 ### [0.1.146](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.145...v0.1.146) (2026-03-02)
