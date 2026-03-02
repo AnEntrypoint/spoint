@@ -26,6 +26,8 @@ export function createTickHandler(deps) {
   let prevDynCache = null
   let profileLog = 0
   const snapUnreliable = isUnreliable(MSG.SNAPSHOT)
+  let grid = new Map()
+  const gridCells = new Map()
 
   return function onTick(tick, dt) {
     const t0 = performance.now()
@@ -71,13 +73,13 @@ export function createTickHandler(deps) {
     const cellSz = physicsIntegration.config.capsuleRadius * 8
     const minDist = physicsIntegration.config.capsuleRadius * 2
     const minDist2 = minDist * minDist
-    const grid = new Map()
+    grid.clear()
     for (const p of players) {
       const cx = Math.floor(p.state.position[0] / cellSz)
       const cz = Math.floor(p.state.position[2] / cellSz)
       const ck = cx * 65536 + cz
       let cell = grid.get(ck)
-      if (!cell) { cell = []; grid.set(ck, cell) }
+      if (!cell) { cell = gridCells.get(ck); if (!cell) { cell = []; gridCells.set(ck, cell) } else { cell.length = 0 } grid.set(ck, cell) }
       cell.push(p)
     }
     for (const player of players) {

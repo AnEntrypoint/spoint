@@ -30,10 +30,7 @@ function encodeEntity(e) {
 }
 
 function buildEntityKey(enc, custStr) {
-  let k = enc[1]
-  for (let i = 2; i < 12; i++) k += '|' + enc[i]
-  k += '|' + enc[12] + '|' + custStr
-  return k
+  return enc[1] + '|' + enc[2] + '|' + enc[3] + '|' + enc[4] + '|' + enc[5] + '|' + enc[6] + '|' + enc[7] + '|' + enc[8] + '|' + enc[9] + '|' + enc[10] + '|' + enc[11] + '|' + enc[12] + '|' + custStr
 }
 
 export class SnapshotEncoder {
