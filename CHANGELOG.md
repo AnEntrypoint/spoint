@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.144](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.143...v0.1.144) (2026-03-02)
+
+
+### Bug Fixes
+
+* apply GLB node transform to convex hull vertices to align with visual mesh ([0ed5a0a](https://github.com/AnEntrypoint/spawnpoint/commit/0ed5a0ac6b05b33c33400112803edf385af92d2b))
+
 ### [0.1.143](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.142...v0.1.143) (2026-03-02)
 
 
