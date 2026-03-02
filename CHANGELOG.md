@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.143](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.142...v0.1.143) (2026-03-02)
+
+
+### Bug Fixes
+
+* cache Jolt convex hull shapes by model path to prevent WASM OOM ([dfe1278](https://github.com/AnEntrypoint/spawnpoint/commit/dfe127867b2ed103fbbe2f0517fa25c89f173da8))
+
 ### [0.1.142](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.141...v0.1.142) (2026-03-02)
 
 
