@@ -1116,7 +1116,7 @@ async function _doLoadEntityModel(entityId, entityState) {
         const wf = new THREE.WireframeGeometry(c.geometry)
         const seg = new THREE.LineSegments(wf, new THREE.LineBasicMaterial({ color: 0x00ff00, depthTest: false }))
         seg.visible = !!window.__showHulls__
-        c.parent.add(seg)
+        c.add(seg)
         hullSegs.push(seg)
       })
       _hullMeshes.set(entityId, hullSegs)
