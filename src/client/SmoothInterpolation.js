@@ -48,39 +48,34 @@ export class SmoothInterpolation {
     const dt = this._lastDisplayTime > 0 ? Math.min((now - this._lastDisplayTime) / 1000, 0.1) : 0
     this._lastDisplayTime = now
 
-    const displayPlayers = []
-    for (const player of snapshot.players || []) {
-      if (player.id === this.localPlayerId && this.predictionEnabled) {
-        displayPlayers.push(player)
-        continue
+    const players = snapshot.players || []
+    const entities = snapshot.entities || []
+
+    if (dt > 0) {
+      for (let i = 0; i < players.length; i++) {
+        const player = players[i]
+        if (player.id === this.localPlayerId && this.predictionEnabled) continue
+        const filter = this.playerFilters.get(player.id)
+        if (!filter) continue
+        filter.predict(dt)
+        const pos = player.position
+        pos[0] = filter.x[0] + filter.v[0] * dt
+        pos[1] = filter.x[1] + filter.v[1] * dt
+        pos[2] = filter.x[2] + filter.v[2] * dt
+        const vel = player.velocity
+        if (vel) { vel[0] = filter.v[0]; vel[1] = filter.v[1]; vel[2] = filter.v[2] }
       }
-      const filter = this.playerFilters.get(player.id)
-      if (filter && dt > 0) {
-        const predicted = filter.predict(dt)
-        const extrapolated = {
-          ...predicted.position,
-          x: predicted.position.x + (predicted.velocity?.x || 0) * dt,
-          y: predicted.position.y + (predicted.velocity?.y || 0) * dt,
-          z: predicted.position.z + (predicted.velocity?.z || 0) * dt
-        }
-        displayPlayers.push({ ...player, position: extrapolated, velocity: predicted.velocity })
-      } else {
-        displayPlayers.push(player)
+      for (let i = 0; i < entities.length; i++) {
+        const entity = entities[i]
+        const filter = this.entityFilters.get(entity.id)
+        if (!filter) continue
+        filter.predict(dt)
+        const pos = entity.position
+        if (pos) { pos[0] = filter.x[0]; pos[1] = filter.x[1]; pos[2] = filter.x[2] }
       }
     }
 
-    const displayEntities = []
-    for (const entity of snapshot.entities || []) {
-      const filter = this.entityFilters.get(entity.id)
-      if (filter && dt > 0) {
-        const predicted = filter.predict(dt)
-        displayEntities.push({ ...entity, position: predicted.position })
-      } else {
-        displayEntities.push(entity)
-      }
-    }
-
-    return { players: displayPlayers, entities: displayEntities }
+    return { players, entities }
   }
 
   removePlayer(id) { this.playerFilters.delete(id) }

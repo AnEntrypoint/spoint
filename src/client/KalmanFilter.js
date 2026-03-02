@@ -5,27 +5,32 @@ export class KalmanFilter3D {
     this.positionR = config.positionR ?? 0.1
     this.velocityR = config.velocityR ?? 0.1
 
-    this.x = [0, 0, 0]
-    this.v = [0, 0, 0]
-
-    this.Pp = [1, 1, 1]
-    this.Pv = [1, 1, 1]
+    this.x = new Float64Array(3)
+    this.v = new Float64Array(3)
+    this.Pp = new Float64Array([1, 1, 1])
+    this.Pv = new Float64Array([1, 1, 1])
+    this._prevPos = new Float64Array(3)
+    this._hasPrevPos = false
 
     this.initialized = false
-    this._prevPos = null
     this._lastUpdateMs = 0
+
+    this._outPos = new Float64Array(3)
+    this._outVel = new Float64Array(3)
   }
 
   init(position, velocity = null, now = Date.now()) {
-    this.x = [...position]
-    this.v = velocity ? [...velocity] : [0, 0, 0]
-    this._prevPos = [...position]
+    this.x[0] = position[0]; this.x[1] = position[1]; this.x[2] = position[2]
+    if (velocity) { this.v[0] = velocity[0]; this.v[1] = velocity[1]; this.v[2] = velocity[2] }
+    else { this.v[0] = 0; this.v[1] = 0; this.v[2] = 0 }
+    this._prevPos[0] = position[0]; this._prevPos[1] = position[1]; this._prevPos[2] = position[2]
+    this._hasPrevPos = true
     this._lastUpdateMs = now
     this.initialized = true
   }
 
   predict(dt) {
-    if (!this.initialized || dt <= 0) return { position: [...this.x], velocity: [...this.v] }
+    if (!this.initialized || dt <= 0) return this
 
     for (let i = 0; i < 3; i++) {
       this.x[i] += this.v[i] * dt
@@ -33,17 +38,17 @@ export class KalmanFilter3D {
       this.Pv[i] += this.velocityQ * dt
     }
 
-    return { position: [...this.x], velocity: [...this.v] }
+    return this
   }
 
   update(measuredPosition, measuredVelocity = null, now = Date.now()) {
     if (!this.initialized) {
       this.init(measuredPosition, measuredVelocity, now)
-      return { position: [...this.x], velocity: [...this.v] }
+      return this
     }
 
     const elapsedMs = now - this._lastUpdateMs
-    if (elapsedMs < 1) return { position: [...this.x], velocity: [...this.v] }
+    if (elapsedMs < 1) return this
     const elapsed = elapsedMs / 1000
     this._lastUpdateMs = now
 
@@ -61,7 +66,7 @@ export class KalmanFilter3D {
       let measuredV
       if (measuredVelocity) {
         measuredV = measuredVelocity[i]
-      } else if (this._prevPos) {
+      } else if (this._hasPrevPos) {
         measuredV = (measuredPosition[i] - this._prevPos[i]) / elapsed
       } else {
         measuredV = 0
@@ -72,20 +77,21 @@ export class KalmanFilter3D {
       this.Pv[i] = (1 - Kv) * this.Pv[i]
     }
 
-    this._prevPos = [...measuredPosition]
-    return { position: [...this.x], velocity: [...this.v] }
+    this._prevPos[0] = measuredPosition[0]; this._prevPos[1] = measuredPosition[1]; this._prevPos[2] = measuredPosition[2]
+    this._hasPrevPos = true
+    return this
   }
 
-  getState() { return { position: [...this.x], velocity: [...this.v] } }
-  setPosition(pos) { this.x = [...pos]; this._prevPos = [...pos] }
-  setVelocity(vel) { this.v = [...vel] }
+  getState() { return { position: [this.x[0], this.x[1], this.x[2]], velocity: [this.v[0], this.v[1], this.v[2]] } }
+  setPosition(pos) { this.x[0] = pos[0]; this.x[1] = pos[1]; this.x[2] = pos[2]; this._prevPos[0] = pos[0]; this._prevPos[1] = pos[1]; this._prevPos[2] = pos[2]; this._hasPrevPos = true }
+  setVelocity(vel) { this.v[0] = vel[0]; this.v[1] = vel[1]; this.v[2] = vel[2] }
 
   reset(position = [0, 0, 0]) {
-    this.x = [...position]
-    this.v = [0, 0, 0]
-    this.Pp = [1, 1, 1]
-    this.Pv = [1, 1, 1]
-    this._prevPos = null
+    this.x[0] = position[0]; this.x[1] = position[1]; this.x[2] = position[2]
+    this.v[0] = 0; this.v[1] = 0; this.v[2] = 0
+    this.Pp[0] = 1; this.Pp[1] = 1; this.Pp[2] = 1
+    this.Pv[0] = 1; this.Pv[1] = 1; this.Pv[2] = 1
+    this._hasPrevPos = false
     this._lastUpdateMs = 0
     this.initialized = false
   }
