@@ -715,6 +715,7 @@ const playerAnimators = new Map()
 const playerVrms = new Map()
 const playerStates = new Map()
 const entityMeshes = new Map()
+const _hullMeshes = new Map()
 const entityParentMap = new Map()
 const entityGroups = new Map()
 const appModules = new Map()
@@ -1108,6 +1109,18 @@ async function _doLoadEntityModel(entityId, entityState) {
     model.updateMatrixWorld(true)
     scene.add(model)
     entityMeshes.set(entityId, model)
+    if (isDynamic) {
+      const hullSegs = []
+      model.traverse(c => {
+        if (!c.isMesh) return
+        const wf = new THREE.WireframeGeometry(c.geometry)
+        const seg = new THREE.LineSegments(wf, new THREE.LineBasicMaterial({ color: 0x00ff00, depthTest: false }))
+        seg.visible = !!window.__showHulls__
+        c.parent.add(seg)
+        hullSegs.push(seg)
+      })
+      _hullMeshes.set(entityId, hullSegs)
+    }
     _hierarchyDirty = true
     if (!isDynamic) {
       cam.setEnvironment(colliders)
@@ -1211,7 +1224,7 @@ const client = new PhysicsNetworkClient({
   onPlayerJoined: (id) => { if (!playerMeshes.has(id)) createPlayerVRM(id) },
   onPlayerLeft: (id) => removePlayerMesh(id),
   onEntityAdded: (id, state) => loadEntityModel(id, state),
-  onEntityRemoved: (id) => { const m = entityMeshes.get(id); if (m) { scene.remove(m); m.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose() }); entityMeshes.delete(id); _hierarchyDirty = true }; entityTargets.delete(id); pendingLoads.delete(id) },
+  onEntityRemoved: (id) => { const m = entityMeshes.get(id); if (m) { scene.remove(m); m.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose() }); entityMeshes.delete(id); _hierarchyDirty = true }; _hullMeshes.delete(id); entityTargets.delete(id); pendingLoads.delete(id) },
   onWorldDef: (wd) => {
     loadingMgr.setLabel('Syncing with server...')
     worldConfig = wd
@@ -1791,6 +1804,9 @@ setupHands()
 window.__VR_DEBUG__ = false
 window.debug = {
   scene, camera, renderer, client, playerMeshes, entityMeshes, appModules, inputHandler, playerVrms, playerAnimators, loadingMgr, loadingScreen, controllerModels, controllerGrips, handModels, mobileControls, xrControls,
+  hullMeshes: _hullMeshes,
+  get showHulls() { return !!window.__showHulls__ },
+  set showHulls(v) { window.__showHulls__ = v; _hullMeshes.forEach(segs => segs.forEach(s => { s.visible = v })) },
   enableVRDebug: () => { window.__VR_DEBUG__ = true; console.log('[VR] Debug enabled - button/axis logging active') },
   disableVRDebug: () => { window.__VR_DEBUG__ = false; console.log('[VR] Debug disabled') },
   vrInput: () => inputHandler?.getInput() || null,
