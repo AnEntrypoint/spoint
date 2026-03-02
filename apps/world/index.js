@@ -32,21 +32,30 @@ const PROP_MODELS = [
   'water_tank_c27c18f7_v1.glb', 'water_tank_c27c18f7_v2.glb', 'water_tank_c27c18f7_v3.glb', 'water_tank_c27c18f7_v4.glb',
 ]
 
-const GRID_COLS = 8
-const GRID_ROWS = 8
-const SPACING = 6
-const ORIGIN_X = -24
-const ORIGIN_Z = -46
+// aim_sillos floor area from measured spawn points:
+// X: -26 to +22, Z: -50 to +1, spawn Y=3 (above highest floor)
+const MAP_X_MIN = -26
+const MAP_X_MAX = 22
+const MAP_Z_MIN = -50
+const MAP_Z_MAX = 1
 const SPAWN_Y = 3
+const TARGET_COUNT = 1000
+
+const MAP_W = MAP_X_MAX - MAP_X_MIN
+const MAP_D = MAP_Z_MAX - MAP_Z_MIN
+const GRID_COLS = Math.ceil(Math.sqrt(TARGET_COUNT * (MAP_W / MAP_D)))
+const GRID_ROWS = Math.ceil(TARGET_COUNT / GRID_COLS)
+const SPACING_X = MAP_W / (GRID_COLS - 1)
+const SPACING_Z = MAP_D / (GRID_ROWS - 1)
 
 const dynEntities = []
-for (let i = 0; i < GRID_ROWS * GRID_COLS; i++) {
+for (let i = 0; i < TARGET_COUNT; i++) {
   const row = Math.floor(i / GRID_COLS)
   const col = i % GRID_COLS
   dynEntities.push({
     id: `dyn-${i}`,
     model: `./apps/props/dynamic/${PROP_MODELS[i % PROP_MODELS.length]}`,
-    position: [ORIGIN_X + col * SPACING, SPAWN_Y, ORIGIN_Z + row * SPACING],
+    position: [MAP_X_MIN + col * SPACING_X, SPAWN_Y, MAP_Z_MIN + row * SPACING_Z],
     app: 'prop-dynamic',
   })
 }
@@ -56,7 +65,7 @@ export default {
   tickRate: 128,
   gravity: [0, -9.81, 0],
   relevanceRadius: 900,
-  physicsRadius: 60,
+  physicsRadius: 80,
   movement: {
     maxSpeed: 4.0,
     groundAccel: 10.0,
