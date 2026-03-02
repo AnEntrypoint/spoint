@@ -32,12 +32,12 @@ const PROP_MODELS = [
   'water_tank_c27c18f7_v1.glb', 'water_tank_c27c18f7_v2.glb', 'water_tank_c27c18f7_v3.glb', 'water_tank_c27c18f7_v4.glb',
 ]
 
-const GRID_COLS = 20
-const GRID_ROWS = 20
-const SPACING = 5
-const ORIGIN_X = -47.5
-const ORIGIN_Z = -47.5
-const SPAWN_Y = 2
+const GRID_COLS = 8
+const GRID_ROWS = 8
+const SPACING = 6
+const ORIGIN_X = -24
+const ORIGIN_Z = -46
+const SPAWN_Y = 3
 
 const dynEntities = []
 for (let i = 0; i < GRID_ROWS * GRID_COLS; i++) {
