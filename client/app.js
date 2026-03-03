@@ -1697,6 +1697,13 @@ let smoothDt = 1 / 60
 let _appModuleList = []
 const _dirtyEntityTargets = new Set()
 const _sinTable = Array(360).fill(0).map((_, i) => Math.sin(i * Math.PI / 180))
+const _lodConfigs = {
+  vrm: { far: 50, skipBeyond: 100 },
+  box: { far: 60, skipBeyond: 120 },
+  sphere: { far: 65, skipBeyond: 130 },
+  cylinder: { far: 65, skipBeyond: 130 },
+  default: { far: 80, skipBeyond: 200 }
+}
 function animate(timestamp) {
   const now = timestamp || performance.now()
   const rawDt = Math.min((now - lastFrameTime) / 1000, 0.1)
@@ -1821,6 +1828,21 @@ function animate(timestamp) {
         xrControls.setInitialFPSPosition(arLocal.position, cam.yaw)
       }
     }
+  }
+
+  const camPos = camera.position
+  for (const mesh of playerMeshes.values()) {
+    const dx = mesh.position.x - camPos.x, dy = mesh.position.y - camPos.y, dz = mesh.position.z - camPos.z
+    const dist2 = dx * dx + dy * dy + dz * dz
+    const cfg = _lodConfigs.vrm
+    mesh.visible = dist2 <= cfg.skipBeyond * cfg.skipBeyond
+  }
+  for (const mesh of entityMeshes.values()) {
+    const modelType = mesh.userData?.mesh || 'default'
+    const cfg = _lodConfigs[modelType] || _lodConfigs.default
+    const dx = mesh.position.x - camPos.x, dy = mesh.position.y - camPos.y, dz = mesh.position.z - camPos.z
+    const dist2 = dx * dx + dy * dy + dz * dz
+    mesh.visible = dist2 <= cfg.skipBeyond * cfg.skipBeyond
   }
 
   renderer.render(scene, camera)
