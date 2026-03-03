@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.152](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.151...v0.1.152) (2026-03-03)
+
+
+### Features
+
+* add baseline profiling harness for 50-player performance measurement ([5288b4e](https://github.com/AnEntrypoint/spawnpoint/commit/5288b4eefab8b8a02ce85c916fc3ec4f2015cbdf))
+
 ### [0.1.151](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.150...v0.1.151) (2026-03-02)
 
 ### [0.1.150](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.149...v0.1.150) (2026-03-02)
