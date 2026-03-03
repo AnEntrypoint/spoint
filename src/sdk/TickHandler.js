@@ -125,7 +125,10 @@ export function createTickHandler(deps) {
       const playerSnap = networkState.getSnapshot()
       snapshotSeq++
       const isKeyframe = snapshotSeq % KEYFRAME_INTERVAL === 0
-      const snapGroups = Math.max(1, Math.ceil(players.length / MAX_SENDS_PER_TICK))
+      const playerCount = players.length
+      const snapGroups = playerCount >= 100
+        ? Math.max(1, Math.ceil(playerCount / 50))
+        : Math.max(1, Math.ceil(playerCount / MAX_SENDS_PER_TICK))
       const curGroup = tick % snapGroups
 
       const relevanceRadius = (stageLoader && stageLoader.getActiveStage())
