@@ -110,6 +110,18 @@ export class ConnectionManager extends EventEmitter {
     }
   }
 
+  sendBinary(clientId, data, unreliable) {
+    const client = this.clients.get(clientId)
+    if (!client || !client.transport.isOpen) return false
+    try {
+      if (unreliable) return client.transport.sendUnreliable(data)
+      return client.transport.send(data)
+    } catch (err) {
+      console.error(`[connection] sendBinary error to ${clientId}:`, err.message)
+      return false
+    }
+  }
+
   broadcast(type, payload = {}) {
     const data = pack({ type, payload })
     const unreliable = isUnreliable(type)

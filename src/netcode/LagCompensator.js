@@ -19,11 +19,6 @@ export class LagCompensator {
     entry.velocity[0] = velocity[0]; entry.velocity[1] = velocity[1]; entry.velocity[2] = velocity[2]
     if (ring.len < 128) ring.len++
     else ring.head = (ring.head + 1) % 128
-
-    const cutoff = Date.now() - this.historyWindow
-    while (ring.len > 0 && ring.buf[ring.head].timestamp < cutoff) {
-      ring.head = (ring.head + 1) % 128; ring.len--
-    }
   }
 
   getPlayerStateAtTime(playerId, millisAgo) {

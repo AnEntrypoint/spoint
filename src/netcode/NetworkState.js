@@ -40,21 +40,17 @@ export class NetworkState {
   }
 
   getSnapshot() {
+    const players = Array.from(this.players.values())
+    for (let i = 0; i < players.length; i++) {
+        const p = players[i]
+        if (p.crouch === undefined) p.crouch = 0
+        if (p.lookPitch === undefined) p.lookPitch = 0
+        if (p.lookYaw === undefined) p.lookYaw = 0
+    }
     return {
       tick: this.tick,
       timestamp: this.timestamp,
-      players: this.getAllPlayers().map(p => ({
-        id: p.id,
-        position: p.position,
-        rotation: p.rotation,
-        velocity: p.velocity,
-        onGround: p.onGround,
-        health: p.health,
-        inputSequence: p.inputSequence,
-        crouch: p.crouch || 0,
-        lookPitch: p.lookPitch || 0,
-        lookYaw: p.lookYaw || 0
-      }))
+      players
     }
   }
 

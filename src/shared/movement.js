@@ -1,8 +1,7 @@
-export function applyMovement(state, input, movement, dt) {
-  const { maxSpeed, groundAccel, airAccel, friction, stopSpeed, jumpImpulse } = movement
-  let vx = state.velocity[0], vz = state.velocity[2]
+export function applyMovement(state, input, movement, dt, cy, sy) {
+  const maxSpeed = movement.maxSpeed, groundAccel = movement.groundAccel, airAccel = movement.airAccel, friction = movement.friction, stopSpeed = movement.stopSpeed, jumpImpulse = movement.jumpImpulse
+  const vel = state.velocity; let vx = vel[0], vz = vel[2]; if (vx === 0 && vz === 0 && !input) return
   let wishX = 0, wishZ = 0, wishSpeed = 0, jumped = false
-
   if (input) {
     let fx = 0, fz = 0
     if (input.forward) fz += 1
@@ -10,54 +9,27 @@ export function applyMovement(state, input, movement, dt) {
     if (input.left) fx -= 1
     if (input.right) fx += 1
     const flen = Math.sqrt(fx * fx + fz * fz)
-    if (flen > 0) { fx /= flen; fz /= flen }
-    const yaw = input.yaw || 0
-    const cy = Math.cos(yaw), sy = Math.sin(yaw)
-    wishX = fz * sy - fx * cy
-    wishZ = fx * sy + fz * cy
-    const baseSpeed = input.crouch ? maxSpeed * (movement.crouchSpeedMul || 0.4) : maxSpeed
-    wishSpeed = flen > 0 ? (input.sprint && !input.crouch ? (movement.sprintSpeed || maxSpeed * 1.75) : baseSpeed) : 0
+    if (flen > 0) {
+      fx /= flen; fz /= flen; const c = cy !== undefined ? cy : Math.cos(input.yaw || 0), s = sy !== undefined ? sy : Math.sin(input.yaw || 0)
+      wishX = fz * s - fx * c; wishZ = fx * s + fz * c; const base = input.crouch ? maxSpeed * (movement.crouchSpeedMul || 0.4) : maxSpeed
+      wishSpeed = input.sprint && !input.crouch ? (movement.sprintSpeed || maxSpeed * 1.75) : base
+    }
     if (input.jump && state.onGround) {
-      state.velocity[1] = jumpImpulse
+      vel[1] = jumpImpulse
       state.onGround = false
       jumped = true
     }
   }
 
+  const speed2 = vx * vx + vz * vz
   if (state.onGround && !jumped) {
-    const speed = Math.sqrt(vx * vx + vz * vz)
-    if (speed > 0.1) {
-      const control = speed < stopSpeed ? stopSpeed : speed
-      const drop = control * friction * dt
-      let newSpeed = speed - drop
-      if (newSpeed < 0) newSpeed = 0
-      const scale = newSpeed / speed
+    if (speed2 > 0.001) {
+      const speed = Math.sqrt(speed2), control = speed < stopSpeed ? stopSpeed : speed, drop = control * friction * dt, scale = Math.max(0, speed - drop) / speed
       vx *= scale; vz *= scale
-    } else { vx = 0; vz = 0 }
-    if (wishSpeed > 0) {
-      const cur = vx * wishX + vz * wishZ
-      let add = wishSpeed - cur
-      if (add > 0) {
-        let as = groundAccel * wishSpeed * dt
-        if (as > add) as = add
-        vx += as * wishX; vz += as * wishZ
-      }
-    }
-  } else {
-    if (wishSpeed > 0) {
-      const cur = vx * wishX + vz * wishZ
-      let add = wishSpeed - cur
-      if (add > 0) {
-        let as = airAccel * wishSpeed * dt
-        if (as > add) as = add
-        vx += as * wishX; vz += as * wishZ
-      }
-    }
-  }
-
-  state.velocity[0] = vx
-  state.velocity[2] = vz
-  return { wishX, wishZ, wishSpeed, jumped }
+    } else { vx = 0; vz = 0; if (!input || wishSpeed === 0) { vel[0] = 0; vel[2] = 0; return } }
+    if (wishSpeed > 0) { const cur = vx * wishX + vz * wishZ, add = wishSpeed - cur; if (add > 0) { const as = Math.min(add, groundAccel * wishSpeed * dt); vx += as * wishX; vz += as * wishZ } }
+  } else if (wishSpeed > 0) { const cur = vx * wishX + vz * wishZ, add = wishSpeed - cur; if (add > 0) { const as = Math.min(add, airAccel * wishSpeed * dt); vx += as * wishX; vz += as * wishZ } }
+  vel[0] = vx; vel[2] = vz
 }
 
 export const DEFAULT_MOVEMENT = {

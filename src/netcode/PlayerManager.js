@@ -28,7 +28,8 @@ export class PlayerManager {
       joinTime: Date.now()
     }
     this.players.set(playerId, player)
-    this.inputBuffers.set(playerId, [])
+    player.inputBuffer = []
+    this.inputBuffers.set(playerId, player.inputBuffer)
     this._connectedGen++
     return playerId
   }
