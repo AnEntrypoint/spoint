@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.162](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.161...v0.1.162) (2026-03-06)
+
+
+### Bug Fixes
+
+* simplify props/dynamic setup to sync box collider ([7cb744c](https://github.com/AnEntrypoint/spawnpoint/commit/7cb744cb716f6d7f7b2c0fb1a94b4eaa86a662ec))
+
 ### [0.1.161](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.160...v0.1.161) (2026-03-06)
 
 ### [0.1.160](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.159...v0.1.160) (2026-03-03)
