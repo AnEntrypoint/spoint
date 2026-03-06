@@ -1828,14 +1828,19 @@ function animate(timestamp) {
   playerTargets.forEach((target, id) => {
     const mesh = playerMeshes.get(id)
     if (!mesh) return
-    const ps = playerStates.get(id)
-    const vx = ps?.velocity?.[0] || 0, vy = ps?.velocity?.[1] || 0, vz = ps?.velocity?.[2] || 0
     const isLocal = id === client.playerId
-    const goalX = target.x + vx * frameDt, goalY = target.y + vy * frameDt, goalZ = target.z + vz * frameDt
-    const lf = isLocal ? 1.0 : lerpFactor
-    mesh.position.x += (goalX - mesh.position.x) * lf
-    mesh.position.y += (goalY - mesh.position.y) * lf
-    mesh.position.z += (goalZ - mesh.position.z) * lf
+    if (isLocal) {
+      mesh.position.x = target.x
+      mesh.position.y = target.y
+      mesh.position.z = target.z
+    } else {
+      const ps = playerStates.get(id)
+      const vx = ps?.velocity?.[0] || 0, vy = ps?.velocity?.[1] || 0, vz = ps?.velocity?.[2] || 0
+      const goalX = target.x + vx * frameDt, goalY = target.y + vy * frameDt, goalZ = target.z + vz * frameDt
+      mesh.position.x += (goalX - mesh.position.x) * lerpFactor
+      mesh.position.y += (goalY - mesh.position.y) * lerpFactor
+      mesh.position.z += (goalZ - mesh.position.z) * lerpFactor
+    }
   })
   playerAnimators.forEach((animator, id) => {
     const ps = playerStates.get(id)
