@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.183](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.182...v0.1.183) (2026-03-06)
+
+
+### Bug Fixes
+
+* eliminate snap-back by raising reconciliation threshold and smooth-blending corrections ([bd7525e](https://github.com/AnEntrypoint/spawnpoint/commit/bd7525e77f7280cdf7e56e715a5ef0e4cab6b265))
+
 ### [0.1.182](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.181...v0.1.182) (2026-03-06)
 
 
