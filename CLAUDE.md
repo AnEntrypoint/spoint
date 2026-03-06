@@ -248,6 +248,10 @@ TickHandler sends snapshots to `1/SNAP_GROUPS` of players per tick. SNAP_GROUPS 
 
 With StageLoader active and `relevanceRadius > 0`, each player gets a per-player snapshot of entities within radius. `connections.send()` is called per player (re-encodes msgpack each time). Without StageLoader: shared snapshot, `sendPacked` used.
 
+## Player Spatial Index
+
+`AppRuntime._playerIndex` (SpatialIndex) is updated every tick in `_syncPlayerIndex()` (called from `tick()` after `_spatialSync()`). `getNearbyPlayers()` queries `_playerIndex.nearby()` instead of linear scan — O(k) where k = nearby players vs O(n) linear. Falls back to linear scan when index is empty (first tick).
+
 ## Spatial Player Culling in Snapshots
 
 When `relevanceRadius > 0` in TickHandler, `AppRuntime.getNearbyPlayers()` filters the player array to include only players within the viewer's radius before encoding. This reduces snapshot size 91-94% at 250+ players by excluding distant players. The implementation:

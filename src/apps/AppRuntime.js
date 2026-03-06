@@ -5,6 +5,7 @@ import { mulQuat, rotVec } from '../math.js'
 import { MSG } from '../protocol/MessageTypes.js'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { SpatialIndex } from '../spatial/Octree.js'
 
 export class AppRuntime {
   constructor(c = {}) {
@@ -22,6 +23,7 @@ export class AppRuntime {
     this._entityTickDivisor = Math.max(1, Math.round(serverTickRate / entityTickRate))
     this._physicsLODInterval = Math.max(1, Math.round(serverTickRate / 2))
     this._suspendedEntityIds = new Set()
+    this._playerIndex = new SpatialIndex()
     this._collisionEntities = []
     this._interactableIds = new Set()
     this._lastSyncMs = 0; this._lastRespawnMs = 0; this._lastSpatialMs = 0; this._lastCollisionMs = 0; this._lastInteractMs = 0
@@ -190,6 +192,7 @@ export class AppRuntime {
     this._lastRespawnMs = performance.now() - _ts1
     const _ts2 = performance.now()
     this._spatialSync()
+    this._syncPlayerIndex()
     this._lastSpatialMs = performance.now() - _ts2
     const _ts3 = performance.now()
     this._tickCollisions()
@@ -310,16 +313,29 @@ export class AppRuntime {
     return relevant
   }
 
+  _syncPlayerIndex() {
+    const players = this.getPlayers()
+    for (const p of players) {
+      const pos = p.state?.position
+      if (pos) this._playerIndex.update(p.id, pos)
+    }
+    if (this._playerIndex.size > players.length) {
+      const ids = new Set(players.map(p => p.id))
+      for (const id of [...this._playerIndex._entities.keys()]) {
+        if (!ids.has(id)) this._playerIndex.remove(id)
+      }
+    }
+  }
+
   getNearbyPlayers(viewerPosition, radius, allPlayers) {
     if (!allPlayers || allPlayers.length === 0) return []
-    const cx = viewerPosition[0], cy = viewerPosition[1], cz = viewerPosition[2]
-    const r2 = radius * radius
-    const nearby = []
-    for (const p of allPlayers) {
-      const dx = p.position[0] - cx, dy = p.position[1] - cy, dz = p.position[2] - cz
-      if (dx * dx + dy * dy + dz * dz <= r2) nearby.push(p)
+    if (this._playerIndex.size === 0) {
+      const cx = viewerPosition[0], cy = viewerPosition[1], cz = viewerPosition[2]
+      const r2 = radius * radius
+      return allPlayers.filter(p => { const dx=p.position[0]-cx,dy=p.position[1]-cy,dz=p.position[2]-cz; return dx*dx+dy*dy+dz*dz<=r2 })
     }
-    return nearby
+    const nearbyIds = new Set(this._playerIndex.nearby(viewerPosition, radius))
+    return allPlayers.filter(p => nearbyIds.has(p.id))
   }
 
   queryEntities(f) { const r = []; for (const e of this.entities.values()) { if (!f || f(e)) r.push(e) } return r }

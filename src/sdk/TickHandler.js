@@ -128,8 +128,8 @@ export function createTickHandler(deps) {
       snapshotSeq++
       const isKeyframe = snapshotSeq % KEYFRAME_INTERVAL === 0
       const playerCount = players.length
-      const snapGroups = playerCount >= 100
-        ? Math.max(1, Math.ceil(playerCount / 50))
+      const snapGroups = playerCount >= 50
+        ? Math.max(1, Math.ceil(playerCount / 25))
         : Math.max(1, Math.ceil(playerCount / MAX_SENDS_PER_TICK))
       const curGroup = tick % snapGroups
 

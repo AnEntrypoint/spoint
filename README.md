@@ -1,6 +1,6 @@
 # Spawnpoint
 
-Multiplayer game server SDK. 128 TPS authoritative server, Jolt Physics WASM, WebSocket transport, hot reload.
+Multiplayer game server SDK. 64 TPS authoritative server, Jolt Physics WASM, WebSocket transport, hot reload.
 
 ## Quick Start
  
