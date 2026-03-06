@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.163](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.162...v0.1.163) (2026-03-06)
+
+
+### Features
+
+* add run-bots.js bot harness wrapper for pm2 ([898b732](https://github.com/AnEntrypoint/spawnpoint/commit/898b732ac5da2fac4409b5d59315b4471b97a348))
+
 ### [0.1.162](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.161...v0.1.162) (2026-03-06)
 
 
