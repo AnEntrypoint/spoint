@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.179](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.178...v0.1.179) (2026-03-06)
+
+
+### Bug Fixes
+
+* sync local player mesh to prediction engine to fix camera offset, animations, and input lag ([31d525b](https://github.com/AnEntrypoint/spawnpoint/commit/31d525b0d8c623291804a455c6decb4ae9761d5b))
+
 ### [0.1.178](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.177...v0.1.178) (2026-03-06)
 
 
