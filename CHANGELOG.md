@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.177](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.176...v0.1.177) (2026-03-06)
+
+
+### Features
+
+* app DX improvements and real MediaPipe AFAN webcam tracking ([f834574](https://github.com/AnEntrypoint/spawnpoint/commit/f8345745be1abe3806e9a6a56bfed0355b97b557))
+
 ### [0.1.176](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.175...v0.1.176) (2026-03-06)
 
 
