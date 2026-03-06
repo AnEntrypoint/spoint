@@ -62,7 +62,7 @@ for (let i = 0; i < TARGET_COUNT; i++) {
 
 export default {
   port: 3001,
-  tickRate: 128,
+  tickRate: 64,
   gravity: [0, -9.81, 0],
   relevanceRadius: 60,
   physicsRadius: 60,

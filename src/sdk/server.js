@@ -158,6 +158,7 @@ export async function createServer(config = {}) {
     appRuntime,
     connections,
     movement,
+    tickRate,
     worldConfigPath: worldConfigUrl
   })
   ctx.reloadHandlers = reloadHandlers
@@ -173,6 +174,7 @@ export async function createServer(config = {}) {
     movement,
     stageLoader,
     eventLog,
+    tickRate,
     getRelevanceRadius: () => ctx.currentWorldDef?.relevanceRadius || 0
   }))
 

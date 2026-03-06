@@ -4,15 +4,16 @@ import { pack } from '../protocol/msgpack.js'
 import { isUnreliable } from '../protocol/MessageTypes.js'
 import { applyMovement as _applyMovement, DEFAULT_MOVEMENT as _DEFAULT_MOVEMENT } from '../shared/movement.js'
 
-const KEYFRAME_INTERVAL = 1280
 const MAX_SENDS_PER_TICK = 25
 
 export function createTickHandler(deps) {
   const {
     networkState, playerManager, physicsIntegration,
     lagCompensator, physics, appRuntime, connections,
-    movement: m = {}, stageLoader, eventLog, _movement, getRelevanceRadius
+    movement: m = {}, stageLoader, eventLog, _movement, getRelevanceRadius,
+    tickRate = 128
   } = deps
+  const KEYFRAME_INTERVAL = tickRate * 10
   const applyMovement = _movement?.applyMovement || _applyMovement
   const DEFAULT_MOVEMENT = _movement?.DEFAULT_MOVEMENT || _DEFAULT_MOVEMENT
   const movement = { ...DEFAULT_MOVEMENT, ...m }
@@ -208,7 +209,7 @@ export function createTickHandler(deps) {
     try { appRuntime._drainReloadQueue() } catch (e) { console.error('[TickHandler] reload queue error:', e.message) }
     if (players.length > 0) { profileSum += t5 - t0; profileSumSnap += t5 - t4; profileSumPhys += t3 - t2; profileSumMv += t1 - t0; profileCount++ }
     profileLog++
-    if (profileLog % 1280 === 0) {
+    if (profileLog % KEYFRAME_INTERVAL === 0) {
       const total = t5 - t0
       const mem = process.memoryUsage()
       const heap = (mem.heapUsed / 1048576).toFixed(1)
