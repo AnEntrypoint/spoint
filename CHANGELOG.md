@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.173](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.172...v0.1.173) (2026-03-06)
+
+
+### Features
+
+* editor extension with app browser, scene graph, code editor, and editorProps ([b4e4d2f](https://github.com/AnEntrypoint/spawnpoint/commit/b4e4d2fcbbc62ec4d2dce15b9609ab0fb806704b))
+
 ### [0.1.172](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.171...v0.1.172) (2026-03-06)
 
 
