@@ -17,7 +17,7 @@ export class AppRuntime {
     this._playerManager = c.playerManager || null; this._physics = c.physics || null; this._physicsIntegration = c.physicsIntegration || null
     this._connections = c.connections || null; this._stageLoader = c.stageLoader || null
     this._nextEntityId = 1; this._appDefs = new Map(); this._timers = new Map(); this._interactCooldowns = new Map(); this._respawnTimer = new Map()
-    this._activeDynamicIds = new Set(); this._physicsBodyToEntityId = new Map(); this._suspendedEntityIds = new Set()
+    this._activeDynamicIds = new Set(); this._sleepingDynamicIds = new Set(); this._physicsBodyToEntityId = new Map(); this._suspendedEntityIds = new Set()
     this._physicsLODRadius = c.physicsRadius || 0
     const serverTickRate = c.tickRate || 64, entityTickRate = c.entityTickRate || serverTickRate
     this._entityTickDivisor = Math.max(1, Math.round(serverTickRate / entityTickRate))
@@ -117,7 +117,7 @@ export class AppRuntime {
     const entity = this.entities.get(entityId); if (!entity) return
     this._staticVersion++
     this._dynamicEntityIds.delete(entityId); this._staticEntityIds.delete(entityId)
-    this._activeDynamicIds.delete(entityId); this._suspendedEntityIds.delete(entityId)
+    this._activeDynamicIds.delete(entityId); this._sleepingDynamicIds.delete(entityId); this._suspendedEntityIds.delete(entityId)
     this._interactableIds.delete(entityId)
     if (entity._physicsBodyId !== undefined) this._physicsBodyToEntityId.delete(entity._physicsBodyId)
     this._log('entity_destroy', { id: entityId }, { sourceEntity: entityId })
@@ -162,7 +162,9 @@ export class AppRuntime {
 
   getDynamicEntitiesRaw() {
     const out = []
-    for (const id of this._dynamicEntityIds) { const e = this.entities.get(id); if (e) out.push({ id, model: e.model, position: e.position, rotation: e.rotation, velocity: e.velocity, bodyType: e.bodyType, custom: e.custom, _isEnv: e._appName === 'environment', _sleeping: e._dynSleeping || false }) }
+    for (const id of this._activeDynamicIds) { const e = this.entities.get(id); if (e) out.push({ id, model: e.model, position: e.position, rotation: e.rotation, velocity: e.velocity, bodyType: e.bodyType, custom: e.custom, _isEnv: e._appName === 'environment', _sleeping: false }) }
+    for (const id of this._sleepingDynamicIds) { out.push({ id, _sleeping: true }) }
+    for (const id of this._suspendedEntityIds) { out.push({ id, _sleeping: true }) }
     return out
   }
 

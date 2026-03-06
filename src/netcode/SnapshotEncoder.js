@@ -77,7 +77,7 @@ export class SnapshotEncoder {
     const cache = new Map(), envIds = []
     for (const e of entities) {
       if (e.bodyType === 'static') continue
-      if (e._sleeping && prevCache) { const prev=prevCache.get(e.id); if (prev) { cache.set(e.id,prev); if (prev.isEnv) envIds.push(e.id); continue } }
+      if (e._sleeping) { if (prevCache) { const prev=prevCache.get(e.id); if (prev) { cache.set(e.id,prev); if (prev.isEnv) envIds.push(e.id) } }; continue }
       const enc = encodeEntity(e), prev = prevCache ? prevCache.get(e.id) : null, cust = enc[13]
       const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? JSON.stringify(cust) : '')
       const isEnv = e._isEnv || false

@@ -4,6 +4,7 @@ export function mixinPhysics(runtime) {
       const entityId = this._physicsBodyToEntityId.get(physicsBodyId)
       if (!entityId) return
       this._activeDynamicIds.add(entityId)
+      this._sleepingDynamicIds.delete(entityId)
       const e = this.entities.get(entityId)
       if (e) e._dynSleeping = false
     }
@@ -11,6 +12,7 @@ export function mixinPhysics(runtime) {
       const entityId = this._physicsBodyToEntityId.get(physicsBodyId)
       if (!entityId) return
       this._activeDynamicIds.delete(entityId)
+      this._sleepingDynamicIds.add(entityId)
       const e = this.entities.get(entityId)
       if (e) { e._dynSleeping = true; this._physics.syncDynamicBody(physicsBodyId, e) }
     }
@@ -38,7 +40,13 @@ export function mixinPhysics(runtime) {
       if (pp[2] + r > maxZ) maxZ = pp[2] + r
     }
     const noPlayers = minX === Infinity
-    for (const entityId of this._dynamicEntityIds) {
+    const ids = this._lodIds || (this._lodIds = [...this._dynamicEntityIds])
+    if (ids.length !== this._dynamicEntityIds.size) { this._lodIds = [...this._dynamicEntityIds]; this._lodPointer = 0 }
+    const batchSize = Math.min(500, ids.length)
+    const start = (this._lodPointer || 0) % ids.length
+    this._lodPointer = (start + batchSize) % ids.length
+    for (let i = 0; i < batchSize; i++) {
+      const entityId = ids[(start + i) % ids.length]
       const e = this.entities.get(entityId)
       if (!e || !e._bodyDef) continue
       let inRange = false
@@ -55,10 +63,12 @@ export function mixinPhysics(runtime) {
         e._physicsBodyId = bid; e._bodyActive = true
         this._physicsBodyToEntityId.set(bid, entityId)
         this._activeDynamicIds.add(entityId)
+        this._sleepingDynamicIds.delete(entityId)
         this._suspendedEntityIds.delete(entityId)
       } else if (!inRange && e._bodyActive !== false && e._physicsBodyId !== undefined && !this._physics.isBodyActive(e._physicsBodyId)) {
         this._physicsBodyToEntityId.delete(e._physicsBodyId)
         this._activeDynamicIds.delete(entityId)
+        this._sleepingDynamicIds.delete(entityId)
         this._physics.removeBody(e._physicsBodyId)
         e._physicsBodyId = undefined
         e._bodyActive = false

@@ -591,3 +591,43 @@ TickSystem drops ticks when behind rather than queuing them (max 4 ticks/iterati
   - Reduce physicsRadius to 30 (limits active bodies to ~150 within player clusters)
   - Reduce entity count to 200-300 (stays within phys budget)
   - Switch to kinematic entities (no Jolt integration, just snapshot position updates)
+
+
+## Progressive Load Test: 250p + 1k/2.5k/5k/10k Dynamic Entities (v0.1.168 - March 6, 2026)
+
+### Optimizations Applied
+- **_sleepingDynamicIds Set** (AppRuntime.js + AppRuntimePhysics.js): tracks sleeping bodies separately. Physics callbacks maintain this set. getDynamicEntitiesRaw iterates _activeDynamicIds (full objects) + _sleepingDynamicIds (minimal stubs) + _suspendedEntityIds (minimal stubs). Avoids O(N_all_dynamic) iteration.
+- **Suspended entity stubs** (AppRuntime.js): LOD-suspended entities emit minimal {id,_sleeping:true} stubs. SnapshotEncoder reuses prevCache for these — no position encoding needed.
+- **SnapshotEncoder sleeping guard** (SnapshotEncoder.js): sleeping entities without prevCache entry are skipped (continue) — prevents crash when stub has no position/rotation fields.
+- **Batched LOD** (AppRuntimePhysics.js): processes 500 entities per LOD tick (sliding pointer) instead of all N every LOD tick. At 10k entities: 20 LOD ticks for full cycle (~10s), acceptable for static props.
+- **Physics damping** (prop-dynamic/index.js): linearDamping/angularDamping 2.0 to 4.0. Bodies settle faster, fewer active bodies.
+
+### Test Results (250 bots, 45s each, 64 TPS, physicsRadius=60, relevanceRadius=60)
+
+| Entities | Tick avg  | Over budget | snap avg | mv avg | phys avg | activeDyn | Status        |
+|----------|-----------|-------------|----------|--------|----------|-----------|---------------|
+| 1000     | ~21-24ms  | 1.3-1.5x    | ~9ms     | ~10ms  | 0.3ms    | 6-11      | 250p 0 errors |
+| 2500     | ~22-25ms  | 1.4-1.6x    | ~12ms    | ~10ms  | 0.6ms    | 11-25     | 250p 0 errors |
+| 5000     | ~28-31ms  | 1.8-2.0x    | ~18ms    | ~10ms  | 0.6ms    | 25-34     | 250p 0 errors |
+| 10000    | ~33-38ms  | 2.1-2.4x    | ~22ms    | ~10ms  | 1.0ms    | 30-56     | 250p 0 errors |
+
+### Scaling Characteristics at 250p
+- **mv phase**: ~10ms baseline irreducible floor (250 CharacterVirtual updates at 64 TPS)
+- **phys phase**: <2ms (damping 4.0 keeps activeDyn low regardless of entity count)
+- **snap phase**: scales sublinearly with entity count (octree prunes well, O(log N) per query)
+  - 1k entities: ~9ms snap | 5k: ~18ms | 10k: ~22ms
+- **Budget constraint**: mv=10ms irreducible leaves only 5.6ms for snap+phys at 15.6ms budget
+  - 250p inherently over-budget; goal is staying under 4x (62ms) — achieved at all tiers tested
+- **Memory at 10k**: ~93MB heap idle, spikes to ~410MB at bot connection burst, stabilizes at ~250MB
+
+### Bottleneck Analysis at 250p + 10k
+- Snap=22ms: 25 players/snap-tick x spatial octree query per player
+- ~452 entities visible per player (density: 10000 entities on 500x500 map, radius=60)
+- encodeDeltaFromCache: O(relevantIds) per player, most skipped via delta caching
+- getDynamicEntitiesRaw: O(activeDyn + sleeping + suspended) — optimized from O(N_all)
+
+### Capacity Summary
+- **Stable at all tiers**: zero crashes, zero errors across 1k/2.5k/5k/10k entity tests
+- **10k entities is within 4x budget (62ms target)**: avg 33-38ms
+- **Effective TPS at 10k**: ~26 TPS actual (64 budgeted / 2.4x overrun)
+- **Beyond 10k**: not tested; octree query cost grows O(log N) so scaling should remain manageable
