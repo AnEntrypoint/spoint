@@ -1808,16 +1808,28 @@ function animate(timestamp) {
     playerStates.set(p.id, p)
     if (!mesh.userData.initialized) { mesh.position.set(tx, ty, tz); mesh.userData.initialized = true }
   }
+  const _localPredicted = client.getLocalState()
+  if (_localPredicted?.position && client.playerId) {
+    const _lMesh = playerMeshes.get(client.playerId)
+    const _lFeetOff = _lMesh?.userData?.feetOffset ?? 0.91
+    const _lt = playerTargets.get(client.playerId)
+    const _ltx = _localPredicted.position[0], _lty = _localPredicted.position[1] - _lFeetOff, _ltz = _localPredicted.position[2]
+    if (_lt) { _lt.x = _ltx; _lt.y = _lty; _lt.z = _ltz }
+    else playerTargets.set(client.playerId, { x: _ltx, y: _lty, z: _ltz })
+    playerStates.set(client.playerId, _localPredicted)
+  }
   if (_hierarchyDirty && smoothState.entities.length > 0) { rebuildEntityHierarchy(smoothState.entities); _hierarchyDirty = false }
   playerTargets.forEach((target, id) => {
     const mesh = playerMeshes.get(id)
     if (!mesh) return
     const ps = playerStates.get(id)
     const vx = ps?.velocity?.[0] || 0, vy = ps?.velocity?.[1] || 0, vz = ps?.velocity?.[2] || 0
+    const isLocal = id === client.playerId
     const goalX = target.x + vx * frameDt, goalY = target.y + vy * frameDt, goalZ = target.z + vz * frameDt
-    mesh.position.x += (goalX - mesh.position.x) * lerpFactor
-    mesh.position.y += (goalY - mesh.position.y) * lerpFactor
-    mesh.position.z += (goalZ - mesh.position.z) * lerpFactor
+    const lf = isLocal ? 1.0 : lerpFactor
+    mesh.position.x += (goalX - mesh.position.x) * lf
+    mesh.position.y += (goalY - mesh.position.y) * lf
+    mesh.position.z += (goalZ - mesh.position.z) * lf
   })
   playerAnimators.forEach((animator, id) => {
     const ps = playerStates.get(id)
