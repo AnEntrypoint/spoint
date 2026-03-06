@@ -83,13 +83,18 @@ const LOWER_BODY_BONES = new Set([
   'rightUpperLeg', 'rightLowerLeg', 'rightFoot', 'rightToes',
   'LeftUpperLeg', 'LeftLowerLeg', 'LeftFoot', 'LeftToes',
   'RightUpperLeg', 'RightLowerLeg', 'RightFoot', 'RightToes',
-  // Additional leg bones that might appear
   'LeftUpLeg', 'LeftLeg', 'LeftFoot', 'LeftToeBase',
   'RightUpLeg', 'RightLeg', 'RightFoot', 'RightToeBase',
   'leftUpLeg', 'leftLeg', 'leftFoot', 'leftToeBase',
   'rightUpLeg', 'rightLeg', 'rightFoot', 'rightToeBase',
   'lUpLeg', 'lLeg', 'lFoot', 'lToe',
-  'rUpLeg', 'rLeg', 'rFoot', 'rToe'
+  'rUpLeg', 'rLeg', 'rFoot', 'rToe',
+  'Normalized_hips', 'Normalized_upper_legL', 'Normalized_upper_legR',
+  'Normalized_lower_legL', 'Normalized_lower_legR',
+  'Normalized_footL', 'Normalized_footR',
+  'Normalized_toesL', 'Normalized_toesR',
+  'upper_legL', 'upper_legR', 'lower_legL', 'lower_legR',
+  'footL', 'footR', 'toesL', 'toesR'
 ])
 
 function extractBoneName(trackName) {
@@ -108,26 +113,16 @@ function filterUpperBodyTracks(clip) {
 function buildValidBoneSet(targetObj) {
   const validBones = new Set()
   targetObj.traverse(child => {
-    if (child.isBone || child.isSkinnedMesh) validBones.add(child.name)
+    if (child.name) validBones.add(child.name)
   })
   return validBones
 }
 
 function filterValidClipTracks(clip, validBones) {
-  const validTracks = clip.tracks.filter(track => {
-    const boneName = extractBoneName(track.name)
-    if (!validBones.has(boneName)) {
-      console.warn(`[anim] Filtering out track for missing bone: ${boneName}`)
-      return false
-    }
-    return true
-  })
-
+  const validTracks = clip.tracks.filter(track => validBones.has(extractBoneName(track.name)))
   if (validTracks.length < clip.tracks.length) {
-    console.log(`[anim] Filtered clip ${clip.name}: ${clip.tracks.length} → ${validTracks.length} tracks`)
     return new THREE.AnimationClip(clip.name, clip.duration, validTracks)
   }
-
   return clip
 }
 
@@ -215,6 +210,36 @@ export async function loadAnimationLibrary(vrmVersion, vrmHumanoid) {
   return _normalizedCache
 }
 
+function buildVRM0NormalizedRemap(vrm) {
+  const remap = new Map()
+  if (!vrm.humanoid) return remap
+  const humanBones = vrm.humanoid.humanBones || {}
+  for (const boneName of Object.keys(humanBones)) {
+    const rawNode = vrm.humanoid.getRawBoneNode?.(boneName)
+    const normNode = vrm.humanoid.getNormalizedBoneNode?.(boneName)
+    if (rawNode && normNode && rawNode !== normNode) {
+      remap.set(rawNode.name, normNode.name)
+      remap.set(boneName, normNode.name)
+    }
+  }
+  return remap
+}
+
+function remapClipToNormalized(clip, remap) {
+  if (!remap.size) return clip
+  const tracks = clip.tracks.map(track => {
+    const dot = track.name.indexOf('.')
+    const boneName = dot >= 0 ? track.name.slice(0, dot) : track.name
+    const prop = dot >= 0 ? track.name.slice(dot) : ''
+    const mapped = remap.get(boneName)
+    if (!mapped) return track
+    const newTrack = track.clone()
+    newTrack.name = mapped + prop
+    return newTrack
+  })
+  return new THREE.AnimationClip(clip.name, clip.duration, tracks)
+}
+
 export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {}) {
   const FADE = animConfig.fadeTime || FADE_TIME
   const root = vrm.scene
@@ -224,6 +249,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   const additiveActions = new Map()
 
   const clips = allClips.normalizedClips || allClips.rawClips || allClips
+  const vrm0Remap = vrmVersion === '0' ? buildVRM0NormalizedRemap(vrm) : new Map()
   const validBones = buildValidBoneSet(root)
 
   for (const [name, clip] of clips) {
@@ -231,10 +257,9 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
     const cfg = STATES[name]
 
     if (cfg.upperBody) {
-      console.log(`[anim] ${name} tracks:`, clip.tracks.map(t => extractBoneName(t.name)))
     }
 
-    let playClip = filterValidClipTracks(clip, validBones)
+    let playClip = filterValidClipTracks(remapClipToNormalized(clip, vrm0Remap), validBones)
 
     if (cfg.upperBody) {
       const upperBodyClip = filterUpperBodyTracks(playClip)
