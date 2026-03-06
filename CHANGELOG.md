@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.176](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.175...v0.1.176) (2026-03-06)
+
+
+### Features
+
+* app DX improvements + real AFAN webcam face tracking ([446c549](https://github.com/AnEntrypoint/spawnpoint/commit/446c549f4724645404cfcb47a2e646b56e86da08))
+
 ### [0.1.175](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.174...v0.1.175) (2026-03-06)
 
 
