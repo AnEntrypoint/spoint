@@ -17,6 +17,10 @@ export class AppRuntime {
     this._activeDynamicIds = new Set()
     this._physicsBodyToEntityId = new Map()
     this._physicsLODRadius = c.physicsRadius || 0
+    const serverTickRate = c.tickRate || 64
+    const entityTickRate = c.entityTickRate || serverTickRate
+    this._entityTickDivisor = Math.max(1, Math.round(serverTickRate / entityTickRate))
+    this._physicsLODInterval = Math.max(1, Math.round(serverTickRate / 2))
     this._suspendedEntityIds = new Set()
     this._collisionEntities = []
     this._interactableIds = new Set()
@@ -169,14 +173,17 @@ export class AppRuntime {
 
   tick(tickNum, dt) {
     this.currentTick = tickNum; this.deltaTime = dt; this.elapsed += dt
-    for (const [entityId, server, ctx] of this._updateList) {
-      this._safeCall(server, 'update', [ctx, dt], `update(${entityId})`)
+    if (tickNum % this._entityTickDivisor === 0) {
+      const entityDt = dt * this._entityTickDivisor
+      for (const [entityId, server, ctx] of this._updateList) {
+        this._safeCall(server, 'update', [ctx, entityDt], `update(${entityId})`)
+      }
     }
     this._tickTimers(dt)
     const _ts0 = performance.now()
     this._syncDynamicBodies()
     const players = this.getPlayers()
-    this._tickPhysicsLOD(players)
+    if (tickNum % this._physicsLODInterval === 0) this._tickPhysicsLOD(players)
     this._lastSyncMs = performance.now() - _ts0
     const _ts1 = performance.now()
     this._tickRespawn()
@@ -220,15 +227,27 @@ export class AppRuntime {
 
   _tickPhysicsLOD(players) {
     if (!this._physics || !this._physicsLODRadius || this._dynamicEntityIds.size === 0) return
-    const r2 = this._physicsLODRadius * this._physicsLODRadius
+    const r = this._physicsLODRadius
+    const r2 = r * r
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
+    for (const p of players) {
+      const pp = p.state?.position; if (!pp) continue
+      if (pp[0] - r < minX) minX = pp[0] - r
+      if (pp[0] + r > maxX) maxX = pp[0] + r
+      if (pp[2] - r < minZ) minZ = pp[2] - r
+      if (pp[2] + r > maxZ) maxZ = pp[2] + r
+    }
+    const noPlayers = minX === Infinity
     for (const entityId of this._dynamicEntityIds) {
       const e = this.entities.get(entityId)
       if (!e || !e._bodyDef) continue
       let inRange = false
-      for (const p of players) {
-        const pp = p.state?.position; if (!pp) continue
-        const dx = pp[0] - e.position[0], dy = pp[1] - e.position[1], dz = pp[2] - e.position[2]
-        if (dx * dx + dy * dy + dz * dz <= r2) { inRange = true; break }
+      if (!noPlayers && e.position[0] >= minX && e.position[0] <= maxX && e.position[2] >= minZ && e.position[2] <= maxZ) {
+        for (const p of players) {
+          const pp = p.state?.position; if (!pp) continue
+          const dx = pp[0] - e.position[0], dy = pp[1] - e.position[1], dz = pp[2] - e.position[2]
+          if (dx * dx + dy * dy + dz * dz <= r2) { inRange = true; break }
+        }
       }
       if (inRange && e._bodyActive === false) {
         const d = e._bodyDef

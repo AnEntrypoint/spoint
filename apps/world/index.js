@@ -61,6 +61,7 @@ for (let i = 0; i < TARGET_COUNT; i++) {
 export default {
   port: 3001,
   tickRate: 64,
+  entityTickRate: 15,
   gravity: [0, -9.81, 0],
   relevanceRadius: 60,
   physicsRadius: 60,
@@ -121,6 +122,7 @@ export default {
   },
   entities: [
     { id: 'env-sillos', model: './apps/maps/aim_sillos.glb', position: [0, 0, 0], app: 'environment', autoTrimesh: true },
+    { id: 'floor', position: [0, -2, 0], app: 'box-static', config: { hx: 300, hy: 0.5, hz: 300, color: 0x888888 } },
     ...dynEntities,
   ],
   spawnPoints: [

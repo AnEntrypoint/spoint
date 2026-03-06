@@ -26,7 +26,7 @@ export class SpatialIndex {
     const existing = this._entities.get(id)
     if (existing) {
       const dx = existing[0] - position[0], dy = existing[1] - position[1], dz = existing[2] - position[2]
-      if (dx * dx + dy * dy + dz * dz < 0.001) return
+      if (dx * dx + dy * dy + dz * dz < 1.0) return
     }
     this.insert(id, position)
   }

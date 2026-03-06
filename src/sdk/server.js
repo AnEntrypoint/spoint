@@ -53,6 +53,8 @@ export async function boot(overrides = {}) {
     gravity: worldDef.gravity,
     movement: worldDef.movement,
     playerConfig: worldDef.player,
+    physicsRadius: worldDef.physicsRadius || 0,
+    entityTickRate: worldDef.entityTickRate,
     staticDirs: [
       { prefix: '/src/', dir: join(SDK_ROOT, 'src') },
       ...appsStaticDirs,
@@ -102,7 +104,7 @@ export async function createServer(config = {}) {
   const reloadManager = new ReloadManager()
 
   const sdkRoot = config.sdkRoot || join(dirname(fileURLToPath(import.meta.url)), '../..')
-  const appRuntime = new AppRuntime({ gravity, playerManager, physics, physicsIntegration, connections, eventBus, eventLog, storage, sdkRoot, physicsRadius: config.physicsRadius || 0 })
+  const appRuntime = new AppRuntime({ gravity, playerManager, physics, physicsIntegration, connections, eventBus, eventLog, storage, sdkRoot, physicsRadius: config.physicsRadius || 0, entityTickRate: config.entityTickRate, tickRate: config.tickRate || 128 })
   appRuntime.setPlayerManager(playerManager)
   const appLoader = new AppLoader(appRuntime, { dirs: appsDirs })
   const stageLoader = new StageLoader(appRuntime)
