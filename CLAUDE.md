@@ -6,6 +6,34 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 
 ---
 
+## App Client API Expansions (renderCtx + engineCtx)
+
+`renderCtx` (passed to `render(ctx)`) now includes Three.js shortcuts directly: `ctx.THREE`, `ctx.scene`, `ctx.camera`, `ctx.renderer`, `ctx.playerId`, `ctx.clock`. These mirror `ctx.engine.*` fields but are directly destructurable. Added in `renderAppUI()` in `client/app.js`.
+
+`engineCtx` (passed to `setup`, `onFrame`, `onInput`, `onEvent`, `onKeyDown`, `onKeyUp`) now has `engine.network.send(msg)` — a shorthand for `client.send(0x33, msg)`. This lets apps send messages to the server from any hook, not just render().
+
+`onKeyDown(e, engine)` and `onKeyUp(e, engine)` hooks are now dispatched to all app modules from the document keydown/keyup listeners in `client/app.js`. Dispatch happens after `editor.onKeyDown(e)`.
+
+---
+
+## AFAN Webcam Live Streaming Architecture
+
+**What it is**: Opt-in live face tracking that streams ARKit blendshape weights from webcam to nearby players' VRM morph targets.
+
+**Binary format**: `Uint8Array(52)` — one byte per ARKit blendshape (see `ARKIT_NAMES` in `client/webcam-afan.js` and `client/facial-animation.js`). Each byte = weight × 255. 52 bytes per frame at 30Hz = ~1.5 KB/s per sender.
+
+**Lazy load**: `client/webcam-afan.js` is NOT imported by `client/app.js`. Only loaded when user explicitly starts webcam tracking via `window.enableWebcamAFAN()` or script injection.
+
+**Face tracking**: Uses MediaPipe FaceMesh (CDN, `@mediapipe/face_mesh@0.4`) loaded lazily inside `WebcamAFANTracker.init()`. Falls back to animated demo data if MediaPipe fails to load. Landmark geometry → ARKit-compatible blendshapes computed in `landmarksToBlendshapes()`.
+
+**Network path**: client → `afan_frame` → server `webcam-avatar` app → nearby players only (30-unit radius) → each receiver's `onAppEvent` → `_applyAfanFrame()` in `client/app.js` → `FacialAnimationPlayer.applyFrame()` (from `client/facial-animation.js`).
+
+**Receiver**: `_applyAfanFrame(playerId, Uint8Array)` in `client/app.js` decodes the 52-byte frame and applies it to the target player's VRM via `FacialAnimationPlayer`. Player lookup uses `playerVrms` Map. `_afanPlayers` Map caches `FacialAnimationPlayer` instances per playerId. If VRM not yet loaded, silently skips.
+
+**Server message type**: `afan_frame` with `{ playerId, data: number[] }`. Server uses `ctx.players.send()` for per-player delivery, not broadcast, to avoid sending to far players.
+
+---
+
 ## Reusable Apps: box-static, prop-static, box-dynamic
 
 - `box-dynamic` — dynamic physics box with primitive mesh (no GLB). Config: `{ hx, hy, hz, color, roughness }`. Calls `ctx.physics.setDynamic(true)` then `ctx.physics.addBoxCollider([hx, hy, hz])`. Writes `entity.custom` with `mesh:'box'` and full dimensions for client rendering.

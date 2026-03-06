@@ -272,10 +272,29 @@ if (ctx.storage) {
 { position:[x,y,z], rotation:[x,y,z,w], model:'path.glb', custom:{...}, ui:ctx.h('div',...) }
 ```
 
-### engine object
+### render(ctx) — available fields
+```js
+ctx.entity          // { id, position, rotation, custom, model }
+ctx.state           // alias for ctx.entity.custom
+ctx.players         // array of all player states
+ctx.h               // hyperscript createElement
+ctx.network.send(msg)  // send message to server (entityId auto-attached)
+ctx.engine          // full engineCtx (see below)
+
+// Three.js shortcuts — same as ctx.engine.* but directly accessible:
+ctx.THREE           // THREE namespace (BoxGeometry, MeshStandardMaterial, etc.)
+ctx.scene           // THREE.Scene — ctx.scene.add(mesh)
+ctx.camera          // THREE.PerspectiveCamera
+ctx.renderer        // THREE.WebGLRenderer
+ctx.playerId        // local player ID string
+ctx.clock           // { elapsed: seconds since page load }
+```
+
+### engine object (setup/onFrame/onInput/onEvent/onKeyDown/onKeyUp second arg)
 ```js
 engine.THREE / scene / camera / renderer
 engine.playerId                              // local player ID
+engine.network.send(msg)                     // send message to server from any hook
 engine.client.state                          // { players:[...], entities:[...] }
 engine.cam.getAimDirection(position)         // normalized [dx,dy,dz]
 engine.cam.punch(intensity)                  // visual recoil
@@ -284,15 +303,51 @@ engine.players.setExpression(playerId, name, weight)
 engine.players.setAiming(playerId, isAiming)
 ```
 
-### ctx.h — hyperscript
+### App hooks — full list
+```js
+setup(engine)                     // called once on module load
+render(ctx)                       // called every 250ms, returns render state + ui
+onInput(input, engine)            // called every input tick (60Hz)
+onEvent(payload, engine)          // called on server broadcast
+onFrame(dt, engine)               // called every animation frame
+onMouseDown(e, engine)            // mouse button press on canvas
+onMouseUp(e, engine)              // mouse button release on canvas
+onKeyDown(e, engine)              // keyboard key press (document-level)
+onKeyUp(e, engine)                // keyboard key release (document-level)
+```
+
+### ctx.h — hyperscript + Ripple UI
 ```js
 ctx.h(tag, props, ...children)  // props = attrs/inline styles or null; null children ignored
 ctx.h('div', { style:'color:red' }, 'Hello')
+```
+Ripple UI CSS is loaded — use DaisyUI-compatible class names directly:
+```js
+ctx.h('button', { class: 'btn btn-primary' }, 'Click me')
+ctx.h('div', { class: 'card bg-base-200 shadow-xl' },
+  ctx.h('div', { class: 'card-body' },
+    ctx.h('h2', { class: 'card-title' }, 'Hello'),
+    ctx.h('button', { class: 'btn btn-sm btn-error' }, 'Delete')
+  )
+)
 ```
 Client apps cannot use `import` — all import statements stripped before evaluation. Use `engine.*` for deps.
 
 ### onInput fields
 `forward backward left right jump crouch sprint shoot reload interact yaw pitch`
+
+### Webcam AFAN — lazy-loaded face tracking
+Opt-in only. Not loaded at startup. Enable via the `webcam-avatar` app or manually:
+```js
+// In setup(engine) or onKeyDown — only loaded on demand
+if (!window.enableWebcamAFAN) await import('/webcam-afan.js')
+const tracker = await window.enableWebcamAFAN((data) => {
+  // data: Uint8Array(52) — ARKit blendshape weights, each byte = weight * 255
+  engine.network.send({ type: 'afan_frame', data: Array.from(data) })
+})
+// tracker.stop() to release camera
+```
+On the server, forward afan_frame to nearby players. Engine auto-applies received frames to target VRM morph targets when payload `{ type: 'afan_frame', playerId, data }` arrives via onAppEvent.
 
 ---
 

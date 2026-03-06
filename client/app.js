@@ -12,7 +12,7 @@ import { PhysicsNetworkClient, InputHandler, MSG } from '/src/index.client.js'
 import { createElement, applyDiff } from 'webjsx'
 import { createCameraController } from './camera.js'
 import { loadAnimationLibrary, preloadAnimationLibrary, createPlayerAnimator, createGLBAnimator } from './animation.js'
-import { initFacialSystem } from './facial-animation.js'
+import { initFacialSystem, createFacialPlayer } from './facial-animation.js'
 import { VRButton } from 'three/addons/webxr/VRButton.js'
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js'
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js'
@@ -24,6 +24,19 @@ import { createLoadingScreen } from './createLoadingScreen.js'
 import { MobileControls, detectDevice } from './MobileControls.js'
 import { XRControls, createXRButton } from './XRControls.js'
 
+const _ARKIT_NAMES = ['browInnerUp','browDownLeft','browDownRight','browOuterUpLeft','browOuterUpRight','eyeLookUpLeft','eyeLookUpRight','eyeLookDownLeft','eyeLookDownRight','eyeLookInLeft','eyeLookInRight','eyeLookOutLeft','eyeLookOutRight','eyeBlinkLeft','eyeBlinkRight','eyeSquintLeft','eyeSquintRight','eyeWideLeft','eyeWideRight','cheekPuff','cheekSquintLeft','cheekSquintRight','noseSneerLeft','noseSneerRight','jawOpen','jawForward','jawLeft','jawRight','mouthFunnel','mouthPucker','mouthLeft','mouthRight','mouthRollUpper','mouthRollLower','mouthShrugUpper','mouthShrugLower','mouthOpen','mouthClose','mouthSmileLeft','mouthSmileRight','mouthFrownLeft','mouthFrownRight','mouthDimpleLeft','mouthDimpleRight','mouthUpperUpLeft','mouthUpperUpRight','mouthLowerDownLeft','mouthLowerDownRight','mouthPressLeft','mouthPressRight','mouthStretchLeft','mouthStretchRight']
+const _afanPlayers = new Map()
+function _applyAfanFrame(playerId, data) {
+  const vrm = playerVrms?.get(playerId)
+  if (!vrm?.expressionManager) return
+  const arr = data instanceof Uint8Array ? data : new Uint8Array(data)
+  const bs = {}
+  for (let i = 0; i < _ARKIT_NAMES.length && i < arr.length; i++) bs[_ARKIT_NAMES[i]] = arr[i] / 255
+  let player = _afanPlayers.get(playerId)
+  if (!player) { player = createFacialPlayer(vrm); _afanPlayers.set(playerId, player) }
+  else if (player.vrm !== vrm) { player = createFacialPlayer(vrm); _afanPlayers.set(playerId, player) }
+  player.applyFrame(bs)
+}
 const _patchCache = new WeakMap()
 function patchGLB(uint8) {
   if (_patchCache.has(uint8)) return _patchCache.get(uint8)
@@ -1172,7 +1185,23 @@ function renderAppUI(state) {
     const appClient = appModules.get(appName)
     if (!appClient?.render) continue
     try {
-      const result = appClient.render({ entity, state: entity.custom || {}, h: createElement, engine: engineCtx, players: state.players })
+      const renderCtx = {
+        entity,
+        state: entity.custom || {},
+        h: createElement,
+        engine: engineCtx,
+        players: state.players,
+        network: {
+          send: (msg) => client.send(0x33, { ...msg, entityId: entity.id })
+        },
+        THREE,
+        scene,
+        camera,
+        renderer,
+        playerId: client.playerId,
+        clock: { elapsed: performance.now() / 1000 }
+      }
+      const result = appClient.render(renderCtx)
       if (result?.ui) uiFragments.push({ id: entity.id, ui: result.ui })
     } catch (e) { console.error('[ui]', entity.id, e.message) }
   }
@@ -1278,6 +1307,9 @@ const client = new PhysicsNetworkClient({
   },
   onAssetUpdate: () => { },
   onAppEvent: (payload) => {
+    if (payload?.type === 'afan_frame' && payload.playerId && payload.data) {
+      try { _applyAfanFrame(payload.playerId, new Uint8Array(payload.data)) } catch (e) { }
+    }
     for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onEvent) try { mod.onEvent(payload, engineCtx) } catch (e) { console.error('[app-event]', e.message) } }
   },
   onHotReload: () => { sessionStorage.setItem('cam', JSON.stringify(cam.save())); location.reload() },
@@ -1286,8 +1318,8 @@ const client = new PhysicsNetworkClient({
     if (!entityId) return
     const mesh = entityMeshes.get(entityId)
     if (mesh) {
-      editor.selectEntity(entityId, { id: entityId, position: mesh.position.toArray(), rotation: [0,0,0,1], scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} })
-      editPanel.showEntity({ id: entityId, position: mesh.position.toArray(), rotation: [0,0,0,1], scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }, editorProps || [])
+      editor.selectEntity(entityId, { id: entityId, position: mesh.position.toArray(), rotation: [0, 0, 0, 1], scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} })
+      editPanel.showEntity({ id: entityId, position: mesh.position.toArray(), rotation: [0, 0, 0, 1], scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }, editorProps || [])
     }
   },
   onMessage: (type, payload) => {
@@ -1308,6 +1340,7 @@ const engineCtx = {
   get _tps() { return engineCtx._tpsState },
   set _tps(val) { engineCtx._tpsState = val },
   playerVrms,
+  network: { send: (msg) => client.send(0x33, msg) },
   setInputConfig(cfg) { Object.assign(inputConfig, cfg); if (!inputConfig.pointerLock) { clickPrompt.style.display = 'none'; if (document.pointerLockElement) document.exitPointerLock() } },
   players: {
     getMesh: (id) => playerMeshes.get(id),
@@ -1327,13 +1360,13 @@ const editPanel = createEditPanel({
   onPlace: (appName) => {
     const local = playerStates.get(client.playerId)
     const yaw = local?.yaw || 0
-    const pos = local ? [local.position[0]+Math.sin(yaw)*2, local.position[1], local.position[2]+Math.cos(yaw)*2] : [0,0,2]
+    const pos = local ? [local.position[0] + Math.sin(yaw) * 2, local.position[1], local.position[2] + Math.cos(yaw) * 2] : [0, 0, 2]
     client.send(MSG.PLACE_APP, { appName, position: pos, config: {} })
   },
   onSave: (appName, source) => { client.send(MSG.SAVE_SOURCE, { appName, source }) },
   onEntitySelect: (id) => {
     const mesh = entityMeshes.get(id)
-    if (mesh) { editor.selectEntity(id, { id, position: mesh.position.toArray(), rotation: [0,0,0,1], scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }) }
+    if (mesh) { editor.selectEntity(id, { id, position: mesh.position.toArray(), rotation: [0, 0, 0, 1], scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }) }
   },
   onGetSource: (appName) => { client.send(MSG.GET_SOURCE, { appName }) }
 })
@@ -1344,11 +1377,12 @@ editPanel.onEditorChange((key, value) => {
   if (!editor.selectedEntityId) return
   const changes = key === 'collider' ? { custom: { _collider: value } }
     : key.startsWith('custom.') ? { custom: { [key.slice(7)]: value } }
-    : key === '_rotEuler' ? { rotation: editor.eulerDegToQuat(value) }
-    : { [key]: value }
+      : key === '_rotEuler' ? { rotation: editor.eulerDegToQuat(value) }
+        : { [key]: value }
   editor.sendEditorUpdate(changes)
 })
-document.addEventListener('keydown', e => { editor.onKeyDown(e) })
+document.addEventListener('keydown', e => { editor.onKeyDown(e); for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onKeyDown) try { mod.onKeyDown(e, engineCtx) } catch (ex) { } } })
+document.addEventListener('keyup', e => { for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onKeyUp) try { mod.onKeyUp(e, engineCtx) } catch (ex) { } } })
 client.send(MSG.LIST_APPS, {})
 
 let inputLoopId = null

@@ -1,95 +1,101 @@
-// WebCam AFAN Avatar App
-// Using WebJSX with Ripple UI for the GUI overlay
-// And lazy-loaded WebcamAFANTracker logic
-
-import * as THREE from 'three'
-
 export default {
-    server: {
-        setup(ctx) {
-            ctx.entity.custom = {
-                mesh: 'box',
-                color: 0xff00ff,
-                label: 'Webcam Avatar',
-            }
-            ctx.physics.setStatic(true)
-            ctx.physics.addBoxCollider([0.5, 0.5, 0.5])
-            ctx.state.isWebcamActive = false
-        },
-        onMessage(ctx, msg) {
-            if (msg.type === 'toggle_webcam') {
-                ctx.state.isWebcamActive = msg.active
-                ctx.network.broadcast({ type: 'webcam_status', active: msg.active, entityId: ctx.entity.id })
-            } else if (msg.type === 'afan_data') {
-                // Forward AFAN data to clients near the entity
-                ctx.network.broadcast({ type: 'afan_data_broadcast', entityId: ctx.entity.id, data: msg.data })
-            }
-        }
+  server: {
+    setup(ctx) {
+      ctx.entity.custom = { mesh: 'box', color: 0xff00ff, label: 'Webcam' }
+      ctx.physics.setStatic(true)
+      ctx.physics.addBoxCollider([0.5, 0.5, 0.5])
+      ctx.state.activeWebcams = ctx.state.activeWebcams || new Map()
     },
 
-    client: {
-        setup(engine) {
-            this.enabled = false
-            this.tracker = null
-        },
-
-        onEvent(payload, engine) {
-            if (payload.type === 'webcam_status') {
-                if (payload.entityId === this.entityId) {
-                    this.serverEnabled = payload.active
-                }
-            } else if (payload.type === 'afan_data_broadcast' && payload.entityId === this.entityId) {
-                // Here we apply morph targets if we had a facial model
-                // engine.updateMorphTargets(this.entityId, payload.data)
-            }
-        },
-
-        async toggleWebcam(ctx) {
-            if (this.enabled) {
-                if (this.tracker) {
-                    this.tracker.stop()
-                    this.tracker = null
-                }
-                this.enabled = false
-            } else {
-                // dynamically load the webcam module
-                if (!window.enableWebcamAFAN) {
-                    await import('/webcam-afan.js')
-                }
-                this.tracker = await window.enableWebcamAFAN((afanData) => {
-                    ctx.network.send({ type: 'afan_data', data: Array.from(afanData) })
-                })
-                this.enabled = !!this.tracker
-            }
-
-            ctx.network.send({ type: 'toggle_webcam', active: this.enabled })
-        },
-
-        render(ctx) {
-            this.entityId = ctx.entity.id
-            let ui = null
-
-            // We lean heavily into WebJSX matching ThreeJS + Ripple UI aesthetics
-            if (ctx.h) {
-                ui = ctx.h('div', { class: 'card w-64 bg-slate-800 shadow-xl pointer-events-auto mt-4' },
-                    ctx.h('div', { class: 'card-body text-white' },
-                        ctx.h('h2', { class: 'card-title text-lg font-bold' }, 'Avatar Controller'),
-                        ctx.h('p', { class: 'text-sm mb-4' }, 'Streams audio2afan to nearby players'),
-                        ctx.h('div', { class: 'card-actions justify-end' },
-                            ctx.h('button', {
-                                class: \`btn \${this.enabled ? 'btn-error' : 'btn-primary'}\`,
-                onclick: () => this.toggleWebcam(ctx)
-              }, this.enabled ? 'Stop Webcam' : 'Start Webcam')
-            )
-          )
-        )
+    onMessage(ctx, msg) {
+      if (!msg) return
+      const senderId = msg.senderId || msg.playerId
+      if (msg.type === 'webcam_start') {
+        ctx.state.activeWebcams.set(senderId, true)
+        ctx.network.broadcast({ type: 'webcam_status', playerId: senderId, active: true })
+      } else if (msg.type === 'webcam_stop') {
+        ctx.state.activeWebcams.delete(senderId)
+        ctx.network.broadcast({ type: 'webcam_status', playerId: senderId, active: false })
+      } else if (msg.type === 'afan_frame' && msg.data) {
+        const sender = ctx.players.getAll().find(p => p.id === senderId)
+        if (!sender?.state?.position) return
+        const sp = sender.state.position
+        const r2 = 900
+        for (const p of ctx.players.getAll()) {
+          if (!p.state?.position) continue
+          const dx = p.state.position[0] - sp[0]
+          const dy = p.state.position[1] - sp[1]
+          const dz = p.state.position[2] - sp[2]
+          if (dx*dx + dy*dy + dz*dz <= r2) {
+            ctx.players.send(p.id, { type: 'afan_frame', playerId: senderId, data: msg.data })
+          }
+        }
       }
+    }
+  },
 
+  client: {
+    setup(engine) {
+      this.enabled = false
+      this.tracker = null
+      this._lastSend = 0
+    },
+
+    onEvent(payload, engine) {
+      if (payload.type === 'webcam_status' && payload.playerId === engine.playerId) {
+        this.enabled = payload.active
+      }
+    },
+
+    async _toggleWebcam(engine) {
+      if (this.enabled) {
+        if (this.tracker) { this.tracker.stop(); this.tracker = null }
+        engine.network.send({ type: 'webcam_stop' })
+        this.enabled = false
+        return
+      }
+      if (!window.enableWebcamAFAN) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script')
+          s.type = 'module'
+          s.src = '/webcam-afan.js'
+          s.onload = resolve
+          s.onerror = reject
+          document.head.appendChild(s)
+          setTimeout(resolve, 2000)
+        })
+      }
+      this.tracker = await window.enableWebcamAFAN((data) => {
+        const now = performance.now()
+        if (now - this._lastSend < 33) return
+        this._lastSend = now
+        engine.network.send({ type: 'afan_frame', data: Array.from(data) })
+      })
+      if (this.tracker) engine.network.send({ type: 'webcam_start' })
+    },
+
+    render(ctx) {
+      const h = ctx.h
+      if (!h) return { position: ctx.entity.position }
+      const enabled = this.enabled
       return {
         position: ctx.entity.position,
         rotation: ctx.entity.rotation,
         custom: ctx.entity.custom,
-        ui: ui ? ctx.h('div', { style: 'position:absolute;top:20px;left:20px;' }, ui) : null
+        ui: h('div', { style: 'position:absolute;top:20px;left:20px;pointer-events:auto' },
+          h('div', { class: 'card bg-base-200 shadow-xl w-64' },
+            h('div', { class: 'card-body' },
+              h('h2', { class: 'card-title' }, 'Webcam Avatar'),
+              h('p', { class: 'text-sm opacity-70' }, 'Streams face tracking to nearby players'),
+              h('div', { class: 'card-actions justify-end' },
+                h('button', {
+                  class: `btn ${enabled ? 'btn-error' : 'btn-primary'} btn-sm`,
+                  onclick: () => this._toggleWebcam(ctx.engine)
+                }, enabled ? 'Stop Webcam' : 'Start Webcam')
+              )
+            )
+          )
+        )
       }
     }
   }
