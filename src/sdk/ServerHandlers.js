@@ -1,5 +1,7 @@
 import { MSG, DISCONNECT_REASONS } from '../protocol/MessageTypes.js'
 import { SnapshotEncoder } from '../netcode/SnapshotEncoder.js'
+import { readdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { resolve, join } from 'node:path'
 
 export function createConnectionHandlers(ctx) {
   const { tickSystem, playerManager, networkState, lagCompensator, physicsIntegration, connections, sessions, appLoader, appRuntime, emitter, inspector } = ctx
@@ -31,6 +33,7 @@ export function createConnectionHandlers(ctx) {
     const combined = { tick: playerSnap.tick, timestamp: playerSnap.timestamp, players: playerSnap.players, entities: snapEntities.entities }
     connections.send(playerId, MSG.SNAPSHOT, { seq: ++ctx.snapshotSeq, ...SnapshotEncoder.encode(combined) })
     for (const [entityId] of appRuntime.apps) appRuntime.fireMessage(entityId, { type: 'player_join', playerId })
+    connections.send(playerId, MSG.SCENE_GRAPH, { entities: appRuntime.getSceneGraph() })
     emitter.emit('playerJoin', { id: playerId })
   }
 
@@ -123,6 +126,66 @@ export function createConnectionHandlers(ctx) {
         connections.send(clientId, MSG.EDITOR_SELECT, { entityId: id })
         ctx.placedModelStorage?.persist(appRuntime)
       }
+      return
+    }
+    if (msg.type === MSG.PLACE_APP) {
+      const { appName, position, config } = msg.payload || {}
+      if (appName && appRuntime._appDefs.has(appName)) {
+        const id = appName + '-' + Math.random().toString(36).slice(2, 8)
+        appRuntime.spawnEntity(id, { app: appName, position: position || [0,0,0], config: config || {} })
+        const entity = appRuntime.entities.get(id)
+        const appDef = appRuntime._appDefs.get(appName)
+        const editorProps = (appDef?.server || appDef)?.editorProps || appDef?.editorProps || []
+        connections.send(clientId, MSG.EDITOR_SELECT, { entityId: id, editorProps })
+        ctx.placedModelStorage?.persist(appRuntime)
+      }
+      return
+    }
+    if (msg.type === MSG.LIST_APPS) {
+      const appsRoot = resolve(process.cwd(), 'apps')
+      const apps = []
+      try {
+        for (const name of readdirSync(appsRoot)) {
+          const idxPath = join(appsRoot, name, 'index.js')
+          if (!existsSync(idxPath)) continue
+          const src = readFileSync(idxPath, 'utf8')
+          const descMatch = src.match(/\/\/\s*(.+)/)
+          const description = descMatch ? descMatch[1].trim() : ''
+          const appDef = appRuntime._appDefs.get(name)
+          const serverMod = appDef?.server || appDef
+          const hasEditorProps = !!(serverMod?.editorProps?.length)
+          apps.push({ name, description, hasEditorProps })
+        }
+      } catch (e) { /* ignore */ }
+      connections.send(clientId, MSG.APP_LIST, { apps })
+      return
+    }
+    if (msg.type === MSG.GET_SOURCE) {
+      const { appName } = msg.payload || {}
+      if (appName) {
+        const appsRoot = resolve(process.cwd(), 'apps')
+        const filePath = resolve(join(appsRoot, appName, 'index.js'))
+        if (filePath.startsWith(appsRoot) && existsSync(filePath)) {
+          const source = readFileSync(filePath, 'utf8')
+          connections.send(clientId, MSG.SOURCE, { appName, source })
+        }
+      }
+      return
+    }
+    if (msg.type === MSG.SAVE_SOURCE) {
+      const { appName, source } = msg.payload || {}
+      if (appName && source) {
+        const appsRoot = resolve(process.cwd(), 'apps')
+        const filePath = resolve(join(appsRoot, appName, 'index.js'))
+        if (filePath.startsWith(appsRoot)) {
+          writeFileSync(filePath, source, 'utf8')
+          connections.send(clientId, MSG.SOURCE, { appName, source })
+        }
+      }
+      return
+    }
+    if (msg.type === MSG.SCENE_GRAPH) {
+      connections.send(clientId, MSG.SCENE_GRAPH, { entities: appRuntime.getSceneGraph() })
       return
     }
     emitter.emit('message', clientId, msg)

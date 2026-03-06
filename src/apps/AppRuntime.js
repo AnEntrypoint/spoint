@@ -170,6 +170,16 @@ export class AppRuntime {
 
   getRelevantDynamicIds(playerPosition, radius) { return new Set(this.relevantEntities(playerPosition, radius)) }
 
+  getSceneGraph() {
+    const nodes = []
+    for (const [id, e] of this.entities) { if (!e.parent) nodes.push(this._buildNode(id, e)) }
+    return nodes
+  }
+
+  _buildNode(id, e) {
+    return { id, appName: e._appName, label: e._config?.label || e._appName || id, children: [...e.children].map(cid => this._buildNode(cid, this.entities.get(cid))).filter(Boolean) }
+  }
+
   queryEntities(f) { const r = []; for (const e of this.entities.values()) { if (!f || f(e)) r.push(e) } return r }
   getEntity(id) { return this.entities.get(id) || null }
   fireEvent(eid, en, ...a) { const ad = this.apps.get(eid), c = this.contexts.get(eid); if (!ad || !c) return; this._log('app_event', { entityId: eid, event: en, args: a }, { sourceEntity: eid }); const s = ad.server || ad; if (s[en]) this._safeCall(s, en, [c, ...a], `${en}(${eid})`) }

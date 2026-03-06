@@ -43,6 +43,8 @@ export class MessageHandler {
       this._handleHeartbeat(payload)
     } else if (type === MSG.EDITOR_SELECT) {
       this._callbacks.onEditorSelect?.(payload)
+    } else if (type === MSG.APP_LIST || type === MSG.SOURCE || type === MSG.SCENE_GRAPH) {
+      this._callbacks.onMessage?.(type, payload)
     }
   }
 

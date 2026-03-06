@@ -42,7 +42,14 @@ export const MSG = {
 
   EDITOR_UPDATE: 0x80,
   EDITOR_SELECT: 0x81,
-  PLACE_MODEL: 0x82
+  PLACE_MODEL: 0x82,
+  PLACE_APP: 0x83,
+  LIST_APPS: 0x84,
+  APP_LIST: 0x85,
+  GET_SOURCE: 0x86,
+  SOURCE: 0x87,
+  SAVE_SOURCE: 0x88,
+  SCENE_GRAPH: 0x89
 }
 
 const nameMap = new Map()

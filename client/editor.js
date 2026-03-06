@@ -122,6 +122,7 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
   return {
     toggleGizmo, selectEntity,
     onKeyDown(e) { if (e.code === 'KeyP') toggleGizmo() },
-    updateGizmo() { if (gizmoGroup && selectedEntityId) { const m = entityMeshes.get(selectedEntityId); if (m && !dragAxis) gizmoGroup.position.copy(m.position) } }
+    updateGizmo() { if (gizmoGroup && selectedEntityId) { const m = entityMeshes.get(selectedEntityId); if (m && !dragAxis) gizmoGroup.position.copy(m.position) } },
+    get selectedEntityId() { return selectedEntityId }
   }
 }

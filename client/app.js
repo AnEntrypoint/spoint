@@ -19,6 +19,9 @@ import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js'
 import { LoadingManager } from './LoadingManager.js'
 import { createEditor } from './editor.js'
 import { createInspector } from './inspector.js'
+import { createCodeEditor } from './code-editor.js'
+import { createSceneGraph } from './scene-graph.js'
+import { createAppBrowser } from './app-browser.js'
 import { fetchCached, dbDelete, dbPut } from './ModelCache.js'
 import { createLoadingScreen } from './createLoadingScreen.js'
 import { MobileControls, detectDevice } from './MobileControls.js'
@@ -1282,14 +1285,19 @@ const client = new PhysicsNetworkClient({
   },
   onHotReload: () => { sessionStorage.setItem('cam', JSON.stringify(cam.save())); location.reload() },
   onEditorSelect: (payload) => {
-    const { entityId } = payload || {}
+    const { entityId, editorProps } = payload || {}
     if (!entityId) return
     const mesh = entityMeshes.get(entityId)
     if (mesh && typeof editor !== 'undefined') {
       editor.selectEntity(entityId)
       const entity = { id: entityId, position: mesh.position.toArray(), rotation: [0,0,0,1], scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }
-      if (typeof inspector !== 'undefined') inspector.show(entity)
+      if (typeof inspector !== 'undefined') inspector.show(entity, editorProps || [])
     }
+  },
+  onMessage: (type, payload) => {
+    if (type === MSG.APP_LIST) { appBrowser.update(payload.apps); return }
+    if (type === MSG.SOURCE) { codeEditor.open(payload.appName, payload.source); return }
+    if (type === MSG.SCENE_GRAPH) { sceneGraph.update(payload.entities); return }
   },
   debug: false
 })
@@ -1320,8 +1328,27 @@ const engineCtx = {
 initFacialSystem(engineCtx)
 
 const inspector = createInspector()
+const codeEditor = createCodeEditor({ onSave: (appName, source) => { client.send(MSG.SAVE_SOURCE, { appName, source }) } })
+const sceneGraph = createSceneGraph({ onSelect: (id) => {
+  const mesh = entityMeshes.get(id)
+  if (mesh) { editor.selectEntity(id); const ent = { id, position: mesh.position.toArray(), rotation: [0,0,0,1], scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }; inspector.show(ent) }
+  sceneGraph.setSelected(id)
+} })
+const appBrowser = createAppBrowser({ onPlace: (appName) => {
+  const local = playerStates.get(client.playerId)
+  const yaw = local?.yaw || 0
+  const pos = local ? [local.position[0]+Math.sin(yaw)*2, local.position[1], local.position[2]+Math.cos(yaw)*2] : [0,0,2]
+  client.send(MSG.PLACE_APP, { appName, position: pos, config: {} })
+} })
+inspector.onEditCode((appName) => { client.send(MSG.GET_SOURCE, { appName }) })
 const editor = createEditor({ scene, camera, renderer, client, entityMeshes, playerStates, inspector })
-document.addEventListener('keydown', e => editor.onKeyDown(e))
+document.addEventListener('keydown', e => {
+  editor.onKeyDown(e)
+  if (e.code === 'KeyG') sceneGraph.toggle()
+  if (e.code === 'KeyA' && !e.ctrlKey && !e.metaKey) appBrowser.toggle()
+  if (e.code === 'KeyI') { if (inspector.visible) inspector.hide(); else if (editor.selectedEntityId) { /* already shown */ } }
+})
+client.send(MSG.LIST_APPS, {})
 
 let inputLoopId = null
 let loadingScreenHidden = false
