@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.180](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.179...v0.1.180) (2026-03-06)
+
+
+### Bug Fixes
+
+* use server-authoritative velocity/onGround for local player animations ([66bde81](https://github.com/AnEntrypoint/spawnpoint/commit/66bde81d76407583ddee34005238a42429fea0c6))
+
 ### [0.1.179](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.178...v0.1.179) (2026-03-06)
 
 
