@@ -1,9 +1,13 @@
 import * as THREE from 'three'
 import { MSG } from '/src/protocol/MessageTypes.js'
 
-export function createEditor({ scene, camera, renderer, client, entityMeshes, playerStates, inspector }) {
-  let selectedEntityId = null, gizmoEnabled = false, gizmoGroup = null
+export let editMode = false
+let _onEditModeChange = null
+
+export function createEditor({ scene, camera, renderer, client, entityMeshes, playerStates }) {
+  let selectedEntityId = null, gizmoGroup = null
   let dragAxis = null, dragStart = null, dragEntityStart = null
+  let _onChange = null
   const raycaster = new THREE.Raycaster()
   const _plane = new THREE.Plane()
 
@@ -29,23 +33,15 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
 
   function attachGizmo(id) {
     if (gizmoGroup) { scene.remove(gizmoGroup); gizmoGroup = null }
+    if (!editMode) return
     const mesh = entityMeshes.get(id); if (!mesh) return
     gizmoGroup = buildGizmo(); gizmoGroup.position.copy(mesh.position); scene.add(gizmoGroup)
   }
 
-  function toggleGizmo() {
-    if (!selectedEntityId) return
-    gizmoEnabled = !gizmoEnabled
-    if (gizmoEnabled) attachGizmo(selectedEntityId)
-    else { if (gizmoGroup) { scene.remove(gizmoGroup); gizmoGroup = null }; gizmoEnabled = false }
-  }
-
-  function selectEntity(id) {
-    selectedEntityId = id; if (gizmoGroup) attachGizmo(id)
-  }
-
-  function sendEditorUpdate(changes) {
-    if (selectedEntityId) client.send(MSG.EDITOR_UPDATE, { entityId: selectedEntityId, changes })
+  function selectEntity(id, entityData) {
+    selectedEntityId = id
+    if (editMode) attachGizmo(id)
+    if (_onChange) _onChange(id, entityData)
   }
 
   function eulerDegToQuat([ex, ey, ez]) {
@@ -59,15 +55,12 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
     return new THREE.Vector2(((e.clientX-r.left)/r.width)*2-1, -((e.clientY-r.top)/r.height)*2+1)
   }
 
-  inspector.onChange((key, value) => {
-    if (key === 'collider') sendEditorUpdate({ custom: { _collider: value } })
-    else if (key.startsWith('custom.')) sendEditorUpdate({ custom: { [key.slice(7)]: value } })
-    else if (key === '_rotEuler') sendEditorUpdate({ rotation: eulerDegToQuat(value) })
-    else { sendEditorUpdate({ [key]: value }); if (key === 'position' && gizmoGroup) gizmoGroup.position.fromArray(value) }
-  })
+  function sendEditorUpdate(changes) {
+    if (selectedEntityId) client.send(MSG.EDITOR_UPDATE, { entityId: selectedEntityId, changes })
+  }
 
   renderer.domElement.addEventListener('mousedown', e => {
-    if (e.button !== 0) return
+    if (e.button !== 0 || !editMode) return
     raycaster.setFromCamera(getNDC(e), camera)
     if (gizmoGroup) {
       const hits = raycaster.intersectObjects(gizmoGroup.children, false)
@@ -85,7 +78,11 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
     const hits2 = raycaster.intersectObjects(meshList.map(m => m.mesh), true)
     if (hits2.length > 0) {
       const found = meshList.find(m => m.mesh.getObjectById ? m.mesh.getObjectById(hits2[0].object.id) : m.mesh === hits2[0].object)
-      if (found) { selectEntity(found.id); inspector.show({ id: found.id, position: found.mesh.position.toArray(), rotation: [0,0,0,1], scale: found.mesh.scale.toArray(), custom: found.mesh.userData.custom || {} }) }
+      if (found) {
+        const mesh = found.mesh
+        const ent = { id: found.id, position: mesh.position.toArray(), rotation: [0,0,0,1], scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }
+        selectEntity(found.id, ent)
+      }
     }
   })
 
@@ -120,8 +117,19 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
   })
 
   return {
-    toggleGizmo, selectEntity,
-    onKeyDown(e) { if (e.code === 'KeyP') toggleGizmo() },
+    onKeyDown(e) {
+      if (e.code === 'KeyP') {
+        editMode = !editMode
+        if (!editMode && gizmoGroup) { scene.remove(gizmoGroup); gizmoGroup = null }
+        if (editMode && selectedEntityId) attachGizmo(selectedEntityId)
+        if (_onEditModeChange) _onEditModeChange(editMode)
+      }
+    },
+    onSelectionChange(fn) { _onChange = fn },
+    onEditModeChange(fn) { _onEditModeChange = fn },
+    sendEditorUpdate,
+    eulerDegToQuat,
+    selectEntity,
     updateGizmo() { if (gizmoGroup && selectedEntityId) { const m = entityMeshes.get(selectedEntityId); if (m && !dragAxis) gizmoGroup.position.copy(m.position) } },
     get selectedEntityId() { return selectedEntityId }
   }

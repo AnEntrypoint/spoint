@@ -18,10 +18,7 @@ import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFa
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js'
 import { LoadingManager } from './LoadingManager.js'
 import { createEditor } from './editor.js'
-import { createInspector } from './inspector.js'
-import { createCodeEditor } from './code-editor.js'
-import { createSceneGraph } from './scene-graph.js'
-import { createAppBrowser } from './app-browser.js'
+import { createEditPanel } from './edit-panel.js'
 import { fetchCached, dbDelete, dbPut } from './ModelCache.js'
 import { createLoadingScreen } from './createLoadingScreen.js'
 import { MobileControls, detectDevice } from './MobileControls.js'
@@ -1288,16 +1285,15 @@ const client = new PhysicsNetworkClient({
     const { entityId, editorProps } = payload || {}
     if (!entityId) return
     const mesh = entityMeshes.get(entityId)
-    if (mesh && typeof editor !== 'undefined') {
-      editor.selectEntity(entityId)
-      const entity = { id: entityId, position: mesh.position.toArray(), rotation: [0,0,0,1], scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }
-      if (typeof inspector !== 'undefined') inspector.show(entity, editorProps || [])
+    if (mesh) {
+      editor.selectEntity(entityId, { id: entityId, position: mesh.position.toArray(), rotation: [0,0,0,1], scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} })
+      editPanel.showEntity({ id: entityId, position: mesh.position.toArray(), rotation: [0,0,0,1], scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }, editorProps || [])
     }
   },
   onMessage: (type, payload) => {
-    if (type === MSG.APP_LIST) { appBrowser.update(payload.apps); return }
-    if (type === MSG.SOURCE) { codeEditor.open(payload.appName, payload.source); return }
-    if (type === MSG.SCENE_GRAPH) { sceneGraph.update(payload.entities); return }
+    if (type === MSG.APP_LIST) { editPanel.updateApps(payload.apps); return }
+    if (type === MSG.SOURCE) { editPanel.openCode(payload.appName, payload.source); return }
+    if (type === MSG.SCENE_GRAPH) { editPanel.updateScene(payload.entities); return }
   },
   debug: false
 })
@@ -1327,27 +1323,32 @@ const engineCtx = {
 
 initFacialSystem(engineCtx)
 
-const inspector = createInspector()
-const codeEditor = createCodeEditor({ onSave: (appName, source) => { client.send(MSG.SAVE_SOURCE, { appName, source }) } })
-const sceneGraph = createSceneGraph({ onSelect: (id) => {
-  const mesh = entityMeshes.get(id)
-  if (mesh) { editor.selectEntity(id); const ent = { id, position: mesh.position.toArray(), rotation: [0,0,0,1], scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }; inspector.show(ent) }
-  sceneGraph.setSelected(id)
-} })
-const appBrowser = createAppBrowser({ onPlace: (appName) => {
-  const local = playerStates.get(client.playerId)
-  const yaw = local?.yaw || 0
-  const pos = local ? [local.position[0]+Math.sin(yaw)*2, local.position[1], local.position[2]+Math.cos(yaw)*2] : [0,0,2]
-  client.send(MSG.PLACE_APP, { appName, position: pos, config: {} })
-} })
-inspector.onEditCode((appName) => { client.send(MSG.GET_SOURCE, { appName }) })
-const editor = createEditor({ scene, camera, renderer, client, entityMeshes, playerStates, inspector })
-document.addEventListener('keydown', e => {
-  editor.onKeyDown(e)
-  if (e.code === 'KeyG') sceneGraph.toggle()
-  if (e.code === 'KeyA' && !e.ctrlKey && !e.metaKey) appBrowser.toggle()
-  if (e.code === 'KeyI') { if (inspector.visible) inspector.hide(); else if (editor.selectedEntityId) { /* already shown */ } }
+const editPanel = createEditPanel({
+  onPlace: (appName) => {
+    const local = playerStates.get(client.playerId)
+    const yaw = local?.yaw || 0
+    const pos = local ? [local.position[0]+Math.sin(yaw)*2, local.position[1], local.position[2]+Math.cos(yaw)*2] : [0,0,2]
+    client.send(MSG.PLACE_APP, { appName, position: pos, config: {} })
+  },
+  onSave: (appName, source) => { client.send(MSG.SAVE_SOURCE, { appName, source }) },
+  onEntitySelect: (id) => {
+    const mesh = entityMeshes.get(id)
+    if (mesh) { editor.selectEntity(id, { id, position: mesh.position.toArray(), rotation: [0,0,0,1], scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }) }
+  },
+  onGetSource: (appName) => { client.send(MSG.GET_SOURCE, { appName }) }
 })
+const editor = createEditor({ scene, camera, renderer, client, entityMeshes, playerStates })
+editor.onSelectionChange((id, entityData) => { if (entityData) editPanel.showEntity(entityData, []) })
+editor.onEditModeChange((on) => { if (on) editPanel.show(); else editPanel.hide() })
+editPanel.onEditorChange((key, value) => {
+  if (!editor.selectedEntityId) return
+  const changes = key === 'collider' ? { custom: { _collider: value } }
+    : key.startsWith('custom.') ? { custom: { [key.slice(7)]: value } }
+    : key === '_rotEuler' ? { rotation: editor.eulerDegToQuat(value) }
+    : { [key]: value }
+  editor.sendEditorUpdate(changes)
+})
+document.addEventListener('keydown', e => { editor.onKeyDown(e) })
 client.send(MSG.LIST_APPS, {})
 
 let inputLoopId = null
