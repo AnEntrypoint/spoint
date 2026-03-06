@@ -37,7 +37,7 @@ const MAP_X_MAX = 250
 const MAP_Z_MIN = -250
 const MAP_Z_MAX = 250
 const SPAWN_Y = 3
-const TARGET_COUNT = 10000
+const TARGET_COUNT = 1000
 
 const MAP_W = MAP_X_MAX - MAP_X_MIN
 const MAP_D = MAP_Z_MAX - MAP_Z_MIN
