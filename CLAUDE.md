@@ -505,3 +505,79 @@ Scale     Tick Budget Status    Network Status       Recommendation
 - **100-150 players**: HIGH (120+ seconds sustained test, stable, no crashes)
 - **150-200 players**: MEDIUM (extrapolated, network saturation predicted)
 - **200+ players**: LOW (requires unverified optimizations, not recommended without testing)
+
+## 100p + 1000 Dynamic Entities Profiling (v0.1.161 - March 6, 2026)
+
+**Test Configuration:**
+- 100 bots + 1000 dynamic box entities (physicsRadius=60, relevanceRadius=60)
+- prop-dynamic app: sync box collider, linearDamping=2.0, angularDamping=2.0
+- ctx.physics.setLinearDamping / setAngularDamping added to AppContext
+
+**Server Tick Profile (100p + 1000 entities, steady state):**
+```
+Phase         avg ms    notes
+mv            5.3ms     100 CharacterVirtual updates (irreducible)
+phys          4.0-6.0ms 350-760 active Jolt bodies (damping settles to ~350 awake)
+snap          10-12ms   50 players/tick × ~0.24ms each (SNAP_GROUPS=2 at 100p)
+total         20-24ms   2.6-3.1× over 7.8ms budget
+```
+
+**Key Findings:**
+- mv+phys floor: ~9ms irreducible at 100p (CharacterVirtual CPU bound)
+- snap: irreducible at ~11ms due to per-player spatial encoding × 50 players/tick
+- **System stable at 100p+1000 entities: 122.5s, 21 snaps/bot/sec, 0 errors**
+- Memory: 1630MB RSS (1400MB ext/WASM, ~50MB heap) — stable
+
+**Optimizations Applied:**
+1. **Sync box collider** (prop-dynamic): replaced async convex hull with `addBoxCollider(0.5,0.5,0.5)` — eliminates concurrent ConvexHullShapeSettings WASM heap corruption
+2. **Physics damping**: linearDamping=2.0, angularDamping=2.0 — activeDyn drops 640→350 over time (phys: 9ms→4ms)
+3. **Debounced _rebuildUpdateList**: `_scheduleRebuild()` via setImmediate — prevents O(N)×1000 blocking during entity spawn
+4. **Background prewarm**: `prewarm()` runs fire-and-forget — server starts immediately without waiting for GLB conversion
+5. **GLBTransformer windowsHide**: prevents terminal popup loops on Windows
+
+**Bottleneck Floor at 100p + 1000 entities:**
+- `mv` (CharacterVirtual): scales O(players), irreducible without tick rate reduction
+- `phys` (Jolt step): scales with active body count; damping reduces but cannot eliminate
+- `snap` (per-player encoding): scales O(players/snapGroups × relevantEntities); relevanceRadius=60 limits to ~400 nearby entities
+- **Architectural floor**: ~20ms min (cannot meet 7.8ms budget with 100p+1000 active physics bodies)
+
+## 250p + 1000 Dynamic Entities Stress Test (v0.1.161 - March 6, 2026)
+
+**Test Results:**
+- 250/250 bots connected (100% success), 123.6s runtime, 0 errors
+- Total snapshots: 137,529 | 4.45 snaps/bot/sec
+
+**Server Tick Profile (250p + 1000 entities):**
+```
+Phase         avg ms    peak ms
+mv            13.0ms    13.7ms    (250 CharacterVirtual)
+phys          10.4-12ms 13.1ms    (650-760 active Jolt bodies)
+snap          17.8-20ms 21ms      (125 players/tick × SNAP_GROUPS=5)
+total         44ms      47ms      (5.6× over 7.8ms budget)
+```
+
+**Scaling Table (with 1000 dynamic entities):**
+```
+Players  Tick (ms)    Snaps/Sec    Per-Bot Rate    Entities Active    Status
+100      20-24ms      2,100        21/sec          350-760            Stable (2.6-3.1× over)
+250      40-47ms      1,100        4.45/sec        650-760            Stable (5.6× over)
+```
+
+**Why System Stays Up Despite Tick Overrun:**
+TickSystem drops ticks when behind rather than queuing them (max 4 ticks/iteration). At 44ms per tick vs 7.8ms budget, server runs at ~17 effective TPS instead of 128. Clients still receive snapshots via buffering; game becomes unresponsive (high latency) but does not crash.
+
+**Capacity with 1000 Dynamic Entities:**
+- **Without entities (100p baseline)**: 7.5-8.5ms tick — within budget ✓
+- **With 1000 entities (100p)**: 20-24ms tick — 3× over budget, stable
+- **With 1000 entities (250p)**: 44ms tick — 5.6× over budget, stable but unplayable lag
+- **Entity overhead per player**: ~0.14ms/player at 100p (from 8ms baseline to 22ms = +14ms / 100 players)
+- **Entity physics overhead**: ~4-12ms at 350-760 active Jolt bodies regardless of player count
+
+**Recommendations for 1000 Dynamic Entities at Scale:**
+- At 100p: acceptable for demos; unplayable for competitive games (3× tick overrun)
+- At 250p: system survives but severely degraded (5.6× overrun, ~17 TPS effective)
+- **To support 1000 entities + 100p within budget**: reduce entity physics cost
+  - Sleep threshold tuning: increase damping further (4.0+) to settle faster
+  - Reduce physicsRadius to 30 (limits active bodies to ~150 within player clusters)
+  - Reduce entity count to 200-300 (stays within phys budget)
+  - Switch to kinematic entities (no Jolt integration, just snapshot position updates)
