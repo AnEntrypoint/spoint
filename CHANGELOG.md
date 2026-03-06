@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.172](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.171...v0.1.172) (2026-03-06)
+
+
+### Features
+
+* add model placement editor with drag-drop upload, gizmo, inspector, and persistence ([263e61f](https://github.com/AnEntrypoint/spawnpoint/commit/263e61f03dd93e26e234f4e5c1ddc989c5e18f07))
+
 ### [0.1.171](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.170...v0.1.171) (2026-03-06)
 
 ### [0.1.170](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.169...v0.1.170) (2026-03-06)
