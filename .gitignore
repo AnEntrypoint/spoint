@@ -48,6 +48,10 @@ world/hyperfy.db
 # Workflow state machine (temporary working file)
 .prd
 
+# Agent working directories
+.agent/
+.agents/
+
 # Temporary files
 /tmp/
 /todo/
