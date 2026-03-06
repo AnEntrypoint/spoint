@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.178](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.177...v0.1.178) (2026-03-06)
+
+
+### Bug Fixes
+
+* eliminate input lag with adaptive jitter buffer and local player prediction bypass ([d5b3593](https://github.com/AnEntrypoint/spawnpoint/commit/d5b3593ebe8aae529d7338a4da542febed77a72c))
+
 ### [0.1.177](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.176...v0.1.177) (2026-03-06)
 
 
