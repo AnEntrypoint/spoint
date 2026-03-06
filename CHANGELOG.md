@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.175](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.174...v0.1.175) (2026-03-06)
+
+
+### Features
+
+* simplify app creation with webjsx ripple ui and lazy loaded afan webcam tracking ([1aed340](https://github.com/AnEntrypoint/spawnpoint/commit/1aed3403b91716352cddda7b0e3261827dbcbad8))
+
 ### [0.1.174](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.173...v0.1.174) (2026-03-06)
 
 ### [0.1.173](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.172...v0.1.173) (2026-03-06)
