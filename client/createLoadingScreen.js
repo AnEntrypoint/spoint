@@ -25,11 +25,6 @@ export function createLoadingScreen(loadingManager) {
         </div>
       </div>
       <div class="loading-detail-text"></div>
-      <div class="loading-spinner">
-        <div class="spinner-dot"></div>
-        <div class="spinner-dot"></div>
-        <div class="spinner-dot"></div>
-      </div>
     </div>
   `
   document.body.insertBefore(overlay, document.body.firstChild)

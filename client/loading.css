@@ -103,41 +103,6 @@
   text-align: center;
 }
 
-.loading-spinner {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 30px;
-  height: 12px;
-}
-
-.spinner-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #00d4ff;
-  opacity: 0.4;
-  animation: spin-bounce 1.2s infinite ease-in-out;
-}
-
-.spinner-dot:nth-child(1) {
-  animation-delay: -0.32s;
-}
-
-.spinner-dot:nth-child(2) {
-  animation-delay: -0.16s;
-}
-
-@keyframes spin-bounce {
-  0%, 80%, 100% {
-    opacity: 0.4;
-    transform: scale(0.8);
-  }
-  40% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
 
 .loading-overlay.fade-out {
   animation: fade-out-animation 0.5s ease-out forwards;
