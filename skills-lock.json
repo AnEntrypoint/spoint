@@ -1,6 +1,11 @@
 {
   "version": 1,
   "skills": {
+    "process-management": {
+      "source": "AnEntrypoint/gm-cc",
+      "sourceType": "github",
+      "computedHash": "c7492be4223b674c70e75fa1e7a93d11368735b343d6b2f5bfeb4f151e72dfc5"
+    },
     "spoint": {
       "source": "AnEntrypoint/spawnpoint",
       "sourceType": "github",

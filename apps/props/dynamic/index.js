@@ -1,12 +1,8 @@
 export default {
   server: {
-    async setup(ctx) {
+    setup(ctx) {
       ctx.physics.setDynamic(true)
-      if (ctx.entity.model) {
-        await ctx.physics.addConvexFromModelAsync(0)
-      } else {
-        ctx.physics.addBoxCollider(0.5, 0.5, 0.5)
-      }
+      ctx.physics.addBoxCollider(0.5, 0.5, 0.5)
     }
   },
   client: {
