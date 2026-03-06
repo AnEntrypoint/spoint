@@ -6,6 +6,8 @@ import { MSG } from '../protocol/MessageTypes.js'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { SpatialIndex } from '../spatial/Octree.js'
+import { mixinPhysics } from './AppRuntimePhysics.js'
+import { mixinTick } from './AppRuntimeTick.js'
 
 export class AppRuntime {
   constructor(c = {}) {
@@ -15,45 +17,26 @@ export class AppRuntime {
     this._playerManager = c.playerManager || null; this._physics = c.physics || null; this._physicsIntegration = c.physicsIntegration || null
     this._connections = c.connections || null; this._stageLoader = c.stageLoader || null
     this._nextEntityId = 1; this._appDefs = new Map(); this._timers = new Map(); this._interactCooldowns = new Map(); this._respawnTimer = new Map()
-    this._activeDynamicIds = new Set()
-    this._physicsBodyToEntityId = new Map()
+    this._activeDynamicIds = new Set(); this._physicsBodyToEntityId = new Map(); this._suspendedEntityIds = new Set()
     this._physicsLODRadius = c.physicsRadius || 0
-    const serverTickRate = c.tickRate || 64
-    const entityTickRate = c.entityTickRate || serverTickRate
+    const serverTickRate = c.tickRate || 64, entityTickRate = c.entityTickRate || serverTickRate
     this._entityTickDivisor = Math.max(1, Math.round(serverTickRate / entityTickRate))
     this._physicsLODInterval = Math.max(1, Math.round(serverTickRate / 2))
-    this._suspendedEntityIds = new Set()
-    this._playerIndex = new SpatialIndex()
-    this._collisionEntities = []
-    this._interactableIds = new Set()
+    this._playerIndex = new SpatialIndex(); this._collisionEntities = []; this._interactableIds = new Set()
     this._lastSyncMs = 0; this._lastRespawnMs = 0; this._lastSpatialMs = 0; this._lastCollisionMs = 0; this._lastInteractMs = 0
+    mixinPhysics(this); mixinTick(this)
     if (this._physics) this._registerPhysicsCallbacks()
     this._hotReload = new HotReloadQueue(this)
     this._eventBus = c.eventBus || new EventBus()
-    this._eventLog = c.eventLog || null
-    this._storage = c.storage || null
-    this._sdkRoot = c.sdkRoot || null
-    this._eventBus.on('*', (event) => {
-      if (event.channel.startsWith('system.')) return
-      this._log('bus_event', { channel: event.channel, data: event.data }, event.meta)
-    })
-    this._eventBus.on('system.handover', (event) => {
-      const { targetEntityId, stateData } = event.data || {}
-      if (targetEntityId) this.fireEvent(targetEntityId, 'onHandover', event.meta.sourceEntity, stateData)
-    })
+    this._eventLog = c.eventLog||null; this._storage = c.storage||null; this._sdkRoot = c.sdkRoot||null
+    this._eventBus.on('*', ev => { if (!ev.channel.startsWith('system.')) this._log('bus_event', { channel:ev.channel, data:ev.data }, ev.meta) })
+    this._eventBus.on('system.handover', ev => { const {targetEntityId,stateData}=ev.data||{}; if (targetEntityId) this.fireEvent(targetEntityId,'onHandover',ev.meta.sourceEntity,stateData) })
   }
 
   resolveAssetPath(p) {
     if (!p) return p
-    const local = resolve(p)
-    if (existsSync(local)) return local
-    if (this._sdkRoot) {
-      const sdk = resolve(this._sdkRoot, p)
-      if (existsSync(sdk)) {
-        console.debug(`[SDK-DEFAULT] using bundled asset: ${p}`)
-        return sdk
-      }
-    }
+    const local = resolve(p); if (existsSync(local)) return local
+    if (this._sdkRoot) { const sdk=resolve(this._sdkRoot,p); if (existsSync(sdk)) { console.debug(`[SDK-DEFAULT] using bundled asset: ${p}`); return sdk } }
     return local
   }
 
@@ -114,39 +97,27 @@ export class AppRuntime {
   getEntityWithApp(eid) { const e = this.entities.get(eid); return { entity: e, appName: e?._appName, hasApp: !!e?._appName } }
 
   detachApp(entityId) {
-    const appDef = this.apps.get(entityId), ctx = this.contexts.get(entityId)
-    if (appDef && ctx) this._safeCall(appDef.server || appDef, 'teardown', [ctx], 'teardown')
-    this._eventBus.destroyScope(entityId)
-    this.clearTimers(entityId); this.apps.delete(entityId); this.contexts.delete(entityId)
-    this._rebuildUpdateList()
-    this._rebuildCollisionList()
+    const appDef=this.apps.get(entityId), ctx=this.contexts.get(entityId)
+    if (appDef && ctx) this._safeCall(appDef.server||appDef, 'teardown', [ctx], 'teardown')
+    this._eventBus.destroyScope(entityId); this.clearTimers(entityId); this.apps.delete(entityId); this.contexts.delete(entityId)
+    this._rebuildUpdateList(); this._rebuildCollisionList()
   }
 
   _rebuildUpdateList() {
     this._updateList = []
-    for (const [entityId, appDef] of this.apps) {
-      const ctx = this.contexts.get(entityId); if (!ctx) continue
-      const server = appDef.server || appDef
-      if (typeof server.update === 'function') this._updateList.push([entityId, server, ctx])
-    }
+    for (const [id, ad] of this.apps) { const ctx=this.contexts.get(id); if (!ctx) continue; const s=ad.server||ad; if (typeof s.update==='function') this._updateList.push([id,s,ctx]) }
   }
 
   _rebuildCollisionList() {
     this._collisionEntities = []
-    for (const [entityId, appDef] of this.apps) {
-      const e = this.entities.get(entityId); if (!e) continue
-      const server = appDef.server || appDef
-      if (e.collider && typeof server.onCollision === 'function') this._collisionEntities.push(e)
-    }
+    for (const [id, ad] of this.apps) { const e=this.entities.get(id); if (!e) continue; const s=ad.server||ad; if (e.collider && typeof s.onCollision==='function') this._collisionEntities.push(e) }
   }
 
   destroyEntity(entityId) {
     const entity = this.entities.get(entityId); if (!entity) return
     this._staticVersion++
-    this._dynamicEntityIds.delete(entityId)
-    this._staticEntityIds.delete(entityId)
-    this._activeDynamicIds.delete(entityId)
-    this._suspendedEntityIds.delete(entityId)
+    this._dynamicEntityIds.delete(entityId); this._staticEntityIds.delete(entityId)
+    this._activeDynamicIds.delete(entityId); this._suspendedEntityIds.delete(entityId)
     this._interactableIds.delete(entityId)
     if (entity._physicsBodyId !== undefined) this._physicsBodyToEntityId.delete(entity._physicsBodyId)
     this._log('entity_destroy', { id: entityId }, { sourceEntity: entityId })
@@ -158,9 +129,8 @@ export class AppRuntime {
 
   reparent(entityId, newParentId) {
     const e = this.entities.get(entityId); if (!e) return
-    if (e.parent) { const old = this.entities.get(e.parent); if (old) old.children.delete(entityId) }
-    e.parent = null
-    if (newParentId) { const np = this.entities.get(newParentId); if (np) { e.parent = newParentId; np.children.add(entityId) } }
+    if (e.parent) { const old=this.entities.get(e.parent); if (old) old.children.delete(entityId) }
+    e.parent = null; if (newParentId) { const np=this.entities.get(newParentId); if (np) { e.parent=newParentId; np.children.add(entityId) } }
   }
 
   getWorldTransform(entityId) {
@@ -173,107 +143,9 @@ export class AppRuntime {
     return { position: [pt.position[0]+rp[0], pt.position[1]+rp[1], pt.position[2]+rp[2]], rotation: mulQuat(pt.rotation, e.rotation), scale: [pt.scale[0]*e.scale[0], pt.scale[1]*e.scale[1], pt.scale[2]*e.scale[2]] }
   }
 
-  tick(tickNum, dt) {
-    this.currentTick = tickNum; this.deltaTime = dt; this.elapsed += dt
-    if (tickNum % this._entityTickDivisor === 0) {
-      const entityDt = dt * this._entityTickDivisor
-      for (const [entityId, server, ctx] of this._updateList) {
-        this._safeCall(server, 'update', [ctx, entityDt], `update(${entityId})`)
-      }
-    }
-    this._tickTimers(dt)
-    const _ts0 = performance.now()
-    this._syncDynamicBodies()
-    const players = this.getPlayers()
-    if (tickNum % this._physicsLODInterval === 0) this._tickPhysicsLOD(players)
-    this._lastSyncMs = performance.now() - _ts0
-    const _ts1 = performance.now()
-    this._tickRespawn()
-    this._lastRespawnMs = performance.now() - _ts1
-    const _ts2 = performance.now()
-    this._spatialSync()
-    this._syncPlayerIndex()
-    this._lastSpatialMs = performance.now() - _ts2
-    const _ts3 = performance.now()
-    this._tickCollisions()
-    this._lastCollisionMs = performance.now() - _ts3
-    const _ts4 = performance.now()
-    this._tickInteractables()
-    this._lastInteractMs = performance.now() - _ts4
-  }
-
-  _registerPhysicsCallbacks() {
-    this._physics.onBodyActivated = (physicsBodyId) => {
-      const entityId = this._physicsBodyToEntityId.get(physicsBodyId)
-      if (!entityId) return
-      this._activeDynamicIds.add(entityId)
-      const e = this.entities.get(entityId)
-      if (e) e._dynSleeping = false
-    }
-    this._physics.onBodyDeactivated = (physicsBodyId) => {
-      const entityId = this._physicsBodyToEntityId.get(physicsBodyId)
-      if (!entityId) return
-      this._activeDynamicIds.delete(entityId)
-      const e = this.entities.get(entityId)
-      if (e) { e._dynSleeping = true; this._physics.syncDynamicBody(physicsBodyId, e) }
-    }
-  }
-
-  _syncDynamicBodies() {
-    if (!this._physics) return
-    for (const id of this._activeDynamicIds) {
-      const e = this.entities.get(id)
-      if (!e || e._physicsBodyId === undefined) continue
-      this._physics.syncDynamicBody(e._physicsBodyId, e)
-    }
-  }
-
-  _tickPhysicsLOD(players) {
-    if (!this._physics || !this._physicsLODRadius || this._dynamicEntityIds.size === 0) return
-    const r = this._physicsLODRadius
-    const r2 = r * r
-    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
-    for (const p of players) {
-      const pp = p.state?.position; if (!pp) continue
-      if (pp[0] - r < minX) minX = pp[0] - r
-      if (pp[0] + r > maxX) maxX = pp[0] + r
-      if (pp[2] - r < minZ) minZ = pp[2] - r
-      if (pp[2] + r > maxZ) maxZ = pp[2] + r
-    }
-    const noPlayers = minX === Infinity
-    for (const entityId of this._dynamicEntityIds) {
-      const e = this.entities.get(entityId)
-      if (!e || !e._bodyDef) continue
-      let inRange = false
-      if (!noPlayers && e.position[0] >= minX && e.position[0] <= maxX && e.position[2] >= minZ && e.position[2] <= maxZ) {
-        for (const p of players) {
-          const pp = p.state?.position; if (!pp) continue
-          const dx = pp[0] - e.position[0], dy = pp[1] - e.position[1], dz = pp[2] - e.position[2]
-          if (dx * dx + dy * dy + dz * dz <= r2) { inRange = true; break }
-        }
-      }
-      if (inRange && e._bodyActive === false) {
-        const d = e._bodyDef
-        const bid = this._physics.addBody(d.shapeType, d.params, e.position, d.motionType, { rotation: e.rotation, mass: d.opts.mass })
-        e._physicsBodyId = bid; e._bodyActive = true
-        this._physicsBodyToEntityId.set(bid, entityId)
-        this._activeDynamicIds.add(entityId)
-        this._suspendedEntityIds.delete(entityId)
-      } else if (!inRange && e._bodyActive !== false && e._physicsBodyId !== undefined && !this._physics.isBodyActive(e._physicsBodyId)) {
-        this._physicsBodyToEntityId.delete(e._physicsBodyId)
-        this._activeDynamicIds.delete(entityId)
-        this._physics.removeBody(e._physicsBodyId)
-        e._physicsBodyId = undefined
-        e._bodyActive = false
-        this._suspendedEntityIds.add(entityId)
-      }
-    }
-  }
-
   _encodeEntity(id, e) {
-    const r = Array.isArray(e.rotation) ? [...e.rotation] : [e.rotation.x || 0, e.rotation.y || 0, e.rotation.z || 0, e.rotation.w || 1]
-    const v = e.velocity || [0, 0, 0]
-    return { id, model: e.model, position: [...e.position], rotation: r, scale: [...e.scale], velocity: [...v], bodyType: e.bodyType, custom: e.custom || null, parent: e.parent || null }
+    const r = Array.isArray(e.rotation) ? [...e.rotation] : [e.rotation.x||0, e.rotation.y||0, e.rotation.z||0, e.rotation.w||1]
+    return { id, model: e.model, position: [...e.position], rotation: r, scale: [...e.scale], velocity: [...(e.velocity||[0,0,0])], bodyType: e.bodyType, custom: e.custom||null, parent: e.parent||null }
   }
 
   getSnapshot() {
@@ -283,60 +155,18 @@ export class AppRuntime {
   }
 
   getSnapshotForPlayer(playerPosition, radius, skipStatic = false) {
-    const entities = []
-    if (skipStatic) {
-      const relevant = new Set(this.relevantEntities(playerPosition, radius))
-      for (const id of this._dynamicEntityIds) {
-        const e = this.entities.get(id)
-        if (e && (relevant.has(id) || e._appName === 'environment')) entities.push(this._encodeEntity(id, e))
-      }
-    } else {
-      const relevant = new Set(this.relevantEntities(playerPosition, radius))
-      for (const [id, e] of this.entities) {
-        if (relevant.has(id) || e._appName === 'environment') entities.push(this._encodeEntity(id, e))
-      }
-    }
+    const entities = [], relevant = new Set(this.relevantEntities(playerPosition, radius)), iter = skipStatic ? this._dynamicEntityIds : this.entities.keys()
+    for (const id of iter) { const e = this.entities.get(id); if (e && (relevant.has(id) || e._appName === 'environment')) entities.push(this._encodeEntity(id, e)) }
     return { tick: this.currentTick, timestamp: Date.now(), entities }
   }
 
   getDynamicEntitiesRaw() {
     const out = []
-    for (const id of this._dynamicEntityIds) {
-      const e = this.entities.get(id)
-      if (e) out.push({ id, model: e.model, position: e.position, rotation: e.rotation, velocity: e.velocity, bodyType: e.bodyType, custom: e.custom, _isEnv: e._appName === 'environment', _sleeping: e._dynSleeping || false })
-    }
+    for (const id of this._dynamicEntityIds) { const e = this.entities.get(id); if (e) out.push({ id, model: e.model, position: e.position, rotation: e.rotation, velocity: e.velocity, bodyType: e.bodyType, custom: e.custom, _isEnv: e._appName === 'environment', _sleeping: e._dynSleeping || false }) }
     return out
   }
 
-  getRelevantDynamicIds(playerPosition, radius) {
-    const relevant = new Set(this.relevantEntities(playerPosition, radius))
-    return relevant
-  }
-
-  _syncPlayerIndex() {
-    const players = this.getPlayers()
-    for (const p of players) {
-      const pos = p.state?.position
-      if (pos) this._playerIndex.update(p.id, pos)
-    }
-    if (this._playerIndex.size > players.length) {
-      const ids = new Set(players.map(p => p.id))
-      for (const id of [...this._playerIndex._entities.keys()]) {
-        if (!ids.has(id)) this._playerIndex.remove(id)
-      }
-    }
-  }
-
-  getNearbyPlayers(viewerPosition, radius, allPlayers) {
-    if (!allPlayers || allPlayers.length === 0) return []
-    if (this._playerIndex.size === 0) {
-      const cx = viewerPosition[0], cy = viewerPosition[1], cz = viewerPosition[2]
-      const r2 = radius * radius
-      return allPlayers.filter(p => { const dx=p.position[0]-cx,dy=p.position[1]-cy,dz=p.position[2]-cz; return dx*dx+dy*dy+dz*dz<=r2 })
-    }
-    const nearbyIds = new Set(this._playerIndex.nearby(viewerPosition, radius))
-    return allPlayers.filter(p => nearbyIds.has(p.id))
-  }
+  getRelevantDynamicIds(playerPosition, radius) { return new Set(this.relevantEntities(playerPosition, radius)) }
 
   queryEntities(f) { const r = []; for (const e of this.entities.values()) { if (!f || f(e)) r.push(e) } return r }
   getEntity(id) { return this.entities.get(id) || null }
@@ -345,140 +175,25 @@ export class AppRuntime {
   fireMessage(eid, m) { this.fireEvent(eid, 'onMessage', m) }
   addTimer(e, d, fn, r) { if (!this._timers.has(e)) this._timers.set(e, []); this._timers.get(e).push({ remaining: d, fn, repeat: r, interval: d }) }
   clearTimers(eid) { this._timers.delete(eid) }
-
-  _tickTimers(dt) {
-    for (const [eid, timers] of this._timers) {
-      const keep = []
-      for (const t of timers) {
-        t.remaining -= dt
-        if (t.remaining <= 0) { try { t.fn() } catch (e) { console.error(`[AppRuntime] timer(${eid}):`, e.message) }; if (t.repeat) { t.remaining = t.interval; keep.push(t) } }
-        else keep.push(t)
-      }
-      if (keep.length) this._timers.set(eid, keep); else this._timers.delete(eid)
-    }
-  }
-
-  _tickCollisions() {
-    const c = this._collisionEntities
-    if (c.length === 0) return
-    for (let i = 0; i < c.length; i++) {
-      const r = this._colR(c[i].collider)
-      c[i]._cachedColR = r
-    }
-    for (let i = 0; i < c.length; i++) {
-      const a = c[i], ar = a._cachedColR, ax = a.position[0], ay = a.position[1], az = a.position[2]
-      for (let j = i + 1; j < c.length; j++) {
-        const b = c[j], dx = b.position[0]-ax, dy = b.position[1]-ay, dz = b.position[2]-az
-        const rr = ar + b._cachedColR
-        if (dx*dx+dy*dy+dz*dz < rr*rr) {
-          this.fireEvent(a.id, 'onCollision', { id: b.id, position: b.position, velocity: b.velocity })
-          this.fireEvent(b.id, 'onCollision', { id: a.id, position: a.position, velocity: a.velocity })
-        }
-      }
-    }
-  }
-
-  _tickRespawn() {
-    const now = Date.now()
-    for (const id of this._activeDynamicIds) {
-      const e = this.entities.get(id); if (!e) continue
-      if (e.position[1] < -20) {
-        if (!this._respawnTimer.has(id)) this._respawnTimer.set(id, { startTime: now, lastRespawn: 0 })
-        const timer = this._respawnTimer.get(id)
-        if ((now - timer.startTime) / 1000 >= 5 && now - timer.lastRespawn >= 1000) {
-          const spawnPos = e._spawnPosition || [0, 20, 0]
-          e.position[0] = spawnPos[0]; e.position[1] = spawnPos[1]; e.position[2] = spawnPos[2]
-          e.velocity[0] = 0; e.velocity[1] = 0; e.velocity[2] = 0
-          if (e._physicsBodyId !== undefined && this._physics) {
-            this._physics.setBodyPosition(e._physicsBodyId, spawnPos)
-            this._physics.setBodyVelocity(e._physicsBodyId, [0, 0, 0])
-          }
-          timer.startTime = now; timer.lastRespawn = now
-        }
-      } else {
-        this._respawnTimer.delete(id)
-      }
-    }
-  }
-
-  _tickInteractables() {
-    if (this._interactableIds.size === 0) return
-    const now = Date.now()
-    const players = this.getPlayers()
-    for (const id of this._interactableIds) {
-      const e = this.entities.get(id); if (!e || !e._interactable) continue
-      for (const p of players) {
-        const pp = p.state?.position; if (!pp) continue
-        const dx = pp[0]-e.position[0], dy = pp[1]-e.position[1], dz = pp[2]-e.position[2]
-        if (dx*dx+dy*dy+dz*dz > e._interactRadius**2) continue
-        const key = `${e.id}:${p.id}`
-        const last = this._interactCooldowns.get(key) || 0
-        const cooldown = e._interactCooldown ?? 500
-        if (p.lastInput?.interact && now - last > cooldown) {
-          this._interactCooldowns.set(key, now)
-          this.fireEvent(e.id, 'onInteract', p)
-          const bus = this._eventBus.scope ? this._eventBus : null
-          if (bus) bus.emit(`interact.${e.id}`, { player: p, entity: e })
-        }
-      }
-    }
-  }
-
-  _colR(c) {
-    if (!c) return 0
-    if (c._cachedRadius !== undefined) return c._cachedRadius
-    let r = 0
-    if (c.type === 'sphere') r = c.radius || 1
-    else if (c.type === 'capsule') r = Math.max(c.radius || 0.5, (c.height || 1) / 2)
-    else if (c.type === 'box') {
-      const s = c.size; const h = c.halfExtents
-      if (Array.isArray(s)) r = Math.max(...s)
-      else if (typeof s === 'number') r = s
-      else if (Array.isArray(h)) r = Math.max(...h)
-      else r = 1
-    } else r = 1
-    c._cachedRadius = r
-    return r
-  }
   setPlayerManager(pm) { this._playerManager = pm }
   setStageLoader(sl) { this._stageLoader = sl }
   getPlayers() { return this._playerManager ? this._playerManager.getConnectedPlayers() : [] }
-
-  getNearestPlayer(pos, r) {
-    let n = null, md = r * r
-    for (const p of this.getPlayers()) { const pp = p.state?.position; if (!pp) continue; const d = (pp[0]-pos[0])**2+(pp[1]-pos[1])**2+(pp[2]-pos[2])**2; if (d < md) { md = d; n = p } }
-    return n
-  }
-
+  getNearestPlayer(pos, r) { let n=null,md=r*r; for (const p of this.getPlayers()) { const pp=p.state?.position; if (!pp) continue; const d=(pp[0]-pos[0])**2+(pp[1]-pos[1])**2+(pp[2]-pos[2])**2; if (d<md) { md=d; n=p } } return n }
   broadcastToPlayers(m) { if (this._connections) this._connections.broadcast(MSG.APP_EVENT, m); else if (this._playerManager) this._playerManager.broadcast(m) }
   sendToPlayer(id, m) { if (this._connections) this._connections.send(id, MSG.APP_EVENT, m); else if (this._playerManager) this._playerManager.sendToPlayer(id, m) }
-  setPlayerPosition(id, p) { this._physicsIntegration?.setPlayerPosition(id, p); if (this._playerManager) { const pl = this._playerManager.getPlayer(id); if (pl) pl.state.position = [...p] } }
-
+  setPlayerPosition(id, p) { this._physicsIntegration?.setPlayerPosition(id, p); if (this._playerManager) { const pl=this._playerManager.getPlayer(id); if (pl) pl.state.position=[...p] } }
   queueReload(n, d, cb) { this._hotReload.enqueue(n, d, cb) }
   _drainReloadQueue() { this._hotReload.drain() }
   hotReload(n, d) { this._hotReload._execute(n, d) }
-
-  _spatialInsert(entity) {
-    if (!this._stageLoader) return; const stage = this._stageLoader.getActiveStage()
-    if (stage && !stage.hasEntity(entity.id)) { stage.entityIds.add(entity.id); stage.spatial.insert(entity.id, entity.position); if (entity.bodyType === 'static') stage._staticIds.add(entity.id) }
-  }
-  _spatialRemove(entityId) { if (!this._stageLoader) return; const stage = this._stageLoader.getActiveStage(); if (stage) { stage.spatial.remove(entityId); stage._staticIds.delete(entityId); stage.entityIds.delete(entityId) } }
+  _spatialInsert(entity) { if (!this._stageLoader) return; const stage=this._stageLoader.getActiveStage(); if (stage && !stage.hasEntity(entity.id)) { stage.entityIds.add(entity.id); stage.spatial.insert(entity.id, entity.position); if (entity.bodyType==='static') stage._staticIds.add(entity.id) } }
+  _spatialRemove(entityId) { if (!this._stageLoader) return; const stage=this._stageLoader.getActiveStage(); if (stage) { stage.spatial.remove(entityId); stage._staticIds.delete(entityId); stage.entityIds.delete(entityId) } }
   _spatialSync() { if (this._stageLoader) this._stageLoader.syncAllPositions() }
   nearbyEntities(position, radius) { if (!this._stageLoader) return Array.from(this.entities.keys()); return this._stageLoader.getNearbyEntities(position, radius) }
   relevantEntities(position, radius) { if (!this._stageLoader) return Array.from(this.entities.keys()); return this._stageLoader.getRelevantEntities(position, radius) }
-
   _log(type, data, meta = {}) { if (this._eventLog) this._eventLog.record(type, data, { ...meta, tick: this.currentTick }) }
   _safeCall(o, m, a, l) {
     if (!o?.[m]) return Promise.resolve()
-    try {
-      const result = o[m](...a)
-      if (result && typeof result.catch === 'function') {
-        return result.catch(e => console.error(`[AppRuntime] ${l}: ${e.message}\n  ${e.stack?.split('\n').slice(1, 3).join('\n  ') || ''}`))
-      }
-      return Promise.resolve()
-    } catch (e) {
-      console.error(`[AppRuntime] ${l}: ${e.message}\n  ${e.stack?.split('\n').slice(1, 3).join('\n  ') || ''}`)
-      return Promise.reject(e)
-    }
+    try { const r = o[m](...a); if (r?.catch) return r.catch(e => console.error(`[AppRuntime] ${l}: ${e.message}`)); return Promise.resolve() }
+    catch (e) { console.error(`[AppRuntime] ${l}: ${e.message}`); return Promise.reject(e) }
   }
 }

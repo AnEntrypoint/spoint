@@ -6,6 +6,31 @@ import { applyMovement as _applyMovement, DEFAULT_MOVEMENT as _DEFAULT_MOVEMENT 
 
 const MAX_SENDS_PER_TICK = 25
 
+function applyPlayerCollisions(players, grid, gridCells, cellSz, minDist2, minDist, dt, physicsIntegration) {
+  grid.clear()
+  for (const p of players) {
+    const cx=Math.floor(p.state.position[0]/cellSz), cz=Math.floor(p.state.position[2]/cellSz), ck=cx*65536+cz
+    let cell=grid.get(ck); if (!cell){cell=gridCells.get(ck);if(!cell){cell=[];gridCells.set(ck,cell)}else{cell.length=0}grid.set(ck,cell)}; cell.push(p)
+  }
+  for (const player of players) {
+    const px=player.state.position[0],py=player.state.position[1],pz=player.state.position[2]
+    const cx=Math.floor(px/cellSz),cz=Math.floor(pz/cellSz)
+    for (let ddx=-1;ddx<=1;ddx++) for (let ddz=-1;ddz<=1;ddz++) {
+      const neighbors=grid.get((cx+ddx)*65536+(cz+ddz)); if (!neighbors) continue
+      for (const other of neighbors) {
+        if (other.id<=player.id) continue
+        const ox=other.state.position[0],oy=other.state.position[1],oz=other.state.position[2]
+        const dx=ox-px,dy=oy-py,dz=oz-pz,dist2=dx*dx+dy*dy+dz*dz
+        if (dist2>=minDist2||dist2===0) continue
+        const dist=Math.sqrt(dist2),nx=dx/dist,nz=dz/dist,overlap=minDist-dist,halfPush=overlap*0.5,pushVel=Math.min(halfPush/dt,3.0)
+        player.state.position[0]-=nx*halfPush; player.state.position[2]-=nz*halfPush; player.state.velocity[0]-=nx*pushVel; player.state.velocity[2]-=nz*pushVel
+        other.state.position[0]+=nx*halfPush; other.state.position[2]+=nz*halfPush; other.state.velocity[0]+=nx*pushVel; other.state.velocity[2]+=nz*pushVel
+        physicsIntegration.setPlayerPosition(player.id,player.state.position); physicsIntegration.setPlayerPosition(other.id,other.state.position)
+      }
+    }
+  }
+}
+
 export function createTickHandler(deps) {
   const {
     networkState, playerManager, physicsIntegration,
@@ -63,59 +88,13 @@ export function createTickHandler(deps) {
       st.velocity[2] = wishedVz
       st.onGround = updated.onGround
       lagCompensator.recordPlayerPosition(player.id, st.position, st.rotation, st.velocity, tick)
-      networkState.updatePlayer(player.id, {
-        position: st.position, rotation: st.rotation,
-        velocity: st.velocity, onGround: st.onGround,
-        health: st.health, inputSequence: player.inputSequence,
-        crouch: st.crouch || 0, lookPitch: st.lookPitch || 0, lookYaw: st.lookYaw || 0
-      })
+      networkState.updatePlayer(player.id, { position:st.position, rotation:st.rotation, velocity:st.velocity, onGround:st.onGround, health:st.health, inputSequence:player.inputSequence, crouch:st.crouch||0, lookPitch:st.lookPitch||0, lookYaw:st.lookYaw||0 })
     }
 
     const t1 = performance.now()
     const cellSz = physicsIntegration.config.capsuleRadius * 8
     const minDist = physicsIntegration.config.capsuleRadius * 2
-    const minDist2 = minDist * minDist
-    grid.clear()
-    for (const p of players) {
-      const cx = Math.floor(p.state.position[0] / cellSz)
-      const cz = Math.floor(p.state.position[2] / cellSz)
-      const ck = cx * 65536 + cz
-      let cell = grid.get(ck)
-      if (!cell) { cell = gridCells.get(ck); if (!cell) { cell = []; gridCells.set(ck, cell) } else { cell.length = 0 } grid.set(ck, cell) }
-      cell.push(p)
-    }
-    for (const player of players) {
-      const px = player.state.position[0], py = player.state.position[1], pz = player.state.position[2]
-      const cx = Math.floor(px / cellSz), cz = Math.floor(pz / cellSz)
-      for (let ddx = -1; ddx <= 1; ddx++) {
-        for (let ddz = -1; ddz <= 1; ddz++) {
-          const neighbors = grid.get((cx + ddx) * 65536 + (cz + ddz))
-          if (!neighbors) continue
-          for (const other of neighbors) {
-            if (other.id <= player.id) continue
-            const ox = other.state.position[0], oy = other.state.position[1], oz = other.state.position[2]
-            const dx = ox - px, dy = oy - py, dz = oz - pz
-            const dist2 = dx * dx + dy * dy + dz * dz
-            if (dist2 >= minDist2 || dist2 === 0) continue
-            const distance = Math.sqrt(dist2)
-            const nx = dx / distance, nz = dz / distance
-            const overlap = minDist - distance
-            const halfPush = overlap * 0.5
-            const pushVel = Math.min(halfPush / dt, 3.0)
-            player.state.position[0] -= nx * halfPush
-            player.state.position[2] -= nz * halfPush
-            player.state.velocity[0] -= nx * pushVel
-            player.state.velocity[2] -= nz * pushVel
-            other.state.position[0] += nx * halfPush
-            other.state.position[2] += nz * halfPush
-            other.state.velocity[0] += nx * pushVel
-            other.state.velocity[2] += nz * pushVel
-            physicsIntegration.setPlayerPosition(player.id, player.state.position)
-            physicsIntegration.setPlayerPosition(other.id, other.state.position)
-          }
-        }
-      }
-    }
+    applyPlayerCollisions(players, grid, gridCells, cellSz, minDist * minDist, minDist, dt, physicsIntegration)
 
     const t2 = performance.now()
     physics.step(dt)
@@ -154,6 +133,7 @@ export function createTickHandler(deps) {
         const serverTime = Date.now()
         const precomputedRemoved = []
         let dynCache = null
+        const allEncodedPlayers = SnapshotEncoder.encodePlayersOnce(playerSnap.players)
         for (const player of players) {
           if (player.id % snapGroups !== curGroup) continue
           if (dynCache === null) {
@@ -170,21 +150,16 @@ export function createTickHandler(deps) {
             }
           }
           const isNewPlayer = !playerEntityMaps.has(player.id)
-          const nearbyPlayers = appRuntime.getNearbyPlayers(player.state.position, relevanceRadius, playerSnap.players)
-          const preEncodedPlayers = SnapshotEncoder.encodePlayers(nearbyPlayers)
-          const relevantIds = appRuntime.getRelevantDynamicIds(player.state.position, relevanceRadius)
+          const viewerPos = player.state.position
+          const nearbyIds = new Set(appRuntime._playerIndex.nearby(viewerPos, relevanceRadius))
+          nearbyIds.add(player.id)
+          const preEncodedPlayers = SnapshotEncoder.filterEncodedPlayers(allEncodedPlayers, nearbyIds)
+          const relevantIds = appRuntime.getRelevantDynamicIds(viewerPos, relevanceRadius)
           const prevMap = isNewPlayer ? new Map() : playerEntityMaps.get(player.id)
           const staticForPlayer = isNewPlayer ? lastStaticEntries : activeStaticEntries
           const removed = isNewPlayer ? undefined : precomputedRemoved
-          const { encoded, entityMap } = SnapshotEncoder.encodeDeltaFromCache(
-            playerSnap.tick, serverTime, dynCache, relevantIds,
-            prevMap, preEncodedPlayers, staticForPlayer, staticEntityMap, staticEntityIds, removed
-          )
-          if (isNewPlayer) {
-            for (const id of prevMap.keys()) {
-              if (!dynCache.has(id) && !(staticEntityIds && staticEntityIds.has(id))) precomputedRemoved.push(id)
-            }
-          }
+          const { encoded, entityMap } = SnapshotEncoder.encodeDeltaFromCache(playerSnap.tick, serverTime, dynCache, relevantIds, prevMap, preEncodedPlayers, staticForPlayer, staticEntityMap, staticEntityIds, removed, snapshotSeq, viewerPos)
+          if (isNewPlayer) { for (const id of prevMap.keys()) { if (!dynCache.has(id) && !(staticEntityIds && staticEntityIds.has(id))) precomputedRemoved.push(id) } }
           playerEntityMaps.set(player.id, entityMap)
           connections.send(player.id, MSG.SNAPSHOT, { seq: snapshotSeq, ...encoded })
         }
@@ -202,33 +177,17 @@ export function createTickHandler(deps) {
       }
     }
 
-    for (const id of playerEntityMaps.keys()) {
-      if (!playerManager.getPlayer(id)) playerEntityMaps.delete(id)
-    }
+    for (const id of playerEntityMaps.keys()) { if (!playerManager.getPlayer(id)) playerEntityMaps.delete(id) }
     const t5 = performance.now()
     try { appRuntime._drainReloadQueue() } catch (e) { console.error('[TickHandler] reload queue error:', e.message) }
-    if (players.length > 0) { profileSum += t5 - t0; profileSumSnap += t5 - t4; profileSumPhys += t3 - t2; profileSumMv += t1 - t0; profileCount++ }
-    profileLog++
-    if (profileLog % KEYFRAME_INTERVAL === 0) {
-      const total = t5 - t0
-      const mem = process.memoryUsage()
-      const heap = (mem.heapUsed / 1048576).toFixed(1)
-      const rss = (mem.rss / 1048576).toFixed(1)
-      const ext = (mem.external / 1048576).toFixed(1)
-      const ab = (mem.arrayBuffers / 1048576).toFixed(1)
-      const syncMs = (appRuntime._lastSyncMs || 0).toFixed(2)
-      const respawnMs = (appRuntime._lastRespawnMs || 0).toFixed(2)
-      const spatialMs = (appRuntime._lastSpatialMs || 0).toFixed(2)
-      const colMs = (appRuntime._lastCollisionMs || 0).toFixed(2)
-      const intMs = (appRuntime._lastInteractMs || 0).toFixed(2)
-      const dynIds = appRuntime._dynamicEntityIds?.size || 0
-      const activeDyn = appRuntime._activeDynamicIds?.size || 0
-      const avgTotal = profileCount > 0 ? (profileSum / profileCount).toFixed(2) : '0'
-      const avgSnap = profileCount > 0 ? (profileSumSnap / profileCount).toFixed(2) : '0'
-      const avgPhys = profileCount > 0 ? (profileSumPhys / profileCount).toFixed(2) : '0'
-      const avgMv = profileCount > 0 ? (profileSumMv / profileCount).toFixed(2) : '0'
-      profileSum = 0; profileSumSnap = 0; profileSumPhys = 0; profileSumMv = 0; profileCount = 0
-      try { console.log(`[tick-profile] tick:${tick} players:${players.length} entities:${appRuntime.entities.size} dynIds:${dynIds} activeDyn:${activeDyn} total:${total.toFixed(2)}ms(avg:${avgTotal}) | mv:${(t1 - t0).toFixed(2)}(avg:${avgMv}) col:${(t2 - t1).toFixed(2)} phys:${(t3 - t2).toFixed(2)}(avg:${avgPhys}) app:${(t4 - t3).toFixed(2)} sync:${syncMs} respawn:${respawnMs} spatial:${spatialMs} col2:${colMs} int:${intMs} snap:${(t5 - t4).toFixed(2)}(avg:${avgSnap}) | heap:${heap}MB rss:${rss}MB ext:${ext}MB ab:${ab}MB`) } catch (_) {}
+    if (players.length > 0) { profileSum += t5-t0; profileSumSnap += t5-t4; profileSumPhys += t3-t2; profileSumMv += t1-t0; profileCount++ }
+    if (++profileLog % KEYFRAME_INTERVAL === 0) {
+      const total=t5-t0, mem=process.memoryUsage(), avg=n => profileCount>0?(n/profileCount).toFixed(2):'0'
+      const mb=n=>(n/1048576).toFixed(1)
+      const dynIds=appRuntime._dynamicEntityIds?.size||0, activeDyn=appRuntime._activeDynamicIds?.size||0
+      const avgTotal=avg(profileSum),avgSnap=avg(profileSumSnap),avgPhys=avg(profileSumPhys),avgMv=avg(profileSumMv)
+      profileSum=0; profileSumSnap=0; profileSumPhys=0; profileSumMv=0; profileCount=0
+      try { console.log(`[tick-profile] tick:${tick} players:${players.length} entities:${appRuntime.entities.size} dynIds:${dynIds} activeDyn:${activeDyn} total:${total.toFixed(2)}ms(avg:${avgTotal}) | mv:${(t1-t0).toFixed(2)}(avg:${avgMv}) col:${(t2-t1).toFixed(2)} phys:${(t3-t2).toFixed(2)}(avg:${avgPhys}) app:${(t4-t3).toFixed(2)} sync:${(appRuntime._lastSyncMs||0).toFixed(2)} respawn:${(appRuntime._lastRespawnMs||0).toFixed(2)} spatial:${(appRuntime._lastSpatialMs||0).toFixed(2)} col2:${(appRuntime._lastCollisionMs||0).toFixed(2)} int:${(appRuntime._lastInteractMs||0).toFixed(2)} snap:${(t5-t4).toFixed(2)}(avg:${avgSnap}) | heap:${mb(mem.heapUsed)}MB rss:${mb(mem.rss)}MB ext:${mb(mem.external)}MB ab:${mb(mem.arrayBuffers)}MB`) } catch (_) {}
     }
   }
 }

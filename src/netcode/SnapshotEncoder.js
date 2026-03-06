@@ -2,38 +2,40 @@ function quantize(v, precision) {
   return Math.round(v * precision) / precision
 }
 
+const Q1=100, Q2=10000
 function encodePlayer(p) {
-  return [
-    p.id,
-    quantize(p.position[0], 100), quantize(p.position[1], 100), quantize(p.position[2], 100),
-    quantize(p.rotation[0], 10000), quantize(p.rotation[1], 10000), quantize(p.rotation[2], 10000), quantize(p.rotation[3], 10000),
-    quantize(p.velocity[0], 100), quantize(p.velocity[1], 100), quantize(p.velocity[2], 100),
-    p.onGround ? 1 : 0,
-    Math.round(p.health || 0),
-    p.inputSequence || 0,
-    p.crouch || 0,
-    Math.round(((p.lookPitch || 0) + Math.PI) / (2 * Math.PI) * 255),
-    Math.round(((p.lookYaw || 0) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) / (2 * Math.PI) * 255)
-  ]
+  const [px,py,pz]=p.position, [rx,ry,rz,rw]=p.rotation, [vx,vy,vz]=p.velocity
+  const pitch=Math.round(((p.lookPitch||0)+Math.PI)/(2*Math.PI)*255), yaw=Math.round(((p.lookYaw||0)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)/(2*Math.PI)*255)
+  return [p.id, quantize(px,Q1),quantize(py,Q1),quantize(pz,Q1), quantize(rx,Q2),quantize(ry,Q2),quantize(rz,Q2),quantize(rw,Q2), quantize(vx,Q1),quantize(vy,Q1),quantize(vz,Q1), p.onGround?1:0, Math.round(p.health||0), p.inputSequence||0, p.crouch||0, pitch, yaw]
 }
 
 function encodeEntity(e) {
-  return [
-    e.id,
-    e.model || '',
-    quantize(e.position[0], 100), quantize(e.position[1], 100), quantize(e.position[2], 100),
-    quantize(e.rotation[0], 10000), quantize(e.rotation[1], 10000), quantize(e.rotation[2], 10000), quantize(e.rotation[3], 10000),
-    quantize(e.velocity?.[0] || 0, 100), quantize(e.velocity?.[1] || 0, 100), quantize(e.velocity?.[2] || 0, 100),
-    e.bodyType || 'static',
-    e.custom || null
-  ]
+  const [px,py,pz]=e.position, [rx,ry,rz,rw]=e.rotation, v=e.velocity||[0,0,0]
+  return [e.id, e.model||'', quantize(px,Q1),quantize(py,Q1),quantize(pz,Q1), quantize(rx,Q2),quantize(ry,Q2),quantize(rz,Q2),quantize(rw,Q2), quantize(v[0]||0,Q1),quantize(v[1]||0,Q1),quantize(v[2]||0,Q1), e.bodyType||'static', e.custom||null]
 }
 
 function buildEntityKey(enc, custStr) {
   return [enc[1], enc[2], enc[3], enc[4], enc[5], enc[6], enc[7], enc[8], enc[9], enc[10], enc[11], enc[12], custStr].join('|')
 }
 
+const CLOSE2 = 20 * 20
+
 export class SnapshotEncoder {
+  static encodePlayersOnce(players) {
+    const m = new Map()
+    for (const p of (players || [])) m.set(p.id, encodePlayer(p))
+    return m
+  }
+
+  static filterEncodedPlayers(encodedMap, nearbyIds) {
+    const out = []
+    for (const id of nearbyIds) {
+      const enc = encodedMap.get(id)
+      if (enc) out.push(enc)
+    }
+    return out
+  }
+
   static encodePlayers(players) {
     return (players || []).map(encodePlayer)
   }
@@ -58,58 +60,53 @@ export class SnapshotEncoder {
     return { staticEntries: allEntries, changedEntries, staticMap: nextMap, staticChanged: changed }
   }
 
-  static buildStaticIds(staticMap) {
-    return new Set(staticMap.keys())
-  }
+  static buildStaticIds(staticMap) { return new Set(staticMap.keys()) }
 
   static updateDynamicCache(prevCache, activeIds, entities) {
     const cache = new Map(prevCache)
     for (const id of activeIds) {
-      const e = entities.get(id)
-      if (!e || e.bodyType === 'static') continue
-      const enc = encodeEntity(e)
-      const prev = prevCache.get(id)
-      const cust = enc[13]
+      const e = entities.get(id); if (!e || e.bodyType === 'static') continue
+      const enc = encodeEntity(e), prev = prevCache.get(id), cust = enc[13]
       const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? JSON.stringify(cust) : '')
-      const k = buildEntityKey(enc, custStr)
-      cache.set(id, { enc, k, cust, custStr, isEnv: false })
+      cache.set(id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: false })
     }
     return cache
   }
 
   static encodeDynamicEntitiesOnce(entities, prevCache) {
-    const cache = new Map()
-    const envIds = []
+    const cache = new Map(), envIds = []
     for (const e of entities) {
       if (e.bodyType === 'static') continue
-      if (e._sleeping && prevCache) {
-        const prev = prevCache.get(e.id)
-        if (prev) { cache.set(e.id, prev); if (prev.isEnv) envIds.push(e.id); continue }
-      }
-      const enc = encodeEntity(e)
-      const prev = prevCache ? prevCache.get(e.id) : null
-      const cust = enc[13]
+      if (e._sleeping && prevCache) { const prev=prevCache.get(e.id); if (prev) { cache.set(e.id,prev); if (prev.isEnv) envIds.push(e.id); continue } }
+      const enc = encodeEntity(e), prev = prevCache ? prevCache.get(e.id) : null, cust = enc[13]
       const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? JSON.stringify(cust) : '')
-      const k = buildEntityKey(enc, custStr)
       const isEnv = e._isEnv || false
-      cache.set(e.id, { enc, k, cust, custStr, isEnv })
+      cache.set(e.id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv })
       if (isEnv) envIds.push(e.id)
     }
-    cache._envIds = envIds
-    return cache
+    cache._envIds = envIds; return cache
   }
 
-  static encodeDeltaFromCache(tick, serverTime, dynCache, relevantIds, prevEntityMap, preEncodedPlayers, staticEntries, staticEntityMap, staticEntityIds, precomputedRemoved) {
+  static encodeDeltaFromCache(tick, serverTime, dynCache, relevantIds, prevEntityMap, preEncodedPlayers, staticEntries, staticEntityMap, staticEntityIds, precomputedRemoved, seqNum, viewerPos) {
     const entities = []
     const nextMap = new Map()
     if (staticEntries) {
       for (const { enc } of staticEntries) entities.push(enc)
     }
+    const vx = viewerPos ? viewerPos[0] : 0
+    const vy = viewerPos ? viewerPos[1] : 0
+    const vz = viewerPos ? viewerPos[2] : 0
+    const useDistTier = seqNum !== undefined && viewerPos && seqNum % 2 !== 0
     const iterIds = (relevantIds && dynCache.size > relevantIds.size) ? relevantIds : null
     if (iterIds) {
       for (const id of iterIds) {
         const entry = dynCache.get(id)
         if (!entry) continue
+        if (useDistTier && !entry.isEnv) {
+          const enc = entry.enc
+          const dx = enc[2] - vx, dy = enc[3] - vy, dz = enc[4] - vz
+          if (dx*dx + dy*dy + dz*dz >= CLOSE2) { nextMap.set(id, prevEntityMap.get(id) || [entry.k, entry.cust, entry.custStr]); continue }
+        }
         const { enc, k, cust, custStr } = entry
         nextMap.set(id, [k, cust, custStr])
         const prev = prevEntityMap.get(id)
@@ -128,6 +125,11 @@ export class SnapshotEncoder {
       for (const [id, entry] of dynCache) {
         if (entry._envIds !== undefined) continue
         if (!entry.isEnv && relevantIds && !relevantIds.has(id)) continue
+        if (useDistTier && !entry.isEnv) {
+          const enc = entry.enc
+          const dx = enc[2] - vx, dy = enc[3] - vy, dz = enc[4] - vz
+          if (dx*dx + dy*dy + dz*dz >= CLOSE2) { nextMap.set(id, prevEntityMap.get(id) || [entry.k, entry.cust, entry.custStr]); continue }
+        }
         const { enc, k, cust, custStr } = entry
         nextMap.set(id, [k, cust, custStr])
         const prev = prevEntityMap.get(id)
@@ -142,7 +144,7 @@ export class SnapshotEncoder {
       }
     }
     return {
-      encoded: { tick: tick || 0, serverTime, players: preEncodedPlayers, entities, removed: removed.length ? removed : undefined, delta: 1 },
+      encoded: { tick: tick || 0, serverTime, players: preEncodedPlayers || [], entities, removed: removed.length ? removed : undefined, delta: 1 },
       entityMap: nextMap
     }
   }
@@ -183,28 +185,10 @@ export class SnapshotEncoder {
   }
 
   static decode(data) {
-    if (data.players && Array.isArray(data.players)) {
-      const players = data.players.map(p => {
-        if (Array.isArray(p)) return {
-          id: p[0], position: [p[1], p[2], p[3]],
-          rotation: [p[4], p[5], p[6], p[7]],
-          velocity: [p[8], p[9], p[10]],
-          onGround: p[11] === 1, health: p[12], inputSequence: p[13],
-          crouch: p[14] || 0,
-          lookPitch: (p[15] || 0) / 255 * 2 * Math.PI - Math.PI,
-          lookYaw: (p[16] || 0) / 255 * 2 * Math.PI
-        }
-        return p
-      })
-      const entities = (data.entities || []).map(e => {
-        if (Array.isArray(e)) return {
-          id: e[0], model: e[1], position: [e[2], e[3], e[4]],
-          rotation: [e[5], e[6], e[7], e[8]], velocity: [e[9], e[10], e[11]], bodyType: e[12], custom: e[13]
-        }
-        return e
-      })
-      return { tick: data.tick, serverTime: data.serverTime, players, entities, delta: data.delta, removed: data.removed }
-    }
-    return data
+    if (!data.players || !Array.isArray(data.players)) return data
+    const TAU = 2 * Math.PI
+    const players = data.players.map(p => !Array.isArray(p) ? p : { id:p[0], position:[p[1],p[2],p[3]], rotation:[p[4],p[5],p[6],p[7]], velocity:[p[8],p[9],p[10]], onGround:p[11]===1, health:p[12], inputSequence:p[13], crouch:p[14]||0, lookPitch:(p[15]||0)/255*TAU-Math.PI, lookYaw:(p[16]||0)/255*TAU })
+    const entities = (data.entities||[]).map(e => !Array.isArray(e) ? e : { id:e[0], model:e[1], position:[e[2],e[3],e[4]], rotation:[e[5],e[6],e[7],e[8]], velocity:[e[9],e[10],e[11]], bodyType:e[12], custom:e[13] })
+    return { tick:data.tick, serverTime:data.serverTime, players, entities, delta:data.delta, removed:data.removed }
   }
 }
