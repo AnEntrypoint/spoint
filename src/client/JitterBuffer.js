@@ -1,13 +1,13 @@
 export class JitterBuffer {
   constructor(config = {}) {
     this.maxSize = config.maxSize || 64
-    this.minBufferSize = config.minBufferSize || 2
-    this.baseDelay = config.baseDelay || 30
+    this.minBufferSize = config.minBufferSize || 1
+    this.baseDelay = config.baseDelay || 0
 
     this.buffer = []
     this.lastServerTime = 0
     this.lastClientTime = 0
-    this.rtt = config.initialRtt || 50
+    this.rtt = config.initialRtt || 0
     this.rttVariance = 0
     this.jitter = 0
     this.targetDelay = this.baseDelay
@@ -163,7 +163,9 @@ export class JitterBuffer {
     this.rttVariance = this.rttVariance * 0.75 + Math.abs(instant - this.rtt) * 0.25
     const alpha = instant > this.rtt ? 0.5 : 0.1
     this.rtt = this.rtt * (1 - alpha) + instant * alpha
-    this.targetDelay = Math.min(250, this.baseDelay + this.rtt * 0.5 + this.jitter * 2)
+    const rtt = this.rtt
+    const adaptiveBase = rtt < 5 ? 0 : rtt < 30 ? Math.ceil(rtt * 0.5 + this.jitter) : 30
+    this.targetDelay = Math.min(250, adaptiveBase + rtt * 0.5 + this.jitter * 2)
   }
 
   getBufferHealth() { return this.buffer.length }

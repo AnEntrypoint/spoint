@@ -1872,7 +1872,7 @@ function animate(timestamp) {
   if (engineCtx.facial) engineCtx.facial.update(frameDt)
   uiTimer += frameDt
   if (latestState && uiTimer >= 0.25) { uiTimer = 0; renderAppUI(latestState) }
-  const local = playerStates.get(client.playerId)
+  const local = client.getLocalState() || playerStates.get(client.playerId)
   const inVR = renderer.xr.isPresenting
   if (!inVR || cam.getEditMode()) {
     cam.update(local, playerMeshes.get(client.playerId), frameDt, latestInput)
