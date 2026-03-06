@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.182](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.181...v0.1.182) (2026-03-06)
+
+
+### Bug Fixes
+
+* eliminate input lag, fix RTT measurement, fix camera/model alignment ([9053e0f](https://github.com/AnEntrypoint/spawnpoint/commit/9053e0f7e1febaccc0b7d89b7cc6752db9409d4b))
+* VRM0 player animations - remap tracks to normalized bone hierarchy ([5e371e1](https://github.com/AnEntrypoint/spawnpoint/commit/5e371e1fa77f0257497883d2f34cb8660bf2318b))
+
 ### [0.1.181](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.180...v0.1.181) (2026-03-06)
 
 
