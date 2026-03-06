@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.166](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.165...v0.1.166) (2026-03-06)
+
+
+### Bug Fixes
+
+* spread test entities over 500x500 map for realistic spatial culling ([92c8dac](https://github.com/AnEntrypoint/spawnpoint/commit/92c8dac67b0b293fcea0bd544d38a429fdb2f375))
+
 ### [0.1.165](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.164...v0.1.165) (2026-03-06)
 
 ### [0.1.164](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.163...v0.1.164) (2026-03-06)
