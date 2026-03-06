@@ -99,6 +99,11 @@ export class PhysicsNetworkClient {
     this.ws.send(pack({ type: MSG.APP_EVENT, payload: { type: 'reload', playerId: this.playerId } }))
   }
 
+  send(type, payload) {
+    if (!this._isOpen()) return
+    this.ws.send(pack({ type, payload }))
+  }
+
   _isOpen() {
     return this.ws && this.ws.readyState === WebSocket.OPEN
   }

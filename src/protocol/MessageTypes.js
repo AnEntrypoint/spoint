@@ -38,7 +38,11 @@ export const MSG = {
   WORLD_DEF: 0x71,
   APP_MODULE: 0x72,
   ASSET_UPDATE: 0x73,
-  BUS_EVENT: 0x74
+  BUS_EVENT: 0x74,
+
+  EDITOR_UPDATE: 0x80,
+  EDITOR_SELECT: 0x81,
+  PLACE_MODEL: 0x82
 }
 
 const nameMap = new Map()

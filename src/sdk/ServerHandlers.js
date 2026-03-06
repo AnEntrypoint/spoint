@@ -100,6 +100,31 @@ export function createConnectionHandlers(ctx) {
       emitter.emit('playerJoin', { id: newId, reconnected: true })
       return
     }
+    if (msg.type === MSG.EDITOR_UPDATE) {
+      const { entityId, changes } = msg.payload || {}
+      if (entityId && changes) {
+        const entity = appRuntime.entities.get(entityId)
+        if (entity) {
+          if (changes.position) entity.position = changes.position
+          if (changes.rotation) entity.rotation = changes.rotation
+          if (changes.scale) entity.scale = changes.scale
+          if (changes.custom) entity.custom = { ...entity.custom, ...changes.custom }
+          appRuntime.fireEvent(entityId, 'onEditorUpdate', changes)
+          ctx.placedModelStorage?.persist(appRuntime)
+        }
+      }
+      return
+    }
+    if (msg.type === MSG.PLACE_MODEL) {
+      const { url, position } = msg.payload || {}
+      if (url) {
+        const id = 'placed-' + Math.random().toString(36).slice(2, 10)
+        const entity = appRuntime.spawnEntity(id, { model: url, position: position || [0,0,0], app: 'placed-model', config: { collider: 'none' } })
+        connections.send(clientId, MSG.EDITOR_SELECT, { entityId: id })
+        ctx.placedModelStorage?.persist(appRuntime)
+      }
+      return
+    }
     emitter.emit('message', clientId, msg)
   })
 

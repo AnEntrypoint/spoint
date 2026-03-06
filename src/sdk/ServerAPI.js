@@ -5,6 +5,7 @@ import { SnapshotEncoder } from '../netcode/SnapshotEncoder.js'
 import { createStaticHandler } from './StaticHandler.js'
 import { WebSocketTransport } from '../transport/WebSocketTransport.js'
 import { WebTransportServer } from '../transport/WebTransportServer.js'
+import { createUploadHandler } from './UploadHandler.js'
 
 export function createServerAPI(ctx) {
   const { config, port, tickRate, staticDirs, appLoader, appRuntime, physics, stageLoader } = ctx
@@ -38,30 +39,41 @@ export function createServerAPI(ctx) {
       ctx.worldSpawnPoint = ctx.worldSpawnPoints?.[0] || worldDef.spawnPoint || [0, 5, 0]
       await appLoader.loadAll()
       const stage = stageLoader.loadFromDefinition('main', worldDef)
+      const placedFile = new URL('file://' + process.cwd().replace(/\\/g, '/') + '/data/placed-models.json')
+      try {
+        const { readFileSync, existsSync } = await import('node:fs')
+        const fp = process.cwd() + '/data/placed-models.json'
+        if (existsSync(fp)) {
+          const placed = JSON.parse(readFileSync(fp, 'utf-8'))
+          for (const p of placed) {
+            appRuntime.spawnEntity(p.id, { model: p.model, position: p.position, rotation: p.rotation, scale: p.scale, app: 'placed-model', config: p.config || {} })
+          }
+          console.log(`[placed-model] loaded ${placed.length} saved entities`)
+        }
+      } catch (e) { console.error('[placed-model] load error:', e.message) }
       return { entities: new Map(), apps: new Map(), count: stage.entityCount }
     },
 
     async start() {
       await appLoader.loadAll()
       return new Promise((resolve, reject) => {
-        if (staticDirs.length > 0) {
-          ctx.httpServer = createHttpServer(createStaticHandler(staticDirs))
-          ctx.wss = new WSServer({ server: ctx.httpServer, path: '/ws' })
-          ctx.httpServer.on('error', reject)
-          ctx.httpServer.listen(port, '0.0.0.0', 2048, () => {
-            attachWSHandlers(ctx)
-            resolve({ port: ctx.port, tickRate: ctx.tickRate })
-          })
-        } else {
-          ctx.httpServer = createHttpServer()
-          ctx.wss = new WSServer({ server: ctx.httpServer, path: '/ws' })
-          ctx.httpServer.on('error', reject)
-          ctx.httpServer.listen(port, '0.0.0.0', 2048, () => {
-            attachWSHandlers(ctx)
-            resolve({ port: ctx.port, tickRate: ctx.tickRate })
-          })
-          ctx.wss.on('error', reject)
+        const uploadHandler = createUploadHandler(appRuntime, connections, playerManager)
+        const staticHandler = staticDirs.length > 0 ? createStaticHandler(staticDirs) : null
+        const httpHandler = (req, res) => {
+          if (req.method === 'POST' && req.url === '/upload-model') {
+            uploadHandler(req, res); return
+          }
+          if (staticHandler) staticHandler(req, res)
+          else { res.writeHead(404); res.end('not found') }
         }
+        ctx.httpServer = createHttpServer(httpHandler)
+        ctx.wss = new WSServer({ server: ctx.httpServer, path: '/ws' })
+        ctx.httpServer.on('error', reject)
+        ctx.httpServer.listen(port, '0.0.0.0', 2048, () => {
+          attachWSHandlers(ctx)
+          resolve({ port: ctx.port, tickRate: ctx.tickRate })
+        })
+        ctx.wss.on('error', reject)
       })
     },
 

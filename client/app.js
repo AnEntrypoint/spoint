@@ -17,6 +17,8 @@ import { VRButton } from 'three/addons/webxr/VRButton.js'
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js'
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js'
 import { LoadingManager } from './LoadingManager.js'
+import { createEditor } from './editor.js'
+import { createInspector } from './inspector.js'
 import { fetchCached, dbDelete, dbPut } from './ModelCache.js'
 import { createLoadingScreen } from './createLoadingScreen.js'
 import { MobileControls, detectDevice } from './MobileControls.js'
@@ -1279,6 +1281,16 @@ const client = new PhysicsNetworkClient({
     for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onEvent) try { mod.onEvent(payload, engineCtx) } catch (e) { console.error('[app-event]', e.message) } }
   },
   onHotReload: () => { sessionStorage.setItem('cam', JSON.stringify(cam.save())); location.reload() },
+  onEditorSelect: (payload) => {
+    const { entityId } = payload || {}
+    if (!entityId) return
+    const mesh = entityMeshes.get(entityId)
+    if (mesh && typeof editor !== 'undefined') {
+      editor.selectEntity(entityId)
+      const entity = { id: entityId, position: mesh.position.toArray(), rotation: [0,0,0,1], scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }
+      if (typeof inspector !== 'undefined') inspector.show(entity)
+    }
+  },
   debug: false
 })
 
@@ -1306,6 +1318,10 @@ const engineCtx = {
 }
 
 initFacialSystem(engineCtx)
+
+const inspector = createInspector()
+const editor = createEditor({ scene, camera, renderer, client, entityMeshes, playerStates, inspector })
+document.addEventListener('keydown', e => editor.onKeyDown(e))
 
 let inputLoopId = null
 let loadingScreenHidden = false
@@ -1845,6 +1861,7 @@ function animate(timestamp) {
     mesh.visible = dist2 <= cfg.skipBeyond * cfg.skipBeyond
   }
 
+  if (typeof editor !== 'undefined') editor.updateGizmo()
   renderer.render(scene, camera)
 }
 renderer.setAnimationLoop(animate)

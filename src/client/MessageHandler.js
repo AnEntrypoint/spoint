@@ -41,6 +41,8 @@ export class MessageHandler {
       this._callbacks[cb]?.(payload)
     } else if (type === MSG.HEARTBEAT_ACK) {
       this._handleHeartbeat(payload)
+    } else if (type === MSG.EDITOR_SELECT) {
+      this._callbacks.onEditorSelect?.(payload)
     }
   }
 

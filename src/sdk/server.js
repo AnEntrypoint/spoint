@@ -1,6 +1,6 @@
-import { join, dirname, resolve, sep } from 'node:path'
+import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { existsSync } from 'node:fs'
+import { existsSync, writeFileSync, mkdirSync } from 'node:fs'
 import { prewarm } from '../static/GLBTransformer.js'
 import { MSG } from '../protocol/MessageTypes.js'
 import { ConnectionManager } from '../connection/ConnectionManager.js'
@@ -59,6 +59,7 @@ export async function boot(overrides = {}) {
       { prefix: '/src/', dir: join(SDK_ROOT, 'src') },
       ...appsStaticDirs,
       { prefix: '/node_modules/', dir: join(SDK_ROOT, 'node_modules') },
+      { prefix: '/data/', dir: resolve(PROJECT, 'data') },
       { prefix: '/', dir: join(SDK_ROOT, 'client') }
     ],
     ...overrides
@@ -148,6 +149,21 @@ export async function createServer(config = {}) {
     handlerState: { fn: null },
     onTick: (tick, dt) => { if (ctx.handlerState.fn) ctx.handlerState.fn(tick, dt) },
     setTickHandler: (fn) => { ctx.handlerState.fn = fn }
+  }
+
+  ctx.placedModelStorage = {
+    persist(runtime) {
+      const placed = []
+      for (const [id, entity] of runtime.entities) {
+        if (!id.startsWith('placed-')) continue
+        placed.push({ id, model: entity.model, position: [...entity.position], rotation: [...entity.rotation], scale: [...entity.scale], config: { collider: entity.custom?._collider || 'none' } })
+      }
+      try {
+        const dataDir = resolve(process.cwd(), 'data')
+        if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true })
+        writeFileSync(resolve(dataDir, 'placed-models.json'), JSON.stringify(placed, null, 2))
+      } catch (e) { console.error('[placed-model] persist error:', e.message) }
+    }
   }
 
   const worldConfigUrl = pathToFileURL(existsSync(resolve(process.cwd(), 'apps/world/index.js')) ? resolve(process.cwd(), 'apps/world/index.js') : join(dirname(fileURLToPath(import.meta.url)), '../../apps/world/index.js')).href

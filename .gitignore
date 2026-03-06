@@ -64,6 +64,9 @@ profile.json
 # GLB transform cache
 **/.glb-cache/
 
+# Uploaded model files (data/placed-models.json is tracked)
+/data/models/
+
 # Temporary test files
 profile-test.*
 profile*.png
