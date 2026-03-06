@@ -2,28 +2,42 @@ import * as THREE from 'three'
 import { get, put, remove } from './IndexedDBStore.js'
 
 const DB_NAME = 'spawnpoint-anim-cache'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const STORE = 'clips'
 
+const TRACK_TYPES = [
+  ['QuaternionKeyframeTrack', THREE.QuaternionKeyframeTrack],
+  ['VectorKeyframeTrack', THREE.VectorKeyframeTrack],
+  ['NumberKeyframeTrack', THREE.NumberKeyframeTrack],
+  ['BooleanKeyframeTrack', THREE.BooleanKeyframeTrack],
+  ['StringKeyframeTrack', THREE.StringKeyframeTrack],
+  ['ColorKeyframeTrack', THREE.ColorKeyframeTrack],
+]
+
+function getTrackTypeName(track) {
+  for (const [name, cls] of TRACK_TYPES) {
+    if (track instanceof cls) return name
+  }
+  return null
+}
+
 function serializeClip(clip) {
-  const tracks = clip.tracks.map(track => ({
-    name: track.name,
-    type: track.constructor.name,
-    times: Array.from(track.times),
-    values: Array.from(track.values),
-    interpolation: track.getInterpolation?.() ?? 2301
-  }))
+  const tracks = []
+  for (const track of clip.tracks) {
+    const type = getTrackTypeName(track)
+    if (!type) continue
+    tracks.push({ name: track.name, type, times: Array.from(track.times), values: Array.from(track.values), interpolation: track.getInterpolation?.() ?? 2301 })
+  }
   return { name: clip.name, duration: clip.duration, tracks }
 }
 
 function deserializeClip(data) {
+  const typeMap = Object.fromEntries(TRACK_TYPES)
   const tracks = data.tracks.map(t => {
-    const TrackClass = THREE[t.type]
+    const TrackClass = typeMap[t.type]
     if (!TrackClass) throw new Error(`Unknown track type: ${t.type}`)
     const track = new TrackClass(t.name, t.times, t.values)
-    if (t.interpolation !== undefined && track.setInterpolation) {
-      track.setInterpolation(t.interpolation)
-    }
+    if (t.interpolation !== undefined && track.setInterpolation) track.setInterpolation(t.interpolation)
     return track
   })
   return new THREE.AnimationClip(data.name, data.duration, tracks)
