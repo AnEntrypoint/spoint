@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.181](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.180...v0.1.181) (2026-03-06)
+
+
+### Bug Fixes
+
+* remove velocity double-integration for local player mesh position ([6a3ae87](https://github.com/AnEntrypoint/spawnpoint/commit/6a3ae87381ded9497e7e4226fed67d7afc0cc7f3))
+
 ### [0.1.180](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.179...v0.1.180) (2026-03-06)
 
 
