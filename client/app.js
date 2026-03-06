@@ -1846,6 +1846,8 @@ function animate(timestamp) {
     const ps = playerStates.get(id)
     if (!ps) return
     animator.update(frameDt, ps.velocity, ps.onGround, ps.health, ps._aiming || false, ps.crouch || 0)
+    const vrm = playerVrms.get(id)
+    if (vrm) vrm.update(frameDt)
     const mesh = playerMeshes.get(id)
     if (!mesh) return
     const vx = ps.velocity?.[0] || 0, vz = ps.velocity?.[2] || 0
