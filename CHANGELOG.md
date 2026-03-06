@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.184](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.183...v0.1.184) (2026-03-06)
+
+
+### Bug Fixes
+
+* animations now play - mixer.update blocked by _isActive minification ([75314fa](https://github.com/AnEntrypoint/spawnpoint/commit/75314fa0f83ba8fae730e3ab1e6762b42b9e22a0))
+
 ### [0.1.183](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.182...v0.1.183) (2026-03-06)
 
 
