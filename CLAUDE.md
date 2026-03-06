@@ -35,7 +35,9 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 
 ## Spatial Physics LOD
 
-`physicsRadius` in world config (default 0 = disabled) enables spatial LOD for dynamic Jolt bodies. When enabled, `AppRuntime._tickPhysicsLOD(players)` runs each tick after `_syncDynamicBodies`.
+`physicsRadius` in world config (default 0 = disabled) enables spatial LOD for dynamic Jolt bodies. When enabled, `AppRuntime._tickPhysicsLOD(players)` runs every `tickRate/2` ticks (throttled, not every tick). Uses player AABB precompute to skip entities clearly outside all players' combined bounding box — skips ~89% of entities on large maps. Only suspends bodies that are sleeping (Jolt inactive); awake bodies remain until they settle. `physicsRadius` must be explicitly included in the `config` object passed to `createServer()` — the `boot()` function in server.js copies it from `worldDef.physicsRadius`.
+
+`entityTickRate` in world config sets the Hz at which app `update()` callbacks fire (default = tickRate). `entityTickDivisor = round(tickRate / entityTickRate)`. Update fires every N ticks; `entityDt` passed to callback = `dt * divisor` so accumulated time is correct.
 
 **Suspend flow** (entity exits all players' radius): `_physics.removeBody` removes the Jolt body; entity position/rotation preserved in JS; `entity._bodyActive = false`; `entity._physicsBodyId = undefined`; entity added to `_suspendedEntityIds`.
 
@@ -50,6 +52,10 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 ## Physics Bodies Only Created Via App setup()
 
 Setting `entity.bodyType` or `entity.collider` directly has NO effect. A Jolt body is only created when `ctx.physics.addBoxCollider()` etc. is called inside `setup(ctx)`.
+
+## SpatialIndex (Octree) Update Threshold
+
+`SpatialIndex.update()` in `src/spatial/Octree.js` skips re-insertion if entity moved less than 1.0 unit (distance² < 1.0). This threshold is intentionally coarse — for relevance radius=60, sub-1m octree accuracy is irrelevant. Without this, 991 moving physics bodies each trigger an octree remove+insert per tick (expensive). At 64 TPS, fast props move ~0.16m/tick — well under the 1.0m threshold when bouncing/settling.
 
 ## Primitive Rendering (No GLB Required)
 
