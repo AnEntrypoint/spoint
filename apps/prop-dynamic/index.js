@@ -1,9 +1,11 @@
 export default {
   server: {
-    async setup(ctx) {
+    setup(ctx) {
       ctx.physics.setMass(30)
       ctx.physics.setDynamic(true)
-      await ctx.physics.addConvexFromModelAsync(0)
+      ctx.physics.setLinearDamping(2.0)
+      ctx.physics.setAngularDamping(2.0)
+      ctx.physics.addBoxCollider(0.5, 0.5, 0.5)
     }
   }
 }

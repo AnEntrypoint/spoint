@@ -65,8 +65,7 @@ export async function boot(overrides = {}) {
   await server.loadWorld(worldDef)
   server.on('playerJoin', ({ id }) => {})
   server.on('playerLeave', ({ id }) => {})
-  // Prewarm GLB optimization for all app directories BEFORE starting server
-  await prewarm(appsDirs)
+  prewarm(appsDirs).catch(e => console.error('[prewarm] error:', e))
   const info = await server.start()
   console.log(`[server] http://localhost:${info.port} @ ${info.tickRate} TPS`)
   return server

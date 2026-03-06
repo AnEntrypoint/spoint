@@ -12,6 +12,7 @@ export class PhysicsWorld {
     this._objFilter = null; this._ovbp = null
     this._charShapes = new Map()
     this._shapeCache = new Map()
+    this._convexQueue = Promise.resolve()
     this._tmpVec3 = null; this._tmpRVec3 = null
     this._bulkOutP = null; this._bulkOutR = null; this._bulkOutLV = null; this._bulkOutAV = null
   }
@@ -56,6 +57,8 @@ export class PhysicsWorld {
     if (opts.mass) { cs.mMassPropertiesOverride.mMass = opts.mass; cs.mOverrideMassProperties = J.EOverrideMassProperties_CalculateInertia }
     if (opts.friction !== undefined) cs.mFriction = opts.friction
     if (opts.restitution !== undefined) cs.mRestitution = opts.restitution
+    if (opts.linearDamping !== undefined) cs.mLinearDamping = opts.linearDamping
+    if (opts.angularDamping !== undefined) cs.mAngularDamping = opts.angularDamping
     const activate = motionType === J.EMotionType_Static ? J.EActivation_DontActivate : J.EActivation_Activate
     const body = this.bodyInterface.CreateBody(cs); this.bodyInterface.AddBody(body.GetID(), activate)
     J.destroy(cs)
@@ -101,6 +104,33 @@ export class PhysicsWorld {
     const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
     layer = motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC
     return this._addBody(shape, position, mt, layer, { ...opts, meta: { type: motionType, shape: shapeType } })
+  }
+  addConvexBodyAsync(params, position, motionType, opts = {}) {
+    const J = this.Jolt
+    const cacheKey = opts.shapeKey || null
+    if (cacheKey && this._shapeCache.has(cacheKey)) {
+      const shape = this._shapeCache.get(cacheKey)
+      const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
+      return Promise.resolve(this._addBody(shape, position, mt, motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC, { ...opts, meta: { type: motionType, shape: 'convex' } }))
+    }
+    const work = () => {
+      const pts = new J.VertexList()
+      const f3 = new J.Float3(0, 0, 0)
+      for (let i = 0; i < params.length; i += 3) { f3.x = params[i]; f3.y = params[i + 1]; f3.z = params[i + 2]; pts.push_back(f3) }
+      J.destroy(f3)
+      const cvx = new J.ConvexHullShapeSettings()
+      cvx.set_mPoints(pts)
+      const shapeResult = cvx.Create()
+      const shape = shapeResult.Get()
+      J.destroy(pts); J.destroy(cvx)
+      if (cacheKey) this._shapeCache.set(cacheKey, shape)
+      else J.destroy(shapeResult)
+      const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
+      return this._addBody(shape, position, mt, motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC, { ...opts, meta: { type: motionType, shape: 'convex' } })
+    }
+    const result = this._convexQueue.then(work)
+    this._convexQueue = result.then(() => {}, () => {})
+    return result
   }
   addStaticTrimesh(glbPath, meshIndex = 0) {
     const J = this.Jolt

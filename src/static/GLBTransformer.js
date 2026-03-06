@@ -108,7 +108,7 @@ async function imageToKtx2(imageBuffer, mode = 'basis-lz', tmpBase = 'tex') {
       '--generate-mipmap',
       pngPath, ktxPath
     ]
-    const result = spawnSync(KTX_BIN, args, { timeout: 30000 })
+    const result = spawnSync(KTX_BIN, args, { timeout: 30000, windowsHide: true })
     if (result.status !== 0 || !existsSync(ktxPath)) return null
     return readFileSync(ktxPath)
   } catch {

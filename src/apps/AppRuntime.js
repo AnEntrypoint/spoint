@@ -92,8 +92,13 @@ export class AppRuntime {
     const ctx = new AppContext(entity, this)
     this.contexts.set(entityId, ctx); this.apps.set(entityId, appDef)
     await this._safeCall(appDef.server || appDef, 'setup', [ctx], `setup(${appName})`)
-    this._rebuildUpdateList()
-    this._rebuildCollisionList()
+    this._scheduleRebuild()
+  }
+
+  _scheduleRebuild() {
+    if (this._rebuildScheduled) return
+    this._rebuildScheduled = true
+    setImmediate(() => { this._rebuildScheduled = false; this._rebuildUpdateList(); this._rebuildCollisionList() })
   }
 
   async attachApp(entityId, appName) { await this._attachApp(entityId, appName) }

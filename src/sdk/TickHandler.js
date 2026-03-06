@@ -25,6 +25,7 @@ export function createTickHandler(deps) {
   let lastStaticVersion = -1
   let prevDynCache = null
   let profileLog = 0
+  let profileSum = 0, profileSumSnap = 0, profileSumPhys = 0, profileSumMv = 0, profileCount = 0
   const snapUnreliable = isUnreliable(MSG.SNAPSHOT)
   let grid = new Map()
   const gridCells = new Map()
@@ -149,22 +150,24 @@ export function createTickHandler(deps) {
           }
           lastStaticVersion = curStaticVersion
         }
-        const activeDynCount = appRuntime._activeDynamicIds.size
-        let dynCache
-        if (activeDynCount === 0 && prevDynCache !== null) {
-          dynCache = prevDynCache
-        } else if (prevDynCache !== null && activeDynCount < prevDynCache.size * 0.1) {
-          dynCache = SnapshotEncoder.updateDynamicCache(prevDynCache, appRuntime._activeDynamicIds, appRuntime.entities)
-          prevDynCache = dynCache
-        } else {
-          const dynEntitiesRaw = appRuntime.getDynamicEntitiesRaw()
-          dynCache = SnapshotEncoder.encodeDynamicEntitiesOnce(dynEntitiesRaw, prevDynCache)
-          prevDynCache = dynCache
-        }
         const serverTime = Date.now()
         const precomputedRemoved = []
+        let dynCache = null
         for (const player of players) {
           if (player.id % snapGroups !== curGroup) continue
+          if (dynCache === null) {
+            const activeDynCount = appRuntime._activeDynamicIds.size
+            if (activeDynCount === 0 && prevDynCache !== null) {
+              dynCache = prevDynCache
+            } else if (prevDynCache !== null && activeDynCount < prevDynCache.size * 0.1) {
+              dynCache = SnapshotEncoder.updateDynamicCache(prevDynCache, appRuntime._activeDynamicIds, appRuntime.entities)
+              prevDynCache = dynCache
+            } else {
+              const dynEntitiesRaw = appRuntime.getDynamicEntitiesRaw()
+              dynCache = SnapshotEncoder.encodeDynamicEntitiesOnce(dynEntitiesRaw, prevDynCache)
+              prevDynCache = dynCache
+            }
+          }
           const isNewPlayer = !playerEntityMaps.has(player.id)
           const nearbyPlayers = appRuntime.getNearbyPlayers(player.state.position, relevanceRadius, playerSnap.players)
           const preEncodedPlayers = SnapshotEncoder.encodePlayers(nearbyPlayers)
@@ -203,6 +206,7 @@ export function createTickHandler(deps) {
     }
     const t5 = performance.now()
     try { appRuntime._drainReloadQueue() } catch (e) { console.error('[TickHandler] reload queue error:', e.message) }
+    if (players.length > 0) { profileSum += t5 - t0; profileSumSnap += t5 - t4; profileSumPhys += t3 - t2; profileSumMv += t1 - t0; profileCount++ }
     profileLog++
     if (profileLog % 1280 === 0) {
       const total = t5 - t0
@@ -218,7 +222,12 @@ export function createTickHandler(deps) {
       const intMs = (appRuntime._lastInteractMs || 0).toFixed(2)
       const dynIds = appRuntime._dynamicEntityIds?.size || 0
       const activeDyn = appRuntime._activeDynamicIds?.size || 0
-      try { console.log(`[tick-profile] tick:${tick} players:${players.length} entities:${appRuntime.entities.size} dynIds:${dynIds} activeDyn:${activeDyn} total:${total.toFixed(2)}ms | mv:${(t1 - t0).toFixed(2)} col:${(t2 - t1).toFixed(2)} phys:${(t3 - t2).toFixed(2)} app:${(t4 - t3).toFixed(2)} sync:${syncMs} respawn:${respawnMs} spatial:${spatialMs} col2:${colMs} int:${intMs} snap:${(t5 - t4).toFixed(2)} | heap:${heap}MB rss:${rss}MB ext:${ext}MB ab:${ab}MB`) } catch (_) {}
+      const avgTotal = profileCount > 0 ? (profileSum / profileCount).toFixed(2) : '0'
+      const avgSnap = profileCount > 0 ? (profileSumSnap / profileCount).toFixed(2) : '0'
+      const avgPhys = profileCount > 0 ? (profileSumPhys / profileCount).toFixed(2) : '0'
+      const avgMv = profileCount > 0 ? (profileSumMv / profileCount).toFixed(2) : '0'
+      profileSum = 0; profileSumSnap = 0; profileSumPhys = 0; profileSumMv = 0; profileCount = 0
+      try { console.log(`[tick-profile] tick:${tick} players:${players.length} entities:${appRuntime.entities.size} dynIds:${dynIds} activeDyn:${activeDyn} total:${total.toFixed(2)}ms(avg:${avgTotal}) | mv:${(t1 - t0).toFixed(2)}(avg:${avgMv}) col:${(t2 - t1).toFixed(2)} phys:${(t3 - t2).toFixed(2)}(avg:${avgPhys}) app:${(t4 - t3).toFixed(2)} sync:${syncMs} respawn:${respawnMs} spatial:${spatialMs} col2:${colMs} int:${intMs} snap:${(t5 - t4).toFixed(2)}(avg:${avgSnap}) | heap:${heap}MB rss:${rss}MB ext:${ext}MB ab:${ab}MB`) } catch (_) {}
     }
   }
 }

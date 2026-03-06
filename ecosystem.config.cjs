@@ -5,7 +5,9 @@ module.exports = {
       script: 'server.js',
       instances: 1,
       exec_mode: 'fork',
+      autorestart: false,
       watch: false,
+      windowsHide: true,
       ignore_watch: [
         'node_modules',
         '.git',
@@ -14,7 +16,6 @@ module.exports = {
         '.pm2'
       ],
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
-      max_memory_restart: '2G',
       env: {
         NODE_ENV: 'production'
       }

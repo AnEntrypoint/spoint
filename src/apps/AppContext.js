@@ -46,13 +46,16 @@ export class AppContext {
       setDynamic: (v) => { ent.bodyType = v ? 'dynamic' : ent.bodyType; if (v) { runtime._dynamicEntityIds?.add(ent.id) } },
       setKinematic: (v) => { ent.bodyType = v ? 'kinematic' : ent.bodyType; if (v) { runtime._dynamicEntityIds?.add(ent.id) } },
       setMass: (v) => { ent.mass = v },
+      setLinearDamping: (v) => { ent._linearDamping = v },
+      setAngularDamping: (v) => { ent._angularDamping = v },
       addBoxCollider: (s) => {
         ent.collider = { type: 'box', size: s }
         const he = Array.isArray(s) ? s : [s, s, s]
         const mt = ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
-        if (mt === 'dynamic') ent._bodyDef = { shapeType: 'box', params: he, motionType: mt, opts: { mass: ent.mass } }
+        const bodyOpts = { mass: ent.mass, linearDamping: ent._linearDamping, angularDamping: ent._angularDamping }
+        if (mt === 'dynamic') ent._bodyDef = { shapeType: 'box', params: he, motionType: mt, opts: bodyOpts }
         if (runtime._physics) {
-          const bid = runtime._physics.addBody('box', he, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+          const bid = runtime._physics.addBody('box', he, ent.position, mt, { rotation: ent.rotation, ...bodyOpts })
           ent._physicsBodyId = bid; ent._bodyActive = true; ent._bodyCreatedTick = runtime.currentTick; runtime._physicsBodyToEntityId?.set(bid, ent.id)
           if (mt === 'dynamic') runtime._activeDynamicIds?.add(ent.id)
         }
@@ -144,7 +147,7 @@ export class AppContext {
         ent.collider = { type: 'convex', points }
         if (runtime._physics) {
           if (mt === 'dynamic') ent._bodyDef = { shapeType: 'convex', params: points, motionType: mt, opts: { mass: ent.mass, shapeKey: ent.model } }
-          const bid = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass, shapeKey: ent.model })
+          const bid = await runtime._physics.addConvexBodyAsync(points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass, shapeKey: ent.model })
           ent._physicsBodyId = bid; ent._bodyActive = true; ent._bodyCreatedTick = runtime.currentTick; runtime._physicsBodyToEntityId?.set(bid, ent.id)
           if (mt === 'dynamic') runtime._activeDynamicIds?.add(ent.id)
         }

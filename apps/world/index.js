@@ -64,8 +64,8 @@ export default {
   port: 3001,
   tickRate: 128,
   gravity: [0, -9.81, 0],
-  relevanceRadius: 900,
-  physicsRadius: 80,
+  relevanceRadius: 60,
+  physicsRadius: 60,
   movement: {
     maxSpeed: 4.0,
     groundAccel: 10.0,
