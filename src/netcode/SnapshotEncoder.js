@@ -36,6 +36,22 @@ export class SnapshotEncoder {
     return out
   }
 
+  static filterEncodedPlayersWithSelf(encodedMap, nearbyIds, selfId) {
+    const out = []
+    let hasSelf = false
+    for (let i = 0; i < nearbyIds.length; i++) {
+      const id = nearbyIds[i]
+      if (id === selfId) hasSelf = true
+      const enc = encodedMap.get(id)
+      if (enc) out.push(enc)
+    }
+    if (!hasSelf) {
+      const self = encodedMap.get(selfId)
+      if (self) out.push(self)
+    }
+    return out
+  }
+
   static encodePlayers(players) {
     return (players || []).map(encodePlayer)
   }
@@ -97,7 +113,9 @@ export class SnapshotEncoder {
     const vy = viewerPos ? viewerPos[1] : 0
     const vz = viewerPos ? viewerPos[2] : 0
     const useDistTier = seqNum !== undefined && viewerPos && seqNum % 2 !== 0
-    const iterIds = (relevantIds && dynCache.size > relevantIds.size) ? relevantIds : null
+    const relevantCount = Array.isArray(relevantIds) ? relevantIds.length : (relevantIds ? relevantIds.size : 0)
+    const iterIds = (relevantIds && dynCache.size > relevantCount) ? relevantIds : null
+    const relevantLookup = (!iterIds && Array.isArray(relevantIds)) ? new Set(relevantIds) : null
     if (iterIds) {
       for (const id of iterIds) {
         const entry = dynCache.get(id)
@@ -124,7 +142,9 @@ export class SnapshotEncoder {
     } else {
       for (const [id, entry] of dynCache) {
         if (entry._envIds !== undefined) continue
-        if (!entry.isEnv && relevantIds && !relevantIds.has(id)) continue
+        if (!entry.isEnv && relevantIds) {
+          if (relevantLookup ? !relevantLookup.has(id) : !relevantIds.has(id)) continue
+        }
         if (useDistTier && !entry.isEnv) {
           const enc = entry.enc
           const dx = enc[2] - vx, dy = enc[3] - vy, dz = enc[4] - vz

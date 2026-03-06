@@ -123,6 +123,7 @@ export default {
   entities: [
     { id: 'env-sillos', model: './apps/maps/aim_sillos.glb', position: [0, 0, 0], app: 'environment', autoTrimesh: true },
     { id: 'floor', position: [0, -2, 0], app: 'box-static', config: { hx: 300, hy: 0.5, hz: 300, color: 0x888888 } },
+    { id: 'webcam1', position: [0, SPAWN_Y, -5], app: 'webcam-avatar' },
     ...dynEntities,
   ],
   spawnPoints: [

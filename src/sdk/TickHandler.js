@@ -112,9 +112,11 @@ export function createTickHandler(deps) {
         : Math.max(1, Math.ceil(playerCount / MAX_SENDS_PER_TICK))
       const curGroup = tick % snapGroups
 
-      const relevanceRadius = (stageLoader && stageLoader.getActiveStage())
-        ? stageLoader.getActiveStage().spatial.relevanceRadius
+      const activeStage = stageLoader ? stageLoader.getActiveStage() : null
+      const relevanceRadius = activeStage
+        ? activeStage.spatial.relevanceRadius
         : (getRelevanceRadius ? getRelevanceRadius() : 0)
+      const serverNow = Date.now()
       if (relevanceRadius > 0) {
         const curStaticVersion = appRuntime._staticVersion
         let activeStaticEntries = null
@@ -130,7 +132,7 @@ export function createTickHandler(deps) {
           }
           lastStaticVersion = curStaticVersion
         }
-        const serverTime = Date.now()
+        const serverTime = serverNow
         const precomputedRemoved = []
         let dynCache = null
         const allEncodedPlayers = SnapshotEncoder.encodePlayersOnce(playerSnap.players)
@@ -151,9 +153,8 @@ export function createTickHandler(deps) {
           }
           const isNewPlayer = !playerEntityMaps.has(player.id)
           const viewerPos = player.state.position
-          const nearbyIds = new Set(appRuntime._playerIndex.nearby(viewerPos, relevanceRadius))
-          nearbyIds.add(player.id)
-          const preEncodedPlayers = SnapshotEncoder.filterEncodedPlayers(allEncodedPlayers, nearbyIds)
+          const nearbyPlayerIds = appRuntime._playerIndex.nearby(viewerPos, relevanceRadius)
+          const preEncodedPlayers = SnapshotEncoder.filterEncodedPlayersWithSelf(allEncodedPlayers, nearbyPlayerIds, player.id)
           const relevantIds = appRuntime.getRelevantDynamicIds(viewerPos, relevanceRadius)
           const prevMap = isNewPlayer ? new Map() : playerEntityMaps.get(player.id)
           const staticForPlayer = isNewPlayer ? lastStaticEntries : activeStaticEntries
@@ -165,7 +166,7 @@ export function createTickHandler(deps) {
         }
       } else {
         const entitySnap = appRuntime.getSnapshot()
-        const combined = { tick: playerSnap.tick, players: playerSnap.players, entities: entitySnap.entities, serverTime: Date.now() }
+        const combined = { tick: playerSnap.tick, players: playerSnap.players, entities: entitySnap.entities, serverTime: serverNow }
         const prevMap = (isKeyframe || broadcastEntityMap.size === 0) ? new Map() : broadcastEntityMap
         const { encoded, entityMap } = SnapshotEncoder.encodeDelta(combined, prevMap)
         broadcastEntityMap = entityMap

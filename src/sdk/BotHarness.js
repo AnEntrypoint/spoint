@@ -34,9 +34,11 @@ const stats = { connected: 0, snapshots: 0, errors: 0 }
 function createBot(botId) {
   let tick = 0
   let interval = null
+  let opened = false
   const ws = new WebSocket(CONFIG.serverUrl)
   ws.binaryType = 'arraybuffer'
   ws.on('open', () => {
+    opened = true
     stats.connected++
     interval = setInterval(() => {
       if (ws.readyState !== WebSocket.OPEN) return
@@ -50,7 +52,10 @@ function createBot(botId) {
     } catch {}
   })
   ws.on('error', () => { stats.errors++ })
-  ws.on('close', () => { stats.connected--; if (interval) clearInterval(interval) })
+  ws.on('close', () => {
+    if (opened) stats.connected--
+    if (interval) clearInterval(interval)
+  })
   return ws
 }
 

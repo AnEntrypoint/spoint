@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
-import { resolve, join } from 'node:path'
+import { resolve, join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const __dirname = import.meta.dirname || resolve(path.dirname(fileURLToPath(import.meta.url)))
+const __dirname = import.meta.dirname || dirname(fileURLToPath(import.meta.url))
 
 const TEMPLATES = {
   simple: 'simple',
@@ -25,6 +25,7 @@ Examples:
   spoint create-app my-app
   spoint create-app --template physics my-physics-object
   spoint create-app --template spawner my-spawner
+  spoint-create-app my-app
 `)
 }
 
@@ -92,22 +93,6 @@ function getTemplateContent(templateType) {
       ctx.physics.setDynamic(true)
       ctx.physics.setMass(5)
       ctx.physics.addBoxCollider([0.5, 0.5, 0.5])
-    },
-
-    update(ctx, dt) {
-      const ent = ctx._entity
-      if (!ent?._physicsBodyId || !ctx._runtime?._physics) return
-      const pw = ctx._runtime._physics
-      ent.position = pw.getBodyPosition(ent._physicsBodyId)
-      ent.rotation = pw.getBodyRotation(ent._physicsBodyId)
-    },
-
-    teardown(ctx) {
-      const ent = ctx._entity
-      if (ent?._physicsBodyId && ctx._runtime?._physics) {
-        ctx._runtime._physics.removeBody(ent._physicsBodyId)
-        ent._physicsBodyId = null
-      }
     }
   },
 
@@ -175,19 +160,19 @@ function getTemplateContent(templateType) {
       this._lastMessage = null
       this._messageExpire = 0
       this._canInteract = false
+      this._entityPos = null
     },
 
     onFrame(dt, engine) {
-      const ent = engine.client?.state?.entities?.find(e => e.app === 'my-app')
       const local = engine.client?.state?.players?.find(p => p.id === engine.playerId)
-      if (!ent?.position || !local?.position) {
+      if (!this._entityPos || !local?.position) {
         this._canInteract = false
         return
       }
 
-      const dx = ent.position[0] - local.position[0]
-      const dy = ent.position[1] - local.position[1]
-      const dz = ent.position[2] - local.position[2]
+      const dx = this._entityPos[0] - local.position[0]
+      const dy = this._entityPos[1] - local.position[1]
+      const dz = this._entityPos[2] - local.position[2]
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
       this._canInteract = dist < 3.5
     },
@@ -200,6 +185,7 @@ function getTemplateContent(templateType) {
     },
 
     render(ctx) {
+      this._entityPos = ctx.entity.position
       const custom = { ...ctx.entity.custom }
       if (this._canInteract) {
         custom.glow = true
@@ -212,7 +198,7 @@ function getTemplateContent(templateType) {
         if (ctx.h) {
           ui.push(
             ctx.h('div', {
-              style: `position:fixed;top:30%;left:50%;transform:translate(-50%,-50%);padding:16px 32px;background:rgba(0,0,0,0.8);border-radius:12px;color:#0f0;font-weight:bold;font-size:20px;opacity:${opacity}`
+              style: \`position:fixed;top:30%;left:50%;transform:translate(-50%,-50%);padding:16px 32px;background:rgba(0,0,0,0.8);border-radius:12px;color:#0f0;font-weight:bold;font-size:20px;opacity:\${opacity}\`
             }, this._lastMessage)
           )
         }
@@ -315,7 +301,7 @@ function createApp(name, template) {
   console.log(`\nTo test your app:`)
   console.log(`  1. Start server: npm start`)
   console.log(`  2. Connect to http://localhost:3001`)
-  console.log(`  3. Spawn entity with app: \`${name}\``)
+  console.log(`  3. Add app to apps/world/index.js entities with app: '${name}'`)
   console.log(`  4. Edit ${indexJsPath} to make changes`)
   console.log(`  5. Server hot-reloads automatically`)
 }

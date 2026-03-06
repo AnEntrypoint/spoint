@@ -122,12 +122,14 @@ export function mixinTick(runtime) {
 
   runtime._syncPlayerIndex = function() {
     const players = this.getPlayers()
+    const ids = this._playerIndexIds
+    ids.clear()
     for (const p of players) {
       const pos = p.state?.position
       if (pos) this._playerIndex.update(p.id, pos)
+      ids.add(p.id)
     }
     if (this._playerIndex.size > players.length) {
-      const ids = new Set(players.map(p => p.id))
       for (const id of [...this._playerIndex._entities.keys()]) {
         if (!ids.has(id)) this._playerIndex.remove(id)
       }

@@ -55,6 +55,9 @@ export function createServerAPI(ctx) {
     },
 
     async start() {
+      if (ctx.httpServer?.listening) {
+        return { port: ctx.port, tickRate: ctx.tickRate }
+      }
       await appLoader.loadAll()
       return new Promise((resolve, reject) => {
         const uploadHandler = createUploadHandler(appRuntime, connections, playerManager)

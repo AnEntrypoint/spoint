@@ -9,7 +9,10 @@
     "spoint-create-app": "./bin/create-app.js"
   },
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "create-app": "node ./bin/create-app.js",
+    "bots": "node run-bots.js",
+    "profile:50": "node run-profiling.js"
   },
   "files": [
     "src/",

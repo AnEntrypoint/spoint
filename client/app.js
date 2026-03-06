@@ -1741,6 +1741,9 @@ let smoothDt = 1 / 60
 let _appModuleList = []
 const _dirtyEntityTargets = new Set()
 const _sinTable = Array(360).fill(0).map((_, i) => Math.sin(i * Math.PI / 180))
+let _controllerVisibilityAt = 0
+let _wristUiAt = 0
+let _lodCullAt = 0
 const _lodConfigs = {
   vrm: { far: 50, skipBeyond: 100 },
   box: { far: 60, skipBeyond: 120 },
@@ -1846,13 +1849,17 @@ function animate(timestamp) {
     const t = new XRRigidTransform(pos, { x: 0, y: 0, z: 0, w: 1 })
     renderer.xr.setReferenceSpace(xrBaseReferenceSpace.getOffsetReferenceSpace(t))
   }
-  if (inVR && local && wristUI) {
+  if (inVR && local && wristUI && (now - _wristUiAt >= 66)) {
     const tps = appModules.get('tps-game')?._tps
     const ammo = tps?.ammo ?? 0
     const reloading = tps?.reloading ?? false
     updateWristUI(local.health ?? 100, ammo, reloading)
+    _wristUiAt = now
   }
-  updateControllerVisibility()
+  if (now - _controllerVisibilityAt >= 100) {
+    updateControllerVisibility()
+    _controllerVisibilityAt = now
+  }
   updateTeleportArc()
   updateFade(frameDt)
 
@@ -1874,19 +1881,21 @@ function animate(timestamp) {
     }
   }
 
-  const camPos = camera.position
-  for (const mesh of playerMeshes.values()) {
-    const dx = mesh.position.x - camPos.x, dy = mesh.position.y - camPos.y, dz = mesh.position.z - camPos.z
-    const dist2 = dx * dx + dy * dy + dz * dz
-    const cfg = _lodConfigs.vrm
-    mesh.visible = dist2 <= cfg.skipBeyond * cfg.skipBeyond
-  }
-  for (const mesh of entityMeshes.values()) {
-    const modelType = mesh.userData?.mesh || 'default'
-    const cfg = _lodConfigs[modelType] || _lodConfigs.default
-    const dx = mesh.position.x - camPos.x, dy = mesh.position.y - camPos.y, dz = mesh.position.z - camPos.z
-    const dist2 = dx * dx + dy * dy + dz * dz
-    mesh.visible = dist2 <= cfg.skipBeyond * cfg.skipBeyond
+  if (now - _lodCullAt >= 50) {
+    const camPos = camera.position
+    const vrmSkip2 = _lodConfigs.vrm.skipBeyond * _lodConfigs.vrm.skipBeyond
+    for (const mesh of playerMeshes.values()) {
+      const dx = mesh.position.x - camPos.x, dy = mesh.position.y - camPos.y, dz = mesh.position.z - camPos.z
+      mesh.visible = (dx * dx + dy * dy + dz * dz) <= vrmSkip2
+    }
+    for (const mesh of entityMeshes.values()) {
+      const modelType = mesh.userData?.mesh || 'default'
+      const cfg = _lodConfigs[modelType] || _lodConfigs.default
+      const skip2 = cfg.skipBeyond * cfg.skipBeyond
+      const dx = mesh.position.x - camPos.x, dy = mesh.position.y - camPos.y, dz = mesh.position.z - camPos.z
+      mesh.visible = (dx * dx + dy * dy + dz * dz) <= skip2
+    }
+    _lodCullAt = now
   }
 
   if (typeof editor !== 'undefined') editor.updateGizmo()

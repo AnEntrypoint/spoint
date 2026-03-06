@@ -23,6 +23,7 @@ export class AppRuntime {
     this._entityTickDivisor = Math.max(1, Math.round(serverTickRate / entityTickRate))
     this._physicsLODInterval = Math.max(1, Math.round(serverTickRate / 2))
     this._playerIndex = new SpatialIndex(); this._collisionEntities = []; this._interactableIds = new Set()
+    this._playerIndexIds = new Set()
     this._lastSyncMs = 0; this._lastRespawnMs = 0; this._lastSpatialMs = 0; this._lastCollisionMs = 0; this._lastInteractMs = 0
     mixinPhysics(this); mixinTick(this)
     if (this._physics) this._registerPhysicsCallbacks()
@@ -119,7 +120,11 @@ export class AppRuntime {
     this._dynamicEntityIds.delete(entityId); this._staticEntityIds.delete(entityId)
     this._activeDynamicIds.delete(entityId); this._sleepingDynamicIds.delete(entityId); this._suspendedEntityIds.delete(entityId)
     this._interactableIds.delete(entityId)
-    if (entity._physicsBodyId !== undefined) this._physicsBodyToEntityId.delete(entity._physicsBodyId)
+    if (entity._physicsBodyId !== undefined) {
+      this._physicsBodyToEntityId.delete(entity._physicsBodyId)
+      if (this._physics) this._physics.removeBody(entity._physicsBodyId)
+      entity._physicsBodyId = undefined
+    }
     this._log('entity_destroy', { id: entityId }, { sourceEntity: entityId })
     for (const childId of [...entity.children]) this.destroyEntity(childId)
     if (entity.parent) { const p = this.entities.get(entity.parent); if (p) p.children.delete(entityId) }
@@ -168,7 +173,7 @@ export class AppRuntime {
     return out
   }
 
-  getRelevantDynamicIds(playerPosition, radius) { return new Set(this.relevantEntities(playerPosition, radius)) }
+  getRelevantDynamicIds(playerPosition, radius) { return this.relevantEntities(playerPosition, radius) }
 
   getSceneGraph() {
     const nodes = []

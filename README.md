@@ -1,14 +1,28 @@
 # Spawnpoint
 
-Multiplayer game server SDK. 64 TPS authoritative server, Jolt Physics WASM, WebSocket transport, hot reload.
+Multiplayer game server SDK with authoritative physics, hot reload, and app-based world logic.
 
 ## Quick Start
- 
+
 ```bash
 npm install
-node server.js
-# http://localhost:8080
+npm start
+# open http://localhost:3001
 ```
+
+`server.js` runs `scaffold()` first, then boots the server.
+
+## Common Commands
+
+```bash
+node ./bin/create-app.js my-app
+node run-bots.js 50 30000 60
+node run-profiling.js
+```
+
+- `create-app`: generate `apps/<name>/index.js` from a template
+- `bots`: start bot harness (`count durationMs inputHz`)
+- `profile`: run included 50-bot profiling harness
 
 ## Architecture
 
@@ -32,8 +46,8 @@ client/app.js                Three.js renderer, VRM loading, entity rendering, i
 
 ```javascript
 export default {
-  port: 8080,
-  tickRate: 128,
+  port: 3001,
+  tickRate: 64,
   gravity: [0, -9.81, 0],
   movement: { maxSpeed: 4.0, groundAccel: 10.0, airAccel: 1.0, friction: 6.0, stopSpeed: 2.0, jumpImpulse: 4.0 },
   player: { health: 100, capsuleRadius: 0.4, capsuleHalfHeight: 0.9, mass: 120, modelScale: 1.323, feetOffset: 0.212 },
@@ -51,7 +65,13 @@ export default {
 
 ## Creating Apps
 
-Create `apps/<name>/index.js`:
+Create an app file:
+
+```bash
+node ./bin/create-app.js my-app
+```
+
+Or manually create `apps/<name>/index.js`:
 
 ```javascript
 export default {
@@ -162,6 +182,12 @@ ctx.bus.on('combat.*', (event) => {
 ```
 
 Scoped subscriptions auto-cleanup on entity destroy/hot reload.
+
+## App Editor Guide
+
+For app-authoring workflow, lifecycle rules, and a complete checklist, see:
+
+- [APP_EDITOR_GUIDE.md](/C:/dev/devbox/spawnpoint/APP_EDITOR_GUIDE.md)
 
 ## Dependencies
 

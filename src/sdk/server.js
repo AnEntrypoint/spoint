@@ -26,6 +26,17 @@ import { createServerAPI } from './ServerAPI.js'
 import { createConnectionHandlers } from './ServerHandlers.js'
 
 export async function boot(overrides = {}) {
+  const uniqPaths = (paths) => {
+    const out = []
+    const seen = new Set()
+    for (const p of paths) {
+      const rp = resolve(p)
+      if (seen.has(rp)) continue
+      seen.add(rp)
+      out.push(rp)
+    }
+    return out
+  }
   const SDK_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..')
   const PROJECT = process.cwd()
   const localWorld = resolve(PROJECT, 'apps/world/index.js')
@@ -40,10 +51,8 @@ export async function boot(overrides = {}) {
   const localApps = resolve(PROJECT, 'apps')
   const sdkApps = join(SDK_ROOT, 'apps')
   const hasLocalApps = existsSync(localApps)
-  const appsDirs = hasLocalApps ? [localApps, sdkApps] : [sdkApps]
-  const appsStaticDirs = hasLocalApps
-    ? [{ prefix: '/apps/', dir: localApps }, { prefix: '/apps/', dir: sdkApps }]
-    : [{ prefix: '/apps/', dir: sdkApps }]
+  const appsDirs = uniqPaths(hasLocalApps ? [localApps, sdkApps] : [sdkApps])
+  const appsStaticDirs = appsDirs.map(dir => ({ prefix: '/apps/', dir }))
   console.debug(`[boot] loading from: ${appsDirs.join(', ')}`)
   const config = {
     port: parseInt(process.env.PORT || String(worldDef.port || 3000), 10),
