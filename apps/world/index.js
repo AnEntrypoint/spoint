@@ -32,12 +32,10 @@ const PROP_MODELS = [
   'water_tank_c27c18f7_v1.glb', 'water_tank_c27c18f7_v2.glb', 'water_tank_c27c18f7_v3.glb', 'water_tank_c27c18f7_v4.glb',
 ]
 
-// aim_sillos floor area from measured spawn points:
-// X: -26 to +22, Z: -50 to +1, spawn Y=3 (above highest floor)
-const MAP_X_MIN = -26
-const MAP_X_MAX = 22
-const MAP_Z_MIN = -50
-const MAP_Z_MAX = 1
+const MAP_X_MIN = -250
+const MAP_X_MAX = 250
+const MAP_Z_MIN = -250
+const MAP_Z_MAX = 250
 const SPAWN_Y = 3
 const TARGET_COUNT = 1000
 

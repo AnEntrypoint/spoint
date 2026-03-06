@@ -12,7 +12,7 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 
 ## Active Dynamic Body Tracking
 
-`AppRuntime` maintains `_dynamicEntityIds` (all dynamic) and `_activeDynamicIds` (awake only). `_syncDynamicBodies()` does a full scan every 128 ticks; between scans only iterates `_activeDynamicIds`. `World.syncDynamicBody()` returns `true` when body is active, `false` when sleeping. Sleeping entities set `e._dynSleeping = true` — used by SnapshotEncoder to skip re-encoding and by Stage to skip octree updates. `_tickRespawn()` and spatial sync also skip sleeping bodies.
+`AppRuntime` maintains `_dynamicEntityIds` (all dynamic) and `_activeDynamicIds` (awake only). `_syncDynamicBodies()` runs every tick and only iterates `_activeDynamicIds` (awake bodies only via Jolt activation callbacks). `World.syncDynamicBody()` returns `true` when body is active, `false` when sleeping. Sleeping entities set `e._dynSleeping = true` — used by SnapshotEncoder to skip re-encoding and by Stage to skip octree updates. `_tickRespawn()` and spatial sync also skip sleeping bodies.
 
 ## WORLD_DEF Does Not Include Entities
 
@@ -20,7 +20,7 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 
 ## Keyframe Interval
 
-`KEYFRAME_INTERVAL` in TickHandler.js is 1280 ticks (10 seconds at 128 TPS). At 128, mass player connections caused simultaneous full-snapshot bursts (71KB × 100 players) that exceeded WebSocket buffers. Snap group rotation (`player.id % snapGroups`) is now ALWAYS applied — including keyframe ticks — to prevent burst.
+`KEYFRAME_INTERVAL` in TickHandler.js is `tickRate * 10` (10 seconds at any tick rate). At high player counts, mass player connections caused simultaneous full-snapshot bursts (71KB × 100 players) that exceeded WebSocket buffers. Snap group rotation (`player.id % snapGroups`) is now ALWAYS applied — including keyframe ticks — to prevent burst.
 
 ## SnapshotEncoder Sleeping Skip
 
@@ -188,9 +188,9 @@ Positions quantized to 2 decimal places (precision 100), rotations to 4 (precisi
 
 MessageTypes.js uses hex grouping. Snapshot = 0x10, input = 0x11. Old docs listed decimal 1-6 which is wrong.
 
-## Custom msgpack Implementation
+## msgpack Implementation
 
-`src/protocol/msgpack.js` is hand-rolled, NOT `msgpackr`. Reuses a single growing buffer, resets `pos` on each `pack()`. Not thread-safe (irrelevant — Node is single-threaded).
+`src/protocol/msgpack.js` re-exports `pack`/`unpack` from `msgpackr`. All snapshot encoding uses msgpackr.
 
 ## Static Entity Snapshot Optimization
 
