@@ -1,7 +1,7 @@
 export class ReconciliationEngine {
   constructor(config = {}) {
-    this.correctionThreshold = config.correctionThreshold || 0.01
-    this.correctionSpeed = config.correctionSpeed || 0.5
+    this.correctionThreshold = config.correctionThreshold || 0.5
+    this._pending = null
   }
 
   reconcile(serverState, localState, tick) {
@@ -9,8 +9,8 @@ export class ReconciliationEngine {
     if (divergence < this.correctionThreshold) {
       return { needsCorrection: false, divergence }
     }
-    const correction = this.generateCorrection(serverState, localState)
-    return { needsCorrection: true, correction, divergence }
+    this._pending = { serverState, divergence }
+    return { needsCorrection: true, correction: null, divergence }
   }
 
   calculateDivergence(serverState, localState) {
@@ -21,21 +21,17 @@ export class ReconciliationEngine {
     return Math.sqrt(dx * dx + dy * dy + dz * dz)
   }
 
-  generateCorrection(serverState, localState) {
-    return {
-      position: [
-        serverState.position[0] * this.correctionSpeed + localState.position[0] * (1 - this.correctionSpeed),
-        serverState.position[1] * this.correctionSpeed + localState.position[1] * (1 - this.correctionSpeed),
-        serverState.position[2] * this.correctionSpeed + localState.position[2] * (1 - this.correctionSpeed)
-      ],
-      velocity: [...serverState.velocity],
-      onGround: serverState.onGround
-    }
-  }
-
-  applyCorrection(localState, correction) {
-    localState.position = correction.position
-    localState.velocity = correction.velocity
-    localState.onGround = correction.onGround
+  applyCorrection(localState, _correction) {
+    if (!this._pending) return
+    const s = this._pending.serverState
+    const alpha = Math.min(1, this._pending.divergence / 3.0)
+    localState.position[0] = localState.position[0] + (s.position[0] - localState.position[0]) * alpha
+    localState.position[1] = localState.position[1] + (s.position[1] - localState.position[1]) * alpha
+    localState.position[2] = localState.position[2] + (s.position[2] - localState.position[2]) * alpha
+    localState.velocity[0] = s.velocity[0]
+    localState.velocity[1] = s.velocity[1]
+    localState.velocity[2] = s.velocity[2]
+    localState.onGround = s.onGround
+    this._pending = null
   }
 }
