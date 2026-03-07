@@ -1,0 +1,17 @@
+{
+  "apps": [{
+    "name": "bots",
+    "script": "C:/dev/devbox/spawnpoint/run-bots.js",
+    "interpreter": "node",
+    "cwd": "C:/dev/devbox/spawnpoint",
+    "instances": 1,
+    "autorestart": false,
+    "watch": false,
+    "env": {
+      "BOT_COUNT": "50",
+      "BOT_DURATION": "40000",
+      "BOT_BATCH": "10",
+      "BOT_DELAY": "200"
+    }
+  }]
+}
