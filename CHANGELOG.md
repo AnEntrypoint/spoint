@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.185](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.184...v0.1.185) (2026-03-07)
+
+
+### Bug Fixes
+
+* disable client-side prediction to eliminate slide-back ([916bb99](https://github.com/AnEntrypoint/spawnpoint/commit/916bb9936cb2ef5db226f2b9b6947360fd894f37))
+* smooth camera target to eliminate 1-frame position jitter ([ff54cc3](https://github.com/AnEntrypoint/spawnpoint/commit/ff54cc3a7c9ad5090b08fd346c24768222b4b5bb))
+
 ### [0.1.184](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.183...v0.1.184) (2026-03-06)
 
 
