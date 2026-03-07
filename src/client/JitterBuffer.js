@@ -128,32 +128,8 @@ export class JitterBuffer {
       }
     }
 
-    const oldE = this._oldE
-    oldE.clear()
-    for (const e of older.entities || []) oldE.set(e.id, e)
-
     const newEntities = newer.entities || []
-    const eLen = newEntities.length
-    result.entities.length = eLen
-    for (let i = 0; i < eLen; i++) {
-      const ne = newEntities[i]
-      const oe = oldE.get(ne.id)
-      const slot = this._getEntitySlot(i)
-      result.entities[i] = slot
-      slot.id = ne.id
-      slot.model = ne.model
-      slot.bodyType = ne.bodyType
-      slot.custom = ne.custom
-      if (oe && oe.position && ne.position) {
-        slot.position[0] = _l(oe.position[0], ne.position[0], alpha)
-        slot.position[1] = _l(oe.position[1], ne.position[1], alpha)
-        slot.position[2] = _l(oe.position[2], ne.position[2], alpha)
-        _slerpInto(slot.rotation, oe.rotation || ne.rotation, ne.rotation, alpha)
-      } else if (ne.position) {
-        slot.position[0] = ne.position[0]; slot.position[1] = ne.position[1]; slot.position[2] = ne.position[2]
-        const r = ne.rotation || [0, 0, 0, 1]; slot.rotation[0] = r[0]; slot.rotation[1] = r[1]; slot.rotation[2] = r[2]; slot.rotation[3] = r[3]
-      }
-    }
+    result.entities = newEntities
 
     return result
   }

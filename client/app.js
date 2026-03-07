@@ -747,6 +747,7 @@ const playerAnimators = new Map()
 const playerVrms = new Map()
 const playerStates = new Map()
 const entityMeshes = new Map()
+const _animatedEntities = []
 const _hullMeshes = new Map()
 const entityParentMap = new Map()
 const entityGroups = new Map()
@@ -1110,6 +1111,7 @@ async function _doLoadEntityModel(entityId, entityState) {
     const er = entityState.rotation; if (er) group.quaternion.set(er[0], er[1], er[2], er[3])
     scene.add(group)
     entityMeshes.set(entityId, group)
+    if (group.userData.spin || group.userData.hover) _animatedEntities.push(group)
     _hierarchyDirty = true
     pendingLoads.delete(entityId)
     if (!environmentLoaded) { environmentLoaded = true; checkAllLoaded() }
@@ -1148,6 +1150,7 @@ async function _doLoadEntityModel(entityId, entityState) {
     model.updateMatrixWorld(true)
     scene.add(model)
     entityMeshes.set(entityId, model)
+    if (model.userData.spin || model.userData.hover) _animatedEntities.push(model)
     if (isDynamic) {
       const hullSegs = []
       model.traverse(c => {
@@ -1280,7 +1283,7 @@ const client = new PhysicsNetworkClient({
   onPlayerJoined: (id) => { if (!playerMeshes.has(id)) createPlayerVRM(id) },
   onPlayerLeft: (id) => removePlayerMesh(id),
   onEntityAdded: (id, state) => loadEntityModel(id, state),
-  onEntityRemoved: (id) => { const m = entityMeshes.get(id); if (m) { scene.remove(m); m.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose() }); entityMeshes.delete(id); _hierarchyDirty = true }; _hullMeshes.delete(id); entityTargets.delete(id); pendingLoads.delete(id) },
+  onEntityRemoved: (id) => { const m = entityMeshes.get(id); if (m) { scene.remove(m); m.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose() }); entityMeshes.delete(id); _hierarchyDirty = true; const ai = _animatedEntities.indexOf(m); if (ai >= 0) _animatedEntities.splice(ai, 1) }; _hullMeshes.delete(id); entityTargets.delete(id); pendingLoads.delete(id) },
   onWorldDef: (wd) => {
     loadingMgr.setLabel('Syncing with server...')
     worldConfig = wd
@@ -1877,14 +1880,15 @@ function animate(timestamp) {
     mesh.quaternion.normalize()
   }
   _dirtyEntityTargets.clear()
-  entityMeshes.forEach((mesh) => {
+  for (let _ei = 0; _ei < _animatedEntities.length; _ei++) {
+    const mesh = _animatedEntities[_ei]
     if (mesh.userData.spin) mesh.rotation.y += mesh.userData.spin * frameDt
     if (mesh.userData.hover) {
       mesh.userData.hoverTime = (mesh.userData.hoverTime || 0) + frameDt
       const child = mesh.children[0]
       if (child) child.position.y = _sinTable[Math.floor(mesh.userData.hoverTime * 2 * 180 / Math.PI) % 360] * mesh.userData.hover
     }
-  })
+  }
   for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onFrame) try { mod.onFrame(frameDt, engineCtx) } catch (e) { } }
   if (engineCtx.facial) engineCtx.facial.update(frameDt)
   uiTimer += frameDt

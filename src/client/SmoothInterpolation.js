@@ -32,6 +32,7 @@ export class SmoothInterpolation {
       filter.update(p.position, p.velocity, now)
     }
     for (const e of snapshot.entities || []) {
+      if (e.bodyType !== 'dynamic') continue
       let filter = this.entityFilters.get(e.id)
       if (!filter) {
         filter = new KalmanFilter3D(this.entityKalmanConfig)
@@ -67,6 +68,7 @@ export class SmoothInterpolation {
       }
       for (let i = 0; i < entities.length; i++) {
         const entity = entities[i]
+        if (entity.bodyType !== 'dynamic') continue
         const filter = this.entityFilters.get(entity.id)
         if (!filter) continue
         filter.predict(dt)
