@@ -52,11 +52,9 @@ export class PhysicsIntegration {
     const vy = onGround ? (state.velocity[1] > 0 ? state.velocity[1] : 0) : state.velocity[1] + this.config.gravity[1] * deltaTime
     this.physicsWorld.setCharacterVelocity(charId, [state.velocity[0], vy, state.velocity[2]])
     this.physicsWorld.updateCharacter(charId, deltaTime)
-    const pos = this.physicsWorld.getCharacterPosition(charId)
-    const vel = this.physicsWorld.getCharacterVelocity(charId)
+    this.physicsWorld.readCharacterPosition(charId, state.position)
+    this.physicsWorld.readCharacterVelocity(charId, state.velocity)
     data.onGround = this.physicsWorld.getCharacterGroundState(charId)
-    state.position = pos
-    state.velocity = vel
     state.onGround = data.onGround
     return state
   }

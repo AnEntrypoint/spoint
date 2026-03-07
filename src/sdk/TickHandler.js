@@ -82,12 +82,9 @@ export function createTickHandler(deps) {
       applyMovement(st, inp, movement, dt)
       if (inp) physicsIntegration.setCrouch(player.id, !!inp.crouch)
       const wishedVx = st.velocity[0], wishedVz = st.velocity[2]
-      const updated = physicsIntegration.updatePlayerPhysics(player.id, st, dt)
-      st.position = updated.position
-      st.velocity = updated.velocity
+      physicsIntegration.updatePlayerPhysics(player.id, st, dt)
       st.velocity[0] = wishedVx
       st.velocity[2] = wishedVz
-      st.onGround = updated.onGround
       lagCompensator.recordPlayerPosition(player.id, st.position, st.rotation, st.velocity, tick)
       networkState.updatePlayer(player.id, { position:st.position, rotation:st.rotation, velocity:st.velocity, onGround:st.onGround, health:st.health, inputSequence:player.inputSequence, crouch:st.crouch||0, lookPitch:st.lookPitch||0, lookYaw:st.lookYaw||0 })
     }

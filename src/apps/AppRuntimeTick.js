@@ -4,7 +4,8 @@ export function mixinTick(runtime) {
     if (tickNum % this._entityTickDivisor === 0) {
       const entityDt = dt * this._entityTickDivisor
       for (const [entityId, server, ctx] of this._updateList) {
-        this._safeCall(server, 'update', [ctx, entityDt], `update(${entityId})`)
+        try { const r = server.update(ctx, entityDt); if (r?.catch) r.catch(e => console.error(`[AppRuntime] update(${entityId}): ${e.message}`)) }
+        catch (e) { console.error(`[AppRuntime] update(${entityId}): ${e.message}`) }
       }
     }
     this._tickTimers(dt)

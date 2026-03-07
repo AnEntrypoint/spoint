@@ -278,12 +278,23 @@ export class PhysicsWorld {
     const p = ch.GetPosition()
     return [p.GetX(), p.GetY(), p.GetZ()]
   }
+  readCharacterPosition(charId, out) {
+    const ch = this.characters?.get(charId); if (!ch) return
+    const p = ch.GetPosition()
+    out[0] = p.GetX(); out[1] = p.GetY(); out[2] = p.GetZ()
+  }
   getCharacterVelocity(charId) {
     const ch = this.characters?.get(charId); if (!ch) return [0, 0, 0]
     const v = ch.GetLinearVelocity()
     const r = [v.GetX(), v.GetY(), v.GetZ()]
     this.Jolt.destroy(v)
     return r
+  }
+  readCharacterVelocity(charId, out) {
+    const ch = this.characters?.get(charId); if (!ch) return
+    const v = ch.GetLinearVelocity()
+    out[0] = v.GetX(); out[1] = v.GetY(); out[2] = v.GetZ()
+    this.Jolt.destroy(v)
   }
   setCharacterVelocity(charId, velocity) {
     const ch = this.characters?.get(charId); if (!ch) return
