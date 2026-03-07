@@ -21,15 +21,11 @@ export class PredictionEngine {
 
   init(playerId, initialState = {}) {
     this.localPlayerId = playerId
-    this.localState = {
-      id: playerId,
-      position: initialState.position || [0, 0, 0],
-      rotation: initialState.rotation || [0, 0, 0, 1],
-      velocity: initialState.velocity || [0, 0, 0],
-      onGround: true,
-      health: initialState.health || 100
-    }
-    this.lastServerState = JSON.parse(JSON.stringify(this.localState))
+    const pos = initialState.position || [0, 0, 0]
+    const rot = initialState.rotation || [0, 0, 0, 1]
+    const vel = initialState.velocity || [0, 0, 0]
+    this.localState = { id: playerId, position: [...pos], rotation: [...rot], velocity: [...vel], onGround: true, health: initialState.health || 100 }
+    this.lastServerState = { id: playerId, position: [...pos], rotation: [...rot], velocity: [...vel], onGround: true, health: initialState.health || 100 }
   }
 
   addInput(input) {
@@ -71,18 +67,26 @@ export class PredictionEngine {
   }
 
   extrapolate(ticksAhead = 1) {
-    const extrapolated = JSON.parse(JSON.stringify(this.localState))
     const dt = (this.tickDuration / 1000) * ticksAhead
-    extrapolated.position[0] += this.localState.velocity[0] * dt
-    extrapolated.position[1] += this.localState.velocity[1] * dt
-    extrapolated.position[2] += this.localState.velocity[2] * dt
-    return extrapolated
+    const s = this.localState, v = s.velocity
+    if (!this._extrapolated) this._extrapolated = { id: null, position: [0,0,0], rotation: [0,0,0,1], velocity: [0,0,0], onGround: false, health: 0 }
+    this._copyState(s, this._extrapolated)
+    const p = this._extrapolated.position
+    p[0] += v[0] * dt; p[1] += v[1] * dt; p[2] += v[2] * dt
+    return this._extrapolated
+  }
+
+  _copyState(src, dst) {
+    dst.id = src.id; dst.onGround = src.onGround; dst.health = src.health; dst.inputSequence = src.inputSequence
+    const sp = src.position, dp = dst.position; dp[0] = sp[0]; dp[1] = sp[1]; dp[2] = sp[2]
+    const sr = src.rotation, dr = dst.rotation; dr[0] = sr[0]; dr[1] = sr[1]; dr[2] = sr[2]; dr[3] = sr[3]
+    const sv = src.velocity, dv = dst.velocity; dv[0] = sv[0]; dv[1] = sv[1]; dv[2] = sv[2]
   }
 
   onServerSnapshot(snapshot, tick) {
     for (const serverPlayer of snapshot.players) {
       if (serverPlayer.id === this.localPlayerId) {
-        this.lastServerState = JSON.parse(JSON.stringify(serverPlayer))
+        this._copyState(serverPlayer, this.lastServerState)
         const ackedSeq = serverPlayer.inputSequence ?? -1
         if (ackedSeq >= 0) {
           while (this.inputHistory.length > 0 && this.inputHistory[0].sequence <= ackedSeq) {
@@ -101,7 +105,7 @@ export class PredictionEngine {
   }
 
   resimulate() {
-    this.localState = JSON.parse(JSON.stringify(this.lastServerState))
+    this._copyState(this.lastServerState, this.localState)
     for (const input of this.inputHistory) {
       this.predict(input.data)
     }
