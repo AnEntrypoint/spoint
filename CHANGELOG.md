@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.198](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.197...v0.1.198) (2026-03-07)
+
+
+### Bug Fixes
+
+* CS:GO-style body rotation tracks lookYaw not velocity direction ([a15e40b](https://github.com/AnEntrypoint/spawnpoint/commit/a15e40b25327e47d9ed18be302e87a05d9da43ce))
+
 ### [0.1.197](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.196...v0.1.197) (2026-03-07)
 
 ### [0.1.196](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.195...v0.1.196) (2026-03-07)
