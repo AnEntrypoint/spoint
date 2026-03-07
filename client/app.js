@@ -1233,7 +1233,7 @@ function _buildInteractPrompt(state) {
 
 const client = new PhysicsNetworkClient({
   url: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`,
-  predictionEnabled: true,
+  predictionEnabled: false,
   smoothInterpolation: true,
   onStateUpdate: (state) => {
     const myPos = state.players.find(p => p.id === client.playerId)?.position
@@ -1808,22 +1808,6 @@ function animate(timestamp) {
     playerStates.set(p.id, p)
     if (!mesh.userData.initialized) { mesh.position.set(tx, ty, tz); mesh.userData.initialized = true }
   }
-  const _localPredicted = client.getLocalState()
-  const _localServerId = client.playerId
-  if (_localPredicted?.position && _localServerId) {
-    const _lMesh = playerMeshes.get(_localServerId)
-    const _lFeetOff = _lMesh?.userData?.feetOffset ?? 0.91
-    const _lt = playerTargets.get(_localServerId)
-    const _ltx = _localPredicted.position[0], _lty = _localPredicted.position[1] - _lFeetOff, _ltz = _localPredicted.position[2]
-    if (_lt) { _lt.x = _ltx; _lt.y = _lty; _lt.z = _ltz }
-    else playerTargets.set(_localServerId, { x: _ltx, y: _lty, z: _ltz })
-    const _serverLocal = smoothState.players.find(p => p.id === _localServerId)
-    if (_serverLocal) {
-      playerStates.set(_localServerId, { ..._serverLocal, position: _localPredicted.position })
-    } else {
-      playerStates.set(_localServerId, _localPredicted)
-    }
-  }
   if (_hierarchyDirty && smoothState.entities.length > 0) { rebuildEntityHierarchy(smoothState.entities); _hierarchyDirty = false }
   playerTargets.forEach((target, id) => {
     const mesh = playerMeshes.get(id)
@@ -1897,7 +1881,7 @@ function animate(timestamp) {
   if (engineCtx.facial) engineCtx.facial.update(frameDt)
   uiTimer += frameDt
   if (latestState && uiTimer >= 0.25) { uiTimer = 0; renderAppUI(latestState) }
-  const local = playerStates.get(client.playerId) || client.getLocalState()
+  const local = playerStates.get(client.playerId)
   const inVR = renderer.xr.isPresenting
   if (!inVR || cam.getEditMode()) {
     cam.update(local, playerMeshes.get(client.playerId), frameDt, latestInput)

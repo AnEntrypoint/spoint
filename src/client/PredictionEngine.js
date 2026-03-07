@@ -9,6 +9,7 @@ export class PredictionEngine {
     this.localState = null
     this.lastServerState = null
     this.inputHistory = []
+    this._inputSeq = 0
     this.reconciliationEngine = new ReconciliationEngine()
     this.movement = { ...DEFAULT_MOVEMENT }
     this.gravityY = -9.81
@@ -32,14 +33,9 @@ export class PredictionEngine {
   }
 
   addInput(input) {
-    this.inputHistory.push({
-      sequence: this.inputHistory.length,
-      data: input,
-      timestamp: Date.now()
-    })
-    if (this.inputHistory.length > 128) {
-      this.inputHistory.shift()
-    }
+    const seq = this._inputSeq++
+    this.inputHistory.push({ sequence: seq, data: input })
+    if (this.inputHistory.length > 256) this.inputHistory.shift()
     this.predict(input)
   }
 
@@ -87,6 +83,12 @@ export class PredictionEngine {
     for (const serverPlayer of snapshot.players) {
       if (serverPlayer.id === this.localPlayerId) {
         this.lastServerState = JSON.parse(JSON.stringify(serverPlayer))
+        const ackedSeq = serverPlayer.inputSequence ?? -1
+        if (ackedSeq >= 0) {
+          while (this.inputHistory.length > 0 && this.inputHistory[0].sequence <= ackedSeq) {
+            this.inputHistory.shift()
+          }
+        }
         const reconciliation = this.reconciliationEngine.reconcile(
           this.lastServerState, this.localState, tick
         )
@@ -99,8 +101,7 @@ export class PredictionEngine {
   }
 
   resimulate() {
-    const baseState = JSON.parse(JSON.stringify(this.lastServerState))
-    this.localState = baseState
+    this.localState = JSON.parse(JSON.stringify(this.lastServerState))
     for (const input of this.inputHistory) {
       this.predict(input.data)
     }
