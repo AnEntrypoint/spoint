@@ -301,6 +301,14 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   const LOCO_COOLDOWN = 0.3
   const LOCO_STATES = new Set(['IdleLoop', 'WalkLoop', 'JogFwdLoop', 'SprintLoop', 'CrouchIdleLoop', 'CrouchFwdLoop'])
 
+  const _spineNames = ['spine', 'chest', 'upperChest', 'Spine', 'Spine1', 'Spine2', 'Normalized_spine', 'Normalized_chest', 'Normalized_upperChest']
+  const _spineBones = []
+  root.traverse(c => { if (_spineNames.includes(c.name)) _spineBones.push(c) })
+  const _qLook = new THREE.Quaternion()
+  const _qRest = []
+  for (const b of _spineBones) _qRest.push(b.quaternion.clone())
+  let _lookYaw = 0, _lookPitch = 0
+
   function transitionTo(name) {
     if (current === name) return
     if (LOCO_STATES.has(name) && LOCO_STATES.has(current) && locomotionCooldown > 0) return
@@ -384,7 +392,17 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       this.aim(aiming)
       wasOnGround = effectiveOnGround
       mixer.update(dt)
+      if (_spineBones.length > 0) {
+        const n = _spineBones.length
+        const yawShare = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, _lookYaw)) / n
+        const pitchShare = Math.max(-Math.PI / 3, Math.min(Math.PI / 4, _lookPitch)) / n
+        for (let i = 0; i < n; i++) {
+          _qLook.setFromEuler(new THREE.Euler(pitchShare, yawShare, 0, 'YXZ'))
+          _spineBones[i].quaternion.copy(_qRest[i]).multiply(_qLook)
+        }
+      }
     },
+    setLookDirection(yaw, pitch) { _lookYaw = yaw; _lookPitch = pitch },
     shoot() {
       const action = actions.get('PistolShoot')
       if (!action) return
