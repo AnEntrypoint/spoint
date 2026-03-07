@@ -305,6 +305,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   const _spineBones = []
   root.traverse(c => { if (_spineNames.includes(c.name)) _spineBones.push(c) })
   const _qLook = new THREE.Quaternion()
+  const _eLook = new THREE.Euler(0, 0, 0, 'YXZ')
   const _qRest = []
   for (const b of _spineBones) _qRest.push(b.quaternion.clone())
   let _lookYaw = 0, _lookPitch = 0
@@ -396,8 +397,9 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
         const n = _spineBones.length
         const yawShare = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, _lookYaw)) / n
         const pitchShare = Math.max(-Math.PI / 3, Math.min(Math.PI / 4, _lookPitch)) / n
+        _eLook.x = pitchShare; _eLook.y = yawShare
+        _qLook.setFromEuler(_eLook)
         for (let i = 0; i < n; i++) {
-          _qLook.setFromEuler(new THREE.Euler(pitchShare, yawShare, 0, 'YXZ'))
           _spineBones[i].quaternion.copy(_qRest[i]).multiply(_qLook)
         }
       }
