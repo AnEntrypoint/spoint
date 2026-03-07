@@ -1798,23 +1798,25 @@ function animate(timestamp) {
   const lerpFactor = 1.0 - Math.exp(-lerpConstant * frameDt)
   const smoothState = client.getSmoothState()
   const _localId = client.playerId
+  const _localRaw = client.getRemoteState(_localId)
   for (const p of smoothState.players) {
     if (!playerMeshes.has(p.id)) continue
     const mesh = playerMeshes.get(p.id)
     const feetOff = mesh?.userData?.feetOffset ?? 0.91
-    const tx = p.position[0], ty = p.position[1] - feetOff, tz = p.position[2]
+    const src = (p.id === _localId && _localRaw) ? _localRaw : p
+    const tx = src.position[0], ty = src.position[1] - feetOff, tz = src.position[2]
     const existingTarget = playerTargets.get(p.id)
     if (existingTarget) {
       const isNew = existingTarget.x !== tx || existingTarget.z !== tz
       if (isNew) {
         existingTarget.x = tx; existingTarget.y = ty; existingTarget.z = tz
-        existingTarget.vx = p.velocity?.[0] || 0; existingTarget.vy = p.velocity?.[1] || 0; existingTarget.vz = p.velocity?.[2] || 0
+        existingTarget.vx = src.velocity?.[0] || 0; existingTarget.vy = src.velocity?.[1] || 0; existingTarget.vz = src.velocity?.[2] || 0
         existingTarget.t = 0
       }
     } else {
-      playerTargets.set(p.id, { x: tx, y: ty, z: tz, vx: p.velocity?.[0] || 0, vy: p.velocity?.[1] || 0, vz: p.velocity?.[2] || 0, t: 0 })
+      playerTargets.set(p.id, { x: tx, y: ty, z: tz, vx: src.velocity?.[0] || 0, vy: src.velocity?.[1] || 0, vz: src.velocity?.[2] || 0, t: 0 })
     }
-    playerStates.set(p.id, p)
+    playerStates.set(p.id, src)
     if (!mesh.userData.initialized) { mesh.position.set(tx, ty, tz); mesh.userData.initialized = true }
   }
   if (_hierarchyDirty && smoothState.entities.length > 0) { rebuildEntityHierarchy(smoothState.entities); _hierarchyDirty = false }
