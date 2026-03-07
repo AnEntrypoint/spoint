@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.188](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.187...v0.1.188) (2026-03-07)
+
+
+### Bug Fixes
+
+* bypass jitter buffer for local player to eliminate movement flicker ([f93f020](https://github.com/AnEntrypoint/spawnpoint/commit/f93f020019d8ae764298fc53b13c7507a0873c5d))
+
 ### [0.1.187](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.186...v0.1.187) (2026-03-07)
 
 
