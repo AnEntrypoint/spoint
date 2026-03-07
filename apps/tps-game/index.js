@@ -122,7 +122,8 @@ export default {
         const shooter = ctx.players.getAll().find(p => p.id === shooterId)
         const pos = shooter?.state?.position || [0, 0, 0]
         const origin = [pos[0], pos[1] + 0.9, pos[2]]
-        const fireData = { shooterId, origin, direction: msg.direction }
+        const latencyMs = msg.clientTime ? Math.min(600, Math.max(0, Date.now() - msg.clientTime)) : 0
+        const fireData = { shooterId, origin, direction: msg.direction, latencyMs }
         ctx.bus.emit('combat.fire', fireData)
         const dir = msg.direction
         if (shooter?.state) {
@@ -279,12 +280,15 @@ function handleFire(ctx, msg) {
   const buff = ctx.state.buffs.get(shooterId)
   const damageMultiplier = buff ? buff.damage : 1
   const damage = Math.round(ctx.state.config.damagePerHit * damageMultiplier)
+  const lagComp = ctx.lagCompensator
+  const latencyMs = msg.latencyMs || 0
 
   for (const target of players) {
     if (!target.state || target.id === shooterId) continue
     if (ctx.state.respawning.has(target.id)) continue
     if ((target.state.health ?? ctx.state.config.health) <= 0) continue
-    const tp = target.state.position
+    const rewound = latencyMs > 0 && lagComp ? lagComp.getPlayerStateAtTime(target.id, latencyMs) : null
+    const tp = rewound ? rewound.position : target.state.position
     const toTarget = [tp[0] - origin[0], tp[1] + 0.9 - origin[1], tp[2] - origin[2]]
     const dot = toTarget[0] * direction[0] + toTarget[1] * direction[1] + toTarget[2] * direction[2]
     if (dot < 0 || dot > range) continue

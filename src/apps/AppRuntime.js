@@ -19,6 +19,7 @@ export class AppRuntime {
     this._nextEntityId = 1; this._appDefs = new Map(); this._timers = new Map(); this._interactCooldowns = new Map(); this._respawnTimer = new Map()
     this._activeDynamicIds = new Set(); this._sleepingDynamicIds = new Set(); this._physicsBodyToEntityId = new Map(); this._suspendedEntityIds = new Set()
     this._physicsLODRadius = c.physicsRadius || 0
+    this._lagCompensator = c.lagCompensator || null
     const serverTickRate = c.tickRate || 64, entityTickRate = c.entityTickRate || serverTickRate
     this._entityTickDivisor = Math.max(1, Math.round(serverTickRate / entityTickRate))
     this._physicsLODInterval = Math.max(1, Math.round(serverTickRate / 2))

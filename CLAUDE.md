@@ -240,6 +240,16 @@ Per-player `entityMap` tracks only dynamic entity delta keys. Static entity IDs 
 
 Measured result: 87ms snap phase → ~10ms at 1000 static + 100 dynamic + 100 players (10x speedup).
 
+## Dynamic Entity Cache: In-Place Mutation (O(N_active) not O(N_total))
+
+`SnapshotEncoder.buildDynamicCache(activeIds, sleepingIds, suspendedIds, entities)` — cold-start cache build. Encodes all dynamic entities (active + sleeping + suspended) into a `Map<id, {enc,k,cust,custStr,isEnv,sleeping}>`. Called when `prevDynCache` is null (first tick, keyframe, or entity spawn/destroy).
+
+`SnapshotEncoder.refreshDynamicCache(cache, activeIds, entities)` — hot-path in-place mutation. Only iterates `_activeDynamicIds` (O(N_active)), mutating the cache entries for awake bodies only. Sleeping entries remain in cache untouched (their last known position). Rebuilds `_envIds` from active env entities.
+
+`TickHandler` resets `prevDynCache = null` when `_staticVersion` changes (any entity spawn/destroy) or on keyframe ticks, triggering a full `buildDynamicCache`. Normal ticks call `refreshDynamicCache`. Cost: 0.1ms for 100 active of 10k total.
+
+`AppRuntime.getStaticSnapshot()` iterates `_staticEntityIds` only (O(N_static)) instead of `getSnapshot()` O(N_all). Used for static entity pre-encoding in the snap phase.
+
 ## Pre-Encoded Dynamic Entity Cache (Snap Phase Optimization)
 
 In the spatial snapshot path (relevanceRadius > 0), dynamic entities are encoded once per tick before the per-player loop via `SnapshotEncoder.encodeDynamicEntitiesOnce(rawEntities, prevCache)`. This returns a `Map<id, {enc, k, cust, custStr, isEnv}>` cache used by all players. Per-player work is reduced to relevance filtering + delta key comparison only — no re-encoding per player.
@@ -290,6 +300,12 @@ Bandwidth reduction: 250 players @ 128 TPS = 28.77 → 2.00 MB/s (93% saved). Sc
 ## LagCompensator Ring Buffer
 
 Fixed 128-slot ring buffer. Entries pruned by timestamp (default 500ms window), not by count. Pre-allocated entry objects avoid GC.
+
+`ctx.lagCompensator` is exposed on server app context (`AppContext.js`). Call `lagCompensator.getPlayerStateAtTime(playerId, millisAgo)` to get rewound position for hit validation.
+
+**Hit detection pattern** (tps-game): client sends `clientTime: Date.now()` in `fire` message via `sendFire`. Server computes `latencyMs = Math.min(600, Date.now() - msg.clientTime)`. `handleFire` calls `lagCompensator.getPlayerStateAtTime(target.id, latencyMs)` to rewind target position. Hitbox check runs against rewound position — shooter fires where they see the target, not where server says target is now. Cap at 600ms prevents abuse on high-latency connections.
+
+**Why this matters**: At 100ms RTT, server snapshot is 50ms old when client renders. Shooter aims at ghost position. Without lag comp, all shots miss by 50ms of movement. With lag comp, server rewinds to validate against the target's position at the moment the shooter fired.
 
 ## Hot Reload Architecture
 

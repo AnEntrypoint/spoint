@@ -213,6 +213,8 @@ export class AppContext {
     }
   }
 
+  get lagCompensator() { return this._runtime._lagCompensator || null }
+
   get bus() { return this._busScope }
 
   get storage() {

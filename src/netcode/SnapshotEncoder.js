@@ -108,19 +108,6 @@ export class SnapshotEncoder {
     cache._envIds = envIds; return cache
   }
 
-  static encodeDynamicEntitiesOnce(entities, prevCache) {
-    const cache = new Map(), envIds = []
-    for (const e of entities) {
-      if (e.bodyType === 'static') continue
-      if (e._sleeping) { if (prevCache) { const prev=prevCache.get(e.id); if (prev) { cache.set(e.id,prev); if (prev.isEnv) envIds.push(e.id) } }; continue }
-      const enc = encodeEntity(e), prev = prevCache ? prevCache.get(e.id) : null, cust = enc[13]
-      const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? JSON.stringify(cust) : '')
-      const isEnv = e._isEnv || false
-      cache.set(e.id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv })
-      if (isEnv) envIds.push(e.id)
-    }
-    cache._envIds = envIds; return cache
-  }
 
   static encodeDeltaFromCache(tick, serverTime, dynCache, relevantIds, prevEntityMap, preEncodedPlayers, staticEntries, staticEntityMap, staticEntityIds, precomputedRemoved, seqNum, viewerPos) {
     const entities = []

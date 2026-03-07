@@ -91,7 +91,7 @@ export class PhysicsNetworkClient {
 
   sendFire(data) {
     if (!this._isOpen()) return
-    this.ws.send(pack({ type: MSG.APP_EVENT, payload: { type: 'fire', shooterId: this.playerId, ...data } }))
+    this.ws.send(pack({ type: MSG.APP_EVENT, payload: { type: 'fire', shooterId: this.playerId, clientTime: Date.now(), ...data } }))
   }
 
   sendReload() {
