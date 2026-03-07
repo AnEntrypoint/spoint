@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.187](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.186...v0.1.187) (2026-03-07)
+
+
+### Bug Fixes
+
+* continuous velocity extrapolation between server snapshots eliminates jitter ([d26509e](https://github.com/AnEntrypoint/spawnpoint/commit/d26509e85d88c7ee4d6310e978bc59ca05542978))
+
 ### [0.1.186](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.185...v0.1.186) (2026-03-07)
 
 
