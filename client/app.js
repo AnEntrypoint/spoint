@@ -1045,8 +1045,7 @@ function buildEntityMesh(entityId, custom) {
 
 const pendingLoads = new Set()
 
-// Entity model loading queue - concurrent with max 4 simultaneous loads
-const MAX_CONCURRENT_LOADS = 4
+const MAX_CONCURRENT_LOADS = 8
 const loadQueue = []
 let _activeLoads = 0
 const _loadWaiters = []
@@ -1091,12 +1090,11 @@ function loadEntityModel(entityId, entityState) {
   if (entityMeshes.has(entityId) || pendingLoads.has(entityId)) return
   pendingLoads.add(entityId)
   loadQueue.push({ entityId, entityState })
-  if (loadQueue.length === 1) console.log(`[queue] entity load queue active: max ${MAX_CONCURRENT_LOADS} concurrent`)
+  if (loadQueue.length === 1 && _activeLoads === 0) console.log(`[queue] entity load queue started`)
   processLoadQueue()
 }
 
 async function _doLoadEntityModel(entityId, entityState) {
-  if (entityState.model) console.log(`[load:${_activeLoads}/${MAX_CONCURRENT_LOADS}] ${entityId}`)
   const isEditorPlaceholder = entityState.custom?.editorPlaceholder === true
   const smartObjectTemplate = entityState.custom?.template
 
@@ -1117,7 +1115,7 @@ async function _doLoadEntityModel(entityId, entityState) {
     if (!environmentLoaded) { environmentLoaded = true; checkAllLoaded() }
     return
   }
-  loadingMgr.setLabel('Loading world...')
+  if (loadingMgr.label !== 'Loading world...') loadingMgr.setLabel('Loading world...')
   const url = entityState.model.startsWith('./') ? '/' + entityState.model.slice(2) : entityState.model
 
   // Track unique models for dynamic asset counting
@@ -1165,7 +1163,7 @@ async function _doLoadEntityModel(entityId, entityState) {
     }
     _hierarchyDirty = true
     if (!isDynamic) {
-      cam.setEnvironment(colliders)
+      cam.addEnvironment(colliders)
       _scheduleFitShadow()
     }
     pendingLoads.delete(entityId)

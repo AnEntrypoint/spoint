@@ -47,6 +47,7 @@ export function createCameraController(camera, scene) {
   aimRaycaster.firstHitOnly = true
 
   function setEnvironment(meshes) { envMeshes.length = 0; envMeshes.push(...meshes) }
+  function addEnvironment(meshes) { for (let i = 0; i < meshes.length; i++) envMeshes.push(meshes[i]) }
   function setCameraBone(bone) { cameraBone = bone }
   function setHeadBone(bone) { headBone = bone }
 
@@ -303,5 +304,5 @@ function setEditMode(enabled) {
 function getEditMode() { return editMode }
 function getEditCameraPosition() { return editCamPos }
 
-return { restore, save, onMouseMove, onWheel, getAimDirection, update, setEnvironment, setCameraBone, setHeadBone, applyConfig, setMode, getMode, setPosition, setTarget, punch, setVRYaw, getVRYaw, setVRPitch, getVRPitch, adjustVRPitch, setEditMode, getEditMode, getEditCameraPosition, get yaw() { return yaw }, get pitch() { return pitch }, get mode() { return mode } }
+return { restore, save, onMouseMove, onWheel, getAimDirection, update, setEnvironment, addEnvironment, setCameraBone, setHeadBone, applyConfig, setMode, getMode, setPosition, setTarget, punch, setVRYaw, getVRYaw, setVRPitch, getVRPitch, adjustVRPitch, setEditMode, getEditMode, getEditCameraPosition, get yaw() { return yaw }, get pitch() { return pitch }, get mode() { return mode } }
 }
