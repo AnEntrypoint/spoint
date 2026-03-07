@@ -49,6 +49,7 @@ export function createTickHandler(deps) {
   let staticEntityIds = new Set()
   let lastStaticEntries = null
   let lastStaticVersion = -1
+  let lastDynVersion = -1
   let prevDynCache = null
   let profileLog = 0
   let profileSum = 0, profileSumSnap = 0, profileSumPhys = 0, profileSumMv = 0, profileCount = 0
@@ -121,9 +122,9 @@ export function createTickHandler(deps) {
         const curStaticVersion = appRuntime._staticVersion
         let activeStaticEntries = null
         if (isKeyframe || curStaticVersion !== lastStaticVersion) {
-          const allEntitiesSnap = appRuntime.getSnapshot()
+          const staticSnap = appRuntime.getStaticSnapshot()
           const prevStaticMap = isKeyframe ? new Map() : staticEntityMap
-          const { staticEntries, changedEntries, staticMap, staticChanged } = SnapshotEncoder.encodeStaticEntities(allEntitiesSnap.entities, prevStaticMap)
+          const { staticEntries, changedEntries, staticMap, staticChanged } = SnapshotEncoder.encodeStaticEntities(staticSnap.entities, prevStaticMap)
           lastStaticEntries = staticEntries
           if (staticChanged || isKeyframe) {
             staticEntityMap = staticMap
@@ -135,21 +136,18 @@ export function createTickHandler(deps) {
         const serverTime = serverNow
         const precomputedRemoved = []
         let dynCache = null
+        if (isKeyframe || curStaticVersion !== lastDynVersion) { prevDynCache = null; lastDynVersion = curStaticVersion }
         const allEncodedPlayers = SnapshotEncoder.encodePlayersOnce(playerSnap.players)
         for (const player of players) {
           if (player.id % snapGroups !== curGroup) continue
           if (dynCache === null) {
-            const activeDynCount = appRuntime._activeDynamicIds.size
-            if (activeDynCount === 0 && prevDynCache !== null) {
-              dynCache = prevDynCache
-            } else if (prevDynCache !== null && activeDynCount < prevDynCache.size * 0.1) {
-              dynCache = SnapshotEncoder.updateDynamicCache(prevDynCache, appRuntime._activeDynamicIds, appRuntime.entities)
-              prevDynCache = dynCache
+            const activeIds = appRuntime._activeDynamicIds
+            if (prevDynCache === null) {
+              prevDynCache = SnapshotEncoder.buildDynamicCache(activeIds, appRuntime._sleepingDynamicIds, appRuntime._suspendedEntityIds, appRuntime.entities)
             } else {
-              const dynEntitiesRaw = appRuntime.getDynamicEntitiesRaw()
-              dynCache = SnapshotEncoder.encodeDynamicEntitiesOnce(dynEntitiesRaw, prevDynCache)
-              prevDynCache = dynCache
+              SnapshotEncoder.refreshDynamicCache(prevDynCache, activeIds, appRuntime.entities)
             }
+            dynCache = prevDynCache
           }
           const isNewPlayer = !playerEntityMaps.has(player.id)
           const viewerPos = player.state.position

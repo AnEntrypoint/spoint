@@ -159,6 +159,12 @@ export class AppRuntime {
     return { tick: this.currentTick, timestamp: Date.now(), entities }
   }
 
+  getStaticSnapshot() {
+    const entities = []
+    for (const id of this._staticEntityIds) { const e = this.entities.get(id); if (e) entities.push(this._encodeEntity(id, e)) }
+    return { tick: this.currentTick, timestamp: Date.now(), entities }
+  }
+
   getSnapshotForPlayer(playerPosition, radius, skipStatic = false) {
     const entities = [], relevant = new Set(this.relevantEntities(playerPosition, radius)), iter = skipStatic ? this._dynamicEntityIds : this.entities.keys()
     for (const id of iter) { const e = this.entities.get(id); if (e && (relevant.has(id) || e._appName === 'environment')) entities.push(this._encodeEntity(id, e)) }

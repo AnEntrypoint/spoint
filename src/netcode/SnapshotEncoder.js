@@ -78,15 +78,34 @@ export class SnapshotEncoder {
 
   static buildStaticIds(staticMap) { return new Set(staticMap.keys()) }
 
-  static updateDynamicCache(prevCache, activeIds, entities) {
-    const cache = new Map(prevCache)
+  static refreshDynamicCache(cache, activeIds, entities) {
+    const envIds = []
     for (const id of activeIds) {
       const e = entities.get(id); if (!e || e.bodyType === 'static') continue
-      const enc = encodeEntity(e), prev = prevCache.get(id), cust = enc[13]
+      const prev = cache.get(id), enc = encodeEntity(e), cust = enc[13]
       const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? JSON.stringify(cust) : '')
-      cache.set(id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: false })
+      const isEnv = prev ? prev.isEnv : e._appName === 'environment'
+      cache.set(id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv, sleeping: false })
+      if (isEnv) envIds.push(id)
     }
+    cache._envIds = envIds
     return cache
+  }
+
+  static buildDynamicCache(activeIds, sleepingIds, suspendedIds, entities) {
+    const cache = new Map(), envIds = []
+    const encodeAndStore = (id, sleeping) => {
+      const e = entities.get(id); if (!e || e.bodyType === 'static') return
+      const enc = encodeEntity(e), cust = enc[13]
+      const custStr = cust != null ? JSON.stringify(cust) : ''
+      const isEnv = e._appName === 'environment'
+      cache.set(id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv, sleeping })
+      if (isEnv && !sleeping) envIds.push(id)
+    }
+    for (const id of activeIds) encodeAndStore(id, false)
+    for (const id of sleepingIds) encodeAndStore(id, true)
+    for (const id of suspendedIds) encodeAndStore(id, true)
+    cache._envIds = envIds; return cache
   }
 
   static encodeDynamicEntitiesOnce(entities, prevCache) {
