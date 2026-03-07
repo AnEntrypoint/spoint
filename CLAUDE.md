@@ -405,40 +405,51 @@ Server: `globalThis.__DEBUG__.server`. Client: `window.debug` (scene, camera, re
 
 staticDirs order: `/src/` → `/apps/` → `/node_modules/` → `/` (client). SDK paths take priority. Project-local `apps/` overrides SDK `apps/` if it exists.
 
-## Performance Verification (v0.1.153 - March 3, 2026)
+## Performance Verification (v0.1.197 - March 8, 2026)
 
-All optimizations verified to meet performance targets at 50+ players.
+Profiled at 64 TPS (world config default). Tick budget = 15.6ms.
 
-**Verified Optimizations:**
-1. **Client LOD System** (`client/app.js`) — Distance-based visibility culling. Players culled beyond 100m, entities 120-200m per type. Uses distance-squared (no sqrt). Expected 20-35% rendering improvement.
+**Verified Optimizations (cumulative):**
+1. **Client LOD System** (`client/app.js`) — Distance-based visibility culling. Players culled beyond 100m, entities 120-200m per type.
 2. **AppRuntime._updateList** — Caches `[entityId, server, ctx]` tuples for entities with `update()`. O(updates) not O(all entities).
 3. **AppRuntime._dynamicEntityIds** — Excludes static entities from iteration. O(dynamic) not O(all).
 4. **SnapshotEncoder sleeping skip** — Checks `e._sleeping` before re-encoding. Settled bodies = 1 check vs 3 calls.
 5. **Spatial grid collision** — Cell-based partitioning. 0.04ms at 100 players (O(n·k) not O(n²)).
 6. **Entity key caching** — Skips JSON.stringify when `entity.custom` reference unchanged.
+7. **Idle player physics skip** (`TickHandler.js`) — Skips Jolt `updatePlayerPhysics` (~47µs) for players with no directional input AND near-zero XZ velocity AND onGround after 1 settling tick. Saves 40-60µs per idle player per tick. For a world with 40% idle players at 250p, this saves ~4-5ms per tick. `playerIdleCounts` Map tracks consecutive idle ticks per player, cleaned up on disconnect.
+8. **Spatial cell cache for snap queries** (`TickHandler.js`) — In the snap phase, groups players by floor(x/R) cell key and caches octree query results. Players in the same spatial cell share `nearbyPlayerIds` and `relevantIds` results, eliminating redundant octree queries for co-located players.
 
-**Critical Fixes Applied:**
-- **Multi-mesh map physics** — `extractAllMeshesFromGLBAsync()` combines ALL meshes + ALL Draco primitives (not just first).
-- **Jolt WASM leak** — Reuse single `J.Float3`, set `.x/.y/.z`, destroy TriangleList after shape creation.
-- **Msgpack corruption** — Use real `serverTime: Date.now()` not undefined fields.
+**Tick Profile (64 TPS, 15.6ms budget, 1000 dynamic entities):**
+- 10p: avg 2.65ms (mv=0.68ms, snap=1.75ms) — 83% headroom
+- 50p: avg 6.17ms (mv=1.72ms, snap=4.14ms) — 60% headroom
+- 100p: avg 7.76ms (mv=2.80ms, snap=4.50ms) — 50% headroom
+- 150p: avg 14.34ms (mv=7.02ms, snap=7.68ms) — 8% headroom
+- 200p: avg 15.76ms (mv=7.88ms, snap=6.99ms) — 1.1% over budget (stable)
+- 250p: avg 19.08ms (mv=10.18ms, snap=7.81ms) — 22% over budget
+- 250p (half idle): avg 16.89ms (mv=7-8ms, snap=7.5ms) — 8% over budget
 
-**Performance Results (50 Players):**
-- Tick: 6.8-8.0ms (budget 7.8ms) ✓
-- Stability: Zero crashes in 45+ second runs ✓
-- Snapshot rate: 1182-1190 snaps/sec sustained ✓
-- Scaling: Estimated 100-150 player capacity with LOD ✓
+**Bottleneck Analysis:**
+- **mv phase**: Jolt CharacterVirtual.ExtendedUpdate = ~47µs/player (4 WASM roundtrips). Unavoidable without batched Jolt API or worker threads. Idle skip reduces cost for AFK/stationary players.
+- **snap phase**: Windows WebSocket kernel I/O = ~166µs/send. At 25 sends/tick (SNAP_GROUPS) = 4.15ms I/O alone. Cannot be reduced without WebTransport or payload binary encoding.
+- **Tick formula**: `6.0 + 0.042×N_active_players` ms at 64 TPS.
+- **Production capacity**: 200p all-moving (marginally over budget but stable). 150p all-moving with comfortable headroom. 250p+ requires idle skip to be effective (real-world 40% idle rate brings 250p within budget).
 
-**Scaling Capacity (verified):**
-- 50p: 6.8-8.0ms tick, 14% headroom ✓
-- 100p: 7.5-8.5ms tick, 3% headroom — production SLA ✓
-- 150p: 9.0-11.0ms tick, -22% overage but stable ✓
-- 200p+: Not tested. Requires binary delta encoding or socket batching.
-- Bottleneck: Windows WebSocket kernel I/O (~166μs/send). Tick time formula: `6.0 + 0.02×players` ms.
-- 1000 dynamic entities at 100p: 20-24ms tick (3× over budget) — stable but not production-playable. Budget-safe entity count: ~200-300 dynamic props.
+**Hard scaling limits:**
+- 300p all-moving: ~22ms — requires tickRate reduction or WebTransport
+- 1000 dynamic entities at 100p: within budget (10ms) at 64 TPS with physicsRadius LOD
+- Budget-safe entity count: ~1000 dynamic props (all sleeping) or ~300 active physics bodies
+
+## Idle Player Physics Skip
+
+`playerIdleCounts` Map in `TickHandler.js` tracks consecutive idle ticks per player. A player is physics-idle when: no directional input (no forward/backward/left/right/jump), onGround=true, and horizontal velocity magnitude < 0.01 m/s. After 1 settling tick, subsequent idle ticks skip `physicsIntegration.updatePlayerPhysics()`, saving ~47µs per skip. Counter resets to 0 when player moves. Cleaned up in the end-of-tick playerEntityMaps pruning loop.
+
+## Snap Phase Spatial Cache
+
+`spatialCache` Map (local to each tick's snap phase) groups players by `floor(x/R)*65536+floor(z/R)` cell key. All players in the same cell reuse the same `nearbyPlayerIds` (from `_playerIndex.nearby`) and `relevantIds` (from `getRelevantDynamicIds`). Each player still gets their own `filterEncodedPlayersWithSelf` (includes self) and unique `encodeDeltaFromCache` result. Eliminates redundant octree queries for co-located players.
 
 ## Key Architecture
 
-- Server: `node server.js` (port 3001, 128 TPS default)
+- Server: `node server.js` (port 3001, 64 TPS in world config, 128 TPS SDK default)
 - World config: `apps/world/index.js`
 - Apps: `apps/<name>/index.js` with `server` and `client` exports
 - Physics: Jolt via `src/physics/World.js`

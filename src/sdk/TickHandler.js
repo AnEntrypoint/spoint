@@ -56,6 +56,7 @@ export function createTickHandler(deps) {
   const snapUnreliable = isUnreliable(MSG.SNAPSHOT)
   let grid = new Map()
   const gridCells = new Map()
+  const playerIdleCounts = new Map()
 
   return function onTick(tick, dt) {
     const t0 = performance.now()
@@ -82,9 +83,18 @@ export function createTickHandler(deps) {
       applyMovement(st, inp, movement, dt)
       if (inp) physicsIntegration.setCrouch(player.id, !!inp.crouch)
       const wishedVx = st.velocity[0], wishedVz = st.velocity[2]
-      physicsIntegration.updatePlayerPhysics(player.id, st, dt)
-      st.velocity[0] = wishedVx
-      st.velocity[2] = wishedVz
+      const hasInput = inp && (inp.forward || inp.backward || inp.left || inp.right || inp.jump)
+      const vx2 = wishedVx * wishedVx, vz2 = wishedVz * wishedVz
+      const isIdle = !hasInput && st.onGround && vx2 + vz2 < 1e-4
+      const idleCount = playerIdleCounts.get(player.id) || 0
+      if (isIdle && idleCount >= 1) {
+        playerIdleCounts.set(player.id, idleCount + 1)
+      } else {
+        physicsIntegration.updatePlayerPhysics(player.id, st, dt)
+        st.velocity[0] = wishedVx
+        st.velocity[2] = wishedVz
+        playerIdleCounts.set(player.id, isIdle ? idleCount + 1 : 0)
+      }
       lagCompensator.recordPlayerPosition(player.id, st.position, st.rotation, st.velocity, tick)
       networkState.updatePlayer(player.id, { position:st.position, rotation:st.rotation, velocity:st.velocity, onGround:st.onGround, health:st.health, inputSequence:player.inputSequence, crouch:st.crouch||0, lookPitch:st.lookPitch||0, lookYaw:st.lookYaw||0 })
     }
@@ -133,14 +143,16 @@ export function createTickHandler(deps) {
         const serverTime = serverNow
         const precomputedRemoved = []
         let dynCache = null
+        const prevDynCacheForRebuild = prevDynCache
         if (isKeyframe || curStaticVersion !== lastDynVersion) { prevDynCache = null; lastDynVersion = curStaticVersion }
         const allEncodedPlayers = SnapshotEncoder.encodePlayersOnce(playerSnap.players)
+        const spatialCache = new Map()
         for (const player of players) {
           if (player.id % snapGroups !== curGroup) continue
           if (dynCache === null) {
             const activeIds = appRuntime._activeDynamicIds
             if (prevDynCache === null) {
-              prevDynCache = SnapshotEncoder.buildDynamicCache(activeIds, appRuntime._sleepingDynamicIds, appRuntime._suspendedEntityIds, appRuntime.entities)
+              prevDynCache = SnapshotEncoder.buildDynamicCache(activeIds, appRuntime._sleepingDynamicIds, appRuntime._suspendedEntityIds, appRuntime.entities, prevDynCacheForRebuild)
             } else {
               SnapshotEncoder.refreshDynamicCache(prevDynCache, activeIds, appRuntime.entities)
             }
@@ -148,9 +160,15 @@ export function createTickHandler(deps) {
           }
           const isNewPlayer = !playerEntityMaps.has(player.id)
           const viewerPos = player.state.position
-          const nearbyPlayerIds = appRuntime._playerIndex.nearby(viewerPos, relevanceRadius)
+          const cellKey = (Math.floor(viewerPos[0] / relevanceRadius) * 65536 + Math.floor(viewerPos[2] / relevanceRadius)) | 0
+          let cached = spatialCache.get(cellKey)
+          if (!cached) {
+            cached = { nearbyPlayerIds: appRuntime._playerIndex.nearby(viewerPos, relevanceRadius), relevantIds: appRuntime.getRelevantDynamicIds(viewerPos, relevanceRadius) }
+            spatialCache.set(cellKey, cached)
+          }
+          const nearbyPlayerIds = cached.nearbyPlayerIds
           const preEncodedPlayers = SnapshotEncoder.filterEncodedPlayersWithSelf(allEncodedPlayers, nearbyPlayerIds, player.id)
-          const relevantIds = appRuntime.getRelevantDynamicIds(viewerPos, relevanceRadius)
+          const relevantIds = cached.relevantIds
           const prevMap = isNewPlayer ? new Map() : playerEntityMaps.get(player.id)
           const staticForPlayer = isNewPlayer ? lastStaticEntries : activeStaticEntries
           const removed = isNewPlayer ? undefined : precomputedRemoved
@@ -173,7 +191,7 @@ export function createTickHandler(deps) {
       }
     }
 
-    for (const id of playerEntityMaps.keys()) { if (!playerManager.getPlayer(id)) playerEntityMaps.delete(id) }
+    for (const id of playerEntityMaps.keys()) { if (!playerManager.getPlayer(id)) { playerEntityMaps.delete(id); playerIdleCounts.delete(id) } }
     const t5 = performance.now()
     try { appRuntime._drainReloadQueue() } catch (e) { console.error('[TickHandler] reload queue error:', e.message) }
     if (players.length > 0) { profileSum += t5-t0; profileSumSnap += t5-t4; profileSumPhys += t3-t2; profileSumMv += t1-t0; profileCount++ }
@@ -183,7 +201,8 @@ export function createTickHandler(deps) {
       const dynIds=appRuntime._dynamicEntityIds?.size||0, activeDyn=appRuntime._activeDynamicIds?.size||0
       const avgTotal=avg(profileSum),avgSnap=avg(profileSumSnap),avgPhys=avg(profileSumPhys),avgMv=avg(profileSumMv)
       profileSum=0; profileSumSnap=0; profileSumPhys=0; profileSumMv=0; profileCount=0
-      try { console.log(`[tick-profile] tick:${tick} players:${players.length} entities:${appRuntime.entities.size} dynIds:${dynIds} activeDyn:${activeDyn} total:${total.toFixed(2)}ms(avg:${avgTotal}) | mv:${(t1-t0).toFixed(2)}(avg:${avgMv}) col:${(t2-t1).toFixed(2)} phys:${(t3-t2).toFixed(2)}(avg:${avgPhys}) app:${(t4-t3).toFixed(2)} sync:${(appRuntime._lastSyncMs||0).toFixed(2)} respawn:${(appRuntime._lastRespawnMs||0).toFixed(2)} spatial:${(appRuntime._lastSpatialMs||0).toFixed(2)} col2:${(appRuntime._lastCollisionMs||0).toFixed(2)} int:${(appRuntime._lastInteractMs||0).toFixed(2)} snap:${(t5-t4).toFixed(2)}(avg:${avgSnap}) | heap:${mb(mem.heapUsed)}MB rss:${mb(mem.rss)}MB ext:${mb(mem.external)}MB ab:${mb(mem.arrayBuffers)}MB`) } catch (_) {}
+      const idleSkipped = players.length > 0 ? [...playerIdleCounts.values()].filter(c=>c>=2).length : 0
+      try { console.log(`[tick-profile] tick:${tick} players:${players.length} idle:${idleSkipped} entities:${appRuntime.entities.size} dynIds:${dynIds} activeDyn:${activeDyn} total:${total.toFixed(2)}ms(avg:${avgTotal}) | mv:${(t1-t0).toFixed(2)}(avg:${avgMv}) col:${(t2-t1).toFixed(2)} phys:${(t3-t2).toFixed(2)}(avg:${avgPhys}) app:${(t4-t3).toFixed(2)} sync:${(appRuntime._lastSyncMs||0).toFixed(2)} respawn:${(appRuntime._lastRespawnMs||0).toFixed(2)} spatial:${(appRuntime._lastSpatialMs||0).toFixed(2)} col2:${(appRuntime._lastCollisionMs||0).toFixed(2)} int:${(appRuntime._lastInteractMs||0).toFixed(2)} snap:${(t5-t4).toFixed(2)}(avg:${avgSnap}) | heap:${mb(mem.heapUsed)}MB rss:${mb(mem.rss)}MB ext:${mb(mem.external)}MB ab:${mb(mem.arrayBuffers)}MB`) } catch (_) {}
     }
   }
 }

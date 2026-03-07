@@ -92,19 +92,31 @@ export class SnapshotEncoder {
     return cache
   }
 
-  static buildDynamicCache(activeIds, sleepingIds, suspendedIds, entities) {
+  static buildDynamicCache(activeIds, sleepingIds, suspendedIds, entities, prevCache) {
     const cache = new Map(), envIds = []
-    const encodeAndStore = (id, sleeping) => {
-      const e = entities.get(id); if (!e || e.bodyType === 'static') return
+    for (const id of activeIds) {
+      const e = entities.get(id); if (!e || e.bodyType === 'static') continue
+      const enc = encodeEntity(e), cust = enc[13]
+      const prev = prevCache?.get(id)
+      const custStr = (prev && prev.cust === cust) ? prev.custStr : (cust != null ? JSON.stringify(cust) : '')
+      const isEnv = e._appName === 'environment'
+      cache.set(id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv, sleeping: false })
+      if (isEnv) envIds.push(id)
+    }
+    for (const id of sleepingIds) {
+      if (prevCache?.has(id)) { cache.set(id, prevCache.get(id)); continue }
+      const e = entities.get(id); if (!e || e.bodyType === 'static') continue
       const enc = encodeEntity(e), cust = enc[13]
       const custStr = cust != null ? JSON.stringify(cust) : ''
-      const isEnv = e._appName === 'environment'
-      cache.set(id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv, sleeping })
-      if (isEnv && !sleeping) envIds.push(id)
+      cache.set(id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: e._appName === 'environment', sleeping: true })
     }
-    for (const id of activeIds) encodeAndStore(id, false)
-    for (const id of sleepingIds) encodeAndStore(id, true)
-    for (const id of suspendedIds) encodeAndStore(id, true)
+    for (const id of suspendedIds) {
+      if (prevCache?.has(id)) { cache.set(id, prevCache.get(id)); continue }
+      const e = entities.get(id); if (!e || e.bodyType === 'static') continue
+      const enc = encodeEntity(e), cust = enc[13]
+      const custStr = cust != null ? JSON.stringify(cust) : ''
+      cache.set(id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: e._appName === 'environment', sleeping: true })
+    }
     cache._envIds = envIds; return cache
   }
 
