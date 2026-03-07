@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.195](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.194...v0.1.195) (2026-03-07)
+
+
+### Features
+
+* CS:GO-style top/bottom split animation with lookYaw/lookPitch ([01ec3fb](https://github.com/AnEntrypoint/spawnpoint/commit/01ec3fb40d24835853668d84add3e021f8980ab1))
+
 ### [0.1.194](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.193...v0.1.194) (2026-03-07)
 
 ### [0.1.193](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.192...v0.1.193) (2026-03-07)
