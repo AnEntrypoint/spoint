@@ -1814,9 +1814,13 @@ function animate(timestamp) {
     if (!mesh) return
     const isLocal = id === client.playerId
     if (isLocal) {
-      mesh.position.x = target.x
-      mesh.position.y = target.y
-      mesh.position.z = target.z
+      const ps = playerStates.get(id)
+      const vx = ps?.velocity?.[0] || 0, vy = ps?.velocity?.[1] || 0, vz = ps?.velocity?.[2] || 0
+      const goalX = target.x + vx * frameDt, goalY = target.y + vy * frameDt, goalZ = target.z + vz * frameDt
+      const localLerp = 1.0 - Math.exp(-40 * frameDt)
+      mesh.position.x += (goalX - mesh.position.x) * localLerp
+      mesh.position.y += (goalY - mesh.position.y) * localLerp
+      mesh.position.z += (goalZ - mesh.position.z) * localLerp
     } else {
       const ps = playerStates.get(id)
       const vx = ps?.velocity?.[0] || 0, vy = ps?.velocity?.[1] || 0, vz = ps?.velocity?.[2] || 0
