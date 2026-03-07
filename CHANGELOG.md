@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.186](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.185...v0.1.186) (2026-03-07)
+
+
+### Bug Fixes
+
+* camera follows mesh position directly, eliminating player/camera jitter ([608d203](https://github.com/AnEntrypoint/spawnpoint/commit/608d203799ffe698d798709982c2e620a92fa19e))
+
 ### [0.1.185](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.184...v0.1.185) (2026-03-07)
 
 
