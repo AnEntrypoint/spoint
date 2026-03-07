@@ -18,8 +18,9 @@ export class SnapshotProcessor {
 
     const seenPlayers = new Set()
     for (const p of data.players || []) {
-      const { playerId, state } = this._parsePlayer(p)
+      const playerId = Array.isArray(p) ? p[0] : (p.id || p.i)
       seenPlayers.add(playerId)
+      const state = this._parsePlayerNew(p)
       if (!this._playerStates.has(playerId)) {
         this._callbacks.onPlayerJoined?.(playerId, state)
       }
@@ -41,7 +42,8 @@ export class SnapshotProcessor {
   _processEntities(data, snapshotForBuffer) {
     if (data.delta) {
       for (const e of data.entities || []) {
-        const { entityId, state } = this._parseEntity(e)
+        const entityId = Array.isArray(e) ? e[0] : e.id
+        const state = this._parseEntityNew(e)
         if (!this._entityStates.has(entityId)) {
           this._callbacks.onEntityAdded?.(entityId, state)
         }
@@ -59,8 +61,9 @@ export class SnapshotProcessor {
     } else {
       const seen = new Set()
       for (const e of data.entities || []) {
-        const { entityId, state } = this._parseEntity(e)
+        const entityId = Array.isArray(e) ? e[0] : e.id
         seen.add(entityId)
+        const state = this._parseEntityNew(e)
         if (!this._entityStates.has(entityId)) {
           this._callbacks.onEntityAdded?.(entityId, state)
         }
@@ -76,46 +79,22 @@ export class SnapshotProcessor {
     }
   }
 
-  _parsePlayer(p) {
+  _parsePlayerNew(p) {
+    const TAU = 2 * Math.PI
     if (Array.isArray(p)) {
-      return {
-        playerId: p[0],
-        state: {
-          id: p[0], position: [p[1], p[2], p[3]], rotation: [p[4], p[5], p[6], p[7]],
-          velocity: [p[8], p[9], p[10]], onGround: p[11] === 1, health: p[12],
-          inputSequence: p[13], crouch: p[14] || 0,
-          lookPitch: (p[15] || 0) / 255 * 2 * Math.PI - Math.PI,
-          lookYaw: (p[16] || 0) / 255 * 2 * Math.PI
-        }
-      }
+      return { id: p[0], position: [p[1], p[2], p[3]], rotation: [p[4], p[5], p[6], p[7]], velocity: [p[8], p[9], p[10]], onGround: p[11] === 1, health: p[12], inputSequence: p[13], crouch: p[14] || 0, lookPitch: (p[15] || 0) / 255 * TAU - Math.PI, lookYaw: (p[16] || 0) / 255 * TAU }
     }
-    return {
-      playerId: p.id || p.i,
-      state: {
-        id: p.id || p.i, position: p.position || [0, 0, 0], rotation: p.rotation || [0, 0, 0, 1],
-        velocity: p.velocity || [0, 0, 0], onGround: p.onGround ?? false, health: p.health ?? 100
-      }
-    }
+    return { id: p.id || p.i, position: p.position ? [...p.position] : [0, 0, 0], rotation: p.rotation ? [...p.rotation] : [0, 0, 0, 1], velocity: p.velocity ? [...p.velocity] : [0, 0, 0], onGround: p.onGround ?? false, health: p.health ?? 100, inputSequence: 0, crouch: 0, lookPitch: 0, lookYaw: 0 }
   }
 
-  _parseEntity(e) {
+
+  _parseEntityNew(e) {
     if (Array.isArray(e)) {
-      return {
-        entityId: e[0],
-        state: {
-          id: e[0], model: e[1], position: [e[2], e[3], e[4]], rotation: [e[5], e[6], e[7], e[8]],
-          velocity: [e[9], e[10], e[11]], bodyType: e[12], custom: e[13]
-        }
-      }
+      return { id: e[0], model: e[1], position: [e[2], e[3], e[4]], rotation: [e[5], e[6], e[7], e[8]], velocity: [e[9], e[10], e[11]], bodyType: e[12], custom: e[13] }
     }
-    return {
-      entityId: e.id,
-      state: {
-        id: e.id, model: e.model, position: e.position || [0, 0, 0], rotation: e.rotation || [0, 0, 0, 1],
-        velocity: e.velocity || [0, 0, 0], bodyType: e.bodyType || 'static', custom: e.custom || null
-      }
-    }
+    return { id: e.id, model: e.model, position: e.position ? [...e.position] : [0, 0, 0], rotation: e.rotation ? [...e.rotation] : [0, 0, 0, 1], velocity: e.velocity ? [...e.velocity] : [0, 0, 0], bodyType: e.bodyType || 'static', custom: e.custom || null }
   }
+
 
   getPlayerState(playerId) {
     return this._playerStates.get(playerId)
