@@ -1843,19 +1843,12 @@ function animate(timestamp) {
     if (vrm) vrm.update(frameDt)
     const mesh = playerMeshes.get(id)
     if (!mesh) return
-    const vx = ps.velocity?.[0] || 0, vz = ps.velocity?.[2] || 0
-    if (vx * vx + vz * vz > 0.25) mesh.userData.lastYaw = Math.atan2(vx, vz)
-    if (mesh.userData.lastYaw !== undefined) {
-      let diff = mesh.userData.lastYaw - mesh.rotation.y
+    if (ps.lookYaw !== undefined) {
+      let diff = ps.lookYaw - mesh.rotation.y
       diff = diff - Math.PI * 2 * Math.round(diff / (Math.PI * 2))
       mesh.rotation.y += diff * lerpFactor
     }
-    if (ps.lookYaw !== undefined && animator.setLookDirection) {
-      const lowerYaw = mesh.rotation.y
-      let upperYawOffset = (ps.lookYaw || 0) - lowerYaw
-      upperYawOffset = upperYawOffset - Math.PI * 2 * Math.round(upperYawOffset / (Math.PI * 2))
-      animator.setLookDirection(upperYawOffset, ps.lookPitch || 0)
-    }
+    if (animator.setLookDirection) animator.setLookDirection(0, ps.lookPitch || 0)
     const target = playerTargets.get(id)
     updateVRMFeatures(id, frameDt, target)
     if (id !== client.playerId && ps.lookPitch !== undefined) {
