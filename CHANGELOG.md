@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.193](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.192...v0.1.193) (2026-03-07)
+
+
+### Bug Fixes
+
+* lag compensation hit detection + dead code removal ([a8da1c9](https://github.com/AnEntrypoint/spawnpoint/commit/a8da1c92f882880d9becf36a00bb80e5ae0342a7))
+
 ### [0.1.192](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.191...v0.1.192) (2026-03-07)
 
 ### [0.1.191](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.190...v0.1.191) (2026-03-07)
