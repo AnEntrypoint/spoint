@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 
 const camTarget = new THREE.Vector3()
+const _rawCamTarget = new THREE.Vector3()
 const camRaycaster = new THREE.Raycaster()
 const camDir = new THREE.Vector3()
 const camDesired = new THREE.Vector3()
@@ -130,7 +131,9 @@ export function createCameraController(camera, scene) {
     }
 
     const dist = mode === 'fps' ? 0 : zoomStages[zoomIndex]
-    camTarget.set(localPlayer.position[0], localPlayer.position[1] + headHeight, localPlayer.position[2])
+    _rawCamTarget.set(localPlayer.position[0], localPlayer.position[1] + headHeight, localPlayer.position[2])
+    if (!camInitialized) { camTarget.copy(_rawCamTarget) }
+    else { camTarget.lerp(_rawCamTarget, 1.0 - Math.exp(-60 * frameDt)) }
     const punchLerp = 1 - Math.exp(-972 * frameDt)
     punchYaw += (punchYawTarget - punchYaw) * punchLerp
     punchPitch += (punchPitchTarget - punchPitch) * punchLerp
