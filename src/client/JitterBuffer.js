@@ -35,8 +35,10 @@ export class JitterBuffer {
     this.lastServerTime = serverTime
     this.lastClientTime = now
 
-    this.buffer.push({ snapshot, clientTime: now, serverTime, tick: snapshot.tick || 0 })
-    this.buffer.sort((a, b) => a.tick - b.tick)
+    const entry = { snapshot, clientTime: now, serverTime, tick: snapshot.tick || 0 }
+    let i = this.buffer.length
+    while (i > 0 && this.buffer[i - 1].tick > entry.tick) i--
+    this.buffer.splice(i, 0, entry)
 
     while (this.buffer.length > this.maxSize) this.buffer.shift()
 
@@ -58,18 +60,16 @@ export class JitterBuffer {
     if (renderTime >= newest.clientTime) return newest.snapshot
     if (renderTime <= oldest.clientTime) return oldest.snapshot
 
-    for (let i = 0; i < this.buffer.length - 1; i++) {
-      const curr = this.buffer[i]
-      const next = this.buffer[i + 1]
-      if (renderTime >= curr.clientTime && renderTime <= next.clientTime) {
-        const range = next.clientTime - curr.clientTime
-        if (range === 0) return curr.snapshot
-        const alpha = (renderTime - curr.clientTime) / range
-        return this._interpolateSnapshots(curr.snapshot, next.snapshot, alpha)
-      }
+    let lo = 0, hi = this.buffer.length - 2
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1
+      if (this.buffer[mid + 1].clientTime <= renderTime) lo = mid + 1
+      else hi = mid
     }
-
-    return newest.snapshot
+    const curr = this.buffer[lo], next = this.buffer[lo + 1]
+    const range = next.clientTime - curr.clientTime
+    if (range === 0) return curr.snapshot
+    return this._interpolateSnapshots(curr.snapshot, next.snapshot, (renderTime - curr.clientTime) / range)
   }
 
   _getPlayerSlot(idx) {
@@ -139,9 +139,7 @@ export class JitterBuffer {
     this.rttVariance = this.rttVariance * 0.75 + Math.abs(instant - this.rtt) * 0.25
     const alpha = instant > this.rtt ? 0.5 : 0.1
     this.rtt = this.rtt * (1 - alpha) + instant * alpha
-    const rtt = this.rtt
-    const adaptiveBase = rtt < 5 ? 0 : rtt < 30 ? Math.ceil(rtt * 0.5 + this.jitter) : 30
-    this.targetDelay = Math.min(250, adaptiveBase + rtt * 0.5 + this.jitter * 2)
+    this.targetDelay = Math.min(100, Math.max(0, this.jitter * 2 + 8))
   }
 
   getBufferHealth() { return this.buffer.length }
