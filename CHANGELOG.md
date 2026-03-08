@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.228](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.227...v0.1.228) (2026-03-08)
+
+
+### Bug Fixes
+
+* walk speed, jump arc, floor entity, prop scales, camera head height ([9405f6c](https://github.com/AnEntrypoint/spawnpoint/commit/9405f6c8eed628e1d87476891355dc735d03f896))
+
 ### [0.1.227](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.226...v0.1.227) (2026-03-08)
 
 
