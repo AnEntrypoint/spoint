@@ -9,7 +9,7 @@ export default {
   },
   client: {
     render(ctx) {
-      return { position: ctx.entity.position, rotation: ctx.entity.rotation, model: ctx.entity.model }
+      return { position: ctx.entity.position, rotation: ctx.entity.rotation, model: ctx.entity.model, scale: ctx.entity.scale }
     }
   }
 }

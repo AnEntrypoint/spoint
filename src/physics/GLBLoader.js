@@ -89,10 +89,11 @@ export function extractMeshFromGLB(filepath, meshIndex = 0) {
     triangleCount: indices ? indices.length / 3 : 0,
     name: mesh.name
   }
-  
-  const node = json.nodes?.find(n => n.mesh === meshIndex)
-  if (node && (node.scale || node.rotation || node.translation)) {
-    applyNodeTransform(result.vertices, node)
+
+  const nodeIdx = (json.nodes || []).findIndex(n => n.mesh === meshIndex)
+  if (nodeIdx >= 0) {
+    const worldMatrix = buildNodeTransforms(json)[nodeIdx]
+    result.vertices = applyTransformMatrix(result.vertices, worldMatrix)
   }
 
   return result
@@ -132,9 +133,10 @@ export async function extractMeshFromGLBAsync(filepath, meshIndex = 0) {
     result = extractStandardMesh(buf, json, prim, binOffset, mesh.name)
   }
 
-  const node = json.nodes?.find(n => n.mesh === meshIndex)
-  if (node && (node.scale || node.rotation || node.translation)) {
-    applyNodeTransform(result.vertices, node)
+  const nodeIdx = (json.nodes || []).findIndex(n => n.mesh === meshIndex)
+  if (nodeIdx >= 0) {
+    const worldMatrix = buildNodeTransforms(json)[nodeIdx]
+    result.vertices = applyTransformMatrix(result.vertices, worldMatrix)
   }
 
   return result
@@ -168,38 +170,6 @@ function extractStandardMesh(buf, json, prim, binOffset, meshName) {
   }
 }
 
-function applyNodeTransform(vertices, node) {
-  const scale = node.scale ? [node.scale[0], node.scale[1], node.scale[2]] : [1, 1, 1]
-  const translation = node.translation ? [node.translation[0], node.translation[1], node.translation[2]] : [0, 0, 0]
-  
-  if (node.rotation) {
-    const [qx, qy, qz, qw] = node.rotation
-    for (let i = 0; i < vertices.length / 3; i++) {
-      let x = vertices[i * 3] * scale[0]
-      let y = vertices[i * 3 + 1] * scale[1]
-      let z = vertices[i * 3 + 2] * scale[2]
-      
-      const ix = qw * x + qy * z - qz * y
-      const iy = qw * y + qz * x - qx * z
-      const iz = qw * z + qx * y - qy * x
-      const iw = -qx * x - qy * y - qz * z
-      
-      x = ix * qw - iw * qx - iy * qz + iz * qy
-      y = iy * qw - iw * qy - iz * qx + ix * qz
-      z = iz * qw - iw * qz - ix * qy + iy * qx
-      
-      vertices[i * 3] = x + translation[0]
-      vertices[i * 3 + 1] = y + translation[1]
-      vertices[i * 3 + 2] = z + translation[2]
-    }
-  } else {
-    for (let i = 0; i < vertices.length / 3; i++) {
-      vertices[i * 3] = vertices[i * 3] * scale[0] + translation[0]
-      vertices[i * 3 + 1] = vertices[i * 3 + 1] * scale[1] + translation[1]
-      vertices[i * 3 + 2] = vertices[i * 3 + 2] * scale[2] + translation[2]
-    }
-  }
-}
 
 async function decompressDracoMesh(buf, json, prim, binOffset, meshName) {
   const decoder = await getDracoDecoder()

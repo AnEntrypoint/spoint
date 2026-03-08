@@ -8,13 +8,22 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 
 ## Scale Invariant: Physics Always Matches Visual
 
-All collider creation methods in `AppContext.js` multiply shape parameters by `entity.scale`. This is enforced at the AppContext level so app developers never need to think about it.
+**GLB internal node transforms are always applied automatically on both sides. `entity.scale` is a multiplier on top.**
+
+When a GLB is loaded, it contains a node hierarchy where each node has its own position/rotation/scale. Both the physics and visual pipelines apply these transforms identically:
+
+- **Physics** (`GLBLoader.js`): `buildNodeTransforms` walks the full node hierarchy and computes each node's world-space 4×4 matrix (parent × child, recursively). `applyTransformMatrix` bakes the result into the extracted vertex positions. Then `entity.scale` is multiplied on top.
+- **Visual** (`client/app.js`): Three.js `GLTFLoader` applies node hierarchy transforms automatically when parsing the scene graph. `entity.scale` is then set via `model.scale.set(entity.scale)` on the root.
+
+Both pipelines produce: `vertex_world = node_hierarchy_transform(vertex_local) × entity_scale`. They are identical. App developers set `entity.scale` and both physics and visual scale together — no manual math needed.
+
+All collider creation methods in `AppContext.js` enforce this:
 
 - `addBoxCollider`: half-extents multiplied per-axis by `entity.scale`
 - `addSphereCollider`: radius multiplied by `max(entity.scale)`
 - `addCapsuleCollider`: radius and height multiplied by `max(entity.scale)`
-- `addConvexFromModel` / `addConvexFromModelAsync`: vertex positions multiplied per-axis by `entity.scale`
-- `addTrimeshCollider`: passes `entity.scale` to `World.addStaticTrimeshAsync`, which multiplies all extracted vertex positions per-axis before building the Jolt trimesh shape
+- `addConvexFromModel` / `addConvexFromModelAsync`: full node hierarchy applied in `extractMeshFromGLB`/`extractMeshFromGLBAsync`, then vertex positions multiplied per-axis by `entity.scale`
+- `addTrimeshCollider`: full hierarchy applied in `extractAllMeshesFromGLBAsync`, then `entity.scale` passed to `World.addStaticTrimeshAsync` which multiplies all vertex positions per-axis
 
 The client always renders with `entity.scale` from the snapshot. Therefore physics === visual always, by construction. Never set scale on an entity after collider creation — the physics body will not update.
 
