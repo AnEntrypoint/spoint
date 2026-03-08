@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.244](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.243...v0.1.244) (2026-03-08)
+
+
+### Bug Fixes
+
+* remove spine yaw twist causing lean during turning ([1e6d285](https://github.com/AnEntrypoint/spawnpoint/commit/1e6d285c55f87df0582e94b150f70c2b95fb9875))
+
 ### [0.1.243](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.242...v0.1.243) (2026-03-08)
 
 
