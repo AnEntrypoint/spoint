@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.232](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.231...v0.1.232) (2026-03-08)
+
+
+### Bug Fixes
+
+* apply entity scale to trimesh collider vertices so physics matches visual ([2a8055c](https://github.com/AnEntrypoint/spawnpoint/commit/2a8055c365618963f03b71a4c68eba6623f288dc))
+
 ### [0.1.231](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.230...v0.1.231) (2026-03-08)
 
 
