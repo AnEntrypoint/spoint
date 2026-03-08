@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.261](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.260...v0.1.261) (2026-03-08)
+
+
+### Bug Fixes
+
+* lerp body yaw snap to prevent strafe jitter ([5e82d67](https://github.com/AnEntrypoint/spawnpoint/commit/5e82d67d94deb1a31ac9c703bd50042cac4ec4e6))
+
 ### [0.1.260](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.259...v0.1.260) (2026-03-08)
 
 
