@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.215](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.214...v0.1.215) (2026-03-08)
+
+
+### Bug Fixes
+
+* animations, CS-style body rotation, backward walk, and IDB cache key bug ([f0b69ad](https://github.com/AnEntrypoint/spawnpoint/commit/f0b69adb553e1c711cf33f18f28805d92ccad9a7))
+
 ### [0.1.214](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.213...v0.1.214) (2026-03-08)
 
 
