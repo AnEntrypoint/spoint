@@ -8,10 +8,10 @@
     "autorestart": false,
     "watch": false,
     "env": {
-      "BOT_COUNT": "50",
-      "BOT_DURATION": "40000",
-      "BOT_BATCH": "10",
-      "BOT_DELAY": "200"
+      "BOT_COUNT": "300",
+      "BOT_DURATION": "90000",
+      "BOT_BATCH": "5",
+      "BOT_DELAY": "500"
     }
   }]
 }
