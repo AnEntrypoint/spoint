@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.233](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.232...v0.1.233) (2026-03-08)
+
+
+### Bug Fixes
+
+* use full GLB node hierarchy transforms in all physics mesh extractors ([276e060](https://github.com/AnEntrypoint/spawnpoint/commit/276e0603c38978e936e947bfed34684c07f199b9))
+
 ### [0.1.232](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.231...v0.1.232) (2026-03-08)
 
 
