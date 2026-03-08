@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.262](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.261...v0.1.262) (2026-03-08)
+
+
+### Bug Fixes
+
+* velocity extrapolation for local player XZ, raise animation thresholds ([dc60aa9](https://github.com/AnEntrypoint/spawnpoint/commit/dc60aa98d301edac3e528df03764febd2529ad3e))
+
 ### [0.1.261](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.260...v0.1.261) (2026-03-08)
 
 
