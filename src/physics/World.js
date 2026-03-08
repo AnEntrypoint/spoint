@@ -59,6 +59,7 @@ export class PhysicsWorld {
     if (opts.restitution !== undefined) cs.mRestitution = opts.restitution
     if (opts.linearDamping !== undefined) cs.mLinearDamping = opts.linearDamping
     if (opts.angularDamping !== undefined) cs.mAngularDamping = opts.angularDamping
+    if (opts.linearCast) cs.mMotionQuality = J.EMotionQuality_LinearCast
     const activate = motionType === J.EMotionType_Static ? J.EActivation_DontActivate : J.EActivation_Activate
     const body = this.bodyInterface.CreateBody(cs); this.bodyInterface.AddBody(body.GetID(), activate)
     J.destroy(cs)
