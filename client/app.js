@@ -106,8 +106,11 @@ renderer.setSize(window.innerWidth, window.innerHeight)
 renderer.setPixelRatio(isMobileDevice ? window.devicePixelRatio * 0.5 : window.devicePixelRatio)
 renderer.shadowMap.enabled = true
 renderer.shadowMap.type = THREE.PCFSoftShadowMap
+renderer.shadowMap.autoUpdate = false
 renderer.xr.enabled = true
 document.body.appendChild(renderer.domElement)
+renderer.domElement.addEventListener('webglcontextlost', e => { e.preventDefault(); console.warn('[renderer] WebGL context lost') }, false)
+renderer.domElement.addEventListener('webglcontextrestored', () => { console.warn('[renderer] WebGL context restored'); location.reload() }, false)
 
 async function initVRButton() {
   if (navigator.xr && await navigator.xr.isSessionSupported('immersive-vr')) {
@@ -2126,6 +2129,7 @@ function animate(timestamp) {
   }
 
   if (typeof editor !== 'undefined') editor.updateGizmo()
+  if (fpsFrames % 3 === 0) renderer.shadowMap.needsUpdate = true
   renderer.render(scene, camera)
 }
 renderer.setAnimationLoop(animate)

@@ -109,10 +109,10 @@ export default {
   physicsRadius: 60,
   movement: {
     maxSpeed: 8.0,
-    sprintSpeed: 14.0,
+    sprintSpeed: 16.0,
     groundAccel: 500.0,
     airAccel: 30.0,
-    airMaxSpeed: 0.8,
+    airMaxSpeed: 1.5,
     friction: 6.0,
     stopSpeed: 1.0,
     jumpImpulse: 5.0,
