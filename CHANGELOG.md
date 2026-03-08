@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.236](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.235...v0.1.236) (2026-03-08)
+
+
+### Bug Fixes
+
+* spine lean, map scale, and player interpolation jitter ([e0431f8](https://github.com/AnEntrypoint/spawnpoint/commit/e0431f8ad65537e4a78e9201078f897eeb1026d0))
+
 ### [0.1.235](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.234...v0.1.235) (2026-03-08)
 
 
