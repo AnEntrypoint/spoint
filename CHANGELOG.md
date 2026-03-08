@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.249](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.248...v0.1.249) (2026-03-08)
+
+
+### Bug Fixes
+
+* increase ground speed - maxSpeed 10, accel 250, less friction ([d8607ef](https://github.com/AnEntrypoint/spawnpoint/commit/d8607eff30e3cf766e00fe99b0828e5e71ff7c66))
+
 ### [0.1.248](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.247...v0.1.248) (2026-03-08)
 
 ### [0.1.247](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.246...v0.1.247) (2026-03-08)
