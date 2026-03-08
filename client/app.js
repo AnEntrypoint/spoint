@@ -1285,6 +1285,7 @@ async function _doLoadEntityModel(entityId, entityState) {
         finalMesh = new THREE.Group()
         finalMesh.position.set(mp[0], mp[1], mp[2])
         if (mr) finalMesh.quaternion.set(mr[0], mr[1], mr[2], mr[3])
+        if (ms) finalMesh.scale.set(ms[0], ms[1], ms[2])
         finalMesh.userData._instanced = true
         scene.add(finalMesh)
         entityMeshes.set(entityId, finalMesh)

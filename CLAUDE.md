@@ -233,7 +233,18 @@ After `updatePlayerPhysics()`, wished XZ velocity is written back over the physi
 
 ## Snapshot Encoding Format
 
-Positions quantized to 2 decimal places (precision 100), rotations to 4 (precision 10000). Player array: `[id, px, py, pz, rx, ry, rz, rw, vx, vy, vz, onGround, health, inputSeq, crouch, lookPitchByte, lookYawByte]`. Entity array: `[id, model, px, py, pz, rx, ry, rz, rw, bodyType, custom]`. Wrong field order breaks clients silently.
+Positions quantized to 2 decimal places (precision 100), rotations to 4 (precision 10000). Player array: `[id, px, py, pz, rx, ry, rz, rw, vx, vy, vz, onGround, health, inputSeq, crouch, lookPitchByte, lookYawByte]`. Entity array: `[id, model, px, py, pz, rx, ry, rz, rw, vx, vy, vz, bodyType, custom, sx, sy, sz]` — indices 0-13 plus scale at 14-16. Wrong field order breaks clients silently. `SnapshotProcessor._parseEntityNew` decodes all 17 fields including scale.
+
+## Entity Transform Pipeline
+
+Server → Client transform flow for entities:
+1. **Server**: `entity.position`, `entity.rotation` (quaternion [x,y,z,w]), `entity.scale` stored on entity object
+2. **Encoding**: `encodeEntity()` in `SnapshotEncoder.js` quantizes all three into the entity array at fixed indices
+3. **Decoding**: `SnapshotProcessor._parseEntityNew()` must decode all 17 array fields including scale at indices 14-16 (defaults to `[1,1,1]` if absent)
+4. **Client load**: `_doLoadEntityModel()` in `client/app.js` applies position, rotation (quaternion), and scale to the Three.js mesh/group at load time
+5. **Dynamic updates**: animate loop interpolates position and quaternion each frame from `entityTargets`; scale is applied once at load and not re-applied per frame (scale does not change for dynamic entities)
+
+**Rotation is always a full quaternion [x,y,z,w]** — never euler. Both server encoding and client decoding transmit all 4 components.
 
 ## Message Types Are Hex Not Sequential
 
