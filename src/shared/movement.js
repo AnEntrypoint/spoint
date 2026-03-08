@@ -45,10 +45,11 @@ export function applyMovement(state, input, movement, dt) {
     }
   } else {
     if (wishSpeed > 0) {
+      const airCap = movement.airMaxSpeed ?? wishSpeed
       const cur = vx * wishX + vz * wishZ
-      let add = wishSpeed - cur
+      let add = airCap - cur
       if (add > 0) {
-        let as = airAccel * wishSpeed * dt
+        let as = airAccel * airCap * dt
         if (as > add) as = add
         vx += as * wishX; vz += as * wishZ
       }
