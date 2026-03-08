@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.209](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.208...v0.1.209) (2026-03-08)
+
+
+### Bug Fixes
+
+* restore wished XZ velocity after Jolt physics step ([4aab791](https://github.com/AnEntrypoint/spawnpoint/commit/4aab79198bb0638243e84ce2a3e47525e7f996d7))
+
 ### [0.1.208](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.207...v0.1.208) (2026-03-08)
 
 
