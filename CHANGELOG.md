@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.210](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.209...v0.1.210) (2026-03-08)
+
+
+### Bug Fixes
+
+* process not defined in browser app eval, IndexedDB store constraint error ([f5b5ab1](https://github.com/AnEntrypoint/spawnpoint/commit/f5b5ab1db00b2d21f446bc5b887e2aae78afcebe))
+
 ### [0.1.209](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.208...v0.1.209) (2026-03-08)
 
 
