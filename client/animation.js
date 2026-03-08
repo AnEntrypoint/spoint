@@ -295,9 +295,11 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   let wasOnGround = true
   let airTime = 0
   let smoothSpeed = 0
+  let smoothTimeScale = 1.0
   let locomotionCooldown = 0
   const AIR_GRACE = 0.15
   const SPEED_SMOOTH = 8.0
+  const TIMESCALE_SMOOTH = 10.0
   const LOCO_COOLDOWN = 0.3
   const LOCO_STATES = new Set(['IdleLoop', 'WalkLoop', 'JogFwdLoop', 'SprintLoop', 'CrouchIdleLoop', 'CrouchFwdLoop'])
 
@@ -393,12 +395,18 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
         }
       }
 
-      // Apply movement direction to loco timeScale (backwards = reversed animation)
+      // Apply movement direction + speed-proportional timeScale to loco animation
       if (current && LOCO_STATES.has(current) && current !== 'IdleLoop' && current !== 'CrouchIdleLoop') {
         const locoAction = actions.get(current)
         if (locoAction) {
           const baseScale = current === 'WalkLoop' ? (animConfig.walkTimeScale || 2.0) : current === 'SprintLoop' ? (animConfig.sprintTimeScale || 0.56) : 1.0
-          locoAction.timeScale = baseScale * (Math.abs(_moveAngle) > Math.PI * 0.75 ? -1 : 1)
+          const stateMin = current === 'WalkLoop' ? 0.3 : current === 'JogFwdLoop' ? 3.0 : current === 'SprintLoop' ? 7.0 : 0.3
+          const stateMax = current === 'WalkLoop' ? 3.5 : current === 'JogFwdLoop' ? 7.5 : current === 'SprintLoop' ? 22.0 : 3.5
+          const ratio = Math.max(0.5, Math.min(1.5, smoothSpeed / Math.max(1, (stateMin + stateMax) * 0.5)))
+          const dir = Math.abs(_moveAngle) > Math.PI * 0.75 ? -1 : 1
+          const target = baseScale * ratio * dir
+          smoothTimeScale += (target - smoothTimeScale) * Math.min(1, TIMESCALE_SMOOTH * dt)
+          locoAction.timeScale = smoothTimeScale
         }
       }
       this.aim(aiming)
