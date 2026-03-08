@@ -2,6 +2,8 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.253](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.252...v0.1.253) (2026-03-08)
+
 ### [0.1.252](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.251...v0.1.252) (2026-03-08)
 
 ### [0.1.251](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.250...v0.1.251) (2026-03-08)
