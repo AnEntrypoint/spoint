@@ -2003,7 +2003,6 @@ function animate(timestamp) {
     if (!ps) return
     animator.update(frameDt, ps.velocity, ps.onGround, ps.health, ps._aiming || false, ps.crouch || 0)
     const vrm = playerVrms.get(id)
-    if (vrm) vrm.update(frameDt)
     const mesh = playerMeshes.get(id)
     if (!mesh) return
     if (ps.lookYaw !== undefined) {
@@ -2025,6 +2024,7 @@ function animate(timestamp) {
       if (animator.setLookDirection) animator.setLookDirection(lookYaw - mesh.rotation.y, ps.lookPitch || 0, mesh.rotation.y, ps.velocity)
     }
     if (animator.applyBoneOverrides) animator.applyBoneOverrides(frameDt)
+    if (vrm) vrm.update(frameDt)
     const target = playerTargets.get(id)
     updateVRMFeatures(id, frameDt, target)
     if (id !== client.playerId && ps.lookPitch !== undefined) {
