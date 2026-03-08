@@ -54,6 +54,9 @@ export function applyMovement(state, input, movement, dt) {
         vx += as * wishX; vz += as * wishZ
       }
     }
+    const airSpeedCap = movement.airSpeedCap ?? maxSpeed
+    const horizSpeed = Math.sqrt(vx * vx + vz * vz)
+    if (horizSpeed > airSpeedCap) { const s = airSpeedCap / horizSpeed; vx *= s; vz *= s }
   }
 
   state.velocity[0] = vx
