@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.240](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.239...v0.1.240) (2026-03-08)
+
+
+### Bug Fixes
+
+* raise maxSpeed to 8 and align animation thresholds to actual speeds ([a4beeb6](https://github.com/AnEntrypoint/spawnpoint/commit/a4beeb660d1ace1c789105e9e5b17781ff2ccd7f))
+
 ### [0.1.239](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.238...v0.1.239) (2026-03-08)
 
 
