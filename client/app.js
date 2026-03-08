@@ -869,6 +869,7 @@ async function createPlayerVRM(id) {
       vrm.scene.position.y = -feetOffsetRatio * modelScale
       group.userData.feetOffset = 0.91
       group.add(vrm.scene)
+      if (vrm.humanoid) vrm.humanoid.autoUpdateHumanBones = false
       playerVrms.set(id, vrm)
       initVRMFeatures(id, vrm)
       if (animAssets) {
