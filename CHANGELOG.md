@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.230](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.229...v0.1.230) (2026-03-08)
+
+
+### Bug Fixes
+
+* inline PROP_MODELS in world/index.js and harden compileAsync for Firefox ([84e8d25](https://github.com/AnEntrypoint/spawnpoint/commit/84e8d25851d931591c8daf3da6c8d6db93f1ff48))
+
 ### [0.1.229](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.228...v0.1.229) (2026-03-08)
 
 
