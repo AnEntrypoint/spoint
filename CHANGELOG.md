@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.238](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.237...v0.1.238) (2026-03-08)
+
+
+### Bug Fixes
+
+* Quake-style movement - walk 4.5, sprint 8, bunny hop air control ([7811241](https://github.com/AnEntrypoint/spawnpoint/commit/781124185374864d7619b3e5f72a830613bfc1d0))
+
 ### [0.1.237](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.236...v0.1.237) (2026-03-08)
 
 
