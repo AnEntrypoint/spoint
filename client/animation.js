@@ -303,12 +303,23 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   const LOCO_COOLDOWN = 0.3
   const LOCO_STATES = new Set(['IdleLoop', 'WalkLoop', 'JogFwdLoop', 'SprintLoop', 'CrouchIdleLoop', 'CrouchFwdLoop'])
 
-  const _spineNames = new Set(['Normalized_spine', 'Normalized_chest', 'Normalized_upperChest', 'spine', 'chest', 'upperChest', 'Spine', 'Spine1', 'Spine2', 'J_Bip_C_Spine', 'J_Bip_C_Chest', 'J_Bip_C_UpperChest'])
-  const _spineBones = []
-  root.traverse(c => { if (_spineNames.has(c.name)) _spineBones.push(c) })
-  const _hipNames = new Set(['Normalized_hips', 'hips', 'Hips', 'pelvis', 'J_Bip_C_Hips'])
-  let _hipBone = null
-  root.traverse(c => { if (!_hipBone && _hipNames.has(c.name)) _hipBone = c })
+  const _humanoid = vrm.humanoid
+  const _hipBone = _humanoid?.getNormalizedBoneNode?.('hips') || (() => {
+    const names = new Set(['Normalized_hips', 'hips', 'Hips', 'pelvis', 'J_Bip_C_Hips'])
+    let found = null; root.traverse(c => { if (!found && names.has(c.name)) found = c }); return found
+  })()
+  const _spineBones = (() => {
+    const bones = []
+    for (const n of ['spine', 'chest', 'upperChest']) {
+      const b = _humanoid?.getNormalizedBoneNode?.(n)
+      if (b) bones.push(b)
+    }
+    if (bones.length === 0) {
+      const names = new Set(['Normalized_spine', 'Normalized_chest', 'Normalized_upperChest', 'spine', 'chest', 'upperChest', 'Spine', 'Spine1', 'Spine2', 'J_Bip_C_Spine', 'J_Bip_C_Chest', 'J_Bip_C_UpperChest'])
+      root.traverse(c => { if (names.has(c.name)) bones.push(c) })
+    }
+    return bones
+  })()
   const _qLook = new THREE.Quaternion()
   const _eLook = new THREE.Euler(0, 0, 0, 'YXZ')
   let _lookYaw = 0, _lookPitch = 0, _bodyYaw = 0
@@ -414,7 +425,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       mixer.update(dt)
     },
     applyBoneOverrides(dt) {
-      if (Math.random() < 0.01) console.log('[anim] hipBone:', _hipBone?.name, 'moveAngle:', _moveAngle.toFixed(2), 'spineBones:', _spineBones.map(b => b.name))
+      if (!this._loggedBones) { this._loggedBones = true; console.log('[anim] hipBone:', _hipBone?.name, 'spineBones:', _spineBones.map(b => b.name)) }
       let hipYaw = 0
       if (_hipBone && current && LOCO_STATES.has(current) && current !== 'IdleLoop' && current !== 'CrouchIdleLoop') {
         if (Math.abs(_moveAngle) < Math.PI * 0.75) {
