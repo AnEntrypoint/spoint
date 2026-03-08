@@ -858,6 +858,7 @@ async function createPlayerVRM(id) {
     const vrm = gltf.userData.vrm
     if (vrm) {
       VRMUtils.removeUnnecessaryVertices(vrm.scene)
+      VRMUtils.combineSkeletons(vrm.scene)
       const vrmVersion = detectVrmVersion(vrmBuffer)
       vrm.scene.rotation.y = Math.PI
       vrm.scene.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
@@ -868,7 +869,6 @@ async function createPlayerVRM(id) {
       vrm.scene.position.y = -feetOffsetRatio * modelScale
       group.userData.feetOffset = 0.91
       group.add(vrm.scene)
-      if (vrm.humanoid) vrm.humanoid.autoUpdateHumanBones = false
       playerVrms.set(id, vrm)
       initVRMFeatures(id, vrm)
       if (animAssets) {

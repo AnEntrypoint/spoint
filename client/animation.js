@@ -252,6 +252,14 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   const vrm0Remap = vrmVersion === '0' ? buildVRM0NormalizedRemap(vrm) : new Map()
   const validBones = buildValidBoneSet(root)
 
+  const humanoidRemap = new Map()
+  if (vrm.humanoid) {
+    for (const boneName of Object.keys(vrm.humanoid.humanBones || {})) {
+      const raw = vrm.humanoid.getRawBoneNode?.(boneName)
+      if (raw && raw.name !== boneName) humanoidRemap.set(boneName, raw.name)
+    }
+  }
+
   for (const [name, clip] of clips) {
     if (!STATES[name]) continue
     const cfg = STATES[name]
@@ -259,7 +267,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
     if (cfg.upperBody) {
     }
 
-    let playClip = filterValidClipTracks(remapClipToNormalized(clip, vrm0Remap), validBones)
+    let playClip = filterValidClipTracks(remapClipToNormalized(remapClipToNormalized(clip, vrm0Remap), humanoidRemap), validBones)
 
     if (cfg.upperBody) {
       const upperBodyClip = filterUpperBodyTracks(playClip)
