@@ -23,7 +23,6 @@ export class SmoothInterpolation {
     this.jitterBuffer.addSnapshot(snapshot)
     const now = Date.now()
     for (const p of snapshot.players || []) {
-      if (p.id === this.localPlayerId && this.predictionEnabled) continue
       let filter = this.playerFilters.get(p.id)
       if (!filter) {
         filter = new KalmanFilter3D(this.playerKalmanConfig)
@@ -55,7 +54,6 @@ export class SmoothInterpolation {
     if (dt > 0) {
       for (let i = 0; i < players.length; i++) {
         const player = players[i]
-        if (player.id === this.localPlayerId && this.predictionEnabled) continue
         const filter = this.playerFilters.get(player.id)
         if (!filter) continue
         filter.predict(dt)
