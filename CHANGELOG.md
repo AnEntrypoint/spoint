@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.211](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.210...v0.1.211) (2026-03-08)
+
+
+### Bug Fixes
+
+* disable VRM humanoid autoUpdateHumanBones to restore animations ([8d307bd](https://github.com/AnEntrypoint/spawnpoint/commit/8d307bd318ce9892596fd6cf24a4016f82c25051))
+
 ### [0.1.210](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.209...v0.1.210) (2026-03-08)
 
 
