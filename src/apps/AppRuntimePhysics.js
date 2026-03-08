@@ -59,7 +59,7 @@ export function mixinPhysics(runtime) {
       }
       if (inRange && e._bodyActive === false) {
         const d = e._bodyDef
-        const bid = this._physics.addBody(d.shapeType, d.params, e.position, d.motionType, { rotation: e.rotation, mass: d.opts.mass })
+        const bid = this._physics.addBody(d.shapeType, d.params, e.position, d.motionType, { ...d.opts, rotation: e.rotation })
         e._physicsBodyId = bid; e._bodyActive = true
         this._physicsBodyToEntityId.set(bid, entityId)
         this._activeDynamicIds.add(entityId)
