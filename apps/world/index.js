@@ -108,13 +108,13 @@ export default {
   relevanceRadius: 60,
   physicsRadius: 60,
   movement: {
-    maxSpeed: 8.0,
-    sprintSpeed: 12.0,
-    groundAccel: 150.0,
+    maxSpeed: 10.0,
+    sprintSpeed: 16.0,
+    groundAccel: 250.0,
     airAccel: 30.0,
     airMaxSpeed: 0.8,
-    friction: 6.0,
-    stopSpeed: 1.5,
+    friction: 4.0,
+    stopSpeed: 1.0,
     jumpImpulse: 5.0,
     collisionRestitution: 0.2,
     collisionDamping: 0.25
