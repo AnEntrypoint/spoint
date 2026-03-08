@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.213](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.212...v0.1.213) (2026-03-08)
+
+
+### Bug Fixes
+
+* restore VRM animations by remapping humanoid bone names before track filtering ([2562aa7](https://github.com/AnEntrypoint/spawnpoint/commit/2562aa753b711f6204265951375e0976e61fdcd2))
+
 ### [0.1.212](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.211...v0.1.212) (2026-03-08)
 
 
