@@ -744,6 +744,8 @@ const ktx2Loader = new KTX2Loader(loadingManager)
 ktx2Loader.setTranscoderPath('/basis/')
 ktx2Loader.detectSupport(renderer)
 gltfLoader.setKTX2Loader(ktx2Loader)
+const _parsedGltfCache = new Map()
+const _parsedGltfInflight = new Map()
 const playerMeshes = new Map()
 const playerAnimators = new Map()
 const playerVrms = new Map()
@@ -1046,35 +1048,49 @@ function buildEntityMesh(entityId, custom) {
   return group
 }
 
-async function _generateLOD(model, name = 'default') {
+function _generateLODEager(model, name = 'default') {
   const cfg = _lodConfigs[name] || _lodConfigs.default
   if (cfg.noAutoLod) return model
-
-  try { await MeshoptSimplifier.ready } catch (e) { return model }
-
   const lod = new THREE.LOD()
   lod.addLevel(model, 0)
-
-  const far = cfg.far || 50
-  
-  // Level 1: 50% simplification
-  const l1 = model.clone()
-  _simplifyObject(l1, 0.5)
-  lod.addLevel(l1, far)
-  
-  // Level 2: 15% simplification
-  const l2 = model.clone()
-  _simplifyObject(l2, 0.15)
-  lod.addLevel(l2, far * 2)
-
-  // Copy transform from model to lod
   lod.position.copy(model.position)
   lod.quaternion.copy(model.quaternion)
   lod.scale.copy(model.scale)
   lod.updateMatrixWorld(true)
   lod.userData = model.userData
-
+  _lodUpgradeQueue.push({ lod, model, cfg })
   return lod
+}
+
+const _lodUpgradeQueue = []
+let _lodUpgradeScheduled = false
+
+function _scheduleLodUpgrades() {
+  if (_lodUpgradeScheduled || _lodUpgradeQueue.length === 0) return
+  _lodUpgradeScheduled = true
+  const run = (deadline) => {
+    while (_lodUpgradeQueue.length > 0 && (!deadline || deadline.timeRemaining() > 4)) {
+      const { lod, model, cfg } = _lodUpgradeQueue.shift()
+      if (!lod.parent && lod !== scene) continue
+      const far = cfg.far || 50
+      try {
+        const l1 = model.clone()
+        _simplifyObject(l1, 0.5)
+        lod.addLevel(l1, far)
+        const l2 = model.clone()
+        _simplifyObject(l2, 0.15)
+        lod.addLevel(l2, far * 2)
+      } catch (e) { }
+    }
+    if (_lodUpgradeQueue.length > 0) {
+      if (typeof requestIdleCallback !== 'undefined') requestIdleCallback(run, { timeout: 2000 })
+      else setTimeout(run, 16)
+    } else {
+      _lodUpgradeScheduled = false
+    }
+  }
+  if (typeof requestIdleCallback !== 'undefined') requestIdleCallback(run, { timeout: 2000 })
+  else setTimeout(run, 16)
 }
 
 function _simplifyObject(object, ratio) {
@@ -1109,7 +1125,7 @@ function _simplifyObject(object, ratio) {
 
 const pendingLoads = new Set()
 
-const MAX_CONCURRENT_LOADS = 8
+const MAX_CONCURRENT_LOADS = 3
 const loadQueue = []
 let _activeLoads = 0
 const _loadWaiters = []
@@ -1190,10 +1206,22 @@ async function _doLoadEntityModel(entityId, entityState) {
 
   try {
     loadingMgr.beginDownload(url)
-    const buf = await fetchCached(url)
-    const gltf = await gltfLoader.parseAsync(patchGLB(buf, url), '')
-    loadingMgr.completeDownload(url)
-    const model = gltf.scene
+    let gltf
+    if (_parsedGltfCache.has(url)) {
+      gltf = _parsedGltfCache.get(url)
+      loadingMgr.completeDownload(url)
+    } else if (_parsedGltfInflight.has(url)) {
+      gltf = await _parsedGltfInflight.get(url)
+      loadingMgr.completeDownload(url)
+    } else {
+      const parsePromise = fetchCached(url).then(buf => gltfLoader.parseAsync(patchGLB(buf, url), ''))
+      _parsedGltfInflight.set(url, parsePromise)
+      gltf = await parsePromise
+      _parsedGltfInflight.delete(url)
+      _parsedGltfCache.set(url, gltf)
+      loadingMgr.completeDownload(url)
+    }
+    const model = gltf.scene.clone(true)
     const mp = entityState.position; model.position.set(mp[0], mp[1], mp[2])
     const mr = entityState.rotation; if (mr) model.quaternion.set(mr[0], mr[1], mr[2], mr[3])
     const colliders = []
@@ -1210,7 +1238,7 @@ async function _doLoadEntityModel(entityId, entityState) {
       }
     })
     model.updateMatrixWorld(true)
-    const finalMesh = (isDynamic || entityState.custom?.noAutoLod) ? model : await _generateLOD(model, entityState.custom?.mesh)
+    const finalMesh = (isDynamic || entityState.custom?.noAutoLod) ? model : _generateLODEager(model, entityState.custom?.mesh)
     scene.add(finalMesh)
     entityMeshes.set(entityId, finalMesh)
     if (model.userData.spin || model.userData.hover) _animatedEntities.push(model)
@@ -1234,7 +1262,7 @@ async function _doLoadEntityModel(entityId, entityState) {
     pendingLoads.delete(entityId)
     if (!environmentLoaded) { environmentLoaded = true; checkAllLoaded() }
     if (firstSnapshotEntityPending.has(entityId)) { firstSnapshotEntityPending.delete(entityId); if (firstSnapshotEntityPending.size === 0) checkAllLoaded() }
-    if (loadingScreenHidden) _scheduleDynamicCompile()
+    if (loadingScreenHidden) { _scheduleDynamicCompile(); _scheduleLodUpgrades() }
   } catch (err) {
     console.error('[gltf]', url, err)
     pendingLoads.delete(entityId)
@@ -1556,7 +1584,7 @@ function checkAllLoaded() {
   if (firstSnapshotEntityPending.size > 0) return
   loadingScreenHidden = true
   loadingMgr.setLabel('Starting game...')
-  warmupShaders().then(() => loadingScreen.hide()).catch(() => loadingScreen.hide())
+  warmupShaders().then(() => { loadingScreen.hide(); _scheduleLodUpgrades() }).catch(() => { loadingScreen.hide(); _scheduleLodUpgrades() })
 }
 
 function initInputHandler() {
