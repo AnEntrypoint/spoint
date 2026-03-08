@@ -6,7 +6,7 @@ export async function openStore(dbName, dbVersion, storeName) {
 
   const db = await new Promise((resolve, reject) => {
     const req = indexedDB.open(dbName, dbVersion)
-    req.onupgradeneeded = e => e.target.result.createObjectStore(storeName)
+    req.onupgradeneeded = e => { const d = e.target.result; if (!d.objectStoreNames.contains(storeName)) d.createObjectStore(storeName) }
     req.onsuccess = e => resolve(e.target.result)
     req.onerror = () => reject(req.error)
   })

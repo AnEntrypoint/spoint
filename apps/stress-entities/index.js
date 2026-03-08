@@ -1,4 +1,4 @@
-const COUNT = parseInt(process.env.STRESS_ENTITY_COUNT || '100')
+const COUNT = parseInt(typeof process !== 'undefined' && process.env?.STRESS_ENTITY_COUNT || '100')
 const GRID = Math.ceil(Math.sqrt(COUNT))
 const SPACING = 3
 
