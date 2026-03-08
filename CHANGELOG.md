@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.214](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.213...v0.1.214) (2026-03-08)
+
+
+### Bug Fixes
+
+* revert broken humanoidRemap double-pass in createPlayerAnimator ([f41cee0](https://github.com/AnEntrypoint/spawnpoint/commit/f41cee07aa0ae5fa5a4dfca716220512e18d947a))
+
 ### [0.1.213](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.212...v0.1.213) (2026-03-08)
 
 
