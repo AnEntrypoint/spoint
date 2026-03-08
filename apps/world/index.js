@@ -112,7 +112,7 @@ export default {
     sprintSpeed: 20.0,
     groundAccel: 500.0,
     airAccel: 30.0,
-    airMaxSpeed: 1.5,
+    airMaxSpeed: 0.8,
     friction: 8.0,
     stopSpeed: 1.0,
     jumpImpulse: 4.5,
