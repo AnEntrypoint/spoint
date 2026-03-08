@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.218](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.217...v0.1.218) (2026-03-08)
+
+
+### Bug Fixes
+
+* animation thresholds, jump impulse ([fa54618](https://github.com/AnEntrypoint/spawnpoint/commit/fa54618cf7fe55c64d6b9fcf94b6c8139b37af43))
+
 ### [0.1.217](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.216...v0.1.217) (2026-03-08)
 
 
