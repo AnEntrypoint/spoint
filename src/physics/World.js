@@ -76,7 +76,7 @@ export class PhysicsWorld {
   addBody(shapeType, params, position, motionType, opts = {}) {
     const J = this.Jolt
     let shape, layer
-    if (shapeType === 'box') shape = new J.BoxShape(new J.Vec3(params[0], params[1], params[2]), 0.001, null)
+    if (shapeType === 'box') { const cr = Math.min(0.05, Math.min(params[0], params[1], params[2]) * 0.1); shape = new J.BoxShape(new J.Vec3(params[0], params[1], params[2]), cr, null) }
     else if (shapeType === 'sphere') shape = new J.SphereShape(params)
     else if (shapeType === 'capsule') shape = new J.CapsuleShape(params[1], params[0])
     else if (shapeType === 'convex') {
@@ -383,7 +383,7 @@ export class PhysicsWorld {
     const v = this._tmpVec3 || new this.Jolt.Vec3(0, 0, 0); v.Set(impulse[0], impulse[1], impulse[2])
     this.bodyInterface.AddImpulse(b.GetID(), v)
   }
-  step(deltaTime) { if (!this.jolt) return; this.jolt.Step(deltaTime, deltaTime > 1 / 55 ? 2 : 1) }
+  step(deltaTime) { if (!this.jolt) return; this.jolt.Step(deltaTime, 2) }
   removeBody(bodyId) {
     const b = this._getBody(bodyId); if (!b) return
     this.bodyInterface.RemoveBody(b.GetID()); this.bodyInterface.DestroyBody(b.GetID())

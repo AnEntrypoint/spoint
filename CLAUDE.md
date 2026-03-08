@@ -244,7 +244,7 @@ See `getCharacterPosition` (no destroy) vs `getBodyPosition` (destroy) in World.
 
 ## Physics Step Substeps
 
-`jolt.Step(dt, dt > 1/55 ? 2 : 1)` — at 128 TPS (7.8ms) always 1 substep.
+`jolt.Step(dt, 2)` — always 2 substeps regardless of dt. Previously conditional on dt > 1/55, but at 64 TPS with gravity=-18 m/s² small props (beer bottle he=0.035m) still tunnel at 1 substep. Fixed to always use 2 substeps for reliable CCD on small fast objects.
 
 ## TickHandler Velocity Override
 
