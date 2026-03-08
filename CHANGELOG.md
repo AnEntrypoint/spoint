@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.260](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.259...v0.1.260) (2026-03-08)
+
+
+### Bug Fixes
+
+* add airSpeedCap to prevent sprint velocity carrying into jumps ([62d8300](https://github.com/AnEntrypoint/spawnpoint/commit/62d83000388451e86381059c8e4410429b04a98f))
+
 ### [0.1.259](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.258...v0.1.259) (2026-03-08)
 
 ### [0.1.258](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.257...v0.1.258) (2026-03-08)
