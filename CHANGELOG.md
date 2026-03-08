@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.235](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.234...v0.1.235) (2026-03-08)
+
+
+### Bug Fixes
+
+* pass world scale to InstanceManager so instanced GLB meshes use correct transform ([0905876](https://github.com/AnEntrypoint/spawnpoint/commit/090587629507d88ffa1377c84d98a40e3adb3c2c))
+
 ### [0.1.234](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.233...v0.1.234) (2026-03-08)
 
 ### [0.1.233](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.232...v0.1.233) (2026-03-08)
