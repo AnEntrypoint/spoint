@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.217](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.216...v0.1.217) (2026-03-08)
+
+
+### Bug Fixes
+
+* remove leftover _moveDir reference in setLookDirection ([3a06d12](https://github.com/AnEntrypoint/spawnpoint/commit/3a06d126984f5c9b0e223d7f5fc361f4526f7e27))
+
 ### [0.1.216](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.215...v0.1.216) (2026-03-08)
 
 
