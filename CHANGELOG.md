@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.250](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.249...v0.1.250) (2026-03-08)
+
+
+### Bug Fixes
+
+* tune ground speed and fix VRM hip bone detection for strafe split ([ef278f1](https://github.com/AnEntrypoint/spawnpoint/commit/ef278f13e4889fd58b59d57ce2e086a9abc8631b))
+
 ### [0.1.249](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.248...v0.1.249) (2026-03-08)
 
 
