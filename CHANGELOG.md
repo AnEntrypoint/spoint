@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.225](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.224...v0.1.225) (2026-03-08)
+
+
+### Bug Fixes
+
+* apply entity.scale to both physics colliders and client meshes ([7275806](https://github.com/AnEntrypoint/spawnpoint/commit/727580674731c866ab434f1f836d8c98f8125454))
+
 ### [0.1.224](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.223...v0.1.224) (2026-03-08)
 
 
