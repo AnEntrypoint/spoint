@@ -382,8 +382,8 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
             else transitionTo('CrouchFwdLoop')
           } else {
             const idle2walk = current === 'IdleLoop' ? 0.8 : 0.3
-            const walk2jog = current === 'WalkLoop' ? 2.5 : 2.0
-            const jog2sprint = current === 'JogFwdLoop' ? 5.5 : 5.0
+            const walk2jog = current === 'WalkLoop' ? 3.5 : 3.0
+            const jog2sprint = current === 'JogFwdLoop' ? 7.5 : 7.0
             if (smoothSpeed < idle2walk) transitionTo('IdleLoop')
             else if (smoothSpeed < walk2jog) transitionTo('WalkLoop')
             else if (smoothSpeed < jog2sprint) transitionTo('JogFwdLoop')
@@ -608,8 +608,8 @@ export function createGLBAnimator(gltfScene, gltfAnimations, animAssets, animCon
             if (smoothSpeed < 0.8) transitionTo('CrouchIdleLoop'); else transitionTo('CrouchFwdLoop')
           } else {
             const idle2walk = current === 'IdleLoop' ? 0.8 : 0.3
-            const walk2jog = current === 'WalkLoop' ? 2.5 : 2.0
-            const jog2sprint = current === 'JogFwdLoop' ? 5.5 : 5.0
+            const walk2jog = current === 'WalkLoop' ? 3.5 : 3.0
+            const jog2sprint = current === 'JogFwdLoop' ? 7.5 : 7.0
             if (smoothSpeed < idle2walk) transitionTo('IdleLoop')
             else if (smoothSpeed < walk2jog) transitionTo('WalkLoop')
             else if (smoothSpeed < jog2sprint) transitionTo('JogFwdLoop')
