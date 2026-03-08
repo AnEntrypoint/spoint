@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.265](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.264...v0.1.265) (2026-03-08)
+
+
+### Bug Fixes
+
+* move vrm.update after applyBoneOverrides so hip/spine overrides render ([564852e](https://github.com/AnEntrypoint/spawnpoint/commit/564852eaee1bd0c28fd55de41af7df861bf10522))
+
 ### [0.1.264](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.263...v0.1.264) (2026-03-08)
 
 
