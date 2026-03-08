@@ -2005,8 +2005,9 @@ function animate(timestamp) {
     const vrm = playerVrms.get(id)
     const mesh = playerMeshes.get(id)
     if (!mesh) return
-    if (ps.lookYaw !== undefined) {
-      const lookYaw = id === _localId ? cam.yaw : ps.lookYaw
+    const _effectiveLookYaw = id === _localId ? cam.yaw : ps.lookYaw
+    if (_effectiveLookYaw !== undefined) {
+      const lookYaw = _effectiveLookYaw
       let bodyYaw = mesh.rotation.y
       let diff = lookYaw - bodyYaw
       diff = diff - Math.PI * 2 * Math.round(diff / (Math.PI * 2))

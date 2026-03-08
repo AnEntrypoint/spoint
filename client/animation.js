@@ -304,18 +304,22 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   const LOCO_STATES = new Set(['IdleLoop', 'WalkLoop', 'JogFwdLoop', 'SprintLoop', 'CrouchIdleLoop', 'CrouchFwdLoop'])
 
   const _humanoid = vrm.humanoid
-  const _hipBone = _humanoid?.getNormalizedBoneNode?.('hips') || (() => {
-    const names = new Set(['Normalized_hips', 'hips', 'Hips', 'pelvis', 'J_Bip_C_Hips'])
+  const _isVRM0 = vrmVersion === '0'
+  const _getBone = (name) => _isVRM0
+    ? (_humanoid?.getRawBoneNode?.(name) || null)
+    : (_humanoid?.getNormalizedBoneNode?.(name) || null)
+  const _hipBone = _getBone('hips') || (() => {
+    const names = new Set(['J_Bip_C_Hips', 'Hips', 'hips', 'pelvis'])
     let found = null; root.traverse(c => { if (!found && names.has(c.name)) found = c }); return found
   })()
   const _spineBones = (() => {
     const bones = []
     for (const n of ['spine', 'chest', 'upperChest']) {
-      const b = _humanoid?.getNormalizedBoneNode?.(n)
+      const b = _getBone(n)
       if (b) bones.push(b)
     }
     if (bones.length === 0) {
-      const names = new Set(['Normalized_spine', 'Normalized_chest', 'Normalized_upperChest', 'spine', 'chest', 'upperChest', 'Spine', 'Spine1', 'Spine2', 'J_Bip_C_Spine', 'J_Bip_C_Chest', 'J_Bip_C_UpperChest'])
+      const names = new Set(['J_Bip_C_Spine', 'J_Bip_C_Chest', 'J_Bip_C_UpperChest', 'Spine', 'Spine1', 'Spine2'])
       root.traverse(c => { if (names.has(c.name)) bones.push(c) })
     }
     return bones
