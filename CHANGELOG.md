@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.223](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.222...v0.1.223) (2026-03-08)
+
+
+### Features
+
+* add cross-model GPU instancing for static entities ([70d4a5b](https://github.com/AnEntrypoint/spawnpoint/commit/70d4a5b226ec80c031d71fc0ed60cd8c9b139c06))
+
 ### [0.1.222](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.221...v0.1.222) (2026-03-08)
 
 ### [0.1.221](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.220...v0.1.221) (2026-03-08)
