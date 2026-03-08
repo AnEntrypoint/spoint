@@ -47,7 +47,7 @@ export async function getCachedClips(cacheKey) {
   const cached = await get(DB_NAME, DB_VERSION, STORE, cacheKey)
   if (cached) {
     try {
-      return new Map(cached.clips.map(c => [c.name, deserializeClip(c)]))
+      return new Map(cached.clips.map(c => [c.name.replace(/^VRM\|/, '').replace(/@\d+$/, ''), deserializeClip(c)]))
     } catch (e) {
       console.warn('[anim-cache] deserialize failed:', e.message)
       await remove(DB_NAME, DB_VERSION, STORE, cacheKey)

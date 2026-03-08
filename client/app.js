@@ -1915,11 +1915,25 @@ function animate(timestamp) {
     const mesh = playerMeshes.get(id)
     if (!mesh) return
     if (ps.lookYaw !== undefined) {
-      let diff = ps.lookYaw - mesh.rotation.y
+      const lookYaw = ps.lookYaw
+      let bodyYaw = mesh.rotation.y
+      let diff = lookYaw - bodyYaw
       diff = diff - Math.PI * 2 * Math.round(diff / (Math.PI * 2))
-      mesh.rotation.y += diff * lerpFactor
+      const vx = ps.velocity?.[0] || 0, vz = ps.velocity?.[2] || 0
+      const speed = Math.sqrt(vx * vx + vz * vz)
+      // CS-style: clamp body within ±60° of look, snap fast when idle
+      const maxOffset = Math.PI / 3
+      if (Math.abs(diff) > maxOffset) {
+        const clamp = diff > 0 ? diff - maxOffset : diff + maxOffset
+        bodyYaw += clamp
+        diff = lookYaw - bodyYaw
+        diff = diff - Math.PI * 2 * Math.round(diff / (Math.PI * 2))
+        mesh.rotation.y = bodyYaw
+      }
+      const snapSpeed = speed < 0.5 ? 8.0 : 2.0
+      mesh.rotation.y += diff * Math.min(1, snapSpeed * frameDt)
+      if (animator.setLookDirection) animator.setLookDirection(lookYaw - mesh.rotation.y, ps.lookPitch || 0, mesh.rotation.y, ps.velocity)
     }
-    if (animator.setLookDirection) animator.setLookDirection(0, ps.lookPitch || 0)
     const target = playerTargets.get(id)
     updateVRMFeatures(id, frameDt, target)
     if (id !== client.playerId && ps.lookPitch !== undefined) {

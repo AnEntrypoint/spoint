@@ -308,7 +308,8 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   const _eLook = new THREE.Euler(0, 0, 0, 'YXZ')
   const _qRest = []
   for (const b of _spineBones) _qRest.push(b.quaternion.clone())
-  let _lookYaw = 0, _lookPitch = 0
+  let _lookYaw = 0, _lookPitch = 0, _bodyYaw = 0
+  let _moveDir = 1 // 1=forward, -1=backward, 0=strafe
 
   function transitionTo(name) {
     if (current === name) return
@@ -390,6 +391,14 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
         }
       }
 
+      // Apply movement direction to loco timeScale (backwards = reversed animation)
+      if (current && LOCO_STATES.has(current) && current !== 'IdleLoop' && current !== 'CrouchIdleLoop') {
+        const locoAction = actions.get(current)
+        if (locoAction) {
+          const baseScale = current === 'WalkLoop' ? (animConfig.walkTimeScale || 2.0) : current === 'SprintLoop' ? (animConfig.sprintTimeScale || 0.56) : 1.0
+          locoAction.timeScale = baseScale * _moveDir
+        }
+      }
       this.aim(aiming)
       wasOnGround = effectiveOnGround
       mixer.update(dt)
@@ -404,7 +413,22 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
         }
       }
     },
-    setLookDirection(yaw, pitch) { _lookYaw = yaw; _lookPitch = pitch },
+    setLookDirection(yaw, pitch, bodyYaw, velocity) {
+      _lookYaw = yaw; _lookPitch = pitch
+      if (bodyYaw !== undefined) _bodyYaw = bodyYaw
+      if (velocity) {
+        const vx = velocity[0] || 0, vz = velocity[2] || 0
+        const speed = Math.sqrt(vx * vx + vz * vz)
+        if (speed > 0.5) {
+          const cy = Math.cos(-_bodyYaw), sy = Math.sin(-_bodyYaw)
+          const localFwd = vz * cy - vx * sy
+          const localRight = vz * sy + vx * cy
+          const absFwd = Math.abs(localFwd), absRight = Math.abs(localRight)
+          if (absFwd >= absRight) _moveDir = localFwd >= 0 ? 1 : -1
+          else _moveDir = localRight >= 0 ? 1 : -1
+        } else { _moveDir = 1 }
+      }
+    },
     shoot() {
       const action = actions.get('PistolShoot')
       if (!action) return
