@@ -5,7 +5,7 @@ import { isUnreliable } from '../protocol/MessageTypes.js'
 import { applyMovement as _applyMovement, DEFAULT_MOVEMENT as _DEFAULT_MOVEMENT } from '../shared/movement.js'
 
 const MAX_SENDS_PER_TICK = 25
-const PHYSICS_PLAYER_DIVISOR = 2
+const PHYSICS_PLAYER_DIVISOR = 3
 
 function applyPlayerCollisions(players, grid, gridCells, cellSz, minDist2, minDist, dt, physicsIntegration) {
   grid.clear()
@@ -95,7 +95,7 @@ export function createTickHandler(deps) {
       } else {
         const accumDt = (playerAccumDt.get(player.id) || 0) + dt
         if (tick % PHYSICS_PLAYER_DIVISOR === 0 || inp?.jump || !st.onGround) {
-          physicsIntegration.updatePlayerPhysics(player.id, st, accumDt)
+          physicsIntegration.updatePlayerPhysics(player.id, st, dt)
           st.velocity[0] = wishedVx
           st.velocity[2] = wishedVz
           playerAccumDt.delete(player.id)
