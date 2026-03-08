@@ -96,6 +96,8 @@ export function createTickHandler(deps) {
         const accumDt = (playerAccumDt.get(player.id) || 0) + dt
         if (tick % PHYSICS_PLAYER_DIVISOR === 0 || inp?.jump || !st.onGround) {
           physicsIntegration.updatePlayerPhysics(player.id, st, dt)
+          st.velocity[0] = wishedVx
+          st.velocity[2] = wishedVz
           playerAccumDt.delete(player.id)
         } else {
           playerAccumDt.set(player.id, accumDt)
