@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.231](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.230...v0.1.231) (2026-03-08)
+
+
+### Bug Fixes
+
+* disable fog and confirm env-sillos scale alignment ([0f7d945](https://github.com/AnEntrypoint/spawnpoint/commit/0f7d9451c8b7fa91dedcc99b147e407000a5b5a1))
+
 ### [0.1.230](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.229...v0.1.230) (2026-03-08)
 
 
