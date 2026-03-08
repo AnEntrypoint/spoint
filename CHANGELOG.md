@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.208](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.207...v0.1.208) (2026-03-08)
+
+
+### Bug Fixes
+
+* Quake movement tuning — maxSpeed 6→8, friction 6→4, jumpImpulse 4→5 ([8db5926](https://github.com/AnEntrypoint/spawnpoint/commit/8db59267d896aed806e3ed1d56b12b8c8113494c))
+
 ### [0.1.207](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.206...v0.1.207) (2026-03-08)
 
 ### [0.1.206](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.205...v0.1.206) (2026-03-08)
