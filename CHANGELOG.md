@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.266](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.265...v0.1.266) (2026-03-08)
+
+
+### Bug Fixes
+
+* body rotation for local player + VRM0 bone override path ([436cfb2](https://github.com/AnEntrypoint/spawnpoint/commit/436cfb24502bb479470e58cf77fb1a574e284d1b))
+
 ### [0.1.265](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.264...v0.1.265) (2026-03-08)
 
 
