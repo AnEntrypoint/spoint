@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.237](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.236...v0.1.237) (2026-03-08)
+
+
+### Bug Fixes
+
+* increase walk speed and gravity, balance jump vs walk feel ([19ddc79](https://github.com/AnEntrypoint/spawnpoint/commit/19ddc7921a03a26b5ed73e9b2730ef8c10879ef8))
+
 ### [0.1.236](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.235...v0.1.236) (2026-03-08)
 
 
