@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.239](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.238...v0.1.239) (2026-03-08)
+
+
+### Bug Fixes
+
+* increase ground speed and eliminate local player mesh jitter ([82e309a](https://github.com/AnEntrypoint/spawnpoint/commit/82e309a7bdfa976748f5b2dd2914dd1e08030d8f))
+
 ### [0.1.238](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.237...v0.1.238) (2026-03-08)
 
 
