@@ -1614,7 +1614,7 @@ async function warmupShaders() {
       }
     })
 
-    await renderer.compileAsync(scene, wCam).catch(() => renderer.compile(scene, wCam))
+    try { await renderer.compileAsync(scene, wCam) } catch (_) { try { renderer.compile(scene, wCam) } catch (_2) {} }
     renderer.render(scene, wCam)
 
     // Restore traversed objects
@@ -1627,7 +1627,7 @@ async function warmupShaders() {
   // Final pass with main camera, frustum culling disabled for all objects
   const culled = []
   scene.traverse(obj => { if (obj.frustumCulled) { culled.push(obj); obj.frustumCulled = false } })
-  await renderer.compileAsync(scene, camera).catch(() => renderer.compile(scene, camera))
+  try { await renderer.compileAsync(scene, camera) } catch (_) { try { renderer.compile(scene, camera) } catch (_2) {} }
   renderer.render(scene, camera)
   await new Promise(r => requestAnimationFrame(r))
   renderer.render(scene, camera)
