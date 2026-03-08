@@ -110,12 +110,12 @@ export default {
   movement: {
     maxSpeed: 14.0,
     sprintSpeed: 24.0,
-    groundAccel: 500.0,
+    groundAccel: 300.0,
     airAccel: 30.0,
     airMaxSpeed: 0.15,
-    friction: 8.0,
+    friction: 5.0,
     stopSpeed: 1.0,
-    jumpImpulse: 4.5,
+    jumpImpulse: 5.5,
     collisionRestitution: 0.2,
     collisionDamping: 0.25
   },
