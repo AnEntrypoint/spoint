@@ -5,8 +5,8 @@ function quantize(v, precision) {
 const Q1=100, Q2=10000
 function encodePlayer(p) {
   const [px,py,pz]=p.position, [rx,ry,rz,rw]=p.rotation, [vx,vy,vz]=p.velocity
-  const pitch=Math.round(((p.lookPitch||0)+Math.PI)/(2*Math.PI)*255), yaw=Math.round(((p.lookYaw||0)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)/(2*Math.PI)*255)
-  return [p.id, quantize(px,Q1),quantize(py,Q1),quantize(pz,Q1), quantize(rx,Q2),quantize(ry,Q2),quantize(rz,Q2),quantize(rw,Q2), quantize(vx,Q1),quantize(vy,Q1),quantize(vz,Q1), p.onGround?1:0, Math.round(p.health||0), p.inputSequence||0, p.crouch||0, pitch, yaw]
+  const pitchN=Math.round(((p.lookPitch||0)+Math.PI)/(2*Math.PI)*15)&0xF, yawN=Math.round(((p.lookYaw||0)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)/(2*Math.PI)*15)&0xF
+  return [p.id, quantize(px,Q1),quantize(py,Q1),quantize(pz,Q1), quantize(rx,Q2),quantize(ry,Q2),quantize(rz,Q2),quantize(rw,Q2), quantize(vx,Q1),quantize(vy,Q1),quantize(vz,Q1), p.onGround?1:0, Math.round(p.health||0), p.inputSequence||0, p.crouch||0, (pitchN<<4)|yawN]
 }
 
 function encodeEntity(e) {
@@ -225,7 +225,7 @@ export class SnapshotEncoder {
   static decode(data) {
     if (!data.players || !Array.isArray(data.players)) return data
     const TAU = 2 * Math.PI
-    const players = data.players.map(p => !Array.isArray(p) ? p : { id:p[0], position:[p[1],p[2],p[3]], rotation:[p[4],p[5],p[6],p[7]], velocity:[p[8],p[9],p[10]], onGround:p[11]===1, health:p[12], inputSequence:p[13], crouch:p[14]||0, lookPitch:(p[15]||0)/255*TAU-Math.PI, lookYaw:(p[16]||0)/255*TAU })
+    const players = data.players.map(p => !Array.isArray(p) ? p : { id:p[0], position:[p[1],p[2],p[3]], rotation:[p[4],p[5],p[6],p[7]], velocity:[p[8],p[9],p[10]], onGround:p[11]===1, health:p[12], inputSequence:p[13], crouch:p[14]||0, lookPitch:((p[15]||0)>>4)/15*TAU-Math.PI, lookYaw:((p[15]||0)&0xF)/15*TAU })
     const entities = (data.entities||[]).map(e => !Array.isArray(e) ? e : { id:e[0], model:e[1], position:[e[2],e[3],e[4]], rotation:[e[5],e[6],e[7],e[8]], velocity:[e[9],e[10],e[11]], bodyType:e[12], custom:e[13] })
     return { tick:data.tick, serverTime:data.serverTime, players, entities, delta:data.delta, removed:data.removed }
   }

@@ -82,7 +82,7 @@ export class SnapshotProcessor {
   _parsePlayerNew(p) {
     const TAU = 2 * Math.PI
     if (Array.isArray(p)) {
-      return { id: p[0], position: [p[1], p[2], p[3]], rotation: [p[4], p[5], p[6], p[7]], velocity: [p[8], p[9], p[10]], onGround: p[11] === 1, health: p[12], inputSequence: p[13], crouch: p[14] || 0, lookPitch: (p[15] || 0) / 255 * TAU - Math.PI, lookYaw: (p[16] || 0) / 255 * TAU }
+      return { id: p[0], position: [p[1], p[2], p[3]], rotation: [p[4], p[5], p[6], p[7]], velocity: [p[8], p[9], p[10]], onGround: p[11] === 1, health: p[12], inputSequence: p[13], crouch: p[14] || 0, lookPitch: ((p[15] || 0) >> 4) / 15 * TAU - Math.PI, lookYaw: ((p[15] || 0) & 0xF) / 15 * TAU }
     }
     return { id: p.id || p.i, position: p.position ? [...p.position] : [0, 0, 0], rotation: p.rotation ? [...p.rotation] : [0, 0, 0, 1], velocity: p.velocity ? [...p.velocity] : [0, 0, 0], onGround: p.onGround ?? false, health: p.health ?? 100, inputSequence: 0, crouch: 0, lookPitch: 0, lookYaw: 0 }
   }
