@@ -90,7 +90,8 @@ export class AppContext {
       addTrimeshCollider: async () => {
         ent.collider = { type: 'trimesh', model: ent.model }
         if (runtime._physics && ent.model) {
-          const bid = await runtime._physics.addStaticTrimeshAsync(runtime.resolveAssetPath(ent.model), 0, ent.position)
+          const sc = ent.scale || [1, 1, 1]
+          const bid = await runtime._physics.addStaticTrimeshAsync(runtime.resolveAssetPath(ent.model), 0, ent.position, sc)
           ent._physicsBodyId = bid; runtime._physicsBodyToEntityId?.set(bid, ent.id)
         }
       },

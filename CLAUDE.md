@@ -6,6 +6,20 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 
 ---
 
+## Scale Invariant: Physics Always Matches Visual
+
+All collider creation methods in `AppContext.js` multiply shape parameters by `entity.scale`. This is enforced at the AppContext level so app developers never need to think about it.
+
+- `addBoxCollider`: half-extents multiplied per-axis by `entity.scale`
+- `addSphereCollider`: radius multiplied by `max(entity.scale)`
+- `addCapsuleCollider`: radius and height multiplied by `max(entity.scale)`
+- `addConvexFromModel` / `addConvexFromModelAsync`: vertex positions multiplied per-axis by `entity.scale`
+- `addTrimeshCollider`: passes `entity.scale` to `World.addStaticTrimeshAsync`, which multiplies all extracted vertex positions per-axis before building the Jolt trimesh shape
+
+The client always renders with `entity.scale` from the snapshot. Therefore physics === visual always, by construction. Never set scale on an entity after collider creation — the physics body will not update.
+
+---
+
 ## App Client API Expansions (renderCtx + engineCtx)
 
 `renderCtx` (passed to `render(ctx)`) now includes Three.js shortcuts directly: `ctx.THREE`, `ctx.scene`, `ctx.camera`, `ctx.renderer`, `ctx.playerId`, `ctx.clock`. These mirror `ctx.engine.*` fields but are directly destructurable. Added in `renderAppUI()` in `client/app.js`.

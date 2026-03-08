@@ -188,13 +188,19 @@ export class PhysicsWorld {
     return id
   }
 
-  addStaticTrimeshAsync(glbPath, meshIndex = 0, position = [0, 0, 0]) {
+  addStaticTrimeshAsync(glbPath, meshIndex = 0, position = [0, 0, 0], scale = [1, 1, 1]) {
     return new Promise(async (resolve, reject) => {
       try {
         const J = this.Jolt
         // Use combined extraction: all meshes + all primitives (handles Draco, multi-mesh maps)
         const mesh = await extractAllMeshesFromGLBAsync(glbPath)
-        const { vertices, indices, triangleCount } = mesh
+        let { vertices, indices, triangleCount } = mesh
+
+        if (scale[0] !== 1 || scale[1] !== 1 || scale[2] !== 1) {
+          for (let i = 0; i < vertices.length; i += 3) {
+            vertices[i] *= scale[0]; vertices[i+1] *= scale[1]; vertices[i+2] *= scale[2]
+          }
+        }
 
         const triangles = new J.TriangleList(); triangles.resize(triangleCount)
         // Reuse a single Float3 to avoid WASM heap growth from per-vertex allocations
