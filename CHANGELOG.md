@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.224](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.223...v0.1.224) (2026-03-08)
+
+
+### Features
+
+* deduplicate GLB materials so Three.js shares compiled shader programs ([7f5bdab](https://github.com/AnEntrypoint/spawnpoint/commit/7f5bdab786256275631ceef875534516693d28b8))
+
 ### [0.1.223](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.222...v0.1.223) (2026-03-08)
 
 
