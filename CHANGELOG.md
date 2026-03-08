@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.254](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.253...v0.1.254) (2026-03-08)
+
+
+### Bug Fixes
+
+* restore airMaxSpeed 0.8 for proper Quake air control ([3149b0a](https://github.com/AnEntrypoint/spawnpoint/commit/3149b0a8bee1d21a524b2a21a1eacc5c091b27ed))
+
 ### [0.1.253](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.252...v0.1.253) (2026-03-08)
 
 ### [0.1.252](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.251...v0.1.252) (2026-03-08)
