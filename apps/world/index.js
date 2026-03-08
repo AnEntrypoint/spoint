@@ -129,8 +129,8 @@ export default {
   scene: {
     skyColor: 0x87ceeb,
     fogColor: 0x87ceeb,
-    fogNear: 80,
-    fogFar: 200,
+    fogNear: 10000,
+    fogFar: 20000,
     ambientColor: 0xfff4d6,
     ambientIntensity: 0.3,
     sunColor: 0xffffff,
