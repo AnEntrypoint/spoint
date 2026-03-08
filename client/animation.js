@@ -411,20 +411,16 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       if (_hipBone && current && LOCO_STATES.has(current) && current !== 'IdleLoop' && current !== 'CrouchIdleLoop') {
         if (Math.abs(_moveAngle) < Math.PI * 0.75) {
           hipYaw = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, _moveAngle))
-          _eLook.set(0, hipYaw, 0)
-          _qLook.setFromEuler(_eLook)
-          _hipBone.quaternion.multiply(_qLook)
+          _eLook.setFromQuaternion(_hipBone.quaternion, 'YXZ')
+          _eLook.y = hipYaw
+          _hipBone.quaternion.setFromEuler(_eLook)
         }
       }
-      // Spine twist: set spine bone rotation from yaw+pitch angles only.
-      // Do NOT multiply on top of animated rest pose — that causes X/Z coupling
-      // (lean/roll) because the rest quaternion's X/Z components interact with
-      // the yaw rotation. Instead set the bone directly from YXZ euler so only
-      // Y (yaw) and X (pitch) axes are ever set, eliminating any roll/lean.
       if (_spineBones.length > 0) {
         const n = _spineBones.length
+        const spineYawShare = -hipYaw / n
         const pitchShare = Math.max(-Math.PI / 3, Math.min(Math.PI / 4, _lookPitch)) / n
-        _eLook.set(pitchShare, 0, 0, 'YXZ')
+        _eLook.set(pitchShare, spineYawShare, 0, 'YXZ')
         _qLook.setFromEuler(_eLook)
         for (let i = 0; i < n; i++) {
           _spineBones[i].quaternion.copy(_qLook)
