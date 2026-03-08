@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.219](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.218...v0.1.219) (2026-03-08)
+
+
+### Bug Fixes
+
+* correct animation thresholds, strafe timeScale, hip rotation, and spine lean ([468aaa9](https://github.com/AnEntrypoint/spawnpoint/commit/468aaa97d0fe58ef635124a02ef59844d5de1f3a))
+
 ### [0.1.218](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.217...v0.1.218) (2026-03-08)
 
 
