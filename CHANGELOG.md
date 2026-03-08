@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.245](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.244...v0.1.245) (2026-03-08)
+
+
+### Bug Fixes
+
+* preserve linearCast/damping on LOD body restore ([e84ffbc](https://github.com/AnEntrypoint/spawnpoint/commit/e84ffbc12b3f2175cf2a8270a8dd6f8c7edcd8c7))
+
 ### [0.1.244](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.243...v0.1.244) (2026-03-08)
 
 
