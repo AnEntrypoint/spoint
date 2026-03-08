@@ -405,7 +405,7 @@ Server: `globalThis.__DEBUG__.server`. Client: `window.debug` (scene, camera, re
 
 staticDirs order: `/src/` → `/apps/` → `/node_modules/` → `/` (client). SDK paths take priority. Project-local `apps/` overrides SDK `apps/` if it exists.
 
-## Performance Verification (v0.1.197 - March 8, 2026)
+## Performance Verification (v0.1.201 - March 8, 2026)
 
 Profiled at 64 TPS (world config default). Tick budget = 15.6ms.
 
@@ -416,32 +416,38 @@ Profiled at 64 TPS (world config default). Tick budget = 15.6ms.
 4. **SnapshotEncoder sleeping skip** — Checks `e._sleeping` before re-encoding. Settled bodies = 1 check vs 3 calls.
 5. **Spatial grid collision** — Cell-based partitioning. 0.04ms at 100 players (O(n·k) not O(n²)).
 6. **Entity key caching** — Skips JSON.stringify when `entity.custom` reference unchanged.
-7. **Idle player physics skip** (`TickHandler.js`) — Skips Jolt `updatePlayerPhysics` (~47µs) for players with no directional input AND near-zero XZ velocity AND onGround after 1 settling tick. Saves 40-60µs per idle player per tick. For a world with 40% idle players at 250p, this saves ~4-5ms per tick. `playerIdleCounts` Map tracks consecutive idle ticks per player, cleaned up on disconnect.
-8. **Spatial cell cache for snap queries** (`TickHandler.js`) — In the snap phase, groups players by floor(x/R) cell key and caches octree query results. Players in the same spatial cell share `nearbyPlayerIds` and `relevantIds` results, eliminating redundant octree queries for co-located players.
+7. **Idle player physics skip** (`TickHandler.js`) — Skips Jolt `updatePlayerPhysics` (~47µs) for players with no directional input AND near-zero XZ velocity AND onGround after 1 settling tick. `playerIdleCounts` Map tracks consecutive idle ticks, cleaned up on disconnect.
+8. **Spatial cell cache for snap queries** (`TickHandler.js`) — In the snap phase, groups players by floor(x/R) cell key and caches octree query results, eliminating redundant queries for co-located players.
+9. **Physics player divisor=3** (`TickHandler.js`, `PHYSICS_PLAYER_DIVISOR`) — Runs Jolt `updatePlayerPhysics` every 3rd tick instead of every tick. Forces physics on jump/airborne ticks. Passes fixed per-tick `dt` (NOT accumulated dt) to avoid triggering Jolt's 2-substep path (which fires when dt > 1/55s; accumulated 3/64s ≈ 0.047s > 0.018s). Halves mv phase cost at 300p vs no divisor.
 
-**Tick Profile (64 TPS, 15.6ms budget, 1000 dynamic entities):**
-- 10p: avg 2.65ms (mv=0.68ms, snap=1.75ms) — 83% headroom
-- 50p: avg 6.17ms (mv=1.72ms, snap=4.14ms) — 60% headroom
-- 100p: avg 7.76ms (mv=2.80ms, snap=4.50ms) — 50% headroom
-- 150p: avg 14.34ms (mv=7.02ms, snap=7.68ms) — 8% headroom
-- 200p: avg 15.76ms (mv=7.88ms, snap=6.99ms) — 1.1% over budget (stable)
-- 250p: avg 19.08ms (mv=10.18ms, snap=7.81ms) — 22% over budget
-- 250p (half idle): avg 16.89ms (mv=7-8ms, snap=7.5ms) — 8% over budget
+**Tick Profile (64 TPS, 15.6ms budget, 1000 dynamic entities, divisor=3):**
+- 50p: avg ~6ms — well within budget
+- 100p: avg ~8ms — within budget
+- 150p: avg ~11ms — within budget
+- 200p: avg ~13ms — within budget
+- 250p: avg ~14ms — within budget
+- 300p steady-state: avg ~13.7ms (mv=4.25ms skip/6ms physics, snap=7.93ms) — within budget
+- 300p burst (mass connect): 200-250ms spike — transient, resolves after connections stabilize
 
 **Bottleneck Analysis:**
-- **mv phase**: Jolt CharacterVirtual.ExtendedUpdate = ~47µs/player (4 WASM roundtrips). Unavoidable without batched Jolt API or worker threads. Idle skip reduces cost for AFK/stationary players.
-- **snap phase**: Windows WebSocket kernel I/O = ~166µs/send. At 25 sends/tick (SNAP_GROUPS) = 4.15ms I/O alone. Cannot be reduced without WebTransport or payload binary encoding.
-- **Tick formula**: `6.0 + 0.042×N_active_players` ms at 64 TPS.
-- **Production capacity**: 200p all-moving (marginally over budget but stable). 150p all-moving with comfortable headroom. 250p+ requires idle skip to be effective (real-world 40% idle rate brings 250p within budget).
+- **mv phase**: Jolt CharacterVirtual.ExtendedUpdate = ~40-60µs/player. Divisor=3 runs only N/3 players per tick. Passing fixed dt prevents 2-substep Jolt activation.
+- **snap phase**: Windows WebSocket kernel I/O = ~166µs/send. At 25 sends/tick = 4.15ms I/O alone. Pack overhead: ~0.018ms per player per snapshot group tick.
+- **Mass connect burst**: When N bots connect rapidly, their first keyframe snapshots stack in the same tick group, causing 200ms+ spikes. Transient; use slow connection ramp in production (BOT_DELAY=500ms).
+- **Tick formula (steady-state)**: `4.0 + 0.030×N_active_physics_players` ms mv + `~8ms` snap at 300p.
+- **Production capacity**: 300p all-moving within budget steady-state. 400p: mv over budget without further divisor increase.
 
 **Hard scaling limits:**
-- 300p all-moving: ~22ms — requires tickRate reduction or WebTransport
-- 1000 dynamic entities at 100p: within budget (10ms) at 64 TPS with physicsRadius LOD
-- Budget-safe entity count: ~1000 dynamic props (all sleeping) or ~300 active physics bodies
+- 300p steady-state: ~13.7ms — within 15.6ms budget with divisor=3
+- 400p: needs divisor=4 or tickRate reduction
+- 1000 dynamic entities: sleeping entities cost near-zero (sleeping skip in SnapshotEncoder + physicsRadius LOD)
 
 ## Idle Player Physics Skip
 
 `playerIdleCounts` Map in `TickHandler.js` tracks consecutive idle ticks per player. A player is physics-idle when: no directional input (no forward/backward/left/right/jump), onGround=true, and horizontal velocity magnitude < 0.01 m/s. After 1 settling tick, subsequent idle ticks skip `physicsIntegration.updatePlayerPhysics()`, saving ~47µs per skip. Counter resets to 0 when player moves. Cleaned up in the end-of-tick playerEntityMaps pruning loop.
+
+## Physics Player Divisor
+
+`PHYSICS_PLAYER_DIVISOR = 3` in `TickHandler.js`. Runs Jolt physics for a player only every 3rd tick via `tick % PHYSICS_PLAYER_DIVISOR === 0`. Exceptions: always runs on jump ticks (`inp?.jump`) and airborne ticks (`!st.onGround`). `playerAccumDt` Map accumulates elapsed time across skip ticks for cleanup tracking, but passes the fixed per-tick `dt` (NOT accumulated dt) to `updatePlayerPhysics`. Critical: do NOT pass accumulated dt — at divisor=3 with 64 TPS, accumulated=3/64≈0.047s exceeds Jolt's 2-substep threshold (1/55≈0.018s), which doubles CharacterVirtual cost. The wished XZ velocity is always written back after physics, overriding Jolt's horizontal velocity result.
 
 ## Snap Phase Spatial Cache
 
