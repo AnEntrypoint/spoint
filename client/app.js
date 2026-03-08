@@ -858,7 +858,6 @@ async function createPlayerVRM(id) {
     const vrm = gltf.userData.vrm
     if (vrm) {
       VRMUtils.removeUnnecessaryVertices(vrm.scene)
-      VRMUtils.combineSkeletons(vrm.scene)
       const vrmVersion = detectVrmVersion(vrmBuffer)
       vrm.scene.rotation.y = Math.PI
       vrm.scene.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
