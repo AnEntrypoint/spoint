@@ -301,12 +301,12 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   const LOCO_COOLDOWN = 0.3
   const LOCO_STATES = new Set(['IdleLoop', 'WalkLoop', 'JogFwdLoop', 'SprintLoop', 'CrouchIdleLoop', 'CrouchFwdLoop'])
 
-  const _spineNames = ['Normalized_spine', 'Normalized_chest', 'Normalized_upperChest', 'spine', 'chest', 'upperChest', 'Spine', 'Spine1', 'Spine2']
+  const _spineNames = new Set(['Normalized_spine', 'Normalized_chest', 'Normalized_upperChest', 'spine', 'chest', 'upperChest', 'Spine', 'Spine1', 'Spine2', 'J_Bip_C_Spine', 'J_Bip_C_Chest', 'J_Bip_C_UpperChest'])
   const _spineBones = []
-  root.traverse(c => { if (_spineNames.includes(c.name)) _spineBones.push(c) })
-  const _hipNames = ['Normalized_hips', 'hips', 'Hips', 'pelvis']
+  root.traverse(c => { if (_spineNames.has(c.name)) _spineBones.push(c) })
+  const _hipNames = new Set(['Normalized_hips', 'hips', 'Hips', 'pelvis', 'J_Bip_C_Hips'])
   let _hipBone = null
-  root.traverse(c => { if (!_hipBone && _hipNames.includes(c.name)) _hipBone = c })
+  root.traverse(c => { if (!_hipBone && _hipNames.has(c.name)) _hipBone = c })
   const _qLook = new THREE.Quaternion()
   const _eLook = new THREE.Euler(0, 0, 0, 'YXZ')
   let _lookYaw = 0, _lookPitch = 0, _bodyYaw = 0
