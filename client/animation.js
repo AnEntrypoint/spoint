@@ -441,7 +441,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
           const localFwd = vz * cy - vx * sy
           const localRight = vz * sy + vx * cy
           _moveAngle = Math.atan2(localRight, localFwd)
-        } else { _moveAngle = 0; _moveDir = 1 }
+        } else { _moveAngle = 0 }
       }
     },
     shoot() {
