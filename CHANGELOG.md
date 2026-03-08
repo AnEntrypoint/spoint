@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.229](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.228...v0.1.229) (2026-03-08)
+
+
+### Bug Fixes
+
+* real-world prop scales by name and remove duplicate trimesh collision ([ca87b63](https://github.com/AnEntrypoint/spawnpoint/commit/ca87b63ae7df41b759ec1a9850f93ea7ac383c91))
+
 ### [0.1.228](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.227...v0.1.228) (2026-03-08)
 
 
