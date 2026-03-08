@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.206](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.205...v0.1.206) (2026-03-08)
+
+
+### Bug Fixes
+
+* Quake-style movement — high friction and groundAccel for instant response ([7d05bdf](https://github.com/AnEntrypoint/spawnpoint/commit/7d05bdf6bbeef27de763ba3152a2b221d420e0a7))
+
 ### [0.1.205](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.204...v0.1.205) (2026-03-08)
 
 ### [0.1.204](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.203...v0.1.204) (2026-03-08)
