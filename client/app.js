@@ -23,6 +23,7 @@ import { createEditor } from './editor.js'
 import { createEditPanel } from './edit-panel.js'
 import { fetchCached, dbDelete, dbPut } from './ModelCache.js'
 import { initInstanceManager, tryAddInstance, removeInstance, isInstanced } from './InstanceManager.js'
+import { deduplicateScene } from './MaterialCache.js'
 import { createLoadingScreen } from './createLoadingScreen.js'
 import { MobileControls, detectDevice } from './MobileControls.js'
 import { XRControls, createXRButton } from './XRControls.js'
@@ -1243,6 +1244,7 @@ async function _doLoadEntityModel(entityId, entityState) {
       _parsedGltfInflight.set(url, parsePromise)
       gltf = await parsePromise
       _parsedGltfInflight.delete(url)
+      deduplicateScene(gltf.scene)
       _parsedGltfCache.set(url, gltf)
       loadingMgr.completeDownload(url)
     }
