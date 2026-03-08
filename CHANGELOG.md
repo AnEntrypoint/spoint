@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.264](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.263...v0.1.264) (2026-03-08)
+
+
+### Bug Fixes
+
+* use VRM humanoid API to get normalized hip/spine bones ([e047c32](https://github.com/AnEntrypoint/spawnpoint/commit/e047c32830d1cc36c3dce5bce37e721ca107c903))
+
 ### [0.1.263](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.262...v0.1.263) (2026-03-08)
 
 
