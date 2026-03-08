@@ -1278,7 +1278,7 @@ async function _doLoadEntityModel(entityId, entityState) {
         c.updateWorldMatrix(true, false)
         const wp = new THREE.Vector3(); const wq = new THREE.Quaternion(); const ws = new THREE.Vector3()
         c.matrixWorld.decompose(wp, wq, ws)
-        const result = tryAddInstance(entityId, url, meshIdx++, c.geometry, c.material, wp, wq)
+        const result = tryAddInstance(entityId, url, meshIdx++, c.geometry, c.material, wp, wq, ws)
         if (result.instanced) instancedCount++
       }
       if (instancedCount === meshList.length && meshList.length > 0) {

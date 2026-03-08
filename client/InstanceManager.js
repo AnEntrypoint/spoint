@@ -59,7 +59,7 @@ function _growBucket(bucket) {
   bucket.capacity = newCapacity
 }
 
-export function tryAddInstance(entityId, modelUrl, meshIndex, geometry, material, position, quaternion) {
+export function tryAddInstance(entityId, modelUrl, meshIndex, geometry, material, position, quaternion, scale) {
   if (!_scene) return { instanced: false }
   const geoKey = _geometryKey(modelUrl, meshIndex) + '::' + _materialKey(material)
   const bucket = _getOrCreateBucket(geoKey, geometry, material)
@@ -76,7 +76,8 @@ export function tryAddInstance(entityId, modelUrl, meshIndex, geometry, material
 
   _pos.set(position.x, position.y, position.z)
   _quat.set(quaternion.x, quaternion.y, quaternion.z, quaternion.w)
-  _mat4.compose(_pos, _quat, _scale)
+  const s = scale || _scale
+  _mat4.compose(_pos, _quat, s)
   bucket.mesh.setMatrixAt(slot, _mat4)
   bucket.mesh.instanceMatrix.needsUpdate = true
 
