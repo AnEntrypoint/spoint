@@ -423,17 +423,8 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       // Y (yaw) and X (pitch) axes are ever set, eliminating any roll/lean.
       if (_spineBones.length > 0) {
         const n = _spineBones.length
-        const turnRate = Math.abs(_lookYaw - _prevLookYaw)
-        _prevLookYaw = _lookYaw
-        const targetLean = (_lookYaw - hipYaw) * 0.5
-        if (turnRate > 0.001) {
-          _leanYaw = targetLean
-        } else {
-          _leanYaw += (0 - _leanYaw) * Math.min(1, 8 * (dt || 0.016))
-        }
-        const yawShare = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, _leanYaw)) / n
         const pitchShare = Math.max(-Math.PI / 3, Math.min(Math.PI / 4, _lookPitch)) / n
-        _eLook.set(pitchShare, yawShare, 0, 'YXZ')
+        _eLook.set(pitchShare, 0, 0, 'YXZ')
         _qLook.setFromEuler(_eLook)
         for (let i = 0; i < n; i++) {
           _spineBones[i].quaternion.copy(_qLook)
