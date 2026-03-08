@@ -1946,7 +1946,7 @@ const _lodConfigs = {
 }
 function animate(timestamp) {
   const now = timestamp || performance.now()
-  const rawDt = Math.min((now - lastFrameTime) / 1000, 0.1)
+  const rawDt = Math.min(Math.max((now - lastFrameTime) / 1000, 0.001), 0.1)
   lastFrameTime = now
   smoothDt += (rawDt - smoothDt) * 0.2
   const frameDt = smoothDt
@@ -1999,11 +1999,10 @@ function animate(timestamp) {
     animator.update(frameDt, ps.velocity, ps.onGround, ps.health, ps._aiming || false, ps.crouch || 0)
     const vrm = playerVrms.get(id)
     if (vrm) vrm.update(frameDt)
-    if (animator.applyBoneOverrides) animator.applyBoneOverrides()
     const mesh = playerMeshes.get(id)
     if (!mesh) return
     if (ps.lookYaw !== undefined) {
-      const lookYaw = ps.lookYaw
+      const lookYaw = id === _localId ? cam.yaw : ps.lookYaw
       let bodyYaw = mesh.rotation.y
       let diff = lookYaw - bodyYaw
       diff = diff - Math.PI * 2 * Math.round(diff / (Math.PI * 2))
@@ -2011,10 +2010,8 @@ function animate(timestamp) {
       const speed = Math.sqrt(vx * vx + vz * vz)
       const maxOffset = Math.PI / 3
       if (speed < 0.5) {
-        // Idle: fast snap body to lookYaw
         mesh.rotation.y += diff * Math.min(1, 8.0 * frameDt)
       } else {
-        // Moving: body stays fixed, only hard-snap when diff exceeds ±60°
         if (Math.abs(diff) > maxOffset) {
           const excess = diff > 0 ? diff - maxOffset : diff + maxOffset
           mesh.rotation.y += excess
@@ -2022,6 +2019,7 @@ function animate(timestamp) {
       }
       if (animator.setLookDirection) animator.setLookDirection(lookYaw - mesh.rotation.y, ps.lookPitch || 0, mesh.rotation.y, ps.velocity)
     }
+    if (animator.applyBoneOverrides) animator.applyBoneOverrides()
     const target = playerTargets.get(id)
     updateVRMFeatures(id, frameDt, target)
     if (id !== client.playerId && ps.lookPitch !== undefined) {
