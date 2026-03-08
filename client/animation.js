@@ -301,15 +301,18 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   const LOCO_COOLDOWN = 0.3
   const LOCO_STATES = new Set(['IdleLoop', 'WalkLoop', 'JogFwdLoop', 'SprintLoop', 'CrouchIdleLoop', 'CrouchFwdLoop'])
 
-  const _spineNames = ['spine', 'chest', 'upperChest', 'Spine', 'Spine1', 'Spine2', 'Normalized_spine', 'Normalized_chest', 'Normalized_upperChest']
+  const _spineNames = ['Normalized_spine', 'Normalized_chest', 'Normalized_upperChest', 'spine', 'chest', 'upperChest', 'Spine', 'Spine1', 'Spine2']
   const _spineBones = []
   root.traverse(c => { if (_spineNames.includes(c.name)) _spineBones.push(c) })
+  const _hipNames = ['Normalized_hips', 'hips', 'Hips', 'pelvis']
+  let _hipBone = null
+  root.traverse(c => { if (!_hipBone && _hipNames.includes(c.name)) _hipBone = c })
   const _qLook = new THREE.Quaternion()
   const _eLook = new THREE.Euler(0, 0, 0, 'YXZ')
   const _qRest = []
-  for (const b of _spineBones) _qRest.push(b.quaternion.clone())
+  let _restCaptured = false
   let _lookYaw = 0, _lookPitch = 0, _bodyYaw = 0
-  let _moveDir = 1 // 1=forward, -1=backward, 0=strafe
+  let _moveAngle = 0 // angle of movement relative to body facing (0=fwd, ±π/2=strafe, ±π=back)
 
   function transitionTo(name) {
     if (current === name) return
@@ -396,15 +399,29 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
         const locoAction = actions.get(current)
         if (locoAction) {
           const baseScale = current === 'WalkLoop' ? (animConfig.walkTimeScale || 2.0) : current === 'SprintLoop' ? (animConfig.sprintTimeScale || 0.56) : 1.0
-          locoAction.timeScale = baseScale * _moveDir
+          locoAction.timeScale = baseScale * (Math.cos(_moveAngle) >= 0 ? 1 : -1)
         }
       }
       this.aim(aiming)
       wasOnGround = effectiveOnGround
       mixer.update(dt)
+    },
+    applyBoneOverrides() {
+      if (!_restCaptured) {
+        for (const b of _spineBones) _qRest.push(b.quaternion.clone())
+        _restCaptured = true
+      }
+      // Rotate hips toward movement direction: set = animPose × moveYaw
+      if (_hipBone && current && LOCO_STATES.has(current) && current !== 'IdleLoop' && current !== 'CrouchIdleLoop') {
+        _eLook.set(0, _moveAngle, 0)
+        _qLook.setFromEuler(_eLook)
+        _hipBone.quaternion.multiply(_qLook)
+      }
+      // Spine twist: keep torso facing lookYaw, compensate for hip rotation
       if (_spineBones.length > 0) {
         const n = _spineBones.length
-        const yawShare = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, _lookYaw)) / n
+        const totalYaw = _lookYaw - _moveAngle
+        const yawShare = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, totalYaw)) / n
         const pitchShare = Math.max(-Math.PI / 3, Math.min(Math.PI / 4, _lookPitch)) / n
         _eLook.x = pitchShare; _eLook.y = yawShare
         _qLook.setFromEuler(_eLook)
@@ -423,10 +440,8 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
           const cy = Math.cos(-_bodyYaw), sy = Math.sin(-_bodyYaw)
           const localFwd = vz * cy - vx * sy
           const localRight = vz * sy + vx * cy
-          const absFwd = Math.abs(localFwd), absRight = Math.abs(localRight)
-          if (absFwd >= absRight) _moveDir = localFwd >= 0 ? 1 : -1
-          else _moveDir = localRight >= 0 ? 1 : -1
-        } else { _moveDir = 1 }
+          _moveAngle = Math.atan2(localRight, localFwd)
+        } else { _moveAngle = 0; _moveDir = 1 }
       }
     },
     shoot() {

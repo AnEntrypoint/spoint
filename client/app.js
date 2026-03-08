@@ -1912,6 +1912,7 @@ function animate(timestamp) {
     animator.update(frameDt, ps.velocity, ps.onGround, ps.health, ps._aiming || false, ps.crouch || 0)
     const vrm = playerVrms.get(id)
     if (vrm) vrm.update(frameDt)
+    if (animator.applyBoneOverrides) animator.applyBoneOverrides()
     const mesh = playerMeshes.get(id)
     if (!mesh) return
     if (ps.lookYaw !== undefined) {
@@ -1921,17 +1922,17 @@ function animate(timestamp) {
       diff = diff - Math.PI * 2 * Math.round(diff / (Math.PI * 2))
       const vx = ps.velocity?.[0] || 0, vz = ps.velocity?.[2] || 0
       const speed = Math.sqrt(vx * vx + vz * vz)
-      // CS-style: clamp body within ±60° of look, snap fast when idle
       const maxOffset = Math.PI / 3
-      if (Math.abs(diff) > maxOffset) {
-        const clamp = diff > 0 ? diff - maxOffset : diff + maxOffset
-        bodyYaw += clamp
-        diff = lookYaw - bodyYaw
-        diff = diff - Math.PI * 2 * Math.round(diff / (Math.PI * 2))
-        mesh.rotation.y = bodyYaw
+      if (speed < 0.5) {
+        // Idle: fast snap body to lookYaw
+        mesh.rotation.y += diff * Math.min(1, 8.0 * frameDt)
+      } else {
+        // Moving: body stays fixed, only hard-snap when diff exceeds ±60°
+        if (Math.abs(diff) > maxOffset) {
+          const excess = diff > 0 ? diff - maxOffset : diff + maxOffset
+          mesh.rotation.y += excess
+        }
       }
-      const snapSpeed = speed < 0.5 ? 8.0 : 2.0
-      mesh.rotation.y += diff * Math.min(1, snapSpeed * frameDt)
       if (animator.setLookDirection) animator.setLookDirection(lookYaw - mesh.rotation.y, ps.lookPitch || 0, mesh.rotation.y, ps.velocity)
     }
     const target = playerTargets.get(id)
