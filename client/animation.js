@@ -129,6 +129,7 @@ function filterValidClipTracks(clip, validBones) {
 const q1 = new THREE.Quaternion()
 const restInv = new THREE.Quaternion()
 const parentRest = new THREE.Quaternion()
+const _qPitchTmp = new THREE.Quaternion()
 
 function normalizeClips(gltf, vrmVersion, vrmHumanoid) {
   const scene = gltf.scene
@@ -384,8 +385,8 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
             else transitionTo('CrouchFwdLoop')
           } else {
             const idle2walk = current === 'IdleLoop' ? 0.8 : 0.3
-            const walk2jog = current === 'WalkLoop' ? 7.0 : 6.5
-            const jog2sprint = current === 'JogFwdLoop' ? 11.0 : 10.5
+            const walk2jog = current === 'WalkLoop' ? 2.5 : 2.0
+            const jog2sprint = current === 'JogFwdLoop' ? 5.5 : 5.0
             if (smoothSpeed < idle2walk) transitionTo('IdleLoop')
             else if (smoothSpeed < walk2jog) transitionTo('WalkLoop')
             else if (smoothSpeed < jog2sprint) transitionTo('JogFwdLoop')
@@ -399,7 +400,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
         const locoAction = actions.get(current)
         if (locoAction) {
           const baseScale = current === 'WalkLoop' ? (animConfig.walkTimeScale || 2.0) : current === 'SprintLoop' ? (animConfig.sprintTimeScale || 0.56) : 1.0
-          locoAction.timeScale = baseScale * (Math.cos(_moveAngle) >= 0 ? 1 : -1)
+          locoAction.timeScale = baseScale * (Math.abs(_moveAngle) > Math.PI * 0.75 ? -1 : 1)
         }
       }
       this.aim(aiming)
@@ -411,24 +412,29 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
         for (const b of _spineBones) _qRest.push(b.quaternion.clone())
         _restCaptured = true
       }
-      // Rotate hips toward movement direction (clamp to ±90° so backward never flips body)
+      // Rotate hips toward movement direction only for forward/strafe (not backward)
+      let hipYaw = 0
       if (_hipBone && current && LOCO_STATES.has(current) && current !== 'IdleLoop' && current !== 'CrouchIdleLoop') {
-        const clampedAngle = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, _moveAngle))
-        _eLook.set(0, clampedAngle, 0)
-        _qLook.setFromEuler(_eLook)
-        _hipBone.quaternion.multiply(_qLook)
+        if (Math.abs(_moveAngle) < Math.PI * 0.75) {
+          hipYaw = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, _moveAngle))
+          _eLook.set(0, hipYaw, 0)
+          _qLook.setFromEuler(_eLook)
+          _hipBone.quaternion.multiply(_qLook)
+        }
       }
       // Spine twist: keep torso facing lookYaw, compensate for hip rotation
+      // Apply yaw and pitch as separate rotations to prevent coupling/lean
       if (_spineBones.length > 0) {
         const n = _spineBones.length
-        const clampedMoveAngle = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, _moveAngle))
-        const totalYaw = _lookYaw - clampedMoveAngle
+        const totalYaw = _lookYaw - hipYaw
         const yawShare = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, totalYaw)) / n
         const pitchShare = Math.max(-Math.PI / 3, Math.min(Math.PI / 4, _lookPitch)) / n
-        _eLook.x = pitchShare; _eLook.y = yawShare
+        _eLook.set(0, yawShare, 0)
         _qLook.setFromEuler(_eLook)
+        _eLook.set(pitchShare, 0, 0)
+        _qPitchTmp.setFromEuler(_eLook)
         for (let i = 0; i < n; i++) {
-          _spineBones[i].quaternion.copy(_qRest[i]).multiply(_qLook)
+          _spineBones[i].quaternion.copy(_qRest[i]).multiply(_qLook).multiply(_qPitchTmp)
         }
       }
     },
@@ -608,8 +614,8 @@ export function createGLBAnimator(gltfScene, gltfAnimations, animAssets, animCon
             if (smoothSpeed < 0.8) transitionTo('CrouchIdleLoop'); else transitionTo('CrouchFwdLoop')
           } else {
             const idle2walk = current === 'IdleLoop' ? 0.8 : 0.3
-            const walk2jog = current === 'WalkLoop' ? 7.0 : 6.5
-            const jog2sprint = current === 'JogFwdLoop' ? 11.0 : 10.5
+            const walk2jog = current === 'WalkLoop' ? 2.5 : 2.0
+            const jog2sprint = current === 'JogFwdLoop' ? 5.5 : 5.0
             if (smoothSpeed < idle2walk) transitionTo('IdleLoop')
             else if (smoothSpeed < walk2jog) transitionTo('WalkLoop')
             else if (smoothSpeed < jog2sprint) transitionTo('JogFwdLoop')
