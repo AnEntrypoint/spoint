@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.227](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.226...v0.1.227) (2026-03-08)
+
+
+### Bug Fixes
+
+* camera jitter at high FPS and animation facing 1 frame behind ([26cb4b9](https://github.com/AnEntrypoint/spawnpoint/commit/26cb4b9db5b3bff2e180ec83e926808addda02f0))
+
 ### [0.1.226](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.225...v0.1.226) (2026-03-08)
 
 
