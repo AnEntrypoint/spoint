@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.212](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.211...v0.1.212) (2026-03-08)
+
+
+### Bug Fixes
+
+* remove combineSkeletons which breaks AnimationMixer bone targeting ([c0e2b77](https://github.com/AnEntrypoint/spawnpoint/commit/c0e2b774fe5c9f2fbb08b706422c6316b68649e0))
+
 ### [0.1.211](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.210...v0.1.211) (2026-03-08)
 
 
