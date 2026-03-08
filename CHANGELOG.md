@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.226](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.225...v0.1.226) (2026-03-08)
+
+
+### Bug Fixes
+
+* decode entity scale in SnapshotProcessor and apply to instanced mesh ([f0c9c9c](https://github.com/AnEntrypoint/spawnpoint/commit/f0c9c9c23035ec8ea231333ddc5402f95f1bce2a))
+
 ### [0.1.225](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.224...v0.1.225) (2026-03-08)
 
 
