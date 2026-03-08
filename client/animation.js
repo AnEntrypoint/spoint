@@ -406,7 +406,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       mixer.update(dt)
     },
     applyBoneOverrides(dt) {
-      // Rotate hips toward movement direction only for forward/strafe (not backward)
+      if (Math.random() < 0.01) console.log('[anim] hipBone:', _hipBone?.name, 'moveAngle:', _moveAngle.toFixed(2), 'spineBones:', _spineBones.map(b => b.name))
       let hipYaw = 0
       if (_hipBone && current && LOCO_STATES.has(current) && current !== 'IdleLoop' && current !== 'CrouchIdleLoop') {
         if (Math.abs(_moveAngle) < Math.PI * 0.75) {
