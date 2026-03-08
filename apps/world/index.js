@@ -46,14 +46,23 @@ const GRID_ROWS = Math.ceil(TARGET_COUNT / GRID_COLS)
 const SPACING_X = MAP_W / (GRID_COLS - 1)
 const SPACING_Z = MAP_D / (GRID_ROWS - 1)
 
+function hashScale(id) {
+  let h = 0
+  for (let j = 0; j < id.length; j++) h = (h * 31 + id.charCodeAt(j)) >>> 0
+  return 0.85 + ((h % 256) / 256) * 0.45
+}
+
 const dynEntities = []
 for (let i = 0; i < TARGET_COUNT; i++) {
   const row = Math.floor(i / GRID_COLS)
   const col = i % GRID_COLS
+  const id = `dyn-${i}`
+  const s = hashScale(id)
   dynEntities.push({
-    id: `dyn-${i}`,
+    id,
     model: `./apps/props/dynamic/${PROP_MODELS[i % PROP_MODELS.length]}`,
     position: [MAP_X_MIN + col * SPACING_X, SPAWN_Y, MAP_Z_MIN + row * SPACING_Z],
+    scale: [s, s, s],
     app: 'prop-dynamic',
   })
 }
@@ -66,12 +75,12 @@ export default {
   relevanceRadius: 60,
   physicsRadius: 60,
   movement: {
-    maxSpeed: 8.0,
+    maxSpeed: 11.0,
     groundAccel: 150.0,
     airAccel: 1.0,
-    friction: 4.0,
+    friction: 5.0,
     stopSpeed: 1.5,
-    jumpImpulse: 4.2,
+    jumpImpulse: 3.6,
     collisionRestitution: 0.2,
     collisionDamping: 0.25
   },
@@ -106,7 +115,7 @@ export default {
   camera: {
     fov: 70,
     shoulderOffset: 0.35,
-    headHeight: 0.4,
+    headHeight: 0.85,
     zoomStages: [0, 1.5, 3, 5, 8],
     defaultZoomIndex: 2,
     followSpeed: 12.0,
@@ -122,7 +131,6 @@ export default {
   },
   entities: [
     { id: 'env-sillos', model: './apps/maps/aim_sillos.glb', position: [0, 0, 0], app: 'environment', autoTrimesh: true },
-    { id: 'floor', position: [0, -2, 0], app: 'box-static', config: { hx: 300, hy: 0.5, hz: 300, color: 0x888888 } },
     { id: 'webcam1', position: [0, SPAWN_Y, -5], app: 'webcam-avatar' },
     ...dynEntities,
   ],
