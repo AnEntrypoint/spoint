@@ -5,6 +5,7 @@ import { isUnreliable } from '../protocol/MessageTypes.js'
 import { applyMovement as _applyMovement, DEFAULT_MOVEMENT as _DEFAULT_MOVEMENT } from '../shared/movement.js'
 
 const MAX_SENDS_PER_TICK = 25
+const PHYSICS_PLAYER_DIVISOR = 2
 
 function applyPlayerCollisions(players, grid, gridCells, cellSz, minDist2, minDist, dt, physicsIntegration) {
   grid.clear()
@@ -57,6 +58,7 @@ export function createTickHandler(deps) {
   let grid = new Map()
   const gridCells = new Map()
   const playerIdleCounts = new Map()
+  const playerAccumDt = new Map()
 
   return function onTick(tick, dt) {
     const t0 = performance.now()
@@ -89,10 +91,17 @@ export function createTickHandler(deps) {
       const idleCount = playerIdleCounts.get(player.id) || 0
       if (isIdle && idleCount >= 1) {
         playerIdleCounts.set(player.id, idleCount + 1)
+        playerAccumDt.delete(player.id)
       } else {
-        physicsIntegration.updatePlayerPhysics(player.id, st, dt)
-        st.velocity[0] = wishedVx
-        st.velocity[2] = wishedVz
+        const accumDt = (playerAccumDt.get(player.id) || 0) + dt
+        if (tick % PHYSICS_PLAYER_DIVISOR === 0 || inp?.jump || !st.onGround) {
+          physicsIntegration.updatePlayerPhysics(player.id, st, accumDt)
+          st.velocity[0] = wishedVx
+          st.velocity[2] = wishedVz
+          playerAccumDt.delete(player.id)
+        } else {
+          playerAccumDt.set(player.id, accumDt)
+        }
         playerIdleCounts.set(player.id, isIdle ? idleCount + 1 : 0)
       }
       lagCompensator.recordPlayerPosition(player.id, st.position, st.rotation, st.velocity, tick)
@@ -191,7 +200,7 @@ export function createTickHandler(deps) {
       }
     }
 
-    for (const id of playerEntityMaps.keys()) { if (!playerManager.getPlayer(id)) { playerEntityMaps.delete(id); playerIdleCounts.delete(id) } }
+    for (const id of playerEntityMaps.keys()) { if (!playerManager.getPlayer(id)) { playerEntityMaps.delete(id); playerIdleCounts.delete(id); playerAccumDt.delete(id) } }
     const t5 = performance.now()
     try { appRuntime._drainReloadQueue() } catch (e) { console.error('[TickHandler] reload queue error:', e.message) }
     if (players.length > 0) { profileSum += t5-t0; profileSumSnap += t5-t4; profileSumPhys += t3-t2; profileSumMv += t1-t0; profileCount++ }
@@ -202,7 +211,8 @@ export function createTickHandler(deps) {
       const avgTotal=avg(profileSum),avgSnap=avg(profileSumSnap),avgPhys=avg(profileSumPhys),avgMv=avg(profileSumMv)
       profileSum=0; profileSumSnap=0; profileSumPhys=0; profileSumMv=0; profileCount=0
       const idleSkipped = players.length > 0 ? [...playerIdleCounts.values()].filter(c=>c>=2).length : 0
-      try { console.log(`[tick-profile] tick:${tick} players:${players.length} idle:${idleSkipped} entities:${appRuntime.entities.size} dynIds:${dynIds} activeDyn:${activeDyn} total:${total.toFixed(2)}ms(avg:${avgTotal}) | mv:${(t1-t0).toFixed(2)}(avg:${avgMv}) col:${(t2-t1).toFixed(2)} phys:${(t3-t2).toFixed(2)}(avg:${avgPhys}) app:${(t4-t3).toFixed(2)} sync:${(appRuntime._lastSyncMs||0).toFixed(2)} respawn:${(appRuntime._lastRespawnMs||0).toFixed(2)} spatial:${(appRuntime._lastSpatialMs||0).toFixed(2)} col2:${(appRuntime._lastCollisionMs||0).toFixed(2)} int:${(appRuntime._lastInteractMs||0).toFixed(2)} snap:${(t5-t4).toFixed(2)}(avg:${avgSnap}) | heap:${mb(mem.heapUsed)}MB rss:${mb(mem.rss)}MB ext:${mb(mem.external)}MB ab:${mb(mem.arrayBuffers)}MB`) } catch (_) {}
+      const physSkipped = players.length > 0 ? playerAccumDt.size : 0
+      try { console.log(`[tick-profile] tick:${tick} players:${players.length} idle:${idleSkipped} physSkip:${physSkipped} entities:${appRuntime.entities.size} dynIds:${dynIds} activeDyn:${activeDyn} total:${total.toFixed(2)}ms(avg:${avgTotal}) | mv:${(t1-t0).toFixed(2)}(avg:${avgMv}) col:${(t2-t1).toFixed(2)} phys:${(t3-t2).toFixed(2)}(avg:${avgPhys}) app:${(t4-t3).toFixed(2)} sync:${(appRuntime._lastSyncMs||0).toFixed(2)} respawn:${(appRuntime._lastRespawnMs||0).toFixed(2)} spatial:${(appRuntime._lastSpatialMs||0).toFixed(2)} col2:${(appRuntime._lastCollisionMs||0).toFixed(2)} int:${(appRuntime._lastInteractMs||0).toFixed(2)} snap:${(t5-t4).toFixed(2)}(avg:${avgSnap}) | heap:${mb(mem.heapUsed)}MB rss:${mb(mem.rss)}MB ext:${mb(mem.external)}MB ab:${mb(mem.arrayBuffers)}MB`) } catch (_) {}
     }
   }
 }
