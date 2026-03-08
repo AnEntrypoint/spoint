@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.247](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.246...v0.1.247) (2026-03-08)
+
+
+### Bug Fixes
+
+* eliminate sideways lean and add torso-leg split for strafing ([58cec2f](https://github.com/AnEntrypoint/spawnpoint/commit/58cec2f8e9f9ef310fb9a7765a19dd63cd915b2b))
+
 ### [0.1.246](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.245...v0.1.246) (2026-03-08)
 
 
