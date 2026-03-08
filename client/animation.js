@@ -129,7 +129,6 @@ function filterValidClipTracks(clip, validBones) {
 const q1 = new THREE.Quaternion()
 const restInv = new THREE.Quaternion()
 const parentRest = new THREE.Quaternion()
-const _qPitchTmp = new THREE.Quaternion()
 
 function normalizeClips(gltf, vrmVersion, vrmHumanoid) {
   const scene = gltf.scene
@@ -310,8 +309,6 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   root.traverse(c => { if (!_hipBone && _hipNames.includes(c.name)) _hipBone = c })
   const _qLook = new THREE.Quaternion()
   const _eLook = new THREE.Euler(0, 0, 0, 'YXZ')
-  const _qRest = []
-  let _restCaptured = false
   let _lookYaw = 0, _lookPitch = 0, _bodyYaw = 0
   let _moveAngle = 0 // angle of movement relative to body facing (0=fwd, ±π/2=strafe, ±π=back)
 
@@ -408,10 +405,6 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       mixer.update(dt)
     },
     applyBoneOverrides() {
-      if (!_restCaptured) {
-        for (const b of _spineBones) _qRest.push(b.quaternion.clone())
-        _restCaptured = true
-      }
       // Rotate hips toward movement direction only for forward/strafe (not backward)
       let hipYaw = 0
       if (_hipBone && current && LOCO_STATES.has(current) && current !== 'IdleLoop' && current !== 'CrouchIdleLoop') {
@@ -422,19 +415,20 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
           _hipBone.quaternion.multiply(_qLook)
         }
       }
-      // Spine twist: keep torso facing lookYaw, compensate for hip rotation
-      // Apply yaw and pitch as separate rotations to prevent coupling/lean
+      // Spine twist: set spine bone rotation from yaw+pitch angles only.
+      // Do NOT multiply on top of animated rest pose — that causes X/Z coupling
+      // (lean/roll) because the rest quaternion's X/Z components interact with
+      // the yaw rotation. Instead set the bone directly from YXZ euler so only
+      // Y (yaw) and X (pitch) axes are ever set, eliminating any roll/lean.
       if (_spineBones.length > 0) {
         const n = _spineBones.length
         const totalYaw = _lookYaw - hipYaw
         const yawShare = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, totalYaw)) / n
         const pitchShare = Math.max(-Math.PI / 3, Math.min(Math.PI / 4, _lookPitch)) / n
-        _eLook.set(0, yawShare, 0)
+        _eLook.set(pitchShare, yawShare, 0, 'YXZ')
         _qLook.setFromEuler(_eLook)
-        _eLook.set(pitchShare, 0, 0)
-        _qPitchTmp.setFromEuler(_eLook)
         for (let i = 0; i < n; i++) {
-          _spineBones[i].quaternion.copy(_qRest[i]).multiply(_qLook).multiply(_qPitchTmp)
+          _spineBones[i].quaternion.copy(_qLook)
         }
       }
     },

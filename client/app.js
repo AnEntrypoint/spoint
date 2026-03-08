@@ -1982,12 +1982,12 @@ function animate(timestamp) {
   playerTargets.forEach((target, id) => {
     const mesh = playerMeshes.get(id)
     if (!mesh) return
-    target.t = (target.t || 0) + frameDt
+    target.t = Math.min((target.t || 0) + frameDt, 0.05)
     const t = target.t
     const vx = target.vx || 0, vy = target.vy || 0, vz = target.vz || 0
     const goalX = target.x + vx * t, goalY = target.y + vy * t, goalZ = target.z + vz * t
     const isLocal = id === _localId
-    const speed = isLocal ? 40 : 16
+    const speed = isLocal ? 40 : 10
     const f = 1.0 - Math.exp(-speed * frameDt)
     mesh.position.x += (goalX - mesh.position.x) * f
     mesh.position.y += (goalY - mesh.position.y) * f

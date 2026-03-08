@@ -163,7 +163,7 @@ export default {
     fadeTime: 0.15
   },
   entities: [
-    { id: 'env-sillos', model: './apps/maps/aim_sillos.glb', position: [0, 0, 0], app: 'environment' },
+    { id: 'env-sillos', model: './apps/maps/aim_sillos.glb', position: [0, 0, 0], scale: [3, 3, 3], app: 'environment' },
     { id: 'webcam1', position: [0, SPAWN_Y, -5], app: 'webcam-avatar' },
     ...dynEntities,
   ],
