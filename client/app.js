@@ -1213,6 +1213,7 @@ async function _doLoadEntityModel(entityId, entityState) {
     }
     const ep = entityState.position; group.position.set(ep[0], ep[1], ep[2])
     const er = entityState.rotation; if (er) group.quaternion.set(er[0], er[1], er[2], er[3])
+    const es = entityState.scale; if (es) group.scale.set(es[0], es[1], es[2])
     scene.add(group)
     entityMeshes.set(entityId, group)
     if (group.userData.spin || group.userData.hover) _animatedEntities.push(group)
@@ -1251,6 +1252,7 @@ async function _doLoadEntityModel(entityId, entityState) {
     const model = gltf.scene.clone(true)
     const mp = entityState.position; model.position.set(mp[0], mp[1], mp[2])
     const mr = entityState.rotation; if (mr) model.quaternion.set(mr[0], mr[1], mr[2], mr[3])
+    const ms = entityState.scale; if (ms) model.scale.set(ms[0], ms[1], ms[2])
     const colliders = []
     const isDynamic = entityState.bodyType === 'dynamic'
     const bvhPending = []

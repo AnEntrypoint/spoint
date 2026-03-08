@@ -10,12 +10,12 @@ function encodePlayer(p) {
 }
 
 function encodeEntity(e) {
-  const [px,py,pz]=e.position, [rx,ry,rz,rw]=e.rotation, v=e.velocity||[0,0,0]
-  return [e.id, e.model||'', quantize(px,Q1),quantize(py,Q1),quantize(pz,Q1), quantize(rx,Q2),quantize(ry,Q2),quantize(rz,Q2),quantize(rw,Q2), quantize(v[0]||0,Q1),quantize(v[1]||0,Q1),quantize(v[2]||0,Q1), e.bodyType||'static', e.custom||null]
+  const [px,py,pz]=e.position, [rx,ry,rz,rw]=e.rotation, v=e.velocity||[0,0,0], s=e.scale||[1,1,1]
+  return [e.id, e.model||'', quantize(px,Q1),quantize(py,Q1),quantize(pz,Q1), quantize(rx,Q2),quantize(ry,Q2),quantize(rz,Q2),quantize(rw,Q2), quantize(v[0]||0,Q1),quantize(v[1]||0,Q1),quantize(v[2]||0,Q1), e.bodyType||'static', e.custom||null, quantize(s[0]||1,Q1),quantize(s[1]||1,Q1),quantize(s[2]||1,Q1)]
 }
 
 function buildEntityKey(enc, custStr) {
-  return [enc[1], enc[2], enc[3], enc[4], enc[5], enc[6], enc[7], enc[8], enc[9], enc[10], enc[11], enc[12], custStr].join('|')
+  return [enc[1], enc[2], enc[3], enc[4], enc[5], enc[6], enc[7], enc[8], enc[9], enc[10], enc[11], enc[12], custStr, enc[14], enc[15], enc[16]].join('|')
 }
 
 const CLOSE2 = 20 * 20
@@ -226,7 +226,7 @@ export class SnapshotEncoder {
     if (!data.players || !Array.isArray(data.players)) return data
     const TAU = 2 * Math.PI
     const players = data.players.map(p => !Array.isArray(p) ? p : { id:p[0], position:[p[1],p[2],p[3]], rotation:[p[4],p[5],p[6],p[7]], velocity:[p[8],p[9],p[10]], onGround:p[11]===1, health:p[12], inputSequence:p[13], crouch:p[14]||0, lookPitch:((p[15]||0)>>4)/15*TAU-Math.PI, lookYaw:((p[15]||0)&0xF)/15*TAU })
-    const entities = (data.entities||[]).map(e => !Array.isArray(e) ? e : { id:e[0], model:e[1], position:[e[2],e[3],e[4]], rotation:[e[5],e[6],e[7],e[8]], velocity:[e[9],e[10],e[11]], bodyType:e[12], custom:e[13] })
+    const entities = (data.entities||[]).map(e => !Array.isArray(e) ? e : { id:e[0], model:e[1], position:[e[2],e[3],e[4]], rotation:[e[5],e[6],e[7],e[8]], velocity:[e[9],e[10],e[11]], bodyType:e[12], custom:e[13], scale:[e[14]??1,e[15]??1,e[16]??1] })
     return { tick:data.tick, serverTime:data.serverTime, players, entities, delta:data.delta, removed:data.removed }
   }
 }

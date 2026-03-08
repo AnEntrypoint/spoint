@@ -50,7 +50,9 @@ export class AppContext {
       setAngularDamping: (v) => { ent._angularDamping = v },
       addBoxCollider: (s) => {
         ent.collider = { type: 'box', size: s }
-        const he = Array.isArray(s) ? s : [s, s, s]
+        const rawHe = Array.isArray(s) ? s : [s, s, s]
+        const sc = ent.scale || [1, 1, 1]
+        const he = [rawHe[0] * sc[0], rawHe[1] * sc[1], rawHe[2] * sc[2]]
         const mt = ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
         const bodyOpts = { mass: ent.mass, linearDamping: ent._linearDamping, angularDamping: ent._angularDamping }
         if (mt === 'dynamic') ent._bodyDef = { shapeType: 'box', params: he, motionType: mt, opts: bodyOpts }
@@ -62,20 +64,25 @@ export class AppContext {
       },
       addSphereCollider: (r) => {
         ent.collider = { type: 'sphere', radius: r }
+        const sc = ent.scale || [1, 1, 1]
+        const sr = r * Math.max(sc[0], sc[1], sc[2])
         const mt = ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
-        if (mt === 'dynamic') ent._bodyDef = { shapeType: 'sphere', params: r, motionType: mt, opts: { mass: ent.mass } }
+        if (mt === 'dynamic') ent._bodyDef = { shapeType: 'sphere', params: sr, motionType: mt, opts: { mass: ent.mass } }
         if (runtime._physics) {
-          const bid = runtime._physics.addBody('sphere', r, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+          const bid = runtime._physics.addBody('sphere', sr, ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
           ent._physicsBodyId = bid; ent._bodyActive = true; ent._bodyCreatedTick = runtime.currentTick; runtime._physicsBodyToEntityId?.set(bid, ent.id)
           if (mt === 'dynamic') runtime._activeDynamicIds?.add(ent.id)
         }
       },
       addCapsuleCollider: (r, h) => {
         ent.collider = { type: 'capsule', radius: r, height: h }
+        const sc = ent.scale || [1, 1, 1]
+        const uniformS = Math.max(sc[0], sc[1], sc[2])
+        const sr = r * uniformS, sh = h * uniformS
         const mt = ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
-        if (mt === 'dynamic') ent._bodyDef = { shapeType: 'capsule', params: [r, h / 2], motionType: mt, opts: { mass: ent.mass } }
+        if (mt === 'dynamic') ent._bodyDef = { shapeType: 'capsule', params: [sr, sh / 2], motionType: mt, opts: { mass: ent.mass } }
         if (runtime._physics) {
-          const bid = runtime._physics.addBody('capsule', [r, h / 2], ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
+          const bid = runtime._physics.addBody('capsule', [sr, sh / 2], ent.position, mt, { rotation: ent.rotation, mass: ent.mass })
           ent._physicsBodyId = bid; ent._bodyActive = true; ent._bodyCreatedTick = runtime.currentTick; runtime._physicsBodyToEntityId?.set(bid, ent.id)
           if (mt === 'dynamic') runtime._activeDynamicIds?.add(ent.id)
         }
@@ -101,7 +108,9 @@ export class AppContext {
         if (!ent.model) return
         try {
           const mesh = extractMeshFromGLB(runtime.resolveAssetPath(ent.model), meshIndex)
-          const points = Array.from(mesh.vertices)
+          const sc = ent.scale || [1, 1, 1]
+          const raw = mesh.vertices
+          const points = (sc[0] === 1 && sc[1] === 1 && sc[2] === 1) ? Array.from(raw) : Array.from(raw).map((v, i) => v * sc[i % 3])
           ent.collider = { type: 'convex', points }
           if (runtime._physics) {
             const mt = ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
@@ -143,7 +152,9 @@ export class AppContext {
           }
           return
         }
-        const points = Array.from(mesh.vertices)
+        const sc = ent.scale || [1, 1, 1]
+        const raw = mesh.vertices
+        const points = (sc[0] === 1 && sc[1] === 1 && sc[2] === 1) ? Array.from(raw) : Array.from(raw).map((v, i) => v * sc[i % 3])
         ent.collider = { type: 'convex', points }
         if (runtime._physics) {
           if (mt === 'dynamic') ent._bodyDef = { shapeType: 'convex', params: points, motionType: mt, opts: { mass: ent.mass, shapeKey: ent.model } }

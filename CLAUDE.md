@@ -34,6 +34,26 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 
 ---
 
+## Entity Scale: Physics + Graphics Parity
+
+`entity.scale` (set via `config.scale` in world definition) applies uniformly to both the physics collider and the Three.js visual mesh.
+
+**Server (AppContext.js)**: All collider creation methods read `entity.scale` and multiply shape parameters before passing to Jolt:
+- `addBoxCollider([hx,hy,hz])` — multiplies each half-extent by the corresponding scale component: `[hx*sx, hy*sy, hz*sz]`
+- `addSphereCollider(r)` — multiplies radius by `max(sx, sy, sz)` (Jolt spheres must be uniform)
+- `addCapsuleCollider(r, h)` — multiplies both radius and height by `max(sx, sy, sz)` (Jolt capsules must be uniform)
+- `addConvexFromModel` / `addConvexFromModelAsync` — multiplies each extracted vertex `[x,y,z]` by `[sx,sy,sz]` before building the Jolt ConvexHull. Identity scale `[1,1,1]` skips this step.
+
+**Snapshot wire format**: `entity.scale` is encoded as three Q1-precision floats appended after `custom` (indices 14,15,16 in the entity array). Old clients that don't decode these fields default to `[1,1,1]` via nullish coalescing.
+
+**Client (app.js)**: `_doLoadEntityModel` applies `entityState.scale` to `model.scale.set(sx,sy,sz)` for both GLB models and primitive meshes (box/sphere/cylinder groups).
+
+**Static trimesh colliders** (`addTrimeshCollider`, `world.addStaticTrimeshAsync`): scale is NOT applied — map GLBs have scale baked into vertices. Do not add scale support here without auditing all map assets.
+
+**Non-uniform scale on capsules/spheres**: Jolt does not support non-uniform scale on these shapes. The engine uses `max(sx,sy,sz)` as a uniform scalar. Design physics entities with uniform scale or use box/convex colliders for non-uniform shapes.
+
+---
+
 ## Reusable Apps: box-static, prop-static, box-dynamic
 
 - `box-static` — visual box primitive + static collider. Config: `{ hx, hy, hz, color, roughness }`. Half-extents drive both collider and visual (`sx/sy/sz = hx/hy/hz * 2`). Spawn via `ctx.world.spawn(id, { app: 'box-static', config: { hx, hy, hz, color } })`.
