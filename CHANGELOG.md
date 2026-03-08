@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.242](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.241...v0.1.242) (2026-03-08)
+
+
+### Bug Fixes
+
+* add linearCast CCD option to dynamic physics bodies ([f74502a](https://github.com/AnEntrypoint/spawnpoint/commit/f74502a1259332b1315ebed2b96011d63b822b32))
+
 ### [0.1.241](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.240...v0.1.241) (2026-03-08)
 
 
