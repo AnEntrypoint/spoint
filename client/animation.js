@@ -385,8 +385,8 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
             else transitionTo('CrouchFwdLoop')
           } else {
             const idle2walk = current === 'IdleLoop' ? 0.8 : 0.3
-            const walk2jog = current === 'WalkLoop' ? 3.5 : 3.0
-            const jog2sprint = current === 'JogFwdLoop' ? 7.5 : 7.0
+            const walk2jog = current === 'WalkLoop' ? 6.0 : 5.5
+            const jog2sprint = current === 'JogFwdLoop' ? 13.0 : 12.0
             if (smoothSpeed < idle2walk) transitionTo('IdleLoop')
             else if (smoothSpeed < walk2jog) transitionTo('WalkLoop')
             else if (smoothSpeed < jog2sprint) transitionTo('JogFwdLoop')
@@ -400,8 +400,8 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
         const locoAction = actions.get(current)
         if (locoAction) {
           const baseScale = current === 'WalkLoop' ? (animConfig.walkTimeScale || 2.0) : current === 'SprintLoop' ? (animConfig.sprintTimeScale || 0.56) : 1.0
-          const stateMin = current === 'WalkLoop' ? 0.3 : current === 'JogFwdLoop' ? 3.0 : current === 'SprintLoop' ? 7.0 : 0.3
-          const stateMax = current === 'WalkLoop' ? 3.5 : current === 'JogFwdLoop' ? 7.5 : current === 'SprintLoop' ? 22.0 : 3.5
+          const stateMin = current === 'WalkLoop' ? 0.3 : current === 'JogFwdLoop' ? 5.5 : current === 'SprintLoop' ? 12.0 : 0.3
+          const stateMax = current === 'WalkLoop' ? 6.0 : current === 'JogFwdLoop' ? 13.0 : current === 'SprintLoop' ? 24.0 : 6.0
           const ratio = Math.max(0.5, Math.min(1.5, smoothSpeed / Math.max(1, (stateMin + stateMax) * 0.5)))
           const dir = Math.abs(_moveAngle) > Math.PI * 0.75 ? -1 : 1
           const target = baseScale * ratio * dir
@@ -611,8 +611,8 @@ export function createGLBAnimator(gltfScene, gltfAnimations, animAssets, animCon
             if (smoothSpeed < 0.8) transitionTo('CrouchIdleLoop'); else transitionTo('CrouchFwdLoop')
           } else {
             const idle2walk = current === 'IdleLoop' ? 0.8 : 0.3
-            const walk2jog = current === 'WalkLoop' ? 3.5 : 3.0
-            const jog2sprint = current === 'JogFwdLoop' ? 7.5 : 7.0
+            const walk2jog = current === 'WalkLoop' ? 6.0 : 5.5
+            const jog2sprint = current === 'JogFwdLoop' ? 13.0 : 12.0
             if (smoothSpeed < idle2walk) transitionTo('IdleLoop')
             else if (smoothSpeed < walk2jog) transitionTo('WalkLoop')
             else if (smoothSpeed < jog2sprint) transitionTo('JogFwdLoop')

@@ -1992,9 +1992,9 @@ function animate(timestamp) {
     const isLocal = id === _localId
     const speed = isLocal ? 40 : 10
     const f = 1.0 - Math.exp(-speed * frameDt)
-    const destX = isLocal ? target.x : goalX
+    const destX = goalX
     const destY = isLocal ? target.y : goalY
-    const destZ = isLocal ? target.z : goalZ
+    const destZ = goalZ
     mesh.position.x += (destX - mesh.position.x) * f
     mesh.position.y += (destY - mesh.position.y) * f
     mesh.position.z += (destZ - mesh.position.z) * f
