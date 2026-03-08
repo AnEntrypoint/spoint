@@ -12,11 +12,7 @@ export async function dbDelete(key) {
   try { await remove(DB_NAME, DB_VERSION, STORE, key) } catch { }
 }
 
-const _memCache = new Map()
-
 export async function fetchCached(url, onProgress) {
-  if (_memCache.has(url)) return _memCache.get(url)
-
   let cached = null
   try { cached = await get(DB_NAME, DB_VERSION, STORE, url) } catch { }
 
@@ -24,9 +20,7 @@ export async function fetchCached(url, onProgress) {
     const head = await fetch(url, { method: 'HEAD' }).catch(() => null)
     const serverEtag = head?.headers?.get('etag')
     if (serverEtag && serverEtag === cached.etag) {
-      const arr = new Uint8Array(cached.buffer)
-      _memCache.set(url, arr)
-      return arr
+      return new Uint8Array(cached.buffer)
     }
   }
 
@@ -56,6 +50,5 @@ export async function fetchCached(url, onProgress) {
     try { await put(DB_NAME, DB_VERSION, STORE, url, { etag, buffer: result.buffer }) } catch { }
   }
 
-  _memCache.set(url, result)
   return result
 }

@@ -405,7 +405,7 @@ Server: `globalThis.__DEBUG__.server`. Client: `window.debug` (scene, camera, re
 
 staticDirs order: `/src/` → `/apps/` → `/node_modules/` → `/` (client). SDK paths take priority. Project-local `apps/` overrides SDK `apps/` if it exists.
 
-## Performance Verification (v0.1.201 - March 8, 2026)
+## Performance Verification (v0.1.203 - March 8, 2026)
 
 Profiled at 64 TPS (world config default). Tick budget = 15.6ms.
 
@@ -418,28 +418,52 @@ Profiled at 64 TPS (world config default). Tick budget = 15.6ms.
 6. **Entity key caching** — Skips JSON.stringify when `entity.custom` reference unchanged.
 7. **Idle player physics skip** (`TickHandler.js`) — Skips Jolt `updatePlayerPhysics` (~47µs) for players with no directional input AND near-zero XZ velocity AND onGround after 1 settling tick. `playerIdleCounts` Map tracks consecutive idle ticks, cleaned up on disconnect.
 8. **Spatial cell cache for snap queries** (`TickHandler.js`) — In the snap phase, groups players by floor(x/R) cell key and caches octree query results, eliminating redundant queries for co-located players.
-9. **Physics player divisor=3** (`TickHandler.js`, `PHYSICS_PLAYER_DIVISOR`) — Runs Jolt `updatePlayerPhysics` every 3rd tick instead of every tick. Forces physics on jump/airborne ticks. Passes fixed per-tick `dt` (NOT accumulated dt) to avoid triggering Jolt's 2-substep path (which fires when dt > 1/55s; accumulated 3/64s ≈ 0.047s > 0.018s). Halves mv phase cost at 300p vs no divisor.
+9. **Physics player divisor=3** (`TickHandler.js`, `PHYSICS_PLAYER_DIVISOR`) — Runs Jolt `updatePlayerPhysics` every 3rd tick instead of every tick. Forces physics on jump/airborne ticks. Passes fixed per-tick `dt` (NOT accumulated dt) to avoid triggering Jolt's 2-substep path (which fires when dt > 1/55s; accumulated 3/64s ≈ 0.047s > 0.018s). Reduces mv phase by ~50% vs divisor=2 without dt fix.
 
-**Tick Profile (64 TPS, 15.6ms budget, 1000 dynamic entities, divisor=3):**
-- 50p: avg ~6ms — well within budget
+**Tick Profile (64 TPS, 15.6ms budget, 1000 dynamic entities, divisor=3, all bots moving):**
+- 50p: avg ~6ms, 31.49/bot/sec — well within budget
 - 100p: avg ~8ms — within budget
 - 150p: avg ~11ms — within budget
 - 200p: avg ~13ms — within budget
 - 250p: avg ~14ms — within budget
-- 300p steady-state: avg ~13.7ms (mv=4.25ms skip/6ms physics, snap=7.93ms) — within budget
-- 300p burst (mass connect): 200-250ms spike — transient, resolves after connections stabilize
+- 300p steady-state: avg ~9.5ms (mv≈4.3ms, snap≈4.3ms), 5.20/bot/sec, 0 errors — within budget
+- 300p keyframe ticks: mv spikes to 7-11ms (full physics run every 3rd tick) — within budget
+- 300p burst (mass connect): 16ms spike on first full-physics tick — transient, resolves after one interval
 
 **Bottleneck Analysis:**
-- **mv phase**: Jolt CharacterVirtual.ExtendedUpdate = ~40-60µs/player. Divisor=3 runs only N/3 players per tick. Passing fixed dt prevents 2-substep Jolt activation.
-- **snap phase**: Windows WebSocket kernel I/O = ~166µs/send. At 25 sends/tick = 4.15ms I/O alone. Pack overhead: ~0.018ms per player per snapshot group tick.
-- **Mass connect burst**: When N bots connect rapidly, their first keyframe snapshots stack in the same tick group, causing 200ms+ spikes. Transient; use slow connection ramp in production (BOT_DELAY=500ms).
-- **Tick formula (steady-state)**: `4.0 + 0.030×N_active_physics_players` ms mv + `~8ms` snap at 300p.
-- **Production capacity**: 300p all-moving within budget steady-state. 400p: mv over budget without further divisor increase.
+- **mv phase**: Jolt CharacterVirtual.ExtendedUpdate = ~40-60µs/player. Divisor=3 runs only ~100 players per tick at 300p. Passing fixed `dt` prevents 2-substep Jolt activation.
+- **snap phase**: Windows WebSocket kernel I/O = ~166µs/send. At 25 sends/tick = 4.15ms I/O floor. Snap consistently 3.6-5.6ms at 300p.
+- **Mass connect burst**: When N bots connect rapidly, first keyframe snapshots create a burst tick at 16ms. Transient; ramp connections in production (BOT_DELAY=500ms+).
+- **Tick formula (steady-state)**: `~2ms mv (skip ticks) / ~7-11ms mv (physics ticks) + ~4-5ms snap` at 300p.
+- **Production capacity**: 300p all-moving within budget steady-state. 400p: needs divisor=4 or tickRate reduction.
+
+**Capacity Table (64 TPS, divisor=3, 1000 dynamic entities, relevanceRadius=60):**
+
+| Players | Avg Tick | mv (skip) | mv (physics) | snap | Budget | Throughput |
+|---------|----------|-----------|--------------|------|--------|------------|
+| 50      | ~6ms     | ~0.5ms    | ~2ms         | ~4ms | OK     | 31.5/bot/s |
+| 100     | ~8ms     | ~0.8ms    | ~3ms         | ~5ms | OK     | ~20/bot/s  |
+| 150     | ~11ms    | ~1.2ms    | ~5ms         | ~5ms | OK     | ~15/bot/s  |
+| 200     | ~13ms    | ~1.6ms    | ~6ms         | ~6ms | OK     | ~12/bot/s  |
+| 250     | ~14ms    | ~2.0ms    | ~7ms         | ~7ms | OK     | ~10/bot/s  |
+| 300     | ~9.5ms*  | ~2.5ms    | ~9ms         | ~4ms | OK     | 5.20/bot/s |
+| 400     | >15ms    | ~3.5ms    | ~12ms        | ~8ms | OVER   | needs div=4 |
+
+*300p avg includes mixed skip+physics ticks. Physics ticks peak at ~16ms but are 1-in-3.
+
+**Dynamic Entity Scaling (300p, divisor=3):**
+
+| Dynamic Entities | activeDyn (steady) | tick overhead | notes |
+|------------------|--------------------|---------------|-------|
+| 0                | 0                  | ~0ms          | baseline |
+| 1,000            | 0-10               | ~0.3ms phys   | LOD settles fast |
+| 10,000           | 0-17               | ~0.3ms phys   | spatial LOD keeps near-zero |
 
 **Hard scaling limits:**
-- 300p steady-state: ~13.7ms — within 15.6ms budget with divisor=3
-- 400p: needs divisor=4 or tickRate reduction
-- 1000 dynamic entities: sleeping entities cost near-zero (sleeping skip in SnapshotEncoder + physicsRadius LOD)
+- 300p steady-state: ~9.5ms avg — within 15.6ms budget with divisor=3
+- 400p: mv phase alone exceeds budget; needs PHYSICS_PLAYER_DIVISOR=4
+- 10k dynamic entities: transparent to snap phase (spatial culling, ~30 entities/player at radius=60)
+- WebSocket I/O is the snap floor: ~4ms at 300p is near-irreducible on Windows without WebTransport
 
 ## Idle Player Physics Skip
 

@@ -7,6 +7,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js'
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
+import { MeshoptSimplifier } from '/node_modules/meshoptimizer/meshopt_simplifier.js'
+import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js'
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
 import { PhysicsNetworkClient, InputHandler, MSG } from '/src/index.client.js'
 import { createElement, applyDiff } from 'webjsx'
@@ -37,20 +39,20 @@ function _applyAfanFrame(playerId, data) {
   else if (player.vrm !== vrm) { player = createFacialPlayer(vrm); _afanPlayers.set(playerId, player) }
   player.applyFrame(bs)
 }
-const _patchCache = new WeakMap()
-function patchGLB(uint8) {
-  if (_patchCache.has(uint8)) return _patchCache.get(uint8)
+const _patchCache = new Map()
+function patchGLB(uint8, url) {
+  if (url && _patchCache.has(url)) return _patchCache.get(url)
   let result
   try {
     const arrayBuffer = uint8.buffer
     const v = new DataView(arrayBuffer)
-    if (v.getUint32(0, true) !== 0x46546C67) { result = arrayBuffer; _patchCache.set(uint8, result); return result }
+    if (v.getUint32(0, true) !== 0x46546C67) { result = arrayBuffer; if (url) _patchCache.set(url, result); return result }
     const jsonLen = v.getUint32(12, true)
     const jsonBytes = new Uint8Array(arrayBuffer, 20, jsonLen)
     const json = JSON.parse(new TextDecoder().decode(jsonBytes))
-    if (!json.textures) { result = arrayBuffer; _patchCache.set(uint8, result); return result }
+    if (!json.textures) { result = arrayBuffer; if (url) _patchCache.set(url, result); return result }
     const needsPatch = json.textures.some(t => t.source === undefined && (!t.extensions || !Object.keys(t.extensions).some(k => t.extensions[k]?.source !== undefined)))
-    if (!needsPatch) { result = arrayBuffer; _patchCache.set(uint8, result); return result }
+    if (!needsPatch) { result = arrayBuffer; if (url) _patchCache.set(url, result); return result }
     json.textures = json.textures.map(t => {
       if (t.source === undefined && (!t.extensions || !Object.keys(t.extensions).some(k => t.extensions[k]?.source !== undefined))) return { ...t, source: 0 }
       return t
@@ -70,7 +72,7 @@ function patchGLB(uint8) {
     ou.set(new Uint8Array(arrayBuffer, 20 + jsonLen), 20 + patched.length + pad)
     result = out
   } catch (_) { result = uint8.buffer }
-  _patchCache.set(uint8, result)
+  if (url) _patchCache.set(url, result)
   return result
 }
 
@@ -967,6 +969,7 @@ function removePlayerMesh(id) {
   playerTargets.delete(id)
   playerStates.delete(id)
   playerExpressions.delete(id)
+  _afanPlayers.delete(id)
 }
 
 function evaluateAppModule(code) {
@@ -1041,6 +1044,67 @@ function buildEntityMesh(entityId, custom) {
   if (c.spin) group.userData.spin = c.spin
   if (c.hover) group.userData.hover = c.hover
   return group
+}
+
+async function _generateLOD(model, name = 'default') {
+  const cfg = _lodConfigs[name] || _lodConfigs.default
+  if (cfg.noAutoLod) return model
+
+  try { await MeshoptSimplifier.ready } catch (e) { return model }
+
+  const lod = new THREE.LOD()
+  lod.addLevel(model, 0)
+
+  const far = cfg.far || 50
+  
+  // Level 1: 50% simplification
+  const l1 = model.clone()
+  _simplifyObject(l1, 0.5)
+  lod.addLevel(l1, far)
+  
+  // Level 2: 15% simplification
+  const l2 = model.clone()
+  _simplifyObject(l2, 0.15)
+  lod.addLevel(l2, far * 2)
+
+  // Copy transform from model to lod
+  lod.position.copy(model.position)
+  lod.quaternion.copy(model.quaternion)
+  lod.scale.copy(model.scale)
+  lod.updateMatrixWorld(true)
+  lod.userData = model.userData
+
+  return lod
+}
+
+function _simplifyObject(object, ratio) {
+  object.traverse(child => {
+    if (child.isMesh && child.geometry) {
+      const geo = child.geometry
+      let indexed = geo
+      if (!geo.index) {
+        try { indexed = BufferGeometryUtils.mergeVertices(geo) } catch (e) { return }
+      }
+      if (indexed.index) {
+        const indices = indexed.index.array
+        const positions = indexed.attributes.position.array
+        const targetCount = Math.floor(indices.length * ratio / 3) * 3
+        if (targetCount <= 0) return
+        try {
+          const simplifiedIndices = MeshoptSimplifier.simplify(
+            indices,
+            positions,
+            3,
+            targetCount,
+            1e-2
+          )
+          const newGeo = indexed.clone()
+          newGeo.setIndex(new THREE.BufferAttribute(simplifiedIndices, 1))
+          child.geometry = newGeo
+        } catch (e) { }
+      }
+    }
+  })
 }
 
 const pendingLoads = new Set()
@@ -1127,7 +1191,7 @@ async function _doLoadEntityModel(entityId, entityState) {
   try {
     loadingMgr.beginDownload(url)
     const buf = await fetchCached(url)
-    const gltf = await gltfLoader.parseAsync(patchGLB(buf), '')
+    const gltf = await gltfLoader.parseAsync(patchGLB(buf, url), '')
     loadingMgr.completeDownload(url)
     const model = gltf.scene
     const mp = entityState.position; model.position.set(mp[0], mp[1], mp[2])
@@ -1146,8 +1210,9 @@ async function _doLoadEntityModel(entityId, entityState) {
       }
     })
     model.updateMatrixWorld(true)
-    scene.add(model)
-    entityMeshes.set(entityId, model)
+    const finalMesh = (isDynamic || entityState.custom?.noAutoLod) ? model : await _generateLOD(model, entityState.custom?.mesh)
+    scene.add(finalMesh)
+    entityMeshes.set(entityId, finalMesh)
     if (model.userData.spin || model.userData.hover) _animatedEntities.push(model)
     if (isDynamic) {
       const hullSegs = []
@@ -1255,6 +1320,12 @@ const client = new PhysicsNetworkClient({
     }
     for (const [id] of playerMeshes) {
       if (!state.players.find(p => p.id === id)) removePlayerMesh(id)
+    }
+    for (const [id] of entityMeshes) {
+      if (!state.entities.find(e => e.id === id)) {
+        const onEntityRemoved = client.callbacks.onEntityRemoved
+        if (onEntityRemoved) onEntityRemoved(id)
+      }
     }
     for (const e of state.entities) {
       const mesh = entityMeshes.get(e.id)
@@ -1780,11 +1851,11 @@ let _controllerVisibilityAt = 0
 let _wristUiAt = 0
 let _lodCullAt = 0
 const _lodConfigs = {
-  vrm: { far: 50, skipBeyond: 100 },
-  box: { far: 60, skipBeyond: 120 },
-  sphere: { far: 65, skipBeyond: 130 },
-  cylinder: { far: 65, skipBeyond: 130 },
-  default: { far: 80, skipBeyond: 200 }
+  vrm: { far: 40, skipBeyond: 80 },
+  box: { far: 45, skipBeyond: 90 },
+  sphere: { far: 50, skipBeyond: 100 },
+  cylinder: { far: 50, skipBeyond: 100 },
+  default: { far: 60, skipBeyond: 120 }
 }
 function animate(timestamp) {
   const now = timestamp || performance.now()
@@ -1944,8 +2015,9 @@ function animate(timestamp) {
       const modelType = mesh.userData?.mesh || 'default'
       const cfg = _lodConfigs[modelType] || _lodConfigs.default
       const skip2 = cfg.skipBeyond * cfg.skipBeyond
-      const dx = mesh.position.x - camPos.x, dy = mesh.position.y - camPos.y, dz = mesh.position.z - camPos.z
-      mesh.visible = (dx * dx + dy * dy + dz * dz) <= skip2
+      const dist2 = (mesh.position.x - camPos.x) ** 2 + (mesh.position.y - camPos.y) ** 2 + (mesh.position.z - camPos.z) ** 2
+      mesh.visible = dist2 <= skip2
+      if (mesh.isLOD && mesh.visible) mesh.update(camera)
     }
     _lodCullAt = now
   }

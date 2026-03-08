@@ -61,10 +61,10 @@ export function applyMovement(state, input, movement, dt) {
 }
 
 export const DEFAULT_MOVEMENT = {
-  maxSpeed: 8.0,
-  groundAccel: 10.0,
-  airAccel: 1.0,
-  friction: 6.0,
+  maxSpeed: 7.0,
+  groundAccel: 150.0,
+  airAccel: 15.0,
+  friction: 10.0,
   stopSpeed: 2.0,
-  jumpImpulse: 4.5
+  jumpImpulse: 5.5
 }
