@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.246](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.245...v0.1.246) (2026-03-08)
+
+
+### Bug Fixes
+
+* prevent dynamic props tunneling through floor ([fed6058](https://github.com/AnEntrypoint/spawnpoint/commit/fed6058c5d7ebff44f9bcc4185689e47b4581e72))
+
 ### [0.1.245](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.244...v0.1.245) (2026-03-08)
 
 
