@@ -311,6 +311,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   const _eLook = new THREE.Euler(0, 0, 0, 'YXZ')
   let _lookYaw = 0, _lookPitch = 0, _bodyYaw = 0
   let _moveAngle = 0 // angle of movement relative to body facing (0=fwd, ±π/2=strafe, ±π=back)
+  let _prevLookYaw = 0, _leanYaw = 0
 
   function transitionTo(name) {
     if (current === name) return
@@ -404,7 +405,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       wasOnGround = effectiveOnGround
       mixer.update(dt)
     },
-    applyBoneOverrides() {
+    applyBoneOverrides(dt) {
       // Rotate hips toward movement direction only for forward/strafe (not backward)
       let hipYaw = 0
       if (_hipBone && current && LOCO_STATES.has(current) && current !== 'IdleLoop' && current !== 'CrouchIdleLoop') {
@@ -422,8 +423,15 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       // Y (yaw) and X (pitch) axes are ever set, eliminating any roll/lean.
       if (_spineBones.length > 0) {
         const n = _spineBones.length
-        const totalYaw = _lookYaw - hipYaw
-        const yawShare = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, totalYaw)) / n
+        const turnRate = Math.abs(_lookYaw - _prevLookYaw)
+        _prevLookYaw = _lookYaw
+        const targetLean = (_lookYaw - hipYaw) * 0.5
+        if (turnRate > 0.001) {
+          _leanYaw = targetLean
+        } else {
+          _leanYaw += (0 - _leanYaw) * Math.min(1, 8 * (dt || 0.016))
+        }
+        const yawShare = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, _leanYaw)) / n
         const pitchShare = Math.max(-Math.PI / 3, Math.min(Math.PI / 4, _lookPitch)) / n
         _eLook.set(pitchShare, yawShare, 0, 'YXZ')
         _qLook.setFromEuler(_eLook)

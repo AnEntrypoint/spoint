@@ -2022,7 +2022,7 @@ function animate(timestamp) {
       }
       if (animator.setLookDirection) animator.setLookDirection(lookYaw - mesh.rotation.y, ps.lookPitch || 0, mesh.rotation.y, ps.velocity)
     }
-    if (animator.applyBoneOverrides) animator.applyBoneOverrides()
+    if (animator.applyBoneOverrides) animator.applyBoneOverrides(frameDt)
     const target = playerTargets.get(id)
     updateVRMFeatures(id, frameDt, target)
     if (id !== client.playerId && ps.lookPitch !== undefined) {
