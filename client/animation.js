@@ -384,8 +384,8 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
             else transitionTo('CrouchFwdLoop')
           } else {
             const idle2walk = current === 'IdleLoop' ? 0.8 : 0.3
-            const walk2jog = current === 'WalkLoop' ? 5.0 : 4.5
-            const jog2sprint = current === 'JogFwdLoop' ? 6.0 : 5.5
+            const walk2jog = current === 'WalkLoop' ? 7.0 : 6.5
+            const jog2sprint = current === 'JogFwdLoop' ? 11.0 : 10.5
             if (smoothSpeed < idle2walk) transitionTo('IdleLoop')
             else if (smoothSpeed < walk2jog) transitionTo('WalkLoop')
             else if (smoothSpeed < jog2sprint) transitionTo('JogFwdLoop')
@@ -411,16 +411,18 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
         for (const b of _spineBones) _qRest.push(b.quaternion.clone())
         _restCaptured = true
       }
-      // Rotate hips toward movement direction: set = animPose × moveYaw
+      // Rotate hips toward movement direction (clamp to ±90° so backward never flips body)
       if (_hipBone && current && LOCO_STATES.has(current) && current !== 'IdleLoop' && current !== 'CrouchIdleLoop') {
-        _eLook.set(0, _moveAngle, 0)
+        const clampedAngle = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, _moveAngle))
+        _eLook.set(0, clampedAngle, 0)
         _qLook.setFromEuler(_eLook)
         _hipBone.quaternion.multiply(_qLook)
       }
       // Spine twist: keep torso facing lookYaw, compensate for hip rotation
       if (_spineBones.length > 0) {
         const n = _spineBones.length
-        const totalYaw = _lookYaw - _moveAngle
+        const clampedMoveAngle = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, _moveAngle))
+        const totalYaw = _lookYaw - clampedMoveAngle
         const yawShare = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, totalYaw)) / n
         const pitchShare = Math.max(-Math.PI / 3, Math.min(Math.PI / 4, _lookPitch)) / n
         _eLook.x = pitchShare; _eLook.y = yawShare
@@ -606,8 +608,8 @@ export function createGLBAnimator(gltfScene, gltfAnimations, animAssets, animCon
             if (smoothSpeed < 0.8) transitionTo('CrouchIdleLoop'); else transitionTo('CrouchFwdLoop')
           } else {
             const idle2walk = current === 'IdleLoop' ? 0.8 : 0.3
-            const walk2jog = current === 'WalkLoop' ? 5.0 : 4.5
-            const jog2sprint = current === 'JogFwdLoop' ? 6.0 : 5.5
+            const walk2jog = current === 'WalkLoop' ? 7.0 : 6.5
+            const jog2sprint = current === 'JogFwdLoop' ? 11.0 : 10.5
             if (smoothSpeed < idle2walk) transitionTo('IdleLoop')
             else if (smoothSpeed < walk2jog) transitionTo('WalkLoop')
             else if (smoothSpeed < jog2sprint) transitionTo('JogFwdLoop')

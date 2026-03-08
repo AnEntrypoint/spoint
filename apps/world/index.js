@@ -71,7 +71,7 @@ export default {
     airAccel: 1.0,
     friction: 4.0,
     stopSpeed: 1.5,
-    jumpImpulse: 5.0,
+    jumpImpulse: 4.2,
     collisionRestitution: 0.2,
     collisionDamping: 0.25
   },
