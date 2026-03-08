@@ -2020,7 +2020,7 @@ function animate(timestamp) {
       } else {
         if (Math.abs(diff) > maxOffset) {
           const excess = diff > 0 ? diff - maxOffset : diff + maxOffset
-          mesh.rotation.y += excess
+          mesh.rotation.y += excess * Math.min(1, 20.0 * frameDt)
         }
       }
       if (animator.setLookDirection) animator.setLookDirection(lookYaw - mesh.rotation.y, ps.lookPitch || 0, mesh.rotation.y, ps.velocity)
