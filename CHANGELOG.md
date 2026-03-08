@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.263](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.262...v0.1.263) (2026-03-08)
+
+
+### Bug Fixes
+
+* apply Kalman smoothing to local player, remove raw state bypass ([eed0bd2](https://github.com/AnEntrypoint/spawnpoint/commit/eed0bd21fddbed5f38f153250a5a0843380c08cd))
+
 ### [0.1.262](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.261...v0.1.262) (2026-03-08)
 
 
