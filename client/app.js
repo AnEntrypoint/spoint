@@ -1062,6 +1062,27 @@ function _generateLODEager(model, name = 'default') {
   return lod
 }
 
+const _bvhQueue = []
+let _bvhScheduled = false
+function _scheduleBvhBuild(meshes) {
+  for (const m of meshes) _bvhQueue.push(m)
+  if (_bvhScheduled) return
+  _bvhScheduled = true
+  const run = (deadline) => {
+    while (_bvhQueue.length > 0 && (!deadline || deadline.timeRemaining() > 2)) {
+      _bvhQueue.shift().geometry.computeBoundsTree()
+    }
+    if (_bvhQueue.length > 0) {
+      if (typeof requestIdleCallback !== 'undefined') requestIdleCallback(run, { timeout: 5000 })
+      else setTimeout(run, 16)
+    } else {
+      _bvhScheduled = false
+    }
+  }
+  if (typeof requestIdleCallback !== 'undefined') requestIdleCallback(run, { timeout: 5000 })
+  else setTimeout(run, 16)
+}
+
 const _lodUpgradeQueue = []
 let _lodUpgradeScheduled = false
 
@@ -1122,6 +1143,8 @@ function _simplifyObject(object, ratio) {
     }
   })
 }
+
+const SKIP_MATS_SET = new Set(['aaatrigger', '{invisible', 'playerclip', 'clip', 'nodraw', 'trigger', 'sky', 'toolsclip', 'toolsplayerclip', 'toolsnodraw', 'toolsskybox', 'toolstrigger'])
 
 const pendingLoads = new Set()
 
@@ -1226,17 +1249,18 @@ async function _doLoadEntityModel(entityId, entityState) {
     const mr = entityState.rotation; if (mr) model.quaternion.set(mr[0], mr[1], mr[2], mr[3])
     const colliders = []
     const isDynamic = entityState.bodyType === 'dynamic'
-    const SKIP_MATS = new Set(['aaatrigger', '{invisible', 'playerclip', 'clip', 'nodraw', 'trigger', 'sky', 'toolsclip', 'toolsplayerclip', 'toolsnodraw', 'toolsskybox', 'toolstrigger'])
+    const bvhPending = []
     model.traverse(c => {
       if (c.isMesh) {
         const matName = (c.material?.name || '').toLowerCase()
-        if (SKIP_MATS.has(matName) || SKIP_MATS.has(c.material?.name)) { c.visible = false; return }
+        if (SKIP_MATS_SET.has(matName) || SKIP_MATS_SET.has(c.material?.name)) { c.visible = false; return }
         c.castShadow = true
         c.receiveShadow = true
-        if (!c.isSkinnedMesh && !isDynamic) { c.matrixAutoUpdate = false; c.geometry.computeBoundsTree(); colliders.push(c) }
+        if (!c.isSkinnedMesh && !isDynamic) { c.matrixAutoUpdate = false; bvhPending.push(c); colliders.push(c) }
         if (c.material) { c.material.shadowSide = THREE.DoubleSide; c.material.roughness = 1; c.material.metalness = 0; if (c.material.specularIntensity !== undefined) c.material.specularIntensity = 0 }
       }
     })
+    if (bvhPending.length > 0) _scheduleBvhBuild(bvhPending)
     model.updateMatrixWorld(true)
     const finalMesh = (isDynamic || entityState.custom?.noAutoLod) ? model : _generateLODEager(model, entityState.custom?.mesh)
     scene.add(finalMesh)
@@ -1346,11 +1370,13 @@ const client = new PhysicsNetworkClient({
         else { const g = new THREE.Group(); scene.add(g); playerMeshes.set(p.id, g) }
       }
     }
+    const playerIdSet = new Set(state.players.map(p => p.id))
+    const entityIdSet = new Set(state.entities.map(e => e.id))
     for (const [id] of playerMeshes) {
-      if (!state.players.find(p => p.id === id)) removePlayerMesh(id)
+      if (!playerIdSet.has(id)) removePlayerMesh(id)
     }
     for (const [id] of entityMeshes) {
-      if (!state.entities.find(e => e.id === id)) {
+      if (!entityIdSet.has(id)) {
         const onEntityRemoved = client.callbacks.onEntityRemoved
         if (onEntityRemoved) onEntityRemoved(id)
       }
@@ -1553,8 +1579,7 @@ async function warmupShaders() {
       }
     })
 
-    // Use sync compile instead of async to avoid memory exhaustion
-    renderer.compile(scene, wCam)
+    await renderer.compileAsync(scene, wCam).catch(() => renderer.compile(scene, wCam))
     renderer.render(scene, wCam)
 
     // Restore traversed objects
@@ -1567,8 +1592,7 @@ async function warmupShaders() {
   // Final pass with main camera, frustum culling disabled for all objects
   const culled = []
   scene.traverse(obj => { if (obj.frustumCulled) { culled.push(obj); obj.frustumCulled = false } })
-  // Use sync compile to avoid memory exhaustion
-  renderer.compile(scene, camera)
+  await renderer.compileAsync(scene, camera).catch(() => renderer.compile(scene, camera))
   renderer.render(scene, camera)
   await new Promise(r => requestAnimationFrame(r))
   renderer.render(scene, camera)

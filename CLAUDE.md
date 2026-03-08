@@ -405,6 +405,18 @@ Server: `globalThis.__DEBUG__.server`. Client: `window.debug` (scene, camera, re
 
 staticDirs order: `/src/` → `/apps/` → `/node_modules/` → `/` (client). SDK paths take priority. Project-local `apps/` overrides SDK `apps/` if it exists.
 
+## Client-Side Performance Optimizations (March 8, 2026)
+
+Three bottlenecks fixed in `client/app.js` based on Firefox profile analysis:
+
+**1. BVH deferred to idle callback (`_scheduleBvhBuild`)** — `computeBoundsTree()` was called synchronously per mesh inside `_doLoadEntityModel`, blocking the main thread with float-to-string double-conversion (Grisu/Ryu algorithm in SpiderMonkey). Accounted for 30k+ profile samples and 3-second GC pauses. Now deferred to `requestIdleCallback` (2ms time slice) via `_bvhQueue`. Camera raycast still works since BVH builds progressively — rays fall back to brute-force on un-built geometries.
+
+**2. `SKIP_MATS_SET` hoisted to module level** — Was creating a new `Set(['aaatrigger', ...])` on every `_doLoadEntityModel` call (once per entity). Now a module-level constant `SKIP_MATS_SET`.
+
+**3. O(n²) `.find()` eliminated in `onStateUpdate`** — `state.players.find(p => p.id === id)` and `state.entities.find(e => e.id === id)` inside `for` loops over `playerMeshes`/`entityMeshes` were O(n×m). Replaced with `new Set(state.players.map(p => p.id))` built once per `onStateUpdate` call, making lookups O(1).
+
+**4. `warmupShaders` uses `compileAsync`** — Replaced sync `renderer.compile()` with `renderer.compileAsync()` (falls back to sync on error). Eliminates GPU stalls during per-mesh shader compilation loop.
+
 ## Performance Verification (v0.1.203 - March 8, 2026)
 
 Profiled at 64 TPS (world config default). Tick budget = 15.6ms.
