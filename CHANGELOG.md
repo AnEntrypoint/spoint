@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.270](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.269...v0.1.270) (2026-03-09)
+
+
+### Bug Fixes
+
+* body split animation direction - pass bodyYaw+PI to account for VRM scene offset ([9a23b0d](https://github.com/AnEntrypoint/spawnpoint/commit/9a23b0d0df1e51ff8d645316a25164648c451b3a))
+
 ### [0.1.269](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.268...v0.1.269) (2026-03-09)
 
 
