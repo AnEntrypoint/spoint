@@ -224,6 +224,7 @@ export async function createServer(config = {}) {
     const clientReload = () => { connections.broadcast(MSG.HOT_RELOAD, { timestamp: Date.now() }) }
     const clientFiles = [
       ['client-app', sdk('client/app.js')],
+      ['client-animation', sdk('client/animation.js')],
       ['client-camera', sdk('client/camera.js')],
       ['client-input', sdk('src/client/InputHandler.js')],
       ['client-network', sdk('src/client/PhysicsNetworkClient.js')],
