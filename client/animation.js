@@ -430,7 +430,9 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       let hipYaw = 0
       if (_hipBone && current && LOCO_STATES.has(current) && current !== 'IdleLoop' && current !== 'CrouchIdleLoop') {
         if (Math.abs(_moveAngle) < Math.PI * 0.75) {
-          hipYaw = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, _moveAngle))
+          // Negate moveAngle: positive moveAngle = strafe right, but in VRM normalized
+          // space positive Y euler = CCW = left turn, so we negate to turn hips right.
+          hipYaw = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, -_moveAngle))
           _eLook.setFromQuaternion(_hipBone.quaternion, 'YXZ')
           _eLook.y = hipYaw
           _hipBone.quaternion.setFromEuler(_eLook)
@@ -438,12 +440,16 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       }
       if (_spineBones.length > 0) {
         const n = _spineBones.length
+        // Counter-rotate spine to keep upper body facing forward.
+        // spineYawShare = -hipYaw/n cancels the hip rotation across spine bones.
         const spineYawShare = -hipYaw / n
         const pitchShare = Math.max(-Math.PI / 3, Math.min(Math.PI / 4, _lookPitch)) / n
         _eLook.set(pitchShare, spineYawShare, 0, 'YXZ')
         _qLook.setFromEuler(_eLook)
         for (let i = 0; i < n; i++) {
-          _spineBones[i].quaternion.copy(_qLook)
+          // Compose our offset on top of the animation-driven rotation so the
+          // anim contribution (e.g. arm-swing spine twist) is preserved.
+          _spineBones[i].quaternion.multiply(_qLook)
         }
       }
     },
