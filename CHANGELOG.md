@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.283](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.282...v0.1.283) (2026-03-09)
+
+
+### Bug Fixes
+
+* jog2sprint threshold raised to 15/15.5 m/s ([5eebb8e](https://github.com/AnEntrypoint/spawnpoint/commit/5eebb8e1b74a684fd3da608c1b0ed6277f5799e5))
+
 ### [0.1.282](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.281...v0.1.282) (2026-03-09)
 
 
