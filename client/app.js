@@ -2013,15 +2013,19 @@ function animate(timestamp) {
       diff = diff - Math.PI * 2 * Math.round(diff / (Math.PI * 2))
       const vx = ps.velocity?.[0] || 0, vz = ps.velocity?.[2] || 0
       const speed = Math.sqrt(vx * vx + vz * vz)
-      const maxOffset = speed < 0.5 ? 0 : Math.PI * 0.65
+      const maxOffset = Math.PI * 0.65
       if (speed < 0.5) {
         // Idle: fast-track camera so feet don't visibly drag
         mesh.rotation.y += diff * Math.min(1, 40.0 * frameDt)
       } else {
-        // Moving: only snap when look exceeds maxOffset from body direction
-        if (Math.abs(diff) > maxOffset) {
-          const excess = diff > 0 ? diff - maxOffset : diff + maxOffset
-          mesh.rotation.y += excess * Math.min(1, 15.0 * frameDt)
+        // Moving: always slowly follow camera + hard snap past maxOffset
+        mesh.rotation.y += diff * Math.min(1, 5.0 * frameDt)
+        // Re-compute diff after lerp and hard-clamp if still over limit
+        let diff2 = lookYaw - mesh.rotation.y
+        diff2 = diff2 - Math.PI * 2 * Math.round(diff2 / (Math.PI * 2))
+        if (Math.abs(diff2) > maxOffset) {
+          const excess = diff2 > 0 ? diff2 - maxOffset : diff2 + maxOffset
+          mesh.rotation.y += excess
         }
       }
       if (animator.setLookDirection) animator.setLookDirection(lookYaw - mesh.rotation.y, ps.lookPitch || 0, mesh.rotation.y + Math.PI, ps.velocity)
