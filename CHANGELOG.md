@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.280](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.279...v0.1.280) (2026-03-09)
+
+
+### Bug Fixes
+
+* jog starts at 13 m/s, sprint disabled (walk covers 2-13, jog 13+) ([1a54a53](https://github.com/AnEntrypoint/spawnpoint/commit/1a54a5303068e01e12aa7703d34d6d9515d90a20))
+
 ### [0.1.279](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.278...v0.1.279) (2026-03-09)
 
 
