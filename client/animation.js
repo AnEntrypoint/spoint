@@ -459,9 +459,12 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
         const vx = velocity[0] || 0, vz = velocity[2] || 0
         const speed = Math.sqrt(vx * vx + vz * vz)
         if (speed > 0.5) {
-          const cy = Math.cos(-_bodyYaw), sy = Math.sin(-_bodyYaw)
-          const localFwd = vz * cy - vx * sy
-          const localRight = vz * sy + vx * cy
+          // Project world velocity into body-local space.
+          // bodyYaw = mesh.rotation.y + PI (passed from app.js).
+          // Derived from measurement: W->ma=0, D->ma=+PI/2, A->ma=-PI/2, S->ma=±PI
+          const sinY = Math.sin(_bodyYaw), cosY = Math.cos(_bodyYaw)
+          const localFwd   = -vx * sinY - vz * cosY
+          const localRight =  vx * cosY - vz * sinY
           _moveAngle = Math.atan2(localRight, localFwd)
         } else { _moveAngle = 0 }
       }
