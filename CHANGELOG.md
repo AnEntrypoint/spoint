@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.274](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.273...v0.1.274) (2026-03-09)
+
+
+### Bug Fixes
+
+* moveAngle computed relative to camera not body mesh ([0bfa713](https://github.com/AnEntrypoint/spawnpoint/commit/0bfa713546b0a49367b6077ff89d7e400ff8169b))
+
 ### [0.1.273](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.272...v0.1.273) (2026-03-09)
 
 
