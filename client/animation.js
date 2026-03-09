@@ -441,15 +441,14 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       if (_spineBones.length > 0) {
         const n = _spineBones.length
         // Counter-rotate spine to keep upper body facing forward.
-        // spineYawShare = -hipYaw/n cancels the hip rotation across spine bones.
+        // Override Y (yaw) and X (pitch) from euler, preserving Z (anim roll).
         const spineYawShare = -hipYaw / n
         const pitchShare = Math.max(-Math.PI / 3, Math.min(Math.PI / 4, _lookPitch)) / n
-        _eLook.set(pitchShare, spineYawShare, 0, 'YXZ')
-        _qLook.setFromEuler(_eLook)
         for (let i = 0; i < n; i++) {
-          // Compose our offset on top of the animation-driven rotation so the
-          // anim contribution (e.g. arm-swing spine twist) is preserved.
-          _spineBones[i].quaternion.multiply(_qLook)
+          _eLook.setFromQuaternion(_spineBones[i].quaternion, 'YXZ')
+          _eLook.y = spineYawShare
+          _eLook.x = pitchShare
+          _spineBones[i].quaternion.setFromEuler(_eLook)
         }
       }
     },
