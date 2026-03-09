@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.277](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.276...v0.1.277) (2026-03-09)
+
+
+### Bug Fixes
+
+* normalize mesh.rotation.y to prevent unbounded accumulation ([8678d84](https://github.com/AnEntrypoint/spawnpoint/commit/8678d842f54da5c5104c997561f2de2b61803ca7))
+
 ### [0.1.276](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.275...v0.1.276) (2026-03-09)
 
 ### [0.1.275](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.274...v0.1.275) (2026-03-09)
