@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.268](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.267...v0.1.268) (2026-03-09)
+
+
+### Bug Fixes
+
+* body split animation hip yaw sign inverted and spine overwrites animation ([eebeea0](https://github.com/AnEntrypoint/spawnpoint/commit/eebeea0ae557256eeea6d69d199ae62c85d8b659))
+
 ### [0.1.267](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.266...v0.1.267) (2026-03-09)
 
 
