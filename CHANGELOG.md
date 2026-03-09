@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.267](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.266...v0.1.267) (2026-03-09)
+
+
+### Bug Fixes
+
+* VRM0 bone overrides now write to normalized bones so vrm.update() doesn't overwrite them ([c705adc](https://github.com/AnEntrypoint/spawnpoint/commit/c705adc5da4288ebcbd571a68c4340418503d2ed))
+
 ### [0.1.266](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.265...v0.1.266) (2026-03-08)
 
 
