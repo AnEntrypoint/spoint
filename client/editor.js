@@ -80,7 +80,7 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
       const found = meshList.find(m => m.mesh.getObjectById ? m.mesh.getObjectById(hits2[0].object.id) : m.mesh === hits2[0].object)
       if (found) {
         const mesh = found.mesh
-        const ent = { id: found.id, position: mesh.position.toArray(), rotation: [0,0,0,1], scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }
+        const ent = { id: found.id, position: mesh.position.toArray(), rotation: mesh.quaternion.toArray(), scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }
         selectEntity(found.id, ent)
       }
     }

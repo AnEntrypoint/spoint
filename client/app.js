@@ -1482,8 +1482,8 @@ const client = new PhysicsNetworkClient({
     if (!entityId) return
     const mesh = entityMeshes.get(entityId)
     if (mesh) {
-      editor.selectEntity(entityId, { id: entityId, position: mesh.position.toArray(), rotation: [0, 0, 0, 1], scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} })
-      editPanel.showEntity({ id: entityId, position: mesh.position.toArray(), rotation: [0, 0, 0, 1], scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }, editorProps || [])
+      editor.selectEntity(entityId, { id: entityId, position: mesh.position.toArray(), rotation: mesh.quaternion.toArray(), scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} })
+      editPanel.showEntity({ id: entityId, position: mesh.position.toArray(), rotation: mesh.quaternion.toArray(), scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }, editorProps || [])
     }
   },
   onMessage: (type, payload) => {
@@ -1530,13 +1530,13 @@ const editPanel = createEditPanel({
   onSave: (appName, source) => { client.send(MSG.SAVE_SOURCE, { appName, source }) },
   onEntitySelect: (id) => {
     const mesh = entityMeshes.get(id)
-    if (mesh) { editor.selectEntity(id, { id, position: mesh.position.toArray(), rotation: [0, 0, 0, 1], scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }) }
+    if (mesh) { editor.selectEntity(id, { id, position: mesh.position.toArray(), rotation: mesh.quaternion.toArray(), scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }) }
   },
   onGetSource: (appName) => { client.send(MSG.GET_SOURCE, { appName }) }
 })
 const editor = createEditor({ scene, camera, renderer, client, entityMeshes, playerStates })
 editor.onSelectionChange((id, entityData) => { if (entityData) editPanel.showEntity(entityData, []) })
-editor.onEditModeChange((on) => { if (on) editPanel.show(); else editPanel.hide() })
+editor.onEditModeChange((on) => { if (on) { editPanel.show(); client.send(MSG.SCENE_GRAPH, {}); client.send(MSG.LIST_APPS, {}) } else editPanel.hide() })
 editPanel.onEditorChange((key, value) => {
   if (!editor.selectedEntityId) return
   const changes = key === 'collider' ? { custom: { _collider: value } }
