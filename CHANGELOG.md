@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.272](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.271...v0.1.272) (2026-03-09)
+
+
+### Bug Fixes
+
+* animation polish - pitch lerp, moveAngle lerp, thresholds, body rotation ([41cc576](https://github.com/AnEntrypoint/spawnpoint/commit/41cc5760d7e38f6b5e7da338d5e5a809310f92b9))
+
 ### [0.1.271](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.270...v0.1.271) (2026-03-09)
 
 
