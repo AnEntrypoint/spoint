@@ -400,8 +400,8 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
             else transitionTo('CrouchFwdLoop')
           } else {
             const idle2walk  = current === 'IdleLoop' ? 2.0 : 0.8
-            const walk2jog   = current === 'WalkLoop' ? 9.0 : 8.0
-            const jog2sprint = current === 'JogFwdLoop' ? 13.0 : 12.0
+            const walk2jog   = current === 'WalkLoop' ? 13.5 : 13.0
+            const jog2sprint = current === 'JogFwdLoop' ? 99.0 : 99.0
             // Skip walk only on the way down (jog/sprint → idle, no walk flash)
             const skipWalk = current === 'JogFwdLoop' || current === 'SprintLoop'
             if (smoothSpeed < idle2walk) transitionTo('IdleLoop')
@@ -637,8 +637,8 @@ export function createGLBAnimator(gltfScene, gltfAnimations, animAssets, animCon
             if (smoothSpeed < 0.8) transitionTo('CrouchIdleLoop'); else transitionTo('CrouchFwdLoop')
           } else {
             const idle2walk  = current === 'IdleLoop' ? 2.0 : 0.8
-            const walk2jog   = current === 'WalkLoop' ? 9.0 : 8.0
-            const jog2sprint = current === 'JogFwdLoop' ? 13.0 : 12.0
+            const walk2jog   = current === 'WalkLoop' ? 13.5 : 13.0
+            const jog2sprint = current === 'JogFwdLoop' ? 99.0 : 99.0
             // Skip walk only on the way down (jog/sprint → idle, no walk flash)
             const skipWalk = current === 'JogFwdLoop' || current === 'SprintLoop'
             if (smoothSpeed < idle2walk) transitionTo('IdleLoop')
