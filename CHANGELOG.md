@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.288](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.287...v0.1.288) (2026-03-09)
+
+
+### Bug Fixes
+
+* refresh scene graph and apps list when pressing P to open editor ([a210abf](https://github.com/AnEntrypoint/spawnpoint/commit/a210abf5f7a314993a9aa1fad8277555b3f8e5b2))
+
 ### [0.1.287](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.286...v0.1.287) (2026-03-09)
 
 
