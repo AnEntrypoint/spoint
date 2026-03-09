@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.278](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.277...v0.1.278) (2026-03-09)
+
+
+### Bug Fixes
+
+* skip walk animation in both directions, only play when already walking ([1539787](https://github.com/AnEntrypoint/spawnpoint/commit/1539787a557914f102582442e3c2e3a58b6d5823))
+
 ### [0.1.277](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.276...v0.1.277) (2026-03-09)
 
 
