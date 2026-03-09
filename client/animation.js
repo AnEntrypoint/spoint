@@ -577,7 +577,7 @@ export function createGLBAnimator(gltfScene, gltfAnimations, animAssets, animCon
     } else {
       const action = mixer.clipAction(playClip)
       if (!cfg.loop) { action.loop = THREE.LoopOnce; action.clampWhenFinished = cfg.clamp || false }
-      if (name === 'WalkLoop') action.timeScale = animConfig.walkTimeScale || 2.0
+      if (name === 'WalkLoop') action.timeScale = animConfig.walkTimeScale || 4.0
       if (name === 'JogFwdLoop') action.timeScale = animConfig.jogTimeScale || 0.667
       if (name === 'SprintLoop') action.timeScale = animConfig.sprintTimeScale || 0.56
       actions.set(name, action)
