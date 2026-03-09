@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.285](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.284...v0.1.285) (2026-03-09)
+
+
+### Bug Fixes
+
+* JogFwdLoop uses WalkLoop clip (same anim, different speed) ([193bc9e](https://github.com/AnEntrypoint/spawnpoint/commit/193bc9eb01c9c90fd81cae979549d55810add0e2))
+
 ### [0.1.284](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.283...v0.1.284) (2026-03-09)
 
 
