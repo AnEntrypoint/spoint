@@ -399,13 +399,9 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
             if (smoothSpeed < 0.8) transitionTo('CrouchIdleLoop')
             else transitionTo('CrouchFwdLoop')
           } else {
-            const idle2walk  = current === 'IdleLoop' ? 2.0 : 0.8
-            const walk2jog   = current === 'WalkLoop' ? 16.0 : 15.0
-            const jog2sprint = current === 'JogFwdLoop' ? 99.0 : 99.0
-            // Skip walk only on the way down (jog/sprint → idle, no walk flash)
-            const skipWalk = current === 'JogFwdLoop' || current === 'SprintLoop'
-            if (smoothSpeed < idle2walk) transitionTo('IdleLoop')
-            else if (!skipWalk && smoothSpeed < walk2jog) transitionTo('WalkLoop')
+            const idle2jog   = current === 'IdleLoop' ? 2.0 : 0.8
+            const jog2sprint = current === 'JogFwdLoop' ? 13.5 : 13.0
+            if (smoothSpeed < idle2jog) transitionTo('IdleLoop')
             else if (smoothSpeed < jog2sprint) transitionTo('JogFwdLoop')
             else transitionTo('SprintLoop')
           }
@@ -636,13 +632,9 @@ export function createGLBAnimator(gltfScene, gltfAnimations, animAssets, animCon
           if (crouching) {
             if (smoothSpeed < 0.8) transitionTo('CrouchIdleLoop'); else transitionTo('CrouchFwdLoop')
           } else {
-            const idle2walk  = current === 'IdleLoop' ? 2.0 : 0.8
-            const walk2jog   = current === 'WalkLoop' ? 16.0 : 15.0
-            const jog2sprint = current === 'JogFwdLoop' ? 99.0 : 99.0
-            // Skip walk only on the way down (jog/sprint → idle, no walk flash)
-            const skipWalk = current === 'JogFwdLoop' || current === 'SprintLoop'
-            if (smoothSpeed < idle2walk) transitionTo('IdleLoop')
-            else if (!skipWalk && smoothSpeed < walk2jog) transitionTo('WalkLoop')
+            const idle2jog   = current === 'IdleLoop' ? 2.0 : 0.8
+            const jog2sprint = current === 'JogFwdLoop' ? 13.5 : 13.0
+            if (smoothSpeed < idle2jog) transitionTo('IdleLoop')
             else if (smoothSpeed < jog2sprint) transitionTo('JogFwdLoop')
             else transitionTo('SprintLoop')
           }
