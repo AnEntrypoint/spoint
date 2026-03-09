@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.287](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.286...v0.1.287) (2026-03-09)
+
+
+### Bug Fixes
+
+* 2x walk animation cycle speed (walkTimeScale 2.0 → 4.0) ([3a26417](https://github.com/AnEntrypoint/spawnpoint/commit/3a26417a2c9c21c544c3cc8985e7964b96848097))
+* 2x walk animation speed in generic (non-VRM) animator (2.0 → 4.0) ([4da9418](https://github.com/AnEntrypoint/spawnpoint/commit/4da941847aa1c28bf3e453d53b86f4133a5d478d))
+* add client/animation.js to hot reload watched files ([5423ee0](https://github.com/AnEntrypoint/spawnpoint/commit/5423ee0d0806a82d930e4a491e808eac4f66a90b))
+
 ### [0.1.286](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.285...v0.1.286) (2026-03-09)
 
 
