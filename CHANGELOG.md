@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.273](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.272...v0.1.273) (2026-03-09)
+
+
+### Bug Fixes
+
+* animation stop restart, walk threshold, idle foot drag, spine pitch smoothing ([f19d576](https://github.com/AnEntrypoint/spawnpoint/commit/f19d576f4dbfe86bc02a128d0a2d8706da9ee105))
+
 ### [0.1.272](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.271...v0.1.272) (2026-03-09)
 
 
