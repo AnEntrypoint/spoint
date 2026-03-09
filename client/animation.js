@@ -402,8 +402,8 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
             const idle2walk  = current === 'IdleLoop' ? 2.0 : 0.8
             const walk2jog   = current === 'WalkLoop' ? 6.0 : 5.0
             const jog2sprint = current === 'JogFwdLoop' ? 13.0 : 12.0
-            // Skip walk when stopping from jog/sprint — go straight to idle
-            const skipWalk = current === 'JogFwdLoop' || current === 'SprintLoop'
+            // Skip walk on the way up (idle→jog) and on the way down (jog/sprint→idle)
+            const skipWalk = current !== 'WalkLoop'
             if (smoothSpeed < idle2walk) transitionTo('IdleLoop')
             else if (!skipWalk && smoothSpeed < walk2jog) transitionTo('WalkLoop')
             else if (smoothSpeed < jog2sprint) transitionTo('JogFwdLoop')
@@ -639,8 +639,8 @@ export function createGLBAnimator(gltfScene, gltfAnimations, animAssets, animCon
             const idle2walk  = current === 'IdleLoop' ? 2.0 : 0.8
             const walk2jog   = current === 'WalkLoop' ? 6.0 : 5.0
             const jog2sprint = current === 'JogFwdLoop' ? 13.0 : 12.0
-            // Skip walk when stopping from jog/sprint — go straight to idle
-            const skipWalk = current === 'JogFwdLoop' || current === 'SprintLoop'
+            // Skip walk on the way up (idle→jog) and on the way down (jog/sprint→idle)
+            const skipWalk = current !== 'WalkLoop'
             if (smoothSpeed < idle2walk) transitionTo('IdleLoop')
             else if (!skipWalk && smoothSpeed < walk2jog) transitionTo('WalkLoop')
             else if (smoothSpeed < jog2sprint) transitionTo('JogFwdLoop')
