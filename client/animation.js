@@ -304,10 +304,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   const LOCO_STATES = new Set(['IdleLoop', 'WalkLoop', 'JogFwdLoop', 'SprintLoop', 'CrouchIdleLoop', 'CrouchFwdLoop'])
 
   const _humanoid = vrm.humanoid
-  const _isVRM0 = vrmVersion === '0'
-  const _getBone = (name) => _isVRM0
-    ? (_humanoid?.getRawBoneNode?.(name) || null)
-    : (_humanoid?.getNormalizedBoneNode?.(name) || null)
+  const _getBone = (name) => _humanoid?.getNormalizedBoneNode?.(name) || null
   const _hipBone = _getBone('hips') || (() => {
     const names = new Set(['J_Bip_C_Hips', 'Hips', 'hips', 'pelvis'])
     let found = null; root.traverse(c => { if (!found && names.has(c.name)) found = c }); return found
