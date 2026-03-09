@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.279](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.278...v0.1.279) (2026-03-09)
+
+
+### Bug Fixes
+
+* raise walk2jog to 9/8 m/s, restore walk on idle->walk path ([06a9923](https://github.com/AnEntrypoint/spawnpoint/commit/06a9923419e172918377522b3cfa8b564e00c1e7))
+
 ### [0.1.278](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.277...v0.1.278) (2026-03-09)
 
 
