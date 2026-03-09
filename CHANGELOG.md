@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.281](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.280...v0.1.281) (2026-03-09)
+
+
+### Bug Fixes
+
+* walk2jog threshold raised to 16/15, walk plays at normal speed (14) ([e38c9d2](https://github.com/AnEntrypoint/spawnpoint/commit/e38c9d2fa1344d593be534c183c7f6cc3dd5f433))
+
 ### [0.1.280](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.279...v0.1.280) (2026-03-09)
 
 
