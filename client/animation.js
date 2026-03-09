@@ -259,7 +259,9 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
     if (cfg.upperBody) {
     }
 
-    let playClip = filterValidClipTracks(remapClipToNormalized(clip, vrm0Remap), validBones)
+    // JogFwdLoop reuses the WalkLoop clip
+    const sourceClip = name === 'JogFwdLoop' && clips.has('WalkLoop') ? clips.get('WalkLoop') : clip
+    let playClip = filterValidClipTracks(remapClipToNormalized(sourceClip, vrm0Remap), validBones)
 
     if (cfg.upperBody) {
       const upperBodyClip = filterUpperBodyTracks(playClip)
@@ -561,8 +563,10 @@ export function createGLBAnimator(gltfScene, gltfAnimations, animAssets, animCon
   for (const [name, clip] of clips) {
     if (!STATES[name]) continue
     const cfg = STATES[name]
-    const playClip = clip instanceof THREE.AnimationClip
-      ? clip : new THREE.AnimationClip(clip.name, clip.duration, clip.tracks)
+    // JogFwdLoop reuses the WalkLoop clip
+    const sourceClip = name === 'JogFwdLoop' && clips.has('WalkLoop') ? clips.get('WalkLoop') : clip
+    const playClip = sourceClip instanceof THREE.AnimationClip
+      ? sourceClip : new THREE.AnimationClip(sourceClip.name, sourceClip.duration, sourceClip.tracks)
 
     if (cfg.upperBody || cfg.additive) {
       const upperBodyClip = filterUpperBodyTracks(playClip)
