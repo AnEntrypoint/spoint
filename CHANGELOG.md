@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.284](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.283...v0.1.284) (2026-03-09)
+
+
+### Bug Fixes
+
+* slow jog animation 3x (baseScale 1.0->0.333) ([92a71b7](https://github.com/AnEntrypoint/spawnpoint/commit/92a71b7b17745b2af7b095a710c4fde6b9a318f6))
+
 ### [0.1.283](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.282...v0.1.283) (2026-03-09)
 
 
