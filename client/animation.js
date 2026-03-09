@@ -323,9 +323,11 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   })()
   const _qLook = new THREE.Quaternion()
   const _eLook = new THREE.Euler(0, 0, 0, 'YXZ')
-  let _lookYaw = 0, _lookPitch = 0, _bodyYaw = 0
-  let _moveAngle = 0 // angle of movement relative to body facing (0=fwd, ±π/2=strafe, ±π=back)
+  let _lookYaw = 0, _lookPitch = 0, _smoothPitch = 0, _bodyYaw = 0
+  let _moveAngle = 0, _smoothMoveAngle = 0 // angle of movement relative to body facing
   let _prevLookYaw = 0, _leanYaw = 0
+  const PITCH_SMOOTH = 12.0
+  const MOVE_ANGLE_SMOOTH = 8.0
 
   function transitionTo(name) {
     if (current === name) return
@@ -396,11 +398,13 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
             if (smoothSpeed < 0.8) transitionTo('CrouchIdleLoop')
             else transitionTo('CrouchFwdLoop')
           } else {
-            const idle2walk = current === 'IdleLoop' ? 0.8 : 0.3
-            const walk2jog = current === 'WalkLoop' ? 6.0 : 5.5
+            const idle2walk  = current === 'IdleLoop' ? 1.5 : 0.5
+            const walk2jog   = current === 'WalkLoop' ? 8.0 : 7.0
             const jog2sprint = current === 'JogFwdLoop' ? 13.0 : 12.0
+            // Skip walk when stopping from jog/sprint — go straight to idle
+            const skipWalk = current === 'JogFwdLoop' || current === 'SprintLoop'
             if (smoothSpeed < idle2walk) transitionTo('IdleLoop')
-            else if (smoothSpeed < walk2jog) transitionTo('WalkLoop')
+            else if (!skipWalk && smoothSpeed < walk2jog) transitionTo('WalkLoop')
             else if (smoothSpeed < jog2sprint) transitionTo('JogFwdLoop')
             else transitionTo('SprintLoop')
           }
@@ -426,13 +430,16 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       mixer.update(dt)
     },
     applyBoneOverrides(dt) {
-      if (!this._loggedBones) { this._loggedBones = true; console.log('[anim] hipBone:', _hipBone?.name, 'spineBones:', _spineBones.map(b => b.name)) }
+      // Smooth pitch (quantized input → smooth spine tilt)
+      _smoothPitch += (_lookPitch - _smoothPitch) * Math.min(1, PITCH_SMOOTH * dt)
+      // Smooth moveAngle (snaps when body rotates → gradual hip rotation)
+      const targetAngle = (current && LOCO_STATES.has(current) && current !== 'IdleLoop') ? _moveAngle : 0
+      _smoothMoveAngle += (targetAngle - _smoothMoveAngle) * Math.min(1, MOVE_ANGLE_SMOOTH * dt)
+
       let hipYaw = 0
       if (_hipBone && current && LOCO_STATES.has(current) && current !== 'IdleLoop' && current !== 'CrouchIdleLoop') {
-        if (Math.abs(_moveAngle) < Math.PI * 0.75) {
-          // Negate moveAngle: positive moveAngle = strafe right, but in VRM normalized
-          // space positive Y euler = CCW = left turn, so we negate to turn hips right.
-          hipYaw = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, -_moveAngle))
+        if (Math.abs(_smoothMoveAngle) < Math.PI * 0.75) {
+          hipYaw = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, -_smoothMoveAngle))
           _eLook.setFromQuaternion(_hipBone.quaternion, 'YXZ')
           _eLook.y = hipYaw
           _hipBone.quaternion.setFromEuler(_eLook)
@@ -440,10 +447,8 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       }
       if (_spineBones.length > 0) {
         const n = _spineBones.length
-        // Counter-rotate spine to keep upper body facing forward.
-        // Override Y (yaw) and X (pitch) from euler, preserving Z (anim roll).
         const spineYawShare = -hipYaw / n
-        const pitchShare = Math.max(-Math.PI / 3, Math.min(Math.PI / 4, _lookPitch)) / n
+        const pitchShare = Math.max(-Math.PI / 3, Math.min(Math.PI / 4, _smoothPitch)) / n
         for (let i = 0; i < n; i++) {
           _eLook.setFromQuaternion(_spineBones[i].quaternion, 'YXZ')
           _eLook.y = spineYawShare
@@ -452,7 +457,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
         }
       }
     },
-    setLookDirection(yaw, pitch, bodyYaw, velocity) {
+    setLookDirection(yaw, pitch, bodyYaw, velocity, dt) {
       _lookYaw = yaw; _lookPitch = pitch
       if (bodyYaw !== undefined) _bodyYaw = bodyYaw
       if (velocity) {
@@ -630,11 +635,13 @@ export function createGLBAnimator(gltfScene, gltfAnimations, animAssets, animCon
           if (crouching) {
             if (smoothSpeed < 0.8) transitionTo('CrouchIdleLoop'); else transitionTo('CrouchFwdLoop')
           } else {
-            const idle2walk = current === 'IdleLoop' ? 0.8 : 0.3
-            const walk2jog = current === 'WalkLoop' ? 6.0 : 5.5
+            const idle2walk  = current === 'IdleLoop' ? 1.5 : 0.5
+            const walk2jog   = current === 'WalkLoop' ? 8.0 : 7.0
             const jog2sprint = current === 'JogFwdLoop' ? 13.0 : 12.0
+            // Skip walk when stopping from jog/sprint — go straight to idle
+            const skipWalk = current === 'JogFwdLoop' || current === 'SprintLoop'
             if (smoothSpeed < idle2walk) transitionTo('IdleLoop')
-            else if (smoothSpeed < walk2jog) transitionTo('WalkLoop')
+            else if (!skipWalk && smoothSpeed < walk2jog) transitionTo('WalkLoop')
             else if (smoothSpeed < jog2sprint) transitionTo('JogFwdLoop')
             else transitionTo('SprintLoop')
           }

@@ -1989,7 +1989,7 @@ function animate(timestamp) {
     const vx = target.vx || 0, vy = target.vy || 0, vz = target.vz || 0
     const goalX = target.x + vx * t, goalY = target.y + vy * t, goalZ = target.z + vz * t
     const isLocal = id === _localId
-    const speed = isLocal ? 40 : 10
+    const speed = isLocal ? 16 : 10
     const f = 1.0 - Math.exp(-speed * frameDt)
     const destX = goalX
     const destY = isLocal ? target.y : goalY
@@ -2013,13 +2013,15 @@ function animate(timestamp) {
       diff = diff - Math.PI * 2 * Math.round(diff / (Math.PI * 2))
       const vx = ps.velocity?.[0] || 0, vz = ps.velocity?.[2] || 0
       const speed = Math.sqrt(vx * vx + vz * vz)
-      const maxOffset = Math.PI / 3
+      const maxOffset = speed < 0.5 ? 0 : Math.PI * 0.55
       if (speed < 0.5) {
-        mesh.rotation.y += diff * Math.min(1, 8.0 * frameDt)
+        // Idle: whole body tracks camera smoothly (no foot drag)
+        mesh.rotation.y += diff * Math.min(1, 15.0 * frameDt)
       } else {
+        // Moving: only snap when look is more than maxOffset from body
         if (Math.abs(diff) > maxOffset) {
           const excess = diff > 0 ? diff - maxOffset : diff + maxOffset
-          mesh.rotation.y += excess * Math.min(1, 20.0 * frameDt)
+          mesh.rotation.y += excess * Math.min(1, 12.0 * frameDt)
         }
       }
       if (animator.setLookDirection) animator.setLookDirection(lookYaw - mesh.rotation.y, ps.lookPitch || 0, mesh.rotation.y + Math.PI, ps.velocity)
