@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.275](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.274...v0.1.275) (2026-03-09)
+
+
+### Bug Fixes
+
+* body always slowly follows camera while running, hard clamp at 0.65pi ([16e7d46](https://github.com/AnEntrypoint/spawnpoint/commit/16e7d46800e6a87372b4a5d1a7f2cb1fea2118a2))
+
 ### [0.1.274](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.273...v0.1.274) (2026-03-09)
 
 
