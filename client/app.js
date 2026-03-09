@@ -2028,6 +2028,10 @@ function animate(timestamp) {
           mesh.rotation.y += excess
         }
       }
+      // Normalize mesh.rotation.y to [-PI, PI] to prevent unbounded accumulation
+      // which breaks moveAngle trig (sin/cos are periodic but atan2 result is correct;
+      // the issue is accumulated floating point drift over many rotations)
+      mesh.rotation.y = mesh.rotation.y - Math.PI * 2 * Math.round(mesh.rotation.y / (Math.PI * 2))
       if (animator.setLookDirection) animator.setLookDirection(lookYaw - mesh.rotation.y, ps.lookPitch || 0, mesh.rotation.y + Math.PI, ps.velocity)
     }
     if (animator.applyBoneOverrides) animator.applyBoneOverrides(frameDt)
