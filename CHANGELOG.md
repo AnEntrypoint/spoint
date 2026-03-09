@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.269](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.268...v0.1.269) (2026-03-09)
+
+
+### Bug Fixes
+
+* spine bone override must set not multiply to prevent drift/separation ([306dcca](https://github.com/AnEntrypoint/spawnpoint/commit/306dcca3c09ab5f054e75dd9ac81000cbcefbc52))
+
 ### [0.1.268](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.267...v0.1.268) (2026-03-09)
 
 
