@@ -433,14 +433,18 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
     applyBoneOverrides(dt) {
       // Smooth pitch (quantized input → smooth spine tilt)
       _smoothPitch += (_lookPitch - _smoothPitch) * Math.min(1, PITCH_SMOOTH * dt)
-      // Smooth moveAngle (snaps when body rotates → gradual hip rotation)
+      // Smooth moveAngle (camera-relative velocity angle → stable across body snaps)
       const targetAngle = (current && LOCO_STATES.has(current) && current !== 'IdleLoop') ? _moveAngle : 0
       _smoothMoveAngle += (targetAngle - _smoothMoveAngle) * Math.min(1, MOVE_ANGLE_SMOOTH * dt)
 
+      // Body-relative movement angle = camera-relative moveAngle minus camera offset from body
+      // _lookYaw is camYaw - bodyMeshYaw (residual offset). When body catches up, this→0.
+      const bodyRelAngle = _smoothMoveAngle - _lookYaw
+
       let hipYaw = 0
       if (_hipBone && current && LOCO_STATES.has(current) && current !== 'IdleLoop' && current !== 'CrouchIdleLoop') {
-        if (Math.abs(_smoothMoveAngle) < Math.PI * 0.75) {
-          hipYaw = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, -_smoothMoveAngle))
+        if (Math.abs(bodyRelAngle) < Math.PI * 0.75) {
+          hipYaw = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, -bodyRelAngle))
           _eLook.setFromQuaternion(_hipBone.quaternion, 'YXZ')
           _eLook.y = hipYaw
           _hipBone.quaternion.setFromEuler(_eLook)
@@ -465,12 +469,15 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
         const vx = velocity[0] || 0, vz = velocity[2] || 0
         const speed = Math.sqrt(vx * vx + vz * vz)
         if (speed > 0.5) {
-          // Project world velocity into body-local space.
-          // bodyYaw = mesh.rotation.y + PI (passed from app.js).
-          // Derived from measurement: W->ma=0, D->ma=+PI/2, A->ma=-PI/2, S->ma=±PI
-          const sinY = Math.sin(_bodyYaw), cosY = Math.cos(_bodyYaw)
-          const localFwd   = -vx * sinY - vz * cosY
-          const localRight =  vx * cosY - vz * sinY
+          // Project world velocity into look/camera space (not body space).
+          // This keeps moveAngle stable during body snaps — the camera is the
+          // stable reference. camYaw (world) = bodyYaw - PI + lookYaw residual.
+          // bodyYaw = mesh.rotation.y + PI, lookYaw (param) = camYaw - mesh.rotation.y
+          // so camYaw = _lookYaw + (_bodyYaw - Math.PI)
+          const camYaw = _lookYaw + (_bodyYaw - Math.PI)
+          const sinC = Math.sin(camYaw), cosC = Math.cos(camYaw)
+          const localFwd   = -vx * sinC - vz * cosC
+          const localRight =  vx * cosC - vz * sinC
           _moveAngle = Math.atan2(localRight, localFwd)
         } else { _moveAngle = 0 }
       }
