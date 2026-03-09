@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.271](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.270...v0.1.271) (2026-03-09)
+
+
+### Bug Fixes
+
+* correct moveAngle formula derived from live measurement ([183fafc](https://github.com/AnEntrypoint/spawnpoint/commit/183fafca2bd385291588adfa29070c5ba47c0c0e))
+
 ### [0.1.270](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.269...v0.1.270) (2026-03-09)
 
 
