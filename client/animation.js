@@ -326,19 +326,20 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   let _lookYaw = 0, _lookPitch = 0, _smoothPitch = 0, _bodyYaw = 0
   let _moveAngle = 0, _smoothMoveAngle = 0 // angle of movement relative to body facing
   let _prevLookYaw = 0, _leanYaw = 0
-  const PITCH_SMOOTH = 12.0
+  const PITCH_SMOOTH = 6.0  // lookPitch is 4-bit (16 steps) — slow smooth to hide quantization
   const MOVE_ANGLE_SMOOTH = 8.0
 
   function transitionTo(name) {
     if (current === name) return
-    if (LOCO_STATES.has(name) && LOCO_STATES.has(current) && locomotionCooldown > 0) return
+    // Cooldown only blocks loco-to-loco transitions (not stopping to idle)
+    if (name !== 'IdleLoop' && name !== 'CrouchIdleLoop' && LOCO_STATES.has(name) && LOCO_STATES.has(current) && locomotionCooldown > 0) return
     const prev = actions.get(current)
     const next = actions.get(name)
     if (!next) return
     if (prev) prev.fadeOut(FADE)
     next.reset().fadeIn(FADE).play()
     current = name
-    if (LOCO_STATES.has(name)) locomotionCooldown = LOCO_COOLDOWN
+    if (LOCO_STATES.has(name) && name !== 'IdleLoop' && name !== 'CrouchIdleLoop') locomotionCooldown = LOCO_COOLDOWN
   }
 
   if (actions.has('IdleLoop')) {
@@ -399,7 +400,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
             else transitionTo('CrouchFwdLoop')
           } else {
             const idle2walk  = current === 'IdleLoop' ? 1.5 : 0.5
-            const walk2jog   = current === 'WalkLoop' ? 8.0 : 7.0
+            const walk2jog   = current === 'WalkLoop' ? 3.0 : 2.5
             const jog2sprint = current === 'JogFwdLoop' ? 13.0 : 12.0
             // Skip walk when stopping from jog/sprint — go straight to idle
             const skipWalk = current === 'JogFwdLoop' || current === 'SprintLoop'
@@ -590,14 +591,15 @@ export function createGLBAnimator(gltfScene, gltfAnimations, animAssets, animCon
 
   function transitionTo(name) {
     if (current === name) return
-    if (LOCO_STATES.has(name) && LOCO_STATES.has(current) && locomotionCooldown > 0) return
+    // Cooldown only blocks loco-to-loco transitions (not stopping to idle)
+    if (name !== 'IdleLoop' && name !== 'CrouchIdleLoop' && LOCO_STATES.has(name) && LOCO_STATES.has(current) && locomotionCooldown > 0) return
     const prev = actions.get(current)
     const next = actions.get(name)
     if (!next) return
     if (prev) prev.fadeOut(FADE)
     next.reset().fadeIn(FADE).play()
     current = name
-    if (LOCO_STATES.has(name)) locomotionCooldown = LOCO_COOLDOWN
+    if (LOCO_STATES.has(name) && name !== 'IdleLoop' && name !== 'CrouchIdleLoop') locomotionCooldown = LOCO_COOLDOWN
   }
 
   if (actions.has('IdleLoop')) { actions.get('IdleLoop').play(); current = 'IdleLoop' }
@@ -636,7 +638,7 @@ export function createGLBAnimator(gltfScene, gltfAnimations, animAssets, animCon
             if (smoothSpeed < 0.8) transitionTo('CrouchIdleLoop'); else transitionTo('CrouchFwdLoop')
           } else {
             const idle2walk  = current === 'IdleLoop' ? 1.5 : 0.5
-            const walk2jog   = current === 'WalkLoop' ? 8.0 : 7.0
+            const walk2jog   = current === 'WalkLoop' ? 3.0 : 2.5
             const jog2sprint = current === 'JogFwdLoop' ? 13.0 : 12.0
             // Skip walk when stopping from jog/sprint — go straight to idle
             const skipWalk = current === 'JogFwdLoop' || current === 'SprintLoop'
