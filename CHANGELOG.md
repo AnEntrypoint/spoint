@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.282](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.281...v0.1.282) (2026-03-09)
+
+
+### Bug Fixes
+
+* remove walk, idle->jog->sprint only (jog=slow, sprint=fast) ([e9f4bc7](https://github.com/AnEntrypoint/spawnpoint/commit/e9f4bc71fd81079c4c512dc660bcfb671819788c))
+
 ### [0.1.281](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.280...v0.1.281) (2026-03-09)
 
 
