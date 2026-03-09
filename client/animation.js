@@ -285,6 +285,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
         action.clampWhenFinished = cfg.clamp || false
       }
       if (name === 'WalkLoop') action.timeScale = animConfig.walkTimeScale || 2.0
+      if (name === 'JogFwdLoop') action.timeScale = animConfig.jogTimeScale || 0.333
       if (name === 'SprintLoop') action.timeScale = animConfig.sprintTimeScale || 0.56
       actions.set(name, action)
     }
@@ -412,7 +413,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       if (current && LOCO_STATES.has(current) && current !== 'IdleLoop' && current !== 'CrouchIdleLoop') {
         const locoAction = actions.get(current)
         if (locoAction) {
-          const baseScale = current === 'WalkLoop' ? (animConfig.walkTimeScale || 2.0) : current === 'SprintLoop' ? (animConfig.sprintTimeScale || 0.56) : 1.0
+          const baseScale = current === 'WalkLoop' ? (animConfig.walkTimeScale || 2.0) : current === 'JogFwdLoop' ? (animConfig.jogTimeScale || 0.333) : current === 'SprintLoop' ? (animConfig.sprintTimeScale || 0.56) : 1.0
           const stateMin = current === 'WalkLoop' ? 0.3 : current === 'JogFwdLoop' ? 5.5 : current === 'SprintLoop' ? 12.0 : 0.3
           const stateMax = current === 'WalkLoop' ? 6.0 : current === 'JogFwdLoop' ? 13.0 : current === 'SprintLoop' ? 24.0 : 6.0
           const ratio = Math.max(0.5, Math.min(1.5, smoothSpeed / Math.max(1, (stateMin + stateMax) * 0.5)))
@@ -573,6 +574,7 @@ export function createGLBAnimator(gltfScene, gltfAnimations, animAssets, animCon
       const action = mixer.clipAction(playClip)
       if (!cfg.loop) { action.loop = THREE.LoopOnce; action.clampWhenFinished = cfg.clamp || false }
       if (name === 'WalkLoop') action.timeScale = animConfig.walkTimeScale || 2.0
+      if (name === 'JogFwdLoop') action.timeScale = animConfig.jogTimeScale || 0.333
       if (name === 'SprintLoop') action.timeScale = animConfig.sprintTimeScale || 0.56
       actions.set(name, action)
     }
