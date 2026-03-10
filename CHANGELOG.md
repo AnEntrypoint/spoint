@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.292](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.291...v0.1.292) (2026-03-10)
+
+
+### Bug Fixes
+
+* editor messages (0x80-0x8F) were being swallowed by Inspector ([ab2afc4](https://github.com/AnEntrypoint/spawnpoint/commit/ab2afc4218eb3b0aa1be2dac566afc7ddb060eff))
+
 ### [0.1.291](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.290...v0.1.291) (2026-03-10)
 
 
