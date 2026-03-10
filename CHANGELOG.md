@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.290](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.289...v0.1.290) (2026-03-10)
+
+
+### Features
+
+* replace code tab with inline file browser in app editor ([23b7263](https://github.com/AnEntrypoint/spawnpoint/commit/23b726378f15d797331c372063938273257fa93a))
+
 ### [0.1.289](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.288...v0.1.289) (2026-03-10)
 
 ### [0.1.288](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.287...v0.1.288) (2026-03-09)
