@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.291](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.290...v0.1.291) (2026-03-10)
+
+
+### Features
+
+* increase walk animation speed 4x ([7c59174](https://github.com/AnEntrypoint/spawnpoint/commit/7c59174b59bd4b16595db629c31fd3544a0295c5))
+
 ### [0.1.290](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.289...v0.1.290) (2026-03-10)
 
 
