@@ -1,6 +1,6 @@
 import { MSG, DISCONNECT_REASONS } from '../protocol/MessageTypes.js'
 import { SnapshotEncoder } from '../netcode/SnapshotEncoder.js'
-import { readdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { readdirSync, existsSync, readFileSync, writeFileSync, statSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 
 export function createConnectionHandlers(ctx) {
@@ -160,26 +160,49 @@ export function createConnectionHandlers(ctx) {
       connections.send(clientId, MSG.APP_LIST, { apps })
       return
     }
-    if (msg.type === MSG.GET_SOURCE) {
+    if (msg.type === MSG.LIST_APP_FILES) {
       const { appName } = msg.payload || {}
       if (appName) {
         const appsRoot = resolve(process.cwd(), 'apps')
-        const filePath = resolve(join(appsRoot, appName, 'index.js'))
+        const appDir = resolve(join(appsRoot, appName))
+        if (appDir.startsWith(appsRoot) && existsSync(appDir)) {
+          const files = []
+          const scan = (dir, prefix) => {
+            try {
+              for (const entry of readdirSync(dir)) {
+                const full = join(dir, entry)
+                const rel = prefix ? prefix + '/' + entry : entry
+                if (statSync(full).isDirectory()) { scan(full, rel) }
+                else { files.push(rel) }
+              }
+            } catch (e) { /* ignore */ }
+          }
+          scan(appDir, '')
+          connections.send(clientId, MSG.APP_FILES, { appName, files })
+        }
+      }
+      return
+    }
+    if (msg.type === MSG.GET_SOURCE) {
+      const { appName, file } = msg.payload || {}
+      if (appName) {
+        const appsRoot = resolve(process.cwd(), 'apps')
+        const filePath = resolve(join(appsRoot, appName, file || 'index.js'))
         if (filePath.startsWith(appsRoot) && existsSync(filePath)) {
           const source = readFileSync(filePath, 'utf8')
-          connections.send(clientId, MSG.SOURCE, { appName, source })
+          connections.send(clientId, MSG.SOURCE, { appName, file: file || 'index.js', source })
         }
       }
       return
     }
     if (msg.type === MSG.SAVE_SOURCE) {
-      const { appName, source } = msg.payload || {}
-      if (appName && source) {
+      const { appName, file, source } = msg.payload || {}
+      if (appName && source != null) {
         const appsRoot = resolve(process.cwd(), 'apps')
-        const filePath = resolve(join(appsRoot, appName, 'index.js'))
+        const filePath = resolve(join(appsRoot, appName, file || 'index.js'))
         if (filePath.startsWith(appsRoot)) {
           writeFileSync(filePath, source, 'utf8')
-          connections.send(clientId, MSG.SOURCE, { appName, source })
+          connections.send(clientId, MSG.SOURCE, { appName, file: file || 'index.js', source })
         }
       }
       return

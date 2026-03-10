@@ -1488,8 +1488,9 @@ const client = new PhysicsNetworkClient({
   },
   onMessage: (type, payload) => {
     if (type === MSG.APP_LIST) { editPanel.updateApps(payload.apps); return }
-    if (type === MSG.SOURCE) { editPanel.openCode(payload.appName, payload.source); return }
+    if (type === MSG.SOURCE) { editPanel.openCode(payload.appName, payload.file || 'index.js', payload.source); return }
     if (type === MSG.SCENE_GRAPH) { editPanel.updateScene(payload.entities); return }
+    if (type === MSG.APP_FILES) { editPanel.updateAppFiles(payload.appName, payload.files); return }
   },
   debug: false
 })
@@ -1527,12 +1528,13 @@ const editPanel = createEditPanel({
     const pos = local ? [local.position[0] + Math.sin(yaw) * 2, local.position[1], local.position[2] + Math.cos(yaw) * 2] : [0, 0, 2]
     client.send(MSG.PLACE_APP, { appName, position: pos, config: {} })
   },
-  onSave: (appName, source) => { client.send(MSG.SAVE_SOURCE, { appName, source }) },
+  onSave: (appName, file, source) => { client.send(MSG.SAVE_SOURCE, { appName, file, source }) },
   onEntitySelect: (id) => {
     const mesh = entityMeshes.get(id)
     if (mesh) { editor.selectEntity(id, { id, position: mesh.position.toArray(), rotation: mesh.quaternion.toArray(), scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }) }
   },
-  onGetSource: (appName) => { client.send(MSG.GET_SOURCE, { appName }) }
+  onGetSource: (appName, file) => { client.send(MSG.GET_SOURCE, { appName, file }) },
+  onGetAppFiles: (appName) => { client.send(MSG.LIST_APP_FILES, { appName }) }
 })
 const editor = createEditor({ scene, camera, renderer, client, entityMeshes, playerStates })
 editor.onSelectionChange((id, entityData) => { if (entityData) editPanel.showEntity(entityData, []) })

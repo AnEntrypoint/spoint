@@ -49,7 +49,9 @@ export const MSG = {
   GET_SOURCE: 0x86,
   SOURCE: 0x87,
   SAVE_SOURCE: 0x88,
-  SCENE_GRAPH: 0x89
+  SCENE_GRAPH: 0x89,
+  LIST_APP_FILES: 0x8A,
+  APP_FILES: 0x8B
 }
 
 const nameMap = new Map()
