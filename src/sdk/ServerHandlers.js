@@ -211,6 +211,15 @@ export function createConnectionHandlers(ctx) {
       connections.send(clientId, MSG.SCENE_GRAPH, { entities: appRuntime.getSceneGraph() })
       return
     }
+    if (msg.type === MSG.DESTROY_ENTITY) {
+      const { entityId } = msg.payload || {}
+      if (entityId && appRuntime.entities.has(entityId)) {
+        appRuntime.destroyEntity(entityId)
+        ctx.placedModelStorage?.persist(appRuntime)
+        connections.broadcast(MSG.DESTROY_ENTITY, { entityId })
+      }
+      return
+    }
     emitter.emit('message', clientId, msg)
   })
 

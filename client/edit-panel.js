@@ -1,4 +1,4 @@
-export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, onGetAppFiles }) {
+export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, onGetAppFiles, onDestroyEntity }) {
   const panel = document.createElement('div')
   panel.style.cssText = 'position:fixed;top:0;left:0;width:320px;height:100vh;background:rgba(14,14,20,0.96);color:#eee;font:12px/1.5 monospace;z-index:9000;display:none;flex-direction:column;user-select:none;border-right:1px solid #222'
   document.body.appendChild(panel)
@@ -61,7 +61,8 @@ export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, 
     const row=document.createElement('div');row.style.cssText=`display:flex;align-items:center;padding:4px;cursor:pointer;border-radius:3px;padding-left:${8+depth*12}px;min-height:30px`
     row.style.background=node.id===_selId?'#335':'transparent'
     const lbl=document.createElement('span');lbl.textContent=node.label||node.appName||node.id;lbl.style.cssText='flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
-    const tag=document.createElement('span');tag.textContent=node.appName||'';tag.style.cssText='color:#555;font-size:10px;flex-shrink:0;margin-left:4px'
+    const pos=node.position?`(${node.position.map(v=>v.toFixed(1)).join(', ')})`:'';
+    const tag=document.createElement('span');tag.textContent=(node.appName?node.appName+' ':'')+pos;tag.style.cssText='color:#555;font-size:10px;flex-shrink:0;margin-left:4px;white-space:nowrap'
     row.appendChild(lbl);row.appendChild(tag)
     row.addEventListener('click',()=>{_selId=node.id;if(onEntitySelect)onEntitySelect(node.id);_rScene()})
     row.addEventListener('mouseenter',()=>{if(node.id!==_selId)row.style.background='#1e1e2e'})
@@ -90,6 +91,9 @@ export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, 
     props.appendChild(_v3('Scale',_entity.scale||[1,1,1],'scale'))
     if(_eProps.length){const eh=document.createElement('div');eh.textContent='App Props';eh.style.cssText='color:#888;font-size:10px;text-transform:uppercase;margin:6px 0 2px';props.appendChild(eh);for(const f of _eProps)props.appendChild(_propField(f))}
     if(_entity._appName){const btn=document.createElement('button');btn.textContent='Edit Code';btn.style.cssText='margin-top:8px;width:100%;background:#223355;color:#adf;border:none;padding:8px;border-radius:3px;cursor:pointer;font:inherit;min-height:44px';btn.addEventListener('click',()=>{_switchTab('apps');_expandApp(_entity._appName)});props.appendChild(btn)}
+    const delBtn=document.createElement('button');delBtn.textContent='Delete Entity';delBtn.style.cssText='margin-top:6px;width:100%;background:#331111;color:#f88;border:1px solid #522;padding:8px;border-radius:3px;cursor:pointer;font:inherit;min-height:44px'
+    delBtn.addEventListener('click',()=>{if(onDestroyEntity&&_entity)onDestroyEntity(_entity.id);_entity=null;_selId=null;_rScene()})
+    props.appendChild(delBtn)
     pane.appendChild(props)
   }
 

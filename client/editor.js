@@ -124,6 +124,12 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
         if (editMode && selectedEntityId) attachGizmo(selectedEntityId)
         if (_onEditModeChange) _onEditModeChange(editMode)
       }
+      if (e.code === 'Delete' && editMode && selectedEntityId) {
+        client.send(MSG.DESTROY_ENTITY, { entityId: selectedEntityId })
+        if (gizmoGroup) { scene.remove(gizmoGroup); gizmoGroup = null }
+        selectedEntityId = null
+        if (_onChange) _onChange(null, null)
+      }
     },
     onSelectionChange(fn) { _onChange = fn },
     onEditModeChange(fn) { _onEditModeChange = fn },

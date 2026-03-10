@@ -41,6 +41,8 @@ export class MessageHandler {
       this._callbacks.onEditorSelect?.(payload)
     } else if (type === MSG.APP_LIST || type === MSG.SOURCE || type === MSG.SCENE_GRAPH || type === MSG.APP_FILES) {
       this._callbacks.onMessage?.(type, payload)
+    } else if (type === MSG.DESTROY_ENTITY) {
+      this._callbacks.onEntityRemoved?.(payload.entityId)
     }
   }
 

@@ -1218,6 +1218,8 @@ async function _doLoadEntityModel(entityId, entityState) {
     const er = entityState.rotation; if (er) group.quaternion.set(er[0], er[1], er[2], er[3])
     const es = entityState.scale; if (es) group.scale.set(es[0], es[1], es[2])
     scene.add(group)
+    group.userData.isEditable = true
+    group.userData._appName = entityAppMap.get(entityId) || entityState.app || null
     entityMeshes.set(entityId, group)
     if (group.userData.spin || group.userData.hover) _animatedEntities.push(group)
     _hierarchyDirty = true
@@ -1316,6 +1318,8 @@ async function _doLoadEntityModel(entityId, entityState) {
       })
       _hullMeshes.set(entityId, hullSegs)
     }
+    finalMesh.userData.isEditable = true
+    finalMesh.userData._appName = entityAppMap.get(entityId) || entityState.app || null
     _hierarchyDirty = true
     if (!isDynamic) {
       cam.addEnvironment(colliders)
@@ -1482,8 +1486,9 @@ const client = new PhysicsNetworkClient({
     if (!entityId) return
     const mesh = entityMeshes.get(entityId)
     if (mesh) {
-      editor.selectEntity(entityId, { id: entityId, position: mesh.position.toArray(), rotation: mesh.quaternion.toArray(), scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} })
-      editPanel.showEntity({ id: entityId, position: mesh.position.toArray(), rotation: mesh.quaternion.toArray(), scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }, editorProps || [])
+      const entData = { id: entityId, position: mesh.position.toArray(), rotation: mesh.quaternion.toArray(), scale: mesh.scale.toArray(), custom: mesh.userData.custom || {}, _appName: mesh.userData._appName || null }
+      editor.selectEntity(entityId, entData)
+      editPanel.showEntity(entData, editorProps || [])
     }
   },
   onMessage: (type, payload) => {
@@ -1534,17 +1539,41 @@ const editPanel = createEditPanel({
     if (mesh) { editor.selectEntity(id, { id, position: mesh.position.toArray(), rotation: mesh.quaternion.toArray(), scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }) }
   },
   onGetSource: (appName, file) => { client.send(MSG.GET_SOURCE, { appName, file }) },
-  onGetAppFiles: (appName) => { client.send(MSG.LIST_APP_FILES, { appName }) }
+  onGetAppFiles: (appName) => { client.send(MSG.LIST_APP_FILES, { appName }) },
+  onDestroyEntity: (entityId) => { client.send(MSG.DESTROY_ENTITY, { entityId }) }
 })
 const editor = createEditor({ scene, camera, renderer, client, entityMeshes, playerStates })
-editor.onSelectionChange((id, entityData) => { if (entityData) editPanel.showEntity(entityData, []) })
-editor.onEditModeChange((on) => { if (on) { editPanel.show(); client.send(MSG.SCENE_GRAPH, {}); client.send(MSG.LIST_APPS, {}) } else editPanel.hide() })
+editor.onSelectionChange((id, entityData) => {
+  if (entityData) {
+    const mesh = entityMeshes.get(id)
+    const data = { ...entityData, _appName: mesh?.userData._appName || null }
+    editPanel.showEntity(data, [])
+  }
+})
+editor.onEditModeChange((on) => {
+  if (on) {
+    if (document.pointerLockElement) document.exitPointerLock()
+    editPanel.show()
+    client.send(MSG.SCENE_GRAPH, {})
+    client.send(MSG.LIST_APPS, {})
+  } else {
+    editPanel.hide()
+  }
+})
 editPanel.onEditorChange((key, value) => {
   if (!editor.selectedEntityId) return
   const changes = key === 'collider' ? { custom: { _collider: value } }
     : key.startsWith('custom.') ? { custom: { [key.slice(7)]: value } }
       : key === '_rotEuler' ? { rotation: editor.eulerDegToQuat(value) }
         : { [key]: value }
+  // Apply position/rotation/scale changes immediately to the mesh for responsiveness
+  const mesh = entityMeshes.get(editor.selectedEntityId)
+  if (mesh) {
+    if (changes.position) mesh.position.set(changes.position[0], changes.position[1], changes.position[2])
+    if (changes.rotation) mesh.quaternion.set(changes.rotation[0], changes.rotation[1], changes.rotation[2], changes.rotation[3])
+    if (changes.scale) mesh.scale.set(changes.scale[0], changes.scale[1], changes.scale[2])
+    editor.updateGizmo()
+  }
   editor.sendEditorUpdate(changes)
 })
 document.addEventListener('keydown', e => { editor.onKeyDown(e); for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onKeyDown) try { mod.onKeyDown(e, engineCtx) } catch (ex) { } } })
@@ -1811,11 +1840,16 @@ function startInputLoop() {
       lastHealth = local.health
     }
     for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onInput) try { mod.onInput(input, engineCtx) } catch (e) { console.error('[app-input]', e.message) } }
-    client.sendInput(input)
+    if (cam.getEditMode()) {
+      const frozenInput = { ...input, forward: false, backward: false, left: false, right: false, jump: false, sprint: false, crouch: false }
+      client.sendInput(frozenInput)
+    } else {
+      client.sendInput(input)
+    }
   }, 1000 / 60)
 }
 
-renderer.domElement.addEventListener('click', () => { if (inputConfig.pointerLock && !document.pointerLockElement) renderer.domElement.requestPointerLock() })
+renderer.domElement.addEventListener('click', () => { if (inputConfig.pointerLock && !document.pointerLockElement && !cam.getEditMode()) renderer.domElement.requestPointerLock() })
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === renderer.domElement
   clickPrompt.style.display = locked ? 'none' : (inputConfig.pointerLock ? 'block' : 'none')

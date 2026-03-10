@@ -161,7 +161,8 @@ export default {
   },
   animation: {
     mixerTimeScale: 1.3,
-    walkTimeScale: 2.0,
+    walkTimeScale: 8.0,
+    jogTimeScale: 1.5,
     sprintTimeScale: 0.56,
     fadeTime: 0.15
   },

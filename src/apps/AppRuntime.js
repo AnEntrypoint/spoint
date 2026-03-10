@@ -189,7 +189,7 @@ export class AppRuntime {
   }
 
   _buildNode(id, e) {
-    return { id, appName: e._appName, label: e._config?.label || e._appName || id, children: [...e.children].map(cid => this._buildNode(cid, this.entities.get(cid))).filter(Boolean) }
+    return { id, appName: e._appName, label: e._config?.label || e._appName || id, position: e.position ? [+e.position[0].toFixed(1), +e.position[1].toFixed(1), +e.position[2].toFixed(1)] : null, children: [...e.children].map(cid => this._buildNode(cid, this.entities.get(cid))).filter(Boolean) }
   }
 
   queryEntities(f) { const r = []; for (const e of this.entities.values()) { if (!f || f(e)) r.push(e) } return r }
