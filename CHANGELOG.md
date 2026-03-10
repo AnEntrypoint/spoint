@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.293](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.292...v0.1.293) (2026-03-10)
+
+
+### Features
+
+* critical editor improvements — freeze movement, delete entity, walk animation, scene positions ([63a1bba](https://github.com/AnEntrypoint/spawnpoint/commit/63a1bba393b2a2a7d5daa1580097d40f3f05893f))
+
 ### [0.1.292](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.291...v0.1.292) (2026-03-10)
 
 
