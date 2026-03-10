@@ -6,6 +6,8 @@ export class Inspector {
   handleMessage(clientId, msg) {
     if (!msg || msg.type < 100) return false
     const msgType = msg.type
+    // 0x80-0x8F (128-143) are editor messages — do not intercept
+    if (msgType >= 0x80 && msgType <= 0x8F) return false
     if (msgType >= 100 && msgType <= 199) {
       this._handleDebugMessage(clientId, msg)
       return true

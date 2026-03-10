@@ -30,7 +30,9 @@ export class PhysicsNetworkClient {
       onAppModule: config.onAppModule || (() => {}),
       onAssetUpdate: config.onAssetUpdate || (() => {}),
       onAppEvent: config.onAppEvent || (() => {}),
-      onHotReload: config.onHotReload || (() => {})
+      onHotReload: config.onHotReload || (() => {}),
+      onEditorSelect: config.onEditorSelect || (() => {}),
+      onMessage: config.onMessage || (() => {})
     }
     this._reconnect = new ReconnectManager(config)
     this._snapProc = new SnapshotProcessor({ callbacks: this.callbacks })

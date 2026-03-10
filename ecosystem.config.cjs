@@ -5,8 +5,8 @@ module.exports = {
       script: 'server.js',
       instances: 1,
       exec_mode: 'fork',
-      autorestart: true,
-      watch: ['src', 'apps', 'server.js'],
+      autorestart: false,
+      watch: false,
       watch_delay: 1000,
       windowsHide: true,
       ignore_watch: [
