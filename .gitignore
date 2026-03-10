@@ -66,6 +66,7 @@ profile.json
 
 # Uploaded model files (data/placed-models.json is tracked)
 /data/models/
+/data/*.db
 
 # Temporary test files
 profile-test.*
