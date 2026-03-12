@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.299](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.298...v0.1.299) (2026-03-12)
+
+
+### Bug Fixes
+
+* addColliderFromConfig returns Promise for trimesh/convex; tps-game uses getById ([e03fb3b](https://github.com/AnEntrypoint/spawnpoint/commit/e03fb3b13974500e3d46f14c3578fb6648bb8d0c))
+
 ### [0.1.298](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.297...v0.1.298) (2026-03-12)
 
 ### [0.1.297](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.296...v0.1.297) (2026-03-12)
