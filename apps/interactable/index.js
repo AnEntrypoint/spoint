@@ -1,11 +1,25 @@
+// Interactable trigger with E-key prompt and configurable color
 export default {
   server: {
+    editorProps: [
+      { key: 'color', label: 'Color', type: 'color', default: '#00ff88' },
+      { key: 'prompt', label: 'Prompt', type: 'text', default: 'Press E to interact' },
+      { key: 'radius', label: 'Radius', type: 'number', default: 3.5 }
+    ],
     setup(ctx) {
-      ctx.entity.custom = { mesh: 'box', color: 0x00ff88, sx: 1.5, sy: 0.5, sz: 1.5, label: 'INTERACT' }
+      const c = ctx.config || {}
+      ctx.entity.custom = { mesh: 'box', color: c.color ?? 0x00ff88, sx: 1.5, sy: 0.5, sz: 1.5, label: 'INTERACT' }
       ctx.state.interactionCount = 0
       ctx.physics.setStatic(true)
       ctx.physics.addBoxCollider([0.75, 0.25, 0.75])
-      ctx.interactable({ prompt: 'Press E to interact', radius: 3.5, cooldown: 500 })
+      ctx.interactable({ prompt: c.prompt ?? 'Press E to interact', radius: c.radius ?? 3.5, cooldown: 500 })
+    },
+
+    onEditorUpdate(ctx, changes) {
+      if (changes.position) ctx.entity.position = changes.position
+      if (changes.rotation) ctx.entity.rotation = changes.rotation
+      if (changes.scale) ctx.entity.scale = changes.scale
+      if (changes.custom) ctx.entity.custom = { ...ctx.entity.custom, ...changes.custom }
     },
 
     onInteract(ctx, player) {

@@ -52,7 +52,10 @@ export const MSG = {
   SCENE_GRAPH: 0x89,
   LIST_APP_FILES: 0x8A,
   APP_FILES: 0x8B,
-  DESTROY_ENTITY: 0x8C
+  DESTROY_ENTITY: 0x8C,
+  CREATE_APP: 0x8D,
+  GET_EDITOR_PROPS: 0x8E,
+  EDITOR_PROPS: 0x8F
 }
 
 const nameMap = new Map()

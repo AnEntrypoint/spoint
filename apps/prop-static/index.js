@@ -1,7 +1,13 @@
+// Static GLB prop with convex hull collider
 export default {
   server: {
     setup(ctx) {
       if (ctx.entity.model) ctx.physics.addColliderFromConfig({ type: 'convex' })
+    },
+    onEditorUpdate(ctx, changes) {
+      if (changes.position) ctx.entity.position = changes.position
+      if (changes.rotation) ctx.entity.rotation = changes.rotation
+      if (changes.scale) ctx.entity.scale = changes.scale
     }
   },
   client: {

@@ -1495,6 +1495,11 @@ const client = new PhysicsNetworkClient({
     if (type === MSG.SOURCE) { editPanel.openCode(payload.appName, payload.file || 'index.js', payload.source); return }
     if (type === MSG.SCENE_GRAPH) { editPanel.updateScene(payload.entities); return }
     if (type === MSG.APP_FILES) { editPanel.updateAppFiles(payload.appName, payload.files); return }
+    if (type === MSG.EDITOR_PROPS) {
+      const mesh = entityMeshes.get(payload.entityId)
+      if (mesh) editPanel.showEntity(_buildEntityData(payload.entityId, mesh), payload.editorProps || [])
+      return
+    }
   },
   debug: false
 })
@@ -1539,17 +1544,19 @@ const editPanel = createEditPanel({
   onSave: (appName, file, source) => { client.send(MSG.SAVE_SOURCE, { appName, file, source }) },
   onEntitySelect: (id) => {
     const mesh = entityMeshes.get(id)
-    if (mesh) { const d = _buildEntityData(id, mesh); editor.selectEntity(id, d); editPanel.showEntity(d, []) }
+    if (mesh) { const d = _buildEntityData(id, mesh); editor.selectEntity(id, d); editPanel.showEntity(d, []); client.send(MSG.GET_EDITOR_PROPS, { entityId: id }) }
   },
   onGetSource: (appName, file) => { client.send(MSG.GET_SOURCE, { appName, file }) },
   onGetAppFiles: (appName) => { client.send(MSG.LIST_APP_FILES, { appName }) },
-  onDestroyEntity: (entityId) => { client.send(MSG.DESTROY_ENTITY, { entityId }) }
+  onDestroyEntity: (entityId) => { client.send(MSG.DESTROY_ENTITY, { entityId }) },
+  onCreateApp: (appName) => { client.send(MSG.CREATE_APP, { appName }) }
 })
 const editor = createEditor({ scene, camera, renderer, client, entityMeshes, playerStates })
 editor.onSelectionChange((id, entityData) => {
   if (entityData) {
     const mesh = entityMeshes.get(id)
     editPanel.showEntity(mesh ? _buildEntityData(id, mesh) : entityData, [])
+    client.send(MSG.GET_EDITOR_PROPS, { entityId: id })
   }
 })
 editor.onEditModeChange((on) => {

@@ -1,6 +1,6 @@
 import { MSG, DISCONNECT_REASONS } from '../protocol/MessageTypes.js'
 import { SnapshotEncoder } from '../netcode/SnapshotEncoder.js'
-import { readdirSync, existsSync, readFileSync, writeFileSync, statSync } from 'node:fs'
+import { readdirSync, existsSync, readFileSync, writeFileSync, statSync, mkdirSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 
 export function createConnectionHandlers(ctx) {
@@ -217,6 +217,55 @@ export function createConnectionHandlers(ctx) {
         appRuntime.destroyEntity(entityId)
         ctx.placedModelStorage?.persist(appRuntime)
         connections.broadcast(MSG.DESTROY_ENTITY, { entityId })
+      }
+      return
+    }
+    if (msg.type === MSG.GET_EDITOR_PROPS) {
+      const { entityId } = msg.payload || {}
+      if (entityId) {
+        const entity = appRuntime.entities.get(entityId)
+        const appName = entity?._appName
+        const appDef = appName ? appRuntime._appDefs.get(appName) : null
+        const serverMod = appDef?.server || appDef
+        const editorProps = serverMod?.editorProps || []
+        connections.send(clientId, MSG.EDITOR_PROPS, { entityId, editorProps })
+      }
+      return
+    }
+    if (msg.type === MSG.CREATE_APP) {
+      const { appName } = msg.payload || {}
+      if (!appName || !/^[a-z0-9-]+$/.test(appName)) return
+      const appsRoot = resolve(process.cwd(), 'apps')
+      const appDir = join(appsRoot, appName)
+      if (!existsSync(appDir)) {
+        mkdirSync(appDir, { recursive: true })
+        const template = `export default {
+  server: {
+    // editorProps: [
+    //   { key: 'color', label: 'Color', type: 'color', default: '#ffffff' },
+    //   { key: 'size', label: 'Size', type: 'number', default: 1 },
+    // ],
+    setup(ctx) {
+      // Entity is ready — set up physics, state, etc.
+      // ctx.physics.addColliderFromConfig({ type: 'box', size: [0.5, 0.5, 0.5] })
+      // ctx.interactable({ prompt: 'Press E', radius: 3 })
+    },
+    onEditorUpdate(ctx, changes) {
+      if (changes.position) ctx.entity.position = changes.position
+      if (changes.rotation) ctx.entity.rotation = changes.rotation
+      if (changes.scale) ctx.entity.scale = changes.scale
+      if (changes.custom) ctx.entity.custom = { ...ctx.entity.custom, ...changes.custom }
+    }
+  },
+  client: {
+    render(ctx) {
+      return { position: ctx.entity.position, rotation: ctx.entity.rotation, scale: ctx.entity.scale, model: ctx.entity.model }
+    }
+  }
+}
+`
+        writeFileSync(join(appDir, 'index.js'), template, 'utf8')
+        connections.send(clientId, MSG.SOURCE, { appName, file: 'index.js', source: template })
       }
       return
     }

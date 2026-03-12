@@ -1,3 +1,4 @@
+// Dynamic GLB prop — falls and responds to physics
 export default {
   server: {
     setup(ctx) {

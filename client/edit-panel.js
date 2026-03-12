@@ -1,4 +1,4 @@
-export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, onGetAppFiles, onDestroyEntity }) {
+export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, onGetAppFiles, onDestroyEntity, onCreateApp }) {
   const panel = document.createElement('div')
   panel.style.cssText = 'position:fixed;top:0;left:0;width:320px;height:100vh;background:rgba(14,14,20,0.96);color:#eee;font:12px/1.5 monospace;z-index:9000;display:none;flex-direction:column;user-select:none;border-right:1px solid #222'
   document.body.appendChild(panel)
@@ -125,9 +125,17 @@ export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, 
       _renderEditor(pane); return
     }
 
+    const newRow=document.createElement('div');newRow.style.cssText='display:flex;gap:6px;margin:8px 8px 4px'
     const fi=document.createElement('input');fi.type='text';fi.placeholder='Filter apps...';fi.value=_filt
-    fi.style.cssText='margin:8px;background:#252530;border:none;color:#fff;padding:6px 8px;border-radius:3px;font:inherit;box-sizing:border-box;width:calc(100% - 16px)'
-    fi.addEventListener('input',()=>{_filt=fi.value.toLowerCase();_rApps()});pane.appendChild(fi)
+    fi.style.cssText='flex:1;background:#252530;border:none;color:#fff;padding:6px 8px;border-radius:3px;font:inherit'
+    fi.addEventListener('input',()=>{_filt=fi.value.toLowerCase();_rApps()})
+    const newBtn=document.createElement('button');newBtn.textContent='+ New';newBtn.style.cssText='background:#223322;color:#8f8;border:none;padding:6px 10px;border-radius:3px;cursor:pointer;font:inherit;flex-shrink:0'
+    newBtn.addEventListener('click',()=>{
+      const name=prompt('App name (lowercase, hyphens only):')
+      if(name&&/^[a-z0-9-]+$/.test(name)&&onCreateApp)onCreateApp(name)
+      else if(name)alert('Invalid name — use lowercase letters and hyphens only.')
+    })
+    newRow.appendChild(fi);newRow.appendChild(newBtn);pane.appendChild(newRow)
     const list=document.createElement('div');list.style.cssText='flex:1;overflow-y:auto;padding:0 8px 8px'
     const filtered=_apps.filter(a=>a.name.toLowerCase().includes(_filt)||(a.description||'').toLowerCase().includes(_filt))
     if(!filtered.length){const e=document.createElement('div');e.textContent=_apps.length?'No match':'Loading...';e.style.color='#555';list.appendChild(e)}
