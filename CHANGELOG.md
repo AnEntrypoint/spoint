@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.302](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.301...v0.1.302) (2026-03-12)
+
+
+### Bug Fixes
+
+* use named property access for custStr cache reuse in refreshDynamicCache ([a8c1410](https://github.com/AnEntrypoint/spawnpoint/commit/a8c141045240ce1fe12b37a4398c45fdc4dfb73e))
+
 ### [0.1.301](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.300...v0.1.301) (2026-03-12)
 
 ### [0.1.300](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.299...v0.1.300) (2026-03-12)
