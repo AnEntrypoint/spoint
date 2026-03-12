@@ -1206,6 +1206,7 @@ function loadEntityModel(entityId, entityState) {
 async function _doLoadEntityModel(entityId, entityState) {
   const isEditorPlaceholder = entityState.custom?.editorPlaceholder === true
   const smartObjectTemplate = entityState.custom?.template
+  const _tagMesh = (m) => { m.userData.isEditable = true; m.userData._appName = entityAppMap.get(entityId) || entityState.app || null }
 
   if (!entityState.model || isEditorPlaceholder) {
     let group
@@ -1218,8 +1219,7 @@ async function _doLoadEntityModel(entityId, entityState) {
     const er = entityState.rotation; if (er) group.quaternion.set(er[0], er[1], er[2], er[3])
     const es = entityState.scale; if (es) group.scale.set(es[0], es[1], es[2])
     scene.add(group)
-    group.userData.isEditable = true
-    group.userData._appName = entityAppMap.get(entityId) || entityState.app || null
+    _tagMesh(group)
     entityMeshes.set(entityId, group)
     if (group.userData.spin || group.userData.hover) _animatedEntities.push(group)
     _hierarchyDirty = true
@@ -1318,8 +1318,7 @@ async function _doLoadEntityModel(entityId, entityState) {
       })
       _hullMeshes.set(entityId, hullSegs)
     }
-    finalMesh.userData.isEditable = true
-    finalMesh.userData._appName = entityAppMap.get(entityId) || entityState.app || null
+    _tagMesh(finalMesh)
     _hierarchyDirty = true
     if (!isDynamic) {
       cam.addEnvironment(colliders)
@@ -1486,7 +1485,7 @@ const client = new PhysicsNetworkClient({
     if (!entityId) return
     const mesh = entityMeshes.get(entityId)
     if (mesh) {
-      const entData = { id: entityId, position: mesh.position.toArray(), rotation: mesh.quaternion.toArray(), scale: mesh.scale.toArray(), custom: mesh.userData.custom || {}, _appName: mesh.userData._appName || null }
+      const entData = _buildEntityData(entityId, mesh)
       editor.selectEntity(entityId, entData)
       editPanel.showEntity(entData, editorProps || [])
     }
@@ -1526,6 +1525,10 @@ const engineCtx = {
 
 initFacialSystem(engineCtx)
 
+function _buildEntityData(id, mesh) {
+  return { id, position: mesh.position.toArray(), rotation: mesh.quaternion.toArray(), scale: mesh.scale.toArray(), custom: mesh.userData.custom || {}, _appName: mesh.userData._appName || null }
+}
+
 const editPanel = createEditPanel({
   onPlace: (appName) => {
     const local = playerStates.get(client.playerId)
@@ -1536,7 +1539,7 @@ const editPanel = createEditPanel({
   onSave: (appName, file, source) => { client.send(MSG.SAVE_SOURCE, { appName, file, source }) },
   onEntitySelect: (id) => {
     const mesh = entityMeshes.get(id)
-    if (mesh) { editor.selectEntity(id, { id, position: mesh.position.toArray(), rotation: mesh.quaternion.toArray(), scale: mesh.scale.toArray(), custom: mesh.userData.custom || {} }) }
+    if (mesh) { const d = _buildEntityData(id, mesh); editor.selectEntity(id, d); editPanel.showEntity(d, []) }
   },
   onGetSource: (appName, file) => { client.send(MSG.GET_SOURCE, { appName, file }) },
   onGetAppFiles: (appName) => { client.send(MSG.LIST_APP_FILES, { appName }) },
@@ -1546,8 +1549,7 @@ const editor = createEditor({ scene, camera, renderer, client, entityMeshes, pla
 editor.onSelectionChange((id, entityData) => {
   if (entityData) {
     const mesh = entityMeshes.get(id)
-    const data = { ...entityData, _appName: mesh?.userData._appName || null }
-    editPanel.showEntity(data, [])
+    editPanel.showEntity(mesh ? _buildEntityData(id, mesh) : entityData, [])
   }
 })
 editor.onEditModeChange((on) => {
@@ -1841,11 +1843,9 @@ function startInputLoop() {
     }
     for (let _i = 0; _i < _appModuleList.length; _i++) { const mod = _appModuleList[_i]; if (mod.onInput) try { mod.onInput(input, engineCtx) } catch (e) { console.error('[app-input]', e.message) } }
     if (cam.getEditMode()) {
-      const frozenInput = { ...input, forward: false, backward: false, left: false, right: false, jump: false, sprint: false, crouch: false }
-      client.sendInput(frozenInput)
-    } else {
-      client.sendInput(input)
+      input.forward = input.backward = input.left = input.right = input.jump = input.sprint = input.crouch = false
     }
+    client.sendInput(input)
   }, 1000 / 60)
 }
 
