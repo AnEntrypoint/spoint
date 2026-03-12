@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.295](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.294...v0.1.295) (2026-03-12)
+
+
+### Features
+
+* **engine:** fill API gaps — broadcastNearby, getById, spawnChild, addColliderFromConfig ([8d6fbe8](https://github.com/AnEntrypoint/spawnpoint/commit/8d6fbe846b0084816e78eccae48273277c580e34))
+
 ### [0.1.294](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.293...v0.1.294) (2026-03-12)
 
 ### [0.1.293](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.292...v0.1.293) (2026-03-10)
