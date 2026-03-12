@@ -27,12 +27,18 @@ export class NetworkState {
     return this.players.get(playerId)
   }
 
-  updatePlayer(playerId, state) {
+  updatePlayer(playerId, position, rotation, velocity, onGround, health, inputSequence, crouch, lookPitch, lookYaw) {
     const player = this.players.get(playerId)
-    if (player) {
-      Object.assign(player, state)
-      player.lastUpdate = Date.now()
-    }
+    if (!player) return
+    player.position = position
+    player.rotation = rotation
+    player.velocity = velocity
+    player.onGround = onGround
+    player.health = health
+    player.inputSequence = inputSequence
+    player.crouch = crouch
+    player.lookPitch = lookPitch
+    player.lookYaw = lookYaw
   }
 
   getAllPlayers() {
@@ -40,10 +46,9 @@ export class NetworkState {
   }
 
   getSnapshot() {
-    return {
-      tick: this.tick,
-      timestamp: this.timestamp,
-      players: this.getAllPlayers().map(p => ({
+    const players = []
+    for (const p of this.players.values()) {
+      players.push({
         id: p.id,
         position: p.position,
         rotation: p.rotation,
@@ -54,8 +59,9 @@ export class NetworkState {
         crouch: p.crouch || 0,
         lookPitch: p.lookPitch || 0,
         lookYaw: p.lookYaw || 0
-      }))
+      })
     }
+    return { tick: this.tick, timestamp: this.timestamp, players }
   }
 
   setTick(tick, timestamp = Date.now()) {

@@ -94,7 +94,7 @@ export function createTickHandler(deps) {
         playerAccumDt.delete(player.id)
       } else {
         const accumDt = (playerAccumDt.get(player.id) || 0) + dt
-        if (tick % PHYSICS_PLAYER_DIVISOR === 0 || inp?.jump || !st.onGround) {
+        if ((tick + player.id) % PHYSICS_PLAYER_DIVISOR === 0 || inp?.jump || !st.onGround) {
           physicsIntegration.updatePlayerPhysics(player.id, st, dt)
           st.velocity[0] = wishedVx
           st.velocity[2] = wishedVz
@@ -105,7 +105,7 @@ export function createTickHandler(deps) {
         playerIdleCounts.set(player.id, isIdle ? idleCount + 1 : 0)
       }
       lagCompensator.recordPlayerPosition(player.id, st.position, st.rotation, st.velocity, tick)
-      networkState.updatePlayer(player.id, { position:st.position, rotation:st.rotation, velocity:st.velocity, onGround:st.onGround, health:st.health, inputSequence:player.inputSequence, crouch:st.crouch||0, lookPitch:st.lookPitch||0, lookYaw:st.lookYaw||0 })
+      networkState.updatePlayer(player.id, st.position, st.rotation, st.velocity, st.onGround, st.health, player.inputSequence, st.crouch||0, st.lookPitch||0, st.lookYaw||0)
     }
 
     const t1 = performance.now()
