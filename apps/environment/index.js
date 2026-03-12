@@ -24,14 +24,11 @@ function discoverModels() {
 export default {
   server: {
     async setup(ctx) {
-      ctx.physics.setStatic(true)
-      // Use trimesh collider for accurate environment collision
-      // Deferred to background so server startup isn't blocked
       try {
-        await ctx.physics.addTrimeshCollider()
+        await ctx.physics.addColliderFromConfig({ type: 'trimesh' })
       } catch (e) {
         console.log(`[Environment] Trimesh collider failed: ${e.message}, using box collider`)
-        ctx.physics.addBoxCollider([100, 25, 100])
+        ctx.physics.addColliderFromConfig({ type: 'box', size: [100, 25, 100] })
       }
 
       ctx.state.smartObjects = new Map()
@@ -55,7 +52,7 @@ export default {
     onEvent(payload, ctx) {
       if (payload.type === 'dropModel' && payload.position && payload.modelPath) {
         const id = `dropped_model_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-        const entity = ctx.world.spawn(id, {
+        const entity = ctx.world.spawnChild(id, {
           position: payload.position,
           rotation: payload.rotation || [0, 0, 0, 1],
           model: payload.modelPath
@@ -69,47 +66,13 @@ export default {
           ctx.debug.log(`[Environment] Dropped model spawned: ${id}`)
         }
       }
-    },
-
-    teardown(ctx) {
-      if (ctx.state.smartObjects && typeof ctx.state.smartObjects.keys === 'function') {
-        for (const id of ctx.state.smartObjects.keys()) {
-          ctx.world.destroy(id)
-        }
-        ctx.state.smartObjects.clear()
-      }
-    }
-  },
-
-  client: {
-    render(ctx) {
-      return {
-        model: ctx.entity.model,
-        position: ctx.entity.position,
-        rotation: ctx.entity.rotation,
-        custom: ctx.entity.custom
-      }
     }
   }
 }
 
 function addCollider(ctx, collider) {
   if (!collider) return
-
-  switch (collider.type) {
-    case 'box':
-      ctx.physics.addBoxCollider(collider.size)
-      break
-    case 'sphere':
-      ctx.physics.addSphereCollider(collider.radius)
-      break
-    case 'capsule':
-      ctx.physics.addCapsuleCollider(collider.radius, collider.halfHeight * 2)
-      break
-    case 'trimesh':
-      ctx.physics.addTrimeshCollider()
-      break
-  }
+  ctx.physics.addColliderFromConfig(collider)
 }
 
 function updatePlatform(ctx, id, obj, dt) {
@@ -188,7 +151,7 @@ function spawnSmartObject(ctx, templateName, position, rotation = [0, 0, 0, 1], 
   const template = getTemplate(templateName)
   const id = `smart_${templateName}_${ctx.state.nextSmartObjectId++}`
 
-  const entity = ctx.world.spawn(id, {
+  const entity = ctx.world.spawnChild(id, {
     position,
     rotation,
     parent,

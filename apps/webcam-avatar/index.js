@@ -2,8 +2,7 @@ export default {
   server: {
     setup(ctx) {
       ctx.entity.custom = { mesh: 'box', color: 0xff00ff, label: 'Webcam' }
-      ctx.physics.setStatic(true)
-      ctx.physics.addBoxCollider([0.5, 0.5, 0.5])
+      ctx.physics.addColliderFromConfig({ type: 'box', size: [0.5, 0.5, 0.5] })
       ctx.state.activeWebcams = ctx.state.activeWebcams || new Map()
     },
 
@@ -17,19 +16,9 @@ export default {
         ctx.state.activeWebcams.delete(senderId)
         ctx.network.broadcast({ type: 'webcam_status', playerId: senderId, active: false })
       } else if (msg.type === 'afan_frame' && msg.data) {
-        const sender = ctx.players.getAll().find(p => p.id === senderId)
+        const sender = ctx.players.getById(senderId)
         if (!sender?.state?.position) return
-        const sp = sender.state.position
-        const r2 = 900
-        for (const p of ctx.players.getAll()) {
-          if (!p.state?.position) continue
-          const dx = p.state.position[0] - sp[0]
-          const dy = p.state.position[1] - sp[1]
-          const dz = p.state.position[2] - sp[2]
-          if (dx*dx + dy*dy + dz*dz <= r2) {
-            ctx.players.send(p.id, { type: 'afan_frame', playerId: senderId, data: msg.data })
-          }
-        }
+        ctx.players.broadcastNearby(sender.state.position, 30, { type: 'afan_frame', playerId: senderId, data: msg.data })
       }
     }
   },
@@ -76,12 +65,9 @@ export default {
 
     render(ctx) {
       const h = ctx.h
-      if (!h) return { position: ctx.entity.position }
+      if (!h) return {}
       const enabled = this.enabled
       return {
-        position: ctx.entity.position,
-        rotation: ctx.entity.rotation,
-        custom: ctx.entity.custom,
         ui: h('div', { style: 'position:absolute;top:20px;left:20px;pointer-events:auto' },
           h('div', { class: 'card bg-base-200 shadow-xl w-64' },
             h('div', { class: 'card-body' },

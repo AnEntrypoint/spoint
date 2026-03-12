@@ -10,13 +10,12 @@ export default {
         const row = Math.floor(i / GRID), col = i % GRID
         const x = cx + (col - GRID / 2) * SPACING
         const z = cz + (row - GRID / 2) * SPACING
-        ctx.world.spawn(`se-${i}`, {
+        ctx.world.spawnChild(`se-${i}`, {
           app: 'box-dynamic',
           position: [x, 4, z],
           config: { hx: 0.4, hy: 0.4, hz: 0.4, color: 0xff6600 }
         })
       }
     }
-  },
-  client: {}
+  }
 }
