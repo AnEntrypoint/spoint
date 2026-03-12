@@ -176,9 +176,9 @@ export class AppContext {
         if (type === 'box') p.addBoxCollider(cfg.size || [cfg.hx??0.5, cfg.hy??0.5, cfg.hz??0.5])
         else if (type === 'sphere') p.addSphereCollider(cfg.radius ?? 0.5)
         else if (type === 'capsule') p.addCapsuleCollider(cfg.radius ?? 0.3, cfg.height ?? 1.8)
-        else if (type === 'convex') p.addConvexFromModelAsync(cfg.meshIndex ?? 0)
-        else if (type === 'trimesh') p.addTrimeshCollider()
-        else if (type === 'none') { /* no collider */ }
+        else if (type === 'convex') return p.addConvexFromModelAsync(cfg.meshIndex ?? 0)
+        else if (type === 'trimesh') return p.addTrimeshCollider()
+        // 'none' or unknown: no collider
       },
       addForce: (f) => {
         const mass = ent.mass || 1

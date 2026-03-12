@@ -42,7 +42,7 @@ export default {
           ctx.state.buffs.delete(pid)
           ctx.players.send(pid, { type: 'buff_expired' })
         } else {
-          const player = ctx.players.getAll().find(p => p.id === pid)
+          const player = ctx.players.getById(pid)
           if (player?.state) {
             const maxHp = ctx.state.config.health
             const healRate = maxHp / 10
@@ -70,7 +70,7 @@ export default {
       for (const [pid, data] of ctx.state.respawning) {
         if (now < data.respawnAt) continue
         const sp = getAvailableSpawnPoint(ctx, ctx.state.spawnPoints)
-        const player = ctx.players.getAll().find(p => p.id === pid)
+        const player = ctx.players.getById(pid)
         if (player && player.state) {
           player.state.health = ctx.state.config.health
           player.state.velocity = [0, 0, 0]
@@ -84,7 +84,7 @@ export default {
     onMessage(ctx, msg) {
       if (!msg) return
       if (msg.type === 'player_join') {
-        const p = ctx.players.getAll().find(pl => pl.id === msg.playerId)
+        const p = ctx.players.getById(msg.playerId)
         if (p && p.state) p.state.health = ctx.state.config.health
         ctx.state.playerStats.set(msg.playerId, { kills: 0, deaths: 0, damage: 0 })
         ctx.state.ammo.set(msg.playerId, ctx.state.config.magazineSize)
@@ -119,7 +119,7 @@ export default {
           return
         }
         ctx.state.ammo.set(shooterId, ammo - 1)
-        const shooter = ctx.players.getAll().find(p => p.id === shooterId)
+        const shooter = ctx.players.getById(shooterId)
         const pos = shooter?.state?.position || [0, 0, 0]
         const origin = [pos[0], pos[1] + 0.9, pos[2]]
         const latencyMs = msg.clientTime ? Math.min(600, Math.max(0, Date.now() - msg.clientTime)) : 0
