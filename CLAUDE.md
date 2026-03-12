@@ -303,7 +303,7 @@ On keyframe ticks, per-player spatial snapshots must use `encodeDelta(combined, 
 
 ### Physics Player Divisor
 
-`PHYSICS_PLAYER_DIVISOR = 3` in `TickHandler.js`. Runs Jolt physics for a player only every 3rd tick. Exceptions: always runs on jump ticks (`inp?.jump`) and airborne ticks (`!st.onGround`). Passes fixed per-tick `dt` (NOT accumulated dt) — at divisor=3 with 64 TPS, accumulated=3/64≈0.047s exceeds Jolt's 2-substep threshold (1/55≈0.018s), which doubles CharacterVirtual cost.
+`PHYSICS_PLAYER_DIVISOR = 3` in `TickHandler.js`. Runs Jolt physics for a player only every 3rd tick. **Staggered by player ID**: `(tick + player.id) % PHYSICS_PLAYER_DIVISOR` — spreads ~N/3 players per tick instead of all N simultaneously. Without stagger, ALL players hit Jolt on the same tick causing 128ms spikes (thundering herd). Exceptions: always runs on jump ticks (`inp?.jump`) and airborne ticks (`!st.onGround`). Passes fixed per-tick `dt` (NOT accumulated dt) — at divisor=3 with 64 TPS, accumulated=3/64≈0.047s exceeds Jolt's 2-substep threshold (1/55≈0.018s), which doubles CharacterVirtual cost.
 
 ### Idle Player Physics Skip
 
