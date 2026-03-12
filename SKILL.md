@@ -15,6 +15,13 @@ bunx spoint-create-app --template physics my-crate
 
 Project structure: `apps/world/index.js` (world config) + `apps/<name>/index.js` (apps). Engine is from npm — never in user project.
 
+**App design principle: apps are config, engine is code.**
+- No `client` block unless your app renders custom UI (`ui:` field in render return). The snapshot carries position/rotation/custom automatically.
+- No `onEditorUpdate` — the engine applies position/rotation/scale/custom changes from the editor automatically.
+- Use `ctx.physics.addColliderFromConfig(cfg)` instead of separate setStatic/setDynamic + addBoxCollider calls.
+- Use `ctx.world.spawnChild(id, cfg)` instead of `spawn` + manual `teardown` loop — children are auto-destroyed.
+- Keep helper functions outside the `export default {}` block (hoisted by evaluateAppModule).
+
 ---
 
 ## Quick Start — Minimal Working Arena
@@ -33,21 +40,16 @@ export default {
 
 ### `apps/environment/index.js` — static environment with trimesh physics
 ```js
+// client block not needed — snapshot carries position/model automatically
 export default {
   server: {
     async setup(ctx) {
-      ctx.physics.setStatic(true)
       try {
-        await ctx.physics.addTrimeshCollider()
+        await ctx.physics.addColliderFromConfig({ type:'trimesh' })
       } catch (e) {
         console.log(\`Trimesh failed: \${e.message}, using box fallback\`)
-        ctx.physics.addBoxCollider([100, 25, 100])
+        ctx.physics.addColliderFromConfig({ type:'box', size:[100, 25, 100] })
       }
-    }
-  },
-  client: {
-    render(ctx) {
-      return { model: ctx.entity.model, position: ctx.entity.position, rotation: ctx.entity.rotation }
     }
   }
 }
@@ -55,16 +57,16 @@ export default {
 
 ### `apps/box-static/index.js` — reusable static box primitive
 ```js
+// Apps are config, not code. No client block needed — snapshot carries position/rotation/custom automatically.
 export default {
   server: {
     setup(ctx) {
       const c = ctx.config
-      ctx.entity.custom = { mesh:'box', color:c.color??0x888888, sx:(c.hx??1)*2, sy:(c.hy??1)*2, sz:(c.hz??1)*2 }
-      ctx.physics.setStatic(true)
-      ctx.physics.addBoxCollider([c.hx??1, c.hy??1, c.hz??1])
+      const hx = c.hx ?? 1, hy = c.hy ?? 1, hz = c.hz ?? 1
+      ctx.entity.custom = { mesh:'box', color:c.color??0x888888, roughness:c.roughness??0.9, sx:hx*2, sy:hy*2, sz:hz*2 }
+      ctx.physics.addColliderFromConfig({ type:'box', size:[hx,hy,hz] })
     }
-  },
-  client: { render(ctx) { return { position:ctx.entity.position, rotation:ctx.entity.rotation, custom:ctx.entity.custom } } }
+  }
 }
 ```
 
@@ -146,11 +148,7 @@ large_rock_051293c4_v1.glb  Tin_Man_1.glb  Tin_Man_2.glb  Plants_3.glb  Urinals.
 
 Remote models are NOT in the loading gate. Use `prop-static` app for physics:
 ```js
-// apps/prop-static/index.js
-export default {
-  server: { setup(ctx) { ctx.physics.setStatic(true); if (ctx.entity.model) ctx.physics.addConvexFromModel(0) } },
-  client: { render(ctx) { return { position:ctx.entity.position, rotation:ctx.entity.rotation, model:ctx.entity.model } } }
-}
+// apps/prop-static/index.js — already built-in, no need to recreate
 // Spawn:
 const BASE = 'https://raw.githubusercontent.com/anEntrypoint/assets/main'
 ctx.world.spawn('dumpster-1', { model:`${BASE}/dumpster_b076662a_v1.glb`, position:[5,0,-3], app:'prop-static' })
@@ -193,11 +191,26 @@ onInteract(ctx, player) { ctx.players.send(player.id, { type:'opened' }) }
 
 ### ctx.physics
 ```js
+// One-call setup — handles motion type + collider in one step (preferred)
+ctx.physics.addColliderFromConfig({
+  type: 'box'|'sphere'|'capsule'|'convex'|'trimesh'|'none',
+  size: [hx,hy,hz],    // box only
+  radius: 0.5,          // sphere/capsule
+  height: 1.8,          // capsule (full height)
+  meshIndex: 0,         // convex: GLB mesh index
+  mass: 10,             // dynamic only
+  dynamic: true,        // motion type flag (default: static)
+  kinematic: true,      // alternative motion type
+  linearDamping: 1.5,
+  angularDamping: 4.0,
+})
+
+// Low-level methods (use addColliderFromConfig instead for new code)
 ctx.physics.setStatic(true) / setDynamic(true) / setKinematic(true)
 ctx.physics.setMass(kg)
-ctx.physics.addBoxCollider(size)              // number or [hx,hy,hz] half-extents
+ctx.physics.addBoxCollider([hx,hy,hz])
 ctx.physics.addSphereCollider(radius)
-ctx.physics.addCapsuleCollider(radius, fullHeight)  // fullHeight=total height, halved internally
+ctx.physics.addCapsuleCollider(radius, fullHeight)
 ctx.physics.addTrimeshCollider()              // static-only, uses entity.model
 ctx.physics.addConvexCollider(points)         // flat [x,y,z,...], all motion types
 ctx.physics.addConvexFromModel(meshIndex=0)   // extracts verts from entity.model GLB
@@ -207,14 +220,15 @@ ctx.physics.setVelocity([vx,vy,vz])
 
 ### ctx.world
 ```js
-ctx.world.spawn(id, config)   // id: string|null (null=auto-generate). Returns entity|null.
+ctx.world.spawn(id, config)        // id: string|null (null=auto-generate). Returns entity|null.
+ctx.world.spawnChild(id, config)   // like spawn, but auto-destroyed when parent app tears down
 ctx.world.destroy(id)
-ctx.world.getEntity(id)       // entity|null
-ctx.world.query(filterFn)     // entity[]
-ctx.world.nearby(pos, radius) // entity IDs within radius
+ctx.world.getEntity(id)            // entity|null
+ctx.world.query(filterFn)          // entity[]
+ctx.world.nearby(pos, radius)      // entity IDs within radius
 ctx.world.reparent(eid, parentId)  // parentId null = detach
 ctx.world.attach(entityId, appName) / detach(entityId)
-ctx.world.gravity             // [x,y,z] read-only
+ctx.world.gravity                  // [x,y,z] read-only
 
 // spawn config keys: model, position, rotation, scale, parent, app, config, autoTrimesh
 ```
@@ -223,10 +237,12 @@ ctx.world.gravity             // [x,y,z] read-only
 ```js
 ctx.players.getAll()
 // Player: { id, state: { position, velocity, health, onGround, crouch, lookPitch, lookYaw, interact } }
-ctx.players.getNearest([x,y,z], radius)  // Player|null
+ctx.players.getById(id)                   // Player|null — direct lookup
+ctx.players.getNearest([x,y,z], radius)   // Player|null
 ctx.players.send(playerId, msg)           // client receives in onEvent(payload, engine)
 ctx.players.broadcast(msg)
-ctx.players.setPosition(playerId, [x,y,z])  // teleport — no collision check
+ctx.players.broadcastNearby(pos, radius, msg)  // send to all players within radius of pos
+ctx.players.setPosition(playerId, [x,y,z])     // teleport — no collision check
 ```
 Mutate `player.state.health` / `player.state.velocity` directly — propagates in next snapshot.
 

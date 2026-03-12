@@ -79,11 +79,21 @@ Positions quantized to 2 decimal places (precision 100), rotations to 4 (precisi
 
 `onKeyDown(e, engine)` and `onKeyUp(e, engine)` hooks are dispatched to all app modules from document keydown/keyup listeners in `client/app.js`. Dispatch happens after `editor.onKeyDown(e)`.
 
+## App Design Principle: Apps Are Config, Engine Is Code
+
+Apps must be minimal. The engine handles the boilerplate:
+
+- **No `client.render` needed** unless the app returns a `ui:` field. The snapshot carries `position`, `rotation`, `custom`, `model` automatically to the client.
+- **No `onEditorUpdate` needed** unless the app needs to react to changes beyond the standard fields. `ServerHandlers.js` EDITOR_UPDATE handler already applies `position`, `rotation`, `scale`, `custom` to the entity before firing `onEditorUpdate`.
+- **Use `addColliderFromConfig(cfg)`** — handles motion type + shape in one call. Replaces separate `setStatic/setDynamic` + `addBoxCollider` chains.
+- **Use `spawnChild(id, cfg)`** — auto-destroys children on app teardown. Replaces manual `teardown` loops over spawned entity ids.
+- Helper functions belong OUTSIDE the `export default {}` block — `evaluateAppModule` hoists code before the default export.
+
 ## Reusable Apps: box-static, prop-static, box-dynamic
 
-- `box-static` — visual box primitive + static collider. Config: `{ hx, hy, hz, color, roughness }`. Spawn via `ctx.world.spawn(id, { app: 'box-static', config: { hx, hy, hz, color } })`.
-- `prop-static` — static GLB prop with convex hull collider. Entity must have `model` set. Calls `addConvexFromModel(0)` in setup.
-- `box-dynamic` — dynamic physics box with primitive mesh. Config: `{ hx, hy, hz, color, roughness }`. Calls `ctx.physics.setDynamic(true)` then `ctx.physics.addBoxCollider([hx, hy, hz])`. Writes `entity.custom` with `mesh:'box'` and full dimensions for client rendering.
+- `box-static` — visual box primitive + static collider. Config: `{ hx, hy, hz, color, roughness }`. Spawn via `ctx.world.spawn(id, { app: 'box-static', config: { hx, hy, hz, color } })`. Has `editorProps`.
+- `prop-static` — static GLB prop with convex hull collider. Entity must have `model` set. Uses `addColliderFromConfig({ type: 'convex' })`.
+- `box-dynamic` — dynamic physics box with primitive mesh. Config: `{ hx, hy, hz, color, roughness, mass }`. Uses `addColliderFromConfig`. Has `editorProps`.
 
 ## Primitive Rendering (No GLB Required)
 
@@ -346,6 +356,40 @@ Hot-reloaded imports use `?t=${Date.now()}` to bust Node's ESM module cache.
 ## Message Types Are Hex Not Sequential
 
 MessageTypes.js uses hex grouping. Snapshot = 0x10, input = 0x11. Old docs listed decimal 1-6 which is wrong.
+
+## Editor Message Types (0x80–0x8F)
+
+Inspector excludes the 0x80–0x8F range to avoid intercepting editor traffic.
+
+| Hex  | Name             | Direction       | Purpose |
+|------|-----------------|-----------------|---------|
+| 0x80 | EDITOR_UPDATE   | C→S             | Move/rotate/scale selected entity |
+| 0x81 | EDITOR_SELECT   | S→C             | Tell client which entity to select (+ editorProps) |
+| 0x82 | PLACE_MODEL     | C→S             | Upload GLB and place as `placed-model` entity |
+| 0x83 | PLACE_APP       | C→S             | Place a named app at a world position |
+| 0x84 | LIST_APPS       | C→S             | Request app list |
+| 0x85 | APP_LIST        | S→C             | App list response `{ apps: [{name, description, hasEditorProps}] }` |
+| 0x86 | GET_SOURCE      | C→S             | Request source of `apps/<name>/<file>` |
+| 0x87 | SOURCE          | S→C             | Source response `{ appName, file, source }` |
+| 0x88 | SAVE_SOURCE     | C→S             | Save source to disk (hot-reload fires automatically) |
+| 0x89 | SCENE_GRAPH     | C↔S             | C→S: request refresh. S→C: entity tree |
+| 0x8A | LIST_APP_FILES  | C→S             | Request file list for an app |
+| 0x8B | APP_FILES       | S→C             | File list response `{ appName, files }` |
+| 0x8C | DESTROY_ENTITY  | C→S + S→C       | Delete entity; server destroys+persists+broadcasts |
+| 0x8D | CREATE_APP      | C→S             | Scaffold new `apps/<name>/index.js` from template |
+| 0x8E | GET_EDITOR_PROPS| C→S             | Request editorProps for a specific entity |
+| 0x8F | EDITOR_PROPS    | S→C             | editorProps response `{ entityId, editorProps }` |
+
+`editorProps` on the server module (or `appDef.server.editorProps`) is an array of field descriptors:
+```js
+editorProps: [
+  { key: 'color', label: 'Color', type: 'color', default: '#ffffff' },
+  { key: 'size',  label: 'Size',  type: 'number', default: 1 },
+  { key: 'mode',  label: 'Mode',  type: 'select', options: ['a','b'], default: 'a' },
+  { key: 'label', label: 'Label', type: 'text',   default: '' },
+]
+```
+These are rendered in the editor Inspector panel as live-editable fields. Changes fire `onEditorUpdate` on the server (position/rotation/scale/custom already applied by `ServerHandlers` before the hook fires).
 
 ## msgpack Implementation
 

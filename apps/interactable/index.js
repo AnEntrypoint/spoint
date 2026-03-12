@@ -10,16 +10,8 @@ export default {
       const c = ctx.config || {}
       ctx.entity.custom = { mesh: 'box', color: c.color ?? 0x00ff88, sx: 1.5, sy: 0.5, sz: 1.5, label: 'INTERACT' }
       ctx.state.interactionCount = 0
-      ctx.physics.setStatic(true)
-      ctx.physics.addBoxCollider([0.75, 0.25, 0.75])
+      ctx.physics.addColliderFromConfig({ type: 'box', size: [0.75, 0.25, 0.75] })
       ctx.interactable({ prompt: c.prompt ?? 'Press E to interact', radius: c.radius ?? 3.5, cooldown: 500 })
-    },
-
-    onEditorUpdate(ctx, changes) {
-      if (changes.position) ctx.entity.position = changes.position
-      if (changes.rotation) ctx.entity.rotation = changes.rotation
-      if (changes.scale) ctx.entity.scale = changes.scale
-      if (changes.custom) ctx.entity.custom = { ...ctx.entity.custom, ...changes.custom }
     },
 
     onInteract(ctx, player) {

@@ -46,21 +46,6 @@ export default {
       expirePickups(ctx, dt)
     },
 
-    teardown(ctx) {
-      for (const id of ctx.state.crates) ctx.world.destroy(id)
-      for (const id of ctx.state.pickups.keys()) ctx.world.destroy(id)
-      ctx.state.crates.clear()
-      ctx.state.pickups.clear()
-    }
-  },
-
-  client: {
-    render(ctx) {
-      return {
-        position: ctx.entity.position,
-        custom: { type: 'power-crate-manager' }
-      }
-    }
   }
 }
 
@@ -84,7 +69,7 @@ function spawnCrate(ctx) {
   if (ctx.state.crates.size >= CONFIG.maxCrates) return
   const pos = sp[Math.floor(Math.random() * sp.length)]
   const id = `power_crate_${ctx.state.nextCrateId++}`
-  const e = ctx.world.spawn(id, { position: [...pos] })
+  const e = ctx.world.spawnChild(id, { position: [...pos] })
   if (e) e.custom = { mesh: 'box', color: 0xff8800, sx: 1, sy: 1, sz: 1, hover: 0.15, spin: 1 }
   ctx.state.crates.add(id)
 }
@@ -127,7 +112,7 @@ function handleFireEvent(ctx, data) {
 
 function spawnPickup(ctx, pos) {
   const id = `powerup_${ctx.state.nextCrateId++}`
-  const e = ctx.world.spawn(id, { position: [...pos] })
+  const e = ctx.world.spawnChild(id, { position: [...pos] })
   if (e) e.custom = { mesh: 'cylinder', r: 0.4, h: 0.1, seg: 16, color: 0xffd700, roughness: 0.3, metalness: 0.8, emissive: 0xffa000, emissiveIntensity: 0.3, rotZ: Math.PI / 2, light: 0xffd700, lightIntensity: 1, lightRange: 4, spin: 3, hover: 0.3 }
   ctx.state.pickups.set(id, { position: [...pos], lifetime: CONFIG.pickupLifetime })
 }
