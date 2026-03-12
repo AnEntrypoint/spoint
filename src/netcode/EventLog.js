@@ -1,3 +1,5 @@
+import { pack, unpack } from '../protocol/msgpack.js'
+
 export class EventLog {
   constructor(config = {}) {
     this._maxSize = config.maxSize || 1000
@@ -56,10 +58,10 @@ export class EventLog {
   resume() { this._recording = true }
   clear() { this._buf = new Array(this._maxSize); this._head = 0; this._count = 0; this._nextId = 1 }
 
-  serialize() { return JSON.stringify(this._toArray()) }
+  serialize() { return pack(this._toArray()) }
 
   static deserialize(json) {
-    const arr = JSON.parse(json)
+    const arr = unpack(json)
     const log = new EventLog({ maxSize: Math.max(arr.length, 1000) })
     for (const e of arr) log._buf[log._head++] = e
     log._count = arr.length

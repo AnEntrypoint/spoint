@@ -1,3 +1,5 @@
+import { pack } from '../protocol/msgpack.js'
+
 export class PlayerManager {
   constructor() {
     this.players = new Map()
@@ -85,10 +87,10 @@ export class PlayerManager {
   }
 
   broadcast(message) {
-    const json = JSON.stringify(message)
+    const data = pack(message)
     for (const player of this.getConnectedPlayers()) {
       if (player.socket && player.socket.send) {
-        try { player.socket.send(json) } catch (e) {}
+        try { player.socket.send(data) } catch (e) {}
       }
     }
   }
@@ -104,7 +106,7 @@ export class PlayerManager {
   sendToPlayer(playerId, message) {
     const player = this.players.get(playerId)
     if (player && player.socket && player.socket.send) {
-      try { player.socket.send(JSON.stringify(message)) } catch (e) {}
+      try { player.socket.send(pack(message)) } catch (e) {}
     }
   }
 

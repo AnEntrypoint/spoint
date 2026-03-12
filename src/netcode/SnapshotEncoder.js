@@ -1,3 +1,5 @@
+import { pack } from '../protocol/msgpack.js'
+
 function quantize(v, precision) {
   return Math.round(v * precision) / precision
 }
@@ -68,7 +70,7 @@ export class SnapshotEncoder {
       const enc = encodeEntity(e)
       const prev = prevStaticMap.get(e.id)
       const cust = enc[13]
-      const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? JSON.stringify(cust) : '')
+      const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? pack(cust).toString('hex') : '')
       const k = buildEntityKey(enc, custStr)
       nextMap.set(e.id, [k, cust, custStr])
       allEntries.push({ enc, k, id: e.id })
@@ -85,7 +87,7 @@ export class SnapshotEncoder {
     for (const id of activeIds) {
       const e = entities.get(id); if (!e || e.bodyType === 'static') continue
       const prev = cache.get(id), enc = encodeEntity(e), cust = enc[13]
-      const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? JSON.stringify(cust) : '')
+      const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? pack(cust).toString('hex') : '')
       const isEnv = prev ? prev.isEnv : e._appName === 'environment'
       cache.set(id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv, sleeping: false })
       if (isEnv) envIds.push(id)
@@ -100,7 +102,7 @@ export class SnapshotEncoder {
       const e = entities.get(id); if (!e || e.bodyType === 'static') continue
       const enc = encodeEntity(e), cust = enc[13]
       const prev = prevCache?.get(id)
-      const custStr = (prev && prev.cust === cust) ? prev.custStr : (cust != null ? JSON.stringify(cust) : '')
+      const custStr = (prev && prev.cust === cust) ? prev.custStr : (cust != null ? pack(cust).toString('hex') : '')
       const isEnv = e._appName === 'environment'
       cache.set(id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv, sleeping: false })
       if (isEnv) envIds.push(id)
@@ -110,7 +112,7 @@ export class SnapshotEncoder {
       const e = entities.get(id); if (!e || e.bodyType === 'static') continue
       const enc = encodeEntity(e), cust = enc[13]
       const prev = prevCache?.get(id)
-      const custStr = (prev && prev.cust === cust) ? prev.custStr : (cust != null ? JSON.stringify(cust) : '')
+      const custStr = (prev && prev.cust === cust) ? prev.custStr : (cust != null ? pack(cust).toString('hex') : '')
       cache.set(id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: e._appName === 'environment', sleeping: true })
     }
     for (const id of suspendedIds) {
@@ -118,7 +120,7 @@ export class SnapshotEncoder {
       const e = entities.get(id); if (!e || e.bodyType === 'static') continue
       const enc = encodeEntity(e), cust = enc[13]
       const prev = prevCache?.get(id)
-      const custStr = (prev && prev.cust === cust) ? prev.custStr : (cust != null ? JSON.stringify(cust) : '')
+      const custStr = (prev && prev.cust === cust) ? prev.custStr : (cust != null ? pack(cust).toString('hex') : '')
       cache.set(id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: e._appName === 'environment', sleeping: true })
     }
     cache._envIds = envIds; return cache
@@ -205,7 +207,7 @@ export class SnapshotEncoder {
       dynIds.add(e.id)
       const prev = prevEntityMap.get(e.id)
       const cust = encoded[13]
-      const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? JSON.stringify(cust) : '')
+      const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? pack(cust).toString('hex') : '')
       const k = buildEntityKey(encoded, custStr)
       nextMap.set(e.id, [k, cust, custStr])
       if (!prev || prev[0] !== k) entities.push(encoded)
