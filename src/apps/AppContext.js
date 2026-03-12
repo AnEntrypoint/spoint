@@ -164,6 +164,22 @@ export class AppContext {
           if (mt === 'dynamic') runtime._activeDynamicIds?.add(ent.id)
         }
       },
+      addColliderFromConfig: (cfg = {}) => {
+        const type = cfg.type || 'box'
+        const p = this.physics
+        if (cfg.mass !== undefined) p.setMass(cfg.mass)
+        if (cfg.linearDamping !== undefined) p.setLinearDamping(cfg.linearDamping)
+        if (cfg.angularDamping !== undefined) p.setAngularDamping(cfg.angularDamping)
+        if (cfg.dynamic) p.setDynamic(true)
+        else if (cfg.kinematic) p.setKinematic(true)
+        else p.setStatic(true)
+        if (type === 'box') p.addBoxCollider(cfg.size || [cfg.hx??0.5, cfg.hy??0.5, cfg.hz??0.5])
+        else if (type === 'sphere') p.addSphereCollider(cfg.radius ?? 0.5)
+        else if (type === 'capsule') p.addCapsuleCollider(cfg.radius ?? 0.3, cfg.height ?? 1.8)
+        else if (type === 'convex') p.addConvexFromModelAsync(cfg.meshIndex ?? 0)
+        else if (type === 'trimesh') p.addTrimeshCollider()
+        else if (type === 'none') { /* no collider */ }
+      },
       addForce: (f) => {
         const mass = ent.mass || 1
         ent.velocity[0] += f[0] / mass
@@ -176,9 +192,15 @@ export class AppContext {
 
   get world() {
     const runtime = this._runtime
+    const parentId = this._entity.id
+    const _childIds = this._state._childIds || (this._state._childIds = new Set())
     return {
       spawn: (id, cfg) => runtime.spawnEntity(id, cfg),
-      destroy: (id) => runtime.destroyEntity(id),
+      spawnChild: (id, cfg) => {
+        const e = runtime.spawnEntity(id, { ...cfg, parent: cfg?.parent ?? parentId })
+        _childIds.add(id); return e
+      },
+      destroy: (id) => { _childIds.delete(id); runtime.destroyEntity(id) },
       attach: (eid, app) => runtime.attachApp(eid, app),
       detach: (eid) => runtime.detachApp(eid),
       reparent: (eid, parentId) => runtime.reparent(eid, parentId),
@@ -193,9 +215,18 @@ export class AppContext {
     const runtime = this._runtime
     return {
       getAll: () => runtime.getPlayers(),
+      getById: (id) => runtime.getPlayers().find(p => p.id === id) || null,
       getNearest: (pos, r) => runtime.getNearestPlayer(pos, r),
       send: (pid, msg) => runtime.sendToPlayer(pid, msg),
       broadcast: (msg) => runtime.broadcastToPlayers(msg),
+      broadcastNearby: (pos, radius, msg) => {
+        const r2 = radius * radius
+        for (const p of runtime.getPlayers()) {
+          const pp = p.state?.position; if (!pp) continue
+          const dx = pp[0]-pos[0], dy = pp[1]-pos[1], dz = pp[2]-pos[2]
+          if (dx*dx + dy*dy + dz*dz <= r2) runtime.sendToPlayer(p.id, msg)
+        }
+      },
       setPosition: (pid, pos) => runtime.setPlayerPosition(pid, pos)
     }
   }
@@ -257,6 +288,13 @@ export class AppContext {
     if (!ent.custom) ent.custom = {}
     ent.custom._interactable = { prompt, radius }
     this._runtime._interactableIds.add(ent.id)
+  }
+
+  _teardownChildren() {
+    const ids = this._state._childIds
+    if (!ids) return
+    for (const id of [...ids]) this._runtime.destroyEntity(id)
+    ids.clear()
   }
 
   raycast(origin, direction, maxDistance = 1000) {

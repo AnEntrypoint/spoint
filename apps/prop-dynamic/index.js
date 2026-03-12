@@ -1,11 +1,7 @@
 export default {
   server: {
     setup(ctx) {
-      ctx.physics.setMass(30)
-      ctx.physics.setDynamic(true)
-      ctx.physics.setLinearDamping(1.5)
-      ctx.physics.setAngularDamping(4.0)
-      ctx.physics.addBoxCollider(0.5, 0.5, 0.5)
+      ctx.physics.addColliderFromConfig({ type: 'box', size: [0.5, 0.5, 0.5], mass: 30, dynamic: true, linearDamping: 1.5, angularDamping: 4.0 })
     }
   }
 }

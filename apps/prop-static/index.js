@@ -1,10 +1,7 @@
 export default {
   server: {
     setup(ctx) {
-      ctx.physics.setStatic(true)
-      if (ctx.entity.model) {
-        ctx.physics.addConvexFromModel(0)
-      }
+      if (ctx.entity.model) ctx.physics.addColliderFromConfig({ type: 'convex' })
     }
   },
   client: {

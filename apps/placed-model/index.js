@@ -1,21 +1,8 @@
 export default {
   server: {
     setup(ctx) {
-      const cfg = ctx.entity._config || {}
-      const collider = cfg.collider || 'none'
-      if (collider === 'box') {
-        ctx.physics.setStatic(true)
-        ctx.physics.addBoxCollider([0.5, 0.5, 0.5])
-      } else if (collider === 'sphere') {
-        ctx.physics.setStatic(true)
-        ctx.physics.addSphereCollider(0.5)
-      } else if (collider === 'convex') {
-        ctx.physics.setStatic(true)
-        if (ctx.entity.model) ctx.physics.addConvexFromModel(0)
-      } else if (collider === 'trimesh') {
-        ctx.physics.setStatic(true)
-        if (ctx.entity.model) ctx.physics.addTrimeshCollider()
-      }
+      const collider = ctx.config.collider || 'none'
+      ctx.physics.addColliderFromConfig({ type: collider })
       if (!ctx.entity.custom) ctx.entity.custom = {}
       ctx.entity.custom._editable = true
       ctx.entity.custom._collider = collider

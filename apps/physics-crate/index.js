@@ -2,16 +2,7 @@ export default {
   server: {
     setup(ctx) {
       ctx.entity.custom = { mesh: 'box', color: 0xff8800, sx: 1, sy: 1, sz: 1 }
-      ctx.physics.setDynamic(true)
-      ctx.physics.setMass(10)
-      ctx.physics.addBoxCollider([0.5, 0.5, 0.5])
-    },
-    teardown(ctx) {
-      const ent = ctx._entity
-      if (ent?._physicsBodyId && ctx._runtime?._physics) {
-        ctx._runtime._physics.removeBody(ent._physicsBodyId)
-        ent._physicsBodyId = null
-      }
+      ctx.physics.addColliderFromConfig({ type: 'box', size: [0.5, 0.5, 0.5], mass: 10, dynamic: true })
     }
   },
   client: {

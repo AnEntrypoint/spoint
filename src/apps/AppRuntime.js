@@ -100,6 +100,7 @@ export class AppRuntime {
 
   detachApp(entityId) {
     const appDef=this.apps.get(entityId), ctx=this.contexts.get(entityId)
+    if (ctx?._teardownChildren) ctx._teardownChildren()
     if (appDef && ctx) this._safeCall(appDef.server||appDef, 'teardown', [ctx], 'teardown')
     this._eventBus.destroyScope(entityId); this.clearTimers(entityId); this.apps.delete(entityId); this.contexts.delete(entityId)
     this._rebuildUpdateList(); this._rebuildCollisionList()
