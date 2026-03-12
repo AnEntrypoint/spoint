@@ -87,7 +87,7 @@ export class SnapshotEncoder {
     for (const id of activeIds) {
       const e = entities.get(id); if (!e || e.bodyType === 'static') continue
       const prev = cache.get(id), enc = encodeEntity(e), cust = enc[13]
-      const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? pack(cust).toString('hex') : '')
+      const custStr = (prev && prev.cust === cust) ? prev.custStr : (cust != null ? pack(cust).toString('hex') : '')
       const isEnv = prev ? prev.isEnv : e._appName === 'environment'
       cache.set(id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv, sleeping: false })
       if (isEnv) envIds.push(id)
