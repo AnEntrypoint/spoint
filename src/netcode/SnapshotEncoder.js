@@ -3,6 +3,8 @@ function quantize(v, precision) {
 }
 
 const Q1=100, Q2=10000
+const VEL_ZERO = [0,0,0]
+const SCALE_ONE = [1,1,1]
 function encodePlayer(p) {
   const [px,py,pz]=p.position, [rx,ry,rz,rw]=p.rotation, [vx,vy,vz]=p.velocity
   const pitchN=Math.round(((p.lookPitch||0)+Math.PI)/(2*Math.PI)*15)&0xF, yawN=Math.round(((p.lookYaw||0)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)/(2*Math.PI)*15)&0xF
@@ -10,7 +12,7 @@ function encodePlayer(p) {
 }
 
 function encodeEntity(e) {
-  const [px,py,pz]=e.position, [rx,ry,rz,rw]=e.rotation, v=e.velocity||[0,0,0], s=e.scale||[1,1,1]
+  const [px,py,pz]=e.position, [rx,ry,rz,rw]=e.rotation, v=e.velocity||VEL_ZERO, s=e.scale||SCALE_ONE
   return [e.id, e.model||'', quantize(px,Q1),quantize(py,Q1),quantize(pz,Q1), quantize(rx,Q2),quantize(ry,Q2),quantize(rz,Q2),quantize(rw,Q2), quantize(v[0]||0,Q1),quantize(v[1]||0,Q1),quantize(v[2]||0,Q1), e.bodyType||'static', e.custom||null, quantize(s[0]||1,Q1),quantize(s[1]||1,Q1),quantize(s[2]||1,Q1)]
 }
 
@@ -107,14 +109,16 @@ export class SnapshotEncoder {
       if (prevCache?.has(id)) { cache.set(id, prevCache.get(id)); continue }
       const e = entities.get(id); if (!e || e.bodyType === 'static') continue
       const enc = encodeEntity(e), cust = enc[13]
-      const custStr = cust != null ? JSON.stringify(cust) : ''
+      const prev = prevCache?.get(id)
+      const custStr = (prev && prev.cust === cust) ? prev.custStr : (cust != null ? JSON.stringify(cust) : '')
       cache.set(id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: e._appName === 'environment', sleeping: true })
     }
     for (const id of suspendedIds) {
       if (prevCache?.has(id)) { cache.set(id, prevCache.get(id)); continue }
       const e = entities.get(id); if (!e || e.bodyType === 'static') continue
       const enc = encodeEntity(e), cust = enc[13]
-      const custStr = cust != null ? JSON.stringify(cust) : ''
+      const prev = prevCache?.get(id)
+      const custStr = (prev && prev.cust === cust) ? prev.custStr : (cust != null ? JSON.stringify(cust) : '')
       cache.set(id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: e._appName === 'environment', sleeping: true })
     }
     cache._envIds = envIds; return cache
