@@ -407,6 +407,10 @@ These are rendered in the editor Inspector panel as live-editable fields. Change
 - `PCFSoftShadowMap` — `VSMShadowMap` causes blurred cutout artifacts.
 - `Map.forEach` in the `animate()` loop for player iteration — avoids iterator object allocation per frame.
 
+## Shadow Map Update Policy
+
+`renderer.shadowMap.needsUpdate` is set only when something actually moved, not on a timer. `_shadowDirty` flag in `animate()` is set when a player target changes (`isNew` branch) or when `_dirtyEntityTargets.size > 0`. The update is gated at max 15Hz (66ms) via `_shadowLastUpdate`. This replaces the old `fpsFrames % 3` timer which fired unconditionally on every 3rd frame regardless of scene motion. With mostly-static prop scenes, this saves ~33% of shadow render passes when the player is stationary.
+
 ## Loading Screen Gate Conditions
 
 `checkAllLoaded()` gates on all four simultaneously: `assetsLoaded`, `environmentLoaded`, `firstSnapshotReceived`, `firstSnapshotEntityPending.size === 0`. Then `warmupShaders()` runs async in the background.

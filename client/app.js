@@ -1983,6 +1983,8 @@ const _sinTable = Array(360).fill(0).map((_, i) => Math.sin(i * Math.PI / 180))
 let _controllerVisibilityAt = 0
 let _wristUiAt = 0
 let _lodCullAt = 0
+let _shadowDirty = true
+let _shadowLastUpdate = 0
 const _lodConfigs = {
   vrm: { far: 40, skipBeyond: 80 },
   box: { far: 45, skipBeyond: 90 },
@@ -2016,6 +2018,7 @@ function animate(timestamp) {
         existingTarget.x = tx; existingTarget.y = ty; existingTarget.z = tz
         existingTarget.vx = p.velocity?.[0] || 0; existingTarget.vy = p.velocity?.[1] || 0; existingTarget.vz = p.velocity?.[2] || 0
         existingTarget.t = 0
+        _shadowDirty = true
       }
     } else {
       playerTargets.set(p.id, { x: tx, y: ty, z: tz, vx: p.velocity?.[0] || 0, vy: p.velocity?.[1] || 0, vz: p.velocity?.[2] || 0, t: 0 })
@@ -2090,6 +2093,7 @@ function animate(timestamp) {
       if (features?._headBone) features._headBone.rotation.x = -(ps.lookPitch || 0) * 0.6
     }
   })
+  if (_dirtyEntityTargets.size > 0) _shadowDirty = true
   for (const id of _dirtyEntityTargets) {
     const target = entityTargets.get(id)
     const mesh = entityMeshes.get(id)
@@ -2182,7 +2186,7 @@ function animate(timestamp) {
   }
 
   if (typeof editor !== 'undefined') editor.updateGizmo()
-  if (fpsFrames % 3 === 0) renderer.shadowMap.needsUpdate = true
+  if (_shadowDirty && now - _shadowLastUpdate >= 66) { renderer.shadowMap.needsUpdate = true; _shadowDirty = false; _shadowLastUpdate = now }
   renderer.render(scene, camera)
 }
 renderer.setAnimationLoop(animate)
