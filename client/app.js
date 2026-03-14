@@ -2010,10 +2010,19 @@ function animate(timestamp) {
     if (!playerMeshes.has(p.id)) continue
     const mesh = playerMeshes.get(p.id)
     const feetOff = mesh?.userData?.feetOffset ?? 0.91
-    const vx = p.velocity?.[0] || 0, vy = p.velocity?.[1] || 0, vz = p.velocity?.[2] || 0
-    const tx = p.position[0] + vx * frameDt
-    const ty = p.position[1] - feetOff + vy * frameDt
-    const tz = p.position[2] + vz * frameDt
+    let tx, ty, tz, vx, vy, vz
+    if (p.id === _localId) {
+      const local = client.getLocalState()
+      if (local?.position) {
+        tx = local.position[0]; ty = local.position[1] - feetOff; tz = local.position[2]
+      } else {
+        tx = p.position[0]; ty = p.position[1] - feetOff; tz = p.position[2]
+      }
+      vx = 0; vy = 0; vz = 0
+    } else {
+      vx = p.velocity?.[0] || 0; vy = p.velocity?.[1] || 0; vz = p.velocity?.[2] || 0
+      tx = p.position[0] + vx * frameDt; ty = p.position[1] - feetOff + vy * frameDt; tz = p.position[2] + vz * frameDt
+    }
     if (!mesh.userData.initialized) { mesh.position.set(tx, ty, tz); mesh.userData.initialized = true }
     else { mesh.position.x = tx; mesh.position.y = ty; mesh.position.z = tz }
     const existing = playerTargets.get(p.id)
