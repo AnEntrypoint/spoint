@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.310](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.309...v0.1.310) (2026-03-14)
+
+
+### Bug Fixes
+
+* use prediction engine for local player mesh position to eliminate jitter ([4932960](https://github.com/AnEntrypoint/spawnpoint/commit/4932960fca5492d1069df11e34de8b5c1d8ca3d4))
+
 ### [0.1.309](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.308...v0.1.309) (2026-03-14)
 
 
