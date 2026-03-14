@@ -175,10 +175,10 @@ export class PhysicsNetworkClient {
     this.callbacks.onRender(displayStates)
   }
 
-  getSmoothState() {
+  getSmoothState(now) {
     const smoothInterp = this._msgHandler.getSmoothInterp()
     if (smoothInterp) {
-      return smoothInterp.getDisplayState()
+      return smoothInterp.getDisplayState(now)
     }
     return { players: this.state.players, entities: this.state.entities }
   }

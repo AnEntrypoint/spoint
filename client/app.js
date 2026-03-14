@@ -1996,14 +1996,14 @@ function animate(timestamp) {
   const now = timestamp || performance.now()
   const rawDt = Math.min(Math.max((now - lastFrameTime) / 1000, 0.001), 0.1)
   lastFrameTime = now
-  smoothDt += (rawDt - smoothDt) * 0.2
-  const frameDt = smoothDt
+  smoothDt += (rawDt - smoothDt) * 0.05
+  const frameDt = rawDt
   fpsFrames++
   if (now - fpsLast >= 1000) { fpsDisplay = fpsFrames; fpsFrames = 0; fpsLast = now }
   const rttMs = client.getRTT?.() || 0
   const lerpConstant = rttMs > 100 ? 24.0 : 16.0
   const lerpFactor = 1.0 - Math.exp(-lerpConstant * frameDt)
-  const smoothState = client.getSmoothState()
+  const smoothState = client.getSmoothState(now)
   const _localId = client.playerId
   const _localRaw = client.getRemoteState(_localId)
   for (const p of smoothState.players) {

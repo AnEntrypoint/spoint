@@ -20,7 +20,7 @@ export class JitterBuffer {
   }
 
   addSnapshot(snapshot) {
-    const now = Date.now()
+    const now = performance.now()
     const serverTime = snapshot.timestamp || now
 
     if (this.lastServerTime > 0 && this.lastClientTime > 0) {
@@ -47,7 +47,7 @@ export class JitterBuffer {
     while (this.buffer.length > 0 && this.buffer[0].clientTime < cutoff) this.buffer.shift()
   }
 
-  getSnapshotToRender(now = Date.now()) {
+  getSnapshotToRender(now = performance.now()) {
     if (this.buffer.length === 0) return null
     if (this.buffer.length < this.minBufferSize) {
       return this.buffer[this.buffer.length - 1].snapshot

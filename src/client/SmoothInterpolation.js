@@ -21,7 +21,7 @@ export class SmoothInterpolation {
 
   addSnapshot(snapshot) {
     this.jitterBuffer.addSnapshot(snapshot)
-    const now = Date.now()
+    const now = performance.now()
     for (const p of snapshot.players || []) {
       let filter = this.playerFilters.get(p.id)
       if (!filter) {
@@ -41,7 +41,7 @@ export class SmoothInterpolation {
     }
   }
 
-  getDisplayState(now = Date.now()) {
+  getDisplayState(now = performance.now()) {
     const snapshot = this.jitterBuffer.getSnapshotToRender(now)
     if (!snapshot) return { players: [], entities: [] }
 
