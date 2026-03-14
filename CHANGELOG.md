@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.309](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.308...v0.1.309) (2026-03-14)
+
+
+### Bug Fixes
+
+* remove double-interpolation for remote players - set position directly from JitterBuffer smoothState ([96c3407](https://github.com/AnEntrypoint/spawnpoint/commit/96c340796bdfdfeb2ac7893d8684fbd2b88ee2ed))
+
 ### [0.1.308](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.307...v0.1.308) (2026-03-14)
 
 
