@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.305](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.304...v0.1.305) (2026-03-14)
+
+
+### Bug Fixes
+
+* test-150-stress reads BOT_COUNT/BOT_DURATION/BOT_HZ/BOT_URL/BOT_BATCH/BOT_DELAY env vars ([8179cf2](https://github.com/AnEntrypoint/spawnpoint/commit/8179cf2ad2d3a231d40c8b451f246f8867ef92ec))
+
 ### [0.1.304](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.303...v0.1.304) (2026-03-12)
 
 ### [0.1.303](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.302...v0.1.303) (2026-03-12)
