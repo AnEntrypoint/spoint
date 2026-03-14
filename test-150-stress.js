@@ -14,40 +14,54 @@ const CONFIG = {
 const MSG_INPUT = 0x11
 const MSG_SNAPSHOT = 0x10
 
-function makeInput(botId, tick) {
-  const phase = (tick / 80 + botId * 0.37) % 1
-  return {
-    forward: phase < 0.7,
-    backward: phase > 0.85,
-    left: phase > 0.72 && phase < 0.82,
-    right: phase > 0.82 && phase < 0.85,
-    jump: tick % 200 === botId % 200,
-    sprint: tick % 400 < 300,
-    yaw: (botId / CONFIG.botCount) * Math.PI * 2 + Math.sin(tick / 180) * 0.8,
-    pitch: 0,
-    crouch: false,
-    interact: false
-  }
-}
-
 const stats = { connected: 0, snapshots: 0, errors: 0 }
 
 function createBot(botId) {
   let tick = 0
   let interval = null
+  let yaw = (botId / CONFIG.botCount) * Math.PI * 2
+  let lastPos = null
+  let stuckTicks = 0
   const ws = new WebSocket(CONFIG.serverUrl)
   ws.binaryType = 'arraybuffer'
   ws.on('open', () => {
     stats.connected++
     interval = setInterval(() => {
       if (ws.readyState !== WebSocket.OPEN) return
-      ws.send(pack({ type: MSG_INPUT, payload: makeInput(botId, ++tick) }))
+      tick++
+      if (stuckTicks > 10) { yaw += 0.8 + Math.random() * 1.2; stuckTicks = 0 }
+      const phase = (tick / 80 + botId * 0.37) % 1
+      ws.send(pack({ type: MSG_INPUT, payload: {
+        forward: phase < 0.7,
+        backward: phase > 0.85,
+        left: phase > 0.72 && phase < 0.82,
+        right: phase > 0.82 && phase < 0.85,
+        jump: tick % 200 === botId % 200,
+        sprint: tick % 400 < 300,
+        yaw, pitch: 0, crouch: false, interact: false
+      }}))
     }, 1000 / CONFIG.inputHz)
   })
   ws.on('message', data => {
     try {
       const msg = unpack(data instanceof ArrayBuffer ? new Uint8Array(data) : data)
-      if (msg?.type === MSG_SNAPSHOT) stats.snapshots++
+      if (msg?.type === 0x02) ws._botPlayerId = msg.payload?.playerId
+      if (msg?.type === MSG_SNAPSHOT) {
+        stats.snapshots++
+        const players = msg.payload?.players
+        if (players && ws._botPlayerId) {
+          const me = players.find(p => (Array.isArray(p) ? p[0] : p.id) === ws._botPlayerId)
+          if (me) {
+            const px = Array.isArray(me) ? me[1] : me.position[0]
+            const pz = Array.isArray(me) ? me[3] : me.position[2]
+            if (lastPos) {
+              const dx = px - lastPos[0], dz = pz - lastPos[1]
+              stuckTicks = (dx * dx + dz * dz < 0.01) ? stuckTicks + 1 : 0
+            }
+            lastPos = [px, pz]
+          }
+        }
+      }
     } catch {}
   })
   ws.on('error', () => { stats.errors++ })
