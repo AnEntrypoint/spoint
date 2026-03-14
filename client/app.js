@@ -2010,40 +2010,18 @@ function animate(timestamp) {
     if (!playerMeshes.has(p.id)) continue
     const mesh = playerMeshes.get(p.id)
     const feetOff = mesh?.userData?.feetOffset ?? 0.91
-    const tx = p.position[0], ty = p.position[1] - feetOff, tz = p.position[2]
-    const existingTarget = playerTargets.get(p.id)
-    if (existingTarget) {
-      const isNew = existingTarget.x !== tx || existingTarget.z !== tz
-      if (isNew) {
-        existingTarget.x = tx; existingTarget.y = ty; existingTarget.z = tz
-        existingTarget.vx = p.velocity?.[0] || 0; existingTarget.vy = p.velocity?.[1] || 0; existingTarget.vz = p.velocity?.[2] || 0
-        existingTarget.t = 0
-        _shadowDirty = true
-      }
-    } else {
-      playerTargets.set(p.id, { x: tx, y: ty, z: tz, vx: p.velocity?.[0] || 0, vy: p.velocity?.[1] || 0, vz: p.velocity?.[2] || 0, t: 0 })
-    }
-    playerStates.set(p.id, p)
+    const vx = p.velocity?.[0] || 0, vy = p.velocity?.[1] || 0, vz = p.velocity?.[2] || 0
+    const tx = p.position[0] + vx * frameDt
+    const ty = p.position[1] - feetOff + vy * frameDt
+    const tz = p.position[2] + vz * frameDt
     if (!mesh.userData.initialized) { mesh.position.set(tx, ty, tz); mesh.userData.initialized = true }
+    else { mesh.position.x = tx; mesh.position.y = ty; mesh.position.z = tz }
+    const existing = playerTargets.get(p.id)
+    if (!existing) playerTargets.set(p.id, { x: tx, y: ty, z: tz, vx, vy, vz })
+    else { const moved = existing.x !== tx || existing.z !== tz; existing.x = tx; existing.y = ty; existing.z = tz; existing.vx = vx; existing.vy = vy; existing.vz = vz; if (moved) _shadowDirty = true }
+    playerStates.set(p.id, p)
   }
   if (_hierarchyDirty && smoothState.entities.length > 0) { rebuildEntityHierarchy(smoothState.entities); _hierarchyDirty = false }
-  playerTargets.forEach((target, id) => {
-    const mesh = playerMeshes.get(id)
-    if (!mesh) return
-    target.t = Math.min((target.t || 0) + frameDt, 0.05)
-    const t = target.t
-    const vx = target.vx || 0, vy = target.vy || 0, vz = target.vz || 0
-    const goalX = target.x + vx * t, goalY = target.y + vy * t, goalZ = target.z + vz * t
-    const isLocal = id === _localId
-    const speed = isLocal ? 16 : 10
-    const f = 1.0 - Math.exp(-speed * frameDt)
-    const destX = goalX
-    const destY = isLocal ? target.y : goalY
-    const destZ = goalZ
-    mesh.position.x += (destX - mesh.position.x) * f
-    mesh.position.y += (destY - mesh.position.y) * f
-    mesh.position.z += (destZ - mesh.position.z) * f
-  })
   playerAnimators.forEach((animator, id) => {
     const ps = playerStates.get(id)
     if (!ps) return
