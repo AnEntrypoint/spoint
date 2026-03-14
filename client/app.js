@@ -2048,12 +2048,9 @@ function animate(timestamp) {
       const speed = Math.sqrt(vx * vx + vz * vz)
       const maxOffset = Math.PI * 0.65
       if (speed < 0.5) {
-        // Idle: fast-track camera so feet don't visibly drag
         mesh.rotation.y += diff * Math.min(1, 40.0 * frameDt)
       } else {
-        // Moving: always slowly follow camera + hard snap past maxOffset
         mesh.rotation.y += diff * Math.min(1, 5.0 * frameDt)
-        // Re-compute diff after lerp and hard-clamp if still over limit
         let diff2 = lookYaw - mesh.rotation.y
         diff2 = diff2 - Math.PI * 2 * Math.round(diff2 / (Math.PI * 2))
         if (Math.abs(diff2) > maxOffset) {
@@ -2061,9 +2058,6 @@ function animate(timestamp) {
           mesh.rotation.y += excess
         }
       }
-      // Normalize mesh.rotation.y to [-PI, PI] to prevent unbounded accumulation
-      // which breaks moveAngle trig (sin/cos are periodic but atan2 result is correct;
-      // the issue is accumulated floating point drift over many rotations)
       mesh.rotation.y = mesh.rotation.y - Math.PI * 2 * Math.round(mesh.rotation.y / (Math.PI * 2))
       if (animator.setLookDirection) animator.setLookDirection(lookYaw - mesh.rotation.y, ps.lookPitch || 0, mesh.rotation.y + Math.PI, ps.velocity)
     }
@@ -2111,7 +2105,7 @@ function animate(timestamp) {
   if (engineCtx.facial) engineCtx.facial.update(frameDt)
   uiTimer += frameDt
   if (latestState && uiTimer >= 0.25) { uiTimer = 0; renderAppUI(latestState) }
-  const local = playerStates.get(client.playerId)
+  const local = client.getLocalState() || playerStates.get(client.playerId)
   const inVR = renderer.xr.isPresenting
   if (!inVR || cam.getEditMode()) {
     cam.update(local, playerMeshes.get(client.playerId), frameDt, latestInput)

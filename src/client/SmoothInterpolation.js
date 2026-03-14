@@ -58,9 +58,7 @@ export class SmoothInterpolation {
         if (!filter) continue
         filter.predict(dt)
         const pos = player.position
-        pos[0] = filter.x[0] + filter.v[0] * dt
-        pos[1] = filter.x[1] + filter.v[1] * dt
-        pos[2] = filter.x[2] + filter.v[2] * dt
+        pos[0] = filter.x[0]; pos[1] = filter.x[1]; pos[2] = filter.x[2]
         const vel = player.velocity
         if (vel) { vel[0] = filter.v[0]; vel[1] = filter.v[1]; vel[2] = filter.v[2] }
       }
