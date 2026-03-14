@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.308](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.307...v0.1.308) (2026-03-14)
+
+
+### Bug Fixes
+
+* use rawDt for position lerp and performance.now throughout interpolation pipeline to eliminate every-other-frame jitter ([dfb30ef](https://github.com/AnEntrypoint/spawnpoint/commit/dfb30ef05bd6c85125904ca4f14ee0e39feb5394))
+
 ### [0.1.307](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.306...v0.1.307) (2026-03-14)
 
 
