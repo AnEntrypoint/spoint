@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.311](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.310...v0.1.311) (2026-03-14)
+
+
+### Bug Fixes
+
+* eliminate double velocity extrapolation and camera lag for local player ([81b249e](https://github.com/AnEntrypoint/spawnpoint/commit/81b249e5d7e69da460bf1381d283f2ac6c4ee103))
+
 ### [0.1.310](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.309...v0.1.310) (2026-03-14)
 
 
