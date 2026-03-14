@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.307](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.306...v0.1.307) (2026-03-14)
+
+
+### Bug Fixes
+
+* bots detect wall stalls from snapshot position and rotate yaw to escape ([59e8205](https://github.com/AnEntrypoint/spawnpoint/commit/59e8205b41727905d6f953f20d2c183c9f9c888d))
+
 ### [0.1.306](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.305...v0.1.306) (2026-03-14)
 
 ### [0.1.305](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.304...v0.1.305) (2026-03-14)
