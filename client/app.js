@@ -1247,7 +1247,6 @@ async function _doLoadEntityModel(entityId, entityState) {
       _parsedGltfInflight.set(url, parsePromise)
       gltf = await parsePromise
       _parsedGltfInflight.delete(url)
-      deduplicateScene(gltf.scene)
       _parsedGltfCache.set(url, gltf)
       loadingMgr.completeDownload(url)
     }
