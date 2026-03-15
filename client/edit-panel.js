@@ -1,3 +1,5 @@
+import { renderEditorPane } from './EditPanelEditor.js'
+
 export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, onGetAppFiles, onDestroyEntity, onCreateApp }) {
   const panel = document.createElement('div')
   panel.style.cssText = 'position:fixed;top:0;left:0;width:320px;height:100vh;background:rgba(14,14,20,0.96);color:#eee;font:12px/1.5 monospace;z-index:9000;display:none;flex-direction:column;user-select:none;border-right:1px solid #222'
@@ -6,7 +8,7 @@ export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, 
   hint.textContent = '[P] Edit'; hint.style.cssText = 'position:fixed;bottom:12px;left:12px;color:#444;font:11px monospace;z-index:8999;pointer-events:none'
   document.body.appendChild(hint)
 
-  let _tab='scene',_apps=[],_filt='',_entity=null,_eProps=[],_monacoEd=null,_ta=null,_curApp=null,_curFile=null,_entities=[],_selId=null,_onChange=null,_expandedApp=null,_appFiles={}
+  let _tab='scene',_apps=[],_filt='',_entity=null,_eProps=[],_curApp=null,_curFile=null,_pendingCode=null,_entities=[],_selId=null,_onChange=null,_expandedApp=null,_appFiles={}
 
   const tabs=document.createElement('div'); tabs.style.cssText='display:flex;border-bottom:1px solid #333;flex-shrink:0'; panel.appendChild(tabs)
   const panes={}
@@ -91,10 +93,9 @@ export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, 
     props.appendChild(_v3('Scale',_entity.scale||[1,1,1],'scale'))
     if(_eProps.length){const eh=document.createElement('div');eh.textContent='App Props';eh.style.cssText='color:#888;font-size:10px;text-transform:uppercase;margin:6px 0 2px';props.appendChild(eh);for(const f of _eProps)props.appendChild(_propField(f))}
     if(_entity._appName){const btn=document.createElement('button');btn.textContent='Edit Code';btn.style.cssText='margin-top:8px;width:100%;background:#223355;color:#adf;border:none;padding:8px;border-radius:3px;cursor:pointer;font:inherit;min-height:44px';btn.addEventListener('click',()=>{_switchTab('apps');_expandApp(_entity._appName)});props.appendChild(btn)}
-    const delBtn=document.createElement('button');delBtn.textContent='Delete Entity';delBtn.style.cssText='margin-top:6px;width:100%;background:#331111;color:#f88;border:1px solid #522;padding:8px;border-radius:3px;cursor:pointer;font:inherit;min-height:44px'
-    delBtn.addEventListener('click',()=>{if(onDestroyEntity&&_entity)onDestroyEntity(_entity.id);_entity=null;_selId=null;_rScene()})
-    props.appendChild(delBtn)
-    pane.appendChild(props)
+    const del=document.createElement('button');del.textContent='Delete Entity';del.style.cssText='margin-top:6px;width:100%;background:#331111;color:#f88;border:1px solid #522;padding:8px;border-radius:3px;cursor:pointer;font:inherit;min-height:44px'
+    del.addEventListener('click',()=>{if(onDestroyEntity&&_entity)onDestroyEntity(_entity.id);_entity=null;_selId=null;_rScene()})
+    props.appendChild(del); pane.appendChild(props)
   }
 
   function _propField(f){
@@ -110,104 +111,50 @@ export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, 
     return row
   }
 
-  function _expandApp(appName){
-    _expandedApp=appName
-    if(_appFiles[appName]) { _rApps(); return }
-    if(onGetAppFiles) onGetAppFiles(appName)
-    _rApps()
-  }
+  function _expandApp(n){ _expandedApp=n; if(_appFiles[n]){_rApps();return}; if(onGetAppFiles)onGetAppFiles(n); _rApps() }
 
   function _rApps(){
     const pane=panes.apps.pane; pane.innerHTML=''
-
-    // If we're in editor view, show the code editor
-    if(_curApp && _curFile){
-      _renderEditor(pane); return
+    if(_curApp&&_curFile){
+      renderEditorPane(pane,_curApp,_curFile,_pendingCode,v=>{if(onSave&&_curApp&&_curFile)onSave(_curApp,_curFile,v)},()=>{_curApp=null;_curFile=null;_pendingCode=null;_rApps()})
+      _pendingCode=null; return
     }
-
     const newRow=document.createElement('div');newRow.style.cssText='display:flex;gap:6px;margin:8px 8px 4px'
     const fi=document.createElement('input');fi.type='text';fi.placeholder='Filter apps...';fi.value=_filt
     fi.style.cssText='flex:1;background:#252530;border:none;color:#fff;padding:6px 8px;border-radius:3px;font:inherit'
     fi.addEventListener('input',()=>{_filt=fi.value.toLowerCase();_rApps()})
     const newBtn=document.createElement('button');newBtn.textContent='+ New';newBtn.style.cssText='background:#223322;color:#8f8;border:none;padding:6px 10px;border-radius:3px;cursor:pointer;font:inherit;flex-shrink:0'
-    newBtn.addEventListener('click',()=>{
-      const name=prompt('App name (lowercase, hyphens only):')
-      if(name&&/^[a-z0-9-]+$/.test(name)&&onCreateApp)onCreateApp(name)
-      else if(name)alert('Invalid name — use lowercase letters and hyphens only.')
-    })
+    newBtn.addEventListener('click',()=>{const n=prompt('App name (lowercase, hyphens only):');if(n&&/^[a-z0-9-]+$/.test(n)&&onCreateApp)onCreateApp(n);else if(n)alert('Invalid name — use lowercase letters and hyphens only.')})
     newRow.appendChild(fi);newRow.appendChild(newBtn);pane.appendChild(newRow)
     const list=document.createElement('div');list.style.cssText='flex:1;overflow-y:auto;padding:0 8px 8px'
     const filtered=_apps.filter(a=>a.name.toLowerCase().includes(_filt)||(a.description||'').toLowerCase().includes(_filt))
     if(!filtered.length){const e=document.createElement('div');e.textContent=_apps.length?'No match':'Loading...';e.style.color='#555';list.appendChild(e)}
     for(const app of filtered){
-      const isExpanded=_expandedApp===app.name
+      const isExp=_expandedApp===app.name
       const wrap=document.createElement('div');wrap.style.marginBottom='2px'
-
       const row=document.createElement('div');row.style.cssText='padding:8px;cursor:pointer;border-radius:3px;display:flex;align-items:center;gap:6px;min-height:44px'
-      row.addEventListener('mouseenter',()=>row.style.background='#1e1e2e');row.addEventListener('mouseleave',()=>row.style.background=isExpanded?'#1a1a2e':'transparent')
-      if(isExpanded) row.style.background='#1a1a2e'
-
-      const arrow=document.createElement('span');arrow.textContent=isExpanded?'▾':'▸';arrow.style.cssText='color:#555;flex-shrink:0;width:10px'
+      row.addEventListener('mouseenter',()=>row.style.background='#1e1e2e');row.addEventListener('mouseleave',()=>row.style.background=isExp?'#1a1a2e':'transparent')
+      if(isExp)row.style.background='#1a1a2e'
+      const arrow=document.createElement('span');arrow.textContent=isExp?'▾':'▸';arrow.style.cssText='color:#555;flex-shrink:0;width:10px'
       const info=document.createElement('div');info.style.cssText='flex:1;min-width:0'
       const name=document.createElement('div');name.textContent=app.name+(app.hasEditorProps?' *':'');name.style.cssText='color:#adf;font-weight:bold;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';info.appendChild(name)
       if(app.description){const d=document.createElement('div');d.textContent=app.description;d.style.cssText='color:#666;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';info.appendChild(d)}
-
       const placeBtn=document.createElement('button');placeBtn.textContent='Place';placeBtn.style.cssText='background:#223355;color:#adf;border:none;padding:4px 8px;border-radius:3px;cursor:pointer;font:inherit;flex-shrink:0'
       placeBtn.addEventListener('click',e=>{e.stopPropagation();if(onPlace)onPlace(app.name)})
-
       row.appendChild(arrow);row.appendChild(info);row.appendChild(placeBtn)
-      row.addEventListener('click',()=>{ _expandedApp=isExpanded?null:app.name; if(!isExpanded)_expandApp(app.name); else _rApps() })
+      row.addEventListener('click',()=>{_expandedApp=isExp?null:app.name;if(!isExp)_expandApp(app.name);else _rApps()})
       wrap.appendChild(row)
-
-      if(isExpanded){
-        const files=_appFiles[app.name]
-        const fileList=document.createElement('div');fileList.style.cssText='background:#111;border-radius:0 0 4px 4px;padding:4px 0 4px 20px'
-        if(!files){
-          const loading=document.createElement('div');loading.textContent='Loading files...';loading.style.cssText='color:#555;padding:6px 8px';fileList.appendChild(loading)
-        } else if(!files.length){
-          const empty=document.createElement('div');empty.textContent='No files';empty.style.cssText='color:#555;padding:6px 8px';fileList.appendChild(empty)
-        } else {
-          for(const f of files){
-            const frow=document.createElement('div');frow.style.cssText='padding:5px 8px;cursor:pointer;border-radius:3px;color:#ccc;display:flex;align-items:center;gap:6px'
-            frow.addEventListener('mouseenter',()=>frow.style.background='#252530');frow.addEventListener('mouseleave',()=>frow.style.background='transparent')
-            const icon=document.createElement('span');icon.textContent='📄';icon.style.fontSize='10px'
-            const fname=document.createElement('span');fname.textContent=f;fname.style.cssText='flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
-            frow.appendChild(icon);frow.appendChild(fname)
-            frow.addEventListener('click',()=>{ if(onGetSource)onGetSource(app.name,f) })
-            fileList.appendChild(frow)
-          }
-        }
-        wrap.appendChild(fileList)
+      if(isExp){
+        const files=_appFiles[app.name], fl=document.createElement('div');fl.style.cssText='background:#111;border-radius:0 0 4px 4px;padding:4px 0 4px 20px'
+        if(!files){const lo=document.createElement('div');lo.textContent='Loading files...';lo.style.cssText='color:#555;padding:6px 8px';fl.appendChild(lo)}
+        else if(!files.length){const em=document.createElement('div');em.textContent='No files';em.style.cssText='color:#555;padding:6px 8px';fl.appendChild(em)}
+        else for(const f of files){const fr=document.createElement('div');fr.style.cssText='padding:5px 8px;cursor:pointer;border-radius:3px;color:#ccc;display:flex;align-items:center;gap:6px';fr.addEventListener('mouseenter',()=>fr.style.background='#252530');fr.addEventListener('mouseleave',()=>fr.style.background='transparent');const fn=document.createElement('span');fn.textContent=f;fn.style.cssText='flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';fr.appendChild(fn);fr.addEventListener('click',()=>{if(onGetSource)onGetSource(app.name,f)});fl.appendChild(fr)}
+        wrap.appendChild(fl)
       }
       list.appendChild(wrap)
     }
     pane.appendChild(list)
   }
-
-  function _renderEditor(pane){
-    pane.innerHTML=''
-    const bar=document.createElement('div');bar.style.cssText='display:flex;align-items:center;padding:6px 8px;background:#111;flex-shrink:0;gap:6px'
-    const back=document.createElement('button');back.textContent='←';back.style.cssText='background:#252530;color:#adf;border:none;padding:6px 10px;border-radius:3px;cursor:pointer;font:inherit;min-height:32px'
-    back.addEventListener('click',()=>{ _curApp=null; _curFile=null; _monacoEd=null; _ta=null; _rApps() })
-    const title=document.createElement('span');title.textContent='apps/'+_curApp+'/'+_curFile;title.style.cssText='flex:1;color:#adf;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
-    const sb=document.createElement('button');sb.textContent='Save (Ctrl+S)';sb.style.cssText='background:#223355;color:#adf;border:none;padding:6px 12px;border-radius:3px;cursor:pointer;font:inherit;min-height:32px;flex-shrink:0';sb.addEventListener('click',_doSave)
-    bar.appendChild(back);bar.appendChild(title);bar.appendChild(sb);pane.appendChild(bar)
-    const c=document.createElement('div');c.style.cssText='flex:1;min-height:0;position:relative';pane.appendChild(c)
-    _initEditor(_pendingCode||'',c)
-    _pendingCode=null
-  }
-
-  let _pendingCode=null
-
-  function _initEditor(code,container){
-    const mk=(c)=>{ _monacoEd=window.monaco.editor.create(container,{value:c,language:'javascript',theme:'vs-dark',fontSize:12,minimap:{enabled:false},automaticLayout:true,scrollBeyondLastLine:false}); _monacoEd.addCommand(window.monaco.KeyMod.CtrlCmd|window.monaco.KeyCode.KeyS,()=>_doSave()) }
-    if(typeof window.require==='undefined'){const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs/loader.js';s.onload=()=>{window.require.config({paths:{vs:'https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs'}});window.require(['vs/editor/editor.main'],()=>mk(code))};s.onerror=()=>_fb(code,container);document.head.appendChild(s)}
-    else if(window.monaco)mk(code); else _fb(code,container)
-  }
-
-  function _fb(code,container){ _ta=document.createElement('textarea');_ta.value=code;_ta.style.cssText='width:100%;flex:1;background:#1e1e1e;color:#d4d4d4;font:12px/1.5 monospace;border:none;padding:12px;box-sizing:border-box;resize:none;outline:none';_ta.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();_doSave()}});container.appendChild(_ta) }
-
-  function _doSave(){ const val=_monacoEd?_monacoEd.getValue():_ta?_ta.value:''; if(onSave&&_curApp&&_curFile)onSave(_curApp,_curFile,val) }
 
   return {
     show(){ panel.style.display='flex'; _switchTab(_tab) },
@@ -216,14 +163,8 @@ export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, 
     updateApps(apps){ _apps=apps||[]; if(_tab==='apps')_rApps() },
     updateScene(entities){ _entities=entities||[]; if(_tab==='scene')_rScene() },
     showEntity(entity,editorProps){ _entity=entity;_eProps=editorProps||[];_selId=entity?.id; if(_tab==='scene')_rScene() },
-    updateAppFiles(appName, files){
-      _appFiles[appName]=files||[]
-      if(_tab==='apps')_rApps()
-    },
-    openCode(appName, file, code){
-      _curApp=appName; _curFile=file; _monacoEd=null; _ta=null; _pendingCode=code
-      _switchTab('apps')
-    },
+    updateAppFiles(n,files){ _appFiles[n]=files||[]; if(_tab==='apps')_rApps() },
+    openCode(app,file,code){ _curApp=app;_curFile=file;_pendingCode=code; _switchTab('apps') },
     onEditorChange(fn){ _onChange=fn },
     get visible(){ return panel.style.display!=='none' }
   }
