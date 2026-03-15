@@ -191,5 +191,5 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
     const ai = _animatedEntities.indexOf(m); if (ai >= 0) _animatedEntities.splice(ai, 1)
   }
 
-  return { entityMeshes, _animatedEntities, _hullMeshes, entityTargets, loadEntityModel, removeEntity, rebuildEntityHierarchy, updateVisibility, LOD_CONFIGS }
+  return { entityMeshes, _animatedEntities, _hullMeshes, entityTargets, loadEntityModel, removeEntity, rebuildEntityHierarchy, updateVisibility, LOD_CONFIGS, scheduleLodUpgrades: _scheduleLodUpgrades }
 }
