@@ -25,6 +25,7 @@ import { createEditPanel } from './edit-panel.js'
 import { fetchCached, dbDelete, dbPut } from './ModelCache.js'
 import { createLoadingScreen } from './createLoadingScreen.js'
 import { MobileControls, detectDevice } from './MobileControls.js'
+import { createMobileControlsUI } from './MobileControlsUI.js'
 import { XRControls, createXRButton } from './XRControls.js'
 
 const _ARKIT_NAMES = ['browInnerUp','browDownLeft','browDownRight','browOuterUpLeft','browOuterUpRight','eyeLookUpLeft','eyeLookUpRight','eyeLookDownLeft','eyeLookDownRight','eyeLookInLeft','eyeLookInRight','eyeLookOutLeft','eyeLookOutRight','eyeBlinkLeft','eyeBlinkRight','eyeSquintLeft','eyeSquintRight','eyeWideLeft','eyeWideRight','cheekPuff','cheekSquintLeft','cheekSquintRight','noseSneerLeft','noseSneerRight','jawOpen','jawForward','jawLeft','jawRight','mouthFunnel','mouthPucker','mouthLeft','mouthRight','mouthRollUpper','mouthRollLower','mouthShrugUpper','mouthShrugLower','mouthOpen','mouthClose','mouthSmileLeft','mouthSmileRight','mouthFrownLeft','mouthFrownRight','mouthDimpleLeft','mouthDimpleRight','mouthUpperUpLeft','mouthUpperUpRight','mouthLowerDownLeft','mouthLowerDownRight','mouthPressLeft','mouthPressRight','mouthStretchLeft','mouthStretchRight']
@@ -171,6 +172,7 @@ if (deviceInfo.isMobile) {
     rotationSensitivity: 0.003,
     zoomSensitivity: 0.008
   })
+  createMobileControlsUI(mobileControls)
   inputConfig.pointerLock = false
   console.log('[Mobile] Touch controls initialized:', deviceInfo)
 }
