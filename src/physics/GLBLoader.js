@@ -3,7 +3,7 @@ import { buildNodeTransforms, applyTransformMatrix } from './GLBMath.js'
 import { decompressDracoMesh } from './DracoDecompressor.js'
 import { extractMeshWithMeshopt } from './MeshoptDecompressor.js'
 
-const SKIP_MATS = new Set(['aaatrigger', '{invisible', 'playerclip', 'clip', 'nodraw', 'trigger', 'sky', 'toolsclip', 'toolsplayerclip', 'toolsnodraw', 'toolsskybox', 'toolstrigger'])
+export const SKIP_MATS = new Set(['aaatrigger', '{invisible', 'playerclip', 'clip', 'nodraw', 'trigger', 'sky', 'toolsclip', 'toolsplayerclip', 'toolsnodraw', 'toolsskybox', 'toolstrigger'])
 
 function readGLB(filepath) {
   const buf = readFileSync(filepath)
@@ -13,7 +13,7 @@ function readGLB(filepath) {
   return { buf, json, binOffset: 20 + jsonLen + 8 }
 }
 
-function extractStandardMesh(buf, json, prim, binOffset, meshName) {
+export function extractStandardMesh(buf, json, prim, binOffset, meshName) {
   const posAcc = json.accessors[prim.attributes.POSITION]
   const posView = json.bufferViews[posAcc.bufferView]
   const posOff = binOffset + (posView.byteOffset || 0) + (posAcc.byteOffset || 0)
