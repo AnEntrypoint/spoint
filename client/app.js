@@ -22,8 +22,6 @@ import { LoadingManager } from './LoadingManager.js'
 import { createEditor } from './editor.js'
 import { createEditPanel } from './edit-panel.js'
 import { fetchCached, dbDelete, dbPut } from './ModelCache.js'
-import { initInstanceManager, tryAddInstance, removeInstance, isInstanced } from './InstanceManager.js'
-import { deduplicateScene } from './MaterialCache.js'
 import { createLoadingScreen } from './createLoadingScreen.js'
 import { MobileControls, detectDevice } from './MobileControls.js'
 import { XRControls, createXRButton } from './XRControls.js'
@@ -96,7 +94,6 @@ function _updateDynamicAssetCount() {
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(0x87ceeb)
 scene.fog = new THREE.Fog(0x87ceeb, 80, 200)
-initInstanceManager(scene)
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 500)
 let worldConfig = {}
 let inputConfig = { pointerLock: true }
@@ -1275,31 +1272,9 @@ async function _doLoadEntityModel(entityId, entityState) {
     model.updateMatrixWorld(true)
     let finalMesh
     if (!isDynamic) {
-      let meshIdx = 0
-      let instancedCount = 0
-      const meshList = []
-      model.traverse(c => { if (c.isMesh && !c.isSkinnedMesh && c.visible !== false) meshList.push(c) })
-      for (const c of meshList) {
-        c.updateWorldMatrix(true, false)
-        const wp = new THREE.Vector3(); const wq = new THREE.Quaternion(); const ws = new THREE.Vector3()
-        c.matrixWorld.decompose(wp, wq, ws)
-        const result = tryAddInstance(entityId, url, meshIdx++, c.geometry, c.material, wp, wq, ws)
-        if (result.instanced) instancedCount++
-      }
-      if (instancedCount === meshList.length && meshList.length > 0) {
-        finalMesh = new THREE.Group()
-        finalMesh.position.set(mp[0], mp[1], mp[2])
-        if (mr) finalMesh.quaternion.set(mr[0], mr[1], mr[2], mr[3])
-        if (ms) finalMesh.scale.set(ms[0], ms[1], ms[2])
-        finalMesh.userData._instanced = true
-        scene.add(finalMesh)
-        entityMeshes.set(entityId, finalMesh)
-      } else {
-        if (instancedCount > 0) removeInstance(entityId)
-        finalMesh = entityState.custom?.noAutoLod ? model : _generateLODEager(model, entityState.custom?.mesh)
-        scene.add(finalMesh)
-        entityMeshes.set(entityId, finalMesh)
-      }
+      finalMesh = entityState.custom?.noAutoLod ? model : _generateLODEager(model, entityState.custom?.mesh)
+      scene.add(finalMesh)
+      entityMeshes.set(entityId, finalMesh)
     } else {
       finalMesh = model
       scene.add(finalMesh)
@@ -1447,7 +1422,7 @@ const client = new PhysicsNetworkClient({
   onPlayerJoined: (id) => { if (!playerMeshes.has(id)) createPlayerVRM(id) },
   onPlayerLeft: (id) => removePlayerMesh(id),
   onEntityAdded: (id, state) => loadEntityModel(id, state),
-  onEntityRemoved: (id) => { removeInstance(id); const m = entityMeshes.get(id); if (m) { scene.remove(m); if (!m.userData._instanced) m.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose() }); entityMeshes.delete(id); _hierarchyDirty = true; const ai = _animatedEntities.indexOf(m); if (ai >= 0) _animatedEntities.splice(ai, 1) }; _hullMeshes.delete(id); entityTargets.delete(id); pendingLoads.delete(id) },
+  onEntityRemoved: (id) => { const m = entityMeshes.get(id); if (m) { scene.remove(m); m.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose() }); entityMeshes.delete(id); _hierarchyDirty = true; const ai = _animatedEntities.indexOf(m); if (ai >= 0) _animatedEntities.splice(ai, 1) }; _hullMeshes.delete(id); entityTargets.delete(id); pendingLoads.delete(id) },
   onWorldDef: (wd) => {
     loadingMgr.setLabel('Syncing with server...')
     worldConfig = wd
