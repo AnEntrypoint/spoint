@@ -43,6 +43,7 @@ export function createCameraController(camera, scene) {
   let headBoneHidden = false
   let fpsForwardOffset = 0.7
   let fpsHeadDownOffset = 0.2
+  let punchYawTarget = 0, punchPitchTarget = 0, punchYaw = 0, punchPitch = 0
   camRaycaster.firstHitOnly = true
   aimRaycaster.firstHitOnly = true
 
@@ -281,28 +282,27 @@ export function createCameraController(camera, scene) {
     if (cfg.fov) { camera.fov = cfg.fov; camera.updateProjectionMatrix() }
   }
 
-  let punchYawTarget = 0, punchPitchTarget = 0, punchYaw = 0, punchPitch = 0
   function punch(intensity) {
     punchYawTarget += (Math.random() - 0.5) * intensity * 0.9
     punchPitchTarget += (Math.random() - 0.3) * intensity * 0.9
   }
 
-function setVRYaw(vrYaw) { yaw = vrYaw }
-function getVRYaw() { return yaw }
-function setVRPitch(vrPitch) { pitch = vrPitch }
-function getVRPitch() { return pitch }
-function adjustVRPitch(delta) {
-  pitch = Math.max(pitchMin, Math.min(pitchMax, pitch + delta))
-}
-
-function setEditMode(enabled) {
-  if (enabled && !editMode) {
-    editCamPos.copy(camera.position)
+  function setVRYaw(vrYaw) { yaw = vrYaw }
+  function getVRYaw() { return yaw }
+  function setVRPitch(vrPitch) { pitch = vrPitch }
+  function getVRPitch() { return pitch }
+  function adjustVRPitch(delta) {
+    pitch = Math.max(pitchMin, Math.min(pitchMax, pitch + delta))
   }
-  editMode = enabled
-}
-function getEditMode() { return editMode }
-function getEditCameraPosition() { return editCamPos }
 
-return { restore, save, onMouseMove, onWheel, getAimDirection, update, setEnvironment, addEnvironment, setCameraBone, setHeadBone, applyConfig, setMode, getMode, setPosition, setTarget, punch, setVRYaw, getVRYaw, setVRPitch, getVRPitch, adjustVRPitch, setEditMode, getEditMode, getEditCameraPosition, get yaw() { return yaw }, get pitch() { return pitch }, get mode() { return mode } }
+  function setEditMode(enabled) {
+    if (enabled && !editMode) {
+      editCamPos.copy(camera.position)
+    }
+    editMode = enabled
+  }
+  function getEditMode() { return editMode }
+  function getEditCameraPosition() { return editCamPos }
+
+  return { restore, save, onMouseMove, onWheel, getAimDirection, update, setEnvironment, addEnvironment, setCameraBone, setHeadBone, applyConfig, setMode, getMode, setPosition, setTarget, punch, setVRYaw, getVRYaw, setVRPitch, getVRPitch, adjustVRPitch, setEditMode, getEditMode, getEditCameraPosition, get yaw() { return yaw }, get pitch() { return pitch }, get mode() { return mode } }
 }
