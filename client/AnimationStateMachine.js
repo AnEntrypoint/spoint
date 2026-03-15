@@ -124,6 +124,12 @@ export function createAnimationStateMachine(mixer, root, actions, additiveAction
       } else if (effectiveOnGround) {
         if (crouching) {
           if (smoothSpeed < 0.8) transitionTo('CrouchIdleLoop'); else transitionTo('CrouchFwdLoop')
+        } else if (animConfig.skipWalk) {
+          const idle2jog   = current === 'IdleLoop'   ? 2.0 : 0.8
+          const jog2sprint = current === 'JogFwdLoop' ? 15.5 : 15.0
+          if (smoothSpeed < idle2jog) transitionTo('IdleLoop')
+          else if (smoothSpeed < jog2sprint) transitionTo('JogFwdLoop')
+          else transitionTo('SprintLoop')
         } else {
           const idle2walk  = current === 'IdleLoop'   ? 0.5 : 0.3
           const walk2jog   = current === 'WalkLoop'   ? 4.0 : 3.5
