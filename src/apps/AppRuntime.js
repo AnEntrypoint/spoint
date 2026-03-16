@@ -183,16 +183,8 @@ export class AppRuntime {
 
   getRelevantDynamicIds(playerPosition, radius) { return this.relevantEntities(playerPosition, radius) }
 
-  getSceneGraph() {
-    const nodes = []
-    for (const [id, e] of this.entities) { if (!e.parent && e._appName) nodes.push(this._buildNode(id, e)) }
-    return nodes
-  }
-
-  _buildNode(id, e) {
-    const r1 = v => Math.round(v * 10) / 10
-    return { id, appName: e._appName, label: e._config?.label || e._appName || id, position: e.position ? [r1(e.position[0]), r1(e.position[1]), r1(e.position[2])] : null, children: [...e.children].map(cid => this._buildNode(cid, this.entities.get(cid))).filter(Boolean) }
-  }
+  getSceneGraph() { const n=[]; for (const [id,e] of this.entities) if (!e.parent&&e._appName) n.push(this._buildNode(id,e)); return n }
+  _buildNode(id, e) { const r1=v=>Math.round(v*10)/10; return { id, appName:e._appName, label:e._config?.label||e._appName||id, position:e.position?[r1(e.position[0]),r1(e.position[1]),r1(e.position[2])]:null, children:[...e.children].map(cid=>this._buildNode(cid,this.entities.get(cid))).filter(Boolean) } }
 
   queryEntities(f) { const r = []; for (const e of this.entities.values()) { if (!f || f(e)) r.push(e) } return r }
   getEntity(id) { return this.entities.get(id) || null }
