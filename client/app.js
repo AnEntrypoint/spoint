@@ -36,6 +36,7 @@ const pm = createPlayerManager(scene, gltfLoader, cam), entityAppMap = new Map()
 const uiRoot = document.getElementById('ui-root')
 const clickPrompt = document.getElementById('click-prompt')
 if (deviceInfo.isMobile && clickPrompt) clickPrompt.style.display = 'none'
+const _pids = new Set(), _eids = new Set()
 let worldConfig={}, vrmBuffer=null, animAssets=null, assetsLoaded=false, loadingScreenHidden=false, environmentLoaded=false, firstSnapshotReceived=false, _fitShadowTimer=null
 const firstSnapshotEntityPending=new Set(), el=createEntityLoader(scene,gltfLoader,cam,loadingMgr,patchGLB)
 const _scheduleFitShadow=()=>{ if (_fitShadowTimer) clearTimeout(_fitShadowTimer); _fitShadowTimer=setTimeout(()=>{_fitShadowTimer=null;fitShadowFrustum(scene,sun)},200) }
@@ -64,12 +65,12 @@ const _buildEntityData = (id, mesh) => ({ id, position: mesh.position.toArray(),
 const client = new PhysicsNetworkClient({
   url: `${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws`, predictionEnabled: false, smoothInterpolation: true,
   onStateUpdate: state => {
-    const myPos = state.players.find(p=>p.id===client.playerId)?.position
-    const sorted = myPos ? [...state.players].sort((a,b) => { if (a.id===client.playerId) return -1; if (b.id===client.playerId) return 1; const da=(a.position[0]-myPos[0])**2+(a.position[1]-myPos[1])**2+(a.position[2]-myPos[2])**2, db=(b.position[0]-myPos[0])**2+(b.position[1]-myPos[1])**2+(b.position[2]-myPos[2])**2; return da-db }) : state.players
-    for (let i=0;i<sorted.length;i++) { const p=sorted[i]; if (!pm.playerMeshes.has(p.id)) { if (i<32) pm.createPlayerVRM(p.id,vrmBuffer,animAssets,worldConfig,client.playerId); else { const g=new THREE.Group(); scene.add(g); pm.playerMeshes.set(p.id,g) } } }
-    const pids=new Set(state.players.map(p=>p.id)), eids=new Set(state.entities.map(e=>e.id))
-    for (const [id] of pm.playerMeshes) { if (!pids.has(id)) pm.removePlayerMesh(id) }
-    for (const [id] of el.entityMeshes) { if (!eids.has(id)) el.removeEntity(id) }
+    const lid=client.playerId
+    let i=0; for (const p of state.players) { if (!pm.playerMeshes.has(p.id)) { if (i<32) pm.createPlayerVRM(p.id,vrmBuffer,animAssets,worldConfig,lid); else { const g=new THREE.Group(); scene.add(g); pm.playerMeshes.set(p.id,g) } }; i++ }
+    _pids.clear(); for (const p of state.players) _pids.add(p.id)
+    _eids.clear(); for (const e of state.entities) _eids.add(e.id)
+    for (const [id] of pm.playerMeshes) { if (!_pids.has(id)) pm.removePlayerMesh(id) }
+    for (const [id] of el.entityMeshes) { if (!_eids.has(id)) el.removeEntity(id) }
     for (const e of state.entities) {
       const mesh=el.entityMeshes.get(e.id)
       if (mesh&&e.position) { const et=el.entityTargets.get(e.id),vx=e.velocity?.[0]||0,vy=e.velocity?.[1]||0,vz=e.velocity?.[2]||0; if (et) { et.x=e.position[0];et.y=e.position[1];et.z=e.position[2];et.vx=vx;et.vy=vy;et.vz=vz;et.rx=e.rotation?.[0]||0;et.ry=e.rotation?.[1]||0;et.rz=e.rotation?.[2]||0;et.rw=e.rotation?.[3]||1 } else el.entityTargets.set(e.id,{x:e.position[0],y:e.position[1],z:e.position[2],vx,vy,vz,rx:e.rotation?.[0]||0,ry:e.rotation?.[1]||0,rz:e.rotation?.[2]||0,rw:e.rotation?.[3]||1}); _dirty.add(e.id); const dx=e.position[0]-mesh.position.x,dy=e.position[1]-mesh.position.y,dz=e.position[2]-mesh.position.z; if (!mesh.userData.entInit||dx*dx+dy*dy+dz*dz>100) { mesh.position.set(e.position[0],e.position[1],e.position[2]); if (e.rotation) mesh.quaternion.set(e.rotation[0],e.rotation[1],e.rotation[2],e.rotation[3]); mesh.userData.entInit=true } }
@@ -113,14 +114,12 @@ editor.onEditModeChange(on => { if (on) { if (document.pointerLockElement) docum
 editPanel.onEditorChange((key,value) => { if (!editor.selectedEntityId) return; const changes=key==='collider'?{custom:{_collider:value}}:key.startsWith('custom.')?{custom:{[key.slice(7)]:value}}:key==='_rotEuler'?{rotation:editor.eulerDegToQuat(value)}:{[key]:value}; const mesh=el.entityMeshes.get(editor.selectedEntityId); if (mesh) { if (changes.position) mesh.position.set(...changes.position); if (changes.rotation) mesh.quaternion.set(...changes.rotation); if (changes.scale) mesh.scale.set(...changes.scale); editor.updateGizmo() }; editor.sendEditorUpdate(changes) })
 document.addEventListener('keydown', e => { editor.onKeyDown(e); ams.dispatchKeyDown(e,engineCtx) }); document.addEventListener('keyup', e => ams.dispatchKeyUp(e,engineCtx))
 client.send(MSG.LIST_APPS, {}); xrSystem.setupSessionListeners(id=>pm.playerStates.get(id), ()=>client.playerId, { get yaw() { return cam.yaw } })
-let inputHandler=null, inputLoopId=null, latestState=null, latestInput=null, lastShootState=false, lastHealth=100, _hierarchyDirty=false, fpsFrames=0, fpsLast=performance.now(), fpsDisplay=0, uiTimer=0, lastFrameTime=performance.now(), _lodCullAt=0, _shadowDirty=true, _shadowLastUpdate=0; const _dirty=new Set(), _sinTable=Array(360).fill(0).map((_,i)=>Math.sin(i*Math.PI/180))
+let inputHandler=null, inputLoopId=null, latestState=null, latestInput=null, lastShootState=false, lastHealth=100, _hierarchyDirty=false, fpsFrames=0, fpsLast=performance.now(), fpsDisplay=0, uiTimer=0, lastFrameTime=performance.now(), _lodCullAt=0, _shadowDirty=true, _shadowLastUpdate=0, _profileFrames=0, _profileSum=0; const _dirty=new Set(), _sinTable=Array(360).fill(0).map((_,i)=>Math.sin(i*Math.PI/180))
 function startInputLoop() {
   if (inputLoopId) return
-  inputHandler=InputHandler({ renderer, snapTurnAngle: xrSystem.vrSettings.snapTurnAngle, smoothTurnSpeed: xrSystem.vrSettings.smoothTurnSpeed, onMenuPressed: ()=>{ if (xrSystem.isPresenting) xrSystem.toggleSettings() } })
-  if (mobileControls) inputHandler.setMobileControls(mobileControls)
+  inputHandler=InputHandler({ renderer, snapTurnAngle: xrSystem.vrSettings.snapTurnAngle, smoothTurnSpeed: xrSystem.vrSettings.smoothTurnSpeed, onMenuPressed: ()=>{ if (xrSystem.isPresenting) xrSystem.toggleSettings() } }); if (mobileControls) inputHandler.setMobileControls(mobileControls)
   inputLoopId=setInterval(()=>{
-    if (!client.connected) return
-    const input=inputHandler.getInput(); latestInput=input
+    if (!client.connected) return; const input=inputHandler.getInput(); latestInput=input
     if (!!input.editToggle!==cam.getEditMode()) cam.setEditMode(!!input.editToggle)
     if (input.yaw!==undefined) cam.setVRYaw(input.yaw); else { input.yaw=cam.yaw; input.pitch=cam.pitch }
     if (input.zoom) cam.onWheel({ deltaY: -input.zoom*100, preventDefault: ()=>{} })
@@ -189,6 +188,7 @@ function animate(ts) {
   if (typeof editor!=='undefined') editor.updateGizmo()
   if (_shadowDirty&&now-_shadowLastUpdate>=66) { renderer.shadowMap.needsUpdate=true; _shadowDirty=false; _shadowLastUpdate=now }
   renderer.render(scene,camera)
+  const frameMs=performance.now()-now; _profileSum+=frameMs; if (++_profileFrames>=120) { console.log(`[frame-profile] fps:${fpsDisplay} avg:${(_profileSum/_profileFrames).toFixed(2)}ms players:${pm.playerMeshes.size} entities:${el.entityMeshes.size}`); _profileFrames=0; _profileSum=0 }
 }
 renderer.setAnimationLoop(animate); client.connect().then(()=>{ console.log('Connected'); startInputLoop(); xrSystem.initAR() }).catch(err=>console.error('Connection failed:',err))
 window.debug={ scene, camera, renderer, client, playerMeshes: pm.playerMeshes, entityMeshes: el.entityMeshes, appModules: ams.appModules, playerVrms: pm.playerVrms, playerAnimators: pm.playerAnimators, loadingMgr, loadingScreen, mobileControls, xrControls: xrSystem.xrControls, controllerModels: xrSystem.controllerModels, controllerGrips: xrSystem.controllerGrips, handModels: xrSystem.handModels, hullMeshes: el._hullMeshes, get showHulls() { return !!window.__showHulls__ }, set showHulls(v) { window.__showHulls__=v; el._hullMeshes.forEach(s=>s.forEach(sg=>{sg.visible=v})) }, vrSettings: ()=>xrSystem.vrSettings, deviceInfo: ()=>deviceInfo, placeARAnchor: ()=>xrSystem.xrControls?.placeAnchor() }

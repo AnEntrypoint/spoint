@@ -60,7 +60,7 @@ All collider creation methods in `AppContext.js` enforce this:
 
 **Snapshot wire format**: `entity.scale` is encoded as three Q1-precision floats appended after `custom` (indices 14,15,16 in the entity array). Old clients default to `[1,1,1]` via nullish coalescing.
 
-**Client** (`app.js`): `_doLoadEntityModel` applies `entityState.scale` to `model.scale.set(sx,sy,sz)` for both GLB models and primitive meshes.
+**Client** (`client/EntityLoader.js`): `loadEntityModel` applies `entityState.scale` to `model.scale.set(sx,sy,sz)` for both GLB models and primitive meshes.
 
 **Static trimesh colliders** (`addTrimeshCollider`, `world.addStaticTrimeshAsync`): scale is NOT applied — map GLBs have scale baked into vertices.
 
@@ -74,7 +74,7 @@ Server → Client transform flow:
 1. **Server**: `entity.position`, `entity.rotation` (quaternion [x,y,z,w]), `entity.scale` stored on entity object
 2. **Encoding**: `encodeEntity()` in `SnapshotEncoder.js` quantizes all three into the entity array at fixed indices
 3. **Decoding**: `SnapshotProcessor._parseEntityNew()` decodes all 17 array fields including scale at indices 14-16 (defaults to `[1,1,1]` if absent)
-4. **Client load**: `_doLoadEntityModel()` in `client/app.js` applies position, rotation (quaternion), and scale to the Three.js mesh/group at load time
+4. **Client load**: `loadEntityModel()` in `client/EntityLoader.js` applies position, rotation (quaternion), and scale to the Three.js mesh/group at load time
 5. **Dynamic updates**: animate loop interpolates position and quaternion each frame from `entityTargets`; scale is applied once at load and not re-applied per frame
 
 **Rotation is always a full quaternion [x,y,z,w]** — never euler.
@@ -87,11 +87,11 @@ Positions quantized to 2 decimal places (precision 100), rotations to 4 (precisi
 
 ## App Client API Expansions (renderCtx + engineCtx)
 
-`renderCtx` (passed to `render(ctx)`) includes Three.js shortcuts directly: `ctx.THREE`, `ctx.scene`, `ctx.camera`, `ctx.renderer`, `ctx.playerId`, `ctx.clock`. Added in `renderAppUI()` in `client/app.js`.
+`renderCtx` (passed to `render(ctx)`) includes Three.js shortcuts directly: `ctx.THREE`, `ctx.scene`, `ctx.camera`, `ctx.renderer`, `ctx.playerId`, `ctx.clock`. Added in `renderAppUI()` in `client/AppModuleSystem.js`.
 
 `engineCtx` (passed to `setup`, `onFrame`, `onInput`, `onEvent`, `onKeyDown`, `onKeyUp`) has `engine.network.send(msg)` — shorthand for `client.send(0x33, msg)`.
 
-`onKeyDown(e, engine)` and `onKeyUp(e, engine)` hooks are dispatched to all app modules from document keydown/keyup listeners in `client/app.js`. Dispatch happens after `editor.onKeyDown(e)`.
+`onKeyDown(e, engine)` and `onKeyUp(e, engine)` hooks are dispatched to all app modules from document keydown/keyup listeners in `client/app.js` via `ams.dispatchKeyDown/dispatchKeyUp` in `client/AppModuleSystem.js`. Dispatch happens after `editor.onKeyDown(e)`.
 
 ## App Design Principle: Apps Are Config, Engine Is Code
 
@@ -175,7 +175,7 @@ Apps cannot use imports — all dependencies come from `engineCtx` (THREE, creat
 
 `extractAllMeshesFromGLBAsync` in GLBLoader.js skips primitives whose material name is in `SKIP_MATS`: `aaatrigger`, `{invisible`, `playerclip`, `clip`, `nodraw`, `toolsclip`, `toolsplayerclip`, `toolsnodraw`, `toolsskybox`, `toolstrigger`. Without this, CS:GO maps have phantom collision walls.
 
-Client-side: `loadEntityModel` sets `c.visible = false` for meshes with these material names.
+Client-side: `loadEntityModel` in `client/EntityLoader.js` sets `c.visible = false` for meshes with these material names.
 
 ## Map GLB Structure
 
@@ -330,7 +330,7 @@ On keyframe ticks, per-player spatial snapshots must use `encodeDelta(combined, 
 ### Client-Side Optimizations
 
 1. **BVH deferred to idle callback (`_scheduleBvhBuild`)** — `computeBoundsTree()` deferred to `requestIdleCallback` (2ms time slice) via `_bvhQueue`. Camera raycast falls back to brute-force on un-built geometries.
-2. **`SKIP_MATS_SET` hoisted to module level** — was creating a new `Set` on every `_doLoadEntityModel` call.
+2. **`SKIP_MATS_SET` hoisted to module level** — was creating a new `Set` on every `loadEntityModel` call.
 3. **O(n²) `.find()` eliminated in `onStateUpdate`** — replaced with a `Set` built once per call, making lookups O(1).
 4. **`warmupShaders` uses `compileAsync`** — eliminates GPU stalls during per-mesh shader compilation.
 
@@ -433,7 +433,7 @@ These are rendered in the editor Inspector panel as live-editable fields. Change
 
 `warmupShaders()` runs AFTER `loadingScreen.hide()` (guarded by `_shaderWarmupDone`): disables frustumCulled on all scene objects → renders twice → restores frustumCulled.
 
-For entities loaded post-loading-screen, `loadEntityModel` calls `renderer.compileAsync(scene, camera)` after adding the mesh. VRM players use a separate one-time `_vrmWarmupDone` flag.
+For entities loaded post-loading-screen, `loadEntityModel` in `client/EntityLoader.js` calls `renderer.compileAsync(scene, camera)` after adding the mesh. VRM players use a separate one-time `_vrmWarmupDone` flag.
 
 A zero-intensity `THREE.PointLight` (`_warmupPointLight`) is added at startup to force the point-light shader variant to compile upfront.
 
@@ -497,9 +497,9 @@ Locomotion transitions use hysteresis (idle-to-walk: 0.8 vs walk-to-idle: 0.3). 
 
 **Face tracking**: Uses MediaPipe FaceMesh (CDN, `@mediapipe/face_mesh@0.4`) loaded lazily inside `WebcamAFANTracker.init()`. Falls back to animated demo data if MediaPipe fails to load.
 
-**Network path**: client → `afan_frame` → server `webcam-avatar` app → nearby players only (30-unit radius) → each receiver's `onAppEvent` → `_applyAfanFrame()` in `client/app.js` → `FacialAnimationPlayer.applyFrame()`.
+**Network path**: client → `afan_frame` → server `webcam-avatar` app → nearby players only (30-unit radius) → each receiver's `onAppEvent` → `applyAfanFrame()` in `client/PlayerManager.js` → `FacialAnimationPlayer.applyFrame()`.
 
-**Receiver**: `_applyAfanFrame(playerId, Uint8Array)` in `client/app.js` decodes the 52-byte frame and applies it to the target player's VRM via `FacialAnimationPlayer`. Player lookup uses `playerVrms` Map. `_afanPlayers` Map caches `FacialAnimationPlayer` instances per playerId.
+**Receiver**: `applyAfanFrame(playerId, Uint8Array)` in `client/PlayerManager.js` decodes the 52-byte frame and applies it to the target player's VRM via `FacialAnimationPlayer`. Player lookup uses `playerVrms` Map. `_afanPlayers` Map caches `FacialAnimationPlayer` instances per playerId.
 
 **Server message type**: `afan_frame` with `{ playerId, data: number[] }`. Server uses `ctx.players.send()` for per-player delivery, not broadcast.
 
