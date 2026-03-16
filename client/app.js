@@ -22,25 +22,17 @@ import { patchGLB } from './GLBPatch.js'
 import { createFileDropLoader } from './FileDropLoader.js'
 
 const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent))
-const scene = createScene()
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.05, 500)
+const scene = createScene(), camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.05, 500)
 scene.add(camera)
-const renderer = createRenderer(isMobileDevice)
-const { ambient, studio, sun } = setupLights(scene)
-const { gltfLoader } = createLoaders(renderer)
-const loadingMgr = new LoadingManager()
-const loadingScreen = createLoadingScreen(loadingMgr)
+const renderer = createRenderer(isMobileDevice), { ambient, studio, sun } = setupLights(scene), { gltfLoader } = createLoaders(renderer)
+const loadingMgr = new LoadingManager(), loadingScreen = createLoadingScreen(loadingMgr)
 loadingMgr.setLabel('Connecting...')
-const deviceInfo = detectDevice()
-let mobileControls = null, inputConfig = { pointerLock: true }
+const deviceInfo = detectDevice(); let mobileControls = null, inputConfig = { pointerLock: true }
 if (deviceInfo.isMobile) { mobileControls = new MobileControls({ joystickRadius: 45, rotationSensitivity: 0.003, zoomSensitivity: 0.008 }); createMobileControlsUI(mobileControls); inputConfig.pointerLock = false }
 const cam = createCameraController(camera, scene)
-cam.restore(JSON.parse(sessionStorage.getItem('cam') || 'null'))
-sessionStorage.removeItem('cam')
-const xrSystem = createXRSystem(renderer, scene, camera)
-xrSystem.setup()
-const pm = createPlayerManager(scene, gltfLoader, cam)
-const entityAppMap = new Map()
+cam.restore(JSON.parse(sessionStorage.getItem('cam') || 'null')); sessionStorage.removeItem('cam')
+const xrSystem = createXRSystem(renderer, scene, camera); xrSystem.setup()
+const pm = createPlayerManager(scene, gltfLoader, cam), entityAppMap = new Map()
 const uiRoot = document.getElementById('ui-root')
 const clickPrompt = document.getElementById('click-prompt')
 if (deviceInfo.isMobile && clickPrompt) clickPrompt.style.display = 'none'
