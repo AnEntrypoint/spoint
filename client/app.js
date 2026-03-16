@@ -119,12 +119,9 @@ const editor = createEditor({ scene, camera, renderer, client, entityMeshes: el.
 editor.onSelectionChange((id,data) => { if (data) { const mesh=el.entityMeshes.get(id); editPanel.showEntity(mesh?_buildEntityData(id,mesh):data,[]); client.send(MSG.GET_EDITOR_PROPS,{entityId:id}) } })
 editor.onEditModeChange(on => { if (on) { if (document.pointerLockElement) document.exitPointerLock(); editPanel.show(); client.send(MSG.SCENE_GRAPH,{}); client.send(MSG.LIST_APPS,{}) } else editPanel.hide() })
 editPanel.onEditorChange((key,value) => { if (!editor.selectedEntityId) return; const changes=key==='collider'?{custom:{_collider:value}}:key.startsWith('custom.')?{custom:{[key.slice(7)]:value}}:key==='_rotEuler'?{rotation:editor.eulerDegToQuat(value)}:{[key]:value}; const mesh=el.entityMeshes.get(editor.selectedEntityId); if (mesh) { if (changes.position) mesh.position.set(...changes.position); if (changes.rotation) mesh.quaternion.set(...changes.rotation); if (changes.scale) mesh.scale.set(...changes.scale); editor.updateGizmo() }; editor.sendEditorUpdate(changes) })
-document.addEventListener('keydown', e => { editor.onKeyDown(e); ams.dispatchKeyDown(e,engineCtx) })
-document.addEventListener('keyup', e => ams.dispatchKeyUp(e,engineCtx))
-client.send(MSG.LIST_APPS, {})
-xrSystem.setupSessionListeners(id=>pm.playerStates.get(id), ()=>client.playerId, { get yaw() { return cam.yaw } })
-let inputHandler=null, inputLoopId=null, latestState=null, latestInput=null, lastShootState=false, lastHealth=100, _hierarchyDirty=false, fpsFrames=0, fpsLast=performance.now(), fpsDisplay=0, uiTimer=0, lastFrameTime=performance.now(), _lodCullAt=0, _shadowDirty=true, _shadowLastUpdate=0
-const _dirty=new Set(), _sinTable=Array(360).fill(0).map((_,i)=>Math.sin(i*Math.PI/180))
+document.addEventListener('keydown', e => { editor.onKeyDown(e); ams.dispatchKeyDown(e,engineCtx) }); document.addEventListener('keyup', e => ams.dispatchKeyUp(e,engineCtx))
+client.send(MSG.LIST_APPS, {}); xrSystem.setupSessionListeners(id=>pm.playerStates.get(id), ()=>client.playerId, { get yaw() { return cam.yaw } })
+let inputHandler=null, inputLoopId=null, latestState=null, latestInput=null, lastShootState=false, lastHealth=100, _hierarchyDirty=false, fpsFrames=0, fpsLast=performance.now(), fpsDisplay=0, uiTimer=0, lastFrameTime=performance.now(), _lodCullAt=0, _shadowDirty=true, _shadowLastUpdate=0; const _dirty=new Set(), _sinTable=Array(360).fill(0).map((_,i)=>Math.sin(i*Math.PI/180))
 function startInputLoop() {
   if (inputLoopId) return
   inputHandler=InputHandler({ renderer, snapTurnAngle: xrSystem.vrSettings.snapTurnAngle, smoothTurnSpeed: xrSystem.vrSettings.smoothTurnSpeed, onMenuPressed: ()=>{ if (xrSystem.isPresenting) xrSystem.toggleSettings() } })
