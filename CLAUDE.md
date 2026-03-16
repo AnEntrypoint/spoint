@@ -19,11 +19,20 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 - GLB extraction: `src/physics/GLBLoader.js`
 - App context: `src/apps/AppContext.js`
 - App runtime: `src/apps/AppRuntime.js`
+- App runtime physics mixin: `src/apps/AppRuntimePhysics.js`
+- App runtime tick mixin: `src/apps/AppRuntimeTick.js`
 - Tick handler: `src/sdk/TickHandler.js`
 - Snapshot encoder: `src/netcode/SnapshotEncoder.js`
 - Snapshot processor: `src/client/SnapshotProcessor.js`
-- Map rotator: `src/stage/MapRotator.js`
 - Maps: `apps/maps/*.glb` (all Draco compressed)
+
+## AppRuntime Mixin Pattern
+
+`AppRuntime.js` uses two mixins applied at the bottom of the constructor:
+- `mixinPhysics(runtime)` from `AppRuntimePhysics.js` — registers body activation callbacks, `_syncDynamicBodies`, `_tickPhysicsLOD`. Must be applied before `mixinTick` since tick calls these methods.
+- `mixinTick(runtime)` from `AppRuntimeTick.js` — implements `tick()`, `_tickTimers`, `_tickCollisions`, `_tickRespawn`, `_tickInteractables`, `_syncPlayerIndex`, `getNearbyPlayers`.
+
+Both mixins write to `runtime` (the AppRuntime prototype or instance). Order matters: physics mixin first.
 
 ---
 
