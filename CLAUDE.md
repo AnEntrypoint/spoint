@@ -15,15 +15,20 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 
 ## Key File Locations
 
-- Physics world: `src/physics/World.js`
+- Physics world: `src/physics/World.js` (coordinator, ≤200 lines)
+- Character physics: `src/physics/CharacterManager.js` (CharacterVirtual ops)
+- Shape builder: `src/physics/ShapeBuilder.js` (convex/trimesh construction)
 - GLB extraction: `src/physics/GLBLoader.js`
 - App context: `src/apps/AppContext.js`
 - App runtime: `src/apps/AppRuntime.js`
 - App runtime physics mixin: `src/apps/AppRuntimePhysics.js`
 - App runtime tick mixin: `src/apps/AppRuntimeTick.js`
-- Tick handler: `src/sdk/TickHandler.js`
+- Tick handler: `src/sdk/TickHandler.js` (orchestrator)
+- Player collision: `src/netcode/CollisionSystem.js` (`applyPlayerCollisions` export)
 - Snapshot encoder: `src/netcode/SnapshotEncoder.js`
 - Snapshot processor: `src/client/SnapshotProcessor.js`
+- Client interpolation: `src/client/interpolation.js` (`lerpScalar`, `slerpQuat`, `interpolateSnapshot`)
+- Edit panel DOM builders: `client/EditPanelDOM.js`
 - Maps: `apps/maps/*.glb` (all Draco compressed)
 
 ## AppRuntime Mixin Pattern
