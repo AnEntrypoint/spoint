@@ -34,6 +34,15 @@ export function createAppModuleSystem(client, uiRoot) {
     }
   }
 
+  function createDispatcher(method, errorLabel) {
+    return function(arg, engineCtx) {
+      for (let i = 0; i < _appModuleList.length; i++) {
+        const mod = _appModuleList[i]
+        if (mod[method]) try { mod[method](arg, engineCtx) } catch (e) { if (errorLabel) console.error(errorLabel, e.message) }
+      }
+    }
+  }
+
   function _buildInteractPrompt(state, playerId) {
     const local = state.players.find(p => p.id === playerId)
     if (!local?.position) return null
@@ -71,48 +80,13 @@ export function createAppModuleSystem(client, uiRoot) {
     try { applyDiff(uiRoot, hudVdom) } catch (e) { console.error('[ui] diff:', e.message) }
   }
 
-  function dispatchKeyDown(e, engineCtx) {
-    for (let i = 0; i < _appModuleList.length; i++) {
-      const mod = _appModuleList[i]
-      if (mod.onKeyDown) try { mod.onKeyDown(e, engineCtx) } catch (ex) { }
-    }
-  }
-
-  function dispatchKeyUp(e, engineCtx) {
-    for (let i = 0; i < _appModuleList.length; i++) {
-      const mod = _appModuleList[i]
-      if (mod.onKeyUp) try { mod.onKeyUp(e, engineCtx) } catch (ex) { }
-    }
-  }
-
-  function dispatchInput(input, engineCtx) {
-    for (let i = 0; i < _appModuleList.length; i++) {
-      const mod = _appModuleList[i]
-      if (mod.onInput) try { mod.onInput(input, engineCtx) } catch (e) { console.error('[app-input]', e.message) }
-    }
-  }
-
-  function dispatchFrame(dt, engineCtx) {
-    for (let i = 0; i < _appModuleList.length; i++) {
-      const mod = _appModuleList[i]
-      if (mod.onFrame) try { mod.onFrame(dt, engineCtx) } catch (e) { }
-    }
-  }
-
-  function dispatchEvent(payload, engineCtx) {
-    for (let i = 0; i < _appModuleList.length; i++) {
-      const mod = _appModuleList[i]
-      if (mod.onEvent) try { mod.onEvent(payload, engineCtx) } catch (e) { console.error('[app-event]', e.message) }
-    }
-  }
-
-  function dispatchMouseDown(e, engineCtx) {
-    for (let i = 0; i < _appModuleList.length; i++) { const mod = _appModuleList[i]; if (mod.onMouseDown) try { mod.onMouseDown(e, engineCtx) } catch (ex) { } }
-  }
-
-  function dispatchMouseUp(e, engineCtx) {
-    for (let i = 0; i < _appModuleList.length; i++) { const mod = _appModuleList[i]; if (mod.onMouseUp) try { mod.onMouseUp(e, engineCtx) } catch (ex) { } }
-  }
+  const dispatchKeyDown = createDispatcher('onKeyDown', null)
+  const dispatchKeyUp = createDispatcher('onKeyUp', null)
+  const dispatchInput = createDispatcher('onInput', '[app-input]')
+  const dispatchFrame = createDispatcher('onFrame', null)
+  const dispatchEvent = createDispatcher('onEvent', '[app-event]')
+  const dispatchMouseDown = createDispatcher('onMouseDown', null)
+  const dispatchMouseUp = createDispatcher('onMouseUp', null)
 
   return { appModules, loadAppModule, renderAppUI, dispatchKeyDown, dispatchKeyUp, dispatchInput, dispatchFrame, dispatchEvent, dispatchMouseDown, dispatchMouseUp, get list() { return _appModuleList } }
 }

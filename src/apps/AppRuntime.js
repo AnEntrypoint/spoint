@@ -18,18 +18,13 @@ export class AppRuntime {
     this._connections = c.connections || null; this._stageLoader = c.stageLoader || null
     this._nextEntityId = 1; this._appDefs = new Map(); this._timers = new Map(); this._interactCooldowns = new Map(); this._respawnTimer = new Map()
     this._activeDynamicIds = new Set(); this._sleepingDynamicIds = new Set(); this._physicsBodyToEntityId = new Map(); this._suspendedEntityIds = new Set()
-    this._physicsLODRadius = c.physicsRadius || 0
-    this._lagCompensator = c.lagCompensator || null
+    this._physicsLODRadius = c.physicsRadius || 0; this._lagCompensator = c.lagCompensator || null
     const serverTickRate = c.tickRate || 64, entityTickRate = c.entityTickRate || serverTickRate
-    this._entityTickDivisor = Math.max(1, Math.round(serverTickRate / entityTickRate))
-    this._physicsLODInterval = Math.max(1, Math.round(serverTickRate / 2))
-    this._playerIndex = new SpatialIndex(); this._collisionEntities = []; this._interactableIds = new Set()
-    this._playerIndexIds = new Set()
+    this._entityTickDivisor = Math.max(1, Math.round(serverTickRate / entityTickRate)); this._physicsLODInterval = Math.max(1, Math.round(serverTickRate / 2))
+    this._playerIndex = new SpatialIndex(); this._collisionEntities = []; this._interactableIds = new Set(); this._playerIndexIds = new Set()
     this._lastSyncMs = 0; this._lastRespawnMs = 0; this._lastSpatialMs = 0; this._lastCollisionMs = 0; this._lastInteractMs = 0
-    mixinPhysics(this); mixinTick(this)
-    if (this._physics) this._registerPhysicsCallbacks()
-    this._hotReload = new HotReloadQueue(this)
-    this._eventBus = c.eventBus || new EventBus()
+    mixinPhysics(this); mixinTick(this); if (this._physics) this._registerPhysicsCallbacks()
+    this._hotReload = new HotReloadQueue(this); this._eventBus = c.eventBus || new EventBus()
     this._eventLog = c.eventLog||null; this._storage = c.storage||null; this._sdkRoot = c.sdkRoot||null
     this._eventBus.on('*', ev => { if (!ev.channel.startsWith('system.')) this._log('bus_event', { channel:ev.channel, data:ev.data }, ev.meta) })
     this._eventBus.on('system.handover', ev => { const {targetEntityId,stateData}=ev.data||{}; if (targetEntityId) this.fireEvent(targetEntityId,'onHandover',ev.meta.sourceEntity,stateData) })
@@ -108,7 +103,7 @@ export class AppRuntime {
 
   _rebuildUpdateList() {
     this._updateList = []
-    for (const [id, ad] of this.apps) { const ctx=this.contexts.get(id); if (!ctx) continue; const s=ad.server||ad; if (typeof s.update==='function') this._updateList.push([id,s,ctx]) }
+    for (const [id, ad] of this.apps) { const ctx=this.contexts.get(id); if (!ctx) continue; const s=ad.server||ad; if (typeof s.update==='function') this._updateList.push({id,update:s.update.bind(s),ctx}) }
   }
 
   _rebuildCollisionList() {
@@ -150,49 +145,16 @@ export class AppRuntime {
     return { position: [pt.position[0]+rp[0], pt.position[1]+rp[1], pt.position[2]+rp[2]], rotation: mulQuat(pt.rotation, e.rotation), scale: [pt.scale[0]*e.scale[0], pt.scale[1]*e.scale[1], pt.scale[2]*e.scale[2]] }
   }
 
-  _encodeEntity(id, e) {
-    const r = Array.isArray(e.rotation) ? [...e.rotation] : [e.rotation.x||0, e.rotation.y||0, e.rotation.z||0, e.rotation.w||1]
-    return { id, model: e.model, position: [...e.position], rotation: r, scale: [...e.scale], velocity: [...(e.velocity||[0,0,0])], bodyType: e.bodyType, custom: e.custom||null, parent: e.parent||null }
-  }
+  _encodeEntity(id, e) { const r=Array.isArray(e.rotation)?[...e.rotation]:[e.rotation.x||0,e.rotation.y||0,e.rotation.z||0,e.rotation.w||1]; return { id, model:e.model, position:[...e.position], rotation:r, scale:[...e.scale], velocity:[...(e.velocity||[0,0,0])], bodyType:e.bodyType, custom:e.custom||null, parent:e.parent||null } }
+  _snap(entities) { return { tick: this.currentTick, timestamp: Date.now(), entities } }
+  getSnapshot() { const e=[]; for (const [id,en] of this.entities) e.push(this._encodeEntity(id,en)); return this._snap(e) }
+  getStaticSnapshot() { const e=[]; for (const id of this._staticEntityIds) { const en=this.entities.get(id); if (en) e.push(this._encodeEntity(id,en)) } return this._snap(e) }
+  getSnapshotForPlayer(pos, r, skipStatic=false) { const e=[], rel=new Set(this.relevantEntities(pos,r)); for (const id of (skipStatic?this._dynamicEntityIds:this.entities.keys())) { const en=this.entities.get(id); if (en&&(rel.has(id)||en._appName==='environment')) e.push(this._encodeEntity(id,en)) } return this._snap(e) }
+  getDynamicEntitiesRaw() { const o=[]; for (const id of this._activeDynamicIds) { const e=this.entities.get(id); if (e) o.push({ id, model:e.model, position:e.position, rotation:e.rotation, velocity:e.velocity, bodyType:e.bodyType, custom:e.custom, _isEnv:e._appName==='environment', _sleeping:false }) } for (const id of this._sleepingDynamicIds) o.push({ id, _sleeping:true }); for (const id of this._suspendedEntityIds) o.push({ id, _sleeping:true }); return o }
+  getRelevantDynamicIds(pos, r) { return this.relevantEntities(pos, r) }
 
-  getSnapshot() {
-    const entities = []
-    for (const [id, e] of this.entities) entities.push(this._encodeEntity(id, e))
-    return { tick: this.currentTick, timestamp: Date.now(), entities }
-  }
-
-  getStaticSnapshot() {
-    const entities = []
-    for (const id of this._staticEntityIds) { const e = this.entities.get(id); if (e) entities.push(this._encodeEntity(id, e)) }
-    return { tick: this.currentTick, timestamp: Date.now(), entities }
-  }
-
-  getSnapshotForPlayer(playerPosition, radius, skipStatic = false) {
-    const entities = [], relevant = new Set(this.relevantEntities(playerPosition, radius)), iter = skipStatic ? this._dynamicEntityIds : this.entities.keys()
-    for (const id of iter) { const e = this.entities.get(id); if (e && (relevant.has(id) || e._appName === 'environment')) entities.push(this._encodeEntity(id, e)) }
-    return { tick: this.currentTick, timestamp: Date.now(), entities }
-  }
-
-  getDynamicEntitiesRaw() {
-    const out = []
-    for (const id of this._activeDynamicIds) { const e = this.entities.get(id); if (e) out.push({ id, model: e.model, position: e.position, rotation: e.rotation, velocity: e.velocity, bodyType: e.bodyType, custom: e.custom, _isEnv: e._appName === 'environment', _sleeping: false }) }
-    for (const id of this._sleepingDynamicIds) { out.push({ id, _sleeping: true }) }
-    for (const id of this._suspendedEntityIds) { out.push({ id, _sleeping: true }) }
-    return out
-  }
-
-  getRelevantDynamicIds(playerPosition, radius) { return this.relevantEntities(playerPosition, radius) }
-
-  getSceneGraph() {
-    const nodes = []
-    for (const [id, e] of this.entities) { if (!e.parent && e._appName) nodes.push(this._buildNode(id, e)) }
-    return nodes
-  }
-
-  _buildNode(id, e) {
-    const r1 = v => Math.round(v * 10) / 10
-    return { id, appName: e._appName, label: e._config?.label || e._appName || id, position: e.position ? [r1(e.position[0]), r1(e.position[1]), r1(e.position[2])] : null, children: [...e.children].map(cid => this._buildNode(cid, this.entities.get(cid))).filter(Boolean) }
-  }
+  getSceneGraph() { const n=[]; for (const [id,e] of this.entities) if (!e.parent&&e._appName) n.push(this._buildNode(id,e)); return n }
+  _buildNode(id, e) { const r1=v=>Math.round(v*10)/10; return { id, appName:e._appName, label:e._config?.label||e._appName||id, position:e.position?[r1(e.position[0]),r1(e.position[1]),r1(e.position[2])]:null, children:[...e.children].map(cid=>this._buildNode(cid,this.entities.get(cid))).filter(Boolean) } }
 
   queryEntities(f) { const r = []; for (const e of this.entities.values()) { if (!f || f(e)) r.push(e) } return r }
   getEntity(id) { return this.entities.get(id) || null }

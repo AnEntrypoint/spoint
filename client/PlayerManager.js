@@ -123,52 +123,9 @@ export function createPlayerManager(scene, gltfLoader, cam) {
     player.applyFrame(bs)
   }
 
-  function tickPlayers(dt, players, localId, cam, client, lerpFactor) {
-    for (const p of players) {
-      const mesh = playerMeshes.get(p.id); if (!mesh) continue
-      const fo = mesh.userData.feetOffset ?? 0.91
-      let tx, ty, tz
-      if (p.id === localId) {
-        const l = client.getLocalState()
-        tx = l?.position?.[0] ?? p.position[0]; ty = (l?.position?.[1] ?? p.position[1]) - fo; tz = l?.position?.[2] ?? p.position[2]
-      } else {
-        tx = p.position[0]; ty = p.position[1] - fo + (p.velocity?.[1]||0)*dt; tz = p.position[2]
-      }
-      if (!mesh.userData.initialized) { mesh.position.set(tx, ty, tz); mesh.userData.initialized = true }
-      else { mesh.position.set(tx, ty, tz) }
-      const pt = playerTargets.get(p.id)
-      if (pt) { pt.x = tx; pt.y = ty; pt.z = tz } else playerTargets.set(p.id, { x: tx, y: ty, z: tz })
-      playerStates.set(p.id, p)
-      const animator = playerAnimators.get(p.id); if (!animator) continue
-      animator.update(dt, p.velocity, p.onGround, p.health, p._aiming||false, p.crouch||0)
-      const lookYaw = p.id === localId ? cam.yaw : p.lookYaw
-      if (lookYaw !== undefined) {
-        let diff = lookYaw - mesh.rotation.y
-        diff -= Math.PI*2 * Math.round(diff/(Math.PI*2))
-        const speed = Math.hypot(p.velocity?.[0]||0, p.velocity?.[2]||0)
-        if (speed < 0.5) { mesh.rotation.y += diff * Math.min(1, 40*dt) }
-        else {
-          mesh.rotation.y += diff * Math.min(1, 5*dt)
-          let d2 = lookYaw - mesh.rotation.y; d2 -= Math.PI*2 * Math.round(d2/(Math.PI*2))
-          if (Math.abs(d2) > Math.PI*0.65) mesh.rotation.y += d2 > 0 ? d2 - Math.PI*0.65 : d2 + Math.PI*0.65
-        }
-        mesh.rotation.y -= Math.PI*2 * Math.round(mesh.rotation.y/(Math.PI*2))
-        animator.setLookDirection?.(lookYaw - mesh.rotation.y, p.lookPitch||0, mesh.rotation.y+Math.PI, p.velocity)
-      }
-      animator.applyBoneOverrides?.(dt)
-      playerVrms.get(p.id)?.update(dt)
-      updateVRMFeatures(p.id, dt, playerTargets.get(p.id))
-      if (p.id !== localId && p.lookPitch !== undefined) {
-        const f = playerExpressions.get(p.id)
-        if (f && !f._headBone) { const vrm = playerVrms.get(p.id); if (vrm?.humanoid) f._headBone = vrm.humanoid.getNormalizedBoneNode('head') }
-        if (f?._headBone) f._headBone.rotation.x = -(p.lookPitch||0)*0.6
-      }
-    }
-  }
-
   return {
     playerMeshes, playerAnimators, playerVrms, playerStates, playerExpressions, playerTargets,
     createPlayerVRM, removePlayerMesh, updateVRMFeatures, setVRMExpression, applyAfanFrame,
-    detectVrmVersion, getGLBExts, tickPlayers
+    detectVrmVersion, getGLBExts
   }
 }

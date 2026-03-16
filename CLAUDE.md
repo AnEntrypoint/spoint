@@ -15,15 +15,29 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 
 ## Key File Locations
 
-- Physics world: `src/physics/World.js`
+- Physics world: `src/physics/World.js` (coordinator, ≤200 lines)
+- Character physics: `src/physics/CharacterManager.js` (CharacterVirtual ops)
+- Shape builder: `src/physics/ShapeBuilder.js` (convex/trimesh construction)
 - GLB extraction: `src/physics/GLBLoader.js`
 - App context: `src/apps/AppContext.js`
 - App runtime: `src/apps/AppRuntime.js`
-- Tick handler: `src/sdk/TickHandler.js`
+- App runtime physics mixin: `src/apps/AppRuntimePhysics.js`
+- App runtime tick mixin: `src/apps/AppRuntimeTick.js`
+- Tick handler: `src/sdk/TickHandler.js` (orchestrator)
+- Player collision: `src/netcode/CollisionSystem.js` (`applyPlayerCollisions` export)
 - Snapshot encoder: `src/netcode/SnapshotEncoder.js`
 - Snapshot processor: `src/client/SnapshotProcessor.js`
-- Map rotator: `src/stage/MapRotator.js`
+- Client interpolation: `src/client/interpolation.js` (`lerpScalar`, `slerpQuat`, `interpolateSnapshot`)
+- Edit panel DOM builders: `client/EditPanelDOM.js`
 - Maps: `apps/maps/*.glb` (all Draco compressed)
+
+## AppRuntime Mixin Pattern
+
+`AppRuntime.js` uses two mixins applied at the bottom of the constructor:
+- `mixinPhysics(runtime)` from `AppRuntimePhysics.js` — registers body activation callbacks, `_syncDynamicBodies`, `_tickPhysicsLOD`. Must be applied before `mixinTick` since tick calls these methods.
+- `mixinTick(runtime)` from `AppRuntimeTick.js` — implements `tick()`, `_tickTimers`, `_tickCollisions`, `_tickRespawn`, `_tickInteractables`, `_syncPlayerIndex`, `getNearbyPlayers`.
+
+Both mixins write to `runtime` (the AppRuntime prototype or instance). Order matters: physics mixin first.
 
 ---
 
@@ -46,7 +60,7 @@ All collider creation methods in `AppContext.js` enforce this:
 
 **Snapshot wire format**: `entity.scale` is encoded as three Q1-precision floats appended after `custom` (indices 14,15,16 in the entity array). Old clients default to `[1,1,1]` via nullish coalescing.
 
-**Client** (`app.js`): `_doLoadEntityModel` applies `entityState.scale` to `model.scale.set(sx,sy,sz)` for both GLB models and primitive meshes.
+**Client** (`client/EntityLoader.js`): `loadEntityModel` applies `entityState.scale` to `model.scale.set(sx,sy,sz)` for both GLB models and primitive meshes.
 
 **Static trimesh colliders** (`addTrimeshCollider`, `world.addStaticTrimeshAsync`): scale is NOT applied — map GLBs have scale baked into vertices.
 
@@ -60,7 +74,7 @@ Server → Client transform flow:
 1. **Server**: `entity.position`, `entity.rotation` (quaternion [x,y,z,w]), `entity.scale` stored on entity object
 2. **Encoding**: `encodeEntity()` in `SnapshotEncoder.js` quantizes all three into the entity array at fixed indices
 3. **Decoding**: `SnapshotProcessor._parseEntityNew()` decodes all 17 array fields including scale at indices 14-16 (defaults to `[1,1,1]` if absent)
-4. **Client load**: `_doLoadEntityModel()` in `client/app.js` applies position, rotation (quaternion), and scale to the Three.js mesh/group at load time
+4. **Client load**: `loadEntityModel()` in `client/EntityLoader.js` applies position, rotation (quaternion), and scale to the Three.js mesh/group at load time
 5. **Dynamic updates**: animate loop interpolates position and quaternion each frame from `entityTargets`; scale is applied once at load and not re-applied per frame
 
 **Rotation is always a full quaternion [x,y,z,w]** — never euler.
@@ -73,11 +87,11 @@ Positions quantized to 2 decimal places (precision 100), rotations to 4 (precisi
 
 ## App Client API Expansions (renderCtx + engineCtx)
 
-`renderCtx` (passed to `render(ctx)`) includes Three.js shortcuts directly: `ctx.THREE`, `ctx.scene`, `ctx.camera`, `ctx.renderer`, `ctx.playerId`, `ctx.clock`. Added in `renderAppUI()` in `client/app.js`.
+`renderCtx` (passed to `render(ctx)`) includes Three.js shortcuts directly: `ctx.THREE`, `ctx.scene`, `ctx.camera`, `ctx.renderer`, `ctx.playerId`, `ctx.clock`. Added in `renderAppUI()` in `client/AppModuleSystem.js`.
 
 `engineCtx` (passed to `setup`, `onFrame`, `onInput`, `onEvent`, `onKeyDown`, `onKeyUp`) has `engine.network.send(msg)` — shorthand for `client.send(0x33, msg)`.
 
-`onKeyDown(e, engine)` and `onKeyUp(e, engine)` hooks are dispatched to all app modules from document keydown/keyup listeners in `client/app.js`. Dispatch happens after `editor.onKeyDown(e)`.
+`onKeyDown(e, engine)` and `onKeyUp(e, engine)` hooks are dispatched to all app modules from document keydown/keyup listeners in `client/app.js` via `ams.dispatchKeyDown/dispatchKeyUp` in `client/AppModuleSystem.js`. Dispatch happens after `editor.onKeyDown(e)`.
 
 ## App Design Principle: Apps Are Config, Engine Is Code
 
@@ -161,7 +175,7 @@ Apps cannot use imports — all dependencies come from `engineCtx` (THREE, creat
 
 `extractAllMeshesFromGLBAsync` in GLBLoader.js skips primitives whose material name is in `SKIP_MATS`: `aaatrigger`, `{invisible`, `playerclip`, `clip`, `nodraw`, `toolsclip`, `toolsplayerclip`, `toolsnodraw`, `toolsskybox`, `toolstrigger`. Without this, CS:GO maps have phantom collision walls.
 
-Client-side: `loadEntityModel` sets `c.visible = false` for meshes with these material names.
+Client-side: `loadEntityModel` in `client/EntityLoader.js` sets `c.visible = false` for meshes with these material names.
 
 ## Map GLB Structure
 
@@ -316,7 +330,7 @@ On keyframe ticks, per-player spatial snapshots must use `encodeDelta(combined, 
 ### Client-Side Optimizations
 
 1. **BVH deferred to idle callback (`_scheduleBvhBuild`)** — `computeBoundsTree()` deferred to `requestIdleCallback` (2ms time slice) via `_bvhQueue`. Camera raycast falls back to brute-force on un-built geometries.
-2. **`SKIP_MATS_SET` hoisted to module level** — was creating a new `Set` on every `_doLoadEntityModel` call.
+2. **`SKIP_MATS_SET` hoisted to module level** — was creating a new `Set` on every `loadEntityModel` call.
 3. **O(n²) `.find()` eliminated in `onStateUpdate`** — replaced with a `Set` built once per call, making lookups O(1).
 4. **`warmupShaders` uses `compileAsync`** — eliminates GPU stalls during per-mesh shader compilation.
 
@@ -419,7 +433,7 @@ These are rendered in the editor Inspector panel as live-editable fields. Change
 
 `warmupShaders()` runs AFTER `loadingScreen.hide()` (guarded by `_shaderWarmupDone`): disables frustumCulled on all scene objects → renders twice → restores frustumCulled.
 
-For entities loaded post-loading-screen, `loadEntityModel` calls `renderer.compileAsync(scene, camera)` after adding the mesh. VRM players use a separate one-time `_vrmWarmupDone` flag.
+For entities loaded post-loading-screen, `loadEntityModel` in `client/EntityLoader.js` calls `renderer.compileAsync(scene, camera)` after adding the mesh. VRM players use a separate one-time `_vrmWarmupDone` flag.
 
 A zero-intensity `THREE.PointLight` (`_warmupPointLight`) is added at startup to force the point-light shader variant to compile upfront.
 
@@ -483,9 +497,9 @@ Locomotion transitions use hysteresis (idle-to-walk: 0.8 vs walk-to-idle: 0.3). 
 
 **Face tracking**: Uses MediaPipe FaceMesh (CDN, `@mediapipe/face_mesh@0.4`) loaded lazily inside `WebcamAFANTracker.init()`. Falls back to animated demo data if MediaPipe fails to load.
 
-**Network path**: client → `afan_frame` → server `webcam-avatar` app → nearby players only (30-unit radius) → each receiver's `onAppEvent` → `_applyAfanFrame()` in `client/app.js` → `FacialAnimationPlayer.applyFrame()`.
+**Network path**: client → `afan_frame` → server `webcam-avatar` app → nearby players only (30-unit radius) → each receiver's `onAppEvent` → `applyAfanFrame()` in `client/PlayerManager.js` → `FacialAnimationPlayer.applyFrame()`.
 
-**Receiver**: `_applyAfanFrame(playerId, Uint8Array)` in `client/app.js` decodes the 52-byte frame and applies it to the target player's VRM via `FacialAnimationPlayer`. Player lookup uses `playerVrms` Map. `_afanPlayers` Map caches `FacialAnimationPlayer` instances per playerId.
+**Receiver**: `applyAfanFrame(playerId, Uint8Array)` in `client/PlayerManager.js` decodes the 52-byte frame and applies it to the target player's VRM via `FacialAnimationPlayer`. Player lookup uses `playerVrms` Map. `_afanPlayers` Map caches `FacialAnimationPlayer` instances per playerId.
 
 **Server message type**: `afan_frame` with `{ playerId, data: number[] }`. Server uses `ctx.players.send()` for per-player delivery, not broadcast.
 
@@ -538,3 +552,48 @@ Wildcard `*` suffix patterns (`combat.*` receives `combat.fire`, `combat.hit`). 
 ## Debug Globals
 
 Server: `globalThis.__DEBUG__.server`. Client: `window.debug` (scene, camera, renderer, client, mesh maps, input handler). Always set, not gated by flags.
+
+---
+
+## Server Profiling Baseline
+
+Measured 2026-03-16 via microbenchmark in `bun x gm-exec exec` with real imports from `src/protocol/msgpack.js`. All timings are per-tick averages. Budget = 15.6ms at 64 TPS.
+
+### Phase Timings (100 players / 1000 active entities / relevanceRadius=60)
+
+| Phase | Cost (ms) | Budget % | File |
+|---|---|---|---|
+| `refreshDynamicCache` (1000 active entities) | 0.786 | 5.0% | `SnapshotEncoder.js` |
+| `pack` 25 snapshots × 150 entities + 30 players | 1.632 | 10.5% | `TickHandler.js` snap loop |
+| `encodeDeltaFromCache` 200 relevant IDs | 0.037 | 0.2% | `SnapshotEncoder.js` |
+| `filterEncodedPlayersWithSelf` per 1000 calls | 0.423ms/1000 | negligible | `SnapshotEncoder.js` |
+| Full snap phase (50p / 500e / snapGroups=2) | 1.901 | 12.2% | `TickHandler.js` |
+| Full snap phase (100p / 1000e / snapGroups=4) | ~4.2 | 26.9% | `TickHandler.js` |
+
+### Top 3 Bottlenecks (ranked by impact)
+
+**Bottleneck 1: `buildEntityKey` uses `Array.join` — 83% of `refreshDynamicCache` cost**
+
+`buildEntityKey` in `SnapshotEncoder.js` allocates a 16-element array and calls `.join('|')` on every entity every tick. Measured: 0.50μs per call vs 0.24μs for string concatenation (2.1x slower). With 1000 active entities, `buildEntityKey` alone consumes 0.653ms/tick (4.2% of budget). Replacing with string concatenation recovers ~0.4ms/tick at 1000 entities.
+
+**Bottleneck 2: `pack` called per-player in snap loop — scales O(N_players × N_entities)**
+
+In `TickHandler.js` snap loop (relevanceRadius > 0 path), `pack({type, payload})` is called once per player per snapGroup tick. At 25 players/snapGroup × 150 entities each: 1.632ms/tick (10.5% of budget). Wire size for 150e+30p = 7804 bytes. The entity array is identical for all players in the same spatial cell (spatialCache already groups them), but each player still gets a full re-pack. Pre-serializing the shared entity+player-list portion and combining with per-player diffs would cut pack cost by ~(N_players_per_cell - 1) / N_players_per_cell.
+
+**Bottleneck 3: `encodeEntity` array allocation on every active entity every tick**
+
+`encodeEntity` allocates a 17-element array per call. At 1000 active entities: 0.137ms/tick (17% of refresh, 0.9% of total budget). Cost is dominated by array construction, not arithmetic. Object pooling or in-place mutation of a pre-allocated cache entry would eliminate GC pressure. This is lower priority than bottlenecks 1 and 2 but compounds at entity counts above 1000.
+
+### Key Data Points
+
+- `buildEntityKey` Array.join vs string concat: **3.7x slower** (0.607ms vs 0.164ms per 1000 calls)
+- `pack(custom).toString('hex')` per call: **1.22μs** — but the `cust === cust` identity shortcut in `refreshDynamicCache` avoids this on unchanged entities, reducing effective refresh cost from 0.786ms to ~0.185ms when no customs change
+- `spatialCache` hit rate at 100 players: 84% hits / 16% misses — spatial grouping is working well
+- `encodeDeltaFromCache` iteration (200 relevant IDs from 1000-entry cache): **0.037ms** — already efficient via the `iterIds` path
+- Wire size scales linearly: 10e=1652B, 50e=2975B, 100e=4733B, 150e=6533B, 200e=8333B
+
+### Fix Priority
+
+1. `buildEntityKey`: replace `Array(...).join('|')` with string concatenation — 2.1x key-build speedup, ~0.4ms recovered at 1000 entities
+2. `pack` per-player deduplication: pre-pack shared entity array once per spatial cell per snapGroup, combine with per-player player list — estimated 60-70% reduction in pack cost at 25+ players/cell
+3. `encodeEntity` array pooling: reuse cache entry arrays in-place rather than allocating new arrays — reduces GC at high entity counts
