@@ -146,10 +146,7 @@ function startInputLoop() {
 }
 renderer.domElement.addEventListener('click', ()=>{ if (inputConfig.pointerLock&&!document.pointerLockElement&&!cam.getEditMode()) renderer.domElement.requestPointerLock() })
 document.addEventListener('pointerlockchange', ()=>{ const locked=document.pointerLockElement===renderer.domElement; clickPrompt.style.display=locked?'none':(inputConfig.pointerLock?'block':'none'); if (locked) document.addEventListener('mousemove',cam.onMouseMove); else document.removeEventListener('mousemove',cam.onMouseMove) })
-renderer.domElement.addEventListener('wheel', cam.onWheel, { passive: false })
-renderer.domElement.addEventListener('mousedown', e=>ams.dispatchMouseDown(e,engineCtx))
-renderer.domElement.addEventListener('mouseup', e=>ams.dispatchMouseUp(e,engineCtx))
-renderer.domElement.addEventListener('contextmenu', e=>e.preventDefault())
+renderer.domElement.addEventListener('wheel', cam.onWheel, { passive: false }); renderer.domElement.addEventListener('mousedown', e=>ams.dispatchMouseDown(e,engineCtx)); renderer.domElement.addEventListener('mouseup', e=>ams.dispatchMouseUp(e,engineCtx)); renderer.domElement.addEventListener('contextmenu', e=>e.preventDefault())
 window.addEventListener('resize', ()=>{ camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight) })
 createFileDropLoader(scene, gltfLoader, cam, pm.playerStates, ams.appModules, engineCtx).setupDropListeners(renderer.domElement)
 function updatePlayerPositions(players, lid, frameDt) {
