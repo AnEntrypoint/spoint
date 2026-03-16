@@ -547,3 +547,48 @@ Wildcard `*` suffix patterns (`combat.*` receives `combat.fire`, `combat.hit`). 
 ## Debug Globals
 
 Server: `globalThis.__DEBUG__.server`. Client: `window.debug` (scene, camera, renderer, client, mesh maps, input handler). Always set, not gated by flags.
+
+---
+
+## Server Profiling Baseline
+
+Measured 2026-03-16 via microbenchmark in `bun x gm-exec exec` with real imports from `src/protocol/msgpack.js`. All timings are per-tick averages. Budget = 15.6ms at 64 TPS.
+
+### Phase Timings (100 players / 1000 active entities / relevanceRadius=60)
+
+| Phase | Cost (ms) | Budget % | File |
+|---|---|---|---|
+| `refreshDynamicCache` (1000 active entities) | 0.786 | 5.0% | `SnapshotEncoder.js` |
+| `pack` 25 snapshots × 150 entities + 30 players | 1.632 | 10.5% | `TickHandler.js` snap loop |
+| `encodeDeltaFromCache` 200 relevant IDs | 0.037 | 0.2% | `SnapshotEncoder.js` |
+| `filterEncodedPlayersWithSelf` per 1000 calls | 0.423ms/1000 | negligible | `SnapshotEncoder.js` |
+| Full snap phase (50p / 500e / snapGroups=2) | 1.901 | 12.2% | `TickHandler.js` |
+| Full snap phase (100p / 1000e / snapGroups=4) | ~4.2 | 26.9% | `TickHandler.js` |
+
+### Top 3 Bottlenecks (ranked by impact)
+
+**Bottleneck 1: `buildEntityKey` uses `Array.join` — 83% of `refreshDynamicCache` cost**
+
+`buildEntityKey` in `SnapshotEncoder.js` allocates a 16-element array and calls `.join('|')` on every entity every tick. Measured: 0.50μs per call vs 0.24μs for string concatenation (2.1x slower). With 1000 active entities, `buildEntityKey` alone consumes 0.653ms/tick (4.2% of budget). Replacing with string concatenation recovers ~0.4ms/tick at 1000 entities.
+
+**Bottleneck 2: `pack` called per-player in snap loop — scales O(N_players × N_entities)**
+
+In `TickHandler.js` snap loop (relevanceRadius > 0 path), `pack({type, payload})` is called once per player per snapGroup tick. At 25 players/snapGroup × 150 entities each: 1.632ms/tick (10.5% of budget). Wire size for 150e+30p = 7804 bytes. The entity array is identical for all players in the same spatial cell (spatialCache already groups them), but each player still gets a full re-pack. Pre-serializing the shared entity+player-list portion and combining with per-player diffs would cut pack cost by ~(N_players_per_cell - 1) / N_players_per_cell.
+
+**Bottleneck 3: `encodeEntity` array allocation on every active entity every tick**
+
+`encodeEntity` allocates a 17-element array per call. At 1000 active entities: 0.137ms/tick (17% of refresh, 0.9% of total budget). Cost is dominated by array construction, not arithmetic. Object pooling or in-place mutation of a pre-allocated cache entry would eliminate GC pressure. This is lower priority than bottlenecks 1 and 2 but compounds at entity counts above 1000.
+
+### Key Data Points
+
+- `buildEntityKey` Array.join vs string concat: **3.7x slower** (0.607ms vs 0.164ms per 1000 calls)
+- `pack(custom).toString('hex')` per call: **1.22μs** — but the `cust === cust` identity shortcut in `refreshDynamicCache` avoids this on unchanged entities, reducing effective refresh cost from 0.786ms to ~0.185ms when no customs change
+- `spatialCache` hit rate at 100 players: 84% hits / 16% misses — spatial grouping is working well
+- `encodeDeltaFromCache` iteration (200 relevant IDs from 1000-entry cache): **0.037ms** — already efficient via the `iterIds` path
+- Wire size scales linearly: 10e=1652B, 50e=2975B, 100e=4733B, 150e=6533B, 200e=8333B
+
+### Fix Priority
+
+1. `buildEntityKey`: replace `Array(...).join('|')` with string concatenation — 2.1x key-build speedup, ~0.4ms recovered at 1000 entities
+2. `pack` per-player deduplication: pre-pack shared entity array once per spatial cell per snapGroup, combine with per-player player list — estimated 60-70% reduction in pack cost at 25+ players/cell
+3. `encodeEntity` array pooling: reuse cache entry arrays in-place rather than allocating new arrays — reduces GC at high entity counts
