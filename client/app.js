@@ -154,11 +154,8 @@ renderer.domElement.addEventListener('mouseup', e=>ams.dispatchMouseUp(e,engineC
 renderer.domElement.addEventListener('contextmenu', e=>e.preventDefault())
 window.addEventListener('resize', ()=>{ camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight) })
 createFileDropLoader(scene, gltfLoader, cam, pm.playerStates, ams.appModules, engineCtx).setupDropListeners(renderer.domElement)
-function animate(ts) {
-  const now=ts||performance.now(), frameDt=Math.min(Math.max((now-lastFrameTime)/1000,0.001),0.1); lastFrameTime=now
-  fpsFrames++; if (now-fpsLast>=1000) { fpsDisplay=fpsFrames; fpsFrames=0; fpsLast=now }
-  const lerpFactor=1.0-Math.exp(-((client.getRTT?.()>100?24:16))*frameDt), ss=client.getSmoothState(now), lid=client.playerId
-  for (const p of ss.players) {
+function updatePlayerPositions(players, lid, frameDt) {
+  for (const p of players) {
     if (!pm.playerMeshes.has(p.id)) continue
     const mesh=pm.playerMeshes.get(p.id), fo=mesh?.userData?.feetOffset??0.91; let tx,ty,tz,vx=0,vy=0,vz=0
     if (p.id===lid) { const lc=client.getLocalState(); tx=(lc?.position||p.position)[0]; ty=(lc?.position||p.position)[1]-fo; tz=(lc?.position||p.position)[2] }
@@ -168,7 +165,8 @@ function animate(ts) {
     if (!ex) pm.playerTargets.set(p.id,{x:tx,y:ty,z:tz,vx,vy,vz}); else { if (ex.x!==tx||ex.z!==tz) _shadowDirty=true; ex.x=tx;ex.y=ty;ex.z=tz;ex.vx=vx;ex.vy=vy;ex.vz=vz }
     pm.playerStates.set(p.id,p)
   }
-  if (_hierarchyDirty&&ss.entities.length>0) { el.rebuildEntityHierarchy(ss.entities); _hierarchyDirty=false }
+}
+function tickPlayerAnimators(lid, frameDt) {
   pm.playerAnimators.forEach((anim,id)=>{
     const ps=pm.playerStates.get(id); if (!ps) return
     anim.update(frameDt,ps.velocity,ps.onGround,ps.health,ps._aiming||false,ps.crouch||0)
@@ -179,10 +177,24 @@ function animate(ts) {
     pm.updateVRMFeatures(id,frameDt,pm.playerTargets.get(id))
     if (id!==lid&&ps.lookPitch!==undefined) { const f=pm.playerExpressions.get(id); if (f&&!f._headBone&&vrm?.humanoid) f._headBone=vrm.humanoid.getNormalizedBoneNode('head'); if (f?._headBone) f._headBone.rotation.x=-(ps.lookPitch||0)*0.6 }
   })
+}
+function updateEntityPositions(frameDt, lerpFactor) {
   if (_dirty.size>0) _shadowDirty=true
   for (const id of _dirty) { const t=el.entityTargets.get(id),m=el.entityMeshes.get(id); if (!t||!m) continue; const gx=t.x+(t.vx||0)*frameDt,gy=t.y+(t.vy||0)*frameDt,gz=t.z+(t.vz||0)*frameDt; m.position.x+=(gx-m.position.x)*lerpFactor;m.position.y+=(gy-m.position.y)*lerpFactor;m.position.z+=(gz-m.position.z)*lerpFactor; const dx=t.rx-m.quaternion.x,dy=t.ry-m.quaternion.y,dz=t.rz-m.quaternion.z,dw=t.rw-m.quaternion.w; if (dx*dx+dy*dy+dz*dz+dw*dw>1e-12){m.quaternion.x+=dx*lerpFactor;m.quaternion.y+=dy*lerpFactor;m.quaternion.z+=dz*lerpFactor;m.quaternion.w+=dw*lerpFactor;m.quaternion.normalize()} }
   _dirty.clear()
+}
+function tickAnimatedEntities(frameDt) {
   for (const m of el._animatedEntities) { if (m.userData.spin) m.rotation.y+=m.userData.spin*frameDt; if (m.userData.hover) { m.userData.hoverTime=(m.userData.hoverTime||0)+frameDt; const c=m.children[0]; if (c) c.position.y=_sinTable[Math.floor(m.userData.hoverTime*2*180/Math.PI)%360]*m.userData.hover } }
+}
+function animate(ts) {
+  const now=ts||performance.now(), frameDt=Math.min(Math.max((now-lastFrameTime)/1000,0.001),0.1); lastFrameTime=now
+  fpsFrames++; if (now-fpsLast>=1000) { fpsDisplay=fpsFrames; fpsFrames=0; fpsLast=now }
+  const lerpFactor=1.0-Math.exp(-((client.getRTT?.()>100?24:16))*frameDt), ss=client.getSmoothState(now), lid=client.playerId
+  updatePlayerPositions(ss.players, lid, frameDt)
+  if (_hierarchyDirty&&ss.entities.length>0) { el.rebuildEntityHierarchy(ss.entities); _hierarchyDirty=false }
+  tickPlayerAnimators(lid, frameDt)
+  updateEntityPositions(frameDt, lerpFactor)
+  tickAnimatedEntities(frameDt)
   ams.dispatchFrame(frameDt,engineCtx)
   if (engineCtx.facial) engineCtx.facial.update(frameDt)
   uiTimer+=frameDt; if (latestState&&uiTimer>=0.25) { uiTimer=0; ams.renderAppUI(latestState,engineCtx,scene,camera,renderer,fpsDisplay) }

@@ -22,6 +22,13 @@ function buildEntityKey(enc, custStr) {
   return [enc[1], enc[2], enc[3], enc[4], enc[5], enc[6], enc[7], enc[8], enc[9], enc[10], enc[11], enc[12], custStr, enc[14], enc[15], enc[16]].join('|')
 }
 
+function buildEntry(e, id, prevCache, sleeping) {
+  const enc = encodeEntity(e), cust = enc[13]
+  const prev = prevCache?.get(id)
+  const custStr = (prev && prev.cust === cust) ? prev.custStr : (cust != null ? pack(cust).toString('hex') : '')
+  return { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: e._appName === 'environment', sleeping: !!sleeping }
+}
+
 const CLOSE2 = 20 * 20
 
 export class SnapshotEncoder {
@@ -83,8 +90,7 @@ export class SnapshotEncoder {
   static buildStaticIds(staticMap) { return new Set(staticMap.keys()) }
 
   static refreshDynamicCache(cache, activeIds, entities) {
-    const envIds = cache._envIds || []
-    envIds.length = 0
+    const envIds = cache._envIds || []; envIds.length = 0
     for (const id of activeIds) {
       const e = entities.get(id); if (!e || e.bodyType === 'static') continue
       const enc = encodeEntity(e), cust = enc[13]
@@ -93,42 +99,26 @@ export class SnapshotEncoder {
         const custStr = entry.cust === cust ? entry.custStr : (cust != null ? pack(cust).toString('hex') : '')
         entry.enc = enc; entry.k = buildEntityKey(enc, custStr); entry.cust = cust; entry.custStr = custStr; entry.sleeping = false
       } else {
-        const custStr = cust != null ? pack(cust).toString('hex') : ''
-        entry = { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: e._appName === 'environment', sleeping: false }
-        cache.set(id, entry)
+        entry = buildEntry(e, id, null, false); cache.set(id, entry)
       }
       if (entry.isEnv) envIds.push(id)
     }
-    cache._envIds = envIds
-    return cache
+    cache._envIds = envIds; return cache
   }
 
   static buildDynamicCache(activeIds, sleepingIds, suspendedIds, entities, prevCache) {
     const cache = new Map(), envIds = []
     for (const id of activeIds) {
       const e = entities.get(id); if (!e || e.bodyType === 'static') continue
-      const enc = encodeEntity(e), cust = enc[13]
-      const prev = prevCache?.get(id)
-      const custStr = (prev && prev.cust === cust) ? prev.custStr : (cust != null ? pack(cust).toString('hex') : '')
-      const isEnv = e._appName === 'environment'
-      cache.set(id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv, sleeping: false })
-      if (isEnv) envIds.push(id)
+      const entry = buildEntry(e, id, prevCache, false)
+      cache.set(id, entry); if (entry.isEnv) envIds.push(id)
     }
-    for (const id of sleepingIds) {
-      if (prevCache?.has(id)) { cache.set(id, prevCache.get(id)); continue }
-      const e = entities.get(id); if (!e || e.bodyType === 'static') continue
-      const enc = encodeEntity(e), cust = enc[13]
-      const prev = prevCache?.get(id)
-      const custStr = (prev && prev.cust === cust) ? prev.custStr : (cust != null ? pack(cust).toString('hex') : '')
-      cache.set(id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: e._appName === 'environment', sleeping: true })
-    }
-    for (const id of suspendedIds) {
-      if (prevCache?.has(id)) { cache.set(id, prevCache.get(id)); continue }
-      const e = entities.get(id); if (!e || e.bodyType === 'static') continue
-      const enc = encodeEntity(e), cust = enc[13]
-      const prev = prevCache?.get(id)
-      const custStr = (prev && prev.cust === cust) ? prev.custStr : (cust != null ? pack(cust).toString('hex') : '')
-      cache.set(id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: e._appName === 'environment', sleeping: true })
+    for (const idSet of [sleepingIds, suspendedIds]) {
+      for (const id of idSet) {
+        if (prevCache?.has(id)) { cache.set(id, prevCache.get(id)); continue }
+        const e = entities.get(id); if (!e || e.bodyType === 'static') continue
+        cache.set(id, buildEntry(e, id, prevCache, true))
+      }
     }
     cache._envIds = envIds; return cache
   }
