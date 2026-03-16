@@ -31,6 +31,15 @@ function buildEntry(e, id, prevCache, sleeping) {
 
 const CLOSE2 = 20 * 20
 
+function applyEntry(id, entry, nextMap, entities, prevEntityMap, useDistTier, vx, vy, vz) {
+  if (useDistTier && !entry.isEnv) {
+    const e = entry.enc, dx = e[2]-vx, dy = e[3]-vy, dz = e[4]-vz
+    if (dx*dx+dy*dy+dz*dz >= CLOSE2) { nextMap.set(id, prevEntityMap.get(id) || [entry.k, entry.cust, entry.custStr]); return }
+  }
+  nextMap.set(id, [entry.k, entry.cust, entry.custStr])
+  const prev = prevEntityMap.get(id); if (!prev || prev[0] !== entry.k) entities.push(entry.enc)
+}
+
 export class SnapshotEncoder {
   static encodePlayersOnce(players) {
     const m = new Map()
