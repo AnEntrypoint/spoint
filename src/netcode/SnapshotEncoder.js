@@ -132,71 +132,27 @@ export class SnapshotEncoder {
     cache._envIds = envIds; return cache
   }
 
-
   static encodeDeltaFromCache(tick, serverTime, dynCache, relevantIds, prevEntityMap, preEncodedPlayers, staticEntries, staticEntityMap, staticEntityIds, precomputedRemoved, seqNum, viewerPos) {
-    const entities = []
-    const nextMap = new Map()
-    if (staticEntries) {
-      for (const { enc } of staticEntries) entities.push(enc)
-    }
-    const vx = viewerPos ? viewerPos[0] : 0
-    const vy = viewerPos ? viewerPos[1] : 0
-    const vz = viewerPos ? viewerPos[2] : 0
+    const entities = [], nextMap = new Map()
+    if (staticEntries) for (const { enc } of staticEntries) entities.push(enc)
+    const [vx, vy, vz] = viewerPos || [0, 0, 0]
     const useDistTier = seqNum !== undefined && viewerPos && seqNum % 2 !== 0
     const relevantCount = Array.isArray(relevantIds) ? relevantIds.length : (relevantIds ? relevantIds.size : 0)
     const iterIds = (relevantIds && dynCache.size > relevantCount) ? relevantIds : null
     const relevantLookup = (!iterIds && Array.isArray(relevantIds)) ? new Set(relevantIds) : null
     if (iterIds) {
-      for (const id of iterIds) {
-        const entry = dynCache.get(id)
-        if (!entry) continue
-        if (useDistTier && !entry.isEnv) {
-          const enc = entry.enc
-          const dx = enc[2] - vx, dy = enc[3] - vy, dz = enc[4] - vz
-          if (dx*dx + dy*dy + dz*dz >= CLOSE2) { nextMap.set(id, prevEntityMap.get(id) || [entry.k, entry.cust, entry.custStr]); continue }
-        }
-        const { enc, k, cust, custStr } = entry
-        nextMap.set(id, [k, cust, custStr])
-        const prev = prevEntityMap.get(id)
-        if (!prev || prev[0] !== k) entities.push(enc)
-      }
-      const envIds = dynCache._envIds || []
-      for (const id of envIds) {
-        const entry = dynCache.get(id)
-        if (!entry) continue
-        const { enc, k, cust, custStr } = entry
-        nextMap.set(id, [k, cust, custStr])
-        const prev = prevEntityMap.get(id)
-        if (!prev || prev[0] !== k) entities.push(enc)
-      }
+      for (const id of iterIds) { const entry = dynCache.get(id); if (entry) applyEntry(id, entry, nextMap, entities, prevEntityMap, useDistTier, vx, vy, vz) }
+      for (const id of (dynCache._envIds || [])) { const entry = dynCache.get(id); if (entry) applyEntry(id, entry, nextMap, entities, prevEntityMap, false, 0, 0, 0) }
     } else {
       for (const [id, entry] of dynCache) {
         if (entry._envIds !== undefined) continue
-        if (!entry.isEnv && relevantIds) {
-          if (relevantLookup ? !relevantLookup.has(id) : !relevantIds.has(id)) continue
-        }
-        if (useDistTier && !entry.isEnv) {
-          const enc = entry.enc
-          const dx = enc[2] - vx, dy = enc[3] - vy, dz = enc[4] - vz
-          if (dx*dx + dy*dy + dz*dz >= CLOSE2) { nextMap.set(id, prevEntityMap.get(id) || [entry.k, entry.cust, entry.custStr]); continue }
-        }
-        const { enc, k, cust, custStr } = entry
-        nextMap.set(id, [k, cust, custStr])
-        const prev = prevEntityMap.get(id)
-        if (!prev || prev[0] !== k) entities.push(enc)
+        if (!entry.isEnv && relevantIds && (relevantLookup ? !relevantLookup.has(id) : !relevantIds.has(id))) continue
+        applyEntry(id, entry, nextMap, entities, prevEntityMap, useDistTier, vx, vy, vz)
       }
     }
     let removed = precomputedRemoved
-    if (!removed) {
-      removed = []
-      for (const id of prevEntityMap.keys()) {
-        if (!dynCache.has(id) && !(staticEntityIds && staticEntityIds.has(id))) removed.push(id)
-      }
-    }
-    return {
-      encoded: { tick: tick || 0, serverTime, players: preEncodedPlayers || [], entities, removed: removed.length ? removed : undefined, delta: 1 },
-      entityMap: nextMap
-    }
+    if (!removed) { removed = []; for (const id of prevEntityMap.keys()) { if (!dynCache.has(id) && !(staticEntityIds && staticEntityIds.has(id))) removed.push(id) } }
+    return { encoded: { tick: tick||0, serverTime, players: preEncodedPlayers||[], entities, removed: removed.length ? removed : undefined, delta: 1 }, entityMap: nextMap }
   }
 
   static encodeDelta(snapshot, prevEntityMap, preEncodedPlayers, staticEntries, staticMap, staticIds) {
