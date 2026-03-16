@@ -175,8 +175,7 @@ function animate(ts) {
     const vrm=pm.playerVrms.get(id), mesh=pm.playerMeshes.get(id); if (!mesh) return
     const ly=id===lid?cam.yaw:ps.lookYaw
     if (ly!==undefined) { let df=ly-mesh.rotation.y; df-=Math.PI*2*Math.round(df/(Math.PI*2)); const spd=Math.sqrt((ps.velocity?.[0]||0)**2+(ps.velocity?.[2]||0)**2); if (spd<0.5) mesh.rotation.y+=df*Math.min(1,40*frameDt); else { mesh.rotation.y+=df*Math.min(1,5*frameDt); let d2=ly-mesh.rotation.y; d2-=Math.PI*2*Math.round(d2/(Math.PI*2)); if (Math.abs(d2)>Math.PI*0.65) mesh.rotation.y+=d2>0?d2-Math.PI*0.65:d2+Math.PI*0.65 }; mesh.rotation.y-=Math.PI*2*Math.round(mesh.rotation.y/(Math.PI*2)); if (anim.setLookDirection) anim.setLookDirection(ly-mesh.rotation.y,ps.lookPitch||0,mesh.rotation.y+Math.PI,ps.velocity) }
-    if (anim.applyBoneOverrides) anim.applyBoneOverrides(frameDt)
-    if (vrm && mesh?.visible) vrm.update(frameDt)
+    if (mesh.visible) { if (anim.applyBoneOverrides) anim.applyBoneOverrides(frameDt); if (vrm) vrm.update(frameDt) }
     pm.updateVRMFeatures(id,frameDt,pm.playerTargets.get(id))
     if (id!==lid&&ps.lookPitch!==undefined) { const f=pm.playerExpressions.get(id); if (f&&!f._headBone&&vrm?.humanoid) f._headBone=vrm.humanoid.getNormalizedBoneNode('head'); if (f?._headBone) f._headBone.rotation.x=-(ps.lookPitch||0)*0.6 }
   })

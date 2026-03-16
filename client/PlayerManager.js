@@ -155,8 +155,10 @@ export function createPlayerManager(scene, gltfLoader, cam) {
         mesh.rotation.y -= Math.PI*2 * Math.round(mesh.rotation.y/(Math.PI*2))
         animator.setLookDirection?.(lookYaw - mesh.rotation.y, p.lookPitch||0, mesh.rotation.y+Math.PI, p.velocity)
       }
-      animator.applyBoneOverrides?.(dt)
-      playerVrms.get(p.id)?.update(dt)
+      if (mesh.visible) {
+        animator.applyBoneOverrides?.(dt)
+        playerVrms.get(p.id)?.update(dt)
+      }
       updateVRMFeatures(p.id, dt, playerTargets.get(p.id))
       if (p.id !== localId && p.lookPitch !== undefined) {
         const f = playerExpressions.get(p.id)
