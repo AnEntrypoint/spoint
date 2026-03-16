@@ -102,10 +102,6 @@ export class PhysicsNetworkClient {
     this.state.players = Array.from(this._snapProc.getAllPlayerStates().values())
     this.state.entities = Array.from(this._snapProc.getAllEntities().values())
     this.callbacks.onSnapshot(data); this.callbacks.onStateUpdate(this.state)
-    const displayStates = new Map()
-    if (smoothInterp) { for (const p of smoothInterp.getDisplayState().players) displayStates.set(p.id, p) }
-    else { const pred = this._msgHandler.getPredEngine(); for (const [id, ss] of this._snapProc.getAllPlayerStates()) displayStates.set(id, id === this.playerId && this.config.predictionEnabled && pred ? pred.getDisplayState(this.currentTick, 0) : ss) }
-    this.callbacks.onRender(displayStates)
   }
 
   getSmoothState(now) { const si = this._msgHandler.getSmoothInterp(); return si ? si.getDisplayState(now) : { players: this.state.players, entities: this.state.entities } }
