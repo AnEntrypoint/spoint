@@ -1,4 +1,5 @@
 import { renderEditorPane } from './EditPanelEditor.js'
+import { drag, v3, node, propField } from './EditPanelDOM.js'
 
 export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, onGetAppFiles, onDestroyEntity, onCreateApp }) {
   const panel = document.createElement('div')
@@ -9,6 +10,7 @@ export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, 
   document.body.appendChild(hint)
 
   let _tab='scene',_apps=[],_filt='',_entity=null,_eProps=[],_curApp=null,_curFile=null,_pendingCode=null,_entities=[],_selId=null,_onChange=null,_expandedApp=null,_appFiles={}
+  const getEntity = () => _entity, getOnChange = () => _onChange, getSelId = () => _selId
 
   const tabs=document.createElement('div'); tabs.style.cssText='display:flex;border-bottom:1px solid #333;flex-shrink:0'; panel.appendChild(tabs)
   const panes={}
@@ -26,26 +28,6 @@ export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, 
     if(id==='scene')_rScene(); if(id==='apps')_rApps()
   }
 
-  function _drag(label,value,onChange){
-    const row=document.createElement('div');row.style.cssText='display:flex;align-items:center;margin:2px 0'
-    const lbl=document.createElement('span');lbl.textContent=label+':';lbl.style.cssText='width:30px;color:#aaa;flex-shrink:0'
-    const inp=document.createElement('input');inp.type='text';inp.value=typeof value==='number'?value.toFixed(3):value
-    inp.style.cssText='flex:1;background:#252530;border:none;color:#fff;padding:2px 4px;border-radius:3px;cursor:ew-resize;font:inherit'
-    let d=false,sx=0,sv=0
-    inp.addEventListener('mousedown',e=>{if(document.activeElement===inp)return;d=true;sx=e.clientX;sv=parseFloat(inp.value)||0;e.preventDefault()})
-    window.addEventListener('mousemove',e=>{if(!d)return;const v=sv+(e.clientX-sx)*0.01;inp.value=v.toFixed(3);onChange(v)})
-    window.addEventListener('mouseup',()=>{d=false})
-    inp.addEventListener('change',()=>onChange(parseFloat(inp.value)||0))
-    row.appendChild(lbl);row.appendChild(inp);return row
-  }
-
-  function _v3(label,vals,key){
-    const g=document.createElement('div');g.style.marginBottom='4px'
-    const h=document.createElement('div');h.textContent=label;h.style.cssText='color:#888;font-size:10px;text-transform:uppercase;margin-bottom:2px';g.appendChild(h)
-    ;['x','y','z'].forEach((ax,i)=>g.appendChild(_drag(ax,vals[i]||0,v=>{if(!_entity||!_onChange)return;const c=_entity[key]?[..._entity[key]]:[0,0,0];c[i]=v;_onChange(key,c)})))
-    return g
-  }
-
   function _q2e([x,y,z,w]){
     return [Math.atan2(2*(w*x+y*z),1-2*(x*x+y*y))*180/Math.PI,(v=>Math.abs(v)>=1?Math.sign(v)*90:Math.asin(v)*180/Math.PI)(2*(w*y-z*x)),Math.atan2(2*(w*z+x*y),1-2*(y*y+z*z))*180/Math.PI]
   }
@@ -54,24 +36,8 @@ export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, 
     const pane=panes.scene.pane; pane.innerHTML=''
     const tree=document.createElement('div');tree.style.cssText='padding:6px;border-bottom:1px solid #222;overflow-y:auto;max-height:40vh'
     if(!_entities.length){const e=document.createElement('div');e.textContent='No entities';e.style.color='#555';tree.appendChild(e)}
-    for(const n of _entities)tree.appendChild(_node(n,0))
+    for(const n of _entities)tree.appendChild(node(n,0,getSelId,id=>{_selId=id;if(onEntitySelect)onEntitySelect(id)},_rScene))
     pane.appendChild(tree); if(_entity)_rProps(pane)
-  }
-
-  function _node(node,depth){
-    const wrap=document.createElement('div')
-    const row=document.createElement('div');row.style.cssText=`display:flex;align-items:center;padding:4px;cursor:pointer;border-radius:3px;padding-left:${8+depth*12}px;min-height:30px`
-    row.style.background=node.id===_selId?'#335':'transparent'
-    const lbl=document.createElement('span');lbl.textContent=node.label||node.appName||node.id;lbl.style.cssText='flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
-    const pos=node.position?`(${node.position.map(v=>v.toFixed(1)).join(', ')})`:'';
-    const tag=document.createElement('span');tag.textContent=(node.appName?node.appName+' ':'')+pos;tag.style.cssText='color:#555;font-size:10px;flex-shrink:0;margin-left:4px;white-space:nowrap'
-    row.appendChild(lbl);row.appendChild(tag)
-    row.addEventListener('click',()=>{_selId=node.id;if(onEntitySelect)onEntitySelect(node.id);_rScene()})
-    row.addEventListener('mouseenter',()=>{if(node.id!==_selId)row.style.background='#1e1e2e'})
-    row.addEventListener('mouseleave',()=>{row.style.background=node.id===_selId?'#335':'transparent'})
-    wrap.appendChild(row)
-    if(node.children?.length){const cw=document.createElement('div');for(const c of node.children)cw.appendChild(_node(c,depth+1));wrap.appendChild(cw)}
-    return wrap
   }
 
   function _rProps(pane){
@@ -88,27 +54,14 @@ export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, 
       br.appendChild(btn)
     }
     bw.appendChild(br);props.appendChild(bw)
-    props.appendChild(_v3('Position',_entity.position||[0,0,0],'position'))
-    props.appendChild(_v3('Rotation (deg)',_q2e(_entity.rotation||[0,0,0,1]),'_rotEuler'))
-    props.appendChild(_v3('Scale',_entity.scale||[1,1,1],'scale'))
-    if(_eProps.length){const eh=document.createElement('div');eh.textContent='App Props';eh.style.cssText='color:#888;font-size:10px;text-transform:uppercase;margin:6px 0 2px';props.appendChild(eh);for(const f of _eProps)props.appendChild(_propField(f))}
+    props.appendChild(v3('Position',_entity.position||[0,0,0],'position',getEntity,getOnChange))
+    props.appendChild(v3('Rotation (deg)',_q2e(_entity.rotation||[0,0,0,1]),'_rotEuler',getEntity,getOnChange))
+    props.appendChild(v3('Scale',_entity.scale||[1,1,1],'scale',getEntity,getOnChange))
+    if(_eProps.length){const eh=document.createElement('div');eh.textContent='App Props';eh.style.cssText='color:#888;font-size:10px;text-transform:uppercase;margin:6px 0 2px';props.appendChild(eh);for(const f of _eProps)props.appendChild(propField(f,getEntity,getOnChange))}
     if(_entity._appName){const btn=document.createElement('button');btn.textContent='Edit Code';btn.style.cssText='margin-top:8px;width:100%;background:#223355;color:#adf;border:none;padding:8px;border-radius:3px;cursor:pointer;font:inherit;min-height:44px';btn.addEventListener('click',()=>{_switchTab('apps');_expandApp(_entity._appName)});props.appendChild(btn)}
     const del=document.createElement('button');del.textContent='Delete Entity';del.style.cssText='margin-top:6px;width:100%;background:#331111;color:#f88;border:1px solid #522;padding:8px;border-radius:3px;cursor:pointer;font:inherit;min-height:44px'
     del.addEventListener('click',()=>{if(onDestroyEntity&&_entity)onDestroyEntity(_entity.id);_entity=null;_selId=null;_rScene()})
     props.appendChild(del); pane.appendChild(props)
-  }
-
-  function _propField(f){
-    const key=f.key,lbl=f.label||f.key,val=_entity?.custom?.[key]??f.default??(f.type==='number'?0:'')
-    const emit=v=>{if(_onChange)_onChange('custom.'+key,v)}
-    if(f.type==='number')return _drag(lbl,val,emit)
-    const row=document.createElement('div');row.style.cssText='display:flex;align-items:center;margin:2px 0;gap:4px'
-    const l=document.createElement('span');l.textContent=lbl+':';l.style.cssText='color:#aaa;flex-shrink:0;min-width:60px';row.appendChild(l)
-    if(f.type==='color'){const i=document.createElement('input');i.type='color';i.value=val||'#fff';i.style.cssText='flex:1;border:none;height:32px;cursor:pointer';i.addEventListener('change',()=>emit(i.value));row.appendChild(i)}
-    else if(f.type==='checkbox'){const i=document.createElement('input');i.type='checkbox';i.checked=!!val;i.addEventListener('change',()=>emit(i.checked));row.insertBefore(i,row.firstChild)}
-    else if(f.type==='select'&&f.options){const s=document.createElement('select');s.style.cssText='flex:1;background:#252530;color:#fff;border:none;padding:2px;font:inherit';for(const o of f.options){const op=document.createElement('option');op.value=o;op.textContent=o;if(val===o)op.selected=true;s.appendChild(op)};s.addEventListener('change',()=>emit(s.value));row.appendChild(s)}
-    else{const i=document.createElement('input');i.type='text';i.value=val;i.style.cssText='flex:1;background:#252530;border:none;color:#fff;padding:2px 4px;border-radius:3px;font:inherit';i.addEventListener('change',()=>emit(i.value));row.appendChild(i)}
-    return row
   }
 
   function _expandApp(n){ _expandedApp=n; if(_appFiles[n]){_rApps();return}; if(onGetAppFiles)onGetAppFiles(n); _rApps() }

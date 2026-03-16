@@ -129,7 +129,7 @@ let inputHandler=null, inputLoopId=null, latestState=null, latestInput=null, las
 const _dirty=new Set(), _sinTable=Array(360).fill(0).map((_,i)=>Math.sin(i*Math.PI/180))
 function startInputLoop() {
   if (inputLoopId) return
-  inputHandler=new InputHandler({ renderer, snapTurnAngle: xrSystem.vrSettings.snapTurnAngle, smoothTurnSpeed: xrSystem.vrSettings.smoothTurnSpeed, onMenuPressed: ()=>{ if (xrSystem.isPresenting) xrSystem.toggleSettings() } })
+  inputHandler=InputHandler({ renderer, snapTurnAngle: xrSystem.vrSettings.snapTurnAngle, smoothTurnSpeed: xrSystem.vrSettings.smoothTurnSpeed, onMenuPressed: ()=>{ if (xrSystem.isPresenting) xrSystem.toggleSettings() } })
   if (mobileControls) inputHandler.setMobileControls(mobileControls)
   inputLoopId=setInterval(()=>{
     if (!client.connected) return
