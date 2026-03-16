@@ -176,12 +176,12 @@ function animate(ts) {
     const ly=id===lid?cam.yaw:ps.lookYaw
     if (ly!==undefined) { let df=ly-mesh.rotation.y; df-=Math.PI*2*Math.round(df/(Math.PI*2)); const spd=Math.sqrt((ps.velocity?.[0]||0)**2+(ps.velocity?.[2]||0)**2); if (spd<0.5) mesh.rotation.y+=df*Math.min(1,40*frameDt); else { mesh.rotation.y+=df*Math.min(1,5*frameDt); let d2=ly-mesh.rotation.y; d2-=Math.PI*2*Math.round(d2/(Math.PI*2)); if (Math.abs(d2)>Math.PI*0.65) mesh.rotation.y+=d2>0?d2-Math.PI*0.65:d2+Math.PI*0.65 }; mesh.rotation.y-=Math.PI*2*Math.round(mesh.rotation.y/(Math.PI*2)); if (anim.setLookDirection) anim.setLookDirection(ly-mesh.rotation.y,ps.lookPitch||0,mesh.rotation.y+Math.PI,ps.velocity) }
     if (anim.applyBoneOverrides) anim.applyBoneOverrides(frameDt)
-    if (vrm) vrm.update(frameDt)
+    if (vrm && mesh?.visible) vrm.update(frameDt)
     pm.updateVRMFeatures(id,frameDt,pm.playerTargets.get(id))
     if (id!==lid&&ps.lookPitch!==undefined) { const f=pm.playerExpressions.get(id); if (f&&!f._headBone&&vrm?.humanoid) f._headBone=vrm.humanoid.getNormalizedBoneNode('head'); if (f?._headBone) f._headBone.rotation.x=-(ps.lookPitch||0)*0.6 }
   })
   if (_dirty.size>0) _shadowDirty=true
-  for (const id of _dirty) { const t=el.entityTargets.get(id),m=el.entityMeshes.get(id); if (!t||!m) continue; const gx=t.x+(t.vx||0)*frameDt,gy=t.y+(t.vy||0)*frameDt,gz=t.z+(t.vz||0)*frameDt; m.position.x+=(gx-m.position.x)*lerpFactor;m.position.y+=(gy-m.position.y)*lerpFactor;m.position.z+=(gz-m.position.z)*lerpFactor; m.quaternion.x+=(t.rx-m.quaternion.x)*lerpFactor;m.quaternion.y+=(t.ry-m.quaternion.y)*lerpFactor;m.quaternion.z+=(t.rz-m.quaternion.z)*lerpFactor;m.quaternion.w+=(t.rw-m.quaternion.w)*lerpFactor;m.quaternion.normalize() }
+  for (const id of _dirty) { const t=el.entityTargets.get(id),m=el.entityMeshes.get(id); if (!t||!m) continue; const gx=t.x+(t.vx||0)*frameDt,gy=t.y+(t.vy||0)*frameDt,gz=t.z+(t.vz||0)*frameDt; m.position.x+=(gx-m.position.x)*lerpFactor;m.position.y+=(gy-m.position.y)*lerpFactor;m.position.z+=(gz-m.position.z)*lerpFactor; const dx=t.rx-m.quaternion.x,dy=t.ry-m.quaternion.y,dz=t.rz-m.quaternion.z,dw=t.rw-m.quaternion.w; if (dx*dx+dy*dy+dz*dz+dw*dw>1e-12){m.quaternion.x+=dx*lerpFactor;m.quaternion.y+=dy*lerpFactor;m.quaternion.z+=dz*lerpFactor;m.quaternion.w+=dw*lerpFactor;m.quaternion.normalize()} }
   _dirty.clear()
   for (const m of el._animatedEntities) { if (m.userData.spin) m.rotation.y+=m.userData.spin*frameDt; if (m.userData.hover) { m.userData.hoverTime=(m.userData.hoverTime||0)+frameDt; const c=m.children[0]; if (c) c.position.y=_sinTable[Math.floor(m.userData.hoverTime*2*180/Math.PI)%360]*m.userData.hover } }
   ams.dispatchFrame(frameDt,engineCtx)
