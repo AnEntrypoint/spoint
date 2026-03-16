@@ -19,7 +19,7 @@ function encodeEntity(e) {
 }
 
 function buildEntityKey(enc, custStr) {
-  return [enc[1], enc[2], enc[3], enc[4], enc[5], enc[6], enc[7], enc[8], enc[9], enc[10], enc[11], enc[12], custStr, enc[14], enc[15], enc[16]].join('|')
+  return enc[1]+'|'+enc[2]+'|'+enc[3]+'|'+enc[4]+'|'+enc[5]+'|'+enc[6]+'|'+enc[7]+'|'+enc[8]+'|'+enc[9]+'|'+enc[10]+'|'+enc[11]+'|'+enc[12]+'|'+custStr+'|'+enc[14]+'|'+enc[15]+'|'+enc[16]
 }
 
 function buildEntry(e, id, prevCache, sleeping) {
