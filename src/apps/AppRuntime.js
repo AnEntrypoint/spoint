@@ -108,7 +108,7 @@ export class AppRuntime {
 
   _rebuildUpdateList() {
     this._updateList = []
-    for (const [id, ad] of this.apps) { const ctx=this.contexts.get(id); if (!ctx) continue; const s=ad.server||ad; if (typeof s.update==='function') this._updateList.push([id,s,ctx]) }
+    for (const [id, ad] of this.apps) { const ctx=this.contexts.get(id); if (!ctx) continue; const s=ad.server||ad; if (typeof s.update==='function') this._updateList.push({id,update:s.update.bind(s),ctx}) }
   }
 
   _rebuildCollisionList() {

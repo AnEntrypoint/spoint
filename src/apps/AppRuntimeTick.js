@@ -3,8 +3,8 @@ export function mixinTick(runtime) {
     this.currentTick = tickNum; this.deltaTime = dt; this.elapsed += dt
     if (tickNum % this._entityTickDivisor === 0) {
       const entityDt = dt * this._entityTickDivisor
-      for (const [entityId, server, ctx] of this._updateList) {
-        try { const r = server.update(ctx, entityDt); if (r?.catch) r.catch(e => console.error(`[AppRuntime] update(${entityId}): ${e.message}`)) }
+      for (const {id: entityId, update, ctx} of this._updateList) {
+        try { const r = update(ctx, entityDt); if (r?.catch) r.catch(e => console.error(`[AppRuntime] update(${entityId}): ${e.message}`)) }
         catch (e) { console.error(`[AppRuntime] update(${entityId}): ${e.message}`) }
       }
     }
