@@ -83,14 +83,21 @@ export class SnapshotEncoder {
   static buildStaticIds(staticMap) { return new Set(staticMap.keys()) }
 
   static refreshDynamicCache(cache, activeIds, entities) {
-    const envIds = []
+    const envIds = cache._envIds || []
+    envIds.length = 0
     for (const id of activeIds) {
       const e = entities.get(id); if (!e || e.bodyType === 'static') continue
-      const prev = cache.get(id), enc = encodeEntity(e), cust = enc[13]
-      const custStr = (prev && prev.cust === cust) ? prev.custStr : (cust != null ? pack(cust).toString('hex') : '')
-      const isEnv = prev ? prev.isEnv : e._appName === 'environment'
-      cache.set(id, { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv, sleeping: false })
-      if (isEnv) envIds.push(id)
+      const enc = encodeEntity(e), cust = enc[13]
+      let entry = cache.get(id)
+      if (entry) {
+        const custStr = entry.cust === cust ? entry.custStr : (cust != null ? pack(cust).toString('hex') : '')
+        entry.enc = enc; entry.k = buildEntityKey(enc, custStr); entry.cust = cust; entry.custStr = custStr; entry.sleeping = false
+      } else {
+        const custStr = cust != null ? pack(cust).toString('hex') : ''
+        entry = { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: e._appName === 'environment', sleeping: false }
+        cache.set(id, entry)
+      }
+      if (entry.isEnv) envIds.push(id)
     }
     cache._envIds = envIds
     return cache

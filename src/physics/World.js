@@ -1,6 +1,7 @@
 import initJolt from 'jolt-physics/wasm-compat'
-import { extractMeshFromGLB, extractMeshFromGLBAsync, extractAllMeshesFromGLBAsync } from './GLBLoader.js'
+import { extractMeshFromGLB, extractMeshFromGLBAsync } from './GLBLoader.js'
 import { CharacterManager } from './CharacterManager.js'
+import { buildConvexShape, buildTrimeshShape } from './ShapeBuilder.js'
 
 const LAYER_STATIC = 0, LAYER_DYNAMIC = 1, NUM_LAYERS = 2
 let joltInstance = null
@@ -76,17 +77,7 @@ export class PhysicsWorld {
     else if (shapeType === 'sphere') shape = new J.SphereShape(params)
     else if (shapeType === 'capsule') shape = new J.CapsuleShape(params[1], params[0])
     else if (shapeType === 'convex') {
-      const cacheKey = opts.shapeKey || null
-      let cvxShape = cacheKey && this._shapeCache.has(cacheKey) ? this._shapeCache.get(cacheKey) : null
-      if (!cvxShape) {
-        const pts = new J.VertexList(), f3 = new J.Float3(0, 0, 0)
-        for (let i = 0; i < params.length; i += 3) { f3.x = params[i]; f3.y = params[i+1]; f3.z = params[i+2]; pts.push_back(f3) }
-        J.destroy(f3)
-        const cvx = new J.ConvexHullShapeSettings(); cvx.set_mPoints(pts)
-        const sr = cvx.Create(); cvxShape = sr.Get()
-        J.destroy(pts); J.destroy(cvx)
-        if (cacheKey) this._shapeCache.set(cacheKey, cvxShape); else J.destroy(sr)
-      }
+      const { shape: cvxShape } = buildConvexShape(J, params, this._shapeCache, opts.shapeKey || null)
       const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
       return this._addBody(cvxShape, position, mt, motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC, { ...opts, meta: { type: motionType, shape: shapeType } })
     }
@@ -102,13 +93,7 @@ export class PhysicsWorld {
       return Promise.resolve(this._addBody(this._shapeCache.get(cacheKey), position, mt, motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC, { ...opts, meta: { type: motionType, shape: 'convex' } }))
     }
     const result = this._convexQueue.then(() => {
-      const pts = new J.VertexList(), f3 = new J.Float3(0, 0, 0)
-      for (let i = 0; i < params.length; i += 3) { f3.x = params[i]; f3.y = params[i+1]; f3.z = params[i+2]; pts.push_back(f3) }
-      J.destroy(f3)
-      const cvx = new J.ConvexHullShapeSettings(); cvx.set_mPoints(pts)
-      const sr = cvx.Create(), shape = sr.Get()
-      J.destroy(pts); J.destroy(cvx)
-      if (cacheKey) this._shapeCache.set(cacheKey, shape); else J.destroy(sr)
+      const { shape } = buildConvexShape(J, params, this._shapeCache, cacheKey)
       const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
       return this._addBody(shape, position, mt, motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC, { ...opts, meta: { type: motionType, shape: 'convex' } })
     })
@@ -116,18 +101,8 @@ export class PhysicsWorld {
   }
 
   async addStaticTrimeshAsync(glbPath, meshIndex = 0, position = [0, 0, 0], scale = [1, 1, 1]) {
-    const J = this.Jolt, mesh = await extractAllMeshesFromGLBAsync(glbPath)
-    let { vertices, indices, triangleCount } = mesh
-    if (scale[0] !== 1 || scale[1] !== 1 || scale[2] !== 1)
-      for (let i = 0; i < vertices.length; i += 3) { vertices[i] *= scale[0]; vertices[i+1] *= scale[1]; vertices[i+2] *= scale[2] }
-    const triangles = new J.TriangleList(); triangles.resize(triangleCount)
-    const f3 = new J.Float3(0, 0, 0)
-    for (let t = 0; t < triangleCount; t++) {
-      const tri = triangles.at(t)
-      for (let v = 0; v < 3; v++) { const idx = indices[t*3+v]; f3.x = vertices[idx*3]; f3.y = vertices[idx*3+1]; f3.z = vertices[idx*3+2]; tri.set_mV(v, f3) }
-    }
-    const settings = new J.MeshShapeSettings(triangles), sr = settings.Create(), shape = sr.Get()
-    J.destroy(f3); J.destroy(triangles); J.destroy(settings)
+    const J = this.Jolt
+    const { shape, sr, triangleCount } = await buildTrimeshShape(J, glbPath, scale)
     const id = this._addBody(shape, position, J.EMotionType_Static, LAYER_STATIC, { meta: { type: 'static', shape: 'trimesh', triangles: triangleCount } })
     J.destroy(sr); return id
   }
