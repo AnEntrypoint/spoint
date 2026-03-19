@@ -15,19 +15,19 @@ export function slerpQuat(out, q1, q2, t) {
   out[0] = x1 * s1 + x2 * s2; out[1] = y1 * s1 + y2 * s2; out[2] = z1 * s1 + z2 * s2; out[3] = w1 * s1 + w2 * s2
 }
 
-export function interpolateSnapshot(result, playerPool, entityPool, getPlayerSlot, older, newer, alpha) {
+export function interpolateSnapshot(result, playerPool, entityPool, getPlayerSlot, older, newer, alpha, oldPMap) {
   result.tick = newer.tick
   result.timestamp = newer.timestamp
 
-  const oldP = new Map()
-  for (const p of older.players || []) oldP.set(p.id, p)
+  oldPMap.clear()
+  for (const p of older.players || []) oldPMap.set(p.id, p)
 
   const newPlayers = newer.players || []
   const pLen = newPlayers.length
   result.players.length = pLen
   for (let i = 0; i < pLen; i++) {
     const np = newPlayers[i]
-    const op = oldP.get(np.id)
+    const op = oldPMap.get(np.id)
     const slot = getPlayerSlot(i)
     result.players[i] = slot
     if (op) {

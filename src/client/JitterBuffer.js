@@ -71,7 +71,7 @@ export class JitterBuffer {
     const curr = this.buffer[lo], next = this.buffer[lo + 1]
     const range = next.clientTime - curr.clientTime
     if (range === 0) return curr.snapshot
-    return interpolateSnapshot(this._result, this._playerPool, this._entityPool, i => this._getPlayerSlot(i), curr.snapshot, next.snapshot, (renderTime - curr.clientTime) / range)
+    return interpolateSnapshot(this._result, this._playerPool, this._entityPool, i => this._getPlayerSlot(i), curr.snapshot, next.snapshot, (renderTime - curr.clientTime) / range, this._oldP)
   }
 
   _getPlayerSlot(idx) {

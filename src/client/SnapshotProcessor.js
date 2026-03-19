@@ -54,8 +54,19 @@ function fillEntityObj(s, e) {
   else { s.scale[0] = 1; s.scale[1] = 1; s.scale[2] = 1 }
 }
 
-function fillPlayer(s, p) { if (Array.isArray(p)) fillPlayerArr(s, p); else fillPlayerObj(s, p) }
-function fillEntity(s, e) { if (Array.isArray(e)) fillEntityArr(s, e); else fillEntityObj(s, e) }
+function parsePlayerNew(p) {
+  if (Array.isArray(p)) {
+    return { id: p[0], position: [p[1], p[2], p[3]], rotation: [p[4], p[5], p[6], p[7]], velocity: [p[8], p[9], p[10]], onGround: p[11] === 1, health: p[12], inputSequence: p[13], crouch: p[14] || 0, lookPitch: ((p[15] || 0) >> 4) / 15 * TAU - Math.PI, lookYaw: ((p[15] || 0) & 0xF) / 15 * TAU }
+  }
+  return { id: p.id || p.i, position: p.position ? [...p.position] : [0, 0, 0], rotation: p.rotation ? [...p.rotation] : [0, 0, 0, 1], velocity: p.velocity ? [...p.velocity] : [0, 0, 0], onGround: p.onGround ?? false, health: p.health ?? 100, inputSequence: 0, crouch: 0, lookPitch: 0, lookYaw: 0 }
+}
+
+function parseEntityNew(e) {
+  if (Array.isArray(e)) {
+    return { id: e[0], model: e[1], position: [e[2], e[3], e[4]], rotation: [e[5], e[6], e[7], e[8]], velocity: [e[9], e[10], e[11]], bodyType: e[12], custom: e[13], scale: [e[14] ?? 1, e[15] ?? 1, e[16] ?? 1] }
+  }
+  return { id: e.id, model: e.model, position: e.position ? [...e.position] : [0, 0, 0], rotation: e.rotation ? [...e.rotation] : [0, 0, 0, 1], velocity: e.velocity ? [...e.velocity] : [0, 0, 0], bodyType: e.bodyType || 'static', custom: e.custom || null, scale: e.scale ? [...e.scale] : [1, 1, 1] }
+}
 
 export class SnapshotProcessor {
   constructor(config = {}) {
@@ -65,39 +76,27 @@ export class SnapshotProcessor {
     this._callbacks = config.callbacks || {}
     this._seenPlayers = new Set()
     this._seenEntities = new Set()
-    this._playerPool = []
-    this._entityPool = []
-    this._pIdx = 0
-    this._eIdx = 0
-  }
-
-  _acquirePlayer() {
-    if (this._pIdx < this._playerPool.length) return this._playerPool[this._pIdx++]
-    const s = makePlayerSlot(); this._playerPool.push(s); this._pIdx++; return s
-  }
-
-  _acquireEntity() {
-    if (this._eIdx < this._entityPool.length) return this._entityPool[this._eIdx++]
-    const s = makeEntitySlot(); this._entityPool.push(s); this._eIdx++; return s
   }
 
   processSnapshot(data, tick) {
     this.lastSnapshotTick = tick
-    this._pIdx = 0; this._eIdx = 0
     const snapshotForBuffer = { tick: data.tick || 0, timestamp: data.timestamp || Date.now(), players: [], entities: [] }
 
     this._seenPlayers.clear()
     for (const p of data.players || []) {
       const pid = Array.isArray(p) ? p[0] : (p.id || p.i)
       this._seenPlayers.add(pid)
-      const bufSlot = this._acquirePlayer()
-      fillPlayer(bufSlot, p)
-      const isNew = !this._playerStates.has(pid)
-      let track = isNew ? undefined : this._playerStates.get(pid)
-      if (!track) { track = makePlayerSlot(); this._playerStates.set(pid, track) }
-      fillPlayer(track, p)
-      if (isNew) this._callbacks.onPlayerJoined?.(pid, track)
-      snapshotForBuffer.players.push(bufSlot)
+      const bufState = parsePlayerNew(p)
+      let track = this._playerStates.get(pid)
+      if (track) {
+        if (Array.isArray(p)) fillPlayerArr(track, p); else fillPlayerObj(track, p)
+      } else {
+        track = makePlayerSlot()
+        if (Array.isArray(p)) fillPlayerArr(track, p); else fillPlayerObj(track, p)
+        this._playerStates.set(pid, track)
+        this._callbacks.onPlayerJoined?.(pid, track)
+      }
+      snapshotForBuffer.players.push(bufState)
     }
     for (const pid of this._playerStates.keys()) {
       if (!this._seenPlayers.has(pid)) { this._playerStates.delete(pid); this._callbacks.onPlayerLeft?.(pid) }
@@ -107,22 +106,24 @@ export class SnapshotProcessor {
     return snapshotForBuffer
   }
 
-  _parseEntity(e, snapshotForBuffer) {
+  _handleEntity(e, snapshotForBuffer) {
     const eid = Array.isArray(e) ? e[0] : e.id
-    const bufSlot = this._acquireEntity()
-    fillEntity(bufSlot, e)
-    const isNew = !this._entityStates.has(eid)
-    let track = isNew ? undefined : this._entityStates.get(eid)
-    if (!track) { track = makeEntitySlot(); this._entityStates.set(eid, track) }
-    fillEntity(track, e)
-    if (isNew) this._callbacks.onEntityAdded?.(eid, track)
-    snapshotForBuffer.entities.push(bufSlot)
+    snapshotForBuffer.entities.push(parseEntityNew(e))
+    let track = this._entityStates.get(eid)
+    if (track) {
+      if (Array.isArray(e)) fillEntityArr(track, e); else fillEntityObj(track, e)
+    } else {
+      track = makeEntitySlot()
+      if (Array.isArray(e)) fillEntityArr(track, e); else fillEntityObj(track, e)
+      this._entityStates.set(eid, track)
+      this._callbacks.onEntityAdded?.(eid, track)
+    }
     return eid
   }
 
   _processEntities(data, snapshotForBuffer) {
     if (data.delta) {
-      for (const e of data.entities || []) this._parseEntity(e, snapshotForBuffer)
+      for (const e of data.entities || []) this._handleEntity(e, snapshotForBuffer)
       if (data.removed) {
         for (const eid of data.removed) {
           if (this._entityStates.has(eid)) { this._entityStates.delete(eid); this._callbacks.onEntityRemoved?.(eid) }
@@ -130,7 +131,7 @@ export class SnapshotProcessor {
       }
     } else {
       this._seenEntities.clear()
-      for (const e of data.entities || []) { this._seenEntities.add(this._parseEntity(e, snapshotForBuffer)) }
+      for (const e of data.entities || []) this._seenEntities.add(this._handleEntity(e, snapshotForBuffer))
       for (const eid of this._entityStates.keys()) {
         if (!this._seenEntities.has(eid)) { this._entityStates.delete(eid); this._callbacks.onEntityRemoved?.(eid) }
       }
