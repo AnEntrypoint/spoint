@@ -58,10 +58,23 @@ export function mixinTick(runtime) {
     return r
   }
 
+  const _colGrid = new Map()
+  const _colGridCells = new Map()
+  const _COL_GRID_THRESHOLD = 100
+  const _COL_CELL_SZ = 4
+
   runtime._tickCollisions = function() {
     const c = this._collisionEntities
     if (c.length === 0) return
     for (let i = 0; i < c.length; i++) c[i]._cachedColR = this._colR(c[i].collider)
+    if (c.length < _COL_GRID_THRESHOLD) {
+      this._tickCollisionsBrute(c)
+    } else {
+      this._tickCollisionsGrid(c)
+    }
+  }
+
+  runtime._tickCollisionsBrute = function(c) {
     for (let i = 0; i < c.length; i++) {
       const a = c[i], ar = a._cachedColR, ax = a.position[0], ay = a.position[1], az = a.position[2]
       for (let j = i + 1; j < c.length; j++) {
@@ -70,6 +83,34 @@ export function mixinTick(runtime) {
         if (dx*dx+dy*dy+dz*dz < rr*rr) {
           this.fireEvent(a.id, 'onCollision', { id: b.id, position: b.position, velocity: b.velocity })
           this.fireEvent(b.id, 'onCollision', { id: a.id, position: a.position, velocity: a.velocity })
+        }
+      }
+    }
+  }
+
+  runtime._tickCollisionsGrid = function(c) {
+    _colGrid.clear()
+    for (let i = 0; i < c.length; i++) {
+      const e = c[i]
+      const key = Math.floor(e.position[0] / _COL_CELL_SZ) * 65536 + Math.floor(e.position[2] / _COL_CELL_SZ)
+      let cell = _colGrid.get(key)
+      if (!cell) { cell = _colGridCells.get(key); if (!cell) { cell = []; _colGridCells.set(key, cell) } else { cell.length = 0 }; _colGrid.set(key, cell) }
+      cell.push(e)
+    }
+    for (let i = 0; i < c.length; i++) {
+      const a = c[i], ar = a._cachedColR, ax = a.position[0], ay = a.position[1], az = a.position[2]
+      const acx = Math.floor(ax / _COL_CELL_SZ), acz = Math.floor(az / _COL_CELL_SZ)
+      for (let ddx = -1; ddx <= 1; ddx++) for (let ddz = -1; ddz <= 1; ddz++) {
+        const cell = _colGrid.get((acx + ddx) * 65536 + (acz + ddz))
+        if (!cell) continue
+        for (const b of cell) {
+          if (b.id <= a.id) continue
+          const dx = b.position[0]-ax, dy = b.position[1]-ay, dz = b.position[2]-az
+          const rr = ar + b._cachedColR
+          if (dx*dx+dy*dy+dz*dz < rr*rr) {
+            this.fireEvent(a.id, 'onCollision', { id: b.id, position: b.position, velocity: b.velocity })
+            this.fireEvent(b.id, 'onCollision', { id: a.id, position: a.position, velocity: a.velocity })
+          }
         }
       }
     }
@@ -108,7 +149,7 @@ export function mixinTick(runtime) {
         const pp = p.state?.position; if (!pp) continue
         const dx = pp[0]-e.position[0], dy = pp[1]-e.position[1], dz = pp[2]-e.position[2]
         if (dx*dx+dy*dy+dz*dz > e._interactRadius**2) continue
-        const key = `${e.id}:${p.id}`
+        const key = e.id * 100000 + p.id
         const last = this._interactCooldowns.get(key) || 0
         const cooldown = e._interactCooldown ?? 500
         if (p.lastInput?.interact && now - last > cooldown) {

@@ -114,7 +114,7 @@ editor.onEditModeChange(on => { if (on) { if (document.pointerLockElement) docum
 editPanel.onEditorChange((key,value) => { if (!editor.selectedEntityId) return; const changes=key==='collider'?{custom:{_collider:value}}:key.startsWith('custom.')?{custom:{[key.slice(7)]:value}}:key==='_rotEuler'?{rotation:editor.eulerDegToQuat(value)}:{[key]:value}; const mesh=el.entityMeshes.get(editor.selectedEntityId); if (mesh) { if (changes.position) mesh.position.set(...changes.position); if (changes.rotation) mesh.quaternion.set(...changes.rotation); if (changes.scale) mesh.scale.set(...changes.scale); editor.updateGizmo() }; editor.sendEditorUpdate(changes) })
 document.addEventListener('keydown', e => { editor.onKeyDown(e); ams.dispatchKeyDown(e,engineCtx) }); document.addEventListener('keyup', e => ams.dispatchKeyUp(e,engineCtx))
 client.send(MSG.LIST_APPS, {}); xrSystem.setupSessionListeners(id=>pm.playerStates.get(id), ()=>client.playerId, { get yaw() { return cam.yaw } })
-let inputHandler=null, inputLoopId=null, latestState=null, latestInput=null, lastShootState=false, lastHealth=100, _hierarchyDirty=false, fpsFrames=0, fpsLast=performance.now(), fpsDisplay=0, uiTimer=0, lastFrameTime=performance.now(), _lodCullAt=0, _shadowDirty=true, _shadowLastUpdate=0, _profileFrames=0, _profileSum=0; const _dirty=new Set(), _sinTable=Array(360).fill(0).map((_,i)=>Math.sin(i*Math.PI/180))
+let inputHandler=null, inputLoopId=null, latestState=null, latestInput=null, lastShootState=false, lastHealth=100, _hierarchyDirty=false, fpsFrames=0, fpsLast=performance.now(), fpsDisplay=0, uiTimer=0, lastFrameTime=performance.now(), _lodCullAt=0, _shadowDirty=true, _shadowLastUpdate=0, _profileFrames=0, _profileSum=0; const _dirty=new Set(), _sinTable=Array(360).fill(0).map((_,i)=>Math.sin(i*Math.PI/180)), _PLAYER_VIS_D2=6400
 function startInputLoop() {
   if (inputLoopId) return
   inputHandler=InputHandler({ renderer, snapTurnAngle: xrSystem.vrSettings.snapTurnAngle, smoothTurnSpeed: xrSystem.vrSettings.smoothTurnSpeed, onMenuPressed: ()=>{ if (xrSystem.isPresenting) xrSystem.toggleSettings() } }); if (mobileControls) inputHandler.setMobileControls(mobileControls)
@@ -152,11 +152,12 @@ function updatePlayerPositions(players, lid, frameDt) {
 function tickPlayerAnimators(lid, frameDt) {
   pm.playerAnimators.forEach((anim,id)=>{
     const ps=pm.playerStates.get(id); if (!ps) return
-    anim.update(frameDt,ps.velocity,ps.onGround,ps.health,ps._aiming||false,ps.crouch||0)
     const vrm=pm.playerVrms.get(id), mesh=pm.playerMeshes.get(id); if (!mesh) return
+    if (!mesh.visible && id !== lid) return
+    anim.update(frameDt,ps.velocity,ps.onGround,ps.health,ps._aiming||false,ps.crouch||0)
     const ly=id===lid?cam.yaw:ps.lookYaw
-    if (ly!==undefined) { let df=ly-mesh.rotation.y; df-=Math.PI*2*Math.round(df/(Math.PI*2)); const spd=Math.sqrt((ps.velocity?.[0]||0)**2+(ps.velocity?.[2]||0)**2); if (spd<0.5) mesh.rotation.y+=df*Math.min(1,40*frameDt); else { mesh.rotation.y+=df*Math.min(1,5*frameDt); let d2=ly-mesh.rotation.y; d2-=Math.PI*2*Math.round(d2/(Math.PI*2)); if (Math.abs(d2)>Math.PI*0.65) mesh.rotation.y+=d2>0?d2-Math.PI*0.65:d2+Math.PI*0.65 }; mesh.rotation.y-=Math.PI*2*Math.round(mesh.rotation.y/(Math.PI*2)); if (anim.setLookDirection) anim.setLookDirection(ly-mesh.rotation.y,ps.lookPitch||0,mesh.rotation.y+Math.PI,ps.velocity) }
-    if (mesh.visible) { if (anim.applyBoneOverrides) anim.applyBoneOverrides(frameDt); if (vrm) vrm.update(frameDt) }
+    if (ly!==undefined) { let df=ly-mesh.rotation.y; df-=Math.PI*2*Math.round(df/(Math.PI*2)); const vx=ps.velocity?.[0]||0,vz=ps.velocity?.[2]||0; if (vx*vx+vz*vz<0.25) mesh.rotation.y+=df*Math.min(1,40*frameDt); else { mesh.rotation.y+=df*Math.min(1,5*frameDt); let d2=ly-mesh.rotation.y; d2-=Math.PI*2*Math.round(d2/(Math.PI*2)); if (Math.abs(d2)>Math.PI*0.65) mesh.rotation.y+=d2>0?d2-Math.PI*0.65:d2+Math.PI*0.65 }; mesh.rotation.y-=Math.PI*2*Math.round(mesh.rotation.y/(Math.PI*2)); if (anim.setLookDirection) anim.setLookDirection(ly-mesh.rotation.y,ps.lookPitch||0,mesh.rotation.y+Math.PI,ps.velocity) }
+    if (anim.applyBoneOverrides) anim.applyBoneOverrides(frameDt); if (vrm) vrm.update(frameDt)
     pm.updateVRMFeatures(id,frameDt,pm.playerTargets.get(id))
     if (id!==lid&&ps.lookPitch!==undefined) { const f=pm.playerExpressions.get(id); if (f&&!f._headBone&&vrm?.humanoid) f._headBone=vrm.humanoid.getNormalizedBoneNode('head'); if (f?._headBone) f._headBone.rotation.x=-(ps.lookPitch||0)*0.6 }
   })
@@ -184,7 +185,7 @@ function animate(ts) {
   const local=client.getLocalState()||pm.playerStates.get(lid)
   if (!xrSystem.isPresenting||cam.getEditMode()) cam.update(local,pm.playerMeshes.get(lid),frameDt,latestInput)
   xrSystem.syncVRPosition(local); xrSystem.update(frameDt,local,ams.appModules,now)
-  if (now-_lodCullAt>=50) { const cp=camera.position,sk=80*80; for (const m of pm.playerMeshes.values()) { const dx=m.position.x-cp.x,dy=m.position.y-cp.y,dz=m.position.z-cp.z; m.visible=dx*dx+dy*dy+dz*dz<=sk }; el.updateVisibility(camera); _lodCullAt=now }
+  if (now-_lodCullAt>=50) { const cp=camera.position; for (const m of pm.playerMeshes.values()) { const dx=m.position.x-cp.x,dy=m.position.y-cp.y,dz=m.position.z-cp.z; m.visible=dx*dx+dy*dy+dz*dz<=_PLAYER_VIS_D2 }; el.updateVisibility(camera); _lodCullAt=now }
   if (typeof editor!=='undefined') editor.updateGizmo()
   if (_shadowDirty&&now-_shadowLastUpdate>=66) { renderer.shadowMap.needsUpdate=true; _shadowDirty=false; _shadowLastUpdate=now }
   renderer.render(scene,camera)
