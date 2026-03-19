@@ -8,7 +8,7 @@ export function applyPlayerCollisions(players, grid, gridCells, cellSz, minDist2
     if (!cell) { cell = gridCells.get(ck); if (!cell) { cell = []; gridCells.set(ck, cell) } else { cell.length = 0 }; grid.set(ck, cell) }
     cell.push(p)
   }
-  if ((++_pruneTick & 255) === 0) {
+  if ((++_pruneTick & 63) === 0 || gridCells.size > players.length * 4) {
     for (const k of gridCells.keys()) { if (!grid.has(k)) gridCells.delete(k) }
   }
   for (const player of players) {

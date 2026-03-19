@@ -262,7 +262,7 @@ After `updatePlayerPhysics()`, wished XZ velocity is written back over the physi
 
 ### SNAP_GROUPS Rotation
 
-TickHandler sends snapshots to `1/SNAP_GROUPS` of players per tick. Formula: `snapGroups = Math.max(4, Math.ceil(playerCount / 25))`. At 100p: 4 groups (50 sends/tick). Effective snapshot rate = 32 Hz at all player counts.
+TickHandler sends snapshots to `1/SNAP_GROUPS` of players per tick. Formula: `snapGroups = Math.max(1, Math.ceil(playerCount / 50))`. At 100p: 2 groups (50 sends/tick, 32 Hz). At 200p: 4 groups (50 sends/tick, 16 Hz). Caps sends at ~50/tick while maintaining minimum 16 Hz at 200 players.
 
 **Bottleneck**: Windows WebSocket kernel I/O ~166μs per send. SNAP_GROUPS tuning halves writes at 100p, gaining 46% improvement (1,186→1,358 snaps/sec).
 
@@ -337,6 +337,8 @@ On keyframe ticks, per-player spatial snapshots must use `encodeDelta(combined, 
 - `SNAP_UNRELIABLE = true` hoisted as constant — avoids `isUnreliable(MSG.SNAPSHOT)` lookup per send
 - Yaw sin/cos cached: `_lastYaw`/`_lastSinHalf`/`_lastCosHalf` skip trig when yaw unchanged
 - Idle player counting uses direct iteration instead of `[...values()].filter()`
+- `packSnapshot()` helper reuses `_packWrapper`/`_packPayload` module-level objects — avoids per-call `{type, payload}` allocation
+- `_cellPackCache` per-tick Map caches packed snapshot buffers by spatial cell key. Players in the same cell with no entity changes share a single `pack()` result. ~43% hit rate in spread scenarios, higher when players cluster
 
 ### ConnectionManager Send Optimization
 
@@ -348,7 +350,7 @@ On keyframe ticks, per-player spatial snapshots must use `encodeDelta(combined, 
 
 ### CollisionSystem Grid Pruning
 
-`gridCells` Map (reused array pool) is periodically pruned every 256 ticks to remove stale cells that are no longer active, preventing unbounded Map growth.
+`gridCells` Map (reused array pool) is pruned every 64 ticks or when size exceeds `players.length * 4`, removing stale cells. Entity collision grid (`_colGridCells` in AppRuntimeTick) uses the same pattern with `c.length * 4` threshold. Interactable cooldown Map (`_interactCooldowns`) prunes entries older than 10 seconds every 256 ticks when size exceeds 100.
 
 ### Client-Side Optimizations
 
@@ -603,15 +605,24 @@ Measured 2026-03-16 via microbenchmark in `bun x gm-exec exec` with real imports
 
 **Bottleneck 1 (FIXED): `buildEntityKey` Array.join → string concat** — 3.7x speedup. Now uses string concatenation.
 
-**Bottleneck 2 (FIXED): `pack` wrapper overhead per-player** — `connections.send()` replaced with `pack()` + `sendPacked()` in spatial path. `ConnectionManager.send()` reuses `_sendObj` module-level object. `SNAP_UNRELIABLE` hoisted as constant.
+**Bottleneck 2 (FIXED): `pack` wrapper overhead per-player** — `connections.send()` replaced with `pack()` + `sendPacked()` in spatial path. `ConnectionManager.send()` reuses `_sendObj` module-level object. `SNAP_UNRELIABLE` hoisted as constant. `packSnapshot()` reuses `_packWrapper`/`_packPayload` objects to avoid `{ type, payload: { seq, ...encoded } }` allocation per pack call.
 
 **Bottleneck 3 (FIXED): `encodeEntity` array allocation** — `fillEntityEnc()` mutates existing `entry.enc` array in-place during `refreshDynamicCache`. Zero allocation for cached entities. Lazy key rebuild via `_dirty` flag — key only rebuilt in `applyEntry()` when the entry is actually sent.
 
+**Bottleneck 4 (FIXED): `pack(cust).toString('hex')` for custom change detection** — replaced with `JSON.stringify(cust)` which is 8-12x faster. Used in `resolveKey`, `buildEntry`, `encodeStaticEntities`, and `encodeDelta`. Removed `pack` import from `SnapshotEncoder.js`.
+
+**Bottleneck 5 (FIXED): Tick hot path allocations** — `_tickTimers` uses in-place array compaction instead of creating new `keep` array. `_syncPlayerIndex` avoids spread array allocation. `getNearbyPlayers` reuses module-level `_nearbyIdSet`. Cell pack caching in TickHandler reuses packed data for players in same cell with no entity changes.
+
+**Bottleneck 6 (FIXED): Grid/cooldown memory growth** — `CollisionSystem` prunes stale grid cells every 64 ticks (was 256) plus size-based threshold. `_tickInteractables` prunes stale cooldown entries every 256 ticks. Entity collision grid also prunes stale cells.
+
 ### Key Data Points
 
-- `refreshDynamicCache` (500 active): **0.157ms** (was 0.786ms — 5x improvement from in-place mutation + lazy key)
-- `encodeDeltaFromCache` (200 relevant): **0.099ms** — efficient via `iterIds` path
-- `encodePlayersOnce` (50 players): **0.027ms** — negligible
+- `refreshDynamicCache` (500 active): **0.063ms** (previously 0.157ms — in-place mutation + lazy key)
+- `encodeDeltaFromCache` (200 relevant): **0.034ms** — efficient via `iterIds` path
+- `encodePlayersOnce` (50 players): **0.022ms** — negligible
+- Full snapshot pipeline (100p / 1000e / 500 active × 25 sends): **4.4ms** (pack dominates at 2.9ms)
+- Collision system: 0.05ms (100p spread), 0.07ms (100p clustered), 0.30ms (300p clustered)
 - `spatialCache` hit rate at 100 players: 84% hits / 16% misses — spatial grouping is working well
-- Wire size scales linearly: 10e=1652B, 50e=2975B, 100e=4733B, 150e=6533B, 200e=8333B
+- Wire size scales linearly: 10e=1570B, 50e=2170B, 100e=2253B, 200e=3383B
 - Client `SnapshotProcessor` delta processing (50p + 200e): **0.047ms** — zero allocation for known entities via object pool
+- Custom serialization: JSON.stringify 8-12x faster than pack+hex for change detection

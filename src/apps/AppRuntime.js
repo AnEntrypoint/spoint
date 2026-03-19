@@ -166,7 +166,7 @@ export class AppRuntime {
   setPlayerManager(pm) { this._playerManager = pm }
   setStageLoader(sl) { this._stageLoader = sl }
   getPlayers() { return this._playerManager ? this._playerManager.getConnectedPlayers() : [] }
-  getNearestPlayer(pos, r) { let n=null,md=r*r; for (const p of this.getPlayers()) { const pp=p.state?.position; if (!pp) continue; const d=(pp[0]-pos[0])**2+(pp[1]-pos[1])**2+(pp[2]-pos[2])**2; if (d<md) { md=d; n=p } } return n }
+  getNearestPlayer(pos, r) { let n=null,md=r*r; for (const p of this.getPlayers()) { const pp=p.state?.position; if (!pp) continue; const dx=pp[0]-pos[0],dy=pp[1]-pos[1],dz=pp[2]-pos[2],d=dx*dx+dy*dy+dz*dz; if (d<md) { md=d; n=p } } return n }
   broadcastToPlayers(m) { if (this._connections) this._connections.broadcast(MSG.APP_EVENT, m); else if (this._playerManager) this._playerManager.broadcast(m) }
   sendToPlayer(id, m) { if (this._connections) this._connections.send(id, MSG.APP_EVENT, m); else if (this._playerManager) this._playerManager.sendToPlayer(id, m) }
   setPlayerPosition(id, p) { this._physicsIntegration?.setPlayerPosition(id, p); if (this._playerManager) { const pl=this._playerManager.getPlayer(id); if (pl) pl.state.position=[...p] } }

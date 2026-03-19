@@ -1,5 +1,3 @@
-import { pack } from '../protocol/msgpack.js'
-
 const Q1=100, Q2=10000
 const VEL_ZERO = [0,0,0]
 const SCALE_ONE = [1,1,1]
@@ -29,10 +27,12 @@ function buildEntityKey(enc, custStr) {
   return enc[1]+'|'+enc[2]+'|'+enc[3]+'|'+enc[4]+'|'+enc[5]+'|'+enc[6]+'|'+enc[7]+'|'+enc[8]+'|'+enc[9]+'|'+enc[10]+'|'+enc[11]+'|'+enc[12]+'|'+custStr+'|'+enc[14]+'|'+enc[15]+'|'+enc[16]
 }
 
+function custToStr(cust) { return cust != null ? JSON.stringify(cust) : '' }
+
 function resolveKey(entry) {
   if (!entry._dirty) return entry.k
   const cust = entry.enc[13]
-  entry.custStr = entry.cust === cust ? entry.custStr : (cust != null ? pack(cust).toString('hex') : '')
+  entry.custStr = entry.cust === cust ? entry.custStr : custToStr(cust)
   entry.cust = cust
   entry.k = buildEntityKey(entry.enc, entry.custStr)
   entry._dirty = false
@@ -42,7 +42,7 @@ function resolveKey(entry) {
 function buildEntry(e, id, prevCache, sleeping) {
   const enc = encodeEntity(e), cust = enc[13]
   const prev = prevCache?.get(id)
-  const custStr = (prev && prev.cust === cust) ? prev.custStr : (cust != null ? pack(cust).toString('hex') : '')
+  const custStr = (prev && prev.cust === cust) ? prev.custStr : custToStr(cust)
   return { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: e._appName === 'environment', sleeping: !!sleeping, _dirty: false }
 }
 
@@ -88,7 +88,7 @@ export class SnapshotEncoder {
       const enc = encodeEntity(e)
       const prev = prevStaticMap.get(e.id)
       const cust = enc[13]
-      const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? pack(cust).toString('hex') : '')
+      const custStr = (prev && prev[1] === cust) ? prev[2] : custToStr(cust)
       const k = buildEntityKey(enc, custStr)
       nextMap.set(e.id, [k, cust, custStr])
       allEntries.push({ enc, k, id: e.id })
@@ -136,7 +136,7 @@ export class SnapshotEncoder {
   static encodeDeltaFromCache(tick, serverTime, dynCache, relevantIds, prevEntityMap, preEncodedPlayers, staticEntries, staticEntityMap, staticEntityIds, precomputedRemoved, seqNum, viewerPos) {
     const entities = [], nextMap = new Map()
     if (staticEntries) for (const { enc } of staticEntries) entities.push(enc)
-    const [vx, vy, vz] = viewerPos || [0, 0, 0]
+    const vx = viewerPos ? viewerPos[0] : 0, vy = viewerPos ? viewerPos[1] : 0, vz = viewerPos ? viewerPos[2] : 0
     const useDistTier = seqNum !== undefined && viewerPos && seqNum % 2 !== 0
     const relevantCount = Array.isArray(relevantIds) ? relevantIds.length : (relevantIds ? relevantIds.size : 0)
     const iterIds = (relevantIds && dynCache.size > relevantCount) ? relevantIds : null
@@ -164,7 +164,7 @@ export class SnapshotEncoder {
       if (e.bodyType === 'static' && staticEntries) continue
       const encoded = encodeEntity(e); dynIds.add(e.id)
       const prev = prevEntityMap.get(e.id), cust = encoded[13]
-      const custStr = (prev && prev[1] === cust) ? prev[2] : (cust != null ? pack(cust).toString('hex') : '')
+      const custStr = (prev && prev[1] === cust) ? prev[2] : custToStr(cust)
       const k = buildEntityKey(encoded, custStr); nextMap.set(e.id, [k, cust, custStr])
       if (!prev || prev[0] !== k) entities.push(encoded)
     }
