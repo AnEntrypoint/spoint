@@ -18,7 +18,6 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 - Physics world: `src/physics/World.js` (coordinator, ≤200 lines)
 - Character physics: `src/physics/CharacterManager.js` (CharacterVirtual ops)
 - Shape builder: `src/physics/ShapeBuilder.js` (convex/trimesh construction)
-- GLB extraction: `src/physics/GLBLoader.js`
 - App context: `src/apps/AppContext.js`
 - App runtime: `src/apps/AppRuntime.js`
 - App runtime physics mixin: `src/apps/AppRuntimePhysics.js`
@@ -33,285 +32,194 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 
 ## AppRuntime Mixin Pattern
 
-`AppRuntime.js` uses two mixins applied at the bottom of the constructor:
-- `mixinPhysics(runtime)` from `AppRuntimePhysics.js` — registers body activation callbacks, `_syncDynamicBodies`, `_tickPhysicsLOD`. Must be applied before `mixinTick` since tick calls these methods.
-- `mixinTick(runtime)` from `AppRuntimeTick.js` — implements `tick()`, `_tickTimers`, `_tickCollisions`, `_tickRespawn`, `_tickInteractables`, `_syncPlayerIndex`, `getNearbyPlayers`.
-
-Both mixins write to `runtime` (the AppRuntime prototype or instance). Order matters: physics mixin first.
+`AppRuntime.js` applies two mixins at the bottom of the constructor — order matters:
+1. `mixinPhysics(runtime)` from `AppRuntimePhysics.js` — `_syncDynamicBodies`, `_tickPhysicsLOD`. Must be first because tick calls these methods.
+2. `mixinTick(runtime)` from `AppRuntimeTick.js` — `tick()`, `_tickTimers`, `_tickCollisions`, `_tickRespawn`, `_tickInteractables`, `_syncPlayerIndex`, `getNearbyPlayers`.
 
 ---
 
 ## Entity Scale: Physics + Graphics Parity
 
-**GLB internal node transforms are always applied automatically on both sides. `entity.scale` is a multiplier on top.**
+`entity.scale` is a multiplier on top of GLB node hierarchy transforms, which are always applied automatically on both sides:
+- **Physics** (`GLBLoader.js`): `buildNodeTransforms` computes world-space 4x4 matrices, `applyTransformMatrix` bakes into vertices, then `entity.scale` multiplied on top.
+- **Visual** (`client/app.js`): Three.js `GLTFLoader` applies node transforms automatically, then `entity.scale` set via `model.scale.set(entity.scale)`.
 
-When a GLB is loaded, both pipelines apply node hierarchy transforms identically:
-- **Physics** (`GLBLoader.js`): `buildNodeTransforms` walks the full node hierarchy and computes each node's world-space 4×4 matrix. `applyTransformMatrix` bakes the result into vertex positions. Then `entity.scale` is multiplied on top.
-- **Visual** (`client/app.js`): Three.js `GLTFLoader` applies node hierarchy transforms automatically. `entity.scale` is set via `model.scale.set(entity.scale)` on the root.
-
-Both pipelines produce: `vertex_world = node_hierarchy_transform(vertex_local) × entity_scale`. App developers set `entity.scale` and both physics and visual scale together — no manual math needed.
-
-All collider creation methods in `AppContext.js` enforce this:
+Collider methods in `AppContext.js`:
 - `addBoxCollider`: half-extents multiplied per-axis by `entity.scale`
-- `addSphereCollider`: radius multiplied by `max(entity.scale)` (Jolt spheres must be uniform)
-- `addCapsuleCollider`: radius and height multiplied by `max(entity.scale)` (Jolt capsules must be uniform)
-- `addConvexFromModel` / `addConvexFromModelAsync`: full node hierarchy applied in `extractMeshFromGLB`/`extractMeshFromGLBAsync`, then vertex positions multiplied per-axis by `entity.scale`
-- `addTrimeshCollider`: full hierarchy applied in `extractAllMeshesFromGLBAsync`, then `entity.scale` passed to `World.addStaticTrimeshAsync` which multiplies all vertex positions per-axis
+- `addSphereCollider` / `addCapsuleCollider`: radius multiplied by `max(entity.scale)` — Jolt requires uniform scale for these shapes
+- `addConvexFromModel` / `addConvexFromModelAsync`: node hierarchy applied via `extractMeshFromGLB(Async)`, then vertices multiplied per-axis by `entity.scale`
+- `addTrimeshCollider`: scale NOT applied — map GLBs have scale baked into vertices
 
-**Snapshot wire format**: `entity.scale` is encoded as three Q1-precision floats appended after `custom` (indices 14,15,16 in the entity array). Old clients default to `[1,1,1]` via nullish coalescing.
-
-**Client** (`client/EntityLoader.js`): `loadEntityModel` applies `entityState.scale` to `model.scale.set(sx,sy,sz)` for both GLB models and primitive meshes.
-
-**Static trimesh colliders** (`addTrimeshCollider`, `world.addStaticTrimeshAsync`): scale is NOT applied — map GLBs have scale baked into vertices.
-
-**Non-uniform scale on capsules/spheres**: Not supported by Jolt. The engine uses `max(sx,sy,sz)` as a uniform scalar. Use box/convex colliders for non-uniform shapes.
+**Non-uniform scale on capsules/spheres**: Not supported by Jolt. Use `max(sx,sy,sz)` as uniform scalar, or switch to box/convex.
 
 Never set scale on an entity after collider creation — the physics body will not update.
 
 ## Entity Transform Pipeline
 
-Server → Client transform flow:
-1. **Server**: `entity.position`, `entity.rotation` (quaternion [x,y,z,w]), `entity.scale` stored on entity object
-2. **Encoding**: `encodeEntity()` in `SnapshotEncoder.js` quantizes all three into the entity array at fixed indices
-3. **Decoding**: `SnapshotProcessor._parseEntityNew()` decodes all 17 array fields including scale at indices 14-16 (defaults to `[1,1,1]` if absent)
-4. **Client load**: `loadEntityModel()` in `client/EntityLoader.js` applies position, rotation (quaternion), and scale to the Three.js mesh/group at load time
-5. **Dynamic updates**: animate loop interpolates position and quaternion each frame from `entityTargets`; scale is applied once at load and not re-applied per frame
+1. **Server**: `entity.position`, `entity.rotation` (quaternion [x,y,z,w]), `entity.scale`
+2. **Encoding**: `encodeEntity()` quantizes all three into fixed indices
+3. **Decoding**: `SnapshotProcessor._parseEntityNew()` decodes 17 fields; scale at indices 14-16 (defaults to `[1,1,1]`)
+4. **Client load**: `loadEntityModel()` applies position, rotation, scale to Three.js mesh at load time
+5. **Dynamic updates**: animate loop interpolates position and quaternion each frame; scale applied once at load only
 
-**Rotation is always a full quaternion [x,y,z,w]** — never euler.
+**Rotation is always quaternion [x,y,z,w] — never euler.**
 
 ## Snapshot Encoding Format
 
-Positions quantized to 2 decimal places (precision 100), rotations to 4 (precision 10000). Player array: `[id, px, py, pz, rx, ry, rz, rw, vx, vy, vz, onGround, health, inputSeq, crouch, lookPitchByte, lookYawByte]`. Entity array: `[id, model, px, py, pz, rx, ry, rz, rw, vx, vy, vz, bodyType, custom, sx, sy, sz]` — indices 0-13 plus scale at 14-16. Wrong field order breaks clients silently.
+Positions quantized to 2 decimal places (precision 100), rotations to 4 (precision 10000).
+
+- Player array: `[id, px, py, pz, rx, ry, rz, rw, vx, vy, vz, onGround, health, inputSeq, crouch, lookPitchByte, lookYawByte]`
+- Entity array: `[id, model, px, py, pz, rx, ry, rz, rw, vx, vy, vz, bodyType, custom, sx, sy, sz]` — indices 0-13 plus scale at 14-16
+
+Wrong field order breaks clients silently.
 
 ---
 
-## App Client API Expansions (renderCtx + engineCtx)
+## App API
 
-`renderCtx` (passed to `render(ctx)`) includes Three.js shortcuts directly: `ctx.THREE`, `ctx.scene`, `ctx.camera`, `ctx.renderer`, `ctx.playerId`, `ctx.clock`. Added in `renderAppUI()` in `client/AppModuleSystem.js`.
+### renderCtx + engineCtx
 
-`engineCtx` (passed to `setup`, `onFrame`, `onInput`, `onEvent`, `onKeyDown`, `onKeyUp`) has `engine.network.send(msg)` — shorthand for `client.send(0x33, msg)`.
+- `renderCtx` (passed to `render(ctx)`): `ctx.THREE`, `ctx.scene`, `ctx.camera`, `ctx.renderer`, `ctx.playerId`, `ctx.clock`. Added in `renderAppUI()` in `client/AppModuleSystem.js`.
+- `engineCtx` (passed to lifecycle hooks): `engine.network.send(msg)` — shorthand for `client.send(0x33, msg)`.
+- `onKeyDown/onKeyUp` dispatch happens after `editor.onKeyDown(e)` via `ams.dispatchKeyDown/dispatchKeyUp`.
 
-`onKeyDown(e, engine)` and `onKeyUp(e, engine)` hooks are dispatched to all app modules from document keydown/keyup listeners in `client/app.js` via `ams.dispatchKeyDown/dispatchKeyUp` in `client/AppModuleSystem.js`. Dispatch happens after `editor.onKeyDown(e)`.
+### Design Principle: Apps Are Config, Engine Is Code
 
-## App Design Principle: Apps Are Config, Engine Is Code
+- No `client.render` needed unless the app returns a `ui:` field.
+- No `onEditorUpdate` needed for standard field changes — `ServerHandlers.js` already applies `position`, `rotation`, `scale`, `custom` before firing the hook.
+- Use `addColliderFromConfig(cfg)` — handles motion type + shape in one call.
+- Use `spawnChild(id, cfg)` — auto-destroys children on app teardown.
+- Helper functions must go OUTSIDE the `export default {}` block — `evaluateAppModule` hoists only code-before-default; code after becomes unreachable dead code.
+- Apps cannot use imports — all dependencies come from `engineCtx`.
 
-Apps must be minimal. The engine handles the boilerplate:
+### Reusable Apps
 
-- **No `client.render` needed** unless the app returns a `ui:` field. The snapshot carries `position`, `rotation`, `custom`, `model` automatically to the client.
-- **No `onEditorUpdate` needed** unless the app needs to react to changes beyond the standard fields. `ServerHandlers.js` EDITOR_UPDATE handler already applies `position`, `rotation`, `scale`, `custom` to the entity before firing `onEditorUpdate`.
-- **Use `addColliderFromConfig(cfg)`** — handles motion type + shape in one call. Replaces separate `setStatic/setDynamic` + `addBoxCollider` chains.
-- **Use `spawnChild(id, cfg)`** — auto-destroys children on app teardown. Replaces manual `teardown` loops over spawned entity ids.
-- Helper functions belong OUTSIDE the `export default {}` block — `evaluateAppModule` hoists code before the default export.
+- `box-static`: visual box + static collider. Config: `{ hx, hy, hz, color, roughness }`.
+- `prop-static`: static GLB with convex hull. Entity must have `model` set.
+- `box-dynamic`: dynamic physics box. Config: `{ hx, hy, hz, color, roughness, mass }`.
 
-## Reusable Apps: box-static, prop-static, box-dynamic
+### Primitive Rendering (No GLB Required)
 
-- `box-static` — visual box primitive + static collider. Config: `{ hx, hy, hz, color, roughness }`. Spawn via `ctx.world.spawn(id, { app: 'box-static', config: { hx, hy, hz, color } })`. Has `editorProps`.
-- `prop-static` — static GLB prop with convex hull collider. Entity must have `model` set. Uses `addColliderFromConfig({ type: 'convex' })`.
-- `box-dynamic` — dynamic physics box with primitive mesh. Config: `{ hx, hy, hz, color, roughness, mass }`. Uses `addColliderFromConfig`. Has `editorProps`.
-
-## Primitive Rendering (No GLB Required)
-
-Box, sphere, cylinder meshes are created client-side from `entity.custom` when `entity.model` is null.
-- `mesh`: `'box'` | `'sphere'` | `'cylinder'`
-- `sx/sy/sz`: full width/height/depth (box); `r`: radius; `h`: height (cylinder); `seg`: segments
+Set `entity.model = null` and populate `entity.custom`:
+- `mesh`: `'box'` | `'sphere'` | `'cylinder'`; `sx/sy/sz`, `r`, `h`, `seg`
 - `color`, `roughness`, `metalness`, `emissive`, `emissiveIntensity`
 - `hover`: Y oscillation amplitude; `spin`: rotation speed (rad/s)
 - `light`: point light color; `lightIntensity`; `lightRange`
 
-## Engine-Level Interactable System
+### Interactable System
 
-`ctx.interactable({ prompt, radius, cooldown })` in `AppContext.js` — top-level ctx method (NOT `ctx.physics`). Writes `ent.custom._interactable = { prompt, radius }` so the snapshot carries config to the client. `_tickInteractables()` in AppRuntime.js runs every tick, fires `onInteract(ctx, player)` when player is within radius and presses E, subject to per-player-per-entity cooldown.
+`ctx.interactable({ prompt, radius, cooldown })` — top-level `AppContext.js` method (NOT `ctx.physics`). Writes `ent.custom._interactable` so the snapshot carries config to client. `_tickInteractables()` fires `onInteract(ctx, player)` when player is within radius and presses E.
 
-Client prompt rendered in `_buildInteractPrompt()` → `renderAppUI()` every frame. No app client code needed for basic prompts.
+`ctx.physics.setInteractable(radius)` exists for compat but does NOT write `custom._interactable` — client prompt won't appear. Prefer `ctx.interactable()`.
 
-`ctx.physics.setInteractable(radius)` exists for compat but does NOT write `custom._interactable`, so the engine client prompt won't appear. Prefer `ctx.interactable()`.
+### App State Survival
 
-## evaluateAppModule Helper Function Hoisting
+`ctx.state` maps to `entity._appState`. On hot reload: new AppContext created, but entity keeps `_appState`. State survives; timers and bus subscriptions are destroyed and re-created.
 
-`evaluateAppModule()` converts `export default` to `return`. Helper functions declared AFTER the `export default { ... }` block become unreachable dead code. The regex splits source into code-before-default (hoisted) and the export value (becomes the return). `//# sourceURL=app-module.js` comment appended for Firefox attribution.
+### App Module List Cache
 
-Apps cannot use imports — all dependencies come from `engineCtx` (THREE, createElement, etc).
-
-## App Module List Cache
-
-`_appModuleList` is a cached `[...appModules.values()]` array. Avoids Map iteration inside the hot `onAppEvent` handler. Rebuilt on every `appModules` change.
-
-## App State Survival
-
-`ctx.state` → `entity._appState`. On hot reload: new AppContext is created but entity keeps `_appState` reference. State survives; timers and bus subscriptions are destroyed and re-created.
+`_appModuleList` is a cached `[...appModules.values()]` array — avoids Map iteration inside the hot `onAppEvent` handler. Rebuilt on every `appModules` change.
 
 ---
 
-## GLB/VRM IndexedDB Model Cache
+## GLB / Model Loading
 
-`client/ModelCache.js` caches raw GLB/VRM ArrayBuffers in IndexedDB keyed by URL. On repeat loads, a HEAD request checks the server ETag. Match → return cached buffer; miss → stream full GET, store in IndexedDB.
-
-`fetchCached(url, onProgress)`: gzip detection via `content-encoding` — when gzip is present, `content-length` (compressed size) is NOT used as progress denominator since the stream delivers decompressed bytes.
-
-`StaticHandler.js` emits ETag (hex-encoded mtime) and handles `If-None-Match` → 304. Cache failures fall back to normal fetch silently.
-
-## GLBTransformer: GLB + VRM KTX2 Transform
-
-`GLBTransformer.js` applies Draco + KTX2 texture conversion to `.glb` and `.vrm` files on first request, serving original immediately while caching transforms to `.glb-cache/`.
-
-**VRM-specific rules:**
-- **Draco is skipped for VRM** — gltf-transform's NodeIO strips unknown extensions (`extensions.VRM`, `extensions.VRMC_vrm`). Detected via `json.extensions?.VRM || json.extensions?.VRMC_vrm`.
-- **PNG/JPEG converted** — VRM textures are typically PNG/JPEG. `imageToKtx2()` handles all sharp-readable formats.
-- **Normal map hints** — from `extensions.VRM.materialProperties[].textureProperties._BumpMap` → `uastc` encode mode.
-- **Texture extension** — plain textures (with `tex.source`) get `KHR_texture_basisu` replacing `source` directly.
-- `prewarm()` scans `.vrm` files in addition to `.glb`.
-
-**WebP-to-KTX2 (GLB maps):** builds `imageSlotHints` from material slots (normalTexture → `uastc`, others → `basis-lz`). Replaces image buffer views in-place, updates mime types, swaps `EXT_texture_webp` → `KHR_texture_basisu`. Draco runs first via gltf-transform, only kept if smaller.
-
-## Draco Compressed Model Support
+### Draco Support
 
 - `extractMeshFromGLB(filepath)` — sync, throws on Draco/meshopt
 - `extractMeshFromGLBAsync(filepath)` — async, handles Draco
-- `world.addStaticTrimeshAsync(glbPath)` — uses `extractAllMeshesFromGLBAsync` which combines ALL meshes + ALL primitives. Critical for map GLBs with dozens of meshes and hundreds of Draco primitives.
+- `world.addStaticTrimeshAsync(glbPath)` — uses `extractAllMeshesFromGLBAsync` which combines ALL meshes + ALL primitives. Critical for map GLBs — missing any causes players to fall through floors.
 
-**Meshopt NOT supported.** Decompress first: `gltfpack -i model-compressed.glb -o model-uncompressed.glb -noq`
+**Meshopt NOT supported.** Decompress first: `gltfpack -i in.glb -o out.glb -noq`
 
-## Invisible/Trigger Material Filtering (CS:GO Maps)
+### GLBTransformer (KTX2 + Draco on first request)
 
-`extractAllMeshesFromGLBAsync` in GLBLoader.js skips primitives whose material name is in `SKIP_MATS`: `aaatrigger`, `{invisible`, `playerclip`, `clip`, `nodraw`, `toolsclip`, `toolsplayerclip`, `toolsnodraw`, `toolsskybox`, `toolstrigger`. Without this, CS:GO maps have phantom collision walls.
+`GLBTransformer.js` applies Draco + KTX2 texture conversion, serves original immediately, caches to `.glb-cache/`.
 
-Client-side: `loadEntityModel` in `client/EntityLoader.js` sets `c.visible = false` for meshes with these material names.
+- **Draco is skipped for VRM** — gltf-transform's NodeIO strips unknown extensions (`VRM`, `VRMC_vrm`). Detected via `json.extensions?.VRM || json.extensions?.VRMC_vrm`.
+- **WebP-to-KTX2**: builds `imageSlotHints` from material slots (normalTexture → `uastc`, others → `basis-lz`). Draco runs first, only kept if smaller.
+- `prewarm()` scans `.vrm` files in addition to `.glb`.
 
-## Map GLB Structure
+### Invisible/Trigger Material Filtering
 
-All maps in `apps/maps/` use Draco compression (`KHR_draco_mesh_compression`). Typically 1 root scene node + N mesh nodes with identity transforms. 40-80 meshes with 80-100+ Draco primitives each — `extractAllMeshesFromGLBAsync` must combine ALL meshes + ALL primitives or players fall through floors.
+`extractAllMeshesFromGLBAsync` skips primitives with material names in `SKIP_MATS`: `aaatrigger`, `{invisible`, `playerclip`, `clip`, `nodraw`, `toolsclip`, `toolsplayerclip`, `toolsnodraw`, `toolsskybox`, `toolstrigger`. Without this, CS:GO maps have phantom collision walls. Client-side: `loadEntityModel` sets `c.visible = false` for the same names.
+
+### IndexedDB Model Cache
+
+`client/ModelCache.js` caches GLB/VRM ArrayBuffers in IndexedDB keyed by URL. HEAD request checks ETag on repeat loads; 304 returns cache; miss fetches full GET. When gzip is present, `content-length` is NOT used as progress denominator (it's the compressed size, not decompressed).
 
 ---
 
 ## Jolt Physics WASM Memory
 
-**Getters — destroy or not based on C++ return type:**
+**Getters — destroy based on C++ return type:**
 - `BodyInterface::GetPosition/GetRotation/GetLinearVelocity` → return by VALUE → MUST `J.destroy(result)`
-- `CharacterVirtual::GetPosition()` → returns `const RVec3&` (internal reference) → do NOT destroy — crashes with `memory access out of bounds`
+- `CharacterVirtual::GetPosition()` → `const RVec3&` (internal reference) → do NOT destroy — crashes with `memory access out of bounds`
 - `CharacterVirtual::GetLinearVelocity()` → by VALUE → MUST destroy
-
-See `getCharacterPosition` (no destroy) vs `getBodyPosition` (destroy) in World.js.
 
 **Setters:** reuse `_tmpVec3`/`_tmpRVec3` via `.Set()` — `new Vec3/RVec3` per call leaks WASM memory.
 
 **Raycast:** creates 7 temp Jolt objects — ALL must be destroyed after use.
 
-**Trimesh building:** `new J.Float3(x,y,z)` inside a triangle loop leaks WASM heap per vertex. Fix: reuse one `J.Float3` instance, set `.x/.y/.z`. Also destroy `J.TriangleList` and `J.MeshShapeSettings` after shape creation.
+**Trimesh building:** `new J.Float3(x,y,z)` inside a triangle loop leaks WASM heap per vertex. Fix: reuse one `J.Float3` instance, set `.x/.y/.z`. Destroy `J.TriangleList` and `J.MeshShapeSettings` after shape creation.
 
 **Draco decompression:** destroy all temp objects (`Decoder`, `DecoderBuffer`, `Mesh`, `DracoFloat32Array`, `DracoUInt32Array`) after extraction.
 
-## Convex Hull Collider
+**Convex hull:** `addBody('convex', ...)` in `World.js` accepts `params` as flat `[x,y,z,...]` vertex array. Destroy `ConvexHullShapeSettings` + `VertexList` after shape creation.
 
-`addBody('convex', ...)` in World.js accepts `params` as flat `[x,y,z,...]` vertex array. Uses Jolt's `ConvexHullShapeSettings` + `VertexList`. Both destroyed after shape creation. `addConvexFromModel(meshIndex)` in AppContext.js reads vertices from entity GLB at setup time via `extractMeshFromGLB`.
+**Capsule parameter order:** Jolt `CapsuleShape` takes `(halfHeight, radius)` NOT `(radius, halfHeight)`. `addCapsuleCollider(r, h)` passes `[r, h/2]`; `World.js` uses `params[1]` for halfHeight, `params[0]` for radius.
 
-## Capsule Shape Parameter Order
+## Physics Rules
 
-Jolt CapsuleShape takes `(halfHeight, radius)` NOT `(radius, halfHeight)`. `addCapsuleCollider(r, h)` in AppContext.js passes `[r, h/2]`; World.js uses `params[1]` for halfHeight, `params[0]` for radius.
-
-## Physics Bodies Only Created Via App setup()
-
-Setting `entity.bodyType` or `entity.collider` directly has NO effect. A Jolt body is only created when `ctx.physics.addBoxCollider()` etc. is called inside `setup(ctx)`.
-
-## CharacterVirtual Gravity
-
-`CharacterVirtual.ExtendedUpdate()` does NOT apply gravity. PhysicsIntegration.js manually applies `gravity[1] * dt` to vy. The gravity vector passed to ExtendedUpdate only controls step-down/step-up behavior.
-
-## Physics Step Substeps
-
-`jolt.Step(dt, 2)` — always 2 substeps regardless of dt. At 64 TPS with gravity=-18 m/s² small props still tunnel at 1 substep. Fixed to always use 2 substeps for reliable CCD on small fast objects.
-
-## TickHandler Velocity Override
-
-After `updatePlayerPhysics()`, wished XZ velocity is written back over the physics result. Only Y comes from physics. Changing this breaks movement feel entirely.
-
-## Movement Uses Quake-style Air Strafing
-
-`groundAccel` applies WITH friction, `airAccel` WITHOUT. World config `maxSpeed: 4.0` overrides `DEFAULT_MOVEMENT.maxSpeed: 8.0` — defaults in movement.js are NOT what runs in production.
-
-## Active Dynamic Body Tracking
-
-`AppRuntime` maintains `_dynamicEntityIds` (all dynamic) and `_activeDynamicIds` (awake only). `_syncDynamicBodies()` runs every tick and only iterates `_activeDynamicIds`. `World.syncDynamicBody()` returns `true` when body is active, `false` when sleeping. Sleeping entities set `e._dynSleeping = true` — used by SnapshotEncoder to skip re-encoding and by Stage to skip octree updates.
+- **Bodies only created in `setup()`**: setting `entity.bodyType` or `entity.collider` directly has no effect. A Jolt body is only created when `ctx.physics.addBoxCollider()` etc. is called inside `setup(ctx)`.
+- **CharacterVirtual gravity**: `ExtendedUpdate()` does NOT apply gravity. `PhysicsIntegration.js` manually applies `gravity[1] * dt` to vy. The gravity vector passed to `ExtendedUpdate` controls only step-down/step-up.
+- **Physics substeps**: `jolt.Step(dt, 2)` — always 2 substeps. 1 substep causes tunneling of small props at 64 TPS with gravity=-18 m/s².
+- **TickHandler velocity override**: after `updatePlayerPhysics()`, wished XZ velocity is written back over the physics result. Only Y comes from physics. Changing this breaks movement feel.
+- **Movement**: Quake-style air strafing. `groundAccel` applies WITH friction, `airAccel` WITHOUT. World config `maxSpeed: 4.0` overrides `DEFAULT_MOVEMENT.maxSpeed: 8.0` — defaults in movement.js are NOT what runs in production.
 
 ## Spatial Physics LOD
 
-`physicsRadius` in world config (default 0 = disabled) enables spatial LOD for dynamic Jolt bodies. When enabled, `AppRuntime._tickPhysicsLOD(players)` runs every `tickRate/2` ticks. Uses player AABB precompute to skip entities clearly outside all players' combined bounding box — skips ~89% of entities on large maps. Only suspends bodies that are sleeping; awake bodies remain until they settle. `physicsRadius` must be explicitly included in the `config` object passed to `createServer()`.
+`physicsRadius` in world config (default 0 = disabled) enables spatial LOD. `_tickPhysicsLOD(players)` runs every `tickRate/2` ticks, suspends sleeping bodies outside all players' combined AABB (~89% skip rate on large maps). `physicsRadius` must be in the `config` object passed to `createServer()`.
 
-`entityTickRate` in world config sets the Hz at which app `update()` callbacks fire (default = tickRate). `entityTickDivisor = round(tickRate / entityTickRate)`. Update fires every N ticks; `entityDt` passed to callback = `dt * divisor`.
+- **Suspend**: `_physics.removeBody` removes Jolt body; position/rotation preserved in JS; `entity._bodyActive = false`; added to `_suspendedEntityIds`.
+- **Restore**: `_physics.addBody` re-creates body at current position; `_physicsBodyToEntityId` updated with new id.
+- **`entity._bodyDef`**: stored by collider methods when `bodyType === 'dynamic'`. Contains `{ shapeType, params, motionType, opts }` for body recreation. Static bodies never get `_bodyDef`.
+- **Jolt body id stability**: Jolt reuses sequence numbers after `DestroyBody`. Restored bodies get new ids — always update `_physicsBodyToEntityId`.
+- **destroyEntity**: `_suspendedEntityIds.delete` cleans up suspended ids. No `removeBody` needed (body already removed from Jolt).
 
-**Suspend flow**: `_physics.removeBody` removes the Jolt body; entity position/rotation preserved in JS; `entity._bodyActive = false`; `entity._physicsBodyId = undefined`; entity added to `_suspendedEntityIds`.
+`entityTickRate` in world config sets app `update()` callback Hz (default = tickRate). `entityDt` passed to callback = `dt * divisor`.
 
-**Restore flow**: `_physics.addBody` re-creates Jolt body at entity's current position; `entity._physicsBodyId` set to new body id; `entity._bodyActive = true`; `_physicsBodyToEntityId` updated with new id.
+## Active Dynamic Body Tracking
 
-**`entity._bodyDef`** — stored by `AppContext` collider methods when `bodyType === 'dynamic'`. Contains `{ shapeType, params, motionType, opts }` needed to re-create the body. Static bodies never get `_bodyDef`.
+`AppRuntime` maintains `_dynamicEntityIds` (all dynamic) and `_activeDynamicIds` (awake only). `_syncDynamicBodies()` runs every tick, only iterates `_activeDynamicIds`. `World.syncDynamicBody()` returns `true` when active, `false` when sleeping. Sleeping entities set `e._dynSleeping = true` — SnapshotEncoder skips re-encoding; Stage skips octree updates.
 
-**destroyEntity** — `_suspendedEntityIds.delete` ensures suspended entity ids are cleaned up. No `removeBody` call needed for suspended entities (body already removed from Jolt).
-
-**Jolt body id stability** — Jolt reuses sequence numbers after `DestroyBody`. Restored bodies get new ids. `_physicsBodyToEntityId` is always updated on restore.
-
-## SpatialIndex (Octree) Update Threshold
-
-`SpatialIndex.update()` in `src/spatial/Octree.js` skips re-insertion if entity moved less than 1.0 unit (distance² < 1.0). This threshold is intentionally coarse — for relevance radius=60, sub-1m octree accuracy is irrelevant. Without this, 991 moving physics bodies each trigger an octree remove+insert per tick.
-
-## Dynamic Body Position Sync
-
-`AppRuntime._syncDynamicBodies()` runs every tick before `_spatialSync()`. Reads position/rotation from Jolt for entities with `bodyType === 'dynamic'` and `_physicsBodyId`. Uses `World.isBodyActive()` to skip sleeping bodies — settled bodies cost 1 `IsActive` check instead of 3 calls.
+SpatialIndex skips re-insertion if entity moved less than 1.0 unit (distance² < 1.0) — intentionally coarse for relevance radius=60.
 
 ---
 
-## Snapshot Delivery Architecture
+## Snapshot Delivery
 
 ### SNAP_GROUPS Rotation
 
-TickHandler sends snapshots to `1/SNAP_GROUPS` of players per tick. Formula: `snapGroups = Math.max(1, Math.ceil(playerCount / 50))`. At 100p: 2 groups (50 sends/tick, 32 Hz). At 200p: 4 groups (50 sends/tick, 16 Hz). Caps sends at ~50/tick while maintaining minimum 16 Hz at 200 players.
+`snapGroups = Math.max(1, Math.ceil(playerCount / 50))` — sends to 1/N of players per tick. At 100p: 2 groups → 32 Hz. At 200p: 4 groups → 16 Hz. Caps at ~50 sends/tick. Windows WebSocket kernel I/O ~166μs per send.
 
-**Bottleneck**: Windows WebSocket kernel I/O ~166μs per send. SNAP_GROUPS tuning halves writes at 100p, gaining 46% improvement (1,186→1,358 snaps/sec).
+Snap group rotation is ALWAYS applied including keyframe ticks. On keyframe ticks, use `encodeDelta(combined, new Map())` only — calling both `encode()` AND `encodeDelta()` causes double-encoding.
 
-**sendPacked optimization** (broadcast path, no StageLoader): snapshot is msgpack-encoded ONCE, sent to all bucket recipients via `connections.sendPacked()`.
+### Static vs Dynamic Entity Encoding
 
-### Per-Player Spatial Snapshots
+Static entities pre-encoded once per tick via `encodeStaticEntities()`, only when `_staticVersion` changes. `encodeDelta` receives `staticEntries` for new players, `changedEntries` when statics change, `null` otherwise.
 
-With StageLoader active and `relevanceRadius > 0`, each player gets a per-player snapshot of entities within radius. `connections.sendPacked()` is called per player with pre-packed data. Without StageLoader: shared snapshot, `sendPacked` used.
+`buildDynamicCache()` — cold-start build (first tick, keyframe, spawn/destroy). `refreshDynamicCache()` — hot-path in-place mutation via `fillEntityEnc()`, zero allocation. `entry._dirty = true`; key lazily rebuilt in `applyEntry()` only when sent.
 
-### Static Entity Snapshot Optimization
-
-Static entities are pre-encoded once per tick via `SnapshotEncoder.encodeStaticEntities()` and only when `appRuntime._staticVersion` changes. In steady state the 1000-entity scan is skipped entirely.
-
-`encodeDelta` receives:
-- `staticEntries` (all statics) for new players
-- `changedEntries` (only mutated statics) for existing players when statics change
-- `null` for existing players when statics are unchanged — zero cost
-
-`AppRuntime._dynamicEntityIds` caches the Set of non-static entity IDs, rebuilt on spawn/destroy.
-
-`AppRuntime._updateList` caches `[entityId, server, ctx]` tuples where `server.update` is a function. Built in `_rebuildUpdateList()` called from `_attachApp`/`detachApp`. `tick()` iterates `_updateList` instead of all `this.apps`.
-
-### Dynamic Entity Cache: In-Place Mutation
-
-`SnapshotEncoder.buildDynamicCache(activeIds, sleepingIds, suspendedIds, entities)` — cold-start cache build. Called when `prevDynCache` is null (first tick, keyframe, or entity spawn/destroy).
-
-`SnapshotEncoder.refreshDynamicCache(cache, activeIds, entities)` — hot-path in-place mutation. Uses `fillEntityEnc()` to mutate the existing `entry.enc` array in-place (zero allocation). Sets `entry._dirty = true`; key is lazily rebuilt via `resolveKey()` only when the entry is actually used in `applyEntry()`. Only iterates `_activeDynamicIds` (O(N_active)). Sleeping entries remain in cache untouched.
-
-Measured: `refreshDynamicCache` with 500 active entities = **0.157ms/call** (previously 0.786ms — 5x improvement from in-place mutation + lazy key rebuild).
-
-`TickHandler` resets `prevDynCache = null` when `_staticVersion` changes or on keyframe ticks. Normal ticks call `refreshDynamicCache`.
-
-`SnapshotEncoder.encodeDeltaFromCache()` iterates `relevantIds` (player's visible set) instead of the full `dynCache` when smaller. Cost reduction: O(N × P) encodeEntity calls → O(N). For 1000 entities × 100 players: 100,000 → 1,000 encodeEntity calls per tick.
+`encodeDeltaFromCache()` iterates `relevantIds` instead of full `dynCache`. `_updateList` caches `[entityId, server, ctx]` tuples for entities with `update` functions — rebuilt on `_attachApp`/`detachApp`.
 
 ### Spatial Player Culling
 
-When `relevanceRadius > 0`, `AppRuntime.getNearbyPlayers()` filters players to include only those within the viewer's radius. Compares distance squared vs radius squared (no sqrt). Bandwidth reduction: 250 players @ 128 TPS = 28.77 → 2.00 MB/s (93% saved).
-
-`AppRuntime._playerIndex` (SpatialIndex) is updated every tick in `_syncPlayerIndex()`. Falls back to linear scan when index is empty (first tick).
-
-### Keyframe Interval
-
-`KEYFRAME_INTERVAL` in TickHandler.js is `tickRate * 10` (10 seconds). Snap group rotation is ALWAYS applied — including keyframe ticks — to prevent burst.
-
-On keyframe ticks, per-player spatial snapshots must use `encodeDelta(combined, new Map())` only (empty map = full keyframe). Calling both `encode()` AND `encodeDelta()` causes double-encoding.
+When `relevanceRadius > 0`, `getNearbyPlayers()` filters by distance² vs radius² (no sqrt). `_playerIndex` updated every tick in `_syncPlayerIndex()`.
 
 ### Entity Key Caching
 
-`encodeDelta` stores `[key, customRef, customStr]` per entity. Unchanged `entity.custom` object reference skips `JSON.stringify`. Static entities cost ~0 per tick.
+`encodeDelta` stores `[key, customRef, customStr]` per entity. Unchanged `entity.custom` reference skips `JSON.stringify`. `JSON.stringify` is used (not `pack+hex`) — 8-12x faster for change detection.
 
 ---
 
@@ -319,63 +227,49 @@ On keyframe ticks, per-player spatial snapshots must use `encodeDelta(combined, 
 
 ### Physics Player Divisor
 
-`PHYSICS_PLAYER_DIVISOR = 3` in `TickHandler.js`. Runs Jolt physics for a player only every 3rd tick. **Staggered by player ID**: `(tick + player.id) % PHYSICS_PLAYER_DIVISOR` — spreads ~N/3 players per tick instead of all N simultaneously. Without stagger, ALL players hit Jolt on the same tick causing 128ms spikes (thundering herd). Exceptions: always runs on jump ticks (`inp?.jump`) and airborne ticks (`!st.onGround`). Passes fixed per-tick `dt` (NOT accumulated dt) — at divisor=3 with 64 TPS, accumulated=3/64≈0.047s exceeds Jolt's 2-substep threshold (1/55≈0.018s), which doubles CharacterVirtual cost.
+`PHYSICS_PLAYER_DIVISOR = 3` in `TickHandler.js` — runs Jolt for a player every 3rd tick. **Staggered by player ID**: `(tick + player.id) % PHYSICS_PLAYER_DIVISOR` — prevents thundering herd (all players hitting Jolt simultaneously causes 128ms spikes). Always runs on jump ticks and airborne ticks. Uses fixed per-tick `dt` NOT accumulated dt — accumulated at divisor=3 (≈0.047s) exceeds Jolt's 2-substep threshold (≈0.018s), doubling CharacterVirtual cost.
 
 ### Idle Player Physics Skip
 
-`playerIdleCounts` Map in `TickHandler.js` tracks consecutive idle ticks per player. A player is physics-idle when: no directional input, onGround=true, and horizontal velocity magnitude < 0.01 m/s. After 1 settling tick, subsequent idle ticks skip `physicsIntegration.updatePlayerPhysics()`, saving ~47µs per skip. Counter resets to 0 when player moves.
+Player is physics-idle when: no directional input, `onGround=true`, horizontal velocity < 0.01 m/s. After 1 settling tick, subsequent idle ticks skip `updatePlayerPhysics()`. Counter resets on movement.
 
 ### Snap Phase Spatial Cache
 
-`_spatialCache` Map (module-level, reused via `.clear()` each tick) groups players by `floor(x/R)*65536+floor(z/R)` cell key. All players in the same cell reuse the same `nearbyPlayerIds` and `relevantIds`. Each player still gets their own `filterEncodedPlayersWithSelf` and unique `encodeDeltaFromCache` result. Eliminates redundant octree queries for co-located players.
+`_spatialCache` (module-level, cleared each tick) groups players by `floor(x/R)*65536+floor(z/R)` cell. Players in the same cell share `nearbyPlayerIds` and `relevantIds`. `_cellPackCache` caches packed snapshot buffers by cell key — ~43% hit rate in spread scenarios.
 
-### TickHandler Allocation Reduction
+### Allocation Reduction
 
-- `_spatialCache` and `_precomputedRemoved` are module-scoped and reused each tick (not reallocated)
-- `Date.now()` cached once per tick as `serverNow`, passed to both `networkState.setTick()` and `buildAndSendSnapshots()`
-- In spatial path, `pack()` + `sendPacked()` replaces `connections.send()` — avoids double pack of the `{type, payload}` wrapper
-- `SNAP_UNRELIABLE = true` hoisted as constant — avoids `isUnreliable(MSG.SNAPSHOT)` lookup per send
-- Yaw sin/cos cached: `_lastYaw`/`_lastSinHalf`/`_lastCosHalf` skip trig when yaw unchanged
-- Idle player counting uses direct iteration instead of `[...values()].filter()`
-- `packSnapshot()` helper reuses `_packWrapper`/`_packPayload` module-level objects — avoids per-call `{type, payload}` allocation
-- `_cellPackCache` per-tick Map caches packed snapshot buffers by spatial cell key. Players in the same cell with no entity changes share a single `pack()` result. ~43% hit rate in spread scenarios, higher when players cluster
+- Module-level `_spatialCache`, `_precomputedRemoved`, `_sendObj`, `_packWrapper`, `_packPayload` — reused each tick
+- `pack()` + `sendPacked()` in spatial path avoids double-packing the `{type, payload}` wrapper
+- `SNAP_UNRELIABLE = true` hoisted as constant
+- Yaw sin/cos cached via `_lastYaw`/`_lastSinHalf`/`_lastCosHalf`
+- `_tickTimers` uses in-place array compaction instead of allocating a new array
 
-### ConnectionManager Send Optimization
+### Collision Grid Pruning
 
-`_sendObj` module-level object reused for `pack()` calls in `send()` and `broadcast()` — avoids `{type, payload}` object allocation per send. Heartbeat timer keys use numeric `clientId` instead of string `hb-${clientId}`.
-
-### Entity Collision Grid (AppRuntimeTick)
-
-`_tickCollisions` uses O(n²) brute-force for <100 collision entities, switches to grid-based spatial partitioning for >=100 entities. Grid cell size = 4 units. Same grid pattern as player collisions (9-neighbor check). Interactable cooldown keys use numeric `e.id * 100000 + p.id` instead of string template.
-
-### CollisionSystem Grid Pruning
-
-`gridCells` Map (reused array pool) is pruned every 64 ticks or when size exceeds `players.length * 4`, removing stale cells. Entity collision grid (`_colGridCells` in AppRuntimeTick) uses the same pattern with `c.length * 4` threshold. Interactable cooldown Map (`_interactCooldowns`) prunes entries older than 10 seconds every 256 ticks when size exceeds 100.
+Entity-entity: O(n²) brute-force for <100 entities, grid-based (cell=4 units, 9-neighbor) for >=100. Grid cells pruned every 64 ticks or when `size > count * 4`. Cooldown keys use `e.id * 100000 + p.id` (numeric, not string template). `_interactCooldowns` prunes entries older than 10s every 256 ticks when size > 100.
 
 ### Client-Side Optimizations
 
-1. **BVH deferred to idle callback (`_scheduleBvhBuild`)** — `computeBoundsTree()` deferred to `requestIdleCallback` (2ms time slice) via `_bvhQueue`. Camera raycast falls back to brute-force on un-built geometries.
-2. **`SKIP_MATS_SET` hoisted to module level** — was creating a new `Set` on every `loadEntityModel` call.
-3. **O(n²) `.find()` eliminated in `onStateUpdate`** — replaced with a `Set` built once per call, making lookups O(1).
-4. **`warmupShaders` uses `compileAsync`** — eliminates GPU stalls during per-mesh shader compilation.
-5. **Invisible player skip** — `tickPlayerAnimators` skips `anim.update()`, VRM update, bone overrides, and VRM features for invisible players (gated on `mesh.visible`, always runs for local player).
-6. **Entity visibility uses precomputed squared distances** — `LOD_CONFIGS` stores `skipBeyondSq`; `updateVisibility` uses `dx*dx+dy*dy+dz*dz` instead of `**` operator.
-7. **Swap-and-pop animated entity removal** — `removeEntity` uses O(1) swap-and-pop instead of O(n) `indexOf`+`splice`.
-8. **GLTF cache LRU cap** — `_parsedGltfCache` capped at 64 entries; oldest evicted on overflow.
-9. **SnapshotProcessor object pooling** — `makePlayerSlot`/`makeEntitySlot` factories with pool indexing; `fillPlayerArr`/`fillEntityArr` mutate arrays in-place. Zero allocation for existing players/entities at 32 Hz snapshot rate.
-10. **Player speed check avoids sqrt** — `vx*vx+vz*vz<0.25` replaces `Math.sqrt(...)<0.5` in animator rotation logic.
+- **BVH deferred** to `requestIdleCallback` (2ms slice) via `_bvhQueue`. Camera raycast falls back to brute-force on un-built geometries.
+- **`warmupShaders`**: disables `frustumCulled` on all objects, renders twice, restores. Post-load entities use `renderer.compileAsync`. A zero-intensity `_warmupPointLight` forces point-light shader variant to compile upfront.
+- **Shadow map** updated only when scene moves (`_shadowDirty` flag), gated at max 15Hz.
+- **`cam.setEnvironment(meshes)`** must use non-skinned static meshes only — never `scene.children` (includes skinned VRM meshes, causes massive CPU overhead).
+- **SnapshotProcessor object pooling**: `makePlayerSlot`/`makeEntitySlot` with pool indexing; `fillPlayerArr`/`fillEntityArr` mutate in-place — zero allocation for existing entities.
+- **Invisible player skip**: `tickPlayerAnimators` skips VRM update, bone overrides, and anim for invisible players (always runs for local player).
+- Swap-and-pop entity removal (O(1) vs O(n) splice). GLTF cache LRU capped at 64 entries.
 
 ### Capacity Table (64 TPS, divisor=3, 1000 dynamic entities, relevanceRadius=60)
 
-| Players | Avg Tick | mv (skip) | mv (physics) | snap | Budget |
-|---------|----------|-----------|--------------|------|--------|
-| 50      | ~6ms     | ~0.5ms    | ~2ms         | ~4ms | OK     |
-| 100     | ~8ms     | ~0.8ms    | ~3ms         | ~5ms | OK     |
-| 200     | ~13ms    | ~1.6ms    | ~6ms         | ~6ms | OK     |
-| 300     | ~9.5ms*  | ~2.5ms    | ~9ms         | ~4ms | OK     |
-| 400     | >15ms    | ~3.5ms    | ~12ms        | ~8ms | OVER   |
+| Players | Avg Tick | Budget |
+|---------|----------|--------|
+| 50      | ~6ms     | OK     |
+| 100     | ~8ms     | OK     |
+| 200     | ~13ms    | OK     |
+| 300     | ~9.5ms*  | OK     |
+| 400     | >15ms    | OVER   |
 
-*300p avg includes mixed skip+physics ticks. Physics ticks peak at ~16ms but are 1-in-3.
+*300p avg includes mixed skip+physics ticks; physics ticks peak ~16ms but are 1-in-3.
 
 ---
 
@@ -383,246 +277,103 @@ On keyframe ticks, per-player spatial snapshots must use `encodeDelta(combined, 
 
 Three independent systems:
 1. **ReloadManager** — watches SDK source files. Uses `swapInstance()` to replace prototype/non-state properties while preserving state (e.g. `playerBodies` survives PhysicsIntegration reload).
-2. **AppLoader** — watches `apps/`. Reloads drain via `appRuntime._drainReloadQueue()` at end of each tick (never mid-tick). `_resetHeartbeats()` called after each reload to prevent heartbeat timeout disconnects.
+2. **AppLoader** — watches `apps/`. Reloads drain via `_drainReloadQueue()` at end of each tick (never mid-tick). `_resetHeartbeats()` called after each reload to prevent heartbeat timeout disconnects.
 3. **Client hot reload** — `MSG.HOT_RELOAD` (0x70) triggers `location.reload()`. Camera state preserved via sessionStorage.
 
-AppLoader blocks these patterns (even in comments): `process.exit`, `child_process`, `require(`, `__proto__`, `Object.prototype`, `globalThis`, `eval(`, `import(`.
+AppLoader blocks these patterns even in comments: `process.exit`, `child_process`, `require(`, `__proto__`, `Object.prototype`, `globalThis`, `eval(`, `import(`.
 
-After 3 consecutive reload failures, a module stops auto-reloading until server restart. Exponential backoff: 100ms → 200ms → 400ms.
-
-## Module Cache Busting
-
-Hot-reloaded imports use `?t=${Date.now()}` to bust Node's ESM module cache.
-
-## WORLD_DEF Does Not Include Entities
-
-`ServerHandlers.onClientConnect()` strips the `entities` array from the world definition before sending `MSG.WORLD_DEF` to connecting clients. Pattern: `const { entities: _ignored, ...worldDefForClient } = ctx.currentWorldDef`.
-
-## Message Types Are Hex Not Sequential
-
-MessageTypes.js uses hex grouping. Snapshot = 0x10, input = 0x11. Old docs listed decimal 1-6 which is wrong.
-
-## Editor Message Types (0x80–0x8F)
-
-Inspector excludes the 0x80–0x8F range to avoid intercepting editor traffic.
-
-| Hex  | Name             | Direction       | Purpose |
-|------|-----------------|-----------------|---------|
-| 0x80 | EDITOR_UPDATE   | C→S             | Move/rotate/scale selected entity |
-| 0x81 | EDITOR_SELECT   | S→C             | Tell client which entity to select (+ editorProps) |
-| 0x82 | PLACE_MODEL     | C→S             | Upload GLB and place as `placed-model` entity |
-| 0x83 | PLACE_APP       | C→S             | Place a named app at a world position |
-| 0x84 | LIST_APPS       | C→S             | Request app list |
-| 0x85 | APP_LIST        | S→C             | App list response `{ apps: [{name, description, hasEditorProps}] }` |
-| 0x86 | GET_SOURCE      | C→S             | Request source of `apps/<name>/<file>` |
-| 0x87 | SOURCE          | S→C             | Source response `{ appName, file, source }` |
-| 0x88 | SAVE_SOURCE     | C→S             | Save source to disk (hot-reload fires automatically) |
-| 0x89 | SCENE_GRAPH     | C↔S             | C→S: request refresh. S→C: entity tree |
-| 0x8A | LIST_APP_FILES  | C→S             | Request file list for an app |
-| 0x8B | APP_FILES       | S→C             | File list response `{ appName, files }` |
-| 0x8C | DESTROY_ENTITY  | C→S + S→C       | Delete entity; server destroys+persists+broadcasts |
-| 0x8D | CREATE_APP      | C→S             | Scaffold new `apps/<name>/index.js` from template |
-| 0x8E | GET_EDITOR_PROPS| C→S             | Request editorProps for a specific entity |
-| 0x8F | EDITOR_PROPS    | S→C             | editorProps response `{ entityId, editorProps }` |
-
-`editorProps` on the server module (or `appDef.server.editorProps`) is an array of field descriptors:
-```js
-editorProps: [
-  { key: 'color', label: 'Color', type: 'color', default: '#ffffff' },
-  { key: 'size',  label: 'Size',  type: 'number', default: 1 },
-  { key: 'mode',  label: 'Mode',  type: 'select', options: ['a','b'], default: 'a' },
-  { key: 'label', label: 'Label', type: 'text',   default: '' },
-]
-```
-These are rendered in the editor Inspector panel as live-editable fields. Changes fire `onEditorUpdate` on the server (position/rotation/scale/custom already applied by `ServerHandlers` before the hook fires).
-
-## msgpack Implementation
-
-`src/protocol/msgpack.js` re-exports `pack`/`unpack` from `msgpackr`. All snapshot encoding uses msgpackr.
-
----
-
-## Client Rendering
-
-## Three.js Performance Settings
-
-- `THREE.Cache.enabled = true`
-- `matrixAutoUpdate = false` on all static environment meshes (set post-load)
-- `material.shadowSide = THREE.DoubleSide` on environment meshes — prevents bright corner-line seam artifacts. Current code uses `DoubleSide`, NOT `BackSide`.
-- `PCFSoftShadowMap` — `VSMShadowMap` causes blurred cutout artifacts.
-- `Map.forEach` in the `animate()` loop for player iteration — avoids iterator object allocation per frame.
-
-## Shadow Map Update Policy
-
-`renderer.shadowMap.needsUpdate` is set only when something actually moved, not on a timer. `_shadowDirty` flag in `animate()` is set when a player target changes (`isNew` branch) or when `_dirtyEntityTargets.size > 0`. The update is gated at max 15Hz (66ms) via `_shadowLastUpdate`. This replaces the old `fpsFrames % 3` timer which fired unconditionally on every 3rd frame regardless of scene motion. With mostly-static prop scenes, this saves ~33% of shadow render passes when the player is stationary.
-
-## Loading Screen Gate Conditions
-
-`checkAllLoaded()` gates on all four simultaneously: `assetsLoaded`, `environmentLoaded`, `firstSnapshotReceived`, `firstSnapshotEntityPending.size === 0`. Then `warmupShaders()` runs async in the background.
-
-## warmupShaders + compileAsync
-
-`warmupShaders()` runs AFTER `loadingScreen.hide()` (guarded by `_shaderWarmupDone`): disables frustumCulled on all scene objects → renders twice → restores frustumCulled.
-
-For entities loaded post-loading-screen, `loadEntityModel` in `client/EntityLoader.js` calls `renderer.compileAsync(scene, camera)` after adding the mesh. VRM players use a separate one-time `_vrmWarmupDone` flag.
-
-A zero-intensity `THREE.PointLight` (`_warmupPointLight`) is added at startup to force the point-light shader variant to compile upfront.
-
-## Shadow Frustum Auto-Fit
-
-`fitShadowFrustum()` in app.js adjusts directional light shadow camera bounds to actual scene geometry. Called once after environment GLB loads.
-
-## Camera Collision Raycast Rate
-
-20Hz (every 50ms) via `fpsRayTimer`/`tpsRayTimer`. Cached clip distance used between raycasts. Snaps faster toward player (speed 30) than away (speed 12). BVH via `three-mesh-bvh` vendored at `client/vendor/three-mesh-bvh.module.js` (NOT npm/CDN). `computeBoundsTree()` called on each collider mesh at environment load. Without BVH: ~65% of frame CPU in FPS mode.
-
-`cam.setEnvironment(meshes)` must be populated from non-skinned static meshes only. Never fall back to `scene.children` — includes skinned VRM meshes, causes massive CPU overhead.
-
-## DRACOLoader Worker Pool
-
-Default 4 workers, each initializes Draco WASM on first use. `dracoLoader.setWorkerLimit(1)` to cap startup cost when few Draco meshes are expected.
-
-## Client Position Interpolation
-
-Exponential lerp: `lerp(1 - exp(-16 * dt))` + velocity extrapolation per frame (`goalX = target.x + vx * dt`). Without extrapolation, movement appears jittery at 128 TPS.
-
-## Client Jitter Gotchas
-
-- **Spawn point Y**: Keep low (Y≈5). Spawning high causes fall jitter on join.
-- **Velocity extrapolation**: `SmoothInterpolation.getDisplayState()` adds `position += velocity * dt`.
-- **Rotation interpolation**: `JitterBuffer._slerp()` uses quaternion SLERP, not linear lerp.
-- **Kalman filter**: `positionR = 0.1` — lower values cause overshoot.
-- **RTT measurement**: Uses snapshot `serverTime` field, not heartbeat ping (heartbeat gives ~500ms on localhost; snapshot gives <20ms).
-
-## Static File Serving Priority
-
-staticDirs order: `/src/` → `/apps/` → `/node_modules/` → `/` (client). SDK paths take priority. Project-local `apps/` overrides SDK `apps/` if it exists.
-
----
-
-## VRM / Animation
-
-## VRM Model Scale Pipeline
-
-`modelScale` (default 1.323) on vrm.scene.scale. `feetOffset` ratio (0.212) × modelScale = negative Y offset. `userData.feetOffset = 1.3` hardcoded for client-side position offset. Mismatching any of these misaligns model with physics capsule.
-
-## Animation Library Two-Phase Cache
-
-`preloadAnimationLibrary(loader)` — fire-and-forget in `initAssets`, accepts the main gltfLoader (required since server Draco-compresses anim-lib.glb via GLBTransformer). `loadAnimationLibrary(vrmVersion, vrmHumanoid)` — awaits the preload, then normalizes clips. Returns `{ normalizedClips, rawClips }`.
-
-## Animation State Machine Thresholds
-
-Locomotion transitions use hysteresis (idle-to-walk: 0.8 vs walk-to-idle: 0.3). Locomotion cooldown: 0.3s. Air grace period: 0.15s before jump detection.
-
-## Animation Retargeting Track Filtering
-
-`filterValidClipTracks()` removes bone references that don't exist in the target VRM before `mixer.clipAction()`. Without it, THREE.js PropertyBinding throws errors for every invalid track. Applied to all clips (retargeted and normalized).
-
-## AFAN Webcam Live Streaming Architecture
-
-**What it is**: Opt-in live face tracking that streams ARKit blendshape weights from webcam to nearby players' VRM morph targets.
-
-**Binary format**: `Uint8Array(52)` — one byte per ARKit blendshape (see `ARKIT_NAMES` in `client/webcam-afan.js` and `client/facial-animation.js`). Each byte = weight × 255. 52 bytes per frame at 30Hz = ~1.5 KB/s per sender.
-
-**Lazy load**: `client/webcam-afan.js` is NOT imported by `client/app.js`. Only loaded when user explicitly starts webcam tracking via `window.enableWebcamAFAN()`.
-
-**Face tracking**: Uses MediaPipe FaceMesh (CDN, `@mediapipe/face_mesh@0.4`) loaded lazily inside `WebcamAFANTracker.init()`. Falls back to animated demo data if MediaPipe fails to load.
-
-**Network path**: client → `afan_frame` → server `webcam-avatar` app → nearby players only (30-unit radius) → each receiver's `onAppEvent` → `applyAfanFrame()` in `client/PlayerManager.js` → `FacialAnimationPlayer.applyFrame()`.
-
-**Receiver**: `applyAfanFrame(playerId, Uint8Array)` in `client/PlayerManager.js` decodes the 52-byte frame and applies it to the target player's VRM via `FacialAnimationPlayer`. Player lookup uses `playerVrms` Map. `_afanPlayers` Map caches `FacialAnimationPlayer` instances per playerId.
-
-**Server message type**: `afan_frame` with `{ playerId, data: number[] }`. Server uses `ctx.players.send()` for per-player delivery, not broadcast.
-
----
-
-## Multiplayer Systems
-
-## LagCompensator Ring Buffer
-
-Fixed 128-slot ring buffer. Entries pruned by timestamp (default 500ms window), not by count. Pre-allocated entry objects avoid GC.
-
-`ctx.lagCompensator` is exposed on server app context (`AppContext.js`). Call `lagCompensator.getPlayerStateAtTime(playerId, millisAgo)` to get rewound position for hit validation.
-
-**Hit detection pattern**: client sends `clientTime: Date.now()` in `fire` message. Server computes `latencyMs = Math.min(600, Date.now() - msg.clientTime)`. `handleFire` calls `lagCompensator.getPlayerStateAtTime(target.id, latencyMs)` to rewind target position. Cap at 600ms prevents abuse.
-
-## Collision Detection (Entity-Entity vs Player-Player)
-
-`AppRuntime._tickCollisions()` — sphere-based entity-entity collision for app `onCollide` events. Separate from Jolt.
-
-`TickHandler.js` — player-player separation: capsule radius overlap check + push-apart after physics step. The `other.id <= player.id` guard processes each pair exactly once.
-
-## Spatial Grid for Player Collision
-
-Cell size = `capsuleRadius * 8`. Each player checks 9 neighboring cells. At 100 players, reduces from 4,950 pairs to near-zero. Profile: col=0.04ms at 100 players.
-
-## Heartbeat Timeout
-
-3-second timeout. ANY message from client resets the timer. Client sends explicit heartbeat every 1000ms.
-
-## Client Input Rate vs Server Tick Rate
-
-Client sends at 60Hz. Server processes all buffered inputs per tick but uses only the LAST input's data. `inputSequence` increments per input for reconciliation.
+After 3 consecutive reload failures, module stops auto-reloading until server restart. Exponential backoff: 100ms → 200ms → 400ms. Hot-reloaded imports use `?t=${Date.now()}` to bust Node's ESM module cache.
 
 ---
 
 ## Misc Engine Details
 
-## TickSystem
+- **WORLD_DEF strips entities**: `ServerHandlers.onClientConnect()` removes the `entities` array before sending `MSG.WORLD_DEF`. Pattern: `const { entities: _ignored, ...worldDefForClient } = ctx.currentWorldDef`.
+- **Message types are hex**: `MessageTypes.js` uses hex grouping. Snapshot = 0x10, input = 0x11.
+- **msgpack**: `src/protocol/msgpack.js` re-exports `pack`/`unpack` from `msgpackr`.
+- **TickSystem**: `loop()` processes max 4 ticks per iteration to prevent death spirals. `setTimeout(1ms)` when gap > 2ms, `setImmediate` when <= 2ms.
+- **Entity hierarchy**: `getWorldTransform()` walks parent chain recursively. Destroying parent cascades to children.
+- **EventBus**: wildcard `*` suffix (`combat.*` receives `combat.fire`). `system.*` prefix reserved. `bus.scope(entityId)` — `destroyScope()` unsubscribes all on entity destroy. Leaking subscriptions persist across hot reloads.
+- **Debug globals**: Server: `globalThis.__DEBUG__.server`. Client: `window.debug` (scene, camera, renderer, client, mesh maps, input handler). Always set.
+- **Static file serving priority**: `/src/` → `/apps/` → `/node_modules/` → `/` (client). Project-local `apps/` overrides SDK `apps/`.
+- **Heartbeat**: 3-second timeout. ANY message resets timer. Client sends heartbeat every 1000ms.
+- **Client input rate**: 60Hz. Server uses only LAST buffered input per tick. `inputSequence` increments for reconciliation.
+- **Spatial grid for player collision**: cell size = `capsuleRadius * 8`, 9-neighbor check. `other.id <= player.id` guard processes each pair once.
 
-`loop()` processes max 4 ticks per iteration — drops ticks if further behind to prevent death spirals. Timer: `setTimeout(1ms)` when gap > 2ms, `setImmediate` when ≤ 2ms.
+## Editor Message Types (0x80-0x8F)
 
-## Entity Hierarchy
+Inspector excludes the 0x80-0x8F range to avoid intercepting editor traffic.
 
-`getWorldTransform()` walks up parent chain recursively. Destroying parent cascades to children.
+| Hex  | Name             | Direction | Purpose |
+|------|------------------|-----------|---------|
+| 0x80 | EDITOR_UPDATE    | C->S      | Move/rotate/scale selected entity |
+| 0x81 | EDITOR_SELECT    | S->C      | Tell client which entity to select (+ editorProps) |
+| 0x82 | PLACE_MODEL      | C->S      | Upload GLB and place as `placed-model` entity |
+| 0x83 | PLACE_APP        | C->S      | Place a named app at a world position |
+| 0x84 | LIST_APPS        | C->S      | Request app list |
+| 0x85 | APP_LIST         | S->C      | `{ apps: [{name, description, hasEditorProps}] }` |
+| 0x86 | GET_SOURCE       | C->S      | Request source of `apps/<name>/<file>` |
+| 0x87 | SOURCE           | S->C      | `{ appName, file, source }` |
+| 0x88 | SAVE_SOURCE      | C->S      | Save source to disk (hot-reload fires automatically) |
+| 0x89 | SCENE_GRAPH      | C<->S     | C->S: request refresh. S->C: entity tree |
+| 0x8A | LIST_APP_FILES   | C->S      | Request file list for an app |
+| 0x8B | APP_FILES        | S->C      | `{ appName, files }` |
+| 0x8C | DESTROY_ENTITY   | C->S+S->C | Delete entity; server destroys+persists+broadcasts |
+| 0x8D | CREATE_APP       | C->S      | Scaffold new `apps/<name>/index.js` from template |
+| 0x8E | GET_EDITOR_PROPS | C->S      | Request editorProps for a specific entity |
+| 0x8F | EDITOR_PROPS     | S->C      | `{ entityId, editorProps }` |
 
-## EventBus
-
-Wildcard `*` suffix patterns (`combat.*` receives `combat.fire`, `combat.hit`). `system.*` prefix is reserved. Each entity gets a scoped bus via `bus.scope(entityId)` — `destroyScope()` unsubscribes all on entity destroy. Leaking bus subscriptions persist across hot reloads.
-
-## Debug Globals
-
-Server: `globalThis.__DEBUG__.server`. Client: `window.debug` (scene, camera, renderer, client, mesh maps, input handler). Always set, not gated by flags.
+`editorProps` schema:
+```js
+editorProps: [
+  { key: 'color', label: 'Color', type: 'color',  default: '#ffffff' },
+  { key: 'size',  label: 'Size',  type: 'number', default: 1 },
+  { key: 'mode',  label: 'Mode',  type: 'select', options: ['a','b'], default: 'a' },
+  { key: 'label', label: 'Label', type: 'text',   default: '' },
+]
+```
+Changes fire `onEditorUpdate` — `position/rotation/scale/custom` already applied by `ServerHandlers` before the hook fires.
 
 ---
 
-## Server Profiling Baseline
+## VRM / Animation
 
-Measured 2026-03-16 via microbenchmark in `bun x gm-exec exec` with real imports from `src/protocol/msgpack.js`. All timings are per-tick averages. Budget = 15.6ms at 64 TPS.
+- **VRM model scale pipeline**: `modelScale` (default 1.323) on `vrm.scene.scale`. `feetOffset` ratio (0.212) × modelScale = negative Y offset. `userData.feetOffset = 1.3` hardcoded for client-side offset. Mismatching any of these misaligns model with physics capsule.
+- **Animation library**: `preloadAnimationLibrary(loader)` — fire-and-forget in `initAssets`, requires the main gltfLoader (server Draco-compresses anim-lib.glb). `loadAnimationLibrary(vrmVersion, vrmHumanoid)` awaits preload, returns `{ normalizedClips, rawClips }`.
+- **Locomotion hysteresis**: idle-to-walk: 0.8, walk-to-idle: 0.3. Locomotion cooldown: 0.3s. Air grace period: 0.15s before jump detection.
+- **Track filtering**: `filterValidClipTracks()` removes bone references missing from target VRM before `mixer.clipAction()`. Without it, THREE.js PropertyBinding throws errors for every invalid track.
 
-### Phase Timings (100 players / 1000 active entities / relevanceRadius=60)
+## AFAN Webcam Live Streaming
 
-| Phase | Cost (ms) | Budget % | File |
-|---|---|---|---|
-| `refreshDynamicCache` (500 active entities) | 0.157 | 1.0% | `SnapshotEncoder.js` |
-| `pack` 25 snapshots × 150 entities + 30 players | 1.632 | 10.5% | `TickHandler.js` snap loop |
-| `encodeDeltaFromCache` 200 relevant IDs | 0.099 | 0.6% | `SnapshotEncoder.js` |
-| `encodePlayersOnce` 50 players | 0.027 | 0.2% | `SnapshotEncoder.js` |
-| Full snap phase (50p / 500e / snapGroups=2) | ~1.2 | 7.7% | `TickHandler.js` |
-| Full snap phase (100p / 1000e / snapGroups=4) | ~2.8 | 17.9% | `TickHandler.js` |
+Opt-in face tracking streaming ARKit blendshape weights from webcam to nearby players' VRM morph targets.
 
-### Resolved Bottlenecks (2026-03-19)
+- **Format**: `Uint8Array(52)` — one byte per ARKit blendshape (see `ARKIT_NAMES` in `client/webcam-afan.js`). Each byte = weight x 255. ~1.5 KB/s per sender at 30Hz.
+- **Lazy load**: `client/webcam-afan.js` NOT imported by `client/app.js` — loaded only via `window.enableWebcamAFAN()`.
+- **Face tracking**: MediaPipe FaceMesh (`@mediapipe/face_mesh@0.4`, CDN) loaded lazily in `WebcamAFANTracker.init()`. Falls back to demo data if MediaPipe fails.
+- **Network path**: client -> `afan_frame` -> `webcam-avatar` app -> nearby players (30-unit radius) -> `onAppEvent` -> `applyAfanFrame()` in `client/PlayerManager.js` -> `FacialAnimationPlayer.applyFrame()`.
+- **Server delivery**: `ctx.players.send()` per-player, not broadcast. Message: `{ playerId, data: number[] }`.
 
-**Bottleneck 1 (FIXED): `buildEntityKey` Array.join → string concat** — 3.7x speedup. Now uses string concatenation.
+## LagCompensator
 
-**Bottleneck 2 (FIXED): `pack` wrapper overhead per-player** — `connections.send()` replaced with `pack()` + `sendPacked()` in spatial path. `ConnectionManager.send()` reuses `_sendObj` module-level object. `SNAP_UNRELIABLE` hoisted as constant. `packSnapshot()` reuses `_packWrapper`/`_packPayload` objects to avoid `{ type, payload: { seq, ...encoded } }` allocation per pack call.
+Fixed 128-slot ring buffer. Entries pruned by timestamp (500ms window). Pre-allocated entries avoid GC.
 
-**Bottleneck 3 (FIXED): `encodeEntity` array allocation** — `fillEntityEnc()` mutates existing `entry.enc` array in-place during `refreshDynamicCache`. Zero allocation for cached entities. Lazy key rebuild via `_dirty` flag — key only rebuilt in `applyEntry()` when the entry is actually sent.
+`ctx.lagCompensator.getPlayerStateAtTime(playerId, millisAgo)` — exposed on `AppContext.js`. Hit detection pattern: client sends `clientTime: Date.now()` in fire message. Server: `latencyMs = Math.min(600, Date.now() - msg.clientTime)`, then rewinds target position. 600ms cap prevents abuse.
 
-**Bottleneck 4 (FIXED): `pack(cust).toString('hex')` for custom change detection** — replaced with `JSON.stringify(cust)` which is 8-12x faster. Used in `resolveKey`, `buildEntry`, `encodeStaticEntities`, and `encodeDelta`. Removed `pack` import from `SnapshotEncoder.js`.
+## Three.js Settings
 
-**Bottleneck 5 (FIXED): Tick hot path allocations** — `_tickTimers` uses in-place array compaction instead of creating new `keep` array. `_syncPlayerIndex` avoids spread array allocation. `getNearbyPlayers` reuses module-level `_nearbyIdSet`. Cell pack caching in TickHandler reuses packed data for players in same cell with no entity changes.
+- `THREE.Cache.enabled = true`
+- `matrixAutoUpdate = false` on all static environment meshes
+- `material.shadowSide = THREE.DoubleSide` on environment meshes — prevents bright corner-line seam artifacts. Use `DoubleSide`, NOT `BackSide`.
+- `PCFSoftShadowMap` — `VSMShadowMap` causes blurred cutout artifacts.
+- BVH via `three-mesh-bvh` vendored at `client/vendor/three-mesh-bvh.module.js` (NOT npm/CDN). Camera raycast at 20Hz; cached clip distance between raycasts. Without BVH: ~65% of frame CPU in FPS mode.
 
-**Bottleneck 6 (FIXED): Grid/cooldown memory growth** — `CollisionSystem` prunes stale grid cells every 64 ticks (was 256) plus size-based threshold. `_tickInteractables` prunes stale cooldown entries every 256 ticks. Entity collision grid also prunes stale cells.
+## Loading Screen Gate
 
-### Key Data Points
+`checkAllLoaded()` gates on all four simultaneously: `assetsLoaded`, `environmentLoaded`, `firstSnapshotReceived`, `firstSnapshotEntityPending.size === 0`. Then `warmupShaders()` runs async.
 
-- `refreshDynamicCache` (500 active): **0.063ms** (previously 0.157ms — in-place mutation + lazy key)
-- `encodeDeltaFromCache` (200 relevant): **0.034ms** — efficient via `iterIds` path
-- `encodePlayersOnce` (50 players): **0.022ms** — negligible
-- Full snapshot pipeline (100p / 1000e / 500 active × 25 sends): **4.4ms** (pack dominates at 2.9ms)
-- Collision system: 0.05ms (100p spread), 0.07ms (100p clustered), 0.30ms (300p clustered)
-- `spatialCache` hit rate at 100 players: 84% hits / 16% misses — spatial grouping is working well
-- Wire size scales linearly: 10e=1570B, 50e=2170B, 100e=2253B, 200e=3383B
-- Client `SnapshotProcessor` delta processing (50p + 200e): **0.047ms** — zero allocation for known entities via object pool
-- Custom serialization: JSON.stringify 8-12x faster than pack+hex for change detection
+## Client Jitter Gotchas
+
+- **Spawn point Y**: keep low (Y~5) — spawning high causes fall jitter on join.
+- **Velocity extrapolation**: `SmoothInterpolation.getDisplayState()` adds `position += velocity * dt`. Without this, movement appears jittery at 128 TPS.
+- **Rotation interpolation**: quaternion SLERP, not linear lerp.
+- **RTT measurement**: uses snapshot `serverTime` field, not heartbeat ping (heartbeat gives ~500ms on localhost; snapshot gives <20ms).
