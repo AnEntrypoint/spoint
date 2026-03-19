@@ -3,6 +3,9 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+concurrency:
+  group: publish-npm
+  cancel-in-progress: false
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -23,6 +26,7 @@ jobs:
         run: npm install -g standard-version
       - name: Bump version
         run: |
+          git pull --rebase origin main
           standard-version
           git push --follow-tags
       - name: Install dependencies
