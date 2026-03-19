@@ -23,7 +23,6 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
   const entityTargets = new Map(), pendingLoads = new Set(), loadQueue = [], _bvhQueue = [], _lodUpgradeQueue = []
   const _parsedGltfCache = new Map(), _parsedGltfInflight = new Map(), _discoveredModelUrls = new Set()
   let _bvhScheduled = false, _lodUpgradeScheduled = false, _activeLoads = 0
-
   function _scheduleBvhBuild(meshes) {
     for (const m of meshes) _bvhQueue.push(m)
     if (_bvhScheduled) return
@@ -34,7 +33,6 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
     }
     _ric(run)
   }
-
   function _simplifyObject(object, ratio, url, level) {
     object.traverse(child => {
       if (!child.isMesh || !child.geometry) return
@@ -45,7 +43,6 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
       try { const si = MeshoptSimplifier.simplify(g.index.array, g.attributes.position.array, 3, tc, 1e-2); const ng = g.clone(); ng.setIndex(new THREE.BufferAttribute(si, 1)); child.geometry = ng; if (url != null) storeLodIndex(url, level, si).catch(() => {}) } catch { }
     })
   }
-
   function _scheduleLodUpgrades() {
     if (_lodUpgradeScheduled || _lodUpgradeQueue.length === 0) return
     _lodUpgradeScheduled = true
@@ -159,9 +156,7 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
         if (SKIP_MATS_SET.has(mn) || SKIP_MATS_SET.has(c.material?.name)) { c.visible = false; return }
         c.castShadow = true; c.receiveShadow = true
         if (!c.isSkinnedMesh && !isDynamic) { c.matrixAutoUpdate = false; bvhPending.push(c); colliders.push(c) }
-        if (c.material) { c.material.shadowSide = THREE.DoubleSide; c.material.roughness = 1; c.material.metalness = 0; if (c.material.specularIntensity !== undefined) c.material.specularIntensity = 0 }
-        if (NodeMat && !c.material.isNodeMaterial) { const o = c.material, n = new NodeMat(); n.color.copy(o.color); n.roughness = o.roughness; n.metalness = o.metalness; n.emissive.copy(o.emissive); n.emissiveIntensity = o.emissiveIntensity; if (o.map) n.map = o.map; if (o.normalMap) n.normalMap = o.normalMap; n.shadowSide = o.shadowSide; n.name = o.name; c.material = n }
-      })
+        if (c.material) { c.material.shadowSide = THREE.DoubleSide; c.material.roughness = 1; c.material.metalness = 0; if (c.material.specularIntensity !== undefined) c.material.specularIntensity = 0 }      })
       if (bvhPending.length > 0) _scheduleBvhBuild(bvhPending)
       model.updateMatrixWorld(true)
       const finalMesh = isDynamic ? model : (entityState.custom?.noAutoLod ? model : _generateLODEager(model, entityState.custom?.mesh, url))
