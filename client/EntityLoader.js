@@ -10,7 +10,7 @@ const MESH_BUILDERS = {
   cylinder: (c) => new THREE.CylinderGeometry(c.r || 0.4, c.r || 0.4, c.h || 0.1, c.seg || 16),
   sphere: (c) => new THREE.SphereGeometry(c.r || 0.5, c.seg || 16, c.seg || 16)
 }
-const LOD_CONFIGS = { vrm: { far: 40, skipBeyond: 80, skipBeyondSq: 6400 }, box: { far: 45, skipBeyond: 90, skipBeyondSq: 8100 }, sphere: { far: 50, skipBeyond: 100, skipBeyondSq: 10000 }, cylinder: { far: 50, skipBeyond: 100, skipBeyondSq: 10000 }, default: { far: 60, skipBeyond: 120, skipBeyondSq: 14400 } }
+const LOD_CONFIGS = { vrm: { far: 40, skipBeyond: 80 }, box: { far: 45, skipBeyond: 90 }, sphere: { far: 50, skipBeyond: 100 }, cylinder: { far: 50, skipBeyond: 100 }, default: { far: 60, skipBeyond: 120 } }
 const MAX_CONCURRENT_LOADS = 3
 const MAX_GLTF_CACHE = 64
 
@@ -112,7 +112,7 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
     for (const mesh of entityMeshes.values()) {
       const cfg = LOD_CONFIGS[mesh.userData?.mesh] || LOD_CONFIGS.default
       const d2 = (mesh.position.x - cp.x) ** 2 + (mesh.position.y - cp.y) ** 2 + (mesh.position.z - cp.z) ** 2
-      mesh.visible = d2 <= cfg.skipBeyondSq
+      mesh.visible = d2 <= cfg.skipBeyond * cfg.skipBeyond
       if (mesh.isLOD && mesh.visible) mesh.update(camera)
     }
   }
