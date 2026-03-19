@@ -3,6 +3,9 @@ import { get, put, remove } from './IndexedDBStore.js'
 const DB_NAME = 'spawnpoint-model-cache'
 const DB_VERSION = 1
 const STORE = 'models'
+const MANIFEST_KEY = 'lru-manifest'
+const SOFT_CAP = 150 * 1024 * 1024
+const HARD_CAP = 200 * 1024 * 1024
 
 export async function dbPut(key, etag, buffer) {
   try { await put(DB_NAME, DB_VERSION, STORE, key, { etag, buffer }) } catch { }
@@ -10,6 +13,37 @@ export async function dbPut(key, etag, buffer) {
 
 export async function dbDelete(key) {
   try { await remove(DB_NAME, DB_VERSION, STORE, key) } catch { }
+}
+
+async function _readManifest() {
+  try {
+    const m = await get(DB_NAME, DB_VERSION, STORE, MANIFEST_KEY)
+    return (m && typeof m === 'object' && !m.etag) ? m : {}
+  } catch { return {} }
+}
+
+async function _writeManifest(manifest) {
+  try { await put(DB_NAME, DB_VERSION, STORE, MANIFEST_KEY, manifest) } catch { }
+}
+
+async function _touchManifest(url, size) {
+  const manifest = await _readManifest()
+  manifest[url] = { size, lastAccess: Date.now() }
+  await _writeManifest(manifest)
+}
+
+async function _pruneManifest(manifest) {
+  const entries = Object.entries(manifest)
+  let total = entries.reduce((s, [, v]) => s + (v.size || 0), 0)
+  if (total <= HARD_CAP) return manifest
+  entries.sort((a, b) => a[1].lastAccess - b[1].lastAccess)
+  for (const [url] of entries) {
+    if (total <= SOFT_CAP) break
+    total -= manifest[url]?.size || 0
+    delete manifest[url]
+    await remove(DB_NAME, DB_VERSION, STORE, url).catch(() => {})
+  }
+  return manifest
 }
 
 async function _fetchAndCache(url, onProgress) {
@@ -33,7 +67,12 @@ async function _fetchAndCache(url, onProgress) {
   let pos = 0
   for (const chunk of chunks) { result.set(chunk, pos); pos += chunk.length }
   if (etag) {
-    try { await put(DB_NAME, DB_VERSION, STORE, url, { etag, buffer: result.buffer }) } catch { }
+    try {
+      await put(DB_NAME, DB_VERSION, STORE, url, { etag, buffer: result.buffer })
+      const manifest = await _readManifest()
+      manifest[url] = { size: result.byteLength, lastAccess: Date.now() }
+      await _writeManifest(await _pruneManifest(manifest))
+    } catch { }
   }
   return result
 }
@@ -43,6 +82,7 @@ export async function fetchCached(url, onProgress) {
   try { cached = await get(DB_NAME, DB_VERSION, STORE, url) } catch { }
 
   if (cached?.etag) {
+    _touchManifest(url, cached.buffer?.byteLength || 0).catch(() => {})
     fetch(url, { method: 'HEAD' }).then(head => {
       const serverEtag = head?.headers?.get('etag')
       if (serverEtag && serverEtag !== cached.etag) _fetchAndCache(url).catch(() => {})

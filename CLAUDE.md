@@ -40,7 +40,9 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 
 **Module sharing**: `three.webgpu.js` imports from `three.core.js`, the same core that `three.module.js` uses. No duplicate class instances when both are loaded.
 
-**Shadow maps**: `PCFSoftShadowMap` is supported on both WebGL and WebGPU backends (confirmed via `_shadowFilterLib` array in three.webgpu.js). No branch needed. `shadow.radius` and `shadow.blurSamples` are WebGL-specific soft-shadow params — they are set unconditionally but have no effect on WebGPU.
+**Shadow maps**: When `isWebGPU=true`, `renderer.shadowMap.type` is set to `THREE.PCFShadowMap` (hardware-accelerated on WebGPU). When `isWebGPU=false`, `THREE.PCFSoftShadowMap` is used. `shadow.radius` and `shadow.blurSamples` are WebGL-specific soft-shadow params — set unconditionally but have no effect on WebGPU.
+
+**Node materials**: When `isWebGPU=true`, `createEntityLoader` upgrades `MeshStandardMaterial` → `MeshStandardNodeMaterial` (imported lazily from `three/webgpu`) after GLTF parse. Material properties (color, roughness, metalness, emissive, map, normalMap, shadowSide) are copied. Skinned meshes and already-upgraded materials are skipped. The `isWebGPU` flag is passed as the 6th argument to `createEntityLoader`.
 
 **Pixel ratio**: Capped at `Math.min(devicePixelRatio, 2)` regardless of backend.
 
@@ -167,6 +169,20 @@ Set `entity.model = null` and populate `entity.custom`:
 ### IndexedDB Model Cache
 
 `client/ModelCache.js` caches GLB/VRM ArrayBuffers in IndexedDB keyed by URL. HEAD request checks ETag on repeat loads; 304 returns cache; miss fetches full GET. When gzip is present, `content-length` is NOT used as progress denominator (it's the compressed size, not decompressed).
+
+**LRU eviction**: `lru-manifest` entry in the same IndexedDB store tracks `{ url, size, lastAccess }` per entry. On every cache store or hit, the manifest is updated. After each store, entries exceeding 200MB total are pruned oldest-first until under 150MB. Size estimated from `buffer.byteLength`.
+
+### Client-Side Geometry Cache
+
+`client/GeometryCache.js` — two caches sharing IndexedDB store `geometry-cache`:
+
+**Draco decompression cache** (`getGeometry` / `storeGeometry`): After `gltfLoader.parseAsync()` on a GLB with `KHR_draco_mesh_compression`, non-skinned mesh geometries are serialized (attributes as ArrayBuffers, index, drawRange, material props) and stored keyed by URL. On next load with same ETag (ModelCache validates freshness before returning the buffer), `getGeometry(url)` returns the cached descriptors and `reconstructGeometry(d)` rebuilds `THREE.BufferGeometry` from them — Draco WASM decompression is skipped entirely.
+
+**LOD index cache** (`getLodIndex` / `storeLodIndex`): After MeshoptSimplifier produces a simplified index buffer in `_simplifyObject`, it is stored keyed by `url:lod0` or `url:lod1`. On next load, `_scheduleLodUpgrades` checks for cached indices before calling `MeshoptSimplifier.simplify`. `url` is carried via `model.userData.url` set at parse time and passed through `_generateLODEager` → `_lodUpgradeQueue` entries.
+
+### Shader Warmup Persistence
+
+`warmupShaders` in `client/SceneSetup.js` stores `lastShaderWarmupKey` in `localStorage` (was `sessionStorage`). The scene key includes entity count and ID hash — same world across browser sessions skips re-compilation.
 
 ---
 

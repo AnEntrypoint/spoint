@@ -4,6 +4,31 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js'
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import { VRMLoaderPlugin } from '@pixiv/three-vrm'
+import { put as idbPut } from './IndexedDBStore.js'
+
+const KTX2_DB = 'spawnpoint-ktx2-cache', KTX2_VER = 1, KTX2_STORE = 'textures'
+const KTX2_MAX_BYTES = 16 * 1024 * 1024
+
+function _serializeMipmaps(mipmaps) {
+  return mipmaps.map(m => ({ data: m.data.buffer.slice(m.data.byteOffset, m.data.byteOffset + m.data.byteLength), width: m.width, height: m.height }))
+}
+
+export function wrapKtx2Cache(ktx2Loader) {
+  const orig = ktx2Loader._createTextureFrom.bind(ktx2Loader)
+  ktx2Loader._createTextureFrom = async function(transcodeResult, container) {
+    const tex = await orig(transcodeResult, container)
+    try {
+      const mipmaps = tex.image?.mipmaps
+      if (!mipmaps?.length) return tex
+      const totalBytes = mipmaps.reduce((s, m) => s + m.data.byteLength, 0)
+      if (totalBytes > KTX2_MAX_BYTES) return tex
+      const key = totalBytes + ':' + tex.format + ':' + mipmaps[0].width + 'x' + mipmaps[0].height
+      idbPut(KTX2_DB, KTX2_VER, KTX2_STORE, key, { mipmaps: _serializeMipmaps(mipmaps), format: tex.format, type: tex.type, colorSpace: tex.colorSpace, premultiplyAlpha: tex.premultiplyAlpha, minFilter: tex.minFilter, magFilter: tex.magFilter }).catch(() => {})
+      console.log('[ktx2-cache] stored:', key)
+    } catch { }
+    return tex
+  }
+}
 
 export function createScene() {
   const scene = new THREE.Scene()
@@ -35,10 +60,13 @@ export async function createRenderer(isMobile) {
     renderer.domElement.addEventListener('webglcontextrestored', () => { location.reload() }, false)
   }
   renderer.setSize(window.innerWidth, window.innerHeight)
-  renderer.setPixelRatio(Math.min(isMobile ? window.devicePixelRatio * 0.5 : window.devicePixelRatio, 2))
+  renderer.setPixelRatio(Math.min(isMobile ? window.devicePixelRatio * 0.5 : window.devicePixelRatio, 1.5))
   renderer.shadowMap.enabled = true
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap
+  renderer.shadowMap.type = isWebGPU ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap
   renderer.shadowMap.autoUpdate = false
+  renderer.toneMapping = THREE.ACESFilmicToneMapping
+  renderer.toneMappingExposure = 1.0
+  renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.xr.enabled = true
   document.body.appendChild(renderer.domElement)
   return { renderer, isWebGPU }
@@ -121,8 +149,8 @@ export async function warmupShaders(renderer, scene, camera, entityMeshes, playe
   const total = allMeshes.length
   const ids = [...entityMeshes.keys()].sort().join(',')
   const sceneKey = `shader-warmup-v3:${total}:${ids.length > 200 ? ids.slice(0, 200) : ids}`
-  if (sessionStorage.getItem('lastShaderWarmupKey') === sceneKey) { console.log('[shader] skipped warmup (scene unchanged)'); return }
-  sessionStorage.setItem('lastShaderWarmupKey', sceneKey)
+  if (localStorage.getItem('lastShaderWarmupKey') === sceneKey) { console.log('[shader] skipped warmup (scene unchanged)'); return }
+  localStorage.setItem('lastShaderWarmupKey', sceneKey)
   loadingMgr.setLabel('Compiling shaders...'); loadingMgr.reportProcessing(0, total)
   const culled = [], hidden = []
   scene.traverse(obj => {
