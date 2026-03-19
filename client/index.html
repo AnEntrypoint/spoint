@@ -9,20 +9,25 @@
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/rippleui@1.12.1/dist/css/styles.css" media="print" onload="this.media='all'">
   <noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/rippleui@1.12.1/dist/css/styles.css"></noscript>
-  <link rel="preload" href="https://esm.sh/three@0.171.0" as="fetch" crossorigin>
-  <link rel="preload" href="https://esm.sh/@pixiv/three-vrm@3?external=three" as="fetch" crossorigin>
-  <link rel="preload" href="https://esm.sh/webjsx@0.0.73" as="fetch" crossorigin>
-  <link rel="preload" href="https://esm.sh/msgpackr@1.10.1" as="fetch" crossorigin>
+  <link rel="modulepreload" href="/node_modules/three/build/three.module.js">
+  <link rel="modulepreload" href="/node_modules/three/examples/jsm/loaders/GLTFLoader.js">
+  <link rel="modulepreload" href="/node_modules/three/examples/jsm/loaders/DRACOLoader.js">
+  <link rel="modulepreload" href="/node_modules/three/examples/jsm/loaders/KTX2Loader.js">
+  <link rel="modulepreload" href="/node_modules/three/examples/jsm/utils/BufferGeometryUtils.js">
+  <link rel="modulepreload" href="/node_modules/three/examples/jsm/libs/meshopt_decoder.module.js">
+  <link rel="modulepreload" href="/node_modules/webjsx/dist/index.js">
+  <link rel="modulepreload" href="/node_modules/msgpackr/index.js">
+  <link rel="modulepreload" href="/node_modules/@pixiv/three-vrm/lib/three-vrm.module.js">
   <script type="importmap">
   {
     "imports": {
-      "three": "https://esm.sh/three@0.171.0",
-      "three/addons/": "https://esm.sh/three@0.171.0/examples/jsm/",
-      "@pixiv/three-vrm": "https://esm.sh/@pixiv/three-vrm@3?external=three",
+      "three": "/node_modules/three/build/three.module.js",
+      "three/addons/": "/node_modules/three/examples/jsm/",
+      "@pixiv/three-vrm": "/node_modules/@pixiv/three-vrm/lib/three-vrm.module.js",
       "three-mesh-bvh": "/vendor/three-mesh-bvh.module.js",
-      "webjsx": "https://esm.sh/webjsx@0.0.73",
-      "webjsx/jsx-runtime": "https://esm.sh/webjsx@0.0.73/jsx-runtime",
-      "msgpackr": "https://esm.sh/msgpackr@1.10.1"
+      "webjsx": "/node_modules/webjsx/dist/index.js",
+      "webjsx/jsx-runtime": "/node_modules/webjsx/dist/jsx-runtime.js",
+      "msgpackr": "/node_modules/msgpackr/index.js"
     }
   }
   </script>

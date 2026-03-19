@@ -270,7 +270,9 @@ Entity-entity: O(n²) brute-force for <100 entities, grid-based (cell=4 units, 9
 - **Entity load concurrency**: `MAX_CONCURRENT_LOADS_INITIAL=8`, `MAX_CONCURRENT_LOADS_RUNTIME=4` — drains `firstSnapshotEntityPending` faster during loading screen.
 - **Draco worker preload**: `dracoLoader.preload()` called immediately in `createLoaders()` — starts worker pool + WASM init at page load instead of paying that cost on first entity decode.
 - **RippleUI non-blocking**: CDN stylesheet loaded with `media="print" onload="this.media='all'"` — never render-blocks first paint.
-- **CDN module preload hints**: `<link rel="preload">` for three, three-vrm, webjsx, msgpackr in `index.html` — kicks off parallel fetches before importmap resolves.
+- **All imports vendored locally** (`index.html` importmap): three@0.183, three/addons/, @pixiv/three-vrm, webjsx, msgpackr all served from `/node_modules/` at localhost. Eliminates 500ms–1700ms CDN round-trips per module. `<link rel="modulepreload">` for 9 critical modules fires parallel fetches before `app.js` parses. Combined: cold load 34–36s → 22s (36% faster). `@pixiv/three-vrm` added as a real `package.json` dependency (was CDN-only).
+- **`firstSnapshotEntityPending` only tracks dynamic entities**: static entities (map, environment props) no longer block the loading screen gate. `bodyType==='dynamic'` filter means only moving/interactive entities are waited for. A 5-second timeout (`_entityLoadTimeout`) clears the set as a safety net so no entity load failure can block the game forever.
+- **`fitShadowFrustum` reuses Box3 instances**: `_fitBox3` and `_fitMeshBox` are module-level singletons. Replaces `box.expandByObject(o)` (which does internal sub-traverse per mesh) with direct `geometry.computeBoundingBox()` + `Box3.copy().applyMatrix4()` — O(N) single pass with zero allocation.
 
 ### Client Loading Pipeline (2026-03-19)
 

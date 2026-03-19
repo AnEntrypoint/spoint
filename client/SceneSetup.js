@@ -58,9 +58,17 @@ export function createLoaders(renderer) {
   return { gltfLoader, dracoLoader, ktx2Loader }
 }
 
+const _fitBox3 = new THREE.Box3()
+const _fitMeshBox = new THREE.Box3()
+
 export function fitShadowFrustum(scene, sun) {
-  const box = new THREE.Box3()
-  scene.traverse(o => { if (o.isMesh && (o.castShadow || o.receiveShadow) && o.geometry) box.expandByObject(o) })
+  const box = _fitBox3; box.makeEmpty()
+  scene.traverse(o => {
+    if (!o.isMesh || (!o.castShadow && !o.receiveShadow) || !o.geometry) return
+    if (!o.geometry.boundingBox) o.geometry.computeBoundingBox()
+    _fitMeshBox.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld)
+    box.union(_fitMeshBox)
+  })
   if (box.isEmpty()) return
   const center = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3())
   const half = (Math.max(size.x, size.z) / 2 + 2) * 1.06

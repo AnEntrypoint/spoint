@@ -40,7 +40,9 @@ const _pids = new Set(), _eids = new Set()
 let worldConfig={}, vrmBuffer=null, animAssets=null, assetsLoaded=false, loadingScreenHidden=false, environmentLoaded=false, firstSnapshotReceived=false, _fitShadowTimer=null
 const firstSnapshotEntityPending=new Set(), el=createEntityLoader(scene,gltfLoader,cam,loadingMgr,patchGLB)
 const _scheduleFitShadow=()=>{ if (_fitShadowTimer) clearTimeout(_fitShadowTimer); _fitShadowTimer=setTimeout(()=>{_fitShadowTimer=null;fitShadowFrustum(scene,sun)},200) }
-const onFirstEntityLoaded=id=>{ if (!environmentLoaded){environmentLoaded=true;checkAllLoaded()}; if (firstSnapshotEntityPending.has(id)){firstSnapshotEntityPending.delete(id);if(firstSnapshotEntityPending.size===0)checkAllLoaded()} }
+let _entityLoadTimeout=null
+const _clearEntityPending=()=>{ firstSnapshotEntityPending.clear(); if(_entityLoadTimeout){clearTimeout(_entityLoadTimeout);_entityLoadTimeout=null}; checkAllLoaded() }
+const onFirstEntityLoaded=id=>{ if (!environmentLoaded){environmentLoaded=true;checkAllLoaded()}; if (firstSnapshotEntityPending.has(id)){firstSnapshotEntityPending.delete(id);if(firstSnapshotEntityPending.size===0)_clearEntityPending()} }
 async function checkAllLoaded() { if (loadingScreenHidden||!assetsLoaded||!environmentLoaded||!firstSnapshotReceived||firstSnapshotEntityPending.size>0) return; loadingScreenHidden=true; loadingMgr.setLabel('Starting game...'); try { await warmupShaders(renderer,scene,camera,el.entityMeshes,pm.playerMeshes,loadingMgr) } catch (_) {}; loadingScreen.hide() }
 function _readVrmVersion(b) { try { const av=b instanceof ArrayBuffer?b:b.buffer,dv=new DataView(av),jl=dv.getUint32(12,true),j=JSON.parse(new TextDecoder().decode(new Uint8Array(av,20,jl))); return j.extensions?.VRM?'0':'1' } catch(_){} return '1' }
 function initAssets(url) { loadingMgr.setLabel('Downloading player model...'); preloadAnimationLibrary(gltfLoader)
@@ -78,7 +80,7 @@ const client = new PhysicsNetworkClient({
       if (mesh&&e.position) { const et=el.entityTargets.get(e.id),vx=e.velocity?.[0]||0,vy=e.velocity?.[1]||0,vz=e.velocity?.[2]||0; if (et) { et.x=e.position[0];et.y=e.position[1];et.z=e.position[2];et.vx=vx;et.vy=vy;et.vz=vz;et.rx=e.rotation?.[0]||0;et.ry=e.rotation?.[1]||0;et.rz=e.rotation?.[2]||0;et.rw=e.rotation?.[3]||1 } else el.entityTargets.set(e.id,{x:e.position[0],y:e.position[1],z:e.position[2],vx,vy,vz,rx:e.rotation?.[0]||0,ry:e.rotation?.[1]||0,rz:e.rotation?.[2]||0,rw:e.rotation?.[3]||1}); _dirty.add(e.id); const dx=e.position[0]-mesh.position.x,dy=e.position[1]-mesh.position.y,dz=e.position[2]-mesh.position.z; if (!mesh.userData.entInit||dx*dx+dy*dy+dz*dz>100) { mesh.position.set(e.position[0],e.position[1],e.position[2]); if (e.rotation) mesh.quaternion.set(e.rotation[0],e.rotation[1],e.rotation[2],e.rotation[3]); mesh.userData.entInit=true } }
       if (!el.entityMeshes.has(e.id)) el.loadEntityModel(e.id,e,entityAppMap,firstSnapshotEntityPending,onFirstEntityLoaded,_scheduleFitShadow,loadingScreenHidden)
     }
-    latestState=state; if (!firstSnapshotReceived) { firstSnapshotReceived=true; for (const e of state.entities) { if (e.model&&!el.entityMeshes.has(e.id)) firstSnapshotEntityPending.add(e.id) }; checkAllLoaded() }
+    latestState=state; if (!firstSnapshotReceived) { firstSnapshotReceived=true; for (const e of state.entities) { if (e.model&&!el.entityMeshes.has(e.id)&&e.bodyType==='dynamic') firstSnapshotEntityPending.add(e.id) }; if (firstSnapshotEntityPending.size>0) _entityLoadTimeout=setTimeout(_clearEntityPending,5000); checkAllLoaded() }
   },
   onPlayerJoined: id => { if (!pm.playerMeshes.has(id)) pm.createPlayerVRM(id,vrmBuffer,animAssets,worldConfig,client.playerId) },
   onPlayerLeft: id => pm.removePlayerMesh(id),
