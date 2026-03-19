@@ -260,12 +260,25 @@ Entity-entity: O(n²) brute-force for <100 entities, grid-based (cell=4 units, 9
 ### Client-Side Optimizations
 
 - **BVH deferred** to `requestIdleCallback` (2ms slice) via `_bvhQueue`. Camera raycast falls back to brute-force on un-built geometries.
-- **`warmupShaders`**: disables `frustumCulled` on all objects, renders twice, restores. Post-load entities use `renderer.compileAsync`. A zero-intensity `_warmupPointLight` forces point-light shader variant to compile upfront.
+- **`warmupShaders`**: disables `frustumCulled` on all objects, renders twice, restores. Post-load entities use `renderer.compileAsync`. A zero-intensity `_warmupPointLight` forces point-light shader variant to compile upfront. Session cache key uses entity count + sorted entity IDs (truncated to 200 chars) — prevents cross-scene cache collisions. Two `scene.traverse` passes merged into one.
 - **Shadow map** updated only when scene moves (`_shadowDirty` flag), gated at max 15Hz.
 - **`cam.setEnvironment(meshes)`** must use non-skinned static meshes only — never `scene.children` (includes skinned VRM meshes, causes massive CPU overhead).
 - **SnapshotProcessor object pooling**: `makePlayerSlot`/`makeEntitySlot` with pool indexing; `fillPlayerArr`/`fillEntityArr` mutate in-place — zero allocation for existing entities.
 - **Invisible player skip**: `tickPlayerAnimators` skips VRM update, bone overrides, and anim for invisible players (always runs for local player).
 - Swap-and-pop entity removal (O(1) vs O(n) splice). GLTF cache LRU capped at 64 entries.
+- **`LOD_CONFIGS.skipBeyondSq`**: precomputed squared distances in `EntityLoader.js`. `updateVisibility` uses `dx*dx+dy*dy+dz*dz` and compares directly — no per-frame `skipBeyond*skipBeyond` multiplication and no `**` operator.
+- **Entity load concurrency**: `MAX_CONCURRENT_LOADS_INITIAL=8`, `MAX_CONCURRENT_LOADS_RUNTIME=4` — drains `firstSnapshotEntityPending` faster during loading screen.
+- **Draco worker preload**: `dracoLoader.preload()` called immediately in `createLoaders()` — starts worker pool + WASM init at page load instead of paying that cost on first entity decode.
+- **RippleUI non-blocking**: CDN stylesheet loaded with `media="print" onload="this.media='all'"` — never render-blocks first paint.
+- **CDN module preload hints**: `<link rel="preload">` for three, three-vrm, webjsx, msgpackr in `index.html` — kicks off parallel fetches before importmap resolves.
+
+### Client Loading Pipeline (2026-03-19)
+
+**Critical path**: `checkAllLoaded` gates on four simultaneous conditions: `assetsLoaded` (VRM + animation library), `environmentLoaded` (first entity mesh ready), `firstSnapshotReceived` (WebSocket snapshot), `firstSnapshotEntityPending.size === 0` (all entities in first snapshot loaded).
+
+**`initAssets` parallel pattern**: `_readVrmVersion(buffer)` extracts VRM version from GLB binary header immediately. `loadAnimationLibrary(vrmVersion)` fires concurrently with VRM cache validation — `animPromise` resolves in parallel with the VRM `dbDelete/fetch` edge case path. `preloadAnimationLibrary(gltfLoader)` fires at the start of `initAssets`, so `anim-lib.glb` is fetched in parallel with the VRM download.
+
+**`LoadingManager.fetchWithProgress`** passes `onProgress` callback to `fetchCached` for byte-level streaming progress during first-load downloads.
 
 ### Capacity Table (64 TPS, divisor=3, 1000 dynamic entities, relevanceRadius=60)
 
