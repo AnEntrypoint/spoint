@@ -2,6 +2,8 @@ import { pack, unpack } from '../protocol/msgpack.js'
 import { isUnreliable } from '../protocol/MessageTypes.js'
 import { EventEmitter } from '../protocol/EventEmitter.js'
 
+const _sendObj = { type: 0, payload: null }
+
 export class ConnectionManager extends EventEmitter {
   constructor(options = {}) {
     super()
@@ -57,10 +59,10 @@ export class ConnectionManager extends EventEmitter {
         return
       }
       const timer = setTimeout(check, this.heartbeatInterval)
-      this.timers.set(`hb-${clientId}`, timer)
+      this.timers.set(clientId, timer)
     }
     const timer = setTimeout(check, this.heartbeatInterval)
-    this.timers.set(`hb-${clientId}`, timer)
+    this.timers.set(clientId, timer)
   }
 
   resetHeartbeat(clientId) {
@@ -75,9 +77,9 @@ export class ConnectionManager extends EventEmitter {
       client.transport.close()
     }
     this.clients.delete(clientId)
-    const timer = this.timers.get(`hb-${clientId}`)
+    const timer = this.timers.get(clientId)
     if (timer) clearTimeout(timer)
-    this.timers.delete(`hb-${clientId}`)
+    this.timers.delete(clientId)
   }
 
   detachClient(clientId) {
@@ -88,9 +90,9 @@ export class ConnectionManager extends EventEmitter {
       client.transport.removeAllListeners('error')
     }
     this.clients.delete(clientId)
-    const timer = this.timers.get(`hb-${clientId}`)
+    const timer = this.timers.get(clientId)
     if (timer) clearTimeout(timer)
-    this.timers.delete(`hb-${clientId}`)
+    this.timers.delete(clientId)
   }
 
   getClient(clientId) {
@@ -101,7 +103,8 @@ export class ConnectionManager extends EventEmitter {
     const client = this.clients.get(clientId)
     if (!client || !client.transport.isOpen) return false
     try {
-      const data = pack({ type, payload })
+      _sendObj.type = type; _sendObj.payload = payload
+      const data = pack(_sendObj)
       if (isUnreliable(type)) return client.transport.sendUnreliable(data)
       return client.transport.send(data)
     } catch (err) {
@@ -111,7 +114,8 @@ export class ConnectionManager extends EventEmitter {
   }
 
   broadcast(type, payload = {}) {
-    const data = pack({ type, payload })
+    _sendObj.type = type; _sendObj.payload = payload
+    const data = pack(_sendObj)
     const unreliable = isUnreliable(type)
     let count = 0
     for (const client of this.clients.values()) {

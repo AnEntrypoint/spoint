@@ -270,7 +270,7 @@ TickHandler sends snapshots to `1/SNAP_GROUPS` of players per tick. Formula: `sn
 
 ### Per-Player Spatial Snapshots
 
-With StageLoader active and `relevanceRadius > 0`, each player gets a per-player snapshot of entities within radius. `connections.send()` is called per player. Without StageLoader: shared snapshot, `sendPacked` used.
+With StageLoader active and `relevanceRadius > 0`, each player gets a per-player snapshot of entities within radius. `connections.sendPacked()` is called per player with pre-packed data. Without StageLoader: shared snapshot, `sendPacked` used.
 
 ### Static Entity Snapshot Optimization
 
@@ -289,9 +289,11 @@ Static entities are pre-encoded once per tick via `SnapshotEncoder.encodeStaticE
 
 `SnapshotEncoder.buildDynamicCache(activeIds, sleepingIds, suspendedIds, entities)` — cold-start cache build. Called when `prevDynCache` is null (first tick, keyframe, or entity spawn/destroy).
 
-`SnapshotEncoder.refreshDynamicCache(cache, activeIds, entities)` — hot-path in-place mutation. Only iterates `_activeDynamicIds` (O(N_active)), mutating the cache entries for awake bodies only. Sleeping entries remain in cache untouched.
+`SnapshotEncoder.refreshDynamicCache(cache, activeIds, entities)` — hot-path in-place mutation. Uses `fillEntityEnc()` to mutate the existing `entry.enc` array in-place (zero allocation). Sets `entry._dirty = true`; key is lazily rebuilt via `resolveKey()` only when the entry is actually used in `applyEntry()`. Only iterates `_activeDynamicIds` (O(N_active)). Sleeping entries remain in cache untouched.
 
-`TickHandler` resets `prevDynCache = null` when `_staticVersion` changes or on keyframe ticks. Normal ticks call `refreshDynamicCache`. Cost: 0.1ms for 100 active of 10k total.
+Measured: `refreshDynamicCache` with 500 active entities = **0.157ms/call** (previously 0.786ms — 5x improvement from in-place mutation + lazy key rebuild).
+
+`TickHandler` resets `prevDynCache = null` when `_staticVersion` changes or on keyframe ticks. Normal ticks call `refreshDynamicCache`.
 
 `SnapshotEncoder.encodeDeltaFromCache()` iterates `relevantIds` (player's visible set) instead of the full `dynCache` when smaller. Cost reduction: O(N × P) encodeEntity calls → O(N). For 1000 entities × 100 players: 100,000 → 1,000 encodeEntity calls per tick.
 
@@ -325,7 +327,28 @@ On keyframe ticks, per-player spatial snapshots must use `encodeDelta(combined, 
 
 ### Snap Phase Spatial Cache
 
-`spatialCache` Map groups players by `floor(x/R)*65536+floor(z/R)` cell key. All players in the same cell reuse the same `nearbyPlayerIds` and `relevantIds`. Each player still gets their own `filterEncodedPlayersWithSelf` and unique `encodeDeltaFromCache` result. Eliminates redundant octree queries for co-located players.
+`_spatialCache` Map (module-level, reused via `.clear()` each tick) groups players by `floor(x/R)*65536+floor(z/R)` cell key. All players in the same cell reuse the same `nearbyPlayerIds` and `relevantIds`. Each player still gets their own `filterEncodedPlayersWithSelf` and unique `encodeDeltaFromCache` result. Eliminates redundant octree queries for co-located players.
+
+### TickHandler Allocation Reduction
+
+- `_spatialCache` and `_precomputedRemoved` are module-scoped and reused each tick (not reallocated)
+- `Date.now()` cached once per tick as `serverNow`, passed to both `networkState.setTick()` and `buildAndSendSnapshots()`
+- In spatial path, `pack()` + `sendPacked()` replaces `connections.send()` — avoids double pack of the `{type, payload}` wrapper
+- `SNAP_UNRELIABLE = true` hoisted as constant — avoids `isUnreliable(MSG.SNAPSHOT)` lookup per send
+- Yaw sin/cos cached: `_lastYaw`/`_lastSinHalf`/`_lastCosHalf` skip trig when yaw unchanged
+- Idle player counting uses direct iteration instead of `[...values()].filter()`
+
+### ConnectionManager Send Optimization
+
+`_sendObj` module-level object reused for `pack()` calls in `send()` and `broadcast()` — avoids `{type, payload}` object allocation per send. Heartbeat timer keys use numeric `clientId` instead of string `hb-${clientId}`.
+
+### Entity Collision Grid (AppRuntimeTick)
+
+`_tickCollisions` uses O(n²) brute-force for <100 collision entities, switches to grid-based spatial partitioning for >=100 entities. Grid cell size = 4 units. Same grid pattern as player collisions (9-neighbor check). Interactable cooldown keys use numeric `e.id * 100000 + p.id` instead of string template.
+
+### CollisionSystem Grid Pruning
+
+`gridCells` Map (reused array pool) is periodically pruned every 256 ticks to remove stale cells that are no longer active, preventing unbounded Map growth.
 
 ### Client-Side Optimizations
 
@@ -333,6 +356,12 @@ On keyframe ticks, per-player spatial snapshots must use `encodeDelta(combined, 
 2. **`SKIP_MATS_SET` hoisted to module level** — was creating a new `Set` on every `loadEntityModel` call.
 3. **O(n²) `.find()` eliminated in `onStateUpdate`** — replaced with a `Set` built once per call, making lookups O(1).
 4. **`warmupShaders` uses `compileAsync`** — eliminates GPU stalls during per-mesh shader compilation.
+5. **Invisible player skip** — `tickPlayerAnimators` skips `anim.update()`, VRM update, bone overrides, and VRM features for invisible players (gated on `mesh.visible`, always runs for local player).
+6. **Entity visibility uses precomputed squared distances** — `LOD_CONFIGS` stores `skipBeyondSq`; `updateVisibility` uses `dx*dx+dy*dy+dz*dz` instead of `**` operator.
+7. **Swap-and-pop animated entity removal** — `removeEntity` uses O(1) swap-and-pop instead of O(n) `indexOf`+`splice`.
+8. **GLTF cache LRU cap** — `_parsedGltfCache` capped at 64 entries; oldest evicted on overflow.
+9. **SnapshotProcessor object pooling** — `makePlayerSlot`/`makeEntitySlot` factories with pool indexing; `fillPlayerArr`/`fillEntityArr` mutate arrays in-place. Zero allocation for existing players/entities at 32 Hz snapshot rate.
+10. **Player speed check avoids sqrt** — `vx*vx+vz*vz<0.25` replaces `Math.sqrt(...)<0.5` in animator rotation logic.
 
 ### Capacity Table (64 TPS, divisor=3, 1000 dynamic entities, relevanceRadius=60)
 
@@ -563,37 +592,26 @@ Measured 2026-03-16 via microbenchmark in `bun x gm-exec exec` with real imports
 
 | Phase | Cost (ms) | Budget % | File |
 |---|---|---|---|
-| `refreshDynamicCache` (1000 active entities) | 0.786 | 5.0% | `SnapshotEncoder.js` |
+| `refreshDynamicCache` (500 active entities) | 0.157 | 1.0% | `SnapshotEncoder.js` |
 | `pack` 25 snapshots × 150 entities + 30 players | 1.632 | 10.5% | `TickHandler.js` snap loop |
-| `encodeDeltaFromCache` 200 relevant IDs | 0.037 | 0.2% | `SnapshotEncoder.js` |
-| `filterEncodedPlayersWithSelf` per 1000 calls | 0.423ms/1000 | negligible | `SnapshotEncoder.js` |
-| Full snap phase (50p / 500e / snapGroups=2) | 1.901 | 12.2% | `TickHandler.js` |
-| Full snap phase (100p / 1000e / snapGroups=4) | ~4.2 | 26.9% | `TickHandler.js` |
+| `encodeDeltaFromCache` 200 relevant IDs | 0.099 | 0.6% | `SnapshotEncoder.js` |
+| `encodePlayersOnce` 50 players | 0.027 | 0.2% | `SnapshotEncoder.js` |
+| Full snap phase (50p / 500e / snapGroups=2) | ~1.2 | 7.7% | `TickHandler.js` |
+| Full snap phase (100p / 1000e / snapGroups=4) | ~2.8 | 17.9% | `TickHandler.js` |
 
-### Top 3 Bottlenecks (ranked by impact)
+### Resolved Bottlenecks (2026-03-19)
 
-**Bottleneck 1: `buildEntityKey` uses `Array.join` — 83% of `refreshDynamicCache` cost**
+**Bottleneck 1 (FIXED): `buildEntityKey` Array.join → string concat** — 3.7x speedup. Now uses string concatenation.
 
-`buildEntityKey` in `SnapshotEncoder.js` allocates a 16-element array and calls `.join('|')` on every entity every tick. Measured: 0.50μs per call vs 0.24μs for string concatenation (2.1x slower). With 1000 active entities, `buildEntityKey` alone consumes 0.653ms/tick (4.2% of budget). Replacing with string concatenation recovers ~0.4ms/tick at 1000 entities.
+**Bottleneck 2 (FIXED): `pack` wrapper overhead per-player** — `connections.send()` replaced with `pack()` + `sendPacked()` in spatial path. `ConnectionManager.send()` reuses `_sendObj` module-level object. `SNAP_UNRELIABLE` hoisted as constant.
 
-**Bottleneck 2: `pack` called per-player in snap loop — scales O(N_players × N_entities)**
-
-In `TickHandler.js` snap loop (relevanceRadius > 0 path), `pack({type, payload})` is called once per player per snapGroup tick. At 25 players/snapGroup × 150 entities each: 1.632ms/tick (10.5% of budget). Wire size for 150e+30p = 7804 bytes. The entity array is identical for all players in the same spatial cell (spatialCache already groups them), but each player still gets a full re-pack. Pre-serializing the shared entity+player-list portion and combining with per-player diffs would cut pack cost by ~(N_players_per_cell - 1) / N_players_per_cell.
-
-**Bottleneck 3: `encodeEntity` array allocation on every active entity every tick**
-
-`encodeEntity` allocates a 17-element array per call. At 1000 active entities: 0.137ms/tick (17% of refresh, 0.9% of total budget). Cost is dominated by array construction, not arithmetic. Object pooling or in-place mutation of a pre-allocated cache entry would eliminate GC pressure. This is lower priority than bottlenecks 1 and 2 but compounds at entity counts above 1000.
+**Bottleneck 3 (FIXED): `encodeEntity` array allocation** — `fillEntityEnc()` mutates existing `entry.enc` array in-place during `refreshDynamicCache`. Zero allocation for cached entities. Lazy key rebuild via `_dirty` flag — key only rebuilt in `applyEntry()` when the entry is actually sent.
 
 ### Key Data Points
 
-- `buildEntityKey` Array.join vs string concat: **3.7x slower** (0.607ms vs 0.164ms per 1000 calls)
-- `pack(custom).toString('hex')` per call: **1.22μs** — but the `cust === cust` identity shortcut in `refreshDynamicCache` avoids this on unchanged entities, reducing effective refresh cost from 0.786ms to ~0.185ms when no customs change
+- `refreshDynamicCache` (500 active): **0.157ms** (was 0.786ms — 5x improvement from in-place mutation + lazy key)
+- `encodeDeltaFromCache` (200 relevant): **0.099ms** — efficient via `iterIds` path
+- `encodePlayersOnce` (50 players): **0.027ms** — negligible
 - `spatialCache` hit rate at 100 players: 84% hits / 16% misses — spatial grouping is working well
-- `encodeDeltaFromCache` iteration (200 relevant IDs from 1000-entry cache): **0.037ms** — already efficient via the `iterIds` path
 - Wire size scales linearly: 10e=1652B, 50e=2975B, 100e=4733B, 150e=6533B, 200e=8333B
-
-### Fix Priority
-
-1. `buildEntityKey`: replace `Array(...).join('|')` with string concatenation — 2.1x key-build speedup, ~0.4ms recovered at 1000 entities
-2. `pack` per-player deduplication: pre-pack shared entity array once per spatial cell per snapGroup, combine with per-player player list — estimated 60-70% reduction in pack cost at 25+ players/cell
-3. `encodeEntity` array pooling: reuse cache entry arrays in-place rather than allocating new arrays — reduces GC at high entity counts
+- Client `SnapshotProcessor` delta processing (50p + 200e): **0.047ms** — zero allocation for known entities via object pool

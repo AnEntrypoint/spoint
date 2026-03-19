@@ -15,6 +15,9 @@ export class SmoothInterpolation {
     this.localPlayerId = null
     this.predictionEnabled = config.predictionEnabled !== false
     this._lastDisplayTime = 0
+    this._seenPlayers = new Set()
+    this._seenEntities = new Set()
+    this._displayResult = { players: [], entities: [] }
   }
 
   setLocalPlayer(id) { this.localPlayerId = id }
@@ -22,7 +25,9 @@ export class SmoothInterpolation {
   addSnapshot(snapshot) {
     this.jitterBuffer.addSnapshot(snapshot)
     const now = performance.now()
+    this._seenPlayers.clear()
     for (const p of snapshot.players || []) {
+      this._seenPlayers.add(p.id)
       let filter = this.playerFilters.get(p.id)
       if (!filter) {
         filter = new KalmanFilter3D(this.playerKalmanConfig)
@@ -30,8 +35,15 @@ export class SmoothInterpolation {
       }
       filter.update(p.position, p.velocity, now)
     }
+    if (this.playerFilters.size > this._seenPlayers.size) {
+      for (const id of this.playerFilters.keys()) {
+        if (!this._seenPlayers.has(id)) this.playerFilters.delete(id)
+      }
+    }
+    this._seenEntities.clear()
     for (const e of snapshot.entities || []) {
       if (e.bodyType !== 'dynamic') continue
+      this._seenEntities.add(e.id)
       let filter = this.entityFilters.get(e.id)
       if (!filter) {
         filter = new KalmanFilter3D(this.entityKalmanConfig)
@@ -39,11 +51,16 @@ export class SmoothInterpolation {
       }
       filter.update(e.position, null, now)
     }
+    if (this.entityFilters.size > this._seenEntities.size) {
+      for (const id of this.entityFilters.keys()) {
+        if (!this._seenEntities.has(id)) this.entityFilters.delete(id)
+      }
+    }
   }
 
   getDisplayState(now = performance.now()) {
     const snapshot = this.jitterBuffer.getSnapshotToRender(now)
-    if (!snapshot) return { players: [], entities: [] }
+    if (!snapshot) { this._displayResult.players = []; this._displayResult.entities = []; return this._displayResult }
 
     const dt = this._lastDisplayTime > 0 ? Math.min((now - this._lastDisplayTime) / 1000, 0.1) : 0
     this._lastDisplayTime = now
@@ -73,7 +90,9 @@ export class SmoothInterpolation {
       }
     }
 
-    return { players, entities }
+    this._displayResult.players = players
+    this._displayResult.entities = entities
+    return this._displayResult
   }
 
   removePlayer(id) { this.playerFilters.delete(id) }

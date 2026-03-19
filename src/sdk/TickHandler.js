@@ -1,12 +1,14 @@
 import { MSG } from '../protocol/MessageTypes.js'
 import { SnapshotEncoder } from '../netcode/SnapshotEncoder.js'
 import { pack } from '../protocol/msgpack.js'
-import { isUnreliable } from '../protocol/MessageTypes.js'
 import { applyMovement as _applyMovement, DEFAULT_MOVEMENT as _DEFAULT_MOVEMENT } from '../shared/movement.js'
 import { applyPlayerCollisions } from '../netcode/CollisionSystem.js'
 
 const MAX_SENDS_PER_TICK = 25
 const PHYSICS_PLAYER_DIVISOR = 3
+const SNAP_UNRELIABLE = true
+
+let _lastYaw = NaN, _lastSinHalf = 0, _lastCosHalf = 1
 
 function processPlayerMovement(players, deps, tick, dt, playerIdleCounts, playerAccumDt) {
   const { playerManager, physicsIntegration, lagCompensator, networkState, applyMovement, movement } = deps
@@ -17,7 +19,8 @@ function processPlayerMovement(players, deps, tick, dt, playerIdleCounts, player
     const inp = player.lastInput || null
     if (inp) {
       const yaw = inp.yaw || 0
-      st.rotation[0] = 0; st.rotation[1] = Math.sin(yaw / 2); st.rotation[2] = 0; st.rotation[3] = Math.cos(yaw / 2)
+      if (yaw !== _lastYaw) { const half = yaw / 2; _lastSinHalf = Math.sin(half); _lastCosHalf = Math.cos(half); _lastYaw = yaw }
+      st.rotation[0] = 0; st.rotation[1] = _lastSinHalf; st.rotation[2] = 0; st.rotation[3] = _lastCosHalf
       st.crouch = inp.crouch ? 1 : 0; st.lookPitch = inp.pitch || 0; st.lookYaw = yaw
     }
     applyMovement(st, inp, movement, dt)
@@ -39,7 +42,10 @@ function processPlayerMovement(players, deps, tick, dt, playerIdleCounts, player
   }
 }
 
-function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isKeyframe, state) {
+const _spatialCache = new Map()
+const _precomputedRemoved = []
+
+function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isKeyframe, state, serverNow) {
   const { connections, stageLoader, getRelevanceRadius, networkState, playerEntityMaps } = deps
   const playerSnap = networkState.getSnapshot()
   const playerCount = players.length
@@ -47,7 +53,6 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
   const curGroup = tick % snapGroups
   const activeStage = stageLoader ? stageLoader.getActiveStage() : null
   const relevanceRadius = activeStage ? activeStage.spatial.relevanceRadius : (getRelevanceRadius ? getRelevanceRadius() : 0)
-  const serverNow = Date.now()
 
   if (relevanceRadius > 0) {
     const curStaticVersion = appRuntime._staticVersion
@@ -60,10 +65,10 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
       if (staticChanged || isKeyframe) { state.staticEntityMap = staticMap; state.staticEntityIds = SnapshotEncoder.buildStaticIds(staticMap); activeStaticEntries = isKeyframe ? staticEntries : changedEntries }
       state.lastStaticVersion = curStaticVersion
     }
-    const precomputedRemoved = []
+    _precomputedRemoved.length = 0
     if (isKeyframe || curStaticVersion !== state.lastDynVersion) { state.prevDynCache = null; state.lastDynVersion = curStaticVersion }
     const allEncodedPlayers = SnapshotEncoder.encodePlayersOnce(playerSnap.players)
-    const spatialCache = new Map()
+    _spatialCache.clear()
     let dynCache = null
     for (const player of players) {
       if (player.id % snapGroups !== curGroup) continue
@@ -76,14 +81,15 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
       const isNewPlayer = !playerEntityMaps.has(player.id)
       const viewerPos = player.state.position
       const cellKey = (Math.floor(viewerPos[0] / relevanceRadius) * 65536 + Math.floor(viewerPos[2] / relevanceRadius)) | 0
-      let cached = spatialCache.get(cellKey)
-      if (!cached) { cached = { nearbyPlayerIds: appRuntime._playerIndex.nearby(viewerPos, relevanceRadius), relevantIds: appRuntime.getRelevantDynamicIds(viewerPos, relevanceRadius) }; spatialCache.set(cellKey, cached) }
+      let cached = _spatialCache.get(cellKey)
+      if (!cached) { cached = { nearbyPlayerIds: appRuntime._playerIndex.nearby(viewerPos, relevanceRadius), relevantIds: appRuntime.getRelevantDynamicIds(viewerPos, relevanceRadius) }; _spatialCache.set(cellKey, cached) }
       const preEncodedPlayers = SnapshotEncoder.filterEncodedPlayersWithSelf(allEncodedPlayers, cached.nearbyPlayerIds, player.id)
       const prevMap = isNewPlayer ? new Map() : playerEntityMaps.get(player.id)
-      const { encoded, entityMap } = SnapshotEncoder.encodeDeltaFromCache(playerSnap.tick, serverNow, dynCache, cached.relevantIds, prevMap, preEncodedPlayers, isNewPlayer ? state.lastStaticEntries : activeStaticEntries, state.staticEntityMap, state.staticEntityIds, isNewPlayer ? undefined : precomputedRemoved, snapshotSeq, viewerPos)
-      if (isNewPlayer) { for (const id of prevMap.keys()) { if (!dynCache.has(id) && !(state.staticEntityIds && state.staticEntityIds.has(id))) precomputedRemoved.push(id) } }
+      const { encoded, entityMap } = SnapshotEncoder.encodeDeltaFromCache(playerSnap.tick, serverNow, dynCache, cached.relevantIds, prevMap, preEncodedPlayers, isNewPlayer ? state.lastStaticEntries : activeStaticEntries, state.staticEntityMap, state.staticEntityIds, isNewPlayer ? undefined : _precomputedRemoved, snapshotSeq, viewerPos)
+      if (isNewPlayer) { for (const id of prevMap.keys()) { if (!dynCache.has(id) && !(state.staticEntityIds && state.staticEntityIds.has(id))) _precomputedRemoved.push(id) } }
       playerEntityMaps.set(player.id, entityMap)
-      connections.send(player.id, MSG.SNAPSHOT, { seq: snapshotSeq, ...encoded })
+      const packedData = pack({ type: MSG.SNAPSHOT, payload: { seq: snapshotSeq, ...encoded } })
+      connections.sendPacked(player.id, packedData, SNAP_UNRELIABLE)
     }
   } else {
     const entitySnap = appRuntime.getSnapshot()
@@ -94,7 +100,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     const data = pack({ type: MSG.SNAPSHOT, payload: { seq: snapshotSeq, ...encoded } })
     for (const player of players) {
       if (!isKeyframe && player.id % snapGroups !== curGroup) continue
-      connections.sendPacked(player.id, data, isUnreliable(MSG.SNAPSHOT))
+      connections.sendPacked(player.id, data, SNAP_UNRELIABLE)
     }
   }
 }
@@ -114,7 +120,8 @@ export function createTickHandler(deps) {
 
   return function onTick(tick, dt) {
     const t0 = performance.now()
-    networkState.setTick(tick, Date.now())
+    const serverNow = Date.now()
+    networkState.setTick(tick, serverNow)
     const players = playerManager.getConnectedPlayers()
     processPlayerMovement(players, mvDeps, tick, dt, playerIdleCounts, playerAccumDt)
     const t1 = performance.now()
@@ -125,7 +132,7 @@ export function createTickHandler(deps) {
     const t3 = performance.now()
     appRuntime.tick(tick, dt)
     const t4 = performance.now()
-    if (players.length > 0) { snapshotSeq++; buildAndSendSnapshots(players, appRuntime, snapDeps, tick, snapshotSeq, snapshotSeq % KEYFRAME_INTERVAL === 0, snapState) }
+    if (players.length > 0) { snapshotSeq++; buildAndSendSnapshots(players, appRuntime, snapDeps, tick, snapshotSeq, snapshotSeq % KEYFRAME_INTERVAL === 0, snapState, serverNow) }
     for (const id of snapDeps.playerEntityMaps.keys()) { if (!playerManager.getPlayer(id)) { snapDeps.playerEntityMaps.delete(id); playerIdleCounts.delete(id); playerAccumDt.delete(id) } }
     const t5 = performance.now()
     try { appRuntime._drainReloadQueue() } catch (e) { console.error('[TickHandler] reload queue error:', e.message) }
@@ -136,7 +143,7 @@ export function createTickHandler(deps) {
       const dynIds=appRuntime._dynamicEntityIds?.size||0, activeDyn=appRuntime._activeDynamicIds?.size||0
       const avgTotal=avg(profileSum),avgSnap=avg(profileSumSnap),avgPhys=avg(profileSumPhys),avgMv=avg(profileSumMv)
       profileSum=0; profileSumSnap=0; profileSumPhys=0; profileSumMv=0; profileCount=0
-      const idleSkipped = players.length > 0 ? [...playerIdleCounts.values()].filter(c=>c>=2).length : 0
+      let idleSkipped = 0; if (players.length > 0) for (const c of playerIdleCounts.values()) if (c >= 2) idleSkipped++
       const physSkipped = players.length > 0 ? playerAccumDt.size : 0
       try { console.log(`[tick-profile] tick:${tick} players:${players.length} idle:${idleSkipped} physSkip:${physSkipped} entities:${appRuntime.entities.size} dynIds:${dynIds} activeDyn:${activeDyn} total:${total.toFixed(2)}ms(avg:${avgTotal}) | mv:${(t1-t0).toFixed(2)}(avg:${avgMv}) col:${(t2-t1).toFixed(2)} phys:${(t3-t2).toFixed(2)}(avg:${avgPhys}) app:${(t4-t3).toFixed(2)} sync:${(appRuntime._lastSyncMs||0).toFixed(2)} respawn:${(appRuntime._lastRespawnMs||0).toFixed(2)} spatial:${(appRuntime._lastSpatialMs||0).toFixed(2)} col2:${(appRuntime._lastCollisionMs||0).toFixed(2)} int:${(appRuntime._lastInteractMs||0).toFixed(2)} snap:${(t5-t4).toFixed(2)}(avg:${avgSnap}) | heap:${mb(mem.heapUsed)}MB rss:${mb(mem.rss)}MB ext:${mb(mem.external)}MB ab:${mb(mem.arrayBuffers)}MB`) } catch (_) {}
     }

@@ -12,6 +12,7 @@ const MESH_BUILDERS = {
 }
 const LOD_CONFIGS = { vrm: { far: 40, skipBeyond: 80 }, box: { far: 45, skipBeyond: 90 }, sphere: { far: 50, skipBeyond: 100 }, cylinder: { far: 50, skipBeyond: 100 }, default: { far: 60, skipBeyond: 120 } }
 const MAX_CONCURRENT_LOADS = 3
+const MAX_GLTF_CACHE = 64
 
 export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB) {
   const entityMeshes = new Map()
@@ -134,9 +135,9 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
     try {
       loadingMgr.beginDownload(url)
       let gltf
-      if (_parsedGltfCache.has(url)) { gltf = _parsedGltfCache.get(url); loadingMgr.completeDownload(url) }
+      if (_parsedGltfCache.has(url)) { gltf = _parsedGltfCache.get(url); _parsedGltfCache.delete(url); _parsedGltfCache.set(url, gltf); loadingMgr.completeDownload(url) }
       else if (_parsedGltfInflight.has(url)) { gltf = await _parsedGltfInflight.get(url); loadingMgr.completeDownload(url) }
-      else { const p = fetchCached(url).then(buf => gltfLoader.parseAsync(patchGLB(buf, url), '')); _parsedGltfInflight.set(url, p); gltf = await p; _parsedGltfInflight.delete(url); _parsedGltfCache.set(url, gltf); loadingMgr.completeDownload(url) }
+      else { const p = fetchCached(url).then(buf => gltfLoader.parseAsync(patchGLB(buf, url), '')); _parsedGltfInflight.set(url, p); gltf = await p; _parsedGltfInflight.delete(url); if (_parsedGltfCache.size >= MAX_GLTF_CACHE) _parsedGltfCache.delete(_parsedGltfCache.keys().next().value); _parsedGltfCache.set(url, gltf); loadingMgr.completeDownload(url) }
       const model = gltf.scene.clone(true)
       const mp = entityState.position; model.position.set(mp[0], mp[1], mp[2])
       const mr = entityState.rotation; if (mr) model.quaternion.set(mr[0], mr[1], mr[2], mr[3])
@@ -188,7 +189,7 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
     const m = entityMeshes.get(id); if (!m) return
     scene.remove(m); m.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose() })
     entityMeshes.delete(id); entityTargets.delete(id); pendingLoads.delete(id); _hullMeshes.delete(id)
-    const ai = _animatedEntities.indexOf(m); if (ai >= 0) _animatedEntities.splice(ai, 1)
+    const ai = _animatedEntities.indexOf(m); if (ai >= 0) { _animatedEntities[ai] = _animatedEntities[_animatedEntities.length - 1]; _animatedEntities.pop() }
   }
 
   return { entityMeshes, _animatedEntities, _hullMeshes, entityTargets, loadEntityModel, removeEntity, rebuildEntityHierarchy, updateVisibility, LOD_CONFIGS, scheduleLodUpgrades: _scheduleLodUpgrades }
