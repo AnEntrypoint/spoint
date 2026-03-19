@@ -31,47 +31,38 @@ export function mixinTick(runtime) {
 
   runtime._tickTimers = function(dt) {
     for (const [eid, timers] of this._timers) {
-      const keep = []
-      for (const t of timers) {
+      let writeIdx = 0
+      for (let i = 0; i < timers.length; i++) {
+        const t = timers[i]
         t.remaining -= dt
-        if (t.remaining <= 0) { try { t.fn() } catch (e) { console.error(`[AppRuntime] timer(${eid}):`, e.message) }; if (t.repeat) { t.remaining = t.interval; keep.push(t) } }
-        else keep.push(t)
+        if (t.remaining <= 0) { try { t.fn() } catch (e) { console.error(`[AppRuntime] timer(${eid}):`, e.message) }; if (t.repeat) { t.remaining = t.interval; timers[writeIdx++] = t } }
+        else timers[writeIdx++] = t
       }
-      if (keep.length) this._timers.set(eid, keep); else this._timers.delete(eid)
+      if (writeIdx === 0) this._timers.delete(eid)
+      else timers.length = writeIdx
     }
   }
 
   runtime._colR = function(c) {
     if (!c) return 0
     if (c._cachedRadius !== undefined) return c._cachedRadius
-    let r = 0
+    let r = 1
     if (c.type === 'sphere') r = c.radius || 1
     else if (c.type === 'capsule') r = Math.max(c.radius || 0.5, (c.height || 1) / 2)
-    else if (c.type === 'box') {
-      const s = c.size; const h = c.halfExtents
-      if (Array.isArray(s)) r = Math.max(...s)
-      else if (typeof s === 'number') r = s
-      else if (Array.isArray(h)) r = Math.max(...h)
-      else r = 1
-    } else r = 1
-    c._cachedRadius = r
-    return r
+    else if (c.type === 'box') { const s = c.size, h = c.halfExtents; r = Array.isArray(s) ? Math.max(...s) : typeof s === 'number' ? s : Array.isArray(h) ? Math.max(...h) : 1 }
+    c._cachedRadius = r; return r
   }
 
   const _colGrid = new Map()
   const _colGridCells = new Map()
   const _COL_GRID_THRESHOLD = 100
   const _COL_CELL_SZ = 4
+  let _colPruneTick = 0
 
   runtime._tickCollisions = function() {
-    const c = this._collisionEntities
-    if (c.length === 0) return
+    const c = this._collisionEntities; if (c.length === 0) return
     for (let i = 0; i < c.length; i++) c[i]._cachedColR = this._colR(c[i].collider)
-    if (c.length < _COL_GRID_THRESHOLD) {
-      this._tickCollisionsBrute(c)
-    } else {
-      this._tickCollisionsGrid(c)
-    }
+    if (c.length < _COL_GRID_THRESHOLD) this._tickCollisionsBrute(c); else this._tickCollisionsGrid(c)
   }
 
   runtime._tickCollisionsBrute = function(c) {
@@ -90,6 +81,9 @@ export function mixinTick(runtime) {
 
   runtime._tickCollisionsGrid = function(c) {
     _colGrid.clear()
+    if ((++_colPruneTick & 63) === 0 || _colGridCells.size > c.length * 4) {
+      for (const k of _colGridCells.keys()) { if (!_colGrid.has(k)) _colGridCells.delete(k) }
+    }
     for (let i = 0; i < c.length; i++) {
       const e = c[i]
       const key = Math.floor(e.position[0] / _COL_CELL_SZ) * 65536 + Math.floor(e.position[2] / _COL_CELL_SZ)
@@ -139,16 +133,21 @@ export function mixinTick(runtime) {
     }
   }
 
+  let _interactPruneTick = 0
+
   runtime._tickInteractables = function() {
     if (this._interactableIds.size === 0) return
     const now = Date.now()
+    if ((++_interactPruneTick & 255) === 0 && this._interactCooldowns.size > 100) {
+      for (const [k, v] of this._interactCooldowns) { if (now - v > 10000) this._interactCooldowns.delete(k) }
+    }
     const players = this.getPlayers()
     for (const id of this._interactableIds) {
       const e = this.entities.get(id); if (!e || !e._interactable) continue
       for (const p of players) {
         const pp = p.state?.position; if (!pp) continue
         const dx = pp[0]-e.position[0], dy = pp[1]-e.position[1], dz = pp[2]-e.position[2]
-        if (dx*dx+dy*dy+dz*dz > e._interactRadius**2) continue
+        const ir = e._interactRadius; if (dx*dx+dy*dy+dz*dz > ir*ir) continue
         const key = e.id * 100000 + p.id
         const last = this._interactCooldowns.get(key) || 0
         const cooldown = e._interactCooldown ?? 500
@@ -172,11 +171,15 @@ export function mixinTick(runtime) {
       ids.add(p.id)
     }
     if (this._playerIndex.size > players.length) {
-      for (const id of [...this._playerIndex._entities.keys()]) {
-        if (!ids.has(id)) this._playerIndex.remove(id)
+      const toRemove = []
+      for (const id of this._playerIndex._entities.keys()) {
+        if (!ids.has(id)) toRemove.push(id)
       }
+      for (const id of toRemove) this._playerIndex.remove(id)
     }
   }
+
+  const _nearbyIdSet = new Set()
 
   runtime.getNearbyPlayers = function(viewerPosition, radius, allPlayers) {
     if (!allPlayers || allPlayers.length === 0) return []
@@ -185,7 +188,9 @@ export function mixinTick(runtime) {
       const r2 = radius * radius
       return allPlayers.filter(p => { const dx=p.position[0]-cx,dy=p.position[1]-cy,dz=p.position[2]-cz; return dx*dx+dy*dy+dz*dz<=r2 })
     }
-    const nearbyIds = new Set(this._playerIndex.nearby(viewerPosition, radius))
-    return allPlayers.filter(p => nearbyIds.has(p.id))
+    _nearbyIdSet.clear()
+    const ids = this._playerIndex.nearby(viewerPosition, radius)
+    for (let i = 0; i < ids.length; i++) _nearbyIdSet.add(ids[i])
+    return allPlayers.filter(p => _nearbyIdSet.has(p.id))
   }
 }

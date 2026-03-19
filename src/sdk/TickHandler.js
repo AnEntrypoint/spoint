@@ -44,12 +44,23 @@ function processPlayerMovement(players, deps, tick, dt, playerIdleCounts, player
 
 const _spatialCache = new Map()
 const _precomputedRemoved = []
+const _cellPackCache = new Map()
+const _packWrapper = { type: MSG.SNAPSHOT, payload: null }
+const _packPayload = { seq: 0, tick: 0, serverTime: 0, players: null, entities: null, removed: undefined, delta: 1 }
+
+function packSnapshot(seq, encoded) {
+  _packPayload.seq = seq; _packPayload.tick = encoded.tick; _packPayload.serverTime = encoded.serverTime
+  _packPayload.players = encoded.players; _packPayload.entities = encoded.entities
+  _packPayload.removed = encoded.removed; _packPayload.delta = encoded.delta
+  _packWrapper.payload = _packPayload
+  return pack(_packWrapper)
+}
 
 function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isKeyframe, state, serverNow) {
   const { connections, stageLoader, getRelevanceRadius, networkState, playerEntityMaps } = deps
   const playerSnap = networkState.getSnapshot()
   const playerCount = players.length
-  const snapGroups = playerCount >= 50 ? Math.max(1, Math.ceil(playerCount / 25)) : Math.max(1, Math.ceil(playerCount / MAX_SENDS_PER_TICK))
+  const snapGroups = Math.max(1, Math.ceil(playerCount / 50))
   const curGroup = tick % snapGroups
   const activeStage = stageLoader ? stageLoader.getActiveStage() : null
   const relevanceRadius = activeStage ? activeStage.spatial.relevanceRadius : (getRelevanceRadius ? getRelevanceRadius() : 0)
@@ -69,6 +80,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     if (isKeyframe || curStaticVersion !== state.lastDynVersion) { state.prevDynCache = null; state.lastDynVersion = curStaticVersion }
     const allEncodedPlayers = SnapshotEncoder.encodePlayersOnce(playerSnap.players)
     _spatialCache.clear()
+    _cellPackCache.clear()
     let dynCache = null
     for (const player of players) {
       if (player.id % snapGroups !== curGroup) continue
@@ -88,8 +100,17 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
       const { encoded, entityMap } = SnapshotEncoder.encodeDeltaFromCache(playerSnap.tick, serverNow, dynCache, cached.relevantIds, prevMap, preEncodedPlayers, isNewPlayer ? state.lastStaticEntries : activeStaticEntries, state.staticEntityMap, state.staticEntityIds, isNewPlayer ? undefined : _precomputedRemoved, snapshotSeq, viewerPos)
       if (isNewPlayer) { for (const id of prevMap.keys()) { if (!dynCache.has(id) && !(state.staticEntityIds && state.staticEntityIds.has(id))) _precomputedRemoved.push(id) } }
       playerEntityMaps.set(player.id, entityMap)
-      const packedData = pack({ type: MSG.SNAPSHOT, payload: { seq: snapshotSeq, ...encoded } })
-      connections.sendPacked(player.id, packedData, SNAP_UNRELIABLE)
+      if (!isNewPlayer && encoded.entities.length === 0 && !encoded.removed) {
+        let cellPack = _cellPackCache.get(cellKey)
+        if (!cellPack) {
+          cellPack = packSnapshot(snapshotSeq, encoded)
+          _cellPackCache.set(cellKey, cellPack)
+        }
+        connections.sendPacked(player.id, cellPack, SNAP_UNRELIABLE)
+      } else {
+        const packedData = packSnapshot(snapshotSeq, encoded)
+        connections.sendPacked(player.id, packedData, SNAP_UNRELIABLE)
+      }
     }
   } else {
     const entitySnap = appRuntime.getSnapshot()
@@ -97,7 +118,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     const prevMap = (isKeyframe || state.broadcastEntityMap.size === 0) ? new Map() : state.broadcastEntityMap
     const { encoded, entityMap } = SnapshotEncoder.encodeDelta(combined, prevMap)
     state.broadcastEntityMap = entityMap
-    const data = pack({ type: MSG.SNAPSHOT, payload: { seq: snapshotSeq, ...encoded } })
+    const data = packSnapshot(snapshotSeq, encoded)
     for (const player of players) {
       if (!isKeyframe && player.id % snapGroups !== curGroup) continue
       connections.sendPacked(player.id, data, SNAP_UNRELIABLE)
