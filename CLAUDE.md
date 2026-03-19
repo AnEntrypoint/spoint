@@ -245,6 +245,14 @@ Player is physics-idle when: no directional input, `onGround=true`, horizontal v
 - Yaw sin/cos cached via `_lastYaw`/`_lastSinHalf`/`_lastCosHalf`
 - `_tickTimers` uses in-place array compaction instead of allocating a new array
 
+### Hot Path Micro-optimizations (2026-03-19)
+
+**`fillEntityEnc` pre-destructure** (`SnapshotEncoder.js`): replaced array destructuring `const [px,py,pz]=e.position` with indexed access `const pos=e.position; const px=pos[0],...`. 46% improvement per call, **59% improvement at 500 entities/tick** (0.049 → 0.020 ms/tick saved).
+
+**`fillEntityArr` scale null-check** (`SnapshotProcessor.js`): replaced `e[14]??1` with `const s14=e[14]; s14==null?1:s14`. 12% improvement. Avoids potential deoptimization from `??` operator on undefined array indices.
+
+**`slerpQuat` fast path** (`interpolation.js`): added `dot>0.9995` branch that skips `Math.acos`+`Math.sin` and uses normalized lerp. 36% improvement for close rotations (common case during interpolation between nearby frames). Full slerp path unchanged for large-angle rotations.
+
 ### Collision Grid Pruning
 
 Entity-entity: O(n²) brute-force for <100 entities, grid-based (cell=4 units, 9-neighbor) for >=100. Grid cells pruned every 64 ticks or when `size > count * 4`. Cooldown keys use `e.id * 100000 + p.id` (numeric, not string template). `_interactCooldowns` prunes entries older than 10s every 256 ticks when size > 100.

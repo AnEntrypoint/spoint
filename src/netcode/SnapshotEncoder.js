@@ -9,7 +9,8 @@ function encodePlayer(p) {
 }
 
 function fillEntityEnc(e, enc) {
-  const [px,py,pz]=e.position, [rx,ry,rz,rw]=e.rotation, v=e.velocity||VEL_ZERO, s=e.scale||SCALE_ONE
+  const pos=e.position, rot=e.rotation, v=e.velocity||VEL_ZERO, s=e.scale||SCALE_ONE
+  const px=pos[0],py=pos[1],pz=pos[2],rx=rot[0],ry=rot[1],rz=rot[2],rw=rot[3]
   enc[0]=e.id; enc[1]=e.model||''
   enc[2]=Math.round(px*Q1)/Q1; enc[3]=Math.round(py*Q1)/Q1; enc[4]=Math.round(pz*Q1)/Q1
   enc[5]=Math.round(rx*Q2)/Q2; enc[6]=Math.round(ry*Q2)/Q2; enc[7]=Math.round(rz*Q2)/Q2; enc[8]=Math.round(rw*Q2)/Q2

@@ -37,7 +37,9 @@ function fillEntityArr(s, e) {
   s.rotation[0] = e[5]; s.rotation[1] = e[6]; s.rotation[2] = e[7]; s.rotation[3] = e[8]
   s.velocity[0] = e[9]; s.velocity[1] = e[10]; s.velocity[2] = e[11]
   s.bodyType = e[12]; s.custom = e[13]
-  s.scale[0] = e[14] ?? 1; s.scale[1] = e[15] ?? 1; s.scale[2] = e[16] ?? 1
+  const s14=e[14]; s.scale[0]=s14==null?1:s14
+  const s15=e[15]; s.scale[1]=s15==null?1:s15
+  const s16=e[16]; s.scale[2]=s16==null?1:s16
 }
 
 function fillEntityObj(s, e) {
