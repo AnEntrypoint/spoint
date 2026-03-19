@@ -12,18 +12,36 @@ export function createScene() {
   return scene
 }
 
-export function createRenderer(isMobile) {
-  const renderer = new THREE.WebGLRenderer({ antialias: !isMobile, powerPreference: 'high-performance' })
+export async function createRenderer(isMobile) {
+  const preferWebGPU = !isMobile && !!navigator.gpu
+  let renderer, isWebGPU = false
+  if (preferWebGPU) {
+    try {
+      const adapter = await navigator.gpu.requestAdapter()
+      if (!adapter) throw new Error('no adapter')
+      const { WebGPURenderer } = await import('three/webgpu')
+      renderer = new WebGPURenderer({ antialias: true, powerPreference: 'high-performance' })
+      await renderer.init()
+      isWebGPU = true
+      console.log('[renderer] WebGPU active')
+    } catch (e) {
+      console.warn('[renderer] WebGPU unavailable, falling back to WebGL:', e.message)
+      renderer = null
+    }
+  }
+  if (!renderer) {
+    renderer = new THREE.WebGLRenderer({ antialias: !isMobile, powerPreference: 'high-performance' })
+    renderer.domElement.addEventListener('webglcontextlost', e => { e.preventDefault(); console.warn('[renderer] WebGL context lost') }, false)
+    renderer.domElement.addEventListener('webglcontextrestored', () => { location.reload() }, false)
+  }
   renderer.setSize(window.innerWidth, window.innerHeight)
-  renderer.setPixelRatio(isMobile ? window.devicePixelRatio * 0.5 : window.devicePixelRatio)
+  renderer.setPixelRatio(Math.min(isMobile ? window.devicePixelRatio * 0.5 : window.devicePixelRatio, 2))
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = THREE.PCFSoftShadowMap
   renderer.shadowMap.autoUpdate = false
   renderer.xr.enabled = true
   document.body.appendChild(renderer.domElement)
-  renderer.domElement.addEventListener('webglcontextlost', e => { e.preventDefault(); console.warn('[renderer] WebGL context lost') }, false)
-  renderer.domElement.addEventListener('webglcontextrestored', () => { location.reload() }, false)
-  return renderer
+  return { renderer, isWebGPU }
 }
 
 export function setupLights(scene) {
@@ -111,7 +129,7 @@ export async function warmupShaders(renderer, scene, camera, entityMeshes, playe
     if (obj.frustumCulled) { culled.push(obj); obj.frustumCulled = false }
     if (!obj.visible) { hidden.push(obj); obj.visible = true }
   })
-  try { await renderer.compileAsync(scene, camera) } catch (_) { try { renderer.compile(scene, camera) } catch (_2) { } }
+  try { await renderer.compileAsync(scene, camera) } catch (_) { }
   renderer.render(scene, camera)
   await new Promise(r => requestAnimationFrame(r))
   renderer.render(scene, camera)

@@ -30,6 +30,26 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 - Edit panel DOM builders: `client/EditPanelDOM.js`
 - Maps: `apps/maps/*.glb` (all Draco compressed)
 
+## WebGPU Renderer
+
+`createRenderer(isMobile)` in `client/SceneSetup.js` is async and returns `{ renderer, isWebGPU }`.
+
+**Backend selection**: On desktop (non-mobile), if `navigator.gpu` exists and `requestAdapter()` succeeds, `WebGPURenderer` is dynamically imported from `three/webgpu` (importmap alias → `node_modules/three/build/three.webgpu.js`) and initialized via `await renderer.init()` before the animate loop starts. On failure or on mobile, falls back to `WebGLRenderer` silently.
+
+**Why dynamic import**: `three.webgpu.js` is a large bundle (~2MB). Importing it only when WebGPU is confirmed available avoids the download cost on WebGL-only browsers. The importmap entry `"three/webgpu"` must exist in `client/index.html` for the dynamic import to resolve.
+
+**Module sharing**: `three.webgpu.js` imports from `three.core.js`, the same core that `three.module.js` uses. No duplicate class instances when both are loaded.
+
+**Shadow maps**: `PCFSoftShadowMap` is supported on both WebGL and WebGPU backends (confirmed via `_shadowFilterLib` array in three.webgpu.js). No branch needed. `shadow.radius` and `shadow.blurSamples` are WebGL-specific soft-shadow params — they are set unconditionally but have no effect on WebGPU.
+
+**Pixel ratio**: Capped at `Math.min(devicePixelRatio, 2)` regardless of backend.
+
+**XR**: `renderer.xr.enabled = true` works on both backends. WebGPU path skips the `webglcontextlost` listener (not applicable).
+
+**Debug**: `window.debug.isWebGPU` (boolean) reflects the active backend.
+
+**app.js wiring**: `await createRenderer(isMobileDevice)` at module top level (ES module top-level await). The returned `renderer` is then passed to `createLoaders`, `xrSystem`, etc. as before.
+
 ## AppRuntime Mixin Pattern
 
 `AppRuntime.js` applies two mixins at the bottom of the constructor — order matters:
