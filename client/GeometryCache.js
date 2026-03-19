@@ -1,3 +1,4 @@
+import * as THREE from 'three'
 import { get, put } from './IndexedDBStore.js'
 
 const DB_NAME = 'spawnpoint-geometry-cache'
@@ -72,7 +73,6 @@ export async function storeGeometry(url, meshes) {
 }
 
 export function reconstructGeometry(data) {
-  const THREE = window.THREE || globalThis.THREE
   const geo = new THREE.BufferGeometry()
   for (const [name, attrData] of Object.entries(data.attrs)) {
     const { array, itemSize, normalized } = _deserializeAttribute(attrData)

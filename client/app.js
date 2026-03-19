@@ -20,7 +20,6 @@ import { createAppModuleSystem } from './AppModuleSystem.js'
 import { createXRSystem } from './XRSystem.js'
 import { patchGLB } from './GLBPatch.js'
 import { createFileDropLoader } from './FileDropLoader.js'
-
 const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent))
 const scene = createScene(), camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.05, 500)
 scene.add(camera)
@@ -198,4 +197,4 @@ function animate(ts) {
   const frameMs=performance.now()-now; _profileSum+=frameMs; if (++_profileFrames>=120) { console.log(`[frame-profile] fps:${fpsDisplay} avg:${(_profileSum/_profileFrames).toFixed(2)}ms players:${pm.playerMeshes.size} entities:${el.entityMeshes.size}`); _profileFrames=0; _profileSum=0 }
 }
 renderer.setAnimationLoop(animate); client.connect().then(()=>{ console.log('Connected'); startInputLoop(); xrSystem.initAR() }).catch(err=>console.error('Connection failed:',err))
-window.debug={ scene, camera, renderer, isWebGPU, client, playerMeshes: pm.playerMeshes, entityMeshes: el.entityMeshes, appModules: ams.appModules, playerVrms: pm.playerVrms, playerAnimators: pm.playerAnimators, loadingMgr, loadingScreen, mobileControls, xrControls: xrSystem.xrControls, controllerModels: xrSystem.controllerModels, controllerGrips: xrSystem.controllerGrips, handModels: xrSystem.handModels, hullMeshes: el._hullMeshes, get showHulls() { return !!window.__showHulls__ }, set showHulls(v) { window.__showHulls__=v; el._hullMeshes.forEach(s=>s.forEach(sg=>{sg.visible=v})) }, vrSettings: ()=>xrSystem.vrSettings, deviceInfo: ()=>deviceInfo, placeARAnchor: ()=>xrSystem.xrControls?.placeAnchor(), setAA: (v) => { console.warn('[renderer] AA change requires page reload. antialias='+v); renderer.domElement.setAttribute('data-aa', v) } }
+window.debug={ scene, camera, renderer, isWebGPU, client, playerMeshes: pm.playerMeshes, entityMeshes: el.entityMeshes, appModules: ams.appModules, playerVrms: pm.playerVrms, playerAnimators: pm.playerAnimators, loadingMgr, loadingScreen, mobileControls, xrControls: xrSystem.xrControls, controllerModels: xrSystem.controllerModels, controllerGrips: xrSystem.controllerGrips, handModels: xrSystem.handModels, hullMeshes: el._hullMeshes, get showHulls() { return !!window.__showHulls__ }, set showHulls(v) { window.__showHulls__=v; el._hullMeshes.forEach(s=>s.forEach(sg=>{sg.visible=v})) }, vrSettings: ()=>xrSystem.vrSettings, deviceInfo: ()=>deviceInfo, placeARAnchor: ()=>xrSystem.xrControls?.placeAnchor(), setAA: (v) => { console.warn('[renderer] AA change requires page reload. antialias='+v); renderer.domElement.setAttribute('data-aa', v) } }
