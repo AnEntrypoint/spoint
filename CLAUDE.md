@@ -379,6 +379,18 @@ Fixed 128-slot ring buffer. Entries pruned by timestamp (500ms window). Pre-allo
 
 `checkAllLoaded()` gates on all four simultaneously: `assetsLoaded`, `environmentLoaded`, `firstSnapshotReceived`, `firstSnapshotEntityPending.size === 0`. Then `warmupShaders()` runs async.
 
+## Client Loading Pipeline Optimizations (2026-03-19)
+
+**warmupShaders** (`client/SceneSetup.js`): replaced per-mesh loop (N × compileAsync + render + RAF) with a single pass — disable `frustumCulled` on everything, one `compileAsync(scene, camera)`, two renders, restore. Session key bumped to `shader-warmup-v2` to invalidate old warm-cache entries. Improvement: O(N) GPU submits → O(1).
+
+**ModelCache stale-while-revalidate** (`client/ModelCache.js`): when a cached entry exists, return the cached buffer immediately and fire the HEAD revalidation in the background. Eliminates the HEAD RTT from the critical path on all warm-cache loads. Cache misses go straight to GET with no HEAD round-trip.
+
+**IndexedDBStore in-flight dedup** (`client/IndexedDBStore.js`): `openStore` now caches the Promise itself (not the resolved IDBDatabase). Concurrent calls for the same store key share one `indexedDB.open()` call. On rejection, the cached promise is deleted so retries work.
+
+**AnimationClipCache ArrayBuffer serialization** (`client/AnimationClipCache.js`): `serializeClip` now stores `track.times.buffer.slice(...)` and `track.values.buffer.slice(...)` (ArrayBuffer) instead of `Array.from(Float32Array)`. IndexedDB structured clone handles ArrayBuffer natively. Measured: 27x faster per track (44.9μs → 1.7μs for 1000-element Float32Array). DB_VERSION bumped to 3. `deserializeClip` reconstructs `Float32Array` from stored ArrayBuffer.
+
+**EntityLoader concurrency** (`client/EntityLoader.js`): `MAX_CONCURRENT_LOADS` split into `MAX_CONCURRENT_LOADS_INITIAL = 4` (during loading screen) and `MAX_CONCURRENT_LOADS_RUNTIME = 3` (after). Initial load now saturates all 4 Draco workers instead of leaving one idle.
+
 ## Client Jitter Gotchas
 
 - **Spawn point Y**: keep low (Y~5) — spawning high causes fall jitter on join.

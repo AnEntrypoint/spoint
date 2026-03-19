@@ -93,27 +93,20 @@ export function applySceneConfig(s, scene, ambient, sun, studio, camera) {
 export async function warmupShaders(renderer, scene, camera, entityMeshes, playerMeshes, loadingMgr) {
   const allMeshes = [...entityMeshes.values(), ...playerMeshes.values()]
   const total = allMeshes.length
-  const sceneKey = `shader-warmup-v1:${total}`
+  const sceneKey = `shader-warmup-v2:${total}`
   if (sessionStorage.getItem('lastShaderWarmupKey') === sceneKey) { console.log('[shader] skipped warmup (scene unchanged)'); return }
   sessionStorage.setItem('lastShaderWarmupKey', sceneKey)
   loadingMgr.setLabel('Compiling shaders...'); loadingMgr.reportProcessing(0, total)
-  const wCam = new THREE.PerspectiveCamera(60, 1, 0.1, 1000)
-  for (let i = 0; i < allMeshes.length; i++) {
-    const mesh = allMeshes[i]
-    const box = new THREE.Box3().setFromObject(mesh), center = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3()).length()
-    wCam.position.copy(center).addScaledVector(new THREE.Vector3(0, 0, 1), size * 1.5 + 1); wCam.lookAt(center)
-    const restored = []
-    mesh.traverse(obj => { if (!obj.frustumCulled || !obj.visible) { restored.push([obj, obj.frustumCulled, obj.visible]); obj.frustumCulled = false; obj.visible = true } })
-    try { await renderer.compileAsync(scene, wCam) } catch (_) { try { renderer.compile(scene, wCam) } catch (_2) { } }
-    renderer.render(scene, wCam)
-    for (const [obj, fc, vis] of restored) { obj.frustumCulled = fc; obj.visible = vis }
-    loadingMgr.reportProcessing(i + 1, total)
-    await new Promise(r => requestAnimationFrame(r))
-  }
   const culled = []
   scene.traverse(obj => { if (obj.frustumCulled) { culled.push(obj); obj.frustumCulled = false } })
+  const hidden = []
+  scene.traverse(obj => { if (!obj.visible) { hidden.push(obj); obj.visible = true } })
   try { await renderer.compileAsync(scene, camera) } catch (_) { try { renderer.compile(scene, camera) } catch (_2) { } }
-  renderer.render(scene, camera); await new Promise(r => requestAnimationFrame(r)); renderer.render(scene, camera)
+  renderer.render(scene, camera)
+  await new Promise(r => requestAnimationFrame(r))
+  renderer.render(scene, camera)
   for (const obj of culled) obj.frustumCulled = true
+  for (const obj of hidden) obj.visible = false
+  loadingMgr.reportProcessing(total, total)
   console.log('[shader] warmup done, meshes:', total)
 }

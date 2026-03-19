@@ -4,14 +4,14 @@ export async function openStore(dbName, dbVersion, storeName) {
   const key = `${dbName}:${storeName}`
   if (_stores.has(key)) return _stores.get(key)
 
-  const db = await new Promise((resolve, reject) => {
+  const p = new Promise((resolve, reject) => {
     const req = indexedDB.open(dbName, dbVersion)
     req.onupgradeneeded = e => { const d = e.target.result; if (!d.objectStoreNames.contains(storeName)) d.createObjectStore(storeName) }
     req.onsuccess = e => resolve(e.target.result)
-    req.onerror = () => reject(req.error)
+    req.onerror = () => { _stores.delete(key); reject(req.error) }
   })
-  _stores.set(key, db)
-  return db
+  _stores.set(key, p)
+  return p
 }
 
 export async function get(dbName, dbVersion, storeName, key) {

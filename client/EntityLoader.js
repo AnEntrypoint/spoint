@@ -11,7 +11,8 @@ const MESH_BUILDERS = {
   sphere: (c) => new THREE.SphereGeometry(c.r || 0.5, c.seg || 16, c.seg || 16)
 }
 const LOD_CONFIGS = { vrm: { far: 40, skipBeyond: 80 }, box: { far: 45, skipBeyond: 90 }, sphere: { far: 50, skipBeyond: 100 }, cylinder: { far: 50, skipBeyond: 100 }, default: { far: 60, skipBeyond: 120 } }
-const MAX_CONCURRENT_LOADS = 3
+const MAX_CONCURRENT_LOADS_INITIAL = 4
+const MAX_CONCURRENT_LOADS_RUNTIME = 3
 const MAX_GLTF_CACHE = 64
 
 export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB) {
@@ -172,7 +173,8 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
   }
 
   function _processLoadQueue(entityAppMap, firstSnapshotEntityPending, onFirstEntityLoaded, scheduleFitShadow, loadingScreenHidden) {
-    while (_activeLoads < MAX_CONCURRENT_LOADS && loadQueue.length > 0) {
+    const limit = loadingScreenHidden ? MAX_CONCURRENT_LOADS_RUNTIME : MAX_CONCURRENT_LOADS_INITIAL
+    while (_activeLoads < limit && loadQueue.length > 0) {
       _activeLoads++
       const { entityId, entityState } = loadQueue.shift()
       _doLoadEntityModel(entityId, entityState, entityAppMap, firstSnapshotEntityPending, onFirstEntityLoaded, scheduleFitShadow, loadingScreenHidden).finally(() => { _activeLoads--; _processLoadQueue(entityAppMap, firstSnapshotEntityPending, onFirstEntityLoaded, scheduleFitShadow, loadingScreenHidden) })
