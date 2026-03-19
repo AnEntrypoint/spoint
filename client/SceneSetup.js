@@ -48,7 +48,7 @@ export function createLoaders(renderer) {
   loadingManager.onError = (url) => console.warn('[THREE] Failed to load:', url)
   const gltfLoader = new GLTFLoader(loadingManager)
   const dracoLoader = new DRACOLoader(loadingManager)
-  dracoLoader.setDecoderPath('/draco/'); dracoLoader.setWorkerLimit(4)
+  dracoLoader.setDecoderPath('/draco/'); dracoLoader.setWorkerLimit(4); dracoLoader.preload()
   gltfLoader.setDRACOLoader(dracoLoader)
   gltfLoader.setMeshoptDecoder(MeshoptDecoder)
   gltfLoader.register((parser) => new VRMLoaderPlugin(parser))
@@ -93,14 +93,16 @@ export function applySceneConfig(s, scene, ambient, sun, studio, camera) {
 export async function warmupShaders(renderer, scene, camera, entityMeshes, playerMeshes, loadingMgr) {
   const allMeshes = [...entityMeshes.values(), ...playerMeshes.values()]
   const total = allMeshes.length
-  const sceneKey = `shader-warmup-v2:${total}`
+  const ids = [...entityMeshes.keys()].sort().join(',')
+  const sceneKey = `shader-warmup-v3:${total}:${ids.length > 200 ? ids.slice(0, 200) : ids}`
   if (sessionStorage.getItem('lastShaderWarmupKey') === sceneKey) { console.log('[shader] skipped warmup (scene unchanged)'); return }
   sessionStorage.setItem('lastShaderWarmupKey', sceneKey)
   loadingMgr.setLabel('Compiling shaders...'); loadingMgr.reportProcessing(0, total)
-  const culled = []
-  scene.traverse(obj => { if (obj.frustumCulled) { culled.push(obj); obj.frustumCulled = false } })
-  const hidden = []
-  scene.traverse(obj => { if (!obj.visible) { hidden.push(obj); obj.visible = true } })
+  const culled = [], hidden = []
+  scene.traverse(obj => {
+    if (obj.frustumCulled) { culled.push(obj); obj.frustumCulled = false }
+    if (!obj.visible) { hidden.push(obj); obj.visible = true }
+  })
   try { await renderer.compileAsync(scene, camera) } catch (_) { try { renderer.compile(scene, camera) } catch (_2) { } }
   renderer.render(scene, camera)
   await new Promise(r => requestAnimationFrame(r))

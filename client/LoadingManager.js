@@ -60,7 +60,7 @@ export class LoadingManager extends EventTarget {
     const k = key || url
     this.beginDownload(k)
     try {
-      const result = await fetchCached(url)
+      const result = await fetchCached(url, (received, total) => this._dispatch('download', { percent: Math.min(100, (received / total) * 100), done: received, total }))
       this.completeDownload(k)
       return result
     } catch (error) {
