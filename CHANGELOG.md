@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.325](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.323...v0.1.325) (2026-03-19)
+
+
+### Features
+
+* add geometry/LOD/shader caching and WebGPU material improvements ([da2078a](https://github.com/AnEntrypoint/spawnpoint/commit/da2078aa73e15d9586b44cceedebb617f972f13f))
+
+
+### Bug Fixes
+
+* **ci:** prevent publish race condition with concurrency group and rebase ([d8501c3](https://github.com/AnEntrypoint/spawnpoint/commit/d8501c3b0e6cac49f28f1985bc95c88eaa24b9ec))
+* correct typo consconst in GeometryCache.js reconstructGeometry ([e217bda](https://github.com/AnEntrypoint/spawnpoint/commit/e217bda9fb6b1cd7d1e8c78c52100ddc8650b542))
+* restore WebGPU node material upgrade in EntityLoader traverse loop ([e35f614](https://github.com/AnEntrypoint/spawnpoint/commit/e35f6145a34e9561785f3d6ac1a1ec60d6727ec8))
+
 ### [0.1.324](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.323...v0.1.324) (2026-03-19)
 
 
