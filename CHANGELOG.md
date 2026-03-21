@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.328](https://github.com/AnEntrypoint/spoint/compare/v0.1.327...v0.1.328) (2026-03-21)
+
+
+### Bug Fixes
+
+* correct gh-pages base path from /spawnpoint to /spoint, update docs and repo URL ([4d0ab0f](https://github.com/AnEntrypoint/spoint/commit/4d0ab0f2f277fce6d6308c4e50f9bfd72aa91f48))
+
 ### [0.1.327](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.326...v0.1.327) (2026-03-21)
 
 ### [0.1.326](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.325...v0.1.326) (2026-03-21)
