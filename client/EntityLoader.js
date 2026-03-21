@@ -67,7 +67,7 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
   function _generateLODEager(model, name, url) {
     const cfg = LOD_CONFIGS[name] || LOD_CONFIGS.default; if (cfg.noAutoLod) return model
     const lod = new THREE.LOD()
-    lod.addLevel(model, 0); lod.position.copy(model.position); lod.quaternion.copy(model.quaternion); lod.scale.copy(model.scale); lod.updateMatrixWorld(true); lod.userData = model.userData
+    lod.addLevel(model, 0); lod.position.copy(model.position); lod.quaternion.copy(model.quaternion); lod.scale.copy(model.scale); model.position.set(0, 0, 0); model.quaternion.set(0, 0, 0, 1); model.scale.set(1, 1, 1); lod.updateMatrixWorld(true); lod.userData = model.userData
     _lodUpgradeQueue.push({ lod, model, cfg, url }); return lod
   }
 
