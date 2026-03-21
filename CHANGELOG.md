@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.330](https://github.com/AnEntrypoint/spoint/compare/v0.1.329...v0.1.330) (2026-03-21)
+
+
+### Bug Fixes
+
+* **gh-pages:** patch all JS files for /spoint/ base path, not just hardcoded list ([35c44d2](https://github.com/AnEntrypoint/spoint/commit/35c44d2a9766810b011c75cc59225b6a4d319453))
+
 ### [0.1.329](https://github.com/AnEntrypoint/spoint/compare/v0.1.328...v0.1.329) (2026-03-21)
 
 
