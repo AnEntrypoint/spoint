@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.333](https://github.com/AnEntrypoint/spoint/compare/v0.1.332...v0.1.333) (2026-03-21)
+
+
+### Bug Fixes
+
+* pass callbacks to LocalClient so loading screen clears in singleplayer ([98f5a9c](https://github.com/AnEntrypoint/spoint/commit/98f5a9cb4f6250021ea443ad3203daccac587c81))
+
 ### [0.1.332](https://github.com/AnEntrypoint/spoint/compare/v0.1.331...v0.1.332) (2026-03-21)
 
 
