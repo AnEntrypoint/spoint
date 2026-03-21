@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.335](https://github.com/AnEntrypoint/spoint/compare/v0.1.334...v0.1.335) (2026-03-21)
+
+
+### Bug Fixes
+
+* **gh-pages:** patch anim-lib.glb path and guard null client in AppModuleSystem ([f0b0eeb](https://github.com/AnEntrypoint/spoint/commit/f0b0eeb140637fb51d393502f74d496f254cd9f5))
+
 ### [0.1.334](https://github.com/AnEntrypoint/spoint/compare/v0.1.333...v0.1.334) (2026-03-21)
 
 
