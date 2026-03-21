@@ -58,7 +58,9 @@ jobs:
           sed -i 's|<meta charset="UTF-8">|<meta charset="UTF-8"><script>if(!location.search.includes("singleplayer"))location.replace(location.pathname+"?singleplayer")</script>|' dist/index.html
 
       - name: Copy singleplayer world config
-        run: cp client/singleplayer-world.json dist/singleplayer-world.json
+        run: |
+          cp client/singleplayer-world.json dist/singleplayer-world.json
+          sed -i 's|"\./apps/|"/spoint/apps/|g' dist/singleplayer-world.json
 
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v4
