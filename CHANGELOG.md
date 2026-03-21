@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.332](https://github.com/AnEntrypoint/spoint/compare/v0.1.331...v0.1.332) (2026-03-21)
+
+
+### Bug Fixes
+
+* **gh-pages:** patch /draco/, /basis/, /singleplayer-world.json runtime paths ([c0d9459](https://github.com/AnEntrypoint/spoint/commit/c0d945976ee1fec21294ca28af9cf456b5a763de))
+
 ### [0.1.331](https://github.com/AnEntrypoint/spoint/compare/v0.1.330...v0.1.331) (2026-03-21)
 
 
