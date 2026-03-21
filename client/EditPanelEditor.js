@@ -17,8 +17,8 @@ function _monaco(code, container, onSave) {
     if (window.monaco) { mk(); return }
     if (typeof window.require === 'undefined') {
       const s = document.createElement('script')
-      s.src = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs/loader.js'
-      s.onload = () => { window.require.config({paths:{vs:'https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs'}}); window.require(['vs/editor/editor.main'], mk) }
+      s.src = '/node_modules/monaco-editor/min/vs/loader.js'
+      s.onload = () => { window.require.config({paths:{vs:'/node_modules/monaco-editor/min/vs'}}); window.require(['vs/editor/editor.main'], mk) }
       s.onerror = () => res(_fallback(code, container, onSave))
       document.head.appendChild(s)
     } else { res(_fallback(code, container, onSave)) }

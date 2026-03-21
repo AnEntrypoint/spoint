@@ -63,6 +63,7 @@
   "devDependencies": {
     "@gltf-transform/cli": "^4.3.0",
     "@gltf-transform/core": "^4.3.0",
+    "monaco-editor": "^0.44.0",
     "playwright": "^1.58.1",
     "three": "^0.183.1"
   }

@@ -9,7 +9,7 @@ export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, 
   hint.textContent = '[P] Edit'; hint.style.cssText = 'position:fixed;bottom:12px;left:12px;color:#444;font:11px monospace;z-index:8999;pointer-events:none'
   document.body.appendChild(hint)
 
-  let _tab='scene',_apps=[],_filt='',_entity=null,_eProps=[],_curApp=null,_curFile=null,_pendingCode=null,_entities=[],_selId=null,_onChange=null,_expandedApp=null,_appFiles={}
+  let _tab='scene',_apps=[],_filt='',_entFilt='',_entity=null,_eProps=[],_curApp=null,_curFile=null,_pendingCode=null,_entities=[],_selId=null,_onChange=null,_expandedApp=null,_appFiles={}
   const getEntity = () => _entity, getOnChange = () => _onChange, getSelId = () => _selId
 
   const tabs=document.createElement('div'); tabs.style.cssText='display:flex;border-bottom:1px solid #333;flex-shrink:0'; panel.appendChild(tabs)
@@ -21,6 +21,7 @@ export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, 
     const pane=document.createElement('div'); pane.style.cssText='flex:1;overflow-y:auto;display:none;flex-direction:column;min-height:0'; panel.appendChild(pane)
     panes[id]={btn,pane}
   }
+  const hints=document.createElement('div');hints.style.cssText='padding:4px 8px;color:#444;font-size:10px;border-top:1px solid #1a1a1a;flex-shrink:0';hints.textContent='[P] Toggle  [G/R/S] Gizmo  [F] Focus  [Del] Delete';panel.appendChild(hints)
 
   function _switchTab(id){
     _tab=id
@@ -32,11 +33,26 @@ export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, 
     return [Math.atan2(2*(w*x+y*z),1-2*(x*x+y*y))*180/Math.PI,(v=>Math.abs(v)>=1?Math.sign(v)*90:Math.asin(v)*180/Math.PI)(2*(w*y-z*x)),Math.atan2(2*(w*z+x*y),1-2*(y*y+z*z))*180/Math.PI]
   }
 
+  function _filterTree(nodes, q) {
+    if(!q) return nodes
+    return nodes.reduce((acc,n)=>{
+      const match=(n.label||n.appName||n.id||'').toLowerCase().includes(q)
+      const children=_filterTree(n.children||[],q)
+      if(match||children.length) acc.push(children.length?{...n,children}:n)
+      return acc
+    },[])
+  }
+
   function _rScene(){
     const pane=panes.scene.pane; pane.innerHTML=''
+    const sf=document.createElement('input');sf.type='text';sf.placeholder='Filter entities...';sf.value=_entFilt
+    sf.style.cssText='width:100%;background:#252530;border:none;color:#fff;padding:6px 8px;border-radius:3px;font:inherit;box-sizing:border-box;margin-bottom:4px'
+    sf.addEventListener('input',()=>{_entFilt=sf.value.toLowerCase();_rScene()})
+    const sh=document.createElement('div');sh.style.cssText='padding:6px 6px 0';sh.appendChild(sf);pane.appendChild(sh)
     const tree=document.createElement('div');tree.style.cssText='padding:6px;border-bottom:1px solid #222;overflow-y:auto;max-height:40vh'
-    if(!_entities.length){const e=document.createElement('div');e.textContent='No entities';e.style.color='#555';tree.appendChild(e)}
-    for(const n of _entities)tree.appendChild(node(n,0,getSelId,id=>{_selId=id;if(onEntitySelect)onEntitySelect(id)},_rScene))
+    const visible=_filterTree(_entities,_entFilt)
+    if(!visible.length){const e=document.createElement('div');e.textContent=_entities.length&&_entFilt?'No match':'No entities';e.style.color='#555';tree.appendChild(e)}
+    for(const n of visible)tree.appendChild(node(n,0,getSelId,id=>{_selId=id;if(onEntitySelect)onEntitySelect(id)},_rScene))
     pane.appendChild(tree); if(_entity)_rProps(pane)
   }
 
@@ -119,6 +135,7 @@ export function createEditPanel({ onPlace, onSave, onEntitySelect, onGetSource, 
     updateAppFiles(n,files){ _appFiles[n]=files||[]; if(_tab==='apps')_rApps() },
     openCode(app,file,code){ _curApp=app;_curFile=file;_pendingCode=code; _switchTab('apps') },
     onEditorChange(fn){ _onChange=fn },
-    get visible(){ return panel.style.display!=='none' }
+    get visible(){ return panel.style.display!=='none' },
+    get selectedEntity(){ return _entity }
   }
 }

@@ -7,18 +7,16 @@ let _onEditModeChange = null
 export function createEditor({ scene, camera, renderer, client, entityMeshes, playerStates }) {
   let selectedEntityId = null, gizmoGroup = null
   let dragAxis = null, dragStart = null, dragEntityStart = null
-  let _onChange = null
+  let _onChange = null, _gizmoMode = 'translate'
   const raycaster = new THREE.Raycaster()
   const _plane = new THREE.Plane()
 
-  function buildGizmo() {
-    const g = new THREE.Group()
-    g.userData.isGizmo = true
+  function buildTranslateGizmo() {
+    const g = new THREE.Group(); g.userData.isGizmo = true; g.userData.mode = 'translate'
     for (const [axis, color, rx, rz] of [['x',0xff2222,0,-Math.PI/2],['y',0x22ff22,0,0],['z',0x2222ff,Math.PI/2,0]]) {
       const mat = new THREE.MeshBasicMaterial({ color, depthTest: false })
       const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1, 8), mat)
-      shaft.geometry.translate(0, 0.5, 0)
-      shaft.rotation.x = rx; shaft.rotation.z = rz
+      shaft.geometry.translate(0, 0.5, 0); shaft.rotation.x = rx; shaft.rotation.z = rz
       shaft.userData.gizmoAxis = axis; shaft.renderOrder = 999
       const cap = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.25, 8), mat)
       cap.geometry.translate(0, 0.125, 0)
@@ -31,11 +29,33 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
     return g
   }
 
+  function buildRotateGizmo() {
+    const g = new THREE.Group(); g.userData.isGizmo = true; g.userData.mode = 'rotate'
+    for (const [axis,color,rx,ry] of [['x',0xff2222,0,Math.PI/2],['y',0x22ff22,Math.PI/2,0],['z',0x2222ff,0,0]]) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(1,0.04,8,32),new THREE.MeshBasicMaterial({color,depthTest:false,side:THREE.DoubleSide}))
+      ring.rotation.x=rx;ring.rotation.y=ry;ring.userData.gizmoAxis=axis;ring.renderOrder=999;g.add(ring)
+    }
+    return g
+  }
+
+  function buildScaleGizmo() {
+    const g = new THREE.Group(); g.userData.isGizmo = true; g.userData.mode = 'scale'
+    for (const [axis,color,rx,rz,px,py,pz] of [['x',0xff2222,0,-Math.PI/2,1,0,0],['y',0x22ff22,0,0,0,1,0],['z',0x2222ff,Math.PI/2,0,0,0,1]]) {
+      const mat=new THREE.MeshBasicMaterial({color,depthTest:false})
+      const shaft=new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,1,8),mat);shaft.geometry.translate(0,0.5,0);shaft.rotation.x=rx;shaft.rotation.z=rz;shaft.userData.gizmoAxis=axis;shaft.renderOrder=999
+      const box=new THREE.Mesh(new THREE.BoxGeometry(0.2,0.2,0.2),mat);box.position.set(px,py,pz);box.userData.gizmoAxis=axis;box.renderOrder=999
+      g.add(shaft);g.add(box)
+    }
+    return g
+  }
+
+  function _buildGizmo() { return _gizmoMode==='rotate'?buildRotateGizmo():_gizmoMode==='scale'?buildScaleGizmo():buildTranslateGizmo() }
+
   function attachGizmo(id) {
     if (gizmoGroup) { scene.remove(gizmoGroup); gizmoGroup = null }
     if (!editMode) return
     const mesh = entityMeshes.get(id); if (!mesh) return
-    gizmoGroup = buildGizmo(); gizmoGroup.position.copy(mesh.position); scene.add(gizmoGroup)
+    gizmoGroup = _buildGizmo(); gizmoGroup.position.copy(mesh.position); scene.add(gizmoGroup)
   }
 
   function selectEntity(id, entityData) {
@@ -67,7 +87,7 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
       if (hits.length > 0) {
         dragAxis = hits[0].object.userData.gizmoAxis
         const mesh = entityMeshes.get(selectedEntityId)
-        dragEntityStart = mesh ? mesh.position.clone() : new THREE.Vector3()
+        dragEntityStart = _gizmoMode === 'scale' ? (mesh ? mesh.scale.clone() : new THREE.Vector3(1,1,1)) : (mesh ? mesh.position.clone() : new THREE.Vector3())
         const axVec = dragAxis==='x' ? new THREE.Vector3(1,0,0) : dragAxis==='y' ? new THREE.Vector3(0,1,0) : new THREE.Vector3(0,0,1)
         _plane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()).cross(axVec).normalize(), gizmoGroup.position)
         const pt = new THREE.Vector3(); raycaster.ray.intersectPlane(_plane, pt); dragStart = pt
@@ -90,14 +110,35 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
     if (!dragAxis || !dragStart || !gizmoGroup) return
     raycaster.setFromCamera(getNDC(e), camera)
     const pt = new THREE.Vector3(); raycaster.ray.intersectPlane(_plane, pt); if (!pt) return
-    const delta = pt.clone().sub(dragStart), newPos = dragEntityStart.clone()
-    if (dragAxis==='x') newPos.x += delta.x; else if (dragAxis==='y') newPos.y += delta.y; else newPos.z += delta.z
-    gizmoGroup.position.copy(newPos); const mesh = entityMeshes.get(selectedEntityId); if (mesh) mesh.position.copy(newPos)
+    const delta = pt.clone().sub(dragStart)
+    const mesh = entityMeshes.get(selectedEntityId); if (!mesh) return
+    if (_gizmoMode === 'scale') {
+      const s = dragEntityStart.clone()
+      const d = delta.dot(dragAxis==='x'?new THREE.Vector3(1,0,0):dragAxis==='y'?new THREE.Vector3(0,1,0):new THREE.Vector3(0,0,1))
+      if (dragAxis==='x') s.x = Math.max(0.01, s.x + d)
+      else if (dragAxis==='y') s.y = Math.max(0.01, s.y + d)
+      else s.z = Math.max(0.01, s.z + d)
+      mesh.scale.copy(s)
+    } else if (_gizmoMode === 'rotate') {
+      const d = delta.dot(dragAxis==='x'?new THREE.Vector3(0,1,0):dragAxis==='y'?new THREE.Vector3(1,0,0):new THREE.Vector3(0,1,0))
+      const q = new THREE.Quaternion()
+      q.setFromAxisAngle(dragAxis==='x'?new THREE.Vector3(1,0,0):dragAxis==='y'?new THREE.Vector3(0,1,0):new THREE.Vector3(0,0,1), d)
+      mesh.quaternion.copy(dragEntityStart.clone()).multiply(q)
+    } else {
+      const newPos = dragEntityStart.clone()
+      if (dragAxis==='x') newPos.x += delta.x; else if (dragAxis==='y') newPos.y += delta.y; else newPos.z += delta.z
+      gizmoGroup.position.copy(newPos); mesh.position.copy(newPos)
+    }
   })
 
   window.addEventListener('mouseup', () => {
     if (!dragAxis) return
-    const mesh = entityMeshes.get(selectedEntityId); if (mesh) sendEditorUpdate({ position: mesh.position.toArray() })
+    const mesh = entityMeshes.get(selectedEntityId)
+    if (mesh) {
+      if (_gizmoMode === 'scale') sendEditorUpdate({ scale: mesh.scale.toArray() })
+      else if (_gizmoMode === 'rotate') sendEditorUpdate({ rotation: mesh.quaternion.toArray() })
+      else sendEditorUpdate({ position: mesh.position.toArray() })
+    }
     dragAxis = null; dragStart = null; dragEntityStart = null
   })
 
@@ -124,6 +165,15 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
         if (editMode && selectedEntityId) attachGizmo(selectedEntityId)
         if (_onEditModeChange) _onEditModeChange(editMode)
       }
+      if (editMode) {
+        if (e.code === 'KeyG') { _gizmoMode = 'translate'; if (selectedEntityId) attachGizmo(selectedEntityId) }
+        if (e.code === 'KeyR') { _gizmoMode = 'rotate'; if (selectedEntityId) attachGizmo(selectedEntityId) }
+        if (e.code === 'KeyS' && !e.ctrlKey && !e.metaKey) { _gizmoMode = 'scale'; if (selectedEntityId) attachGizmo(selectedEntityId) }
+        if (e.code === 'KeyF' && selectedEntityId) {
+          const mesh = entityMeshes.get(selectedEntityId)
+          if (mesh) { camera.position.set(mesh.position.x, mesh.position.y + 2, mesh.position.z + 5); camera.lookAt(mesh.position) }
+        }
+      }
       if (e.code === 'Delete' && editMode && selectedEntityId) {
         client.send(MSG.DESTROY_ENTITY, { entityId: selectedEntityId })
         if (gizmoGroup) { scene.remove(gizmoGroup); gizmoGroup = null }
@@ -137,6 +187,7 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
     eulerDegToQuat,
     selectEntity,
     updateGizmo() { if (gizmoGroup && selectedEntityId) { const m = entityMeshes.get(selectedEntityId); if (m && !dragAxis) gizmoGroup.position.copy(m.position) } },
-    get selectedEntityId() { return selectedEntityId }
+    get selectedEntityId() { return selectedEntityId },
+    get gizmoMode() { return _gizmoMode }
   }
 }

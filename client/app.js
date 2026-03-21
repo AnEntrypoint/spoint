@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh'
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree; THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree; THREE.Mesh.prototype.raycast = acceleratedRaycast
-import { PhysicsNetworkClient, InputHandler, MSG } from '/src/index.client.js'
+import { PhysicsNetworkClient, InputHandler, MSG } from '/src/index.client.js'; import { LocalClient } from './LocalClient.js'
 import { createElement } from 'webjsx'
 import { LoadingManager } from './LoadingManager.js'
 import { createLoadingScreen } from './createLoadingScreen.js'
@@ -54,7 +54,7 @@ function initAssets(url) { loadingMgr.setLabel('Downloading player model...'); p
     vrmBuffer=b; loadingMgr.setLabel('Loading animations...'); animAssets=await animPromise; assetsLoaded=true; checkAllLoaded()
   }).catch(err => { console.warn('[assets]',err?.message); assetsLoaded=true; checkAllLoaded() })
 }
-const ams = createAppModuleSystem(null, uiRoot)
+const _isSingleplayer = new URLSearchParams(location.search).has('singleplayer'); const ams = createAppModuleSystem(null, uiRoot)
 const engineCtx = {
   scene, camera, renderer, THREE, createElement,
   get client() { return client }, get playerId() { return client.playerId }, get cam() { return cam },
@@ -67,7 +67,7 @@ const engineCtx = {
 }
 initFacialSystem(engineCtx)
 const _buildEntityData = (id, mesh) => ({ id, position: mesh.position.toArray(), rotation: mesh.quaternion.toArray(), scale: mesh.scale.toArray(), custom: mesh.userData.custom||{}, _appName: mesh.userData._appName||null })
-const client = new PhysicsNetworkClient({
+const client = _isSingleplayer ? new LocalClient({ worldDef: await fetch('/singleplayer-world.json').then(r=>r.json()).catch(()=>({})) }) : new PhysicsNetworkClient({
   url: `${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws`, predictionEnabled: false, smoothInterpolation: true,
   onStateUpdate: state => {
     const lid=client.playerId
@@ -115,10 +115,10 @@ const editPanel = createEditPanel({
 })
 const editor = createEditor({ scene, camera, renderer, client, entityMeshes: el.entityMeshes, playerStates: pm.playerStates })
 editor.onSelectionChange((id,data) => { if (data) { const mesh=el.entityMeshes.get(id); editPanel.showEntity(mesh?_buildEntityData(id,mesh):data,[]); client.send(MSG.GET_EDITOR_PROPS,{entityId:id}) } })
-editor.onEditModeChange(on => { if (on) { if (document.pointerLockElement) document.exitPointerLock(); editPanel.show(); client.send(MSG.SCENE_GRAPH,{}); client.send(MSG.LIST_APPS,{}) } else editPanel.hide() })
+editor.onEditModeChange(on => { if (on) { if (document.pointerLockElement) document.exitPointerLock(); editPanel.show(); if (!_isSingleplayer) { client.send(MSG.SCENE_GRAPH,{}); client.send(MSG.LIST_APPS,{}) } } else editPanel.hide() })
 editPanel.onEditorChange((key,value) => { if (!editor.selectedEntityId) return; const changes=key==='collider'?{custom:{_collider:value}}:key.startsWith('custom.')?{custom:{[key.slice(7)]:value}}:key==='_rotEuler'?{rotation:editor.eulerDegToQuat(value)}:{[key]:value}; const mesh=el.entityMeshes.get(editor.selectedEntityId); if (mesh) { if (changes.position) mesh.position.set(...changes.position); if (changes.rotation) mesh.quaternion.set(...changes.rotation); if (changes.scale) mesh.scale.set(...changes.scale); editor.updateGizmo() }; editor.sendEditorUpdate(changes) })
 document.addEventListener('keydown', e => { editor.onKeyDown(e); ams.dispatchKeyDown(e,engineCtx) }); document.addEventListener('keyup', e => ams.dispatchKeyUp(e,engineCtx))
-client.send(MSG.LIST_APPS, {}); xrSystem.setupSessionListeners(id=>pm.playerStates.get(id), ()=>client.playerId, { get yaw() { return cam.yaw } })
+if (!_isSingleplayer) client.send(MSG.LIST_APPS, {}); xrSystem.setupSessionListeners(id=>pm.playerStates.get(id), ()=>client.playerId, { get yaw() { return cam.yaw } })
 let inputHandler=null, inputLoopId=null, latestState=null, latestInput=null, lastShootState=false, lastHealth=100, _hierarchyDirty=false, fpsFrames=0, fpsLast=performance.now(), fpsDisplay=0, uiTimer=0, lastFrameTime=performance.now(), _lodCullAt=0, _shadowDirty=true, _shadowLastUpdate=0, _profileFrames=0, _profileSum=0; const _dirty=new Set(), _sinTable=Array(360).fill(0).map((_,i)=>Math.sin(i*Math.PI/180)), _PLAYER_VIS_D2=6400
 function startInputLoop() {
   if (inputLoopId) return

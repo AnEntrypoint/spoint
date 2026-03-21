@@ -1,0 +1,69 @@
+name: Deploy GitHub Pages Demo
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+concurrency:
+  group: gh-pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build dist
+        run: |
+          mkdir -p dist/src dist/apps/maps dist/apps/tps-game dist/node_modules
+
+          cp -r client/* dist/
+          cp -r src/client dist/src/client
+          cp -r src/protocol dist/src/protocol
+          cp -r src/shared dist/src/shared
+          cp src/index.client.js dist/src/index.client.js
+
+          cp apps/maps/aim_sillos.glb dist/apps/maps/aim_sillos.glb
+          cp apps/tps-game/cleetus.vrm dist/apps/tps-game/cleetus.vrm
+
+          for pkg in three @pixiv/three-vrm webjsx msgpackr meshoptimizer monaco-editor; do
+            if [ -d "node_modules/$pkg" ]; then
+              mkdir -p "dist/node_modules/$pkg"
+              cp -r "node_modules/$pkg" "dist/node_modules/$(dirname $pkg)/"
+            fi
+          done
+
+          cp -r client/vendor dist/vendor 2>/dev/null || true
+          cp client/draco -r dist/draco 2>/dev/null || true
+          cp client/basis -r dist/basis 2>/dev/null || true
+
+      - name: Patch paths for gh-pages
+        run: |
+          BASE="/spawnpoint"
+          for f in dist/index.html dist/app.js dist/src/client/PhysicsNetworkClient.js dist/EditPanelEditor.js dist/EntityLoader.js dist/editor.js; do
+            [ -f "$f" ] && sed -i "s|'\"/|'\"${BASE}/|g; s|href=\"/|href=\"${BASE}/|g; s|src=\"/|src=\"${BASE}/|g" "$f" || true
+          done
+          sed -i "s|'/src/|'${BASE}/src/|g" dist/app.js dist/src/index.client.js 2>/dev/null || true
+          sed -i "s|'/node_modules/|'${BASE}/node_modules/|g; s|\"/node_modules/|\"${BASE}/node_modules/|g" dist/app.js dist/EditPanelEditor.js dist/EntityLoader.js dist/editor.js 2>/dev/null || true
+          sed -i 's|"three": "/node_modules/|"three": "/spawnpoint/node_modules/|g; s|"three/webgpu": "/node_modules/|"three/webgpu": "/spawnpoint/node_modules/|g; s|"three/addons/": "/node_modules/|"three/addons/": "/spawnpoint/node_modules/|g; s|"@pixiv/three-vrm": "/node_modules/|"@pixiv/three-vrm": "/spawnpoint/node_modules/|g; s|"three-mesh-bvh": "/vendor/|"three-mesh-bvh": "/spawnpoint/vendor/|g; s|"webjsx": "/node_modules/|"webjsx": "/spawnpoint/node_modules/|g; s|"webjsx/jsx-runtime": "/node_modules/|"webjsx/jsx-runtime": "/spawnpoint/node_modules/|g; s|"msgpackr": "/node_modules/|"msgpackr": "/spawnpoint/node_modules/|g' dist/index.html
+          sed -i 's|href="/style.css"|href="/spawnpoint/style.css"|g; s|src="/app.js"|src="/spawnpoint/app.js"|g' dist/index.html
+
+      - name: Add singleplayer auto-enable script to index.html
+        run: |
+          sed -i 's|</head>|<script>if(!location.search.includes("singleplayer"))location.replace(location.pathname+"?singleplayer")</script></head>|' dist/index.html
+
+      - name: Copy singleplayer world config
+        run: cp client/singleplayer-world.json dist/singleplayer-world.json
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          force_orphan: true

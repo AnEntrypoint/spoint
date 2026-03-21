@@ -359,6 +359,28 @@ After 3 consecutive reload failures, module stops auto-reloading until server re
 - **Client input rate**: 60Hz. Server uses only LAST buffered input per tick. `inputSequence` increments for reconciliation.
 - **Spatial grid for player collision**: cell size = `capsuleRadius * 8`, 9-neighbor check. `other.id <= player.id` guard processes each pair once.
 
+## Editor DX
+
+**Gizmo modes** (`client/editor.js`): Three modes cycle via keyboard — `[G]` translate (default), `[R]` rotate (torus ring handles), `[S]` scale (box cap handles). Mode stored in `_gizmoMode`. `buildTranslateGizmo/buildRotateGizmo/buildScaleGizmo` build the correct handle set. Mouseup sends `position/rotation/scale` changes via `EDITOR_UPDATE`. `[F]` focuses camera on selected entity. `[Del]` destroys selected entity.
+
+**Scene search** (`client/edit-panel.js`): Search input above entity tree in Scene tab. `_filterTree(nodes, q)` recursively filters by `id`, `appName`, `label` — children included if parent matches. State in `_entFilt`, survives scene graph refreshes. Hint bar at bottom: `[P] Toggle  [G/R/S] Gizmo  [F] Focus  [Del] Delete`. `selectedEntity` getter exposes current entity.
+
+**Monaco offline** (`client/EditPanelEditor.js`): Monaco loaded from `/node_modules/monaco-editor/min/vs/loader.js` (no CDN). Requires `monaco-editor` in `devDependencies`. Falls back to `<textarea>` on load failure.
+
+## Serverless Single-Player Mode
+
+`client/LocalClient.js` — drop-in replacement for `PhysicsNetworkClient`. Activated via `?singleplayer` URL param in `client/app.js`. `LocalClient.connect()` fetches `/singleplayer-world.json`, fires `onWorldDef`, runs a 64 TPS setInterval physics loop (Quake movement + gravity + flat floor at y=0). No WebSocket, no server process.
+
+**Integration in `app.js`**: `const _isSingleplayer = new URLSearchParams(location.search).has('singleplayer')`. `client` is `LocalClient` or `PhysicsNetworkClient` based on this flag. Editor scene graph and app list requests are gated on `!_isSingleplayer`.
+
+**World config**: `client/singleplayer-world.json` — static JSON with movement, scene, camera, spawnPoint, playerModel, and a minimal entity list (just the map GLB).
+
+## GitHub Pages Demo
+
+`.github/workflows/gh-pages.yml` — deploys a static single-player demo to `gh-pages` branch on every push to `main`. Copies `client/`, `src/`, `apps/maps/aim_sillos.glb`, `apps/tps-game/cleetus.vrm`, and required `node_modules/` packages to `dist/`. Patches all absolute `/path` references to `/spawnpoint/path` for gh-pages subpath hosting. Injects a redirect script that auto-adds `?singleplayer` to the URL. Uses `peaceiris/actions-gh-pages@v4` with `force_orphan: true`.
+
+Demo URL: `https://anentrypoint.github.io/spawnpoint/`
+
 ## Editor Message Types (0x80-0x8F)
 
 Inspector excludes the 0x80-0x8F range to avoid intercepting editor traffic.
