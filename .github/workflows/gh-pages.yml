@@ -56,7 +56,7 @@ jobs:
 
       - name: Add singleplayer auto-enable script to index.html
         run: |
-          sed -i 's|</head>|<script>if(!location.search.includes("singleplayer"))location.replace(location.pathname+"?singleplayer")</script></head>|' dist/index.html
+          sed -i 's|<meta charset="UTF-8">|<meta charset="UTF-8"><script>if(!location.search.includes("singleplayer"))location.replace(location.pathname+"?singleplayer")</script>|' dist/index.html
 
       - name: Copy singleplayer world config
         run: cp client/singleplayer-world.json dist/singleplayer-world.json
