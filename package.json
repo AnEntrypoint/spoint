@@ -11,8 +11,7 @@
   "scripts": {
     "start": "node server.js",
     "create-app": "node ./bin/create-app.js",
-    "bots": "node run-bots.js",
-    "profile:50": "node run-profiling.js"
+    "bots": "node src/sdk/BotHarness.js"
   },
   "files": [
     "src/",
@@ -37,7 +36,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/AnEntrypoint/spawnpoint.git"
+    "url": "https://github.com/AnEntrypoint/spoint.git"
   },
   "license": "MIT",
   "engines": {

@@ -470,3 +470,30 @@ Fixed 128-slot ring buffer. Entries pruned by timestamp (500ms window). Pre-allo
 - **Velocity extrapolation**: `SmoothInterpolation.getDisplayState()` adds `position += velocity * dt`. Without this, movement appears jittery at 128 TPS.
 - **Rotation interpolation**: quaternion SLERP, not linear lerp.
 - **RTT measurement**: uses snapshot `serverTime` field, not heartbeat ping (heartbeat gives ~500ms on localhost; snapshot gives <20ms).
+
+## GitHub Pages Demo
+
+Live at: https://anentrypoint.github.io/spoint/
+
+Deployed by `.github/workflows/gh-pages.yml` on every push to `main`. Copies `client/`, `src/client/`, `src/protocol/`, `src/shared/`, select `apps/` assets, and npm packages into `dist/`. Patches all absolute `/` paths to `/spoint/` via `sed`. Injects `?singleplayer` redirect into `index.html`. Deploys via `peaceiris/actions-gh-pages@v4` to the `gh-pages` branch (legacy Pages mode).
+
+**Base path**: `BASE="/spoint"` — must match repo name exactly. Repo renamed from `spawnpoint` → `spoint`.
+
+## Singleplayer Mode
+
+`?singleplayer` URL param switches `client/app.js` from `PhysicsNetworkClient` to `LocalClient`. `LocalClient` is a drop-in replacement — same callback interface, runs 64 TPS `setInterval` physics loop (Quake movement, gravity, flat floor at y≤0.01). World definition loaded from `client/singleplayer-world.json`. Editor scene/apps panel is hidden in singleplayer mode.
+
+## Editor DX
+
+`client/editor.js` — `createEditor()` gizmo system:
+- **G** key → translate gizmo (`buildTranslateGizmo` — cylinder shafts + cone caps)
+- **R** key → rotate gizmo (`buildRotateGizmo` — torus rings)
+- **S** key → scale gizmo (`buildScaleGizmo` — cylinder shafts + box caps)
+- **F** key → focus camera on selected entity
+- **Del** key → send `MSG.DESTROY_ENTITY`
+- Drag-and-drop `.glb`/`.gltf` → uploads to `/upload-model`, places via `MSG.PLACE_MODEL`
+- Mouse drag on gizmo → `sendEditorUpdate({ position | rotation | scale })` on mouseup
+
+`client/edit-panel.js` — Scene tab has entity filter input (`_filterTree` recursive search). Keyboard hint bar shows `[P] Toggle  [G/R/S] Gizmo  [F] Focus  [Del] Delete`.
+
+`client/EditPanelEditor.js` — Monaco editor loads from `/node_modules/monaco-editor/min/vs/loader.js` (local, not CDN). Requires `monaco-editor` devDependency.

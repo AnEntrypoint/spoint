@@ -45,14 +45,14 @@ jobs:
 
       - name: Patch paths for gh-pages
         run: |
-          BASE="/spawnpoint"
+          BASE="/spoint"
           for f in dist/index.html dist/app.js dist/src/client/PhysicsNetworkClient.js dist/EditPanelEditor.js dist/EntityLoader.js dist/editor.js; do
             [ -f "$f" ] && sed -i "s|'\"/|'\"${BASE}/|g; s|href=\"/|href=\"${BASE}/|g; s|src=\"/|src=\"${BASE}/|g" "$f" || true
           done
           sed -i "s|'/src/|'${BASE}/src/|g" dist/app.js dist/src/index.client.js 2>/dev/null || true
           sed -i "s|'/node_modules/|'${BASE}/node_modules/|g; s|\"/node_modules/|\"${BASE}/node_modules/|g" dist/app.js dist/EditPanelEditor.js dist/EntityLoader.js dist/editor.js 2>/dev/null || true
-          sed -i 's|"three": "/node_modules/|"three": "/spawnpoint/node_modules/|g; s|"three/webgpu": "/node_modules/|"three/webgpu": "/spawnpoint/node_modules/|g; s|"three/addons/": "/node_modules/|"three/addons/": "/spawnpoint/node_modules/|g; s|"@pixiv/three-vrm": "/node_modules/|"@pixiv/three-vrm": "/spawnpoint/node_modules/|g; s|"three-mesh-bvh": "/vendor/|"three-mesh-bvh": "/spawnpoint/vendor/|g; s|"webjsx": "/node_modules/|"webjsx": "/spawnpoint/node_modules/|g; s|"webjsx/jsx-runtime": "/node_modules/|"webjsx/jsx-runtime": "/spawnpoint/node_modules/|g; s|"msgpackr": "/node_modules/|"msgpackr": "/spawnpoint/node_modules/|g' dist/index.html
-          sed -i 's|href="/style.css"|href="/spawnpoint/style.css"|g; s|src="/app.js"|src="/spawnpoint/app.js"|g' dist/index.html
+          sed -i 's|"three": "/node_modules/|"three": "/spoint/node_modules/|g; s|"three/webgpu": "/node_modules/|"three/webgpu": "/spoint/node_modules/|g; s|"three/addons/": "/node_modules/|"three/addons/": "/spoint/node_modules/|g; s|"@pixiv/three-vrm": "/node_modules/|"@pixiv/three-vrm": "/spoint/node_modules/|g; s|"three-mesh-bvh": "/vendor/|"three-mesh-bvh": "/spoint/vendor/|g; s|"webjsx": "/node_modules/|"webjsx": "/spoint/node_modules/|g; s|"webjsx/jsx-runtime": "/node_modules/|"webjsx/jsx-runtime": "/spoint/node_modules/|g; s|"msgpackr": "/node_modules/|"msgpackr": "/spoint/node_modules/|g' dist/index.html
+          sed -i 's|href="/style.css"|href="/spoint/style.css"|g; s|src="/app.js"|src="/spoint/app.js"|g' dist/index.html
 
       - name: Add singleplayer auto-enable script to index.html
         run: |

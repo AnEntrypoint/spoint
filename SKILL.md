@@ -7,10 +7,10 @@ description: "Build multiplayer physics games with the Spawnpoint engine. Use wh
 
 Setup:
 ```bash
-bunx spoint scaffold   # first time — copies default apps/ into cwd
-bunx spoint            # start server (localhost:3001)
-bunx spoint-create-app my-app
-bunx spoint-create-app --template physics my-crate
+npx spoint scaffold   # first time — copies default apps/ into cwd
+npx spoint            # start server (localhost:3001)
+npx spoint-create-app my-app
+npx spoint-create-app --template physics my-crate
 ```
 
 Project structure: `apps/world/index.js` (world config) + `apps/<name>/index.js` (apps). Engine is from npm — never in user project.
