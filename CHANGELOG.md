@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.326](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.325...v0.1.326) (2026-03-21)
+
+
+### Features
+
+* editor DX improvements, serverless single-player mode, GitHub Pages demo ([b0f3d0f](https://github.com/AnEntrypoint/spawnpoint/commit/b0f3d0feea71b070a25285c78d9eeaf7a930acc4))
+
 ### [0.1.325](https://github.com/AnEntrypoint/spawnpoint/compare/v0.1.323...v0.1.325) (2026-03-19)
 
 
