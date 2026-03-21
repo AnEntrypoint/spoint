@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.329](https://github.com/AnEntrypoint/spoint/compare/v0.1.328...v0.1.329) (2026-03-21)
+
+
+### Bug Fixes
+
+* **gh-pages:** inject singleplayer redirect before modulepreload links ([7de8fff](https://github.com/AnEntrypoint/spoint/commit/7de8fff2616a3abd3acda424a63216ddc7c3181a))
+
 ### [0.1.328](https://github.com/AnEntrypoint/spoint/compare/v0.1.327...v0.1.328) (2026-03-21)
 
 
