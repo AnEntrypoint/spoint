@@ -373,6 +373,10 @@ After 3 consecutive reload failures, module stops auto-reloading until server re
 
 **Integration in `app.js`**: `const _isSingleplayer = new URLSearchParams(location.search).has('singleplayer')`. `client` is `LocalClient` or `PhysicsNetworkClient` based on this flag. Editor scene graph and app list requests are gated on `!_isSingleplayer`.
 
+**Player VRM timing**: `LocalClient.connect()` fires `onStateUpdate` synchronously before the VRM buffer finishes downloading. This causes `createPlayerVRM` to be called with a null buffer, producing an empty group stored in `playerMeshes`. `checkAllLoaded()` addresses this: after all loading conditions are met, any player mesh with no children (empty group) is removed and recreated with the loaded `vrmBuffer` and `animAssets` before `warmupShaders` runs.
+
+**`LocalClient` API parity**: exposes `get currentTick()` (returns `_tick`), `getRTT()` (returns 0), `getBufferHealth()` (returns 1) — required by `AppModuleSystem.renderAppUI` HUD.
+
 **World config**: `client/singleplayer-world.json` — static JSON with movement, scene, camera, spawnPoint, playerModel, and a minimal entity list (just the map GLB).
 
 ## GitHub Pages Demo
