@@ -135,6 +135,7 @@ export class LocalClient {
   getAllStates() { const m = new Map(); m.set(PLAYER_ID, this._playerState); return m }
   getEntity(id) { return this._entities?.find(e => e.id === id) }
   getAllEntities() { const m = new Map(); (this._entities || []).forEach(e => m.set(e.id, e)); return m }
+  get currentTick() { return this._tick }
   getRTT() { return 0 }
   getBufferHealth() { return 1 }
 

@@ -43,7 +43,7 @@ const firstSnapshotEntityPending=new Set(), el=createEntityLoader(scene,gltfLoad
 const _scheduleFitShadow=()=>{ if (_fitShadowTimer) clearTimeout(_fitShadowTimer); _fitShadowTimer=setTimeout(()=>{_fitShadowTimer=null;fitShadowFrustum(scene,sun)},200) }
 const _clearEntityPending=()=>{ firstSnapshotEntityPending.clear(); if(_entityLoadTimeout){clearTimeout(_entityLoadTimeout);_entityLoadTimeout=null}; checkAllLoaded() }
 const onFirstEntityLoaded=id=>{ if (!environmentLoaded){environmentLoaded=true;checkAllLoaded()}; if (firstSnapshotEntityPending.has(id)){firstSnapshotEntityPending.delete(id);if(firstSnapshotEntityPending.size===0)_clearEntityPending()} }
-async function checkAllLoaded() { if (loadingScreenHidden||!assetsLoaded||!environmentLoaded||!firstSnapshotReceived||firstSnapshotEntityPending.size>0) return; loadingScreenHidden=true; loadingMgr.setLabel('Starting game...'); try { await warmupShaders(renderer,scene,camera,el.entityMeshes,pm.playerMeshes,loadingMgr) } catch (_) {}; loadingScreen.hide() }
+async function checkAllLoaded() { if (loadingScreenHidden||!assetsLoaded||!environmentLoaded||!firstSnapshotReceived||firstSnapshotEntityPending.size>0) return; loadingScreenHidden=true; if (latestState) { const lid2=client.playerId; const vrmPs=[]; for (const p of latestState.players) { const mesh=pm.playerMeshes.get(p.id); if (!mesh||mesh.children.length===0) { if (mesh) pm.removePlayerMesh(p.id); vrmPs.push(pm.createPlayerVRM(p.id,vrmBuffer,animAssets,worldConfig,lid2)) } }; if (vrmPs.length) await Promise.all(vrmPs) }; loadingMgr.setLabel('Starting game...'); try { await warmupShaders(renderer,scene,camera,el.entityMeshes,pm.playerMeshes,loadingMgr) } catch (_) {}; loadingScreen.hide() }
 function _readVrmVersion(b) { try { const av=b instanceof ArrayBuffer?b:b.buffer,dv=new DataView(av),jl=dv.getUint32(12,true),j=JSON.parse(new TextDecoder().decode(new Uint8Array(av,20,jl))); return j.extensions?.VRM?'0':'1' } catch(_){} return '1' }
 function initAssets(url) { loadingMgr.setLabel('Downloading player model...'); preloadAnimationLibrary(gltfLoader)
   loadingMgr.fetchWithProgress(url,'vrm').then(async b => {
@@ -102,7 +102,7 @@ let client; const _clientConfig = {
   onMessage: (type,payload) => { if (type===MSG.APP_LIST) editPanel.updateApps(payload.apps); else if (type===MSG.SOURCE) editPanel.openCode(payload.appName,payload.file||'index.js',payload.source); else if (type===MSG.SCENE_GRAPH) editPanel.updateScene(payload.entities); else if (type===MSG.APP_FILES) editPanel.updateAppFiles(payload.appName,payload.files); else if (type===MSG.EDITOR_PROPS) { const mesh=el.entityMeshes.get(payload.entityId); if (mesh) editPanel.showEntity(_buildEntityData(payload.entityId,mesh),payload.editorProps||[]) } },
   debug: false
 }
-client = _isSingleplayer ? new LocalClient({worldDef: await fetch('/spoint/singleplayer-world.json').then(r=>r.json()).catch(()=>({})),..._clientConfig}) : new PhysicsNetworkClient(_clientConfig)
+client = _isSingleplayer ? new LocalClient({worldDef: await fetch('/singleplayer-world.json').then(r=>r.json()).catch(()=>({})),..._clientConfig}) : new PhysicsNetworkClient(_clientConfig)
 const editPanel = createEditPanel({
   onPlace: appName => { const local=pm.playerStates.get(client.playerId),yaw=local?.yaw||0,pos=local?[local.position[0]+Math.sin(yaw)*2,local.position[1],local.position[2]+Math.cos(yaw)*2]:[0,0,2]; client.send(MSG.PLACE_APP,{appName,position:pos,config:{}}) },
   onSave: (app,file,src) => client.send(MSG.SAVE_SOURCE,{appName:app,file,source:src}),
