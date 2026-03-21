@@ -38,10 +38,9 @@ const uiRoot = document.getElementById('ui-root')
 const clickPrompt = document.getElementById('click-prompt')
 if (deviceInfo.isMobile && clickPrompt) clickPrompt.style.display = 'none'
 const _pids = new Set(), _eids = new Set()
-let worldConfig={}, vrmBuffer=null, animAssets=null, assetsLoaded=false, loadingScreenHidden=false, environmentLoaded=false, firstSnapshotReceived=false, _fitShadowTimer=null
+let worldConfig={}, vrmBuffer=null, animAssets=null, assetsLoaded=false, loadingScreenHidden=false, environmentLoaded=false, firstSnapshotReceived=false, _fitShadowTimer=null, _entityLoadTimeout=null
 const firstSnapshotEntityPending=new Set(), el=createEntityLoader(scene,gltfLoader,cam,loadingMgr,patchGLB,isWebGPU)
 const _scheduleFitShadow=()=>{ if (_fitShadowTimer) clearTimeout(_fitShadowTimer); _fitShadowTimer=setTimeout(()=>{_fitShadowTimer=null;fitShadowFrustum(scene,sun)},200) }
-let _entityLoadTimeout=null
 const _clearEntityPending=()=>{ firstSnapshotEntityPending.clear(); if(_entityLoadTimeout){clearTimeout(_entityLoadTimeout);_entityLoadTimeout=null}; checkAllLoaded() }
 const onFirstEntityLoaded=id=>{ if (!environmentLoaded){environmentLoaded=true;checkAllLoaded()}; if (firstSnapshotEntityPending.has(id)){firstSnapshotEntityPending.delete(id);if(firstSnapshotEntityPending.size===0)_clearEntityPending()} }
 async function checkAllLoaded() { if (loadingScreenHidden||!assetsLoaded||!environmentLoaded||!firstSnapshotReceived||firstSnapshotEntityPending.size>0) return; loadingScreenHidden=true; loadingMgr.setLabel('Starting game...'); try { await warmupShaders(renderer,scene,camera,el.entityMeshes,pm.playerMeshes,loadingMgr) } catch (_) {}; loadingScreen.hide() }
@@ -65,9 +64,8 @@ const engineCtx = {
   players: { getMesh: id=>pm.playerMeshes.get(id), getState: id=>pm.playerStates.get(id), getAnimator: id=>pm.playerAnimators.get(id), setExpression: (id,n,v)=>pm.setVRMExpression(id,n,v), setAiming: (id,v)=>{ const s=pm.playerStates.get(id); if (s) s._aiming=v } },
   get mobileControls() { return mobileControls }
 }
-initFacialSystem(engineCtx)
-const _buildEntityData = (id, mesh) => ({ id, position: mesh.position.toArray(), rotation: mesh.quaternion.toArray(), scale: mesh.scale.toArray(), custom: mesh.userData.custom||{}, _appName: mesh.userData._appName||null })
-const client = _isSingleplayer ? new LocalClient({ worldDef: await fetch('/singleplayer-world.json').then(r=>r.json()).catch(()=>({})) }) : new PhysicsNetworkClient({
+initFacialSystem(engineCtx); const _buildEntityData = (id, mesh) => ({ id, position: mesh.position.toArray(), rotation: mesh.quaternion.toArray(), scale: mesh.scale.toArray(), custom: mesh.userData.custom||{}, _appName: mesh.userData._appName||null })
+let client; const _clientConfig = {
   url: `${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws`, predictionEnabled: false, smoothInterpolation: true,
   onStateUpdate: state => {
     const lid=client.playerId
@@ -103,7 +101,8 @@ const client = _isSingleplayer ? new LocalClient({ worldDef: await fetch('/singl
   onEditorSelect: payload => { const {entityId,editorProps}=payload||{}; if (!entityId) return; const mesh=el.entityMeshes.get(entityId); if (mesh) { const d=_buildEntityData(entityId,mesh); editor.selectEntity(entityId,d); editPanel.showEntity(d,editorProps||[]) } },
   onMessage: (type,payload) => { if (type===MSG.APP_LIST) editPanel.updateApps(payload.apps); else if (type===MSG.SOURCE) editPanel.openCode(payload.appName,payload.file||'index.js',payload.source); else if (type===MSG.SCENE_GRAPH) editPanel.updateScene(payload.entities); else if (type===MSG.APP_FILES) editPanel.updateAppFiles(payload.appName,payload.files); else if (type===MSG.EDITOR_PROPS) { const mesh=el.entityMeshes.get(payload.entityId); if (mesh) editPanel.showEntity(_buildEntityData(payload.entityId,mesh),payload.editorProps||[]) } },
   debug: false
-})
+}
+client = _isSingleplayer ? new LocalClient({worldDef: await fetch('/spoint/singleplayer-world.json').then(r=>r.json()).catch(()=>({})),..._clientConfig}) : new PhysicsNetworkClient(_clientConfig)
 const editPanel = createEditPanel({
   onPlace: appName => { const local=pm.playerStates.get(client.playerId),yaw=local?.yaw||0,pos=local?[local.position[0]+Math.sin(yaw)*2,local.position[1],local.position[2]+Math.cos(yaw)*2]:[0,0,2]; client.send(MSG.PLACE_APP,{appName,position:pos,config:{}}) },
   onSave: (app,file,src) => client.send(MSG.SAVE_SOURCE,{appName:app,file,source:src}),
