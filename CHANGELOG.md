@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.331](https://github.com/AnEntrypoint/spoint/compare/v0.1.330...v0.1.331) (2026-03-21)
+
+
+### Bug Fixes
+
+* move importmap before modulepreload links to satisfy browser spec ([91734d2](https://github.com/AnEntrypoint/spoint/commit/91734d2b48be2b1558b507938bd35a1023ceebcc))
+
 ### [0.1.330](https://github.com/AnEntrypoint/spoint/compare/v0.1.329...v0.1.330) (2026-03-21)
 
 
