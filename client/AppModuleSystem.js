@@ -59,6 +59,7 @@ export function createAppModuleSystem(client, uiRoot) {
   }
 
   function renderAppUI(state, engineCtx, scene, camera, renderer, fpsDisplay) {
+    const c = engineCtx.client; if (!c) return
     const uiFragments = []
     for (const entity of state.entities) {
       const appName = engineCtx.entityAppMap?.get(entity.id)
@@ -66,14 +67,14 @@ export function createAppModuleSystem(client, uiRoot) {
       const appClient = appModules.get(appName)
       if (!appClient?.render) continue
       try {
-        const renderCtx = { entity, state: entity.custom || {}, h: createElement, engine: engineCtx, players: state.players, network: { send: (msg) => client.send(0x33, { ...msg, entityId: entity.id }) }, THREE: engineCtx.THREE, scene, camera, renderer, playerId: client.playerId, clock: { elapsed: performance.now() / 1000 } }
+        const renderCtx = { entity, state: entity.custom || {}, h: createElement, engine: engineCtx, players: state.players, network: { send: (msg) => c.send(0x33, { ...msg, entityId: entity.id }) }, THREE: engineCtx.THREE, scene, camera, renderer, playerId: c.playerId, clock: { elapsed: performance.now() / 1000 } }
         const result = appClient.render(renderCtx)
         if (result?.ui) uiFragments.push({ id: entity.id, ui: result.ui })
       } catch (e) { console.error('[ui]', entity.id, e.message) }
     }
-    const interactPrompt = _buildInteractPrompt(state, client.playerId)
+    const interactPrompt = _buildInteractPrompt(state, c.playerId)
     const hudVdom = createElement('div', { id: 'hud' },
-      createElement('div', { id: 'info' }, `FPS: ${fpsDisplay} | Players: ${state.players.length} | Tick: ${client.currentTick} | RTT: ${Math.round(client.getRTT())}ms | Buf: ${client.getBufferHealth()}`),
+      createElement('div', { id: 'info' }, `FPS: ${fpsDisplay} | Players: ${state.players.length} | Tick: ${c.currentTick} | RTT: ${Math.round(c.getRTT())}ms | Buf: ${c.getBufferHealth()}`),
       ...uiFragments.map(f => createElement('div', { 'data-app': f.id }, f.ui)),
       interactPrompt
     )
