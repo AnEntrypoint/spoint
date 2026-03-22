@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.340](https://github.com/AnEntrypoint/spoint/compare/v0.1.339...v0.1.340) (2026-03-22)
+
+
+### Bug Fixes
+
+* add xstate to importmap and fix lang/spoint.js CWD path ([d211e93](https://github.com/AnEntrypoint/spoint/commit/d211e93bbbfcfbaf0a319fe7ce003cedda302770))
+
 ### [0.1.339](https://github.com/AnEntrypoint/spoint/compare/v0.1.338...v0.1.339) (2026-03-22)
 
 
