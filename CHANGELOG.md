@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.339](https://github.com/AnEntrypoint/spoint/compare/v0.1.338...v0.1.339) (2026-03-22)
+
+
+### Features
+
+* ?noWebGPU param, renderer.info debug, xstate lifecycle, exec:spoint lang plugin ([f1d1a51](https://github.com/AnEntrypoint/spoint/commit/f1d1a51031667f756d8614ca44c9c708231b3d1f))
+
 ### [0.1.338](https://github.com/AnEntrypoint/spoint/compare/v0.1.337...v0.1.338) (2026-03-22)
 
 
