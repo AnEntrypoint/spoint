@@ -94,7 +94,7 @@ export function createLoaders(renderer) {
   loadingManager.onError = (url) => console.warn('[THREE] Failed to load:', url)
   const gltfLoader = new GLTFLoader(loadingManager)
   const dracoLoader = new DRACOLoader(loadingManager)
-  dracoLoader.setDecoderPath('/draco/'); dracoLoader.setWorkerLimit(4); dracoLoader.preload()
+  dracoLoader.setDecoderPath('/draco/'); dracoLoader.setDecoderConfig({ type: 'js' }); dracoLoader.setWorkerLimit(4); dracoLoader.preload()
   gltfLoader.setDRACOLoader(dracoLoader)
   gltfLoader.setMeshoptDecoder(MeshoptDecoder)
   gltfLoader.register((parser) => new VRMLoaderPlugin(parser))
