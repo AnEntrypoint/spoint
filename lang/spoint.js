@@ -13,7 +13,7 @@ module.exports = {
       try {
         fs.writeFileSync(tmpFile, code, 'utf8');
         return execFileSync('node', [tmpFile], {
-          cwd: 'C:/dev/devbox/spawnpoint',
+          cwd: path.resolve(__dirname, '..'),
           encoding: 'utf8',
           timeout: 25000
         });
@@ -22,5 +22,5 @@ module.exports = {
       }
     }
   },
-  context: `=== spoint exec ===\nexec:spoint\n<code>\n\nRuns Node.js in spawnpoint CWD (C:/dev/devbox/spawnpoint). Import server modules via dynamic import('/abs/path'). Use for server validation, entity inspection, physics tests.`
+  context: `=== spoint exec ===\nexec:spoint\n<code>\n\nRuns Node.js in spoint project CWD. Import server modules via dynamic import('/abs/path'). Use for server validation, entity inspection, physics tests.`
 };
