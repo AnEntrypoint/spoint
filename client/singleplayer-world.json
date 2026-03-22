@@ -41,7 +41,7 @@
     "pitchRange": [-1.4, 1.4],
     "yaw": 3.14159265
   },
-  "spawnPoint": [0, 2, 0],
+  "spawnPoint": [-26, 2, -47],
   "playerModel": "./apps/tps-game/cleetus.vrm",
   "entities": [
     {

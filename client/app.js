@@ -50,7 +50,7 @@ function initAssets(url) { loadingMgr.setLabel('Downloading player model...'); p
     const vrmVersion=_readVrmVersion(b)
     const animPromise=loadAnimationLibrary(vrmVersion,null)
     if (url.endsWith('.vrm')) { try { const av=b instanceof ArrayBuffer?b:b.buffer,dv=new DataView(av),jl=dv.getUint32(12,true),j=JSON.parse(new TextDecoder().decode(new Uint8Array(av,20,jl))),exts=j.extensions||{}; if (!exts.VRM&&!exts.VRMC_vrm) { await dbDelete(url); const r=await fetch(url); if (!r.ok) throw 0; b=new Uint8Array(await r.arrayBuffer()); const e=r.headers.get('etag')||''; if (e) dbPut(url,e,b.buffer) } } catch (_) {} }
-    vrmBuffer=b; loadingMgr.setLabel('Loading animations...'); animAssets=await animPromise; assetsLoaded=true; checkAllLoaded()
+    vrmBuffer=b; loadingMgr.setLabel('Loading animations...'); animAssets=await animPromise; assetsLoaded=true; pm.playerMeshes.forEach((g,id)=>{ if(g.children.length===0){ pm.playerMeshes.delete(id); pm.createPlayerVRM(id,vrmBuffer,animAssets,worldConfig,client&&client.playerId) } }); checkAllLoaded()
   }).catch(err => { console.warn('[assets]',err?.message); assetsLoaded=true; checkAllLoaded() })
 }
 const _isSingleplayer = new URLSearchParams(location.search).has('singleplayer'); const ams = createAppModuleSystem(null, uiRoot)

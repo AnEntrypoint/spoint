@@ -48,6 +48,7 @@ export class LocalClient {
   }
 
   get playerId() { return PLAYER_ID }
+  get currentTick() { return this._tick }
 
   async connect() {
     const worldDef = this.config.worldDef || {}
@@ -107,7 +108,7 @@ export class LocalClient {
     ps.position[0] += ps.velocity[0] * dt
     ps.position[1] += ps.velocity[1] * dt
     ps.position[2] += ps.velocity[2] * dt
-    if (ps.position[1] <= 0.01) { ps.position[1] = 0.01; ps.velocity[1] = 0; ps.onGround = true } else { ps.onGround = false }
+    if (ps.position[1] <= -15.0) { ps.position[1] = -15.0; ps.velocity[1] = 0; ps.onGround = true } else { ps.onGround = false }
     ps.inputSequence = this._inputSeq
     this._tick++
     const snap = { tick: this._tick, players: [{ ...ps, position: [...ps.position], velocity: [...ps.velocity], rotation: [...ps.rotation] }], entities: this._entities, serverTime: performance.now() }

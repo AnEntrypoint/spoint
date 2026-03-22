@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { get, put } from './IndexedDBStore.js'
 
 const DB_NAME = 'spawnpoint-geometry-cache'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const STORE = 'geometry'
 
 function _serializeAttribute(attr) {
