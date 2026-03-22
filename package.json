@@ -53,7 +53,8 @@
     "msgpackr": "^1.11.8",
     "sharp": "^0.34.5",
     "webjsx": "^0.0.73",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "xstate": "^5.28.0"
   },
   "optionalDependencies": {
     "@fails-components/webtransport": "^1.5.3",

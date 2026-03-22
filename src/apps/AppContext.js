@@ -1,5 +1,6 @@
 import { CliDebugger } from '../debug/CliDebugger.js'
 import { buildPhysicsAPI } from './AppPhysics.js'
+import { createAppMachine } from '../../apps/_lib/lifecycle.js'
 
 export class AppContext {
   constructor(entity, runtime) {
@@ -145,6 +146,8 @@ export class AppContext {
     for (const id of [...ids]) this._runtime.destroyEntity(id)
     ids.clear()
   }
+
+  createMachine() { return createAppMachine(this) }
 
   raycast(origin, direction, maxDistance = 1000) {
     if (this._runtime._physics) {

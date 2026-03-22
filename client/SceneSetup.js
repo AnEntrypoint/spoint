@@ -38,7 +38,7 @@ export function createScene() {
 }
 
 export async function createRenderer(isMobile) {
-  const preferWebGPU = !isMobile && !!navigator.gpu
+  const preferWebGPU = !isMobile && !!navigator.gpu && !new URLSearchParams(location.search).has('noWebGPU')
   let renderer, isWebGPU = false
   if (preferWebGPU) {
     try {

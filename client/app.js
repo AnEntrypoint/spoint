@@ -53,7 +53,7 @@ function initAssets(url) { loadingMgr.setLabel('Downloading player model...'); p
     vrmBuffer=b; loadingMgr.setLabel('Loading animations...'); animAssets=await animPromise; assetsLoaded=true; pm.playerMeshes.forEach((g,id)=>{ if(g.children.length===0){ pm.playerMeshes.delete(id); pm.createPlayerVRM(id,vrmBuffer,animAssets,worldConfig,client&&client.playerId) } }); checkAllLoaded()
   }).catch(err => { console.warn('[assets]',err?.message); assetsLoaded=true; checkAllLoaded() })
 }
-const _isSingleplayer = new URLSearchParams(location.search).has('singleplayer'); const ams = createAppModuleSystem(null, uiRoot)
+const _isSingleplayer = new URLSearchParams(location.search).has('singleplayer'); const _showStats = new URLSearchParams(location.search).has('showStats'); const ams = createAppModuleSystem(null, uiRoot)
 const engineCtx = {
   scene, camera, renderer, THREE, createElement,
   get client() { return client }, get playerId() { return client.playerId }, get cam() { return cam },
@@ -185,7 +185,7 @@ function animate(ts) {
   tickAnimatedEntities(frameDt)
   ams.dispatchFrame(frameDt,engineCtx)
   if (engineCtx.facial) engineCtx.facial.update(frameDt)
-  uiTimer+=frameDt; if (latestState&&uiTimer>=0.25) { uiTimer=0; ams.renderAppUI(latestState,engineCtx,scene,camera,renderer,fpsDisplay) }
+  uiTimer+=frameDt; if (latestState&&uiTimer>=0.25) { uiTimer=0; const _fpsStr=_showStats?`${fpsDisplay} | Draw: ${renderer.info.render.calls}`:fpsDisplay; ams.renderAppUI(latestState,engineCtx,scene,camera,renderer,_fpsStr) }
   const local=client.getLocalState()||pm.playerStates.get(lid)
   if (!xrSystem.isPresenting||cam.getEditMode()) cam.update(local,pm.playerMeshes.get(lid),frameDt,latestInput)
   xrSystem.syncVRPosition(local); xrSystem.update(frameDt,local,ams.appModules,now)
@@ -196,4 +196,4 @@ function animate(ts) {
   const frameMs=performance.now()-now; _profileSum+=frameMs; if (++_profileFrames>=120) { console.log(`[frame-profile] fps:${fpsDisplay} avg:${(_profileSum/_profileFrames).toFixed(2)}ms players:${pm.playerMeshes.size} entities:${el.entityMeshes.size}`); _profileFrames=0; _profileSum=0 }
 }
 renderer.setAnimationLoop(animate); client.connect().then(()=>{ console.log('Connected'); startInputLoop(); xrSystem.initAR() }).catch(err=>console.error('Connection failed:',err))
-window.debug={ scene, camera, renderer, isWebGPU, client, playerMeshes: pm.playerMeshes, entityMeshes: el.entityMeshes, appModules: ams.appModules, playerVrms: pm.playerVrms, playerAnimators: pm.playerAnimators, loadingMgr, loadingScreen, mobileControls, xrControls: xrSystem.xrControls, controllerModels: xrSystem.controllerModels, controllerGrips: xrSystem.controllerGrips, handModels: xrSystem.handModels, hullMeshes: el._hullMeshes, get showHulls() { return !!window.__showHulls__ }, set showHulls(v) { window.__showHulls__=v; el._hullMeshes.forEach(s=>s.forEach(sg=>{sg.visible=v})) }, vrSettings: ()=>xrSystem.vrSettings, deviceInfo: ()=>deviceInfo, placeARAnchor: ()=>xrSystem.xrControls?.placeAnchor(), setAA: (v) => { console.warn('[renderer] AA change requires page reload. antialias='+v); renderer.domElement.setAttribute('data-aa', v) } }
+window.debug={ scene, camera, renderer, isWebGPU, client, playerMeshes: pm.playerMeshes, entityMeshes: el.entityMeshes, appModules: ams.appModules, playerVrms: pm.playerVrms, playerAnimators: pm.playerAnimators, loadingMgr, loadingScreen, mobileControls, xrControls: xrSystem.xrControls, controllerModels: xrSystem.controllerModels, controllerGrips: xrSystem.controllerGrips, handModels: xrSystem.handModels, hullMeshes: el._hullMeshes, get showHulls() { return !!window.__showHulls__ }, set showHulls(v) { window.__showHulls__=v; el._hullMeshes.forEach(s=>s.forEach(sg=>{sg.visible=v})) }, vrSettings: ()=>xrSystem.vrSettings, deviceInfo: ()=>deviceInfo, placeARAnchor: ()=>xrSystem.xrControls?.placeAnchor(), setAA: (v) => { console.warn('[renderer] AA change requires page reload. antialias='+v); renderer.domElement.setAttribute('data-aa', v) }, rendererInfo: () => renderer.info }
