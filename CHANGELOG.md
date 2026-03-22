@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.337](https://github.com/AnEntrypoint/spoint/compare/v0.1.336...v0.1.337) (2026-03-22)
+
+
+### Bug Fixes
+
+* **singleplayer:** face map interior on spawn and fix LOD transform ([0ecfcfe](https://github.com/AnEntrypoint/spoint/commit/0ecfcfedb8645de9f318b34f0f7b42592948043c))
+
 ### [0.1.336](https://github.com/AnEntrypoint/spoint/compare/v0.1.335...v0.1.336) (2026-03-22)
 
 
