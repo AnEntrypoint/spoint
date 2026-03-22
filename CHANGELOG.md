@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.336](https://github.com/AnEntrypoint/spoint/compare/v0.1.335...v0.1.336) (2026-03-22)
+
+
+### Bug Fixes
+
+* **EntityLoader:** reset model local transform after wrapping in LOD ([243e1e1](https://github.com/AnEntrypoint/spoint/commit/243e1e18f7392580b76f23773cfac755fcc2977b))
+
 ### [0.1.335](https://github.com/AnEntrypoint/spoint/compare/v0.1.334...v0.1.335) (2026-03-21)
 
 
