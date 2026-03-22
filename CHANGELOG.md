@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.338](https://github.com/AnEntrypoint/spoint/compare/v0.1.337...v0.1.338) (2026-03-22)
+
+
+### Bug Fixes
+
+* **singleplayer:** VRM race condition, floor level, texture cache, tick HUD ([969451c](https://github.com/AnEntrypoint/spoint/commit/969451c6909ce59561c4d05c45070c6689c09137))
+
 ### [0.1.337](https://github.com/AnEntrypoint/spoint/compare/v0.1.336...v0.1.337) (2026-03-22)
 
 
