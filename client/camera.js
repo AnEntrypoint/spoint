@@ -139,6 +139,7 @@ export function createCameraController(camera, scene) {
     if (cfg.mouseSensitivity != null) mouseSensitivity = cfg.mouseSensitivity
     if (cfg.pitchRange) { pitchMin = cfg.pitchRange[0]; pitchMax = cfg.pitchRange[1] }
     if (cfg.fov) { camera.fov = cfg.fov; camera.updateProjectionMatrix() }
+    if (cfg.yaw != null) yaw = cfg.yaw
   }
 
   function getAimDirection(playerPos) {

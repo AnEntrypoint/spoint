@@ -38,7 +38,8 @@
     "zoomStages": [0, 1.5, 3, 5, 8],
     "defaultZoomIndex": 2,
     "mouseSensitivity": 0.002,
-    "pitchRange": [-1.4, 1.4]
+    "pitchRange": [-1.4, 1.4],
+    "yaw": 3.14159265
   },
   "spawnPoint": [0, 2, 0],
   "playerModel": "./apps/tps-game/cleetus.vrm",
