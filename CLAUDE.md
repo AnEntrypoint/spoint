@@ -323,6 +323,9 @@ Entity-entity: O(n²) brute-force for <100 entities, grid-based (cell=4 units, 9
 - **All imports vendored locally** (`index.html` importmap): three@0.183, three/addons/, @pixiv/three-vrm, webjsx, msgpackr all served from `/node_modules/` at localhost. Eliminates 500ms–1700ms CDN round-trips per module. `<link rel="modulepreload">` for 9 critical modules fires parallel fetches before `app.js` parses. Combined: cold load 34–36s → 22s (36% faster). `@pixiv/three-vrm` added as a real `package.json` dependency (was CDN-only).
 - **`firstSnapshotEntityPending` only tracks dynamic entities**: static entities (map, environment props) no longer block the loading screen gate. `bodyType==='dynamic'` filter means only moving/interactive entities are waited for. A 5-second timeout (`_entityLoadTimeout`) clears the set as a safety net so no entity load failure can block the game forever.
 - **`fitShadowFrustum` reuses Box3 instances**: `_fitBox3` and `_fitMeshBox` are module-level singletons. Replaces `box.expandByObject(o)` (which does internal sub-traverse per mesh) with direct `geometry.computeBoundingBox()` + `Box3.copy().applyMatrix4()` — O(N) single pass with zero allocation.
+- **AnimationLibrary clip extraction memory**: `_gltfPromise = null` after `_normalizeClips()` completes — releases the full GLTF scene graph (geometry, bones, scene nodes) once clips are extracted, freeing ~5–10MB.
+- **EntityLoader `_animatedEntities` tracks `finalMesh`**: push `finalMesh` (the THREE.LOD wrapper when `_generateLODEager` runs), not `model`. `removeEntity` looks up via `entityMeshes` which stores `finalMesh` — `indexOf` must match or the animator leaks.
+- **VRM recreate orphan prevention**: `scene.remove(g)` on the existing Group before `playerMeshes.delete` and `recreatePlayerVRM` — prevents empty Group nodes accumulating in the scene when VRM assets reload.
 
 ### Client Loading Pipeline (2026-03-19)
 
