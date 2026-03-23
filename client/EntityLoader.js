@@ -15,7 +15,7 @@ const SKIP_MATS_SET = new Set(['aaatrigger', '{invisible', 'playerclip', 'clip',
 const PLACEHOLDER_DIMS = { door: [1.5, 2.5, 0.1], platform: [4, 0.5, 4], trigger: [2, 3, 2], hazard: [2, 2, 2], lootBox: [1, 1.5, 1], pillar: [1, 4, 1] }
 const MESH_BUILDERS = { box: (c) => new THREE.BoxGeometry(c.sx||1, c.sy||1, c.sz||1), cylinder: (c) => new THREE.CylinderGeometry(c.r||0.4, c.r||0.4, c.h||0.1, c.seg||16), sphere: (c) => new THREE.SphereGeometry(c.r||0.5, c.seg||16, c.seg||16) }
 const LOD_CONFIGS = { vrm: { far: 40, skipBeyond: 80, skipBeyondSq: 6400 }, box: { far: 45, skipBeyond: 90, skipBeyondSq: 8100 }, sphere: { far: 50, skipBeyond: 100, skipBeyondSq: 10000 }, cylinder: { far: 50, skipBeyond: 100, skipBeyondSq: 10000 }, default: { far: 60, skipBeyond: 120, skipBeyondSq: 14400 } }
-const MAX_CONCURRENT_LOADS_INITIAL = 3, MAX_CONCURRENT_LOADS_RUNTIME = 2, MAX_GLTF_CACHE = 32
+const MAX_CONCURRENT_LOADS_INITIAL = 2, MAX_CONCURRENT_LOADS_RUNTIME = 1, MAX_GLTF_CACHE = 8
 const _ric = typeof requestIdleCallback !== 'undefined' ? requestIdleCallback : (fn) => setTimeout(fn, 16)
 
 export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB, isWebGPU) {

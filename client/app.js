@@ -25,7 +25,7 @@ const scene = createScene(), camera = new THREE.PerspectiveCamera(70, window.inn
 scene.add(camera)
 const { renderer, isWebGPU } = await createRenderer(isMobileDevice)
 const { ambient, studio, sun } = setupLights(scene), { gltfLoader, ktx2Loader } = createLoaders(renderer)
-wrapKtx2Cache(ktx2Loader)
+// wrapKtx2Cache(ktx2Loader) // disabled for memory debug
 const loadingMgr = new LoadingManager(), loadingScreen = createLoadingScreen(loadingMgr)
 loadingMgr.setLabel('Connecting...')
 const deviceInfo = detectDevice(); let mobileControls = null, inputConfig = { pointerLock: true }

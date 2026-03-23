@@ -1,16 +1,13 @@
-const _patchCache = new Map()
-
 export function patchGLB(uint8, url) {
-  if (url && _patchCache.has(url)) return _patchCache.get(url)
   let result
   try {
     const ab = uint8.buffer, v = new DataView(ab)
-    if (v.getUint32(0, true) !== 0x46546C67) { result = ab; if (url) _patchCache.set(url, result); return result }
+    if (v.getUint32(0, true) !== 0x46546C67) return ab
     const jsonLen = v.getUint32(12, true)
     const json = JSON.parse(new TextDecoder().decode(new Uint8Array(ab, 20, jsonLen)))
-    if (!json.textures) { result = ab; if (url) _patchCache.set(url, result); return result }
+    if (!json.textures) return ab
     const needsPatch = json.textures.some(t => t.source === undefined && (!t.extensions || !Object.keys(t.extensions).some(k => t.extensions[k]?.source !== undefined)))
-    if (!needsPatch) { result = ab; if (url) _patchCache.set(url, result); return result }
+    if (!needsPatch) return ab
     json.textures = json.textures.map(t => {
       if (t.source === undefined && (!t.extensions || !Object.keys(t.extensions).some(k => t.extensions[k]?.source !== undefined))) return { ...t, source: 0 }
       return t
@@ -24,8 +21,6 @@ export function patchGLB(uint8, url) {
     ou.set(patched, 20)
     for (let i = 0; i < pad; i++) ou[20 + patched.length + i] = 0x20
     ou.set(new Uint8Array(ab, 20 + jsonLen), 20 + patched.length + pad)
-    result = out
-  } catch (_) { result = uint8.buffer }
-  if (url) _patchCache.set(url, result)
-  return result
+    return out
+  } catch (_) { return uint8.buffer }
 }

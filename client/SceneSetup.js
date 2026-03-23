@@ -89,7 +89,7 @@ export function setupLights(scene) {
 }
 
 export function createLoaders(renderer) {
-  THREE.Cache.enabled = true
+  THREE.Cache.enabled = false
   const loadingManager = new THREE.LoadingManager()
   loadingManager.onError = (url) => console.warn('[THREE] Failed to load:', url)
   const gltfLoader = new GLTFLoader(loadingManager)
@@ -159,9 +159,6 @@ export async function warmupShaders(renderer, scene, camera, entityMeshes, playe
   })
   if (!isWebGPU) {
     try { await renderer.compileAsync(scene, camera) } catch (_) { }
-    renderer.render(scene, camera)
-    await new Promise(r => requestAnimationFrame(r))
-    renderer.render(scene, camera)
   }
   for (const obj of culled) obj.frustumCulled = true
   for (const obj of hidden) obj.visible = false
