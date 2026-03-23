@@ -52,6 +52,8 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 
 **app.js wiring**: `await createRenderer(isMobileDevice)` at module top level (ES module top-level await). The returned `renderer` is then passed to `createLoaders`, `xrSystem`, etc. as before.
 
+**WebGPU warmup**: `warmupShaders` in `client/SceneSetup.js` skips `compileAsync` AND the two `renderer.render()` pre-passes entirely when `isWebGPU=true`. WebGPU uses lazy pipeline compilation — triggering it for all scene variants simultaneously (either via `compileAsync` or via render) causes Chrome renderer OOM crash on large scenes. WebGL still performs both pre-passes for shader warmup.
+
 ## AppRuntime Mixin Pattern
 
 `AppRuntime.js` applies two mixins at the bottom of the constructor — order matters:

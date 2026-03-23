@@ -144,7 +144,7 @@ export function applySceneConfig(s, scene, ambient, sun, studio, camera) {
   if (s.fov) { camera.fov = s.fov; camera.updateProjectionMatrix() }
 }
 
-export async function warmupShaders(renderer, scene, camera, entityMeshes, playerMeshes, loadingMgr) {
+export async function warmupShaders(renderer, scene, camera, entityMeshes, playerMeshes, loadingMgr, isWebGPU) {
   const allMeshes = [...entityMeshes.values(), ...playerMeshes.values()]
   const total = allMeshes.length
   const ids = [...entityMeshes.keys()].sort().join(',')
@@ -157,10 +157,12 @@ export async function warmupShaders(renderer, scene, camera, entityMeshes, playe
     if (obj.frustumCulled) { culled.push(obj); obj.frustumCulled = false }
     if (!obj.visible) { hidden.push(obj); obj.visible = true }
   })
-  try { await renderer.compileAsync(scene, camera) } catch (_) { }
-  renderer.render(scene, camera)
-  await new Promise(r => requestAnimationFrame(r))
-  renderer.render(scene, camera)
+  if (!isWebGPU) {
+    try { await renderer.compileAsync(scene, camera) } catch (_) { }
+    renderer.render(scene, camera)
+    await new Promise(r => requestAnimationFrame(r))
+    renderer.render(scene, camera)
+  }
   for (const obj of culled) obj.frustumCulled = true
   for (const obj of hidden) obj.visible = false
   loadingMgr.reportProcessing(total, total)
