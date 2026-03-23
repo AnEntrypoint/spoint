@@ -2,12 +2,13 @@ import * as THREE from 'three'
 import { MSG } from '/src/protocol/MessageTypes.js'
 
 export let editMode = false
-let _onEditModeChange = null
+let _onEditModeChange = null, _snapEnabled = false, _snapSize = 0.25
+export function setSnap(enabled, size) { _snapEnabled = enabled; if (size !== undefined) _snapSize = size }
 
 export function createEditor({ scene, camera, renderer, client, entityMeshes, playerStates }) {
   let selectedEntityId = null, gizmoGroup = null
-  let dragAxis = null, dragStart = null, dragEntityStart = null
-  let _onChange = null, _gizmoMode = 'translate'
+  let dragAxis = null, dragStart = null, dragEntityStart = null, _dragBeforeState = null
+  let _onChange = null, _gizmoMode = 'translate', _onTransformCommit = null
   const raycaster = new THREE.Raycaster()
   const _plane = new THREE.Plane()
 
@@ -88,6 +89,7 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
         dragAxis = hits[0].object.userData.gizmoAxis
         const mesh = entityMeshes.get(selectedEntityId)
         dragEntityStart = _gizmoMode === 'scale' ? (mesh ? mesh.scale.clone() : new THREE.Vector3(1,1,1)) : (mesh ? mesh.position.clone() : new THREE.Vector3())
+        _dragBeforeState = _gizmoMode === 'scale' ? { scale: mesh.scale.toArray() } : _gizmoMode === 'rotate' ? { rotation: mesh.quaternion.toArray() } : { position: mesh.position.toArray() }
         const axVec = dragAxis==='x' ? new THREE.Vector3(1,0,0) : dragAxis==='y' ? new THREE.Vector3(0,1,0) : new THREE.Vector3(0,0,1)
         _plane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()).cross(axVec).normalize(), gizmoGroup.position)
         const pt = new THREE.Vector3(); raycaster.ray.intersectPlane(_plane, pt); dragStart = pt
@@ -127,6 +129,7 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
     } else {
       const newPos = dragEntityStart.clone()
       if (dragAxis==='x') newPos.x += delta.x; else if (dragAxis==='y') newPos.y += delta.y; else newPos.z += delta.z
+      if (_snapEnabled) { newPos.x=Math.round(newPos.x/_snapSize)*_snapSize; newPos.y=Math.round(newPos.y/_snapSize)*_snapSize; newPos.z=Math.round(newPos.z/_snapSize)*_snapSize }
       gizmoGroup.position.copy(newPos); mesh.position.copy(newPos)
     }
   })
@@ -138,8 +141,12 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
       if (_gizmoMode === 'scale') sendEditorUpdate({ scale: mesh.scale.toArray() })
       else if (_gizmoMode === 'rotate') sendEditorUpdate({ rotation: mesh.quaternion.toArray() })
       else sendEditorUpdate({ position: mesh.position.toArray() })
+      if (_onTransformCommit && _dragBeforeState) {
+        const after = _gizmoMode==='scale' ? { scale: mesh.scale.toArray() } : _gizmoMode==='rotate' ? { rotation: mesh.quaternion.toArray() } : { position: mesh.position.toArray() }
+        _onTransformCommit({ entityId: selectedEntityId, before: _dragBeforeState, after, kind: _gizmoMode })
+      }
     }
-    dragAxis = null; dragStart = null; dragEntityStart = null
+    dragAxis = null; dragStart = null; dragEntityStart = null; _dragBeforeState = null
   })
 
   document.addEventListener('dragover', e => { e.preventDefault(); renderer.domElement.style.outline = '3px solid #4af' })
@@ -183,6 +190,7 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
     },
     onSelectionChange(fn) { _onChange = fn },
     onEditModeChange(fn) { _onEditModeChange = fn },
+    onTransformCommit(cb) { _onTransformCommit = cb },
     sendEditorUpdate,
     eulerDegToQuat,
     selectEntity,
