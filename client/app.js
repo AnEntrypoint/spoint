@@ -12,7 +12,7 @@ import { preloadAnimationLibrary, loadAnimationLibrary } from './AnimationLibrar
 import { initFacialSystem } from './facial-animation.js'
 import { dbDelete, dbPut } from './ModelCache.js'
 import { createEditor } from './editor.js'
-import { createEditPanel } from './edit-panel.js'
+import { createEditPanel } from './EditorShell.js'
 import { createScene, createRenderer, setupLights, createLoaders, fitShadowFrustum, applySceneConfig, warmupShaders, wrapKtx2Cache } from './SceneSetup.js'
 import { createPlayerManager } from './PlayerManager.js'
 import { createEntityLoader } from './EntityLoader.js'
