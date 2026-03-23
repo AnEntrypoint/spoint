@@ -361,7 +361,7 @@ After 3 consecutive reload failures, module stops auto-reloading until server re
 
 ## Editor DX
 
-**Editor shell** (`client/EditorShell.js`): Full-screen fixed overlay (replaces old 320px side panel). Exports `createEditPanel` with identical API — app.js only needed a one-line import change. Layout: left sidebar 250px (scene hierarchy), right sidebar 300px (Inspector/Apps/HookFlow tabs), top bar 40px (creation toolbar), bottom bar 24px (status). Center area uses `pointer-events:none` so THREE.js canvas events pass through.
+**Editor shell** (`client/EditorShell.js`): Full-screen fixed overlay. Exports `createEditPanel` with identical API — app.js only needed a one-line import change. Layout: left sidebar 250px (scene hierarchy), right sidebar 300px (Inspector/Apps/HookFlow/Events tabs), top bar 40px (creation toolbar + snap controls), bottom bar 24px (status + key hints). Center area uses `pointer-events:none` so THREE.js canvas events pass through. All panels use glassmorphism: `rgba(5,12,10,0.82) + backdrop-filter:blur(18px)` — `GLASS` constant at top of file.
 
 **Scene hierarchy** (`client/SceneHierarchy.js`): webjsx-based entity tree. Filters by `id`/`_appName`. Closure state. Emerald selection: `rgba(16,185,129,0.14)` bg, `#a7f3d0` text. `updateEntities(ents)` re-renders via `applyDiff`.
 
@@ -371,137 +371,12 @@ After 3 consecutive reload failures, module stops auto-reloading until server re
 
 **HookFlow viewer** (`client/HookFlowViewer.js`): SVG-based entity-app node graph. Pan via background drag, zoom via wheel. Nodes rendered as raw SVG string via `dangerouslySetInnerHTML` on the `<g>` transform wrapper inside the SVG element. `applyDiff` manages the outer SVG container only.
 
-**Gizmo modes** (`client/editor.js`): `[G]` translate, `[R]` rotate, `[S]` scale. `[F]` focus, `[Del]` destroy. Mode in `_gizmoMode`. Mouseup sends `EDITOR_UPDATE`.
+**Event log panel** (`client/EditorEventLog.js`): Live server event table (tick/type/entity/app columns). Polls `MSG.EVENT_LOG_QUERY (0x90)` every 2s when Events tab is active; stops on tab switch or panel hide. `EditorHandlers.js` responds with last 60 events from `ctx.eventLog`. Empty in singleplayer (server not present). Auto-scrolls unless user scrolled up.
+
+**Gizmo modes** (`client/editor.js`): `[G]` translate, `[R]` rotate, `[S]` scale. `[F]` focus, `[Del]` destroy. Mode in `_gizmoMode`. Mouseup sends `EDITOR_UPDATE`. `setSnap(enabled, size)` (module-level export) quantizes translate positions when active — `_snapEnabled`/`_snapSize` are module-level so EditorShell can call `setSnap` directly via `onSnapChange` callback. `onTransformCommit(cb)` fires `{entityId, before, after, kind}` on every gizmo mouseup — used by app.js undo/redo.
+
+**Snap grid** (top bar): SNAP toggle pill + 6 size presets (0.1/0.25/0.5/1.0/2.0/5.0). Snap state (`_snapOn`/`_snapSz`) lives inside `_buildTopBar` closure — survives tab switches. `onSnapChange` callback prop wires EditorShell → app.js → `editor.setSnap()`.
+
+**Undo/redo** (`app.js`): `_undoStack`/`_redoStack` capped at 20. `Ctrl+Z` sends reverse `EDITOR_UPDATE` with `before` state; `Ctrl+Y`/`Ctrl+Shift+Z` resends `after`. Stack cleared when new transform committed. Before-state captured in `_dragBeforeState` at mousedown; after-state from mesh at mouseup.
 
 **Monaco offline** (`client/EditPanelEditor.js`): Loaded from `/node_modules/monaco-editor/min/vs/loader.js`. Requires `monaco-editor` devDependency. Falls back to `<textarea>` on failure.
-
-## Serverless Single-Player Mode
-
-`client/LocalClient.js` — drop-in replacement for `PhysicsNetworkClient`. Activated via `?singleplayer` URL param in `client/app.js`. `LocalClient.connect()` fetches `/singleplayer-world.json`, fires `onWorldDef`, runs a 64 TPS setInterval physics loop (Quake movement + gravity + flat floor at y=0). No WebSocket, no server process.
-
-**Integration in `app.js`**: `const _isSingleplayer = new URLSearchParams(location.search).has('singleplayer')`. `client` is `LocalClient` or `PhysicsNetworkClient` based on this flag. Editor scene graph and app list requests are gated on `!_isSingleplayer`.
-
-**World config**: `client/singleplayer-world.json` — static JSON with movement, scene, camera, spawnPoint, playerModel, and a minimal entity list (just the map GLB).
-
-## GitHub Pages Demo
-
-`.github/workflows/gh-pages.yml` — deploys a static single-player demo to `gh-pages` branch on every push to `main`. Copies `client/`, `src/`, `apps/maps/aim_sillos.glb`, `apps/tps-game/cleetus.vrm`, and required `node_modules/` packages to `dist/`. Patches all absolute `/path` references to `/spawnpoint/path` for gh-pages subpath hosting. Injects a redirect script that auto-adds `?singleplayer` to the URL. Uses `peaceiris/actions-gh-pages@v4` with `force_orphan: true`.
-
-Demo URL: `https://anentrypoint.github.io/spawnpoint/`
-
-## Editor Message Types (0x80-0x8F)
-
-Inspector excludes the 0x80-0x8F range to avoid intercepting editor traffic.
-
-| Hex  | Name             | Direction | Purpose |
-|------|------------------|-----------|---------|
-| 0x80 | EDITOR_UPDATE    | C->S      | Move/rotate/scale selected entity |
-| 0x81 | EDITOR_SELECT    | S->C      | Tell client which entity to select (+ editorProps) |
-| 0x82 | PLACE_MODEL      | C->S      | Upload GLB and place as `placed-model` entity |
-| 0x83 | PLACE_APP        | C->S      | Place a named app at a world position |
-| 0x84 | LIST_APPS        | C->S      | Request app list |
-| 0x85 | APP_LIST         | S->C      | `{ apps: [{name, description, hasEditorProps}] }` |
-| 0x86 | GET_SOURCE       | C->S      | Request source of `apps/<name>/<file>` |
-| 0x87 | SOURCE           | S->C      | `{ appName, file, source }` |
-| 0x88 | SAVE_SOURCE      | C->S      | Save source to disk (hot-reload fires automatically) |
-| 0x89 | SCENE_GRAPH      | C<->S     | C->S: request refresh. S->C: entity tree |
-| 0x8A | LIST_APP_FILES   | C->S      | Request file list for an app |
-| 0x8B | APP_FILES        | S->C      | `{ appName, files }` |
-| 0x8C | DESTROY_ENTITY   | C->S+S->C | Delete entity; server destroys+persists+broadcasts |
-| 0x8D | CREATE_APP       | C->S      | Scaffold new `apps/<name>/index.js` from template |
-| 0x8E | GET_EDITOR_PROPS | C->S      | Request editorProps for a specific entity |
-| 0x8F | EDITOR_PROPS     | S->C      | `{ entityId, editorProps }` |
-
-`editorProps` schema:
-```js
-editorProps: [
-  { key: 'color', label: 'Color', type: 'color',  default: '#ffffff' },
-  { key: 'size',  label: 'Size',  type: 'number', default: 1 },
-  { key: 'mode',  label: 'Mode',  type: 'select', options: ['a','b'], default: 'a' },
-  { key: 'label', label: 'Label', type: 'text',   default: '' },
-]
-```
-Changes fire `onEditorUpdate` — `position/rotation/scale/custom` already applied by `ServerHandlers` before the hook fires.
-
----
-
-## VRM / Animation
-
-- **VRM model scale pipeline**: `modelScale` (default 1.323) on `vrm.scene.scale`. `feetOffset` ratio (0.212) × modelScale = negative Y offset. `userData.feetOffset = 1.3` hardcoded for client-side offset. Mismatching any of these misaligns model with physics capsule.
-- **Animation library**: `preloadAnimationLibrary(loader)` — fire-and-forget in `initAssets`, requires the main gltfLoader (server Draco-compresses anim-lib.glb). `loadAnimationLibrary(vrmVersion, vrmHumanoid)` awaits preload, returns `{ normalizedClips, rawClips }`.
-- **Locomotion hysteresis**: idle-to-walk: 0.8, walk-to-idle: 0.3. Locomotion cooldown: 0.3s. Air grace period: 0.15s before jump detection.
-- **Track filtering**: `filterValidClipTracks()` removes bone references missing from target VRM before `mixer.clipAction()`. Without it, THREE.js PropertyBinding throws errors for every invalid track.
-
-## AFAN Webcam Live Streaming
-
-Opt-in face tracking streaming ARKit blendshape weights from webcam to nearby players' VRM morph targets.
-
-- **Format**: `Uint8Array(52)` — one byte per ARKit blendshape (see `ARKIT_NAMES` in `client/webcam-afan.js`). Each byte = weight x 255. ~1.5 KB/s per sender at 30Hz.
-- **Lazy load**: `client/webcam-afan.js` NOT imported by `client/app.js` — loaded only via `window.enableWebcamAFAN()`.
-- **Face tracking**: MediaPipe FaceMesh (`@mediapipe/face_mesh@0.4`, CDN) loaded lazily in `WebcamAFANTracker.init()`. Falls back to demo data if MediaPipe fails.
-- **Network path**: client -> `afan_frame` -> `webcam-avatar` app -> nearby players (30-unit radius) -> `onAppEvent` -> `applyAfanFrame()` in `client/PlayerManager.js` -> `FacialAnimationPlayer.applyFrame()`.
-- **Server delivery**: `ctx.players.send()` per-player, not broadcast. Message: `{ playerId, data: number[] }`.
-
-## LagCompensator
-
-Fixed 128-slot ring buffer. Entries pruned by timestamp (500ms window). Pre-allocated entries avoid GC.
-
-`ctx.lagCompensator.getPlayerStateAtTime(playerId, millisAgo)` — exposed on `AppContext.js`. Hit detection pattern: client sends `clientTime: Date.now()` in fire message. Server: `latencyMs = Math.min(600, Date.now() - msg.clientTime)`, then rewinds target position. 600ms cap prevents abuse.
-
-## Three.js Settings
-
-- `THREE.Cache.enabled = true`
-- `matrixAutoUpdate = false` on all static environment meshes
-- `material.shadowSide = THREE.DoubleSide` on environment meshes — prevents bright corner-line seam artifacts. Use `DoubleSide`, NOT `BackSide`.
-- `PCFSoftShadowMap` — `VSMShadowMap` causes blurred cutout artifacts.
-- BVH via `three-mesh-bvh` vendored at `client/vendor/three-mesh-bvh.module.js` (NOT npm/CDN). Camera raycast at 20Hz; cached clip distance between raycasts. Without BVH: ~65% of frame CPU in FPS mode.
-
-## Loading Screen Gate
-
-`checkAllLoaded()` gates on all four simultaneously: `assetsLoaded`, `environmentLoaded`, `firstSnapshotReceived`, `firstSnapshotEntityPending.size === 0`. Then `warmupShaders()` runs async.
-
-## Client Loading Pipeline Optimizations (2026-03-19)
-
-**warmupShaders** (`client/SceneSetup.js`): replaced per-mesh loop (N × compileAsync + render + RAF) with a single pass — disable `frustumCulled` on everything, one `compileAsync(scene, camera)`, two renders, restore. Session key bumped to `shader-warmup-v2` to invalidate old warm-cache entries. Improvement: O(N) GPU submits → O(1).
-
-**ModelCache stale-while-revalidate** (`client/ModelCache.js`): when a cached entry exists, return the cached buffer immediately and fire the HEAD revalidation in the background. Eliminates the HEAD RTT from the critical path on all warm-cache loads. Cache misses go straight to GET with no HEAD round-trip.
-
-**IndexedDBStore in-flight dedup** (`client/IndexedDBStore.js`): `openStore` now caches the Promise itself (not the resolved IDBDatabase). Concurrent calls for the same store key share one `indexedDB.open()` call. On rejection, the cached promise is deleted so retries work.
-
-**AnimationClipCache ArrayBuffer serialization** (`client/AnimationClipCache.js`): `serializeClip` now stores `track.times.buffer.slice(...)` and `track.values.buffer.slice(...)` (ArrayBuffer) instead of `Array.from(Float32Array)`. IndexedDB structured clone handles ArrayBuffer natively. Measured: 27x faster per track (44.9μs → 1.7μs for 1000-element Float32Array). DB_VERSION bumped to 3. `deserializeClip` reconstructs `Float32Array` from stored ArrayBuffer.
-
-**EntityLoader concurrency** (`client/EntityLoader.js`): `MAX_CONCURRENT_LOADS` split into `MAX_CONCURRENT_LOADS_INITIAL = 4` (during loading screen) and `MAX_CONCURRENT_LOADS_RUNTIME = 3` (after). Initial load now saturates all 4 Draco workers instead of leaving one idle.
-
-## Client Jitter Gotchas
-
-- **Spawn point Y**: keep low (Y~5) — spawning high causes fall jitter on join.
-- **Velocity extrapolation**: `SmoothInterpolation.getDisplayState()` adds `position += velocity * dt`. Without this, movement appears jittery at 128 TPS.
-- **Rotation interpolation**: quaternion SLERP, not linear lerp.
-- **RTT measurement**: uses snapshot `serverTime` field, not heartbeat ping (heartbeat gives ~500ms on localhost; snapshot gives <20ms).
-
-## GitHub Pages Demo
-
-Live at: https://anentrypoint.github.io/spoint/
-
-Deployed by `.github/workflows/gh-pages.yml` on every push to `main`. Copies `client/`, `src/client/`, `src/protocol/`, `src/shared/`, select `apps/` assets, and npm packages into `dist/`. Patches all absolute `/` paths to `/spoint/` via `sed`. Injects `?singleplayer` redirect into `index.html`. Deploys via `peaceiris/actions-gh-pages@v4` to the `gh-pages` branch (legacy Pages mode).
-
-**Base path**: `BASE="/spoint"` — must match repo name exactly. Repo renamed from `spawnpoint` → `spoint`.
-
-## Singleplayer Mode
-
-`?singleplayer` URL param switches `client/app.js` from `PhysicsNetworkClient` to `LocalClient`. `LocalClient` is a drop-in replacement — same callback interface, runs 64 TPS `setInterval` physics loop (Quake movement, gravity, flat floor at y≤0.01). World definition loaded from `client/singleplayer-world.json`. Editor scene/apps panel is hidden in singleplayer mode.
-
-## Editor DX
-
-`client/editor.js` — `createEditor()` gizmo system:
-- **G** key → translate gizmo (`buildTranslateGizmo` — cylinder shafts + cone caps)
-- **R** key → rotate gizmo (`buildRotateGizmo` — torus rings)
-- **S** key → scale gizmo (`buildScaleGizmo` — cylinder shafts + box caps)
-- **F** key → focus camera on selected entity
-- **Del** key → send `MSG.DESTROY_ENTITY`
-- Drag-and-drop `.glb`/`.gltf` → uploads to `/upload-model`, places via `MSG.PLACE_MODEL`
-- Mouse drag on gizmo → `sendEditorUpdate({ position | rotation | scale })` on mouseup
-
-`client/edit-panel.js` — Scene tab has entity filter input (`_filterTree` recursive search). Keyboard hint bar shows `[P] Toggle  [G/R/S] Gizmo  [F] Focus  [Del] Delete`.
-
-`client/EditPanelEditor.js` — Monaco editor loads from `/node_modules/monaco-editor/min/vs/loader.js` (local, not CDN). Requires `monaco-editor` devDependency.
