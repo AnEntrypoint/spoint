@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.347](https://github.com/AnEntrypoint/spoint/compare/v0.1.346...v0.1.347) (2026-03-23)
+
+
+### Bug Fixes
+
+* reduce memory pressure during loading ([ce0fec7](https://github.com/AnEntrypoint/spoint/commit/ce0fec7ef6d8f8a5d48afdcaaa6e27001a1244d9))
+
 ### [0.1.346](https://github.com/AnEntrypoint/spoint/compare/v0.1.345...v0.1.346) (2026-03-23)
 
 
