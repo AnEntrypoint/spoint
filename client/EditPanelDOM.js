@@ -39,6 +39,7 @@ export function node(n, depth, getSelId, onEntitySelect, rerender) {
 }
 
 export function propField(f, getEntity, getOnChange) {
+  if (!f) return document.createTextNode('')
   const entity = getEntity(), onChange = getOnChange()
   const key = f.key, lbl = f.label || f.key, val = entity?.custom?.[key] ?? f.default ?? (f.type === 'number' ? 0 : '')
   const emit = v => { if (onChange) onChange('custom.' + key, v) }

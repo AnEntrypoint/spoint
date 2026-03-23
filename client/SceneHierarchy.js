@@ -13,8 +13,8 @@ export function createSceneHierarchy(container, { onSelect, onFocus, onDelete } 
   let _ents = [], _q = '', _sel = null
 
   function render() {
-    const vis = _q ? _ents.filter(e => (e.id||'').toLowerCase().includes(_q) || (e._appName||'').toLowerCase().includes(_q)) : _ents
-    applyDiff(container, h('div', { style: S.root },
+    const vis = (_q ? _ents.filter(e => (e.id||'').toLowerCase().includes(_q) || (e._appName||'').toLowerCase().includes(_q)) : _ents).filter(Boolean)
+    try { applyDiff(container, h('div', { style: S.root },
       h('div', { style: S.hdr }, 'Scene'),
       h('input', { style: S.srch, type: 'text', placeholder: 'Search scene objects', value: _q,
         onInput: e => { _q = e.target.value.toLowerCase(); render() } }),
@@ -29,7 +29,7 @@ export function createSceneHierarchy(container, { onSelect, onFocus, onDelete } 
             }, h('span', {}, e.id), h('span', { style: S.tag }, e._appName || e.appName || '')))
           )
       )
-    ))
+    )) } catch(e) {}
   }
 
   render()

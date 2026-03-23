@@ -76,7 +76,7 @@ export function createAppModuleSystem(client, uiRoot) {
     const hudVdom = createElement('div', { id: 'hud' },
       createElement('div', { id: 'info' }, `FPS: ${fpsDisplay} | Players: ${state.players.length} | Tick: ${c.currentTick} | RTT: ${Math.round(c.getRTT())}ms | Buf: ${c.getBufferHealth()}`),
       ...uiFragments.map(f => createElement('div', { 'data-app': f.id }, f.ui)),
-      interactPrompt
+      ...(interactPrompt ? [interactPrompt] : [])
     )
     try { applyDiff(uiRoot, hudVdom) } catch (e) { console.error('[ui] diff:', e.message) }
   }
