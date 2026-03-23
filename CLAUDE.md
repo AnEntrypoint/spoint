@@ -162,6 +162,20 @@ Set `entity.model = null` and populate `entity.custom`:
 - **WebP-to-KTX2**: builds `imageSlotHints` from material slots (normalTexture → `uastc`, others → `basis-lz`). Draco runs first, only kept if smaller.
 - `prewarm()` scans `.vrm` files in addition to `.glb`.
 
+**KTX binary auto-discovery**: `imageToKtx2` searches `bin/ktx.exe` (Windows bundled), `bin/ktx` (Linux/Mac bundled), `/usr/bin/ktx`, `/usr/local/bin/ktx` in order. When no binary is found, falls back to PNG downscale (≤1024px via `sharp`) instead of failing — GPU VRAM is still reduced proportionally. Return type is `{ buf, mimeType }` where mimeType is `'image/ktx2'` or `'image/png'`. `KHR_texture_basisu` extension is only injected into GLTF JSON when actual KTX2 was produced.
+
+**`prewarm()` blocks server start**: `boot()` in `server.js` now `await`s `prewarm()` before calling `server.start()`. All clients receive GPU-optimized models — no first-client penalty. Uses `Promise.allSettled()` over all in-flight transform promises; never times out.
+
+### Build-Time Model Optimizer (GitHub Pages / Static Hosting)
+
+`scripts/optimize-models.js` — standalone build-time optimizer for environments without a server (GitHub Pages). Run during CI via `.github/workflows/gh-pages.yml` before the deploy step.
+
+- Downscales textures >1024px in-place using `sharp`, preserving aspect ratio (`fit: 'inside', withoutEnlargement: true`)
+- Accepts directories (recursive) and individual `.glb`/`.vrm` files as positional arguments
+- Rewrites GLB binary in-place: patches bufferView offsets, updates mimeTypes, strips `EXT_texture_webp`
+- Returns `null` (no write) when all textures are already ≤1024px — safe to run unconditionally
+- CI step: `node scripts/optimize-models.js dist/apps dist/anim-lib.glb || true`
+
 ### Invisible/Trigger Material Filtering
 
 `extractAllMeshesFromGLBAsync` skips primitives with material names in `SKIP_MATS`: `aaatrigger`, `{invisible`, `playerclip`, `clip`, `nodraw`, `toolsclip`, `toolsplayerclip`, `toolsnodraw`, `toolsskybox`, `toolstrigger`. Without this, CS:GO maps have phantom collision walls. Client-side: `loadEntityModel` sets `c.visible = false` for the same names.
