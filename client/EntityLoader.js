@@ -161,7 +161,7 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
       model.updateMatrixWorld(true)
       const finalMesh = isDynamic ? model : (entityState.custom?.noAutoLod ? model : _generateLODEager(model, entityState.custom?.mesh, url))
       scene.add(finalMesh); entityMeshes.set(entityId, finalMesh)
-      if (model.userData.spin || model.userData.hover) _animatedEntities.push(model)
+      if (model.userData.spin || model.userData.hover) _animatedEntities.push(finalMesh)
       if (isDynamic) { const segs = []; model.traverse(c => { if (!c.isMesh) return; const seg = new THREE.LineSegments(new THREE.WireframeGeometry(c.geometry), new THREE.LineBasicMaterial({ color: 0x00ff00, depthTest: false })); seg.visible = !!window.__showHulls__; c.add(seg); segs.push(seg) }); _hullMeshes.set(entityId, segs) }
       _tagMesh(finalMesh)
       if (!isDynamic) { cam.addEnvironment(colliders); scheduleFitShadow() }

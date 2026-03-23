@@ -80,6 +80,7 @@ export async function loadAnimationLibrary(vrmVersion, vrmHumanoid) {
     const name = clip.name.replace(/^VRM\|/, '').replace(/@\d+$/, '')
     rawClips.set(name, clip)
   }
+  _gltfPromise = null
   console.log(`[anim] Loaded animation library (${normalizedClips.size} clips):`, [...normalizedClips.keys()])
   _normalizedCache = { normalizedClips, rawClips }
   cacheClips(cacheKey, normalizedClips)
