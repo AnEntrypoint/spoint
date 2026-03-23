@@ -138,7 +138,7 @@ export async function boot(overrides = {}) {
   const server = await createServer(config)
   await server.loadWorld(worldDef)
   server.on('playerJoin', () => {}); server.on('playerLeave', () => {})
-  prewarm(appsDirs).catch(e => console.error('[prewarm] error:', e))
+  await prewarm(appsDirs).catch(e => console.error('[prewarm] error:', e))
   const info = await server.start()
   console.log(`[server] http://localhost:${info.port} @ ${info.tickRate} TPS`)
   return server
