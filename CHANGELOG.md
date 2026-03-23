@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.343](https://github.com/AnEntrypoint/spoint/compare/v0.1.342...v0.1.343) (2026-03-23)
+
+
+### Bug Fixes
+
+* reduce memory footprint in singleplayer session ([256b1de](https://github.com/AnEntrypoint/spoint/commit/256b1dee9f8a39be01f40020a2af57b4221445d1))
+
 ### [0.1.342](https://github.com/AnEntrypoint/spoint/compare/v0.1.341...v0.1.342) (2026-03-23)
 
 
