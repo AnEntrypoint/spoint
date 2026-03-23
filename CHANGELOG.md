@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.346](https://github.com/AnEntrypoint/spoint/compare/v0.1.345...v0.1.346) (2026-03-23)
+
+
+### Bug Fixes
+
+* prevent OOM and parse errors during loading ([02e354f](https://github.com/AnEntrypoint/spoint/commit/02e354f7e1d18487e01863476f78564938594236))
+
 ### [0.1.345](https://github.com/AnEntrypoint/spoint/compare/v0.1.344...v0.1.345) (2026-03-23)
 
 
