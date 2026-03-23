@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.341](https://github.com/AnEntrypoint/spoint/compare/v0.1.340...v0.1.341) (2026-03-23)
+
+
+### Features
+
+* replace edit panel with full Blender-style editor shell ([60389af](https://github.com/AnEntrypoint/spoint/commit/60389af1b1e3d16a3daaab729dec1b1a41953699))
+
 ### [0.1.340](https://github.com/AnEntrypoint/spoint/compare/v0.1.339...v0.1.340) (2026-03-22)
 
 
