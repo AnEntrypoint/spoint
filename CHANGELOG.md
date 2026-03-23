@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.342](https://github.com/AnEntrypoint/spoint/compare/v0.1.341...v0.1.342) (2026-03-23)
+
+
+### Features
+
+* glass-ui, snap-grid, undo-redo, event-log panel ([fd5c590](https://github.com/AnEntrypoint/spoint/commit/fd5c59071d96c45e4c71914b029bc65ff87b4b44))
+* server-side GPU memory optimization pipeline ([a17cca0](https://github.com/AnEntrypoint/spoint/commit/a17cca02d53b46c41645901595cb29ef93909a0d))
+
 ### [0.1.341](https://github.com/AnEntrypoint/spoint/compare/v0.1.340...v0.1.341) (2026-03-23)
 
 
