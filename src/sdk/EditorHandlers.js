@@ -134,6 +134,11 @@ export function createEditorHandlers(ctx) {
       }
       return true
     }
+    if (type === MSG.EVENT_LOG_QUERY) {
+      const events = ctx.eventLog ? ctx.eventLog.query({}).slice(-60) : []
+      connections.send(clientId, MSG.EVENT_LOG_DATA, { events })
+      return true
+    }
     if (type === MSG.CREATE_APP) {
       const { appName } = payload || {}
       if (!appName || !/^[a-z0-9-]+$/.test(appName)) return true

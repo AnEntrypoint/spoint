@@ -55,7 +55,10 @@ export const MSG = {
   DESTROY_ENTITY: 0x8C,
   CREATE_APP: 0x8D,
   GET_EDITOR_PROPS: 0x8E,
-  EDITOR_PROPS: 0x8F
+  EDITOR_PROPS: 0x8F,
+
+  EVENT_LOG_QUERY: 0x90,
+  EVENT_LOG_DATA: 0x91
 }
 
 const nameMap = new Map()

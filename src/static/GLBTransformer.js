@@ -24,7 +24,14 @@ import { fileURLToPath } from 'node:url'
 import sharp from 'sharp'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const KTX_BIN = join(__dirname, '../../bin/ktx.exe')
+// Resolve ktx binary: prefer platform binary, fall back across win/linux/mac
+const _ktxCandidates = [
+  join(__dirname, '../../bin/ktx.exe'),   // Windows (bundled)
+  join(__dirname, '../../bin/ktx'),        // Linux/Mac (bundled)
+  '/usr/bin/ktx',                          // Linux system install
+  '/usr/local/bin/ktx',                    // Homebrew Mac / Linux local
+]
+const KTX_BIN = _ktxCandidates.find(p => existsSync(p)) || _ktxCandidates[0]
 const CACHE_DIR_NAME = '.glb-cache'
 
 // Concurrency limit: max simultaneous transform jobs (ktx.exe + sharp are CPU/memory intensive)
@@ -91,28 +98,36 @@ function encodeMode(slotName) {
 
 /**
  * Convert an image buffer (WebP, PNG, JPEG) to KTX2 buffer.
- * Pipeline: image → PNG (sharp) → KTX2 (ktx create)
- * Returns null if ktx binary is unavailable or conversion fails.
+ * Pipeline: image → 1K PNG (sharp) → KTX2 (ktx create)
+ *
+ * When KTX2 binary is unavailable, returns a 1K downscaled PNG as fallback.
+ * The downscaled PNG still reduces GPU VRAM proportionally through lower resolution
+ * even though it lacks block compression. Returns { buf, mimeType }.
  */
 async function imageToKtx2(imageBuffer, mode = 'basis-lz', tmpBase = 'tex') {
-  if (!existsSync(KTX_BIN)) return null
+  // Always downscale to 1K — reduces GPU VRAM even without block compression
+  let downscaled = null
+  try { downscaled = await sharp(imageBuffer).resize(1024, 1024, { fit: 'inside', withoutEnlargement: true }).png().toBuffer() } catch { }
+
+  if (!existsSync(KTX_BIN)) {
+    // No KTX binary: return downscaled PNG as fallback (resolution-based VRAM savings)
+    return downscaled ? { buf: downscaled, mimeType: 'image/png' } : null
+  }
+
   const tmp = join(tmpdir(), `${tmpBase}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
   const pngPath = tmp + '.png'
   const ktxPath = tmp + '.ktx2'
   try {
-    await sharp(imageBuffer).resize(1024, 1024, { fit: 'fill' }).png().toFile(pngPath)
-    const args = [
-      'create',
-      '--format', 'R8G8B8A8_SRGB',
-      '--encode', mode,
-      '--generate-mipmap',
-      pngPath, ktxPath
-    ]
+    if (downscaled) await sharp(downscaled).toFile(pngPath)
+    else await sharp(imageBuffer).resize(1024, 1024, { fit: 'inside', withoutEnlargement: true }).png().toFile(pngPath)
+    const args = ['create', '--format', 'R8G8B8A8_SRGB', '--encode', mode, '--generate-mipmap', pngPath, ktxPath]
     const result = spawnSync(KTX_BIN, args, { timeout: 30000, windowsHide: true })
-    if (result.status !== 0 || !existsSync(ktxPath)) return null
-    return readFileSync(ktxPath)
+    if (result.status !== 0 || !existsSync(ktxPath)) {
+      return downscaled ? { buf: downscaled, mimeType: 'image/png' } : null
+    }
+    return { buf: readFileSync(ktxPath), mimeType: 'image/ktx2' }
   } catch {
-    return null
+    return downscaled ? { buf: downscaled, mimeType: 'image/png' } : null
   } finally {
     try { if (existsSync(pngPath)) unlinkSync(pngPath) } catch {}
     try { if (existsSync(ktxPath)) unlinkSync(ktxPath) } catch {}
@@ -209,8 +224,9 @@ async function applyKtx2(inputBuffer) {
     }
   }
 
-  // Convert each WebP / PNG / JPEG image to KTX2
+  // Convert each WebP / PNG / JPEG image to downscaled PNG or KTX2
   const CONVERTIBLE = new Set(['image/webp', 'image/png', 'image/jpeg'])
+  // replacements: bvIdx → { buf, mimeType }
   const replacements = new Map()
   for (let i = 0; i < images.length; i++) {
     const img = images[i]
@@ -221,11 +237,13 @@ async function applyKtx2(inputBuffer) {
     if (!bv) continue
     const imgBytes = originalBin.slice(bv.byteOffset, bv.byteOffset + bv.byteLength)
     const mode = encodeMode(imageSlotHints.get(i))
-    const ktx2 = await imageToKtx2(imgBytes, mode, `img${i}`)
-    if (ktx2) replacements.set(bvIdx, ktx2)
+    const result = await imageToKtx2(imgBytes, mode, `img${i}`)
+    if (result) replacements.set(bvIdx, result)
   }
 
   if (replacements.size === 0) return null
+
+  const hasKtx2 = [...replacements.values()].some(r => r.mimeType === 'image/ktx2')
 
   // Rebuild binary buffer with replaced image chunks
   const bvCount = bufferViews.length
@@ -241,10 +259,10 @@ async function applyKtx2(inputBuffer) {
     const pad = (4 - (newOffset % 4)) % 4
     if (pad > 0) { newChunks.push(Buffer.alloc(pad, 0)); newOffset += pad }
     if (replacements.has(idx)) {
-      const ktx2 = replacements.get(idx)
-      newChunks.push(ktx2)
-      newBufViews[idx] = { ...bv, byteOffset: newOffset, byteLength: ktx2.length }
-      newOffset += ktx2.length
+      const { buf } = replacements.get(idx)
+      newChunks.push(buf)
+      newBufViews[idx] = { ...bv, byteOffset: newOffset, byteLength: buf.length }
+      newOffset += buf.length
     } else {
       const chunk = originalBin.slice(bv.byteOffset, bv.byteOffset + bv.byteLength)
       newChunks.push(chunk)
@@ -257,37 +275,36 @@ async function applyKtx2(inputBuffer) {
   const newImages = images.map((img, i) => {
     const bvIdx = img.bufferView
     if (!CONVERTIBLE.has(img.mimeType) || bvIdx === undefined || !replacements.has(bvIdx)) return img
-    return { ...img, mimeType: 'image/ktx2' }
+    return { ...img, mimeType: replacements.get(bvIdx).mimeType }
   })
 
   const newTextures = (json.textures || []).map(tex => {
-    // Handle WebP extension textures
+    if (!hasKtx2) return tex  // plain PNG replacements don't need extension changes
+    // Handle WebP extension textures → KHR_texture_basisu
     const webpSrc = tex.extensions?.EXT_texture_webp?.source
     if (webpSrc !== undefined) {
       const img = images[webpSrc]
-      if (!img || !CONVERTIBLE.has(img.mimeType) || !replacements.has(img.bufferView)) return tex
+      if (!img || !CONVERTIBLE.has(img.mimeType) || !replacements.has(img.bufferView) || replacements.get(img.bufferView).mimeType !== 'image/ktx2') return tex
       const { EXT_texture_webp, ...otherExts } = tex.extensions || {}
       return { ...tex, source: undefined, extensions: { ...otherExts, KHR_texture_basisu: { source: webpSrc } } }
     }
-    // Handle plain PNG/JPEG textures (no WebP extension — typical in VRM/standard GLB)
+    // Handle plain PNG/JPEG textures → KHR_texture_basisu
     const plainSrc = tex.source
     if (plainSrc !== undefined) {
       const img = images[plainSrc]
-      if (!img || !CONVERTIBLE.has(img.mimeType) || img.mimeType === 'image/webp' || !replacements.has(img.bufferView)) return tex
+      if (!img || !CONVERTIBLE.has(img.mimeType) || img.mimeType === 'image/webp' || !replacements.has(img.bufferView) || replacements.get(img.bufferView).mimeType !== 'image/ktx2') return tex
       const otherExts = tex.extensions || {}
       return { ...tex, source: undefined, extensions: { ...otherExts, KHR_texture_basisu: { source: plainSrc } } }
     }
     return tex
   })
 
-  const extsUsed = [...new Set([
-    ...(json.extensionsUsed || []).filter(e => e !== 'EXT_texture_webp'),
-    'KHR_texture_basisu'
-  ])]
-  const extsRequired = [...new Set([
-    ...(json.extensionsRequired || []).filter(e => e !== 'EXT_texture_webp'),
-    'KHR_texture_basisu'
-  ])]
+  const extsUsed = hasKtx2
+    ? [...new Set([...(json.extensionsUsed || []).filter(e => e !== 'EXT_texture_webp'), 'KHR_texture_basisu'])]
+    : (json.extensionsUsed || []).filter(e => e !== 'EXT_texture_webp')
+  const extsRequired = hasKtx2
+    ? [...new Set([...(json.extensionsRequired || []).filter(e => e !== 'EXT_texture_webp'), 'KHR_texture_basisu'])]
+    : (json.extensionsRequired || []).filter(e => e !== 'EXT_texture_webp')
 
   const newJson = {
     ...json,
@@ -425,11 +442,12 @@ export function getTransformed(filepath) {
 
 /**
  * Pre-warm: kick off transforms for all GLBs in a directory tree at startup.
- * Uses high concurrency during startup to speed up transformation pipeline.
+ * Uses high concurrency during startup to speed up the transformation pipeline.
+ * Resolves when all in-flight transforms complete so callers can await readiness.
  */
 export async function prewarm(dirs) {
   setPrewarmMode(true)
-  let fileCount = 0
+  const promises = []
 
   function scan(dir) {
     let entries
@@ -438,33 +456,18 @@ export async function prewarm(dirs) {
       const fp = join(dir, e.name)
       if (e.isDirectory() && e.name !== CACHE_DIR_NAME && e.name !== 'node_modules') scan(fp)
       else if (e.isFile() && (e.name.endsWith('.glb') || e.name.endsWith('.vrm'))) {
-        getTransformed(fp)
-        fileCount++
+        getTransformed(fp)  // starts transform, stores promise in _inFlight
+        if (_inFlight.has(fp)) promises.push(_inFlight.get(fp))
       }
     }
   }
 
   for (const dir of dirs) scan(dir)
 
-  // Wait for all in-flight transforms to complete
-  if (fileCount > 0) {
-    console.log(`[glb-transform] prewarming ${fileCount} GLBs (max ${MAX_CONCURRENT} concurrent)...`)
-    // Wait for all in-flight transforms to finish
-    const waitForAll = async () => {
-      let lastSize = _inFlight.size
-      let stable = 0
-      while (_inFlight.size > 0 || stable < 2) {
-        await new Promise(resolve => setTimeout(resolve, 100))
-        if (_inFlight.size === lastSize) {
-          stable++
-        } else {
-          stable = 0
-          lastSize = _inFlight.size
-        }
-      }
-    }
-    await waitForAll()
-    console.log(`[glb-transform] prewarm complete`)
+  if (promises.length > 0) {
+    console.log(`[glb-transform] prewarming ${promises.length} models (max ${MAX_CONCURRENT} concurrent)...`)
+    await Promise.allSettled(promises)
+    console.log('[glb-transform] prewarm complete')
   }
 
   setPrewarmMode(false)

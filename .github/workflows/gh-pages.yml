@@ -43,6 +43,9 @@ jobs:
           cp client/draco -r dist/draco 2>/dev/null || true
           cp client/basis -r dist/basis 2>/dev/null || true
 
+      - name: Optimize models for GPU memory
+        run: node scripts/optimize-models.js dist/apps dist/anim-lib.glb || true
+
       - name: Patch paths for gh-pages
         run: |
           BASE="/spoint"

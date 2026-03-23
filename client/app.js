@@ -99,7 +99,7 @@ let client; const _clientConfig = {
   onAppEvent: payload => { if (payload?.type==='afan_frame'&&payload.playerId&&payload.data) try { pm.applyAfanFrame(payload.playerId,new Uint8Array(payload.data)) } catch (_) {}; ams.dispatchEvent(payload,engineCtx) },
   onHotReload: () => { sessionStorage.setItem('cam',JSON.stringify(cam.save())); location.reload() },
   onEditorSelect: payload => { const {entityId,editorProps}=payload||{}; if (!entityId) return; const mesh=el.entityMeshes.get(entityId); if (mesh) { const d=_buildEntityData(entityId,mesh); editor.selectEntity(entityId,d); editPanel.showEntity(d,editorProps||[]) } },
-  onMessage: (type,payload) => { if (type===MSG.APP_LIST) editPanel.updateApps(payload.apps); else if (type===MSG.SOURCE) editPanel.openCode(payload.appName,payload.file||'index.js',payload.source); else if (type===MSG.SCENE_GRAPH) editPanel.updateScene(payload.entities); else if (type===MSG.APP_FILES) editPanel.updateAppFiles(payload.appName,payload.files); else if (type===MSG.EDITOR_PROPS) { const mesh=el.entityMeshes.get(payload.entityId); if (mesh) editPanel.showEntity(_buildEntityData(payload.entityId,mesh),payload.editorProps||[]) } },
+  onMessage: (type,payload) => { if (type===MSG.APP_LIST) editPanel.updateApps(payload.apps); else if (type===MSG.SOURCE) editPanel.openCode(payload.appName,payload.file||'index.js',payload.source); else if (type===MSG.SCENE_GRAPH) editPanel.updateScene(payload.entities); else if (type===MSG.APP_FILES) editPanel.updateAppFiles(payload.appName,payload.files); else if (type===MSG.EDITOR_PROPS) { const mesh=el.entityMeshes.get(payload.entityId); if (mesh) editPanel.showEntity(_buildEntityData(payload.entityId,mesh),payload.editorProps||[]) } else if (type===MSG.EVENT_LOG_DATA) editPanel.updateEventLog(payload.events) },
   debug: false
 }
 client = _isSingleplayer ? new LocalClient({worldDef: await fetch('/spoint/singleplayer-world.json').then(r=>r.json()).catch(()=>({})),..._clientConfig}) : new PhysicsNetworkClient(_clientConfig)
@@ -110,13 +110,16 @@ const editPanel = createEditPanel({
   onGetSource: (app,file) => client.send(MSG.GET_SOURCE,{appName:app,file}),
   onGetAppFiles: app => client.send(MSG.LIST_APP_FILES,{appName:app}),
   onDestroyEntity: id => client.send(MSG.DESTROY_ENTITY,{entityId:id}),
-  onCreateApp: app => client.send(MSG.CREATE_APP,{appName:app})
+  onCreateApp: app => client.send(MSG.CREATE_APP,{appName:app}),
+  onSnapChange: (en,sz) => editor.setSnap(en,sz),
+  onEventLogQuery: () => !_isSingleplayer && client.send(MSG.EVENT_LOG_QUERY,{})
 })
 const editor = createEditor({ scene, camera, renderer, client, entityMeshes: el.entityMeshes, playerStates: pm.playerStates })
 editor.onSelectionChange((id,data) => { if (data) { const mesh=el.entityMeshes.get(id); editPanel.showEntity(mesh?_buildEntityData(id,mesh):data,[]); client.send(MSG.GET_EDITOR_PROPS,{entityId:id}) } })
 editor.onEditModeChange(on => { if (on) { if (document.pointerLockElement) document.exitPointerLock(); editPanel.show(); if (!_isSingleplayer) { client.send(MSG.SCENE_GRAPH,{}); client.send(MSG.LIST_APPS,{}) } } else editPanel.hide() })
+const _undoStack=[],_redoStack=[]; editor.onTransformCommit(r=>{_undoStack.push(r);if(_undoStack.length>20)_undoStack.shift();_redoStack.length=0})
 editPanel.onEditorChange((key,value) => { if (!editor.selectedEntityId) return; const changes=key==='collider'?{custom:{_collider:value}}:key.startsWith('custom.')?{custom:{[key.slice(7)]:value}}:key==='_rotEuler'?{rotation:editor.eulerDegToQuat(value)}:{[key]:value}; const mesh=el.entityMeshes.get(editor.selectedEntityId); if (mesh) { if (changes.position) mesh.position.set(...changes.position); if (changes.rotation) mesh.quaternion.set(...changes.rotation); if (changes.scale) mesh.scale.set(...changes.scale); editor.updateGizmo() }; editor.sendEditorUpdate(changes) })
-document.addEventListener('keydown', e => { editor.onKeyDown(e); ams.dispatchKeyDown(e,engineCtx) }); document.addEventListener('keyup', e => ams.dispatchKeyUp(e,engineCtx))
+document.addEventListener('keydown', e => { if(e.ctrlKey&&e.code==='KeyZ'&&!e.shiftKey){e.preventDefault();const r=_undoStack.pop();if(r){_redoStack.push(r);client.send(MSG.EDITOR_UPDATE,{entityId:r.entityId,changes:r.before})}}else if(e.ctrlKey&&(e.code==='KeyY'||(e.shiftKey&&e.code==='KeyZ'))){e.preventDefault();const r=_redoStack.pop();if(r){_undoStack.push(r);client.send(MSG.EDITOR_UPDATE,{entityId:r.entityId,changes:r.after})}}; editor.onKeyDown(e); ams.dispatchKeyDown(e,engineCtx) }); document.addEventListener('keyup', e => ams.dispatchKeyUp(e,engineCtx))
 if (!_isSingleplayer) client.send(MSG.LIST_APPS, {}); xrSystem.setupSessionListeners(id=>pm.playerStates.get(id), ()=>client.playerId, { get yaw() { return cam.yaw } })
 let inputHandler=null, inputLoopId=null, latestState=null, latestInput=null, lastShootState=false, lastHealth=100, _hierarchyDirty=false, fpsFrames=0, fpsLast=performance.now(), fpsDisplay=0, uiTimer=0, lastFrameTime=performance.now(), _lodCullAt=0, _shadowDirty=true, _shadowLastUpdate=0, _profileFrames=0, _profileSum=0; const _dirty=new Set(), _sinTable=Array(360).fill(0).map((_,i)=>Math.sin(i*Math.PI/180)), _PLAYER_VIS_D2=6400
 function startInputLoop() {
