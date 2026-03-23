@@ -361,11 +361,19 @@ After 3 consecutive reload failures, module stops auto-reloading until server re
 
 ## Editor DX
 
-**Gizmo modes** (`client/editor.js`): Three modes cycle via keyboard — `[G]` translate (default), `[R]` rotate (torus ring handles), `[S]` scale (box cap handles). Mode stored in `_gizmoMode`. `buildTranslateGizmo/buildRotateGizmo/buildScaleGizmo` build the correct handle set. Mouseup sends `position/rotation/scale` changes via `EDITOR_UPDATE`. `[F]` focuses camera on selected entity. `[Del]` destroys selected entity.
+**Editor shell** (`client/EditorShell.js`): Full-screen fixed overlay (replaces old 320px side panel). Exports `createEditPanel` with identical API — app.js only needed a one-line import change. Layout: left sidebar 250px (scene hierarchy), right sidebar 300px (Inspector/Apps/HookFlow tabs), top bar 40px (creation toolbar), bottom bar 24px (status). Center area uses `pointer-events:none` so THREE.js canvas events pass through.
 
-**Scene search** (`client/edit-panel.js`): Search input above entity tree in Scene tab. `_filterTree(nodes, q)` recursively filters by `id`, `appName`, `label` — children included if parent matches. State in `_entFilt`, survives scene graph refreshes. Hint bar at bottom: `[P] Toggle  [G/R/S] Gizmo  [F] Focus  [Del] Delete`. `selectedEntity` getter exposes current entity.
+**Scene hierarchy** (`client/SceneHierarchy.js`): webjsx-based entity tree. Filters by `id`/`_appName`. Closure state. Emerald selection: `rgba(16,185,129,0.14)` bg, `#a7f3d0` text. `updateEntities(ents)` re-renders via `applyDiff`.
 
-**Monaco offline** (`client/EditPanelEditor.js`): Monaco loaded from `/node_modules/monaco-editor/min/vs/loader.js` (no CDN). Requires `monaco-editor` in `devDependencies`. Falls back to `<textarea>` on load failure.
+**Inspector panel** (`client/EditorInspector.js`): Direct DOM manipulation (not webjsx) to avoid re-render conflicts during drag-input mouse drags. Reuses `drag/v3/propField` from `EditPanelDOM.js`. Fully rebuilds DOM on `showEntity(entity, eProps)` call.
+
+**Apps panel** (`client/EditorApps.js`): Apps list + Monaco editor. Calls `renderEditorPane` from `EditPanelEditor.js` when a file is open. `openCode(app,file,code)` switches to editor view.
+
+**HookFlow viewer** (`client/HookFlowViewer.js`): SVG-based entity-app node graph. Pan via background drag, zoom via wheel. Nodes rendered as raw SVG string via `dangerouslySetInnerHTML` on the `<g>` transform wrapper inside the SVG element. `applyDiff` manages the outer SVG container only.
+
+**Gizmo modes** (`client/editor.js`): `[G]` translate, `[R]` rotate, `[S]` scale. `[F]` focus, `[Del]` destroy. Mode in `_gizmoMode`. Mouseup sends `EDITOR_UPDATE`.
+
+**Monaco offline** (`client/EditPanelEditor.js`): Loaded from `/node_modules/monaco-editor/min/vs/loader.js`. Requires `monaco-editor` devDependency. Falls back to `<textarea>` on failure.
 
 ## Serverless Single-Player Mode
 
