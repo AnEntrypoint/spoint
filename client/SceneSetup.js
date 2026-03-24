@@ -39,7 +39,7 @@ export function createScene() {
 
 export async function createRenderer(isMobile) {
   const params = new URLSearchParams(location.search)
-  const preferWebGPU = !isMobile && !!navigator.gpu && !params.has('noWebGPU') && !localStorage.getItem('noWebGPU')
+  const preferWebGPU = !isMobile && !!navigator.gpu && !params.has('noWebGPU') && !localStorage.getItem('noWebGPU') && (params.has('webgpu') || !!localStorage.getItem('webgpu'))
   let renderer, isWebGPU = false
   if (preferWebGPU) {
     const crashKey = 'webgpu-init-crashed'
@@ -104,7 +104,7 @@ export function createLoaders(renderer) {
   loadingManager.onError = (url) => console.warn('[THREE] Failed to load:', url)
   const gltfLoader = new GLTFLoader(loadingManager)
   const dracoLoader = new DRACOLoader(loadingManager)
-  dracoLoader.setDecoderPath('/draco/'); dracoLoader.setWorkerLimit(4); dracoLoader.preload()
+  dracoLoader.setDecoderPath('/draco/'); dracoLoader.setWorkerLimit(2); dracoLoader.preload()
   gltfLoader.setDRACOLoader(dracoLoader)
   gltfLoader.setMeshoptDecoder(MeshoptDecoder)
   gltfLoader.register((parser) => new VRMLoaderPlugin(parser))

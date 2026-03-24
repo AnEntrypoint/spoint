@@ -1,25 +1,51 @@
-import * as THREE from 'three'
-import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh'
+const [
+  THREE,
+  { computeBoundsTree, disposeBoundsTree, acceleratedRaycast },
+  { PhysicsNetworkClient, InputHandler, MSG },
+  { LocalClient },
+  { createElement },
+  { LoadingManager },
+  { createLoadingScreen },
+  { MobileControls, detectDevice },
+  { createMobileControlsUI },
+  { createCameraController },
+  { preloadAnimationLibrary, loadAnimationLibrary },
+  { initFacialSystem },
+  { dbDelete, dbPut },
+  { createEditor },
+  { createEditPanel },
+  { createScene, createRenderer, setupLights, createLoaders, fitShadowFrustum, applySceneConfig, warmupShaders, wrapKtx2Cache },
+  { createPlayerManager },
+  { createEntityLoader },
+  { createAppModuleSystem },
+  { createXRSystem },
+  { patchGLB },
+  { createFileDropLoader },
+] = await Promise.all([
+  import('three'),
+  import('three-mesh-bvh'),
+  import('/src/index.client.js'),
+  import('./LocalClient.js'),
+  import('webjsx'),
+  import('./LoadingManager.js'),
+  import('./createLoadingScreen.js'),
+  import('./MobileControls.js'),
+  import('./MobileControlsUI.js'),
+  import('./camera.js'),
+  import('./AnimationLibrary.js'),
+  import('./facial-animation.js'),
+  import('./ModelCache.js'),
+  import('./editor.js'),
+  import('./EditorShell.js'),
+  import('./SceneSetup.js'),
+  import('./PlayerManager.js'),
+  import('./EntityLoader.js'),
+  import('./AppModuleSystem.js'),
+  import('./XRSystem.js'),
+  import('./GLBPatch.js'),
+  import('./FileDropLoader.js'),
+])
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree; THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree; THREE.Mesh.prototype.raycast = acceleratedRaycast
-import { PhysicsNetworkClient, InputHandler, MSG } from '/src/index.client.js'; import { LocalClient } from './LocalClient.js'
-import { createElement } from 'webjsx'
-import { LoadingManager } from './LoadingManager.js'
-import { createLoadingScreen } from './createLoadingScreen.js'
-import { MobileControls, detectDevice } from './MobileControls.js'
-import { createMobileControlsUI } from './MobileControlsUI.js'
-import { createCameraController } from './camera.js'
-import { preloadAnimationLibrary, loadAnimationLibrary } from './AnimationLibrary.js'
-import { initFacialSystem } from './facial-animation.js'
-import { dbDelete, dbPut } from './ModelCache.js'
-import { createEditor } from './editor.js'
-import { createEditPanel } from './EditorShell.js'
-import { createScene, createRenderer, setupLights, createLoaders, fitShadowFrustum, applySceneConfig, warmupShaders, wrapKtx2Cache } from './SceneSetup.js'
-import { createPlayerManager } from './PlayerManager.js'
-import { createEntityLoader } from './EntityLoader.js'
-import { createAppModuleSystem } from './AppModuleSystem.js'
-import { createXRSystem } from './XRSystem.js'
-import { patchGLB } from './GLBPatch.js'
-import { createFileDropLoader } from './FileDropLoader.js'
 const _memMB = () => Math.round(performance.memory?.usedJSHeapSize / 1024 / 1024) || 0
 const _memLog = (label) => console.log(`[MEM] ${label}: ${_memMB()}MB heap`)
 const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent))
