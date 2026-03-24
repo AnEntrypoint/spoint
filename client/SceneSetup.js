@@ -38,20 +38,30 @@ export function createScene() {
 }
 
 export async function createRenderer(isMobile) {
-  const preferWebGPU = !isMobile && !!navigator.gpu && !new URLSearchParams(location.search).has('noWebGPU')
+  const params = new URLSearchParams(location.search)
+  const preferWebGPU = !isMobile && !!navigator.gpu && !params.has('noWebGPU') && !localStorage.getItem('noWebGPU')
   let renderer, isWebGPU = false
   if (preferWebGPU) {
-    try {
-      const adapter = await navigator.gpu.requestAdapter()
-      if (!adapter) throw new Error('no adapter')
-      const { WebGPURenderer } = await import('three/webgpu')
-      renderer = new WebGPURenderer({ antialias: true, powerPreference: 'high-performance' })
-      await renderer.init()
-      isWebGPU = true
-      console.log('[renderer] WebGPU active')
-    } catch (e) {
-      console.warn('[renderer] WebGPU unavailable, falling back to WebGL:', e.message)
-      renderer = null
+    const crashKey = 'webgpu-init-crashed'
+    if (localStorage.getItem(crashKey)) {
+      console.warn('[renderer] WebGPU skipped (crashed last time), falling back to WebGL')
+      localStorage.removeItem(crashKey)
+    } else {
+      try {
+        localStorage.setItem(crashKey, '1')
+        const adapter = await navigator.gpu.requestAdapter()
+        if (!adapter) throw new Error('no adapter')
+        const { WebGPURenderer } = await import('three/webgpu')
+        renderer = new WebGPURenderer({ antialias: true, powerPreference: 'high-performance' })
+        await renderer.init()
+        localStorage.removeItem(crashKey)
+        isWebGPU = true
+        console.log('[renderer] WebGPU active')
+      } catch (e) {
+        console.warn('[renderer] WebGPU unavailable, falling back to WebGL:', e.message)
+        localStorage.removeItem(crashKey)
+        renderer = null
+      }
     }
   }
   if (!renderer) {
