@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.351](https://github.com/AnEntrypoint/spoint/compare/v0.1.350...v0.1.351) (2026-03-24)
+
+
+### Bug Fixes
+
+* auto-disable WebGPU after GPU process crash ([f2fa58b](https://github.com/AnEntrypoint/spoint/commit/f2fa58b32f4432528f882162fe9d784783305e5a))
+
 ### [0.1.350](https://github.com/AnEntrypoint/spoint/compare/v0.1.349...v0.1.350) (2026-03-24)
 
 
