@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.348](https://github.com/AnEntrypoint/spoint/compare/v0.1.347...v0.1.348) (2026-03-24)
+
+
+### Bug Fixes
+
+* use dedicated GLTFLoader for VRM parse to prevent OOM crash ([86c850e](https://github.com/AnEntrypoint/spoint/commit/86c850e7944e45272a1c9decf3ab473e6f7279a9))
+
 ### [0.1.347](https://github.com/AnEntrypoint/spoint/compare/v0.1.346...v0.1.347) (2026-03-23)
 
 
