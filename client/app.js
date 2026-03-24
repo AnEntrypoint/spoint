@@ -20,11 +20,17 @@ import { createAppModuleSystem } from './AppModuleSystem.js'
 import { createXRSystem } from './XRSystem.js'
 import { patchGLB } from './GLBPatch.js'
 import { createFileDropLoader } from './FileDropLoader.js'
+const _memMB = () => Math.round(performance.memory?.usedJSHeapSize / 1024 / 1024) || 0
+const _memLog = (label) => console.log(`[MEM] ${label}: ${_memMB()}MB heap`)
 const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent))
+_memLog('start')
 const scene = createScene(), camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.05, 500)
 scene.add(camera)
+_memLog('scene+camera')
 const { renderer, isWebGPU } = await createRenderer(isMobileDevice)
+_memLog('renderer')
 const { ambient, studio, sun } = setupLights(scene), { gltfLoader, ktx2Loader } = createLoaders(renderer)
+_memLog('loaders')
 wrapKtx2Cache(ktx2Loader)
 const loadingMgr = new LoadingManager(), loadingScreen = createLoadingScreen(loadingMgr)
 loadingMgr.setLabel('Connecting...')
@@ -33,7 +39,9 @@ if (deviceInfo.isMobile) { mobileControls = new MobileControls({ joystickRadius:
 const cam = createCameraController(camera, scene)
 cam.restore(JSON.parse(sessionStorage.getItem('cam') || 'null')); sessionStorage.removeItem('cam')
 const xrSystem = createXRSystem(renderer, scene, camera); xrSystem.setup()
+_memLog('xrSystem')
 const pm = createPlayerManager(scene, gltfLoader, cam, ktx2Loader), entityAppMap = new Map()
+_memLog('playerManager')
 const uiRoot = document.getElementById('ui-root')
 const clickPrompt = document.getElementById('click-prompt')
 if (deviceInfo.isMobile && clickPrompt) clickPrompt.style.display = 'none'
@@ -43,14 +51,15 @@ const firstSnapshotEntityPending=new Set(), el=createEntityLoader(scene,gltfLoad
 const _scheduleFitShadow=()=>{ if (_fitShadowTimer) clearTimeout(_fitShadowTimer); _fitShadowTimer=setTimeout(()=>{_fitShadowTimer=null;fitShadowFrustum(scene,sun)},200) }
 const _clearEntityPending=()=>{ firstSnapshotEntityPending.clear(); if(_entityLoadTimeout){clearTimeout(_entityLoadTimeout);_entityLoadTimeout=null}; checkAllLoaded() }
 const onFirstEntityLoaded=id=>{ if (!environmentLoaded){environmentLoaded=true;checkAllLoaded()}; if (firstSnapshotEntityPending.has(id)){firstSnapshotEntityPending.delete(id);if(firstSnapshotEntityPending.size===0)_clearEntityPending()} }
-async function checkAllLoaded() { if (loadingScreenHidden||!assetsLoaded||!environmentLoaded||!firstSnapshotReceived||firstSnapshotEntityPending.size>0) return; loadingScreenHidden=true; loadingMgr.setLabel('Starting game...'); try { await warmupShaders(renderer,scene,camera,el.entityMeshes,pm.playerMeshes,loadingMgr,isWebGPU) } catch (_) {}; loadingScreen.hide() }
+async function checkAllLoaded() { if (loadingScreenHidden||!assetsLoaded||!environmentLoaded||!firstSnapshotReceived||firstSnapshotEntityPending.size>0) return; loadingScreenHidden=true; _memLog('pre-warmup'); loadingMgr.setLabel('Starting game...'); try { await warmupShaders(renderer,scene,camera,el.entityMeshes,pm.playerMeshes,loadingMgr,isWebGPU) } catch (_) {}; _memLog('post-warmup'); loadingScreen.hide() }
 function _readVrmVersion(b) { try { const av=b instanceof ArrayBuffer?b:b.buffer,dv=new DataView(av),jl=dv.getUint32(12,true),j=JSON.parse(new TextDecoder().decode(new Uint8Array(av,20,jl))); return j.extensions?.VRM?'0':'1' } catch(_){} return '1' }
-function initAssets(url) { loadingMgr.setLabel('Downloading player model...'); preloadAnimationLibrary(gltfLoader)
+function initAssets(url) { _memLog('initAssets-start'); loadingMgr.setLabel('Downloading player model...'); preloadAnimationLibrary(gltfLoader)
   loadingMgr.fetchWithProgress(url,'vrm').then(async b => {
+    _memLog('vrm-fetched')
     const vrmVersion=_readVrmVersion(b)
     const animPromise=loadAnimationLibrary(vrmVersion,null)
     if (url.endsWith('.vrm')) { try { const av=b instanceof ArrayBuffer?b:b.buffer,dv=new DataView(av),jl=dv.getUint32(12,true),j=JSON.parse(new TextDecoder().decode(new Uint8Array(av,20,jl))),exts=j.extensions||{}; if (!exts.VRM&&!exts.VRMC_vrm) { await dbDelete(url); const r=await fetch(url); if (!r.ok) throw 0; b=new Uint8Array(await r.arrayBuffer()); const e=r.headers.get('etag')||''; if (e) dbPut(url,e,b.buffer) } } catch (_) {} }
-    vrmBuffer=b; loadingMgr.setLabel('Loading animations...'); animAssets=await animPromise; assetsLoaded=true; pm.playerMeshes.forEach((g,id)=>{ if(g.children.length===0){ scene.remove(g); pm.playerMeshes.delete(id); pm.createPlayerVRM(id,vrmBuffer,animAssets,worldConfig,client&&client.playerId) } }); checkAllLoaded()
+    vrmBuffer=b; loadingMgr.setLabel('Loading animations...'); animAssets=await animPromise; _memLog('anim-loaded'); assetsLoaded=true; pm.playerMeshes.forEach((g,id)=>{ if(g.children.length===0){ scene.remove(g); pm.playerMeshes.delete(id); pm.createPlayerVRM(id,vrmBuffer,animAssets,worldConfig,client&&client.playerId) } }); checkAllLoaded()
   }).catch(err => { console.warn('[assets]',err?.message); assetsLoaded=true; checkAllLoaded() })
 }
 const _isSingleplayer = new URLSearchParams(location.search).has('singleplayer'); const _showStats = new URLSearchParams(location.search).has('showStats'); const ams = createAppModuleSystem(null, uiRoot)

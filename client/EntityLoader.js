@@ -140,6 +140,7 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
         } else {
           const p = fetchCached(url).then(buf => gltfLoader.parseAsync(patchGLB(buf, url), ''))
           _parsedGltfInflight.set(url, p); gltf = await p; _parsedGltfInflight.delete(url)
+          console.log(`[MEM] parsed ${url.split('/').pop()}: ${Math.round(performance.memory?.usedJSHeapSize/1024/1024)||0}MB`)
           if (_parsedGltfCache.size >= MAX_GLTF_CACHE) _parsedGltfCache.delete(_parsedGltfCache.keys().next().value)
           _parsedGltfCache.set(url, gltf); loadingMgr.completeDownload(url)
           if (!isVRM) { const hasImages = (gltf.parser?.json?.images?.length || 0) > 0; if (!hasImages) { const dms = []; gltf.scene.traverse(c => { if (c.isMesh && !c.isSkinnedMesh) dms.push(c) }); if (dms.length) storeGeometry(url, dms).catch(() => {}) } }
