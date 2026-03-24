@@ -157,11 +157,7 @@ export async function warmupShaders(renderer, scene, camera, entityMeshes, playe
     if (obj.frustumCulled) { culled.push(obj); obj.frustumCulled = false }
     if (!obj.visible) { hidden.push(obj); obj.visible = true }
   })
-  if (!isWebGPU) {
-    console.log(`[MEM] pre-compileAsync: ${Math.round(performance.memory?.usedJSHeapSize/1024/1024)||0}MB`)
-    try { await renderer.compileAsync(scene, camera) } catch (_) { }
-    console.log(`[MEM] post-compileAsync: ${Math.round(performance.memory?.usedJSHeapSize/1024/1024)||0}MB`)
-  }
+  console.log(`[MEM] skipping compileAsync (lazy compile): ${Math.round(performance.memory?.usedJSHeapSize/1024/1024)||0}MB`)
   for (const obj of culled) obj.frustumCulled = true
   for (const obj of hidden) obj.visible = false
   loadingMgr.reportProcessing(total, total)
