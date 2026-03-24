@@ -111,7 +111,12 @@ export function createLoaders(renderer) {
   const ktx2Loader = new KTX2Loader(loadingManager)
   ktx2Loader.setTranscoderPath('/basis/'); ktx2Loader.detectSupport(renderer)
   gltfLoader.setKTX2Loader(ktx2Loader)
-  return { gltfLoader, dracoLoader, ktx2Loader }
+  const entityDracoLoader = new DRACOLoader()
+  entityDracoLoader.setDecoderPath('/draco/'); entityDracoLoader.setWorkerLimit(2)
+  const entityGltfLoader = new GLTFLoader()
+  entityGltfLoader.setDRACOLoader(entityDracoLoader)
+  entityGltfLoader.setMeshoptDecoder(MeshoptDecoder)
+  return { gltfLoader, dracoLoader, ktx2Loader, entityGltfLoader }
 }
 
 const _fitBox3 = new THREE.Box3()

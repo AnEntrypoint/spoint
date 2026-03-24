@@ -55,7 +55,7 @@ scene.add(camera)
 _memLog('scene+camera')
 const { renderer, isWebGPU } = await createRenderer(isMobileDevice)
 _memLog('renderer')
-const { ambient, studio, sun } = setupLights(scene), { gltfLoader, ktx2Loader } = createLoaders(renderer)
+const { ambient, studio, sun } = setupLights(scene), { gltfLoader, ktx2Loader, entityGltfLoader } = createLoaders(renderer)
 _memLog('loaders')
 wrapKtx2Cache(ktx2Loader)
 const loadingMgr = new LoadingManager(), loadingScreen = createLoadingScreen(loadingMgr)
@@ -73,7 +73,7 @@ const clickPrompt = document.getElementById('click-prompt')
 if (deviceInfo.isMobile && clickPrompt) clickPrompt.style.display = 'none'
 const _pids = new Set(), _eids = new Set()
 let worldConfig={}, vrmBuffer=null, animAssets=null, assetsLoaded=false, loadingScreenHidden=false, environmentLoaded=false, firstSnapshotReceived=false, _fitShadowTimer=null, _entityLoadTimeout=null
-const firstSnapshotEntityPending=new Set(), el=createEntityLoader(scene,gltfLoader,cam,loadingMgr,patchGLB,isWebGPU)
+const firstSnapshotEntityPending=new Set(), el=createEntityLoader(scene,entityGltfLoader,cam,loadingMgr,patchGLB,isWebGPU)
 const _scheduleFitShadow=()=>{ if (_fitShadowTimer) clearTimeout(_fitShadowTimer); _fitShadowTimer=setTimeout(()=>{_fitShadowTimer=null;fitShadowFrustum(scene,sun)},200) }
 const _clearEntityPending=()=>{ firstSnapshotEntityPending.clear(); if(_entityLoadTimeout){clearTimeout(_entityLoadTimeout);_entityLoadTimeout=null}; checkAllLoaded() }
 const onFirstEntityLoaded=id=>{ if (!environmentLoaded){environmentLoaded=true;checkAllLoaded()}; if (firstSnapshotEntityPending.has(id)){firstSnapshotEntityPending.delete(id);if(firstSnapshotEntityPending.size===0)_clearEntityPending()} }
