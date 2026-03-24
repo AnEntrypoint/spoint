@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.350](https://github.com/AnEntrypoint/spoint/compare/v0.1.349...v0.1.350) (2026-03-24)
+
+
+### Bug Fixes
+
+* remove compileAsync shader warmup to prevent GPU OOM on load ([a6ca84b](https://github.com/AnEntrypoint/spoint/commit/a6ca84b4223660c957840fb1e7360da5df793597))
+
 ### [0.1.349](https://github.com/AnEntrypoint/spoint/compare/v0.1.348...v0.1.349) (2026-03-24)
 
 ### [0.1.348](https://github.com/AnEntrypoint/spoint/compare/v0.1.347...v0.1.348) (2026-03-24)
