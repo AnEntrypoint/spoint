@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.352](https://github.com/AnEntrypoint/spoint/compare/v0.1.351...v0.1.352) (2026-03-24)
+
+
+### Bug Fixes
+
+* convert app.js static imports to dynamic to prevent browser crash on load ([ab6bbcd](https://github.com/AnEntrypoint/spoint/commit/ab6bbcdd16a1773afb64be31ec4b905e89d48bfd))
+
 ### [0.1.351](https://github.com/AnEntrypoint/spoint/compare/v0.1.350...v0.1.351) (2026-03-24)
 
 
