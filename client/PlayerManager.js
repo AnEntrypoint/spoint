@@ -1,5 +1,6 @@
 import * as THREE from 'three'
-import { VRMUtils } from '@pixiv/three-vrm'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
 import { createPlayerAnimator, createGLBAnimator } from './PlayerAnimator.js'
 import { createFacialPlayer } from './facial-animation.js'
 
@@ -7,7 +8,10 @@ const MAX_VRM_CONCURRENT = 6
 const _ARKIT_NAMES = ['browInnerUp','browDownLeft','browDownRight','browOuterUpLeft','browOuterUpRight','eyeLookUpLeft','eyeLookUpRight','eyeLookDownLeft','eyeLookDownRight','eyeLookInLeft','eyeLookInRight','eyeLookOutLeft','eyeLookOutRight','eyeBlinkLeft','eyeBlinkRight','eyeSquintLeft','eyeSquintRight','eyeWideLeft','eyeWideRight','cheekPuff','cheekSquintLeft','cheekSquintRight','noseSneerLeft','noseSneerRight','jawOpen','jawForward','jawLeft','jawRight','mouthFunnel','mouthPucker','mouthLeft','mouthRight','mouthRollUpper','mouthRollLower','mouthShrugUpper','mouthShrugLower','mouthOpen','mouthClose','mouthSmileLeft','mouthSmileRight','mouthFrownLeft','mouthFrownRight','mouthDimpleLeft','mouthDimpleRight','mouthUpperUpLeft','mouthUpperUpRight','mouthLowerDownLeft','mouthLowerDownRight','mouthPressLeft','mouthPressRight','mouthStretchLeft','mouthStretchRight']
 const _lookTargetVec = new THREE.Vector3()
 
-export function createPlayerManager(scene, gltfLoader, cam) {
+export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader) {
+  const _vrmLoader = new GLTFLoader()
+  _vrmLoader.register(parser => new VRMLoaderPlugin(parser))
+  if (ktx2Loader) _vrmLoader.setKTX2Loader(ktx2Loader)
   const playerMeshes = new Map()
   const playerAnimators = new Map()
   const playerVrms = new Map()
@@ -53,7 +57,7 @@ export function createPlayerManager(scene, gltfLoader, cam) {
     await acquireVrmSlot()
     if (!playerMeshes.has(id)) { releaseVrmSlot(); return group }
     try {
-      const gltf = await gltfLoader.parseAsync(vrmBuffer.buffer.slice(0), '')
+      const gltf = await _vrmLoader.parseAsync(vrmBuffer.buffer.slice(0), '')
       const vrm = gltf.userData.vrm
       const pc = worldConfig.player || {}
       const modelScale = pc.modelScale || 1.323

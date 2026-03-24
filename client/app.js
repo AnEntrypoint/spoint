@@ -25,7 +25,7 @@ const scene = createScene(), camera = new THREE.PerspectiveCamera(70, window.inn
 scene.add(camera)
 const { renderer, isWebGPU } = await createRenderer(isMobileDevice)
 const { ambient, studio, sun } = setupLights(scene), { gltfLoader, ktx2Loader } = createLoaders(renderer)
-// wrapKtx2Cache(ktx2Loader) // disabled for memory debug
+wrapKtx2Cache(ktx2Loader)
 const loadingMgr = new LoadingManager(), loadingScreen = createLoadingScreen(loadingMgr)
 loadingMgr.setLabel('Connecting...')
 const deviceInfo = detectDevice(); let mobileControls = null, inputConfig = { pointerLock: true }
@@ -33,7 +33,7 @@ if (deviceInfo.isMobile) { mobileControls = new MobileControls({ joystickRadius:
 const cam = createCameraController(camera, scene)
 cam.restore(JSON.parse(sessionStorage.getItem('cam') || 'null')); sessionStorage.removeItem('cam')
 const xrSystem = createXRSystem(renderer, scene, camera); xrSystem.setup()
-const pm = createPlayerManager(scene, gltfLoader, cam), entityAppMap = new Map()
+const pm = createPlayerManager(scene, gltfLoader, cam, ktx2Loader), entityAppMap = new Map()
 const uiRoot = document.getElementById('ui-root')
 const clickPrompt = document.getElementById('click-prompt')
 if (deviceInfo.isMobile && clickPrompt) clickPrompt.style.display = 'none'
@@ -198,5 +198,6 @@ function animate(ts) {
   renderer.render(scene,camera)
   const frameMs=performance.now()-now; _profileSum+=frameMs; if (++_profileFrames>=120) { console.log(`[frame-profile] fps:${fpsDisplay} avg:${(_profileSum/_profileFrames).toFixed(2)}ms players:${pm.playerMeshes.size} entities:${el.entityMeshes.size}`); _profileFrames=0; _profileSum=0 }
 }
-renderer.setAnimationLoop(animate); client.connect().then(()=>{ console.log('Connected'); startInputLoop(); xrSystem.initAR() }).catch(err=>console.error('Connection failed:',err))
+renderer.setAnimationLoop(animate)
+client.connect().then(()=>{ startInputLoop(); xrSystem.initAR() }).catch(err=>console.error('Connection failed:',err))
 window.debug={ scene, camera, renderer, isWebGPU, client, playerMeshes: pm.playerMeshes, entityMeshes: el.entityMeshes, appModules: ams.appModules, playerVrms: pm.playerVrms, playerAnimators: pm.playerAnimators, loadingMgr, loadingScreen, mobileControls, xrControls: xrSystem.xrControls, controllerModels: xrSystem.controllerModels, controllerGrips: xrSystem.controllerGrips, handModels: xrSystem.handModels, hullMeshes: el._hullMeshes, get showHulls() { return !!window.__showHulls__ }, set showHulls(v) { window.__showHulls__=v; el._hullMeshes.forEach(s=>s.forEach(sg=>{sg.visible=v})) }, vrSettings: ()=>xrSystem.vrSettings, deviceInfo: ()=>deviceInfo, placeARAnchor: ()=>xrSystem.xrControls?.placeAnchor(), setAA: (v) => { console.warn('[renderer] AA change requires page reload. antialias='+v); renderer.domElement.setAttribute('data-aa', v) }, rendererInfo: () => renderer.info }
