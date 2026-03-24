@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.353](https://github.com/AnEntrypoint/spoint/compare/v0.1.352...v0.1.353) (2026-03-24)
+
+
+### Bug Fixes
+
+* use dedicated entityGltfLoader for entity loading to prevent GPU crash ([95fa960](https://github.com/AnEntrypoint/spoint/commit/95fa9606ec72441732c46efa8c093e37be0606fd))
+
 ### [0.1.352](https://github.com/AnEntrypoint/spoint/compare/v0.1.351...v0.1.352) (2026-03-24)
 
 
