@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.356](https://github.com/AnEntrypoint/spoint/compare/v0.1.355...v0.1.356) (2026-03-25)
+
+
+### Bug Fixes
+
+* destroy WASM temp objects, split oversized files, update docs ([da83355](https://github.com/AnEntrypoint/spoint/commit/da8335530b501cffa12ab93744b6c5d0840ee938))
+
 ### [0.1.355](https://github.com/AnEntrypoint/spoint/compare/v0.1.354...v0.1.355) (2026-03-25)
 
 
