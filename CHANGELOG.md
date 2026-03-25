@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.355](https://github.com/AnEntrypoint/spoint/compare/v0.1.354...v0.1.355) (2026-03-25)
+
+
+### Bug Fixes
+
+* use basis-lz for color textures to minimize GPU VRAM usage ([569e85c](https://github.com/AnEntrypoint/spoint/commit/569e85c62ac95e035e563d9d1f726ad305fe5535))
+
 ### [0.1.354](https://github.com/AnEntrypoint/spoint/compare/v0.1.353...v0.1.354) (2026-03-25)
 
 
