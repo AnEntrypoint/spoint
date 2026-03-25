@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.359](https://github.com/AnEntrypoint/spoint/compare/v0.1.358...v0.1.359) (2026-03-25)
+
+
+### Bug Fixes
+
+* add runtime mesh compile for late-spawning entities ([af51b55](https://github.com/AnEntrypoint/spoint/commit/af51b55ca3af7abe0908583b9300f1b4965fe165))
+* per-model shader warmup with batched rendering, add tone mapping ([8de0292](https://github.com/AnEntrypoint/spoint/commit/8de0292458f1669c239571078c2db9612a996e46))
+
 ### [0.1.358](https://github.com/AnEntrypoint/spoint/compare/v0.1.357...v0.1.358) (2026-03-25)
 
 
