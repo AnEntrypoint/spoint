@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.357](https://github.com/AnEntrypoint/spoint/compare/v0.1.356...v0.1.357) (2026-03-25)
+
+
+### Bug Fixes
+
+* use PCFShadowMap for all renderers (PCFSoftShadowMap deprecated in r183) ([d2369e5](https://github.com/AnEntrypoint/spoint/commit/d2369e5f9a22e1ace3c4bdccce7d5525eeab55c7))
+
 ### [0.1.356](https://github.com/AnEntrypoint/spoint/compare/v0.1.355...v0.1.356) (2026-03-25)
 
 
