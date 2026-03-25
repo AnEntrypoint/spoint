@@ -185,12 +185,14 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
 
   async function prefetchModels(modelUrls, onProgress) {
     const unique = modelUrls.map(u => u.startsWith('./') ? '/' + u.slice(2) : u).filter(u => !_parsedGltfCache.has(u) && !_parsedGltfInflight.has(u))
-    let done = 0; const total = unique.length
-    await Promise.all(unique.map(async url => {
-      try { if (!_parsedGltfInflight.has(url)) { const p = fetchCached(url).then(buf => gltfLoader.parseAsync(patchGLB(buf, url), '')); _parsedGltfInflight.set(url, p); const gltf = await p; _parsedGltfInflight.delete(url); _parsedGltfCache.set(url, gltf) } else await _parsedGltfInflight.get(url) }
-      catch (e) { console.warn('[prefetch]', url, e.message) }
-      if (onProgress) onProgress(++done, total)
-    }))
+    let done = 0; const total = unique.length; const BATCH = 4
+    for (let i = 0; i < unique.length; i += BATCH) {
+      await Promise.all(unique.slice(i, i + BATCH).map(async url => {
+        try { if (!_parsedGltfInflight.has(url)) { const p = fetchCached(url).then(buf => gltfLoader.parseAsync(patchGLB(buf, url), '')); _parsedGltfInflight.set(url, p); const gltf = await p; _parsedGltfInflight.delete(url); _parsedGltfCache.set(url, gltf) } else await _parsedGltfInflight.get(url) }
+        catch (e) { console.warn('[prefetch]', url, e.message) }
+        if (onProgress) onProgress(++done, total)
+      }))
+    }
   }
 
   return { entityMeshes, _animatedEntities, _hullMeshes, entityTargets, loadEntityModel, removeEntity, rebuildEntityHierarchy, updateVisibility, LOD_CONFIGS, scheduleLodUpgrades: _scheduleLodUpgrades, prefetchModels, set onMeshReady(fn) { _onMeshReady = fn } }
