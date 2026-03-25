@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.354](https://github.com/AnEntrypoint/spoint/compare/v0.1.353...v0.1.354) (2026-03-25)
+
+
+### Bug Fixes
+
+* attach ktx2Loader to entityGltfLoader to prevent GPU OOM crash ([ce98ed8](https://github.com/AnEntrypoint/spoint/commit/ce98ed8b5e552a3cfb1e971aca40d7e51869f9e3))
+
 ### [0.1.353](https://github.com/AnEntrypoint/spoint/compare/v0.1.352...v0.1.353) (2026-03-24)
 
 
