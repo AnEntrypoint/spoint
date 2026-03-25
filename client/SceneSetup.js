@@ -116,6 +116,7 @@ export function createLoaders(renderer) {
   const entityGltfLoader = new GLTFLoader()
   entityGltfLoader.setDRACOLoader(entityDracoLoader)
   entityGltfLoader.setMeshoptDecoder(MeshoptDecoder)
+  entityGltfLoader.setKTX2Loader(ktx2Loader)
   return { gltfLoader, dracoLoader, ktx2Loader, entityGltfLoader }
 }
 
