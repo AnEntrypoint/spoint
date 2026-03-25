@@ -11,7 +11,7 @@ const MESH_BUILDERS = {
   sphere: (c) => new THREE.SphereGeometry(c.r || 0.5, c.seg || 16, c.seg || 16)
 }
 const LOD_CONFIGS = { vrm: { far: 40, skipBeyond: 80 }, box: { far: 45, skipBeyond: 90 }, sphere: { far: 50, skipBeyond: 100 }, cylinder: { far: 50, skipBeyond: 100 }, default: { far: 60, skipBeyond: 120 } }
-const MAX_CONCURRENT_LOADS = 3
+const MAX_CONCURRENT_LOADS_INITIAL = 8, MAX_CONCURRENT_LOADS_RUNTIME = 3
 
 export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB) {
   let _onMeshReady = null
@@ -35,9 +35,9 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
     _bvhScheduled = true
     const run = (dl) => {
       while (_bvhQueue.length > 0 && (!dl || dl.timeRemaining() > 2)) _bvhQueue.shift().geometry.computeBoundsTree()
-      if (_bvhQueue.length > 0) { (typeof requestIdleCallback !== 'undefined' ? requestIdleCallback : setTimeout)(run, 16) } else _bvhScheduled = false
+      if (_bvhQueue.length > 0) { (typeof requestIdleCallback !== 'undefined' ? (fn) => requestIdleCallback(fn, { timeout: 16 }) : (fn) => setTimeout(fn, 16))(run) } else _bvhScheduled = false
     }
-    ;(typeof requestIdleCallback !== 'undefined' ? requestIdleCallback : setTimeout)(run, 16)
+    ;(typeof requestIdleCallback !== 'undefined' ? (fn) => requestIdleCallback(fn, { timeout: 16 }) : (fn) => setTimeout(fn, 16))(run)
   }
 
   function _simplifyObject(object, ratio) {
@@ -64,9 +64,9 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
         const far = cfg.far || 50
         try { const l1 = model.clone(); _simplifyObject(l1, 0.5); lod.addLevel(l1, far); const l2 = model.clone(); _simplifyObject(l2, 0.15); lod.addLevel(l2, far * 2) } catch (e) { }
       }
-      if (_lodUpgradeQueue.length > 0) { (typeof requestIdleCallback !== 'undefined' ? requestIdleCallback : setTimeout)(run, 16) } else _lodUpgradeScheduled = false
+      if (_lodUpgradeQueue.length > 0) { (typeof requestIdleCallback !== 'undefined' ? (fn) => requestIdleCallback(fn, { timeout: 16 }) : (fn) => setTimeout(fn, 16))(run) } else _lodUpgradeScheduled = false
     }
-    ;(typeof requestIdleCallback !== 'undefined' ? requestIdleCallback : setTimeout)(run, 16)
+    ;(typeof requestIdleCallback !== 'undefined' ? (fn) => requestIdleCallback(fn, { timeout: 16 }) : (fn) => setTimeout(fn, 16))(run)
   }
 
   function _generateLODEager(model, name) {
@@ -173,7 +173,8 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
   }
 
   function _processLoadQueue(entityAppMap, firstSnapshotEntityPending, onFirstEntityLoaded, scheduleFitShadow, loadingScreenHidden) {
-    while (_activeLoads < MAX_CONCURRENT_LOADS && loadQueue.length > 0) {
+    const limit = loadingScreenHidden ? MAX_CONCURRENT_LOADS_RUNTIME : MAX_CONCURRENT_LOADS_INITIAL
+    while (_activeLoads < limit && loadQueue.length > 0) {
       _activeLoads++
       const { entityId, entityState } = loadQueue.shift()
       _doLoadEntityModel(entityId, entityState, entityAppMap, firstSnapshotEntityPending, onFirstEntityLoaded, scheduleFitShadow, loadingScreenHidden).finally(() => { _activeLoads--; _processLoadQueue(entityAppMap, firstSnapshotEntityPending, onFirstEntityLoaded, scheduleFitShadow, loadingScreenHidden) })
