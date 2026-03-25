@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.360](https://github.com/AnEntrypoint/spoint/compare/v0.1.359...v0.1.360) (2026-03-25)
+
+
+### Bug Fixes
+
+* BVH requestIdleCallback, VRM re-creation, load concurrency ([6058791](https://github.com/AnEntrypoint/spoint/commit/60587911afb5abc8c02b2bfdb890c475b1f3ef7c))
+
 ### [0.1.359](https://github.com/AnEntrypoint/spoint/compare/v0.1.358...v0.1.359) (2026-03-25)
 
 
