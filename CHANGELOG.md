@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.362](https://github.com/AnEntrypoint/spoint/compare/v0.1.361...v0.1.362) (2026-03-25)
+
+
+### Bug Fixes
+
+* batch model prefetch to prevent browser OOM crash ([004d6b4](https://github.com/AnEntrypoint/spoint/commit/004d6b434514b6a736b479063f9c633620681b62))
+
 ### [0.1.361](https://github.com/AnEntrypoint/spoint/compare/v0.1.360...v0.1.361) (2026-03-25)
 
 
