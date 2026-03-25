@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.361](https://github.com/AnEntrypoint/spoint/compare/v0.1.360...v0.1.361) (2026-03-25)
+
+
+### Bug Fixes
+
+* prefetch ALL entity models during loading screen ([2e7ae8f](https://github.com/AnEntrypoint/spoint/commit/2e7ae8f629bd3fcd6192edf9e6b43d116cad82c2))
+
 ### [0.1.360](https://github.com/AnEntrypoint/spoint/compare/v0.1.359...v0.1.360) (2026-03-25)
 
 
