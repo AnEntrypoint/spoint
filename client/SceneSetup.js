@@ -4,31 +4,6 @@ import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js'
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import { VRMLoaderPlugin } from '@pixiv/three-vrm'
-import { put as idbPut } from './IndexedDBStore.js'
-
-const KTX2_DB = 'spawnpoint-ktx2-cache', KTX2_VER = 1, KTX2_STORE = 'textures'
-const KTX2_MAX_BYTES = 16 * 1024 * 1024
-
-function _serializeMipmaps(mipmaps) {
-  return mipmaps.map(m => ({ data: m.data.buffer.slice(m.data.byteOffset, m.data.byteOffset + m.data.byteLength), width: m.width, height: m.height }))
-}
-
-export function wrapKtx2Cache(ktx2Loader) {
-  const orig = ktx2Loader._createTextureFrom.bind(ktx2Loader)
-  ktx2Loader._createTextureFrom = async function(transcodeResult, container) {
-    const tex = await orig(transcodeResult, container)
-    try {
-      const mipmaps = tex.image?.mipmaps
-      if (!mipmaps?.length) return tex
-      const totalBytes = mipmaps.reduce((s, m) => s + m.data.byteLength, 0)
-      if (totalBytes > KTX2_MAX_BYTES) return tex
-      const key = totalBytes + ':' + tex.format + ':' + mipmaps[0].width + 'x' + mipmaps[0].height
-      idbPut(KTX2_DB, KTX2_VER, KTX2_STORE, key, { mipmaps: _serializeMipmaps(mipmaps), format: tex.format, type: tex.type, colorSpace: tex.colorSpace, premultiplyAlpha: tex.premultiplyAlpha, minFilter: tex.minFilter, magFilter: tex.magFilter }).catch(() => {})
-      console.log('[ktx2-cache] stored:', key)
-    } catch { }
-    return tex
-  }
-}
 
 export function createScene() {
   const scene = new THREE.Scene()
@@ -37,49 +12,18 @@ export function createScene() {
   return scene
 }
 
-export async function createRenderer(isMobile) {
-  const params = new URLSearchParams(location.search)
-  const preferWebGPU = !isMobile && !!navigator.gpu && !params.has('noWebGPU') && !localStorage.getItem('noWebGPU') && (params.has('webgpu') || !!localStorage.getItem('webgpu'))
-  let renderer, isWebGPU = false
-  if (preferWebGPU) {
-    const crashKey = 'webgpu-init-crashed'
-    if (localStorage.getItem(crashKey)) {
-      console.warn('[renderer] WebGPU skipped (crashed last time), falling back to WebGL')
-      localStorage.removeItem(crashKey)
-    } else {
-      try {
-        localStorage.setItem(crashKey, '1')
-        const adapter = await navigator.gpu.requestAdapter()
-        if (!adapter) throw new Error('no adapter')
-        const { WebGPURenderer } = await import('three/webgpu')
-        renderer = new WebGPURenderer({ antialias: true, powerPreference: 'high-performance' })
-        await renderer.init()
-        localStorage.removeItem(crashKey)
-        isWebGPU = true
-        console.log('[renderer] WebGPU active')
-      } catch (e) {
-        console.warn('[renderer] WebGPU unavailable, falling back to WebGL:', e.message)
-        localStorage.removeItem(crashKey)
-        renderer = null
-      }
-    }
-  }
-  if (!renderer) {
-    renderer = new THREE.WebGLRenderer({ antialias: !isMobile, powerPreference: 'high-performance' })
-    renderer.domElement.addEventListener('webglcontextlost', e => { e.preventDefault(); console.warn('[renderer] WebGL context lost') }, false)
-    renderer.domElement.addEventListener('webglcontextrestored', () => { location.reload() }, false)
-  }
+export function createRenderer(isMobile) {
+  const renderer = new THREE.WebGLRenderer({ antialias: !isMobile, powerPreference: 'high-performance' })
   renderer.setSize(window.innerWidth, window.innerHeight)
-  renderer.setPixelRatio(Math.min(isMobile ? window.devicePixelRatio * 0.5 : window.devicePixelRatio, 1.5))
+  renderer.setPixelRatio(isMobile ? window.devicePixelRatio * 0.5 : window.devicePixelRatio)
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = THREE.PCFShadowMap
   renderer.shadowMap.autoUpdate = false
-  renderer.toneMapping = THREE.ACESFilmicToneMapping
-  renderer.toneMappingExposure = 1.0
-  renderer.outputColorSpace = THREE.SRGBColorSpace
   renderer.xr.enabled = true
   document.body.appendChild(renderer.domElement)
-  return { renderer, isWebGPU }
+  renderer.domElement.addEventListener('webglcontextlost', e => { e.preventDefault(); console.warn('[renderer] WebGL context lost') }, false)
+  renderer.domElement.addEventListener('webglcontextrestored', () => { location.reload() }, false)
+  return renderer
 }
 
 export function setupLights(scene) {
@@ -99,25 +43,19 @@ export function setupLights(scene) {
 }
 
 export function createLoaders(renderer) {
-  THREE.Cache.enabled = false
+  THREE.Cache.enabled = true
   const loadingManager = new THREE.LoadingManager()
   loadingManager.onError = (url) => console.warn('[THREE] Failed to load:', url)
   const gltfLoader = new GLTFLoader(loadingManager)
   const dracoLoader = new DRACOLoader(loadingManager)
-  dracoLoader.setDecoderPath('/draco/'); dracoLoader.setWorkerLimit(2); dracoLoader.preload()
+  dracoLoader.setDecoderPath('/draco/'); dracoLoader.setWorkerLimit(4); dracoLoader.preload()
   gltfLoader.setDRACOLoader(dracoLoader)
   gltfLoader.setMeshoptDecoder(MeshoptDecoder)
   gltfLoader.register((parser) => new VRMLoaderPlugin(parser))
   const ktx2Loader = new KTX2Loader(loadingManager)
   ktx2Loader.setTranscoderPath('/basis/'); ktx2Loader.detectSupport(renderer)
   gltfLoader.setKTX2Loader(ktx2Loader)
-  const entityDracoLoader = new DRACOLoader()
-  entityDracoLoader.setDecoderPath('/draco/'); entityDracoLoader.setWorkerLimit(2)
-  const entityGltfLoader = new GLTFLoader()
-  entityGltfLoader.setDRACOLoader(entityDracoLoader)
-  entityGltfLoader.setMeshoptDecoder(MeshoptDecoder)
-  entityGltfLoader.setKTX2Loader(ktx2Loader)
-  return { gltfLoader, dracoLoader, ktx2Loader, entityGltfLoader }
+  return { gltfLoader, dracoLoader, ktx2Loader }
 }
 
 const _fitBox3 = new THREE.Box3()
@@ -160,22 +98,30 @@ export function applySceneConfig(s, scene, ambient, sun, studio, camera) {
   if (s.fov) { camera.fov = s.fov; camera.updateProjectionMatrix() }
 }
 
-export async function warmupShaders(renderer, scene, camera, entityMeshes, playerMeshes, loadingMgr, isWebGPU) {
+export async function warmupShaders(renderer, scene, camera, entityMeshes, playerMeshes, loadingMgr) {
   const allMeshes = [...entityMeshes.values(), ...playerMeshes.values()]
   const total = allMeshes.length
-  const ids = [...entityMeshes.keys()].sort().join(',')
-  const sceneKey = `shader-warmup-v3:${total}:${ids.length > 200 ? ids.slice(0, 200) : ids}`
-  if (localStorage.getItem('lastShaderWarmupKey') === sceneKey) { console.log('[shader] skipped warmup (scene unchanged)'); return }
-  localStorage.setItem('lastShaderWarmupKey', sceneKey)
+  const sceneKey = `shader-warmup-v1:${total}`
+  if (sessionStorage.getItem('lastShaderWarmupKey') === sceneKey) { console.log('[shader] skipped warmup (scene unchanged)'); return }
+  sessionStorage.setItem('lastShaderWarmupKey', sceneKey)
   loadingMgr.setLabel('Compiling shaders...'); loadingMgr.reportProcessing(0, total)
-  const culled = [], hidden = []
-  scene.traverse(obj => {
-    if (obj.frustumCulled) { culled.push(obj); obj.frustumCulled = false }
-    if (!obj.visible) { hidden.push(obj); obj.visible = true }
-  })
-  console.log(`[MEM] skipping compileAsync (lazy compile): ${Math.round(performance.memory?.usedJSHeapSize/1024/1024)||0}MB`)
+  const wCam = new THREE.PerspectiveCamera(60, 1, 0.1, 1000)
+  for (let i = 0; i < allMeshes.length; i++) {
+    const mesh = allMeshes[i]
+    const box = new THREE.Box3().setFromObject(mesh), center = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3()).length()
+    wCam.position.copy(center).addScaledVector(new THREE.Vector3(0, 0, 1), size * 1.5 + 1); wCam.lookAt(center)
+    const restored = []
+    mesh.traverse(obj => { if (!obj.frustumCulled || !obj.visible) { restored.push([obj, obj.frustumCulled, obj.visible]); obj.frustumCulled = false; obj.visible = true } })
+    try { await renderer.compileAsync(scene, wCam) } catch (_) { try { renderer.compile(scene, wCam) } catch (_2) { } }
+    renderer.render(scene, wCam)
+    for (const [obj, fc, vis] of restored) { obj.frustumCulled = fc; obj.visible = vis }
+    loadingMgr.reportProcessing(i + 1, total)
+    await new Promise(r => requestAnimationFrame(r))
+  }
+  const culled = []
+  scene.traverse(obj => { if (obj.frustumCulled) { culled.push(obj); obj.frustumCulled = false } })
+  try { await renderer.compileAsync(scene, camera) } catch (_) { try { renderer.compile(scene, camera) } catch (_2) { } }
+  renderer.render(scene, camera); await new Promise(r => requestAnimationFrame(r)); renderer.render(scene, camera)
   for (const obj of culled) obj.frustumCulled = true
-  for (const obj of hidden) obj.visible = false
-  loadingMgr.reportProcessing(total, total)
   console.log('[shader] warmup done, meshes:', total)
 }

@@ -1,63 +1,31 @@
-const [
-  THREE,
-  { computeBoundsTree, disposeBoundsTree, acceleratedRaycast },
-  { PhysicsNetworkClient, InputHandler, MSG },
-  { LocalClient },
-  { createElement },
-  { LoadingManager },
-  { createLoadingScreen },
-  { MobileControls, detectDevice },
-  { createMobileControlsUI },
-  { createCameraController },
-  { preloadAnimationLibrary, loadAnimationLibrary },
-  { initFacialSystem },
-  { dbDelete, dbPut },
-  { createEditor },
-  { createEditPanel },
-  { createScene, createRenderer, setupLights, createLoaders, fitShadowFrustum, applySceneConfig, warmupShaders, wrapKtx2Cache },
-  { createPlayerManager },
-  { createEntityLoader },
-  { createAppModuleSystem },
-  { createXRSystem },
-  { patchGLB },
-  { createFileDropLoader },
-] = await Promise.all([
-  import('three'),
-  import('three-mesh-bvh'),
-  import('/src/index.client.js'),
-  import('./LocalClient.js'),
-  import('webjsx'),
-  import('./LoadingManager.js'),
-  import('./createLoadingScreen.js'),
-  import('./MobileControls.js'),
-  import('./MobileControlsUI.js'),
-  import('./camera.js'),
-  import('./AnimationLibrary.js'),
-  import('./facial-animation.js'),
-  import('./ModelCache.js'),
-  import('./editor.js'),
-  import('./EditorShell.js'),
-  import('./SceneSetup.js'),
-  import('./PlayerManager.js'),
-  import('./EntityLoader.js'),
-  import('./AppModuleSystem.js'),
-  import('./XRSystem.js'),
-  import('./GLBPatch.js'),
-  import('./FileDropLoader.js'),
-])
+import * as THREE from 'three'
+import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh'
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree; THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree; THREE.Mesh.prototype.raycast = acceleratedRaycast
-const _memMB = () => Math.round(performance.memory?.usedJSHeapSize / 1024 / 1024) || 0
-const _memLog = (label) => console.log(`[MEM] ${label}: ${_memMB()}MB heap`)
+import { PhysicsNetworkClient, InputHandler, MSG } from '/src/index.client.js'
+import { LocalClient } from './LocalClient.js'
+import { createElement } from 'webjsx'
+import { LoadingManager } from './LoadingManager.js'
+import { createLoadingScreen } from './createLoadingScreen.js'
+import { MobileControls, detectDevice } from './MobileControls.js'
+import { createMobileControlsUI } from './MobileControlsUI.js'
+import { createCameraController } from './camera.js'
+import { preloadAnimationLibrary, loadAnimationLibrary } from './AnimationLibrary.js'
+import { initFacialSystem } from './facial-animation.js'
+import { dbDelete, dbPut } from './ModelCache.js'
+import { createEditor } from './editor.js'
+import { createEditPanel } from './EditorShell.js'
+import { createScene, createRenderer, setupLights, createLoaders, fitShadowFrustum, applySceneConfig, warmupShaders } from './SceneSetup.js'
+import { createPlayerManager } from './PlayerManager.js'
+import { createEntityLoader } from './EntityLoader.js'
+import { createAppModuleSystem } from './AppModuleSystem.js'
+import { createXRSystem } from './XRSystem.js'
+import { patchGLB } from './GLBPatch.js'
+import { createFileDropLoader } from './FileDropLoader.js'
+
 const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)||(navigator.maxTouchPoints>1&&/Macintosh/.test(navigator.userAgent))
-_memLog('start')
 const scene = createScene(), camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.05, 500)
 scene.add(camera)
-_memLog('scene+camera')
-const { renderer, isWebGPU } = await createRenderer(isMobileDevice)
-_memLog('renderer')
-const { ambient, studio, sun } = setupLights(scene), { gltfLoader, ktx2Loader, entityGltfLoader } = createLoaders(renderer)
-_memLog('loaders')
-wrapKtx2Cache(ktx2Loader)
+const renderer = createRenderer(isMobileDevice), { ambient, studio, sun } = setupLights(scene), { gltfLoader } = createLoaders(renderer)
 const loadingMgr = new LoadingManager(), loadingScreen = createLoadingScreen(loadingMgr)
 loadingMgr.setLabel('Connecting...')
 const deviceInfo = detectDevice(); let mobileControls = null, inputConfig = { pointerLock: true }
@@ -65,30 +33,26 @@ if (deviceInfo.isMobile) { mobileControls = new MobileControls({ joystickRadius:
 const cam = createCameraController(camera, scene)
 cam.restore(JSON.parse(sessionStorage.getItem('cam') || 'null')); sessionStorage.removeItem('cam')
 const xrSystem = createXRSystem(renderer, scene, camera); xrSystem.setup()
-_memLog('xrSystem')
-const pm = createPlayerManager(scene, gltfLoader, cam, ktx2Loader), entityAppMap = new Map()
-_memLog('playerManager')
+const pm = createPlayerManager(scene, gltfLoader, cam), entityAppMap = new Map()
 const uiRoot = document.getElementById('ui-root')
 const clickPrompt = document.getElementById('click-prompt')
 if (deviceInfo.isMobile && clickPrompt) clickPrompt.style.display = 'none'
 const _pids = new Set(), _eids = new Set()
-let worldConfig={}, vrmBuffer=null, animAssets=null, assetsLoaded=false, loadingScreenHidden=false, environmentLoaded=false, firstSnapshotReceived=false, _fitShadowTimer=null, _entityLoadTimeout=null
-const firstSnapshotEntityPending=new Set(), el=createEntityLoader(scene,entityGltfLoader,cam,loadingMgr,patchGLB,isWebGPU)
+let worldConfig={}, vrmBuffer=null, animAssets=null, assetsLoaded=false, loadingScreenHidden=false, environmentLoaded=false, firstSnapshotReceived=false, _fitShadowTimer=null
+const firstSnapshotEntityPending=new Set(), el=createEntityLoader(scene,gltfLoader,cam,loadingMgr,patchGLB)
 const _scheduleFitShadow=()=>{ if (_fitShadowTimer) clearTimeout(_fitShadowTimer); _fitShadowTimer=setTimeout(()=>{_fitShadowTimer=null;fitShadowFrustum(scene,sun)},200) }
-const _clearEntityPending=()=>{ firstSnapshotEntityPending.clear(); if(_entityLoadTimeout){clearTimeout(_entityLoadTimeout);_entityLoadTimeout=null}; checkAllLoaded() }
-const onFirstEntityLoaded=id=>{ if (!environmentLoaded){environmentLoaded=true;checkAllLoaded()}; if (firstSnapshotEntityPending.has(id)){firstSnapshotEntityPending.delete(id);if(firstSnapshotEntityPending.size===0)_clearEntityPending()} }
-async function checkAllLoaded() { if (loadingScreenHidden||!assetsLoaded||!environmentLoaded||!firstSnapshotReceived||firstSnapshotEntityPending.size>0) return; loadingScreenHidden=true; _memLog('pre-warmup'); loadingMgr.setLabel('Starting game...'); try { await warmupShaders(renderer,scene,camera,el.entityMeshes,pm.playerMeshes,loadingMgr,isWebGPU) } catch (_) {}; _memLog('post-warmup'); loadingScreen.hide() }
-function _readVrmVersion(b) { try { const av=b instanceof ArrayBuffer?b:b.buffer,dv=new DataView(av),jl=dv.getUint32(12,true),j=JSON.parse(new TextDecoder().decode(new Uint8Array(av,20,jl))); return j.extensions?.VRM?'0':'1' } catch(_){} return '1' }
-function initAssets(url) { _memLog('initAssets-start'); loadingMgr.setLabel('Downloading player model...'); preloadAnimationLibrary(gltfLoader)
+const onFirstEntityLoaded=id=>{ if (!environmentLoaded){environmentLoaded=true;checkAllLoaded()}; if (firstSnapshotEntityPending.has(id)){firstSnapshotEntityPending.delete(id);if(firstSnapshotEntityPending.size===0)checkAllLoaded()} }
+async function checkAllLoaded() { if (loadingScreenHidden||!assetsLoaded||!environmentLoaded||!firstSnapshotReceived||firstSnapshotEntityPending.size>0) return; loadingScreenHidden=true; loadingMgr.setLabel('Starting game...'); try { await warmupShaders(renderer,scene,camera,el.entityMeshes,pm.playerMeshes,loadingMgr) } catch (_) {}; loadingScreen.hide() }
+function initAssets(url) { loadingMgr.setLabel('Downloading player model...'); preloadAnimationLibrary(gltfLoader)
   loadingMgr.fetchWithProgress(url,'vrm').then(async b => {
-    _memLog('vrm-fetched')
-    const vrmVersion=_readVrmVersion(b)
-    const animPromise=loadAnimationLibrary(vrmVersion,null)
     if (url.endsWith('.vrm')) { try { const av=b instanceof ArrayBuffer?b:b.buffer,dv=new DataView(av),jl=dv.getUint32(12,true),j=JSON.parse(new TextDecoder().decode(new Uint8Array(av,20,jl))),exts=j.extensions||{}; if (!exts.VRM&&!exts.VRMC_vrm) { await dbDelete(url); const r=await fetch(url); if (!r.ok) throw 0; b=new Uint8Array(await r.arrayBuffer()); const e=r.headers.get('etag')||''; if (e) dbPut(url,e,b.buffer) } } catch (_) {} }
-    vrmBuffer=b; loadingMgr.setLabel('Loading animations...'); animAssets=await animPromise; _memLog('anim-loaded'); assetsLoaded=true; pm.playerMeshes.forEach((g,id)=>{ if(g.children.length===0){ scene.remove(g); pm.playerMeshes.delete(id); pm.createPlayerVRM(id,vrmBuffer,animAssets,worldConfig,client&&client.playerId) } }); checkAllLoaded()
+    vrmBuffer=b; const av=b instanceof ArrayBuffer?b:b.buffer,dv=new DataView(av),jl=dv.getUint32(12,true),j=JSON.parse(new TextDecoder().decode(new Uint8Array(av,20,jl)))
+    loadingMgr.setLabel('Loading animations...'); animAssets=await loadAnimationLibrary(j.extensions?.VRM?'0':'1',null); assetsLoaded=true; checkAllLoaded()
   }).catch(err => { console.warn('[assets]',err?.message); assetsLoaded=true; checkAllLoaded() })
 }
-const _isSingleplayer = new URLSearchParams(location.search).has('singleplayer'); const _showStats = new URLSearchParams(location.search).has('showStats'); const ams = createAppModuleSystem(null, uiRoot)
+const _isSingleplayer = new URLSearchParams(location.search).has('singleplayer')
+const _showStats = new URLSearchParams(location.search).has('showStats')
+const ams = createAppModuleSystem(null, uiRoot)
 const engineCtx = {
   scene, camera, renderer, THREE, createElement,
   get client() { return client }, get playerId() { return client.playerId }, get cam() { return cam },
@@ -99,7 +63,8 @@ const engineCtx = {
   players: { getMesh: id=>pm.playerMeshes.get(id), getState: id=>pm.playerStates.get(id), getAnimator: id=>pm.playerAnimators.get(id), setExpression: (id,n,v)=>pm.setVRMExpression(id,n,v), setAiming: (id,v)=>{ const s=pm.playerStates.get(id); if (s) s._aiming=v } },
   get mobileControls() { return mobileControls }
 }
-initFacialSystem(engineCtx); const _buildEntityData = (id, mesh) => ({ id, position: mesh.position.toArray(), rotation: mesh.quaternion.toArray(), scale: mesh.scale.toArray(), custom: mesh.userData.custom||{}, _appName: mesh.userData._appName||null })
+initFacialSystem(engineCtx)
+const _buildEntityData = (id, mesh) => ({ id, position: mesh.position.toArray(), rotation: mesh.quaternion.toArray(), scale: mesh.scale.toArray(), custom: mesh.userData.custom||{}, _appName: mesh.userData._appName||null })
 let client; const _clientConfig = {
   url: `${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws`, predictionEnabled: false, smoothInterpolation: true,
   onStateUpdate: state => {
@@ -114,7 +79,7 @@ let client; const _clientConfig = {
       if (mesh&&e.position) { const et=el.entityTargets.get(e.id),vx=e.velocity?.[0]||0,vy=e.velocity?.[1]||0,vz=e.velocity?.[2]||0; if (et) { et.x=e.position[0];et.y=e.position[1];et.z=e.position[2];et.vx=vx;et.vy=vy;et.vz=vz;et.rx=e.rotation?.[0]||0;et.ry=e.rotation?.[1]||0;et.rz=e.rotation?.[2]||0;et.rw=e.rotation?.[3]||1 } else el.entityTargets.set(e.id,{x:e.position[0],y:e.position[1],z:e.position[2],vx,vy,vz,rx:e.rotation?.[0]||0,ry:e.rotation?.[1]||0,rz:e.rotation?.[2]||0,rw:e.rotation?.[3]||1}); _dirty.add(e.id); const dx=e.position[0]-mesh.position.x,dy=e.position[1]-mesh.position.y,dz=e.position[2]-mesh.position.z; if (!mesh.userData.entInit||dx*dx+dy*dy+dz*dz>100) { mesh.position.set(e.position[0],e.position[1],e.position[2]); if (e.rotation) mesh.quaternion.set(e.rotation[0],e.rotation[1],e.rotation[2],e.rotation[3]); mesh.userData.entInit=true } }
       if (!el.entityMeshes.has(e.id)) el.loadEntityModel(e.id,e,entityAppMap,firstSnapshotEntityPending,onFirstEntityLoaded,_scheduleFitShadow,loadingScreenHidden)
     }
-    latestState=state; if (!firstSnapshotReceived) { firstSnapshotReceived=true; for (const e of state.entities) { if (e.model&&!el.entityMeshes.has(e.id)&&e.bodyType==='dynamic') firstSnapshotEntityPending.add(e.id) }; if (firstSnapshotEntityPending.size>0) _entityLoadTimeout=setTimeout(_clearEntityPending,5000); checkAllLoaded() }
+    latestState=state; if (!firstSnapshotReceived) { firstSnapshotReceived=true; for (const e of state.entities) { if (e.model&&!el.entityMeshes.has(e.id)) firstSnapshotEntityPending.add(e.id) }; checkAllLoaded() }
   },
   onPlayerJoined: id => { if (!pm.playerMeshes.has(id)) pm.createPlayerVRM(id,vrmBuffer,animAssets,worldConfig,client.playerId) },
   onPlayerLeft: id => pm.removePlayerMesh(id),
@@ -181,21 +146,16 @@ window.addEventListener('resize', ()=>{ camera.aspect=window.innerWidth/window.i
 createFileDropLoader(scene, gltfLoader, cam, pm.playerStates, ams.appModules, engineCtx).setupDropListeners(renderer.domElement)
 function updatePlayerPositions(players, lid, frameDt) {
   for (const p of players) {
-    if (!pm.playerMeshes.has(p.id)) continue
-    const mesh=pm.playerMeshes.get(p.id), fo=mesh?.userData?.feetOffset??0.91; let tx,ty,tz,vx=0,vy=0,vz=0
+    if (!pm.playerMeshes.has(p.id)) continue; const mesh=pm.playerMeshes.get(p.id), fo=mesh?.userData?.feetOffset??0.91; let tx,ty,tz,vx=0,vy=0,vz=0
     if (p.id===lid) { const lc=client.getLocalState(); tx=(lc?.position||p.position)[0]; ty=(lc?.position||p.position)[1]-fo; tz=(lc?.position||p.position)[2] }
     else { vx=p.velocity?.[0]||0;vy=p.velocity?.[1]||0;vz=p.velocity?.[2]||0; tx=p.position[0]+vx*frameDt;ty=p.position[1]-fo+vy*frameDt;tz=p.position[2]+vz*frameDt }
     if (!mesh.userData.initialized) { mesh.position.set(tx,ty,tz); mesh.userData.initialized=true } else { mesh.position.x=tx;mesh.position.y=ty;mesh.position.z=tz }
-    const ex=pm.playerTargets.get(p.id)
-    if (!ex) pm.playerTargets.set(p.id,{x:tx,y:ty,z:tz,vx,vy,vz}); else { if (ex.x!==tx||ex.z!==tz) _shadowDirty=true; ex.x=tx;ex.y=ty;ex.z=tz;ex.vx=vx;ex.vy=vy;ex.vz=vz }
-    pm.playerStates.set(p.id,p)
+    const ex=pm.playerTargets.get(p.id); if (!ex) pm.playerTargets.set(p.id,{x:tx,y:ty,z:tz,vx,vy,vz}); else { if (ex.x!==tx||ex.z!==tz) _shadowDirty=true; ex.x=tx;ex.y=ty;ex.z=tz;ex.vx=vx;ex.vy=vy;ex.vz=vz }; pm.playerStates.set(p.id,p)
   }
 }
 function tickPlayerAnimators(lid, frameDt) {
   pm.playerAnimators.forEach((anim,id)=>{
-    const ps=pm.playerStates.get(id); if (!ps) return
-    const vrm=pm.playerVrms.get(id), mesh=pm.playerMeshes.get(id); if (!mesh) return
-    if (!mesh.visible && id !== lid) return
+    const ps=pm.playerStates.get(id); if (!ps) return; const vrm=pm.playerVrms.get(id), mesh=pm.playerMeshes.get(id); if (!mesh||(!mesh.visible&&id!==lid)) return
     anim.update(frameDt,ps.velocity,ps.onGround,ps.health,ps._aiming||false,ps.crouch||0)
     const ly=id===lid?cam.yaw:ps.lookYaw
     if (ly!==undefined) { let df=ly-mesh.rotation.y; df-=Math.PI*2*Math.round(df/(Math.PI*2)); const vx=ps.velocity?.[0]||0,vz=ps.velocity?.[2]||0; if (vx*vx+vz*vz<0.25) mesh.rotation.y+=df*Math.min(1,40*frameDt); else { mesh.rotation.y+=df*Math.min(1,5*frameDt); let d2=ly-mesh.rotation.y; d2-=Math.PI*2*Math.round(d2/(Math.PI*2)); if (Math.abs(d2)>Math.PI*0.65) mesh.rotation.y+=d2>0?d2-Math.PI*0.65:d2+Math.PI*0.65 }; mesh.rotation.y-=Math.PI*2*Math.round(mesh.rotation.y/(Math.PI*2)); if (anim.setLookDirection) anim.setLookDirection(ly-mesh.rotation.y,ps.lookPitch||0,mesh.rotation.y+Math.PI,ps.velocity) }
@@ -233,6 +193,5 @@ function animate(ts) {
   renderer.render(scene,camera)
   const frameMs=performance.now()-now; _profileSum+=frameMs; if (++_profileFrames>=120) { console.log(`[frame-profile] fps:${fpsDisplay} avg:${(_profileSum/_profileFrames).toFixed(2)}ms players:${pm.playerMeshes.size} entities:${el.entityMeshes.size}`); _profileFrames=0; _profileSum=0 }
 }
-renderer.setAnimationLoop(animate)
-client.connect().then(()=>{ startInputLoop(); xrSystem.initAR() }).catch(err=>console.error('Connection failed:',err))
-window.debug={ scene, camera, renderer, isWebGPU, client, playerMeshes: pm.playerMeshes, entityMeshes: el.entityMeshes, appModules: ams.appModules, playerVrms: pm.playerVrms, playerAnimators: pm.playerAnimators, loadingMgr, loadingScreen, mobileControls, xrControls: xrSystem.xrControls, controllerModels: xrSystem.controllerModels, controllerGrips: xrSystem.controllerGrips, handModels: xrSystem.handModels, hullMeshes: el._hullMeshes, get showHulls() { return !!window.__showHulls__ }, set showHulls(v) { window.__showHulls__=v; el._hullMeshes.forEach(s=>s.forEach(sg=>{sg.visible=v})) }, vrSettings: ()=>xrSystem.vrSettings, deviceInfo: ()=>deviceInfo, placeARAnchor: ()=>xrSystem.xrControls?.placeAnchor(), setAA: (v) => { console.warn('[renderer] AA change requires page reload. antialias='+v); renderer.domElement.setAttribute('data-aa', v) }, rendererInfo: () => renderer.info }
+renderer.setAnimationLoop(animate); client.connect().then(()=>{ startInputLoop(); xrSystem.initAR() }).catch(err=>console.error('Connection failed:',err))
+window.debug={ scene, camera, renderer, client, playerMeshes: pm.playerMeshes, entityMeshes: el.entityMeshes, appModules: ams.appModules, playerVrms: pm.playerVrms, playerAnimators: pm.playerAnimators, loadingMgr, loadingScreen, mobileControls, xrControls: xrSystem.xrControls, controllerModels: xrSystem.controllerModels, controllerGrips: xrSystem.controllerGrips, handModels: xrSystem.handModels, hullMeshes: el._hullMeshes, get showHulls() { return !!window.__showHulls__ }, set showHulls(v) { window.__showHulls__=v; el._hullMeshes.forEach(s=>s.forEach(sg=>{sg.visible=v})) }, vrSettings: ()=>xrSystem.vrSettings, deviceInfo: ()=>deviceInfo, placeARAnchor: ()=>xrSystem.xrControls?.placeAnchor() }

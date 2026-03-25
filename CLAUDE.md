@@ -30,31 +30,17 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 - Edit panel DOM builders: `client/EditPanelDOM.js`
 - Maps: `apps/maps/*.glb` (all Draco compressed)
 
-## WebGPU Renderer
+## Renderer
 
-`createRenderer(isMobile)` in `client/SceneSetup.js` is async and returns `{ renderer, isWebGPU }`.
+`createRenderer(isMobile)` in `client/SceneSetup.js` returns a `THREE.WebGLRenderer` (synchronous). No WebGPU — it was removed due to persistent GPU OOM crashes across browsers.
 
-**Backend selection**: On desktop (non-mobile), if `navigator.gpu` exists and `requestAdapter()` succeeds, `WebGPURenderer` is dynamically imported from `three/webgpu` (importmap alias → `node_modules/three/build/three.webgpu.js`) and initialized via `await renderer.init()` before the animate loop starts. On failure or on mobile, falls back to `WebGLRenderer` silently.
+**Shadow maps**: `renderer.shadowMap.type` is `THREE.PCFShadowMap` (`PCFSoftShadowMap` was deprecated in Three.js 0.183). `shadow.radius` and `shadow.blurSamples` are set for soft shadow quality.
 
-**Why dynamic import**: `three.webgpu.js` is a large bundle (~2MB). Importing it only when WebGPU is confirmed available avoids the download cost on WebGL-only browsers. The importmap entry `"three/webgpu"` must exist in `client/index.html` for the dynamic import to resolve.
+**Pixel ratio**: Mobile uses `devicePixelRatio * 0.5`, desktop uses native `devicePixelRatio`. No cap.
 
-**Module sharing**: `three.webgpu.js` imports from `three.core.js`, the same core that `three.module.js` uses. No duplicate class instances when both are loaded.
+**Loaders**: `createLoaders(renderer)` returns `{ gltfLoader, dracoLoader, ktx2Loader }`. Single `gltfLoader` used for both map and entity loading. `THREE.Cache.enabled = true`. Draco workers = 4 with `preload()`.
 
-**Shadow maps**: `renderer.shadowMap.type` is `THREE.PCFShadowMap` for both WebGL and WebGPU (`PCFSoftShadowMap` was deprecated in Three.js 0.183). `shadow.radius` and `shadow.blurSamples` are set unconditionally and have no effect on WebGPU.
-
-**Node materials**: When `isWebGPU=true`, `createEntityLoader` upgrades `MeshStandardMaterial` → `MeshStandardNodeMaterial` (imported lazily from `three/webgpu`) after GLTF parse. Material properties (color, roughness, metalness, emissive, map, normalMap, shadowSide) are copied. Skinned meshes and already-upgraded materials are skipped. The `isWebGPU` flag is passed as the 6th argument to `createEntityLoader`.
-
-**Pixel ratio**: Capped at `Math.min(devicePixelRatio, 2)` regardless of backend.
-
-**XR**: `renderer.xr.enabled = true` works on both backends. WebGPU path skips the `webglcontextlost` listener (not applicable).
-
-**Debug**: `window.debug.isWebGPU` (boolean) reflects the active backend.
-
-**app.js wiring**: `await createRenderer(isMobileDevice)` at module top level (ES module top-level await). The returned `renderer` is then passed to `createLoaders`, `xrSystem`, etc. as before.
-
-**Loaders**: `createLoaders(renderer)` in `client/SceneSetup.js` returns `{ gltfLoader, dracoLoader, ktx2Loader, entityGltfLoader }`. Both `gltfLoader` (map/environment) and `entityGltfLoader` (entity GLBs) share the same `ktx2Loader` instance via `setKTX2Loader(ktx2Loader)`. This is required because `GLBTransformer` serves KTX2-encoded GLBs with `KHR_texture_basisu` marked as required — loaders without a `KTX2Loader` attached crash with GPU OOM when encountering these textures.
-
-**WebGPU warmup**: `warmupShaders` in `client/SceneSetup.js` skips `compileAsync` AND the two `renderer.render()` pre-passes entirely when `isWebGPU=true`. WebGPU uses lazy pipeline compilation — triggering it for all scene variants simultaneously (either via `compileAsync` or via render) causes Chrome renderer OOM crash on large scenes. WebGL still performs both pre-passes for shader warmup.
+**Shader warmup**: `warmupShaders` iterates all entity + player meshes, calls `compileAsync` per mesh with a temporary camera, then renders. Final pass compiles with the real camera. Session-cached by mesh count to skip on reload.
 
 ## AppRuntime Mixin Pattern
 
