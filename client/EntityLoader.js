@@ -14,6 +14,7 @@ const LOD_CONFIGS = { vrm: { far: 40, skipBeyond: 80 }, box: { far: 45, skipBeyo
 const MAX_CONCURRENT_LOADS = 3
 
 export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB) {
+  let _onMeshReady = null
   const entityMeshes = new Map()
   const _animatedEntities = []
   const _hullMeshes = new Map()
@@ -163,6 +164,7 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
       }
       _tagMesh(finalMesh)
       if (!isDynamic) { cam.addEnvironment(colliders); scheduleFitShadow() }
+      if (loadingScreenHidden && _onMeshReady) _onMeshReady(finalMesh)
       pendingLoads.delete(entityId); onFirstEntityLoaded(entityId)
       if (loadingScreenHidden) _scheduleLodUpgrades()
     } catch (err) {
@@ -191,5 +193,5 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
     const ai = _animatedEntities.indexOf(m); if (ai >= 0) _animatedEntities.splice(ai, 1)
   }
 
-  return { entityMeshes, _animatedEntities, _hullMeshes, entityTargets, loadEntityModel, removeEntity, rebuildEntityHierarchy, updateVisibility, LOD_CONFIGS, scheduleLodUpgrades: _scheduleLodUpgrades }
+  return { entityMeshes, _animatedEntities, _hullMeshes, entityTargets, loadEntityModel, removeEntity, rebuildEntityHierarchy, updateVisibility, LOD_CONFIGS, scheduleLodUpgrades: _scheduleLodUpgrades, set onMeshReady(fn) { _onMeshReady = fn } }
 }
