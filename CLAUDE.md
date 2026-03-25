@@ -52,6 +52,8 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 
 **app.js wiring**: `await createRenderer(isMobileDevice)` at module top level (ES module top-level await). The returned `renderer` is then passed to `createLoaders`, `xrSystem`, etc. as before.
 
+**Loaders**: `createLoaders(renderer)` in `client/SceneSetup.js` returns `{ gltfLoader, dracoLoader, ktx2Loader, entityGltfLoader }`. Both `gltfLoader` (map/environment) and `entityGltfLoader` (entity GLBs) share the same `ktx2Loader` instance via `setKTX2Loader(ktx2Loader)`. This is required because `GLBTransformer` serves KTX2-encoded GLBs with `KHR_texture_basisu` marked as required — loaders without a `KTX2Loader` attached crash with GPU OOM when encountering these textures.
+
 **WebGPU warmup**: `warmupShaders` in `client/SceneSetup.js` skips `compileAsync` AND the two `renderer.render()` pre-passes entirely when `isWebGPU=true`. WebGPU uses lazy pipeline compilation — triggering it for all scene variants simultaneously (either via `compileAsync` or via render) causes Chrome renderer OOM crash on large scenes. WebGL still performs both pre-passes for shader warmup.
 
 ## AppRuntime Mixin Pattern
@@ -158,7 +160,7 @@ Set `entity.model = null` and populate `entity.custom`:
 
 ### GLBTransformer (KTX2 + Draco on first request)
 
-`GLBTransformer.js` applies Draco + KTX2 texture conversion, serves original immediately, caches to `.glb-cache/`.
+`GLBTransformer.js` (orchestrator) + `GLBDraco.js` (`hasDraco`, `applyDraco`) + `GLBKtx2.js` (`imageToKtx2`, `encodeMode`, `applyKtx2`) in `src/static/`. Applies Draco + KTX2 texture conversion, serves original immediately, caches to `.glb-cache/`.
 
 - **Draco is skipped for VRM** — gltf-transform's NodeIO strips unknown extensions (`VRM`, `VRMC_vrm`). Detected via `json.extensions?.VRM || json.extensions?.VRMC_vrm`.
 - **WebP-to-KTX2**: builds `imageSlotHints` from material slots (normalTexture → `uastc`, others → `basis-lz`). Draco runs first, only kept if smaller.

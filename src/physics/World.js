@@ -37,7 +37,7 @@ export class PhysicsWorld {
     this._bulkOutP = new J.RVec3(0, 0, 0); this._bulkOutR = new J.Quat(0, 0, 0, 1)
     this._bulkOutLV = new J.Vec3(0, 0, 0); this._bulkOutAV = new J.Vec3(0, 0, 0)
     const [gx, gy, gz] = this.gravity
-    this.physicsSystem.SetGravity(new J.Vec3(gx, gy, gz))
+    const gv = new J.Vec3(gx, gy, gz); this.physicsSystem.SetGravity(gv); J.destroy(gv)
     this._heap32 = new Int32Array(J.HEAP8.buffer)
     this._activationListener = new J.BodyActivationListenerJS()
     this._activationListener.OnBodyActivated = (ptr) => { if (this.onBodyActivated) this.onBodyActivated(this._heap32[ptr >> 2]) }
@@ -52,6 +52,7 @@ export class PhysicsWorld {
     const pos = new J.RVec3(position[0], position[1], position[2])
     const rot = opts.rotation ? new J.Quat(...opts.rotation) : new J.Quat(0, 0, 0, 1)
     const cs = new J.BodyCreationSettings(shape, pos, rot, motionType, layer)
+    J.destroy(pos); J.destroy(rot)
     if (opts.mass) { cs.mMassPropertiesOverride.mMass = opts.mass; cs.mOverrideMassProperties = J.EOverrideMassProperties_CalculateInertia }
     if (opts.friction !== undefined) cs.mFriction = opts.friction
     if (opts.restitution !== undefined) cs.mRestitution = opts.restitution
@@ -68,12 +69,14 @@ export class PhysicsWorld {
 
   addStaticBox(halfExtents, position, rotation) {
     const J = this.Jolt
-    return this._addBody(new J.BoxShape(new J.Vec3(halfExtents[0], halfExtents[1], halfExtents[2]), 0.05, null), position, J.EMotionType_Static, LAYER_STATIC, { rotation, meta: { type: 'static', shape: 'box' } })
+    const hv = new J.Vec3(halfExtents[0], halfExtents[1], halfExtents[2])
+    const bs = new J.BoxShape(hv, 0.05, null); J.destroy(hv)
+    return this._addBody(bs, position, J.EMotionType_Static, LAYER_STATIC, { rotation, meta: { type: 'static', shape: 'box' } })
   }
 
   addBody(shapeType, params, position, motionType, opts = {}) {
     const J = this.Jolt; let shape
-    if (shapeType === 'box') { const cr = Math.min(0.05, Math.min(params[0], params[1], params[2]) * 0.1); shape = new J.BoxShape(new J.Vec3(params[0], params[1], params[2]), cr, null) }
+    if (shapeType === 'box') { const cr = Math.min(0.05, Math.min(params[0], params[1], params[2]) * 0.1); const bv = new J.Vec3(params[0], params[1], params[2]); shape = new J.BoxShape(bv, cr, null); J.destroy(bv) }
     else if (shapeType === 'sphere') shape = new J.SphereShape(params)
     else if (shapeType === 'capsule') shape = new J.CapsuleShape(params[1], params[0])
     else if (shapeType === 'convex') {
@@ -178,6 +181,10 @@ export class PhysicsWorld {
     const J = this.Jolt
     if (this._tmpVec3) { J.destroy(this._tmpVec3); this._tmpVec3 = null }
     if (this._tmpRVec3) { J.destroy(this._tmpRVec3); this._tmpRVec3 = null }
+    if (this._bulkOutP) { J.destroy(this._bulkOutP); this._bulkOutP = null }
+    if (this._bulkOutR) { J.destroy(this._bulkOutR); this._bulkOutR = null }
+    if (this._bulkOutLV) { J.destroy(this._bulkOutLV); this._bulkOutLV = null }
+    if (this._bulkOutAV) { J.destroy(this._bulkOutAV); this._bulkOutAV = null }
     if (this.jolt) { J.destroy(this.jolt); this.jolt = null }
     this.physicsSystem = null; this.bodyInterface = null
   }

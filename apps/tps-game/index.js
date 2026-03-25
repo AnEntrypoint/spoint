@@ -1,3 +1,5 @@
+import { findSpawnPoints, getAvailableSpawnPoint, handleFire } from './server.js'
+
 export default {
   server: {
     setup(ctx) {
@@ -13,24 +15,11 @@ export default {
       ctx.state.started = Date.now()
       ctx.state.gameTime = 0
       ctx.state.fallTimers = new Map()
-
       ctx.bus.on('powerup.collected', (event) => {
         const d = event.data
-        ctx.state.buffs.set(d.playerId, {
-          expiresAt: Date.now() + d.duration * 1000,
-          speed: d.speedMultiplier,
-          fireRate: d.fireRateMultiplier,
-          damage: d.damageMultiplier
-        })
-        ctx.players.send(d.playerId, {
-          type: 'buff_applied',
-          duration: d.duration,
-          speed: d.speedMultiplier,
-          fireRate: d.fireRateMultiplier,
-          damage: d.damageMultiplier
-        })
+        ctx.state.buffs.set(d.playerId, { expiresAt: Date.now() + d.duration * 1000, speed: d.speedMultiplier, fireRate: d.fireRateMultiplier, damage: d.damageMultiplier })
+        ctx.players.send(d.playerId, { type: 'buff_applied', duration: d.duration, speed: d.speedMultiplier, fireRate: d.fireRateMultiplier, damage: d.damageMultiplier })
       })
-
       console.log(`[tps-game] ${ctx.state.spawnPoints.length} spawn points validated`)
     },
 
@@ -38,44 +27,24 @@ export default {
       ctx.state.gameTime = (Date.now() - ctx.state.started) / 1000
       const now = Date.now()
       for (const [pid, buff] of ctx.state.buffs) {
-        if (now >= buff.expiresAt) {
-          ctx.state.buffs.delete(pid)
-          ctx.players.send(pid, { type: 'buff_expired' })
-        } else {
-          const player = ctx.players.getById(pid)
-          if (player?.state) {
-            const maxHp = ctx.state.config.health
-            const healRate = maxHp / 10
-            player.state.health = Math.min(maxHp, (player.state.health ?? maxHp) + healRate * dt)
-          }
-        }
+        if (now >= buff.expiresAt) { ctx.state.buffs.delete(pid); ctx.players.send(pid, { type: 'buff_expired' }) }
+        else { const player = ctx.players.getById(pid); if (player?.state) player.state.health = Math.min(ctx.state.config.health, (player.state.health ?? ctx.state.config.health) + (ctx.state.config.health / 10) * dt) }
       }
       for (const player of ctx.players.getAll()) {
         if (!player.state || ctx.state.respawning.has(player.id)) continue
         if ((player.state.health ?? ctx.state.config.health) <= 0) continue
         const y = player.state.position?.[1] ?? 0
         if (y < -20) {
-          const t = ctx.state.fallTimers.get(player.id) || 0
-          ctx.state.fallTimers.set(player.id, t + dt)
-          if (t + dt >= 5) {
-            player.state.health = 0
-            ctx.state.respawning.set(player.id, { respawnAt: now + ctx.state.config.respawnTime * 1000, killer: null })
-            ctx.network.broadcast({ type: 'death', victim: player.id, killer: null })
-            ctx.state.fallTimers.delete(player.id)
-          }
-        } else {
-          ctx.state.fallTimers.delete(player.id)
-        }
+          const t = (ctx.state.fallTimers.get(player.id) || 0) + dt
+          ctx.state.fallTimers.set(player.id, t)
+          if (t >= 5) { player.state.health = 0; ctx.state.respawning.set(player.id, { respawnAt: now + ctx.state.config.respawnTime * 1000, killer: null }); ctx.network.broadcast({ type: 'death', victim: player.id, killer: null }); ctx.state.fallTimers.delete(player.id) }
+        } else { ctx.state.fallTimers.delete(player.id) }
       }
       for (const [pid, data] of ctx.state.respawning) {
         if (now < data.respawnAt) continue
         const sp = getAvailableSpawnPoint(ctx, ctx.state.spawnPoints)
         const player = ctx.players.getById(pid)
-        if (player && player.state) {
-          player.state.health = ctx.state.config.health
-          player.state.velocity = [0, 0, 0]
-          ctx.players.setPosition(pid, sp)
-        }
+        if (player?.state) { player.state.health = ctx.state.config.health; player.state.velocity = [0, 0, 0]; ctx.players.setPosition(pid, sp) }
         ctx.players.send(pid, { type: 'respawn', position: sp, health: ctx.state.config.health })
         ctx.state.respawning.delete(pid)
       }
@@ -85,39 +54,27 @@ export default {
       if (!msg) return
       if (msg.type === 'player_join') {
         const p = ctx.players.getById(msg.playerId)
-        if (p && p.state) p.state.health = ctx.state.config.health
+        if (p?.state) p.state.health = ctx.state.config.health
         ctx.state.playerStats.set(msg.playerId, { kills: 0, deaths: 0, damage: 0 })
         ctx.state.ammo.set(msg.playerId, ctx.state.config.magazineSize)
         ctx.state.reloading.delete(msg.playerId)
       }
       if (msg.type === 'player_leave') {
-        ctx.state.playerStats.delete(msg.playerId)
-        ctx.state.respawning.delete(msg.playerId)
-        ctx.state.fallTimers.delete(msg.playerId)
-        ctx.state.ammo.delete(msg.playerId)
-        ctx.state.reloading.delete(msg.playerId)
+        ctx.state.playerStats.delete(msg.playerId); ctx.state.respawning.delete(msg.playerId)
+        ctx.state.fallTimers.delete(msg.playerId); ctx.state.ammo.delete(msg.playerId); ctx.state.reloading.delete(msg.playerId)
       }
       if (msg.type === 'reload') {
         const playerId = msg.senderId || msg.playerId
-        if (ctx.state.reloading.has(playerId)) return
-        const currentAmmo = ctx.state.ammo.get(playerId) ?? 0
-        if (currentAmmo >= ctx.state.config.magazineSize) return
+        if (ctx.state.reloading.has(playerId) || (ctx.state.ammo.get(playerId) ?? 0) >= ctx.state.config.magazineSize) return
         ctx.state.reloading.set(playerId, { startTime: Date.now() })
         ctx.players.send(playerId, { type: 'reload_start', duration: ctx.state.config.reloadTime })
-        setTimeout(() => {
-          ctx.state.ammo.set(playerId, ctx.state.config.magazineSize)
-          ctx.state.reloading.delete(playerId)
-          ctx.players.send(playerId, { type: 'reload_complete' })
-        }, ctx.state.config.reloadTime)
+        setTimeout(() => { ctx.state.ammo.set(playerId, ctx.state.config.magazineSize); ctx.state.reloading.delete(playerId); ctx.players.send(playerId, { type: 'reload_complete' }) }, ctx.state.config.reloadTime)
       }
       if (msg.type === 'fire') {
         const shooterId = msg.senderId || msg.shooterId
         if (ctx.state.reloading.has(shooterId)) return
         const ammo = ctx.state.ammo.get(shooterId) ?? 0
-        if (ammo <= 0) {
-          ctx.players.send(shooterId, { type: 'empty_click' })
-          return
-        }
+        if (ammo <= 0) { ctx.players.send(shooterId, { type: 'empty_click' }); return }
         ctx.state.ammo.set(shooterId, ammo - 1)
         const shooter = ctx.players.getById(shooterId)
         const pos = shooter?.state?.position || [0, 0, 0]
@@ -125,11 +82,7 @@ export default {
         const latencyMs = msg.clientTime ? Math.min(600, Math.max(0, Date.now() - msg.clientTime)) : 0
         const fireData = { shooterId, origin, direction: msg.direction, latencyMs }
         ctx.bus.emit('combat.fire', fireData)
-        const dir = msg.direction
-        if (shooter?.state) {
-          shooter.state.velocity[0] -= dir[0] * ctx.state.config.shootKnockback
-          shooter.state.velocity[2] -= dir[2] * ctx.state.config.shootKnockback
-        }
+        if (shooter?.state) { shooter.state.velocity[0] -= msg.direction[0] * ctx.state.config.shootKnockback; shooter.state.velocity[2] -= msg.direction[2] * ctx.state.config.shootKnockback }
         ctx.players.send(shooterId, { type: 'aimpunch', intensity: 0.3 })
         handleFire(ctx, fireData)
       }
@@ -144,19 +97,11 @@ export default {
       engine._tps = { lastShootTime: 0, isAiming: false, boost: null, flash, flashOff: 0, ammo: 30, reloading: false, lastReloadTime: 0 }
       this._tps = engine._tps
     },
-    onMouseDown(e, engine) {
-      if (e.button === 2 && engine._tps) engine._tps.isAiming = true
-    },
-    onMouseUp(e, engine) {
-      if (e.button === 2 && engine._tps) engine._tps.isAiming = false
-    },
+    onMouseDown(e, engine) { if (e.button === 2 && engine._tps) engine._tps.isAiming = true },
+    onMouseUp(e, engine) { if (e.button === 2 && engine._tps) engine._tps.isAiming = false },
     onInput(input, engine) {
-      const tps = engine._tps
-      if (!tps) return
-      if (input.reload && !tps.reloading && Date.now() - tps.lastReloadTime > 100) {
-        tps.lastReloadTime = Date.now()
-        engine.client.sendReload()
-      }
+      const tps = engine._tps; if (!tps) return
+      if (input.reload && !tps.reloading && Date.now() - tps.lastReloadTime > 100) { tps.lastReloadTime = Date.now(); engine.client.sendReload() }
       if (input.shoot && !tps.reloading && tps.ammo > 0 && Date.now() - tps.lastShootTime > 100) {
         tps.lastShootTime = Date.now()
         const local = engine.client.state?.players?.find(p => p.id === engine.playerId)
@@ -165,53 +110,29 @@ export default {
           engine.client.sendFire({ origin: [pos[0], pos[1] + 0.9, pos[2]], direction: engine.cam.getAimDirection(pos) })
           const animator = engine.players.getAnimator(engine.playerId)
           if (animator) animator.shoot()
-          tps.flash.position.set(pos[0], pos[1] + 0.5, pos[2])
-          tps.flash.intensity = 3
-          tps.flashOff = Date.now() + 60
+          tps.flash.position.set(pos[0], pos[1] + 0.5, pos[2]); tps.flash.intensity = 3; tps.flashOff = Date.now() + 60
           tps.ammo = Math.max(0, tps.ammo - 1)
         }
       }
     },
     onEvent(payload, engine) {
       const tps = engine._tps
-      if (payload.type === 'hit' && payload.target) {
-        engine.players.setExpression(payload.target, 'angry', 0.6)
-        setTimeout(() => engine.players.setExpression(payload.target, 'angry', 0), 500)
-      }
-      if (payload.type === 'aimpunch' && engine.cam?.punch) {
-        engine.cam.punch(payload.intensity || 0.3)
-      }
-      if (payload.type === 'death' && payload.victim) {
-        engine.players.setExpression(payload.victim, 'sorrow', 1.0)
-      }
-      if (payload.type === 'buff_applied' && tps) {
-        tps.boost = { expiresAt: Date.now() + (payload.duration || 45) * 1000 }
-      }
-      if (payload.type === 'buff_expired' && tps) { tps.boost = null }
-      if (payload.type === 'reload_start' && tps) {
-        tps.reloading = true
-        tps.reloadEndTime = Date.now() + (payload.duration || 2000)
-        const animator = engine.players?.getAnimator(engine.playerId)
-        if (animator) animator.reload()
-      }
-      if (payload.type === 'reload_complete' && tps) {
-        tps.reloading = false
-        tps.ammo = 30
-      }
-      if (payload.type === 'empty_click' && tps) {
-        // Could play empty click sound here
-      }
+      if (payload.type === 'hit' && payload.target) { engine.players.setExpression(payload.target, 'angry', 0.6); setTimeout(() => engine.players.setExpression(payload.target, 'angry', 0), 500) }
+      if (payload.type === 'aimpunch' && engine.cam?.punch) engine.cam.punch(payload.intensity || 0.3)
+      if (payload.type === 'death' && payload.victim) engine.players.setExpression(payload.victim, 'sorrow', 1.0)
+      if (payload.type === 'buff_applied' && tps) tps.boost = { expiresAt: Date.now() + (payload.duration || 45) * 1000 }
+      if (payload.type === 'buff_expired' && tps) tps.boost = null
+      if (payload.type === 'reload_start' && tps) { tps.reloading = true; tps.reloadEndTime = Date.now() + (payload.duration || 2000); const animator = engine.players?.getAnimator(engine.playerId); if (animator) animator.reload() }
+      if (payload.type === 'reload_complete' && tps) { tps.reloading = false; tps.ammo = 30 }
     },
     onFrame(dt, engine) {
-      const tps = engine._tps
-      if (!tps) return
+      const tps = engine._tps; if (!tps) return
       if (tps.boost && Date.now() >= tps.boost.expiresAt) tps.boost = null
       if (tps.flash && tps.flashOff && Date.now() >= tps.flashOff) { tps.flash.intensity = 0; tps.flashOff = 0 }
       engine.players.setAiming(engine.playerId, tps.isAiming)
     },
     render(ctx) {
-      const h = ctx.h
-      if (!h) return { position: ctx.entity.position }
+      const h = ctx.h; if (!h) return { position: ctx.entity.position }
       const s = ctx.state || {}
       const local = ctx.players?.find(p => p.id === ctx.engine?.playerId)
       const hp = local?.health ?? 100
@@ -236,95 +157,5 @@ export default {
         )
       }
     }
-  }
-}
-
-function findSpawnPoints(ctx) {
-  const valid = []
-  for (let x = -850; x <= 1050; x += 180) {
-    for (let z = -80; z <= 960; z += 160) {
-      const hit = ctx.raycast([x, 20, z], [0, -1, 0], 30)
-      if (hit.hit && hit.position[1] > -3) valid.push([x, hit.position[1] + 2, z])
-    }
-  }
-  if (valid.length < 4) valid.push([0, 5, 0], [100, 5, 200], [-100, 5, -100], [200, 5, 500])
-  return valid
-}
-
-function getAvailableSpawnPoint(ctx, spawnPoints) {
-  const MIN_SAFE_DISTANCE = 15
-  const activePlayers = ctx.players.getAll().filter(p => p.state && !ctx.state.respawning.has(p.id))
-  if (activePlayers.length === 0) return spawnPoints[Math.floor(Math.random() * spawnPoints.length)]
-  const scored = spawnPoints.map(sp => {
-    let minDist = Infinity
-    for (const player of activePlayers) {
-      const dist = Math.hypot(sp[0] - player.state.position[0], sp[2] - player.state.position[2])
-      if (dist < minDist) minDist = dist
-    }
-    return { sp, minDist }
-  })
-  const safe = scored.filter(s => s.minDist >= MIN_SAFE_DISTANCE)
-  if (safe.length > 0) return safe[Math.floor(Math.random() * safe.length)].sp
-  scored.sort((a, b) => b.minDist - a.minDist)
-  return scored[0].sp
-}
-
-function handleFire(ctx, msg) {
-  const shooterId = msg.shooterId
-  const origin = msg.origin
-  const direction = msg.direction
-  if (!origin || !direction) return
-
-  const players = ctx.players.getAll()
-  const range = 1000
-  const buff = ctx.state.buffs.get(shooterId)
-  const damageMultiplier = buff ? buff.damage : 1
-  const damage = Math.round(ctx.state.config.damagePerHit * damageMultiplier)
-  const lagComp = ctx.lagCompensator
-  const latencyMs = msg.latencyMs || 0
-
-  for (const target of players) {
-    if (!target.state || target.id === shooterId) continue
-    if (ctx.state.respawning.has(target.id)) continue
-    if ((target.state.health ?? ctx.state.config.health) <= 0) continue
-    const rewound = latencyMs > 0 && lagComp ? lagComp.getPlayerStateAtTime(target.id, latencyMs) : null
-    const tp = rewound ? rewound.position : target.state.position
-    const toTarget = [tp[0] - origin[0], tp[1] + 0.9 - origin[1], tp[2] - origin[2]]
-    const dot = toTarget[0] * direction[0] + toTarget[1] * direction[1] + toTarget[2] * direction[2]
-    if (dot < 0 || dot > range) continue
-    const proj = [origin[0] + direction[0] * dot, origin[1] + direction[1] * dot, origin[2] + direction[2] * dot]
-    const dist = Math.hypot(proj[0] - tp[0], proj[1] - (tp[1] + 0.9), proj[2] - tp[2])
-    if (dist > 0.6) continue
-
-    const hitY = proj[1]
-    const playerHeight = 1.8
-    const hitRatio = (hitY - tp[1]) / playerHeight
-    const isHeadshot = hitRatio >= ctx.state.config.headshotZone
-    const finalDamage = isHeadshot ? Math.round(damage * ctx.state.config.headshotMultiplier) : damage
-    const hp = target.state.health ?? ctx.state.config.health
-    const newHp = Math.max(0, hp - finalDamage)
-    target.state.health = newHp
-
-    target.state.velocity[0] += direction[0] * ctx.state.config.hitKnockback
-    target.state.velocity[2] += direction[2] * ctx.state.config.hitKnockback
-    ctx.players.send(target.id, { type: 'aimpunch', intensity: 0.6 })
-    ctx.network.broadcast({ type: 'hit', shooter: shooterId, target: target.id, damage: finalDamage, health: newHp, headshot: isHeadshot })
-
-    if (newHp <= 0) {
-      const shooterStats = ctx.state.playerStats.get(shooterId) || { kills: 0, deaths: 0, damage: 0 }
-      shooterStats.kills++
-      shooterStats.damage += finalDamage
-      ctx.state.playerStats.set(shooterId, shooterStats)
-      const targetStats = ctx.state.playerStats.get(target.id) || { kills: 0, deaths: 0, damage: 0 }
-      targetStats.deaths++
-      ctx.state.playerStats.set(target.id, targetStats)
-      ctx.state.respawning.set(target.id, { respawnAt: Date.now() + ctx.state.config.respawnTime * 1000, killer: shooterId })
-      ctx.network.broadcast({ type: 'death', victim: target.id, killer: shooterId })
-    } else {
-      const shooterStats = ctx.state.playerStats.get(shooterId) || { kills: 0, deaths: 0, damage: 0 }
-      shooterStats.damage += finalDamage
-      ctx.state.playerStats.set(shooterId, shooterStats)
-    }
-    break
   }
 }

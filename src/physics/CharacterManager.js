@@ -41,7 +41,7 @@ export class CharacterManager {
     cvs.mSupportingVolume = new J.Plane(J.Vec3.prototype.sAxisY(), -radius)
     const pos = new J.RVec3(position[0], position[1], position[2])
     const ch = new J.CharacterVirtual(cvs, pos, J.Quat.prototype.sIdentity(), this._physicsSystem)
-    J.destroy(cvs)
+    J.destroy(cvs); J.destroy(pos)
     const id = ++this._nextCharId
     this.characters.set(id, ch)
     this._charShapes.set(id, { radius, standHeight: halfHeight, crouchHeight: this.crouchHalfHeight })
