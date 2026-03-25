@@ -21,6 +21,8 @@ export function createConnectionHandlers(ctx) {
     connections.send(playerId, MSG.HANDSHAKE_ACK, { playerId, tick: tickSystem.currentTick, sessionToken: client.sessionToken, tickRate: ctx.tickRate })
     if (ctx.currentWorldDef) {
       const { entities: _ignored, ...worldDefForClient } = ctx.currentWorldDef
+      const modelUrls = [...new Set((ctx.currentWorldDef.entities || []).map(e => e.model).filter(Boolean))]
+      if (modelUrls.length > 0) worldDefForClient._modelUrls = modelUrls
       connections.send(playerId, MSG.WORLD_DEF, worldDefForClient)
     }
     const clientModules = appLoader.getClientModules()

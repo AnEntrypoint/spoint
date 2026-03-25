@@ -38,11 +38,11 @@ const uiRoot = document.getElementById('ui-root')
 const clickPrompt = document.getElementById('click-prompt')
 if (deviceInfo.isMobile && clickPrompt) clickPrompt.style.display = 'none'
 const _pids = new Set(), _eids = new Set()
-let worldConfig={}, vrmBuffer=null, animAssets=null, assetsLoaded=false, loadingScreenHidden=false, environmentLoaded=false, firstSnapshotReceived=false, _fitShadowTimer=null
+let worldConfig={}, vrmBuffer=null, animAssets=null, assetsLoaded=false, loadingScreenHidden=false, environmentLoaded=false, firstSnapshotReceived=false, modelsPrefetched=false, _fitShadowTimer=null
 const firstSnapshotEntityPending=new Set(), el=createEntityLoader(scene,gltfLoader,cam,loadingMgr,patchGLB)
 const _scheduleFitShadow=()=>{ if (_fitShadowTimer) clearTimeout(_fitShadowTimer); _fitShadowTimer=setTimeout(()=>{_fitShadowTimer=null;fitShadowFrustum(scene,sun)},200) }
 const onFirstEntityLoaded=id=>{ if (!environmentLoaded){environmentLoaded=true;checkAllLoaded()}; if (firstSnapshotEntityPending.has(id)){firstSnapshotEntityPending.delete(id);if(firstSnapshotEntityPending.size===0)checkAllLoaded()} }
-async function checkAllLoaded() { if (loadingScreenHidden||!assetsLoaded||!environmentLoaded||!firstSnapshotReceived||firstSnapshotEntityPending.size>0) return; loadingScreenHidden=true; loadingMgr.setLabel('Starting game...'); try { await warmupShaders(renderer,scene,camera,el.entityMeshes,pm.playerMeshes,loadingMgr) } catch (_) {}; el.onMeshReady=m=>{ try { renderer.compileAsync(scene,camera).catch(()=>{}) } catch(_){} }; loadingScreen.hide() }
+async function checkAllLoaded() { if (loadingScreenHidden||!assetsLoaded||!environmentLoaded||!firstSnapshotReceived||!modelsPrefetched||firstSnapshotEntityPending.size>0) return; loadingScreenHidden=true; loadingMgr.setLabel('Starting game...'); try { await warmupShaders(renderer,scene,camera,el.entityMeshes,pm.playerMeshes,loadingMgr) } catch (_) {}; el.onMeshReady=m=>{ try { renderer.compileAsync(scene,camera).catch(()=>{}) } catch(_){} }; loadingScreen.hide() }
 function initAssets(url) { loadingMgr.setLabel('Downloading player model...'); preloadAnimationLibrary(gltfLoader)
   loadingMgr.fetchWithProgress(url,'vrm').then(async b => {
     if (url.endsWith('.vrm')) { try { const av=b instanceof ArrayBuffer?b:b.buffer,dv=new DataView(av),jl=dv.getUint32(12,true),j=JSON.parse(new TextDecoder().decode(new Uint8Array(av,20,jl))),exts=j.extensions||{}; if (!exts.VRM&&!exts.VRMC_vrm) { await dbDelete(url); const r=await fetch(url); if (!r.ok) throw 0; b=new Uint8Array(await r.arrayBuffer()); const e=r.headers.get('etag')||''; if (e) dbPut(url,e,b.buffer) } } catch (_) {} }
@@ -91,6 +91,9 @@ let client; const _clientConfig = {
     if (wd.playerModel) initAssets(wd.playerModel.startsWith('./')?'/'+wd.playerModel.slice(2):wd.playerModel)
     else { assetsLoaded=true; checkAllLoaded() }
     if (wd.entities) for (const e of wd.entities) { if (e.app) entityAppMap.set(e.id,e.app) }
+    const modelUrls = wd._modelUrls || (wd.entities || []).map(e => e.model).filter(Boolean)
+    if (modelUrls.length > 0) { loadingMgr.setLabel('Prefetching models...'); el.prefetchModels(modelUrls, (done, total) => loadingMgr.reportProcessing(done, total)).then(() => { modelsPrefetched = true; checkAllLoaded() }).catch(() => { modelsPrefetched = true; checkAllLoaded() }) }
+    else { modelsPrefetched = true }
     if (wd.scene) applySceneConfig(wd.scene,scene,ambient,sun,studio,camera)
     if (wd.camera) cam.applyConfig(wd.camera)
     if (wd.input) { inputConfig={pointerLock:true,...wd.input}; if (!inputConfig.pointerLock) clickPrompt.style.display='none' }
@@ -134,9 +137,7 @@ function startInputLoop() {
     xrSystem.handleSettingsInput(input,inputHandler)
     if (input.shoot&&!lastShootState) inputHandler.pulse('right',0.5,100); lastShootState=input.shoot
     const local=pm.playerStates.get(client.playerId); if (local?.health<lastHealth) { inputHandler.pulse('left',0.8,200); inputHandler.pulse('right',0.8,200) }; if (local) lastHealth=local.health
-    ams.dispatchInput(input,engineCtx)
-    if (cam.getEditMode()) input.forward=input.backward=input.left=input.right=input.jump=input.sprint=input.crouch=false
-    client.sendInput(input)
+    ams.dispatchInput(input,engineCtx); if (cam.getEditMode()) input.forward=input.backward=input.left=input.right=input.jump=input.sprint=input.crouch=false; client.sendInput(input)
   }, 1000/60)
 }
 renderer.domElement.addEventListener('click', ()=>{ if (inputConfig.pointerLock&&!document.pointerLockElement&&!cam.getEditMode()) renderer.domElement.requestPointerLock() })

@@ -77,24 +77,19 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
   }
 
   function createEditorPlaceholder(entityId, templateName, custom) {
-    const dims = PLACEHOLDER_DIMS[templateName] || [1, 1, 1]
-    const group = new THREE.Group()
+    const dims = PLACEHOLDER_DIMS[templateName] || [1, 1, 1], group = new THREE.Group()
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(dims[0], dims[1], dims[2]), new THREE.MeshStandardMaterial({ color: custom?.color ?? 0xcccccc, roughness: 0.8, metalness: 0.1, transparent: true, opacity: 0.7 }))
     mesh.castShadow = true; mesh.receiveShadow = true; mesh.userData.isPlaceholder = true; mesh.userData.templateName = templateName
-    group.add(mesh); group.userData.spin = custom?.spin || 0; group.userData.hover = custom?.hover || 0
-    return group
+    group.add(mesh); group.userData.spin = custom?.spin || 0; group.userData.hover = custom?.hover || 0; return group
   }
-
   function buildEntityMesh(entityId, custom) {
-    const c = custom || {}, geoType = c.mesh || 'box'
+    const c = custom || {}, geoType = c.mesh || 'box', group = new THREE.Group()
     const geo = MESH_BUILDERS[geoType] ? MESH_BUILDERS[geoType](c) : MESH_BUILDERS.box(c)
-    const mat = new THREE.MeshStandardMaterial({ color: c.color ?? 0xff8800, roughness: c.roughness ?? 1, metalness: c.metalness ?? 0, emissive: c.emissive ?? 0x000000, emissiveIntensity: c.emissiveIntensity ?? 0 })
-    const group = new THREE.Group(), mesh = new THREE.Mesh(geo, mat)
+    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: c.color ?? 0xff8800, roughness: c.roughness ?? 1, metalness: c.metalness ?? 0, emissive: c.emissive ?? 0x000000, emissiveIntensity: c.emissiveIntensity ?? 0 }))
     if (c.rotX) mesh.rotation.x = c.rotX; if (c.rotZ) mesh.rotation.z = c.rotZ
     mesh.castShadow = true; mesh.receiveShadow = true; group.add(mesh)
     if (c.light) group.add(new THREE.PointLight(c.light, c.lightIntensity || 1, c.lightRange || 4))
-    if (c.spin) group.userData.spin = c.spin; if (c.hover) group.userData.hover = c.hover
-    return group
+    if (c.spin) group.userData.spin = c.spin; if (c.hover) group.userData.hover = c.hover; return group
   }
 
   function rebuildEntityHierarchy(entities) {
@@ -108,13 +103,7 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
   }
 
   function updateVisibility(camera) {
-    const cp = camera.position
-    for (const mesh of entityMeshes.values()) {
-      const cfg = LOD_CONFIGS[mesh.userData?.mesh] || LOD_CONFIGS.default
-      const d2 = (mesh.position.x - cp.x) ** 2 + (mesh.position.y - cp.y) ** 2 + (mesh.position.z - cp.z) ** 2
-      mesh.visible = d2 <= cfg.skipBeyond * cfg.skipBeyond
-      if (mesh.isLOD && mesh.visible) mesh.update(camera)
-    }
+    const cp = camera.position; for (const mesh of entityMeshes.values()) { const cfg = LOD_CONFIGS[mesh.userData?.mesh] || LOD_CONFIGS.default; const d2 = (mesh.position.x-cp.x)**2 + (mesh.position.y-cp.y)**2 + (mesh.position.z-cp.z)**2; mesh.visible = d2 <= cfg.skipBeyond * cfg.skipBeyond; if (mesh.isLOD && mesh.visible) mesh.update(camera) }
   }
 
   async function _doLoadEntityModel(entityId, entityState, entityAppMap, firstSnapshotEntityPending, onFirstEntityLoaded, scheduleFitShadow, loadingScreenHidden) {
@@ -194,5 +183,15 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
     const ai = _animatedEntities.indexOf(m); if (ai >= 0) _animatedEntities.splice(ai, 1)
   }
 
-  return { entityMeshes, _animatedEntities, _hullMeshes, entityTargets, loadEntityModel, removeEntity, rebuildEntityHierarchy, updateVisibility, LOD_CONFIGS, scheduleLodUpgrades: _scheduleLodUpgrades, set onMeshReady(fn) { _onMeshReady = fn } }
+  async function prefetchModels(modelUrls, onProgress) {
+    const unique = modelUrls.map(u => u.startsWith('./') ? '/' + u.slice(2) : u).filter(u => !_parsedGltfCache.has(u) && !_parsedGltfInflight.has(u))
+    let done = 0; const total = unique.length
+    await Promise.all(unique.map(async url => {
+      try { if (!_parsedGltfInflight.has(url)) { const p = fetchCached(url).then(buf => gltfLoader.parseAsync(patchGLB(buf, url), '')); _parsedGltfInflight.set(url, p); const gltf = await p; _parsedGltfInflight.delete(url); _parsedGltfCache.set(url, gltf) } else await _parsedGltfInflight.get(url) }
+      catch (e) { console.warn('[prefetch]', url, e.message) }
+      if (onProgress) onProgress(++done, total)
+    }))
+  }
+
+  return { entityMeshes, _animatedEntities, _hullMeshes, entityTargets, loadEntityModel, removeEntity, rebuildEntityHierarchy, updateVisibility, LOD_CONFIGS, scheduleLodUpgrades: _scheduleLodUpgrades, prefetchModels, set onMeshReady(fn) { _onMeshReady = fn } }
 }
