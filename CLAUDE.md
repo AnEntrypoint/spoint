@@ -40,7 +40,7 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 
 **Module sharing**: `three.webgpu.js` imports from `three.core.js`, the same core that `three.module.js` uses. No duplicate class instances when both are loaded.
 
-**Shadow maps**: When `isWebGPU=true`, `renderer.shadowMap.type` is set to `THREE.PCFShadowMap` (hardware-accelerated on WebGPU). When `isWebGPU=false`, `THREE.PCFSoftShadowMap` is used. `shadow.radius` and `shadow.blurSamples` are WebGL-specific soft-shadow params — set unconditionally but have no effect on WebGPU.
+**Shadow maps**: `renderer.shadowMap.type` is `THREE.PCFShadowMap` for both WebGL and WebGPU (`PCFSoftShadowMap` was deprecated in Three.js 0.183). `shadow.radius` and `shadow.blurSamples` are set unconditionally and have no effect on WebGPU.
 
 **Node materials**: When `isWebGPU=true`, `createEntityLoader` upgrades `MeshStandardMaterial` → `MeshStandardNodeMaterial` (imported lazily from `three/webgpu`) after GLTF parse. Material properties (color, roughness, metalness, emissive, map, normalMap, shadowSide) are copied. Skinned meshes and already-upgraded materials are skipped. The `isWebGPU` flag is passed as the 6th argument to `createEntityLoader`.
 

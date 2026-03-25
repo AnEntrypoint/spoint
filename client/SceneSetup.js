@@ -72,7 +72,7 @@ export async function createRenderer(isMobile) {
   renderer.setSize(window.innerWidth, window.innerHeight)
   renderer.setPixelRatio(Math.min(isMobile ? window.devicePixelRatio * 0.5 : window.devicePixelRatio, 1.5))
   renderer.shadowMap.enabled = true
-  renderer.shadowMap.type = isWebGPU ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap
+  renderer.shadowMap.type = THREE.PCFShadowMap
   renderer.shadowMap.autoUpdate = false
   renderer.toneMapping = THREE.ACESFilmicToneMapping
   renderer.toneMappingExposure = 1.0
