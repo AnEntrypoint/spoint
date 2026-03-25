@@ -40,7 +40,7 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 
 **Loaders**: `createLoaders(renderer)` returns `{ gltfLoader, dracoLoader, ktx2Loader }`. Single `gltfLoader` used for both map and entity loading. `THREE.Cache.enabled = true`. Draco workers = 4 with `preload()`.
 
-**Shader warmup**: `warmupShaders` iterates all entity + player meshes, calls `compileAsync` per mesh with a temporary camera, then renders. Final pass compiles with the real camera. Session-cached by mesh count to skip on reload.
+**Shader warmup**: `warmupShaders` disables `frustumCulled` on all objects, makes all hidden objects visible, calls `compileAsync` once for the whole scene with the real camera, then renders twice (with shadow map update). Restores culling/visibility after. Cached in `localStorage` by entity count + sorted IDs to skip on reload when scene is unchanged.
 
 ## AppRuntime Mixin Pattern
 
