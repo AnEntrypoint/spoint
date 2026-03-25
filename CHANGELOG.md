@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.358](https://github.com/AnEntrypoint/spoint/compare/v0.1.357...v0.1.358) (2026-03-25)
+
+
+### Bug Fixes
+
+* revert client to pre-crash state — remove WebGPU, restore working loader pipeline ([4be71d7](https://github.com/AnEntrypoint/spoint/commit/4be71d70f70f2174dd746c18037eb98bd780d274))
+
 ### [0.1.357](https://github.com/AnEntrypoint/spoint/compare/v0.1.356...v0.1.357) (2026-03-25)
 
 
