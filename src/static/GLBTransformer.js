@@ -90,10 +90,11 @@ function sanitizeJson(json) {
 
 /**
  * Determine KTX2 encode mode for a texture slot.
- * All textures use uastc for broad Three.js KTX2Loader compatibility.
+ * Normal maps use uastc (needs precision for tangent-space vectors).
+ * All other slots use basis-lz (ETC1S) — lossy but 4–8x smaller VRAM than uastc.
  */
 function encodeMode(slotName) {
-  return 'uastc'
+  return slotName === 'normal' ? 'uastc' : 'basis-lz'
 }
 
 /**
@@ -401,7 +402,7 @@ export function getTransformed(filepath) {
   if (existsSync(cachePath) && existsSync(cacheMetaPath)) {
     try {
       const meta = JSON.parse(readFileSync(cacheMetaPath, 'utf8'))
-      if (meta.srcMtime === mtime && meta.v === 1) {
+      if (meta.srcMtime === mtime && meta.v === 2) {
         const cached = readFileSync(cachePath)
         _memCache.set(filepath, { mtime, buffer: cached })
         return cached
@@ -420,7 +421,7 @@ export function getTransformed(filepath) {
         const transformed = await transformGLB(inputBuf)
         if (transformed) {
           writeFileSync(cachePath, transformed)
-          writeFileSync(cacheMetaPath, JSON.stringify({ srcMtime: mtime, v: 1 }))
+          writeFileSync(cacheMetaPath, JSON.stringify({ srcMtime: mtime, v: 2 }))
           _memCache.set(filepath, { mtime, buffer: transformed })
           const pct = Math.round((1 - transformed.length / inputBuf.length) * 100)
           console.log(`[glb-transform] done ${basename(filepath)} ${(inputBuf.length/1024).toFixed(0)}KB → ${(transformed.length/1024).toFixed(0)}KB (${pct > 0 ? '-' : '+'}${Math.abs(pct)}%) in ${Date.now()-t0}ms`)
