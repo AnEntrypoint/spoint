@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.369](https://github.com/AnEntrypoint/spoint/compare/v0.1.368...v0.1.369) (2026-03-26)
+
+
+### Bug Fixes
+
+* increase LocalClient yield to 500ms for gh-pages CDN latency ([5d34559](https://github.com/AnEntrypoint/spoint/commit/5d34559855518725794c0ebe833cb0edf4263ee9))
+
 ### [0.1.368](https://github.com/AnEntrypoint/spoint/compare/v0.1.367...v0.1.368) (2026-03-26)
 
 
