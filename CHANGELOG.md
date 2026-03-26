@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.367](https://github.com/AnEntrypoint/spoint/compare/v0.1.366...v0.1.367) (2026-03-26)
+
+
+### Bug Fixes
+
+* server-side GLBKtx2 now promotes EXT_texture_webp to direct source ([1c6677d](https://github.com/AnEntrypoint/spoint/commit/1c6677de9c4668298fca27435f1b9abfe94567ba))
+
 ### [0.1.366](https://github.com/AnEntrypoint/spoint/compare/v0.1.365...v0.1.366) (2026-03-26)
 
 
