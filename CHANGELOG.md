@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.363](https://github.com/AnEntrypoint/spoint/compare/v0.1.362...v0.1.363) (2026-03-26)
+
+
+### Bug Fixes
+
+* reduce memory pressure with raw bytes prefetch and texture downscale ([39c124e](https://github.com/AnEntrypoint/spoint/commit/39c124e8ca313b6535fb8530fe0ec0b78b6c1b09))
+
 ### [0.1.362](https://github.com/AnEntrypoint/spoint/compare/v0.1.361...v0.1.362) (2026-03-25)
 
 
