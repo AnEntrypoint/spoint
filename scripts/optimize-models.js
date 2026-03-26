@@ -57,8 +57,8 @@ async function processGLB(inputBuf) {
     } catch { }
   }
 
-  const hasWebpTextures = (json.textures || []).some(t => t.extensions?.EXT_texture_webp?.source !== undefined)
-  if (replacements.size === 0 && !hasWebpTextures) return null
+  const needsTextureFix = (json.textures || []).some(t => t.extensions?.EXT_texture_webp?.source !== undefined || t.source === undefined)
+  if (replacements.size === 0 && !needsTextureFix) return null
 
   // Rebuild binary section with replaced image buffers
   const sortedIdxs = Array.from({ length: bufferViews.length }, (_, i) => i)
@@ -94,10 +94,13 @@ async function processGLB(inputBuf) {
 
   const newTextures = (json.textures || []).map(tex => {
     const webpSrc = tex.extensions?.EXT_texture_webp?.source
-    if (webpSrc === undefined) return tex
-    const { EXT_texture_webp, ...otherExts } = tex.extensions || {}
-    const remainingExts = Object.keys(otherExts).length ? otherExts : undefined
-    return { ...tex, source: webpSrc, extensions: remainingExts }
+    if (webpSrc !== undefined) {
+      const { EXT_texture_webp, ...otherExts } = tex.extensions || {}
+      const remainingExts = Object.keys(otherExts).length ? otherExts : undefined
+      return { ...tex, source: webpSrc, extensions: remainingExts }
+    }
+    if (tex.source === undefined) return { ...tex, source: 0, extensions: undefined }
+    return tex
   })
 
   const extsUsed = (json.extensionsUsed || []).filter(e => e !== 'EXT_texture_webp')
