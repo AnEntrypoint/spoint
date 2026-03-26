@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.366](https://github.com/AnEntrypoint/spoint/compare/v0.1.365...v0.1.366) (2026-03-26)
+
+
+### Bug Fixes
+
+* optimizer now fixes sourceless textures that crash GLTFLoader ([b989ad6](https://github.com/AnEntrypoint/spoint/commit/b989ad66b0e4add3861cfffed4f9af7d25223344))
+
 ### [0.1.365](https://github.com/AnEntrypoint/spoint/compare/v0.1.364...v0.1.365) (2026-03-26)
 
 
