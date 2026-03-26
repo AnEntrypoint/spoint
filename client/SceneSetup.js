@@ -15,7 +15,7 @@ export function createScene() {
 export function createRenderer(isMobile) {
   const renderer = new THREE.WebGLRenderer({ antialias: !isMobile, powerPreference: 'high-performance' })
   renderer.setSize(window.innerWidth, window.innerHeight)
-  renderer.setPixelRatio(isMobile ? window.devicePixelRatio * 0.5 : window.devicePixelRatio)
+  renderer.setPixelRatio(isMobile ? Math.min(window.devicePixelRatio * 0.5, 1) : Math.min(window.devicePixelRatio, 2))
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = THREE.PCFShadowMap
   renderer.shadowMap.autoUpdate = false
@@ -105,15 +105,11 @@ export async function warmupShaders(renderer, scene, camera, entityMeshes, playe
   const allMeshes = [...entityMeshes.values(), ...playerMeshes.values()]
   const total = allMeshes.length
   const ids = [...entityMeshes.keys()].sort().join(',')
-  const sceneKey = `shader-warmup-v2:${total}:${ids.length > 200 ? ids.slice(0, 200) : ids}`
+  const sceneKey = `shader-warmup-v3:${total}:${ids.length > 200 ? ids.slice(0, 200) : ids}`
   if (localStorage.getItem('lastShaderWarmupKey') === sceneKey) { console.log('[shader] skipped warmup (scene unchanged)'); return }
-  localStorage.setItem('lastShaderWarmupKey', sceneKey)
   loadingMgr.setLabel('Compiling shaders...'); loadingMgr.reportProcessing(0, total)
-  const culled = [], hidden = []
-  scene.traverse(obj => {
-    if (obj.frustumCulled) { culled.push(obj); obj.frustumCulled = false }
-    if (!obj.visible) { hidden.push(obj); obj.visible = true }
-  })
+  const culled = []
+  scene.traverse(obj => { if (obj.frustumCulled) { culled.push(obj); obj.frustumCulled = false } })
   try { await renderer.compileAsync(scene, camera) } catch (_) { try { renderer.compile(scene, camera) } catch (_2) {} }
   loadingMgr.reportProcessing(Math.floor(total / 2), total)
   renderer.shadowMap.needsUpdate = true
@@ -121,7 +117,7 @@ export async function warmupShaders(renderer, scene, camera, entityMeshes, playe
   await new Promise(r => requestAnimationFrame(r))
   renderer.render(scene, camera)
   for (const obj of culled) obj.frustumCulled = true
-  for (const obj of hidden) obj.visible = false
+  localStorage.setItem('lastShaderWarmupKey', sceneKey)
   loadingMgr.reportProcessing(total, total)
   console.log('[shader] warmup done, meshes:', total)
 }
