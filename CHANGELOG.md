@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.364](https://github.com/AnEntrypoint/spoint/compare/v0.1.363...v0.1.364) (2026-03-26)
+
+
+### Bug Fixes
+
+* disable KTX2 encoding to prevent browser OOM crash ([588b9ee](https://github.com/AnEntrypoint/spoint/commit/588b9eeaabb580d37ab90bfe21a91726abf5ff6c))
+
 ### [0.1.363](https://github.com/AnEntrypoint/spoint/compare/v0.1.362...v0.1.363) (2026-03-26)
 
 
