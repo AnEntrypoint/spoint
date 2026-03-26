@@ -73,7 +73,7 @@ export class LocalClient {
       scale: [...(e.scale || [1, 1, 1])]
     }))
     this._entities = entities
-    await new Promise(r => setTimeout(r, 200))
+    await new Promise(r => setTimeout(r, 500))
     this.callbacks.onStateUpdate({ players: [{ ...ps }], entities })
     this._tickTimer = setInterval(() => this._doTick(), TICK_DT * 1000)
   }
