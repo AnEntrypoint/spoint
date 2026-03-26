@@ -11,7 +11,7 @@ const MESH_BUILDERS = {
   sphere: (c) => new THREE.SphereGeometry(c.r || 0.5, c.seg || 16, c.seg || 16)
 }
 const LOD_CONFIGS = { vrm: { far: 40, skipBeyond: 80 }, box: { far: 45, skipBeyond: 90 }, sphere: { far: 50, skipBeyond: 100 }, cylinder: { far: 50, skipBeyond: 100 }, default: { far: 60, skipBeyond: 120 } }
-const MAX_CONCURRENT_LOADS_INITIAL = 3, MAX_CONCURRENT_LOADS_RUNTIME = 2
+const MAX_CONCURRENT_LOADS_INITIAL = 8, MAX_CONCURRENT_LOADS_RUNTIME = 3
 
 export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB) {
   let _onMeshReady = null
@@ -24,7 +24,6 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
   const loadQueue = []
   const _parsedGltfCache = new Map()
   const _parsedGltfInflight = new Map()
-  const _rawBytesCache = new Map()
   const _discoveredModelUrls = new Set()
   const _bvhQueue = []
   const _lodUpgradeQueue = []
@@ -125,9 +124,9 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
     try {
       loadingMgr.beginDownload(url)
       let gltf
-      if (_parsedGltfCache.has(url)) { gltf = _parsedGltfCache.get(url); _parsedGltfCache.delete(url); _parsedGltfCache.set(url, gltf); loadingMgr.completeDownload(url) }
+      if (_parsedGltfCache.has(url)) { gltf = _parsedGltfCache.get(url); loadingMgr.completeDownload(url) }
       else if (_parsedGltfInflight.has(url)) { gltf = await _parsedGltfInflight.get(url); loadingMgr.completeDownload(url) }
-      else { const buf = _rawBytesCache.get(url) || await fetchCached(url); const p = gltfLoader.parseAsync(patchGLB(buf, url), ''); _parsedGltfInflight.set(url, p); gltf = await p; _parsedGltfInflight.delete(url); _parsedGltfCache.set(url, gltf); _rawBytesCache.delete(url); if (_parsedGltfCache.size > 16) { const oldest = _parsedGltfCache.keys().next().value; _parsedGltfCache.delete(oldest) }; loadingMgr.completeDownload(url) }
+      else { const p = fetchCached(url).then(buf => gltfLoader.parseAsync(patchGLB(buf, url), '')); _parsedGltfInflight.set(url, p); gltf = await p; _parsedGltfInflight.delete(url); _parsedGltfCache.set(url, gltf); loadingMgr.completeDownload(url) }
       const model = gltf.scene.clone(true)
       const mp = entityState.position; model.position.set(mp[0], mp[1], mp[2])
       const mr = entityState.rotation; if (mr) model.quaternion.set(mr[0], mr[1], mr[2], mr[3])
@@ -176,6 +175,7 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
     pendingLoads.add(entityId); loadQueue.push({ entityId, entityState })
     _processLoadQueue(entityAppMap, firstSnapshotEntityPending, onFirstEntityLoaded, scheduleFitShadow, loadingScreenHidden)
   }
+
   function removeEntity(id) {
     const m = entityMeshes.get(id); if (!m) return
     scene.remove(m); m.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose() })
@@ -184,11 +184,11 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
   }
 
   async function prefetchModels(modelUrls, onProgress) {
-    const unique = modelUrls.map(u => u.startsWith('./') ? '/' + u.slice(2) : u).filter(u => !_rawBytesCache.has(u))
-    let done = 0; const total = unique.length; const BATCH = 6
+    const unique = modelUrls.map(u => u.startsWith('./') ? '/' + u.slice(2) : u).filter(u => !_parsedGltfCache.has(u) && !_parsedGltfInflight.has(u))
+    let done = 0; const total = unique.length; const BATCH = 4
     for (let i = 0; i < unique.length; i += BATCH) {
       await Promise.all(unique.slice(i, i + BATCH).map(async url => {
-        try { const buf = await fetchCached(url); _rawBytesCache.set(url, buf) }
+        try { if (!_parsedGltfInflight.has(url)) { const p = fetchCached(url).then(buf => gltfLoader.parseAsync(patchGLB(buf, url), '')); _parsedGltfInflight.set(url, p); const gltf = await p; _parsedGltfInflight.delete(url); _parsedGltfCache.set(url, gltf) } else await _parsedGltfInflight.get(url) }
         catch (e) { console.warn('[prefetch]', url, e.message) }
         if (onProgress) onProgress(++done, total)
       }))

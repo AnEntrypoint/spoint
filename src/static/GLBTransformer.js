@@ -64,7 +64,7 @@ export function getTransformed(filepath) {
   if (existsSync(cachePath) && existsSync(cacheMetaPath)) {
     try {
       const meta = JSON.parse(readFileSync(cacheMetaPath, 'utf8'))
-      if (meta.srcMtime === mtime && meta.v === 2) {
+      if (meta.srcMtime === mtime && meta.v === 3) {
         const cached = readFileSync(cachePath)
         _memCache.set(filepath, { mtime, buffer: cached })
         return cached
@@ -81,7 +81,7 @@ export function getTransformed(filepath) {
         const transformed = await transformGLB(inputBuf)
         if (transformed) {
           writeFileSync(cachePath, transformed)
-          writeFileSync(cacheMetaPath, JSON.stringify({ srcMtime: mtime, v: 2 }))
+          writeFileSync(cacheMetaPath, JSON.stringify({ srcMtime: mtime, v: 3 }))
           _memCache.set(filepath, { mtime, buffer: transformed })
           const pct = Math.round((1 - transformed.length / inputBuf.length) * 100)
           console.log(`[glb-transform] done ${basename(filepath)} ${(inputBuf.length/1024).toFixed(0)}KB → ${(transformed.length/1024).toFixed(0)}KB (${pct > 0 ? '-' : '+'}${Math.abs(pct)}%) in ${Date.now()-t0}ms`)
