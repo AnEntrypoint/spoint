@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.368](https://github.com/AnEntrypoint/spoint/compare/v0.1.367...v0.1.368) (2026-03-26)
+
+
+### Bug Fixes
+
+* defer LocalClient first snapshot to prevent singleplayer OOM crash ([c490d39](https://github.com/AnEntrypoint/spoint/commit/c490d39acc3298a5a7053af1c55ac1434dadf028))
+
 ### [0.1.367](https://github.com/AnEntrypoint/spoint/compare/v0.1.366...v0.1.367) (2026-03-26)
 
 
