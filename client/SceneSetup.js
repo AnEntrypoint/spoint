@@ -114,18 +114,8 @@ export async function warmupShaders(renderer, scene, camera, entityMeshes, playe
     if (obj.frustumCulled) { culled.push(obj); obj.frustumCulled = false }
     if (!obj.visible) { hidden.push(obj); obj.visible = true }
   })
-  const wCam = new THREE.PerspectiveCamera(90, 1, 0.01, 2000)
-  for (let i = 0; i < allMeshes.length; i++) {
-    const mesh = allMeshes[i]
-    const box = new THREE.Box3().setFromObject(mesh)
-    if (box.isEmpty()) continue
-    const center = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3()).length()
-    wCam.position.copy(center).addScaledVector(new THREE.Vector3(0, 0.3, 1), Math.max(size * 0.8, 0.5))
-    wCam.lookAt(center)
-    renderer.render(scene, wCam)
-    if ((i & 15) === 15) { loadingMgr.reportProcessing(i + 1, total); await new Promise(r => setTimeout(r, 0)) }
-  }
   try { await renderer.compileAsync(scene, camera) } catch (_) { try { renderer.compile(scene, camera) } catch (_2) {} }
+  loadingMgr.reportProcessing(Math.floor(total / 2), total)
   renderer.shadowMap.needsUpdate = true
   renderer.render(scene, camera)
   await new Promise(r => requestAnimationFrame(r))

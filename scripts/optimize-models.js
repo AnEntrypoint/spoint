@@ -16,7 +16,7 @@ import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import sharp from 'sharp'
 
-const MAX_TEX = 1024  // max texture edge length after downscale
+const MAX_TEX = 256  // max texture edge length after downscale
 const CONVERTIBLE = new Set(['image/webp', 'image/png', 'image/jpeg'])
 
 async function processGLB(inputBuf) {

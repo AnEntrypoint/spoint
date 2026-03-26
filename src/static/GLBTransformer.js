@@ -4,7 +4,7 @@ import { hasDraco, applyDraco } from './GLBDraco.js'
 import { applyKtx2 } from './GLBKtx2.js'
 
 const CACHE_DIR_NAME = '.glb-cache'
-const MAX_CONCURRENT = 8
+const MAX_CONCURRENT = 4
 let _active = 0
 const _waitQueue = []
 

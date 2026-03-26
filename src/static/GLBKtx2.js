@@ -29,13 +29,13 @@ export function sanitizeJson(json) {
 
 export async function imageToKtx2(imageBuffer, mode = 'basis-lz', tmpBase = 'tex') {
   let downscaled = null
-  try { downscaled = await sharp(imageBuffer).resize(1024, 1024, { fit: 'inside', withoutEnlargement: true }).png().toBuffer() } catch { }
+  try { downscaled = await sharp(imageBuffer).resize(256, 256, { fit: 'inside', withoutEnlargement: true }).png().toBuffer() } catch { }
   if (!existsSync(KTX_BIN)) return downscaled ? { buf: downscaled, mimeType: 'image/png' } : null
   const tmp = join(tmpdir(), `${tmpBase}-${Date.now()}-${Math.random().toString(36).slice(2)}`)
   const pngPath = tmp + '.png', ktxPath = tmp + '.ktx2'
   try {
     if (downscaled) await sharp(downscaled).toFile(pngPath)
-    else await sharp(imageBuffer).resize(1024, 1024, { fit: 'inside', withoutEnlargement: true }).png().toFile(pngPath)
+    else await sharp(imageBuffer).resize(256, 256, { fit: 'inside', withoutEnlargement: true }).png().toFile(pngPath)
     const result = spawnSync(KTX_BIN, ['create', '--format', 'R8G8B8A8_SRGB', '--encode', mode, '--generate-mipmap', pngPath, ktxPath], { timeout: 30000, windowsHide: true })
     if (result.status !== 0 || !existsSync(ktxPath)) return downscaled ? { buf: downscaled, mimeType: 'image/png' } : null
     return { buf: readFileSync(ktxPath), mimeType: 'image/ktx2' }
