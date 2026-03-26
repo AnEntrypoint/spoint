@@ -90,20 +90,29 @@ export async function applyKtx2(inputBuffer) {
     return { ...img, mimeType: replacements.get(bvIdx).mimeType }
   })
   const newTextures = (json.textures || []).map(tex => {
-    if (!hasKtx2) return tex
     const webpSrc = tex.extensions?.EXT_texture_webp?.source
     if (webpSrc !== undefined) {
-      const img = images[webpSrc]
-      if (!img || !CONVERTIBLE.has(img.mimeType) || !replacements.has(img.bufferView) || replacements.get(img.bufferView).mimeType !== 'image/ktx2') return tex
+      if (hasKtx2) {
+        const img = images[webpSrc]
+        if (img && CONVERTIBLE.has(img.mimeType) && replacements.has(img.bufferView) && replacements.get(img.bufferView).mimeType === 'image/ktx2') {
+          const { EXT_texture_webp, ...otherExts } = tex.extensions || {}
+          return { ...tex, source: undefined, extensions: { ...otherExts, KHR_texture_basisu: { source: webpSrc } } }
+        }
+      }
       const { EXT_texture_webp, ...otherExts } = tex.extensions || {}
-      return { ...tex, source: undefined, extensions: { ...otherExts, KHR_texture_basisu: { source: webpSrc } } }
+      const remainingExts = Object.keys(otherExts).length ? otherExts : undefined
+      return { ...tex, source: webpSrc, extensions: remainingExts }
     }
-    const plainSrc = tex.source
-    if (plainSrc !== undefined) {
-      const img = images[plainSrc]
-      if (!img || !CONVERTIBLE.has(img.mimeType) || img.mimeType === 'image/webp' || !replacements.has(img.bufferView) || replacements.get(img.bufferView).mimeType !== 'image/ktx2') return tex
-      return { ...tex, source: undefined, extensions: { ...(tex.extensions || {}), KHR_texture_basisu: { source: plainSrc } } }
+    if (hasKtx2) {
+      const plainSrc = tex.source
+      if (plainSrc !== undefined) {
+        const img = images[plainSrc]
+        if (img && CONVERTIBLE.has(img.mimeType) && img.mimeType !== 'image/webp' && replacements.has(img.bufferView) && replacements.get(img.bufferView).mimeType === 'image/ktx2') {
+          return { ...tex, source: undefined, extensions: { ...(tex.extensions || {}), KHR_texture_basisu: { source: plainSrc } } }
+        }
+      }
     }
+    if (tex.source === undefined) return { ...tex, source: 0, extensions: undefined }
     return tex
   })
   const extsUsed = hasKtx2 ? [...new Set([...(json.extensionsUsed || []).filter(e => e !== 'EXT_texture_webp'), 'KHR_texture_basisu'])] : (json.extensionsUsed || []).filter(e => e !== 'EXT_texture_webp')
