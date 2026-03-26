@@ -57,7 +57,8 @@ async function processGLB(inputBuf) {
     } catch { }
   }
 
-  if (replacements.size === 0) return null
+  const hasWebpTextures = (json.textures || []).some(t => t.extensions?.EXT_texture_webp?.source !== undefined)
+  if (replacements.size === 0 && !hasWebpTextures) return null
 
   // Rebuild binary section with replaced image buffers
   const sortedIdxs = Array.from({ length: bufferViews.length }, (_, i) => i)
@@ -94,8 +95,6 @@ async function processGLB(inputBuf) {
   const newTextures = (json.textures || []).map(tex => {
     const webpSrc = tex.extensions?.EXT_texture_webp?.source
     if (webpSrc === undefined) return tex
-    const img = images[webpSrc]
-    if (!img || !replacements.has(img.bufferView)) return tex
     const { EXT_texture_webp, ...otherExts } = tex.extensions || {}
     const remainingExts = Object.keys(otherExts).length ? otherExts : undefined
     return { ...tex, source: webpSrc, extensions: remainingExts }
