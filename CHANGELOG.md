@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.370](https://github.com/AnEntrypoint/spoint/compare/v0.1.369...v0.1.370) (2026-03-26)
+
+
+### Bug Fixes
+
+* reduce GPU memory pressure to prevent singleplayer OOM ([7820ba8](https://github.com/AnEntrypoint/spoint/commit/7820ba8d1d57db2534c5d9d2586a0b5d1ddf8146))
+
 ### [0.1.369](https://github.com/AnEntrypoint/spoint/compare/v0.1.368...v0.1.369) (2026-03-26)
 
 
