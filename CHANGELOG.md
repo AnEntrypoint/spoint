@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.365](https://github.com/AnEntrypoint/spoint/compare/v0.1.364...v0.1.365) (2026-03-26)
+
+
+### Bug Fixes
+
+* always promote EXT_texture_webp sources during build optimization ([abe8e21](https://github.com/AnEntrypoint/spoint/commit/abe8e21b2446281480e97368e7715b54f1f31c2a))
+
 ### [0.1.364](https://github.com/AnEntrypoint/spoint/compare/v0.1.363...v0.1.364) (2026-03-26)
 
 
