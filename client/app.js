@@ -106,16 +106,25 @@ let client; const _clientConfig = {
   debug: false
 }
 const _spRaycaster = new THREE.Raycaster(), _spRayDir = new THREE.Vector3(0, -1, 0), _spRayOrigin = new THREE.Vector3()
-let _spMeshCache = null, _spMeshCacheSize = 0, _spLastGroundY = null, _spRayDirty = true
+let _spMeshCache = null, _spMeshCacheSize = 0, _spLastGroundY = null, _spRayDirty = true, _spLastRayTime = 0
 function _spGroundRaycast(x, y, z) {
   if (_spMeshCache === null || el.entityMeshes.size !== _spMeshCacheSize) {
     _spMeshCache = []; _spMeshCacheSize = el.entityMeshes.size
-    el.entityMeshes.forEach(root => root.traverse(o => { if (o.isMesh && !o.isSkinnedMesh) _spMeshCache.push(o) }))
+    el.entityMeshes.forEach(root => {
+      if (root.isLOD) {
+        // only use highest-detail LOD level (level 0) to avoid 3x triangle duplication
+        const lvl = root.levels?.[0]?.object
+        if (lvl) lvl.traverse(o => { if (o.isMesh && !o.isSkinnedMesh && o.geometry?.attributes?.position) _spMeshCache.push(o) })
+      } else {
+        root.traverse(o => { if (o.isMesh && !o.isSkinnedMesh && o.geometry?.attributes?.position) _spMeshCache.push(o) })
+      }
+    })
     _spRayDirty = true
   }
   if (_spMeshCache.length === 0) return null
-  if (!_spRayDirty) return _spLastGroundY
-  _spRayDirty = false
+  const now = performance.now()
+  if (!_spRayDirty && now - _spLastRayTime < 50) return _spLastGroundY
+  _spRayDirty = false; _spLastRayTime = now
   _spRayOrigin.set(x, y + 2, z); _spRaycaster.set(_spRayOrigin, _spRayDir); _spRaycaster.far = 200
   const hits = _spRaycaster.intersectObjects(_spMeshCache, false)
   _spLastGroundY = hits.length > 0 ? hits[0].point.y : null
