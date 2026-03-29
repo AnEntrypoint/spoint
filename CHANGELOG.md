@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.373](https://github.com/AnEntrypoint/spoint/compare/v0.1.372...v0.1.373) (2026-03-29)
+
+
+### Bug Fixes
+
+* rate-limit singleplayer ground raycast to once per render frame ([331b37e](https://github.com/AnEntrypoint/spoint/commit/331b37e39233e258534d10d4c62cf44ba9439358))
+
 ### [0.1.372](https://github.com/AnEntrypoint/spoint/compare/v0.1.371...v0.1.372) (2026-03-29)
 
 
