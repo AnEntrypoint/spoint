@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.377](https://github.com/AnEntrypoint/spoint/compare/v0.1.376...v0.1.377) (2026-03-29)
+
+
+### Bug Fixes
+
+* eliminate singleplayer player jitter by extrapolating in LocalClient.getLocalState ([a3fd900](https://github.com/AnEntrypoint/spoint/commit/a3fd90093fc5d4f36c4036c61b2c3ceb8dd59678))
+
 ### [0.1.376](https://github.com/AnEntrypoint/spoint/compare/v0.1.375...v0.1.376) (2026-03-29)
 
 
