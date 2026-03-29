@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.379](https://github.com/AnEntrypoint/spoint/compare/v0.1.378...v0.1.379) (2026-03-29)
+
+
+### Bug Fixes
+
+* prevent OOM from singleplayer raycast — only use LOD level 0, throttle to 20Hz ([f8e3cda](https://github.com/AnEntrypoint/spoint/commit/f8e3cdad38da6e0bcb7c821455eac7024f42b01a))
+
 ### [0.1.378](https://github.com/AnEntrypoint/spoint/compare/v0.1.377...v0.1.378) (2026-03-29)
 
 
