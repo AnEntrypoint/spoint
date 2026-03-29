@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.371](https://github.com/AnEntrypoint/spoint/compare/v0.1.370...v0.1.371) (2026-03-29)
+
+
+### Bug Fixes
+
+* singleplayer physics — raycast against map mesh for ground detection ([a6c5918](https://github.com/AnEntrypoint/spoint/commit/a6c5918cb839a277e882d59b818e269f01bb4144))
+
 ### [0.1.370](https://github.com/AnEntrypoint/spoint/compare/v0.1.369...v0.1.370) (2026-03-26)
 
 
