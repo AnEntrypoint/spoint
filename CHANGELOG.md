@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.378](https://github.com/AnEntrypoint/spoint/compare/v0.1.377...v0.1.378) (2026-03-29)
+
+
+### Bug Fixes
+
+* eliminate singleplayer jitter by stepping physics in rAF loop; fix walk animation speed for 3x scaled map ([95eb1d2](https://github.com/AnEntrypoint/spoint/commit/95eb1d23c5d06380a8d2e69b719959b6e2367944))
+
 ### [0.1.377](https://github.com/AnEntrypoint/spoint/compare/v0.1.376...v0.1.377) (2026-03-29)
 
 
