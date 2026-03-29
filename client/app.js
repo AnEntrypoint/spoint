@@ -106,7 +106,7 @@ let client; const _clientConfig = {
   debug: false
 }
 const _spRaycaster = new THREE.Raycaster(), _spRayDir = new THREE.Vector3(0, -1, 0), _spRayOrigin = new THREE.Vector3()
-let _spMeshCache = null, _spMeshCacheSize = 0, _spLastGroundY = null, _spLastRayX = null, _spLastRayZ = null, _spRayDirty = true
+let _spMeshCache = null, _spMeshCacheSize = 0, _spLastGroundY = null, _spRayDirty = true
 function _spGroundRaycast(x, y, z) {
   if (_spMeshCache === null || el.entityMeshes.size !== _spMeshCacheSize) {
     _spMeshCache = []; _spMeshCacheSize = el.entityMeshes.size
@@ -114,10 +114,8 @@ function _spGroundRaycast(x, y, z) {
     _spRayDirty = true
   }
   if (_spMeshCache.length === 0) return null
-  const airborne = _spLastGroundY === null || y > _spLastGroundY + 0.1
-  const moved = _spLastRayX === null || Math.abs(x - _spLastRayX) > 0.01 || Math.abs(z - _spLastRayZ) > 0.01
-  if (!_spRayDirty && !moved && !airborne) return _spLastGroundY
-  _spRayDirty = false; _spLastRayX = x; _spLastRayZ = z
+  if (!_spRayDirty) return _spLastGroundY
+  _spRayDirty = false
   _spRayOrigin.set(x, y + 2, z); _spRaycaster.set(_spRayOrigin, _spRayDir); _spRaycaster.far = 200
   const hits = _spRaycaster.intersectObjects(_spMeshCache, false)
   _spLastGroundY = hits.length > 0 ? hits[0].point.y : null
