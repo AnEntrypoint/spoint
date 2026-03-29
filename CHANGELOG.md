@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.374](https://github.com/AnEntrypoint/spoint/compare/v0.1.373...v0.1.374) (2026-03-29)
+
+
+### Bug Fixes
+
+* singleplayer raycast fires when airborne and extends far to 200 ([bf12ce1](https://github.com/AnEntrypoint/spoint/commit/bf12ce13e475ff4b7dd2d2a2521cad4caf2459df))
+
 ### [0.1.373](https://github.com/AnEntrypoint/spoint/compare/v0.1.372...v0.1.373) (2026-03-29)
 
 
