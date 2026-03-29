@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.376](https://github.com/AnEntrypoint/spoint/compare/v0.1.375...v0.1.376) (2026-03-29)
+
+
+### Bug Fixes
+
+* smooth local player mesh to eliminate physics tick sawtooth jitter; fix entity culling to scale with mesh scale ([2ec6ca8](https://github.com/AnEntrypoint/spoint/commit/2ec6ca811cd74fbfa65beb616a2cdd6fbcf4c20a))
+
 ### [0.1.375](https://github.com/AnEntrypoint/spoint/compare/v0.1.374...v0.1.375) (2026-03-29)
 
 
