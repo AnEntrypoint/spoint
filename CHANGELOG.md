@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.372](https://github.com/AnEntrypoint/spoint/compare/v0.1.371...v0.1.372) (2026-03-29)
+
+
+### Bug Fixes
+
+* eliminate per-frame jitter for local player at high FPS ([382a3b5](https://github.com/AnEntrypoint/spoint/commit/382a3b5c78cb824ff4cd404e652efed467a67b87))
+
 ### [0.1.371](https://github.com/AnEntrypoint/spoint/compare/v0.1.370...v0.1.371) (2026-03-29)
 
 
