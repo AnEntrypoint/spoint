@@ -76,9 +76,10 @@ export class LocalClient {
       scale: [...(e.scale || [1, 1, 1])]
     }))
     this._entities = entities
+    this._accumulator = 0
+    this._lastStepTime = null
     await new Promise(r => setTimeout(r, 500))
     this.callbacks.onStateUpdate({ players: [{ ...ps }], entities })
-    this._tickTimer = setInterval(() => this._doTick(), TICK_DT * 1000)
   }
 
   _doTick() {
@@ -125,6 +126,18 @@ export class LocalClient {
     this.callbacks.onStateUpdate({ players: snap.players, entities: snap.entities })
   }
 
+  step(now) {
+    if (this._lastStepTime === null) { this._lastStepTime = now; return }
+    this._accumulator += (now - this._lastStepTime) / 1000
+    this._lastStepTime = now
+    let steps = 0
+    while (this._accumulator >= TICK_DT && steps < 4) {
+      this._accumulator -= TICK_DT
+      this._doTick()
+      steps++
+    }
+  }
+
   sendInput(input) {
     this._lastInput = input
     this._inputSeq++
@@ -152,7 +165,6 @@ export class LocalClient {
 
   disconnect() {
     this.connected = false
-    if (this._tickTimer) { clearInterval(this._tickTimer); this._tickTimer = null }
     this.callbacks.onDisconnect()
   }
 }

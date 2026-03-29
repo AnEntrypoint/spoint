@@ -192,8 +192,8 @@ function tickAnimatedEntities(frameDt) {
 function animate(ts) {
   const now=ts||performance.now(), frameDt=Math.min(Math.max((now-lastFrameTime)/1000,0.001),0.1); lastFrameTime=now
   fpsFrames++; if (now-fpsLast>=1000) { fpsDisplay=fpsFrames; fpsFrames=0; fpsLast=now }
+  if (_isSingleplayer) { client.step(now); _spRayDirty = true }
   const lerpFactor=1.0-Math.exp(-((client.getRTT?.()>100?24:16))*frameDt), ss=client.getSmoothState(now), lid=client.playerId
-  if (_isSingleplayer) _spRayDirty = true
   updatePlayerPositions(ss.players, lid, frameDt)
   if (_hierarchyDirty&&ss.entities.length>0) { el.rebuildEntityHierarchy(ss.entities); _hierarchyDirty=false }
   tickPlayerAnimators(lid, frameDt)
