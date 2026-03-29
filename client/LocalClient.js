@@ -118,7 +118,8 @@ export class LocalClient {
     if (ps.position[1] <= floorY) { ps.position[1] = floorY; ps.velocity[1] = 0; ps.onGround = true } else { ps.onGround = false }
     ps.inputSequence = this._inputSeq
     this._tick++
-    const snap = { tick: this._tick, players: [{ ...ps, position: [...ps.position], velocity: [...ps.velocity], rotation: [...ps.rotation] }], entities: this._entities, serverTime: performance.now() }
+    this._lastTickTime = performance.now()
+    const snap = { tick: this._tick, players: [{ ...ps, position: [...ps.position], velocity: [...ps.velocity], rotation: [...ps.rotation] }], entities: this._entities, serverTime: this._lastTickTime }
     this._snapshots.push(snap)
     if (this._snapshots.length > 8) this._snapshots.shift()
     this.callbacks.onStateUpdate({ players: snap.players, entities: snap.entities })
@@ -138,7 +139,10 @@ export class LocalClient {
     return snap ? { players: snap.players, entities: snap.entities } : { players: [], entities: [] }
   }
 
-  getLocalState() { return { ...this._playerState, position: [...this._playerState.position], velocity: [...this._playerState.velocity] } }
+  getLocalState() {
+    const ps = this._playerState, dt = Math.min((performance.now() - (this._lastTickTime || performance.now())) / 1000, TICK_DT * 2)
+    return { ...ps, position: [ps.position[0] + ps.velocity[0] * dt, ps.position[1] + ps.velocity[1] * dt, ps.position[2] + ps.velocity[2] * dt], velocity: [...ps.velocity] }
+  }
   getRemoteState() { return null }
   getAllStates() { const m = new Map(); m.set(PLAYER_ID, this._playerState); return m }
   getEntity(id) { return this._entities?.find(e => e.id === id) }
