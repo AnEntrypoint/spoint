@@ -7,6 +7,7 @@ const GRAVITY = -18
 export class LocalClient {
   constructor(config = {}) {
     this.config = config
+    this._groundRaycast = config.groundRaycast || null
     this.connected = false
     this._worldDef = null
     this._tickTimer = null
@@ -57,6 +58,8 @@ export class LocalClient {
     const mv = { ...DEFAULT_MOVEMENT, ...(worldDef.movement || {}) }
     this._movement = mv
     this._gravity = (worldDef.gravity?.[1] ?? GRAVITY)
+    const pc = worldDef.player || {}
+    this._capsuleBottom = (pc.capsuleHalfHeight ?? 0.63) + (pc.capsuleRadius ?? 0.28)
     const ps = this._playerState
     ps.position[0] = spawn[0]; ps.position[1] = spawn[1]; ps.position[2] = spawn[2]
     this.connected = true
@@ -109,7 +112,10 @@ export class LocalClient {
     ps.position[0] += ps.velocity[0] * dt
     ps.position[1] += ps.velocity[1] * dt
     ps.position[2] += ps.velocity[2] * dt
-    if (ps.position[1] <= -15.0) { ps.position[1] = -15.0; ps.velocity[1] = 0; ps.onGround = true } else { ps.onGround = false }
+    const capsuleBottom = this._capsuleBottom ?? 0.91
+    const groundY = this._groundRaycast ? this._groundRaycast(ps.position[0], ps.position[1] - capsuleBottom, ps.position[2]) : null
+    const floorY = (groundY !== null ? groundY + capsuleBottom : -15.0)
+    if (ps.position[1] <= floorY) { ps.position[1] = floorY; ps.velocity[1] = 0; ps.onGround = true } else { ps.onGround = false }
     ps.inputSequence = this._inputSeq
     this._tick++
     const snap = { tick: this._tick, players: [{ ...ps, position: [...ps.position], velocity: [...ps.velocity], rotation: [...ps.rotation] }], entities: this._entities, serverTime: performance.now() }

@@ -105,7 +105,19 @@ let client; const _clientConfig = {
   onMessage: (type,payload) => { if (type===MSG.APP_LIST) editPanel.updateApps(payload.apps); else if (type===MSG.SOURCE) editPanel.openCode(payload.appName,payload.file||'index.js',payload.source); else if (type===MSG.SCENE_GRAPH) editPanel.updateScene(payload.entities); else if (type===MSG.APP_FILES) editPanel.updateAppFiles(payload.appName,payload.files); else if (type===MSG.EDITOR_PROPS) { const mesh=el.entityMeshes.get(payload.entityId); if (mesh) editPanel.showEntity(_buildEntityData(payload.entityId,mesh),payload.editorProps||[]) } else if (type===MSG.EVENT_LOG_DATA) editPanel.updateEventLog(payload.events) },
   debug: false
 }
-client = _isSingleplayer ? new LocalClient({worldDef: await fetch('/spoint/singleplayer-world.json').then(r=>r.json()).catch(()=>({})),..._clientConfig}) : new PhysicsNetworkClient(_clientConfig)
+const _spRaycaster = new THREE.Raycaster(), _spRayDir = new THREE.Vector3(0, -1, 0), _spRayOrigin = new THREE.Vector3()
+let _spMeshCache = null, _spMeshCacheSize = 0
+function _spGroundRaycast(x, y, z) {
+  if (_spMeshCache === null || el.entityMeshes.size !== _spMeshCacheSize) {
+    _spMeshCache = []; _spMeshCacheSize = el.entityMeshes.size
+    el.entityMeshes.forEach(root => root.traverse(o => { if (o.isMesh) _spMeshCache.push(o) }))
+  }
+  if (_spMeshCache.length === 0) return null
+  _spRayOrigin.set(x, y + 2, z); _spRaycaster.set(_spRayOrigin, _spRayDir); _spRaycaster.far = 30
+  const hits = _spRaycaster.intersectObjects(_spMeshCache, false)
+  return hits.length > 0 ? hits[0].point.y : null
+}
+client = _isSingleplayer ? new LocalClient({worldDef: await fetch('/spoint/singleplayer-world.json').then(r=>r.json()).catch(()=>{}), groundRaycast: _spGroundRaycast, ..._clientConfig}) : new PhysicsNetworkClient(_clientConfig)
 const editPanel = createEditPanel({
   onPlace: appName => { const local=pm.playerStates.get(client.playerId),yaw=local?.yaw||0,pos=local?[local.position[0]+Math.sin(yaw)*2,local.position[1],local.position[2]+Math.cos(yaw)*2]:[0,0,2]; client.send(MSG.PLACE_APP,{appName,position:pos,config:{}}) },
   onSave: (app,file,src) => client.send(MSG.SAVE_SOURCE,{appName:app,file,source:src}),
