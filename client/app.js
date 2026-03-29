@@ -79,7 +79,7 @@ let client; const _clientConfig = {
       if (mesh&&e.position) { const et=el.entityTargets.get(e.id),vx=e.velocity?.[0]||0,vy=e.velocity?.[1]||0,vz=e.velocity?.[2]||0; if (et) { et.x=e.position[0];et.y=e.position[1];et.z=e.position[2];et.vx=vx;et.vy=vy;et.vz=vz;et.rx=e.rotation?.[0]||0;et.ry=e.rotation?.[1]||0;et.rz=e.rotation?.[2]||0;et.rw=e.rotation?.[3]||1 } else el.entityTargets.set(e.id,{x:e.position[0],y:e.position[1],z:e.position[2],vx,vy,vz,rx:e.rotation?.[0]||0,ry:e.rotation?.[1]||0,rz:e.rotation?.[2]||0,rw:e.rotation?.[3]||1}); _dirty.add(e.id); const dx=e.position[0]-mesh.position.x,dy=e.position[1]-mesh.position.y,dz=e.position[2]-mesh.position.z; if (!mesh.userData.entInit||dx*dx+dy*dy+dz*dz>100) { mesh.position.set(e.position[0],e.position[1],e.position[2]); if (e.rotation) mesh.quaternion.set(e.rotation[0],e.rotation[1],e.rotation[2],e.rotation[3]); mesh.userData.entInit=true } }
       if (!el.entityMeshes.has(e.id)) el.loadEntityModel(e.id,e,entityAppMap,firstSnapshotEntityPending,onFirstEntityLoaded,_scheduleFitShadow,loadingScreenHidden)
     }
-    latestState=state; if (!firstSnapshotReceived) { firstSnapshotReceived=true; for (const e of state.entities) { if (e.model&&!el.entityMeshes.has(e.id)) firstSnapshotEntityPending.add(e.id) }; checkAllLoaded() }
+    _lastStateTime=performance.now(); latestState=state; if (!firstSnapshotReceived) { firstSnapshotReceived=true; for (const e of state.entities) { if (e.model&&!el.entityMeshes.has(e.id)) firstSnapshotEntityPending.add(e.id) }; checkAllLoaded() }
   },
   onPlayerJoined: id => { if (!pm.playerMeshes.has(id)) pm.createPlayerVRM(id,vrmBuffer,animAssets,worldConfig,client.playerId) },
   onPlayerLeft: id => pm.removePlayerMesh(id),
@@ -136,7 +136,7 @@ const _undoStack=[],_redoStack=[]; editor.onTransformCommit(r=>{_undoStack.push(
 editPanel.onEditorChange((key,value) => { if (!editor.selectedEntityId) return; const changes=key==='collider'?{custom:{_collider:value}}:key.startsWith('custom.')?{custom:{[key.slice(7)]:value}}:key==='_rotEuler'?{rotation:editor.eulerDegToQuat(value)}:{[key]:value}; const mesh=el.entityMeshes.get(editor.selectedEntityId); if (mesh) { if (changes.position) mesh.position.set(...changes.position); if (changes.rotation) mesh.quaternion.set(...changes.rotation); if (changes.scale) mesh.scale.set(...changes.scale); editor.updateGizmo() }; editor.sendEditorUpdate(changes) })
 document.addEventListener('keydown', e => { if(e.ctrlKey&&e.code==='KeyZ'&&!e.shiftKey){e.preventDefault();const r=_undoStack.pop();if(r){_redoStack.push(r);client.send(MSG.EDITOR_UPDATE,{entityId:r.entityId,changes:r.before})}}else if(e.ctrlKey&&(e.code==='KeyY'||(e.shiftKey&&e.code==='KeyZ'))){e.preventDefault();const r=_redoStack.pop();if(r){_undoStack.push(r);client.send(MSG.EDITOR_UPDATE,{entityId:r.entityId,changes:r.after})}}; editor.onKeyDown(e); ams.dispatchKeyDown(e,engineCtx) }); document.addEventListener('keyup', e => ams.dispatchKeyUp(e,engineCtx))
 if (!_isSingleplayer) client.send(MSG.LIST_APPS, {}); xrSystem.setupSessionListeners(id=>pm.playerStates.get(id), ()=>client.playerId, { get yaw() { return cam.yaw } })
-let inputHandler=null, inputLoopId=null, latestState=null, latestInput=null, lastShootState=false, lastHealth=100, _hierarchyDirty=false, fpsFrames=0, fpsLast=performance.now(), fpsDisplay=0, uiTimer=0, lastFrameTime=performance.now(), _lodCullAt=0, _shadowDirty=true, _shadowLastUpdate=0, _profileFrames=0, _profileSum=0; const _dirty=new Set(), _sinTable=Array(360).fill(0).map((_,i)=>Math.sin(i*Math.PI/180)), _PLAYER_VIS_D2=6400
+let inputHandler=null, inputLoopId=null, latestState=null, latestInput=null, lastShootState=false, lastHealth=100, _hierarchyDirty=false, fpsFrames=0, fpsLast=performance.now(), fpsDisplay=0, uiTimer=0, lastFrameTime=performance.now(), _lodCullAt=0, _shadowDirty=true, _shadowLastUpdate=0, _profileFrames=0, _profileSum=0, _lastStateTime=performance.now(); const _dirty=new Set(), _sinTable=Array(360).fill(0).map((_,i)=>Math.sin(i*Math.PI/180)), _PLAYER_VIS_D2=6400
 function startInputLoop() {
   if (inputLoopId) return
   inputHandler=InputHandler({ renderer, snapTurnAngle: xrSystem.vrSettings.snapTurnAngle, smoothTurnSpeed: xrSystem.vrSettings.smoothTurnSpeed, onMenuPressed: ()=>{ if (xrSystem.isPresenting) xrSystem.toggleSettings() } }); if (mobileControls) inputHandler.setMobileControls(mobileControls)
@@ -157,10 +157,10 @@ document.addEventListener('pointerlockchange', ()=>{ const locked=document.point
 renderer.domElement.addEventListener('wheel', cam.onWheel, { passive: false }); renderer.domElement.addEventListener('mousedown', e=>ams.dispatchMouseDown(e,engineCtx)); renderer.domElement.addEventListener('mouseup', e=>ams.dispatchMouseUp(e,engineCtx)); renderer.domElement.addEventListener('contextmenu', e=>e.preventDefault())
 window.addEventListener('resize', ()=>{ camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth,window.innerHeight) })
 createFileDropLoader(scene, gltfLoader, cam, pm.playerStates, ams.appModules, engineCtx).setupDropListeners(renderer.domElement)
-function updatePlayerPositions(players, lid, frameDt) {
+function updatePlayerPositions(players, lid, frameDt, extrapolateLocal) {
   for (const p of players) {
     if (!pm.playerMeshes.has(p.id)) continue; const mesh=pm.playerMeshes.get(p.id), fo=mesh?.userData?.feetOffset??0.91; let tx,ty,tz,vx=0,vy=0,vz=0
-    if (p.id===lid) { const lc=client.getLocalState(); tx=(lc?.position||p.position)[0]; ty=(lc?.position||p.position)[1]-fo; tz=(lc?.position||p.position)[2] }
+    if (p.id===lid) { const lc=client.getLocalState(); const lp=lc?.position||p.position; vx=lc?.velocity?.[0]||0;vy=lc?.velocity?.[1]||0;vz=lc?.velocity?.[2]||0; tx=lp[0]+vx*extrapolateLocal; ty=lp[1]-fo+vy*extrapolateLocal; tz=lp[2]+vz*extrapolateLocal }
     else { vx=p.velocity?.[0]||0;vy=p.velocity?.[1]||0;vz=p.velocity?.[2]||0; tx=p.position[0]+vx*frameDt;ty=p.position[1]-fo+vy*frameDt;tz=p.position[2]+vz*frameDt }
     if (!mesh.userData.initialized) { mesh.position.set(tx,ty,tz); mesh.userData.initialized=true } else { mesh.position.x=tx;mesh.position.y=ty;mesh.position.z=tz }
     const ex=pm.playerTargets.get(p.id); if (!ex) pm.playerTargets.set(p.id,{x:tx,y:ty,z:tz,vx,vy,vz}); else { if (ex.x!==tx||ex.z!==tz) _shadowDirty=true; ex.x=tx;ex.y=ty;ex.z=tz;ex.vx=vx;ex.vy=vy;ex.vz=vz }; pm.playerStates.set(p.id,p)
@@ -189,7 +189,7 @@ function animate(ts) {
   const now=ts||performance.now(), frameDt=Math.min(Math.max((now-lastFrameTime)/1000,0.001),0.1); lastFrameTime=now
   fpsFrames++; if (now-fpsLast>=1000) { fpsDisplay=fpsFrames; fpsFrames=0; fpsLast=now }
   const lerpFactor=1.0-Math.exp(-((client.getRTT?.()>100?24:16))*frameDt), ss=client.getSmoothState(now), lid=client.playerId
-  updatePlayerPositions(ss.players, lid, frameDt)
+  updatePlayerPositions(ss.players, lid, frameDt, Math.min((now-_lastStateTime)/1000, 0.1))
   if (_hierarchyDirty&&ss.entities.length>0) { el.rebuildEntityHierarchy(ss.entities); _hierarchyDirty=false }
   tickPlayerAnimators(lid, frameDt)
   updateEntityPositions(frameDt, lerpFactor)
