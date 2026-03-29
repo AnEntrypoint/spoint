@@ -106,16 +106,21 @@ let client; const _clientConfig = {
   debug: false
 }
 const _spRaycaster = new THREE.Raycaster(), _spRayDir = new THREE.Vector3(0, -1, 0), _spRayOrigin = new THREE.Vector3()
-let _spMeshCache = null, _spMeshCacheSize = 0
+let _spMeshCache = null, _spMeshCacheSize = 0, _spLastGroundY = null, _spLastRayX = null, _spLastRayZ = null, _spRayDirty = true
 function _spGroundRaycast(x, y, z) {
   if (_spMeshCache === null || el.entityMeshes.size !== _spMeshCacheSize) {
     _spMeshCache = []; _spMeshCacheSize = el.entityMeshes.size
-    el.entityMeshes.forEach(root => root.traverse(o => { if (o.isMesh) _spMeshCache.push(o) }))
+    el.entityMeshes.forEach(root => root.traverse(o => { if (o.isMesh && !o.isSkinnedMesh) _spMeshCache.push(o) }))
+    _spRayDirty = true
   }
   if (_spMeshCache.length === 0) return null
+  const moved = _spLastRayX === null || Math.abs(x - _spLastRayX) > 0.01 || Math.abs(z - _spLastRayZ) > 0.01
+  if (!_spRayDirty && !moved) return _spLastGroundY
+  _spRayDirty = false; _spLastRayX = x; _spLastRayZ = z
   _spRayOrigin.set(x, y + 2, z); _spRaycaster.set(_spRayOrigin, _spRayDir); _spRaycaster.far = 30
   const hits = _spRaycaster.intersectObjects(_spMeshCache, false)
-  return hits.length > 0 ? hits[0].point.y : null
+  _spLastGroundY = hits.length > 0 ? hits[0].point.y : null
+  return _spLastGroundY
 }
 client = _isSingleplayer ? new LocalClient({worldDef: await fetch('/spoint/singleplayer-world.json').then(r=>r.json()).catch(()=>{}), groundRaycast: _spGroundRaycast, ..._clientConfig}) : new PhysicsNetworkClient(_clientConfig)
 const editPanel = createEditPanel({
@@ -189,6 +194,7 @@ function animate(ts) {
   const now=ts||performance.now(), frameDt=Math.min(Math.max((now-lastFrameTime)/1000,0.001),0.1); lastFrameTime=now
   fpsFrames++; if (now-fpsLast>=1000) { fpsDisplay=fpsFrames; fpsFrames=0; fpsLast=now }
   const lerpFactor=1.0-Math.exp(-((client.getRTT?.()>100?24:16))*frameDt), ss=client.getSmoothState(now), lid=client.playerId
+  if (_isSingleplayer) _spRayDirty = true
   updatePlayerPositions(ss.players, lid, frameDt, Math.min((now-_lastStateTime)/1000, 0.1))
   if (_hierarchyDirty&&ss.entities.length>0) { el.rebuildEntityHierarchy(ss.entities); _hierarchyDirty=false }
   tickPlayerAnimators(lid, frameDt)
