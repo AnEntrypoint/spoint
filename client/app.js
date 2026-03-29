@@ -166,7 +166,7 @@ function updatePlayerPositions(players, lid, frameDt, extrapolateLocal) {
     if (!pm.playerMeshes.has(p.id)) continue; const mesh=pm.playerMeshes.get(p.id), fo=mesh?.userData?.feetOffset??0.91; let tx,ty,tz,vx=0,vy=0,vz=0
     if (p.id===lid) { const lc=client.getLocalState(); const lp=lc?.position||p.position; vx=lc?.velocity?.[0]||0;vy=lc?.velocity?.[1]||0;vz=lc?.velocity?.[2]||0; tx=lp[0]+vx*extrapolateLocal; ty=lp[1]-fo+vy*extrapolateLocal; tz=lp[2]+vz*extrapolateLocal }
     else { vx=p.velocity?.[0]||0;vy=p.velocity?.[1]||0;vz=p.velocity?.[2]||0; tx=p.position[0]+vx*frameDt;ty=p.position[1]-fo+vy*frameDt;tz=p.position[2]+vz*frameDt }
-    if (!mesh.userData.initialized) { mesh.position.set(tx,ty,tz); mesh.userData.initialized=true } else { mesh.position.x=tx;mesh.position.y=ty;mesh.position.z=tz }
+    if (!mesh.userData.initialized) { mesh.position.set(tx,ty,tz); mesh.userData.initialized=true } else { const lf=p.id===lid?Math.min(1,frameDt*30):1; mesh.position.x+=(tx-mesh.position.x)*lf;mesh.position.y+=(ty-mesh.position.y)*lf;mesh.position.z+=(tz-mesh.position.z)*lf }
     const ex=pm.playerTargets.get(p.id); if (!ex) pm.playerTargets.set(p.id,{x:tx,y:ty,z:tz,vx,vy,vz}); else { if (ex.x!==tx||ex.z!==tz) _shadowDirty=true; ex.x=tx;ex.y=ty;ex.z=tz;ex.vx=vx;ex.vy=vy;ex.vz=vz }; pm.playerStates.set(p.id,p)
   }
 }

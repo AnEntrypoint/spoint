@@ -103,7 +103,7 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
   }
 
   function updateVisibility(camera) {
-    const cp = camera.position; for (const mesh of entityMeshes.values()) { const cfg = LOD_CONFIGS[mesh.userData?.mesh] || LOD_CONFIGS.default; const d2 = (mesh.position.x-cp.x)**2 + (mesh.position.y-cp.y)**2 + (mesh.position.z-cp.z)**2; mesh.visible = d2 <= cfg.skipBeyond * cfg.skipBeyond; if (mesh.isLOD && mesh.visible) mesh.update(camera) }
+    const cp = camera.position; for (const mesh of entityMeshes.values()) { const cfg = LOD_CONFIGS[mesh.userData?.mesh] || LOD_CONFIGS.default; const sc = mesh.scale; const maxSc = sc.x > sc.y ? (sc.x > sc.z ? sc.x : sc.z) : (sc.y > sc.z ? sc.y : sc.z); const skip = cfg.skipBeyond * Math.max(1, maxSc); const d2 = (mesh.position.x-cp.x)**2 + (mesh.position.y-cp.y)**2 + (mesh.position.z-cp.z)**2; mesh.visible = d2 <= skip * skip; if (mesh.isLOD && mesh.visible) mesh.update(camera) }
   }
 
   async function _doLoadEntityModel(entityId, entityState, entityAppMap, firstSnapshotEntityPending, onFirstEntityLoaded, scheduleFitShadow, loadingScreenHidden) {
