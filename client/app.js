@@ -114,10 +114,11 @@ function _spGroundRaycast(x, y, z) {
     _spRayDirty = true
   }
   if (_spMeshCache.length === 0) return null
+  const airborne = _spLastGroundY === null || y > _spLastGroundY + 0.1
   const moved = _spLastRayX === null || Math.abs(x - _spLastRayX) > 0.01 || Math.abs(z - _spLastRayZ) > 0.01
-  if (!_spRayDirty && !moved) return _spLastGroundY
+  if (!_spRayDirty && !moved && !airborne) return _spLastGroundY
   _spRayDirty = false; _spLastRayX = x; _spLastRayZ = z
-  _spRayOrigin.set(x, y + 2, z); _spRaycaster.set(_spRayOrigin, _spRayDir); _spRaycaster.far = 30
+  _spRayOrigin.set(x, y + 2, z); _spRaycaster.set(_spRayOrigin, _spRayDir); _spRaycaster.far = 200
   const hits = _spRaycaster.intersectObjects(_spMeshCache, false)
   _spLastGroundY = hits.length > 0 ? hits[0].point.y : null
   return _spLastGroundY
