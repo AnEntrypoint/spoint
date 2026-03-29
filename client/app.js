@@ -106,25 +106,24 @@ let client; const _clientConfig = {
   debug: false
 }
 const _spRaycaster = new THREE.Raycaster(), _spRayDir = new THREE.Vector3(0, -1, 0), _spRayOrigin = new THREE.Vector3()
-let _spMeshCache = null, _spMeshCacheSize = 0, _spLastGroundY = null, _spRayDirty = true, _spLastRayTime = 0
+let _spMeshCache = null, _spMeshCacheSize = 0, _spBvhCount = 0, _spLastGroundY = null, _spRayDirty = true, _spLastRayTime = 0
+function _spRebuildMeshCache() {
+  let bvhCount = 0, meshes = []
+  el.entityMeshes.forEach(root => {
+    const lvlRoot = root.isLOD ? root.levels?.[0]?.object : root
+    if (lvlRoot) lvlRoot.traverse(o => { if (o.isMesh && !o.isSkinnedMesh && o.geometry?.boundsTree) { meshes.push(o); bvhCount++ } })
+  })
+  _spMeshCache = meshes; _spMeshCacheSize = el.entityMeshes.size; _spBvhCount = bvhCount
+}
 function _spGroundRaycast(x, y, z) {
-  if (_spMeshCache === null || el.entityMeshes.size !== _spMeshCacheSize) {
-    _spMeshCache = []; _spMeshCacheSize = el.entityMeshes.size
-    el.entityMeshes.forEach(root => {
-      if (root.isLOD) {
-        // only use highest-detail LOD level (level 0) to avoid 3x triangle duplication
-        const lvl = root.levels?.[0]?.object
-        if (lvl) lvl.traverse(o => { if (o.isMesh && !o.isSkinnedMesh && o.geometry?.attributes?.position) _spMeshCache.push(o) })
-      } else {
-        root.traverse(o => { if (o.isMesh && !o.isSkinnedMesh && o.geometry?.attributes?.position) _spMeshCache.push(o) })
-      }
-    })
-    _spRayDirty = true
-  }
+  if (!_spRayDirty) return _spLastGroundY
+  _spRayDirty = false
+  // rebuild cache if entity set or BVH availability changed — cheap since only runs once per render frame
+  if (_spMeshCache === null || el.entityMeshes.size !== _spMeshCacheSize) _spRebuildMeshCache()
   if (_spMeshCache.length === 0) return null
   const now = performance.now()
-  if (!_spRayDirty && now - _spLastRayTime < 50) return _spLastGroundY
-  _spRayDirty = false; _spLastRayTime = now
+  if (now - _spLastRayTime < 50) return _spLastGroundY
+  _spLastRayTime = now
   _spRayOrigin.set(x, y + 2, z); _spRaycaster.set(_spRayOrigin, _spRayDir); _spRaycaster.far = 200
   const hits = _spRaycaster.intersectObjects(_spMeshCache, false)
   _spLastGroundY = hits.length > 0 ? hits[0].point.y : null
@@ -201,7 +200,7 @@ function tickAnimatedEntities(frameDt) {
 function animate(ts) {
   const now=ts||performance.now(), frameDt=Math.min(Math.max((now-lastFrameTime)/1000,0.001),0.1); lastFrameTime=now
   fpsFrames++; if (now-fpsLast>=1000) { fpsDisplay=fpsFrames; fpsFrames=0; fpsLast=now }
-  if (_isSingleplayer) { client.step(now); _spRayDirty = true }
+  if (_isSingleplayer) { client.step(now); _spRayDirty = true; if (_spMeshCache !== null && now - _spLastRayTime > 500) { let bc=0; el.entityMeshes.forEach(r=>{ const lr=r.isLOD?r.levels?.[0]?.object:r; if(lr) lr.traverse(o=>{if(o.isMesh&&!o.isSkinnedMesh&&o.geometry?.boundsTree)bc++})}); if(bc!==_spBvhCount) _spMeshCache=null } }
   const lerpFactor=1.0-Math.exp(-((client.getRTT?.()>100?24:16))*frameDt), ss=client.getSmoothState(now), lid=client.playerId
   updatePlayerPositions(ss.players, lid, frameDt)
   if (_hierarchyDirty&&ss.entities.length>0) { el.rebuildEntityHierarchy(ss.entities); _hierarchyDirty=false }
