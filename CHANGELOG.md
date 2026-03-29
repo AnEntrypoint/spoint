@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.375](https://github.com/AnEntrypoint/spoint/compare/v0.1.374...v0.1.375) (2026-03-29)
+
+
+### Bug Fixes
+
+* simplify singleplayer raycast cache to prevent stale ground Y when falling ([d5c617e](https://github.com/AnEntrypoint/spoint/commit/d5c617e18649a46b570950dda4321b8be7e4da25))
+
 ### [0.1.374](https://github.com/AnEntrypoint/spoint/compare/v0.1.373...v0.1.374) (2026-03-29)
 
 
