@@ -76,11 +76,14 @@ export function createCameraController(camera, scene) {
       tpsRayTimer = 0; camRaycaster.set(camTarget, camDir); camRaycaster.far = fullDist; camRaycaster.near = 0
       cachedClipDist = fullDist
       if (envMeshes.length) {
-        for (const hit of camRaycaster.intersectObjects(envMeshes, true)) {
-          if (localMesh && isDescendant(hit.object, localMesh)) continue
-          if (hit.distance < cachedClipDist) cachedClipDist = hit.distance - 0.2
+        const bvhMeshes = envMeshes.filter(m => m.geometry?.boundsTree)
+        if (bvhMeshes.length) {
+          for (const hit of camRaycaster.intersectObjects(bvhMeshes, false)) {
+            if (localMesh && isDescendant(hit.object, localMesh)) continue
+            if (hit.distance < cachedClipDist) cachedClipDist = hit.distance - 0.2
+          }
+          if (cachedClipDist < 0.3) cachedClipDist = 0.3
         }
-        if (cachedClipDist < 0.3) cachedClipDist = 0.3
       }
     }
     const clippedDist = Math.min(cachedClipDist, fullDist)
@@ -89,9 +92,12 @@ export function createCameraController(camera, scene) {
     else { const closer = clippedDist < camera.position.distanceTo(camTarget); camera.position.lerp(camDesired, 1 - Math.exp(-(closer ? camSnapSpeed : camFollowSpeed) * frameDt)) }
     aimDir.set(fwdX, fwdY, fwdZ)
     if (doRaycast && envMeshes.length) {
-      aimRaycaster.set(camera.position, aimDir); aimRaycaster.far = 500; aimRaycaster.near = 0.5
-      cachedAimPoint = null
-      for (const ah of aimRaycaster.intersectObjects(envMeshes, true)) { if (localMesh && isDescendant(ah.object, localMesh)) continue; cachedAimPoint = ah.point; break }
+      const bvhAim = envMeshes.filter(m => m.geometry?.boundsTree)
+      if (bvhAim.length) {
+        aimRaycaster.set(camera.position, aimDir); aimRaycaster.far = 500; aimRaycaster.near = 0.5
+        cachedAimPoint = null
+        for (const ah of aimRaycaster.intersectObjects(bvhAim, false)) { if (localMesh && isDescendant(ah.object, localMesh)) continue; cachedAimPoint = ah.point; break }
+      }
     }
     if (cachedAimPoint) { if (!camLookTarget.lengthSq()) camLookTarget.copy(cachedAimPoint); camLookTarget.lerp(cachedAimPoint, 1 - Math.exp(-camFollowSpeed * frameDt)) }
     else { camLookTarget.set(camera.position.x + fwdX*200, camera.position.y + fwdY*200, camera.position.z + fwdZ*200) }
