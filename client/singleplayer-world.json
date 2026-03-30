@@ -49,7 +49,8 @@
       "model": "./apps/maps/aim_sillos.glb",
       "position": [0, 0, 0],
       "scale": [3, 3, 3],
-      "bodyType": "static"
+      "bodyType": "static",
+      "custom": { "noAutoLod": true }
     }
   ]
 }
