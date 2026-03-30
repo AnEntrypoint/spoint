@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.381](https://github.com/AnEntrypoint/spoint/compare/v0.1.380...v0.1.381) (2026-03-30)
+
+
+### Bug Fixes
+
+* use BVH-only raycasts in camera TPS to prevent singleplayer OOM ([6cd7cef](https://github.com/AnEntrypoint/spoint/commit/6cd7cef337df2ee4d2ed339f28c0e4f49f230a3d))
+
 ### [0.1.380](https://github.com/AnEntrypoint/spoint/compare/v0.1.379...v0.1.380) (2026-03-29)
 
 
