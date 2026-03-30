@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.382](https://github.com/AnEntrypoint/spoint/compare/v0.1.381...v0.1.382) (2026-03-30)
+
+
+### Bug Fixes
+
+* disable LOD generation for singleplayer map to prevent OOM ([ab6f06e](https://github.com/AnEntrypoint/spoint/commit/ab6f06e3e92d5bc763fd632f176e276b31e93fc5))
+
 ### [0.1.381](https://github.com/AnEntrypoint/spoint/compare/v0.1.380...v0.1.381) (2026-03-30)
 
 
