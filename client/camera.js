@@ -46,20 +46,23 @@ export function createCameraController(camera, scene) {
     if (fpsRayTimer >= 0.05 && envMeshes.length) {
       fpsRayTimer = 0; fpsPushX = 0; fpsPushY = 0; fpsPushZ = 0
       const wallDist = 0.35, fwdWallDist = 0.25
-      _fpsRayOrigin.copy(camera.position); _fpsRayDir.set(-fwdX, -fwdY, -fwdZ)
-      camRaycaster.set(_fpsRayOrigin, _fpsRayDir); camRaycaster.far = wallDist; camRaycaster.near = 0
-      for (const hit of camRaycaster.intersectObjects(envMeshes, true)) {
-        if (localMesh && isDescendant(hit.object, localMesh)) continue
-        const push = wallDist - hit.distance
-        if (push > 0) { fpsPushX += fwdX*push; fpsPushY += fwdY*push; fpsPushZ += fwdZ*push; camera.position.x += fwdX*push; camera.position.y += fwdY*push; camera.position.z += fwdZ*push }
-        break
-      }
-      _fpsRayDir.set(fwdX, fwdY, fwdZ); camRaycaster.set(camera.position, _fpsRayDir); camRaycaster.far = fwdWallDist; camRaycaster.near = 0
-      for (const hit of camRaycaster.intersectObjects(envMeshes, true)) {
-        if (localMesh && isDescendant(hit.object, localMesh)) continue
-        const push = fwdWallDist - hit.distance
-        if (push > 0) { fpsPushX -= fwdX*push; fpsPushY -= fwdY*push; fpsPushZ -= fwdZ*push; camera.position.x -= fwdX*push; camera.position.y -= fwdY*push; camera.position.z -= fwdZ*push }
-        break
+      const fpsBvh = envMeshes.filter(m => m.geometry?.boundsTree)
+      if (fpsBvh.length) {
+        _fpsRayOrigin.copy(camera.position); _fpsRayDir.set(-fwdX, -fwdY, -fwdZ)
+        camRaycaster.set(_fpsRayOrigin, _fpsRayDir); camRaycaster.far = wallDist; camRaycaster.near = 0
+        for (const hit of camRaycaster.intersectObjects(fpsBvh, false)) {
+          if (localMesh && isDescendant(hit.object, localMesh)) continue
+          const push = wallDist - hit.distance
+          if (push > 0) { fpsPushX += fwdX*push; fpsPushY += fwdY*push; fpsPushZ += fwdZ*push; camera.position.x += fwdX*push; camera.position.y += fwdY*push; camera.position.z += fwdZ*push }
+          break
+        }
+        _fpsRayDir.set(fwdX, fwdY, fwdZ); camRaycaster.set(camera.position, _fpsRayDir); camRaycaster.far = fwdWallDist; camRaycaster.near = 0
+        for (const hit of camRaycaster.intersectObjects(fpsBvh, false)) {
+          if (localMesh && isDescendant(hit.object, localMesh)) continue
+          const push = fwdWallDist - hit.distance
+          if (push > 0) { fpsPushX -= fwdX*push; fpsPushY -= fwdY*push; fpsPushZ -= fwdZ*push; camera.position.x -= fwdX*push; camera.position.y -= fwdY*push; camera.position.z -= fwdZ*push }
+          break
+        }
       }
     }
     camera.lookAt(camera.position.x + fwdX, camera.position.y + fwdY, camera.position.z + fwdZ)
