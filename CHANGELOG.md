@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.383](https://github.com/AnEntrypoint/spoint/compare/v0.1.382...v0.1.383) (2026-03-31)
+
+
+### Bug Fixes
+
+* guard FPS camera raycasts with BVH filter to eliminate OOM ([ed8c059](https://github.com/AnEntrypoint/spoint/commit/ed8c059da2562edc9822034f3a019b5f1f247ab9))
+
 ### [0.1.382](https://github.com/AnEntrypoint/spoint/compare/v0.1.381...v0.1.382) (2026-03-30)
 
 
