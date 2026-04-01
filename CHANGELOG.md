@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.384](https://github.com/AnEntrypoint/spoint/compare/v0.1.383...v0.1.384) (2026-04-01)
+
+
+### Bug Fixes
+
+* skip shader warmup and shadow frustum for large maps to prevent OOM ([27814a4](https://github.com/AnEntrypoint/spoint/commit/27814a40b65f381cd4bc731b985428f5485d479f))
+
 ### [0.1.383](https://github.com/AnEntrypoint/spoint/compare/v0.1.382...v0.1.383) (2026-03-31)
 
 
