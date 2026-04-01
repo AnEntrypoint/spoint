@@ -65,6 +65,10 @@ const _fitBox3 = new THREE.Box3()
 const _fitMeshBox = new THREE.Box3()
 
 export function fitShadowFrustum(scene, sun) {
+  // Skip if scene is too large - likely large map causing memory issues
+  let meshCount = 0
+  scene.traverse(o => { if (o.isMesh) meshCount++ })
+  if (meshCount > 50) { console.log('[shadow] skipping fitShadowFrustum (too many meshes:', meshCount + ')'); return }
   const box = _fitBox3; box.makeEmpty()
   scene.traverse(o => {
     if (!o.isMesh || (!o.castShadow && !o.receiveShadow) || !o.geometry) return
@@ -104,6 +108,8 @@ export function applySceneConfig(s, scene, ambient, sun, studio, camera) {
 export async function warmupShaders(renderer, scene, camera, entityMeshes, playerMeshes, loadingMgr) {
   const allMeshes = [...entityMeshes.values(), ...playerMeshes.values()]
   const total = allMeshes.length
+  // Skip if too many meshes - likely large map causing OOM
+  if (total > 50) { console.log('[shader] skipping warmup (too many meshes:', total + ')'); return }
   const ids = [...entityMeshes.keys()].sort().join(',')
   const sceneKey = `shader-warmup-v3:${total}:${ids.length > 200 ? ids.slice(0, 200) : ids}`
   if (localStorage.getItem('lastShaderWarmupKey') === sceneKey) { console.log('[shader] skipped warmup (scene unchanged)'); return }
