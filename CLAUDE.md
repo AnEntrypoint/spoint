@@ -13,6 +13,19 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 - GLB extraction: `src/physics/GLBLoader.js`
 - Load tester: `src/sdk/BotHarness.js`
 
+## Singleplayer (Browser Worker Server)
+
+`?singleplayer` runs a real server inside a Dedicated Web Worker (`src/sdk/WorkerEntry.js`). The Worker boots `PhysicsWorld` + `AppRuntime` + `TickSystem` from the same server-side modules used in Node.js. `BrowserServer` (`client/BrowserServer.js`) replaces `PhysicsNetworkClient` and communicates with the Worker via transferable `ArrayBuffer` messages.
+
+- **WorkerEntry.js**: Worker entry; polyfills `setImmediate`; `init()` creates the full server stack; `WorkerTransport` bridges Worker↔client via `postMessage`
+- **WorkerTransport.js**: `TransportWrapper` subclass; `send()` transfers `ArrayBuffer` ownership (zero-copy); handles Uint8Array byteOffset correctly
+- **IDBAdapter.js**: `StorageAdapter` backed by IndexedDB for the Worker context (no filesystem)
+- **BrowserServer.js**: uses `MessageHandler` + `SnapshotProcessor` pipeline, same as `PhysicsNetworkClient`; `connect()` dynamically imports `/apps/world/index.js` and fetches app sources via `fetch()` before spawning the Worker
+- **Node.js portability pattern**: `GLBLoader.js`, `AppRuntime.js`, `EditorHandlers.js` use lazy `await import('node:fs')` with try/catch at module top level; browser silently gets `null` and uses fallback paths (`fetch()` for GLB loading, in-memory state for editor ops)
+- **importmap requirement**: `jolt-physics/wasm-compat` must be in `client/index.html` importmap — module Workers in Chrome 89+ inherit the page importmap, enabling `World.js` to load Jolt in the Worker
+- **App sources**: `WorkerEntry` receives `{ name, source }` pairs and calls `appLoader.loadFromString()` — no filesystem access needed
+- **Editor in singleplayer**: all editor handlers work via `AppRuntime` in-memory state; `LIST_APPS` reads `appRuntime._appDefs`, `SAVE_SOURCE` calls `loadFromString()` and broadcasts `APP_MODULE`
+
 ## Key File Locations
 
 - Physics world: `src/physics/World.js` (coordinator, ≤200 lines)
