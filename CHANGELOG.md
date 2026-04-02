@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.387](https://github.com/AnEntrypoint/spoint/compare/v0.1.386...v0.1.387) (2026-04-02)
+
+
+### Bug Fixes
+
+* correct Draco strip API — registerDependencies not withConfig, strip before texture rewrite ([8b37ce3](https://github.com/AnEntrypoint/spoint/commit/8b37ce3e9d74c9ab9c6da9329ae32e1d57987fee))
+
 ### [0.1.386](https://github.com/AnEntrypoint/spoint/compare/v0.1.385...v0.1.386) (2026-04-02)
 
 
