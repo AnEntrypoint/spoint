@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync, statSync, readdirSync } from 'node:fs'
 import { join, basename, dirname } from 'node:path'
-import { hasDraco, applyDraco } from './GLBDraco.js'
+import { hasDraco, applyDraco, stripDraco } from './GLBDraco.js'
 import { applyKtx2 } from './GLBKtx2.js'
 
 const CACHE_DIR_NAME = '.glb-cache'
@@ -44,7 +44,11 @@ async function transformGLB(inputBuffer) {
   let json; try { json = JSON.parse(buf.slice(20, 20 + jsonLen).toString('utf8')) } catch { return null }
   let current = inputBuffer
   const isVRM = !!(json.extensions?.VRM || json.extensions?.VRMC_vrm)
-  if (!isVRM && !hasDraco(json)) {
+  if (!isVRM && hasDraco(json)) {
+    // Strip Draco — Three.js Draco decode causes 300MB/s heap spike and OOM on large maps
+    const stripped = await stripDraco(current)
+    if (stripped) current = stripped
+  } else if (!isVRM && !hasDraco(json)) {
     const dracoResult = await applyDraco(current)
     if (dracoResult && dracoResult.length < current.length) current = dracoResult
     else if (dracoResult) console.log(`[glb-transform] draco skipped (${dracoResult.length} > ${current.length})`)
@@ -64,7 +68,7 @@ export function getTransformed(filepath) {
   if (existsSync(cachePath) && existsSync(cacheMetaPath)) {
     try {
       const meta = JSON.parse(readFileSync(cacheMetaPath, 'utf8'))
-      if (meta.srcMtime === mtime && meta.v === 3) {
+      if (meta.srcMtime === mtime && meta.v === 4) {
         const cached = readFileSync(cachePath)
         _memCache.set(filepath, { mtime, buffer: cached })
         return cached
@@ -81,7 +85,7 @@ export function getTransformed(filepath) {
         const transformed = await transformGLB(inputBuf)
         if (transformed) {
           writeFileSync(cachePath, transformed)
-          writeFileSync(cacheMetaPath, JSON.stringify({ srcMtime: mtime, v: 3 }))
+          writeFileSync(cacheMetaPath, JSON.stringify({ srcMtime: mtime, v: 4 }))
           _memCache.set(filepath, { mtime, buffer: transformed })
           const pct = Math.round((1 - transformed.length / inputBuf.length) * 100)
           console.log(`[glb-transform] done ${basename(filepath)} ${(inputBuf.length/1024).toFixed(0)}KB → ${(transformed.length/1024).toFixed(0)}KB (${pct > 0 ? '-' : '+'}${Math.abs(pct)}%) in ${Date.now()-t0}ms`)
