@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh'
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree; THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree; THREE.Mesh.prototype.raycast = acceleratedRaycast
 import { PhysicsNetworkClient, InputHandler, MSG } from '/src/index.client.js'
-import { LocalClient } from './LocalClient.js'
+import { BrowserServer } from './BrowserServer.js'
 import { createElement } from 'webjsx'
 import { LoadingManager } from './LoadingManager.js'
 import { createLoadingScreen } from './createLoadingScreen.js'
@@ -105,31 +105,7 @@ let client; const _clientConfig = {
   onMessage: (type,payload) => { if (type===MSG.APP_LIST) editPanel.updateApps(payload.apps); else if (type===MSG.SOURCE) editPanel.openCode(payload.appName,payload.file||'index.js',payload.source); else if (type===MSG.SCENE_GRAPH) editPanel.updateScene(payload.entities); else if (type===MSG.APP_FILES) editPanel.updateAppFiles(payload.appName,payload.files); else if (type===MSG.EDITOR_PROPS) { const mesh=el.entityMeshes.get(payload.entityId); if (mesh) editPanel.showEntity(_buildEntityData(payload.entityId,mesh),payload.editorProps||[]) } else if (type===MSG.EVENT_LOG_DATA) editPanel.updateEventLog(payload.events) },
   debug: false
 }
-const _spRaycaster = new THREE.Raycaster(), _spRayDir = new THREE.Vector3(0, -1, 0), _spRayOrigin = new THREE.Vector3()
-let _spMeshCache = null, _spMeshCacheSize = 0, _spBvhCount = 0, _spLastGroundY = null, _spRayDirty = true, _spLastRayTime = 0
-function _spRebuildMeshCache() {
-  let bvhCount = 0, meshes = []
-  el.entityMeshes.forEach(root => {
-    const lvlRoot = root.isLOD ? root.levels?.[0]?.object : root
-    if (lvlRoot) lvlRoot.traverse(o => { if (o.isMesh && !o.isSkinnedMesh && o.geometry?.boundsTree) { meshes.push(o); bvhCount++ } })
-  })
-  _spMeshCache = meshes; _spMeshCacheSize = el.entityMeshes.size; _spBvhCount = bvhCount
-}
-function _spGroundRaycast(x, y, z) {
-  if (!_spRayDirty) return _spLastGroundY
-  _spRayDirty = false
-  // rebuild cache if entity set or BVH availability changed — cheap since only runs once per render frame
-  if (_spMeshCache === null || el.entityMeshes.size !== _spMeshCacheSize) _spRebuildMeshCache()
-  if (_spMeshCache.length === 0) return null
-  const now = performance.now()
-  if (now - _spLastRayTime < 50) return _spLastGroundY
-  _spLastRayTime = now
-  _spRayOrigin.set(x, y + 2, z); _spRaycaster.set(_spRayOrigin, _spRayDir); _spRaycaster.far = 200
-  const hits = _spRaycaster.intersectObjects(_spMeshCache, false)
-  _spLastGroundY = hits.length > 0 ? hits[0].point.y : null
-  return _spLastGroundY
-}
-client = _isSingleplayer ? new LocalClient({worldDef: await fetch('/spoint/singleplayer-world.json').then(r=>r.json()).catch(()=>{}), groundRaycast: _spGroundRaycast, ..._clientConfig}) : new PhysicsNetworkClient(_clientConfig)
+client = _isSingleplayer ? new BrowserServer(_clientConfig) : new PhysicsNetworkClient(_clientConfig)
 const editPanel = createEditPanel({
   onPlace: appName => { const local=pm.playerStates.get(client.playerId),yaw=local?.yaw||0,pos=local?[local.position[0]+Math.sin(yaw)*2,local.position[1],local.position[2]+Math.cos(yaw)*2]:[0,0,2]; client.send(MSG.PLACE_APP,{appName,position:pos,config:{}}) },
   onSave: (app,file,src) => client.send(MSG.SAVE_SOURCE,{appName:app,file,source:src}),
@@ -200,7 +176,6 @@ function tickAnimatedEntities(frameDt) {
 function animate(ts) {
   const now=ts||performance.now(), frameDt=Math.min(Math.max((now-lastFrameTime)/1000,0.001),0.1); lastFrameTime=now
   fpsFrames++; if (now-fpsLast>=1000) { fpsDisplay=fpsFrames; fpsFrames=0; fpsLast=now }
-  if (_isSingleplayer) { client.step(now); _spRayDirty = true; if (_spMeshCache !== null && now - _spLastRayTime > 500) { let bc=0; el.entityMeshes.forEach(r=>{ const lr=r.isLOD?r.levels?.[0]?.object:r; if(lr) lr.traverse(o=>{if(o.isMesh&&!o.isSkinnedMesh&&o.geometry?.boundsTree)bc++})}); if(bc!==_spBvhCount) _spMeshCache=null } }
   const lerpFactor=1.0-Math.exp(-((client.getRTT?.()>100?24:16))*frameDt), ss=client.getSmoothState(now), lid=client.playerId
   updatePlayerPositions(ss.players, lid, frameDt)
   if (_hierarchyDirty&&ss.entities.length>0) { el.rebuildEntityHierarchy(ss.entities); _hierarchyDirty=false }

@@ -3,8 +3,8 @@ import { HotReloadQueue } from './HotReloadQueue.js'
 import { EventBus } from './EventBus.js'
 import { mulQuat, rotVec } from '../math.js'
 import { MSG } from '../protocol/MessageTypes.js'
-import { existsSync } from 'node:fs'
-import { resolve } from 'node:path'
+let _existsSync = null, _resolve = null
+try { const fs = await import('node:fs'); const path = await import('node:path'); _existsSync = fs.existsSync; _resolve = path.resolve } catch {}
 import { SpatialIndex } from '../spatial/Octree.js'
 import { mixinPhysics } from './AppRuntimePhysics.js'
 import { mixinTick } from './AppRuntimeTick.js'
@@ -32,8 +32,9 @@ export class AppRuntime {
 
   resolveAssetPath(p) {
     if (!p) return p
-    const local = resolve(p); if (existsSync(local)) return local
-    if (this._sdkRoot) { const sdk=resolve(this._sdkRoot,p); if (existsSync(sdk)) { console.debug(`[SDK-DEFAULT] using bundled asset: ${p}`); return sdk } }
+    if (!_resolve) return p.startsWith('./') ? p.slice(1) : p
+    const local = _resolve(p); if (_existsSync(local)) return local
+    if (this._sdkRoot) { const sdk=_resolve(this._sdkRoot,p); if (_existsSync(sdk)) { console.debug(`[SDK-DEFAULT] using bundled asset: ${p}`); return sdk } }
     return local
   }
 

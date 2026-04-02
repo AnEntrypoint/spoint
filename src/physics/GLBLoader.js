@@ -1,17 +1,36 @@
-import { readFileSync } from 'node:fs'
 import { buildNodeTransforms, applyTransformMatrix } from './GLBMath.js'
 import { decompressDracoMesh } from './DracoDecompressor.js'
 import { extractMeshWithMeshopt } from './MeshoptDecompressor.js'
 
 export const SKIP_MATS = new Set(['aaatrigger', '{invisible', 'playerclip', 'clip', 'nodraw', 'trigger', 'sky', 'toolsclip', 'toolsplayerclip', 'toolsnodraw', 'toolsskybox', 'toolstrigger'])
 
-function readGLB(filepath) {
-  const buf = readFileSync(filepath)
+let _readFileSync = null
+try { const m = await import('node:fs'); _readFileSync = m.readFileSync } catch {}
+
+function readGLBSync(filepath) {
+  if (!_readFileSync) throw new Error('readFileSync not available — use URL-based async methods in browser')
+  const buf = _readFileSync(filepath)
   if (buf.toString('ascii', 0, 4) !== 'glTF') throw new Error('Not a GLB file')
   const jsonLen = buf.readUInt32LE(12)
   const json = JSON.parse(buf.toString('utf-8', 20, 20 + jsonLen))
   return { buf, json, binOffset: 20 + jsonLen + 8 }
 }
+
+async function readGLBAsync(pathOrUrl) {
+  if (_readFileSync && !pathOrUrl.startsWith('http') && !pathOrUrl.startsWith('/')) {
+    return readGLBSync(pathOrUrl)
+  }
+  const res = await fetch(pathOrUrl)
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${pathOrUrl}`)
+  const ab = await res.arrayBuffer()
+  const buf = Buffer.from ? Buffer.from(ab) : ab
+  const view = new DataView(ab)
+  const jsonLen = view.getUint32(12, true)
+  const json = JSON.parse(new TextDecoder().decode(new Uint8Array(ab, 20, jsonLen)))
+  return { buf: buf.byteLength ? buf : new Uint8Array(ab), json, binOffset: 20 + jsonLen + 8 }
+}
+
+function readGLB(filepath) { return readGLBSync(filepath) }
 
 export function extractStandardMesh(buf, json, prim, binOffset, meshName) {
   const posAcc = json.accessors[prim.attributes.POSITION]
@@ -44,7 +63,7 @@ export function extractMeshFromGLB(filepath, meshIndex = 0) {
 }
 
 export async function extractMeshFromGLBAsync(filepath, meshIndex = 0) {
-  const { buf, json, binOffset } = readGLB(filepath)
+  const { buf, json, binOffset } = await readGLBAsync(filepath)
   if (!json.meshes?.length) throw new Error('GLB has no meshes')
   const mesh = json.meshes[meshIndex]
   if (!mesh) throw new Error(`Mesh index ${meshIndex} not found`)
@@ -63,7 +82,7 @@ export async function extractMeshFromGLBAsync(filepath, meshIndex = 0) {
 }
 
 export async function extractAllMeshesFromGLBAsync(filepath) {
-  const { buf, json, binOffset } = readGLB(filepath)
+  const { buf, json, binOffset } = await readGLBAsync(filepath)
   const nodeTransforms = buildNodeTransforms(json)
   const materials = json.materials || []
   const allVertices = [], allIndices = []
