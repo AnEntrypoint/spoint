@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.396](https://github.com/AnEntrypoint/spoint/compare/v0.1.395...v0.1.396) (2026-04-02)
+
+
+### Features
+
+* run singleplayer server in a Dedicated Web Worker ([baa94dd](https://github.com/AnEntrypoint/spoint/commit/baa94dd4177f859b9cf5cbd25dad0986c8d98713))
+
 ### [0.1.395](https://github.com/AnEntrypoint/spoint/compare/v0.1.394...v0.1.395) (2026-04-02)
 
 
