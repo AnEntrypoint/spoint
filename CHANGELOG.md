@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.393](https://github.com/AnEntrypoint/spoint/compare/v0.1.392...v0.1.393) (2026-04-02)
+
+
+### Bug Fixes
+
+* prevent VRM flood on assetsLoaded by gating createPlayerVRM on assetsLoaded ([1838166](https://github.com/AnEntrypoint/spoint/commit/1838166d8429fa4817b1e39203f9119696ed0745))
+
 ### [0.1.392](https://github.com/AnEntrypoint/spoint/compare/v0.1.391...v0.1.392) (2026-04-02)
 
 ### [0.1.391](https://github.com/AnEntrypoint/spoint/compare/v0.1.390...v0.1.391) (2026-04-02)
