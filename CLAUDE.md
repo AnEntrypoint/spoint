@@ -28,7 +28,7 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 - Snapshot processor: `src/client/SnapshotProcessor.js`
 - Client interpolation: `src/client/interpolation.js` (`lerpScalar`, `slerpQuat`, `interpolateSnapshot`)
 - Edit panel DOM builders: `client/EditPanelDOM.js`
-- Maps: `apps/maps/*.glb` (all Draco compressed)
+- Maps: `apps/maps/*.glb` (Draco-compressed at source; CI strips Draco before deploy via `scripts/optimize-models.js`)
 
 ## Renderer
 
@@ -162,7 +162,9 @@ Set `entity.model = null` and populate `entity.custom`:
 
 **Runtime mitigation**: `EntityLoader.js` implements `_parsedGltfRefCount` cache eviction — once all meshes from a GLB are instantiated, the parsed GLTF object is released from cache. This reduces peak persistent memory but does NOT prevent the during-parse OOM spike.
 
-**Build-time fix**: `scripts/optimize-models.js` now strips Draco compression at build time using `NodeIO` from `@gltf-transform/core` + `KHRDracoMeshCompression.withConfig({ decoderModule })` from `@gltf-transform/extensions`. Reading the binary with the decoder registered automatically decompresses all primitives; writing without an encoder produces uncompressed GLB. The decoder is initialized once via `draco3d.createDecoderModule()` (CJS, lazy singleton). Draco stripping runs after texture downscaling — both transforms may apply to the same file.
+**Build-time fix (gh-pages)**: `scripts/optimize-models.js` strips Draco at CI time. Uses `NodeIO.registerDependencies({'draco3d.decoder': decoderModule, 'draco3d.encoder': encoderModule})` — NOT `KHRDracoMeshCompression.withConfig` (that method does not exist in @gltf-transform v4 and throws silently swallowed by `|| true` in CI). After `io.readBinary`, dispose the `KHR_draco_mesh_compression` extension object from `doc.getRoot().listExtensionsUsed()` before `io.writeBinary` — otherwise gltf-transform re-encodes with Draco. Textures with no `source` field (EXT_texture_webp-only) must be patched to `source: 0` before read or gltf-transform crashes on null sampler lookup. Draco stripping must happen before texture rewrite — bufferView indices change after Draco strip.
+
+**Server-side VRAM optimization (live server)**: `GLBTransformer.js` applies KTX2 + Draco at request time for models served to connected clients. This is separate from the build-time optimizer and handles runtime model loading.
 
 ### Build-Time Model Optimizer (GitHub Pages / Static Hosting)
 
