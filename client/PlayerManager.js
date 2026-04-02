@@ -57,7 +57,7 @@ export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader) {
     await acquireVrmSlot()
     if (!playerMeshes.has(id)) { releaseVrmSlot(); return group }
     try {
-      const gltf = await _vrmLoader.parseAsync(vrmBuffer.buffer.slice(0), '')
+      const gltf = await _vrmLoader.parseAsync(vrmBuffer.buffer.slice(vrmBuffer.byteOffset, vrmBuffer.byteOffset + vrmBuffer.byteLength), '')
       const vrm = gltf.userData.vrm
       const pc = worldConfig.player || {}
       const modelScale = pc.modelScale || 1.323

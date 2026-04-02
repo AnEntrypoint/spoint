@@ -75,14 +75,9 @@ export async function loadAnimationLibrary(vrmVersion, vrmHumanoid) {
   const gltf = await preloadAnimationLibrary()
   if (_normalizedCache) return _normalizedCache
   const normalizedClips = normalizeClips(gltf, vrmVersion || '1', vrmHumanoid)
-  const rawClips = new Map()
-  for (const clip of gltf.animations) {
-    const name = clip.name.replace(/^VRM\|/, '').replace(/@\d+$/, '')
-    rawClips.set(name, clip)
-  }
   _gltfPromise = null
   console.log(`[anim] Loaded animation library (${normalizedClips.size} clips):`, [...normalizedClips.keys()])
-  _normalizedCache = { normalizedClips, rawClips }
-  cacheClips(cacheKey, normalizedClips)
+  _normalizedCache = { normalizedClips, rawClips: normalizedClips }
+  await cacheClips(cacheKey, normalizedClips)
   return _normalizedCache
 }

@@ -47,7 +47,7 @@ function initAssets(url) { loadingMgr.setLabel('Downloading player model...'); p
   loadingMgr.fetchWithProgress(url,'vrm').then(async b => {
     if (url.endsWith('.vrm')) { try { const av=b instanceof ArrayBuffer?b:b.buffer,dv=new DataView(av),jl=dv.getUint32(12,true),j=JSON.parse(new TextDecoder().decode(new Uint8Array(av,20,jl))),exts=j.extensions||{}; if (!exts.VRM&&!exts.VRMC_vrm) { await dbDelete(url); const r=await fetch(url); if (!r.ok) throw 0; b=new Uint8Array(await r.arrayBuffer()); const e=r.headers.get('etag')||''; if (e) dbPut(url,e,b.buffer) } } catch (_) {} }
     vrmBuffer=b; const av=b instanceof ArrayBuffer?b:b.buffer,dv=new DataView(av),jl=dv.getUint32(12,true),j=JSON.parse(new TextDecoder().decode(new Uint8Array(av,20,jl)))
-    loadingMgr.setLabel('Loading animations...'); animAssets=await loadAnimationLibrary(j.extensions?.VRM?'0':'1',null); assetsLoaded=true; pm.playerMeshes.forEach((g,id)=>{ if(g.children.length===0){ scene.remove(g); pm.playerMeshes.delete(id); pm.createPlayerVRM(id,vrmBuffer,animAssets,worldConfig,client&&client.playerId) } }); checkAllLoaded()
+    loadingMgr.setLabel('Loading animations...'); animAssets=await loadAnimationLibrary(j.extensions?.VRM?'0':'1',null); assetsLoaded=true; pm.playerMeshes.forEach((g,id)=>{ if(g.children.length===0){ scene.remove(g); pm.playerMeshes.delete(id); pm.createPlayerVRM(id,vrmBuffer,animAssets,worldConfig,client&&client.playerId) } }); if (latestState) for (const e of latestState.entities) { if (!el.entityMeshes.has(e.id)) el.loadEntityModel(e.id,e,entityAppMap,firstSnapshotEntityPending,onFirstEntityLoaded,_scheduleFitShadow,loadingScreenHidden) }; checkAllLoaded()
   }).catch(err => { console.warn('[assets]',err?.message); assetsLoaded=true; checkAllLoaded() })
 }
 const _isSingleplayer = new URLSearchParams(location.search).has('singleplayer')
@@ -77,13 +77,13 @@ let client; const _clientConfig = {
     for (const e of state.entities) {
       const mesh=el.entityMeshes.get(e.id)
       if (mesh&&e.position) { const et=el.entityTargets.get(e.id),vx=e.velocity?.[0]||0,vy=e.velocity?.[1]||0,vz=e.velocity?.[2]||0; if (et) { et.x=e.position[0];et.y=e.position[1];et.z=e.position[2];et.vx=vx;et.vy=vy;et.vz=vz;et.rx=e.rotation?.[0]||0;et.ry=e.rotation?.[1]||0;et.rz=e.rotation?.[2]||0;et.rw=e.rotation?.[3]||1 } else el.entityTargets.set(e.id,{x:e.position[0],y:e.position[1],z:e.position[2],vx,vy,vz,rx:e.rotation?.[0]||0,ry:e.rotation?.[1]||0,rz:e.rotation?.[2]||0,rw:e.rotation?.[3]||1}); _dirty.add(e.id); const dx=e.position[0]-mesh.position.x,dy=e.position[1]-mesh.position.y,dz=e.position[2]-mesh.position.z; if (!mesh.userData.entInit||dx*dx+dy*dy+dz*dz>100) { mesh.position.set(e.position[0],e.position[1],e.position[2]); if (e.rotation) mesh.quaternion.set(e.rotation[0],e.rotation[1],e.rotation[2],e.rotation[3]); mesh.userData.entInit=true } }
-      if (!el.entityMeshes.has(e.id)) el.loadEntityModel(e.id,e,entityAppMap,firstSnapshotEntityPending,onFirstEntityLoaded,_scheduleFitShadow,loadingScreenHidden)
+      if (!el.entityMeshes.has(e.id) && assetsLoaded) el.loadEntityModel(e.id,e,entityAppMap,firstSnapshotEntityPending,onFirstEntityLoaded,_scheduleFitShadow,loadingScreenHidden)
     }
     latestState=state; if (!firstSnapshotReceived) { firstSnapshotReceived=true; for (const e of state.entities) { if (e.model&&!el.entityMeshes.has(e.id)) firstSnapshotEntityPending.add(e.id) }; checkAllLoaded() }
   },
   onPlayerJoined: id => { if (!pm.playerMeshes.has(id)) pm.createPlayerVRM(id,vrmBuffer,animAssets,worldConfig,client.playerId) },
   onPlayerLeft: id => pm.removePlayerMesh(id),
-  onEntityAdded: (id,s) => el.loadEntityModel(id,s,entityAppMap,firstSnapshotEntityPending,onFirstEntityLoaded,_scheduleFitShadow,loadingScreenHidden),
+  onEntityAdded: (id,s) => { if (assetsLoaded) el.loadEntityModel(id,s,entityAppMap,firstSnapshotEntityPending,onFirstEntityLoaded,_scheduleFitShadow,loadingScreenHidden) },
   onEntityRemoved: id => el.removeEntity(id),
   onWorldDef: wd => {
     loadingMgr.setLabel('Syncing with server...'); worldConfig=wd
