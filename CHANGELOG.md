@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.400](https://github.com/AnEntrypoint/spoint/compare/v0.1.399...v0.1.400) (2026-04-02)
+
+
+### Bug Fixes
+
+* use import.meta.url-relative paths in BrowserServer for GitHub Pages subpath hosting ([311af0b](https://github.com/AnEntrypoint/spoint/commit/311af0bba400d0152ca836caa1627f72f5193c4d))
+
 ### [0.1.399](https://github.com/AnEntrypoint/spoint/compare/v0.1.398...v0.1.399) (2026-04-02)
 
 
