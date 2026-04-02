@@ -355,8 +355,9 @@ The OOM only occurs on animation cache miss (`anim-lib-v1` key absent from Index
 **Invariants that must never be broken:**
 - `createPlayerVRM` MUST NOT be called before `assetsLoaded=true` — will queue N parses that all fire simultaneously when assets finish.
 - `group.userData.vrmPending` MUST be set synchronously inside `createPlayerVRM` before the first `await` — guards against re-entrant calls on subsequent ticks.
-- `cacheClips` in `AnimationLibrary.js` MUST remain `await`ed — fire-and-forget allows entity/VRM loads to overlap with IndexedDB serialization, spiking heap.
-- Entity loading (`loadEntityModel`) MUST remain gated on `assetsLoaded`.
+- `cacheClips` in `AnimationLibrary.js` MUST remain `await`ed — fire-and-forget allows VRM loads to overlap with IndexedDB serialization, spiking heap.
+- Entity loading (`loadEntityModel`) is NOT gated on `assetsLoaded` — entities load immediately on first snapshot. Deferring entity loading breaks singleplayer raycasting (map BVH not ready when player spawns → player falls through to the -15 fallback floor). Only VRM parses must be deferred.
+- `onStateUpdate` creates placeholder Groups for new players immediately; `createPlayerVRM` is only called when `assetsLoaded && g.children.length===0 && !g.userData.vrmPending`.
 
 **To test cold path**: DevTools → Application → IndexedDB → delete `spawnpoint-anim-cache` → reload at `?singleplayer`. Heap should plateau under 1GB.
 
