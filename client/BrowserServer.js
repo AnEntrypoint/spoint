@@ -3,6 +3,8 @@ import { MSG } from '/src/protocol/MessageTypes.js'
 import { SnapshotProcessor } from '/src/client/SnapshotProcessor.js'
 import { MessageHandler } from '/src/client/MessageHandler.js'
 
+const _base = new URL('../', import.meta.url).href
+
 export class BrowserServer {
   constructor(config = {}) {
     this.config = config
@@ -26,7 +28,7 @@ export class BrowserServer {
   get playerId() { return this._msgHandler.getPlayerId() }
 
   async _importModule(path) {
-    const r = await fetch(path)
+    const r = await fetch(new URL(path, _base))
     if (!r.ok) throw new Error(`${r.status} ${path}`)
     const src = await r.text()
     const blob = new Blob([src], { type: 'application/javascript' })
@@ -35,14 +37,14 @@ export class BrowserServer {
   }
 
   async connect() {
-    const worldDef = this.config.worldDef || await this._importModule('/apps/world/index.js').then(m => m.default).catch(() => null) || {}
+    const worldDef = this.config.worldDef || await this._importModule('apps/world/index.js').then(m => m.default).catch(() => null) || {}
     const appNames = [...new Set((worldDef.entities || []).map(e => e.app).filter(Boolean))]
     const apps = (await Promise.all(appNames.map(name =>
-      fetch(`/apps/${name}/index.js`).then(r => r.ok ? r.text().then(source => ({ name, source })) : null).catch(() => null)
+      fetch(new URL(`apps/${name}/index.js`, _base)).then(r => r.ok ? r.text().then(source => ({ name, source })) : null).catch(() => null)
     ))).filter(Boolean)
 
     return new Promise((resolve, reject) => {
-      this._worker = new Worker('/src/sdk/WorkerEntry.js', { type: 'module' })
+      this._worker = new Worker(new URL('src/sdk/WorkerEntry.js', _base), { type: 'module' })
       this._worker.onerror = reject
       this._worker.onmessage = ({ data }) => {
         if (data.type !== 'SEND_CLIENT') return
