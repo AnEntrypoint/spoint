@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.385](https://github.com/AnEntrypoint/spoint/compare/v0.1.384...v0.1.385) (2026-04-02)
+
+
+### Bug Fixes
+
+* wrap if/else branches in braces to fix SyntaxError on warmupShaders skip path ([9ca74be](https://github.com/AnEntrypoint/spoint/commit/9ca74be468a83840b9398dab17b120b6dad86e9a))
+
 ### [0.1.384](https://github.com/AnEntrypoint/spoint/compare/v0.1.383...v0.1.384) (2026-04-01)
 
 
