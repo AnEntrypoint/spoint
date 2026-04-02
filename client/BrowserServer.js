@@ -25,8 +25,17 @@ export class BrowserServer {
 
   get playerId() { return this._msgHandler.getPlayerId() }
 
+  async _importModule(path) {
+    const r = await fetch(path)
+    if (!r.ok) throw new Error(`${r.status} ${path}`)
+    const src = await r.text()
+    const blob = new Blob([src], { type: 'application/javascript' })
+    const url = URL.createObjectURL(blob)
+    try { return await import(url) } finally { URL.revokeObjectURL(url) }
+  }
+
   async connect() {
-    const worldDef = this.config.worldDef || (await import('/apps/world/index.js')).default || {}
+    const worldDef = this.config.worldDef || await this._importModule('/apps/world/index.js').then(m => m.default).catch(() => null) || {}
     const appNames = [...new Set((worldDef.entities || []).map(e => e.app).filter(Boolean))]
     const apps = (await Promise.all(appNames.map(name =>
       fetch(`/apps/${name}/index.js`).then(r => r.ok ? r.text().then(source => ({ name, source })) : null).catch(() => null)
