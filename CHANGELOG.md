@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.391](https://github.com/AnEntrypoint/spoint/compare/v0.1.390...v0.1.391) (2026-04-02)
+
+
+### Bug Fixes
+
+* serialize entity loading after assets to prevent singleplayer OOM ([7cf69b9](https://github.com/AnEntrypoint/spoint/commit/7cf69b9709fd08d5f01bfa50a7e03a29307c66de))
+
 ### [0.1.390](https://github.com/AnEntrypoint/spoint/compare/v0.1.389...v0.1.390) (2026-04-02)
 
 
