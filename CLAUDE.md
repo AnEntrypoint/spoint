@@ -334,7 +334,31 @@ Entity-entity: O(n²) brute-force for <100 entities, grid-based (cell=4 units, 9
 
 **`initAssets` parallel pattern**: `_readVrmVersion(buffer)` extracts VRM version from GLB binary header immediately. `loadAnimationLibrary(vrmVersion)` fires concurrently with VRM cache validation — `animPromise` resolves in parallel with the VRM `dbDelete/fetch` edge case path. `preloadAnimationLibrary(gltfLoader)` fires at the start of `initAssets`, so `anim-lib.glb` is fetched in parallel with the VRM download.
 
-**Singleplayer OOM (intermittent, cache-dependent)**: On animation cache miss (`anim-lib-v1` key absent from IndexedDB), `normalizeClips` + `cacheClips` previously ran concurrently with VRM parse and up to 8 simultaneous entity GLTF parses — heap reached 3GB → OOM. Cache warm path (subsequent loads) was fast → no OOM, explaining why it worked most of the time but crashed after storage clear or first visit. Fixes: (1) `rawClips` no longer holds original GLTF animation object references — GLTF binary can be GC'd immediately after normalization; (2) `cacheClips` is now `await`ed so IndexedDB serialization completes before VRM parse begins; (3) entity loading in `app.js` is gated on `assetsLoaded` — entity GLTFs cannot overlap with VRM+animation loading; (4) `MAX_CONCURRENT_LOADS_INITIAL` reduced 8→4. To test cold path: DevTools → Application → IndexedDB → delete `spawnpoint-anim-cache` → reload.
+**Singleplayer OOM (intermittent, cache-dependent) — confirmed via two Chrome heap profiles:**
+
+The OOM only occurs on animation cache miss (`anim-lib-v1` key absent from IndexedDB — first visit, storage cleared, or DB_VERSION bump). On cache hit the fast path returns in milliseconds, no OOM. This explains 8+ intermittent crashes over two weeks.
+
+**Root cause (profile5, confirmed)**: `onStateUpdate` fires on every server snapshot tick (~64Hz). Before `assetsLoaded`, it called `createPlayerVRM` for every player in the snapshot. `createPlayerVRM` is async — it creates a new Group, calls `playerMeshes.set(id, group)`, then `await acquireVrmSlot()`. Because all N player calls happen synchronously before any `await` yields, all N players get pushed into `_vrmQueue` simultaneously. `MAX_VRM_CONCURRENT=6` only gates the WASM parse phase — 6 full VRM parses run concurrently, each consuming 300–400MB. With a full server (10+ players queued over the ~1s cache-miss window), heap spiked at 440 MB/s → OOM before GC could reclaim anything.
+
+**Contributing factor**: The `forEach` loop in `initAssets` that ran when `assetsLoaded` flipped would re-call `createPlayerVRM` for all empty placeholder Groups, double-firing for players already queued in `_vrmQueue`.
+
+**Fixes applied (all required together):**
+1. `onStateUpdate` (`app.js`): always creates a placeholder `Group` for new players; only calls `createPlayerVRM` when `assetsLoaded && g.children.length===0 && !g.userData.vrmPending`. No VRM parses begin before assets are ready.
+2. `createPlayerVRM` (`PlayerManager.js`): sets `group.userData.vrmPending = true` immediately (before the first `await`) so re-entrant `onStateUpdate` ticks don't re-queue the same player while a parse is in flight.
+3. `onPlayerJoined` (`app.js`): gated on `assetsLoaded`; creates placeholder Group if not ready.
+4. `initAssets` forEach removed — `onStateUpdate` handles re-triggering empty Groups once `assetsLoaded` flips.
+5. `AnimationLibrary.js`: `await cacheClips` (was fire-and-forget) — `assetsLoaded` only flips after IndexedDB write completes, preventing entity loading from starting while serialization holds the heap.
+6. `AnimationLibrary.js`: `rawClips` set to `normalizedClips` (not original GLTF objects) — GLTF binary GC'd immediately after normalization.
+7. `EntityLoader.js`: `MAX_CONCURRENT_LOADS_INITIAL` reduced 8→4.
+8. `app.js`: entity `loadEntityModel` calls gated on `assetsLoaded`.
+
+**Invariants that must never be broken:**
+- `createPlayerVRM` MUST NOT be called before `assetsLoaded=true` — will queue N parses that all fire simultaneously when assets finish.
+- `group.userData.vrmPending` MUST be set synchronously inside `createPlayerVRM` before the first `await` — guards against re-entrant calls on subsequent ticks.
+- `cacheClips` in `AnimationLibrary.js` MUST remain `await`ed — fire-and-forget allows entity/VRM loads to overlap with IndexedDB serialization, spiking heap.
+- Entity loading (`loadEntityModel`) MUST remain gated on `assetsLoaded`.
+
+**To test cold path**: DevTools → Application → IndexedDB → delete `spawnpoint-anim-cache` → reload at `?singleplayer`. Heap should plateau under 1GB.
 
 **`LoadingManager.fetchWithProgress`** passes `onProgress` callback to `fetchCached` for byte-level streaming progress during first-load downloads.
 
