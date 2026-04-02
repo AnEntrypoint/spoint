@@ -156,14 +156,23 @@ Set `entity.model = null` and populate `entity.custom`:
 
 **`prewarm()` blocks server start**: `boot()` in `server.js` now `await`s `prewarm()` before calling `server.start()`. All clients receive GPU-optimized models — no first-client penalty. Uses `Promise.allSettled()` over all in-flight transform promises; never times out.
 
+### Draco OOM Fix (Build-Time Stripping)
+
+**Root cause**: Large Draco-compressed GLBs (e.g. `aim_sillos.glb`) decompress to ~1.5GB in the JS heap during Three.js `GLTFLoader.parse()`. The `_parsedGltfCache` held a permanent reference, causing 300MB/s heap growth and OOM crashes before the session ended.
+
+**Runtime mitigation**: `EntityLoader.js` implements `_parsedGltfRefCount` cache eviction — once all meshes from a GLB are instantiated, the parsed GLTF object is released from cache. This reduces peak persistent memory but does NOT prevent the during-parse OOM spike.
+
+**Build-time fix**: `scripts/optimize-models.js` now strips Draco compression at build time using `NodeIO` from `@gltf-transform/core` + `KHRDracoMeshCompression.withConfig({ decoderModule })` from `@gltf-transform/extensions`. Reading the binary with the decoder registered automatically decompresses all primitives; writing without an encoder produces uncompressed GLB. The decoder is initialized once via `draco3d.createDecoderModule()` (CJS, lazy singleton). Draco stripping runs after texture downscaling — both transforms may apply to the same file.
+
 ### Build-Time Model Optimizer (GitHub Pages / Static Hosting)
 
 `scripts/optimize-models.js` — standalone build-time optimizer for environments without a server (GitHub Pages). Run during CI via `.github/workflows/gh-pages.yml` before the deploy step.
 
-- Downscales textures >1024px in-place using `sharp`, preserving aspect ratio (`fit: 'inside', withoutEnlargement: true`)
+- Downscales textures >256px in-place using `sharp`, preserving aspect ratio (`fit: 'inside', withoutEnlargement: true`)
+- Strips Draco mesh compression using gltf-transform `NodeIO` + `KHRDracoMeshCompression` — prevents Three.js parse OOM
 - Accepts directories (recursive) and individual `.glb`/`.vrm` files as positional arguments
 - Rewrites GLB binary in-place: patches bufferView offsets, updates mimeTypes, strips `EXT_texture_webp`
-- Returns `null` (no write) when all textures are already ≤1024px — safe to run unconditionally
+- Returns `null` (no write) when already optimized — safe to run unconditionally
 - CI step: `node scripts/optimize-models.js dist/apps dist/anim-lib.glb || true`
 
 ### Invisible/Trigger Material Filtering

@@ -1,23 +1,43 @@
 #!/usr/bin/env node
-/**
- * optimize-models.js
- *
- * Build-time GPU memory optimizer for GLB/VRM files.
- * Downscales embedded textures larger than 1K using sharp.
- * Run during CI/CD before deploying to static hosting.
- *
- * Usage: node scripts/optimize-models.js <dir> [dir2 ...]
- *
- * Replaces files in-place with texture-downscaled versions.
- * Reduces GPU VRAM consumption proportionally to resolution reduction.
- */
-
 import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
 import { join, basename } from 'node:path'
+import { createRequire } from 'node:module'
 import sharp from 'sharp'
+import { NodeIO } from '@gltf-transform/core'
+import { KHRDracoMeshCompression } from '@gltf-transform/extensions'
 
-const MAX_TEX = 256  // max texture edge length after downscale
+const require = createRequire(import.meta.url)
+
+const MAX_TEX = 256
 const CONVERTIBLE = new Set(['image/webp', 'image/png', 'image/jpeg'])
+
+let _decoderModule = null
+async function getDecoder() {
+  if (!_decoderModule) {
+    const draco3d = require('draco3d')
+    _decoderModule = await draco3d.createDecoderModule()
+  }
+  return _decoderModule
+}
+
+function detectDraco(buf) {
+  try {
+    const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
+    if (view.getUint32(0, true) !== 0x46546C67) return false
+    const jsonLen = view.getUint32(12, true)
+    const json = JSON.parse(buf.slice(20, 20 + jsonLen).toString('utf8'))
+    return (json.extensionsUsed || []).includes('KHR_draco_mesh_compression')
+  } catch { return false }
+}
+
+async function stripDraco(buf) {
+  const decoderModule = await getDecoder()
+  const io = new NodeIO().registerExtensions([
+    KHRDracoMeshCompression.withConfig({ decoderModule })
+  ])
+  const doc = await io.readBinary(new Uint8Array(buf))
+  return Buffer.from(await io.writeBinary(doc))
+}
 
 async function processGLB(inputBuf) {
   const buf = Buffer.from(inputBuf)
@@ -37,7 +57,6 @@ async function processGLB(inputBuf) {
   const images = json.images || []
   const bufferViews = json.bufferViews || []
 
-  // Downscale only images that exceed MAX_TEX
   const replacements = new Map()
   for (let i = 0; i < images.length; i++) {
     const img = images[i]
@@ -58,80 +77,88 @@ async function processGLB(inputBuf) {
   }
 
   const needsTextureFix = (json.textures || []).some(t => t.extensions?.EXT_texture_webp?.source !== undefined || t.source === undefined)
-  if (replacements.size === 0 && !needsTextureFix) return null
+  const hasDraco = detectDraco(buf)
+  if (replacements.size === 0 && !needsTextureFix && !hasDraco) return null
 
-  // Rebuild binary section with replaced image buffers
-  const sortedIdxs = Array.from({ length: bufferViews.length }, (_, i) => i)
-    .sort((a, b) => (bufferViews[a].byteOffset || 0) - (bufferViews[b].byteOffset || 0))
+  let result = buf
 
-  const newBufViews = bufferViews.map(bv => ({ ...bv }))
-  const newChunks = []
-  let newOffset = 0
+  if (replacements.size > 0 || needsTextureFix) {
+    const sortedIdxs = Array.from({ length: bufferViews.length }, (_, i) => i)
+      .sort((a, b) => (bufferViews[a].byteOffset || 0) - (bufferViews[b].byteOffset || 0))
 
-  for (const idx of sortedIdxs) {
-    const bv = bufferViews[idx]
-    const pad = (4 - (newOffset % 4)) % 4
-    if (pad > 0) { newChunks.push(Buffer.alloc(pad, 0)); newOffset += pad }
-    if (replacements.has(idx)) {
-      const rbuf = replacements.get(idx)
-      newChunks.push(rbuf)
-      newBufViews[idx] = { ...bv, byteOffset: newOffset, byteLength: rbuf.length }
-      newOffset += rbuf.length
-    } else {
-      const chunk = originalBin.slice(bv.byteOffset, bv.byteOffset + bv.byteLength)
-      newChunks.push(chunk)
-      newBufViews[idx] = { ...bv, byteOffset: newOffset }
-      newOffset += chunk.length
+    const newBufViews = bufferViews.map(bv => ({ ...bv }))
+    const newChunks = []
+    let newOffset = 0
+
+    for (const idx of sortedIdxs) {
+      const bv = bufferViews[idx]
+      const pad = (4 - (newOffset % 4)) % 4
+      if (pad > 0) { newChunks.push(Buffer.alloc(pad, 0)); newOffset += pad }
+      if (replacements.has(idx)) {
+        const rbuf = replacements.get(idx)
+        newChunks.push(rbuf)
+        newBufViews[idx] = { ...bv, byteOffset: newOffset, byteLength: rbuf.length }
+        newOffset += rbuf.length
+      } else {
+        const chunk = originalBin.slice(bv.byteOffset, bv.byteOffset + bv.byteLength)
+        newChunks.push(chunk)
+        newBufViews[idx] = { ...bv, byteOffset: newOffset }
+        newOffset += chunk.length
+      }
     }
+
+    const newImages = images.map(img => {
+      const bvIdx = img.bufferView
+      if (!CONVERTIBLE.has(img.mimeType) || bvIdx === undefined || !replacements.has(bvIdx)) return img
+      return { ...img, mimeType: 'image/png' }
+    })
+
+    const newTextures = (json.textures || []).map(tex => {
+      const webpSrc = tex.extensions?.EXT_texture_webp?.source
+      if (webpSrc !== undefined) {
+        const { EXT_texture_webp, ...otherExts } = tex.extensions || {}
+        const remainingExts = Object.keys(otherExts).length ? otherExts : undefined
+        return { ...tex, source: webpSrc, extensions: remainingExts }
+      }
+      if (tex.source === undefined) return { ...tex, source: 0, extensions: undefined }
+      return tex
+    })
+
+    const extsUsed = (json.extensionsUsed || []).filter(e => e !== 'EXT_texture_webp')
+    const extsRequired = (json.extensionsRequired || []).filter(e => e !== 'EXT_texture_webp')
+
+    const newJson = { ...json, extensionsUsed: extsUsed, extensionsRequired: extsRequired, bufferViews: newBufViews, images: newImages, textures: newTextures, buffers: [{ byteLength: newOffset }] }
+
+    const jsonStr = JSON.stringify(newJson)
+    const jsonPad = (4 - (jsonStr.length % 4)) % 4
+    const jsonBuf = Buffer.alloc(jsonStr.length + jsonPad, 0x20)
+    Buffer.from(jsonStr).copy(jsonBuf)
+
+    const newBin = Buffer.concat(newChunks)
+    const binPad = (4 - (newBin.length % 4)) % 4
+    const newBinPadded = Buffer.alloc(newBin.length + binPad, 0)
+    newBin.copy(newBinPadded)
+
+    const totalLen = 12 + 8 + jsonBuf.length + 8 + newBinPadded.length
+    const out = Buffer.alloc(totalLen)
+    let pos = 0
+    out.writeUInt32LE(0x46546C67, pos); pos += 4
+    out.writeUInt32LE(2, pos); pos += 4
+    out.writeUInt32LE(totalLen, pos); pos += 4
+    out.writeUInt32LE(jsonBuf.length, pos); pos += 4
+    out.writeUInt32LE(0x4E4F534A, pos); pos += 4
+    jsonBuf.copy(out, pos); pos += jsonBuf.length
+    out.writeUInt32LE(newBinPadded.length, pos); pos += 4
+    out.writeUInt32LE(0x004E4942, pos); pos += 4
+    newBinPadded.copy(out, pos)
+    result = out
   }
 
-  // Update mimeTypes to png and strip WebP extension (textures now plain PNG)
-  const newImages = images.map(img => {
-    const bvIdx = img.bufferView
-    if (!CONVERTIBLE.has(img.mimeType) || bvIdx === undefined || !replacements.has(bvIdx)) return img
-    return { ...img, mimeType: 'image/png' }
-  })
+  if (hasDraco) {
+    result = await stripDraco(result)
+  }
 
-  const newTextures = (json.textures || []).map(tex => {
-    const webpSrc = tex.extensions?.EXT_texture_webp?.source
-    if (webpSrc !== undefined) {
-      const { EXT_texture_webp, ...otherExts } = tex.extensions || {}
-      const remainingExts = Object.keys(otherExts).length ? otherExts : undefined
-      return { ...tex, source: webpSrc, extensions: remainingExts }
-    }
-    if (tex.source === undefined) return { ...tex, source: 0, extensions: undefined }
-    return tex
-  })
-
-  const extsUsed = (json.extensionsUsed || []).filter(e => e !== 'EXT_texture_webp')
-  const extsRequired = (json.extensionsRequired || []).filter(e => e !== 'EXT_texture_webp')
-
-  const newJson = { ...json, extensionsUsed: extsUsed, extensionsRequired: extsRequired, bufferViews: newBufViews, images: newImages, textures: newTextures, buffers: [{ byteLength: newOffset }] }
-
-  const jsonStr = JSON.stringify(newJson)
-  const jsonPad = (4 - (jsonStr.length % 4)) % 4
-  const jsonBuf = Buffer.alloc(jsonStr.length + jsonPad, 0x20)
-  Buffer.from(jsonStr).copy(jsonBuf)
-
-  const newBin = Buffer.concat(newChunks)
-  const binPad = (4 - (newBin.length % 4)) % 4
-  const newBinPadded = Buffer.alloc(newBin.length + binPad, 0)
-  newBin.copy(newBinPadded)
-
-  const totalLen = 12 + 8 + jsonBuf.length + 8 + newBinPadded.length
-  const out = Buffer.alloc(totalLen)
-  let pos = 0
-  out.writeUInt32LE(0x46546C67, pos); pos += 4
-  out.writeUInt32LE(2, pos); pos += 4
-  out.writeUInt32LE(totalLen, pos); pos += 4
-  out.writeUInt32LE(jsonBuf.length, pos); pos += 4
-  out.writeUInt32LE(0x4E4F534A, pos); pos += 4
-  jsonBuf.copy(out, pos); pos += jsonBuf.length
-  out.writeUInt32LE(newBinPadded.length, pos); pos += 4
-  out.writeUInt32LE(0x004E4942, pos); pos += 4
-  newBinPadded.copy(out, pos)
-
-  return out
+  return result
 }
 
 async function optimizeDir(dir) {
@@ -141,16 +168,7 @@ async function optimizeDir(dir) {
     const fp = join(dir, e.name)
     if (e.isDirectory()) { await optimizeDir(fp); continue }
     if (!e.isFile() || (!e.name.endsWith('.glb') && !e.name.endsWith('.vrm'))) continue
-    const original = readFileSync(fp)
-    const t0 = Date.now()
-    const optimized = await processGLB(original)
-    if (optimized) {
-      writeFileSync(fp, optimized)
-      const savedKB = (original.length - optimized.length) / 1024
-      console.log(`[optimize] ${basename(fp)}: ${(original.length/1024).toFixed(0)}KB → ${(optimized.length/1024).toFixed(0)}KB (${savedKB > 0 ? '-' : '+'}${Math.abs(savedKB).toFixed(0)}KB) in ${Date.now()-t0}ms`)
-    } else {
-      console.log(`[optimize] ${basename(fp)}: textures already ≤${MAX_TEX}px, skipped`)
-    }
+    await optimizePath(fp)
   }
 }
 
@@ -165,14 +183,15 @@ async function optimizePath(p) {
   if (optimized) {
     writeFileSync(p, optimized)
     const savedKB = (original.length - optimized.length) / 1024
-    console.log(`[optimize] ${basename(p)}: ${(original.length/1024).toFixed(0)}KB → ${(optimized.length/1024).toFixed(0)}KB (${savedKB > 0 ? '-' : '+'}${Math.abs(savedKB).toFixed(0)}KB) in ${Date.now()-t0}ms`)
+    const dracoNote = detectDraco(original) ? ' + stripped Draco' : ''
+    console.log(`[optimize] ${basename(p)}: ${(original.length/1024).toFixed(0)}KB → ${(optimized.length/1024).toFixed(0)}KB (${savedKB > 0 ? '-' : '+'}${Math.abs(savedKB).toFixed(0)}KB)${dracoNote} in ${Date.now()-t0}ms`)
   } else {
-    console.log(`[optimize] ${basename(p)}: textures already ≤${MAX_TEX}px, skipped`)
+    console.log(`[optimize] ${basename(p)}: already optimized, skipped`)
   }
 }
 
 const paths = process.argv.slice(2)
 if (paths.length === 0) { console.error('Usage: node scripts/optimize-models.js <dir|file> [...]'); process.exit(1) }
-console.log(`[optimize] GPU memory optimization: downscaling textures >${MAX_TEX}px...`)
+console.log(`[optimize] GPU memory optimization: downscaling textures >${MAX_TEX}px, stripping Draco...`)
 for (const p of paths) await optimizePath(p)
 console.log('[optimize] done')

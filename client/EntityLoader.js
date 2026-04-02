@@ -24,6 +24,7 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
   const loadQueue = []
   const _parsedGltfCache = new Map()
   const _parsedGltfInflight = new Map()
+  const _parsedGltfRefCount = new Map()
   const _discoveredModelUrls = new Set()
   const _bvhQueue = []
   const _lodUpgradeQueue = []
@@ -127,6 +128,7 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
       if (_parsedGltfCache.has(url)) { gltf = _parsedGltfCache.get(url); loadingMgr.completeDownload(url) }
       else if (_parsedGltfInflight.has(url)) { gltf = await _parsedGltfInflight.get(url); loadingMgr.completeDownload(url) }
       else { const p = fetchCached(url).then(buf => gltfLoader.parseAsync(patchGLB(buf, url), '')); _parsedGltfInflight.set(url, p); gltf = await p; _parsedGltfInflight.delete(url); _parsedGltfCache.set(url, gltf); loadingMgr.completeDownload(url) }
+      _parsedGltfRefCount.set(url, (_parsedGltfRefCount.get(url) || 0) + 1)
       const model = gltf.scene.clone(true)
       const mp = entityState.position; model.position.set(mp[0], mp[1], mp[2])
       const mr = entityState.rotation; if (mr) model.quaternion.set(mr[0], mr[1], mr[2], mr[3])
@@ -156,6 +158,9 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB)
       if (loadingScreenHidden && _onMeshReady) _onMeshReady(finalMesh)
       pendingLoads.delete(entityId); onFirstEntityLoaded(entityId)
       if (loadingScreenHidden) _scheduleLodUpgrades()
+      const remaining = (_parsedGltfRefCount.get(url) || 1) - 1
+      _parsedGltfRefCount.set(url, remaining)
+      if (remaining <= 0 && !_parsedGltfInflight.has(url)) { _parsedGltfCache.delete(url); _parsedGltfRefCount.delete(url) }
     } catch (err) {
       console.error('[gltf]', url, err); pendingLoads.delete(entityId); onFirstEntityLoaded(entityId, true); loadingMgr.completeDownload(url)
     }
