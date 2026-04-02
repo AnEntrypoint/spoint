@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.390](https://github.com/AnEntrypoint/spoint/compare/v0.1.389...v0.1.390) (2026-04-02)
+
+
+### Bug Fixes
+
+* ModelCache revalidates ETag synchronously before returning cached buffer ([7660db2](https://github.com/AnEntrypoint/spoint/commit/7660db2c622a35be5c266d63094a385ba7fddb2d))
+
 ### [0.1.389](https://github.com/AnEntrypoint/spoint/compare/v0.1.388...v0.1.389) (2026-04-02)
 
 
