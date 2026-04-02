@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.386](https://github.com/AnEntrypoint/spoint/compare/v0.1.385...v0.1.386) (2026-04-02)
+
+
+### Bug Fixes
+
+* strip Draco compression at build time to prevent Three.js parse OOM ([e24ff9e](https://github.com/AnEntrypoint/spoint/commit/e24ff9e12fa71d213edcf33c2a94f7c399a35310))
+
 ### [0.1.385](https://github.com/AnEntrypoint/spoint/compare/v0.1.384...v0.1.385) (2026-04-02)
 
 
