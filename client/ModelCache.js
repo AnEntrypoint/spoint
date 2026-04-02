@@ -82,11 +82,14 @@ export async function fetchCached(url, onProgress) {
   try { cached = await get(DB_NAME, DB_VERSION, STORE, url) } catch { }
 
   if (cached?.etag) {
-    _touchManifest(url, cached.buffer?.byteLength || 0).catch(() => {})
-    fetch(url, { method: 'HEAD' }).then(head => {
+    try {
+      const head = await fetch(url, { method: 'HEAD' })
       const serverEtag = head?.headers?.get('etag')
-      if (serverEtag && serverEtag !== cached.etag) _fetchAndCache(url).catch(() => {})
-    }).catch(() => {})
+      if (serverEtag && serverEtag !== cached.etag) {
+        return _fetchAndCache(url, onProgress)
+      }
+    } catch { }
+    _touchManifest(url, cached.buffer?.byteLength || 0).catch(() => {})
     return new Uint8Array(cached.buffer)
   }
 
