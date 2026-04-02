@@ -52,7 +52,7 @@ export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader) {
   }
 
   async function createPlayerVRM(id, vrmBuffer, animAssets, worldConfig, playerId) {
-    const group = new THREE.Group(); scene.add(group); playerMeshes.set(id, group)
+    const group = new THREE.Group(); group.userData.vrmPending = true; scene.add(group); playerMeshes.set(id, group)
     if (!vrmBuffer) return group
     await acquireVrmSlot()
     if (!playerMeshes.has(id)) { releaseVrmSlot(); return group }
