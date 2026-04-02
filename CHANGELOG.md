@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.389](https://github.com/AnEntrypoint/spoint/compare/v0.1.388...v0.1.389) (2026-04-02)
+
+
+### Bug Fixes
+
+* server now strips Draco from pre-compressed GLBs instead of passing through ([3a09a9d](https://github.com/AnEntrypoint/spoint/commit/3a09a9dab93fcd8e22c7b376a6e8ddac32896e3f))
+
 ### [0.1.388](https://github.com/AnEntrypoint/spoint/compare/v0.1.387...v0.1.388) (2026-04-02)
 
 ### [0.1.387](https://github.com/AnEntrypoint/spoint/compare/v0.1.386...v0.1.387) (2026-04-02)
