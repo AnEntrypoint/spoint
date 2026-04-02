@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.395](https://github.com/AnEntrypoint/spoint/compare/v0.1.394...v0.1.395) (2026-04-02)
+
+
+### Bug Fixes
+
+* restore immediate entity loading; only gate VRM parses on assetsLoaded ([9d99a1e](https://github.com/AnEntrypoint/spoint/commit/9d99a1e2d9d54954217973314b9135de901abb44))
+
 ### [0.1.394](https://github.com/AnEntrypoint/spoint/compare/v0.1.393...v0.1.394) (2026-04-02)
 
 ### [0.1.393](https://github.com/AnEntrypoint/spoint/compare/v0.1.392...v0.1.393) (2026-04-02)
