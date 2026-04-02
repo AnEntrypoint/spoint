@@ -22,7 +22,7 @@ export function createCameraController(camera, scene) {
   let yaw = 0, pitch = 0, zoomIndex = 2, camInitialized = false, mode = 'tps'
   let editMode = false, editCamPos = new THREE.Vector3(0, 5, 10), editCamSpeed = 8
   let shoulderOffset = 0.35, headHeight = 0.4, camFollowSpeed = 12, camSnapSpeed = 30
-  let zoomStages = [0, 1.5, 3, 5, 8], mouseSensitivity = 0.002
+  let zoomStages = [0, 1.5, 3, 5, 8], shoulderOffsets = null, mouseSensitivity = 0.002
   let pitchMin = -1.4, pitchMax = 1.4
   let fpsRayTimer = 0, tpsRayTimer = 0, cachedClipDist = 10, cachedAimPoint = null
   let fpsPushX = 0, fpsPushY = 0, fpsPushZ = 0
@@ -70,7 +70,8 @@ export function createCameraController(camera, scene) {
 
   function updateTPS(dist, localMesh, frameDt, fwdX, fwdY, fwdZ, rightX, rightZ) {
     if (headBone && headBoneHidden) { headBone.scale.set(1, 1, 1); headBoneHidden = false }
-    camDesired.set(camTarget.x - fwdX*dist + rightX*shoulderOffset, camTarget.y - fwdY*dist + 0.2, camTarget.z - fwdZ*dist + rightZ*shoulderOffset)
+    const so = shoulderOffsets ? (shoulderOffsets[zoomIndex] ?? shoulderOffset) : shoulderOffset
+    camDesired.set(camTarget.x - fwdX*dist + rightX*so, camTarget.y - fwdY*dist + 0.2, camTarget.z - fwdZ*dist + rightZ*so)
     camDir.subVectors(camDesired, camTarget).normalize()
     const fullDist = camTarget.distanceTo(camDesired)
     tpsRayTimer += frameDt
@@ -142,6 +143,7 @@ export function createCameraController(camera, scene) {
     if (cfg.shoulderOffset != null) shoulderOffset = cfg.shoulderOffset
     if (cfg.headHeight != null) headHeight = cfg.headHeight
     if (cfg.zoomStages) zoomStages = cfg.zoomStages
+    if (cfg.shoulderOffsets) shoulderOffsets = cfg.shoulderOffsets
     if (cfg.defaultZoomIndex != null) zoomIndex = cfg.defaultZoomIndex
     if (cfg.followSpeed != null) camFollowSpeed = cfg.followSpeed
     if (cfg.snapSpeed != null) camSnapSpeed = cfg.snapSpeed
@@ -156,7 +158,8 @@ export function createCameraController(camera, scene) {
     const fwdX = sy*cp, fwdY = sp, fwdZ = cy*cp
     if (!playerPos || zoomStages[zoomIndex] < 0.01) return [fwdX, fwdY, fwdZ]
     const dist = zoomStages[zoomIndex]
-    const cpx = playerPos[0] - fwdX*dist + (-cy)*shoulderOffset, cpy = playerPos[1] + headHeight - fwdY*dist + 0.2, cpz = playerPos[2] - fwdZ*dist + sy*shoulderOffset
+    const so = shoulderOffsets ? (shoulderOffsets[zoomIndex] ?? shoulderOffset) : shoulderOffset
+    const cpx = playerPos[0] - fwdX*dist + (-cy)*so, cpy = playerPos[1] + headHeight - fwdY*dist + 0.2, cpz = playerPos[2] - fwdZ*dist + sy*so
     const dx = cpx + fwdX*200 - playerPos[0], dy = cpy + fwdY*200 - (playerPos[1]+0.9), dz = cpz + fwdZ*200 - playerPos[2]
     const len = Math.sqrt(dx*dx + dy*dy + dz*dz)
     return len > 0.001 ? [dx/len, dy/len, dz/len] : [fwdX, fwdY, fwdZ]

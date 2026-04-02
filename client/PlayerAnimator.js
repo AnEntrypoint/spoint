@@ -5,10 +5,15 @@ import { STATES, FADE_TIME, createAnimationStateMachine } from './AnimationState
 function buildActionsFromClips(mixer, clips, animConfig) {
   const actions = new Map()
   const additiveActions = new Map()
-  for (const [name, clip] of clips) {
+  const walkFallbacks = new Set(['JogFwdLoop', 'SprintLoop'])
+  const synthClips = new Map(clips)
+  if (clips.has('WalkLoop')) {
+    for (const name of walkFallbacks) if (!clips.has(name)) synthClips.set(name, clips.get('WalkLoop'))
+  }
+  for (const [name, clip] of synthClips) {
     if (!STATES[name]) continue
     const cfg = STATES[name]
-    const sourceClip = name === 'JogFwdLoop' && clips.has('WalkLoop') ? clips.get('WalkLoop') : clip
+    const sourceClip = walkFallbacks.has(name) && clips.has('WalkLoop') ? clips.get('WalkLoop') : clip
     if (cfg.upperBody || cfg.additive) {
       const upperBodyClip = filterUpperBodyTracks(sourceClip)
       const action = mixer.clipAction(upperBodyClip)
@@ -19,8 +24,8 @@ function buildActionsFromClips(mixer, clips, animConfig) {
       const action = mixer.clipAction(sourceClip)
       if (!cfg.loop) { action.loop = THREE.LoopOnce; action.clampWhenFinished = cfg.clamp || false }
       if (name === 'WalkLoop') action.timeScale = animConfig.walkTimeScale || 16.0
-      if (name === 'JogFwdLoop') action.timeScale = animConfig.jogTimeScale || 0.667
-      if (name === 'SprintLoop') action.timeScale = animConfig.sprintTimeScale || 0.56
+      if (name === 'JogFwdLoop') action.timeScale = animConfig.jogTimeScale || 4.5
+      if (name === 'SprintLoop') action.timeScale = animConfig.sprintTimeScale || 7.0
       actions.set(name, action)
     }
   }
@@ -38,7 +43,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
 
   const remappedClips = new Map()
   for (const [name, clip] of clips) {
-    const sourceClip = name === 'JogFwdLoop' && clips.has('WalkLoop') ? clips.get('WalkLoop') : clip
+    const sourceClip = (name === 'JogFwdLoop' || name === 'SprintLoop') && clips.has('WalkLoop') ? clips.get('WalkLoop') : clip
     remappedClips.set(name, filterValidClipTracks(remapClipToNormalized(sourceClip, vrm0Remap), validBones))
   }
 
