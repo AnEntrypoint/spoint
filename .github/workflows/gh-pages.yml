@@ -76,6 +76,24 @@ jobs:
           cp client/singleplayer-world.json dist/singleplayer-world.json
           sed -i 's|"\./apps/|"/spoint/apps/|g' dist/singleplayer-world.json
 
+      - name: Patch server-side modules for browser Worker
+        run: |
+          # AppLoader: remove node: imports (loadFromString doesn't need them)
+          sed -i "/^import.*from 'node:fs\/promises'/d" dist/src/apps/AppLoader.js
+          sed -i "/^import.*from 'node:fs'/d" dist/src/apps/AppLoader.js
+          sed -i "/^import.*from 'node:path'/d" dist/src/apps/AppLoader.js
+          sed -i "/^import.*from 'node:url'/d" dist/src/apps/AppLoader.js
+          # SessionStore: replace node:crypto randomBytes with Web Crypto
+          sed -i "s|import { randomBytes } from 'node:crypto'||" dist/src/connection/SessionStore.js
+          sed -i "s|randomBytes(16).toString('hex')|Array.from(crypto.getRandomValues(new Uint8Array(16))).map(b=>b.toString(16).padStart(2,'0')).join('')|g" dist/src/connection/SessionStore.js
+          # AppRuntime: guard dynamic node: imports with isNode check
+          sed -i "s|try { const fs = await import('node:fs'); const path = await import('node:path'); _existsSync = fs.existsSync; _resolve = path.resolve } catch {}|try { if (typeof process !== 'undefined' && process.versions?.node) { const fs = await import('node:fs'); const path = await import('node:path'); _existsSync = fs.existsSync; _resolve = path.resolve } } catch {}|" dist/src/apps/AppRuntime.js
+          # GLBLoader: guard dynamic node:fs import
+          sed -i "s|try { const m = await import('node:fs'); _readFileSync = m.readFileSync } catch {}|try { if (typeof process !== 'undefined' && process.versions?.node) { const m = await import('node:fs'); _readFileSync = m.readFileSync } } catch {}|" dist/src/physics/GLBLoader.js
+          # ReloadManager, StaticHandler, UploadHandler, ServerAPI, server.js are NOT imported by WorkerEntry - no patch needed
+          # WebTransportServer: not imported by WorkerEntry
+          # FSAdapter: not imported by WorkerEntry (Worker uses IDBAdapter)
+
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v4
         with:
