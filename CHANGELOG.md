@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.408](https://github.com/AnEntrypoint/spoint/compare/v0.1.407...v0.1.408) (2026-04-03)
+
+
+### Bug Fixes
+
+* deploy apps/_lib/ and xstate; prefer singleplayer-world.json over apps/world/index.js ([df70a96](https://github.com/AnEntrypoint/spoint/commit/df70a96053bd32cb48d3551e676a4af39891b553))
+
 ### [0.1.407](https://github.com/AnEntrypoint/spoint/compare/v0.1.406...v0.1.407) (2026-04-03)
 
 
