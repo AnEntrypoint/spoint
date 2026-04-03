@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.409](https://github.com/AnEntrypoint/spoint/compare/v0.1.408...v0.1.409) (2026-04-03)
+
+
+### Bug Fixes
+
+* patch lifecycle.js to use absolute xstate path for Worker importmap bypass ([e0523f9](https://github.com/AnEntrypoint/spoint/commit/e0523f9f4b17bec85458fd1534fb9f5541966392))
+
 ### [0.1.408](https://github.com/AnEntrypoint/spoint/compare/v0.1.407...v0.1.408) (2026-04-03)
 
 
