@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.402](https://github.com/AnEntrypoint/spoint/compare/v0.1.401...v0.1.402) (2026-04-03)
+
+
+### Bug Fixes
+
+* use generic sed to patch all importmap paths for gh-pages subpath ([3db1a45](https://github.com/AnEntrypoint/spoint/commit/3db1a45cf247af0ce5978c5f286e770d784ffcaf))
+
 ### [0.1.401](https://github.com/AnEntrypoint/spoint/compare/v0.1.400...v0.1.401) (2026-04-03)
 
 
