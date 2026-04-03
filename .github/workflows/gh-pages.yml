@@ -43,12 +43,13 @@ jobs:
           cp apps/maps/aim_sillos.glb dist/apps/maps/aim_sillos.glb
           cp apps/tps-game/cleetus.vrm dist/apps/tps-game/cleetus.vrm
           # Copy all app JS sources so BrowserServer.connect() can fetch them
-          find apps -name "index.js" | while read f; do
+          # Also copy _lib/ since src/apps/AppContext.js imports apps/_lib/lifecycle.js
+          find apps -name "*.js" | while read f; do
             mkdir -p "dist/$(dirname $f)"
             cp "$f" "dist/$f"
           done
 
-          for pkg in three @pixiv/three-vrm webjsx msgpackr meshoptimizer monaco-editor jolt-physics; do
+          for pkg in three @pixiv/three-vrm webjsx msgpackr meshoptimizer monaco-editor jolt-physics xstate; do
             if [ -d "node_modules/$pkg" ]; then
               mkdir -p "dist/node_modules/$pkg"
               cp -r "node_modules/$pkg" "dist/node_modules/$(dirname $pkg)/"
