@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.401](https://github.com/AnEntrypoint/spoint/compare/v0.1.400...v0.1.401) (2026-04-03)
+
+
+### Bug Fixes
+
+* deploy server-side src/ modules and jolt-physics to gh-pages for Worker singleplayer ([1795b36](https://github.com/AnEntrypoint/spoint/commit/1795b360eeb47cfaf0021a038c307659216f6187))
+
 ### [0.1.400](https://github.com/AnEntrypoint/spoint/compare/v0.1.399...v0.1.400) (2026-04-02)
 
 
