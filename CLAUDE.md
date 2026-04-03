@@ -21,7 +21,8 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 - **WorkerTransport.js**: `TransportWrapper` subclass; `send()` transfers `ArrayBuffer` ownership (zero-copy); handles Uint8Array byteOffset correctly
 - **IDBAdapter.js**: `StorageAdapter` backed by IndexedDB for the Worker context (no filesystem)
 - **BrowserServer.js**: uses `MessageHandler` + `SnapshotProcessor` pipeline, same as `PhysicsNetworkClient`; `connect()` dynamically imports `/apps/world/index.js` and fetches app sources via `fetch()` before spawning the Worker
-- **Node.js portability pattern**: `GLBLoader.js`, `AppRuntime.js`, `EditorHandlers.js` use lazy `await import('node:fs')` with try/catch at module top level; browser silently gets `null` and uses fallback paths (`fetch()` for GLB loading, in-memory state for editor ops)
+- **Node.js portability pattern**: `GLBLoader.js`, `AppRuntime.js`, `EditorHandlers.js` guard dynamic `await import('node:fs')` with `typeof process !== 'undefined' && process.versions?.node` before attempting the import — Chrome Workers attempt the fetch even inside try/catch, causing mixed-content errors on HTTPS. Browser uses fallback paths (`fetch()` for GLB loading, in-memory state for editor ops).
+- **BrowserServer.js `_base`**: uses `const _base = import.meta.url` (not `new URL('../', import.meta.url)`) so Worker URL resolves correctly under gh-pages subpath `/spoint/`
 - **importmap requirement**: `jolt-physics/wasm-compat` must be in `client/index.html` importmap — module Workers in Chrome 89+ inherit the page importmap, enabling `World.js` to load Jolt in the Worker
 - **gh-pages deployment**: the Worker needs the full server-side `src/` tree at runtime. The gh-pages workflow must copy ALL `src/` subdirs (sdk, connection, debug, netcode, physics, apps, stage, storage, transport, spatial) plus `src/math.js` and `jolt-physics` npm package — not just `src/client`, `src/protocol`, `src/shared`. The importmap sed uses a generic `s|"/node_modules/|"/spoint/node_modules/|` to patch all packages at once.
 - **App sources**: `WorkerEntry` receives `{ name, source }` pairs and calls `appLoader.loadFromString()` — no filesystem access needed
@@ -168,28 +169,17 @@ Set `entity.model = null` and populate `entity.custom`:
 
 **KTX binary auto-discovery**: `imageToKtx2` searches `bin/ktx.exe` (Windows bundled), `bin/ktx` (Linux/Mac bundled), `/usr/bin/ktx`, `/usr/local/bin/ktx` in order. When no binary is found, falls back to PNG downscale (≤1024px via `sharp`) instead of failing — GPU VRAM is still reduced proportionally. Return type is `{ buf, mimeType }` where mimeType is `'image/ktx2'` or `'image/png'`. `KHR_texture_basisu` extension is only injected into GLTF JSON when actual KTX2 was produced.
 
-**`prewarm()` blocks server start**: `boot()` in `server.js` now `await`s `prewarm()` before calling `server.start()`. All clients receive GPU-optimized models — no first-client penalty. Uses `Promise.allSettled()` over all in-flight transform promises; never times out.
+**`prewarm()` blocks server start**: `boot()` in `server.js` `await`s `prewarm()` before `server.start()` — all clients receive GPU-optimized models with no first-client penalty.
 
-### Draco OOM Fix (Build-Time Stripping)
+### Build-Time Draco Stripping (gh-pages)
 
-**Root cause**: Large Draco-compressed GLBs (e.g. `aim_sillos.glb`) decompress to ~1.5GB in the JS heap during Three.js `GLTFLoader.parse()`. The `_parsedGltfCache` held a permanent reference, causing 300MB/s heap growth and OOM crashes before the session ended.
+`scripts/optimize-models.js` strips Draco + downscales textures at CI time — large Draco GLBs OOM during Three.js parse on the client. `EntityLoader.js` also implements `_parsedGltfRefCount` eviction to release parsed GLTF objects after all meshes are instantiated.
 
-**Runtime mitigation**: `EntityLoader.js` implements `_parsedGltfRefCount` cache eviction — once all meshes from a GLB are instantiated, the parsed GLTF object is released from cache. This reduces peak persistent memory but does NOT prevent the during-parse OOM spike.
-
-**Build-time fix (gh-pages)**: `scripts/optimize-models.js` strips Draco at CI time. Uses `NodeIO.registerDependencies({'draco3d.decoder': decoderModule, 'draco3d.encoder': encoderModule})` — NOT `KHRDracoMeshCompression.withConfig` (that method does not exist in @gltf-transform v4 and throws silently swallowed by `|| true` in CI). After `io.readBinary`, dispose the `KHR_draco_mesh_compression` extension object from `doc.getRoot().listExtensionsUsed()` before `io.writeBinary` — otherwise gltf-transform re-encodes with Draco. Textures with no `source` field (EXT_texture_webp-only) must be patched to `source: 0` before read or gltf-transform crashes on null sampler lookup. Draco stripping must happen before texture rewrite — bufferView indices change after Draco strip.
-
-**Server-side VRAM optimization (live server)**: `GLBTransformer.js` applies KTX2 + Draco at request time for models served to connected clients. This is separate from the build-time optimizer and handles runtime model loading.
-
-### Build-Time Model Optimizer (GitHub Pages / Static Hosting)
-
-`scripts/optimize-models.js` — standalone build-time optimizer for environments without a server (GitHub Pages). Run during CI via `.github/workflows/gh-pages.yml` before the deploy step.
-
-- Downscales textures >256px in-place using `sharp`, preserving aspect ratio (`fit: 'inside', withoutEnlargement: true`)
-- Strips Draco mesh compression using gltf-transform `NodeIO` + `KHRDracoMeshCompression` — prevents Three.js parse OOM
-- Accepts directories (recursive) and individual `.glb`/`.vrm` files as positional arguments
-- Rewrites GLB binary in-place: patches bufferView offsets, updates mimeTypes, strips `EXT_texture_webp`
-- Returns `null` (no write) when already optimized — safe to run unconditionally
-- CI step: `node scripts/optimize-models.js dist/apps dist/anim-lib.glb || true`
+**gltf-transform pitfalls** in `scripts/optimize-models.js`:
+- Use `NodeIO.registerDependencies({...})` — NOT `KHRDracoMeshCompression.withConfig` (doesn't exist in v4)
+- Dispose the `KHR_draco_mesh_compression` extension from `doc.getRoot().listExtensionsUsed()` before `io.writeBinary` — otherwise gltf-transform re-encodes with Draco
+- Textures with no `source` field (EXT_texture_webp-only) must be patched to `source: 0` before read — null sampler lookup crashes NodeIO
+- Draco stripping must happen before texture rewrite — bufferView indices change after Draco strip
 
 ### Invisible/Trigger Material Filtering
 
@@ -211,7 +201,7 @@ Set `entity.model = null` and populate `entity.custom`:
 
 ### Shader Warmup Persistence
 
-`warmupShaders` in `client/SceneSetup.js` stores `lastShaderWarmupKey` in `localStorage` (was `sessionStorage`). The scene key includes entity count and ID hash — same world across browser sessions skips re-compilation.
+`warmupShaders` in `client/SceneSetup.js` stores `lastShaderWarmupKey` in `localStorage`. The scene key includes entity count and ID hash — same world across browser sessions skips re-compilation.
 
 ---
 
@@ -302,92 +292,30 @@ Player is physics-idle when: no directional input, `onGround=true`, horizontal v
 
 `_spatialCache` (module-level, cleared each tick) groups players by `floor(x/R)*65536+floor(z/R)` cell. Players in the same cell share `nearbyPlayerIds` and `relevantIds`. `_cellPackCache` caches packed snapshot buffers by cell key — ~43% hit rate in spread scenarios.
 
-### Allocation Reduction
-
-- Module-level `_spatialCache`, `_precomputedRemoved`, `_sendObj`, `_packWrapper`, `_packPayload` — reused each tick
-- `pack()` + `sendPacked()` in spatial path avoids double-packing the `{type, payload}` wrapper
-- `SNAP_UNRELIABLE = true` hoisted as constant
-- Yaw sin/cos cached via `_lastYaw`/`_lastSinHalf`/`_lastCosHalf`
-- `_tickTimers` uses in-place array compaction instead of allocating a new array
-
-### Hot Path Micro-optimizations (2026-03-19)
-
-**`fillEntityEnc` pre-destructure** (`SnapshotEncoder.js`): replaced array destructuring `const [px,py,pz]=e.position` with indexed access `const pos=e.position; const px=pos[0],...`. 46% improvement per call, **59% improvement at 500 entities/tick** (0.049 → 0.020 ms/tick saved).
-
-**`fillEntityArr` scale null-check** (`SnapshotProcessor.js`): replaced `e[14]??1` with `const s14=e[14]; s14==null?1:s14`. 12% improvement. Avoids potential deoptimization from `??` operator on undefined array indices.
-
-**`slerpQuat` fast path** (`interpolation.js`): added `dot>0.9995` branch that skips `Math.acos`+`Math.sin` and uses normalized lerp. 36% improvement for close rotations (common case during interpolation between nearby frames). Full slerp path unchanged for large-angle rotations.
-
 ### Collision Grid Pruning
 
 Entity-entity: O(n²) brute-force for <100 entities, grid-based (cell=4 units, 9-neighbor) for >=100. Grid cells pruned every 64 ticks or when `size > count * 4`. Cooldown keys use `e.id * 100000 + p.id` (numeric, not string template). `_interactCooldowns` prunes entries older than 10s every 256 ticks when size > 100.
 
 ### Client-Side Optimizations
 
-- **BVH deferred** to `requestIdleCallback` (2ms slice) via `_bvhQueue`. Camera raycast falls back to brute-force on un-built geometries.
-- **`warmupShaders`**: disables `frustumCulled` on all objects, renders twice, restores. Post-load entities use `renderer.compileAsync`. A zero-intensity `_warmupPointLight` forces point-light shader variant to compile upfront. Session cache key uses entity count + sorted entity IDs (truncated to 200 chars) — prevents cross-scene cache collisions. Two `scene.traverse` passes merged into one.
-- **Shadow map** updated only when scene moves (`_shadowDirty` flag), gated at max 15Hz.
 - **`cam.setEnvironment(meshes)`** must use non-skinned static meshes only — never `scene.children` (includes skinned VRM meshes, causes massive CPU overhead).
-- **SnapshotProcessor object pooling**: `makePlayerSlot`/`makeEntitySlot` with pool indexing; `fillPlayerArr`/`fillEntityArr` mutate in-place — zero allocation for existing entities.
-- **Invisible player skip**: `tickPlayerAnimators` skips VRM update, bone overrides, and anim for invisible players (always runs for local player).
-- Swap-and-pop entity removal (O(1) vs O(n) splice). GLTF cache LRU capped at 64 entries.
-- **`LOD_CONFIGS.skipBeyondSq`**: precomputed squared distances in `EntityLoader.js`. `updateVisibility` uses `dx*dx+dy*dy+dz*dz` and compares directly — no per-frame `skipBeyond*skipBeyond` multiplication and no `**` operator.
-- **Entity load concurrency**: `MAX_CONCURRENT_LOADS_INITIAL=4`, `MAX_CONCURRENT_LOADS_RUNTIME=3` — reduced from 8/4 to halve peak GLTF parse memory during initial load window.
-- **Draco worker preload**: `dracoLoader.preload()` called immediately in `createLoaders()` — starts worker pool + WASM init at page load instead of paying that cost on first entity decode.
-- **RippleUI non-blocking**: CDN stylesheet loaded with `media="print" onload="this.media='all'"` — never render-blocks first paint.
-- **All imports vendored locally** (`index.html` importmap): three@0.183, three/addons/, @pixiv/three-vrm, webjsx, msgpackr all served from `/node_modules/` at localhost. Eliminates 500ms–1700ms CDN round-trips per module. `<link rel="modulepreload">` for 9 critical modules fires parallel fetches before `app.js` parses. Combined: cold load 34–36s → 22s (36% faster). `@pixiv/three-vrm` added as a real `package.json` dependency (was CDN-only).
-- **`firstSnapshotEntityPending` only tracks dynamic entities**: static entities (map, environment props) no longer block the loading screen gate. `bodyType==='dynamic'` filter means only moving/interactive entities are waited for. A 5-second timeout (`_entityLoadTimeout`) clears the set as a safety net so no entity load failure can block the game forever.
-- **`fitShadowFrustum` reuses Box3 instances**: `_fitBox3` and `_fitMeshBox` are module-level singletons. Replaces `box.expandByObject(o)` (which does internal sub-traverse per mesh) with direct `geometry.computeBoundingBox()` + `Box3.copy().applyMatrix4()` — O(N) single pass with zero allocation.
-- **AnimationLibrary clip extraction memory**: `_gltfPromise = null` after `_normalizeClips()` completes — releases the full GLTF scene graph (geometry, bones, scene nodes) once clips are extracted, freeing ~5–10MB.
-- **EntityLoader `_animatedEntities` tracks `finalMesh`**: push `finalMesh` (the THREE.LOD wrapper when `_generateLODEager` runs), not `model`. `removeEntity` looks up via `entityMeshes` which stores `finalMesh` — `indexOf` must match or the animator leaks.
-- **VRM recreate orphan prevention**: `scene.remove(g)` on the existing Group before `playerMeshes.delete` and `recreatePlayerVRM` — prevents empty Group nodes accumulating in the scene when VRM assets reload.
+- **`EntityLoader._animatedEntities` tracks `finalMesh`** (the `THREE.LOD` wrapper), not `model` — `removeEntity` looks up via `entityMeshes` which stores `finalMesh`; mismatch causes animator leak.
+- **`firstSnapshotEntityPending`** only tracks dynamic entities — static entities never block the loading gate. A 5s timeout (`_entityLoadTimeout`) clears the set so a failed entity load can't block forever.
 
-### Client Loading Pipeline (2026-03-19)
+### Client Loading Pipeline
 
-**Critical path**: `checkAllLoaded` gates on four simultaneous conditions: `assetsLoaded` (VRM + animation library), `environmentLoaded` (first entity mesh ready), `firstSnapshotReceived` (WebSocket snapshot), `firstSnapshotEntityPending.size === 0` (all entities in first snapshot loaded).
+**`checkAllLoaded`** gates on five conditions simultaneously: `assetsLoaded` (VRM + anim library), `environmentLoaded` (first entity mesh), `firstSnapshotReceived`, `modelsPrefetched` (entity model URLs prefetched, set in `onWorldDef`), `firstSnapshotEntityPending.size === 0`.
 
-**`initAssets` parallel pattern**: `_readVrmVersion(buffer)` extracts VRM version from GLB binary header immediately. `loadAnimationLibrary(vrmVersion)` fires concurrently with VRM cache validation — `animPromise` resolves in parallel with the VRM `dbDelete/fetch` edge case path. `preloadAnimationLibrary(gltfLoader)` fires at the start of `initAssets`, so `anim-lib.glb` is fetched in parallel with the VRM download.
+**`BrowserServer` world config loading**: `connect()` tries in order: `this.config.worldDef` → `apps/world/index.js` (Node.js dev server) → `singleplayer-world.json` (gh-pages static fallback) → `{}`. The `singleplayer-world.json` fallback is critical for gh-pages because `apps/world/index.js` returns 404 there.
 
-**Singleplayer OOM (intermittent, cache-dependent) — confirmed via two Chrome heap profiles:**
-
-The OOM only occurs on animation cache miss (`anim-lib-v1` key absent from IndexedDB — first visit, storage cleared, or DB_VERSION bump). On cache hit the fast path returns in milliseconds, no OOM. This explains 8+ intermittent crashes over two weeks.
-
-**Root cause (profile5, confirmed)**: `onStateUpdate` fires on every server snapshot tick (~64Hz). Before `assetsLoaded`, it called `createPlayerVRM` for every player in the snapshot. `createPlayerVRM` is async — it creates a new Group, calls `playerMeshes.set(id, group)`, then `await acquireVrmSlot()`. Because all N player calls happen synchronously before any `await` yields, all N players get pushed into `_vrmQueue` simultaneously. `MAX_VRM_CONCURRENT=6` only gates the WASM parse phase — 6 full VRM parses run concurrently, each consuming 300–400MB. With a full server (10+ players queued over the ~1s cache-miss window), heap spiked at 440 MB/s → OOM before GC could reclaim anything.
-
-**Contributing factor**: The `forEach` loop in `initAssets` that ran when `assetsLoaded` flipped would re-call `createPlayerVRM` for all empty placeholder Groups, double-firing for players already queued in `_vrmQueue`.
-
-**Fixes applied (all required together):**
-1. `onStateUpdate` (`app.js`): always creates a placeholder `Group` for new players; only calls `createPlayerVRM` when `assetsLoaded && g.children.length===0 && !g.userData.vrmPending`. No VRM parses begin before assets are ready.
-2. `createPlayerVRM` (`PlayerManager.js`): sets `group.userData.vrmPending = true` immediately (before the first `await`) so re-entrant `onStateUpdate` ticks don't re-queue the same player while a parse is in flight.
-3. `onPlayerJoined` (`app.js`): gated on `assetsLoaded`; creates placeholder Group if not ready.
-4. `initAssets` forEach removed — `onStateUpdate` handles re-triggering empty Groups once `assetsLoaded` flips.
-5. `AnimationLibrary.js`: `await cacheClips` (was fire-and-forget) — `assetsLoaded` only flips after IndexedDB write completes, preventing entity loading from starting while serialization holds the heap.
-6. `AnimationLibrary.js`: `rawClips` set to `normalizedClips` (not original GLTF objects) — GLTF binary GC'd immediately after normalization.
-7. `EntityLoader.js`: `MAX_CONCURRENT_LOADS_INITIAL` reduced 8→4.
-8. `app.js`: entity `loadEntityModel` calls gated on `assetsLoaded`.
-
-**Invariants that must never be broken:**
-- `createPlayerVRM` MUST NOT be called before `assetsLoaded=true` — will queue N parses that all fire simultaneously when assets finish.
-- `group.userData.vrmPending` MUST be set synchronously inside `createPlayerVRM` before the first `await` — guards against re-entrant calls on subsequent ticks.
-- `cacheClips` in `AnimationLibrary.js` MUST remain `await`ed — fire-and-forget allows VRM loads to overlap with IndexedDB serialization, spiking heap.
-- Entity loading (`loadEntityModel`) is NOT gated on `assetsLoaded` — entities load immediately on first snapshot. Deferring entity loading breaks singleplayer raycasting (map BVH not ready when player spawns → player falls through to the -15 fallback floor). Only VRM parses must be deferred.
-- `onStateUpdate` creates placeholder Groups for new players immediately; `createPlayerVRM` is only called when `assetsLoaded && g.children.length===0 && !g.userData.vrmPending`.
+**Singleplayer VRM OOM invariants** — violating any of these causes heap spikes on animation cache miss:
+- `createPlayerVRM` MUST NOT be called before `assetsLoaded=true` — queues N concurrent VRM parses (300–400MB each), OOMs before GC runs.
+- `group.userData.vrmPending` MUST be set synchronously inside `createPlayerVRM` before the first `await` — guards re-entrant `onStateUpdate` ticks from double-queuing.
+- `cacheClips` in `AnimationLibrary.js` MUST remain `await`ed — fire-and-forget overlaps VRM loads with IndexedDB serialization, spiking heap.
+- Entity loading (`loadEntityModel`) is NOT gated on `assetsLoaded` — deferring breaks singleplayer raycasting (map BVH not ready → player falls through floor). Only VRM parses are deferred.
+- `onStateUpdate` creates placeholder Groups immediately; only calls `createPlayerVRM` when `assetsLoaded && g.children.length===0 && !g.userData.vrmPending`.
 
 **To test cold path**: DevTools → Application → IndexedDB → delete `spawnpoint-anim-cache` → reload at `?singleplayer`. Heap should plateau under 1GB.
-
-**`LoadingManager.fetchWithProgress`** passes `onProgress` callback to `fetchCached` for byte-level streaming progress during first-load downloads.
-
-### Capacity Table (64 TPS, divisor=3, 1000 dynamic entities, relevanceRadius=60)
-
-| Players | Avg Tick | Budget |
-|---------|----------|--------|
-| 50      | ~6ms     | OK     |
-| 100     | ~8ms     | OK     |
-| 200     | ~13ms    | OK     |
-| 300     | ~9.5ms*  | OK     |
-| 400     | >15ms    | OVER   |
-
-*300p avg includes mixed skip+physics ticks; physics ticks peak ~16ms but are 1-in-3.
 
 ---
 
