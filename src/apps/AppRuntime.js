@@ -4,7 +4,7 @@ import { EventBus } from './EventBus.js'
 import { mulQuat, rotVec } from '../math.js'
 import { MSG } from '../protocol/MessageTypes.js'
 let _existsSync = null, _resolve = null
-try { const fs = await import('node:fs'); const path = await import('node:path'); _existsSync = fs.existsSync; _resolve = path.resolve } catch {}
+try { if (typeof process !== 'undefined' && process.versions?.node) { const fs = await import('node:fs'); const path = await import('node:path'); _existsSync = fs.existsSync; _resolve = path.resolve } } catch {}
 import { SpatialIndex } from '../spatial/Octree.js'
 import { mixinPhysics } from './AppRuntimePhysics.js'
 import { mixinTick } from './AppRuntimeTick.js'

@@ -5,7 +5,7 @@ import { extractMeshWithMeshopt } from './MeshoptDecompressor.js'
 export const SKIP_MATS = new Set(['aaatrigger', '{invisible', 'playerclip', 'clip', 'nodraw', 'trigger', 'sky', 'toolsclip', 'toolsplayerclip', 'toolsnodraw', 'toolsskybox', 'toolstrigger'])
 
 let _readFileSync = null
-try { const m = await import('node:fs'); _readFileSync = m.readFileSync } catch {}
+try { if (typeof process !== 'undefined' && process.versions?.node) { const m = await import('node:fs'); _readFileSync = m.readFileSync } } catch {}
 
 function readGLBSync(filepath) {
   if (!_readFileSync) throw new Error('readFileSync not available — use URL-based async methods in browser')
