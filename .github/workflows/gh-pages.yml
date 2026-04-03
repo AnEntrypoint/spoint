@@ -27,12 +27,23 @@ jobs:
           cp -r src/client dist/src/client
           cp -r src/protocol dist/src/protocol
           cp -r src/shared dist/src/shared
+          cp -r src/sdk dist/src/sdk
+          cp -r src/connection dist/src/connection
+          cp -r src/debug dist/src/debug
+          cp -r src/netcode dist/src/netcode
+          cp -r src/physics dist/src/physics
+          cp -r src/apps dist/src/apps
+          cp -r src/stage dist/src/stage
+          cp -r src/storage dist/src/storage
+          cp -r src/transport dist/src/transport
+          cp -r src/spatial dist/src/spatial
+          cp src/math.js dist/src/math.js
           cp src/index.client.js dist/src/index.client.js
 
           cp apps/maps/aim_sillos.glb dist/apps/maps/aim_sillos.glb
           cp apps/tps-game/cleetus.vrm dist/apps/tps-game/cleetus.vrm
 
-          for pkg in three @pixiv/three-vrm webjsx msgpackr meshoptimizer monaco-editor; do
+          for pkg in three @pixiv/three-vrm webjsx msgpackr meshoptimizer monaco-editor jolt-physics; do
             if [ -d "node_modules/$pkg" ]; then
               mkdir -p "dist/node_modules/$pkg"
               cp -r "node_modules/$pkg" "dist/node_modules/$(dirname $pkg)/"
