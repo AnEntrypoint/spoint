@@ -23,6 +23,7 @@ SKILL.md and CLAUDE.md MUST be updated whenever code changes. SKILL.md is the ag
 - **BrowserServer.js**: uses `MessageHandler` + `SnapshotProcessor` pipeline, same as `PhysicsNetworkClient`; `connect()` dynamically imports `/apps/world/index.js` and fetches app sources via `fetch()` before spawning the Worker
 - **Node.js portability pattern**: `GLBLoader.js`, `AppRuntime.js`, `EditorHandlers.js` use lazy `await import('node:fs')` with try/catch at module top level; browser silently gets `null` and uses fallback paths (`fetch()` for GLB loading, in-memory state for editor ops)
 - **importmap requirement**: `jolt-physics/wasm-compat` must be in `client/index.html` importmap — module Workers in Chrome 89+ inherit the page importmap, enabling `World.js` to load Jolt in the Worker
+- **gh-pages deployment**: the Worker needs the full server-side `src/` tree at runtime. The gh-pages workflow must copy ALL `src/` subdirs (sdk, connection, debug, netcode, physics, apps, stage, storage, transport, spatial) plus `src/math.js` and `jolt-physics` npm package — not just `src/client`, `src/protocol`, `src/shared`. The importmap sed uses a generic `s|"/node_modules/|"/spoint/node_modules/|` to patch all packages at once.
 - **App sources**: `WorkerEntry` receives `{ name, source }` pairs and calls `appLoader.loadFromString()` — no filesystem access needed
 - **Editor in singleplayer**: all editor handlers work via `AppRuntime` in-memory state; `LIST_APPS` reads `appRuntime._appDefs`, `SAVE_SOURCE` calls `loadFromString()` and broadcasts `APP_MODULE`
 
