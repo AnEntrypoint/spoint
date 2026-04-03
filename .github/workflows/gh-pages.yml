@@ -96,7 +96,9 @@ jobs:
           # GLBLoader: node:fs guard already applied in source (process.versions?.node check)
           # ReloadManager, StaticHandler, UploadHandler, ServerAPI, server.js are NOT imported by WorkerEntry - no patch needed
           # WebTransportServer: not imported by WorkerEntry
-          # FSAdapter: not imported by WorkerEntry (Worker uses IDBAdapter)
+          # FSAdapter: not implemented by WorkerEntry (Worker uses IDBAdapter)
+          # lifecycle.js: replace bare 'xstate' specifier with absolute path so module Workers can resolve it without importmap
+          sed -i "s|from 'xstate'|from '/spoint/node_modules/xstate/dist/xstate.esm.js'|g" dist/apps/_lib/lifecycle.js
 
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v4
