@@ -3,7 +3,7 @@ import { MSG } from '/src/protocol/MessageTypes.js'
 import { SnapshotProcessor } from '/src/client/SnapshotProcessor.js'
 import { MessageHandler } from '/src/client/MessageHandler.js'
 
-const _base = new URL('../', import.meta.url).href
+const _base = import.meta.url
 
 export class BrowserServer {
   constructor(config = {}) {
