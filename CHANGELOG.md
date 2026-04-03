@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.406](https://github.com/AnEntrypoint/spoint/compare/v0.1.405...v0.1.406) (2026-04-03)
+
+
+### Bug Fixes
+
+* load singleplayer-world.json as fallback when apps/world/index.js is absent (gh-pages) ([e257246](https://github.com/AnEntrypoint/spoint/commit/e25724605dc4d5b10d31ef28e7eba5016a19547e))
+
 ### [0.1.405](https://github.com/AnEntrypoint/spoint/compare/v0.1.404...v0.1.405) (2026-04-03)
 
 ### [0.1.404](https://github.com/AnEntrypoint/spoint/compare/v0.1.403...v0.1.404) (2026-04-03)
