@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.407](https://github.com/AnEntrypoint/spoint/compare/v0.1.406...v0.1.407) (2026-04-03)
+
+
+### Bug Fixes
+
+* apply node:fs guards in source to avoid GNU sed double-substitution corruption ([0ac0611](https://github.com/AnEntrypoint/spoint/commit/0ac06119c5cd8d0250a38ec8a3f251f2986b00c9))
+
 ### [0.1.406](https://github.com/AnEntrypoint/spoint/compare/v0.1.405...v0.1.406) (2026-04-03)
 
 
