@@ -99,6 +99,8 @@ jobs:
           # FSAdapter: not implemented by WorkerEntry (Worker uses IDBAdapter)
           # lifecycle.js: replace bare 'xstate' specifier with absolute path so module Workers can resolve it without importmap
           sed -i "s|from 'xstate'|from '/spoint/node_modules/xstate/dist/xstate.esm.js'|g" dist/apps/_lib/lifecycle.js
+          # Octree.js: replace bare 'd3-octree' specifier with absolute path for Worker importmap bypass
+          sed -i "s|from 'd3-octree'|from '/spoint/node_modules/d3-octree/src/index.js'|g" dist/src/spatial/Octree.js
 
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v4
