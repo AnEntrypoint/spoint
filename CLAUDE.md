@@ -306,7 +306,7 @@ Entity-entity: O(n²) brute-force for <100 entities, grid-based (cell=4 units, 9
 
 **`checkAllLoaded`** gates on five conditions simultaneously: `assetsLoaded` (VRM + anim library), `environmentLoaded` (first entity mesh), `firstSnapshotReceived`, `modelsPrefetched` (entity model URLs prefetched, set in `onWorldDef`), `firstSnapshotEntityPending.size === 0`.
 
-**`BrowserServer` world config loading**: `connect()` tries in order: `this.config.worldDef` → `apps/world/index.js` (Node.js dev server) → `singleplayer-world.json` (gh-pages static fallback) → `{}`. The `singleplayer-world.json` fallback is critical for gh-pages because `apps/world/index.js` returns 404 there.
+**`BrowserServer` world config loading**: `connect()` tries in order: `this.config.worldDef` → `apps/world/index.js` (Node.js dev server) → `singleplayer-world.json` (gh-pages static fallback) → `{}`. The `singleplayer-world.json` fallback is critical for gh-pages because `apps/world/index.js` returns 404 there. **Entity `app` field is required**: `BrowserServer.connect()` derives which app sources to fetch from `entities[].app` — entities without `app` get no `setup()` call, so physics colliders (trimesh, box) are never created for them.
 
 **Singleplayer VRM OOM invariants** — violating any of these causes heap spikes on animation cache miss:
 - `createPlayerVRM` MUST NOT be called before `assetsLoaded=true` — queues N concurrent VRM parses (300–400MB each), OOMs before GC runs.
