@@ -49,7 +49,7 @@ jobs:
             cp "$f" "dist/$f"
           done
 
-          for pkg in three @pixiv/three-vrm webjsx msgpackr meshoptimizer monaco-editor jolt-physics xstate; do
+          for pkg in three @pixiv/three-vrm webjsx msgpackr meshoptimizer monaco-editor jolt-physics xstate d3-octree; do
             if [ -d "node_modules/$pkg" ]; then
               mkdir -p "dist/node_modules/$pkg"
               cp -r "node_modules/$pkg" "dist/node_modules/$(dirname $pkg)/"
