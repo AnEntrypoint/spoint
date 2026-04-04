@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.412](https://github.com/AnEntrypoint/spoint/compare/v0.1.411...v0.1.412) (2026-04-04)
+
+
+### Bug Fixes
+
+* replace all bare specifiers in Worker chain with absolute paths ([63f6978](https://github.com/AnEntrypoint/spoint/commit/63f69786ffc3c9b3db304bdcd3fd13e34205ecc2))
+
 ### [0.1.411](https://github.com/AnEntrypoint/spoint/compare/v0.1.410...v0.1.411) (2026-04-04)
 
 
