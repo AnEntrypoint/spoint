@@ -2,6 +2,8 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.418](https://github.com/AnEntrypoint/spoint/compare/v0.1.417...v0.1.418) (2026-04-04)
+
 ### [0.1.417](https://github.com/AnEntrypoint/spoint/compare/v0.1.416...v0.1.417) (2026-04-04)
 
 
