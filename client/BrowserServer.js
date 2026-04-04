@@ -39,11 +39,11 @@ export class BrowserServer {
   async connect() {
     const worldDef = this.config.worldDef ||
       await fetch(new URL('singleplayer-world.json', _base)).then(r => r.ok ? r.json() : null).catch(() => null) ||
-      await this._importModule('apps/world/index.js').then(m => m.default).catch(() => null) ||
+      await this._importModule('../apps/world/index.js').then(m => m.default).catch(() => null) ||
       {}
     const appNames = [...new Set((worldDef.entities || []).map(e => e.app).filter(Boolean))]
     const apps = (await Promise.all(appNames.map(name =>
-      fetch(new URL(`apps/${name}/index.js`, _base)).then(r => r.ok ? r.text().then(source => ({ name, source })) : null).catch(() => null)
+      fetch(new URL(`../apps/${name}/index.js`, _base)).then(r => r.ok ? r.text().then(source => ({ name, source })) : null).catch(() => null)
     ))).filter(Boolean)
 
     return new Promise((resolve, reject) => {
