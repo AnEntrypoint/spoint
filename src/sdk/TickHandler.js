@@ -159,7 +159,7 @@ export function createTickHandler(deps) {
     try { appRuntime._drainReloadQueue() } catch (e) { console.error('[TickHandler] reload queue error:', e.message) }
     if (players.length > 0) { profileSum += t5-t0; profileSumSnap += t5-t4; profileSumPhys += t3-t2; profileSumMv += t1-t0; profileCount++ }
     if (++profileLog % KEYFRAME_INTERVAL === 0) {
-      const total=t5-t0, mem=process.memoryUsage(), avg=n => profileCount>0?(n/profileCount).toFixed(2):'0'
+      const total=t5-t0, mem=typeof process!=='undefined'?process.memoryUsage():{heapUsed:0,rss:0,external:0,arrayBuffers:0}, avg=n => profileCount>0?(n/profileCount).toFixed(2):'0'
       const mb=n=>(n/1048576).toFixed(1)
       const dynIds=appRuntime._dynamicEntityIds?.size||0, activeDyn=appRuntime._activeDynamicIds?.size||0
       const avgTotal=avg(profileSum),avgSnap=avg(profileSumSnap),avgPhys=avg(profileSumPhys),avgMv=avg(profileSumMv)

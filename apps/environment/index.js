@@ -1,18 +1,16 @@
 import { SMART_OBJECT_TEMPLATES, getTemplate, isValidTemplate, getPlaceholderColor, getPlaceholderDimensions } from './smartObjects.js'
-import { readdirSync, statSync } from 'fs'
-import { join } from 'path'
-import { fileURLToPath } from 'url'
-
-const __dirname = fileURLToPath(new URL('.', import.meta.url))
-const modelsDir = join(__dirname, 'models')
+let _readdirSync = null, _statSync = null, _join = null
+let _modelsDir = ''
+try { if (typeof process !== 'undefined' && process.versions?.node) { const { readdirSync, statSync } = await import('node:fs'); const { join } = await import('node:path'); const { fileURLToPath } = await import('node:url'); _readdirSync = readdirSync; _statSync = statSync; _join = join; _modelsDir = join(fileURLToPath(new URL('.', import.meta.url)), 'models') } } catch {}
 
 function discoverModels() {
   const registry = {}
   try {
-    const categories = readdirSync(modelsDir).filter(f => statSync(join(modelsDir, f)).isDirectory())
+    if (!_readdirSync) return registry
+    const categories = _readdirSync(_modelsDir).filter(f => _statSync(_join(_modelsDir, f)).isDirectory())
     for (const cat of categories) {
-      const catPath = join(modelsDir, cat)
-      const files = readdirSync(catPath).filter(f => f.endsWith('.glb') || f.endsWith('.gltf'))
+      const catPath = _join(_modelsDir, cat)
+      const files = _readdirSync(catPath).filter(f => f.endsWith('.glb') || f.endsWith('.gltf'))
       registry[cat] = files
     }
   } catch (e) {

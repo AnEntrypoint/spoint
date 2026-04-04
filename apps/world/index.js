@@ -152,7 +152,7 @@ export default {
     fov: 70,
     shoulderOffset: 0.35,
     shoulderOffsets: [0, 0.55, 0.35, 0.1, 0.0],
-    headHeight: 0.85,
+    headHeight: 1.85,
     zoomStages: [0, 2, 4, 8, 18],
     defaultZoomIndex: 2,
     followSpeed: 12.0,
