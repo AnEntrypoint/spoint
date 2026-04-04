@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.415](https://github.com/AnEntrypoint/spoint/compare/v0.1.414...v0.1.415) (2026-04-04)
+
+
+### Bug Fixes
+
+* guard Node.js-only APIs for browser Worker compatibility; raise TPS camera headHeight to 1.85 ([e882e12](https://github.com/AnEntrypoint/spoint/commit/e882e12c81fe8ab41c5303b3ea3719f353dc80e9))
+
 ### [0.1.414](https://github.com/AnEntrypoint/spoint/compare/v0.1.413...v0.1.414) (2026-04-04)
 
 
