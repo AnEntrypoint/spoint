@@ -23,11 +23,10 @@ async function readGLBAsync(pathOrUrl) {
   const res = await fetch(pathOrUrl)
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${pathOrUrl}`)
   const ab = await res.arrayBuffer()
-  const buf = Buffer.from ? Buffer.from(ab) : ab
   const view = new DataView(ab)
   const jsonLen = view.getUint32(12, true)
   const json = JSON.parse(new TextDecoder().decode(new Uint8Array(ab, 20, jsonLen)))
-  return { buf: buf.byteLength ? buf : new Uint8Array(ab), json, binOffset: 20 + jsonLen + 8 }
+  return { buf: new Uint8Array(ab), json, binOffset: 20 + jsonLen + 8 }
 }
 
 function readGLB(filepath) { return readGLBSync(filepath) }
