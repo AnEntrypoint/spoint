@@ -1,12 +1,16 @@
 {
   "tickRate": 64,
-  "gravity": [0, -18, 0],
+  "gravity": [
+    0,
+    -18,
+    0
+  ],
   "movement": {
     "maxSpeed": 4.7,
-    "sprintSpeed": 8.0,
-    "groundAccel": 100.0,
-    "airAccel": 10.0,
-    "friction": 5.0,
+    "sprintSpeed": 8,
+    "groundAccel": 100,
+    "airAccel": 10,
+    "friction": 5,
     "stopSpeed": 0.5,
     "jumpImpulse": 5.5
   },
@@ -26,7 +30,11 @@
     "ambientIntensity": 0.3,
     "sunColor": 16777215,
     "sunIntensity": 1.5,
-    "sunPosition": [21, 50, 20],
+    "sunPosition": [
+      21,
+      50,
+      20
+    ],
     "shadowMapSize": 1024,
     "shadowBias": 0.0038,
     "shadowNormalBias": 0.6
@@ -34,23 +42,47 @@
   "camera": {
     "fov": 70,
     "shoulderOffset": 0.35,
-    "headHeight": 0.85,
-    "zoomStages": [0, 1.5, 3, 5, 8],
+    "headHeight": 1.85,
+    "zoomStages": [
+      0,
+      1.5,
+      3,
+      5,
+      8
+    ],
     "defaultZoomIndex": 2,
     "mouseSensitivity": 0.002,
-    "pitchRange": [-1.4, 1.4],
+    "pitchRange": [
+      -1.4,
+      1.4
+    ],
     "yaw": 3.14159265
   },
-  "spawnPoint": [-26, 2, -47],
+  "spawnPoint": [
+    -26,
+    2,
+    -47
+  ],
   "playerModel": "./apps/tps-game/cleetus.vrm",
   "entities": [
     {
       "id": "env-map",
       "model": "./apps/maps/aim_sillos.glb",
-      "position": [0, 0, 0],
-      "scale": [3, 3, 3],
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "scale": [
+        3,
+        3,
+        3
+      ],
       "bodyType": "static",
-      "custom": { "noAutoLod": true }
+      "custom": {
+        "noAutoLod": true
+      },
+      "app": "environment"
     }
   ]
 }
