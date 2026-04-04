@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.410](https://github.com/AnEntrypoint/spoint/compare/v0.1.409...v0.1.410) (2026-04-04)
+
+
+### Bug Fixes
+
+* resolve d3-octree bare specifier in Worker and localize all assets ([6e38114](https://github.com/AnEntrypoint/spoint/commit/6e38114b35baa76e66bbe60ea19d053f223c90ca))
+
 ### [0.1.409](https://github.com/AnEntrypoint/spoint/compare/v0.1.408...v0.1.409) (2026-04-03)
 
 
