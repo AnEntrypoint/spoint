@@ -81,7 +81,8 @@ export class BrowserServer {
 
   send(type, payload) {
     if (!this._worker) return
-    const buf = pack({ type, payload }).buffer
+    const packed = pack({ type, payload })
+    const buf = packed.buffer.slice(packed.byteOffset, packed.byteOffset + packed.byteLength)
     this._worker.postMessage({ type: 'CLIENT_MESSAGE', data: buf }, [buf])
   }
 
