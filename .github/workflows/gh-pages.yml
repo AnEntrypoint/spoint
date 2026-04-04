@@ -101,6 +101,10 @@ jobs:
           sed -i "s|from 'xstate'|from '/spoint/node_modules/xstate/dist/xstate.esm.js'|g" dist/apps/_lib/lifecycle.js
           # Octree.js: replace bare 'd3-octree' specifier with absolute path for Worker importmap bypass
           sed -i "s|from 'd3-octree'|from '/spoint/node_modules/d3-octree/src/index.js'|g" dist/src/spatial/Octree.js
+          # msgpack.js: replace bare 'msgpackr' specifier with absolute path for Worker importmap bypass
+          sed -i "s|from 'msgpackr'|from '/spoint/node_modules/msgpackr/index.js'|g" dist/src/protocol/msgpack.js
+          # World.js: replace bare 'jolt-physics/wasm-compat' specifier with absolute path for Worker importmap bypass
+          sed -i "s|from 'jolt-physics/wasm-compat'|from '/spoint/node_modules/jolt-physics/dist/jolt-physics.wasm-compat.js'|g" dist/src/physics/World.js
 
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v4
