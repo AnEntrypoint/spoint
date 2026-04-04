@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.411](https://github.com/AnEntrypoint/spoint/compare/v0.1.410...v0.1.411) (2026-04-04)
+
+
+### Bug Fixes
+
+* patch Octree.js d3-octree bare specifier for Worker importmap bypass ([8742318](https://github.com/AnEntrypoint/spoint/commit/87423189f0f82f2fbaf435cedd085e456346f411))
+
 ### [0.1.410](https://github.com/AnEntrypoint/spoint/compare/v0.1.409...v0.1.410) (2026-04-04)
 
 
