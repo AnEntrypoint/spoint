@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.417](https://github.com/AnEntrypoint/spoint/compare/v0.1.416...v0.1.417) (2026-04-04)
+
+
+### Bug Fixes
+
+* add app:environment to env-map entity so trimesh collider is created in singleplayer; update headHeight to 1.85 ([daf9a6d](https://github.com/AnEntrypoint/spoint/commit/daf9a6d6ea8b9cb3fc91c6c0e3d1b566c9eba278))
+
 ### [0.1.416](https://github.com/AnEntrypoint/spoint/compare/v0.1.415...v0.1.416) (2026-04-04)
 
 ### [0.1.415](https://github.com/AnEntrypoint/spoint/compare/v0.1.414...v0.1.415) (2026-04-04)
