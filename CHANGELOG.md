@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [standard-version](https://github.com/conventional-changelog/standard-version) for commit guidelines.
 
+### [0.1.421](https://github.com/AnEntrypoint/spoint/compare/v0.1.420...v0.1.421) (2026-04-04)
+
+
+### Bug Fixes
+
+* resolve app sources relative to repo root not client/ subdir in BrowserServer ([4d41897](https://github.com/AnEntrypoint/spoint/commit/4d418978b1f66dc0d18bab6bce24ceaac2950d3f))
+
 ### [0.1.420](https://github.com/AnEntrypoint/spoint/compare/v0.1.419...v0.1.420) (2026-04-04)
 
 ### [0.1.419](https://github.com/AnEntrypoint/spoint/compare/v0.1.418...v0.1.419) (2026-04-04)
