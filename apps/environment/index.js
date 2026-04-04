@@ -1,7 +1,9 @@
-import { SMART_OBJECT_TEMPLATES, getTemplate, isValidTemplate, getPlaceholderColor, getPlaceholderDimensions } from './smartObjects.js'
-let _readdirSync = null, _statSync = null, _join = null
-let _modelsDir = ''
-try { if (typeof process !== 'undefined' && process.versions?.node) { const { readdirSync, statSync } = await import('node:fs'); const { join } = await import('node:path'); const { fileURLToPath } = await import('node:url'); _readdirSync = readdirSync; _statSync = statSync; _join = join; _modelsDir = join(fileURLToPath(new URL('.', import.meta.url)), 'models') } } catch {}
+const SMART_OBJECT_TEMPLATES = { door:{displayName:'Door',collider:{type:'box',size:[1.5,2.5,0.1]},config:{open:false,openTime:0.5,closeTime:0.5,openAngle:Math.PI/2}}, platform:{displayName:'Moving Platform',collider:{type:'box',size:[4,0.5,4]},config:{waypoints:[[0,0,0]],speed:5,waitTime:1}}, trigger:{displayName:'Trigger Volume',collider:{type:'box',size:[2,3,2]},config:{eventName:'trigger',oneshot:false}}, hazard:{displayName:'Hazard Zone',collider:{type:'sphere',radius:2},config:{damage:10,damageInterval:0.5}}, lootBox:{displayName:'Loot Box',collider:{type:'box',size:[1,1.5,1]},config:{lootType:'ammo',quantity:30}}, pillar:{displayName:'Pillar/Column',collider:{type:'capsule',radius:0.5,halfHeight:2},config:{decorative:true}} }
+const _PC = { door:0x0066ff,platform:0x00cc00,trigger:0xffff00,hazard:0xff0000,lootBox:0x885533,pillar:0x888888,unknown:0xcccccc }
+const getPlaceholderColor = n => _PC[n] || _PC.unknown
+const isValidTemplate = n => n in SMART_OBJECT_TEMPLATES
+const getTemplate = n => SMART_OBJECT_TEMPLATES[n] || null
+let _readdirSync = null, _statSync = null, _join = null, _modelsDir = ''
 
 function discoverModels() {
   const registry = {}
@@ -22,6 +24,9 @@ function discoverModels() {
 export default {
   server: {
     async setup(ctx) {
+      if (!_readdirSync && typeof process !== 'undefined' && process.versions?.node) {
+        try { const { readdirSync, statSync } = await import('node:fs'); const { join } = await import('node:path'); const { fileURLToPath } = await import('node:url'); _readdirSync = readdirSync; _statSync = statSync; _join = join; _modelsDir = join(fileURLToPath(new URL('.', import.meta.url)), 'models') } catch {}
+      }
       try {
         await ctx.physics.addColliderFromConfig({ type: 'trimesh' })
       } catch (e) {

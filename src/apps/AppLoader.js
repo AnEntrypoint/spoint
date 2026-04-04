@@ -158,13 +158,17 @@ export class AppLoader {
   async loadFromString(name, source) {
     if (!this._validate(source, name)) return null
     try {
-      const fn = new Function('exports', source + '\nreturn exports;')
-      const exports = {}
-      const result = fn(exports)
-      const appDef = result.default || result
-      this._runtime.registerApp(name, appDef)
-      this._loaded.set(name, { source, filePath: null })
-      return appDef
+      const blob = new Blob([source], { type: 'application/javascript' })
+      const url = URL.createObjectURL(blob)
+      try {
+        const mod = await import(url)
+        const appDef = mod.default || mod
+        this._runtime.registerApp(name, appDef)
+        this._loaded.set(name, { source, filePath: null })
+        return appDef
+      } finally {
+        URL.revokeObjectURL(url)
+      }
     } catch (e) {
       console.error(`[AppLoader] string eval error:`, e.message)
       return null
