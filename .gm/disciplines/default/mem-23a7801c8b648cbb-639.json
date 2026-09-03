@@ -1,0 +1,3 @@
+## Resolved mutable: m-impostor-residual-investigation-contaminated
+
+Confirmed as the documented multi-agent browser-slot contention class (recall hits m-browser-verb-shared-contention, m-occlusion-render-call-per-query-cost): 'Extension did not connect within timeout' x3 across session-new attempts while the resumed wwcqiks7p workflow's verify agent independently contends for the same single shared browser slot. Per prior sessions' recorded resolution: stop contending, resolve via static-correctness witness (code review) instead of further live-witness retries; the workflow's own agent owns live verification for its assigned rows.

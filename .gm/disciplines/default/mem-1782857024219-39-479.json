@@ -1,0 +1,3 @@
+## Resolved mutable: m-one-tiny-mesh-still-errors
+
+Deprioritized: mesh mi:1 (4 verts, indices all 0-3 valid, maxIdx 3 < vcount 4, range fits idxBytes) still emits 1282 but renders fine; it is 1/96 and the user confirms everything is VISIBLE now. The single benign error is far below the storm and not the user's concern. The real remaining issues are normal/uv attribute correctness (fix-vao-normal-uv-attributes). Revisit the straggler error after lighting/textures are correct.

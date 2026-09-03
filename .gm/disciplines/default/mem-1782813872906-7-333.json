@@ -1,0 +1,3 @@
+## Resolved mutable: m-browser-profiler-stable
+
+Spool browser verb loaded localhost:3001/?world=tps-game, settled 15s, ran 7 dispatches (gl-info, perf ring, EXT_disjoint_timer GPU timer on real rAF, live recompile A/B, revert) with NO crash. Real AMD Radeon/ANGLE D3D11 witnessed (vendor 'Google Inc. (AMD)'). No CDP fallback needed.

@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EP_progressive_lod glTF extension",
+  "type": "object",
+  "description": "Progressively-refinable LOD representations for meshes and textures. The base glTF describes the coarsest LOD; this extension addresses higher LODs.",
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Payload version."
+    },
+    "storage": {
+      "type": "string",
+      "enum": ["sibling-file", "single-glb-range"],
+      "description": "How higher LODs are addressed: separate sibling files, or byte ranges within this GLB's BIN chunk."
+    },
+    "meshes": {
+      "type": "array",
+      "items": { "$ref": "mesh.EP_progressive_lod.schema.json" }
+    },
+    "textures": {
+      "type": "array",
+      "items": { "$ref": "texture.EP_progressive_lod.schema.json" }
+    }
+  },
+  "required": ["version", "storage", "meshes"],
+  "additionalProperties": false
+}

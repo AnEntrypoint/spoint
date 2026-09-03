@@ -1,0 +1,1 @@
+gm-method (single source of truth for sun direction across terrain + scene): the THREE directional sun + its shadow-offset must be aimed along the planet's raymarched sunLocal via SceneSetup.setSunDirection, else trees/rocks/grass/models + shadows are lit ~52deg off the terrain. One setSunDirection call; never derive sun direction independently in terrain vs scene renderers.

@@ -1,0 +1,3 @@
+## Resolved mutable: importmap-after-module-load
+
+Moved <script type=importmap> ABOVE the installStyles <script type=module> in client/index.html (+ added <link rel=icon href='data:,'>). Local browser-607 witness (http://localhost:3001/?singleplayer&world=tps-game): importmapRejected=false, bareThree=false, errs=[], favicon404=[], info={hasApp:true,hasScene:true,meshes:98,hasModelPool:true}. The importmap is now parsed before any module load so 'three' remaps and app.js boots fully.

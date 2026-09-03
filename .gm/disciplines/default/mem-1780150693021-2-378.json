@@ -1,0 +1,1 @@
+project/modelpool-transform-direct-not-opts: ModelPool spawn opts read rotation as Euler (opts.rotation) and scale as a single scalar (setScalar) at model-pool.js:794-795. spoint uses quaternion [x,y,z,w] + per-axis scale [x,y,z]. Pass {} opts and set root.position.fromArray/quaternion.fromArray/scale.fromArray directly in the adapter, else mis-rotated + NaN-scaled placement.

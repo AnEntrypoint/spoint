@@ -1,0 +1,3 @@
+## Resolved mutable: m-mapspinner-publish-auth
+
+git push to origin AnEntrypoint/mapspinner SUCCEEDED from this session (0912b3f..5981a9e main -> main, in sync). So push auth IS reachable. The actual npm publish runs in mapspinner's CI auto-publish workflow (NPM_TOKEN, [skip ci] version-bump commits seen on origin) - CI-gated/triggered by the push, not done in-session. spoint consumes via dep ^0.1.164 + the synced node_modules copy (works now); gh-pages npm install gets the published version once CI completes.

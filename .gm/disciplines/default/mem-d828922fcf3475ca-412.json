@@ -1,0 +1,3 @@
+## Resolved mutable: mu-siblings-porcelain-state
+
+git_status {repo:C:/dev/mapspinner} -> dirty:false, zero modified/staged/untracked; git_status {repo:C:/dev/streaming-gltf} -> dirty:false, zero entries (out/git_status-1783420710001/2.json). Both working trees clean -- faithful-copy precondition met; push/ahead state checked at merge-preflight-siblings-clean-pushed row via branch_status before the copy lands.

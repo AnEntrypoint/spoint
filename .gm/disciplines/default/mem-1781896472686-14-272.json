@@ -1,0 +1,3 @@
+## Resolved mutable: in-engine-editor-mount-point
+
+client/editor/EditorShell.js:13 sets overlay.className='ds-247420 ep-overlay' BEFORE document.body.appendChild at :15. Original gap-claim now FALSE — kit CSS variables DO bind because ds-247420 class is on overlay root.

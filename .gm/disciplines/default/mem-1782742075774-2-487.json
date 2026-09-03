@@ -1,0 +1,3 @@
+## Resolved mutable: m-profile-phase-is-loading-or-steady
+
+browser-12 live profile (8.4s, 9553 samples) on a running singleplayer tps-game page: dominant culprit is (program) native GPU 61.1%, then load-path nodes (draco-loader G 6.1%, WebGLRenderer.setSize 4.2%). NO JS node above ~6%; the distribution is GPU-dominated steady-state + cold-boot load work, not a single hot JS function. The flat-0.0% paste was the death-by-a-thousand-cuts GPU/load window -- no actionable JS bottleneck.

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Standalone Sillos Viewer</title>
+<style>html,body{margin:0;height:100%;background:#111}</style>
+</head>
+<body>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x87ceeb);
+const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 1000);
+camera.position.set(5, 15, 15);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const light = new THREE.DirectionalLight(0xffffff, 2);
+light.position.set(10, 20, 10);
+scene.add(light);
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+
+const controls = new OrbitControls(camera, renderer.domElement);
+
+const dracoLoader = new DRACOLoader();
+dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+const loader = new GLTFLoader();
+loader.setDRACOLoader(dracoLoader);
+
+window.__loadStatus = 'loading';
+window.__loadError = null;
+window.__loadErrorStack = null;
+loader.load('/original-sillos-geoonly.glb', (gltf) => {
+  const wireParam = new URLSearchParams(location.search).get('wire');
+  gltf.scene.traverse((o) => {
+    if (o.isMesh) {
+      o.material = new THREE.MeshStandardMaterial({ color: 0xcccccc, roughness: 0.8, side: THREE.DoubleSide, wireframe: wireParam === '1' });
+    }
+  });
+  scene.add(gltf.scene);
+  window.__meshCount = 0;
+  window.__triCount = 0;
+  gltf.scene.traverse((o) => { if (o.isMesh) { window.__meshCount++; const idx = o.geometry.index; if (idx) window.__triCount += idx.count / 3; } });
+  const box = new THREE.Box3().setFromObject(gltf.scene);
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  controls.target.copy(center);
+  const zoomParam = new URLSearchParams(location.search).get('cam');
+  if (zoomParam === 'close') {
+    camera.position.set(box.max.x - size.x*0.15, box.max.y + size.y*0.3, box.min.z + size.z*0.75);
+    controls.target.set(box.max.x - size.x*0.3, box.max.y, box.min.z + size.z*0.7);
+  } else {
+    camera.position.set(center.x + size.x*0.6, center.y + size.y*0.8, center.z + size.z*0.6);
+  }
+  window.__loadStatus = 'loaded';
+  window.__modelBox = { min: box.min.toArray(), max: box.max.toArray() };
+}, undefined, (err) => {
+  window.__loadStatus = 'error';
+  window.__loadError = err.message || String(err);
+  window.__loadErrorStack = err.stack || null;
+  console.error('load error', err);
+});
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+window.__camera = camera;
+window.__controls = controls;
+window.__scene = scene;
+window.THREE = THREE;
+</script>
+</body>
+</html>

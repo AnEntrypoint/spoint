@@ -1,0 +1,3 @@
+## Resolved mutable: m-vertices-snap-to-zero
+
+User clarified: parts snap to 0 ALWAYS, even standing still up close. This RULES OUT both cull paths (sub-pixel cull needs far/zoom; GPU frustum NaN-cull needs screen-edge/rotate). A static up-close part-missing on BOTH player(skinned) and sillos(cluster) = a GEOMETRY/DECODE bug, not culling: meshlet-codec vertex dequantization decoding some verts to 0 (origin), or a cluster index baseVertex/offset pointing at vertex 0, or the skinned discrete-LOD swap leaving degenerate geometry. Not a frustum/sub-pixel cull. Pivot to the decode path in ../streaming-gltf meshlet-codec.js + cluster-lod-mesh index offset + skinned-LOD.

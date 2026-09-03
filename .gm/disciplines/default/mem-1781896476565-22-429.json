@@ -1,0 +1,3 @@
+## Resolved mutable: fsm-builder-style
+
+DECISION: declarative object spec primary ({initial, context, states:{name:{enter,exit,tick,on,after}}}), matching xstate 5 createMachine shape and apps/_lib/lifecycle.js:4-14 precedent (states:{idle:{on:{...}}}). Builder compiles spec via xstate setup()+createMachine (node -e confirmed setup/createMachine/createActor/assign all exported by xstate 5.28). Fluent sugar optional/secondary.

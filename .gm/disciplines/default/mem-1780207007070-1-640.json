@@ -1,0 +1,3 @@
+## Resolved mutable: texname-fallback-crosswrite
+
+model-pool.js:881 texState=this.asset.texLodDescs.map(()=>({currentLod:0})) gives EVERY tracked mesh a texState slot for ALL 45 asset-wide descriptors (no per-mesh filter). :1404 loop iterates all tm.texState per mesh -> _applyTexLod(tm,ti,tWant) for foreign descriptors. :1655 _findMaterialSlots name-match fails for foreign desc -> :1672 if(!out.size&&mat.map)out.add(mat.map) stamps foreign bitmap into THIS mesh base map. Re-driven each LOD switch via precomputedTexLods reset :1016/:1088. Static asset proof: 45 descriptors vs 44 images, descriptor i:0 name Image_1 absent from images.

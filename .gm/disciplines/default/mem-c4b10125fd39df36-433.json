@@ -1,0 +1,3 @@
+## Resolved mutable: mut-1783375106988
+
+7 total browser-verb dispatches across the turn (1,2,3,bt11,bt12,bt13,bt14): 6 identical 'Extension did not connect within timeout' failures, 1 transient success (session 11) that crashed via native uv assertion within 2 dispatches. Exhausted bounded-retry -- falls back to static/source verification per documented precedent (recall keys mem-883d1dba1852c338-1950, mem-a986f881cdb21a8f-2794).

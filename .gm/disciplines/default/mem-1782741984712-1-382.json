@@ -1,0 +1,3 @@
+## Resolved mutable: view-cache-correctness
+
+browser-11: 100 accelerated raycasts across 5 distinct boundsTree box geometries with the cached-view BufferStack -> centerHit=9 sideHit=9 (front face exact), centerStable=sideStable=true (every pass byte-identical), centerCorrect=sideCorrect=true. Cached typed-array views reused across calls produce identical hits to fresh allocation.

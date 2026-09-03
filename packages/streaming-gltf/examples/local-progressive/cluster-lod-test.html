@@ -1,0 +1,115 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>cluster-lod witness</title>
+  <style>html,body{margin:0;height:100%;background:#202830}#hud{position:fixed;top:8px;left:8px;color:#0f0;font:12px monospace;white-space:pre}</style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+<div id="hud">loading...</div>
+<script type="module">
+import * as THREE from 'three';
+window.THREE = THREE;
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import { ClusterLodMesh, attachClusterLod } from '../../src/cluster-lod-mesh.js';
+import { parseClusterLod, CLUSTER_LOD_EXTRA_KEY } from '../../src/meshlet-codec.js';
+
+const url = new URLSearchParams(location.search).get('glb') || './cluster-test.glb';
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+const dir = new THREE.DirectionalLight(0xffffff, 1.5); dir.position.set(3, 5, 2); scene.add(dir);
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.01, 1000);
+
+window.__clusterStats = { ready: false };
+
+const loader = new GLTFLoader();
+loader.setMeshoptDecoder(MeshoptDecoder);
+loader.parse_extras = true;
+
+loader.load(url, async (gltf) => {
+  scene.add(gltf.scene);
+  // find the first mesh with EP_cluster_lod extras
+  let target = null, extras = null, coarseArr = null;
+  const json = gltf.parser.json;
+  gltf.scene.traverse((o) => { if (o.isMesh && !target) { /* fill below */ } });
+
+  // Pull extras + coarse accessor straight from the parsed glTF json + buffers.
+  // Find the primitive that carries our extra.
+  let primExtras = null, coarseAccessorIndex = -1;
+  for (const mesh of json.meshes || []) {
+    for (const prim of mesh.primitives || []) {
+      if (prim.extras && prim.extras[CLUSTER_LOD_EXTRA_KEY]) {
+        primExtras = prim.extras;
+        coarseAccessorIndex = prim.extras[CLUSTER_LOD_EXTRA_KEY].coarseIndexAccessor;
+      }
+    }
+  }
+
+  gltf.scene.traverse((o) => { if (o.isMesh && !target) target = o; });
+  window.__clusterStats.foundExtras = !!primExtras;
+  window.__clusterStats.coarseAccessorIndex = coarseAccessorIndex;
+
+  let coarse = null;
+  if (coarseAccessorIndex >= 0) {
+    coarse = await gltf.parser.getDependency('accessor', coarseAccessorIndex).then(a => a.array);
+  }
+
+  const geo = target.geometry;
+  const attached = attachClusterLod(geo, primExtras, coarse);
+  window.__clusterStats.attached = !!attached;
+  if (!attached) { document.getElementById('hud').textContent = 'NO cluster extras - plain mesh'; return; }
+
+  const cmesh = new ClusterLodMesh(geo, target.material, attached.clusterSet, {
+    lod0Count: attached.lod0Count, screenHeight: innerHeight,
+  });
+  target.parent.add(cmesh);
+  target.removeFromParent();
+  // three skips onBeforeRender for objects whose draw range is empty, so we keep a
+  // sentinel 3-index range (the mesh stays "rendered" and onBeforeRender fires);
+  // our onBeforeRender issues the real per-cluster multi-draw. The sentinel draw is
+  // a single real triangle of the mesh = harmless.
+  geo.setDrawRange(0, 3);
+
+  // Fit camera.
+  geo.computeBoundingSphere();
+  const bs = geo.boundingSphere;
+  window.__clusterStats.boundingRadius = bs.radius;
+  window.__cmesh = cmesh;
+  window.__camera = camera;
+  window.__fit = (mult) => { camera.position.set(bs.center.x, bs.center.y, bs.center.z + bs.radius * mult); camera.lookAt(bs.center); camera.updateMatrixWorld(); };
+  window.__fit(2.5);
+
+  window.__clusterStats.ready = true;
+  window.__clusterStats.totalTris = cmesh.stats.totalTris;
+  window.__clusterStats.clusterCount = attached.clusterSet.clusters.length;
+}, undefined, (err) => {
+  document.getElementById('hud').textContent = 'LOAD ERROR: ' + err;
+  window.__clusterStats.error = String(err);
+});
+
+function frame() {
+  requestAnimationFrame(frame);
+  camera.updateMatrixWorld();
+  renderer.render(scene, camera);
+  const c = window.__cmesh;
+  if (c) {
+    window.__clusterStats.live = { ...c.stats };
+    document.getElementById('hud').textContent = JSON.stringify(c.stats, null, 1);
+  }
+}
+frame();
+</script>
+</body>
+</html>

@@ -1,0 +1,3 @@
+## Resolved mutable: m-terrainquad-lookdown-browser-contention
+
+Subsequent dispatches (browser-1783333200000 onward) executed correctly against the real page: revealed=true, hasApp/hasClientMachine=true, live screenshots captured to .gm/witness/, occlusionStats/quadCount read correctly across dozens of dispatches.

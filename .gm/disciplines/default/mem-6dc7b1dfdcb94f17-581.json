@@ -1,0 +1,3 @@
+## Resolved mutable: m-exec-streaminggltf-batch1
+
+streaming-gltf commits a0f54fd (correctness: _maxAbsScale helper replaces scale.length()/SQRT2 at 4 call sites incl inconsistent /sqrt3 impostor divisor, fixes false-cull for non-uniform scale), 5234e8a (perf: deinterleave guard compares .array.buffer not nonexistent .buffer, verified against real lod-worker.js producer output), b5cf924 (perf: _pickMeshLod threshold arrays hoisted to module constants); node --check pass on all, node test.js pre-existing unrelated failure confirmed identical before/after (missing test fixture)

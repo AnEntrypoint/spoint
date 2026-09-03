@@ -1,0 +1,9 @@
+{
+  "world": "deathrun",
+  "recordedAt": "2026-07-21T23:42:57.261Z",
+  "windowSeconds": 60,
+  "entityCountAtEnd": 4,
+  "modelUrls": [
+    "./apps/maps/deathrun_kosova.glb"
+  ]
+}

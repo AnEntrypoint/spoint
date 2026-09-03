@@ -1,0 +1,3 @@
+## Resolved mutable: kit-component-api-current
+
+Read content.js+shell.js: all 14 components landing consumes match current kit signatures. Btn(href/primary/ghost/children), Hero(eyebrow/title/body/accent/actions), Section(title/eyebrow/children), Row(leading/title/sub/meta), Crumb(trail/leaf/right), AppShell(topbar/crumb/main/status). No stale-prop degradation. Live browser-2: cssLoaded=true, no 'nothing here' leak, 7 sections/4 panels/14 rows.

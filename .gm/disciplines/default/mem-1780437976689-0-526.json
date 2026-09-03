@@ -1,0 +1,3 @@
+## Resolved mutable: upload-bake-timing-behavior
+
+ModelPoolAdapter.js:43 progressiveReady() caches ONLY positives (a 404 still-baking is NOT cached -> re-probes next time). EntityLoader.js:180 calls progressiveReady(url) ONCE at entity load (!isDynamic); if placed model loads before bake finishes it renders plain-GLB (no LOD) and stays plain until the entity is reloaded (re-spawn / SCENE_GRAPH re-render re-runs load). No automatic in-place plain->baked upgrade. Witness: ModelPoolAdapter.js:36-49, EntityLoader.js:180-184.

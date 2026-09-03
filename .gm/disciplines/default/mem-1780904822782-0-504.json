@@ -1,0 +1,3 @@
+## Resolved mutable: save-world-handler-exists
+
+grep SAVE_WORLD|saveWorld|save-world over whole tree = No matches found. EditorHandlers.js:137-154 has only SAVE_SOURCE (app source). The onSave params in createEditPanel/createEditorApps both route to renderEditorPane -> SAVE_SOURCE (codesearch app.js:251 client.send(MSG.SAVE_SOURCE,...)). WorkerEntry.js:96 _persistPlaced only serializes id.startsWith(placed-) entities to KV. No full-scene world-def save exists. Conclusion: save-world-full is a BUILD.

@@ -1,0 +1,100 @@
+[
+  {
+    "hero": {
+      "badge": "Open Source - MIT",
+      "title": "Multiplayer Game Server SDK",
+      "subtitle": "Authoritative physics, deterministic netcode, hot reload, and singleplayer — all in one JavaScript SDK. Ship multiplayer games without rebuilding the engine.",
+      "cta_demo": "Shooter Demo",
+      "cta_npm": "npm install spoint",
+      "demo_href": "./demo.html?singleplayer&world=tps-game",
+      "npm_href": "https://www.npmjs.com/package/spoint"
+    }
+  },
+  {
+    "features": [
+      {
+        "icon": "*",
+        "title": "Authoritative Server",
+        "desc": "128 TPS server-side simulation. Clients never trust themselves. Input prediction + server reconciliation keep play fair and snappy."
+      },
+      {
+        "icon": "phys",
+        "title": "Jolt Physics",
+        "desc": "Full Jolt Physics WASM integration. Rigid bodies, convex hulls, trimesh terrains, character controllers — spatial LOD suspends off-screen bodies automatically."
+      },
+      {
+        "icon": "hot",
+        "title": "Hot Reload",
+        "desc": "Edit app code and physics configs live. File watchers reload modules mid-session with exponential backoff. No server restart required."
+      },
+      {
+        "icon": "app",
+        "title": "App System",
+        "desc": "Composable entity-app model. Each entity runs an isolated app with setup, update, onEvent, render, and onInteract lifecycle hooks."
+      },
+      {
+        "icon": "web",
+        "title": "Browser Singleplayer",
+        "desc": "Full server runs inside a Dedicated Web Worker — same physics, same netcode, zero backend. Ship offline and online from the same codebase."
+      },
+      {
+        "icon": "vr",
+        "title": "Editor + VR",
+        "desc": "Built-in scene editor with gizmos, snap controls, and Monaco code editor. WebXR support for immersive VR sessions alongside normal clients."
+      }
+    ]
+  },
+  {
+    "architecture": {
+      "title": "How it fits together",
+      "subtitle": "Three runtime modes, one API surface.",
+      "layers": [
+        {
+          "label": "Your Game Code",
+          "detail": "apps/  entity lifecycle hooks",
+          "color": "#10b981"
+        },
+        {
+          "label": "spoint SDK",
+          "detail": "TickSystem - AppRuntime - EventBus",
+          "color": "#3b82f6"
+        },
+        {
+          "label": "Jolt Physics WASM",
+          "detail": "rigid bodies - characters - trimesh",
+          "color": "#8b5cf6"
+        },
+        {
+          "label": "Transport Layer",
+          "detail": "WebSocket - WebRTC - Worker postMessage",
+          "color": "#f59e0b"
+        }
+      ],
+      "modes": [
+        {
+          "name": "Node.js Server",
+          "icon": "node",
+          "desc": "Production multiplayer"
+        },
+        {
+          "name": "Browser Worker",
+          "icon": "web",
+          "desc": "Singleplayer / hosting"
+        },
+        {
+          "name": "WebRTC Peer",
+          "icon": "rtc",
+          "desc": "P2P with browser host"
+        }
+      ]
+    }
+  },
+  {
+    "cta": {
+      "snippet": "import { createServer } from 'spoint'\n\nconst server = createServer({ tickRate: 64, port: 3001 })\nawait server.start()",
+      "install": "npm install spoint",
+      "github_href": "https://github.com/AnEntrypoint/spoint",
+      "docs_label": "Read the docs on GitHub ->"
+    }
+  }
+]

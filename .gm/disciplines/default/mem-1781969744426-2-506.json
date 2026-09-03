@@ -1,0 +1,3 @@
+## Resolved mutable: gizmo-snapback-rootcause
+
+editor-fixall workflow CONFIRMED: client/app.js:211 onStateUpdate unconditionally resets mesh.position when |snapshot - mesh| > 100. During a gizmo drag the server snapshot still holds the pre-move position (EDITOR_UPDATE not yet processed) so the guard triggers and snaps the mesh back. editor.js dragAxis tracks the drag but is never checked in onStateUpdate. Fix: expose editor.isDragging() and gate the reset on !isDragging() || selectedEntityId !== e.id.

@@ -1,0 +1,3 @@
+## Resolved mutable: sillos-invisible-detached-root
+
+FIXED: ModelPoolAdapter now adds handle.root to scene on spawn + on ready (ModelPool spawn proxy is not auto-parented; on ready it swaps proxy.root->entity.root in the proxy parent, so the proxy must be in-scene). Browser session 29 (browser-178): direct spawn aim_kosova_ak47 -> rootInScene:true (was false), visibleMeshes:83. Detached-root regression resolved.

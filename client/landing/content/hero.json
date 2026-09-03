@@ -1,0 +1,11 @@
+{
+  "hero": {
+    "badge": "Open Source - MIT",
+    "title": "Multiplayer Game Server SDK",
+    "subtitle": "Authoritative physics, deterministic netcode, hot reload, and singleplayer — all in one JavaScript SDK. Ship multiplayer games without rebuilding the engine.",
+    "cta_demo": "Shooter Demo",
+    "cta_npm": "npm install spoint",
+    "demo_href": "./demo.html?singleplayer&world=tps-game",
+    "npm_href": "https://www.npmjs.com/package/spoint"
+  }
+}

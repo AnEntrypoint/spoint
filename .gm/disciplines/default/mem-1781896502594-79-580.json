@@ -1,0 +1,3 @@
+## Resolved mutable: ghpages-prog-404-pool-disengaged
+
+ProgressiveBake.js:60 imports streaming-gltf/bake bakeProgressive; bake-progressive.mjs:704 writes outDir/model.progressive.glb and :402 outDir/lods/*.glb (relative 'lods/<f>' refs in LOCAL_progressive extras); ModelPoolAdapter.js:19 progressiveUrl=url+'.prog/model.progressive.glb'; gh-pages.yml:60 cp aim_sillos.glb raw with NO bake step. Conclusion: static deploy lacks baked .prog files -> 404 -> ModelPool disengaged (browser-508 poolEntities:0, H404 .prog). Fix=build-time bake into dist/apps/maps/aim_sillos.glb.prog/.

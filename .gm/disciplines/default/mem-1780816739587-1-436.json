@@ -1,0 +1,3 @@
+## Resolved mutable: player-input-neutralized-in-editor
+
+FIXED app.js:359-362: neutralized input computed FIRST, then fed to BOTH ams.dispatchInput AND client.sendInput (was: raw input to dispatchInput). browser-228 network INPUT lastInputShoot:false; browser-252 in editor dispatchCount:0 anyShootTrue:false allShootFalseOrUndef:true -> no shoot reaches app modules either. Player cannot shoot in editor via network OR app-module path.

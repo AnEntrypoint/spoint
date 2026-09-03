@@ -1,0 +1,3 @@
+## Resolved mutable: design-repo-writable
+
+git -C c:/dev/anentrypoint-design remote -v => origin https://github.com/AnEntrypoint/design.git (push). status --porcelain empty (clean). log shows active recent commits (85a6c7e dashboard-chat, 009db9e chat jank pass). Repo is a normal writable clone; prior session noted npm E401 so PUBLISH is delegated to CI on push (same pattern as streaming-gltf). Editable+pushable here; publish via repo CI.

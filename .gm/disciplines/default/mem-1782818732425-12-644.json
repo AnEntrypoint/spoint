@@ -1,0 +1,3 @@
+## Resolved mutable: m-sillos-sunk-below-terrain
+
+SCREENSHOT (scratchpad/sillos-canvas.png) shows the sillos arena BURIED in terrain -- only disconnected dark wall/roof slabs poke above the sandy ground, the bulk is below the surface. Confirms browser-23: model world box min.y=-6.24 vs terrain ground -0.58 = sunk 5.66m. The sandy terrain + grass draw OVER the lower 5.7m. 'Come and go' = the emergent slab tops getting per-cluster frustum-culled as the player turns. Geometry complete + cull correct (browser-19/22); the bug is the env-sillos placement Y is ~5.7m too low. Fix is spoint-side (world def / env placement Y), NOT streaming-gltf.

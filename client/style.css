@@ -1,0 +1,416 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #000; color: var(--panel-text, #fff); overflow: hidden; font-family: var(--ff-mono, monospace); }
+/* The WebGL game canvas is the full-page backdrop; body/.app must not paint an
+   opaque colour over it or the game area is invisible behind the shell. The kit
+   `canvas-host` rule covers this but is served via unpkg @latest whose CDN cache
+   can lag a publish, so spoint owns a local copy that is always served. */
+body.canvas-host, body.canvas-host .app, .canvas-host .app { background: none !important; }
+canvas { display: block; width: 100%; height: 100vh; }
+#ui-root { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
+#hud { width: 100%; height: 100%; }
+/* HUD against fully-rendered 3D scene: keep pure-black text-shadows for legibility. */
+#crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 24px; color: var(--panel-text, rgba(255,255,255,0.8)); text-shadow: 0 0 2px #000; }
+#health-bar { position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); width: 200px; height: 8px; background: color-mix(in oklab, #000 60%, transparent); border: 1px solid var(--rule, rgba(255,255,255,0.3)); }
+#health-fill { height: 100%; width: 100%; background: var(--accent, #0f0); transition: width 0.2s, background-color 0.2s; }
+#health-text { position: absolute; top: -20px; left: 50%; transform: translateX(-50%); font-size: 14px; color: var(--panel-text, #fff); text-shadow: 0 0 4px #000; }
+#info { position: absolute; top: 10px; left: 10px; font-size: 13px; line-height: 1.6; color: var(--accent, #0f0); text-shadow: 0 0 2px #000; }
+#runtime-panel {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 260px;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--rule, rgba(0, 210, 255, 0.45));
+  background: color-mix(in oklab, var(--panel-1, #030a10) 82%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, #000 45%, transparent), 0 8px 20px color-mix(in oklab, #000 30%, transparent);
+  pointer-events: none;
+  font-size: 12px;
+  font-family: var(--ff-mono, monospace);
+  color: var(--panel-text, #84f6ff);
+}
+#runtime-panel .runtime-title {
+  color: var(--accent, #00f0ff);
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--rule, rgba(0, 210, 255, 0.25));
+  padding-bottom: 4px;
+}
+#runtime-panel .runtime-row {
+  margin: 5px 0;
+  line-height: 1.3;
+  color: var(--panel-text-2, #7ce9a9);
+}
+#runtime-panel .runtime-muted {
+  color: var(--panel-text-3, #96abc0);
+}
+.runtime-spark {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  align-items: end;
+  gap: 2px;
+  height: 22px;
+  margin: 6px 0 8px;
+  border: 1px solid var(--rule, rgba(120, 170, 190, 0.25));
+  background: color-mix(in oklab, var(--panel-1, #070f18) 70%, transparent);
+  padding: 2px;
+}
+.runtime-spark span {
+  display: block;
+  width: 100%;
+}
+.runtime-spark-frame span {
+  background: linear-gradient(180deg, var(--accent, #00f7ff), color-mix(in oklab, var(--accent, #00a7ce) 70%, #000));
+}
+.runtime-spark-rtt span {
+  background: linear-gradient(180deg, var(--amber, #ffd447), color-mix(in oklab, var(--amber, #d48600) 70%, #000));
+}
+#click-prompt { position: absolute; top: 50%; left: 50%; transform: translate(-50%, 30px); font-size: 18px; color: var(--panel-text, rgba(255,255,255,0.7)); text-shadow: 0 0 4px #000; z-index: 20; text-align: center; }
+#click-prompt .cp-hint { display: block; margin-top: 6px; font-size: 12px; opacity: 0.6; letter-spacing: 0.04em; }
+
+/* Dark-mode token overrides for legacy HUD selectors that don't get cascaded
+   var(--panel-text) (i.e. those that hard-code colours above as fallbacks). The
+   kit's [data-theme="ink"] already overrides the var() values; these rules cover
+   plain prefers-color-scheme: dark for browsers without theme attr applied. */
+@media (prefers-color-scheme: dark) {
+  body { color: var(--panel-text, #e6edf3); }
+  #crosshair { color: var(--panel-text, rgba(230,237,243,0.9)); }
+  #health-text { color: var(--panel-text, #e6edf3); }
+}
+
+.loading-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: var(--panel-0, #0a0d12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  font-family: var(--ff-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+}
+
+.loading-container {
+  text-align: center;
+  color: var(--panel-text, white);
+  max-width: 400px;
+  width: 90%;
+}
+
+.loading-header h1 {
+  margin: 0 0 12px 0;
+  font-size: 2.25rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--panel-text, #e6edf3);
+}
+
+.loading-label {
+  margin: 0;
+  font-size: 0.95rem;
+  opacity: 0.8;
+  color: var(--panel-text-2, #a0a0a0);
+  min-height: 1.5rem;
+}
+
+.loading-bars {
+  margin: 28px 0 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.loading-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.loading-bar-name {
+  font-size: 0.72rem;
+  color: var(--panel-text-3, #808080);
+  width: 74px;
+  text-align: right;
+  flex-shrink: 0;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.loading-bar-track {
+  flex: 1;
+  height: 8px;
+  background: color-mix(in oklab, var(--panel-text, #fff) 10%, transparent);
+  border-radius: var(--r-1, 4px);
+  overflow: hidden;
+}
+
+.loading-bar-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: var(--r-1, 4px);
+  transition: width 0.18s ease-out;
+}
+
+.loading-bar-download {
+  background: var(--accent, #6ee7b7);
+}
+
+.loading-bar-process {
+  background: var(--panel-text-2, #9aa0ad);
+}
+
+.loading-bar-pct {
+  font-size: 0.78rem;
+  font-weight: 600;
+  width: 34px;
+  text-align: right;
+  flex-shrink: 0;
+  color: var(--panel-text-2, #c0c0c0);
+}
+
+.loading-detail-text {
+  font-size: 0.72rem;
+  color: var(--panel-text-3, #606060);
+  margin-top: 10px;
+  min-height: 1rem;
+  text-align: center;
+}
+
+.loading-spinner {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 30px;
+  height: 12px;
+}
+
+.spinner-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent, #00d4ff);
+  opacity: 0.4;
+  animation: spin-bounce 1.2s infinite ease-in-out;
+}
+
+.spinner-dot:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.spinner-dot:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes spin-bounce {
+  0%, 80%, 100% {
+    opacity: 0.4;
+    transform: scale(0.8);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.loading-overlay.fade-out {
+  animation: fade-out-animation 0.5s ease-out forwards;
+}
+
+@keyframes fade-out-animation {
+  from {
+    opacity: 1;
+    visibility: visible;
+  }
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+@media (max-width: 640px) {
+  .loading-header h1 {
+    font-size: 1.8rem;
+  }
+
+  .loading-label {
+    font-size: 0.85rem;
+  }
+
+  .loading-detail-text {
+    font-size: 0.7rem;
+  }
+}
+
+#mobile-controls {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 1000;
+  touch-action: none;
+}
+
+/* Legacy .mobile-joystick selectors (kept for compat with any uncovered surface);
+   primary visuals come from MobileControlsUI.js injected styles using kit tokens. */
+.mobile-joystick {
+  position: absolute;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--panel-text, #fff) 15%, transparent);
+  border: 2px solid color-mix(in oklab, var(--panel-text, #fff) 30%, transparent);
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.mobile-joystick-knob {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--panel-text, #fff) 50%, transparent);
+  transform: translate(-50%, -50%);
+  touch-action: none;
+}
+
+.mobile-joystick-knob.active {
+  background: color-mix(in oklab, var(--accent, #fff) 70%, transparent);
+}
+
+.mobile-buttons {
+  position: absolute;
+  display: grid;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.mobile-button {
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--panel-1, #fff) 20%, transparent);
+  border: 2px solid color-mix(in oklab, var(--rule, #fff) 40%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--panel-text, white);
+  font-weight: bold;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.mobile-button.active {
+  background: color-mix(in oklab, var(--accent, #fff) 50%, transparent);
+  transform: scale(0.95);
+}
+
+.mobile-button-shoot {
+  background: color-mix(in oklab, var(--accent, #ff6464) 40%, transparent);
+}
+
+.mobile-button-reload {
+  background: color-mix(in oklab, var(--accent, #6464ff) 40%, transparent);
+}
+
+/* #ar-button styling now comes from .btn .btn-primary kit class
+   (see client/XRControls.js createXRButton). Layout-only rules kept here. */
+#ar-button {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1001;
+  touch-action: none;
+}
+
+/* Editor layout helpers — used by EditorApps / EditorEventLog / HookFlowViewer.
+   All visual styling here delegates to anentrypoint-design kit tokens
+   (--panel-1, --panel-text-*, --rule, --accent, --ff-mono). No rgba()/hex. */
+.ds-ed-col { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.ds-ed-bar { display: flex; gap: 6px; padding: 8px 8px 4px; align-items: center; flex-shrink: 0; }
+.ds-ed-bar--tight { padding: 6px 8px; }
+.ds-ed-bar-grow { flex: 1; min-width: 0; }
+.ds-ed-list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 8px 8px; display: flex; flex-direction: column; gap: 4px; }
+.ds-ed-list--flush { padding: 0 8px 8px; }
+.ds-ed-empty { padding: 16px; opacity: 0.5; text-align: center; color: var(--panel-text-3, inherit); }
+.ds-ed-files { padding: 4px 8px 8px 20px; }
+.ds-ed-files-loading { opacity: 0.5; padding: 4px; color: var(--panel-text-3, inherit); }
+.ds-ed-files-col { display: flex; flex-direction: column; gap: 2px; }
+.ds-ep-tree-item { padding: 4px 8px; cursor: pointer; border-radius: 6px; opacity: 0.85; color: var(--panel-text-2, inherit); }
+.ds-ep-tree-item:hover { opacity: 1; background: color-mix(in oklab, var(--accent, currentColor) 12%, transparent); }
+.ds-ed-eventlog { font: 11px/1.5 var(--ff-mono, monospace); }
+.ds-hf-stage { width: 100%; height: 100%; min-height: 300px; overflow: hidden; position: relative; }
+.ds-hf-svg { width: 100%; height: 100%; cursor: grab; }
+.ds-hf-svg.is-dragging { cursor: grabbing; }
+.ds-ed-panel-mount { height: 100%; display: flex; flex-direction: column; }
+.ds-ed-panel-mount--inspector { border-top: 1px dashed var(--rule, currentColor); margin-top: 8px; padding-top: 8px; }
+
+/* Shortcuts dialog: one shortcut per row (key chip + its description) instead of
+   a wall of bare keys. Mirrors the kit editor-primitives.css change locally
+   because the kit is served from unpkg @latest whose CDN cache lags a publish
+   (same belt-and-suspenders pattern as canvas-host above). */
+.ds-247420 .ds-kbd-group ul { flex-direction: column; flex-wrap: nowrap; }
+.ds-247420 .ds-kbd-group h3 { text-transform: capitalize; }
+.ds-247420 .ds-kbd-row { display: flex; align-items: baseline; gap: 8px; }
+.ds-247420 .ds-kbd-row .ds-kbd { flex: 0 0 auto; min-width: 3.5em; text-align: center; }
+.ds-247420 .ds-kbd-label { flex: 1 1 auto; opacity: 0.85; }
+
+/* Editor floating-dock layout + responsive/VR (mirror of the kit U4 change so a
+   stale CDN cannot regress the editor layout). Denser dock chrome, a tablet
+   width cap, phone bottom-sheets that keep the 3D canvas visible, and the docks
+   hidden in fullscreen/VR immersive so they never occlude the headset view. */
+.ds-247420 .ds-ep-dock-head { padding: 4px 8px; }
+.ds-247420 .ds-ep-dock-body { padding: 6px 8px; }
+@media (max-width: 820px) and (min-width: 761px) {
+  .ds-247420 .ds-ep-dock { max-width: 240px; }
+}
+@media (max-width: 760px) {
+  .ds-247420 .ds-ep-dock { position: fixed; max-width: none; left: 6px; right: 6px; z-index: 9001; max-height: 42vh; }
+  .ds-247420 .ds-ep-dock-left { bottom: calc(40vh + 18px); }
+  .ds-247420 .ds-ep-dock-right { bottom: 6px; }
+}
+@media all and (display-mode: fullscreen) {
+  .ds-247420 .ds-ep-dock { display: none !important; }
+}
+
+@media (max-width: 480px) {
+  .mobile-joystick {
+    width: 100px;
+    height: 100px;
+  }
+
+  .mobile-joystick-knob {
+    width: 40px;
+    height: 40px;
+  }
+
+  .mobile-button {
+    width: 44px;
+    height: 44px;
+    font-size: 14px;
+  }
+}
+
+/* prefers-reduced-motion: neutralize decorative HUD/loading animation for players who've asked
+   the OS to minimize motion (vestibular-disorder accommodation). Functional transitions that
+   communicate real state (health-bar width/color, loading-bar fill) collapse to near-instant
+   rather than fully removing feedback; purely decorative loops (spinner bounce, joystick glow)
+   stop outright. Covers this file's own @keyframes/animation/transition rules; MobileControlsUI.js
+   and PeerHostUI.js inject their own <style> tags and carry a matching block alongside their CSS. */
+@media (prefers-reduced-motion: reduce) {
+  #health-fill,
+  .loading-bar-fill {
+    transition-duration: 0.01ms !important;
+  }
+  .spinner-dot {
+    animation: none !important;
+    opacity: 0.8;
+  }
+  .loading-overlay.fade-out {
+    animation-duration: 0.01ms !important;
+  }
+  .mobile-button.active {
+    transform: none;
+  }
+}

@@ -1,0 +1,3 @@
+## Resolved mutable: click-prompt-stuck-rootcause
+
+src/sdk/StaticHandler.js:116-118 realpathSync escape-guard 404'd symlinked node_modules pkg streaming-gltf (symlink -> /c/dev/streaming-gltf). browser-3 witness: failed=[404 .../streaming-gltf/.../model-pool.js, draco-loader.js], hasApp=false hasScene=false. After fix (exempt node_modules-scoped symlinks): curl 3 urls now 200; browser-4: failed=[], pageErrors=[], loadingState='ready', loadingReady=true, sceneChildren=13, loadingOverlayDisplay=none-found.

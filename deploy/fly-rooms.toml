@@ -1,0 +1,93 @@
+# fly.io deploy recipe for the multi-PROCESS room orchestrator
+# (server-scale-multiprocess-room-orchestrator-deploy-recipe).
+#
+# This is a SEPARATE deploy shape from the existing nixpacks.toml (repo root) + `node server.js`
+# single-room boot path -- confirmed via grep before writing this (only nixpacks.toml existed prior to
+# this row, no fly.toml/railway.json/Procfile anywhere in the repo). nixpacks.toml's `node server.js`
+# is still the right choice for a single always-on world (one lobby, one persistent world); this file
+# is for the DIFFERENT deployment shape where an operator wants to host MANY independent rooms
+# (matchmaking lobbies, duel instances, etc.) behind one fly.io app, bin-packed across a small number
+# of machines rather than paying for one full machine per room.
+#
+# Topology on fly.io:
+#   - ONE fly.io app, [http_service] fronts bin/room-orchestrator-boot.js's own router (ROUTER_PORT).
+#   - ROOM_WORKER_COUNT worker child_processes live INSIDE the same fly.io Machine as the router
+#     process (this is a process-per-worker orchestrator within one VM, not a Machine-per-worker
+#     orchestrator -- see the docs/multi-process-room-orchestrator.md "known limitation" section this
+#     row's own detail calls out: cross-Machine/cross-region orchestration is explicitly OUT of this
+#     slice's scope, filed as a sibling row below).
+#   - A room's actual game traffic (the WebSocket at its own routed port, e.g. 19000+N) is exposed via
+#     fly.io's [[services]] additional TCP port range below -- fly.io machines expose whatever ports
+#     are declared, so each room's port needs to be individually reachable from outside for a client to
+#     connect DIRECTLY to it post-routing (this orchestrator's router is a lookup, not a traffic proxy;
+#     see RoomOrchestrator.js's own doc comment for why). A fixed, small ROOM_PORT_MIN..ROOM_PORT_MAX
+#     range (matching this file's env vars below) is declared so fly.io's proxy can forward all of them.
+#
+# Usage:
+#   fly launch --no-deploy   (once, to create the app + confirm region)
+#   fly deploy --config deploy/fly-rooms.toml
+#   fly logs
+#
+# Then create/route rooms against the deployed app's router:
+#   curl -X POST 'https://<app>.fly.dev/rooms?roomId=lobby-1&world=tps-game'
+#   curl 'https://<app>.fly.dev/route/lobby-1'
+#     -> {"host":"127.0.0.1","port":19000,...}  (client then connects directly to
+#        wss://<app>.fly.dev:19000/ws -- fly.io's proxy forwards the declared port range straight
+#        through to the same Machine, no re-routing needed since router + workers share one VM here)
+
+app = "spoint-rooms"          # placeholder -- rename via `fly apps create <name>` first, or `fly launch`
+primary_region = "iad"        # placeholder -- pick the region closest to your player base
+
+[build]
+  # Reuses the same nixpacks build the existing single-room deploy already uses (repo-root
+  # nixpacks.toml) -- this file only changes the START command + exposed ports, not the build.
+  builder = "paketobuildpacks/builder:base"
+  buildpacks = ["gcr.io/paketo-buildpacks/nodejs"]
+
+[env]
+  ROOM_WORKER_COUNT = "4"
+  ROUTER_PORT = "3400"
+  ROOM_PORT_MIN = "19000"
+  ROOM_PORT_MAX = "19031"    # 32-port range -- enough headroom for ROOM_WORKER_COUNT=4 to each host
+                              # several rooms concurrently; widen alongside ROOM_WORKER_COUNT if you
+                              # expect to run more concurrent rooms than that.
+
+  # CROSS-MACHINE: per-worker host overrides (comma-separated).  Leave empty for same-machine
+  # (127.0.0.1) deployment.  For a multi-Machine deploy, set each worker's host to its fly.io
+  # Machine hostname so /route/:roomId returns a publicly-reachable address.
+  # ROOM_WORKER_HOSTS = "machine-0.fly.dev,machine-1.fly.dev,machine-2.fly.dev,machine-3.fly.dev"
+
+  # CRASH AUTO-RESTART: respawn locally-forked workers that exit unexpectedly.
+  # ROOM_RESTART_ON_CRASH = "0"  # disable
+  # ROOM_MAX_RESTARTS = "3"      # max restarts per worker within the window
+  # ROOM_RESTART_WINDOW_MS = "60000"  # sliding window for crash rate limiting
+
+[processes]
+  app = "node bin/room-orchestrator-boot.js"
+
+[http_service]
+  internal_port = 3400        # the router's own HTTP port (ROUTER_PORT above)
+  force_https = true
+  auto_stop_machines = false  # a room-hosting Machine should NOT auto-suspend while it has live
+                               # rooms/players -- fly.io's auto_stop has no visibility into
+                               # RoomOrchestrator's own in-process room count, so this is left off
+                               # rather than risk suspending a Machine mid-game; a real
+                               # load-aware-suspend policy is a further, unscoped enhancement.
+  auto_start_machines = true
+  min_machines_running = 1
+
+# Each room's own game-traffic port needs to be individually reachable -- fly.io's proxy forwards a
+# declared port straight through to the Machine. This block exposes the whole ROOM_PORT_MIN..MAX range
+# so a client can connect directly to whichever port /route/:roomId returned, per RoomOrchestrator.js's
+# "router does lookup, not traffic proxying" design.
+[[services]]
+  internal_port = 19000
+  protocol = "tcp"
+  [[services.ports]]
+    port = 19000
+  # Repeat this [[services]] block (internal_port/ports.port incrementing together) for every port in
+  # ROOM_PORT_MIN..ROOM_PORT_MAX -- fly.toml has no native port-range shorthand, so a real deploy should
+  # generate the remaining N-1 blocks with a small script templating this range, or narrow
+  # ROOM_PORT_MIN/MAX to exactly the number of concurrent rooms you intend to run. Left as ONE
+  # representative block here (not all 32) to keep this recipe file legible; see
+  # docs/multi-process-room-orchestrator.md for the full generation snippet.

@@ -1,0 +1,3 @@
+## Resolved mutable: sillos-lod-and-verts-rootcause
+
+editor-fixall workflow CONFIRMED: (verts) streaming-gltf tools/bake-progressive.mjs ~379 emits an empty-prim LOD when a ratio reduces to 0 indices/verts, dropping ~9-10 tris from the root; fix = skip emptied ratios (continue) + re-bake aim_sillos.glb. (LOD) model-pool.js:964 currentLod = inlineLodIdx>=0?inlineLodIdx:0 settles on the on-load tier and never re-picks to LOD0 at close range; fix = currentLod:0 + force first-update re-pick. Both upstream in c:/dev/streaming-gltf.

@@ -1,0 +1,3 @@
+## Resolved mutable: vr-surface-exists
+
+client/xr/{XRControls,XRSystem,XRWidgets}.js exist. XRWidgets.js:34-45 createWristUI builds a THREE.PlaneGeometry+CanvasTexture wrist panel added to the XR hand; VR UI is WORLD-SPACE canvas widgets, NOT DOM-overlay. So the DOM editor chrome (createEditPanel overlay, EditorShell.js) is the flat-screen surface; VR has a separate in-world widget system. Editor VR-compat = the DOM editor overlay must not break/intercept under an XR session, and edit actions stay reachable; rendering DOM panels into VR is out of scope (wrong surface).

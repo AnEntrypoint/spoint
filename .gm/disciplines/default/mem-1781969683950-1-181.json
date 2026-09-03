@@ -1,0 +1,3 @@
+## Resolved mutable: mount-api-exists
+
+anentrypoint-update/README.md line 38: 'mount(rootEl, viewFn) auto-adds the scope class, installs the styles, and runs the webjsx render loop'

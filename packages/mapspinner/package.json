@@ -1,0 +1,46 @@
+{
+  "name": "mapspinner",
+  "version": "0.1.264",
+  "description": "WebGL2 Earth-scale terrain rendering SDK for interactive globe applications",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./height-cpu": "./src/height-cpu.js",
+    "./anchor-field": "./src/anchor-field.js",
+    "./glsl-rt": "./src/glsl-rt.js",
+    "./height-gen": "./src/height-gen.js",
+    "./planet-orchestrator": "./src/planet-orchestrator.js",
+    "./quadtree": "./src/quadtree.js",
+    "./patch-baker": "./src/patch-baker.js",
+    "./heightfield-codec": "./src/heightfield-codec.js",
+    "./*": "./src/*"
+  },
+  "type": "module",
+  "scripts": {
+    "gen": "node scripts/gen-height.mjs",
+    "test": "node scripts/gen-height.mjs && node --test \"src/**/*.test.js\"",
+    "dev": "PORT=8080 node server.js",
+    "lab": "node scripts/lab.mjs",
+    "lab:heightmap": "node scripts/lab.mjs heightmap",
+    "lab:build": "node scripts/lab.mjs build",
+    "lab:parity": "node scripts/lab.mjs parity",
+    "ab": "node scripts/ab-elevation.mjs",
+    "perf-gate": "node scripts/perf-gate.mjs"
+  },
+  "keywords": [
+    "WebGL2",
+    "terrain",
+    "rendering",
+    "SDK",
+    "globe",
+    "3D"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@gltf-transform/core": "^4.4.1",
+    "@gltf-transform/extensions": "^4.4.1",
+    "sharp": "^0.35.3",
+    "three": "^0.185.1"
+  }
+}

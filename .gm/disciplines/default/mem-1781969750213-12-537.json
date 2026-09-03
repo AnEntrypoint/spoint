@@ -1,0 +1,3 @@
+## Resolved mutable: m-biome-signal-available
+
+node_modules/mapspinner/src/height-cpu.js:105 createHeightSampler returns ONLY { heightAt, surfacePoint, radius, anchorField, uniforms, _fns } - grep for biome|moisture|climate|temperature = no field. CONCLUSION: no biome signal exists; spoint MUST derive biome from elevation(groundHeightLocal) + slope(finite-diff of groundHeightLocal over dx~2m) + seeded moisture noise -> Whittaker classifier in the placement module (self-contained, single-source for client visual + server colliders).

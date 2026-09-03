@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EP_progressive_lod mesh LOD entry",
+  "type": "object",
+  "description": "One level-of-detail variant of a mesh primitive. Either sibling-file (inline/path) or single-glb-range (bufferView) form, depending on the extension's storage mode.",
+  "properties": {
+    "ratio": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1,
+      "description": "Decimation ratio relative to the source mesh."
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["unskinned", "vertcolor", "textured"],
+      "description": "Render-path hint for this LOD."
+    },
+    "inline": {
+      "type": "boolean",
+      "description": "sibling-file mode: true when this LOD is the coarse base packed inline in the root asset."
+    },
+    "path": {
+      "type": "string",
+      "description": "sibling-file mode: path to the sibling LOD file, relative to the root asset."
+    },
+    "bufferView": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "single-glb-range mode: index of the bufferView holding this LOD's indices/attributes."
+    },
+    "indexCount": { "type": "integer", "minimum": 0 },
+    "vertexCount": { "type": "integer", "minimum": 0 },
+    "bytes": { "type": "integer", "minimum": 0 },
+    "decodeAABB": {
+      "type": ["array", "null"],
+      "description": "Optional [min,max] AABB used to dequantize position attributes back to mesh-local space.",
+      "items": { "type": "array", "items": { "type": "number" } }
+    }
+  },
+  "required": ["ratio"],
+  "additionalProperties": true
+}

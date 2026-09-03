@@ -1,0 +1,3 @@
+## Resolved mutable: vdrsscale-scope-planet-only
+
+browser-27: setting __vdrs=true + __vdrsScale 0.4 vs 1.0 at the ground pose left __lastWaterQuads constant (113) and __halfResWater/__vdrs undefined by default -- _vrs scaling only applies inside the half-res-water path gated on camDist>=R-2.0 (gl-render.js:1147), so __vdrsScale is a no-op at gameplay altitude. A planet-only lever cannot serve the AA controller at ground; removal chosen.

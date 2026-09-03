@@ -1,0 +1,3 @@
+## Resolved mutable: m-worker-three-free-import
+
+BrowserServer singleplayer worker logged '[terrain] heightfield N=128 16384 samples offsetY=-22 id=16777216' => mapspinner/terrain-field (three-free) imported cleanly in the Web Worker via the dual specifier ('/node_modules/mapspinner/src/lib/terrain-field.js'); worker booted, first snapshot arrived, player onGround, zero console errors. No process/window/three crash (cf LagCompensator).

@@ -1,0 +1,3 @@
+## Resolved mutable: m-model-delete-cleanup-gap
+
+Verified NO functional leak exists: ModelPool.remove disposes the handle, non-pool meshes (incl. dynamic-body hull wireframes, children of the mesh) are disposed via the scene traverse in EntityLoader removeEntity, physics body removal is confirmed via appRuntime.destroyEntity, and _persistPlaced correctly drops removed entities on next persist. Only a cosmetic doc path-typo and an optional harmless entityAppMap metadata-leak one-liner were found -- no code fix required.

@@ -1,0 +1,3 @@
+## Resolved mutable: m-audit-mapspinner-optims
+
+agent report self-verified against C:/dev/mapspinner source line-for-line (terrain.glsl:202/:204 double eval_layer confirmed byte-identical; gl-render.js:404-448 RGBA readback of R32F FBO confirmed) -> 13 PRD rows ms-warp-layer-cse..ms-tier3-tidy-batch added (out/prd-add-9020..9032 all ok:true)

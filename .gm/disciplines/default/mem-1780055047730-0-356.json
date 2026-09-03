@@ -1,0 +1,3 @@
+## Resolved mutable: app-entry-html
+
+client/index.html is the in-app entry (loads /app.js at :50). importmap at :33 currently maps anentrypoint-design -> LOCAL /kit/dist/247420.js (not unpkg); CSS+installStyles at :10,:22 already use unpkg. The migration must repoint :33 to https://unpkg.com/anentrypoint-design/dist/247420.js per decision-consume-latest.

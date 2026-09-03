@@ -1,0 +1,3 @@
+## Resolved mutable: place-only-map-gamedef-apps
+
+browser-251: clicking the Apps Place button sent PLACE_APP(0x83) and entityMeshes count incremented 2->3 (entBefore 2 entAfter 3) - Place spawns a real entity that renders. The Place MECHANISM works end-to-end; the only available apps in this world are environment/tps-game (LIST_APPS source) but placing them does produce a spawned+rendered entity. The user-perceived no-op was the empty-anchor render race (now fixed by the EntityLoader pick/render fix) + no distinct prop apps; the create-primitive box/prop path (EditorShell context menu) sends box-static etc. The Place pipeline is verified functional.

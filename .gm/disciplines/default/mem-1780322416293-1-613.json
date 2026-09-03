@@ -1,0 +1,3 @@
+## Resolved mutable: share-link-doubled-path
+
+client/landing/index.html:197 state.share = location.origin + location.pathname.replace(/[^/]*$/,'') + demoBase.replace(/^\.\//,'') + '?wwjoin&room='+id+'&fresh'; demoBase (line 187) = (hero.demo_href||'./demo.html').split('?')[0]. .replace(/^\.\//,'') strips only a LEADING './'. With absolute demo_href '/spoint/demo.html' (deployed content, source of user's '/spoint//spoint/demo.html'), .replace leaves '/spoint/demo.html', concatenated after pathname '/spoint/' => '/spoint//spoint/demo.html' doubled. String-concat construction is fragile to absolute demo_href.

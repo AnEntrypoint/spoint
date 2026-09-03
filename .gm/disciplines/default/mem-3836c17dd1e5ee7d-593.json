@@ -1,0 +1,3 @@
+## Resolved mutable: m-exec-streaminggltf-batch5
+
+streaming-gltf commits 3bd4b9d (Uint16 indices when newVertCount<=65536, verified loader is width-agnostic via own max-value detection, standalone script confirms Uint16Array output), a26ff13 (sphere center dropped to radius-only, CLUSTER_LOD_VERSION bumped v1->v2, backward-compat parse path for both v1 4-length and v2 1-length sphere arrays, standalone script verifies v2 AABB-midpoint derivation + v1 stored-center preservation + malformed-length rejection); node --check clean, no format-compat risk since old assets still parse correctly

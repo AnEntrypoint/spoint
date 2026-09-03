@@ -1,0 +1,3 @@
+## Resolved mutable: m-gpu-cpu-y-parity
+
+mapspinner src/app/shaders/terrain.vert:251-256 main(): worldPos.y = heightAndMeta(worldPos.xz)*(uHeight/20.0) - mesh vertex Y computed LIVE from anchoredHeight, NOT from the quantized bake RT (bake feeds only fragment material). terrain.js:225-227 heightAt(x,z)=anchoredHeightCPU(x,z)*(TERRAIN_HEIGHT/20). Identical formula (uHeight default = TERRAIN_HEIGHT = 20, scl=1) => rendered ground Y == CPU heightAt to float32 precision; physics heightfield from CPU heightAt aligns with the visual mesh. No geometry quantization.

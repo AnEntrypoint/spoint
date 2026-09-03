@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "entities": [
+    {
+      "id": "group-root",
+      "app": "terrain",
+      "model": "",
+      "bodyType": "static",
+      "position": [
+        0,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1,
+        1,
+        1
+      ],
+      "custom": {},
+      "children": [
+        "model-1",
+        "model-2"
+      ]
+    },
+    {
+      "id": "model-1",
+      "app": "placed-model",
+      "model": "/models/tree.glb",
+      "bodyType": "static",
+      "position": [
+        5,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        1.5,
+        1.5,
+        1.5
+      ],
+      "custom": {},
+      "children": [],
+      "parent": "group-root"
+    },
+    {
+      "id": "model-2",
+      "app": "placed-model",
+      "model": "/models/rock.glb",
+      "bodyType": "dynamic",
+      "position": [
+        -5,
+        0,
+        0
+      ],
+      "rotation": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "scale": [
+        2,
+        1,
+        2
+      ],
+      "custom": {},
+      "children": [],
+      "parent": "group-root"
+    }
+  ],
+  "rootId": "group-root",
+  "metadata": {
+    "name": "demo-prefab",
+    "author": "admin@coas.co.za",
+    "created": "2026-08-21T10:31:53.036Z",
+    "updated": "2026-08-21T10:31:53.036Z",
+    "description": "Demo prefab with parent and two children"
+  }
+}

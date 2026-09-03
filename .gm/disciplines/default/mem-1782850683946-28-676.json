@@ -1,0 +1,3 @@
+## Resolved mutable: m-8090-stale-server-process
+
+Restarted :8090 (killed stale pid 25176 from 10:13AM, relaunched fresh pid 16452). browser-125 on the FRESH server: flagged 96/96, drawn 429/429 at every yaw angle (allFull true), screenshot shows the arena MORE complete than ever (full deck, MAP BY WICKED signage, stairs, ramps, right structure). So a stale server process is NOT it -- the fresh server also renders sillos whole headlessly. The fix is correct + live on a fresh process. Yet user STILL reports parts invisible -> the divergence is on the USER's browser/GPU, not reproducible in headless Chromium (which renders it whole). Blocked on the user's actual visual.

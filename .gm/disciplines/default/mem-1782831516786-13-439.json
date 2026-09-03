@@ -1,0 +1,3 @@
+## Resolved mutable: m-terrain-coupling-map
+
+Mapped + foundation laid: apps/terrain/index.js (config owner + hooks), AppContext.ctx.terrain.startStreaming (server bridge), engineCtx.setTerrainConfig/rebuildTerrain (client bridge), setupTerrainStreaming accepts tcfg. The 4 coupling sites (worldDef.terrain block, AppRuntime._terrainConfig, server WorkerEntry/ServerAPI call, client permanent panels) remain to be cut in the dependent rows.

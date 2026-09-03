@@ -1,0 +1,3 @@
+## Resolved mutable: m-editor-ws-no-authz
+
+blockedBy: external -- requires a genuine auth-architecture decision (env-secret token vs loopback-restriction vs defer) with no existing session/role concept in the codebase to build on; AskUserQuestion was dispatched to the user and received no response within the turn. Recorded as an explicit open finding rather than silently inventing an unreviewed security scheme touching every EditorHandlers call site + WS connection handshake. Left for a dedicated follow-up session with user input on the auth model.

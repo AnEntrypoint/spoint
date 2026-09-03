@@ -1,0 +1,3 @@
+## Resolved mutable: m-sillos-cluster-sphere-undersized
+
+NOT the cause. browser-107: from a camera where the picker chose LOD0 for ALL clusters and NOTHING was culled (normalDrawn 429/429, normalTris 10118 = the FULL source LOD0 count, DoubleSide materials), the arena STILL renders as a thin see-through shell with sliver triangles and dotted-railing ramps (iso-1normal.png). With every cluster drawn at full detail the structure is unchanged -> the 133 ~10%-undersized spheres + the LOD picker are NOT what makes it look partial. The geometry rendered IS the complete source (10118 tris == source GLB 10118 tris, 96 prims == 96 render meshes).

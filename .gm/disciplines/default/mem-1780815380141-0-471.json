@@ -1,0 +1,3 @@
+## Resolved mutable: pick-raycasts-empty-anchors
+
+FIXED EntityLoader.js:210 modelPool.spawn callback now entityMeshes.set(entityId, root) when the real async geometry arrives (+ re-set on lod-changed). browser-224 after reload: env-sillos meshDescendants 0->96, raycastHits 0->1, synthetic center pointerdown selectedAfterPointer null->env-sillos, gizmoAttached true. Root cause was the synchronous poolRoot read capturing an empty anchor before async spawn populated it.

@@ -1,0 +1,3 @@
+## Resolved mutable: render-loop-entry-app-js
+
+client/app.js:255 renderer.setAnimationLoop(animate); animate() at :231 calls tickPlayerAnimators(:214), sceneGraph.tick, updateSunShadow(:250 every frame), renderer.render(:252), unconditional console.log frame-profile(:253). Confirmed entry + per-frame allocations live here. NOTE: line 248 already does squared-dist player vis cull (_PLAYER_VIS_D2), line 220 already squared-dist, line 229 uses _sinTable — several audit sqrt/cull claims already implemented.

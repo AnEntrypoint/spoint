@@ -1,0 +1,88 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>VRM multi-driver witness</title></head>
+<body>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+    "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.4.0/lib/three-vrm.module.min.js"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three'
+import { ModelPool } from '../../src/model-pool.js'
+
+window.__witness = { state: 'init' }
+
+;(async () => {
+  try {
+    const scene = new THREE.Scene()
+    const renderer = new THREE.WebGLRenderer()
+    renderer.setSize(64, 64)
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1000)
+    camera.position.set(0, 1, 2)
+
+    const pool = new ModelPool({ scene, renderer, camera })
+    const url = './output_vrm_avatar/model.progressive.glb'
+
+    // spawn() returns a PROXY; the real Entity arrives on the 'ready' event as
+    // proxy.actualEntity. Wait for both to bootstrap.
+    const ready = (p) => new Promise((res) => p.on('ready', () => res()))
+    const p1 = pool.spawn(url, { position: [0, 0, 0] })
+    const p2 = pool.spawn(url, { position: [1, 0, 0] })
+    await Promise.all([ready(p1), ready(p2)])
+    const e1 = p1.actualEntity, e2 = p2.actualEntity
+
+    // Diagnostics: did the asset detect VRM + retain bytes?
+    const asset = e1.asset
+    window.__assetDiag = {
+      hasVRM: asset.hasVRM,
+      rootBytesPresent: !!asset.rootBytes,
+      rootGltfVrm: !!asset.rootGltf?.userData?.vrm,
+      rootGltfUserDataKeys: Object.keys(asset.rootGltf?.userData || {}),
+    }
+
+    // Drive a few frames so vrm.update runs.
+    for (let i = 0; i < 5; i++) pool.update()
+
+    const head1 = e1.vrm?.humanoid?.getRawBoneNode?.('head') || null
+    const head2 = e2.vrm?.humanoid?.getRawBoneNode?.('head') || null
+
+    window.__witness = {
+      state: 'done',
+      e1HasVrm: !!e1.vrm,
+      e2HasVrm: !!e2.vrm,
+      e1HumanoidBones: e1.vrm?.humanoid ? Object.keys(e1.vrm.humanoid.humanBones || {}).length : 0,
+      e2HumanoidBones: e2.vrm?.humanoid ? Object.keys(e2.vrm.humanoid.humanBones || {}).length : 0,
+      headsDistinct: !!head1 && !!head2 && head1 !== head2,
+      e1UpdateFn: typeof e1.vrm?.update === 'function',
+      e2UpdateFn: typeof e2.vrm?.update === 'function',
+      // Independence: the two scenes are different Object3D roots.
+      scenesDistinct: !!e1.vrm?.scene && !!e2.vrm?.scene && e1.vrm.scene !== e2.vrm.scene,
+      // dispose e2, confirm e1 survives (still has vrm) and e2 cleared.
+    }
+    // Host-driven (driveVrm:false): pool must NOT auto-update; host owns it.
+    const p3 = pool.spawn(url, { position: [2, 0, 0], driveVrm: false })
+    await ready(p3)
+    const e3 = p3.actualEntity
+    // Record expressionManager value before any update, drive a few pool frames,
+    // and confirm the entity still has a usable vrm (host can call e3.vrm.update).
+    for (let i = 0; i < 3; i++) pool.update()
+    window.__witness.hostDrivenHasVrm = !!e3.vrm
+    window.__witness.hostDrivenUpdateFn = typeof e3.vrm?.update === 'function'
+    window.__witness.hostDrivenOptRespected = e3.opts?.driveVrm === false
+
+    e2.dispose()
+    window.__witness.afterDisposeE1HasVrm = !!e1.vrm
+    window.__witness.afterDisposeE2Vrm = e2.vrm
+    window.__witness.errors = []
+  } catch (err) {
+    window.__witness = { state: 'error', message: err.message, stack: String(err.stack || '') }
+  }
+})()
+</script>
+</body>
+</html>

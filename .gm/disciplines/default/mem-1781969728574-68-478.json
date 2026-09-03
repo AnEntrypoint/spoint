@@ -1,0 +1,3 @@
+## Resolved mutable: placed-model-render-path
+
+EntityLoader.js:131/141 handles any entity with entityState.model; :180 await modelPool.progressiveReady(url) when !isDynamic -> baked: ModelPool placeholder (:184 userData.isModelPool=true) else plain-GLB load. Appears in SceneHierarchy via MSG.SCENE_GRAPH broadcast EditorHandlers.js:39 fires on PLACE_MODEL; app:'placed-model' tags _appName EntityLoader.js:130. Witness: EntityLoader.js:130-141,180-184; EditorHandlers.js:37-40.

@@ -1,0 +1,3 @@
+## Resolved mutable: texname-uniqueness-sillos
+
+three GLTFLoader.js:3248 texture.name=textureDef.name||sourceDef.name. Baked sillos: 0/44 textureDef.name (verified via glb json dump) so tex.name=image name. ext.textures[].name also=image name. Match works per existing texture BUT 45 desc vs 44 img, desc i:0=Image_1 phantom, desc order != texture order. So name-match is the ONLY binding and it has no per-mesh scoping.

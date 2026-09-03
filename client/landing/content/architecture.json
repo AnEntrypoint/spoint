@@ -1,0 +1,45 @@
+{
+  "architecture": {
+    "title": "How it fits together",
+    "subtitle": "Three runtime modes, one API surface.",
+    "layers": [
+      {
+        "label": "Your Game Code",
+        "detail": "apps/  entity lifecycle hooks",
+        "color": "#10b981"
+      },
+      {
+        "label": "spoint SDK",
+        "detail": "TickSystem - AppRuntime - EventBus",
+        "color": "#3b82f6"
+      },
+      {
+        "label": "Jolt Physics WASM",
+        "detail": "rigid bodies - characters - trimesh",
+        "color": "#8b5cf6"
+      },
+      {
+        "label": "Transport Layer",
+        "detail": "WebSocket - WebRTC - Worker postMessage",
+        "color": "#f59e0b"
+      }
+    ],
+    "modes": [
+      {
+        "name": "Node.js Server",
+        "icon": "node",
+        "desc": "Production multiplayer"
+      },
+      {
+        "name": "Browser Worker",
+        "icon": "web",
+        "desc": "Singleplayer / hosting"
+      },
+      {
+        "name": "WebRTC Peer",
+        "icon": "rtc",
+        "desc": "P2P with browser host"
+      }
+    ]
+  }
+}

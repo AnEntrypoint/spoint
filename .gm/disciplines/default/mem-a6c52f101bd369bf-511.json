@@ -1,0 +1,3 @@
+## Resolved mutable: mu-sg-models-dir-runtime-refs
+
+exec_js: sgModelsBytes=308636084 (308MB) in the SIBLING repo, but nmSgModelsExists=false -- npm files field already excludes models/ from the published tarball spoint consumes, and the exhaustive string sweep found zero spoint references to any streaming-gltf/models path. Decision: packages/streaming-gltf copy EXCLUDES models/ (test fixtures stay in the archived sibling); mapspinner textures/ INCLUDED (nmMsTexturesExists=true -- shipped and served today).

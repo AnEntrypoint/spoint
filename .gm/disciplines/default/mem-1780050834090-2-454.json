@@ -1,0 +1,3 @@
+## Resolved mutable: perfnow-required-for-stats
+
+src/apps/AppRuntimeTick.js:12-29 calls performance.now() ~6x/tick unconditionally, storing _lastSyncMs/_lastRespawnMs/_lastSpatialMs/_lastCollisionMs/_lastInteractMs. Not gated by a debug flag. CONFIRMED but low cost (~6 now() calls/tick). NOTE: _colR already caches radius (:48), collision already uses spatial grid (:82), getNearbyPlayers already spatial-indexed — many audit claims already optimized.

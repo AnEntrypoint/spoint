@@ -1,0 +1,3 @@
+## Resolved mutable: m-mapspinner-decomposition-blocked-on-dag-design
+
+Confirmed still blocked, unrelated to this turn's scope: re-read gl-render.js render() (gl-render.js:1301-2033) end to end this turn for the multi-res/depth-prepass design task. The VDRS/hrw/THC three-way branching (lines 1370-1392 _vdrsOn/_hrwActive/thcActive gates) remains fully interleaved as described; no decomposition attempted (out of scope for the design-only task this turn covered). Still correctly waiting on dag-node-api-design's concrete node contract before extraction, per the original note.

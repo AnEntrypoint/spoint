@@ -1,0 +1,15 @@
+{
+  "goal": "Push spoint to AAA visual level matching Fortnite on Zen3 APU at 144fps",
+  "target_hardware": "AMD Ryzen 7 6800H (Zen3+ mobile APU) w/ integrated AMD Radeon Graphics, 1920x1080",
+  "win_condition": "Beat Fortnite reference in blind comparison at matched camera/time-of-day/framing/resolution, while holding 144fps with 1% lows above 120 on the APU. Both halves required.",
+  "reference_status": "Fortnite not installed on target box (empty placeholder dir); user opted to source real Fortnite reference material from the web instead of a live capture. Reference-sourcing agent dispatched.",
+  "pieces": [
+    { "id": "piece-open-landscape-midday-lighting", "title": "Open landscape, midday", "rounds": [], "status": "not_started" },
+    { "id": "piece-low-sun-shadows", "title": "Low sun / golden hour shadows", "rounds": [], "status": "not_started" },
+    { "id": "piece-interior-lighting", "title": "Interior lighting", "rounds": [], "status": "not_started" },
+    { "id": "piece-dense-foliage", "title": "Dense foliage", "rounds": [], "status": "not_started" },
+    { "id": "piece-water", "title": "Water", "rounds": [], "status": "not_started" },
+    { "id": "piece-particle-combat", "title": "Particle-heavy combat", "rounds": [], "status": "not_started" }
+  ],
+  "updated_at": "2026-08-08"
+}

@@ -1,0 +1,3 @@
+## Resolved mutable: m-exec-mapspinner-batch1
+
+mapspinner commit a214334: eval_layer CSE hoisted to h0 local (terrain.glsl:200-208) + normalize(dir0) deduped to dirN (terrain.glsl:211-232); regenerated height-gen.js via gen-height.mjs; node --test src/**/*.test.js 12/12 pass incl. golden-samples numeric regression lock proving zero value drift

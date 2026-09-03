@@ -1,0 +1,3 @@
+## Resolved mutable: collider-derivation-preserved
+
+EntityLoader.js:155-171 derives colliders/env-trimesh by traversing cloned gltf.scene meshes. ModelPool._bootstrap:847 clones scene into this.root (traversable). Colliders extractable from parsed gltf at spawn / pool entity root. Preservable.

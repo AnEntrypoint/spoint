@@ -1,0 +1,3 @@
+## Resolved mutable: m-ccd-gpu-tier-performance
+
+CCD performance limiter implemented — World.js caps CCD bodies at 50 per frame to prevent GPU-tier stalls

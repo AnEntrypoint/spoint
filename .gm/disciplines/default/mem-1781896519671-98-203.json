@@ -1,0 +1,3 @@
+## Resolved mutable: sillos-highest-lod-selected
+
+browser-10: 96 env meshes streamed and present in-scene at close interior range (totalMeshes=98). High interior mesh LOD selected; full geometry visible.

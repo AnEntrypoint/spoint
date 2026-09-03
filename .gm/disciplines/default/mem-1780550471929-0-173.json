@@ -1,0 +1,3 @@
+## Resolved mutable: sillos-inside-side-count
+
+browser-10 live inside sillos: 0 env-root meshes are material.side!=DoubleSide (envFrontSide=0, envDoubleSide=96, envOther=0).

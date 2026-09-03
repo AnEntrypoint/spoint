@@ -1,0 +1,3 @@
+## Resolved mutable: design-pkg-on-unpkg
+
+anentrypoint-design IS published: client/index.html:10 loads https://unpkg.com/anentrypoint-design/dist/247420.css and :22 imports installStyles from https://unpkg.com/anentrypoint-design/dist/247420.js — both unpkg URLs the browser already resolves. client/landing/index.html:18,22 same. Package.json local copy is v0.0.165 with full kits/ exports. unpkg @latest serves it.

@@ -1,0 +1,3 @@
+## Resolved mutable: m-minimal-far-plane-unconfirmed
+
+Live A/B test at a real vista pose (0,300,0 looking at a coastal terrain/water horizon showing planet curvature): screenshots at camera.far=7662 (mapspinner-synced baseline), far=1915 (25%), and far=700 (~9%, near vegetation's own default renderDistance) are ALL pixel-identical -- terrain/water/sky are drawn entirely by mapspinner's separate raw-GL pass (not THREE's renderer), so THREE's camera.far has ZERO visual effect on them. This proves the far-plane-magnitude concern only matters for what THREE itself draws (models/vegetation/players), confirming the fix direction: decouple THREE's camera.far from mapspinner's terrain-far-plane sync entirely, driven instead by what THREE-rendered content actually needs.

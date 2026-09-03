@@ -1,0 +1,3 @@
+## Resolved mutable: window-prompt-remaining
+
+grep client/** for (prompt|confirm|alert)( => only client/editor/EditorApps.js:39 and :49 (New-App name prompt). All other surfaces use kit Dialog/ConfirmDialog. EditorApps is the last native prompt.

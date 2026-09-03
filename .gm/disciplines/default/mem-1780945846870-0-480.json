@@ -1,0 +1,3 @@
+## Resolved mutable: renderer-local-player-path
+
+client/core/TransformLerp.js:32 setPlayerTarget src=lc?(lc.position||player.position):player.position; TransformLerp.js:43 applyPlayerTransform mesh-lerps; client/app.js:192 setPlayerTransforms(state.players,lid,()=>client.getLocalState()). PredictionEngine.getDisplayState/interpolate unused by renderer = dead. Smooth-reconciliation error-decay operates on localState (the lerp target). codesearch ci-16593f9d-1/0, ci-ce92d43f-78

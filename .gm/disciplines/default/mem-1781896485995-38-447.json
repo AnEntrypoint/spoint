@@ -1,0 +1,3 @@
+## Resolved mutable: m-three-version-compat
+
+spoint package.json:78 three ^0.183.1 (devDep) >= mapspinner package.json:34 peerDependencies three>=0.169 -> satisfied. spoint client/index.html:29 importmap 'three' -> /node_modules/three/build/three.module.js; adding mapspinner that imports bare 'three' resolves via the SAME importmap entry => one three instance. Browser-witness of terrainMesh instanceof THREE.Mesh deferred to sp-three-singleton.

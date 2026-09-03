@@ -1,0 +1,3 @@
+## Resolved mutable: m-shadowmoved-toggle-rate-unverified
+
+DISPROVEN via live measurement: app.pm.playerMeshes.get(1).position sampled 60x over 6s at 100ms intervals while genuinely idle -- maxDelta:0 across the ENTIRE window (perfectly stable, no jitter whatsoever). _shadowMoved cannot be toggling from position noise; the shadow-throttle/_frameParity path is NOT the cause of nearby-trees-flicker-every-second-frame. Root cause is elsewhere -- likely the impostor-vs-terrain-depth interaction (poke-through flying down, disappear flying up) reported in the same user message, or a separate mechanism not yet identified. Needs fresh investigation, not the shadow-parity path.

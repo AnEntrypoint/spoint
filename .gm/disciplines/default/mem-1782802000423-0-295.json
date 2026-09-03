@@ -1,0 +1,3 @@
+## Resolved mutable: setpixelratio-is-flash-cause
+
+browser-24: AdaptiveAA toggled setPixelRatio between baseRatio 1.25 and drop 1.0 (reDrops 4) -- a drawingBuffer resize that reallocs mapspinner _vdrsFbo (gl-render.js:868 ensureVdrsTargets, texImage2D null) = the 1-frame blank ocean. Confirmed.

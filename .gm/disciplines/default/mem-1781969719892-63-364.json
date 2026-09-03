@@ -1,0 +1,3 @@
+## Resolved mutable: live-join-2c8fh-playable
+
+browser-164 default session joiner vs live local Firefox host room 2C8FH: connected:true playerId:2 hostPubkey:084a405de649 dcReadyState:open dcLabel:wireweave-data pcConnState:connected pcIce:connected sendResult:TRUE pendingSends:0 bridgePeers:[084a405de649]. Joiner discovers+spawns+dc-open+sends input end-to-end.

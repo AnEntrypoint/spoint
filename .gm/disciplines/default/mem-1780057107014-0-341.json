@@ -1,0 +1,3 @@
+## Resolved mutable: npm-publish-blocked
+
+npm whoami => E401 (not logged in). anentrypoint-design npm publish unreachable in-session. unpkg @latest serves from npm registry; newly-authored kits cannot reach unpkg without publish. Design repo git-pushable (HTTPS creds present) but unpkg availability of NEW kits requires the blocked publish.

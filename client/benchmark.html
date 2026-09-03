@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>spoint — benchmark</title>
+<style>
+:root {
+  --bg: #0d1117;
+  --card: #161b22;
+  --border: #30363d;
+  --text: #c9d1d9;
+  --text2: #8b949e;
+  --accent: #58a6ff;
+  --green: #3fb950;
+  --yellow: #d2991d;
+  --red: #f85149;
+  --muted: #21262d;
+}
+body{font:14px/1.5 system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);margin:0;padding:24px;min-height:100vh;box-sizing:border-box}
+h1{font-size:20px;font-weight:600;margin:0 0 4px;display:flex;align-items:center;gap:8px}
+h1 .sha{font-size:11px;font-weight:400;color:var(--text2);font-family:monospace}
+.subtitle{color:var(--text2);font-size:13px;margin-bottom:24px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:24px}
+.tile{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px 16px;display:flex;flex-direction:column;gap:4px}
+.tile .label{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.05em}
+.tile .value{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums}
+.tile .unit{font-size:12px;font-weight:400;color:var(--text2);margin-left:2px}
+.tile.good .value{color:var(--green)}
+.tile.warn .value{color:var(--yellow)}
+.tile.bad .value{color:var(--red)}
+.tile.info .value{color:var(--accent)}
+.row{display:flex;gap:12px;flex-wrap:wrap}
+.row .tile{flex:1;min-width:160px}
+.world-section{margin-bottom:16px}
+.world-section h2{font-size:15px;font-weight:600;margin:0 0 8px;color:var(--text)}
+.err{background:var(--card);border:1px solid var(--red);color:var(--red);padding:12px 16px;border-radius:8px;font-size:13px}
+.loading{color:var(--text2);font-size:14px;padding:24px 0}
+.refresh{font-size:11px;color:var(--text2);margin-top:8px}
+.refresh span{color:var(--text)}
+.footer{font-size:11px;color:var(--text2);margin-top:32px;padding-top:12px;border-top:1px solid var(--border)}
+</style>
+</head>
+<body>
+<h1>spoint <span class="sha" id="sha"></span></h1>
+<div class="subtitle" id="subtitle"></div>
+<div id="content"><div class="loading">Fetching benchmark data&hellip;</div></div>
+<div class="refresh">Auto-refresh every <span>5s</span> &mdash; <span id="lastRefresh"></span></div>
+<div class="footer">spoint public benchmark &mdash; <a href="https://github.com/AnEntrypoint/spoint" style="color:var(--accent)">AnEntrypoint/spoint</a></div>
+
+<script>
+const API = '/benchmark'
+const INTERVAL = 5000
+
+function cls(v) {
+  if (v == null) return ''
+  if (typeof v === 'boolean') return v ? 'good' : 'bad'
+  return ''
+}
+
+function ms(v) { return v != null ? v.toFixed(2) : '—' }
+function num(v) { return v != null ? v.toLocaleString() : '—' }
+function pct(v) { return v != null ? (v * 100).toFixed(1) + '%' : '—' }
+
+function tickClass(avgMs, rate) {
+  if (avgMs == null) return ''
+  const budget = 1000 / (rate || 60)
+  if (avgMs < budget * 0.5) return 'good'
+  if (avgMs < budget * 0.8) return 'warn'
+  return 'bad'
+}
+
+function dilationClass(d) {
+  if (d == null) return ''
+  if (d >= 0.95) return 'good'
+  if (d >= 0.7) return 'warn'
+  return 'bad'
+}
+
+function memClass(mb) {
+  if (mb == null) return ''
+  if (mb < 512) return 'good'
+  if (mb < 1024) return 'warn'
+  return 'bad'
+}
+
+function render(data) {
+  const s = data.server, w = data.world, b = data.build
+  const budget = 1000 / (s.tickRate || 60)
+  const ts = new Date(data.timestamp).toLocaleTimeString()
+
+  document.getElementById('sha').textContent = b.sha ? b.sha.slice(0, 7) : ''
+  document.getElementById('subtitle').textContent = `Node ${b.nodeVersion || '?'} · branch ${b.branch || '?'} · ${ts}`
+  document.getElementById('lastRefresh').textContent = `last updated ${ts}`
+
+  document.getElementById('content').innerHTML = `
+    <div class="grid">
+      <div class="tile ${tickClass(s.tickAvgMs, s.tickRate)}">
+        <div class="label">Tick Avg</div>
+        <div class="value">${ms(s.tickAvgMs)}<span class="unit">ms</span></div>
+      </div>
+      <div class="tile ${tickClass(s.tickP50Ms, s.tickRate)}">
+        <div class="label">Tick P50</div>
+        <div class="value">${ms(s.tickP50Ms)}<span class="unit">ms</span></div>
+      </div>
+      <div class="tile ${tickClass(s.tickP99Ms, s.tickRate)}">
+        <div class="label">Tick P99</div>
+        <div class="value">${ms(s.tickP99Ms)}<span class="unit">ms</span></div>
+      </div>
+      <div class="tile ${dilationClass(s.dilationFactor)}">
+        <div class="label">Dilation</div>
+        <div class="value">${pct(s.dilationFactor)}</div>
+      </div>
+      <div class="tile info">
+        <div class="label">Tick Rate</div>
+        <div class="value">${num(s.tickRate)}<span class="unit">Hz</span></div>
+      </div>
+      <div class="tile info">
+        <div class="label">Tick Budget</div>
+        <div class="value">${ms(budget)}<span class="unit">ms</span></div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="tile info">
+        <div class="label">Players</div>
+        <div class="value">${num(s.playerCount)}</div>
+      </div>
+      <div class="tile info">
+        <div class="label">Entities</div>
+        <div class="value">${num(s.entityCount)}</div>
+      </div>
+      <div class="tile info">
+        <div class="label">Physics Bodies</div>
+        <div class="value">${num(s.physicsBodyCount)}</div>
+      </div>
+      <div class="tile info">
+        <div class="label">Uptime</div>
+        <div class="value">${num(Math.floor(s.uptimeMs / 1000))}<span class="unit">s</span></div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="tile ${memClass(s.memoryRssMB)}">
+        <div class="label">RSS</div>
+        <div class="value">${num(s.memoryRssMB)}<span class="unit">MB</span></div>
+      </div>
+      <div class="tile ${memClass(s.memoryHeapMB)}">
+        <div class="label">Heap</div>
+        <div class="value">${num(s.memoryHeapMB)}<span class="unit">MB</span></div>
+      </div>
+    </div>
+    <div class="world-section">
+      <h2>World: ${escapeHtml(w.name)}</h2>
+      <div class="row">
+        <div class="tile info">
+          <div class="label">World Entities</div>
+          <div class="value">${num(w.entityCount)}</div>
+        </div>
+        <div class="tile info">
+          <div class="label">Apps</div>
+          <div class="value">${num(w.appCount)}</div>
+        </div>
+        <div class="tile ${cls(w.terrainEnabled)}">
+          <div class="label">Terrain</div>
+          <div class="value">${w.terrainEnabled ? 'ON' : 'OFF'}</div>
+        </div>
+      </div>
+    </div>
+  `
+}
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]) }
+
+async function fetchBenchmark() {
+  try {
+    const res = await fetch(API, { cache: 'no-store' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    if (data.error) throw new Error(data.detail || data.error)
+    render(data)
+  } catch (e) {
+    document.getElementById('content').innerHTML = `<div class="err">Failed to fetch benchmark: ${escapeHtml(e.message)}<br><small>Is the server running? Expected endpoint: ${API}</small></div>`
+  }
+}
+
+fetchBenchmark()
+setInterval(fetchBenchmark, INTERVAL)
+</script>
+</body>
+</html>

@@ -1,0 +1,3 @@
+## Resolved mutable: m-toolbar-place-no-raycast
+
+client/app.js: added shared _raycastPlacePos/_viewportCenterPlacePos helpers; onPlace/onPlaceModel now raycast from viewport center instead of pure forward-offset; onDrop refactored to reuse the same helper for its pointer-coord raycast, removing the duplicated raycast logic.

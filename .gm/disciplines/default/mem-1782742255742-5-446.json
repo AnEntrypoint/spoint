@@ -1,0 +1,3 @@
+## Resolved mutable: setbuffer-alloc-per-raycast
+
+client/vendor/three-mesh-bvh.module.js:2524-2526 (pre-fix) setBuffer did new Float32Array/Uint16Array/Uint32Array(buffer) every call; :4289-4291 raycastFirst calls setBuffer(bvh._roots[root])+clearBuffer per invocation -> 3 typed-array allocs per env-mesh raycast. browser-12 profile confirmed setBuffer was the dominant self-cost (now eliminated by the WeakMap view cache, absent from worst-20).

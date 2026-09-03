@@ -1,0 +1,1 @@
+project/tps-only-content: non-tps demo apps/worlds removed (webcam-avatar, physics-crate, world/index.js, world/webcam.js, client/webcam-afan.js). server.js:136 default world is now tps-game (was index). Editor palette keeps box-static/box-dynamic/prop-static/prop-dynamic + placed-model. spawner scaffold template entityApp=box-dynamic.

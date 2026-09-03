@@ -1,0 +1,3 @@
+## Resolved mutable: m-exec-mapspinner-batch7
+
+DECLINED, premise corrected: value_ridged_fbm_rot's numOctaves is ALWAYS a compile-time constant (10/18/18/23 via const NoiseLayer struct fields or literal 6) at all 3 call sites, unlike fractalTerrainH which genuinely has the FXC/D3D runtime-uniform-loop constraint (uOctMax) documented in AGENTS.md:244-279. Shader compiler already unrolls+constant-folds this function's per-octave sincos into literal immediates -- the recurrence optimization targets a dynamic-loop cost that does not apply here, would only add fp-drift risk across up to 23 octaves with zero measurable benefit. Correctly identified the PRD row was written against a mistaken premise.

@@ -1,0 +1,8 @@
+{
+  "cta": {
+    "snippet": "import { createServer } from 'spoint'\n\nconst server = createServer({ tickRate: 64, port: 3001 })\nawait server.start()",
+    "install": "npm install spoint",
+    "github_href": "https://github.com/AnEntrypoint/spoint",
+    "docs_label": "Read the docs on GitHub ->"
+  }
+}

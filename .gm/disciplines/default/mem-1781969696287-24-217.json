@@ -1,0 +1,3 @@
+## Resolved mutable: editor-last-native-prompt
+
+Duplicate of window-prompt-remaining (resolved). grep client/** (prompt|confirm|alert)( => only client/editor/EditorApps.js:39/:49. EditorApps is the last native prompt.

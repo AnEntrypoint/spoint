@@ -1,0 +1,3 @@
+## Resolved mutable: mut-1780469294418
+
+RESOLVED: backface culling of single-sided materials seen from interior. browser-9: all 70 aim_sillos meshes material.side=front (FrontSide), zero DoubleSide; geometry fully present (ModelPool baked entity_2_model.progressive.glb). NOT a LOD-band/bake-geometry/sibling-fetch issue. Fix: set DoubleSide on environment-model materials.

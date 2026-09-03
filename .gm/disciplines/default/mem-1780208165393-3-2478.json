@@ -1,0 +1,12 @@
+---
+name: modelpool-texlod-per-mesh-scope
+description: streaming-gltf ModelPool texture-LOD cross-write fix — per-mesh descriptor scoping stops wrong texture appearing on multi-texture objects after LOD switch
+metadata:
+  type: project
+---
+
+project/modelpool-texlod-per-mesh-scope: In streaming-gltf model-pool.js, each tracked mesh's `texState` was built as `asset.texLodDescs.map(()=>({currentLod:0}))` (model-pool.js:881) — i.e. EVERY mesh got a slot for ALL asset-wide texture descriptors with no per-mesh filter. The per-frame LOD-driven loop (:1404) then fired `_applyTexLod(tm, ti, ...)` for descriptors belonging to OTHER meshes' textures. `_findMaterialSlots` (:1655) matched textures by `tex.name === descriptor.name` (three GLTFLoader.js:3248 sets `texture.name = textureDef.name || sourceDef.name`, so for baked sillos with 0/44 textureDef.name it falls back to the image name), and on a name MISS hit the fallback `if (!out.size && mat.map) out.add(mat.map)` (:1672) which stamped the FOREIGN descriptor's bitmap into the mesh's base-colour map. Result: the visible texture of a multi-texture object (e.g. aim_sillos, 96 meshes / 45 textures / 44 images) changed after every LOD switch (precomputedTexLods reset at :1016/:1088 re-drove the loop).
+
+FIX (streaming-gltf 1.0.5, commit 8b46f68): (1) add `_meshTexDescIdxs(mat, texLodDescs)` returning the descriptor indices whose name matches a texture on THIS material; store as `tm._texDescIdxs` at bootstrap; the LOD-driven loop iterates only those (fallback to all when unmatched). (2) remove the cross-writing `if(!out.size&&mat.map)out.add(mat.map)` base-map catch-all in `_findMaterialSlots` — an unmatched descriptor now writes nothing. Browser-witnessed on real baked sillos: after driving every mesh through all LODs + applying every scoped texLod, 0 foreign-texture violations; 90/96 meshes resolved to own:1 scoped descriptor with mapNames==ownNames.
+
+Deploy: streaming-gltf publishes via CI (publish-npm.yml runs `npm version patch` + `npm publish` on push to master), so push the repo and CI ships the next patch (1.0.5). spoint consumes it via importmap `/node_modules/streaming-gltf/...` + dep `^1.0.4`; gh-pages uses `npm install` so a caret dep auto-upgrades to 1.0.5 on next deploy (lockfile pins 1.0.4 but `npm install` updates within range). Related: [[modelpool-useglobalmaterialpool-off]] (different texture-sharing issue — global tier material), [[modelpool-bake-webp-source-normalize]].

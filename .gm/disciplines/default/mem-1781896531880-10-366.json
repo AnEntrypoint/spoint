@@ -1,0 +1,3 @@
+## Resolved mutable: editor-baseline-live-state
+
+editor-complete + editor-fixall workflows witnessed the full baseline live: select/gizmo/place/destroy/duplicate/reparent/hookflow/events operate; the broken items (gizmo snap-back, camera restore, bodytype, gizmo switcher, shortcuts view) were all root-caused and fixed this run (commits bc5a748d/065925c1/d401b806).

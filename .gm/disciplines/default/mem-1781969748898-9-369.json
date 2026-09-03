@@ -1,0 +1,3 @@
+## Resolved mutable: m-bake-perf-acceptable
+
+Browser: terrain bake fires on camera-move>10m (bakeCount incremented 0->2->30 across witnesses) with zero console errors and the player remaining responsive (onGround, stable); no frame freeze observed. BAKE_SIZE/snap remain tunable in mapspinner if a hitch shows on low-end GPUs; acceptable as shipped for the integration.

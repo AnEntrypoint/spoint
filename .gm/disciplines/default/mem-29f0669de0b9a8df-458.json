@@ -1,0 +1,3 @@
+## Resolved mutable: m-exec-streaminggltf-batch3
+
+streaming-gltf commit bc5685e6 (impostor placement hoisted into acquire/movable branches only), 1c1f8bec (occlusion box cached local-space, world box re-derived via applyMatrix4 per frame, invalidated naturally on release), a294ffa3 (impostor tiers use shipped InstancedSlot dirty-range pattern via new flush() hooked into model-pool update()); node --check clean, test.js pre-existing unrelated failure only

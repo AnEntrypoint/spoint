@@ -1,0 +1,3 @@
+## Resolved mutable: geometrycache-unused
+
+grep GeometryCache/getGeometry/storeGeometry across client/ = only self-defs in client/GeometryCache.js:58/65/75 + unrelated vendor three-mesh-bvh. EntityLoader.js does NOT import or call it. CONFIRMED: cache module complete but unused; wiring it would dedupe parse/upload across instances. Valid win.

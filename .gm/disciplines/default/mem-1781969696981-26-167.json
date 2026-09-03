@@ -1,0 +1,3 @@
+## Resolved mutable: mut-reparent-live-fires
+
+session18 captured REPARENT_ENTITY(148) {entityId:env-sillos,parentId:tps-game} from live drag — round-trips to server.

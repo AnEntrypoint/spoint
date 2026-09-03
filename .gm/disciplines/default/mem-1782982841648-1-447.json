@@ -1,0 +1,3 @@
+## Resolved mutable: mut-1782982760399
+
+A/B tested: reverting node_modules cluster-lod-mesh.js to the pre-patch original (git-tracked scripts/vendor/cluster-lod-mesh.js at HEAD) reproduced the IDENTICAL drainedErrors:[1282,1282] on a fresh navigation -- the GL_INVALID_OPERATION is pre-existing (app.js:111-119 documented cold-load ClusterLODMesh transient), not caused by the group-pooling/camCache patch. Restored the patched file after the A/B.

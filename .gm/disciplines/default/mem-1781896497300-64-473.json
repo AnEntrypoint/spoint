@@ -1,0 +1,3 @@
+## Resolved mutable: design-kit-loading-screen
+
+Authored+built+validated in C:/dev/anentrypoint-design: renderLoadingScreen in src/kits/spoint/loading-screen.js + .css (token-lint pass), wired to src/index.js/build.mjs/package.json exports. node scripts/build.mjs OK; grep confirms renderLoadingScreen in dist/247420.js + sp-loading 12 rules in dist/247420.css; import smoke test export ok:function. Landing+publish blocked (npm E401 + concurrent-writer-owned design repo).

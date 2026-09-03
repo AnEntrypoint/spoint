@@ -1,0 +1,3 @@
+## Resolved mutable: m-which-surface-is-correct
+
+browser-62 screenshots: :3001 renders full terrain+trees+grass+water+sky (CORRECT); :8090 cold-load renders flat sky + floating arena (terrain build failed). The 'correct' surface is whichever built __terrain; both CAN build it (browser-66 :8090 built terrain by 3.8s on a warm run). So neither surface is inherently right/wrong -- it is intermittent terrain-build failure under cold cache. Fix = make terrain init survive the cold-first-load fetch race.

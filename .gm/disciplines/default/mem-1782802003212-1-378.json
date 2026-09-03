@@ -1,0 +1,3 @@
+## Resolved mutable: vdrsscale-no-realloc
+
+gl-render.js:1138 comment 'No canvas realloc happens here -> dialing __vdrsScale is hitch-free' + browser-27 showed __vdrsScale changes do not realloc; TRUE that __vdrsScale is realloc-free, BUT browser-27 also proved it is inert at the ground gameplay pose (altitude-gated), so unusable as the AA lever. Fix took removal path instead.

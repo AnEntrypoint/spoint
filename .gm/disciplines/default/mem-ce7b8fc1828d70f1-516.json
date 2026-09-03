@@ -1,0 +1,3 @@
+## Resolved mutable: m-exec-mapspinner-batch2
+
+mapspinner commits 433816e (worldToFaceLocal alias, exact ref-equality guard), a3f520a+d6e9b4c (hypot->sqrt in quadtree.js + gl-render.js, magnitudes verified safe); ms-sortdir-memo premise falsified: leaf pool slots are positionally recycled with no persistent per-tile identity (quadtree.js _leaves, planet-orchestrator.js _qo), caching direction would serve stale data from a prior tile -- correctly not applied. 12/12 golden-samples tests pass all 3 landed commits.

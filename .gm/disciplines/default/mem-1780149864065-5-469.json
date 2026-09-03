@@ -1,0 +1,3 @@
+## Resolved mutable: modelpool-fallback-textures-placement
+
+RESOLVED via two fixes not legacy-routing: (1) ModelPoolAdapter applies transform directly on root (quaternion+per-axis scale) instead of ModelPool Euler/scalar opts -> correct placement. (2) streaming-gltf baker normalize fix makes sillos bakeable -> ModelPool renders the real baked progressive asset with correct textures (not plain-GLB fallback). progressiveReady gate routes bakeable models to ModelPool.

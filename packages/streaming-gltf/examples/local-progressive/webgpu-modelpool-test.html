@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>webgpu modelpool dynamic-import witness</title></head>
+<body style="margin:0">
+<canvas id="c" style="width:100vw;height:100vh;display:block"></canvas>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.module.js",
+  "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.webgpu.js",
+  "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.184.0/build/three.tsl.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.184.0/examples/jsm/",
+  "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.4.0/lib/three-vrm.module.min.js"
+} }
+</script>
+<script type="module">
+// Witnesses ModelPool's _getOcclusionTier() dynamic-import path (see
+// model-pool.js's WebGpuHizTier import comment): webgpu-occlusion-test.html
+// exercises WebGpuHizTier directly, bypassing ModelPool -- this page
+// exercises the import('./webgpu-hiz-tier.js') branch inside ModelPool
+// itself, the actual regression coverage for the async-tier-assignment race
+// (a WebGPURenderer must not fall through to constructing the WebGL2
+// OcclusionQueryTier while the WebGPU tier's import is still in flight,
+// which used to permanently disable useOcclusionQuery).
+import * as THREE from 'three/webgpu';
+import { ModelPool } from '../../src/model-pool.js';
+
+window.__errors = [];
+window.addEventListener('error', (e) => window.__errors.push(String(e.error || e.message)));
+window.__results = {};
+
+(async () => {
+  const canvas = document.getElementById('c');
+  const renderer = new THREE.WebGPURenderer({ canvas, antialias: false });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  await renderer.init();
+  window.__results.rendererInitOk = true;
+  window.__results.isWebGPURenderer = !!renderer.isWebGPURenderer;
+
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 500);
+  camera.position.set(0, 5, 30);
+
+  const url = new URLSearchParams(location.search).get('glb') || './cluster-test.glb';
+  const pool = new ModelPool({ scene, renderer, camera, useOcclusionQuery: true, occlusionMinCandidates: 1 });
+  window.__pool = pool;
+
+  const e = pool.spawn(url);
+  scene.add(e.root);
+  e.on('ready', () => { e.root.position.set(0, 0, 0); e.root.scale.setScalar(6); });
+
+  let frame = 0;
+  function tick() {
+    requestAnimationFrame(tick);
+    frame++;
+    pool.update();
+    renderer.render(scene, camera);
+    pool.runOcclusionQueries();
+    if (frame === 1) {
+      window.__results.frame1UseOcc = pool._useOcclusionQuery; // must stay true, not flip false during the async import window
+    }
+    if (frame === 90) {
+      window.__results.occlusionTierExists = !!pool._occlusionTier;
+      window.__results.occlusionTierIsWebGpu = pool._occlusionTier ? pool._occlusionTier.constructor.name : null;
+      window.__results.useOcclusionQuery = pool._useOcclusionQuery;
+      window.__witnessReady = true;
+    }
+  }
+  tick();
+})().catch((e) => { window.__errors.push('init: ' + String(e)); window.__witnessReady = true; });
+</script>
+</body>
+</html>

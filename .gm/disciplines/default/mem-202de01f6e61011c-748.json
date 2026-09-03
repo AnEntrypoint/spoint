@@ -1,0 +1,3 @@
+## Resolved mutable: m-exec-streaminggltf-batch6a
+
+streaming-gltf commit 5cfde62 (impostor vec4 attribute replacing mat4, confirmed shader only extracted center+radius from matrix, direct safe substitution, dirty-range tracking updated for new stride), commit 0299ba0 (camera-rotation-epoch: agent found NO periodic fallback recheck exists anywhere in the file, contradicting the original audit's bounded-staleness premise -- this was actually UNBOUNDED staleness for rotation-only camera moves, so correctly implemented the fix rather than declining, quaternion dot-product delta check added at ~0.5deg threshold); node --check clean both, test.js pre-existing failure only, verified against concurrent unrelated commits that landed during session

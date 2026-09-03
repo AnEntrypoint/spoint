@@ -1,0 +1,3 @@
+## Resolved mutable: mut-1780469294402
+
+FEASIBLE. PlayerManager.js:59 already _vrmLoader.parseAsync(buffer) per-player for an independent gltf.userData.vrm bound to its own scene. model-pool.js Asset._load:430-432 parses ONCE + shares via _vrmOwner :879-892. Fix: retain rootBytes on Asset; Entity._bootstrap re-parses own VRM from retained bytes -> own this.vrm + own vrm.scene. Per-frame :1547 this.vrm?.update(dt) is already per-entity. Entity dispose :1581 changes to per-instance VRMUtils.deepDispose(this.vrm.scene); Asset.dispose :640 stops deepDisposing shared scene for VRM. three-vrm-v3 no-clone sidestepped by parse-per-instance.

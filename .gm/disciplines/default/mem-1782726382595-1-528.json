@@ -1,0 +1,3 @@
+## Resolved mutable: m-veg-depth-occluded-near
+
+REFUTED/MOOT. Not depth occlusion: the actualBucket probe proved the vanishing near tree was assigned to NO drawn LOD bucket (actualBucket=-1) while active+visible+in-frustum, and the user reported clear ground in front (not a hill). Root cause was the sortObjects+customSort LOD-assignment dropping LOD0-band instances; fixed by removing it. Planet depth (depthToCanvas:true, bias:0) is correct -- distant forest renders fine and the fix restores near trees with depth unchanged.

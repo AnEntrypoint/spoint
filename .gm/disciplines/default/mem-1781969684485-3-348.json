@@ -1,0 +1,3 @@
+## Resolved mutable: editor-css-import
+
+client/index.html:10 links <link rel=stylesheet href=https://unpkg.com/anentrypoint-design/dist/247420.css>; client/landing/index.html also links 247420.css. Original gap-claim is now FALSE — kit CSS variables DO bind in in-engine DOM. Only entry HTML is client/index.html (no survivor/demo entries exist).

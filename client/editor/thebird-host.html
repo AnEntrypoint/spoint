@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <script>{const p=new URLSearchParams(location.search);const mode=p.has("singleplayer")||p.has("wwjoin")||p.has("room")||p.has("multiplayer");if(!mode){location.replace(location.pathname+"?singleplayer&world=tps-game")}}</script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Thebird + Spoint — Flagship Demo</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/anentrypoint-design@latest/dist/247420.css">
+  <!-- thebird desktop-shell CSS tokens (vendored from ../thebird/docs/vendor/kits/os/wm.css) -->
+  <link rel="stylesheet" href="/editor/wm/wm.css">
+  <!-- os-token-bridge: aliases thebird's --os-* tokens to spoint's --ds-* tokens -->
+  <link rel="stylesheet" href="/editor/wm/os-token-bridge.css">
+  <script>
+    (function () {
+      const root = document.documentElement;
+      root.classList.add('ds-247420');
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      const apply = () => mq.matches ? root.setAttribute('data-theme', 'ink') : root.removeAttribute('data-theme');
+      apply();
+      mq.addEventListener?.('change', apply);
+    })();
+  </script>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "/node_modules/three/build/three.module.js",
+      "three/webgpu": "/node_modules/three/build/three.webgpu.js",
+      "three/tsl": "/node_modules/three/build/three.tsl.js",
+      "three/addons/": "/node_modules/three/examples/jsm/",
+      "@pixiv/three-vrm": "/node_modules/@pixiv/three-vrm/lib/three-vrm.module.js",
+      "three-mesh-bvh": "/vendor/three-mesh-bvh.module.js",
+      "anentrypoint-design": "https://unpkg.com/anentrypoint-design@latest/dist/247420.js",
+      "streaming-gltf": "/node_modules/streaming-gltf/index.js",
+      "streaming-gltf/model-pool": "/node_modules/streaming-gltf/src/model-pool.js",
+      "streaming-gltf/draco-loader": "/node_modules/streaming-gltf/src/draco-loader.js",
+      "streaming-gltf/cluster-lod": "/node_modules/streaming-gltf/src/cluster-lod-mesh.js",
+      "streaming-gltf/occlusion-query-tier": "/node_modules/streaming-gltf/src/occlusion-query-tier.js",
+      "streaming-gltf/octahedral-impostor-ez": "/node_modules/streaming-gltf/src/octahedral-impostor-ez.js",
+      "mapspinner": "/node_modules/mapspinner/src/index.js",
+      "mapspinner/planet-orchestrator": "/node_modules/mapspinner/src/planet-orchestrator.js",
+      "mapspinner/gl-render": "/node_modules/mapspinner/src/gl-render.js",
+      "mapspinner/height-cpu": "/node_modules/mapspinner/src/height-cpu.js",
+      "@three.ez/instanced-mesh": "/node_modules/@three.ez/instanced-mesh/build/index.js",
+      "webjsx": "/node_modules/webjsx/dist/index.js",
+      "webjsx/jsx-runtime": "/node_modules/webjsx/dist/jsx-runtime.js",
+      "msgpackr": "/node_modules/msgpackr/index.js",
+      "jolt-physics/wasm-compat": "/node_modules/jolt-physics/dist/jolt-physics.wasm-compat.js",
+      "@dgreenheck/ez-tree": "/node_modules/@dgreenheck/ez-tree/build/ez-tree.es.js",
+      "meshoptimizer": "/node_modules/meshoptimizer/meshopt_simplifier.js",
+      "bvh.js": "/node_modules/bvh.js/build/index.js",
+      "wireweave": "/node_modules/wireweave/src/index.js",
+      "nostr-tools": "/vendor/nostr-tools.mjs",
+      "xstate": "/node_modules/xstate/dist/xstate.esm.js"
+    }
+  }
+  </script>
+  <style>
+    /* thebird desktop shell: full-viewport window manager overlay */
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg, #030a10);
+    }
+    #thebird-desktop {
+      position: absolute;
+      inset: 0;
+      /* The desktop surface where thebird windows live */
+      background: var(--os-bg-0, var(--bg, #030a10));
+      overflow: hidden;
+    }
+    #spoint-container {
+      position: absolute;
+      inset: 0;
+      bottom: 40px;
+      /* Spoint editor is embedded as a full-desktop "app" */
+    }
+    .thebird-taskbar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 40px;
+      background: var(--os-bg-1, var(--bg-2));
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      gap: 8px;
+      border-top: 1px solid var(--os-bg-2, var(--bg-3));
+      z-index: 10000;
+    }
+    .thebird-taskbar-item {
+      padding: 4px 12px;
+      font: 11px var(--ff-mono, monospace);
+      color: var(--os-fg, var(--fg));
+      background: var(--os-bg-2, var(--bg-3));
+      border-radius: 4px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .thebird-taskbar-item.active {
+      background: var(--os-accent, var(--accent));
+      color: var(--bg);
+    }
+  </style>
+</head>
+<body class="canvas-host">
+  <div id="thebird-desktop">
+    <div id="spoint-container">
+      <div id="ui-root"></div>
+      <div id="click-prompt" style="display:none">Click to play</div>
+    </div>
+  </div>
+  <div class="thebird-taskbar">
+    <span style="font:12px var(--ff-mono,monospace);color:var(--os-fg,var(--fg));opacity:0.8">thebird</span>
+    <div class="thebird-taskbar-item active">Spoint Editor</div>
+    <div style="flex:1"></div>
+    <span style="font:10px monospace;color:var(--os-fg-3,var(--fg-3))">
+      <span id="clock"></span>
+    </span>
+  </div>
+
+  <script>
+    // Simple clock in the taskbar
+    function updateClock() {
+      const el = document.getElementById('clock');
+      if (el) el.textContent = new Date().toLocaleTimeString();
+    }
+    updateClock();
+    setInterval(updateClock, 30000);
+  </script>
+
+  <!-- Load full Spoint app module which boots engine + BrowserServer + EditorShell -->
+  <script type="module">
+    import '/app.js'
+
+    // Expose thebird desktop integration handle
+    window.__thebird = {
+      name: 'thebird-desktop-host',
+      get editPanel() { return window.debug?.editPanel || null }
+    }
+    console.log('[thebird] Spoint editor & engine hosted inside thebird desktop shell with live hot-reloading')
+  </script>
+</body>
+</html>

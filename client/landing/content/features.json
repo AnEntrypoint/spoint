@@ -1,0 +1,34 @@
+{
+  "features": [
+    {
+      "icon": "srv",
+      "title": "Authoritative Server",
+      "desc": "128 TPS server-side simulation. Clients never trust themselves. Input prediction + server reconciliation keep play fair and snappy."
+    },
+    {
+      "icon": "phys",
+      "title": "Jolt Physics",
+      "desc": "Full Jolt Physics WASM integration. Rigid bodies, convex hulls, trimesh terrains, character controllers — spatial LOD suspends off-screen bodies automatically."
+    },
+    {
+      "icon": "hot",
+      "title": "Hot Reload",
+      "desc": "Edit app code and physics configs live. File watchers reload modules mid-session with exponential backoff. No server restart required."
+    },
+    {
+      "icon": "app",
+      "title": "App System",
+      "desc": "Composable entity-app model. Each entity runs an isolated app with setup, update, onEvent, render, and onInteract lifecycle hooks."
+    },
+    {
+      "icon": "web",
+      "title": "Browser Singleplayer",
+      "desc": "Full server runs inside a Dedicated Web Worker — same physics, same netcode, zero backend. Ship offline and online from the same codebase."
+    },
+    {
+      "icon": "vr",
+      "title": "Editor + VR",
+      "desc": "Built-in scene editor with gizmos, snap controls, and Monaco code editor. WebXR support for immersive VR sessions alongside normal clients."
+    }
+  ]
+}

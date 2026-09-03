@@ -1,0 +1,3 @@
+## Resolved mutable: net-prediction-interp-enabled
+
+codesearch ci-58415c45-0 BaseClient.js: config.predictionEnabled !== false (default ON), smoothInterpolation !== false (default ON); _onSnapshot feeds predEngine.onServerSnapshot + smoothInterp.addSnapshot; getSmoothState/getRTT/getBufferHealth all wired. MessageHandler._handleHandshake constructs both on HANDSHAKE_ACK. Prediction + interpolation ARE enabled for ALL clients (BrowserServer host + PhysicsNetworkClient + wwjoin all extend BaseClient). The defect is not enablement but tuning: JitterBuffer.targetDelay ignores RTT (net-targetdelay-ignores-rtt) + tickRate 128/64 mismatch (net-tickrate-mismatch-128-vs-64).

@@ -1,0 +1,3 @@
+## Resolved mutable: streaming-gltf-consumable
+
+npm view streaming-gltf version=1.0.1 published. client/index.html:25-33 importmap bare specifiers (three->/node_modules, anentrypoint-design->unpkg). Add streaming-gltf to importmap; three peer dep already mapped.

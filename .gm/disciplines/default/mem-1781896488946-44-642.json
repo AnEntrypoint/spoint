@@ -1,0 +1,3 @@
+## Resolved mutable: m-octa-impostor-api
+
+workflow wf_e6f2db15-f8f research[octa-impostor]: @three.ez/octahedron-imposter@^0.0.1 npm-published (peer three>=0.159, spoint 0.183 OK). Bake: createTextureAtlas({renderer,target,useHemiOctahedron,spritesPerSide})->{albedo,normalDepth} RTs (needs live WebGLRenderer). Render: createOctahedralImpostorMaterial({baseType,useHemiOctahedron,spritesPerSide,alphaClamp}); OctahedralImpostor extends Mesh<PlaneGeometry>; uniforms via mat.ezImpostorUniforms. Decision: npm dep (not vendored), same-origin importmap. Bake offline (author playwright), commit atlases; mesh-LOD-only fallback if v0.0.1 breaks.

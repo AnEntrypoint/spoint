@@ -1,0 +1,3 @@
+## Resolved mutable: m-opaque-sort-on
+
+grep sortObjects/customSort: streaming-gltf batched-far-tier.js:159 sortObjects=false; consumer Grass.js:125, Vegetation.js:316 NO sort (comment: radix 40k/frame + drops LOD0 band), Rocks.js:84 BatchedMesh sort off; guarded by Vegetation.cull.test.js:44-50. Already shipped on every opaque-instanced path.

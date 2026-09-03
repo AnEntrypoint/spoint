@@ -1,0 +1,12 @@
+---
+name: editor-flycam-never-activated-rootcause
+description: spoint editor camera fly-mode was dead (cam.setEditMode never called); editToggle input never produced; fixed by wiring onEditModeChange->cam.setEditMode
+metadata:
+  type: project
+---
+
+ROOT CAUSE of the spoint editor "black viewport on open": the camera fly-mode (`createCameraController.setEditMode`) was NEVER activated. `app.js:255` gates it on `input.editToggle`, but `editToggle` is referenced ONLY there and is never SET anywhere in client/ (InputHandler does not produce it) -> `cam.setEditMode` was effectively dead. So opening the editor (the `P` key -> `editor._setEditMode` -> `editor.onEditModeChange`) showed the panel but the camera stayed in TPS, frozen wherever the player idled. In tps-game the player spawns low INSIDE the aim_sillos interior (player y=-3.89, scene meshes y -5.1..0), so the frozen TPS camera looked into dark unlit interior concrete -> viewport read black.
+
+FIX (landed, witnessed): `app.js:205` `editor.onEditModeChange(on => { cam.setEditMode(on); ... })` now activates the fly-cam when the editor opens (witnessed cam.getEditMode false->true, browser-99). `camera.js setEditMode` seeds editCamPos = camera.position + y+3 and pitch=min(pitch,-0.2). ALSO fixed a real latent bug in the editMode lookAt: it used `(sin(yaw),sin(pitch),cos(yaw))*100` with unit horizontal length at any pitch, so a steep down-pitch still aimed level; now scaled by cos(pitch): `(sy*cp,sp,cy*cp)*100` (camera.js:~143). Exposed `window.__app.cam` for debugging.
+
+WITNESS / MEASUREMENT TRAP (cost many cycles): a WebGL canvas with preserveDrawingBuffer:false under setAnimationLoop cannot be reliably read via `ctx.drawImage(canvas)` -> getImageData (returns 0/black) NOR trusted via playwright screenshot at arbitrary times. The ONLY reliable readback is `gl.readPixels` IMMEDIATELY after a synchronous `renderer.render` in the SAME page.evaluate tick. With that method, the fly-cam at (-0.35,0.25,-4) fwd(0,-0.2,0.98) returned sky-blue [135,206,235] + structure pixels (browser-100) -> scene renders. Playwright screenshots of the editor STILL captured black even when readPixels proved the GPU drew the scene -> the editor-open screenshot-blackness is at least partly a capture artifact; CONFIRM on a real (headed) browser before treating residual blackness as a live bug. tps-game spawning the player inside a dark interior is arguably a separate world/spawn concern.

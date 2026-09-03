@@ -1,0 +1,149 @@
+/* Vendored verbatim from ../thebird/docs/vendor/kits/os/wm.css (thebird's
+   paint-only window-manager visuals). Tokens: --os-* aliased below in
+   os-token-bridge.css from the SAME canonical .ds-247420 tokens spoint
+   already loads via anentrypoint-design, so this file needs no local edits.
+   Bible: tonal surfaces, no borders for chrome, inset rail for focus.
+   ============================================================ */
+
+.wm-root {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9000;
+}
+
+.wm-win {
+    position: absolute;
+    min-width: 200px;
+    min-height: 120px;
+    background: var(--os-bg-1);
+    color: var(--os-fg);
+    border: none;
+    border-radius: var(--os-radius, var(--r-2, 10px));
+    display: flex;
+    flex-direction: column;
+    pointer-events: auto;
+    overflow: hidden;
+}
+.wm-win.wm-focused { box-shadow: inset 4px 0 0 var(--os-accent); }
+/* Promote to a compositor layer only for the duration of a drag/resize so the
+   per-frame left/top/width/height writes don't force a main-thread layout each
+   pointermove. Released on pointerup (class removed) to avoid the permanent
+   will-change memory/perf anti-pattern. */
+.wm-win.wm-dragging { will-change: left, top; }
+.wm-win.wm-resizing { will-change: width, height; }
+
+.wm-bar {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    background: var(--os-bg-2);
+    cursor: move;
+    user-select: none;
+    gap: 8px;
+    touch-action: none;
+    border: none;
+}
+.wm-title {
+    flex: 1;
+    min-width: 0;
+    font: 12px var(--os-font);
+    color: var(--os-fg-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-transform: lowercase;
+}
+
+.wm-btns { display: flex; gap: 6px; }
+.wm-btn {
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: var(--os-bg-3);
+    color: var(--os-fg-2);
+    cursor: pointer;
+    padding: 0;
+    font: 600 12px var(--os-mono);
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--os-radius-sm, var(--r-1, 6px));
+    transition: background 100ms ease, color 100ms ease;
+}
+.wm-btn:hover { background: var(--panel-hover, var(--os-bg-1)); color: var(--os-fg); }
+
+.wm-body {
+    flex: 1;
+    overflow: auto;
+    position: relative;
+    background: var(--os-bg-1);
+}
+
+.wm-resize {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 16px;
+    height: 16px;
+    padding: 2px;
+    box-sizing: border-box;
+    cursor: nwse-resize;
+    background: transparent;
+    color: var(--os-fg-3);
+    opacity: 0.4;
+    touch-action: none;
+}
+.wm-resize:hover { opacity: 0.7; }
+/* Resize grip drawn with CSS (two diagonal hairlines) instead of a decorative
+ * unicode content glyph; keeps the affordance, drops the glyph tell. */
+.wm-resize::after {
+    content: '';
+    position: absolute;
+    right: 3px;
+    bottom: 3px;
+    width: 9px;
+    height: 9px;
+    background:
+        linear-gradient(135deg, transparent 0 45%, currentColor 45% 55%, transparent 55% 100%),
+        linear-gradient(135deg, transparent 0 70%, currentColor 70% 80%, transparent 80% 100%);
+}
+
+/* Edge + corner resize hit-zones. Invisible (no glyph) — they only widen the
+ * grab area beyond the SE .wm-resize grip. `width`/`height` are the grab
+ * thickness; corners overlap edges and win via later source order + size. */
+.wm-edge { position: absolute; touch-action: none; z-index: 1; }
+.wm-edge[data-dir='n'] { top: -3px; left: 8px; right: 8px; height: 8px; cursor: ns-resize; }
+.wm-edge[data-dir='s'] { bottom: -3px; left: 8px; right: 8px; height: 8px; cursor: ns-resize; }
+.wm-edge[data-dir='e'] { right: -3px; top: 8px; bottom: 8px; width: 8px; cursor: ew-resize; }
+.wm-edge[data-dir='w'] { left: -3px; top: 8px; bottom: 8px; width: 8px; cursor: ew-resize; }
+.wm-edge[data-dir='ne'] { top: -3px; right: -3px; width: 14px; height: 14px; cursor: nesw-resize; }
+.wm-edge[data-dir='nw'] { top: -3px; left: -3px; width: 14px; height: 14px; cursor: nwse-resize; }
+.wm-edge[data-dir='sw'] { bottom: -3px; left: -3px; width: 14px; height: 14px; cursor: nesw-resize; }
+
+.wm-win.wm-min .wm-edge,
+.wm-win.wm-max .wm-edge { display: none; }
+
+.wm-win.wm-min .wm-body,
+.wm-win.wm-min .wm-resize { display: none; }
+
+.wm-win.wm-max {
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    border-radius: 0;
+}
+
+@media (max-width: 767px) {
+    .wm-win {
+        left: 0 !important;
+        top: 0 !important;
+        width: 100% !important;
+        height: 100% !important;
+        border-radius: 0;
+        border: none;
+    }
+    .wm-resize { display: none; }
+}

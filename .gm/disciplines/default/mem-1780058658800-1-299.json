@@ -1,0 +1,3 @@
+## Resolved mutable: ci-auto-publish-on-push
+
+.github/workflows/publish.yml: on push (minus [skip publish]/chore(release):), npm version patch auto-bump + npm run build + npm publish via secrets.NPM_TOKEN + commit+tag back. PROVEN: design repo push -> v0.0.168 live on npm+unpkg (validated by curl).

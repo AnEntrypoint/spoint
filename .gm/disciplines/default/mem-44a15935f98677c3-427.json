@@ -1,0 +1,3 @@
+## Resolved mutable: mut-1783172932683
+
+resolved by source read + bisection: the layered NoiseLayer path carries octave counts as compile-time struct constants (10/18/18/23), and uOctMax has no consumer in it -- overrides were structurally inert, not a dirty-flag cache bug (the cache re-uploads on value change). Confirmed en route to the real root (snoise3 floor/fract FXC inconsistency, fixed in mapspinner ab72f18/0.1.260).

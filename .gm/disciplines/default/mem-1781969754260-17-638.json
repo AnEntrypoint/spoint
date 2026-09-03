@@ -1,0 +1,3 @@
+## Resolved mutable: m-prior-veg-pipeline-reusable
+
+workflow research[prior-veg-git]: deleted in commit 616fd208 (2026-05-21), 13 modules (spatial LOD bitmask culling, async-canvas billboard bake, SDF rock 3-LOD, physics streaming, terrain-field-anchored biome). VERDICT: revive-and-modernize onto InstancedMesh2 (not raw THREE.InstancedMesh). Reusable hard-won: atomic LOD swap, convex-hull/capsule collider streaming (capsule-uniform-scale sizes revived in VegPhysics), terrain-field-anchored biome coherence across chunks, async-spread bake to protect frame budget, frustum bounding-sphere per band. Rocks (SDF) deferred - trees first.

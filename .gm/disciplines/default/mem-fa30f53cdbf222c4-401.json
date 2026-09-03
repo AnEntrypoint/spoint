@@ -1,0 +1,3 @@
+## Resolved mutable: m-exec-spoint-batch7
+
+agent verified premise (createLobby's only sync consumers gated on clientMachine.isLobby driven by KeyM handler, no per-frame/unconditional refs), implemented lazy _getLobby() helper with cached promise + re-check-after-await race guard, node test.js 26/26; honestly flagged needs-live-browser-witness caveat since no browser access available in this session

@@ -1,0 +1,3 @@
+## Resolved mutable: m-spoint-gpu-reliefscale-not-threaded
+
+gl-render.js:550 GPU uReliefScale default = R/63600000; height-cpu.js:40 CPU reliefScale default = radius/63600000 -- IDENTICAL formula, so GPU==CPU when spoint omits reliefScale on GPU init. At radius 63600: default = 0.001 = spoint cfg.reliefScale (node-verified 63600/63600000===0.001). No current divergence. STILL a latent trap (GPU init never receives cfg.reliefScale) -> robustness fix: thread reliefScale to initMapspinnerPlanet so it stays correct if cfg changes. planet.html ALSO passes only {gridMeshSize} and relies on the same SDK default -> no SDK-vs-planet.html divergence in the relief path; both share initMapspinnerRender defaults.

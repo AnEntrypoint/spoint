@@ -1,0 +1,4 @@
+{
+  "SESSION_ID": "rpg-framework-tutorial-1",
+  "prompt": "Build a complete XP/leveling/quest framework for RPG progression games. Create: (1) apps/world/tutorial-rpg.js world definition, (2) apps/rpg-tutorial/index.js game app with 5-quest tutorial chain, levels 1-10, 3 abilities unlocking progressively, enemy spawning, XP/mana systems, (3) docs/progression-guide.md developer guide. All state must persist across server restarts. Multiplayer sync required. Tutorial RPG must be fully playable from level 1 to 10 in 20-30 minutes with all 5 quests completable and final boss defeatable. Output: playable tutorial-rpg world, working rpg-tutorial app, and comprehensive docs."
+}

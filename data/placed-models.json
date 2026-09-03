@@ -1,0 +1,151 @@
+[
+  {
+    "id": "powerup_damage",
+    "model": null,
+    "position": [
+      15,
+      2.87,
+      -10
+    ],
+    "rotation": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "scale": [
+      0.55,
+      0.55,
+      0.55
+    ],
+    "config": {
+      "collider": "none"
+    },
+    "app": "placed-model",
+    "custom": {
+      "mesh": "box",
+      "powerup": "damage",
+      "color": 16724804,
+      "emissive": 11141120,
+      "emissiveIntensity": 0.7,
+      "light": 16724804,
+      "lightIntensity": 0.9,
+      "lightRange": 6,
+      "spin": 1.6,
+      "hover": 0.35
+    },
+    "appConfig": {
+      "collider": "none"
+    }
+  },
+  {
+    "id": "powerup_speed",
+    "model": null,
+    "position": [
+      -15,
+      2.87,
+      -35
+    ],
+    "rotation": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "scale": [
+      0.55,
+      0.55,
+      0.55
+    ],
+    "config": {
+      "collider": "none"
+    },
+    "app": "placed-model",
+    "custom": {
+      "mesh": "box",
+      "powerup": "speed",
+      "color": 3386111,
+      "emissive": 17578,
+      "emissiveIntensity": 0.7,
+      "light": 3386111,
+      "lightIntensity": 0.9,
+      "lightRange": 6,
+      "spin": 1.6,
+      "hover": 0.35
+    },
+    "appConfig": {
+      "collider": "none"
+    }
+  },
+  {
+    "id": "powerup_rapid",
+    "model": null,
+    "position": [
+      15,
+      2.87,
+      -35
+    ],
+    "rotation": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "scale": [
+      0.55,
+      0.55,
+      0.55
+    ],
+    "config": {
+      "collider": "none"
+    },
+    "app": "placed-model",
+    "custom": {
+      "mesh": "box",
+      "powerup": "rapid",
+      "color": 16763955,
+      "emissive": 11167232,
+      "emissiveIntensity": 0.7,
+      "light": 16763955,
+      "lightIntensity": 0.9,
+      "lightRange": 6,
+      "spin": 1.6,
+      "hover": 0.35
+    },
+    "appConfig": {
+      "collider": "none"
+    }
+  },
+  {
+    "id": "box-static-unzvr1",
+    "model": null,
+    "position": [
+      5,
+      0.5,
+      5
+    ],
+    "rotation": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "scale": [
+      1,
+      1,
+      1
+    ],
+    "config": {
+      "collider": "none"
+    },
+    "app": "placed-model",
+    "custom": {
+      "mesh": "box",
+      "color": "#ff0000",
+      "_collider": "none"
+    },
+    "appConfig": {
+      "collider": "none"
+    }
+  }
+]

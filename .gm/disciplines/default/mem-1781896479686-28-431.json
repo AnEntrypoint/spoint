@@ -1,0 +1,3 @@
+## Resolved mutable: kit-has-pointer-drag-util
+
+C:/dev/anentrypoint-design/src/components/interaction-primitives.js:13/96/142 exports useDraggable, useNumberScrub, useDropTarget (pointer-event DnD + scrub) but NO generic usePointerDrag for free 2D drag with custom onMove. Resolution: add usePointerDrag(el,{onStart,onMove,onEnd}) to the kit (pointer capture + primary-pointer guard + pointercancel) and consume in editor.js gizmo.

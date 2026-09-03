@@ -1,0 +1,3 @@
+## Resolved mutable: m-rock-ceiling-unsound-bound
+
+src/terrain/RockPlacement.js:140 read live (dbd97c6d state) + numeric check /c/.../scratchpad/check_ceiling.mjs: worst-case accept-ceiling gap = 0.294 at erosion=0.2,humidity=0,elevNorm=0.6,slopeRatio=0.98,cluster=0 -- ceiling's clustering multiplier (1+0.6*(cluster-0.5)) is NOT a valid upper bound over accept's (1+clusterStrength*(cluster-0.5)) when cluster<0.5, since clusterStrength=0.6*(1-slopeRatio) shrinks toward 0 as slope steepens making the accept-side reduction smaller (term less negative) than ceiling assumes. Confirmed root cause of steep-cliff rock under-placement: coin>=ceiling early-rejects candidates that coin<accept would have placed.

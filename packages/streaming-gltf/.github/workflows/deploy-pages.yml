@@ -1,0 +1,48 @@
+name: Deploy demo to GitHub Pages
+
+# Publishes the stress demo (examples/local-progressive/) as a static site at
+# https://anentrypoint.github.io/streaming-gltf/. The demo is code-only: three
+# is loaded from a CDN via the importmap, and the baked models are streamed
+# cross-origin from the assets host (https://anentrypoint.github.io/assets/),
+# so no model bytes ship from this repo.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare site (demo entry as index.html)
+        run: |
+          mkdir -p _site
+          cp -r examples/local-progressive/* _site/
+          # GitHub Pages serves index.html by default; the demo entry is stress.html.
+          cp _site/stress.html _site/index.html
+          # Drop any local-only artifacts that shouldn't be published.
+          rm -f _site/serve.mjs _site/fps-measurement.json
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

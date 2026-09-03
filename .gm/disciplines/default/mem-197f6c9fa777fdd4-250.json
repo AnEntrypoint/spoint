@@ -1,0 +1,3 @@
+## Resolved mutable: m-upload-model-no-auth
+
+blockedBy: external -- same auth-architecture dependency as m-editor-ws-no-authz (the fix is to gate behind the same editor-auth scheme once decided). Deferred alongside it pending the auth-model decision.

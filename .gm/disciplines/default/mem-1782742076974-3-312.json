@@ -1,0 +1,3 @@
+## Resolved mutable: m-createactor-on-hot-path
+
+client/core/LoadingMachine.js:98 createActor is inside createLoadingStateMachine() (:97), an exported factory called once at load -- not per-frame/per-snapshot. browser-12 profile worst-20 culprits contain NO createActor/raise node. Spawned once, not a bottleneck.

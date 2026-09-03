@@ -1,0 +1,3 @@
+## Resolved mutable: hier-onreparent-onrename-onduplicate-wired
+
+EditorShell.js:169-172 createSceneHierarchy gets ONLY onSelect/onFocus/onDelete; onReparent/onRename/onDuplicate are NOT passed (dangling in SceneHierarchy). app.js createEditPanel (167) has onDestroyEntity but NO onReparent/onRename/onDuplicate. So context-menu Rename+Duplicate are currently dead callbacks and reparent has no client->server path.

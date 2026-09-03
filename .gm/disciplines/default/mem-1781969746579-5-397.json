@@ -1,0 +1,3 @@
+## Resolved mutable: existing-lint-test-tooling
+
+ls -a root = NO eslint/tsconfig/.prettier/biome/jshint config (NONE). find src -name *.test.js = empty (no src tests). Only test files are apps/**/*.test.js + root test.js/test-perf.js. package.json scripts: start, create-app, test(node --test apps/**/*.test.js). Confirmed: P8 lint gap and P11 src-test gap are real - both are BUILDS not verifies.

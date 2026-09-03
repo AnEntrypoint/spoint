@@ -1,0 +1,3 @@
+## Resolved mutable: m-three-singleton-instancedmesh2
+
+workflow research[instanced-mesh]: @three.ez/instanced-mesh@0.3.14 peer three>=0.159.0 (spoint ^0.183.1 satisfies), depends bvh.js^0.0.13 (separate import, must resolve same-origin). All three.ez libs import bare 'three' -> resolve via spoint's existing importmap 'three' entry = ONE instance (same as mapspinner). Add same-origin /node_modules importmap entries for @three.ez/instanced-mesh, @three.ez/octahedron-imposter, bvh.js, @dgreenheck/ez-tree, meshoptimizer. Witness at integration: InstancedMesh2 instanceof THREE.Object3D + no 'Multiple instances of Three.js' + one three resource.

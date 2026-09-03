@@ -1,0 +1,3 @@
+## Resolved mutable: m-exec-mapspinner-batch3
+
+mapspinner commits cbaf67d2 (water dedup reused Set + packed int keys + bitshift, 300k-sample zero-mismatch), 8e25f0b9 (bake uniform dirty-flag cache keyed correctly per real GL program incl. dynamic render-program case, wired into all rebuild sites), 255894d8 (patchbaker last-face memo via exact geometric proof + last-patch memo with packed int keys, 300k-sample zero-mismatch + 2000-query byte-identical heightFn output); 12/12 golden-samples tests pass all 3 commits, no GLSL touched so no regen needed

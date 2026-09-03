@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "EP_progressive_lod texture descriptor",
+  "type": "object",
+  "description": "Per-texture set of resolution LOD variants, ordered small-to-large by the client after load.",
+  "properties": {
+    "textureIndex": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Index into the glTF textures array."
+    },
+    "name": { "type": "string" },
+    "lods": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "width": { "type": "integer", "minimum": 1 },
+          "inline": { "type": "boolean", "description": "sibling-file mode: true for the coarse base texture packed in the root asset." },
+          "path": { "type": "string", "description": "sibling-file mode: path to the sibling texture file." },
+          "bufferView": { "type": "integer", "minimum": 0, "description": "single-glb-range mode: bufferView holding this texture LOD's image bytes." },
+          "mime": { "type": "string", "description": "single-glb-range mode: image MIME type, e.g. image/webp." },
+          "byteOffset": { "type": "integer", "minimum": 0 },
+          "byteLength": { "type": "integer", "minimum": 0 },
+          "bytes": { "type": "integer", "minimum": 0 }
+        },
+        "required": ["width"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": ["textureIndex", "lods"],
+  "additionalProperties": false
+}

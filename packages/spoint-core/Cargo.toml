@@ -1,0 +1,16 @@
+[package]
+name = "spoint-core"
+version = "0.1.0"
+edition = "2021"
+description = "WASM core library for spoint: portable math, codec, and hash functions shared across client/server/non-JS hosts"
+license = "UNLICENSED"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+
+[profile.release]
+opt-level = "s"
+lto = true

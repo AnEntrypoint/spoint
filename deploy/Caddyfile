@@ -1,0 +1,79 @@
+# Real HTTP/3 (QUIC) transport for the spoint static/asset server -- AGENTS.md
+# streaming-http3-quic-transport-infra. Node core (node:http/node:http2) has no
+# built-in HTTP/3 server, and this project's own @fails-components/webtransport
+# dependency (src/transport/WebTransportServer.js) provides only a
+# WebTransport-session listener, not a general request/response HTTP/3 server --
+# confirmed against the upstream project's own docs, which state there is no
+# intention to implement plain HTTP/3 support. So HTTP/3 termination for this
+# server has to happen at a reverse proxy in front of it, per that row's own
+# option (a). Caddy is the reverse proxy of choice here (over nginx) because it
+# auto-negotiates HTTP/3 out of the box with zero manual module compilation --
+# nginx needs a custom build with --with-http_v3_module, which is a much larger
+# ops footprint for the same result -- and Caddy's automatic HTTPS (a real
+# Let's Encrypt/ZeroSSL cert for a real `spoint_domain`, or Caddy's own local CA
+# for `localhost`) means no separate cert-provisioning step is needed either.
+#
+# This file is infra config, not application code: it is NOT loaded or executed
+# by anything in src/ or scripts/, and ships inert until an operator actually
+# runs `caddy run --config deploy/Caddyfile` (or points a system Caddy instance
+# at it) in front of a real `node server.js` backend. The backend itself needs
+# no changes to be proxied this way -- it already serves plain HTTP/1.1 on
+# $PORT (src/sdk/server.js boot(), default 3000) -- but src/sdk/StaticHandler.js
+# DOES emit a real `Alt-Svc: h3=":<port>"; ma=86400` response header (gated on
+# the HTTP3_ALT_SVC env var, unset by default) so a client hitting the backend
+# directly, or the backend behind a DIFFERENT proxy that itself doesn't rewrite
+# Alt-Svc, still gets a correct HTTP/3 discovery hint. When Caddy is the proxy
+# (the setup this file describes) Caddy already advertises its own Alt-Svc for
+# its own h3 listener automatically once the site block below (keyed on
+# SPOINT_DOMAIN) is a real TLS-terminated site -- HTTP3_ALT_SVC on the Node
+# backend is then redundant
+# (safe to leave unset) since the browser only ever sees Caddy's front door.
+#
+# Usage:
+#   SPOINT_DOMAIN=play.example.com SPOINT_BACKEND=127.0.0.1:3000 \
+#     caddy run --config deploy/Caddyfile --adapter caddyfile
+#
+# Local/dev (no real domain, Caddy's internal CA -- browsers need to trust it
+# once, `caddy trust`, or accept the self-signed warning):
+#   SPOINT_DOMAIN=localhost SPOINT_BACKEND=127.0.0.1:3000 \
+#     caddy run --config deploy/Caddyfile --adapter caddyfile
+{
+	# Caddy enables HTTP/3 automatically for any site block with TLS active
+	# (which automatic HTTPS below always provides, including for the
+	# internal-CA `localhost` case) -- no explicit "protocols h3" directive
+	# needed; this global block only turns off the admin API on 2019 by
+	# default binding to loopback only, which is already Caddy's default,
+	# stated here for operator legibility rather than to change behavior.
+	admin 127.0.0.1:2019
+}
+
+{$SPOINT_DOMAIN:localhost} {
+	# HTTP/3 (QUIC/UDP) + HTTP/2 + HTTP/1.1 all terminate here; Caddy
+	# transparently reverse-proxies every request to the existing plain-HTTP
+	# spoint backend over HTTP/1.1 -- the backend is completely unaware
+	# HTTP/3 is involved on the client side, exactly as the PRD row's
+	# option (a) scoped it ("keep src/sdk/ServerAPI.js's existing plain
+	# node:http server as the proxy's backend").
+	reverse_proxy {$SPOINT_BACKEND:127.0.0.1:3000} {
+		# WebSocket upgrade passthrough for the real-time /ws game-state
+		# socket (src/sdk/ServerAPI.js's `new WSServer({server, path:'/ws'})`)
+		# -- Caddy's reverse_proxy already forwards the Upgrade/Connection
+		# headers by default for any request that carries them, so no
+		# extra directive is required here; called out for legibility
+		# since a naive proxy config elsewhere might need one explicitly.
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+	}
+
+	# Static-asset-heavy responses (GLB/VRM/KTX2/textures) are already
+	# compressed server-side per-extension by StaticHandler.js's own
+	# gzip/brotli negotiation (see negotiateEncoding) -- double-compressing
+	# already-brotli'd bytes at the proxy layer wastes CPU for zero size
+	# win, so Caddy's own encode directive is intentionally NOT enabled
+	# here. Caddy forwards the backend's real Content-Encoding untouched.
+
+	log {
+		output stdout
+		format console
+	}
+}

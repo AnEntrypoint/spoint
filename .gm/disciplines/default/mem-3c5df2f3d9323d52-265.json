@@ -1,0 +1,3 @@
+## Resolved mutable: m-webgpu-available-in-chromium
+
+browser-1.json result.stdout: [log] BASELINE {"fps":145,"calls":97,"tris":38716,"hasWebGPU":true} -- navigator.gpu is defined, so THREE.WebGPURenderer is a real option to prototype, not blocked by browser support

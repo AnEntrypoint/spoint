@@ -1,0 +1,3 @@
+## Resolved mutable: m-fix-batch2-remaining-audit-findings
+
+all 3 resolved: tps-game-player-list-dedup (getAll() cached once, live exec_js-verified fall-damage+powerup behavior preserved), wireweave-transport-avoid-buffer-copy (consumer audit confirmed single synchronous consumer ConnectionManager.addClient never retains buffer, view-aliasing fix applied + live-witnessed no cross-batch corruption), delete-dead-ccd-bodies-and-collision-check-others (both confirmed genuinely dead via codesearch, deleted, node test.js 26/26 unchanged).

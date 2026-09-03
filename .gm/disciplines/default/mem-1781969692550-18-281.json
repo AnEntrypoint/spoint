@@ -1,0 +1,3 @@
+## Resolved mutable: fsm-test-runner
+
+DECISION: node --test (built-in, node v24.15.0 confirmed) + add a test script to package.json (currently only start + create-app). Test file apps/_lib/game-fsm.test.js using node:test + node:assert, runnable via node --test. No new dependency.

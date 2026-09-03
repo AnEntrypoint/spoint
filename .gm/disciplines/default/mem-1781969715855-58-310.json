@@ -1,0 +1,3 @@
+## Resolved mutable: physics-crate-refs
+
+grep physics-crate (non-self): only apps/world/index.js + bin/templates.js (spawner template). Not referenced by tps-game world or editor palette (EditorShell:56 uses box/prop only). After removing index.js + trimming template -> physics-crate orphaned, safe to delete.

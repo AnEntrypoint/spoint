@@ -1,0 +1,3 @@
+## Resolved mutable: kit-primitives-gap
+
+grep c:/dev/anentrypoint-design/src/components.js: Toolbar(line29), Tabs(59), TreeView(60), TreeItem(60), PropertyGrid(61), PropertyField(61), IconButtonGroup(62), SplitPanel(63) ALL present. Original gap-claim now FALSE — primitives were added by prior session, kit at v0.0.139.

@@ -1,0 +1,2280 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>mapspinner — WebGL2 Terrain SDK</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;color:#9f9;font:12px monospace;overflow:hidden}
+  canvas{display:block;width:100vw;height:100vh}
+  #hud{position:fixed;top:8px;left:8px;background:rgba(0,0,0,.55);padding:8px 10px;border:1px solid #3f3;line-height:1.5;pointer-events:none}
+  #hud b{color:#cfc}
+  #err{position:fixed;bottom:8px;left:8px;color:#f88;background:rgba(0,0,0,.7);padding:6px 8px;max-width:80vw;display:none}
+  #panel{position:fixed;top:8px;right:8px;background:rgba(0,0,0,.7);padding:8px 10px;border:1px solid #3f3;font:11px monospace;color:#9f9;width:220px}
+  #panel label{display:flex;justify-content:space-between;align-items:center;margin:3px 0;gap:6px}
+  #panel input[type=range]{flex:1;min-width:0}
+  #panel input[type=number]{width:60px;background:#111;color:#9f9;border:1px solid #3f3;font:11px monospace;padding:1px 3px}
+  #panel input[type=checkbox]{accent-color:#3f3}
+  #panel .grp{border-top:1px solid #3f3;padding-top:4px;margin-top:6px;color:#cfc}
+</style></head>
+<body>
+<!-- The mapspinner WebGL2 renderer renders here. -->
+<canvas id="cwebgl" style="position:fixed;inset:0;width:100vw;height:100vh"></canvas>
+<div id="hud"><b>mapspinner — WebGL2 Terrain SDK</b><br>
+Controls: <b>WASD</b>/drag orbit . <b>Q/E</b>/wheel zoom . <b>R</b> reset<br>
+<span id="stats">init...</span></div>
+<div id="panel">
+  <div class="grp">Sun</div>
+  <label>Zenith<input type="range" id="sunZenith" min="0" max="120" step="1" value="55"></label>
+  <label>Azimuth<input type="range" id="sunAzimuth" min="0" max="360" step="1" value="0"></label>
+  <label>Rotate<input type="range" id="timeScale" min="0" max="200" step="1" value="0"></label>
+  <div class="grp">Render</div>
+  <label>Exposure<input type="range" id="exposure" min="0.1" max="8" step="0.05" value="1.4"></label>
+  <label>Display<select id="displayMode"><option value="0">Lit</option><option value="1">Normals</option><option value="2">Albedo</option><option value="6">Elevation</option><option value="4">Biome ramp</option><option value="5">Land/Sea</option><option value="7">River field</option><option value="8">River gating</option><option value="9">Biome map</option><option value="10">Canyon field</option><option value="11">Cliffs</option><option value="12">Patches (LOD)</option></select></label>
+  <label><span>Wireframe</span><input type="checkbox" id="wireframe"></label>
+</div>
+<button id="genToggle" style="position:fixed;left:8px;top:8px;z-index:30;font:11px monospace;padding:3px 7px">Generation</button>
+<div id="genPanel" style="position:fixed;left:8px;top:34px;z-index:30;display:none;max-height:88vh;overflow:auto;background:rgba(12,16,20,0.92);color:#cfe;font:10px/1.5 monospace;padding:6px 8px;border:1px solid #2a3a44;width:250px"></div>
+<div id="err"></div>
+<!-- LIVE tweak menus for every window.__ shader lever (cache-busted so it reaches a warm tab on reload). -->
+<script type="module">import('./src/tweak-panel.js?v='+(window.performance?performance.now()|0:Date.now())).catch(e=>console.error('tweak-panel',e));</script>
+<script type="module">
+// The mapspinner terrain + atmosphere + ocean run entirely
+// on the WebGL2 path, loaded lazily in frameLoop. The
+// legacy WebGPU device/pipelines/ocean/atmosphere have been DELETED.
+const errEl=document.getElementById('err');
+const showErr=m=>{errEl.style.display='block';errEl.textContent=String(m);window.__pageErr=String(m);console.error(m)};
+window.addEventListener('error',e=>showErr(e.message||e));
+window.addEventListener('unhandledrejection',e=>showErr(e.reason?.message||e.reason||e));
+
+// The legacy WebGPU render path has been DELETED. All terrain + atmosphere + ocean
+// run on the WebGL2 path drawing to #cwebgl. `canvas` is the WebGL2 canvas;
+// camera event handlers + sizing read it.
+const canvas=document.getElementById('cwebgl');
+
+function nl_hash(ix,iy,iz){
+  const n = (Math.imul(ix,1597) + Math.imul(iy,3571) + Math.imul(iz,7919))|0;
+  let state = (Math.imul(n>>>0, 747796405) + 2891336453)>>>0;
+  state = (Math.imul(((state >>> ((state>>>28)+4)) ^ state)>>>0, 277803737))>>>0;
+  state = ((state >>> 22) ^ state)>>>0;
+  return -1.0 + 2.0 * state / 4294967295;
+}
+function value_noise(x,y,z){
+  const ix=Math.floor(x),iy=Math.floor(y),iz=Math.floor(z);
+  const wx=x-ix, wy=y-iy, wz=z-iz;
+  const ux=wx*wx*wx*(wx*(wx*6-15)+10), uy=wy*wy*wy*(wy*(wy*6-15)+10), uz=wz*wz*wz*(wz*(wz*6-15)+10);
+  const a=nl_hash(ix,iy,iz),   b=nl_hash(ix+1,iy,iz),   c=nl_hash(ix,iy+1,iz),   d=nl_hash(ix+1,iy+1,iz);
+  const e=nl_hash(ix,iy,iz+1), f=nl_hash(ix+1,iy,iz+1), g=nl_hash(ix,iy+1,iz+1), hh=nl_hash(ix+1,iy+1,iz+1);
+  const k0=a,k1=b-a,k2=c-a,k3=e-a,k4=a-b-c+d,k5=a-c-e+g,k6=a-b-e+f,k7=-a+b+c-d+e-f-g+hh;
+  return k0 + k1*ux + k2*uy + k3*uz + k4*ux*uy + k5*uy*uz + k6*uz*ux + k7*ux*uy*uz;
+}
+function fbm_range(gain,n){let h; if(Math.abs(gain-1)<1e-5)h=n+1; else h=(1-Math.pow(gain,n+1))/(1-gain); return [-h,h];}
+function value_fbm(x,y,z,gain,n){let f=1,a=1,t=0;for(let i=0;i<n;i++){t+=a*value_noise(f*x,f*y,f*z);f*=2;a*=gain;}return t;}
+function value_fbm_scaled(x,y,z,gain,n,mn,mx){const v=value_fbm(x,y,z,gain,n);const rg=fbm_range(gain,n);return mn+(mx-mn)*((v-rg[0])/(rg[1]-rg[0]));}
+function fbm_ridged_range(gain,n,off,exp){return [Math.pow(off-1,exp), Math.pow(off,exp)*fbm_range(gain,n)[1]];}
+function value_ridged_fbm_scaled(x,y,z,gain,n,off,exp,mn,mx){
+  let f=1,a=1,t=0,w=1;
+  for(let i=0;i<n;i++){let s=value_noise(f*x,f*y,f*z);s=off-Math.abs(s);s=Math.pow(s,exp);s*=w;t+=a*s;f*=2;a*=gain;w=Math.max(0,Math.min(1,s*2));}
+  const rg=fbm_ridged_range(gain,n,off,exp);return mn+(mx-mn)*((t-rg[0])/(rg[1]-rg[0]));
+}
+// jsElev -- RADIUS-fraction elevation of the SINGLE terrain fractal. The old line-by-line WGSL
+// cascade mirror was deleted with the cascade (one-fractal collapse); jsElev now delegates to
+// jsBroadShape (the faithful mirror of broadShapeM, the sole rendered field) so every CPU consumer
+// (collision clamp, findLand viewpoints) tracks the rendered surface. Returns elevation / R.
+function jsElev(dx,dy,dz){
+  return jsBroadShape(dx,dy,dz) / WEBGL2_TERRAIN_R_M;   // metres -> fraction of R
+}
+
+// jsBroadShape -- faithful JS port of terrain.glsl broadShapeM(dir, reliefMul=1, ridgeMul=0)
+// (the neutral base silhouette). The renderer's elevation is dominated by this continuous
+// world-dir fBm, so the free-fly COLLISION samples it (not the stale jsElev cascade) to meet
+// the visible ground. Returns metres. shash3/snoise3 mirror the GLSL value-noise exactly.
+function jsShash3(px,py,pz){
+  let x=px*0.3183099+0.1, y=py*0.3183099+0.2, z=pz*0.3183099+0.3;
+  x-=Math.floor(x); y-=Math.floor(y); z-=Math.floor(z);
+  const d=x*(y+19.19)+y*(z+19.19)+z*(x+19.19); x+=d; y+=d; z+=d;
+  const v=(x+y)*z+(y+z)*x+(z+x)*y; return v-Math.floor(v);
+}
+function jsSnoise3(px,py,pz){
+  const ix=Math.floor(px),iy=Math.floor(py),iz=Math.floor(pz);
+  const fx=px-ix,fy=py-iy,fz=pz-iz;
+  const ux=fx*fx*(3-2*fx),uy=fy*fy*(3-2*fy),uz=fz*fz*(3-2*fz);
+  const H=(ox,oy,oz)=>jsShash3(ix+ox,iy+oy,iz+oz);
+  const n000=H(0,0,0),n100=H(1,0,0),n010=H(0,1,0),n110=H(1,1,0),
+        n001=H(0,0,1),n101=H(1,0,1),n011=H(0,1,1),n111=H(1,1,1);
+  const x00=n000+(n100-n000)*ux, x10=n010+(n110-n010)*ux, x01=n001+(n101-n001)*ux, x11=n011+(n111-n011)*ux;
+  const y0=x00+(x10-x00)*uy, y1=x01+(x11-x01)*uy;
+  return (y0+(y1-y0)*uz)*2-1;
+}
+function jsBroadShape(dx,dy,dz){
+  const r=Math.hypot(dx,dy,dz)||1; dx/=r; dy/=r; dz/=r;
+  let amp=6500.0, freq=0.75, sum=0.0;   // A0=6500, off=-500: matches GLSL broadShapeM (one-fractal collapse)
+  // hi-freq elevation noise 4x cut (user 2026-06-06): the GPU broadShapeM scales the o>=6 fine band by
+  // uHiFreqCut (0.25); mirror it here so the collision FALLBACK height tracks the rendered surface.
+  for(let o=0;o<14;o++){ let nn=jsSnoise3(dx*freq,dy*freq,dz*freq); if(o>=6) nn*=0.25; sum+=amp*nn; amp*=(o<6?0.66:0.80); freq*=2.0; }
+  return sum-500.0;   // metres, neutral relief (reliefMul=1, ridgeMul=0)
+}
+
+// ---- Vector helpers (used by the free-fly camera + WebGL2 sun/orientation math).
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const normalize=v=>{const r=Math.hypot(...v)||1;return [v[0]/r,v[1]/r,v[2]/r]};
+
+// ---- Camera state
+// Planet radius in world units. 100 = 100x larger than the original R=1
+// scale; the entire math is parameterised by RADIUS so close-surface relief
+// reads as a much smaller fraction of the curvature -> more realistic look.
+// cam.dist is now in RADIUS units (1.0 = surface, 3.0 = orbit).
+// Planet radius in working units. Earth-scale km. Apparent size is set by
+// where the camera starts (cam.pos below), not by this scalar -- RADIUS just
+// sets the units everything else is denominated in.
+// ADJUSTABLE PLANET RADIUS (user 2026-06-17 'make it adjustable in size without its contents changing'):
+// window.__planetScale (default 1) scales the planet's RATED radius. Because the SDK is scale-invariant
+// (gl-render uReliefScale scales the relief with R, and the quadtree/worldToFaceLocal/faceWarp all use the
+// real R), a different radius renders IDENTICALLY -- only the reported number changes (so a consumer like
+// spoint, or anything reading window.__WEBGL2_TERRAIN_R_M, gets the value you set). Set window.__planetScale
+// then reload. e.g. __planetScale=0.01 -> a 63,600 m planet that looks exactly the same as the 6,360 km one.
+// REAL SIZE (user 2026-06-24 'planet appears 10x too large'): the planet's true radius
+// is ~6.371 km (1/1000 of Earth's 6371 km). Default _planetScale = 0.001 makes that the rated size. The SDK
+// is scale-invariant (RADIUS + WEBGL2_TERRAIN_R_M + reliefScale + atmPos all scale together), so the render
+// is IDENTICAL to any other scale -- only the reported numbers change (node h/R diff 1e-19).
+const _planetScale = (typeof window !== 'undefined' && typeof window.__planetScale === 'number' && window.__planetScale > 0) ? window.__planetScale : 0.001;
+const RADIUS=6371.0 * _planetScale;
+// WebGL2 terrain works in METERS. Surface radius 6.36e6 m * scale; the km-unit world maps to it 1 unit = this many m.
+const WEBGL2_TERRAIN_R_M = 6360000.0 * _planetScale;
+const WEBGL2_M_PER_UNIT = WEBGL2_TERRAIN_R_M / RADIUS;   // ratio is scale-INVARIANT (both scale) -> the km<->m mapping is unchanged
+// EXPOSE the world-scale constants as globals so a scripted browser-witness (page.evaluate runs
+// in a SEPARATE scope and cannot see these module consts) can build a correct camera pose in
+// metres. Without this, witness scripts guessed the metre scale (got undefined -> NaN eye -> black
+// or a default ocean frame) -- the 'scripted witness shows water' root. Now a witness reads
+// window.__RADIUS / __WEBGL2_TERRAIN_R_M / __WEBGL2_M_PER_UNIT and poses exactly like the rAF loop.
+if (typeof window !== 'undefined') {
+  window.__RADIUS = RADIUS;
+  window.__WEBGL2_TERRAIN_R_M = WEBGL2_TERRAIN_R_M;
+  window.__WEBGL2_M_PER_UNIT = WEBGL2_M_PER_UNIT;
+}
+// Free-fly 6-DOF camera. `pos` is world-space position, `yaw`/`pitch` define
+// look direction in world coordinates. WASD translates along view-relative axes,
+// Q/E moves down/up along world-up, mouse drag rotates the look direction.
+// Position is clamped so length(pos) >= RADIUS*1.001 -- prevents camera from
+// dropping below sea level (a true terrain-following clamp would need JS-side
+// elev() to mirror the WGSL version).
+// FREE-FLY camera held as an orthonormal BASIS (fwd, up) in world space, not
+// Euler yaw/pitch. Mouse/keys apply INCREMENTAL rotations to this basis; each
+// frame the up is gently rolled toward the local surface normal (normalize(pos)).
+// This is a single mode (no orbital/FPS switch), never gimbal-locks or flips, and
+// you can look anywhere -- "up rotates toward the normal" and everything works WITH
+// it. (Replaces the yaw/pitch + mode-blend + viewpoint-tween scheme that flipped/
+// tumbled/couldn't-look-down near the ground.)
+const cam={
+  pos:[0, 0, 3*RADIUS],
+  fwd:[0, 0, -1],        // looking toward planet center
+  up:[0, 1, 0],
+  speed:1.0,
+  sunLatBase:0.35,   // lower sun (was 0.6) -> longer shadows so even gentle rolling terrain self-shades and the default view reads 3D (see mutable default-sun-oblique-for-relief). 0.35rad ~= 20deg above horizon.
+  sunLonBase:0.0,
+  sunLonAccum:0.0,
+  sunLonRate:0.00002,
+  timeScale:0.0,
+  exposure:10.0,   // bright daylit terrain (atm ground radiance is low-magnitude; the tonemap needs a high exposure, matching the original's ~8-10)
+  oceanTimeScale:1.0,
+  displayMode:0,
+  wireframe:false,
+};
+window.__cam = cam;   // expose for headless witness/descent tests (read + move the camera)
+function camReset(){ cam.pos=[0,0,3*RADIUS]; cam.fwd=[0,0,-1]; cam.up=[0,1,0]; }
+// Rotate vector v about unit axis k by angle a (Rodrigues).
+function rotAxis(v,k,a){
+  const c=Math.cos(a), s=Math.sin(a);
+  const kv=k[0]*v[0]+k[1]*v[1]+k[2]*v[2];
+  return [
+    v[0]*c + (k[1]*v[2]-k[2]*v[1])*s + k[0]*kv*(1-c),
+    v[1]*c + (k[2]*v[0]-k[0]*v[2])*s + k[1]*kv*(1-c),
+    v[2]*c + (k[0]*v[1]-k[1]*v[0])*s + k[2]*kv*(1-c),
+  ];
+}
+const keys={};
+window.__keys = keys;   // expose so __diag.flyForward can drive the REAL W-key motion path
+
+// VIEWPOINTS: Ctrl+V jumps to a high-elevation overlook; Space
+// resets to the space view. With the basis camera we just SET pos + aim fwd/up
+// directly (no yaw/pitch tween -- the per-frame up-alignment + free-fly handles
+// orientation). Kept simple and instant.
+const VIEWPOINTS = (() => {
+  const names = ["Phantom's Bay","Angel's Reach","Drake Summit","Mistral Coast","Verdant Vale","Cinder Ridge"];
+  const found = [];
+  for (let i=0;i<6000 && found.length<names.length;i++){
+    const a = i*2.399963, y = 1 - 2*(i+0.5)/6000;
+    const rxy = Math.sqrt(Math.max(0,1-y*y));
+    const d = [Math.cos(a)*rxy, y, Math.sin(a)*rxy];
+    const e = jsElev(d[0],d[1],d[2]);
+    if (e > 0.0008 && (found.length===0 || found.every(f => (f.d[0]*d[0]+f.d[1]*d[1]+f.d[2]*d[2]) < 0.3))){
+      found.push({ d, e });
+    }
+  }
+  return found.map((f,i) => ({ name: names[i] || ("Viewpoint "+i), d:f.d, e:f.e }));
+})();
+let vpIndex = -1;
+function aimAt(pos, lookDir){
+  cam.pos=[pos[0],pos[1],pos[2]];
+  const f=normalize(lookDir); cam.fwd=f;
+  let lu=normalize(pos);
+  // up = local-up (radial) made perpendicular to fwd. When looking straight DOWN the
+  // radial up is ANTIPARALLEL to fwd, so the projection collapses to ~0 -> degenerate up
+  // -> broken view matrix (planet vanished off-screen, the gotoDown bug). Detect that
+  // (|lu.f| ~ 1) and pick an arbitrary reference axis not parallel to fwd instead.
+  let d0 = lu[0]*f[0]+lu[1]*f[1]+lu[2]*f[2];
+  if (Math.abs(d0) > 0.999) { lu = Math.abs(f[1])<0.9 ? [0,1,0] : [1,0,0]; d0 = lu[0]*f[0]+lu[1]*f[1]+lu[2]*f[2]; }
+  let u=[lu[0]-f[0]*d0, lu[1]-f[1]*d0, lu[2]-f[2]*d0];
+  const ul=Math.hypot(...u); cam.up = ul>1e-6 ? [u[0]/ul,u[1]/ul,u[2]/ul] : [0,1,0];
+}
+function gotoSpaceView(){ cam.pos=[0,0,3*RADIUS]; cam.fwd=[0,0,-1]; cam.up=[0,1,0]; vpIndex=-1; }
+function cycleViewpoint(){
+  if (VIEWPOINTS.length===0) return;
+  vpIndex=(vpIndex+1)%VIEWPOINTS.length; const v=VIEWPOINTS[vpIndex];
+  const alt=RADIUS*(1+v.e)+2.0; const pos=[v.d[0]*alt,v.d[1]*alt,v.d[2]*alt];
+  // look along a tangent, gently down toward the surface
+  const lu=normalize(pos); const t=normalize(cross(lu,[0,1,0]));
+  aimAt(pos, [t[0]-lu[0]*0.4, t[1]-lu[1]*0.4, t[2]-lu[2]*0.4]);
+}
+window.__viewpoints = { list:VIEWPOINTS, cycle:cycleViewpoint, space:gotoSpaceView, get index(){return vpIndex;} };
+
+addEventListener('keydown',e=>{
+  const k = e.key.toLowerCase();
+  if (e.ctrlKey && k==='v'){ e.preventDefault(); cycleViewpoint(); return; }
+  if (e.key===' ' || k==='spacebar'){ e.preventDefault(); gotoSpaceView(); return; }
+  // 'c' toggles ONLY the cull-debug HUD (kept/culled counts + false-cull signature). It does NOT
+  // force window.__frustumCull -- the frustum cull follows its default (ON). An earlier version set
+  // __frustumCull=false on toggle-off, which DEFEATED the default cull (user saw 3000 quads again).
+  if (k==='c'){ window.__cullDebug = !window.__cullDebug;
+    if (window.__planetOrch && window.__planetOrch.clearCache) window.__planetOrch.clearCache(); return; }
+  keys[k]=true; if(k==='r'){camReset();}
+});
+addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false});
+
+let dragActive=false, lastMouseX=0, lastMouseY=0;
+canvas.addEventListener('pointerdown', e=>{ dragActive=true; lastMouseX=e.clientX; lastMouseY=e.clientY; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointerup',   e=>{ dragActive=false; try{canvas.releasePointerCapture(e.pointerId);}catch(_){} });
+canvas.addEventListener('pointermove', e=>{
+  if(!dragActive) return;
+  const dx=e.clientX-lastMouseX, dy=e.clientY-lastMouseY;
+  lastMouseX=e.clientX; lastMouseY=e.clientY;
+  // Incremental free-fly look: yaw about the camera UP, pitch about the camera
+  // RIGHT. Rotating the basis vectors directly never gimbal-locks and lets you
+  // look straight down/up freely (the near-ground "can't look down" was the old
+  // pitch clamp + mode blend). right = fwd x up.
+  let r=normalize(cross(cam.fwd, cam.up));
+  cam.fwd = normalize(rotAxis(cam.fwd, cam.up, -dx*0.005));
+  r = normalize(cross(cam.fwd, cam.up));
+  cam.fwd = normalize(rotAxis(cam.fwd, r, -dy*0.005));
+  // re-orthogonalize up against fwd
+  cam.up = normalize(cross(r, cam.fwd));
+});
+// Wheel scales movement speed instead of distance (no more zoom -- fly in).
+// Top-speed cap 1000 -> 200 (user 2026-06-02: 'reduce the top speed ... 5x').
+canvas.addEventListener('wheel', e=>{
+  e.preventDefault();
+  const factor = Math.exp(-e.deltaY*0.001);
+  cam.speed = Math.max(0.001, Math.min(200, cam.speed*factor));
+}, {passive:false});
+
+let lastT=performance.now(); let frame=0; let emaMspf=0; let _drsCool=0; let _drsOwnsVdrs=false;
+// Ocean wave clock: advances by dt*oceanTimeScale so the Wave-speed slider can
+// slow/freeze the waves (0=frozen) independently of wall-clock time. Fed to both
+// the FFT step and the fragment foam/shore phase.
+let oceanTime=0;
+// Per-frame diag stream: POST JSON line every diagInterval frames to
+// /diag (server keeps the last 200 lines in a ring, GET /diag/tail). Skipped if fetch absent.
+const diagInterval = 60;
+// DEV-SERVER DETECTION (2026-06-24): the /diag + /cmd endpoints only exist on the local node server.js.
+// On static hosting (GitHub Pages) they 404/405 every frame -> a console flood. Probe /cmd/next ONCE; if
+// it isn't a dev server (network error or non-2xx), disable the diag poller + postDiag entirely. A real
+// dev server flips __devServer=true and polling proceeds as before.
+let __devServer = null;   // null=unknown, true=dev server, false=static host
+function postDiag(event) {
+  if (typeof fetch === 'undefined' || __devServer === false) return;
+  try {
+    fetch('/diag', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({t: Date.now(), ...event}), keepalive: true}).catch(()=>{});
+  } catch(_) {}
+}
+// AGENT COMMAND CHANNEL POLLER (2026-06-07, user: 'maximize live code execution + hot reloading').
+// Poll the server's /cmd queue; run each enqueued JS snippet live (async ok) and POST its result to
+// /diag (kind:'cmd-result'). Lets a headless agent toggle the atlas, hot-reload the shader, and probe
+// live GPU state through the WARM tab with zero reloads -- the simplest iterate loop. Gated on
+// window.__agentCmd!==false so it can be disabled. ~twice/sec.
+let __cmdBusy = false;
+async function pollCmd() {
+  if (__cmdBusy || typeof fetch === 'undefined' || window.__agentCmd === false || __devServer === false) return;
+  __cmdBusy = true;
+  try {
+    const r = await fetch('/cmd/next');
+    if (!r.ok) { __devServer = false; return; }   // 404 on static host -> not a dev server, stop polling
+    __devServer = true;
+    const cmd = await r.json();
+    if (cmd && cmd.js) {
+      let result;
+      try { result = await (async () => { return eval(cmd.js); })(); }
+      catch (e) { result = { error: String(e && e.message || e) }; }
+      postDiag({ kind: 'cmd-result', id: cmd.id, result });
+    }
+  } catch (_) { __devServer = false; }   // network error (no server) -> static host, stop polling
+  finally { __cmdBusy = false; }
+}
+let __cmdTimer = setInterval(pollCmd, 500);
+// The mapspinner WebGL2 terrain is the renderer.
+if (window.__useWebGL2Terrain === undefined) window.__useWebGL2Terrain = true;
+const stats=document.getElementById('stats');
+// SINGLE-FLIGHT FRAME SCHEDULER (2026-06-12): every frameLoop continuation routes through here so
+// the hidden-tab bootstrap interval can also tick frameLoop without ever stacking parallel rAF
+// chains (each stacked chain would run frameLoop once PER FRAME forever after the tab re-shows).
+let _rafQueued = false;
+function scheduleFrame(){ if (_rafQueued) return; _rafQueued = true;
+  requestAnimationFrame(() => { _rafQueued = false; frameLoop(); }); }
+function frameLoop(){
+  if (window.__deviceLost) return; // halt loop after device-lost
+  const now=performance.now();
+  const frameMs = now - lastT;          // true inter-frame interval (for FPS)
+  const dt=Math.min(0.05,(now-lastT)/1000); lastT=now;
+
+  // ---- mapspinner WebGL2 terrain path. Lazily inits the renderer on the #cwebgl canvas.
+  // The actual render + rAF happens AFTER the camera-update section below (so WASD/
+  // drag/zoom + autopilot move the camera before the frame is drawn).
+  if (window.__useWebGL2Terrain) {
+    if (window.__planetOrchStatus === undefined) {
+      window.__planetOrchStatus = 'init';
+      // LOADING OVERLAY: the COLD shader compile can take minutes (ANGLE HLSL translation of the big
+      // terrain FS, ~188s first-ever on this driver; warm <0.1s). The non-blocking compile keeps the
+      // page responsive but the canvas is BLACK until the first render -> looks broken. Show a visible
+      // "compiling terrain shader" overlay with elapsed seconds, removed on the first rendered frame.
+      (function(){
+        const ov = document.createElement('div'); ov.id='__loadOverlay';
+        ov.style.cssText='position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#05080f;color:#9fb6d4;font:14px/1.5 monospace;gap:10px;';
+        ov.innerHTML='<div style="font-size:16px;color:#cfe0f5">Compiling terrain shader</div>'+
+          '<div id="__loadSub" style="opacity:0.7">first load on this GPU can take a minute (cached after)</div>'+
+          '<div id="__loadElapsed" style="opacity:0.5">0.0s</div>';
+        document.body.appendChild(ov);
+        const t0 = performance.now();
+        window.__loadTick = setInterval(()=>{ const el=document.getElementById('__loadElapsed'); if(el) el.textContent=((performance.now()-t0)/1000).toFixed(1)+'s'; }, 100);
+      })();
+      const gw = document.getElementById('cwebgl');
+      // size the drawing buffer to the window (x DPR). BUG: previously `canvas.width||
+      // innerWidth` -- but canvas IS #cwebgl, whose default drawing-buffer width is 300
+      // (truthy) -> the buffer stayed locked at 300x150 (the "resolution dropped"). Size
+      // it explicitly from the viewport.
+      // RENDER SCALE (2026-06-16, 144fps): the deck frame is FILL/SHADING-bound (cost scales with
+      // drawing-buffer PIXELS -- GRID/vertex-count A/B did NOT move vsRaster; FS is per-pixel), so the
+      // single biggest lever on a fill-bound APU is rendering SUB-NATIVE and letting the browser upscale
+      // the canvas to the window (keeps ALL geometry+material detail, just softer). renderScale = the
+      // buffer-to-CSS-pixel ratio: 1.0 = native CSS res, the DPR default = crisp/supersampled, <1 = faster.
+      // Live override: window.__renderScale (reload to apply) or ?rscale=0.7. Default keeps the prior DPR look.
+      const _rsP = parseFloat(new URLSearchParams(location.search).get('rscale'));
+      const _rs = (isFinite(_rsP) && _rsP > 0) ? _rsP
+                : (typeof window.__renderScale === 'number' && window.__renderScale > 0) ? window.__renderScale
+                : Math.min(window.devicePixelRatio || 1, 2);
+      window.__renderScale = _rs;
+      gw.width = Math.round(innerWidth*_rs); gw.height = Math.round(innerHeight*_rs);
+      // LIVE render-scale dial: resize the drawing buffer on the fly (the render reads drawingBufferWidth
+      // each frame for the viewport + cull, so the next frame adapts; no reload). The Tweaks panel calls this.
+      window.__setRenderScale = function(s){ s = +s; if (!(s > 0.2 && s <= 2.0)) return; window.__renderScale = s;
+        const cv = document.getElementById('cwebgl'); if (cv){ cv.width = Math.round(innerWidth*s); cv.height = Math.round(innerHeight*s); } };
+      // preserveDrawingBuffer:true so headless screenshots / readPixels capture the actual
+      // rendered frame (without it the WebGL2 backbuffer reads all-zero in the witness
+      // harness). Minor perf cost; worth it for reliable witnessing.
+      const glw = gw.getContext('webgl2', {antialias:true, preserveDrawingBuffer:true});
+      // SOFTWARE-WEBGL + CONTEXT-LOSS TRIPWIRES (2026-06-11 'rocks everywhere + no normals + slow on
+      // AMD'): reproduced -- the AMD GPU process can crash under sustained terrain load; Chrome
+      // auto-recovers the tab but may fall back to SOFTWARE WebGL (SwiftShader), which renders the
+      // degraded look at a fraction of the speed with NO visible indication. P9: never a silent
+      // degraded mode -- detect both and say so in red, in the corner and in /diag.
+      (function(){
+        const banner = (msg) => {
+          let b = document.getElementById('__gpuBanner');
+          if (!b) { b = document.createElement('div'); b.id='__gpuBanner';
+            b.style.cssText='position:fixed;top:0;left:0;right:0;z-index:10000;background:#7a1111;color:#fff;font:13px/1.6 monospace;padding:6px 12px;text-align:center;';
+            document.body.appendChild(b); }
+          b.textContent = msg;
+        };
+        try {
+          const ext = glw.getExtension('WEBGL_debug_renderer_info');
+          const renderer = ext ? String(glw.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : '';
+          window.__gpuRenderer = renderer;
+          if (/swiftshader|software|llvmpipe/i.test(renderer)) {
+            window.__softwareWebGL = true;
+            banner('WebGL IS SOFTWARE-RENDERED (' + renderer.slice(0,60) + ') -- the GPU driver crashed earlier. Restart the BROWSER (not just this tab) to restore hardware rendering.');
+          }
+        } catch(_) {}
+        gw.addEventListener('webglcontextlost', (e) => {
+          e.preventDefault();
+          window.__ctxLostAt = performance.now()|0;
+          banner('GPU CONTEXT LOST -- the graphics driver crashed. Reload the page; if terrain then looks flat/rocky/slow, restart the browser (software-WebGL fallback).');
+        });
+      })();
+      // The orchestrator works in METERS (its producer generates meter-scale elevation).
+      // We drive it in meter-space and scale the km-unit camera into meters via
+      // WEBGL2_M_PER_UNIT below.
+      // NO SPLITFACTOR PIN: the SDK orchestrator now defaults to the blessed flat mesh density
+      // (TERRAIN_DEFAULTS.splitFactor; altitude ramp is opt-in) so the demo does NOT establish LOD
+      // density -- it just consumes the SDK default. Move a Tweaks-panel slider to override live.
+      import('./src/planet-orchestrator.js')
+        .then(m => m.initMapspinnerPlanet(glw, {
+          // FPS lever (2026-06-14): mesh GRID is overridable via ?grid=N for live triangle-count
+          gridMeshSize: ((new URLSearchParams(location.search).get('grid')|0) || undefined) }))
+        .then(orch => { window.__planetOrch = orch; window.__planetOrchGL = glw; window.__planetOrchStatus='ready';
+          // Load the gen-controls overlay (installs window.__gen for the Generation panel) but do NOT
+          // call __gen.apply() on boot -- the SDK already renders the blessed look from its defaults;
+          // apply() now runs only when the user changes a Generation-panel control (pure live overlay).
+          import('./src/terrain-gen-controls.js').catch(e=>console.warn('gen-controls',e)); })
+        .catch(e => { window.__planetOrchStatus='error:'+(e.message||e); console.error('orch init',e); });
+    }
+  }
+
+  // ---- Self-witnessing autopilot (?autopilot). Drives a continuous space->
+  // walking descent over a fixed point and posts a rich diagnostic each second
+  // so the descent + LOD + terrain can be verified from GET /diag/tail
+  // without any external browser tool. Picks a fixed land target, aims the sun
+  // at it, descends exponentially from 3R to the surface, then logs altitude,
+  // visible maxLevel, quad count, terrain height under the camera, and whether
+  // the camera is above the local surface (no clipping).
+  if (window.__autopilot){
+    const ap = window.__autopilot;
+    ap.t += dt;
+    // exponential descent: altR from ~2.0 down to ~0.00002 over AP_DURATION s
+    const k = Math.min(1, ap.t / 60.0);
+    const altR = 2.0 * Math.pow(0.00001/2.0, k);   // 2R -> ~64 m
+    const tgt = ap.target;
+    const r = RADIUS * (1.0 + altR);
+    cam.pos = [tgt[0]*r, tgt[1]*r, tgt[2]*r];
+    // look gently down toward the surface (basis camera: set fwd/up directly)
+    cam.fwd = normalize([-tgt[0], -tgt[1], -tgt[2]]);
+    cam.up  = normalize([tgt[0], tgt[1]+0.5, tgt[2]]);
+    cam.sunLatBase = Math.asin(tgt[1]); cam.sunLonBase = Math.atan2(tgt[0], tgt[2]); cam.timeScale = 0;
+    if (ap.t - ap.lastLog >= 1.0){
+      ap.lastLog = ap.t;
+      const surfElev = jsElev(tgt[0],tgt[1],tgt[2]);     // RADIUS-fraction
+      const camAltR = Math.hypot(...cam.pos)/RADIUS - 1.0;
+      const fr = window.__webglFrame || {};
+      postDiag({kind:'autopilot', t_s:+ap.t.toFixed(1), altR:+camAltR.toFixed(6),
+        altKm:+(camAltR*RADIUS).toFixed(3), surfKm:+(surfElev*RADIUS).toFixed(3),
+        aboveSurf: camAltR > surfElev, quads:fr.quadCount||0, glError:fr.glError});
+    }
+    if (ap.t > 62){ window.__autopilot = null; postDiag({kind:'autopilot-done'}); }
+  }
+
+  // ===== FREE-FLY CAMERA (single mode, basis vectors) =====
+  // Orthonormalize the stored basis (guards drift/NaN), derive right.
+  cam.fwd = normalize(cam.fwd);
+  let right = cross(cam.fwd, cam.up); const _rl = Math.hypot(...right);
+  right = _rl > 1e-6 ? [right[0]/_rl,right[1]/_rl,right[2]/_rl] : [1,0,0];
+  cam.up = normalize(cross(right, cam.fwd));
+  const localUp = normalize(cam.pos);
+  const altR = Math.max(0.0001, Math.hypot(...cam.pos)/RADIUS - 1.0);
+
+  // Gently ROLL the camera up toward the local surface normal (localUp), more
+  // strongly the lower you are -- so flying toward the ground naturally levels to the
+  // horizon, but you can still freely pitch/roll. This is the ONLY orientation
+  // coupling (no mode switch): rotate the basis about fwd by a small step that
+  // reduces the roll angle between cam.up and the localUp projected into the view
+  // plane. Strength eases in from ~5000 km and is FULL by ~500 km (user 2026-06-02:
+  // 'slow down and reorient at a higher altitude ~500km') -- the camera is horizon-
+  // locked by the time the descent reaches 500 km, instead of only below ~50 km.
+  {
+    const levelStr = (1 - Math.min(1, Math.max(0, (altR*RADIUS - 500.0) / 4500.0))) * 3.0 * dt;
+    if (levelStr > 1e-5) {
+      // desired up = localUp made perpendicular to fwd
+      const d = localUp[0]*cam.fwd[0]+localUp[1]*cam.fwd[1]+localUp[2]*cam.fwd[2];
+      let want = [localUp[0]-cam.fwd[0]*d, localUp[1]-cam.fwd[1]*d, localUp[2]-cam.fwd[2]*d];
+      const wl = Math.hypot(...want);
+      if (wl > 1e-4) {
+        want = [want[0]/wl,want[1]/wl,want[2]/wl];
+        // signed roll angle from cam.up to want, about fwd
+        const cosA = Math.max(-1,Math.min(1, cam.up[0]*want[0]+cam.up[1]*want[1]+cam.up[2]*want[2]));
+        const ang = Math.acos(cosA);
+        if (ang > 1e-4) {
+          const crs = cross(cam.up, want);
+          const sign = Math.sign(crs[0]*cam.fwd[0]+crs[1]*cam.fwd[1]+crs[2]*cam.fwd[2]) || 1;
+          const step = sign * Math.min(ang, levelStr * ang);
+          cam.up = normalize(rotAxis(cam.up, cam.fwd, step));
+        }
+      }
+    }
+  }
+  const forward = cam.fwd;
+
+  // Free-fly translation: WASD along fwd/right, E/Q along the camera up (so "up"
+  // is always away from the planet near the surface). Speed scales with altitude.
+  // CAP the per-frame step to a fraction of the altitude above the surface, so a fast
+  // forward press can't punch THROUGH the planet in one frame (the "whole planet
+  // disappears when moving forward" bug: an uncapped step at high speed jumped the eye
+  // from 1.5R to past the core, landing on the far side with the planet behind the
+  // camera). Capping makes forward flight asymptotically approach the surface instead.
+  // GROUND HEIGHT FROM THE GPU PROBE, NOT THE CPU MIRROR (movestep-zero-speed-root, user 2026-06-06:
+  // 'in some spots the camera hits zero speed before hitting the surface'). altSurfElev fed the
+  // anti-tunnel clamp (line below) AND altKmAbove; it was sourced from jsBroadShape (the CPU mirror),
+  // which the collision path itself documents as DIVERGING from the GPU-rendered surface. Where the
+  // mirror OVER-predicts, RADIUS*(1+altSurfElev) sits ABOVE the true surface -> the surface-gap goes
+  // <=0 while the camera is still visibly above ground -> moveStep clamps to ~0.5km = a dead stop
+  // before the surface. FIX: source the same render.sampleGroundM the collision clamp uses (GPU-exact,
+  // == the rendered vH) so the move-gap and the collision surface are the SAME height. Fall back to the
+  // mirror only if the probe is unavailable.
+  const _orchMv = window.__planetOrch;
+  const _camLenMv = Math.hypot(...cam.pos) || 1;
+  const _camDirMv = [cam.pos[0]/_camLenMv, cam.pos[1]/_camLenMv, cam.pos[2]/_camLenMv];
+  // ALTITUDE GATE (perf sweep 2026-06-11): sampleGroundM is a synchronous 1px gl.readPixels = a FULL
+  // GPU pipeline stall every frame. Above ~20km the probe's precision is irrelevant (collision margin
+  // is 2m, max terrain ~15km, the jsBroadShape mirror is within a few hundred m) -- skip the stall and
+  // take the existing CPU-mirror fallback. Below 20km (where collision is load-bearing) keep GPU-exact.
+  const _altRoughKm = _camLenMv - RADIUS;
+  // moveStep speed-scaling + anti-tunnel guard use LAST FRAME's GPU ground sample (accurate; 1-frame lag is
+  // fine for a guard), CPU mirror only if no GPU sample yet. The AUTHORITATIVE collision sample is taken
+  // AFTER the move below at the POST-move direction (2026-06-15 'our 2m collision puts the camera under the
+  // ground'): the old code sampled PRE-move then clamped POST-move, so moving into rising terrain (esp. the
+  // now-2x canyon walls) clamped against the ground BEHIND the eye and clipped one frame late.
+  const _surfM = (window.__lastGpuM != null && isFinite(window.__lastGpuM)) ? window.__lastGpuM
+               : jsBroadShape(cam.pos[0],cam.pos[1],cam.pos[2]);
+  const altSurfElev = Math.min(_surfM, 9500.0) / WEBGL2_TERRAIN_R_M;
+  const altKmAbove = Math.max(1e-3, (Math.hypot(...cam.pos) - RADIUS*(1.0 + altSurfElev)));
+  // CAMERA MOVE-STEP. NO ELEVATION SLOWDOWN (user 2026-06-05: 'get rid of the camera slowdown code').
+  // The step scales with altitude-above-surface ONLY so the scene still moves at orbit (a constant step
+  // is invisible 12000km out); that altitude scaling gives a CONSTANT screen-relative feel, not a
+  // slowdown. The previous `Math.min(.., altKmAbove*0.85)` cap is REMOVED -- it shrank the step as you
+  // neared the ground (altKmAbove->small) = the near-ground crawl the user disliked. A FIXED minimum
+  // floor keeps a usable speed right at the deck, and the punch-through guard is now a hard clamp to a
+  // generous fraction of the surface-gap that NEVER crawls (it only catches an extreme single-frame jump).
+  let moveStep = dt * cam.speed * altKmAbove * 1.0;
+  moveStep = Math.max(moveStep, dt * cam.speed * 0.05);         // floor = 50m/frame at speed=1 -> no deck crawl, no low-alt speed surge
+  moveStep = Math.min(moveStep, Math.hypot(...cam.pos) - RADIUS*(1.0 + altSurfElev) + 0.5); // hard anti-tunnel guard only
+  if (keys['w']) { cam.pos[0]+=forward[0]*moveStep; cam.pos[1]+=forward[1]*moveStep; cam.pos[2]+=forward[2]*moveStep; }
+  if (keys['s']) { cam.pos[0]-=forward[0]*moveStep; cam.pos[1]-=forward[1]*moveStep; cam.pos[2]-=forward[2]*moveStep; }
+  if (keys['a']) { cam.pos[0]-=right[0]*moveStep;   cam.pos[1]-=right[1]*moveStep;   cam.pos[2]-=right[2]*moveStep; }
+  if (keys['d']) { cam.pos[0]+=right[0]*moveStep;   cam.pos[1]+=right[1]*moveStep;   cam.pos[2]+=right[2]*moveStep; }
+  if (keys['e']) { cam.pos[0]+=localUp[0]*moveStep; cam.pos[1]+=localUp[1]*moveStep; cam.pos[2]+=localUp[2]*moveStep; }
+  if (keys['q']) { cam.pos[0]-=localUp[0]*moveStep; cam.pos[1]-=localUp[1]*moveStep; cam.pos[2]-=localUp[2]*moveStep; }
+
+  // Minimal collision: free-fly can go as low as it wants but not THROUGH the
+  // terrain. Keep the eye a small margin (eyeHeight ~2 m) above the local surface.
+  // No "walking floor" -- this is just so you can't fall through the ground.
+  const r = Math.hypot(...cam.pos);
+  // COLLISION = GPU HEIGHT READBACK (user-chosen): read the EXACT rendered terrain height under the
+  // camera straight from the GPU (render.sampleGroundM runs the same hpfSample+broadShapeM the mesh
+  // VS uses, into a 1px R32F target). This can NEVER diverge from the rendered surface (the old CPU
+  // jsBroadShape mirror under-predicted -> camera went under). Fall back to the mirror only if the
+  // probe is unavailable. + a small vDisp micro-relief margin so the sub-vertex relief is cleared.
+  // AUTHORITATIVE GPU collision sample at the POST-MOVE camera direction (2026-06-15 'under the ground'
+  // fix): sample the exact rendered ground directly beneath the eye's NEW position so moving into rising
+  // terrain can't clip a frame late. Still ONE 1px readback per frame (the pre-move sample was removed).
+  let renderedM;
+  const _rDir = r > 1e-9 ? [cam.pos[0]/r, cam.pos[1]/r, cam.pos[2]/r] : [0,0,1];
+  const gpuM = (_altRoughKm < 20.0 && _orchMv && _orchMv.render && _orchMv.render.sampleGroundM)
+             ? _orchMv.render.sampleGroundM(_rDir) : null;
+  window.__lastGpuM = (gpuM != null && isFinite(gpuM)) ? gpuM : null;   // cache for next frame's moveStep guard (accurate, lag-tolerant)
+  // The GPU probe sampleGroundM IS the exact rendered terrain height under the camera (same
+  // hpfSample+broadShapeM the mesh VS uses), so no large clearance margin is needed. The old +130m
+  // "vDisp micro-relief margin" parked the eye ~132m above the ground (user: "place us 2.0m from the
+  // ground" was failing). Use a SMALL ~3m margin for genuine sub-vertex micro-relief only, so the eye
+  // lands eyeHeight (~2m) above the true surface.
+  // NO clearance margin: the GPU probe sampleGroundM IS the exact rendered terrain height under the
+  // camera (same hpfSample+broadShapeM the mesh VS uses), so the clamp surface == the true ground and
+  // the eye lands exactly eyeHeight (2.0m) above it. (The old +130m, then +3m, margin made __altM read
+  // a height above an inflated reference -> the eye was really ground+margin+2m, not 2m.) The mirror
+  // fallback keeps a small +3m only because the CPU jsBroadShape can under-predict vs the GPU.
+  let doClamp = true;
+  if (gpuM != null && isFinite(gpuM)) {
+    renderedM = gpuM + 1.0;   // +1m margin for sub-vertex micro-relief (vtxDisplace peaks exceed 2m in rugged terrain)
+  } else if (r >= RADIUS) {
+    renderedM = jsBroadShape(cam.pos[0], cam.pos[1], cam.pos[2]) + 3.0;  // above sea level: mirror is fine for land
+  } else {
+    // UNDERWATER DIVE FIX (user 2026-06-14 'camera stops at sea level'): below sea level with NO GPU
+    // probe this frame, the CPU mirror (jsBroadShape) OMITS the seaBias/bathymetry remap, so it reports
+    // ~sea-level over ocean and the clamp would shove the camera back up to the surface = 'stuck at sea
+    // level'. Skip the clamp this frame; the GPU probe (the only thing that knows the seabed) resumes
+    // collision next frame, so you can descend through the surface and explore the seabed.
+    doClamp = false; renderedM = -11000.0;
+  }
+  // cap to composeHeight's CMAX=15000; allow negative for seabed
+  const surfElev = Math.min(renderedM, 15000.0) / WEBGL2_TERRAIN_R_M;
+  const eyeHeight = 2.0 / WEBGL2_M_PER_UNIT;   // EXACTLY 2.0 m above ground (km-units = 2m / m-per-unit)
+  const minR = RADIUS * (1.0 + surfElev) + eyeHeight;
+  if (doClamp && r < minR) { const s = minR/r; cam.pos[0]*=s; cam.pos[1]*=s; cam.pos[2]*=s; }
+  // MAX-ALTITUDE CEILING (ocean/terrain-tile flicker at ~500km fix): this free-fly runaway guard
+  // was RADIUS*50 (~318.55km real-size altitude) -- FAR below altitudes the demo's own harness
+  // treats as normal exploration (window.__dbg.RUNGS.orbit=2000km, .space=35000km, both ~6x-110x
+  // past the old ceiling). A user (or an agent script) flying to/holding ~500km real altitude was
+  // ABOVE this ceiling every frame: gotoDown/WASD would push cam.pos out past maxR, and this clamp
+  // silently snapped it back down to maxR (~312km reported altitude, not the requested 500km) EVERY
+  // FRAME -- so "flying to 500km" never actually held 500km, it oscillated at the clamp boundary
+  // instead. Two live-witnessed effects: (1) altitude reads ~312km instead of the requested 500km,
+  // permanently unable to reach the real target; (2) whenever an external mover (drag/orbit/agent)
+  // straddles the boundary frame-to-frame, the true camDist alternates being clamped vs unclamped,
+  // and planet-orchestrator.js's frame() cache-vs-rebuild decision (moveTol keyed off camDist) can
+  // disagree between frames even though the user's intended motion is small -- terrain AND water
+  // quads (drawn from the SAME per-frame quad set, see gl-render.js render()) are rebuilt against a
+  // camera position that doesn't match the requested altitude, reading as tiles flickering in/out
+  // while "moving the camera" at ~500km. Raised to RADIUS*6000 (~38,226km real-size) so it sits
+  // comfortably past the harness's own 'space' rung (35,000km) -- still a real safety bound against
+  // an unbounded free-fly drift, just no longer inside the demo's own advertised altitude range.
+  const maxR = RADIUS * 6000;
+  if (r > maxR) { const s = maxR/r; cam.pos[0]*=s; cam.pos[1]*=s; cam.pos[2]*=s; }
+
+  // height of the eye above the local ground, in metres (for the HUD readout).
+  const heightAboveGroundM = (Math.hypot(...cam.pos) - RADIUS*(1.0 + surfElev)) * 1000;
+  window.__altM = heightAboveGroundM;
+
+  // The camera (autopilot + free-fly + clamp) has now been fully updated this frame,
+  // so render the planet with the CURRENT camera. This is
+  // the sole render path; it advances the sun, draws via the orchestrator, updates
+  // the HUD/title/diag, schedules the next frame, and returns.
+  if (window.__useWebGL2Terrain && window.__planetOrch) {
+    // CONTEXT-LOSS TOLERANCE (2026-06-11 AMD crash class): drawing on a lost context wedges the
+    // page (witnessed: evaluate timeouts after WEBGL_lose_context). Skip the draw, keep the rAF
+    // loop + HUD + banner alive; rendering resumes if the context is restored (or the user reloads).
+    if (window.__planetOrchGL && window.__planetOrchGL.isContextLost && window.__planetOrchGL.isContextLost()) {
+      scheduleFrame(); return;
+    }
+    const gw = document.getElementById('cwebgl');
+    // keep the drawing buffer matched to the window (x DPR). See the init note: canvas IS
+    // #cwebgl, so size from the viewport, not canvas.width (which would lock to 300).
+    { const _dpr = Math.min(window.devicePixelRatio||1, 2); const tw=Math.round(innerWidth*_dpr), th=Math.round(innerHeight*_dpr);
+      if (gw.width!==tw||gw.height!==th){ gw.width=tw; gw.height=th; } }
+    // Sun longitude = HUD base (sunAzimuth) + accumulated rotation (timeScale slider).
+    cam.sunLonAccum += dt * 1000.0 * cam.sunLonRate * cam.timeScale;
+    const sM = WEBGL2_M_PER_UNIT;
+    const eyeM = [cam.pos[0]*sM, cam.pos[1]*sM, cam.pos[2]*sM];
+    const tgtM = [eyeM[0]+cam.fwd[0]*WEBGL2_TERRAIN_R_M, eyeM[1]+cam.fwd[1]*WEBGL2_TERRAIN_R_M, eyeM[2]+cam.fwd[2]*WEBGL2_TERRAIN_R_M];
+    const _sLon = cam.sunLonBase + cam.sunLonAccum, _sLat = cam.sunLatBase||0;
+    const _sun = [Math.cos(_sLat)*Math.sin(_sLon), Math.sin(_sLat), Math.cos(_sLat)*Math.cos(_sLon)];
+    window.__lastSun = _sun;
+    oceanTime += dt * cam.oceanTimeScale;   // Wave-speed slider scales the ocean clock
+    // displayMode precedence pick (NOT bitwise OR): window.__displayMode is the diagnostic override
+    // (set by __dbg.setDisplayMode/census/aimDir), cam.displayMode is the Render dropdown. The old
+    // (a|b) merged them with bitwise OR -- a|b only equals b when a===0, so a stale __displayMode left
+    // at 2 by a diagnostic turned a dropdown pick of 1 into 2|1=3 (invalid mode -> silent lit) = the
+    // 'render menu does nothing' report. Explicit precedence: override wins when set, else the menu.
+    const _dmEff = (window.__displayMode != null ? window.__displayMode : cam.displayMode) | 0;
+    const fr = window.__planetOrch.frame(eyeM, tgtM, 45*Math.PI/180, _dmEff, _sun, oceanTime, cam.up, surfElev);
+    window.__webglFrame = fr;
+    // First rendered frame: tear down the loading overlay (compile finished, terrain is on screen).
+    if (window.__loadOverlay !== false) { const ov=document.getElementById('__loadOverlay');
+      if (ov) ov.remove(); if (window.__loadTick) { clearInterval(window.__loadTick); window.__loadTick=null; } window.__loadOverlay=false; }
+    // Passive per-frame health vector -- O(1) read for a witness, no async frames()
+    // sweep needed (catches transient glError spikes during camera motion too).
+    window.__diagMetrics = { status:window.__planetOrchStatus||'init', quadCount:fr.quadCount|0,
+      residentCount:fr.residentCount|0, fallbackCount:fr.fallbackCount|0, culledCount:fr.culledCount|0,
+      glError:fr.glError|0, altKm:+(Math.hypot(...cam.pos)-RADIUS).toFixed(1),
+      displayMode:_dmEff, pageErr:window.__pageErr||null, t:performance.now()|0 };
+
+    // FPS (EMA over the true inter-frame interval) + HUD/title.
+    const mspfInstant = Math.max(0.001, frameMs);
+    emaMspf = (emaMspf === 0) ? mspfInstant : (emaMspf * 0.9 + mspfInstant * 0.1);
+    const fps = 1000 / emaMspf;
+    document.title = `mapspinner - fps: ${fps.toFixed(6)}, mspf: ${emaMspf.toFixed(6)}`;
+    frame++;
+    // ---- DYNAMIC RESOLUTION (2026-06-16/17, "144fps PROPERLY space->deck, no transfer spikes"): hold the
+    // target framerate by dialing the HITCH-FREE viewport-DRS (gl-render __vdrsScale) -- NEVER by dropping
+    // geometry/material detail (those stay full-res at every altitude). The controller drives the FBO
+    // viewport fraction, so a step is a free gl.viewport change with NO canvas realloc = NO transfer spike
+    // (the old canvas-resize path added ~2 resize blips/descent; the FBO path eliminates them -- witnessed
+    // bufConst across __vdrsScale 1.0->0.45 on the real AMD spool). Reaches 144 at the deck (vdrsScale ~0.45
+    // pixel-bound). STEADY-STATE: a dead-band (~131-160fps at 144) holds vdrsScale; it steps 0.05 every 20
+    // frames only while off-target, and climbs back to 1.0 (native) when there's headroom (space).
+    // OPT-IN (window.__drs===true): tradeoff is single-sample AA at vdrsScale<1 (edges alias vs context
+    // MSAA) -- a multisample FBO is the look-preserving follow-up before this can default on.
+    // window.__drsTargetFps overrides 144; reuses emaMspf (alpha-0.1 frame EMA).
+    if (window.__drs === true && frameMs > 0 && frameMs < 100) {
+      _drsOwnsVdrs = true;
+      _drsCool++;
+      const tMs = 1000 / (window.__drsTargetFps || 144);
+      const vFloor = 0.45;
+      let vs = (typeof window.__vdrsScale === 'number') ? window.__vdrsScale : 1.0;
+      if (_drsCool >= 20) {                                         // 20 frames is safe -- a vdrs step never hitches
+        if (emaMspf > tMs * 1.10 && vs > vFloor + 1e-3) {           // too slow -> shed pixels (all detail kept)
+          vs = Math.max(vFloor, vs - 0.05); _drsCool = 0;
+        } else if (emaMspf < tMs * 0.90 && vs < 1.0 - 1e-3) {       // headroom -> restore resolution toward native
+          vs = Math.min(1.0, vs + 0.05); _drsCool = 0;
+        }
+      }
+      window.__vdrsScale = vs;
+      // Engage the FBO path ONLY when a downscale is actually needed; at native scale (e.g. space with
+      // headroom) use the DEFAULT canvas path so the orbit limb/silhouette keeps the context MSAA (sharp) --
+      // the single-sample FBO would alias that hard edge. Toggling __vdrs never resizes the canvas, so this
+      // stays hitch-free; it softens ONLY the fps-constrained deck (no hard edges there). vs<0.985 = FBO on.
+      window.__vdrs = (vs < 0.985);
+    } else if (_drsOwnsVdrs) {                                      // __drs turned off -> release vdrs back to native
+      window.__vdrs = false; window.__vdrsScale = 1.0; _drsOwnsVdrs = false;
+    }
+    const camDistR = Math.hypot(...cam.pos)/RADIUS;
+    const quadN = (fr && fr.quadCount) || 0;
+    if (frame % diagInterval === 0) {
+      // ENRICHED DIAG (2026-06-07): carry the atlas/height state so /diag/tail diagnoses the flat-land +
+      // biome-banding headlessly. Sample the GPU ground height + its lateral variation under the camera:
+      // a RICH range = relief present; a FLAT (~constant) range with atlas on = the atlas height is being
+      // read flat (the user's 'land looks flat'). hasAtlas tells which path is live.
+      // PROBE BURST REMOVED (perf sweep 2026-06-11): this block ran 5 back-to-back sampleGroundM
+      // draws+readPixels (5 serialized pipeline stalls in one frame = a 1Hz hitch at the deck).
+      // groundM keeps ONE probe (center sample); the lateral hRangeM forensic moved to the on-demand
+      // window.__diag.hRange() -- same data, zero steady-state cost.
+      let hSamp = null, hRangeM = null;
+      try {
+        const orch = window.__planetOrch, sg = orch && orch.render && orch.render.sampleGroundM;
+        if (sg) {
+          const p = window.__cam.pos, L = Math.hypot(p[0],p[1],p[2])||1;
+          const h0 = sg([p[0]/L, p[1]/L, p[2]/L]);
+          if (h0 != null && isFinite(h0)) hSamp = +h0.toFixed(0);
+        }
+      } catch(_) {}
+      postDiag({kind:'frame', frame, fps, mspf:emaMspf, altR:camDistR-1.0,
+        quads:quadN, glError:fr&&fr.glError, resident:fr&&fr.residentCount,
+        cw:canvas.width, ch:canvas.height,
+        floatLinearOK: window.__floatLinearOK,
+        // TRIPWIRE (2026-06-11, recurring class): non-zero bakePending while the terrain looks
+        // grey/rocky/flat = the UNBAKED-HPF window (see AGENTS.md recurring-class section).
+        bakePending: (window.__initTimings||{}).bakeFacesPending,
+        // software-WebGL / context-loss tripwires (the AMD crash class): non-null = degraded session
+        swgl: window.__softwareWebGL ? 1 : undefined, ctxLostAt: window.__ctxLostAt,
+        groundM: hSamp, groundRangeM: hRangeM});
+    }
+    if (frame % 30 === 0) {
+      const altR=(camDistR-1.0); const altM = altR * 6371000;
+      const altStr = altM > 1e6 ? `${(altM/1e6).toFixed(1)}Mm`
+                   : altM > 1e3 ? `${(altM/1e3).toFixed(1)}km` : `${altM.toFixed(0)}m`;
+      const hg = window.__altM || 0;
+      const hgStr = Math.abs(hg) > 1000 ? `${(hg/1000).toFixed(2)}km` : `${hg.toFixed(1)}m`;
+      let line = `ground ${hgStr} . alt ${altStr} . quads ${quadN} . spd ${cam.speed.toFixed(2)} . ${canvas.width}x${canvas.height} . fps ${fps.toFixed(1)}`;
+      // TOTAL-CLARITY HUD (2026-06-12 tooling): which GPU/backend this session actually runs, plus the
+      // degraded-state tripwires. A day of diagnosis was lost to not knowing at a glance which stack a
+      // window used and whether a debug view had silently failed.
+      { const gr = window.__gpuRenderer || '';
+        const short = /vulkan/i.test(gr) ? 'vk' : /d3d11|direct3d/i.test(gr) ? 'd3d11' : /swiftshader|software/i.test(gr) ? 'SOFTWARE' : gr ? 'gl?' : '?';
+        const vendor = /nvidia/i.test(gr) ? 'nv' : /amd|radeon/i.test(gr) ? 'amd' : /intel/i.test(gr) ? 'intel' : '?';
+        line += `  ||  ${vendor}/${short}`;
+        if (window.__softwareWebGL) line += ' SWGL!';
+        if (window.__ctxLostAt) line += ' CTXLOST!';
+        const bp = (window.__initTimings||{}).bakeFacesPending|0; if (bp > 0) line += ` bake:${bp}`;
+        const dmReq = (window.__displayMode != null ? window.__displayMode : cam.displayMode)|0;
+        if (dmReq !== 0 && dmReq !== 2 && dmReq !== 4 && window.__debugProgState && window.__debugProgState !== 'ready')
+          line += `  DBGVIEW ${window.__debugProgState.slice(0,40)}`;
+      }
+      // CULL DEBUG HUD (toggle with 'c'): show cull state + the false-cull signature live so the
+      // user can SEE when the frustum cull is wrongly dropping on-screen quads. culledOnScreen>0
+      // (in RED) is the bug; 'cached' frame means the static-camera re-render path (not a rebuild).
+      if (window.__cullDebug) {
+        const cs = window.__cullStats || {};
+        const bad = (cs.culledOnScreen|0) > 0;
+        line += `  ||  CULL[${window.__frustumCull?'ON':'off'}] ${cs.frame||'?'} kept ${cs.kept|0} culled ${cs.culled|0} ` +
+                (bad ? `BADcull-on-screen ${cs.culledOnScreen}` : `onScreenCulled ${cs.culledOnScreen|0}`);
+        stats.style.color = bad ? '#ff5555' : '';
+      } else { stats.style.color = ''; }
+      stats.textContent = line;
+    }
+    scheduleFrame();
+    return;
+  }
+  // No orchestrator yet (still initialising) -- keep the loop alive.
+  scheduleFrame();
+}
+// Self-witnessing autopilot: enable with ?autopilot. Picks a fixed high-
+// elevation land target (deterministic scan), so the descent trace in
+// GET /diag/tail is reproducible without any browser tool.
+if (location.search.indexOf('autopilot') >= 0){
+  let best=null, bestE=-1;
+  for (let i=0;i<4000;i++){
+    const a = i*2.399963, y = 1 - 2*(i+0.5)/4000;   // fibonacci-ish sphere scan
+    const rxy = Math.sqrt(Math.max(0,1-y*y));
+    const d = [Math.cos(a)*rxy, y, Math.sin(a)*rxy];
+    const e = jsElev(d[0],d[1],d[2]);
+    if (e > bestE){ bestE = e; best = d; }
+  }
+  window.__autopilot = { t:0, lastLog:-1, target:best, yaw:0 };
+  postDiag({kind:'autopilot-start', targetElevKm:+(bestE*RADIUS).toFixed(3)});
+}
+scheduleFrame();
+// HIDDEN-TAB INIT BOOTSTRAP (2026-06-12 'total clarity' tooling): rAF NEVER fires in a minimized or
+// hidden window, and the whole init chain (GL context, shader compile, HPF bake) lives inside
+// frameLoop -- so a backgrounded tab sat at 'init' FOREVER with zero signal (the day's recurring
+// stuck-at-init mechanism; the compile poll's document.hidden fallback in gl-render only helps once
+// init has started). Tick frameLoop on a timer while the page is hidden so init runs and the page
+// reaches 'ready' regardless of visibility; rendering proper still happens on rAF when visible.
+setInterval(() => { if (document.hidden) { try { frameLoop(); } catch (_) {} } }, 250);
+// Wire HUD panel inputs to cam.
+const $ = id => document.getElementById(id);
+// Sun by ZENITH (0=overhead, 90=horizon, >90=below) + AZIMUTH (compass), the
+// author's control convention. Map to the internal lat/lon sun vector:
+//   elevation above horizon = 90 - zenith  => sunLatBase = (90-zenith)*PI/180
+//   azimuth (deg)                          => sunLonBase = azimuth*PI/180
+$('sunZenith').addEventListener('input', e => { cam.sunLatBase = (90 - +e.target.value) * Math.PI/180; });
+$('sunAzimuth').addEventListener('input', e => { cam.sunLonBase = (+e.target.value) * Math.PI/180; });
+$('timeScale').addEventListener('input', e => { cam.timeScale = +e.target.value; });
+$('exposure').addEventListener('input', e => { cam.exposure = +e.target.value; });
+$('wireframe').addEventListener('change', e => { cam.wireframe = e.target.checked; window.__wireframe = e.target.checked ? 1 : 0; });
+// OCEAN HUD REMOVED (user 2026-06-02: 'get rid of the ocean options'). The terrain.glsl ocean
+// water branch still renders with FIXED sane defaults set here (no sliders, no listeners on the
+// deleted #o* elements -> no JS throw). oceanTimeScale keeps the waves animating gently.
+cam.oceanAmplitude  = 1.0 * (0.4 + 5 / 12.0);    // == old default (windSpeed 5)
+cam.oceanChoppiness = 1.6 * (0.5 + 0.5);         // == old default (seaState 0.5)
+cam.oceanFoam       = 0.5;
+cam.oceanTimeScale  = 1.0;
+// Display-mode toggle. Skirts removed: LOD cracks are now hidden
+// by the one-cell overlap ring in the mesh, not a dropped skirt curtain.
+// User picking from the dropdown is an explicit action that must WIN over any stale diagnostic
+// override (window.__displayMode left set by __dbg.setDisplayMode/census/aimDir). Clear the override
+// so the menu value takes effect immediately -- otherwise the precedence pick in the render loop
+// keeps showing the stale override and the menu appears dead.
+$('displayMode').addEventListener('change', e => { window.__displayMode = null; cam.displayMode = +e.target.value; });
+// Expose the camera + jsElev for headless witness / descent tests.
+window.__qt = { jsElev, RADIUS, get pxPerVert(){ return window.__pxPerVert || 0; } };
+window.__planet = { cam, get gl(){ return window.__planetOrchGL || null; }, get orch(){ return window.__planetOrch || null; } };
+
+// Headless pixel readback on the WebGL2 canvas (#cwebgl). preserveDrawingBuffer:true
+// is set on the context so gl.readPixels returns the actual rendered frame.
+function readPixelAt(x, y) {
+  const gl = window.__planetOrchGL; if (!gl) return {err:'no-gl'};
+  const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+  const xi = Math.max(0, Math.min(w-1, x|0));
+  const yi = Math.max(0, Math.min(h-1, y|0));
+  const p = new Uint8Array(4);
+  // WebGL origin is bottom-left; flip y so callers can pass top-left coords.
+  gl.readPixels(xi, h-1-yi, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, p);
+  return { r:p[0], g:p[1], b:p[2], a:p[3] };
+}
+window.__readPixelAt = readPixelAt;
+window.__readCenterPixel = () => { const gl=window.__planetOrchGL; return gl ? readPixelAt(gl.drawingBufferWidth/2|0, gl.drawingBufferHeight/2|0) : {err:'no-gl'}; };
+// Fraction of non-clear pixels over the whole #cwebgl buffer (terrain/ocean/sky
+// coverage witness). Clear color is the dark space blue (~<12,<14,<30).
+window.__coverage = () => {
+  const gl = window.__planetOrchGL; if (!gl) return {err:'no-gl'};
+  const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+  const px = new Uint8Array(w*h*4);
+  gl.readPixels(0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,px);
+  let nonClear=0; for(let i=0;i<w*h;i++){ const r=px[i*4],g=px[i*4+1],b=px[i*4+2]; if(!(r<12&&g<14&&b<30)) nonClear++; }
+  return { w, h, coverage:nonClear/(w*h) };
+};
+
+// ===========================================================================
+// window.__dbg -- debug + test harness. Units are REAL km (RADIUS=6371). All
+// camera moves drive the free-fly camera the WebGL2 render loop reads each frame.
+// ===========================================================================
+window.__dbg = {
+  R: RADIUS,
+  cam,
+  // --- state probes ---
+  altKm(){ return Math.hypot(...cam.pos) - RADIUS; },
+  altM(){ return this.altKm()*1000; },
+  groundM(){ return window.__altM || 0; },                 // height above terrain (m)
+  status(){ return window.__planetOrchStatus || 'init'; }, // orchestrator init state
+  frame(){ return window.__webglFrame || null; },          // last orchestrator frame stats
+  glError(){ const f=window.__webglFrame; return f ? f.glError : null; },
+  quads(){ const f=window.__webglFrame; return f ? f.quadCount : 0; },
+  pageErr(){ return window.__pageErr || null; },
+  coverage(){ return window.__coverage(); },
+  // one-shot snapshot a witness reads.
+  state(){ const f=window.__webglFrame||{}; return {
+    status:this.status(), altKm:+this.altKm().toFixed(3), groundM:+this.groundM().toFixed(1),
+    quads:f.quadCount||0, glError:f.glError, resident:f.residentCount,
+    fwd:cam.fwd.map(v=>+v.toFixed(4)), pos:cam.pos.map(v=>+v.toFixed(2)),
+    cw:canvas.width, ch:canvas.height,
+    sun:(window.__lastSun||[]).map(v=>+v.toFixed(4)), exposure:cam.exposure,
+    pageErr:window.__pageErr||null,
+  }; },
+  // --- camera control (real units) ---
+  goto(altKm=1.5, pitchDown=0.4){
+    const p=cam.pos, len=Math.hypot(...p)||1, k=(RADIUS+altKm)/len;
+    aimAt([p[0]*k,p[1]*k,p[2]*k], [-p[0],-p[1]+pitchDown*len,-p[2]]);
+    return this.altKm();
+  },
+  space(){ gotoSpaceView(); return this.altKm(); },
+  lookDown(){ const p=cam.pos; aimAt([p[0],p[1],p[2]], [-p[0],-p[1],-p[2]]); return cam.fwd.slice(); },
+  aim(pos, dir){ aimAt(pos, dir); return {pos:cam.pos.slice(), fwd:cam.fwd.slice()}; },
+  gotoOblique(altKm=2, dip=0.3){
+    const p=cam.pos, len=Math.hypot(...p)||1, k=(RADIUS+altKm)/len;
+    const np=[p[0]*k,p[1]*k,p[2]*k]; const u=[np[0]/(RADIUS+altKm),np[1]/(RADIUS+altKm),np[2]/(RADIUS+altKm)];
+    let t=[u[1],-u[0],0]; const tl=Math.hypot(...t)||1; t=[t[0]/tl,t[1]/tl,t[2]/tl];
+    aimAt(np, [t[0]-u[0]*dip, t[1]-u[1]*dip, t[2]-u[2]*dip]); return this.altKm();
+  },
+  gotoDown(altKm=2){ const p=cam.pos, len=Math.hypot(...p)||1, k=(RADIUS+altKm)/len;
+    const np=[p[0]*k,p[1]*k,p[2]*k]; aimAt(np, [-np[0],-np[1],-np[2]]); return this.altKm(); },
+  yaw(rad=0.5){
+    const f=cam.fwd, u=cam.up, ca=Math.cos(rad), sa=Math.sin(rad);
+    const dot=f[0]*u[0]+f[1]*u[1]+f[2]*u[2];
+    const cx=u[1]*f[2]-u[2]*f[1], cy=u[2]*f[0]-u[0]*f[2], cz=u[0]*f[1]-u[1]*f[0];
+    cam.fwd=[f[0]*ca+cx*sa+u[0]*dot*(1-ca), f[1]*ca+cy*sa+u[1]*dot*(1-ca), f[2]*ca+cz*sa+u[2]*dot*(1-ca)];
+    return cam.fwd.slice();
+  },
+  // await N animation frames (deterministic witness timing).
+  frames(n=1){ return new Promise(res=>{ let k=0; const step=()=>{ if(++k>=n) res(k); else requestAnimationFrame(step); }; requestAnimationFrame(step); }); },
+  // resolution-independent pixel readback: fx,fy in [0,1] (top-left origin).
+  pixelFrac(fx=0.5, fy=0.5){
+    const gl=window.__planetOrchGL; if(!gl) return {err:'no-gl'};
+    return readPixelAt(Math.round(fx*(gl.drawingBufferWidth-1)), Math.round(fy*(gl.drawingBufferHeight-1)));
+  },
+  // descentTrace: sample state at a list of altitudes (km) looking down.
+  async descentTrace(alts=[12000,1200,120,12,2]){
+    const out=[];
+    for(const km of alts){ this.gotoDown(km); await this.frames(5);
+      out.push({ km, alt:+this.altKm().toFixed(2), quads:this.quads(), glError:this.glError() }); }
+    return out;
+  },
+  // --- census: the reliable close-up metric. Set displayMode, render N frames,
+  // gl.finish, readPixels the WHOLE canvas, return coverage + distinct-color +
+  // mean RGB + per-quadrant coverage. The one trustworthy headless witness. ---
+  setDisplayMode(m){ window.__displayMode = m|0; cam.displayMode = m|0; return window.__displayMode; },
+  async census(displayMode){
+    if(displayMode!==undefined) this.setDisplayMode(displayMode);
+    await this.frames(6);
+    const gl=window.__planetOrchGL; if(!gl) return {err:'no-gl'};
+    gl.finish();
+    const w=gl.drawingBufferWidth, h=gl.drawingBufferHeight;
+    const px=new Uint8Array(w*h*4); gl.readPixels(0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,px);
+    let nz=0, rs=0,gs=0,bs=0; const colors=new Set(); const quad=[0,0,0,0]; const qn=[0,0,0,0];
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){ const i=(y*w+x)*4, r=px[i],g=px[i+1],b=px[i+2];
+      const qi=(y<h/2?0:2)+(x<w/2?0:1); qn[qi]++;
+      if(r>8||g>8||b>8){ nz++; rs+=r;gs+=g;bs+=b; quad[qi]++;
+        if(colors.size<4096) colors.add((r>>3<<10)|(g>>3<<5)|(b>>3)); } }
+    return { displayMode:window.__displayMode|0, cov:+(nz/(w*h)).toFixed(3),
+      distinctColors:colors.size, meanRGB: nz?[Math.round(rs/nz),Math.round(gs/nz),Math.round(bs/nz)]:[0,0,0],
+      quadrants: quad.map((c,i)=>+(c/(qn[i]||1)).toFixed(3)), w, h,
+      quads:this.quads(), glError:this.glError() };
+  },
+  // descend deterministically to altKm looking straight down, settle, census.
+  async descend(altKm=2, displayMode){ this.gotoDown(altKm); await this.frames(5); return this.census(displayMode); },
+  // fpsProbe: time orchestrator.frame() directly N times (HUD fps is rAF-throttled
+  // headless -- this is the real GPU timing). Returns ms/frame + fps.
+  fpsProbe(n=60){
+    const orch=window.__planetOrch; if(!orch) return {err:'no-orch'};
+    const eyeM=cam.pos.map(v=>v*WEBGL2_M_PER_UNIT), tgtM=cam.pos.map((v,i)=>(v+cam.fwd[i])*WEBGL2_M_PER_UNIT);
+    const sun=window.__lastSun||[0,0,1];
+    const t0=performance.now();
+    for(let i=0;i<n;i++) orch.frame(eyeM,tgtM,45*Math.PI/180,0,sun,i*0.016,cam.up);
+    const ms=(performance.now()-t0)/n;
+    return { frames:n, msPerFrame:+ms.toFixed(2), fps:+(1000/ms).toFixed(1) };
+  },
+  // lodCoherence: descend through altitudes, assert quadCount is monotonic-ish
+  // (more quads as we get closer) and glError stays 0. Returns trace + verdict.
+  async lodCoherence(alts=[20000,2000,200,20,2]){
+    const tr=await this.descentTrace(alts);
+    let monotone=true; for(let i=1;i<tr.length;i++) if(tr[i].quads < tr[i-1].quads*0.5) monotone=false;
+    const noErr=tr.every(t=>!t.glError);
+    return { trace:tr, monotoneQuadGrowth:monotone, noGlError:noErr, pass:monotone&&noErr };
+  },
+  // genReport: dump the orchestrator/producer generation params + last frame stats.
+  genReport(){ const f=window.__webglFrame||{}; return {
+    radiusM: WEBGL2_TERRAIN_R_M, mPerUnit: WEBGL2_M_PER_UNIT,
+    status:this.status(),
+    frame:{ quads:f.quadCount, resident:f.residentCount, fallback:f.fallbackCount,
+      maxFallbackLevel:f.maxFallbackLevel, frontFace:f.face, glError:f.glError } };
+  },
+};
+
+// ===========================================================================
+// window.__diag -- structured one-dispatch terrain diagnostics. Each method
+// returns asserts queryable via a single page.evaluate, so issues are
+// root-caused from runtime state, not screenshots.
+// ===========================================================================
+window.__diag = {
+  _gl(){ return window.__planetOrchGL; },
+  // ON-DEMAND lateral ground-height range (moved out of the 1Hz diag stream, perf sweep 2026-06-11:
+  // the 5 serialized probe readbacks were a per-second frame hitch). Same 5-dir sample as before.
+  hRange(){
+    const orch = window.__planetOrch, sg = orch && orch.render && orch.render.sampleGroundM;
+    if (!sg) return { err: 'no-probe' };
+    const p = window.__cam.pos, L = Math.hypot(p[0],p[1],p[2])||1;
+    const d0 = [p[0]/L, p[1]/L, p[2]/L];
+    const e = 0.0008, hs = [];
+    for (const off of [[0,0],[e,0],[-e,0],[0,e],[0,-e]]) {
+      const d = [d0[0]+off[0], d0[1]+off[1], d0[2]+off[1]];
+      const l = Math.hypot(d[0],d[1],d[2])||1;
+      const h = sg([d[0]/l,d[1]/l,d[2]/l]);
+      if (h == null || !isFinite(h)) return { err: 'probe-not-ready' };   // lazy probe still compiling
+      hs.push(h);
+    }
+    return { groundM: +hs[0].toFixed(0), hRangeM: +(Math.max(...hs)-Math.min(...hs)).toFixed(0) };
+  },
+  // (K7) bisect -- the one-call carrier-finder (2026-06-12, codifies the method that cracked the FXC
+  // per-callsite root). At the CURRENT pose, A/Bs each isolation toggle against baseline and returns
+  // the pixel-diff fraction per toggle: the BIG number names the term carrying whatever you're looking
+  // at (splat, texture normals, warp, slope-rock material, the lit normal itself). No camera moves.
+  async bisect(){
+    const grab = () => this._read();
+    const diff = (A, B) => { let d = 0, n = 0;
+      for (let i = 0; i < A.px.length; i += 28) { n++;
+        if (Math.abs(A.px[i]-B.px[i])+Math.abs(A.px[i+1]-B.px[i+1])+Math.abs(A.px[i+2]-B.px[i+2]) > 12) d++; }
+      return +(d/n).toFixed(3); };
+    const fr = async () => { await window.__dbg.frames(4); };
+    const base = grab(); const out = {};
+    window.__texMix = 0;       await fr(); out.splat       = diff(base, grab()); window.__texMix = 0.85;
+    window.__texNrmK = 0;      await fr(); out.texNormals  = diff(base, grab()); window.__texNrmK = 3;
+    window.__texWarp = 0;      await fr(); out.warp        = diff(base, grab()); window.__texWarp = 1.0;
+    window.__flatNormal = 1;   await fr(); out.litNormal   = diff(base, grab()); window.__flatNormal = 0;
+    const g = window.__gen; let sr0 = null;
+    if (g && g.state && g.state.biome) { sr0 = g.state.biome.slopeRock.slice();
+      g.state.biome.slopeRock = [8,9]; g.apply(); await fr(); out.slopeRockMat = diff(base, grab());
+      g.state.biome.slopeRock = sr0; g.apply(); }
+    await fr();
+    return out;
+  },
+  // (K8) groundTruth -- probe-side facts under a screen position (default center): height, 150m-FD
+  // slope, so render-vs-field disputes resolve in one call (the probe and the wireframe are the
+  // geometry truth; if the render disagrees, the shading path is the liar).
+  groundTruth(){
+    const orch = window.__planetOrch, sg = orch && orch.render && orch.render.sampleGroundM;
+    if (!sg) return { err: 'no-probe' };
+    const p = window.__cam.pos, L = Math.hypot(p[0],p[1],p[2])||1;
+    const u = [p[0]/L, p[1]/L, p[2]/L];
+    const h = sg(u); if (h == null) return { err: 'probe-not-ready' };
+    const e = 150/6360000;
+    const ref = Math.abs(u[1])<0.99?[0,1,0]:[1,0,0];
+    let ux=[ref[1]*u[2]-ref[2]*u[1],ref[2]*u[0]-ref[0]*u[2],ref[0]*u[1]-ref[1]*u[0]];
+    const xl=Math.hypot(ux[0],ux[1],ux[2]); ux=ux.map(v=>v/xl);
+    const uy=[u[1]*ux[2]-u[2]*ux[1],u[2]*ux[0]-u[0]*ux[2],u[0]*ux[1]-u[1]*ux[0]];
+    const tap=(ax)=>{const v=[u[0]+ax[0]*e,u[1]+ax[1]*e,u[2]+ax[2]*e];const l=Math.hypot(v[0],v[1],v[2]);return sg([v[0]/l,v[1]/l,v[2]/l]);};
+    const du=(tap(ux)-h)/150, dv=(tap(uy)-h)/150;
+    return { h: Math.round(h), slope150: +((1 - 1/Math.sqrt(1+du*du+dv*dv))).toFixed(3), camDir: u.map(v=>+v.toFixed(4)) };
+  },
+  // GPU-TIMER VS/FS attribution (headed browser only -- EXT_disjoint_timer_query_webgl2 is absent
+  // in headless node-gl, the long-standing measurement gap). Times the planet draw three ways via
+  // the timer-query ext: FULL frame (VS+FS), CHEAP frame (window.__fsCheap short-circuits the FS to
+  // a trivial color = VS+raster only), and reports the delta = per-pixel FS cost. Falls back to a
+  // gl.finish()-bracketed CPU wall-clock if the ext is missing. reps frames are averaged. This is
+  // the MEASURE-FIRST surface: it names whether the bottleneck is the per-vertex 14-oct broadShapeM
+  // (VS) or the per-pixel shade (FS) so the most-performant lever is picked, not guessed.
+  async gpuTimer(reps=30){
+    const g=this._gl(); if(!g) return {err:'no-gl'};
+    const d=window.__dbg;
+    const ext = g.getExtension('EXT_disjoint_timer_query_webgl2') || g.getExtension('EXT_disjoint_timer_query');
+    // time `reps` real rAF frames with a given __fsCheap setting; returns avg GPU ms (ext) or wall ms.
+    const timeMode = async (cheap)=>{
+      window.__fsCheap = cheap ? 1 : 0; await d.frames(3);   // warm + flush the mode change
+      if(ext){
+        const samples=[];
+        for(let i=0;i<reps;i++){
+          const q=g.createQuery(); g.beginQuery(ext.TIME_ELAPSED_EXT, q);
+          await d.frames(1);
+          g.endQuery(ext.TIME_ELAPSED_EXT);
+          // poll for the result (1-frame latency); bail if the GPU disjoint flag tripped
+          let avail=false,disjoint=false,guard=0;
+          while(!avail && guard++<240){ await d.frames(1);
+            avail=g.getQueryParameter(q, g.QUERY_RESULT_AVAILABLE);
+            disjoint=g.getParameter(ext.GPU_DISJOINT_EXT); if(disjoint) break; }
+          if(avail && !disjoint){ samples.push(g.getQueryParameter(q, g.QUERY_RESULT)/1e6); } // ns->ms
+          g.deleteQuery(q);
+        }
+        samples.sort((a,b)=>a-b);
+        const med = samples.length ? samples[samples.length>>1] : null;
+        return { ms: med, n: samples.length, src:'timer-query' };
+      } else {
+        const t0=performance.now();
+        for(let i=0;i<reps;i++){ await d.frames(1); }
+        g.finish();
+        return { ms:+((performance.now()-t0)/reps).toFixed(3), n:reps, src:'wall-finish' };
+      }
+    };
+    const full = await timeMode(false);
+    const cheap = await timeMode(true);
+    window.__fsCheap = 0; await d.frames(2);
+    const fsMs = (full.ms!=null && cheap.ms!=null) ? +(full.ms - cheap.ms).toFixed(3) : null;
+    return {
+      hasExt: !!ext, src: full.src,
+      fullMs: full.ms!=null?+full.ms.toFixed(3):null,    // VS + FS (per-pixel shade) + raster
+      vsRasterMs: cheap.ms!=null?+cheap.ms.toFixed(3):null, // VS (14-oct broadShapeM x3/vtx) + raster
+      fsMs,                                              // per-pixel FS cost = full - cheap
+      vsDominant: (fsMs!=null && cheap.ms!=null) ? (cheap.ms > fsMs) : null,
+      quads:(window.__lastGLQuads||[]).length, glError:d.glError
+    };
+  },
+  _read(){ const g=this._gl(); const w=g.drawingBufferWidth,h=g.drawingBufferHeight; const px=new Uint8Array(w*h*4); g.finish(); g.readPixels(0,0,w,h,g.RGBA,g.UNSIGNED_BYTE,px); return {px,w,h}; },
+  // Deterministic LIT view over a fixed land point at a given altitude (km). Camera looks straight
+  // down; the sun is set ~35deg OFF vertical (not straight down) so slopes light and self-shadow ->
+  // relief is actually visible in the shading (sun-straight-down washes relief flat). The single
+  // tool for measuring lit-mode detail monotonically across altitudes without the night-side /
+  // re-randomizing-findLand problems. dir defaults to the canonical land heading.
+  async litParkOverLand(altKm, dir){ const u=(()=>{const d=dir||[-0.24,0,-0.97];const l=Math.hypot(d[0],d[1],d[2]);return [d[0]/l,d[1]/l,d[2]/l];})();
+    const R=window.__dbg.R, r=R+altKm; cam.pos=[u[0]*r,u[1]*r,u[2]*r]; cam.fwd=[-u[0],-u[1],-u[2]]; cam.up=Math.abs(u[1])<0.9?[0,1,0]:[1,0,0];
+    // sun 35deg off the local vertical so the surface is lit but slopes cast relief shading.
+    const lat=Math.asin(u[1]), lon=Math.atan2(u[0],u[2]);
+    cam.sunLatBase=Math.max(-1.5, lat - 0.6); cam.sunLonBase=lon; cam.sunLonAccum=0; cam.timeScale=0;
+    await window.__dbg.frames(8); return {altKm, sunDotUp:this.sunDotUp()}; },
+  // (A2) scrollProbe -- the UV-SCROLL witness (user: 'scrolling effects moving over the land').
+  // Park lit over land at altKm, capture albedo, translate the camera laterally by stepM (< the
+  // FS detail snap cell so the lattice origin does NOT jump), recapture, return mean abs luma diff
+  // over the disc. With the snapped-anchor detail coords the grain is world-fixed -> the pattern
+  // does not slide with the camera, so the diff is only true parallax (small at distance). A high
+  // diff at distance = the lattice is still scrolling with the camera (the bug). displayMode 2
+  // (albedo) isolates the material grain from lighting. stepM default 300 (< the 1024m snap cell).
+  async scrollProbe(altKm=60, stepM=300){
+    const rdy=await this.assertReady(); if(!rdy.ok) return {err:'not-ready'};
+    const d=window.__dbg;
+    await this.litParkOverLand(altKm);
+    window.__displayMode=2; await d.frames(8);
+    const A=this._read();
+    const p=cam.pos, len=Math.hypot(...p)||1;
+    // a tangent direction perpendicular to the radial (lateral pan over the ground)
+    let t=[-p[1]/len, p[0]/len, 0]; const tl=Math.hypot(...t)||1; t=[t[0]/tl,t[1]/tl,t[2]/tl];
+    cam.pos=[p[0]+t[0]*stepM, p[1]+t[1]*stepM, p[2]+t[2]*stepM];
+    await d.frames(8);
+    const B=this._read();
+    let s=0,n=0; const {px:pa,w,h}=A; const pb=B.px;
+    for(let i=0;i<w*h;i++){ const ra=pa[i*4],ga=pa[i*4+1],ba=pa[i*4+2];
+      if(ra<4&&ga<4&&ba<4) continue;
+      const la=(ra+ga+ba)/3, lb=(pb[i*4]+pb[i*4+1]+pb[i*4+2])/3; s+=Math.abs(la-lb); n++; }
+    window.__displayMode=0; await d.frames(2);
+    return { altKm, stepM, snapCellM:1024, meanAbsLumaDiff:+(s/Math.max(n,1)).toFixed(2),
+      discPx:n, glError:d.glError }; },
+  // (A0b) parkAboveGround -- park altKm above the LOCAL GROUND (not sea level) over a land dir,
+  // at an OBLIQUE pitch so the forward ground fills the frame. Uses the GPU height probe
+  // (orch.render.sampleGroundM) so altitude is relative to the real rendered surface -- fixes the
+  // degenerate nadir-over-tall-mountain pose (litParkOverLand at altKm < peak gave empty frames).
+  // pitch: 0 = straight down, ~0.4 = oblique forward. Returns the framing + a quad/coverage read.
+  async parkAboveGround(altKm=10, dir=null, pitch=0.4){
+    const orch=window.__planetOrch, db=window.__dbg, R_M=WEBGL2_TERRAIN_R_M;
+    let u=dir||window.__landDir||[0.333,-0.258,0.907]; const ul=Math.hypot(...u)||1; u=[u[0]/ul,u[1]/ul,u[2]/ul];
+    const groundM = (orch&&orch.render&&orch.render.sampleGroundM) ? Math.max(0,orch.render.sampleGroundM(u)) : 0;
+    // camera radius in km-units: (R_M + groundM + altKm*1000) metres -> /WEBGL2_M_PER_UNIT km-units.
+    const rM = R_M + groundM + altKm*1000;
+    const rU = rM / WEBGL2_M_PER_UNIT;
+    cam.pos=[u[0]*rU, u[1]*rU, u[2]*rU];
+    // oblique fwd: blend straight-down (-u) with a tangent dir by pitch.
+    let t=[-u[1],u[0],0]; const tl=Math.hypot(...t)||1; t=[t[0]/tl,t[1]/tl,t[2]/tl];
+    let f=[-u[0]*(1-pitch)+t[0]*pitch, -u[1]*(1-pitch)+t[1]*pitch, -u[2]*(1-pitch)+t[2]*pitch];
+    const fl=Math.hypot(...f)||1; cam.fwd=[f[0]/fl,f[1]/fl,f[2]/fl];
+    cam.up=Math.abs(u[1])<0.9?[0,1,0]:[1,0,0];
+    const lat=Math.asin(u[1]), lon=Math.atan2(u[0],u[2]);
+    cam.sunLatBase=Math.max(-1.5, lat-0.6); cam.sunLonBase=lon; cam.sunLonAccum=0; cam.timeScale=0;
+    await db.frames(8);
+    const fr=window.__webglFrame||{};
+    const {px,w,h}=this._read(); let nn=0; for(let i=0;i<w*h;i++){if(!(px[i*4]<4&&px[i*4+1]<4&&px[i*4+2]<4))nn++;}
+    return { altKmAboveGround:altKm, groundM:+groundM.toFixed(0), pitch, quads:fr.quadCount|0,
+      discFrac:+(nn/(w*h)).toFixed(3), glError:fr.glError|0 }; },
+  // (A) day/night at the current view -- rules out terminator-dark as a "bug".
+  sunDotUp(){ const p=cam.pos, up=p.map(v=>v/Math.hypot(...p)); const s=window.__lastSun||[]; return s.length?+(s[0]*up[0]+s[1]*up[1]+s[2]*up[2]).toFixed(3):null; },
+  // (B) lit-vs-albedo luminance over the whole disc -- isolates SHADING darkness
+  // (lit << albedo) from missing geometry (both ~0). Returns means + ratio.
+  async litVsAlbedo(){ const d=window.__dbg;
+    const lum=()=>{ const {px,w,h}=this._read(); let s=0,t=0,bg=0; for(let i=0;i<w*h;i++){const r=px[i*4],g=px[i*4+1],b=px[i*4+2]; if(r<4&&g<4&&b<4){bg++;continue;} s+=(r+g+b)/3; t++;} return {lum:+(s/Math.max(t,1)).toFixed(1), cov:+(t/(w*h)).toFixed(3), bgFrac:+(bg/(w*h)).toFixed(3)}; };
+    window.__displayMode=0; await d.frames(8); const lit=lum();
+    window.__displayMode=2; await d.frames(8); const alb=lum();
+    window.__displayMode=0; await d.frames(4);
+    return { lit, albedo:alb, litOverAlbedo:+(lit.lum/Math.max(alb.lum,1)).toFixed(2), sunDotUp:this.sunDotUp() }; },
+  // (C) black-edge classifier: count near-black pixels that are NOT background
+  // (i.e. dark seams within the terrain) in lit vs albedo. If lit has dark seams
+  // but albedo does not, the black edge is a SHADING discontinuity, not geometry.
+  async blackEdge(){ const d=window.__dbg;
+    const darkInTerrain=()=>{ const {px,w,h}=this._read(); let dark=0,terr=0; for(let i=0;i<w*h;i++){const r=px[i*4],g=px[i*4+1],b=px[i*4+2]; const lum=(r+g+b)/3; if(lum<8) continue; /* bg or seam-black both <8; need neighbor test */ }
+      // simpler: fraction of disc pixels that are very dark (<25) -- seam darkness.
+      let veryDark=0,disc=0; for(let i=0;i<w*h;i++){const r=px[i*4],g=px[i*4+1],b=px[i*4+2]; if(r<4&&g<4&&b<4)continue; disc++; if((r+g+b)/3<25)veryDark++;} return +(veryDark/Math.max(disc,1)).toFixed(3); };
+    window.__displayMode=0; await d.frames(8); const litDark=darkInTerrain();
+    window.__displayMode=2; await d.frames(8); const albDark=darkInTerrain();
+    window.__displayMode=0; await d.frames(4);
+    return { litDarkFrac:litDark, albedoDarkFrac:albDark, shadingArtifact: litDark > albDark*2 + 0.02 }; },
+  // (D) quad census from the last frame -- per-level counts + max level under camera.
+  quadCensus(){ const q=window.__lastGLQuads||[]; const f=window.__webglFrame||{}; const lv={}; let maxL=0, sub=0;
+    for(const x of q){const l=x.quad.level|0; lv[l]=(lv[l]||0)+1; if(l>maxL)maxL=l; if(x.subregion)sub++;}
+    return { total:q.length, byLevel:lv, maxLevel:maxL, fallbackQuads:sub, residentCount:f.residentCount, fallbackCount:f.fallbackCount, culledCount:f.culledCount, glError:f.glError }; },
+  // (E) elevation / feature-frequency for the density issue: generate a coarse face
+  // tile, count sign-changes (zero crossings) per row/col = feature frequency, + sea fraction.
+  density(face=2, level=3){ const p=window.__planetOrch&&window.__planetOrch.producer; if(!p) return {err:'no-p'};
+    let l=level,x=0,y=0,c=[]; while(l>=0){c.unshift({l,x,y}); if(l===0)break; x>>=1;y>>=1;l--;}
+    for(let i=0;i<c.length;i++){const cc=c[i]; p.generateTile(face,cc.l,cc.x,cc.y,i,i===0?-1:i-1);}
+    const buf=p.readTile(c.length-1), W=p.TILE_W; let below=0,t=0,zc=0;
+    for(let yy=2;yy<W-2;yy++){let prev=null; for(let xx=2;xx<W-2;xx++){const v=buf[(yy*W+xx)*4]; t++; if(v<0)below++; if(prev!==null && (prev<0)!==(v<0))zc++; prev=v;}}
+    return { face, level, seaFrac:+(below/t).toFixed(2), zeroCrossingsPerRow:+(zc/(W-4)).toFixed(1) }; },
+  // (F) skirts were removed (replaced by the one-cell overlap ring in the mesh); this diag
+  // is retained only as a no-op stub so older probe scripts that call it do not throw.
+  async skirtEffect(){ return { note:'skirts removed; LOD cracks hidden by overlap ring (no skirtDisable toggle)' }; },
+  // (G) full report at the current view -- one call answers all three issues.
+  async report(){ return { view:{alt:+window.__dbg.altKm().toFixed(1), sunDotUp:this.sunDotUp()},
+    census:this.quadCensus(), litVsAlbedo:await this.litVsAlbedo(), blackEdge:await this.blackEdge() }; },
+  // (gen tuning lives in window.__gen now; the old setGen/getGen/densitySweep helpers
+  // are gone with the deleted cascade producer.)
+
+  // =========================================================================
+  // EFFICIENT-LOOP DEBUG GLOBALS (added 2026-05-28). All are SCREEN-SPACE pixel
+  // reads or runtime-state reads -- never generateTile/readTile (recall
+  // mem-1779953051634: ad-hoc tile regen in the live page gives results that
+  // CONTRADICT the rigorous producer-test.html witness). Each is one dispatch.
+  // =========================================================================
+
+  // (J) assertReady -- the single most important loop-killer guard. A shader
+  // compile-fail makes __planetOrchStatus = 'error:...' and the page LOOKS like a
+  // slow/hung load (recall mem-1779979072187). Every probe gates on this first so
+  // a probe NEVER reports a misleading number against a broken/blank page.
+  async assertReady(maxFrames=180){
+    const d=window.__dbg;
+    for(let i=0;i<maxFrames;i++){
+      const s=window.__planetOrchStatus||'init';
+      if(typeof s==='string' && s.startsWith('error:')) return {ok:false,err:s,frames:i};
+      if(s==='ready'){
+        const f=window.__webglFrame||{};
+        if((f.quadCount|0)>0) return {ok:true,status:s,frames:i,quads:f.quadCount,glError:f.glError};
+      }
+      await d.frames(1);
+    }
+    return {ok:false,err:'not-ready-in-'+maxFrames+'-frames',status:window.__planetOrchStatus||'init',
+      quads:(window.__webglFrame||{}).quadCount|0, pageErr:window.__pageErr||null};
+  },
+
+  // (K) parkAt -- deterministic, reproducible camera placement at named altitude
+  // ladder rungs (recall mem-1779969534623: eyeballed positions made comparisons
+  // noisy; gotoDown once aimed off-screen). Looks straight down at the sub-camera
+  // point so every probe runs from an identical viewpoint across sessions.
+  RUNGS: { space:35000, orbit:2000, midalt:400, lowalt:50, closeup:5 },
+  async parkAt(rung='orbit', settleFrames=8){
+    const km = (typeof rung==='number') ? rung : this.RUNGS[rung];
+    if(km==null) return {err:'unknown-rung:'+rung+' (use space/orbit/midalt/lowalt/closeup or a km number)'};
+    window.__dbg.gotoDown(km);
+    await window.__dbg.frames(settleFrames);
+    return { rung, altKm:+window.__dbg.altKm().toFixed(1), quads:window.__dbg.quads(), glError:window.__dbg.glError() };
+  },
+  // (K2) aimDir -- place the camera OVER an arbitrary world-DIRECTION at altKm, looking straight
+  // down. The witness primitive parkAt lacked: parkAt only reprojects the EXISTING sub-point, so
+  // there was no way to aim at a chosen spot (e.g. wet land for the river/feature witness). dir is
+  // a [x,y,z] world vector (normalized here). Uses the module aimAt so up/fwd are well-formed.
+  async aimDir(dir, altKm=40, settleFrames=30){
+    const L=Math.hypot(dir[0],dir[1],dir[2])||1; const u=[dir[0]/L,dir[1]/L,dir[2]/L];
+    const r=RADIUS+altKm; const pos=[u[0]*r,u[1]*r,u[2]*r];
+    aimAt(pos, [-u[0],-u[1],-u[2]]);
+    await window.__dbg.frames(settleFrames);
+    return { altKm:+window.__dbg.altKm().toFixed(1), quads:window.__dbg.quads(), glError:window.__dbg.glError() };
+  },
+  // (K3) findLand -- sweep world-directions, return the ones over LAND (optionally wet), so a
+  // feature witness can aim aimDir at a confirmed land/wet spot instead of guessing. Reads the
+  // live land/sea via displayMode 5 center pixel (red=land). humidGate>0 also requires the river
+  // field (displayMode 7 center blue) to fire -> wet land with rivers.
+  async findLand(n=24, wantRiver=false){
+    const prev=window.__displayMode; const found=[];
+    for(let i=0;i<n;i++){
+      const t=i/n, phi=Math.acos(1-2*t), th=i*2.399963;
+      const d=[Math.sin(phi)*Math.cos(th), Math.cos(phi), Math.sin(phi)*Math.sin(th)];
+      window.__displayMode=5; await this.aimDir(d, 60, 14);
+      let {px,w,h}=this._read(); let i0=((h>>1)*w+(w>>1))*4; const land = px[i0] > px[i0+2]; // red>blue
+      if(!land) continue;
+      let river=0;
+      if(wantRiver){ window.__displayMode=7; await window.__dbg.frames(10); ({px,w,h}=this._read());
+        let b=0,nn=0; const cx=w>>1,cy=h>>1; for(let y=cy-25;y<cy+25;y++)for(let x=cx-25;x<cx+25;x++){const k=(y*w+x)*4; nn++; if(px[k+2]>px[k]+25&&px[k+2]>55)b++;} river=+(b/nn).toFixed(3); }
+      found.push({dir:d.map(v=>+v.toFixed(3)), river});
+    }
+    window.__displayMode=prev;
+    found.sort((a,b)=>b.river-a.river);
+    return { count:found.length, top: found.slice(0,5) };
+  },
+
+  // (K4) landWitness -- THE reliable scripted LAND witness (user 2026-06-05 'fix the scripted
+  // witness to show land'). Roots the pose in the LIVE GPU height probe (orch.render.sampleGroundM,
+  // the EXACT rendered terrain field) instead of the CPU lab broadShapeM (which diverges from the
+  // live HPF -> the old 'land' dirs were actually ocean). Scans fib-sphere dirs for genuine high
+  // land, parks ground-relative + oblique + sun-lit over the highest, settles, and returns a
+  // land/water census so the caller has PROOF the frame is land (low blueFrac, land-toned meanRGB),
+  // never the teal [45,116,139] ocean frame. altKm = height above the local ground.
+  async landWitness(altKm=4, pitch=0.45, minH=800, samples=900, displayMode=0){
+    const orch=window.__planetOrch, gl=window.__planetOrchGL, cam=window.__dbg.cam;
+    const sg = orch && orch.render && orch.render.sampleGroundM;
+    if(!sg) return {err:'no-sampleGroundM (probe program missing)'};
+    const R_M=window.__WEBGL2_TERRAIN_R_M, MPU=window.__WEBGL2_M_PER_UNIT;
+    let best=null, landCount=0;
+    for(let i=0;i<samples;i++){
+      const y=1-2*(i+0.5)/samples, r=Math.sqrt(Math.max(0,1-y*y)), t=i*2.399963229;
+      const u=[Math.cos(t)*r, y, Math.sin(t)*r];
+      const h=sg(u); if(h>0) landCount++; if(h>minH && (!best||h>best.h)) best={u,h};
+    }
+    if(!best) return {err:'no-land-found', landFrac:+(landCount/samples).toFixed(3)};
+    window.__landDir = best.u;
+    const u=best.u, groundM=Math.max(0,sg(u));
+    const rU=(R_M + groundM + altKm*1000)/MPU;
+    cam.pos=[u[0]*rU, u[1]*rU, u[2]*rU];
+    let tg=[-u[1],u[0],0]; const tl=Math.hypot(...tg)||1; tg=[tg[0]/tl,tg[1]/tl,tg[2]/tl];
+    let f=[-u[0]*(1-pitch)+tg[0]*pitch, -u[1]*(1-pitch)+tg[1]*pitch, -u[2]*(1-pitch)+tg[2]*pitch];
+    const fl=Math.hypot(...f)||1; cam.fwd=[f[0]/fl,f[1]/fl,f[2]/fl];
+    cam.up=Math.abs(u[1])<0.9?[0,1,0]:[1,0,0];
+    const lat=Math.asin(u[1]), lon=Math.atan2(u[0],u[2]);
+    cam.sunLatBase=Math.max(-1.4, lat-0.5); cam.sunLonBase=lon; cam.sunLonAccum=0; cam.timeScale=0;
+    window.__dbg.setDisplayMode(displayMode);
+    await window.__dbg.frames(45);
+    gl.finish();
+    const w=gl.drawingBufferWidth,h=gl.drawingBufferHeight; const px=new Uint8Array(w*h*4);
+    gl.readPixels(0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,px);
+    let n=0,rs=0,gs=0,bs=0,blue=0;
+    for(let i=0;i<px.length;i+=4){const r=px[i],g=px[i+1],b=px[i+2]; if(r<6&&g<6&&b<6)continue;
+      n++; rs+=r;gs+=g;bs+=b; if(b>r+25&&b>g)blue++;}
+    return { landFrac:+(landCount/samples).toFixed(3), bestLandH:Math.round(best.h),
+      bestDir:best.u.map(v=>+v.toFixed(3)), altKm:+window.__dbg.altKm().toFixed(1),
+      census:{ pixels:n, meanRGB:n?[Math.round(rs/n),Math.round(gs/n),Math.round(bs/n)]:[0,0,0],
+        blueFrac:n?+(blue/n).toFixed(2):0 }, glError:gl.getError() };
+  },
+
+  // (K4b) probeWarm -- the collision probe program is LAZY-compiled on the first sampleGroundM;
+  // while the link is in flight every call returns 0, so a probe-rooted witness that runs too
+  // early sees a planet with NO land (witnessed verify-all 2026-06-11: landFrac 0 on a planet
+  // that is ~35% land). Gate: sample a fib ring until any |h| > 1 m or the timeout lapses.
+  async probeWarm(timeoutMs=180000){
+    const orch=window.__planetOrch; const sg=orch&&orch.render&&orch.render.sampleGroundM;
+    if(!sg) return {ok:false, err:'no-sampleGroundM'};
+    const t0=performance.now();
+    for(;;){
+      for(let i=0;i<24;i++){
+        const y=1-2*(i+0.5)/24, r=Math.sqrt(Math.max(0,1-y*y)), t=i*2.399963229;
+        const h=sg([Math.cos(t)*r, y, Math.sin(t)*r]);
+        if(Math.abs(h)>1) return {ok:true, ms:Math.round(performance.now()-t0)};
+      }
+      if(performance.now()-t0>timeoutMs) return {ok:false, err:'probe-warm-timeout'};
+      await window.__dbg.frames(20);
+    }
+  },
+
+  // (K5) coastWitness -- find a genuine SHORELINE (probe-rooted: a dir whose 4-sample ring spans
+  // land AND sub-sea), park oblique over it, and assert the separate-water-surface invariants
+  // (2026-06-11 permanent verify policy): water present, waves animate, seabed shows through the
+  // shallow band, __waterSurface=false flips water px to seabed, no grass-class px on the beach.
+  async coastWitness(altKm=6, samples=2400){
+    const orch=window.__planetOrch, gl=window.__planetOrchGL;
+    const sg = orch && orch.render && orch.render.sampleGroundM;
+    if(!sg) return {err:'no-sampleGroundM'};
+    // PROBE-WARM GATE (perf sweep 2026-06-11): on a fresh page the lazy probe compiles ASYNC, but
+    // this finder loop is synchronous -- every sg() returned null (null<=0 skips the sample) and
+    // the build never got an event-loop turn = guaranteed 'no-coast-found' on any fresh page (the
+    // same race class probeWarm was built for, witnessed via clean-HEAD stash A/B).
+    const pw = await this.probeWarm(); if(!pw.ok) return {err:'probe-warm-timeout'};
+    let best=null;
+    for(let i=0;i<samples && !best;i++){
+      const y=1-2*(i+0.5)/samples, r=Math.sqrt(Math.max(0,1-y*y)), t=i*2.399963229;
+      const u=[Math.cos(t)*r, y, Math.sin(t)*r];
+      const h0=sg(u); if(h0<=0||h0>400) continue;          // low coastal land
+      for(const e of [0.004, 0.008, 0.016]){               // 25/50/100km rings: any sub-sea neighbor?
+        for(const d of [[e,0,0],[-e,0,0],[0,e,0],[0,-e,0],[0,0,e],[0,0,-e]]){
+          const v=[u[0]+d[0],u[1]+d[1],u[2]+d[2]]; const L=Math.hypot(...v);
+          const vn=[v[0]/L,v[1]/L,v[2]/L];
+          if(sg(vn) < -5){
+            // BISECT onto the h=0 crossing (a ring hit can sit ~100km from the waterline), then
+            // REQUIRE real depth near it: with the shelf remap a flat coast can be centimetres
+            // deep for kilometres = physically invisible water (witnessed coverage 0 at a true
+            // waterline). Walk seaward from the crossing; accept only if depth < -8m within ~4km,
+            // and park midway so the frame holds beach AND visibly deep water.
+            let a=u, b=vn;
+            for(let s=0;s<14;s++){ const m=[(a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2];
+              const ml=Math.hypot(...m); const mn=[m[0]/ml,m[1]/ml,m[2]/ml];
+              if(sg(mn)>0) a=mn; else b=mn; }
+            const step=[(b[0]-a[0]),(b[1]-a[1]),(b[2]-a[2])];
+            const sl=Math.hypot(...step)||1e-9;
+            // VISIBLE-DEPTH PARK (perf sweep 2026-06-11): the old -8m-within-4km midpoint park framed
+            // centimetres-deep shelf -- alpha ~0, toggle mask 0 px at a TRUE waterline (witnessed:
+            // midpoint pose 0 px vs a -31m aim 51580/52686 px at the same coast). Walk seaward up to
+            // 15km for water deeper than -30m and park THERE; the 2km oblique still holds the shore.
+            for(let kkm=0.5;kkm<=15.0;kkm+=0.5){
+              const t=(kkm/6360)/sl;
+              const p=[a[0]+step[0]*t, a[1]+step[1]*t, a[2]+step[2]*t];
+              const pl=Math.hypot(...p); const pn=[p[0]/pl,p[1]/pl,p[2]/pl];
+              if(sg(pn) < -30){
+                best={u:pn, h:Math.round(sg(a)), ringKm:Math.round(e*6360), deepAtKm:kkm};
+                break;
+              }
+            }
+            if(best) break;
+          }
+        }
+        if(best) break;
+      }
+    }
+    if(!best) return {err:'no-coast-found'};
+    // 2km pose inside the 4km wave-distance fade, SUN-LIT (a nadir view of unlit water gives
+    // sub-quantization wave shading -- ndl/spec ~0 and fresnel flat at dot~1 -- witnessed
+    // animatedPx 0 on a real animated ocean 2026-06-11). Sun pinned oblique like landWitness.
+    const camC=window.__dbg.cam, latC=Math.asin(best.u[1]), lonC=Math.atan2(best.u[0],best.u[2]);
+    camC.sunLatBase=Math.max(-1.4, latC-0.5); camC.sunLonBase=lonC; camC.sunLonAccum=0; camC.timeScale=0;
+    await this.aimDir(best.u, Math.min(altKm, 2), 40);
+    const grab=()=>{ const {px,w,h}=this._read(); return {px,w,h}; };
+    const diffPx=(a,b,stride)=>{ let m=0; for(let i=0;i<a.w*a.h;i+=stride){ const k=i*4;
+      if(Math.abs(a.px[k]-b.px[k])+Math.abs(a.px[k+1]-b.px[k+1])+Math.abs(a.px[k+2]-b.px[k+2])>18) m++; } return m; };
+    const a1=grab();
+    window.__waterSurface=false; await window.__dbg.frames(8);
+    const b=grab();
+    // water-owned pixel MASK from the toggle diff (stride 7)
+    const mask=[]; for(let i=0;i<a1.w*a1.h;i+=7){ const k=i*4;
+      if(Math.abs(a1.px[k]-b.px[k])+Math.abs(a1.px[k+1]-b.px[k+1])+Math.abs(a1.px[k+2]-b.px[k+2])>18) mask.push(k); }
+    window.__waterSurface=true; await window.__dbg.frames(4);
+    const a2=grab(); await window.__dbg.frames(10);        // waves animate? compare ONLY water px,
+    const a3=grab(); let animated=0;                       // fine threshold (wave shading is subtle)
+    for(const k of mask){ if(Math.abs(a2.px[k]-a3.px[k])+Math.abs(a2.px[k+1]-a3.px[k+1])+Math.abs(a2.px[k+2]-a3.px[k+2])>5) animated++; }
+    const total=Math.floor(a1.w*a1.h/7);
+    return { coastDir:best.u.map(v=>+v.toFixed(3)), coastH:Math.round(best.h), ringKm:best.ringKm,
+      waterCoveragePx:mask.length, coverageFrac:+(mask.length/total).toFixed(3),
+      animatedPx:animated, glError:gl.getError(),
+      pass: mask.length > total*0.01 && animated > 0 && gl.getError()===0 };
+  },
+
+  // (K6) shadeKeyWitness -- 'normals height-based instead of slope-based' detector (2026-06-11).
+  // Over the landWitness pose, sample a px grid; for each, probe the GPU ground height + a local
+  // slope estimate under the camera ray's world dir; correlate lit LUMINANCE against ELEVATION and
+  // against SLOPE. PASS = |corr(lum,slope)| materially exceeds |corr(lum,elev)| (shading keys on
+  // slope, not height). Uses center-screen rays only (small-angle approx of the down-looking pose).
+  async shadeKeyWitness(grid=12){
+    const orch=window.__planetOrch; const sg=orch&&orch.render&&orch.render.sampleGroundM;
+    if(!sg) return {err:'no-sampleGroundM'};
+    const lw=await this.landWitness(8, 0.0); if(lw.err) return lw;   // straight-down pose over high land
+    const u=window.__landDir; const {px,w,h}=this._read();
+    // tangent frame at u
+    const ref=Math.abs(u[1])<0.99?[0,1,0]:[1,0,0];
+    let ux=[ref[1]*u[2]-ref[2]*u[1], ref[2]*u[0]-ref[0]*u[2], ref[0]*u[1]-ref[1]*u[0]];
+    const xl=Math.hypot(...ux); ux=ux.map(v=>v/xl);
+    const uy=[u[1]*ux[2]-u[2]*ux[1], u[2]*ux[0]-u[0]*ux[2], u[0]*ux[1]-u[1]*ux[0]];
+    const span=0.0015;                                     // ~10km half-span at the 8km pose
+    const lums=[], elevs=[], slopes=[];
+    for(let gy=1;gy<grid;gy++) for(let gx=1;gx<grid;gx++){
+      const fx=(gx/grid-0.5)*2*span, fy=(gy/grid-0.5)*2*span;
+      const d=[u[0]+ux[0]*fx+uy[0]*fy, u[1]+ux[1]*fx+uy[1]*fy, u[2]+ux[2]*fx+uy[2]*fy];
+      const L=Math.hypot(...d); const dn=d.map(v=>v/L);
+      const e0=sg(dn); if(e0<=0) continue;                 // land only
+      const ds=0.00008;                                    // ~500m slope step
+      const d1=[dn[0]+ux[0]*ds,dn[1]+ux[1]*ds,dn[2]+ux[2]*ds]; const l1=Math.hypot(...d1);
+      const d2=[dn[0]+uy[0]*ds,dn[1]+uy[1]*ds,dn[2]+uy[2]*ds]; const l2=Math.hypot(...d2);
+      const gxm=(sg([d1[0]/l1,d1[1]/l1,d1[2]/l1])-e0)/500, gym=(sg([d2[0]/l2,d2[1]/l2,d2[2]/l2])-e0)/500;
+      const sx=Math.round((0.5+fx/(2*span))* (w-1)), sy=Math.round((0.5+fy/(2*span))*(h-1));
+      const k=(sy*w+sx)*4; const lum=0.299*px[k]+0.587*px[k+1]+0.114*px[k+2];
+      if(lum<6) continue;
+      lums.push(lum); elevs.push(e0); slopes.push(Math.hypot(gxm,gym));
+    }
+    const corr=(a,b)=>{ const n=a.length; if(n<8) return 0;
+      const ma=a.reduce((s,v)=>s+v,0)/n, mb=b.reduce((s,v)=>s+v,0)/n;
+      let sa=0,sb=0,sab=0; for(let i=0;i<n;i++){const da=a[i]-ma,db=b[i]-mb; sa+=da*da; sb+=db*db; sab+=da*db;}
+      return sab/Math.sqrt(Math.max(sa*sb,1e-9)); };
+    const cElev=+corr(lums,elevs).toFixed(3), cSlope=+corr(lums,slopes).toFixed(3);
+    return { n:lums.length, corrElev:cElev, corrSlope:cSlope,
+      pass: lums.length>=20 && Math.abs(cSlope) + 0.05 >= Math.abs(cElev) };
+  },
+
+  // (K7) materialWitness -- 'grass turning into rocky patches' detector (2026-06-11). Parks
+  // STRAIGHT DOWN over LOWLAND (h 250-1200m -- NOT landWitness, which picks the HIGHEST land and
+  // frames snowy peaks; witnessed verify-material [202,212,214] 99.5% grey = snow, a tool mis-pose).
+  // Straight-down at low altitude also keeps aerial haze out of the census. PASS = the rock-grey
+  // class does not dominate a vegetated lowland frame.
+  async materialWitness(altKm=3, samples=1200){
+    const orch=window.__planetOrch; const sg=orch&&orch.render&&orch.render.sampleGroundM;
+    if(!sg) return {err:'no-sampleGroundM'};
+    let best=null;
+    for(let i=0;i<samples;i++){
+      const y=1-2*(i+0.5)/samples, r=Math.sqrt(Math.max(0,1-y*y)), t=i*2.399963229;
+      const u=[Math.cos(t)*r, y, Math.sin(t)*r];
+      const e0=sg(u);
+      if(e0>250 && e0<1200 && Math.abs(y)<0.5){ best={u,h:e0}; break; }   // temperate lowland
+    }
+    if(!best) return {err:'no-lowland-found'};
+    await this.aimDir(best.u, altKm, 40);
+    const {px,w,h}=this._read(); let grass=0,grey=0,sand=0,other=0,n=0,rs=0,gs=0,bs=0;
+    for(let i=0;i<w*h;i++){ const R=px[i*4],G=px[i*4+1],B=px[i*4+2];
+      if(R<12&&G<14&&B<30) continue; n++; rs+=R;gs+=G;bs+=B;
+      const mx=Math.max(R,G,B), mn=Math.min(R,G,B);
+      if(G>R&&G>B) grass++;
+      else if(mx-mn<22) grey++;                            // low-chroma = rock/grey class
+      else if(R>G&&G>B) sand++; else other++; }
+    return { dir:best.u.map(v=>+v.toFixed(3)), lowlandH:Math.round(best.h), n,
+      grassFrac:+(grass/n).toFixed(3), greyFrac:+(grey/n).toFixed(3),
+      sandFrac:+(sand/n).toFixed(3), meanRGB:n?[Math.round(rs/n),Math.round(gs/n),Math.round(bs/n)]:[0,0,0],
+      pass: n>1000 && grey/n < 0.45 };
+  },
+
+  // (K8) verifyAll -- THE permanent make-sure-it-works suite (user 2026-06-11 'make absolutely
+  // sure your fixes work, permanent policy'). One call, JSON verdicts. Every render/shader fix
+  // runs this (plus its targeted probe) BEFORE commit.
+  async verifyAll(){
+    const out={};
+    out.ready = await this.assertReady(); if(!out.ready.ok) return out;
+    out.probeWarm = await this.probeWarm(); if(!out.probeWarm.ok) return out;
+    out.coast    = await this.coastWitness().catch(e=>({err:String(e&&e.message||e)}));
+    out.material = await this.materialWitness().catch(e=>({err:String(e&&e.message||e)}));
+    out.shadeKey = await this.shadeKeyWitness().catch(e=>({err:String(e&&e.message||e)}));
+    out.limb     = await this.limbScan().catch(e=>({err:String(e&&e.message||e)}));
+    out.pass = !!(out.coast.pass && out.material.pass && out.shadeKey.pass && out.limb.pass);
+    return out;
+  },
+
+  // (L) limbScan -- NUMERIC detector for grazing-horizon mesh holes/slivers AND
+  // hPrime shard streaks (recall mem-1779968014552 terrain.glsl:73, mem-1779969534623
+  // limb holes). Scans columns across the buffer; within each column finds the lit
+  // terrain band (first..last non-background pixel) and counts BLACK runs INSIDE it
+  // (holes/shards punched through filled terrain). Reports max/total black-run pixels.
+  async limbScan(cols=64){
+    const rdy=await this.assertReady(); if(!rdy.ok) return {err:'not-ready',detail:rdy};
+    await window.__dbg.frames(2);
+    const {px,w,h}=this._read();
+    const isBg=(r,g,b)=>r<12&&g<14&&b<30;       // space clear color
+    const isBlack=(r,g,b)=>r<10&&g<10&&b<10;     // hole/shard punched through terrain
+    let maxRun=0,totalBlack=0,bandCols=0,worstCol=-1;
+    for(let c=0;c<cols;c++){
+      const x=Math.round(c*(w-1)/(cols-1));
+      // find terrain band top..bottom in this column (non-bg span)
+      let top=-1,bot=-1;
+      for(let y=0;y<h;y++){const i=(y*w+x)*4; if(!isBg(px[i],px[i+1],px[i+2])){ if(top<0)top=y; bot=y; }}
+      if(top<0) continue; bandCols++;
+      let run=0;
+      for(let y=top;y<=bot;y++){const i=(y*w+x)*4;
+        if(isBlack(px[i],px[i+1],px[i+2])){ run++; totalBlack++; if(run>maxRun){maxRun=run;worstCol=x;} }
+        else run=0; }
+    }
+    return { cols, bandCols, maxBlackRunPx:maxRun, totalBlackInBandPx:totalBlack,
+      blackFracOfBand:+(totalBlack/Math.max(bandCols*h,1)).toFixed(4), worstColX:worstCol,
+      // PASS = essentially no black holes/shards inside the lit terrain band.
+      pass: maxRun<=2 && totalBlack < bandCols*2 };
+  },
+
+  // (M) hazeProbe -- NUMERIC blue-wash metric for the mid-altitude haze defect
+  // (recall mem-1779969534623 2000-4000km blue haze washing out land). Compares
+  // mean land-band color WITH atmosphere (displayMode 0) vs the albedo reference
+  // (displayMode 2, no atmospheric scatter). blueExcess = how much bluer/greyer the
+  // lit frame is than albedo => the haze magnitude as a single number.
+  async hazeProbe(){
+    const rdy=await this.assertReady(); if(!rdy.ok) return {err:'not-ready',detail:rdy};
+    const d=window.__dbg;
+    const meanLand=()=>{ const {px,w,h}=this._read(); let r=0,g=0,b=0,n=0;
+      for(let i=0;i<w*h;i++){const R=px[i*4],G=px[i*4+1],B=px[i*4+2];
+        if(R<12&&G<14&&B<30) continue;            // skip background
+        r+=R;g+=G;b+=B;n++; }
+      n=Math.max(n,1); return {r:r/n,g:g/n,b:b/n,n}; };
+    const prev=window.__displayMode|0;
+    window.__displayMode=0; await d.frames(8); const lit=meanLand();
+    window.__displayMode=2; await d.frames(8); const alb=meanLand();
+    window.__displayMode=prev; await d.frames(4);
+    // Blue excess: lit blue lift minus its red lift, normalized. High => hazy/washed.
+    const blueExcess=+(((lit.b-alb.b)-(lit.r-alb.r))/255).toFixed(3);
+    const chromaLoss=+((1-(Math.abs(alb.r-alb.b)+1)/(Math.abs(lit.r-lit.b)+1))).toFixed(3);
+    return { litMean:[Math.round(lit.r),Math.round(lit.g),Math.round(lit.b)],
+      albedoMean:[Math.round(alb.r),Math.round(alb.g),Math.round(alb.b)],
+      blueExcess, chromaLoss, altKm:+d.altKm().toFixed(0),
+      // PASS = haze does not dominate: blue lift over albedo stays modest.
+      pass: blueExcess < 0.12 };
+  },
+
+  // (N) speckleProbe -- NUMERIC high-frequency-energy metric for the close-up
+  // speckle defect (recall mem-1779968014552). Reads a center crop and sums the
+  // absolute luminance gradient between adjacent pixels; smooth terrain => low
+  // energy, speckle => high energy. Run lit (0) AND lit-only (7) to separate
+  // albedo speckle from lighting/normal speckle.
+  async speckleProbe(displayMode=0, cropFrac=0.4){
+    const rdy=await this.assertReady(); if(!rdy.ok) return {err:'not-ready',detail:rdy};
+    const d=window.__dbg; const prev=window.__displayMode|0;
+    window.__displayMode=displayMode|0; await d.frames(8);
+    const {px,w,h}=this._read();
+    window.__displayMode=prev; await d.frames(2);
+    const cw=Math.round(w*cropFrac), ch=Math.round(h*cropFrac);
+    const x0=((w-cw)/2)|0, y0=((h-ch)/2)|0;
+    const isBg=(x,y)=>{const i=(y*w+x)*4; return px[i]<12&&px[i+1]<14&&px[i+2]<30;};
+    const lumAt=(x,y)=>{const i=(y*w+x)*4; return (px[i]+px[i+1]+px[i+2])/3;};
+    // Only count INTERIOR terrain pixels -- a pixel whose 3x3 neighborhood is all
+    // non-background. This excludes the planet silhouette edge (disc-against-space),
+    // which otherwise spikes the gradient at high altitude (false speckle).
+    const interior=(x,y)=>{ for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
+      const xx=x+dx,yy=y+dy; if(xx<0||yy<0||xx>=w||yy>=h||isBg(xx,yy)) return false; } return true; };
+    let energy=0,n=0,disc=0;
+    for(let y=y0;y<y0+ch-1;y++) for(let x=x0;x<x0+cw-1;x++){
+      if(!interior(x,y)) continue; disc++;
+      energy+=Math.abs(lumAt(x,y)-lumAt(x+1,y))+Math.abs(lumAt(x,y)-lumAt(x,y+1)); n++; }
+    const meanGrad=+(energy/Math.max(n,1)).toFixed(2);
+    return { displayMode:displayMode|0, cropFrac, meanGradient:meanGrad, interiorPixels:disc,
+      altKm:+d.altKm().toFixed(1),
+      // PASS = adjacent-pixel luminance gradient stays low (smooth, no speckle).
+      // discPixels==0 => disc too small at this altitude to measure (degenerate, not pass).
+      pass: disc>500 && meanGrad < 12, degenerate: disc<=500 };
+  },
+
+  // (O) seamProbe -- NUMERIC shading-seam detector in SCREEN SPACE. Scans the buffer
+  // for sharp luminance discontinuities (an edge sharper than its neighborhood) that
+  // form long axis-aligned runs == tile boundaries (recall mem-1779895485751 shading
+  // seam). Reports the count of strong-edge pixels organized into long straight runs.
+  async seamProbe(threshold=40){
+    const rdy=await this.assertReady(); if(!rdy.ok) return {err:'not-ready',detail:rdy};
+    await window.__dbg.frames(2);
+    const {px,w,h}=this._read();
+    const isBg=(x,y)=>{const i=(y*w+x)*4; return px[i]<12&&px[i+1]<14&&px[i+2]<30;};
+    const lumAt=(x,y)=>{const i=(y*w+x)*4; return (px[i]+px[i+1]+px[i+2])/3;};
+    // Only count a step when BOTH pixels are INTERIOR terrain (3x3 all non-bg) -- the
+    // disc silhouette against space is a huge legitimate step that must NOT count as a
+    // shading seam (it spiked the space rung to a false fail in the first baseline).
+    const interior=(x,y)=>{ for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){
+      const xx=x+dx,yy=y+dy; if(xx<0||yy<0||xx>=w||yy>=h||isBg(xx,yy)) return false; } return true; };
+    let hSteps=0,vSteps=0,disc=0,maxStep=0;
+    for(let y=1;y<h-1;y++) for(let x=1;x<w-1;x++){
+      if(!interior(x,y)) continue; disc++;
+      if(interior(x+1,y)){const s=Math.abs(lumAt(x,y)-lumAt(x+1,y)); if(s>maxStep)maxStep=s; if(s>threshold)hSteps++;}
+      if(interior(x,y+1)){const s=Math.abs(lumAt(x,y)-lumAt(x,y+1)); if(s>threshold)vSteps++;}
+    }
+    return { threshold, strongHSteps:hSteps, strongVSteps:vSteps, maxStep:+maxStep.toFixed(1),
+      strongStepFrac:+((hSteps+vSteps)/Math.max(disc*2,1)).toFixed(4), interiorPixels:disc,
+      // PASS = few strong INTERIOR steps (real terrain has gentle gradients; seams spike this).
+      pass: disc>500 && (hSteps+vSteps) < disc*0.01, degenerate: disc<=500 };
+  },
+
+  // (P) assertElevLinear -- guard the LINEAR-filter elevation atlas regression
+  // (recall mem-1779979072187 + HEAD 06470fc: NEAREST => square per-texel cells;
+  // needs OES_texture_float_linear). One dispatch confirms the extension + filter.
+  assertElevLinear(){
+    const gl=this._gl(); if(!gl) return {err:'no-gl'};
+    const ext = gl.getExtension('OES_texture_float_linear');
+    const orch=window.__planetOrch||{};
+    const filt = orch.elevFilter || orch.elevTexFilter || null; // orchestrator may expose it
+    return { OES_texture_float_linear: !!ext, reportedElevFilter:filt,
+      // PASS = the float-linear extension is present so the atlas CAN sample LINEAR.
+      pass: !!ext };
+  },
+
+  // (Q) assertAtlasBudget DELETED (perf sweep 2026-06-11): it asserted against orch.cacheLayers,
+  // plumbing the atlas deletion orphaned -- no module consumed cacheLayers, so the probe always
+  // compared the 1920 fallback literal. Dead apparatus, removed with the rest of the plumbing.
+
+  // (R0) reloadShaders -- HOT-RELOAD terrain.glsl + atmosphere.glsl WITHOUT a page reload.
+  // Re-fetches both files (cache-busted), recompiles the GL program, swaps it atomically.
+  // Returns {ok:true} or {ok:false,error:'<compile log>'} so a bad shader edit is reported
+  // INLINE in one dispatch (the old shader keeps running on failure -- no broken page). The
+  // biggest cut to the shader-edit debug loop: edit terrain.glsl -> reloadShaders() -> probe,
+  // all without a nav (which costs init time + risks the ~10-nav browser crash).
+  async reloadShaders(){
+    const orch=window.__planetOrch; const rnd=orch&&orch.render;
+    if(!rnd||!rnd.recompile) return {err:'no-recompile (render.recompile missing)'};
+    const r=await rnd.recompile();
+    if(r.ok){ orch.clearCache && orch.clearCache(); await window.__dbg.frames(4); }
+    return r;
+  },
+  // (R0b) resetDiag -- restore EVERY diagnostic window.__ global to its default, then reload.
+  // Guards the stale-global trap (2026-06-09: a left-over __maxLevel=11 from an LOD test over-smoothed
+  // the whole render = 'worse than the stairsteps'). Run this after any A/B diagnostic sweep. Defaults
+  // mirror the orchestrator/shader defaults: maxLevel 16, splitFactor 1.0, flatNormal/hiFreqCut/cliffAmt
+  // null (=> shader/JS default), vtxDetail 1.0, and all anchor-step A/B toggles off.
+  async resetDiag(){
+    const g=window;
+    g.__maxLevel=16; g.__splitFactor=1.0; g.__flatNormal=0; g.__vtxDetail=1.0;
+    g.__hiFreqCut=null; g.__cliffAmt=null; g.__canyonDepth=null; g.__hpfInset=null;
+    g.__mtnBandWide=0; g.__climateRelief=0; g.__isleWide=0; g.__carveWide=0;
+    const orch=window.__planetOrch; orch && orch.clearCache && orch.clearCache();
+    const r=await this.reloadShaders();
+    return { ...r, reset:['maxLevel=16','splitFactor=1','flatNormal=0','vtxDetail=1','hiFreqCut/cliffAmt/canyonDepth/hpfInset=default','toggles=0'] };
+  },
+  // (R) displayModes -- self-documenting map of the diagnostic displayModes baked
+  // into terrain.glsl (recall mem-1779969534623). Removes the guess of which number
+  // shows what. cycleDisplayModes renders each so a witness can screenshot the set.
+  displayModes(){ return {0:'lit',1:'normals',2:'albedo',4:'biome-ramp',5:'land/sea',6:'signed-elev',7:'river-field',8:'river-gating',9:'biome-map',10:'canyon-field'}; },
+  async cycleDisplayModes(){ const d=window.__dbg; const prev=window.__displayMode|0; const out={};
+    for(const m of [0,1,2,4,5,6,7,8,9,10]){ window.__displayMode=m; await d.frames(6); out[m]=await this.census(m); }
+    window.__displayMode=prev; await d.frames(4); return out; },
+
+  // =========================================================================
+  // MOTION-DOMAIN DEBUG GLOBALS (added 2026-05-29). The static parkAt probes
+  // TELEPORT; every camera-motion bug (fly-through, flip, NaN-lookAt device-loss)
+  // is reproducible ONLY by SIMULATING ACTUAL FRAME-BY-FRAME MOTION (recall
+  // mem-1779785586520: teleport did NOT reproduce). These drive the REAL W-key
+  // path via window.__keys and sample the live page each frame.
+  // =========================================================================
+
+  // (T) parkOblique -- look at the HORIZON (tangent forward + small downward dip),
+  // not the nadir. The disappear-on-W / blocks-not-rendering bugs live in oblique
+  // views (recall mem-1779958788147: cone-cull zeroed on-screen oblique quads).
+  async parkOblique(altKm=50, dip=0.25, settleFrames=8){
+    window.__dbg.gotoOblique(altKm, dip);
+    await window.__dbg.frames(settleFrames);
+    return { altKm:+window.__dbg.altKm().toFixed(1), quads:window.__dbg.quads(), glError:window.__dbg.glError() };
+  },
+
+  // (U) coverageGrid -- n x n hole map. A MISSING BLOCK shows as a near-zero
+  // interior cell surrounded by terrain cells. Far more localizing than one scalar.
+  coverageGrid(n=8){
+    const gl=this._gl(); if(!gl) return {err:'no-gl'};
+    const {px,w,h}=this._read();
+    const isBg=(r,g,b)=>r<12&&g<14&&b<30;
+    const grid=[]; let emptyInterior=0;
+    for(let gy=0;gy<n;gy++){ const row=[];
+      for(let gx=0;gx<n;gx++){
+        let nz=0,tot=0; const x0=(gx*w/n)|0,x1=((gx+1)*w/n)|0,y0=(gy*h/n)|0,y1=((gy+1)*h/n)|0;
+        for(let y=y0;y<y1;y++) for(let x=x0;x<x1;x++){ const i=(y*w+x)*4; tot++; if(!isBg(px[i],px[i+1],px[i+2])) nz++; }
+        row.push(+(nz/Math.max(tot,1)).toFixed(2)); }
+      grid.push(row); }
+    // an interior cell (not on the frame border) that is empty while >=3 of its
+    // 4-neighbours are mostly-terrain is a suspected DROPPED BLOCK (hole).
+    for(let gy=1;gy<n-1;gy++) for(let gx=1;gx<n-1;gx++){
+      if(grid[gy][gx]<0.05){ const nb=[grid[gy-1][gx],grid[gy+1][gx],grid[gy][gx-1],grid[gy][gx+1]].filter(v=>v>0.5).length;
+        if(nb>=3) emptyInterior++; } }
+    return { n, grid, emptyInteriorCells:emptyInterior, pass: emptyInterior===0 };
+  },
+
+  // (V) assertFiniteVP -- the actual draw matrix all-finite + context not lost.
+  // NaN viewProj (degenerate lookAt) -> all verts NaN -> nothing draws.
+  assertFiniteVP(){
+    return { vpFinite: window.__lastVPFinite !== false, deviceLost: !!window.__deviceLost,
+      hasVP: Array.isArray(window.__lastVP),
+      pass: window.__lastVPFinite !== false && !window.__deviceLost };
+  },
+
+  // (W) blockCensus -- per-quad render audit: drawn-full vs ancestor-fallback vs the
+  // total visible, by level. 'blocks not rendering' = quads dropped from the draw.
+  blockCensus(){
+    const q=window.__lastGLQuads||[]; const f=window.__webglFrame||{};
+    const byLevel={}, fbByLevel={}; let fb=0;
+    for(const x of q){ const l=x.quad.level|0; byLevel[l]=(byLevel[l]||0)+1; if(x.subregion){fb++; fbByLevel[l]=(fbByLevel[l]||0)+1;} }
+    return { drawn:q.length, fallback:fb, fullTile:q.length-fb, byLevel, fallbackByLevel:fbByLevel,
+      culledCount:f.culledCount|0, residentCount:f.residentCount|0, fallbackCount:f.fallbackCount|0, glError:f.glError|0 };
+  },
+
+  // (X) quadTransformProbe -- replicate the VS clip transform on the CPU (renderer's
+  // probe()) to count quads projecting fully off-screen. Separates 'culled' (orch
+  // dropped it) from 'transformed off-screen' (VS/projection bug) -- distinct causes.
+  quadTransformProbe(){
+    const orch=window.__planetOrch, rnd=orch&&orch.render; if(!rnd||!rnd.probe) return {err:'no-probe'};
+    const q=window.__lastGLQuads||[]; if(!q.length) return {err:'no-quads'};
+    const eyeM=cam.pos.map(v=>v*WEBGL2_M_PER_UNIT);
+    const camArg={ eye:eyeM, center:[eyeM[0]+cam.fwd[0]*WEBGL2_TERRAIN_R_M,eyeM[1]+cam.fwd[1]*WEBGL2_TERRAIN_R_M,eyeM[2]+cam.fwd[2]*WEBGL2_TERRAIN_R_M], up:cam.up, fovy:45*Math.PI/180 };
+    let off=0,on=0; const out=rnd.probe(q, camArg);
+    for(const o of out){ if(o.ndc.every(c=>c.off)) off++; else on++; }
+    return { totalQuads:q.length, fullyOffScreen:off, onScreen:on, offFrac:+(off/Math.max(q.length,1)).toFixed(3) };
+  },
+
+  // lodCenterProbe -- WITNESS that the deepest-LOD leaves sit UNDER the camera nadir (the
+  // recurring "LOD center lags the camera / wrong area detailed" report). For every deepest
+  // (highest-level) leaf, map its face-local centre through the SAME tangent warp the VS uses
+  // (faceWarp: wx=R*tan((ox/R)*pi/4)) + the face frame to a world direction, and measure the
+  // angular distance to the camera nadir (cam.pos normalized). deepestMinAngToNadir < ~0.5deg
+  // means the finest LOD is directly under the camera (correct); a large angle means the LOD
+  // center has drifted off the camera. Pure read of __lastGLQuads -- run it after any move.
+  lodCenterProbe(){
+    const q=window.__lastGLQuads||[]; if(!q.length) return {err:'no-quads'};
+    const R=WEBGL2_TERRAIN_R_M, K=Math.PI/4;
+    const cl=Math.hypot(...cam.pos)||1; const nadir=[cam.pos[0]/cl,cam.pos[1]/cl,cam.pos[2]/cl];
+    let maxLevel=0; for(const o of q){ const l=(o.quad?o.quad.level:o.level)||0; if(l>maxLevel)maxLevel=l; }
+    let minA=999, maxA=0, n=0;
+    for(const o of q){ const Q=o.quad||o; if((Q.level||0)!==maxLevel) continue; n++;
+      const F=this._FACE_FRAME[o.face]; const cx=Q.ox+Q.l*0.5, cy=Q.oy+Q.l*0.5;
+      const wx=R*Math.tan((cx/R)*K), wy=R*Math.tan((cy/R)*K); const len=Math.hypot(wx,wy,R)||1;
+      const dir=[(wx/len)*F.u[0]+(wy/len)*F.v[0]+(R/len)*F.c[0],
+                 (wx/len)*F.u[1]+(wy/len)*F.v[1]+(R/len)*F.c[1],
+                 (wx/len)*F.u[2]+(wy/len)*F.v[2]+(R/len)*F.c[2]];
+      const dot=Math.max(-1,Math.min(1,dir[0]*nadir[0]+dir[1]*nadir[1]+dir[2]*nadir[2]));
+      const a=Math.acos(dot)*180/Math.PI; if(a<minA)minA=a; if(a>maxA)maxA=a;
+    }
+    return { maxLevel, nDeepLeaves:n, deepestMinAngToNadir:+minA.toFixed(3),
+             deepestMaxAngToNadir:+maxA.toFixed(3), frame:window.__cullStats?window.__cullStats.frame:null,
+             altKm:Math.round((window.__altM||0)/1000), tracksCamera:(minA<0.5) };
+  },
+
+  // (Y) flyForward -- DRIVE THE REAL W-KEY PATH frame by frame and trace the live
+  // page. Sets window.__keys.w (the actual key the render loop reads), so the exact
+  // moveStep/collision-clamp/quadtree/render code runs. Records per-frame coverage,
+  // quads, finite-VP, device-lost, and the cam.pos delta vs intended step (to catch
+  // a collision-clamp snap). Degenerate-aware: classifies 'flew to space' (planet
+  // legitimately left frame) vs 'terrain wrongly vanished'.
+  async flyForward({frames=40, speed=null, key='w'}={}){
+    const rdy=await this.assertReady(); if(!rdy.ok) return {err:'not-ready',detail:rdy};
+    const d=window.__dbg; const prevSpeed=cam.speed; if(speed!=null) cam.speed=speed;
+    const planetInFrame=()=>{ // is the planet center geometrically in front of the camera?
+      const p=cam.pos, len=Math.hypot(...p)||1; const toC=[-p[0]/len,-p[1]/len,-p[2]/len];
+      return (toC[0]*cam.fwd[0]+toC[1]*cam.fwd[1]+toC[2]*cam.fwd[2]) > -0.3; };
+    const trace=[]; let worstDropInFrame=0, anyNonFinite=false, anyDeviceLost=false, snap=0;
+    window.__keys[key]=true;
+    try {
+      for(let i=0;i<frames;i++){
+        const prevPos=cam.pos.slice();
+        await d.frames(1);
+        const moved=Math.hypot(cam.pos[0]-prevPos[0],cam.pos[1]-prevPos[1],cam.pos[2]-prevPos[2]);
+        const cov=this.coverageGrid(4); const fin=this.assertFiniteVP();
+        const inFrame=planetInFrame();
+        const fullCov=cov.grid.flat().filter(v=>v>0.3).length/(4*4);  // frac of cells with terrain
+        if(!fin.vpFinite) anyNonFinite=true; if(fin.deviceLost) anyDeviceLost=true;
+        // a position jump much larger than the move (clamp snap) is suspicious
+        const f=window.__webglFrame||{};
+        if(inFrame && fullCov < 0.15 && (f.quadCount|0)>0) worstDropInFrame++;
+        trace.push({ i, altKm:+d.altKm().toFixed(0), quads:f.quadCount|0, fullCov:+fullCov.toFixed(2),
+          inFrame, vpFinite:fin.vpFinite, deviceLost:fin.deviceLost, moved:+moved.toFixed(2) });
+      }
+    } finally { window.__keys[key]=false; if(speed!=null) cam.speed=prevSpeed; }
+    return { frames, speed:speed!=null?speed:prevSpeed, trace,
+      anyNonFinite, anyDeviceLost, dropFramesWhileInFrame:worstDropInFrame,
+      // PASS = terrain never collapsed WHILE the planet was in frame, VP stayed finite,
+      // context never lost. (Coverage legitimately drops when you fly off to space.)
+      pass: worstDropInFrame===0 && !anyNonFinite && !anyDeviceLost };
+  },
+
+  // (Y2) terrainExpected -- horizon-relative: SHOULD the lower-screen show terrain at
+  // this pose? True unless the camera is pitched so far up the planet has left the lower
+  // frame (looking at the sky). Used so rotation probes don't false-fail on a legit
+  // skyward pitch (the rotation analog of flyForward's planetInFrame guard).
+  terrainExpected(){
+    const p=cam.pos, len=Math.hypot(...p)||1; const down=[-p[0]/len,-p[1]/len,-p[2]/len];
+    // dot(fwd, down): >0 means looking down toward the ground -> terrain expected below.
+    // Near the surface even a level/horizon view shows ground in the lower half, so the
+    // threshold is generous; only a strong upward pitch (dot << 0) clears it.
+    return (cam.fwd[0]*down[0]+cam.fwd[1]*down[1]+cam.fwd[2]*down[2]) > -0.25;
+  },
+
+  // (Y3) rotateInPlace -- YAW the camera incrementally about cam.up (the real mouse-look
+  // path: cam.fwd = rotAxis(cam.fwd, cam.up, step)), sampling coverage each step. The
+  // 'turn around and parts not patched' bug is rotation-sensitive; flyForward only
+  // translated. A coverage cell that stays empty while terrain is horizon-expected as we
+  // rotate = the bug. Degenerate-aware via terrainExpected.
+  async rotateInPlace({deg=360, steps=24}={}){
+    const rdy=await this.assertReady(); if(!rdy.ok) return {err:'not-ready',detail:rdy};
+    const d=window.__dbg; const stepRad=(deg*Math.PI/180)/steps;
+    const trace=[]; let dropWhileExpected=0, anyNonFinite=false, anyDeviceLost=false;
+    for(let i=0;i<steps;i++){
+      cam.fwd = normalize(rotAxis(cam.fwd, cam.up, stepRad));   // real yaw step
+      await d.frames(3);                                        // let quadtree+tiles settle
+      const cov=this.coverageGrid(4); const fin=this.assertFiniteVP();
+      const fullCov=cov.grid.flat().filter(v=>v>0.3).length/16;
+      const expected=this.terrainExpected(); const f=window.__webglFrame||{};
+      if(!fin.vpFinite) anyNonFinite=true; if(fin.deviceLost) anyDeviceLost=true;
+      if(expected && fullCov < 0.25 && (f.quadCount|0)>0) dropWhileExpected++;
+      trace.push({ i, yawDeg:Math.round(i*deg/steps), altKm:+d.altKm().toFixed(0),
+        quads:f.quadCount|0, fullCov:+fullCov.toFixed(2), expected, vpFinite:fin.vpFinite,
+        emptyInterior:cov.emptyInteriorCells });
+    }
+    return { deg, steps, trace, anyNonFinite, anyDeviceLost, dropStepsWhileExpected:dropWhileExpected,
+      minCovWhileExpected:Math.min(...trace.filter(t=>t.expected).map(t=>t.fullCov),1),
+      // PASS = terrain stays filled through the whole yaw WHILE it is horizon-expected.
+      pass: dropWhileExpected===0 && !anyNonFinite && !anyDeviceLost };
+  },
+
+  // (Y4) flyThenTurn -- the EXACT user gesture: descend via W to low altitude, THEN yaw
+  // turnDeg. Reproduces 'went down and turned around, parts not patched' in one dispatch.
+  async flyThenTurn({descendFrames=12, speed=20, turnDeg=180, turnSteps=18}={}){
+    const rdy=await this.assertReady(); if(!rdy.ok) return {err:'not-ready',detail:rdy};
+    const d=window.__dbg;
+    await this.parkOblique(50, 0.25);
+    const prevSpeed=cam.speed; cam.speed=speed; window.__keys.w=true;
+    for(let i=0;i<descendFrames && (window.__altM||1e9)>2500;i++) await d.frames(1);
+    window.__keys.w=false; cam.speed=prevSpeed; await d.frames(4);
+    const descendAltKm=+d.altKm().toFixed(2);
+    const turn=await this.rotateInPlace({deg:turnDeg, steps:turnSteps});
+    return { descendAltKm, turn };
+  },
+
+  // (Z) motionSweep -- the motion analog of baseline(): fly W from each rung, nadir
+  // AND oblique, at several speeds; the COMPLETE-gate for disappear/blocks bugs.
+  async motionSweep(){
+    const rdy=await this.assertReady(); if(!rdy.ok) return (window.__diagMotion={err:'not-ready',detail:rdy});
+    const out={ when:new Date().toISOString(), runs:{} };
+    const cases=[
+      {name:'orbit-nadir', park:()=>this.parkAt('orbit'), speed:50},
+      {name:'lowalt-nadir', park:()=>this.parkAt('lowalt'), speed:5},
+      {name:'lowalt-oblique', park:()=>this.parkOblique(50,0.25), speed:5},
+      {name:'midalt-oblique', park:()=>this.parkOblique(400,0.2), speed:50},
+      {name:'orbit-oblique-fast', park:()=>this.parkOblique(2000,0.15), speed:500},
+    ];
+    for(const c of cases){ await c.park(); const r=await this.flyForward({frames:18, speed:c.speed});
+      out.runs[c.name]={ pass:r.pass, dropFrames:r.dropFramesWhileInFrame, nonFinite:r.anyNonFinite,
+        deviceLost:r.anyDeviceLost, minFullCov:Math.min(...r.trace.map(t=>t.fullCov)) }; }
+    // ROTATION cases -- the orientation analog the translation-only sweep missed (user found
+    // 'turn around -> parts not patched'). Yaw 360 in place at low + mid altitude.
+    const rotCases=[
+      {name:'lowalt-yaw360', park:()=>this.parkOblique(50,0.25)},
+      {name:'midalt-yaw360', park:()=>this.parkOblique(400,0.2)},
+    ];
+    for(const c of rotCases){ await c.park(); const r=await this.rotateInPlace({deg:360, steps:18});
+      out.runs[c.name]={ pass:r.pass, dropSteps:r.dropStepsWhileExpected, nonFinite:r.anyNonFinite,
+        deviceLost:r.anyDeviceLost, minCovWhileExpected:r.minCovWhileExpected }; }
+    // and the exact user gesture: descend then turn around.
+    { const r=await this.flyThenTurn({turnDeg:180}); out.runs['fly-then-turn180']={ pass:r.turn.pass,
+        dropSteps:r.turn.dropStepsWhileExpected, descendAltKm:r.descendAltKm, minCovWhileExpected:r.turn.minCovWhileExpected }; }
+    out.pass = Object.values(out.runs).every(R=>R.pass);
+    return (window.__diagMotion=out);
+  },
+
+  // =========================================================================
+  // EFFICIENCY METRIC GLOBALS (added 2026-05-29). The user's three measurable
+  // targets: (1) 4-50 screen-px per triangle edge generally, (2) 1-2 texels per
+  // pixel at all heights, (3) max performance / no bottlenecks. These read the
+  // LAST rendered frame's visible-quad set (__lastGLQuads) + the actual draw
+  // matrix (__lastVP, camera-relative: folds translate(-eye)) and project each
+  // quad's deformed corners to screen -- the rigorous screen-space-error measure,
+  // not a screenshot heuristic. FACE_FRAME mirrors the orchestrator's table (the
+  // single source of truth); kept read-only here so the metric is self-contained.
+  // =========================================================================
+  _FACE_FRAME: [
+    { c:[ 1,0,0], u:[0,0,-1], v:[0,1,0] }, { c:[-1,0,0], u:[0,0, 1], v:[0,1,0] },
+    { c:[0, 1,0], u:[1,0,0],  v:[0,0,-1] }, { c:[0,-1,0], u:[1,0,0],  v:[0,0, 1] },
+    { c:[0,0, 1], u:[1,0,0],  v:[0,1,0] },  { c:[0,0,-1], u:[-1,0,0], v:[0,1,0] },
+  ],
+  // Project a face-local quad corner (ox,oy on the cube face, radius rad) to a
+  // screen pixel via __lastVP. Returns {x,y,w} in pixels (w<=0 => behind camera).
+  _projQuadCorner(face, px, py, rad, vp, W, H){
+    const F=this._FACE_FRAME[face]; const len=Math.hypot(px,py,this._R())||1;
+    const wx=(px/len)*F.u[0]+(py/len)*F.v[0]+(this._R()/len)*F.c[0];
+    const wy=(px/len)*F.u[1]+(py/len)*F.v[1]+(this._R()/len)*F.c[1];
+    const wz=(px/len)*F.u[2]+(py/len)*F.v[2]+(this._R()/len)*F.c[2];
+    const X=wx*rad, Y=wy*rad, Z=wz*rad;
+    const cx=vp[0]*X+vp[4]*Y+vp[8]*Z+vp[12];
+    const cy=vp[1]*X+vp[5]*Y+vp[9]*Z+vp[13];
+    const cw=vp[3]*X+vp[7]*Y+vp[11]*Z+vp[15];
+    if(cw<=0) return {x:0,y:0,w:cw};
+    return { x:(cx/cw*0.5+0.5)*W, y:(0.5-cy/cw*0.5)*H, w:cw };
+  },
+  _R(){ return 6360000.0; },
+  // Screen-space area (px^2) of a visible quad's deformed surface (radius ~R), via
+  // the shoelace of its 4 projected corners. Returns 0 if any corner is behind.
+  _quadScreenArea(q, vp, W, H){
+    const R=this._R(), qd=q.quad, ox=qd.ox, oy=qd.oy, l=qd.l;
+    const cs=[[ox,oy],[ox+l,oy],[ox+l,oy+l],[ox,oy+l]]; const p=[];
+    for(const c of cs){ const pr=this._projQuadCorner(q.face,c[0],c[1],R,vp,W,H); if(pr.w<=0) return 0; p.push(pr); }
+    let a=0; for(let i=0;i<4;i++){const j=(i+1)%4; a+=p[i].x*p[j].y-p[j].x*p[i].y;} return Math.abs(a)/2;
+  },
+
+  // (PXP) pxPerPoly -- the screen-space-error metric the user named ("triangle
+  // subdivisions achieve 4-50px per poly generally"). For each ON-SCREEN visible
+  // quad: screen area / (GRID^2 * 2 tris) = px^2 per triangle; sqrt = px per
+  // triangle EDGE (the intuitive "px per poly"). Reports the distribution +
+  // fraction inside the [4,50] target band. GRID=16 => 512 tris/quad (shipped lever).
+  // Default reads the LIVE grid (window.__glGrid set by gl-render) so the metric tracks the
+  // real mesh density; falls back to 16 (the shipped GRID) if the global is not yet set.
+  pxPerPoly(grid){
+    if (grid == null) grid = (typeof window.__glGrid === 'number') ? window.__glGrid : 16;
+    const q=window.__lastGLQuads||[]; const vp=window.__lastVP; if(!vp||!q.length) return {err:'no-frame'};
+    const gl=this._gl(); const W=gl.drawingBufferWidth, H=gl.drawingBufferHeight;
+    const tris=grid*grid*2; const edges=[]; let onScreen=0;
+    for(const x of q){ const area=this._quadScreenArea(x,vp,W,H); if(area<=0) continue;
+      // only count quads that actually overlap the viewport (centroid roughly on screen
+      // OR area large) -- a fully-offscreen but in-front quad would skew the median.
+      const perTri=area/tris; const edge=Math.sqrt(Math.max(perTri,0)); edges.push({edge,level:x.quad.level|0,face:x.face}); onScreen++; }
+    if(!edges.length) return {err:'no-onscreen-quads', total:q.length};
+    edges.sort((a,b)=>a.edge-b.edge); const vals=edges.map(e=>e.edge);
+    const pct=p=>vals[Math.min(vals.length-1,Math.floor(p*vals.length))];
+    const inBand=vals.filter(v=>v>=4&&v<=50).length;
+    return { altKm:+window.__dbg.altKm().toFixed(1), onScreenQuads:onScreen, trisPerQuad:tris,
+      pxPerPolyEdge:{ min:+vals[0].toFixed(2), p10:+pct(0.1).toFixed(2), median:+pct(0.5).toFixed(2),
+        p90:+pct(0.9).toFixed(2), max:+vals[vals.length-1].toFixed(2) },
+      fracInBand_4_50:+(inBand/vals.length).toFixed(3),
+      // PASS = most polys in the 4-50 band (allow tails: coarse-far + maxLevel-floor quads).
+      pass: (inBand/vals.length) >= 0.6 };
+  },
+
+  // (TXP) texelPerPixel -- the material-resolution metric ("materials balance to
+  // 1-2 texels per pixel at all heights"). A tile carries USABLE^2 unique texels
+  // (TILE_W-2*BORDER = 21) across the quad's screen area; texels/pixel =
+  // USABLE^2 / screenArea. >2 => oversampled (blurry, wasting fetch); <1 =>
+  // undersampled (aliased/sparkly). Reports distribution vs the [1,2] target.
+  texelPerPixel(usable=21){
+    const q=window.__lastGLQuads||[]; const vp=window.__lastVP; if(!vp||!q.length) return {err:'no-frame'};
+    const gl=this._gl(); const W=gl.drawingBufferWidth, H=gl.drawingBufferHeight;
+    const texels=usable*usable; const vals=[];
+    for(const x of q){ const area=this._quadScreenArea(x,vp,W,H); if(area<=0) continue;
+      // a fallback-subregion quad samples only scale^2 of the ancestor's texels.
+      const sub=x.subregion; const eff = sub ? texels*(sub.scale*sub.scale) : texels;
+      vals.push(eff/area); }
+    if(!vals.length) return {err:'no-onscreen-quads', total:q.length};
+    vals.sort((a,b)=>a-b);
+    const pct=p=>vals[Math.min(vals.length-1,Math.floor(p*vals.length))];
+    const inBand=vals.filter(v=>v>=1&&v<=2).length;
+    return { altKm:+window.__dbg.altKm().toFixed(1), onScreenQuads:vals.length, texelsPerTile:texels,
+      texelsPerPixel:{ min:+vals[0].toFixed(3), p10:+pct(0.1).toFixed(3), median:+pct(0.5).toFixed(3),
+        p90:+pct(0.9).toFixed(3), max:+vals[vals.length-1].toFixed(3) },
+      fracInBand_1_2:+(inBand/vals.length).toFixed(3),
+      pass: (inBand/vals.length) >= 0.5 };
+  },
+
+  // ---- per-scanline feature-wavelength helpers (shared by featureScale/texelDetail).
+  // From a horizontal band of scanlines across the canvas center we measure the mean
+  // spacing (in PIXELS) between consecutive zero-crossings of a chosen signal. spacing
+  // = the dominant feature WAVELENGTH on screen. Background pixels (near-black, r,g,b<6)
+  // are skipped so the limb/sky don't dilute the land measurement. Returns the
+  // distribution of crossing spacings (px) over the sampled rows.
+  _scanlineWavelengths(signalFn, rowsToSample=24, hipass=false){
+    const {px,w,h}=this._read();
+    const spacings=[];
+    const y0=Math.floor(h*0.30), y1=Math.floor(h*0.70);
+    const step=Math.max(1,Math.floor((y1-y0)/rowsToSample));
+    for(let y=y0;y<y1;y+=step){
+      // build the 1-D signal for this row over land pixels; track its mean for centering.
+      const sig=[]; const xs=[];
+      for(let x=0;x<w;x++){ const i=(y*w+x)*4; const r=px[i],g=px[i+1],b=px[i+2];
+        if(r<6&&g<6&&b<6) continue;           // background/limb -> skip
+        sig.push(signalFn(r,g,b)); xs.push(x); }
+      if(sig.length<16) continue;
+      // optional high-pass: subtract a 9-tap moving average to isolate fine detail
+      // (so a slow albedo gradient doesn't read as one giant feature).
+      let s=sig;
+      if(hipass){ s=sig.map((v,k)=>{ let acc=0,n=0; for(let d=-4;d<=4;d++){const j=k+d; if(j>=0&&j<sig.length){acc+=sig[j];n++;}} return v-acc/n; }); }
+      const mean=s.reduce((a,v)=>a+v,0)/s.length;
+      // zero-crossings of (signal - mean): record the on-screen pixel gap between them.
+      let lastX=-1;
+      for(let k=1;k<s.length;k++){ const a=s[k-1]-mean, b=s[k]-mean;
+        if((a<=0&&b>0)||(a>0&&b<=0)){ const cx=xs[k]; if(lastX>=0){ const gap=cx-lastX; if(gap>0) spacings.push(gap*2); /* *2: crossing spacing = half-wavelength */ } lastX=cx; } }
+    }
+    if(!spacings.length) return null;
+    spacings.sort((a,b)=>a-b);
+    const pct=p=>spacings[Math.min(spacings.length-1,Math.floor(p*spacings.length))];
+    return { count:spacings.length, p10:+pct(0.1).toFixed(1), median:+pct(0.5).toFixed(1), p90:+pct(0.9).toFixed(1) };
+  },
+
+  // (FSC) featureScale -- DOMINANT vertex-feature wavelength (px) at a rung. Renders the
+  // signed-vH diagnostic (displayMode 6 packs elevation into RGB: R=+vH/8000, B=-vH/8000)
+  // and measures the on-screen spacing of elevation zero-crossings = the geometric feature
+  // size the user sees. Target: 20-50px vertex features AT ALL SCOPES (the request).
+  async featureScale(rung){
+    const d=window.__dbg; const prev=window.__displayMode|0;
+    if(rung){ await this.parkAt(rung); }
+    window.__displayMode=6; await d.frames(8);
+    // signal = signed elevation reconstructed from the displayMode-6 packing (R - B).
+    const wv=this._scanlineWavelengths((r,g,b)=>(r-b), 24, false);
+    window.__displayMode=prev; await d.frames(2);
+    if(!wv) return { altKm:+d.altKm().toFixed(1), err:'no-land-signal' };
+    const inBand = wv.p10>=20 && wv.median<=50 ? 1 : (wv.median>=20&&wv.median<=50?0.7:0);
+    return { altKm:+d.altKm().toFixed(1), vertFeaturePx:{p10:wv.p10,median:wv.median,p90:wv.p90},
+      samples:wv.count, inBand_20_50:(wv.median>=20&&wv.median<=50), bandScore:inBand };
+  },
+
+  // (TXD) texelDetail -- MATERIAL high-frequency wavelength (px) at a rung. Renders albedo
+  // (displayMode 2) and HIGH-PASSES the luma scanline so a slow biome gradient does not mask
+  // the fine grain; the crossing spacing of the high-passed signal = the texel-detail size
+  // on screen. NOTE FS detail texturing was removed (one fractal only) -- this now measures the
+  // albedo variation from the biome ramp + mesh-resolved fractal, not a separate grain layer.
+  async texelDetail(rung){
+    const d=window.__dbg; const prev=window.__displayMode|0;
+    if(rung){ await this.parkAt(rung); }
+    window.__displayMode=2; await d.frames(8);
+    const wv=this._scanlineWavelengths((r,g,b)=>(r*0.299+g*0.587+b*0.114), 24, true);
+    window.__displayMode=prev; await d.frames(2);
+    if(!wv) return { altKm:+d.altKm().toFixed(1), err:'no-land-signal' };
+    return { altKm:+d.altKm().toFixed(1), texelFeaturePx:{p10:wv.p10,median:wv.median,p90:wv.p90},
+      samples:wv.count, inBand_1_4:(wv.median>=1&&wv.median<=4),
+      hasDetailAboveFadeAlt:(d.altKm()>8 && wv.median<=8) };
+  },
+
+  // (VSW) varianceSweep -- the ALL-SCALES acceptance table. Walks every RUNG (space->closeup)
+  // and at each records: pxPerPoly band, featureScale vertFeaturePx, texelDetail texelFeaturePx,
+  // reliefSD (signed-vH std-dev over the canvas = geometric variation present), shadingSD
+  // (lit-luma std-dev = relief-shading present), albedoSD (albedo-luma std-dev = material
+  // variation present), drawCensus. One dispatch = the full detail/lighting/variance vector
+  // the request asks to validate "all the way down from highest to lowest frequencies".
+  async varianceSweep(){
+    const rdy=await this.assertReady(); if(!rdy.ok) return (window.__varSweep={err:'not-ready',detail:rdy});
+    const d=window.__dbg; const rungs=Object.keys(this.RUNGS);
+    const sd=(mode)=>{ const prev=window.__displayMode|0; window.__displayMode=mode; return d.frames(8).then(()=>{
+        const {px,w,h}=this._read(); let s=0,s2=0,n=0;
+        for(let i=0;i<w*h;i++){const r=px[i*4],g=px[i*4+1],b=px[i*4+2]; if(r<6&&g<6&&b<6)continue;
+          const l=(mode===6)?(r-b):(r*0.299+g*0.587+b*0.114); s+=l; s2+=l*l; n++; }
+        window.__displayMode=prev;
+        return n? +Math.sqrt(Math.max(0,s2/n-(s/n)*(s/n))).toFixed(2) : 0; }); };
+    const out={ when:new Date().toISOString(), rungs:{} };
+    for(const r of rungs){ await this.parkAt(r);
+      let pv=-1,st=0; for(let i=0;i<40&&st<6;i++){await d.frames(2); const t=(window.__lastGLQuads||[]).length; if(t===pv)st++; else st=0; pv=t;}
+      const reliefSD=await sd(6), shadingSD=await sd(0), albedoSD=await sd(2);
+      await d.frames(2);
+      out.rungs[r]={ altKm:+d.altKm().toFixed(0),
+        pxPerPoly:this.pxPerPoly(), featureScale:await this.featureScale(), texelDetail:await this.texelDetail(),
+        reliefSD, shadingSD, albedoSD, draw:this.drawCensus() }; }
+    return (window.__varSweep=out);
+  },
+
+  // (DRW) drawCensus -- per-frame draw-cost census + the FAR-HEMISPHERE WASTE
+  // metric (the dominant bottleneck: all 6 cube faces fully subdivide each
+  // rebuild, but the quads whose deformed center faces AWAY from the camera are
+  // behind the limb and depth-culled -- wasted tile-gen + draw). A quad is
+  // "behind limb" when the angle between cam->quad-center-dir and cam-out-dir
+  // exceeds the horizon half-angle. Also splits quads per cube face.
+  drawCensus(){
+    const q=window.__lastGLQuads||[]; const f=window.__webglFrame||{};
+    const cam=window.__lastGLCam||{}; const eye=cam.eye||cam.pos||[0,0,6360000*1.5];
+    const R=this._R(); const camDist=Math.hypot(eye[0],eye[1],eye[2])||R;
+    // horizon half-angle from the camera: cos(theta_h) = R/camDist (tangent ray).
+    const cosHoriz = Math.min(1, R/camDist);
+    const byFace=[0,0,0,0,0,0]; let behindLimb=0, onScreenish=0;
+    const FF=this._FACE_FRAME;
+    for(const x of q){ byFace[x.face]++;
+      const qd=x.quad, F=FF[x.face]; const cx=qd.ox+qd.l/2, cy=qd.oy+qd.l/2;
+      const len=Math.hypot(cx,cy,R)||1;
+      const wx=(cx/len)*F.u[0]+(cy/len)*F.v[0]+(R/len)*F.c[0];
+      const wy=(cx/len)*F.u[1]+(cy/len)*F.v[1]+(R/len)*F.c[1];
+      const wz=(cx/len)*F.u[2]+(cy/len)*F.v[2]+(R/len)*F.c[2];
+      // surface point on the unit sphere * R; direction from camera to it:
+      const sx=wx*R-eye[0], sy=wy*R-eye[1], sz=wz*R-eye[2]; const sl=Math.hypot(sx,sy,sz)||1;
+      // angle of the surface-normal (wx,wy,wz) vs the camera's outward dir (eye/|eye|):
+      const dotOut=(wx*eye[0]+wy*eye[1]+wz*eye[2])/(camDist);  // = cos(angle from sub-cam point)
+      // behind the limb when the point's angular distance from sub-cam exceeds the
+      // horizon: cos(angle) < cos(horiz) i.e. dotOut < cosHoriz.
+      if(dotOut < cosHoriz) behindLimb++; else onScreenish++;
+    }
+    return { totalQuads:q.length, byFace, behindLimbQuads:behindLimb, frontHemiQuads:onScreenish,
+      wastedFrac:+(behindLimb/Math.max(q.length,1)).toFixed(3),
+      residentCount:f.residentCount, fallbackCount:f.fallbackCount, culledCount:f.culledCount,
+      maxFallbackLevel:f.maxFallbackLevel, cached:f.cached, glError:f.glError };
+  },
+
+  // (PRF) profileFrame -- per-stage wall-clock breakdown. Forces a REBUILD frame
+  // (clearCache => full quadtree + tile-gen) and times it vs a cached re-render
+  // frame, isolating tile-generation cost from draw cost. Reports ms + fps for
+  // both, the tiles generated, and the draw-only cost. Runs at the current view.
+  async profileFrame(reps=6){
+    const rdy=await this.assertReady(); if(!rdy.ok) return {err:'not-ready',detail:rdy};
+    const d=window.__dbg, orch=window.__planetOrch;
+    // settle first so we time a representative steady-state view, not mid-stream.
+    await d.frames(12);
+    // (a) REBUILD-frame cost: clear the atlas so the next frame regenerates every
+    // visible tile (the worst-case move cost). Time the single rebuild frame.
+    const tReb=[]; for(let i=0;i<reps;i++){ orch.clearCache(); const t0=performance.now(); await d.frames(1); tReb.push(performance.now()-t0); }
+    const beforeRes=orch.residentCount;
+    // (b) CACHED re-render cost: no movement => _frameCache hit => draw-only.
+    await d.frames(2); const tCached=[]; for(let i=0;i<reps;i++){ const t0=performance.now(); await d.frames(1); tCached.push(performance.now()-t0); }
+    const med=a=>{const s=[...a].sort((x,y)=>x-y); return +s[s.length>>1].toFixed(2);};
+    const census=this.drawCensus();
+    return { altKm:+d.altKm().toFixed(1), reps,
+      rebuildFrameMs:med(tReb), cachedFrameMs:med(tCached),
+      tileGenMs:+(med(tReb)-med(tCached)).toFixed(2),
+      rebuildFps:+(1000/Math.max(med(tReb),0.01)).toFixed(1), cachedFps:+(1000/Math.max(med(tCached),0.01)).toFixed(1),
+      residentTiles:beforeRes, draw:census,
+      // PASS = a steady-state (cached) frame holds >=30fps; rebuild may dip on big jumps.
+      pass: med(tCached) < 33.3 };
+  },
+
+  // (EFF) efficiencyBaseline -- the efficiency analog of baseline(): park at every
+  // rung and record pxPerPoly + texelPerPixel + profileFrame + drawCensus into
+  // window.__effBaseline. One dispatch = the full before/after efficiency vector.
+  async efficiencyBaseline(){
+    const rdy=await this.assertReady(); if(!rdy.ok) return (window.__effBaseline={err:'not-ready',detail:rdy});
+    const rungs=Object.keys(this.RUNGS); const out={ when:new Date().toISOString(), rungs:{} };
+    for(const r of rungs){ await this.parkAt(r);
+      // settle to stable quad count (deep tiles stream in over ~30 frames).
+      let prevQ=-1,stable=0; for(let i=0;i<40 && stable<6;i++){ await window.__dbg.frames(2);
+        const t=(window.__lastGLQuads||[]).length; if(t===prevQ)stable++; else stable=0; prevQ=t; }
+      out.rungs[r]={ altKm:+window.__dbg.altKm().toFixed(0),
+        pxPerPoly:this.pxPerPoly(), texelPerPixel:this.texelPerPixel(),
+        draw:this.drawCensus(), profile:await this.profileFrame(4) }; }
+    out.pass = Object.values(out.rungs).every(R=> (R.pxPerPoly.pass!==false) && (R.profile.pass!==false));
+    return (window.__effBaseline=out);
+  },
+
+  // (SWP) sweepSplit -- calibrate window.__splitFactor live (no rebuild/reload) so
+  // px/poly lands in the 4-50 band. Tries several splitFactor values at the current
+  // view, re-rendering enough frames for the quadtree to re-settle, and reports
+  // pxPerPoly median + band fraction + quad count for each. The efficient-loop
+  // analog of densitySweep: find the right value in ONE dispatch, then set it.
+  async sweepSplit(values=[2.0,1.0,0.5,0.3,0.2,0.12]){
+    const rdy=await this.assertReady(); if(!rdy.ok) return {err:'not-ready',detail:rdy};
+    const orch=window.__planetOrch; const prev=window.__splitFactor;
+    const out=[];
+    for(const sf of values){ window.__splitFactor=sf; orch.clearCache();
+      let pv=-1,st=0; for(let i=0;i<40&&st<6;i++){await window.__dbg.frames(2); const t=(window.__lastGLQuads||[]).length; if(t===pv)st++; else st=0; pv=t;}
+      const px=this.pxPerPoly(), tx=this.texelPerPixel(), dc=this.drawCensus();
+      out.push({ splitFactor:sf, quads:dc.totalQuads, behindLimb:dc.behindLimbQuads, wastedFrac:dc.wastedFrac,
+        fallbackCount:dc.fallbackCount,
+        pxMedian:px.pxPerPolyEdge&&px.pxPerPolyEdge.median, pxBand:px.fracInBand_4_50,
+        txMedian:tx.texelsPerPixel&&tx.texelsPerPixel.median, txBand:tx.fracInBand_1_2 }); }
+    window.__splitFactor=prev; orch.clearCache(); await window.__dbg.frames(8);
+    return { altKm:+window.__dbg.altKm().toFixed(0), restoredTo:prev, trials:out };
+  },
+
+  // (HPF) hpf -- the Hierarchical Parameter Field terraform loop, witnessable in one
+  // dispatch. Lists the scale bands, reads biome/params at a world direction, edits a node
+  // (any band) + re-bakes live, and measures land/sea so an edit's effect is provable. The
+  // anchor field is window.__hpf (anchor-field.js); the baked continental texture lives in
+  // the orchestrator and re-bakes via window.__hpfRebake().
+  hpf: {
+    _f(){ return window.__hpf; },
+    bands(){ const f=this._f(); return f?f.bandsInfo():{err:'no-hpf'}; },
+    // biome/params at the camera's sub-point (or a given world dir).
+    paramsAt(dir){ const f=this._f(); if(!f) return {err:'no-hpf'};
+      const d = dir || (()=>{ const p=cam.pos, l=Math.hypot(...p); return [p[0]/l,p[1]/l,p[2]/l]; })();
+      const s = f.sampleDir(d); const o={}; for(const k of f.PARAM_KEYS) o[k]=+s[k].toFixed(3); return {dir:d.map(v=>+v.toFixed(3)), params:o}; },
+    // edit the node containing a world dir, in a band at an arbitrary DEPTH below the band
+    // base level (depth 0 = base cell; deeper = finer terraform), by param deltas; rebake.
+    edit(band, dir, deltas, depth){ const f=this._f(); if(!f) return {err:'no-hpf'};
+      const d = dir || (()=>{ const p=cam.pos, l=Math.hypot(...p); return [p[0]/l,p[1]/l,p[2]/l]; })();
+      const key = f.editAtDir(band|0, d, deltas||{}, depth|0);
+      if(window.__hpfRebake) window.__hpfRebake();
+      const bi=f.bandsInfo()[band|0]||{};
+      return { band:band|0, key, depth:depth|0, totalEdits:f.totalEdits, maxDepth:bi.maxDepth, params:this.paramsAt(d).params }; },
+    serialize(){ const f=this._f(); return f?f.serialize():{err:'no-hpf'}; },
+    load(json){ const f=this._f(); if(!f) return {err:'no-hpf'}; const ok=f.load(json); if(ok&&window.__hpfRebake)window.__hpfRebake(); return {loaded:ok}; },
+    // land/sea fraction from the displayMode-5 land-sea map (HPF continental structure on screen).
+    async landSea(){ const rdy=await window.__diag.assertReady(); if(!rdy.ok) return {err:'not-ready'};
+      const d=window.__dbg; const prev=window.__displayMode|0; window.__displayMode=5; await d.frames(6);
+      const {px,w,h}=window.__diag._read(); let land=0,sea=0;
+      for(let i=0;i<w*h;i++){const r=px[i*4],g=px[i*4+1],b=px[i*4+2]; if(r<12&&g<14&&b<30)continue; if(r>b)land++; else sea++;}
+      window.__displayMode=prev; await d.frames(2);
+      return { landFrac:+(land/Math.max(land+sea,1)).toFixed(3), discPixels:land+sea }; },
+    // __biomeAt(dir): classify the anchor climate at a world dir into a DISCRETE biome name +
+    // the raw temp/humid/seaBias. Mirrors the GLSL biomeClassColor (terrain.glsl displayMode 9)
+    // so the live classification and the rendered biome map agree. seaBias>0 ~ land (the fractal
+    // height also shifts h, so this is the anchor-level class, not the per-pixel elevation).
+    biomeAt(dir){ const f=this._f(); if(!f) return {err:'no-hpf'};
+      const L=Math.hypot(dir[0],dir[1],dir[2])||1; const d=[dir[0]/L,dir[1]/L,dir[2]/L];
+      const s=f.sampleDir(d); const t=s.temp, h=s.humidity, sea=s.seaBias;
+      let biome;
+      if (sea < -200) biome='ocean';
+      else if (t < 0.14) biome='ice';
+      else if (t < 0.30) biome='tundra';
+      else if (t > 0.52 && h < 0.22) biome='desert';
+      else if (t > 0.52 && h < 0.42) biome='savanna';
+      else if (h > 0.66) biome = (t > 0.52) ? 'rainforest' : 'taiga';
+      else if (h > 0.45) biome='forest';
+      else biome='meadow/steppe';
+      return { dir:d.map(v=>+v.toFixed(3)), biome, temp:+t.toFixed(3), humidity:+h.toFixed(3), seaBias:+sea.toFixed(0) }; },
+  },
+
+  // (S) baseline -- THE efficient-loop foundation. One dispatch parks the camera at
+  // every altitude rung and records the full health vector + every probe into
+  // window.__diagBaseline. This snapshot is the ground truth each fix compares
+  // against; replaces the restart-and-eyeball loop entirely.
+  async baseline(){
+    const rdy=await this.assertReady(); if(!rdy.ok) return (window.__diagBaseline={err:'not-ready',detail:rdy});
+    const rungs=Object.keys(this.RUNGS); const out={ when:new Date().toISOString(), env:{
+      elevLinear:this.assertElevLinear() }, rungs:{} };
+    for(const r of rungs){
+      await this.parkAt(r);
+      // Let the deep-LOD tiles finish STREAMING IN before measuring. After a camera jump
+      // the quadtree subdivides and tiles generate over ~30 frames; probing mid-stream
+      // catches transient ancestor-fallback coarseness that the settled view (what the
+      // user sees) does not have. Settle to a STABLE quad/resident count, capped.
+      let prevQ=-1, stable=0;
+      for(let i=0;i<60 && stable<8;i++){ await window.__dbg.frames(2);
+        const q=this.quadCensus(); if(q.total===prevQ && q.fallbackCount===(this._lastFb||q.fallbackCount)) stable++; else stable=0;
+        prevQ=q.total; this._lastFb=q.fallbackCount; }
+      const census=this.quadCensus();
+      // seam/speckle measure fine-detail discontinuities; below LOD 4 the on-screen
+      // tiles are so coarse that legitimate relief aliasing dominates and the metric
+      // is not meaningful. Mark them n/a (not fail) at coarse LOD so the verdict is honest.
+      const coarseLOD = (census.maxLevel|0) < 4;
+      out.rungs[r]={ park:{altKm:+window.__dbg.altKm().toFixed(0)}, coarseLOD,
+        census,
+        limb:await this.limbScan(),
+        // haze measures CONTINENT-wash (lit land tinted blue). At coarse LOD the disc is
+        // tiny and dominated by the legitimate atmospheric limb halo, not continents, so
+        // the blue-excess there is real atmosphere, not the wash defect -> n/a, like seam.
+        haze:coarseLOD ? {na:'coarse-LOD',maxLevel:census.maxLevel, blueExcess:(await this.hazeProbe()).blueExcess} : await this.hazeProbe(),
+        speckle:coarseLOD ? {na:'coarse-LOD',maxLevel:census.maxLevel} : await this.speckleProbe(),
+        seam:coarseLOD ? {na:'coarse-LOD',maxLevel:census.maxLevel} : await this.seamProbe() };
+    }
+    // overall verdict = every APPLICABLE probe at every rung passes (n/a probes skipped).
+    const ok=(p)=>p && (p.na ? true : p.pass);
+    out.pass = Object.values(out.rungs).every(R=>ok(R.limb)&&ok(R.haze)&&ok(R.speckle)&&ok(R.seam))
+      && out.env.atlas.pass && out.env.elevLinear.pass;
+    return (window.__diagBaseline=out);
+  },
+};
+console.log('[dbg] __dbg + __diag ready -- __diag.report(), __diag.baseline(), __diag.efficiencyBaseline(), __diag.pxPerPoly(), __diag.texelPerPixel(), __diag.drawCensus(), __diag.profileFrame(), __diag.parkAt(rung), __diag.limbScan(), __diag.hazeProbe(), __diag.speckleProbe(), __diag.seamProbe(), __diag.assertReady(), __diag.assertElevLinear(), __diag.displayModes()');
+
+// ---- GENERATION control panel: auto-built from window.__gen.state, every param a live input ----
+// Walks the __gen state tree; each scalar / array element becomes a number input wired to
+// __gen.set(dotPath, value) so the user tunes every generation param with no console or rebuild.
+(function(){
+  const panel = document.getElementById('genPanel'), toggle = document.getElementById('genToggle');
+  if(!panel || !toggle) return;
+  function rowInput(path, val){
+    const wrap = document.createElement('label');
+    wrap.style.cssText = 'display:flex;justify-content:space-between;gap:6px;align-items:center';
+    const span = document.createElement('span'); span.textContent = path.split('.').slice(-2).join('.'); span.title = path;
+    const inp = document.createElement('input'); inp.type='number'; inp.step='any'; inp.value=val;
+    inp.style.cssText='width:96px;background:#0a0e12;color:#cfe;border:1px solid #2a3a44;font:10px monospace';
+    inp.addEventListener('change', ()=>{ const v=parseFloat(inp.value); if(!isNaN(v)) window.__gen.set(path, v); });
+    wrap.appendChild(span); wrap.appendChild(inp); return wrap;
+  }
+  function walk(obj, prefix, into){
+    for(const k in obj){
+      const v = obj[k], path = prefix? prefix+'.'+k : k;
+      if(Array.isArray(v)){
+        const grp=document.createElement('div'); grp.style.cssText='margin:2px 0;opacity:0.85'; grp.textContent=path;
+        into.appendChild(grp);
+        v.forEach((el,i)=> into.appendChild(rowInput(path+'.'+i, el)));
+      } else if(v && typeof v==='object'){
+        const hdr=document.createElement('div'); hdr.style.cssText='margin:5px 0 2px;color:#7fd;font-weight:bold;border-top:1px solid #2a3a44;padding-top:4px'; hdr.textContent=path;
+        into.appendChild(hdr); walk(v, path, into);
+      } else if(typeof v==='number'){
+        into.appendChild(rowInput(path, v));
+      }
+    }
+  }
+  function rebuild(){
+    panel.innerHTML='';
+    if(!window.__gen){ panel.textContent='__gen not loaded yet'; return; }
+    const bar=document.createElement('div'); bar.style.cssText='display:flex;gap:6px;margin-bottom:4px';
+    const mk=(t,fn)=>{ const b=document.createElement('button'); b.textContent=t; b.style.cssText='font:10px monospace;flex:1'; b.onclick=fn; return b; };
+    bar.appendChild(mk('Apply', ()=>window.__gen.apply()));
+    bar.appendChild(mk('Reset', ()=>{ window.__gen.reset(); rebuild(); }));
+    bar.appendChild(mk('Copy', ()=>navigator.clipboard && navigator.clipboard.writeText(window.__gen.serialize())));
+    panel.appendChild(bar);
+    walk(window.__gen.state, '', panel);
+  }
+  toggle.addEventListener('click', ()=>{ const show = panel.style.display==='none'; panel.style.display = show?'block':'none'; if(show) rebuild(); });
+})();
+</script></body></html>

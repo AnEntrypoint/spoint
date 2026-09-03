@@ -1,0 +1,3 @@
+## Resolved mutable: mu-modelpool-occlusion-surface
+
+client/ModelPoolAdapter.js:17-131 (codesearch hit ci-cd7a2cd4-64b67bbd-0): createModelPool constructs its OWN ModelPool with useOcclusionQuery:true, occlusionMinCandidates:32 -- pool-internal OcclusionQueryTier instance, independent of SceneOcclusion's tier; adapter.runOcclusionQueries() forwards to pool.runOcclusionQueries(). Confirmed: THIRD independent query issuer with its own (vendor-default) per-frame budget; cull-shared-query-budget arbiter must wire all three (TerrainOcclusion raw impl, SceneOcclusion tier, ModelPool internal tier).

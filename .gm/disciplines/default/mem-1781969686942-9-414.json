@@ -1,0 +1,3 @@
+## Resolved mutable: host-world-param-ignored
+
+Fixed app.js:100 guard to (_isSingleplayer||_isHost||_wwRoom||_joinOffer) and removed BrowserServer.js dead apps/world/index.js import. browser-723 local host ?room=TESTRM&world=tps-game: worldReqs=[REQ apps/world/tps-game.js, H200], indexJs404=false, wireweavePresent=true pubkey=013feb07955c1be2, meshes=102, errs=[]. Host now loads the requested world with no 404.

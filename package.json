@@ -1,0 +1,130 @@
+{
+  "name": "spoint",
+  "version": "0.1.700",
+  "description": "Physics and netcode SDK for multiplayer game servers",
+  "type": "module",
+  "types": "./types/index.d.ts",
+  "typings": "./types/index.d.ts",
+  "workspaces": [
+    "packages/*"
+  ],
+  "sideEffects": [
+    "src/protocol/MessageTypes.js"
+  ],
+  "bin": {
+    "spoint": "./server.js",
+    "spoint-create-app": "./bin/create-app.js",
+    "create-spoint-game": "./bin/create-project.js",
+    "spoint-static-export": "./scripts/static-export.mjs",
+    "spoint-router": "./bin/router-boot.js",
+    "spoint-room-orchestrator": "./bin/room-orchestrator-boot.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch --watch-path=src server.js",
+    "create-app": "node ./bin/create-app.js",
+    "verify-app": "node ./scripts/verify-app.mjs",
+    "create-project": "node ./bin/create-project.js",
+    "router-boot": "node ./bin/router-boot.js",
+    "room-orchestrator-boot": "node ./bin/room-orchestrator-boot.js",
+    "postinstall": "node scripts/patch-deps.mjs",
+    "build:client": "node scripts/bundle-client.mjs",
+    "static-export": "node scripts/static-export.mjs",
+    "bundle-apps-manifest": "node scripts/bundle-apps-manifest.mjs",
+    "bundle-apps-manifest:check": "node scripts/bundle-apps-manifest.mjs --check",
+    "prep-edge-collider-assets": "node scripts/prep-edge-collider-assets.mjs",
+    "prep-edge-collider-assets:check": "node scripts/prep-edge-collider-assets.mjs --check",
+    "perf-gate": "node scripts/perf-gate.mjs",
+    "bundle-size-gate": "node scripts/bundle-size-gate.mjs",
+    "cold-load-gate": "node scripts/cold-load-gate.mjs",
+    "check": "node scripts/check.mjs",
+    "gen-typings": "node scripts/gen-sdk-typings.mjs",
+    "check:sdk-types": "node scripts/check-sdk-types.mjs",
+    "test": "node scripts/check.mjs",
+    "build:sph": "asc src/fluid/as-src/sph.ts --outFile src/fluid/sph.wasm --textFile src/fluid/sph.wat --optimize --runtime stub --exportRuntime",
+    "build:sph3d": "asc src/fluid/as-src/sph3d.ts --outFile src/fluid/sph3d.wasm --textFile src/fluid/sph3d.wat --optimize --runtime stub --exportRuntime",
+    "bake-navmesh": "node scripts/bake-navmesh.mjs"
+  },
+  "files": [
+    "src/",
+    "apps/",
+    "client/",
+    "!client/test-*.html",
+    "!client/vrm-test.html",
+    "!**/.glb-cache/",
+    "bin/",
+    "server.js",
+    "SKILL.md",
+    "LICENSE",
+    "README.md"
+  ],
+  "keywords": [
+    "gamedev",
+    "multiplayer",
+    "physics",
+    "netcode",
+    "websocket",
+    "jolt-physics",
+    "game-server"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AnEntrypoint/spoint.git"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "browserslist": [
+    "Chrome >= 100",
+    "Firefox >= 100",
+    "Safari >= 16",
+    "Edge >= 100",
+    "ChromeAndroid >= 100",
+    "iOS >= 16"
+  ],
+  "dependencies": {
+    "@dgreenheck/ez-tree": "^1.1.0",
+    "@dimforge/rapier3d-compat": "^0.19.3",
+    "@gltf-transform/extensions": "^4.4.0",
+    "@gltf-transform/functions": "^4.4.0",
+    "@pixiv/three-vrm": "^3.5.5",
+    "@three.ez/instanced-mesh": "^0.3.15",
+    "bvh.js": "^0.0.13",
+    "dotenv": "^8.2.0",
+    "draco3d": "^1.5.7",
+    "draco3dgltf": "^1.5.7",
+    "jolt-physics": "^1.1.0",
+    "mapspinner": "*",
+    "meshoptimizer": "^1.2.0",
+    "msgpackr": "^2.0.4",
+    "node-fetch": "^3.3.2",
+    "simplex-noise": "^4.0.3",
+    "streaming-gltf": "*",
+    "webjsx": "^0.0.73",
+    "ws": "^8.21.1",
+    "xstate": "^5.32.5"
+  },
+  "optionalDependencies": {
+    "@fails-components/webtransport": "^1.6.6",
+    "@fails-components/webtransport-transport-http3-quiche": "^1.6.6",
+    "nostr-tools": "^2.23.12",
+    "ses": "^2.2.0",
+    "sharp": "^0.35.3",
+    "wireweave": "github:AnEntrypoint/wireweave"
+  },
+  "devDependencies": {
+    "@gltf-transform/cli": "^4.4.1",
+    "@gltf-transform/core": "^4.4.0",
+    "assemblyscript": "^0.28.20",
+    "esbuild": "^0.28.1",
+    "flatspace": "^1.0.18",
+    "monaco-editor": "^0.56.0",
+    "recast-navigation": "^0.43.1",
+    "three": "^0.185.1",
+    "typescript": "^7.0.2"
+  },
+  "overrides": {
+    "dompurify": "^3.4.12"
+  }
+}

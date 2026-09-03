@@ -1,0 +1,3 @@
+## Resolved mutable: m-audit-streaminggltf-optims
+
+agent report verified against C:/dev/streaming-gltf v2.0.17 source (bound-sphere dirty-range confirmed shipped 2.0.14 at model-pool.js:199-314 -- prior open finding closed; latent false-cull scale bug at model-pool.js:1305 scale.length()/SQRT2 < max-component for (2,0.1,0.1); broken _deinterleave guard posAttr.buffer undefined-compare at :2515-2561) -> 17 PRD rows sg-* added (out/prd-add-9060..9076 all ok:true)

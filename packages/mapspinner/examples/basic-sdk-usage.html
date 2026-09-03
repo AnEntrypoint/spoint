@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>mapspinner SDK Integration Example</title>
+  <style>
+    body { margin: 0; overflow: hidden; font-family: sans-serif; }
+    canvas { display: block; }
+    #hud {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.7);
+      color: #0f0;
+      padding: 10px;
+      font-family: monospace;
+      font-size: 12px;
+      z-index: 10;
+      white-space: pre;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="hud">
+    mapspinner SDK example
+    Controls: WASD fly, QE zoom, R reset, mouse drag rotate
+  </div>
+
+  <script type="module">
+    // mapspinner SDK integration example for external consumers (e.g., spoint)
+    
+    import { createPlanet } from '../src/index.js';
+
+    const canvas = document.getElementById('canvas');
+    const hud = document.getElementById('hud');
+    
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const gl = canvas.getContext('webgl2', { antialias: false, preserveDrawingBuffer: false });
+    if (!gl) {
+      alert('WebGL2 not supported');
+      throw new Error('No WebGL2 context');
+    }
+
+    // Enable required extensions
+    gl.getExtension('OES_texture_float');
+    gl.getExtension('OES_texture_float_linear');
+    gl.getExtension('EXT_color_buffer_float');
+    gl.getExtension('KHR_parallel_shader_compile');
+
+    let planet = null;
+    let frameCount = 0;
+    let lastTime = Date.now();
+
+    // Initialize mapspinner SDK
+    async function init() {
+      try {
+        planet = await createPlanet(gl, {
+          radius: 6360000,      // Earth radius (meters)
+          gridMeshSize: 16      // Mesh subdivision
+        });
+        console.log('mapspinner SDK initialized');
+        render();
+      } catch (e) {
+        hud.textContent = `Initialization error: ${e.message}`;
+        console.error(e);
+      }
+    }
+
+    function render() {
+      requestAnimationFrame(render);
+
+      if (!planet) return;
+
+      // Update camera and render one frame
+      try {
+        const frameResult = planet.frame();
+        frameCount++;
+        
+        // Update HUD
+        const now = Date.now();
+        const elapsed = now - lastTime;
+        if (elapsed > 500) {
+          const fps = (frameCount / elapsed * 1000).toFixed(1);
+          hud.textContent = 
+            `mapspinner SDK example\n` +
+            `FPS: ${fps}\n` +
+            `Quads: ${frameResult.quadCount || 0}\n` +
+            `Controls: WASD fly, QE zoom, R reset`;
+          frameCount = 0;
+          lastTime = now;
+        }
+      } catch (e) {
+        hud.textContent = `Render error: ${e.message}`;
+        console.error(e);
+      }
+    }
+
+    // Handle window resize
+    window.addEventListener('resize', () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      if (planet && planet.render && planet.render.cullMatrix) {
+        // Notify render layer of viewport change if needed
+      }
+    });
+
+    // Start initialization
+    init();
+  </script>
+</body>
+</html>

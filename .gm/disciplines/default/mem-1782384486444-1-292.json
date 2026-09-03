@@ -1,0 +1,3 @@
+## Resolved mutable: m-terrain-collision-getcenter
+
+PARTIAL - streamer logic eliminated as cause via Node exec_js (re-center fires correctly on center move >102m). Bug is upstream in getCenter()/player-position-source. Keeping investigation open under prd row terrain-collision-not-streaming.

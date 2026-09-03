@@ -1,0 +1,3 @@
+## Resolved mutable: m-editscratch-shared-ref
+
+client/app.js clearEditingInput now returns a fresh {...input} clone each call instead of a shared module-scoped object, preventing PredictionEngine.inputHistory from retaining/mutating a shared reference across queued entries.

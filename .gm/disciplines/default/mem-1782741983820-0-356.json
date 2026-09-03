@@ -1,0 +1,3 @@
+## Resolved mutable: envmesh-count-multiplier
+
+browser-11 live singleplayer tps-game: window.__camEnvMeshes() => {env:94,bvh:0}. 94 env meshes registered -> intersectObjects iterates up to 94 meshes per raycast across 3 sites/frame; each previously paid setBuffer (3 typed-array allocs). N=94 confirms the multiplier driving the 79.5ms setBuffer self-time.

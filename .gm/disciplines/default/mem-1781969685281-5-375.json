@@ -1,0 +1,3 @@
+## Resolved mutable: kit-publish-or-link-strategy
+
+client/index.html:33 importmap maps anentrypoint-design -> /kit/dist/247420.js (LOCAL link, not unpkg pin). server.js:42-45 serves C:/dev/anentrypoint-design at /kit/ when present. CSS link at :10 uses unpkg unversioned. Strategy: local /kit/ link for dev iteration; kit pkg at v0.0.139. Resolved as local-link dev strategy.

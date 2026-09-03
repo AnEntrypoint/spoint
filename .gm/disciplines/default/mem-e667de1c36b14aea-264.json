@@ -1,0 +1,3 @@
+## Resolved mutable: m-debug-server-no-auth
+
+src/sdk/ServerAPI.js /debug/server route now checks req.socket.remoteAddress against loopback (127.0.0.1/::1/::ffff:127.0.0.1) and returns 403 otherwise; removed the wildcard Access-Control-Allow-Origin header entirely.

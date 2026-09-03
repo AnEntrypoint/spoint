@@ -1,0 +1,3 @@
+## Resolved mutable: m-sdk-unshipped-win
+
+Live GPU A/B via planet.render.recompile: mapspinner double-eval hoist (terrain.glsl:202+204 eval_layer(pCoords,noiseLayer0)) baseline p50 4.096 -> patched 4.150 -> reverted 4.109 = within noise = FXC auto-CSEs = PHANTOM. streaming-gltf subagent: only candidate a still-camera dirty-gate on ClusterLodMesh._render (coin-flip moving camera; _draw unavoidable) not worth publishing for in-budget frame. All prior wins already shipped in published 0.1.249/2.0.3.

@@ -1,0 +1,10 @@
+---
+name: editor-select-works-rowlabel-not-container
+description: spoint editor scene-tree selection works on .ds-ep-tree-label click, not row-container click; correcting a false jank finding
+metadata:
+  type: project
+---
+
+CORRECTION to a false finding: spoint editor scene-tree row selection is NOT broken. Clicking the kit TreeItem's inner `.ds-ep-tree-label` fires onSelect -> app.js:170 onEntitySelect -> editor.selectEntity + inspector populates (ENV-SILLOS BODY TYPE/POSITION/ROTATION fields, row gets .selected). A prior probe (browser-20) clicked the `.ds-ep-tree-item` CONTAINER via `r.click()` which does NOT hit the inner click target, producing a false "selection broken" reading. Lesson: to witness kit TreeItem selection, click `.ds-ep-tree-label` (or dispatch a real pointer event at the row's center), not `.click()` on the outer row div. Real refinement worth doing: make the WHOLE row a click target for select (engine-editor UX), but the core path works.
+
+THE REAL HEADLINE editor jank (witnessed browser-49/50): entering edit mode (P) leaves the viewport SOLID BLACK because the edit camera sits at y=-2.75 inside a scene whose meshes span y=-5.1..0 (env-sillos sillos terrain) -> camera underground/inside geometry. camera.js setEditMode copies camera.position (which in singleplayer-at-load is low/near-origin head height, below the sillos terrain top). Fix: seed edit camera to a sensible vantage above the scene looking down/in. See [[fix-editor-viewport-black]].

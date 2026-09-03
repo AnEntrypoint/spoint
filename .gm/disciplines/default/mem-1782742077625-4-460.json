@@ -1,0 +1,3 @@
+## Resolved mutable: m-resetstate-cost-still-present
+
+client/core/TerrainBackdrop.js:182,191 renderPlanet still brackets the mapspinner planet draw with two renderer.resetState() (the established compositing handoff: clean gl to mapspinner, three reclaims). browser-12 live profile shows NO resetState node in the worst-20 culprits -- it is not on the hot path at the measured load; (program) GPU dominates at 61%. Not a current bottleneck; no churn warranted.

@@ -1,0 +1,3 @@
+## Resolved mutable: m-deployed-page-currency
+
+Already witnessed live (browser-1532/1534, prd-resolve witness-deploy-page-live): https://anentrypoint.github.io/spoint/demo.html?singleplayer&world=tps-game loads current code (matches this session's shipped globals: loadingMachine, modelPool, editorAPI, colliderDebug), builds the world, env-sillos trimesh forms, page settles to fully interactive (Click to play, FPS 41+, tick advancing). Deploy pipeline delivers pushed code correctly; transient asset-fetch aborts during cold load were benign (direct re-fetch of the same URLs returned 200 and the page recovered).

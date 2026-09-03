@@ -1,0 +1,3 @@
+## Resolved mutable: editor-gaps-actual
+
+Gap sweep: (1) Hierarchy reparent GUI = the main missing part (server-complete, no message+no nested-render+no dnd). (2) Rename: SceneHierarchy menu calls onRename (unwired) AND no server label-setter; _buildNode uses e._config?.label (label exists in data) but nothing sets it -> need SET_LABEL message + handler + wiring. (3) Duplicate: onDuplicate dangling AND no clone-entity server path -> need a duplicate (spawn copy of config at offset) message+handler+wiring. CONFIRMED WORKING (not gaps): undo/redo applied app.js:204 (Ctrl+Z/Y -> EDITOR_UPDATE before/after); world persist via placedModelStorage.persist on place/destroy. Multi-select: scoped as optional enhancement, not a core missing part.

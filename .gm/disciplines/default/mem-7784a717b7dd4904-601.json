@@ -1,0 +1,3 @@
+## Resolved mutable: m-exec-mapspinner-batch5
+
+mapspinner commits 43bf3f4 (RED/FLOAT readback across bakeTileReadback+async pair+sampleGroundM probe, 4x smaller PBOs, live-witnessed via lab.mjs glsl-check on real SwiftShader WebGL2 returning finite height), 57416c1 (4-slot async bake ring, full scope not reduced, live-witnessed via temporary ring-check command: 4/4 completed vs old single-slot 1-survivor design, temp command cleanly reverted before commit); 12/12 golden-samples pass both; agent correctly declined to push per explicit local-only instruction despite gm CONSOLIDATE gate wanting it

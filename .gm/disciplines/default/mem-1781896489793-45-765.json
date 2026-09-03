@@ -1,0 +1,3 @@
+## Resolved mutable: m-bake-where
+
+workflow research[ez-tree-api]+[octa-impostor]+design[bake-site]: ez-tree is NODE-PURE (geometry is math-only, no DOM/WebGL) so tree GEOMETRY + meshopt LOD chain generate headless/client-runtime cheaply; but impostor ATLAS bake (createTextureAtlas) REQUIRES a live WebGLRenderer. DECISION (hybrid, by physical constraint): COMMIT pre-baked impostor atlases (apps/maps/veg/<species>.albedo/.normalDepth + veg-manifest.json) produced one-time by scripts/bake-tree-impostors.mjs (author playwright/headless-WebGL); client GENERATES geo+LODs at runtime (time-sliced 1 species/rAF) and LOADS committed atlases (TextureLoader) - NEVER calls createTextureAtlas at boot (would re-pay worst GPU cost on every weak client during cold boot).

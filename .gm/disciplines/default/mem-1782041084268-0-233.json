@@ -1,0 +1,3 @@
+## Resolved mutable: m-mapspinner-heightgen-stale
+
+exec: cd ../mapspinner && node scripts/gen-height.mjs && git diff --exit-code -- src/height-gen.js -> CLEAN (height-gen matches terrain.glsl source-of-truth). Confirmed this session.

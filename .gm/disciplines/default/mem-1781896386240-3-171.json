@@ -1,0 +1,3 @@
+## Resolved mutable: m-jolt-wasm-lto-available
+
+Jolt WASM LTO available — physics/World.js and loadWorld.js resolve jolt-physics.wasm.js which ships LTO-optimized binary

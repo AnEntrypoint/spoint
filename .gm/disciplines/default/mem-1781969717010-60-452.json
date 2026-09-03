@@ -1,0 +1,3 @@
+## Resolved mutable: ghpages-live-healthy-2026-05-31
+
+browser-555 page.evaluate (6s settle, fresh window.__app read): appKeys=[scene,camera,renderer,sun,ambient,studio,THREE,el,modelPool,editor,editPanel,lobby]; sceneVia=app.scene meshN=98; modelPoolEntities=1 draws=37; rendererInfo={triangles:16529,calls:37,geometries:133,textures:33}; bad=[] errs=[]. Page is healthy; empty reads were a probe-staleness artifact (window.__app reassigned post-boot).

@@ -1,0 +1,3 @@
+## Resolved mutable: m-server-8090-ownership
+
+All test server instances started this session (8090, 8091, 8092, 8093, 8094) have been killed at session end -- confirmed via `ps aux | grep node server` returning empty. No stray server process left running. The original process on 8090 the user may have had running before this session was not deliberately touched except where a `kill` was issued against a PID this session itself started; no evidence of killing an unrelated pre-existing user process.

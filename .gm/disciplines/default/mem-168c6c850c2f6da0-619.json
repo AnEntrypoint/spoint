@@ -1,0 +1,3 @@
+## Resolved mutable: m-editmode-testing-methodology-gap
+
+Confirmed and fixed testing approach: app.clientMachine.send('TOGGLE_EDITOR') (not cam.setEditMode) correctly sets isEditor=true, making _vegFocus track the teleported camera position. Re-tested angle sweep with correct entry: sharedImpostorInstances 0 at ground-level/mid-alt-lookdown/high-alt-steep-down/very-high-nadir, but 4 at mid-alt-lookup -- genuinely angle-dependent, confirming the user's report is real (not a testing artifact) once the correct methodology is used. meshInstances also drop to 0 at high altitude (100m+), a separate range-cutoff issue.

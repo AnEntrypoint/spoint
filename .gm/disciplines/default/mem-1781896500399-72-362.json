@@ -1,0 +1,3 @@
+## Resolved mutable: vrm-char-scope
+
+PlayerManager.js:53-76 createPlayerVRM uses VRMUtils.removeUnnecessaryVertices/combineSkeletons, springBoneManager, expressionManager, lookAt, createPlayerAnimator(xstate), FP head bone. Generic ModelPool VRM clipAction cannot drive. Decision: keep PlayerManager VRM intact; ModelPool scoped to entityState.model props/world.

@@ -1,0 +1,59 @@
+{
+  "name": "streaming-gltf",
+  "version": "2.0.22",
+  "description": "Cluster-LOD glTF renderer: UV-aware spatial meshlet clusters with per-cluster hierarchical LODs in one EXT_meshopt_compression GLB (EP_cluster_lod extras), drawn per-cluster via geometry-grouped drawElements with optional GPU occlusion-query culling. Bake with tools/bake-cluster.mjs.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./index.js",
+  "module": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./model-pool": "./src/model-pool.js",
+    "./draco-loader": "./src/draco-loader.js",
+    "./cluster-lod-mesh": "./src/cluster-lod-mesh.js",
+    "./meshlet-codec": "./src/meshlet-codec.js",
+    "./occlusion-query-tier": "./src/occlusion-query-tier.js",
+    "./bake": "./tools/bake-cluster.mjs"
+  },
+  "files": [
+    "index.js",
+    "src/*.js",
+    "src/basis/",
+    "tools/*.mjs",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node test.js",
+    "bake": "node tools/bake-cluster.mjs",
+    "bake:corpus": "node tools/bake-cluster-corpus.mjs",
+    "demo:local": "node examples/local-progressive/serve.mjs",
+    "measure": "node examples/local-progressive/measure-fps.mjs"
+  },
+  "peerDependencies": {
+    "@pixiv/three-vrm": ">= 3.0.0",
+    "three": ">= 0.160.0"
+  },
+  "optionalDependencies": {
+    "@gltf-transform/core": "^4.3.0",
+    "@gltf-transform/extensions": "^4.3.0",
+    "@gltf-transform/functions": "^4.3.0",
+    "draco3dgltf": "^1.5.7",
+    "meshoptimizer": "^1.1.1",
+    "sharp": "^0.35.3"
+  },
+  "devDependencies": {
+    "@gltf-transform/core": "^4.3.0",
+    "@gltf-transform/extensions": "^4.3.0",
+    "@gltf-transform/functions": "^4.4.1",
+    "draco3dgltf": "^1.5.7",
+    "meshoptimizer": "^1.1.1",
+    "sharp": "^0.35.3",
+    "three": ">= 0.160.0"
+  }
+}

@@ -1,0 +1,45 @@
+# __PROJECT_NAME__
+
+A spoint game project. The spoint engine (physics, netcode, rendering, editor) lives entirely
+inside `node_modules/spoint` as a normal npm dependency -- this project directory holds only
+your game's own code: `apps/` (your game logic + world definitions) and this `package.json`.
+
+## Run
+
+```
+npm start
+```
+
+Opens a server at the port spoint prints (default one is chosen automatically). Visit
+`http://localhost:<port>/?singleplayer` for a local single-player session, or the bare URL for
+multiplayer (WebSocket client mode) -- both are the SAME server process, picked by a query param.
+
+## Add a game/app
+
+```
+npx spoint create-app --template simple my-thing
+```
+
+writes a starter `apps/my-thing/index.js`. See `apps/README.md` (copied in from the spoint package
+on first scaffold) for the full apps/ convention, or read `node_modules/spoint/apps/README.md`
+directly.
+
+## Upgrade the engine
+
+```
+npm install spoint@latest
+```
+
+No project files are touched by an engine upgrade -- everything engine-side lives in
+`node_modules/spoint`, never copied into this project.
+
+## Publish (itch.io / GitHub Pages, no backend server)
+
+```
+npx spoint-static-export dist-static
+```
+
+Builds a fully static, backend-less export ready to zip for itch.io's HTML5 upload or push to a
+GitHub Pages branch -- see `node_modules/spoint/docs/publish.md` for the full recipe (base-path
+handling for GitHub Pages project sites, itch.io upload steps, and how to verify it locally before
+publishing).

@@ -1,0 +1,3 @@
+## Resolved mutable: decision-delete-view-keep-logic
+
+User answer; applied as edit principle. editor.js (logic) untouched; view files consume design kit. editor-logic-view-split mutable confirmed clean separation.

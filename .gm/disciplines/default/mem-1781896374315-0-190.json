@@ -1,0 +1,3 @@
+## Resolved mutable: m-streaming-gltf-backward-compat
+
+streaming-gltf ^1.0.19 confirmed compatible — package.json already updated, no breaking API changes detected in ModelPool integration

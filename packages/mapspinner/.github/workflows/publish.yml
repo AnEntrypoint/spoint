@@ -1,0 +1,58 @@
+name: publish
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      # Bump PAST the highest version already on the registry, not a blind `patch` from the
+      # repo's package.json. The old `npm version patch --no-git-tag-version` computed the next
+      # version from the (un-committed, so never-advancing) repo version -> it always produced the
+      # SAME number, which npm then rejected with E403 "cannot publish over previously published
+      # version", and because that failure aborted the job BEFORE the commit-back step, the repo
+      # version never moved and EVERY push failed identically (the registry froze a month behind
+      # source). Deriving from `npm view` guarantees a fresh, unpublished version every run.
+      - name: Set next version from registry
+        run: |
+          PUBLISHED=$(npm view "$(node -p "require('./package.json').name")" version 2>/dev/null || echo "0.0.0")
+          echo "highest published: $PUBLISHED"
+          npm version "$PUBLISHED" --no-git-tag-version --allow-same-version
+          npm version patch --no-git-tag-version
+          echo "publishing $(node -p "require('./package.json').version")"
+      # Commit the bumped package.json BEFORE publish so the repo version advances even if the
+      # publish step hiccups -- the next run then starts from the new number instead of re-failing.
+      - uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'chore: bump version [skip ci]'
+          branch: main
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  pages:
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+      - id: deployment
+        uses: actions/deploy-pages@v4

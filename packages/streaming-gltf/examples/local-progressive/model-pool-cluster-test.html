@@ -1,0 +1,58 @@
+<!doctype html>
+<html><head><meta charset="utf-8"/><title>model-pool cluster witness</title>
+<style>html,body{margin:0;height:100%;background:#202830}#hud{position:fixed;top:8px;left:8px;color:#0f0;font:12px monospace;white-space:pre}</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+  "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.4.0/lib/three-vrm.module.min.js"
+} }
+</script></head>
+<body><div id="hud">loading...</div>
+<script type="module">
+import * as THREE from 'three';
+window.THREE = THREE;
+import { ModelPool } from '../../src/model-pool.js';
+
+const url = new URLSearchParams(location.search).get('glb') || './cluster-test.glb';
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+const dl = new THREE.DirectionalLight(0xffffff, 1.5); dl.position.set(3,5,2); scene.add(dl);
+const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.01, 1000);
+camera.position.set(0, 0, 3);
+
+window.__mp = { ready: false };
+const pool = new ModelPool({ scene, renderer, camera, useGlobalMaterialPool: false, workerCount: 1 });
+window.__pool = pool;
+
+const handle = pool.spawn(url, { position: [0,0,0] });
+scene.add(handle.root); // caller attaches the entity root (proxy.root -> actualEntity.root on ready)
+handle.on('ready', () => {
+  const ent = handle.actualEntity;
+  window.__ent = ent;
+  window.__mp.ready = true;
+  window.__mp.isCluster = !!(ent && ent.clusterMeshes && ent.clusterMeshes.length);
+  window.__mp.clusterMeshCount = ent && ent.clusterMeshes ? ent.clusterMeshes.length : 0;
+  window.__mp.trackedMeshes = ent ? ent.trackedMeshes.length : -1;
+  // expose first cluster mesh stats
+  window.__clm = ent && ent.clusterMeshes && ent.clusterMeshes[0];
+  // fit camera
+  if (window.__clm) { window.__clm.geometry.computeBoundingSphere(); const bs = window.__clm.geometry.boundingSphere; window.__bs = bs;
+    window.__fit = (m)=>{ camera.position.set(bs.center.x, bs.center.y, bs.center.z + bs.radius*m); camera.lookAt(bs.center); camera.updateMatrixWorld(); };
+    window.__fit(2.5);
+  }
+});
+handle.on('error', (e) => { window.__mp.error = String(e); document.getElementById('hud').textContent = 'ERR '+e; });
+
+function frame(){
+  requestAnimationFrame(frame);
+  camera.updateMatrixWorld();
+  pool.update();
+  renderer.render(scene, camera);
+  if (window.__clm) { window.__mp.live = {...window.__clm.stats}; document.getElementById('hud').textContent = JSON.stringify(window.__mp, null, 1); }
+}
+frame();
+</script></body></html>

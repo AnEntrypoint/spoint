@@ -1,0 +1,3 @@
+## Resolved mutable: kit-live-on-unpkg-validated
+
+npm registry latest=0.0.168; unpkg @0.0.168/dist/247420.js has renderLoadingScreen (grep=1), .css has sp-loading (grep=12). Auto-publish-on-push pipeline (publish.yml) confirmed working: my kit committed via rebase dd8187c + CI published 926084a v0.0.168.

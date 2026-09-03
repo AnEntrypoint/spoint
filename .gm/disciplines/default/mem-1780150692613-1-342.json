@@ -1,0 +1,1 @@
+project/modelpool-scene-attach-proxy-root: ModelPool.spawn returns an UNPARENTED proxy; caller must scene.add(handle.root) on spawn AND on ready (ModelPool swaps proxy.root->entity.root in the proxy's parent on ready). Without it geometry renders into a detached root and is invisible (sillos was invisible). ModelPoolAdapter.spawn does this.

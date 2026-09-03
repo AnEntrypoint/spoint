@@ -1,0 +1,3 @@
+## Resolved mutable: rearch-net-win-exists
+
+ModelPoolAdapter.js: spawn() L64-94 and spawnVRM() L105-124 are near-identical — applyTransform closure defined verbatim twice, identical scene.add + _entities.set + handle.on('ready') body; only diffs are pool.spawn args (progressiveUrl(modelUrl),{} vs vrmUrl,{driveVrm:false}) and ready 2nd arg (e vs handle.actualEntity). Behavior-preserving DRY extraction = witnessed maintainability win. app.js:455 animate REJECTED (frame-parity + 50ms LOD-cull throttle + RTT-adaptive lerp + 0.25s UI throttle present). app.js:198 snapshot REJECTED (single fused players loop + single entities loop, code-witnessed). Net: perf envelope near-exhausted per prior hunts; one reachable refactor win.

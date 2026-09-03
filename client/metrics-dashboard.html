@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>spoint server metrics</title>
+<meta name="color-scheme" content="light dark">
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #12161f; --panel-2: #171c27; --border: #232a38;
+    --text: #e6e9f0; --text-dim: #8891a3; --accent: #5b8cff; --good: #33c17a;
+    --warn: #e0a63a; --bad: #e0525a; --grid: #1d2330;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f5f6f9; --panel: #ffffff; --panel-2: #f0f1f5; --border: #e2e5ec;
+      --text: #1b2130; --text-dim: #5c6577; --accent: #2f5fe0; --good: #1f9d5c;
+      --warn: #b9791a; --bad: #cf3d45; --grid: #eceef3;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0b0e14; --panel: #12161f; --panel-2: #171c27; --border: #232a38;
+    --text: #e6e9f0; --text-dim: #8891a3; --accent: #5b8cff; --good: #33c17a;
+    --warn: #e0a63a; --bad: #e0525a; --grid: #1d2330;
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f6f9; --panel: #ffffff; --panel-2: #f0f1f5; --border: #e2e5ec;
+    --text: #1b2130; --text-dim: #5c6577; --accent: #2f5fe0; --good: #1f9d5c;
+    --warn: #b9791a; --bad: #cf3d45; --grid: #eceef3;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 13px/1.45 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 20px 24px 60px;
+  }
+  h1 { font-size: 16px; font-weight: 600; margin: 0 0 4px; letter-spacing: .01em; }
+  .sub { color: var(--text-dim); font-size: 12px; margin-bottom: 18px; }
+  .sub code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; }
+  #statusline { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); display: inline-block; }
+  .dot.ok { background: var(--good); }
+  .dot.err { background: var(--bad); }
+
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 20px; }
+  .tile {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .tile .label { color: var(--text-dim); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 6px; }
+  .tile .value { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tile .value .unit { font-size: 12px; font-weight: 400; color: var(--text-dim); margin-left: 3px; }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 14px; overflow-x: auto;
+  }
+  .panel h2 { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); margin: 0 0 10px; }
+  .spark-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  .spark-row:last-child { border-bottom: none; }
+  .spark-row .name { width: 64px; flex: 0 0 auto; color: var(--text-dim); font-size: 11px; text-transform: uppercase; }
+  .spark-row canvas { flex: 1 1 auto; height: 40px; display: block; }
+  .spark-row .now { width: 70px; flex: 0 0 auto; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+  th { color: var(--text-dim); font-weight: 500; text-transform: uppercase; font-size: 10px; letter-spacing: .04em; }
+  tr:last-child td { border-bottom: none; }
+
+  .hist-bar-row { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+  .hist-bar-row .le { width: 56px; flex: 0 0 auto; text-align: right; color: var(--text-dim); font-size: 11px; }
+  .hist-bar-track { flex: 1 1 auto; height: 12px; background: var(--panel-2); border-radius: 3px; overflow: hidden; }
+  .hist-bar-fill { height: 100%; background: var(--accent); border-radius: 3px; }
+  .hist-bar-row .count { width: 46px; flex: 0 0 auto; text-align: right; font-size: 11px; color: var(--text-dim); }
+
+  .empty { color: var(--text-dim); font-style: italic; padding: 10px 0; }
+  .foot { color: var(--text-dim); font-size: 11px; margin-top: 24px; }
+  select, button {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer;
+  }
+  .controls { display: flex; align-items: center; gap: 8px; margin-bottom: 16px; }
+</style>
+</head>
+<body>
+  <h1>spoint server metrics <span id="statusline"><span class="dot" id="statusdot"></span><span id="statustext" class="sub" style="margin:0;">connecting&hellip;</span></span></h1>
+  <div class="sub">Live poll of <code>/metrics</code> (Prometheus text exposition, loopback-only). No data is stored server-side beyond this process's own registry.</div>
+
+  <div class="controls">
+    <label class="sub" style="margin:0;">Poll interval
+      <select id="intervalSel">
+        <option value="1000">1s</option>
+        <option value="2000" selected>2s</option>
+        <option value="5000">5s</option>
+        <option value="10000">10s</option>
+      </select>
+    </label>
+    <button id="pauseBtn">Pause</button>
+  </div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h2>Tick phase avg (ms) &mdash; last <span id="histLen">120</span> polls</h2>
+      <div id="tickSparks"></div>
+    </div>
+    <div class="panel">
+      <h2>Snapshot bytes &amp; players/entities</h2>
+      <div id="miscSparks"></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <h2>Snapshot payload size distribution</h2>
+      <div id="snapHist"></div>
+    </div>
+    <div class="panel">
+      <h2>GC pause distribution</h2>
+      <div id="gcHist"></div>
+      <table id="gcKindTable" style="margin-top:10px;"></table>
+    </div>
+  </div>
+
+  <div class="panel" id="roomsPanel" style="display:none;">
+    <h2>Rooms (RoomDirectory)</h2>
+    <table id="roomsTable"></table>
+  </div>
+
+  <div class="foot" id="lastUpdated"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---- Prometheus text-exposition-format parser (client-side, zero deps) ----
+  // Handles: `# HELP`, `# TYPE`, `name{label="val",...} value` and bare `name value` lines.
+  // Returns Map<metricName, Array<{labels, value}>>.
+  function parseProm(text) {
+    const out = new Map();
+    const lines = text.split('\n');
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line || line[0] === '#') continue;
+      const sp = line.lastIndexOf(' ');
+      if (sp < 0) continue;
+      const lhs = line.slice(0, sp);
+      const val = parseFloat(line.slice(sp + 1));
+      if (Number.isNaN(val)) continue;
+      const brace = lhs.indexOf('{');
+      let name, labels = {};
+      if (brace >= 0) {
+        name = lhs.slice(0, brace);
+        const inner = lhs.slice(brace + 1, lhs.lastIndexOf('}'));
+        for (const part of splitLabels(inner)) {
+          const eq = part.indexOf('=');
+          if (eq < 0) continue;
+          const k = part.slice(0, eq);
+          let v = part.slice(eq + 1);
+          if (v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+          labels[k] = v;
+        }
+      } else {
+        name = lhs;
+      }
+      if (!out.has(name)) out.set(name, []);
+      out.get(name).push({ labels, value: val });
+    }
+    return out;
+  }
+  function splitLabels(inner) {
+    // naive but sufficient split on top-level commas (label values are quoted, no nested braces here)
+    const parts = [];
+    let cur = '', inQuotes = false;
+    for (let i = 0; i < inner.length; i++) {
+      const c = inner[i];
+      if (c === '"' && inner[i - 1] !== '\\') inQuotes = !inQuotes;
+      if (c === ',' && !inQuotes) { parts.push(cur); cur = ''; continue; }
+      cur += c;
+    }
+    if (cur) parts.push(cur);
+    return parts;
+  }
+  function metricVal(map, name, labelMatch) {
+    const rows = map.get(name);
+    if (!rows || !rows.length) return undefined;
+    if (!labelMatch) return rows[0].value;
+    const hit = rows.find(r => Object.keys(labelMatch).every(k => r.labels[k] === labelMatch[k]));
+    return hit ? hit.value : undefined;
+  }
+  function histRows(map, name, labelMatch) {
+    const rows = map.get(name + '_bucket');
+    if (!rows) return null;
+    const filtered = labelMatch ? rows.filter(r => Object.keys(labelMatch).every(k => r.labels[k] === labelMatch[k])) : rows;
+    if (!filtered.length) return null;
+    return filtered.slice().sort((a, b) => {
+      const av = a.labels.le === '+Inf' ? Infinity : parseFloat(a.labels.le);
+      const bv = b.labels.le === '+Inf' ? Infinity : parseFloat(b.labels.le);
+      return av - bv;
+    });
+  }
+
+  // ---- sparkline (canvas, no deps) ----
+  function drawSpark(canvas, series, color) {
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth || 200, h = canvas.clientHeight || 40;
+    if (canvas.width !== w * dpr || canvas.height !== h * dpr) {
+      canvas.width = w * dpr; canvas.height = h * dpr;
+    }
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    if (series.length < 2) return;
+    const min = Math.min.apply(null, series), max = Math.max.apply(null, series);
+    const range = (max - min) || 1;
+    ctx.beginPath();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = color;
+    for (let i = 0; i < series.length; i++) {
+      const x = (i / (series.length - 1)) * (w - 2) + 1;
+      const y = h - 2 - ((series[i] - min) / range) * (h - 4);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    // fill under curve, low alpha
+    ctx.lineTo(w - 1, h - 1); ctx.lineTo(1, h - 1); ctx.closePath();
+    ctx.globalAlpha = 0.12; ctx.fillStyle = color; ctx.fill(); ctx.globalAlpha = 1;
+  }
+
+  const COLORS = { total: '#5b8cff', mv: '#33c17a', phys: '#e0a63a', snap: '#e0525a', players: '#5b8cff', entities: '#33c17a', bytes: '#e0a63a' };
+  const MAX_POINTS = 120;
+  const series = {}; // key -> array of numbers
+  function push(key, v) {
+    if (v == null || Number.isNaN(v)) return;
+    if (!series[key]) series[key] = [];
+    series[key].push(v);
+    if (series[key].length > MAX_POINTS) series[key].shift();
+  }
+
+  function fmtBytes(n) {
+    if (n == null) return '—';
+    if (n < 1024) return n.toFixed(0) + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+    return (n / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+  function fmtMs(n) { return n == null ? '—' : n.toFixed(2) + ' ms'; }
+  function fmtDur(sec) {
+    if (sec == null) return '—';
+    sec = Math.floor(sec);
+    const d = Math.floor(sec / 86400); sec -= d * 86400;
+    const h = Math.floor(sec / 3600); sec -= h * 3600;
+    const m = Math.floor(sec / 60); sec -= m * 60;
+    const parts = [];
+    if (d) parts.push(d + 'd');
+    if (h || d) parts.push(h + 'h');
+    parts.push(m + 'm', sec + 's');
+    return parts.join(' ');
+  }
+
+  const tilesEl = document.getElementById('tiles');
+  function tile(label, value, unit) {
+    const d = document.createElement('div'); d.className = 'tile';
+    d.innerHTML = '<div class="label"></div><div class="value"></div>';
+    d.querySelector('.label').textContent = label;
+    const v = d.querySelector('.value');
+    v.textContent = value;
+    if (unit) { const u = document.createElement('span'); u.className = 'unit'; u.textContent = unit; v.appendChild(u); }
+    return d;
+  }
+
+  function renderTiles(m) {
+    tilesEl.innerHTML = '';
+    tilesEl.appendChild(tile('Tick', metricVal(m, 'spoint_tick') ?? '—'));
+    tilesEl.appendChild(tile('Tick rate', (metricVal(m, 'spoint_tick_rate_hz') ?? '—'), 'Hz'));
+    tilesEl.appendChild(tile('Players', metricVal(m, 'spoint_players') ?? '—'));
+    tilesEl.appendChild(tile('Entities', metricVal(m, 'spoint_entities') ?? '—'));
+    tilesEl.appendChild(tile('Sessions', metricVal(m, 'spoint_sessions') ?? '—'));
+    const up = metricVal(m, 'spoint_uptime_seconds');
+    tilesEl.appendChild(tile('Uptime', fmtDur(up)));
+    const heapUsed = metricVal(m, 'spoint_process_heap_used_bytes');
+    tilesEl.appendChild(tile('Heap used', fmtBytes(heapUsed)));
+    const rss = metricVal(m, 'spoint_process_rss_bytes');
+    tilesEl.appendChild(tile('RSS', fmtBytes(rss)));
+  }
+
+  function ensureSparkRow(container, key, label) {
+    let row = container.querySelector('[data-key="' + key + '"]');
+    if (!row) {
+      row = document.createElement('div'); row.className = 'spark-row'; row.dataset.key = key;
+      row.innerHTML = '<div class="name"></div><canvas></canvas><div class="now"></div>';
+      row.querySelector('.name').textContent = label;
+      container.appendChild(row);
+    }
+    return row;
+  }
+
+  const tickSparksEl = document.getElementById('tickSparks');
+  const miscSparksEl = document.getElementById('miscSparks');
+
+  function renderTickSparks(m) {
+    const phases = ['total', 'mv', 'phys', 'snap'];
+    let any = false;
+    for (const p of phases) {
+      const v = metricVal(m, 'spoint_tick_phase_avg_ms', { phase: p });
+      if (v == null) continue;
+      any = true;
+      push('tick_' + p, v);
+      const row = ensureSparkRow(tickSparksEl, 'tick_' + p, p);
+      drawSpark(row.querySelector('canvas'), series['tick_' + p], COLORS[p] || '#5b8cff');
+      row.querySelector('.now').textContent = fmtMs(v);
+    }
+    if (!any && !tickSparksEl.children.length) {
+      tickSparksEl.innerHTML = '<div class="empty">No tick timing yet (waiting for ticks / handler alias).</div>';
+    }
+  }
+
+  function renderMiscSparks(m) {
+    if (miscSparksEl.querySelector('.empty')) miscSparksEl.innerHTML = '';
+    const players = metricVal(m, 'spoint_players');
+    const entities = metricVal(m, 'spoint_entities');
+    push('players', players); push('entities', entities);
+    const rp = ensureSparkRow(miscSparksEl, 'players', 'players');
+    drawSpark(rp.querySelector('canvas'), series.players || [], COLORS.players);
+    rp.querySelector('.now').textContent = players ?? '—';
+    const re = ensureSparkRow(miscSparksEl, 'entities', 'entities');
+    drawSpark(re.querySelector('canvas'), series.entities || [], COLORS.entities);
+    re.querySelector('.now').textContent = entities ?? '—';
+
+    const snapCount = metricVal(m, 'spoint_snapshot_bytes_count');
+    const snapSum = metricVal(m, 'spoint_snapshot_bytes_sum');
+    const avgBytes = (snapCount && snapSum != null) ? snapSum / Math.max(1, snapCount) : null;
+    push('snapAvgBytes', avgBytes);
+    const rb = ensureSparkRow(miscSparksEl, 'snapAvgBytes', 'avg B');
+    drawSpark(rb.querySelector('canvas'), series.snapAvgBytes || [], COLORS.bytes);
+    rb.querySelector('.now').textContent = avgBytes != null ? fmtBytes(avgBytes) : '—';
+  }
+
+  function renderHistogram(container, rows, colorVar) {
+    container.innerHTML = '';
+    if (!rows) { container.innerHTML = '<div class="empty">No samples yet.</div>'; return; }
+    const maxCount = Math.max.apply(null, rows.map(r => r.value)) || 1;
+    for (const r of rows) {
+      const row = document.createElement('div'); row.className = 'hist-bar-row';
+      const le = document.createElement('div'); le.className = 'le'; le.textContent = r.labels.le;
+      const track = document.createElement('div'); track.className = 'hist-bar-track';
+      const fill = document.createElement('div'); fill.className = 'hist-bar-fill';
+      fill.style.width = Math.max(1, (r.value / maxCount) * 100) + '%';
+      if (colorVar) fill.style.background = colorVar;
+      track.appendChild(fill);
+      const count = document.createElement('div'); count.className = 'count'; count.textContent = r.value;
+      row.appendChild(le); row.appendChild(track); row.appendChild(count);
+      container.appendChild(row);
+    }
+  }
+
+  function renderGcKinds(m) {
+    const rows = m.get('spoint_gc_events_total') || [];
+    const table = document.getElementById('gcKindTable');
+    if (!rows.length) { table.innerHTML = ''; return; }
+    let html = '<tr><th>kind</th><th>events</th></tr>';
+    for (const r of rows) html += '<tr><td>' + (r.labels.kind || '') + '</td><td>' + r.value + '</td></tr>';
+    table.innerHTML = html;
+  }
+
+  function renderRooms(m) {
+    const panel = document.getElementById('roomsPanel');
+    const rows = m.get('spoint_room_tick') || [];
+    if (!rows.length) { panel.style.display = 'none'; return; }
+    panel.style.display = '';
+    const players = m.get('spoint_room_players') || [];
+    const entities = m.get('spoint_room_entities') || [];
+    const uptime = m.get('spoint_room_uptime_seconds') || [];
+    function find(arr, roomId) { const h = arr.find(r => r.labels.room_id === roomId); return h ? h.value : '—'; }
+    let html = '<tr><th>room</th><th>world</th><th>tick</th><th>players</th><th>entities</th><th>uptime</th></tr>';
+    for (const r of rows) {
+      html += '<tr><td>' + r.labels.room_id + '</td><td>' + r.labels.world + '</td><td>' + r.value + '</td>' +
+        '<td>' + find(players, r.labels.room_id) + '</td><td>' + find(entities, r.labels.room_id) + '</td>' +
+        '<td>' + fmtDur(find(uptime, r.labels.room_id)) + '</td></tr>';
+    }
+    document.getElementById('roomsTable').innerHTML = html;
+  }
+
+  const statusDot = document.getElementById('statusdot');
+  const statusText = document.getElementById('statustext');
+  const lastUpdatedEl = document.getElementById('lastUpdated');
+
+  let paused = false;
+  let timer = null;
+  let pollMs = 2000;
+
+  async function poll() {
+    if (paused) return;
+    try {
+      const res = await fetch('/metrics', { cache: 'no-store' });
+      if (!res.ok) {
+        statusDot.className = 'dot err';
+        statusText.textContent = res.status === 403
+          ? 'forbidden (loopback-only; open this page from the server host itself)'
+          : 'HTTP ' + res.status;
+        return;
+      }
+      const text = await res.text();
+      const m = parseProm(text);
+      statusDot.className = 'dot ok';
+      statusText.textContent = 'live';
+      renderTiles(m);
+      renderTickSparks(m);
+      renderMiscSparks(m);
+      renderHistogram(document.getElementById('snapHist'), histRows(m, 'spoint_snapshot_bytes'), 'var(--accent)');
+      renderHistogram(document.getElementById('gcHist'), histRows(m, 'spoint_gc_pause_ms'), 'var(--warn)');
+      renderGcKinds(m);
+      renderRooms(m);
+      lastUpdatedEl.textContent = 'Last updated ' + new Date().toLocaleTimeString() + ' — ' + text.split('\n').length + ' lines parsed';
+    } catch (e) {
+      statusDot.className = 'dot err';
+      statusText.textContent = 'fetch failed: ' + (e && e.message || e);
+    }
+  }
+
+  function schedule() {
+    if (timer) clearInterval(timer);
+    timer = setInterval(poll, pollMs);
+  }
+
+  document.getElementById('intervalSel').addEventListener('change', (e) => {
+    pollMs = parseInt(e.target.value, 10) || 2000;
+    schedule();
+  });
+  document.getElementById('pauseBtn').addEventListener('click', (e) => {
+    paused = !paused;
+    e.target.textContent = paused ? 'Resume' : 'Pause';
+    statusText.textContent = paused ? 'paused' : 'live';
+  });
+  window.addEventListener('resize', () => {
+    // redraw sparks at new canvas size on next poll tick (cheap, avoids stretched cached bitmaps)
+  });
+
+  poll();
+  schedule();
+})();
+</script>
+</body>
+</html>

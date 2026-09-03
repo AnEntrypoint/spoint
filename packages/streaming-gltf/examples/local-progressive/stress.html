@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<link rel="icon" href="data:," />
+<title>ModelPool tier stress</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #181820; color: #eee; font: 13px/1.4 system-ui, sans-serif; overflow: hidden; }
+  #c { display: block; width: 100vw; height: 100vh; }
+  #hud {
+    position: fixed; top: 8px; left: 8px;
+    padding: 8px 10px; background: rgba(0,0,0,.65);
+    border-radius: 6px; pointer-events: none;
+    font-variant-numeric: tabular-nums; max-width: 380px;
+  }
+  #hud b { color: #8df; }
+  #hud .tier { display: inline-block; min-width: 60px; }
+  #panel {
+    position: fixed; top: 8px; right: 8px;
+    padding: 8px 10px; background: rgba(0,0,0,.7);
+    border-radius: 6px; color: #eee; max-width: 280px;
+  }
+  #panel button { background: #335; color: #eee; border: 1px solid #557; padding: 4px 8px; margin: 2px; border-radius: 4px; font: inherit; cursor: pointer; }
+  #panel button:hover { background: #446; }
+  #panel input[type=number], #panel input[type=range] { background: #333; color: #eee; border: 1px solid #555; padding: 3px 6px; border-radius: 4px; font: inherit; width: 70px; }
+  #panel label { display: block; margin-top: 6px; }
+  #panel hr { border: 0; border-top: 1px solid #444; margin: 6px 0; }
+  #knobs-container { margin-top: 12px; }
+  .knob-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; font-size: 12px; }
+  .knob-row label { flex: 1; margin: 0; }
+  .knob-row input[type=range] { flex: 1; margin-left: 8px; width: auto; }
+  .knob-value { min-width: 30px; text-align: right; color: #8df; }
+  #frame-chart { position: fixed; bottom: 8px; left: 8px; width: 300px; height: 120px; background: rgba(0,0,0,.7); border-radius: 6px; padding: 8px; }
+  #frame-chart canvas { width: 100%; height: 100%; }
+  #export-btn { background: #445; color: #eee; border: 1px solid #557; padding: 6px 10px; margin-top: 8px; border-radius: 4px; font: inherit; cursor: pointer; }
+  #export-btn:hover { background: #556; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">init...</div>
+<div id="panel">
+  <div>spawn unique:
+    <button data-n="10">+10</button>
+    <button data-n="100">+100</button>
+    <button data-n="500">+500</button>
+    <button data-n="1000">+1000</button>
+    <button id="spawn-all" title="spawn every distinct model once">ALL models</button>
+  </div>
+  <div>
+    <button id="clear">clear all</button>
+  </div>
+  <hr>
+  <label>target fps: <input type="number" id="target-fps" min="20" max="240" step="5" value="140"></label>
+  <label>byte budget MB: <input type="number" id="byte-budget" min="32" max="2048" step="32" value="256"></label>
+  <hr>
+  <div id="knobs-container">
+    <div style="font-weight: bold; margin-bottom: 6px;">Adaptive Knobs:</div>
+    <div class="knob-row">
+      <label>ceiling LOD:</label>
+      <input type="range" id="ceiling-lod" min="0" max="2" step="1" value="2">
+      <span class="knob-value" id="ceiling-value">2</span>
+    </div>
+    <div class="knob-row">
+      <label>midPx threshold:</label>
+      <input type="range" id="mid-px" min="50" max="250" step="10" value="120">
+      <span class="knob-value" id="mid-px-value">120</span>
+    </div>
+    <div class="knob-row">
+      <label>heroCap:</label>
+      <input type="range" id="hero-cap" min="5" max="50" step="1" value="8">
+      <span class="knob-value" id="hero-cap-value">8</span>
+    </div>
+    <div class="knob-row">
+      <label>frustum interval:</label>
+      <input type="range" id="frustum-interval" min="0" max="10" step="1" value="0">
+      <span class="knob-value" id="frustum-interval-value">auto</span>
+    </div>
+  </div>
+  <hr>
+  <div style="font-weight: bold; margin-bottom: 6px;">Features:</div>
+  <label><input type="checkbox" id="frustum-cull" checked> frustum culling</label>
+  <label><input type="checkbox" id="texture-lod" checked> texture LOD</label>
+  <label><input type="checkbox" id="anim-throttle" checked> animation throttling</label>
+  <label><input type="checkbox" id="deferred-streaming" checked> deferred streaming</label>
+  <label><input type="checkbox" id="multi-draw" checked> multi-draw (ANGLE)</label>
+  <hr>
+  <label><input type="checkbox" id="orbit-cam" checked> orbit camera</label>
+  <label><input type="checkbox" id="zoom-cycle" checked> zoom cycle (fly-through)</label>
+  <label><input type="checkbox" id="movers"> position updates (GPU lerp)</label>
+  <button id="export-btn">export trace (30s)</button>
+</div>
+<div id="frame-chart">
+  <canvas id="frame-canvas"></canvas>
+</div>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+    "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.4.0/lib/three-vrm.module.min.js"
+  }
+}
+</script>
+<script type="module" src="./stress.js"></script>
+</body>
+</html>

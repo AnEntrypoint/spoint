@@ -1,0 +1,3 @@
+## Resolved mutable: sillos-inverted-winding
+
+Pure single-sided culling, NOT flipped winding/normals. Geometry fully present, all 96 env meshes were FrontSide pre-fix (prior browser-9) now DoubleSide; no inverted-normal lighting artifact. DoubleSide fully resolves.

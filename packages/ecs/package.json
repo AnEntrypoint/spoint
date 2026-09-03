@@ -1,0 +1,21 @@
+{
+  "name": "@spoint/ecs",
+  "version": "0.1.0",
+  "description": "Shared Entity-Component-System core for spoint and thebird game/app layers",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./world": "./src/world.js",
+    "./query": "./src/query.js",
+    "./*": "./src/*"
+  },
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AnEntrypoint/spoint.git",
+    "directory": "packages/ecs"
+  },
+  "keywords": ["ecs", "entity-component-system", "game-engine"],
+  "author": "",
+  "license": "MIT"
+}

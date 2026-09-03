@@ -1,0 +1,3 @@
+## Resolved mutable: m-workflow-agent-connection-failures
+
+Fresh retry agent for fix-terrain-exclusion confirmed: this session is the re-dispatch. Proceeding with terrain-exclusion-bug-specific-pose PRD row via fresh codesearch+browser investigation, connectivity restored (this turn's instruction dispatch succeeded).

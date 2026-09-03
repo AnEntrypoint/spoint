@@ -1,0 +1,3 @@
+## Resolved mutable: landing-live-jank-witness
+
+browser-3 live witness (local mobile 390 + deployed gh-pages 1280): page mounts, css loads, 7 sections, NO horizontal overflow, NO 'nothing here'/'failed to load' leak. REAL JANK: slotOverlapsNav=true on BOTH viewports. .lp-theme-slot (absolute ThemeToggle injected at landing/index.html:130-132) overlaps Topbar <nav> (desktop slot x=567 over nav right=733; mobile slot x=165 over nav right=342). Improper kit usage: hand-positioned toggle over Topbar chrome. Crumb (shell.js:173) accepts a `right` slot = clean kit-native home.

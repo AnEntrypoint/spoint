@@ -1,0 +1,3 @@
+## Resolved mutable: m-browser-verb-shared-contention
+
+git status --porcelain returned empty and git status -sb showed 'main...origin/main' (no ahead/behind) after fetch, confirming spoint pushed clean despite lagging/missing spool response files during the contention window (watcher busy_until in the future, consistent with heavy concurrent multi-session load, not a browser-verb-specific defect). browser dispatch 5 (session 17) independently succeeded earlier: fresh nav, hasApp:true, title:Spoint, 65fps, 0 pageErrors -- sufficient live regression witness for the Vegetation.js change.

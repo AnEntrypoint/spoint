@@ -1,0 +1,3 @@
+## Resolved mutable: peerhostui-broken-import
+
+FIXED: app.js import(./PeerHostUI.js) -> import(./hud/PeerHostUI.js). File moved to client/hud/ in HUD migration; old path 404d. node --check clean. ?host/?join manual-SDP fallback now has a working import; lobby is the primary easy path.

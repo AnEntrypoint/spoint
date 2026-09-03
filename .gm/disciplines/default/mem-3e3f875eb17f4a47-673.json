@@ -1,0 +1,3 @@
+## Resolved mutable: m-exec-streaminggltf-batch6b
+
+DECLINED with rigorous evidence: agent found aabb/sphere already flattened into cached Float32Arrays (_worldAabbMin/Max, _worldSphereCenter/Radius) per existing static-fast-path, so the original audit premise was half-stale; the real remaining pointer-chase is c.lods, a genuinely RAGGED/CSR structure (variable lod count per cluster, intentionally fail-open on malformed data per existing security comment) touching 6+ call sites with subtle index-math risk (wrong draw ranges/OOB GPU index reads) unverifiable without live rendering; correctly declined per row's own explicit allowance rather than force a risky refactor

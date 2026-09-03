@@ -1,0 +1,3 @@
+## Resolved mutable: hier-reparent-exists
+
+Server hierarchy ALREADY exists: AppRuntime.js:43-63 spawnEntity sets parent/children; :133-136 reparent(entityId,newParentId) full logic; :142-143 getWorldTransform parent-relative; :149 _encodeEntity includes parent; :157-158 getSceneGraph/_buildNode emit nested {children}; client/core/SceneGraph.js:22 setParent reparents three groups; AppContext.js:57 ctx.editor.reparent->runtime.reparent. GAPS confirmed: (1) no REPARENT message in MessageTypes.js (last editor op 0x8F, then 0x90-0x93 non-editor), (2) SceneHierarchy.js:94 renders FLAT vis.map ignoring e.children/depth, (3) no client editor reparent send path.

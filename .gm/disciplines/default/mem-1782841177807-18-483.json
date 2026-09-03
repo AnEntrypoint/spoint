@@ -1,0 +1,3 @@
+## Resolved mutable: m-3001-vs-8090-server
+
+User clarified + witnessed: :3001 = CLI multiplayer host (node server.js host, StaticHandler serves assets directly), :8090 = server-in-the-browser (BrowserServer + WorkerEntry). Same gh-pages path = BrowserServer. They SHOULD render identically. Sillos model renders byte-identical on both (browser-61: 96 meshes/30354 tris/same AABB). The only divergence is terrain build success under cold-cache (see m-terrain-missing-inbrowser-cause).

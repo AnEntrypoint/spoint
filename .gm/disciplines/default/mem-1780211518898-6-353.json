@@ -1,0 +1,3 @@
+## Resolved mutable: editor-entry-singleplayer
+
+client/editor/editor.js:168 onKeyDown: e.code===KeyP toggles editMode; editor.onEditModeChange(on) in client/app.js:196 calls editPanel.show()/hide() and exits pointer lock. Witness world = singleplayer tps-game (server default world). URL ?singleplayer&world=tps-game then press P to open editor overlay.

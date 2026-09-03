@@ -1,0 +1,3 @@
+## Resolved mutable: deployed-build-anim-net-current
+
+browser-326 deployed demo.html?wwjoin: clientMachinePresent:false, animProbePresent:false, bodyBg:rgb(19,19,24) (canvas-host NOT applied). The deployed gh-pages build is STALE - it predates the ClientMachine, __animProbe, canvas-host, and all this session's anim/net/camera fixes. CONFIRMED: the user's reports against the deployed demo reflect old code; the repo build (witnessed live on localhost:8090 browser-263/288/291/292/301/303/313/316) has all fixes. Resolution requires a gh-pages redeploy of the editor-polish-pass build - the deployed demo updates only when CI republishes dist.

@@ -1,0 +1,3 @@
+## Resolved mutable: recon-replays-full-history
+
+REFUTED. PredictionEngine.js:92-94 prunes inputHistory to sequence>ackedSeq BEFORE resimulate(); resimulate() (:107-112) replays only the remaining UNACKED inputs, not the full 256. Already correct. perf-net-recon-replay row is a false positive.

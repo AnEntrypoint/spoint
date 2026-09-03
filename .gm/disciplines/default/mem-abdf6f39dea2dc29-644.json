@@ -1,0 +1,3 @@
+## Resolved mutable: m-aabb-fix-possible-over-cull
+
+browser-4/5.json: fresh server restart, clean boot log (0 saved entities), stats.drawCalls:2 vs the 129-131 seen consistently all session before this npm install. Candidate causes: (a) the AABB fix has a bug causing over-culling of clusters that should be visible, (b) c.aabb is missing/malformed in this specific baked asset causing the box test to always fail, (c) an unrelated regression from the streaming-gltf 2.0.9->2.0.14 version jump (5 versions, includes the WebGPU HiZ tier addition which touches model-pool.js). Needs live root-cause before concluding the AABB fix is safe to keep.

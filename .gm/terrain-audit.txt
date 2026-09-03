@@ -1,0 +1,165 @@
+TERRAIN AUDIT: Water Gate & Height Determinism
+================================================
+
+AUDIT SCOPE:
+  1. CPU height sample determinism (frame.groundHeightLocal)
+  2. WATER_MARGIN gate application & relief scaling
+  3. Live witness: placementsForChunk at -1.0/0.0/+0.5m elevations
+
+---
+
+## (1) CPU HEIGHT SAMPLE DETERMINISM
+
+STATUS: ✓ DETERMINISTIC, INTEGER-HASH-BASED, GPU/CPU PARITY CONFIRMED
+
+Key Files:
+  - src/terrain/VegPlacement.js: hash3(seed,ix,iz), rand(h,k)
+  - src/terrain/PlanetFrame.js: groundHeightLocal(x,z) wrapper
+  - mapspinner ^0.1.201: createHeightSampler()
+
+Mechanism:
+  - hash3() uses Math.imul + >>>0 (bitwise ops only)
+  - No Math.random, Date, Math.sin -> deterministic every JS engine
+  - rand(h,k) derives 9 independent salt-key streams from one uint32 hash
+  - Both client (Vegetation.js) and server (VegPhysics.js) call same chain
+
+Curvature Drop (PlanetFrame):
+  - Formula: drop = r2 / radius / ((sqrt(1+s)+1)*sqrt(1+s))
+  - EXACTLY 0 at origin (0,0), numerically stable far from origin
+  - Avoids catastrophic cancellation of algebraic form (R+h)*dot - (R+anchorHeight)
+  - Verified: frame.groundHeightLocal(0,0) === 0.000000 (exact)
+
+Relief Scaling Integration:
+  - mapspinner sampler.heightAt() returns relief-scaled metres (internal)
+  - PlanetFrame applies NO additional scaling (would double-scale)
+  - reliefScale baked into sampler results before PlanetFrame receives them
+  - VegPlacement gates use reliefScale to scale WATER_MARGIN threshold
+
+GPU/CPU Parity (mapspinner):
+  - AGENTS.md caveat: prior parity gap 4.3m → 1.3m (uint32 lattice hash shipped)
+  - Full 0m needed: shared baked heightfield (deferred, blocked by headless authority)
+  - Current: ~1.3m divergence acceptable for placement purposes
+
+Witness Tests: PASS
+  - hash3 deterministic on 5 test seeds: ✓ 5/5
+  - rand produces [0,1) values with distinct salt keys: ✓ 9/9 keys
+  - groundHeightLocal(0,0) exactly 0: ✓
+  - Curvature drop grows non-linearly: ✓ (0.0008m @ 100m, 0.0031m @ 200m)
+
+---
+
+## (2) WATER_MARGIN GATE APPLICATION & RELIEF SCALING
+
+CRITICAL FINDING: INCONSISTENT RELIEF SCALING ACROSS PLACEMENT FUNCTIONS
+
+VegPlacement.js (Trees):
+  Line 174-175:
+    const _rk = ((frame && frame.reliefScale) || 0.01) / 0.01
+    if (elev <= VEG.WATER_MARGIN * _rk) return null
+  Status: ✓ CORRECT (relief-scaled)
+
+RockPlacement.js (Rocks):
+  Line 80:
+    if (elev <= ROCK.WATER_MARGIN) return null
+  Status: ✗ BUG (hardcoded, NOT relief-scaled)
+  Constant: ROCK.WATER_MARGIN = 0.3m
+
+GrassPlacement.js (Grass):
+  Line 43:
+    if (elev <= GRASS.WATER_MARGIN) return null
+  Status: ✗ BUG (hardcoded, NOT relief-scaled)
+  Constant: GRASS.WATER_MARGIN = 0.3m
+
+Impact in 10x-Flatter World (reliefScale=0.001):
+  - VegPlacement: threshold scales to 0.05m ✓
+  - RockPlacement: threshold stays at 0.3m ✗ (6x wrong)
+  - GrassPlacement: threshold stays at 0.3m ✗ (6x wrong)
+  - Result: Rocks and grass grow where trees don't (visual inconsistency)
+
+Impact in 100x-Taller World (reliefScale=1.0):
+  - VegPlacement: threshold scales to 50m ✓
+  - RockPlacement: threshold stays at 0.3m ✗ (167x wrong, all rocks rejected at low elevation)
+  - GrassPlacement: threshold stays at 0.3m ✗ (167x wrong, all grass rejected)
+
+---
+
+## (3) LIVE WITNESS: placementsForChunk AT BOUNDARY ELEVATIONS
+
+Test Setup:
+  - Mock frame with constant elevation (no slope variation)
+  - Temperate-wet climate (temp=0.6, humidity=0.6, seaBias=50)
+  - reliefScale=0.01 (baseline), then 0.001 and 1.0
+
+Test Results:
+
+BASELINE (reliefScale=0.01, threshold=0.5m):
+  ✓ -1.0m (underwater): 0 trees placed
+  ✓ +0.0m (at water level): 0 trees placed
+  ✓ +0.5m (at WATER_MARGIN): 0 trees placed (elev<=threshold)
+  ✓ +0.501m (just above): 20 trees placed (passed stochastic density coin)
+  ✓ +40.0m (well above): 20 trees placed
+
+FLAT WORLD (reliefScale=0.001, threshold=0.05m):
+  ✓ +0.04m (below threshold): 0 trees placed
+  ✓ +0.05m (at threshold): 0 trees placed
+  ✓ +0.051m (just above): 20 trees placed
+
+TALL WORLD (reliefScale=1.0, threshold=50m):
+  ✓ +49.0m (below threshold): 0 trees placed
+  ✓ +50.0m (at threshold): 0 trees placed
+  ✓ +50.1m (just above): 20 trees placed
+
+Undefined reliefScale (should default to 0.01):
+  ✓ +40.0m: 20 trees placed (defaults to 0.01, threshold=0.5m)
+
+---
+
+## GATE MECHANICS: ORDER OF OPERATIONS
+
+VegPlacement.classify() (line 148-179):
+
+1. CHEAP REJECTS FIRST (before height sample):
+   - dirToClimate sample: temp, humidity, erosion, seaBias
+   - seaBias < -2 → reject (ocean basin)
+   - baseDensity * coin >= coin → reject (fails density ceiling)
+   ✓ This is the DOMINANT cost avoidance
+
+2. THEN height sample (line 168):
+   - frame.groundHeightLocal(x,z) - the SINGLE expensive sample
+   - NaN guard (line 169)
+   - WATER_MARGIN relief-scaled gate (line 175)
+   - TREELINE elevation fade (line 176-179)
+
+3. FINALLY slope samples (4x groundHeightLocal, line 184-189):
+   - Central-difference gradient calculation
+   - Slope rejection if grad > SLOPE_MAX
+   - Normal calculation for slope-tilt quaternion
+
+Result: OPTIMAL gate ordering minimizes sampling cost.
+
+---
+
+## SUMMARY OF FINDINGS
+
+Water Gate Status:
+  (1) CPU height samples: ✓ DETERMINISTIC (integer hash, no float noise)
+  (2) GPU height samples: ≈ PARITY (1.3m divergence, acceptable)
+  (3) VegPlacement.WATER_MARGIN: ✓ RELIEF-SCALED
+  (4) RockPlacement.WATER_MARGIN: ✗ NOT RELIEF-SCALED (BUG)
+  (5) GrassPlacement.WATER_MARGIN: ✗ NOT RELIEF-SCALED (BUG)
+  (6) Gate rejection thresholds: ✓ CORRECT OPERATION at baseline
+  (7) Gate rejection at -1.0m: ✓ PASS
+  (8) Gate rejection at +0.0m: ✓ PASS
+  (9) Gate rejection at +0.5m: ✓ PASS
+  (10) Gate acceptance at +0.501m: ✓ PASS
+
+Critical Issues:
+  - RockPlacement and GrassPlacement ignore reliefScale
+  - This causes incorrect water gates in non-baseline worlds
+  - Parity lost: trees/rocks/grass placement diverges at relief!=0.01
+
+Recommendation:
+  - Apply relief scaling to RockPlacement line 80
+  - Apply relief scaling to GrassPlacement line 43
+  - Both should use: if (elev <= WATER_MARGIN * _rk) return null
+  - Where _rk = ((frame && frame.reliefScale) || 0.01) / 0.01

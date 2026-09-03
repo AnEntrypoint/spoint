@@ -1,0 +1,3 @@
+## Resolved mutable: rtc-vendor-drift
+
+RESOLVED: synced spoint vendor wireweave from zellous (working upstream). All 14 files now identical to zellous (0 diffs). relay-pool.js safeSubId fix present. Browser session 60: host wireweave bridge ready in room TESTRM, pubkey c08f16a9, 0 page errors, vendor loads. The stale-vendor RTC gap (over-long subIds silently rejected) is closed.

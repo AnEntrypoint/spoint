@@ -1,0 +1,3 @@
+## Resolved mutable: m-exec-streaminggltf-batch6c
+
+streaming-gltf: sub-item a already present (_LOD_THRESHOLDS_3/5 constants confirmed), sub-item b landed concurrently via commit 0299ba0 (in-place tuple mutation for overlapping runs, verified via standalone merge-algorithm harness), sub-items c+d landed in commit d2788c0 (frustum-cache updatePlanes accepts precomputed sourceFrustum avoiding duplicate multiply; per-slot projViewMatrix.value reference assignment replacing per-slot copy, verified three.js captures uniform wrapper by reference at compile time); QW4 multi-key aliasing documented not fixed (correctly deferred, needs separate slot-identity dedup verification); node --check clean both files, test.js pre-existing failure only

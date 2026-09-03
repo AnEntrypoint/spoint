@@ -1,0 +1,12 @@
+---
+name: editor-black-rootcause-is-app-bg
+description: spoint editor black viewport root cause is the opaque .app/body var(--bg) behind the alpha WebGL canvas, fixed by kit canvas-host modifier
+metadata:
+  type: project
+---
+
+THE root cause of the spoint editor "black viewport on open" (user-identified, witnessed): the WebGL game canvas is alpha:true and the kit app shell paints an opaque `var(--bg)` (rgb 19,19,24) on body/.app BEHIND it. In gameplay the canvas draws opaque sky+terrain so you don't notice; in the editor the dark bg shows through and the viewport reads black. FIX: kit anentrypoint-design app-shell.css gained `.canvas-host, .canvas-host .app, body.canvas-host { background: transparent !important }` (scoped under .ds-247420 by the build -> `.ds-247420 body.canvas-host`), published 0.0.195; spoint client/index.html `<body class="canvas-host">`. Witnessed browser-160: bodyBg rgba(0,0,0,0), editor viewport shows the game (sky-blue), editor-final-bg-fix.png.
+
+The earlier camera investigation (fly-cam never activated because app.js editToggle input was never produced -> cam.setEditMode dead; editMode lookAt missing cos(pitch)) found+fixed REAL latent bugs (see [[editor-flycam-never-activated-rootcause]]) on branch editor-polish-pass, but those were NOT the black-viewport cause. Don't chase the camera for "editor black"; check the shell/body background first. The gl.readPixels-vs-screenshot measurement trap (preserveDrawingBuffer:false) wasted cycles; trust readPixels-immediately-after-render or reliable screenshots, not drawImage.
+
+Styling rule: spoint loads the kit from unpkg @latest (`unpkg.com/anentrypoint-design/dist/247420.css`), so styling fixes MUST go in c:/dev/anentrypoint-design source -> build -> commit+push kit main -> CI publish.yml auto-bumps+publishes -> unpkg @latest serves it (~minutes; pinned @version immediate). dist/ is gitignored in the kit (CI rebuilds); commit only source. CI version auto-bumps past your package.json number.

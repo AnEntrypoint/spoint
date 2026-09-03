@@ -1,0 +1,6 @@
+{
+  "_comment": "Scaffolded INERT, with an .example suffix. This is the real config schema (config.rs), not a pointer -- rename to .gm/gm.config.json to apply it directly, or publish something shaped like this from the repo named in .gm/config.source.json.",
+  "fsm": {
+    "graph": ""
+  }
+}

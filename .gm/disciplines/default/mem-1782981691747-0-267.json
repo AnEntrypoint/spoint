@@ -1,0 +1,3 @@
+## Resolved mutable: mut-1782981460767
+
+browser-9143 CPU profile (12565 samples, idle 3.84%) + browser-9161 elimination A/B: shadowMap.autoUpdate=false shifted fps 44->51 and frame p50 18.3->13.0ms deterministically -- causal main-thread cost, not headless throttling

@@ -1,0 +1,3 @@
+## Resolved mutable: m-lod-parity-vs-streaming-gltf
+
+Verified: spoint's cluster-LOD env models route entirely through ClusterLodMesh (bypassing hero/mid/far bucket assignment by design, confirmed architecturally correct per the EP_cluster_lod extension gate), so the earlier 'cluster entities excluded from tiers' concern was a FALSE POSITIVE -- no rendering defect, only a cosmetic stat-mislabeling in the SIBLING streaming-gltf repo (out of scope, not spoint's to fix). spoint's ModelPoolAdapter config (ceilingLod:null, workerCount:2) is correct and all tiers are reachable for non-cluster models. No spoint-side LOD parity bug found; a per-instance lodThresholds passthrough gap is a forward-looking enhancement only, not a current defect.

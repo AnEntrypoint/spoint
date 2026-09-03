@@ -1,0 +1,3 @@
+## Resolved mutable: m-getglbexts-dead-code
+
+Deleted dead export at client/PlayerManager.js (getGLBExts function + its entry in the returned object). Zero call sites existed anywhere in the repo.

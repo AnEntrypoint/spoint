@@ -1,0 +1,3 @@
+## Resolved mutable: server-tick-entry
+
+src/sdk/TickHandler.js:176 onTick is the authoritative server tick. ALREADY HEAVILY OPTIMIZED: _cellPackCache shares one packed buffer across same-cell players (:137-143), _spatialCache keyed by cell (:129-130), encodePlayersOnce (:114), reused _packPayload/_packWrapper (:50-52), _priorityAccumulators reused (:51), idle+physics-divisor skip (:32-40), delta encode + _precomputedRemoved (:48,112). Audit server claims (deltamap-pool/spatialcache-alloc/packsnapshot-dedup/removed-scan) largely already done. Only real residual: getPlayerPriorityIds [...].sort() at :77 gated behind acc.size>64.

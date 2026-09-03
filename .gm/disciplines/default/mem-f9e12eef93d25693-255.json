@@ -1,0 +1,3 @@
+## Resolved mutable: mut-1783156956975
+
+fresh PORT=8093 node server.js reproduced missing planet at t~26s (browser-9016 screenshot, browser-9027 boot trace: rebuild 169 kept -> rebuild 0/263 culled at identical eye) -- current-disk bug, not stale process.

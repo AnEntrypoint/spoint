@@ -1,0 +1,3 @@
+## Resolved mutable: m-terrain-flycam-server-streaming
+
+MOOT - the editor-flycam-server-streaming hypothesis was not the user's actual issue. User clarified the real symptom: 'terrain appears after a long time, player model missing' = the slow ~10s heightfield build (server log 9781ms), fixed coarse-first (0.5s). The server-side getCenter reads player positions correctly; in gameplay the player moves and collision streams (streamer re-center witnessed in Node exec_js). Editor-far-flycam streaming is a separate latent enhancement, not this bug. No change needed for this hypothesis.

@@ -1,0 +1,3 @@
+## Resolved mutable: fsm-demo-target
+
+DECISION: new focused example app apps/fsm-arena (or similar) demonstrating waiting->countdown->active->roundEnd loop, rather than retrofitting tps-game/index.js (apps/tps-game/index.js update/onMessage is 200+ lines of hand-rolled state — invasive to retrofit, high regression risk). A clean example app is a non-disruptive real witness and doubles as the create-app template source.

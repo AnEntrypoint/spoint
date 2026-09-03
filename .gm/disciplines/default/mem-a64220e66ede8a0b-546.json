@@ -1,0 +1,3 @@
+## Resolved mutable: mu-npm-workspaces-win32-behavior
+
+Live scratch-dir trial (out/exec_js-1783420800004.json): npm 10.7.0 / node v24.15.0 on win32, workspaces:['packages/*'] + dependencies:{pkga:'*'} -> npm install created node_modules/pkga as a REAL symlink (lstat isSymbolicLink:true) resolving via realpath to packages/pkga, require() through the link returns the module. No elevation needed. StaticHandler's isNodeModulesLink exemption (src/sdk/StaticHandler.js) covers exactly this shape and test.js:77 already witnesses serving through it.

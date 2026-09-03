@@ -1,0 +1,3 @@
+## Resolved mutable: m-spoint-mapspinner-version
+
+grep: spoint package.json mapspinner ^0.1.198, node_modules/mapspinner 0.1.198, ../mapspinner 0.1.199; spoint patches via postinstall scripts/patch-mapspinner.mjs (now also patches terrain.glsl shash3). E401 blocks npm-publish so vendoring is the path.

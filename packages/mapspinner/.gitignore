@@ -1,0 +1,38 @@
+.gm/
+node_modules/
+capture/stream.ndjson
+capture/diag.ndjson
+*.log
+*.png
+.gm/browser-profile/
+.gm/browser-profile-*/
+--session-id
+--wait
+.claude/*
+!.claude/workflows/
+.claude/workflows/*
+!.claude/workflows/*.js
+.gm/pw-sock-*/
+
+# GLSL tooling: glslang validator binary is fetched via scripts/fetch-glslang.mjs (not committed)
+tools/glslang/bin/
+tools/glslang/*.zip
+tools/glslang/lib/
+tools/glslang/include/
+# node toolchain + playwright artifacts
+# playwriter drops a transient .gitignore (containing .gm/pw-sock-*/) into whatever cwd it runs in;
+# when a browser-verb script runs with cwd in src/shaders it lands here. Ignore the stray.
+src/shaders/.gitignore
+/node_modules/
+/test-results/
+/playwright-report/
+tests/**/*-snapshots/
+.kilo/
+
+# plugkit browser witness profile + index (not source)
+.plugkit-browser-profile/
+.codeinsight
+.rs-exec.lock
+
+# CLI lab (scripts/lab.mjs) generated output: heightmap PNGs + glsl-check logs
+/lab-out/

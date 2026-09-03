@@ -1,0 +1,3 @@
+## Resolved mutable: m-occlusion-useprogram-bindvao-hoist-recheck
+
+FALSIFIED -- already fixed prior session. gl.useProgram/gl.bindVertexArray in occlusion-query-tier.js runQueries() are at lines 160-161, hoisted ONCE before the per-candidate for-loop (line 173-226); only gl.uniformMatrix4fv + beginQuery/drawElements/endQuery vary per candidate. Verified byte-identical (CRLF-only diff) between C:/dev/streaming-gltf source and spoint node_modules mirror. Same shape independently confirmed in spoint's own client/core/TerrainOcclusion.js (lines 97-98 hoisted before its loop). No redundant per-candidate state rebind exists; no code change needed.

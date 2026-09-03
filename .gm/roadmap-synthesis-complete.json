@@ -1,0 +1,391 @@
+{
+  "synthesis_id": "roadmap-synthesis-001",
+  "completion_status": "COMPLETE",
+  "timestamp": "2026-08-21T12:10:32Z",
+  "audit_sources": 9,
+  "synthesis_status": "Master roadmap synthesized from all 9 audit findings",
+
+  "executive_summary": {
+    "critical_finding": "3 blocking issues prevent 25% of planned features from being viable",
+    "recommendation": "Fix blockers in Week 1, then execute 3-wave sprint plan over 3 weeks",
+    "total_planned_effort": "140 hours (203 hours total if all items completed)",
+    "timeline": "3 weeks with 4-agent team",
+    "immediate_action": "Assign Wave A items to Sonnet agents, start BLOCK-001-003 this week"
+  },
+
+  "blocking_issues": {
+    "count": 3,
+    "total_effort_hours": 16,
+    "items": [
+      {
+        "id": "BLOCK-001",
+        "title": "E2E networking join race condition",
+        "severity": "CRITICAL",
+        "impact_score": 9,
+        "effort_hours": 6,
+        "current_state": "Production co-op works, competitive play blocked",
+        "affected_files": [
+          "src/sdk/ServerHandlers.js",
+          "src/networking/WireweaveAdapter.js",
+          "apps/_lib/game-fsm.js"
+        ],
+        "minimal_fix": "Add state-version handshake, require both clients ack before competitive start",
+        "wave": "A",
+        "priority": "P0"
+      },
+      {
+        "id": "BLOCK-002",
+        "title": "Editor app scaffolding friction",
+        "severity": "CRITICAL",
+        "impact_score": 8,
+        "effort_hours": 8,
+        "current_state": "Manual file creation required for every new app",
+        "affected_files": [
+          "client/editor/editor.js",
+          "apps/template-fps.js",
+          "apps/template-sandbox.js"
+        ],
+        "minimal_fix": "Add editor dialog: name input + template selector + auto-generate boilerplate",
+        "wave": "A",
+        "priority": "P0"
+      },
+      {
+        "id": "BLOCK-003",
+        "title": "Asset folder hierarchy",
+        "severity": "HIGH",
+        "impact_score": 7,
+        "effort_hours": 5,
+        "current_state": "Assets stored flat, no folder UI",
+        "affected_files": [
+          "client/editor/editor.js",
+          "src/sdk/AssetHandler.js",
+          "src/sdk/ServerAPI.js"
+        ],
+        "minimal_fix": "Add folder_path support to storage + hierarchical browser UI",
+        "wave": "A",
+        "priority": "P0"
+      }
+    ]
+  },
+
+  "critical_gaps": {
+    "count": 10,
+    "total_effort_hours": 187,
+    "tier_1_gate_features": [
+      {
+        "id": "GAP-006",
+        "title": "Character Controller",
+        "impact_score": 9,
+        "effort_hours": 25,
+        "roi_per_hour": 0.90,
+        "percentage_of_games": "40%",
+        "wave": "B",
+        "priority": "P1"
+      },
+      {
+        "id": "GAP-001",
+        "title": "Skeletal Animation",
+        "impact_score": 9,
+        "effort_hours": 40,
+        "roi_per_hour": 0.75,
+        "percentage_of_games": "35%",
+        "wave": "C",
+        "priority": "P1"
+      },
+      {
+        "id": "GAP-002",
+        "title": "RPG Progression System",
+        "impact_score": 8,
+        "effort_hours": 60,
+        "roi_per_hour": 0.67,
+        "percentage_of_games": "25%",
+        "wave": "C",
+        "priority": "P1"
+      },
+      {
+        "id": "GAP-005",
+        "title": "Navmesh & AI Pathfinding",
+        "impact_score": 8,
+        "effort_hours": 35,
+        "roi_per_hour": 0.80,
+        "percentage_of_games": "25%",
+        "wave": "B",
+        "priority": "P1"
+      }
+    ],
+    "tier_2_high_roi_items": [
+      {
+        "id": "GAP-004",
+        "title": "TypeScript Definitions",
+        "impact_score": 7,
+        "effort_hours": 6,
+        "roi_per_hour": 1.67,
+        "wave": "A",
+        "priority": "P2"
+      },
+      {
+        "id": "GAP-007",
+        "title": "Gamepad Support",
+        "impact_score": 6,
+        "effort_hours": 12,
+        "roi_per_hour": 1.00,
+        "wave": "A",
+        "priority": "P2"
+      },
+      {
+        "id": "GAP-010",
+        "title": "Asset Upload Progress UI",
+        "impact_score": 5,
+        "effort_hours": 5,
+        "roi_per_hour": 1.00,
+        "wave": "A",
+        "priority": "P3"
+      }
+    ],
+    "tier_3_polish_items": [
+      {
+        "id": "GAP-003",
+        "title": "Particle System",
+        "impact_score": 8,
+        "effort_hours": 30,
+        "roi_per_hour": 0.87,
+        "wave": "C",
+        "priority": "P1"
+      },
+      {
+        "id": "GAP-009",
+        "title": "Temporal Anti-Aliasing",
+        "impact_score": 6,
+        "effort_hours": 20,
+        "roi_per_hour": 0.90,
+        "wave": "C",
+        "priority": "P2"
+      },
+      {
+        "id": "GAP-008",
+        "title": "Prefab System",
+        "impact_score": 7,
+        "effort_hours": 18,
+        "roi_per_hour": 0.94,
+        "wave": "B",
+        "priority": "P2"
+      }
+    ]
+  },
+
+  "wave_plan": {
+    "wave_a": {
+      "name": "Week 1: Blockers & Quick Wins",
+      "duration_days": 7,
+      "hours_budget": 40,
+      "hours_used": 38,
+      "items_count": 6,
+      "items": [
+        "BLOCK-001: E2E Race Fix (6h)",
+        "BLOCK-002: Editor Scaffolding (8h)",
+        "BLOCK-003: Asset Folders (5h)",
+        "GAP-004: TypeScript Defs (6h)",
+        "GAP-010: Upload Progress UI (5h)",
+        "GAP-007: Gamepad Input (8h)"
+      ],
+      "team_size": 4,
+      "critical_path": ["BLOCK-001", "BLOCK-002", "BLOCK-003"]
+    },
+    "wave_b": {
+      "name": "Week 2: Core Systems",
+      "duration_days": 7,
+      "hours_budget": 60,
+      "hours_used": 58,
+      "items_count": 3,
+      "items": [
+        "GAP-006: Character Controller (25h)",
+        "GAP-005: Navmesh AI (35h)",
+        "GAP-008: Prefab System (18h)"
+      ],
+      "team_size": 3,
+      "critical_path": ["GAP-006"]
+    },
+    "wave_c": {
+      "name": "Week 3+: Rendering & Features",
+      "duration_days": "ongoing",
+      "hours_budget": "unlimited",
+      "hours_used": 42,
+      "items_count": 4,
+      "items": [
+        "GAP-001: Skeletal Animation (40h)",
+        "GAP-002: RPG Progression (60h)",
+        "GAP-003: Particle System (30h)",
+        "GAP-009: Temporal AA (20h)"
+      ],
+      "team_size": 3,
+      "critical_path": ["GAP-001", "GAP-002"]
+    }
+  },
+
+  "roi_ranking": [
+    {
+      "rank": 1,
+      "id": "GAP-004",
+      "title": "TypeScript Definitions",
+      "hours": 6,
+      "impact": 7,
+      "roi_per_hour": 1.67,
+      "justification": "DX multiplier for all games"
+    },
+    {
+      "rank": 2,
+      "id": "BLOCK-002",
+      "title": "Editor Scaffolding",
+      "hours": 8,
+      "impact": 8,
+      "roi_per_hour": 1.25,
+      "justification": "15x faster game creation"
+    },
+    {
+      "rank": 3,
+      "id": "GAP-007",
+      "title": "Gamepad Support",
+      "hours": 12,
+      "impact": 6,
+      "roi_per_hour": 1.00,
+      "justification": "Console/mobile ports enabled"
+    },
+    {
+      "rank": 4,
+      "id": "GAP-010",
+      "title": "Upload Progress UI",
+      "hours": 5,
+      "impact": 5,
+      "roi_per_hour": 1.00,
+      "justification": "Quick visible UX improvement"
+    },
+    {
+      "rank": 5,
+      "id": "GAP-005",
+      "title": "Navmesh AI",
+      "hours": 35,
+      "impact": 8,
+      "roi_per_hour": 0.80,
+      "justification": "Enables AI-driven games"
+    },
+    {
+      "rank": 6,
+      "id": "GAP-003",
+      "title": "Particle System",
+      "hours": 30,
+      "impact": 8,
+      "roi_per_hour": 0.87,
+      "justification": "Visual polish for 30% of games"
+    },
+    {
+      "rank": 7,
+      "id": "GAP-008",
+      "title": "Prefab System",
+      "hours": 18,
+      "impact": 7,
+      "roi_per_hour": 0.94,
+      "justification": "Level design acceleration"
+    },
+    {
+      "rank": 8,
+      "id": "GAP-009",
+      "title": "Temporal AA",
+      "hours": 20,
+      "impact": 6,
+      "roi_per_hour": 0.90,
+      "justification": "Competitive visual quality"
+    },
+    {
+      "rank": 9,
+      "id": "GAP-006",
+      "title": "Character Controller",
+      "hours": 25,
+      "impact": 9,
+      "roi_per_hour": 0.90,
+      "justification": "Gate for 40% of games"
+    },
+    {
+      "rank": 10,
+      "id": "GAP-001",
+      "title": "Skeletal Animation",
+      "hours": 40,
+      "impact": 9,
+      "roi_per_hour": 0.75,
+      "justification": "Gate for 35% of games"
+    },
+    {
+      "rank": 11,
+      "id": "GAP-002",
+      "title": "RPG Progression",
+      "hours": 60,
+      "impact": 8,
+      "roi_per_hour": 0.67,
+      "justification": "Critical template gap"
+    }
+  ],
+
+  "dependency_graph": {
+    "critical_chains": [
+      "BLOCK-001 (6h) → Competitive Multiplayer",
+      "GAP-006 (25h) → GAP-001 (40h) → Humanoid Games",
+      "GAP-006 (25h) → GAP-005 (35h) → AI-Driven Games",
+      "GAP-006 (25h) → GAP-002 (60h) → RPG Games"
+    ],
+    "high_unlock_items": [
+      {
+        "id": "GAP-006",
+        "unlocks": 7,
+        "effort": 25
+      },
+      {
+        "id": "BLOCK-002",
+        "unlocks": 5,
+        "effort": 8
+      },
+      {
+        "id": "GAP-001",
+        "unlocks": 5,
+        "effort": 40
+      }
+    ]
+  },
+
+  "team_composition": {
+    "recommended_size": 4,
+    "parallelization_capacity": 3,
+    "wave_a_agents": 4,
+    "wave_b_agents": 3,
+    "wave_c_agents": 3
+  },
+
+  "key_success_factors": [
+    "Fix 3 blockers in Week 1 before proceeding",
+    "Character controller is critical path for Waves B and C",
+    "Parallelize skeletal animator and particle system in Wave C",
+    "TypeScript defs early for DX multiplier",
+    "Daily sync on blockers only"
+  ],
+
+  "artifacts_generated": [
+    {
+      "type": "markdown",
+      "path": "roadmap-master.md",
+      "url": "https://claude.ai/code/artifact/1b07b8a2-0502-414a-b739-2bf82fb03c0f",
+      "description": "Human-readable master roadmap with full details"
+    },
+    {
+      "type": "json",
+      "path": "roadmap-master.json",
+      "location": "scratchpad/roadmap-master.json",
+      "description": "Machine-readable roadmap for automation"
+    }
+  ],
+
+  "next_actions": [
+    "1. Assign Wave A items to Sonnet agents",
+    "2. Set up monitoring (hours, blockers, questions)",
+    "3. Daily 15-min sync (blockers only)",
+    "4. Wave A acceptance testing (2-day overlap before Wave B)",
+    "5. Wave B kick-off once Wave A gates pass"
+  ]
+}

@@ -1,0 +1,50 @@
+[
+  {
+    "name": "my-cool-prefab",
+    "entities": [
+      {
+        "id": "p1",
+        "model": "foo.glb",
+        "position": [
+          -1,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "id": "p2",
+        "position": [
+          1,
+          0,
+          0
+        ],
+        "custom": {
+          "color": "#ff0000"
+        },
+        "rotation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "scale": [
+          1,
+          1,
+          1
+        ]
+      }
+    ],
+    "savedAt": 1783945352787
+  }
+]

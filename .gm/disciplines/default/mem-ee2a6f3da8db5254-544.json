@@ -1,0 +1,3 @@
+## Resolved mutable: m-impostor-visibility-api
+
+node_modules/@three.ez/instanced-mesh/src/core/InstancedMesh2.d.ts:239-249 setVisibilityAt(id,visible)/getVisibilityAt(id) -- O(1) per-instance visibility toggle by id, exact analog of branchEntity.visible/leafEntity.visible. Vegetation.js:401 already stores per-tree en.impId (from sharedImpostor.addImpostors at :396) alongside en.branchEntity/en.leafEntity, so applyOcclusion (Vegetation.js:721-731) can call sharedImpostor.mesh.setVisibilityAt(en.impId,!shouldHide) with zero new bookkeeping.

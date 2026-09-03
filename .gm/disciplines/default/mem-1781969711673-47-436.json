@@ -1,0 +1,3 @@
+## Resolved mutable: appmodule-blocked-import
+
+FIXED + witnessed (browser session 46): appModules=[tps-game], crosshair=true, health=true, 0 errors, no error logs. Removed import( from app code (threaded kit via engineCtx.kit -> renderCtx.kit -> ctx.kit.renderGameHud). Also fixed the import( substring in a comment (AppLoader._validate uses dumb source.includes). Plus added client-side relative-dep resolution so ./server.js resolves.

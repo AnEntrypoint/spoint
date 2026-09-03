@@ -1,0 +1,9 @@
+[submodule "vendor/design"]
+	path = vendor/design
+	url = https://github.com/AnEntrypoint/design.git
+[submodule "vendor/wireweave"]
+	path = vendor/wireweave
+	url = https://github.com/AnEntrypoint/wireweave.git
+[submodule "vendor/gm"]
+	path = vendor/gm
+	url = https://github.com/AnEntrypoint/gm.git

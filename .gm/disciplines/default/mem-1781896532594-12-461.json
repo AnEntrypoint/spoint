@@ -1,0 +1,3 @@
+## Resolved mutable: source-edits-reverted-by-concurrent-process
+
+Re-applied all 4 edits after stopping the concurrent editor-complete workflow (TaskStop wyhndbuig). Edits persisted (grep SAVE_WORLD=1 in MessageTypes, serializeWorld=4 in EditorHandlers, onSaveWorld=2 in app.js, Save World=5 in EditorShell, WORLD_SAVED=1 in MessageHandler). Committed+pushed as e2f94ee8 on main (git_finalize pushed:true). Reverter was the concurrent workflow agents; gone now.

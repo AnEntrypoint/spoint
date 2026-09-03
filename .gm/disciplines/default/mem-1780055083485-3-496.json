@@ -1,0 +1,3 @@
+## Resolved mutable: editor-logic-view-split
+
+CLEAN split confirmed. client/editor/editor.js = pure logic (xstate gizmoMachine, THREE raycaster, gizmo build, transform commit) — no panel DOM. client/editor/EditPanelEditor.js:3 ALREADY imports {components as C, h, applyDiff} from anentrypoint-design and header says chrome uses design kit primitives. Migration is PARTIALLY DONE: view files already consume the design pkg; logic files are separate. Work = complete it + flip importmap to unpkg.

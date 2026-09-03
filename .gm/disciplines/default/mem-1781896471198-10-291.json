@@ -1,0 +1,3 @@
+## Resolved mutable: landing-server-url
+
+src/sdk/server.js:34-47 buildStaticDirs serves client/ at prefix '/' (line40), so client/landing/index.html reachable at /landing/. package.json scripts.start='node server.js'. Default port from server.js listen. Route confirmed via static dir mount.

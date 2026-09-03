@@ -1,0 +1,3 @@
+## Resolved mutable: m-terrain-webgl-error-storm
+
+browser-71 failing cold load: gl.isContextLost()=false, gl.getError()=1282 (GL_INVALID_OPERATION), EXT_color_buffer_float + OES_texture_float_linear BOTH present. Console flooded with 'GL_INVALID_OPERATION: glMultiDrawElementsANGLE: Insufficient buffer size' repeated 17+ times. So NOT a float-extension/context-lost issue -- a multiDraw buffer overrun from @three.ez/instanced-mesh poisons the context, failing terrain GPU init. Root cause = the multiDraw insufficient-buffer (see diagnose-multidraw-buffer-overrun).

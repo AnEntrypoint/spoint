@@ -1,0 +1,3 @@
+## Resolved mutable: kit-css-actually-applies
+
+browser-12: fetched unpkg 247420.css = 218654 bytes, has .panel + .app-body rules, scoped .ds-247420. Computed signature styles applied: panel bg rgb(37,37,44) radius 22px, hero title 80px/600, body Inter font, bg rgb(19,19,24). kitRules=0 in browser-11 was a benign cross-origin cssRules-access throw. CSS loads and applies fully — NOT the jank cause.

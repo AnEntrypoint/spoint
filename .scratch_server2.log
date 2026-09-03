@@ -1,0 +1,28 @@
+[scaffold] apps/ already exists at C:\dev\spoint\apps, skipping
+[boot] using world: tps-game
+[boot] loading from: C:\dev\spoint\apps
+[server] dist/client/app.js is STALE (built 2026-08-06T09:00:17.162Z, client/app.js edited 2026-08-13T09:17:19.151Z) -- falling through to raw ESM
+[static] precompressed 511 asset(s)
+(node:18628) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[PatchBaker] unavailable: no OffscreenCanvas (dedicated Node?)
+[terrain] collider using BAKED GPU heightfield (N=33, extent=512m) -- exact match to the rendered surface
+[terrain] planet heightfield COARSE N=32 extent=256m built 8ms(sample 4ms) id=8388608 -> refining to N=128
+[terrain] planet heightfield N=128 extent=256m spacing=2.02m built 32ms(sample 30ms) id=8388609
+   0.00s [terrain] [terrain] config registered (streamer owned by engine boot order)
+[trimesh] dropped 26 degenerate (zero-area) triangle(s) from C:\dev\spoint\apps\maps\aim_sillos.glb
+[scoreboard] loaded 8 saved player record(s)
+[tps-game] 4 spawn points validated
+[placed-model] loaded 4 saved entities
+[world-persistence] restored snapshot: tick=76800 entities=11 bodies=0
+[progressive] awaiting 1 environment bake(s) before serving
+[server] EDITOR_TOKEN is not set and this server binds 0.0.0.0 (all interfaces, not loopback-only) -- editor auth and non-loopback debug/upload endpoints are OPEN to any network peer that can reach this host. Set EDITOR_TOKEN before exposing this server beyond localhost.
+[ReloadManager] skipping watch for missing file: apps-world-index
+[server] http://localhost:8090 @ 64 TPS
+[identity] pid=18628 sha=c2acc954 root=C:\dev\spoint cwd=C:\dev\spoint
+[identity] mapspinner@0.1.264 -> C:\dev\spoint\packages\mapspinner
+[identity] streaming-gltf@2.0.22 -> C:\dev\spoint\packages\streaming-gltf
+[identity] GET /__identity returns this as JSON
+[world-persistence] saved snapshot: tick=19200 entities=11
+[world-persistence] saved snapshot: tick=38400 entities=11
+[world-persistence] saved snapshot: tick=57600 entities=11

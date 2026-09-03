@@ -1,0 +1,117 @@
+// PlacementScheduler -- decouples vegetation/rock/grass instance PLACEMENT (deciding what to
+// stream in/out, computing LOD, writing InstancedMesh2 instance transforms) from
+// requestAnimationFrame, so a backgrounded/minimized client tab keeps building its own world.
+//
+// Root cause (webgpu-veg-placement-decouple-from-raf-for-backgrounded-tab): renderer.setAnimationLoop
+// fully halts when a tab is OS-backgrounded (document.visibilityState:"hidden") -- proven via a live
+// rAF-counter probe staying at literal 0 across multi-minute windows, not merely throttled. Because
+// vegetation.update()/rocks.update()/grass.update() were only ever called from the 'foliage-lod-sync'
+// RenderGraph node inside that rAF-gated loop (RenderGraph.nodes.js), a backgrounded tab never placed
+// a single tree/rock/blade even though its WebSocket connection, snapshot decode, and terrain height
+// data all kept arriving fine (those paths are async/promise-driven, not rAF-gated). Any real player
+// who alt-tabs away or has the tab backgrounded by the OS (common on laptops/mobile) would see their
+// own world's vegetation/rocks silently stop streaming in until they refocus.
+//
+// Fix shape: the placement-DECISION logic (this module's runPlacementTick) does not need to be
+// synchronized with a paint frame -- only the actual GPU draw call does (that stays exactly where it
+// is, a RenderGraph node -- project/render-graph-live-orchestrator: new rendering passes must be
+// nodes, never inline animate() steps). This module owns a setInterval loop (mirroring
+// TickSystem.js's own render-independent server-side tick -- setInterval+performance.now, no rAF)
+// that calls the SAME vegetation/rocks/grass.update(dt,camera,playerPos[,extra]) functions
+// RenderGraph.nodes.js's 'foliage-lod-sync' node already calls, via one shared runPlacementTick()
+// so there is exactly one placement-decision code path, not two divergent copies.
+//
+// Double-tick guard: when the tab is FOREGROUND, both the rAF-paced RenderGraph node AND this
+// interval fire -- runPlacementTick is idempotent-per-call (each update() call is itself an
+// idempotent "reconcile against current camera position" step, matching Vegetation.js's own
+// _lastPx/_lastPz still-camera dedup), but calling it twice inside the same wall-clock instant would
+// double-count dt for wind/animation-time uniforms and double the streamRing scan cost for zero
+// placement benefit. Fix: a single shared `_lastTickAtMs` timestamp both callers check/update via
+// `shouldTick(nowMs, minIntervalMs)` -- whichever caller (rAF node or interval) reaches a given
+// instant first wins that tick; the other's call in the same window becomes a no-op. This makes the
+// foreground path's real per-frame behavior UNCHANGED in practice (rAF ticks every ~16ms, far above
+// the interval's own throttle) while guaranteeing the interval is the sole driver the instant rAF
+// stops firing.
+//
+// Cost note: computing what to stream (chunk-ring scan, LOD bucket assignment) is cheap CPU work
+// (Vegetation.js's own IDLE_STRIDE stride-skip already exists for exactly this reason); it is the
+// GPU draw call that is expensive and rAF-gated correctly. This scheduler intentionally runs at a
+// slower cadence than 60fps (see PLACEMENT_INTERVAL_MS) since a backgrounded tab has no visible
+// frame to keep in sync with -- streaming progress, not frame-perfect LOD, is the goal while hidden.
+
+const PLACEMENT_INTERVAL_MS = 250   // background cadence; foreground rAF (~16ms) always wins the shouldTick race while visible
+const MIN_TICK_GAP_MS = 40          // hard floor between real placement ticks regardless of caller, so a busy rAF frame can't starve dt-accounting into a near-zero-dt spam even when both drivers race the same instant
+
+const _authFocus = { x: 0, y: 0, z: 0 }
+
+export function createPlacementScheduler(getHandles) {
+  let _lastTickAtMs = -Infinity
+  let _timer = null
+  let _lastRealMs = null
+
+  function shouldTick(nowMs) {
+    if (nowMs - _lastTickAtMs < MIN_TICK_GAP_MS) return false
+    _lastTickAtMs = nowMs
+    return true
+  }
+
+  // runPlacementTick(nowMs) -- the single shared placement-decision body, callable from either the
+  // rAF-paced RenderGraph node or this module's own background setInterval. Returns true if it
+  // actually ran (false if the double-tick guard skipped it, e.g. rAF already ticked this instant).
+  function runPlacementTick(nowMs) {
+    if (!shouldTick(nowMs)) return false
+    const h = getHandles()
+    if (!h) return false
+    const { vegetation, rocks, grass, camera, floatingOrigin, pm } = h
+    if (!camera || !(vegetation || rocks || grass)) return false
+
+    const dt = _lastRealMs == null ? 0 : Math.min(Math.max((nowMs - _lastRealMs) / 1000, 0.001), 1.0)
+    _lastRealMs = nowMs
+
+    let focus = camera.position
+    if (floatingOrigin) {
+      focus = floatingOrigin.toAuthoritative(
+        focus.position ? { x: focus.position[0], y: focus.position[1], z: focus.position[2] } : focus,
+        _authFocus,
+      )
+    }
+
+    if (vegetation && typeof vegetation.update === 'function') {
+      try { vegetation.update(dt, camera, focus, true) } catch (_) {}
+    }
+    if (rocks && typeof rocks.update === 'function') {
+      try { rocks.update(dt, camera, focus) } catch (_) {}
+    }
+    if (grass && typeof grass.update === 'function') {
+      // Background ticks skip the nearby-player bend-buffer computation (a rendering-feel detail,
+      // not a placement decision) -- an empty array is the same "no benders this call" shape
+      // RenderGraph.nodes.js's own foliage-lod-sync passes when ctx.pm has zero playerMeshes.
+      try { grass.update(dt, camera, focus, _EMPTY_BENDERS) } catch (_) {}
+    }
+    return true
+  }
+
+  function start() {
+    if (_timer != null) return
+    _timer = setInterval(() => {
+      const now = (typeof performance !== 'undefined') ? performance.now() : Date.now()
+      runPlacementTick(now)
+    }, PLACEMENT_INTERVAL_MS)
+    // Node's setInterval returns a Timeout object with unref(); browsers return a plain number with
+    // no unref -- guard so this never throws in either environment (this module is browser-only in
+    // practice, but stays defensive since it has no other environment guard of its own).
+    if (_timer && typeof _timer.unref === 'function') _timer.unref()
+  }
+
+  function stop() {
+    if (_timer != null) { clearInterval(_timer); _timer = null }
+  }
+
+  return { start, stop, runPlacementTick, shouldTick }
+}
+
+const _EMPTY_BENDERS = []
+
+if (typeof window !== 'undefined') {
+  window.__placementScheduler = { create: createPlacementScheduler }
+}

@@ -1,0 +1,3 @@
+## Resolved mutable: anim-config-reaches-animator
+
+browser-254 live localhost:8090 singleplayer tps-game: __animProbe shows WalkLoop timeScale 2.4 at entry, JogFwdLoop steady 1.3 (=jogTimeScale 1.3), SprintLoop 1.091. Config DOES reach the animator — timeScales are exactly the world animation.* values * proportional ratio. No wiring break; the repo build is the fixed build.

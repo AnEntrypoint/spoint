@@ -1,0 +1,3 @@
+## Resolved mutable: hostjoin-mechanism
+
+Confirmed + built upon: wireweave room mechanism (host ?room=X, join ?wwjoin&room=X) is now surfaced via the lobby (createLobby.js + renderHostJoinLobby kit). app.js:147-151 transport selection unchanged; lobby navigates to the right URL. Witnessed session 56 (lobby renders) + node parse checks.

@@ -1,0 +1,46 @@
+INTEGRATION PLAN - RPG PROGRESSION SYSTEM
+
+Parallel Agent Streams (launched):
+1. ProgressionSystem + AbilityTree (Agent: a9b906c2dd9b178ec)
+2. QuestSystem + StatsSystem (Agent: a3191e1f71e91ddef)
+3. ProgressionUI components (Agent: a2eaa714b6003ccdd)
+4. Tutorial RPG game + docs (Agent: aff4c6a2088f352ee)
+
+Integration Tasks (sequential after agent completion):
+1. Verify all 6 files created and syntactically valid
+2. Test ProgressionSystem:
+   - Create player, add XP, verify level calculation
+   - Test all curve types (linear, exponential, quadratic)
+   - Verify snapshot serialization/deserialization
+3. Test AbilityTree:
+   - Create ability tree, unlock abilities at levels
+   - Test hotkey binding (1-9)
+   - Test cooldown tracking and tick updates
+4. Test QuestSystem:
+   - Create 5-quest chain, verify objectives
+   - Complete quests, verify XP rewards
+   - Verify quest state persistence
+5. Test StatsSystem:
+   - Verify stat scaling (level 1 = 100 HP, level 50 = 500 HP)
+   - Test loadout save/swap
+   - Test stat bonuses from items
+6. Test ProgressionUI:
+   - Verify XP bar renders
+   - Test level-up notification
+   - Test ability panel updates
+7. Run Tutorial RPG game:
+   - Complete quest chain level 1→10
+   - Defeat all bosses
+   - Verify progression speed (20-30 min)
+8. Network sync verification:
+   - Spawn 2 players, verify XP/level syncs
+   - Test cooldown state broadcast
+   - Test quest completion broadcast
+9. Performance profiling:
+   - Measure progression checks (<1ms target)
+   - Verify no frame drops during level-up
+10. Persistence testing:
+   - Save world, restart server
+   - Verify player level/XP/quests restored
+
+Success criteria: All 10 integration tests pass without modification to agent output.

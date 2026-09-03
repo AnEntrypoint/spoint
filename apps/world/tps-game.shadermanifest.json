@@ -1,0 +1,9 @@
+{
+  "world": "tps-game",
+  "recordedAt": "2026-07-21T23:41:41.826Z",
+  "windowSeconds": 60,
+  "entityCountAtEnd": 6,
+  "modelUrls": [
+    "./apps/maps/aim_sillos.glb"
+  ]
+}

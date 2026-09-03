@@ -1,0 +1,3 @@
+## Resolved mutable: m-singleplayer-worker-veg
+
+workflow research[terrain-seam]+design[collider-authority]: vegetation VISUAL is main-thread client-only (client/core/Vegetation.js created in app.js _finishLoading, updated in animate, reads window.__terrain.frame). Server/worker authority = SPARSE trunk colliders only, via src/terrain/VegPhysics.js createTrunkColliderStreamer wired into setupTerrainStreaming (BOTH WorkerEntry + ServerAPI call it). Client+server use the SAME shared pure src/terrain/VegPlacement.js so visual trunk == collider position (parity); client regenerates trunks locally for prediction with zero placement bandwidth. REJECTED client-only-cosmetic (server resolves hit-reg/movement -> phantom hits) and full-30k-colliders (Jolt body cost).

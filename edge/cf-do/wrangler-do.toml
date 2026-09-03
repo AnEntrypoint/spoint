@@ -1,0 +1,29 @@
+name = "spoint-do-adapter"
+main = "spoint-do.js"
+compatibility_date = "2026-07-01"
+
+# Option (b) static-asset routing (see edge-cf-static-asset-serving-r2-or-workers-assets): the real
+# Node-hosted origin (server.js's own StaticHandler.js) or a CDN fronting it. The top-level fetch()
+# in spoint-do.js proxies every non-WebSocket-upgrade request here unchanged; only a real WebSocket
+# upgrade reaches SpointGameRoom's Durable Object. Point this at your deployed Node host / CDN before
+# going live -- localhost is only a placeholder for `wrangler dev` local testing against a locally
+# booted `node server.js`.
+[vars]
+STATIC_ORIGIN = "http://localhost:8090"
+
+# The .wasm module binding jolt-edge-init.js imports (jolt-physics/dist/jolt-physics.wasm.wasm) --
+# the only embedder-allowed way to get compiled WASM into a Worker (ahead-of-time compiled, not a
+# runtime WebAssembly.instantiate() from raw bytes, which workerd's embedder policy blocks outright
+# -- live-reproduced without this rule/mechanism, see jolt-edge-init.js's own comment).
+[[rules]]
+type = "CompiledWasm"
+globs = ["**/*.wasm"]
+fallthrough = true
+
+[[durable_objects.bindings]]
+name = "SPOINT_GAME_ROOM"
+class_name = "SpointGameRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SpointGameRoom"]

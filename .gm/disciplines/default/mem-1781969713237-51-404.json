@@ -1,0 +1,3 @@
+## Resolved mutable: modelpool-plain-glb
+
+model-pool.js:430-432 _load reads gltf.parser.json.extras.LOCAL_progressive; absent for plain GLB -> meshLodDescs empty. _bootstrap:862 builds trackedMeshes from meshLodDescs only (empty) but adds cloned scene to root:850 and builds mixer from rootGltf.animations:891. Plain GLB renders+animates, no far/mid LOD. Bake mandatory; decision=bake-on-demand-at-serve.

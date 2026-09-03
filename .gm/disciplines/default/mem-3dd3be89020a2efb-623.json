@@ -1,0 +1,3 @@
+## Resolved mutable: m-terrainquad-lookdown-repro-exhausted
+
+See mutable text: ground-truth quadCount (mapspinner planet.frame() return value) sampled across teleport sweeps, rAF-tight post-jump sampling, real keyboard-driven flight (2s sustained, ~1400m displacement, yaw+pitch), and near-true-nadir pitch push to -1.57 -- minimum observed quadCount 108, zero zero-quad or near-zero hits, 3 live screenshots (shot-28488-8/9/10/11.png) all show fully continuous terrain including at the exact 1c973cc1 bug pose (stable, s1===s2, no drift) and over a 336m-relief cliff at steep near-nadir pitch during sustained real flight.

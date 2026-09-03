@@ -1,0 +1,3 @@
+## Resolved mutable: app-palette-place-works
+
+recall + browser-251 prior: PLACE_APP 0x83 sends and entityMeshes increments 2->3 (the Place mechanism works end-to-end); the only apps in tps-game world are environment/tps-game. App-palette place mechanism confirmed working; world app availability is content not a bug.

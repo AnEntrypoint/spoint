@@ -1,0 +1,3 @@
+## Resolved mutable: mut-glyph-joystick
+
+MobileControlsUI.js:108 look-joystick uses up/down/left/right arrow glyphs as directional compass indicators on the virtual look stick — the functional analog of the W/A/S/D text on the move stick. These are intentional product-design UI icons (rule exemption: intentional icon-font/CSS-content glyph that is real product design stays), NOT decorative machine-shaping. Kept.

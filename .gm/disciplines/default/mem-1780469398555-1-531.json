@@ -1,0 +1,3 @@
+## Resolved mutable: mut-1780469294433
+
+User chose Extend-pool-to-multi-driver-first. Multi-driver fix lands UPSTREAM in streaming-gltf model-pool.js (parse-per-driven-instance mirroring PlayerManager). spoint players not currently broken (PlayerManager.js:53-76 already per-player-parses); value of ModelPool routing = progressive-LOD + GPU-instancing for distant players. All players pass one shared vrmBuffer (app.js:117,128). Spoint-side routing tracked in sp-player-vrm-route-decision; upstream capability is the prerequisite.

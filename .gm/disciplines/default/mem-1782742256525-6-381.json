@@ -1,0 +1,3 @@
+## Resolved mutable: bvh-buffer-immutable-postbuild
+
+client/vendor/three-mesh-bvh.module.js:6528 computeBoundsTree sets boundsTree=new MeshBVH once; _roots buffers built at construction, only READ via views on raycast (never reallocated). Safe to cache views keyed by the ArrayBuffer. Confirmed correct by browser-11: 100 raycasts on cached views byte-identical + correct (dist=9).

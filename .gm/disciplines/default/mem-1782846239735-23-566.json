@@ -1,0 +1,3 @@
+## Resolved mutable: m-sillos-invisible-faces-cause
+
+NOT material.side: browser-101 live shows all 96 sillos materials DoubleSide (transparent:false, opacity:1, depthWrite:true, visible:true, MeshStandardMaterial). The DoubleSide env fix is already applied. And browser-100 proved cull is correct (gap:0). So the residual invisible parts are neither backface-culled interior faces nor culled clusters. Next hypothesis: the cluster-LOD bake dropped geometry vs the source GLB, or genuine sparse source -- compare baked rendered tris/prims vs apps/maps/aim_sillos.glb.

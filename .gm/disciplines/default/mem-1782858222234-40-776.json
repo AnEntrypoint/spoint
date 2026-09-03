@@ -1,0 +1,3 @@
+## Resolved mutable: m-vao-fix-fps1-raycast-broken
+
+Pivoted to geometry.groups + fixed model-pool setDrawRange(0,3)->(0,Infinity). browser-167: render is PERFECT (groupsfix2.png: fully solid arena, correct lighting/normals/textures, signage, windows, stairs, player on it), raycast HITS the cluster mesh (9 hits, dist 6.4), GL clean (errSillosOnly 0). Groups draw via three's normal pipeline -> correct VAO -> all the normal/uv/z-fight/raycast issues are gone. ONLY residual: FPS:1, because _spointNoClusterCull forces all 429 clusters to draw as 429 groups (hundreds of draw calls). Next: re-enable per-cluster frustum culling (drop the no-cluster-cull flag) so only visible clusters become groups -> far fewer draw calls -> FPS restored, while groups still render correctly.

@@ -1,0 +1,3 @@
+## Resolved mutable: m-veg-impostor-altitude-vs-angle-rootcause
+
+browser session 2, localhost:8090?singleplayer&world=tps-game: forced setVisibilityAt(true) on all 4888 shared-impostor instances + renderer.render() -> LODinfo.render.count flipped from [0,0] to [0,374], proving the impostor tier's own distance/altitude culling is correct at 150m and the zero-draw symptom is caused entirely by SceneOcclusion/applyOcclusion setVisibilityAt(false) false-positives -- same root cause as prd.yml impostors-invisible-except-certain-angles, not a separate renderDistance/treeline/altitude gate bug.

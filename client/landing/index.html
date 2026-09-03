@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en" class="ds-247420">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#247420" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1c5a19" media="(prefers-color-scheme: dark)">
+  <meta name="color-scheme" content="light dark">
+  <meta name="content-url" content="./content/content.json">
+  <title>spoint // 247420</title>
+  <meta name="description" content="spoint — physics and netcode SDK for multiplayer game servers. authoritative jolt physics, deterministic netcode, hot reload, browser singleplayer.">
+  <link rel="canonical" href="https://anentrypoint.github.io/spoint/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="spoint // 247420">
+  <meta property="og:description" content="physics and netcode sdk for multiplayer game servers — humor is load-bearing.">
+  <meta property="og:url" content="https://anentrypoint.github.io/spoint/">
+  <meta property="og:site_name" content="247420 / spoint">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="https://unpkg.com/anentrypoint-design@latest/dist/247420.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "anentrypoint-design": "https://unpkg.com/anentrypoint-design@latest/dist/247420.js"
+    }
+  }
+  </script>
+  <style>
+    /* landing-local polish: tokens-only, no hardcoded colors */
+    .lp-form-row { padding: 10px 16px; }
+    .lp-join-error { padding: 8px 16px; color: #ff6b6b; font-size: 13px; }
+    .lp-cta-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+    .lp-snippet pre {
+      font-family: var(--ff-mono, ui-monospace, monospace);
+      background: var(--panel-1);
+      border: 1px solid var(--rule);
+      border-radius: 6px;
+      padding: 12px 14px;
+      overflow-x: auto;
+    }
+    /* focus-visible rings for keyboard users across all interactive elements */
+    a:focus-visible,
+    button:focus-visible,
+    input:focus-visible,
+    textarea:focus-visible,
+    select:focus-visible,
+    [role="button"]:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+    /* respect reduced motion */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+    /* mobile (<=480px) */
+    @media (max-width: 480px) {
+      .lp-cta-actions { gap: 8px; }
+      .lp-snippet pre { font-size: 12px; padding: 10px; }
+    }
+    /* tablet polish */
+    @media (max-width: 768px) {
+      .lp-form-row { padding: 8px 12px; }
+    }
+    /* desktop wide: keep snippet readable, not stretched */
+    @media (min-width: 1280px) {
+      .lp-snippet pre { max-width: 72ch; }
+    }
+  </style>
+</head>
+<body>
+<div id="app"></div>
+
+<script type="module">
+import { mount, components as C, h } from 'anentrypoint-design'
+
+const NAV = [
+  ['multiplayer',  '#multiplayer'],
+  ['features',     '#features'],
+  ['architecture', '#architecture'],
+  ['install',      '#quickstart'],
+  ['github',       'https://github.com/AnEntrypoint/spoint'],
+  ['npm',          'https://www.npmjs.com/package/spoint'],
+]
+
+const contentUrl = document.querySelector('meta[name="content-url"]')?.content || './content/content.json'
+const [resp, pkgResp] = await Promise.all([
+  fetch(contentUrl).catch(() => null),
+  fetch('./package.json').catch(() => null)
+])
+const version = pkgResp?.ok ? (await pkgResp.json().catch(() => ({}))).version : ''
+const content = resp?.ok ? await resp.json() : null
+
+const state = {
+  copiedInstall: false,
+  room: '',
+  share: '',
+}
+
+function topbar() {
+  return C.Topbar({ brand: '247420', leaf: 'spoint', items: NAV })
+}
+
+function status() {
+  return C.Status({
+    left: ['main', 'MIT', 'built in public'],
+    right: ['247420 / mmxxvi', h('a', { href: 'https://github.com/AnEntrypoint/spoint', target: '_blank' }, 'source ->')]
+  })
+}
+
+function heroSection(hero) {
+  return C.Hero({
+    eyebrow: hero.badge || 'open source - MIT',
+    title: 'spoint',
+    body: hero.subtitle,
+    accent: 'humor is load-bearing.',
+    actions: [
+      C.Btn({ href: hero.demo_href, primary: true, children: hero.cta_demo }),
+      C.Btn({ href: hero.npm_href, ghost: true, children: hero.cta_npm + ' ->' }),
+    ].filter(Boolean)
+  })
+}
+
+function receiptSection() {
+  const rows = [
+    ['status',    'live - ships when ready'],
+    ['license',   'MIT'],
+    ['lang',      'javascript - node.js'],
+    ['physics',   'jolt wasm - 128 TPS'],
+    ['deps',      'jolt - three.js - msgpackr'],
+    ['transport', 'websocket - webrtc - worker'],
+    ['authors',   'the collective'],
+  ]
+  return C.Section({
+    eyebrow: 'receipt',
+    title: 'project - spoint' + (version ? ' - v' + version : ''),
+    children: C.Receipt({ rows })
+  })
+}
+
+function installSection() {
+  const cmd = 'npm install spoint'
+  return C.Section({
+    eyebrow: 'install',
+    children: h('div', { id: 'quickstart' }, C.Install({
+      cmd,
+      copied: state.copiedInstall,
+      onCopy: () => {
+        navigator.clipboard?.writeText(cmd)
+        state.copiedInstall = true
+        render()
+        setTimeout(() => { state.copiedInstall = false; render() }, 1200)
+      }
+    }))
+  })
+}
+
+// Room codes use the same unambiguous alphabet as the in-app lobby
+// (client/hud/createLobby.js) — no 0/O/1/I/L — so a code is easy to read aloud
+// and share. parseRoomCode accepts a bare code or a full join link.
+const _ROOM_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+function generateRoomCode() {
+  const buf = new Uint32Array(5)
+  crypto.getRandomValues(buf)
+  let out = ''
+  for (let i = 0; i < 5; i++) out += _ROOM_ALPHABET[buf[i] % _ROOM_ALPHABET.length]
+  return out
+}
+function parseRoomCode(raw) {
+  const s = (raw || '').trim()
+  if (!s) return null
+  const m = s.match(/[?&]room=([^&\s]+)/i)
+  const code = (m ? m[1] : s).toUpperCase().replace(/[^A-Z0-9]/g, '')
+  return code.length >= 3 && code.length <= 12 ? code : null
+}
+
+function multiplayerSection(hero) {
+  const demoBase = (hero.demo_href || './demo.html').split('?')[0]
+  // The hosted match runs tps-game explicitly so it matches the in-app lobby and
+  // every other entry point; the joiner receives the host's authoritative worldDef
+  // over wireweave regardless, but being explicit keeps the host URL self-describing.
+  const hostWorld = (hero.demo_href || '').match(/world=([^&]+)/)?.[1] || 'tps-game'
+
+  // Resolve the join/host targets against the current document URL so a relative
+  // demo_href ('./demo.html') AND an absolute one ('/spoint/demo.html') both yield a
+  // single correct path. String-concatenating location.pathname + demoBase doubled
+  // the base ('/spoint//spoint/demo.html') whenever demo_href was absolute.
+  const joinUrl = (id) => { const u = new URL(demoBase, location.href); u.search = '?wwjoin&room=' + id + '&fresh'; return u.href }
+  const hostUrl = (id) => { const u = new URL(demoBase, location.href); u.search = '?room=' + id + '&world=' + encodeURIComponent(hostWorld) + '&fresh'; return u.href }
+
+  const onHost = () => {
+    const id = generateRoomCode()
+    state.room = id
+    state.joinError = null
+    state.share = joinUrl(id)
+    render()
+    window.open(hostUrl(id), '_blank')
+  }
+  const onJoinSubmit = (ev) => {
+    const id = parseRoomCode(ev.target.elements.room?.value)
+    if (!id) { state.joinError = 'Invalid room code or link'; render(); return }
+    location.href = joinUrl(id)
+  }
+  const onCopyShare = () => navigator.clipboard?.writeText(state.share)
+
+  return h('div', { id: 'multiplayer' },
+    C.Section({
+      eyebrow: 'wireweave multiplayer',
+      title: 'serverless p2p multiplayer',
+      children: [
+        C.Lede({ children: 'host runs the game in-browser, peers connect over webrtc with nostr discovery — no signaling server, no port forwarding.' }),
+        C.Panel({
+          children: [
+            C.Row({
+              leading: C.Btn({ primary: true, onClick: onHost, children: 'host new room' }),
+              title: 'start a fresh room',
+              sub: 'opens a host tab running the game; share the join link with peers'
+            }),
+            h('div', { class: 'lp-form-row' },
+              C.Form({
+                fields: [{ name: 'room', placeholder: 'room id or join link', value: state.room }],
+                submit: 'join room',
+                onSubmit: onJoinSubmit
+              })
+            ),
+            state.joinError ? h('div', { class: 'lp-join-error', role: 'alert' }, state.joinError) : null,
+            state.share ? C.Row({
+              leading: C.Btn({ ghost: true, onClick: onCopyShare, children: 'copy' }),
+              title: 'share link',
+              sub: state.share
+            }) : null
+          ].filter(Boolean)
+        })
+      ]
+    })
+  )
+}
+
+function featuresSection(features) {
+  return h('div', { id: 'features' },
+    C.Section({
+      eyebrow: 'features',
+      children: C.Panel({
+        children: features.map((f, i) => C.Row({
+          key: i,
+          title: f.title,
+          sub: f.desc,
+          leading: f.icon ? h('span', { class: 'code' }, f.icon) : null
+        }))
+      })
+    })
+  )
+}
+
+function architectureSection(architecture) {
+  return h('div', { id: 'architecture' },
+    C.Section({
+      eyebrow: 'architecture',
+      title: 'stack layers',
+      children: C.Panel({
+        children: architecture.layers.map((l, i) => C.Row({
+          key: i,
+          title: l.label,
+          meta: l.detail
+        }))
+      })
+    }),
+    C.Section({
+      eyebrow: 'architecture',
+      title: 'runtime modes',
+      children: C.Panel({
+        children: architecture.modes.map((m, i) => C.Row({
+          key: i,
+          leading: h('span', { class: 'code' }, '*'),
+          title: m.name,
+          sub: m.desc
+        }))
+      })
+    })
+  )
+}
+
+function ctaSection(cta, hero) {
+  return C.Section({
+    eyebrow: 'quickstart',
+    title: 'one import. one server.',
+    children: [
+      C.Lede({ children: 'full physics simulation, singleplayer support, hot reload — running in under a second.' }),
+      h('div', { class: 'ds-prose lp-snippet' }, h('pre', {}, cta.snippet)),
+      h('div', { class: 'lp-cta-actions' },
+        C.Btn({ href: hero.demo_href, primary: true, children: hero.cta_demo }),
+        C.Btn({ href: cta.github_href, ghost: true, children: cta.docs_label + ' ->' }),
+      )
+    ]
+  })
+}
+
+function view() {
+  if (!content) {
+    return C.AppShell({
+      topbar: topbar(),
+      main: C.Section({ children: h('p', {}, 'failed to load content.') }),
+      status: status()
+    })
+  }
+  const { hero, features, architecture, cta } = content
+  const main = [
+    heroSection(hero),
+    receiptSection(),
+    installSection(),
+    multiplayerSection(hero),
+    featuresSection(features),
+    architectureSection(architecture),
+    ctaSection(cta, hero),
+  ]
+  return C.AppShell({
+    topbar: topbar(),
+    crumb: C.Crumb({
+      trail: ['247420', 'spoint'],
+      leaf: 'landing',
+      right: C.ThemeToggle ? C.ThemeToggle({ compact: true }) : null
+    }),
+    main,
+    status: status()
+  })
+}
+
+const root = document.getElementById('app')
+const render = mount(root, view)
+window.__debug = window.__debug || {}
+window.__debug.landing = { mounted: true, sections: content ? Object.keys(content) : [] }
+</script>
+</body>
+</html>

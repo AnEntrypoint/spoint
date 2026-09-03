@@ -1,0 +1,3 @@
+## Resolved mutable: m-baseline-correct-but-errors-vs-fix-clean-but-spikes
+
+Resolved into the plan: baseline (browser-157 baseline.png) renders the building correctly on my GPU with the 1282 storm; my own-buffer fix (browser-150 converge.png) is GL-clean but spikes. Index data is global+valid (browser-156: ids 0-148 in 149 verts, last cluster [107..112]). The fix path is a FULL owned VAO (program attributes accessible via renderer.properties.get(material).currentProgram.getAttributes()+.program, browser-158). Immediate action: revert the harmful own-buffer commit to baseline; then implement the full-VAO fix with exhaustive witness.

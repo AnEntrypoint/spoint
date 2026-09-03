@@ -1,0 +1,3 @@
+## Resolved mutable: index-world-role
+
+server.js:136 WORLD||index makes index.js the SERVER default, but client redirects to ?singleplayer&world=tps-game. index.js is the kitchen-sink demo world (references webcam-avatar/box/physics-crate). Decision: repoint server default to tps-game, then remove index.js. tps is the focus.

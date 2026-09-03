@@ -1,0 +1,13 @@
+{
+  "name": "__PROJECT_NAME__",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "spoint",
+    "create-app": "spoint-create-app"
+  },
+  "dependencies": {
+    "spoint": "^__SPOINT_VERSION__"
+  }
+}

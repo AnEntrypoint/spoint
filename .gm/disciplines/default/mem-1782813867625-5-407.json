@@ -1,0 +1,3 @@
+## Resolved mutable: m-getError-unconditional-anywhere
+
+grep: consumer client/app.js:522 = getErrorOffset() (string, not gl.getError). mapspinner installed+source planet-orchestrator.js:462 gates render.checkGlError() behind window.__glCheck; line 901 confirms moved-frame path issues draws without getError. Live: window.__glCheck=false in running consumer. No unconditional per-frame gl.getError anywhere.
