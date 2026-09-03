@@ -422,6 +422,12 @@ export function createSceneHierarchy(container, { onSelect, onFocus, onDelete, o
     isHiddenInEditor(id) { return _hiddenInEditor.has(id) },
     get lockedIds() { return [..._locked] },
     get hiddenInEditorIds() { return [..._hiddenInEditor] },
+    // editor-layers-panel: direct programmatic set (not toggle) for LayerRegistry's cascading
+    // layer-wide visibility/lock apply -- the existing context-menu toggle methods above only flip
+    // relative to current per-entity state, which isn't what a layer-wide "make every member locked"
+    // operation needs (a member already locked individually shouldn't unlock on a layer-lock call).
+    setLocked(id, v) { if (v) _locked.add(id); else _locked.delete(id); onLockChange?.([..._locked]); render() },
+    setHiddenInEditor(id, v) { if (v) _hiddenInEditor.add(id); else _hiddenInEditor.delete(id); onHiddenChange?.([..._hiddenInEditor]); render() },
     // Dense status-bar feed: 0 when nothing selected, 1 for a single selection, N when multi-selected.
     get selectionCount() {
       if (!_multiSel.size) return _sel ? 1 : 0

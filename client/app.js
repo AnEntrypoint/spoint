@@ -1898,6 +1898,11 @@ const editPanel = createEditPanel({
   onReparent: (childId,parentId) => { const oldParentId=_findSceneNode(childId)?.parent?.id||null; client.send(MSG.REPARENT_ENTITY,{entityId:childId,parentId}); _pushStructural({ entityId:childId, desc:'reparent', undoOp:()=>client.send(MSG.REPARENT_ENTITY,{entityId:childId,parentId:oldParentId}), redoOp:()=>client.send(MSG.REPARENT_ENTITY,{entityId:childId,parentId}) }) },
   onRename: (id,label) => { const oldLabel=_findSceneNode(id)?.node?.label; client.send(MSG.SET_LABEL,{entityId:id,label}); if (oldLabel!==undefined) _pushStructural({ entityId:id, desc:'rename', undoOp:()=>client.send(MSG.SET_LABEL,{entityId:id,label:oldLabel}), redoOp:()=>client.send(MSG.SET_LABEL,{entityId:id,label}) }) },
   onDuplicate: id => _structDuplicate(id),
+  // editor-layers-panel: persists an entity's layer assignment via the same generic custom.*
+  // EDITOR_UPDATE merge every other custom field (e.g. onWireCreate's custom.targets) already uses --
+  // no new message type. EditorShell.js's LayerRegistry drives this from layer-wide/per-entity UI
+  // actions and cascades the resulting visibility/lock into SceneHierarchy's existing sets itself.
+  onLayerAssign: (entityId, layerName) => { const changes = { custom: { _layer: layerName } }; el.mergeCustom(entityId, changes.custom); client.send(MSG.EDITOR_UPDATE, { entityId, changes }) },
   // HookFlow in-canvas drag-to-wire (editor-node-graph-in-canvas-wire-drag): fromId is the drag SOURCE
   // node, which is not guaranteed to be editor.selectedEntityId (a maker can drag from any card without
   // first selecting it) -- so this writes directly via client.send with an explicit entityId, the same

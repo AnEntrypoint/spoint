@@ -1,5 +1,6 @@
 import { components as C, h, applyDiff } from 'anentrypoint-design'
 import { createSceneHierarchy } from './SceneHierarchy.js'
+import { createLayerRegistry } from './LayerRegistry.js'
 import { createEditorInspector } from './EditorInspector.js'
 import { createEditorApps } from './EditorApps.js'
 import { createEditorFsBrowse } from './EditorFsBrowse.js'
@@ -17,7 +18,7 @@ import { setSharedWM } from './wm/ui.js'
 import { ADD_PRIMITIVES, buildAddMenuItems, buildPropCategoryItems, buildCategoryMenuItems, loadRecent, recordRecent, filterMenuItems, promptName, _ensureWmCSS, _ensureEditorResponsiveCSS, TABS, EDITOR_SHORTCUTS } from './EditorShellMenus.js'
 import { MSG } from '/src/protocol/MessageTypes.js'
 
-export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, onListWorlds, onGizmoModeChange, onGizmoSpaceChange, onPivotModeChange, onEntitySelect, onGetSource, onGetAppFiles, onDestroyEntity, onCreateApp, onSnapChange, onEventLogQuery, onReparent, onRename, onDuplicate, onLockChange, onHiddenChange, onScatterArm, onAlign, onDistribute, onGroup, isSingleplayer, onFsListTree, onFsGetSource, onFsSave, onFsMkdir, onFsDelete, onFsRename, onJumpToHistory, onAddWaypoint, onReorderWaypoints, onToggleMinimapOverlay, onWireCreate, floatingOrigin, onEdgeRemove, onPlaceBatch, onPlaytestStart, onPlaytestStop, onCommandPalette, onDebugModeChange, onOpenP2PRoom, onOpenFreddieChat } = {}) {
+export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, onListWorlds, onGizmoModeChange, onGizmoSpaceChange, onPivotModeChange, onEntitySelect, onGetSource, onGetAppFiles, onDestroyEntity, onCreateApp, onSnapChange, onEventLogQuery, onReparent, onRename, onDuplicate, onLockChange, onHiddenChange, onScatterArm, onAlign, onDistribute, onGroup, isSingleplayer, onFsListTree, onFsGetSource, onFsSave, onFsMkdir, onFsDelete, onFsRename, onJumpToHistory, onAddWaypoint, onReorderWaypoints, onToggleMinimapOverlay, onWireCreate, floatingOrigin, onEdgeRemove, onPlaceBatch, onPlaytestStart, onPlaytestStop, onCommandPalette, onDebugModeChange, onOpenP2PRoom, onOpenFreddieChat, onLayerAssign } = {}) {
   const overlay = document.createElement('div')
   overlay.className = 'ds-247420 ep-overlay'
   overlay.style.cssText = 'position:fixed;inset:0;z-index:9000;pointer-events:none;display:none;color:var(--panel-text);font:12px/1.4 var(--ff-mono, monospace);padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);box-sizing:border-box'
@@ -577,6 +578,17 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     }
   })
 
+  // editor-layers-panel: cascading layer-wide visibility/lock on top of SceneHierarchy's own
+  // per-entity lock/hidden sets (see LayerRegistry.js's own header comment for the full design).
+  // Assignment persists server-side via the generic custom._layer EDITOR_UPDATE merge; sync back
+  // on every scene-graph refresh (updateScene call site below) so a reconnect/reload doesn't
+  // silently drop layer membership.
+  const layers = createLayerRegistry({
+    setLocked: (id, v) => hierarchy.setLocked(id, v),
+    setHidden: (id, v) => hierarchy.setHiddenInEditor(id, v),
+    sendLayerUpdate: (id, layerName) => onLayerAssign?.(id, layerName)
+  })
+
   const inspector = createEditorInspector(insp.main, {
     onDestroyEntity: id => onDestroyEntity?.(id),
     onEditCode: name => _switchTab('Apps'),
@@ -767,12 +779,13 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
   }
 
   return {
+    layers,
     show() { overlay.style.display = 'block'; wmRoot.style.display = 'block' },
     hide() { overlay.style.display = 'none'; wmRoot.style.display = 'none'; evLog.stop(); _renderGraphViewer?.stop(); _p2pPanel?.destroy(); _freddieChatPanel?.clear(); if (_vpMenuHost) applyDiff(_vpMenuHost, []) },
     openViewportMenu: openAddMenu,
     toggle() { const v = overlay.style.display === 'none' ? 'block' : 'none'; overlay.style.display = v; wmRoot.style.display = v },
     updateApps(apps) { appsPanel.setApps(apps); _knownApps = apps || []; _validatorPanel?.updateKnownApps(_knownApps); hfViewer.updateApps(_knownApps); eventChainPanel?.updateEntitiesAndApps(_entities, _knownApps) },
-    updateScene(entities) { _entities = entities || []; setSceneEntityIds(_entities.map(e => e.id)); hierarchy.updateEntities(entities); hfViewer.updateGraph(_entities); _validatorPanel?.updateEntities(_entities); _waypointPanel?.updateEntities(_entities); eventChainPanel?.updateEntitiesAndApps(_entities, _knownApps); render() },
+    updateScene(entities) { _entities = entities || []; setSceneEntityIds(_entities.map(e => e.id)); hierarchy.updateEntities(entities); layers.hydrateFromEntities(_entities); hfViewer.updateGraph(_entities); _validatorPanel?.updateEntities(_entities); _waypointPanel?.updateEntities(_entities); eventChainPanel?.updateEntitiesAndApps(_entities, _knownApps); render() },
     // extraEntities (editor-undo-transactionality-multiselect-batch-inspector): the REAL field data
     // (position/rotation/scale/custom/_appName) for every extra-selected entity, not just their bare
     // ids -- the batch inspector needs it to compute shared-vs-mixed values across the selection.
