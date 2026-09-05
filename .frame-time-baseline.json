@@ -1,0 +1,20 @@
+{
+  "static": {
+    "p50Ms": 49.99499999999898,
+    "p95Ms": 2783.2199999999993,
+    "onePercentLowMs": 4149.835000000001,
+    "fps": 20.002000200020408,
+    "sampleCount": 29,
+    "avgDrawCalls": 305.8333333333333,
+    "avgTriangles": 11669
+  },
+  "orbit": {
+    "p50Ms": 1499.9350000000013,
+    "p95Ms": 3049.8799999999974,
+    "onePercentLowMs": 3049.8799999999974,
+    "fps": 0.6666955568074611,
+    "sampleCount": 5,
+    "avgDrawCalls": 403.5,
+    "avgTriangles": 24330
+  }
+}
