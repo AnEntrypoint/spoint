@@ -88,6 +88,7 @@ const externalPlugin = {
   }
 }
 
+const outdir = outfile.replace(/\/[^/]+$/, '')
 await build({
   entryPoints: [entry],
   bundle: true,
@@ -95,7 +96,8 @@ await build({
   format: 'esm',
   platform: 'browser',
   target: 'es2022',
-  outfile,
+  splitting: true,
+  outdir,
   sourcemap: false,
   legalComments: 'none',
   plugins: [externalPlugin],
@@ -108,4 +110,4 @@ await build({
     'SPOINT_FEATURE_WEBTRANSPORT': 'false'
   }
 })
-console.log('[bundle-client] wrote', outfile)
+console.log('[bundle-client] wrote', outdir)
