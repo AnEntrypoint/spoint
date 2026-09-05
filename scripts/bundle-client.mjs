@@ -42,12 +42,16 @@ const _bareToAbs = {
   // importmap resolves it straight to the jsdelivr GitHub CDN (see client/index.html).
   // Tracks the design repo's main branch directly (no npm publish exists for this
   // package), in lockstep with client/index.html and client/landing/index.html.
-  'anentrypoint-design': 'https://unpkg.com/anentrypoint-design@latest/dist/247420.js',
+  // Pinned to a specific version/commit, not @latest/@main (perf-unpinned-cdns-off-boot-path):
+  // an unpinned CDN reference can silently change spoint's boot bundle on ANY push to the design
+  // repo, with no corresponding spoint commit -- keep this in lockstep with client/index.html's
+  // matching pins when bumping either.
+  'anentrypoint-design': 'https://unpkg.com/anentrypoint-design@1.0.34/dist/247420.js',
   // game-editor-kit: same CDN-delivered-kit class as anentrypoint-design (client/index.html's
   // importmap maps it to the design repo's game-editor-kit component set on jsdelivr) -- external,
   // never bundled, matching the GUI-kit architecture rule that all GUI components live in the
-  // AnEntrypoint/design repo.
-  'game-editor-kit': 'https://cdn.jsdelivr.net/gh/AnEntrypoint/design@main/src/components/game-editor-kit/index.js',
+  // AnEntrypoint/design repo. Pinned to a specific commit SHA, not @main, for the same reason.
+  'game-editor-kit': 'https://cdn.jsdelivr.net/gh/AnEntrypoint/design@70550868836df5d3c8cd3c85570090ff571edde0/src/components/game-editor-kit/index.js',
   'three-mesh-bvh': `${BASE}/vendor/three-mesh-bvh.module.js`,
   // streaming-gltf's model-pool/draco-loader/occlusion-query-tier live under
   // packages/streaming-gltf/src/ and use `new URL('./sibling.js', import.meta.url)`

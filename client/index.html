@@ -7,7 +7,7 @@
   <meta name="mobile-web-app-capable" content="yes">
   <title>Spoint</title>
   <link rel="stylesheet" href="/style.css">
-  <link rel="stylesheet" href="https://unpkg.com/anentrypoint-design@latest/dist/247420.css">
+  <link rel="stylesheet" href="https://unpkg.com/anentrypoint-design@1.0.34/dist/247420.css">
   <script>
     (function () {
       const root = document.documentElement;
@@ -34,8 +34,8 @@
       "three/addons/": "/node_modules/three/examples/jsm/",
       "@pixiv/three-vrm": "/node_modules/@pixiv/three-vrm/lib/three-vrm.module.js",
       "three-mesh-bvh": "/vendor/three-mesh-bvh.module.js",
-      "anentrypoint-design": "https://unpkg.com/anentrypoint-design@latest/dist/247420.js",
-      "game-editor-kit": "https://cdn.jsdelivr.net/gh/AnEntrypoint/design@main/src/components/game-editor-kit/index.js",
+      "anentrypoint-design": "https://unpkg.com/anentrypoint-design@1.0.34/dist/247420.js",
+      "game-editor-kit": "https://cdn.jsdelivr.net/gh/AnEntrypoint/design@70550868836df5d3c8cd3c85570090ff571edde0/src/components/game-editor-kit/index.js",
       "streaming-gltf": "/node_modules/streaming-gltf/index.js",
       "streaming-gltf/model-pool": "/node_modules/streaming-gltf/src/model-pool.js",
       "streaming-gltf/draco-loader": "/node_modules/streaming-gltf/src/draco-loader.js",
@@ -59,7 +59,7 @@
   }
   </script>
   <script type="module">
-    import { installStyles } from 'https://unpkg.com/anentrypoint-design@latest/dist/247420.js';
+    import { installStyles } from 'https://unpkg.com/anentrypoint-design@1.0.34/dist/247420.js';
     installStyles();
   </script>
   <!-- Modulepreload hints for the critical-path ES modules app.js imports immediately on
@@ -72,6 +72,8 @@
   <link rel="modulepreload" href="/app.js">
   <link rel="modulepreload" href="/node_modules/three/build/three.module.js">
   <link rel="modulepreload" href="/node_modules/msgpackr/index.js">
+  <link rel="modulepreload" href="https://unpkg.com/anentrypoint-design@1.0.34/dist/247420.js">
+  <link rel="preload" as="style" href="https://unpkg.com/anentrypoint-design@1.0.34/dist/247420.css">
 </head>
 <body class="canvas-host">
   <div id="ui-root"></div>
