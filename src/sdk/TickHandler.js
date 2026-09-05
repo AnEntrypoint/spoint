@@ -489,7 +489,7 @@ export function createTickHandler(deps) {
   const movement = { ...DEFAULT_MOVEMENT, ...m }
   const mvDeps = { playerManager, physicsIntegration, lagCompensator, networkState, applyMovement, movement, eventLog: deps.eventLog, transformRingWriter: deps.transformRingWriter || null }
   // playerScratch: per-player pooled { entities:[], removed:[], spareMap:Map } reused every tick instead
-  // of allocating fresh entities/removed arrays and a fresh nextMap per player per tick (128Hz x N
+  // of allocating fresh entities/removed arrays and a fresh nextMap per player per tick (the configured server tick rate x N
   // clients -- the dominant GC-pressure source this pools away). spareMap is the OTHER half of a
   // double-buffer with playerEntityMaps.get(id): each tick, encodeDeltaFromCache writes into spareMap
   // while reading the current playerEntityMaps entry as prevEntityMap, then the two are swapped -- so a

@@ -117,7 +117,7 @@ export class TransformRingWriter {
 // Consumer side (runs on the main/render thread, e.g. client/BrowserServer.js). Reads the freshest
 // transform for every occupied slot with zero postMessage round-trip. A torn read (writer mid-write
 // when we sample) is detected via the generation bracket and retried a bounded number of times --
-// under real per-tick write cadence (60-128Hz) and a render-thread read cadence bound by rAF (<=240Hz
+// under real per-tick write cadence (the configured server tickRate, 60Hz default, per-world override) and a render-thread read cadence bound by rAF (<=240Hz
 // realistic ceiling), a collision window is a handful of microseconds; 4 retries is generous headroom,
 // not a tuned-to-the-wire constant.
 export class TransformRingReader {

@@ -18,7 +18,7 @@ const brotliCompressAsync = promisify(brotliCompress)
 // overhead, and small-file callers (e.g. tests driving the handler with a bare mock `res` and
 // reading `res` synchronously right after the call returns) rely on the response being written
 // before the call returns. Above it (large JS bundles, GLB/VRM/wasm) sync compression can run
-// long enough to visibly stall the 128Hz tick sharing this event loop, so it goes through the
+// long enough to visibly stall the configured server tick loop sharing this event loop (60Hz default, per-world override), so it goes through the
 // async zlib API instead.
 const ASYNC_COMPRESS_THRESHOLD = 50 * 1024
 

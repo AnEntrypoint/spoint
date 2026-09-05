@@ -264,7 +264,7 @@ export function createServerAPI(ctx) {
         }
         ctx.httpServer = createHttpServer(httpHandler)
         // perMessageDeflate off: the ws package's default is ON, which per-message-deflates every frame --
-        // wasted CPU at the 128Hz snapshot hot path since SnapshotEncoder's delta/quantized encoding already
+        // wasted CPU at the configured server tick rate's snapshot hot path (60Hz default, per-world override) since SnapshotEncoder's delta/quantized encoding already
         // does the real compaction (a snapshot is already small, sparse, and mostly already-compressed varint/
         // quantized data, so deflate buys little size while costing real per-message compress/decompress time
         // on both ends). Scoped to the single shared WS server -- there is no separate chat/event socket in

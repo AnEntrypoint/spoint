@@ -9,7 +9,7 @@ const _sendObj = { type: 0, payload: null }
 // is unambiguous and back-compatible with any peer still expecting one message per socket frame) followed by
 // repeated [uint32 LE length][payload bytes] records. Used to fold every send() this tick for a client into
 // ONE socket.send() call instead of N -- each send() carries real per-call syscall/framing overhead at a
-// 128Hz tick rate with potentially several messages (snapshot + heartbeat-ack + app-events) landing in the
+// the configured server tick rate (60Hz default, per-world override) with potentially several messages (snapshot + heartbeat-ack + app-events) landing in the
 // same tick for the same client.
 const COALESCE_SENTINEL = 0xff
 const LEN_PREFIX_BYTES = 4
