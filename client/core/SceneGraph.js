@@ -21,7 +21,26 @@ export function createSceneGraph(scene, floatingOrigin) {
   const _nodes = new Map()
   const root = scene
   const _batchState = { buf: null }
+  // _batchRecords holds POOLED ROW REFERENCES only and is .length-reset each tick -- the same convention
+  // as RenderGraph.nodes.js:26-29's _benderPool/_benderScratch. It previously pushed a FRESH
+  // `{mesh, target, last:{hasRot}}` PLUS a fresh nested `{hasRot}` (two objects) for every non-player
+  // node that moved this frame, every frame -- exactly the `length=0` + `push({...})` shape that removes
+  // no garbage at all. Unlike _benderPool, overflow GROWS the pool instead of being dropped: a dropped
+  // grass-bend candidate is cosmetic, a dropped transform record would freeze a real entity's mesh in
+  // place, so capacity is grow-only (the gl-render.js:1721-1737 _ensureScratch shape) and settles at the
+  // peak simultaneous-moving-node count.
+  // Row lifetime: tickBatch (TransformLerp.js:74-138) reads mesh/target/last.hasRot inside three
+  // synchronous loops and retains nothing, and tick() is called once per frame from one render-graph
+  // node, so a row can never be observed after its frame. mesh/target are nulled after the batch so a
+  // removed node's Object3D isn't held alive by an idle pool slot.
+  const _batchPool = []
   const _batchRecords = []
+
+  function _batchRow(i) {
+    let r = _batchPool[i]
+    if (!r) { r = { mesh: null, target: null, last: { hasRot: false } }; _batchPool[i] = r }
+    return r
+  }
 
   function addNode(id, group, opts = {}) {
     const existing = _nodes.get(id)
@@ -130,13 +149,18 @@ export function createSceneGraph(scene, floatingOrigin) {
             t.ry === node._lry && t.rz === node._lrz && t.rw === node._lrw &&
             node.group.position.x === t.x && node.group.position.y === t.y && node.group.position.z === t.z) continue
         const hasRot = Number.isFinite(t.rx) && Number.isFinite(t.ry) && Number.isFinite(t.rz) && Number.isFinite(t.rw)
-        _batchRecords.push({ mesh: node.group, target: t, last: { hasRot } })
+        const row = _batchRow(_batchRecords.length)
+        row.mesh = node.group; row.target = t; row.last.hasRot = hasRot
+        _batchRecords.push(row)
         node._lx = t.x; node._ly = t.y; node._lz = t.z
         node._lrx = t.rx; node._lry = t.ry; node._lrz = t.rz; node._lrw = t.rw
         moved = true
       }
     }
-    if (_batchRecords.length > 0) tickBatch(_batchState, _batchRecords, lerpFactor, frameDt)
+    if (_batchRecords.length > 0) {
+      tickBatch(_batchState, _batchRecords, lerpFactor, frameDt)
+      for (let i = 0; i < _batchRecords.length; i++) { const r = _batchRecords[i]; r.mesh = null; r.target = null }
+    }
     return moved
   }
 

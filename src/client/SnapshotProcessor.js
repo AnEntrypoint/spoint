@@ -25,13 +25,25 @@ function unpackQuat(packed, out) {
 // vel i16x3, quat u32, scale u16x3, flags u8, all little-endian). Reads directly into the caller's
 // scratch object -- no allocation per decode call, matching this file's pooled-slot decode pattern.
 const _bin = { px:0, py:0, pz:0, vx:0, vy:0, vz:0, qrot:0, sx:1, sy:1, sz:1, flags:0 }
+// One DataView per distinct backing ArrayBuffer instead of a fresh one per record: msgpackr hands
+// every bin buffer in a message out as a subarray of that message's own source buffer, so every
+// player/entity record in a snapshot shares one ArrayBuffer and this caches down to a single
+// DataView construction per snapshot. Reads are offset by buf.byteOffset, which the per-record view
+// used to fold in. (A DataView argument keeps its own zero-based path -- offsets there are already
+// relative to the view, exactly as before.)
+let _dvBuf = null, _dv = null
 function unpackBinRecord(buf) {
-  const dv = buf instanceof DataView ? buf : new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
-  _bin.px = dv.getInt16(0, true) / Q1; _bin.py = dv.getInt16(2, true) / Q1; _bin.pz = dv.getInt16(4, true) / Q1
-  _bin.vx = dv.getInt16(6, true) / Q1; _bin.vy = dv.getInt16(8, true) / Q1; _bin.vz = dv.getInt16(10, true) / Q1
-  _bin.qrot = dv.getUint32(12, true)
-  _bin.sx = dv.getUint16(16, true) / Q1; _bin.sy = dv.getUint16(18, true) / Q1; _bin.sz = dv.getUint16(20, true) / Q1
-  _bin.flags = dv.getUint8(22)
+  let dv, o
+  if (buf instanceof DataView) { dv = buf; o = 0 }
+  else {
+    if (buf.buffer !== _dvBuf) { _dvBuf = buf.buffer; _dv = new DataView(_dvBuf) }
+    dv = _dv; o = buf.byteOffset
+  }
+  _bin.px = dv.getInt16(o, true) / Q1; _bin.py = dv.getInt16(o + 2, true) / Q1; _bin.pz = dv.getInt16(o + 4, true) / Q1
+  _bin.vx = dv.getInt16(o + 6, true) / Q1; _bin.vy = dv.getInt16(o + 8, true) / Q1; _bin.vz = dv.getInt16(o + 10, true) / Q1
+  _bin.qrot = dv.getUint32(o + 12, true)
+  _bin.sx = dv.getUint16(o + 16, true) / Q1; _bin.sy = dv.getUint16(o + 18, true) / Q1; _bin.sz = dv.getUint16(o + 20, true) / Q1
+  _bin.flags = dv.getUint8(o + 22)
   return _bin
 }
 
@@ -116,11 +128,12 @@ const FIELD_CUSTOM = 1 << 5
 const FIELD_SLEEP = 1 << 6
 const FIELD_MODEL = 1 << 7
 
-// fields is the tail of a [id, mask, ...fields] delta record built by computeFieldDelta in
-// SnapshotEncoder.js -- POS/ROT/VEL/SCALE all changing at once still costs exactly ONE bin-buffer
-// slot (the whole 23-byte record is re-sent together), never 4 separate sub-writes.
-function applyFieldDelta(s, mask, fields) {
-  let fi = 0
+// fields is the [id, mask, ...fields] delta record built by computeFieldDelta in
+// SnapshotEncoder.js, with fi pointing at its first field slot -- POS/ROT/VEL/SCALE all changing at
+// once still costs exactly ONE bin-buffer slot (the whole 23-byte record is re-sent together), never
+// 4 separate sub-writes. Reading the record in place removes the `e.slice(2)` array the caller used
+// to allocate, per changed entity per snapshot, just to re-index the same values.
+function applyFieldDelta(s, mask, fields, fi) {
   if (mask & FIELD_MODEL) { s.model = fields[fi]; fi++ }
   if (mask & (FIELD_POS|FIELD_ROT|FIELD_VEL|FIELD_SCALE)) {
     const bin = unpackBinRecord(fields[fi]); fi++
@@ -137,9 +150,7 @@ function applyFieldDelta(s, mask, fields) {
 // e[2] = 23-byte packed bin record (pos/vel/quat/scale); mirrors SnapshotEncoder.js fillEntityEnc.
 function fillEntityArr(s, e) {
   if (typeof e[1] === 'number') {
-    const mask = e[1]
-    const fields = e.slice(2)
-    applyFieldDelta(s, mask, fields)
+    applyFieldDelta(s, e[1], e, 2)
     return
   }
   s.id = e[0]; s.model = e[1]

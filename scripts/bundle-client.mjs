@@ -71,7 +71,15 @@ const _bareToAbs = {
   // entries above were written and this allowlist was never extended to match).
   'streaming-gltf/octahedral-impostor-ez': `${BASE}/node_modules/streaming-gltf/src/octahedral-impostor-ez.js`,
   'streaming-gltf/octahedral-impostor-ez-tier': `${BASE}/node_modules/streaming-gltf/src/octahedral-impostor-ez-tier.js`,
-  'streaming-gltf': `${BASE}/node_modules/streaming-gltf/index.js`
+  'streaming-gltf': `${BASE}/node_modules/streaming-gltf/index.js`,
+  // wireweave / nostr-tools are optionalDependencies (see package.json). Without these two
+  // entries esbuild HARD-FAILS the whole bundle when they are absent (npm ci --omit=optional,
+  // or any host where the github: clone did not run), and INLINES them into the preloaded
+  // app.js entry when they are present -- a second copy alongside the importmap's own
+  // /node_modules/wireweave/src/index.js and /vendor/nostr-tools.mjs. External + the exact
+  // importmap URLs makes the build deterministic and keeps those bytes off the entry chunk.
+  'wireweave': `${BASE}/node_modules/wireweave/src/index.js`,
+  'nostr-tools': `${BASE}/vendor/nostr-tools.mjs`
 }
 const externalPlugin = {
   name: 'spoint-client-external',
@@ -79,7 +87,7 @@ const externalPlugin = {
     // Already-absolute runtime URLs (dev root or deployed base) -- leave external.
     b.onResolve({ filter: /^\/(spoint\/)?(node_modules|src|apps|data|vendor)\// }, args => ({ path: args.path, external: true }))
     // Bare importmap-bypass deps -> rewrite to the absolute served path, external.
-    b.onResolve({ filter: /^(xstate|msgpackr|anentrypoint-design|game-editor-kit|three-mesh-bvh|streaming-gltf(\/model-pool|\/draco-loader|\/occlusion-query-tier|\/octahedral-impostor-ez(-tier)?)?)$/ }, args => ({ path: _bareToAbs[args.path] || args.path, external: true }))
+    b.onResolve({ filter: /^(xstate|msgpackr|anentrypoint-design|game-editor-kit|three-mesh-bvh|wireweave|nostr-tools|streaming-gltf(\/model-pool|\/draco-loader|\/occlusion-query-tier|\/octahedral-impostor-ez(-tier)?)?)$/ }, args => ({ path: _bareToAbs[args.path] || args.path, external: true }))
     // three / mapspinner / jolt-physics: any specifier form -- external (own asset resolution).
     b.onResolve({ filter: /^(three|mapspinner|jolt-physics)(\/|$)/ }, args => ({ path: args.path, external: true }))
     // node: builtins reached only via node-guarded dead branches in isomorphic modules.

@@ -6,13 +6,23 @@
 // O(n) scan.
 
 const CELL_SIZE = 32
+// Integer cell key (same packing convention as CollisionSystem.js:6 / AppRuntimeTick.js:128 /
+// TickHandlerAOI.js:93), replacing a `cx + ',' + cz` string. Every nearby()/nearbyHysteresis()/
+// nearest() call probes (2*radius/CELL_SIZE+1)^2 cells -- 196 probes at the tps-game
+// relevanceRadius of 200m -- so the string form allocated ~196 strings and did ~196 string-hash
+// Map lookups PER QUERY, on a path called once per unique AOI cell per snapshot tick.
+// CELL_KEY_SPAN is derived, not tuned: key(cx,cz)=cx*SPAN+cz is injective while |cz| < SPAN, i.e.
+// while |z| < SPAN*CELL_SIZE/2 = 6.7e7 m, and stays an exact float64 integer while |cx| < 2^53/SPAN
+// = 2^31 (|x| < 6.9e10 m). The largest world this engine addresses is tps-game's planet radius
+// 63600 m (|cz| <= 1988), ~2000x inside the injectivity bound.
+const CELL_KEY_SPAN = 4194304
 
 function cellCoord(v) {
   return Math.floor(v / CELL_SIZE)
 }
 
 function cellKey(cx, cz) {
-  return cx + ',' + cz
+  return cx * CELL_KEY_SPAN + cz
 }
 
 export class SpatialIndex {

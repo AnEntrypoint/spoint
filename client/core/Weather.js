@@ -176,10 +176,28 @@ export function createWeather(opts = {}) {
   // RenderGraph.nodes.js's pooled scratch rows).
   const dropX = new Float32Array(MAX_PARTICLES), dropY = new Float32Array(MAX_PARTICLES), dropZ = new Float32Array(MAX_PARTICLES)
   const dropSpeed = new Float32Array(MAX_PARTICLES)
+  // Cached _groundHeight(x,z) per particle -- ground height is a pure function of XZ, and a rain droplet's
+  // XZ is CONSTANT for its whole fall (only Y is integrated), so the per-frame per-droplet terrain sample
+  // the contact test used to do was re-deriving an unchanged value MAX_PARTICLES times every frame. Written
+  // only where XZ actually changes (_respawnDroplet/_respawnFlake and the box-wrap branches). Float64Array,
+  // not Float32Array like the position SoA above, so the cached value is bit-identical to what
+  // _groundHeight returned and the `<= gh + groundClearance` contact test is unchanged.
+  const dropGH = new Float64Array(MAX_PARTICLES)
   let _idsAdded = false
 
   const snowX = new Float32Array(MAX_PARTICLES), snowY = new Float32Array(MAX_PARTICLES), snowZ = new Float32Array(MAX_PARTICLES)
   const snowSpeed = new Float32Array(MAX_PARTICLES), snowPhase = new Float32Array(MAX_PARTICLES), snowFreqJ = new Float32Array(MAX_PARTICLES)
+  const snowGH = new Float64Array(MAX_PARTICLES)
+  // Snow (unlike rain) DOES move in XZ every frame, so its cached sample is only a CONSERVATIVE
+  // pre-filter, never the contact value itself: a flake's total horizontal wander is bounded by the
+  // drift envelope: snowX/snowZ are += cos/sin terms of fixed VELOCITY amplitude, so the displacement is
+  // that amplitude integrated over a sinusoid, SNOW_DRIFT_AMP / (2*pi*SNOW_DRIFT_FREQ*snowFreqJ), largest
+  // at the SLOWEST jitter (snowFreqJ min 0.75): 0.6/(2*pi*0.5*0.75) = 0.25 m per axis, ~0.36 m radially --
+  // a bounded oscillation, not a random walk. A 2.0 m band therefore only mis-classifies terrain
+  // that rises more than 2.0 m over 0.36 m horizontally (a >79deg cliff face); anywhere else the flake is
+  // re-sampled at its REAL current XZ before the contact test can ever fire, so contact/accumulation are
+  // unchanged. Derived from the drift envelope, not tuned against a symptom.
+  const SNOW_GH_BAND = 2.0
   let _snowIdsAdded = false
 
   const farX = new Float32Array(MAX_FAR), farY = new Float32Array(MAX_FAR), farZ = new Float32Array(MAX_FAR)
@@ -192,6 +210,15 @@ export function createWeather(opts = {}) {
 
   let _lastCamYaw = NaN
   const YAW_EPS = 0.02 // ~1.1deg -- rain streak billboard-refresh gate (see file header)
+
+  // setVisibilityAt gate: the per-instance visibility pattern is purely `i < wantActive`, i.e. a function
+  // of `intensity` alone -- it does not change from frame to frame while intensity is held. Re-asserting
+  // it every frame cost MAX_PARTICLES(+MAX_FAR) setVisibilityAt calls, each of which also re-arms the
+  // library's _indexArrayNeedsUpdate flag (node_modules/@three.ez/instanced-mesh/build/index.js:881-883),
+  // forcing updateIndexArray's own full _instancesArrayCount scan (:1130-1137) in the render pass too.
+  // Tracked per mesh, not once, because rain/snow/far each own a separate availabilityArray. -1 = never
+  // written, so the first active frame after addInstances always runs the pass.
+  let _visRain = -1, _visSnow = -1, _visFar = -1
 
   function _groundHeight(x, z) {
     if (frame && typeof frame.groundHeightLocal === 'function') {
@@ -208,6 +235,7 @@ export function createWeather(opts = {}) {
     dropZ[i] = cz + Math.sin(ang) * r
     dropY[i] = cy + BOX_HEIGHT * (0.3 + Math.random() * 0.7)
     dropSpeed[i] = FALL_SPEED * (0.85 + Math.random() * 0.3)
+    dropGH[i] = _groundHeight(dropX[i], dropZ[i]) // XZ just changed -> the one place the cache must be refilled
   }
 
   // Places (or re-places) flake i, same box-wrap shape as rain but with a persistent per-particle
@@ -221,6 +249,7 @@ export function createWeather(opts = {}) {
     snowSpeed[i] = SNOW_FALL_SPEED * (0.7 + Math.random() * 0.6)
     snowPhase[i] = Math.random() * Math.PI * 2
     snowFreqJ[i] = 0.75 + Math.random() * 0.5
+    snowGH[i] = _groundHeight(snowX[i], snowZ[i])
   }
 
   // Places (or re-places) far-tier particle i in the RING between FAR_INNER and FAR_RADIUS (never
@@ -343,9 +372,11 @@ export function createWeather(opts = {}) {
       // constructor comment above for why the mesh-level "setPositionAt" API this file originally
       // (incorrectly) assumed does not exist on InstancedMesh2.
       const instances = im.instances
+      const visDirty = _visRain !== wantActive
+      _visRain = wantActive
       for (let i = 0; i < MAX_PARTICLES; i++) {
         const a = i < wantActive
-        im.setVisibilityAt(i, a)
+        if (visDirty) im.setVisibilityAt(i, a)
         if (!a) continue
         dropY[i] -= dropSpeed[i] * dtc
         // wrap XZ back toward the camera if the box has drifted away (camera moved) -- keeps every
@@ -356,8 +387,11 @@ export function createWeather(opts = {}) {
           const ang = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * BOX_RADIUS
           dropX[i] = cx + Math.cos(ang) * r
           dropZ[i] = cz + Math.sin(ang) * r
+          dropGH[i] = _groundHeight(dropX[i], dropZ[i]) // second (and last) XZ-write site -> refill
         }
-        const gh = _groundHeight(dropX[i], dropZ[i])
+        // Was a per-droplet per-frame _groundHeight() call; XZ has not changed since the cache was filled
+        // above, so this reads the identical value the sample would have returned.
+        const gh = dropGH[i]
         const hitGround = Number.isFinite(gh) && gh > -1e5 && dropY[i] <= gh + groundClearance
         if (hitGround || dropY[i] < cy - BOX_HEIGHT * 0.6) {
           if (hitGround) _spawnSplash(dropX[i], gh + 0.02, dropZ[i], nowS)
@@ -379,9 +413,11 @@ export function createWeather(opts = {}) {
       const instances = imSnow.instances
       const accumEnabled = _snowAccumEnabled()
       let accumStampBudget = 24
+      const visDirty = _visSnow !== wantActive
+      _visSnow = wantActive
       for (let i = 0; i < MAX_PARTICLES; i++) {
         const a = i < wantActive
-        imSnow.setVisibilityAt(i, a)
+        if (visDirty) imSnow.setVisibilityAt(i, a)
         if (!a) continue
         snowY[i] -= snowSpeed[i] * dtc
         const driftAng = nowS * SNOW_DRIFT_FREQ * snowFreqJ[i] * Math.PI * 2 + snowPhase[i]
@@ -392,8 +428,12 @@ export function createWeather(opts = {}) {
           const ang = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * BOX_RADIUS
           snowX[i] = cx + Math.cos(ang) * r
           snowZ[i] = cz + Math.sin(ang) * r
+          snowGH[i] = _groundHeight(snowX[i], snowZ[i])
         }
-        const gh = _groundHeight(snowX[i], snowZ[i])
+        // Conservative pre-filter (see SNOW_GH_BAND): above the band the flake provably cannot be in
+        // contact, so the terrain sample is skipped; inside it, the REAL current-XZ sample is taken and
+        // the contact test below is byte-identical to the unconditional-sample version.
+        const gh = (snowY[i] <= snowGH[i] + SNOW_GH_BAND) ? (snowGH[i] = _groundHeight(snowX[i], snowZ[i])) : snowGH[i]
         const hitGround = Number.isFinite(gh) && gh > -1e5 && snowY[i] <= gh + groundClearance
         if (hitGround || snowY[i] < cy - BOX_HEIGHT * 0.6) {
           if (hitGround && accumEnabled && accumStampBudget > 0) {
@@ -419,9 +459,11 @@ export function createWeather(opts = {}) {
     {
       const speedBase = isSnow ? SNOW_FALL_SPEED : FALL_SPEED
       const instances = imFar.instances
+      const visDirty = _visFar !== wantFar
+      _visFar = wantFar
       for (let i = 0; i < MAX_FAR; i++) {
         const a = i < wantFar
-        imFar.setVisibilityAt(i, a)
+        if (visDirty) imFar.setVisibilityAt(i, a)
         if (!a) continue
         farY[i] -= farSpeed[i] * dtc
         const ddx = farX[i] - cx, ddz = farZ[i] - cz

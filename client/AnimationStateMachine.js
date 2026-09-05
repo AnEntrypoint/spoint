@@ -99,7 +99,14 @@ export function createAnimationStateMachine(mixer, root, actions, additiveAction
   // crossfade path below rather than blending across a hole in the speed axis.
   const blendReady = blendTiers.length >= 2
   const BLEND_SMOOTH = 10.0 // weight-smoothing rate, distinct from SPEED_SMOOTH (speed input) so weight settles quickly without the raw-speed jitter
-  let blendWeights = new Map()
+  // Closure-level scratch (§4 convention (b)): evalBlendTiers' result map and update()'s per-frame
+  // weight map were both `new Map()` allocated EVERY frame FOR EVERY PLAYER. update() is not
+  // re-entrant -- app.js's tickPlayerAnimators calls it once per player, sequentially, and nothing
+  // inside it re-enters. _weightsA/_weightsB double-buffer because blendWeights is retained across
+  // frames and read (prevW) while the next frame's map is being filled.
+  const _tierScratch = new Map()
+  const _weightsA = new Map(), _weightsB = new Map()
+  let blendWeights = _weightsA
   // Grace window so a brief terrain-bump onGround=false blip isn't read as airborne.
   const AIR_GRACE = 0.28
   // Requires upward velocity to count as a jump, so a downward terrain step isn't misread as one.
@@ -146,10 +153,16 @@ export function createAnimationStateMachine(mixer, root, actions, additiveAction
   }
 
   function sendLoco(event) {
-    const snap = actor.getSnapshot()
-    if (!snap.can({ type: event })) return
     const target = LOCO_EVENT_TARGET[event]
     if (target && locoSwapBlocked(target)) return
+    const snap = actor.getSnapshot()
+    // Steady state (standing, or holding one loco tier) re-sends the SAME event every frame, and
+    // locoMachine declares no self-transition for any LOCO_EVENT_TARGET event on its own target
+    // state -- so snap.can() is provably false there. Checking the already-materialised snapshot
+    // value first skips xstate's full microstep resolution (plus its `{type}` event literal) on
+    // that per-frame-per-player path; every other event still goes through can() unchanged.
+    if (target && snap.value === target) return
+    if (!snap.can({ type: event })) return
     actor.send({ type: event })
     transitionTo(actor.getSnapshot().value)
   }
@@ -182,7 +195,8 @@ export function createAnimationStateMachine(mixer, root, actions, additiveAction
   // Returns {name: weight} for the (at most two) adjacent tiers bracketing `speed`, weight in [0,1],
   // summing to 1 across the pair -- a real linear 1D blend-space evaluation, not a threshold pick.
   function evalBlendTiers(speed) {
-    const out = new Map()
+    const out = _tierScratch
+    out.clear()
     if (!blendReady) return out
     if (speed <= blendTiers[0].speed) { out.set(blendTiers[0].name, 1); return out }
     const last = blendTiers[blendTiers.length - 1]
@@ -336,7 +350,8 @@ export function createAnimationStateMachine(mixer, root, actions, additiveAction
         const prevW = blendWeights.get(tier.name) || 0
         if ((targetW > 0.001 || prevW > 0.001) && !action.isRunning()) { action.reset().play() }
       }
-      const nextWeights = new Map()
+      const nextWeights = blendWeights === _weightsA ? _weightsB : _weightsA
+      nextWeights.clear()
       for (const tier of blendTiers) {
         const action = actions.get(tier.name)
         if (!action) continue
@@ -357,7 +372,7 @@ export function createAnimationStateMachine(mixer, root, actions, additiveAction
         if (tier.name === current) { a.weight = 1 }
         else if (a.isRunning()) { a.weight = 0; a.stop() }
       }
-      blendWeights = new Map()
+      blendWeights.clear()
     }
 
     aim(aiming)

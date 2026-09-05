@@ -24,7 +24,19 @@
   <!-- The importmap MUST come before any module load/preload, else the browser
        rejects it ("Import maps are not allowed after a module load or preload
        has started") and bare specifiers like 'three' fail to remap in app.js.
-       Keep it ahead of the installStyles module script below. -->
+       Keep it ahead of the installStyles module script below.
+
+       The two "https://esm.sh/three@r128" keys remove a whole SECOND copy of three from
+       every boot: the design kit's ModelPreview.js (pulled in statically by the
+       game-editor-kit barrel, which app.js imports for DamageNumbers/ResetButton/
+       CommandPalette) imports three + GLTFLoader from esm.sh, so the game path downloaded,
+       parsed and evaluated a second three alongside the local one ("THREE.WARNING: Multiple
+       instances of Three.js being imported."). Import maps remap absolute-URL keys, not just
+       bare ones, so this collapses both onto the local module records. Version-safe, not a
+       guess: esm.sh resolves the non-semver tag "r128" to LATEST -- a live curl of
+       https://esm.sh/three@r128 returns "x-esm-path: /three@0.185.1/es2022/three.mjs", the
+       exact version node_modules/three already is, so the kit is ALREADY running against
+       0.185.1 today. -->
   <script type="importmap">
   {
     "imports": {
@@ -36,6 +48,8 @@
       "three-mesh-bvh": "/vendor/three-mesh-bvh.module.js",
       "anentrypoint-design": "https://unpkg.com/anentrypoint-design@1.0.34/dist/247420.js",
       "game-editor-kit": "https://cdn.jsdelivr.net/gh/AnEntrypoint/design@70550868836df5d3c8cd3c85570090ff571edde0/src/components/game-editor-kit/index.js",
+      "https://esm.sh/three@r128": "/node_modules/three/build/three.module.js",
+      "https://esm.sh/three@r128/": "/node_modules/three/",
       "streaming-gltf": "/node_modules/streaming-gltf/index.js",
       "streaming-gltf/model-pool": "/node_modules/streaming-gltf/src/model-pool.js",
       "streaming-gltf/draco-loader": "/node_modules/streaming-gltf/src/draco-loader.js",

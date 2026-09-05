@@ -35,9 +35,15 @@ export class SmoothInterpolation {
   addSnapshot(snapshot) {
     this.jitterBuffer.addSnapshot(snapshot)
     const now = performance.now()
-    this._seenPlayers.clear()
-    for (const p of snapshot.players || []) {
-      this._seenPlayers.add(p.id)
+    // The seen-id Sets exist only to drive the prune below, and the prune only runs when there are
+    // more filters than ids seen this snapshot (a player/entity actually left). A snapshot carries at
+    // most one entry per id (SnapshotProcessor emits one per _playerStates/_entityStates key), so the
+    // seen-COUNT the guard needs is just the loop's own tally -- the Set is filled only on the rare
+    // snapshot that actually prunes, removing one Set.add per player and per dynamic entity per
+    // snapshot from the steady state.
+    const players = snapshot.players || []
+    for (let i = 0; i < players.length; i++) {
+      const p = players[i]
       let filter = this.playerFilters.get(p.id)
       if (!filter) {
         filter = new KalmanFilter3D(this.playerKalmanConfig)
@@ -45,15 +51,19 @@ export class SmoothInterpolation {
       }
       filter.update(p.position, p.velocity, now)
     }
-    if (this.playerFilters.size > this._seenPlayers.size) {
+    if (this.playerFilters.size > players.length) {
+      this._seenPlayers.clear()
+      for (let i = 0; i < players.length; i++) this._seenPlayers.add(players[i].id)
       for (const id of this.playerFilters.keys()) {
         if (!this._seenPlayers.has(id)) this.playerFilters.delete(id)
       }
     }
-    this._seenEntities.clear()
-    for (const e of snapshot.entities || []) {
+    const entities = snapshot.entities || []
+    let seenEntityCount = 0
+    for (let i = 0; i < entities.length; i++) {
+      const e = entities[i]
       if (e.bodyType !== 'dynamic') continue
-      this._seenEntities.add(e.id)
+      seenEntityCount++
       let filter = this.entityFilters.get(e.id)
       if (!filter) {
         filter = new KalmanFilter3D(this.entityKalmanConfig)
@@ -62,7 +72,9 @@ export class SmoothInterpolation {
       // use server velocity, not null -- null forces the filter to numerically differentiate position (noisy)
       filter.update(e.position, e.velocity || null, now)
     }
-    if (this.entityFilters.size > this._seenEntities.size) {
+    if (this.entityFilters.size > seenEntityCount) {
+      this._seenEntities.clear()
+      for (let i = 0; i < entities.length; i++) { if (entities[i].bodyType === 'dynamic') this._seenEntities.add(entities[i].id) }
       for (const id of this.entityFilters.keys()) {
         if (!this._seenEntities.has(id)) this.entityFilters.delete(id)
       }

@@ -22,14 +22,29 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
   const east = _norm(_cross(ref, up))
   const north = _cross(east, up)
   const anchorHeight = sampler.heightAt(up)
+  // Scalar form of _norm(_add(up, _scale(_add(_scale(east,x), _scale(north,z)), 1/radius))): same
+  // per-component op order, so bit-identical (verified over 200k random (x,z) at the tps-game frame),
+  // but 6 intermediate arrays per call become 1. localToDir is the per-tap entry point of the whole
+  // placement/collider path (5 taps per veg/rock/grass candidate via groundHeightLocal, plus every
+  // patch-baker heightFn/prefetchAround lookup and ClimateCache sector miss). Still returns a FRESH
+  // array -- callers (ClimateCache.atSector, patch-baker.dirToFace) hold it past the call, so a shared
+  // module scratch would alias.
+  const _e0 = east[0], _e1 = east[1], _e2 = east[2]
+  const _n0 = north[0], _n1 = north[1], _n2 = north[2]
+  const _u0 = up[0], _u1 = up[1], _u2 = up[2]
+  const _invR = 1 / radius, _radius2 = radius * radius
   function localToDir(x, z) {
-    return _norm(_add(up, _scale(_add(_scale(east, x), _scale(north, z)), 1 / radius)))
+    const ax = _u0 + (_e0 * x + _n0 * z) * _invR
+    const ay = _u1 + (_e1 * x + _n1 * z) * _invR
+    const az = _u2 + (_e2 * x + _n2 * z) * _invR
+    const l = Math.hypot(ax, ay, az) || 1
+    return [ax / l, ay / l, az / l]
   }
   // drop term uses the catastrophic-cancellation-safe r2/R/((sqrt(1+s)+1)sqrt(1+s)) form; must be exactly 0 at (0,0).
   function groundHeightLocal(x, z) {
     const d = localToDir(x, z)
     const r2 = x * x + z * z
-    const s = r2 / (radius * radius)
+    const s = r2 / _radius2
     const sq = Math.sqrt(1 + s)
     const drop = r2 / radius / ((sq + 1) * sq)
     return (sampler.heightAt(d) - anchorHeight) - drop + offsetY

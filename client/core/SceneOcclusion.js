@@ -41,6 +41,14 @@ export function createSceneOcclusion(renderer, opts = {}) {
   // accumulate; that issue is unresolved and tracked separately. This fix stands on its own merits as a
   // real unbounded-resource-growth bug independent of that investigation.)
   const _lastCandByKey = new Map()
+  // Live-key set, persistent across frames rather than a fresh `new Set()` per frame. It is only ever
+  // read for (a) isAnomalousBatch's liveCount and (b) the tier-release sweep below, and its CONTENTS are
+  // a pure function of the candidate array -- so while `changed` is false (the same identity-stable
+  // arrays, the overwhelming majority of frames once streaming settles) the set this loop would rebuild
+  // is byte-for-byte the one already held. Rebuilding it was ~N Set.add + N Map.set string-hash
+  // operations per frame (N = ~450 live veg/rock chunks measured in tps-game) plus one Set allocation,
+  // all discarded unchanged.
+  const _liveKeys = new Set()
   // Anomaly fail-open: a real view never legitimately occludes ~every candidate at once (that would mean
   // the entire streamed world is behind something, impossible short of the camera being inside solid
   // geometry). Live-witnessed root cause of "impostors invisible except certain angles": at altitude,
@@ -143,11 +151,17 @@ export function createSceneOcclusion(renderer, opts = {}) {
     tier.runQueries(camera, candidates)
     _occludedKeys.clear()
     _uniform.failOpens = 0; _uniform.flips = 0
-    const _liveKeys = new Set()
+    // _liveKeys only -- _lastCandByKey must NOT be cleared here: the release sweep below looks up
+    // exactly the keys that dropped OUT of the candidate set, so clearing it would silently skip every
+    // tier.release() and reinstate the unbounded gl.createQuery() leak this map exists to close.
+    if (changed) _liveKeys.clear()
     let _liveInstances = 0, _occludedInstances = 0
     for (const c of candidates) {
-      _liveKeys.add(c.key)
-      _lastCandByKey.set(c.key, c)
+      // Key-set bookkeeping only has to run on a frame where the candidate SET actually changed -- see
+      // _liveKeys' declaration. instanceCount is NOT cached the same way: Vegetation.js refreshes it on
+      // every getOcclusionCandidates() call even when the array identity is stable, so the weight sum
+      // below stays a real per-frame read.
+      if (changed) { _liveKeys.add(c.key); _lastCandByKey.set(c.key, c) }
       const weight = Number.isFinite(c.instanceCount) ? c.instanceCount : 1
       _liveInstances += weight
       let st = _streaks.get(c.key)
@@ -161,7 +175,11 @@ export function createSceneOcclusion(renderer, opts = {}) {
     }
     // Release the tier's per-entity query/record for any key that dropped out of the live candidate set
     // (chunk unloaded) -- prevents an unbounded gl.createQuery() leak across a long streaming session.
-    for (const key of _streaks.keys()) {
+    // Gated on `changed` because it is provably a no-op otherwise: this sweep leaves _streaks a subset of
+    // _liveKeys, the loop above only ever ADDS keys drawn from that same candidate array, and while
+    // `changed` is false the array (hence _liveKeys) is identical -- so no key can have dropped out. The
+    // sweep was iterating every one of the ~450 streak records every frame to delete nothing.
+    if (changed) for (const key of _streaks.keys()) {
       if (_liveKeys.has(key)) continue
       _streaks.delete(key)
       const staleCand = _lastCandByKey.get(key)

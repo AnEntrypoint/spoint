@@ -420,7 +420,9 @@ function buildEntry(e, id, prevCache, sleeping) {
   // _lastCustomV: the entity's live _customV counter at build time (installCustomVersion, CustomVersion.js)
   // -- refreshDynamicCache's already-sleeping branch compares against this to detect a custom-only change
   // on a prop that never re-enters the active/transition paths (see that function's own comment).
-  return { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: !!e.custom?._interior, sleeping: !!sleeping, _sleepJustSet: !!sleeping, _dirty: false, srcEntity: e, _lastCustomV: typeof e._customV === 'number' ? e._customV : null }
+  // _pBin/_pX/_pY/_pZ/_pVelScore: TickHandlerAOI.getPlayerPriorityIds' per-entity decode memo, declared
+  // here (not added later) so every cache entry keeps one hidden class. See that function for why.
+  return { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: !!e.custom?._interior, sleeping: !!sleeping, _sleepJustSet: !!sleeping, _dirty: false, srcEntity: e, _lastCustomV: typeof e._customV === 'number' ? e._customV : null, _pBin: null, _pX: 0, _pY: 0, _pZ: 0, _pVelScore: 0 }
 }
 
 // Multi-tier distance LOD schedule for snapshot updates. Replaces the old 2-tier scheme (full-rate
@@ -494,6 +496,23 @@ function stripVelocityForFar(enc) {
   return [enc[0], enc[1], noVelBin, enc[3], enc[4], enc[5]]
 }
 
+// Per-entity decode memo shared by applyEntry (below) and TickHandlerAOI.getPlayerPriorityIds.
+// enc[2]'s decoded position and the velocity score derived from it are functions of the ENTITY alone,
+// but both consumers ran per (entity x VIEWER) -- 2 unpackBinRecord calls per entity per viewer, where
+// one per entity per re-encode suffices. fillEntityEnc always assigns a FRESH Uint8Array to enc[2]
+// (packBinRecord allocates; no bin buffer is ever mutated in place), so buffer identity is an exact
+// dirty bit: a memo hit is only possible when the decoded values are provably unchanged. Fields are
+// declared in buildEntry so entries keep one hidden class.
+export function primeEntryDecode(entry) {
+  if (entry._pBin === entry.enc[2]) return entry
+  unpackBinRecord(entry.enc[2], _distScratch)
+  entry._pBin = entry.enc[2]
+  entry._pX = _distScratch.px; entry._pY = _distScratch.py; entry._pZ = _distScratch.pz
+  const velSq = _distScratch.vx*_distScratch.vx + _distScratch.vy*_distScratch.vy + _distScratch.vz*_distScratch.vz
+  entry._pVelScore = velSq >= 100 ? 1 : Math.sqrt(velSq) * 0.1
+  return entry
+}
+
 function applyEntry(id, entry, nextMap, entities, prevEntityMap, useDistTier, vx, vy, vz, snapshotSeq, propModCap) {
   const k = resolveKey(entry)
   let enc = entry.enc
@@ -526,27 +545,31 @@ function applyEntry(id, entry, nextMap, entities, prevEntityMap, useDistTier, vx
   // through regardless of the sleep/prop tier, same as the existing _sleepJustSet one-tick force-through
   // just above. Distance tiering below still applies on top (a custom change on a FAR-tier sleeping prop
   // still isn't instant) -- this only removes the sleep-specific extraMod component, not visibility.
-  const prevCustStr = prevEntityMap.get(id)?.[2]
+  // ONE prevEntityMap.get(id) for all three former call sites (prevCustStr, the two skip-path
+  // carry-forwards, and the delta compare below) -- every path used to do two lookups of the same key.
+  // encodeDeltaFromCache guarantees nextMap !== prevEntityMap (the caller-side double-buffer contract),
+  // so prevEntityMap cannot change under us between them.
+  const prev = prevEntityMap.get(id)
+  const prevCustStr = prev?.[2]
   if (extraMod !== 1 && prevCustStr !== entry.custStr) extraMod = 1
   if (useDistTier && !entry.isEnv) {
-    unpackBinRecord(enc[2], _distScratch)
-    const dx = _distScratch.px-vx, dy = _distScratch.py-vy, dz = _distScratch.pz-vz
+    primeEntryDecode(entry)
+    const dx = entry._pX-vx, dy = entry._pY-vy, dz = entry._pZ-vz
     const d2 = dx*dx+dy*dy+dz*dz
     const distTickMod = d2 < NEAR2 ? 1 : d2 < MID2 ? 4 : 16
     farTier = distTickMod === 16
     const tickMod = Math.max(distTickMod, extraMod)
     if (tickMod !== 1 && (snapshotSeq % tickMod) !== 0) {
-      nextMap.set(id, prevEntityMap.get(id) || [k, entry.cust, entry.custStr, null]); return
+      nextMap.set(id, prev || [k, entry.cust, entry.custStr, null]); return
     }
   } else if (extraMod !== 1 && (snapshotSeq % extraMod) !== 0) {
     // useDistTier===false path (no viewerPos, e.g. the shared-cell path's cellViewerPos-less callers or
     // a caller with distance tiering disabled): sleep/prop-rate tiers still apply independently of the
     // distance tier being active, since they are not distance-derived signals.
-    nextMap.set(id, prevEntityMap.get(id) || [k, entry.cust, entry.custStr, null]); return
+    nextMap.set(id, prev || [k, entry.cust, entry.custStr, null]); return
   }
   if (farTier) enc = stripVelocityForFar(enc)
   nextMap.set(id, [k, entry.cust, entry.custStr, enc])
-  const prev = prevEntityMap.get(id)
   if (!prev || prev[0] !== k) {
     if (prev && prev[3]) {
       const fd = computeFieldDelta(prev[3], enc)

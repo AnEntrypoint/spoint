@@ -90,6 +90,10 @@ export class JitterBuffer {
     this._entityPool = []
     this._oldP = new Map()
     this._oldE = new Map()
+    // Hoisted once: the interpolateSnapshot call in getSnapshotToRender used to allocate two fresh
+    // arrow closures on every call, i.e. on every render frame.
+    this._getPlayerSlotFn = i => this._getPlayerSlot(i)
+    this._getEntitySlotFn = i => this._getEntitySlot(i)
   }
 
   // records one real inter-arrival jitter sample into the rolling window and recomputes p95 from
@@ -132,7 +136,11 @@ export class JitterBuffer {
     // must insert in clientTime order (not tick order) -- getSnapshotToRender binary-searches on clientTime
     let i = this.buffer.length
     while (i > 0 && this.buffer.at(i - 1).clientTime > entry.clientTime) i--
-    this.buffer.splice(i, 0, entry)
+    // In-order arrival (clientTime is performance.now(), monotonic, so i === length on every
+    // non-reordered snapshot) appends via the ring's O(1) push instead of Deque.splice, which
+    // allocates a whole new backing array and copies every live entry on each insert.
+    if (i === this.buffer.length) this.buffer.push(entry)
+    else this.buffer.splice(i, 0, entry)
 
     while (this.buffer.length > this.maxSize) this.buffer.shift()
 
@@ -164,7 +172,7 @@ export class JitterBuffer {
     const curr = this.buffer.at(lo), next = this.buffer.at(lo + 1)
     const range = next.clientTime - curr.clientTime
     if (range === 0) return curr.snapshot
-    return interpolateSnapshot(this._result, this._playerPool, this._entityPool, i => this._getPlayerSlot(i), i => this._getEntitySlot(i), curr.snapshot, next.snapshot, (renderTime - curr.clientTime) / range, this._oldP, this._oldE)
+    return interpolateSnapshot(this._result, this._playerPool, this._entityPool, this._getPlayerSlotFn, this._getEntitySlotFn, curr.snapshot, next.snapshot, (renderTime - curr.clientTime) / range, this._oldP, this._oldE)
   }
 
   _getPlayerSlot(idx) {

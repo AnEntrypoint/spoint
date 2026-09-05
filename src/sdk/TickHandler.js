@@ -1,5 +1,5 @@
 import { MSG } from '../protocol/MessageTypes.js'
-import { SnapshotEncoder, unpackBinRecord, TombstoneLog, updateTombstones, PLAYER_LOD_REDUCED_HZ } from '../netcode/SnapshotEncoder.js'
+import { SnapshotEncoder, unpackBinRecord, TombstoneLog, updateTombstones, PLAYER_LOD_REDUCED_HZ, filterEncodedPlayersTiered } from '../netcode/SnapshotEncoder.js'
 import { pack } from '../protocol/msgpack.js'
 import { applyMovement as _applyMovement, DEFAULT_MOVEMENT as _DEFAULT_MOVEMENT } from '../shared/movement.js'
 import { applyPlayerCollisions } from '../netcode/CollisionSystem.js'
@@ -291,7 +291,10 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
       // meaningful only against a counter that increments once per snapshot).
       let preEncodedPlayers, playerDots
       if (cached.nearbyPlayerIds && cached.nearbyPlayerIds.length > PLAYER_LOD_FULL_COUNT_THRESHOLD) {
-        const tiered = SnapshotEncoder.filterEncodedPlayersTiered(allEncodedPlayers, playersById, cached.nearbyPlayerIds, player.id, viewerPos, snapshotSeq, reducedTickMod)
+        // filterEncodedPlayersTiered is a module-level export, NOT a SnapshotEncoder static -- calling it as
+        // SnapshotEncoder.filterEncodedPlayersTiered threw TypeError on every tick with >30 nearby players,
+        // aborting the whole onTick body (TickSystemBase catches per-callback) so NOTHING after it ran.
+        const tiered = filterEncodedPlayersTiered(allEncodedPlayers, playersById, cached.nearbyPlayerIds, player.id, viewerPos, snapshotSeq, reducedTickMod)
         preEncodedPlayers = tiered.players; playerDots = tiered.dots.length ? tiered.dots : undefined
       } else {
         preEncodedPlayers = SnapshotEncoder.filterEncodedPlayersWithSelf(allEncodedPlayers, cached.nearbyPlayerIds, player.id)

@@ -51,6 +51,7 @@ const _center = new THREE.Vector3();
 const _boxGeo = new THREE.BoxGeometry(1, 1, 1); // used only to read position attribute data for the raw VBO below
 const _scaleMat = new THREE.Matrix4();
 const _mvpMat = new THREE.Matrix4();
+const _projViewMat = new THREE.Matrix4(); // frame-constant proj*viewInv, hoisted out of the per-candidate query loop
 const _mvpArr = new Float32Array(16);
 
 export class OcclusionQueryTier {
@@ -193,6 +194,9 @@ export class OcclusionQueryTier {
     gl.enable(gl.POLYGON_OFFSET_FILL);
     gl.polygonOffset(-4, -8);
 
+    // proj*viewInv is identical for every candidate in this pass -- it was being recomputed
+    // (a full 4x4 multiply) once per issued query, up to maxQueriesPerFrame times every frame.
+    _projViewMat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     let queried = 0;
     const n = candidates.length;
     const budget = this.maxQueriesPerFrame;
@@ -241,8 +245,7 @@ export class OcclusionQueryTier {
       // and letting renderer.render() walk it through the full render graph.
       _scaleMat.makeScale(_size.x, _size.y, _size.z);
       _scaleMat.setPosition(_center);
-      _mvpMat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-      _mvpMat.multiply(_scaleMat);
+      _mvpMat.multiplyMatrices(_projViewMat, _scaleMat);
       _mvpMat.toArray(_mvpArr);
 
       gl.uniformMatrix4fv(this._boxProgram.uMvp, false, _mvpArr);

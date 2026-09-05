@@ -35,14 +35,20 @@ function _flat(args, n) {
 export const vec3 = (...a) => {
   const l = a.length
   if (l === 3) { const x = a[0], y = a[1], z = a[2]; if (!isArr(x) && !isArr(y) && !isArr(z)) return [x, y, z] }
-  else if (l === 1) { const x = a[0]; if (!isArr(x)) return [x, x, x] }
+  // vec3(v3) (snoise3's g.vec3(i)) went through _flat's push loop for a straight 3-element copy.
+  else if (l === 1) { const x = a[0]; if (!isArr(x)) return [x, x, x]; if (x.length === 3) return [x[0], x[1], x[2]] }
   return _flat(a, 3)
 }
 export const vec2 = (...a) => _flat(a, 2)
 export const vec4 = (...a) => _flat(a, 4)
 // integer/uint vec aliases: truncate to int (Math.trunc) for correctness with ivec3(floor(...)) etc.
 export const ivec2 = (...a) => _flat(a, 2).map(Math.trunc)
-export const ivec3 = (...a) => _flat(a, 3).map(Math.trunc)
+export const ivec3 = (...a) => {
+  if (a.length === 1) { const x = a[0]
+    if (isArr(x) && x.length === 3) return [Math.trunc(x[0]), Math.trunc(x[1]), Math.trunc(x[2])]   // was _flat(...).map: 3 allocs -> 1
+  }
+  return _flat(a, 3).map(Math.trunc)
+}
 export const uvec2 = (...a) => _flat(a, 2).map(v => v >>> 0)
 export const uvec3 = (...a) => _flat(a, 3).map(v => v >>> 0)
 
@@ -60,40 +66,69 @@ function _bin(a, b, f) {
 export const add = (a, b) => {
   const av = isArr(a), bv = isArr(b)
   if (!av && !bv) return _fr(a + b)
-  if (av && bv) { const n = a.length, o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(a[i] + b[i]); return o }
-  if (av) { const n = a.length, o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(a[i] + b); return o }
+  if (av && bv) { const n = a.length
+    if (n === 3) return [_fr(a[0] + b[0]), _fr(a[1] + b[1]), _fr(a[2] + b[2])]
+    const o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(a[i] + b[i]); return o }
+  if (av) { const n = a.length
+    if (n === 3) return [_fr(a[0] + b), _fr(a[1] + b), _fr(a[2] + b)]
+    const o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(a[i] + b); return o }
   const n = b.length, o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(a + b[i]); return o
 }
 export const sub = (a, b) => {
   const av = isArr(a), bv = isArr(b)
   if (!av && !bv) return _fr(a - b)
-  if (av && bv) { const n = a.length, o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(a[i] - b[i]); return o }
-  if (av) { const n = a.length, o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(a[i] - b); return o }
+  if (av && bv) { const n = a.length
+    if (n === 3) return [_fr(a[0] - b[0]), _fr(a[1] - b[1]), _fr(a[2] - b[2])]
+    const o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(a[i] - b[i]); return o }
+  if (av) { const n = a.length
+    if (n === 3) return [_fr(a[0] - b), _fr(a[1] - b), _fr(a[2] - b)]
+    const o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(a[i] - b); return o }
   const n = b.length, o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(a - b[i]); return o
 }
 export const mul = (a, b) => {
   const av = isArr(a), bv = isArr(b)
   if (!av && !bv) return _fr(a * b)
-  if (av && bv) { const n = a.length, o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(a[i] * b[i]); return o }
-  if (av) { const n = a.length, o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(a[i] * b); return o }
+  if (av && bv) { const n = a.length
+    if (n === 3) return [_fr(a[0] * b[0]), _fr(a[1] * b[1]), _fr(a[2] * b[2])]
+    const o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(a[i] * b[i]); return o }
+  if (av) { const n = a.length
+    if (n === 3) return [_fr(a[0] * b), _fr(a[1] * b), _fr(a[2] * b)]
+    const o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(a[i] * b); return o }
   const n = b.length, o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(a * b[i]); return o
 }
 export const div = (a, b) => {
   const av = isArr(a), bv = isArr(b)
   if (!av && !bv) return _fr(a / b)
-  if (av && bv) { const n = a.length, o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(a[i] / b[i]); return o }
-  if (av) { const n = a.length, o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(a[i] / b); return o }
+  if (av && bv) { const n = a.length
+    if (n === 3) return [_fr(a[0] / b[0]), _fr(a[1] / b[1]), _fr(a[2] / b[2])]
+    const o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(a[i] / b[i]); return o }
+  if (av) { const n = a.length
+    if (n === 3) return [_fr(a[0] / b), _fr(a[1] / b), _fr(a[2] / b)]
+    const o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(a[i] / b); return o }
   const n = b.length, o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(a / b[i]); return o
 }
 export const neg = (a) => isArr(a) ? a.map(x => -x) : -a
 
 // ---- componentwise unary / GLSL math (scalar or vec)
 const _u = (a, f) => { if (!isArr(a)) return _fr(f(a)); const n = a.length, o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(f(a[i])); return o }
-export const floor = (a) => _u(a, Math.floor)
+export const floor = (a) => {
+  if (!isArr(a)) return _fr(Math.floor(a))
+  const n = a.length
+  if (n === 3) return [_fr(Math.floor(a[0])), _fr(Math.floor(a[1])), _fr(Math.floor(a[2]))]
+  const o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(Math.floor(a[i])); return o
+}
 export const ceil = (a) => _u(a, Math.ceil)
-export const absf = (a) => _u(a, Math.abs)
+export const absf = (a) => {
+  if (!isArr(a)) return _fr(Math.abs(a))
+  const n = a.length, o = new Array(n); for (let i = 0; i < n; i++) o[i] = _fr(Math.abs(a[i])); return o
+}
 export { absf as abs }
-export const fract = (a) => _u(a, x => x - Math.floor(x))
+export const fract = (a) => {
+  if (!isArr(a)) return _fr(a - Math.floor(a))
+  const n = a.length
+  if (n === 3) return [_fr(a[0] - Math.floor(a[0])), _fr(a[1] - Math.floor(a[1])), _fr(a[2] - Math.floor(a[2]))]
+  const o = new Array(n); for (let i = 0; i < n; i++) { const x = a[i]; o[i] = _fr(x - Math.floor(x)) } return o
+}
 export const sign = (a) => _u(a, Math.sign)
 export const sqrt = (a) => _u(a, Math.sqrt)
 export const sinf = (a) => _u(a, Math.sin); export { sinf as sin }
@@ -111,7 +146,11 @@ export const clamp = (x, lo, hi) => {
 }
 // mix(a,b,t) = a + (b-a)*t, componentwise; a/b/t each scalar or vec (reuses the
 // _bin-backed add/sub/mul so every scalar/vec combination is handled correctly).
-export const mix = (a, b, t) => add(a, mul(sub(b, a), t))
+export const mix = (a, b, t) => {
+  // scalar fast path: literally add(a, mul(sub(b,a), t)) unrolled -- same three frounds, same order.
+  if (!isArr(a) && !isArr(b) && !isArr(t)) return _fr(a + _fr(_fr(b - a) * t))
+  return add(a, mul(sub(b, a), t))
+}
 export function smoothstep(e0, e1, x) {
   const f = (a, b, v) => { let t = (v - a) / (b - a); t = t < 0 ? 0 : t > 1 ? 1 : t; return t * t * (3 - 2 * t) }
   if (isArr(x)) { const o = new Array(x.length); for (let i = 0; i < x.length; i++) o[i] = f(isArr(e0) ? e0[i] : e0, isArr(e1) ? e1[i] : e1, x[i]); return o }
@@ -120,19 +159,35 @@ export function smoothstep(e0, e1, x) {
 export const step = (edge, x) => _bin(edge, x, (e, v) => v < e ? 0 : 1)
 
 // ---- vector ops
-export const dot = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] * b[i]; return s }
+export const dot = (a, b) => {
+  let s = 0
+  if (a.length === 3) { s += a[0] * b[0]; s += a[1] * b[1]; s += a[2] * b[2]; return s }   // same 0-seeded order, no loop bounds
+  for (let i = 0; i < a.length; i++) s += a[i] * b[i]
+  return s
+}
 export const length = (a) => isArr(a) ? Math.sqrt(dot(a, a)) : Math.abs(a)
 export const distance = (a, b) => length(sub(a, b))
-export const normalize = (a) => { const l = length(a) || 1; return isArr(a) ? a.map(x => x / l) : a / l }
+export const normalize = (a) => {
+  const l = length(a) || 1
+  if (!isArr(a)) return a / l
+  const n = a.length, o = new Array(n); for (let i = 0; i < n; i++) o[i] = a[i] / l; return o
+}
 export const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
 
 // ---- swizzle read: sw([x,y,z],'xz') -> [x,z]; sw(v,'x') -> scalar
 const _SI = { x: 0, y: 1, z: 2, w: 3, r: 0, g: 1, b: 2, a: 3, s: 0, t: 1, p: 2, q: 3 }
 // single-char swizzle is the hot path (snoise3/h3 read .x/.y/.z thousands of times);
 // switch on the char avoids a megamorphic keyed object load. Same mapping as _SI.
-const _si1 = (c) => { switch (c) { case 'x': case 'r': case 's': return 0; case 'y': case 'g': case 't': return 1; case 'z': case 'b': case 'p': return 2; default: return 3 } }
 export function sw(v, sel) {
-  if (sel.length === 1) return v[_si1(sel)]
+  // single-char is the hot path; the mapping is inlined here (was a call out to _si1 per read).
+  if (sel.length === 1) {
+    switch (sel) {
+      case 'x': case 'r': case 's': return v[0]
+      case 'y': case 'g': case 't': return v[1]
+      case 'z': case 'b': case 'p': return v[2]
+      default: return v[3]
+    }
+  }
   const o = new Array(sel.length); for (let i = 0; i < sel.length; i++) o[i] = v[_SI[sel[i]]]; return o
 }
 

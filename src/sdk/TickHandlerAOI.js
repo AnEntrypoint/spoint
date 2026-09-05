@@ -5,7 +5,7 @@
 // per tick by the caller) or explicit parameters, never buildAndSendSnapshots's own closure state. See
 // each function's own comment for the AOI/priority/bandwidth rationale.
 
-import { unpackBinRecord } from '../netcode/SnapshotEncoder.js'
+import { unpackBinRecord, primeEntryDecode } from '../netcode/SnapshotEncoder.js'
 import { neighborCells } from '../terrain/CubeSphereCells.js'
 
 const PRIORITY_ENTITY_BUDGET = 64
@@ -109,25 +109,33 @@ const _priorityAccumulators = new Map()
 // module-scoped, cleared per-call to avoid GC churn (single-threaded tick, never re-entrant)
 const _priorityBuckets = [[], [], [], []]
 
-const _priorityBin = {}
 export function clearPlayerPriorityAccumulator(playerId) { _priorityAccumulators.delete(playerId) }
 export function getPlayerPriorityIds(playerId, relevantIds, dynCache, viewerPos, tick) {
-  if (!_priorityAccumulators.has(playerId)) _priorityAccumulators.set(playerId, new Map())
-  const acc = _priorityAccumulators.get(playerId)
+  let acc = _priorityAccumulators.get(playerId)
+  if (!acc) { acc = new Map(); _priorityAccumulators.set(playerId, acc) }
   const vx = viewerPos[0], vy = viewerPos[1], vz = viewerPos[2]
 
   for (const id of relevantIds) {
     const entry = dynCache.get(id); if (!entry) continue
     // enc[2] is the packed 23-byte bin record (see SnapshotEncoder.js fillEntityEnc) -- unpack once
     // per scored entity per tick rather than reading stale flat numeric slots.
-    unpackBinRecord(entry.enc[2], _priorityBin)
-    const dx = _priorityBin.px-vx, dy = _priorityBin.py-vy, dz = _priorityBin.pz-vz
+    // The decoded position and the velocity score are functions of the ENTITY only, not of the viewer,
+    // yet this ran once per (entity x viewer): at 500 entities x 64 viewers that was 32000 unpacks +
+    // 32000 sqrt per snapshot tick where 500 of each suffice. fillEntityEnc assigns a FRESH Uint8Array
+    // to enc[2] on every re-encode (packBinRecord always allocates; nothing mutates a bin buffer in
+    // place), so buffer identity is an exact dirty bit -- a hit is only possible when the decoded
+    // values are provably unchanged. Same quantized values as before, so scores are bit-identical.
+    primeEntryDecode(entry)
+    const dx = entry._pX-vx, dy = entry._pY-vy, dz = entry._pZ-vz
     const distSq = dx*dx+dy*dy+dz*dz
-    const velSq = _priorityBin.vx*_priorityBin.vx+_priorityBin.vy*_priorityBin.vy+_priorityBin.vz*_priorityBin.vz
     const distScore = 1 / (1 + distSq * 0.001)
-    const velScore = velSq >= 100 ? 1 : Math.sqrt(velSq) * 0.1
-    const prev = acc.get(id) || 0
-    acc.set(id, prev + distScore + velScore + PRIORITY_DECAY)
+    // acc holds a mutable {s} box per (viewer, entity) rather than a bare number, so the accumulate
+    // step is ONE Map lookup + a field write instead of get-then-set (two hash lookups) -- this loop
+    // runs |relevantIds| x viewers times per snapshot tick, the single hottest thing in the encode
+    // path. The float add is the same expression in the same order, so scores are bit-identical.
+    let h = acc.get(id)
+    if (h === undefined) { h = { s: 0 }; acc.set(id, h) }
+    h.s += distScore + entry._pVelScore + PRIORITY_DECAY
   }
 
   for (const id of acc.keys()) {
@@ -138,7 +146,8 @@ export function getPlayerPriorityIds(playerId, relevantIds, dynCache, viewerPos,
 
   const buckets = _priorityBuckets
   buckets[0].length = 0; buckets[1].length = 0; buckets[2].length = 0; buckets[3].length = 0
-  for (const [id, score] of acc) {
+  for (const [id, box] of acc) {
+    const score = box.s
     if (score >= 3) buckets[0].push(id)
     else if (score >= 2) buckets[1].push(id)
     else if (score >= 1) buckets[2].push(id)
@@ -150,7 +159,7 @@ export function getPlayerPriorityIds(playerId, relevantIds, dynCache, viewerPos,
     for (const id of bucket) {
       if (remaining-- <= 0) break
       topIds.add(id)
-      acc.set(id, 0)
+      acc.get(id).s = 0
     }
     if (remaining <= 0) break
   }

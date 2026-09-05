@@ -114,6 +114,10 @@ export function ensureSharedKtx2Loader(renderer) {
   return _ensureKtx2Loader(renderer);
 }
 
+// Packs (descriptor index, lod index) into one integer for _enforceBudget's in-use set.
+// A LOD ladder is a handful of separately baked rungs; 1024 is orders of magnitude clear of it.
+const _LOD_KEY_STRIDE = 1024;
+
 // --- scratch objects (per-frame; never alloc in hot path) -----------------
 const _tmpV3 = new THREE.Vector3();
 const _tmpV3b = new THREE.Vector3();
@@ -945,6 +949,12 @@ class Entity extends Emitter {
           _instancedBoundRadius: null,
           _matrixNeedsUpdate: false,
           _precomputedTexLods: null, // Cached texture LODs for current mesh LOD
+          // Declared here (not added later) so _update's caches never force a hidden-class
+          // transition on this literal's shape: _wantKey/_wantKeyIdx memoize the geoCache key for
+          // the current LOD target, _allTexIdxs the identity texture-index fallback list.
+          _wantKey: '',
+          _wantKeyIdx: -1,
+          _allTexIdxs: null,
         });
       }
       // Animation: build mixer if source has clips.
@@ -1582,8 +1592,22 @@ class Entity extends Emitter {
           // If we've already registered a want for this exact target and its geo
           // is still not resident, don't re-invoke _applyLod — the warm loader
           // owns it. This stops the per-frame cache-miss re-fire (was 11k/dolly).
-          const wantKey = `${desc.meshIndex}:${desc.primIndex}:${targetIdx}`;
-          const targetResident = desc.lods[targetIdx] && (desc.lods[targetIdx].inline || this.asset.geoCache.has(wantKey));
+          // The geoCache key is a pure function of (desc, targetIdx) and desc is fixed per tracked
+          // mesh, so cache it on the tm keyed by targetIdx: a settled LOD (the steady state) now
+          // allocates zero strings here instead of one per tracked mesh per camera-moving frame.
+          // An inline target never reads the key at all, so it is not built in that case either.
+          const targetLod = desc.lods[targetIdx];
+          let targetResident = false;
+          if (targetLod) {
+            if (targetLod.inline) targetResident = true;
+            else {
+              if (tm._wantKeyIdx !== targetIdx) {
+                tm._wantKey = `${desc.meshIndex}:${desc.primIndex}:${targetIdx}`;
+                tm._wantKeyIdx = targetIdx;
+              }
+              targetResident = this.asset.geoCache.has(tm._wantKey);
+            }
+          }
           if (tm._lodWantIdx === targetIdx && !targetResident) {
             // pending in the warm loader — leave it; it'll apply when resident.
           } else if (targetIdx !== tm.currentLod && !tm._lodPending) {
@@ -1613,9 +1637,11 @@ class Entity extends Emitter {
             // _texDescIdxs). Falls back to every descriptor when the per-mesh
             // mapping came back empty (no name match), preserving prior behaviour
             // for assets whose texture names don't resolve.
+            // The identity fallback used to allocate a fresh array + closure per tracked mesh per
+            // camera-moving frame; texState's length is fixed at bootstrap, so build it once.
             const idxs = (tm._texDescIdxs && tm._texDescIdxs.length)
               ? tm._texDescIdxs
-              : tm.texState.map((_, i) => i);
+              : (tm._allTexIdxs || (tm._allTexIdxs = tm.texState.map((_, i) => i)));
             for (const ti of idxs) {
               const tWant = tm._precomputedTexLods[ti];
               if (tWant != null && tWant !== tm.texState[ti].currentLod) {
@@ -1632,7 +1658,9 @@ class Entity extends Emitter {
     // auto-update on, or is flagged for one-shot rebuild).
     // Skipped while the impostor tier owns this entity (its tracked draws are
     // parked at the zero matrix; pushing real transforms would un-hide them).
-    for (const tm of (impostorHandled ? [] : this.trackedMeshes)) {
+    // `impostorHandled ? [] : this.trackedMeshes` allocated a throwaway empty array for every
+    // impostor-handled entity, every frame, purely to iterate zero times -- branch instead.
+    if (!impostorHandled) for (const tm of this.trackedMeshes) {
       if (tm._instancedSlot && tm._instancedSlotIdx >= 0) {
         // Compute the slot's world matrix at most ONCE per frame: both the matrix
         // push and the bound-sphere refresh below read the same transform, and
@@ -3760,38 +3788,69 @@ export class ModelPool extends Emitter {
     // Find evict candidates: LODs no current entity is using AND not inline.
     // Walk every asset's cached non-inline geo/tex; drop any whose key isn't
     // currently active on any entity.
-    const inUse = new Set();
+    //
+    // In-use rungs are keyed NUMERICALLY by (descriptor index, lod), per asset url. The previous
+    // form built and hashed a `${url}|${meshIndex}:${primIndex}:${lod}` string for every
+    // (entity x trackedMesh) pair and another for every (entity x trackedMesh x texState) triple
+    // -- O(entities * meshes * textures) string allocations per sweep to fill a key space that is
+    // only O(meshes*lods + textures*lods) PER ASSET, since every entity of an asset sitting at the
+    // same LOD produces the identical key. Descriptor index <-> (meshIndex,primIndex) and <->
+    // textureIndex are already bijections (geoCache is keyed `meshIndex:primIndex:lod` and texCache
+    // `textureIndex:lod`, so a duplicate pair would alias two descriptors onto one cache entry and
+    // break loading long before eviction), so the verdict is identical with zero allocation.
+    const inUse = new Map(); // asset url -> { mesh, tex }: Sets of descIdx * _LOD_KEY_STRIDE + lod
     for (const e of this._entities) {
+      const asset = e.asset;
+      let u = inUse.get(asset.url);
+      if (!u) { u = { mesh: new Set(), tex: new Set() }; inUse.set(asset.url, u); }
+      // Bounds checks stand in for the old `if (d)` / `if (td)` absent-descriptor guards.
+      const nMesh = asset.meshLodDescs.length;
+      const nTex = asset.texLodDescs.length;
+      const uMesh = u.mesh, uTex = u.tex;
       for (const tm of e.trackedMeshes) {
-        const d = e.asset.meshLodDescs[tm.meshDescIdx];
-        if (d) inUse.add(`${e.asset.url}|${d.meshIndex}:${d.primIndex}:${tm.currentLod}`);
-        for (let ti = 0; ti < tm.texState.length; ti++) {
-          const td = e.asset.texLodDescs[ti];
-          if (td) inUse.add(`${e.asset.url}|tex:${td.textureIndex}:${tm.texState[ti].currentLod}`);
-        }
+        const mdi = tm.meshDescIdx;
+        if (mdi >= 0 && mdi < nMesh) uMesh.add(mdi * _LOD_KEY_STRIDE + tm.currentLod);
+        const texState = tm.texState;
+        const nt = texState.length < nTex ? texState.length : nTex;
+        for (let ti = 0; ti < nt; ti++) uTex.add(ti * _LOD_KEY_STRIDE + texState[ti].currentLod);
       }
     }
     let evicted = 0;
+    // Scan: `meshLodDescs.indexOf(desc)` / `texLodDescs.indexOf(desc)` used to re-scan the whole
+    // ladder for a descriptor whose index the loop already had -- O(descs^2 * lods) per sweep.
+    // Both ladders are built push-only once (:293/:297) from fresh object literals and are never
+    // spliced or reordered, so the loop counter IS the indexOf result, exactly. The empty-cache
+    // guards skip a whole ladder that cannot yield an eviction (evict*Lod can only free a
+    // geoCache/texCache entry).
     for (const asset of this._assets.values()) {
-      for (const desc of asset.meshLodDescs) {
-        for (let li = 0; li < desc.lods.length; li++) {
-          if (desc.lods[li].inline) continue;
-          const key = `${asset.url}|${desc.meshIndex}:${desc.primIndex}:${li}`;
-          if (!inUse.has(key)) {
-            if (asset.evictMeshLod(asset.meshLodDescs.indexOf(desc), li)) {
-              this._totalBytes -= (desc.lods[li].bytes || 0);
+      const u = inUse.get(asset.url);
+      if (asset.geoCache.size > 0) {
+        const uMesh = u ? u.mesh : null;
+        const meshDescs = asset.meshLodDescs;
+        for (let di = 0; di < meshDescs.length; di++) {
+          const lods = meshDescs[di].lods;
+          const base = di * _LOD_KEY_STRIDE;
+          for (let li = 0; li < lods.length; li++) {
+            if (lods[li].inline) continue;
+            if (uMesh !== null && uMesh.has(base + li)) continue;
+            if (asset.evictMeshLod(di, li)) {
+              this._totalBytes -= (lods[li].bytes || 0);
               evicted++;
             }
           }
         }
       }
-      for (const desc of asset.texLodDescs) {
-        for (let li = 0; li < desc.lods.length; li++) {
-          if (desc.lods[li].inline) continue;
-          const key = `${asset.url}|tex:${desc.textureIndex}:${li}`;
-          if (!inUse.has(key)) {
-            if (asset.evictTexLod(asset.texLodDescs.indexOf(desc), li)) {
-              this._totalBytes -= (desc.lods[li].bytes || 0);
+      if (asset.texCache.size > 0) {
+        const uTex = u ? u.tex : null;
+        const texDescs = asset.texLodDescs;
+        for (let di = 0; di < texDescs.length; di++) {
+          const lods = texDescs[di].lods;
+          const base = di * _LOD_KEY_STRIDE;
+          for (let li = 0; li < lods.length; li++) {
+            if (lods[li].inline) continue;
+            if (uTex !== null && uTex.has(base + li)) continue;
+            if (asset.evictTexLod(di, li)) {
+              this._totalBytes -= (lods[li].bytes || 0);
               evicted++;
             }
           }

@@ -162,7 +162,13 @@ export function installVehiclePhysics(PhysicsWorld) {
     const J = this.Jolt
     // (bodyRotation, wheelRotationAxis) -- GetWheelWorldTransform's 3rd param is the local rotation
     // axis wheels spin about; [1,0,0] matches the WheelSettingsWV convention (wheel spin axis = local X).
-    const t = v.constraint.GetWheelWorldTransform(wheelIndex, new J.Vec3(1, 0, 0), new J.Vec3(0, 1, 0))
+    // Both axes are compile-time constants, so they are built once and reused instead of per call: the
+    // two Vec3 temporaries were never destroyed, a measured 80 bytes of WASM heap high-water leaked per
+    // call (monotonic over 400k calls), i.e. ~19 KB/s for a 4-wheel vehicle read every tick.
+    // Not re-entrant: this method is synchronous with no callback, and the two axes are never mutated.
+    let ax = this._vehWheelAxes
+    if (!ax) ax = this._vehWheelAxes = { right: new J.Vec3(1, 0, 0), up: new J.Vec3(0, 1, 0) }
+    const t = v.constraint.GetWheelWorldTransform(wheelIndex, ax.right, ax.up)
     const pos = t.GetTranslation(), rot = t.GetQuaternion()
     const out = { position: [pos.GetX(), pos.GetY(), pos.GetZ()], rotation: [rot.GetX(), rot.GetY(), rot.GetZ(), rot.GetW()] }
     J.destroy(t)

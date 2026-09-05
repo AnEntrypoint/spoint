@@ -42,7 +42,11 @@ export function findChrome() {
   ].filter(Boolean)
   for (const p of candidates) { try { if (fs.existsSync(p)) return p } catch (_) {} }
   // Last resort only -- a pre-existing cache is usable, but is never provisioned by this repo.
-  for (const base of [path.join(os.homedir(), 'AppData/Local/ms-playwright'), path.join(os.homedir(), '.cache/ms-playwright')]) {
+  // PLAYWRIGHT_BROWSERS_PATH / /opt/pw-browsers are probed too: a Playwright-provisioned image
+  // (CI runners, this sandbox) puts the browser THERE and leaves ~/.cache/ms-playwright absent,
+  // so without these two entries findChrome() returned null and every browser-driven gate
+  // (cold-load, frame-time, terrain-camera-stress, gpu-eval) failed to launch at all.
+  for (const base of [process.env.PLAYWRIGHT_BROWSERS_PATH, '/opt/pw-browsers', path.join(os.homedir(), 'AppData/Local/ms-playwright'), path.join(os.homedir(), '.cache/ms-playwright')].filter(Boolean)) {
     try {
       const dirs = fs.readdirSync(base).filter(d => /^chromium(_headless_shell)?-\d+$/.test(d))
         .sort((a, b) => Number(b.split('-').pop()) - Number(a.split('-').pop()))

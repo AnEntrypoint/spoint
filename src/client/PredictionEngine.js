@@ -173,8 +173,11 @@ export class PredictionEngine {
 
   resimulate() {
     this._copyState(this.lastServerState, this.localState)
-    for (const input of this.inputHistory) {
-      this.predict(input.data)
+    // Indexed walk instead of for-of over RingBuffer's generator iterator: a rollback replay is one
+    // generator object plus one resume + {value,done} step per unacked input, per misprediction.
+    const hist = this.inputHistory
+    for (let i = 0, n = hist.length; i < n; i++) {
+      this.predict(hist.at(i).data)
     }
     this._preserveKnockbackVelocity(Date.now())
   }

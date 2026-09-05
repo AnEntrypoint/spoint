@@ -95,6 +95,12 @@ function _lerp(a, b, va, vb, iso) {
   const t = Math.abs(vb - va) > 1e-9 ? (iso - va) / (vb - va) : 0.5
   return a + Math.max(0, Math.min(1, t)) * (b - a)
 }
+// Module-level scratch for the per-cell boundary loop (convention (a), client/core/camera.js:12-20).
+// A cell's loop is at most 4 corners + 4 edge crossings = 8 entries. Float64Array, not Float32Array:
+// every value stored is a double (a grid coordinate or a _lerp result) and must round-trip unchanged.
+// marchingSquares is not re-entrant -- the loop body calls only _lerp and Array.prototype.push, neither
+// of which can re-enter this function.
+const _loopX = new Float64Array(8), _loopZ = new Float64Array(8)
 export function marchingSquares(field, nx, nz, minX, minZ, cell, iso) {
   const positions = []
   const indices = []
@@ -113,33 +119,33 @@ export function marchingSquares(field, nx, nz, minX, minZ, cell, iso) {
       if (mask === 0 || mask === 15) continue // fully outside or fully inside: no boundary in this cell
       const x0 = minX + cx * cell, x1 = x0 + cell
       const z0 = minZ + cz * cell, z1 = z0 + cell
-      // Edge midpoints (interpolated crossing points), computed lazily only when needed.
-      const eB = () => [_lerp(x0, x1, i00, i10, iso), z0] // bottom edge (00-10)
-      const eR = () => [x1, _lerp(z0, z1, i10, i11, iso)] // right edge (10-11)
-      const eT = () => [_lerp(x0, x1, i01, i11, iso), z1] // top edge (01-11)
-      const eL = () => [x0, _lerp(z0, z1, i00, i01, iso)] // left edge (00-01)
       // Build the boundary polygon for this cell as an ordered vertex loop (inside corners + edge
       // crossings), then fan-triangulate it -- simple, robust, no ambiguous-case lookup table needed
       // since we always walk corners+edges in a fixed CCW order and just skip outside corners.
-      const loop = []
-      const corners = [[x0, z0, i00 >= iso], [x1, z0, i10 >= iso], [x1, z1, i11 >= iso], [x0, z1, i01 >= iso]]
-      const edgeFns = [eB, eR, eT, eL]
-      for (let e = 0; e < 4; e++) {
-        const [cx0, cz0, inside0] = corners[e]
-        const [, , inside1] = corners[(e + 1) % 4]
-        if (inside0) loop.push([cx0, cz0])
-        if (inside0 !== inside1) loop.push(edgeFns[e]())
-      }
-      if (loop.length < 3) continue
+      // The corner/edge walk below is the SAME bl->br->tr->tl order, with the same _lerp calls in the
+      // same sequence, written out per edge instead of through a corners array-of-arrays + an edgeFns
+      // closure array + array-destructuring: that shape allocated ~10 objects and 4 closures for every
+      // crossed cell, all of them dead the moment the fan was emitted. Output is bit-identical.
+      const in00 = i00 >= iso, in10 = i10 >= iso, in11 = i11 >= iso, in01 = i01 >= iso
+      let ln = 0
+      if (in00) { _loopX[ln] = x0; _loopZ[ln] = z0; ln++ }
+      if (in00 !== in10) { _loopX[ln] = _lerp(x0, x1, i00, i10, iso); _loopZ[ln] = z0; ln++ }   // bottom edge (00-10)
+      if (in10) { _loopX[ln] = x1; _loopZ[ln] = z0; ln++ }
+      if (in10 !== in11) { _loopX[ln] = x1; _loopZ[ln] = _lerp(z0, z1, i10, i11, iso); ln++ }   // right edge (10-11)
+      if (in11) { _loopX[ln] = x1; _loopZ[ln] = z1; ln++ }
+      if (in11 !== in01) { _loopX[ln] = _lerp(x0, x1, i01, i11, iso); _loopZ[ln] = z1; ln++ }   // top edge (01-11)
+      if (in01) { _loopX[ln] = x0; _loopZ[ln] = z1; ln++ }
+      if (in01 !== in00) { _loopX[ln] = x0; _loopZ[ln] = _lerp(z0, z1, i00, i01, iso); ln++ }   // left edge (00-01)
+      if (ln < 3) continue
       const base = positions.length / 3
       // centroid
       let ccx = 0, ccz = 0
-      for (const [lx, lz] of loop) { ccx += lx; ccz += lz }
-      ccx /= loop.length; ccz /= loop.length
+      for (let k = 0; k < ln; k++) { ccx += _loopX[k]; ccz += _loopZ[k] }
+      ccx /= ln; ccz /= ln
       positions.push(ccx, 0, ccz)
-      for (const [lx, lz] of loop) positions.push(lx, 0, lz)
-      for (let i = 0; i < loop.length; i++) {
-        const a = base, b = base + 1 + i, c = base + 1 + ((i + 1) % loop.length)
+      for (let k = 0; k < ln; k++) positions.push(_loopX[k], 0, _loopZ[k])
+      for (let i = 0; i < ln; i++) {
+        const a = base, b = base + 1 + i, c = base + 1 + ((i + 1) % ln)
         indices.push(a, b, c)
       }
     }
@@ -180,25 +186,36 @@ function _weldMap(positions) {
 // marchingSquares output. Returns a flat Uint32Array of boundary edge vertex-index pairs (u0,v0,u1,v1,...),
 // indices into the ORIGINAL (pre-weld) `indices`/`positions` arrays -- the caller only needs endpoint
 // coordinates, not the weld mapping itself.
-export function findBoundaryEdges(indices, positions) {
+// `canonIn`: an already-computed _weldMap for this exact `positions` buffer. buildFluidSurfaceMesh
+// below welds the SAME buffer for _weldIndices immediately before calling this, so without it the
+// identical canonical map was built twice per rebuild (a full Map-over-every-vertex pass thrown away
+// each time). Omit it and the map is built here exactly as before.
+export function findBoundaryEdges(indices, positions, canonIn) {
   const n = indices.length
-  const canon = _weldMap(positions)
-  const c = (vi) => canon ? canon[vi] : vi
-  const counts = new Map() // "a,b" (canon-index-keyed, a<b) -> { a, b, n }
+  const canon = canonIn !== undefined ? canonIn : _weldMap(positions)
+  // NUMERIC edge key a*stride+b (canonical indices, a<b) in place of the previous `a + ',' + b` STRING
+  // key: identical 1:1 edge identity (both endpoints are < stride so the pair is unique), with no string
+  // built per triangle edge -- this loop runs 3x per triangle and was the function's dominant allocation
+  // source. `stride` bounds every canonical index: _weldMap's output is one entry per vertex and every
+  // value in it is a vertex index.
+  let stride = canon ? canon.length : (positions ? positions.length / 3 : 0)
+  if (!stride) { for (let i = 0; i < n; i++) if (indices[i] >= stride) stride = indices[i] + 1 }
+  // Parallel slot arrays instead of one {a,b,n} object per unique edge.
+  const slot = new Map() // numeric key -> slot index
+  const eA = [], eB = [], eN = []
   for (let i = 0; i < n; i += 3) {
-    const tri = [indices[i], indices[i + 1], indices[i + 2]]
     for (let e = 0; e < 3; e++) {
-      const rawA = tri[e], rawB = tri[(e + 1) % 3]
-      const a = c(rawA), b = c(rawB)
-      const key = a < b ? a + ',' + b : b + ',' + a
-      const existing = counts.get(key)
-      if (existing) existing.n++
-      else counts.set(key, { a: rawA, b: rawB, n: 1 })
+      const rawA = indices[i + e], rawB = indices[i + (e + 1) % 3]
+      const a = canon ? canon[rawA] : rawA, b = canon ? canon[rawB] : rawB
+      const key = a < b ? a * stride + b : b * stride + a
+      const existing = slot.get(key)
+      if (existing !== undefined) eN[existing]++
+      else { slot.set(key, eA.length); eA.push(rawA); eB.push(rawB); eN.push(1) }
     }
   }
   const out = []
-  for (const { a, b, n: cnt } of counts.values()) {
-    if (cnt === 1) { out.push(a, b) }
+  for (let i = 0; i < eN.length; i++) {
+    if (eN[i] === 1) { out.push(eA[i], eB[i]) }
   }
   return Uint32Array.from(out)
 }
@@ -210,8 +227,8 @@ export function findBoundaryEdges(indices, positions) {
 // reuse) needs. Positions themselves are left untouched/unchanged (the now-orphaned duplicate position
 // slots are simply never referenced by any index after this rewrite) -- cheap and sufficient since this
 // module always rebuilds the whole geometry fresh every call, no incremental buffer reuse to preserve.
-function _weldIndices(indices, positions) {
-  const canon = _weldMap(positions)
+function _weldIndices(indices, positions, canonIn) {
+  const canon = canonIn !== undefined ? canonIn : _weldMap(positions)
   if (!canon) return indices
   const out = new Uint32Array(indices.length)
   for (let i = 0; i < indices.length; i++) out[i] = canon[indices[i]]
@@ -248,7 +265,10 @@ export function buildFluidSurfaceMesh(THREE, positions, count, originPos, smooth
   // every interior cell-to-cell boundary, which is fine for rendering (GPU doesn't care) but means the
   // rim-closure invariant this row exists to guarantee ("every edge shared by exactly 2 triangles") would
   // be false of the real emitted index buffer, not just of a check that itself re-welds before counting.
-  const idx2d = _weldIndices(idx2dRaw, flat2d)
+  // ONE _weldMap for this rebuild, shared by _weldIndices and findBoundaryEdges below (both welded the
+  // same `flat2d` independently before, building the identical map twice).
+  const canon2d = _weldMap(flat2d)
+  const idx2d = _weldIndices(idx2dRaw, flat2d, canon2d)
   // Extrude: top ring at y=+halfThickness, bottom ring at y=-halfThickness, top faces use idx2d as-is,
   // bottom faces use idx2d reversed winding, offset by n2d. Rim faces connect the two rings around the
   // contour's OUTER boundary (found via findBoundaryEdges' edge-adjacency-parity rule above) so the slab
@@ -258,7 +278,7 @@ export function buildFluidSurfaceMesh(THREE, positions, count, originPos, smooth
   // particles share the same Y since the solver is a flat 2D plane) minus originPos.y, matching the same
   // local-space-minus-origin convention _buildFluidMesh/_buildSoftbodyGeometry both already use.
   const worldYLocal = positions[1] - oy
-  const boundaryIdx = findBoundaryEdges(idx2d, flat2d) // pairs index into flat2d (LOCAL, y=0, un-offset space)
+  const boundaryIdx = findBoundaryEdges(idx2d, flat2d, canon2d) // pairs index into flat2d (LOCAL, y=0, un-offset space)
   const nRim = boundaryIdx.length / 2
   // Rim quads REUSE the top/bottom rings' own welded vertex indices (vi0/vi1 for the top ring, n2d+vi0/
   // n2d+vi1 for the bottom ring) rather than allocating dedicated rim-only vertices -- this is what makes

@@ -221,13 +221,22 @@ export function defineShrinkingZone(spec = {}, appCtx = null) {
   // impulse -- appropriate for "keep shoving while outside," unlike tps-game's event-triggered
   // one-shot hitKnockback. Directly mutates vel in place (matching tps-game/server.js's own
   // direct-velocity-mutation knockback pattern) when vel is provided.
+  // Closure-level scratch: _penalizeTarget returns a boolean and publishes the push direction through
+  // _outDirX/_outDirZ instead of allocating a fresh result object per scanned target per tick (the two
+  // former return literals were also two distinct object shapes at the same read site). Non-re-entrant
+  // by construction: the only callers are the two sequential loops below, each of which reads the
+  // scratch immediately after its own call and before the next; neither players.send nor
+  // world.applyImpulse re-enters tick().
+  let _outDirX = 0, _outDirZ = 0
+  const _impulse = [0, 0, 0]
   function _penalizeTarget(pos, vel, dt, applyPush) {
     const dx = pos[0] - center[0], dz = pos[2] - center[2]
     const dist = Math.hypot(dx, dz)
-    if (dist <= _radius) return { outside: false, dist }
+    if (dist <= _radius) return false
     const dirX = dist > 1e-6 ? -dx / dist : 0, dirZ = dist > 1e-6 ? -dz / dist : 0
     if (applyPush && vel) { vel[0] += dirX * pushForce * dt; vel[2] += dirZ * pushForce * dt }
-    return { outside: true, dist, dirX, dirZ }
+    _outDirX = dirX; _outDirZ = dirZ
+    return true
   }
 
   function _scanPlayers(dt) {
@@ -236,8 +245,7 @@ export function defineShrinkingZone(spec = {}, appCtx = null) {
     for (const player of appCtx.players.getAll()) {
       const st = player.state; if (!st || !st.position) continue
       if ((st.health ?? 1) <= 0) continue
-      const result = _penalizeTarget(st.position, st.velocity, dt, applyPush)
-      if (!result.outside) continue
+      if (!_penalizeTarget(st.position, st.velocity, dt, applyPush)) continue
       if (applyDamage && damagePerSec > 0) {
         const before = st.health ?? 100
         st.health = Math.max(0, before - damagePerSec * dt)
@@ -245,7 +253,7 @@ export function defineShrinkingZone(spec = {}, appCtx = null) {
       }
       // supplementary client-feedback signal (e.g. camera shake/edge vignette) alongside the already-
       // applied server-authoritative velocity mutation above -- not the sole push mechanism.
-      if (applyPush && pushForce > 0) appCtx.players.send(player.id, { type: 'zone_push', dirX: result.dirX, dirZ: result.dirZ })
+      if (applyPush && pushForce > 0) appCtx.players.send(player.id, { type: 'zone_push', dirX: _outDirX, dirZ: _outDirZ })
     }
   }
 
@@ -261,12 +269,14 @@ export function defineShrinkingZone(spec = {}, appCtx = null) {
       if (id === appCtx.entity.id || id === _ringId) continue
       const e = appCtx.world.getEntity(id)
       if (!e || e.bodyType !== 'dynamic' || !e.position) continue
-      const result = _penalizeTarget(e.position, null, dt, false)
-      if (!result.outside) continue
+      if (!_penalizeTarget(e.position, null, dt, false)) continue
       if (pushForce > 0) {
         // dynamic entities go through the real impulse path (ctx.world.applyImpulse), not a direct
         // velocity mutation, since their velocity may be physics-body-owned rather than a plain field.
-        appCtx.world.applyImpulse(id, [result.dirX * pushForce * dt, 0, result.dirZ * pushForce * dt])
+        // reused scratch, not a fresh [x,y,z] per outside entity per tick: World.addImpulse (src/physics/
+        // World.js:465) copies im[0..2] into its own Jolt _tmpVec3 and never retains the array.
+        _impulse[0] = _outDirX * pushForce * dt; _impulse[2] = _outDirZ * pushForce * dt
+        appCtx.world.applyImpulse(id, _impulse)
       }
       // dynamic entities have no generic health field in this engine (that is app-specific state), so
       // 'damage' against non-player dynamic entities is a no-op unless the caller inspects zone.isOutside

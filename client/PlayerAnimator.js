@@ -80,6 +80,13 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   // real target player count, not from this static estimate.
   const remappedClips = new Map()
   for (const [name, clip] of clips) {
+    // Skip the ~93 of 111 library clips buildActionsFromClips would discard anyway (its own
+    // `if (!STATES[name]) continue`), instead of retargeting them first: the three clone passes
+    // below (remapClipToNormalized + remapMixamoClip + the Normalized_ track map, each deep-copying
+    // every KeyframeTrack's times+values) ran over 5115 of 6105 real tracks whose output was then
+    // thrown away. Nothing else reads remappedClips, and sm.play()'s arbitrary-clip lookup goes
+    // through the same STATES-filtered `actions` map, so the reachable clip set is unchanged.
+    if (!STATES[name]) continue
     const sourceClip = clip
     const normalized = remapClipToNormalized(sourceClip, vrm0Remap)
     let retargeted = mixamoBoneMap ? remapMixamoClip(normalized, mixamoBoneMap, validBones) : normalized
@@ -192,15 +199,18 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       const t = AIM_PITCH_UP > 0 ? THREE.MathUtils.clamp(p / AIM_PITCH_UP, 0, 1) : 0
       wUp = t; wNeutral = 1 - t
     }
-    const apply = (action, w) => {
-      if (!action) return
-      const weight = w * _aimWeight
-      if (weight > 0.001) { if (!action.isRunning()) action.reset().play(); action.weight = weight; action.enabled = true }
-      else if (action.isRunning()) { action.weight = 0; action.stop() }
-    }
-    apply(_aimTrio.down, wDown)
-    apply(_aimTrio.neutral, wNeutral)
-    apply(_aimTrio.up, wUp)
+    _applyAimPose(_aimTrio.down, wDown)
+    _applyAimPose(_aimTrio.neutral, wNeutral)
+    _applyAimPose(_aimTrio.up, wUp)
+  }
+  // Hoisted out of applyAimPoseBlend: it was an arrow function re-allocated on every call, i.e. once
+  // per frame per player (applyBoneOverrides -> applyAimPoseBlend). Reads _aimWeight off the same
+  // closure it already closed over, so behaviour is unchanged.
+  function _applyAimPose(action, w) {
+    if (!action) return
+    const weight = w * _aimWeight
+    if (weight > 0.001) { if (!action.isRunning()) action.reset().play(); action.weight = weight; action.enabled = true }
+    else if (action.isRunning()) { action.weight = 0; action.stop() }
   }
 
   return {
@@ -345,6 +355,9 @@ export function createGLBAnimator(gltfScene, gltfAnimations, animAssets, animCon
     const boneMap = detectBoneNameMap(root)
     clips = new Map()
     for (const [name, clip] of sourceClips) {
+      // Same STATES filter as the VRM path above: buildActionsFromClips discards every non-STATES
+      // clip anyway, so remapping the other ~93 library clips first was pure thrown-away work.
+      if (!STATES[name]) continue
       // remapMixamoClip: the animation library's tracks carry raw Mixamo rig bone names
       // (mixamorig:LeftArm etc), not semantic keys -- see its own comment in AnimationUtils.js for
       // the full witnessed failure mode (silently-empty arm/leg tracks, mixer/state-machine both
@@ -352,7 +365,7 @@ export function createGLBAnimator(gltfScene, gltfAnimations, animAssets, animCon
       const remapped = boneMap ? remapMixamoClip(clip, boneMap, validBones) : filterValidClipTracks(clip, validBones)
       if (remapped.tracks.length > 0) clips.set(name, remapped)
     }
-    console.log(`[anim] GLB using ${animAssets.rawClips ? 'raw' : 'normalized'} library clips (${clips.size} valid, convention: ${boneMap === ANIM_TO_BLENDER ? 'Blender' : boneMap === ANIM_TO_MIXAMO ? 'Mixamo' : 'direct'})`)
+    console.log(`[anim] GLB using ${animAssets.rawClips ? 'raw' : 'normalized'} library clips (${clips.size} state clips valid, convention: ${boneMap === ANIM_TO_BLENDER ? 'Blender' : boneMap === ANIM_TO_MIXAMO ? 'Mixamo' : 'direct'})`)
   } else {
     clips = new Map()
   }

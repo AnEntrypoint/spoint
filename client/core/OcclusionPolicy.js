@@ -81,6 +81,19 @@ export function createOcclusionPolicy(config = {}) {
   //   rec.staleFrames (number) -- frames since a fresh resolve last arrived while hidden
   //   rec.stableCount (number) -- frames with same verdict (depth-jitter stability gate)
 
+  // Result scratch for advance()/checkRebuildStaleness(): both returned a FRESH object literal on every
+  // call, and advance() is called once per live candidate per frame by BOTH consumers
+  // (SceneOcclusion.js:157 over its whole candidate array -- ~450 live veg/rock chunks measured in
+  // tps-game; TerrainOcclusion.js:152 per resolved record), i.e. hundreds of one-frame objects per frame
+  // just to carry 2-3 booleans. Closure-level scratch, the same convention TerrainOcclusion.js:213-218
+  // uses -- one pair per createOcclusionPolicy() instance, so the terrain and scene consumers never share
+  // a buffer. Re-entrancy is impossible: every call site reads the fields on the statement immediately
+  // after the call, inside a synchronous single-threaded per-candidate loop, and never retains the object
+  // (SceneOcclusion.js:157-160, TerrainOcclusion.js:152-154 and :161-162) -- there is no async/callback
+  // boundary anywhere between a call and its read.
+  const _advanceOut = { hidden: false, flipped: false, failOpen: null }
+  const _rebuildOut = { skipQuery: false, failOpen: false }
+
   function ensureRecord(rec) {
     if (rec.streak === undefined) rec.streak = 0
     if (rec.unstreak === undefined) rec.unstreak = 0
@@ -130,10 +143,12 @@ export function createOcclusionPolicy(config = {}) {
       rec.staleFrames++
       if (rec.staleFrames > STALE_RESOLVE_FRAMES) {
         rec.hidden = false; rec.streak = 0; rec.unstreak = 0; rec.stableCount = 0; flipped = true
-        return { hidden: rec.hidden, flipped, failOpen: 'stale-resolve' }
+        _advanceOut.hidden = rec.hidden; _advanceOut.flipped = flipped; _advanceOut.failOpen = 'stale-resolve'
+        return _advanceOut
       }
     }
-    return { hidden: rec.hidden, flipped, failOpen: null }
+    _advanceOut.hidden = rec.hidden; _advanceOut.flipped = flipped; _advanceOut.failOpen = null
+    return _advanceOut
   }
 
   // eyeAtIssue distance expiry -- caller supplies the eye position at query-issue time
@@ -169,7 +184,8 @@ export function createOcclusionPolicy(config = {}) {
       rec.hidden = false; rec.streak = 0; rec.unstreak = 0
       failOpen = true
     }
-    return { skipQuery, failOpen }
+    _rebuildOut.skipQuery = skipQuery; _rebuildOut.failOpen = failOpen
+    return _rebuildOut
   }
 
   // Anomaly-fraction guard over a whole resolved batch. `occludedWeight`/`liveWeight` let a caller

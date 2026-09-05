@@ -2638,8 +2638,18 @@ if (typeof window !== 'undefined') window.__tickAnimTiming = () => {
 // is refreshed once per frame and mirrored onto window.__springBoneLodStats (RenderControls readonly).
 let _springBoneLodUpdated=0, _springBoneLodSkipped=0
 // Reused every frame by tickPlayerAnimators to avoid a fresh array allocation per frame when building
-// the remote-player entry list for playerLOD.tick (see core/PlayerLOD.js).
+// the remote-player entry list for playerLOD.tick (see core/PlayerLOD.js). The ARRAY was reused but each
+// ROW was still a fresh `{id,x,y,z}` literal per remote player per frame -- one object per remote player
+// per frame, which is precisely the cost class PlayerLOD.js exists to control (its own header sizes the
+// design at a 1000-player crowd: 1000 objects/frame). _playerLodEntries now holds POOLED ROW REFERENCES
+// only and is .length-reset each frame, the RenderGraph.nodes.js:26-29 _benderPool convention, with
+// grow-only capacity (a dropped row would silently mis-tier a real player, so overflow grows rather than
+// being dropped as the bender pool does). Rows are consumed synchronously: classifyPlayerTiers
+// (PlayerLOD.js:76-97) reads id/x/y/z and retains only ids in its Sets, and the DOT fallback's
+// _dotFallbackScratch is drained inside the same tick() call -- nothing holds a row past the frame.
 const _playerLodEntries=[]
+const _playerLodPool=[]
+function _playerLodRow(i){ let r=_playerLodPool[i]; if(!r){ r={id:null,x:0,y:0,z:0}; _playerLodPool[i]=r } return r }
 // Frozen player look, re-sent while editing so the avatar holds its gaze instead of tracking the fly-cam.
 let _frozenLookYaw=0, _frozenLookPitch=0
 // Per-frame measurement/adaptation controllers, extracted to client/core/FrameMetrics.js (each closes over
@@ -2850,7 +2860,7 @@ function tickPlayerAnimators(lid, frameDt, isEditor) {
   // size, O(remote player count), same cost class the existing per-player d2 check already paid.
   if (pm.playerMeshes.size > 1) {
     _playerLodEntries.length = 0
-    for (const [id, mesh] of pm.playerMeshes) { if (id !== lid) _playerLodEntries.push({ id, x: mesh.position.x, y: mesh.position.y, z: mesh.position.z }) }
+    for (const [id, mesh] of pm.playerMeshes) { if (id === lid) continue; const r = _playerLodRow(_playerLodEntries.length); r.id = id; r.x = mesh.position.x; r.y = mesh.position.y; r.z = mesh.position.z; _playerLodEntries.push(r) }
     playerLOD.tick(_playerLodEntries, cp, latestState?.dots || null, null)
   }
   for (const [id,anim] of pm.playerAnimators) {

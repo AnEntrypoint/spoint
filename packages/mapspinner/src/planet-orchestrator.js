@@ -725,6 +725,11 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
         const level = q.level, tx = q.tx, ty = q.ty;
         const ox = q.ox, oy = q.oy, l = q.l;
         // behind-limb cull (cheap; before the expensive frustum cull + tile-gen).
+        // _qofInside: the limb RESCUE below and the main cull further down called quadOutsideFrustum
+        // with byte-identical args (vpr is fixed for the frame), so a rescue that returned false made
+        // the main test re-derive that same false at full price -- 18 projections. Measured on this
+        // world's config (R=63600, maxLevel 13): 20-23% of all such calls at 2-50 m eye height.
+        let _qofInside = false;
         if (limbCullActive && (level|0) >= 2) {
           const cx = ox + l*0.5, cy = oy + l*0.5;
           const len = Math.hypot(cx, cy, R) || 1;
@@ -754,10 +759,13 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
             // properties of null (reading 0)' the moment the camera moves (user 2026-06-06). When there
             // is no frustum matrix we cannot prove the past-horizon quad is off-screen, so KEEP it
             // (conservative: a few extra backside quads when cull is off, never a crash, never lost land).
-            if (vpr && quadOutsideFrustum(face, ox, oy, l, R, vpr, camWorldPos)) { culledCount++; continue; }
+            if (vpr) {
+              if (quadOutsideFrustum(face, ox, oy, l, R, vpr, camWorldPos)) { culledCount++; continue; }
+              _qofInside = true;   // same args, same vpr -> the main test below can only re-derive false
+            }
           }
         }
-        if (cullActive && (level|0) >= 2 && quadOutsideFrustum(face, ox, oy, l, R, vpr, camWorldPos)) {
+        if (cullActive && (level|0) >= 2 && !_qofInside && quadOutsideFrustum(face, ox, oy, l, R, vpr, camWorldPos)) {
           culledCount++;
           // CULL DEBUG: count quads the frustum cull dropped that ACTUALLY project on-screen (the
           // false-cull bug signature). Project the quad center via the cull's own camera-relative

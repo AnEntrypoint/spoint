@@ -21,6 +21,9 @@ export class Quadtree {
     this._leaves = [];         // PERSISTENT leaf-object POOL (see updateQuadtree): reused across frames,
     this._n = 0;               //   filled by index up to _n then truncated -> zero steady-state allocation
     this._cull = null;         // optional hierarchical-cull context (see nodeOutsideFrustum); null = no pruning
+    this._dz = 0.0;            // per-traversal constants derived once in updateQuadtree (see there):
+    this._near = 0.0;          //   altitude split term, penalty-free near radius,
+    this._floor = 0.6;         //   and the far-coarsening floor. Declared here so the shape is fixed.
   }
 
   setConfig(size, maxLevel, distFactor) {
@@ -42,7 +45,7 @@ export class Quadtree {
   // camera altitude above the sphere (same on every face -> adjacent faces subdivide by real
   // proximity, the fix for the turn-around-unpatched bug).
   _cameraDist(ox, oy, l) {
-    const dz = Math.max(this._camAlt / this.distFactor, 0.0);
+    const dz = this._dz;   // per-traversal constant (max(camAlt/distFactor,0)), hoisted into updateQuadtree
     const dx = Math.min(Math.abs(this._cam[0] - ox), Math.abs(this._cam[0] - (ox + l)));
     const dy = Math.min(Math.abs(this._cam[1] - oy), Math.abs(this._cam[1] - (oy + l)));
     return Math.max(dz, Math.max(dx, dy));
@@ -93,37 +96,14 @@ export class Quadtree {
       const latA = Math.max(Math.abs(this._aim[0] - ax0), Math.abs(this._aim[1] - ay0));
       if (latA < latC) latC = latA;
     }
-    // penalty-free near radius. At very low alt the ON-SCREEN foreground extends to the HORIZON
-    // (~sqrt(2*R*alt): 1km->113km), so a fixed 20km near coarsened the visible field on sea-level
-    // landing (user 2026-06-02: 'at sea level LOD reduces when landing'). Scale near to the horizon
-    // distance so the whole visible field out to ~0.6*horizon stays full-LOD at any landing altitude;
-    // camAlt*6 dominates at higher alt where the horizon is far. size == R.
-    // near = penalty-free radius around the foreground. It must cover the WHOLE on-screen field so
-    // detail keeps INCREASING all the way to the ground (user 2026-06-02: 'LOD not increasing under
-    // 500km'). The visible field reaches the HORIZON (~sqrt(2*R*alt)); protect the FULL horizon (was
-    // 0.6) so nothing on-screen is coarsened by the far-LOD falloff -- the falloff then only trims
-    // terrain BEYOND the horizon (off-screen waste), never visible detail.
-    const horizon = Math.sqrt(2.0 * this.size * Math.max(this._camAlt, 0.0));
-    // W2 SINGLE-VERSION near-radius tighten (mob-w2, unconditional): max(camAlt*6, horizon*0.9,
-    // 20km). Shrinking the penalty-free near radius lets the far-LOD falloff coarsen MORE of the
-    // off-screen / past-horizon field, cutting peak visible leaves toward ~600-900 (precondition
-    // for the 512 layer cap). These are THE only values -- no device tier.
-    const near = Math.max(this._camAlt * 2.0, horizon * 0.2, 10000.0 * (this.size / 6360000.0));   // SCALE-INVARIANT: the 10km near-radius floor scales with the planet size (else it dominates at the small-radius scale)
-    // floor 0.5 (was 0.18): past the horizon the split may HALVE, not crush to ~1/5 (which was
-    // collapsing near-field detail on descent). Foreground (latC<near) stays fall=1 -> full LOD.
+    // near = the penalty-free radius around the foreground; it and its `horizon` input are pure
+    // functions of _camAlt + size, both FIXED for the whole traversal -- they were recomputed (incl. a
+    // Math.sqrt) at every visited node. Derived once per updateQuadtree; see the rationale there.
+    const near = this._near;
     const fall = 1.0 / (1.0 + Math.max(0.0, latC - near) / near);
-    // ALTITUDE-DETAIL-GRADIENT-SWAP (user: 'above fps height, swap more near detail for far detail so the
-    // higher we get the less of a detail gradient there is to the land center'). The far-coarsening floor
-    // is normally 0.5 (far quads split at half the near rate = a radial detail gradient around the
-    // camera). Above the fps height (~5km AGL = first-person ground play) raise that floor toward 1.0 as
-    // altitude climbs, so far and near refine at the same rate = the gradient FLATTENS the higher we get
-    // (detail budget spreads from the near foreground out to the far field). Below fps height the gradient
-    // stays sharp (floor 0.5) so the deck keeps its near-field detail. fpsAltM live via this.fpsAltM.
-    // FLOOR: starts at 0.6 at deck (preserves near-field detail where the user sees it),
-    // drops logarithmically with altitude toward ~0.3 at orbital height, so far coarsening
-    // engages progressively at every altitude -- no more one-step jump at ~45km.
-    const altLog = Math.log2(Math.max(this._camAlt, 5000.0) / 5000.0);
-    const floor = Math.max(0.30, Math.min(0.60, 0.60 - altLog * 0.05));
+    // ALTITUDE-DETAIL-GRADIENT-SWAP far-coarsening floor: also a pure function of _camAlt, so its
+    // Math.log2 ran once per visited node for one value per traversal. Hoisted; see updateQuadtree.
+    const floor = this._floor;
     const effSplit = this.splitDist * Math.max(floor, fall);
     if (dist < l * effSplit && level < this.maxLevel) {
       const hl = l / 2.0;
@@ -179,6 +159,19 @@ export class Quadtree {
     else this._aim = null;
     this._n = 0;
     this._cull = (cull != null) ? cull : null;   // per-frame frustum-cull context, or null (cull off)
+    // PER-TRAVERSAL CONSTANTS (opt): _dz/_near/_floor depend only on _camAlt, size and distFactor --
+    // all three are fixed before _recurse starts and nothing in the recursion mutates them, so the
+    // sqrt (horizon), log2 (altLog) and divide (dz) that _recurse ran at EVERY visited node collapse
+    // to one evaluation per traversal. Values and therefore the emitted leaf set are unchanged.
+    this._dz = Math.max(this._camAlt / this.distFactor, 0.0);
+    // horizon: the on-screen field reaches ~sqrt(2*R*alt); `near` protects it from the far-LOD falloff.
+    const _horizon = Math.sqrt(2.0 * this.size * Math.max(this._camAlt, 0.0));
+    // W2 near-radius tighten (mob-w2, unconditional): max(camAlt*2, horizon*0.2, 10km scaled by size).
+    this._near = Math.max(this._camAlt * 2.0, _horizon * 0.2, 10000.0 * (this.size / 6360000.0));
+    // floor starts at 0.60 at the deck and drops logarithmically with altitude toward 0.30 at orbit,
+    // so the far-coarsening engages progressively at every altitude (no one-step jump at ~45km).
+    const _altLog = Math.log2(Math.max(this._camAlt, 5000.0) / 5000.0);
+    this._floor = Math.max(0.30, Math.min(0.60, 0.60 - _altLog * 0.05));
     this._recurse(0, 0, 0, -this.size, -this.size, 2.0 * this.size);
     this._leaves.length = this._n;   // expose exactly the filled prefix; tail (rare peak shrink) is dropped
     return this._leaves;

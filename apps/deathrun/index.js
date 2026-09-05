@@ -202,13 +202,24 @@ export default {
         }
       }
     },
+    // Every DOM write is dirty-compared against the last value written, matching apps/tps-game/
+    // client-app.js's onFrame (:230/:238/:247/:250/:252/:254/:267) -- these three were the only
+    // unconditional per-frame DOM writes left in any app hook. A textContent assignment replaces the
+    // element's text node and dirties it for style/layout even when the string is identical, and while
+    // no run is in flight all three values are constant, so this was 3 mutations/frame (180/s at 60fps)
+    // producing no visible change.
     onFrame(_dt, engine) {
       const dr = engine._deathrun; if (!dr) return
-      if (dr._elTimer) dr._elTimer.textContent = dr.running ? fmtTime(Date.now() - dr.startedAt) : '--:--.--'
+      if (dr._elTimer) {
+        const t = dr.running ? fmtTime(Date.now() - dr.startedAt) : '--:--.--'
+        if (dr._lastTimerText !== t) { dr._lastTimerText = t; dr._elTimer.textContent = t }
+      }
       if (dr._elResult) {
         const show = Date.now() < dr.resultUntil
-        dr._elResult.textContent = show ? dr.resultText : ''
-        dr._elResult.style.opacity = show ? '1' : '0'
+        const t = show ? dr.resultText : ''
+        if (dr._lastResultText !== t) { dr._lastResultText = t; dr._elResult.textContent = t }
+        const op = show ? '1' : '0'
+        if (dr._lastResultOp !== op) { dr._lastResultOp = op; dr._elResult.style.opacity = op }
       }
     },
   },

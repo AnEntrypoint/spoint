@@ -68,6 +68,10 @@ function worldToFaceLocal(face, camWorld, R) {   // R = configured planet radius
 const CULL_MAX_ELEV = 500000.0;  // meters: +/- elevation margin so peaks can't poke in (Earth-reference; the cull uses R*CULL_ELEV_FRAC so it scales with the planet); raised to match 750000 height multiplier x 0.6 peak
 const CULL_ELEV_FRAC = CULL_MAX_ELEV / 6360000.0;   // SCALE-INVARIANT: the elevation margin as a FRACTION of R, so R*CULL_ELEV_FRAC == 12km at Earth R and 120m at the 63.6km real-size R (else the cull margin is relatively 100x too big at the small scale -> looser cull -> more quads)
 const CULL_NDC_MARGIN = 0.06;   // NDC slack so an edge-touching quad is kept (false-keep is cheap)
+// Module scratch holding quadOutsideFrustum's 3 x / 3 y tangent-warped sample coords, replacing the
+// two array literals it built per call. The function is a pure straight-line leaf (it calls nothing
+// that could re-enter it), so one shared pair is safe.
+const _wX = new Float64Array(3), _wY = new Float64Array(3);
 // Robust screen-space-AABB frustum cull. The old 4-CORNER "all corners past one plane" test could not
 // bound a spherically-bulged + tangent-warped quad's true screen extent at oblique views -- the bulge
 // is maximal at the EDGE MIDPOINTS, which 4 corners miss entirely, so on-screen quads got false-culled
@@ -83,29 +87,49 @@ function quadOutsideFrustum(face, ox, oy, l, R, vpr, eye) {
   const ex = eye ? eye[0] : 0, ey = eye ? eye[1] : 0, ez = eye ? eye[2] : 0;
   const WK = Math.PI / 4.0;
   const hl = l * 0.5;
-  // 3x3 face-local sample grid: corners, edge midpoints, centre.
-  const sx = [ox, ox+hl, ox+l], sy = [oy, oy+hl, oy+l];
+  // 3x3 face-local sample grid: corners, edge midpoints, centre. The tangent warp of a sample depends
+  // on ONE axis only, but both warps used to sit in the inner (gy) loop body -> 18 Math.tan per call
+  // where 6 distinct values exist. Precompute the 3 x-warps and 3 y-warps into the module scratch
+  // (12 tan removed/call) and drop the two per-call [ox,ox+hl,ox+l]/[oy,oy+hl,oy+l] array literals.
+  _wX[0] = R * Math.tan((ox / R) * WK); _wX[1] = R * Math.tan(((ox + hl) / R) * WK); _wX[2] = R * Math.tan(((ox + l) / R) * WK);
+  _wY[0] = R * Math.tan((oy / R) * WK); _wY[1] = R * Math.tan(((oy + hl) / R) * WK); _wY[2] = R * Math.tan(((oy + l) / R) * WK);
+  const radLo = R*(1.0-CULL_ELEV_FRAC), radHi = R*(1.0+CULL_ELEV_FRAC);   // SCALE-INVARIANT margin (R*FRAC == CULL_MAX_ELEV at Earth R); both shells are per-call constants, were re-derived on all 18 samples
+  const p0=vpr[0],p1=vpr[1],p2=vpr[2],p3=vpr[3],p4=vpr[4],p5=vpr[5],p6=vpr[6],p7=vpr[7],
+        p8=vpr[8],p9=vpr[9],p10=vpr[10],p11=vpr[11],p12=vpr[12],p13=vpr[13],p14=vpr[14],p15=vpr[15];
+  const u0=F.u[0],u1=F.u[1],u2=F.u[2], v0=F.v[0],v1=F.v[1],v2=F.v[2], c0=F.c[0],c1=F.c[1],c2=F.c[2];
+  const LO = -1 - CULL_NDC_MARGIN, HI = 1 + CULL_NDC_MARGIN;
   let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity, anyFront=false, anyBehind=false, allBeyondFar=true;
-  for (let gx=0; gx<3; gx++) for (let gy=0; gy<3; gy++) {
-    const wpx = R * Math.tan((sx[gx] / R) * WK);
-    const wpy = R * Math.tan((sy[gy] / R) * WK);
-    const len = Math.hypot(wpx, wpy, R) || 1;
-    const dx = (wpx/len)*F.u[0]+(wpy/len)*F.v[0]+(R/len)*F.c[0];
-    const dy = (wpx/len)*F.u[1]+(wpy/len)*F.v[1]+(R/len)*F.c[1];
-    const dz = (wpx/len)*F.u[2]+(wpy/len)*F.v[2]+(R/len)*F.c[2];
-    for (let s=0;s<2;s++){
-      const rad = s===0 ? (R*(1.0-CULL_ELEV_FRAC)) : (R*(1.0+CULL_ELEV_FRAC));   // SCALE-INVARIANT margin (R*FRAC == CULL_MAX_ELEV at Earth R)
-      const X=dx*rad-ex, Y=dy*rad-ey, Z=dz*rad-ez;
-      const cx = vpr[0]*X+vpr[4]*Y+vpr[8]*Z+vpr[12];
-      const cy = vpr[1]*X+vpr[5]*Y+vpr[9]*Z+vpr[13];
-      const cz = vpr[2]*X+vpr[6]*Y+vpr[10]*Z+vpr[14];
-      const cw = vpr[3]*X+vpr[7]*Y+vpr[11]*Z+vpr[15];
-      if (cw <= 1e-6) { anyBehind = true; continue; } // behind near plane: can't project to a finite NDC
-      anyFront = true;
-      if (cz <= cw) allBeyondFar = false; // at least one sample in front of the far plane
-      const nx = cx/cw, ny = cy/cw;
-      if (nx < minX) minX = nx; if (nx > maxX) maxX = nx;
-      if (ny < minY) minY = ny; if (ny > maxY) maxY = ny;
+  for (let gx=0; gx<3; gx++) {
+    const wpx = _wX[gx];
+    for (let gy=0; gy<3; gy++) {
+      const wpy = _wY[gy];
+      const len = Math.hypot(wpx, wpy, R) || 1;
+      // wpx/len, wpy/len and R/len were each written out three times (9 divisions where 3 suffice).
+      const ax = wpx/len, ay = wpy/len, az = R/len;
+      const dx = ax*u0+ay*v0+az*c0;
+      const dy = ax*u1+ay*v1+az*c1;
+      const dz = ax*u2+ay*v2+az*c2;
+      for (let s=0;s<2;s++){
+        const rad = s===0 ? radLo : radHi;
+        const X=dx*rad-ex, Y=dy*rad-ey, Z=dz*rad-ez;
+        const cw = p3*X+p7*Y+p11*Z+p15;
+        // EARLY-OUT (identical verdict, fewer samples): anyFront/anyBehind are monotone latches and
+        // the post-loop order is !anyFront -> anyBehind -> allBeyondFar, so the moment BOTH are set
+        // the result is pinned to `false` (the near-straddle keep below) whatever the rest project to.
+        if (cw <= 1e-6) { if (anyFront) return false; anyBehind = true; continue; } // behind near plane: can't project to a finite NDC
+        if (anyBehind) return false;
+        anyFront = true;
+        const cz = p2*X+p6*Y+p10*Z+p14;
+        if (cz <= cw) allBeyondFar = false; // at least one sample in front of the far plane
+        // cx/cy are only needed once cw is known good -- they were computed on behind-near samples too.
+        const nx = (p0*X+p4*Y+p8*Z+p12)/cw, ny = (p1*X+p5*Y+p9*Z+p13)/cw;
+        if (nx < minX) minX = nx; if (nx > maxX) maxX = nx;
+        if (ny < minY) minY = ny; if (ny > maxY) maxY = ny;
+      }
+      // EARLY-OUT: min/max are monotone too, so once every one of the four "fully off one side"
+      // disjuncts below is permanently false AND a front-of-far sample exists, the verdict is pinned
+      // to `false` (keep) -- the remaining samples can only widen an AABB that already overlaps.
+      if (!allBeyondFar && maxX >= LO && minX <= HI && maxY >= LO && minY <= HI) return false;
     }
   }
   if (!anyFront) return true;             // entire quad behind the camera -> cull
@@ -116,9 +140,8 @@ function quadOutsideFrustum(face, ox, oy, l, R, vpr, eye) {
   // quad got wrongly culled -> blank). Only quads FULLY in front get the AABB-vs-viewport test.
   if (anyBehind) return false;
   if (allBeyondFar) return true;          // entire quad beyond the far plane -> cull
-  const M = CULL_NDC_MARGIN;
   // cull only if the NDC AABB is fully off one side of the viewport.
-  return (maxX < -1 - M) || (minX > 1 + M) || (maxY < -1 - M) || (minY > 1 + M);
+  return (maxX < LO) || (minX > HI) || (maxY < LO) || (minY > HI);
 }
 
 // Extract the 6 normalized frustum planes (Gribb-Hartmann) from a COLUMN-MAJOR clip-from-cameraRelative
