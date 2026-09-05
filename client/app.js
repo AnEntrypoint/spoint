@@ -891,8 +891,13 @@ if (_hashQueryIdx >= 0) {
     if (!_params.has(k)) _params.append(k, v)
   }
 }
-const _isSingleplayer = _params.has('singleplayer')
-const _worldParam = _params.get('world')
+// Default to singleplayer/tps-game when no mode is present in the URL at all (a bare visit),
+// matching client/index.html's removed redirect: previously a synchronous location.replace
+// added a full extra navigation before app.js even ran, purely to write these same defaults
+// into the URL bar first.
+const _hasAnyMode = _params.has('singleplayer') || _params.has('wwjoin') || _params.has('room') || _params.has('multiplayer')
+const _isSingleplayer = _hasAnyMode ? _params.has('singleplayer') : true
+const _worldParam = _params.get('world') || (_hasAnyMode ? null : 'tps-game')
 const _isHost = _params.has('host')
 const _joinOffer = _params.get('join')
 const _wwRoom = _params.get('room')
