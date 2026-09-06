@@ -13,7 +13,7 @@ import { createLoadingScreen } from './hud/createLoadingScreen.js'
 import { MobileControls, detectDevice } from './core/MobileControls.js'
 import { createMobileControlsUI } from './hud/MobileControlsUI.js'
 import { createCameraController } from './core/camera.js'
-import { preloadAnimationLibrary, loadAnimationLibrary } from './AnimationLibrary.js'
+import { preloadAnimationLibraryIfUncached, loadAnimationLibrary } from './AnimationLibrary.js'
 import { dbDelete, dbPut } from './ModelCache.js'
 import { createEditor } from './editor/editor.js'
 import { createClientStateMachine } from './core/ClientMachine.js'
@@ -279,7 +279,11 @@ try {
 }
 const { ambient, studio, sun } = setupLights(scene), { gltfLoader, ktx2Loader } = createLoaders(renderer)
 // Kick the anim-lib fetch now (idempotent, cached) so it overlaps the world import + cold worker boot instead of serializing behind them.
-preloadAnimationLibrary(gltfLoader)
+// Conditional (AnimationLibrary.js): a warm client whose IndexedDB clip cache already holds this
+// srcTag's clips never downloads/parses the 6.9MB GLB at all -- loadAnimationLibrary serves them from
+// the cache -- so the probe (one HEAD, which loadAnimationLibrary needs anyway, + two IDB lookups)
+// gates the fetch; a cold client kicks the exact same preload as before.
+preloadAnimationLibraryIfUncached(gltfLoader)
 if (typeof window !== 'undefined') {
   // kit `canvas-host` makes the app shell's opaque body bg transparent so the WebGL canvas shows through.
   try { document.body.classList.add('canvas-host') } catch (e) { _dbgBoot('canvas-host class add failed:', e?.message || e) }
@@ -304,8 +308,11 @@ if (typeof window !== 'undefined') {
   // DataSession.debug() surfaced, see client/core/MeshDebug.js). Cheap (500ms poll, no-op until a
   // wireweave bridge exists) so it is safe to install unconditionally, same discipline as
   // installRenderControls above -- not gated to P2P sessions since it self-reports {connected:false}
-  // in every other mode.
-  installMeshDebug()
+  // in every other mode. Deferred off the boot critical path (idle callback, bounded fallback timer):
+  // it is a diagnostic surface nobody reads during boot, and its 500ms poll + first snapshot() used to
+  // run synchronously between renderer creation and the loading machine.
+  const _idle = (fn, ms) => (typeof requestIdleCallback === 'function') ? requestIdleCallback(fn, { timeout: ms }) : setTimeout(fn, ms)
+  _idle(() => { try { installMeshDebug() } catch (e) { _dbgBoot('installMeshDebug failed:', e?.message || e) } }, 3000)
   // Background cache-revalidation sweep (client/core/CacheRevalidationSweep.js): periodically walks
   // client/ModelCache.js's LRU manifest and enqueues HEAD-revalidation requests onto the shared
   // StreamingScheduler for entries nobody has re-requested in a while, so a long-lived tab converges
@@ -318,13 +325,18 @@ if (typeof window !== 'undefined') {
   // forget: never blocks boot, resolves window.__offscreenCanvasWorkerRenderingSupported (starts null,
   // per the RenderControls knob doc) + window.__offscreenCanvasWorkerRenderingDetail (per-layer breakdown)
   // once the real Worker+WebGL2-in-worker round trip settles (bounded at 2s inside the probe itself).
-  probeOffscreenCanvasWorkerRendering().then(({ supported, detail }) => {
-    window.__offscreenCanvasWorkerRenderingSupported = supported
-    window.__offscreenCanvasWorkerRenderingDetail = detail
-  }).catch(e => {
-    window.__offscreenCanvasWorkerRenderingSupported = false
-    window.__offscreenCanvasWorkerRenderingDetail = { error: 'probe rejected: ' + (e && e.message || e) }
-  })
+  // Deferred to idle time: the probe spawns a throwaway Worker AND a 4th WebGL2 context, both of
+  // which competed with the real renderer/physics-worker boot for driver + thread time while
+  // answering a question nothing on the boot path asks (the knob starts null, per its own doc).
+  _idle(() => {
+    probeOffscreenCanvasWorkerRendering().then(({ supported, detail }) => {
+      window.__offscreenCanvasWorkerRenderingSupported = supported
+      window.__offscreenCanvasWorkerRenderingDetail = detail
+    }).catch(e => {
+      window.__offscreenCanvasWorkerRenderingSupported = false
+      window.__offscreenCanvasWorkerRenderingDetail = { error: 'probe rejected: ' + (e && e.message || e) }
+    })
+  }, 5000)
   // Real worker-hosted render loop -- the actual migration mechanism (offscreencanvas-worker-migration-
   // followup epic, first functional slice; see client/core/WorkerRenderer.js + client/workers/
   // OffscreenRenderWorker.js). NOT auto-started (would spawn a visible/hidden canvas + worker for every
@@ -487,6 +499,16 @@ async function _finishLoading() {
   loadingMgr.setLabel('Starting game...')
   loadingScreen.hide()
   if (window.__app) window.__app.revealedAt = performance.now()
+  // Deferred singleplayer model prefetch (see the onWorldDef prefetch site): one scheduler request per
+  // URL, scored as far-away/out-of-frustum so any real streaming request outranks it; each run() is a
+  // single-model prefetchModels call (idempotent -- already-parsed/in-flight URLs are skipped there).
+  if (_pendingSpPrefetch && _pendingSpPrefetch.length > 0) {
+    const urls = _pendingSpPrefetch; _pendingSpPrefetch = null
+    try {
+      const sched = getSharedStreamingScheduler()
+      for (const u of urls) sched.enqueue({ id: 'modelPrefetch:' + u, kind: 'modelPrefetch', features: { distance: 50000, screenSize: 1, inFrustum: false, gameplayBoost: 0 }, run: () => { el.prefetchModels([u]).catch(() => {}) } })
+    } catch (e) { _dbgBoot('singleplayer prefetch enqueue failed:', e?.message || e) }
+  }
   try { window.__app?.clientMachine?.send('ASSETS_READY') } catch (e) { _dbgBoot('ASSETS_READY send failed:', e?.message || e) }
 }
 function _ensureVegetation(tb) {
@@ -588,9 +610,14 @@ async function _buildWorldScenery() {
       if (window.__app) window.__app.colliderDebug = colliderDebug
       if (typeof location !== 'undefined' && /[?&]drawcollider/.test(location.search)) colliderDebug.setVisible(true)
     } catch (e) { console.error('[colliderDebug] init failed:', e?.message || e) }
-    const rp = _ensureRocks(tb); if (rp) { await rp; _hp('after-rocks') }
-    const gp = _ensureGrass(tb); if (gp) { await gp; _hp('after-grass') }
-    const vp = _ensureVegetation(tb); if (vp) { await vp; _hp('after-veg') }
+    // Constructed concurrently (same shape as the reseed-rebuild path further down, which already
+    // does exactly this): only Vegetation bakes anything GPU-side (createOctahedralImpostorMaterial,
+    // streaming-gltf/octahedral-impostor-ez.js -- a fully SYNCHRONOUS setRenderTarget/render/restore
+    // block with no await inside it), Rocks/Grass construction never touches a render target at all
+    // (their only renderer calls are the warmShaders renders below), so the three builds share no
+    // in-flight GPU state; the overlap is their texture loads and per-species rAF yields.
+    const rp = _ensureRocks(tb), gp = _ensureGrass(tb), vp = _ensureVegetation(tb)
+    await Promise.all([rp, gp, vp].filter(Boolean)); _hp('after-rocks-grass-veg')
     _ensureCaves(tb); _hp('after-caves')
     _ensureWeather(tb); _hp('after-weather')
   } else {
@@ -617,11 +644,15 @@ async function _buildWorldScenery() {
     const px = ls && ls.position ? ls.position[0] : 0, pz = ls && ls.position ? ls.position[2] : 0
     _hp('prewarm-start px=' + px + ' pz=' + pz)
     const _spawnChunks = Math.ceil(((PLAYABLE_RADIUS_M * 2) / 32) ** 2) // rough chunk-count cap for a PLAYABLE_RADIUS_M-wide square, CH=32 (VegPlacement.js VEG.CHUNK)
-    if (vegetation && vegetation.prewarm) await vegetation.prewarm(px, pz, _spawnChunks, PLAYABLE_BUDGET_MS)
-    if (rocks && rocks.prewarm) await rocks.prewarm(px, pz, PLAYABLE_BUDGET_MS)
-    _hp('after-rocks-update')
-    if (grass && grass.prewarm) await grass.prewarm(px, pz, PLAYABLE_BUDGET_MS)
-    _hp('after-grass-update')
+    // The three prewarms are pure CPU placement (loadChunk -> instance-buffer commits, no renderer
+    // calls -- see each system's prewarm()) that each yield a frame every few chunks; run them
+    // concurrently so their yields interleave instead of serializing three full budgets end to end.
+    await Promise.all([
+      vegetation && vegetation.prewarm ? vegetation.prewarm(px, pz, _spawnChunks, PLAYABLE_BUDGET_MS) : null,
+      rocks && rocks.prewarm ? rocks.prewarm(px, pz, PLAYABLE_BUDGET_MS) : null,
+      grass && grass.prewarm ? grass.prewarm(px, pz, PLAYABLE_BUDGET_MS) : null,
+    ])
+    _hp('after-veg-rocks-grass-prewarm')
     if (vegetation && vegetation.warmShaders) await vegetation.warmShaders(camera)
     if (rocks && rocks.warmShaders) await rocks.warmShaders(camera)
     _hp('after-rocks-warm')
@@ -689,6 +720,9 @@ let terrainBackdrop=null, _terrainCfg=null, vegetation=null, rocks=null, grass=n
 // site (initial boot AND the reseed-rebuild path, which also wipes sculptOverlay to a fresh empty
 // mirror, same gap this row exists to close for the very first connect).
 let _pendingSculptBackfill = null
+// Singleplayer model URLs held from WORLD_DEF until the curtain drops (see _finishLoading + the
+// onWorldDef prefetch site); multiplayer prefetches immediately as before.
+let _pendingSpPrefetch = null
 function _applyPendingSculptBackfill() {
   if (!_pendingSculptBackfill || !sculptOverlay) return
   const { json, x, z } = _pendingSculptBackfill
@@ -875,7 +909,7 @@ let _anyEntityDone = false
 const _envEntityIds = new Set()
 const onFirstEntityLoaded=id=>{ const isEnv = _envEntityIds.has(id); if (isEnv || (!_envEntityIds.size && !_anyEntityDone)) loadingMachine.send('ENVIRONMENT_DONE'); _anyEntityDone = true; if (firstSnapshotEntityPending.has(id)) firstSnapshotEntityPending.delete(id); loadingMachine.send('SET_PENDING', { count: firstSnapshotEntityPending.size }) }
 let _assetsKicked = false
-function initAssets(url) { if (_assetsKicked) return; _assetsKicked = true; loadingMgr.setLabel('Downloading player model...'); preloadAnimationLibrary(gltfLoader)
+function initAssets(url) { if (_assetsKicked) return; _assetsKicked = true; loadingMgr.setLabel('Downloading player model...'); preloadAnimationLibraryIfUncached(gltfLoader)
   loadingMgr.fetchWithProgress(url,'vrm').then(async b => {
     let j=null
     if (url.endsWith('.vrm')) { try { const av=b instanceof ArrayBuffer?b:b.buffer,dv=new DataView(av),jl=dv.getUint32(12,true); j=JSON.parse(new TextDecoder().decode(new Uint8Array(av,20,jl))); const exts=j.extensions||{}; if (!exts.VRM&&!exts.VRMC_vrm) { await dbDelete(url); const r=await fetch(url); if (!r.ok) throw 0; b=new Uint8Array(await r.arrayBuffer()); const e=r.headers.get('etag')||''; if (e) dbPut(url,e,b.buffer); j=null } } catch (_) { j=null } }
@@ -1330,6 +1364,12 @@ let client; const _clientConfig = {
     const modelUrls = wd._modelUrls || (wd.entities || []).map(e => e.model).filter(Boolean)
     loadingMachine.send('MODELS_DONE')
     if (modelUrls.length > 0 && !_isSingleplayer) el.prefetchModels(modelUrls).catch(() => {})
+    // Singleplayer used to skip the prefetch outright (no documented reason found -- present since the
+    // initial commit). Instead of excluding it, route it through the shared StreamingScheduler as
+    // lowest-urgency background work, enqueued only once the loading curtain has dropped
+    // (_finishLoading) so the GLTFLoader parses never compete with the in-Worker physics boot +
+    // scenery build for main-thread time -- the scheduler's per-frame drain budget then paces them.
+    else if (modelUrls.length > 0 && _isSingleplayer) _pendingSpPrefetch = modelUrls
     if (wd.scene) applySceneConfig(wd.scene,scene,ambient,sun,studio,camera)
     // Stash terrain config; the backdrop is created after first-load (_finishLoading), never on the cold-boot critical path.
     if (wd.terrain && wd.terrain.enabled!==false) _terrainCfg=wd.terrain

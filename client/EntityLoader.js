@@ -7,6 +7,52 @@ import { STRINGS } from './core/strings.js'
 import { createStaticInstanceStore } from './core/StaticInstanceStore.js'
 import { RenderControls } from './core/RenderControls.js'
 import { SKIP_MATS_SET, PLACEHOLDER_DIMS, MESH_BUILDERS, LOD_CONFIGS, MAX_CONCURRENT_LOADS_INITIAL, MAX_CONCURRENT_LOADS_RUNTIME, _forceDoubleSide, _buildSoftbodyGeometry, _rewriteSoftbodyGeometry, _makeLabelSprite, _fluidCapacityFor, _buildFluidMesh, _rewriteFluidMesh, _buildFluidSurfaceMesh, _rewriteFluidSurfaceMesh } from './EntityLoaderMeshBuild.js'
+
+// Primitive entity dedup (primitive-entity-geometry-material-dedup): every box/sphere/cylinder/capsule
+// entity used to mint its own BufferGeometry + MeshStandardMaterial (live: 9 primitives -> 9 geometries
+// + 9 materials in tps-game). Identical params now share ONE geometry and ONE material, keyed on exactly
+// the parameters the MESH_BUILDERS / material constructor read (same `||`/`??` defaults, so a key
+// collision implies a byte-identical object). Shared objects carry userData._spointShared and are (a)
+// never disposed per entity (removeEntity/placeholder-swap skip them) and (b) COPY-ON-WRITE in
+// repaintEntity: the first per-entity material mutation clones the shared material for that entity
+// first, so painting one box never recolours its siblings. Non-primitive keys (an object-valued colour)
+// bypass the cache and behave exactly as before.
+const _primGeoCache = new Map()
+const _primMatCache = new Map()
+const _isKeyable = v => v === undefined || v === null || typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean'
+function _primGeoKey(t, c) {
+  switch (t) {
+    case 'cylinder': return `cylinder|${c.r || 0.4}|${c.h || 0.1}|${c.seg || 16}`
+    case 'sphere': return `sphere|${c.r || 0.5}|${c.seg || 16}`
+    case 'capsule': return `capsule|${c.r || 0.3}|${c.h || 1.8}|${c.cap || 4}|${c.seg || 16}`
+    default: return `box|${c.sx || 1}|${c.sy || 1}|${c.sz || 1}`
+  }
+}
+function _sharedPrimitiveGeometry(geoType, c) {
+  const t = MESH_BUILDERS[geoType] ? geoType : 'box'
+  if (!(_isKeyable(c.sx) && _isKeyable(c.sy) && _isKeyable(c.sz) && _isKeyable(c.r) && _isKeyable(c.h) && _isKeyable(c.seg) && _isKeyable(c.cap))) return MESH_BUILDERS[t](c)
+  const key = _primGeoKey(t, c)
+  let g = _primGeoCache.get(key)
+  if (!g) { g = MESH_BUILDERS[t](c); g.userData._spointShared = true; _primGeoCache.set(key, g) }
+  return g
+}
+function _sharedPrimitiveMaterial(c) {
+  const color = c.color ?? 0xff8800, roughness = c.roughness ?? 1, metalness = c.metalness ?? 0, emissive = c.emissive ?? 0x000000, emissiveIntensity = c.emissiveIntensity ?? 0
+  if (!(_isKeyable(color) && _isKeyable(roughness) && _isKeyable(metalness) && _isKeyable(emissive) && _isKeyable(emissiveIntensity))) return new THREE.MeshStandardMaterial({ color, roughness, metalness, emissive, emissiveIntensity })
+  const key = `${color}|${roughness}|${metalness}|${emissive}|${emissiveIntensity}`
+  let m = _primMatCache.get(key)
+  if (!m) { m = new THREE.MeshStandardMaterial({ color, roughness, metalness, emissive, emissiveIntensity }); m.userData._spointShared = true; _primMatCache.set(key, m) }
+  return m
+}
+// Allocation-free paint signature (replaces the per-tick template-string _paintSig): one plain record per
+// entity root, compared field-by-field. null and undefined are both normalised to undefined (the old
+// string sig mapped both to '').
+const _n = v => (v == null ? undefined : v)
+function _paintRecordFrom(c) { return { color: _n(c.color), emissive: _n(c.emissive), emissiveIntensity: _n(c.emissiveIntensity), roughness: _n(c.roughness), metalness: _n(c.metalness), _wetness: _n(c._wetness) } }
+function _disposeOwned(c) {
+  if (c.geometry && !(c.geometry.userData && c.geometry.userData._spointShared)) c.geometry.dispose()
+  if (c.material) { const ms = Array.isArray(c.material) ? c.material : [c.material]; for (const mm of ms) if (mm && !(mm.userData && mm.userData._spointShared)) mm.dispose() }
+}
 const _urlLoads = new Map()
 const _labelSprites = new Map() // entityId -> THREE.Sprite
 
@@ -205,8 +251,11 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
       _fluidMeshes.set(entityId, im)
       return group
     }
-    const geo = MESH_BUILDERS[geoType] ? MESH_BUILDERS[geoType](c) : MESH_BUILDERS.box(c)
-    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: c.color ?? 0xff8800, roughness: c.roughness ?? 1, metalness: c.metalness ?? 0, emissive: c.emissive ?? 0x000000, emissiveIntensity: c.emissiveIntensity ?? 0 }))
+    const geo = _sharedPrimitiveGeometry(geoType, c)
+    const mesh = new THREE.Mesh(geo, _sharedPrimitiveMaterial(c))
+    // Seed the paint record from the values the shared material was built with, so the first repaintEntity
+    // call with an unchanged custom is a no-op (and the shared material stays shared, not cloned on tick 1).
+    group.userData._paint = _paintRecordFrom(c)
     if (c.rotX) mesh.rotation.x = c.rotX; if (c.rotZ) mesh.rotation.z = c.rotZ
     mesh.castShadow = true; mesh.receiveShadow = true
     // Material-authored wetness (ssr-material-wetness-mask-authoring): primitives (box/sphere/capsule)
@@ -620,7 +669,7 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
     }
     if (staticInstanceStore) staticInstanceStore.removeInstance(id)
     const m = entityMeshes.get(id); if (!m) return
-    scene.remove(m); m.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose() })
+    scene.remove(m); m.traverse(_disposeOwned)
     entityMeshes.delete(id); pendingLoads.delete(id); if (sceneGraph) sceneGraph.removeNode(id); _hullMeshes.delete(id)
     const cols = _entityColliders.get(id); if (cols) { cam.removeEnvironment(cols); _entityColliders.delete(id) }
     const ai = _animatedEntities.indexOf(m); if (ai >= 0) _animatedEntities.splice(ai, 1)
@@ -714,7 +763,7 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
       let im = _fluidMeshes.get(entityId)
       if (!im) {
         const placeholderBox = mesh.children.find(c => c.isMesh && c.geometry?.type === 'BoxGeometry' && !c.userData.isFluid && !c.userData.isFluidSurface)
-        if (placeholderBox) { mesh.remove(placeholderBox); placeholderBox.geometry.dispose(); placeholderBox.material.dispose() }
+        if (placeholderBox) { mesh.remove(placeholderBox); _disposeOwned(placeholderBox) }
         im = surfaceMode
           ? _buildFluidSurfaceMesh(custom.fluid, originPos, RenderControls.get('fluidSurfaceCellSize'), RenderControls.get('fluidSurfaceThickness'))
           : _buildFluidMesh(custom.fluid, originPos, _renderer)
@@ -728,8 +777,7 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
       }
       mesh.userData.custom = custom
     }
-    const sig = `${custom.color ?? ''}|${custom.emissive ?? ''}|${custom.emissiveIntensity ?? ''}|${custom.roughness ?? ''}|${custom.metalness ?? ''}|${custom._wetness ?? ''}`
-    // The material-paint dedupe (sig) only covers VISUAL fields on purpose (cheap per-tick call, most
+    // The material-paint dedupe (the _paint record, compared below) only covers VISUAL fields on purpose (cheap per-tick call, most
     // entities' custom never changes) -- but mesh.userData.custom was unconditionally gated behind that
     // SAME check, so a non-visual custom field changing alone (found live while wiring apps/vehicle's
     // driverId: an app that writes a plain state flag into custom, e.g. mount/possession/ownership,
@@ -778,8 +826,11 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
       existingLabel.material.dispose()
       _labelSprites.delete(entityId)
     }
-    if (mesh.userData._paintSig === sig) return false
-    mesh.userData._paintSig = sig
+    const rec = mesh.userData._paint
+    const pColor = _n(custom.color), pEmissive = _n(custom.emissive), pEI = _n(custom.emissiveIntensity), pRough = _n(custom.roughness), pMetal = _n(custom.metalness), pWet = _n(custom._wetness)
+    if (rec && rec.color === pColor && rec.emissive === pEmissive && rec.emissiveIntensity === pEI && rec.roughness === pRough && rec.metalness === pMetal && rec._wetness === pWet) return false
+    if (rec) { rec.color = pColor; rec.emissive = pEmissive; rec.emissiveIntensity = pEI; rec.roughness = pRough; rec.metalness = pMetal; rec._wetness = pWet }
+    else mesh.userData._paint = { color: pColor, emissive: pEmissive, emissiveIntensity: pEI, roughness: pRough, metalness: pMetal, _wetness: pWet }
     // Material-authored wetness (ssr-material-wetness-mask-authoring): live editor slider drag reaches
     // here via the same custom.* wire delta as color/roughness -- restamp userData.wetness on both the
     // root (debug/consistency) and every sub-mesh SSR.js's G-buffer pass actually samples, matching the
@@ -790,14 +841,25 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
     mesh.traverse(o => {
       if (o.isMesh) o.userData.wetness = _wetness
       const m = o.material; if (!m || !m.color) return
-      const mats = Array.isArray(m) ? m : [m]
-      for (const mat of mats) {
+      const isArr = Array.isArray(m); const mats = isArr ? m : [m]
+      for (let i = 0; i < mats.length; i++) {
+        let mat = mats[i]
+        const willMutate = (custom.color != null && !!mat.color?.set) || (custom.emissive != null && !!mat.emissive?.set) || (custom.emissiveIntensity != null && 'emissiveIntensity' in mat) || (custom.roughness != null && 'roughness' in mat) || (custom.metalness != null && 'metalness' in mat)
+        if (!willMutate) continue
+        if (mat.userData && mat.userData._spointShared) {
+          // Copy-on-write: this material is the shared primitive-cache instance -- clone it for THIS
+          // entity before the first mutation so siblings built from the same key keep their own look.
+          const own = mat.clone(); own.userData = { ...mat.userData, _spointShared: false }
+          if (isArr) m[i] = own; else o.material = own
+          mat = own
+        }
         if (custom.color != null && mat.color?.set) { mat.color.set(custom.color); touched = true }
         if (custom.emissive != null && mat.emissive?.set) { mat.emissive.set(custom.emissive); touched = true }
         if (custom.emissiveIntensity != null && 'emissiveIntensity' in mat) { mat.emissiveIntensity = custom.emissiveIntensity; touched = true }
         if (custom.roughness != null && 'roughness' in mat) { mat.roughness = custom.roughness; touched = true }
         if (custom.metalness != null && 'metalness' in mat) { mat.metalness = custom.metalness; touched = true }
-        mat.needsUpdate = true
+        // No mat.needsUpdate: colour/emissive/emissiveIntensity/roughness/metalness are plain uniforms on
+        // every material family this touches (no define/program change), so the re-derive was pure cost.
       }
     })
     return touched

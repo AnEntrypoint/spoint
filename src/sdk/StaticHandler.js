@@ -62,6 +62,16 @@ const HASH_ETAG_EXTENSIONS = new Set(['.wasm', '.png', '.jpg', '.webp', '.ktx2',
 // recorded artifact the client already fetches with cache:'no-cache' -- honor that server-side too.
 const IMAGE_CACHE_CONTROL = 'public, max-age=300'
 const JSON_CACHE_CONTROL = 'public, max-age=60'
+const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.webp', '.ktx2', '.svg', '.ico'])
+
+// 304 header set: ETag always, Cache-Control only when the 200 would have carried one -- Node's
+// writeHead throws on an undefined header value (live-witnessed as "[static] handler error: Invalid
+// value "undefined" for header "Cache-Control"" the moment an ETag'd extension had no Cache-Control).
+function _notModifiedHeaders(headers) {
+  const h = { 'ETag': headers['ETag'] }
+  if (headers['Cache-Control']) h['Cache-Control'] = headers['Cache-Control']
+  return h
+}
 
 // How many of the manifest's highest-priority (lowest-score, most urgent) entries get a real HTTP
 // 103 Early Hints Link/preload pairing on the HTML entry response -- see the Early Hints wiring
@@ -375,7 +385,7 @@ export function createStaticHandler(dirs, opts = {}) {
           // exactly the CDN-friendly caching contract this artifact needs. See AGENTS.md
           // cdn-hosted-baked-heightfield-tiles-static.
           headers['Cache-Control'] = 'public, max-age=86400, immutable'
-        } else if (ext === '.png' || ext === '.jpg' || ext === '.webp' || ext === '.ktx2') {
+        } else if (IMAGE_EXTENSIONS.has(ext)) {
           headers['Cache-Control'] = IMAGE_CACHE_CONTROL
         } else if (ext === '.json') {
           headers['Cache-Control'] = fp.endsWith('.shadermanifest.json') ? 'no-cache, must-revalidate' : JSON_CACHE_CONTROL
@@ -414,7 +424,7 @@ export function createStaticHandler(dirs, opts = {}) {
             headers['Vary'] = 'Accept-Encoding'
             const ifNoneMatch = req.headers['if-none-match']
             if (ifNoneMatch === headers['ETag']) {
-              res.writeHead(304, { 'ETag': headers['ETag'], 'Cache-Control': headers['Cache-Control'] })
+              res.writeHead(304, _notModifiedHeaders(headers))
               res.end()
               return
             }
@@ -448,7 +458,7 @@ export function createStaticHandler(dirs, opts = {}) {
             : `"${mtime.toString(16)}"`
           const ifNoneMatch = req.headers['if-none-match']
           if (ifNoneMatch === headers['ETag']) {
-            res.writeHead(304, { 'ETag': headers['ETag'], 'Cache-Control': headers['Cache-Control'] })
+            res.writeHead(304, _notModifiedHeaders(headers))
             res.end()
             return
           }

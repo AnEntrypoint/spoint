@@ -9,7 +9,9 @@ import { createServerWeather } from './ServerWeather.js'
 import { enforceMovementEnvelope } from '../netcode/InputGuard.js'
 import { checksumBodies } from '../netcode/LockstepChecksum.js'
 import { recordSnapshotBytes, recordTickPhase } from './Metrics.js'
-import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, getPlayerPriorityIds, clearPlayerPriorityAccumulator, _spatialCache, _cellPackCache, _ringCache } from './TickHandlerAOI.js'
+// _cellCenterWorld was used by the planetRadius>0 cell-addressing branch below without being imported
+// (a ReferenceError on the first curved-space world; the flat-XZ branch never reached it).
+import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, getPlayerPriorityIds, clearPlayerPriorityAccumulator, _spatialCache, _cellPackCache, _ringCache, _cellCenterWorld } from './TickHandlerAOI.js'
 export { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, getPlayerPriorityIds } from './TickHandlerAOI.js'
 
 const MAX_SENDS_PER_TICK = 25
@@ -136,6 +138,13 @@ function processPlayerMovement(players, deps, tick, dt, playerIdleCounts, player
 // buildAndSendSnapshots call (module-level to avoid a fresh Map allocation every tick, same pooling
 // pattern as TickHandlerAOI.js's _spatialCache/_cellPackCache).
 const _playersByIdScratch = new Map()
+// Per-tick shared-cell pack cache for the NON-fresh useSharedCell case (see the send stage of
+// buildAndSendSnapshots): every player riding a cell's shared delta stream this tick gets a byte-identical
+// payload (same players[] from the cell's nearbyPlayerIds, same shared.entities/removed, same tick/
+// serverTime), so N-1 msgpackr encodes per cell are skipped. Separate from _cellPackCache (the
+// pre-existing empty-entities cache) because a fresh-to-cell player's empty full-set pack and a
+// non-fresh player's shared pack can legitimately differ in `removed` under the same cellKey.
+const _cellSharedPackCache = new Map()
 const _packWrapper = { type: MSG.SNAPSHOT, payload: null }
 const _packPayload = { seq: 0, tick: 0, serverTime: 0, players: null, entities: null, removed: undefined, delta: 1, dots: undefined }
 
@@ -215,6 +224,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     const reducedTickMod = Math.max(1, Math.round(snapshotHz / PLAYER_LOD_REDUCED_HZ))
     _spatialCache.clear()
     _cellPackCache.clear()
+    _cellSharedPackCache.clear()
     _ringCache.clear()
     let dynCache = null
     let unmanagedIds = null
@@ -289,8 +299,9 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
       // calls here (buildAndSendSnapshots only runs on tick % _snapshotInterval === 0), so `tick %
       // reducedTickMod` would gate at the wrong cadence (reducedTickMod is derived from snapshot Hz,
       // meaningful only against a counter that increments once per snapshot).
-      let preEncodedPlayers, playerDots
+      let preEncodedPlayers, playerDots, isTiered = false, isFreshToCell = false
       if (cached.nearbyPlayerIds && cached.nearbyPlayerIds.length > PLAYER_LOD_FULL_COUNT_THRESHOLD) {
+        isTiered = true
         const tiered = SnapshotEncoder.filterEncodedPlayersTiered(allEncodedPlayers, playersById, cached.nearbyPlayerIds, player.id, viewerPos, snapshotSeq, reducedTickMod)
         preEncodedPlayers = tiered.players; playerDots = tiered.dots.length ? tiered.dots : undefined
       } else {
@@ -337,6 +348,9 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
           // set is handled separately below, from state.lastStaticEntries directly.
           const r = SnapshotEncoder.encodeDeltaFromCache(playerSnap.tick, serverNow, dynCache, relevantIds, cellMap, [], activeStaticEntries, state.staticEntityMap, state.staticEntityIds, snapshotSeq, cached.cellViewerPos, null, state.tombstoneLog, cellLastTick, snapshotHz)
           shared = { tick, entities: r.encoded.entities, removed: r.encoded.removed, entityMap: r.entityMap }
+          // Tag the cell baseline map: it is handed to every non-fresh player BY REFERENCE below (see
+          // entityMap), and the per-player path's spare-map double buffer must never adopt+clear it.
+          r.entityMap._cellShared = true
           cached.sharedEncode = shared
           state.cellEntityMaps.set(cellKey, r.entityMap)
           state.cellLastTick.set(cellKey, tick)
@@ -349,8 +363,13 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
         // freshly joining the SAME cell this same tick) exactly once, then they ride the shared delta
         // stream from the next tick onward -- a real keyframe/delta-reset per (player,cell) transition,
         // the same correctness contract encodeDeltaFromCache's own prevEntityMap gives per-player today.
-        const isFreshToCell = state.playerCell.get(player.id) !== cellKey
-        entityMap = new Map(shared.entityMap)
+        isFreshToCell = state.playerCell.get(player.id) !== cellKey
+        // Non-fresh players share the cell baseline Map by reference (was a fresh clone per player per
+        // tick): the cell map is never mutated after it is built (encodeDeltaFromCache writes a NEW map
+        // each rebuild, scratch=null), and the only consumer that could ever clear it -- the per-player
+        // path's spareMap double buffer -- refuses a _cellShared map (see below). A fresh-to-cell player
+        // still gets a private clone: its full-set resync is a per-(player,cell) event, not the stream.
+        entityMap = isFreshToCell ? new Map(shared.entityMap) : shared.entityMap
         if (isFreshToCell) {
           let full = cached.sharedFull
           if (!full || full.tick !== tick) {
@@ -382,7 +401,11 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
         const staticEntriesForCall = isNewPlayer ? state.lastStaticEntries : activeStaticEntries
         const r = SnapshotEncoder.encodeDeltaFromCache(playerSnap.tick, serverNow, dynCache, relevantIds, prevPlayerMap, preEncodedPlayers, staticEntriesForCall, state.staticEntityMap, state.staticEntityIds, snapshotSeq, viewerPos, scratch, state.tombstoneLog, clientLastTick, snapshotHz)
         encoded = r.encoded; entityMap = r.entityMap
-        scratch.spareMap = prevPlayerMap
+        // Double-buffer swap -- but a prevPlayerMap that is a shared cell baseline (this player just
+        // left the useSharedCell path) must NOT become the spare: the next call would clear() it while
+        // it is still that cell's live delta baseline for every other player. Allocate a private spare
+        // once on that transition instead (rare: a cell-path change, not a per-tick event).
+        scratch.spareMap = prevPlayerMap._cellShared ? new Map() : prevPlayerMap
         state.playerCell.delete(player.id)
         // Per-client outgoing-bytes-per-tick budget: this is the one path with both a real per-viewer
         // entities[] array (not shared across players like the useSharedCell branch above, whose payload
@@ -391,7 +414,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
         // (encodeDeltaFromCache pushes them before any dynamic entry) and are never trimmed.
         const staticCountForTrim = staticEntriesForCall ? staticEntriesForCall.length : 0
         if (encoded.entities.length - staticCountForTrim >= BANDWIDTH_TRIM_MIN_ENTITIES) {
-          const trim = trimEntitiesToBudget(encoded.entities, staticCountForTrim, viewerPos)
+          const trim = trimEntitiesToBudget(encoded.entities, staticCountForTrim, viewerPos, dynCache)
           if (trim.trimmedCount > 0) encoded.entities = trim.entities
         }
       }
@@ -406,17 +429,32 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
       if (playerDots) encoded.dots = playerDots
       state.playerLastTick.set(player.id, tick)
       playerEntityMaps.set(player.id, entityMap)
-      if (encoded.entities.length === 0 && !encoded.removed && !playerDots) {
-        let cellPack = _cellPackCache.get(cellKey)
-        if (!cellPack) {
-          cellPack = packSnapshot(snapshotSeq, encoded)
-          _cellPackCache.set(cellKey, cellPack)
-        }
-        connections.sendPacked(player.id, cellPack, SNAP_UNRELIABLE, MSG.SNAPSHOT)
-      } else {
-        const packedData = packSnapshot(snapshotSeq, encoded)
-        connections.sendPacked(player.id, packedData, SNAP_UNRELIABLE, MSG.SNAPSHOT)
+      // Shared-pack invariant: a cell-keyed pack is byte-identical for every player only if (a) players[]
+      // came from the un-tiered filterEncodedPlayersWithSelf (tiering orders/aggregates by each viewer's
+      // own position) and (b) this player's own id is in the cell's nearbyPlayerIds -- otherwise
+      // filterEncodedPlayersWithSelf appends self at the END, a per-viewer shape. (b) can fail for a
+      // player homed to a cell whose nearbyPlayerIds were queried around ANOTHER player's position (cell
+      // edge = relevanceRadius, so two players in one cell can sit up to sqrt(2)*R apart); such a player
+      // falls through to its own per-client pack rather than receiving a payload missing its own record.
+      let shareable = false
+      if (!isTiered && !playerDots) {
+        let nearSet = cached.nearbySet
+        if (!nearSet) { nearSet = new Set(cached.nearbyPlayerIds); cached.nearbySet = nearSet }
+        shareable = nearSet.has(player.id)
       }
+      let packedData
+      if (shareable && encoded.entities.length === 0 && !encoded.removed) {
+        packedData = _cellPackCache.get(cellKey)
+        if (!packedData) { packedData = packSnapshot(snapshotSeq, encoded); _cellPackCache.set(cellKey, packedData) }
+      } else if (shareable && useSharedCell && !isFreshToCell) {
+        // Non-fresh shared-cell stream: entities/removed are the cell's shared encode and players[] is the
+        // cell's nearby set -> one msgpackr encode per cell per tick, reused by every other rider.
+        packedData = _cellSharedPackCache.get(cellKey)
+        if (!packedData) { packedData = packSnapshot(snapshotSeq, encoded); _cellSharedPackCache.set(cellKey, packedData) }
+      } else {
+        packedData = packSnapshot(snapshotSeq, encoded)
+      }
+      connections.sendPacked(player.id, packedData, SNAP_UNRELIABLE, MSG.SNAPSHOT)
     }
     // Prune the tombstone log to the oldest tick any currently-connected client OR any live per-cell
     // baseline might still need -- bounds its memory to "removals since the slowest reader's last
@@ -435,6 +473,14 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
         for (const key of state.cellLastTick.keys()) {
           if (!liveCells.has(key)) { state.cellLastTick.delete(key); state.cellEntityMaps.delete(key) }
         }
+      }
+      // Spatial-index per-cell memories (player-index hysteresis pairs, stage-index starvation clocks) are
+      // keyed by the same cellKeys _spatialCache holds this tick (home cells + ring neighbors). Amortized
+      // (& 63, same cadence as AppRuntimeTick's collision-grid prune), and output-identical by
+      // construction: pruneIdleKeys only drops a key whose memory is already empty -- see Octree.js.
+      if ((snapshotSeq & 63) === 0) {
+        appRuntime._playerIndex?.pruneIdleKeys?.(_spatialCache)
+        appRuntime._stageLoader?._activeStage?.spatial?.pruneIdleKeys?.(_spatialCache)
       }
     }
   } else {

@@ -14,22 +14,7 @@ function loadEzTree() {
   if (!_ezTreeModPromise) _ezTreeModPromise = import('@dgreenheck/ez-tree')
   return _ezTreeModPromise
 }
-// streaming-gltf's octahedral impostor (FULL-sphere octahedron - works from any angle, incl ground
-// level; the agargaro vendored lib only implemented HEMI so ground views rendered nothing). Plain
-// Single canonical impostor implementation (packages/streaming-gltf/src/octahedral-impostor-ez.js,
-// shared with ModelPool's OctahedralImpostorEzTier via the same package import elsewhere -- no more
-// client/vendor duplicate, see AGENTS.md draw-call-audit-impostor-system-unification).
-import { createOctahedralImpostorMaterial, computeObjectBoundingSphere } from 'streaming-gltf/octahedral-impostor-ez'  // full-sphere octahedron (works at ground level, unlike hemi-only variants)
-import { buildSharedImpostorAtlas, createSharedImpostorMesh } from './VegImpostorTier.js'
-import { placementsForChunk, VEG, SPECIES } from '/src/terrain/VegPlacement.js'
-import { createCachedAnchorField } from '/src/terrain/ClimateCache.js'
-import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
-import { dbg } from './debug-log.js'
-import { RenderControls } from './RenderControls.js'
-
-const _dbgVeg = dbg('vegetation')
-const _occBoxGeo = new THREE.BoxGeometry(1, 1, 1)   // shared, never-rendered proxy geo for occlusion candidates
-const _occBoxMat = new THREE.MeshBasicMaterial()
+import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 
 // species (parity wire-id contract) -> ez-tree preset names; 'Bush' has no exact preset (lib ships 'Bush 1/2/3'), mapped explicitly so a missing preset never silently diverges from the collider table
 const PRESET = {
@@ -44,11 +29,6 @@ const TARGET_H = {
   'Ash Small': 6.5, 'Ash Large': 13, 'Aspen Small': 6, 'Aspen Large': 13, 'Bush 2': 3.0,
   'Bush 3': 3.2, 'Oak Small': 5.5, 'Oak Medium': 7, 'Pine Small': 8, 'Pine Large': 16,
 }
-
-const DROP_MARGIN = 64   // metres past the ring before a chunk is dropped (hysteresis)
-
-const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _camPos = new THREE.Vector3()
-const _vanMat = new THREE.Matrix4(), _vanProj = new THREE.Matrix4(), _vanFrustum = new THREE.Frustum()   // scratch for window.__vegVanishProbe
 
 // shared wind uniform (one per veg system); advancing one .value per frame sways all LODs of all species with zero per-instance JS
 function makeWindUniforms() { return { uVegTime: { value: 0 }, uVegWind: { value: 1 } } }
@@ -210,7 +190,128 @@ function makeEmptyGeo() {
   return g
 }
 
+// Merges a species' branch + leaf geometries into ONE geometry with two material groups (group 0 =
+// branch material, group 1 = leaf material): one InstancedMesh2 per species instead of two, so one BVH,
+// one per-frame cull walk, one uniforms/matrices texture pair, one addInstances/removeInstances per
+// chunk. three draws each group separately with its own material (WebGLRenderer.projectObject pushes
+// one render item per group), so the draw count and every per-material state (leaf DoubleSide/A2C/
+// alphaTest, branch FrontSide, both polygonOffset) are unchanged -- the GPU sees the identical two draws
+// per LOD level it saw with two meshes. Vertex data is copied verbatim (no welding, no re-indexing
+// beyond the leaf's index offset), so the rasterized triangles are byte-identical. Index is Uint32
+// (the two parts together can exceed 65535 vertices). Requires both parts to carry the same attribute
+// set (ez-tree: position/normal/uv on both) -- anything else throws, never silently drops a part.
+function mergeTreeGeo(branchGeo, leafGeo) {
+  const names = Object.keys(branchGeo.attributes).filter(n => n !== 'instanceIndex').sort()
+  const leafNames = Object.keys(leafGeo.attributes).filter(n => n !== 'instanceIndex').sort()
+  if (names.join() !== leafNames.join()) throw new Error('mergeTreeGeo: branch/leaf attribute sets differ: ' + names.join() + ' vs ' + leafNames.join())
+  if (!branchGeo.index || !leafGeo.index) throw new Error('mergeTreeGeo: both parts must be indexed')
+  const out = new THREE.BufferGeometry()
+  const bCount = branchGeo.attributes.position.count
+  for (const name of names) {
+    const a = branchGeo.attributes[name], b = leafGeo.attributes[name]
+    if (a.itemSize !== b.itemSize || a.array.constructor !== b.array.constructor) throw new Error('mergeTreeGeo: attribute layout differs for ' + name)
+    const arr = new a.array.constructor(a.array.length + b.array.length)
+    arr.set(a.array, 0); arr.set(b.array, a.array.length)
+    const attr = new THREE.BufferAttribute(arr, a.itemSize, a.normalized)
+    out.setAttribute(name, attr)
+  }
+  const bi = branchGeo.index.array, li = leafGeo.index.array
+  const idx = new Uint32Array(bi.length + li.length)
+  idx.set(bi, 0)
+  for (let i = 0; i < li.length; i++) idx[bi.length + i] = li[i] + bCount
+  out.setIndex(new THREE.BufferAttribute(idx, 1))
+  out.addGroup(0, bi.length, 0)
+  out.addGroup(bi.length, li.length, 1)
+  return out
+}
+
+// Single-group geometry (materialIndex 0 only) for a merged mesh's far/empty LOD levels: one zero-area
+// triangle (or the impostor plane) drawn once, instead of the two degenerate draws two meshes needed.
+function withSingleGroup(geo) {
+  geo.clearGroups()
+  geo.addGroup(0, geo.index ? geo.index.count : geo.attributes.position.count, 0)
+  return geo
+}
+
+// @three.ez InstancedMesh2 per-frame allocation fix (perf only, identical cull/LOD results):
+// FrustumCulling.js's frustumCullingLOD does `LODrenderList.levels.map(x => x.object.instanceIndex.array)`
+// on EVERY mesh EVERY frame (main pass and shadow pass) -- a fresh N-element array per cull, ~30+ per
+// frame across species/grass/impostor meshes, pure GC churn. This patch caches that array on the render
+// list and only rebuilds it when the level count or any level's backing instanceIndex array identity
+// changed (Capacity.js's resizeBuffers swaps `instanceIndex.array` for a new Uint32Array on growth, so
+// identity is checked per level each frame -- an O(levels) compare, no allocation). The sortObjects path
+// (unused by every scenery mesh: sorting is incompatible with LOD here, see Vegetation.js) delegates to
+// the library's own original implementation untouched; the non-sort path below is a verbatim port of the
+// library's frustumCullingLOD + BVHCullingLOD + linearCullingLOD (same math, same callbacks, same
+// getObjectLODIndexForDistance) against module-private scratch objects. node_modules is never edited.
+let _perfInstalled = false
+function installInstancedMesh2Perf() {
+  if (_perfInstalled) return
+  _perfInstalled = true
+  const proto = InstancedMesh2.prototype
+  const origFrustumCullingLOD = proto.frustumCullingLOD
+  const _proj = new THREE.Matrix4(), _inv = new THREE.Matrix4(), _camLOD = new THREE.Vector3()
+  const _frustum = new THREE.Frustum(), _sphere = new THREE.Sphere()
+  function cachedIndexes(LODrenderList) {
+    const levels = LODrenderList.levels
+    let idx = LODrenderList._ezIndexes
+    let stale = !idx || idx.length !== levels.length
+    if (!stale) { for (let i = 0; i < levels.length; i++) { if (idx[i] !== levels[i].object.instanceIndex.array) { stale = true; break } } }
+    if (stale) { idx = new Array(levels.length); for (let i = 0; i < levels.length; i++) idx[i] = levels[i].object.instanceIndex.array; LODrenderList._ezIndexes = idx }
+    return idx
+  }
+  proto.frustumCullingLOD = function (LODrenderList, camera, cameraLOD) {
+    const isShadowRendering = camera !== cameraLOD
+    if (!isShadowRendering && this._sortObjects) return origFrustumCullingLOD.call(this, LODrenderList, camera, cameraLOD)
+    const { count, levels } = LODrenderList
+    for (let i = 0; i < levels.length; i++) {
+      if (!levels[i].object.instanceIndex) return
+      count[i] = 0
+      levels[i].object.instanceIndex._needsUpdate = true
+    }
+    _proj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(this.matrixWorld)
+    _inv.copy(this.matrixWorld).invert()
+    _camLOD.setFromMatrixPosition(cameraLOD.matrixWorld).applyMatrix4(_inv)
+    const indexes = cachedIndexes(LODrenderList)
+    const instancesArrayCount = this._instancesArrayCount
+    const onFrustumEnter = this.onFrustumEnter
+    if (this.bvh) {
+      this.bvh.frustumCullingLOD(_proj, _camLOD, levels, (node, level) => {
+        const index = node.object
+        if (index < instancesArrayCount && this.getVisibilityAt(index)) {
+          if (level === null) {
+            const distance = this.getPositionAt(index).distanceToSquared(_camLOD)
+            level = this.getObjectLODIndexForDistance(levels, distance)
+          }
+          if (!onFrustumEnter || onFrustumEnter(index, camera, cameraLOD, level)) {
+            indexes[level][count[level]++] = index
+          }
+        }
+      })
+    } else {
+      if (!this.geometry.boundingSphere) this.geometry.computeBoundingSphere()
+      const bSphere = this._geometry.boundingSphere
+      const radius = bSphere.radius, center = bSphere.center
+      const geometryCentered = center.x === 0 && center.y === 0 && center.z === 0
+      _frustum.setFromProjectionMatrix(_proj)
+      for (let i = 0; i < instancesArrayCount; i++) {
+        if (!this.getActiveAndVisibilityAt(i)) continue
+        if (geometryCentered) { const maxScale = this.getPositionAndMaxScaleOnAxisAt(i, _sphere.center); _sphere.radius = radius * maxScale }
+        else this.applyMatrixAtToSphere(i, _sphere, center, radius)
+        if (_frustum.intersectsSphere(_sphere)) {
+          const distance = _sphere.center.distanceToSquared(_camLOD)
+          const levelIndex = this.getObjectLODIndexForDistance(levels, distance)
+          if (!onFrustumEnter || onFrustumEnter(i, camera, cameraLOD, levelIndex)) {
+            indexes[levelIndex][count[levelIndex]++] = i
+          }
+        }
+      }
+    }
+    for (let i = 0; i < levels.length; i++) levels[i].object.count = count[i]
+  }
+}
+
 export {
   loadEzTree, makeWindUniforms, applyWind, awaitMatTextures, capGeo, simplifyGeo,
-  buildSpecies, makeEmptyGeo, PRESET, TARGET_H
+  buildSpecies, makeEmptyGeo, mergeTreeGeo, withSingleGroup, installInstancedMesh2Perf, PRESET, TARGET_H
 }

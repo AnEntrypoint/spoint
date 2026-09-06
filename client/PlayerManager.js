@@ -7,6 +7,46 @@ import { createFacialPlayer, ARKIT_NAMES } from './facial-animation.js'
 const MAX_VRM_CONCURRENT = 6
 const _lookTargetVec = new THREE.Vector3()
 
+// Avatar frustum bounds (player-avatar-object-bounding-sphere): every avatar mesh used to ship with
+// frustumCulled=false because a SkinnedMesh's geometry bounding sphere is the bind pose and can false-cull
+// an animated pose -- but that also meant N avatars x M sub-meshes were projected+drawn (and shadow-cast)
+// even when fully off-screen. three r185's Frustum.intersectsObject prefers object.boundingSphere over the
+// geometry sphere when one is set (node_modules/three/src/math/Frustum.js:148-152), so each mesh gets an
+// explicit GENEROUS sphere derived from the real bind-pose bounds of the WHOLE avatar (union of every
+// sub-mesh's geometry.boundingBox, so a small part like hair/eyes is never culled just because its own
+// tiny bind-pose sphere moved with the head): centred at the avatar's mid-height, radius = 1.5x the
+// half-diagonal, expressed in each mesh's local space (the same space Frustum applies matrixWorld to).
+// frustumCulled goes back to true. Runs once per avatar load (not per frame).
+const _avatarBox = new THREE.Box3(), _avatarTmpBox = new THREE.Box3(), _avatarCenter = new THREE.Vector3(), _avatarScale = new THREE.Vector3(), _avatarInv = new THREE.Matrix4()
+function _applyAvatarCullBounds(root) {
+  if (!root) return
+  root.updateWorldMatrix(true, true)
+  _avatarBox.makeEmpty()
+  const meshes = []
+  root.traverse(c => {
+    if (!c.isMesh || !c.geometry) return
+    const g = c.geometry
+    if (!g.boundingBox) g.computeBoundingBox()
+    if (!g.boundingBox || g.boundingBox.isEmpty()) return
+    _avatarTmpBox.copy(g.boundingBox).applyMatrix4(c.matrixWorld)
+    _avatarBox.union(_avatarTmpBox)
+    meshes.push(c)
+  })
+  if (_avatarBox.isEmpty() || meshes.length === 0) return
+  _avatarBox.getCenter(_avatarCenter)
+  const worldRadius = _avatarBox.min.distanceTo(_avatarBox.max) * 0.5 * 1.5
+  for (const c of meshes) {
+    _avatarInv.copy(c.matrixWorld).invert()
+    _avatarScale.setFromMatrixScale(c.matrixWorld)
+    const s = Math.max(Math.abs(_avatarScale.x), Math.abs(_avatarScale.y), Math.abs(_avatarScale.z), 1e-6)
+    const sphere = c.boundingSphere && c.boundingSphere.isSphere ? c.boundingSphere : new THREE.Sphere()
+    sphere.center.copy(_avatarCenter).applyMatrix4(_avatarInv)
+    sphere.radius = worldRadius / s
+    c.boundingSphere = sphere
+    c.frustumCulled = true
+  }
+}
+
 export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader, sceneGraph, modelPool = null, playerVrmUrl = null) {
   function setPlayerVrmUrl(url) { playerVrmUrl = url }
   const _vrmLoader = new GLTFLoader()
@@ -64,10 +104,11 @@ export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader, sceneGra
       VRMUtils.combineSkeletons(vrm.scene)
     }
     vrm.scene.rotation.y = Math.PI
-    // frustumCulled=false: a SkinnedMesh's bounding sphere is from the bind pose and doesn't track the live animated pose, so it can false-cull.
-    vrm.scene.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = false; c.frustumCulled = false } })
+    // Generous explicit per-mesh bounding sphere + frustumCulled=true (see _applyAvatarCullBounds above).
+    vrm.scene.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = false } })
     vrm.scene.scale.multiplyScalar(modelScale)
     vrm.scene.position.y = -feetOffsetRatio * modelScale
+    _applyAvatarCullBounds(vrm.scene)
     playerVrms.set(id, vrm); initVRMFeatures(id, vrm, vrmVersion)
     if (animAssets) playerAnimators.set(id, createPlayerAnimator(vrm, animAssets, vrmVersion, worldConfig.animation || {}))
     if (id === playerId && vrm.humanoid) {
@@ -117,9 +158,10 @@ export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader, sceneGra
         VRMUtils.combineSkeletons(vrm.scene)
         const vrmVersion = detectVrmVersion(vrmBuffer)
         vrm.scene.rotation.y = Math.PI
-        vrm.scene.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = false; c.frustumCulled = false } })
+        vrm.scene.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = false } })
         vrm.scene.scale.multiplyScalar(modelScale)
         vrm.scene.position.y = -feetOffsetRatio * modelScale
+        _applyAvatarCullBounds(vrm.scene)
         group.userData.feetOffset = 0.91; group.add(vrm.scene)
         if (_onAvatarReady) _onAvatarReady(vrm.scene)
         playerVrms.set(id, vrm); initVRMFeatures(id, vrm, vrmVersion)
@@ -131,8 +173,9 @@ export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader, sceneGra
         }
       } else {
         const gs = gltf.scene; gs.rotation.y = Math.PI
-        gs.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = false; c.frustumCulled = false } })
+        gs.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = false } })
         gs.scale.multiplyScalar(modelScale); gs.position.y = -feetOffsetRatio * modelScale
+        _applyAvatarCullBounds(gs)
         group.userData.feetOffset = 0.91; group.add(gs)
         if (_onAvatarReady) _onAvatarReady(gs)
         if (animAssets) playerAnimators.set(id, createGLBAnimator(gs, gltf.animations || [], animAssets, worldConfig.animation || {}))

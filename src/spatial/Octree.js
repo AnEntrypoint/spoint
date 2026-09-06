@@ -11,7 +11,16 @@ function cellCoord(v) {
   return Math.floor(v / CELL_SIZE)
 }
 
+// Integer cell key (was the string `cx + ',' + cz`, a fresh string allocation + hash on every bucket
+// lookup, i.e. per cell per query). cz is offset into [0, 2^26) and cx scaled by 2^26, so for
+// |cx|,|cz| < 2^25 (|world coord| < 2^25*CELL_SIZE ~ 1.07e9 m) the key is an exact, collision-free
+// integer below 2^52; anything outside that range (a finite but absurd coordinate) falls back to the
+// old string key, which can never collide with a number as a Map key. Keys are internal to
+// _cells/_idCell only -- no external reader interprets them.
+const KEY_HALF = 33554432   // 2^25
+const KEY_SHIFT = 67108864  // 2^26
 function cellKey(cx, cz) {
+  if (cx >= -KEY_HALF && cx < KEY_HALF && cz >= -KEY_HALF && cz < KEY_HALF) return cx * KEY_SHIFT + (cz + KEY_HALF)
   return cx + ',' + cz
 }
 
@@ -114,8 +123,13 @@ export class SpatialIndex {
   // last call" memory so independent callers (different cells, different relevance radii) don't share
   // state and one query's hysteresis doesn't leak into another's.
   nearbyHysteresis(position, radius, queryKey, hysteresisFactor = 1.15, out) {
+    // Per-queryKey two-buffer pair {a: last call's included set, b: scratch}: this call reads `a` and
+    // fills a cleared `b`, then the two swap -- no fresh Set allocation per call (was one per cell per
+    // tick), and the read set is never the one being written, so results are identical.
     if (!this._hystSets) this._hystSets = new Map()
-    let prevSet = this._hystSets.get(queryKey)
+    let pair = this._hystSets.get(queryKey)
+    if (!pair) { pair = { a: null, b: new Set() }; this._hystSets.set(queryKey, pair) }
+    const prevSet = pair.a
     const results = out || []
     if (out) results.length = 0
     const cx = position[0], cy = position[1], cz = position[2]
@@ -124,7 +138,7 @@ export class SpatialIndex {
     const outerR2 = outerRadius * outerRadius
     const minCx = cellCoord(cx - outerRadius), maxCx = cellCoord(cx + outerRadius)
     const minCz = cellCoord(cz - outerRadius), maxCz = cellCoord(cz + outerRadius)
-    const nextSet = new Set()
+    const nextSet = pair.b; nextSet.clear()
     for (let gx = minCx; gx <= maxCx; gx++) {
       for (let gz = minCz; gz <= maxCz; gz++) {
         const bucket = this._cells.get(cellKey(gx, gz))
@@ -144,7 +158,7 @@ export class SpatialIndex {
         }
       }
     }
-    this._hystSets.set(queryKey, nextSet)
+    pair.b = prevSet || new Set(); pair.a = nextSet
     return results
   }
 
@@ -152,6 +166,27 @@ export class SpatialIndex {
   // world/stage reset) so it doesn't silently accumulate unbounded Map entries over a long session.
   clearHysteresisKey(queryKey) {
     if (this._hystSets) this._hystSets.delete(queryKey)
+  }
+
+  // Output-identical bounded cleanup for the two per-queryKey memories (hysteresis pairs above,
+  // starvation clocks below), called by TickHandler on an amortized cadence with the set of keys
+  // queried this tick. A key is dropped ONLY when its memory is already EMPTY (an empty hysteresis
+  // prev-set / an empty starvation clock map) -- for such a key the next query behaves exactly as if
+  // the memory had been retained, so this never changes a query result. A non-empty memory is
+  // deliberately kept even when the key is idle: dropping it would reset the sticky ring / starvation
+  // clocks the next time the cell is re-entered, a real (if subtle) output change. Bounds growth to
+  // "cells that currently hold a non-empty memory", not "every cell ever queried".
+  pruneIdleKeys(liveKeys) {
+    if (this._hystSets) {
+      for (const [key, pair] of this._hystSets) {
+        if (!liveKeys.has(key) && (!pair.a || pair.a.size === 0)) this._hystSets.delete(key)
+      }
+    }
+    if (this._starveTicks) {
+      for (const [key, v] of this._starveTicks) {
+        if (!liveKeys.has(key) && v.zero.size === 0) this._starveTicks.delete(key)
+      }
+    }
   }
 
   // Priority-accumulate starvation guard (Halo/Overwatch-style): a radius-bounded AOI query can
@@ -162,11 +197,25 @@ export class SpatialIndex {
   // viewer for too many ticks and force-include it once (resets its counter on inclusion, so a
   // starved id doesn't get force-sent every tick forever -- one guaranteed appearance per starvation
   // window is enough to keep state eventually-consistent without spamming bandwidth).
+  // Storage is `viewerKey -> { c, zero }`: `c` counts this viewer's completed collectStarved calls and
+  // `zero` maps id -> the value of `c` at which that id's clock last read 0 (a markSeen, a force-include,
+  // or its first observation). An id's ticks-since-seen at the check inside call number c+1 is then
+  // simply `c - zero[id]` -- so the per-call scan is a READ per entity (one Map.get + compare), not a
+  // write per entity (the old per-viewer `ticks -> ticks+1` Map.set for every entity every call).
+  // Derivation against the old increment-then-store form: markSeen set ticks=0 and the same tick's call
+  // left it at 1 -> zero = c (completed BEFORE that call); a force-include / first observation set 0 and
+  // did NOT increment that call -> zero = c + 1 (completed INCLUDING that call). Both then read k after
+  // k further calls. Verified identical on a real 2-client run (see the netcode perf session's witness).
+  _starveViewer(viewerKey) {
+    if (!this._starveTicks) this._starveTicks = new Map()
+    let v = this._starveTicks.get(viewerKey)
+    if (!v) { v = { c: 0, zero: new Map() }; this._starveTicks.set(viewerKey, v) }
+    return v
+  }
+
   markSeen(id, viewerKey) {
-    if (!this._starveTicks) this._starveTicks = new Map() // viewerKey -> Map<id, ticksSinceSeen>
-    let m = this._starveTicks.get(viewerKey)
-    if (!m) { m = new Map(); this._starveTicks.set(viewerKey, m) }
-    m.set(id, 0)
+    const v = this._starveViewer(viewerKey)
+    v.zero.set(id, v.c)
   }
 
   // A call to collectStarved represents ONE tick's check, not an increment-then-check -- an id whose
@@ -178,24 +227,26 @@ export class SpatialIndex {
   // used a low threshold -- an off-by-one that would have force-included/duplicated an already-visible
   // entity on the next snapshot for any threshold small enough to matter in a real short test).
   collectStarved(viewerKey, maxTicksStarved = 300) {
-    if (!this._starveTicks) this._starveTicks = new Map()
     // A viewer that has never called markSeen (never had any relevant-ids query overlap yet) still
     // needs its own clock map created here -- returning early on a missing map silently disabled
     // starvation tracking FOREVER for that viewer, since nothing else ever creates one for a viewer
     // with zero markSeen calls (a real, live-witnessed bug: a viewer whose every query happened to
     // miss an entity from tick 1 never started that entity's clock, so it could never starve-include).
-    let m = this._starveTicks.get(viewerKey)
-    if (!m) { m = new Map(); this._starveTicks.set(viewerKey, m) }
+    const v = this._starveViewer(viewerKey)
+    const zero = v.zero, c = v.c
     const starved = []
     for (const id of this._entities.keys()) {
-      if (!m.has(id)) { m.set(id, 0); continue } // never queried for this viewer yet -- start the clock, don't force-send tick 1
-      const ticks = m.get(id)
-      if (ticks >= maxTicksStarved) { starved.push(id); m.set(id, 0) }
-      else m.set(id, ticks + 1)
+      const z = zero.get(id)
+      if (z === undefined) { zero.set(id, c + 1); continue } // never queried for this viewer yet -- start the clock, don't force-send tick 1
+      if (c - z >= maxTicksStarved) { starved.push(id); zero.set(id, c + 1) }
     }
+    v.c = c + 1
     // Prune entries for ids no longer in the index (removed entities) so the per-viewer map doesn't
-    // grow unbounded across a long session with high entity churn.
-    for (const id of m.keys()) if (!this._entities.has(id)) m.delete(id)
+    // grow unbounded across a long session with high entity churn. The scan above guarantees every
+    // live id has an entry, so `zero.size === _entities.size` means there is nothing stale to drop --
+    // the O(entries) walk runs only when a removal actually left a stale entry behind (same drop
+    // timing as before: at the first call after the removal).
+    if (zero.size !== this._entities.size) { for (const id of zero.keys()) if (!this._entities.has(id)) zero.delete(id) }
     return starved
   }
 

@@ -127,6 +127,9 @@ const _rcasFrag = /* glsl */`
   }
 `
 
+// Per-frame scratch for compute()'s renderer.getSize read (was one Vector2 alloc per call).
+const _sizeScratch = new THREE.Vector2()
+
 export class FSR1 {
   constructor(renderer) {
     this.renderer = renderer
@@ -199,7 +202,7 @@ export class FSR1 {
   // Runs EASU then RCAS into offscreen targets. Does not composite (mirrors Bloom/SSAO's
   // compute/composite split so the RenderGraph node boundary matches one node per resource).
   compute() {
-    const size = new THREE.Vector2()
+    const size = _sizeScratch
     this.renderer.getSize(size)
     const pr = this.renderer.getPixelRatio ? this.renderer.getPixelRatio() : 1
     const w = Math.max(4, Math.round(size.x * pr))

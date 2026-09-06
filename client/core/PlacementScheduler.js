@@ -39,10 +39,44 @@
 // slower cadence than 60fps (see PLACEMENT_INTERVAL_MS) since a backgrounded tab has no visible
 // frame to keep in sync with -- streaming progress, not frame-perfect LOD, is the goal while hidden.
 
+import * as THREE from 'three'
+
 const PLACEMENT_INTERVAL_MS = 250   // background cadence; foreground rAF (~16ms) always wins the shouldTick race while visible
 const MIN_TICK_GAP_MS = 40          // hard floor between real placement ticks regardless of caller, so a busy rAF frame can't starve dt-accounting into a near-zero-dt spam even when both drivers race the same instant
 
 const _authFocus = { x: 0, y: 0, z: 0 }
+
+// ---- shared scenery-streaming helpers (Vegetation.js / Rocks.js / Grass.js import these) ----------
+
+// Spiral chunk-offset table for a ring of `span` chunks: every (dx,dz) within `span`, nearest-first.
+// One builder for all three scenery streamers (was three byte-identical private copies). Must be
+// bounded/terminating (a prior manual spiral never terminated and OOM'd the tab).
+export function spiralOffsets(span) {
+  const out = []
+  for (let dz = -span; dz <= span; dz++) for (let dx = -span; dx <= span; dx++) if (Math.hypot(dx, dz) <= span) out.push([dx, dz])
+  out.sort((a, b) => Math.hypot(a[0], a[1]) - Math.hypot(b[0], b[1]))
+  return out
+}
+
+// Integer chunk key: (cx,cz) packed into one safe integer, unique for |cx|,|cz| < 32768 (a 32m chunk
+// grid spanning +-1048km, far past any streamed ring). Replaces `cx + ',' + cz` string keys that were
+// built (and re-parsed with indexOf/slice) on every streaming tick.
+export function chunkKey(cx, cz) {
+  return ((cx + 32768) & 0xffff) * 65536 + ((cz + 32768) & 0xffff)
+}
+
+// Resolves the camera's world position + orientation ONCE per tick/frame into a plain pose record
+// {x,y,z,qx,qy,qz,qw} so Vegetation/Rocks/Grass never each re-run camera.getWorldPosition/
+// getWorldQuaternion (each a full matrixWorld decompose) inside their own still-camera checks.
+const _poseV = new THREE.Vector3(), _poseQ = new THREE.Quaternion()
+export function resolveCameraPose(camera, out) {
+  out = out || { x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1 }
+  camera.getWorldPosition(_poseV); camera.getWorldQuaternion(_poseQ)
+  out.x = _poseV.x; out.y = _poseV.y; out.z = _poseV.z
+  out.qx = _poseQ.x; out.qy = _poseQ.y; out.qz = _poseQ.z; out.qw = _poseQ.w
+  return out
+}
+const _tickPose = { x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1 }
 
 export function createPlacementScheduler(getHandles) {
   let _lastTickAtMs = -Infinity
@@ -76,17 +110,22 @@ export function createPlacementScheduler(getHandles) {
       )
     }
 
-    if (vegetation && typeof vegetation.update === 'function') {
-      try { vegetation.update(dt, camera, focus, true) } catch (_) {}
+    // Streaming-only ticks: the per-frame visibility half (still-camera cull freeze, chunk frustum
+    // cull) is driven by RenderGraph.nodes.js's foliage-lod-sync every rendered frame; a backgrounded
+    // tab has no frame to keep it in sync with, and any instance mutation made here is picked up by
+    // the next foreground updateVisibility() call through each system's own mutation flag.
+    const pose = resolveCameraPose(camera, _tickPose)
+    if (vegetation) {
+      try { if (typeof vegetation.updateStreaming === 'function') vegetation.updateStreaming(dt, camera, focus, pose); else if (typeof vegetation.update === 'function') vegetation.update(dt, camera, focus, true) } catch (_) {}
     }
-    if (rocks && typeof rocks.update === 'function') {
-      try { rocks.update(dt, camera, focus) } catch (_) {}
+    if (rocks) {
+      try { if (typeof rocks.updateStreaming === 'function') rocks.updateStreaming(dt, camera, focus, pose); else if (typeof rocks.update === 'function') rocks.update(dt, camera, focus) } catch (_) {}
     }
-    if (grass && typeof grass.update === 'function') {
+    if (grass) {
       // Background ticks skip the nearby-player bend-buffer computation (a rendering-feel detail,
       // not a placement decision) -- an empty array is the same "no benders this call" shape
       // RenderGraph.nodes.js's own foliage-lod-sync passes when ctx.pm has zero playerMeshes.
-      try { grass.update(dt, camera, focus, _EMPTY_BENDERS) } catch (_) {}
+      try { if (typeof grass.updateStreaming === 'function') grass.updateStreaming(dt, camera, focus, _EMPTY_BENDERS, pose); else if (typeof grass.update === 'function') grass.update(dt, camera, focus, _EMPTY_BENDERS) } catch (_) {}
     }
     return true
   }

@@ -167,31 +167,42 @@ export class OcclusionQueryTier {
     // 2. Issue new queries for this frame's candidates, bounded by the
     //    per-frame budget with a round-robin cursor so the whole candidate
     //    set is covered over successive frames.
-    gl.useProgram(this._boxProgram.prog);
-    gl.bindVertexArray(this._boxVao);
-    gl.colorMask(false, false, false, false);
-    gl.depthMask(false);
-    gl.enable(gl.DEPTH_TEST);
-    gl.depthFunc(gl.LEQUAL);
-    gl.disable(gl.CULL_FACE); // query needs any front-of-depth fragment regardless of winding
-    // Anti-z-fight bias (far-candidate-flicker fix): the occluder depth this query tests against is
-    // NOT a static baked buffer -- for spoint's terrain-backed consumers it is mapspinner's raw-GL
-    // depth-writeback, re-evaluated by a per-vertex fractal height shader EVERY frame, so the exact
-    // depth value at a given world position carries floating-point jitter frame-to-frame. The box's
-    // own world-space inflation (_size.addScalar above, callers' MARGIN/LIFT) only helps up close --
-    // a linear (non-logarithmic) depth buffer compresses nearly all its precision into the first few
-    // tens of metres, so at long range (candidate footprint of a few pixels) that same world-space
-    // margin projects to a depth-buffer delta smaller than the per-frame jitter, letting the box's
-    // nearest fragment flip between marginally-in-front and marginally-behind the freshly-redrawn
-    // terrain depth -- read live as "far object appears/disappears" (occlusion verdict flip) even
-    // though nothing about visibility actually changed. POLYGON_OFFSET pulls the rasterized box depth
-    // toward the camera by an amount that scales with the fragment's own depth-slope (factor) plus a
-    // small constant NDC-Z bias (units) -- unlike a fixed world-space epsilon, this stays proportional
-    // to the local depth-buffer step size at ANY range, so it remains meaningful once world-space
-    // margins have become sub-quantum. Only affects this query draw (state reset after, matching the
-    // existing colorMask/depthMask/cull restore below).
-    gl.enable(gl.POLYGON_OFFSET_FILL);
-    gl.polygonOffset(-4, -8);
+    //
+    //    GL state setup is LAZY (first issue only): when every candidate the
+    //    cursor examines is still pending (or has no box), zero queries are
+    //    issued -- previously the 8 gl.* state changes + colorMask/depthMask
+    //    restore + renderer.resetState() still ran for that empty loop. With
+    //    nothing touched, nothing needs restoring, so resetState()/flush are
+    //    gated on queried > 0 exactly like the existing gl.flush() already was.
+    let stateSet = false;
+    const setupState = () => {
+      gl.useProgram(this._boxProgram.prog);
+      gl.bindVertexArray(this._boxVao);
+      gl.colorMask(false, false, false, false);
+      gl.depthMask(false);
+      gl.enable(gl.DEPTH_TEST);
+      gl.depthFunc(gl.LEQUAL);
+      gl.disable(gl.CULL_FACE); // query needs any front-of-depth fragment regardless of winding
+      // Anti-z-fight bias (far-candidate-flicker fix): the occluder depth this query tests against is
+      // NOT a static baked buffer -- for spoint's terrain-backed consumers it is mapspinner's raw-GL
+      // depth-writeback, re-evaluated by a per-vertex fractal height shader EVERY frame, so the exact
+      // depth value at a given world position carries floating-point jitter frame-to-frame. The box's
+      // own world-space inflation (_size.addScalar above, callers' MARGIN/LIFT) only helps up close --
+      // a linear (non-logarithmic) depth buffer compresses nearly all its precision into the first few
+      // tens of metres, so at long range (candidate footprint of a few pixels) that same world-space
+      // margin projects to a depth-buffer delta smaller than the per-frame jitter, letting the box's
+      // nearest fragment flip between marginally-in-front and marginally-behind the freshly-redrawn
+      // terrain depth -- read live as "far object appears/disappears" (occlusion verdict flip) even
+      // though nothing about visibility actually changed. POLYGON_OFFSET pulls the rasterized box depth
+      // toward the camera by an amount that scales with the fragment's own depth-slope (factor) plus a
+      // small constant NDC-Z bias (units) -- unlike a fixed world-space epsilon, this stays proportional
+      // to the local depth-buffer step size at ANY range, so it remains meaningful once world-space
+      // margins have become sub-quantum. Only affects this query draw (state reset after, matching the
+      // existing colorMask/depthMask/cull restore below).
+      gl.enable(gl.POLYGON_OFFSET_FILL);
+      gl.polygonOffset(-4, -8);
+      stateSet = true;
+    };
 
     let queried = 0;
     const n = candidates.length;
@@ -245,6 +256,7 @@ export class OcclusionQueryTier {
       _mvpMat.multiply(_scaleMat);
       _mvpMat.toArray(_mvpArr);
 
+      if (!stateSet) setupState();
       gl.uniformMatrix4fv(this._boxProgram.uMvp, false, _mvpArr);
       gl.beginQuery(gl.ANY_SAMPLES_PASSED_CONSERVATIVE, rec.query);
       gl.drawElements(gl.TRIANGLES, this._indexCount, this._indexType, 0);
@@ -253,23 +265,25 @@ export class OcclusionQueryTier {
       queried++;
     }
     this._rrCursor = idx;
-    gl.bindVertexArray(null);
-    gl.colorMask(true, true, true, true);
-    gl.depthMask(true);
-    // Restore three.js's expected GL state assumptions for its own next
-    // render() call: three tracks depth/cull/colorMask/program/VAO state
-    // itself via its internal state cache and does not blindly re-issue
-    // redundant state changes it believes are already in place, so any raw-GL
-    // mutation here that diverges from three's cached state must be reset
-    // before returning control to the normal render loop.
-    this.renderer.resetState();
-    // Explicit flush: without it, driver-queued query commands can sit
-    // unsubmitted indefinitely on some configurations (observed: queries
-    // issued this way never resolved QUERY_RESULT_AVAILABLE across hundreds
-    // of frames in a busy scene, despite an isolated single-query repro
-    // resolving in 2-3 frames) -- flush forces the commands out of the
-    // client-side queue so the GPU can actually retire them.
-    if (queried > 0) gl.flush();
+    if (stateSet) {
+      gl.bindVertexArray(null);
+      gl.colorMask(true, true, true, true);
+      gl.depthMask(true);
+      // Restore three.js's expected GL state assumptions for its own next
+      // render() call: three tracks depth/cull/colorMask/program/VAO state
+      // itself via its internal state cache and does not blindly re-issue
+      // redundant state changes it believes are already in place, so any raw-GL
+      // mutation here that diverges from three's cached state must be reset
+      // before returning control to the normal render loop.
+      this.renderer.resetState();
+      // Explicit flush: without it, driver-queued query commands can sit
+      // unsubmitted indefinitely on some configurations (observed: queries
+      // issued this way never resolved QUERY_RESULT_AVAILABLE across hundreds
+      // of frames in a busy scene, despite an isolated single-query repro
+      // resolving in 2-3 frames) -- flush forces the commands out of the
+      // client-side queue so the GPU can actually retire them.
+      gl.flush();
+    }
     this.stats.queried = queried;
   }
 

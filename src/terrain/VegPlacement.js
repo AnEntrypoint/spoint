@@ -171,23 +171,51 @@ export function classify(x, z, frame, anchorField, h, cellIx, cellIz) {
   }
 }
 
+// Shared by the atomic and incremental builders: both iterate gz-outer/gx-inner so the incremental
+// cursor's output is bit-identical (same order, same values) to placementsForChunk's.
+function placeVegCell(chunkX, chunkZ, gx, gz, frame, anchorField, seed, out) {
+  const baseX = chunkX * VEG.CHUNK, baseZ = chunkZ * VEG.CHUNK
+  const cellX = baseX + gx * VEG.CELL + VEG.CELL * 0.5
+  const cellZ = baseZ + gz * VEG.CELL + VEG.CELL * 0.5
+  const ix = Math.round(cellX / VEG.CELL), iz = Math.round(cellZ / VEG.CELL)
+  const h = hash3(seed, ix, iz)
+  const jx = (rand(h, K_JITX) * 2 - 1) * VEG.JITTER
+  const jz = (rand(h, K_JITZ) * 2 - 1) * VEG.JITTER
+  // pass this candidate's OWN pre-jitter (ix,iz) explicitly so classify's cellHash never collides
+  // with a neighboring cell's index after jitter is applied to x/z (see classify's header).
+  const p = classify(cellX + jx, cellZ + jz, frame, anchorField, undefined, ix, iz)
+  if (p) out.push(p)
+}
+
 export function placementsForChunk(chunkX, chunkZ, frame, anchorField, worldSeed) {
   const out = []
-  const baseX = chunkX * VEG.CHUNK, baseZ = chunkZ * VEG.CHUNK
   const seed = (worldSeed | 0) ^ 0x7eed
   for (let gz = 0; gz < VEG.GRID; gz++) {
     for (let gx = 0; gx < VEG.GRID; gx++) {
-      const cellX = baseX + gx * VEG.CELL + VEG.CELL * 0.5
-      const cellZ = baseZ + gz * VEG.CELL + VEG.CELL * 0.5
-      const ix = Math.round(cellX / VEG.CELL), iz = Math.round(cellZ / VEG.CELL)
-      const h = hash3(seed, ix, iz)
-      const jx = (rand(h, K_JITX) * 2 - 1) * VEG.JITTER
-      const jz = (rand(h, K_JITZ) * 2 - 1) * VEG.JITTER
-      // pass this candidate's OWN pre-jitter (ix,iz) explicitly so classify's cellHash never collides
-      // with a neighboring cell's index after jitter is applied to x/z (see classify's header).
-      const p = classify(cellX + jx, cellZ + jz, frame, anchorField, undefined, ix, iz)
-      if (p) out.push(p)
+      placeVegCell(chunkX, chunkZ, gx, gz, frame, anchorField, seed, out)
     }
   }
   return out
+}
+
+// Incremental builder (same shape as GrassPlacement.createGrassChunkCursor): step(budgetMs) spreads one
+// chunk's 64 cell classifications across placement ticks under a wall-clock budget; `list` holds the
+// SAME entries in the SAME order placementsForChunk would return once `done` -- the client's veg
+// streamer uses this so a chunk whose height taps miss the GPU patch cache (CPU fractal fallback,
+// ~0.4ms per tap) never stalls one tick for the whole chunk. step(Infinity) completes synchronously.
+export function createVegChunkCursor(chunkX, chunkZ, frame, anchorField, worldSeed, now) {
+  const seed = (worldSeed | 0) ^ 0x7eed
+  const clock = (typeof now === 'function') ? now : ((typeof performance !== 'undefined') ? () => performance.now() : () => 0)
+  const list = []
+  let gx = 0, gz = 0, done = (VEG.GRID <= 0)
+  function step(budgetMs) {
+    if (done) return done
+    const t0 = clock()
+    do {
+      placeVegCell(chunkX, chunkZ, gx, gz, frame, anchorField, seed, list)
+      if (++gx >= VEG.GRID) { gx = 0; if (++gz >= VEG.GRID) { done = true; break } }
+    } while (clock() - t0 < budgetMs)
+    return done
+  }
+  return { list, step, get done() { return done } }
 }

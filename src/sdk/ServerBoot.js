@@ -1,6 +1,6 @@
 import { join, dirname, resolve, relative, extname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { existsSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, statSync, unlinkSync } from 'node:fs'
 import { prewarm, prewarmFiles } from '../static/GLBTransformer.js'
 import { prewarmCompression } from './StaticHandler.js'
 import { prewarmProgressive, ensureProgressive } from '../static/ProgressiveBake.js'
@@ -76,6 +76,19 @@ export function buildStaticDirs(sdkRoot, project, appsDirs) {
     const rawMtime = watchableFiles.reduce((max, f) => { try { return Math.max(max, statSync(f).mtimeMs) } catch { return max } }, 0)
     if (bundleMtime >= rawMtime) {
       console.log(`[server] serving PREBUILT BUNDLE from dist/client/app.js (built ${new Date(bundleMtime).toISOString()})`)
+      // dist/client/apps-manifest.json (bundle-client.mjs -> bundle-apps-manifest.mjs --all) rides on
+      // this same mount and hands the singleplayer Worker every app's source in one fetch -- but it
+      // is a snapshot of apps/, so an apps/ edit newer than it would be silently masked exactly like
+      // the stale-bundle trap above. Unlink (never serve) a stale one; BrowserServer falls back to
+      // its live per-app walk on the resulting 404.
+      const manifestPath = join(bundleDir, 'apps-manifest.json')
+      if (existsSync(manifestPath)) {
+        const appsMtime = appsDirs.reduce((max, d) => Math.max(max, collectWatchableFiles(d).reduce((m, f) => { try { return Math.max(m, statSync(f).mtimeMs) } catch { return m } }, 0)), 0)
+        if (statSync(manifestPath).mtimeMs < appsMtime) {
+          console.log('[server] dist/client/apps-manifest.json is STALE (apps/ edited after it was built) -- removing it, BrowserServer falls back to the live app walk')
+          try { unlinkSync(manifestPath) } catch (e) { console.warn('[server] could not remove stale apps-manifest.json:', e.message) }
+        }
+      }
       dirs.push({ prefix: '/', dir: bundleDir })
     } else {
       console.log(`[server] dist/client/app.js is STALE (built ${new Date(bundleMtime).toISOString()}, client/app.js edited ${new Date(rawMtime).toISOString()}) -- falling through to raw ESM`)

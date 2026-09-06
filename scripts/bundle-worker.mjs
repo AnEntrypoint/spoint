@@ -8,13 +8,48 @@
 // not the bundle) and anything imported by an absolute `/node_modules/` or `/src/`
 // specifier. Node-only branches (jolt-physics/wasm-compat, node: builtins) are
 // also external so the browser bundle never pulls them.
-import { build } from 'esbuild'
+import { existsSync, statSync, readdirSync } from 'node:fs'
+import { join, dirname, extname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const entry = process.argv[2] || 'src/sdk/WorkerEntry.js'
-const outfile = process.argv[3] || 'dist/src/sdk/WorkerEntry.bundle.js'
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
+// `--if-stale` / freshness walk: same contract as bundle-client.mjs (see its comment) -- rebuild only
+// when the output is missing or older than the newest file under src/ (the tree this bundle inlines),
+// matching the rule src/sdk/ServerBoot.js buildStaticDirs applies before serving it.
+const flags = new Set(process.argv.slice(2).filter(a => a.startsWith('--')))
+const positional = process.argv.slice(2).filter(a => !a.startsWith('--'))
+const IF_STALE = flags.has('--if-stale')
+const SKIP_DIRS = new Set(['node_modules', '.git', '.gm', 'dist'])
+function newestMtime(dir, exts, out = { max: 0 }) {
+  let entries
+  try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return out.max }
+  for (const e of entries) {
+    if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) newestMtime(join(dir, e.name), exts, out); continue }
+    if (!exts.has(extname(e.name))) continue
+    try { out.max = Math.max(out.max, statSync(join(dir, e.name)).mtimeMs) } catch {}
+  }
+  return out.max
+}
+
+const entry = positional[0] || 'src/sdk/WorkerEntry.js'
+// Default output name is WorkerEntry.js (not .bundle.js) under dist/src/sdk/ so ServerBoot.js's
+// dist/src mount (listed ahead of the raw src/ mount at the same '/src/' prefix) serves it at the
+// exact URL client/BrowserServer.js already spawns the Worker from -- no client-side URL switch, and
+// `new URL(..., import.meta.url)` inside the worker resolves identically to the raw file.
+const outfile = positional[1] || 'dist/src/sdk/WorkerEntry.js'
 // Deployed base for absolute runtime specifiers; '' for a local/dev bundle that
 // the dev StaticHandler serves from the SDK root.
-const BASE = process.argv[4] || ''
+const BASE = positional[2] || ''
+
+if (IF_STALE && existsSync(join(ROOT, outfile)) && statSync(join(ROOT, outfile)).mtimeMs >= newestMtime(join(ROOT, 'src'), new Set(['.js', '.mjs']))) {
+  console.log(`[bundle-worker] ${outfile} is fresh (newer than every src/ source) -- skipping`)
+  process.exit(0)
+}
+let build
+try { ({ build } = await import('esbuild')) } catch (e) {
+  if (IF_STALE) { console.warn('[bundle-worker] esbuild not installed -- skipping bundle (server serves the raw ESM worker):', e?.message || e); process.exit(0) }
+  throw e
+}
 
 // INLINE the relative SDK module graph; keep as runtime-external only what the
 // worker must fetch itself: the absolute /[base/]node_modules + /src + /apps URLs,

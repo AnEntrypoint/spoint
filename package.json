@@ -20,6 +20,7 @@
     "spoint-room-orchestrator": "./bin/room-orchestrator-boot.js"
   },
   "scripts": {
+    "prestart": "node scripts/bundle-client.mjs --if-stale && node scripts/bundle-worker.mjs --if-stale",
     "start": "node server.js",
     "dev": "node --watch --watch-path=src server.js",
     "create-app": "node ./bin/create-app.js",
@@ -29,6 +30,8 @@
     "room-orchestrator-boot": "node ./bin/room-orchestrator-boot.js",
     "postinstall": "node scripts/patch-deps.mjs",
     "build:client": "node scripts/bundle-client.mjs",
+    "build:worker": "node scripts/bundle-worker.mjs",
+    "build:bundles": "node scripts/bundle-client.mjs && node scripts/bundle-worker.mjs",
     "static-export": "node scripts/static-export.mjs",
     "bundle-apps-manifest": "node scripts/bundle-apps-manifest.mjs",
     "bundle-apps-manifest:check": "node scripts/bundle-apps-manifest.mjs --check",

@@ -1,6 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <!-- Preconnects first: both CDN origins are on the boot critical path (the design kit's CSS +
+       module from unpkg render/parse-block, game-editor-kit's module graph from jsdelivr is a
+       static import of app.js). `crossorigin` variants serve the module-script (CORS) connection
+       pool; the bare unpkg one serves the no-CORS stylesheet fetch -- Chrome keys connections by
+       credentials mode, so a single hint would only warm one of the two. -->
+  <link rel="preconnect" href="https://unpkg.com" crossorigin>
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -71,7 +79,21 @@
        so one hint covers both. -->
   <link rel="modulepreload" href="/app.js">
   <link rel="modulepreload" href="/node_modules/three/build/three.module.js">
+  <!-- three.module.js is a thin re-export shell over three.core.js (the 1.3MB payload) -- without
+       this hint the browser only discovers three.core.js after fetching+parsing three.module.js. -->
+  <link rel="modulepreload" href="/node_modules/three/build/three.core.js">
   <link rel="modulepreload" href="/node_modules/msgpackr/index.js">
+  <!-- Static imports of app.js / its first-level graph, otherwise discovered one module-parse late:
+       the wire client (/src/index.client.js), three-vrm (PlayerManager), and xstate -- which
+       LoadingMachine.js/ClientMachine.js top-level-await-import by this exact absolute URL, a
+       fetch that used to start only once those two modules had themselves been parsed. -->
+  <link rel="modulepreload" href="/src/index.client.js">
+  <link rel="modulepreload" href="/node_modules/@pixiv/three-vrm/lib/three-vrm.module.js">
+  <link rel="modulepreload" href="/node_modules/xstate/dist/xstate.esm.js">
+  <!-- Default world module: a bare visit (no ?singleplayer/?multiplayer/?world) boots tps-game and
+       app.js dynamic-imports it only after the whole static graph has loaded. Small file; the only
+       time it goes unused is an explicit ?world=<other>. -->
+  <link rel="modulepreload" href="/apps/world/tps-game.js">
   <link rel="modulepreload" href="https://unpkg.com/anentrypoint-design@1.0.34/dist/247420.js">
   <link rel="preload" as="style" href="https://unpkg.com/anentrypoint-design@1.0.34/dist/247420.css">
 </head>

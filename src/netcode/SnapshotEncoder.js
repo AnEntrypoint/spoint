@@ -36,6 +36,22 @@ function encodePlayer(p) {
   return [p.id, bin, p.onGround?1:0, Math.round(p.health||0), p.inputSequence||0, p.crouch||0, (pitchN<<8)|yawN, p.expr||0, p.weapon||0]
 }
 
+// Pool for encodePlayersOnce (see that method): id -> { arr (persistent 9-slot wire record), bins (2-slot
+// bin double buffer), flip, gen }. Same field-by-field encode as encodePlayer above, written in place.
+const _playerEncPool = new Map()
+const _playerEncMap = new Map()
+let _playerEncGen = 0
+function encodePlayerInto(p, rec) {
+  const [px,py,pz]=p.position, [rx,ry,rz,rw]=p.rotation, [vx,vy,vz]=p.velocity
+  const pitchN=Math.max(0,Math.min(255,Math.round(((p.lookPitch||0)+HALF_PI)/Math.PI*255)))
+  const yawN=Math.round(((p.lookYaw||0)%TAU+TAU)%TAU/TAU*256)&0xFF
+  rec.flip ^= 1
+  const bin = packBinRecord(px,py,pz, packQuat(rx,ry,rz,rw), vx,vy,vz, 1,1,1, p.onGround?PLAYER_FLAG_ONGROUND:0, rec.bins[rec.flip])
+  const a = rec.arr
+  a[0]=p.id; a[1]=bin; a[2]=p.onGround?1:0; a[3]=Math.round(p.health||0); a[4]=p.inputSequence||0; a[5]=p.crouch||0; a[6]=(pitchN<<8)|yawN; a[7]=p.expr||0; a[8]=p.weapon||0
+  return a
+}
+
 // --- Player LOD tiers (player-lod-tiers-gpu-skinned-instanced-avatars-for-1000-player-r) --------
 // Full per-player state (anim inputs, health, look, velocity, precise position) is only worth its
 // wire cost for the ~30 nearest players a viewer can actually resolve detail on. Players in the next
@@ -569,11 +585,20 @@ function applyEntry(id, entry, nextMap, entities, prevEntityMap, useDistTier, vx
 // authoritative id sets this tick (dynCache keys + staticEntityIds); prevKnownIds is whatever this
 // function returned last tick (or null on the very first call / after a keyframe reset).
 export function updateTombstones(tombstoneLog, tick, dynCache, staticEntityIds, prevKnownIds) {
+  // Reuse last tick's set when its inputs provably have the same membership: dynCache membership only
+  // ever GROWS in place (refreshDynamicCache never deletes -- a removal always arrives as a brand-new
+  // Map from buildDynamicCache after the caller's _staticVersion reset), so (identity, size) pins it
+  // exactly; staticEntityIds is replaced wholesale by buildStaticIds and never mutated in place, so
+  // (identity, size) pins it too. Identical membership means the diff below would push nothing, so
+  // returning the previous set is output-identical and skips the O(known) Set rebuild every tick.
+  const staticSize = staticEntityIds ? staticEntityIds.size : 0
+  if (prevKnownIds && prevKnownIds._dyn === dynCache && prevKnownIds._dynSize === dynCache.size && prevKnownIds._static === staticEntityIds && prevKnownIds._staticSize === staticSize) return prevKnownIds
   const known = new Set(dynCache.keys())
   if (staticEntityIds) for (const id of staticEntityIds) known.add(id)
   if (prevKnownIds) {
     for (const id of prevKnownIds) { if (!known.has(id)) tombstoneLog.push(id, tick) }
   }
+  known._dyn = dynCache; known._dynSize = dynCache.size; known._static = staticEntityIds; known._staticSize = staticSize
   return known
 }
 
@@ -584,9 +609,23 @@ export class SnapshotEncoder {
   static encodeCustomBySchema(schemaName, obj) { return encodeCustomBySchema(schemaName, obj) }
   static decodeCustomBySchema(schemaName, buf) { return decodeCustomBySchema(schemaName, buf) }
 
+  // Pooled: one persistent Map + one persistent 9-slot record array per player, with the 23-byte bin
+  // written into a 2-slot per-player double buffer (alternating each call, so a record from the previous
+  // call is never overwritten while anything could still compare against it). The returned Map is
+  // consumed synchronously by TickHandler.buildAndSendSnapshots (filter -> pack) and never retained
+  // across ticks, so reusing the same Map/arrays is exact. Was 1 Map + N arrays + N buffers per tick.
   static encodePlayersOnce(players) {
-    const m = new Map()
-    for (const p of (players || [])) m.set(p.id, encodePlayer(p))
+    const m = _playerEncMap; m.clear()
+    const gen = ++_playerEncGen
+    for (const p of (players || [])) {
+      let rec = _playerEncPool.get(p.id)
+      if (!rec) { rec = { arr: new Array(9), bins: [new Uint8Array(BIN_RECORD_BYTES), new Uint8Array(BIN_RECORD_BYTES)], flip: 0, gen }; _playerEncPool.set(p.id, rec) }
+      rec.gen = gen
+      m.set(p.id, encodePlayerInto(p, rec))
+    }
+    // Amortized eviction of records for players no longer present (disconnects) -- cadence, not per
+    // call, so two rooms sharing this module-level pool in one process don't thrash each other's records.
+    if ((gen & 255) === 0 && _playerEncPool.size > m.size) { for (const [id, rec] of _playerEncPool) if (rec.gen !== gen) _playerEncPool.delete(id) }
     return m
   }
 

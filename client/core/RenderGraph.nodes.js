@@ -10,8 +10,10 @@
 // one-frame near/far lag below work.
 
 import { RenderControls } from './RenderControls.js'
+import { resolveCameraPose } from './PlacementScheduler.js'
 
 const _authVegFocus = { x: 0, y: 0, z: 0 }
+const _camPose = { x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1 }   // reused per-frame camera pose record (see foliage-lod-sync)
 const _authBenderTmp = { x: 0, y: 0, z: 0 }
 // GC-pressure audit (gc-pressure-audit-offscreencanvas-frame-pacing): this loop runs every single
 // render frame (foliage-lod-sync has no shouldRun throttle) and used to `.push({x,z,distSq})` a fresh
@@ -194,70 +196,91 @@ export function buildRenderSectionNodes() {
         // (see Vegetation.js/Grass.js's tickWind docs) -- it is a cheap per-material GPU uniform, and
         // gating it on the same ~25Hz placement throttle produced visibly jerky/stepped sway.
         const _windDt = ctx.res.frameDt || 0
-        if (ctx.vegetation && typeof ctx.vegetation.tickWind === 'function') { try { ctx.vegetation.tickWind(_windDt) } catch (_) {} }
-        if (ctx.grass && typeof ctx.grass.tickWind === 'function') { try { ctx.grass.tickWind(_windDt) } catch (_) {} }
-        if (ctx.placementScheduler && !ctx.placementScheduler.shouldTick(ctx.now)) return
-        const frameDt = ctx.res.frameDt || 0
-        let vegFocus = ctx.res.vegFocus || ctx.camera.position
+        const veg = ctx.vegetation, rocks = ctx.rocks, grass = ctx.grass
+        if (veg && typeof veg.tickWind === 'function') { try { veg.tickWind(_windDt) } catch (_) {} }
+        if (grass && typeof grass.tickWind === 'function') { try { grass.tickWind(_windDt) } catch (_) {} }
+        // ONE camera world-pose resolve per frame (getWorldPosition + getWorldQuaternion), shared by the
+        // three systems' still-camera checks below instead of each re-decomposing matrixWorld itself.
+        const pose = resolveCameraPose(ctx.camera, _camPose)
+        // Two halves, two cadences (see each system's updateStreaming/updateVisibility docs):
+        //  * updateStreaming -- the ~25Hz placement decision (chunk ring scan under a per-tick budget,
+        //    eviction, BVH maintenance), gated by ctx.placementScheduler.shouldTick so the foreground
+        //    rAF and PlacementScheduler.js's background interval never double-tick one instant.
+        //  * updateVisibility -- EVERY rendered frame: the still-camera cull-freeze toggle and the
+        //    chunk-granularity frustum cull, which must track the camera at frame rate (a 40ms tick gap
+        //    left a moved camera culling against a frozen, stale instance set for up to 2 frames).
+        // shadowStill: derived from the shadow pipeline's texel-step only when vegetation actually
+        // casts shadows (vegetation.castShadows, i.e. some light in the scene casts) -- with the shipped
+        // sun.castShadow=false the shadow target is irrelevant and never blocks the freeze.
         const shadowMoved = ctx.res.shadowMoved || false
-        // Vegetation/Rocks/Grass place instances by generating REAL authoritative local-frame
-        // positions (placementsForChunk -> frame/anchorField, chunk-keyed off the same x/z passed
-        // here) and writing them straight into InstancedMesh2 instance transforms -- their own
-        // top-level scene root is translated by the floating-origin rebase same as everything else
-        // (see FloatingOrigin.js's _translateChildren, which walks ALL of scene.children), so the
-        // chunk-key/placement math itself must be fed the AUTHORITATIVE (unshifted) camera/focus
-        // position, never the rebased render-space one -- otherwise a freshly streamed-in chunk past
-        // a rebase would generate/sample terrain at the wrong (near-zero) planetary location while
-        // already-loaded chunks (translated in place, still correct) sit at the real one.
-        if (ctx.floatingOrigin) {
-          vegFocus = ctx.floatingOrigin.toAuthoritative(vegFocus.position ? { x: vegFocus.position[0], y: vegFocus.position[1], z: vegFocus.position[2] } : vegFocus, _authVegFocus)
-        }
-        if (ctx.vegetation && typeof ctx.vegetation.update === 'function') {
-          try { ctx.vegetation.update(frameDt, ctx.camera, vegFocus, !shadowMoved) } catch (_) {}
-        }
-        if (ctx.rocks && typeof ctx.rocks.update === 'function') {
-          try { ctx.rocks.update(frameDt, ctx.camera, vegFocus) } catch (_) {}
-        }
-        if (ctx.grass && typeof ctx.grass.update === 'function') {
-          // Nearby-player bend buffer: real per-player world positions from ctx.pm.playerMeshes (a
-          // Map<id, THREE.Group>, populated for BOTH the local player and every remote player --
-          // see client/PlayerManager.js), converted to the SAME authoritative (unshifted) local-frame
-          // space as vegFocus above -- Grass.js's vertex shader compares bender XZ against
-          // instanceMatrix[3].xz, which is the blade's authoritative placement position (InstancedMesh2's
-          // own root is what the floating-origin rebase translates, not the per-instance transforms), so
-          // feeding it render-space (rebased) player positions would silently desync after the first
-          // rebase. Distance-filtered + sorted nearest-first + capped at Grass.MAX_BENDERS here (not
-          // inside Grass.js) so the cheap-to-call-every-frame contract on grass.update's caller side is
-          // honored without Grass.js needing to know about ctx.pm at all.
-          _benderScratch.length = 0
-          if (ctx.pm && ctx.pm.playerMeshes && ctx.pm.playerMeshes.size) {
-            const fx = vegFocus.x, fz = vegFocus.z
-            let _poolN = 0
-            for (const [, mesh] of ctx.pm.playerMeshes) {
-              if (!mesh || !mesh.position) continue
-              let wx = mesh.position.x, wy = mesh.position.y, wz = mesh.position.z
-              if (ctx.floatingOrigin) {
-                _benderAuthTmp.x = wx; _benderAuthTmp.y = wy; _benderAuthTmp.z = wz
-                const a = ctx.floatingOrigin.toAuthoritative(_benderAuthTmp, _authBenderTmp)
-                wx = a.x; wz = a.z
-              }
-              const ddx = wx - fx, ddz = wz - fz
-              const distSq = ddx * ddx + ddz * ddz
-              if (distSq > GRASS_BEND_MAX_RADIUS_M * GRASS_BEND_MAX_RADIUS_M) continue
-              // Pool exhaustion (more than _BENDER_POOL_SIZE players simultaneously in bend range) is
-              // a real-but-extreme case: drop the overflow candidate rather than growing/allocating --
-              // the nearest-first sort below means only the closest _BENDER_POOL_SIZE ever matter
-              // anyway once MAX_BENDERS(8) truncates further, so a dropped far-tail candidate never
-              // changes the final bend set in practice.
-              if (_poolN >= _BENDER_POOL_SIZE) continue
-              const row = _benderPool[_poolN++]
-              row.x = wx; row.z = wz; row.distSq = distSq
-              _benderScratch.push(row)
-            }
-            if (_benderScratch.length > 1) _benderScratch.sort((a, b) => a.distSq - b.distSq)
+        const shadowStill = (veg && veg.castShadows) ? !shadowMoved : true
+        const tick = !(ctx.placementScheduler && !ctx.placementScheduler.shouldTick(ctx.now))
+        if (tick) {
+          const frameDt = ctx.res.frameDt || 0
+          let vegFocus = ctx.res.vegFocus || ctx.camera.position
+          // Vegetation/Rocks/Grass place instances by generating REAL authoritative local-frame
+          // positions (placementsForChunk -> frame/anchorField, chunk-keyed off the same x/z passed
+          // here) and writing them straight into InstancedMesh2 instance transforms -- their own
+          // top-level scene root is translated by the floating-origin rebase same as everything else
+          // (see FloatingOrigin.js's _translateChildren, which walks ALL of scene.children), so the
+          // chunk-key/placement math itself must be fed the AUTHORITATIVE (unshifted) camera/focus
+          // position, never the rebased render-space one -- otherwise a freshly streamed-in chunk past
+          // a rebase would generate/sample terrain at the wrong (near-zero) planetary location while
+          // already-loaded chunks (translated in place, still correct) sit at the real one.
+          if (ctx.floatingOrigin) {
+            vegFocus = ctx.floatingOrigin.toAuthoritative(vegFocus.position ? { x: vegFocus.position[0], y: vegFocus.position[1], z: vegFocus.position[2] } : vegFocus, _authVegFocus)
           }
-          try { ctx.grass.update(frameDt, ctx.camera, vegFocus, _benderScratch) } catch (_) {}
+          if (veg) {
+            try { if (typeof veg.updateStreaming === 'function') veg.updateStreaming(frameDt, ctx.camera, vegFocus, pose); else if (typeof veg.update === 'function') veg.update(frameDt, ctx.camera, vegFocus, shadowStill) } catch (_) {}
+          }
+          if (rocks) {
+            try { if (typeof rocks.updateStreaming === 'function') rocks.updateStreaming(frameDt, ctx.camera, vegFocus, pose); else if (typeof rocks.update === 'function') rocks.update(frameDt, ctx.camera, vegFocus) } catch (_) {}
+          }
+          if (grass) {
+            // Nearby-player bend buffer: real per-player world positions from ctx.pm.playerMeshes (a
+            // Map<id, THREE.Group>, populated for BOTH the local player and every remote player --
+            // see client/PlayerManager.js), converted to the SAME authoritative (unshifted) local-frame
+            // space as vegFocus above -- Grass.js's vertex shader compares bender XZ against
+            // instanceMatrix[3].xz, which is the blade's authoritative placement position (InstancedMesh2's
+            // own root is what the floating-origin rebase translates, not the per-instance transforms), so
+            // feeding it render-space (rebased) player positions would silently desync after the first
+            // rebase. Distance-filtered + sorted nearest-first + capped at Grass.MAX_BENDERS here (not
+            // inside Grass.js) so the cheap-to-call-every-frame contract on grass.update's caller side is
+            // honored without Grass.js needing to know about ctx.pm at all.
+            _benderScratch.length = 0
+            if (ctx.pm && ctx.pm.playerMeshes && ctx.pm.playerMeshes.size) {
+              const fx = vegFocus.x, fz = vegFocus.z
+              let _poolN = 0
+              for (const [, mesh] of ctx.pm.playerMeshes) {
+                if (!mesh || !mesh.position) continue
+                let wx = mesh.position.x, wy = mesh.position.y, wz = mesh.position.z
+                if (ctx.floatingOrigin) {
+                  _benderAuthTmp.x = wx; _benderAuthTmp.y = wy; _benderAuthTmp.z = wz
+                  const a = ctx.floatingOrigin.toAuthoritative(_benderAuthTmp, _authBenderTmp)
+                  wx = a.x; wz = a.z
+                }
+                const ddx = wx - fx, ddz = wz - fz
+                const distSq = ddx * ddx + ddz * ddz
+                if (distSq > GRASS_BEND_MAX_RADIUS_M * GRASS_BEND_MAX_RADIUS_M) continue
+                // Pool exhaustion (more than _BENDER_POOL_SIZE players simultaneously in bend range) is
+                // a real-but-extreme case: drop the overflow candidate rather than growing/allocating --
+                // the nearest-first sort below means only the closest _BENDER_POOL_SIZE ever matter
+                // anyway once MAX_BENDERS(8) truncates further, so a dropped far-tail candidate never
+                // changes the final bend set in practice.
+                if (_poolN >= _BENDER_POOL_SIZE) continue
+                const row = _benderPool[_poolN++]
+                row.x = wx; row.z = wz; row.distSq = distSq
+                _benderScratch.push(row)
+              }
+              if (_benderScratch.length > 1) _benderScratch.sort((a, b) => a.distSq - b.distSq)
+            }
+            try { if (typeof grass.updateStreaming === 'function') grass.updateStreaming(frameDt, ctx.camera, vegFocus, _benderScratch, pose); else if (typeof grass.update === 'function') grass.update(frameDt, ctx.camera, vegFocus, _benderScratch) } catch (_) {}
+          }
         }
+        // every frame (a system without the split half already ran its combined update() above on tick frames)
+        if (veg && typeof veg.updateVisibility === 'function') { try { veg.updateVisibility(ctx.camera, pose, shadowStill) } catch (_) {} }
+        if (rocks && typeof rocks.updateVisibility === 'function') { try { rocks.updateVisibility(ctx.camera, pose) } catch (_) {} }
+        if (grass && typeof grass.updateVisibility === 'function') { try { grass.updateVisibility(ctx.camera, pose) } catch (_) {} }
       },
     },
 

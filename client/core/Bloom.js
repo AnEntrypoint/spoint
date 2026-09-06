@@ -86,6 +86,9 @@ const _compositeFrag = /* glsl */`
   }
 `
 
+// Per-frame scratch for compute()'s renderer.getSize read (was one Vector2 alloc per call).
+const _sizeScratch = new THREE.Vector2()
+
 export class Bloom {
   constructor(renderer) {
     this.renderer = renderer
@@ -169,7 +172,7 @@ export class Bloom {
   // RenderGraph node boundary matches one node per declared resource (see RenderGraph.js NODE
   // CONTRACT: 'bloomComputed' vs 'bloomComposited').
   compute() {
-    const size = new THREE.Vector2()
+    const size = _sizeScratch
     this.renderer.getSize(size)
     if (size.x <= 0 || size.y <= 0) return
     this._ensureTargets(size.x, size.y)

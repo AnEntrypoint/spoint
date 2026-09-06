@@ -101,6 +101,10 @@ const _wetnessGbufferFrag = /* glsl */`
 // exactly this for its LOD/culling self-drive, see header) so this pass can skip it rather than
 // silently clobbering that unrelated, load-bearing mechanism.
 const _defaultOnBeforeRender = new THREE.Object3D().onBeforeRender
+// Per-frame scratch: compute()'s getSize read and the wetness pass's clear-colour save/restore were one
+// Vector2 + one Color allocation per frame each.
+const _sizeScratch = new THREE.Vector2()
+const _prevClearColor = new THREE.Color()
 
 // Raymarch fragment shader. Operates entirely in VIEW SPACE (matches SSAO's G-buffer encoding:
 // rgb = view-space normal 0..1, a = linear view-space -Z depth in metres) so no world-space
@@ -342,7 +346,7 @@ export class SSR {
     const prevTarget = this.renderer.getRenderTarget()
     const prevOverride = this.scene.overrideMaterial
     const prevAutoClear = this.renderer.autoClear
-    const prevClearColor = new THREE.Color()
+    const prevClearColor = _prevClearColor
     this.renderer.getClearColor(prevClearColor)
     const prevClearAlpha = this.renderer.getClearAlpha()
 
@@ -369,13 +373,16 @@ export class SSR {
   // Renders the reflection term for the current frame. Does not composite -- mirrors SSAO/Bloom's
   // split so the RenderGraph node boundary matches one node per declared resource.
   compute() {
-    const size = new THREE.Vector2()
+    // G-buffer bail FIRST: with SSAO off there is nothing to trace against, so allocating/keeping the
+    // SSR render targets before this check paid VRAM + a getSize every frame for a guaranteed no-op
+    // (Ultra preset ships ssr:true with ssao:false -- QualityPresets.js). ssr-compute's shouldRun also
+    // gates on the ssao knob now, so this is defence in depth for direct callers.
+    const gbuffer = this._sharedGBuffer
+    if (!gbuffer) return // no G-buffer available this frame (SSAO off and no owned fallback wired yet)
+    const size = _sizeScratch
     this.renderer.getSize(size)
     if (size.x <= 0 || size.y <= 0) return
     this._ensureTargets(size.x, size.y)
-
-    const gbuffer = this._sharedGBuffer
-    if (!gbuffer) return // no G-buffer available this frame (SSAO off and no owned fallback wired yet)
 
     const prevTarget = this.renderer.getRenderTarget()
     const prevAutoClear = this.renderer.autoClear
@@ -460,7 +467,9 @@ export function buildSSRNodes() {
       id: 'ssr-compute',
       reads: ['sceneColor', 'ssaoComputed'],
       writes: ['ssrComputed'],
-      shouldRun: ctx => RenderControls.get('ssr') === true && !!ctx.ssr,
+      // Also requires the ssao knob: SSR only ever traces SSAO's shared G-buffer (see header), so with
+      // ssao off this node used to run every frame just to bail inside compute() after sizing targets.
+      shouldRun: ctx => RenderControls.get('ssr') === true && !!ctx.ssr && RenderControls.get('ssao') === true,
       run(ctx) {
         if (ctx.ssao && ctx.ssao._gbufferTarget) ctx.ssr.setSharedGBuffer(ctx.ssao._gbufferTarget.texture)
         ctx.ssr.compute()

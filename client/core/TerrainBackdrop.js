@@ -303,6 +303,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
       _sunE[2] = frame.east[2] * sunLocal[0] + frame.up[2] * sunLocal[1] + frame.north[2] * sunLocal[2]
       renderer.resetState()
       // surfElev (radius-fraction) must track the live terrain height under the camera, not a fixed constant, or near tiles' LOD/near-plane goes wrong as the player changes elevation
+      // surfElev (radius-fraction) must track the live terrain height under the camera, not a fixed constant, or near tiles' LOD/near-plane goes wrong as the player changes elevation
       let surfElev = frame.anchorHeight
       try { const gh = frame.groundHeightLocal(p.x, p.z); if (Number.isFinite(gh)) surfElev = frame.anchorHeight + gh } catch (_) {}
       // The occlusion predicate (opts.occlusionPredicate) is a pure READ of last frame's resolved

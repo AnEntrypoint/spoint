@@ -6,7 +6,9 @@
 // each function's own comment for the AOI/priority/bandwidth rationale.
 
 import { unpackBinRecord } from '../netcode/SnapshotEncoder.js'
-import { neighborCells } from '../terrain/CubeSphereCells.js'
+// packCellKey was used by computeRingRelevantIds' planetRadius>0 branch without being imported (a
+// ReferenceError on the first curved-space world; the flat-XZ branch never reached it).
+import { neighborCells, packCellKey } from '../terrain/CubeSphereCells.js'
 
 const PRIORITY_ENTITY_BUDGET = 64
 const PRIORITY_DECAY = 0.02
@@ -166,7 +168,11 @@ const _budgetBin = {}
 // unbounded field, estimated via JSON.stringify length (msgpack is typically slightly smaller than
 // JSON for the same object, so this errs conservative -- overestimating custom's cost trims a little
 // more eagerly than strictly necessary, never less, which is the safe direction for a budget).
-function estimateEntityBytes(enc) {
+// `dynCache` (optional): the tick's dynamic-entity cache -- when the record's one object-typed field
+// (custom) is the live entity's own custom object, its JSON-length estimate is cached on the cache
+// entry keyed by the entity's _customV counter (installCustomVersion, CustomVersion.js), so the
+// per-tick re-stringify only happens after a real custom mutation, not every trim pass.
+function estimateEntityBytes(enc, dynCache) {
   let n = 8 // id + array/map framing overhead, flat estimate
   for (let i = 1; i < enc.length; i++) {
     const f = enc[i]
@@ -174,7 +180,17 @@ function estimateEntityBytes(enc) {
     if (f instanceof Uint8Array) n += f.byteLength
     else if (typeof f === 'string') n += f.length + 1
     else if (typeof f === 'number') n += 2
-    else if (typeof f === 'object') { try { n += JSON.stringify(f).length } catch (_) { n += 16 } }
+    else if (typeof f === 'object') {
+      const entry = dynCache ? dynCache.get(enc[0]) : undefined
+      const src = entry ? entry.srcEntity : null
+      if (src && f === src.custom && typeof src._customV === 'number') {
+        if (entry._custBytesV !== src._customV) {
+          let len; try { len = JSON.stringify(f).length } catch (_) { len = 16 }
+          entry._custBytes = len; entry._custBytesV = src._customV
+        }
+        n += entry._custBytes
+      } else { try { n += JSON.stringify(f).length } catch (_) { n += 16 } }
+    }
     else n += 1
   }
   return n
@@ -188,11 +204,11 @@ function estimateEntityBytes(enc) {
 // never trimmed -- dropping map/collision-relevant static geometry updates would desync client-side
 // collision, a correctness cost far worse than a slightly stale distant prop. Returns { entities,
 // trimmedCount } so a caller can log/telemetry the degradation instead of it being silent.
-function trimEntitiesToBudget(entities, staticCount, viewerPos) {
+function trimEntitiesToBudget(entities, staticCount, viewerPos, dynCache) {
   if (entities.length - staticCount < BANDWIDTH_TRIM_MIN_ENTITIES) return { entities, trimmedCount: 0 }
   let total = 0
   const sized = new Array(entities.length)
-  for (let i = 0; i < entities.length; i++) { const b = estimateEntityBytes(entities[i]); sized[i] = b; total += b }
+  for (let i = 0; i < entities.length; i++) { const b = estimateEntityBytes(entities[i], dynCache); sized[i] = b; total += b }
   if (total <= BANDWIDTH_BUDGET_BYTES_PER_TICK) return { entities, trimmedCount: 0 }
   const vx = viewerPos ? viewerPos[0] : 0, vy = viewerPos ? viewerPos[1] : 0, vz = viewerPos ? viewerPos[2] : 0
   // Candidate indices: dynamic entities only (index >= staticCount), each with its real squared

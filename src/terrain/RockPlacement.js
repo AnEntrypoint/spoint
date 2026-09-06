@@ -52,6 +52,11 @@ function normalQuat(nx, ny, nz, out) {
 const PATCH = 112
 
 // corner values memoized: pure fn of integer lattice indices, same on client+server, only avoids recompute.
+// Bounded (insertion-order eviction): a long-lived server process or a client roaming a whole planet
+// would otherwise grow these memo maps without limit -- values are pure functions of the lattice index,
+// so eviction only ever costs a recompute, never a different answer. 8192 entries covers a ~10km span of
+// the 112m/224m lattices, far beyond any streamed ring.
+const CORNER_CACHE_MAX = 8192
 const _cornerCache = new Map()
 function cornerValue(ix, iz) {
   const k = ((ix & 0x3fffff) * 0x400000) + (iz & 0x3fffff)
@@ -59,6 +64,7 @@ function cornerValue(ix, iz) {
   if (v !== undefined) return v
   v = rand(hash3(0x70c1 | 0, ix, iz), 0)
   _cornerCache.set(k, v)
+  if (_cornerCache.size > CORNER_CACHE_MAX) _cornerCache.delete(_cornerCache.keys().next().value)
   return v
 }
 
@@ -89,6 +95,7 @@ function clusterCornerValue(ix, iz) {
   if (v !== undefined) return v
   v = rand(hash3(0x70c2 | 0, ix, iz), 0)
   _clusterCornerCache.set(k, v)
+  if (_clusterCornerCache.size > CORNER_CACHE_MAX) _clusterCornerCache.delete(_clusterCornerCache.keys().next().value)
   return v
 }
 // Returns [0,1]; 0.5 is neutral (no bias). >0.5 = "big rock region" (denser + larger), <0.5 = "small rock
@@ -192,23 +199,49 @@ export function classify(x, z, frame, anchorField, h, cellIx, cellIz) {
   }
 }
 
+// Shared by the atomic and incremental builders: both iterate gz-outer/gx-inner so the incremental
+// cursor's output is bit-identical (same order, same values) to placementsForRockChunk's.
+function placeRockCell(chunkX, chunkZ, gx, gz, frame, anchorField, seed, out) {
+  const baseX = chunkX * ROCK.CHUNK, baseZ = chunkZ * ROCK.CHUNK
+  const cellX = baseX + gx * ROCK.CELL + ROCK.CELL * 0.5
+  const cellZ = baseZ + gz * ROCK.CELL + ROCK.CELL * 0.5
+  const ix = Math.round(cellX / ROCK.CELL), iz = Math.round(cellZ / ROCK.CELL)
+  const hh = hash3(seed, ix, iz)
+  const jx = (rand(hh, 0) * 2 - 1) * ROCK.JITTER
+  const jz = (rand(hh, 1) * 2 - 1) * ROCK.JITTER
+  // pass this candidate's OWN pre-jitter (ix,iz) explicitly so classify's property hash never
+  // collides with a neighboring cell's index after jitter is applied to x/z (see classify's header).
+  const p = classify(cellX + jx, cellZ + jz, frame, anchorField, undefined, ix, iz)
+  if (p) out.push(p)
+}
+
 export function placementsForRockChunk(chunkX, chunkZ, frame, anchorField, worldSeed) {
   const out = []
-  const baseX = chunkX * ROCK.CHUNK, baseZ = chunkZ * ROCK.CHUNK
   const seed = (worldSeed | 0) ^ 0x70c5
   for (let gz = 0; gz < ROCK.GRID; gz++) {
     for (let gx = 0; gx < ROCK.GRID; gx++) {
-      const cellX = baseX + gx * ROCK.CELL + ROCK.CELL * 0.5
-      const cellZ = baseZ + gz * ROCK.CELL + ROCK.CELL * 0.5
-      const ix = Math.round(cellX / ROCK.CELL), iz = Math.round(cellZ / ROCK.CELL)
-      const hh = hash3(seed, ix, iz)
-      const jx = (rand(hh, 0) * 2 - 1) * ROCK.JITTER
-      const jz = (rand(hh, 1) * 2 - 1) * ROCK.JITTER
-      // pass this candidate's OWN pre-jitter (ix,iz) explicitly so classify's property hash never
-      // collides with a neighboring cell's index after jitter is applied to x/z (see classify's header).
-      const p = classify(cellX + jx, cellZ + jz, frame, anchorField, undefined, ix, iz)
-      if (p) out.push(p)
+      placeRockCell(chunkX, chunkZ, gx, gz, frame, anchorField, seed, out)
     }
   }
   return out
+}
+
+// Incremental builder (same shape as GrassPlacement.createGrassChunkCursor / VegPlacement.createVegChunkCursor):
+// step(budgetMs) spreads one chunk's 16 cell classifications across ticks; `list` is order- and
+// value-identical to placementsForRockChunk once `done`. step(Infinity) completes synchronously.
+export function createRockChunkCursor(chunkX, chunkZ, frame, anchorField, worldSeed, now) {
+  const seed = (worldSeed | 0) ^ 0x70c5
+  const clock = (typeof now === 'function') ? now : ((typeof performance !== 'undefined') ? () => performance.now() : () => 0)
+  const list = []
+  let gx = 0, gz = 0, done = (ROCK.GRID <= 0)
+  function step(budgetMs) {
+    if (done) return done
+    const t0 = clock()
+    do {
+      placeRockCell(chunkX, chunkZ, gx, gz, frame, anchorField, seed, list)
+      if (++gx >= ROCK.GRID) { gx = 0; if (++gz >= ROCK.GRID) { done = true; break } }
+    } while (clock() - t0 < budgetMs)
+    return done
+  }
+  return { list, step, get done() { return done } }
 }

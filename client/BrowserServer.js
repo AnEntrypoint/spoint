@@ -102,6 +102,15 @@ export class BrowserServer extends BaseClient {
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this._onVisibilityChange)
 
     const _sourcesReady = (async () => {
+      // Build-time app-source manifest (scripts/bundle-apps-manifest.mjs --all, written to
+      // dist/client/apps-manifest.json by `npm run build:bundles` and served by the same dist/client
+      // mount that serves the app bundle -- see src/sdk/ServerBoot.js buildStaticDirs): the exact
+      // {name, source, deps} shape the walk below produces, resolved from disk once at build time,
+      // so a warm deploy hands the worker every app in ONE request instead of the ~65 dependency-
+      // ordered fetches the live walk costs (live-counted: 67 /apps/* requests, several duplicated).
+      // Fetched in parallel with the worldDef; a 404 (raw-ESM dev serving, no build) or a stale/
+      // missing app just falls back to the live walk for that app, so this is purely additive.
+      const _manifestPromise = fetch(new URL('apps-manifest.json', _root)).then(r => r.ok ? r.json() : null).catch(() => null)
       const worldDef = this.config.worldDef ||
         await fetch(new URL('singleplayer-world.json', _root)).then(r => r.ok ? r.json() : null).catch(() => null) ||
         {}
@@ -110,12 +119,21 @@ export class BrowserServer extends BaseClient {
         ...((worldDef.placeableApps || [])),
         ...((worldDef.trustedApps || []))
       ])]
+      const manifest = await _manifestPromise
+      const byName = new Map((manifest && Array.isArray(manifest.apps) ? manifest.apps : []).filter(a => a && a.name && typeof a.source === 'string').map(a => [a.name, a]))
+      // One shared `seen` across every app's walk: apps/_lib/*.js helpers are imported by many apps
+      // (live-witnessed apps/_lib/pickup.js fetched 6x in one boot) -- sharing the dedupe map across
+      // the whole batch, keyed on the in-flight promise rather than the settled result, collapses
+      // those to a single fetch each even when the walks race.
+      const seen = new Map()
       const apps = (await Promise.all(appNames.map(async name => {
+        const fromManifest = byName.get(name)
+        if (fromManifest) return { name, source: fromManifest.source, deps: fromManifest.deps || {} }
         const indexUrl = new URL(`apps/${name}/index.js`, _root)
         const r = await fetch(indexUrl).catch(() => null)
         if (!r?.ok) return null
         const source = await r.text()
-        const deps = await _resolveRelativeDeps(source, indexUrl)
+        const deps = await _resolveRelativeDeps(source, indexUrl, seen)
         return { name, source, deps }
       }))).filter(Boolean)
       return { worldDef, apps }
@@ -277,6 +295,10 @@ export class BrowserServer extends BaseClient {
 // path-patch step (gh-pages.yml "Patch paths for gh-pages") absolutizes deep relative src imports
 // (apps/**/*.js climbing out via '../../src/...') into '/spoint/src/...' at build time, so a shipped
 // app's own source can carry either form depending on how many directories deep it lives.
+// Every import at one depth level is fetched in parallel (one Promise.all per level); `seen` maps a
+// resolved href to the PROMISE of its {source, deps} entry, set synchronously before the fetch is
+// issued, so two branches (or two apps sharing the map, see connect()) that reach the same module
+// concurrently await one fetch instead of each issuing their own.
 async function _resolveRelativeDeps(source, baseUrl, seen = new Map()) {
   const re = /(?:from|import)\s*['"](\.[^'"]+|\/[^'"]+)['"]/g
   const out = {}
@@ -288,15 +310,19 @@ async function _resolveRelativeDeps(source, baseUrl, seen = new Map()) {
     out[spec] = ''
     tasks.push((async () => {
       const u = new URL(spec, baseUrl)
-      if (seen.has(u.href)) { out[spec] = seen.get(u.href).source; return }
-      const r = await fetch(u).catch(() => null)
-      if (!r?.ok) { out[spec] = null; return }
-      const src = await r.text()
-      const entry = { source: src, deps: {} }
-      seen.set(u.href, entry)
-      out[spec] = src
-      entry.deps = await _resolveRelativeDeps(src, u, seen)
-      out[spec] = { source: src, deps: entry.deps }
+      let entryPromise = seen.get(u.href)
+      if (!entryPromise) {
+        entryPromise = (async () => {
+          const r = await fetch(u).catch(() => null)
+          if (!r?.ok) return null
+          const src = await r.text()
+          const deps = await _resolveRelativeDeps(src, u, seen)
+          return { source: src, deps }
+        })()
+        seen.set(u.href, entryPromise)
+      }
+      const entry = await entryPromise
+      out[spec] = entry ? { source: entry.source, deps: entry.deps } : null
     })())
   }
   await Promise.all(tasks)
