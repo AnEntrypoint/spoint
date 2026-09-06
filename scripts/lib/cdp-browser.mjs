@@ -20,7 +20,41 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import crypto from 'node:crypto'
+
+// External-origin relay (CDN assets behind an egress proxy). Headless chromium does not read
+// HTTPS_PROXY and a policy-enforcing MITM proxy can reset its TLS handshake outright (witnessed:
+// net::ERR_CONNECTION_RESET on every unpkg.com / cdn.jsdelivr.net request, the app's importmap
+// kit never loads, loadingMachine never reaches isReady, every browser gate times out). When
+// enabled, every non-localhost request is paused via the Fetch domain and served from a curl
+// fetch made by THIS node process (curl honors HTTPS_PROXY + the CA bundle), cached on disk by
+// URL hash so repeat runs are deterministic and offline-fast. Auto-on when HTTPS_PROXY is set;
+// force with CDP_RELAY_EXTERNAL=1, disable with CDP_RELAY_EXTERNAL=0.
+const RELAY_EXTERNAL = process.env.CDP_RELAY_EXTERNAL === '1' || (process.env.CDP_RELAY_EXTERNAL !== '0' && !!(process.env.HTTPS_PROXY || process.env.https_proxy))
+const RELAY_CACHE_DIR = process.env.CDP_RELAY_CACHE || path.join(os.tmpdir(), 'spoint-cdp-relay')
+function relayFetch(url) {
+  const key = crypto.createHash('sha1').update(url).digest('hex')
+  const bodyPath = path.join(RELAY_CACHE_DIR, key)
+  const metaPath = bodyPath + '.meta.json'
+  try {
+    if (fs.existsSync(bodyPath) && fs.existsSync(metaPath)) {
+      return { body: fs.readFileSync(bodyPath), meta: JSON.parse(fs.readFileSync(metaPath, 'utf8')) }
+    }
+  } catch (_) {}
+  fs.mkdirSync(RELAY_CACHE_DIR, { recursive: true })
+  const tmp = bodyPath + '.tmp'
+  const r = spawnSync('curl', ['-sS', '-L', '--max-time', '60', '-o', tmp, '-w', '%{http_code} %{content_type}', url], { encoding: 'utf8' })
+  if (r.status !== 0) { try { fs.unlinkSync(tmp) } catch (_) {} return null }
+  const sp = (r.stdout || '').trim().indexOf(' ')
+  const status = Number((r.stdout || '').trim().slice(0, sp)) || 0
+  const contentType = (r.stdout || '').trim().slice(sp + 1) || 'application/octet-stream'
+  if (status !== 200) { try { fs.unlinkSync(tmp) } catch (_) {} return { body: Buffer.alloc(0), meta: { status, contentType } } }
+  fs.renameSync(tmp, bodyPath)
+  const meta = { status, contentType }
+  fs.writeFileSync(metaPath, JSON.stringify(meta))
+  return { body: fs.readFileSync(bodyPath), meta }
+}
 
 // Locate a chromium/chrome binary WITHOUT playwright. CHROME env wins (CI sets it explicitly);
 // otherwise probe the standard per-platform install locations. The ms-playwright cache is still
@@ -131,6 +165,28 @@ class Page {
   }
 
   _emitPageError(err) { for (const h of this._errorHandlers) { try { h(err) } catch (_) {} } }
+
+  async _installExternalRelay() {
+    await this._send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] })
+  }
+
+  async _onRequestPaused(p) {
+    const url = p.request?.url || ''
+    const local = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\//.test(url) || !/^https?:/.test(url)
+    if (local) { await this._send('Fetch.continueRequest', { requestId: p.requestId }).catch(() => {}); return }
+    const res = relayFetch(url)
+    if (!res) { await this._send('Fetch.failRequest', { requestId: p.requestId, errorReason: 'ConnectionReset' }).catch(() => {}); return }
+    if (res.meta.status !== 200) { await this._send('Fetch.fulfillRequest', { requestId: p.requestId, responseCode: res.meta.status, responseHeaders: [{ name: 'Content-Type', value: 'text/plain' }], body: '' }).catch(() => {}); return }
+    await this._send('Fetch.fulfillRequest', {
+      requestId: p.requestId, responseCode: 200,
+      responseHeaders: [
+        { name: 'Content-Type', value: res.meta.contentType },
+        { name: 'Access-Control-Allow-Origin', value: '*' },
+        { name: 'Cache-Control', value: 'public, max-age=31536000, immutable' },
+      ],
+      body: res.body.toString('base64'),
+    }).catch(() => {})
+  }
 
   async setViewport({ width, height }) {
     await this._send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false }).catch(() => {})
@@ -280,6 +336,7 @@ class Browser {
     await this._conn.send('Runtime.enable', {}, sessionId)
     await this._conn.send('Page.enable', {}, sessionId)
     await this._conn.send('Page.setLifecycleEventsEnabled', { enabled: true }, sessionId).catch(() => {})
+    if (RELAY_EXTERNAL) await page._installExternalRelay()
     if (opts.viewport) await page.setViewport(opts.viewport)
     this._pages.push(page)
     return page
@@ -319,6 +376,11 @@ class Connection {
       if (set) set.add(m.params?.name === 'DOMContentLoaded' ? 'DOMContentLoaded' : m.params?.name === 'load' ? 'load' : m.params?.name)
     }
     // Surface uncaught page exceptions to any registered pageerror handler.
+    if (m.method === 'Fetch.requestPaused' && sid) {
+      const page = this._pages.get(sid)
+      if (page) page._onRequestPaused(m.params).catch(() => {})
+      return
+    }
     if (m.method === 'Runtime.exceptionThrown' && sid) {
       const page = this._pages.get(sid)
       if (page) {

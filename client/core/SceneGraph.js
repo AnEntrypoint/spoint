@@ -115,6 +115,7 @@ export function createSceneGraph(scene, floatingOrigin) {
     }
   }
 
+  const _recordPool = []
   function tick(frameDt, lerpFactor) {
     let moved = false
     _batchRecords.length = 0
@@ -130,7 +131,13 @@ export function createSceneGraph(scene, floatingOrigin) {
             t.ry === node._lry && t.rz === node._lrz && t.rw === node._lrw &&
             node.group.position.x === t.x && node.group.position.y === t.y && node.group.position.z === t.z) continue
         const hasRot = Number.isFinite(t.rx) && Number.isFinite(t.ry) && Number.isFinite(t.rz) && Number.isFinite(t.rw)
-        _batchRecords.push({ mesh: node.group, target: t, last: { hasRot } })
+        // Pooled row (same pattern as RenderGraph.nodes.js's bender rows): the record and its nested
+        // `last` object are reused across frames instead of 2 allocations per moving entity per frame.
+        const ri = _batchRecords.length
+        let rec = _recordPool[ri]
+        if (!rec) { rec = { mesh: null, target: null, last: { hasRot: false } }; _recordPool[ri] = rec }
+        rec.mesh = node.group; rec.target = t; rec.last.hasRot = hasRot
+        _batchRecords.push(rec)
         node._lx = t.x; node._ly = t.y; node._lz = t.z
         node._lrx = t.rx; node._lry = t.ry; node._lrz = t.rz; node._lrw = t.rw
         moved = true

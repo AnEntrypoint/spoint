@@ -82,19 +82,23 @@ export function classifyPlayerTiers(entries, viewerPos, fullCount = PLAYER_LOD_F
     _d2Scratch[i] = dx * dx + dy * dy + dz * dz
   }
   const idxView = _idxScratch.subarray(0, n)
-  idxView.sort((a, b) => _d2Scratch[a] - _d2Scratch[b])
-  _full.clear(); _reduced.clear(); _dot.clear(); _order.length = 0
+  idxView.sort(_byD2)
+  _full.clear(); _reduced.clear(); _dot.clear(); _order.length = 0; _tierById.clear()
   for (let i = 0; i < n; i++) {
     const srcIdx = idxView[i]
-    const id = entries[srcIdx].id
+    const e = entries[srcIdx]
+    const id = e.id
     const d2 = _d2Scratch[srcIdx]
+    e.d2 = d2   // published back so downstream per-frame consumers (animator LOD, remote cull) read it instead of recomputing the same distance
     _order.push(id)
-    if (i < fullCount) _full.add(id)
-    else if (d2 < reducedD2) _reduced.add(id)
-    else _dot.add(id)
+    if (i < fullCount) { _full.add(id); _tierById.set(id, TIER_FULL) }
+    else if (d2 < reducedD2) { _reduced.add(id); _tierById.set(id, TIER_REDUCED) }
+    else { _dot.add(id); _tierById.set(id, TIER_DOT) }
   }
-  return { full: _full, reduced: _reduced, dot: _dot, order: _order }
+  return { full: _full, reduced: _reduced, dot: _dot, order: _order, tierById: _tierById }
 }
+// Hoisted comparator (a fresh closure per frame de-opts TypedArray.prototype.sort's comparator path).
+function _byD2(a, b) { return _d2Scratch[a] - _d2Scratch[b] }
 
 /** Single-entity tier classification (no sort/allocation) -- for a caller that already knows a player's
  *  rank among nearby players (e.g. re-checking one player's tier without reclassifying everyone). rank
@@ -254,7 +258,7 @@ export function installPlayerLOD(scene, opts = {}) {
   }
 
   function getTiers() { return lastTiers }
-  function tierOf(id) { return lastTiers.full.has(id) ? TIER_FULL : lastTiers.reduced.has(id) ? TIER_REDUCED : TIER_DOT }
+  function tierOf(id) { const t = lastTiers.tierById ? lastTiers.tierById.get(id) : undefined; return t !== undefined ? t : (lastTiers.full.has(id) ? TIER_FULL : lastTiers.reduced.has(id) ? TIER_REDUCED : TIER_DOT) }
   function setFullCountOverride(n) { _fullCountOverride = n }
 
   return { tick, getTiers, tierOf, dots, setFullCountOverride, dispose: () => dots.dispose() }

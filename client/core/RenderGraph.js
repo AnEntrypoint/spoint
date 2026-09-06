@@ -231,7 +231,7 @@ export function createRenderGraph(nodes, opts = {}) {
   let profiling = false
   const disabled = new Set()
   const stats = new Map()
-  for (const n of nodes) stats.set(n.id, { ms: 0, ema: 0, calls: 0, tris: 0, runs: 0, skips: 0, errors: 0 })
+  for (const n of nodes) { const st = { ms: 0, ema: 0, calls: 0, tris: 0, runs: 0, skips: 0, errors: 0 }; stats.set(n.id, st); n._stats = st; n._disabled = false }   // cached on the node: the run loop reads them per node per frame without two Map lookups
   const _erroredOnce = new Set()
   const _watchdogOnce = new Set()
   const watchdogLog = []
@@ -264,10 +264,10 @@ export function createRenderGraph(nodes, opts = {}) {
       const n = byId.get(id)
       if (!n) { console.warn(`[render-graph] disable('${id}'): no such node. Nodes: ${order.join(', ')}`); return false }
       if (n.required) { console.warn(`[render-graph] disable('${id}') refused: node is marked required`); return false }
-      disabled.add(id)
+      disabled.add(id); n._disabled = true
       return true
     },
-    enable(id) { disabled.delete(id); return true },
+    enable(id) { disabled.delete(id); const n = byId.get(id); if (n) n._disabled = false; return true },
     disabledIds() { return [...disabled] },
     // Construction-time-computed, immutable for this graph instance's lifetime (the node list
     // never changes after createRenderGraph returns) -- cheap to call every poll, no recompute.
@@ -333,10 +333,10 @@ export function createRenderGraph(nodes, opts = {}) {
       graph.lastRes = ctx.res
       try {
         for (const node of ordered) {
-          if (disabled.has(node.id)) { stats.get(node.id).skips++; continue }
-          if (node.shouldRun && !node.shouldRun(ctx)) { stats.get(node.id).skips++; continue }
+          if (node._disabled) { node._stats.skips++; continue }
+          if (node.shouldRun && !node.shouldRun(ctx)) { node._stats.skips++; continue }
           if (profiling) {
-            const s = stats.get(node.id)
+            const s = node._stats
             const ri = ctx.renderer ? ctx.renderer.info.render : null
             const c0 = ri ? ri.calls : 0, tri0 = ri ? ri.triangles : 0
             const t0 = performance.now()
@@ -347,7 +347,7 @@ export function createRenderGraph(nodes, opts = {}) {
             s.runs++
           } else {
             try { node.run(ctx) } catch (e) { _nodeThrew(node.id, e, graph.frameId); return }
-            stats.get(node.id).runs++
+            node._stats.runs++
           }
         }
       } finally {

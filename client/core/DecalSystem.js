@@ -29,6 +29,7 @@ export function createDecalSystem(scene, THREE) {
     const m = new THREE.Mesh(decalGeo, decalMat.clone())
     m.visible = false
     m.renderOrder = 10
+    m.matrixAutoUpdate = false   // pooled: transform set once per spawn (updateMatrix there), not recomposed every frame for 64 mostly-invisible meshes
     scene.add(m)
     decals.push({ mesh: m, age: Infinity, life: DECAL_LIFETIME_S })
   }
@@ -41,6 +42,7 @@ export function createDecalSystem(scene, THREE) {
     const m = new THREE.Mesh(tracerGeo, tracerMat.clone())
     m.visible = false
     m.renderOrder = 11
+    m.matrixAutoUpdate = false
     scene.add(m)
     tracers.push({ mesh: m, age: Infinity })
   }
@@ -65,6 +67,7 @@ export function createDecalSystem(scene, THREE) {
       slot.mesh.rotation.z = Math.random() * Math.PI * 2 // vary orientation in-plane so a decal cluster isn't identical
       const s = DECAL_SIZE * (0.8 + Math.random() * 0.4)
       slot.mesh.scale.set(s, s, s)
+      slot.mesh.updateMatrix()
       slot.mesh.material.opacity = 0.85
       slot.mesh.visible = true
       slot.age = 0
@@ -83,6 +86,7 @@ export function createDecalSystem(scene, THREE) {
       _q.setFromUnitVectors(_up, _normal)
       slot.mesh.quaternion.copy(_q)
       slot.mesh.scale.set(TRACER_RADIUS, len, TRACER_RADIUS)
+      slot.mesh.updateMatrix()
       slot.mesh.material.opacity = 0.9
       slot.mesh.visible = true
       slot.age = 0

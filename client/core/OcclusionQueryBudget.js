@@ -129,9 +129,9 @@ export function createOcclusionQueryBudget(opts = {}) {
     if (totalBudget <= 0) {
       allocated = 0
     } else {
-      const names = [..._consumers.keys()]
-      const totalCandidates = names.reduce((sum, n) => sum + _consumers.get(n).candidates, 0)
-      const floorSum = names.length * perConsumerFloor
+      let totalCandidates = 0
+      for (const c of _consumers.values()) totalCandidates += c.candidates
+      const floorSum = _consumers.size * perConsumerFloor
       const remaining = Math.max(0, totalBudget - floorSum)
       if (totalCandidates <= 0) {
         allocated = Math.min(perConsumerFloor, totalBudget)

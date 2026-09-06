@@ -3,7 +3,11 @@
 // specific entity/game shape -- captureFn is the sole extension point. Ring-buffer shape mirrors
 // client/core/RuntimeStats.js's createHistoryRing (closure state, fixed-size array, wraparound
 // index, no reallocation once warmed up).
-export function createReplayBuffer({ maxFrames = 600, captureFn, idleCaptureEveryNFrames = 4 } = {}) {
+// idleCaptureEveryNFrames default 60 (~1 Hz at 60 fps): with zero subscribers the buffer is a pure
+// debug reserve, and each captured scene-graph frame allocates one object per scene node (see
+// createSceneGraphCaptureFn) that stays live in the ring -- at the old every-4th-frame rate that was
+// ~800 retained objects/s of garbage for a feature nothing was reading.
+export function createReplayBuffer({ maxFrames = 600, captureFn, idleCaptureEveryNFrames = 60 } = {}) {
   if (typeof captureFn !== 'function') throw new Error('createReplayBuffer requires a captureFn() function')
   if (!Number.isFinite(maxFrames) || maxFrames < 1) throw new Error('createReplayBuffer requires maxFrames >= 1')
 
