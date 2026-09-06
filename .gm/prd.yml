@@ -278,5 +278,18 @@
 - SESSION_ID: perf-max-1788680369
   id: perf-max-no-visual-loss-restructure
   subject: 'User directive: take every possible approach to make spoint as fast as possible without visual loss, restructuring anything that benefits. Scope: client per-frame CPU path, scenery systems (veg/grass/rocks/culling), mapspinner terrain renderer, model/shadow/post passes, cold-load/boot path, server tick + netcode. Method: baseline via repo gates (scripts/perf-gate, cold-load-gate, frame-time-gate, bundle-size-gate) under headless Chromium, 7-way parallel read-only audit, then implement ranked fixes with zero rendered-output change, re-measure, commit+push to claude/performance-optimization-sjps1f.'
-  status: in-progress
+  status: resolved
   notes: 'gm spool daemon unavailable in this container (agentplug-bin release API 403 outside repo scope); falling back to native tools per skill Section 1 fallback rule. Branch is the harness-designated feature branch, overriding AGENTS.md main-only rule for this session.'
+- SESSION_ID: perf-max-1788680369
+  id: perf-max-verification-outcome
+  subject: 'Verification outcome of the perf-max pass. A before/after capture of the REAL client at three fixed camera poses (time-of-day frozen, weather cleared) caught a severe regression in two half-finished restructures; both were reverted and everything else shipped verified.'
+  status: resolved
+  witness_evidence: 'BROKEN tree (scenery mesh-merge + cluster-cull pre-pass, both left unverified when their workers died mid-task): draw calls 421 -> 1-80, scene meshes 144/260 -> 61/149, window.__vegProfile absent at every pose, frame-time-gate static pose draws=0 tris=1. REPAIRED tree after reverting both slices: 405-423 calls, 144/260 meshes, vegetation and grass present, zero page errors. Pixel comparison against a CONTROL (the same baseline tree captured twice, so the noise floor is measured not assumed): control over-threshold differences 28.0/3.9/20.2 percent and meanDelta 13.0/13.1/119.3 across the three poses, versus repaired-vs-baseline 1.7/2.8/10.9 percent and meanDelta 5.3/13.0/52.1 -- the shipped tree differs from baseline by LESS than baseline differs from itself, so the residual pixel deltas are async vegetation/rock streaming state at capture time, not a rendering change.'
+- SESSION_ID: perf-max-1788680369
+  id: scenery-restructure-redo-with-witness
+  subject: 'Re-do the reverted scenery work incrementally, one change per live witness: branch+leaf merge into a two-group InstancedMesh2, occlusion super-cells (128m proxies so the query refresh outruns staleResolveFrames=60), rocks chunk-granularity pre-cull, shadow-LOD gating on a real casting light, batched removeInstances, shared occlusion box geometry, integer chunk keys. Each needs a per-species instance-count + matrix-hash equality check against baseline BEFORE the next lands -- batching everything and verifying at the end is exactly what produced the regression this session reverted.'
+  status: pending
+- SESSION_ID: perf-max-1788680369
+  id: cluster-cull-prepass-redo-with-thin-slab-witness
+  subject: 'Re-do per-cluster frustum culling: the exact-fit AABB cull plus moving cull/LOD/geometry.groups computation into a pre-render pass (three builds its renderList from geometry.groups during projectObject, before onBeforeRender runs, so in-draw computation is always one frame stale). Blocked on a live witness that thin floor/wall slabs in aim_sillos do not vanish at grazing angles and that draw calls stay in the 400s at the standard poses.'
+  status: pending
