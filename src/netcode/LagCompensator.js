@@ -24,14 +24,16 @@ export class LagCompensator {
     const idx = (ring.head + ring.len) % 128
     if (!ring.buf[idx]) ring.buf[idx] = { tick: 0, timestamp: 0, position: [0,0,0], rotation: [0,0,0,1], velocity: [0,0,0] }
     const entry = ring.buf[idx]
-    entry.tick = tick; entry.timestamp = _now()
+    // one clock read per call: stamps the new entry and prunes against the same instant
+    const now = _now()
+    entry.tick = tick; entry.timestamp = now
     entry.position[0] = position[0]; entry.position[1] = position[1]; entry.position[2] = position[2]
     entry.rotation[0] = rotation[0]; entry.rotation[1] = rotation[1]; entry.rotation[2] = rotation[2]; entry.rotation[3] = rotation[3]
     entry.velocity[0] = velocity[0]; entry.velocity[1] = velocity[1]; entry.velocity[2] = velocity[2]
     if (ring.len < 128) ring.len++
     else ring.head = (ring.head + 1) % 128
 
-    const cutoff = _now() - this.historyWindow
+    const cutoff = now - this.historyWindow
     while (ring.len > 0 && ring.buf[ring.head].timestamp < cutoff) {
       ring.head = (ring.head + 1) % 128; ring.len--
     }

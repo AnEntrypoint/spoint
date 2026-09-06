@@ -102,10 +102,11 @@ export class PlayerManager {
       player.inputSequence++
       seq = player.inputSequence
     }
-    player.lastInputTime = Date.now()
+    const now = Date.now()
+    player.lastInputTime = now
     const inputs = this.inputBuffers.get(playerId)
     if (inputs) {
-      inputs.push({ sequence: seq, data: input, timestamp: Date.now() })
+      inputs.push({ sequence: seq, data: input, timestamp: now })
       if (inputs.length > 128) inputs.shift()
     }
   }

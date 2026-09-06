@@ -25,26 +25,39 @@ export const SCALE_U16_MAX = 65535 / Q1 // 655.35
 export function clampI16(v) { return Math.max(-32767, Math.min(32767, Math.round((v || 0) * Q1))) }
 export function clampU16Scale(v) { return Math.max(0, Math.min(65535, Math.round((v ?? 1) * Q1))) }
 
-// Packs the fixed numeric fields of one entity/player record into a fresh 23-byte Uint8Array.
-// flags: caller-supplied bitfield (onGround/sleeping/etc for players/entities respectively).
-export function packBinRecord(px, py, pz, qrot, vx, vy, vz, sx, sy, sz, flags) {
-  const buf = new Uint8Array(BIN_RECORD_BYTES)
-  const dv = new DataView(buf.buffer)
-  dv.setInt16(0, clampI16(px), true); dv.setInt16(2, clampI16(py), true); dv.setInt16(4, clampI16(pz), true)
-  dv.setInt16(6, clampI16(vx), true); dv.setInt16(8, clampI16(vy), true); dv.setInt16(10, clampI16(vz), true)
-  dv.setUint32(12, qrot >>> 0, true)
-  dv.setUint16(16, clampU16Scale(sx), true); dv.setUint16(18, clampU16Scale(sy), true); dv.setUint16(20, clampU16Scale(sz), true)
-  dv.setUint8(22, flags & 0xFF)
-  return buf
+// Packs the fixed numeric fields of one entity/player record into a 23-byte Uint8Array. flags:
+// caller-supplied bitfield (onGround/sleeping/etc for players/entities respectively). `into` (optional)
+// is a caller-owned 23-byte Uint8Array to write in place (pooled player records, see
+// SnapshotEncoder.encodePlayersOnce); absent, a fresh buffer is allocated -- entity records MUST stay
+// fresh per pack (prevEntityMap retains the previous tick's buffer for computeFieldDelta's byte compare).
+// Direct little-endian byte writes (no per-call DataView allocation -- this runs once per active entity
+// and once per player per tick); two's-complement int16 low/high bytes match DataView.setInt16(le).
+export function packBinRecord(px, py, pz, qrot, vx, vy, vz, sx, sy, sz, flags, into) {
+  const b = into || new Uint8Array(BIN_RECORD_BYTES)
+  let v = clampI16(px); b[0] = v & 0xFF; b[1] = (v >> 8) & 0xFF
+  v = clampI16(py); b[2] = v & 0xFF; b[3] = (v >> 8) & 0xFF
+  v = clampI16(pz); b[4] = v & 0xFF; b[5] = (v >> 8) & 0xFF
+  v = clampI16(vx); b[6] = v & 0xFF; b[7] = (v >> 8) & 0xFF
+  v = clampI16(vy); b[8] = v & 0xFF; b[9] = (v >> 8) & 0xFF
+  v = clampI16(vz); b[10] = v & 0xFF; b[11] = (v >> 8) & 0xFF
+  v = qrot >>> 0; b[12] = v & 0xFF; b[13] = (v >>> 8) & 0xFF; b[14] = (v >>> 16) & 0xFF; b[15] = (v >>> 24) & 0xFF
+  v = clampU16Scale(sx); b[16] = v & 0xFF; b[17] = (v >> 8) & 0xFF
+  v = clampU16Scale(sy); b[18] = v & 0xFF; b[19] = (v >> 8) & 0xFF
+  v = clampU16Scale(sz); b[20] = v & 0xFF; b[21] = (v >> 8) & 0xFF
+  b[22] = flags & 0xFF
+  return b
 }
 
+// Direct byte reads (no DataView per call): `(lo | hi << 8) << 16 >> 16` sign-extends exactly like
+// DataView.getInt16(le); the u32 quat is assembled with a multiply on the top byte so it stays unsigned.
+// A DataView argument (legacy caller shape) is re-viewed as bytes once.
 export function unpackBinRecord(buf, out) {
-  const dv = buf instanceof DataView ? buf : new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
-  out.px = dv.getInt16(0, true) / Q1; out.py = dv.getInt16(2, true) / Q1; out.pz = dv.getInt16(4, true) / Q1
-  out.vx = dv.getInt16(6, true) / Q1; out.vy = dv.getInt16(8, true) / Q1; out.vz = dv.getInt16(10, true) / Q1
-  out.qrot = dv.getUint32(12, true)
-  out.sx = dv.getUint16(16, true) / Q1; out.sy = dv.getUint16(18, true) / Q1; out.sz = dv.getUint16(20, true) / Q1
-  out.flags = dv.getUint8(22)
+  const b = buf instanceof DataView ? new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) : buf
+  out.px = (((b[0] | (b[1] << 8)) << 16) >> 16) / Q1; out.py = (((b[2] | (b[3] << 8)) << 16) >> 16) / Q1; out.pz = (((b[4] | (b[5] << 8)) << 16) >> 16) / Q1
+  out.vx = (((b[6] | (b[7] << 8)) << 16) >> 16) / Q1; out.vy = (((b[8] | (b[9] << 8)) << 16) >> 16) / Q1; out.vz = (((b[10] | (b[11] << 8)) << 16) >> 16) / Q1
+  out.qrot = (b[12] | (b[13] << 8) | (b[14] << 16)) + b[15] * 16777216
+  out.sx = (b[16] | (b[17] << 8)) / Q1; out.sy = (b[18] | (b[19] << 8)) / Q1; out.sz = (b[20] | (b[21] << 8)) / Q1
+  out.flags = b[22]
   return out
 }
 

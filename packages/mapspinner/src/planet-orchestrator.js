@@ -104,7 +104,10 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
   const _now = () => (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
   const _t = { start: _now() };
   // No producer: terrain shape is the per-vertex GPU fractal (fractalTerrainH in terrain.glsl).
-  const render = await initMapspinnerRender(gl, { radius: R, gridMeshSize, reliefScale: opts.reliefScale });
+  // bakeOnly (patch-baker.js): a height-bake-only instance -- gl-render skips the terrain/water/sky/upscale
+  // programs, the atmosphere LUTs, the surface textures and the mesh buffers; only the _HEIGHTBAKE_ path
+  // (ensureBake + the __thcBake* globals) is built. frame()/render() are never called on such an instance.
+  const render = await initMapspinnerRender(gl, { radius: R, gridMeshSize, reliefScale: opts.reliefScale, bakeOnly: !!opts.bakeOnly });
   _t.shaderCompileMs = +(_now() - _t.start).toFixed(0);
   // Pure-JS quadtree: geometry LOD selection only; terrain shape is the GPU fractal, so the mesh
   // needs no external height producer.
@@ -681,7 +684,10 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
     // (1-frame geometry latency, standard pipelining). First frame (no cache) draws after build.
     // morphSplitDist/morphDistFactor/morphMaxLevel: see the cam2 comment above (static-frame branch) --
     // same quadtree-global (not per-quad) geomorph inputs, threaded here for the moved-camera path.
-    const cam = { eye: camWorldPos, center: camTarget, up: camUp, fovy, displayMode, surfElev, shadowInfo, morphSplitDist: _geomorphLod ? qt.splitDist : 0, morphDistFactor: qt.distFactor, morphMaxLevel: qt.maxLevel };
+    // cullMatrix: the SAME per-frame clip matrices computed at ~L620 for the frustum cull (identical
+    // inputs: eye/center/up/fovy/surfElev + this frame's drawingBuffer aspect) -- render() reuses them
+    // instead of re-deriving the six matrices a second time per rebuild frame (it re-validates near/far).
+    const cam = { eye: camWorldPos, center: camTarget, up: camUp, fovy, displayMode, surfElev, shadowInfo, morphSplitDist: _geomorphLod ? qt.splitDist : 0, morphDistFactor: qt.distFactor, morphMaxLevel: qt.maxLevel, cullMatrix: _cm };
     if (_pipelineQuads) {
       render.render(_pipelineQuads, cam, sun, time);
     }
@@ -725,6 +731,10 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
         const level = q.level, tx = q.tx, ty = q.ty;
         const ox = q.ox, oy = q.oy, l = q.l;
         // behind-limb cull (cheap; before the expensive frustum cull + tile-gen).
+        // _qofKnown: 1 once the past-horizon branch below has already evaluated quadOutsideFrustum for
+        // this quad (and found it on-screen) so the frustum cull immediately after does not call it a
+        // second time with identical args (item: quadOutsideFrustum-called-twice).
+        let _qofKnown = 0;
         if (limbCullActive && (level|0) >= 2) {
           const cx = ox + l*0.5, cy = oy + l*0.5;
           const len = Math.hypot(cx, cy, R) || 1;
@@ -754,10 +764,10 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
             // properties of null (reading 0)' the moment the camera moves (user 2026-06-06). When there
             // is no frustum matrix we cannot prove the past-horizon quad is off-screen, so KEEP it
             // (conservative: a few extra backside quads when cull is off, never a crash, never lost land).
-            if (vpr && quadOutsideFrustum(face, ox, oy, l, R, vpr, camWorldPos)) { culledCount++; continue; }
+            if (vpr) { if (quadOutsideFrustum(face, ox, oy, l, R, vpr, camWorldPos)) { culledCount++; continue; } _qofKnown = 1; }
           }
         }
-        if (cullActive && (level|0) >= 2 && quadOutsideFrustum(face, ox, oy, l, R, vpr, camWorldPos)) {
+        if (cullActive && (level|0) >= 2 && !_qofKnown && quadOutsideFrustum(face, ox, oy, l, R, vpr, camWorldPos)) {
           culledCount++;
           // CULL DEBUG: count quads the frustum cull dropped that ACTUALLY project on-screen (the
           // false-cull bug signature). Project the quad center via the cull's own camera-relative

@@ -29,6 +29,13 @@ const _benderScratch = [] // holds POOLED row references only; .length reset to 
 const _benderAuthTmp = { x: 0, y: 0, z: 0 } // reused toAuthoritative() input arg (was a fresh {x,y,z} literal per player per frame)
 const GRASS_BEND_MAX_RADIUS_M = 60 // generous outer bound before per-candidate distance filtering; keeps the scan cheap even with many connected players
 
+// visibility-commit's per-consumer budget setters: allocated once, reading the frame ctx through
+// _vcCtx (set at the top of the node's run) instead of three fresh closures per frame.
+let _vcCtx = null
+const _setModelPoolBudget = n => _vcCtx.modelPool.setOcclusionQueryBudget(n)
+const _setTerrainBudget = n => _vcCtx.terrainBackdrop.setOcclusionQueryBudget(n)
+const _setSceneBudget = n => _vcCtx.sceneOcclusion.setMaxQueriesPerFrame(n)
+
 export function buildRenderSectionNodes() {
   return [
     // THREE's camera far floor: max of every THREE-drawn subsystem's own configured visibility
@@ -305,9 +312,6 @@ export function buildRenderSectionNodes() {
       id: 'visibility-commit',
       reads: ['sceneDepth'],
       writes: ['occlusionCommitted'],
-      // Intentionally-terminal completion marker (see comment below): no downstream node reads
-      // occlusionCommitted, it just stamps that this frame's queries were issued.
-      terminal: true,
       // occlusionCommitted is a pure "queries issued this frame" stamp -- no other node reads it;
       // this node's real effect is entirely external (GPU occlusion-query submission whose results
       // land next frame via modelPool/terrainBackdrop/sceneOcclusion's own internal state, not a
@@ -315,24 +319,26 @@ export function buildRenderSectionNodes() {
       terminal: true,
       run(ctx) {
         const budget = ctx.occlusionQueryBudget
+        _vcCtx = ctx   // the three budget setters below read the live ctx through this, so they are allocated once, not per frame
         if (ctx.modelPool && ctx.modelPool.setOcclusionQueryBudget) {
-          budget?.apply('modelPool', n => ctx.modelPool.setOcclusionQueryBudget(n))
+          budget?.apply('modelPool', _setModelPoolBudget)
         }
         ctx.modelPool.runOcclusionQueries?.()
-        if (budget && ctx.modelPool && ctx.modelPool.getStats) {
-          try { budget.reportCandidates('modelPool', ctx.modelPool.getStats().candidates) } catch (_) {}
+        if (budget && ctx.modelPool) {
+          // getCandidateCount is the allocation-free read; getStats() (which spreads a fresh object) stays as the fallback for adapters without it
+          try { budget.reportCandidates('modelPool', ctx.modelPool.getCandidateCount ? ctx.modelPool.getCandidateCount() : ctx.modelPool.getStats().candidates) } catch (_) {}
         }
         if (ctx.terrainBackdrop) {
-          if (budget && ctx.terrainBackdrop.setOcclusionQueryBudget) budget.apply('terrain', n => ctx.terrainBackdrop.setOcclusionQueryBudget(n))
+          if (budget && ctx.terrainBackdrop.setOcclusionQueryBudget) budget.apply('terrain', _setTerrainBudget)
           ctx.terrainBackdrop.runOcclusionQueries?.()
           if (budget && ctx.terrainBackdrop.getOcclusionStats) {
-            try { budget.reportCandidates('terrain', ctx.terrainBackdrop.getOcclusionStats().candidates) } catch (_) {}
+            try { budget.reportCandidates('terrain', ctx.terrainBackdrop.getOcclusionCandidateCount ? ctx.terrainBackdrop.getOcclusionCandidateCount() : ctx.terrainBackdrop.getOcclusionStats().candidates) } catch (_) {}
           }
         }
-        if (budget) budget.apply('scene', n => ctx.sceneOcclusion.setMaxQueriesPerFrame(n))
+        if (budget) budget.apply('scene', _setSceneBudget)
         ctx.sceneOcclusion.runQueries(ctx.camera)
         if (budget) {
-          try { budget.reportCandidates('scene', ctx.sceneOcclusion.getStats().candidates) } catch (_) {}
+          try { budget.reportCandidates('scene', ctx.sceneOcclusion.getCandidateCount()) } catch (_) {}
         }
         ctx.res.occlusionCommitted = ctx.frameId
       },

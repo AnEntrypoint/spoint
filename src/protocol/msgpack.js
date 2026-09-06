@@ -7,7 +7,13 @@
 // drifting out of structure-id sync and corrupting the next unrelated message.
 export const WIRE_STRUCTURES = [
   ['type', 'payload'], // every ConnectionManager/PhysicsNetworkClient/BrowserServer/WireweaveJoinClient envelope
-  ['seq', 'tick', 'serverTime', 'players', 'entities', 'removed', 'delta'] // TickHandler snapshot payload, 128/sec hot path
+  // TickHandler snapshot payload, the per-client hot path. MUST list every key TickHandler.js's
+  // _packPayload object literal carries (seq/tick/serverTime/players/entities/removed/delta/dots) -- msgpackr
+  // matches a structure by the object's OWN key list, so an object with one extra key (`dots`, added for
+  // the player-LOD crowd aggregate) silently misses the shared structure and re-emits every field name
+  // on the wire, on every snapshot (measured live: 174 -> 99 bytes for an empty-entities snapshot once
+  // `dots` was appended here). Keys whose value is undefined are still part of the key list.
+  ['seq', 'tick', 'serverTime', 'players', 'entities', 'removed', 'delta', 'dots']
 ]
 
 // Same fnv-1a algorithm as SnapshotEncoder.js's fnv1aStep/StaticHandler.js's contentHashETag (kept

@@ -405,5 +405,5 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   // exposes setMaxQueriesPerFrame/getMaxQueriesPerFrame, this just surfaces them past the closure.
   function setOcclusionQueryBudget(n) { _terrainOcclusion.setMaxQueriesPerFrame(n) }
   function getOcclusionQueryBudget() { return _terrainOcclusion.getMaxQueriesPerFrame() }
-  return { planet, frame, sampler, renderPlanet, runOcclusionQueries, update, dispose, getOcclusionStats: () => _terrainOcclusion.getStats(), occlusionPredicateSnapshot, setOcclusionQueryBudget, getOcclusionQueryBudget, setSunLocal }
+  return { planet, frame, sampler, renderPlanet, runOcclusionQueries, update, dispose, getOcclusionStats: () => _terrainOcclusion.getStats(), getOcclusionCandidateCount: () => _terrainOcclusion.getCandidateCount(), occlusionPredicateSnapshot, setOcclusionQueryBudget, getOcclusionQueryBudget, setSunLocal }
 }

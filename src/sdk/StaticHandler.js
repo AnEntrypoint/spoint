@@ -1,6 +1,6 @@
 import { existsSync, statSync, realpathSync } from 'node:fs'
 import { join, extname, resolve, sep } from 'node:path'
-import { getTransformedAsync, getTransformedHashAsync } from '../static/GLBTransformer.js'
+import { getTransformedAsync, getTransformedHashAsync, getCachePath } from '../static/GLBTransformer.js'
 import { getProgressive, resolveBakedFile } from '../static/ProgressiveBake.js'
 import { getKtx2Extracted, resolveKtx2File } from '../static/KTX2Extract.js'
 import { buildFetchManifest } from '../static/FetchManifest.js'
@@ -48,6 +48,20 @@ const CONTENT_HASHED_EXTENSIONS = new Set(['.hf'])
 // so this extension MUST be rangeable for that pipeline to work at all -- a whole-file-only KTX2 fetch
 // would defeat the entire point of progressive streaming.
 const RANGE_EXTENSIONS = new Set(['.glb', '.vrm', '.gltf', '.wasm', '.ktx2'])
+
+// Extensions that get a content-hash ETag (contentHashETag) on the generic static path below in
+// addition to the node_modules/.hf/JS/HTML cases: .wasm (jolt/basis, previously served with an
+// `immutable` Cache-Control and NO validator -- the exact "immutable without an ETag" pattern the
+// .glb.prog/ route comment below documents as a live-witnessed stale-fix trap), images and .ktx2
+// (previously no ETag and no Cache-Control at all, so every browser applied its own heuristic
+// freshness), and .json (world/manifest/shader-manifest documents).
+const HASH_ETAG_EXTENSIONS = new Set(['.wasm', '.png', '.jpg', '.webp', '.ktx2', '.json', '.svg'])
+// Explicit short-lived freshness for asset kinds that used to ship with no Cache-Control: images/.ktx2
+// change only on a re-export (5 min of no-revalidate is a cheap win for a reload), .json documents
+// (singleplayer-world.json, manifest.json) get 1 min, and a per-map *.shadermanifest.json is a
+// recorded artifact the client already fetches with cache:'no-cache' -- honor that server-side too.
+const IMAGE_CACHE_CONTROL = 'public, max-age=300'
+const JSON_CACHE_CONTROL = 'public, max-age=60'
 
 // How many of the manifest's highest-priority (lowest-score, most urgent) entries get a real HTTP
 // 103 Early Hints Link/preload pairing on the HTML entry response -- see the Early Hints wiring
@@ -361,7 +375,17 @@ export function createStaticHandler(dirs, opts = {}) {
           // exactly the CDN-friendly caching contract this artifact needs. See AGENTS.md
           // cdn-hosted-baked-heightfield-tiles-static.
           headers['Cache-Control'] = 'public, max-age=86400, immutable'
+        } else if (ext === '.png' || ext === '.jpg' || ext === '.webp' || ext === '.ktx2') {
+          headers['Cache-Control'] = IMAGE_CACHE_CONTROL
+        } else if (ext === '.json') {
+          headers['Cache-Control'] = fp.endsWith('.shadermanifest.json') ? 'no-cache, must-revalidate' : JSON_CACHE_CONTROL
         }
+
+        // Range/206 is only meaningful against the identity encoding (see serveRangeable): a client
+        // that sends a Range header for a rangeable asset (progressive KTX2 mips, a resumed GLB/wasm
+        // download) must not be handed a compressed whole-body 200 just because .wasm/.glb are now in
+        // GZIP_EXTENSIONS -- skip negotiation for that request so the 206 path below stays reachable.
+        const wantsRange = !!req.headers['range'] && RANGE_EXTENSIONS.has(ext)
 
         if (ext === '.glb' || ext === '.vrm') {
           const srcMtime = statSync(fp).mtimeMs
@@ -372,10 +396,7 @@ export function createStaticHandler(dirs, opts = {}) {
           // with an `immutable` 24h cache header.
           const transformed = await getTransformedAsync(fp)
           if (transformed) {
-            const encoding = negotiateEncoding(req)
-            const entry = await getTransformedCached(fp, srcMtime, transformed, encoding)
-            if (entry.encoding) headers['Content-Encoding'] = entry.encoding
-            headers['Vary'] = 'Accept-Encoding'
+            const encoding = wantsRange ? null : negotiateEncoding(req)
             // Content-hash ETag (of the TRANSFORMED bytes), not srcMtime -- see
             // AGENTS.md content-hash-asset-cache-revalidation / GLBTransformer.js's hashFor. A
             // redeploy/fresh-checkout that re-bakes the identical source to identical optimized
@@ -384,14 +405,21 @@ export function createStaticHandler(dirs, opts = {}) {
             // 304s instead of re-downloading solely because mtime moved. Falls back to the old
             // mtime-based tag only in the (should-be-unreachable, since transformed is truthy here)
             // case the hash lookup races a cache eviction -- never serves a missing/undefined ETag.
+            // Computed BEFORE the compressed variant so a 304 never pays compression, and so the
+            // same hash keys the disk-persisted .br/.gz sibling next to the .glb-cache output
+            // (StaticCache.getTransformedCached's `sibling` -- survives a process restart instead
+            // of re-brotli-ing every transformed asset on its first request of every boot).
             const contentHash = await getTransformedHashAsync(fp)
             headers['ETag'] = `"${contentHash || srcMtime.toString(16)}-opt"`
+            headers['Vary'] = 'Accept-Encoding'
             const ifNoneMatch = req.headers['if-none-match']
             if (ifNoneMatch === headers['ETag']) {
               res.writeHead(304, { 'ETag': headers['ETag'], 'Cache-Control': headers['Cache-Control'] })
               res.end()
               return
             }
+            const entry = await getTransformedCached(fp, srcMtime, transformed, encoding, contentHash ? { base: getCachePath(fp), hash: contentHash } : null)
+            if (entry.encoding) headers['Content-Encoding'] = entry.encoding
             if (RANGE_EXTENSIONS.has(ext) && !entry.encoding) {
               serveRangeable(req, res, entry.content, headers)
               return
@@ -403,17 +431,19 @@ export function createStaticHandler(dirs, opts = {}) {
           }
         }
 
-        const encoding = negotiateEncoding(req)
+        const encoding = wantsRange ? null : negotiateEncoding(req)
         const { content, encoding: usedEncoding, mtime, raw } = await getCached(fp, ext, encoding)
         if (usedEncoding) headers['Content-Encoding'] = usedEncoding
         if (GZIP_EXTENSIONS.has(ext)) headers['Vary'] = 'Accept-Encoding'
-        if (ext === '.glb' || ext === '.vrm' || ext === '.gltf' || isRevalidatable || CONTENT_HASHED_EXTENSIONS.has(ext)) {
+        if (ext === '.glb' || ext === '.vrm' || ext === '.gltf' || isRevalidatable || CONTENT_HASHED_EXTENSIONS.has(ext) || HASH_ETAG_EXTENSIONS.has(ext)) {
           // node_modules (and .hf baked heightfield tiles, always): content-hash so a redeploy/re-bake
           // that reproduces byte-identical output keeps the same ETag (mtime always changes on a fresh
           // install/checkout/re-bake even when bytes didn't). Everything else keeps the cheaper
           // mtime-based ETag -- those files are the app's own source, edited in place, where mtime
-          // tracking a real edit is exactly the semantics wanted.
-          headers['ETag'] = (isNodeModulesPath(fpResolved) || CONTENT_HASHED_EXTENSIONS.has(ext))
+          // tracking a real edit is exactly the semantics wanted. HASH_ETAG_EXTENSIONS (.wasm/images/
+          // .ktx2/.json) are binary/generated artifacts re-materialized on install/export, so they take
+          // the content-hash form for the same redeploy-stable reason as node_modules.
+          headers['ETag'] = (isNodeModulesPath(fpResolved) || CONTENT_HASHED_EXTENSIONS.has(ext) || HASH_ETAG_EXTENSIONS.has(ext))
             ? `"${contentHashETag(fp, raw, mtime)}"`
             : `"${mtime.toString(16)}"`
           const ifNoneMatch = req.headers['if-none-match']

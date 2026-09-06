@@ -432,12 +432,20 @@ export async function warmupShaders(renderer, scene, camera, entityMeshes, playe
   // try/finally guarantees the restore runs on every exit path -- return, throw, or abort.
   try {
     // must compile ONLY entity+player meshes, not the whole scene -- InstancedMesh2 veg/rocks reference instanceIndex outside per-object setup and raise a VALIDATE_STATUS error; they warm via their own render() pass
+    // Batched: compileAsync's per-mesh await is a KHR_parallel_shader_compile completion poll (the
+    // GL program link itself already runs async in the driver), so awaiting meshes one at a time left
+    // the driver idle between polls. Chunks of WARMUP_BATCH overlap the links; the abort check still
+    // runs between chunks (a chunk is bounded, so an abandoned warmup stops within one chunk) and
+    // reportProcessing still ticks once per completed mesh, not once per chunk.
     let compiledCount = 0
-    for (const m of allMeshes) {
+    const WARMUP_BATCH = 6
+    for (let i = 0; i < allMeshes.length; i += WARMUP_BATCH) {
       if (abortSignal?.aborted) { _record({ aborted: true, total, manifestedCount: manifestedMeshes.length }); return }
-      try { await renderer.compileAsync(m, camera, scene) } catch (_) { try { renderer.compile(m, camera, scene) } catch (_2) {} }
-      compiledCount++
-      loadingMgr.reportProcessing(compiledCount, total)
+      await Promise.all(allMeshes.slice(i, i + WARMUP_BATCH).map(async m => {
+        try { await renderer.compileAsync(m, camera, scene) } catch (_) { try { renderer.compile(m, camera, scene) } catch (_2) {} }
+        compiledCount++
+        loadingMgr.reportProcessing(compiledCount, total)
+      }))
     }
     if (abortSignal?.aborted) { _record({ aborted: true, total, manifestedCount: manifestedMeshes.length }); return }
     renderer.shadowMap.needsUpdate = true

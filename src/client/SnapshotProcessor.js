@@ -24,14 +24,18 @@ function unpackQuat(packed, out) {
 // Mirrors src/netcode/SnapshotEncoder.js packBinRecord byte layout exactly (23 bytes: pos i16x3,
 // vel i16x3, quat u32, scale u16x3, flags u8, all little-endian). Reads directly into the caller's
 // scratch object -- no allocation per decode call, matching this file's pooled-slot decode pattern.
+// Direct little-endian byte reads (no DataView allocated per decoded record -- this runs once per
+// player + once per changed entity per snapshot): `(lo | hi << 8) << 16 >> 16` sign-extends exactly like
+// DataView.getInt16(le); the u32 quat multiplies the top byte in so it stays unsigned. Must stay in sync
+// with src/netcode/SnapshotBinFormat.js unpackBinRecord.
 const _bin = { px:0, py:0, pz:0, vx:0, vy:0, vz:0, qrot:0, sx:1, sy:1, sz:1, flags:0 }
 function unpackBinRecord(buf) {
-  const dv = buf instanceof DataView ? buf : new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
-  _bin.px = dv.getInt16(0, true) / Q1; _bin.py = dv.getInt16(2, true) / Q1; _bin.pz = dv.getInt16(4, true) / Q1
-  _bin.vx = dv.getInt16(6, true) / Q1; _bin.vy = dv.getInt16(8, true) / Q1; _bin.vz = dv.getInt16(10, true) / Q1
-  _bin.qrot = dv.getUint32(12, true)
-  _bin.sx = dv.getUint16(16, true) / Q1; _bin.sy = dv.getUint16(18, true) / Q1; _bin.sz = dv.getUint16(20, true) / Q1
-  _bin.flags = dv.getUint8(22)
+  const b = buf instanceof DataView ? new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) : buf
+  _bin.px = (((b[0] | (b[1] << 8)) << 16) >> 16) / Q1; _bin.py = (((b[2] | (b[3] << 8)) << 16) >> 16) / Q1; _bin.pz = (((b[4] | (b[5] << 8)) << 16) >> 16) / Q1
+  _bin.vx = (((b[6] | (b[7] << 8)) << 16) >> 16) / Q1; _bin.vy = (((b[8] | (b[9] << 8)) << 16) >> 16) / Q1; _bin.vz = (((b[10] | (b[11] << 8)) << 16) >> 16) / Q1
+  _bin.qrot = (b[12] | (b[13] << 8) | (b[14] << 16)) + b[15] * 16777216
+  _bin.sx = (b[16] | (b[17] << 8)) / Q1; _bin.sy = (b[18] | (b[19] << 8)) / Q1; _bin.sz = (b[20] | (b[21] << 8)) / Q1
+  _bin.flags = b[22]
   return _bin
 }
 
@@ -116,11 +120,11 @@ const FIELD_CUSTOM = 1 << 5
 const FIELD_SLEEP = 1 << 6
 const FIELD_MODEL = 1 << 7
 
-// fields is the tail of a [id, mask, ...fields] delta record built by computeFieldDelta in
-// SnapshotEncoder.js -- POS/ROT/VEL/SCALE all changing at once still costs exactly ONE bin-buffer
-// slot (the whole 23-byte record is re-sent together), never 4 separate sub-writes.
-function applyFieldDelta(s, mask, fields) {
-  let fi = 0
+// `fields` is the whole [id, mask, ...fields] delta record built by computeFieldDelta in
+// SnapshotEncoder.js, read from base offset `fi` (2) -- no per-entity slice() copy of the tail --
+// POS/ROT/VEL/SCALE all changing at once still costs exactly ONE bin-buffer slot (the whole 23-byte
+// record is re-sent together), never 4 separate sub-writes.
+function applyFieldDelta(s, mask, fields, fi) {
   if (mask & FIELD_MODEL) { s.model = fields[fi]; fi++ }
   if (mask & (FIELD_POS|FIELD_ROT|FIELD_VEL|FIELD_SCALE)) {
     const bin = unpackBinRecord(fields[fi]); fi++
@@ -137,9 +141,7 @@ function applyFieldDelta(s, mask, fields) {
 // e[2] = 23-byte packed bin record (pos/vel/quat/scale); mirrors SnapshotEncoder.js fillEntityEnc.
 function fillEntityArr(s, e) {
   if (typeof e[1] === 'number') {
-    const mask = e[1]
-    const fields = e.slice(2)
-    applyFieldDelta(s, mask, fields)
+    applyFieldDelta(s, e[1], e, 2)
     return
   }
   s.id = e[0]; s.model = e[1]

@@ -2623,11 +2623,12 @@ function _nearestInteractable(state, playerId) {
 // (window.__tickAnimTiming) reporting mean/max over the last <=240 frames -- the measurement surface for
 // animation-gpu-skinned-crowd-vat's PRD-required live A/B (REDUCED-tier VAT cost vs the existing
 // per-Object3D VRM path) at any real player count/tier mix.
-const _tickAnimSamples = []
-if (typeof window !== 'undefined') window.__tickAnimTiming = () => {
-  if (_tickAnimSamples.length === 0) return null
-  const sum = _tickAnimSamples.reduce((a, b) => a + b, 0)
-  return { meanMs: sum / _tickAnimSamples.length, maxMs: Math.max(..._tickAnimSamples), n: _tickAnimSamples.length }
+const _tickAnimSamples = new Float32Array(240); let _tickAnimIdx = 0, _tickAnimCount = 0   // ring: no O(n) shift() per frame
+window.__tickAnimTiming = () => {
+  if (_tickAnimCount === 0) return null
+  let sum = 0, max = 0
+  for (let i = 0; i < _tickAnimCount; i++) { const v = _tickAnimSamples[i]; sum += v; if (v > max) max = v }
+  return { meanMs: sum / _tickAnimCount, maxMs: max, n: _tickAnimCount }
 }
 // VRM spring-bone LOD (animation-vrm-spring-bone-lod-expression-wire): a REMOTE player's hair/cloth
 // spring-bone physics sim (vrm.springBoneManager.update, distinct from the humanoid/lookAt/expression
@@ -2850,7 +2851,15 @@ function tickPlayerAnimators(lid, frameDt, isEditor) {
   // size, O(remote player count), same cost class the existing per-player d2 check already paid.
   if (pm.playerMeshes.size > 1) {
     _playerLodEntries.length = 0
-    for (const [id, mesh] of pm.playerMeshes) { if (id !== lid) _playerLodEntries.push({ id, x: mesh.position.x, y: mesh.position.y, z: mesh.position.z }) }
+    // Pooled rows (RenderGraph.nodes.js bender-row pattern): no per-remote-player object allocation per frame.
+    for (const [id, mesh] of pm.playerMeshes) {
+      if (id === lid) continue
+      const ri = _playerLodEntries.length
+      let row = _playerLodRowPool[ri]
+      if (!row) { row = { id: null, x: 0, y: 0, z: 0, d2: 0 }; _playerLodRowPool[ri] = row }
+      row.id = id; row.x = mesh.position.x; row.y = mesh.position.y; row.z = mesh.position.z
+      _playerLodEntries.push(row)
+    }
     playerLOD.tick(_playerLodEntries, cp, latestState?.dots || null, null)
   }
   for (const [id,anim] of pm.playerAnimators) {
@@ -2979,8 +2988,11 @@ function tickPlayerAnimators(lid, frameDt, isEditor) {
       }
     }
   }
-  window.__springBoneLodStats={updated:_springBoneLodUpdated,skipped:_springBoneLodSkipped}
+  _springBoneLodStats.updated=_springBoneLodUpdated; _springBoneLodStats.skipped=_springBoneLodSkipped
+  if (window.__springBoneLodStats!==_springBoneLodStats) window.__springBoneLodStats=_springBoneLodStats
 }
+const _springBoneLodStats={updated:0,skipped:0}
+const _playerLodRowPool=[]
 
 // The render section runs through the RenderGraph (single per-frame orchestrator): node bodies +
 // ordering/edge docs live in core/RenderGraph.nodes.js; engine contract in core/RenderGraph.js.
@@ -3082,6 +3094,7 @@ function tickVehicleWheels(frameDt) {
 // no declared dependency on each other still execute in registration order (Kahn FIFO tie-break),
 // reproducing today's exact sequence. Per-node state (throttle timestamps, editor-frame flag) lives
 // in ctx.res so it is inspectable via window.__renderGraph.capture(), not a module-private var.
+let _vramMirrorAt = -1e9
 function buildFrameSectionNodes() {
   return [
     {
@@ -3150,7 +3163,7 @@ function buildFrameSectionNodes() {
         const _tickT0 = performance.now()
         tickPlayerAnimators(lid, ctx.res.frameDt, ctx.res.isEditorFrame)
         const _tickDt = performance.now() - _tickT0
-        _tickAnimSamples.push(_tickDt); if (_tickAnimSamples.length > 240) _tickAnimSamples.shift()
+        _tickAnimSamples[_tickAnimIdx] = _tickDt; _tickAnimIdx = (_tickAnimIdx + 1) % 240; if (_tickAnimCount < 240) _tickAnimCount++
         // SharedArrayBuffer transform-ring hot path (physics-transform-ring-disconnect-release-and-
         // render-consumption): readTransformRing only exists on BrowserServer (in-Worker singleplayer/
         // host) and only returns non-null once the worker's ring was actually allocated (real COOP/COEP
@@ -3452,7 +3465,9 @@ function buildFrameSectionNodes() {
       reads: [], writes: [],
       run(ctx) {
         if (typeof window === 'undefined' || !window.__renderControls || !modelPool.getVramStats) return
-        window.__renderControls.set('vramStats', modelPool.getVramStats())
+        // Stats mirror is a read-only discovery knob: refresh it at ~4Hz (getVramStats allocates a fresh
+        // object + copies the VRAM log), not every frame. The knob->pool apply below stays per-frame (one global read).
+        if (ctx.now - _vramMirrorAt > 250) { _vramMirrorAt = ctx.now; window.__renderControls.set('vramStats', modelPool.getVramStats()) }
         const wantMB = window.__vramBudgetMB
         if (Number.isFinite(wantMB) && wantMB > 0) {
           const curMB = modelPool.pool && modelPool.pool.byteBudget != null ? modelPool.pool.byteBudget / (1024 * 1024) : null
@@ -3486,7 +3501,10 @@ function buildFrameSectionNodes() {
           const authFocus = floatingOrigin.toAuthoritative(vf && vf.position ? { x: vf.position[0], y: vf.position[1], z: vf.position[2] } : (vf || camera.position), _colliderDebugFocus)
           try { colliderDebug.update(authFocus, el.entityMeshes) } catch (_) {}
         }
-        if (typeof editor !== 'undefined') editor.updateGizmo()
+        // Gizmo/waypoint-path refresh only while the editor is actually active: updateGizmo's waypoint
+        // refresh walked + re-keyed every scene entity (3 array allocs + toFixed strings per point) every
+        // frame for the rest of the session once the editor had been opened even once.
+        if (typeof editor !== 'undefined' && (ctx.res.isEditorFrame || editPanel.visible)) editor.updateGizmo()
         if (editPanel.visible && ctx.now - _camCoordsAt > 100) { _camCoordsAt = ctx.now; try { editPanel.setCamCoords(camera.position.x, camera.position.y, camera.position.z) } catch (_) {} }
         // Multi-user presence badges only cost anything while the editor overlay is actually open.
         if (editPanel.visible) { try { editorPresence.tick() } catch (_) {} }
@@ -3511,7 +3529,7 @@ function animate(ts) {
   _graphCtx.now = now
   frameGraph.run(_graphCtx)
   decalSystem.tick(_graphCtx.res.frameDt || 0.016)
-  damageNumbers.update(Math.max(4, Math.round((_graphCtx.res.frameDt || 0.016) * 1000)))
+  if (damageNumbers) damageNumbers.update(Math.max(4, Math.round((_graphCtx.res.frameDt || 0.016) * 1000)))
   // RENDER SECTION -- one graph.run(). Pass order, the near/far derive-don't-copy rationale, the
   // depth-buffer sharing contract, and the pre-planet __hostNearFar publish all live as documented
   // nodes in core/RenderGraph.nodes.js (host-near-far -> terrain-depth-color ->

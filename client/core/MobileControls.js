@@ -223,26 +223,35 @@ export class MobileControls {
 }
 
 export function detectDevice() {
-  const hasWebGL2 = () => { try { const c = document.createElement('canvas'); return !!c.getContext('webgl2') } catch (_) { return false } }
-  const gpuTier = () => {
-    try {
-      const c = document.createElement('canvas'), gl = c.getContext('webgl2')
-      if (!gl) return 'unknown'
-      const ext = gl.getExtension('WEBGL_debug_renderer_info')
-      if (!ext) return 'unknown'
-      const renderer = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || ''
-      if (/Intel HD Graphics|HD Graphics|UHD Graphics 6[0-9]0|Mali-[3-5]00|Adreno [3-5]|Adreno 5[0-4][0-9]|PowerVR SGX|Tegra [34]/i.test(renderer)) return 'low'
-      if (/Mali|Adreno|Apple GPU|Intel|AMD Radeon|NVIDIA|GeForce|RTX|Arc|Iris/i.test(renderer)) return 'medium'
-      return 'unknown'
-    } catch (_) { return 'unknown' }
+  // ONE throwaway WebGL2 context answers both "is WebGL2 available" and "which GPU tier" (this used to
+  // create two, each left for GC to reclaim -- every extra context counts against the browser's
+  // per-page context limit and costs real driver time at boot). Explicitly released via
+  // WEBGL_lose_context once read; the renderer's own real context is created separately by
+  // SceneSetup.createRenderer.
+  let hasWebGL2 = false, gpuTier = 'unknown'
+  if (typeof document !== 'undefined') {
+    let gl = null
+    try { gl = document.createElement('canvas').getContext('webgl2') } catch (_) { gl = null }
+    if (gl) {
+      hasWebGL2 = true
+      try {
+        const ext = gl.getExtension('WEBGL_debug_renderer_info')
+        const renderer = ext ? (gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || '') : ''
+        if (ext) {
+          if (/Intel HD Graphics|HD Graphics|UHD Graphics 6[0-9]0|Mali-[3-5]00|Adreno [3-5]|Adreno 5[0-4][0-9]|PowerVR SGX|Tegra [34]/i.test(renderer)) gpuTier = 'low'
+          else if (/Mali|Adreno|Apple GPU|Intel|AMD Radeon|NVIDIA|GeForce|RTX|Arc|Iris/i.test(renderer)) gpuTier = 'medium'
+        }
+      } catch (_) { gpuTier = 'unknown' }
+      try { const lose = gl.getExtension('WEBGL_lose_context'); if (lose) lose.loseContext() } catch (_) {}
+    }
   }
   return {
     isMobile, isDesktop: !isMobile,
     hasGamepad: typeof navigator !== 'undefined' && 'getGamepads' in navigator,
-    hasWebGL2: typeof document !== 'undefined' && hasWebGL2(),
+    hasWebGL2,
     memoryMB: typeof navigator !== 'undefined' && navigator.deviceMemory ? navigator.deviceMemory * 1024 : -1,
     hardwareConcurrency: typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || -1 : -1,
-    gpuTier: gpuTier(),
+    gpuTier,
     screenDiagonal: typeof window !== 'undefined' ? Math.hypot(window.innerWidth, window.innerHeight) : -1,
     dpr: typeof window !== 'undefined' ? window.devicePixelRatio : 1
   }

@@ -1,7 +1,7 @@
 import { join, dirname, resolve, relative, extname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { existsSync, readdirSync, statSync } from 'node:fs'
-import { prewarm } from '../static/GLBTransformer.js'
+import { prewarm, prewarmFiles } from '../static/GLBTransformer.js'
 import { prewarmCompression } from './StaticHandler.js'
 import { prewarmProgressive, ensureProgressive } from '../static/ProgressiveBake.js'
 import { createServer } from './server.js'
@@ -83,6 +83,28 @@ export function buildStaticDirs(sdkRoot, project, appsDirs) {
   } else {
     console.log('[server] serving raw ESM from client/ (no dist/client/app.js bundle present)')
   }
+  // Same existsSync-fallthrough mechanism for the singleplayer/host physics Worker: bundle-worker.mjs
+  // writes dist/src/sdk/WorkerEntry.js (one file instead of the ~50 dependency-ordered /src/ module
+  // fetches the raw entry costs on every cold boot, live-counted), mounted at the SAME '/src/' prefix
+  // ahead of the raw src/ mount so client/BrowserServer.js's unchanged `new Worker('/src/sdk/
+  // WorkerEntry.js')` URL transparently resolves to the bundle when present and fresh -- and, because
+  // the served URL is identical, every `new URL(..., import.meta.url)`-relative asset the worker
+  // resolves (Jolt's wasm) resolves exactly as it does for the raw file. Every other /src/* request
+  // falls through to the raw mount (nothing else exists in dist/src). Freshness is checked against
+  // the whole src/ tree (the worker bundle inlines src/'s relative import graph, not just the entry).
+  const workerBundleDir = join(sdkRoot, 'dist', 'src')
+  const workerBundlePath = join(workerBundleDir, 'sdk', 'WorkerEntry.js')
+  if (existsSync(workerBundlePath)) {
+    const wbMtime = statSync(workerBundlePath).mtimeMs
+    const srcDir = join(sdkRoot, 'src')
+    const srcMtime = collectWatchableFiles(srcDir).reduce((max, f) => { try { return Math.max(max, statSync(f).mtimeMs) } catch { return max } }, 0)
+    if (wbMtime >= srcMtime) {
+      console.log(`[server] serving PREBUILT WORKER BUNDLE from dist/src/sdk/WorkerEntry.js (built ${new Date(wbMtime).toISOString()})`)
+      dirs.unshift({ prefix: '/src/', dir: workerBundleDir })
+    } else {
+      console.log(`[server] dist/src/sdk/WorkerEntry.js is STALE (built ${new Date(wbMtime).toISOString()}, src/ edited ${new Date(srcMtime).toISOString()}) -- falling through to raw ESM worker`)
+    }
+  }
   dirs.push({ prefix: '/', dir: join(sdkRoot, 'client') })
   return dirs
 }
@@ -163,20 +185,32 @@ export async function boot(overrides = {}) {
   // live-measured 500+s on 2026-07-21. SPOINT_SKIP_PREWARM=1 skips this call entirely for fast dev
   // boot; unset (default) keeps full prewarm, matching prod/CI (where every asset should already be
   // warm/served correctly on first real request, not lazily transformed on first hit).
+  const resolveModel = m => {
+    const rel = m.startsWith('./') ? m.slice(2) : m.startsWith('/') ? m.slice(1) : m
+    for (const dir of [PROJECT, SDK_ROOT]) { const fp = resolve(dir, rel); if (existsSync(fp)) return fp }
+    return null
+  }
   if (process.env.SPOINT_SKIP_PREWARM) {
     console.log('[prewarm] SPOINT_SKIP_PREWARM set -- skipping full apps/-tree GLB/VRM prewarm (assets will transform lazily on first request instead)')
   } else {
-    await prewarm(appsDirs).catch(e => console.error('[prewarm] error:', e))
+    // Awaited (boot-blocking) prewarm is narrowed to what the loaded world actually references --
+    // its entity models, its playerModel, and client/anim-lib.glb (the shared player-animation
+    // library EVERY client fetches before ASSETS_DONE, which the old apps/-only scan never covered:
+    // the first client of every fresh checkout paid the whole ~8.5s anim-lib transform inline on its
+    // own first request, live-measured). The rest of the apps/ tree (every other world's assets) still
+    // transforms, just in the background after the port is bound instead of gating it.
+    const referenced = buildUniquePathList([
+      ...(worldDef.entities || []).filter(e => e.model).map(e => resolveModel(e.model)).filter(Boolean),
+      ...(worldDef.playerModel ? [resolveModel(worldDef.playerModel)].filter(Boolean) : []),
+      ...[join(SDK_ROOT, 'client', 'anim-lib.glb'), resolve(PROJECT, 'client', 'anim-lib.glb')].filter(existsSync),
+    ])
+    await prewarmFiles(referenced).catch(e => console.error('[prewarm] error:', e))
+    setImmediate(() => { prewarm(appsDirs).catch(e => console.error('[prewarm] background error:', e)) })
   }
   // custom._interior models are awaited before serving: ModelPool needs the bake ready or a cold-cache first load shows no map until a manual refresh
   try {
     const envModels = new Set((worldDef.entities || []).filter(e => e.model && e.custom?._interior).map(e => e.model))
     const allModels = (worldDef.entities || []).filter(e => e.model).map(e => e.model)
-    const resolveModel = m => {
-      const rel = m.startsWith('./') ? m.slice(2) : m.startsWith('/') ? m.slice(1) : m
-      for (const dir of [PROJECT, SDK_ROOT]) { const fp = resolve(dir, rel); if (existsSync(fp)) return fp }
-      return null
-    }
     const envResolved = [...envModels].map(resolveModel).filter(Boolean)
     const restResolved = allModels.filter(m => !envModels.has(m)).map(resolveModel).filter(Boolean)
     if (restResolved.length) prewarmProgressive(restResolved)

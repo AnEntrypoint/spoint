@@ -135,6 +135,10 @@ export async function init({ worldDef, apps = [], migrationSnapshot = null, loca
   // hotreload-migrate-entity-custom-field: same wiring as server.js -- see AppRuntime.setPlacedModelStorage's comment.
   appRuntime.setPlacedModelStorage(ctx.placedModelStorage)
 
+  // Kick the placed-models IndexedDB read now so it overlaps the Jolt WASM init await below instead
+  // of serializing behind it (it is consumed only after physicsReady, see `placed` below; IDBAdapter
+  // opens its DB lazily on construction so this is safe to start this early).
+  const placedPromise = storage.get('placed-models').catch(e => { console.warn('[world-persistence] placed-models read failed:', e?.message || e); return null })
   await physicsReady
   // terrain heightfield build stays backgrounded (not awaited) so init/worldDef/snapshot reach the client without delay
   // must run before stage load: tps-game's spawn-finder raycasts and excludes the terrain body, and races it if streaming starts from the app's own setup instead (witnessed 77->4 spawn points)
@@ -163,7 +167,7 @@ export async function init({ worldDef, apps = [], migrationSnapshot = null, loca
       .then(s => { _terrainStreamer = s; ctx._terrainStreamer = s })
       .catch(e => console.error('[terrain] heightfield install error:', e?.message || e))
   }
-  const placed = await storage.get('placed-models') || []
+  const placed = await placedPromise || []
   // p.app carries the real app name for a PLACE_APP-spawned entity (trigger-volume, button, spawn-point,
   // etc. -- see _persistPlaced below); a legacy record with no app field predates that change and is
   // always a plain PLACE_MODEL/GLB placement, so it still falls back to 'placed-model' for backward-compat

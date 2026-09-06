@@ -29,8 +29,16 @@ export function interpolateSnapshot(result, playerPool, entityPool, getPlayerSlo
   result.tick = newer.tick
   result.timestamp = newer.timestamp
 
-  oldPMap.clear()
-  for (const p of older.players || []) oldPMap.set(p.id, p)
+  // Memoized on the `older` snapshot object identity (+ its tick, in case a caller ever recycles the
+  // snapshot object itself): the render loop calls this every frame, but `older` only advances when
+  // the jitter buffer's bracket moves (once per received snapshot), so the two id->entry Maps are
+  // rebuilt at snapshot rate instead of at frame rate. A snapshot's players/entities arrays are
+  // final once produced (SnapshotProcessor.processSnapshot), so a same-object hit is exact.
+  if (oldPMap._src !== older || oldPMap._srcTick !== older.tick) {
+    oldPMap.clear()
+    for (const p of older.players || []) oldPMap.set(p.id, p)
+    oldPMap._src = older; oldPMap._srcTick = older.tick
+  }
 
   const newPlayers = newer.players || []
   const pLen = newPlayers.length
@@ -70,8 +78,11 @@ export function interpolateSnapshot(result, playerPool, entityPool, getPlayerSlo
   // dynamic body, since a rendered frame lands between two snapshots but showed the raw newest one
   // regardless of alpha. Mirrors the player lerp above; a static/sleeping body's position/rotation are
   // identical between snapshots so lerping it is a correctness-preserving no-op, not a special case.
-  oldEMap.clear()
-  for (const e of older.entities || []) oldEMap.set(e.id, e)
+  if (oldEMap._src !== older || oldEMap._srcTick !== older.tick) {
+    oldEMap.clear()
+    for (const e of older.entities || []) oldEMap.set(e.id, e)
+    oldEMap._src = older; oldEMap._srcTick = older.tick
+  }
 
   const newEntities = newer.entities || []
   const eLen = newEntities.length

@@ -227,6 +227,8 @@ export function createModelPool(scene, renderer, camera, { vramBudgetMB, deviceI
       oldestPendingFrames: pendingCount > 0 ? 1 : 0,   // tier is one-frame-latency only, never multi-frame pending
     }
   }
+  // Allocation-free per-frame read for the shared query-budget arbiter (getStats() spreads a fresh object).
+  function getCandidateCount() { return Array.isArray(pool._occlusionCandidates) ? pool._occlusionCandidates.length : 0 }
   function has(entityId) { return _entities.has(entityId) }
 
   // Dedicated VRAM-tracker surface (half-res-transparents-temporal-upscale-texture-vram-budget PRD row):
@@ -278,5 +280,5 @@ export function createModelPool(scene, renderer, camera, { vramBudgetMB, deviceI
     return out
   }
 
-  return { pool, spawn, spawnVRM, remove, setTarget, setRotation, update, runOcclusionQueries, getStats, setOcclusionQueryBudget, getOcclusionQueryBudget, getDebugBoxes, has, progressiveReady, _entities, getVramStats, setVramBudgetMB, getVramLog }
+  return { pool, spawn, spawnVRM, remove, setTarget, setRotation, update, runOcclusionQueries, getStats, getCandidateCount, setOcclusionQueryBudget, getOcclusionQueryBudget, getDebugBoxes, has, progressiveReady, _entities, getVramStats, setVramBudgetMB, getVramLog }
 }

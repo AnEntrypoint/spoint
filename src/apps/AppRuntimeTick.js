@@ -150,10 +150,13 @@ export function mixinTick(runtime) {
   }
 
   runtime._tickRespawn = function() {
-    const now = Date.now()
+    // Date.now() is read lazily, only once some active body is actually below the kill-plane -- the
+    // common no-fallen-bodies tick never touches the clock (was one syscall per tick unconditionally).
+    let now = 0
     for (const id of this._activeDynamicIds) {
       const e = this.entities.get(id); if (!e) continue
       if (e.position[1] < -20) {
+        if (now === 0) now = Date.now()
         if (!this._respawnTimer.has(id)) this._respawnTimer.set(id, { startTime: now, lastRespawn: 0 })
         const timer = this._respawnTimer.get(id)
         if ((now - timer.startTime) / 1000 >= 5 && now - timer.lastRespawn >= 1000) {
