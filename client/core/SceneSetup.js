@@ -331,6 +331,19 @@ export function createLoaders(renderer) {
   // Pure-JS DRACOLoader (no decoder path / worker pool / .wasm fetch).
   const dracoLoader = new DRACOLoader(loadingManager)
   gltfLoader.setDRACOLoader(dracoLoader)
+  // Meshopt decode off the main thread. Every cluster-baked GLB this project ships is
+  // EXT_meshopt_compression (see packages/streaming-gltf's bake pipeline), and without a worker pool
+  // MeshoptDecoder.decodeGltfBufferAsync resolves synchronously on the main thread -- so every model's
+  // vertex/index decompression landed in the boot critical path. GLTFLoader already prefers
+  // decodeGltfBufferAsync when the decoder exposes it (three's GLTFLoader EXT_meshopt_compression
+  // branch), so enabling workers needs no call-site change and produces byte-identical buffers; only
+  // WHERE the decode runs moves. Two workers (not one per core): the win is getting the work off the
+  // main thread at all, and this process already runs a physics worker plus the model-pool workers, so
+  // a per-core pool would oversubscribe a 4-core machine. Main thread only -- a Worker has no `window`
+  // and should not spawn a nested decoder pool of its own. MeshoptDecoder is a module singleton shared
+  // with packages/streaming-gltf/src/model-pool.js (same specifier, same resolved URL), so this one
+  // call covers both loaders. Never fatal: a failure here leaves the synchronous path in place.
+  try { if (typeof window !== 'undefined' && typeof MeshoptDecoder.useWorkers === 'function') MeshoptDecoder.useWorkers(2) } catch (e) { console.warn('[loaders] MeshoptDecoder.useWorkers unavailable, decoding on the main thread:', e?.message || e) }
   gltfLoader.setMeshoptDecoder(MeshoptDecoder)
   gltfLoader.register((parser) => new VRMLoaderPlugin(parser))
   // Reuse model-pool.js's shared KTX2Loader singleton -- two independently-constructed
