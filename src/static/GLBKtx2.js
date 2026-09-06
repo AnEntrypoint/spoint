@@ -16,13 +16,21 @@ function _loadSharp() {
 }
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const _ktxCandidates = [
-  join(__dirname, '../../bin/ktx.exe'),
-  join(__dirname, '../../bin/ktx'),
-  '/usr/bin/ktx',
-  '/usr/local/bin/ktx',
-]
+// Platform-filtered: the repo ships bin/ktx.exe (a Windows PE binary). On Linux/macOS existsSync()
+// found it, imageToKtx2 treated the encoder as available, spawnSync failed, and every image fell
+// through to the PNG fallback -- the mechanism behind every map GLB inflating 2-3x on a Linux deploy.
+const _ktxCandidates = process.platform === 'win32'
+  ? [join(__dirname, '../../bin/ktx.exe')]
+  : [join(__dirname, '../../bin/ktx'), '/usr/bin/ktx', '/usr/local/bin/ktx']
 export const KTX_BIN = _ktxCandidates.find(p => existsSync(p)) || _ktxCandidates[0]
+let _ktxRunnable = null
+// True only when the resolved binary exists AND actually runs here (probed once per process).
+export function ktxAvailable() {
+  if (_ktxRunnable !== null) return _ktxRunnable
+  if (!existsSync(KTX_BIN)) return (_ktxRunnable = false)
+  try { const r = spawnSync(KTX_BIN, ['--version'], { timeout: 10000, windowsHide: true }); _ktxRunnable = r.status === 0 } catch { _ktxRunnable = false }
+  return _ktxRunnable
+}
 export const CONVERTIBLE = new Set(['image/webp', 'image/png', 'image/jpeg'])
 
 export function encodeMode(slotName) {
@@ -39,11 +47,30 @@ export function sanitizeJson(json) {
 export async function imageToKtx2(imageBuffer, mode = 'basis-lz', tmpBase = 'tex') {
   let pngBuf = null
   const sharp = await _loadSharp()
+  const haveKtx = ktxAvailable()
   if (sharp) {
-    try { pngBuf = await sharp(imageBuffer).resize(256, 256, { fit: 'inside', withoutEnlargement: true }).png().toBuffer() } catch { }
+    try {
+      const img = sharp(imageBuffer)
+      if (!haveKtx) {
+        // No ktx CLI (the common deploy case): the only transform left is the 256px downscale. An
+        // image already within that box needs no re-encode at all -- returning null keeps the
+        // source bytes (its own webp/jpeg/png, same pixels the client would get from a re-encode).
+        // Root-caused live: every map GLB inflated +63..+188% because this fallback re-emitted 45
+        // downscaled images as PNG (2.69 MB) in place of 156 KB of webp.
+        const meta = await img.metadata()
+        if (meta.width && meta.height && meta.width <= 256 && meta.height <= 256) return null
+        // Downscale needed. For a webp source (its texture already declares EXT_texture_webp) lossless
+        // WebP carries the identical downscaled pixels PNG would, at a fraction of the bytes; png/jpeg
+        // sources keep the PNG fallback below so their plain `source` reference stays spec-valid.
+        if (meta.format === 'webp') {
+          const webpBuf = await img.resize(256, 256, { fit: 'inside', withoutEnlargement: true }).webp({ lossless: true, effort: 4 }).toBuffer()
+          return { buf: webpBuf, mimeType: 'image/webp' }
+        }
+      }
+      pngBuf = await img.resize(256, 256, { fit: 'inside', withoutEnlargement: true }).png().toBuffer()
+    } catch { }
   }
   if (!pngBuf) return null
-  if (!existsSync(KTX_BIN)) return { buf: pngBuf, mimeType: 'image/png' }
   const base = join(tmpdir(), `${tmpBase}_${Date.now()}`)
   const inFile = `${base}.png`, outFile = `${base}.ktx2`
   const { writeFileSync } = await import('node:fs')
@@ -174,6 +201,9 @@ export async function applyKtx2(inputBuffer) {
   const newTextures = (json.textures || []).map(tex => {
     const webpSrc = tex.extensions?.EXT_texture_webp?.source
     if (webpSrc !== undefined) {
+      // Image kept as webp (untouched small source, or the lossless-webp downscale): the texture's
+      // existing EXT_texture_webp reference is still exactly right -- leave it alone.
+      if (newImages[webpSrc] && newImages[webpSrc].mimeType === 'image/webp') return tex
       if (hasKtx2) {
         const img = images[webpSrc]
         if (img && CONVERTIBLE.has(img.mimeType) && replacements.has(img.bufferView) && replacements.get(img.bufferView).mimeType === 'image/ktx2') {
@@ -197,8 +227,10 @@ export async function applyKtx2(inputBuffer) {
     if (tex.source === undefined) return { ...tex, source: 0, extensions: undefined }
     return tex
   })
-  const extsUsed = hasKtx2 ? [...new Set([...(json.extensionsUsed || []).filter(e => e !== 'EXT_texture_webp'), 'KHR_texture_basisu'])] : (json.extensionsUsed || []).filter(e => e !== 'EXT_texture_webp')
-  const extsRequired = hasKtx2 ? [...new Set([...(json.extensionsRequired || []).filter(e => e !== 'EXT_texture_webp'), 'KHR_texture_basisu'])] : (json.extensionsRequired || []).filter(e => e !== 'EXT_texture_webp')
+  const webpRemains = newImages.some(img => img && img.mimeType === 'image/webp')
+  const dropWebp = (list) => webpRemains ? list : list.filter(e => e !== 'EXT_texture_webp')
+  const extsUsed = hasKtx2 ? [...new Set([...dropWebp(json.extensionsUsed || []), 'KHR_texture_basisu'])] : dropWebp(json.extensionsUsed || [])
+  const extsRequired = hasKtx2 ? [...new Set([...dropWebp(json.extensionsRequired || []), 'KHR_texture_basisu'])] : dropWebp(json.extensionsRequired || [])
   const newJson = { ...json, extensionsUsed: extsUsed, extensionsRequired: extsRequired, bufferViews: newBufViews, images: newImages, textures: newTextures, buffers: [{ byteLength: newOffset }] }
   const jsonStr = JSON.stringify(newJson); const jsonPad = (4 - (jsonStr.length % 4)) % 4
   const jsonBuf = Buffer.alloc(jsonStr.length + jsonPad, 0x20); Buffer.from(jsonStr).copy(jsonBuf)
