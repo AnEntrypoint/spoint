@@ -1473,3 +1473,6 @@
 - id: m-perf-measure-env
   status: assumed
   text: 'No real GPU in this container: frame-time-gate runs on SwiftShader, so absolute frame ms is not representative; use it for relative CPU-side deltas + draw-call/triangle counts, and CDP CPU profiles for hot-function attribution.'
+- id: m-perf-visual-verification-needs-a-control
+  status: resolved
+  text: 'Screenshot equality is NOT a usable pass/fail signal for this client on its own: async vegetation/rock streaming reaches a different state on every run, so two captures of the SAME code differ by 13-59% of pixels. Any "no visual loss" claim must diff against a control (the same tree captured twice) and compare structural invariants (renderer.info.render.calls, scene mesh counts, per-system instance totals) which ARE stable run to run. This is how the scenery/cluster regression was caught and how the revert was proven clean.'
