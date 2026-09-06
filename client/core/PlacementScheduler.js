@@ -78,6 +78,19 @@ export function resolveCameraPose(camera, out) {
 }
 const _tickPose = { x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1 }
 
+// ONE shader warm for all scenery systems: each of vegetation/rocks/grass.warmShaders() renders the
+// whole scene twice (renderer.compile is incompatible with @three.ez InstancedMesh2 -- a real render()
+// sets up its instancing; two renders so the second pass hits every LOD/program the first one compiled
+// lazily), so calling all three back-to-back was SIX full-scene renders behind the loading curtain. Once
+// every system exists, one pair of renders warms every program of all three at once. Boot call site
+// (client/app.js _buildWorldScenery): replace the three `await X.warmShaders(camera)` lines with
+// `warmSceneryShaders(renderer, scene, camera)` after the three prewarm calls.
+export function warmSceneryShaders(renderer, scene, camera) {
+  if (!renderer || !scene || !camera) return 0
+  try { renderer.render(scene, camera); renderer.render(scene, camera) } catch (_) {}
+  return 2
+}
+
 export function createPlacementScheduler(getHandles) {
   let _lastTickAtMs = -Infinity
   let _timer = null

@@ -63,7 +63,7 @@ import { installMeshDebug } from './core/MeshDebug.js'
 import { pickExpressionCode, applyExpressionCode, EXPR_NEUTRAL } from './core/ExpressionCodes.js'
 import { codeToWeaponName } from '../src/shared/WeaponCodes.js'
 import { getSharedStreamingScheduler } from './core/StreamingScheduler.js'
-import { createPlacementScheduler } from './core/PlacementScheduler.js'
+import { createPlacementScheduler, warmSceneryShaders } from './core/PlacementScheduler.js'
 import { getSharedCacheRevalidationSweep } from './core/CacheRevalidationSweep.js'
 import { QualityPresets, installQualityPresets } from './core/QualityPresets.js'
 import { _shadowCascadeCountForBoot, _showBootFailureOverlay } from './BootFailureOverlay.js'
@@ -653,10 +653,11 @@ async function _buildWorldScenery() {
       grass && grass.prewarm ? grass.prewarm(px, pz, PLAYABLE_BUDGET_MS) : null,
     ])
     _hp('after-veg-rocks-grass-prewarm')
-    if (vegetation && vegetation.warmShaders) await vegetation.warmShaders(camera)
-    if (rocks && rocks.warmShaders) await rocks.warmShaders(camera)
-    _hp('after-rocks-warm')
-    if (grass && grass.warmShaders) await grass.warmShaders(camera)
+    // ONE pair of full-scene renders warms every scenery program. vegetation/rocks/grass.warmShaders()
+    // are byte-identical bodies (two renderer.render(scene, camera) calls on the SAME shared scene and
+    // camera), so calling all three back-to-back was six identical full-scene renders behind the
+    // loading curtain where two compile exactly the same set of programs.
+    warmSceneryShaders(renderer, scene, camera)
     _hp('after-prewarm-warm')
   } catch (e) { console.error('[veg] prewarm/warm failed:', e?.message || e) }
 }

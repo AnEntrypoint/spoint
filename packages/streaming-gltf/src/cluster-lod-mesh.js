@@ -201,7 +201,7 @@ export class ClusterLodMesh extends THREE.Mesh {
     const frame = renderer.info.render.frame + 1;
     if (this._lastRenderFrame === frame) return;
     this._lastRenderFrame = frame;
-    this._compute(renderer, camera, geometry, frame);
+    this._compute(renderer, camera, geometry, frame, true);
   }
 
   _render(renderer, scene, camera, geometry) {
@@ -240,13 +240,14 @@ export class ClusterLodMesh extends THREE.Mesh {
     // built the renderList from. Only a render() with no pre-pass (unhooked scene) falls through.
     if (this._lastRenderFrame === frame) return;
     this._lastRenderFrame = frame;
-    this._compute(renderer, camera, geometry, frame);
+    this._compute(renderer, camera, geometry, frame, false);
   }
 
   // The real per-render cull + LOD-select + group-build body, shared by prepare() (pre-pass, the
   // normal path) and _render() (legacy in-draw fallback) so there is exactly one implementation.
   // `frame` is the caller's per-render key (see prepare()'s frame+1 note) for the shared camera cache.
-  _compute(renderer, camera, geometry, frame) {
+  // `fromPrepass` selects the fully-culled behaviour (see the n === 0 branch at the end).
+  _compute(renderer, camera, geometry, frame, fromPrepass) {
     const index = geometry.index;
     if (!index || !this.clusterSet) return; // nothing to do; default draw renders full LOD0
 
@@ -369,10 +370,23 @@ export class ClusterLodMesh extends THREE.Mesh {
     const view = this._groupView || (this._groupView = []);
     view.length = 0;
     if (n === 0) {
-      const fb = this._fallbackGroup || (this._fallbackGroup = { start: 0, count: 0, materialIndex: 0 });
-      fb.start = 0; fb.count = this.lod0Count; fb.materialIndex = 0;
-      view.push(fb);
-      drawnTris = this.lod0Count / 3;
+      if (fromPrepass && visible === 0) {
+        // Every cluster AABB is outside this render's frustum: draw NOTHING (empty groups -> projectObject
+        // pushes zero renderList entries for this mesh). Safe ONLY on the pre-pass path: with the legacy
+        // in-draw path an empty groups array meant onBeforeRender never fired again (the constructor's
+        // bootstrap-deadlock note), but prepare() is driven by scene.onBeforeRender and runs every render
+        // regardless of groups, so the next render re-evaluates normally. Live before this: an entirely
+        // off-screen aim_sillos still drew its full LOD0 (9358 tris, 1 group) through the fallback below --
+        // and, with the old nocull workaround, all 398 groups. Note the same "groups = main-camera-visible
+        // clusters" rule already applied to the shadow pass for partially-visible meshes (WebGLShadowMap
+        // iterates geometry.groups), so a fully-culled mesh drawing nothing there is consistent, not new.
+        drawnTris = 0;
+      } else {
+        const fb = this._fallbackGroup || (this._fallbackGroup = { start: 0, count: 0, materialIndex: 0 });
+        fb.start = 0; fb.count = this.lod0Count; fb.materialIndex = 0;
+        view.push(fb);
+        drawnTris = this.lod0Count / 3;
+      }
     } else {
       for (let i = 0; i < drawnCi.length; i++) view.push(pool[drawnCi[i]]);
     }

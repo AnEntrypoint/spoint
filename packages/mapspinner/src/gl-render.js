@@ -633,6 +633,15 @@ export async function initMapspinnerRender(gl, opts = {}) {
     while (status === gl.TIMEOUT_EXPIRED && (typeof performance !== 'undefined' ? performance.now() : Date.now()) < spinUntil) {
       status = gl.clientWaitSync(fence, 0, 0);
     }
+    // Spin expired (slow GPU / software raster): finish the wait ON THE FENCE instead of falling
+    // through to getBufferSubData with the fence unsatisfied. The read blocked either way -- this is
+    // the same wall time, same bytes -- but an unfenced read of a STREAM_READ buffer is reported by
+    // the driver as an unsynchronised pipeline stall ("READ-usage buffer was read back without
+    // waiting on a fence"), which is both a real hint the driver could not pipeline the transfer and
+    // noise in every console. SYNC_FLUSH_COMMANDS_BIT guarantees the commands are submitted, so this
+    // can never deadlock on a fence whose batch was never flushed. Matches the probe path's own
+    // blocking-wait fallback (see _probeSync's clientWaitSync(..., 1e9) above).
+    if (status === gl.TIMEOUT_EXPIRED) gl.clientWaitSync(fence, gl.SYNC_FLUSH_COMMANDS_BIT, 1e9);
     gl.deleteSync(fence);
     const out = new Float32Array(byteLen / 4);   // RED/FLOAT: buf IS the height array directly, no de-interleave needed
     gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, out);   // blocks only if the spin above didn't already observe completion
@@ -1267,6 +1276,11 @@ export async function initMapspinnerRender(gl, opts = {}) {
     const aniso = gl.getExtension('EXT_texture_filter_anisotropic');
     async function mkArray(data, internal) {
       const t = gl.createTexture();
+      // SCRATCH UNIT 15 for the whole (yielding) upload: this runs in macrotasks between frames, so binding
+      // the new array on whatever unit was left active would displace a live sampler binding (mapspinner's
+      // units 3/5/8/11 or a THREE unit) behind the renderer's own bind caches. Restore the unit at the end.
+      const _prevActiveUnit = gl.getParameter(gl.ACTIVE_TEXTURE);
+      gl.activeTexture(gl.TEXTURE15);
       gl.bindTexture(gl.TEXTURE_2D_ARRAY, t);
       gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 11, internal, sz, sz, matCount);   // 11 = full 1024 mip chain
       // WebGL2 spec forbids UNPACK_FLIP_Y_WEBGL/UNPACK_PREMULTIPLY_ALPHA_WEBGL (INVALID_OPERATION) on
@@ -1280,7 +1294,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
       // the same texels (srcOffset selects layer m's slice of the packed array). The texture is not
       // published (_surfAlb/_surfNrm stay null -> uHasSurfTex=0) until every layer + the mips are done.
       for (let m = 0; m < matCount; m++) {
-        if (m > 0) { await new Promise(res => setTimeout(res, 0)); gl.bindTexture(gl.TEXTURE_2D_ARRAY, t); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false); }
+        if (m > 0) { await new Promise(res => setTimeout(res, 0)); gl.activeTexture(gl.TEXTURE15); gl.bindTexture(gl.TEXTURE_2D_ARRAY, t); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false); }
         gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, m, sz, sz, 1, gl.RGBA, gl.UNSIGNED_BYTE, data, m * sz * sz * 4);
       }
       gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
@@ -1290,6 +1304,8 @@ export async function initMapspinnerRender(gl, opts = {}) {
       gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.REPEAT);
       if (aniso) gl.texParameterf(gl.TEXTURE_2D_ARRAY, aniso.TEXTURE_MAX_ANISOTROPY_EXT,
         Math.min(8, gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);   // never left resident on the scratch unit
+      gl.activeTexture(_prevActiveUnit);
       return t;
     }
     _surfMeanL = meanL;
@@ -1610,6 +1626,12 @@ export async function initMapspinnerRender(gl, opts = {}) {
   function ensureSceneCopy(W, H) {
     if (_sceneCopyTex && _sceneCopyW === W && _sceneCopyH === H) return;
     if (_sceneCopyTex) gl.deleteTexture(_sceneCopyTex);
+    // Scope the creation-time bind to the scratch unit 15 (same discipline as ensureHrwTargets): the
+    // caller's active unit is now 11 (uSculptOverride, left by setFrameUniforms->setComposeHeightUniforms)
+    // on the first call, and a create+unbind there would leave that sampler's unit EMPTY for this frame's
+    // water draw.
+    const _prevActiveUnit = gl.getParameter(gl.ACTIVE_TEXTURE);
+    gl.activeTexture(gl.TEXTURE15);
     _sceneCopyTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, _sceneCopyTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
@@ -1617,6 +1639,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.activeTexture(_prevActiveUnit);
     _sceneCopyW = W; _sceneCopyH = H;
   }
   // HALF-RES WATER FBO (perf 2026-06-24, user opted in): the water pass is ~9ms of per-pixel FS-ALU
@@ -1669,6 +1692,8 @@ export async function initMapspinnerRender(gl, opts = {}) {
     if (_vdrsColor) gl.deleteTexture(_vdrsColor);
     if (_vdrsDepth) gl.deleteTexture(_vdrsDepth);
     if (_vdrsFbo)   gl.deleteFramebuffer(_vdrsFbo);
+    const _prevActiveUnit = gl.getParameter(gl.ACTIVE_TEXTURE);   // scratch-unit discipline (see ensureHrwTargets/ensureSceneCopy)
+    gl.activeTexture(gl.TEXTURE15);
     _vdrsColor = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, _vdrsColor);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
@@ -1695,6 +1720,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
     // entire terrain to vanish. Clearing to 1.0 (far plane) ensures frame-1 fragments pass.
     gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); gl.clearDepth(1.0); gl.clear(gl.DEPTH_BUFFER_BIT);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.activeTexture(_prevActiveUnit);
     _vdrsW = W; _vdrsH = H;
   }
 

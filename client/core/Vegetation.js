@@ -201,9 +201,13 @@ export async function createVegetation(opts = {}) {
   // library's own createAtlasRenderTarget + renderAtlasCells(cellStart/cellCount) -- byte-identical to
   // its one-shot createTextureAtlas (each cell is an independent scissored render of the same target from
   // the same bounding sphere), but the boot loop paints between rows instead of freezing per species.
-  const _yieldFrameBoot = () => new Promise(r => (typeof requestAnimationFrame !== 'undefined') ? requestAnimationFrame(() => r()) : setTimeout(r, 0))
-  const IMP_SPRITES = 8, IMP_TEX = 1024
+  // Yield between sprite rows once ~8ms of bake work has accumulated (a macrotask yield, not a forced
+  // rAF wait: the loading-screen frame still interleaves when one is due, but a fast GPU never pays a
+  // whole frame per row -- 120 forced rAF waits would be ~2s of boot on a 60Hz machine).
+  const _yieldBoot = () => new Promise(r => setTimeout(r, 0))
+  const IMP_SPRITES = 8, IMP_TEX = 1024, IMP_BAKE_SLICE_MS = 8
   async function bakeSpeciesImpostors(recs) {
+    let _sliceT0 = _now()
     for (const rec of recs) {
       if (rec.impMat) continue
       const sp = rec._sp
@@ -212,7 +216,7 @@ export async function createVegetation(opts = {}) {
         const rt = createAtlasRenderTarget(IMP_TEX)
         for (let row = 0; row < IMP_SPRITES; row++) {
           renderAtlasCells(renderer, sp.tree, rt, { atlasSize: IMP_TEX, countPerSide: IMP_SPRITES, bSphere: rec.impSph, cameraFactor: 1, useHemiOctahedron: false, cellStart: row * IMP_SPRITES, cellCount: IMP_SPRITES })
-          await _yieldFrameBoot()
+          if (_now() - _sliceT0 > IMP_BAKE_SLICE_MS) { await _yieldBoot(); _sliceT0 = _now() }
         }
         const sph = rec.impSph
         const transform = new THREE.Matrix4().makeScale(sph.radius * 2, sph.radius * 2, sph.radius * 2).setPosition(sph.center)
