@@ -6,8 +6,8 @@ import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 // Single canonical impostor implementation (packages/streaming-gltf/src/octahedral-impostor-ez.js,
 // shared with ModelPool's OctahedralImpostorEzTier via the same package import elsewhere -- no more
 // client/vendor duplicate, see AGENTS.md draw-call-audit-impostor-system-unification).
-import { createOctahedralImpostorMaterial, computeObjectBoundingSphere } from 'streaming-gltf/octahedral-impostor-ez'  // full-sphere octahedron (works at ground level, unlike hemi-only variants)
-import { buildSharedImpostorAtlas, createSharedImpostorMesh, IMPOSTOR_DISSOLVE_FADE_BAND_M } from './VegImpostorTier.js'
+import { createOctahedralImpostorMaterial, computeObjectBoundingSphere, createAtlasRenderTarget, renderAtlasCells } from 'streaming-gltf/octahedral-impostor-ez'  // full-sphere octahedron (works at ground level, unlike hemi-only variants)
+import { buildSharedImpostorAtlas, createSharedImpostorMesh, IMPOSTOR_DISSOLVE_FADE_BAND_M, impostorAtlasCacheKey, loadCachedImpostorAtlas, storeCachedImpostorAtlas, createAtlasFromCache } from './VegImpostorTier.js'
 import { createVegChunkCursor, VEG, SPECIES } from '/src/terrain/VegPlacement.js'
 import { createCachedAnchorField } from '/src/terrain/ClimateCache.js'
 import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
@@ -168,25 +168,15 @@ export async function createVegetation(opts = {}) {
           }
         }
       }
-      // Impostor far-LOD: bakes an octahedral atlas of the whole tree, adding a camera-facing plane as the branch's farthest LOD (leaf swaps to zero-area). Best-effort: any bake failure degrades to mesh-LOD-only.
-      let impostor = false, impMatRef = null, impDims = null
-      try {
-        if (!_buildImpostor) throw new Error('veg-bisect: impostor disabled (?veg=branch)')
-        await awaitMatTextures([sp.branchMat, sp.leafMat])
-        const sph = computeObjectBoundingSphere(sp.tree, new THREE.Sphere(), true)
-        if (sph && Number.isFinite(sph.radius) && sph.radius > 0) {
-          const transform = new THREE.Matrix4().makeScale(sph.radius * 2, sph.radius * 2, sph.radius * 2).setPosition(sph.center)
-          const impMat = createOctahedralImpostorMaterial({
-            baseType: THREE.MeshStandardMaterial, useHemiOctahedron: false,
-            spritesPerSide: 8, alphaClamp: 0.4, transform, transparent: false,
-            renderer, target: sp.tree, textureSize: 1024,
-            farSingleSprite: true,
-          })
-          impDims = { center: [sph.center.x, sph.center.y, sph.center.z], radius: sph.radius }
-          // D3 far-LOD decision deferred until after the shared atlas build attempt (which needs every species' atlas); impMat kept so its atlas can be packed into the mega
-          impostor = true; impMatRef = impMat
-        }
-      } catch (e) { console.warn('[veg] impostor bake failed (mesh-LOD-only):', name, e?.message || e) }
+      // Impostor far-LOD dims (the tree's bounding sphere): computed now, no bake yet -- the bake itself
+      // runs in the impostor stage after the species loop (cache hit skips it entirely, see below).
+      let impostor = false, impDims = null, impSph = null
+      if (_buildImpostor) {
+        try {
+          const sph = computeObjectBoundingSphere(sp.tree, new THREE.Sphere(), true)
+          if (sph && Number.isFinite(sph.radius) && sph.radius > 0) { impostor = true; impSph = sph; impDims = { center: [sph.center.x, sph.center.y, sph.center.z], radius: sph.radius } }
+        } catch (e) { console.warn('[veg] impostor bounds failed (mesh-LOD-only):', name, e?.message || e) }
+      }
       scene.add(mesh)
       mesh.updateMatrix(); mesh.matrixAutoUpdate = false
       // Opaque draw-order band (perf only, zero visual effect -- depth test still enforces correct
@@ -196,7 +186,7 @@ export async function createVegetation(opts = {}) {
       mesh.renderOrder = 3
       // `branch` stays as a compat alias of the merged mesh (window.__veg._meshes consumers); `leaf` is
       // null -- the leaf lives in group 1 of the same mesh, never a second InstancedMesh2 any more.
-      meshes.push({ name, mesh, branch: mesh, leaf: null, count: 0, impostor, impMat: impMatRef, impDims, bvhCount: 0 })
+      meshes.push({ name, mesh, branch: mesh, leaf: null, count: 0, impostor, impMat: null, impRT: null, impDims, impSph, _sp: sp, bvhCount: 0 })
     } catch (e) { buildErr++; console.error('[veg] species build failed:', name, e?.message || e) }
     if (_now() - _buildT0 > 8) {
       await new Promise(r => (typeof requestAnimationFrame !== 'undefined') ? requestAnimationFrame(() => r()) : setTimeout(r, 0))
@@ -206,37 +196,71 @@ export async function createVegetation(opts = {}) {
   // must look up by species name, not array index: a failed species build is absent from meshes (the array compacts), so index-based lookup would map every later species to the wrong mesh
   const recByName = new Map(meshes.map(r => [r.name, r]))
 
-  // Must apply mip/alpha setup AFTER every impostor bake (leafMat renders into a non-multisampled RT during the bake, where A2C is undefined-ish).
-  // Anisotropy pinned to 1 (Performance-Mode reference: no anisotropic softening at distance); alphaToCoverage on the leaf cutout when the renderer has real MSAA, alphaTest stays 0.5 for the no-MSAA shadow pass.
-  try {
-    const maxAniso = 1
-    const hasMSAA = !!(renderer.getContext() && renderer.getContext().getContextAttributes && renderer.getContext().getContextAttributes().antialias)
-    for (const r of meshes) {
-      for (const m of r.mesh.material) {
-        if (!m) continue
-        for (const k of ['map', 'normalMap', 'roughnessMap', 'aoMap', 'alphaMap', 'bumpMap']) {
-          const t = m[k]
-          if (t && t.isTexture && t.anisotropy !== maxAniso) { t.anisotropy = maxAniso; t.needsUpdate = true }
+  // ---- impostor tier build --------------------------------------------------------------------------
+  // Per-species octahedral bake, INCREMENTAL: one sprite ROW (8 of the 64 cells) per rAF via the
+  // library's own createAtlasRenderTarget + renderAtlasCells(cellStart/cellCount) -- byte-identical to
+  // its one-shot createTextureAtlas (each cell is an independent scissored render of the same target from
+  // the same bounding sphere), but the boot loop paints between rows instead of freezing per species.
+  const _yieldFrameBoot = () => new Promise(r => (typeof requestAnimationFrame !== 'undefined') ? requestAnimationFrame(() => r()) : setTimeout(r, 0))
+  const IMP_SPRITES = 8, IMP_TEX = 1024
+  async function bakeSpeciesImpostors(recs) {
+    for (const rec of recs) {
+      if (rec.impMat) continue
+      const sp = rec._sp
+      try {
+        await awaitMatTextures([sp.branchMat, sp.leafMat])
+        const rt = createAtlasRenderTarget(IMP_TEX)
+        for (let row = 0; row < IMP_SPRITES; row++) {
+          renderAtlasCells(renderer, sp.tree, rt, { atlasSize: IMP_TEX, countPerSide: IMP_SPRITES, bSphere: rec.impSph, cameraFactor: 1, useHemiOctahedron: false, cellStart: row * IMP_SPRITES, cellCount: IMP_SPRITES })
+          await _yieldFrameBoot()
         }
-      }
-      const lm = r.mesh.material[1]
-      if (lm && hasMSAA && !lm.alphaToCoverage) { lm.alphaToCoverage = true; lm.needsUpdate = true }
+        const sph = rec.impSph
+        const transform = new THREE.Matrix4().makeScale(sph.radius * 2, sph.radius * 2, sph.radius * 2).setPosition(sph.center)
+        rec.impMat = createOctahedralImpostorMaterial({
+          baseType: THREE.MeshStandardMaterial, useHemiOctahedron: false,
+          spritesPerSide: IMP_SPRITES, alphaClamp: 0.4, transform, transparent: false,
+          renderer, albedo: rt.textures[0], normalDepth: rt.textures[1],
+          farSingleSprite: true,
+        })
+        rec.impRT = rt
+      } catch (e) { console.warn('[veg] impostor bake failed (mesh-LOD-only):', rec.name, e?.message || e); rec.impostor = false; rec.impMat = null }
     }
-  } catch (e) { console.warn('[veg] mip/alpha setup skipped:', e?.message || e) }
+  }
+  // IndexedDB mega-atlas cache (see VegImpostorTier.js): on a repeat visit the packed atlas bytes load
+  // straight from IndexedDB and every per-species bake above is skipped. cfg.impostorAtlasCache:false or
+  // ?noatlascache disables it.
+  const ATLAS_CACHE = cfg.impostorAtlasCache !== false && typeof indexedDB !== 'undefined' && !(typeof location !== 'undefined' && /[?&]noatlascache/.test(location.search))
+  const impRecs0 = meshes.filter(r => r.impostor && r.impDims)
+  let cachedAtlas = null, atlasKey = null
+  if (USE_SHARED_IMPOSTOR && impRecs0.length && ATLAS_CACHE) {
+    try {
+      atlasKey = impostorAtlasCacheKey(renderer, impRecs0.map(r => r.name), impRecs0.map(r => r.impDims), { spritesPerSide: IMP_SPRITES, textureSize: IMP_TEX, hemi: false, alphaClamp: 0.4 })
+      const rec = await loadCachedImpostorAtlas(atlasKey)
+      if (rec) cachedAtlas = createAtlasFromCache(rec)
+    } catch (e) { console.warn('[veg] impostor atlas cache lookup failed (baking):', e?.message || e); cachedAtlas = null }
+  }
+  if (!cachedAtlas) await bakeSpeciesImpostors(impRecs0)
+  profile.impostors = meshes.filter(m => m.impostor).length
+  profile.impostorAtlasFromCache = !!cachedAtlas
 
   // Packs every species' baked atlas into one mega atlas + one InstancedMesh2, freeing per-species atlases; any failure degrades to the per-species fallback (sharedImpostor stays null).
   let sharedImpostor = null
+  let _atlasStored = false
   if (USE_SHARED_IMPOSTOR) {
-    try {
-      const impRecs = meshes.filter(r => r.impostor && r.impMat && r.impDims)
-      if (impRecs.length) {
-        const speciesAtlases = impRecs.map(r => ({ albedo: r.impMat.map, normal: r.impMat.normalMap }))
-        const atlas = buildSharedImpostorAtlas(renderer, speciesAtlases, {})
+    for (let attempt = 0; attempt < 2 && !sharedImpostor; attempt++) {
+      try {
+        const impRecs = cachedAtlas ? impRecs0.filter(r => r.impostor && r.impDims) : meshes.filter(r => r.impostor && r.impMat && r.impDims)
+        if (!impRecs.length) break
+        let atlas = cachedAtlas
+        if (!atlas) {
+          const speciesAtlases = impRecs.map(r => ({ albedo: r.impMat.map, normal: r.impMat.normalMap }))
+          atlas = buildSharedImpostorAtlas(renderer, speciesAtlases, {})
+        }
         if (atlas && atlas.copied > 0) {
           const dims = impRecs.map(r => r.impDims)
           sharedImpostor = createSharedImpostorMesh(renderer, atlas, dims, {
             maxInstances: MAX_INSTANCES, initCapacity: INIT_CAP,
-            spritesPerSide: 8, alphaClamp: 0.4,
+            spritesPerSide: IMP_SPRITES, alphaClamp: 0.4,
             // nearCutoff slightly inside D3 so the impostor engages before the branch mesh goes empty -- a brief overlap instead of a 1-frame gap where neither draws
             nearCutoff: IMPOSTOR_NEAR_CUTOFF,
             lodHysteresis: LOD_HYS,
@@ -256,18 +280,48 @@ export async function createVegetation(opts = {}) {
             sharedImpostor.mesh.updateMatrix(); sharedImpostor.mesh.matrixAutoUpdate = false
             // Opaque draw-order band (perf only, zero visual effect): see Rocks.js's renderOrder comment.
             sharedImpostor.mesh.renderOrder = 4
+            // Persist a freshly packed atlas (readback happens here, behind the curtain, before the
+            // per-species RTs are freed); a cache-hit atlas is already stored.
+            if (!cachedAtlas && atlasKey && !_atlasStored) { _atlasStored = true; try { await storeCachedImpostorAtlas(renderer, atlas, atlasKey) } catch (_) {} }
             // free per-species atlases now that they're copied into the mega atlas
             for (const r of impRecs) {
+              if (!r.impMat) continue
               try { r.impMat.map && r.impMat.map.dispose() } catch (_) {}
               try { r.impMat.normalMap && r.impMat.normalMap.dispose() } catch (_) {}
               try { r.impMat.dispose && r.impMat.dispose() } catch (_) {}
-              r.impMat = null
+              try { r.impRT && r.impRT.dispose() } catch (_) {}
+              r.impMat = null; r.impRT = null
             }
           }
-        } else if (atlas) { atlas.dispose && atlas.dispose() }
-      }
-    } catch (e) { console.warn('[veg] shared impostor build failed (per-species fallback):', e?.message || e); sharedImpostor = null }
+        } else if (atlas && !cachedAtlas) { atlas.dispose && atlas.dispose() }
+      } catch (e) { console.warn('[veg] shared impostor build failed' + (cachedAtlas ? ' from cache (re-baking)' : ' (per-species fallback)') + ':', e?.message || e); sharedImpostor = null }
+      if (!sharedImpostor && cachedAtlas) {
+        // a cached atlas that could not be turned into a live mesh: drop it and bake for real
+        try { cachedAtlas.dispose() } catch (_) {}
+        cachedAtlas = null
+        await bakeSpeciesImpostors(impRecs0)
+      } else break
+    }
   }
+  for (const r of meshes) { r._sp = null; r.impSph = null }   // ez-tree source objects no longer needed
+
+  // Must apply mip/alpha setup AFTER every impostor bake (leafMat renders into a non-multisampled RT during the bake, where A2C is undefined-ish).
+  // Anisotropy pinned to 1 (Performance-Mode reference: no anisotropic softening at distance); alphaToCoverage on the leaf cutout when the renderer has real MSAA, alphaTest stays 0.5 for the no-MSAA shadow pass.
+  try {
+    const maxAniso = 1
+    const hasMSAA = !!(renderer.getContext() && renderer.getContext().getContextAttributes && renderer.getContext().getContextAttributes().antialias)
+    for (const r of meshes) {
+      for (const m of r.mesh.material) {
+        if (!m) continue
+        for (const k of ['map', 'normalMap', 'roughnessMap', 'aoMap', 'alphaMap', 'bumpMap']) {
+          const t = m[k]
+          if (t && t.isTexture && t.anisotropy !== maxAniso) { t.anisotropy = maxAniso; t.needsUpdate = true }
+        }
+      }
+      const lm = r.mesh.material[1]
+      if (lm && hasMSAA && !lm.alphaToCoverage) { lm.alphaToCoverage = true; lm.needsUpdate = true }
+    }
+  } catch (e) { console.warn('[veg] mip/alpha setup skipped:', e?.message || e) }
 
   // Finalize the impostor far-LOD now that we know whether the shared mesh is live: shared live -> the
   // whole tree goes empty at FAR_LOD_SWAP (the shared mesh draws the far tree); shared off/failed ->
@@ -497,7 +551,7 @@ export async function createVegetation(opts = {}) {
         _prefetchAhead(cCx, cCz, px, pz, _vegSpiralCursor + 1)
         found = true; break
       }
-      if (!found) break
+      if (!found) { _deferKey = -1; break }
       if (!_inflight.cursor.step(Math.max(0, deadline - _now()))) break
       _finishInflight(); didLoad = true
     }

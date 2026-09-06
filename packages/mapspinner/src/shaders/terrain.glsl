@@ -1169,6 +1169,14 @@ void main() {
     // rendered seabed: alpha rises with optical depth (Beer-Lambert) + fresnel/foam, so shallows
     // show the sand through real transparency and deep basins read opaque navy. Early return --
     // none of the terrain material/atmosphere work below runs for water fragments.
+    // _WATERPASS_ SPLIT (perf): this block holds the FS's only `discard`s, and a discarding fragment
+    // shader disables early-Z depth-write for EVERY draw of the program -- including the terrain pass,
+    // which never discards. gl-render.js now compiles this same source TWICE (shared VS object): the
+    // TERRAIN program without _WATERPASS_ (this block compiled out -> no discard -> early-Z on) and a
+    // WATER program with _WATERPASS_ (this block in, the terrain tail below compiled out). Uniform
+    // names/values are identical across both, so the shader math is byte-for-byte the same as the
+    // single shared program was; only which program a draw binds changed.
+#ifdef _WATERPASS_
     if (uIsWater > 0.5) {
         // TEMP DIAGNOSTIC (__passProbe-gated via window.__waterDbg, remove after the
         // black-band investigation): mode 10 = constant magenta as the FIRST statement,
@@ -1477,6 +1485,10 @@ void main() {
         fragColor = vec4(pow(mappedW, vec3(1.0 / 2.2)), 1.0);
         return;
     }
+    // WATER program, non-water draw: unreachable (gl-render.js only ever binds the water program with
+    // uIsWater=1). Emit nothing meaningful; the terrain tail below is compiled out of this program.
+    fragColor = vec4(0.0);
+#else   // !_WATERPASS_ -- the TERRAIN program: no discard anywhere below (early-Z stays on)
     // W8 SOLE FS LIT NORMAL (P1 data-first, P9 all-distances): vNrm is the per-vertex analytic central-
     // difference normal of the FULL composeHeight field, computed in the VS at a FIXED STABLE world step.
     // Full landform relief (broadShapeM fine octaves + carves) at ALL distances, NO per-pixel jitter, NO
@@ -1717,10 +1729,24 @@ void main() {
         // ratio produces a clear pattern-scale shift at distance -> breaks repetition without a second texture.
         // Normals carry both octaves at all distances. dispA stays fine-octave (near-field displacement only).
         float octFarFade = smoothstep(uOctFar0 * uReliefScale, uOctFar1 * uReliefScale, pxWorld);
+        // texFade HOISTED above the normal taps (same expression as its original declaration site below,
+        // same inputs) so the taps it multiplies to exactly zero can be skipped.
+        float texFade   = 1.0 - smoothstep(uNrmFade0, uNrmFade1, camDist);   // DOUBLED 20/40 -> 40/80km (user 2026-06-15 'double the distance of the max normal textures'); dial __nrmFade0/__nrmFade1
         vec4 albA = surfTriTap(uSurfAlb, wt4, tw, lA);
-        vec3 cA = mix(albA.rgb, surfTriTap(uSurfAlb, wt, tw, lA).rgb, octFarFade);
-        vec3 nA = surfTriNrm(uSurfNrm, wt4, tw, lA, n) * 1.0
-                + surfTriNrm(uSurfNrm, wt,  tw, lA, n) * (1.7 * uNrmLow);
+        // ZERO-WEIGHT TAP SKIPS (perf, bit-identical): each `if` below guards a texture tap whose only
+        // consumer multiplies it by a weight that is EXACTLY 0.0 on that branch -- mix(a,b,0.0)==a and
+        // v*0.0==vec3(0) for the finite, non-negative RGBA8/SRGB8 samples these taps return -- so the
+        // skipped path yields the identical value the tap-then-multiply did. Real `if`s, not ternaries
+        // (a select may still evaluate both operands). NOT a small-threshold approximation: only an exact
+        // 0.0 weight skips (octFarFade==0 close-up; texFade==0 past uNrmFade1; uNrmLow==0 when dialed off).
+        vec3 cA = albA.rgb;
+        if (octFarFade != 0.0) cA = mix(albA.rgb, surfTriTap(uSurfAlb, wt, tw, lA).rgb, octFarFade);
+        vec3 nA = vec3(0.0);
+        if (texFade != 0.0) {
+            if (uNrmLow != 0.0) nA = surfTriNrm(uSurfNrm, wt4, tw, lA, n) * 1.0
+                                   + surfTriNrm(uSurfNrm, wt,  tw, lA, n) * (1.7 * uNrmLow);
+            else                nA = surfTriNrm(uSurfNrm, wt4, tw, lA, n) * 1.0;
+        }
         float dispA = albA.a;
         // NO BIOME COLOR INHERITANCE (user 2026-06-14 'take away all biome color inheritance, it will
         // speed it up' -- and fixes 'sand near grass tinted green'): each layer wears its OWN material
@@ -1735,7 +1761,7 @@ void main() {
         // high-frequency noise at a distance'. The high-octave disp (~1.2m) goes sub-pixel far out and the *1.5
         // amplification turned mip residue into sparkle; dropping it early collapses the boundary to the smooth
         // weight ramp well before it can alias. Both window-dialable (__texNrmFadeKm not needed; __xFade0/__xFade1).
-        float texFade   = 1.0 - smoothstep(uNrmFade0, uNrmFade1, camDist);   // DOUBLED 20/40 -> 40/80km (user 2026-06-15 'double the distance of the max normal textures'); dial __nrmFade0/__nrmFade1
+        // (texFade: declared above, next to octFarFade -- see the zero-weight tap-skip comment.)
         float crossFade = 1.0 - smoothstep(uXFade0, uXFade1, camDist);
         // albFade REMOVED (user 2026-06-15 'a curved line circles the mountain, lighter grass'): the manual
         // detail->flat-material collapse created a visible ARC at its transition distance (proven by A/B: the
@@ -1761,9 +1787,14 @@ void main() {
         float bSharp = 1.0;      // 1 = pure layer A; reused by the texDn relief fade below
         if (wB > 0.02) {   // second layer only where a real transition exists
             vec4 albB = surfTriTap(uSurfAlb, wt4, tw, lB);
-            vec3 cB = mix(albB.rgb, surfTriTap(uSurfAlb, wt, tw, lB).rgb, octFarFade);
-            vec3 nB = surfTriNrm(uSurfNrm, wt4,      tw, lB, n) * 1.0
-                    + surfTriNrm(uSurfNrm, wt, tw, lB, n) * (1.7 * uNrmLow);
+            vec3 cB = albB.rgb;   // zero-weight tap skips: same exact-0.0 gates as layer A above
+            if (octFarFade != 0.0) cB = mix(albB.rgb, surfTriTap(uSurfAlb, wt, tw, lB).rgb, octFarFade);
+            vec3 nB = vec3(0.0);
+            if (texFade != 0.0) {
+                if (uNrmLow != 0.0) nB = surfTriNrm(uSurfNrm, wt4,      tw, lB, n) * 1.0
+                                       + surfTriNrm(uSurfNrm, wt, tw, lB, n) * (1.7 * uNrmLow);
+                else                nB = surfTriNrm(uSurfNrm, wt4,      tw, lB, n) * 1.0;
+            }
             float dispB = albB.a;
             float ordB = lB < 0.5 ? 0.6 : (lB < 1.5 ? 0.3 : (lB < 2.5 ? 0.0 : 1.0));
             vec3 mcB = lB < 0.5 ? bcGrass : (lB < 1.5 ? bcRock : (lB < 2.5 ? bcShore : bcSnow));
@@ -1821,7 +1852,9 @@ void main() {
         // nA = two surfTriNrm() sums (weights 1.0 + 1.7*uNrmLow) -> magnitude can exceed 2.
         // An oversized additive delta tilts nLit nearly horizontal at grazing view angles,
         // creating a light-independent glazy/specular artifact. Normalize caps magnitude at 1.
-        texDn = normalize(texNrm) * (uTexNrmK * k) * texFade;   // NORMAL textures fade out 20->40km (user 2026-06-15 'mip the normal textures closer, gone by 40km') via the shared texFade -- distant relief is carried by the macro lit normal, not the photo normal
+        // texFade==0.0: the taps feeding texNrm were skipped above (texNrm is then the zero vector, whose
+        // normalize() is undefined), and the original product was finite*0.0 == 0.0 -> emit that 0 directly.
+        if (texFade != 0.0) texDn = normalize(texNrm) * (uTexNrmK * k) * texFade;   // NORMAL textures fade out 20->40km (user 2026-06-15 'mip the normal textures closer, gone by 40km') via the shared texFade -- distant relief is carried by the macro lit normal, not the photo normal
     }
 #ifdef _DEBUGVIEW_
     // DIAG displayMode 7: raw river field -> blue where the river line fires, grey ridge field
@@ -2169,6 +2202,7 @@ void main() {
     mapped = mix(vec3(lum), mapped, uLookSat);
     mapped = clamp((mapped - 0.5) * uLookContrast + 0.5, 0.0, 1.0);
     fragColor = vec4(pow(mapped, vec3(1.0/2.2)), 1.0);
+#endif  // _WATERPASS_ split
 }
 #endif
 

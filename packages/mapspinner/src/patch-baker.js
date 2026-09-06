@@ -130,7 +130,15 @@ export async function createPatchBaker(opts = {}) {
   try { ({ initMapspinnerPlanet } = await import('./planet-orchestrator.js')) }
   catch (e) { warn('orchestrator import threw: ' + (e && e.message)); return null }
   let planet
-  try { planet = await initMapspinnerPlanet(gl, { radius: opts.radius, gridMeshSize: TD.gridMeshSize, reliefScale: opts.reliefScale, hpfSeed: opts.seed }) }
+  // bakeOnly: this second planet exists ONLY for the _HEIGHTBAKE_ program (bakeTile*/__thcBake*). gl-render
+  // skips its terrain/water/sky/upscale programs, atmosphere LUT bakes, surface-texture decode and mesh
+  // buffers for a bakeOnly instance -- none of them are reachable from the bake path. GLOBAL-WRITE ORDER:
+  // both this init and a same-context render planet (client main thread: TerrainBackdrop.js inits the
+  // render planet first, then this baker) assign the SAME globalThis.__thcBakeReadback/__thcEnsureBake/
+  // __thcBakeIssueAsync/__thcBakePollAsync/__thcBakeFlush globals; the later init wins, i.e. THIS baker's
+  // (unchanged behavior -- bakeTile/bakeTileAsync below read `g.__thc*` after this await, so they always
+  // resolve to this instance's own bake context).
+  try { planet = await initMapspinnerPlanet(gl, { radius: opts.radius, gridMeshSize: TD.gridMeshSize, reliefScale: opts.reliefScale, hpfSeed: opts.seed, bakeOnly: true }) }
   catch (e) { warn('initMapspinnerPlanet threw: ' + (e && e.message)); return null }
   // bakeTileReadback is exposed on self (window in worker) after init; ensure the bake program is built.
   const g = (typeof self !== 'undefined') ? self : (typeof window !== 'undefined' ? window : globalThis)
@@ -175,7 +183,11 @@ export async function createPatchBaker(opts = {}) {
   const _asyncInFlight = new Set()
   const _asyncDone = new Map()   // key -> heights, for a completed bake that belongs to a DIFFERENT call than the one that harvested it
   const _ASYNC_DONE_MAX = 8      // small: bridges the one-call-behind race, not a real cache (createPatchHeightFn owns the real LRU)
-  function bakeTileAsync(face, ox, oy, l, level = 0) {
+  // deferFlush (prefetchAround only): skip the per-issue gl.flush() inside __thcBakeIssueAsync and let the
+  // caller issue ONE __thcBakeFlush() after the whole burst -- same GPU work, one command-buffer submit
+  // instead of up to 8. A lone bakeTileAsync (heightFn miss) keeps the immediate flush so its fence can
+  // signal by the next frame exactly as before.
+  function bakeTileAsync(face, ox, oy, l, level = 0, deferFlush = false) {
     if (typeof g.__thcBakeIssueAsync !== 'function' || typeof g.__thcBakePollAsync !== 'function') {
       const r = g.__thcBakeReadback(face | 0, ox, oy, l, level)
       if (r && r.heights) { res = r.res; return r.heights }
@@ -200,14 +212,21 @@ export async function createPatchBaker(opts = {}) {
       _asyncDone.set(doneKey, done.heights)
       if (_asyncDone.size > _ASYNC_DONE_MAX) _asyncDone.delete(_asyncDone.keys().next().value)
     }
-    if (result) return result
-    if (!_asyncInFlight.has(key)) { if (g.__thcBakeIssueAsync(face | 0, ox, oy, l, level)) _asyncInFlight.add(key) }
+    if (result) {
+      // prefetch context (deferFlush): the caller discards return values, so a harvested own-key tile
+      // would be thrown away and re-baked on the next heightFn miss -- stash it for that lookup instead.
+      if (deferFlush) { _asyncDone.set(key, result); if (_asyncDone.size > _ASYNC_DONE_MAX) _asyncDone.delete(_asyncDone.keys().next().value); return null }
+      return result
+    }
+    if (!_asyncInFlight.has(key)) { if (g.__thcBakeIssueAsync(face | 0, ox, oy, l, level, deferFlush)) { _asyncInFlight.add(key); return deferFlush ? false : null } }
     return null
   }
+  // one flush for a whole prefetch burst (see bakeTileAsync's deferFlush); no-op on an older gl-render.js
+  function flushBakes() { if (typeof g.__thcBakeFlush === 'function') g.__thcBakeFlush() }
   // Per-baker memoized dirToFace (see makeDirToFaceMemo above) -- the placement/collision hot path
   // calls this every heightFn/prefetchAround lookup with coherent (nearby) dir vectors.
   const _dirToFaceMemo = makeDirToFaceMemo(opts.radius)
-  return { bakeTile, bakeTileAsync, dirToFace: _dirToFaceMemo, res, planet }
+  return { bakeTile, bakeTileAsync, flushBakes, dirToFace: _dirToFaceMemo, res, planet }
 }
 
 // Build a groundHeightLocal-compatible O(1) patch lookup over a baker, matching the FINEST display LOD
@@ -289,6 +308,25 @@ export function createPatchHeightFn({ baker, frame, maxLevel = TD.maxLevel, offs
     _lastFace = face; _lastPi = pi; _lastPj = pj; _lastPatch = p
     return p
   }
+  // heightFnOrNull: heightFn WITHOUT the fallback -- returns null on a patch-cache miss instead of running
+  // the CPU fractal (~0.4ms). For a per-frame consumer that can reuse its previous value across the few
+  // miss frames of a freshly-entered cell (TerrainBackdrop.js's surfElev), never for placement/collision.
+  function heightFnOrNull(x, z) {
+    const d = frame.localToDir(x, z)
+    const { face, ox, oy } = baker.dirToFace(d)
+    const p = patchFor(face, ox, oy)
+    if (!p) return null
+    return _sampleAbs(p, x, z, ox, oy)
+  }
+  function _sampleAbs(p, x, z, ox, oy) {
+    const fx = (ox - p.ox) / patchSpan * (res - 1), fy = (oy - p.oy) / patchSpan * (res - 1)
+    const ix = Math.max(0, Math.min(res - 2, Math.floor(fx))), iz = Math.max(0, Math.min(res - 2, Math.floor(fy)))
+    const tx = fx - ix, tz = fy - iz, h = p.heights
+    const h00 = h[iz * res + ix], h10 = h[iz * res + ix + 1], h01 = h[(iz + 1) * res + ix], h11 = h[(iz + 1) * res + ix + 1]
+    const abs = (h00 * (1 - tx) + h10 * tx) * (1 - tz) + (h01 * (1 - tx) + h11 * tx) * tz
+    const r2 = x * x + z * z, s = r2 / (R * R), sq = Math.sqrt(1 + s), drop = r2 / R / ((sq + 1) * sq)
+    return (abs - aH) - drop + offsetY
+  }
   function heightFn(x, z) {
     const d = frame.localToDir(x, z)
     const { face, ox, oy } = baker.dirToFace(d)
@@ -321,15 +359,19 @@ export function createPatchHeightFn({ baker, frame, maxLevel = TD.maxLevel, offs
     const d = frame.localToDir(x, z)
     const { face, ox, oy } = baker.dirToFace(d)
     const pi0 = Math.floor(ox / patchSpan), pj0 = Math.floor(oy / patchSpan)
+    let issued = 0
     for (let dj = -1; dj <= 1; dj++) {
       for (let di = -1; di <= 1; di++) {
         if (di === 0 && dj === 0) continue
         const pi = pi0 + di, pj = pj0 + dj
         const key = _patchKey(face, pi, pj)
         if (cache.has(key)) continue
-        if (typeof baker.bakeTileAsync === 'function') baker.bakeTileAsync(face, pi * patchSpan, pj * patchSpan, patchSpan, 0)
+        // deferFlush=true: bakeTileAsync returns `false` (not null) when it ISSUED a deferred bake
+        if (typeof baker.bakeTileAsync === 'function' && baker.bakeTileAsync(face, pi * patchSpan, pj * patchSpan, patchSpan, 0, true) === false) issued++
       }
     }
+    // ONE gl.flush() per prefetch burst (was one per issued bake, up to 8 per call)
+    if (issued > 0 && typeof baker.flushBakes === 'function') baker.flushBakes()
   }
-  return { heightFn, prefetchAround, patchSpan, res, spacing: visualSpacing, maxLevel }
+  return { heightFn, heightFnOrNull, prefetchAround, patchSpan, res, spacing: visualSpacing, maxLevel }
 }

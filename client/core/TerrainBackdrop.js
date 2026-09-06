@@ -151,6 +151,8 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
         if (ph) {
           frame.groundHeightLocal = (x, z) => ph.heightFn(x, z)
           frame._fractalGroundHeightLocal = fractalGHL
+          // no-fallback variant for the per-frame surfElev read in renderPlanet (null on a patch-cache miss)
+          if (typeof ph.heightFnOrNull === 'function') frame._patchHeightOrNull = ph.heightFnOrNull
           if (typeof ph.prefetchAround === 'function') frame._patchPrefetch = ph.prefetchAround
           console.log(`[terrain] client placement height -> GPU PATCH lookup (${ph.spacing.toFixed(2)}m, finest-LOD density) -- matches server + render, no per-candidate fractal`)
         }
@@ -260,6 +262,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   // first for any sustained movement, while a fully still camera (0 displacement) never triggers it,
   // preserving the existing still-camera cache-hold fps behavior untouched.
   const RECONCILE_MOVE_M = 0.35
+  let _lastSurfElevGh = null   // last resolved ground height under the camera (see surfElev CACHE in renderPlanet)
   let _reconcileAccum = 0
   let _lastReconcilePos = null
   function _trackReconcileMovement(eyeW) {
@@ -303,9 +306,19 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
       _sunE[2] = frame.east[2] * sunLocal[0] + frame.up[2] * sunLocal[1] + frame.north[2] * sunLocal[2]
       renderer.resetState()
       // surfElev (radius-fraction) must track the live terrain height under the camera, not a fixed constant, or near tiles' LOD/near-plane goes wrong as the player changes elevation
-      // surfElev (radius-fraction) must track the live terrain height under the camera, not a fixed constant, or near tiles' LOD/near-plane goes wrong as the player changes elevation
+      // surfElev CACHE (patch-cache-miss fallback): frame.groundHeightLocal runs the CPU fractal (~0.4ms) on
+      // every patch-cache miss, and a moving camera enters a fresh (not-yet-baked) patch cell for several
+      // consecutive frames -- so the miss cost recurred every frame of that window. Read the no-fallback
+      // patch lookup instead and, on a miss, reuse the previous frame's surfElev (a metres-level near-plane/
+      // LOD-altitude hint, sub-cell continuous); only the very first frame (no previous value yet) pays the
+      // fractal fallback once. A hit refreshes the cache exactly as before.
       let surfElev = frame.anchorHeight
-      try { const gh = frame.groundHeightLocal(p.x, p.z); if (Number.isFinite(gh)) surfElev = frame.anchorHeight + gh } catch (_) {}
+      try {
+        const hfn = frame._patchHeightOrNull
+        let gh = hfn ? hfn(p.x, p.z) : frame.groundHeightLocal(p.x, p.z)
+        if (gh === null) gh = (_lastSurfElevGh !== null) ? _lastSurfElevGh : frame.groundHeightLocal(p.x, p.z)
+        if (Number.isFinite(gh)) { surfElev = frame.anchorHeight + gh; _lastSurfElevGh = gh }
+      } catch (_) {}
       // The occlusion predicate (opts.occlusionPredicate) is a pure READ of last frame's resolved
       // verdicts -- query issue happens in runOcclusionQueries() AFTER renderer.render, when the
       // depth buffer holds this frame's full opaque content. See TerrainOcclusion.js's header for

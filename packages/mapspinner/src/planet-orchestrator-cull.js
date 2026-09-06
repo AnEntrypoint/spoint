@@ -84,11 +84,14 @@ function quadOutsideFrustum(face, ox, oy, l, R, vpr, eye) {
   const WK = Math.PI / 4.0;
   const hl = l * 0.5;
   // 3x3 face-local sample grid: corners, edge midpoints, centre.
-  const sx = [ox, ox+hl, ox+l], sy = [oy, oy+hl, oy+l];
+  // tangent-warp each axis ONCE (3+3 Math.tan) instead of per grid cell (9+9): the per-cell values
+  // are the identical products, just not recomputed for every (gx,gy) pair.
+  const wpxs0 = R * Math.tan((ox / R) * WK), wpxs1 = R * Math.tan(((ox+hl) / R) * WK), wpxs2 = R * Math.tan(((ox+l) / R) * WK);
+  const wpys0 = R * Math.tan((oy / R) * WK), wpys1 = R * Math.tan(((oy+hl) / R) * WK), wpys2 = R * Math.tan(((oy+l) / R) * WK);
   let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity, anyFront=false, anyBehind=false, allBeyondFar=true;
   for (let gx=0; gx<3; gx++) for (let gy=0; gy<3; gy++) {
-    const wpx = R * Math.tan((sx[gx] / R) * WK);
-    const wpy = R * Math.tan((sy[gy] / R) * WK);
+    const wpx = gx === 0 ? wpxs0 : (gx === 1 ? wpxs1 : wpxs2);
+    const wpy = gy === 0 ? wpys0 : (gy === 1 ? wpys1 : wpys2);
     const len = Math.hypot(wpx, wpy, R) || 1;
     const dx = (wpx/len)*F.u[0]+(wpy/len)*F.v[0]+(R/len)*F.c[0];
     const dy = (wpx/len)*F.u[1]+(wpy/len)*F.v[1]+(R/len)*F.c[1];

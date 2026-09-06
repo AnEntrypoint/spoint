@@ -341,7 +341,7 @@ export async function createRocks(opts = {}) {
         _prefetchAhead(cCx, cCz, px, pz, _rockSpiralCursor + 1)
         found = true; break
       }
-      if (!found) break
+      if (!found) { _deferKey = -1; break }
       if (!_inflight.cursor.step(Math.max(0, deadline - _now()))) break
       _finishInflight(); didLoad = true
     }

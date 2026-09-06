@@ -4,6 +4,7 @@ import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 // Single canonical impostor implementation, see AGENTS.md draw-call-audit-impostor-system-unification.
 import { createOctahedralImpostorMaterial } from 'streaming-gltf/octahedral-impostor-ez'
 import { dbg } from './debug-log.js'
+import { get as _idbGet, put as _idbPut } from '../IndexedDBStore.js'
 
 const _dbgImpostor = dbg('impostor')
 
@@ -234,7 +235,6 @@ export function createSharedImpostorMesh(renderer, atlas, dims, opts = {}) {
 // missing. Key = version + species + rounded per-species dims (a fingerprint of the tree geometry: any
 // preset/scale change moves the bounding sphere) + atlas params + the GL renderer string (bytes are only
 // reusable on the driver that produced them).
-import { get as _idbGet, put as _idbPut } from '../IndexedDBStore.js'
 export const IMPOSTOR_ATLAS_CACHE_VERSION = 1
 const _ATLAS_DB = 'spoint-veg-impostor', _ATLAS_DB_VER = 1, _ATLAS_STORE = 'atlas'
 
