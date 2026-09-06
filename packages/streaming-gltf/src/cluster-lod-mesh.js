@@ -16,26 +16,13 @@
 //   3. accumulates the chosen index sub-ranges as geometry GROUPS, and
 //   4. lets three's normal render pipeline issue one drawElements call PER
 //      GROUP against the unified element buffer. NOT a raw WEBGL_multi_draw
-//      call: three's object.onBeforeRender fires BEFORE renderBufferDirect
-//      binds the mesh's VAO, so a manual gl draw there would run against
-//      stale/wrong buffer state (see _compute()'s inline comment for the
-//      GL_INVALID failure mode this replaced). Groups still land in ONE render
-//      pass with correct attributes and no extra buffers or double-draws --
-//      just not collapsed into a single GPU submission the way a true
-//      multi-draw extension call would.
-//
-// WHEN steps 1-3 run (cluster-lod-prepass): in a once-per-render PRE-PASS, `prepare(renderer,
-// camera)`, driven by ModelPool's scene.onBeforeRender hook (model-pool.js prepareClusterFrame).
-// THREE fires scene.onBeforeRender INSIDE renderer.render() after scene/camera matrices are updated
-// and BEFORE projectObject reads geometry.groups to build the renderList (node_modules/three/src/
-// renderers/WebGLRenderer.js: scene.onBeforeRender ~1650, projectObject ~1682, info.render.frame++
-// ~1700, renderObject -> object.onBeforeRender ~2126). Computing the groups in object.onBeforeRender
-// (the previous design) was therefore always ONE FRAME STALE: projectObject had already pushed one
-// renderList entry per geometry.groups[i] (holding direct references to the pooled group objects)
-// before any onBeforeRender ran, so the cull/LOD result of frame N only shaped frame N+1's draw list.
-// The object-level onBeforeRender (_render) is kept only as a guard + legacy fallback for a render()
-// call that had no pre-pass (a scene this class's pool did not hook -- impostor-bake/warm scenes) so
-// behaviour there is byte-identical to before.
+//      call: three's object.onBeforeRender (where this class hooks in) fires
+//      BEFORE renderBufferDirect binds the mesh's VAO, so a manual gl draw
+//      here would run against stale/wrong buffer state (see _render()'s
+//      inline comment for the GL_INVALID failure mode this replaced). Groups
+//      still land in ONE render pass with correct attributes and no extra
+//      buffers or double-draws -- just not collapsed into a single GPU
+//      submission the way a true multi-draw extension call would.
 //
 // The whole index buffer = LOD0 of every cluster, so if this object is ever drawn
 // by the stock three pipeline (no onBeforeRender override applied) it still renders
@@ -50,16 +37,13 @@ const _frustum = new THREE.Frustum();
 const _projScreen = new THREE.Matrix4();
 const _v = new THREE.Vector3();
 const _size = new THREE.Vector2();
-// Preallocated camera-position holder for _camCache (was `_v.clone()` per camera-change, i.e. one
-// Vector3 allocation per render() call -- pure GC churn on the hot per-frame path).
-const _camPos = new THREE.Vector3();
 
 // Per-frame cache of the camera-only inputs shared by every ClusterLodMesh instance drawn in the
 // same renderer.render() call: projScreen/frustum/camPos/screen-height/tanHalf depend only on
 // (renderer, camera), not on this.matrixWorld, so N instances recomputing them per frame is pure
 // waste. Keyed on renderer.info.render.frame -- camera/renderer state cannot change between
 // onBeforeRender calls within one render() pass.
-let _camCache = { renderer: null, camera: null, frame: -1, sh: 1080, tanHalf: 1, tanHalfSq: 1, camPos: _camPos };
+let _camCache = { renderer: null, camera: null, frame: -1, sh: 1080, tanHalf: 1 };
 
 // thresholds: projected sphere radius (px-ish, screenH * r / dist) above which a
 // given LOD is used. Index i is chosen when projected size > thresholds[i].
@@ -129,8 +113,7 @@ export class ClusterLodMesh extends THREE.Mesh {
     this.stats = { visibleClusters: 0, drawnTris: 0, totalTris: 0, multiDrawSubmissions: 0, ext: null };
     for (const c of clusterSet.clusters) this.stats.totalTris += c.lods[0].count / 3;
 
-    // Take over drawing (guard + legacy fallback only -- see the header's WHEN paragraph; the real
-    // per-render work is prepare(), called from the pool's scene.onBeforeRender pre-pass).
+    // Take over drawing.
     this.onBeforeRender = this._render.bind(this);
     this.frustumCulled = false; // we cull per-cluster ourselves
 
@@ -187,24 +170,12 @@ export class ClusterLodMesh extends THREE.Mesh {
     return lod;
   }
 
-  // Once-per-render PRE-PASS entry (cluster-lod-prepass, see header). Called from
-  // ModelPool.prepareClusterFrame inside THREE's scene.onBeforeRender, i.e. after this.matrixWorld and
-  // camera.matrixWorldInverse are current for THIS render() call and before projectObject reads
-  // geometry.groups. renderer.info.render.frame is still the PREVIOUS render's value at this point
-  // (WebGLRenderer increments it after projectObject, before the draw loop), so the per-render guard
-  // is armed at frame+1: every object.onBeforeRender (_render) of this same render() call then reads
-  // frame+1 and no-ops, and the legacy in-draw compute only ever runs for a render() that had no
-  // pre-pass at all.
-  prepare(renderer, camera) {
-    const geometry = this.geometry;
-    if (!geometry) return;
-    const frame = renderer.info.render.frame + 1;
-    if (this._lastRenderFrame === frame) return;
-    this._lastRenderFrame = frame;
-    this._compute(renderer, camera, geometry, frame, true);
-  }
-
   _render(renderer, scene, camera, geometry) {
+    const index = geometry.index;
+    if (!index || !this.clusterSet) return; // nothing to do; default draw renders full LOD0
+
+    // Camera-only inputs (projScreen/frustum/camPos/screen-height/tanHalf) are identical for every
+    // ClusterLodMesh drawn in this render() pass -- recompute once per frame, not once per instance.
     const frame = renderer.info.render.frame;
 
     // CRITICAL re-entrancy guard: THREE.WebGLRenderer.projectObject (Array.isArray(material)
@@ -233,26 +204,8 @@ export class ClusterLodMesh extends THREE.Mesh {
     // frame; every subsequent same-frame call (group 2..N's onBeforeRender) is a no-op, since
     // geometry.groups (and every pooled object it references) is already correct and stable for
     // the rest of this frame's draws once the first call finishes.
-    //
-    // With the pre-pass (prepare() above) this guard is ALSO what makes the in-draw path a no-op on
-    // every normally-hooked render(): prepare() already stamped _lastRenderFrame = frame for this
-    // render call, so this returns immediately and geometry.groups stays exactly what projectObject
-    // built the renderList from. Only a render() with no pre-pass (unhooked scene) falls through.
     if (this._lastRenderFrame === frame) return;
     this._lastRenderFrame = frame;
-    this._compute(renderer, camera, geometry, frame, false);
-  }
-
-  // The real per-render cull + LOD-select + group-build body, shared by prepare() (pre-pass, the
-  // normal path) and _render() (legacy in-draw fallback) so there is exactly one implementation.
-  // `frame` is the caller's per-render key (see prepare()'s frame+1 note) for the shared camera cache.
-  // `fromPrepass` selects the fully-culled behaviour (see the n === 0 branch at the end).
-  _compute(renderer, camera, geometry, frame, fromPrepass) {
-    const index = geometry.index;
-    if (!index || !this.clusterSet) return; // nothing to do; default draw renders full LOD0
-
-    // Camera-only inputs (projScreen/frustum/camPos/screen-height/tanHalf) are identical for every
-    // ClusterLodMesh drawn in this render() pass -- recompute once per frame, not once per instance.
     if (_camCache.renderer !== renderer || _camCache.camera !== camera || _camCache.frame !== frame) {
       _projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       _frustum.setFromProjectionMatrix(_projScreen);
@@ -263,7 +216,7 @@ export class ClusterLodMesh extends THREE.Mesh {
       try { const sz = renderer.getDrawingBufferSize(_size); if (sz.y > 0) sh = sz.y; } catch (_) {}
       const tanHalf = camera.isPerspectiveCamera ? Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5) : 1;
       _camCache.renderer = renderer; _camCache.camera = camera; _camCache.frame = frame;
-      _camPos.copy(_v); _camCache.sh = sh; _camCache.tanHalf = tanHalf;
+      _camCache.camPos = _v.clone(); _camCache.sh = sh; _camCache.tanHalf = tanHalf;
       _camCache.tanHalfSq = tanHalf * tanHalf;
     }
     const camPos = _camCache.camPos, sh = _camCache.sh, tanHalfSq = _camCache.tanHalfSq;
@@ -370,23 +323,10 @@ export class ClusterLodMesh extends THREE.Mesh {
     const view = this._groupView || (this._groupView = []);
     view.length = 0;
     if (n === 0) {
-      if (fromPrepass && visible === 0) {
-        // Every cluster AABB is outside this render's frustum: draw NOTHING (empty groups -> projectObject
-        // pushes zero renderList entries for this mesh). Safe ONLY on the pre-pass path: with the legacy
-        // in-draw path an empty groups array meant onBeforeRender never fired again (the constructor's
-        // bootstrap-deadlock note), but prepare() is driven by scene.onBeforeRender and runs every render
-        // regardless of groups, so the next render re-evaluates normally. Live before this: an entirely
-        // off-screen aim_sillos still drew its full LOD0 (9358 tris, 1 group) through the fallback below --
-        // and, with the old nocull workaround, all 398 groups. Note the same "groups = main-camera-visible
-        // clusters" rule already applied to the shadow pass for partially-visible meshes (WebGLShadowMap
-        // iterates geometry.groups), so a fully-culled mesh drawing nothing there is consistent, not new.
-        drawnTris = 0;
-      } else {
-        const fb = this._fallbackGroup || (this._fallbackGroup = { start: 0, count: 0, materialIndex: 0 });
-        fb.start = 0; fb.count = this.lod0Count; fb.materialIndex = 0;
-        view.push(fb);
-        drawnTris = this.lod0Count / 3;
-      }
+      const fb = this._fallbackGroup || (this._fallbackGroup = { start: 0, count: 0, materialIndex: 0 });
+      fb.start = 0; fb.count = this.lod0Count; fb.materialIndex = 0;
+      view.push(fb);
+      drawnTris = this.lod0Count / 3;
     } else {
       for (let i = 0; i < drawnCi.length; i++) view.push(pool[drawnCi[i]]);
     }

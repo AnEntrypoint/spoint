@@ -119,10 +119,6 @@ const _tmpV3 = new THREE.Vector3();
 const _tmpV3b = new THREE.Vector3();
 const _tmpSphere = new THREE.Sphere();
 const _identityMatrix = new THREE.Matrix4(); // default = identity
-// Scratch for the per-cluster placement matrix in _buildClusterMeshRange (Object3D.applyMatrix4
-// premultiplies into this.matrix and decomposes -- it never retains the argument, so one shared
-// scratch replaces one THREE.Matrix4 allocation per cluster per entity spawn).
-const _tmpClusterPlaceMtx = new THREE.Matrix4();
 
 // Chunked cluster-mesh build (terrain-camera-burst-geometry-texture-backpressure): a single
 // Entity._bootstrap() call for a cluster-LOD asset used to synchronously build EVERY entry in
@@ -154,18 +150,6 @@ function _maxAbsScale(scale) {
 // Two flavors: one with the VRM plugin (root loads), one without (sibling
 // LOD loads — the siblings carry no VRM extension blob, and the plugin's
 // MToon prep has side effects on attribute layout we don't want).
-// meshopt-decoder-workers: three's meshopt_decoder.module.js decodes EXT_meshopt_compression buffers on
-// the main thread unless useWorkers(n) was called; with workers, GLTFLoader's decodeGltfBufferAsync
-// path (GLTFLoader.js ~1642) round-trips each bufferView through a Blob worker running the SAME wasm
-// `decode` (meshopt_decoder.module.js workerProcess) -- byte-identical output (live-hashed: position/
-// index FNV of aim_sillos' 17258-vert cluster mesh unchanged), just off the main thread. The decoder
-// object is a module singleton shared with client/core/SceneSetup.js's GLTFLoader (same import), so
-// this one call covers every main-thread loader; lod-worker.js runs its own instance inside a worker
-// and is unaffected. Guarded so a Node/worker import of this module stays a no-op.
-if (typeof Worker !== 'undefined' && typeof Blob !== 'undefined' && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function' && MeshoptDecoder && typeof MeshoptDecoder.useWorkers === 'function') {
-  try { MeshoptDecoder.useWorkers(Math.min(4, (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) || 2)); } catch (_) {}
-}
-
 function _makeLoader(includeVrm) {
   const l = new GLTFLoader();
   l.setMeshoptDecoder(MeshoptDecoder);
@@ -1048,7 +1032,7 @@ class Entity extends Emitter {
         // correct). This mirrors the discrete-LOD path below (relToRoot via
         // _rootInv) so cluster and discrete entities place identically.
         src.updateWorldMatrix(true, false);
-        clm.applyMatrix4(_tmpClusterPlaceMtx.multiplyMatrices(_rootInv, src.matrixWorld));
+        clm.applyMatrix4(new THREE.Matrix4().multiplyMatrices(_rootInv, src.matrixWorld));
       }
       this.root.add(clm);
       for (const node of consumedNodes) node.removeFromParent();
@@ -2210,26 +2194,6 @@ export class ModelPool extends Emitter {
     this.scene = opts.scene;
     this.renderer = opts.renderer;
     this.camera = opts.camera;
-    // cluster-lod-prepass: every ClusterLodMesh's per-cluster cull/LOD/geometry.groups build runs ONCE
-    // per renderer.render() from THREE's scene.onBeforeRender hook (fired inside render() after the
-    // scene/camera matrix update and BEFORE projectObject builds the renderList from geometry.groups --
-    // see cluster-lod-mesh.js header), instead of from each mesh's own object.onBeforeRender, which
-    // fires after projectObject and so always shaped the NEXT frame's draw list (one frame stale).
-    // Chained: whatever scene.onBeforeRender was already installed still runs after the pre-pass.
-    // clusterPrepassEnabled is a live A/B switch (false -> meshes fall back to the legacy in-draw path).
-    this.clusterPrepassEnabled = true;
-    this._scenePrepassPrev = null;
-    this._scenePrepassHook = null;
-    if (this.scene && this.scene.isScene) {
-      const pool = this;
-      const prev = this.scene.onBeforeRender;
-      this._scenePrepassPrev = prev;
-      this._scenePrepassHook = function (renderer, scene, camera, renderTarget) {
-        if (pool.clusterPrepassEnabled && !pool._disposed) pool.prepareClusterFrame(renderer, camera);
-        if (typeof prev === 'function') prev.call(this, renderer, scene, camera, renderTarget);
-      };
-      this.scene.onBeforeRender = this._scenePrepassHook;
-    }
     // Configure the shared KTX2Loader with the renderer so KHR_texture_basisu
     // textures transcode to GPU-compressed formats on load (detectSupport needs
     // the GL context). Done before any Asset/loader is created.
@@ -3249,26 +3213,6 @@ export class ModelPool extends Emitter {
   }
 
   // Per-frame update: call from your render loop AFTER advancing camera.
-  // Once-per-render cluster pre-pass (cluster-lod-prepass, see constructor): walks every live entity's
-  // ClusterLodMesh instances and lets each one cull/LOD-select/write geometry.groups for THIS render()
-  // call's camera. Visibility gates mirror projectObject's own (object.visible up the chain -- an
-  // entity root hidden by the impostor/material-bucket tier or the adapter's compile-hide never gets
-  // projected, so computing its groups would be wasted; layers.test matches projectObject's layer gate).
-  // A mesh skipped here that somehow still draws simply takes the legacy in-draw fallback.
-  prepareClusterFrame(renderer, camera) {
-    for (const e of this._entities) {
-      const cms = e.clusterMeshes;
-      if (!cms || cms.length === 0 || e._disposed) continue;
-      const root = e.root;
-      if (!root || !root.visible) continue;
-      for (let i = 0; i < cms.length; i++) {
-        const clm = cms[i];
-        if (!clm.visible || !clm.layers.test(camera.layers)) continue;
-        clm.prepare(renderer, camera);
-      }
-    }
-  }
-
   update() {
     const tUpdate0 = performance.now();
     const now = tUpdate0;
@@ -3926,10 +3870,6 @@ export class ModelPool extends Emitter {
     // is safe to dispose twice.
     if (this._disposed) return;
     this._disposed = true;
-    // Unhook the cluster pre-pass (restore whatever scene.onBeforeRender we chained over).
-    if (this.scene && this._scenePrepassHook && this.scene.onBeforeRender === this._scenePrepassHook) {
-      this.scene.onBeforeRender = this._scenePrepassPrev || THREE.Object3D.prototype.onBeforeRender;
-    }
     for (const e of [...this._entities]) e.dispose();
     for (const asset of this._assets.values()) asset.dispose();
     this._assets.clear();

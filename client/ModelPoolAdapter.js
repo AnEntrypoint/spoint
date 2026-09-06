@@ -9,6 +9,16 @@ export function progressiveUrl(modelUrl) {
   return modelUrl + '.prog/model.progressive.glb'
 }
 
+// Draws every cluster (no per-cluster frustum cull): the baked bounding-sphere cull false-culls thin flat slabs (floor/wall panels) at close range.
+function _disableClusterCull(root) {
+  if (!root || typeof root.traverse !== 'function') return
+  root.traverse(o => {
+    if (!o || !o.clusterSet || !o.clusterSet.clusters || o._spointCullDisabled) return
+    o._spointNoClusterCull = true
+    o._spointCullDisabled = true
+  })
+}
+
 // vramBudgetMB / deviceInfo (both optional, 3rd param) feed the model-pool's own VRAM budget tracker
 // (packages/streaming-gltf/src/model-pool.js -- byteBudget + LodUnloadManager, already fully wired to
 // per-frame eviction; this adapter's job is only to make it CLIENT-configurable/discoverable, which it
@@ -75,25 +85,10 @@ export function createModelPool(scene, renderer, camera, { vramBudgetMB, deviceI
 
   const _entities = new Map()
   // A model routes through ModelPool only if its progressive (baked) asset exists; non-bakeable models stay on the legacy path.
-  // Value: true (positive, cached forever) | { until } (negative, short TTL -- a 404 may just mean still-baking,
-  // so it is re-probed after PROG_NEG_TTL_MS instead of on EVERY call: N entities of one missing model used to
-  // fire up to 3 requests each per load). In-flight probes for the same URL share one promise.
   const _progReady = new Map()
-  const _progProbeInFlight = new Map()
-  const PROG_NEG_TTL_MS = 15000
 
-  function progressiveReady(modelUrl) {
-    const cached = _progReady.get(modelUrl)
-    if (cached === true) return Promise.resolve(true)
-    if (cached && cached.until > Date.now()) return Promise.resolve(false)
-    const inflight = _progProbeInFlight.get(modelUrl)
-    if (inflight) return inflight
-    const p = _probeProgressive(modelUrl).finally(() => _progProbeInFlight.delete(modelUrl))
-    _progProbeInFlight.set(modelUrl, p)
-    return p
-  }
-
-  async function _probeProgressive(modelUrl) {
+  async function progressiveReady(modelUrl) {
+    if (_progReady.has(modelUrl)) return _progReady.get(modelUrl)
     let ready = false
     const url = progressiveUrl(modelUrl)
     try {
@@ -107,7 +102,8 @@ export function createModelPool(scene, renderer, camera, { vramBudgetMB, deviceI
       if (r.status >= 500) r = await fetch(url, { method: 'HEAD' })
       ready = r.ok
     } catch (_) { ready = false }
-    _progReady.set(modelUrl, ready ? true : { until: Date.now() + PROG_NEG_TTL_MS })
+    // Only cache positives: a 404 may just mean still-baking, so re-probe next time.
+    if (ready) _progReady.set(modelUrl, true)
     return ready
   }
 
@@ -137,14 +133,9 @@ export function createModelPool(scene, renderer, camera, { vramBudgetMB, deviceI
     return _entities.get(entityId)
   }
 
-  // Per-cluster frustum culling is LEFT ON: the former _disableClusterCull readyHook (which set
-  // _spointNoClusterCull on every ClusterLodMesh) existed for a bounding-SPHERE cull that false-culled
-  // thin slabs; cluster-lod-mesh.js culls by the exact-fit per-cluster AABB now (see its header), and the
-  // hook only ever reached the first CLUSTER_BUILD_INITIAL_CHUNK meshes anyway (chunk-drained clusters
-  // were built after 'ready' and never flagged) -- so most of aim_sillos already ran AABB-culled.
   function spawn(entityId, modelUrl, transform = {}, onReady) {
     const handle = pool.spawn(progressiveUrl(modelUrl), {})
-    return _spawnPooled(entityId, handle, transform, onReady)
+    return _spawnPooled(entityId, handle, transform, onReady, { readyHook: _disableClusterCull })
   }
 
   // Hides a just-spawned root until app.js's compile gate clears it, or the frame stalls mid shader-link (ANGLE/D3D11). Timeout is the fail-safe.

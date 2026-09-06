@@ -520,7 +520,12 @@ export async function initMapspinnerRender(gl, opts = {}) {
     if (status === gl.TIMEOUT_EXPIRED) {
       // Spin budget exhausted -- fall through to a genuinely blocking wait (timeout ~1e9ns = 1s) so
       // this never returns a wrong-direction value; a real GPU hang is a separate, unrelated failure.
-      status = gl.clientWaitSync(fence, 0, 1e9);
+      // Bounded zero-timeout poll with SYNC_FLUSH_COMMANDS_BIT: WebGL2 rejects a non-zero timeout
+      // (> MAX_CLIENT_WAIT_TIMEOUT_WEBGL, commonly 0) with INVALID_OPERATION, so the old 1e9 "blocking
+      // wait" never waited at all -- it just logged a GL error and fell through unsynchronised.
+      const _hardUntil = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + 250;
+      do { status = gl.clientWaitSync(fence, gl.SYNC_FLUSH_COMMANDS_BIT, 0); }
+      while (status === gl.TIMEOUT_EXPIRED && (typeof performance !== 'undefined' ? performance.now() : Date.now()) < _hardUntil);
     }
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, _probePbo);
     gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, _probeOut);
@@ -641,7 +646,15 @@ export async function initMapspinnerRender(gl, opts = {}) {
     // noise in every console. SYNC_FLUSH_COMMANDS_BIT guarantees the commands are submitted, so this
     // can never deadlock on a fence whose batch was never flushed. Matches the probe path's own
     // blocking-wait fallback (see _probeSync's clientWaitSync(..., 1e9) above).
-    if (status === gl.TIMEOUT_EXPIRED) gl.clientWaitSync(fence, gl.SYNC_FLUSH_COMMANDS_BIT, 1e9);
+    // WebGL2 rejects any timeout above MAX_CLIENT_WAIT_TIMEOUT_WEBGL (commonly 0) with
+    // INVALID_OPERATION -- a non-zero blocking wait is simply not available here, unlike desktop GL.
+    // So finish with a bounded ZERO-timeout poll carrying SYNC_FLUSH_COMMANDS_BIT (which guarantees the
+    // batch is submitted, so the fence can actually reach the GPU) and only then read.
+    if (status === gl.TIMEOUT_EXPIRED) {
+      const hardUntil = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + 250;
+      do { status = gl.clientWaitSync(fence, gl.SYNC_FLUSH_COMMANDS_BIT, 0); }
+      while (status === gl.TIMEOUT_EXPIRED && (typeof performance !== 'undefined' ? performance.now() : Date.now()) < hardUntil);
+    }
     gl.deleteSync(fence);
     const out = new Float32Array(byteLen / 4);   // RED/FLOAT: buf IS the height array directly, no de-interleave needed
     gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, out);   // blocks only if the spin above didn't already observe completion
