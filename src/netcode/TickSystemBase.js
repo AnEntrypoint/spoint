@@ -24,6 +24,27 @@ export class TickSystemBase {
 
   get running() { return this._state === 'running' }
 
+  // Live tick-rate update (hotreload-worldDef-edit-no-restart): tickRate/tickDuration are read fresh
+  // by _computeDt()/getTickDuration() every tick, so updating them in place is safe -- the only thing
+  // that must also change is the setInterval cadence itself (start() computes its firing interval from
+  // tickDuration once, at start time), so a running system is restarted at the new rate. currentTick/
+  // dilationFactor/accumulator are preserved (a mid-tick-count rate change should not reset progress or
+  // re-earn dilation recovery); the accumulator is scaled by the duration ratio so an in-flight partial
+  // tick's progress carries over proportionally rather than being silently discarded or double-counted.
+  setTickRate(tickRate) {
+    if (!Number.isFinite(tickRate) || tickRate <= 0) return
+    const oldDuration = this.tickDuration
+    this.tickRate = tickRate
+    this.tickDuration = 1000 / tickRate
+    this._accumulator *= this.tickDuration / oldDuration
+    if (this.running) {
+      clearInterval(this._intervalHandle)
+      const intervalMs = Math.max(1, this.tickDuration / 2)
+      this._intervalHandle = setInterval(() => this._onInterval(), intervalMs)
+      if (this._intervalHandle.unref) this._intervalHandle.unref()
+    }
+  }
+
   onDilation(cb) { this._dilationCallbacks.push(cb) }
 
   onTick(callback) {

@@ -99,6 +99,23 @@ export class PhysicsWorld {
     return this
   }
 
+  // Live gravity update (hotreload-worldDef-edit-no-restart): mutates the running Jolt physics
+  // system's gravity vector via the real SetGravity call, updates this.gravity for every JS-side
+  // reader (PhysicsIntegration.config.gravity, CharacterManager fallback), and rebuilds
+  // CharacterManager's cached Jolt Vec3 (built once in its own init(), not a live reference to
+  // this.gravity -- mutating the array alone would leave every already-spawned character's
+  // ExtendedUpdate still integrating the stale gravity).
+  setGravity(gravity) {
+    this.gravity = gravity
+    if (this.physicsSystem) {
+      const J = this.Jolt
+      const gv = new J.Vec3(gravity[0], gravity[1], gravity[2])
+      this.physicsSystem.SetGravity(gv)
+      J.destroy(gv)
+    }
+    this._charMgr.setGravity(gravity)
+  }
+
   _addBody(shape, position, motionType, layer, opts = {}) {
     const J = this.Jolt
     const pos = new J.RVec3(position[0], position[1], position[2])

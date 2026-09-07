@@ -38,14 +38,36 @@ export function createReloadHandlers(deps) {
     const { applyMovement, DEFAULT_MOVEMENT } = await import('../shared/movement.js?' + t)
     const { createTickHandler: refreshHandler } = await import('./TickHandler.js?' + t)
     let movement = deps.movement
+    let tickRate = deps.tickRate
     if (deps.worldConfigPath) {
       try {
         const wm = await import(deps.worldConfigPath + '?' + t)
         const wd = wm.default || wm
         if (wd.movement) movement = wd.movement
+        // hotreload-worldDef-edit-no-restart: gravity/tickRate/player were previously baked into
+        // PhysicsWorld/PhysicsIntegration/TickSystem at construction, never re-read on a world edit.
+        // Applied live here (not swapped -- see PhysicsWorld.setGravity/TickSystemBase.setTickRate's
+        // own comments for why an in-place update is correct and a rebuild would drop live state).
+        if (Array.isArray(wd.gravity) && wd.gravity.length === 3) {
+          physics?.setGravity?.(wd.gravity)
+          if (physicsIntegration) physicsIntegration.config.gravity = wd.gravity
+        }
+        if (Number.isFinite(wd.tickRate) && wd.tickRate > 0) {
+          tickRate = wd.tickRate
+          deps.tickSystem?.setTickRate?.(wd.tickRate)
+        }
+        if (wd.player) {
+          const pc = wd.player
+          if (physicsIntegration) {
+            if (Number.isFinite(pc.capsuleRadius)) physicsIntegration.config.capsuleRadius = pc.capsuleRadius
+            if (Number.isFinite(pc.capsuleHalfHeight)) physicsIntegration.config.capsuleHalfHeight = pc.capsuleHalfHeight
+            if (Number.isFinite(pc.crouchHalfHeight)) physicsIntegration.config.crouchHalfHeight = pc.crouchHalfHeight
+            if (Number.isFinite(pc.mass)) physicsIntegration.config.playerMass = pc.mass
+          }
+        }
       } catch (e) {}
     }
-    return refreshHandler({ ...deps, movement, _movement: { applyMovement, DEFAULT_MOVEMENT } })
+    return refreshHandler({ ...deps, movement, tickRate, _movement: { applyMovement, DEFAULT_MOVEMENT } })
   }
 
   const reloadPhysicsIntegration = async () => {

@@ -38,6 +38,18 @@ export class CharacterManager {
     this._tmpRVec3 = new J.RVec3(0, 0, 0)
   }
 
+  // Live gravity update (hotreload-worldDef-edit-no-restart, called from PhysicsWorld.setGravity):
+  // _charGravity is a Jolt Vec3 handle captured once at init(), not a live view onto this.gravity --
+  // every ExtendedUpdate call (see update() below) passes it by reference, so it must be destroyed
+  // and rebuilt for a gravity change to actually reach already-spawned characters' own integration.
+  setGravity(gravity) {
+    this.gravity = gravity
+    if (this.J && this._charGravity) {
+      this.J.destroy(this._charGravity)
+      this._charGravity = new this.J.Vec3(gravity[0], gravity[1], gravity[2])
+    }
+  }
+
   addCharacter(radius, halfHeight, position, mass, charConfig) {
     const J = this.J
     // Defense-in-depth (see PhysicsIntegration.js constructor comment for the root-caused caller-side

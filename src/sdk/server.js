@@ -62,7 +62,7 @@ export async function createServerDeps(config, tickRate) {
 }
 
 export function wireServerHandlers(ctx) {
-  const { networkState, playerManager, physicsIntegration, lagCompensator, physics, appRuntime, connections, movement, tickRate, stageLoader, eventLog, reloadManager, sdkRoot } = ctx
+  const { networkState, playerManager, physicsIntegration, lagCompensator, physics, appRuntime, connections, movement, tickRate, tickSystem, stageLoader, eventLog, reloadManager, sdkRoot } = ctx
   const worldConfigUrl = pathToFileURL(existsSync(resolve(process.cwd(), 'apps/world/index.js')) ? resolve(process.cwd(), 'apps/world/index.js') : join(sdkRoot, 'apps/world/index.js')).href
   // getRelevanceRadius/getWorldTimeOfDayConfig threaded through so a hot-reloaded TickHandler (see
   // reloadTickHandler below, spreads THIS deps object) keeps both live-config accessors instead of
@@ -71,7 +71,7 @@ export function wireServerHandlers(ctx) {
   // rebuilt createTickHandler call) so a hot-reload of TickHandler.js/movement.js/apps/world/index.js
   // (see SPECIFIC_RELOAD below) never silently drops the periodic world-snapshot wiring -- same discipline
   // as getRelevanceRadius/getWorldTimeOfDayConfig/getWorldWeatherConfig immediately above.
-  const reloadHandlers = createReloadHandlers({ networkState, playerManager, physicsIntegration, lagCompensator, physics, appRuntime, connections, movement, tickRate, worldConfigPath: worldConfigUrl, getRelevanceRadius: () => ctx.currentWorldDef?.relevanceRadius || 0, getWorldTimeOfDayConfig: () => ctx.currentWorldDef?.terrain?.timeOfDay || null, getWorldWeatherConfig: () => ctx.currentWorldDef?.terrain?.weather || null, onAutoSave: () => { saveWorldSnapshot(ctx).catch(e => console.error('[world-persistence] periodic save failed:', e.message)) } })
+  const reloadHandlers = createReloadHandlers({ networkState, playerManager, physicsIntegration, lagCompensator, physics, appRuntime, connections, movement, tickRate, tickSystem, worldConfigPath: worldConfigUrl, getRelevanceRadius: () => ctx.currentWorldDef?.relevanceRadius || 0, getWorldTimeOfDayConfig: () => ctx.currentWorldDef?.terrain?.timeOfDay || null, getWorldWeatherConfig: () => ctx.currentWorldDef?.terrain?.weather || null, onAutoSave: () => { saveWorldSnapshot(ctx).catch(e => console.error('[world-persistence] periodic save failed:', e.message)) } })
   ctx.reloadHandlers = reloadHandlers
   // getWorldTimeOfDayConfig/getWorldWeatherConfig: read fresh (not captured) at createTickHandler call
   // time, same once-per-handler-build timing as getRelevanceRadius immediately below -- a world reload
