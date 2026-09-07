@@ -1733,6 +1733,41 @@ if (typeof document !== 'undefined') {
       _stallRecovering = false
     }).catch(err => { console.error('[stall-recovery] fresh BrowserServer reconnect failed:', err?.message || err); _stallRecovering = false })
   })
+
+  // Texture-recovery safety net (models-lit-but-flat-missing-texture-after-long-background-stall):
+  // some GPU drivers/OSes silently evict GPU-side texture memory on a long-backgrounded tab WITHOUT
+  // dispatching the spec 'webglcontextlost' event that SceneSetup.js's own recovery path (full
+  // location.reload()) depends on -- when that happens, THREE's WebGLTextures cache still believes
+  // every texture is uploaded (material.map stays a valid JS object, so nothing else here notices),
+  // but the underlying GPU texture is stale/blank, reading as "correctly lit, but flat/solid-color
+  // with no visible detail" (lighting/material params are untouched; only the sampler output is
+  // gone). No existing code path ever re-validates texture state on tab resume. This is a real gap,
+  // not a guess: independently confirmed via grep that no visibilitychange/stall handler anywhere in
+  // the render pipeline (client/core/*, packages/streaming-gltf/*, packages/mapspinner/*) touches
+  // texture.needsUpdate. Cheap and safe even when this exact silent-eviction class never fires: a
+  // redundant needsUpdate on an unaffected texture costs one GPU re-upload, not a visual change.
+  let _texRecoveryHiddenAt = 0
+  const TEX_RECOVERY_MIN_HIDDEN_MS = 30000  // only worth paying the re-upload cost after a REAL long stall, not an alt-tab
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { _texRecoveryHiddenAt = performance.now(); return }
+    if (!_texRecoveryHiddenAt) return
+    const hiddenMs = performance.now() - _texRecoveryHiddenAt
+    _texRecoveryHiddenAt = 0
+    if (hiddenMs < TEX_RECOVERY_MIN_HIDDEN_MS) return
+    try {
+      let n = 0
+      scene.traverse(o => {
+        const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : [])
+        for (const m of mats) {
+          for (const key of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap', 'bumpMap']) {
+            const tex = m[key]
+            if (tex && typeof tex === 'object') { tex.needsUpdate = true; n++ }
+          }
+        }
+      })
+      if (n > 0) console.log('[tex-recovery] forced needsUpdate on', n, 'texture(s) after', Math.round(hiddenMs / 1000) + 's hidden')
+    } catch (e) { console.warn('[tex-recovery] scan failed:', e?.message || e) }
+  })
 }
 
 // Raw raycast hit-point (null on miss, e.g. sky); shared by _raycastPlacePos and editor.js's GLB drag-drop handler.
