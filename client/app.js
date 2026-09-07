@@ -13,6 +13,7 @@ import { createLoadingScreen } from './hud/createLoadingScreen.js'
 import { MobileControls, detectDevice } from './core/MobileControls.js'
 import { createMobileControlsUI } from './hud/MobileControlsUI.js'
 import { createCameraController } from './core/camera.js'
+import { createMultiViewport } from './core/MultiViewport.js'
 import { preloadAnimationLibraryIfUncached, loadAnimationLibrary } from './AnimationLibrary.js'
 import { dbDelete, dbPut } from './ModelCache.js'
 import { createEditor } from './editor/editor.js'
@@ -2264,7 +2265,11 @@ _editorAPIBundle.api.onSelect(() => _renderEditorAppPanels())
 _editorAPIBundle.api.onAppsUpdate(() => _renderEditorAppPanels())
 _editorAPIBundle.api.onEventsUpdate(() => _renderEditorAppPanels())
 _editorAPIBundle.api.onTabChange(() => _renderEditorAppPanels())
-if(window.__app){window.__app.editor=editor;window.__app.editPanel=editPanel;window.__app.cam=cam}
+// editor-multi-viewport (spoint-side half, see MultiViewport.js's own header for the full scope
+// split): camera+render-loop plumbing only, zero panes by default -- a design-kit panel drives
+// addPane/setRect/setEnabled via window.__app.multiViewport; this module makes no UI of its own.
+const multiViewport = createMultiViewport(renderer, scene)
+if(window.__app){window.__app.editor=editor;window.__app.editPanel=editPanel;window.__app.cam=cam;window.__app.multiViewport=multiViewport}
 editPanel.onTabChange(t => _editorAPIBundle._emitTab(t))
 editor.onSelectionChange((id,data) => {
   if (data) { const mesh=el.entityMeshes.get(id); _lastEditorProps=[]; const extraIds=Array.from(editor.extraSelectedIds||[]); editPanel.showEntity(mesh?_buildEntityData(id,mesh):data,_lastEditorProps,extraIds,_buildExtraEntitiesData(extraIds)); client.send(MSG.GET_EDITOR_PROPS,{entityId:id}); _editorAPIBundle._emitSelect(id,data) }
@@ -3620,6 +3625,9 @@ function animate(ts) {
   // need to decide THIS frame's query allocation before those queries are issued.
   occlusionQueryBudget.reportFrameTime(_perf.lastMs)
   renderGraph.run(_graphCtx)
+  // editor-multi-viewport: zero-cost when no panes are registered (render() early-returns on
+  // panes.size===0, matching every other opt-in render-graph knob's no-panes/no-op discipline).
+  multiViewport.render(camera)
   minimapHUD.update()
   _perf.sample(performance.now() - now, renderer, pm.playerMeshes.size, el.entityMeshes.size)
   _adaptDpr(renderer, _perf.lastMs)   // dynamic resolution scale (opt-in)
