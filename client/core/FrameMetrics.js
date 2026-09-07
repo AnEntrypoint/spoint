@@ -112,6 +112,8 @@ export function createVsyncMonitor() {
   const MISS_THRESHOLD = 1.5          // present gap must exceed 1.5x the inferred interval to count as a miss
   const JS_SHORT_FACTOR = 0.85        // JS work must be UNDER 0.85x the inferred interval to blame the compositor, not this frame's own JS
   const _recentMisses = []            // ring of the last few miss events, for window.__vsync.recent()
+  const _vsyncMirror = { refreshIntervalMs: 0, refreshHz: 0, lastDeltaMs: 0, isMiss: false, isCompositorStall: false, missedFrames: 0, missCount: 0, missStreak: 0, maxMissStreak: 0, frameCount: 0, missRate: 0, recent: () => _recentMisses.slice() }
+  const _vsyncResult = { isMiss: false, isCompositorStall: false, deltaMs: 0, expectedMs: 0, missedFrames: 0 }
   const MAX_RECENT = 20
 
   function _median() {
@@ -148,17 +150,18 @@ export function createVsyncMonitor() {
       if (_recentMisses.length > MAX_RECENT) _recentMisses.shift()
     } else missStreak = 0
     if (typeof window !== 'undefined') {
-      window.__vsync = {
-        refreshIntervalMs: +expectedMs.toFixed(3),
-        refreshHz: +(1000 / expectedMs).toFixed(1),
-        lastDeltaMs: +deltaMs.toFixed(3),
-        isMiss, isCompositorStall, missedFrames,
-        missCount, missStreak, maxMissStreak, frameCount,
-        missRate: frameCount > 0 ? +(missCount / frameCount).toFixed(4) : 0,
-        recent: () => _recentMisses.slice(),
-      }
+      // Debug mirror mutated in place (one persistent object, raw numbers): the old per-frame object
+      // literal + closure + four toFixed()/re-parse round trips were pure allocation for a value only a
+      // console/inspector reads.
+      const v = _vsyncMirror
+      v.refreshIntervalMs = expectedMs; v.refreshHz = 1000 / expectedMs; v.lastDeltaMs = deltaMs
+      v.isMiss = isMiss; v.isCompositorStall = isCompositorStall; v.missedFrames = missedFrames
+      v.missCount = missCount; v.missStreak = missStreak; v.maxMissStreak = maxMissStreak; v.frameCount = frameCount
+      v.missRate = frameCount > 0 ? missCount / frameCount : 0
+      if (window.__vsync !== v) window.__vsync = v
     }
-    return { isMiss, isCompositorStall, deltaMs, expectedMs, missedFrames }
+    _vsyncResult.isMiss = isMiss; _vsyncResult.isCompositorStall = isCompositorStall; _vsyncResult.deltaMs = deltaMs; _vsyncResult.expectedMs = expectedMs; _vsyncResult.missedFrames = missedFrames
+    return _vsyncResult
   }
   function reset() { idx = 0; filled = 0; lastTs = -1; missStreak = 0; maxMissStreak = 0; missCount = 0; frameCount = 0; _recentMisses.length = 0 }
   return { tick, reset }
@@ -276,6 +279,7 @@ export function createFogController() {
     const v = (typeof window !== 'undefined' && Number.isFinite(window.__fogFar)) ? window.__fogFar : FOG_FAR_DEFAULT
     return v
   }
+  const _fogMirror = { far: 0, ceil: 0, baseCeil: 0, mult: 1, avgMs: 0 }
   function tick(scene, ms) {
     if (typeof window === 'undefined' || window.__fogAdaptOff) return
     const fog = scene && scene.fog
@@ -294,7 +298,7 @@ export function createFogController() {
     // during which the mirror shows stale pre-tightening data even though fog.far itself was ALREADY
     // clamped above -- caught live while verifying the time-of-day reconciliation (a >100ms/frame run
     // left window.__fogState reporting mult:1 long after the real ceiling had already tightened).
-    if (typeof window !== 'undefined') window.__fogState = { far: +fog.far.toFixed(1), ceil, baseCeil, mult: +mult.toFixed(3), avgMs: n > 0 ? +(acc / n).toFixed(2) : 0 }
+    if (typeof window !== 'undefined') { const f = _fogMirror; f.far = fog.far; f.ceil = ceil; f.baseCeil = baseCeil; f.mult = mult; f.avgMs = n > 0 ? acc / n : 0; if (window.__fogState !== f) window.__fogState = f }
     if (n < FOG_SLOW_FRAMES) return
     const avg = acc / n; acc = 0; n = 0
     if (avg > FOG_SLOW_MS) {
@@ -304,7 +308,7 @@ export function createFogController() {
       fastStreak++; slowStreak = 0
       if (fastStreak >= FOG_HYST && fog.far < ceil) { fog.far = Math.min(ceil, fog.far + FOG_STEP); fastStreak = 0 }
     } else { slowStreak = 0; fastStreak = 0 }
-    if (typeof window !== 'undefined') window.__fogState = { far: +fog.far.toFixed(1), ceil, baseCeil, mult: +mult.toFixed(3), avgMs: +avg.toFixed(2) }
+    if (typeof window !== 'undefined') { const f = _fogMirror; f.far = fog.far; f.ceil = ceil; f.baseCeil = baseCeil; f.mult = mult; f.avgMs = avg; if (window.__fogState !== f) window.__fogState = f }
   }
   return { tick, setCeilMultiplier }
 }

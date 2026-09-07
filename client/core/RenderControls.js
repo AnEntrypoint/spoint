@@ -301,11 +301,13 @@ const CONTROLS = [
 ]
 
 const _byKey = new Map(CONTROLS.map(c => [c.key, c]))
+for (const c of CONTROLS) c.globalName = '__' + c.key   // precomputed: get() runs ~10x/frame from shouldRun gates; no per-call string concat
+const _hasWindow = typeof window !== 'undefined'
 
 function get(key) {
   const c = _byKey.get(key)
   if (!c) { console.warn(`[render-controls] unknown knob '${key}'`); return undefined }
-  if (typeof window !== 'undefined' && window['__' + key] !== undefined) return window['__' + key]
+  if (_hasWindow) { const v = window[c.globalName]; if (v !== undefined) return v }
   return c.default
 }
 

@@ -259,7 +259,13 @@ export function installShadowCostProbe(renderer, scene, camera, sunOrShadowPipel
     _origShadowRender(lights, s, c)
     // Only record a sample for a call that actually did work (mirrors WebGLShadowMap's own
     // enabled/autoUpdate/needsUpdate early-return -- a skipped call is not a real shadow-pass cost).
-    if (sm.enabled && wasNeedsUpdate) {
+    // ALSO gated on a real shadow-casting light: WebGLShadowMap.render returns at `lights.length === 0`
+    // (node_modules/three/src/renderers/webgl/WebGLShadowMap.js:97) BEFORE its `scope.needsUpdate =
+    // false` reset (:369), so with no casting light (sun.castShadow=false, the documented tree-flicker
+    // workaround) renderer.shadowMap.needsUpdate stays true forever and this wrapper sampled+shift()ed
+    // every frame (live: probe sample count grew 191 -> 240 across one capture with zero shadow work).
+    const didWork = sm.enabled && wasNeedsUpdate && Array.isArray(lights) && lights.length > 0
+    if (didWork) {
       const ms = performance.now() - t0
       _lastPassMs = ms
       _passSamples.push(ms)
@@ -267,7 +273,7 @@ export function installShadowCostProbe(renderer, scene, camera, sunOrShadowPipel
     }
     // Static/dynamic split mode -- only attempted right after a real re-render (the same event
     // ShadowPipeline already gates on), never invents an extra one on a stable frame.
-    if (sm.enabled && wasNeedsUpdate) {
+    if (didWork) {
       try { _maybeRunSplit(renderer, s, c, _resolveLights(sunOrShadowPipeline)) } catch (_) {}
     }
   }

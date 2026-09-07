@@ -28,22 +28,33 @@ import * as THREE from 'three'
 // beginnormal_vertex, three's own model-space normal attribute copy) transformed by modelMatrix
 // (world space) -- cheap, always-available, no dependency on normalMatrix's view-space convention.
 //
-// WHY A SPLICED LITERAL, NOT A UNIFORM (real constraint found live this session): a genuinely new
-// uniform name referenced only inside a patched ShaderChunk does NOT automatically become a real
-// per-material uniform for THREE's built-in materials (MeshStandardMaterial etc). Those materials'
-// ShaderLib.<name>.uniforms are built ONCE at three.js module-load time via UniformsUtils.mergeUniforms
-// (a ureactive DEEP CLONE of UniformsLib.fog/lights/etc, verified by reading
-// node_modules/three/src/renderers/shaders/UniformsUtils.js) -- mutating UniformsLib.fog afterward
-// (the naive approach, tried and reverted this session) has ZERO effect on the already-frozen,
-// already-cloned ShaderLib uniform objects every built-in material's WebGLProgram was linked against.
-// UnderwaterTint.js sidesteps this the same way: SPOINT_SEA_Y is a GLSL literal spliced into the
-// chunk TEXT (string replace), not a uniform, forcing a real recompile (mm.needsUpdate) whenever it
-// changes. WetnessTint follows the identical pattern but THROTTLES the splice+recompile to coarse
-// 0.05 steps (setWetness quantizes before touching the shader text) -- sea level changes once per
-// world-load, but wetness changes continuously every frame while raining/drying, so an UNTHROTTLED
-// literal-splice-plus-scene-wide-recompile-every-frame would be a real perf regression. 0.05 steps
-// bound a full wet(1.0)->dry(0.0) cycle to ~20 total recompiles over its whole dry-out period
-// (default 60s, see RenderControls wetnessDryOutSec), not one recompile per frame.
+// A REAL SHARED UNIFORM, NOT A SPLICED LITERAL (wetness-uniform-not-literal, 2026-09-06): the previous
+// design spliced `const float SPOINT_WETNESS = <n>` into the chunk text on every 0.05 step and set
+// needsUpdate on every material in the scene. That was a silent no-op: WebGLPrograms' program cache key
+// (node_modules/three/src/renderers/webgl/WebGLPrograms.js getProgramCacheKey) hashes shaderID/defines/
+// parameters, NOT the resolved ShaderChunk text, so needsUpdate re-derived the same key and REUSED the
+// already-linked program -- live-witnessed (scratch wet-probe, BEFORE state): a program compiled at
+// 0.50 still read `SPOINT_WETNESS = 0.50` from gl.getShaderSource after setWetness(0.2) and (0.0),
+// program count unchanged, while the traverse marked 101 materials dirty for nothing. Net effect: every
+// material was frozen at whatever wetness was current when ITS program first compiled (0.0 for a world
+// that starts dry) -- the sheen never actually animated.
+//
+// Why a uniform now works when the header's old note said it could not: built-in materials do clone
+// ShaderLib.<x>.uniforms per material instance (WebGLPrograms.getUniforms -> UniformsUtils.clone), but
+// cloneUniforms copies a value that is neither a three object nor an Array BY REFERENCE
+// (UniformsUtils.js:64 `dst[u][p] = property`), so a `Float32Array(1)` value survives every clone as ONE
+// shared buffer. So: (1) declare `uniform float spointWetness[1]` in the patched fog_pars_fragment and
+// `#define SPOINT_WETNESS spointWetness[0]` so the darken/sheen GLSL below is unchanged; (2) register
+// `{ value: <the one Float32Array> }` on every THREE.ShaderLib entry's uniforms (covers every built-in
+// material compiled after install) AND on THREE.UniformsLib.fog (MToon merges UniformsLib.fog per
+// instance at construction -- @pixiv/three-vrm-materials-mtoon, and any custom material that merges it
+// picks it up too); (3) setWetness writes the live scalar into that one buffer -- a float array uniform
+// goes through WebGLUniforms' setValueV1fArray path (uniform1fv, change-detected). Zero traverse, zero
+// recompile, and the shader's `if (SPOINT_WETNESS > 0.001)` gate keeps a dry world byte-identical (the
+// block simply does not execute at 0.0, same pixels as the const-folded-away literal). Materials whose
+// program compiled BEFORE install (or an MToon constructed before install) never saw the chunk patch /
+// merged uniform at all -- unchanged from before (pre-existing gap: install runs on the first
+// weather-update node tick, after boot-time shader warmup).
 //
 // WHY POST-LIGHTING FOR THE DARKEN, BUT REAL PER-LIGHT SPECULAR (wetness-real-specular-per-material-
 // followup, 2026-07-21): multiplying the FINAL lit color (same seam UnderwaterTint uses) is still the
@@ -91,9 +102,10 @@ import * as THREE from 'three'
 // different update-cost profiles).
 
 let _installed = false
-let _lastSplicedStep = -1 // quantized 0..20 step last baked into the shader text; -1 = never spliced
-const QUANT_STEP = 0.05
-const _WET_RE = /SPOINT_WETNESS = [0-9.]+/
+// The ONE shared uniform buffer (see header): registered by reference into every ShaderLib entry +
+// UniformsLib.fog at install, written per frame by setWetness. Float32Array on purpose -- a plain
+// number would be copied by value by cloneUniforms and a Vector would be .clone()d.
+const _wetUniform = { value: new Float32Array(1) }
 
 export function installWetnessTint() {
   if (_installed) return
@@ -106,7 +118,10 @@ export function installWetnessTint() {
   THREE.ShaderChunk.fog_vertex += '\nvWetUp = dot(normalize(mat3(modelMatrix) * objectNormal), vec3(0.0, 1.0, 0.0));'
   THREE.ShaderChunk.fog_pars_fragment +=
     '\nvarying float vWetUp;' +
-    '\nconst float SPOINT_WETNESS = 0.0;' + // spliced literal, see header -- 0.0 = fully inert by default
+    // Shared uniform (see header); the macro keeps the fog_fragment GLSL below byte-identical to the old
+    // literal-based text. [1]-sized array so the value is a Float32Array that cloneUniforms shares.
+    '\nuniform float spointWetness[1];' +
+    '\n#define SPOINT_WETNESS spointWetness[0]' +
     // FILE-SCOPE global (not a `main()`-local): written by the lights_fragment_begin patch below on
     // lit material families, left at its explicit 0.0 default on unlit families (MeshBasicMaterial)
     // and MToon (neither includes lights_fragment_begin) -- see header for the full family-coverage
@@ -189,8 +204,16 @@ export function installWetnessTint() {
     '  gl_FragColor.rgb += spoint_wetSpec * wetAmt * wetUpFacing * 1.4 * vec3(1.0, 1.0, 0.95);',
     '}'
   ].join('\n') + '\n' + THREE.ShaderChunk.fog_fragment
+  // Register the shared uniform everywhere a material's uniform table can come from (see header).
+  if (THREE.UniformsLib && THREE.UniformsLib.fog && !THREE.UniformsLib.fog.spointWetness) THREE.UniformsLib.fog.spointWetness = _wetUniform
+  if (THREE.ShaderLib) {
+    for (const name in THREE.ShaderLib) {
+      const lib = THREE.ShaderLib[name]
+      if (lib && lib.uniforms && !lib.uniforms.spointWetness) lib.uniforms.spointWetness = _wetUniform
+    }
+  }
   if (typeof window !== 'undefined') {
-    window.__wetnessTint = { installed: true, wetness: 0, setWetness }
+    window.__wetnessTint = { installed: true, wetness: 0, setWetness, uniform: _wetUniform }
   }
 }
 
@@ -198,24 +221,19 @@ export function installWetnessTint() {
 // write), independent of the throttled shader-recompile path below.
 let _liveWetness = 0
 
-// Splices the quantized wetness literal into the patched chunk and recompiles every already-built
-// material ONLY when the quantized step actually changed (see header for why: an untotalized
-// per-frame recompile across the whole scene would be a real perf regression). Called every frame by
-// the weather-wetness render-graph node -- cheap no-op on every frame that doesn't cross a 0.05 step.
+// Writes the live (unquantized) wetness scalar into the one shared uniform buffer every material reads
+// (see header) -- a plain typed-array store, no scene traverse, no shader text edit, no recompile.
+// Called every frame by the weather-wetness render-graph node. `scene` is accepted for call-site
+// compatibility and unused.
 export function setWetness(w, scene) {
   installWetnessTint()
   const v = THREE.MathUtils.clamp(Number.isFinite(w) ? w : 0, 0, 1)
   _liveWetness = v
+  _wetUniform.value[0] = v
   if (typeof window !== 'undefined') {
     window.__wetness = v
     if (window.__wetnessTint) window.__wetnessTint.wetness = v
   }
-  const step = Math.round(v / QUANT_STEP)
-  if (step === _lastSplicedStep) return
-  _lastSplicedStep = step
-  const quantized = step * QUANT_STEP
-  THREE.ShaderChunk.fog_pars_fragment = THREE.ShaderChunk.fog_pars_fragment.replace(_WET_RE, 'SPOINT_WETNESS = ' + quantized.toFixed(2))
-  if (scene) scene.traverse(o => { const m = o.material; if (!m) return; for (const mm of (Array.isArray(m) ? m : [m])) mm.needsUpdate = true })
 }
 
 export function getWetness() { return _liveWetness }

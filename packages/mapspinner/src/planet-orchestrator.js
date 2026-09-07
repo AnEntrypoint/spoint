@@ -104,7 +104,10 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
   const _now = () => (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
   const _t = { start: _now() };
   // No producer: terrain shape is the per-vertex GPU fractal (fractalTerrainH in terrain.glsl).
-  const render = await initMapspinnerRender(gl, { radius: R, gridMeshSize, reliefScale: opts.reliefScale });
+  // bakeOnly (patch-baker.js): a height-bake-only instance -- gl-render skips the terrain/water/sky/upscale
+  // programs, the atmosphere LUTs, the surface textures and the mesh buffers; only the _HEIGHTBAKE_ path
+  // (ensureBake + the __thcBake* globals) is built. frame()/render() are never called on such an instance.
+  const render = await initMapspinnerRender(gl, { radius: R, gridMeshSize, reliefScale: opts.reliefScale, bakeOnly: !!opts.bakeOnly });
   _t.shaderCompileMs = +(_now() - _t.start).toFixed(0);
   // Pure-JS quadtree: geometry LOD selection only; terrain shape is the GPU fractal, so the mesh
   // needs no external height producer.
@@ -681,7 +684,10 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
     // (1-frame geometry latency, standard pipelining). First frame (no cache) draws after build.
     // morphSplitDist/morphDistFactor/morphMaxLevel: see the cam2 comment above (static-frame branch) --
     // same quadtree-global (not per-quad) geomorph inputs, threaded here for the moved-camera path.
-    const cam = { eye: camWorldPos, center: camTarget, up: camUp, fovy, displayMode, surfElev, shadowInfo, morphSplitDist: _geomorphLod ? qt.splitDist : 0, morphDistFactor: qt.distFactor, morphMaxLevel: qt.maxLevel };
+    // cullMatrix: the SAME per-frame clip matrices computed at ~L620 for the frustum cull (identical
+    // inputs: eye/center/up/fovy/surfElev + this frame's drawingBuffer aspect) -- render() reuses them
+    // instead of re-deriving the six matrices a second time per rebuild frame (it re-validates near/far).
+    const cam = { eye: camWorldPos, center: camTarget, up: camUp, fovy, displayMode, surfElev, shadowInfo, morphSplitDist: _geomorphLod ? qt.splitDist : 0, morphDistFactor: qt.distFactor, morphMaxLevel: qt.maxLevel, cullMatrix: _cm };
     if (_pipelineQuads) {
       render.render(_pipelineQuads, cam, sun, time);
     }

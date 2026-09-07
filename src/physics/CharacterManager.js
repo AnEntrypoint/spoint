@@ -6,6 +6,11 @@ export class CharacterManager {
     this.crouchHalfHeight = crouchHalfHeight
     this.characters = new Map()
     this._charShapes = new Map()
+    // charId -> onGround verdict read ONCE right after that character's last ExtendedUpdate (see update()).
+    // Jolt's CharacterVirtual only recomputes mGroundState inside Update/ExtendedUpdate/RefreshContacts;
+    // SetPosition/SetLinearVelocity (setCrouch, restoreAll, moving-platform carry) leave it untouched, so
+    // the cached verdict is exactly what a fresh GetGroundState() would return until the next update().
+    this._groundCache = new Map()
     this._nextCharId = 0
     this.J = null; this._jolt = null; this._physicsSystem = null
     this._filters = null; this._updateSettings = null
@@ -72,11 +77,15 @@ export class CharacterManager {
     const ch = this.characters.get(charId); if (!ch) return
     const f = this._filters
     ch.ExtendedUpdate(dt, this._charGravity, this._updateSettings, f.bp, f.ol, f.body, f.shape, this._jolt.GetTempAllocator())
+    // One GetGroundState WASM call per update, shared by the moving-platform check below AND the
+    // caller's follow-up getGroundState() read (PhysicsIntegration.updatePlayerPhysics) -- was two calls.
+    let onGround = false
+    if (ch.GetGroundState) { onGround = ch.GetGroundState() === this.J.EGroundState_OnGround; this._groundCache.set(charId, onGround) }
     // Moving-platform carry: a rider standing on a kinematic/moving body should translate WITH it. Jolt's
     // CharacterVirtual tracks the surface it stands on; read that surface's velocity and offset the character by
     // groundVel*dt so it doesn't slide off a moving platform. Guarded: only when on-ground with a moving surface,
     // and only if the runtime's Jolt build exposes GetGroundVelocity (older builds silently no-op, no regression).
-    if (ch.GetGroundState && ch.GetGroundVelocity && ch.GetGroundState() === this.J.EGroundState_OnGround) {
+    if (onGround && ch.GetGroundVelocity) {
       const gv = ch.GetGroundVelocity()
       const vx = gv.GetX(), vy = gv.GetY(), vz = gv.GetZ()
       this.J.destroy(gv)
@@ -128,12 +137,14 @@ export class CharacterManager {
 
   getGroundState(charId) {
     const ch = this.characters.get(charId); if (!ch) return false
+    const cached = this._groundCache.get(charId)
+    if (cached !== undefined) return cached
     return ch.GetGroundState() === this.J.EGroundState_OnGround
   }
 
   removeCharacter(charId) {
     const ch = this.characters.get(charId)
-    if (ch) { this.J.destroy(ch); this.characters.delete(charId); this._charShapes.delete(charId) }
+    if (ch) { this.J.destroy(ch); this.characters.delete(charId); this._charShapes.delete(charId); this._groundCache.delete(charId) }
   }
 
   // Rollback-netcode primitive (rollback-netcode-ggpo-style-input-rollback first slice): capture every
@@ -168,7 +179,7 @@ export class CharacterManager {
 
   destroy() {
     for (const ch of this.characters.values()) this.J.destroy(ch)
-    this.characters.clear()
+    this.characters.clear(); this._groundCache.clear()
     if (!this._filters) return
     this.J.destroy(this._filters.bp); this.J.destroy(this._filters.ol)
     this.J.destroy(this._filters.body); this.J.destroy(this._filters.shape)

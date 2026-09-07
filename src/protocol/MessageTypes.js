@@ -108,7 +108,12 @@ export const MSG = {
   // work (an ungraceful host loss -- crash/network drop -- has no opportunity to send it, and the elected
   // peer instead reconstructs from its own already-current SnapshotProcessor state, which is always at
   // most one snapshot-interval stale).
-  PEER_RTT_TABLE: 0xac,
+  // 0xc1 (was 0xac, which collided with FREDDIE_MESSAGE above -- both sides of that collision were
+  // routed by name, so the shared code only mattered for msgName()/UNRELIABLE_MSGS; FREDDIE_MESSAGE keeps
+  // 0xac because scripts/flagship-demo-e2e.mjs asserts that literal). Every reader/writer of both
+  // (TickHandler.js, ConnectionManager.js, src/client/MessageHandler.js, client/app.js, client/HostMigration.js)
+  // imports this same file by name, so no client-side copy needs a matching edit.
+  PEER_RTT_TABLE: 0xc1,
   HOST_MIGRATE: 0xad,
 
   // Terrain sculpting brush (raise + lower + smooth + flatten -- see src/terrain/HeightDelta.js).
@@ -273,8 +278,10 @@ export function msgName(id) {
   return nameMap.get(id) || `UNKNOWN(0x${id.toString(16)})`
 }
 
+// 0xac stays listed (FREDDIE_MESSAGE was de facto unreliable while it shared PEER_RTT_TABLE's old code --
+// keeping it preserves that channel class exactly); 0xc1 is PEER_RTT_TABLE's new code.
 export const UNRELIABLE_MSGS = new Set([
-  0x03, 0x04, 0x10, 0x11, 0x12, 0x13, 0x22, 0x43, 0x44, 0xac, 0xb4
+  0x03, 0x04, 0x10, 0x11, 0x12, 0x13, 0x22, 0x43, 0x44, 0xac, 0xb4, 0xc1
 ])
 
 export function isUnreliable(type) {

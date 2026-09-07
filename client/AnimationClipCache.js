@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { get, put, remove } from './IndexedDBStore.js'
+import { get, put, remove, openStore } from './IndexedDBStore.js'
 import { packQuat, unpackQuat } from '../src/netcode/SnapshotEncoder.js'
 
 const DB_NAME = 'spoint-anim-cache'
@@ -192,6 +192,19 @@ function deserializeClip(data) {
     return track
   })
   return new THREE.AnimationClip(data.name, data.duration, tracks)
+}
+
+// Opens (or upgrades) the clip store without reading anything -- lets AnimationLibrary.js overlap the
+// IndexedDB open/upgrade cost with its /anim-lib.glb HEAD round-trip instead of paying them serially.
+export function warmClipStore() {
+  return openStore(DB_NAME, DB_VERSION, STORE).catch(() => null)
+}
+
+// Cheap existence probe (no deserialize): does a serialized entry exist under `cacheKey`? Used by the
+// boot-time conditional preload so the 6.9MB GLB is only downloaded+parsed on a genuine cache miss.
+export async function hasCachedClips(cacheKey) {
+  const cached = await get(DB_NAME, DB_VERSION, STORE, cacheKey)
+  return !!(cached && Array.isArray(cached.clips) && cached.clips.length > 0)
 }
 
 export async function getCachedClips(cacheKey) {

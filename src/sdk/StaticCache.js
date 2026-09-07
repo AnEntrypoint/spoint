@@ -31,8 +31,13 @@ export async function compressAsync(raw, encoding) {
   return encoding === 'br' ? brotliCompressAsync(raw, BROTLI_OPTS) : gzipAsync(raw)
 }
 
-// excludes already-compressed/high-entropy image formats; GLB/VRM/glTF still win since they carry uncompressed JSON+animation data
-export const GZIP_EXTENSIONS = new Set(['.glb', '.vrm', '.gltf', '.js', '.mjs', '.css', '.html', '.json'])
+// excludes already-compressed/high-entropy image formats; GLB/VRM/glTF still win since they carry uncompressed JSON+animation data.
+// .wasm: live-measured jolt-physics.wasm.wasm 2021569B -> ~600KB brotli-q5 / basis_transcoder.wasm 527333B ->
+// ~200KB -- both are fetched on every cold boot (physics worker + KTX2 transcoder) and were served raw. A
+// Range request against a .wasm still gets the identity encoding (StaticHandler.js skips negotiation when
+// a Range header is present on a RANGE_EXTENSIONS path), so serveRangeable's 206 contract is unchanged.
+// .ktx2 deliberately NOT here: the progressive-mip client range-fetches it (see StaticHandler.js RANGE_EXTENSIONS).
+export const GZIP_EXTENSIONS = new Set(['.glb', '.vrm', '.gltf', '.js', '.mjs', '.css', '.html', '.json', '.wasm'])
 
 // Raw bytes for anything bigger than this never enter the in-memory cache -- a single huge asset
 // (large baked GLB, video, etc) would otherwise dominate the byte budget and evict everything else
@@ -182,7 +187,33 @@ export async function getCached(fp, ext, encoding) {
   return { mtime: cached.mtime, content: variant, encoding, raw: cached.raw }
 }
 
-export async function getTransformedCached(fp, srcMtime, rawBuffer, encoding) {
+// Disk-persisted compressed sibling for a TRANSFORMED (GLBTransformer) output, keyed by the content
+// hash of the transformed bytes rather than a source mtime: the transform result lives in
+// <dir>/.glb-cache/<name> (GLBTransformer.getCachePath) and its brotli/gzip variant used to be
+// recomputed in memory on every process start (live: aim_sillos.glb 3.8MB transformed -> brotli-q5
+// on the first request of every boot). `sibling` = { base, hash } from the caller; a mismatched or
+// absent hash in the .meta stamp means the transform output moved on and the variant is rebuilt.
+function readTransformedSibling(base, encoding, hash) {
+  if (!base || !hash) return null
+  const { body, meta } = siblingPaths(base, encoding)
+  if (!existsSync(body) || !existsSync(meta)) return null
+  try {
+    const m = JSON.parse(readFileSync(meta, 'utf8'))
+    if (m.hash !== hash) return null
+    return readFileSync(body)
+  } catch { return null }
+}
+
+function writeTransformedSibling(base, encoding, hash, content) {
+  if (!base || !hash) return
+  const { body, meta } = siblingPaths(base, encoding)
+  try {
+    writeFileSync(body, content)
+    writeFileSync(meta, JSON.stringify({ hash }))
+  } catch { /* read-only fs -- in-memory variant above still serves fine */ }
+}
+
+export async function getTransformedCached(fp, srcMtime, rawBuffer, encoding, sibling = null) {
   let cached = transformedCache.get(fp)
   if (!cached || cached.srcMtime !== srcMtime) {
     cached = { srcMtime, variants: new Map(), raw: rawBuffer.length <= MAX_CACHEABLE_BYTES ? rawBuffer : null }
@@ -192,7 +223,11 @@ export async function getTransformedCached(fp, srcMtime, rawBuffer, encoding) {
   if (!encoding) return { srcMtime, content: rawBuffer, encoding: null }
   let variant = cached.variants.get(encoding)
   if (!variant) {
-    variant = await compressAsync(rawBuffer, encoding)
+    variant = readTransformedSibling(sibling?.base, encoding, sibling?.hash)
+    if (!variant) {
+      variant = await compressAsync(rawBuffer, encoding)
+      writeTransformedSibling(sibling?.base, encoding, sibling?.hash, variant)
+    }
     cached.variants.set(encoding, variant)
     if (rawBuffer.length <= MAX_CACHEABLE_BYTES) transformedCache.resync(fp)
   }

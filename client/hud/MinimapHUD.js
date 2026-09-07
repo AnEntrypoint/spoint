@@ -97,17 +97,27 @@ export function createMinimapHUD(minimapMeta, getLocalXZ) {
   // update(): called once per client frame (cheap no-op while unarmed). Redraws the base image + player
   // dot every call rather than diffing -- a 168px canvas blit is trivial next to the rest of the frame,
   // and this avoids a second code path for "was the dot in a different place last frame".
+  let _lastPx = NaN, _lastPy = NaN
   function update() {
     if (!state.armed) return
-    _drawBase()
     const p = getLocalXZ && getLocalXZ()
-    if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.z)) return
-    const [cx, cz] = minimapMeta.center
-    const half = minimapMeta.extent / 2
-    const u = (p.x - (cx - half)) / minimapMeta.extent
-    const v = (p.z - (cz - half)) / minimapMeta.extent
-    if (u < 0 || u > 1 || v < 0 || v > 1) return // player outside the baked extent -- no dot rather than a clamped-wrong one
-    const px = u * canvas.width, py = v * canvas.height
+    let px = NaN, py = NaN
+    if (p && Number.isFinite(p.x) && Number.isFinite(p.z)) {
+      const [cx, cz] = minimapMeta.center
+      const half = minimapMeta.extent / 2
+      const u = (p.x - (cx - half)) / minimapMeta.extent
+      const v = (p.z - (cz - half)) / minimapMeta.extent
+      // player outside the baked extent -- no dot rather than a clamped-wrong one
+      if (u >= 0 && u <= 1 && v >= 0 && v <= 1) { px = u * canvas.width; py = v * canvas.height }
+    }
+    // Redraw only when the dot's rasterised position actually changes (sub-pixel motion at walking
+    // speed produced an identical canvas most frames; a dirtied DOM canvas still costs a compositor
+    // upload every frame). NaN==NaN is false, so an off-map dot redraws once then holds.
+    const same = (Number.isNaN(px) && Number.isNaN(_lastPx)) || (Math.abs(px - _lastPx) < 0.5 && Math.abs(py - _lastPy) < 0.5)
+    if (same) return
+    _lastPx = px; _lastPy = py
+    _drawBase()
+    if (Number.isNaN(px)) return
     const r = DOT_RADIUS_PX * dpr
     ctx2d.beginPath()
     ctx2d.arc(px, py, r, 0, Math.PI * 2)

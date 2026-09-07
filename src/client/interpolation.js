@@ -29,26 +29,23 @@ export function interpolateSnapshot(result, playerPool, entityPool, getPlayerSlo
   result.tick = newer.tick
   result.timestamp = newer.timestamp
 
-  // Removes the per-frame id->entry Map rebuild (one clear + one Map.set per player, every render
-  // frame) that the id lookup below used to require. older/newer are consecutive SnapshotProcessor
-  // outputs, whose players[] are emitted in the same _playerStates iteration order, so entry i of
-  // `older` is almost always the same player as entry i of `newer` -- an index probe + id compare
-  // answers the lookup with zero Map traffic. The map is still the authority whenever the probe
-  // misses (a join/leave/tier change shifts the order), built lazily at the first miss only, so the
-  // result is identical either way (player ids are unique within a snapshot, so the entry at index i
-  // with id X *is* the map's entry for X).
-  const oldPlayers = older.players || []
-  let pMapBuilt = false
+  // Memoized on the `older` snapshot object identity (+ its tick, in case a caller ever recycles the
+  // snapshot object itself): the render loop calls this every frame, but `older` only advances when
+  // the jitter buffer's bracket moves (once per received snapshot), so the two id->entry Maps are
+  // rebuilt at snapshot rate instead of at frame rate. A snapshot's players/entities arrays are
+  // final once produced (SnapshotProcessor.processSnapshot), so a same-object hit is exact.
+  if (oldPMap._src !== older || oldPMap._srcTick !== older.tick) {
+    oldPMap.clear()
+    for (const p of older.players || []) oldPMap.set(p.id, p)
+    oldPMap._src = older; oldPMap._srcTick = older.tick
+  }
+
   const newPlayers = newer.players || []
   const pLen = newPlayers.length
   result.players.length = pLen
   for (let i = 0; i < pLen; i++) {
     const np = newPlayers[i]
-    let op = oldPlayers[i]
-    if (op === undefined || op.id !== np.id) {
-      if (!pMapBuilt) { oldPMap.clear(); for (let j = 0; j < oldPlayers.length; j++) oldPMap.set(oldPlayers[j].id, oldPlayers[j]); pMapBuilt = true }
-      op = oldPMap.get(np.id)
-    }
+    const op = oldPMap.get(np.id)
     const slot = getPlayerSlot(i)
     result.players[i] = slot
     if (op) {
@@ -81,20 +78,18 @@ export function interpolateSnapshot(result, playerPool, entityPool, getPlayerSlo
   // dynamic body, since a rendered frame lands between two snapshots but showed the raw newest one
   // regardless of alpha. Mirrors the player lerp above; a static/sleeping body's position/rotation are
   // identical between snapshots so lerping it is a correctness-preserving no-op, not a special case.
-  // Same index-probe-before-Map lookup as the player loop above (see its comment) -- this is the
-  // larger of the two loops in practice, so it is where most of the removed Map traffic was.
-  const oldEntities = older.entities || []
-  let eMapBuilt = false
+  if (oldEMap._src !== older || oldEMap._srcTick !== older.tick) {
+    oldEMap.clear()
+    for (const e of older.entities || []) oldEMap.set(e.id, e)
+    oldEMap._src = older; oldEMap._srcTick = older.tick
+  }
+
   const newEntities = newer.entities || []
   const eLen = newEntities.length
   result.entities.length = eLen
   for (let i = 0; i < eLen; i++) {
     const ne = newEntities[i]
-    let oe = oldEntities[i]
-    if (oe === undefined || oe.id !== ne.id) {
-      if (!eMapBuilt) { oldEMap.clear(); for (let j = 0; j < oldEntities.length; j++) oldEMap.set(oldEntities[j].id, oldEntities[j]); eMapBuilt = true }
-      oe = oldEMap.get(ne.id)
-    }
+    const oe = oldEMap.get(ne.id)
     const slot = getEntitySlot(i)
     result.entities[i] = slot
     slot.id = ne.id

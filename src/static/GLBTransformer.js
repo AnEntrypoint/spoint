@@ -55,7 +55,9 @@ function getCacheDir(glbPath) {
   return cache
 }
 
-function getCachePath(glbPath) {
+// Exported for StaticHandler.js: the on-disk transformed output path doubles as the base name for
+// StaticCache's content-hash-keyed compressed sibling (<cachePath>.br/.gz + .meta).
+export function getCachePath(glbPath) {
   return join(getCacheDir(glbPath), basename(glbPath))
 }
 
@@ -198,6 +200,26 @@ export async function getTransformedAsync(filepath) {
   if (freshMtime !== mtime) return getTransformedAsync(filepath)
   const post = _getOrStartTransform(filepath, freshMtime)
   return post.buffer || null
+}
+
+// Prewarm an explicit file list (the models the loaded worldDef actually references, plus the
+// shared client/anim-lib.glb every client needs before ASSETS_DONE) -- the bounded, awaited half of
+// boot prewarm; the whole-apps/-tree scan below stays the backgrounded remainder (see ServerBoot.js).
+export async function prewarmFiles(files, label = 'referenced') {
+  const promises = []
+  for (const fp of files) {
+    try {
+      if (!existsSync(fp) || !statSync(fp).isFile()) continue
+      getTransformed(fp)
+      if (_inFlight.has(fp)) promises.push(_inFlight.get(fp))
+    } catch (e) { console.warn(`[glb-transform] prewarm skip ${basename(fp)}:`, e.message) }
+  }
+  if (promises.length > 0) {
+    console.log(`[glb-transform] prewarming ${promises.length} ${label} model(s) (max ${MAX_CONCURRENT} concurrent)...`)
+    await Promise.allSettled(promises)
+    console.log(`[glb-transform] ${label} prewarm complete`)
+  }
+  return promises.length
 }
 
 export async function prewarm(dirs) {

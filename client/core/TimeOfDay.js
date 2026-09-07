@@ -69,8 +69,10 @@ function _lerpKeyframes(elevDeg) {
   _c1.set(lo.ambientColor); _c2.set(hi.ambientColor); _cOut.copy(_c1).lerp(_c2, f)
   const ambientColor = _cOut.getHex()
   const ambientIntensity = THREE.MathUtils.lerp(lo.ambientIntensity, hi.ambientIntensity, f)
-  return { sunColor, sunIntensity, ambientColor, ambientIntensity }
+  _kfOut.sunColor = sunColor; _kfOut.sunIntensity = sunIntensity; _kfOut.ambientColor = ambientColor; _kfOut.ambientIntensity = ambientIntensity
+  return _kfOut   // persistent, mutated in place: called every frame
 }
+const _kfOut = { sunColor: 0, sunIntensity: 0, ambientColor: 0, ambientIntensity: 0 }
 
 // opts: { dayLengthSec (default 600), startFraction (default 0.3 ~ mid-morning), paused (default
 // false), azimuthTiltDeg (default 23, a fixed axial-tilt-like offset so the sun's noon elevation
@@ -166,8 +168,10 @@ export function createTimeOfDay(sun, ambient, opts = {}) {
       window.__timeOfDay.elevationDeg = elevDeg
       window.__timeOfDay.dir = dir
     }
-    return { dir, elevDeg, ...kf }
+    _applyOut.dir = dir; _applyOut.elevDeg = elevDeg; _applyOut.sunColor = kf.sunColor; _applyOut.sunIntensity = kf.sunIntensity; _applyOut.ambientColor = kf.ambientColor; _applyOut.ambientIntensity = kf.ambientIntensity
+    return _applyOut
   }
+  const _applyOut = { dir: null, elevDeg: 0, sunColor: 0, sunIntensity: 0, ambientColor: 0, ambientIntensity: 0 }
 
   // dt in seconds (frame delta). No-op while paused.
   function update(dt) {

@@ -14,15 +14,45 @@ import { resolveCCD } from './AppPhysics.js'
 
 import { containedAssetPath, tagAppState, untagAppState, _existsSync, _resolve } from './AppRuntimeState.js'
 
+// A Set whose membership changes (add of a new value, successful delete, non-empty clear) report to
+// `onChange(id, added)`. The id sets below are mutated from MANY files (AppPhysics.js registerBody/
+// setMotionType, AppRuntimePhysics.js LOD rings + Jolt activation callbacks, EditorHandlers, this
+// file) -- hooking the set itself is the only way every writer, present and future, is covered without
+// per-call-site bookkeeping. has()/iteration/size are untouched native Set behavior.
+class HookedSet extends Set {
+  constructor(onChange) { super(); this._onChange = onChange }
+  add(v) { if (!super.has(v)) { super.add(v); this._onChange(v, true) } return this }
+  delete(v) { const r = super.delete(v); if (r) this._onChange(v, false); return r }
+  clear() { if (this.size > 0) { const ids = [...this]; super.clear(); for (const v of ids) this._onChange(v, false) } }
+}
+
 export class AppRuntime {
   constructor(c = {}) {
-    this.entities = createEcsEntityMap(); this.apps = new Map(); this.contexts = new Map(); this._updateList = []; this._staticVersion = 0; this._dynamicEntityIds = new Set(); this._staticEntityIds = new Set()
+    // getUnmanagedDynamicIds() cache (see that method): rebuilt only when one of its inputs changed --
+    // _dynamicEntityIds / _activeDynamicIds / _sleepingDynamicIds / _suspendedEntityIds membership (HookedSet
+    // above) or any entity's _physicsBodyId (accessor installed in spawnEntity) -- never per call.
+    this._unmanagedIds = []; this._unmanagedDirty = true
+    const markUnmanagedDirty = () => { this._unmanagedDirty = true }
+    // getStaticCustomVersionSum() running total: sum of _customV over _staticEntityIds, adjusted on static-set
+    // membership change here and on every _customV bump via the per-entity accessor in spawnEntity.
+    this._staticCustomSum = 0
+    const onStaticChange = (id, added) => {
+      this._unmanagedDirty = true
+      const e = this.entities.get(id); const v = e && typeof e._customV === 'number' ? e._customV : 0
+      this._staticCustomSum += added ? v : -v
+    }
+    this._pbidDesc = {
+      enumerable: true, configurable: true,
+      get() { return this._pbidRaw },
+      set(v) { this._pbidRaw = v; markUnmanagedDirty() }
+    }
+    this.entities = createEcsEntityMap(); this.apps = new Map(); this.contexts = new Map(); this._updateList = []; this._staticVersion = 0; this._dynamicEntityIds = new HookedSet(markUnmanagedDirty); this._staticEntityIds = new HookedSet(onStaticChange)
     this.gravity = c.gravity || [0, -9.81, 0]
     this.currentTick = 0; this.deltaTime = 0; this.elapsed = 0
     this._playerManager = c.playerManager || null; this._physics = c.physics || null; this._physicsIntegration = c.physicsIntegration || null
     this._connections = c.connections || null; this._stageLoader = c.stageLoader || null
     this._nextEntityId = 1; this._appDefs = new Map(); this._timers = new Map(); this._interactCooldowns = new Map(); this._respawnTimer = new Map()
-    this._activeDynamicIds = new Set(); this._sleepingDynamicIds = new Set(); this._physicsBodyToEntityId = new Map(); this._suspendedEntityIds = new Set(); this._pendingTrimeshEntities = new Map()
+    this._activeDynamicIds = new HookedSet(markUnmanagedDirty); this._sleepingDynamicIds = new HookedSet(markUnmanagedDirty); this._physicsBodyToEntityId = new Map(); this._suspendedEntityIds = new HookedSet(markUnmanagedDirty); this._pendingTrimeshEntities = new Map()
     this._physicsLODRadius = c.physicsRadius || 0; this._lagCompensator = c.lagCompensator || null
     // Global active-Jolt-body cap (0 = unlimited): see _enforceBodyBudget in AppRuntimePhysics.js. Sized so a
     // busy shard's physics.step(dt) cost stays bounded regardless of how many dynamic entities exist total --
@@ -303,6 +333,7 @@ export class AppRuntime {
       _ccdPolicy: (config.ccd === 'always' || config.ccd === 'off') ? config.ccd : 'auto'
     }
     installCustomVersion(entity)
+    this._installRuntimeHooks(entity)
     this.entities.set(entityId, entity)
     this._staticVersion++
     this._snapshotVersion++
@@ -676,7 +707,33 @@ export class AppRuntime {
   // every tick: sums each static entity's own _customV (installCustomVersion, CustomVersion.js) --
   // absent on any entity not built through spawnEntity, contributes 0, matching every other _customV
   // read's own null-safe convention in this codebase (see SnapshotEncoder.js's resolveCustKey).
-  getStaticCustomVersionSum() { let s = 0; for (const id of this._staticEntityIds) { const en = this.entities.get(id); if (en && typeof en._customV === 'number') s += en._customV } return s }
+  // Maintained incrementally (see the constructor's onStaticChange + _installRuntimeHooks' _customV
+  // accessor) instead of an O(staticCount) walk per snapshot tick; identical value by construction: the
+  // sum is adjusted by exactly +/-_customV on every static-set membership change and by exactly the delta
+  // on every _customV write (CustomVersion.js's `entity._customV++` is the only writer, and it goes
+  // through the accessor), so it always equals the walked sum.
+  getStaticCustomVersionSum() { return this._staticCustomSum }
+
+  // Installs the two per-entity accessors the incremental caches above depend on, right after
+  // installCustomVersion in spawnEntity (the single construction site for every entity):
+  //  - _customV: a getter/setter pair that folds each bump into _staticCustomSum while the entity is
+  //    static (value semantics unchanged -- CustomVersion.js still sees a plain number it can ++).
+  //  - _physicsBodyId: a shared-descriptor accessor (this._pbidDesc, no per-entity closure) whose setter
+  //    flags the unmanaged-id cache dirty, covering every writer in every file (AppPhysics registerBody,
+  //    EditorHandlers rebuildEntityCollider, ServerHandlers' trimesh retry, AppRuntimePhysics' LOD rings,
+  //    this file's destroy/changeBodyType). The raw slot is non-enumerable so JSON/spread views of an
+  //    entity keep the exact key set they had (`_physicsBodyId` itself stays enumerable, as before).
+  _installRuntimeHooks(entity) {
+    let v = typeof entity._customV === 'number' ? entity._customV : 0
+    const rt = this
+    Object.defineProperty(entity, '_customV', {
+      enumerable: true, configurable: true,
+      get() { return v },
+      set(nv) { if (rt._staticEntityIds.has(entity.id)) rt._staticCustomSum += nv - v; v = nv }
+    })
+    Object.defineProperty(entity, '_pbidRaw', { value: undefined, writable: true, enumerable: false, configurable: true })
+    Object.defineProperty(entity, '_physicsBodyId', this._pbidDesc)
+  }
   // custom._interior entities are always-relevant regardless of distance (arena/level geometry)
   getSnapshotForPlayer(pos, r, skipStatic=false) { const e=[], rel=new Set(this.relevantEntities(pos,r)); for (const id of (skipStatic?this._dynamicEntityIds:this.entities.keys())) { const en=this.entities.get(id); if (en&&(rel.has(id)||en.custom?._interior)) e.push(this._encodeEntity(id,en)) } return this._snap(e) }
   getDynamicEntitiesRaw() { const o=[]; for (const id of this._activeDynamicIds) { const e=this.entities.get(id); if (e) o.push({ id, model:e.model, position:e.position, rotation:e.rotation, velocity:e.velocity, bodyType:e.bodyType, custom:e.custom, _isEnv:!!e.custom?._interior, _sleeping:false }) } for (const id of this.getUnmanagedDynamicIds()) { const e=this.entities.get(id); if (e) o.push({ id, model:e.model, position:e.position, rotation:e.rotation, velocity:e.velocity, bodyType:e.bodyType, custom:e.custom, _isEnv:!!e.custom?._interior, _sleeping:false }) } for (const id of this._sleepingDynamicIds) o.push({ id, _sleeping:true }); for (const id of this._suspendedEntityIds) o.push({ id, _sleeping:true }); return o }
@@ -712,7 +769,19 @@ export class AppRuntime {
   // carried it (witnessed: server y 3->-42 over 180 ticks, snapshot.entities stayed empty for that id).
   // This set closes that gap: iterated as "always active" (its position can change any tick, same as
   // a truly physics-active body) by refreshDynamicCache/buildDynamicCache.
-  getUnmanagedDynamicIds() { const o=[]; for (const id of this._dynamicEntityIds) { if (this._activeDynamicIds.has(id) || this._sleepingDynamicIds.has(id) || this._suspendedEntityIds.has(id)) continue; const e=this.entities.get(id); if (e && e._physicsBodyId===undefined) o.push(id) } return o }
+  // Returns a LIVE, reused array (never retained or mutated by any caller: TickHandler's snapshot build,
+  // Stage.syncPositions, getDynamicEntitiesRaw, SnapshotEncoder.build/refreshDynamicCache all just
+  // iterate it synchronously). Rebuilt -- same filter, same _dynamicEntityIds iteration order -- only when
+  // an input changed since the last call (see the constructor's HookedSet/_pbidDesc hooks); otherwise the
+  // steady-state per-tick cost is one flag read instead of an O(dynamicCount) scan + array allocation
+  // (previously paid once per physics tick from Stage.syncPositions AND once per snapshot tick).
+  getUnmanagedDynamicIds() {
+    if (!this._unmanagedDirty) return this._unmanagedIds
+    const o = this._unmanagedIds; o.length = 0
+    for (const id of this._dynamicEntityIds) { if (this._activeDynamicIds.has(id) || this._sleepingDynamicIds.has(id) || this._suspendedEntityIds.has(id)) continue; const e=this.entities.get(id); if (e && e._physicsBodyId===undefined) o.push(id) }
+    this._unmanagedDirty = false
+    return o
+  }
   nearbyPlayerIds(pos, r) { return this._playerIndex.nearby(pos, r) }
   // Hysteresis-ring variant: a player hovering at the exact edge of a cell's relevance radius (walking
   // back and forth across the boundary) stays included until they clear a 15%-wider outer ring, instead

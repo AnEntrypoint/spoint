@@ -41,7 +41,7 @@ import {
 } from './WeatherMaterials.js'
 
 const _q = new THREE.Quaternion(), _upY = new THREE.Vector3(0, 1, 0)
-const _camPos = new THREE.Vector3(), _camQuat = new THREE.Quaternion()
+const _camPos = new THREE.Vector3(), _camQuat = new THREE.Quaternion(), _authScratch = new THREE.Vector3()
 
 // opts: { renderer, scene, frame (terrain frame, for ground-height sampling -- optional, falls back
 // to a fixed splash plane if absent), cfg: { type: 'rain'|'snow'|'clear', intensity: 0..1,
@@ -176,14 +176,15 @@ export function createWeather(opts = {}) {
   // RenderGraph.nodes.js's pooled scratch rows).
   const dropX = new Float32Array(MAX_PARTICLES), dropY = new Float32Array(MAX_PARTICLES), dropZ = new Float32Array(MAX_PARTICLES)
   const dropSpeed = new Float32Array(MAX_PARTICLES)
-  // Cached _groundHeight(x,z) per particle -- ground height is a pure function of XZ, and a rain droplet's
-  // XZ is CONSTANT for its whole fall (only Y is integrated), so the per-frame per-droplet terrain sample
-  // the contact test used to do was re-deriving an unchanged value MAX_PARTICLES times every frame. Written
-  // only where XZ actually changes (_respawnDroplet/_respawnFlake and the box-wrap branches). Float64Array,
-  // not Float32Array like the position SoA above, so the cached value is bit-identical to what
-  // _groundHeight returned and the `<= gh + groundClearance` contact test is unchanged.
-  const dropGH = new Float64Array(MAX_PARTICLES)
   let _idsAdded = false
+  // Per-droplet cached ground height at the droplet's CURRENT xz (refreshed on every respawn/wrap,
+  // i.e. whenever xz changes) plus a last-resample stamp. Ground height is a pure function of xz, so a
+  // vertically-falling droplet only needs the terrain sample re-taken once it is inside the landing
+  // band (see GROUND_RESAMPLE_BAND_M) -- the old code sampled terrain for every active droplet every
+  // frame (3000 groundHeightLocal calls/frame), most of them 20-40 m above the ground.
+  const dropGround = new Float32Array(MAX_PARTICLES)
+  const GROUND_RESAMPLE_BAND_M = 4
+  let _lastWantRain = -1, _lastWantSnow = -1, _lastWantFar = -1
 
   const snowX = new Float32Array(MAX_PARTICLES), snowY = new Float32Array(MAX_PARTICLES), snowZ = new Float32Array(MAX_PARTICLES)
   const snowSpeed = new Float32Array(MAX_PARTICLES), snowPhase = new Float32Array(MAX_PARTICLES), snowFreqJ = new Float32Array(MAX_PARTICLES)
@@ -211,15 +212,6 @@ export function createWeather(opts = {}) {
   let _lastCamYaw = NaN
   const YAW_EPS = 0.02 // ~1.1deg -- rain streak billboard-refresh gate (see file header)
 
-  // setVisibilityAt gate: the per-instance visibility pattern is purely `i < wantActive`, i.e. a function
-  // of `intensity` alone -- it does not change from frame to frame while intensity is held. Re-asserting
-  // it every frame cost MAX_PARTICLES(+MAX_FAR) setVisibilityAt calls, each of which also re-arms the
-  // library's _indexArrayNeedsUpdate flag (node_modules/@three.ez/instanced-mesh/build/index.js:881-883),
-  // forcing updateIndexArray's own full _instancesArrayCount scan (:1130-1137) in the render pass too.
-  // Tracked per mesh, not once, because rain/snow/far each own a separate availabilityArray. -1 = never
-  // written, so the first active frame after addInstances always runs the pass.
-  let _visRain = -1, _visSnow = -1, _visFar = -1
-
   function _groundHeight(x, z) {
     if (frame && typeof frame.groundHeightLocal === 'function') {
       try { const gh = frame.groundHeightLocal(x, z); if (Number.isFinite(gh)) return gh } catch (_) {}
@@ -235,7 +227,16 @@ export function createWeather(opts = {}) {
     dropZ[i] = cz + Math.sin(ang) * r
     dropY[i] = cy + BOX_HEIGHT * (0.3 + Math.random() * 0.7)
     dropSpeed[i] = FALL_SPEED * (0.85 + Math.random() * 0.3)
-    dropGH[i] = _groundHeight(dropX[i], dropZ[i]) // XZ just changed -> the one place the cache must be refilled
+    dropGround[i] = _groundHeight(dropX[i], dropZ[i])
+  }
+
+  // Visibility is expressed by prefix count; only the instances whose visibility actually changes
+  // since the last frame are touched (was: MAX_PARTICLES setVisibilityAt calls per mesh per frame).
+  function _applyVisiblePrefix(mesh, want, last, max) {
+    if (want === last) return
+    if (last < 0) { for (let i = 0; i < max; i++) mesh.setVisibilityAt(i, i < want); return }
+    const lo = Math.min(want, last), hi = Math.max(want, last)
+    for (let i = lo; i < hi; i++) mesh.setVisibilityAt(i, i < want)
   }
 
   // Places (or re-places) flake i, same box-wrap shape as rain but with a persistent per-particle
@@ -308,7 +309,7 @@ export function createWeather(opts = {}) {
     camera.getWorldPosition(_camPos)
     let cx = _camPos.x, cy = _camPos.y, cz = _camPos.z
     if (floatingOrigin && typeof floatingOrigin.toAuthoritative === 'function') {
-      const a = floatingOrigin.toAuthoritative({ x: cx, y: cy, z: cz })
+      const a = floatingOrigin.toAuthoritative(_camPos, _authScratch)
       cx = a.x; cy = a.y; cz = a.z
     }
 
@@ -372,12 +373,8 @@ export function createWeather(opts = {}) {
       // constructor comment above for why the mesh-level "setPositionAt" API this file originally
       // (incorrectly) assumed does not exist on InstancedMesh2.
       const instances = im.instances
-      const visDirty = _visRain !== wantActive
-      _visRain = wantActive
-      for (let i = 0; i < MAX_PARTICLES; i++) {
-        const a = i < wantActive
-        if (visDirty) im.setVisibilityAt(i, a)
-        if (!a) continue
+      _applyVisiblePrefix(im, wantActive, _lastWantRain, MAX_PARTICLES); _lastWantRain = wantActive
+      for (let i = 0; i < wantActive; i++) {
         dropY[i] -= dropSpeed[i] * dtc
         // wrap XZ back toward the camera if the box has drifted away (camera moved) -- keeps every
         // particle within BOX_RADIUS without a hard per-frame full respawn (only Y needs continuous
@@ -387,11 +384,13 @@ export function createWeather(opts = {}) {
           const ang = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * BOX_RADIUS
           dropX[i] = cx + Math.cos(ang) * r
           dropZ[i] = cz + Math.sin(ang) * r
-          dropGH[i] = _groundHeight(dropX[i], dropZ[i]) // second (and last) XZ-write site -> refill
+          dropGround[i] = _groundHeight(dropX[i], dropZ[i])
         }
-        // Was a per-droplet per-frame _groundHeight() call; XZ has not changed since the cache was filled
-        // above, so this reads the identical value the sample would have returned.
-        const gh = dropGH[i]
+        // Re-sample terrain only inside the landing band above the cached ground (patch heights can
+        // resolve from the CPU fallback to the baked patch over time, so the final landing test still
+        // reads a fresh value); far above it the cached value is exact enough to skip the call.
+        let gh = dropGround[i]
+        if (dropY[i] <= gh + GROUND_RESAMPLE_BAND_M) { gh = _groundHeight(dropX[i], dropZ[i]); dropGround[i] = gh }
         const hitGround = Number.isFinite(gh) && gh > -1e5 && dropY[i] <= gh + groundClearance
         if (hitGround || dropY[i] < cy - BOX_HEIGHT * 0.6) {
           if (hitGround) _spawnSplash(dropX[i], gh + 0.02, dropZ[i], nowS)
@@ -413,12 +412,8 @@ export function createWeather(opts = {}) {
       const instances = imSnow.instances
       const accumEnabled = _snowAccumEnabled()
       let accumStampBudget = 24
-      const visDirty = _visSnow !== wantActive
-      _visSnow = wantActive
-      for (let i = 0; i < MAX_PARTICLES; i++) {
-        const a = i < wantActive
-        if (visDirty) imSnow.setVisibilityAt(i, a)
-        if (!a) continue
+      _applyVisiblePrefix(imSnow, wantActive, _lastWantSnow, MAX_PARTICLES); _lastWantSnow = wantActive
+      for (let i = 0; i < wantActive; i++) {
         snowY[i] -= snowSpeed[i] * dtc
         const driftAng = nowS * SNOW_DRIFT_FREQ * snowFreqJ[i] * Math.PI * 2 + snowPhase[i]
         snowX[i] += Math.cos(driftAng) * SNOW_DRIFT_AMP * dtc
@@ -459,12 +454,8 @@ export function createWeather(opts = {}) {
     {
       const speedBase = isSnow ? SNOW_FALL_SPEED : FALL_SPEED
       const instances = imFar.instances
-      const visDirty = _visFar !== wantFar
-      _visFar = wantFar
-      for (let i = 0; i < MAX_FAR; i++) {
-        const a = i < wantFar
-        if (visDirty) imFar.setVisibilityAt(i, a)
-        if (!a) continue
+      _applyVisiblePrefix(imFar, wantFar, _lastWantFar, MAX_FAR); _lastWantFar = wantFar
+      for (let i = 0; i < wantFar; i++) {
         farY[i] -= farSpeed[i] * dtc
         const ddx = farX[i] - cx, ddz = farZ[i] - cz
         const tooFar = ddx * ddx + ddz * ddz > FAR_RADIUS * FAR_RADIUS

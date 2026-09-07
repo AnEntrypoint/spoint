@@ -61,23 +61,31 @@ function formatLabels(labels) {
 // walks the fixed boundary list once per call (boundary counts <= ~11, negligible next to the tick-rate
 // hot path work this instruments; called at most once per outgoing snapshot / once per tick, never
 // per-entity or per-byte). le="+Inf" is always emitted last, equal to `count`, per the Prometheus spec.
+// Storage is NON-cumulative per bucket (counts[i] = observations in (boundaries[i-1], boundaries[i]]),
+// so observe() is one scan-to-first-boundary + a single increment, not a walk that bumps every bucket
+// at or above the value; the cumulative `le` counts Prometheus requires are summed at render time
+// (scrape-rate, not tick-rate). Rendered output is identical to the cumulative-store form.
 function createHistogram(name, help, boundaries) {
-  const buckets = boundaries.map(le => ({ le, count: 0 }))
+  const n = boundaries.length
+  const counts = new Float64Array(n)
   let sum = 0, count = 0
   return {
     name, help, type: 'histogram',
     observe(value) {
       sum += value; count++
-      for (const b of buckets) if (value <= b.le) b.count++
+      let i = 0
+      while (i < n && value > boundaries[i]) i++
+      if (i < n) counts[i]++
     },
-    reset() { for (const b of buckets) b.count = 0; sum = 0; count = 0 },
+    reset() { counts.fill(0); sum = 0; count = 0 },
     // renderBody: the bucket/sum/count data lines only, no `# HELP`/`# TYPE` header -- used when multiple
     // label-value series of the SAME metric name are rendered together (Prometheus requires exactly one
     // header per metric name, not one per series; see renderMetrics' _tickPhaseSamples loop).
     renderBody(labels) {
       const l = labels || {}
       const lines = []
-      for (const b of buckets) lines.push(`${name}_bucket${formatLabels({ ...l, le: b.le })} ${b.count}`)
+      let cum = 0
+      for (let i = 0; i < n; i++) { cum += counts[i]; lines.push(`${name}_bucket${formatLabels({ ...l, le: boundaries[i] })} ${cum}`) }
       lines.push(`${name}_bucket${formatLabels({ ...l, le: '+Inf' })} ${count}`)
       lines.push(`${name}_sum${formatLabels(l)} ${sum}`)
       lines.push(`${name}_count${formatLabels(l)} ${count}`)
@@ -167,7 +175,10 @@ const _snapshotBytesTotal = createCounter('spoint_snapshot_bytes_total', 'Cumula
 const _gc = createGcTracker()
 // phase label -> its own histogram instance (Prometheus multi-label-value histograms need distinct
 // per-label-value bucket state, not one shared histogram with the label attached only at render time).
+// _tickPhaseSamples (Map, render order) is mirrored by _tickPhaseByName (null-prototype object) so the
+// 4x-per-tick recordTickPhase hot path is one property load, not Map.has + Map.get.
 const _tickPhaseSamples = new Map()
+const _tickPhaseByName = Object.create(null)
 
 /** Called from TickHandler.js's packSnapshot() -- the single choke point every outgoing snapshot payload (shared-cell, per-viewer delta, legacy broadcast) passes through. */
 export function recordSnapshotBytes(byteLength) {
@@ -177,8 +188,12 @@ export function recordSnapshotBytes(byteLength) {
 
 /** Called from TickHandler.js's onTick() once per tick with the phase's real measured duration (ms) and a phase label (mv/phys/snap/total). */
 export function recordTickPhase(phase, ms) {
-  if (!_tickPhaseSamples.has(phase)) _tickPhaseSamples.set(phase, createHistogram('spoint_tick_phase_ms', 'Per-tick phase duration in milliseconds', TICK_MS_BUCKETS))
-  _tickPhaseSamples.get(phase).observe(ms)
+  let h = _tickPhaseByName[phase]
+  if (h === undefined) {
+    h = createHistogram('spoint_tick_phase_ms', 'Per-tick phase duration in milliseconds', TICK_MS_BUCKETS)
+    _tickPhaseSamples.set(phase, h); _tickPhaseByName[phase] = h
+  }
+  h.observe(ms)
 }
 
 export function gcTracker() { return _gc }

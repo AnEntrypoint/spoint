@@ -134,6 +134,7 @@ export function createSceneGraph(scene, floatingOrigin) {
     }
   }
 
+  const _recordPool = []
   function tick(frameDt, lerpFactor) {
     let moved = false
     _batchRecords.length = 0

@@ -284,5 +284,6 @@ export function createTerrainOcclusion(gl, opts = {}) {
     return out
   }
 
-  return { runQueries, clearVerdicts, makePredicate, getStats, dispose, supported, snapshotOccludedKeys, setMaxQueriesPerFrame, getMaxQueriesPerFrame, getDebugBoxes }
+  function getCandidateCount() { return records.size }
+  return { runQueries, clearVerdicts, makePredicate, getStats, getCandidateCount, dispose, supported, snapshotOccludedKeys, setMaxQueriesPerFrame, getMaxQueriesPerFrame, getDebugBoxes }
 }

@@ -169,6 +169,9 @@ function _makeGBufferMaterial() {
   })
 }
 
+// Per-frame scratch (compute() restores the previous clear colour every frame; was one Color alloc per call).
+const _prevClearColor = new THREE.Color()
+
 export class SSAO {
   constructor(renderer, scene, camera) {
     this.renderer = renderer
@@ -254,7 +257,7 @@ export class SSAO {
     const prevTarget = this.renderer.getRenderTarget()
     const prevOverride = this.scene.overrideMaterial
     const prevAutoClear = this.renderer.autoClear
-    const prevClearColor = new THREE.Color()
+    const prevClearColor = _prevClearColor
     this.renderer.getClearColor(prevClearColor)
     const prevClearAlpha = this.renderer.getClearAlpha()
 

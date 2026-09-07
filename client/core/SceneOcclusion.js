@@ -41,14 +41,8 @@ export function createSceneOcclusion(renderer, opts = {}) {
   // accumulate; that issue is unresolved and tracked separately. This fix stands on its own merits as a
   // real unbounded-resource-growth bug independent of that investigation.)
   const _lastCandByKey = new Map()
-  // Live-key set, persistent across frames rather than a fresh `new Set()` per frame. It is only ever
-  // read for (a) isAnomalousBatch's liveCount and (b) the tier-release sweep below, and its CONTENTS are
-  // a pure function of the candidate array -- so while `changed` is false (the same identity-stable
-  // arrays, the overwhelming majority of frames once streaming settles) the set this loop would rebuild
-  // is byte-for-byte the one already held. Rebuilding it was ~N Set.add + N Map.set string-hash
-  // operations per frame (N = ~450 live veg/rock chunks measured in tps-game) plus one Set allocation,
-  // all discarded unchanged.
-  const _liveKeys = new Set()
+  const _liveKeys = new Set()        // keys of the identity-cached candidate array; rebuilt only when it changes
+  let _liveInstancesCached = 0       // instance-weight sum of that array; same rebuild cadence
   // Anomaly fail-open: a real view never legitimately occludes ~every candidate at once (that would mean
   // the entire streamed world is behind something, impossible short of the camera being inside solid
   // geometry). Live-witnessed root cause of "impostors invisible except certain angles": at altitude,
@@ -151,40 +145,45 @@ export function createSceneOcclusion(renderer, opts = {}) {
     tier.runQueries(camera, candidates)
     _occludedKeys.clear()
     _uniform.failOpens = 0; _uniform.flips = 0
-    // _liveKeys only -- _lastCandByKey must NOT be cleared here: the release sweep below looks up
-    // exactly the keys that dropped OUT of the candidate set, so clearing it would silently skip every
-    // tier.release() and reinstate the unbounded gl.createQuery() leak this map exists to close.
-    if (changed) _liveKeys.clear()
-    let _liveInstances = 0, _occludedInstances = 0
-    for (const c of candidates) {
-      // Key-set bookkeeping only has to run on a frame where the candidate SET actually changed -- see
-      // _liveKeys' declaration. instanceCount is NOT cached the same way: Vegetation.js refreshes it on
-      // every getOcclusionCandidates() call even when the array identity is stable, so the weight sum
-      // below stays a real per-frame read.
-      if (changed) { _liveKeys.add(c.key); _lastCandByKey.set(c.key, c) }
-      const weight = Number.isFinite(c.instanceCount) ? c.instanceCount : 1
-      _liveInstances += weight
-      let st = _streaks.get(c.key)
-      if (!st) { st = _policy.ensureRecord({}); _streaks.set(c.key, st) }
+    // The live-key set, the key->candidate map, the per-candidate streak records and the live
+    // instance-weight sum are all pure functions of the candidate ARRAY, which is identity-cached
+    // above (`changed`). Rebuilding them every frame cost ~5 hash ops x ~1750 chunks + a Set alloc
+    // on the overwhelming majority of frames where nothing streamed in or out; now they are
+    // rebuilt only on a candidate-set change, and the per-frame loop is just policy.advance.
+    if (changed) {
+      _liveKeys.clear()
+      _liveInstancesCached = 0
+      for (let i = 0; i < candidates.length; i++) {
+        const c = candidates[i]
+        _liveKeys.add(c.key)
+        _lastCandByKey.set(c.key, c)
+        _liveInstancesCached += Number.isFinite(c.instanceCount) ? c.instanceCount : 1
+        let st = _streaks.get(c.key)
+        if (!st) { st = _policy.ensureRecord({}); _streaks.set(c.key, st) }
+        c._occStreak = st
+      }
+      // Release the tier's per-entity query/record for any key that dropped out of the live candidate set
+      // (chunk unloaded) -- prevents an unbounded gl.createQuery() leak across a long streaming session.
+      for (const key of _streaks.keys()) {
+        if (_liveKeys.has(key)) continue
+        _streaks.delete(key)
+        const staleCand = _lastCandByKey.get(key)
+        if (staleCand) { try { tier.release(staleCand) } catch (_) {} }
+        _lastCandByKey.delete(key)
+      }
+    }
+    const _liveInstances = _liveInstancesCached
+    let _occludedInstances = 0
+    for (let i = 0; i < candidates.length; i++) {
+      const c = candidates[i]
+      let st = c._occStreak
+      if (!st) { st = _streaks.get(c.key); if (!st) { st = _policy.ensureRecord({}); _streaks.set(c.key, st) } c._occStreak = st }
       // only advance on a FRESH resolve, or the per-frame query budget's stale verdict would collapse the hysteresis into a 2-frame delay
       const resolves = tier.getResolveCount(c)
       const result = _policy.advance(st, resolves, tier.isOccluded(c))
       if (result.flipped) _uniform.flips++
       if (result.failOpen) { _uniform.failOpens++; st._lastFailOpenFrame = _frameCounter }
-      if (st.hidden) { _occludedKeys.add(c.key); _occludedInstances += weight }
-    }
-    // Release the tier's per-entity query/record for any key that dropped out of the live candidate set
-    // (chunk unloaded) -- prevents an unbounded gl.createQuery() leak across a long streaming session.
-    // Gated on `changed` because it is provably a no-op otherwise: this sweep leaves _streaks a subset of
-    // _liveKeys, the loop above only ever ADDS keys drawn from that same candidate array, and while
-    // `changed` is false the array (hence _liveKeys) is identical -- so no key can have dropped out. The
-    // sweep was iterating every one of the ~450 streak records every frame to delete nothing.
-    if (changed) for (const key of _streaks.keys()) {
-      if (_liveKeys.has(key)) continue
-      _streaks.delete(key)
-      const staleCand = _lastCandByKey.get(key)
-      if (staleCand) { try { tier.release(staleCand) } catch (_) {} }
-      _lastCandByKey.delete(key)
+      if (st.hidden) { _occludedKeys.add(c.key); _occludedInstances += Number.isFinite(c.instanceCount) ? c.instanceCount : 1 }
     }
     // Anomaly guard: if this batch marks an implausibly large fraction of candidates occluded, the query
     // itself is in a bad state (see OcclusionPolicy.isAnomalousBatch / cull-false-occlusion-root-cause)
@@ -209,7 +208,7 @@ export function createSceneOcclusion(renderer, opts = {}) {
     // Uniform shape (cull-stats-uniform-shape): {candidates, queriedThisFrame, resolved, occluded,
     // failOpens, anomalyTrips, flips, oldestPendingFrames}. tier.stats already carries
     // queried/occluded/resolved/supported; candidateCount/subsystems preserved for back-compat.
-    const candidateCount = subsystems.reduce((n, s) => { try { return n + s.subsystem.getOcclusionCandidates().length } catch (_) { return n } }, 0)
+    const candidateCount = getCandidateCount()
     let oldestPendingFrames = 0
     for (const st of _streaks.values()) if (st.hidden && st.staleFrames > oldestPendingFrames) oldestPendingFrames = st.staleFrames
     return {
@@ -223,6 +222,15 @@ export function createSceneOcclusion(renderer, opts = {}) {
       flips: _uniform.flips,
       oldestPendingFrames,
     }
+  }
+
+  // Cheap per-frame read for the query-budget arbiter (RenderGraph.nodes.js visibility-commit): the
+  // identity-cached candidate array's length, no subsystem re-walk and no stats object allocation.
+  function getCandidateCount() {
+    if (_candCache) return _candCache.length
+    let n = 0
+    for (let i = 0; i < subsystems.length; i++) { try { n += subsystems[i].subsystem.getOcclusionCandidates().length } catch (_) {} }
+    return n
   }
 
   function dispose() { try { tier.dispose() } catch (_) {} subsystems.length = 0 }
@@ -265,5 +273,5 @@ export function createSceneOcclusion(renderer, opts = {}) {
   // never needs its own occlusion pipeline to know what's hidden.
   function snapshotOccludedKeys() { return new Set(_occludedKeys) }
 
-  return { register, unregister, runQueries, getStats, dispose, supported: () => tier.supported(), snapshotOccludedKeys, setMaxQueriesPerFrame, getMaxQueriesPerFrame, getDebugBoxes }
+  return { register, unregister, runQueries, getStats, getCandidateCount, dispose, supported: () => tier.supported(), snapshotOccludedKeys, setMaxQueriesPerFrame, getMaxQueriesPerFrame, getDebugBoxes }
 }

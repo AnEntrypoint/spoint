@@ -7,6 +7,11 @@ const MANIFEST_KEY = 'lru-manifest'
 export const SOFT_CAP = 150 * 1024 * 1024
 export const HARD_CAP = 200 * 1024 * 1024
 const MANIFEST_TOUCH_DEBOUNCE_MS = 1000
+// fetchCached() skips its blocking HEAD revalidation when the manifest says this URL was validated
+// against the server within this window (a fresh download, a HEAD match, or a background
+// CacheRevalidationSweep pass all stamp lastRevalidated). A reload inside the window serves the
+// cached bytes with zero network round-trips; anything older keeps the HEAD exactly as before.
+const REVALIDATE_FRESH_MS = 10 * 60 * 1000
 
 // One-time feature-detected persistence request: asks the browser not to evict this origin's
 // IndexedDB cache under storage pressure. Fire-and-forget, best-effort -- absent in some browsers
@@ -24,14 +29,21 @@ export async function dbDelete(key) {
   try { await remove(DB_NAME, DB_VERSION, STORE, key) } catch { }
 }
 
+// In-memory mirror of the manifest: fetchCached() consults it on every cache hit (to decide whether
+// the HEAD can be skipped), so it is read from IndexedDB once per session and kept in sync by every
+// _writeManifest -- never a second IDB round-trip per asset load.
+let _manifestMem = null
 async function _readManifest() {
+  if (_manifestMem) return _manifestMem
   try {
     const m = await get(DB_NAME, DB_VERSION, STORE, MANIFEST_KEY)
-    return (m && typeof m === 'object' && !m.etag) ? m : {}
-  } catch { return {} }
+    _manifestMem = (m && typeof m === 'object' && !m.etag) ? m : {}
+  } catch { _manifestMem = {} }
+  return _manifestMem
 }
 
 async function _writeManifest(manifest) {
+  _manifestMem = manifest
   try { await put(DB_NAME, DB_VERSION, STORE, MANIFEST_KEY, manifest) } catch { }
 }
 
@@ -49,7 +61,9 @@ async function _flushPendingTouches() {
   const touches = _pendingTouches
   _pendingTouches = null
   const manifest = await _readManifest()
-  for (const [url, entry] of touches) manifest[url] = entry
+  // Merge (not replace): a touch carries size/lastAccess only and must not wipe the entry's
+  // lastRevalidated stamp (set by a HEAD match, a fresh download, or the background sweep).
+  for (const [url, entry] of touches) manifest[url] = { ...(manifest[url] || {}), ...entry }
   await _writeManifest(manifest)
 }
 
@@ -92,14 +106,23 @@ async function _fetchAndCache(url, onProgress) {
     received += value.length
     if (useTotal && onProgress) onProgress(received, contentLength)
   }
-  const result = new Uint8Array(received)
-  let pos = 0
-  for (const chunk of chunks) { result.set(chunk, pos); pos += chunk.length }
+  // A body that arrived as ONE chunk whose view already spans its whole backing buffer needs no
+  // concatenation copy; anything else (multi-chunk, or a view offset into a larger pool buffer --
+  // put() below stores result.buffer, so the view must own exactly its bytes) gets coalesced.
+  let result
+  if (chunks.length === 1 && chunks[0].byteOffset === 0 && chunks[0].buffer.byteLength === chunks[0].byteLength) {
+    result = chunks[0]
+  } else {
+    result = new Uint8Array(received)
+    let pos = 0
+    for (const chunk of chunks) { result.set(chunk, pos); pos += chunk.length }
+  }
   if (etag) {
     try {
       await put(DB_NAME, DB_VERSION, STORE, url, { etag, buffer: result.buffer })
       const manifest = await _readManifest()
-      manifest[url] = { size: result.byteLength, lastAccess: Date.now() }
+      const now = Date.now()
+      manifest[url] = { size: result.byteLength, lastAccess: now, lastRevalidated: now }
       await _writeManifest(await _pruneManifest(manifest))
     } catch { }
   }
@@ -111,18 +134,35 @@ export async function fetchCached(url, onProgress) {
   try { cached = await get(DB_NAME, DB_VERSION, STORE, url) } catch { }
 
   if (cached?.etag) {
+    let fresh = false
     try {
-      const head = await fetch(url, { method: 'HEAD' })
-      const serverEtag = head?.headers?.get('etag')
-      if (serverEtag && serverEtag !== cached.etag) {
-        return _fetchAndCache(url, onProgress)
-      }
+      const entry = (await _readManifest())[url]
+      fresh = !!entry && Date.now() - (entry.lastRevalidated || 0) < REVALIDATE_FRESH_MS
     } catch { }
+    if (!fresh) {
+      try {
+        const head = await fetch(url, { method: 'HEAD' })
+        const serverEtag = head?.headers?.get('etag')
+        if (serverEtag && serverEtag !== cached.etag) {
+          return _fetchAndCache(url, onProgress)
+        }
+        if (serverEtag) _stampRevalidated(url)
+      } catch { }
+    }
     _touchManifest(url, cached.buffer?.byteLength || 0).catch(() => {})
+    // new Uint8Array(ArrayBuffer) is a VIEW over the stored buffer, not a copy.
     return new Uint8Array(cached.buffer)
   }
 
   return _fetchAndCache(url, onProgress)
+}
+
+// Marks a URL as validated-now in the in-memory manifest mirror; persisted by the next debounced
+// touch flush (fetchCached always follows a HEAD match with _touchManifest), never its own IDB write.
+function _stampRevalidated(url) {
+  if (!_manifestMem) return
+  const entry = _manifestMem[url]
+  if (entry) entry.lastRevalidated = Date.now()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -211,6 +251,7 @@ export async function clearCache() {
     await dbDelete(url)
   }
   await clearStore(DB_NAME, DB_VERSION, STORE)
+  _manifestMem = {}
   return { cleared: urls.length }
 }
 

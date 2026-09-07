@@ -2,7 +2,16 @@
 nixPkgs = ["nodejs_20"]
 
 [phases.install]
-cmds = ["npm ci --omit=dev"]
+# esbuild is a devDependency (build-time only); --omit=dev drops it, so it is added back with
+# --no-save (package.json/lockfile untouched) purely for the build phase below. A failed add is
+# non-fatal: scripts/bundle-*.mjs --if-stale skip cleanly without esbuild and ServerBoot.js then
+# serves raw ESM -- the bundle is a boot-time optimization, never a boot requirement.
+cmds = ["npm ci --omit=dev", "npm install --no-save --no-audit --no-fund esbuild@^0.28.1 || true"]
+
+[phases.build]
+# dist/client/app.js (+ chunks, apps-manifest.json) and dist/src/sdk/WorkerEntry.js -- served by
+# src/sdk/ServerBoot.js buildStaticDirs in place of the raw ESM graphs when present and fresh.
+cmds = ["node scripts/bundle-client.mjs --if-stale", "node scripts/bundle-worker.mjs --if-stale"]
 
 [start]
 cmd = "node server.js"

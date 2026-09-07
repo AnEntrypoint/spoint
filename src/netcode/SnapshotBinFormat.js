@@ -25,56 +25,39 @@ export const SCALE_U16_MAX = 65535 / Q1 // 655.35
 export function clampI16(v) { return Math.max(-32767, Math.min(32767, Math.round((v || 0) * Q1))) }
 export function clampU16Scale(v) { return Math.max(0, Math.min(65535, Math.round((v ?? 1) * Q1))) }
 
-// Packs the fixed numeric fields of one entity/player record into a fresh 23-byte Uint8Array.
-// flags: caller-supplied bitfield (onGround/sleeping/etc for players/entities respectively).
-// Direct little-endian byte writes instead of a per-call `new DataView(buf.buffer)`. The Uint8Array
-// itself must stay a fresh allocation (it is retained on the wire and in nextMap); the DataView was
-// pure per-call garbage. Byte order/width are identical to the DataView setInt16/setUint16/setUint32
-// (..., true) calls this replaces.
-export function packBinRecord(px, py, pz, qrot, vx, vy, vz, sx, sy, sz, flags) {
-  const buf = new Uint8Array(BIN_RECORD_BYTES)
-  const p0 = clampI16(px), p1 = clampI16(py), p2 = clampI16(pz)
-  const v0 = clampI16(vx), v1 = clampI16(vy), v2 = clampI16(vz)
-  const s0 = clampU16Scale(sx), s1 = clampU16Scale(sy), s2 = clampU16Scale(sz)
-  const q = qrot >>> 0
-  buf[0] = p0 & 0xFF; buf[1] = (p0 >> 8) & 0xFF
-  buf[2] = p1 & 0xFF; buf[3] = (p1 >> 8) & 0xFF
-  buf[4] = p2 & 0xFF; buf[5] = (p2 >> 8) & 0xFF
-  buf[6] = v0 & 0xFF; buf[7] = (v0 >> 8) & 0xFF
-  buf[8] = v1 & 0xFF; buf[9] = (v1 >> 8) & 0xFF
-  buf[10] = v2 & 0xFF; buf[11] = (v2 >> 8) & 0xFF
-  buf[12] = q & 0xFF; buf[13] = (q >>> 8) & 0xFF; buf[14] = (q >>> 16) & 0xFF; buf[15] = (q >>> 24) & 0xFF
-  buf[16] = s0 & 0xFF; buf[17] = (s0 >> 8) & 0xFF
-  buf[18] = s1 & 0xFF; buf[19] = (s1 >> 8) & 0xFF
-  buf[20] = s2 & 0xFF; buf[21] = (s2 >> 8) & 0xFF
-  buf[22] = flags & 0xFF
-  return buf
+// Packs the fixed numeric fields of one entity/player record into a 23-byte Uint8Array. flags:
+// caller-supplied bitfield (onGround/sleeping/etc for players/entities respectively). `into` (optional)
+// is a caller-owned 23-byte Uint8Array to write in place (pooled player records, see
+// SnapshotEncoder.encodePlayersOnce); absent, a fresh buffer is allocated -- entity records MUST stay
+// fresh per pack (prevEntityMap retains the previous tick's buffer for computeFieldDelta's byte compare).
+// Direct little-endian byte writes (no per-call DataView allocation -- this runs once per active entity
+// and once per player per tick); two's-complement int16 low/high bytes match DataView.setInt16(le).
+export function packBinRecord(px, py, pz, qrot, vx, vy, vz, sx, sy, sz, flags, into) {
+  const b = into || new Uint8Array(BIN_RECORD_BYTES)
+  let v = clampI16(px); b[0] = v & 0xFF; b[1] = (v >> 8) & 0xFF
+  v = clampI16(py); b[2] = v & 0xFF; b[3] = (v >> 8) & 0xFF
+  v = clampI16(pz); b[4] = v & 0xFF; b[5] = (v >> 8) & 0xFF
+  v = clampI16(vx); b[6] = v & 0xFF; b[7] = (v >> 8) & 0xFF
+  v = clampI16(vy); b[8] = v & 0xFF; b[9] = (v >> 8) & 0xFF
+  v = clampI16(vz); b[10] = v & 0xFF; b[11] = (v >> 8) & 0xFF
+  v = qrot >>> 0; b[12] = v & 0xFF; b[13] = (v >>> 8) & 0xFF; b[14] = (v >>> 16) & 0xFF; b[15] = (v >>> 24) & 0xFF
+  v = clampU16Scale(sx); b[16] = v & 0xFF; b[17] = (v >> 8) & 0xFF
+  v = clampU16Scale(sy); b[18] = v & 0xFF; b[19] = (v >> 8) & 0xFF
+  v = clampU16Scale(sz); b[20] = v & 0xFF; b[21] = (v >> 8) & 0xFF
+  b[22] = flags & 0xFF
+  return b
 }
 
-// Same byte-read rationale as packBinRecord above, and the bigger of the two wins: this ran once per
-// (entity x viewer) per snapshot from applyEntry/getPlayerPriorityIds/trimEntitiesToBudget/
-// computeFieldDelta, allocating a fresh DataView every time. `<< 16 >> 16` is the int16 sign
-// extension DataView.getInt16 did; the u16/u32 reads are unsigned by construction.
+// Direct byte reads (no DataView per call): `(lo | hi << 8) << 16 >> 16` sign-extends exactly like
+// DataView.getInt16(le); the u32 quat is assembled with a multiply on the top byte so it stays unsigned.
+// A DataView argument (legacy caller shape) is re-viewed as bytes once.
 export function unpackBinRecord(buf, out) {
-  if (buf instanceof DataView) {
-    out.px = buf.getInt16(0, true) / Q1; out.py = buf.getInt16(2, true) / Q1; out.pz = buf.getInt16(4, true) / Q1
-    out.vx = buf.getInt16(6, true) / Q1; out.vy = buf.getInt16(8, true) / Q1; out.vz = buf.getInt16(10, true) / Q1
-    out.qrot = buf.getUint32(12, true)
-    out.sx = buf.getUint16(16, true) / Q1; out.sy = buf.getUint16(18, true) / Q1; out.sz = buf.getUint16(20, true) / Q1
-    out.flags = buf.getUint8(22)
-    return out
-  }
-  out.px = (((buf[0] | (buf[1] << 8)) << 16) >> 16) / Q1
-  out.py = (((buf[2] | (buf[3] << 8)) << 16) >> 16) / Q1
-  out.pz = (((buf[4] | (buf[5] << 8)) << 16) >> 16) / Q1
-  out.vx = (((buf[6] | (buf[7] << 8)) << 16) >> 16) / Q1
-  out.vy = (((buf[8] | (buf[9] << 8)) << 16) >> 16) / Q1
-  out.vz = (((buf[10] | (buf[11] << 8)) << 16) >> 16) / Q1
-  out.qrot = (buf[12] | (buf[13] << 8) | (buf[14] << 16) | (buf[15] << 24)) >>> 0
-  out.sx = (buf[16] | (buf[17] << 8)) / Q1
-  out.sy = (buf[18] | (buf[19] << 8)) / Q1
-  out.sz = (buf[20] | (buf[21] << 8)) / Q1
-  out.flags = buf[22]
+  const b = buf instanceof DataView ? new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) : buf
+  out.px = (((b[0] | (b[1] << 8)) << 16) >> 16) / Q1; out.py = (((b[2] | (b[3] << 8)) << 16) >> 16) / Q1; out.pz = (((b[4] | (b[5] << 8)) << 16) >> 16) / Q1
+  out.vx = (((b[6] | (b[7] << 8)) << 16) >> 16) / Q1; out.vy = (((b[8] | (b[9] << 8)) << 16) >> 16) / Q1; out.vz = (((b[10] | (b[11] << 8)) << 16) >> 16) / Q1
+  out.qrot = (b[12] | (b[13] << 8) | (b[14] << 16)) + b[15] * 16777216
+  out.sx = (b[16] | (b[17] << 8)) / Q1; out.sy = (b[18] | (b[19] << 8)) / Q1; out.sz = (b[20] | (b[21] << 8)) / Q1
+  out.flags = b[22]
   return out
 }
 

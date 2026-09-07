@@ -44,6 +44,38 @@ const MIN_TICK_GAP_MS = 40          // hard floor between real placement ticks r
 
 const _authFocus = { x: 0, y: 0, z: 0 }
 
+// Resolve the camera's world position + orientation ONCE per frame into a caller-owned scratch
+// object. Every scenery system used to call camera.getWorldPosition()/getWorldQuaternion() itself
+// (three resolves of the same parent-chain matrix per tick); the render graph resolves it here and
+// hands the result down. Returns `out` (never allocates).
+const _psPos = { x: 0, y: 0, z: 0 }
+export function resolveCameraPose(camera, out) {
+  const o = out || { x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1 }
+  if (!camera) return o
+  try {
+    camera.updateWorldMatrix(true, false)
+    const e = camera.matrixWorld.elements
+    o.x = e[12]; o.y = e[13]; o.z = e[14]
+    const q = camera.quaternion
+    // matrixWorld-derived rotation would need a decompose; the camera is a direct scene child in every
+    // shipped path, so its local quaternion IS its world quaternion. Falls back to identity otherwise.
+    o.qx = q.x; o.qy = q.y; o.qz = q.z; o.qw = q.w
+  } catch (_) {}
+  return o
+}
+
+// ONE shader warm for all scenery systems. vegetation/rocks/grass.warmShaders() are byte-identical
+// bodies -- two renderer.render(scene, camera) calls on the SAME shared scene and camera (a real
+// render, because renderer.compile is incompatible with @three.ez InstancedMesh2 instancing setup) --
+// so calling all three back-to-back was SIX full-scene renders behind the loading curtain where two
+// compile exactly the same set of programs. Idempotent: compiling an already-compiled program is a
+// cache hit.
+export function warmSceneryShaders(renderer, scene, camera) {
+  if (!renderer || !scene || !camera) return 0
+  try { renderer.render(scene, camera); renderer.render(scene, camera) } catch (_) {}
+  return 2
+}
+
 export function createPlacementScheduler(getHandles) {
   let _lastTickAtMs = -Infinity
   let _timer = null

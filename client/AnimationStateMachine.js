@@ -102,11 +102,9 @@ export function createAnimationStateMachine(mixer, root, actions, additiveAction
   // Closure-level scratch (§4 convention (b)): evalBlendTiers' result map and update()'s per-frame
   // weight map were both `new Map()` allocated EVERY frame FOR EVERY PLAYER. update() is not
   // re-entrant -- app.js's tickPlayerAnimators calls it once per player, sequentially, and nothing
-  // inside it re-enters. _weightsA/_weightsB double-buffer because blendWeights is retained across
-  // frames and read (prevW) while the next frame's map is being filled.
-  const _tierScratch = new Map()
-  const _weightsA = new Map(), _weightsB = new Map()
-  let blendWeights = _weightsA
+  // inside it re-enters.
+  let blendWeights = new Map()
+  let _weightsSpare = new Map()
   // Grace window so a brief terrain-bump onGround=false blip isn't read as airborne.
   const AIR_GRACE = 0.28
   // Requires upward velocity to count as a jump, so a downward terrain step isn't misread as one.
@@ -152,6 +150,11 @@ export function createAnimationStateMachine(mixer, root, actions, additiveAction
     if (LOCO_STATES.has(name) && name !== 'IdleLoop' && name !== 'CrouchIdleLoop') locomotionCooldown = LOCO_COOLDOWN
   }
 
+  // Short-circuit: locoMachine has no self-transitions and no guards, so re-sending the event that
+  // produced the current state is a guaranteed no-op (snap.can() would return false after resolving a
+  // full microstep). The steady state is the same event every frame, so this skips the xstate
+  // transition resolution + two event-object allocations on essentially every frame.
+  let _lastSentLoco = null, _lastSentLocoValue = null
   function sendLoco(event) {
     const target = LOCO_EVENT_TARGET[event]
     if (target && locoSwapBlocked(target)) return
@@ -164,8 +167,11 @@ export function createAnimationStateMachine(mixer, root, actions, additiveAction
     if (target && snap.value === target) return
     if (!snap.can({ type: event })) return
     actor.send({ type: event })
-    transitionTo(actor.getSnapshot().value)
+    const after = actor.getSnapshot().value
+    _lastSentLoco = event; _lastSentLocoValue = after
+    transitionTo(after)
   }
+  const _locoEvt = { type: '' }
 
   if (actions.has('IdleLoop')) { actions.get('IdleLoop').play(); current = 'IdleLoop' }
 
@@ -194,8 +200,9 @@ export function createAnimationStateMachine(mixer, root, actions, additiveAction
 
   // Returns {name: weight} for the (at most two) adjacent tiers bracketing `speed`, weight in [0,1],
   // summing to 1 across the pair -- a real linear 1D blend-space evaluation, not a threshold pick.
+  const _blendOut = new Map()   // reused per call (one caller per frame); consumers read it synchronously
   function evalBlendTiers(speed) {
-    const out = _tierScratch
+    const out = _blendOut
     out.clear()
     if (!blendReady) return out
     if (speed <= blendTiers[0].speed) { out.set(blendTiers[0].name, 1); return out }
@@ -350,8 +357,7 @@ export function createAnimationStateMachine(mixer, root, actions, additiveAction
         const prevW = blendWeights.get(tier.name) || 0
         if ((targetW > 0.001 || prevW > 0.001) && !action.isRunning()) { action.reset().play() }
       }
-      const nextWeights = blendWeights === _weightsA ? _weightsB : _weightsA
-      nextWeights.clear()
+      const nextWeights = _weightsSpare; nextWeights.clear()
       for (const tier of blendTiers) {
         const action = actions.get(tier.name)
         if (!action) continue
@@ -363,7 +369,7 @@ export function createAnimationStateMachine(mixer, root, actions, additiveAction
         nextWeights.set(tier.name, w)
         if (w <= 0.001 && targetW <= 0.001 && action.isRunning()) action.stop()
       }
-      blendWeights = nextWeights
+      _weightsSpare = blendWeights; blendWeights = nextWeights   // two-Map swap instead of a fresh Map per player per frame
       syncBlendPhase(targetWeights, dt)
     } else if (blendReady && blendWeights.size > 0) {
       for (const tier of blendTiers) {
