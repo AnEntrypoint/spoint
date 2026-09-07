@@ -207,7 +207,15 @@ export async function createGrass(opts = {}) {
       for (const [dx, dz] of _spiral) {
         const cx = cCx + dx, cz = cCz + dz
         const key = cx + ',' + cz
-        const ddx = cx * CH - px, ddz = cz * CH - pz
+        // Chunk-CENTER distance (matches commitChunk's own centerX/centerZ, the AABB this candidate's
+        // own occlusion box and LOD-tier pick are built from) -- was cx*CH/cz*CH (chunk CORNER), which
+        // silently shifted the true ring/drop boundary by up to CH/2 (16m, ~half of CH=32) toward the
+        // +X/+Z corner and away from -X/-Z, an asymmetric error large enough to explain grass-chunk-
+        // churn-flicker's live-witnessed unload/reload churn well inside the nominal ringRadius/dropRadius
+        // (root-caused via a live per-chunk trace: a player displaced only ~18m from spawn, far under
+        // ringRadius=44/dropRadius=60, still saw chunks unload -- exactly what a lopsided corner-measured
+        // boundary produces as the player crosses through it during ordinary movement).
+        const ddx = cx * CH + CH * 0.5 - px, ddz = cz * CH + CH * 0.5 - pz
         if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(key)) continue
         loaded.set(key, { entries: [], pending: true })
         _inflight = { key, cursor: createGrassChunkCursor(cx, cz, frame, anchorField, worldSeed), px, pz }
@@ -218,7 +226,7 @@ export async function createGrass(opts = {}) {
     for (const key of loaded.keys()) {
       if (_inflight && key === _inflight.key) continue
       const ci = key.indexOf(','); const kx = +key.slice(0, ci), kz = +key.slice(ci + 1)
-      const ddx = kx * CH - px, ddz = kz * CH - pz
+      const ddx = kx * CH + CH * 0.5 - px, ddz = kz * CH + CH * 0.5 - pz
       if ((ddx * ddx + ddz * ddz) > dropRadiusSq) { unloadChunk(key); didDrop = true; break }
     }
     _scanCx = cCx; _scanCz = cCz; _ringClean = !didLoad && !didDrop && !_inflight
@@ -497,7 +505,8 @@ export async function createGrass(opts = {}) {
       if (totalInstances >= MAX_INSTANCES) break
       if (((typeof performance !== 'undefined') ? performance.now() : 0) - t0 > budgetMs) break
       const cx = cCx + dx, cz = cCz + dz
-      const ddx = cx * CH - px, ddz = cz * CH - pz
+      // Chunk-CENTER distance, same fix/rationale as streamRing above.
+      const ddx = cx * CH + CH * 0.5 - px, ddz = cz * CH + CH * 0.5 - pz
       if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(cx + ',' + cz)) continue
       loadChunk(cx, cz, px, pz); n++
       if (n % 8 === 0) await _yieldFrame()

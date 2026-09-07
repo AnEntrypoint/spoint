@@ -474,7 +474,10 @@ export async function createVegetation(opts = {}) {
       for (; _vegSpiralCursor < _vegSpiral.length; _vegSpiralCursor++) {
         const dx = _vegSpiral[_vegSpiralCursor][0], dz = _vegSpiral[_vegSpiralCursor][1]
         const cx = cCx + dx, cz = cCz + dz
-        const ddx = cx * CH - px, ddz = cz * CH - pz
+        // Chunk-CENTER distance (matches this file's own commitChunk AABB/LOD-tier reference point) --
+        // was chunk CORNER (cx*CH), an asymmetric up-to-CH/2 boundary error toward +X/+Z. Same root cause
+        // and fix as grass-chunk-churn-flicker (client/core/Grass.js), found via the same tell-tale sweep.
+        const ddx = cx * CH + CH * 0.5 - px, ddz = cz * CH + CH * 0.5 - pz
         if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(cx + ',' + cz)) continue
         loadChunk(cx, cz, px, pz); didLoad = true; found = true; break
       }
@@ -486,7 +489,7 @@ export async function createVegetation(opts = {}) {
       if (!loaded.has(key)) { _vegLoadFifo.shift(); continue }
       const ci = key.indexOf(',')
       const kx = +key.slice(0, ci), kz = +key.slice(ci + 1)
-      const ddx = kx * CH - px, ddz = kz * CH - pz
+      const ddx = kx * CH + CH * 0.5 - px, ddz = kz * CH + CH * 0.5 - pz
       if ((ddx * ddx + ddz * ddz) > dropRadiusSq) {
         _vegLoadFifo.shift(); unloadChunk(key); didDrop = true
       }
@@ -499,7 +502,7 @@ export async function createVegetation(opts = {}) {
       for (const key of loaded.keys()) {
         const ci = key.indexOf(',')
         const kx = +key.slice(0, ci), kz = +key.slice(ci + 1)
-        const ddx = kx * CH - px, ddz = kz * CH - pz
+        const ddx = kx * CH + CH * 0.5 - px, ddz = kz * CH + CH * 0.5 - pz
         if ((ddx * ddx + ddz * ddz) > dropRadiusSq) {
           const fi = _vegLoadFifo.indexOf(key); if (fi >= 0) _vegLoadFifo.splice(fi, 1)
           unloadChunk(key); didDrop = true; break
@@ -524,7 +527,7 @@ export async function createVegetation(opts = {}) {
       if (n >= maxChunks || totalInstances >= MAX_INSTANCES) break
       if (((typeof performance !== 'undefined') ? performance.now() : 0) - t0 > budgetMs) break
       const cx = cCx + dx, cz = cCz + dz
-      const ddx = cx * CH - px, ddz = cz * CH - pz
+      const ddx = cx * CH + CH * 0.5 - px, ddz = cz * CH + CH * 0.5 - pz
       if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(cx + ',' + cz)) continue
       loadChunk(cx, cz, px, pz); n++
       if (n % PREWARM_BATCH === 0) await _yieldFrame()

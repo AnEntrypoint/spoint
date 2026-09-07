@@ -211,7 +211,9 @@ export async function createRocks(opts = {}) {
       for (; _rockSpiralCursor < _rockSpiral.length; _rockSpiralCursor++) {
         const dx = _rockSpiral[_rockSpiralCursor][0], dz = _rockSpiral[_rockSpiralCursor][1]
         const cx = cCx + dx, cz = cCz + dz
-        const ddx = cx * CH - px, ddz = cz * CH - pz
+        // Chunk-CENTER distance -- was chunk CORNER, same root cause and fix as grass-chunk-churn-flicker
+        // (client/core/Grass.js) and the identical bug in Vegetation.js, found via the same tell-tale sweep.
+        const ddx = cx * CH + CH * 0.5 - px, ddz = cz * CH + CH * 0.5 - pz
         if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(cx + ',' + cz)) continue
         loadChunk(cx, cz); didLoad = true; found = true; break
       }
@@ -222,7 +224,7 @@ export async function createRocks(opts = {}) {
       const key = _rockLoadFifo[0]
       if (!loaded.has(key)) { _rockLoadFifo.shift(); continue }
       const ci = key.indexOf(','); const kx = +key.slice(0, ci), kz = +key.slice(ci + 1)
-      const ddx = kx * CH - px, ddz = kz * CH - pz
+      const ddx = kx * CH + CH * 0.5 - px, ddz = kz * CH + CH * 0.5 - pz
       if ((ddx * ddx + ddz * ddz) > dropRadiusSq) {
         _rockLoadFifo.shift(); unloadChunk(key); didDrop = true
       }
@@ -231,7 +233,7 @@ export async function createRocks(opts = {}) {
     if (!didDrop && _rockLoadFifo.length) {
       for (const key of loaded.keys()) {
         const ci = key.indexOf(','); const kx = +key.slice(0, ci), kz = +key.slice(ci + 1)
-        const ddx = kx * CH - px, ddz = kz * CH - pz
+        const ddx = kx * CH + CH * 0.5 - px, ddz = kz * CH + CH * 0.5 - pz
         if ((ddx * ddx + ddz * ddz) > dropRadiusSq) {
           const fi = _rockLoadFifo.indexOf(key); if (fi >= 0) _rockLoadFifo.splice(fi, 1)
           unloadChunk(key); didDrop = true; break
@@ -322,7 +324,7 @@ export async function createRocks(opts = {}) {
       if (totalInstances >= MAX_INSTANCES) break
       if (((typeof performance !== 'undefined') ? performance.now() : 0) - t0 > budgetMs) break
       const cx = cCx + dx, cz = cCz + dz
-      const ddx = cx * CH - px, ddz = cz * CH - pz
+      const ddx = cx * CH + CH * 0.5 - px, ddz = cz * CH + CH * 0.5 - pz
       if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(cx + ',' + cz)) continue
       loadChunk(cx, cz); n++
       if (n % 8 === 0) await _yieldFrame()
