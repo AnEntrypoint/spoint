@@ -364,29 +364,29 @@ class Asset {
 
   evictMeshLod(meshDescIdx, lodIdx) {
     const desc = this.meshLodDescs[meshDescIdx];
-    if (!desc) return false;
+    if (!desc) return null;
     const key = `${desc.meshIndex}:${desc.primIndex}:${lodIdx}`;
     const target = desc.lods[lodIdx];
-    if (target?.inline) return false;
+    if (!target || target.inline) return null;
     const geo = this.geoCache.get(key);
-    if (!geo) return false;
+    if (!geo) return null;
     geo.dispose();
     this.geoCache.delete(key);
     this.byteWeights.delete(key);
-    return true;
+    return this.pool._untrackBytes(this.url, this.baseDir + target.path);
   }
   evictTexLod(texDescIdx, lodIdx) {
     const desc = this.texLodDescs[texDescIdx];
-    if (!desc) return false;
+    if (!desc) return null;
     const key = `${desc.textureIndex}:${lodIdx}`;
     const target = desc.lods[lodIdx];
-    if (target?.inline) return false;
+    if (!target || target.inline) return null;
     const bmp = this.texCache.get(key);
-    if (!bmp) return false;
+    if (!bmp) return null;
     if (bmp.close) bmp.close();
     this.texCache.delete(key);
     this.byteWeights.delete(`tex:${key}`);
-    return true;
+    return this.pool._untrackBytes(this.url, this.baseDir + target.path);
   }
 
   dispose() {
@@ -2288,10 +2288,11 @@ export class ModelPool extends Emitter {
   }
   _untrackBytes(assetUrl, url) {
     const log = this._byteLog.get(assetUrl);
-    if (!log) return;
+    if (!log) return 0;
     const b = log.get(url) || 0;
     this._totalBytes -= b;
     log.delete(url);
+    return b;
   }
   _enforceBudget() {
     if (this._totalBytes <= this.byteBudget) return;
@@ -2326,10 +2327,7 @@ export class ModelPool extends Emitter {
           for (let li = 0; li < lods.length; li++) {
             if (lods[li].inline) continue;
             if (uMesh !== null && uMesh.has(base + li)) continue;
-            if (asset.evictMeshLod(di, li)) {
-              this._totalBytes -= (lods[li].bytes || 0);
-              evicted++;
-            }
+            if (asset.evictMeshLod(di, li) !== null) evicted++;
           }
         }
       }
@@ -2342,10 +2340,7 @@ export class ModelPool extends Emitter {
           for (let li = 0; li < lods.length; li++) {
             if (lods[li].inline) continue;
             if (uTex !== null && uTex.has(base + li)) continue;
-            if (asset.evictTexLod(di, li)) {
-              this._totalBytes -= (lods[li].bytes || 0);
-              evicted++;
-            }
+            if (asset.evictTexLod(di, li) !== null) evicted++;
           }
         }
       }
