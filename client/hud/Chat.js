@@ -1,16 +1,3 @@
-// Room-wide in-game text chat HUD widget. Wraps wireweave's Chat class (see
-// node_modules/wireweave/src/chat.js -- kind:42 channel messages + kind:5
-// deletes over Nostr relays, rate-limited client-side, profile name resolution).
-// Reuses the SAME auth+relayPool the room's voice/data bridge already
-// established (window.__app.wireweave, created host-side in client/app.js and
-// join-side in WireweaveJoinClient.js -- both expose it identically, see
-// client/WireweaveBridge.js), following the same getBridge() convention as
-// client/hud/VoiceIndicator.js.
-//
-// Floor for this row: one shared room-wide channel, send + scrollback history
-// + live incoming messages + delete-own-message, driven by the real Chat
-// class's send/loadHistory/deleteMessage API and message/messages/rate-limited
-// events (no re-implementation of channel/dedup/sort logic here).
 import { components as C, h, applyDiff } from 'anentrypoint-design'
 
 function ensureStyle() {
@@ -34,10 +21,6 @@ function ensureStyle() {
   document.head.appendChild(s)
 }
 
-// channel name is room-scoped so every participant in the same wireweave room
-// (host + all joiners share one room id, see client/app.js's _wwRoom) lands
-// in the same text channel without any extra signaling of their own -- mirrors
-// VoiceIndicator.js's VOICE_CHANNEL constant.
 const TEXT_CHANNEL = 'room-chat'
 
 export function createChatHUD(uiRoot, getBridge) {
@@ -136,9 +119,6 @@ export function createChatHUD(uiRoot, getBridge) {
   return {
     node: card,
     get joined() { return joined },
-    // Exposes the real wireweave Chat instance once join() has run, so a sibling widget (e.g.
-    // hud/ChatQuickWheel.js's pre-canned-message picker) can send through the SAME instance/channel
-    // instead of constructing a second Chat against the same room -- see ensureChat()'s TEXT_CHANNEL.
     get chat() { return chat },
     destroy() {
       destroyed = true

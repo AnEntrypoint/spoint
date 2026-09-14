@@ -1,15 +1,3 @@
-// Pause/system menu: Resume / Settings / Leave Match / Invite Friends. Shown when pointer-lock
-// exits DURING ACTIVE GAMEPLAY (the player pressed Esc mid-match), never on the initial
-// click-to-play prompt (that is app.js's existing #click-prompt element, a distinct first-boot
-// affordance the caller must not confuse with a pause). Plain DOM overlay, same doctrine as
-// SettingsMenu.js/ConnectionStatus.js -- renders reliably regardless of ui-root diff churn.
-//
-// Deps (all optional -- a missing dep degrades that one action, the rest of the menu still works):
-//   requestPointerLock()  -> re-locks the pointer on Resume (typically renderer.domElement.requestPointerLock)
-//   settingsMenu          -> the object returned by createSettingsMenu (Settings button opens it)
-//   onLeaveMatch()        -> called on Leave Match; default navigates to the sibling landing page
-//   getRoomInfo()         -> () => { code, joinLink } | null, for Invite Friends (only shown if a room is active)
-
 function ensureStyles() {
   if (document.getElementById('pause-menu-style')) return
   const style = document.createElement('style')
@@ -49,10 +37,6 @@ function ensureStyles() {
 }
 
 function _defaultLeaveMatch() {
-  // The game entry point (client/index.html, served e.g. as demo.html) and the landing page
-  // (client/landing/index.html) are siblings -- see client/landing/content/hero.json's own
-  // demo_href convention ('./demo.html' relative to the landing dir). Navigating to the sibling
-  // 'landing/' directory is the generic "back to lobby" cross-link with no world-specific coupling.
   location.href = new URL('landing/', location.href).href
 }
 

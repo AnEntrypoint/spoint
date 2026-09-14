@@ -7,6 +7,9 @@ import { createXRWidgets } from './XRWidgets.js'
 
 const SMOOTH_TURN_SPEEDS = [0, 1.5, 3.0, 4.5]
 const SNAP_TURN_ANGLES = [15, 30, 45, 60, 90]
+const CROUCH_FLAG_BIT = 1
+const CROUCH_EYE_HEIGHT_M = 1.1
+const STAND_EYE_HEIGHT_M = 1.6
 
 export function createXRSystem(renderer, scene, camera) {
   const controllerModels = new Map()
@@ -69,16 +72,6 @@ export function createXRSystem(renderer, scene, camera) {
     }
   }
 
-  // Fixed foveated rendering (WebXR device API, exposed directly by THREE's WebXRManager as
-  // setFoveation): renders the center of each eye's view at full resolution and the periphery at
-  // reduced resolution, a real GPU fill-rate win on standalone VR headsets (Quest-class) where the
-  // whole frame is otherwise rendered at native panel resolution regardless of where the user is
-  // actually looking. 0 = off (uniform full-res), 1 = maximum foveation; 0.5 is a reasonable default
-  // (visible periphery softening is real but subtle at normal viewing angles, and it's the commonly-
-  // recommended middle setting across WebXR foveation guides). AR sessions skip this (arEnabled) --
-  // passthrough AR typically renders far less scene geometry per frame than an immersive VR scene, so
-  // the fill-rate tradeoff that justifies foveation in VR is much weaker there, and a foveated AR view
-  // can visibly soften real-world passthrough detail the user is actively looking at off-center.
   const FIXED_FOVEATION_LEVEL = 0.5
   function setupSessionListeners(getPlayerState, getPlayerId, camRef) {
     renderer.xr.addEventListener('sessionstart', () => {
@@ -91,12 +84,10 @@ export function createXRSystem(renderer, scene, camera) {
         if (!xrBaseReferenceSpace) return
         const local = getPlayerState(getPlayerId())
         if (local?.position) {
-          // local.crouch is a bit-packed flags int (bit0=crouch, bit1=swimming); mask bit0 so the
-          // swimming flag alone (2, truthy) doesn't false-trigger the crouch eye-height shrink.
-          const hh = (local.crouch||0)&1 ? 1.1 : 1.6
-          const pos = { x: -local.position[0], y: -(local.position[1] + hh), z: -local.position[2] }
+          const eyeHeight = (local.crouch||0)&CROUCH_FLAG_BIT ? CROUCH_EYE_HEIGHT_M : STAND_EYE_HEIGHT_M
+          const pos = { x: -local.position[0], y: -(local.position[1] + eyeHeight), z: -local.position[2] }
           renderer.xr.setReferenceSpace(xrBaseReferenceSpace.getOffsetReferenceSpace(new XRRigidTransform(pos, { x: 0, y: 0, z: 0, w: 1 })))
-          camera.position.set(local.position[0], local.position[1] + hh, local.position[2])
+          camera.position.set(local.position[0], local.position[1] + eyeHeight, local.position[2])
         }
       }, 100)
     })
@@ -136,10 +127,8 @@ export function createXRSystem(renderer, scene, camera) {
 
   function syncVRPosition(local) {
     if (!renderer.xr.isPresenting || !local?.position || !xrBaseReferenceSpace || widgets.isTeleporting) return
-    // local.crouch is a bit-packed flags int (bit0=crouch, bit1=swimming); mask bit0, see initVR's
-    // identical comment above.
-    const hh = (local.crouch||0)&1 ? 1.1 : 1.6
-    const pos = { x: -local.position[0], y: -(local.position[1] + hh), z: -local.position[2] }
+    const eyeHeight = (local.crouch||0)&CROUCH_FLAG_BIT ? CROUCH_EYE_HEIGHT_M : STAND_EYE_HEIGHT_M
+    const pos = { x: -local.position[0], y: -(local.position[1] + eyeHeight), z: -local.position[2] }
     renderer.xr.setReferenceSpace(xrBaseReferenceSpace.getOffsetReferenceSpace(new XRRigidTransform(pos, { x: 0, y: 0, z: 0, w: 1 })))
   }
 

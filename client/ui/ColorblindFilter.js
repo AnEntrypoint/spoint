@@ -1,11 +1,5 @@
-// ColorblindFilter.js -- CSS filter-based colorblind modes for WCAG 2.1 AA compliance
-// Supports 4 modes: normal, deuteranopia (red-blind), protanopia (green-blind), tritanopia (blue-yellow-blind)
-// Applied via CSS filters with no shader cost, persisted to localStorage, toggleable from settings menu
-
 const STORAGE_KEY = 'spoint.colorblind-mode'
 
-// CSS filter definitions for each colorblind mode
-// These use well-researched color-space transforms to simulate vision deficiencies
 const COLORBLIND_FILTERS = {
   normal: {
     name: 'Normal',
@@ -15,26 +9,22 @@ const COLORBLIND_FILTERS = {
   deuteranopia: {
     name: 'Deuteranopia',
     description: 'Red-blind (low red sensitivity)',
-    // Simulates red-blind vision by shifting red/green perception
     filter: 'url(#deuteranopia-filter)'
   },
   protanopia: {
     name: 'Protanopia',
     description: 'Green-blind (no red cone function)',
-    // Simulates green-blind vision
     filter: 'url(#protanopia-filter)'
   },
   tritanopia: {
     name: 'Tritanopia',
     description: 'Blue-yellow-blind (no blue cone function)',
-    // Simulates blue-yellow-blind vision
     filter: 'url(#tritanopia-filter)'
   }
 }
 
 let filterSvgInjected = false
 
-// Inject SVG filter definitions into the document once
 function injectSVGFilters() {
   if (filterSvgInjected) return
   filterSvgInjected = true
@@ -96,14 +86,12 @@ export class ColorblindFilter {
 
     injectSVGFilters()
 
-    // Load persisted mode
     const saved = localStorage.getItem(STORAGE_KEY)
     if (saved && this.availableModes.includes(saved)) {
       this.setMode(saved)
     }
   }
 
-  // Set the current colorblind filter mode
   setMode(mode) {
     if (!this.availableModes.includes(mode)) {
       console.warn('[ColorblindFilter] Unknown mode:', mode)
@@ -121,7 +109,6 @@ export class ColorblindFilter {
     try {
       this.container.style.filter = filterDef.filter
 
-      // Persist to localStorage
       try {
         localStorage.setItem(STORAGE_KEY, mode)
       } catch (e) {
@@ -136,17 +123,14 @@ export class ColorblindFilter {
     }
   }
 
-  // Get current mode
   getCurrentMode() {
     return this.currentMode
   }
 
-  // Get mode info
   getModeInfo(mode) {
     return COLORBLIND_FILTERS[mode] || null
   }
 
-  // Get all available modes with descriptions
   getAvailableModes() {
     return Object.entries(COLORBLIND_FILTERS).map(([key, val]) => ({
       id: key,
@@ -156,7 +140,6 @@ export class ColorblindFilter {
     }))
   }
 
-  // Apply filter to a specific element (for targeted filtering)
   applyToElement(element, mode = this.currentMode) {
     if (!this.availableModes.includes(mode)) return false
 
@@ -177,12 +160,10 @@ export class ColorblindFilter {
   }
 }
 
-// Factory function for convenience
 export function createColorblindFilter(options = {}) {
   return new ColorblindFilter(options)
 }
 
-// Export filter definitions for external use
 export function getColorblindFilters() {
   return { ...COLORBLIND_FILTERS }
 }

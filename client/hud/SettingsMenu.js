@@ -1,17 +1,3 @@
-// In-game settings menu: mouse sensitivity, invert-Y, FOV, master/SFX/music volume, quality
-// preset, DPR-auto toggle. Plain DOM (not webjsx/ui-root), same doctrine as ConnectionStatus.js's
-// toast host and PeerHostUI.js's cards -- renders reliably regardless of ui-root diff churn, and
-// this menu needs many native form controls (range/select/checkbox) a diff-vnode host adds nothing
-// for. Values persist to localStorage under one namespaced key and are re-applied on createSettingsMenu()
-// construction, so a reload keeps the player's choices without them re-opening the menu.
-//
-// Deps (all optional -- a missing dep just skips that control's live effect, the UI still renders
-// and persists the value for when the dep IS available):
-//   getCam()      -> the camera controller from core/camera.js (applyConfig({mouseSensitivity,invertY,fov}))
-//   getRenderer() -> the THREE.WebGLRenderer (for DPR-auto handoff to QualityPresets.apply)
-//   AudioMixer    -> { setVolume(category, v), getVolume(category) } from apps/_lib/audio.js
-//   QualityPresets-> the module export from core/QualityPresets.js (setPreset/names/current)
-
 import { QualityPresets } from '../core/QualityPresets.js'
 import { AudioMixer } from '../../apps/_lib/audio.js'
 import { getCacheStats, clearCache } from '../ModelCache.js'
@@ -112,7 +98,6 @@ export function createSettingsMenu({ getCam = () => null, getRenderer = () => nu
   overlay.appendChild(panel)
   document.body.appendChild(overlay)
 
-  // Clicking the dim backdrop (not the panel itself) closes, matching standard modal convention.
   overlay.addEventListener('mousedown', e => { if (e.target === overlay) close() })
 
   function _row(labelText, controlEl) {
@@ -189,11 +174,6 @@ export function createSettingsMenu({ getCam = () => null, getRenderer = () => nu
   function _applyReducedMotion(v) { values.reducedMotion = v; _persist(); if (typeof window !== 'undefined' && window.__a11y) window.__a11y.setReducedMotion(v) }
   function _applyGamepadEnabled(v) { values.gamepadEnabled = v; _persist(); if (typeof window !== 'undefined' && window.__gamepadController) { if (v) window.__gamepadController.enable(); else window.__gamepadController.disable() } }
 
-  // Apply every persisted/default value immediately at construction (mirrors QualityPresets'
-  // autoApplyPersisted contract: a saved setting is re-applied on load without the player having
-  // to reopen the menu). Quality preset itself is intentionally NOT re-applied here -- boot already
-  // calls QualityPresets.autoApplyPersisted() once with the real renderer at the right point in
-  // boot sequence; re-applying here would just be a redundant second apply with the same renderer.
   function applyAllOnLoad() {
     const cam = getCam()
     if (cam) cam.applyConfig({ mouseSensitivity: values.mouseSensitivity, invertY: values.invertY, fov: values.fov })
@@ -203,13 +183,6 @@ export function createSettingsMenu({ getCam = () => null, getRenderer = () => nu
     if (typeof window !== 'undefined') { window.__dprAuto = values.dprAuto; window.__dprOff = !values.dprAuto }
   }
 
-  // _buildCacheSection() -> { el, cancel }. Cache-size budget visibility/control: reads
-  // ModelCache.js's existing LRU manifest (getCacheStats, the same source of truth the silent
-  // SOFT_CAP/HARD_CAP eviction already enforces against) and renders a usage bar + entry count +
-  // a manual "Clear Cache" action (clearCache, reusing the existing dbDelete/manifest primitives --
-  // no parallel accounting). Async by nature (IndexedDB read) so it renders a loading placeholder
-  // synchronously then fills in once the real stats resolve; `cancel()` flips the `cancelled` guard
-  // so a stale in-flight refresh from a torn-down/rebuilt panel can never write into detached DOM.
   function _buildCacheSection() {
     const h3 = document.createElement('h3')
     h3.textContent = 'Storage'
@@ -247,11 +220,6 @@ export function createSettingsMenu({ getCam = () => null, getRenderer = () => nu
     let cancelled = false
     let statusClearTimer = null
 
-    // refresh(opts.preserveStatus) -> re-reads getCacheStats() and repaints the summary/bar.
-    // preserveStatus defaults false (the initial load and any background poll have no status
-    // message to protect); the post-clear handler below passes true so its own "Cleared N items"
-    // confirmation survives the refresh() it immediately triggers, instead of being wiped by this
-    // function's own reset on the very next microtask (the bug a first pass here shipped with).
     async function refresh({ preserveStatus = false } = {}) {
       if (!preserveStatus) status.textContent = ''
       clearBtn.disabled = false
@@ -309,7 +277,6 @@ export function createSettingsMenu({ getCam = () => null, getRenderer = () => nu
     panel.appendChild(_row('Quality Preset', _select(QualityPresets.names, values.qualityPreset, _applyQualityPreset)))
     panel.appendChild(_row('Auto Resolution', _checkbox(values.dprAuto, _applyDprAuto)))
 
-    // Accessibility section
     const a11yH3 = document.createElement('h3')
     a11yH3.textContent = 'Accessibility'
     panel.appendChild(a11yH3)

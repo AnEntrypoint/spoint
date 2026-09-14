@@ -1,7 +1,3 @@
-// Visual P2P mesh topology panel (p2p-mesh-topology-live-debug-view). Thin DOM view over
-// client/core/MeshDebug.js's live poller -- shows the real peer list, connection states, and current
-// app-layer host at a glance, instead of requiring a console call. Uses anentrypoint-design kit
-// primitives same as client/hud/PeerHostUI.js (this file's styling twin).
 import { h, applyDiff } from 'anentrypoint-design'
 import { installMeshDebug } from '../core/MeshDebug.js'
 
@@ -23,9 +19,6 @@ function ensureStyle() {
   document.head.appendChild(s)
 }
 
-// Mounts the live mesh-topology panel into uiRoot and starts polling. Returns {node, destroy()}
-// matching createRoomCodeUI/createPeerHostUI's own return shape. Safe to call before the wireweave
-// bridge connects (MeshDebug.js lazily resolves window.__app.wireweave every poll tick).
 export function createMeshDebugPanel(uiRoot) {
   ensureStyle()
   const mesh = installMeshDebug()

@@ -1,10 +1,3 @@
-// Emote/gesture wheel: hold the bound key (default B, see InputHandler.js's emoteWheelHeld) to show
-// up to 8 radial slots; press the matching digit (1-8) to select and play. Plain DOM overlay, same
-// doctrine as PauseMenu.js/SettingsMenu.js -- renders reliably regardless of ui-root diff churn.
-// Purely a LOCAL selection UI: the caller (app onInput) is the one that actually calls
-// ctx.players.playAnimation / engine.client's own emote-send path once a slot is chosen; this module
-// owns only visibility + the visual radial layout + reporting which digit is currently highlighted.
-
 function ensureStyles() {
   if (document.getElementById('emote-wheel-style')) return
   const style = document.createElement('style')
@@ -38,12 +31,8 @@ function ensureStyles() {
 }
 
 const RADIUS = 100
+const SLOT0_AT_TOP_ANGLE_OFFSET = Math.PI / 2
 
-// slots: array of up to 8 { clip, label } -- clip is the real animation clip name passed to
-// AnimationStateMachine.play (this session's own new emote-play primitive), label is the maker-facing
-// wheel text. Layout order = digit 1..N clockwise starting at the top, matching InputHandler.js's
-// emoteDigit binding 1:1 so the on-screen position a maker sees for slot N is exactly the digit that
-// selects it.
 export function createEmoteWheel(slots) {
   ensureStyles()
   const overlay = document.createElement('div')
@@ -56,7 +45,7 @@ export function createEmoteWheel(slots) {
   ring.appendChild(center)
 
   const slotEls = slots.slice(0, 8).map((s, i) => {
-    const angle = (i / slots.length) * Math.PI * 2 - Math.PI / 2 // slot 0 (digit 1) at the top, clockwise
+    const angle = (i / slots.length) * Math.PI * 2 - SLOT0_AT_TOP_ANGLE_OFFSET
     const x = 130 + Math.cos(angle) * RADIUS, y = 130 + Math.sin(angle) * RADIUS
     const el = document.createElement('div')
     el.className = 'ew-slot'
@@ -74,10 +63,6 @@ export function createEmoteWheel(slots) {
   let _activeDigit = 0
 
   return {
-    // Call once per frame from onFrame with the live input.emoteWheelHeld/emoteDigit -- returns the
-    // currently-selected slot (or null) so the caller decides when to actually fire the emote (on
-    // release, matching a real radial-wheel UX where the pick commits when the key is let go, not on
-    // every held frame -- avoids re-triggering the same emote 60x/sec while a digit stays held).
     update(held, digit) {
       if (held && !_open) { overlay.classList.add('open'); _open = true }
       else if (!held && _open) { overlay.classList.remove('open'); _open = false }

@@ -1,6 +1,3 @@
-// WebRTC host/join card. Uses anentrypoint-design kit primitives (Panel, Row, Btn,
-// TextField) via the components export. All theming flows through ds-247420 + kit
-// CSS variables — no inline rgba() or hardcoded hex colors.
 import { components as C, h, applyDiff } from 'anentrypoint-design'
 
 function ensureStyle() {
@@ -31,17 +28,11 @@ function showToast(msg) {
   setTimeout(() => { t.classList.remove('show'); setTimeout(() => t.remove(), 250) }, 2400)
 }
 
-// Minimal always-visible room-code card for the wireweave host flow (?room=CODE).
-// createLobby.js's showHosting() renders the code for one frame before the
-// page navigates away to host mode -- this re-shows it persistently once the
-// host bridge is actually up, with a copy-link button, so the host can find
-// and share it at any point during the session (not just the instant before
-// navigation).
 export function createRoomCodeUI(uiRoot, code, joinLink) {
   ensureStyle()
   const card = document.createElement('div')
   card.className = 'panel ds-247420 ph-card'
-  card.style.top = 'max(64px,calc(env(safe-area-inset-top) + 56px))' // sit below PeerHostUI/HUD top row
+  card.style.top = 'max(64px,calc(env(safe-area-inset-top) + 56px))'
   uiRoot.appendChild(card)
   const onCopy = (e) => { e.preventDefault(); navigator.clipboard.writeText(joinLink); showToast('Join link copied') }
   applyDiff(card, [
@@ -53,9 +44,6 @@ export function createRoomCodeUI(uiRoot, code, joinLink) {
   return { node: card, destroy() { card.remove() } }
 }
 
-// iceServers: optional worldDef-supplied RTCIceServer[] (see worldDef.iceServers,
-// threaded from client/app.js's onWorldDef). Falls back to the bare public-STUN
-// default below when unset/empty, same as BrowserServer.addPeer's own fallback.
 const _DEFAULT_ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }]
 
 export function createPeerHostUI(uiRoot, getClient, iceServers) {

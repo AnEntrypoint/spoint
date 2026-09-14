@@ -1,17 +1,7 @@
-// DevDashboard -- Unified developer dashboard combining performance profiler, network
-// inspector, and debug information. Provides resizable panels, preset configurations
-// (FPS, network, memory focus), and session data export (JSON/CSV).
-//
-// Architecture:
-// - Panel-based layout with drag-to-resize
-// - Preset profiles: 'fps', 'network', 'memory', 'all'
-// - Real-time metric aggregation
-// - Session export with timestamp and metadata
-
 export function createDevDashboard(profiler, networkInspector) {
   const state = {
     enabled: false,
-    activePreset: 'all', // 'fps' | 'network' | 'memory' | 'all'
+    activePreset: 'all',
     panels: {
       performance: { x: 10, y: 50, w: 400, h: 280, visible: true },
       network: { x: 420, y: 50, w: 480, h: 320, visible: true },
@@ -30,7 +20,6 @@ export function createDevDashboard(profiler, networkInspector) {
     totalNetworkBytes: 0,
   }
 
-  // Create main container
   const container = document.createElement('div')
   container.id = 'dev-dashboard'
   container.style.cssText = `
@@ -46,7 +35,6 @@ export function createDevDashboard(profiler, networkInspector) {
     user-select: none;
   `
 
-  // Panel structure
   const panels = {}
 
   function createPanel(id, title, x, y, w, h) {
@@ -67,7 +55,6 @@ export function createDevDashboard(profiler, networkInspector) {
       flex-direction: column;
     `
 
-    // Header
     const header = document.createElement('div')
     header.style.cssText = `
       height: 24px;
@@ -86,7 +73,6 @@ export function createDevDashboard(profiler, networkInspector) {
     `
     header.innerHTML = `<span>${title}</span><span id="close-${id}" style="cursor:pointer;margin-left:auto;">✕</span>`
 
-    // Content area
     const content = document.createElement('div')
     content.style.cssText = `
       flex: 1;
@@ -98,7 +84,6 @@ export function createDevDashboard(profiler, networkInspector) {
       line-height: 1.4;
     `
 
-    // Resize handle
     const resizer = document.createElement('div')
     resizer.style.cssText = `
       position: absolute;
@@ -115,7 +100,6 @@ export function createDevDashboard(profiler, networkInspector) {
     panel.appendChild(resizer)
     container.appendChild(panel)
 
-    // Dragging
     header.addEventListener('mousedown', (e) => {
       if (e.target.id === `close-${id}`) return
       const rect = panel.getBoundingClientRect()
@@ -140,7 +124,6 @@ export function createDevDashboard(profiler, networkInspector) {
       document.addEventListener('mouseup', handleUp)
     })
 
-    // Resizing
     resizer.addEventListener('mousedown', (e) => {
       e.preventDefault()
       const rect = panel.getBoundingClientRect()
@@ -167,7 +150,6 @@ export function createDevDashboard(profiler, networkInspector) {
       document.addEventListener('mouseup', handleUp)
     })
 
-    // Close button
     document.getElementById(`close-${id}`).addEventListener('click', () => {
       state.panels[id].visible = false
       panel.style.display = 'none'
@@ -176,7 +158,6 @@ export function createDevDashboard(profiler, networkInspector) {
     return { panel, header, content, resizer }
   }
 
-  // Create panels
   const perfPanel = createPanel('performance', '📊 Performance', 10, 50, 400, 280)
   const netPanel = createPanel('network', '🌐 Network', 420, 50, 480, 320)
   const debugPanel = createPanel('debug', '🔧 Debug', 10, 350, 890, 200)
@@ -185,7 +166,6 @@ export function createDevDashboard(profiler, networkInspector) {
   panels.network = netPanel
   panels.debug = debugPanel
 
-  // Toolbar
   const toolbar = document.createElement('div')
   toolbar.style.cssText = `
     position: fixed;
@@ -227,7 +207,6 @@ export function createDevDashboard(profiler, networkInspector) {
     toolbar.appendChild(btn)
   })
 
-  // Export button
   const exportBtn = document.createElement('button')
   exportBtn.textContent = '💾 EXPORT'
   exportBtn.style.cssText = `
@@ -245,7 +224,6 @@ export function createDevDashboard(profiler, networkInspector) {
   exportBtn.addEventListener('click', exportSession)
   toolbar.appendChild(exportBtn)
 
-  // Close button
   const closeBtn = document.createElement('button')
   closeBtn.textContent = '✕ CLOSE'
   closeBtn.style.cssText = `
@@ -264,7 +242,6 @@ export function createDevDashboard(profiler, networkInspector) {
 
   container.appendChild(toolbar)
 
-  // Update functions
   function updatePerformancePanel() {
     if (!profiler || !state.panels.performance.visible) return
     const stats = profiler.state
@@ -284,7 +261,6 @@ export function createDevDashboard(profiler, networkInspector) {
     `
     panels.performance.content.innerHTML = html
 
-    // Update session stats
     const fps = parseFloat(stats.fps)
     sessionStats.peakFPS = Math.max(sessionStats.peakFPS, fps)
     sessionStats.minFPS = Math.min(sessionStats.minFPS, fps)

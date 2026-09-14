@@ -1,9 +1,6 @@
-// AccessibilityUtils.js -- WCAG 2.1 AA compliance utilities
-// Provides ARIA labeling, semantic HTML helpers, focus management, live regions, and keyboard navigation
-
 export class AccessibilityManager {
   constructor(options = {}) {
-    this.fontSizeScale = options.fontSizeScale ?? 100 // 80-120%
+    this.fontSizeScale = options.fontSizeScale ?? 100
     this.reducedMotion = options.reducedMotion ?? this.detectReducedMotion()
     this.highContrast = options.highContrast ?? this.detectHighContrast()
     this.liveRegions = new Map()
@@ -19,19 +16,16 @@ export class AccessibilityManager {
     this.applyReducedMotion()
   }
 
-  // Detect system preference for reduced motion
   detectReducedMotion() {
     if (typeof window === 'undefined') return false
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches
   }
 
-  // Detect system preference for high contrast
   detectHighContrast() {
     if (typeof window === 'undefined') return false
     return window.matchMedia('(prefers-contrast: more)').matches
   }
 
-  // Inject base accessibility CSS
   injectAccessibilityStyles() {
     if (document.getElementById('a11y-base-styles')) return
 
@@ -107,7 +101,6 @@ button, a[role="button"], input[type="checkbox"], input[type="radio"],
     document.head.appendChild(style)
   }
 
-  // Setup live regions for dynamic announcements (XP, level-up, etc.)
   setupLiveRegions() {
     const regions = [
       { id: 'a11y-status', ariaLive: 'polite', ariaAtomic: 'true' },
@@ -128,20 +121,17 @@ button, a[role="button"], input[type="checkbox"], input[type="radio"],
     }
   }
 
-  // Announce to screen readers via live region
   announce(message, type = 'status') {
     const regionId = type === 'alert' ? 'a11y-alert' : 'a11y-status'
     const region = this.liveRegions.get(regionId)
     if (!region) return
 
-    // Clear then set to ensure screen reader announces it
     region.textContent = ''
     setTimeout(() => {
       region.textContent = message
     }, 100)
   }
 
-  // Setup keyboard navigation Tab order
   setupKeyboardNavigation() {
     document.addEventListener('keydown', e => {
       if (e.key === 'Tab') {
@@ -153,7 +143,6 @@ button, a[role="button"], input[type="checkbox"], input[type="radio"],
   }
 
   handleTabNavigation(e) {
-    // Trap focus within active modal/dialog if any
     const activeDialog = document.querySelector('[role="dialog"]:not(.hidden)')
     if (activeDialog) {
       const focusableElements = activeDialog.querySelectorAll(
@@ -166,13 +155,11 @@ button, a[role="button"], input[type="checkbox"], input[type="radio"],
       const active = document.activeElement
 
       if (e.shiftKey) {
-        // Shift+Tab
         if (active === first) {
           e.preventDefault()
           last.focus()
         }
       } else {
-        // Tab
         if (active === last) {
           e.preventDefault()
           first.focus()
@@ -182,7 +169,6 @@ button, a[role="button"], input[type="checkbox"], input[type="radio"],
   }
 
   handleEscapeKey(e) {
-    // Close active modal/dialog on Escape
     const activeDialog = document.querySelector('[role="dialog"]:not(.hidden)')
     if (activeDialog) {
       const closeBtn = activeDialog.querySelector('[aria-label="Close"]')
@@ -190,7 +176,6 @@ button, a[role="button"], input[type="checkbox"], input[type="radio"],
     }
   }
 
-  // Apply font scaling (80-120%)
   setFontScale(scale) {
     if (scale < 80 || scale > 120) {
       console.warn('[AccessibilityManager] Font scale out of range:', scale)
@@ -202,7 +187,6 @@ button, a[role="button"], input[type="checkbox"], input[type="radio"],
     const root = document.documentElement
     root.style.fontSize = `${scale}%`
 
-    // Save to localStorage
     try {
       localStorage.setItem('spoint.font-scale', scale.toString())
     } catch (e) {
@@ -216,7 +200,6 @@ button, a[role="button"], input[type="checkbox"], input[type="radio"],
     return this.fontSizeScale
   }
 
-  // Apply reduced motion preferences
   applyReducedMotion() {
     if (this.reducedMotion) {
       document.documentElement.setAttribute('data-reduced-motion', 'true')
@@ -235,25 +218,22 @@ button, a[role="button"], input[type="checkbox"], input[type="radio"],
     }
   }
 
-  // Add ARIA label to element
   setAriaLabel(element, label) {
     if (!element) return
     element.setAttribute('aria-label', label)
   }
 
-  // Add ARIA description to element
   setAriaDescription(element, description) {
     if (!element) return
     const descId = `${element.id || 'desc'}-${Math.random().toString(36).slice(2, 9)}`
     const descEl = document.createElement('div')
     descEl.id = descId
-    descEl.className = 'sr-only' // screen-reader-only class
+    descEl.className = 'sr-only'
     descEl.textContent = description
     element.parentNode?.insertBefore(descEl, element.nextSibling)
     element.setAttribute('aria-describedby', descId)
   }
 
-  // Ensure element is focusable
   makeFocusable(element, ariaRole = null) {
     if (!element) return
     if (!element.hasAttribute('tabindex')) {
@@ -264,7 +244,6 @@ button, a[role="button"], input[type="checkbox"], input[type="radio"],
     }
   }
 
-  // Move focus to element
   focusElement(element) {
     if (!element) return
     try {
@@ -274,7 +253,6 @@ button, a[role="button"], input[type="checkbox"], input[type="radio"],
     }
   }
 
-  // Verify minimum touch target size
   verifyTouchTargets(container = document.body) {
     const issues = []
     const interactiveElements = container.querySelectorAll(
@@ -296,13 +274,11 @@ button, a[role="button"], input[type="checkbox"], input[type="radio"],
     return issues
   }
 
-  // Verify color contrast (rough check)
   verifyContrast(element) {
     const style = window.getComputedStyle(element)
     const bg = style.backgroundColor
     const fg = style.color
 
-    // Simple luminance calculation (not WCAG spec but useful for detection)
     const getLuminance = (color) => {
       const rgb = color.match(/\d+/g)
       if (!rgb || rgb.length < 3) return 0.5
@@ -318,8 +294,8 @@ button, a[role="button"], input[type="checkbox"], input[type="radio"],
 
     return {
       contrast: contrast.toFixed(2),
-      meetsAA: contrast >= 4.5, // WCAG AA level
-      meetsAAA: contrast >= 7 // WCAG AAA level
+      meetsAA: contrast >= 4.5,
+      meetsAAA: contrast >= 7
     }
   }
 
@@ -328,12 +304,10 @@ button, a[role="button"], input[type="checkbox"], input[type="radio"],
   }
 }
 
-// Factory function
 export function createAccessibilityManager(options = {}) {
   return new AccessibilityManager(options)
 }
 
-// Helper: Make element keyboard accessible
 export function makeKeyboardAccessible(element, clickHandler = null) {
   element.setAttribute('role', 'button')
   element.setAttribute('tabindex', '0')
@@ -347,7 +321,6 @@ export function makeKeyboardAccessible(element, clickHandler = null) {
   })
 }
 
-// Helper: Ensure semantic HTML
 export function createAccessibleButton(label, onClick, options = {}) {
   const button = document.createElement('button')
   button.textContent = label
@@ -359,7 +332,6 @@ export function createAccessibleButton(label, onClick, options = {}) {
   return button
 }
 
-// Helper: Create accessible link
 export function createAccessibleLink(label, href, options = {}) {
   const link = document.createElement('a')
   link.href = href

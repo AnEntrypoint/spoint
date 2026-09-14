@@ -1,45 +1,8 @@
-// Room-wide voice chat HUD widget. Wraps wireweave's VoiceSession (mesh/SFU
-// with automatic hub election + speaker-activity detection, see
-// node_modules/wireweave/src/voice.js) and reuses the SAME auth+relayPool
-// the room's data/text bridge already established (window.__app.wireweave,
-// created host-side in client/app.js and join-side in WireweaveJoinClient.js
-// — both now expose it identically, see client/WireweaveBridge.js).
-//
-// Floor: one shared room-wide channel, join/leave + mute toggle, a green dot
-// per actively-speaking participant driven by VoiceSession's own
-// 'speaker'/'participants' events (RMS + hysteresis, no re-implementation
-// here), PLUS actual remote-audio playback (createVoiceSession is called
-// WITHOUT onAudioTrack by the caller here -- without it, ontrack fires but
-// nothing ever plays the stream) routed through a per-peer GainNode so gain
-// is programmatically controllable.
-//
-// Proximity attenuation: VoiceSession itself has no notion of world position
-// (its peer key is a nostr pubkey, unrelated to the game's own sequential
-// player.id used by pm.playerMeshes) -- getEngineCtx() bridges the two. Each
-// peer announces its own pubkey once connected via a client->server
-// APP_EVENT{type:'voice_identity',pubkey} (see src/sdk/ServerHandlers.js),
-// broadcast back as {type:'voice_identity',playerId,pubkey} to every client
-// including late joiners (resent on connect). client/app.js's onAppEvent
-// handler forwards that type (and 'scoreboard', for team channels below)
-// straight into this module's onVoiceIdentity/onScoreboard methods via
-// window.__app.voiceIndicator, the same registry app.js already uses for
-// window.__app.wireweave/chatHUD.
-//
-// Team channels: apps/_lib/teams.js's defineTeams broadcasts a 'scoreboard'
-// APP_EVENT ({scores:[{id,label,color,score,members}]}) whenever an app
-// calls it -- purely optional, no world in this codebase calls it yet. When
-// present, this module derives the LOCAL player's team from `members` and
-// mutes (gain 0) any peer not on the same team while team-channel mode is
-// on; when absent (no scoreboard message ever arrives), team mode is simply
-// unavailable (toggle hidden) rather than fabricating a team system.
 import { components as C, h, applyDiff } from 'anentrypoint-design'
 
-// Proximity falloff: full volume within NEAR_M, linearly attenuated to 0 at
-// FAR_M. Plain values (not inverse-square) so a designer can eyeball/tune
-// them against real gameplay distances without a curve-fitting exercise.
 const PROXIMITY_NEAR_M = 6
 const PROXIMITY_FAR_M = 45
-const PROXIMITY_TICK_MS = 100 // 10 Hz is plenty for a gain ramp; every-render-frame would be wasted work
+const PROXIMITY_TICK_MS = 100
 
 function ensureStyle() {
   if (document.getElementById('voice-indicator-style')) return
@@ -60,15 +23,8 @@ function ensureStyle() {
   document.head.appendChild(s)
 }
 
-// channel name is room-scoped so every participant in the same wireweave room
-// (host + all joiners share one room id, see client/app.js's _wwRoom) lands
-// in the same voice channel without any extra signaling of their own.
 const VOICE_CHANNEL = 'room-voice'
 
-// engineCtx and MSG are optional (a caller that doesn't pass them still gets the
-// pre-existing join/mute/speaker-dot UI, minus proximity/team/audio-playback) so
-// this stays usable in a context with no game-position data (e.g. a bare voice-only
-// embed), but every real spoint call site (client/app.js) passes both.
 export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = null) {
   ensureStyle()
   const card = document.createElement('div')
@@ -80,19 +36,10 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
   let muted = true
   let destroyed = false
 
-  // pubkey <-> playerId, built from voice_identity APP_EVENTs (see onVoiceIdentity
-  // below, called from client/app.js's onAppEvent). Two maps kept in lockstep
-  // rather than derived on read, since both directions are looked up every
-  // proximity tick (peer pubkey -> playerId to read a mesh position) and every
-  // local self-announce (need to know our own playerId's pubkey is already sent).
   const pubkeyToPlayerId = new Map()
   const playerIdToPubkey = new Map()
-  // Per-peer Web Audio graph: pubkey -> { gainNode, source, stream }. Built once
-  // per connected peer in onAudioTrack, torn down on peer-closed/disconnected.
   const peerAudio = new Map()
   let audioCtx = null
-  // Latest scoreboard (apps/_lib/teams.js broadcast), if this world ever calls
-  // defineTeams. null = no team system in this world; team-channel toggle stays hidden.
   let latestScores = null
   let teamChannelOn = false
   let proximityTimer = null
@@ -123,8 +70,6 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
     ])
   }
 
-  // Local player's team id, or null if no scoreboard has arrived yet (no defineTeams
-  // in this world) or the local player isn't on any team's members list yet.
   function getLocalTeam() {
     if (!latestScores || !engineCtx) return null
     const lid = engineCtx.playerId
@@ -141,10 +86,6 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
     return audioCtx
   }
 
-  // Wire a remote peer's real MediaStream into an actually-audible graph: a
-  // MediaStreamSource -> a per-peer GainNode (the ONLY reachable point to apply
-  // proximity/team gain, since VoiceSession's own audioEl path is never used
-  // here) -> destination. Without this, ontrack fires but the peer is silent.
   function onAudioTrack({ peerPubkey, stream }) {
     const ctx = ensureAudioCtx()
     if (!ctx || !stream) return
@@ -166,15 +107,6 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
     peerAudio.delete(peerPubkey)
   }
 
-  // Real per-tick proximity + team gain update: reads LIVE mesh positions
-  // (engineCtx.players.getMesh, same accessor client/app.js's own render code
-  // uses) for the local player and every connected voice peer whose pubkey has
-  // been resolved to a playerId, and sets each peer's GainNode.gain.value from
-  // distance (and, when team-channel mode is on, zeroed for a different team).
-  // Guarded against every degenerate case: no engineCtx, no local mesh yet, a
-  // peer with no known playerId yet (identity broadcast hasn't arrived), a
-  // missing remote mesh, and zero connected peers (loop body simply never runs
-  // -- no division happens at all in that case, let alone by a zero denominator).
   function updateProximity() {
     if (destroyed || !engineCtx || !peerAudio.size) return
     const lid = engineCtx.playerId
@@ -183,10 +115,8 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
     for (const [peerPubkey, a] of peerAudio) {
       const pid = pubkeyToPlayerId.get(peerPubkey)
       let gain = 1
-      if (pid == null || !localMesh) {
-        // Identity not resolved yet, or our own mesh isn't spawned yet: hold
-        // at full volume rather than guessing -- silently muting a real
-        // speaker because of a timing gap is worse than a brief non-attenuated period.
+      const identityOrLocalMeshPending = pid == null || !localMesh
+      if (identityOrLocalMeshPending) {
         gain = 1
       } else {
         const remoteMesh = engineCtx.players.getMesh(pid)
@@ -248,10 +178,6 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
     return session
   }
 
-  // Announce our own pubkey to the server once (see src/sdk/ServerHandlers.js's
-  // voice_identity APP_EVENT branch) so every other client can resolve it to
-  // our playerId for their own proximity calc. Sent via the same client->server
-  // APP_EVENT channel BaseClient.js's sendEmote/sendLaunch already use.
   function announceIdentity() {
     if (!engineCtx || !MSG || engineCtx.playerId == null) return
     const bridge = getBridge()
@@ -268,9 +194,6 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
       const s = await ensureSession()
       await s.connect(VOICE_CHANNEL, { displayName: getBridge()?.pubkey?.slice(0, 8) || 'Guest' })
       joined = true
-      // VoiceSession joins muted by default (push-to-talk gate) -- flip to
-      // room-wide always-on so a bare "wire it in" flow is actually audible
-      // without a separate PTT keybind; setMuted(false) mirrors toggleMic().
       s.setMuted(false)
       muted = false
       announceIdentity()
@@ -290,7 +213,7 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
   function onToggleTeamChannel(e) {
     e?.preventDefault?.()
     teamChannelOn = !teamChannelOn
-    if (!teamChannelOn) updateProximity() // immediately restore full-team-gain peers instead of waiting for the next tick
+    if (!teamChannelOn) updateProximity()
     render()
   }
 
@@ -299,15 +222,11 @@ export function createVoiceIndicator(uiRoot, getBridge, engineCtx = null, MSG = 
   return {
     node: card,
     get joined() { return joined },
-    // Called from client/app.js's onAppEvent for type:'voice_identity' (both a fresh
-    // broadcast and the resend-to-late-joiners sweep land here identically).
     onVoiceIdentity(playerId, pubkey) {
       if (playerId == null || !pubkey) return
       pubkeyToPlayerId.set(pubkey, playerId)
       playerIdToPubkey.set(playerId, pubkey)
     },
-    // Called from client/app.js's onAppEvent for type:'scoreboard' (apps/_lib/teams.js
-    // broadcast). Presence of even one call is what makes the team-channel toggle appear.
     onScoreboard(scores) {
       latestScores = Array.isArray(scores) ? scores : null
       render()

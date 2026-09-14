@@ -14,13 +14,11 @@ export class XRControls {
 
   createReticle() {
     const g = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2)
-    // 0x00ff00: three.js material color (3D engine value, not CSS theme)
     this.reticle = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x00ff00, opacity: 0.7, transparent: true, side: THREE.DoubleSide }))
     this.reticle.visible = false; return this.reticle
   }
 
   createPlaneMesh() {
-    // 0x00ff88: three.js material color (3D engine value, not CSS theme)
     return new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0x00ff88, opacity: 0.2, transparent: true, side: THREE.DoubleSide }))
   }
 

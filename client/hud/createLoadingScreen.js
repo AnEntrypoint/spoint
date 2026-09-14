@@ -1,8 +1,5 @@
 import { renderLoadingScreen } from 'anentrypoint-design'
 
-// View comes from the anentrypoint-design loading-screen kit (consumed from
-// unpkg via the importmap). This module owns only the LoadingManager event
-// wiring; the kit owns the overlay layout, bars, and classes.
 export function createLoadingScreen(loadingManager) {
   const kit = renderLoadingScreen({ brand: 'Spoint', label: 'Connecting...' })
   document.body.insertBefore(kit.node, document.body.firstChild)

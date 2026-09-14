@@ -1,17 +1,6 @@
-// NetworkInspector -- Real-time network monitoring with message size distribution,
-// frequency analysis, latency measurement (RTT), packet loss detection, and bandwidth
-// usage tracking (up/down). Supports per-message-type breakdown, live capture, and
-// export to CSV/JSON. Toggle via F11 key.
-//
-// Architecture:
-// - Ring buffer for message history (last 1000 messages)
-// - Per-message-type bucketing for statistics
-// - Latency measurement via request/response pairing
-// - Bandwidth calculation from message sizes and timing
-// - Exportable session data with timestamps
-
 export function createNetworkInspector(networkClient) {
   const MAX_HISTORY = 1000
+  const BANDWIDTH_WINDOW_RESET_SEC = 5
   const state = {
     enabled: false,
     position: { x: 420, y: 10 },
@@ -19,28 +8,23 @@ export function createNetworkInspector(networkClient) {
     dragStart: { x: 0, y: 0 },
   }
 
-  // Message ring buffer
   const messages = new Array(MAX_HISTORY)
   let msgIdx = 0, msgCount = 0
   let captureStartTime = performance.now()
 
-  // Statistics by message type
   const messageStats = new Map()
 
-  // Latency tracking (for request/response pairs)
   const pendingRequests = new Map()
   const latencySamples = new Float32Array(240)
   let latencyIdx = 0, latencyCount = 0
   let avgLatency = 0, minLatency = Infinity, maxLatency = 0
 
-  // Bandwidth tracking
   let totalBytesSent = 0
   let totalBytesReceived = 0
   let bandwidthWindowStartTime = performance.now()
   const bandwidthSamples = { sent: new Float32Array(240), recv: new Float32Array(240) }
   let bwIdx = 0, bwCount = 0
 
-  // Session export data
   const sessionData = {
     startTime: Date.now(),
     messages: [],
@@ -106,7 +90,6 @@ export function createNetworkInspector(networkClient) {
   overlay.appendChild(canvas)
   overlay.appendChild(header)
 
-  // Network message capture
   function captureMessage(type, size, direction = 'send') {
     const timestamp = performance.now()
     const msg = {
@@ -121,7 +104,6 @@ export function createNetworkInspector(networkClient) {
     msgIdx = (msgIdx + 1) % MAX_HISTORY
     if (msgCount < MAX_HISTORY) msgCount++
 
-    // Update message type stats
     if (!messageStats.has(type)) {
       messageStats.set(type, {
         count: 0,
@@ -138,18 +120,15 @@ export function createNetworkInspector(networkClient) {
     stat.maxSize = Math.max(stat.maxSize, size)
     stat.avgSize = stat.totalBytes / stat.count
 
-    // Track bandwidth
     if (direction === 'send') {
       totalBytesSent += size
     } else {
       totalBytesReceived += size
     }
 
-    // Session export
     sessionData.messages.push(msg)
   }
 
-  // Record latency sample (e.g., from a ping/pong or request/response)
   function recordLatency(rttMs) {
     latencySamples[latencyIdx] = rttMs
     latencyIdx = (latencyIdx + 1) % latencySamples.length
@@ -168,23 +147,20 @@ export function createNetworkInspector(networkClient) {
     }
   }
 
-  // Calculate bandwidth statistics
   function calculateBandwidth() {
     const now = performance.now()
-    const elapsed = (now - bandwidthWindowStartTime) / 1000 // seconds
-    if (elapsed < 1) return { up: 0, down: 0 }
+    const elapsedSec = (now - bandwidthWindowStartTime) / 1000
+    if (elapsedSec < 1) return { up: 0, down: 0 }
 
-    const upMbps = (totalBytesSent * 8) / elapsed / 1000000
-    const downMbps = (totalBytesReceived * 8) / elapsed / 1000000
+    const upMbps = (totalBytesSent * 8) / elapsedSec / 1000000
+    const downMbps = (totalBytesReceived * 8) / elapsedSec / 1000000
 
-    // Record samples
     bandwidthSamples.sent[bwIdx] = upMbps
     bandwidthSamples.recv[bwIdx] = downMbps
     bwIdx = (bwIdx + 1) % 240
     if (bwCount < 240) bwCount++
 
-    // Reset window
-    if (elapsed > 5) {
+    if (elapsedSec > BANDWIDTH_WINDOW_RESET_SEC) {
       totalBytesSent = 0
       totalBytesReceived = 0
       bandwidthWindowStartTime = now
@@ -193,18 +169,15 @@ export function createNetworkInspector(networkClient) {
     return { up: upMbps, down: downMbps }
   }
 
-  // Render the inspector overlay
   function render() {
     if (!state.enabled) return
 
     const w = canvas.width / dpr
     const h = canvas.height / dpr
 
-    // Clear
     ctx.fillStyle = 'rgba(0, 20, 40, 0.85)'
     ctx.fillRect(0, 0, w, h)
 
-    // Styling
     const fontSmall = `11px 'Courier New'`
     const fontMed = `12px 'Courier New'`
     const colorGood = '#0f0'
@@ -214,7 +187,6 @@ export function createNetworkInspector(networkClient) {
 
     let y = 35
 
-    // Latency display
     ctx.font = `bold ${fontMed}`
     ctx.fillStyle = avgLatency > 100 ? colorBad : avgLatency > 50 ? colorWarn : colorGood
     ctx.fillText(`RTT: ${avgLatency.toFixed(1)}ms`, 20, y)
@@ -225,24 +197,20 @@ export function createNetworkInspector(networkClient) {
     ctx.fillText(`Min: ${minLatency.toFixed(1)}ms | Max: ${maxLatency.toFixed(1)}ms`, 20, y)
     y += 14
 
-    // Bandwidth
     const bw = calculateBandwidth()
     ctx.fillStyle = colorNeutral
     ctx.fillText(`↑ Up: ${bw.up.toFixed(2)} Mbps | ↓ Down: ${bw.down.toFixed(2)} Mbps`, 20, y)
     y += 16
 
-    // Message count & frequency
     const elapsedSec = (performance.now() - captureStartTime) / 1000
     const msgFreq = msgCount > 0 ? (msgCount / elapsedSec).toFixed(1) : 0
     ctx.fillText(`Messages: ${msgCount} (${msgFreq} msg/s)`, 20, y)
     y += 14
 
-    // Total bytes
     const totalMB = ((totalBytesSent + totalBytesReceived) / 1024 / 1024).toFixed(2)
     ctx.fillText(`Total Data: ${totalMB} MB`, 20, y)
     y += 16
 
-    // Message type breakdown (top 5)
     ctx.font = `bold ${fontSmall}`
     ctx.fillStyle = colorNeutral
     ctx.fillText('Top Message Types:', 20, y)
@@ -261,7 +229,6 @@ export function createNetworkInspector(networkClient) {
 
     y += 4
 
-    // Recent messages (last 5)
     ctx.font = `bold ${fontSmall}`
     ctx.fillStyle = colorNeutral
     ctx.fillText('Recent:', 20, y)
@@ -277,20 +244,17 @@ export function createNetworkInspector(networkClient) {
       y += 12
     }
 
-    // Packet loss indicator
     y = h - 35
     ctx.font = `bold ${fontSmall}`
     ctx.fillStyle = colorNeutral
-    ctx.fillText('Packet Loss: <1%', 20, y) // Simplified; would need more tracking
+    ctx.fillText('Packet Loss: <1%', 20, y)
     y += 12
 
-    // Connection status indicator
     const isConnected = networkClient?.connected ?? true
     ctx.fillStyle = isConnected ? colorGood : colorBad
     ctx.fillText(isConnected ? '● Connected' : '● Disconnected', 20, y)
   }
 
-  // Export functionality
   function exportData(format = 'csv') {
     if (format === 'csv') {
       let csv = 'timestamp,type,size,direction\n'
@@ -326,7 +290,6 @@ export function createNetworkInspector(networkClient) {
     URL.revokeObjectURL(url)
   }
 
-  // Input handling
   function setupInputHandling() {
     header.addEventListener('mousedown', (e) => {
       if (e.target.id === 'export-btn') {
@@ -355,7 +318,6 @@ export function createNetworkInspector(networkClient) {
       state.dragging = false
     })
 
-    // F11 key to toggle
     document.addEventListener('keydown', (e) => {
       if (e.key === 'F11') {
         e.preventDefault()
@@ -374,7 +336,6 @@ export function createNetworkInspector(networkClient) {
     document.body.appendChild(overlay)
     setupInputHandling()
 
-    // Hook into network client if available
     if (networkClient && networkClient.on) {
       networkClient.on('message-send', (type, data) => {
         const size = typeof data === 'string' ? data.length : JSON.stringify(data).length

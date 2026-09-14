@@ -1,10 +1,3 @@
-// Live render-toggle debug panel (?debugpanel=1) -- lets a live tester binary-search a visual
-// artifact by flipping known suspect systems on/off, one at a time, without console commands.
-// Built for the 2026-08-09 shadow/decal-ghosting investigation: every toggle below is a candidate
-// this session ruled in/out by code inspection but could not confirm live (fps-degraded automation
-// tab, screenshot tooling only partially working) -- this panel lets the user do the live A/B
-// themselves and report which toggle changes the artifact.
-
 function ensureStyle() {
   if (document.getElementById('render-debug-panel-style')) return
   const s = document.createElement('style')
@@ -18,9 +11,6 @@ function ensureStyle() {
   document.head.appendChild(s)
 }
 
-// Each toggle: label, get() current state, set(bool) apply. Wraps whatever mechanism the target
-// system actually uses (window.__renderControls for registered CONTROLS keys, a raw window.__flag
-// for systems with no RenderControls entry yet).
 function _toggles(renderControls) {
   return [
     {

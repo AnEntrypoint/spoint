@@ -1,6 +1,3 @@
-// Mobile touch overlay using anentrypoint-design kit primitives. All colors come from
-// kit CSS variables (var(--accent), var(--panel-1), --panel-text, --rule) — no inline
-// rgba() or hardcoded hex. Touch targets ≥44px via pointer-coarse media query.
 const CSS = `
 @keyframes joyGlow{0%{box-shadow:0 0 15px color-mix(in oklab, var(--accent) 40%, transparent),inset 0 0 20px color-mix(in oklab, var(--accent) 10%, transparent)}100%{box-shadow:0 0 25px color-mix(in oklab, var(--accent) 60%, transparent),inset 0 0 30px color-mix(in oklab, var(--accent) 20%, transparent)}}
 @keyframes joyGlowLook{0%{box-shadow:0 0 15px color-mix(in oklab, var(--accent) 35%, transparent),inset 0 0 20px color-mix(in oklab, var(--accent) 8%, transparent)}100%{box-shadow:0 0 25px color-mix(in oklab, var(--accent) 55%, transparent),inset 0 0 30px color-mix(in oklab, var(--accent) 18%, transparent)}}
@@ -76,7 +73,6 @@ function makeJoystick(id, dirs) {
   return { container, knob, base }
 }
 
-// Map action kind -> kit button variant.
 const VARIANT = {
   jump: 'btn-primary',
   shoot: 'btn-primary',
@@ -109,7 +105,6 @@ export function createMobileControlsUI(controls) {
   container.className = 'ds-247420'
   container.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:9999;touch-action:none;user-select:none;-webkit-user-select:none;overflow:hidden;'
 
-  // Move joystick - minimal visual (just base ring + knob, no directions/label)
   const moveEl = document.createElement('div')
   moveEl.className = 'mobile-joystick-container'
   moveEl.id = 'move-joystick'
@@ -126,7 +121,6 @@ export function createMobileControlsUI(controls) {
   moveBase.appendChild(moveKnob)
   moveEl.appendChild(moveBase)
 
-  // Look joystick - minimal invisible touch area (no visual base/knob/directions)
   const lookEl = document.createElement('div')
   lookEl.className = 'mobile-joystick-container'
   lookEl.id = 'look-joystick'
@@ -138,7 +132,6 @@ export function createMobileControlsUI(controls) {
   lookEl.style.border = 'none'
   lookEl.style.boxShadow = 'none'
 
-  // Action button cluster (kit Row-style grid).
   const btnsEl = document.createElement('div')
   btnsEl.className = 'row'
   btnsEl.style.cssText = `position:absolute;bottom:${lay.buttonsBottomOffset}px;right:${lay.buttonsRightOffset}px;pointer-events:auto;z-index:9999;display:grid;grid-template-columns:repeat(3,auto);grid-template-rows:repeat(3,auto);gap:12px;align-items:center;justify-items:center;padding:0;background:transparent;border:0;`
@@ -157,7 +150,6 @@ export function createMobileControlsUI(controls) {
   btnsEl.appendChild(useBtn)
   btnsEl.appendChild(shootBtn)
 
-  // Zoom controls - top center, small buttons
   const zoomEl = document.createElement('div')
   zoomEl.className = 'mobile-zoom-controls'
   zoomEl.style.cssText = `top:8px;left:50%;transform:translateX(-50%);pointer-events:auto;z-index:9999;display:flex;flex-direction:column;gap:4px;align-items:center;`
@@ -179,12 +171,6 @@ export function createMobileControlsUI(controls) {
   const topBar = document.createElement('div')
   topBar.className = 'mobile-top-bar'
 
-  // Quick-chat wheel trigger: a single small top-bar button (topBar itself is pointer-events:none,
-  // so this one child opts back in) since desktop's equivalent is a HELD key (see InputHandler.js's
-  // chatWheelHeld/KeyV) but mobile has no free real estate for a second joystick-adjacent button --
-  // the move/look joysticks + action-button cluster already fill both bottom corners. Tap-and-hold
-  // opens client/hud/ChatQuickWheel.js the same as holding V does on desktop; released = send slot 1
-  // (mobile has no digit keys to pick a different slot, see InputHandler.js's mobile chatWheelDigit).
   const chatWheelBtn = document.createElement('button')
   chatWheelBtn.className = 'btn btn-ghost mobile-action-btn chatWheel'
   chatWheelBtn.dataset.action = 'chatWheel'

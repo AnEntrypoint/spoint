@@ -1,29 +1,4 @@
-// Corner minimap HUD widget: renders the server-baked top-down color+height minimap
-// (scripts/bake-minimap.mjs, wired onto the wire via worldDef._minimap -- see src/sdk/ServerAPI.js's
-// bakeMinimapIfMissing / src/sdk/WorkerEntry.js's singleplayer-degraded metadata) plus a live rotating
-// player-position dot in a small fixed corner widget. Follow-up to minimap-bake-topdown-color-height-
-// per-seed; see PRD row minimap-hud-editor-ui-integration.
-//
-// COORDINATE MAPPING: the bake samples a square of `extent` local-frame meters centered on `center`
-// (both from worldDef._minimap, the SAME fields scripts/bake-minimap.mjs used to generate the PNG --
-// see bakeMinimap()'s `half = extent/2` / `center` usage), producing an N x N grid where pixel (0,0) is
-// the MIN corner (center - half) and pixel (N-1,N-1) is the MAX corner (center + half), one row per
-// increasing z (see bake's `for (iz) { z = center[1] - half + iz*step` loop -- iz is the image ROW/Y,
-// local z is spoint's north-ish planar axis, not the image's own "north" notion). A player's local
-// (x,z) (from PlanetFrame's frame -- see TerrainBackdrop.js/window.__terrain, authoritative/unshifted
-// coordinate from FloatingOrigin.toAuthoritative) maps to normalized [0,1] via
-// (x - (center.x-half)) / extent, (z - (center.y-half)) / extent, then to canvas pixels by multiplying
-// the widget's drawn size. No rotation is applied (the bake has no camera-relative concept -- it is a
-// fixed north-up top-down projection over local x/z), matching a conventional top-down minimap.
-//
-// DEGRADE-TO-HIDDEN: worldDef._minimap can be absent (a world with terrain disabled or a non-finite
-// seed never gets the field set -- see ServerAPI.js/WorkerEntry.js), or present but the PNG/JSON 404
-// (singleplayer's in-Worker path publishes the SAME metadata shape a real server boot would but never
-// bakes anything itself -- see WorkerEntry.js's comment -- so a session that never had a real `node
-// server.js` boot for this exact world+seed has no file on disk yet). Either case leaves the widget
-// permanently hidden rather than showing a broken-image icon or throwing.
-
-const SIZE_PX = 168 // widget diameter/side, before device-pixel-ratio scaling
+const SIZE_PX = 168
 const DOT_RADIUS_PX = 4
 
 function ensureStyles() {
@@ -46,10 +21,6 @@ function ensureStyles() {
   document.head.appendChild(style)
 }
 
-// worldDef._minimap -> { base, center: [x,z], extent } (see src/sdk/ServerAPI.js). Fetches base+'.json'
-// (header: N, minHeight, maxHeight, ...) then base+'.png' as an Image; both must succeed to arm the
-// widget. getLocalXZ() returns the live player's authoritative local (x,z), or null while unavailable
-// (no player mesh yet / floating origin not ready) -- a null read just skips the dot this frame.
 export function createMinimapHUD(minimapMeta, getLocalXZ) {
   ensureStyles()
   const state = { armed: false, header: null, img: null }
@@ -82,7 +53,6 @@ export function createMinimapHUD(minimapMeta, getLocalXZ) {
       root.style.display = 'block'
       _drawBase()
     } catch (e) {
-      // 404/network error/decode failure -- soft-fail to permanently hidden, never throws into the caller's render loop.
       state.armed = false
     }
   }
@@ -94,9 +64,6 @@ export function createMinimapHUD(minimapMeta, getLocalXZ) {
     ctx2d.drawImage(state.img, 0, 0, canvas.width, canvas.height)
   }
 
-  // update(): called once per client frame (cheap no-op while unarmed). Redraws the base image + player
-  // dot every call rather than diffing -- a 168px canvas blit is trivial next to the rest of the frame,
-  // and this avoids a second code path for "was the dot in a different place last frame".
   let _lastPx = NaN, _lastPy = NaN
   function update() {
     if (!state.armed) return
@@ -107,14 +74,11 @@ export function createMinimapHUD(minimapMeta, getLocalXZ) {
       const half = minimapMeta.extent / 2
       const u = (p.x - (cx - half)) / minimapMeta.extent
       const v = (p.z - (cz - half)) / minimapMeta.extent
-      // player outside the baked extent -- no dot rather than a clamped-wrong one
-      if (u >= 0 && u <= 1 && v >= 0 && v <= 1) { px = u * canvas.width; py = v * canvas.height }
+      const insideBakedExtent = u >= 0 && u <= 1 && v >= 0 && v <= 1
+      if (insideBakedExtent) { px = u * canvas.width; py = v * canvas.height }
     }
-    // Redraw only when the dot's rasterised position actually changes (sub-pixel motion at walking
-    // speed produced an identical canvas most frames; a dirtied DOM canvas still costs a compositor
-    // upload every frame). NaN==NaN is false, so an off-map dot redraws once then holds.
-    const same = (Number.isNaN(px) && Number.isNaN(_lastPx)) || (Math.abs(px - _lastPx) < 0.5 && Math.abs(py - _lastPy) < 0.5)
-    if (same) return
+    const dotRasterPositionUnchanged = (Number.isNaN(px) && Number.isNaN(_lastPx)) || (Math.abs(px - _lastPx) < 0.5 && Math.abs(py - _lastPy) < 0.5)
+    if (dotRasterPositionUnchanged) return
     _lastPx = px; _lastPy = py
     _drawBase()
     if (Number.isNaN(px)) return
