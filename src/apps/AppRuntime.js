@@ -9,6 +9,7 @@ import { vecOK } from '../shared/vecGuard.js'
 import { weaponNameToCode } from '../shared/WeaponCodes.js'
 import { mixinPhysics } from './AppRuntimePhysics.js'
 import { mixinTick } from './AppRuntimeTick.js'
+import { mixinStaticMotion } from './AppRuntimeStaticMotion.js'
 import { installCustomVersion } from './CustomVersion.js'
 import { resolveCCD } from './AppPhysics.js'
 
@@ -30,6 +31,7 @@ export class AppRuntime {
       this._unmanagedDirty = true
       const e = this.entities.get(id); const v = e && typeof e._customV === 'number' ? e._customV : 0
       this._staticCustomSum += added ? v : -v
+      if (!added) this._forgetStaticMotion(id)
     }
     this._pbidDesc = {
       enumerable: true, configurable: true,
@@ -58,7 +60,8 @@ export class AppRuntime {
     this._deferredPopulationOps = []; this._resimSuppressed = false
     this._deferredCommitmentOps = []
     this._pendingTrimeshBuilds = new Set()
-    mixinPhysics(this); mixinTick(this); if (this._physics) this._registerPhysicsCallbacks()
+    this._movedStaticIds = new HookedSet(markUnmanagedDirty)
+    mixinPhysics(this); mixinTick(this); mixinStaticMotion(this); if (this._physics) this._registerPhysicsCallbacks()
     this._hotReload = new HotReloadQueue(this); this._eventBus = c.eventBus || new EventBus()
     this._appVersions = new Map()
     this._eventLog = c.eventLog||null; this._storage = c.storage||null; this._sdkRoot = c.sdkRoot||null
@@ -444,7 +447,7 @@ export class AppRuntime {
   _encodeEntity(id, e) { const r=Array.isArray(e.rotation)?[...e.rotation]:[e.rotation.x||0,e.rotation.y||0,e.rotation.z||0,e.rotation.w||1]; return { id, model:e.model, position:[...e.position], rotation:r, scale:[...e.scale], velocity:[...(e.velocity||[0,0,0])], bodyType:e.bodyType, custom:e.custom||null, parent:e.parent||null } }
   _markDirty(id) { this._snapshotVersion++; const v = this._entityVersions.get(id) || 0; this._entityVersions.set(id, v + 1) }
   _snap(entities) { return { tick: this.currentTick, timestamp: Date.now(), entities } }
-  getSnapshot() { if (this._snapshotCache && this._snapshotCache._version === this._snapshotVersion) return this._snapshotCache; const e=[]; for (const [id,en] of this.entities) e.push(this._encodeEntity(id,en)); this._snapshotCache = Object.assign(this._snap(e), { _version: this._snapshotVersion }); return this._snapshotCache }
+  getSnapshot() { if (this._snapshotCache && this._snapshotCache._version === this._snapshotVersion && this._snapshotCache.tick === this.currentTick) return this._snapshotCache; const e=[]; for (const [id,en] of this.entities) e.push(this._encodeEntity(id,en)); this._snapshotCache = Object.assign(this._snap(e), { _version: this._snapshotVersion }); return this._snapshotCache }
   getStaticSnapshot() { const e=[]; for (const id of this._staticEntityIds) { const en=this.entities.get(id); if (en) e.push(this._encodeEntity(id,en)) } return this._snap(e) }
   getStaticCustomVersionSum() { return this._staticCustomSum }
 
@@ -479,7 +482,8 @@ export class AppRuntime {
   getUnmanagedDynamicIds() {
     if (!this._unmanagedDirty) return this._unmanagedIds
     const o = this._unmanagedIds; o.length = 0
-    for (const id of this._dynamicEntityIds) { if (this._activeDynamicIds.has(id) || this._sleepingDynamicIds.has(id) || this._suspendedEntityIds.has(id)) continue; const e=this.entities.get(id); if (e && e._physicsBodyId===undefined) o.push(id) }
+    for (const id of this._dynamicEntityIds) { if (this._activeDynamicIds.has(id) || this._sleepingDynamicIds.has(id) || this._suspendedEntityIds.has(id)) continue; const e=this.entities.get(id); if (e && (e._physicsBodyId===undefined || e.bodyType==='kinematic')) o.push(id) }
+    for (const id of this._movedStaticIds) o.push(id)
     this._unmanagedDirty = false
     return o
   }

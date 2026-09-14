@@ -9,7 +9,7 @@ import { createServerWeather } from './ServerWeather.js'
 import { enforceMovementEnvelope } from '../netcode/InputGuard.js'
 import { checksumBodies } from '../netcode/LockstepChecksum.js'
 import { recordSnapshotBytes, recordTickPhase } from './Metrics.js'
-import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, getPlayerPriorityIds, clearPlayerPriorityAccumulator, _spatialCache, _cellPackCache, _ringCache, _cellCenterWorld } from './TickHandlerAOI.js'
+import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, getPlayerPriorityIds, clearPlayerPriorityAccumulator, _spatialCache, _cellPackCache, _ringCache } from './TickHandlerAOI.js'
 export { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, getPlayerPriorityIds } from './TickHandlerAOI.js'
 
 const INPUT_BACKLOG_DRAIN = 2
@@ -34,6 +34,7 @@ const SWIMMING_WIRE_BIT = 2
 const DEFAULT_TICK_RATE_HZ = 60
 const SNAP_BAND_HYSTERESIS_HZ = 2
 const SNAP_BAND_HOLD_SECONDS = 2
+const STATIC_MOTION_IDLE_SECONDS = 1
 
 let _lastYaw = NaN, _lastSinHalf = 0, _lastCosHalf = 1
 
@@ -103,6 +104,43 @@ function packSnapshot(seq, encoded) {
   return buf
 }
 
+function resolvePlayerCell(viewerPos, planetRadius, relevanceRadius) {
+  if (planetRadius > 0) {
+    const c = worldToCell(viewerPos[0], viewerPos[1], viewerPos[2], planetRadius, relevanceRadius)
+    const cellsPerFace = Math.ceil((2 * planetRadius) / relevanceRadius)
+    return { cellKey: packCellKey(c.face, c.cx, c.cy, cellsPerFace), cellFace: c.face, cellCx: c.cx, cellCy: c.cy, cellsPerFace }
+  }
+  const cx = Math.floor(viewerPos[0] / relevanceRadius), cz = Math.floor(viewerPos[2] / relevanceRadius)
+  return { cellKey: (cx * 65536 + cz) | 0, cellFace: -1, cellCx: 0, cellCy: 0, cellsPerFace: 0 }
+}
+
+function restoreTrimmedBaselines(sent, kept, staticCount, entityMap, prevMap) {
+  const keptIds = new Set()
+  for (let i = staticCount; i < kept.length; i++) keptIds.add(kept[i][0])
+  for (let i = staticCount; i < sent.length; i++) {
+    const id = sent[i][0]
+    if (keptIds.has(id)) continue
+    const prev = prevMap.get(id)
+    if (prev) entityMap.set(id, prev); else entityMap.delete(id)
+  }
+}
+
+const _playerCellScratch = new Map()
+const _cellViewersScratch = new Map()
+
+function groupPlayersByCell(players, snapGroups, curGroup, planetRadius, relevanceRadius) {
+  _playerCellScratch.clear(); _cellViewersScratch.clear()
+  for (const player of players) {
+    if (player.snapGroup % snapGroups !== curGroup) continue
+    const p = player.state.position
+    const cell = resolvePlayerCell(p, planetRadius, relevanceRadius)
+    _playerCellScratch.set(player.id, cell)
+    let viewers = _cellViewersScratch.get(cell.cellKey)
+    if (!viewers) { viewers = []; _cellViewersScratch.set(cell.cellKey, viewers) }
+    viewers.push(p[0], p[1], p[2])
+  }
+}
+
 function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isKeyframe, state, serverNow) {
   const { connections, stageLoader, getRelevanceRadius, networkState, playerEntityMaps } = deps
   const playerSnap = networkState.getSnapshot()
@@ -114,6 +152,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
   const planetRadius = activeStage ? (activeStage.spatial.planetRadius || 0) : 0
 
   if (relevanceRadius > 0) {
+    appRuntime.trackStaticMotion(Math.max(1, deps.getSnapshotHz ? deps.getSnapshotHz() : 20) * STATIC_MOTION_IDLE_SECONDS)
     const curStaticVersion = appRuntime._staticVersion
     const curStaticCustomSum = appRuntime.getStaticCustomVersionSum ? appRuntime.getStaticCustomVersionSum() : 0
     let activeStaticEntries = null
@@ -139,6 +178,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     _ringCache.clear()
     let dynCache = null
     let unmanagedIds = null
+    groupPlayersByCell(players, snapGroups, curGroup, planetRadius, relevanceRadius)
     for (const player of players) {
       if (player.snapGroup % snapGroups !== curGroup) continue
       if (dynCache === null) {
@@ -151,27 +191,10 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
       }
       const isNewPlayer = !playerEntityMaps.has(player.id)
       const viewerPos = player.state.position
-      let cellKey, cellViewerPos, cellFace = -1, cellCx = 0, cellCy = 0, cellsPerFace = 0
-      if (planetRadius > 0) {
-        const c = worldToCell(viewerPos[0], viewerPos[1], viewerPos[2], planetRadius, relevanceRadius)
-        cellFace = c.face; cellCx = c.cx; cellCy = c.cy
-        cellsPerFace = Math.ceil((2 * planetRadius) / relevanceRadius)
-        cellKey = packCellKey(cellFace, cellCx, cellCy, cellsPerFace)
-        const ATAN_K = Math.PI / 4.0
-        const foX = (cellCx + 0.5) * relevanceRadius - planetRadius
-        const foY = (cellCy + 0.5) * relevanceRadius - planetRadius
-        const wx = planetRadius * Math.tan((foX / planetRadius) * ATAN_K)
-        const wy = planetRadius * Math.tan((foY / planetRadius) * ATAN_K)
-        const dist = Math.hypot(viewerPos[0], viewerPos[1], viewerPos[2]) || planetRadius
-        cellViewerPos = _cellCenterWorld(cellFace, wx, wy, planetRadius, dist)
-      } else {
-        const cx = Math.floor(viewerPos[0] / relevanceRadius), cz = Math.floor(viewerPos[2] / relevanceRadius)
-        cellKey = (cx * 65536 + cz) | 0
-        cellViewerPos = [(cx + 0.5) * relevanceRadius, viewerPos[1], (cz + 0.5) * relevanceRadius]
-      }
+      const { cellKey, cellFace, cellCx, cellCy, cellsPerFace } = _playerCellScratch.get(player.id)
       let cached = _spatialCache.get(cellKey)
       if (!cached) {
-        cached = { nearbyPlayerIds: appRuntime.nearbyPlayerIds(viewerPos, relevanceRadius), relevantIds: appRuntime.getRelevantDynamicIds(viewerPos, relevanceRadius), cellViewerPos }
+        cached = { nearbyPlayerIds: appRuntime.nearbyPlayerIds(viewerPos, relevanceRadius), relevantIds: appRuntime.getRelevantDynamicIds(viewerPos, relevanceRadius) }
         _spatialCache.set(cellKey, cached)
       }
       let preEncodedPlayers, playerDots, isTiered = false, isFreshToCell = false
@@ -199,7 +222,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
             relevantIds = relSet
           }
           const cellLastTick = state.cellLastTick.get(cellKey) || 0
-          const r = SnapshotEncoder.encodeDeltaFromCache(playerSnap.tick, serverNow, dynCache, relevantIds, cellMap, [], activeStaticEntries, state.staticEntityMap, state.staticEntityIds, snapshotSeq, cached.cellViewerPos, null, state.tombstoneLog, cellLastTick, snapshotHz)
+          const r = SnapshotEncoder.encodeDeltaFromCache(playerSnap.tick, serverNow, dynCache, relevantIds, cellMap, [], activeStaticEntries, state.staticEntityMap, state.staticEntityIds, snapshotSeq, _cellViewersScratch.get(cellKey), null, state.tombstoneLog, cellLastTick, snapshotHz)
           shared = { tick, entities: r.encoded.entities, removed: r.encoded.removed, entityMap: r.entityMap }
           r.entityMap._cellShared = true
           cached.sharedEncode = shared
@@ -237,7 +260,10 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
         const staticCountForTrim = staticEntriesForCall ? staticEntriesForCall.length : 0
         if (encoded.entities.length - staticCountForTrim >= BANDWIDTH_TRIM_MIN_ENTITIES) {
           const trim = trimEntitiesToBudget(encoded.entities, staticCountForTrim, viewerPos, dynCache)
-          if (trim.trimmedCount > 0) encoded.entities = trim.entities
+          if (trim.trimmedCount > 0) {
+            restoreTrimmedBaselines(encoded.entities, trim.entities, staticCountForTrim, entityMap, prevPlayerMap)
+            encoded.entities = trim.entities
+          }
         }
       }
       if (playerDots) encoded.dots = playerDots
