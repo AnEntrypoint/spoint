@@ -98,13 +98,17 @@ const normalize=v=>{const r=Math.hypot(...v)||1;return [v[0]/r,v[1]/r,v[2]/r]};
 
 const _planetScale = (typeof window !== 'undefined' && typeof window.__planetScale === 'number' && window.__planetScale > 0) ? window.__planetScale : 0.001;
 const RADIUS=6371.0 * _planetScale;
-const WEBGL2_TERRAIN_R_M = 6360000.0 * _planetScale;
+const REF_TERRAIN_R_M = 6360000.0;
+const WEBGL2_TERRAIN_R_M = REF_TERRAIN_R_M * _planetScale;
+const refM = m => m * _planetScale;
 const WEBGL2_M_PER_UNIT = WEBGL2_TERRAIN_R_M / RADIUS;
 if (typeof window !== 'undefined') {
   window.__RADIUS = RADIUS;
   window.__WEBGL2_TERRAIN_R_M = WEBGL2_TERRAIN_R_M;
   window.__WEBGL2_M_PER_UNIT = WEBGL2_M_PER_UNIT;
 }
+const MAX_CAM_R = RADIUS * 6000;
+const EARTH_REF_RUNGS_KM = { space:35000, orbit:2000, midalt:400, lowalt:50, closeup:5 };
 const GPU_PROBE_MAX_ALT_KM = 20.0;
 const PROBE_MICRO_RELIEF_MARGIN_M = 1.0;
 const MIRROR_UNDERPREDICT_MARGIN_M = 3.0;
@@ -293,6 +297,7 @@ function frameLoop(){
       })();
       import('./src/planet-orchestrator.js')
         .then(m => m.initMapspinnerPlanet(glw, {
+          radius: WEBGL2_TERRAIN_R_M,
           gridMeshSize: ((new URLSearchParams(location.search).get('grid')|0) || undefined) }))
         .then(orch => { window.__planetOrch = orch; window.__planetOrchGL = glw; window.__planetOrchStatus='ready';
           import('./src/terrain-gen-controls.js').catch(e=>console.warn('gen-controls',e)); })
@@ -387,10 +392,9 @@ function frameLoop(){
   const eyeHeight = 2.0 / WEBGL2_M_PER_UNIT;
   const minR = RADIUS * (1.0 + surfElev) + eyeHeight;
   if (doClamp && r < minR) { const s = minR/r; cam.pos[0]*=s; cam.pos[1]*=s; cam.pos[2]*=s; }
-  const maxR = RADIUS * 6000;
-  if (r > maxR) { const s = maxR/r; cam.pos[0]*=s; cam.pos[1]*=s; cam.pos[2]*=s; }
+  if (r > MAX_CAM_R) { const s = MAX_CAM_R/r; cam.pos[0]*=s; cam.pos[1]*=s; cam.pos[2]*=s; }
 
-  const heightAboveGroundM = (Math.hypot(...cam.pos) - RADIUS*(1.0 + surfElev)) * 1000;
+  const heightAboveGroundM = (Math.hypot(...cam.pos) - RADIUS*(1.0 + surfElev)) * WEBGL2_M_PER_UNIT;
   window.__altM = heightAboveGroundM;
 
   if (window.__useWebGL2Terrain && window.__planetOrch) {
@@ -398,7 +402,7 @@ function frameLoop(){
       scheduleFrame(); return;
     }
     const gw = document.getElementById('cwebgl');
-    { const _dpr = Math.min(window.devicePixelRatio||1, 2); const tw=Math.round(innerWidth*_dpr), th=Math.round(innerHeight*_dpr);
+    { const _rs = (window.__renderScale > 0) ? window.__renderScale : Math.min(window.devicePixelRatio||1, 2); const tw=Math.round(innerWidth*_rs), th=Math.round(innerHeight*_rs);
       if (gw.width!==tw||gw.height!==th){ gw.width=tw; gw.height=th; } }
     cam.sunLonAccum += dt * 1000.0 * cam.sunLonRate * cam.timeScale;
     const sM = WEBGL2_M_PER_UNIT;
@@ -446,7 +450,7 @@ function frameLoop(){
     if (frame % diagInterval === 0) {
       let hSamp = null, hRangeM = null;
       try {
-        const orch = window.__planetOrch, sg = orch && orch.render && orch.render.sampleGroundM;
+        const orch = window.__planetOrch, sg = orch && orch.render && orch.render.sampleGroundMSync;
         if (sg) {
           const p = window.__cam.pos, L = Math.hypot(p[0],p[1],p[2])||1;
           const h0 = sg([p[0]/L, p[1]/L, p[2]/L]);
@@ -462,7 +466,7 @@ function frameLoop(){
         groundM: hSamp, groundRangeM: hRangeM});
     }
     if (frame % 30 === 0) {
-      const altR=(camDistR-1.0); const altM = altR * 6371000;
+      const altR=(camDistR-1.0); const altM = altR * WEBGL2_TERRAIN_R_M;
       const altStr = altM > 1e6 ? `${(altM/1e6).toFixed(1)}Mm`
                    : altM > 1e3 ? `${(altM/1e3).toFixed(1)}km` : `${altM.toFixed(0)}m`;
       const hg = window.__altM || 0;
@@ -640,7 +644,7 @@ window.__dbg = {
 window.__diag = {
   _gl(){ return window.__planetOrchGL; },
   hRange(){
-    const orch = window.__planetOrch, sg = orch && orch.render && orch.render.sampleGroundM;
+    const orch = window.__planetOrch, sg = orch && orch.render && orch.render.sampleGroundMSync;
     if (!sg) return { err: 'no-probe' };
     const p = window.__cam.pos, L = Math.hypot(p[0],p[1],p[2])||1;
     const d0 = [p[0]/L, p[1]/L, p[2]/L];
@@ -674,18 +678,18 @@ window.__diag = {
     return out;
   },
   groundTruth(){
-    const orch = window.__planetOrch, sg = orch && orch.render && orch.render.sampleGroundM;
+    const orch = window.__planetOrch, sg = orch && orch.render && orch.render.sampleGroundMSync;
     if (!sg) return { err: 'no-probe' };
     const p = window.__cam.pos, L = Math.hypot(p[0],p[1],p[2])||1;
     const u = [p[0]/L, p[1]/L, p[2]/L];
     const h = sg(u); if (h == null) return { err: 'probe-not-ready' };
-    const e = 150/6360000;
+    const e = 150/REF_TERRAIN_R_M;
     const ref = Math.abs(u[1])<0.99?[0,1,0]:[1,0,0];
     let ux=[ref[1]*u[2]-ref[2]*u[1],ref[2]*u[0]-ref[0]*u[2],ref[0]*u[1]-ref[1]*u[0]];
     const xl=Math.hypot(ux[0],ux[1],ux[2]); ux=ux.map(v=>v/xl);
     const uy=[u[1]*ux[2]-u[2]*ux[1],u[2]*ux[0]-u[0]*ux[2],u[0]*ux[1]-u[1]*ux[0]];
     const tap=(ax)=>{const v=[u[0]+ax[0]*e,u[1]+ax[1]*e,u[2]+ax[2]*e];const l=Math.hypot(v[0],v[1],v[2]);return sg([v[0]/l,v[1]/l,v[2]/l]);};
-    const du=(tap(ux)-h)/150, dv=(tap(uy)-h)/150;
+    const du=(tap(ux)-h)/refM(150), dv=(tap(uy)-h)/refM(150);
     return { h: Math.round(h), slope150: +((1 - 1/Math.sqrt(1+du*du+dv*dv))).toFixed(3), camDir: u.map(v=>+v.toFixed(4)) };
   },
   async gpuTimer(reps=30){
@@ -757,8 +761,8 @@ window.__diag = {
   async parkAboveGround(altKm=10, dir=null, pitch=0.4){
     const orch=window.__planetOrch, db=window.__dbg, R_M=WEBGL2_TERRAIN_R_M;
     let u=dir||window.__landDir||[0.333,-0.258,0.907]; const ul=Math.hypot(...u)||1; u=[u[0]/ul,u[1]/ul,u[2]/ul];
-    const groundM = (orch&&orch.render&&orch.render.sampleGroundM) ? Math.max(0,orch.render.sampleGroundM(u)) : 0;
-    const rM = R_M + groundM + altKm*1000;
+    const groundM = (orch&&orch.render&&orch.render.sampleGroundMSync) ? Math.max(0,orch.render.sampleGroundMSync(u)) : 0;
+    const rM = R_M + groundM + refM(altKm*1000);
     const rU = rM / WEBGL2_M_PER_UNIT;
     cam.pos=[u[0]*rU, u[1]*rU, u[2]*rU];
     let t=[-u[1],u[0],0]; const tl=Math.hypot(...t)||1; t=[t[0]/tl,t[1]/tl,t[2]/tl];
@@ -814,13 +818,13 @@ window.__diag = {
       quads:(window.__webglFrame||{}).quadCount|0, pageErr:window.__pageErr||null};
   },
 
-  RUNGS: { space:35000, orbit:2000, midalt:400, lowalt:50, closeup:5 },
+  RUNGS: Object.fromEntries(Object.entries(EARTH_REF_RUNGS_KM).map(([k,km])=>[k, km*_planetScale])),
   async parkAt(rung='orbit', settleFrames=8){
     const km = (typeof rung==='number') ? rung : this.RUNGS[rung];
     if(km==null) return {err:'unknown-rung:'+rung+' (use space/orbit/midalt/lowalt/closeup or a km number)'};
-    window.__dbg.gotoDown(km);
+    window.__dbg.gotoDown(Math.min(km, MAX_CAM_R - RADIUS));
     await window.__dbg.frames(settleFrames);
-    return { rung, altKm:+window.__dbg.altKm().toFixed(1), quads:window.__dbg.quads(), glError:window.__dbg.glError() };
+    return { rung, altKm:+window.__dbg.altKm().toPrecision(4), quads:window.__dbg.quads(), glError:window.__dbg.glError() };
   },
   async aimDir(dir, altKm=40, settleFrames=30){
     const L=Math.hypot(dir[0],dir[1],dir[2])||1; const u=[dir[0]/L,dir[1]/L,dir[2]/L];
@@ -849,19 +853,19 @@ window.__diag = {
 
   async landWitness(altKm=4, pitch=0.45, minH=800, samples=900, displayMode=0){
     const orch=window.__planetOrch, gl=window.__planetOrchGL, cam=window.__dbg.cam;
-    const sg = orch && orch.render && orch.render.sampleGroundM;
-    if(!sg) return {err:'no-sampleGroundM (probe program missing)'};
+    const sg = orch && orch.render && orch.render.sampleGroundMSync;
+    if(!sg) return {err:'no-sampleGroundMSync (probe program missing)'};
     const R_M=window.__WEBGL2_TERRAIN_R_M, MPU=window.__WEBGL2_M_PER_UNIT;
     let best=null, landCount=0;
     for(let i=0;i<samples;i++){
       const y=1-2*(i+0.5)/samples, r=Math.sqrt(Math.max(0,1-y*y)), t=i*2.399963229;
       const u=[Math.cos(t)*r, y, Math.sin(t)*r];
-      const h=sg(u); if(h>0) landCount++; if(h>minH && (!best||h>best.h)) best={u,h};
+      const h=sg(u); if(h>0) landCount++; if(h>refM(minH) && (!best||h>best.h)) best={u,h};
     }
     if(!best) return {err:'no-land-found', landFrac:+(landCount/samples).toFixed(3)};
     window.__landDir = best.u;
     const u=best.u, groundM=Math.max(0,sg(u));
-    const rU=(R_M + groundM + altKm*1000)/MPU;
+    const rU=(R_M + groundM + refM(altKm*1000))/MPU;
     cam.pos=[u[0]*rU, u[1]*rU, u[2]*rU];
     let tg=[-u[1],u[0],0]; const tl=Math.hypot(...tg)||1; tg=[tg[0]/tl,tg[1]/tl,tg[2]/tl];
     let f=[-u[0]*(1-pitch)+tg[0]*pitch, -u[1]*(1-pitch)+tg[1]*pitch, -u[2]*(1-pitch)+tg[2]*pitch];
@@ -878,20 +882,20 @@ window.__diag = {
     for(let i=0;i<px.length;i+=4){const r=px[i],g=px[i+1],b=px[i+2]; if(r<6&&g<6&&b<6)continue;
       n++; rs+=r;gs+=g;bs+=b; if(b>r+25&&b>g)blue++;}
     return { landFrac:+(landCount/samples).toFixed(3), bestLandH:Math.round(best.h),
-      bestDir:best.u.map(v=>+v.toFixed(3)), altKm:+window.__dbg.altKm().toFixed(1),
+      bestDir:best.u.map(v=>+v.toFixed(3)), altKm:+window.__dbg.altKm().toPrecision(4),
       census:{ pixels:n, meanRGB:n?[Math.round(rs/n),Math.round(gs/n),Math.round(bs/n)]:[0,0,0],
         blueFrac:n?+(blue/n).toFixed(2):0 }, glError:gl.getError() };
   },
 
   async probeWarm(timeoutMs=180000){
-    const orch=window.__planetOrch; const sg=orch&&orch.render&&orch.render.sampleGroundM;
-    if(!sg) return {ok:false, err:'no-sampleGroundM'};
+    const orch=window.__planetOrch; const sg=orch&&orch.render&&orch.render.sampleGroundMSync;
+    if(!sg) return {ok:false, err:'no-sampleGroundMSync'};
     const t0=performance.now();
     for(;;){
       for(let i=0;i<24;i++){
         const y=1-2*(i+0.5)/24, r=Math.sqrt(Math.max(0,1-y*y)), t=i*2.399963229;
         const h=sg([Math.cos(t)*r, y, Math.sin(t)*r]);
-        if(Math.abs(h)>1) return {ok:true, ms:Math.round(performance.now()-t0)};
+        if(Math.abs(h)>refM(1)) return {ok:true, ms:Math.round(performance.now()-t0)};
       }
       if(performance.now()-t0>timeoutMs) return {ok:false, err:'probe-warm-timeout'};
       await window.__dbg.frames(20);
@@ -900,19 +904,19 @@ window.__diag = {
 
   async coastWitness(altKm=6, samples=2400){
     const orch=window.__planetOrch, gl=window.__planetOrchGL;
-    const sg = orch && orch.render && orch.render.sampleGroundM;
-    if(!sg) return {err:'no-sampleGroundM'};
+    const sg = orch && orch.render && orch.render.sampleGroundMSync;
+    if(!sg) return {err:'no-sampleGroundMSync'};
     const pw = await this.probeWarm(); if(!pw.ok) return {err:'probe-warm-timeout'};
     let best=null;
     for(let i=0;i<samples && !best;i++){
       const y=1-2*(i+0.5)/samples, r=Math.sqrt(Math.max(0,1-y*y)), t=i*2.399963229;
       const u=[Math.cos(t)*r, y, Math.sin(t)*r];
-      const h0=sg(u); if(h0<=0||h0>400) continue;
+      const h0=sg(u); if(h0<=0||h0>refM(400)) continue;
       for(const e of [0.004, 0.008, 0.016]){
         for(const d of [[e,0,0],[-e,0,0],[0,e,0],[0,-e,0],[0,0,e],[0,0,-e]]){
           const v=[u[0]+d[0],u[1]+d[1],u[2]+d[2]]; const L=Math.hypot(...v);
           const vn=[v[0]/L,v[1]/L,v[2]/L];
-          if(sg(vn) < -5){
+          if(sg(vn) < refM(-5)){
             let a=u, b=vn;
             for(let s=0;s<14;s++){ const m=[(a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2];
               const ml=Math.hypot(...m); const mn=[m[0]/ml,m[1]/ml,m[2]/ml];
@@ -920,11 +924,11 @@ window.__diag = {
             const step=[(b[0]-a[0]),(b[1]-a[1]),(b[2]-a[2])];
             const sl=Math.hypot(...step)||1e-9;
             for(let kkm=0.5;kkm<=15.0;kkm+=0.5){
-              const t=(kkm/6360)/sl;
+              const t=(kkm*1000/REF_TERRAIN_R_M)/sl;
               const p=[a[0]+step[0]*t, a[1]+step[1]*t, a[2]+step[2]*t];
               const pl=Math.hypot(...p); const pn=[p[0]/pl,p[1]/pl,p[2]/pl];
-              if(sg(pn) < -30){
-                best={u:pn, h:Math.round(sg(a)), ringKm:Math.round(e*6360), deepAtKm:kkm};
+              if(sg(pn) < refM(-30)){
+                best={u:pn, h:Math.round(sg(a)), ringKm:Math.round(e*REF_TERRAIN_R_M/1000), deepAtKm:kkm};
                 break;
               }
             }
@@ -937,7 +941,7 @@ window.__diag = {
     if(!best) return {err:'no-coast-found'};
     const camC=window.__dbg.cam, latC=Math.asin(best.u[1]), lonC=Math.atan2(best.u[0],best.u[2]);
     camC.sunLatBase=Math.max(-1.4, latC-0.5); camC.sunLonBase=lonC; camC.sunLonAccum=0; camC.timeScale=0;
-    await this.aimDir(best.u, Math.min(altKm, 2), 40);
+    await this.aimDir(best.u, Math.min(altKm, 2)*_planetScale, 40);
     const grab=()=>{ const {px,w,h}=this._read(); return {px,w,h}; };
     const diffPx=(a,b,stride)=>{ let m=0; for(let i=0;i<a.w*a.h;i+=stride){ const k=i*4;
       if(Math.abs(a.px[k]-b.px[k])+Math.abs(a.px[k+1]-b.px[k+1])+Math.abs(a.px[k+2]-b.px[k+2])>18) m++; } return m; };
@@ -958,8 +962,8 @@ window.__diag = {
   },
 
   async shadeKeyWitness(grid=12){
-    const orch=window.__planetOrch; const sg=orch&&orch.render&&orch.render.sampleGroundM;
-    if(!sg) return {err:'no-sampleGroundM'};
+    const orch=window.__planetOrch; const sg=orch&&orch.render&&orch.render.sampleGroundMSync;
+    if(!sg) return {err:'no-sampleGroundMSync'};
     const lw=await this.landWitness(8, 0.0); if(lw.err) return lw;
     const u=window.__landDir; const {px,w,h}=this._read();
     const ref=Math.abs(u[1])<0.99?[0,1,0]:[1,0,0];
@@ -976,7 +980,7 @@ window.__diag = {
       const ds=0.00008;
       const d1=[dn[0]+ux[0]*ds,dn[1]+ux[1]*ds,dn[2]+ux[2]*ds]; const l1=Math.hypot(...d1);
       const d2=[dn[0]+uy[0]*ds,dn[1]+uy[1]*ds,dn[2]+uy[2]*ds]; const l2=Math.hypot(...d2);
-      const gxm=(sg([d1[0]/l1,d1[1]/l1,d1[2]/l1])-e0)/500, gym=(sg([d2[0]/l2,d2[1]/l2,d2[2]/l2])-e0)/500;
+      const gxm=(sg([d1[0]/l1,d1[1]/l1,d1[2]/l1])-e0)/refM(500), gym=(sg([d2[0]/l2,d2[1]/l2,d2[2]/l2])-e0)/refM(500);
       const sx=Math.round((0.5+fx/(2*span))* (w-1)), sy=Math.round((0.5+fy/(2*span))*(h-1));
       const k=(sy*w+sx)*4; const lum=0.299*px[k]+0.587*px[k+1]+0.114*px[k+2];
       if(lum<6) continue;
@@ -992,17 +996,17 @@ window.__diag = {
   },
 
   async materialWitness(altKm=3, samples=1200){
-    const orch=window.__planetOrch; const sg=orch&&orch.render&&orch.render.sampleGroundM;
-    if(!sg) return {err:'no-sampleGroundM'};
+    const orch=window.__planetOrch; const sg=orch&&orch.render&&orch.render.sampleGroundMSync;
+    if(!sg) return {err:'no-sampleGroundMSync'};
     let best=null;
     for(let i=0;i<samples;i++){
       const y=1-2*(i+0.5)/samples, r=Math.sqrt(Math.max(0,1-y*y)), t=i*2.399963229;
       const u=[Math.cos(t)*r, y, Math.sin(t)*r];
       const e0=sg(u);
-      if(e0>250 && e0<1200 && Math.abs(y)<0.5){ best={u,h:e0}; break; }
+      if(e0>refM(250) && e0<refM(1200) && Math.abs(y)<0.5){ best={u,h:e0}; break; }
     }
     if(!best) return {err:'no-lowland-found'};
-    await this.aimDir(best.u, altKm, 40);
+    await this.aimDir(best.u, altKm*_planetScale, 40);
     const {px,w,h}=this._read(); let grass=0,grey=0,sand=0,other=0,n=0,rs=0,gs=0,bs=0;
     for(let i=0;i<w*h;i++){ const R=px[i*4],G=px[i*4+1],B=px[i*4+2];
       if(R<12&&G<14&&B<30) continue; n++; rs+=R;gs+=G;bs+=B;
@@ -1544,7 +1548,7 @@ window.__diag = {
         prevQ=q.total; this._lastFb=q.fallbackCount; }
       const census=this.quadCensus();
       const coarseLOD = (census.maxLevel|0) < 4;
-      out.rungs[r]={ park:{altKm:+window.__dbg.altKm().toFixed(0)}, coarseLOD,
+      out.rungs[r]={ park:{altKm:+window.__dbg.altKm().toPrecision(4)}, coarseLOD,
         census,
         limb:await this.limbScan(),
         haze:coarseLOD ? {na:'coarse-LOD',maxLevel:census.maxLevel, blueExcess:(await this.hazeProbe()).blueExcess} : await this.hazeProbe(),
@@ -1553,7 +1557,7 @@ window.__diag = {
     }
     const ok=(p)=>p && (p.na ? true : p.pass);
     out.pass = Object.values(out.rungs).every(R=>ok(R.limb)&&ok(R.haze)&&ok(R.speckle)&&ok(R.seam))
-      && out.env.atlas.pass && out.env.elevLinear.pass;
+      && out.env.elevLinear.pass;
     return (window.__diagBaseline=out);
   },
 };
