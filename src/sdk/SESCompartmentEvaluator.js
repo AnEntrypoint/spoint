@@ -1,42 +1,61 @@
-import { SandboxEvaluator } from './SandboxEvaluator.js'
+const BLOCKED_SOURCE_PATTERNS = [
+  'process.exit', 'child_process', '__proto__',
+  'Object.prototype', 'globalThis', 'import(',
+  'require(', 'eval(', 'Function(',
+  'WebAssembly.', 'new Worker',
+]
+
+const BLOCKED_CTX_KEYS = new Set([
+  '_entity', '_runtime', '_state', '_entityProxy', '_busScope',
+  '_physicsAPI', '_debugger', '_configListeners', '_disposers',
+  'debug', 'storage', 'network', 'lagCompensator', 'eventLog',
+  'terrain', '_registerDisposer', '_runDisposers', '_teardownChildren',
+  '_fireConfigChange',
+])
+
+const LOCKDOWN_OPTIONS = {
+  errorTaming: 'unsafe',
+  stackFiltering: 'verbose',
+  overrideTaming: 'severe',
+}
+
+export class SandboxUnavailableError extends Error {
+  constructor(appName, cause) {
+    super(`[SESCompartmentEvaluator] refusing to evaluate untrusted app "${appName}": SES is unavailable (${cause?.message ?? cause}); untrusted code has no non-SES isolation tier`, { cause })
+    this.name = 'SandboxUnavailableError'
+    this.code = 'SANDBOX_UNAVAILABLE'
+    this.appName = appName
+  }
+}
+
+const isAlreadyLockedDown = (e) => String(e?.message).includes('SES_ALREADY_LOCKED_DOWN')
+
+async function lockDownAndGetCompartment() {
+  await import('ses')
+  try {
+    globalThis.lockdown(LOCKDOWN_OPTIONS)
+  } catch (e) {
+    if (!isAlreadyLockedDown(e)) throw e
+  }
+  if (typeof globalThis.Compartment !== 'function' || !Object.isFrozen(Object.prototype)) {
+    throw new Error('lockdown completed without hardened intrinsics and a Compartment constructor')
+  }
+  return globalThis.Compartment
+}
+
+let sesSettlement = null
+
+function settleSes() {
+  sesSettlement ??= lockDownAndGetCompartment().then(
+    (Compartment) => ({ Compartment, cause: null }),
+    (cause) => ({ Compartment: null, cause }),
+  )
+  return sesSettlement
+}
 
 export class SESCompartmentEvaluator {
   constructor(opts = {}) {
     this._maxStepsPerTick = opts.maxStepsPerTick ?? 1000000
-    this._maxTicksPerFrame = opts.maxTicksPerFrame ?? 1000
-    this._lockedDown = false
-    this._Compartment = null
-    this._fallback = null
-    this._initPromise = null
-  }
-
-  async _ensureInit() {
-    if (this._initPromise) return this._initPromise
-    this._initPromise = this._doInit()
-    return this._initPromise
-  }
-
-  async _doInit() {
-    try {
-      await import('ses')
-      if (!this._lockedDown) {
-        globalThis.lockdown({
-          errorTaming: 'unsafe',
-          stackFiltering: 'verbose',
-          overrideTaming: 'severe',
-        })
-        this._lockedDown = true
-      }
-      this._Compartment = globalThis.Compartment
-      return true
-    } catch (e) {
-      console.warn(`[SESCompartmentEvaluator] ses unavailable, falling back to proxy sandbox: ${e.message}`)
-      this._fallback = new SandboxEvaluator({
-        maxStepsPerTick: this._maxStepsPerTick,
-        maxTicksPerFrame: this._maxTicksPerFrame,
-      })
-      return false
-    }
   }
 
   async evaluate(source, name = '<sandbox>') {
@@ -45,22 +64,14 @@ export class SESCompartmentEvaluator {
       return null
     }
 
-    const ready = await this._ensureInit()
-    if (!ready) {
-      return this._fallback.evaluate(source, name)
-    }
+    const { Compartment, cause } = await settleSes()
+    if (!Compartment) throw new SandboxUnavailableError(name, cause)
 
     if (!this._validate(source, name)) return null
 
     try {
-      const wrappedSource = this._wrapSource(source)
-      const endowments = this._buildEndowments()
-
-      const compartment = new this._Compartment(endowments, {}, {
-        name: `sandbox-${name}`,
-      })
-
-      const appDef = compartment.evaluate(wrappedSource)
+      const compartment = new Compartment(this._buildEndowments(), {}, { name: `sandbox-${name}` })
+      const appDef = compartment.evaluate(this._wrapSource(source))
 
       if (!appDef || typeof appDef !== 'object') {
         console.error(`[SESCompartmentEvaluator] "${name}" did not return a valid app definition`)
@@ -75,13 +86,7 @@ export class SESCompartmentEvaluator {
   }
 
   _validate(source, name) {
-    const blocked = [
-      'process.exit', 'child_process', '__proto__',
-      'Object.prototype', 'globalThis', 'import(',
-      'require(', 'eval(', 'Function(',
-      'WebAssembly.', 'new Worker',
-    ]
-    for (const pattern of blocked) {
+    for (const pattern of BLOCKED_SOURCE_PATTERNS) {
       if (source.includes(pattern)) {
         console.error(`[SESCompartmentEvaluator] blocked pattern "${pattern}" in "${name}"`)
         return false
@@ -125,7 +130,29 @@ export class SESCompartmentEvaluator {
   }
 
   static createCtxProxy(ctx) {
-    return SandboxEvaluator.createCtxProxy(ctx)
+    return new Proxy(ctx, {
+      get(target, prop, receiver) {
+        if (BLOCKED_CTX_KEYS.has(String(prop))) {
+          console.warn(`[Sandbox] blocked ctx.${String(prop)} access`)
+          return undefined
+        }
+        const value = Reflect.get(target, prop, receiver)
+        if (typeof value === 'function') {
+          return function (...args) {
+            ctx.__checkBudget?.()
+            return value.apply(this, args)
+          }
+        }
+        return value
+      },
+      set(target, prop, value, receiver) {
+        if (BLOCKED_CTX_KEYS.has(String(prop))) {
+          console.warn(`[Sandbox] blocked ctx.${String(prop)} write`)
+          return false
+        }
+        return Reflect.set(target, prop, value, receiver)
+      },
+    })
   }
 }
 
