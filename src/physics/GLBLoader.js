@@ -10,7 +10,8 @@ try { if (typeof process !== 'undefined' && process.versions?.node) { const m = 
 function readGLBSync(filepath) {
   if (!filepath) throw new Error('GLBLoader: no filepath given (resolveAssetPath rejected or returned an empty path)')
   if (!_readFileSync) throw new Error('readFileSync not available — use URL-based async methods in browser')
-  const buf = _readFileSync(filepath)
+  const raw = _readFileSync(filepath)
+  const buf = raw.byteOffset === 0 && raw.byteLength === raw.buffer.byteLength ? raw : Buffer.from(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength))
   if (buf.toString('ascii', 0, 4) !== 'glTF') throw new Error('Not a GLB file')
   const jsonLen = buf.readUInt32LE(12)
   const json = JSON.parse(buf.toString('utf-8', 20, 20 + jsonLen))

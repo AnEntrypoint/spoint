@@ -8,7 +8,7 @@ export function buildConvexShape(J, params, shapeCache, cacheKey) {
   const cvx = new J.ConvexHullShapeSettings(); cvx.set_mPoints(pts)
   const sr = cvx.Create()
   if (!sr.IsValid()) {
-    const err = sr.GetError()
+    const err = sr.GetError().c_str()
     J.destroy(pts); J.destroy(cvx); J.destroy(sr)
     throw new Error(`[buildConvexShape] ConvexHullShapeSettings.Create() failed: ${err} (degenerate point cloud -- too few points, coplanar, or near-zero volume)`)
   }
@@ -48,7 +48,12 @@ export async function buildTrimeshShape(J, glbPath, scale) {
     const tri = triangles.at(t)
     for (let v = 0; v < 3; v++) { const idx = keptTriangles[t*3+v]; f3.x = vertices[idx*3]; f3.y = vertices[idx*3+1]; f3.z = vertices[idx*3+2]; tri.set_mV(v, f3) }
   }
-  const settings = new J.MeshShapeSettings(triangles), sr = settings.Create(), shape = sr.Get()
+  const settings = new J.MeshShapeSettings(triangles), sr = settings.Create()
   J.destroy(f3); J.destroy(triangles); J.destroy(settings)
-  return { shape, sr, triangleCount: keptCount }
+  if (!sr.IsValid()) {
+    const err = sr.GetError().c_str()
+    J.destroy(sr)
+    throw new Error(`[buildTrimeshShape] MeshShapeSettings.Create() failed for ${glbPath}: ${err} (${keptCount} kept of ${triangleCount} triangles)`)
+  }
+  return { shape: sr.Get(), sr, triangleCount: keptCount }
 }

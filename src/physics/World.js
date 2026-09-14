@@ -1,4 +1,4 @@
-import { extractMeshFromGLB, extractMeshFromGLBAsync } from './GLBLoader.js'
+import { extractMeshFromGLB } from './GLBLoader.js'
 import { CharacterManager } from './CharacterManager.js'
 import { installVehiclePhysics } from './VehiclePhysics.js'
 import { buildConvexShape, buildTrimeshShape } from './ShapeBuilder.js'
@@ -30,6 +30,7 @@ export class PhysicsWorld {
     this._trimeshCache = new Map(); this._trimeshInflight = new Map()
     this._bodyPool = new Map(); this._bodyShapeKey = new Map()
     this._bodyQueue = []
+    this._constraints = new Map(); this._nextConstraintId = 0
     this._tmpVec3 = null; this._tmpRVec3 = null
     this._bulkOutP = null; this._bulkOutR = null; this._bulkOutLV = null; this._bulkOutAV = null
     this._rcScratch = null; this._vehWheelAxes = null
@@ -243,14 +244,14 @@ export class PhysicsWorld {
       for (let i = 0; i < samples.length; i++) heights.push_back(samples[i])
     }
     const sr = settings.Create()
-    if (!sr.IsValid()) { console.error('[heightfield] shape invalid:', sr.GetError()); J.destroy(settings); J.destroy(sr); return null }
+    if (!sr.IsValid()) { console.error('[heightfield] shape invalid:', sr.GetError().c_str()); J.destroy(settings); J.destroy(sr); return null }
     const shape = sr.Get()
     const id = this._addBody(shape, position, J.EMotionType_Static, LAYER_STATIC, { meta: { type: 'static', shape: 'heightfield' } })
     J.destroy(settings); J.destroy(sr)
     return id
   }
 
-  addStaticTrimeshFromData(entityId,v,ix,pos,rot=[0,0,0,1]){const J=this.Jolt,tc=ix.length/3,tl=new J.TriangleList(),f3=new J.Float3(0,0,0);tl.resize(tc);for(let t=0;t<tc;t++){const tri=tl.at(t);for(let k=0;k<3;k++){const i=ix[t*3+k];f3.x=v[i*3];f3.y=v[i*3+1];f3.z=v[i*3+2];tri.set_mV(k,f3)}}const ms=new J.MeshShapeSettings(tl),sr=ms.Create();if(!sr.IsValid()){console.error('[trimesh] shape invalid for',entityId,sr.GetError());J.destroy(f3);J.destroy(tl);J.destroy(ms);return null}const shape=sr.Get();J.destroy(f3);J.destroy(tl);const id=this._addBody(shape,pos,J.EMotionType_Static,LAYER_STATIC,{rotation:rot,meta:{type:'static',shape:'trimesh'}});J.destroy(ms);J.destroy(sr);console.log('[trimesh] body created for',entityId,'id='+id,'tris='+tc);return id}
+  addStaticTrimeshFromData(entityId,v,ix,pos,rot=[0,0,0,1]){const J=this.Jolt,tc=ix.length/3,tl=new J.TriangleList(),f3=new J.Float3(0,0,0);tl.resize(tc);for(let t=0;t<tc;t++){const tri=tl.at(t);for(let k=0;k<3;k++){const i=ix[t*3+k];f3.x=v[i*3];f3.y=v[i*3+1];f3.z=v[i*3+2];tri.set_mV(k,f3)}}const ms=new J.MeshShapeSettings(tl),sr=ms.Create();if(!sr.IsValid()){console.error('[trimesh] shape invalid for',entityId,sr.GetError().c_str());J.destroy(f3);J.destroy(tl);J.destroy(ms);J.destroy(sr);return null}const shape=sr.Get();J.destroy(f3);J.destroy(tl);const id=this._addBody(shape,pos,J.EMotionType_Static,LAYER_STATIC,{rotation:rot,meta:{type:'static',shape:'trimesh'}});J.destroy(ms);J.destroy(sr);console.log('[trimesh] body created for',entityId,'id='+id,'tris='+tc);return id}
 
   addPlayerCharacter(radius, halfHeight, position, mass) { return this._charMgr.addCharacter(radius, halfHeight, position, mass) }
   setCharacterCrouch(id, v) { this._charMgr.setCrouch(id, v) }
@@ -344,48 +345,43 @@ export class PhysicsWorld {
     const ba = this._getBody(bodyIdA), bb = this._getBody(bodyIdB)
     if (!ba || !bb) return null
     const J = this.Jolt, type = opts.type || 'fixed'
-    const pa = this.bodyInterface.GetPosition(ba.GetID()), pb = this.bodyInterface.GetPosition(bb.GetID())
-    const aA = opts.anchorA || [pa.GetX(), pa.GetY(), pa.GetZ()]
-    const aB = opts.anchorB || [pb.GetX(), pb.GetY(), pb.GetZ()]
-    J.destroy(pa); J.destroy(pb)
+    const aA = opts.anchorA || this.getBodyPosition(bodyIdA)
+    const aB = opts.anchorB || this.getBodyPosition(bodyIdB)
+    const p = this._tmpRVec3, v = this._tmpVec3
     let settings = null
     try {
-      if (type === 'point') {
-        settings = new J.PointConstraintSettings()
-        settings.mSpace = J.EConstraintSpace_WorldSpace
-        settings.mPoint1 = new J.RVec3(aA[0], aA[1], aA[2]); settings.mPoint2 = new J.RVec3(aB[0], aB[1], aB[2])
-      } else if (type === 'distance') {
-        settings = new J.DistanceConstraintSettings()
-        settings.mSpace = J.EConstraintSpace_WorldSpace
-        settings.mPoint1 = new J.RVec3(aA[0], aA[1], aA[2]); settings.mPoint2 = new J.RVec3(aB[0], aB[1], aB[2])
+      settings = type === 'point' ? new J.PointConstraintSettings()
+        : type === 'distance' ? new J.DistanceConstraintSettings()
+        : type === 'hinge' ? new J.HingeConstraintSettings()
+        : new J.FixedConstraintSettings()
+      settings.mSpace = J.EConstraintSpace_WorldSpace
+      p.Set(aA[0], aA[1], aA[2]); settings.mPoint1 = p
+      p.Set(aB[0], aB[1], aB[2]); settings.mPoint2 = p
+      if (type === 'distance') {
         if (opts.minDistance != null) settings.mMinDistance = opts.minDistance
         if (opts.maxDistance != null) settings.mMaxDistance = opts.maxDistance
       } else if (type === 'hinge') {
-        settings = new J.HingeConstraintSettings()
-        settings.mSpace = J.EConstraintSpace_WorldSpace
-        settings.mPoint1 = new J.RVec3(aA[0], aA[1], aA[2]); settings.mPoint2 = new J.RVec3(aB[0], aB[1], aB[2])
         const ax = opts.axis || [0, 1, 0]
-        settings.mHingeAxis1 = new J.Vec3(ax[0], ax[1], ax[2]); settings.mHingeAxis2 = new J.Vec3(ax[0], ax[1], ax[2])
-        settings.mNormalAxis1 = new J.Vec3(1, 0, 0); settings.mNormalAxis2 = new J.Vec3(1, 0, 0)
-      } else {
-        settings = new J.FixedConstraintSettings()
-        settings.mSpace = J.EConstraintSpace_WorldSpace
-        settings.mPoint1 = new J.RVec3(aA[0], aA[1], aA[2]); settings.mPoint2 = new J.RVec3(aB[0], aB[1], aB[2])
+        v.Set(ax[0], ax[1], ax[2]); settings.mHingeAxis1 = v; settings.mHingeAxis2 = v
+        v.Set(1, 0, 0); settings.mNormalAxis1 = v; settings.mNormalAxis2 = v
       }
       const c = settings.Create(ba, bb)
       this.physicsSystem.AddConstraint(c)
-      const cid = (this._nextConstraintId = (this._nextConstraintId || 0) + 1)
-      if (!this._constraints) this._constraints = new Map()
-      this._constraints.set(cid, c)
+      const cid = ++this._nextConstraintId
+      this._constraints.set(cid, { c, bodyA: bodyIdA, bodyB: bodyIdB })
       return cid
     } catch (e) { console.error('[physics] addConstraint failed:', e?.message || e); return null }
     finally { if (settings) J.destroy(settings) }
   }
   removeConstraint(constraintId) {
-    const c = this._constraints && this._constraints.get(constraintId)
-    if (!c || !this.physicsSystem) return false
-    this.physicsSystem.RemoveConstraint(c); this.Jolt.destroy(c); this._constraints.delete(constraintId)
+    const entry = this._constraints.get(constraintId)
+    if (!entry || !this.physicsSystem) return false
+    this.physicsSystem.RemoveConstraint(entry.c)
+    this._constraints.delete(constraintId)
     return true
+  }
+  _removeConstraintsOfBody(bodyId) {
+    for (const [cid, entry] of this._constraints) if (entry.bodyA === bodyId || entry.bodyB === bodyId) this.removeConstraint(cid)
   }
 
 
@@ -432,6 +428,7 @@ export class PhysicsWorld {
 
   removeBody(id, force = false) {
     const b = this._getBody(id); if (!b) return
+    this._removeConstraintsOfBody(id)
     const sk = !force && this._bodyShapeKey.get(id)
     if (sk) {
       const isDynamic = this.bodyMeta.get(id)?.type === 'dynamic'
