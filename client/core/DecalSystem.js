@@ -1,15 +1,3 @@
-// DecalSystem -- pooled projected decals (bullet holes / scorch marks) + hitscan tracers.
-//
-// Roadmap items #48 (decals) + tracer half of #93 (shooter feel). A fixed-size ring of pre-allocated
-// THREE.Mesh decal quads is reused round-robin so firing never allocates -- the same pooling discipline
-// as ModelPool/InstancedMesh2 elsewhere in this codebase. Each decal is a small plane oriented to the
-// hit normal, offset along the normal to avoid z-fighting with the surface it's stuck to, and faded out
-// via opacity over its lifetime rather than instant despawn (matches roadmap's 'per-surface limits').
-//
-// Tracers are a separate pool of thin stretched-box meshes (cheap, no line-material AA issues), spawned
-// from a shot origin toward its impact point (or full range if no hit), and faded/removed after a short
-// lifetime.
-
 const DECAL_POOL_SIZE = 64
 const DECAL_LIFETIME_S = 12
 const DECAL_FADE_S = 2
@@ -29,7 +17,7 @@ export function createDecalSystem(scene, THREE) {
     const m = new THREE.Mesh(decalGeo, decalMat.clone())
     m.visible = false
     m.renderOrder = 10
-    m.matrixAutoUpdate = false   // pooled: transform set once per spawn (updateMatrix there), not recomposed every frame for 64 mostly-invisible meshes
+    m.matrixAutoUpdate = false
     scene.add(m)
     decals.push({ mesh: m, age: Infinity, life: DECAL_LIFETIME_S })
   }
@@ -53,8 +41,6 @@ export function createDecalSystem(scene, THREE) {
   const _normal = new THREE.Vector3()
 
   return {
-    // point: [x,y,z] world-space impact position. normal: [x,y,z] surface normal (defaults to +Y if omitted --
-    // the server hit payload doesn't carry a surface normal today, only the impact point).
     spawnDecal(point, normal) {
       if (!point) return
       const slot = decals[_nextDecal]; _nextDecal = (_nextDecal + 1) % DECAL_POOL_SIZE
@@ -64,7 +50,7 @@ export function createDecalSystem(scene, THREE) {
       _q.setFromUnitVectors(_up, _normal)
       slot.mesh.position.set(point[0] + _normal.x * 0.01, point[1] + _normal.y * 0.01, point[2] + _normal.z * 0.01)
       slot.mesh.quaternion.copy(_q)
-      slot.mesh.rotation.z = Math.random() * Math.PI * 2 // vary orientation in-plane so a decal cluster isn't identical
+      slot.mesh.rotation.z = Math.random() * Math.PI * 2
       const s = DECAL_SIZE * (0.8 + Math.random() * 0.4)
       slot.mesh.scale.set(s, s, s)
       slot.mesh.updateMatrix()
@@ -74,7 +60,6 @@ export function createDecalSystem(scene, THREE) {
       slot.life = DECAL_LIFETIME_S
     },
 
-    // origin/target: [x,y,z] world-space. Draws a short-lived stretched box from origin to target.
     spawnTracer(origin, target) {
       if (!origin || !target) return
       const slot = tracers[_nextTracer]; _nextTracer = (_nextTracer + 1) % TRACER_POOL_SIZE

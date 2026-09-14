@@ -1,8 +1,5 @@
-// Debug wireframe of the physics terrain collider (Jolt heightfield), toggled via ?drawcollider or C. window.__colliderDebug = { toggle, setVisible, update, dispose, visible }.
-// Must mirror the server's heightfield grid exactly (extent/resolution/corner/re-center) or the drawn grid won't match what Jolt actually collides against.
 import * as THREE from 'three'
 
-// Entity collider overlay: draws render geometry as a wireframe proxy (exact for trimesh, approximate for box/sphere/capsule primitives).
 function createEntityColliderOverlay(scene) {
   const group = new THREE.Group()
   group.visible = false
@@ -50,7 +47,7 @@ export function createColliderDebug({ scene, frame, cfg }) {
   const resolution = Number.isFinite(phys.resolution) && phys.resolution > 0 ? phys.resolution : 2
   let N = Math.max(2, Math.round(extent / resolution)); if (N % 2 !== 0) N += 1
   const spacing = extent / (N - 1)
-  const rebuildAt = 0.4   // must match the server streamer's re-center hysteresis
+  const rebuildAt = 0.4
 
   const segCount = 2 * N * (N - 1)
   const positions = new Float32Array(segCount * 2 * 3)
@@ -72,7 +69,7 @@ export function createColliderDebug({ scene, frame, cfg }) {
       const wz = cornerZ + z * spacing, row = z * N
       for (let x = 0; x < N; x++) {
         let h = frame.groundHeightLocal(cornerX + x * spacing, wz)
-        if (!Number.isFinite(h)) h = -1000   // mirrors server NaN guard
+        if (!Number.isFinite(h)) h = -1000
         H[row + x] = h
       }
     }

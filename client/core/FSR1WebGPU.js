@@ -1,50 +1,10 @@
-// FSR1WebGPU -- TSL node-graph port of FSR1.js's EASU+RCAS spatial-upscale/sharpen pass, used only
-// when the live renderer is a real THREE.WebGPURenderer (renderer.isWebGPURenderer === true).
-//
-// WHY A SEPARATE FILE (not an in-place rewrite of FSR1.js): FSR1.js's raw-GLSL ShaderMaterial path
-// is still the ONLY implementation that runs under WebGLRenderer (the 100% non-experimental case);
-// WebGPURenderer does not compile raw GLSL at all (see docs/webgpu-shader-audit.md), so this is a
-// second, TSL-native implementation of the exact same algorithm, not a replacement. FSR1.js's own
-// factory (installFSR1) picks whichever of the two matches the live renderer's actual class, so
-// every caller (RenderGraph.nodes.js, app.js) is unchanged -- this is purely an additional backend.
-//
-// PORT NOTES (webgpurenderer-tsl-port-lowrisk-fullscreen-passes, first slice):
-//   - QuadMesh (three/webgpu export) is THREE's own shipped fullscreen-pass primitive -- it owns its
-//     own baked orthographic camera + 2x2 NDC-quad geometry, replacing the hand-rolled
-//     `_quadScene`/`_quadCamera`/`PlaneGeometry(2,2)` trio FSR1.js builds manually. `quad.render(
-//     renderer)` internally does `renderer.render(quad, quad.camera)` -- same call FSR1.js makes,
-//     just via the primitive instead of re-deriving it.
-//   - `THREE.WebGLRenderTarget` -> `THREE.RenderTarget` (the generic, backend-agnostic base class;
-//     WebGLRenderTarget merely extends it -- confirmed via `Object.getPrototypeOf(WebGLRenderTarget)
-//     === RenderTarget` at audit time). HalfFloatType/RGBAFormat/filter options carry over unchanged.
-//   - `renderer.copyFramebufferToTexture` exists on WebGPURenderer too (three.webgpu.js Renderer
-//     class + backend-level WebGPUBackend/WebGLBackend implementations, confirmed via source read),
-//     so the "copy current canvas into a sampleable texture" step needs zero API change -- only the
-//     two shader passes (EASU, RCAS) and the composite pass need a TSL rewrite.
-//   - EASU/RCAS math is IDENTICAL to FSR1.js's GLSL (same simplified 5-tap directional-gradient
-//     resample + real AMD RCAS anti-ringing formula) -- transcribed node-for-node into TSL's Fn()
-//     graph, not reapproximated, so this is a mechanical port of proven-correct math, not a redesign.
-//   - No history buffer / no per-instance complexity / no InstancedMesh2 coupling (this is exactly
-//     the audit's "TSL-portable, low risk, full-screen post-process" bucket) -- confirmed by reading
-//     FSR1.js in full before porting: it is a pure 2-pass fullscreen shader chain with plain sampler2D
-//     inputs, nothing WebGPU-specific to design around beyond the mechanical API swaps above.
-
 import * as THREE from 'three'
-// MeshBasicNodeMaterial/QuadMesh only exist on the WebGPU build's export surface (confirmed via a
-// live `'MeshBasicNodeMaterial' in THREE` false-vs-true probe against 'three' vs 'three/webgpu') --
-// this file is only ever imported when a real WebGPURenderer is already live (see FSR1.js's
-// isWebGPURenderer-gated registerFSR1WebGPU/installFSR1), so importing the WebGPU build here is not
-// an extra cost the WebGL-only 100% of sessions pay (dynamic-imported at that same gated call site).
 import { MeshBasicNodeMaterial, QuadMesh } from 'three/webgpu'
 import { Fn, texture, uv, uniform, vec2, vec3, vec4, float, clamp, min, max, mix, dot } from 'three/tsl'
 import { RenderControls } from './RenderControls.js'
 
 const LUMA = vec3(0.2126, 0.7152, 0.0722)
 
-// EASU: local 3x3-cross min/max luminance contrast drives a blend between a plain center sample
-// (flat regions) and a directional-neighbor-weighted sharpen (edges) -- same simplified technique
-// FSR1.js's GLSL uses (WebGL2 GLSL ES 3.00 has no textureGather, so the real AMD 32-tap gather is
-// approximated the same way in both implementations).
 function buildEasuNode(sourceTex, srcTexel) {
   return Fn(() => {
     const uvCoord = uv()
@@ -67,9 +27,6 @@ function buildEasuNode(sourceTex, srcTexel) {
   })()
 }
 
-// RCAS: real AMD peak-sharpen formula (local min/max headroom ratio -> anti-ringing-clamped sharpen
-// weight), identical math to FSR1.js's GLSL RCAS pass. w4 (the sharpen weight) is a per-channel
-// vec3, so the denominator (1 + 4*w4) must also stay a vec3 -- matching the GLSL exactly.
 function buildRcasNode(sourceTex, texel, sharpness) {
   return Fn(() => {
     const uvCoord = uv()
@@ -158,8 +115,6 @@ export class FSR1WebGPU {
     try {
       this.renderer.copyFramebufferToTexture(this._sceneCopyTex)
     } catch (_) {
-      // Same fail-soft discipline as FSR1.js: skip this frame's upscale rather than throwing
-      // mid-RenderGraph if the backend refuses the copy.
       return
     }
 

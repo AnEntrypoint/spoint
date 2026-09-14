@@ -1,11 +1,9 @@
-// Dual import: same machine definition unit-testable under node and runnable in browser.
 const _isNode = typeof process !== 'undefined' && process.versions?.node
 const { createMachine, createActor, assign } = await import(_isNode ? 'xstate' : '/node_modules/xstate/dist/xstate.esm.js')
 
 export const clientMachine = createMachine({
   id: 'client',
   initial: 'loading',
-  // editMode is derived from the mode region, not stored here, so it cannot desync.
   context: { snapSize: 0.25, headBoneHidden: false },
   on: {
     SNAP: { actions: assign({ snapSize: ({ event }) => (event && event.size != null) ? event.size : 0.25 }) },
@@ -22,7 +20,6 @@ export const clientMachine = createMachine({
     ready: {
       type: 'parallel',
       states: {
-        // -- Top-level mode: exactly one of playing / editor / lobby / spectator --
         mode: {
           initial: 'playing',
           states: {
@@ -40,9 +37,6 @@ export const clientMachine = createMachine({
                 PLAYTEST: 'playtesting'
               }
             },
-            // In-editor play mode: snapshot world state on enter, restore on exit.
-            // The editor UI stays visible (panels, toolbar) but the camera switches to
-            // follow-cam and gameplay input is enabled. PLAYTEST_STOP rolls back to editor.
             playtesting: {
               on: {
                 PLAYTEST_STOP: 'editor',
@@ -55,19 +49,11 @@ export const clientMachine = createMachine({
                 OPEN_LOBBY: 'playing'
               }
             },
-            // Spectator: free-fly or player-follow camera, no local player control -- casting/
-            // moderation/debugging. Sibling to playing/editor/lobby (never nested under playing),
-            // so entering it composes cleanly with the OTHER parallel regions (gizmo/select/snap/
-            // docks) exactly like editor/lobby already do -- those regions' own EXIT_EDITOR/
-            // TOGGLE_EDITOR reset-on-exit transitions are untouched, spectator does not touch them.
             spectator: {
               initial: 'free',
               on: { EXIT_SPECTATOR: 'playing' },
               states: {
-                // Free-fly: reuses cam.js's existing editMode fly-camera (unbound, no physics-body
-                // tie) -- see spectatorMode.js, which drives cam.setEditMode(true) while here.
                 free: { on: { SPECTATE_FOLLOW: 'follow' } },
-                // Follow/chase: camera tracks a chosen connected player's live position/rotation.
                 follow: { on: { SPECTATE_FREE: 'free' } }
               }
             }
@@ -149,7 +135,7 @@ export function createClientStateMachine() {
     get spectatorSubmode() {
       const v = snap().value
       const m = v && v.ready && v.ready.mode
-      return (m && typeof m === 'object' && m.spectator) ? m.spectator : null   // 'free' | 'follow' | null (not in spectator mode)
+      return (m && typeof m === 'object' && m.spectator) ? m.spectator : null
     },
     get isSelected() { return snap().matches({ ready: { select: 'selected' } }) },
     get gizmoMode() {

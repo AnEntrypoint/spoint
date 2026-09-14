@@ -1,42 +1,14 @@
-// Grass blade geometry + wind/material factories for Grass.js's createGrass(). Pure builders --
-// no per-instance streaming/chunk-management state, split out as that file's largest contiguous
-// self-contained block. See Grass.js's own header for the full LOD/bend/decal design rationale.
-
 import * as THREE from 'three'
 
-// Player/actor bend: a small fixed-size array of nearby world-space XZ positions the vertex shader
-// pushes blades radially away from (base-anchored, same tip-weighted falloff as the wind bend below),
-// springing back upright once a bender leaves each blade's influence radius. MAX_BENDERS caps the
-// uniform array size (and the per-frame CPU cost of building it) -- grass render distance is tens of
-// metres, so a handful of nearby players/actors is the realistic max ever influencing one visible
-// blade simultaneously; RenderGraph.nodes.js's foliage-lod-sync feeds only the nearest MAX_BENDERS
-// actors within grassBendRadius of the local player, sorted by distance, so the cap silently degrades
-// (farthest excess actors just don't bend grass) rather than ever overflowing the array.
 export const MAX_BENDERS = 8
 
-// Burn/flatten decals: a small fixed-size array of nearby scorch-stamp centers (world-space XZ, same
-// space as uBenderPosXZ above), each with its own radius+strength, that the vertex shader shrinks and
-// re-tints blades within. Distinct from the bender system above: benders are TRANSIENT (rebuilt fresh
-// every frame from live actor positions, zero persisted state, springs back the instant an actor
-// leaves), decals are PERSISTENT (backed by src/terrain/GrassDecal.js's sparse cell-Map world-state
-// store -- once markScorched is called the effect stays until an explicit clear/regrowth, independent
-// of any actor being nearby). MAX_DECALS caps the uniform array + per-frame nearest-stamp scan cost,
-// same rationale as MAX_BENDERS: grass render distance is tens of metres so only a handful of decals
-// are ever in view at once; nearestStamps() silently degrades (farthest excess decals just don't
-// apply) rather than overflowing.
 export const MAX_DECALS = 8
 
-// 2 crossed tapered triangles (one along x, one along z), base at y=0, tip at y=1 (scaled per instance).
-// Multi-segment curved ribbon blade (bends along its length under wind), two crossed quads for silhouette volume, one shared geometry across all instances.
-// N is parameterized for the 2-geometry-tier LOD built in createGrass (Grass.js): N=5 near (curved, 20
-// tris/blade), N=1 mid (flat crossed quad, 4 tris/blade -- the curve term still bakes in via the
-// tip-only bend so a 1-segment blade still leans, it just can't bow mid-blade). Beyond the mid tier's
-// cutoff blade curvature is genuinely invisible (sub-pixel at >15m per the PRD row); the THIRD (far) tier
-// named by the task is deliberately the existing chunk-unload boundary + vertex-shader ring-fade, not a
-// third real geometry -- see Grass.js's createGrass LOD block comment for the full scope-choice rationale.
+export const UNUSED_BENDER_SLOT_XZ = 1e6
+
 export function makeBladeGeo(segments) {
   const N = Number.isFinite(segments) && segments >= 1 ? segments | 0 : 5
-  const wBase = 0.07, curve = 0.18   // base half-width, baked forward arc (m at tip)
+  const wBase = 0.07, curve = 0.18
   const pos = [], idx = []
   const quads = [[[-1, 0], [1, 0]], [[0, -1], [0, 1]]]
   let vi = 0
@@ -67,33 +39,17 @@ export function makeWind() {
     uCamPosXZ: { value: new THREE.Vector2(0, 0) }, uGrassRing: { value: 44 },
     uSunDir: { value: new THREE.Vector3(0.4, 0.8, 0.3).normalize() }, uSunColor: { value: new THREE.Color(1, 1, 0.96) },
     uAmbient: { value: new THREE.Color(0.32, 0.36, 0.4) },
-    // uBenderPosXZ: MAX_BENDERS packed (x,z) pairs (world XZ, same space as instanceMatrix). Unused
-    // slots hold a position far outside any real chunk so their falloff term is always ~0 (cheaper than
-    // branching per-slot in the shader). uBenderCount lets the loop skip empty slots outright.
-    uBenderPosXZ: { value: new Float32Array(MAX_BENDERS * 2).fill(1e6) },
+    uBenderPosXZ: { value: new Float32Array(MAX_BENDERS * 2).fill(UNUSED_BENDER_SLOT_XZ) },
     uBenderCount: { value: 0 },
     uGrassBendRadius: { value: 2.2 },
     uGrassBendStrength: { value: 1.4 },
-    // uDecalPosXZRS: MAX_DECALS packed (x,z,radius,strength) quads. Unused slots hold radius=0 so their
-    // influence term is always exactly 0 regardless of position (cheaper/safer than a sentinel-distance
-    // trick since radius, not distance, gates the falloff here). uDecalCount lets the loop skip empty
-    // slots outright, same pattern as uBenderCount.
     uDecalPosXZRS: { value: new Float32Array(MAX_DECALS * 4) },
     uDecalCount: { value: 0 },
-    uGrassScorchShrink: { value: 0.15 },   // blade scale multiplier at full scorch influence (near-flattened, not fully zero -- a scorched patch still has stubble)
-    uGrassScorchColor: { value: new THREE.Color(0.22, 0.15, 0.06) },   // dry/burnt tint blended in at full influence
+    uGrassScorchShrink: { value: 0.15 },
+    uGrassScorchColor: { value: new THREE.Color(0.22, 0.15, 0.06) },
   }
 }
 
-// Hand-written Lambert-ish ShaderMaterial: replaces MeshStandardMaterial's full PBR (GGX specular,
-// env IBL, real shadow-map PCF) with the cheap lighting model grass actually needs -- the fragment
-// shader already discards most of the PBR output by overriding color and flattening the normal 60%
-// toward up, so paying for GGX/IBL/PCF per fragment across tens of thousands of overlapping blades was
-// pure waste. FrontSide only (was DoubleSide): back faces are flipped via gl_FrontFacing in the
-// fragment stage instead of being drawn a second time, halving rasterized fragments for away-facing
-// blades while keeping the same two-crossed-quad silhouette. No alphaTest (blades are geometric, not
-// alpha-cutout) and no real shadow-map sampling (see uInstShadow -- a per-instance cached terrain-shadow
-// scalar set once per blade instance, sampled in the vertex shader, never a per-fragment PCF fetch).
 export function makeGrassMaterial(wind) {
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -115,7 +71,6 @@ export function makeGrassMaterial(wind) {
       uGrassScorchColor: wind.uGrassScorchColor
     },
     side: THREE.FrontSide,
-    // no alphaTest: blades are opaque triangle geometry, alphaTest would defeat early-Z for nothing gained
     vertexShader: `
       uniform float uGrassTime, uGrassWind, uGrassRing;
       uniform vec2 uGrassWindDir, uCamPosXZ;

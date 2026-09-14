@@ -19,8 +19,7 @@ const _camVel = new THREE.Vector3()
 const _lookVel = new THREE.Vector3()
 const _tmp = new THREE.Vector3()
 
-// Critically-damped analytic spring (SmoothDamp form). Must stay frame-rate independent (closed-form over dt) -- a semi-implicit Euler form was fps-dependent (stiffer at high fps, softer at low fps).
-function springVec3(current, target, velocity, smoothTime, dt) {
+function smoothDampVec3(current, target, velocity, smoothTime, dt) {
   const st = Math.max(0.0001, smoothTime)
   const omega = 2 / st
   const x = omega * dt
@@ -51,17 +50,12 @@ function isDescendant(obj, ancestor) {
 export function createCameraController(camera, scene) {
   let yaw = 0, pitch = 0, zoomIndex = 2, camInitialized = false, mode = 'tps'
   let editMode = false, editCamPos = new THREE.Vector3(0, 5, 10), editCamSpeed = 8
-  // fly-cam velocity ramps toward input*maxSpeed and decays on release (accelerate/coast); editBoost climbs while held, up to editBoostMax
   const editVel = new THREE.Vector3()
   const editAccelHz = 5, editBoostRate = 1.6, editBoostMax = 6
   let editBoost = 1
-  // Altitude-based fly speed: sqrt(altitude) gives fast climb near the ground (useful headroom
-  // fast) that tapers off at extreme altitude (avoids the speed becoming unusably twitchy in
-  // space), clamped to [ALT_SPEED_MIN, ALT_SPEED_MAX] multiples of editCamSpeed. altitude<=0
-  // (at/under ground) clamps to the min multiplier -- still fully usable for fine placement.
-  const ALT_SPEED_MIN = 1, ALT_SPEED_MAX = 40, ALT_SPEED_K = 2.2   // maxV = editCamSpeed * clamp(K*sqrt(alt), MIN, MAX)
+  const ALT_SPEED_MIN = 1, ALT_SPEED_MAX = 40, ALT_SPEED_K = 2.2
   let _lastAltSampleX = Infinity, _lastAltSampleZ = Infinity, _cachedAltMul = ALT_SPEED_MIN
-  const ALT_SAMPLE_EPS2 = 4   // re-sample ground height only after >2m horizontal drift (groundHeightLocal is cheap but no need to call it sub-frame-to-frame for a UX-feel multiplier)
+  const ALT_SAMPLE_EPS2 = 4
   function _editAltitudeSpeedMul(x, y, z) {
     const dx = x - _lastAltSampleX, dz = z - _lastAltSampleZ
     if (dx * dx + dz * dz > ALT_SAMPLE_EPS2) {
@@ -70,11 +64,6 @@ export function createCameraController(camera, scene) {
       try {
         const f = typeof window !== 'undefined' && window.__terrain && window.__terrain.frame
         if (f) {
-          // groundHeightLocal projects local x/z onto the real planet surface -- x,y,z here are
-          // editCamPos, render-space and subject to the floating-origin rebase (see
-          // FloatingOrigin.js), so convert to the authoritative local-frame coordinate first or a
-          // rebased (near-zero) x/z would sample the wrong point on the planet once the fly-cam has
-          // travelled far enough to trigger a rebase.
           const fo = typeof window !== 'undefined' && window.__floatingOrigin
           const ax = fo ? x + fo.getShift().x : x, az = fo ? z + fo.getShift().z : z
           ground = f.groundHeightLocal(ax, az)
@@ -85,11 +74,11 @@ export function createCameraController(camera, scene) {
     }
     return _cachedAltMul
   }
-  let _gameplayCam = null   // pre-edit gameplay camera orientation, restored on editor exit
-  let _onCameraInHead = null   // notified (inHead:boolean) so the head-bone hide is a reactive state, not one-shot
+  let _gameplayCam = null
+  let _onCameraInHead = null
   let shoulderOffset = 0.35, headHeight = 0.4
   let zoomStages = [0, 1.5, 3, 5, 8], shoulderOffsets = null, mouseSensitivity = 0.002
-  let invertY = false   // settings-menu toggle: flips vertical mouse-look (gameplay onMouseMove only, not the editor fly-cam's editLook)
+  let invertY = false
   let pitchMin = -1.4, pitchMax = 1.4
   let fpsRayTimer = 0, tpsRayTimer = 0, cachedClipDist = 10, cachedAimPoint = null
   let targetSmoothTime = 0.02, cameraSmoothTime = 0.03, lookSmoothTime = 0.025
@@ -100,10 +89,8 @@ export function createCameraController(camera, scene) {
   let fpsForwardOffset = 0.7, fpsHeadDownOffset = 0.2
   let punchYawTarget = 0, punchPitchTarget = 0, punchYaw = 0, punchPitch = 0
   const envMeshes = []
-  // _bvhMeshes caches the envMeshes subset with a built boundsTree, recomputed only on mutation (not per-raycast, avoiding a per-frame filter allocation)
   const _bvhMeshes = []
   let _bvhDirty = true, _bvhPending = false
-  // _bvhChanged (not _bvhPending) gates the raycast idle-throttle: some env meshes never get a boundsTree, so _bvhPending would stay true forever and defeat the throttle
   let _bvhChanged = false, _bvhLastRefresh = 0
   function refreshBvhMeshes() {
     const prevCount = _bvhMeshes.length
@@ -119,23 +106,21 @@ export function createCameraController(camera, scene) {
   function ensureBvhMeshes() {
     if (_bvhDirty || (_bvhPending && performance.now() - _bvhLastRefresh > 500)) refreshBvhMeshes()
   }
-  const _camWorldSphere = new THREE.Sphere()   // reused scratch for the ray-vs-bounding-sphere broad-phase reject
+  const _camWorldSphere = new THREE.Sphere()
   if (typeof window !== 'undefined') {
     window.__camEnvMeshes = () => ({ env: envMeshes.length, bvh: _bvhMeshes.length })
   }
   camRaycaster.firstHitOnly = true
   aimRaycaster.firstHitOnly = true
 
-  // Shared scratch set (avoids per-frame allocation) of BVH meshes whose world-space bounding sphere the ray pierces.
   const _bvhRaySet = []
-  // Idle-throttle: skip re-raycasting while camera/target/aim haven't moved beyond epsilon, forcing one every RAY_IDLE_INTERVAL as a staleness net.
   const _lastRayTarget = new THREE.Vector3(Infinity, 0, 0)
   const _lastRayEnd = new THREE.Vector3()
   const _lastRayCamPos = new THREE.Vector3()
   const _lastRayAimDir = new THREE.Vector3()
-  const RAY_MOVE_EPS2 = 1e-4       // (1cm)^2 position epsilon
-  const RAY_DIR_EPS2 = 1e-6        // aim-direction epsilon
-  const RAY_IDLE_INTERVAL = 0.5    // s between forced raycasts while idle
+  const RAY_MOVE_EPS2 = 1e-4
+  const RAY_DIR_EPS2 = 1e-6
+  const RAY_IDLE_INTERVAL = 0.5
   if (typeof window !== 'undefined') window.__camRayCasts = 0
   function bvhMeshesAlongRay(origin, dir, far) {
     if (typeof window !== 'undefined') window.__camRayCasts++
@@ -196,7 +181,6 @@ export function createCameraController(camera, scene) {
   function updateTPS(dist, localMesh, frameDt, fwdX, fwdY, fwdZ, rightX, rightZ) {
     if (headBone && headBoneHidden) { headBone.scale.set(1, 1, 1); headBoneHidden = false }
     const so = shoulderOffsets ? (shoulderOffsets[zoomIndex] ?? shoulderOffset) : shoulderOffset
-    // proximityScale tightens damping the closer the camera sits (near-instant follow up close, eases to full smoothTime pulled out)
     const _maxZoom = zoomStages.length ? zoomStages[zoomStages.length - 1] : 8
     const PROX_TIGHT = 0.35
     const proximityScale = PROX_TIGHT + (1 - PROX_TIGHT) * Math.max(0, Math.min(1, dist / Math.max(0.0001, _maxZoom)))
@@ -204,7 +188,7 @@ export function createCameraController(camera, scene) {
     const camST = cameraSmoothTime * proximityScale
     const lookST = lookSmoothTime * proximityScale
     if (!camInitialized) _smoothTarget.copy(camTarget)
-    springVec3(_smoothTarget, camTarget, _targetVel, tgtST, frameDt)
+    smoothDampVec3(_smoothTarget, camTarget, _targetVel, tgtST, frameDt)
     camDesired.set(_smoothTarget.x - fwdX*dist + rightX*so, _smoothTarget.y - fwdY*dist + 0.2, _smoothTarget.z - fwdZ*dist + rightZ*so)
     camDir.subVectors(camDesired, _smoothTarget).normalize()
     const fullDist = _smoothTarget.distanceTo(camDesired)
@@ -240,7 +224,7 @@ export function createCameraController(camera, scene) {
     const clippedDist = Math.min(cachedClipDist, fullDist)
     camDesired.set(_smoothTarget.x + camDir.x*clippedDist, _smoothTarget.y + camDir.y*clippedDist, _smoothTarget.z + camDir.z*clippedDist)
     if (!camInitialized) { camera.position.copy(camDesired); _smoothTarget.copy(camTarget); camInitialized = true }
-    else springVec3(camera.position, camDesired, _camVel, camST, frameDt)
+    else smoothDampVec3(camera.position, camDesired, _camVel, camST, frameDt)
     aimDir.set(fwdX, fwdY, fwdZ)
     if (doRaycast && envMeshes.length) {
       ensureBvhMeshes()
@@ -251,14 +235,11 @@ export function createCameraController(camera, scene) {
         for (const ah of aimRaycaster.intersectObjects(aimSet, false)) { if (localMesh && isDescendant(ah.object, localMesh)) continue; cachedAimPoint = ah.point; break }
       }
     }
-    if (cachedAimPoint) { if (!camLookTarget.lengthSq()) camLookTarget.copy(cachedAimPoint); springVec3(camLookTarget, cachedAimPoint, _lookVel, lookST, frameDt) }
+    if (cachedAimPoint) { if (!camLookTarget.lengthSq()) camLookTarget.copy(cachedAimPoint); smoothDampVec3(camLookTarget, cachedAimPoint, _lookVel, lookST, frameDt) }
     else { camLookTarget.set(camera.position.x + fwdX*200, camera.position.y + fwdY*200, camera.position.z + fwdZ*200) }
     camera.lookAt(camLookTarget)
   }
 
-  // Integrate the accumulated mouse-look deltas into yaw/pitch (exp smoothing) and decay them.
-  // Shared by both update() regimes -- the editMode fly-cam and gameplay follow-cam -- so the look
-  // smoothing has one definition (the two were byte-identical copies, a change-one-forget-the-other trap).
   function applyLookInput(dt) {
     const t = 1 - Math.exp(-inputSmoothHz * dt)
     yaw -= inputYawDelta * t
@@ -268,7 +249,6 @@ export function createCameraController(camera, scene) {
     inputPitchDelta *= decay
   }
 
-  // must apply+decay look deltas here: the gameplay branch in update() is unreachable in edit mode (early return), so this is the only place the fly-cam rotates
   function updateEditFlyCam(frameDt, inputState) {
     applyLookInput(frameDt)
     const sy = Math.sin(yaw), cy = Math.cos(yaw), sp = Math.sin(pitch), cp = Math.cos(pitch)
@@ -283,11 +263,9 @@ export function createCameraController(camera, scene) {
     const aT = 1 - Math.exp(-editAccelHz * frameDt)
     editVel.x += (wishX - editVel.x) * aT; editVel.y += (wishY - editVel.y) * aT; editVel.z += (wishZ - editVel.z) * aT
     editCamPos.x += editVel.x * frameDt; editCamPos.y += editVel.y * frameDt; editCamPos.z += editVel.z * frameDt
-    // must scale horizontal look by cos(pitch), or a steep downward pitch still aims level (fly-cam looks into empty sky)
     camera.position.copy(editCamPos); camera.lookAt(editCamPos.x + sy*cp*100, editCamPos.y + sp*100, editCamPos.z + cy*cp*100)
   }
 
-  // head hidden only while camera is inside the player head (dist<0.01), restored the moment it zooms out
   function updateHeadBoneVisibility(inHead) {
     if (!headBone || inHead === headBoneHidden) return
     if (inHead) { headBone.scale.set(0, 0, 0); headBone.position.y -= fpsHeadDownOffset }
@@ -356,16 +334,9 @@ export function createCameraController(camera, scene) {
     return len > 0.001 ? [dx/len, dy/len, dz/len] : [fwdX, fwdY, fwdZ]
   }
 
-  // On entering edit mode the fly-cam takes over (driven by update()'s editMode
-  // branch). CAPTURE the gameplay camera orientation first so it can be restored
-  // on exit -- yaw/pitch/zoomIndex are SHARED with the fly-cam (the editMode
-  // branch mutates yaw/pitch), so without this the gameplay camera returns to the
-  // editor's last orientation, not its pre-edit follow pose (the "camera did not
-  // return to the correct location" defect).
   function setEditMode(enabled, localMesh) {
     if (enabled && !editMode) {
       _gameplayCam = { yaw, pitch, zoomIndex }
-      // seed the fly-cam offset back-and-up from the player (not glued to the head-height spot, which could stare into a wall)
       const px = localMesh ? localMesh.position.x : camera.position.x
       const py = localMesh ? localMesh.position.y : camera.position.y
       const pz = localMesh ? localMesh.position.z : camera.position.z
@@ -391,22 +362,10 @@ export function createCameraController(camera, scene) {
     save: () => ({ yaw, pitch, zoomIndex }),
     onMouseMove: e => { inputYawDelta += e.movementX * mouseSensitivity; inputPitchDelta += e.movementY * mouseSensitivity * (invertY ? -1 : 1) },
     getInvertY: () => invertY, setInvertY: v => { invertY = !!v },
-    // editor freelook (right-button drag; edit mode releases pointer lock so onMouseMove isn't attached)
     editLook: (dx, dy) => { inputYawDelta += dx * mouseSensitivity; inputPitchDelta += dy * mouseSensitivity },
     onWheel: e => { if (e.deltaY > 0) zoomIndex = Math.min(zoomIndex+1, zoomStages.length-1); else zoomIndex = Math.max(zoomIndex-1, 0); e.preventDefault() },
     setPosition: (x,y,z) => { camera.position.set(x,y,z); editCamPos.set(x,y,z); editVel.set(0,0,0) },
     setTarget: (x,y,z) => camera.lookAt(x,y,z),
-    // Floating-origin rebase hook (see core/FloatingOrigin.js): editCamPos/_gameplayCam-independent
-    // persistent position state that is NOT a THREE scene-graph object (so it is never touched by
-    // FloatingOrigin's own scene.children translate pass) must be shifted by the identical delta the
-    // instant a rebase happens, or the very next update() call's `camera.position.copy(editCamPos)`
-    // (editMode branch) / spring-toward-_smoothTarget math would overwrite the just-rebased
-    // camera.position with a stale pre-rebase value -- the exact one-frame lag/pop the task calls
-    // out. camTarget/_smoothTarget/camDesired/camLookTarget/_lastRay* are recomputed fresh from
-    // localMesh.position/camera.position (both real scene-graph objects, already rebased) every
-    // update() call for the gameplay path, so only the editor fly-cam's own persistent position
-    // state (editCamPos, and _gameplayCam has none -- it stores only yaw/pitch/zoomIndex, rotation-
-    // invariant under a translation) needs an explicit shift here.
     shiftFloatingOrigin: (dx, dy, dz) => { editCamPos.x += dx; editCamPos.y += dy; editCamPos.z += dz },
     punch: intensity => { punchYawTarget += (Math.random()-0.5)*intensity*0.9; punchPitchTarget += (Math.random()-0.3)*intensity*0.9 },
     setVRYaw: v => { yaw = v }, getVRYaw: () => yaw,

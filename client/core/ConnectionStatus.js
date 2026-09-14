@@ -1,17 +1,7 @@
-// Connection status UI: a fixed-position reconnect banner (shown while the socket is
-// waiting/reconnecting, or on a terminal destroyed state) plus a small always-visible
-// RTT/stability HUD chip. Plain DOM (not webjsx/ui-root) so it renders even before a
-// world/snapshot exists and survives ui-root diff churn -- same doctrine as EditPanelDOM's
-// toast host (client/editor/EditPanelDOM.js's _ensureToastHost).
-//
-// Reads client.isReconnecting()/_reconnect state indirectly via the onConnect/onDisconnect
-// callbacks the caller already wires (BaseClient.callbacks), plus a light poll of
-// client.getRTT()/getBufferHealth() for the HUD chip -- no new wire messages.
-
 import { STRINGS } from './strings.js'
 
-const BANNER_SHOW_DELAY_MS = 300 // degenerate-state guard: a fast reconnect (<300ms) never flashes the banner
-const RTT_WARN_MS = 150 // netcode-feel doctrine's "high latency" threshold
+const BANNER_SHOW_DELAY_MS = 300
+const RTT_WARN_MS = 150
 
 function ensureStyles() {
   if (document.getElementById('connstatus-style')) return
@@ -69,7 +59,7 @@ export function createConnectionStatus() {
   let bannerEl = null
   let hudEl = null
   let showTimer = null
-  let pendingState = null // state queued during the 300ms debounce
+  let pendingState = null
 
   function ensureBanner() {
     if (bannerEl) return bannerEl
@@ -113,16 +103,13 @@ export function createConnectionStatus() {
     if (bannerEl) bannerEl.classList.remove('visible')
   }
 
-  // state: 'connected' | 'waiting' | 'reconnecting' | 'destroyed'
   function setState(state, attempts = 0) {
     if (state === 'connected') { _hideBanner(); return }
     if (state === 'destroyed') {
-      // Terminal state: show immediately, no debounce -- there is nothing further to wait for.
       if (showTimer) { clearTimeout(showTimer); showTimer = null }
       _renderBanner('destroyed', STRINGS.connectionLostPermanent)
       return
     }
-    // waiting/reconnecting: debounce so a sub-300ms blip never flashes the banner (degenerate-state guard).
     pendingState = state
     if (showTimer) return
     showTimer = setTimeout(() => {

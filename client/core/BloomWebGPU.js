@@ -1,30 +1,3 @@
-// BloomWebGPU -- TSL node-graph port of Bloom.js's threshold-extract + separable-blur +
-// additive-composite pass, used only when the live renderer is a real THREE.WebGPURenderer
-// (renderer.isWebGPURenderer === true).
-//
-// WHY A SEPARATE FILE (not an in-place rewrite of Bloom.js): Bloom.js's raw-GLSL ShaderMaterial
-// path is still the ONLY implementation that runs under WebGLRenderer (the 100% non-experimental
-// case); WebGPURenderer does not compile raw GLSL at all (see docs/webgpu-shader-audit.md), so
-// this is a second, TSL-native implementation of the exact same algorithm, not a replacement.
-// Bloom.js's own factory (installBloom) is made renderer-polymorphic below exactly like FSR1.js's
-// installFSR1 -- every caller (RenderGraph.nodes.js via buildBloomNodes, app.js) is unchanged,
-// this is purely an additional backend. Precedent: client/core/FSR1WebGPU.js (first slice of
-// webgpurenderer-tsl-port-lowrisk-fullscreen-passes-remaining-8), same file shape, same
-// registerXWebGPU(mod) dynamic-import registration discipline.
-//
-// PORT NOTES:
-//   - QuadMesh (three/webgpu export) replaces the hand-rolled `_quadScene`/`_quadCamera`/
-//     `PlaneGeometry(2,2)` trio Bloom.js builds manually -- same primitive FSR1WebGPU.js uses.
-//   - `THREE.WebGLRenderTarget` -> `THREE.RenderTarget` (generic backend-agnostic base class,
-//     confirmed safe in the FSR1WebGPU.js port).
-//   - Threshold/blur/composite math is IDENTICAL to Bloom.js's GLSL (same soft-knee luminance
-//     bright-pass, same 9-tap separable box blur weights, same additive composite) -- transcribed
-//     node-for-node into TSL's Fn() graph, not reapproximated.
-//   - AdditiveBlending is a real THREE.Material blending mode (not a WebGL-only enum) -- carries
-//     over unchanged onto MeshBasicNodeMaterial.
-//   - No G-buffer / no scene.overrideMaterial coupling (unlike SSAO.js) -- this is a pure
-//     canvas-read-back full-screen pass, exactly the audit's "TSL-portable, low risk" bucket.
-
 import * as THREE from 'three'
 import { MeshBasicNodeMaterial, QuadMesh } from 'three/webgpu'
 import { Fn, texture, uv, uniform, vec2, vec3, vec4, float, clamp, max, mix, dot } from 'three/tsl'
@@ -32,7 +5,6 @@ import { RenderControls } from './RenderControls.js'
 
 const LUMA = vec3(0.2126, 0.7152, 0.0722)
 
-// Soft-knee luminance bright-pass -- identical math to Bloom.js's _thresholdFrag.
 function buildThresholdNode(sceneTex, thresholdUniform, kneeUniform) {
   return Fn(() => {
     const c = texture(sceneTex, uv()).rgb.toVar()
@@ -45,7 +17,6 @@ function buildThresholdNode(sceneTex, thresholdUniform, kneeUniform) {
   })()
 }
 
-// 9-tap separable box blur -- identical weights to Bloom.js's _blurFrag.
 function buildBlurNode(sourceTex, directionUniform) {
   return Fn(() => {
     const uvCoord = uv()
@@ -118,13 +89,6 @@ export class BloomWebGPU {
     this._blurMatH.needsUpdate = true
     this._blurMatV.colorNode = buildBlurNode(this._pingTarget.texture, this._vDirUniform)
     this._blurMatV.needsUpdate = true
-    // Bidirectional blur nodes: buildBlurNode above is rebuilt against whichever target is
-    // currently the SOURCE of a given ping-pong iteration -- since compute() below always reads
-    // _brightTarget->_pingTarget for H and _pingTarget->_brightTarget for V (never swapping which
-    // target plays which role, unlike Bloom.js's generic src/dst swap loop), a single fixed pair of
-    // H/V materials is sufficient; see compute() for the fixed 1-pass ping-pong this simplification
-    // assumes (RenderControls('bloomBlurPasses') > 1 loops the SAME two materials/targets, which is
-    // still correct since each iteration's source texture is read fresh via the same texture node).
     this._built = true
   }
 
@@ -146,8 +110,6 @@ export class BloomWebGPU {
     try {
       this.renderer.copyFramebufferToTexture(this._sceneCopyTex)
     } catch (_) {
-      // Same fail-soft discipline as Bloom.js/FSR1WebGPU.js: skip this frame's bloom rather than
-      // throwing mid-RenderGraph if the backend refuses the copy.
       return
     }
 
