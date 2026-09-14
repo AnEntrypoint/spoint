@@ -20,7 +20,7 @@ const v3 = {
 }
 
 function pointInHull(p, faces, eps = 1e-6) {
-  for (const f of faces) if (v3.dot(p, f.normal) + f.constant < -eps) return false
+  for (const f of faces) if (v3.dot(p, f.normal) - f.constant > eps) return false
   return true
 }
 
