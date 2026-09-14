@@ -35,10 +35,6 @@ export function sampleScalarField(positions, count, minX, minZ, maxX, maxZ, smoo
   return { field, nx, nz, minX: gminX, minZ: gminZ, cell }
 }
 
-const _crossedEdgesByCornerMask = [
-  0b0000, 0b1001, 0b0011, 0b1010, 0b0110, 0b1111, 0b0101, 0b1100,
-  0b1100, 0b0101, 0b1111, 0b0110, 0b1010, 0b0011, 0b1001, 0b0000
-]
 function _lerp(a, b, va, vb, iso) {
   const t = Math.abs(vb - va) > 1e-9 ? (iso - va) / (vb - va) : 0.5
   return a + Math.max(0, Math.min(1, t)) * (b - a)
