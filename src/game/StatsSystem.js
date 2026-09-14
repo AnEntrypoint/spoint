@@ -1,29 +1,3 @@
-// Stats & Loadouts System: level-based stat scaling, equipment, and loadout management.
-// defineStatsSystem(spec, appCtx) -> player stats with level scaling and equipment bonuses.
-//
-// spec = {
-//   startLevel?: number,  // default 1
-//   startXP?: number,     // default 0
-//   xpPerLevel?: number,  // cumulative XP needed to reach next level (default 100)
-//   maxLevel?: number,    // default 50
-//   baseStats?: { health: 100, mana: 50, damage: 10, defense: 5, speed: 1.0, ... },
-//   statScaling?: { health: 10, mana: 5, damage: 0.5, defense: 0.25, speed: 0, ... },  // per level
-//   equipment?: Record<slotName, EquipmentDef[]>,  // available equipment by slot
-//   onLevelUp?(ctx, { playerId, level, stats }),
-//   onLoadoutSwap?(ctx, { playerId, loadout }),
-//   channel?: string,  // client notification channel (default 'stats')
-// }
-//
-// EquipmentDef = {
-//   id: string,
-//   name: string,
-//   slot: 'weapon' | 'armor' | 'accessory' | 'head' | 'legs',
-//   bonuses: Record<statName, number>,  // { health: 20, damage: 5, ... }
-// }
-//
-// Returns { addXP, getLevel, getStats, getEquipment, equipItem, unequipSlot, getLoadout, saveLoadout,
-//           loadLoadout, getLoadouts, snapshot, restore }
-
 export function defineStatsSystem(spec = {}, appCtx) {
   if (!appCtx) throw new TypeError('[stats] appCtx is required')
 
@@ -48,7 +22,6 @@ export function defineStatsSystem(spec = {}, appCtx) {
   const equipment = spec.equipment && typeof spec.equipment === 'object' ? spec.equipment : {}
   const channel = spec.channel || 'stats'
 
-  // Create equipment lookup
   const _equipmentLookup = new Map()
   for (const [slot, items] of Object.entries(equipment)) {
     if (!Array.isArray(items)) continue
@@ -59,7 +32,6 @@ export function defineStatsSystem(spec = {}, appCtx) {
     }
   }
 
-  // Player data: playerId -> { level, xp, equipment (Map slot -> equipmentId), loadouts }
   const _playerData = new Map()
 
   const _getPlayerData = (pid) => {
@@ -69,8 +41,8 @@ export function defineStatsSystem(spec = {}, appCtx) {
       data = {
         level: startLevel,
         xp: startXP,
-        equipment: new Map(),  // slot -> equipmentId
-        loadouts: new Map(),   // loadoutName -> { equipment: {slot: equipmentId} }
+        equipment: new Map(),
+        loadouts: new Map(),
       }
       _playerData.set(key, data)
     }
@@ -104,14 +76,11 @@ export function defineStatsSystem(spec = {}, appCtx) {
   }
 
   const statsSystem = {
-    // Calculate XP needed to reach a specific level (cumulative)
     _xpForLevel(level) {
       if (level <= 1) return 0
-      // Cumulative XP: level 2 = 100, level 3 = 200, level 4 = 300, etc.
       return xpPerLevel * (level - 1)
     },
 
-    // Calculate level from total XP
     _levelFromXP(totalXP) {
       let level = 1
       while (level < maxLevel && totalXP >= this._xpForLevel(level + 1)) {
@@ -120,7 +89,6 @@ export function defineStatsSystem(spec = {}, appCtx) {
       return Math.min(level, maxLevel)
     },
 
-    // Add XP to a player
     addXP(pid, amount) {
       if (!(typeof amount === 'number' && Number.isFinite(amount)) || amount <= 0) return false
 
@@ -137,24 +105,20 @@ export function defineStatsSystem(spec = {}, appCtx) {
       return true
     },
 
-    // Get player's level
     getLevel(pid) {
       return _getPlayerData(pid).level
     },
 
-    // Calculate final stats with all bonuses applied
     getStats(pid) {
       const data = _getPlayerData(pid)
       const level = data.level
 
-      // Start with scaled base stats: base + (level - 1) * scaling
       const stats = {}
       for (const [stat, base] of Object.entries(baseStats)) {
         const scale = statScaling[stat] || 0
         stats[stat] = base + (level - 1) * scale
       }
 
-      // Apply equipment bonuses
       for (const equipmentId of data.equipment.values()) {
         const item = _equipmentLookup.get(equipmentId)
         if (item && item.bonuses) {
@@ -171,7 +135,6 @@ export function defineStatsSystem(spec = {}, appCtx) {
       }
     },
 
-    // Get currently equipped items
     getEquipment(pid) {
       const data = _getPlayerData(pid)
       const result = {}
@@ -190,7 +153,6 @@ export function defineStatsSystem(spec = {}, appCtx) {
       return result
     },
 
-    // Equip an item to a slot (replaces existing item if any)
     equipItem(pid, equipmentId) {
       const item = _equipmentLookup.get(equipmentId)
       if (!item) return false
@@ -202,7 +164,6 @@ export function defineStatsSystem(spec = {}, appCtx) {
       return true
     },
 
-    // Unequip an item from a slot
     unequipSlot(pid, slot) {
       const data = _getPlayerData(pid)
       const had = data.equipment.has(slot)
@@ -215,7 +176,6 @@ export function defineStatsSystem(spec = {}, appCtx) {
       return had
     },
 
-    // Get current loadout
     getLoadout(pid) {
       const equipment = {}
       for (const [slot, equipmentId] of _getPlayerData(pid).equipment) {
@@ -224,7 +184,6 @@ export function defineStatsSystem(spec = {}, appCtx) {
       return equipment
     },
 
-    // Save current equipment as a named loadout
     saveLoadout(pid, loadoutName) {
       if (typeof loadoutName !== 'string' || !loadoutName.trim()) return false
 
@@ -239,14 +198,12 @@ export function defineStatsSystem(spec = {}, appCtx) {
       return true
     },
 
-    // Load a named loadout
     loadLoadout(pid, loadoutName) {
       const data = _getPlayerData(pid)
       const loadout = data.loadouts.get(loadoutName)
 
       if (!loadout) return false
 
-      // Clear current equipment and apply loadout
       data.equipment.clear()
       for (const [slot, equipmentId] of Object.entries(loadout)) {
         const item = _equipmentLookup.get(equipmentId)
@@ -260,7 +217,6 @@ export function defineStatsSystem(spec = {}, appCtx) {
       return true
     },
 
-    // Get all saved loadouts
     getLoadouts(pid) {
       const data = _getPlayerData(pid)
       const result = {}
@@ -272,7 +228,6 @@ export function defineStatsSystem(spec = {}, appCtx) {
       return result
     },
 
-    // Snapshot all player stats for persistence
     snapshot() {
       const data = {}
       for (const [pid, playerData] of _playerData) {
@@ -288,7 +243,6 @@ export function defineStatsSystem(spec = {}, appCtx) {
       return data
     },
 
-    // Restore stats from snapshot
     restore(data) {
       if (!data || typeof data !== 'object') return
       _playerData.clear()
@@ -301,7 +255,6 @@ export function defineStatsSystem(spec = {}, appCtx) {
           loadouts: new Map(),
         }
 
-        // Restore equipment
         if (playerData.equipment && typeof playerData.equipment === 'object') {
           for (const [slot, equipmentId] of Object.entries(playerData.equipment)) {
             if (_equipmentLookup.has(equipmentId)) {
@@ -310,7 +263,6 @@ export function defineStatsSystem(spec = {}, appCtx) {
           }
         }
 
-        // Restore loadouts
         if (playerData.loadouts && typeof playerData.loadouts === 'object') {
           for (const [name, loadout] of Object.entries(playerData.loadouts)) {
             if (loadout && typeof loadout === 'object') {

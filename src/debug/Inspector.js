@@ -1,19 +1,8 @@
 import { MSG } from '../protocol/MessageTypes.js'
 
-// The "debug message" range below was ORIGINALLY a hardcoded 100-199 guess with a manually
-// carved-out exception list for known editor-protocol ids -- and it kept silently rotting: first
-// a 128-159 exception missed SAVE_PREFAB/PREFAB_SAVED/PLACE_PREFAB/GROUP_ENTITIES/LIST_FS_TREE/
-// FS_TREE/FS_TREE_CHANGED/MKDIR/DELETE_FILE/RENAME_FILE/FS_OP_RESULT (0xa0-0xaa), fixed by
-// deriving a min/max RANGE from an explicit _editorMsgIds array instead -- but a min/max range
-// has the exact same rot mode as a hardcoded range: it silently re-broke a second time when
-// EDITOR_PRESENCE (0xab=171) and TERRAIN_SCULPT/TERRAIN_SCULPT_ACK (0xae/0xaf=174/175) were added
-// past the array's max (170), landing back in the swallowed range with zero error anywhere
-// (Inspector.handleMessage returns true, so ServerHandlers.js's dispatcher never even sees the
-// message -- live-reproduced this session: TERRAIN_SCULPT sent, zero ack, zero error, zero warning).
-// STRUCTURAL fix (can't rot again): swallow-as-debug only applies to a numeric type that is NOT
-// any currently-defined MSG.* value at all. Every real, wired protocol message -- present or any
-// future addition -- is automatically excluded by construction, with zero list to keep in sync.
 const _knownMsgTypes = new Set(Object.values(MSG))
+const DEBUG_MSG_TYPE_MIN = 100
+const DEBUG_MSG_TYPE_MAX = 199
 
 export class Inspector {
   constructor() {
@@ -21,10 +10,10 @@ export class Inspector {
   }
 
   handleMessage(clientId, msg) {
-    if (!msg || msg.type < 100) return false
+    if (!msg || msg.type < DEBUG_MSG_TYPE_MIN) return false
     const msgType = msg.type
     if (_knownMsgTypes.has(msgType)) return false
-    if (msgType >= 100 && msgType <= 199) {
+    if (msgType >= DEBUG_MSG_TYPE_MIN && msgType <= DEBUG_MSG_TYPE_MAX) {
       this._handleDebugMessage(clientId, msg)
       return true
     }

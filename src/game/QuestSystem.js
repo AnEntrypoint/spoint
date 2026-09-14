@@ -1,42 +1,9 @@
-// Quest Framework: declarative quest system with objectives, rewards, and per-player tracking.
-// defineQuestSystem(spec, appCtx) -> quest management with per-player quest state persistence.
-//
-// spec = {
-//   quests?: Record<string, QuestDef>,  // quest definitions: id -> {title, description, objectives, rewards}
-//   onQuestStart?(ctx, { playerId, questId }),
-//   onQuestComplete?(ctx, { playerId, questId, rewards }),
-//   onObjectiveProgress?(ctx, { playerId, questId, objectiveIndex, progress }),
-//   channel?: string,  // client notification channel (default 'quests')
-// }
-//
-// QuestDef = {
-//   title: string,
-//   description: string,
-//   objectives: ObjectiveDef[],  // array of objectives to complete
-//   rewards: { xp?: number, items?: Record<string, number>, statBonuses?: Record<string, number> },
-//   chain?: string,  // if set, marks this quest as a prereq for chain[questId]
-// }
-//
-// ObjectiveDef = {
-//   type: 'killN' | 'collectX' | 'reachLocation' | 'talkToNPC',
-//   count?: number,  // for killN/collectX
-//   enemyType?: string,  // for killN
-//   itemId?: string,  // for collectX
-//   location?: [x, y, z],  // for reachLocation
-//   radius?: number,  // for reachLocation
-//   npcId?: string,  // for talkToNPC
-// }
-//
-// Returns { startQuest, completeObjective, claimReward, getQuestState, getPlayerQuests,
-//           getAllQuestProgress, snapshot, restore }
-
 export function defineQuestSystem(spec = {}, appCtx) {
   if (!appCtx) throw new TypeError('[quest] appCtx is required')
 
   const quests = (spec.quests && typeof spec.quests === 'object') ? spec.quests : {}
   const channel = spec.channel || 'quests'
 
-  // Validate quest definitions
   for (const [id, def] of Object.entries(quests)) {
     if (!def || typeof def !== 'object') throw new Error(`[quest] quest "${id}" must be an object`)
     if (!def.title || typeof def.title !== 'string') throw new Error(`[quest] quest "${id}" missing or invalid title`)
@@ -44,20 +11,18 @@ export function defineQuestSystem(spec = {}, appCtx) {
     if (!def.rewards || typeof def.rewards !== 'object') throw new Error(`[quest] quest "${id}" missing rewards`)
   }
 
-  const _playerQuests = new Map()  // playerId -> Map<questId, {state, progress, progress[]}>
+  const _playerQuests = new Map()
 
-  // Get or initialize player's quest state
   const _getPlayerData = (pid) => {
     const key = String(pid)
     let data = _playerQuests.get(key)
     if (!data) {
-      data = new Map()  // questId -> {state, progress, completedAt}
+      data = new Map()
       _playerQuests.set(key, data)
     }
     return data
   }
 
-  // Fire a callback if defined
   const _fire = (name, arg) => {
     const fn = spec[name]
     if (typeof fn === 'function') {
@@ -67,7 +32,6 @@ export function defineQuestSystem(spec = {}, appCtx) {
     }
   }
 
-  // Send quest state to player's client
   const _pushToClient = (pid, questId) => {
     const data = _getPlayerData(pid)
     const quest = data.get(questId)
@@ -83,14 +47,13 @@ export function defineQuestSystem(spec = {}, appCtx) {
   }
 
   const questSystem = {
-    // Start a quest for a player (if not already started or completed)
     startQuest(pid, questId) {
       const data = _getPlayerData(pid)
       if (!quests[questId]) return false
 
       const existing = data.get(questId)
       if (existing && (existing.state === 'active' || existing.state === 'completed')) {
-        return false  // Already started or completed
+        return false
       }
 
       const questDef = quests[questId]
@@ -107,7 +70,6 @@ export function defineQuestSystem(spec = {}, appCtx) {
       return true
     },
 
-    // Record progress on an objective (e.g., killed an enemy, collected an item)
     completeObjective(pid, questId, objectiveIndex, amount = 1) {
       const data = _getPlayerData(pid)
       const quest = data.get(questId)
@@ -120,7 +82,7 @@ export function defineQuestSystem(spec = {}, appCtx) {
       const objective = questDef.objectives[objectiveIndex]
       const isComplete = objective.count && quest.progress[objectiveIndex] >= objective.count
 
-      if (isComplete) return false  // Objective already complete
+      if (isComplete) return false
 
       quest.progress[objectiveIndex] = Math.min(objective.count || 1, quest.progress[objectiveIndex] + amount)
 
@@ -134,7 +96,6 @@ export function defineQuestSystem(spec = {}, appCtx) {
 
       _pushToClient(pid, questId)
 
-      // Check if all objectives are complete
       const allComplete = questDef.objectives.every((obj, i) => {
         return obj.count ? quest.progress[i] >= obj.count : quest.progress[i] > 0
       })
@@ -152,8 +113,6 @@ export function defineQuestSystem(spec = {}, appCtx) {
       return true
     },
 
-    // Claim quest rewards (XP, items, stat bonuses)
-    // Returns the actual rewards distributed
     claimReward(pid, questId) {
       const data = _getPlayerData(pid)
       const quest = data.get(questId)
@@ -168,7 +127,6 @@ export function defineQuestSystem(spec = {}, appCtx) {
       quest.state = 'claimed'
       quest.claimedAt = Date.now()
 
-      // Distribute rewards through the app context
       if (rewards.xp && appCtx.progression?.addXP) {
         appCtx.progression.addXP(pid, rewards.xp)
       }
@@ -189,7 +147,6 @@ export function defineQuestSystem(spec = {}, appCtx) {
       return { xp: rewards.xp || 0, items: rewards.items || {}, statBonuses: rewards.statBonuses || {} }
     },
 
-    // Get the current state of a player's quest
     getQuestState(pid, questId) {
       const data = _getPlayerData(pid)
       const quest = data.get(questId)
@@ -197,7 +154,7 @@ export function defineQuestSystem(spec = {}, appCtx) {
 
       return {
         questId,
-        state: quest.state,  // 'available' | 'active' | 'complete' | 'claimed'
+        state: quest.state,
         progress: [...quest.progress],
         startedAt: quest.startedAt || null,
         completedAt: quest.completedAt || null,
@@ -205,7 +162,6 @@ export function defineQuestSystem(spec = {}, appCtx) {
       }
     },
 
-    // Get all quests and their states for a player
     getPlayerQuests(pid) {
       const data = _getPlayerData(pid)
       const result = {}
@@ -223,7 +179,6 @@ export function defineQuestSystem(spec = {}, appCtx) {
       return result
     },
 
-    // Get all quests with their full definitions for client UI
     getAllQuestProgress(pid) {
       const data = _getPlayerData(pid)
       const result = {}
@@ -247,7 +202,6 @@ export function defineQuestSystem(spec = {}, appCtx) {
       return result
     },
 
-    // Snapshot quest data for persistence
     snapshot() {
       const data = {}
       for (const [pid, quests] of _playerQuests) {
@@ -265,7 +219,6 @@ export function defineQuestSystem(spec = {}, appCtx) {
       return data
     },
 
-    // Restore quest data from snapshot
     restore(data) {
       if (!data || typeof data !== 'object') return
       _playerQuests.clear()

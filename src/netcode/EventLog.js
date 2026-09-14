@@ -1,5 +1,7 @@
 import { pack, unpack } from '../protocol/msgpack.js'
 
+const REPLICATED_KEYS_PER_RING_SLOT = 4
+
 export class EventLog {
   constructor(config = {}) {
     this._maxSize = config.maxSize || 1000
@@ -8,11 +10,6 @@ export class EventLog {
     this._count = 0
     this._nextId = 1
     this._recording = true
-    // Dedupe set for cross-shard replicated events (see ingestRemote below) -- keyed by
-    // "originRegion:originId" so a worker restart / router resync replaying already-applied events
-    // never double-applies them to this log. Bounded the same way the ring buffer itself is bounded
-    // (cleared entries are simply evicted from this Set lazily, see _pruneReplicatedKeys) so a
-    // long-running shard doesn't grow this unboundedly.
     this._replicatedKeys = new Set()
   }
 
@@ -64,25 +61,11 @@ export class EventLog {
   resume() { this._recording = true }
   clear() { this._buf = new Array(this._maxSize); this._head = 0; this._count = 0; this._nextId = 1; this._replicatedKeys.clear() }
 
-  // Applies an event forwarded from a SIBLING shard's own EventLog (see RegionWorkerEntry.js's
-  // cross-shard replication hook + RegionRouter.js's fan-out). Distinct from record() in three ways
-  // required by real multi-shard operation:
-  //  - idempotent: a (originRegion, originId) pair is applied at most once, so a router resync or a
-  //    replayed IPC message (e.g. after a worker restart re-requests recent history) never
-  //    double-applies an event that already landed here.
-  //  - provenance-preserving: the ORIGINATING shard's id/tick are kept verbatim under
-  //    meta.originId/meta.originTick (never renumbered to look locally-authored) alongside a fresh
-  //    LOCAL id/tick from this log's own sequence (so query()/getRange() by local tick still works
-  //    normally against this log's own timeline) and meta.originRegion identifying the source shard.
-  //  - never re-forwarded: meta.crossShard is stripped on ingest (see RegionWorkerEntry.js's outbound
-  //    hook, which only forwards events carrying meta.crossShard===true) so a 3+-shard topology can't
-  //    loop an event back out to its own origin or duplicate-broadcast it around a ring.
-  // Returns the applied event, or null if it was a duplicate (already-seen origin) and was skipped.
   ingestRemote(event, originRegion) {
     const key = `${originRegion}:${event.id}`
     if (this._replicatedKeys.has(key)) return null
     this._replicatedKeys.add(key)
-    if (this._replicatedKeys.size > this._maxSize * 4) this._pruneReplicatedKeys()
+    if (this._replicatedKeys.size > this._maxSize * REPLICATED_KEYS_PER_RING_SLOT) this._pruneReplicatedKeys()
     const local = {
       id: this._nextId++,
       tick: event.tick || 0,
@@ -97,11 +80,6 @@ export class EventLog {
     return local
   }
 
-  // Drops dedupe keys for origin events that have long since scrolled out of any plausible resync
-  // window -- keeps the Set bounded on a long-running shard without needing a TTL/clock dependency.
-  // A generous multiple of _maxSize (4x) is used rather than 1x because the LOCAL ring buffer and the
-  // set of DISTINCT remote origins seen are different sizes (a busy multi-shard topology can see more
-  // distinct remote event ids than fit in one shard's own local ring).
   _pruneReplicatedKeys() {
     const keep = new Set()
     for (const e of this._toArray()) {

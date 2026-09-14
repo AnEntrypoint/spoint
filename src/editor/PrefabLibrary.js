@@ -1,7 +1,3 @@
-// Prefab library: storage and validation for reusable entity group presets.
-// Node-only (real fs) with browser stubs for Worker/singleplayer context.
-// Follows WorldPersistence.js serialization pattern + EditorHandlers.js error messaging.
-
 const isNode = typeof process !== 'undefined' && process.versions?.node
 let readFile, writeFile, unlink, readdir, mkdir, join, dirname, fsRename
 
@@ -87,11 +83,9 @@ class PrefabLibrary {
     const name = (prefabName || '').trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '')
     if (!name) throw new Error('[prefab] invalid prefab name (use a-z 0-9 -)')
 
-    // Normalize entityTree: if single entity, wrap it; if array, use as-is
     const entities = Array.isArray(entityTree) ? entityTree : [entityTree]
     if (!entities.length) throw new Error('[prefab] empty entity tree')
 
-    // Find root: first entity with no parent, or use first entity
     const rootId = entities.find(e => !e.parent)?.id || entities[0].id
 
     const now = new Date().toISOString()

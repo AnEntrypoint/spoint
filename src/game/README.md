@@ -23,7 +23,6 @@ High-level wrapper combining ProgressionSystem + AbilityTree into app-ready modu
 
 - **QuestSystem.js** - Quest framework with objectives and reward distribution
 - **StatsSystem.js** - Player stats with level-based scaling and equipment bonuses
-- **quest-stats-integration.test.js** - Comprehensive integration tests
 
 ## Quick Start
 
@@ -273,23 +272,6 @@ export const server = {
   }
 }
 ```
-
-## Testing
-
-Run integration tests:
-
-```bash
-node src/game/quest-stats-integration.test.js
-```
-
-Tests verify:
-- HP scaling formula correctness
-- Equipment bonus stacking
-- Loadout save/swap functionality
-- Persistence via snapshot/restore
-- Quest completion and reward distribution
-- Performance benchmarks
-- 5-quest progression chains
 
 ## Tutorial App
 

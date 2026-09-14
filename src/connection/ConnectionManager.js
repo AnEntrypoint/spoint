@@ -4,13 +4,6 @@ import { EventEmitter } from '../protocol/EventEmitter.js'
 
 const _sendObj = { type: 0, payload: null }
 
-// Coalescing frame format: sentinel byte 0xFF (never a valid opening byte for our top-level msgpack value --
-// every message packs a map {type,payload}, whose msgpack header is 0x80-0x8f/0xde/0xdf, so a lone 0xFF byte
-// is unambiguous and back-compatible with any peer still expecting one message per socket frame) followed by
-// repeated [uint32 LE length][payload bytes] records. Used to fold every send() this tick for a client into
-// ONE socket.send() call instead of N -- each send() carries real per-call syscall/framing overhead at a
-// the configured server tick rate (60Hz default, per-world override) with potentially several messages (snapshot + heartbeat-ack + app-events) landing in the
-// same tick for the same client.
 const COALESCE_SENTINEL = 0xff
 const LEN_PREFIX_BYTES = 4
 
@@ -45,18 +38,7 @@ export class ConnectionManager extends EventEmitter {
       lastHeartbeat: Date.now(),
       sessionToken: null,
       transportType: transport.type || 'websocket',
-      // Present only for a wireweave P2P peer connection (PeerTransport carries the room's pubkey as
-      // _peerId -- see src/transport/WorkerTransport.js). Undefined on the plain WS/in-Worker-host transport.
-      // Host-migration election (client/HostMigration.js, via MSG.PEER_RTT_TABLE's playerId->pubkey map)
-      // needs this to know WHICH wireweave peer a given server playerId corresponds to, since the two id
-      // spaces (sequential server playerId vs nostr pubkey) are otherwise uncorrelated on the client side.
       peerPubkey: transport.type === 'peer' ? transport._peerId : undefined,
-      // per-tick coalescing outbox, flushed by flushAll() at end of tick. Reliable and unreliable messages
-      // queued this tick are frame-coalesced separately (each becomes its own single socket.send()) so an
-      // unreliable/dropped snapshot frame never blocks or gets blocked by a reliable message's delivery
-      // guarantee, and vice versa. _lastType tracks the single message type queued so far -- if it stays
-      // singular for the whole tick, flushAll can still forward a real `mt` to transports (e.g.
-      // WorkerTransport) that use it for their own type-aware coalescing; mixed types forward `mt=undefined`.
       _outReliable: [], _outReliableType: undefined, _outReliableMixed: false,
       _outUnreliable: [], _outUnreliableType: undefined, _outUnreliableMixed: false
     }
@@ -71,7 +53,6 @@ export class ConnectionManager extends EventEmitter {
       }
     })
 
-    // guard on clients.has: whichever disconnect path (close/error/timeout) fires second is a no-op
     transport.on('close', () => {
       if (this.clients.has(clientId)) this.emit('disconnect', clientId, 'closed')
       this.removeClient(clientId)
@@ -179,9 +160,6 @@ export class ConnectionManager extends EventEmitter {
     }
   }
 
-  // Queues a single packed message onto this tick's per-client outbox rather than sending immediately.
-  // flushAll() (called once per tick, after all app/tick logic has run) coalesces everything queued this
-  // tick into at most one reliable + one unreliable socket.send() per client.
   _enqueue(client, data, unreliable, type) {
     if (unreliable) {
       if (client._outUnreliable.length === 0) client._outUnreliableType = type
@@ -195,13 +173,6 @@ export class ConnectionManager extends EventEmitter {
     return true
   }
 
-  // Called once per tick (after onTick) to flush every client's coalesced outbox. Reliable and unreliable
-  // queues are framed and sent separately -- see frameCoalesced's header comment for the wire format and
-  // rationale. A transport-level drop (e.g. WebSocketTransport.sendUnreliable's backpressure guard) only
-  // ever applies to the unreliable frame, matching per-message drop semantics (a queued reliable message
-  // is never silently dropped by coalescing it). The resolved `mt` (only meaningful/passed through when
-  // exactly one message type was queued this tick) preserves WorkerTransport's own type-aware coalescing
-  // (see client/BrowserServer.js's snapshot rAF-batch) for the common single-message-per-tick case.
   flushAll() {
     for (const client of this.clients.values()) {
       if (!client.transport.isOpen) {

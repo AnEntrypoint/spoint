@@ -1,9 +1,7 @@
-// must be monotonic (Date.now() can jump backward and corrupt the ring's time-order binary search)
-const _now = (typeof performance !== 'undefined' && typeof performance.now === 'function')
+const _monotonicNow = (typeof performance !== 'undefined' && typeof performance.now === 'function')
   ? () => performance.now()
   : () => Date.now()
 
-// process is undefined in the browser singleplayer worker; a bare process.env read here crashes worker init
 const _envWindow = () => {
   try { if (typeof process !== 'undefined' && process.env) return Number(process.env.SPOINT_LAG_HISTORY_WINDOW) || 0 } catch {}
   return 0
@@ -24,8 +22,7 @@ export class LagCompensator {
     const idx = (ring.head + ring.len) % 128
     if (!ring.buf[idx]) ring.buf[idx] = { tick: 0, timestamp: 0, position: [0,0,0], rotation: [0,0,0,1], velocity: [0,0,0] }
     const entry = ring.buf[idx]
-    // one clock read per call: stamps the new entry and prunes against the same instant
-    const now = _now()
+    const now = _monotonicNow()
     entry.tick = tick; entry.timestamp = now
     entry.position[0] = position[0]; entry.position[1] = position[1]; entry.position[2] = position[2]
     entry.rotation[0] = rotation[0]; entry.rotation[1] = rotation[1]; entry.rotation[2] = rotation[2]; entry.rotation[3] = rotation[3]
@@ -43,7 +40,7 @@ export class LagCompensator {
     const ring = this.playerHistory.get(playerId)
     if (!ring || ring.len === 0) return null
 
-    const targetTime = _now() - millisAgo
+    const targetTime = _monotonicNow() - millisAgo
     let lo = 0, hi = ring.len - 1, bestIdx = -1
     while (lo <= hi) {
       const mid = (lo + hi) >> 1

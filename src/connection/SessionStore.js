@@ -28,10 +28,10 @@ export class SessionStore {
   update(token, data) {
     const session = this.sessions.get(token)
     if (!session) return false
-    // untrusted reconnect blob: skip __proto__/constructor/prototype keys to avoid prototype pollution
     if (data && data.state && typeof data.state === 'object' && !Array.isArray(data.state)) {
       for (const k of Object.keys(data.state)) {
-        if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue
+        const isPrototypePollutionKey = k === '__proto__' || k === 'constructor' || k === 'prototype'
+        if (isPrototypePollutionKey) continue
         session.state[k] = data.state[k]
       }
     }
