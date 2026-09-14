@@ -31,8 +31,10 @@ Controls: <b>WASD</b>/drag orbit . <b>Q/E</b>/wheel zoom . <b>R</b> reset<br>
 <button id="genToggle" style="position:fixed;left:8px;top:8px;z-index:30;font:11px monospace;padding:3px 7px">Generation</button>
 <div id="genPanel" style="position:fixed;left:8px;top:34px;z-index:30;display:none;max-height:88vh;overflow:auto;background:rgba(12,16,20,0.92);color:#cfe;font:10px/1.5 monospace;padding:6px 8px;border:1px solid #2a3a44;width:250px"></div>
 <div id="err"></div>
+<script>(function(){var v=parseFloat(new URLSearchParams(location.search).get('scale'));if(isFinite(v)&&v>0)window.__planetScale=v;})();</script>
 <script type="module">import('./src/tweak-panel.js?v='+(window.performance?performance.now()|0:Date.now())).catch(e=>console.error('tweak-panel',e));</script>
 <script type="module">
+import { createHeightSampler } from './src/height-cpu.js';
 const errEl=document.getElementById('err');
 const showErr=m=>{errEl.style.display='block';errEl.textContent=String(m);window.__pageErr=String(m);console.error(m)};
 window.addEventListener('error',e=>showErr(e.message||e));
@@ -40,57 +42,12 @@ window.addEventListener('unhandledrejection',e=>showErr(e.reason?.message||e.rea
 
 const canvas=document.getElementById('cwebgl');
 
-function nl_hash(ix,iy,iz){
-  const n = (Math.imul(ix,1597) + Math.imul(iy,3571) + Math.imul(iz,7919))|0;
-  let state = (Math.imul(n>>>0, 747796405) + 2891336453)>>>0;
-  state = (Math.imul(((state >>> ((state>>>28)+4)) ^ state)>>>0, 277803737))>>>0;
-  state = ((state >>> 22) ^ state)>>>0;
-  return -1.0 + 2.0 * state / 4294967295;
-}
-function value_noise(x,y,z){
-  const ix=Math.floor(x),iy=Math.floor(y),iz=Math.floor(z);
-  const wx=x-ix, wy=y-iy, wz=z-iz;
-  const ux=wx*wx*wx*(wx*(wx*6-15)+10), uy=wy*wy*wy*(wy*(wy*6-15)+10), uz=wz*wz*wz*(wz*(wz*6-15)+10);
-  const a=nl_hash(ix,iy,iz),   b=nl_hash(ix+1,iy,iz),   c=nl_hash(ix,iy+1,iz),   d=nl_hash(ix+1,iy+1,iz);
-  const e=nl_hash(ix,iy,iz+1), f=nl_hash(ix+1,iy,iz+1), g=nl_hash(ix,iy+1,iz+1), hh=nl_hash(ix+1,iy+1,iz+1);
-  const k0=a,k1=b-a,k2=c-a,k3=e-a,k4=a-b-c+d,k5=a-c-e+g,k6=a-b-e+f,k7=-a+b+c-d+e-f-g+hh;
-  return k0 + k1*ux + k2*uy + k3*uz + k4*ux*uy + k5*uy*uz + k6*uz*ux + k7*ux*uy*uz;
-}
-function fbm_range(gain,n){let h; if(Math.abs(gain-1)<1e-5)h=n+1; else h=(1-Math.pow(gain,n+1))/(1-gain); return [-h,h];}
-function value_fbm(x,y,z,gain,n){let f=1,a=1,t=0;for(let i=0;i<n;i++){t+=a*value_noise(f*x,f*y,f*z);f*=2;a*=gain;}return t;}
-function value_fbm_scaled(x,y,z,gain,n,mn,mx){const v=value_fbm(x,y,z,gain,n);const rg=fbm_range(gain,n);return mn+(mx-mn)*((v-rg[0])/(rg[1]-rg[0]));}
-function fbm_ridged_range(gain,n,off,exp){return [Math.pow(off-1,exp), Math.pow(off,exp)*fbm_range(gain,n)[1]];}
-function value_ridged_fbm_scaled(x,y,z,gain,n,off,exp,mn,mx){
-  let f=1,a=1,t=0,w=1;
-  for(let i=0;i<n;i++){let s=value_noise(f*x,f*y,f*z);s=off-Math.abs(s);s=Math.pow(s,exp);s*=w;t+=a*s;f*=2;a*=gain;w=Math.max(0,Math.min(1,s*2));}
-  const rg=fbm_ridged_range(gain,n,off,exp);return mn+(mx-mn)*((t-rg[0])/(rg[1]-rg[0]));
+let _heightSampler = null;
+function jsBroadShape(dx,dy,dz){
+  return _heightSampler.heightAt([dx,dy,dz]);
 }
 function jsElev(dx,dy,dz){
   return jsBroadShape(dx,dy,dz) / WEBGL2_TERRAIN_R_M;
-}
-
-function jsShash3(px,py,pz){
-  let x=px*0.3183099+0.1, y=py*0.3183099+0.2, z=pz*0.3183099+0.3;
-  x-=Math.floor(x); y-=Math.floor(y); z-=Math.floor(z);
-  const d=x*(y+19.19)+y*(z+19.19)+z*(x+19.19); x+=d; y+=d; z+=d;
-  const v=(x+y)*z+(y+z)*x+(z+x)*y; return v-Math.floor(v);
-}
-function jsSnoise3(px,py,pz){
-  const ix=Math.floor(px),iy=Math.floor(py),iz=Math.floor(pz);
-  const fx=px-ix,fy=py-iy,fz=pz-iz;
-  const ux=fx*fx*(3-2*fx),uy=fy*fy*(3-2*fy),uz=fz*fz*(3-2*fz);
-  const H=(ox,oy,oz)=>jsShash3(ix+ox,iy+oy,iz+oz);
-  const n000=H(0,0,0),n100=H(1,0,0),n010=H(0,1,0),n110=H(1,1,0),
-        n001=H(0,0,1),n101=H(1,0,1),n011=H(0,1,1),n111=H(1,1,1);
-  const x00=n000+(n100-n000)*ux, x10=n010+(n110-n010)*ux, x01=n001+(n101-n001)*ux, x11=n011+(n111-n011)*ux;
-  const y0=x00+(x10-x00)*uy, y1=x01+(x11-x01)*uy;
-  return (y0+(y1-y0)*uz)*2-1;
-}
-function jsBroadShape(dx,dy,dz){
-  const r=Math.hypot(dx,dy,dz)||1; dx/=r; dy/=r; dz/=r;
-  let amp=6500.0, freq=0.75, sum=0.0;
-  for(let o=0;o<14;o++){ let nn=jsSnoise3(dx*freq,dy*freq,dz*freq); if(o>=6) nn*=0.25; sum+=amp*nn; amp*=(o<6?0.66:0.80); freq*=2.0; }
-  return sum-500.0;
 }
 
 const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
@@ -100,6 +57,7 @@ const _planetScale = (typeof window !== 'undefined' && typeof window.__planetSca
 const RADIUS=6371.0 * _planetScale;
 const REF_TERRAIN_R_M = 6360000.0;
 const WEBGL2_TERRAIN_R_M = REF_TERRAIN_R_M * _planetScale;
+_heightSampler = createHeightSampler({ radius: WEBGL2_TERRAIN_R_M });
 const refM = m => m * _planetScale;
 const WEBGL2_M_PER_UNIT = WEBGL2_TERRAIN_R_M / RADIUS;
 if (typeof window !== 'undefined') {
@@ -1057,20 +1015,25 @@ window.__diag = {
   async hazeProbe(){
     const rdy=await this.assertReady(); if(!rdy.ok) return {err:'not-ready',detail:rdy};
     const d=window.__dbg;
-    const meanLand=()=>{ const {px,w,h}=this._read(); let r=0,g=0,b=0,n=0;
-      for(let i=0;i<w*h;i++){const R=px[i*4],G=px[i*4+1],B=px[i*4+2];
-        if(R<12&&G<14&&B<30) continue;
-        r+=R;g+=G;b+=B;n++; }
-      n=Math.max(n,1); return {r:r/n,g:g/n,b:b/n,n}; };
     const prev=window.__displayMode|0;
-    window.__displayMode=0; await d.frames(8); const lit=meanLand();
-    window.__displayMode=2; await d.frames(8); const alb=meanLand();
+    window.__displayMode=0; await d.frames(8); const litRead=this._read();
+    window.__displayMode=2; await d.frames(8); const albRead=this._read();
     window.__displayMode=prev; await d.frames(4);
+    const {px:lp,w,h}=litRead, ap=albRead.px;
+    let lr=0,lg=0,lb=0,ar=0,ag=0,ab=0,n=0,excludedSaturated=0;
+    for(let i=0;i<w*h;i++){ const k=i*4;
+      const LR=lp[k],LG=lp[k+1],LB=lp[k+2];
+      if(LR<12&&LG<14&&LB<30) continue;
+      const AR=ap[k],AG=ap[k+1],AB=ap[k+2];
+      if(AR>250||AG>250||AB>250){ excludedSaturated++; continue; }
+      lr+=LR;lg+=LG;lb+=LB; ar+=AR;ag+=AG;ab+=AB; n++; }
+    n=Math.max(n,1);
+    const lit={r:lr/n,g:lg/n,b:lb/n}, alb={r:ar/n,g:ag/n,b:ab/n};
     const blueExcess=+(((lit.b-alb.b)-(lit.r-alb.r))/255).toFixed(3);
     const chromaLoss=+((1-(Math.abs(alb.r-alb.b)+1)/(Math.abs(lit.r-lit.b)+1))).toFixed(3);
     return { litMean:[Math.round(lit.r),Math.round(lit.g),Math.round(lit.b)],
       albedoMean:[Math.round(alb.r),Math.round(alb.g),Math.round(alb.b)],
-      blueExcess, chromaLoss, altKm:+d.altKm().toFixed(0),
+      blueExcess, chromaLoss, altKm:+d.altKm().toFixed(0), excludedSaturated, sampled:n,
       pass: blueExcess < 0.12 };
   },
 
@@ -1536,19 +1499,41 @@ window.__diag = {
       return { dir:d.map(v=>+v.toFixed(3)), biome, temp:+t.toFixed(3), humidity:+h.toFixed(3), seaBias:+sea.toFixed(0) }; },
   },
 
+  async waitAssetsSettled(timeoutMs=15000){
+    const t0=performance.now();
+    while (window.__surfTexReady !== true && !window.__surfTexErr) {
+      if (performance.now()-t0 > timeoutMs) return { ok:false, err:'surf-tex-timeout', ms:Math.round(performance.now()-t0) };
+      await window.__dbg.frames(2);
+    }
+    return { ok:true, surfTexErr: window.__surfTexErr||null, ms:Math.round(performance.now()-t0) };
+  },
+  _quadIdentityKey(){
+    const q=window.__lastGLQuads||[]; const n=q.length; const arr=new Array(n);
+    for(let i=0;i<n;i++){ const x=q[i], d=x.quad; arr[i]=x.face+':'+d.ox+','+d.oy+','+d.l+','+d.level; }
+    arr.sort();
+    return arr.join('|');
+  },
+  async settleAtRung(r, settleStreak=10, maxIters=120){
+    await this.parkAt(r);
+    let prevQ=-1, prevFb=-1, prevKey=null, stable=0, i=0;
+    for(;i<maxIters && stable<settleStreak;i++){
+      await window.__dbg.frames(2);
+      const q=this.quadCensus(); const key=this._quadIdentityKey();
+      if(q.total===prevQ && q.fallbackCount===prevFb && key===prevKey) stable++; else stable=0;
+      prevQ=q.total; prevFb=q.fallbackCount; prevKey=key;
+    }
+    return { settled: stable>=settleStreak, settleIters:i, settleStreak };
+  },
   async baseline(){
     const rdy=await this.assertReady(); if(!rdy.ok) return (window.__diagBaseline={err:'not-ready',detail:rdy});
+    const assets=await this.waitAssetsSettled();
     const rungs=Object.keys(this.RUNGS); const out={ when:new Date().toISOString(), env:{
-      elevLinear:this.assertElevLinear() }, rungs:{} };
+      elevLinear:this.assertElevLinear(), assets }, rungs:{} };
     for(const r of rungs){
-      await this.parkAt(r);
-      let prevQ=-1, stable=0;
-      for(let i=0;i<60 && stable<8;i++){ await window.__dbg.frames(2);
-        const q=this.quadCensus(); if(q.total===prevQ && q.fallbackCount===(this._lastFb||q.fallbackCount)) stable++; else stable=0;
-        prevQ=q.total; this._lastFb=q.fallbackCount; }
+      const settle = await this.settleAtRung(r);
       const census=this.quadCensus();
       const coarseLOD = (census.maxLevel|0) < 4;
-      out.rungs[r]={ park:{altKm:+window.__dbg.altKm().toPrecision(4)}, coarseLOD,
+      out.rungs[r]={ park:{altKm:+window.__dbg.altKm().toPrecision(4)}, coarseLOD, settle,
         census,
         limb:await this.limbScan(),
         haze:coarseLOD ? {na:'coarse-LOD',maxLevel:census.maxLevel, blueExcess:(await this.hazeProbe()).blueExcess} : await this.hazeProbe(),
@@ -1556,8 +1541,8 @@ window.__diag = {
         seam:coarseLOD ? {na:'coarse-LOD',maxLevel:census.maxLevel} : await this.seamProbe() };
     }
     const ok=(p)=>p && (p.na ? true : p.pass);
-    out.pass = Object.values(out.rungs).every(R=>ok(R.limb)&&ok(R.haze)&&ok(R.speckle)&&ok(R.seam))
-      && out.env.elevLinear.pass;
+    out.pass = Object.values(out.rungs).every(R=>ok(R.limb)&&ok(R.haze)&&ok(R.speckle)&&ok(R.seam)&&R.settle.settled)
+      && out.env.elevLinear.pass && assets.ok;
     return (window.__diagBaseline=out);
   },
 };
