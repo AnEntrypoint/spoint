@@ -207,7 +207,7 @@ class Asset {
           if (info.coarseAccessorIndex >= 0) {
             try { coarse = (await gltf.parser.getDependency('accessor', info.coarseAccessorIndex)).array; } catch (_) {}
           }
-          const attached = attachClusterLod(m.geometry, info.extras, coarse);
+          const attached = attachClusterLod(m.geometry, info.extras, coarse, m.matrixWorld.elements);
           if (attached) {
             this.clusterMeshes.push({ geometry: m.geometry, material: m.material, clusterSet: attached.clusterSet, lod0Count: attached.lod0Count, materialBucket: attached.clusterSet.materialBucket || null });
             meshMatrices.push(m.matrixWorld.clone());

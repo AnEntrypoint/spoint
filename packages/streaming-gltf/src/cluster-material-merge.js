@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { collapseDegenerateTriangles } from './degenerate-triangles.js';
 
 const _m3 = new THREE.Matrix3();
 const _v3 = new THREE.Vector3();
@@ -174,18 +175,8 @@ function _mergeGroup(entries) {
     }
   }
 
-  const COINCIDENT_EDGE_EPS = 1e-6;
-  const mergedPosArr = mergedAttrs.position.array;
-  for (let i = 0; i + 2 < mergedIndex.length; i += 3) {
-    const a = mergedIndex[i], b = mergedIndex[i + 1], c = mergedIndex[i + 2];
-    const ax = mergedPosArr[a * 3], ay = mergedPosArr[a * 3 + 1], az = mergedPosArr[a * 3 + 2];
-    const bx = mergedPosArr[b * 3], by = mergedPosArr[b * 3 + 1], bz = mergedPosArr[b * 3 + 2];
-    const cx = mergedPosArr[c * 3], cy = mergedPosArr[c * 3 + 1], cz = mergedPosArr[c * 3 + 2];
-    const e1 = Math.hypot(ax - bx, ay - by, az - bz);
-    const e2 = Math.hypot(bx - cx, by - cy, bz - cz);
-    const e3 = Math.hypot(ax - cx, ay - cy, az - cz);
-    if (e1 < COINCIDENT_EDGE_EPS || e2 < COINCIDENT_EDGE_EPS || e3 < COINCIDENT_EDGE_EPS) { mergedIndex[i + 1] = a; mergedIndex[i + 2] = a; }
-  }
+  const degenerate = collapseDegenerateTriangles(mergedIndex, mergedAttrs.position.array);
+  if (degenerate) console.warn(`[cluster-material-merge] collapsed ${degenerate} degenerate (zero-area) triangle(s) after merging ${entries.length} source(s)`);
 
   const geometry = new THREE.BufferGeometry();
   for (const name of attrNames) {

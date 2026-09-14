@@ -63,11 +63,13 @@ export { ModelPool, ensureSharedKtx2Loader } from './src/model-pool.js';
  * `onBeforeRender`. Constructed internally by `ModelPool` for cluster-LOD
  * assets; exported for advanced/standalone use.
  *
- * `attachClusterLod(geometry, extras, coarseIndexArray)` concatenates a
- * primitive's LOD0 index buffer with its coarse (LOD1+) index buffer into one
- * combined element buffer and returns `{ clusterSet, lod0Count }`, or `null`
- * if `extras` carries no valid `EP_cluster_lod` payload or `geometry` has no
- * index.
+ * `attachClusterLod(geometry, extras, coarseIndexArray, worldMatrixElements)`
+ * concatenates a primitive's LOD0 index buffer with its coarse (LOD1+) index
+ * buffer into one combined element buffer and returns `{ clusterSet, lod0Count }`,
+ * or `null` if `extras` carries no valid `EP_cluster_lod` payload or `geometry`
+ * has no index. Degenerate triangles are judged in world space when
+ * `worldMatrixElements` is given. Repeat calls on a shared geometry return the
+ * first result.
  */
 export { ClusterLodMesh, attachClusterLod } from './src/cluster-lod-mesh.js';
 

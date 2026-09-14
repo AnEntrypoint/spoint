@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { parseClusterLod } from './meshlet-codec.js';
+import { collapseDegenerateTriangles, collapseFanTriangles } from './degenerate-triangles.js';
 
 const _sphere = new THREE.Sphere();
 const _box = new THREE.Box3();
@@ -12,7 +13,6 @@ let _camCache = { renderer: null, camera: null, frame: -1, sh: 1080, tanHalf: 1 
 
 const DEFAULT_LOD_THRESHOLDS = [120, 40];
 const MIN_CAMERA_DIST_SQ = 1e-6;
-const FAN_EDGE_MAX_CLUSTER_DIAGONALS = 3;
 
 export class ClusterLodMesh extends THREE.Mesh {
   constructor(geometry, material, clusterSet, opts = {}) {
@@ -179,7 +179,11 @@ function _inferLod0Count(clusterSet) {
   return n;
 }
 
-export function attachClusterLod(geometry, extras, coarseIndexArray) {
+const _attachedByGeometry = new WeakMap();
+
+export function attachClusterLod(geometry, extras, coarseIndexArray, worldMatrixElements = null) {
+  const alreadyAttached = _attachedByGeometry.get(geometry);
+  if (alreadyAttached) return alreadyAttached;
   const clusterSet = parseClusterLod(extras);
   if (!clusterSet) return null;
 
@@ -195,53 +199,14 @@ export function attachClusterLod(geometry, extras, coarseIndexArray) {
   const combined = new Ctor(lod0Count + coarse.length);
   combined.set(lod0, 0);
   combined.set(coarse, lod0Count);
-  _collapseDegenerateTriangles(combined, geometry.attributes.position.array);
-  _collapseFanTriangles(combined, geometry.attributes.position.array, clusterSet);
+  const pos = geometry.attributes.position.array;
+  const degenerate = collapseDegenerateTriangles(combined, pos, worldMatrixElements ? [worldMatrixElements] : []);
+  const fan = collapseFanTriangles(clusterSet.clusters, pos, [combined, combined], [0, lod0Count]);
+  if (degenerate) console.warn(`[cluster-lod-mesh] collapsed ${degenerate} degenerate (zero-area) triangle(s) at runtime combine`);
+  if (fan) console.warn(`[cluster-lod-mesh] collapsed ${fan} fan (out-of-cluster-bounds) triangle(s) at runtime combine`);
   geometry.setIndex(new THREE.BufferAttribute(combined, 1));
 
-  return { clusterSet, lod0Count };
-}
-
-function _triArea(pos, a, b, c) {
-  const ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2];
-  const bx = pos[b * 3], by = pos[b * 3 + 1], bz = pos[b * 3 + 2];
-  const cx = pos[c * 3], cy = pos[c * 3 + 1], cz = pos[c * 3 + 2];
-  const ux = bx - ax, uy = by - ay, uz = bz - az;
-  const vx = cx - ax, vy = cy - ay, vz = cz - az;
-  const cxp = uy * vz - uz * vy, cyp = uz * vx - ux * vz, czp = ux * vy - uy * vx;
-  return 0.5 * Math.hypot(cxp, cyp, czp);
-}
-function _collapseDegenerateTriangles(index, pos) {
-  const EPS_AREA = 1e-4;
-  let collapsed = 0;
-  for (let i = 0; i + 2 < index.length; i += 3) {
-    const a = index[i], b = index[i + 1], c = index[i + 2];
-    if (_triArea(pos, a, b, c) < EPS_AREA) { index[i + 1] = a; index[i + 2] = a; collapsed++; }
-  }
-  if (collapsed) console.warn(`[cluster-lod-mesh] collapsed ${collapsed} degenerate (zero-area) triangle(s) at runtime combine`);
-}
-
-function _collapseFanTriangles(index, pos, clusterSet) {
-  let fixed = 0;
-  for (const cluster of clusterSet.clusters) {
-    const [mnx, mny, mnz, mxx, mxy, mxz] = cluster.aabb;
-    const diag = Math.hypot(mxx - mnx, mxy - mny, mxz - mnz);
-    const maxLegitEdgeSq = (diag * FAN_EDGE_MAX_CLUSTER_DIAGONALS) * (diag * FAN_EDGE_MAX_CLUSTER_DIAGONALS);
-    for (const lod of cluster.lods) {
-      const start = lod.offset, end = lod.offset + lod.count;
-      for (let i = start; i + 2 < end && i + 2 < index.length; i += 3) {
-        const a = index[i], b = index[i + 1], c = index[i + 2];
-        const ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2];
-        const bx = pos[b * 3], by = pos[b * 3 + 1], bz = pos[b * 3 + 2];
-        const cx = pos[c * 3], cy = pos[c * 3 + 1], cz = pos[c * 3 + 2];
-        const e1Sq = (ax - bx) ** 2 + (ay - by) ** 2 + (az - bz) ** 2;
-        const e2Sq = (bx - cx) ** 2 + (by - cy) ** 2 + (bz - cz) ** 2;
-        const e3Sq = (ax - cx) ** 2 + (ay - cy) ** 2 + (az - cz) ** 2;
-        if (e1Sq > maxLegitEdgeSq || e2Sq > maxLegitEdgeSq || e3Sq > maxLegitEdgeSq) {
-          index[i + 1] = a; index[i + 2] = a; fixed++;
-        }
-      }
-    }
-  }
-  if (fixed) console.warn(`[cluster-lod-mesh] collapsed ${fixed} fan (out-of-cluster-bounds) triangle(s) at runtime combine`);
+  const attached = { clusterSet, lod0Count };
+  _attachedByGeometry.set(geometry, attached);
+  return attached;
 }

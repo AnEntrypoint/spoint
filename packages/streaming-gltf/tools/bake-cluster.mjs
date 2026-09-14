@@ -22,6 +22,7 @@ import { dedup, simplify, cloneDocument } from '@gltf-transform/functions';
 import { MeshoptEncoder, MeshoptDecoder, MeshoptSimplifier } from 'meshoptimizer';
 import draco3dgltf from 'draco3dgltf';
 import { buildClusterLod, buildClusterLodExtra, CLUSTER_LOD_EXTRA_KEY } from '../src/meshlet-codec.js';
+import { collapseDegenerateTriangles, collapseFanTriangles, dropDegenerateTriangles } from '../src/degenerate-triangles.js';
 import { materialConvergenceReport, collapseTrivialMaterialVariants, stampMaterialBucketKeys } from '../src/material-convergence.js';
 import { writeFile, mkdir, readFile, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -45,7 +46,7 @@ function primIsStatic(prim) {
   return true;
 }
 
-function primToGeo(prim) {
+function primToGeo(prim, worldMatrices) {
   const semantics = prim.listSemantics();
   const attributes = [];
   for (const sem of semantics) {
@@ -55,148 +56,30 @@ function primToGeo(prim) {
     attributes.push({ name, itemSize: acc.getElementSize(), normalized: acc.getNormalized(), array: acc.getArray(), _sem: sem });
   }
   const idxAcc = prim.getIndices();
-  const index = idxAcc ? _dropDegenerateTriangles(idxAcc.getArray(), attributes) : null;
+  const index = idxAcc ? _dropSourceDegenerates(idxAcc.getArray(), attributes, worldMatrices) : null;
   return { attributes, index, _semByName: Object.fromEntries(attributes.map((a) => [a.name, a._sem])) };
 }
 
-// Drops zero-area triangles (two or more vertex INDICES resolving to coincident
-// POSITIONS -- distinct from a repeated-index check, which misses this class
-// entirely) before clustering ever sees them. Source models can carry these from
-// an export/weld step that left duplicate-position vertices under separate
-// indices (observed live: aim_sillos.glb mesh 16, indices [1571,1572,1573],
-// vertex 1571 and 1573 at the identical world position, a zero-area sliver that
-// renders as a long degenerate triangle radiating from the shared point at
-// runtime). MeshoptClusterizer has no such filter of its own, so a defect like
-// this survives unchanged into every downstream cluster/LOD.
-// Post-cluster degenerate-triangle pass, on buildClusterLod's own reordered
-// output. Unlike _dropDegenerateTriangles (which can safely shrink the index
-// array pre-cluster, since nothing downstream references byte offsets into it
-// yet), removing an index here would shift every later cluster's lods[].offset
-// out from under it -- so a degenerate triangle is COLLAPSED in place (all 3
-// indices set to the first) rather than removed, keeping every array length
-// and every cluster's recorded offset/count exactly unchanged. A collapsed
-// triangle has zero area everywhere and costs one wasted GPU vertex-fetch, not
-// a visible sliver.
-// A zero-length edge (coincident vertices) is one cause of a degenerate
-// triangle, but NOT the only one: three DISTINCT, well-separated vertices
-// that happen to be collinear also produce a zero-area sliver, and an
-// edge-length-only check structurally cannot see it (every edge can be
-// arbitrarily long while the cross product -- and therefore the area --
-// is exactly zero). Live-witnessed on aim_sillos.glb: of 88311 degenerate
-// triangles found by a real triangle-area scan, only ~17000 also failed an
-// edge-length<1e-6 test; the remaining ~71000 were exact-zero-area
-// collinear triangles with every edge length well above that threshold,
-// meaning the two prior edge-length-based filters below passed nearly all
-// of them straight through into the shipped asset. AREA is the actual
-// invariant a renderer/clusterizer cares about, so both filters below now
-// compute it directly via the cross-product magnitude instead of using
-// edge length as a proxy for it.
-//
-// EPS_AREA=1e-4 (m^2), raised from an earlier 1e-6: that tighter value was still measured too tight on
-// this same asset -- a real (physics-loader-side) area scan post-fix found 26 defective triangles
-// surviving at 1e-6, all genuine thin/near-collinear slivers, none fixable by vertex welding (tested live
-// at 0.1mm-10mm cell sizes) or by meshoptimizer's simplifyPrune/simplify (tested live, neither removes
-// them -- they target topological/error metrics, not sub-visual absolute area). The real per-triangle
-// area distribution on this mesh has a clean, non-arbitrary gap: every defective triangle measures
-// <=7.26e-5 m^2, the next-smallest LEGITIMATE triangle measures 1.12e-4 m^2 (a ~50% gap, zero triangles in
-// between) -- 1e-4 sits inside that gap, catching every real defect while cutting zero real geometry. This
-// is not a tuning knob to nudge again on the next report -- if a future asset needs a different value,
-// re-run the same live area-histogram check (sort all triangle areas, find the real gap) rather than
-// picking a rounder number. See AGENTS.md project/degenerate-triangle-threshold-is-not-a-tunable-guess and
-// its sibling fix in src/physics/ShapeBuilder.js (the physics-loader path, which reads this same source
-// GLB directly and needs the identical threshold).
-function _triArea(pos, a, b, c) {
-  const ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2];
-  const bx = pos[b * 3], by = pos[b * 3 + 1], bz = pos[b * 3 + 2];
-  const cx = pos[c * 3], cy = pos[c * 3 + 1], cz = pos[c * 3 + 2];
-  const ux = bx - ax, uy = by - ay, uz = bz - az;
-  const vx = cx - ax, vy = cy - ay, vz = cz - az;
-  const cxp = uy * vz - uz * vy, cyp = uz * vx - ux * vz, czp = ux * vy - uy * vx;
-  return 0.5 * Math.hypot(cxp, cyp, czp);
-}
-
-// Fan-triangle defect (distinct from the zero-area EPS_AREA class below): a real,
-// live-witnessed defect on aim_sillos.glb -- window.__scene direct raycast + vertex-
-// usage histogram found 4 vertices used in 6711/3525/3487/3151 triangles each (median
-// vertex usage across the mesh: 2; p99: 13), each one the shared apex of a huge fan of
-// long, thin, real-area (NOT caught by EPS_AREA) sliver triangles reaching clear
-// across the map. Tightening buildClusterLod's lodError (0.05->0.02) had ZERO effect
-// on the count (2268 before and after a real re-bake), ruling out simplification-
-// quality as the cause -- the fan vertices are established by MeshoptClusterizer's own
-// per-cluster vertex/index construction (buildMeshletsSpatial + the local->global
-// remap in meshlet-codec.js), not the simplify() pass. No clean global usage-count
-// threshold exists to cut on (smooth tail below the top ~9 outliers) -- but each
-// cluster's own AABB diagonal IS a real, structural bound: a genuine cluster-LOD
-// triangle can never legitimately span further than its own cluster's bounding box
-// (clusters are spatially coherent meshlets by construction, maxVertices=64), so ANY
-// triangle edge exceeding that cluster's AABB diagonal by a wide safety margin is
-// definitionally wrong, regardless of area or vertex-usage-count. Collapsed the same
-// way as an EPS_AREA hit (all 3 indices -> the first) so downstream offset/count
-// tables are unaffected.
-function _collapseFanTriangles(result, meshIndex, primIndex) {
-  const posAttr = result.attributes.find((a) => a.name === 'position');
-  if (!posAttr) return;
-  const pos = posAttr.array;
-  let fixed = 0;
-  for (const cluster of result.clusters) {
-    const [mnx, mny, mnz, mxx, mxy, mxz] = cluster.aabb;
-    const diag = Math.hypot(mxx - mnx, mxy - mny, mxz - mnz);
-    // 3x the cluster's own diagonal: comfortably above any legitimate intra-cluster
-    // edge (which cannot exceed the diagonal itself), tight enough to catch a fan
-    // edge that reaches clear across the mesh from one cluster's vertex.
-    const maxLegitEdgeSq = (diag * 3) * (diag * 3);
-    for (const lod of cluster.lods) {
-      const idx = lod.stream === 1 ? result.indexCoarse : result.index;
-      const start = lod.offset, end = lod.offset + lod.count;
-      for (let i = start; i + 2 < end; i += 3) {
-        const a = idx[i], b = idx[i + 1], c = idx[i + 2];
-        const ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2];
-        const bx = pos[b * 3], by = pos[b * 3 + 1], bz = pos[b * 3 + 2];
-        const cx = pos[c * 3], cy = pos[c * 3 + 1], cz = pos[c * 3 + 2];
-        const e1Sq = (ax - bx) ** 2 + (ay - by) ** 2 + (az - bz) ** 2;
-        const e2Sq = (bx - cx) ** 2 + (by - cy) ** 2 + (bz - cz) ** 2;
-        const e3Sq = (ax - cx) ** 2 + (ay - cy) ** 2 + (az - cz) ** 2;
-        if (e1Sq > maxLegitEdgeSq || e2Sq > maxLegitEdgeSq || e3Sq > maxLegitEdgeSq) {
-          idx[i + 1] = a; idx[i + 2] = a; fixed++;
-        }
-      }
-    }
-  }
-  if (fixed) console.warn(`[bake-cluster] collapsed ${fixed} fan (out-of-cluster-bounds) triangle(s) (mesh ${meshIndex} prim ${primIndex})`);
-}
-
-function _checkClusterLodResultForDegenerates(result, meshIndex, primIndex) {
-  const posAttr = result.attributes.find((a) => a.name === 'position');
-  if (!posAttr) return;
-  const pos = posAttr.array;
-  const EPS_AREA = 1e-4;
-  let fixed = 0;
-  const scan = (idx) => {
-    for (let i = 0; i + 2 < idx.length; i += 3) {
-      const a = idx[i], b = idx[i + 1], c = idx[i + 2];
-      if (_triArea(pos, a, b, c) < EPS_AREA) { idx[i + 1] = a; idx[i + 2] = a; fixed++; }
-    }
-  };
-  scan(result.index);
-  scan(result.indexCoarse);
-  if (fixed) console.warn(`[bake-cluster] collapsed ${fixed} post-cluster degenerate (zero-area) triangle(s) (mesh ${meshIndex} prim ${primIndex})`);
-  _collapseFanTriangles(result, meshIndex, primIndex);
-}
-
-function _dropDegenerateTriangles(index, attributes) {
+function _positionArray(attributes) {
   const posAttr = attributes.find((a) => a.name === 'position');
-  if (!posAttr) return index;
-  const pos = posAttr.array;
-  const EPS_AREA = 1e-4;
-  const out = [];
-  let dropped = 0;
-  for (let i = 0; i + 2 < index.length; i += 3) {
-    const a = index[i], b = index[i + 1], c = index[i + 2];
-    if (_triArea(pos, a, b, c) < EPS_AREA) { dropped++; continue; }
-    out.push(a, b, c);
-  }
+  return posAttr ? posAttr.array : null;
+}
+
+function _dropSourceDegenerates(index, attributes, worldMatrices) {
+  const pos = _positionArray(attributes);
+  if (!pos) return index;
+  const { index: kept, dropped } = dropDegenerateTriangles(index, pos, worldMatrices);
   if (dropped) console.warn(`[bake-cluster] dropped ${dropped} degenerate (zero-area) triangle(s) before clustering`);
-  return dropped ? new index.constructor(out) : index;
+  return kept;
+}
+
+function _collapseClusteredDegenerates(result, meshIndex, primIndex, worldMatrices) {
+  const pos = _positionArray(result.attributes);
+  if (!pos) return;
+  const degenerate = collapseDegenerateTriangles(result.index, pos, worldMatrices) + collapseDegenerateTriangles(result.indexCoarse, pos, worldMatrices);
+  if (degenerate) console.warn(`[bake-cluster] collapsed ${degenerate} post-cluster degenerate (zero-area) triangle(s) (mesh ${meshIndex} prim ${primIndex})`);
+  const fan = collapseFanTriangles(result.clusters, pos, [result.index, result.indexCoarse], [0, 0]);
+  if (fan) console.warn(`[bake-cluster] collapsed ${fan} fan (out-of-cluster-bounds) triangle(s) (mesh ${meshIndex} prim ${primIndex})`);
 }
 
 // Build discrete LOD siblings for ONE skinned primitive. Clones the document down
@@ -359,6 +242,11 @@ async function bakeCluster(INPUT, OUTPUT) {
   const lodsDir = join(dirname(OUTPUT), 'lods');
   const baseName = 'sk';
   const allMeshes = root.listMeshes();
+  const worldMatricesByMesh = new Map(allMeshes.map((m) => [m, []]));
+  for (const node of root.listNodes()) {
+    const mesh = node.getMesh();
+    if (mesh) worldMatricesByMesh.get(mesh).push(node.getWorldMatrix());
+  }
   for (let mi = 0; mi < allMeshes.length; mi++) {
     const mesh = allMeshes[mi];
     const prims = mesh.listPrimitives();
@@ -375,29 +263,15 @@ async function bakeCluster(INPUT, OUTPUT) {
         } catch (e) { console.warn(`[bake-cluster] skinned LOD skipped (mesh ${mi} prim ${pi}): ${e.message}`); skipped++; }
         continue;
       }
-      const geo = primToGeo(prim);
+      const worldMatrices = worldMatricesByMesh.get(mesh);
+      const geo = primToGeo(prim, worldMatrices);
       if (!geo.attributes.find((a) => a.name === 'position')) { skipped++; continue; }
 
-      // lodError 0.02 (down from meshlet-codec.js's own 0.05 default): tighter simplification quality,
-      // kept as a real improvement even though it did NOT fix the fan-triangle defect investigated below
-      // (a real live A/B re-bake with this exact value found the identical 2268 sliver-triangle count
-      // before and after, ruling out simplification error as that defect's cause -- see
-      // _collapseFanTriangles's own comment for the real root cause and fix).
       const result = await buildClusterLod(geo, { maxVertices: 64, maxTriangles: 128, lodRatios: [1, 0.5, 0.25], lodError: 0.02 });
       if (!result.clusters.length) { skipped++; continue; }
       if (!buffer) throw new Error(`bakeCluster: document has a clusterable static primitive (mesh ${mi} prim ${pi}) but no buffer to write the reordered accessors into (root.listBuffers() is empty) -- malformed glTF`);
 
-      // Second degenerate-triangle pass, this time on buildClusterLod's OWN reordered
-      // output (result.index/result.attributes), not just the pre-cluster geo the
-      // primToGeo-level filter above already covers. Live-witnessed gap: the
-      // primToGeo filter correctly drops a source-level coincident-vertex triangle,
-      // but MeshoptClusterizer's own vertex append/reorder (buildMeshletsSpatial +
-      // the per-cluster newOrder table in meshlet-codec.js) can independently
-      // introduce a NEW coincident-vertex triangle in the post-cluster LOD0 stream
-      // that the pre-cluster check never sees -- confirmed live (aim_sillos.glb,
-      // a distinct defect at post-cluster vertex count 18470, edges [5.24,5.24,0])
-      // surviving all the way to the deployed asset even after the source-level fix.
-      _checkClusterLodResultForDegenerates(result, mi, pi);
+      _collapseClusteredDegenerates(result, mi, pi, worldMatrices);
 
       // Rewrite attributes with the reordered unified arrays.
       for (const outAttr of result.attributes) {
