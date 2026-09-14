@@ -1,5 +1,5 @@
 import { definePickup } from '../_lib/pickup.js'
-import { getSharedInventory, isPoolOwner } from '../_lib/inventory-registry.js'
+import { getSharedInventory, isPoolOwner, releaseSharedInventory } from '../_lib/inventory-registry.js'
 import { ITEM_DEFINITIONS, ITEM_BUY_CATALOG, getItemDefinition } from '../_lib/item-definitions.js'
 
 export default {
@@ -16,12 +16,16 @@ export default {
     setup(ctx) {
       const c = ctx.config || {}
       ctx.entity.custom = { ...(ctx.entity.custom || {}), mesh: 'box', color: c.color ?? '#ffd700', sx: 0.4, sy: 0.4, sz: 0.4 }
-      const inv = getSharedInventory(ctx, { poolId: c.poolId || 'default', itemDefs: ITEM_DEFINITIONS, catalog: ITEM_BUY_CATALOG })
-      ctx.state._inv = inv
+      const joinPool = (poolId) => {
+        ctx.state._poolId = poolId
+        ctx.state._inv = getSharedInventory(ctx, { poolId, itemDefs: ITEM_DEFINITIONS, catalog: ITEM_BUY_CATALOG })
+      }
+      joinPool(c.poolId || 'default')
       const build = (cfg) => definePickup({
         radius: cfg.radius ?? 1.5,
         cooldown: cfg.respawnMs ?? 8000,
         onCollect: (c2, player) => {
+          const inv = ctx.state._inv
           const itemId = cfg.item || 'gold'
           const amount = (typeof cfg.amount === 'number' && Number.isFinite(cfg.amount) && cfg.amount > 0) ? Math.floor(cfg.amount) : 1
           const before = inv.count(player.id, itemId)
@@ -30,14 +34,24 @@ export default {
         },
       }, ctx)
       ctx.state._pickup = build(c)
-      ctx.onConfigChange?.((cfg) => { ctx.state._pickup = build(cfg) })
+      ctx.onConfigChange((cfg) => {
+        const nextPoolId = cfg.poolId || 'default'
+        if (nextPoolId !== ctx.state._poolId) {
+          releaseSharedInventory(ctx.state._poolId, ctx.entity.id)
+          joinPool(nextPoolId)
+        }
+        ctx.state._pickup = build(cfg)
+      })
     },
     update(ctx, dt) {
       ctx.state._pickup?.tick(dt)
     },
+    teardown(ctx) {
+      releaseSharedInventory(ctx.state._poolId, ctx.entity.id)
+    },
     onMessage(ctx, msg) {
       if (!msg || !ctx.state._inv) return
-      if (!isPoolOwner(ctx.config?.poolId, ctx.entity.id)) return
+      if (!isPoolOwner(ctx.state._poolId, ctx.entity.id)) return
       if (msg.type === 'inventory_query') {
         const pid = msg.senderId
         if (pid == null) return
@@ -56,7 +70,7 @@ export default {
               position: [pos[0] + (Math.random() - 0.5) * 1.5, pos[1] + 0.5, pos[2] + (Math.random() - 0.5) * 1.5],
               scale: [0.3, 0.3, 0.3],
               app: 'item-pickup',
-              config: { item, amount: n, color: '#ff8800', poolId: ctx.config?.poolId || 'default' },
+              config: { item, amount: n, color: '#ff8800', poolId: ctx.state._poolId },
               custom: { mesh: 'box', color: '#ff8800', droppedLabel: def?.label || item }
             })
           }
