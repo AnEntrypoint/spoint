@@ -1,13 +1,4 @@
-// Octahedral impostor (lit, sprite-blended) — vendored + localized from
-// @three.ez/octahedron-imposter (https://github.com/agargaro/octahedral-impostor),
-// MIT License, (c) Andrea Gargaro. Ported TS -> JS, GLSL inlined, the
-// full-octahedron encode/decode `// TODO` filled in (inverse of octaGridToDir),
-// and the dev-only PNG export util dropped. Runtime dep: three only.
-//
-// vs the prior bespoke billboard impostor this captures a 2-target atlas
-// (albedo + packed normal/depth), blends the 3 nearest octahedral sprites with
-// per-sprite plane-projected UVs, and reconstructs normals so the impostor is
-// LIT by the scene (baseType is a real MeshStandardMaterial).
+/*! @license MIT (c) Andrea Gargaro -- vendored from @three.ez/octahedron-imposter (https://github.com/agargaro/octahedral-impostor) */
 
 import {
   GLSL3, LinearFilter, LinearMipmapLinearFilter, LinearSRGBColorSpace, Matrix4,
@@ -21,7 +12,6 @@ import {
   IMPOSTOR_PARAMS_FRAGMENT, IMPOSTOR_MAP_FRAGMENT, IMPOSTOR_NORMAL_FRAGMENT_BEGIN,
 } from './octahedral-impostor-shaders.js';
 
-// ------------------------------------------------------------ octa utils ----
 const _absolute = new Vector3();
 
 export function hemiOctaGridToDir(grid, target = new Vector3()) {
@@ -41,10 +31,8 @@ export function octaGridToDir(grid, target = new Vector3()) {
   return target;
 }
 
-// ------------------------------------------------ bounding sphere helper ----
 const _bsTmp = new Sphere();
 
-// Remember to updateMatrixWorld first if needed.
 export function computeObjectBoundingSphere(obj, target = new Sphere(), forceCompute = false) {
   target.makeEmpty();
   traverse(obj);
@@ -61,7 +49,6 @@ export function computeObjectBoundingSphere(obj, target = new Sphere(), forceCom
   }
 }
 
-// -------------------------------------------------------- atlas baker ----
 const _camera = new OrthographicCamera();
 const _bSphere = new Sphere();
 const _oldScissor = new Vector4();
@@ -69,8 +56,6 @@ const _oldViewport = new Vector4();
 const _coords = new Vector2();
 const USERDATA_MAT_KEY = 'ez_originalMaterial';
 
-// Build the MRT capture material that mirrors a source material's maps but
-// outputs albedo (location 0) + packed normal/depth (location 1).
 function _makeCaptureMaterial(material) {
   const hasMap = !!material.map;
   const hasAlphaMap = !!material.alphaMap;
@@ -137,7 +122,6 @@ function _restoreTargetMaterial(target) {
   });
 }
 
-// Allocate the 2-target (albedo + packed normalDepth) atlas render target.
 export function createAtlasRenderTarget(atlasSize) {
   const rt = new WebGLRenderTarget(atlasSize, atlasSize, { count: 2, generateMipmaps: true });
   rt.textures[0].minFilter = LinearMipmapLinearFilter;
@@ -151,11 +135,6 @@ export function createAtlasRenderTarget(atlasSize) {
   return rt;
 }
 
-// Render octahedral cells [cellStart, cellStart+cellCount) of `target` into
-// `renderTarget`, framing the ortho camera on `bSphere`. Renderer state is
-// saved/restored each call (autoClear stays on so each cell's render clears its
-// own scissor region) -> safe to interleave with the main render loop for
-// INCREMENTAL baking (no whole-atlas stall). Returns cells rendered.
 export function renderAtlasCells(renderer, target, renderTarget, opts) {
   const { atlasSize, countPerSide, bSphere, cameraFactor = 1, useHemiOctahedron, cellStart, cellCount } = opts;
   const countMinusOne = countPerSide - 1;
@@ -205,11 +184,6 @@ export function renderAtlasCells(renderer, target, renderTarget, opts) {
   return end - cellStart;
 }
 
-// Wholesale one-shot atlas bake (used by the OctahedralImpostor convenience
-// class). For the runtime tier prefer createAtlasRenderTarget + renderAtlasCells
-// driven incrementally.
-// params: { renderer, target, useHemiOctahedron, textureSize?=2048,
-//           spritesPerSide?=16, cameraFactor?=1 } -> { renderTarget, albedo, normalDepth }
 export function createTextureAtlas(params) {
   const { renderer, target, useHemiOctahedron } = params;
   if (!renderer) throw new Error('createTextureAtlas: "renderer" is mandatory.');
@@ -226,16 +200,11 @@ export function createTextureAtlas(params) {
   return { renderTarget, albedo: renderTarget.textures[0], normalDepth: renderTarget.textures[1] };
 }
 
-// ---------------------------------------------- impostor material patch ----
-// params: CreateTextureAtlasParams + { baseType?=MeshStandardMaterial,
-//          transparent?, alphaClamp?=0.4, transform?:Matrix4 }
-// Returns a `baseType` material whose shader samples the octahedral atlas.
 export function createOctahedralImpostorMaterial(params) {
   if (!params) throw new Error('createOctahedralImpostorMaterial: parameters is required.');
   if (params.useHemiOctahedron == null) throw new Error('createOctahedralImpostorMaterial: useHemiOctahedron is required.');
 
   const BaseType = params.baseType ?? MeshStandardMaterial;
-  // Accept a pre-baked atlas (incremental tier path) or bake one now (convenience).
   const { albedo, normalDepth } = (params.albedo && params.normalDepth)
     ? { albedo: params.albedo, normalDepth: params.normalDepth }
     : createTextureAtlas(params);
@@ -250,26 +219,9 @@ export function createOctahedralImpostorMaterial(params) {
   if (params.useHemiOctahedron) material.ezImpostorDefines.EZ_USE_HEMI_OCTAHEDRON = true;
   if (params.transparent) material.ezImpostorDefines.EZ_TRANSPARENT = true;
   material.ezImpostorDefines.EZ_USE_NORMAL = true;
-  // ATLAS-OF-ATLASES: a SHARED cross-species impostor reads its species' tile from one mega atlas.
-  // Per-instance `atlasTile` (a float species index, provided via InstancedMesh2.initUniformsPerInstance)
-  // -> the sprite UV is remapped into that tile. Default OFF so the per-species impostors are unchanged.
   if (params.atlasTile) material.ezImpostorDefines.EZ_ATLAS_TILE = true;
-  // CHEAP FAR TIER (vp-impostor-shader-cost): sample 1 octa view instead of blending 3 -> ~3x less
-  // fragment fetch cost for the farthest impostors, accepting slight view-popping. Default OFF so the
-  // per-species / near impostors keep the full 3-sprite blend.
   if (params.farSingleSprite) material.ezImpostorDefines.EZ_FAR_SINGLE_SPRITE = true;
-  // DITHERED MESH<->IMPOSTOR CROSSFADE: reads a per-instance `instanceFade` attribute (see
-  // ezFadeDither in IMPOSTOR_PARAMS_FRAGMENT) and stochastically discards (1-fade) of the billboard's
-  // own pixels -- fades the impostor IN while the real mesh LOD it's replacing stays fully opaque
-  // behind it, so the eventual hard cut of the real mesh (once fade reaches 1) lands fully occluded
-  // and invisible. Default OFF (screenPx-hysteresis hard cut, unchanged) -- opt-in via params.fade.
   if (params.fade) material.ezImpostorDefines.EZ_FADE = true;
-  // PARALLAX-CORRECTED IMPOSTORS: depth-offset UV sampling using the normalDepth atlas's existing
-  // packed alpha channel (1-fragCoordZ, see ATLAS_FRAGMENT) so a close-range impostor shows real
-  // per-fragment surface relief instead of reading flat/billboard-like. Default OFF (flat sampling,
-  // byte-behaviour-unchanged) -- opt-in via params.parallax; params.parallaxScale tunes the offset
-  // magnitude in cell-local UV units (default 0.3, empirically small enough to stay inside a sprite's
-  // own atlas cell for typical foliage/prop-scale relief while still being visibly non-flat close up).
   if (params.parallax) material.ezImpostorDefines.EZ_PARALLAX = true;
 
   material.ezImpostorUniforms = {
@@ -313,9 +265,6 @@ function overrideMaterialCompilation(material) {
   };
 }
 
-// ------------------------------------------------------- impostor mesh ----
-// A camera-facing quad whose material samples the octahedral atlas. Pass either
-// an already-built impostor material, or atlas params (incl. `target`) to bake.
 export class OctahedralImpostor extends Mesh {
   constructor(materialOrParams) {
     super(new PlaneGeometry(), null);

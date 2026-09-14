@@ -1,13 +1,6 @@
-// GLSL source strings for octahedral-impostor-ez.js's atlas-capture MRT pass and runtime
-// impostor-shader patch. Pure string constants, no dependency on the atlas-baker/material-patch
-// functions -- split out as octahedral-impostor-ez.js's single largest contiguous block.
-// See that file's own header for the full vendoring/attribution note (from
-// @three.ez/octahedron-imposter, MIT, Andrea Gargaro).
+/*! @license MIT (c) Andrea Gargaro -- vendored from @three.ez/octahedron-imposter (https://github.com/agargaro/octahedral-impostor) */
 
-// ----------------------------------------------------------------- GLSL ----
-// Atlas capture pass (MRT): albedo + packed normal/depth. Merged basic/normal/
-// depth material, GLSL3.
-export const ATLAS_VERTEX = /* glsl */`
+export const ATLAS_VERTEX = `
 #define NORMAL
 #if defined( FLAT_SHADED ) || defined( USE_BUMPMAP ) || defined( USE_NORMALMAP_TANGENTSPACE )
   varying vec3 vViewPosition;
@@ -38,7 +31,7 @@ void main() {
 #endif
 }`;
 
-export const ATLAS_FRAGMENT = /* glsl */`
+export const ATLAS_FRAGMENT = `
 #define NORMAL
 uniform vec3 diffuse;
 uniform float opacity;
@@ -98,11 +91,7 @@ void main() {
   gNormalDepth = vec4( packNormalToRGB( normal ), 1.0 - fragCoordZ );
 }`;
 
-// Impostor runtime chunks (patched into MeshStandardMaterial). The
-// encode/decode functions implement BOTH hemi- and full-octahedron (the
-// upstream full path was a TODO; filled here as the exact inverse of the JS
-// octaGridToDir used by the atlas baker, so bake and render agree).
-export const IMPOSTOR_PARAMS_VERTEX = /* glsl */`
+export const IMPOSTOR_PARAMS_VERTEX = `
 #include <clipping_planes_pars_vertex>
 
 uniform mat4 impostorTransform;
@@ -218,7 +207,7 @@ vec3 projectDirectionToBasis(vec3 dir, vec3 normal, vec3 tangent, vec3 bitangent
 }
 `;
 
-export const IMPOSTOR_VERTEX = /* glsl */`
+export const IMPOSTOR_VERTEX = `
 #ifdef EZ_FADE
 vFade = instanceFade;
 #endif
@@ -280,7 +269,7 @@ mvPosition = modelViewMatrix * mvPosition;
 gl_Position = projectionMatrix * mvPosition;
 `;
 
-export const IMPOSTOR_PARAMS_FRAGMENT = /* glsl */`
+export const IMPOSTOR_PARAMS_FRAGMENT = `
 #include <clipping_planes_pars_fragment>
 
 uniform float spritesPerSide;
@@ -367,7 +356,7 @@ float ezFadeDither(vec2 fragCoord) {
 #endif
 `;
 
-export const IMPOSTOR_MAP_FRAGMENT = /* glsl */`
+export const IMPOSTOR_MAP_FRAGMENT = `
 float spriteSize = 1.0 / spritesPerSide;
 
 vec2 uv1 = getUV(vSpriteUV1, vSprite1, spriteSize);
@@ -455,7 +444,7 @@ blendedColor = vec4(vec3(blendedColor.rgb) / blendedColor.a, 1.0);
 #endif
 `;
 
-export const IMPOSTOR_NORMAL_FRAGMENT_BEGIN = /* glsl */`
+export const IMPOSTOR_NORMAL_FRAGMENT_BEGIN = `
 #ifdef EZ_FAR_SINGLE_SPRITE
 // CHEAP FAR PATH (D1): sample ONE normal instead of blending 3. In single-sprite mode uv1 was
 // collapsed to the chosen best-sprite uv (IMPOSTOR_MAP_FRAGMENT), so one fetch matches the colour

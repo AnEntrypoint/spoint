@@ -1,24 +1,4 @@
 #!/usr/bin/env node
-// Edge deploy step 2 (edge-cf-worker-app-bundle-static-source-loadfromstring): build-time app-source
-// bundling for src/sdk/WorkerEntry.js's init({apps}) -> AppLoader.loadFromString(name, source, deps) path.
-//
-// A Cloudflare Worker has NO runtime filesystem at all (not even a virtual one), so AppLoader.js's
-// loadAll() (real fs.readdir/fs.watch disk scan, Node-server-only) cannot run there -- but
-// loadFromString(name, source, deps) already exists and is exactly the fs-free path WorkerEntry.js uses
-// TODAY for singleplayer (see client/BrowserServer.js's connect(), which builds this same {name, source,
-// deps} shape at CONNECT time via a live fetch()+URL-resolve walk). This script does the identical
-// dependency-resolution walk (same regex, same recursive {spec: source|{source,deps}} shape
-// AppLoader.js._rewriteDeps expects) but reads from disk at BUILD time instead of fetching at runtime,
-// so an edge Worker's bundle can `import manifest from './apps-manifest.json'` and pass manifest.apps
-// straight into WorkerEntry's init({apps}) unchanged -- zero AppLoader.js/WorkerEntry.js changes needed.
-//
-// Usage: node scripts/bundle-apps-manifest.mjs [outFile] [--apps=a,b,c] [--world=<name>] [--all] [--check]
-//   outFile   default: apps-manifest.json (repo-root-relative or absolute)
-//   --apps=   explicit comma-separated app name list (skips worldDef/directory resolution entirely)
-//   --world=  world module to source app names from (apps/world/<name>.js's entities[].app +
-//             placeableApps + trustedApps)
-//   --all     scan all ./apps subdirectories and top-level app files (default when neither --apps nor --world is given)
-//   --check   validate if existing manifest file matches generated manifest, exit 1 if out of sync
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -41,9 +21,6 @@ function parseArgs(argv) {
 
 function log(msg) { console.log(`[bundle-apps-manifest] ${msg}`) }
 
-// Resolves an app name to its entry-point index.js exactly like AppLoader.js's own _resolvePath: a flat
-// apps/<name>.js file, or an apps/<name>/index.js folder module -- flat file checked first, matching
-// AppLoader.js's own precedence.
 function resolveAppEntry(name) {
   const flat = join(ROOT, 'apps', `${name}.js`)
   if (existsSync(flat)) return flat
@@ -70,12 +47,6 @@ function resolveAllApps() {
   return [...names].sort()
 }
 
-// Mirrors client/BrowserServer.js's _resolveRelativeDeps exactly: same regex (relative from/import
-// specifiers only -- bare specifiers like 'three' are intentionally left unresolved, same as the live
-// runtime path, since those resolve via the Worker's own node_modules bridge / import map, not via
-// loadFromString's deps rewrite), same recursive {spec: source|{source,deps}} output shape
-// AppLoader.js._rewriteDeps consumes, same seen-map cycle/dedup guard -- but resolves specifiers against
-// the real filesystem instead of fetch(), since this runs at build time with real disk access.
 function resolveRelativeDeps(source, baseFileUrl, seen) {
   const re = /(?:from|import)\s*['"](\.[^'"]+)['"]/g
   const out = {}
@@ -110,8 +81,6 @@ async function resolveAppNamesFromWorld(worldName) {
   if (!existsSync(worldFile)) throw new Error(`world module not found: ${worldFile}`)
   const mod = await import(pathToFileURL(worldFile).href)
   const worldDef = mod.default || mod
-  // Same three fields + de-dupe as client/BrowserServer.js's connect(): entities[].app,
-  // placeableApps, trustedApps.
   return [...new Set([
     ...((worldDef.entities || []).map(e => e.app).filter(Boolean)),
     ...((worldDef.placeableApps || [])),

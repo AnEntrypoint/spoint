@@ -1,14 +1,4 @@
-// WGSL compute-shader source strings + the CPU-side cluster-record packer for webgpu-hiz-tier.js.
-// Split out because these are pure, self-contained pieces (string constants + a data-flattening
-// function with no dependency on WebGpuHizTier's own instance state) -- see webgpu-hiz-tier.js's
-// own header comment for the full pipeline design this feeds.
-
-// ---------------------------------------------------------------------------
-// WGSL: HZB reduce pass (compute). Storage-texture read (previous mip) /
-// write (this mip), same MIN-of-2x2-edge-clamped-block algorithm as
-// hzb-tier.js's REDUCE_FS, one invocation per destination texel.
-// ---------------------------------------------------------------------------
-export const HZB_REDUCE_WGSL = /* wgsl */`
+export const HZB_REDUCE_WGSL = `
 struct ReduceParams {
   srcSize   : vec2<u32>,
   dstSize   : vec2<u32>,
@@ -34,10 +24,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(dstTex, vec2<i32>(gid.xy), vec4<f32>(m, m, m, 1.0));
 }`;
 
-// Level-0 seed: copies the raw depth texture into mip0's r32float storage
-// texture unchanged, so the reduce shader above never special-cases level 0
-// (identical role to hzb-tier.js's SEED_FS).
-export const HZB_SEED_WGSL = /* wgsl */`
+export const HZB_SEED_WGSL = `
 @group(0) @binding(0) var srcDepth : texture_depth_2d;
 @group(0) @binding(1) var dstTex : texture_storage_2d<r32float, write>;
 
@@ -49,29 +36,7 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   textureStore(dstTex, vec2<i32>(gid.xy), vec4<f32>(d, d, d, 1.0));
 }`;
 
-// ---------------------------------------------------------------------------
-// WGSL: cull + LOD + indirect-args compute pass. One invocation per cluster.
-//
-// Cluster record layout (48 bytes, std430-compatible, matches
-// _flattenClusters below exactly):
-//   vec3f aabbMin; f32 pad0;
-//   vec3f aabbMax; f32 pad1;
-//   vec3f sphereCenter; f32 sphereRadius;
-//   u32 lod0Offset; u32 lod0Count; u32 lod1Offset; u32 lod1Count;
-//   u32 lod2Offset; u32 lod2Count; u32 lodCount; u32 pad2;
-// (up to 3 LOD levels — matches DEFAULT_LOD_THRESHOLDS.length+1 in
-// cluster-lod-mesh.js; a cluster with fewer LODs repeats its last valid
-// lod offset/count in the remaining slots so "clamp to available LODs"
-// degrades to "draw the coarsest baked LOD", same clamp cluster-lod-mesh.js
-// already performs on the CPU).
-//
-// Per-mesh uniform (one dispatch's worth, rebound per registered mesh):
-//   mat4x4f viewProjection; mat4x4f world; vec3f cameraPos; f32 pad;
-//   f32 screenHeight; f32 tanHalfSq; f32 hystUp; f32 hystDown;
-//   f32 threshold0; f32 threshold1; u32 clusterCount; u32 baseVertex;
-//   u32 firstInstance; u32 hzbLevels; f32 hzbW; f32 hzbH;
-// ---------------------------------------------------------------------------
-export const CULL_LOD_WGSL = /* wgsl */`
+export const CULL_LOD_WGSL = `
 struct Cluster {
   aabbMin      : vec3<f32>, pad0 : f32,
   aabbMax      : vec3<f32>, pad1 : f32,
@@ -258,13 +223,8 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   indirectArgs[slot].firstInstance = frame.firstInstance;
 }`;
 
-// ---------------------------------------------------------------------------
-// Bytes-per-cluster-record for the flattened storage buffer the CULL_LOD_WGSL
-// `Cluster` struct above expects (80 bytes: 3 x vec4(16B) + 8 x u32(4B) =
-// 48 + 32 = 80, matching this JS-side packer's field-by-field writes below).
-// ---------------------------------------------------------------------------
 export const CLUSTER_STRIDE_BYTES = 80;
-export const INDIRECT_STRIDE_BYTES = 20; // 5 x u32/i32
+export const INDIRECT_STRIDE_BYTES = 20;
 export const MAX_LOD_SLOTS = 3;
 
 export function flattenClusters(clusterSet, lod0Count) {
@@ -279,11 +239,11 @@ export function flattenClusters(clusterSet, lod0Count) {
     dv.setFloat32(o, c.aabb[0], true); o += 4;
     dv.setFloat32(o, c.aabb[1], true); o += 4;
     dv.setFloat32(o, c.aabb[2], true); o += 4;
-    dv.setFloat32(o, 0, true); o += 4; // pad0
+    dv.setFloat32(o, 0, true); o += 4;
     dv.setFloat32(o, c.aabb[3], true); o += 4;
     dv.setFloat32(o, c.aabb[4], true); o += 4;
     dv.setFloat32(o, c.aabb[5], true); o += 4;
-    dv.setFloat32(o, 0, true); o += 4; // pad1
+    dv.setFloat32(o, 0, true); o += 4;
     const sc = c.sphere.length === 4 ? c.sphere : [
       (c.aabb[0] + c.aabb[3]) * 0.5,
       (c.aabb[1] + c.aabb[4]) * 0.5,
@@ -294,19 +254,14 @@ export function flattenClusters(clusterSet, lod0Count) {
     dv.setFloat32(o, sc[1], true); o += 4;
     dv.setFloat32(o, sc[2], true); o += 4;
     dv.setFloat32(o, sc[3], true); o += 4;
-    // lods: up to MAX_LOD_SLOTS entries, offset already resolved to INDEX
-    // units (element count, matching drawIndexedIndirect's firstIndex
-    // semantics — WebGPU multiplies by the index format's byte size
-    // internally), using the same stream 0/1 -> unified-buffer-offset
-    // convention as cluster-lod-mesh.js's own _byteOffset().
     for (let s = 0; s < MAX_LOD_SLOTS; s++) {
       const l = c.lods[Math.min(s, c.lods.length - 1)];
-      const base_ = l.stream === 1 ? lod0Count : 0;
-      dv.setUint32(o, base_ + l.offset, true); o += 4;
+      const streamBaseIndex = l.stream === 1 ? lod0Count : 0;
+      dv.setUint32(o, streamBaseIndex + l.offset, true); o += 4;
       dv.setUint32(o, l.count, true); o += 4;
     }
-    dv.setUint32(o, Math.min(c.lods.length, MAX_LOD_SLOTS), true); o += 4; // lodCount
-    dv.setUint32(o, 0, true); o += 4; // pad2
+    dv.setUint32(o, Math.min(c.lods.length, MAX_LOD_SLOTS), true); o += 4;
+    dv.setUint32(o, 0, true); o += 4;
   }
   return buf;
 }

@@ -8,7 +8,6 @@ import { bakeNavmesh } from '../src/pathfinding/RecastIntegration.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const projectRoot = path.join(__dirname, '..')
 
-// Parse CLI arguments
 const args = process.argv.slice(2)
 const worldName = args.find(arg => arg.startsWith('--world='))?.replace('--world=', '') || 'aim_sillos'
 const verbose = args.includes('--verbose')
@@ -48,13 +47,11 @@ async function main() {
 
     const bakTime = performance.now() - startTime
 
-    // Ensure output directory exists
     const outputDir = path.dirname(outputPath)
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true })
     }
 
-    // Write navmesh JSON
     fs.writeFileSync(outputPath, JSON.stringify(navmeshData, null, 2))
 
     const stats = {

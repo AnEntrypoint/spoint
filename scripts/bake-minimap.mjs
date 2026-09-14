@@ -1,29 +1,3 @@
-// bake-minimap.mjs -- bake a top-down COLOR+HEIGHT minimap for a terrain seed at world-build time.
-//
-// Pure Node, THREE/GL-free: reuses the same CPU height path TerrainPhysics.js already uses for the
-// server collider (mapspinner/height-cpu's createHeightSampler, transpiled from terrain.glsl -- see
-// AGENTS.md project/cpu-gpu-height-parity-integer-hash) plus PlanetFrame's local (x,z) <-> planet-dir
-// mapping (src/terrain/PlanetFrame.js), so a minimap texel's height matches the real server-side
-// ground height at that local (x,z), not a re-derived approximation. Color is a biome-style ramp
-// (sea/beach/grass/rock/snow bands keyed on height + climate temp/humidity/seaBias from the anchor
-// field's sampleDir -- ClimateCache.js's same {temp,humidity,erosion,seaBias} shape) -- not a pixel
-// match to terrain.glsl's GPU shading (that needs the GPU-eval harness bake-heightfield.mjs uses;
-// out of scope for a minimap whose job is orientation, not exact color fidelity).
-//
-// PNG output uses a self-contained no-dependency RGB encoder (PNG color type 2, zlib deflate for
-// IDAT) -- the same proven no-dep pattern as packages/mapspinner/scripts/lab.mjs's encodePNGGray,
-// extended to 3 channels. No sharp/canvas dependency (scripts/lib/heatmap-image.mjs's sharp-based
-// approach is best-effort/optional and unsuitable as the primary minimap bake path).
-//
-// Usage:
-//   node scripts/bake-minimap.mjs --seed 1337 --radius 63600 --anchorDir -0.641,0.2558,0.7237 \
-//     --reliefScale 0.001 --extent 8192 --res 512 --out apps/world/tps-game.minimap.png
-//   node scripts/bake-minimap.mjs --world tps-game    (reads apps/world/<name>.js terrain config directly)
-//
-// Artifact pair: <out>.png (RGB, N x N) + <out-without-ext>.json (small header: seed, radius, extent,
-// N, anchorDir, reliefScale, center, minHeight, maxHeight -- enough for a consumer to map a world (x,z)
-// to a minimap pixel and decode the height range the color ramp was built against).
-
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -31,6 +5,15 @@ import zlib from 'node:zlib'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..')
+const PNG_BIT_DEPTH = 8
+const PNG_COLOR_TYPE_RGB = 2
+const PNG_FILTER_NONE = 0
+const DEEP_OCEAN_BELOW_M = -200
+const BEACH_TOP_M = 8
+const SNOWCAP_ABOVE_M = 2200
+const ROCK_SNOW_BLEND_ABOVE_M = 1300
+const UPLAND_ABOVE_M = 500
+const MIN_GRID_RES = 2
 
 function parseArgs(argv) {
   const a = { _: [] }
@@ -45,7 +28,6 @@ function parseArgs(argv) {
   return a
 }
 
-// ---------------------------------------------------------------- PNG (no deps, node zlib), RGB variant
 const CRC_TABLE = (() => {
   const t = new Uint32Array(256)
   for (let n = 0; n < 256; n++) {
@@ -67,40 +49,33 @@ function chunk(type, data) {
   const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(body), 0)
   return Buffer.concat([len, body, crc])
 }
-// 8-bit RGB PNG (color type 2) from a width*height*3 Uint8Array
 export function encodePNGRGB(width, height, rgb) {
   const sig = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
   const ihdr = Buffer.alloc(13)
   ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4)
-  ihdr[8] = 8; ihdr[9] = 2; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0 // 8-bit, RGB truecolor
+  ihdr[8] = PNG_BIT_DEPTH; ihdr[9] = PNG_COLOR_TYPE_RGB; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0
   const stride = width * 3
   const raw = Buffer.alloc((stride + 1) * height)
   for (let y = 0; y < height; y++) {
     const rowOff = y * (stride + 1)
-    raw[rowOff] = 0 // filter: none
+    raw[rowOff] = PNG_FILTER_NONE
     rgb.copy ? rgb.copy(raw, rowOff + 1, y * stride, (y + 1) * stride) : raw.set(rgb.subarray(y * stride, (y + 1) * stride), rowOff + 1)
   }
   const idat = zlib.deflateSync(raw, { level: 9 })
   return Buffer.concat([sig, chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', Buffer.alloc(0))])
 }
 
-// ---------------------------------------------------------------- biome color ramp
-// Height + climate -> RGB. Mirrors the coarse band structure terrain.glsl's FS shading uses
-// (deep water / shallow water / beach / grass-lowland / rock-highland / snow-peak) without
-// attempting pixel parity with the real GPU shader (see file header).
 function biomeColor(height, temp, humidity, seaLevel) {
   const h = height - seaLevel
-  if (h < -200) return [18, 42, 92]      // deep ocean
-  if (h < 0) return [42, 92, 158]        // shallow water / coastal shelf
-  if (h < 8) return [214, 199, 152]      // beach / sand
-  // land: blend by temp/humidity/elevation into grass/forest/rock/snow
-  if (h > 2200) return [235, 238, 242]   // snowcap
-  if (h > 1300) {
-    const t = Math.max(0, Math.min(1, (h - 1300) / 900))
-    return lerp3([120, 118, 108], [235, 238, 242], t) // rock -> snow transition
+  if (h < DEEP_OCEAN_BELOW_M) return [18, 42, 92]
+  if (h < 0) return [42, 92, 158]
+  if (h < BEACH_TOP_M) return [214, 199, 152]
+  if (h > SNOWCAP_ABOVE_M) return [235, 238, 242]
+  if (h > ROCK_SNOW_BLEND_ABOVE_M) {
+    const t = Math.max(0, Math.min(1, (h - ROCK_SNOW_BLEND_ABOVE_M) / 900))
+    return lerp3([120, 118, 108], [235, 238, 242], t)
   }
-  if (h > 500) return lerp3([96, 128, 74], [120, 118, 108], Math.max(0, Math.min(1, (h - 500) / 800))) // upland rock/scrub
-  // lowland: dry (humidity low) -> arid tan, wet -> green forest, cold+wet stays but tints
+  if (h > UPLAND_ABOVE_M) return lerp3([96, 128, 74], [120, 118, 108], Math.max(0, Math.min(1, (h - UPLAND_ABOVE_M) / 800)))
   const dry = [176, 164, 108]
   const forest = [58, 108, 58]
   const grass = [104, 150, 76]
@@ -110,7 +85,6 @@ function biomeColor(height, temp, humidity, seaLevel) {
 }
 function lerp3(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t] }
 
-// ---------------------------------------------------------------- bake
 async function loadTerrainConfigFromWorld(worldName) {
   const mod = await import(pathToFileURL(path.join(REPO_ROOT, 'apps', 'world', `${worldName}.js`)).href)
   const def = mod.default || mod
@@ -127,10 +101,7 @@ export async function bakeMinimap(opts) {
   const reliefScale = opts.reliefScale
   const anchorDir = opts.anchorDir || [0, 1, 0]
   const extent = Number.isFinite(opts.extent) && opts.extent > 0 ? opts.extent : 8192
-  // N=1 makes step=extent/(N-1)=Infinity (every sampled coord degenerates to NaN, min/max stay at
-  // their +-Infinity sentinels forever -- JSON.stringify then silently drops them to null). N=2 is
-  // the smallest grid that still has a real, finite step; clamp rather than produce a corrupt bake.
-  const N = Number.isFinite(opts.res) && opts.res >= 2 ? Math.round(opts.res) : 2
+  const N = Number.isFinite(opts.res) && opts.res >= MIN_GRID_RES ? Math.round(opts.res) : MIN_GRID_RES
   const center = opts.center || [0, 0]
 
   const sampler = await createHeightSampler({ radius, seed, reliefScale })
@@ -142,8 +113,6 @@ export async function bakeMinimap(opts) {
   const rgb = Buffer.alloc(N * N * 3)
   let min = Infinity, max = -Infinity
 
-  // sea-level reference: local height at the anchor point itself (x=0,z=0 is always h=0 by
-  // construction of groundHeightLocal's drop term) -- 0 is the correct sea-level datum in LOCAL space.
   const seaLevel = 0
 
   for (let iz = 0; iz < N; iz++) {
