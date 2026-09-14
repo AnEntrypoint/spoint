@@ -1,5 +1,3 @@
-// on-demand cluster-LOD baker for the streaming-gltf ModelPool renderer; output kept under the legacy 'model.progressive.glb' name for cache-layout compat
-
 import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync } from 'node:fs'
 import { join, dirname, basename, resolve as resolvePath, sep } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -8,14 +6,8 @@ import { fileURLToPath } from 'node:url'
 const CACHE_DIR_NAME = '.progressive-cache'
 const ROOT_NAME = 'model.progressive.glb'
 const MAX_CONCURRENT = 2
+const GLB_MAGIC = 0x46546c67
 
-// Cache-key must invalidate on ANY change to the bake pipeline's own geometry-correctness
-// logic, not just the source GLB's bytes -- a content hash of the source alone lets a
-// pre-fix bake sit on disk forever after the bake code changes, since getProgressive()
-// only ever checks "does a file already exist at this path" (see the degenerate-triangle
-// investigation: 12/13 on-disk .progressive-cache/ bakes predated a real bake-pipeline fix
-// by days, one predated it by 183 seconds, and every one kept being served with zero
-// invalidation because the bake-code hash was never part of the cache key at all).
 const _BAKE_SRC_FILES = [
   '../../packages/streaming-gltf/tools/bake-cluster.mjs',
   '../../packages/streaming-gltf/src/meshlet-codec.js',
@@ -36,8 +28,8 @@ const BAKE_CODE_VERSION = _bakeCodeVersion()
 
 let _active = 0
 const _waitQueue = []
-const _inFlight = new Map()   // srcPath -> Promise<string outDir>
-const _ready = new Map()      // srcPath -> { hash, outDir }
+const _inFlight = new Map()
+const _ready = new Map()
 
 function _acquireSlot() {
   return new Promise(resolve => {
@@ -65,17 +57,10 @@ function _outDir(srcPath, hash) {
   return join(_cacheRoot(srcPath), `${basename(srcPath, '.glb')}-${hash}-${BAKE_CODE_VERSION}`)
 }
 
-// strips (a) a dangling/out-of-range texture.sampler ref and (b) a material textureInfo pointing at a
-// SOURCELESS texture (no .source and no EXT_texture_webp.source -- a genuinely malformed texture entry,
-// live-hit on apps/maps/deathrun_kosova.glb: 8/27 textures carry neither) -- both cases make
-// gltf-transform's ReaderContext.setTextureInfo build a null internal Texture and crash calling
-// .setMagFilter() on it. Case (b) is fixed by dropping the referencing material's textureInfo entry
-// entirely (baseColorTexture/normalTexture/etc), not the texture array slot itself, since other
-// textures[] indices past it are still referenced by index and must not shift.
 function _sanitizeForBake(srcPath, outDir) {
   try {
     const b = readFileSync(srcPath)
-    if (b.length < 20 || b.readUInt32LE(0) !== 0x46546c67) return srcPath  // not a binary glTF
+    if (b.length < 20 || b.readUInt32LE(0) !== GLB_MAGIC) return srcPath
     const jsonLen = b.readUInt32LE(12)
     const json = JSON.parse(b.slice(20, 20 + jsonLen).toString())
     const samplers = json.samplers || []
@@ -132,7 +117,6 @@ function _sanitizeForBake(srcPath, outDir) {
   }
 }
 
-// lazy import so a missing optional toolchain degrades to "no baked output" instead of crashing at startup
 let _bakeFn = null
 async function _getBake() {
   if (_bakeFn) return _bakeFn
@@ -146,7 +130,6 @@ async function _getBake() {
   return _bakeFn
 }
 
-// synchronous + non-blocking so the static handler can fall through to serving the plain GLB while the bake runs
 export function getProgressive(srcPath) {
   let hash
   try { hash = _hashFile(srcPath) } catch { return null }
@@ -190,7 +173,6 @@ export async function ensureProgressive(srcPath) {
   return null
 }
 
-// fire-and-forget; failures degrade to the client's legacy path
 export function prewarmProgressive(srcPaths) {
   let started = 0
   for (const fp of srcPaths) {
@@ -201,17 +183,12 @@ export function prewarmProgressive(srcPaths) {
   if (started) console.log(`[progressive] prewarming ${started} model(s)`)
 }
 
-// Pure path-containment check, split out of resolveBakedFile so it is unit-testable without paying
-// for a real bake (getProgressive needs a real source GLB + streaming-gltf/bake). Exported so the
-// test imports and exercises this EXACT function -- never a parallel reimplementation that could
-// silently drift from the real guard.
 export function isContainedPath(outDir, relative) {
   const fp = resolvePath(join(outDir, relative))
   const baseResolved = resolvePath(outDir)
   return fp === baseResolved || fp.startsWith(baseResolved + sep)
 }
 
-// `relative` comes from the request URL -- must reject anything resolving outside outDir or a `../../` payload escapes the bake dir
 export function resolveBakedFile(srcPath, relative) {
   const outDir = getProgressive(srcPath)
   if (!outDir) return null

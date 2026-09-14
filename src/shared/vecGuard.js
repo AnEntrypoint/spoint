@@ -1,4 +1,3 @@
-// vecOK is a pure predicate (never throws) for hot paths; vec(n) throws a TypeError at the assignment site
 export function vecOK(v, n) {
   return Array.isArray(v) && v.length === n &&
     !v.some(x => typeof x !== 'number' || !Number.isFinite(x))

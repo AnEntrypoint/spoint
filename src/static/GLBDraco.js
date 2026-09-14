@@ -6,37 +6,6 @@ export function hasMeshopt(jsonChunk) {
   return (jsonChunk.extensionsUsed || []).includes('EXT_meshopt_compression')
 }
 
-// Draco stays registered for DECODE only (a legacy import may still arrive
-// Draco-compressed and needs stripDraco below to read it) -- this repo standardizes
-// all NEW/re-encoded output on meshopt (see compressMeshopt), Draco is never
-// applied to output here anymore. See AGENTS.md meshopt-standardization row.
-//
-// VRM0Passthrough/VRMCVrmPassthrough (see GLBVrmPassthrough.js) register real passthrough
-// Extension subclasses for VRM 0.x (`extensions.VRM`) and VRM 1.0 (`extensions.VRMC_vrm`) so
-// Document.read()/write() round-trip the whole opaque VRM block byte-identically instead of
-// silently dropping it -- fixes glb-transform-vrm-extension-passthrough-registration. Verified
-// (real cleetus.vrm, real meshopt() transform) that node/mesh document order and count are
-// unchanged by weld/reorder/quantize, so VRM's raw node-index bone/collider/firstPerson
-// references stay valid; see GLBVrmPassthrough.js's module comment for the full analysis
-// including the one real internal hazard found (quantize() disposes+recreates the Skin
-// property with an identical joint list, harmless for index-based VRM references) and the
-// forward-looking caveat (only safe for node/mesh-order-preserving transforms).
-//
-// KHRMeshQuantization is registered here for the same reason: gltf-transform's own
-// quantize() (called internally by compressMeshopt's meshopt() transform for virtually
-// every asset) calls document.createExtension(KHRMeshQuantization).setRequired(true)
-// whenever it packs an accessor to a non-FLOAT componentType, but an Extension that
-// exists only in the in-memory Document and isn't registered on this NodeIO gets
-// silently dropped from the written extensionsUsed/extensionsRequired arrays (writer.ts's
-// "Some extensions were not registered for I/O, and will not be written" path) even
-// though the actual quantized accessor bytes ARE written -- a spec-compliance gap (base
-// glTF 2.0 requires POSITION/NORMAL/etc as FLOAT unless this extension declares
-// otherwise) that three.js tolerates today (GLTFMeshQuantizationExtension is a no-op
-// presence marker; three's accessor decode already honors componentType+normalized
-// regardless) but a strict/validating loader is entitled to reject. Fixes
-// glb-transform-khr-mesh-quantization-not-registered. Pure additive declaration fix --
-// registering it does not change any accessor/buffer bytes, only whether the
-// already-quantized output correctly self-declares as such.
 let _io = null
 async function getIO() {
   if (!_io) {
@@ -124,18 +93,6 @@ function getMeshoptDecoder() {
   return _meshoptDecoderPromise
 }
 
-// weld (merge duplicate vertices) + reorder (meshopt vertex/index cache
-// optimization) + quantize (pack attributes to lower-precision integer formats via
-// KHR_mesh_quantization) + EXT_meshopt_compression (actual byte-level compression of
-// the quantized/reordered buffers) -- gltf-transform's own `meshopt()` production
-// transform, replacing the former weld+quantize+reorder+Draco-re-encode combo. This
-// repo standardizes ALL new/re-encoded GLB/VRM output on meshopt, never Draco (Draco
-// stays a read-only decode path for legacy imports via stripDraco/hasDraco above --
-// see AGENTS.md meshopt-standardization-draco-legacy-only). Applied to VRM too: none
-// of weld/reorder/quantize/meshopt-encode decode compressed geometry (that was
-// Draco's OOM-risk path, which stayed VRM-excluded when Draco was still an output
-// option); they only restructure/re-pack/compress already-decoded vertex data, which
-// is exactly what gltf-transform's own CLI `optimize --compress meshopt` preset does.
 export async function compressMeshopt(inputBuffer) {
   try {
     const io = await getIO()
@@ -143,14 +100,6 @@ export async function compressMeshopt(inputBuffer) {
     const encoder = await getMeshoptEncoder()
     const decoder = await getMeshoptDecoder()
     const document = await io.readBinary(new Uint8Array(inputBuffer))
-    // Defensive strip: a KHR_draco_mesh_compression primitive's accessors are opaque
-    // to meshopt()'s weld/reorder/quantize passes (it can't restructure vertex data it
-    // can't read), so meshopt() silently no-ops on those primitives and leaves the
-    // stale Draco extensionsUsed entry in the written output -- a caller that (bug, or
-    // future refactor) hands compressMeshopt a still-Draco-compressed document, instead
-    // of stripDraco-then-compressMeshopt, must not be able to produce output that
-    // claims both extensions / still carries Draco. Disposing here makes "output is
-    // never Draco" hold structurally, not just by caller-ordering discipline.
     const dracoExt = document.getRoot().listExtensionsUsed().find(e => e.extensionName === 'KHR_draco_mesh_compression')
     if (dracoExt) dracoExt.dispose()
     await document.transform(meshopt({ encoder, decoder, level: 'high' }))

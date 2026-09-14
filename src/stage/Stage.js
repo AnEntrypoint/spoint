@@ -5,11 +5,6 @@ export class Stage {
     this.name = name
     this.entityIds = new Set()
     this.spatial = new SpatialIndex({ relevanceRadius: config.relevanceRadius || 200 })
-    // planetRadius (meters): opts this world into curved-space cube-sphere AOI cell addressing in
-    // TickHandler.js (0/unset = flat Euclidean XZ grid, correct for a single non-reanchoring
-    // tangent-plane world -- PlanetFrame.js's default). Set to the sphere radius (matching
-    // mapspinner's quadtree `size` / PlanetFrame's sampler.radius) for a world whose relevanceRadius
-    // cells may span cube-sphere face boundaries.
     this.spatial.planetRadius = config.planetRadius || 0
     this.gravity = config.gravity || null
     this.spawnPoint = config.spawnPoint || null
@@ -81,14 +76,6 @@ export class Stage {
       const e = this._runtime.getEntity(id)
       if (e) this.spatial.update(id, e.position)
     }
-    // Dynamic entities with NO physics body (app code drives entity.position directly every tick, e.g.
-    // a scripted/kinematic ball with no ctx.physics.addXCollider call) never fire onBodyActivated and so
-    // are absent from _activeDynamicIds -- without this, the spatial index's point for such an entity is
-    // frozen forever at its spawn position, so relevance queries (getRelevantEntities, used by
-    // TickHandler's per-player snapshot filter) silently use a stale location. Witnessed live: a
-    // physics-body-less entity's true position drifted 50 units from spawn while the octree still
-    // reported the spawn point, causing it to incorrectly drop out of / stay stuck in a viewer's
-    // relevance radius depending on where the viewer stood relative to the STALE point, not the real one.
     if (typeof this._runtime.getUnmanagedDynamicIds === 'function') {
       for (const id of this._runtime.getUnmanagedDynamicIds()) {
         if (!this.entityIds.has(id)) continue

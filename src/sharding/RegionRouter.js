@@ -1,20 +1,3 @@
-// Region-shard router: the ONE process that owns real client transports (HTTP + WebSocket) and
-// forwards each client's frames to whichever region-shard worker (RegionWorkerEntry.js, spawned as a
-// real Node child_process) currently owns that player, based on world position. This is the piece
-// that makes "N independent per-region Jolt-world/tick/encoder workers" look like a single seamless
-// server to every connected client -- the client never knows it is being routed, and a shard-boundary
-// crossing is invisible on the wire (same connection, same playerId, no reconnect round-trip visible
-// to the browser).
-//
-// Topology:
-//   client <--WebSocket--> RegionRouter (this file) <--child_process IPC--> RegionWorkerEntry (xN)
-//
-// Player identity: the ROUTER assigns the stable, client-facing playerId (a simple incrementing
-// counter, `_nextRouterPlayerId`) and is the single source of truth for `routerPlayerId -> {region,
-// localPlayerId}` -- each region worker has its OWN independent PlayerManager with its OWN local id
-// space (a worker has no idea what the router-facing id is; from a worker's point of view, a router
-// connection is just "a new local player"). This split is required because two DIFFERENT workers
-// cannot be trusted to hand out non-colliding ids from independent `nextPlayerId` counters.
 import { createServer as createHttpServer } from 'node:http'
 import { WebSocketServer as WSServer } from 'ws'
 import { fork } from 'node:child_process'
@@ -37,27 +20,19 @@ export class RegionRouter {
     this.cellSize = config.cellSize || DEFAULT_CELL_SIZE
     this.ghostMargin = config.ghostMargin != null ? config.ghostMargin : DEFAULT_GHOST_MARGIN
     this.worldDef = config.worldDef || {}
-    // regionId -> { proc, ready, pendingReady:[resolve...], region }
     this.workers = new Map()
-    // routerPlayerId -> { socket, region, localPlayerId, pendingRegion (during handoff) }
     this.players = new Map()
     this._nextRouterPlayerId = 1
     this._nextRequestId = 1
-    this._pendingRequests = new Map() // requestId -> {resolve, reject}
+    this._pendingRequests = new Map()
     this.httpServer = null
     this.wss = null
   }
 
-  // Spawns one region worker for each given region id, waits for every one to report WORKER_READY,
-  // and returns once the whole shard set is live. Regions are NOT auto-discovered from the world
-  // def's entity spread -- the caller decides shard topology explicitly (a fixed NxN grid around
-  // spawn is the common case; see spawnGridAroundOrigin below).
   async spawnRegions(regionIds) {
     await Promise.all(regionIds.map(r => this._spawnRegion(r)))
   }
 
-  // Convenience: spawns a square NxN grid of region workers centered on region (0,0) -- the region
-  // containing world-origin, which is where a fresh world's spawnPoint(s) almost always land.
   async spawnGridAroundOrigin(gridRadius = 1) {
     const ids = []
     for (let rx = -gridRadius; rx <= gridRadius; rx++) {
@@ -107,10 +82,6 @@ export class RegionRouter {
         return
       }
       case 'WORKER_FRAME': {
-        // outbound: worker -> router -> client. Look up which router player currently maps to
-        // (regionId, msg.playerId) -- a stale/handed-off local id (from the OLD region right after a
-        // crossing) is silently dropped rather than mis-delivered to whatever router id now happens
-        // to be at that local-id slot in a DIFFERENT worker.
         const routerId = this._localToRouterId(regionId, msg.playerId)
         const player = routerId != null ? this.players.get(routerId) : null
         if (player?.socket && player.socket.readyState === 1) {
@@ -150,21 +121,9 @@ export class RegionRouter {
     return null
   }
 
-  // Ghost-margin cross-shard handoff, step 1: the LOSING (from) region reported a player's
-  // authoritative region changed. Ask the WINNING (to) region worker to accept them, carrying live
-  // position/velocity/health across so the player doesn't visibly reset. The losing worker keeps
-  // ticking the player (per its own ghost-margin logic) until COMPLETE_HANDOFF_OUT arrives below --
-  // there is no frame where the player has zero authoritative owner.
   _handleBoundaryCrossing(fromRegion, msg) {
     const toEntry = this.workers.get(msg.toRegion)
     if (!toEntry || !toEntry.ready) {
-      // Target shard isn't spawned (e.g. player wandered off the pre-spawned grid) -- stay owned by
-      // the losing region past the ghost margin rather than dropping the player; this is a real,
-      // explicit degraded mode (documented, not silent): logged once per occurrence so an operator can
-      // see under-provisioned grid radius, and the player keeps playing uninterrupted in their
-      // current shard (worse locality, never worse correctness -- physics/tick continuity is
-      // preserved because the losing worker's checkHandoffs only stops re-sending the crossing once
-      // `cur` re-enters its own region or a real handoff completes).
       console.warn(`[router] boundary crossing to unspawned region ${msg.toRegion} (from ${fromRegion}, player ${msg.playerId}) -- no shard there, player stays in ${fromRegion}`)
       return
     }
@@ -179,14 +138,10 @@ export class RegionRouter {
     })
   }
 
-  // Handoff step 2: the winning region confirms it has the player live (bootstrapped, flushed).
-  // Retarget the router's own mapping to the new (region, localId) so all FUTURE frames from this
-  // client route there, then tell the losing region it can tear the player down for good.
   _handleHandoffAccepted(msg) {
     const routerId = this._localToRouterId(msg.fromRegion, msg.oldPlayerId)
     const player = routerId != null ? this.players.get(routerId) : null
     if (!player) {
-      // Player disconnected mid-handoff -- tell the new region to clean up the just-accepted ghost.
       const toEntry = this.workers.get(msg.region)
       toEntry?.proc.send({ type: 'COMPLETE_HANDOFF_OUT', playerId: msg.newLocalPlayerId })
       return
@@ -201,15 +156,6 @@ export class RegionRouter {
     oldEntry?.proc.send({ type: 'COMPLETE_HANDOFF_OUT', playerId: msg.oldPlayerId })
   }
 
-  // Cross-shard EventLog replication fan-out (see AGENTS.md PRD row
-  // region-sharding-cross-shard-eventlog-replication + RegionWorkerEntry.js's forwarding hook). The
-  // router is a pure relay here -- it holds no EventLog of its own, it just re-sends the
-  // already-recorded event to every OTHER ready worker so each shard's own EventLog ends up with the
-  // full crossShard-flagged event set. "Every other" (not a subscriber list) because this is a fan-out
-  // broadcast, not a targeted message -- the origin worker is excluded both here (originRegion check)
-  // and again idempotency-wise on the receiving end (EventLog.ingestRemote's own originRegion===regionId
-  // guard in applyReplicatedEvent), so this stays correct even if a future topology grows router-side
-  // subscription filtering.
   _handleEventReplicate(originRegion, msg) {
     for (const [regionId, entry] of this.workers) {
       if (regionId === originRegion || !entry.ready) continue
@@ -217,8 +163,6 @@ export class RegionRouter {
     }
   }
 
-  // New client connection: pick the region for its spawn point (or a supplied position), request
-  // that worker accept it, and wire up the client<->router socket forwarding.
   async _onSocketConnect(socket, initialPosition) {
     const routerId = this._nextRouterPlayerId++
     const spawnPoints = this.worldDef.spawnPoints?.length ? this.worldDef.spawnPoints : (this.worldDef.spawnPoint ? [this.worldDef.spawnPoint] : [[0, 5, 0]])
@@ -279,11 +223,6 @@ export class RegionRouter {
     }
     this.httpServer = createHttpServer(httpHandler)
     this.wss = new WSServer({ server: this.httpServer, path: '/ws', perMessageDeflate: false })
-    // Optional ?spawnX=&spawnZ= query hint lets a caller (a portal/teleporter linking worlds, an admin
-    // reconnect-to-last-position flow, or this file's own live-witness harness) route a fresh
-    // connection directly to the region owning a KNOWN position instead of a random worldDef spawn
-    // point -- real production use, not test-only wiring (mirrors the same "position decides region"
-    // rule _onSocketConnect already applies to every connection either way).
     this.wss.on('connection', (socket, req) => {
       let initialPosition = null
       try {
@@ -291,7 +230,7 @@ export class RegionRouter {
         const sx = parseFloat(url.searchParams.get('spawnX'))
         const sz = parseFloat(url.searchParams.get('spawnZ'))
         if (Number.isFinite(sx) && Number.isFinite(sz)) initialPosition = [sx, 5, sz]
-      } catch (_) { /* malformed URL -- fall through to worldDef default spawn selection */ }
+      } catch (_) { }
       this._onSocketConnect(socket, initialPosition).catch(e => console.error('[router] connect error:', e.message))
     })
     await new Promise((resolve, reject) => {

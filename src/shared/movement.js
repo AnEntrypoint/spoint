@@ -1,5 +1,3 @@
-// overrides: optional per-player shallow-merge on top of the base movement config (e.g. a buff-stack
-// multiplier writing {maxSpeed, jumpImpulse}) -- omitted/null is a no-op, identical to the 4-arg call.
 export function applyMovement(state, input, movement, dt, overrides = null) {
   const m = overrides ? { ...movement, ...overrides } : movement
   const { maxSpeed, groundAccel, airAccel, friction, stopSpeed, jumpImpulse } = m
@@ -12,12 +10,6 @@ export function applyMovement(state, input, movement, dt, overrides = null) {
   else state.coyoteRemaining = Math.max(0, (state.coyoteRemaining || 0) - dt)
   state.bufferRemaining = Math.max(0, (state.bufferRemaining || 0) - dt)
 
-  // Slide: pressing crouch while sprinting+moving fast on the ground triggers a short, decaying
-  // speed-boosted low-profile state (reuses the existing crouch collider shrink -- state.crouch/
-  // st.crouch already drives PhysicsIntegration.setCrouch regardless of WHY crouch is true, so no new
-  // collider path is needed). Purely state-carried in `state.slideRemaining`/`state.sliding` so this
-  // stays a pure function with no new physics/Jolt surface. Ends on timer expiry, crouch release, or
-  // leaving the ground (matches soft-land/coyote conventions already in this file).
   const slideDuration = m.slideDuration ?? 0.6
   const slideMinSpeed = m.slideMinSpeed ?? (maxSpeed * 1.1)
   const slideSpeedMul = m.slideSpeedMul ?? 1.15
@@ -52,9 +44,6 @@ export function applyMovement(state, input, movement, dt, overrides = null) {
     wishSpeed = rawLen > 0 ? (input.sprint && !input.crouch ? (m.sprintSpeed || maxSpeed * 1.75) : baseSpeed) * speedMul : 0
 
     if (state.sliding) {
-      // Decay the pre-slide horizontal speed toward slideDecayMul*maxSpeed over slideDuration, giving a
-      // real momentum-preserving slide rather than an instant clamp -- boosted at entry (slideSpeedMul),
-      // floors to a walk-crouch-speed baseline as the timer runs out.
       const t = 1 - (state.slideRemaining / slideDuration)
       const targetMul = slideSpeedMul + (slideDecayMul - slideSpeedMul) * Math.min(1, t)
       const targetSpeed = maxSpeed * targetMul
@@ -65,7 +54,7 @@ export function applyMovement(state, input, movement, dt, overrides = null) {
       } else if (rawLen > 0) {
         vx = wishX * targetSpeed; vz = wishZ * targetSpeed
       }
-      wishSpeed = 0 // slide owns velocity directly this tick; skip the normal accel step below
+      wishSpeed = 0
     }
 
     const jumpEdge = !!input.jump && !state._jumpHeld
@@ -103,10 +92,6 @@ export function applyMovement(state, input, movement, dt, overrides = null) {
       }
     }
   } else if (!state.onGround && !jumped) {
-    // Airborne-only: sliding-on-ground must NEVER fall into this branch (it applies the airSpeedCap
-    // clamp, which previously clamped a slide's boosted >maxSpeed velocity right back down to maxSpeed,
-    // silently erasing slideSpeedMul's boost every tick -- caught live via exec_js/node witness during
-    // this row's verification, see sprint-slide-mechanic-movement-js PRD row).
     if (wishSpeed > 0) {
       const airCap = m.airMaxSpeed ?? wishSpeed
       const cur = vx * wishX + vz * wishZ
@@ -122,9 +107,6 @@ export function applyMovement(state, input, movement, dt, overrides = null) {
     if (horizSpeed > airSpeedCap) { const s = airSpeedCap / horizSpeed; vx *= s; vz *= s }
   }
 
-  // Leaving the ground (fell off an edge, jumped) or losing crouch/timer cancels the slide next tick's
-  // check naturally via `state.onGround`/`state.slideRemaining`, but zero it explicitly here too so a
-  // caller reading state.sliding this same tick (post-jump) sees the correct up-to-date value.
   if (!state.onGround) state.sliding = false
 
   state.velocity[0] = vx

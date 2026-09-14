@@ -1,6 +1,5 @@
 import { Stage } from './Stage.js'
 
-// world defs are untrusted input -- validate position/scale here so a malformed value falls back safely instead of NaN-poisoning the broadcast snapshot
 function vecOK(v, n) {
   if (!Array.isArray(v) || v.length !== n) return false
   for (let i = 0; i < n; i++) if (!Number.isFinite(v[i])) return false
@@ -36,12 +35,7 @@ export class StageLoader {
         scale: vecOK(entDef.scale, 3) ? entDef.scale : undefined,
         app: entDef.app,
         config: entDef.config || null,
-        // must copy entDef.custom or world-def-authored custom fields (e.g. _interior) never reach the spawned entity
         custom: (entDef.custom && typeof entDef.custom === 'object' && !Array.isArray(entDef.custom)) ? entDef.custom : null,
-        // same class of bug as the custom-field drop above: a world-def-declared bodyType (e.g. a
-        // scripted/kinematic entity meant to be 'dynamic') was silently discarded here, so every
-        // world-def entity always spawned as AppRuntime.spawnEntity's 'static' default regardless of
-        // what the world def actually declared -- found while live-witnessing bug-otb-ball-sync-rootcause.
         bodyType: (entDef.bodyType === 'dynamic' || entDef.bodyType === 'kinematic') ? entDef.bodyType : undefined
       }
       if (entDef.model && !entDef.app) {
