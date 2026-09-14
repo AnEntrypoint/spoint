@@ -88,7 +88,8 @@ export class ClusterLodMesh extends THREE.Mesh {
       _frustum.setFromProjectionMatrix(_projScreen);
       _v.setFromMatrixPosition(camera.matrixWorld);
       let sh = this._screenHeight;
-      try { const sz = renderer.getDrawingBufferSize(_size); if (sz.y > 0) sh = sz.y; } catch (_) {}
+      const sz = renderer.getDrawingBufferSize(_size);
+      if (sz.y > 0) sh = sz.y;
       const tanHalf = camera.isPerspectiveCamera ? Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5) : 1;
       _camCache.renderer = renderer; _camCache.camera = camera; _camCache.frame = frame;
       _camCache.camPos = _v.clone(); _camCache.sh = sh; _camCache.tanHalf = tanHalf;

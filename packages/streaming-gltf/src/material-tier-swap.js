@@ -48,7 +48,7 @@ export function applyLowTierMaterials(root, deviceInfo) {
   const doSwap = shouldSwapMaterials(deviceInfo);
   const doStripNormals = shouldStripNormalMaps(deviceInfo);
   if (!doSwap && !doStripNormals) return { swapped: 0, normalMapsStripped: 0, scanned: 0 };
-  if (!THREE_Lambert || !THREE_Phong) return { swapped: 0, normalMapsStripped: 0, scanned: 0, error: 'setThreeRef not called' };
+  if (!THREE_Lambert || !THREE_Phong) throw new Error('applyLowTierMaterials: setThreeRef(THREE) must be called before a low-tier swap');
   const useLambert = !!(deviceInfo && deviceInfo.isMobile);
   let swapped = 0, normalMapsStripped = 0, scanned = 0;
   const swappedByOriginal = new Map();
@@ -58,16 +58,14 @@ export function applyLowTierMaterials(root, deviceInfo) {
     const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
     const next = mats.map((m) => {
       if (!m) return m;
-      try {
-        if (doStripNormals && m.normalMap) { m.normalMap = null; m.needsUpdate = true; normalMapsStripped++; }
-        if (!doSwap) return m;
-        if (swappedByOriginal.has(m)) return swappedByOriginal.get(m);
-        const wasStandardLike = m.isMeshStandardMaterial || m.isMeshPhysicalMaterial;
-        const out = _swapOne(m, useLambert, doStripNormals);
-        swappedByOriginal.set(m, out);
-        if (wasStandardLike && out !== m) swapped++;
-        return out;
-      } catch (_) { return m; }
+      if (doStripNormals && m.normalMap) { m.normalMap = null; m.needsUpdate = true; normalMapsStripped++; }
+      if (!doSwap) return m;
+      if (swappedByOriginal.has(m)) return swappedByOriginal.get(m);
+      const wasStandardLike = m.isMeshStandardMaterial || m.isMeshPhysicalMaterial;
+      const out = _swapOne(m, useLambert, doStripNormals);
+      swappedByOriginal.set(m, out);
+      if (wasStandardLike && out !== m) swapped++;
+      return out;
     });
     obj.material = Array.isArray(obj.material) ? next : next[0];
   });

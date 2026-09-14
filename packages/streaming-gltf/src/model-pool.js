@@ -103,7 +103,17 @@ function _releaseVrmParseSlot() {
   const next = _vrmParseQueue.shift();
   if (next) { _vrmParseActive++; next(); }
 }
-async function _parseOwnVrm(rootBytes) {
+function _optimizeVrmScene(scene, assetUrl) {
+  for (const [name, optimize] of [['removeUnnecessaryVertices', VRMUtils.removeUnnecessaryVertices], ['combineSkeletons', VRMUtils.combineSkeletons]]) {
+    try {
+      optimize(scene);
+    } catch (err) {
+      console.warn(`[asset] ${assetUrl}: VRMUtils.${name} failed (${(err && err.message) || err}); keeping the unoptimized VRM scene`);
+    }
+  }
+}
+
+async function _parseOwnVrm(rootBytes, assetUrl) {
   await _acquireVrmParseSlot();
   try {
     const loader = _makeLoader(true);
@@ -111,10 +121,7 @@ async function _parseOwnVrm(rootBytes) {
       loader.parse(rootBytes.buffer.slice(rootBytes.byteOffset, rootBytes.byteOffset + rootBytes.byteLength), '', resolve, reject);
     });
     const vrm = gltf.userData?.vrm || null;
-    if (vrm) {
-      try { VRMUtils.removeUnnecessaryVertices(vrm.scene); } catch (e) { }
-      try { VRMUtils.combineSkeletons(vrm.scene); } catch (e) { }
-    }
+    if (vrm) _optimizeVrmScene(vrm.scene, assetUrl);
     return { vrm, scene: vrm ? vrm.scene : gltf.scene };
   } finally {
     _releaseVrmParseSlot();
@@ -175,9 +182,7 @@ class Asset {
       });
       this.rootGltf = gltf;
       this.hasVRM = !!gltf.userData?.vrm;
-      try {
-        this._lowTierMaterialStats = applyLowTierMaterials(gltf.scene, this.pool._deviceInfo);
-      } catch (_) { this._lowTierMaterialStats = null; }
+      this._lowTierMaterialStats = applyLowTierMaterials(gltf.scene, this.pool._deviceInfo);
       this.rootBytes = this.hasVRM ? rootBytes : null;
       const json = gltf.parser.json;
       const ext = json?.extensions?.EP_progressive_lod ?? json?.extras?.LOCAL_progressive;
@@ -413,9 +418,7 @@ class Asset {
 
   dispose() {
     const vrm = this.rootGltf?.userData?.vrm;
-    if (vrm) {
-      try { VRMUtils.deepDispose(this.rootGltf.scene); } catch (e) { }
-    }
+    if (vrm) VRMUtils.deepDispose(this.rootGltf.scene);
     for (const geo of this.geoCache.values()) geo?.dispose?.();
     for (const bmp of this.texCache.values()) bmp?.close?.();
     this.geoCache.clear();
@@ -531,8 +534,8 @@ class Entity extends Emitter {
       if (this._disposed) return;
       let cloned;
       if (this.asset.hasVRM && this.asset.rootBytes) {
-        const own = await _parseOwnVrm(this.asset.rootBytes);
-        if (this._disposed) { try { VRMUtils.deepDispose(own.scene); } catch (e) {} return; }
+        const own = await _parseOwnVrm(this.asset.rootBytes, this.asset.url);
+        if (this._disposed) { VRMUtils.deepDispose(own.scene); return; }
         this.vrm = own.vrm;
         cloned = own.scene;
       } else {
@@ -1176,9 +1179,7 @@ class Entity extends Emitter {
     if (this.animationAction) this.animationAction.stop();
     this.animationMixer = null;
     this.animationAction = null;
-    if (this.vrm) {
-      try { VRMUtils.deepDispose(this.vrm.scene); } catch (e) { }
-    }
+    if (this.vrm) VRMUtils.deepDispose(this.vrm.scene);
     this.vrm = null;
     for (const tm of this.trackedMeshes) {
       if (tm._instancedSlot) tm._instancedSlot.releaseSlot(this);
@@ -1732,24 +1733,28 @@ export class ModelPool extends Emitter {
 
   _gpuWarmGeometry(geo) {
     if (!geo || geo.__gpuWarmed) return;
+    if (!this._warmScene) {
+      this._warmScene = new THREE.Scene();
+      this._warmCam = new THREE.Camera();
+      this._warmMat = new THREE.MeshBasicMaterial();
+      this._warmMesh = new THREE.Mesh(undefined, this._warmMat);
+      this._warmMesh.frustumCulled = false;
+      this._warmScene.add(this._warmMesh);
+      this._warmTarget = new THREE.WebGLRenderTarget(1, 1);
+    }
+    const prevTarget = this.renderer.getRenderTarget();
+    this._warmMesh.geometry = geo;
+    this.renderer.setRenderTarget(this._warmTarget);
     try {
-      if (!this._warmScene) {
-        this._warmScene = new THREE.Scene();
-        this._warmCam = new THREE.Camera();
-        this._warmMat = new THREE.MeshBasicMaterial();
-        this._warmMesh = new THREE.Mesh(undefined, this._warmMat);
-        this._warmMesh.frustumCulled = false;
-        this._warmScene.add(this._warmMesh);
-        this._warmTarget = new THREE.WebGLRenderTarget(1, 1);
-      }
-      const prevTarget = this.renderer.getRenderTarget();
-      this._warmMesh.geometry = geo;
-      this.renderer.setRenderTarget(this._warmTarget);
       this.renderer.render(this._warmScene, this._warmCam);
+      geo.__gpuWarmed = true;
+    } catch (err) {
+      this._gpuWarmFailures = (this._gpuWarmFailures || 0) + 1;
+      console.warn(`[pool] GPU warm-up draw failed for geometry ${geo.uuid} (${(err && err.message) || err}); its buffers upload on first real draw`);
+    } finally {
       this.renderer.setRenderTarget(prevTarget);
       this._warmMesh.geometry = undefined;
-      geo.__gpuWarmed = true;
-    } catch (e) { }
+    }
   }
 
   _queueImpostorBake(asset, entity) {
