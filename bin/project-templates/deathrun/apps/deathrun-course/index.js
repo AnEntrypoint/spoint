@@ -1,17 +1,3 @@
-// Deathrun/parkour course controller: collects every placed `checkpoint-marker` entity (order 0 = start,
-// highest order = finish -- apps/checkpoint-marker, ships inside the spoint package itself, resolves from
-// node_modules/spoint/apps/checkpoint-marker with zero project-side copy needed for PLACEMENT) and feeds
-// them into ctx.defineCheckpoint so a fallen player respawns at their LAST REACHED checkpoint, not just
-// the course start. Also fires a `run.finish` bus event when a player reaches the highest-order marker,
-// for a HUD/leaderboard app to listen on. One of these per world; place as many `checkpoint-marker`
-// entities as the course needs.
-//
-// collectCheckpointMarkers is inlined (not imported from '../checkpoint-marker/index.js') because a
-// project-local app's relative imports resolve against the PROJECT's own apps/ directory, not the engine
-// package's apps/ directory the two apps are loaded from side by side in -- app *placement* by name
-// merges both roots (src/sdk/server.js's appsDirs: [localApps, sdkApps]), but a bare ES-module relative
-// import does not. Keeping this tiny query duplicated here (identical shape to
-// node_modules/spoint/apps/checkpoint-marker/index.js's own export) avoids that cross-root import trap.
 function collectCheckpointMarkers(ctx) {
   const marks = ctx.world.query(e => e?.custom?._deathrunCheckpoint)
   return marks

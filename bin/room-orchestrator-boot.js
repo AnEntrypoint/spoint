@@ -1,36 +1,4 @@
 #!/usr/bin/env node
-// Multi-PROCESS room orchestrator CLI boot entry (server-scale-multiprocess-room-orchestrator-deploy-
-// recipe). Mirrors bin/router-boot.js's real-deployable-entry shape but for the DIFFERENT topology
-// this row's title names: N independent Node worker PROCESSES, each hosting 1..many independent ROOMS
-// (via src/sdk/RoomDirectory.js/RoomProcessWorker.js), least-loaded-bin-packed by src/sdk/
-// RoomOrchestrator.js, with a thin HTTP router process exposing /route/:roomId (which host:port to
-// connect a client to) and /status (fleet-wide room list) -- NOT a spatial world-shard router
-// (that's RegionRouter.js/bin/router-boot.js, a different feature for splitting ONE big world).
-//
-// Usage:
-//   ROOM_WORKER_COUNT=4 ROUTER_PORT=3400 node bin/room-orchestrator-boot.js
-// Then create rooms against the running router, e.g.:
-//   curl -X POST 'http://localhost:3400/rooms?roomId=lobby-1&world=tps-game'
-//   curl 'http://localhost:3400/route/lobby-1'   -> {"host":"127.0.0.1","port":19000,...}
-//   curl 'http://localhost:3400/status'          -> {"workerCount":4,"rooms":[...]}
-//
-// CROSS-MACHINE DEPLOYMENT (server-scale-room-orchestrator-cross-machine-routing):
-// Set ROOM_WORKER_HOSTS to a comma-separated list of per-worker public hostnames:
-//   ROOM_WORKER_HOSTS="machine-0.fly.dev,machine-1.fly.dev" node bin/room-orchestrator-boot.js
-// Then /route/:roomId returns the worker's actual host (not 127.0.0.1), so a client
-// connects directly to the correct Machine.  External workers (on separate Machines
-// not forked by this process) register via POST /workers/register {"host":"..."}.
-//
-// CRASH AUTO-RESTART (same row):
-// Set ROOM_MAX_RESTARTS (default 3) and ROOM_RESTART_WINDOW_MS (default 60000).
-// Set ROOM_RESTART_ON_CRASH=0 to disable auto-restart entirely.
-//   curl 'http://localhost:3400/crash-stats'  -> {"0":{"crashCount":0,"restartCount":0},...}
-//
-// A game client (or a thin CLIENT-facing gateway in front of this router -- see deploy/fly-rooms.toml
-// for the fly.io recipe) resolves /route/:roomId FIRST, then connects its real WebSocket game
-// transport DIRECTLY to the returned host:port -- this router never proxies game traffic, matching
-// RoomOrchestrator.js's own doc comment on why (steady-state zero-overhead, router crash never drops
-// a live game connection since players are already talking straight to their room's own port).
 import { existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -52,18 +20,12 @@ async function main() {
   const elasticScaleDownCooldownMs = parseInt(process.env.ROOM_ELASTIC_SCALE_DOWN_COOLDOWN_MS || '120000', 10)
   const elasticScaleCheckIntervalMs = parseInt(process.env.ROOM_ELASTIC_SCALE_CHECK_INTERVAL_MS || '30000', 10)
 
-  // CROSS-MACHINE: per-worker host overrides (comma-separated "host1,host2,...").
-  // Index N in the list is the host for worker N.  Locally-forked workers without an
-  // override default to '127.0.0.1'.  For a multi-Machine deployment, set each worker's
-  // host to its fly.io Machine hostname (or other public address) so /route/:roomId
-  // returns a publicly-reachable host:port pair.
   const workerHosts = {}
   const hostsEnv = process.env.ROOM_WORKER_HOSTS || ''
   if (hostsEnv) {
     hostsEnv.split(',').forEach((host, i) => { const h = host.trim(); if (h) workerHosts[i] = h })
   }
 
-  // CRASH AUTO-RESTART: whether to respawn a locally-forked worker that exits unexpectedly.
   const restartOnCrash = process.env.ROOM_RESTART_ON_CRASH !== '0' && process.env.ROOM_RESTART_ON_CRASH !== 'false'
   const maxRestarts = parseInt(process.env.ROOM_MAX_RESTARTS || '3', 10)
   const restartWindowMs = parseInt(process.env.ROOM_RESTART_WINDOW_MS || '60000', 10)
@@ -104,11 +66,6 @@ async function main() {
   const hostList = Object.entries(workerHosts).map(([i, h]) => `worker ${i}=${h}`).join(', ')
   if (hostList) console.log(`[room-orchestrator] worker host overrides: ${hostList}`)
 
-  // Wrap RoomOrchestrator's own startRouter() with a POST /rooms creation endpoint -- startRouter()
-  // itself only serves the read-side (/route/:id, /status); room creation is intentionally a
-  // separate, explicit, POST-verbed operator/matchmaker action layered on top here rather than
-  // baked into the library class, so an embedding app (a real matchmaker service) can swap in its
-  // own creation policy (auth, rate-limit, roomId generation) without forking RoomOrchestrator.js.
   const httpServer = createHttpServer(async (req, res) => {
     try {
       const url = new URL(req.url, 'http://localhost')

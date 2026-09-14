@@ -77,9 +77,6 @@ function createApp(name, template) {
   console.log(`  5. Server hot-reloads automatically`)
 }
 
-// Strip a leading 'create-app' token so both entry shapes work identically:
-//   npx spoint-create-app my-app           (bin directly, no token to strip)
-//   npx spoint create-app my-app --template physics   (server.js forwards here with the token still in argv)
 const argvRaw = process.argv.slice(2)
 if (argvRaw[0] === 'create-app') argvRaw.shift()
 

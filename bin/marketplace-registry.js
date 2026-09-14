@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-/**
- * marketplace-registry.js -- Minimal spoint app marketplace registry server.
- *
- * This is the FIRST SLICE of plugin-marketplace-registry-server: a simple HTTP
- * server that accepts app manifest uploads, indexes them, and serves search/browse
- * endpoints. Uses a flat JSON file for persistence.
- *
- * Usage:
- *   PORT=3100 node bin/marketplace-registry.js
- *   PORT=3100 DATA_FILE=./registry-data.json node bin/marketplace-registry.js
- *
- * Endpoints:
- *   GET  /index                    -- list all manifests (name, version, title, description, tags)
- *   GET  /manifest/:name           -- get a single manifest
- *   POST /manifest                 -- upload/publish a manifest (body: JSON manifest object)
- *   GET  /search?q=...&tag=...     -- search manifests by name/description/title (q) and tag (tag)
- *   GET  /health                   -- liveness check
- */
 
 import { createServer } from 'node:http'
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
@@ -25,11 +7,6 @@ import { validateManifest } from '../src/sdk/AppManifest.js'
 const PORT = parseInt(process.env.PORT || '3100', 10)
 const DATA_FILE = process.env.DATA_FILE || './registry-data.json'
 
-// ---------------------------------------------------------------------------
-// In-memory store, loaded from disk on boot
-// ---------------------------------------------------------------------------
-
-/** @type {Map<string, object>} name -> manifest */
 let _registry = new Map()
 
 function loadRegistry() {
@@ -55,10 +32,6 @@ function saveRegistry() {
     console.error(`Failed to save registry to ${DATA_FILE}:`, err.message)
   }
 }
-
-// ---------------------------------------------------------------------------
-// HTTP server
-// ---------------------------------------------------------------------------
 
 function jsonResponse(res, status, body) {
   const payload = JSON.stringify(body)
@@ -87,7 +60,6 @@ function readBody(req) {
 }
 
 const server = createServer(async (req, res) => {
-  // CORS preflight
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
@@ -102,13 +74,11 @@ const server = createServer(async (req, res) => {
   const path = url.pathname
 
   try {
-    // GET /health
     if (req.method === 'GET' && path === '/health') {
       jsonResponse(res, 200, { ok: true, count: _registry.size })
       return
     }
 
-    // GET /index
     if (req.method === 'GET' && path === '/index') {
       const entries = [..._registry.values()].map(m => ({
         name: m.name,
@@ -124,7 +94,6 @@ const server = createServer(async (req, res) => {
       return
     }
 
-    // GET /search?q=...&tag=...
     if (req.method === 'GET' && path === '/search') {
       const q = (url.searchParams.get('q') || '').toLowerCase()
       const tag = (url.searchParams.get('tag') || '').toLowerCase()
@@ -157,7 +126,6 @@ const server = createServer(async (req, res) => {
       return
     }
 
-    // GET /manifest/:name
     if (req.method === 'GET' && path.startsWith('/manifest/')) {
       const name = path.slice('/manifest/'.length)
       const manifest = _registry.get(name)
@@ -169,7 +137,6 @@ const server = createServer(async (req, res) => {
       return
     }
 
-    // POST /manifest
     if (req.method === 'POST' && path === '/manifest') {
       const body = await readBody(req)
       if (!body) {
@@ -183,10 +150,8 @@ const server = createServer(async (req, res) => {
         return
       }
 
-      // Check for existing entry
       const existing = _registry.get(body.name)
       if (existing) {
-        // Version must be newer
         if (body.version === existing.version) {
           jsonResponse(res, 409, { error: 'version already exists', name: body.name, version: body.version })
           return
@@ -200,17 +165,12 @@ const server = createServer(async (req, res) => {
       return
     }
 
-    // 404
     jsonResponse(res, 404, { error: 'not found', path })
   } catch (err) {
     console.error('Request error:', err)
     jsonResponse(res, 500, { error: 'internal error', message: err.message })
   }
 })
-
-// ---------------------------------------------------------------------------
-// Boot
-// ---------------------------------------------------------------------------
 
 loadRegistry()
 server.listen(PORT, () => {

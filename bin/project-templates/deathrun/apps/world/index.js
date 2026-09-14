@@ -1,10 +1,3 @@
-// deathrun template world-def: a start platform, a short authored obstacle course (ordered
-// checkpoint-marker entities -- apps/checkpoint-marker, ships inside the spoint package itself, resolves
-// from node_modules/spoint/apps/checkpoint-marker with zero project-side copy needed) with one
-// moving-platform obstacle in the middle (apps/moving-platform, same zero-copy resolution), and a
-// deathrun-course controller (template-local apps/deathrun-course) that reads the markers and respawns a
-// fallen player at their last reached checkpoint instead of the course start. Add more `checkpoint-marker`
-// entities (increasing `order`) in the editor to extend the course toward the finish line.
 export default {
   spawnPoint: [0, 3, 0],
   gravity: [0, -9.81, 0],

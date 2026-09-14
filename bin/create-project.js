@@ -1,13 +1,4 @@
 #!/usr/bin/env node
-// `npx spoint create-project <name>` (aliased as the `create-spoint-game` bin below) scaffolds a
-// NEW, separate project directory whose only spoint-specific content is apps/ + a world-def +
-// package.json declaring spoint as a normal npm dependency -- the engine (src/, client/ core,
-// server.js) is never copied; it stays resolvable via node_modules/spoint exactly like any other
-// npm package, with the standard `npm install spoint@latest` upgrade path (no engine file is ever
-// written into the scaffolded project). This is the "engine as external dependency" template,
-// distinct from src/sdk/scaffold.js's scaffold() (which copies the SDK's own bundled apps/ into
-// THIS repo's checkout when running the engine in-place with no apps/ yet -- a different use case:
-// developing spoint itself / running the monorepo's bundled game, not starting a new project).
 import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync } from 'node:fs'
 import { resolve, join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -17,14 +8,6 @@ const __dirname = import.meta.dirname || dirname(fileURLToPath(import.meta.url))
 const TEMPLATE_DIR = join(__dirname, 'project-template')
 const TEMPLATES_DIR = join(__dirname, 'project-templates')
 
-// 'sandbox' is the original single template (bin/project-template/apps/ -- one starter box entity, no
-// game-mode structure). The rest are real game-mode starting points (bin/project-templates/<name>/apps/),
-// each a self-contained apps/ payload composed entirely from placeable apps that ship inside the spoint
-// package itself (apps/spawn-point, apps/combat-bot, apps/fsm-arena, apps/checkpoint-marker,
-// apps/moving-platform, apps/shrinking-zone, apps/weapon-spawn -- resolved by name at boot from
-// node_modules/spoint/apps/, zero copy needed; see src/sdk/server.js's appsDirs: [localApps, sdkApps]),
-// plus one or two tiny per-template glue apps (a parameterized static floor, a checkpoint-marker
-// collector) that ARE copied in since they are template-specific, not general engine primitives.
 const GAME_MODE_TEMPLATES = ['arena-fps', 'battle-royale', 'deathrun']
 const TEMPLATES = ['sandbox', ...GAME_MODE_TEMPLATES]
 

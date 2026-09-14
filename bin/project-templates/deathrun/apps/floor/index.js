@@ -1,7 +1,3 @@
-// A flat static floor/platform block: a wide, thin static box, sized/colored via editorProps so a maker
-// can resize it in the inspector after placing it. Reused for the deathrun template's start pad and any
-// jump platforms a maker adds. Mirrors bin/project-template/apps/hello-app's own static-box + collider
-// pattern, just parameterized instead of hardcoded 0.5m.
 export default {
   description: 'Flat static floor/platform block (static box collider), size/color editable in the inspector.',
   server: {

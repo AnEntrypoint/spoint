@@ -8,9 +8,6 @@ export const meta = {
   ],
 }
 
-// Subsystems to profile. Each agent reads the named files, runs the app/tests
-// where useful, and returns concrete, ranked findings (file:line + measured or
-// reasoned cost + a specific fix + a regression risk).
 const SUBSYSTEMS = [
   { key: 'render-loop', files: 'client/app.js (animate, tickPlayerAnimators, tickAnimatedEntities, updateSunShadow, LOD cull), client/EntityLoader.js',
     focus: 'per-frame allocations, redundant matrix/quaternion work, draw-call batching, sun-shadow/LOD update cadence, console.log in the hot loop, frustum/distance culling effectiveness' },
@@ -45,7 +42,6 @@ const findings = await pipeline(
             fix: { type: 'string' }, win: { type: 'string' }, risk: { type: 'string' },
             confidence: { type: 'string', enum: ['high', 'medium', 'low'] } } } } } } }
   ).then(r => r && ({ ...r, _key: s.key })),
-  // Verify each finding as soon as its subsystem profile lands.
   prof => prof ? parallel((prof.findings || []).map(f => () =>
     agent(
       `Adversarially verify this claimed spoint performance finding. Read the actual code at the location and decide if it is REAL, SAFE to fix as described, and a genuine NET win (not a micro-optimization that hurts readability for no measurable gain, not already-handled elsewhere, not behind a debug flag that is off in production).\n\n` +

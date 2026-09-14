@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-// Region-sharding CLI boot entry: `WORLD=... node bin/router-boot.js` spins up the ONE process that
-// owns real client transports (RegionRouter, HTTP+WebSocket) plus its own real child_process
-// region-shard workers (RegionWorkerEntry), the exact same "N independent Jolt-world/tick/encoder
-// workers behind one seamless endpoint" topology RegionRouter.js's header comment describes -- but
-// until this file existed, RegionRouter/RegionWorkerEntry were library modules only reachable by
-// hand-writing a script that imports and drives them (as this session's own live-witness below does),
-// never a real deployable boot path the way src/sdk/server.js's own boot() is a real `node server.js`
-// entry. This mirrors that same shape: resolve a WORLD's worldDef, read its optional shardGrid config,
-// and call RegionRouter.spawnGridAroundOrigin + start().
-//
-// Usage:
-//   WORLD=tps-game node bin/router-boot.js
-//   WORLD=tps-game PORT=3500 SHARD_GRID_RADIUS=2 node bin/router-boot.js
-//
-// worldDef.shardGrid (optional, all fields optional):
-//   { radius: 1, cellSize: 512, ghostMargin: 32 }
-// Env overrides (take precedence over worldDef.shardGrid, matching boot()'s own PORT-over-worldDef.port
-// precedence convention in src/sdk/server.js): PORT, SHARD_GRID_RADIUS, SHARD_CELL_SIZE, SHARD_GHOST_MARGIN.
 import { existsSync } from 'node:fs'
 import { resolve, join, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
