@@ -1525,7 +1525,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
             if (lv > WCAP) { const A = l * (1 << (lv - WCAP)); ox = Math.floor(ox / A) * A; oy = Math.floor(oy / A) * A; l = A; lv = WCAP; }
             const face = quads[i].face;
             const ix = Math.round(ox / l) + WKEY_OFF, iy = Math.round(oy / l) + WKEY_OFF;
-            const key = (face * WKEY_BIG + iy) * WKEY_BIG + ix;
+            const key = ((face * WKEY_BIG + iy) * WKEY_BIG + ix) * (WCAP + 1) + lv;
             if (seen.has(key)) continue; seen.add(key);
             wl[wc*FLOATS+0]=ox; wl[wc*FLOATS+1]=oy; wl[wc*FLOATS+2]=l; wl[wc*FLOATS+3]=lv;
             wl[wc*FLOATS+4]=face; wl[wc*FLOATS+5]=0;
