@@ -251,6 +251,18 @@ function _isValidRawCluster(c) {
   return true;
 }
 
+export function lod0OnlyClusterLodExtras(extras) {
+  const meta = extras && extras[CLUSTER_LOD_EXTRA_KEY];
+  if (!meta || !Array.isArray(meta.clusters)) throw new TypeError('lod0OnlyClusterLodExtras: extras carry no EP_cluster_lod clusters');
+  const clusters = meta.clusters.map((c, ci) => {
+    const first = Array.isArray(c.lods) ? c.lods[0] : null;
+    const stream = Array.isArray(first) ? first[2] || 0 : first?.stream || 0;
+    if (!first || stream !== 0) throw new RangeError(`lod0OnlyClusterLodExtras: cluster ${ci} LOD0 is not on primitive.indices (stream ${stream})`);
+    return { ...c, lods: [first] };
+  });
+  return { ...extras, [CLUSTER_LOD_EXTRA_KEY]: { ...meta, lodCount: 1, coarseIndexAccessor: -1, coarseIndexCount: 0, clusters } };
+}
+
 export function parseClusterLod(extras) {
   const meta = extras && extras[CLUSTER_LOD_EXTRA_KEY];
   if (!meta || !Array.isArray(meta.clusters) || !meta.clusters.length) return null;

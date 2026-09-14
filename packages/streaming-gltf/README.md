@@ -13,8 +13,10 @@ See [AGENTS.md](AGENTS.md) for the format (`EP_cluster_lod` extras +
 
 ## Live demo
 
-**https://anentrypoint.github.io/streaming-gltf/** — the stress demo, deployed
-from `examples/local-progressive/` by `.github/workflows/deploy-pages.yml`. It
+**https://anentrypoint.github.io/streaming-gltf/** — the stress demo from
+`examples/local-progressive/`, published from the former standalone repo. The
+package now lives in spoint's `packages/`, which carries no Pages workflow for
+it, so that deploy no longer tracks this source. It
 ships code only: `three` loads from a CDN (importmap) and the cluster-LOD models
 are streamed **cross-origin** from the assets host
 (`https://anentrypoint.github.io/assets/`), discovered from its unified
@@ -105,9 +107,15 @@ and implements the EdgeBreaker triangle-mesh path that glTF/Draco content uses.
 WASM is faster in absolute terms (~1.4-1.6x on large meshes) but the decode is
 byte-for-byte equivalent.
 
-The LOD web worker (`lod-worker.js`) loads the same vendored module, rewriting
-its bare `three` import to the esm.sh URL the worker already uses, so
-Draco+meshopt sibling LODs decode off-thread too. Decoder logic is a port of
+The LOD web worker (`lod-worker.js`) is a module worker that imports the page's
+own three build: `ModelPool` resolves `three`, `GLTFLoader`, the meshopt decoder
+and this vendored Draco module through the page importmap (`import.meta.resolve`)
+and passes those URLs as worker query params, and `worker-module-remap.js`
+rewrites their bare `three` imports (module workers do not inherit the
+importmap). No CDN is contacted, so Draco+meshopt sibling LODs decode off-thread
+against the same three revision as the page. The worker registers a
+geometry-only GLTFLoader plugin, so it never decodes textures (KTX2 included)
+it would discard anyway. Decoder logic is a port of
 Google Draco (Apache-2.0); the loader API mirrors three.js's `DRACOLoader` (MIT).
 
 ## Textures (single GPU-compressed KTX2)

@@ -1,37 +1,40 @@
 import { applyGridDecimate } from './grid-decimate.js';
+import { importWithBareRemap } from './worker-module-remap.js';
+
+const LOD_WORKER_MODULE_PARAMS = ['three', 'gltfLoader', 'meshoptDecoder', 'dracoLoader'];
 
 let THREE = null;
-let GLTFLoader = null;
-let MeshoptDecoder = null;
 let loader = null;
 let readyResolve;
 const readyPromise = new Promise((r) => { readyResolve = r; });
 
+function geometryOnlyPlugin(placeholderMaterial) {
+  return { name: 'lod_worker_geometry_only', loadMaterial: () => Promise.resolve(placeholderMaterial) };
+}
+
 (async () => {
   try {
-    const threeMod = await import('https://esm.sh/three@0.170.0');
-    THREE = threeMod;
-    const gltfMod = await import('https://esm.sh/three@0.170.0/examples/jsm/loaders/GLTFLoader.js?deps=three@0.170.0');
-    GLTFLoader = gltfMod.GLTFLoader;
-    const meshoptMod = await import('https://esm.sh/three@0.170.0/examples/jsm/libs/meshopt_decoder.module.js?deps=three@0.170.0');
-    MeshoptDecoder = meshoptMod.MeshoptDecoder;
+    const params = new URL(self.location.href).searchParams;
+    const moduleUrls = {};
+    for (const key of LOD_WORKER_MODULE_PARAMS) {
+      moduleUrls[key] = params.get(key);
+      if (!moduleUrls[key]) throw new Error(`lod-worker: missing module URL param "${key}" (create the worker through ModelPool, which resolves the page's own three)`);
+    }
+    const bareMap = { three: moduleUrls.three };
+    THREE = await import(moduleUrls.three);
+    const { GLTFLoader } = await importWithBareRemap(moduleUrls.gltfLoader, bareMap);
+    const { MeshoptDecoder } = await importWithBareRemap(moduleUrls.meshoptDecoder, bareMap);
     loader = new GLTFLoader();
     loader.setMeshoptDecoder(MeshoptDecoder);
+    loader.register(() => geometryOnlyPlugin(new THREE.MeshBasicMaterial()));
     try {
-      const dracoSrc = await (await fetch(new URL('./draco-loader.js', self.location.href))).text();
-      const patched = dracoSrc.replace(
-        /from\s*["']three["']/g,
-        "from 'https://esm.sh/three@0.170.0'"
-      );
-      const blobUrl = URL.createObjectURL(new Blob([patched], { type: 'text/javascript' }));
-      const dracoMod = await import(blobUrl);
-      URL.revokeObjectURL(blobUrl);
-      loader.setDRACOLoader(new dracoMod.DRACOLoader());
+      const { DRACOLoader } = await importWithBareRemap(moduleUrls.dracoLoader, bareMap);
+      loader.setDRACOLoader(new DRACOLoader());
     } catch (de) {
-      self.postMessage({ id: 0, ok: true, ready: false, warn: 'worker draco init failed: ' + String(de && (de.message || de)) });
+      self.postMessage({ id: 0, ok: true, ready: false, warn: `lod-worker: draco init failed, draco-compressed LOD siblings will fall back to main-thread decode: ${(de && de.message) || de}` });
     }
     readyResolve(true);
-    self.postMessage({ id: 0, ok: true, ready: true });
+    self.postMessage({ id: 0, ok: true, ready: true, three: THREE.REVISION });
   } catch (e) {
     self.postMessage({ id: 0, ok: false, ready: true, error: 'worker init: ' + String(e && (e.stack || e.message || e)) });
     readyResolve(false);
@@ -39,9 +42,7 @@ const readyPromise = new Promise((r) => { readyResolve = r; });
 })();
 
 self.addEventListener('error', (e) => {
-  try {
-    self.postMessage({ id: 0, ok: false, ready: true, error: 'worker self.error: ' + (e.message || '') + ' @ ' + (e.filename || '') + ':' + (e.lineno || '') });
-  } catch {}
+  self.postMessage({ id: 0, ok: false, ready: true, error: 'worker self.error: ' + (e.message || '') + ' @ ' + (e.filename || '') + ':' + (e.lineno || '') });
 });
 
 function _bakeQuantizeDecode(geo, matrix, decodeAABB) {

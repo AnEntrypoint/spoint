@@ -6,7 +6,7 @@ import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { GlobalMaterialPool } from './material-pool.js';
 import { ClusterLodMesh, attachClusterLod } from './cluster-lod-mesh.js';
-import { CLUSTER_LOD_EXTRA_KEY } from './meshlet-codec.js';
+import { CLUSTER_LOD_EXTRA_KEY, lod0OnlyClusterLodExtras } from './meshlet-codec.js';
 import { mergeClusterMeshesByMaterial } from './cluster-material-merge.js';
 import { isArrayAtlasCandidate, buildTextureArray, buildArrayMaterial, tagGeometryLayer } from './texture-array-atlas.js';
 import { applyLowTierMaterials, setThreeRef as setLowTierThreeRef } from './material-tier-swap.js';
@@ -42,6 +42,15 @@ function _ensureKtx2Loader(renderer) {
     .setTranscoderPath(new URL('./basis/', import.meta.url).href)
     .detectSupport(renderer);
   return _sharedKtx2Loader;
+}
+
+function _lodWorkerUrl() {
+  const url = new URL('./lod-worker.js', import.meta.url);
+  url.searchParams.set('three', import.meta.resolve('three'));
+  url.searchParams.set('gltfLoader', import.meta.resolve('three/addons/loaders/GLTFLoader.js'));
+  url.searchParams.set('meshoptDecoder', import.meta.resolve('three/addons/libs/meshopt_decoder.module.js'));
+  url.searchParams.set('dracoLoader', new URL('./draco-loader.js', import.meta.url).href);
+  return url;
 }
 
 export function ensureSharedKtx2Loader(renderer) {
@@ -144,6 +153,19 @@ class Asset {
     return buf;
   }
 
+  async _loadCoarseClusterIndices(parser, primitiveKey, info) {
+    if (!(info.coarseAccessorIndex >= 0)) return { coarse: null, extras: info.extras };
+    try {
+      const accessor = await parser.getDependency('accessor', info.coarseAccessorIndex);
+      return { coarse: accessor.array, extras: info.extras };
+    } catch (err) {
+      const reason = String((err && err.message) || err);
+      console.error(`[asset] ${this.url}: coarse cluster-LOD index accessor ${info.coarseAccessorIndex} (primitive ${primitiveKey}) failed to load (${reason}); rendering LOD0 only`);
+      this.clusterLodFallbacks.push({ primitive: primitiveKey, coarseAccessorIndex: info.coarseAccessorIndex, reason });
+      return { coarse: null, extras: lod0OnlyClusterLodExtras(info.extras) };
+    }
+  }
+
   async _load() {
     this.state = 'loading';
     try {
@@ -177,19 +199,17 @@ class Asset {
       }
 
       this.clusterLod = null;
-      try {
-        let any = false;
-        const map = new Map();
-        json.meshes?.forEach((m, meshIdx) => {
-          m.primitives?.forEach((prim, primIdx) => {
-            const ex = prim.extras && prim.extras[CLUSTER_LOD_EXTRA_KEY];
-            if (ex) { map.set(`${meshIdx}:${primIdx}`, { extras: prim.extras, coarseAccessorIndex: ex.coarseIndexAccessor }); any = true; }
-          });
+      const clusterLodByPrimitive = new Map();
+      json.meshes?.forEach((m, meshIdx) => {
+        m.primitives?.forEach((prim, primIdx) => {
+          const ex = prim.extras && prim.extras[CLUSTER_LOD_EXTRA_KEY];
+          if (ex) clusterLodByPrimitive.set(`${meshIdx}:${primIdx}`, { extras: prim.extras, coarseAccessorIndex: ex.coarseIndexAccessor });
         });
-        if (any) this.clusterLod = map;
-      } catch (_) { this.clusterLod = null; }
+      });
+      if (clusterLodByPrimitive.size) this.clusterLod = clusterLodByPrimitive;
 
       this.clusterMeshes = null;
+      this.clusterLodFallbacks = [];
       this.clusterMergeStats = null;
       if (this.clusterLod) {
         this.clusterMeshes = [];
@@ -204,11 +224,13 @@ class Asset {
           const key = `${a.meshes}:${a.primitives ?? 0}`;
           const info = this.clusterLod.get(key);
           if (!info) continue;
-          let coarse = null;
-          if (info.coarseAccessorIndex >= 0) {
-            try { coarse = (await gltf.parser.getDependency('accessor', info.coarseAccessorIndex)).array; } catch (_) {}
+          const { coarse, extras } = await this._loadCoarseClusterIndices(gltf.parser, key, info);
+          let attached;
+          try {
+            attached = attachClusterLod(m.geometry, extras, coarse, m.matrixWorld.elements);
+          } catch (err) {
+            throw new Error(`${this.url}: cluster-LOD attach failed for primitive ${key} (coarse accessor ${info.coarseAccessorIndex}): ${(err && err.message) || err}`, { cause: err });
           }
-          const attached = attachClusterLod(m.geometry, info.extras, coarse, m.matrixWorld.elements);
           if (attached) {
             this.clusterMeshes.push({ geometry: m.geometry, material: m.material, clusterSet: attached.clusterSet, lod0Count: attached.lod0Count, materialBucket: attached.clusterSet.materialBucket || null });
             meshMatrices.push(m.matrixWorld.clone());
@@ -1453,14 +1475,20 @@ export class ModelPool extends Emitter {
     this._workerNextId = 0;
     if (this._workerCount > 0 && typeof Worker !== 'undefined') {
       try {
+        const workerUrl = _lodWorkerUrl();
         for (let i = 0; i < this._workerCount; i++) {
-          const workerUrl = new URL('./lod-worker.js', import.meta.url);
           const w = new Worker(workerUrl, { type: 'module' });
           w.addEventListener('message', (ev) => {
             const m = ev.data;
-            if (m && m.id === 0 && m.ready) {
-              if (!m.ok) console.error('[pool] worker init failed:', m.error);
-              else console.log('[pool] worker ready');
+            if (m && m.id === 0) {
+              if (m.warn) console.warn('[pool]', m.warn);
+              if (!m.ready) return;
+              if (m.ok) {
+                console.log(`[pool] worker ready (three r${m.three})`);
+                return;
+              }
+              console.error('[pool] worker init failed, removing it from LOD decode rotation:', m.error);
+              this._workers = this._workers.filter((x) => x !== w);
               return;
             }
             this._onWorkerMessage(m);
@@ -1515,8 +1543,9 @@ export class ModelPool extends Emitter {
   _workerFetchLod(url, decodeAABB, sloppyCap = 0) {
     if (!this._workers.length) return null;
     const id = ++this._workerNextId;
-    const w = this._workers[this._workerRR];
-    this._workerRR = (this._workerRR + 1) % this._workers.length;
+    const slot = this._workerRR % this._workers.length;
+    const w = this._workers[slot];
+    this._workerRR = (slot + 1) % this._workers.length;
     return new Promise((resolve, reject) => {
       this._workerPending.set(id, { resolve, reject });
       w.postMessage({ id, url, decodeAABB, sloppyCap });
