@@ -444,29 +444,33 @@ export async function initMapspinnerRender(gl, opts = {}) {
   }
   const SCULPT_RES = 256;
   let _sculptTex = null, _dummySculptTex = null;
+  function withTexture2DOnScratchUnit(tex, work) {
+    const activeUnitBefore = gl.getParameter(gl.ACTIVE_TEXTURE);
+    gl.activeTexture(gl.TEXTURE15);
+    const scratchBindingBefore = gl.getParameter(gl.TEXTURE_BINDING_2D);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    try { work(); } finally {
+      gl.bindTexture(gl.TEXTURE_2D, scratchBindingBefore);
+      gl.activeTexture(activeUnitBefore);
+    }
+  }
+  function createR32FTexture(size, filter) {
+    const tex = gl.createTexture();
+    withTexture2DOnScratchUnit(tex, () => {
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32F, size, size);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    });
+    return tex;
+  }
   function ensureSculptTex() {
-    if (_sculptTex) return _sculptTex;
-    _sculptTex = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, _sculptTex);
-    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32F, SCULPT_RES, SCULPT_RES);
-    const filt = _halfFloatLinearOK ? gl.LINEAR : gl.NEAREST;
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filt);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filt);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.bindTexture(gl.TEXTURE_2D, null);
+    if (!_sculptTex) _sculptTex = createR32FTexture(SCULPT_RES, _halfFloatLinearOK ? gl.LINEAR : gl.NEAREST);
     return _sculptTex;
   }
   function ensureDummySculptTex() {
-    if (_dummySculptTex) return _dummySculptTex;
-    _dummySculptTex = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, _dummySculptTex);
-    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32F, 1, 1);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.bindTexture(gl.TEXTURE_2D, null);
+    if (!_dummySculptTex) _dummySculptTex = createR32FTexture(1, gl.NEAREST);
     return _dummySculptTex;
   }
   let _sculptState = null;
@@ -474,10 +478,9 @@ export async function initMapspinnerRender(gl, opts = {}) {
     if (!center || !Number.isFinite(center[0]) || !Number.isFinite(center[1]) || !Number.isFinite(extent) || extent <= 0 || !frameBasis) { _sculptState = null; return; }
     _sculptState = { center: [center[0], center[1]], extent, up: frameBasis.up, east: frameBasis.east, north: frameBasis.north };
     if (heights) {
-      const tex = ensureSculptTex();
-      gl.bindTexture(gl.TEXTURE_2D, tex);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, SCULPT_RES, SCULPT_RES, gl.RED, gl.FLOAT, heights);
-      gl.bindTexture(gl.TEXTURE_2D, null);
+      withTexture2DOnScratchUnit(ensureSculptTex(), () => {
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, SCULPT_RES, SCULPT_RES, gl.RED, gl.FLOAT, heights);
+      });
     }
   }
   function clearSculptOverride() { _sculptState = null; }
