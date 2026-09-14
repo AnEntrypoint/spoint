@@ -400,7 +400,6 @@ in highp vec3 vTexRel;
 uniform highp vec3 uTexCamFrac;
 uniform float uWireframe;
 uniform float uFsCheap;
-uniform float uWaterDbg;
 uniform highp sampler2D uSceneDepth;
 uniform float uOccludeDepth;
 uniform float uDepthOnly;
@@ -654,11 +653,7 @@ void main() {
     vec3 uy = cross(uz, ux);
 #ifdef _WATERPASS_
     if (uIsWater > 0.5) {
-        if (uWaterDbg > 9.5) { fragColor = vec4(1.0, 0.0, 1.0, 1.0); return; }
-        if (vH > 1.0 && uWaterVisProbe < 0.5) {
-            if (uWaterDbg > 10.5) { fragColor = vec4(1.0, 0.0, 1.0, 1.0); return; }
-            discard;
-        }
+        if (vH > 1.0 && uWaterVisProbe < 0.5) discard;
         if (uDepthOnly > 0.5) { fragColor = vec4(0.0); return; }
         if (uOccludeDepth > 0.5) {
             float sceneZ = texture(uSceneDepth, gl_FragCoord.xy / uResolution).r;
@@ -771,21 +766,6 @@ void main() {
         vec3  base       = mix(waterBody, reflTinted, reflW);
         float glint = pow(reflSun, 64.0) * 0.5;
         vec3  wcol  = base + vec3(glint);
-
-        if (uWaterDbg > 0.5) {
-            vec3 dbg = vec3(0.0);
-            if (uWaterDbg < 1.5)      dbg = refrCol;
-            else if (uWaterDbg < 2.5) dbg = refl;
-            else if (uWaterDbg < 3.5) dbg = vec3(clamp(fogT,0.0,1.0));
-            else if (uWaterDbg < 4.5) dbg = waterBody;
-            else if (uWaterDbg < 5.5) dbg = vec3(glint);
-            else if (uWaterDbg < 6.5) dbg = base;
-            else if (uWaterDbg < 7.5) dbg = vec3(reflW);
-            else if (uWaterDbg < 8.5) dbg = vec3(glint);
-            else                      dbg = vec3(wDistW / (wDistW + max(terrainR * 1.0, 1.0)));
-            fragColor = vec4(clamp(dbg, 0.0, 1.0), 1.0);
-            return;
-        }
 
         float foamNoise = seaNoise(wpW * 0.7 + vec2(oceanTime * 0.02, -oceanTime * 0.03));
         vec2  foamUV    = wpW * 4.0 + vec2(oceanTime * 1.4, oceanTime * 0.9);

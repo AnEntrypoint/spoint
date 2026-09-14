@@ -1238,7 +1238,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
     _chuSet1f(U, chu, 'uWireframe',     (typeof window!=='undefined' && window.__wireframe) ? 1.0 : 0.0);
     _chuSet1f(U, chu, 'uWetness',        _g('wetness', 0));
     _chuSet1f(U, chu, 'uFsCheap',        (typeof window!=='undefined' && window.__fsCheap) ? 1.0 : 0.0);
-    _chuSet1f(U, chu, 'uWaterDbg',       (typeof window!=='undefined' && window.__waterDbg) ? window.__waterDbg : 0.0);
     _chuSet1f(U, chu, 'uVariationAmt',   _g('variationAmt', TD.variationAmt));
     _chuSet1f(U, chu, 'uHazeMul',        _g('hazeMul', TD.hazeMul));
     const hasSurf = !!_surfAlb && !!_surfNrm;
