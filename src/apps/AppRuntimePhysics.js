@@ -36,7 +36,7 @@ export function mixinPhysics(runtime) {
     }
     for (const id of this.getUnmanagedDynamicIds()) {
       const e = this.entities.get(id)
-      if (e && e.bodyType === 'kinematic' && e._physicsBodyId !== undefined) this._pushKinematicBody(e)
+      if (e && e._physicsBodyId !== undefined && (e.bodyType === 'kinematic' || this._movedStaticIds.has(id))) this._pushKinematicBody(e)
     }
   }
 

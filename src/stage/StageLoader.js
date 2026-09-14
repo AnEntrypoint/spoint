@@ -28,6 +28,12 @@ export class StageLoader {
     }
 
     for (const entDef of worldDef.entities || []) {
+      let declaredBodyType = entDef.bodyType
+      if (!declaredBodyType && entDef.app) {
+        const appDef = this._runtime._appDefs?.get(entDef.app)
+        const appServerDef = appDef?.server || appDef
+        declaredBodyType = appServerDef?.bodyType || appDef?.bodyType
+      }
       const cfg = {
         model: entDef.model,
         position: vecOK(entDef.position, 3) ? entDef.position : [0, 0, 0],
@@ -36,7 +42,7 @@ export class StageLoader {
         app: entDef.app,
         config: entDef.config || null,
         custom: (entDef.custom && typeof entDef.custom === 'object' && !Array.isArray(entDef.custom)) ? entDef.custom : null,
-        bodyType: (entDef.bodyType === 'dynamic' || entDef.bodyType === 'kinematic') ? entDef.bodyType : undefined
+        bodyType: (declaredBodyType === 'dynamic' || declaredBodyType === 'kinematic') ? declaredBodyType : undefined
       }
       if (entDef.model && !entDef.app) {
         cfg.autoTrimesh = true

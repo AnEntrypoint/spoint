@@ -5,6 +5,15 @@ function motionType(ent) {
   return ent.bodyType === 'dynamic' ? 'dynamic' : ent.bodyType === 'kinematic' ? 'kinematic' : 'static'
 }
 
+function setBodyType(ent, runtime, type) {
+  if (ent.bodyType === type) return
+  if (ent.bodyType === 'static') runtime._staticEntityIds?.delete(ent.id)
+  else runtime._dynamicEntityIds?.delete(ent.id)
+  ent.bodyType = type
+  if (type === 'static') runtime._staticEntityIds?.add(ent.id)
+  else runtime._dynamicEntityIds?.add(ent.id)
+}
+
 export function resolveCCD(ent, mt) {
   const policy = ent._ccdPolicy
   if (policy === 'always') return true
@@ -57,9 +66,9 @@ async function _addTrimeshColliderImpl(ent, runtime) {
 export function buildPhysicsAPI(ent, runtime) {
   const api = {
     setInteractable: (radius = 3) => { ent._interactable = true; ent._interactRadius = radius; runtime._interactableIds?.add(ent.id) },
-    setStatic: (v) => { ent.bodyType = v ? 'static' : ent.bodyType; if (v) runtime._dynamicEntityIds?.delete(ent.id) },
-    setDynamic: (v) => { ent.bodyType = v ? 'dynamic' : ent.bodyType; if (v) runtime._dynamicEntityIds?.add(ent.id) },
-    setKinematic: (v) => { ent.bodyType = v ? 'kinematic' : ent.bodyType; if (v) runtime._dynamicEntityIds?.add(ent.id) },
+    setStatic: (v) => { if (v) setBodyType(ent, runtime, 'static') },
+    setDynamic: (v) => { if (v) setBodyType(ent, runtime, 'dynamic') },
+    setKinematic: (v) => { if (v) setBodyType(ent, runtime, 'kinematic') },
     setMass: (v) => { ent.mass = v },
     setLinearDamping: (v) => { ent._linearDamping = v },
     setAngularDamping: (v) => { ent._angularDamping = v },
@@ -181,7 +190,7 @@ export function buildPhysicsAPI(ent, runtime) {
       if (cfg.ccd !== undefined) p.setCCDPolicy(cfg.ccd)
       if (cfg.dynamic) p.setDynamic(true)
       else if (cfg.kinematic) p.setKinematic(true)
-      else p.setStatic(true)
+      else if (ent.bodyType !== 'dynamic' && ent.bodyType !== 'kinematic') p.setStatic(true)
       if (type === 'box') p.addBoxCollider(cfg.size || [cfg.hx ?? 0.5, cfg.hy ?? 0.5, cfg.hz ?? 0.5], cfg.shapeKey)
       else if (type === 'sphere') p.addSphereCollider(cfg.radius ?? 0.5)
       else if (type === 'capsule') p.addCapsuleCollider(cfg.radius ?? 0.3, cfg.height ?? 1.8)
