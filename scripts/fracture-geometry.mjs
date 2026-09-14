@@ -50,14 +50,16 @@ function scatterSeeds(faces, count, rng) {
   return seeds
 }
 
-const SCALE_EPS = { plane: 1e-6, dedupe2: 1e-8, weld2: 1e-6, gapBridge: 1e-3 }
+const CLIP_NOISE_TOLERANCE_PER_DIAGONAL = 1e-11
+const SCALE_EPS = { plane: 0, dedupe2: 0, weld2: 0, gapBridge: 0 }
 function setScale(diagonal) {
-  const d = Math.max(diagonal, 1e-6)
-  SCALE_EPS.plane = d * 1e-6
-  SCALE_EPS.dedupe2 = (d * 1e-4) ** 2
-  SCALE_EPS.weld2 = (d * 1e-3) ** 2
-  SCALE_EPS.gapBridge = d * 1e-3
+  const tolerance = Math.max(diagonal, 1e-6) * CLIP_NOISE_TOLERANCE_PER_DIAGONAL
+  SCALE_EPS.plane = tolerance
+  SCALE_EPS.dedupe2 = tolerance ** 2
+  SCALE_EPS.weld2 = tolerance ** 2
+  SCALE_EPS.gapBridge = tolerance
 }
+setScale(1)
 
 function clipPolygon(poly, normal, d) {
   if (poly.length < 3) return []
