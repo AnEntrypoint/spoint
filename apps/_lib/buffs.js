@@ -1,9 +1,3 @@
-// createBuffStack(spec, appCtx) -> per-player stat-modifier stack with clamp + optional decay.
-// spec = { maxStack?: number, decayPerSec?: number, decayTarget?: number }
-// Per-player multipliers are stored as { [buffKey]: value } maps, clamped to maxStack (default Infinity),
-// decaying toward decayTarget (default 1) at decayPerSec units/sec when spec.decayPerSec is set.
-// ctx.defineBuffStack(spec) on AppContext.js returns this.
-
 function _clamp(v, max) {
   if (!Number.isFinite(max)) return v
   return v > max ? max : v < -max ? -max : v
@@ -14,7 +8,7 @@ export function createBuffStack(spec = {}, appCtx = null) {
   const maxStack = Number.isFinite(spec.maxStack) ? spec.maxStack : Infinity
   const decayPerSec = Number.isFinite(spec.decayPerSec) ? spec.decayPerSec : 0
   const decayTarget = Number.isFinite(spec.decayTarget) ? spec.decayTarget : 1
-  const _players = new Map() // playerId -> Map(buffKey -> value)
+  const _players = new Map()
 
   function _mapFor(playerId, create) {
     let m = _players.get(playerId)
@@ -23,7 +17,6 @@ export function createBuffStack(spec = {}, appCtx = null) {
   }
 
   return {
-    // adds delta to the player's current value for buffKey (default base 1, e.g. a 1.0x multiplier), clamped to maxStack
     apply(playerId, buffKey, delta) {
       if (playerId == null || !buffKey) return 1
       const m = _mapFor(playerId, true)
@@ -32,7 +25,6 @@ export function createBuffStack(spec = {}, appCtx = null) {
       m.set(buffKey, next)
       return next
     },
-    // overwrites the player's value for buffKey outright (still clamped)
     set(playerId, buffKey, value) {
       if (playerId == null || !buffKey) return 1
       const m = _mapFor(playerId, true)
@@ -56,7 +48,6 @@ export function createBuffStack(spec = {}, appCtx = null) {
       if (buffKey) m.delete(buffKey); else m.clear()
     },
     clearAll() { _players.clear() },
-    // call once per server tick (e.g. from an app's update(ctx,dt)) to decay every tracked value toward decayTarget
     tick(dt) {
       if (decayPerSec <= 0) return
       const step = decayPerSec * dt

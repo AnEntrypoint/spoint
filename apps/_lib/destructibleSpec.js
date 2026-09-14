@@ -1,7 +1,3 @@
-// Pure spec-validation and launch-impulse-pattern helpers for createDestructible (destructible.js) --
-// split out because they carry no closure state and no dependency on appCtx/the engine, unlike every
-// other function in destructible.js which closes over the per-instance pool/timer state.
-
 function _isPlainObject(v) { return v !== null && typeof v === 'object' && !Array.isArray(v) }
 
 export function validateDestructibleSpec(spec) {
@@ -46,8 +42,6 @@ export function validateDestructibleSpec(spec) {
   if (s.onRespawn != null && typeof s.onRespawn !== 'function') throw new TypeError('[destructible] onRespawn must be a function')
 }
 
-// cosmetic launch-direction jitter only, not gameplay-critical -- plain Math.random() is fine here.
-// Exported: destructible.js's own _spawnDebris also uses this for its per-piece scatter offset.
 export function jitter(spread) { return (Math.random() * 2 - 1) * spread }
 
 export function resolveDebrisImpulsePattern(pattern) {
@@ -62,8 +56,6 @@ export function resolveDebrisImpulsePattern(pattern) {
       return [Math.cos(angle) * mag, 0, Math.sin(angle) * mag]
     }
   }
-  // 'outward-up' (default): radial spread around the object plus a strong upward component,
-  // matching the prototype's "outward+up launch impulses on impact" behavior.
   return (i, n) => {
     const angle = (i / n) * Math.PI * 2 + jitter(0.4)
     const mag = 2.5 + Math.random() * 2.5

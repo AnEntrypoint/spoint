@@ -1,49 +1,18 @@
-// ComponentSchema.js -- declarative replicated-component-field schemas + the generic byte-packing
-// codec that drives them. This is the schema HALF of the ecs-app-layer-replicated-component-schemas
-// roadmap item (see AGENTS.md/roadmap #79+#80): a component factory (defineHealth/defineTeams/
-// definePlayerInventory in this directory) declares which of ITS state fields are worth replicating,
-// as data -- {fieldName: {type, tier}} -- instead of SnapshotEncoder.js hand-writing a bespoke
-// encode/decode branch per field. SnapshotEncoder.js's encodeCustomBySchema/decodeCustomBySchema
-// consume a schema to pack/unpack a JS object's declared fields into/out of a compact byte buffer,
-// generically, for ANY schema -- adding a new replicated field to health.js means adding one schema
-// entry, not touching netcode code.
-//
-// Deliberately narrow field-type set (the common wire-worthy shapes seen across health/teams/
-// inventory -- HP counters, team-slot indices, currency balances): u8/u16/i16/f32/bool/string.
-// 'enum' is sugar over u8 with a declared string->index table (teamId, bodyType-shaped fields) so a
-// schema author writes team ids as strings, not magic numbers, while the wire still carries 1 byte.
-//
-// tier is carried for future use by a caller wanting to skip low-priority fields at distance/rate
-// (mirrors SnapshotEncoder.js's existing NEAR/MID/FAR distance-tier and PLAYER_LOD full/reduced/dot
-// concepts) -- 'full' (always replicate) or 'reduced' (a caller MAY omit this field for a FAR/REDUCED
-// -tier viewer). This pass does not yet wire tier-based omission into SnapshotEncoder's distance-tier
-// logic (that composition is real follow-up scope, not required for the schema-format proof), but the
-// field is part of the schema contract now so components declare it once, correctly, up front.
-//
-// A schema is a plain object: { [fieldName]: { type, tier?, enum?: string[] } }.
-// Field iteration order is Object.keys() insertion order -- callers must declare fields in a STABLE
-// order (object literals preserve string-key insertion order in JS) since the wire format has no
-// per-field name tag, only positional bytes; reordering a shipped schema is a wire-breaking change,
-// same caveat any fixed-layout binary format has (see SnapshotEncoder.js's own BIN_RECORD_BYTES).
-
 export const FIELD_TYPES = Object.freeze({
   u8: 'u8', u16: 'u16', i16: 'i16', f32: 'f32', bool: 'bool', string: 'string', enum: 'enum'
 })
 
-// Byte cost of one field's payload (excluding the 1-byte presence bit the caller may add). 'string'
-// has no fixed cost -- computed per-value at encode time (2-byte length prefix + UTF-8 bytes).
+const VARIABLE_BYTE_SIZE = null
 function fieldByteSize(field) {
   switch (field.type) {
     case 'u8': case 'bool': case 'enum': return 1
     case 'u16': case 'i16': return 2
     case 'f32': return 4
-    case 'string': return null // variable
+    case 'string': return VARIABLE_BYTE_SIZE
     default: throw new TypeError('[ComponentSchema] unknown field type: ' + field.type)
   }
 }
 
-// Validates a schema at definition time (fail fast: a malformed schema should throw when the
-// component module loads, never silently corrupt the wire the first time an entity replicates).
 export function validateSchema(schema) {
   if (!schema || typeof schema !== 'object') throw new TypeError('[ComponentSchema] schema must be an object')
   for (const [name, field] of Object.entries(schema)) {
@@ -60,20 +29,11 @@ export function validateSchema(schema) {
   return schema
 }
 
-// Defines a schema (validates + freezes, the pattern every component below calls once at module load).
 export function defineComponentSchema(schema) {
   validateSchema(schema)
   return Object.freeze(schema)
 }
 
-// --- Schema registry -------------------------------------------------------------------------------
-// A named lookup table so SnapshotEncoder.js (or any other consumer) can resolve "the schema for
-// custom.health" by NAME instead of importing every component module directly (avoids a netcode<->
-// gameplay circular-import edge, and lets a world/app register its OWN custom schemas at runtime
-// without editing SnapshotEncoder.js itself). Component modules register their static schema at
-// import time (see health.js/inventory.js bottom-of-file registerComponentSchema calls); a per-instance
-// schema (teams.js's buildTeamsSchema, which depends on the live team-id list) is registered by the
-// calling app once it knows its concrete team list, via the same function.
 const _registry = new Map()
 
 export function registerComponentSchema(name, schema) {
@@ -94,7 +54,6 @@ const _textDecoder = typeof TextDecoder !== 'undefined' ? new TextDecoder() : nu
 
 function encodeStringUtf8(s) {
   if (_textEncoder) return _textEncoder.encode(s)
-  // Node-without-TextEncoder fallback (older embedded contexts) -- Buffer is always present under Node.
   return new Uint8Array(Buffer.from(s, 'utf8'))
 }
 function decodeStringUtf8(bytes) {
@@ -102,18 +61,8 @@ function decodeStringUtf8(bytes) {
   return Buffer.from(bytes).toString('utf8')
 }
 
-// Encodes `obj`'s schema-declared fields into a fresh Uint8Array. Layout: for each field in
-// Object.keys(schema) order, ONE presence byte (0/1 -- distinguishes "field absent/undefined on obj"
-// from "field present with a falsy/zero value", so a schema-driven record round-trips a partially
-// -populated object faithfully, not just a fully-populated one) followed by the field's payload bytes
-// (omitted entirely when the presence byte is 0). This is intentionally simpler than a real bitmask
-// header (which SnapshotEncoder's own FIELD_* mask already does for its top-level fields) -- component
-// schemas are typically 1-4 fields, so a per-field presence byte costs at most a few bytes and keeps
-// the codec allocation-free and trivially self-describing without a separate mask-width computation.
 export function encodeCustomFields(schema, obj) {
   const names = Object.keys(schema)
-  // First pass: compute total byte length (avoids a growable-buffer or two-pass copy for the common
-  // fixed-size-only case; only falls back to a dynamic parts list when a string field is present).
   let hasString = false
   for (const name of names) { if (schema[name].type === 'string') { hasString = true; break } }
 
@@ -133,7 +82,6 @@ export function encodeCustomFields(schema, obj) {
     return buf
   }
 
-  // Variable-length (string-bearing) path: build parts then concat once.
   const parts = []
   for (const name of names) {
     const field = schema[name]
@@ -178,9 +126,6 @@ function _writeField(dv, off, field, value) {
   }
 }
 
-// Decodes a buffer produced by encodeCustomFields back into a plain object. Fields whose presence
-// byte was 0 are omitted from the result entirely (matching the "undefined on the source object"
-// case symmetrically -- never written as null/0, so a round-trip of a partial object stays partial).
 export function decodeCustomFields(schema, buf) {
   const names = Object.keys(schema)
   const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf)
