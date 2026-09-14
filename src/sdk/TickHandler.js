@@ -156,14 +156,16 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     const curStaticVersion = appRuntime._staticVersion
     const curStaticCustomSum = appRuntime.getStaticCustomVersionSum ? appRuntime.getStaticCustomVersionSum() : 0
     let activeStaticEntries = null
-    if (isKeyframe || curStaticVersion !== state.lastStaticVersion || curStaticCustomSum !== state.lastStaticCustomSum) {
+    if (state.staticByGroup.length !== snapGroups) state.staticByGroup = Array.from({ length: snapGroups }, () => ({ staticEntityMap: new Map(), lastStaticVersion: -1, lastStaticCustomSum: -1 }))
+    const curGroupStatic = state.staticByGroup[curGroup]
+    if (isKeyframe || curStaticVersion !== curGroupStatic.lastStaticVersion || curStaticCustomSum !== curGroupStatic.lastStaticCustomSum) {
       const staticSnap = appRuntime.getStaticSnapshot()
-      const prevStaticMap = isKeyframe ? new Map() : state.staticEntityMap
+      const prevStaticMap = isKeyframe ? new Map() : curGroupStatic.staticEntityMap
       const { staticEntries, changedEntries, staticMap, staticChanged } = SnapshotEncoder.encodeStaticEntities(staticSnap.entities, prevStaticMap)
       state.lastStaticEntries = staticEntries
-      if (staticChanged || isKeyframe) { state.staticEntityMap = staticMap; state.staticEntityIds = SnapshotEncoder.buildStaticIds(staticMap); activeStaticEntries = isKeyframe ? staticEntries : changedEntries }
-      state.lastStaticVersion = curStaticVersion
-      state.lastStaticCustomSum = curStaticCustomSum
+      if (staticChanged || isKeyframe) { state.staticEntityMap = staticMap; state.staticEntityIds = SnapshotEncoder.buildStaticIds(staticMap); curGroupStatic.staticEntityMap = staticMap; activeStaticEntries = isKeyframe ? staticEntries : changedEntries }
+      curGroupStatic.lastStaticVersion = curStaticVersion
+      curGroupStatic.lastStaticCustomSum = curStaticCustomSum
     }
     if (isKeyframe || curStaticVersion !== state.lastDynVersion) { state.prevDynCache = null; state.lastDynVersion = curStaticVersion }
     if (isKeyframe) { state.knownIds = null; state.playerLastTick.clear() }
@@ -337,7 +339,7 @@ export function createTickHandler(deps) {
     return s
   }
   const snapDeps = { connections, stageLoader, getRelevanceRadius, networkState, playerEntityMaps: new Map(), playerScratch, getPlayerScratch, getSnapshotHz: () => _lastSnapRate }
-  const snapState = { broadcastEntityMap: new Map(), staticEntityMap: new Map(), staticEntityIds: null, lastStaticEntries: null, lastStaticVersion: -1, lastStaticCustomSum: -1, lastDynVersion: -1, prevDynCache: null, tombstoneLog: new TombstoneLog(), knownIds: null, playerLastTick: new Map(), cellEntityMaps: new Map(), cellLastTick: new Map(), playerCell: new Map() }
+  const snapState = { broadcastEntityMap: new Map(), staticEntityMap: new Map(), staticEntityIds: null, lastStaticEntries: null, staticByGroup: [], lastDynVersion: -1, prevDynCache: null, tombstoneLog: new TombstoneLog(), knownIds: null, playerLastTick: new Map(), cellEntityMaps: new Map(), cellLastTick: new Map(), playerCell: new Map() }
   const playerIdleCounts = new Map(), playerAccumDt = new Map()
   const grid = new Map(), gridCells = new Map()
   let snapshotSeq = 0, profileLog = 0, profileSum = 0, profileSumSnap = 0, profileSumPhys = 0, profileSumMv = 0, profileCount = 0

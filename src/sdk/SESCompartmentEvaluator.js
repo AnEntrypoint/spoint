@@ -5,14 +5,6 @@ const BLOCKED_SOURCE_PATTERNS = [
   'WebAssembly.', 'new Worker',
 ]
 
-const BLOCKED_CTX_KEYS = new Set([
-  '_entity', '_runtime', '_state', '_entityProxy', '_busScope',
-  '_physicsAPI', '_debugger', '_configListeners', '_disposers',
-  'debug', 'storage', 'network', 'lagCompensator', 'eventLog',
-  'terrain', '_registerDisposer', '_runDisposers', '_disposed', '_pendingShutdownHooks',
-  '_admitsRegistration', '_teardownChildren', '_fireConfigChange',
-])
-
 const LOCKDOWN_OPTIONS = {
   errorTaming: 'unsafe',
   stackFiltering: 'verbose',
@@ -127,32 +119,6 @@ export class SESCompartmentEvaluator {
       body = '(' + body + ')'
     }
     return body
-  }
-
-  static createCtxProxy(ctx) {
-    return new Proxy(ctx, {
-      get(target, prop, receiver) {
-        if (BLOCKED_CTX_KEYS.has(String(prop))) {
-          console.warn(`[Sandbox] blocked ctx.${String(prop)} access`)
-          return undefined
-        }
-        const value = Reflect.get(target, prop, receiver)
-        if (typeof value === 'function') {
-          return function (...args) {
-            ctx.__checkBudget?.()
-            return value.apply(this, args)
-          }
-        }
-        return value
-      },
-      set(target, prop, value, receiver) {
-        if (BLOCKED_CTX_KEYS.has(String(prop))) {
-          console.warn(`[Sandbox] blocked ctx.${String(prop)} write`)
-          return false
-        }
-        return Reflect.set(target, prop, value, receiver)
-      },
-    })
   }
 }
 
