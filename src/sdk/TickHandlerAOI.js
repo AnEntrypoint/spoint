@@ -1,30 +1,16 @@
-// Area-of-interest / priority / bandwidth-budget helpers for TickHandler.js's buildAndSendSnapshots:
-// cube-sphere-cell ring AOI resolution, per-viewer entity priority scoring, and outgoing-payload
-// byte-budget trimming. Split out as TickHandler.js's largest stateless block -- every function here
-// only touches its own module-scoped caches (_spatialCache/_ringCache/_cellPackCache/etc, cleared once
-// per tick by the caller) or explicit parameters, never buildAndSendSnapshots's own closure state. See
-// each function's own comment for the AOI/priority/bandwidth rationale.
-
 import { unpackBinRecord, primeEntryDecode } from '../netcode/SnapshotEncoder.js'
-// packCellKey was used by computeRingRelevantIds' planetRadius>0 branch without being imported (a
-// ReferenceError on the first curved-space world; the flat-XZ branch never reached it).
 import { neighborCells, packCellKey } from '../terrain/CubeSphereCells.js'
 
 const PRIORITY_ENTITY_BUDGET = 64
 const PRIORITY_DECAY = 0.02
-// Fraction of the per-tick time budget (1000/tickRate ms) that measured snapshot-build cost must exceed
-// to count as "expensive" -- mirrors the SNAP_RTT_LOW/HIGH pattern but on the real compute-cost axis.
 const BANDWIDTH_BUDGET_BYTES_PER_TICK = 900
 const BANDWIDTH_TRIM_MIN_ENTITIES = 6
 const BANDWIDTH_TRIM_MAX_ITERATIONS = 32
+const RECORD_FRAMING_BYTES_ESTIMATE = 8
+const byFarthestFirst = (a, b) => b.d2 - a.d2
 
 export { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK }
 
-// _cellCenterWorld: face-local plane coords (wx,wy, already tan-warped, i.e. ready to combine with
-// FACE_FRAME the same way planet-orchestrator.js's localToDeformed does) -> a real world-space point
-// on the ray through that face direction at the given radial distance. Mirrors CubeSphereCells.js's
-// FACE_FRAME table exactly (col0=U, col1=V, col2=center) so the reprojected point matches the same
-// face convention worldToCell used to resolve the cell in the first place.
 const _CELL_FACE_FRAME = [
   { c: [ 1, 0, 0], u: [0, 0, -1], v: [0, 1, 0] },
   { c: [-1, 0, 0], u: [0, 0,  1], v: [0, 1, 0] },
@@ -42,20 +28,6 @@ function _cellCenterWorld(face, wx, wy, R, dist) {
   return [(dx / len) * dist, (dy / len) * dist, (dz / len) * dist]
 }
 
-// computeRingRelevantIds: cube-sphere-cell-grid AOI, the real "ring of cells" subscription this
-// module implements. A single point radius-query (appRuntime.getRelevantDynamicIds/nearbyPlayerIds,
-// called once per unique cellKey by the caller) already returns every entity within relevanceRadius
-// of the CELL CENTER -- but relevanceRadius is also the cell's own edge length, so an entity sitting
-// just across a neighbor cell's border (still within a real player's relevanceRadius of THEM, since
-// players are not pinned to their cell center) can fall outside that single-cell query while still
-// being genuinely relevant to a player standing near the shared edge. The fix mirrors exactly how a
-// tile-based AOI system subscribes a viewer to its own cell PLUS its Moore neighborhood (a "ring"),
-// not just the one cell it happens to sit in: union the relevant-id query result across the cell and
-// its 8 neighbors (cross-face correct on the curved-space path via CubeSphereCells.neighborCells; a
-// flat 3x3 XZ union on the non-planet path), each neighbor's query still centered on that neighbor's
-// OWN cellViewerPos so every viewer sharing a given ring subscription computes the identical id set --
-// the same "shared decision, not shared position" invariant the single-cell path already established
-// for cellViewerPos-based distance tiering (see the tickMod comment below).
 function computeRingRelevantIds(cellKey, cellFace, cellCx, cellCy, cellsPerFace, planetRadius, relevanceRadius, appRuntime) {
   let ring = _ringCache.get(cellKey)
   if (ring) return ring
@@ -74,10 +46,6 @@ function computeRingRelevantIds(cellKey, cellFace, cellCx, cellCy, cellsPerFace,
       } else {
         cvp = [(cx + 0.5) * relevanceRadius, 0, (cy + 0.5) * relevanceRadius]
       }
-      // Starvation guard keyed by the cell's own packed key: every player homed to this cell shares
-      // the same starvation clock (matching the ring-of-cells "shared decision, not shared position"
-      // invariant documented above), so a distant entity gets force-included for the whole cell's
-      // viewers together, once, rather than each player independently re-discovering it.
       c = { nearbyPlayerIds: appRuntime.nearbyPlayerIdsHysteresis(cvp, relevanceRadius, key), relevantIds: appRuntime.getRelevantDynamicIdsWithStarvation(cvp, relevanceRadius, key), cellViewerPos: cvp }
       _spatialCache.set(key, c)
     }
@@ -103,12 +71,8 @@ function computeRingRelevantIds(cellKey, cellFace, cellCx, cellCy, cellsPerFace,
 
 const _spatialCache = new Map()
 const _cellPackCache = new Map()
-// Ring (cell + 8-neighborhood) relevant-id union cache, cleared once per tick alongside _spatialCache.
-// Keyed by the SAME cellKey as _spatialCache -- one entry per unique home-cell any player sits in this
-// tick, not per player. See computeRingRelevantIds above.
 const _ringCache = new Map()
 const _priorityAccumulators = new Map()
-// module-scoped, cleared per-call to avoid GC churn (single-threaded tick, never re-entrant)
 const _priorityBuckets = [[], [], [], []]
 
 export function clearPlayerPriorityAccumulator(playerId) { _priorityAccumulators.delete(playerId) }
@@ -119,22 +83,10 @@ export function getPlayerPriorityIds(playerId, relevantIds, dynCache, viewerPos,
 
   for (const id of relevantIds) {
     const entry = dynCache.get(id); if (!entry) continue
-    // enc[2] is the packed 23-byte bin record (see SnapshotEncoder.js fillEntityEnc) -- unpack once
-    // per scored entity per tick rather than reading stale flat numeric slots.
-    // The decoded position and the velocity score are functions of the ENTITY only, not of the viewer,
-    // yet this ran once per (entity x viewer): at 500 entities x 64 viewers that was 32000 unpacks +
-    // 32000 sqrt per snapshot tick where 500 of each suffice. fillEntityEnc assigns a FRESH Uint8Array
-    // to enc[2] on every re-encode (packBinRecord always allocates; nothing mutates a bin buffer in
-    // place), so buffer identity is an exact dirty bit -- a hit is only possible when the decoded
-    // values are provably unchanged. Same quantized values as before, so scores are bit-identical.
     primeEntryDecode(entry)
     const dx = entry._pX-vx, dy = entry._pY-vy, dz = entry._pZ-vz
     const distSq = dx*dx+dy*dy+dz*dz
     const distScore = 1 / (1 + distSq * 0.001)
-    // acc holds a mutable {s} box per (viewer, entity) rather than a bare number, so the accumulate
-    // step is ONE Map lookup + a field write instead of get-then-set (two hash lookups) -- this loop
-    // runs |relevantIds| x viewers times per snapshot tick, the single hottest thing in the encode
-    // path. The float add is the same expression in the same order, so scores are bit-identical.
     let h = acc.get(id)
     if (h === undefined) { h = { s: 0 }; acc.set(id, h) }
     h.s += distScore + entry._pVelScore + PRIORITY_DECAY
@@ -169,20 +121,8 @@ export function getPlayerPriorityIds(playerId, relevantIds, dynCache, viewerPos,
 }
 
 const _budgetBin = {}
-// Cheap per-record byte-size ESTIMATE (not a real msgpack measurement -- re-packing on every trim
-// iteration to get an exact byte count would cost more than the bandwidth it saves). A full entity
-// record is [id, model, 23-byte bin buffer, bodyType, custom, sleeping]; a delta record is
-// [id, mask, ...present fields]. id/mask/bodyType/sleeping are small msgpack-encoded ints/strings
-// (~1-3 bytes each); the bin buffer is a real, exact 23 bytes when present; custom is the one
-// unbounded field, estimated via JSON.stringify length (msgpack is typically slightly smaller than
-// JSON for the same object, so this errs conservative -- overestimating custom's cost trims a little
-// more eagerly than strictly necessary, never less, which is the safe direction for a budget).
-// `dynCache` (optional): the tick's dynamic-entity cache -- when the record's one object-typed field
-// (custom) is the live entity's own custom object, its JSON-length estimate is cached on the cache
-// entry keyed by the entity's _customV counter (installCustomVersion, CustomVersion.js), so the
-// per-tick re-stringify only happens after a real custom mutation, not every trim pass.
 function estimateEntityBytes(enc, dynCache) {
-  let n = 8 // id + array/map framing overhead, flat estimate
+  let n = RECORD_FRAMING_BYTES_ESTIMATE
   for (let i = 1; i < enc.length; i++) {
     const f = enc[i]
     if (f == null) continue
@@ -205,14 +145,6 @@ function estimateEntityBytes(enc, dynCache) {
   return n
 }
 
-// Trims encoded.entities (in place, returns a new array) down toward BANDWIDTH_BUDGET_BYTES_PER_TICK,
-// dropping the FARTHEST-from-viewer dynamic entity first each iteration -- graceful degradation
-// (fewer/less-fresh far entities) rather than buffering or blocking the tick, avoiding the
-// bufferbloat/latency-spiral a client-side send queue would risk. staticCount entities at the front of
-// the array (see encodeDeltaFromCache: static entries are always pushed before any dynamic entry) are
-// never trimmed -- dropping map/collision-relevant static geometry updates would desync client-side
-// collision, a correctness cost far worse than a slightly stale distant prop. Returns { entities,
-// trimmedCount } so a caller can log/telemetry the degradation instead of it being silent.
 function trimEntitiesToBudget(entities, staticCount, viewerPos, dynCache) {
   if (entities.length - staticCount < BANDWIDTH_TRIM_MIN_ENTITIES) return { entities, trimmedCount: 0 }
   let total = 0
@@ -220,11 +152,6 @@ function trimEntitiesToBudget(entities, staticCount, viewerPos, dynCache) {
   for (let i = 0; i < entities.length; i++) { const b = estimateEntityBytes(entities[i], dynCache); sized[i] = b; total += b }
   if (total <= BANDWIDTH_BUDGET_BYTES_PER_TICK) return { entities, trimmedCount: 0 }
   const vx = viewerPos ? viewerPos[0] : 0, vy = viewerPos ? viewerPos[1] : 0, vz = viewerPos ? viewerPos[2] : 0
-  // Candidate indices: dynamic entities only (index >= staticCount), each with its real squared
-  // distance from the viewer where available (full records carry the 23-byte bin buffer at enc[2];
-  // delta records only carry it when position/rot/vel/scale actually changed this tick -- a delta
-  // missing it is scored as "far" (Infinity) so it trims before anything with a known-close position,
-  // a deliberately conservative fallback since we can't cheaply know its real distance this tick).
   const candidates = []
   for (let i = staticCount; i < entities.length; i++) {
     const enc = entities[i]
@@ -237,7 +164,7 @@ function trimEntitiesToBudget(entities, staticCount, viewerPos, dynCache) {
     }
     candidates.push({ i, d2 })
   }
-  candidates.sort((a, b) => b.d2 - a.d2) // farthest first
+  candidates.sort(byFarthestFirst)
   const dropSet = new Set()
   let iterations = 0
   for (const c of candidates) {

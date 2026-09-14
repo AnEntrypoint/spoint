@@ -4,13 +4,10 @@ import { randomUUID } from 'node:crypto'
 import { getProgressive } from '../static/ProgressiveBake.js'
 
 const MAX_SIZE = 50 * 1024 * 1024
-const GLB_MAGIC = Buffer.from([0x67, 0x6c, 0x54, 0x46]) // 'glTF'
+const GLB_MAGIC = Buffer.from([0x67, 0x6c, 0x54, 0x46])
+const MAGIC_SNIFF_BYTES = 16
+const CRLF_BYTES = 2
 
-// Streaming multipart/form-data parser: scans each incoming chunk for the boundary against a small
-// rolling tail buffer (never holds more than one boundary-length of look-back plus the current chunk),
-// and streams the matched file part straight to a temp file on disk instead of buffering the whole
-// (up to 50MB) request body in RAM. Non-file fields are still buffered in memory since they are
-// expected to be tiny (form text fields), only the file part streams.
 export function createUploadHandler(appRuntime, connections, playerManager) {
   const modelsDir = resolve(process.cwd(), 'data/models')
   if (!existsSync(modelsDir)) mkdirSync(modelsDir, { recursive: true })
@@ -56,18 +53,15 @@ export function createUploadHandler(appRuntime, connections, playerManager) {
       if (destroyed || !writeStream) return
       size += chunk.length
       if (size > MAX_SIZE) { fail(413, 'too large'); return }
-      // magic-byte validation: buffer just the first ~16 bytes of the FILE part (not the whole file)
-      // to check the actual bytes rather than trusting the client-declared filename extension.
       if (!magicChecked) {
         magicBuf = magicBuf.length ? Buffer.concat([magicBuf, chunk]) : chunk
-        if (magicBuf.length >= 16 || parser.fileEnded) {
+        if (magicBuf.length >= MAGIC_SNIFF_BYTES || parser.fileEnded) {
           magicChecked = true
           const ext = extname(filename || '').toLowerCase()
           if (ext === '.glb') {
             magicOk = magicBuf.length >= 4 && magicBuf.subarray(0, 4).equals(GLB_MAGIC)
           } else {
-            // .gltf / .vrm-as-json: must start with valid-looking JSON (allow leading whitespace)
-            const head = magicBuf.subarray(0, Math.min(magicBuf.length, 16)).toString('utf8').trimStart()
+            const head = magicBuf.subarray(0, Math.min(magicBuf.length, MAGIC_SNIFF_BYTES)).toString('utf8').trimStart()
             magicOk = head.startsWith('{')
           }
           if (!magicOk) { fail(400, 'invalid file content'); return }
@@ -88,7 +82,6 @@ export function createUploadHandler(appRuntime, connections, playerManager) {
       if (destroyed) return
       if (!filename) { fail(400, 'no file'); return }
       if (!magicChecked) {
-        // file smaller than the magic-check threshold; validate on whatever we buffered
         magicChecked = true
         const ext = extname(filename || '').toLowerCase()
         if (ext === '.glb') magicOk = magicBuf.length >= 4 && magicBuf.subarray(0, 4).equals(GLB_MAGIC)
@@ -120,11 +113,6 @@ export function createUploadHandler(appRuntime, connections, playerManager) {
   }
 }
 
-// Rolling boundary-scan multipart parser (busboy-style manual state machine). Consumes chunks
-// incrementally: keeps only a small tail buffer (up to one boundary-length) across chunk boundaries
-// so the boundary can be detected even when split across two `data` events, without ever holding the
-// full request body in memory. Only tracks the first file-part (filename= present); everything else
-// is treated as a discardable form field.
 const STATE_HEADERS = 0
 const STATE_FILE_DATA = 1
 const STATE_SKIP_FIELD = 2
@@ -147,7 +135,6 @@ class StreamingMultipartParser {
   write(chunk) {
     if (this.state === STATE_DONE) return
     let buf = this.tail.length ? Buffer.concat([this.tail, chunk]) : chunk
-    // keep enough tail to re-detect a boundary split across chunks next time
     const keepTail = this.delim.length + 4
 
     while (true) {
@@ -158,7 +145,7 @@ class StreamingMultipartParser {
         if (buf[pos] === 0x2d && buf[pos + 1] === 0x2d) { this.state = STATE_DONE; this.tail = Buffer.alloc(0); return }
         if (buf[pos] === 0x0d && buf[pos + 1] === 0x0a) pos += 2
         const headerEnd = buf.indexOf('\r\n\r\n', pos)
-        if (headerEnd === -1) { this.tail = buf.subarray(start); return } // wait for more data
+        if (headerEnd === -1) { this.tail = buf.subarray(start); return }
         const headerStr = buf.subarray(pos, headerEnd).toString('utf8')
         pos = headerEnd + 4
         const disp = headerStr.split('\r\n').find(l => l.toLowerCase().startsWith('content-disposition'))
@@ -177,7 +164,6 @@ class StreamingMultipartParser {
       if (this.state === STATE_FILE_DATA || this.state === STATE_SKIP_FIELD) {
         const boundaryPos = buf.indexOf(this.delim)
         if (boundaryPos === -1) {
-          // emit everything except a safety tail (in case the boundary is split across chunks)
           const emitLen = Math.max(0, buf.length - keepTail)
           if (emitLen > 0) {
             if (this.state === STATE_FILE_DATA && this.onFileData) this.onFileData(buf.subarray(0, emitLen))
@@ -186,8 +172,7 @@ class StreamingMultipartParser {
           this.tail = buf
           return
         }
-        // data ends 2 bytes before the boundary (trailing \r\n)
-        const dataEnd = Math.max(0, boundaryPos - 2)
+        const dataEnd = Math.max(0, boundaryPos - CRLF_BYTES)
         if (dataEnd > 0 && this.state === STATE_FILE_DATA && this.onFileData) this.onFileData(buf.subarray(0, dataEnd))
         if (this.state === STATE_FILE_DATA) { this.fileEnded = true; if (this.onFileEnd) this.onFileEnd() }
         buf = buf.subarray(boundaryPos)
