@@ -22,7 +22,7 @@ import { WorkerTransport, PeerTransport } from '../transport/WorkerTransport.js'
 import { createConnectionHandlers } from './ServerHandlers.js'
 import { setupTerrainStreaming, loadPlanetSampler } from '../terrain/TerrainPhysics.js'
 import { allocateRingBuffer, TransformRingWriter } from '../transport/TransformRing.js'
-import { saveWorldSnapshot, restoreWorldSnapshot } from './WorldPersistence.js'
+import { saveWorldSnapshot, restoreWorldSnapshot, worldDefFingerprint } from './WorldPersistence.js'
 
 if (typeof setImmediate === 'undefined') globalThis.setImmediate = fn => setTimeout(fn, 0)
 
@@ -34,6 +34,7 @@ let _ctx = null, _pending = [], _terrainStreamer = null, _transformRing = null
 
 export async function init({ worldDef, apps = [], migrationSnapshot = null, localPubkey = null, timeOfDaySeed = null }) {
   await ensurePacked
+  const worldName = worldDef.name || worldDefFingerprint(worldDef)
   if (timeOfDaySeed && worldDef?.terrain?.timeOfDay && worldDef.terrain.timeOfDay.serverAuthoritative === true) {
     worldDef.terrain.timeOfDay.seed = timeOfDaySeed
   }
@@ -78,7 +79,7 @@ export async function init({ worldDef, apps = [], migrationSnapshot = null, loca
     physics,
     lagCompensator, physicsIntegration, connections, sessions, inspector,
     appRuntime, appLoader, stageLoader, sdkRoot: '',
-    currentWorldDef: worldDef, worldSpawnPoint: worldDef.spawnPoint || [0, 5, 0],
+    currentWorldDef: worldDef, worldName, worldSpawnPoint: worldDef.spawnPoint || [0, 5, 0],
     worldSpawnPoints: worldDef.spawnPoints || [worldDef.spawnPoint || [0, 5, 0]],
     snapshotSeq: 0, handlerState: { fn: null },
     onTick: (tick, dt) => { if (ctx.handlerState.fn) ctx.handlerState.fn(tick, dt); connections.flushAll() },

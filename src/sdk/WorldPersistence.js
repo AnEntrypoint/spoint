@@ -1,8 +1,23 @@
+import { canonicalJSON } from '../shared/canonicalJSON.js'
+import { createChecksumFold } from '../netcode/LockstepChecksum.js'
+
 export const WORLD_SNAPSHOT_FORMAT_VERSION = 1
 
 function mapToEntries(m) { return m ? [...m.entries()] : [] }
 function entriesToMap(e) { return new Map(e || []) }
 function yieldToEventLoop() { return new Promise(resolve => setImmediate(resolve)) }
+function envWorldName() { return typeof process !== 'undefined' && process.env ? process.env.WORLD : undefined }
+
+export function worldDefFingerprint(worldDef) {
+  const fold = createChecksumFold()
+  const text = canonicalJSON(worldDef)
+  for (let i = 0; i < text.length; i++) fold.pushInt(text.charCodeAt(i))
+  return 'def-' + fold.digest()
+}
+
+export function resolveWorldName(ctx) {
+  return ctx.currentWorldDef?.name || ctx.worldName || envWorldName() || null
+}
 
 export function buildWorldSnapshot(appRuntime, physics, worldName) {
   const game = appRuntime.snapshotGameState({ includeStatic: true })
@@ -40,8 +55,7 @@ export async function saveWorldSnapshot(ctx) {
   if (!appRuntime || !storage) return false
   try {
     await yieldToEventLoop()
-    const worldName = ctx.currentWorldDef?.name || (typeof process !== 'undefined' ? process.env.WORLD : null) || null
-    const snap = buildWorldSnapshot(appRuntime, physics, worldName)
+    const snap = buildWorldSnapshot(appRuntime, physics, resolveWorldName(ctx))
     await storage.set('world-snapshot', snap)
     console.log(`[world-persistence] saved snapshot: tick=${snap.tick} entities=${snap.entities.length}`)
     return true
@@ -61,7 +75,7 @@ export async function restoreWorldSnapshot(ctx) {
     console.warn(`[world-persistence] snapshot format version mismatch (saved=${snap.version} current=${WORLD_SNAPSHOT_FORMAT_VERSION}) -- discarding, booting clean`)
     return { restored: false, reason: 'version-mismatch' }
   }
-  const worldName = ctx.currentWorldDef?.name || process.env.WORLD || null
+  const worldName = resolveWorldName(ctx)
   if (snap.world !== worldName) {
     console.warn(`[world-persistence] snapshot world mismatch (saved="${snap.world}" current="${worldName}") -- discarding, booting clean`)
     return { restored: false, reason: 'world-mismatch' }

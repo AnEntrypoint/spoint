@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { canonicalJSON } from '../shared/canonicalJSON.js'
 
 export const BUNDLE_FORMAT_VERSION = 1
 
@@ -7,7 +8,7 @@ export function contentHash(buf) {
 }
 
 export function canonicalManifestJSON(manifest) {
-  return JSON.stringify(manifest, Object.keys(manifest).sort())
+  return canonicalJSON(manifest)
 }
 
 export function computeBundleId(manifest) {
