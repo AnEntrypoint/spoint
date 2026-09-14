@@ -55,6 +55,11 @@ async function _buildNavmesh(worldName, sdkRoot) {
 }
 const DEFAULT_LOS_TARGET_COLLIDER_TOLERANCE_M = 0.5
 
+function _runLogged(label, fn) {
+  const report = e => console.error(`[AppContext] ${label} error:`, e?.message || e)
+  try { const r = fn(); if (r?.catch) r.catch(report) } catch (e) { report(e) }
+}
+
 export class AppContext {
   constructor(entity, runtime) {
     this._entity = entity
@@ -64,6 +69,14 @@ export class AppContext {
     this._entityProxy = this._buildEntityProxy()
     this._debugger = new CliDebugger(`[${entity.id}]`)
     this._busScope = runtime._eventBus ? runtime._eventBus.scope(entity.id) : null
+    this._disposed = false
+    this._pendingShutdownHooks = null
+  }
+
+  _admitsRegistration(kind) {
+    if (!this._disposed) return true
+    console.warn(`[AppContext] ${this._entity.id}: ignored ${kind} registration on a disposed context`)
+    return false
   }
 
   _buildEntityProxy() {
@@ -102,6 +115,7 @@ export class AppContext {
     return {
       spawn: (id, cfg) => runtime.spawnEntity(id, cfg),
       spawnChild: (id, cfg) => {
+        if (!this._admitsRegistration('world.spawnChild')) return null
         const e = runtime.spawnEntity(id, { ...cfg, parent: cfg?.parent ?? parentId })
         _childIds.add(id); return e
       },
@@ -155,7 +169,9 @@ export class AppContext {
       detachEntity: (entityId) => runtime.detachEntityFromPlayer?.(entityId),
       onPlayerContact: (radius, cb) => {
         if (typeof cb !== 'function') throw new TypeError('[AppContext] onPlayerContact: callback must be a function')
-        return runtime.registerPlayerContactWatch(this._entity.id, radius, cb)
+        if (!this._admitsRegistration('players.onPlayerContact')) return () => {}
+        const unwatch = runtime.registerPlayerContactWatch(this._entity.id, radius, cb)
+        return () => { if (!this._disposed) unwatch() }
       },
       nearestOtherPlayer: (playerId, radius) => {
         const me = runtime.getPlayerById(playerId) || runtime.getPlayers().find(p => p.id === playerId)
@@ -180,8 +196,8 @@ export class AppContext {
       get deltaTime() { return runtime.deltaTime },
       get elapsed() { return runtime.elapsed },
       get serverTime() { return Date.now() },
-      after: (seconds, fn) => runtime.addTimer(entityId, seconds, fn, false),
-      every: (seconds, fn) => runtime.addTimer(entityId, seconds, fn, true)
+      after: (seconds, fn) => { if (this._admitsRegistration('time.after')) runtime.addTimer(entityId, seconds, fn, false) },
+      every: (seconds, fn) => { if (this._admitsRegistration('time.every')) runtime.addTimer(entityId, seconds, fn, true) }
     }
   }
 
@@ -196,6 +212,7 @@ export class AppContext {
 
   onConfigChange(cb) {
     if (typeof cb !== 'function') throw new TypeError('[AppContext] onConfigChange: cb must be a function')
+    if (!this._admitsRegistration('onConfigChange')) return () => {}
     const set = this._configListeners || (this._configListeners = new Set())
     set.add(cb)
     return () => set.delete(cb)
@@ -209,7 +226,13 @@ export class AppContext {
 
   onShutdown(cb) {
     if (typeof cb !== 'function') throw new TypeError('[AppContext] onShutdown: cb must be a function')
-    return this._runtime.registerShutdownHook(cb)
+    if (!this._admitsRegistration('onShutdown')) return () => {}
+    const pending = this._pendingShutdownHooks || (this._pendingShutdownHooks = new Set())
+    const cancel = () => { pending.delete(fireOnce); unhook() }
+    const fireOnce = () => { if (!pending.has(fireOnce)) return; cancel(); return cb() }
+    const unhook = this._runtime.registerShutdownHook(fireOnce)
+    pending.add(fireOnce)
+    return cancel
   }
 
   get state() { return this._state }
@@ -250,6 +273,7 @@ export class AppContext {
     const ent = this._entity
     if (config.radius != null && (typeof config.radius !== 'number' || !Number.isFinite(config.radius) || config.radius < 0)) throw new TypeError('interactable: radius must be a non-negative finite number')
     if (config.cooldown != null && (typeof config.cooldown !== 'number' || !Number.isFinite(config.cooldown) || config.cooldown < 0)) throw new TypeError('interactable: cooldown must be a non-negative finite number')
+    if (!this._admitsRegistration('interactable')) return
     const radius = config.radius ?? 3
     const prompt = config.prompt ?? 'Press E'
     const cooldown = config.cooldown ?? 500
@@ -263,20 +287,27 @@ export class AppContext {
 
   onPlayerProximity(radius, callback) {
     if (typeof callback !== 'function') throw new TypeError('[AppContext] onPlayerProximity: callback must be a function')
+    if (!this._admitsRegistration('onPlayerProximity')) return () => {}
     const self = this
-    return this._runtime.registerProximityWatch(this._entity.id, radius, (playerId) => callback(self, playerId))
+    const unwatch = this._runtime.registerProximityWatch(this._entity.id, radius, (playerId) => callback(self, playerId))
+    return () => { if (!this._disposed) unwatch() }
   }
 
   _registerDisposer(fn) {
     if (typeof fn !== 'function') return
+    if (this._disposed) { _runLogged('disposer', fn); return }
     (this._disposers || (this._disposers = [])).push(fn)
   }
 
   _runDisposers() {
+    if (this._disposed) return
+    this._disposed = true
+    const hooks = this._pendingShutdownHooks
+    if (hooks) for (const fireOnce of [...hooks]) _runLogged('onShutdown hook', fireOnce)
+    this._configListeners = null
     const d = this._disposers
-    if (!d || d.length === 0) return
     this._disposers = null
-    for (const fn of d) { try { fn() } catch (e) { console.error('[AppContext] disposer error:', e?.message || e) } }
+    if (d) for (const fn of d) _runLogged('disposer', fn)
   }
 
   _teardownChildren() {

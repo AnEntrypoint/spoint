@@ -9,8 +9,8 @@ const BLOCKED_CTX_KEYS = new Set([
   '_entity', '_runtime', '_state', '_entityProxy', '_busScope',
   '_physicsAPI', '_debugger', '_configListeners', '_disposers',
   'debug', 'storage', 'network', 'lagCompensator', 'eventLog',
-  'terrain', '_registerDisposer', '_runDisposers', '_teardownChildren',
-  '_fireConfigChange',
+  'terrain', '_registerDisposer', '_runDisposers', '_disposed', '_pendingShutdownHooks',
+  '_admitsRegistration', '_teardownChildren', '_fireConfigChange',
 ])
 
 const LOCKDOWN_OPTIONS = {
