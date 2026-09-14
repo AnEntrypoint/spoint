@@ -1,12 +1,7 @@
 import * as THREE from 'three';
 
-// Dynamic Sky System -- procedural sky rendering with atmosphere scattering, sun tracking,
-// and time-of-day integration. Provides:
-// - Atmosphere color based on sun elevation (Rayleigh + Mie scattering simulation)
-// - Cloud layer with Perlin noise, dynamic movement, and weather state integration
-// - God rays (volumetric light shafts) at sunrise/sunset via the post-process
-// - Sun disk rendering synchronized with light direction
-// - Performance-optimized for <2ms per frame via shader-based atmosphere
+const SKY_DOME_INSIDE_OUT_SCALE = -5000;
+const GOD_RAY_MIN_SUN_ELEVATION_DEG = -10;
 
 export class DynamicSky {
   constructor(scene, camera, opts = {}) {
@@ -14,30 +9,26 @@ export class DynamicSky {
     this.camera = camera;
     this.enabled = opts.enabled ?? true;
 
-    this.timeOfDayProvider = opts.timeOfDayProvider; // fn() => ({ elevDeg, azimuthDeg, t })
-    this.weatherProvider = opts.weatherProvider; // fn() => ({ cloudiness: 0-1, weatherType })
-    this.sunLight = opts.sunLight; // THREE.Light to sync direction
+    this.timeOfDayProvider = opts.timeOfDayProvider;
+    this.weatherProvider = opts.weatherProvider;
+    this.sunLight = opts.sunLight;
 
-    // Cloud noise parameters
     this.cloudScale = opts.cloudScale ?? 2.0;
     this.cloudSpeed = opts.cloudSpeed ?? 0.5;
     this.cloudOffset = 0;
     this.windDirection = new THREE.Vector2(1, 0.3).normalize();
 
-    // Atmosphere parameters
     this.rayleighCoeff = opts.rayleighCoeff ?? 1.0;
     this.mieCoeff = opts.mieCoeff ?? 0.1;
     this.skyIntensity = opts.skyIntensity ?? 1.0;
 
-    // Sky dome mesh (latlong UV sphere)
     const skyGeometry = new THREE.SphereGeometry(1, 32, 32);
     this.skyMaterial = this._createSkyMaterial();
     this.skyMesh = new THREE.Mesh(skyGeometry, this.skyMaterial);
-    this.skyMesh.scale.multiplyScalar(-5000); // Huge scale, negative to view from inside
-    this.skyMesh.frustumCulled = false; // Prevent culling
+    this.skyMesh.scale.multiplyScalar(SKY_DOME_INSIDE_OUT_SCALE);
+    this.skyMesh.frustumCulled = false;
     this.scene.add(this.skyMesh);
 
-    // Sun disk (emissive sphere with glow)
     this.sunDiskGeometry = new THREE.SphereGeometry(0.05, 16, 16);
     this.sunDiskMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
     this.sunDisk = new THREE.Mesh(this.sunDiskGeometry, this.sunDiskMaterial);
@@ -45,7 +36,6 @@ export class DynamicSky {
     this.sunDisk.frustumCulled = false;
     this.scene.add(this.sunDisk);
 
-    // Cloud layer
     this.cloudGeometry = new THREE.SphereGeometry(1, 32, 32);
     this.cloudMaterial = this._createCloudMaterial();
     this.cloudMesh = new THREE.Mesh(this.cloudGeometry, this.cloudMaterial);
@@ -53,7 +43,6 @@ export class DynamicSky {
     this.cloudMesh.frustumCulled = false;
     this.scene.add(this.cloudMesh);
 
-    // Performance tracking
     this.updateTime = 0;
   }
 
@@ -229,26 +218,22 @@ export class DynamicSky {
     const timeData = this.timeOfDayProvider();
     const weatherData = this.weatherProvider?.() ?? { cloudiness: 0.3, weatherType: 'clear' };
 
-    // Update sun disk position and color
     if (this.sunLight) {
       const sunDir = this.sunLight.position.normalize();
       this.sunDisk.position.copy(sunDir).multiplyScalar(4000);
 
-      // Sun disk brightness based on elevation
       const elevation = timeData.elevDeg ?? 0;
       const sunBrightness = Math.max(0, Math.sin((elevation + 90) * Math.PI / 180));
       this.sunDisk.material.color.setRGB(sunBrightness, sunBrightness * 0.8, 0);
       this.sunDisk.material.emissive.copy(this.sunDisk.material.color).multiplyScalar(0.5);
     }
 
-    // Update sky material uniforms
     const sunDir = this.sunLight?.position?.clone().normalize() ?? new THREE.Vector3(0, 1, 0);
     this.skyMaterial.uniforms.uSunDirection.value.copy(sunDir);
     this.skyMaterial.uniforms.uSunElevation.value = timeData.elevDeg ?? 45;
     this.skyMaterial.uniforms.uTime.value += dt;
     this.skyMaterial.uniforms.uCloudCover.value = weatherData.cloudiness;
 
-    // Update cloud layer
     this.cloudOffset += this.cloudSpeed * dt;
     const cloudOffsetVec = new THREE.Vector2(
       Math.cos(this.cloudOffset) * this.windDirection.x,
@@ -258,12 +243,10 @@ export class DynamicSky {
     this.cloudMaterial.uniforms.uCloudCover.value = weatherData.cloudiness;
     this.cloudMaterial.uniforms.uTime.value += dt;
 
-    // Adjust cloud density based on weather
     const densityMap = { clear: 1.0, cloudy: 0.7, stormy: 0.3 };
     this.cloudMaterial.uniforms.uCloudDensity.value =
       densityMap[weatherData.weatherType] ?? 1.0;
 
-    // Update sky intensity based on time of day (dimmer at night)
     const timeT = timeData.t ?? 0.5;
     const nightInfluence = Math.abs(Math.sin(timeT * Math.PI)) < 0.1 ? 0.3 : 1.0;
     this.skyMaterial.uniforms.uSkyIntensity.value = this.skyIntensity * nightInfluence;
@@ -271,7 +254,6 @@ export class DynamicSky {
     this.updateTime = performance.now() - startTime;
   }
 
-  // Enable/disable the sky (for testing or when using a different sky provider)
   setEnabled(enabled) {
     this.enabled = enabled;
     this.skyMesh.visible = enabled;
@@ -279,7 +261,6 @@ export class DynamicSky {
     this.sunDisk.visible = enabled;
   }
 
-  // Get god-ray rendering parameters (used by post-process if available)
   getGodRayParams() {
     if (!this.sunLight) return null;
 
@@ -289,7 +270,7 @@ export class DynamicSky {
     return {
       sunScreenPos,
       intensity: Math.max(0, Math.sin(this.skyMaterial.uniforms.uSunElevation.value * Math.PI / 180)),
-      enabled: this.skyMaterial.uniforms.uSunElevation.value > -10, // Show god rays only near horizon
+      enabled: this.skyMaterial.uniforms.uSunElevation.value > GOD_RAY_MIN_SUN_ELEVATION_DEG,
     };
   }
 
@@ -311,12 +292,10 @@ export class DynamicSky {
   }
 }
 
-// Helper function to create sky system integrated with existing TimeOfDay
 export function createDynamicSkyWithTimeOfDay(scene, camera, timeOfDay, sunLight, opts = {}) {
   return new DynamicSky(scene, camera, {
     ...opts,
     timeOfDayProvider: () => {
-      // Extract elevation and azimuth from TimeOfDay state
       const state = timeOfDay.getState?.() ?? {};
       return {
         elevDeg: state.sunElevationDeg ?? 45,

@@ -1,6 +1,3 @@
-// Integration Test for Visual Quality Features
-// This file provides a minimal test harness to verify all systems work correctly
-
 import * as THREE from 'three';
 import {
   TemporalAA,
@@ -17,11 +14,10 @@ export class VisualQualityIntegrationTest {
     this.canvas.width = opts.width || 1920;
     this.canvas.height = opts.height || 1080;
 
-    // Three.js setup
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
       alpha: true,
-      antialias: false, // TAA disables need for AA
+      antialias: false,
     });
     this.renderer.setSize(this.canvas.width, this.canvas.height);
     this.renderer.shadowMap.enabled = true;
@@ -38,7 +34,6 @@ export class VisualQualityIntegrationTest {
     this.camera.position.set(0, 2, 5);
     this.camera.lookAt(0, 0, 0);
 
-    // Lighting
     this.sunLight = new THREE.DirectionalLight(0xffffff, 1);
     this.sunLight.position.set(50, 100, 30);
     this.sunLight.castShadow = true;
@@ -48,17 +43,14 @@ export class VisualQualityIntegrationTest {
     this.ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
     this.scene.add(this.ambientLight);
 
-    // Test geometry
     this.createTestGeometry();
 
-    // Visual systems
     this.systems = {};
     this.frameCount = 0;
     this.testResults = {};
   }
 
   createTestGeometry() {
-    // Ground plane
     const groundGeom = new THREE.PlaneGeometry(100, 100);
     const groundMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
     const ground = new THREE.Mesh(groundGeom, groundMat);
@@ -66,7 +58,6 @@ export class VisualQualityIntegrationTest {
     ground.receiveShadow = true;
     this.scene.add(ground);
 
-    // Test cube (for aliasing evaluation)
     const cubeGeom = new THREE.BoxGeometry(1, 1, 1);
     const cubeMat = new THREE.MeshStandardMaterial({ color: 0xff0000 });
     this.testCube = new THREE.Mesh(cubeGeom, cubeMat);
@@ -75,7 +66,6 @@ export class VisualQualityIntegrationTest {
     this.testCube.receiveShadow = true;
     this.scene.add(this.testCube);
 
-    // Test sphere (for decal placement)
     const sphereGeom = new THREE.SphereGeometry(0.5, 16, 16);
     const sphereMat = new THREE.MeshStandardMaterial({ color: 0x0088ff });
     this.testSphere = new THREE.Mesh(sphereGeom, sphereMat);
@@ -84,7 +74,6 @@ export class VisualQualityIntegrationTest {
     this.testSphere.receiveShadow = true;
     this.scene.add(this.testSphere);
 
-    // Emissive object (for bloom/glow)
     const emissiveGeom = new THREE.BoxGeometry(0.5, 0.5, 0.5);
     const emissiveMat = new THREE.MeshStandardMaterial({
       color: 0xffff00,
@@ -96,7 +85,6 @@ export class VisualQualityIntegrationTest {
   }
 
   async initializeSystems(qualityTier = 'MEDIUM') {
-    // Mock TimeOfDay provider
     const mockTimeOfDay = {
       getState: () => ({
         elevDeg: 45,
@@ -105,7 +93,6 @@ export class VisualQualityIntegrationTest {
       }),
     };
 
-    // 1. TAA
     try {
       this.systems.taa = new TemporalAA(this.renderer, this.scene, this.camera, {
         enabled: true,
@@ -117,7 +104,6 @@ export class VisualQualityIntegrationTest {
       this.testResults.taa = { status: 'FAIL', message: e.message };
     }
 
-    // 2. Dynamic Sky
     try {
       this.systems.sky = new DynamicSky(this.scene, this.camera, {
         enabled: true,
@@ -129,7 +115,6 @@ export class VisualQualityIntegrationTest {
       this.testResults.sky = { status: 'FAIL', message: e.message };
     }
 
-    // 3. Decal System
     try {
       this.systems.decals = new DecalRenderer(this.scene, {
         enabled: true,
@@ -143,7 +128,6 @@ export class VisualQualityIntegrationTest {
       this.testResults.decals = { status: 'FAIL', message: e.message };
     }
 
-    // 4. Shadow Quality
     try {
       const shadowConfig = ShadowQualityTier.apply(
         this.renderer,
@@ -156,7 +140,6 @@ export class VisualQualityIntegrationTest {
       this.testResults.shadows = { status: 'FAIL', message: e.message };
     }
 
-    // 5. Visual Quality Tier
     try {
       this.systems.qualityTier = VisualQualityTier.getConfig(qualityTier);
       this.testResults.quality = { status: 'OK', message: `Quality set to ${qualityTier}` };
@@ -171,18 +154,15 @@ export class VisualQualityIntegrationTest {
     canvas.height = 512;
     const ctx = canvas.getContext('2d');
 
-    // Draw 16 test patterns (4x4 grid)
     const cellSize = 128;
     for (let y = 0; y < 4; y++) {
       for (let x = 0; x < 4; x++) {
         const px = x * cellSize;
         const py = y * cellSize;
 
-        // Background
         ctx.fillStyle = `hsl(${x * 90}, 100%, 50%)`;
         ctx.fillRect(px, py, cellSize, cellSize);
 
-        // Pattern
         ctx.fillStyle = 'white';
         ctx.beginPath();
         ctx.arc(px + cellSize / 2, py + cellSize / 2, cellSize * 0.3, 0, Math.PI * 2);
@@ -246,12 +226,10 @@ export class VisualQualityIntegrationTest {
   testPerformance() {
     const startTime = performance.now();
 
-    // Update all systems
     if (this.systems.sky) this.systems.sky.update(0.016);
     if (this.systems.decals) this.systems.decals.update(0.016);
     if (this.systems.taa) this.systems.taa.updateCamera();
 
-    // Render
     this.renderer.render(this.scene, this.camera);
 
     const duration = performance.now() - startTime;
@@ -269,10 +247,8 @@ export class VisualQualityIntegrationTest {
   async runAllTests(qualityTier = 'MEDIUM') {
     console.log('=== Visual Quality Integration Tests ===\n');
 
-    // Initialize
     await this.initializeSystems(qualityTier);
 
-    // Run tests
     this.runTest('taa-enabled', () => this.testTAAEnabled());
     this.runTest('sky-enabled', () => this.testSkyEnabled());
     this.runTest('decals-initialized', () => this.testDecalsInitialized());
@@ -280,7 +256,6 @@ export class VisualQualityIntegrationTest {
     this.runTest('performance', () => this.testPerformance());
     this.runTest('memory', () => this.testMemory());
 
-    // Print results
     this.printResults();
 
     return this.getPassRate();
@@ -325,7 +300,6 @@ export class VisualQualityIntegrationTest {
   }
 }
 
-// Quick test runner
 export async function runIntegrationTests() {
   const test = new VisualQualityIntegrationTest({
     width: 1920,

@@ -1,92 +1,19 @@
-/**
- * AppManifest.js -- Standardized app manifest schema for spoint entity apps.
- *
- * This is the ENVELOPE format for publishing spoint apps to a registry
- * (plugin-marketplace-registry-for-spoint-apps-and-freddie-skills).
- * An app manifest is a single JSON-serializable object describing the app's
- * metadata, entry point, dependencies, and editor-facing surface.
- *
- * An app DOES NOT need a manifest file to run in a spoint world -- the
- * existing apps/<name>/index.js convention (documented in apps/README.md)
- * is still the only requirement for local development. The manifest is the
- * PUBLISH-time wrapper that adds registry metadata (version, description,
- * author, icon) to the raw app module.
- *
- * Shape:
- *  {
- *    name: string,           // unique app name, matches the apps/<name>/ directory
- *    version: string,        // semver
- *    title: string,          // human-readable display name
- *    description: string,    // 1-3 sentence description
- *    author: {               // optional, defaults to placeholder
- *      name: string,         // display name
- *      nostr?: string,       // npub hex pubkey (optional, for identity)
- *    },
- *    license: string,        // SPDX identifier (e.g. "MIT", "CC0-1.0")
- *    icon?: string,          // relative path to a 256x256 PNG within the app bundle
- *    entry: string,          // relative path to the app module (default: "index.js")
- *    dependencies: {         // npm package name -> semver range
- *      [pkg: string]: string,
- *    },
- *    editorProps: {          // mirror of the app's existing editorProps shape
- *      [field: string]: {
- *        type: string,       // "string"|"number"|"boolean"|"select"|"vec3"|"color"|"textarea"|"entity-reference"|"object-select"|"range"
- *        label: string,
- *        default?: any,
- *        help?: string,
- *        options?: {label:string, value:any}[],  // for "select" type
- *        min?: number,       // for "range" type
- *        max?: number,
- *        step?: number,
- *      },
- *    },
- *    requires: {             // engine capabilities the app needs
- *      physics?: boolean,        // needs a physics body
- *      networking?: boolean,     // needs network-synced state
- *      client?: boolean,         // has a client.setup() hook
- *      voice?: boolean,          // uses voice chat
- *      persistence?: boolean,    // uses storage adapter
- *      placeable?: boolean,      // may be placed by the user (editor Add menu)
- *    },
- *    tags: string[],         // free-form tags for discovery: ["weapon","vehicle","terrain","editor","utility","game-mode","character","environment","collectible","trigger"]
- *    compatibility: {
- *      spoint: string,       // semver range for spoint engine
- *      wireweave?: string,   // semver range for wireweave (if networking)
- *    },
- *  }
- *
- * The manifest is stored alongside the app's source as `manifest.json` in the
- * app's directory (apps/<name>/manifest.json). It is separate from the app's
- * config field (which is per-entity runtime configuration, not per-app metadata).
- */
-
-// ---------------------------------------------------------------------------
-// Validation
-// ---------------------------------------------------------------------------
-
-/** @type {string[]} */
 const KNOWN_EDITOR_PROP_TYPES = [
   'string', 'number', 'boolean', 'select', 'vec3', 'color',
   'textarea', 'entity-reference', 'object-select', 'range',
 ]
 
-/** @type {string[]} */
 const KNOWN_TAGS = [
   'weapon', 'vehicle', 'terrain', 'editor', 'utility', 'game-mode',
   'character', 'environment', 'collectible', 'trigger', 'pickup',
   'physics', 'audio', 'hud', 'ai', 'animation', 'ui',
 ]
 
-/** @type {string[]} */
 const VALID_SPDX = [
   'MIT', 'CC0-1.0', 'Apache-2.0', 'GPL-3.0', 'LGPL-3.0',
   'MPL-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'Unlicense', 'ISC',
 ]
 
-/**
- * Validate a manifest object. Returns { valid: true } or { valid: false, errors: [...] }.
- * This is a soft-lint for the publisher; the registry may apply stricter rules.
- */
 export function validateManifest(manifest) {
   const errors = []
 
@@ -94,29 +21,24 @@ export function validateManifest(manifest) {
     return { valid: false, errors: ['manifest must be an object'] }
   }
 
-  // Required string fields
   for (const f of ['name', 'version', 'title', 'description', 'license', 'entry']) {
     if (typeof manifest[f] !== 'string' || !manifest[f]) {
       errors.push(`missing or empty required field: ${f}`)
     }
   }
 
-  // name: must match the directory convention (alphanumeric + hyphens only)
   if (manifest.name && !/^[a-z][a-z0-9-]*$/.test(manifest.name)) {
     errors.push(`name must be lowercase alphanumeric + hyphens: "${manifest.name}"`)
   }
 
-  // version: must be valid semver (loose check)
   if (manifest.version && !/^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?(\+[a-zA-Z0-9.]+)?$/.test(manifest.version)) {
     errors.push(`version must be semver: "${manifest.version}"`)
   }
 
-  // license: must be a known SPDX id
   if (manifest.license && !VALID_SPDX.includes(manifest.license)) {
     errors.push(`license must be a known SPDX id: "${manifest.license}" (known: ${VALID_SPDX.join(', ')})`)
   }
 
-  // author
   if (manifest.author !== undefined) {
     if (!manifest.author || typeof manifest.author !== 'object') {
       errors.push('author must be an object { name } or omitted')
@@ -128,7 +50,6 @@ export function validateManifest(manifest) {
     }
   }
 
-  // editorProps
   if (manifest.editorProps !== undefined) {
     if (typeof manifest.editorProps !== 'object' || Array.isArray(manifest.editorProps)) {
       errors.push('editorProps must be an object')
@@ -154,28 +75,24 @@ export function validateManifest(manifest) {
     }
   }
 
-  // requires
   if (manifest.requires !== undefined) {
     if (typeof manifest.requires !== 'object' || Array.isArray(manifest.requires)) {
       errors.push('requires must be an object')
     }
   }
 
-  // dependencies
   if (manifest.dependencies !== undefined) {
     if (typeof manifest.dependencies !== 'object' || Array.isArray(manifest.dependencies)) {
       errors.push('dependencies must be an object')
     }
   }
 
-  // tags
   if (manifest.tags !== undefined) {
     if (!Array.isArray(manifest.tags)) {
       errors.push('tags must be an array of strings')
     }
   }
 
-  // compatibility
   if (manifest.compatibility !== undefined) {
     if (typeof manifest.compatibility !== 'object' || !manifest.compatibility.spoint) {
       errors.push('compatibility.spoint semver range is required')
@@ -185,15 +102,6 @@ export function validateManifest(manifest) {
   return errors.length === 0 ? { valid: true } : { valid: false, errors }
 }
 
-/**
- * Create a minimal manifest from an app's existing metadata.
- * Reads the app's index.js for editorProps (if exported) and fills in defaults.
- * This is the bridge between the existing apps/ convention and the manifest format.
- *
- * @param {string} name - app name (directory name)
- * @param {object} appModule - the app's default export (or a subset)
- * @returns {object} a minimal valid manifest
- */
 export function createMinimalManifest(name, appModule = {}) {
   const server = appModule.server || {}
   const client = appModule.client || {}
@@ -219,58 +127,6 @@ export function createMinimalManifest(name, appModule = {}) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Freddie skill manifest alignment
-// ---------------------------------------------------------------------------
-
-/**
- * Freddie skill manifest shape (as defined by the freddie SKILLS-only registry
- * resolved in freddie-adapter-conformance-approval-ux-thebird-marketplace-orchestration-guardrails).
- *
- * A freddie skill manifest shares the same core metadata fields as AppManifest
- * but adds freddie-specific fields like `skill` (the skill's hook/capability shape)
- * and `triggers` (when the skill activates).
- *
- * Shape (freddie-specific fields):
- *  {
- *    name: string,          // skill name (matches the SKILL.md filename)
- *    version: string,       // semver
- *    title: string,         // human-readable display name
- *    description: string,   // 1-3 sentence description
- *    author: { name, nostr? },
- *    license: string,       // SPDX
- *    icon?: string,
- *    tags: string[],
- *    compatibility: { spoint, wireweave? },
- *
- *    // Freddie-specific:
- *    kind: "skill",                   // always "skill" for freddie entries
- *    skill: {                         // skill capability shape
- *      hooks: string[],               // lifecycle hooks: ["setup","update","teardown"]
- *      triggers: string[],            // when to activate: ["onMessage","onTick","onEvent"]
- *      allowedTools?: string[],       // tools the skill can use
- *      inputSchema?: object,          // JSON Schema for skill input
- *      outputSchema?: object,         // JSON Schema for skill output (optional)
- *    },
- *    entry: string,                   // relative path to the skill module (default: "SKILL.md")
- *    dependencies: { [pkg: string]: string },
- *  }
- */
-
-/**
- * Convert a freddie skill manifest to a spoint AppManifest.
- * This is the unification bridge: a freddie skill published to the marketplace
- * can be discovered and installed by spoint tooling as if it were an app.
- *
- * The conversion:
- *  - Preserves all shared metadata fields
- *  - Adds `kind: "skill"` so consumers can distinguish skill entries from app entries
- *  - Wraps freddie-specific fields under `skill: { hooks, triggers, allowedTools, inputSchema, outputSchema }`
- *  - Sets `entry` to the skill's main file (default "SKILL.md")
- *
- * @param {object} freddieManifest - a freddie skill manifest
- * @returns {object} a spoint AppManifest with kind="skill"
- */
 export function freddieSkillToAppManifest(freddieManifest) {
   if (!freddieManifest || typeof freddieManifest !== 'object') {
     throw new Error('freddieManifest must be an object')
@@ -301,13 +157,6 @@ export function freddieSkillToAppManifest(freddieManifest) {
   }
 }
 
-/**
- * Convert a spoint AppManifest back to a freddie skill manifest.
- * Inverse of freddieSkillToAppManifest. Only works for manifests with kind="skill".
- *
- * @param {object} appManifest - a spoint AppManifest with kind="skill"
- * @returns {object} a freddie skill manifest
- */
 export function appManifestToFreddieSkill(appManifest) {
   if (!appManifest || appManifest.kind !== 'skill') {
     throw new Error('appManifest must have kind="skill"')
@@ -337,20 +186,10 @@ export function appManifestToFreddieSkill(appManifest) {
   }
 }
 
-/**
- * Check if a manifest is a freddie skill (kind === "skill").
- * @param {object} manifest
- * @returns {boolean}
- */
 export function isSkillManifest(manifest) {
   return manifest && manifest.kind === 'skill'
 }
 
-/**
- * Check if a manifest is a spoint entity app (kind is absent or "app").
- * @param {object} manifest
- * @returns {boolean}
- */
 export function isAppManifest(manifest) {
   return manifest && (!manifest.kind || manifest.kind === 'app')
 }

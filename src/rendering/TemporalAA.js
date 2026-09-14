@@ -1,24 +1,5 @@
 import * as THREE from 'three';
 
-// Temporal Anti-Aliasing (TAA) -- multi-frame jittered sampling with velocity-based reprojection
-// Eliminates aliasing via stochastic subpixel camera jitter across frames, with motion-vector-based
-// reprojection to reduce ghosting on moving objects. Quality presets scale sample count (2/4/8 taps)
-// and blend aggressiveness. Integrates with existing G-buffer (motion vectors from renderer.info or
-// a dedicated motion-pass if available).
-//
-// JITTER MODEL: Halton sequence (low-discrepancy, deterministic per-frame-index) generates 2D
-// camera-jitter offsets in [-0.5, 0.5] subpixel units, reapplied to camera.projectionMatrix each
-// frame. Halton is preferred over white-noise for temporal coherence (less frame-to-frame variance).
-//
-// REPROJECTION: Previous frame's color is fetched via bilinear sample in motion-adjusted UV,
-// blended with current frame based on motion magnitude (fast-moving pixels reject the history more
-// aggressively to avoid ghosting). Velocity computed from motion vectors (G-buffer or raymarch
-// derivatives), clamped to avoid infinite blur on fast motion.
-//
-// BLEND CONTROL: A per-frame blend-factor determines how much of the history to keep. Motion-based
-// blend-factor ramps from 0.1 (stationary) to 0.5 (fast motion) to 1.0 (extremely fast), favoring
-// the current frame when pixels move rapidly.
-
 export const QualityPresets = {
   LOW: { tapCount: 2, blendMin: 0.15, blendMax: 0.6, velocityClamp: 50 },
   MEDIUM: { tapCount: 4, blendMin: 0.1, blendMax: 0.5, velocityClamp: 30 },
@@ -86,7 +67,7 @@ export class TemporalAA {
     for (let i = 0; i < tapCount; i++) {
       const u = this._halton(i + 1, 2);
       const v = this._halton(i + 1, 3);
-      sequence.push([u - 0.5, v - 0.5]); // Center in [-0.5, 0.5]
+      sequence.push([u - 0.5, v - 0.5]);
     }
     return sequence;
   }
@@ -189,13 +170,11 @@ export class TemporalAA {
     const jitterIndex = this.frameIndex % this.haltonSequence.length;
     const [jx, jy] = this.haltonSequence[jitterIndex];
 
-    // Convert jitter from screen pixels to NDC [-1, 1]
     const pixelWidth = 1 / this.camera.projectionMatrix.elements[0];
     const pixelHeight = 1 / this.camera.projectionMatrix.elements[5];
 
     this.currentJitter.set(jx * pixelWidth, jy * pixelHeight);
 
-    // Apply jitter to projection matrix
     const jitteredProjection = this.originalProjectionMatrix.clone();
     jitteredProjection.elements[8] += this.currentJitter.x;
     jitteredProjection.elements[9] += this.currentJitter.y;
@@ -203,16 +182,7 @@ export class TemporalAA {
     this.camera.projectionMatrix.copy(jitteredProjection);
   }
 
-  // Extract motion vectors from screen-space derivatives or use provided motion texture
-  // For now, this is a placeholder that reads from the G-buffer if available
   computeMotionVectors() {
-    // Motion vectors can be computed from:
-    // 1. Velocity output from a dedicated motion-vector pass
-    // 2. Screen-space derivatives of depth + camera motion
-    // 3. Per-object motion (velocity texture from vertex shader)
-    // For this implementation, we assume motion vectors are pre-computed and available in
-    // the motion render target, or we compute them from depth/normal changes frame-to-frame.
-    // A full implementation would integrate with the renderer's geometry pipeline.
   }
 
   render(renderCallback) {
@@ -221,17 +191,13 @@ export class TemporalAA {
       return;
     }
 
-    // Update camera jitter
     this.updateCamera();
 
-    // Render current frame into currentRT
     this.renderer.setRenderTarget(this.renderTargets.current);
     renderCallback();
 
-    // Compute motion vectors (placeholder: assumes external system fills motion RT)
     this.computeMotionVectors();
 
-    // Reproject history and accumulate
     this.reprojectionMaterial.uniforms.tCurrent.value = this.renderTargets.current.texture;
     this.reprojectionMaterial.uniforms.tHistory.value = this.renderTargets.history.texture;
     this.reprojectionMaterial.uniforms.tMotion.value = this.renderTargets.motion.texture;
@@ -242,11 +208,9 @@ export class TemporalAA {
     this.reprojectionMaterial.uniforms.uJitterDelta.value
       .subVectors(this.currentJitter, this.previousJitter);
 
-    // Composite onto canvas
     this.renderer.setRenderTarget(null);
     this.renderer.render(this.compositeScene, this.camera);
 
-    // Swap history buffer
     const temp = this.renderTargets.history;
     this.renderTargets.history = this.renderTargets.current;
     this.renderTargets.current = temp;

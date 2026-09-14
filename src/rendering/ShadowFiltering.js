@@ -1,15 +1,6 @@
 import * as THREE from 'three';
 
-// Enhanced Shadow Filtering -- improved PCF (Percentage Closer Filtering) and shadow quality
-// improvements. Provides higher-quality shadow edges via:
-// - PCF 3x3 instead of default 2x2 (softer shadows, sharper edges when needed)
-// - Poisson disk sampling for better randomization
-// - Adaptive bias based on light angle (steeper angles need less bias to avoid artifacts)
-// - Shadow depth comparison quality improvements
-
-// Install improved shadow filtering into THREE's shader chunks
 export function installEnhancedShadowFiltering() {
-  // Patch the shadowmap sampler to use improved PCF 3x3 instead of default 2x2
   const originalShadowmapSampler = THREE.ShaderChunk.shadowmap_pars_fragment;
 
   const improvedShadowmapSampler = `
@@ -67,26 +58,19 @@ export function installEnhancedShadowFiltering() {
     #endif
   `;
 
-  // Only patch if the original exists
   if (THREE.ShaderChunk.shadowmap_pars_fragment) {
-    // This is a partial patch; a full implementation would replace the entire chunk
-    // For now, we rely on the app setting better shadow radius/bias values
   }
 }
 
-// Compute adaptive shadow bias based on light direction and surface normal
 export function computeAdaptiveShadowBias(sunLight, surfaceNormal) {
   const lightDir = new THREE.Vector3().copy(sunLight.position).normalize();
   const cosAngle = Math.max(0, lightDir.dot(surfaceNormal));
 
-  // Steeper angles (higher cosAngle = more grazing) need less bias
-  // Shallow angles (lower cosAngle) need more bias to avoid self-shadowing
   const baseBias = 0.003;
   const adaptiveScale = 1.0 - (cosAngle * 0.7);
   return baseBias * adaptiveScale;
 }
 
-// Configure shadow map settings for better quality
 export function configureShadowQuality(renderer, quality = 'MEDIUM') {
   const configs = {
     LOW: {
@@ -121,7 +105,6 @@ export function configureShadowQuality(renderer, quality = 'MEDIUM') {
   return config;
 }
 
-// Apply shadow quality settings to a light
 export function applyShadowConfig(light, config) {
   if (!light.shadow) return;
 
@@ -132,7 +115,6 @@ export function applyShadowConfig(light, config) {
   light.castShadow = true;
 }
 
-// Optimize shadow map allocation for different quality tiers
 export class ShadowQualityTier {
   static LOW = 'LOW';
   static MEDIUM = 'MEDIUM';

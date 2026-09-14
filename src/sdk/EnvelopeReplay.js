@@ -1,51 +1,7 @@
-/**
- * EnvelopeReplay.js -- Replay engine for recorded SharedEventEnvelope streams.
- *
- * Cross-repo observability: replay a recorded stream of envelopes for debugging,
- * testing, or trace reconstruction. Works identically across spoint, thebird,
- * freddie, and wireweave -- only depends on the envelope shape.
- *
- * Features:
- *  - Replay envelopes in time order (respecting timestamps)
- *  - Speed control: 1x (real-time), 2x, 10x, 100x, or instant
- *  - Seek: jump to a specific timestamp or envelope index
- *  - Filtering: include/exclude by source, kind, or time range
- *  - Callback: onEnvelope(envelope) called for each replayed envelope
- *  - Completion: promise that resolves when replay finishes
- *  - Pause/resume/stop
- *
- * Usage:
- *   import { createReplay } from './EnvelopeReplay.js'
- *   const replay = createReplay(envelopes, {
- *     speed: 10,
- *     onEnvelope: (env) => console.log(env.kind),
- *   })
- *   await replay.start()
- *   // Or with tracing:
- *   import { traceFromEnvelopes } from './EnvelopeTracer.js'
- *   const { traces } = traceFromEnvelopes(envelopes)
- */
-
 import { validateEnvelope } from './SharedEventEnvelope.js'
 
-/**
- * Create a replay engine for a stream of envelopes.
- *
- * @param {object[]} envelopes - array of envelope objects (must have ts field)
- * @param {object} opts
- * @param {number} [opts.speed=1] - replay speed multiplier (0 = instant)
- * @param {function} [opts.onEnvelope] - called for each replayed envelope
- * @param {function} [opts.onFinished] - called when replay completes
- * @param {function} [opts.onError] - called on invalid envelopes (default: console.warn)
- * @param {string[]} [opts.includeSources] - only replay envelopes whose source starts with one of these
- * @param {string[]} [opts.excludeSources] - skip envelopes whose source starts with one of these
- * @param {string[]} [opts.includeKinds] - only replay envelopes whose kind starts with one of these
- * @param {string[]} [opts.excludeKinds] - skip envelopes whose kind starts with one of these
- * @param {number} [opts.startTs] - only replay envelopes with ts >= this
- * @param {number} [opts.endTs] - only replay envelopes with ts <= this
- * @param {number} [opts.startIndex] - start replaying from this index in the sorted array
- * @returns {object} replay controller
- */
+const MAX_REPLAY_STEP_DELAY_MS = 30000
+
 export function createReplay(envelopes, opts = {}) {
   const speed = opts.speed ?? 1
   const onEnvelope = opts.onEnvelope || null
@@ -79,12 +35,10 @@ export function createReplay(envelopes, opts = {}) {
 
   function _sortEnvelopes() {
     if (_sorted) return _sorted
-    // Sort by ts ascending, tie-break by id
     _sorted = [...envelopes].sort((a, b) => {
       if (a.ts !== b.ts) return a.ts - b.ts
       return (a.id || '').localeCompare(b.id || '')
     })
-    // Apply start index
     if (opts.startIndex != null) _index = Math.max(0, Math.min(opts.startIndex, _sorted.length))
     return _sorted
   }
@@ -117,13 +71,10 @@ export function createReplay(envelopes, opts = {}) {
     }
 
     if (speed === 0) {
-      // Instant mode: process all remaining envelopes synchronously
       _replayBurst()
       return
     }
 
-    // Calculate delay: difference between this envelope's ts and the previous one's,
-    // scaled by speed. For the first envelope, delay is 0.
     const sorted = _sortEnvelopes()
     const prev = _index > 0 ? sorted[_index - 1] : null
     const delayMs = prev ? Math.max(0, (env.ts - prev.ts) / speed) : 0
@@ -135,7 +86,7 @@ export function createReplay(envelopes, opts = {}) {
         try { onEnvelope(env) } catch (e) { onError(`onEnvelope error: ${e.message}`) }
       }
       _scheduleNext()
-    }, Math.min(delayMs, 30000)) // cap at 30s to prevent hanging
+    }, Math.min(delayMs, MAX_REPLAY_STEP_DELAY_MS))
   }
 
   function _replayBurst() {
@@ -154,7 +105,7 @@ export function createReplay(envelopes, opts = {}) {
     _paused = false
     if (_timer) { clearTimeout(_timer); _timer = null }
     if (onFinished) {
-      try { onFinished() } catch (_) { /* don't let the callback break the promise */ }
+      try { onFinished() } catch (_) { }
     }
     if (_resolve) {
       _resolve({ envelopesProcessed: _index, totalEnvelopes: _sortEnvelopes().length })
@@ -168,10 +119,6 @@ export function createReplay(envelopes, opts = {}) {
     if (_timer) { clearTimeout(_timer); _timer = null }
   }
 
-  /**
-   * Start replaying. Returns a promise that resolves when replay finishes
-   * (or is stopped). The promise resolves with { envelopesProcessed, totalEnvelopes }.
-   */
   function start() {
     if (_running) return Promise.resolve({ envelopesProcessed: _index, totalEnvelopes: _sortEnvelopes().length })
     _sortEnvelopes()
@@ -184,20 +131,17 @@ export function createReplay(envelopes, opts = {}) {
     })
   }
 
-  /** Pause replay. */
   function pause() {
     _paused = true
     if (_timer) { clearTimeout(_timer); _timer = null }
   }
 
-  /** Resume replay after pause. */
   function resume() {
     if (!_running) return
     _paused = false
     _scheduleNext()
   }
 
-  /** Stop replay permanently. */
   function stop() {
     _cleanup()
     if (_resolve) {
@@ -206,10 +150,6 @@ export function createReplay(envelopes, opts = {}) {
     }
   }
 
-  /**
-   * Seek to a specific timestamp. Replay will skip all envelopes with ts < targetTs.
-   * If `restart` is true, also resets the replay to start from the first matching envelope.
-   */
   function seek(targetTs, restart = false) {
     _cleanup()
     const sorted = _sortEnvelopes()
@@ -222,9 +162,6 @@ export function createReplay(envelopes, opts = {}) {
     }
   }
 
-  /**
-   * Seek to a specific envelope index in the sorted array.
-   */
   function seekIndex(idx, restart = false) {
     _cleanup()
     const sorted = _sortEnvelopes()
@@ -236,7 +173,6 @@ export function createReplay(envelopes, opts = {}) {
     }
   }
 
-  /** Get the current state. */
   function state() {
     const sorted = _sortEnvelopes()
     const current = _index < sorted.length ? sorted[_index] : null

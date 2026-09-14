@@ -1,17 +1,5 @@
 import * as THREE from 'three';
 
-// Decal Rendering System -- runtime GPU-accelerated decal rendering with texture atlasing,
-// automatic cleanup via fade-out and timeout, and per-material customization.
-//
-// PERFORMANCE: 100 decals render in <1ms via instanced mesh rendering. Decals are pooled and
-// reused; cleanup happens automatically on lifetime expiry or explicit removal.
-//
-// SUPPORTED TYPES: bullet holes, blood splatters, burn/scorch marks, footprints, explosions.
-// Each type has: texture coordinates (in atlas), blend mode, base lifetime, and size variance.
-//
-// PLACEMENT: Raycast-based placement (from screen or world position) automatically finds the
-// nearest surface and orients the decal to face the surface normal.
-
 export const DecalType = {
   BULLET_HOLE: 'bulletHole',
   BLOOD_SPLATTER: 'bloodSplatter',
@@ -73,14 +61,12 @@ export class Decal {
     this.atlasIndex = config.atlasIndex;
     this.depthOffset = config.depthOffset;
 
-    // Compute tangent vectors from normal (for orientation)
     this.tangent = new THREE.Vector3();
     this.bitangent = new THREE.Vector3();
     this._computeTangentBasis();
   }
 
   _computeTangentBasis() {
-    // Gram-Schmidt orthogonalization to find tangent perpendicular to normal
     const upVec = Math.abs(this.normal.y) < 0.9 ?
       new THREE.Vector3(0, 1, 0) :
       new THREE.Vector3(1, 0, 0);
@@ -119,7 +105,6 @@ export class Decal {
   }
 
   getAlpha() {
-    // Fade out in last 1/4 of lifetime
     const fadeStart = this.lifetime * 0.75;
     if (this.age < fadeStart) return 1.0;
     return 1.0 - ((this.age - fadeStart) / (this.lifetime - fadeStart));
@@ -131,24 +116,19 @@ export class DecalRenderer {
     this.scene = scene;
     this.enabled = opts.enabled ?? true;
 
-    // Decal pool and active list
     this.decals = [];
     this.maxDecals = opts.maxDecals ?? 500;
 
-    // Texture atlas (should be pre-loaded, 4x4 grid of decal textures)
     this.atlasTexture = opts.atlasTexture;
     this.atlasGridSize = opts.atlasGridSize ?? 4;
 
-    // Instanced rendering
     this.instancedMaterial = this._createInstancedMaterial();
     this.instancedMesh = null;
     this._updateInstancedMesh();
 
-    // Raycaster for placement
     this.raycaster = new THREE.Raycaster();
-    this.raycasterPlanes = opts.raycasterPlanes ?? []; // Scene objects to raycast against
+    this.raycasterPlanes = opts.raycasterPlanes ?? [];
 
-    // Performance tracking
     this.updateTime = 0;
   }
 
@@ -229,13 +209,11 @@ export class DecalRenderer {
   }
 
   _updateInstancedMesh() {
-    // Remove old mesh if exists
     if (this.instancedMesh) {
       this.scene.remove(this.instancedMesh);
       this.instancedMesh.geometry.dispose();
     }
 
-    // Create quad geometry for decals (2 triangles)
     const quadGeometry = new THREE.BufferGeometry();
     const positions = new Float32Array([
       -0.5, 0, -0.5,
@@ -255,7 +233,6 @@ export class DecalRenderer {
     quadGeometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
     quadGeometry.setIndex(new THREE.BufferAttribute(indices, 1));
 
-    // Instanced attributes
     const instancedPositions = new Float32Array(this.maxDecals * 3);
     const instancedQuats = new Float32Array(this.maxDecals * 4);
     const instancedSizes = new Float32Array(this.maxDecals);
@@ -272,16 +249,14 @@ export class DecalRenderer {
     this.scene.add(this.instancedMesh);
   }
 
-  // Place a decal at world position using raycast
   placeDecal(position, direction, type = DecalType.BULLET_HOLE, targets = null) {
     if (!this.enabled || this.decals.length >= this.maxDecals) return null;
 
-    // Raycast to find surface
     this.raycaster.set(position, direction.normalize());
     const targetList = targets ?? this.raycasterPlanes;
     const intersects = this.raycaster.intersectObjects(targetList, true);
 
-    if (intersects.length === 0) return null; // No surface hit
+    if (intersects.length === 0) return null;
 
     const hit = intersects[0];
     const decal = new Decal(hit.point, hit.face.normal, type);
@@ -290,7 +265,6 @@ export class DecalRenderer {
     return decal;
   }
 
-  // Place decal directly without raycast
   placeDecalDirect(position, normal, type = DecalType.BULLET_HOLE) {
     if (!this.enabled || this.decals.length >= this.maxDecals) return null;
 
@@ -307,7 +281,6 @@ export class DecalRenderer {
       return;
     }
 
-    // Update all active decals
     for (let i = this.decals.length - 1; i >= 0; i--) {
       this.decals[i].update(dt);
       if (!this.decals[i].active) {
@@ -315,7 +288,6 @@ export class DecalRenderer {
       }
     }
 
-    // Update instanced mesh attributes
     if (this.instancedMesh) {
       const positions = this.instancedMesh.geometry.attributes.aPosition.array;
       const quats = this.instancedMesh.geometry.attributes.aQuatRotation.array;
@@ -329,7 +301,6 @@ export class DecalRenderer {
         positions[i * 3 + 1] = decal.position.y;
         positions[i * 3 + 2] = decal.position.z;
 
-        // Normal as quaternion (simplified: identity rotation with normal as up)
         quats[i * 4] = 0;
         quats[i * 4 + 1] = 0;
         quats[i * 4 + 2] = 0;
@@ -380,7 +351,6 @@ export class DecalRenderer {
   }
 }
 
-// Helper to create decal system with default atlas texture
 export async function createDecalRendererWithAtlas(scene, atlasImagePath, opts = {}) {
   const textureLoader = new THREE.TextureLoader();
   const atlasTexture = await new Promise((resolve, reject) => {

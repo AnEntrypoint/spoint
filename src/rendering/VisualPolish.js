@@ -1,10 +1,5 @@
 import * as THREE from 'three';
 
-// Visual Polish -- improvements to post-processing and rendering quality
-// Includes: SSAO quality tuning, bloom threshold optimization, motion blur (optional),
-// and color grading adjustments.
-
-// SSAO Quality Presets -- tuned for visual quality while maintaining performance
 export const SSAOPresets = {
   LOW: {
     kernelRadius: 0.5,
@@ -29,7 +24,6 @@ export const SSAOPresets = {
   },
 };
 
-// Bloom threshold tuning for different lighting conditions and quality tiers
 export const BloomPresets = {
   LOW: {
     threshold: 0.8,
@@ -57,15 +51,14 @@ export const BloomPresets = {
   },
 };
 
-// Motion Blur -- optional cinematic motion blur effect
 export class MotionBlur {
   constructor(scene, camera, renderer, opts = {}) {
     this.scene = scene;
     this.camera = camera;
     this.renderer = renderer;
     this.enabled = opts.enabled ?? false;
-    this.strength = opts.strength ?? 0.5; // 0-1
-    this.samples = opts.samples ?? 8; // Number of blur samples
+    this.strength = opts.strength ?? 0.5;
+    this.samples = opts.samples ?? 8;
     this.renderTarget = new THREE.WebGLRenderTarget(
       renderer.domElement.width,
       renderer.domElement.height,
@@ -176,8 +169,6 @@ export class MotionBlur {
     renderCallback();
     this.renderer.setRenderTarget(null);
 
-    // Apply motion blur to the rendered scene
-    // This is a placeholder; full implementation would composite the blur onto canvas
   }
 
   setStrength(strength) {
@@ -192,14 +183,12 @@ export class MotionBlur {
   }
 }
 
-// Color grading and tone mapping improvements
 export class ColorGradeController {
   constructor(scene, camera, renderer, opts = {}) {
     this.scene = scene;
     this.camera = camera;
     this.renderer = renderer;
 
-    // Color grading parameters
     this.exposure = opts.exposure ?? 1.0;
     this.saturation = opts.saturation ?? 1.0;
     this.contrast = opts.contrast ?? 1.0;
@@ -304,7 +293,6 @@ export class ColorGradeController {
   }
 }
 
-// Configure visual quality tier (integrates all visual polish components)
 export class VisualQualityTier {
   static LOW = 'LOW';
   static MEDIUM = 'MEDIUM';

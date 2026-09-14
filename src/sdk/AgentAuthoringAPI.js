@@ -1,17 +1,3 @@
-// AgentAuthoringAPI -- HTTP authoring surface for agentic game-making (PRD row
-// agentic-game-making-pipeline). Follows the ServerAPIRoutes.js/EditorHandlers.js shape: plain
-// (req, res, appRuntime, ctx) handlers wired into ServerAPI.js's httpHandler, JSON in/out.
-//
-// This is the machine-facing counterpart to the human editor: an agent (or scripts/verify-app.mjs)
-// can create an app from a template, rewrite an app's source, place/destroy entities in the LIVE
-// world, inspect the live entity/app state, and persist the current world to apps/world/<name>.js --
-// the same file format apps/world/*.js worlds already use (see e2e-ci-arena.js), so a saved world
-// boots again via WORLD=<name> with zero extra machinery.
-//
-// Everything here is backend; no UI. Auth: if SPOINT_AGENT_TOKEN is set, requests must carry that
-// exact value in the x-agent-token header (same fail-closed shape as the EDITOR_TOKEN gate);
-// unset means open, matching the dev-server default of the editor routes.
-
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { resolve, join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -46,9 +32,6 @@ function readBody(req, limitBytes = 8 * 1024 * 1024) {
   })
 }
 
-// Serialize one live entity back into the world-definition shape ({ id, app, position, ... }) --
-// the same field set apps/world/*.js entities use, so round-tripping through save-world is
-// lossless for everything the world loader itself consumes.
 function encodeWorldEntity(id, e) {
   const out = { id, app: e._appName || undefined }
   if (e.model) out.model = e.model
@@ -72,7 +55,6 @@ export function createAgentAuthoringHandler() {
     const url = new URL(req.url, 'http://localhost')
     const path = url.pathname
     try {
-      // -- introspection -------------------------------------------------------------
       if (req.method === 'GET' && path === '/agent/apps') {
         json(res, 200, { ok: true, apps: Array.from(appRuntime._appDefs.keys()).sort() })
         return
@@ -86,7 +68,6 @@ export function createAgentAuthoringHandler() {
 
       const body = req.method === 'POST' ? await readBody(req) : {}
 
-      // -- app creation / modification -----------------------------------------------
       if (req.method === 'POST' && path === '/agent/create-app') {
         const name = body.name
         const template = body.template || 'simple'
@@ -130,7 +111,6 @@ export function createAgentAuthoringHandler() {
         return
       }
 
-      // -- live world mutation --------------------------------------------------------
       if (req.method === 'POST' && path === '/agent/place-entity') {
         const { app, position, config, id, model, scale } = body
         if (typeof app !== 'string' || !appRuntime._appDefs.has(app) && app !== 'placed-model') {
@@ -157,7 +137,6 @@ export function createAgentAuthoringHandler() {
         return
       }
 
-      // -- persistence -----------------------------------------------------------------
       if (req.method === 'POST' && path === '/agent/save-world') {
         const name = body.worldName
         if (typeof name !== 'string' || !APP_NAME_RE.test(name)) { json(res, 400, { ok: false, error: `invalid worldName '${name}'` }); return }

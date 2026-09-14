@@ -1,7 +1,3 @@
-// Visual Quality Features Example
-// This file demonstrates how to integrate Temporal Anti-Aliasing, Dynamic Sky,
-// Decal System, and visual polish into a Three.js application.
-
 import * as THREE from 'three';
 import {
   TemporalAA,
@@ -18,11 +14,11 @@ import {
   VisualQualityTier,
 } from './index.js';
 
-// Example integration: set up all visual quality features in an app
+const MAX_FRAME_DT_SEC = 0.016;
+
 export function setupVisualQualityFeatures(scene, camera, renderer, opts = {}) {
   const features = {};
 
-  // 1. Temporal Anti-Aliasing
   if (opts.enableTAA !== false) {
     features.taa = new TemporalAA(renderer, scene, camera, {
       enabled: true,
@@ -30,7 +26,6 @@ export function setupVisualQualityFeatures(scene, camera, renderer, opts = {}) {
     });
   }
 
-  // 2. Dynamic Sky System
   if (opts.enableSky !== false && opts.timeOfDay) {
     features.sky = createDynamicSkyWithTimeOfDay(
       scene,
@@ -45,7 +40,6 @@ export function setupVisualQualityFeatures(scene, camera, renderer, opts = {}) {
     );
   }
 
-  // 3. Decal System
   if (opts.enableDecals !== false) {
     features.decals = new DecalRenderer(scene, {
       enabled: true,
@@ -58,7 +52,6 @@ export function setupVisualQualityFeatures(scene, camera, renderer, opts = {}) {
     }
   }
 
-  // 4. Shadow Quality
   if (opts.sunLight) {
     const shadowConfig = ShadowQualityTier.apply(
       renderer,
@@ -68,23 +61,20 @@ export function setupVisualQualityFeatures(scene, camera, renderer, opts = {}) {
     features.shadowConfig = shadowConfig;
   }
 
-  // 5. Visual Polish
   const visualQuality = VisualQualityTier.getConfig(opts.qualityTier ?? 'MEDIUM');
   features.visualQuality = visualQuality;
 
   return features;
 }
 
-// Example render loop integration
 export function createRenderLoopWithVisualQuality(scene, camera, renderer, features, opts = {}) {
   let lastFrameTime = performance.now();
 
   return function renderLoop() {
     const currentTime = performance.now();
-    const dt = Math.min((currentTime - lastFrameTime) / 1000, 0.016); // Cap at 16ms
+    const dt = Math.min((currentTime - lastFrameTime) / 1000, MAX_FRAME_DT_SEC);
     lastFrameTime = currentTime;
 
-    // Update systems
     if (features.sky) {
       features.sky.update(dt);
     }
@@ -93,17 +83,15 @@ export function createRenderLoopWithVisualQuality(scene, camera, renderer, featu
       features.decals.update(dt);
     }
 
-    // Render with TAA
     if (features.taa) {
       features.taa.render(() => {
-        features.taa.updateCamera(); // Apply jitter
+        features.taa.updateCamera();
         renderer.render(scene, camera);
       });
     } else {
       renderer.render(scene, camera);
     }
 
-    // Optional: log performance
     if (opts.logPerformance) {
       const updateTime = (features.sky?.updateTime ?? 0) +
                         (features.decals?.updateTime ?? 0) +
@@ -113,7 +101,6 @@ export function createRenderLoopWithVisualQuality(scene, camera, renderer, featu
   };
 }
 
-// Example: Place decals on click (raycast from mouse)
 export function setupDecalPlacement(renderer, camera, scene, features) {
   const raycaster = new THREE.Raycaster();
   const mouse = new THREE.Vector2();
@@ -121,21 +108,17 @@ export function setupDecalPlacement(renderer, camera, scene, features) {
   renderer.domElement.addEventListener('click', (event) => {
     if (!features.decals) return;
 
-    // Convert mouse position to normalized device coordinates
     const rect = renderer.domElement.getBoundingClientRect();
     mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-    // Raycast from camera
     raycaster.setFromCamera(mouse, camera);
 
-    // Get raycast targets from decal system
     const intersects = raycaster.intersectObjects(scene.children, true);
 
     if (intersects.length > 0) {
       const hit = intersects[0];
 
-      // Place decal at intersection point
       const decal = features.decals.placeDecalDirect(
         hit.point,
         hit.face.normal,
@@ -149,26 +132,21 @@ export function setupDecalPlacement(renderer, camera, scene, features) {
   });
 }
 
-// Example: Simulate blood splatter on damage
 export function createDamageEffect(position, normal, features) {
   if (!features.decals) return;
 
-  // Place a blood splatter
   const decal = features.decals.placeDecalDirect(
     position,
     normal,
     DecalType.BLOOD_SPLATTER
   );
 
-  // Optional: add particle effect, sound, etc.
   return decal;
 }
 
-// Example: Simulate explosion effect
 export function createExplosionEffect(position, radius, features) {
   if (!features.decals) return;
 
-  // Place explosion decals in a radius around the center
   const decalCount = 3;
   for (let i = 0; i < decalCount; i++) {
     const angle = (i / decalCount) * Math.PI * 2;
@@ -189,11 +167,9 @@ export function createExplosionEffect(position, radius, features) {
   }
 }
 
-// Example: Quality preset switching (e.g., from settings menu)
 export function switchQualityPreset(features, preset) {
   const config = VisualQualityTier.getConfig(preset);
 
-  // Apply TAA quality
   if (features.taa) {
     const taaQualities = {
       LOW: 'LOW',
@@ -204,28 +180,21 @@ export function switchQualityPreset(features, preset) {
     features.taa.setQuality(taaQualities[preset] ?? 'MEDIUM');
   }
 
-  // Update shadow quality (would require re-creating shadow pipeline)
-  // This is typically done at startup rather than runtime
-
-  // Store config for other systems
   features.currentPreset = preset;
   features.qualityConfig = config;
 
   console.log(`Quality preset switched to: ${preset}`);
 }
 
-// Example: Window resize handler
 export function onWindowResize(width, height, features) {
   if (features.taa) {
     features.taa.onWindowResize(width, height);
   }
 
   if (features.decals) {
-    // Decals don't need resize handling, but motion blur would
   }
 }
 
-// Example: Cleanup on app shutdown
 export function disposeVisualQualityFeatures(features) {
   if (features.taa) {
     features.taa.dispose();
@@ -240,7 +209,6 @@ export function disposeVisualQualityFeatures(features) {
   }
 }
 
-// Example: Create a visual quality settings UI panel
 export function createVisualQualitySettingsPanel() {
   const panel = document.createElement('div');
   panel.style.cssText = `
