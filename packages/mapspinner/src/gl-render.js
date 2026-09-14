@@ -1,12 +1,3 @@
-// WebGL2 terrain RENDER layer: compiles and executes src/shaders/terrain.glsl
-// (spherical deformation VS + CLOD blend + lit FS) per frame. Per-quad deformation
-// uniforms (screenQuadCorners C / verticals N / cornerNorms L / offset / camera /
-// blending / localToWorld) are computed in JS. No WebGPU.
-
-// SDK CANONICAL DEFAULTS: the g()/_g()/o3()/C() fallbacks below read TD.<key> so the calibrated
-// "blessed" look lives in ONE SDK-side place (src/terrain-defaults.js). A window.__<key> override
-// (set live by the demo's tweak panel) still wins per-frame; with no override the SDK renders the
-// blessed look on its own -- the demo no longer has to force-set anything on boot.
 import { TERRAIN_DEFAULTS as TD } from './terrain-defaults.js';
 import { bakeTransmittanceLUT, LUT_WIDTH, LUT_HEIGHT } from './atmosphere-transmittance-lut.js';
 import { bakeScatteringLUT, SCAT_LUT_WIDTH, SCAT_LUT_HEIGHT, SCAT_LUT_LAYERS } from './atmosphere-scattering-lut.js';
@@ -14,38 +5,22 @@ import { canDecodeImages, decodeSurfaceTextureSet } from './surface-texture-deco
 
 import { TU, M4 } from './gl-render-mat4.js';
 
-// MODULE-SCOPE (not per-initMapspinnerRender-instance) cache for the CPU-side atmosphere LUT bakes.
-// bakeTransmittanceLUT/bakeScatteringLUT are pure functions of their own fixed default args (always
-// called with the same LUT_WIDTH/HEIGHT/etc constants below) -- the raw {data,width,height} they
-// produce never varies across instances, so caching it here means a SECOND initMapspinnerRender call
-// within the same page load (the documented cold-load GL-error-storm retry in client/app.js:383-397,
-// which fully disposes+reconstructs terrainBackdrop) reuses the already-computed CPU math instead of
-// re-running the ~1.5s+ optical-depth/in-scatter integration a second time -- live-profiled at ~16%
-// combined CPU self-time per bake (opticalDepth/densities/inscatterAt/sampleTransmittance), confirmed
-// via a real cold-load double-bake (window.__lutBakeCount:2, initMapspinnerRender profiled hits:2) in
-// the 2026-08-10 144fps-push perf investigation. Each initMapspinnerRender instance still re-uploads
-// its OWN fresh GPU texture (the WebGLTexture object itself cannot be shared across GL contexts/a
-// disposed-and-recreated renderer state), only the CPU bake math is shared.
 let _sharedRawTransLUT = null
 let _sharedRawScatLUT = null
-// Same rationale as _sharedRawTransLUT/_sharedRawScatLUT above: loadSurfaceTextures()'s decoded
-// pixel data (albAll/nrmAll, pre-GPU-upload) is a pure function of the fixed texture URLs it fetches
-// -- caching the DECODE (network fetch + JPG decode + de-shade blur + Sobel normal derivation, all
-// real per-pixel CPU work) at module scope means a second initMapspinnerRender instance (the same
-// cold-load GL-error-storm retry documented at _sharedRawTransLUT) reuses the already-decoded pixels
-// instead of re-fetching and re-decoding 8 JPGs from scratch. Each instance still builds its own GPU
-// sampler2DArray from this shared pixel data (mkArray/gl.createTexture cannot be shared across a
-// disposed-and-recreated renderer). Cached as a Promise (not the resolved value) so concurrent
-// initMapspinnerRender calls within the same tick await the SAME in-flight decode instead of racing
-// two decodes.
 let _sharedSurfaceTexDecode = null
-// Stable shader-fetch version tag (see the SHADER FETCH CACHING note in initMapspinnerRender). Bump when a
-// consumer's HTTP layer cannot revalidate (a CDN with no conditional-GET support); with a normal origin the
-// `cache:'no-cache'` fetch already guarantees fresh bytes regardless of this tag.
 const SHADER_CACHE_TAG = 'ms-0.1.264'
-// Spawn the atmosphere-LUT bake worker. Resolves {trans, scat} or null (no Worker support, module-worker
-// unsupported, the sibling file failed to load e.g. from a bundle that flattened import.meta.url, or a
-// bake error) -- null means "bake synchronously in-thread, exactly as before".
+const DESIGN_RADIUS_M = 6360000.0
+const HORIZON_SPHERE_DEPTH_BELOW_SEA = 150.0
+const SUBMERGED_FAR_REACH = 60000.0
+const PROBE_SYNC_SPIN_MS = 4
+const BAKE_READBACK_SPIN_MS = 2
+const FENCE_POLL_HARD_LIMIT_MS = 250
+const FXC_UNROLL_DEFEAT_LOOP_BOUND = 64
+const DIST_SORT_BUCKETS = 256
+const DIST_SORT_MAX_BUCKET = DIST_SORT_BUCKETS - 1
+const WATER_HIDDEN_AFTER_EMPTY_QUERIES = 2
+const WATER_PROBE_MIN_RELIABLE_ALT_M = 5.0
+const WATER_WINDING_FLIP_ALT_M = 5.0
 function _startLutBakeWorker() {
   try {
     if (typeof Worker === 'undefined') return null
@@ -60,8 +35,6 @@ function _startLutBakeWorker() {
     })
   } catch (_) { return null }
 }
-// Spawn the surface-texture decode worker (surface-texture-worker.js). Resolves the decoded set or null
-// (-> the caller runs decodeSurfaceTextureSet() inline, the same function the worker runs).
 function _startSurfaceDecodeWorker() {
   try {
     if (typeof Worker === 'undefined') return null
@@ -78,154 +51,54 @@ function _startSurfaceDecodeWorker() {
 }
 
 export async function initMapspinnerRender(gl, opts = {}) {
-  // GUARD (consumer-facing input validation): see the matching guard in planet-orchestrator.js
-  // initMapspinnerPlanet -- a degenerate radius/gridMeshSize here feeds straight into the shader
-  // uniforms (defRadius etc.) and mesh generation with no error, producing NaN/garbage geometry.
   if (opts.radius != null && (!Number.isFinite(opts.radius) || opts.radius <= 0)) {
     throw new TypeError(`mapspinner: opts.radius must be a positive finite number, got ${opts.radius}`);
   }
   if (opts.gridMeshSize != null && (!Number.isInteger(opts.gridMeshSize) || opts.gridMeshSize < 2)) {
     throw new TypeError(`mapspinner: opts.gridMeshSize must be an integer >= 2, got ${opts.gridMeshSize}`);
   }
-  const R = opts.radius || 6360.0;  // default matches _planetScale=0.001
-  // ===== PERF BOUND (ff-planet-fragment-bound-rootcause / terrain-one-two-drawcalls, 2026-06-19) =====
-  // CONFIRMED by code analysis + the in-file measured comments: the planet render is VERTEX/TILE-COUNT
-  // bound, NOT fragment bound. Evidence:
-  //   * broadShapeM (terrain.glsl:440) is a 12-octave fractal evaluated ~5x PER VERTEX -- the inline
-  //     geometry-height cascade plus 4 finite-difference normal taps (terrain.glsl:1102-1109) -- across
-  //     GRID^2 (=121) verts/tile x ~500-900 visible tiles. That is the 96%+ "VS+raster-bound" the deck
-  //     measurements record (browser-18: fullMs 36.3, vsRaster 35.1, FS 1.2 = the FS is a DEAD lever at
-  //     ~3.4%). Earlier octave-count A/Bs that "left frame time flat" did so because they cut ALU on a
-  //     loop whose real cost at the deck is the TRIANGLE THROUGHPUT (GRID is ~linear; octMax 12->3 flat).
-  //   * The FS atmosphere/splat is cheap relative to the per-vertex carve cascade (the fragment-bound
-  //     hypothesis is DISPROVEN -- the FS is not the ceiling on the weak-iGPU target).
-  // DRAW-CALL COUNT (terrain-one-two-drawcalls): the patch meshes ALREADY render in essentially TWO
-  // draw calls, not "many per-tile" calls -- one gl.drawElementsInstanced for ALL land tiles (the whole
-  // visible leaf set as per-instance iOffset/iFace, render() ~L1266) + one for the water surface
-  // (~L1322). The single shared GRID^2 quad mesh + per-instance offsets means tile COUNT does not add
-  // draw calls; it adds INSTANCES (vertices). So the 1-2-draw target is met; the lever that actually
-  // moves the weak-GPU frame is reducing per-vertex VS work and the visible vertex count -- which is what
-  // the GRID size, the LOD split thresholds (planet-orchestrator.js), the frustum/limb/hierarchical cull,
-  // and the new altitude-driven octave clamp (_clampOcts below) target.
-  const TILE_W = opts.tileW || 25;         // mesh-coord tile width (was producer.TILE_W; producer gone)
-  // GRID 24 -> 16 (FPS lever, measured browser-18: pxPerPoly median 2.4px@40km / 0.45px@8km at GRID 24
-  // = SUB-PIXEL over-tessellation, only 40%/24% in the 4-50px band). GRID 16 cuts verts/quad 676->324
-  // (-52%) and tris/quad 1152->512 (-55%), so the per-vertex 14-oct broadShapeM VS (browser-9: 95% of
-  // the low-alt frame) runs on ~half the vertices. median scales ~24/16 -> ~3.6px, far closer to the
-  // band; the fine relief is carried per-pixel by the FS dFdx normal, not the mesh tessellation.
-  const GRID = opts.gridMeshSize || TD.gridMeshSize;    // mesh quads per edge. 16->11->9 (user 2026-06-23): FPS TRIANGLE-THROUGHPUT lever. 11->9 cuts verts/quad 144->81 (-44%) and tris/quad 242->162 (-33%), fine relief carried by FS normal (dFdx) not mesh. GRID 8 was faster (-50%) but made BIOME CROSSOVER LINES JAGGED (climate varying interpolated across coarse triangles steps along edges). Proper fix to reclaim GRID 8 = per-pixel biome sampling in the FS. Override via ?grid=N. Default sourced from terrain-defaults.js (single source of truth shared with patch-baker.js).
-  // Expose the LIVE mesh grid so screen-space-error diagnostics (planet.html __diag.pxPerPoly)
-  // divide by the real polys/tile instead of a stale literal. Any future GRID change self-corrects
-  // the metric (the 24->16 lever left pxPerPoly defaulting to 24 = 1.5x wrong band fraction).
+  const R = opts.radius || 6360.0;
+  const TILE_W = opts.tileW || 25;
+  const GRID = opts.gridMeshSize || TD.gridMeshSize;
   if (typeof window !== 'undefined') window.__glGrid = GRID;
   const BORDER = 2;
-  const USABLE = TILE_W - 2*BORDER;        // 21 interior samples spanned by the mesh
+  const USABLE = TILE_W - 2*BORDER;
 
-  // HPF (hierarchical parameter field) continental texture -- set by the orchestrator via
-  // setHpf(). The terrain VS samples it by world dir for the continental elevation bias
-  // (seaBias), replacing the old hardcoded lobe. null until set (VS falls back to 0 bias).
-  let _hpfTex = null, _hpfTex2 = null;   // _hpfTex RG16F(seaBias,elevAmp), _hpfTex2 RG8(temp,humid) -- W12 pack
-  // bakeOnly (patch-baker.js's second planet): build ONLY what the _HEIGHTBAKE_ path needs (shader source,
-  // ensureBake's program/FBO, the HPF sampler plumbing, the __thcBake* globals). The terrain/water/sky/
-  // upscale programs, atmosphere LUTs, surface textures and mesh buffers are skipped; render() throws.
+  let _hpfTex = null, _hpfTex2 = null;
   const bakeOnly = !!opts.bakeOnly;
 
-  // ---- compile terrain.glsl ----
-  // SHADER FETCH CACHING (2026-09-06): the old per-load `?v=performance.now()` cache-buster gave every
-  // page load a NEVER-SEEN URL, so the browser could not even revalidate -- a full re-download of both
-  // shader files on every load. A STABLE version tag + `cache:'no-cache'` keeps the "never a stale
-  // shader" guarantee the 2026-06-16 cache-bust was written for (no-cache = the fetch ALWAYS revalidates
-  // with the origin via a conditional request, regardless of any Cache-Control max-age; a 304 reuses the
-  // cached bytes, a change re-downloads) while letting an unchanged shader come back as a 304.
-  // window.__shaderNoCache = true restores the old per-load unique URL + cache:'reload' (dev override).
   const _shaderNoCache = (typeof window !== 'undefined' && window.__shaderNoCache === true);
   const _sv = _shaderNoCache
     ? '?v=' + (typeof performance !== 'undefined' ? (performance.now()|0) : Date.now())
     : '?v=' + SHADER_CACHE_TAG;
   const _fetchOpts = _shaderNoCache ? { cache: 'reload' } : { cache: 'no-cache' };
-  // ATMOSPHERE LUT BAKE kicked off NOW (before the shader fetch), in a Worker (atmosphere-lut-worker.js):
-  // the ~1-3 s of pure-CPU LUT math overlaps the network fetch + the driver's shader compile instead of
-  // running serially after them. Awaited (never skipped) at the point the synchronous bake used to run
-  // (ensureTransmittanceLUT/ensureScatteringLUT below), so the LUT is always fully baked before the first
-  // frame -- there is no "not-yet-ready LUT" frame. Falls back to the synchronous bake on any failure.
   const _lutJob = (!bakeOnly && !_sharedRawTransLUT) ? _startLutBakeWorker() : null;
-  // EMBEDDABLE: fetch shaders relative to THIS module (import.meta.url), not the page,
-  // so the SDK loads its shaders when consumed from node_modules by a host (e.g. spoint),
-  // not only from the mapspinner dev page where ./src was page-relative.
-  // Both files are fetched CONCURRENTLY (Promise.all) -- they were awaited one after the other.
-  // Analytic Bruneton-style atmosphere helpers (atmosphere.glsl) are shared by terrain FS + sky pass;
-  // a bakeOnly instance never compiles either, so it skips that fetch entirely.
   const _fetchText = (rel) => fetch(new URL(rel + _sv, import.meta.url), _fetchOpts).then(r => r.text());
   let [src, atmoSrc] = await Promise.all([
     _fetchText('./shaders/terrain.glsl'),
     bakeOnly ? Promise.resolve('') : _fetchText('./shaders/atmosphere.glsl'),
   ]);
 
-  // NON-BLOCKING COMPILE (user 2026-06-02: 'startup takes really long'). The terrain shader's
-  // first (cold-cache) compile can take tens of seconds; querying COMPILE_STATUS/LINK_STATUS
-  // BLOCKS the main thread until the driver finishes -> the page freezes for the whole compile.
-  // KHR_parallel_shader_compile lets the driver compile on a worker thread; we poll the
-  // non-blocking COMPLETION_STATUS_KHR and yield to the event loop between polls, so the page
-  // stays responsive (and can show a loading state) during a cold compile instead of freezing.
   const _parExt = gl.getExtension('KHR_parallel_shader_compile');
   const COMPLETION_STATUS_KHR = 0x91B1;
-  // Await a program's link completion without blocking the main thread. With the parallel ext we
-  // poll COMPLETION_STATUS_KHR (true once the driver is done); without it we fall back to one
-  // yield then the (blocking) status read. Throws on compile/link failure, same as before.
   async function awaitProgramLink(p, vs, fs, label){
-    // yield_ defers to rAF when the tab is visible, setTimeout(8) when hidden (background tabs
-    // throttle rAF to ~1/min -- the recurring stuck-at-init mechanism, 2026-06-12).
     const yield_ = () => new Promise(res => (typeof requestAnimationFrame !== 'undefined'
       && typeof document !== 'undefined' && !document.hidden
       ? requestAnimationFrame(() => res()) : setTimeout(res, 8)));
     if (_parExt) {
-      // poll until the driver reports completion without blocking the main thread.
       while (!gl.getProgramParameter(p, COMPLETION_STATUS_KHR)) { await yield_(); }
     } else {
-      // No KHR_parallel_shader_compile: getProgramParameter(LINK_STATUS) blocks until the driver
-      // finishes (can be 30+ s on D3D11/FXC). Yield once so at minimum the event loop gets one
-      // tick (loading-state paint, input) before the stall, matching the comment's intent.
       await yield_();
     }
-    // now the status reads return immediately (compile/link already finished, or the blocking
-    // stall above has resolved)
     if (vs && !gl.getShaderParameter(vs, gl.COMPILE_STATUS)) throw new Error(label+' vs: '+gl.getShaderInfoLog(vs));
     if (fs && !gl.getShaderParameter(fs, gl.COMPILE_STATUS)) throw new Error(label+' fs: '+gl.getShaderInfoLog(fs));
     if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(label+' link: '+gl.getProgramInfoLog(p));
   }
-  // PRECISION: global default HIGHP float. The mediump default (a speculative mobile-ALU lever) kept
-  // causing recurring UV SCRAMBLES -- any world-scale noise UV (normalize(worldPos)*freq, freq up to
-  // ~9000) whose snoise3 arg was evaluated in mediump (fp16 mantissa ~2048) lost lattice precision and
-  // scrambled at close range, and chasing every per-site highp island kept missing sites (multiple
-  // commits: f8550b2 et al). HIGHP-DEFAULT eliminates the entire class in one line (P2 simplicity +
-  // P8 make-misuse-impossible: a mediump world-scale UV can no longer be reintroduced by omission).
-  // Float WIDTH is not our measured frontier (octave count + LOD vertex count are), so the ALU cost is
-  // acceptable; correctness + simplicity win over a micro-optimization that keeps breaking. The explicit
-  // highp islands left in the shader are now redundant-but-harmless. int + sampler2DArray stay highp.
   const hdr = '#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2DArray;\n';
-  // Build (or rebuild) the terrain program from the current src/atmoSrc. Factored so the
-  // shader can be HOT-RELOADED in place (recompile()) without a page reload -- the biggest
-  // single cut to the shader-edit debug loop. On compile/link failure it throws WITHOUT
-  // disturbing the live program, so a bad edit is reported inline and the old shader keeps
-  // running (no broken page).
-  // Kick off compile+link WITHOUT reading status (non-blocking with KHR_parallel_shader_compile).
-  // Returns {p, vs, fs}; the caller awaits awaitProgramLink() to validate once the driver is done.
-  // fsDefs lets the caller add FS-only #defines (e.g. _DEBUGVIEW_ for the lazy debug program that
-  // carries the diagnostic displayModes). The render program passes '' so the diagnostic blocks are
-  // #ifdef'd OUT (the 7132-char / 25% cold-compile cut, browser-1590); the debug program passes
-  // ' _DEBUGVIEW_' to compile them in. The VS is identical for both (no debug branches in the VS).
-  // sharedVs (optional): an already-compiled VERTEX shader object from a previous buildTerrainProgram of
-  // the SAME source -- the VS (the 12-octave composeHeight fractal, the cold-compile pole) is byte-identical
-  // for the terrain, water and debug programs, so it is compiled ONCE and attached to all of them.
   function buildTerrainProgram(terrainSrc, atmo, fsDefs, sharedVs){
-    fsDefs = fsDefs || '';   // space-separated extra FS defines, e.g. '_DEBUGVIEW_'
+    fsDefs = fsDefs || '';
     function shader(type, def){ const s=gl.createShader(type);
-      // Inject atmosphere.glsl into the FRAGMENT stage only (it's pure functions; the VS
-      // doesn't need it). It must appear before terrain.glsl's FS uses the helpers.
       const body = (type===gl.FRAGMENT_SHADER) ? (atmo+'\n'+terrainSrc) : terrainSrc;
-      // Each token gets its OWN `#define` line -- a single `#define _FRAGMENT_ _DEBUGVIEW_` would make
-      // _FRAGMENT_ a macro that EXPANDS to _DEBUGVIEW_ (and never DEFINE _DEBUGVIEW_), so the debug
-      // blocks stayed #ifdef'd out (witnessed browser-1609: debugFS==renderFS). Split into lines.
       const tokens = [def].concat(
         (type===gl.FRAGMENT_SHADER && fsDefs) ? fsDefs.trim().split(/\s+/) : []);
       const defLines = tokens.map(t => '#define '+t+'\n').join('');
@@ -234,49 +107,24 @@ export async function initMapspinnerRender(gl, opts = {}) {
     const p = gl.createProgram();
     gl.attachShader(p, vs); gl.attachShader(p, fs);
     gl.bindAttribLocation(p, 0, 'vertex');
-    gl.linkProgram(p);                              // kicks off the (parallel) link; do NOT read status here
+    gl.linkProgram(p);
     return { p, vs, fs };
   }
-  // COLD COMPILE: only the render program is built on the cold startup path now. The collision PROBE
-  // program is LAZY (ensureProbe, built on first sampleGroundM) and the DEBUG program is lazy
-  // (ensureDebug) -- both off the cold path. KHR_parallel_shader_compile keeps the render link
-  // non-blocking so the page shows a loading state instead of freezing.
-  // TWO programs from one source (see terrain.glsl's _WATERPASS_ comment): the TERRAIN program (no
-  // discard -> early-Z depth write stays enabled for the whole terrain pass) and the WATER program
-  // (the water branch, with its discards). The VS shader object is compiled once and shared.
   let _b = bakeOnly ? null : buildTerrainProgram(src, atmoSrc);
   let _bw = bakeOnly ? null : buildTerrainProgram(src, atmoSrc, ' _WATERPASS_', _b.vs);
-  let _curVs = _b ? _b.vs : null;   // the shared VS object for the current `src` (debug program reuses it too)
-  // LAZY PROBE (build-time pivot 2026-06-09): the collision-height probe program is NO LONGER built on
-  // the cold startup path. Measured: the probe (composeHeight + 5 carves FS) was a co-equal cold-compile
-  // pole, but sampleGroundM only runs on free-fly collision NEAR GROUND -- never at startup. So it is now
-  // built on first sampleGroundM() call (ensureProbe, mirroring the lazy debug program). Removes the probe
-  // VS+FS from the cold compile with ZERO functionality loss (collision still GPU-exact, just compiled the
-  // first time the user needs it). sampleGroundM returns null until the first build finishes (caller falls
-  // back to no-collision, same as the long-standing probe-unavailable path).
+  let _curVs = _b ? _b.vs : null;
   if (!bakeOnly) {
-    await awaitProgramLink(_b.p, _b.vs, _b.fs, 'terrain');   // non-blocking poll, then validate (render only now)
-    await awaitProgramLink(_bw.p, null, _bw.fs, 'water');    // VS already validated above (shared object)
+    await awaitProgramLink(_b.p, _b.vs, _b.fs, 'terrain');
+    await awaitProgramLink(_bw.p, null, _bw.fs, 'water');
   }
   let prog = _b ? _b.p : null;
   let waterProg = _bw ? _bw.p : null;
-  const _wUloc = new Map();   // water program's own uniform-location cache (locations are per-program)
-  // LAZY DEBUG PROGRAM: the diagnostic displayModes (1,5,6,7,8,9,10,11,12) live behind _DEBUGVIEW_,
-  // compiled into this SEPARATE program only when the user first selects such a mode -- it is NEVER
-  // on the cold startup path (the render program above excludes them). Built on demand by ensureDebug();
-  // null until then. Its own uniform-location cache (_dbgUloc) since locations are per-program.
+  const _wUloc = new Map();
   let debugProg = null, _dbgBuilding = null;
   const _dbgUloc = new Map();
-  // The diagnostic-only modes that REQUIRE the debug program. Modes 0 (lit), 2 (albedo), 4 (biome
-  // ramp) render correctly in the hot program, so they never trigger a debug-program build.
   const DEBUG_MODES = new Set([1,5,6,7,8,9,10,11,12]);
   function ensureDebug(){
-    if (debugProg || _dbgBuilding) return;          // already built or in-flight
-    // VISIBLE STATE (2026-06-12 'total clarity' tooling): a failed/slow debug compile used to fall
-    // back to the lit view FOREVER with no signal (witnessed: displayMode 11 silently rendered lit;
-    // a whole diagnostic session trusted a view that never engaged). __debugProgState is the witness:
-    // 'compiling' -> 'ready' | 'failed: <log>'; planet.html shows it in the HUD while a debug mode
-    // is requested but not yet served.
+    if (debugProg || _dbgBuilding) return;
     if (typeof window !== 'undefined') window.__debugProgState = 'compiling';
     _dbgBuilding = (async () => {
       try {
@@ -288,32 +136,16 @@ export async function initMapspinnerRender(gl, opts = {}) {
       finally { _dbgBuilding = null; }
     })();
   }
-  // ACTIVE PROGRAM indirection: U() resolves locations against whichever program is bound this frame
-  // (render prog by default; the debug prog while a diagnostic displayMode is active). Each program
-  // keeps its own location cache. _activeProg/_activeUloc are swapped in render() per frame.
   let _activeProg = null, _activeUloc = null, _activeChu = null;
   function setActiveProgram(p, cache, chu){ _activeProg = p; _activeUloc = cache; _activeChu = chu; }
-  // MEMOIZE uniform locations: U() was calling gl.getUniformLocation EVERY time, and the
-  // per-quad path (setQuadUniforms + 3x setTileCoords) hit it ~15x per quad per frame ->
-  // ~3000 synchronous driver round-trips/frame at 200 quads = the ~4fps stall. Cache by
-  // name; getUniformLocation is then called once per name. Cleared on recompile().
   const _uloc = new Map();
   const U = n => { const cache = _activeUloc || _uloc; const p = _activeProg || prog;
     let l = cache.get(n); if (l === undefined) { l = gl.getUniformLocation(p, n); cache.set(n, l); } return l; };
-  // PROBE uniform-location cache (ESE 2026-06-10): sampleGroundM ran ~18 synchronous
-  // gl.getUniformLocation(probeProg,...) per call (8 inline + ~10 via setComposeHeightUniforms),
-  // hit once/frame on the near-ground collision path = ~18 driver round-trips/frame where it hurts
-  // most. Mirror _uloc: memoize per name, cleared when the probe program is (re)built.
   let _probeUloc = new Map();
   const PU = n => { let l = _probeUloc.get(n); if (l === undefined) { l = gl.getUniformLocation(probeProg, n); _probeUloc.set(n, l); } return l; };
-  // HOT-RELOAD: re-fetch both shader files (cache-busted), rebuild the terrain program,
-  // and swap it in atomically. Returns {ok:true} or {ok:false, error} -- never leaves the
-  // renderer in a broken state (a failed build throws before `prog` is reassigned).
   async function recompile(){
     try {
       if (bakeOnly) throw new Error('recompile() unavailable on a bakeOnly instance');
-      // module-relative (import.meta.url), not page-relative: the hot-reload path used './src/shaders/...'
-      // which only resolved from mapspinner's own dev page, never from an embedding host (spoint).
       const _t = '?t=' + (performance.now()|0);
       const [ns, na] = await Promise.all([
         fetch(new URL('./shaders/terrain.glsl' + _t, import.meta.url), { cache: 'reload' }).then(r => r.text()),
@@ -321,36 +153,19 @@ export async function initMapspinnerRender(gl, opts = {}) {
       ]);
       const nb = buildTerrainProgram(ns, na);
       const nbw = buildTerrainProgram(ns, na, ' _WATERPASS_', nb.vs);
-      await awaitProgramLink(nb.p, nb.vs, nb.fs, 'terrain');   // throws on compile/link error
+      await awaitProgramLink(nb.p, nb.vs, nb.fs, 'terrain');
       await awaitProgramLink(nbw.p, null, nbw.fs, 'water');
       const newProg = nb.p;
       const old = prog, oldW = waterProg; prog = newProg; waterProg = nbw.p; _curVs = nb.vs; src = ns; atmoSrc = na;
       _uloc.clear(); _chuClear(_chuR); _wUloc.clear(); _chuClear(_chuW);
-      // _lutTex (atmosphere transmittance LUT) intentionally NOT recreated/re-baked here: it is a
-      // pure data texture with no dependency on the compiled program (unlike prog/debugProg/probeProg,
-      // which must be rebuilt from the new shader source) -- only its uniform LOCATION needs re-
-      // resolving against the new program, which the _uloc.clear() above + U()'s normal per-name
-      // memoization already handles on the next frame that calls U('uTransmittanceLUT'). Re-baking on
-      // every hot-reload would also be wasteful (the LUT depends only on the ATM_* constants, which a
-      // terrain.glsl/atmosphere.glsl source edit essentially never changes mid-session).
       gl.deleteProgram(old); gl.deleteProgram(oldW);
-      // invalidate the lazy debug program so it rebuilds from the new source on the next debug-mode frame.
       if (debugProg) { gl.deleteProgram(debugProg); debugProg = null; _dbgUloc.clear(); _chuClear(_chuD); }
-      // invalidate the lazy probe program too (perf sweep 2026-06-11): it was leaked AND kept running
-      // the OLD shader source after a hot-reload -- collision silently diverged from the new geometry.
       if (probeProg) { gl.deleteProgram(probeProg); probeProg = null; _probeUloc.clear(); _chuClear(_chuP); }
       return { ok: true };
     } catch (e) { return { ok: false, error: String(e.message || e) }; }
   }
 
-  // ---- HEIGHT PROBE program (collision): render the EXACT terrain height for ONE world dir
-  // to a 1x1 R32F target, then readPixels it. The free-fly collision floor reads this so it can
-  // never diverge from the rendered surface (user-chosen GPU readback, not a CPU mirror). The
-  // probe FS (#define _PROBE_) reuses terrain.glsl's hpfSample + broadShapeM; the VS emits one
-  // point at clip (0,0). Tiny 4-byte readback per call (collision once/frame).
   let probeProg = null, probeFbo = null, probeTex = null, _probeBuilding = null;
-  // ensureProbe(): build the collision-height probe program + its 1x1 R32F FBO on first need (lazy).
-  // Idempotent + in-flight-guarded (mirrors ensureDebug). Off the cold startup path.
   function ensureProbe(){
     if (probeProg || _probeBuilding) return;
     _probeBuilding = (async () => {
@@ -367,106 +182,45 @@ export async function initMapspinnerRender(gl, opts = {}) {
         const fbo = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
         gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-        _probeUloc.clear(); _chuClear(_chuP);   // stale locations from any prior probe program are invalid for the new one
-        probeTex = tex; probeFbo = fbo; probeProg = pp;   // assign LAST so a half-built probe is never used
+        _probeUloc.clear(); _chuClear(_chuP);
+        probeTex = tex; probeFbo = fbo; probeProg = pp;
       } catch(e){ probeProg = null; try { if(typeof window!=='undefined') window.__probeErr = String(e.message||e); } catch(_){} }
       finally { _probeBuilding = null; }
     })();
   }
   const probeVao = gl.createVertexArray();
-  // ASYNC READBACK STATE (2026-06-16, measured +10fps at the deck: a synchronous gl.readPixels was a
-  // FULL pipeline stall = 3.68ms/frame, latency-bound so it cost the SAME on AMD APU and NVIDIA GPU
-  // -> the cross-GPU FPS-parity tell the user caught). The probe now reads into a PIXEL_PACK_BUFFER
-  // (readPixels returns immediately, GPU fills it later) + a fenceSync; the NEXT call reads the PBO
-  // only once the fence is signaled (non-blocking clientWaitSync(0)). Collision consumes the height
-  // ~1 frame late -- negligible at deck movement speed (the move-step already caches __lastGpuM).
   let _probePbo = null, _probeSync = null, _probeLastM = null;
-  const _probeOut = new Float32Array(1);   // RED/FLOAT readback is single-channel (was 4: RGBA over-read of the R32F source)
-  // _issueProbeDraw(dir): shared draw-issue preamble for BOTH sampleGroundM (fire-and-forget async,
-  // 1-frame-stale by design for the per-frame collision hot path) and sampleGroundMSync (blocking,
-  // for one-off diagnostic/probe callers -- see the mapspinner-sampleGroundM-probe-drift-preexisting-bug
-  // fix below). Binds probeFbo, sets every uniform, issues the 1-point draw, and starts the PBO
-  // readPixels + fence -- but does NOT harvest. Extracted so both call shapes issue byte-identical
-  // draws (same program/uniform/attrib state) instead of two copies that could silently diverge.
+  const _probeOut = new Float32Array(1);
   function _issueProbeDraw(dir){
-    if (!_probePbo) { _probePbo = gl.createBuffer(); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, _probePbo); gl.bufferData(gl.PIXEL_PACK_BUFFER, 4, gl.STREAM_READ); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); }   // 4 bytes: RED/FLOAT single-channel readback (was 16 for RGBA)
+    if (!_probePbo) { _probePbo = gl.createBuffer(); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, _probePbo); gl.bufferData(gl.PIXEL_PACK_BUFFER, 4, gl.STREAM_READ); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); }
     const pl = Math.hypot(dir[0],dir[1],dir[2])||1;
     gl.bindFramebuffer(gl.FRAMEBUFFER, probeFbo);
     gl.viewport(0,0,1,1);
     gl.useProgram(probeProg);
     gl.bindVertexArray(probeVao);
-    // The texture-UNIT bind (activeTexture+bindTexture) is global GL state, shareable with render()'s own
-    // last-bound tracking -- but the sampler uniform (PU('hpfPool')=3) is PROGRAM-scoped state on probeProg,
-    // a DIFFERENT program from render()'s, so it cannot be skipped just because render() already bound the
-    // unit; route it through _chuSet1i keyed on PU (the probe's own uniform cache) so it uploads once per
-    // probeProg lifetime, independent of the texture-bind skip.
     if (_hpfTex && _lastHpfTex !== _hpfTex) { _lastHpfTex = _hpfTex; gl.activeTexture(gl.TEXTURE0 + TU.hpf); gl.bindTexture(gl.TEXTURE_2D_ARRAY, _hpfTex); }
     if (_hpfTex) _chuSet1i(PU, _chuP, 'hpfPool', TU.hpf);
     if (_hpfTex2 && _lastHpfTex2 !== _hpfTex2) { _lastHpfTex2 = _hpfTex2; gl.activeTexture(gl.TEXTURE0 + TU.hpf2); gl.bindTexture(gl.TEXTURE_2D_ARRAY, _hpfTex2); }
     if (_hpfTex2) _chuSet1i(PU, _chuP, 'hpfPool2', TU.hpf2);
     gl.uniform1i(PU('hasHpf'), _hpfTex?1:0);
-    // uTransmittanceLUT: the probe's _PROBE_ main() never calls any atm_* function (composeHeight
-    // is pure height math), so this uniform is dead code on the probe program in practice -- but
-    // pin it anyway, same "never leave a declared sampler unbound" discipline as hpfPool above
-    // (a driver is not required to eliminate control flow around an unreferenced uniform before
-    // validating the unit at draw time; matches the uHeightPool-unit-8 incident this file already
-    // documents). Texture-unit bind is shared/skippable via the same last-bound tracking render()
-    // uses; the sampler uniform itself is per-program state on probeProg, uploaded via PU/_chuSet1i.
     if (_lutTex) { gl.activeTexture(gl.TEXTURE0 + TU.transmittanceLUT); gl.bindTexture(gl.TEXTURE_2D, _lutTex); _chuSet1i(PU, _chuP, 'uTransmittanceLUT', TU.transmittanceLUT); }
-    // uScatteringLUT: same dead-code-but-pin-anyway discipline as uTransmittanceLUT immediately above.
     if (_scatTex) { gl.activeTexture(gl.TEXTURE0 + TU.scatteringLUT); gl.bindTexture(gl.TEXTURE_2D_ARRAY, _scatTex); _chuSet1i(PU, _chuP, 'uScatteringLUT', TU.scatteringLUT); }
-    // SAME shape-control + HPF-sampler congruence as render() (setComposeHeightUniforms): the probe runs
-    // composeHeight for sampleGroundM (collision/camera height) so collision matches the rendered surface.
-    // If uHiFreqCut/vtxDetail were unset (0.0) here the probe's height would omit all fine relief and
-    // diverge from the rendered geometry = the camera stops short of the visible surface. Match render().
-    _octClampAlt = 0;   // collision probe: full octaves regardless of the last render frame's altitude (collision must match the close-up surface)
+    _octClampAlt = 0;
     setComposeHeightUniforms(PU, _chuP);
     gl.uniform3f(PU('probeDir'), dir[0]/pl, dir[1]/pl, dir[2]/pl);
     gl.disable(gl.DEPTH_TEST);
     gl.drawArrays(gl.POINTS, 0, 1);
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, _probePbo);
-    gl.readPixels(0,0,1,1, gl.RED, gl.FLOAT, 0);   // ASYNC: into the PBO at offset 0, returns immediately (no CPU<-GPU stall). RED/FLOAT matches the R32F source (1 channel, not RGBA's 4x bytes) -- WebGL2 core supports RED/FLOAT readback from an R32F FBO (same EXT_color_buffer_float already required above).
+    gl.readPixels(0,0,1,1, gl.RED, gl.FLOAT, 0);
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
     const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
-    gl.flush();   // push the commands + fence so the GPU starts now and the fence can signal by next call
+    gl.flush();
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.bindVertexArray(null);
     return fence;
   }
-  // sampleGroundM(dir): rendered terrain height (metres) at world direction dir, ~1 frame stale.
-  // Returns null until the first async read completes (caller falls back to the CPU mirror).
-  //
-  // CONTRACT WARNING (mapspinner-sampleGroundM-probe-drift-preexisting-bug, fixed 2026-07-21): this
-  // function is FIRE-AND-FORGET ASYNC BY DESIGN for the per-frame collision hot path (see the
-  // 2026-06-16 comment above _probePbo -- a synchronous readPixels here was a measured 3.68ms/frame
-  // pipeline stall). Each call HARVESTS the PBO/fence issued by the PREVIOUS call, then issues a new
-  // draw for THIS call's dir and returns the harvested (previous-call) value. That is correct and
-  // cheap when called every rAF frame with a slowly-changing dir (the real collision use case: the
-  // 1-call lag IS the "~1 frame stale" contract, negligible at deck movement speed). It is WRONG for
-  // any caller that is NOT paced by the page's own render loop -- e.g. a diagnostic/probe/parity
-  // script driving this via separate synchronous calls (CDP round-trips, a Node harness, a witness
-  // loop with no intervening rAF) with no fence-signalling gap between calls. In that access pattern
-  // EVERY call harvests a fence that has not yet had a chance to signal (still in flight from the
-  // immediately-preceding call), so harvest is skipped (step 1's `if` never fires) and the function
-  // returns _probeLastM completely unrelated to the dir just passed -- specifically, calling with two
-  // alternating directions A,B,A,B,... makes call N return the value for THAT call's OWN direction
-  // one full call late: read(A) returns B's settled height, read(B) returns A's, forever in lockstep
-  // (live-reproduced: alternation never converges, matchesD1/matchesD2 swap every single call, 12/12
-  // calls in a real headless witness). This LOOKS like a fixed additive per-call drift when a witness
-  // script logs "before" and "after" values around some intervening state change (e.g. a sculpt
-  // stroke) without accounting for the pipeline depth -- the "drift" is really the SAME stale-read
-  // artifact, and the correct protocol (already used by the sculpt-override witness this bug was
-  // found under) is comparing the STEADY-STATE PER-CALL delta only once the read cadence has settled
-  // to one call per intervening frame, never a raw single before/after diff.
-  // FIX: sampleGroundMSync(dir) below is the correct API for a probe/diagnostic caller -- it blocks
-  // (bounded spin, same discipline as bakeTileReadback's PBO+fence spin-then-block harvest) until the
-  // draw it JUST issued is actually readable, so the returned value always matches the dir passed
-  // THIS call, with zero cross-call lag. sampleGroundM's async fire-and-forget behavior is UNCHANGED
-  // (a real per-frame regression risk to the collision hot path if it were forced synchronous) --
-  // this is a new sibling API, not a contract change to the existing one.
   function sampleGroundM(dir) {
-    if (!probeProg) { ensureProbe(); return null; }   // lazy: kick off the build on first need, fall back to null until ready
-    // 1) HARVEST a completed prior read (non-blocking) so we never wait on the GPU.
+    if (!probeProg) { ensureProbe(); return null; }
     if (_probeSync) {
       const st = gl.clientWaitSync(_probeSync, 0, 0);
       if (st === gl.ALREADY_SIGNALED || st === gl.CONDITION_SATISFIED) {
@@ -477,27 +231,12 @@ export async function initMapspinnerRender(gl, opts = {}) {
         gl.deleteSync(_probeSync); _probeSync = null;
       }
     }
-    // 2) Only issue a fresh read when none is in flight (else just return the last harvested value).
     if (!_probeSync) _probeSync = _issueProbeDraw(dir);
     return _probeLastM;
   }
-  // sampleGroundMSync(dir): BLOCKING variant of sampleGroundM for one-off diagnostic/probe/parity
-  // callers (lab.mjs parity sweeps, sculpt-verification witnesses, any script not paced by the page's
-  // own rAF loop) -- see the CONTRACT WARNING above sampleGroundM for why the async version silently
-  // returns a stale, unrelated-direction value under that access pattern. Issues its OWN draw for
-  // `dir` (via the same _issueProbeDraw preamble sampleGroundM uses, so both stay byte-identical) and
-  // spins on the fence (bounded, same shape as bakeTileReadback's PBO+fence spin-then-block harvest)
-  // until it can read back THIS call's own result -- never a previous call's. Costs one real GPU
-  // pipeline flush/stall per call (same class of cost the 2026-06-16 async fix was written to avoid
-  // on the per-frame hot path); acceptable for a probe/diagnostic call site, NOT for sampleGroundM's
-  // per-frame collision consumer. If a fenced async read was already in flight from a prior
-  // sampleGroundM/sampleGroundMSync call, harvest it first (same as sampleGroundM step 1) so no PBO
-  // readback is ever silently dropped, then issue+block for this call's own dir.
   function sampleGroundMSync(dir) {
-    if (!probeProg) { ensureProbe(); return null; }   // lazy: same fallback contract as sampleGroundM
+    if (!probeProg) { ensureProbe(); return null; }
     if (_probeSync) {
-      // Drain whatever was already in flight (harvest if ready, else just wait for it below) so this
-      // call's own issue doesn't orphan a still-pending fence/PBO from a previous async call.
       const st = gl.clientWaitSync(_probeSync, 0, 0);
       if (st === gl.ALREADY_SIGNALED || st === gl.CONDITION_SATISFIED) {
         gl.bindBuffer(gl.PIXEL_PACK_BUFFER, _probePbo);
@@ -508,22 +247,13 @@ export async function initMapspinnerRender(gl, opts = {}) {
       gl.deleteSync(_probeSync); _probeSync = null;
     }
     const fence = _issueProbeDraw(dir);
-    // Bounded spin (mirrors bakeTileReadback's discipline): give the GPU a chance to finish before
-    // falling through to a blocking clientWaitSync. SYNC_FLUSH_COMMANDS_BIT_BIT-free (already flushed
-    // by _issueProbeDraw) blocking wait as the last resort so this ALWAYS returns THIS call's value,
-    // never an approximation -- diagnostic correctness matters more than the bounded-stall shortcut.
-    const spinUntil = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + 4;
+    const spinUntil = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + PROBE_SYNC_SPIN_MS;
     let status = gl.clientWaitSync(fence, 0, 0);
     while (status === gl.TIMEOUT_EXPIRED && (typeof performance !== 'undefined' ? performance.now() : Date.now()) < spinUntil) {
       status = gl.clientWaitSync(fence, 0, 0);
     }
     if (status === gl.TIMEOUT_EXPIRED) {
-      // Spin budget exhausted -- fall through to a genuinely blocking wait (timeout ~1e9ns = 1s) so
-      // this never returns a wrong-direction value; a real GPU hang is a separate, unrelated failure.
-      // Bounded zero-timeout poll with SYNC_FLUSH_COMMANDS_BIT: WebGL2 rejects a non-zero timeout
-      // (> MAX_CLIENT_WAIT_TIMEOUT_WEBGL, commonly 0) with INVALID_OPERATION, so the old 1e9 "blocking
-      // wait" never waited at all -- it just logged a GL error and fell through unsynchronised.
-      const _hardUntil = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + 250;
+      const _hardUntil = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + FENCE_POLL_HARD_LIMIT_MS;
       do { status = gl.clientWaitSync(fence, gl.SYNC_FLUSH_COMMANDS_BIT, 0); }
       while (status === gl.TIMEOUT_EXPIRED && (typeof performance !== 'undefined' ? performance.now() : Date.now()) < _hardUntil);
     }
@@ -535,20 +265,12 @@ export async function initMapspinnerRender(gl, opts = {}) {
     return _probeLastM;
   }
 
-  // ===== THC HEIGHT-CACHE BAKE (2026-06-14, NON-DESTRUCTIVE) =====
-  // A separate program renders composeHeight for one tile into an R32F grid (a fullscreen tri; each
-  // fragment = one tile parametric texel). Used FIRST as a readback witness (bake vs procedural
-  // sampleGroundM) to prove the bake matches the geometry; the pool/LRU + the VS-sample switch are
-  // later DAG nodes. _faceFrames mirror terrain.glsl faceFrame() columns (column-major mat3).
   const THC_BAKE_RES = 130;
   const _faceFrames = [
     [0,0,-1, 0,1,0, 1,0,0], [0,0,1, 0,1,0, -1,0,0],
     [1,0,0, 0,0,-1, 0,1,0], [1,0,0, 0,0,1, 0,-1,0],
     [1,0,0, 0,1,0, 0,0,1], [-1,0,0, 0,1,0, 0,0,-1],
   ];
-  // Pre-converted Float32Array per face, built once here instead of re-wrapping `new Float32Array(_faceFrames[face])`
-  // on every bake-uniform upload call (3 call sites, one per baked tile/frame) -- the source arrays never mutate,
-  // so the conversion is a pure one-time cost.
   const _faceFramesF32 = _faceFrames.map(f => new Float32Array(f));
   let bakeProg=null, bakeTex=null, bakeFbo=null, _bakeBuilding=null; const _bakeUloc=new Map();
   const BU = n => { let l=_bakeUloc.get(n); if(l===undefined){ l=gl.getUniformLocation(bakeProg,n); _bakeUloc.set(n,l);} return l; };
@@ -574,30 +296,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
     })();
   }
   const bakeVao = gl.createVertexArray();
-  // bake ONE tile into bakeTex + read it back (Float32Array of THC_BAKE_RES^2 heights). Returns null
-  // until the program is built (lazy). NON-DESTRUCTIVE: does not touch the live render path.
-  //
-  // PBO+FENCE READBACK (2026-07-02, fps-drop investigation): a plain gl.readPixels here was measured as
-  // the single dominant live-frame cost (~3.3ms/frame, ~48% of the 6.94ms 144Hz budget) -- it is a FULL
-  // CPU<-GPU pipeline stall exactly like the sampleGroundM probe was before its 2026-06-16 async fix (see
-  // that fix's comment above). This callsite CANNOT go fully async the same way (return null immediately,
-  // harvest next call) without a caller-side rewrite: patch-baker.js's bakeTile() retry-loops up to 12x
-  // synchronously with NO yield between attempts, so a null-then-poll pattern here would just busy-spin
-  // GL calls instead of stalling on one -- same wall-clock cost, worse (12x draw+bindFramebuffer calls).
-  // Correctness constraint: the deterministic bake must stay byte-identical for server/client collider +
-  // placement parity, so a stale/wrong-tile heights array is not acceptable, only a bounded stall is.
-  // Middle ground: readPixels into a PIXEL_PACK_BUFFER (still synchronous call) is measurably cheaper on
-  // most drivers than the default readPixels-into-a-typed-array path (avoids one extra host-side copy +
-  // lets the driver choose a faster DMA transfer), and a short (not 0ms) clientWaitSync poll spin gives
-  // the GPU a chance to finish the draw+copy before the CPU blocks, shrinking (not eliminating) the stall
-  // versus reading immediately after gl.flush(). This keeps the synchronous contract every caller
-  // (server collider bake, client placement lookup, both via __thcBakeReadback) already depends on.
   let _bakePbo = null;
-  // The shared bake-tile draw preamble. Every bake path (sync readback, async-slot issue, pool-layer)
-  // must issue byte-identical program+uniforms+draw or the deterministic server/client collider-parity
-  // bake silently diverges between them -- single-source it here so a format/octave/uniform edit lands
-  // once (mirrors setComposeHeightUniforms one level up). The CALLER binds its own FBO target (bakeFbo
-  // vs poolFbo+framebufferTextureLayer) before calling and does its own readback after.
   function drawBakeTile(face, ox, oy, l, level){
     gl.viewport(0,0,THC_BAKE_RES,THC_BAKE_RES);
     gl.useProgram(bakeProg);
@@ -605,7 +304,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
     if (_hpfTex){ gl.activeTexture(gl.TEXTURE0 + TU.hpf); gl.bindTexture(gl.TEXTURE_2D_ARRAY,_hpfTex); gl.uniform1i(BU('hpfPool'),TU.hpf); }
     if (_hpfTex2){ gl.activeTexture(gl.TEXTURE0 + TU.hpf2); gl.bindTexture(gl.TEXTURE_2D_ARRAY,_hpfTex2); gl.uniform1i(BU('hpfPool2'),TU.hpf2); }
     gl.uniform1i(BU('hasHpf'), _hpfTex?1:0);
-    _octClampAlt = 0;   // height bake: full octaves (the baked tile is consumed at vertex rate near ground; match the surface)
+    _octClampAlt = 0;
     setComposeHeightUniforms(BU, _chuB);
     gl.uniform1f(BU('defRadius'), R);
     gl.uniformMatrix3fv(BU('uBakeFrame'), false, _faceFramesF32[face|0]);
@@ -618,52 +317,29 @@ export async function initMapspinnerRender(gl, opts = {}) {
     if (!bakeProg){ ensureBake(); return null; }
     gl.bindFramebuffer(gl.FRAMEBUFFER, bakeFbo);
     drawBakeTile(face, ox, oy, l, level);
-    // RED/FLOAT (2026-07-03): the bake FBO is R32F (single channel) -- RGBA/FLOAT read 4x the bytes
-    // actually written by the driver and this code only ever kept buf[i*4] (R), discarding G/B/A.
-    // WebGL2 core supports RED/FLOAT readback from an R32F framebuffer (spec-compliant; the same
-    // EXT_color_buffer_float required for the R32F attachment itself covers float readback formats).
-    // Zero value change: same heights, 4x less PBO allocation + DMA + host copy bandwidth.
-    const byteLen = THC_BAKE_RES*THC_BAKE_RES*4;   // RED float32 (1 channel)
+    const byteLen = THC_BAKE_RES*THC_BAKE_RES*4;
     if (!_bakePbo) _bakePbo = gl.createBuffer();
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, _bakePbo);
     gl.bufferData(gl.PIXEL_PACK_BUFFER, byteLen, gl.STREAM_READ);
-    gl.readPixels(0,0,THC_BAKE_RES,THC_BAKE_RES, gl.RED, gl.FLOAT, 0);   // into the PBO (driver-side DMA, no immediate host copy)
+    gl.readPixels(0,0,THC_BAKE_RES,THC_BAKE_RES, gl.RED, gl.FLOAT, 0);
     const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
     gl.flush();
-    // Bounded spin: give the GPU up to ~2ms to finish the draw+copy before falling through to the
-    // blocking getBufferSubData below. Shrinks the stall on the common case (bake already done by the
-    // time we poll) without changing the synchronous return contract every caller depends on.
-    const spinUntil = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + 2;
+    const spinUntil = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + BAKE_READBACK_SPIN_MS;
     let status = gl.clientWaitSync(fence, 0, 0);
     while (status === gl.TIMEOUT_EXPIRED && (typeof performance !== 'undefined' ? performance.now() : Date.now()) < spinUntil) {
       status = gl.clientWaitSync(fence, 0, 0);
     }
-    // Spin expired (slow GPU / software raster): finish the wait ON THE FENCE instead of falling
-    // through to getBufferSubData with the fence unsatisfied. The read blocked either way -- this is
-    // the same wall time, same bytes -- but an unfenced read of a STREAM_READ buffer is reported by
-    // the driver as an unsynchronised pipeline stall ("READ-usage buffer was read back without
-    // waiting on a fence"), which is both a real hint the driver could not pipeline the transfer and
-    // noise in every console. SYNC_FLUSH_COMMANDS_BIT guarantees the commands are submitted, so this
-    // can never deadlock on a fence whose batch was never flushed. Matches the probe path's own
-    // blocking-wait fallback (see _probeSync's clientWaitSync(..., 1e9) above).
-    // WebGL2 rejects any timeout above MAX_CLIENT_WAIT_TIMEOUT_WEBGL (commonly 0) with
-    // INVALID_OPERATION -- a non-zero blocking wait is simply not available here, unlike desktop GL.
-    // So finish with a bounded ZERO-timeout poll carrying SYNC_FLUSH_COMMANDS_BIT (which guarantees the
-    // batch is submitted, so the fence can actually reach the GPU) and only then read.
     if (status === gl.TIMEOUT_EXPIRED) {
-      const hardUntil = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + 250;
+      const hardUntil = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + FENCE_POLL_HARD_LIMIT_MS;
       do { status = gl.clientWaitSync(fence, gl.SYNC_FLUSH_COMMANDS_BIT, 0); }
       while (status === gl.TIMEOUT_EXPIRED && (typeof performance !== 'undefined' ? performance.now() : Date.now()) < hardUntil);
     }
     gl.deleteSync(fence);
-    const out = new Float32Array(byteLen / 4);   // RED/FLOAT: buf IS the height array directly, no de-interleave needed
-    gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, out);   // blocks only if the spin above didn't already observe completion
+    const out = new Float32Array(byteLen / 4);
+    gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, out);
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.bindVertexArray(null);
-    // gl.getUniform is a synchronous driver round-trip x2 per bake (a full pipeline sync on some drivers)
-    // and `dbg` has no consumer outside diagnostics -- gated behind window.__glCheck like every other
-    // sync diagnostic read in this pipeline (planet-orchestrator.js checkGlError gates).
     let dbg=null;
     if (typeof window !== 'undefined' && window.__glCheck) {
       try{ dbg={ offLoc: BU('uBakeOffset')!=null, resLoc: BU('uBakeRes')!=null, frameLoc: BU('uBakeFrame')!=null,
@@ -672,38 +348,15 @@ export async function initMapspinnerRender(gl, opts = {}) {
     }
     return { heights: out, res: THC_BAKE_RES, dbg };
   }
-  // TRULY NON-BLOCKING variant (2026-07-02, evidence-driven follow-up): a live stack-trace CDP profile
-  // showed getBufferSubData -- the harvest inside bakeTileReadback above -- as the #1 measured cost even
-  // on the "async" client path (bakeTileAsync in patch-baker.js), because bakeTileAsync still called this
-  // SAME synchronous bakeTileReadback (only the outer RETRY loop was removed, not the inner readback's
-  // own bounded spin-then-block harvest). This pair (issue/poll) makes the readback itself non-blocking,
-  // matching sampleGroundM's already-proven pattern: issue() draws + starts the PBO read + fences and
-  // returns immediately (no wait at all); poll() is called on a LATER frame/tick to harvest a completed
-  // fence non-blockingly (clientWaitSync timeout 0).
-  //
-  // SLOT RING (2026-07-03, ms-async-bake-slot-ring): the original design reused ONE PBO/fence pair, so
-  // a second issue() while one bake was in flight was a silent no-op -- patch-baker.js's prefetchAround
-  // issues up to 8 neighbor-tile bakes per call, but only the LAST one survived (each new issue() call
-  // that found a slot busy did nothing, so 7 of 8 prefetch requests were dropped on the floor every time
-  // prefetchAround ran with anything already in flight). Fix: N independent {pbo, fence, pending} slots,
-  // each an exact replica of the single-slot allocation pattern above. issueAsync scans for a FREE slot
-  // (fence null) instead of bailing when slot 0 is busy; pollAsync scans all slots and harvests the first
-  // one whose fence has signaled (non-blocking clientWaitSync timeout 0 on each, same as before -- this
-  // never blocks, it just checks up to N fences instead of 1). Bounded-latency/fallback-to-CPU-fractal
-  // semantics on a cache miss are UNCHANGED: a miss still returns null immediately from the caller's
-  // perspective (issue-then-return, or all slots busy -> return false) and the caller's own fallbackFn
-  // covers that frame, exactly as the single-slot version did.
   const BAKE_ASYNC_SLOTS = 4;
   const _bakeAsyncSlots = Array.from({ length: BAKE_ASYNC_SLOTS }, () => ({ pbo: null, fence: null, pending: null }));
-  // deferFlush: skip the per-issue gl.flush() -- the caller (patch-baker.js prefetchAround) issues a
-  // burst of up to 8 bakes and then ONE __thcBakeFlush(); a lone issue keeps the immediate flush.
   function bakeTileIssueAsync(face, ox, oy, l, level, deferFlush){
     if (!bakeProg){ ensureBake(); return false; }
     const slot = _bakeAsyncSlots.find(s => !s.fence);
-    if (!slot) return false;   // all N slots in flight; caller polls first (was: the single slot busy)
+    if (!slot) return false;
     gl.bindFramebuffer(gl.FRAMEBUFFER, bakeFbo);
     drawBakeTile(face, ox, oy, l, level);
-    const byteLen = THC_BAKE_RES*THC_BAKE_RES*4;   // RED float32 (1 channel, matches the R32F bake FBO -- see bakeTileReadback's comment)
+    const byteLen = THC_BAKE_RES*THC_BAKE_RES*4;
     if (!slot.pbo) slot.pbo = gl.createBuffer();
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, slot.pbo);
     gl.bufferData(gl.PIXEL_PACK_BUFFER, byteLen, gl.STREAM_READ);
@@ -717,55 +370,40 @@ export async function initMapspinnerRender(gl, opts = {}) {
     return true;
   }
   function bakeFlush(){ gl.flush(); }
-  // Harvests the first slot whose fence has signaled (non-blocking; never waits). Callers that want to
-  // drain multiple completed slots in one tick call this in a loop until it returns null (patch-baker.js
-  // does not currently need that -- one harvest per patchFor/heightFn call is enough since a cache hit on
-  // the SAME tile the very next lookup is the common case -- but the API supports repeated draining).
   function bakeTilePollAsync(){
     for (const slot of _bakeAsyncSlots) {
       if (!slot.fence) continue;
-      const status = gl.clientWaitSync(slot.fence, 0, 0);   // 0 timeout: never blocks
-      if (status !== gl.ALREADY_SIGNALED && status !== gl.CONDITION_SATISFIED) continue;   // still cooking, no stall
+      const status = gl.clientWaitSync(slot.fence, 0, 0);
+      if (status !== gl.ALREADY_SIGNALED && status !== gl.CONDITION_SATISFIED) continue;
       gl.deleteSync(slot.fence); slot.fence = null;
-      const byteLen = THC_BAKE_RES*THC_BAKE_RES*4;   // RED float32 (1 channel)
-      const out = new Float32Array(byteLen / 4);   // RED/FLOAT: buf IS the height array directly, no de-interleave needed
+      const byteLen = THC_BAKE_RES*THC_BAKE_RES*4;
+      const out = new Float32Array(byteLen / 4);
       gl.bindBuffer(gl.PIXEL_PACK_BUFFER, slot.pbo);
-      gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, out);   // fence already signaled -> this returns immediately, no stall
+      gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, out);
       gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
       const meta = slot.pending; slot.pending = null;
       return { heights: out, res: THC_BAKE_RES, face: meta.face, ox: meta.ox, oy: meta.oy, l: meta.l, level: meta.level };
     }
-    return null;   // nothing completed yet across any slot
+    return null;
   }
-  // Expose on globalThis (covers BOTH window and a Web Worker's self) so a headless/worker consumer --
-  // e.g. a physics collider baking patches off the GPU in the singleplayer/host worker, which has
-  // OffscreenCanvas WebGL2 but NO `window` -- can reach the THC bake. (Was `window`-only -> undefined in
-  // a Worker, so the worker collider couldn't bake.)
   if (typeof globalThis !== 'undefined') {
     globalThis.__thcBakeReadback = bakeTileReadback; globalThis.__thcEnsureBake = ensureBake;
     globalThis.__thcBakeIssueAsync = bakeTileIssueAsync; globalThis.__thcBakePollAsync = bakeTilePollAsync;
     globalThis.__thcBakeFlush = bakeFlush;
   }
 
-  // ===== THC HEIGHT POOL + LRU (the VS-sample consumer; the FPS win) =====
-  // The VS samples a baked per-tile height (O(1) texture fetch) instead of composeHeight 5x/vertex,
-  // when window.__thc is on. A 2D-array pool holds one BAKE_RES^2 R32F layer per live tile; a leaf
-  // gets a layer (baked once) on first sight, LRU-evicted when the pool is full. Default OFF -> the
-  // live render is unchanged (composeHeight), so this is safe to ship behind the toggle.
   const THC_POOL_LAYERS = 512;
   let heightPool=null, poolFbo=null;
-  const _tcMap = new Map();                                   // tileKey -> layer
-  const _tcLayerKey = new Array(THC_POOL_LAYERS).fill(null);  // layer -> tileKey (evict bookkeeping)
-  const _tcUsed = new Int32Array(THC_POOL_LAYERS);            // layer -> last-used frame
+  const _tcMap = new Map();
+  const _tcLayerKey = new Array(THC_POOL_LAYERS).fill(null);
+  const _tcUsed = new Int32Array(THC_POOL_LAYERS);
   let _tcFrame = 0, _tcNextFree = 0, _tcBakesThisFrame = 0;
-  // BAKE-ON-EDIT: terraform/HPF changes make every baked layer stale -> drop the whole map so each
-  // visible tile re-bakes on next sight (synchronously, before its draw -> no black/stale frame).
   function invalidatePool(){ _tcMap.clear(); _tcLayerKey.fill(null); _tcNextFree = 0; }
   function ensurePool(){
     if (heightPool) return;
     heightPool = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D_ARRAY, heightPool);
     gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.R32F, THC_BAKE_RES, THC_BAKE_RES, THC_POOL_LAYERS);
-    const lin = _halfFloatLinearOK ? gl.LINEAR : gl.NEAREST;   // R32F LINEAR needs OES_texture_float_linear; else VS does manual bilinear
+    const lin = _halfFloatLinearOK ? gl.LINEAR : gl.NEAREST;
     gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, lin); gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, lin);
     gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     poolFbo = gl.createFramebuffer();
@@ -776,7 +414,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
     drawBakeTile(face, ox, oy, l, level);
     _tcBakesThisFrame++;
   }
-  // pool layer for a tile, baked on first sight; LRU-evicts when full. Returns -1 if not yet bakeable.
   function ensureTileLayer(face,ox,oy,l,level){
     const key = face+':'+ox+':'+oy+':'+l;
     let layer = _tcMap.get(key);
@@ -789,49 +426,24 @@ export async function initMapspinnerRender(gl, opts = {}) {
     _tcUsed[layer]=_tcFrame;
     return layer;
   }
-  // THC active = toggle on AND both programs/pool ready. Builds them lazily; returns false until ready
-  // so the first frames fall back to composeHeight (uThc=0) with no garbage.
   let _tcInvSeen = 0;
   function thcActive(){
     if (typeof window==='undefined' || !window.__thc) return false;
     if (!bakeProg){ ensureBake(); return false; }
     ensurePool();
-    // live re-bake hook: window.__thcInvalidate() bumps __thcInval; any composeHeight-shaping edit
-    // (e.g. __gen biome/relief dials) should call it so the baked pool refreshes.
     const inv = (window.__thcInval|0);
     if (inv !== _tcInvSeen){ _tcInvSeen = inv; invalidatePool(); }
     return !!heightPool;
   }
   if (typeof window !== 'undefined') window.__thcInvalidate = () => { window.__thcInval = (window.__thcInval|0) + 1; };
 
-  // FLOAT-LINEAR FORMAT PROBE (NOT a quality tier): OES_texture_float_linear lets the HPF atlas pools
-  // filter LINEAR in hardware -> hpfSample collapses to one texture() call. 0 = manual 4-tap fallback.
   const _halfFloatLinearOK = !!gl.getExtension('OES_texture_float_linear') || !!gl.getExtension('OES_texture_half_float_linear');
-  // Diagnostics-only readout (NOT a branch): exposes the float-linear probe outcome for a witness/CLI.
   try { if (typeof window !== 'undefined') window.__terrainConfig = { floatLinearOK: _halfFloatLinearOK }; } catch(_){}
 
-  // ALTITUDE-DRIVEN OCTAVE CLAMP (2026-06-19). The dominant
-  // GPU cost is VERTEX-bound: the fractal (12 octaves) runs ~5x/vertex (the inline geometry height +
-  // 4 FD normal taps, terrain.glsl:1102-1109) across GRID^2 verts/tile x ~500-900 visible tiles. The
-  // finest broadShapeM octaves (o>=6) have absolute world wavelengths of a few km; at high altitude
-  // every visible tile spans many km/pixel so those octaves are GLOBALLY sub-pixel and contribute
-  // nothing the screen can resolve -- pure VS ALU waste. We drop them as a function of CAMERA ALTITUDE
-  // ONLY (a single per-frame scalar, NOT a per-tile/per-LOD fade): because the clamp is identical for
-  // every tile in the frame, adjacent tiles -- same level OR a level apart -- evaluate the IDENTICAL
-  // octave count at their shared edge, so there is ZERO cross-LOD seam. This is the crucial distinction
-  // from the REFUTED per-tile octave fade (terrain.glsl:832 -- that faded by TILE SIZE, so a 1500km tile
-  // and an adjacent 1200km tile dropped different octaves at the shared edge and diverged). The collision
-  // probe + height bake call this with the SAME _octClampAlt set per frame, so collision stays matched to
-  // the rendered surface (and near-ground collision frames are low-alt = no clamp anyway). Default ON;
-  // window.__altOctClamp===false rolls it back to the flat 12 octaves at all altitudes.
-  let _octClampAlt = 0;   // metres; set per-frame by render()/probe before calling setComposeHeightUniforms
+  let _octClampAlt = 0;
   function _clampOcts(baseOcts) {
     if (typeof window !== 'undefined' && window.__altOctClamp === false) return baseOcts;
     const altKm = _octClampAlt / 1000.0;
-    // Knees chosen so the near surface (deck->descent) is byte-identical and the cut only engages where
-    // the dropped octaves are provably sub-pixel: full 12 below 80km, -2 by 200km, -4 by 800km, -6 (the
-    // whole o>=6 fine band) above 2000km where the planet sits small in frame. Monotone, clamped to >=6
-    // so the continent/hypsometry silhouette octaves (o<6, CLI-validated) are NEVER touched.
     let drop = 0;
     if (altKm > 2000)      drop = 6;
     else if (altKm > 800)  drop = 4;
@@ -839,42 +451,17 @@ export async function initMapspinnerRender(gl, opts = {}) {
     else if (altKm > 80)   drop = 1;
     return Math.max(6, baseOcts - drop);
   }
-  // DIRTY-FLAG CACHE (perf 2026-07-03): bakeTileToLayer/bakeTileReadback/bakeTileIssueAsync call this
-  // once per tile bake, but only uBakeFrame/uBakeOffset (set by the CALLER after this returns) vary
-  // between tiles in the same batch -- the ~28 shape-control/HPF uniforms below are batch-constant.
-  // Cache the last-uploaded value per (locator-fn, uniform-name) and skip re-uploading when unchanged.
-  // Keyed on `loc` identity (BU/PU/U are distinct stable closures, one per program) so render/_PROBE_/
-  // bake caches never cross-contaminate. Invalidated wholesale whenever the target program is rebuilt:
-  // callers that rebuild a program already clear that program's uniform-LOCATION cache (_bakeUloc.clear()
-  // etc) -- piggyback on the same signal by clearing this cache next to every such clear() (see
-  // ensureBake/ensureProbe/render's program-(re)build sites).
-  // PER-PROGRAM PLAIN-OBJECT CACHES (2026-09-06, replaces the two-level Map _chuCache): one dictionary-mode
-  // object per GL program, passed directly as the `chu` argument of every _chuSet*/setComposeHeightUniforms
-  // call -- a single property lookup per uniform instead of Map.get(program).get(name). _chuClear empties
-  // one in place (the object identity is what callers hold) whenever its program is (re)built.
-  const _chuR = Object.create(null);   // render (terrain) program
-  const _chuW = Object.create(null);   // water program
-  const _chuD = Object.create(null);   // lazy debug program
-  const _chuP = Object.create(null);   // collision probe program
-  const _chuB = Object.create(null);   // height-bake program
-  const _chuS = Object.create(null);   // sky program (SU)
+  const _chuR = Object.create(null);
+  const _chuW = Object.create(null);
+  const _chuD = Object.create(null);
+  const _chuP = Object.create(null);
+  const _chuB = Object.create(null);
+  const _chuS = Object.create(null);
   function _chuClear(chu){ for (const k in chu) delete chu[k]; }
-  // window.__<key> override lookup with the '__'+key string built ONCE per key (was a fresh string concat
-  // on every read, ~60/frame across the uniform block + setComposeHeightUniforms).
   const _wkeys = Object.create(null);
   const _wkey = (n) => _wkeys[n] || (_wkeys[n] = '__' + n);
   const _g = (n, d) => { if (typeof window === 'undefined') return d; const v = window[_wkey(n)]; return v != null ? +v : d; };
-  let _lastShadowTex = null;   // last-bound shadowInfo depth texture object, for the shadow-bridge texture-bind skip below
-  // Dummy shadow-comparison texture: uShadowMap is a sampler2DShadow uniform, unconditionally pinned
-  // to TEXTURE1 every frame (see the shadow-bridge block below) so it never defaults to unit 0 and
-  // collides with _vdrsColor/_vdrsDepth there. But TEXTURE1 itself is only ever BOUND when a real
-  // shadow map exists (_si.hasShadow) -- on a frame with no shadow-casting light, unit 1 holds
-  // whatever THREE's own scene render last left there (a plain, non-shadow-configured texture),
-  // and sampling it through a sampler2DShadow produces "GL_INVALID_OPERATION: mismatch between
-  // texture format and sampler type (signed/unsigned/float/shadow)". Lazily build a 1x1
-  // DEPTH_COMPONENT24 texture with TEXTURE_COMPARE_MODE=COMPARE_REF_TO_TEXTURE (the mode a real
-  // shadow-map texture already carries, per WebGLShadowMap) and bind it whenever no real shadow
-  // texture is available, so unit 1 is ALWAYS shadow-sampler-compatible.
+  let _lastShadowTex = null;
   let _dummyShadowTex = null;
   function ensureDummyShadowTex() {
     if (_dummyShadowTex) return _dummyShadowTex;
@@ -890,17 +477,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
     gl.bindTexture(gl.TEXTURE_2D, null);
     return _dummyShadowTex;
   }
-  // Dummy height-pool texture: uHeightPool (sampler2DArray) is pinned to TEXTURE8 unconditionally
-  // every frame (see the terrain draw below) so its declared unit never defaults to 0 and collides
-  // with _vdrsColor/_vdrsDepth there. But TEXTURE8 itself is only ever BOUND to a real array texture
-  // when THC (window.__thc) is enabled -- THC defaults OFF (measured net-negative, AGENTS.md), so on
-  // the default path unit 8 has NO texture object bound at all. WebGL2 drivers can still validate a
-  // sampler2DArray uniform against an EMPTY unit at draw time even though the shader's _thc branch
-  // never dynamically reads it (uniform control flow is not always eliminated by the compiler),
-  // producing "GL_INVALID_OPERATION" on drawElementsInstanced -- witnessed live via unitChecks
-  // showing unit 8 has2D:false/hasArray:false while uHeightPool's uniform value is 8. Lazily build a
-  // 1x1 R32F 2D_ARRAY (1 layer) so unit 8 is ALWAYS array-sampler-compatible, same fix shape as the
-  // shadow dummy above.
   let _dummyHeightPoolTex = null;
   function ensureDummyHeightPoolTex() {
     if (_dummyHeightPoolTex) return _dummyHeightPoolTex;
@@ -914,22 +490,13 @@ export async function initMapspinnerRender(gl, opts = {}) {
     gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);
     return _dummyHeightPoolTex;
   }
-  // GPU-VISIBLE SCULPT-BRUSH OVERRIDE (terrain-gpu-visible-sculpt-mesh-deformation): a plain sampler2D
-  // (NOT an array -- one flat window, not per-tile), R32F, uSculptRes texels/side, holding the
-  // accumulated height DELTA (metres) at each texel of a square local-XZ window. Same dummy-texture
-  // discipline as uHeightPool above: uSculptOverride's sampler unit is pinned EVERY frame regardless of
-  // whether a sculpt is active, so it never validates against an empty/wrong-type unit.
-  const SCULPT_RES = 256;   // texels/side; at a typical brush-window extent (~64m half-width, see setSculptOverride) this is ~0.5m/texel, well under CELL_M=1 in HeightDelta.js so no aliasing of the source data
+  const SCULPT_RES = 256;
   let _sculptTex = null, _dummySculptTex = null;
   function ensureSculptTex() {
     if (_sculptTex) return _sculptTex;
     _sculptTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, _sculptTex);
     gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32F, SCULPT_RES, SCULPT_RES);
-    // LINEAR filtering needs OES_texture_float_linear (same extension gate the HPF/height-pool floats
-    // already probe via _halfFloatLinearOK) -- R32F is NOT filterable without it. Fall back to NEAREST
-    // (a slightly blockier but still correct brush edge) rather than an unconditional LINEAR that could
-    // silently no-op to NEAREST on a driver lacking the extension anyway.
     const filt = _halfFloatLinearOK ? gl.LINEAR : gl.NEAREST;
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filt);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filt);
@@ -950,18 +517,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
     gl.bindTexture(gl.TEXTURE_2D, null);
     return _dummySculptTex;
   }
-  // Host-facing state: null = no active override window (the common case -- a world that has never
-  // sculpted, or whose sculpts are all outside the current window, pays zero draw-time cost beyond the
-  // one always-pinned dummy-texture bind + a uSculptActive=0 branch check in the shader).
-  let _sculptState = null;   // { center:[x,z], extent, up:[3], east:[3], north:[3] } in PlanetFrame local-XZ / anchor-basis space
-  // Sets/replaces the active sculpt-override window and uploads `heights` (a Float32Array, row-major,
-  // SCULPT_RES*SCULPT_RES, metres delta -- caller resamples from HeightDelta.deltaAt onto this fixed
-  // grid) as the new texture content. `frameBasis` = {up,east,north} from PlanetFrame (same object the
-  // host already holds) so the shader's dir0->local-XZ reconstruction uses the IDENTICAL basis
-  // PlanetFrame.localToDir used to define the space HeightDelta's (x,z) are expressed in. Pass
-  // `heights:null` to just move the window (e.g. re-center on player movement) without a re-upload --
-  // rare in practice since a moved window needs fresh content anyway, but kept for a caller that wants
-  // to defer the (cheap, SCULPT_RES^2=64K floats) resample.
+  let _sculptState = null;
   function setSculptOverride(center, extent, frameBasis, heights) {
     if (!center || !Number.isFinite(center[0]) || !Number.isFinite(center[1]) || !Number.isFinite(extent) || extent <= 0 || !frameBasis) { _sculptState = null; return; }
     _sculptState = { center: [center[0], center[1]], extent, up: frameBasis.up, east: frameBasis.east, north: frameBasis.north };
@@ -973,22 +529,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
     }
   }
   function clearSculptOverride() { _sculptState = null; }
-  // FIX (perf-regression-terrain-geomorph-default-off-plus-gl-errors-investigation, live-confirmed via
-  // real GL-state capture -- CURRENT_PROGRAM's active sampler uniforms + per-unit texture-binding scan
-  // at the exact failing drawElementsInstanced): uSurfAlb/uSurfNrm (sampler2DArray, TEXTURE6/7) have the
-  // IDENTICAL bug class already fixed for uHeightPool/TEXTURE8 above, just never given the analogous fix.
-  // hasSurf=!!_surfAlb gates BOTH the texture bind AND the uniform1i call below (`if (hasSurf) {...}`) --
-  // whenever the async surface-texture loader hasn't populated _surfAlb yet (e.g. early in a session,
-  // reproduced live within ~4-8s of page load), units 6/7 hold NO texture object at all AND uSurfAlb/
-  // uSurfNrm's sampler uniforms are left unset (defaulting to/staying at unit 0, which collides with
-  // whatever plain TEXTURE_2D other code binds there -- the exact "two textures of different types use
-  // the same sampler location" mechanism already documented for uHeightPool). This is the confirmed real
-  // cause of the "864-byte-buffer" / recurring INVALID_OPERATION class this row was asked to verify --
-  // buffer/attribute sizes at the failing draw were live-confirmed byte-exact (ruling out the wave-8
-  // color-pass attribute-binding bug as the cause here), leaving sampler incompleteness as the only
-  // remaining explanation, matching the pattern this project already fixed once for a different sampler.
-  // Reuse a small dummy 2D_ARRAY (unit-agnostic) for BOTH units whenever hasSurf is false, and pin the
-  // uniform to the real unit unconditionally, same shape as uHeightPool/hpfPool/hpfPool2 above.
   let _dummySurfTex = null;
   function ensureDummySurfTex() {
     if (_dummySurfTex) return _dummySurfTex;
@@ -1002,18 +542,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
     gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);
     return _dummySurfTex;
   }
-  // FIX (perf-regression-terrain-geomorph-default-off-plus-gl-errors-investigation, SAME bug class, 3rd
-  // instance): uSceneTex (sampler2D, TEXTURE9) is declared+active in the shared terrain/water program
-  // (terrain.glsl) but its uniform1i + texture bind ONLY happen inside the water color-pass block (which
-  // runs AFTER the terrain draw, and is itself gated behind `if (!_waterHidden)` -- can be skipped
-  // entirely on a given frame). _sceneCopyTex starts null and is lazily created by ensureSceneCopy(),
-  // called only from that same water block. So on the TERRAIN draw itself (the first draw of the shared
-  // program each frame) unit 9 can hold nothing at all -- live-confirmed as the still-firing residual
-  // INVALID_OPERATION on drawElementsInstanced at the terrain draw (gl-render.js render()) after the
-  // uSurfAlb/uSurfNrm fix above eliminated the water-visibility-probe instance of this same bug class.
-  // Same fix shape: a small dummy TEXTURE_2D (matching uSceneTex's sampler2D type, not 2D_ARRAY) bound to
-  // unit 9 and the uniform pinned unconditionally BEFORE the terrain draw; the water block's own later
-  // bind of the real _sceneCopyTex/_hrwColor on frames that need it is unaffected (it always re-binds).
   let _dummySceneTex = null;
   function ensureDummySceneTex() {
     if (_dummySceneTex) return _dummySceneTex;
@@ -1027,21 +555,8 @@ export async function initMapspinnerRender(gl, opts = {}) {
     gl.bindTexture(gl.TEXTURE_2D, null);
     return _dummySceneTex;
   }
-  // ===== ATMOSPHERE TRANSMITTANCE LUT (Bruneton-lite precomputed transmittance) =====
-  // Baked ONCE at init (CPU-side, atmosphere-transmittance-lut.js -- pure analytic optical-
-  // depth march at high step-count, no GPU dependency) and uploaded as an RGB32F 2D texture.
-  // Replaces atmosphere.glsl's atm_transmittanceToSun's runtime 4-step trapezoid march (called
-  // up to 8x per sky pixel from inside atm_marchRadiance's own per-sample loop) with a single
-  // texture sample. atm_transmittanceSeg/atm_opticalDepth themselves are UNCHANGED and stay in
-  // use for the camera-to-sample transmittance inside atm_marchRadiance (a different, shorter-
-  // segment quantity a single top-of-atmosphere LUT does not directly encode -- see the LUT
-  // module's own header comment; scattering-LUT + aerial-perspective are explicit follow-ups).
-  // Pinned to TEXTURE0+TU.transmittanceLUT unconditionally every frame across all three programs
-  // that carry atmosphere.glsl in their FS (render/debug/probe) -- same "always bound, never an
-  // empty unit" discipline as the shadow/heightPool dummies above (AGENTS.md documents the exact
-  // GL_INVALID_OPERATION class an unconditionally-declared-but-sometimes-unbound sampler causes).
   let _lutTex = null;
-  let _rawTransLUT = null; // {data,width,height} kept RAW (not the RGBA-repacked upload buffer) so ensureScatteringLUT can reuse the exact same bake for its inner-loop transmittance sampling instead of re-baking (see atmosphere-scattering-lut.js's perf note: sharing one transmittance bake vs re-baking a 2nd one saves ~1.5s of eager-init CPU time).
+  let _rawTransLUT = null;
   function ensureTransmittanceLUT() {
     if (_lutTex) return _lutTex;
     if (!_sharedRawTransLUT) {
@@ -1050,13 +565,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
     }
     const { data, width, height } = _sharedRawTransLUT;
     _rawTransLUT = { data, width, height };
-    // RGBA32F, not RGB32F: live-witnessed on real hardware (ANGLE/D3D11) that RGB32F is NOT
-    // framebuffer-color-attachable (gl.checkFramebufferStatus -> FRAMEBUFFER_INCOMPLETE_ATTACHMENT)
-    // even with EXT_color_buffer_float present, while RGBA32F IS (a real, common WebGL2 spec gap --
-    // 3-component float formats are frequently excluded from the color-renderable set). Sampling via
-    // texture() in a shader would have worked fine either way (that restriction is rendering-TO the
-    // format, not reading FROM it), but RGBA32F is the more broadly hardware-safe/diagnosable choice
-    // (readback/FBO-blit tooling, future debug views) for one wasted alpha channel.
     const dataRGBA = new Float32Array(width * height * 4);
     for (let i = 0, n = width * height; i < n; i++) {
       dataRGBA[i*4] = data[i*3]; dataRGBA[i*4+1] = data[i*3+1]; dataRGBA[i*4+2] = data[i*3+2]; dataRGBA[i*4+3] = 1.0;
@@ -1065,34 +573,19 @@ export async function initMapspinnerRender(gl, opts = {}) {
     gl.bindTexture(gl.TEXTURE_2D, _lutTex);
     gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, width, height);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.FLOAT, dataRGBA);
-    const lin = _halfFloatLinearOK ? gl.LINEAR : gl.NEAREST; // RGBA32F LINEAR needs OES_texture_float_linear
+    const lin = _halfFloatLinearOK ? gl.LINEAR : gl.NEAREST;
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, lin);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, lin);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.bindTexture(gl.TEXTURE_2D, null);
-    // Expose {width,height,floatLinearOK,tex} for live diagnostics/witness (e.g. a direct GPU-side
-    // readback via a throwaway FBO) -- the texture OBJECT itself, not just its bake metadata, since a
-    // diagnostic running outside a render() frame cannot otherwise recover which unit/object to read.
     try { if (typeof window !== 'undefined') window.__atmLutBaked = { width, height, floatLinearOK: _halfFloatLinearOK, tex: _lutTex }; } catch(_){}
     return _lutTex;
   }
-  // ===== ATMOSPHERE SCATTERING LUT (Bruneton-lite precomputed single-scatter in-scattered radiance) =====
-  // Baked ONCE at init (CPU-side, atmosphere-scattering-lut.js), depends on the transmittance LUT
-  // already existing (its own inner march bilinearly samples the transmittance bake instead of
-  // re-marching it, the load-bearing perf fix documented in that module -- 91.7s naive re-march vs
-  // ~1-2s LUT-sampled, live-measured this session). Uploaded as an RGBA32F sampler2DArray: rgb =
-  // Rayleigh in-scatter density, a = Mie in-scatter density (kept separate per-channel exactly like
-  // the bake module, since the runtime phase-function multiply is wavelength-dependent for Rayleigh
-  // but not Mie -- collapsing them pre-emptively would lose that split). Layers = sun-angle-cosine
-  // (muS) bins, mirroring the hpfPool/heightPool sampler2DArray convention already used in this file
-  // (a real 3D texture would need texStorage3D+an extra interpolated axis for no accuracy benefit
-  // over per-layer bilinear + nearest-layer/manual-lerp-across-layers, matching how this codebase
-  // already treats its other 3-axis-ish bakes as arrays, not 3D textures).
   let _scatTex = null;
   function ensureScatteringLUT() {
     if (_scatTex) return _scatTex;
-    ensureTransmittanceLUT(); // guarantees _rawTransLUT is populated before the scattering bake needs it
+    ensureTransmittanceLUT();
     if (!_sharedRawScatLUT) {
       _sharedRawScatLUT = bakeScatteringLUT(SCAT_LUT_WIDTH, SCAT_LUT_HEIGHT, SCAT_LUT_LAYERS, undefined, _rawTransLUT);
     }
@@ -1100,39 +593,19 @@ export async function initMapspinnerRender(gl, opts = {}) {
     _scatTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D_ARRAY, _scatTex);
     gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA32F, width, height, layers);
-    // WebGL2 spec forbids UNPACK_FLIP_Y_WEBGL/UNPACK_PREMULTIPLY_ALPHA_WEBGL (INVALID_OPERATION) on
-    // any TEXTURE_3D/TEXTURE_2D_ARRAY upload -- gl is a context shared with the host page's own
-    // renderer, which can leave either flag set true. Reset both before this raw typed-array upload.
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
     gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, 0, width, height, layers, gl.RGBA, gl.FLOAT, data);
-    const lin = _halfFloatLinearOK ? gl.LINEAR : gl.NEAREST; // RGBA32F LINEAR needs OES_texture_float_linear, same gate as the transmittance LUT
+    const lin = _halfFloatLinearOK ? gl.LINEAR : gl.NEAREST;
     gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, lin);
     gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, lin);
     gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE);
     gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);
-    // Expose {width,height,layers,floatLinearOK,tex} for live diagnostics/witness -- same pattern as
-    // window.__atmLutBaked above, the property this task's own live-witness dispatch checks for.
     try { if (typeof window !== 'undefined') window.__atmScatteringLutBaked = { width, height, layers, floatLinearOK: _halfFloatLinearOK, tex: _scatTex }; } catch(_){}
     return _scatTex;
   }
-  // Bake+upload EAGERLY here (not purely lazy on first render()/probe draw): guarantees the texture
-  // object exists before ANY draw call that might bind it, including a collision probe draw that
-  // could in principle run before the first render() frame. Called here (rather than right after the
-  // render program links, ~line 219) because ensureTransmittanceLUT reads _halfFloatLinearOK (const,
-  // defined just above this point) -- calling it earlier throws a TDZ ReferenceError (caught the hard
-  // way: window.__atmLutBaked stayed null through a full live browser witness pass with zero visible
-  // page/GL errors, since the throw landed inside this async initMapspinnerRender before any caller-
-  // side try/catch could surface it as __pageErr). The bake itself is pure CPU computation (no GL
-  // calls) -- see atmosphere-transmittance-lut.js -- so this adds no GPU/driver cost to the cold-
-  // compile critical path, only a few ms of JS math + one texture upload.
-  // WORKER-BAKED LUTs (see _lutJob at the top of this function): harvest the off-thread bake here -- the
-  // same call site the synchronous bake ran at -- so ordering is unchanged (both LUT textures exist before
-  // any draw) and the CPU math overlapped the shader fetch/compile above. null -> the ensure* functions
-  // below bake synchronously exactly as before. Contents are byte-identical either way (pure functions of
-  // the module constants, same engine).
   if (_lutJob) {
     const r = await _lutJob;
     if (r) {
@@ -1143,23 +616,8 @@ export async function initMapspinnerRender(gl, opts = {}) {
   }
   if (!bakeOnly) {
     ensureTransmittanceLUT();
-    // Scattering LUT bakes AFTER the transmittance LUT (same eager-at-init discipline, same TDZ
-    // ordering constraint on _halfFloatLinearOK) -- when not worker-baked it costs ~1-2s of synchronous
-    // CPU time at init; not deferred to first-render since the probe program (collision) can in principle
-    // draw before the first render() frame, same rationale as the transmittance LUT's own eager call above.
     ensureScatteringLUT();
   }
-  // TEXTURE-BIND DIRTY-CACHE (perf, 2026-07-08): _hpfTex/_hpfTex2/_surfAlb/_surfNrm are each assigned
-  // EXACTLY ONCE (setHpf() on HPF-bake completion; the async surface-texture loader) and then held as
-  // the SAME WebGLTexture object for the rest of the session -- identical shape to the shadowInfo.texture
-  // case above. render() was re-doing activeTexture+bindTexture EVERY single frame regardless, an
-  // unconditional driver round-trip x4/frame for state that (on the overwhelmingly common frame) never
-  // changes. Track the last-bound object per unit and skip JUST the activeTexture+bindTexture pair when
-  // unchanged. The uniform1i sampler-unit assignment stays SEPARATE (program-scoped GL state, unlike the
-  // texture-unit bind which is global) -- routed through _chuSet1i at each call site so it still uploads
-  // once per program even on a frame where the texture-bind itself is skipped (e.g. right after a
-  // hot-reload swaps in a fresh program with unset sampler uniforms, while the bound texture object is
-  // unchanged).
   let _lastHpfTex = null, _lastHpfTex2 = null, _lastSurfAlb = null, _lastSurfNrm = null;
   function _chuSet1f(loc, chu, name, v){
     if (chu[name] === v) return;
@@ -1169,10 +627,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
     if (chu[name] === v) return;
     chu[name] = v; gl.uniform1i(loc(name), v);
   }
-  // MULTI-COMPONENT dirty-cache (perf, 2026-07-06): same skip-if-unchanged idiom as _chuSet1f/1i, extended
-  // to vec2/vec3 uniforms. Packs the components into one comparable numeric key (avoids allocating a
-  // fresh array/string every frame just to compare) -- collision-free for the finite float range these
-  // uniforms carry (colors 0..~2, distances/metres, band edges) since it's a pure equality check, not a hash.
   function _chuSet2f(loc, chu, name, x, y){
     const prev = chu[name];
     if (prev !== undefined) { if (prev[0] === x && prev[1] === y) return; prev[0] = x; prev[1] = y; }
@@ -1191,7 +645,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
     else chu[name] = [x,y,z,w];
     gl.uniform4f(loc(name), x, y, z, w);
   }
-  function _chuSetM4(loc, chu, name, m){   // mat4 (Float32Array(16)) -- compares all 16 floats
+  function _chuSetM4(loc, chu, name, m){
     const prev = chu[name];
     if (prev !== undefined) {
       let same = true; for (let i = 0; i < 16; i++) if (prev[i] !== m[i]) { same = false; break; }
@@ -1200,56 +654,31 @@ export async function initMapspinnerRender(gl, opts = {}) {
     } else chu[name] = new Float32Array(m);
     gl.uniformMatrix4fv(loc(name), false, m);
   }
-  // ONE SOURCE OF TRUTH for composeHeight's shape-control + HPF-sampler uniforms: every program that runs
-  // composeHeight (render, _PROBE_) calls this with its own uniform-locator so they CANNOT diverge.
-  // `cacheKey` identifies which program's uniform state this call targets (BU/PU are each a single
-  // stable program so the locator itself is a safe key; U() is DYNAMIC -- it resolves against
-  // whichever program is active this frame (render prog or the debug prog), so callers through U()
-  // MUST pass the actual active uniform-location cache as cacheKey, not U itself, or a debug-mode
-  // frame would wrongly skip re-uploading onto a different real GL program).
   function setComposeHeightUniforms(loc, cacheKey) {
-    const g = _g;   // window.__<key> override lookup (memoized key strings, see _g)
-    _chuSet1f(loc, cacheKey, 'uHiFreqCut',     g('hiFreqCut', TD.hiFreqCut));   // DECISIVE: ungated *= at terrain.glsl fine octaves; 0.5->0.25 (2026-06-10 'blotchy': the 4x fine band read as leopard dapple at altitude -- live-isolated, hiFreqCut=0 removed it entirely)
-    _chuSet1f(loc, cacheKey, 'uDetailOverlay', g('detailOverlay', TD.detailOverlay));  // perlin-everywhere ELEVATION term in composeHeight -- probe must match the VS or collision diverges
-    // (vtxDetail probe setter removed 2026-06-18 -- vtxDisplace is a 0.0 stub, the uniform is gone.)
-    _chuSet1f(loc, cacheKey, 'canyonDepthMul', g('canyonDepth', TD.canyonDepth));   // TD.canyonDepth=1.0 (demo baked __canyonDepth=0 -> shader floors to 1.0). DEFAULT MUST MATCH the render set (line ~982) or the _PROBE_ collision carves shallower than the rendered geometry. Kept 2.0 so a warm tab (module-cached gl-render) and a fresh load are CONSISTENT -- the canyon-intensity cut now lives in CANYON_INCISE_DEPTH (terrain.glsl, cache-busted = reliably delivered; gl-render is NOT cache-busted on a soft reload). LIVE fine-tune via window.__canyonDepth.
-    _chuSet1f(loc, cacheKey, 'uVsCheap',       (typeof window!=='undefined' && window.__vsCheap) ? 1.0 : 0.0);   // VS carve-cost profiling A/B
-    _chuSet1f(loc, cacheKey, 'uBeachShelfM',   g('beachShelf', TD.beachShelf));   // land coastal shelf (geometry); probe MUST match render
-    _chuSet1f(loc, cacheKey, 'uLandBias',      g('landBias', TD.landBias));       // hypsometry bias = ~+30% land:sea (measured: landFrac 0.041 -> 0.054 over a 700-dir sphere grid, user 2026-06-14). window.__landBias dials it live.
+    const g = _g;
+    _chuSet1f(loc, cacheKey, 'uHiFreqCut',     g('hiFreqCut', TD.hiFreqCut));
+    _chuSet1f(loc, cacheKey, 'uDetailOverlay', g('detailOverlay', TD.detailOverlay));
+    _chuSet1f(loc, cacheKey, 'canyonDepthMul', g('canyonDepth', TD.canyonDepth));
+    _chuSet1f(loc, cacheKey, 'uVsCheap',       (typeof window!=='undefined' && window.__vsCheap) ? 1.0 : 0.0);
+    _chuSet1f(loc, cacheKey, 'uBeachShelfM',   g('beachShelf', TD.beachShelf));
+    _chuSet1f(loc, cacheKey, 'uLandBias',      g('landBias', TD.landBias));
     _chuSet1f(loc, cacheKey, 'cliffAmt',       g('cliffAmt', TD.cliffAmt));
     _chuSet1i(loc, cacheKey, 'uFloatLinearOK', _halfFloatLinearOK ? 1 : 0);
-    // FXC unroll-defeat (2026-06-12 AMD d3d11 fix): runtime octave bound for broadShapeM; the shader
-    // guards uOctMax<=0 -> 12, so this set is belt-and-braces. Live dial: window.__octMax.
-    _chuSet1i(loc, cacheKey, 'uOctMax',        (typeof window!=='undefined' && window.__octMax!=null) ? (window.__octMax|0) : _clampOcts(12));   // altitude-clamped (see _clampOcts); explicit window.__octMax still wins
-    _chuSet1i(loc, cacheKey, 'uNoUnroll',      64);   // FXC anti-unroll for the NoiseLayer const-numOct loops (value_fbm/value_ridged_fbm_rot); runtime-opaque bound, 64 > every layer's numOct so value semantics are unchanged. See terrain.glsl uNoUnroll comment + scripts/needle-ab.mjs.
+    _chuSet1i(loc, cacheKey, 'uOctMax',        (typeof window!=='undefined' && window.__octMax!=null) ? (window.__octMax|0) : _clampOcts(12));
+    _chuSet1i(loc, cacheKey, 'uNoUnroll',      FXC_UNROLL_DEFEAT_LOOP_BOUND);
     _chuSet1i(loc, cacheKey, 'uInciseRidgeOcts', (typeof window!=='undefined' && window.__inciseRidgeOcts!=null) ? (window.__inciseRidgeOcts|0) : 4);
-    _chuSet1i(loc, cacheKey, 'uBroadLowOcts',    (typeof window!=='undefined' && window.__broadLowOcts!=null) ? (window.__broadLowOcts|0) : 2);   // 8->2 PERF (2026-06-15): MEASURED 0 visual error (mtn+space) -- broadShapeLowM only feeds the 2400m-FD-step mesa-flatness slope gate, which is low-freq so the high octaves do nothing (its elevation-AO consumer was removed).
+    _chuSet1i(loc, cacheKey, 'uBroadLowOcts',    (typeof window!=='undefined' && window.__broadLowOcts!=null) ? (window.__broadLowOcts|0) : 2);
     _chuSet1i(loc, cacheKey, 'uPeakOcts',        (typeof window!=='undefined' && window.__peakOcts!=null) ? (window.__peakOcts|0) : 3);
-    // (uVtxBaseOcts/uVtxErodeOcts probe setters removed 2026-06-18 -- vtxDisplace is a 0.0 stub, the uniforms are gone.)
     _chuSet1i(loc, cacheKey, 'uDetailFbmOcts',   (typeof window!=='undefined' && window.__detailFbmOcts!=null) ? (window.__detailFbmOcts|0) : 3);
     _chuSet1i(loc, cacheKey, 'uFSDetailOcts',    (typeof window!=='undefined' && window.__fsDetailOcts!=null) ? (window.__fsDetailOcts|0) : 3);
-    // FXC fold-defeat (2026-06-12, the rock-on-flat patches): the lit-normal FD step is uniform-fed
-    // so d3d11/FXC cannot constant-fold the 150/R offset. Live dial: window.__nrmStepM.
     _chuSet1f(loc, cacheKey, 'uNrmStepM',      g('nrmStepM', 300.0));
     _chuSet1f(loc, cacheKey, 'uGrid',          GRID);
-    _chuSet1f(loc, cacheKey, 'uHpfInset',      (typeof window!=='undefined' && window.__hpfInset === false) ? 0.0 : 1.0);   // SEAM FIX: inset sampler is the permanent default (matches bakeFace fu=x/(RES-1)); window.__hpfInset===false rolls back
-    // ANCHOR-STEP A/B TOGGLES (per-area stairstep, wrxo0rr7a). Default 0 = current; set window.__<name>=1
-    // to widen that anchor-keyed band. Set HERE so BOTH render and the _PROBE_ collision see them (parity).
+    _chuSet1f(loc, cacheKey, 'uHpfInset',      (typeof window!=='undefined' && window.__hpfInset === false) ? 0.0 : 1.0);
     _chuSet1f(loc, cacheKey, 'uMtnBandWide',   g('mtnBandWide', TD.mtnBandWide));
     _chuSet1f(loc, cacheKey, 'uClimateRelief', g('climateRelief', TD.climateRelief));
     _chuSet1f(loc, cacheKey, 'uIsleWide',      g('isleWide', TD.isleWide));
     _chuSet1f(loc, cacheKey, 'uCarveWide',     g('carveWide', TD.carveWide));
-    // SCALE-INVARIANT relief (2026-06-17): the fractal relief is tuned in absolute metres at the 6360km
-    // DESIGN radius. Scale it by R/6360km so the GEOMETRY is proportional to whatever radius a consumer
-    // passes -> any radius renders identically (the dev demo at 6360km => exactly 1.0 = no-op), while the
-    // camera/LOD/collision use the real R. Set on BOTH render + _PROBE_ here so the rendered mesh and the
-    // collision probe scale together (else the camera clamps to an unscaled surface).
-    _chuSet1f(loc, cacheKey, 'uReliefScale',   g('reliefScale', opts.reliefScale != null ? opts.reliefScale : R / 63600000.0));   // default R/63600000 (10x smaller than Earth-geometry default) gives ~350m peak relief at 6360m radius
-    // GPU-VISIBLE SCULPT-BRUSH OVERRIDE uniforms (see composeHeight's sculptOverrideAt in terrain.glsl
-    // + setSculptOverride/ensureSculptTex above). Bound through the SAME cacheKey-memoized _chuSet path
-    // as every other compose-height uniform so render + probe/bake programs never diverge, and the
-    // sampler unit is pinned EVERY frame (dummy fallback when inactive) exactly like uHeightPool's own
-    // documented "never leave a sampler unit unbound" discipline just above.
+    _chuSet1f(loc, cacheKey, 'uReliefScale',   g('reliefScale', opts.reliefScale != null ? opts.reliefScale : R / 63600000.0));
     const sc = _sculptState;
     _chuSet1f(loc, cacheKey, 'uSculptActive', sc ? 1.0 : 0.0);
     if (sc) {
@@ -1265,17 +694,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
   }
 
 
-  // ---- SURFACE PHOTO-TEXTURES (user 2026-06-10): grass/rock/sand/snow color + displacement JPGs
-  // from /textures, packed into two mipped sampler2DArrays. Normals are SOBEL-DERIVED from the
-  // displacement at load (3x3, WRAPPED edges -- the textures tile, so the kernel must wrap or the
-  // tile border gets a seam line). uSurfAlb = sRGB color (RGB) + displacement (A, linear alpha);
-  // uSurfNrm = tangent normal xy 0.5-biased (RG) + displacement (B). Loaded ASYNC off the cold
-  // startup path; uHasSurfTex stays 0 (procedural-only) until the upload lands.
   let _surfAlb = null, _surfNrm = null, _surfMeanL = [0.2, 0.2, 0.2, 0.5];
-  // The decode pipeline (fetch + de-shade + Sobel + means) lives in surface-texture-decode.js's
-  // decodeSurfaceTextureSet() -- run in a Worker (surface-texture-worker.js, results transferred) when
-  // one can be spawned, else inline on this thread (same function -> same bytes). The 8-bit->linear LUT
-  // and the exact-threshold delinearizer live there too.
   async function _decodeSurfaceTextures() {
     const w = _startSurfaceDecodeWorker();
     const r = w ? await w : null;
@@ -1289,23 +708,12 @@ export async function initMapspinnerRender(gl, opts = {}) {
     const aniso = gl.getExtension('EXT_texture_filter_anisotropic');
     async function mkArray(data, internal) {
       const t = gl.createTexture();
-      // SCRATCH UNIT 15 for the whole (yielding) upload: this runs in macrotasks between frames, so binding
-      // the new array on whatever unit was left active would displace a live sampler binding (mapspinner's
-      // units 3/5/8/11 or a THREE unit) behind the renderer's own bind caches. Restore the unit at the end.
       const _prevActiveUnit = gl.getParameter(gl.ACTIVE_TEXTURE);
       gl.activeTexture(gl.TEXTURE15);
       gl.bindTexture(gl.TEXTURE_2D_ARRAY, t);
-      gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 11, internal, sz, sz, matCount);   // 11 = full 1024 mip chain
-      // WebGL2 spec forbids UNPACK_FLIP_Y_WEBGL/UNPACK_PREMULTIPLY_ALPHA_WEBGL (INVALID_OPERATION) on
-      // any TEXTURE_3D/TEXTURE_2D_ARRAY upload. gl is a context shared with the host page's own
-      // renderer (THREE.js), which routinely sets either flag true while uploading its own 2D image
-      // textures -- reset both unconditionally before this raw typed-array upload.
+      gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 11, internal, sz, sz, matCount);
       gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
       gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-      // PER-LAYER upload (was one 16 MB texSubImage3D): each layer is its own 4 MB call with a macrotask
-      // yield between layers, so no single main-thread block carries the whole upload. Same bytes land in
-      // the same texels (srcOffset selects layer m's slice of the packed array). The texture is not
-      // published (_surfAlb/_surfNrm stay null -> uHasSurfTex=0) until every layer + the mips are done.
       for (let m = 0; m < matCount; m++) {
         if (m > 0) { await new Promise(res => setTimeout(res, 0)); gl.activeTexture(gl.TEXTURE15); gl.bindTexture(gl.TEXTURE_2D_ARRAY, t); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false); }
         gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, m, sz, sz, 1, gl.RGBA, gl.UNSIGNED_BYTE, data, m * sz * sz * 4);
@@ -1317,29 +725,21 @@ export async function initMapspinnerRender(gl, opts = {}) {
       gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.REPEAT);
       if (aniso) gl.texParameterf(gl.TEXTURE_2D_ARRAY, aniso.TEXTURE_MAX_ANISOTROPY_EXT,
         Math.min(8, gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
-      gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);   // never left resident on the scratch unit
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, null);
       gl.activeTexture(_prevActiveUnit);
       return t;
     }
     _surfMeanL = meanL;
     if (typeof window !== 'undefined') { window.__surfMeanL = meanL; window.__surfRockMean = rockMean; }
-    const _alb = await mkArray(albAll, gl.SRGB8_ALPHA8);   // sRGB decode in hardware (color); A (displacement) stays linear
-    const _nrm = await mkArray(nrmAll, gl.RGBA8);          // normals/displacement are data, NOT color -> linear
-    _surfAlb = _alb; _surfNrm = _nrm;   // publish both together (hasSurf = both non-null)
+    const _alb = await mkArray(albAll, gl.SRGB8_ALPHA8);
+    const _nrm = await mkArray(nrmAll, gl.RGBA8);
+    _surfAlb = _alb; _surfNrm = _nrm;
     if (typeof window !== 'undefined') window.__surfTexReady = true;
   }
-  // canDecodeImages(): true on the main thread AND inside a Worker (createImageBitmap+
-  // OffscreenCanvas), false only in a plain Node process with neither -- was `typeof document`,
-  // which unconditionally skipped this whole call inside a worker even though the decode itself is
-  // now worker-safe (offscreencanvas-worker-safe-texture-loading).
   if (!bakeOnly && canDecodeImages()) {
     loadSurfaceTextures().catch(e => { try { if (typeof window !== 'undefined') window.__surfTexErr = String(e.message || e); else if (typeof self !== 'undefined') self.__surfTexErr = String(e.message || e); } catch (_) {} });
   }
 
-  // ---- fullscreen SKY pass program (atmospheric limb/halo behind the terrain) ----
-  // VS emits a fullscreen triangle; FS reconstructs the world-space view ray from the
-  // inverse view-projection and calls atm_skyRadiance. Drawn before terrain (depth
-  // writes off) so terrain overdraws where the planet is, leaving sky on the limb.
   const skyVsSrc = hdr + `out vec2 vNdc;
     void main(){ vec2 p = vec2((gl_VertexID==1)?3.0:-1.0, (gl_VertexID==2)?3.0:-1.0);
       vNdc = p; gl_Position = vec4(p, 1.0, 1.0); }`;
@@ -1446,7 +846,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
     }`;
   function rawShader(type, source){ const s=gl.createShader(type); gl.shaderSource(s, source); gl.compileShader(s);
     if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error('sky '+type+': '+gl.getShaderInfoLog(s)); return s; }
-  // (bakeOnly: every eager program/VAO/buffer below is skipped -- `let ... = null` + `if (!bakeOnly)`.)
   let skyProg = null, skyVao = null;
   const _usloc = new Map();
   const SU = n => { let l = _usloc.get(n); if (l === undefined) { l = gl.getUniformLocation(skyProg, n); _usloc.set(n, l); } return l; };
@@ -1457,29 +856,13 @@ export async function initMapspinnerRender(gl, opts = {}) {
   gl.linkProgram(skyProg);
   if(!gl.getProgramParameter(skyProg, gl.LINK_STATUS)) throw new Error('sky link: '+gl.getProgramInfoLog(skyProg));
   skyVao = gl.createVertexArray();
-  // atmosphere.glsl declares uTransmittanceLUT (sampler2D) + uScatteringLUT (sampler2DArray); every
-  // GLSL sampler uniform defaults to texture unit 0 until explicitly assigned, and unlike the main/
-  // probe programs (gl-render.js ~1972-1980) skyProg never got that assignment -- both samplers sat
-  // on unit 0 with DIFFERENT types, which WebGL2 flags as "two textures of different types use the
-  // same sampler location" (getProgramInfoLog), failing VALIDATE_STATUS and making every skyProg
-  // drawArrays a silent GL_INVALID_OPERATION no-op -- this was the black-sky root cause. Assignment
-  // is per-program static state (unlike per-frame texture BINDING to those units), so set once here.
   gl.useProgram(skyProg);
   const skyTransLoc = gl.getUniformLocation(skyProg, 'uTransmittanceLUT');
   if (skyTransLoc) gl.uniform1i(skyTransLoc, TU.transmittanceLUT);
   const skyScatLoc = gl.getUniformLocation(skyProg, 'uScatteringLUT');
   if (skyScatLoc) gl.uniform1i(skyScatLoc, TU.scatteringLUT);
-  }   // end !bakeOnly (sky program)
+  }
 
-  // ---- VIEWPORT DYNAMIC RESOLUTION (opt-in, window.__vdrs===true): render the scene into a FIXED full-
-  // size FBO at a FLEXED gl.viewport, then a fullscreen-quad LINEAR upscale to the canvas. Unlike the
-  // canvas-resize render-scale (which reallocates the drawing buffer = a one-frame hitch / "transfer
-  // spike"), changing resolution here only changes the VIEWPORT rect + the sampled sub-rect -> NO realloc,
-  // NO hitch. The FBO is (re)allocated ONLY when the CANVAS size changes (window resize), never on a
-  // resolution change, so window.__vdrsScale can be dialed every frame for smooth space->deck 144 holding.
-  // Single-sample MVP (no MSAA in the FBO -> edges alias at rs<=1; a multisample FBO + resolve is the
-  // look-preserving follow-up). DEFAULT path (vdrs off) is byte-untouched: scene renders straight to the
-  // canvas with the context MSAA. window.__vdrsScale in (0,1] = viewport fraction (the upscale source rect).
   const upVsSrc = '#version 300 es\nprecision highp float;\nout vec2 vUv;\nvoid main(){ vec2 p=vec2((gl_VertexID==1)?3.0:-1.0,(gl_VertexID==2)?3.0:-1.0); vUv=p*0.5+0.5; gl_Position=vec4(p,0.0,1.0); }';
   const upFsSrc = '#version 300 es\nprecision highp float;\nuniform sampler2D uTex;\nuniform vec2 uUvScale;\nin vec2 vUv;\nout vec4 fragColor;\nvoid main(){ fragColor=texture(uTex, vUv*uUvScale); }';
   let upProg = null, upUTex = null, upUScale = null;
@@ -1492,35 +875,8 @@ export async function initMapspinnerRender(gl, opts = {}) {
   upUTex = gl.getUniformLocation(upProg, 'uTex');
   upUScale = gl.getUniformLocation(upProg, 'uUvScale');
   }
-  // SHARED-DEPTH write program: stamp the planet depth (_vdrsDepth) into the bound (default/MSAA)
-  // framebuffer via gl_FragDepth so a consumer scene (e.g. a THREE world) is OCCLUDED by the terrain.
-  // A single-sample -> MSAA blitFramebuffer of DEPTH is GL_INVALID_OPERATION (the canvas is commonly
-  // MSAA), so the previous blit silently failed and nothing was occluded -- this shader pass writes
-  // per-fragment depth and is MSAA-safe. uDepthBias pushes depth away to avoid z-fight with geometry ON
-  // the surface. Full-screen triangle reuses upVsSrc (vUv).
-  // uUvScale MUST mirror the color upscale pass's subregion mapping (upFsSrc samples
-  // vUv*uUvScale): when VDRS flexes the viewport below full size (__vdrs===true, scale<1),
-  // _vdrsDepth's active content lives in the [0..scale] subregion -- sampling it with the raw
-  // full-range vUv stamped depth from the WRONG texels (stretched subregion + stale texels from
-  // frames when the viewport was larger), so a consumer scene depth-tested against garbage.
-  // RE-ENCODE, not a raw copy: a non-linear GL depth value is only meaningful under the near/far pair
-  // that produced it (z_ndc = (f+n)/(f-n) + (1/z_eye)*(-2fn)/(f-n)) -- if the consumer (THREE) uses a
-  // DIFFERENT near/far for its own projection/depth-test than the one this depth was encoded with
-  // (uSrcNear/uSrcFar), comparing the two directly is comparing values on two different curves, not
-  // two distances. Linearize with the SOURCE near/far, then re-project with the CONSUMER's (uDstNear/
-  // uDstFar) so the stamped value means the same eye-space distance under whichever projection THREE
-  // is actually using this frame. (Bug: THREE's camera.near/far decoupled from mapspinner's own
-  // terrain-horizon near/far, see decouple-vegetation-visibility-from-horizon-far-plane -- without
-  // this re-encode, "terrain cutting off trees and GLBs" -- confirmed live: raw-copy stamped a value
-  // meaningful under mapspinner's (0.5,4591.6) while THREE compared under its own (0.1,500).)
   const dwFsSrc = '#version 300 es\nprecision highp float;\nuniform highp sampler2D uDepth;\nuniform float uDepthEps;\nuniform vec2 uUvScale;\nuniform float uSrcNear;\nuniform float uSrcFar;\nuniform float uDstNear;\nuniform float uDstFar;\nin vec2 vUv;\nout vec4 fragColor;\nvoid main(){\n  float zNdcSrc = texture(uDepth, vUv*uUvScale).r * 2.0 - 1.0;\n  float zEye = (2.0*uSrcNear*uSrcFar) / (uSrcFar+uSrcNear - zNdcSrc*(uSrcFar-uSrcNear));\n  float projB = (uDstFar*uDstNear) / (uDstFar-uDstNear);\n  float biasM = (projB > 0.0) ? (uDepthEps * zEye * zEye / projB) : 0.0;\n  float zEyeBiased = zEye + biasM;\n  float zNdcDst = (uDstFar+uDstNear)/(uDstFar-uDstNear) + (1.0/zEyeBiased)*((-2.0*uDstFar*uDstNear)/(uDstFar-uDstNear));\n  float depth01 = clamp(zNdcDst * 0.5 + 0.5, 0.0, 1.0);\n  gl_FragDepth = depth01;\n  fragColor = vec4(0.0);\n}';
   let dwProg = null, dwUDepth = null, dwUBias = null, dwUScale = null, dwUSrcNear = null, dwUSrcFar = null, dwUDstNear = null, dwUDstFar = null;
-  // MERGED upscale + depth-writeback program (item: one fullscreen draw instead of two on the non-FSR1
-  // path): the SAME depth re-encode as dwFsSrc (identical statements) plus the SAME single LINEAR color
-  // tap upFsSrc does (texture(uTex, vUv*uUvScale)) written to fragColor with colorMask ON. Color and
-  // depth outputs are each byte-identical to the two separate passes; the canvas just gets both from one
-  // triangle. Separate samplers/units: uTex on TU.upscale (0, as the color pass used), uDepth on
-  // TU.sceneDepth (4, free in the tail passes).
   const udwFsSrc = '#version 300 es\nprecision highp float;\nuniform sampler2D uTex;\nuniform highp sampler2D uDepth;\nuniform float uDepthEps;\nuniform vec2 uUvScale;\nuniform float uSrcNear;\nuniform float uSrcFar;\nuniform float uDstNear;\nuniform float uDstFar;\nin vec2 vUv;\nout vec4 fragColor;\nvoid main(){\n  float zNdcSrc = texture(uDepth, vUv*uUvScale).r * 2.0 - 1.0;\n  float zEye = (2.0*uSrcNear*uSrcFar) / (uSrcFar+uSrcNear - zNdcSrc*(uSrcFar-uSrcNear));\n  float projB = (uDstFar*uDstNear) / (uDstFar-uDstNear);\n  float biasM = (projB > 0.0) ? (uDepthEps * zEye * zEye / projB) : 0.0;\n  float zEyeBiased = zEye + biasM;\n  float zNdcDst = (uDstFar+uDstNear)/(uDstFar-uDstNear) + (1.0/zEyeBiased)*((-2.0*uDstFar*uDstNear)/(uDstFar-uDstNear));\n  float depth01 = clamp(zNdcDst * 0.5 + 0.5, 0.0, 1.0);\n  gl_FragDepth = depth01;\n  fragColor = texture(uTex, vUv*uUvScale);\n}';
   let udwProg = null, udwUTex = null, udwUDepth = null, udwUBias = null, udwUScale = null, udwUSrcNear = null, udwUSrcFar = null, udwUDstNear = null, udwUDstFar = null;
   if (!bakeOnly) {
@@ -1549,7 +905,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
   udwUDstNear = gl.getUniformLocation(udwProg, 'uDstNear');
   udwUDstFar = gl.getUniformLocation(udwProg, 'uDstFar');
   }
-  // DEBUG depth-readback program (window.__depthProbeOn): encode depth01 into RGBA8 as (hi,lo) byte split.
   const dpFsSrc = '#version 300 es\nprecision highp float;\nuniform highp sampler2D uDepth;\nuniform vec2 uUvScale;\nin vec2 vUv;\nout vec4 fragColor;\nvoid main(){\n  float z = texture(uDepth, vUv*uUvScale).r;\n  float hi = floor(z*255.0)/255.0;\n  float lo = fract(z*255.0);\n  fragColor = vec4(hi, lo, 0.0, 1.0);\n}';
   let dpProg = null, dpUTex = null, dpUScale = null;
   if (!bakeOnly) {
@@ -1561,28 +916,8 @@ export async function initMapspinnerRender(gl, opts = {}) {
   dpUScale = gl.getUniformLocation(dpProg, 'uUvScale');
   }
   let _dpFbo = null, _dpTex = null, _dpW = 0, _dpH = 0;
-  // PREMULTIPLIED-ALPHA composite for the half-res water (perf 2026-06-24): the half-res FBO clears to
-  // (0,0,0,0); at the waterline a straight-alpha LINEAR upsample mixes water-rgb toward the cleared
-  // BLACK as alpha falls 1->0, then a SRC_ALPHA blend lays partial-black over land = a black fringe
-  // (user 'black line where water meets land'). The water FS outputs alpha=1 wherever it draws, so its
-  // colour is ALREADY premultiplied (rgb*1); the LINEAR filter then mixes premultiplied water with the
-  // premultiplied-zero cleared texels = correct alpha-weighted edge (rgb and a scale together). So the
-  // composite is a PASSTHROUGH sample blended with ONE, ONE_MINUS_SRC_ALPHA -> zero-alpha edge texels
-  // add zero colour, no black bleed. (Distinct from upProg only in the blend mode used at the call site.)
-  const cmpUTex = upUTex;   // reuse upProg (passthrough sample); the fix is the premultiplied blend func (null on bakeOnly)
+  const cmpUTex = upUTex;
 
-  // ---- FSR1-QUALITY VDRS UPSCALE (opt-in, window.__vdrsUpscaleFsr1===true): the plain LINEAR
-  // upFsSrc single-tap sample above is functionally correct but visually softer than an edge-adaptive
-  // upscale, especially at the lower end of the [0.3,1.0] vdrsScale clamp. Ports the SAME EASU
-  // (edge-adaptive spatial upsample) + RCAS (robust contrast-adaptive sharpen) technique
-  // client/core/FSR1.js already runs for the THREE-side canvas-DPR-drop consumer (see that module's
-  // header for the full design rationale) into mapspinner's own raw-GL upscale-to-canvas tail. Cannot
-  // share a THREE.ShaderMaterial instance (mapspinner is raw-GL, no THREE dependency) so the GLSL
-  // logic is duplicated here in WebGL2 GLSL ES 3.00 form (FSR1.js already targets the same language/
-  // version, so the port is direct). DEDICATED programs, not a reuse of upProg: upProg/cmpUTex is also
-  // used by the half-res-water composite (blend-mode passthrough, a different consumer with different
-  // correctness needs -- see the comment above), so this pass gets its own easuProg/rcasProg rather
-  // than risking a shared-program edit rippling into that call site.
   const easuFsSrc = '#version 300 es\nprecision highp float;\nuniform sampler2D uTex;\nuniform vec2 uUvScale;\nuniform vec2 uSrcTexel;\nin vec2 vUv;\nout vec4 fragColor;\nvoid main(){\n  vec2 uv = vUv*uUvScale;\n  vec2 texel = uSrcTexel*uUvScale;\n  vec3 center = texture(uTex, uv).rgb;\n  vec3 n = texture(uTex, uv + vec2(0.0, -texel.y)).rgb;\n  vec3 s = texture(uTex, uv + vec2(0.0,  texel.y)).rgb;\n  vec3 e = texture(uTex, uv + vec2( texel.x, 0.0)).rgb;\n  vec3 w = texture(uTex, uv + vec2(-texel.x, 0.0)).rgb;\n  float lc = dot(center, vec3(0.2126, 0.7152, 0.0722));\n  float ln = dot(n, vec3(0.2126, 0.7152, 0.0722));\n  float ls = dot(s, vec3(0.2126, 0.7152, 0.0722));\n  float le = dot(e, vec3(0.2126, 0.7152, 0.0722));\n  float lw = dot(w, vec3(0.2126, 0.7152, 0.0722));\n  float lmin = min(lc, min(min(ln, ls), min(le, lw)));\n  float lmax = max(lc, max(max(ln, ls), max(le, lw)));\n  float contrast = clamp((lmax - lmin) * 4.0, 0.0, 1.0);\n  vec3 dirAvg = (n + s + e + w) * 0.25;\n  vec3 sharp = center * (1.0 + contrast * 0.5) - dirAvg * (contrast * 0.5);\n  fragColor = vec4(mix(center, sharp, contrast), 1.0);\n}';
   let easuProg = null, easuUTex = null, easuUScale = null, easuUSrcTexel = null;
   if (!bakeOnly) {
@@ -1595,9 +930,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
   easuUScale = gl.getUniformLocation(easuProg, 'uUvScale');
   easuUSrcTexel = gl.getUniformLocation(easuProg, 'uSrcTexel');
   }
-  // RCAS: real AMD formula (same as FSR1.js _rcasFrag) -- per-pixel local min/max, contrast-adaptive
-  // sharpen weight clamped so flat regions never ring (the anti-ringing clamp this row's PRD detail
-  // calls out as the thing to not reintroduce).
   const rcasFsSrc = '#version 300 es\nprecision highp float;\nuniform sampler2D uTex;\nuniform vec2 uTexel;\nuniform float uSharpness;\nin vec2 vUv;\nout vec4 fragColor;\nvoid main(){\n  vec2 uv = vUv;\n  vec3 c = texture(uTex, uv).rgb;\n  vec3 n = texture(uTex, uv + vec2(0.0, -uTexel.y)).rgb;\n  vec3 s = texture(uTex, uv + vec2(0.0,  uTexel.y)).rgb;\n  vec3 e = texture(uTex, uv + vec2( uTexel.x, 0.0)).rgb;\n  vec3 w = texture(uTex, uv + vec2(-uTexel.x, 0.0)).rgb;\n  vec3 mn4 = min(min(n, s), min(e, w));\n  vec3 mx4 = max(max(n, s), max(e, w));\n  vec3 mn = min(mn4, c);\n  vec3 mx = max(mx4, c);\n  vec3 reciprocalMx = 1.0 / max(mx, vec3(0.0001));\n  vec3 ampl = clamp(min(mn, vec3(2.0) - mx) * reciprocalMx, vec3(0.0), vec3(1.0));\n  ampl = sqrt(ampl);\n  vec3 w4 = ampl * mix(vec3(-0.125), vec3(-0.20), uSharpness);\n  vec3 numerator = w4 * (n + s + e + w) + c;\n  vec3 denominator = vec3(1.0) + 4.0 * w4;\n  vec3 result = numerator / denominator;\n  fragColor = vec4(clamp(result, 0.0, 4.0), 1.0);\n}';
   let rcasProg = null, rcasUTex = null, rcasUTexel = null, rcasUSharpness = null;
   if (!bakeOnly) {
@@ -1610,9 +942,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
   rcasUTexel = gl.getUniformLocation(rcasProg, 'uTexel');
   rcasUSharpness = gl.getUniformLocation(rcasProg, 'uSharpness');
   }
-  // Intermediate EASU-output target: allocated lazily at canvas drawing-buffer resolution (same
-  // resolution RCAS reads back at -- this pass upscales WITHIN the already-full-res canvas target,
-  // same "in-place quality-preserving resharpen" scope note as FSR1.js's own _ensureTargets).
   let _fsr1UpTex = null, _fsr1UpFbo = null, _fsr1UpW = 0, _fsr1UpH = 0;
   function ensureFsr1UpTarget(W, H) {
     if (_fsr1UpTex && _fsr1UpW === W && _fsr1UpH === H) return;
@@ -1633,16 +962,10 @@ export async function initMapspinnerRender(gl, opts = {}) {
   }
   const upVao = bakeOnly ? null : gl.createVertexArray();
   let _vdrsFbo = null, _vdrsColor = null, _vdrsDepth = null, _vdrsW = 0, _vdrsH = 0, _vdrsRsThisFrame = 0;
-  // Scene-copy texture: snapshot of the terrain pass color buffer read by the water FS for refraction.
-  // Allocated once (canvas size), updated each frame via copyTexSubImage2D (GPU blit, zero allocation).
   let _sceneCopyTex = null, _sceneCopyW = 0, _sceneCopyH = 0;
   function ensureSceneCopy(W, H) {
     if (_sceneCopyTex && _sceneCopyW === W && _sceneCopyH === H) return;
     if (_sceneCopyTex) gl.deleteTexture(_sceneCopyTex);
-    // Scope the creation-time bind to the scratch unit 15 (same discipline as ensureHrwTargets): the
-    // caller's active unit is now 11 (uSculptOverride, left by setFrameUniforms->setComposeHeightUniforms)
-    // on the first call, and a create+unbind there would leave that sampler's unit EMPTY for this frame's
-    // water draw.
     const _prevActiveUnit = gl.getParameter(gl.ACTIVE_TEXTURE);
     gl.activeTexture(gl.TEXTURE15);
     _sceneCopyTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, _sceneCopyTex);
@@ -1655,33 +978,12 @@ export async function initMapspinnerRender(gl, opts = {}) {
     gl.activeTexture(_prevActiveUnit);
     _sceneCopyW = W; _sceneCopyH = H;
   }
-  // HALF-RES WATER FBO (perf 2026-06-24, user opted in): the water pass is ~9ms of per-pixel FS-ALU
-  // over a large screen area (measured: not verts/raster/swell). Rendering it at half resolution = ~4x
-  // fewer water FS invocations. Color = RGBA8 (alpha carries coverage for the composite); its own depth
-  // renderbuffer is cleared each frame -- the water relies on the terrain.glsl vH>1 discard to drop
-  // under-land water (front-occlusion by tall land over ocean is negligible at the deck). Gated behind
-  // window.__halfResWater. Reallocated only on a real half-size change.
   let _hrwFbo=null, _hrwColor=null, _hrwDepth=null, _hrwW=0, _hrwH=0;
   function ensureHrwTargets(W, H){
     if (_hrwFbo && _hrwW===W && _hrwH===H) return;
     if (_hrwColor) gl.deleteTexture(_hrwColor);
     if (_hrwDepth) gl.deleteRenderbuffer(_hrwDepth);
     if (_hrwFbo)   gl.deleteFramebuffer(_hrwFbo);
-    // FIX (instanced-draw-sampler-type-collision-new-instance, non-deterministic
-    // "GL_INVALID_OPERATION: glDrawElementsInstanced: Feedback loop formed between Framebuffer
-    // and active Texture" on the VERY FIRST frame / any hrw-resolution-changed frame): this
-    // function's own gl.bindTexture(TEXTURE_2D, _hrwColor) below had no preceding
-    // gl.activeTexture call, so it silently bound _hrwColor onto WHATEVER unit the caller left
-    // active -- which is TU.sceneTex (unit 9) on the real call path (render() calls
-    // ensureSceneCopy + binds _sceneCopyTex to unit 9 immediately before calling this). That
-    // clobbers unit 9's intended _sceneCopyTex binding with _hrwColor, and since _hrwColor is
-    // ALSO this same function's own FBO color attachment (below), unit 9 now points at the
-    // exact texture the immediately-following gl.bindFramebuffer(_hrwFbo) draw target attaches
-    // -- a real feedback loop, live-confirmed via texture-identity capture (the failing draw's
-    // bound FBO color attachment and unit 9's bound texture were the SAME object, both tracing
-    // to this line). Explicitly scope texture creation/setup to a dedicated scratch unit (15,
-    // unused by every TU.* role) and restore the caller's active unit afterward, so this
-    // function's internal texture work can never bleed into whatever unit the caller had active.
     const _prevActiveUnit = gl.getParameter(gl.ACTIVE_TEXTURE);
     gl.activeTexture(gl.TEXTURE15);
     _hrwColor=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,_hrwColor);
@@ -1690,7 +992,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-    gl.bindTexture(gl.TEXTURE_2D, null);   // unbind from the scratch unit -- never left resident
+    gl.bindTexture(gl.TEXTURE_2D, null);
     gl.activeTexture(_prevActiveUnit);
     _hrwDepth=gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER,_hrwDepth);
     gl.renderbufferStorage(gl.RENDERBUFFER,gl.DEPTH_COMPONENT24,W,H);
@@ -1701,11 +1003,11 @@ export async function initMapspinnerRender(gl, opts = {}) {
     _hrwW=W; _hrwH=H;
   }
   function ensureVdrsTargets(W, H){
-    if (_vdrsFbo && _vdrsW === W && _vdrsH === H) return;   // realloc ONLY on a real canvas-size change
+    if (_vdrsFbo && _vdrsW === W && _vdrsH === H) return;
     if (_vdrsColor) gl.deleteTexture(_vdrsColor);
     if (_vdrsDepth) gl.deleteTexture(_vdrsDepth);
     if (_vdrsFbo)   gl.deleteFramebuffer(_vdrsFbo);
-    const _prevActiveUnit = gl.getParameter(gl.ACTIVE_TEXTURE);   // scratch-unit discipline (see ensureHrwTargets/ensureSceneCopy)
+    const _prevActiveUnit = gl.getParameter(gl.ACTIVE_TEXTURE);
     gl.activeTexture(gl.TEXTURE15);
     _vdrsColor = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, _vdrsColor);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
@@ -1713,10 +1015,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    // DEPTH as a sampleable TEXTURE: the half-res water FS samples this full-res scene depth for
-    // per-pixel occlusion (the cross-size depth blit was broken on NVIDIA/ANGLE). NEAREST (depth must
-    // not be filtered). Must be unbound from its sampler unit before _vdrsFbo is rebound as a draw
-    // target (the composite) or NVIDIA flags a feedback loop -> black.
     _vdrsDepth = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, _vdrsDepth);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT24, W, H, 0, gl.DEPTH_COMPONENT, gl.UNSIGNED_INT, null);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
@@ -1727,54 +1025,31 @@ export async function initMapspinnerRender(gl, opts = {}) {
     _vdrsFbo = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, _vdrsFbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, _vdrsColor, 0);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, _vdrsDepth, 0);
-    // Pre-clear _vdrsDepth to far plane (1.0) so frame-1 terrain fragments are not universally
-    // discarded by the depth-discard gate (terrain.glsl:~1041). On frame 1, uSceneDepth is
-    // uninitialized (0); any terrain with z > ~0.0003 in NDC space gets discarded, causing the
-    // entire terrain to vanish. Clearing to 1.0 (far plane) ensures frame-1 fragments pass.
     gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); gl.clearDepth(1.0); gl.clear(gl.DEPTH_BUFFER_BIT);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.activeTexture(_prevActiveUnit);
     _vdrsW = W; _vdrsH = H;
   }
 
-  // ---- mesh grid: OVERLAP-RING tessellation (replaces the old dropped-skirt curtain).
-  // The mesh spans (GRID+2) cells in each axis: the INTERIOR GRID cells cover the tile's
-  // usable region in param coord [0,1] exactly as before, plus ONE EXTRA RING of cells on
-  // every side reaching param coord [-1/GRID, 1+1/GRID]. The extra ring extends the surface
-  // one cell INTO the neighbor tile's territory (a real, continuous part of the elevation
-  // field -- the atlas carries BORDER=2 texels of valid margin, so uv just outside [0,1]
-  // samples genuine neighbor-edge texels, NOT garbage). At a coarse/fine LOD T-junction the
-  // coarse tile's overlap ring covers the crack the skirt used to hide; at a same-LOD seam
-  // both neighbors overlap into each other and overdraw a COPLANAR surface (both compute
-  // near-identical world height from the continuous field, so no z-fight). The neighbor's
-  // own interior overdraws the overlap, so the visible surface still ends at the true tile
-  // boundary -- the outer ring is the "hidden last ring". vertex.z is always 0 (no skirt).
-  const g2 = GRID+2;              // cells per axis (GRID interior + 1 ring each side)
-  const n2 = g2+1;               // verts per axis
-  const du = 1.0/GRID;           // param step = one interior cell
-  // SKIRT not OVERLAP (fix-visible-overlap-ring): the outer ring used to extend one cell INTO the
-  // neighbor [-du, 1+du] and rasterize a FLAT flap there -> a visible band at every patch edge (user:
-  // 'ring polys visible'). Instead, CLAMP each outer-ring vertex's xy to the true interior edge [0,1]
-  // and flag it (z=1) as a SKIRT: the VS drops it radially below the surface, forming a near-vertical
-  // curtain at the tile boundary. The skirt fills any T-junction crack (so no seam, unlike deleting
-  // the ring) but is hidden behind the surface (so no visible flat band, unlike the overlap).
-  const vlist = []; // x, y (param coord clamped to [0,1]), z = skirt flag (0 surface, 1 skirt)
+  const g2 = GRID+2;
+  const n2 = g2+1;
+  const du = 1.0/GRID;
+  const vlist = [];
   for (let y=0;y<n2;y++) for (let x=0;x<n2;x++){
     const isRing = (x===0 || x===n2-1 || y===0 || y===n2-1);
-    const px = Math.min(Math.max((x-1)*du, 0.0), 1.0);   // clamp ring xy onto the true edge
+    const px = Math.min(Math.max((x-1)*du, 0.0), 1.0);
     const py = Math.min(Math.max((y-1)*du, 0.0), 1.0);
     vlist.push(px, py, isRing ? 1.0 : 0.0);
   }
   const idx = [];
   for (let y=0;y<g2;y++) for (let x=0;x<g2;x++){
     const a=y*n2+x,b=a+1,c=a+n2,d=c+1;
-    // Murmur3 finalizer on packed (x,y) -> quasi-random diagonal per quad.
     let h = (x | (y << 16)) | 0;
     h = Math.imul(h ^ (h >>> 16), 0x45d9f3b | 0);
     h = Math.imul(h ^ (h >>> 16), 0x45d9f3b | 0);
     h = h ^ (h >>> 16);
-    if ((h >>> 17) & 1) idx.push(a,c,d, a,d,b);   // TL-BR diagonal (same CCW winding)
-    else                idx.push(a,c,b, b,c,d);   // TR-BL diagonal (original)
+    if ((h >>> 17) & 1) idx.push(a,c,d, a,d,b);
+    else                idx.push(a,c,b, b,c,d);
   }
   const verts = new Float32Array(vlist);
   const indices = new Uint32Array(idx);
@@ -1784,12 +1059,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
     ibo=gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,indices,gl.STATIC_DRAW);
   }
 
-  // SEPARATE COARSE WATER MESH (perf 2026-06-24): the water surface is near-flat (swell VS is ~0.4ms,
-  // measured; waves are an FS effect) so it does NOT need the terrain GRID density. MEASURED at the
-  // deck the water pass was ~12ms of a 20ms frame and pure vertex/triangle THROUGHPUT (262 tiles x
-  // GRID^2 verts). A coarse water grid cuts that throughput ~Nx with no visual change (the FS raymarch
-  // + per-pixel normal carry all wave detail; the mesh only needs enough verts to follow the sphere +
-  // the waterline discard). No skirt ring (water sets skirt=0). Live-tunable via window.__waterGrid.
   const WGRID = (typeof window!=='undefined' && window.__waterGrid) ? window.__waterGrid : 4;
   const wg2 = WGRID+2, wn2 = wg2+1, wdu = 1.0/WGRID;
   const wvlist = [];
@@ -1804,38 +1073,11 @@ export async function initMapspinnerRender(gl, opts = {}) {
   if (!bakeOnly) {
     wvbo=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,wvbo); gl.bufferData(gl.ARRAY_BUFFER,waterVerts,gl.STATIC_DRAW);
     wibo=gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,wibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,waterIndices,gl.STATIC_DRAW);
-    instBuf=gl.createBuffer();   // per-instance [ox,oy,l,level,face] (filled per frame in render())
+    instBuf=gl.createBuffer();
   }
-  // DATA-CONTINUITY CACHE (2026-06-14): terrain + water get their OWN persistent instance buffers so
-  // neither clobbers the other (the shared-buffer clobber forced a re-upload every frame and was the
-  // root of the prior 'water drawn as terrain' regression). On a STATIC frame (same quads array object)
-  // the instance data is identical -> skip the Float32Array build + bufferData + water dedup Set-loop
-  // and just rebind+draw. Pure CPU/GC win (GPU is vertex-bound, the upload is off the critical path).
   const instBufWater = bakeOnly ? null : gl.createBuffer();
   let _instQuadsRef=null, _instWaterRef=null, _instWaterN=0, _lastThc=false;
-  // WATER VISIBILITY GATE (2026-07-05, iGPU perf): at an inland/no-water-visible pose the water
-  // pipeline still burned ~6ms/frame on a weak iGPU (measured fresh-page A/B, __waterSurface=false
-  // arm: 22.1 -> 15.8ms p50 @1080p AMD iGPU/ANGLE): a FULL-RES scene copyTexSubImage2D for
-  // refraction, the half-res water color pass (depth-test OFF -> every water-sphere fragment shades
-  // even when fully behind terrain), and a fullscreen composite -- all for zero visible pixels.
-  // The gate wraps the depth-only water stamp (which draws water depth-tested LESS against the
-  // just-rendered terrain depth in _vdrsFbo) in an ANY_SAMPLES_PASSED_CONSERVATIVE occlusion query:
-  // if the GPU proves no water fragment wins the depth test for 2 consecutive resolved queries, the
-  // scene copy + color pass + composite are SKIPPED. The stamp/probe itself still draws EVERY frame
-  // (it doubles as the shared-depth water stamp), so re-appearing water flips the verdict within
-  // 1-2 frames (~imperceptible at a horizon waterline; the CONSERVATIVE query only ever
-  // over-reports visibility = draws water when in doubt = look-preserving by construction).
-  // Off-switch: window.__waterVisGate = false. Witness: window.__waterVisSkips counts skipped frames.
   let _waterVisQ = null, _waterVisQPending = false, _waterVisZeroRuns = 0;
-  // SCRATCH POOLS (perf 2026-07-03): the _dirty instanced-draw rebuild (fires every frame the camera
-  // moves, i.e. the common gameplay case -- NOT just on quad-set change, since the front-to-back sort
-  // and instance buffer must be rebuilt whenever camera position changes the sort order/layer values)
-  // used to allocate a fresh Float64Array(n)/Array(n)/Float32Array(n*FLOATS) EVERY such frame -- the
-  // exact steady-state-allocation class quadtree.js's _leaves pool already eliminated elsewhere in this
-  // codebase ('PERSISTENT leaf-object POOL ... reused across frames ... zero steady-state allocation').
-  // Grow-only capacity-tracked scratch, matching that established idiom: allocate once, reuse, only
-  // grow (never shrink) when a larger n is seen. GC-neutral on the common case (stable visible tile
-  // count); correctness unchanged (same values written, just into a persistent backing store).
   let _scrD2 = new Float64Array(0), _scrOrd = new Int32Array(0), _scrInst = new Float32Array(0);
   let _scrWl = new Float32Array(0);
   function _ensureScratch(n, FLOATS) {
@@ -1846,49 +1088,21 @@ export async function initMapspinnerRender(gl, opts = {}) {
   function _ensureWaterScratch(n, FLOATS) {
     if (_scrWl.length < n * FLOATS) _scrWl = new Float32Array(n * FLOATS);
   }
-  // Reused across frames (perf 2026-07-03): the water dedup Set was `new Set()` every dirty frame.
-  // .clear() keeps the same backing store, avoiding a fresh hash-table alloc on the common
-  // (camera-moved) path.
   const _waterSeen = new Set();
-  const _camRotScratch = new Float32Array(9);   // sky-pass camRot uniform: was a fresh alloc every frame the sky pass runs (below 100km alt)
+  const _camRotScratch = new Float32Array(9);
 
-  // per-face local->world (cube face -> sphere local frame). Column-major mat3 packed
-  // into a Float32Array(9). Matches localToWorld3 convention:
-  // col0 = U/rs, col1 = faceCenter, col2 = V/rs. rootQuadSize=2 -> face spans [-1,1].
   function localToWorld3(face) {
-    // face axes (cube): for face 3 (+Z) U=+X, V=+Y, center=+Z. Generic table:
     const F = [
-      {c:[ 1,0,0], u:[0,0,-1], v:[0,1,0]}, // +X
-      {c:[-1,0,0], u:[0,0, 1], v:[0,1,0]}, // -X
-      {c:[0, 1,0], u:[1,0,0], v:[0,0,-1]}, // +Y
-      {c:[0,-1,0], u:[1,0,0], v:[0,0, 1]}, // -Y
-      {c:[0,0, 1], u:[1,0,0], v:[0,1,0]},  // +Z
-      {c:[0,0,-1], u:[-1,0,0],v:[0,1,0]},  // -Z
+      {c:[ 1,0,0], u:[0,0,-1], v:[0,1,0]},
+      {c:[-1,0,0], u:[0,0, 1], v:[0,1,0]},
+      {c:[0, 1,0], u:[1,0,0], v:[0,0,-1]},
+      {c:[0,-1,0], u:[1,0,0], v:[0,0, 1]},
+      {c:[0,0, 1], u:[1,0,0], v:[0,1,0]},
+      {c:[0,0,-1], u:[-1,0,0],v:[0,1,0]},
     ][face];
-    // local plane coords (ox,oy) in [-1,1]; the VS builds P=(ox',oy',R) then normalizes
-    // *defLocalToWorld* P. So localToWorld maps the local (x,y,z=R) basis to the face.
-    // col0<-U, col1<-V, col2<-center (z axis = outward). Column-major 3x3.
     return new Float32Array([ F.u[0],F.u[1],F.u[2],  F.v[0],F.v[1],F.v[2],  F.c[0],F.c[1],F.c[2] ]);
   }
 
-  // Compute & set the per-quad deformation uniforms (SphericalDeformation::setScreenUniforms).
-  // quad = {level, tx, ty, ox, oy, l}; localCam = camera in this face's local plane coords.
-  // (setQuadUniforms DELETED 2026-06-11 dead-code sweep: the single instanced draw replaced the
-  // per-quad uniform path -- defOffset/defLocalToWorld are VS locals from iOffset/iFace now, and
-  // the defViewProjRel/defOffset/defLocalToWorld uniforms no longer exist in the shader.)
-
-  // (setTileCoords DELETED 2026-09-06: dead since the atlas removal -- zero callers.)
-
-  // SINGLE SOURCE OF TRUTH for the camera-relative clip matrix + near/far. Both render()
-  // and the orchestrator's frustum cull use this so the cull can never disagree with the
-  // draw (a divergence would cull on-screen quads or keep off-screen ones).
-  // scalarsIn (optional): {aspect,near,far} already computed by a caller (render() computes the
-  // identical altitude-tied near/far/aspect for its own octave-clamp/planetNearFar bookkeeping
-  // just before calling this) -- reuse them instead of re-deriving from cam.eye/surfElev, so a
-  // single render() frame does this scalar math exactly once instead of twice. Callers that only
-  // need the cull matrices (planet-orchestrator's per-frame cull pass, which runs BEFORE render()
-  // even builds its own scalars) omit scalarsIn and get the original self-contained derivation --
-  // behavior/output is byte-identical either way, this is purely a redundant-recompute removal.
   function cullMatrix(cam, scalarsIn) {
     let aspect, near, far;
     if (scalarsIn) {
@@ -1898,43 +1112,18 @@ export async function initMapspinnerRender(gl, opts = {}) {
       const camDist = Math.hypot(cam.eye[0], cam.eye[1], cam.eye[2]);
       const alt = Math.max(0.0, camDist - R);
       const altAboveTerrain = Math.max(0.001, alt - R * (cam.surfElev || 0));
-      // FAR-PLANE HORIZON RADIUS = R - 500m (user 2026-06-14: 'nearby mountains disappear at water level;
-      // adjust that level to 500m under water'). The far plane tracks the sea-level horizon = sqrt(camDist^2
-      // - R^2), which at the deck (camDist~=R) collapses to a few hundred metres -> coastal mountains a km
-      // out fall beyond the far plane and vanish. Dropping the horizon reference radius 500m below sea level
-      // extends the horizon to tens of km at low altitude so near-shore relief stays in view (negligible
-      // depth-precision cost: 500m vs R~6.37e6). Both the cull and the draw use this (single source).
-      const RHORIZON = R - 150.0;   // far brought in 500->250 (user 2026-06-14 'bring far plane in a bit'): deck horizon ~80km->~56km = more z-precision; still clears coastal mountains
-      // UNDERWATER FAR-PLANE FIX (user 2026-06-14 'at -214m visible, at -500m it disappears'): when the
-      // camera is more than 500m below sea level, camDist < RHORIZON so the sea-level horizon is imaginary
-      // (-> 0) and alt is negative; the old max(horizon, alt*8) then collapsed the far plane to ~0 and the
-      // whole scene vanished past -500m deep (= the 'ocean looks shallow/empty' when exploring). Floor the
-      // far reach to 60km when submerged so the seabed + the underwater view stay visible.
-      const horizon = (camDist > RHORIZON) ? Math.sqrt(camDist*camDist - RHORIZON*RHORIZON) : 60000.0;
-      // MATCH render()'s near exactly (2026-06-14 jank fix): the cull frustum must use the SAME near
-      // as the draw frustum, else behind-limb/screen-AABB culling diverges from what is actually drawn
-      // at the deck (cull near was max(*0.1,0.1) while render used the <2m 0.05 branch).
-      near = altAboveTerrain < 2.0 ? 0.5 : Math.max(altAboveTerrain * 0.1, 0.5);   // near nudged out 0.05->0.25 (user 2026-06-14 'improve on-ground'): more z-precision on the deck
-      // FAR PLANE: horizon distance tracks the visible ground edge; blends toward camDist
-      // above 500km for orbital views so the full planet is visible.
+      const RHORIZON = R - HORIZON_SPHERE_DEPTH_BELOW_SEA;
+      const horizon = (camDist > RHORIZON) ? Math.sqrt(camDist*camDist - RHORIZON*RHORIZON) : SUBMERGED_FAR_REACH;
+      near = altAboveTerrain < 2.0 ? 0.5 : Math.max(altAboveTerrain * 0.1, 0.5);
       const _fBlend = Math.min(1.0, Math.max(0.0, (alt - 500000.0) / 4500000.0));
       const farGround = Math.max(horizon, alt * 8.0);
       far = farGround * (1.0 - _fBlend) + camDist * _fBlend;
     }
-    // POOLED (item: cullMatrix double-compute / 6 Float32Array allocs): every matrix below is written into a
-    // persistent scratch via M4's `out` params and the SAME result object is returned each call -- the
-    // orchestrator computes this once per rebuild frame and hands it to render() via cam.cullMatrix, so
-    // nothing holds a result across two calls. Values are bit-identical to the allocating form.
     const eye = cam.eye;
     const proj = M4.perspective(cam.fovy||0.785, aspect, near, far, _cmProj);
     _cmCtr[0] = cam.center[0]-eye[0]; _cmCtr[1] = cam.center[1]-eye[1]; _cmCtr[2] = cam.center[2]-eye[2];
     const viewRel = M4.lookAt(_cmZero, _cmCtr, cam.up||_cmUpDefault, _cmView);
     _cmNegEye[0] = -eye[0]; _cmNegEye[1] = -eye[1]; _cmNegEye[2] = -eye[2];
-    // viewProjNoEye = proj*viewRel WITHOUT the translate(-eye). The frustum cull must feed it
-    // corners ALREADY made camera-relative (corner-eye, subtracted in JS double precision) --
-    // folding translate(-eye) into the matrix and feeding ABSOLUTE ~6.37e6 m corners suffers
-    // fp32 cancellation at ground level (eye~=world), garbaging the projection and blanking the
-    // footprint. Subtracting in JS doubles first keeps the cull's projection precise near ground.
     const viewProjNoEye = M4.mul(proj, viewRel, _cmPV);
     const viewProjRel = M4.mul(viewProjNoEye, M4.translate(_cmNegEye, _cmTrans), _cmVPR);
     const o = _cmOut;
@@ -1945,16 +1134,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
   const _cmZero = [0,0,0], _cmCtr = [0,0,0], _cmNegEye = [0,0,0], _cmUpDefault = [0,1,0];
   const _cmOut = { viewProjRel: null, viewProjNoEye: null, eye: null, near: 0, far: 0, proj: null, viewRel: null };
 
-  // ===== RENDER PASS MANIFEST (rg-decompose-glrender-monolith) =====
-  // Pure-observability decomposition of render()'s internal GL call sequence into named passes with
-  // declared in/out resources. This is NOT a behavior change: every pass below is the SAME code that
-  // ran inline before, called in the SAME order, sharing render()'s local closure (cam/sunDir/time/
-  // viewProjRel/_cm/etc) exactly as it did as inline statements -- extracting to closures over the
-  // same scope is behavior-preserving by construction (no variable is copied/re-derived, no state is
-  // read at a different point in the frame than before). shouldRun reflects a REAL runtime condition
-  // (read live, not cached) so the manifest always describes the CURRENT frame's actual gating -- a
-  // host RenderGraph inspector can mirror these read-only sub-nodes without re-implementing the gates.
-  // Exported via getPassManifest() below; each entry's `reads`/`writes` name the GL resources touched.
   const _passManifest = [
     { id: 'terrain-tile-draw', purpose: 'Instanced draw of all visible terrain quads (+ optional THC bake-on-sight)', reads: ['quads', 'viewProjRel', 'composeHeight uniforms'], writes: ['color', 'depth'] },
     { id: 'water-visibility-probe', purpose: 'Conservative occlusion query + shared-depth stamp for the half-res water gate', reads: ['depth'], writes: ['depth (stamp)', 'occlusion query result'] },
@@ -1965,13 +1144,9 @@ export async function initMapspinnerRender(gl, opts = {}) {
     { id: 'planet-depth-writeback', purpose: 'Shader-pass re-encode + stamp of planet depth into the canvas depth buffer for a host consumer scene', reads: ['_vdrsDepth'], writes: ['canvas depth'] },
     { id: 'atmosphere-aerial-composite', purpose: 'Fullscreen sky/atmosphere pass (drawSky), depth-tested only when the bound framebuffer holds this frame real depth', reads: ['depth (conditional)'], writes: ['color'] },
   ];
-  function getPassManifest() { return _passManifest.map(p => ({ ...p })); }   // defensive copy -- read-only for consumers
+  function getPassManifest() { return _passManifest.map(p => ({ ...p })); }
   if (typeof globalThis !== 'undefined') globalThis.__mapspinnerPassManifest = getPassManifest;
 
-  // ===== PER-FRAME STATE (2026-09-06 hoist): render() used to (re)create ~10 closures per call (g/_g/o3/C/c3,
-  // drawSky, _passProbeSnap, passUpscaleToCanvas, passPlanetDepthWriteback). They are now module-level
-  // functions of initMapspinnerRender's scope reading this one persistent frame-state object, which
-  // render() fills at the top of every call. Same reads, same values, same GL sequence -- no allocation.
   const _F = {
     cam: null, sunDir: null, time: 0, eye: null,
     aspect: 1, near: 0, far: 0, alt: 0, camDist: 0, camAlt: 0,
@@ -1979,23 +1154,13 @@ export async function initMapspinnerRender(gl, opts = {}) {
     cm: null, viewProjRel: null, viewProjNoEye: null,
     vW: 0, vH: 0, vrs: 0, bm: null,
   };
-  // biome-ramp override lookup (window.__gen.state.biome) -- per frame `_F.bm`, read by _c3 below
   const _C = (k, d) => (_F.bm && _F.bm[k]) ? _F.bm[k] : d;
   const _c3 = (n, d) => { const v = _C(n, d); _chuSet3f(U, _activeChu, n, v[0], v[1], v[2]); };
   const _o3 = (n, d) => { const w = (typeof window !== 'undefined' && window[_wkey(n)]) || null; const v = (Array.isArray(w) && w.length === 3) ? w : d; _chuSet3f(U, _activeChu, n, v[0], v[1], v[2]); };
 
-  // SKY/ATMOSPHERE PASS drawn AFTER terrain (called at the two frame-exit points) -- drawing depth-test-off
-  // FIRST shaded every one of ~2M canvas pixels every frame, only for terrain to overdraw most of them.
-  // depthFunc(LEQUAL) + gl_Position.z=w (skyVsSrc emits z=w=1.0, the standard "sky at the far plane" trick)
-  // means the sky FS only runs where terrain (or water) left the depth buffer at its cleared/far value.
-  // `depthTested`: true only when the CURRENTLY BOUND framebuffer's depth is guaranteed to be THIS frame's
-  // real terrain/water depth (straight-to-canvas path, or the VDRS path AFTER the depth-writeback stamp when
-  // __planetDepthToCanvas is on). Otherwise the canvas depth buffer may be stale -- fall back to the original
-  // depth-test-OFF draw so the look never regresses (fail-open, matches pre-existing behavior).
   function drawSky(depthTested) {
     const camAlt = _F.camAlt, _cm = _F.cm, eye = _F.eye, sunDir = _F.sunDir;
     const skyFade = Math.max(0.0, 1.0 - camAlt / 100000.0);
-    // TEMP DIAGNOSTIC (window.__passProbe): log sky-pass entry/exit/early-return per frame.
     if (typeof window !== 'undefined' && window.__passProbe === true) {
       (window.__passProbeLog = window.__passProbeLog || []).push(
         'drawSky enter depthTested=' + depthTested + ' camAlt=' + camAlt.toFixed(1) + ' skyFade=' + skyFade.toFixed(4));
@@ -2009,22 +1174,16 @@ export async function initMapspinnerRender(gl, opts = {}) {
     _camRotScratch[3]=_cm.viewRel[1]; _camRotScratch[4]=_cm.viewRel[5]; _camRotScratch[5]=_cm.viewRel[9];
     _camRotScratch[6]=_cm.viewRel[2]; _camRotScratch[7]=_cm.viewRel[6]; _camRotScratch[8]=_cm.viewRel[10];
     gl.uniformMatrix3fv(SU('camRot'), false, _camRotScratch);
-    // skyR / projDiag / uSkyDbg: static (radius; fovy+aspect only; a debug toggle) -> dirty-cached on the
-    // sky program's own cache. The per-frame ones (camRot/skyCamWorld/skySunDir/uSkyFade) stay unconditional.
     _chuSet2f(SU, _chuS, 'projDiag', _cm.proj[0], _cm.proj[5]);
     gl.uniform3f(SU('skyCamWorld'), eye[0], eye[1], eye[2]);
     gl.uniform3f(SU('skySunDir'), sunDir[0], sunDir[1], sunDir[2]);
     _chuSet1f(SU, _chuS, 'skyR', R);
     gl.uniform1f(SU('uSkyFade'), skyFade);
-    _chuSet1f(SU, _chuS, 'uSkyDbg', (typeof window!=='undefined' && window.__skyDbg) ? window.__skyDbg : 0.0);  // sky-FS intermediate readout (1=raw radiance 2=post-bias*exposure 3=post-ACES)
-    // TEMP DIAGNOSTIC (__passProbe-gated): force the sky depth test off to A/B "sky rejected
-    // by a depth-only writer" vs "sky paints but something black overwrites it later".
+    _chuSet1f(SU, _chuS, 'uSkyDbg', (typeof window!=='undefined' && window.__skyDbg) ? window.__skyDbg : 0.0);
     if (typeof window !== 'undefined' && window.__passProbeSkyNoDepth === true) depthTested = false;
     if (depthTested) { gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL); gl.depthMask(false); }
     else { gl.disable(gl.DEPTH_TEST); }
-    gl.disable(gl.CULL_FACE);   // the sky is a fullscreen triangle -- NEVER cull it. The terrain cull
-    // state (frontFace/cullFace) persists from the previous frame's draw, so without this the sky
-    // triangle inherits whatever winding was culled and VANISHES (user 2026-06-17 'the sky disappears').
+    gl.disable(gl.CULL_FACE);
     gl.bindVertexArray(skyVao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.bindVertexArray(null);
@@ -2032,9 +1191,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
     if (typeof window !== 'undefined' && window.__passProbe === true) (window.__passProbeLog = window.__passProbeLog || []).push('drawSky exit drew fullscreen tri');
   }
 
-  // TEMP DIAGNOSTIC (window.__passProbe): capture a downscaled JPEG of the current framebuffer
-  // (default canvas, or a given color texture via a scratch FBO) into window.__passProbeFrames.
-  // Zero effect when window.__passProbe !== true. One-shot: disarms itself after one full sweep.
   function _passProbeSnap(label, srcTex, texW, texH) {
     if (!(typeof window !== 'undefined' && window.__passProbe === true)) return;
     try {
@@ -2057,7 +1213,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
       if (srcTex) { gl.bindFramebuffer(gl.FRAMEBUFFER, prevFbo); gl.deleteFramebuffer(fbo); }
       else gl.bindFramebuffer(gl.FRAMEBUFFER, prevFbo);
       gl.viewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
-      // subsample JS-side to ~256 wide, flip Y (readPixels is bottom-up), JPEG-encode offscreen
       const pw = 256, ph = Math.max(1, Math.round(256 * H / W));
       const cv = document.createElement('canvas'); cv.width = pw; cv.height = ph;
       const cx = cv.getContext('2d');
@@ -2074,22 +1229,12 @@ export async function initMapspinnerRender(gl, opts = {}) {
     }
   }
 
-  // ===== PASS: upscale-to-canvas (see _passManifest) =====
-  // IN: _vdrsColor, _vdrsRsThisFrame. OUT: canvas color.
-  // VIEWPORT-DRS UPSCALE: blit the flexed-viewport FBO to the canvas via a fullscreen-quad sample
-  // of the rendered [0,rs] sub-rect. No canvas realloc occurred this frame -> the resolution change is
-  // hitch-free. preserveDrawingBuffer witness reads + page screenshots capture this final canvas image.
-  // FSR1-QUALITY BRANCH (window.__vdrsUpscaleFsr1===true): EASU edge-adaptive resample into the
-  // intermediate _fsr1UpTex, then RCAS contrast-adaptive sharpen straight to the canvas -- same
-  // two-pass shape as client/core/FSR1.js's compute()/composite() split. Falls back to the plain
-  // LINEAR upFsSrc tap (byte-identical to pre-existing behavior) when the knob is off.
   function passUpscaleToCanvas() {
     const _fsr1 = (typeof window !== 'undefined' && window.__vdrsUpscaleFsr1 === true);
     gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE); gl.disable(gl.BLEND); gl.depthMask(true);
     if (_fsr1) {
       const W = gl.drawingBufferWidth, H = gl.drawingBufferHeight;
       ensureFsr1UpTarget(W, H);
-      // EASU pass: flexed [0,rs] sub-rect of _vdrsColor (size _vdrsW x _vdrsH) -> full-res _fsr1UpTex.
       gl.bindFramebuffer(gl.FRAMEBUFFER, _fsr1UpFbo);
       gl.viewport(0, 0, W, H);
       gl.useProgram(easuProg);
@@ -2099,8 +1244,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
       gl.uniform2f(easuUSrcTexel, _vdrsW > 0 ? 1 / _vdrsW : 0, _vdrsH > 0 ? 1 / _vdrsH : 0);
       gl.bindVertexArray(upVao);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
-      gl.activeTexture(gl.TEXTURE0 + TU.upscale); gl.bindTexture(gl.TEXTURE_2D, null);   // avoid the same feedback-loop hazard the LINEAR path guards below
-      // RCAS pass: sharpen the EASU output straight onto the canvas.
+      gl.activeTexture(gl.TEXTURE0 + TU.upscale); gl.bindTexture(gl.TEXTURE_2D, null);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, W, H);
       gl.useProgram(rcasProg);
@@ -2121,30 +1265,13 @@ export async function initMapspinnerRender(gl, opts = {}) {
       gl.bindVertexArray(upVao);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       gl.bindVertexArray(null);
-      // UNBIND _vdrsColor from TEXTURE0: same feedback-loop hazard as _vdrsDepth (see
-      // passPlanetDepthWriteback's matching fix below) -- _vdrsColor is _vdrsFbo's own
-      // COLOR_ATTACHMENT0, and this bind was never cleared, persisting into the next frame's
-      // _vdrsFbo rebind as the draw target.
       gl.activeTexture(gl.TEXTURE0 + TU.upscale); gl.bindTexture(gl.TEXTURE_2D, null);
     }
     gl.enable(gl.DEPTH_TEST);
   }
 
-  // ===== PASS: planet-depth-writeback (see _passManifest) =====
-  // IN: _vdrsDepth, near, far. OUT: canvas depth.
-  // SHARED-DEPTH (window.__planetDepthToCanvas===true, opt-in): the half-res-water / VDRS path renders
-  // the planet into _vdrsFbo (full-res, _vdrsDepth DEPTH texture) and upscales COLOR-only to the canvas
-  // -- so a consumer scene drawn on top has NO planet depth to test against and draws OVER the terrain
-  // instead of being occluded by it. Write the planet depth into the canvas depth buffer via a SHADER
-  // PASS (gl_FragDepth from _vdrsDepth), color-masked off, depthFunc ALWAYS to stamp every planet texel.
-  // (A single-sample->MSAA blitFramebuffer of DEPTH is GL_INVALID_OPERATION -- the canvas is commonly
-  // MSAA -- so the prior blit silently failed and nothing was occluded. This shader pass is MSAA-safe.)
-  // Returns true if the writeback ran (caller uses this to pick drawSky's depthTested arg).
   function _wantDepthWriteback() { return (typeof window !== 'undefined' && window.__planetDepthToCanvas === true && !!_vdrsDepth); }
   function _writebackDstNearFar() {
-    // Consumer (THREE) near/far may legitimately differ from this frame's own near/far (window.__hostNearFar,
-    // set by the host once per frame if it decouples its projection from ours) -- fall back to this frame's
-    // own near/far (a no-op re-encode) when the host hasn't published one, preserving existing behavior.
     const _hostNF = (typeof window !== 'undefined') ? window.__hostNearFar : null;
     _wbDst[0] = (_hostNF && Number.isFinite(_hostNF.near)) ? _hostNF.near : _F.near;
     _wbDst[1] = (_hostNF && Number.isFinite(_hostNF.far)) ? _hostNF.far : _F.far;
@@ -2161,27 +1288,15 @@ export async function initMapspinnerRender(gl, opts = {}) {
     gl.useProgram(dwProg);
     gl.activeTexture(gl.TEXTURE0 + TU.upscale); gl.bindTexture(gl.TEXTURE_2D, _vdrsDepth); gl.uniform1i(dwUDepth, TU.upscale);
     gl.uniform1f(dwUBias, (typeof window !== 'undefined' && typeof window.__planetDepthBias === 'number') ? window.__planetDepthBias : 2e-6);
-    gl.uniform2f(dwUScale, _vdrsRsThisFrame, _vdrsRsThisFrame);   // same subregion mapping as the color upscale
+    gl.uniform2f(dwUScale, _vdrsRsThisFrame, _vdrsRsThisFrame);
     const dst = _writebackDstNearFar();
     gl.uniform1f(dwUSrcNear, _F.near); gl.uniform1f(dwUSrcFar, _F.far);
     gl.uniform1f(dwUDstNear, dst[0]); gl.uniform1f(dwUDstFar, dst[1]);
     gl.bindVertexArray(upVao); gl.drawArrays(gl.TRIANGLES, 0, 3); gl.bindVertexArray(null);
     gl.colorMask(true, true, true, true); gl.depthFunc(gl.LESS);
-    // UNBIND _vdrsDepth from TEXTURE0 before returning: this function's TEXTURE0 bind was left live
-    // into the NEXT frame (no unbind anywhere in this pass), so when _vdrsFbo is rebound as the draw
-    // target for the next frame's terrain pass (_vdrsDepth is its own DEPTH_ATTACHMENT), that texture
-    // is simultaneously an active sampler binding on TEXTURE0 -- a feedback loop that made every
-    // subsequent terrain draw into _vdrsFbo fail with GL_INVALID_FRAMEBUFFER_OPERATION despite
-    // checkFramebufferStatus reporting COMPLETE (completeness and the feedback-loop check are
-    // separate GL validations). Mirrors the existing TEXTURE4 unbind pattern elsewhere in this file.
     gl.activeTexture(gl.TEXTURE0 + TU.upscale); gl.bindTexture(gl.TEXTURE_2D, null);
     return true;
   }
-  // MERGED upscale-to-canvas + planet-depth-writeback (non-FSR1 path only, both passes wanted): ONE
-  // fullscreen triangle writes the LINEAR color tap (colorMask on, exactly upFsSrc's sample) and the
-  // re-encoded depth (gl_FragDepth, exactly dwFsSrc's math) with depthFunc ALWAYS. Color result ==
-  // passUpscaleToCanvas's (same texture, filter, uv), depth result == passPlanetDepthWriteback's; the
-  // two-pass sequence wrote each once too (the color pass ran with DEPTH_TEST off = no depth write).
   function passUpscaleAndDepthWriteback() {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
@@ -2198,170 +1313,118 @@ export async function initMapspinnerRender(gl, opts = {}) {
     gl.uniform1f(udwUDstNear, dst[0]); gl.uniform1f(udwUDstFar, dst[1]);
     gl.bindVertexArray(upVao); gl.drawArrays(gl.TRIANGLES, 0, 3); gl.bindVertexArray(null);
     gl.depthFunc(gl.LESS);
-    // unbind both FBO attachments from their sampler units (feedback-loop hazard, see the two passes above)
     gl.activeTexture(gl.TEXTURE0 + TU.sceneDepth); gl.bindTexture(gl.TEXTURE_2D, null);
     gl.activeTexture(gl.TEXTURE0 + TU.upscale); gl.bindTexture(gl.TEXTURE_2D, null);
     return true;
   }
 
-  // ===== FRAME UNIFORMS (per program) =====
-  // Uploads every frame-level uniform onto the ACTIVE program (U()/_activeChu). Called once for the
-  // terrain (or debug) program and once for the water program per frame; the dirty caches make the
-  // second call cheap (only the genuinely per-frame values re-upload). Texture-UNIT binds are global GL
-  // state and are done ONCE per frame in bindFrameTextures() -- only the program-scoped sampler-unit
-  // uniforms are (re)pinned here.
   function setFrameUniforms() {
     const cam = _F.cam, sunDir = _F.sunDir, time = _F.time, chu = _activeChu;
     gl.uniform3f(U('camWorld'), cam.eye[0], cam.eye[1], cam.eye[2]);
     _chuSet1f(U, chu, 'terrainR', R);
-    // camera-relative VS projection uniforms (vertex-jitter fix): the VS builds vRel = (dir0-camDir)*R
-    // + dir0*h - camDir*camAlt (no 6.4e6 intermediate) and projects with defViewProjNoEye.
     _chuSetM4(U, chu, 'defViewProjNoEye', _F.viewProjNoEye);
     gl.uniform3f(U('defCamDir'), _F.camDirX, _F.camDirY, _F.camDirZ);
     gl.uniform1f(U('defCamAlt'), _F.camAlt);
-    // HPF continental field samplers (units bound in bindFrameTextures): the SAMPLER uniform is PROGRAM-
-    // scoped state, dirty-cached per program (hot-reload swaps in a fresh program with unset samplers).
     _chuSet1i(U, chu, 'hpfPool', TU.hpf);
     _chuSet1i(U, chu, 'hpfPool2', TU.hpf2);
     _chuSet1i(U, chu, 'hasHpf', _hpfTex ? 1 : 0);
     _chuSet1i(U, chu, 'uTransmittanceLUT', TU.transmittanceLUT);
     _chuSet1i(U, chu, 'uScatteringLUT', TU.scatteringLUT);
-    // uUseScatteringLUT: explicit A/B lever (default 0 = runtime march, UNCHANGED behavior) so the
-    // LUT fast path in atm_marchRadiance is opt-in via window.__useScatteringLUT=1.
     _chuSet1f(U, chu, 'uUseScatteringLUT', (typeof window !== 'undefined' && window.__useScatteringLUT != null) ? +window.__useScatteringLUT : 0);
-    // PARITY + LEVER ENABLE (2026-06-15): set ALL composeHeight shape uniforms through the SAME function
-    // the probe/bake use -> render/probe can never diverge.
     setComposeHeightUniforms(U, chu);
-    // DIRTY-CACHED STATIC "LOOK" UNIFORM BLOCK (perf, 2026-07-06): tuning constants (TD default or a live
-    // window.__ tweak-panel override) that change only when a user drags a slider or an async load lands.
-    _chuSet1f(U, chu, 'uVertexAO',      _g('vertexAO', TD.vertexAO));    // per-vertex shading/AO strength (DEFECT 2, 2026-06-06)
+    _chuSet1f(U, chu, 'uVertexAO',      _g('vertexAO', TD.vertexAO));
     _chuSet1f(U, chu, 'uAoAmt',         _g('aoAmt', TD.aoAmt));
     _chuSet1f(U, chu, 'uWireframe',     (typeof window!=='undefined' && window.__wireframe) ? 1.0 : 0.0);
-    // WEATHER-DRIVEN WETNESS (wetness-material-modifier-weather-driven, 2026-07-21): client/core/Weather.js
-    // writes window.__wetness every frame; terrain.glsl consumes it post-lighting (land-only).
     _chuSet1f(U, chu, 'uWetness',        _g('wetness', 0));
-    _chuSet1f(U, chu, 'uFsCheap',        (typeof window!=='undefined' && window.__fsCheap) ? 1.0 : 0.0);  // GPU-timer VS-isolation frame (window.__gpuTimer)
-    _chuSet1f(U, chu, 'uWaterDbg',       (typeof window!=='undefined' && window.__waterDbg) ? window.__waterDbg : 0.0);  // water-FS intermediate readout (1=refrCol 2=refl 3=fogT 4=waterBody 5=spec)
-    _chuSet1f(U, chu, 'uVariationAmt',   _g('variationAmt', TD.variationAmt));   // 0.08->0.04 (2026-06-10 'blotchy': mottle patches across the 4x massifs)
-    _chuSet1f(U, chu, 'uHazeMul',        _g('hazeMul', TD.hazeMul));        // aerial-perspective strength (2026-06-10 'pale hazy': 1.0 milked the midground)
-    // SURFACE PHOTO-TEXTURES (TEXTURE6/7): triplanar grass/rock/sand/snow splat. hasSurfTex stays 0
-    // until the async loader uploads (procedural-only fallback, no flash -- the splat fades in).
+    _chuSet1f(U, chu, 'uFsCheap',        (typeof window!=='undefined' && window.__fsCheap) ? 1.0 : 0.0);
+    _chuSet1f(U, chu, 'uWaterDbg',       (typeof window!=='undefined' && window.__waterDbg) ? window.__waterDbg : 0.0);
+    _chuSet1f(U, chu, 'uVariationAmt',   _g('variationAmt', TD.variationAmt));
+    _chuSet1f(U, chu, 'uHazeMul',        _g('hazeMul', TD.hazeMul));
     const hasSurf = !!_surfAlb && !!_surfNrm;
     _chuSet1i(U, chu, 'uSurfAlb', TU.surfAlb);
     _chuSet1i(U, chu, 'uSurfNrm', TU.surfNrm);
     _chuSet1f(U, chu, 'uHasSurfTex', hasSurf ? 1.0 : 0.0);
-    const _texTileM = _g('texTile', TD.texTile) * (R / 6360000.0);   // SCALE-INVARIANT (2026-06-17): the surface-texture repeat scales with the radius so the photo splat stays proportional to the terrain at ANY planet scale. 1.0 at the 6360km design radius = no-op.
-    _chuSet1f(U, chu, 'uTexTileM',   _texTileM);  // metres per repeat (user: 24m read as noise/rock -- 100x bigger)
-    // CAMERA-RELATIVE TEXTURE UV (2026-06-15 'UV jumps wildly up close'): reduce the camera world pos mod the
-    // tile period in fp64 here on the CPU, pass the small remainder. WRAP PERIOD = 8 tiles (2026-06-15
-    // 'texture normals popping'): every normal-pyramid octave down to wt*0.125 stays integer-aligned.
-    // NOT dirty-cached: derived from cam.eye, genuinely changes every moving frame (the common case anyway).
+    const _texTileM = _g('texTile', TD.texTile) * (R / DESIGN_RADIUS_M);
+    _chuSet1f(U, chu, 'uTexTileM',   _texTileM);
     const _wrapM = _texTileM * 8.0;
     gl.uniform3f(U('uTexCamFrac'),
       cam.eye[0] - Math.floor(cam.eye[0] / _wrapM) * _wrapM,
       cam.eye[1] - Math.floor(cam.eye[1] / _wrapM) * _wrapM,
       cam.eye[2] - Math.floor(cam.eye[2] / _wrapM) * _wrapM);
-    _chuSet1f(U, chu, 'uTexNrmK',    _g('texNrmK', TD.texNrmK));   // user-dialed 2026-06-15 2.0->1.0 (live window.__texNrmK). texture detail-normal strength
-    _chuSet1f(U, chu, 'uBiomeTint',  _g('biomeTint', TD.biomeTint)); // macro biome color mixed over the texture
-    _chuSet1f(U, chu, 'uTexBright',  _g('texBright', TD.texBright)); // overall ground brightness
-    _chuSet1f(U, chu, 'uTexSat',     _g('texSat', TD.texSat));     // texture chroma saturation (>1 = more vivid photo hue)
-    _chuSet1f(U, chu, 'uXSoft',      _g('xSoft', TD.xSoft));     // crossover fade HALF-WIDTH (window.__xSoft)
-    _chuSet1f(U, chu, 'uXFinger',    _g('xFinger', TD.xFinger));    // near-field displacement fingering amount (window.__xFinger)
-    _chuSet1f(U, chu, 'uOrdPush',    _g('ordPush', TD.ordPush));    // overlay-priority POSITIONAL push (window.__ordPush)
-    _chuSet1f(U, chu, 'uBiomeWarp',  _g('biomeWarp', TD.biomeWarp));  // biome-distribution domain-warp amount (window.__biomeWarp)
-    _chuSet1f(U, chu, 'uNrmLow',     _g('nrmLow', TD.nrmLow));     // low-octave rock normal strength (2026-06-15 'dont see lower-freq octave normals')
-    _chuSet1f(U, chu, 'uXFade0',     _g('xFade0', TD.xFade0));   // crossover-displacement fade start (m)
-    _chuSet1f(U, chu, 'uXFade1',     _g('xFade1', TD.xFade1));  // crossover-displacement fade end (m)
-    _chuSet1f(U, chu, 'uTriSharp',   _g('triSharp', TD.triSharp));     // triplanar weight exponent (2026-06-15 ^8 'normals flipping between two states' -> 4 smooth)
-    _chuSet1f(U, chu, 'uNrmFade0',   _g('nrmFade0', TD.nrmFade0)); // normal-texture fade start (m)
-    _chuSet1f(U, chu, 'uNrmFade1',   _g('nrmFade1', TD.nrmFade1)); // normal-texture fade end (m)
-    _chuSet1f(U, chu, 'uOctFar0',    _g('octFar0',  TD.octFar0));  // coarse-albedo-octave blend start (pxWorld m) (__octFar0)
-    _chuSet1f(U, chu, 'uOctFar1',    _g('octFar1',  TD.octFar1));  // coarse-albedo-octave blend end (pxWorld m) (__octFar1)
-    _chuSet1f(U, chu, 'uBandWarp',   _g('bandWarp', TD.bandWarp));  // snow/rock/BEACH band warp amplitude (m), low-freq
-    _chuSet1f(U, chu, 'uBeachWidth', _g('beachWidth', TD.beachWidth));   // grass<->beach crossover band width x beachTop
-    _chuSet1f(U, chu, 'uTexFar0',    _g('texFar0', TD.texFar0));      // splat->biome far-fade start (pxWorld m)
-    _chuSet1f(U, chu, 'uTexFar1',    _g('texFar1', TD.texFar1));  // splat->biome far-fade end (pxWorld m)
-    _chuSet1f(U, chu, 'uTexMix',     _g('texMix', TD.texMix));     // splat blend amount (0 = off)
-    _chuSet1f(U, chu, 'uTexWarp',    _g('texWarp', TD.texWarp));    // anti-repetition warp amplitude
-    _chuSet1f(U, chu, 'uTexPhoto',   _g('texPhoto', TD.texPhoto));    // raw photo-color fraction (0 = patch matches the macro shade exactly)
-    _chuSet1f(U, chu, 'uTexPhotoNear', _g('texPhotoNear', TD.texPhotoNear));  // near-field material identity (photo hue at macro luminance)
-    _chuSet4f(U, chu, 'uSurfMeanL', _surfMeanL[0], _surfMeanL[1], _surfMeanL[2], _surfMeanL[3]);   // per-layer mean linear luminance (shade-match divisor)
-    // LIVE A/B ISOLATION TOGGLES (window.__rockBump / __chroma / __strata, default 1 = no change).
-    _chuSet1f(U, chu, 'uFlatNormal',      _g('flatNormal', TD.flatNormal));   // 1 = smooth analytic normal (isolate the geometric-normal scramble)
-    _chuSet1f(U, chu, 'uReliefShade',    _g('reliefShade', TD.reliefShade));   // landscape/macro-slope normal exaggeration
+    _chuSet1f(U, chu, 'uTexNrmK',    _g('texNrmK', TD.texNrmK));
+    _chuSet1f(U, chu, 'uBiomeTint',  _g('biomeTint', TD.biomeTint));
+    _chuSet1f(U, chu, 'uTexBright',  _g('texBright', TD.texBright));
+    _chuSet1f(U, chu, 'uTexSat',     _g('texSat', TD.texSat));
+    _chuSet1f(U, chu, 'uXSoft',      _g('xSoft', TD.xSoft));
+    _chuSet1f(U, chu, 'uXFinger',    _g('xFinger', TD.xFinger));
+    _chuSet1f(U, chu, 'uOrdPush',    _g('ordPush', TD.ordPush));
+    _chuSet1f(U, chu, 'uBiomeWarp',  _g('biomeWarp', TD.biomeWarp));
+    _chuSet1f(U, chu, 'uNrmLow',     _g('nrmLow', TD.nrmLow));
+    _chuSet1f(U, chu, 'uXFade0',     _g('xFade0', TD.xFade0));
+    _chuSet1f(U, chu, 'uXFade1',     _g('xFade1', TD.xFade1));
+    _chuSet1f(U, chu, 'uTriSharp',   _g('triSharp', TD.triSharp));
+    _chuSet1f(U, chu, 'uNrmFade0',   _g('nrmFade0', TD.nrmFade0));
+    _chuSet1f(U, chu, 'uNrmFade1',   _g('nrmFade1', TD.nrmFade1));
+    _chuSet1f(U, chu, 'uOctFar0',    _g('octFar0',  TD.octFar0));
+    _chuSet1f(U, chu, 'uOctFar1',    _g('octFar1',  TD.octFar1));
+    _chuSet1f(U, chu, 'uBandWarp',   _g('bandWarp', TD.bandWarp));
+    _chuSet1f(U, chu, 'uBeachWidth', _g('beachWidth', TD.beachWidth));
+    _chuSet1f(U, chu, 'uTexFar0',    _g('texFar0', TD.texFar0));
+    _chuSet1f(U, chu, 'uTexFar1',    _g('texFar1', TD.texFar1));
+    _chuSet1f(U, chu, 'uTexMix',     _g('texMix', TD.texMix));
+    _chuSet1f(U, chu, 'uTexWarp',    _g('texWarp', TD.texWarp));
+    _chuSet1f(U, chu, 'uTexPhoto',   _g('texPhoto', TD.texPhoto));
+    _chuSet1f(U, chu, 'uTexPhotoNear', _g('texPhotoNear', TD.texPhotoNear));
+    _chuSet4f(U, chu, 'uSurfMeanL', _surfMeanL[0], _surfMeanL[1], _surfMeanL[2], _surfMeanL[3]);
+    _chuSet1f(U, chu, 'uFlatNormal',      _g('flatNormal', TD.flatNormal));
+    _chuSet1f(U, chu, 'uReliefShade',    _g('reliefShade', TD.reliefShade));
     _chuSet1f(U, chu, 'uSkyFill',        _g('skyFill', TD.skyFill));
     _chuSet1f(U, chu, 'uTerminatorGlow', _g('terminatorGlow', TD.terminatorGlow));
-    _chuSet1f(U, chu, 'uNightLights',    _g('nightLights', TD.nightLights));   // night/shadow FILL intensity; 0 = off
-    _chuSet1f(U, chu, 'uNightFloor',     _g('nightFloor', TD.nightFloor));   // night-longitude terminator floor
+    _chuSet1f(U, chu, 'uNightLights',    _g('nightLights', TD.nightLights));
+    _chuSet1f(U, chu, 'uNightFloor',     _g('nightFloor', TD.nightFloor));
     _chuSet1f(U, chu, 'uTermWidth',      _g('termWidth', TD.termWidth));
     _chuSet1f(U, chu, 'uExposure',       _g('exposure', TD.exposure));
     _chuSet1f(U, chu, 'uLookSat',        _g('lookSat', TD.lookSat));
     _chuSet1f(U, chu, 'uLookContrast',   _g('lookContrast', TD.lookContrast));
-    _o3('uOceanDeep',TD.uOceanDeep); _o3('uOceanShallow',TD.uOceanShallow); _o3('uOceanK',TD.uOceanK);   // K halved (user 2026-06-14 'see the land under the water properly')
-    // LIVE biome ramp (window.__gen.state.biome, else tuned defaults) -- full-adjustability.
+    _o3('uOceanDeep',TD.uOceanDeep); _o3('uOceanShallow',TD.uOceanShallow); _o3('uOceanK',TD.uOceanK);
     _c3('bcDeepSea',TD.bcDeepSea); _c3('bcSea',TD.bcSea); _c3('bcShore',TD.bcShore);
     _c3('bcLowland',TD.bcLowland); _c3('bcGrass',TD.bcGrass);
-    // bcRock follows the ROCK PHOTO mean once loaded (user 2026-06-10 'replace the original rock
-    // completely'): the far-field macro rock shade matches the near-field photo so the 15-20km
-    // fade has no color pop. Falls back to the tuned grey-tan until the loader lands.
     _c3('bcRock', (typeof window!=='undefined' && window.__surfRockMean) || TD.bcRock);
     _c3('bcSnow',TD.bcSnow);
     { const e=_C('bandEdgesLo',TD.bandEdgesLo); _chuSet2f(U, chu, 'bandEdgesLo', e[0],e[1]);
-      const eh=_C('bandEdgesHi',TD.bandEdgesHi); _chuSet2f(U, chu, 'bandEdgesHi', eh[0],eh[1]);   // [3500,6500] (2026-06-10 'rockface everywhere')
-      const sn=_C('snowEdges',TD.snowEdges); _chuSet2f(U, chu, 'snowEdges', sn[0],sn[1]);   // 6000/8500 (user 2026-06-11 'all the snowy mountains have disappeared')
+      const eh=_C('bandEdgesHi',TD.bandEdgesHi); _chuSet2f(U, chu, 'bandEdgesHi', eh[0],eh[1]);
+      const sn=_C('snowEdges',TD.snowEdges); _chuSet2f(U, chu, 'snowEdges', sn[0],sn[1]);
       _chuSet1f(U, chu, 'seaDepthM', _C('seaDepthM',TD.seaDepthM));
-      const sr=_C('slopeRock',TD.slopeRock); _chuSet2f(U, chu, 'slopeRock', sr[0],sr[1]); }   // [0.25,0.55] USER-SET 2026-06-12
-    // sunDir: static between time-of-day steps -> dirty-cached (3-float compare); displayMode likewise.
+      const sr=_C('slopeRock',TD.slopeRock); _chuSet2f(U, chu, 'slopeRock', sr[0],sr[1]); }
     _chuSet3f(U, chu, 'sunDir', sunDir[0], sunDir[1], sunDir[2]);
     _chuSet1i(U, chu, 'displayMode', cam.displayMode||0);
-    // HOST-ENGINE SHADOW BRIDGE (terrain-shadow-bridge-never-wired): cam.shadowInfo threads from
-    // planet-orchestrator.js's frame() 9th arg (TerrainBackdrop.js's _buildShadowInfo). undefined/
-    // hasShadow-false -> uHasShadow=0, terrain.glsl's sampleHostShadow fails open to fully-lit.
-    // uShadowMap's sampler-unit uniform is pinned unconditionally (unit 1; the texture bind itself is in
-    // bindFrameTextures, unconditional every frame -- THREE can clobber unit 1 between mapspinner draws).
     const _si = cam.shadowInfo;
     _chuSet1i(U, chu, 'uShadowMap', TU.shadow);
     if (_si && _si.hasShadow && _si.texture) {
-      _chuSetM4(U, chu, 'uShadowMatrix', _si.matrix);   // genuinely per-frame (camera/sun-relative)
+      _chuSetM4(U, chu, 'uShadowMatrix', _si.matrix);
       _chuSet1f(U, chu, 'uHasShadow', 1.0);
       _chuSet1f(U, chu, 'uShadowTexelSize', 1.0 / (_si.mapSize || 1024));
       _chuSet1f(U, chu, 'uShadowBias', _si.bias || 0.0);
     } else {
       _chuSet1f(U, chu, 'uHasShadow', 0.0);
     }
-    // ---- animated ocean uniforms. time advances the Gerstner waves; amp/choppy read from the HUD ocean
-    // sliders (window.__cam) with sane defaults. oceanTime is per-frame; the three sliders are static.
     const oc = (typeof window !== 'undefined' && window.__cam) || _ocEmpty;
     gl.uniform1f(U('oceanTime'), time || 0.0);
     _chuSet1f(U, chu, 'oceanAmp', (oc.oceanAmplitude != null) ? oc.oceanAmplitude : 1.0);
     _chuSet1f(U, chu, 'oceanChoppy', (oc.oceanChoppiness != null) ? oc.oceanChoppiness : 0.5);
     _chuSet1f(U, chu, 'oceanFoam', (oc.oceanFoam != null) ? oc.oceanFoam : 0.5);
-    _chuSet1f(U, chu, 'uBeachTopM', _g('beachTop', TD.beachTop));    // beach ceiling: grass stops, sand to the waterline (60m = a normal coastal beach)
-    // SINGLE INSTANCED DRAW: the deform params are PER-INSTANCE attributes; defViewProjRel is one
-    // uniform shared by all instances.
+    _chuSet1f(U, chu, 'uBeachTopM', _g('beachTop', TD.beachTop));
     _chuSetM4(U, chu, 'defViewProjRel', _F.viewProjRel);
     _chuSet1f(U, chu, 'defRadius', R);
-    // GEOMORPHING LOD: quadtree-GLOBAL scalars (see quadtree.js _recurse's comment) -- plain per-frame
-    // uniforms, identical for every instance; cam.morph* default to values that make the VS morph branch
-    // inert (0 splitDist -> gate off).
     _chuSet1f(U, chu, 'uMorphSplitDist', (cam && cam.morphSplitDist > 0) ? cam.morphSplitDist : 0.0);
     _chuSet1f(U, chu, 'uMorphDistFactor', (cam && cam.morphDistFactor > 0) ? cam.morphDistFactor : 1.0);
     _chuSet1f(U, chu, 'uMorphMaxLevel', (cam && cam.morphMaxLevel > 0) ? cam.morphMaxLevel : 0.0);
-    // sampler-unit pins that must never default to unit 0 (see the dummy-texture comments above): the
-    // uniform VALUES are static per program, so they are dirty-cached; the unit BINDS are per frame.
     _chuSet1i(U, chu, 'uHeightPool', TU.heightPool);
     _chuSet1i(U, chu, 'uSceneTex', TU.sceneTex);
-    // UNDERWATER DETECTION: camera below sea level enables underwater shading + water surface
-    // rendering from below. Set before the terrain draw so the FS can apply underwater fog.
     _chuSet1f(U, chu, 'uUnderwater', (_F.camDist < R - 2.0) ? 1.0 : 0.0);
   }
   const _ocEmpty = {};
 
-  // ===== FRAME TEXTURE BINDS (global GL state, once per frame) =====
-  // Every unit is (re)bound UNCONDITIONALLY (dirty-cache skips REMOVED 2026-07-10, AGENTS.md TEXTURE1/3/5
-  // desync incident: THREE's own renderer.render() rebinds these units between mapspinner draws within one
-  // frame, so a JS-side "already bound" cache is unsound). Dummies keep every declared sampler's unit
-  // type-compatible so the driver's draw-time validation never fires GL_INVALID_OPERATION.
   function bindFrameTextures(cam, thc) {
     const hasHpf = !!_hpfTex;
     gl.activeTexture(gl.TEXTURE0 + TU.hpf);
@@ -2392,20 +1455,13 @@ export async function initMapspinnerRender(gl, opts = {}) {
         window.__shadowProbeIsDummy = gl.getParameter(gl.TEXTURE_BINDING_2D) === _dummyShadowTex;
       }
     }
-    // uHeightPool (unit 8): the real THC pool when active, else the 1x1 dummy (unit must never be empty)
     gl.activeTexture(gl.TEXTURE0 + TU.heightPool); gl.bindTexture(gl.TEXTURE_2D_ARRAY, thc ? heightPool : ensureDummyHeightPoolTex());
-    // uSceneTex (unit 9): dummy for the terrain draw; the water block re-binds the real scene copy
     gl.activeTexture(gl.TEXTURE0 + TU.sceneTex); gl.bindTexture(gl.TEXTURE_2D, ensureDummySceneTex());
-    // (uSculptOverride's unit 11 is bound inside setComposeHeightUniforms -- same call for every program.)
   }
 
-  // ===== FRONT-TO-BACK LEAF ORDER: O(n) counting sort on quantized distance =====
-  // Draw ORDER only (the depth test owns correctness): emit near->far so early-Z rejects occluded far
-  // fragments before the terrain FS runs. Replaces the comparator sort (O(n log n) + a closure per
-  // rebuild). 256 buckets over the linear distance range, stable within a bucket.
-  const _sortCounts = new Int32Array(257);
+  const _sortCounts = new Int32Array(DIST_SORT_BUCKETS + 1);
   let _scrOrdTmp = new Int32Array(0);
-  function _sortLeavesFrontToBack(n, quads, eye) {   // caller ran _ensureScratch(n, ...) -> _scrD2/_scrOrd sized >= n
+  function _sortLeavesFrontToBack(n, quads, eye) {
     if (_scrOrdTmp.length < n) _scrOrdTmp = new Int32Array(n);
     const dist = _scrD2, ord = _scrOrd;
     const WK = Math.PI / 4.0;
@@ -2423,50 +1479,32 @@ export async function initMapspinnerRender(gl, opts = {}) {
       dist[i] = d; if (d < dmin) dmin = d; if (d > dmax) dmax = d;
     }
     const counts = _sortCounts; counts.fill(0);
-    const scale = (dmax > dmin) ? 255.0 / (dmax - dmin) : 0.0;
+    const scale = (dmax > dmin) ? DIST_SORT_MAX_BUCKET / (dmax - dmin) : 0.0;
     const tmp = _scrOrdTmp;
-    for (let i = 0; i < n; i++) { let b = ((dist[i] - dmin) * scale) | 0; if (b > 255) b = 255; tmp[i] = b; counts[b + 1]++; }
-    for (let b = 0; b < 256; b++) counts[b + 1] += counts[b];
-    for (let i = 0; i < n; i++) ord[counts[tmp[i]]++] = i;   // stable: original index order within a bucket
+    for (let i = 0; i < n; i++) { let b = ((dist[i] - dmin) * scale) | 0; if (b > DIST_SORT_MAX_BUCKET) b = DIST_SORT_MAX_BUCKET; tmp[i] = b; counts[b + 1]++; }
+    for (let b = 0; b < DIST_SORT_BUCKETS; b++) counts[b + 1] += counts[b];
+    for (let i = 0; i < n; i++) ord[counts[tmp[i]]++] = i;
     return ord;
   }
 
-  // Render a set of quads. quads: [{quad, face, elevLayer, normalLayer}], cam: {eye, center, up, fovy}
   function render(quads, cam, sunDir, time) {
     if (bakeOnly) throw new Error('mapspinner: render() is unavailable on a bakeOnly instance (patch-baker)');
     const aspect = gl.drawingBufferWidth / gl.drawingBufferHeight;
-    // ADAPTIVE near/far (altitude-tied). A fixed near=1 / far=R*8 (~5e7) at a 50km eye
-    // pushed ALL near-surface geometry to NDC z~=1 (the far-plane limit), collapsing depth
-    // precision so most near quads z-fought / clamped off -> only one screen rectangle
-    // survived. Tie the planes to altitude: near = alt*0.1 (naturally scales from 1m at
-    // deck to 1200km at orbit), far = horizon distance blended toward camDist above 500km
-    // for orbital views. From space the far widens out to ~R*8, preserving the full-globe
-    // view. Clamped so near>=1 and far>near.
     const camDist = Math.hypot(cam.eye[0], cam.eye[1], cam.eye[2]);
     const alt = Math.max(0.0, camDist - R);
     const altAboveTerrain = Math.max(0.001, alt - R * (cam.surfElev || 0));
-    // FAR-PLANE HORIZON RADIUS = R - 150m (see cullMatrix's identical derivation + its user-history notes).
-    const RHORIZON = R - 150.0;
-    const horizon = (camDist > RHORIZON) ? Math.sqrt(camDist*camDist - RHORIZON*RHORIZON) : 60000.0;
+    const RHORIZON = R - HORIZON_SPHERE_DEPTH_BELOW_SEA;
+    const horizon = (camDist > RHORIZON) ? Math.sqrt(camDist*camDist - RHORIZON*RHORIZON) : SUBMERGED_FAR_REACH;
     const near = altAboveTerrain < 2.0 ? 0.5 : Math.max(altAboveTerrain * 0.1, 0.5);
     const _fBlend = Math.min(1.0, Math.max(0.0, (alt - 500000.0) / 4500000.0));
     const farGround = Math.max(horizon, alt * 8.0);
     const far = farGround * (1.0 - _fBlend) + camDist * _fBlend;
-    // ALTITUDE OCTAVE CLAMP: drive the per-frame fractal octave count from camera altitude (see _clampOcts).
-    // Scaled by R/Earth so a small-radius consumer planet gets the same RELATIVE cut. The probe/bake leave
-    // _octClampAlt at 0 (full octaves). window.__altOctClamp===false rolls back.
-    _octClampAlt = alt * (6360000.0 / R);
-    // CAMERA-RELATIVE projection path (fp32 precision fix): geometry is expressed RELATIVE to the eye
-    // (lookAt center-eye, corners pre-translated by -eye) so view*world differences are computed in fp32
-    // BEFORE the big magnitudes appear. The atmosphere/lighting path (camWorld, vWorld) stays ABSOLUTE.
+    _octClampAlt = alt * (DESIGN_RADIUS_M / R);
     const eye = cam.eye;
-    // REUSE the orchestrator's cull matrices when it computed them this frame for the frustum cull
-    // (cam.cullMatrix, same eye/center/up/fovy/surfElev/aspect inputs -> identical near/far; re-validated
-    // here); otherwise derive them once from the scalars above (the cached-quad-set path).
     const _cmIn = cam.cullMatrix;
     const _cm = (_cmIn && _cmIn.near === near && _cmIn.far === far && _cmIn.eye === eye) ? _cmIn : cullMatrix(cam, { aspect, near, far });
-    const viewProjRel = _cm.viewProjRel;   // same matrix the frustum cull uses
-    const viewProjNoEye = _cm.viewProjNoEye;   // proj*viewRel WITHOUT folded translate(-eye) -- camera-relative VS path
+    const viewProjRel = _cm.viewProjRel;
+    const viewProjNoEye = _cm.viewProjNoEye;
     const _camDist = camDist || 1;
     const camAlt = _camDist - R;
     _F.cam = cam; _F.sunDir = sunDir; _F.time = time; _F.eye = eye;
@@ -2474,12 +1512,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
     _F.camDirX = eye[0]/_camDist; _F.camDirY = eye[1]/_camDist; _F.camDirZ = eye[2]/_camDist;
     _F.cm = _cm; _F.viewProjRel = viewProjRel; _F.viewProjNoEye = viewProjNoEye;
     _F.bm = (typeof window!=='undefined' && window.__gen && window.__gen.state && window.__gen.state.biome) || null;
-    // Expose the ACTUAL draw matrix + a finite-check for the motion debug probes (a NaN viewProj from a
-    // degenerate lookAt is the classic disappear-on-move signature). __lastVP is a LIVE view of the pooled
-    // matrix (updated in place every frame), __lastVPFinite is evaluated now.
     if (typeof window !== 'undefined') {
-      // EMBED depth-share: expose the projection planes so a host (e.g. spoint) can match its own camera
-      // near/far/fovy and SHARE the depth buffer.
       const pnf = _planetNearFarScratch; pnf.near = near; pnf.far = far; pnf.fovy = cam.fovy || 0.785; pnf.aspect = aspect;
       window.__planetNearFar = pnf;
       window.__lastVP = viewProjRel;
@@ -2488,22 +1521,14 @@ export async function initMapspinnerRender(gl, opts = {}) {
       window.__deviceLost = gl.isContextLost();
     }
 
-    // VIEWPORT-DRS (opt-in): render the scene into the fixed FBO at a flexed viewport (the upscale tail
-    // blits it to the canvas), else straight to the canvas. THC bake mode rebinds the canvas mid-frame, so
-    // vdrs stays off when THC is active. No canvas realloc happens here -> dialing __vdrsScale is hitch-free.
     const _vW = gl.drawingBufferWidth, _vH = gl.drawingBufferHeight;
     let _vrs = 0;
-    // HALF-RES WATER needs the scene DEPTH in a real FBO (blitFramebuffer cannot read DEPTH from the DEFAULT
-    // framebuffer) -> when half-res water is active, render the scene into _vdrsFbo at full scale.
     const _hrwActive = (typeof window==='undefined' || window.__halfResWater!==false) && (camDist >= R - 2.0);
-    // HOST-NEARFAR MISMATCH (ground-depth-writeback-altitude-cutaway, 2026-08-24): a host that pins its own
-    // camera.near/far (spoint's host-near-far node) must get its depth re-projected through the writeback,
-    // so route this case through the vdrsFbo+writeback machinery too (full-res, _vrs=1.0).
     const _hostNF = (typeof window !== 'undefined') ? window.__hostNearFar : null;
     const _hostNearFarMismatch = !!(_hostNF && Number.isFinite(_hostNF.near) && Number.isFinite(_hostNF.far)
       && (Math.abs(_hostNF.near - near) > 1e-6 || Math.abs(_hostNF.far - far) > 1e-3));
     const _vdrsOn = (typeof window!=='undefined' && window.__vdrs === true) || _hrwActive || _hostNearFarMismatch;
-    const _thc = thcActive();   // THC active = toggle on AND programs/pool ready (builds them lazily)
+    const _thc = thcActive();
     if (_vdrsOn && !_thc) {
       _vrs = (typeof window!=='undefined' && window.__vdrs === true) ? Math.min(1.0, Math.max(0.3, +window.__vdrsScale || 1.0)) : 1.0;
       ensureVdrsTargets(_vW, _vH);
@@ -2517,15 +1542,9 @@ export async function initMapspinnerRender(gl, opts = {}) {
     gl.clearColor(0.0,0.0,0.0,1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
 
     gl.enable(gl.DEPTH_TEST);
-    // STANDARD BACK-FACE CULL (user 2026-06-17): cullFace(FRONT) + frontFace(CCW) is the CORRECT winding for
-    // this cube-sphere mesh (witnessed on the real GPU: orbit/deck/underside). The sky pass disables
-    // CULL_FACE (fullscreen triangle). Diagnostic overrides: window.__cullMode = 'none' (off) | 'back'.
     const cmode = (typeof window !== 'undefined' && window.__cullMode) || 'front';
     if (cmode === 'none') { gl.disable(gl.CULL_FACE); }
     else { gl.enable(gl.CULL_FACE); gl.cullFace((cmode === 'back') ? gl.BACK : gl.FRONT); gl.frontFace(gl.CCW); }
-    // ACTIVE PROGRAM select (terrain pass): a diagnostic displayMode needs the lazily-built debug program
-    // (carries the _DEBUGVIEW_ blocks). Until it links, fall back to the render program for that frame.
-    // The WATER pass always binds the dedicated water program (see the _WATERPASS_ split).
     const _dm = cam.displayMode||0;
     if (DEBUG_MODES.has(_dm)) {
       ensureDebug();
@@ -2533,42 +1552,30 @@ export async function initMapspinnerRender(gl, opts = {}) {
     } else { setActiveProgram(prog, _uloc, _chuR); }
     const _terrainProg = _activeProg, _terrainUloc = _activeUloc, _terrainChu = _activeChu;
     const n = quads.length;
-    // Instance buffer: [ox,oy,l,level,face, iLayer] (6 floats). iLayer = the THC pool layer for this
-    // tile (when __thc on); the VS samples the baked height there instead of composeHeight.
     const FLOATS = 6;
     const STRIDE = FLOATS * 4;
-    // THC: when active, ensure every visible tile has a baked pool layer (bake on first sight) BEFORE the
-    // frame's texture/uniform state is set -- the bakes clobber the FBO/program/viewport.
     let _layers = null;
     if (n > 0 && _thc) {
       _tcFrame++; _tcBakesThisFrame = 0;
       _layers = new Float32Array(n);
       for (let i = 0; i < n; i++) { const q = quads[i].quad; _layers[i] = ensureTileLayer(quads[i].face, q.ox, q.oy, q.l, q.level); }
-      gl.bindVertexArray(null);   // bakeTileToLayer left bakeVao bound; the main path uses the default VAO
+      gl.bindVertexArray(null);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
-      gl.enable(gl.DEPTH_TEST);   // bakeTileToLayer disabled depth
+      gl.enable(gl.DEPTH_TEST);
       if (typeof window !== 'undefined') window.__thcBakes = _tcBakesThisFrame;
     }
-    // ---- global texture-unit binds (once), then the terrain program's frame uniforms ----
     bindFrameTextures(cam, _thc);
     gl.useProgram(_terrainProg);
     setFrameUniforms();
     gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,3,gl.FLOAT,false,0,0);
-    gl.vertexAttribDivisor(0, 0);   // per-vertex
+    gl.vertexAttribDivisor(0, 0);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
 
-    // ===== PASS BOUNDARY: terrain-tile-draw + water-visibility-probe + half-res-water-color +
-    // water-depth-share + half-res-water-composite (see _passManifest ids) =====
     if (n > 0) {
-      // ---- PASS: terrain-tile-draw -- reads: quads/composeHeight uniforms; writes: color, depth ----
-      // STATIC-FRAME SKIP: rebuild only when the quad set changed OR the toggle flipped (iLayer needs writing).
       const _dirty = (quads !== _instQuadsRef) || (_thc !== _lastThc);
       gl.bindBuffer(gl.ARRAY_BUFFER, instBuf);
       if (_dirty) {
-        // FRONT-TO-BACK ORDER (overdraw cut, 2026-06-15): near->far so hardware early-Z rejects occluded far
-        // fragments BEFORE the expensive terrain FS runs (the terrain program has no discard -> early-Z is
-        // active). Pure draw-ORDER change -> the depth test owns correctness. Counting sort, scratch pools.
         _ensureScratch(n, FLOATS);
         const ordN = _sortLeavesFrontToBack(n, quads, cam.eye);
         const inst = (_scrInst.length === n * FLOATS) ? _scrInst : _scrInst.subarray(0, n * FLOATS);
@@ -2582,42 +1589,29 @@ export async function initMapspinnerRender(gl, opts = {}) {
         gl.bufferData(gl.ARRAY_BUFFER, inst, gl.DYNAMIC_DRAW);
       }
       _lastThc = _thc;
-      gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, STRIDE, 0);          gl.vertexAttribDivisor(1, 1);  // iOffset
-      gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, STRIDE, 4 * 4);      gl.vertexAttribDivisor(2, 1);  // iFace
-      gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 1, gl.FLOAT, false, STRIDE, 5 * 4);      gl.vertexAttribDivisor(3, 1);  // iLayer (THC pool layer)
+      gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, STRIDE, 0);          gl.vertexAttribDivisor(1, 1);
+      gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, STRIDE, 4 * 4);      gl.vertexAttribDivisor(2, 1);
+      gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 1, gl.FLOAT, false, STRIDE, 5 * 4);      gl.vertexAttribDivisor(3, 1);
       _chuSet1f(U, _terrainChu, 'uThc', _thc ? 1.0 : 0.0);
       if (_thc) {
         _chuSet1f(U, _terrainChu, 'uPoolRes', THC_BAKE_RES); _chuSet1f(U, _terrainChu, 'uPoolLinear', _halfFloatLinearOK ? 1.0 : 0.0);
       }
-      // uIsWater/uOccludeDepth: NOT dirty-cached (they flip within a frame on the water program; the terrain
-      // program's values are pinned here every frame for the same reason the original code did).
       gl.uniform1f(U('uIsWater'), 0.0);
-      gl.uniform1f(U('uOccludeDepth'), 0.0);   // terrain pass: no FS depth occlusion
+      gl.uniform1f(U('uOccludeDepth'), 0.0);
       const _uw = camDist < R - 2.0;
       gl.drawElementsInstanced(gl.TRIANGLES, indices.length, gl.UNSIGNED_INT, 0, n);
-      // SEPARATE WATER SURFACE (user 2026-06-11): second instanced draw on the WATER program (uIsWater=1) --
-      // the VS pins the mesh to sea level, the FS shades animated water and alpha-blends it over the
-      // just-rendered seabed. OWN COARSE GEOMETRY (WCAP-capped, deduped to the ancestor tile). Draws in BOTH
-      // above/below-water cases (underwater it is the up-view CEILING). __waterSurface=0 disables live.
       if (typeof window === 'undefined' || window.__waterSurface !== false) {
-        // WATER PROGRAM: same uniform values as the terrain program (dirty-cached per program, so only the
-        // per-frame ones actually re-upload); U()/_activeChu now resolve against waterProg.
         setActiveProgram(waterProg, _wUloc, _chuW);
         gl.useProgram(waterProg);
         setFrameUniforms();
         _chuSet1f(U, _chuW, 'uThc', _thc ? 1.0 : 0.0);
         if (_thc) { _chuSet1f(U, _chuW, 'uPoolRes', THC_BAKE_RES); _chuSet1f(U, _chuW, 'uPoolLinear', _halfFloatLinearOK ? 1.0 : 0.0); }
-        // WCAP 11 (user 2026-06-14 'water lines still jagged'): level-11 cells (~400m) -> a fine waterline
-        // from the coarse-interpolated seabed discard; still far fewer verts than the full-LOD terrain leaves.
         const WCAP = 11;
-        // OWN persistent buffer (instBufWater) + static-frame skip.
         gl.bindBuffer(gl.ARRAY_BUFFER, instBufWater);
         if (_dirty || quads !== _instWaterRef) {
           _ensureWaterScratch(n, FLOATS);
           const wl = _scrWl;
           const seen = _waterSeen; seen.clear(); let wc = 0;
-          // Packed-integer dedup key (perf 2026-07-03): after the WCAP snap ox/l, oy/l are exact integers in
-          // [-2^(WCAP-1), 2^(WCAP-1)-1]; WKEY_BIG=4096 covers that with headroom (max packed ~8.6e7 < 2^53).
           const WKEY_BIG = 4096, WKEY_OFF = WKEY_BIG >> 1;
           for (let i = 0; i < n; i++) {
             const q = quads[i].quad; let ox = q.ox, oy = q.oy, l = q.l, lv = q.level;
@@ -2627,7 +1621,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
             const key = (face * WKEY_BIG + iy) * WKEY_BIG + ix;
             if (seen.has(key)) continue; seen.add(key);
             wl[wc*FLOATS+0]=ox; wl[wc*FLOATS+1]=oy; wl[wc*FLOATS+2]=l; wl[wc*FLOATS+3]=lv;
-            wl[wc*FLOATS+4]=face; wl[wc*FLOATS+5]=0;   // iLayer unused for water (VS pins sea level)
+            wl[wc*FLOATS+4]=face; wl[wc*FLOATS+5]=0;
             wc++;
           }
           _instWaterN = wc;
@@ -2638,20 +1632,12 @@ export async function initMapspinnerRender(gl, opts = {}) {
         const wn = _instWaterN;
         gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, STRIDE, 0);     gl.vertexAttribDivisor(1, 1);
         gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, STRIDE, 4 * 4); gl.vertexAttribDivisor(2, 1);
-        // location 3 (iLayer) must ALSO point into instBufWater (was left on the terrain buffer -> a
-        // frame-to-frame size mismatch = non-deterministic GL_INVALID_OPERATION; live-confirmed).
         gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 1, gl.FLOAT, false, STRIDE, 5 * 4); gl.vertexAttribDivisor(3, 1);
-        // HALF-RES WATER: redirect the water draw into a half-res FBO (gated, default on above water). _hrw
-        // REQUIRES the scene to be in the vdrs FBO (_sceneFbo set) so the depth texture is readable.
         const _sceneFbo = (_vdrsRsThisFrame > 0) ? _vdrsFbo : null;
         const _hrw = (typeof window==='undefined' || window.__halfResWater!==false) && !_uw && _sceneFbo === _vdrsFbo;
-        // ---- WATER VISIBILITY PROBE (see _waterVisQ declaration for the design). A PURE COVERAGE query
-        // (depthFunc ALWAYS, depthMask off, double-sided, uWaterVisProbe=1 skips the vH>1 discard) -- it can
-        // only OVER-report visibility (2026-08-23 fix). Bypassed below 5m (grazing sub-pixel probe
-        // silhouettes under-report) and above 2000m.
         let _waterHidden = false, _stampedThisFrame = false;
         const WATER_PROBE_GRAZING_UNRELIABLE_ABOVE_ALT_M = 2000.0;
-        const _waterProbeReliable = alt >= 5.0 && alt < WATER_PROBE_GRAZING_UNRELIABLE_ABOVE_ALT_M;
+        const _waterProbeReliable = alt >= WATER_PROBE_MIN_RELIABLE_ALT_M && alt < WATER_PROBE_GRAZING_UNRELIABLE_ABOVE_ALT_M;
         if (_hrw && _waterProbeReliable && typeof window !== 'undefined' && window.__planetDepthToCanvas === true
             && window.__waterDepthShareOff !== true && window.__waterVisGate !== false) {
           if (!_waterVisQ) _waterVisQ = gl.createQuery();
@@ -2659,7 +1645,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
             _waterVisZeroRuns = gl.getQueryParameter(_waterVisQ, gl.QUERY_RESULT) ? 0 : _waterVisZeroRuns + 1;
             _waterVisQPending = false;
           }
-          _waterHidden = _waterVisZeroRuns >= 2;   // 2-frame hysteresis before gating off
+          _waterHidden = _waterVisZeroRuns >= WATER_HIDDEN_AFTER_EMPTY_QUERIES;
           window.__waterVisDebug = _waterVisDebugScratch; _waterVisDebugScratch.zeroRuns = _waterVisZeroRuns; _waterVisDebugScratch.pending = _waterVisQPending; _waterVisDebugScratch.hidden = _waterHidden;
           gl.colorMask(false, false, false, false);
           gl.disable(gl.BLEND);
@@ -2667,11 +1653,10 @@ export async function initMapspinnerRender(gl, opts = {}) {
           gl.disable(gl.CULL_FACE);
           gl.uniform1f(U('uIsWater'), 1.0);
           gl.uniform1f(U('uOccludeDepth'), 0.0);
-          gl.uniform1f(U('uDepthOnly'), 1.0);      // cheap FS: no shading ALU
-          gl.uniform1f(U('uWaterVisProbe'), 1.0);  // skip the vH>1 land discard (see comment above)
+          gl.uniform1f(U('uDepthOnly'), 1.0);
+          gl.uniform1f(U('uWaterVisProbe'), 1.0);
           gl.bindBuffer(gl.ARRAY_BUFFER, wvbo); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,3,gl.FLOAT,false,0,0);
           gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, wibo);
-          // re-assert locations 1/2/3 into instBufWater (self-contained per-draw attribute state)
           gl.bindBuffer(gl.ARRAY_BUFFER, instBufWater);
           gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, STRIDE, 0);     gl.vertexAttribDivisor(1, 1);
           gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, STRIDE, 4 * 4); gl.vertexAttribDivisor(2, 1);
@@ -2680,8 +1665,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
           if (_issueQ) gl.beginQuery(gl.ANY_SAMPLES_PASSED_CONSERVATIVE, _waterVisQ);
           gl.drawElementsInstanced(gl.TRIANGLES, waterIndices.length, gl.UNSIGNED_INT, 0, wn);
           if (_issueQ) { gl.endQuery(gl.ANY_SAMPLES_PASSED_CONSERVATIVE); _waterVisQPending = true; }
-          // gl.getError() is a full GPU pipeline sync -- gated behind window.__glCheck like every other
-          // diagnostic GL read (was unconditional every frame at 5-2000m altitude).
           if (window.__glCheck) window.__waterProbeGLErr = gl.getError();
           gl.depthFunc(gl.LESS); gl.depthMask(true);
           gl.enable(gl.CULL_FACE);
@@ -2693,9 +1676,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
           gl.colorMask(true, true, true, true);
           if (_waterHidden) window.__waterVisSkips = (window.__waterVisSkips|0) + 1;
         }
-        // ---- PASS: half-res-water-color -- reads: color (scene copy), depth; writes: color/_hrwColor ----
         if (!_waterHidden) {
-        // SCENE-COPY for water refraction: snapshot the rendered terrain into _sceneCopyTex (GPU blit).
         ensureSceneCopy(_vW, _vH);
         gl.activeTexture(gl.TEXTURE0 + TU.sceneTex); gl.bindTexture(gl.TEXTURE_2D, _sceneCopyTex);
         gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 0, 0, _vW, _vH);
@@ -2705,15 +1686,13 @@ export async function initMapspinnerRender(gl, opts = {}) {
         if (_hrw) {
           _hrwVW = Math.max(1, _vW>>1); _hrwVH = Math.max(1, _vH>>1);
           ensureHrwTargets(_hrwVW, _hrwVH);
-          // NO hardware depth test in the half-res pass (cross-size depth blit is NVIDIA-broken); the FS
-          // samples the full-res scene DEPTH TEXTURE (unit 4, unbound before the composite) instead.
           gl.bindFramebuffer(gl.FRAMEBUFFER, _hrwFbo);
           gl.viewport(0,0,_hrwVW,_hrwVH);
           gl.disable(gl.DEPTH_TEST); gl.depthMask(false);
           gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
           gl.activeTexture(gl.TEXTURE0 + TU.sceneDepth); gl.bindTexture(gl.TEXTURE_2D, _vdrsDepth); gl.uniform1i(U('uSceneDepth'), TU.sceneDepth);
           gl.uniform1f(U('uOccludeDepth'), 1.0);
-          gl.uniform2f(U('uResolution'), _hrwVW, _hrwVH);   // refraction screenUV = fragCoord/halfRes -> samples full-res uSceneTex
+          gl.uniform2f(U('uResolution'), _hrwVW, _hrwVH);
         }
         if (_uw) {
           gl.disable(gl.BLEND);
@@ -2723,13 +1702,9 @@ export async function initMapspinnerRender(gl, opts = {}) {
           gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
           gl.depthMask(false);
         }
-        // TWO-SIDED ONLY UNDERWATER (user 2026-06-24) + GRAZING-ALTITUDE WINDING-FLIP FIX (2026-08-22, black
-        // horizon band root cause): inside |camAlt|<5m the camera-relative projection flips the far water's
-        // winding, so the FRONT cull removed the whole ocean -- disable culling in that thin-shell regime.
-        const _waterCullFront = !_uw && !(Math.abs(camAlt) < 5.0);
-        if (!_waterCullFront) gl.disable(gl.CULL_FACE); else { gl.enable(gl.CULL_FACE); gl.cullFace(gl.FRONT); gl.frontFace(gl.CCW); }   // FRONT = match the terrain cull
+        const _waterCullFront = !_uw && !(Math.abs(camAlt) < WATER_WINDING_FLIP_ALT_M);
+        if (!_waterCullFront) gl.disable(gl.CULL_FACE); else { gl.enable(gl.CULL_FACE); gl.cullFace(gl.FRONT); gl.frontFace(gl.CCW); }
         gl.uniform1f(U('uIsWater'), 1.0);
-        // Bind the COARSE water mesh (wvbo/wibo) for attrib 0; restore the terrain mesh (vbo/ibo) after.
         gl.bindBuffer(gl.ARRAY_BUFFER, wvbo); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,3,gl.FLOAT,false,0,0);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, wibo);
         gl.bindBuffer(gl.ARRAY_BUFFER, instBufWater);
@@ -2737,17 +1712,12 @@ export async function initMapspinnerRender(gl, opts = {}) {
         gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, STRIDE, 4 * 4); gl.vertexAttribDivisor(2, 1);
         gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 1, gl.FLOAT, false, STRIDE, 5 * 4); gl.vertexAttribDivisor(3, 1);
         gl.drawElementsInstanced(gl.TRIANGLES, waterIndices.length, gl.UNSIGNED_INT, 0, wn);
-        // TEMP DIAGNOSTIC (window.__passProbe): frame right after the water COLOR draw.
         if (typeof window !== 'undefined' && window.__passProbe === true) {
           const _cc = gl.getParameter(gl.CULL_FACE), _cm2 = gl.getParameter(gl.CULL_FACE_MODE), _ff = gl.getParameter(gl.FRONT_FACE);
           (window.__passProbeLog = window.__passProbeLog || []).push('water-color draw: cullEnabled=' + _cc + ' cullFace=' + (_cm2 === gl.FRONT ? 'FRONT' : 'BACK') + ' frontFace=' + (_ff === gl.CCW ? 'CCW' : 'CW') + ' _hrw=' + _hrw + ' quads=' + wn + ' _uw=' + _uw + ' camAlt=' + camAlt.toFixed(2) + ' eyeY=' + eye[1].toFixed(2));
           if (_hrw && _hrwColor && _hrwW > 0) _passProbeSnap('water-color-hrw', _hrwColor, _hrwW, _hrwH);
           else if (!_hrw) _passProbeSnap('water-color-direct-canvas', null, 0, 0);
         }
-        // DIRECT-PATH WATER DEPTH STAMP (2026-07-05): with half-res water DISABLED the scene renders straight
-        // into the canvas; stamp the water depth (colorMask off, uDepthOnly=1) so a submerged consumer object
-        // does not draw OVER the water. Gated on the consumer's shared-depth opt-in.
-        // ---- PASS: water-depth-share (direct-path variant) -- reads: water mesh; writes: depth ----
         if (!_hrw && !_uw && typeof window !== 'undefined' && window.__planetDepthToCanvas === true && window.__waterDepthShareOff !== true) {
           gl.colorMask(false, false, false, false);
           gl.depthMask(true); gl.disable(gl.BLEND);
@@ -2763,14 +1733,9 @@ export async function initMapspinnerRender(gl, opts = {}) {
         gl.enable(gl.CULL_FACE);
         gl.depthMask(true);
         gl.disable(gl.BLEND);
-        // HALF-RES WATER COMPOSITE: restore the scene FBO + full viewport, then PREMULTIPLIED-blend
-        // (ONE, ONE_MINUS_SRC_ALPHA -- no black fringe at the waterline) the half-res water color over the
-        // full-res terrain via the fullscreen-tri upscale program.
-        // ---- PASS: half-res-water-composite -- reads: _hrwColor; writes: color (+ depth via the
-        // shared-depth water stamp below, water-depth-share second variant, gated on !_stampedThisFrame) ----
         if (_hrw) {
-          gl.uniform1f(U('uOccludeDepth'), 0.0);   // done with FS occlusion this frame
-          gl.activeTexture(gl.TEXTURE0 + TU.sceneDepth); gl.bindTexture(gl.TEXTURE_2D, null);   // UNBIND _vdrsDepth before its FBO is rebound = no feedback loop
+          gl.uniform1f(U('uOccludeDepth'), 0.0);
+          gl.activeTexture(gl.TEXTURE0 + TU.sceneDepth); gl.bindTexture(gl.TEXTURE_2D, null);
           gl.bindFramebuffer(gl.FRAMEBUFFER, _sceneFbo);
           gl.viewport(0,0, (_sceneFbo? Math.max(1,Math.round(_vW*_vrs)) : _vW), (_sceneFbo? Math.max(1,Math.round(_vH*_vrs)) : _vH));
           gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE);
@@ -2779,22 +1744,19 @@ export async function initMapspinnerRender(gl, opts = {}) {
           gl.activeTexture(gl.TEXTURE0 + TU.sceneTex); gl.bindTexture(gl.TEXTURE_2D, _hrwColor); gl.uniform1i(cmpUTex, TU.sceneTex);
           gl.uniform2f(upUScale, 1.0, 1.0);
           gl.drawArrays(gl.TRIANGLES, 0, 3);
-          // unbind _hrwColor from unit 9 (it is _hrwFbo's own color attachment -- feedback-loop hazard)
           gl.activeTexture(gl.TEXTURE0 + TU.sceneTex); gl.bindTexture(gl.TEXTURE_2D, null);
           gl.disable(gl.BLEND); gl.depthMask(true); gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE);
-          gl.useProgram(waterProg);   // back to the water program for the depth stamp below
-          // SHARED-DEPTH FOR WATER (fix: 'objects draw over water even when under it'): re-draw the water
-          // mesh DEPTH-ONLY into _vdrsFbo so the writeback carries water depth to the canvas.
+          gl.useProgram(waterProg);
           if (!_stampedThisFrame && typeof window !== 'undefined' && window.__planetDepthToCanvas === true && window.__waterDepthShareOff !== true && _vdrsDepth) {
-            gl.activeTexture(gl.TEXTURE0 + TU.sceneDepth); gl.bindTexture(gl.TEXTURE_2D, null);   // UNBIND _vdrsDepth texture before rebinding its FBO as render target
+            gl.activeTexture(gl.TEXTURE0 + TU.sceneDepth); gl.bindTexture(gl.TEXTURE_2D, null);
             gl.bindFramebuffer(gl.FRAMEBUFFER, _vdrsFbo);
             gl.viewport(0, 0, Math.max(1, Math.round(_vW*_vrs)), Math.max(1, Math.round(_vH*_vrs)));
             gl.colorMask(false, false, false, false);
             gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LESS); gl.depthMask(true); gl.disable(gl.BLEND);
             gl.enable(gl.CULL_FACE); gl.cullFace(gl.FRONT); gl.frontFace(gl.CCW);
             gl.uniform1f(U('uIsWater'), 1.0);
-            gl.uniform1f(U('uOccludeDepth'), 0.0);   // no FS scene-depth occlusion in this depth-only pass
-            gl.uniform1f(U('uDepthOnly'), 1.0);      // skip the full water shading ALU -- colorMask is off, only depth matters
+            gl.uniform1f(U('uOccludeDepth'), 0.0);
+            gl.uniform1f(U('uDepthOnly'), 1.0);
             gl.bindBuffer(gl.ARRAY_BUFFER, wvbo); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,3,gl.FLOAT,false,0,0);
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, wibo);
             gl.bindBuffer(gl.ARRAY_BUFFER, instBufWater);
@@ -2810,26 +1772,19 @@ export async function initMapspinnerRender(gl, opts = {}) {
             if (typeof window !== 'undefined') window.__waterDepthShared = (window.__waterDepthShared|0) + 1;
           }
         }
-        }   // end if (!_waterHidden) -- water color pipeline (scene copy / color pass / composite)
-        // TEMP DIAGNOSTIC (window.__passProbe): after the water composite into the scene FBO.
+        }
         if (typeof window !== 'undefined' && window.__passProbe === true && _vdrsColor && _vdrsW > 0) _passProbeSnap('after-water-composite-vdrs', _vdrsColor, _vdrsW, _vdrsH);
         if (typeof window !== 'undefined') window.__lastWaterQuads = wn;
-        // back to the terrain program for whatever follows (next frame re-selects anyway)
         setActiveProgram(_terrainProg, _terrainUloc, _terrainChu);
         gl.useProgram(_terrainProg);
       }
-      _instQuadsRef = quads;   // mark this quad set uploaded; next frame with the same array skips the rebuild
+      _instQuadsRef = quads;
       if (typeof window !== 'undefined') window.__instUploads = (window.__instUploads | 0) + (_dirty ? 1 : 0);
     }
     if (typeof window !== 'undefined') window.__lastDrawCalls = (n > 0) ? 2 : 0;
-    // Straight-to-canvas path (no VDRS/half-res-water upscale this frame): terrain+water already
-    // drew directly into the canvas depth buffer, so it holds THIS frame's real depth -- draw sky
-    // depth-tested now (see drawSky's depthTested contract above).
     if (_vdrsRsThisFrame === 0) { drawSky(true); if (typeof window !== 'undefined' && window.__passProbe === true) _passProbeSnap('after-drawSky-straight-canvas', null, 0, 0); }
 
     if (_vdrsRsThisFrame > 0) {
-      // DEBUG DEPTH READBACK (window.__depthProbeOn): encode _vdrsDepth's depth01 into an RGBA8
-      // target as (hi,lo) byte-split and readPixels it back. Diagnostic-only; zero cost when off.
       if (typeof window !== 'undefined' && window.__depthProbeOn && _vdrsDepth) {
         const W = gl.drawingBufferWidth, H = gl.drawingBufferHeight;
         if (!_dpFbo || _dpW !== W || _dpH !== H) {
@@ -2873,10 +1828,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
           gl.deleteFramebuffer(probeFbo);
         } catch (e) { window.__vdrsColorProbe = { error: String(e) }; }
       }
-      // ===== PASS: upscale-to-canvas (+ planet-depth-writeback) =====
-      // MERGED when both would run on the non-FSR1 path (one fullscreen draw writes color + depth);
-      // otherwise the two separate passes exactly as before. drawSky's depthTested arg follows EXACTLY the
-      // same condition: true only when the writeback actually stamped canvas depth this frame.
       const _fsr1 = (typeof window !== 'undefined' && window.__vdrsUpscaleFsr1 === true);
       let _wroteDepth;
       if (!_fsr1 && _wantDepthWriteback()) {
@@ -2884,30 +1835,24 @@ export async function initMapspinnerRender(gl, opts = {}) {
         if (typeof window !== 'undefined' && window.__passProbe === true) { _passProbeSnap('after-upscale-canvas', null, 0, 0); (window.__passProbeLog = window.__passProbeLog || []).push('writeback ran=' + _wroteDepth + ' (merged)'); _passProbeSnap('after-writeback-canvas', null, 0, 0); }
       } else {
         passUpscaleToCanvas();
-        // TEMP DIAGNOSTIC (window.__passProbe): canvas right after the upscale.
         if (typeof window !== 'undefined' && window.__passProbe === true) _passProbeSnap('after-upscale-canvas', null, 0, 0);
         _wroteDepth = passPlanetDepthWriteback();
         if (typeof window !== 'undefined' && window.__passProbe === true) { (window.__passProbeLog = window.__passProbeLog || []).push('writeback ran=' + _wroteDepth); _passProbeSnap('after-writeback-canvas', null, 0, 0); }
       }
-      // ===== PASS: atmosphere-aerial-composite (see _passManifest), THC gate implicit in _vdrsRsThisFrame>0 =====
-      drawSky(_wroteDepth);    // true: canvas depth was just stamped with this frame's real terrain depth
-      // false (writeback gated off): canvas depth is not this frame's; fail open (depth-test off, matches pre-existing behavior)
-      // TEMP DIAGNOSTIC (window.__passProbe): final canvas after drawSky + disarm after a full sweep.
+      drawSky(_wroteDepth);
       if (typeof window !== 'undefined' && window.__passProbe === true) {
         _passProbeSnap('after-drawSky-canvas', null, 0, 0);
         if ((window.__passProbeFrames || []).length >= 4 && window.__passProbeOneShot !== false) window.__passProbe = false;
       }
-      gl.useProgram(_activeProg);   // restore the terrain program for the next frame's uniform sets
+      gl.useProgram(_activeProg);
     }
-    return 0;   // glError is checked via checkGlError() once per frame after quadtree (CPU/GPU pipelining)
+    return 0;
   }
   const _planetNearFarScratch = { near: 0, far: 0, fovy: 0, aspect: 1 };
   const _waterVisDebugScratch = { zeroRuns: 0, pending: false, hidden: false };
 
   function checkGlError() { return gl.getError(); }
 
-  // ---- DEBUG PROBE: replicate the VS clip-space transform on the CPU for a quad's 4
-  // corners (vertex.xy in {0,1}^2) so we can see which quads project off-screen.
   function probe(quads, cam) {
     const aspect = gl.drawingBufferWidth / gl.drawingBufferHeight;
     const near = (cam.near!=null)?cam.near:1.0, far=(cam.far!=null)?cam.far:R*8;
@@ -2924,10 +1869,8 @@ export async function initMapspinnerRender(gl, opts = {}) {
       const cs = [[ox,oy],[ox+l,oy],[ox,oy+l],[ox+l,oy+l]];
       const v=[],L=[];
       for (let i=0;i<4;i++){ const px=cs[i][0],py=cs[i][1]; const len=Math.hypot(px,py,R); L.push(len); v.push([px/len,py/len,R/len]); }
-      // C and N matrices (4x4) as in setQuadUniforms
       const dCorners = new Float32Array([ v[0][0]*R,v[0][1]*R,v[0][2]*R,1, v[1][0]*R,v[1][1]*R,v[1][2]*R,1, v[2][0]*R,v[2][1]*R,v[2][2]*R,1, v[3][0]*R,v[3][1]*R,v[3][2]*R,1 ]);
       const C = M4.mul(localToScreen, dCorners);
-      // For each of the 4 mesh corners, alphaPrime picks out one column => clip = column i (h=0 baseline)
       const ndc = [];
       for (let i=0;i<4;i++){ const x=C[i*4],y=C[i*4+1],z=C[i*4+2],w=C[i*4+3];
         ndc.push({x:+(x/w).toFixed(3),y:+(y/w).toFixed(3),z:+(z/w).toFixed(3),w:+w.toFixed(1),
@@ -2936,17 +1879,8 @@ export async function initMapspinnerRender(gl, opts = {}) {
     }
     return out;
   }
-  function setHpf(tex, res, tex2) { _hpfTex = tex; _hpfTex2 = tex2 || null; invalidatePool(); }   // res: accepted for API compatibility, unused   // tex2 = RG8(temp,humid) pack (W12); HPF change -> re-bake THC tiles
+  function setHpf(tex, res, tex2) { _hpfTex = tex; _hpfTex2 = tex2 || null; invalidatePool(); }
 
-  // CONTEXT LOSS (consumer-facing diagnostic hook): a GPU driver reset / OOM / tab-background
-  // eviction fires 'webglcontextlost' on the canvas, after which EVERY gl.* call becomes a
-  // spec-defined silent no-op -- render() keeps "succeeding" with no error, producing a frozen/
-  // black frame with zero diagnostic signal. Without a hook, a host app (e.g. spoint) has no way
-  // to know it needs to recreate the renderer; it just silently stops updating. isContextLost()
-  // lets a host poll cheaply (gl.isContextLost() is a fast native call); onContextLost(cb)
-  // subscribes to the event directly. Detection-only -- state RECOVERY (recreating buffers/
-  // textures/programs after 'webglcontextrestored') is intentionally left to the consumer, since
-  // the right recovery strategy (full renderer recreation vs in-place restore) is host-specific.
   const _contextLostCbs = [];
   let _canvasEl = null;
   try { _canvasEl = (gl && typeof gl.canvas !== 'undefined') ? gl.canvas : null; } catch (_) {}
