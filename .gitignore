@@ -3,7 +3,9 @@ node_modules/
 *.br.meta
 *.gz
 *.gz.meta
-.gm/
+.gm/*
+!.gm/memories/
+data/nostr-identity.json
 .agentplug-kv/
 .agents/
 .code-search/

@@ -252,8 +252,8 @@ default Chrome/AMD: check the loop is still runtime-bounded FIRST. Never reintro
 SECONDARY (real but transient/exotic) modes with the same look, check in this order via /diag tail:
 (a) `swgl`/`ctxLostAt` non-null = software-WebGL after a GPU-process crash -> restart the BROWSER;
 (b) `bakePending` non-zero = unbaked/zero-HPF window (keep whole-planet bake <1s, ee7d72e).
-Rock gates themselves are SLOPE-ONLY by design (terrain.glsl macro ~1093-1100, splat ~1574;
-height-band rock REMOVED 2026-06-03) -- rock on flat ground means broken INPUTS, never the gates.
+Rock gates themselves are SLOPE-ONLY by design (terrain.glsl macro + splat rock gates key off
+`rockSlope`/slope; height-band rock REMOVED 2026-06-03) -- rock on flat ground means broken INPUTS, never the gates.
 
 ## FXC (ANGLE d3d11 / default Chrome on Windows) -- THE SOLUTION RECORD (user order, 2026-06-12)
 
