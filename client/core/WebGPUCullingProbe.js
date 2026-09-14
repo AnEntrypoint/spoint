@@ -1,24 +1,3 @@
-// First slice of webgpurenderer-compute-shader-culling-drawindexedindirect-path (see AGENTS.md /
-// .gm/prd.yml): a real feasibility probe of WebGPU availability in this project's target browser,
-// plus a minimal, self-contained compute-shader frustum-culling proof-of-concept that writes a real
-// GPU-resident indirect-draw-args buffer via an atomic append-counter.
-//
-// Deliberately decoupled from client/app.js's actual render pipeline (which still unconditionally
-// builds a THREE.WebGLRenderer via SceneSetup.createRenderer -- see AGENTS.md's row detail for why
-// switching the primary renderer is scoped out of this slice as its own large follow-up). This module
-// is dynamic-import-only, touches zero boot-path code, and is safe to ship as dead-until-invoked: it
-// only runs when explicitly called (e.g. from a dev console or a future opt-in tier), matching the
-// same dynamic-import discipline packages/streaming-gltf/src/webgpu-hiz-tier.js already uses for its
-// own WebGPU-only HZB-occlusion tier.
-//
-// Raw WebGPU (navigator.gpu), not THREE's WebGPURenderer/TSL: this probe intentionally stays below
-// the renderer-abstraction layer so it answers "does compute-shader GPU-resident culling work AT ALL
-// on this device/browser" without depending on THREE's WebGPU backend also being wired into the live
-// scene graph (a separate, much larger risk this row's own detail explicitly defers).
-
-// Real capability probe -- mirrors SceneSetup.js's probeWebGL2/probeOffscreenCanvasWorkerRendering
-// pattern (explicit detail object, never a bare boolean) so a caller can see exactly which layer
-// failed rather than a single opaque false.
 export async function probeWebGPU() {
   const detail = { apiSurface: false, adapter: false, device: false, limits: null, error: null }
   try {
@@ -56,15 +35,6 @@ export async function probeWebGPU() {
   }
 }
 
-// WGSL compute shader: real frustum-culling proof-of-concept. For each of `instanceCount` instances
-// (a world-space AABB center+halfExtent packed into a storage buffer), tests the 6 frustum planes and,
-// if visible, appends into a compacted "visible instance index" buffer via an atomic counter -- the
-// same compaction primitive a real drawIndexedIndirect path needs to build its per-draw instance count
-// GPU-side with zero CPU readback. This IS the load-bearing GPU primitive the row's title names
-// ("compute-shader culling ... path"); wiring its OUTPUT into an actual GPURenderBundle /
-// drawIndexedIndirect call against a live scene is the follow-up row (real geometry + real THREE
-// WebGPU backend integration), not reproduced here since this slice has no live WebGPU scene to draw
-// into yet.
 const CULL_WGSL = `
 struct Instance {
   centerX: f32, centerY: f32, centerZ: f32, radius: f32,
@@ -99,31 +69,23 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 `
 
-// Extracts the 6 frustum planes (left,right,bottom,top,near,far), each normalized [a,b,c,d] with
-// ax+by+cz+d>=0 meaning "inside", from a standard row-major THREE.Matrix4-shaped 16-element
-// column-major array (viewProjection). Kept dependency-free (no THREE import) since this module must
-// stay usable from a bare browser console / minimal harness for the feasibility probe.
 export function extractFrustumPlanes(m) {
   const planes = []
-  const rows = [
-    [m[3] + m[0], m[7] + m[4], m[11] + m[8], m[15] + m[12]],   // left
-    [m[3] - m[0], m[7] - m[4], m[11] - m[8], m[15] - m[12]],   // right
-    [m[3] + m[1], m[7] + m[5], m[11] + m[9], m[15] + m[13]],   // bottom
-    [m[3] - m[1], m[7] - m[5], m[11] - m[9], m[15] - m[13]],   // top
-    [m[3] + m[2], m[7] + m[6], m[11] + m[10], m[15] + m[14]],  // near
-    [m[3] - m[2], m[7] - m[6], m[11] - m[10], m[15] - m[14]],  // far
+  const unnormalizedPlanesLeftRightBottomTopNearFar = [
+    [m[3] + m[0], m[7] + m[4], m[11] + m[8], m[15] + m[12]],
+    [m[3] - m[0], m[7] - m[4], m[11] - m[8], m[15] - m[12]],
+    [m[3] + m[1], m[7] + m[5], m[11] + m[9], m[15] + m[13]],
+    [m[3] - m[1], m[7] - m[5], m[11] - m[9], m[15] - m[13]],
+    [m[3] + m[2], m[7] + m[6], m[11] + m[10], m[15] + m[14]],
+    [m[3] - m[2], m[7] - m[6], m[11] - m[10], m[15] - m[14]],
   ]
-  for (const [a, b, c, d] of rows) {
+  for (const [a, b, c, d] of unnormalizedPlanesLeftRightBottomTopNearFar) {
     const len = Math.hypot(a, b, c) || 1
     planes.push([a / len, b / len, c / len, d / len])
   }
   return planes
 }
 
-// Runs the real compute-shader culling pass against `instances` (array of {x,y,z,radius}) using the
-// given 16-element column-major viewProjection matrix array. Returns { visibleCount, visibleIndices,
-// gpuMs } -- gpuMs is a real GPU-timestamp-free wall-clock bracket around device.queue.onSubmittedWorkDone()
-// (portable across adapters that don't expose timestamp-query, unlike EXT_disjoint_timer_query on WebGL2).
 export async function runComputeCullingPoC(instances, viewProjection) {
   if (typeof navigator === 'undefined' || !navigator.gpu) throw new Error('WebGPU not available')
   const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' })

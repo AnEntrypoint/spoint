@@ -1,25 +1,4 @@
-// WorkerRenderer.js -- main-thread side of the real worker-hosted render loop
-// (offscreencanvas-worker-migration-followup epic, first functional slice).
-//
-// The prior session (SceneSetup.probeOffscreenCanvasWorkerRendering, see AGENTS.md
-// offscreencanvas-worker-rendering) only detected feature support. This module is the actual
-// mechanism: transfers a real <canvas> to a dedicated module Worker via transferControlToOffscreen,
-// which then runs a real THREE.WebGLRenderer render loop (client/workers/OffscreenRenderWorker.js)
-// entirely off the main thread, proxying resize events back in.
-//
-// SCOPE: this drives an ISOLATED diagnostic canvas with its own small demo scene -- it does NOT
-// replace or touch the main game's render path (RenderGraph/ShadowPipeline/mapspinner). Migrating the
-// real game loop needs the full DOM/window proxy layer the audit scoped (mapspinner's window.__* reads,
-// MobileControls, HUD DOM writes) -- explicitly out of this slice's bounded scope, re-filed as sibling
-// PRD rows. This module proves the transfer+worker-draw+resize-proxy+teardown mechanism actually works,
-// live, so the real migration has a working foundation to build on instead of just a detection flag.
-//
-// Usage:
-//   const wr = createWorkerRenderer(canvasEl)
-//   await wr.start()          // resolves once the worker posts 'ready' (or rejects on error/timeout)
-//   wr.resize(w, h, dpr)      // proxy a resize into the worker
-//   wr.getStats()             // last {frame, ms, drawCalls, triangles} telemetry the worker posted
-//   wr.stop()                 // tears down the worker + releases the canvas control
+const TERMINATE_AFTER_STOP_REQUEST_MS = 250
 
 export function createWorkerRenderer(canvasEl, opts = {}) {
   if (!canvasEl || typeof canvasEl.transferControlToOffscreen !== 'function') {
@@ -88,9 +67,7 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
   function stop() {
     if (!worker) return
     try { worker.postMessage({ type: 'stop' }) } catch (_) {}
-    // Terminate shortly after asking it to stop cleanly -- bounded, does not depend on the worker
-    // acking (a crashed/unresponsive worker must not leak).
-    setTimeout(() => { if (worker) { worker.terminate(); worker = null } }, 250)
+    setTimeout(() => { if (worker) { worker.terminate(); worker = null } }, TERMINATE_AFTER_STOP_REQUEST_MS)
     started = false
   }
 
