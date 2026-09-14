@@ -32,7 +32,7 @@ export class AccessibilityManager {
     const style = document.createElement('style')
     style.id = 'a11y-base-styles'
     style.textContent = `
-/* Focus indicators: 2px outline on all interactive elements */
+ 
 button, a, input, select, textarea, [role="button"], [role="link"], [role="menuitem"], [role="tab"] {
   outline-offset: 2px;
 }
@@ -43,7 +43,7 @@ textarea:focus-visible, [role="button"]:focus-visible, [role="link"]:focus-visib
   outline: 2px solid var(--focus-color, #00d2ff);
 }
 
-/* Touch target sizing: minimum 44x44px */
+ 
 button, a[role="button"], input[type="checkbox"], input[type="radio"],
 [role="button"], [role="link"], [role="menuitem"], [role="tab"] {
   min-height: 44px;
@@ -53,14 +53,14 @@ button, a[role="button"], input[type="checkbox"], input[type="radio"],
   justify-content: center;
 }
 
-/* Font size scaling class */
+ 
 .font-scale-80 { font-size: 80%; }
 .font-scale-90 { font-size: 90%; }
 .font-scale-100 { font-size: 100%; }
 .font-scale-110 { font-size: 110%; }
 .font-scale-120 { font-size: 120%; }
 
-/* Reduced motion: disable animations when prefers-reduced-motion is set */
+ 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
@@ -70,7 +70,7 @@ button, a[role="button"], input[type="checkbox"], input[type="radio"],
   }
 }
 
-/* High contrast mode: boost text contrast */
+ 
 @media (prefers-contrast: more) {
   :root {
     --panel-text: #fff;
@@ -78,7 +78,7 @@ button, a[role="button"], input[type="checkbox"], input[type="radio"],
   }
 }
 
-/* Live region announcements */
+ 
 [aria-live] {
   position: absolute;
   width: 1px;

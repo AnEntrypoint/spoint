@@ -746,99 +746,49 @@ export async function initMapspinnerRender(gl, opts = {}) {
   const skyFsSrc = hdr + atmoSrc + `
     in vec2 vNdc;
     layout(location=0) out vec4 fragColor;
-    uniform mat3 camRot;        // world<-view rotation (columns = view basis in world)
-    uniform vec2 projDiag;      // (proj[0][0], proj[1][1]) for NDC->view-ray
-    uniform vec3 skyCamWorld;   // camera world pos (meters)
-    uniform vec3 skySunDir;     // world sun dir (normalized)
-    uniform float skyR;         // sphere radius (meters)
-    uniform float uSkyFade;     // 1 at surface, 0 at 100km
-    uniform float uSkyDbg;      // sky-FS intermediate readout: 0=off 1=raw radiance 2=post-bias*exposure(c) 3=ACES-mapped
+    uniform mat3 camRot;
+    uniform vec2 projDiag;
+    uniform vec3 skyCamWorld;
+    uniform vec3 skySunDir;
+    uniform float skyR;
+    uniform float uSkyFade;
+    uniform float uSkyDbg;
     void main(){
-      // Reconstruct the world-space view ray from NDC, like the WebGPU skyFs: undo the
-      // projection (divide by the proj diagonal) to get a view-space dir, then rotate
-      // into world with the camera basis. Robust (no near-far matrix inverse).
       vec3 dirView = normalize(vec3(vNdc.x/projDiag.x, vNdc.y/projDiag.y, -1.0));
       vec3 viewRay = normalize(camRot * dirView);
       vec3 camAtm = atmPos(skyCamWorld, skyR);
       vec3 t;
       vec3 radiance = atm_skyRadiance(camAtm, viewRay, skySunDir, t);
 
-      // ---- Explicit limb/halo glow (guarantees a visible atmosphere ring from orbit).
-      // The physical single-scatter limb is sub-pixel thin at orbital range, so we add
-      // an analytic glow keyed on the ray's IMPACT PARAMETER b = perpendicular distance
-      // of the view ray from the planet centre. b in [BOTTOM, ~BOTTOM+halo] -> bright
-      // blue rim that fades outward; lit only on the sun-facing side, scaled by a soft
-      // forward-scatter term. This is a deliberate visual augmentation of the analytic
-      // single-scatter model (documented simplification).
       {
         float rc = length(camAtm);
         float muc = dot(camAtm, viewRay) / rc;
-        float b = rc * sqrt(max(1.0 - muc*muc, 0.0)); // impact parameter (km)
-        // Only for rays passing in FRONT of the planet (muc<0) and outside the surface.
+        float b = rc * sqrt(max(1.0 - muc*muc, 0.0));
         float halo = 0.0;
         if (muc < 0.0) {
-          float t0 = (b - ATM_BOTTOM) / (ATM_TOP - ATM_BOTTOM);  // 0 at surface -> 1 at top
-          // Inner rim brightest, fading to the shell top; zero below surface / above top.
+          float t0 = (b - ATM_BOTTOM) / (ATM_TOP - ATM_BOTTOM);
           halo = smoothstep(0.0, 0.06, t0) * (1.0 - smoothstep(0.25, 1.6, t0));
         }
-        // Daylight side weighting from the sun's relation to the limb point direction.
-        vec3 limbDir = normalize(camAtm + viewRay * (-rc*muc)); // closest-approach dir
-        // Day-side rim brightest; keep a small floor so the whole ring stays visible.
+        vec3 limbDir = normalize(camAtm + viewRay * (-rc*muc));
         float lit = 0.25 + 0.75 * smoothstep(-0.5, 0.6, dot(limbDir, skySunDir));
-        vec3 haloColor = vec3(0.32, 0.55, 1.0);  // Rayleigh-blue rim
+        vec3 haloColor = vec3(0.32, 0.55, 1.0);
         radiance += haloColor * (halo * lit) * 0.03;
       }
-      // Sun disc through the view transmittance.
       float cosVS = dot(viewRay, skySunDir);
       if (cosVS > cos(ATM_SUN_ANGULAR_RADIUS)) {
-        radiance += t * ATM_SOLAR_IRRADIANCE * 6.0;   // sun disc
+        radiance += t * ATM_SOLAR_IRRADIANCE * 6.0;
       }
-      // The analytic single-scatter radiance is HDR with small magnitudes; lift then
-      // ACES tonemap (matches the WebGPU sky pass family). EXPOSURE tuned so the limb
-      // glow + daylit sky read as an atmosphere without blowing out.
-      // GROUND-LEVEL MIDDAY OVEREXPOSURE (round-3 critic: "blown-out white sky with a thin yellow
-      // horizon band instead of a flat hard-lit midday look"): 105 was tuned for the orbital limb
-      // halo, where most of the frame is dark space around a thin bright ring -- at ground level with
-      // the whole upper hemisphere daylit, that same exposure drives every channel into the ACES
-      // curve's flat white shoulder before the post-tonemap saturation push (1.35) has any per-channel
-      // headroom left to pull back out, so zenith-to-horizon reads as uniform white instead of the
-      // reference's flat-but-legibly-blue Performance-Mode dome. Exposure cut further (105->72) so the
-      // daylit dome sits below the shoulder; saturation push raised (1.35->1.6) to compensate and keep
-      // the flat, saturated-primary Performance-Mode color (no bloom pass to soften it) rather than a
-      // washed pastel. Sun disc/halo terms are unaffected (added post this exposure, still clamp to 1).
-      // ROUND-4 FIX (critic: "saturated white-to-yellow gradient wash rather than a flat hard-lit
-      // blue midday sky -- round 3's 72.0/1.6 wasn't enough"): the prior approach pushed exposure
-      // high enough that R/G/B all independently approach the ACES shoulder together, so by the time
-      // the post-tonemap luma-mix saturation runs, per-channel separation is ALREADY destroyed (all
-      // channels clipped near 1.0 = white/yellow, not blue) -- no post-hoc saturation multiplier can
-      // recover a hue that tonemapping already erased. Fix at the source instead: (1) exposure cut
-      // further (72->48) so the daylit dome sits mid-curve, well below the shoulder, preserving
-      // per-channel spread through tonemap; (2) a direct pre-tonemap blue-bias (boost B, trim R) on
-      // the RAW radiance -- physically what Rayleigh scattering does, and what makes a flat
-      // Performance-Mode dome read as legibly BLUE instead of relying on saturation to invent color
-      // difference from already-equalized channels.
-      // ROUND-5 FIX (found live: the fixed 48.0 constant was tuned specifically for round-4's
-      // golden-hour (~8deg) sun elevation; at midday's much higher elevation the raw single-scatter
-      // radiance is naturally brighter, so the SAME fixed exposure re-overexposes into the ACES
-      // shoulder -- the exact round-3/4 bug recurring at a different sun angle, proving a single
-      // constant can never work across the day cycle. Fix at the actual root: scale exposure
-      // inversely with sun elevation (dot(skySunDir, local-up)) so a higher sun gets LESS exposure
-      // lift, keeping the daylit dome consistently mid-curve at every time of day instead of only
-      // the one angle a fixed constant happened to be tuned for.
-      // ROUND-7 FOLLOW-UP: 22.0 at zenith was still overexposed live at 56deg elevation (post the
-      // separate TimeOfDay sun.position fix, which finally made this angle actually reachable to
-      // test) -- lowered the zenith end further so high-sun angles genuinely clear the ACES shoulder.
       float sunElevDot = clamp(dot(skySunDir, normalize(skyCamWorld)), 0.0, 1.0);
-      float skyExposure = mix(48.0, 14.0, sunElevDot); // 48 at horizon, 14 at zenith
+      float skyExposure = mix(48.0, 14.0, sunElevDot);
       vec3 c = radiance * vec3(0.82, 0.95, 1.22) * skyExposure;
-      vec3 mapped = clamp((c*(2.51*c+0.03))/(c*(2.43*c+0.59)+0.14), 0.0, 1.0); // ACES
+      vec3 mapped = clamp((c*(2.51*c+0.03))/(c*(2.43*c+0.59)+0.14), 0.0, 1.0);
       float skyLum = dot(mapped, vec3(0.2126, 0.7152, 0.0722));
       mapped = clamp(mix(vec3(skyLum), mapped, 1.3), 0.0, 1.0);
       if (uSkyDbg > 0.5) {
         vec3 dbg = radiance;
-        if (uSkyDbg < 1.5) dbg = radiance;              // 1: raw single-scatter radiance (linear, no exposure)
-        else if (uSkyDbg < 2.5) dbg = c;                // 2: post blue-bias * exposure (linear, pre-ACES)
-        else if (uSkyDbg < 3.5) dbg = mapped;            // 3: post-ACES, post-saturation (pre-gamma)
+        if (uSkyDbg < 1.5) dbg = radiance;
+        else if (uSkyDbg < 2.5) dbg = c;
+        else if (uSkyDbg < 3.5) dbg = mapped;
         fragColor = vec4(dbg, 1.0);
         return;
       }

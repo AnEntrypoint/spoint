@@ -24,15 +24,13 @@ const CSS = `
 .mobile-zoom-btn:active{transform:scale(.92);background:color-mix(in oklab, var(--panel-2) 80%, transparent)}
 .mobile-top-bar{position:absolute;top:0;left:0;right:0;height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 20px 0 max(20px, env(safe-area-inset-left));background:linear-gradient(to bottom, color-mix(in oklab, var(--panel-text) 25%, transparent), transparent);pointer-events:none;opacity:0;animation:fadeIn .4s ease-out forwards}
 .mobile-joystick-label{position:absolute;bottom:-24px;left:50%;transform:translateX(-50%);font-size:10px;color:var(--panel-text-3);font-weight:600;text-transform:uppercase;letter-spacing:1px;white-space:nowrap;font-family:var(--ff-mono, ui-monospace, monospace)}
-/* Safe-area insets — keep controls clear of notch & home indicator */
+ 
 #mobile-controls{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
-/* pointer-coarse touch-target floor: 44px */
+ 
 @media (pointer: coarse){
   .mobile-action-btn,.mobile-zoom-btn{min-width:44px;min-height:44px}
 }
-/* prefers-reduced-motion: kill the decorative glow/fade-in loops for players who've asked the OS
-   to minimize motion; the controls stay fully functional, just static (no animated box-shadow pulse,
-   no scale-in fade). */
+ 
 @media (prefers-reduced-motion: reduce){
   .mobile-joystick-container{animation:none !important;opacity:1}
   .mobile-joystick-base.active,.mobile-joystick-base.look-active{animation:none !important}
