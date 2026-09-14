@@ -13,43 +13,24 @@ export function createAppModuleSystem(client, uiRoot) {
     return engineCtx
   }
 
-  async function _resolveDepsToBlobs(source, baseUrl, revokes, seen = new Map()) {
-    const re = /((?:from|import)\s*)(['"])(\.[^'"]+|\/[^'"]+)\2/g
-    const specs = new Set()
-    let m
-    while ((m = re.exec(source)) !== null) specs.add(m[3])
-    const urlMap = {}
-    for (const spec of specs) {
-      const depUrl = new URL(spec, baseUrl).href
-      if (seen.has(depUrl)) { urlMap[spec] = seen.get(depUrl); continue }
-      try {
-        const r = await fetch(depUrl)
-        if (!r.ok) continue
-        const depSrc = await r.text()
-        const rewritten = await _resolveDepsToBlobs(depSrc, depUrl, revokes, seen)
-        const blobUrl = URL.createObjectURL(new Blob([rewritten], { type: 'text/javascript' }))
-        revokes.push(blobUrl)
-        seen.set(depUrl, blobUrl)
-        urlMap[spec] = blobUrl
-      } catch (_) {}
-    }
-    return source.replace(re, (full, pre, q, spec) => urlMap[spec] ? `${pre}${q}${urlMap[spec]}${q}` : full)
+  const PATH_SPECIFIER = /((?:from|import)\s*)(['"])(\.[^'"]+|\/[^'"]+)\2/g
+
+  function _anchorPathSpecifiersAt(source, moduleUrl) {
+    return source.replace(PATH_SPECIFIER, (full, pre, q, spec) => `${pre}${q}${new URL(spec, moduleUrl).href}${q}`)
   }
 
   async function evaluateAppModule(code, appName) {
-    const revokes = []
+    let blobUrl = null
     try {
-      const baseUrl = new URL(`./apps/${appName}/index.js`, import.meta.url).href
-      const rewritten = code.includes('.') ? await _resolveDepsToBlobs(code, baseUrl, revokes) : code
-      const url = URL.createObjectURL(new Blob([rewritten], { type: 'text/javascript' }))
-      revokes.push(url)
-      const mod = await import(url)
+      const appEntryUrl = new URL(`./apps/${appName}/index.js`, import.meta.url).href
+      blobUrl = URL.createObjectURL(new Blob([_anchorPathSpecifiersAt(code, appEntryUrl)], { type: 'text/javascript' }))
+      const mod = await import(blobUrl)
       return mod.default || mod
     } catch (e) {
       console.error(`[app-eval] ${appName}:`, e.message, e.stack)
       return null
     } finally {
-      for (const u of revokes) URL.revokeObjectURL(u)
+      if (blobUrl) URL.revokeObjectURL(blobUrl)
     }
   }
 
