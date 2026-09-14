@@ -13,13 +13,6 @@ export class WireweaveJoinClient extends BaseClient {
 
     async connect() {
         await ensurePacked
-        // p2p-mesh-initial-host-election-race-on-shared-room-code: a caller that already opened (and
-        // connected) a wireweave bridge itself -- e.g. client/app.js's ?room=X host-intent boot path,
-        // which must listen for a pre-existing host's announce BEFORE deciding whether to boot its own
-        // BrowserServer or defer as a joiner -- passes that live bridge in via config.existingBridge
-        // rather than having this class open a SECOND bridge (a second nostr identity/relay connection
-        // for the same physical tab, wasteful and pointless since the first bridge already has every
-        // peer-open/data event this class needs).
         if (this.config.existingBridge) {
             this._bridge = this.config.existingBridge
         } else {
@@ -30,23 +23,13 @@ export class WireweaveJoinClient extends BaseClient {
                 displayName: this.config.displayName || 'joiner',
                 relays: this.config.relays || null,
                 freshKey: this.config.freshKey || false,
-                // A joiner connects before any worldDef is available (it's establishing the very bridge
-                // that will deliver one), so this can only come from explicit client config (e.g. a URL
-                // param the host page already knows), never from worldDef.iceServers directly.
                 iceServers: this.config.iceServers || null
             })
             await this._bridge.connect()
             this._bridge.roomId = this.config.room
         }
-        // Expose on window.__app.wireweave same as the host path (client/app.js) so
-        // client/hud/VoiceIndicator.js can find the auth+relayPool it needs to join
-        // the room's voice channel from the joiner side too.
         if (typeof window !== 'undefined') { window.__app = window.__app || {}; window.__app.wireweave = this._bridge }
 
-        // config.knownHostPubkey: the pre-existing host's pubkey, already learned from its host-announce
-        // during the pre-boot grace-window listen (see waitForExistingHost in HostMigration.js) -- skips
-        // the generic "first peer-open wins" race entirely and locks onto the SPECIFIC peer that is
-        // actually already hosting, even if some other peer's data channel happens to open first.
         if (this.config.knownHostPubkey) {
             const pk = this.config.knownHostPubkey
             this._hostPubkey = pk
@@ -59,9 +42,6 @@ export class WireweaveJoinClient extends BaseClient {
                 this._pendingSends = []
                 return
             }
-            // Not open yet (mesh connection still negotiating) -- fall through to the generic peer-open
-            // wait below, but gated to this specific pubkey so a coincidentally-faster OTHER peer can
-            // never hijack the connection out from under the already-decided host.
             return new Promise((resolve, reject) => {
                 const timeout = setTimeout(() => { reject(new Error('Known host peer did not open within 15s')) }, 15000)
                 const onOpen = ({ detail }) => {
@@ -151,7 +131,6 @@ export class WireweaveJoinClient extends BaseClient {
     send(type, payload) {
         const packed = pack({ type, payload })
         const buf = packed.buffer.slice(packed.byteOffset, packed.byteOffset + packed.byteLength)
-        // Don't trust a stale connected flag: check the live dc, or a peer-close event strands inputs.
         if (this.connected || this._hostDcOpen()) { if (!this.connected) this.connected = true; this._rawSend(buf); return }
         this._pendingSends.push(buf)
     }

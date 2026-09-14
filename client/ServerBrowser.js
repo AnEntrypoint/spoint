@@ -1,40 +1,6 @@
-// Client-side server browser: discovers BOTH dedicated servers (src/sdk/ServerPresence.js's
-// kind:30078 'spoint-server:<ns>:<port>' addressable events) and P2P wireweave-hosted rooms
-// (node_modules/wireweave/src/data.js's 'wireweave-data:<roomId>' presence, the same events
-// client/HostMigration.js's peer mesh already relies on) into ONE merged list, by subscribing to a
-// single nostr filter scoped to the shared `ns` tag both wire shapes carry -- no room/port needs to
-// be known ahead of time, which is the whole discovery problem this module solves.
-//
-// Wire-shape disambiguation (both are kind:30078, both carry ['ns', namespace]):
-//   dedicated : ServerPresence.js's payload -- { action, worldName, host, port, mode, players,
-//               maxPlayers, tickRate, protocolVersion, ts }, tag ['d','spoint-server:<ns>:<port>']
-//   P2P room  : wireweave/data.js's payload -- { action, name, room, ts }, tag
-//               ['d','wireweave-data:<roomId>']. Distinguished by the 'd' tag prefix (authoritative,
-//               matches each publisher's own dTag scheme) rather than payload-shape sniffing.
-//
-// Ping semantics differ by kind because the two server shapes expose different network surfaces
-// BEFORE a client actually joins:
-//   dedicated : a real lightweight WS connect to ws://host:port/ws, timed to the 'open' event, then
-//               immediately closed -- src/sdk/ServerAPI.js's wss upgrade accepts the connection with
-//               no handshake required, so 'open' fired is a true round-trip measurement.
-//   P2P room  : no direct network endpoint exists pre-join (WebRTC signaling itself happens over
-//               nostr relays, there is nothing to socket-connect to yet) -- shown as the relay
-//               round-trip latency instead (RelayPool.status()'s own measured latencyMs), clearly
-//               labeled 'relay' so it is never confused with a real host RTT.
-//
-// Click-to-join:
-//   dedicated : navigates to `${pathname}?connect=host:port` -- client/app.js's _connectParam feeds
-//               PhysicsNetworkClient's config.url, overriding the same-origin default.
-//   P2P room  : navigates to `${pathname}?wwjoin&room=<id>` -- identical to createLobby.js's existing
-//               join flow (WireweaveJoinClient).
-//
-// Presence rows expire PRESENCE_EXPIRY_MS after their last-seen 'ts' (heartbeat cadence is 30s on
-// both publishers) so a crashed/killed process without a graceful 'offline'/'leave' publish still
-// drops off the list instead of showing a permanently-live phantom entry.
-
 import { components as C, h, applyDiff } from 'anentrypoint-design'
 
-const PRESENCE_EXPIRY_MS = 90000 // 3x the 30s heartbeat cadence on both publishers
+const PRESENCE_EXPIRY_MS = 90000
 const PING_TIMEOUT_MS = 4000
 const PING_REFRESH_MS = 15000
 
@@ -85,9 +51,6 @@ function pingClass(ms) {
   return 'sb-bad'
 }
 
-// Parses a raw nostr kind:30078 event into a normalized row, or null if it's neither shape this
-// browser understands (e.g. wireweave's roles/settings/pages/voice/bans namespaces also use
-// kind:30078 with their own 'd' tag prefixes -- must not be mistaken for a server/room row).
 function parseEvent(event) {
   const dTag = event.tags?.find(t => t[0] === 'd')?.[1] || ''
   let data
@@ -130,8 +93,6 @@ function parseEvent(event) {
   return null
 }
 
-// P2P presence is per-PARTICIPANT (one event per peer in a room), not per-room -- collapse to one
-// row per room id, tracking a live participant count and the earliest-seen name as the display label.
 function collapseP2P(rows) {
   const byRoom = new Map()
   for (const r of rows) {
@@ -144,17 +105,14 @@ function collapseP2P(rows) {
   return Array.from(byRoom.values())
 }
 
-// namespace: same value the world's presence publisher (server.js/worldDef.presence.namespace) and
-// wireweave rooms (createWireweaveBridge's namespace, default 'spoint') use -- must match for
-// discovery to find anything, mirroring how a room code / port only matters within one namespace.
 export function createServerBrowser({ namespace = 'spoint', relays = null } = {}) {
   ensureStyle()
   let overlay = null
   let pool = null
   let subId = null
-  const dedicatedRows = new Map() // dTag -> row
-  const p2pParticipants = new Map() // pubkey+dTag -> row
-  const pingCache = new Map() // 'host:port' -> {ms, ts}
+  const dedicatedRowsByDTag = new Map()
+  const p2pRowsByPubkeyRoom = new Map()
+  const pingByHostPort = new Map()
   let pingTimer = null
   let disposed = false
 
@@ -178,21 +136,21 @@ export function createServerBrowser({ namespace = 'spoint', relays = null } = {}
     if (!row) return
     if (row.kind === 'dedicated') {
       const dTag = event.tags.find(t => t[0] === 'd')[1]
-      if (row.action === 'offline') { dedicatedRows.delete(dTag); render(); return }
-      const existing = dedicatedRows.get(dTag)
-      if (!existing || row.ts >= existing.ts) dedicatedRows.set(dTag, row)
+      if (row.action === 'offline') { dedicatedRowsByDTag.delete(dTag); render(); return }
+      const existing = dedicatedRowsByDTag.get(dTag)
+      if (!existing || row.ts >= existing.ts) dedicatedRowsByDTag.set(dTag, row)
     } else {
       const key = row.pubkey + ':' + row.room
-      if (row.action === 'leave') { p2pParticipants.delete(key); render(); return }
-      p2pParticipants.set(key, row)
+      if (row.action === 'leave') { p2pRowsByPubkeyRoom.delete(key); render(); return }
+      p2pRowsByPubkeyRoom.set(key, row)
     }
     render()
   }
 
   function liveRows() {
     const now = Date.now()
-    const dedicated = Array.from(dedicatedRows.values()).filter(r => now - r.ts < PRESENCE_EXPIRY_MS)
-    const p2p = collapseP2P(Array.from(p2pParticipants.values()).filter(r => now - r.ts < PRESENCE_EXPIRY_MS))
+    const dedicated = Array.from(dedicatedRowsByDTag.values()).filter(r => now - r.ts < PRESENCE_EXPIRY_MS)
+    const p2p = collapseP2P(Array.from(p2pRowsByPubkeyRoom.values()).filter(r => now - r.ts < PRESENCE_EXPIRY_MS))
     return [...dedicated, ...p2p].sort((a, b) => b.ts - a.ts)
   }
 
@@ -200,12 +158,12 @@ export function createServerBrowser({ namespace = 'spoint', relays = null } = {}
     for (const r of rows) {
       if (r.kind !== 'dedicated') continue
       const key = r.host + ':' + r.port
-      const cached = pingCache.get(key)
+      const cached = pingByHostPort.get(key)
       if (cached && Date.now() - cached.ts < PING_REFRESH_MS) continue
-      pingCache.set(key, { ms: cached?.ms ?? null, ts: Date.now(), pending: true })
+      pingByHostPort.set(key, { ms: cached?.ms ?? null, ts: Date.now(), pending: true })
       const proto = r.port === 443 ? 'wss:' : 'ws:'
       pingWs(`${proto}//${r.host}:${r.port}/ws`).then(ms => {
-        pingCache.set(key, { ms, ts: Date.now(), pending: false })
+        pingByHostPort.set(key, { ms, ts: Date.now(), pending: false })
         if (!disposed) render()
       })
     }
@@ -225,7 +183,7 @@ export function createServerBrowser({ namespace = 'spoint', relays = null } = {}
 
   function rowVNode(r) {
     const isDedicated = r.kind === 'dedicated'
-    const pingInfo = isDedicated ? pingCache.get(r.host + ':' + r.port) : null
+    const pingInfo = isDedicated ? pingByHostPort.get(r.host + ':' + r.port) : null
     const relayPingMs = !isDedicated && pool ? (pool.status().find(s => s.latencyMs != null)?.latencyMs ?? null) : null
     const pingMs = isDedicated ? pingInfo?.ms : relayPingMs
     const pingLabel = isDedicated

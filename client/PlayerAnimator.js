@@ -40,52 +40,9 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   const clips = allClips.normalizedClips || allClips.rawClips || allClips
   const vrm0Remap = vrmVersion === '0' ? buildVRM0NormalizedRemap(vrm) : new Map()
   const validBones = buildValidBoneSet(root)
-  // The animation library ships Mixamo bone naming (mixamorigLeftArm etc); the VRM humanoid skeleton
-  // uses its own normalized bone names (upper_armL etc, or Mixamo-convention names on some VRMs).
-  // buildVRM0NormalizedRemap only bridges VRM0's raw<->normalized bone DUPLICATES within the same rig
-  // (a v0-only quirk) -- it does nothing for the separate Mixamo-source-rig-vs-VRM-target-rig mismatch,
-  // which affects VRM1 (and any VRM whose humanoid bones aren't literally named "mixamorig...") every
-  // time. Witnessed live: with no cross-rig remap, filterValidClipTracks silently drops every arm/leg/
-  // hand track whose Mixamo name doesn't lexically match a VRM bone name, leaving a "valid" clip that
-  // only moves the handful of bones (root/hips/spine) that happen to coincide -- state machine and
-  // mixer.update() both run fine, but the character sits in a near-bind-pose. createGLBAnimator (the
-  // non-VRM raw-GLB path below) already solves this exact problem via detectBoneNameMap/remapMixamoClip;
-  // the VRM path needs the identical bridge.
   const mixamoBoneMap = detectBoneNameMap(root)
-  // three-vrm's VRMHumanoid re-derives every RAW bone from its NORMALIZED counterpart (a sibling
-  // VRMHumanoidRig hierarchy, named Normalized_<bone>) on each vrm.update(dt) -- called AFTER the mixer
-  // in app.js's tickPlayerAnimators -- unconditionally overwriting whatever the mixer wrote to the raw
-  // bone that same frame. Witnessed live: a mixer.clipAction with correct nonzero tracks targeting raw
-  // bone names (isRunning, weight 1, advancing time, real per-instant quaternion reads inside the tick)
-  // still reads back as bind-pose identity one frame later, because vrm.update() stomps it. The
-  // Normalized_ hierarchy IS reachable from vrm.scene (same root, sibling of the raw skeleton) so the
-  // mixer can bind to it directly -- retarget onto Normalized_<targetBoneName> whenever it exists.
-  // AUDIT (animation-clip-compression-shared-buffer row): this remap loop clones every track's
-  // Float32Array keyframe data (THREE.KeyframeTrack.clone() deep-copies times+values) PER
-  // CHARACTER, once per createPlayerAnimator call -- the SOURCE clip Map from AnimationLibrary.js
-  // is a shared module-level singleton (_normalizedCache), but each on-screen VRM character still
-  // ends up holding its own independent post-retarget copy, since each character's skeleton has
-  // different bone names needing different remap targets.
-  // Real live-measured cost (Playwright + real createPlayerAnimator calls against the actual
-  // 108-clip anim-lib.glb, performance.memory before/after with window.gc()): ~76.7 KB/character.
-  // At this game's 8-32 concurrent player range that's ~0.6-2.4 MB total duplicated across all
-  // on-screen characters, against a ~2.3 MB single shared-buffer floor -- roughly 1-2x overhead,
-  // not 10-100x. DECISION: not worth building a shared-buffer retarget scheme (e.g. bone-index
-  // remapping applied at the AnimationAction/binding level instead of cloning whole clips) for
-  // this measured magnitude -- a few MB is noise next to this game's actual GPU-texture/GLB asset
-  // budget, and the retarget-at-binding-level design would need three.js's PropertyBinding/
-  // PropertyMixer internals reworked to accept an external bone-index table per mixer, a
-  // materially more complex + fragile change for a sub-2.5MB win. Revisit only if a future
-  // profiling pass finds this is actually a measured bottleneck (heap pressure/GC pauses) at a
-  // real target player count, not from this static estimate.
   const remappedClips = new Map()
   for (const [name, clip] of clips) {
-    // Skip the ~93 of 111 library clips buildActionsFromClips would discard anyway (its own
-    // `if (!STATES[name]) continue`), instead of retargeting them first: the three clone passes
-    // below (remapClipToNormalized + remapMixamoClip + the Normalized_ track map, each deep-copying
-    // every KeyframeTrack's times+values) ran over 5115 of 6105 real tracks whose output was then
-    // thrown away. Nothing else reads remappedClips, and sm.play()'s arbitrary-clip lookup goes
-    // through the same STATES-filtered `actions` map, so the reachable clip set is unchanged.
     if (!STATES[name]) continue
     const sourceClip = clip
     const normalized = remapClipToNormalized(sourceClip, vrm0Remap)
@@ -104,13 +61,6 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   }
 
   const { actions, additiveActions } = buildActionsFromClips(mixer, remappedClips, animConfig)
-  // Suppress AnimationStateMachine's own internal aim() (the flat single 'Aim' additive clip) whenever
-  // this character resolves a real per-weapon pose trio for its DEFAULT weapon ('Pistol', the only
-  // WEAPON_AIM_POSES entry today) -- update() below calls sm.update() which drives aim() internally
-  // (not through the returned wrapper, so overriding the return value alone can't intercept it). A
-  // later setWeapon() call to a weapon with no trio re-enables the legacy clip automatically (the flag
-  // is read once at construction, matching the fact that the legacy 'Aim' action itself is also
-  // resolved once here -- see the animConfig.suppressLegacyAim consumer in createAnimationStateMachine).
   const smAnimConfig = additiveActions.has('PistolAimDown') || additiveActions.has('PistolAimNeutral') || additiveActions.has('PistolAimUp')
     ? { ...animConfig, suppressLegacyAim: true }
     : animConfig
@@ -131,11 +81,6 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
     }
     return bones
   })()
-  // Head/neck look-at chain, separate from _spineBones: a real aim-IK layer gives the HEAD most of the
-  // pitch (it's what visibly tracks the camera target) with the spine bones contributing a smaller
-  // secondary lean, rather than the old flat pitch/n even split across every torso bone (which reads as
-  // the whole spine bending in lockstep, not a head-led look). Falls back to an empty chain (head-only
-  // via _spineBones' existing split) if neither semantic name nor a literal-name scan finds a neck/head.
   const _headBones = (() => {
     const bones = []
     for (const n of ['neck', 'head']) { const b = _getBone(n); if (b) bones.push(b) }
@@ -153,13 +98,6 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   const MOVE_ANGLE_SMOOTH = 8.0
   const LOCO_STATES = new Set(['IdleLoop', 'WalkLoop', 'JogFwdLoop', 'SprintLoop', 'CrouchIdleLoop', 'CrouchFwdLoop'])
 
-  // Per-weapon upper-body additive aim poses (animation-aim-ik-camera-pitch-layer row). Resolved once
-  // against whichever additive actions buildActionsFromClips actually built for the currently-equipped
-  // weapon's trio (WEAPON_AIM_POSES) -- `null` entries mean the library didn't ship that pose, and the
-  // blend below degrades gracefully (any missing pose is just never weighted above 0). Distinct from
-  // (and REPLACES, not doubles with) the flat single 'Aim' additive action: sm.aim() below is
-  // overridden to a no-op for any weapon that resolves a real pose trio, so the old single-clip aim
-  // additive and this 3-pose pitch blend never apply on the same frame -- see applyAimPoseBlend.
   let _weaponName = 'Pistol'
   const _resolveAimTrio = (weaponName) => {
     const spec = WEAPON_AIM_POSES[weaponName]
@@ -172,20 +110,12 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   }
   let _aimTrio = _resolveAimTrio(_weaponName)
   const legacyAim = additiveActions.get('Aim') || null
-  // Pitch band the pose blend spans, matching the spine-pitch clamp below (Math.PI/3 down, Math.PI/4
-  // up) so the pose reaches full weight exactly at the same look-extreme the spine IK also maxes out at.
   const AIM_PITCH_DOWN = -Math.PI / 3, AIM_PITCH_UP = Math.PI / 4
   let _aimWeight = 0
   const AIM_WEIGHT_SMOOTH = 10.0
 
   let _lastAiming = false
 
-  // Blends the resolved weapon's 3-pose additive trio by smoothed camera pitch (down/neutral/up), gated
-  // to 0 while not aiming or with no trio resolved for the current weapon -- runs INSTEAD OF the legacy
-  // single 'Aim' additive action (sm.aim() below no-ops whenever a real trio exists) so the two additive
-  // layers never sum on the same bones in the same frame. Mirrors evalBlendTiers' 2-anchor linear blend
-  // shape (AnimationStateMachine.js) but over 3 fixed pitch anchors (down/neutral/up) instead of N
-  // dynamic speed tiers.
   function applyAimPoseBlend(dt) {
     if (!_aimTrio) return
     const targetWeight = _lastAiming ? 1 : 0
@@ -203,9 +133,6 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
     _applyAimPose(_aimTrio.neutral, wNeutral)
     _applyAimPose(_aimTrio.up, wUp)
   }
-  // Hoisted out of applyAimPoseBlend: it was an arrow function re-allocated on every call, i.e. once
-  // per frame per player (applyBoneOverrides -> applyAimPoseBlend). Reads _aimWeight off the same
-  // closure it already closed over, so behaviour is unchanged.
   function _applyAimPose(action, w) {
     if (!action) return
     const weight = w * _aimWeight
@@ -215,33 +142,16 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
 
   return {
     ...sm,
-    // Direct-call path (mirrors the auto-driven path in update() below, which is what app.js actually
-    // exercises every frame via ps._aiming): while a per-weapon pose trio is resolved, this row's
-    // pitch-driven 3-pose blend (applyAimPoseBlend, from applyBoneOverrides) owns the additive aim
-    // layer entirely, so this does NOT also call sm.aim() -- doing so would fade in the flat single
-    // 'Aim' clip ADDITIVELY ON TOP of the pose blend, doubling the additive contribution on the same
-    // spine/arm bones (createAnimationStateMachine's own internal aim() is separately no-op'd for this
-    // case via the `suppressLegacyAim` animConfig flag set at construction, above). Falls back to the
-    // original flat-clip behavior for any weapon with no resolved trio (e.g. a future weapon that
-    // hasn't shipped Aim* clips yet), so aiming still reads as SOMETHING rather than nothing.
     aim(active) {
       _lastAiming = !!active
       if (_aimTrio) return
       sm.aim(active)
     },
-    // Lets the caller (app.js, once a client-visible equipped-weapon signal exists) pick which
-    // WEAPON_AIM_POSES trio drives the pitch blend; re-resolves against this character's own built
-    // additiveActions (per-instance, not the shared library) each call. No-op-safe default: every
-    // character starts on 'Pistol' (WEAPON_AIM_POSES' only current entry) even if never called.
     setWeapon(weaponName) {
       if (!weaponName || weaponName === _weaponName) return
       _weaponName = weaponName
       _aimTrio = _resolveAimTrio(_weaponName)
     },
-    // Extends sm.getDebug() (spread via ...sm above, overridden here) with this row's aim-pose-blend
-    // state -- live introspection surface for the same window.__animProbe consumer app.js already wires
-    // up (tickPlayerAnimators), and the only way to directly witness action.weight/isRunning from
-    // outside this closure (additiveActions itself is never returned).
     getDebug() {
       const base = sm.getDebug ? sm.getDebug() : {}
       return {
@@ -259,10 +169,6 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
     },
     update(dt, velocity, onGround, health, aiming, crouching, bodyYaw) {
       sm.update(dt, velocity, onGround, health, aiming, crouching, bodyYaw)
-      // sm.update() drives AnimationStateMachine's OWN internal aim() call directly (module-local
-      // function, not through the returned wrapper below) -- mirror the same `aiming` flag here so
-      // applyAimPoseBlend (driven from applyBoneOverrides, called separately by app.js right after
-      // update()) sees the current aim state regardless of whether anything ever calls the wrapper.
       _lastAiming = !!aiming
     },
     applyBoneOverrides(dt) {
@@ -280,12 +186,7 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
           _hipBone.quaternion.setFromEuler(_eLook)
         }
       }
-      // Weighted look-at IK, not a flat pitch/n split: HEAD_SHARE of the clamped pitch goes to the
-      // head/neck chain (what visibly tracks the aim target) and the remainder splits across the spine
-      // bones -- replaces the old scheme where every torso bone (spine+chest+upperChest, no separate
-      // head contribution) got an identical 1/n share, which read as the whole torso bending in
-      // lockstep rather than a head-led look. Yaw (hip-counter-lean) share is unchanged.
-      const clampedPitch = Math.max(-Math.PI / 3, Math.min(Math.PI / 4, _smoothPitch))
+      const clampedPitch = Math.max(AIM_PITCH_DOWN, Math.min(AIM_PITCH_UP, _smoothPitch))
       const HEAD_SHARE = _headBones.length > 0 ? 0.5 : 0
       const headPitch = _headBones.length > 0 ? (clampedPitch * HEAD_SHARE) / _headBones.length : 0
       const spinePitchTotal = clampedPitch * (1 - HEAD_SHARE)
@@ -355,13 +256,7 @@ export function createGLBAnimator(gltfScene, gltfAnimations, animAssets, animCon
     const boneMap = detectBoneNameMap(root)
     clips = new Map()
     for (const [name, clip] of sourceClips) {
-      // Same STATES filter as the VRM path above: buildActionsFromClips discards every non-STATES
-      // clip anyway, so remapping the other ~93 library clips first was pure thrown-away work.
       if (!STATES[name]) continue
-      // remapMixamoClip: the animation library's tracks carry raw Mixamo rig bone names
-      // (mixamorig:LeftArm etc), not semantic keys -- see its own comment in AnimationUtils.js for
-      // the full witnessed failure mode (silently-empty arm/leg tracks, mixer/state-machine both
-      // reporting healthy while the actual clip carries zero moving bones).
       const remapped = boneMap ? remapMixamoClip(clip, boneMap, validBones) : filterValidClipTracks(clip, validBones)
       if (remapped.tracks.length > 0) clips.set(name, remapped)
     }

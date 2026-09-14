@@ -34,7 +34,6 @@ export class LoadingManager extends EventTarget {
   }
 
   _emitDownload() {
-    // Clamp: more distinct keys than a fixed total can push _dlCompleted past _dlTotal.
     const done = Math.min(this._dlCompleted, this._dlTotal)
     const pct = this._dlTotal > 0 ? Math.min(100, (done / this._dlTotal) * 100) : 0
     this._dispatch('download', { percent: pct, done, total: this._dlTotal })

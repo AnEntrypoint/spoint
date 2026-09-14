@@ -14,10 +14,6 @@ export async function createWireweaveBridge({ namespace = 'spoint', room, displa
     })
     pool.connect()
 
-    // worldDef.iceServers (threaded in by the caller, e.g. app.js's onWorldDef) overrides
-    // wireweave's bundled default public TURN relay list when the world definition supplies one --
-    // see AGENTS.md's warn-default-turn-credentials row: the bundled default uses shared public
-    // openrelayproject credentials, unsuitable for a real hosted deployment.
     const data = ww.createDataSession({ fsm, xstate, relayPool: pool, auth, namespace, iceServers: iceServers?.length ? iceServers : null })
 
     return {

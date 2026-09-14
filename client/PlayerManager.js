@@ -6,17 +6,8 @@ import { createFacialPlayer, ARKIT_NAMES } from './facial-animation.js'
 
 const MAX_VRM_CONCURRENT = 6
 const _lookTargetVec = new THREE.Vector3()
+const AVATAR_CULL_RADIUS_MARGIN = 1.5
 
-// Avatar frustum bounds (player-avatar-object-bounding-sphere): every avatar mesh used to ship with
-// frustumCulled=false because a SkinnedMesh's geometry bounding sphere is the bind pose and can false-cull
-// an animated pose -- but that also meant N avatars x M sub-meshes were projected+drawn (and shadow-cast)
-// even when fully off-screen. three r185's Frustum.intersectsObject prefers object.boundingSphere over the
-// geometry sphere when one is set (node_modules/three/src/math/Frustum.js:148-152), so each mesh gets an
-// explicit GENEROUS sphere derived from the real bind-pose bounds of the WHOLE avatar (union of every
-// sub-mesh's geometry.boundingBox, so a small part like hair/eyes is never culled just because its own
-// tiny bind-pose sphere moved with the head): centred at the avatar's mid-height, radius = 1.5x the
-// half-diagonal, expressed in each mesh's local space (the same space Frustum applies matrixWorld to).
-// frustumCulled goes back to true. Runs once per avatar load (not per frame).
 const _avatarBox = new THREE.Box3(), _avatarTmpBox = new THREE.Box3(), _avatarCenter = new THREE.Vector3(), _avatarScale = new THREE.Vector3(), _avatarInv = new THREE.Matrix4()
 function _applyAvatarCullBounds(root) {
   if (!root) return
@@ -34,7 +25,7 @@ function _applyAvatarCullBounds(root) {
   })
   if (_avatarBox.isEmpty() || meshes.length === 0) return
   _avatarBox.getCenter(_avatarCenter)
-  const worldRadius = _avatarBox.min.distanceTo(_avatarBox.max) * 0.5 * 1.5
+  const worldRadius = _avatarBox.min.distanceTo(_avatarBox.max) * 0.5 * AVATAR_CULL_RADIUS_MARGIN
   for (const c of meshes) {
     _avatarInv.copy(c.matrixWorld).invert()
     _avatarScale.setFromMatrixScale(c.matrixWorld)
@@ -58,7 +49,6 @@ export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader, sceneGra
   const playerStates = new Map()
   const playerExpressions = new Map()
   const _afanPlayers = new Map()
-  // Set by app.js gateCompile: hides a just-attached avatar until shader link finishes, avoiding a first-draw stall.
   let _onAvatarReady = null
   let _vrmActive = 0
   const _vrmQueue = []
@@ -81,12 +71,6 @@ export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader, sceneGra
   }
 
   function initVRMFeatures(id, vrm, vrmVersion) {
-    // vrmVersion ('0'|'1', PlayerManager.detectVrmVersion -- detected from the SOURCE FILE bytes) is
-    // stashed here for any future consumer that needs it. NOT needed by the compact expression wire
-    // code (client/core/ExpressionCodes.js, animation-vrm-spring-bone-lod-expression-wire): a loaded
-    // vrm.expressionManager always exposes V1-canonical preset names (happy/sad/relaxed/...) regardless
-    // of source file version -- three-vrm's own loader plugin remaps V0 names (joy/fun/sorrow) to their
-    // V1 equivalents at load time (see ExpressionCodes.js's module comment for the live-verified proof).
     const f = { vrm, vrmVersion: vrmVersion || '1', expressions: null, lookAt: null, springBone: null, blinkTimer: 0, nextBlink: Math.random() * 2 + 2 }
     if (vrm.expressionManager) { f.expressions = vrm.expressionManager; f.expressions.setValue('blink', 0) }
     if (vrm.lookAt) { f.lookAt = vrm.lookAt; f.lookAt.smoothFactor = 0.1 }
@@ -98,13 +82,11 @@ export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader, sceneGra
     const pc = worldConfig.player || {}
     const modelScale = pc.modelScale || 1.323
     const feetOffsetRatio = pc.feetOffset || 0.212
-    // skipScenePrep: the ModelPool path already ran removeUnnecessaryVertices/combineSkeletons on the shared root.
     if (!skipScenePrep) {
       VRMUtils.removeUnnecessaryVertices(vrm.scene)
       VRMUtils.combineSkeletons(vrm.scene)
     }
     vrm.scene.rotation.y = Math.PI
-    // Generous explicit per-mesh bounding sphere + frustumCulled=true (see _applyAvatarCullBounds above).
     vrm.scene.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = false } })
     vrm.scene.scale.multiplyScalar(modelScale)
     vrm.scene.position.y = -feetOffsetRatio * modelScale
@@ -118,14 +100,9 @@ export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader, sceneGra
     }
   }
 
-  // Captured on every createPlayerVRM call so a later per-player model SWAP (setPlayerModel) can re-run the
-  // exact same attach path (animation retarget, scale, head-bone camera bind) with a new buffer -- these three
-  // are supplied by the caller (app.js), not stored elsewhere on the manager.
   let _lastVrmCtx = null
   async function createPlayerVRM(id, vrmBuffer, animAssets, worldConfig, playerId) {
     _lastVrmCtx = { animAssets, worldConfig, playerId }
-    // isDynamicShadowCaster: ShadowCostProbe.js classification tag (measurement-only; see that
-    // file's header) -- every player avatar is always a moving shadow caster.
     const group = new THREE.Group(); group.userData.vrmPending = true; group.userData.isDynamicShadowCaster = true; if (sceneGraph) sceneGraph.addNode(id, group, { isPlayer: true }); else scene.add(group); playerMeshes.set(id, group)
     if (!vrmBuffer) return group
     if (modelPool && playerVrmUrl && typeof modelPool.spawnVRM === 'function') {
@@ -134,7 +111,6 @@ export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader, sceneGra
         if (!playerMeshes.has(id)) return
         const vrm = entity?.vrm
         if (!vrm) { console.warn('[vrm] pool entity has no vrm for', id); return }
-        // Swap the placeholder group for the pool root once it's live.
         if (sceneGraph) { sceneGraph.removeNode(id); sceneGraph.addNode(id, root, { isPlayer: true }) }
         else { scene.remove(group) }
         root.userData.feetOffset = 0.91
@@ -186,13 +162,7 @@ export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader, sceneGra
 
   function updateVRMFeatures(id, dt, targetPosition, isRemote) {
     const f = playerExpressions.get(id); if (!f) return
-    // springBone is NOT updated here: app.js's vrm.update(dt) already drives it; a second call would double-integrate.
     if (f.lookAt && targetPosition) { _lookTargetVec.set(targetPosition.x, targetPosition.y + 1.6, targetPosition.z); f.lookAt.lookAt(_lookTargetVec) }
-    // Local automatic idle-blink timer drives the SAME 'blink' expressionManager slot the compact wire
-    // code (animation-vrm-spring-bone-lod-expression-wire, EXPR_BLINK) now drives for a REMOTE player --
-    // skip this local timer for remote players so the two don't fight over one shared value; a remote
-    // player's blink is now driven by the wire code (the DRIVING client's own real blink state), which
-    // is strictly more correct than a locally-faked random-interval blink for someone else's avatar.
     if (f.expressions && !isRemote) {
       f.blinkTimer += dt
       if (f.blinkTimer >= f.nextBlink) {
@@ -206,9 +176,6 @@ export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader, sceneGra
     const f = playerExpressions.get(id); if (f?.expressions) f.expressions.setValue(expressionName, value)
   }
 
-  // Per-player appearance: tint every material on a player mesh (team/class colours) and/or set an
-  // overhead nameplate. tint is a hex number (0xff4444) or null to clear; nameTag is a short string.
-  // The client applies this from a broadcast appearance event so red-vs-blue / class colours are visible.
   function setPlayerAppearance(id, { tint, nameTag } = {}) {
     const mesh = playerMeshes.get(id); if (!mesh) return
     if (tint !== undefined) {
@@ -234,18 +201,10 @@ export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader, sceneGra
     else { sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true })); sprite.scale.set(1.2, 0.3, 1); sprite.position.set(0, 2.1, 0); sprite.renderOrder = 999; mesh.add(sprite); mesh.userData._nameplate = sprite }
   }
 
-  // Per-player MODEL swap: replace one player's whole avatar with a different VRM/GLB fetched at runtime from
-  // `url` (skins, unlockable characters, team models, a boss transforming). Disposes the current avatar and
-  // rebuilds via the SAME createPlayerVRM attach path, so animation retarget / scale / head-bone camera bind all
-  // just work. The player's transform state is preserved (only the mesh is torn down), so the player never blinks
-  // out. Routed through the direct-load path (fetch -> parse) rather than the shared ModelPool so a per-player url
-  // doesn't collide with the pool's single-url assumption. Returns a promise resolving when the new avatar attaches.
   async function setPlayerModel(id, url) {
     if (typeof url !== 'string' || !url) return false
     if (!playerStates.has(id) && !playerMeshes.has(id)) return false
     const ctx = _lastVrmCtx || {}
-    // Tear down the current avatar (mesh + vrm + animator + expressions), but KEEP playerStates so the player
-    // stays alive and keeps moving; createPlayerVRM re-adds a fresh mesh under the same id.
     const mesh = playerMeshes.get(id)
     if (mesh) {
       if (modelPool && typeof modelPool.has === 'function' && modelPool.has(id)) { try { modelPool.remove(id) } catch (_) {} }
@@ -259,7 +218,6 @@ export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader, sceneGra
       const resp = await fetch(url); if (!resp.ok) { console.warn('[vrm] setPlayerModel fetch failed', id, url, resp.status); return false }
       buffer = new Uint8Array(await resp.arrayBuffer())
     } catch (e) { console.warn('[vrm] setPlayerModel fetch error', id, e.message); return false }
-    // Force the direct-load path for the swap (not the pool) by parsing this specific buffer.
     const savedUrl = playerVrmUrl; playerVrmUrl = null
     try { await createPlayerVRM(id, buffer, ctx.animAssets, ctx.worldConfig, ctx.playerId) }
     finally { playerVrmUrl = savedUrl }

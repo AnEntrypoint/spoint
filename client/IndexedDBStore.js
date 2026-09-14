@@ -52,10 +52,6 @@ export async function remove(dbName, dbVersion, storeName, key) {
   } catch {}
 }
 
-// clearStore -- wipes every key in one object store (IDBObjectStore.clear()), for consumers that
-// need a bulk reset (e.g. a user-initiated "clear cache" action) rather than deleting keys one at a
-// time. Kept as its own primitive alongside get/put/remove rather than a loop over listed keys --
-// clear() is a single native IDB request, cheaper and atomic vs N individual delete transactions.
 export async function clearStore(dbName, dbVersion, storeName) {
   try {
     const db = await openStore(dbName, dbVersion, storeName)
