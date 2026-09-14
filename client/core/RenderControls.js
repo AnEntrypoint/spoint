@@ -55,7 +55,7 @@ const CONTROLS = [
     doc: 'Seconds for `wetness` to fully decay 1->0 after rain stops (linear ramp-down). Ramp-up while raining is fast (a few seconds) since real rain wets a surface far quicker than it dries.' },
 
   { key: 'seaLevelY', group: 'water', type: 'number', default: null,
-    doc: 'World-space sea-level Y (metres), spliced into the underwater-tint shader by UnderwaterTint.setSeaLevelY at terrain-ready. Drives the below-water tint threshold.' },
+    doc: 'World-space sea-level Y (metres), written by UnderwaterTint.setSeaLevelY at terrain-ready into the shared spointSea uniform (sea Y, curvature, enabled) that every patched material reads. Drives the below-water tint threshold.' },
 
   { key: 'vegWind', group: 'vegetation', type: 'boolean', default: true,
     doc: 'Vegetation wind animation. Off => static leaves/branches (also removes wind-driven shadow-caster motion).' },
