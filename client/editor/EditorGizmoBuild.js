@@ -41,7 +41,6 @@ function _ringHitProxy(group, axis, rx, ry) {
   const geom = new THREE.TorusGeometry(1, fat, 6, 24)
   _addHitProxy(group, axis, geom, (p) => { p.rotation.x = rx; p.rotation.y = ry })
 }
-const _HIGHLIGHT = 0xffff00
 function _tagBaseColor(mesh) { mesh.userData.baseColor = mesh.material.color.getHex(); return mesh }
 function buildTranslateGizmo() {
   const g = new THREE.Group(); g.userData.isGizmo = true; g.userData.mode = 'translate'
@@ -81,15 +80,6 @@ function buildScaleGizmo() {
   }
   return g
 }
-function _highlightAxis(axis) {
-  if (!gizmoGroup) return
-  gizmoGroup.children.forEach(c => {
-    if (!c.userData.gizmoAxis || c.userData.isHitProxy || c.userData.baseColor === undefined) return
-    c.material.color.setHex(c.userData.gizmoAxis === axis ? _HIGHLIGHT : c.userData.baseColor)
-  })
-}
-function _buildGizmo() { return _mode()==='rotate'?buildRotateGizmo():_mode()==='scale'?buildScaleGizmo():buildTranslateGizmo() }
-
 function _entityHasRadiusGizmo(mesh) {
   return !!(mesh && mesh.userData?.custom?._trigger)
 }
