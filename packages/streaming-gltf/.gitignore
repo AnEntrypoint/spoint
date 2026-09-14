@@ -19,16 +19,12 @@ node_modules/
 .gm/browser-profile-*/
 .gm/
 
-# Generated FPS measurement output (run measure-fps.mjs to regenerate)
 examples/local-progressive/fps-measurement.json
-# Generated corpus-bake summary (run tools/bake-corpus.mjs to regenerate)
 examples/local-progressive/bake-corpus-summary.json
 .gm/pw-sock-*/
 
-# Generated impostor test/witness output (regenerate via impostor-*smoke.mjs)
 examples/local-progressive/impostor-*.png
 examples/local-progressive/impostor-*smoke.json
 
-# Harness session dir + transient install lockfile (deps tracked via package.json)
 .claude/
 package-lock.json

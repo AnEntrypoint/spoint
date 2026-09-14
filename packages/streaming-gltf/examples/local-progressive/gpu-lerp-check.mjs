@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-// gpu-lerp-check.mjs — witnesses that the BatchedMesh far tier interpolates
-// position ON THE GPU: after a setTarget, the CPU must NOT call setMatrixAt per
-// frame for the in-flight entity (the vertex shader does the lerp). Also reads
-// back the written lerp texel and confirms the GL program compiled (no errors).
-//   node examples/local-progressive/gpu-lerp-check.mjs [count]
-// Defaults the bundled Chromium's GPU backend to real ANGLE/D3D11 (fast, real
-// shader compile) instead of the slow SwiftShader fallback -- see the caveat
-// in measure-fps.mjs. ANGLE=swiftshader / ANGLE=none / CHANNEL=chrome override.
 import { chromium } from '../../../../scripts/lib/cdp-browser.mjs';
 const PORT = process.env.PORT || 5180;
 const N = Number(process.argv[2] || 500);

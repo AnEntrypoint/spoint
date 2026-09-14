@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-// Tiny static file server with HTTP Range support so we can witness
-// progressive byte counts in the browser without depending on vite.
 
 import { createServer } from 'node:http';
 import { stat, open, readdir } from 'node:fs/promises';
@@ -10,11 +8,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const ROOT = resolve(__dirname);
 const PORT = Number(process.env.PORT) || 5180;
-// Optional mount for the "difficult GLBs" impostor test corpus. Served read-only
-// under /glb_fixed/<name>; overridable via GLB_FIXED_DIR. Off the deploy path.
 const GLB_FIXED_DIR = resolve(process.env.GLB_FIXED_DIR || 'C:/dev/maps/output/glb_fixed');
-// Local cluster corpus mount: the sibling assets repo's streaming-cluster/ dir,
-// served under /cluster/<name>.cluster.glb for `npm run demo:local` (?assets=local).
 const CLUSTER_DIR = resolve(process.env.CLUSTER_DIR || '../../../assets/streaming-cluster');
 
 const MIME = {
@@ -34,10 +28,6 @@ createServer(async (req, res) => {
     let urlPath = decodeURIComponent(req.url.split('?')[0]);
     if (urlPath === '/' || urlPath === '') urlPath = '/stress.html';
     if (urlPath === '/assets-list.json') {
-      // Local dev cluster corpus: list the sibling assets repo's cluster GLBs and
-      // return them as served /cluster/<file> paths (stress.js ?assets=local maps
-      // each entry's .path). Mirrors the gh-pages manifest.json shape enough for
-      // the demo. Empty when the dir is absent -> demo shows 0 assets, no crash.
       const entries = await readdir(CLUSTER_DIR, { withFileTypes: true }).catch(() => []);
       const list = entries
         .filter((e) => e.isFile() && e.name.endsWith('.cluster.glb'))
@@ -61,18 +51,13 @@ createServer(async (req, res) => {
     let base = ROOT;
     if (urlPath.startsWith('/glb_fixed/')) {
       base = GLB_FIXED_DIR;
-      urlPath = urlPath.slice('/glb_fixed'.length); // -> /<name>.glb under base
+      urlPath = urlPath.slice('/glb_fixed'.length);
     } else if (urlPath.startsWith('/cluster/')) {
       base = CLUSTER_DIR;
-      urlPath = urlPath.slice('/cluster'.length); // -> /<name>.cluster.glb under base
+      urlPath = urlPath.slice('/cluster'.length);
     } else if (urlPath.startsWith('/src/')) {
-      // stress.js and the example HTML pages import the package's own
-      // sources via a URL-relative '../../src/...' specifier, which resolves
-      // in-browser to /src/... -- one level ABOVE this file's ROOT
-      // (examples/local-progressive/). Map that straight to the real
-      // packages/streaming-gltf/src/ dir so those imports don't 404/403.
       base = resolve(__dirname, '../../src');
-      urlPath = urlPath.slice('/src'.length); // -> /<name>.js under base
+      urlPath = urlPath.slice('/src'.length);
     }
     const full = normalize(join(base, urlPath));
     if (!full.startsWith(base)) { res.writeHead(403).end('forbidden'); return; }

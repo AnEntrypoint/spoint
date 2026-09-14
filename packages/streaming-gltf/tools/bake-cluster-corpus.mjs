@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-// Batch cluster-LOD baker for the ../assets corpus.
-//
-// Walks manifest.json, bakes each source GLB into the single-file cluster-LOD
-// format under <assets>/streaming-cluster/<name>.cluster.glb, and writes
-// manifest.cluster.json mapping source path -> baked cluster GLB. Skinned/morph
-// prims inside an asset are left untouched by the baker (see bake-cluster.mjs).
-//
-// Each asset is baked in this single node process (heavy clustering must NOT run
-// via the exec_js verb). For the full 1868-asset corpus this is a long run; use
-//   LIMIT=N      bake only the first N assets (witness / smoke)
-//   CATEGORY=X   bake only category X
-//   CONCURRENCY  (default 1) sequential is safest for memory.
-//
-//   node tools/bake-cluster-corpus.mjs [assetsDir]
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join, dirname, basename } from 'node:path';
@@ -29,10 +15,10 @@ async function main() {
   const outDir = join(ASSETS, OUT_SUBDIR);
   await mkdir(outDir, { recursive: true });
 
-  const out = {}; // category -> [{name, path, cluster}]
+  const out = {};
   let done = 0, failed = 0, totalClusters = 0;
   const failures = [];
-  const materialReports = []; // {name, report} across the whole run, for corpus-wide convergence
+  const materialReports = [];
 
   for (const [cat, items] of Object.entries(manifest)) {
     if (ONLY_CAT && cat !== ONLY_CAT) continue;
@@ -63,9 +49,6 @@ async function main() {
   if (failures.length) console.log('[corpus] failures:', JSON.stringify(failures.slice(0, 20), null, 1));
   console.log(`[corpus] manifest -> ${join(ASSETS, 'manifest.cluster.json')}`);
 
-  // Cross-asset material convergence report (the real corpus-wide batching signal:
-  // which uber-material buckets recur across DIFFERENT source assets). See
-  // src/material-convergence.js for the full method + scope note.
   if (materialReports.length) {
     const convergence = corpusMaterialConvergence(materialReports);
     const convergencePath = join(ASSETS, 'manifest.material-convergence.json');

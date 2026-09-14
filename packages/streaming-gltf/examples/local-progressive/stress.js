@@ -1,29 +1,17 @@
-// Stress demo for ModelPool tier system. Spawns unique-asset entities across
-// a wide grid, runs orbiting camera, shows live perf + tier counts.
-
 import * as THREE from 'three';
 import { ModelPool } from '../../src/model-pool.js';
 import { enableDrawCallBatching } from './draw-call-batching.js';
 
-// Asset source. By default the cluster-LOD models are loaded CROSS-ORIGIN from
-// the public assets host (its own GitHub Pages site) so this repo ships code only
-// — no model bytes, no LFS. Override with ?assets=<baseUrl>, or ?assets=local to
-// use the dev server's generated /assets-list.json. ASSET_DIRS ends up holding
-// FULLY-RESOLVED .cluster.glb URLs (each renders via the model-pool cluster path).
 const _assetsParam = new URLSearchParams(location.search).get('assets');
 const ASSET_HOST_DEFAULT = 'https://anentrypoint.github.io/assets/';
 const ASSET_BASE = (!_assetsParam || _assetsParam === 'remote')
   ? ASSET_HOST_DEFAULT
   : (_assetsParam === 'local' ? null : (_assetsParam.endsWith('/') ? _assetsParam : _assetsParam + '/'));
 
-let ASSET_DIRS = []; // fully-resolved .cluster.glb URLs
+let ASSET_DIRS = [];
 const ASSET_DIRS_READY = (ASSET_BASE === null
-  // LOCAL DEV: dynamic /assets-list.json from serve.mjs -> relative cluster paths.
   ? fetch('/assets-list.json').then((r) => r.json())
       .then((list) => list.map((p) => (typeof p === 'string' ? p : p.path)))
-  // REMOTE: the assets host's unified manifest.json (category -> [{name,path,thumb}]),
-  // where path = streaming-cluster/<name>.cluster.glb. Flatten + resolve each path
-  // against ASSET_BASE so the cluster models stream cross-origin.
   : fetch(`${ASSET_BASE}manifest.json`).then((r) => r.json())
       .then((manifest) => Object.values(manifest).flat()
         .map((e) => e && e.path).filter(Boolean)
@@ -36,15 +24,9 @@ const hud = document.getElementById('hud');
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
 renderer.setPixelRatio(1);
-// Opaque-only scene: skip THREE's per-frame transparency depth-sort of the
-// render list. Also stop auto-resetting renderer.info every render (we read it
-// from the HUD; reset manually once per frame in tick()).
 renderer.sortObjects = false;
 renderer.info.autoReset = false;
 const scene = new THREE.Scene();
-// All scene roots here are static (entities self-manage their matrices via the
-// pool); disable the per-frame matrix-world traversal recompute on the scene
-// and camera roots.
 scene.matrixAutoUpdate = false;
 scene.background = new THREE.Color(0x181820);
 scene.add(new THREE.HemisphereLight(0xffffff, 0x222233, 1.0));
@@ -68,23 +50,10 @@ const pool = new ModelPool({
   scene, renderer, camera,
   targetFps: 60,
   byteBudget: 256 * 1024 * 1024,
-  maxConcurrentFetches: 32, // Increased from 6 to maximize asset loading throughput
-  // FAR tier via one shared THREE.BatchedMesh — collapses all distinct far-asset
-  // draws into ~6 (was 742). After far decimation the scene is draw-call-bound,
-  // so this is now a real win: measured 68-70 FPS median (vs 63 baseline) at 500
-  // distinct, max peaks 140+ (vs ~92). Renders correctly — an earlier "renders
-  // off-screen" reading was a coverage-metric artifact at a far camera (498 tiny
-  // dots = ~2% coverage with OR without batching; identical coverage confirmed
-  // at matched cameras, and HIGHER close-up: 0.53 vs 0.47).
+  maxConcurrentFetches: 32,
   useBatchedFarTier: true,
-  // Octahedral impostor FINAL LOD — opt in with ?impostor=1 (optionally
-  // &impostorPx=NN to tune the enter-distance). Below that on-screen size each
-  // model collapses to one LIT billboard (localized @three.ez/octahedron-imposter,
-  // via a 1024 MRT atlas per asset) — one InstancedMesh draw per distinct asset.
-  // &impostorTextureSize=NN, &impostorMaxAssets=NN, &impostorHemiOcta=1 tune it.
   useImpostorFinalLod: new URLSearchParams(location.search).get('impostor') === '1',
   impostorPx: Number(new URLSearchParams(location.search).get('impostorPx')) || 14,
-  // Pass-through only when explicitly set; otherwise the pool default applies.
   impostorCellBudget: Number(new URLSearchParams(location.search).get('impostorCellBudget')) || undefined,
   impostorTextureSize: Number(new URLSearchParams(location.search).get('impostorTextureSize')) || undefined,
   impostorMaxAssets: Number(new URLSearchParams(location.search).get('impostorMaxAssets')) || undefined,
@@ -93,8 +62,6 @@ const pool = new ModelPool({
 });
 window.__pool = pool;
 
-// Draw-call batching (per-asset InstancedBatch) is superseded by the BatchedMesh
-// FAR tier when that's on; only enable the old path otherwise.
 if (!pool._useBatchedFarTier) enableDrawCallBatching(pool);
 
 const proxies = new Set();
@@ -105,9 +72,6 @@ async function spawnUnique(n) {
     console.error('[stress] no assets available to spawn');
     return;
   }
-  // Distribute entities across a square grid; each entity picks an asset
-  // from the full ASSET_DIRS list (modulo), so up to len(ASSET_DIRS) of
-  // them are unique.
   const side = Math.ceil(Math.sqrt(n));
   const spacing = 1.5;
   let count = 0;
@@ -130,7 +94,6 @@ async function spawnUnique(n) {
         count++;
         batchCount++;
 
-        // Yield to browser after every batchSize entities
         if (batchCount >= batchSize) {
           batchCount = 0;
           await new Promise(resolve => requestAnimationFrame(resolve));
@@ -146,24 +109,14 @@ async function spawnUnique(n) {
 document.querySelectorAll('#panel button[data-n]').forEach((btn) => {
   btn.addEventListener('click', () => spawnUnique(+btn.dataset.n));
 });
-// Spawn every distinct model exactly once. Because spawnUnique picks
-// ASSET_DIRS[count % len], spawning exactly len entities yields one of each
-// distinct asset. Raise the byte budget first so the resident set can hold the
-// full variety instead of evicting most of it (which would hide models).
 async function spawnAll() {
   await ASSET_DIRS_READY;
   const n = ASSET_DIRS.length;
   if (!n) { console.error('[stress] no assets to spawn'); return 0; }
-  // ~3MB resident headroom per distinct model at low LOD; clamp to a sane max.
   const wantBudgetMB = Math.min(4096, Math.max(256, Math.ceil(n * 3)));
   pool.byteBudget = wantBudgetMB * 1024 * 1024;
   const bb = document.getElementById('byte-budget');
   if (bb) bb.value = wantBudgetMB;
-  // The LOD unload manager has its OWN budget (default 200MB) and evicts LODs
-  // above ~0.85*budget. 954 distinct models exceed 200MB, so without raising it
-  // the manager removes models shortly after they spawn ("added then removed,
-  // leaving a small group"). Raise it to match the byte budget. (Deliberately
-  // do NOT disable deferred streaming — that prevents geometry from loading.)
   if (pool._lodUnloadManager) {
     pool._lodUnloadManager.vramBudgetMB = wantBudgetMB;
     pool._lodUnloadManager.vramBudgetBytes = wantBudgetMB * 1024 * 1024;
@@ -174,13 +127,7 @@ async function spawnAll() {
 }
 document.getElementById('spawn-all').addEventListener('click', spawnAll);
 
-// --- Debug surface -------------------------------------------------------
-// window.__debug gives one-call visibility into every part of the pipeline so
-// the blank-models / LOD-vs-camera / mass-removal issues are directly
-// observable from a single page.evaluate() call (no source spelunking needed).
 function _entityResolved(e) {
-  // An entity is "resolved" (should draw something) if any tracked mesh has a
-  // real instanced slot OR an own mesh with non-empty geometry.
   if (!e || e._disposed) return false;
   for (const tm of e.trackedMeshes || []) {
     if (tm._instancedSlot && tm._instancedSlotIdx >= 0) return true;
@@ -189,7 +136,7 @@ function _entityResolved(e) {
   }
   return false;
 }
-window.THREE = THREE; // expose for debug/perf probes (BatchedMesh tests etc.)
+window.THREE = THREE;
 window.__debug = {
   pool, scene, camera, renderer, proxies, THREE,
   spawnAll, clear: () => { for (const p of proxies) p.dispose(); proxies.clear(); },
@@ -198,7 +145,6 @@ window.__debug = {
     camera.position.set(x, y, z); camera.lookAt(tx, ty, tz); camera.updateMatrixWorld();
     return { pos: [x, y, z], target: [tx, ty, tz] };
   },
-  // currentLod histogram across all live entities' tracked meshes.
   lodHistogram() {
     const h = {};
     for (const e of pool._entities) for (const tm of e.trackedMeshes || []) {
@@ -215,8 +161,6 @@ window.__debug = {
     }
     return { hero, mid, far, unassigned: none };
   },
-  // Entities the renderer thinks are visible but that have nothing to draw —
-  // the white/disappearing models.
   blankEntities() {
     const blanks = [];
     for (const e of pool._entities) {
@@ -251,11 +195,7 @@ window.__debug = {
       lodHistogram: this.lodHistogram(),
     };
   },
-  // Toggle the global material pool (FAR vertex-color grouping) on/off live.
   materialPool(on) { pool._globalMaterialPool._useGlobalMaterialPool = !!on; return on; },
-  // Inspect one entity in detail: per-trackedMesh LOD, material kind, whether it
-  // has a texture map, its color-attr range, and the mesh's world rotation —
-  // used to chase "some LODs change orientation / lose color".
   inspect(i = 0) {
     const ents = [...pool._entities].filter((e) => !e._disposed);
     const e = ents[i]; if (!e) return { err: 'no entity ' + i, total: ents.length };
@@ -276,14 +216,8 @@ window.__debug = {
     });
     return { id: e.id, url: e.asset && e.asset.url, rootRot: [e.root.rotation.x, e.root.rotation.y, e.root.rotation.z].map((v) => +v.toFixed(3)), dist: +(e._currentDistance || 0).toFixed(1), trackedMeshes: tms };
   },
-  // Pin/unpin the LOD ceiling so a single LOD level can be inspected in isolation
-  // (lets us see whether a SPECIFIC lod changes orientation/loses color).
   pinLod(n) { pool._currentCeilingLod = n; pool.ceilingLod = n; return n; },
   unpinLod() { pool._currentCeilingLod = null; return null; },
-  // Compare every cached LOD geometry of the asset behind entity i: bbox center
-  // + half-extents + sign of (v - bboxCenter) for the same vertex index. If two
-  // LODs disagree on the SIGN of an axis they are mirrored relative to each
-  // other -> the on-screen orientation flip. Loads all sibling LODs first.
   async compareLods(i = 0) {
     const ents = [...pool._entities].filter((e) => !e._disposed);
     const e = ents[i]; if (!e) return { err: 'no entity ' + i };
@@ -300,7 +234,6 @@ window.__debug = {
         const c = bb.getCenter(new THREE.Vector3());
         const sz = bb.getSize(new THREE.Vector3());
         const p = geo.attributes.position;
-        // sign pattern of first 4 verts relative to bbox center (orientation fingerprint)
         const sig = [];
         for (let k = 0; k < Math.min(4, p.count); k++) {
           sig.push([Math.sign(+(p.getX(k) - c.x).toFixed(4)), Math.sign(+(p.getY(k) - c.y).toFixed(4)), Math.sign(+(p.getZ(k) - c.z).toFixed(4))]);
@@ -329,16 +262,11 @@ document.getElementById('byte-budget').addEventListener('change', (e) => {
   pool.byteBudget = +e.target.value * 1024 * 1024;
 });
 
-// Phase 5: Interactive knob controls
-// 3-LOD system: slider maps [0, 1, 2] to [null, 2, 4] (representing LODs [0, 2, 4])
-// Value 0 = no ceiling (null), Value 1 = ceiling LOD 2, Value 2 = ceiling LOD 4
 document.getElementById('ceiling-lod').addEventListener('input', (e) => {
   const sliderVal = +e.target.value;
-  // Map slider value to actual LOD ceiling in 3-LOD system
-  const lodMap = [null, 2, 4]; // slider 0 -> null (no ceiling), 1 -> LOD 2, 2 -> LOD 4
+  const lodMap = [null, 2, 4];
   pool.ceilingLod = lodMap[sliderVal];
 
-  // Display LOD label instead of numeric value
   const lodLabels = ['unlimited', 'LOD 0/2', 'LOD 0'];
   document.getElementById('ceiling-value').textContent = lodLabels[sliderVal];
 });
@@ -355,17 +283,15 @@ document.getElementById('hero-cap').addEventListener('input', (e) => {
 document.getElementById('frustum-interval').addEventListener('input', (e) => {
   const val = +e.target.value;
   if (val === 0) {
-    pool.frustumCheckInterval = 0; // Enable automatic dynamic calculation
+    pool.frustumCheckInterval = 0;
     document.getElementById('frustum-interval-value').textContent = 'auto';
   } else {
-    // Force fixed interval for testing (1-10 frames)
     pool._frustumCheckInterval = val;
     pool._dynamicFrustumCheckInterval = val;
     document.getElementById('frustum-interval-value').textContent = val;
   }
 });
 
-// Feature toggles
 document.getElementById('frustum-cull').addEventListener('change', (e) => {
   pool._enableFrustumCulling = e.target.checked;
 });
@@ -376,7 +302,6 @@ document.getElementById('anim-throttle').addEventListener('change', (e) => {
   pool._enableAnimThrottle = e.target.checked;
 });
 
-// Material Grouping Optimization toggle
 const materialPoolToggle = document.getElementById('material-pool');
 if (materialPoolToggle) {
   materialPoolToggle.addEventListener('change', (e) => {
@@ -385,7 +310,6 @@ if (materialPoolToggle) {
   });
 }
 
-// Asset Streaming: Deferred loading toggle
 const deferredStreamingToggle = document.getElementById('deferred-streaming');
 if (deferredStreamingToggle) {
   deferredStreamingToggle.addEventListener('change', (e) => {
@@ -394,7 +318,6 @@ if (deferredStreamingToggle) {
   });
 }
 
-// Multi-draw optimization toggle
 const multiDrawToggle = document.getElementById('multi-draw');
 if (multiDrawToggle) {
   multiDrawToggle.addEventListener('change', (e) => {
@@ -403,7 +326,6 @@ if (multiDrawToggle) {
   });
 }
 
-// Frame-time breakdown chart
 const frameHistory = [];
 const maxFrameHistory = 60;
 const frameCanvas = document.getElementById('frame-canvas');
@@ -421,7 +343,6 @@ function drawFrameChart() {
   ctx.fillStyle = '#1a1a20';
   ctx.fillRect(0, 0, w, h);
 
-  // Draw grid
   ctx.strokeStyle = '#333';
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -429,7 +350,6 @@ function drawFrameChart() {
   ctx.lineTo(w, h * 0.5);
   ctx.stroke();
 
-  // Draw frame bars
   let maxMs = 16.7;
   for (const frame of frameHistory) {
     maxMs = Math.max(maxMs, frame.total);
@@ -441,31 +361,26 @@ function drawFrameChart() {
     const scale = h / maxMs;
 
     let y = h;
-    // Frustum time (red)
     const frustumH = frame.frustum * scale;
     ctx.fillStyle = '#ff6b6b';
     ctx.fillRect(x, y - frustumH, barW, frustumH);
     y -= frustumH;
 
-    // Entities time (yellow)
     const entitiesH = frame.entities * scale;
     ctx.fillStyle = '#ffd93d';
     ctx.fillRect(x, y - entitiesH, barW, entitiesH);
     y -= entitiesH;
 
-    // Budget time (green)
     const budgetH = frame.budget * scale;
     ctx.fillStyle = '#6bcf7f';
     ctx.fillRect(x, y - budgetH, barW, budgetH);
 
-    // Over-budget indicator
     if (frame.total > 16.7) {
       ctx.fillStyle = '#ff3333';
       ctx.fillRect(x, 0, barW, 2);
     }
   }
 
-  // Labels
   ctx.fillStyle = '#999';
   ctx.font = '10px sans-serif';
   ctx.fillText(`${maxMs.toFixed(1)}ms`, 2, 10);
@@ -474,7 +389,6 @@ function drawFrameChart() {
 
 document.getElementById('export-btn').addEventListener('click', () => {
   if (recordingTrace) {
-    // Stop recording and download
     recordingTrace = false;
     const csv = ['timestamp,fps,frustum,entities,budget,total,ceiling,midPx,heroCap,memory,visible'];
     for (const row of traceData) {
@@ -490,7 +404,6 @@ document.getElementById('export-btn').addEventListener('click', () => {
     document.getElementById('export-btn').textContent = 'export trace (30s)';
     document.getElementById('export-btn').style.background = '#445';
   } else {
-    // Start recording
     recordingTrace = true;
     traceData = [];
     traceStartTime = performance.now();
@@ -499,10 +412,6 @@ document.getElementById('export-btn').addEventListener('click', () => {
   }
 });
 
-// Retarget ~3% of entities per frame to a fresh random nearby position over a
-// 600-1400ms ease. Touching only a sparse subset each frame is the whole point:
-// CPU work is O(subset) while ALL in-flight entities keep lerping on the GPU/CPU
-// active set inside the pool. Demonstrates "fully capable of position updates".
 let _moverScratch = [];
 function _driveMovers() {
   const ents = _moverScratch;
@@ -527,13 +436,9 @@ let _poolUpdateCounter = 0;
 function tick() {
   if (document.getElementById('orbit-cam').checked) {
     orbitT += 0.003;
-    // Fly-through path: when zoom-cycle is on we pulse from far (r=60) to
-    // very close (r=3, INSIDE the crowd) so all three tiers get exercised.
-    // The HERO tier needs r<10 to see entities at >200 screen-px.
     let r = 30;
     if (document.getElementById('zoom-cycle').checked) {
       zoomPhase += 0.008;
-      // 3..60 — sweep through the crowd, getting up close mid-cycle.
       r = 30 + Math.cos(zoomPhase) * 27;
     }
     camera.position.x = Math.cos(orbitT) * r;
@@ -541,31 +446,16 @@ function tick() {
     camera.position.y = 6 + Math.sin(orbitT * 0.7) * 4;
     camera.lookAt(0, 1, 0);
   }
-  // Throttle pool.update() (LOD/tier/frustum reevaluation) to every 3rd frame
-  // for a static scene — but ALWAYS run it the frame the camera moved so LOD
-  // still reacts to the view. renderer.render() stays every frame; instance
-  // matrices persist between updates, so nothing visually freezes beyond a LOD
-  // reevaluation cadence of ~20Hz.
   const cp = camera.position;
   const camMoved = Math.abs(cp.x - _prevCamX) > 1e-3 || Math.abs(cp.y - _prevCamY) > 1e-3 || Math.abs(cp.z - _prevCamZ) > 1e-3;
   _prevCamX = cp.x; _prevCamY = cp.y; _prevCamZ = cp.z;
-  // Position-update demo: each frame retarget a SMALL random subset of entities
-  // (proving O(updated) CPU cost) while the pool lerps every active mover on its
-  // side. The interpolation makes them drift smoothly to new targets.
   const moversOn = document.getElementById('movers') && document.getElementById('movers').checked;
   if (moversOn) _driveMovers();
-  // Movers (or a moving camera) need update() every frame for smooth motion;
-  // a fully static scene can keep the 3rd-frame throttle.
   if (camMoved || moversOn || (_poolUpdateCounter++ % 3) === 0) {
     pool.update();
   }
   renderer.render(scene, camera);
-  // renderer.info.autoReset is off; reset once per frame after rendering so the
-  // HUD's draw-call/triangle counts reflect exactly one frame.
   renderer.info.reset();
-  // HUD + frame-chart are diagnostics only — rebuilding the big innerHTML string
-  // and redrawing the chart every frame causes layout/paint churn. Throttle to
-  // ~10Hz (every 6th frame); rendering itself stays at full rate.
   if (!window.__hudCounter) window.__hudCounter = 0;
   if (window.__hudCounter++ < 6) { requestAnimationFrame(tick); return; }
   window.__hudCounter = 0;
@@ -573,10 +463,8 @@ function tick() {
   const memoryMB = s.bytes / 1024 / 1024;
   const estimatedVramMB = pool._estimatedVramMB;
   const memoryRatio = (s.bytes / (estimatedVramMB * 1024 * 1024)) * 100;
-  // Color coding: green <50%, yellow 50-70%, red >70%
   const memoryColor = memoryRatio > 70 ? '#ff6b6b' : memoryRatio > 50 ? '#ffd93d' : '#6bcf7f';
   const memoryStatus = memoryRatio > 70 ? 'CRITICAL' : memoryRatio > 50 ? 'WARNING' : 'SAFE';
-  // VRAM gauge: visual representation
   const gaugeWidth = 150;
   const gaugeFillWidth = Math.min(gaugeWidth, Math.max(0, (memoryRatio / 100) * gaugeWidth));
   const gaugeHTML = `<div style="display:inline-block;width:${gaugeWidth}px;height:12px;border:1px solid #666;background:#222;position:relative;vertical-align:middle;margin:0 4px;">
@@ -584,7 +472,6 @@ function tick() {
     <div style="position:absolute;left:5px;top:0;color:#aaa;font-size:9px;line-height:12px;z-index:10;">${memoryRatio.toFixed(0)}%</div>
   </div>`;
 
-  // Track frame metrics for chart
   const frameData = {
     frustum: s.msFrustum || 0,
     entities: s.msEntities || 0,
@@ -595,7 +482,6 @@ function tick() {
   if (frameHistory.length > maxFrameHistory) frameHistory.shift();
   drawFrameChart();
 
-  // Record profiling data if tracing
   if (recordingTrace) {
     const elapsed = (performance.now() - traceStartTime) / 1000;
     if (elapsed < 30) {
@@ -630,7 +516,6 @@ function tick() {
     }
   }
 
-  // Asset Streaming stats
   let deferredStats = '';
   if (pool._enableDeferredStreaming && s.deferredLoading) {
     const dl = s.deferredLoading;
@@ -641,7 +526,6 @@ function tick() {
     deferredStats += `<b>Unload</b> visible ${um.visibleEntities} invisible ${um.invisibleEntities} VRAM ${um.estimatedVramMB}/${um.vramBudgetMB}MB<br>`;
   }
 
-  // Multi-draw status
   let multiDrawStatus = '';
   if (pool._multiDrawOptimizer) {
     const md = s.multiDraw;

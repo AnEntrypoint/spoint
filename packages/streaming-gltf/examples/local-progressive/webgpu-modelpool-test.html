@@ -13,14 +13,6 @@
 } }
 </script>
 <script type="module">
-// Witnesses ModelPool's _getOcclusionTier() dynamic-import path (see
-// model-pool.js's WebGpuHizTier import comment): webgpu-occlusion-test.html
-// exercises WebGpuHizTier directly, bypassing ModelPool -- this page
-// exercises the import('./webgpu-hiz-tier.js') branch inside ModelPool
-// itself, the actual regression coverage for the async-tier-assignment race
-// (a WebGPURenderer must not fall through to constructing the WebGL2
-// OcclusionQueryTier while the WebGPU tier's import is still in flight,
-// which used to permanently disable useOcclusionQuery).
 import * as THREE from 'three/webgpu';
 import { ModelPool } from '../../src/model-pool.js';
 
@@ -56,7 +48,7 @@ window.__results = {};
     renderer.render(scene, camera);
     pool.runOcclusionQueries();
     if (frame === 1) {
-      window.__results.frame1UseOcc = pool._useOcclusionQuery; // must stay true, not flip false during the async import window
+      window.__results.frame1UseOcc = pool._useOcclusionQuery;
     }
     if (frame === 90) {
       window.__results.occlusionTierExists = !!pool._occlusionTier;

@@ -1,20 +1,4 @@
 #!/usr/bin/env node
-// Cluster-LOD baker (EP_cluster_lod).
-//
-// Reads a GLB and, for each UNSKINNED static primitive, rebuilds it as a single
-// unified vertex+index buffer of UV-aware spatial meshlet clusters with per-cluster
-// hierarchical LODs (see examples/local-progressive/meshlet-codec.js). Per-cluster
-// AABB/sphere + per-(cluster,lod) index {offset,count} are written into
-// primitive.extras.EP_cluster_lod (JSON only). The geometry stays a STANDARD single
-// mesh/primitive: a stock glTF viewer ignores the extras and draws the whole index
-// buffer = LOD0 of every cluster = the full-resolution mesh. EXT_meshopt_compression
-// keeps the GLB small and valid.
-//
-// Skinned/morph primitives are left untouched (cluster-LOD is for static geometry;
-// the runtime keeps its existing path for those).
-//
-// Run as a SEPARATE node process (heavy clustering OOMs an in-process host):
-//   node tools/bake-cluster.mjs <input.glb> <output.glb>
 
 import { NodeIO, PropertyType } from '@gltf-transform/core';
 import { ALL_EXTENSIONS, EXTMeshoptCompression } from '@gltf-transform/extensions';
@@ -27,17 +11,9 @@ import { materialConvergenceReport, collapseTrivialMaterialVariants, stampMateri
 import { writeFile, mkdir, readFile, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-// Discrete-LOD ratios for SKINNED/morph primitives (cluster-LOD cannot handle them
-// -- it needs static topology). meshopt simplify() preserves JOINTS_0/WEIGHTS_0 +
-// morph deltas (the simplified index is a subset of original vertices), so a skinned
-// VRM gets real LOD scaling. Lowest detail first matches the runtime sort (ascending
-// quality). 1.0 is the inline base in the root; the rest are sibling files.
 const SKINNED_LOD_RATIOS = [1.0, 0.4, 0.15];
 const EP_PROGRESSIVE_LOD_KEY = 'EP_progressive_lod';
 
-// Map a gltf-transform primitive's accessors to the meshlet-codec geo shape.
-// Attribute names are lowercased ('POSITION'->'position', 'TEXCOORD_0'->'texcoord_0')
-// to match the codec's expectations; the codec keys position/uv off those names.
 const ATTR_RENAME = { POSITION: 'position', NORMAL: 'normal', TANGENT: 'tangent', TEXCOORD_0: 'texcoord_0', COLOR_0: 'color' };
 
 function primIsStatic(prim) {
@@ -82,24 +58,10 @@ function _collapseClusteredDegenerates(result, meshIndex, primIndex, worldMatric
   if (fan) console.warn(`[bake-cluster] collapsed ${fan} fan (out-of-cluster-bounds) triangle(s) (mesh ${meshIndex} prim ${primIndex})`);
 }
 
-// Build discrete LOD siblings for ONE skinned primitive. Clones the document down
-// to just this primitive, meshopt-simplifies it per ratio (preserving skin attrs +
-// morphs), and writes each LOD<1.0 as a standalone sibling GLB under <outDir>/lods/.
-// Returns { meshIndex, primIndex, lods:[...] } for the EP_progressive_lod payload,
-// where exactly one entry (ratio 1.0) is inline:true (drawn from the root). The
-// runtime (model-pool.js _applyLod skinned branch) swaps the sibling geometry onto
-// the root's shared skeleton, so the sibling needs no skeleton of its own -- only
-// JOINTS_0/WEIGHTS_0 that index the same joints, which simplify() preserves.
 async function _bakeSkinnedLods(srcDoc, io, meshIndex, primIndex, lodsDir, baseName) {
   const lods = [];
   for (const ratio of SKINNED_LOD_RATIOS) {
     if (ratio >= 1.0) { lods.push({ ratio: 1.0, kind: 'textured', inline: true }); continue; }
-    // Fresh clone per ratio so each simplify starts from the full-res source
-    // (simplify is destructive; chaining ratios would compound error). Cloned
-    // in-memory from the already-parsed source document instead of re-reading
-    // + re-parsing the GLB off disk for every ratio (was 3x redundant I/O+parse
-    // per skinned primitive; cloneDocument gives an equally-fresh independent
-    // Document via gltf-transform's own deep merge).
     const doc = cloneDocument(srcDoc);
     const root = doc.getRoot();
     const meshes = root.listMeshes();
@@ -108,16 +70,12 @@ async function _bakeSkinnedLods(srcDoc, io, meshIndex, primIndex, lodsDir, baseN
     const prims = mesh.listPrimitives();
     const keepPrim = prims[primIndex];
     if (!keepPrim) break;
-    // Strip every OTHER mesh + every other primitive so the sibling is geometry-only,
-    // single-primitive (the worker takes the first mesh it finds).
     for (const m of meshes) {
       for (const p of m.listPrimitives()) { if (p !== keepPrim) m.removePrimitive(p); }
       if (m !== mesh) m.dispose();
     }
     const pos = keepPrim.getAttribute('POSITION');
     if (!pos) break;
-    // decodeAABB = POSITION min/max BEFORE meshopt quantization (the worker rescales
-    // the decoded [-1,1]-ish positions back into character-local space with this).
     const min = pos.getMinNormalized ? pos.getMin([]) : pos.getMin([]);
     const max = pos.getMax([]);
     const decodeAABB = { min: [min[0], min[1], min[2]], max: [max[0], max[1], max[2]] };
@@ -127,8 +85,7 @@ async function _bakeSkinnedLods(srcDoc, io, meshIndex, primIndex, lodsDir, baseN
     const idxAcc = keepPrim.getIndices();
     const vCount = keepPrim.getAttribute('POSITION')?.getCount() || 0;
     const iCount = idxAcc ? idxAcc.getCount() : 0;
-    if (iCount === 0 || vCount === 0) continue;   // simplified to a hole -> skip
-    // meshopt-encode the sibling at write time.
+    if (iCount === 0 || vCount === 0) continue;
     doc.createExtension(EXTMeshoptCompression)
       .setRequired(true)
       .setEncoderOptions({ method: EXTMeshoptCompression.EncoderMethod.FILTER });
@@ -138,20 +95,11 @@ async function _bakeSkinnedLods(srcDoc, io, meshIndex, primIndex, lodsDir, baseN
     await writeFile(join(lodsDir, fileName), Buffer.from(bin));
     lods.push({ ratio, kind: 'textured', path: `lods/${fileName}`, inline: false, indexCount: iCount, vertexCount: vCount, bytes: bin.byteLength, decodeAABB });
   }
-  // Only worth a descriptor if at least one real sibling LOD was emitted.
   const siblingCount = lods.filter((l) => !l.inline).length;
   if (siblingCount === 0) return null;
   return { meshIndex, primIndex, lods };
 }
 
-// Pre-flight validation of INPUT: a missing file or a file that isn't actually
-// a GLB previously fell straight into io.read(INPUT), which throws an opaque
-// gltf-transform-internal error with no hint the real problem was "wrong path"
-// or "not a GLB" -- surfaces a clear, actionable message instead. The CLI entry
-// point already wraps bakeCluster() in a .catch, but that only helps when
-// invoked from the command line; a programmatic caller (e.g. bake-cluster-corpus.mjs,
-// or a consumer importing { bakeCluster } directly) gets the same opaque error
-// without this check.
 async function _validateInputGlb(INPUT) {
   let st;
   try {
@@ -166,13 +114,6 @@ async function _validateInputGlb(INPUT) {
   }
 }
 
-// A texture with no source AND no extensions is legal-but-undefined glTF 2.0 ("the
-// texture is undefined") -- some exporters leave such entries behind with materials
-// still referencing them. three.js GLTFLoader tolerates the reference (no map bound),
-// but @gltf-transform/core's reader null-derefs on it (setTextureInfo on a null
-// textureInfo). deathrun_kosova.glb ships 8 of these. Sanitize before io.readBinary:
-// drop the undefined texture entries and every material reference to them (visually
-// identical to three's no-map treatment), remapping the surviving indices.
 function _stripUndefinedTextures(glb) {
   const jsonLen = glb.readUInt32LE(12);
   const json = JSON.parse(glb.subarray(20, 20 + jsonLen).toString('utf8'));
@@ -228,17 +169,10 @@ async function bakeCluster(INPUT, OUTPUT) {
   const doc = await io.readBinary(_stripUndefinedTextures(await readFile(INPUT)));
   const root = doc.getRoot();
   const buffer = root.listBuffers()[0];
-  // A degenerate/malformed glTF with zero buffers would otherwise let every
-  // later `.setBuffer(buffer)` silently attach an accessor to `undefined`,
-  // producing a corrupt output GLB instead of a clear upfront failure. Only
-  // an actual clustering candidate needs a buffer to write into, so this check
-  // fires lazily -- right before the first prim that would need one -- rather
-  // than unconditionally (a document with only skinned/skipped prims and no
-  // static geometry to cluster never needs to write a new accessor at all).
 
   let clustered = 0, skipped = 0, totalClusters = 0, skinnedLodded = 0;
-  const pendingExtras = []; // { prim, result, coarseAcc } resolved after transforms
-  const skinnedDescs = []; // EP_progressive_lod mesh descriptors (skinned discrete LODs)
+  const pendingExtras = [];
+  const skinnedDescs = [];
   const lodsDir = join(dirname(OUTPUT), 'lods');
   const baseName = 'sk';
   const allMeshes = root.listMeshes();
@@ -253,9 +187,6 @@ async function bakeCluster(INPUT, OUTPUT) {
     for (let pi = 0; pi < prims.length; pi++) {
       const prim = prims[pi];
       if (!primIsStatic(prim)) {
-        // Skinned/morph: cluster-LOD can't handle it, but we still give it discrete
-        // meshopt LODs (sibling GLBs + EP_progressive_lod) so a VRM/skinned model gets
-        // real LOD scaling through ModelPool's skinned LOD ladder.
         try {
           const desc = await _bakeSkinnedLods(doc, io, mi, pi, lodsDir, baseName);
           if (desc) { skinnedDescs.push(desc); skinnedLodded++; }
@@ -273,7 +204,6 @@ async function bakeCluster(INPUT, OUTPUT) {
 
       _collapseClusteredDegenerates(result, mi, pi, worldMatrices);
 
-      // Rewrite attributes with the reordered unified arrays.
       for (const outAttr of result.attributes) {
         const sem = geo._semByName[outAttr.name];
         if (!sem) continue;
@@ -285,16 +215,9 @@ async function bakeCluster(INPUT, OUTPUT) {
           .setBuffer(buffer);
         prim.setAttribute(sem, acc);
       }
-      // primitive.indices = LOD0 of every cluster = the full-resolution mesh, so
-      // a stock glTF viewer that ignores extras draws the full mesh exactly once.
       const idxAcc = doc.createAccessor().setName(`EP_cluster_lod0_m${mi}_p${pi}`).setType('SCALAR').setArray(result.index).setBuffer(buffer);
       prim.setIndices(idxAcc);
 
-      // Coarse (LOD1..N) indices live in a sidecar accessor referenced from extras.
-      // A stock viewer never draws it; the runtime uses it for distant clusters.
-      // gltf-transform's prune() would drop it (extras refs are invisible to the
-      // graph), so we attach it to the prim's extension-less extras list and
-      // resolve its FINAL accessor index after all transforms renumber accessors.
       let coarseAcc = null;
       if (result.indexCoarse.length) {
         coarseAcc = doc.createAccessor().setName(`EP_cluster_lod_coarse_m${mi}_p${pi}`).setType('SCALAR').setArray(result.indexCoarse).setBuffer(buffer);
@@ -306,47 +229,16 @@ async function bakeCluster(INPUT, OUTPUT) {
     }
   }
 
-  // Strip extensions the cluster GLB no longer uses. We re-encoded all geometry
-  // with EXT_meshopt_compression, so KHR_draco_mesh_compression is dead; leaving
-  // it in extensionsUsed forces stock GLTFLoader to demand a DRACOLoader (which it
-  // throws without) even though no accessor is draco-compressed. EXT_texture_webp
-  // stays — the textures are still webp.
   for (const ext of root.listExtensionsUsed()) {
     if (ext.extensionName === 'KHR_draco_mesh_compression') ext.dispose();
   }
 
-  // dedup only. We deliberately AVOID the meshopt() transform: it runs reorder()
-  // which re-permutes vertex/index buffers for GPU cache locality and would
-  // DESTROY the cluster (offset,count) table the whole format depends on. The
-  // codec already reordered vertices to index order, so reorder is redundant
-  // anyway. We must also NOT prune(): it garbage-collects the coarse-index
-  // accessors that only extras references.
   await doc.transform(dedup({ propertyTypes: [PropertyType.MESH, PropertyType.TEXTURE, PropertyType.MATERIAL, PropertyType.SKIN] }));
 
-  // Material convergence (bake-time enabler for BatchedMesh/multi-draw bucketing --
-  // see src/material-convergence.js for the full scope note). Two real, working
-  // steps: (1) collapse any EXACT rendering-relevant duplicate materials/textures
-  // dedup() missed (pixel-content texture hash + PBR factor equality, a strict
-  // superset of dedup()'s own stricter Material#equals match -- zero fidelity risk,
-  // every merge is a true visual duplicate); (2) measure + report the real post-
-  // collapse variant count so a bucketing pass has an honest number to plan against.
-  // Texture-array atlasing / uber-shader authoring / near-duplicate threshold merges
-  // are NOT attempted here -- out of scope for this pass, see the module header.
   const materialCollapse = collapseTrivialMaterialVariants(doc);
   const materialReport = materialConvergenceReport(doc);
-  // Runtime consumer bridge (src/material-bucket-batcher.js): stamp each
-  // (post-collapse) material with a short stable content-based bucket hash so
-  // the EP_cluster_lod extras written below can carry it per-primitive without
-  // the runtime ever needing to re-hash texture bytes at spawn time.
   const materialBuckets = stampMaterialBucketKeys(doc);
 
-  // Compression is applied at WRITE time over all bufferViews (lossless FILTER
-  // method = no vertex/index reorder, exact layout preserved), so the cluster
-  // offsets stay valid. This keeps the GLB small + valid (EXT_meshopt_compression).
-  // TEMP DIAGNOSTIC: disabled via SPOINT_NO_MESHOPT env var to isolate whether
-  // client-side EXT_meshopt_compression decoding is the source of a live
-  // coincident-vertex degenerate-triangle mismatch between the on-disk bytes
-  // (verified clean via gltf-transform) and the browser's decoded geometry.
   if (!process.env.SPOINT_NO_MESHOPT) {
     doc.createExtension(EXTMeshoptCompression)
       .setRequired(true)
@@ -364,11 +256,6 @@ async function bakeCluster(INPUT, OUTPUT) {
   let bin = await io.writeBinary(doc);
   bin = _fixCoarseIndexEncoding(bin, pendingExtras);
 
-  // Splice the EP_progressive_lod payload (skinned discrete LODs) into the root GLB
-  // JSON chunk. gltf-transform drops unknown top-level extensions on write, so we
-  // rewrite the JSON chunk by hand. The skinned full-res mesh is already INLINE in
-  // the root (we never removed it), so each descriptor's inline:true LOD draws from
-  // the root primitive; the sibling LODs live under lods/ and are fetched on demand.
   if (skinnedDescs.length) {
     bin = _spliceProgressiveLod(bin, skinnedDescs);
   }
@@ -378,21 +265,13 @@ async function bakeCluster(INPUT, OUTPUT) {
   return { clustered, skipped, totalClusters, skinnedLodded, bytes: bin.byteLength, materialReport, materialCollapse };
 }
 
-// Rewrite a GLB's JSON chunk to carry extensions.EP_progressive_lod (+ list it in
-// extensionsUsed, never extensionsRequired so a stock viewer still draws the inline
-// base). The BIN chunk is copied through untouched; only the JSON chunk grows.
 function _spliceProgressiveLod(bin, meshes) {
   const u8 = bin instanceof Uint8Array ? bin : new Uint8Array(bin);
   const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
-  if (dv.getUint32(0, true) !== 0x46546c67) return bin; // not a GLB
+  if (dv.getUint32(0, true) !== 0x46546c67) return bin;
   const jsonLen = dv.getUint32(12, true);
   const json = JSON.parse(new TextDecoder().decode(u8.subarray(20, 20 + jsonLen)));
   json.extensions = json.extensions || {};
-  // textures: [] explicit -- this splice path only ever carries mesh LOD descriptors (no separate
-  // progressive texture-LOD data), but the consumer (model-pool.js Asset._load) unconditionally
-  // iterates ext.textures; omitting the key crashed every skinned/character bake with
-  // "ext.textures is not iterable", aborting Asset._load()'s whole try block (meshLodDescs never
-  // populated, trackedMeshes empty, impostor/discrete-LOD machinery dead for the entity).
   json.extensions[EP_PROGRESSIVE_LOD_KEY] = { version: 1, storage: 'sibling-file', meshes, textures: [] };
   const used = new Set(json.extensionsUsed || []);
   used.add(EP_PROGRESSIVE_LOD_KEY);
@@ -509,7 +388,6 @@ function _fixCoarseIndexEncoding(bin, pendingExtras) {
 
 export { bakeCluster };
 
-// CLI
 if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith('bake-cluster.mjs')) {
   const [, , INPUT, OUTPUT] = process.argv;
   if (!INPUT || !OUTPUT) {

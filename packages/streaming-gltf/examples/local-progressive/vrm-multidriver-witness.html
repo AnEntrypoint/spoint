@@ -28,15 +28,12 @@ window.__witness = { state: 'init' }
     const pool = new ModelPool({ scene, renderer, camera })
     const url = './output_vrm_avatar/model.progressive.glb'
 
-    // spawn() returns a PROXY; the real Entity arrives on the 'ready' event as
-    // proxy.actualEntity. Wait for both to bootstrap.
     const ready = (p) => new Promise((res) => p.on('ready', () => res()))
     const p1 = pool.spawn(url, { position: [0, 0, 0] })
     const p2 = pool.spawn(url, { position: [1, 0, 0] })
     await Promise.all([ready(p1), ready(p2)])
     const e1 = p1.actualEntity, e2 = p2.actualEntity
 
-    // Diagnostics: did the asset detect VRM + retain bytes?
     const asset = e1.asset
     window.__assetDiag = {
       hasVRM: asset.hasVRM,
@@ -45,7 +42,6 @@ window.__witness = { state: 'init' }
       rootGltfUserDataKeys: Object.keys(asset.rootGltf?.userData || {}),
     }
 
-    // Drive a few frames so vrm.update runs.
     for (let i = 0; i < 5; i++) pool.update()
 
     const head1 = e1.vrm?.humanoid?.getRawBoneNode?.('head') || null
@@ -60,16 +56,11 @@ window.__witness = { state: 'init' }
       headsDistinct: !!head1 && !!head2 && head1 !== head2,
       e1UpdateFn: typeof e1.vrm?.update === 'function',
       e2UpdateFn: typeof e2.vrm?.update === 'function',
-      // Independence: the two scenes are different Object3D roots.
       scenesDistinct: !!e1.vrm?.scene && !!e2.vrm?.scene && e1.vrm.scene !== e2.vrm.scene,
-      // dispose e2, confirm e1 survives (still has vrm) and e2 cleared.
     }
-    // Host-driven (driveVrm:false): pool must NOT auto-update; host owns it.
     const p3 = pool.spawn(url, { position: [2, 0, 0], driveVrm: false })
     await ready(p3)
     const e3 = p3.actualEntity
-    // Record expressionManager value before any update, drive a few pool frames,
-    // and confirm the entity still has a usable vrm (host can call e3.vrm.update).
     for (let i = 0; i < 3; i++) pool.update()
     window.__witness.hostDrivenHasVrm = !!e3.vrm
     window.__witness.hostDrivenUpdateFn = typeof e3.vrm?.update === 'function'

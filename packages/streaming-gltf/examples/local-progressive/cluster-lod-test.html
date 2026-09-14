@@ -40,13 +40,10 @@ loader.parse_extras = true;
 
 loader.load(url, async (gltf) => {
   scene.add(gltf.scene);
-  // find the first mesh with EP_cluster_lod extras
   let target = null, extras = null, coarseArr = null;
   const json = gltf.parser.json;
-  gltf.scene.traverse((o) => { if (o.isMesh && !target) { /* fill below */ } });
+  gltf.scene.traverse((o) => { if (o.isMesh && !target) { } });
 
-  // Pull extras + coarse accessor straight from the parsed glTF json + buffers.
-  // Find the primitive that carries our extra.
   let primExtras = null, coarseAccessorIndex = -1;
   for (const mesh of json.meshes || []) {
     for (const prim of mesh.primitives || []) {
@@ -76,13 +73,8 @@ loader.load(url, async (gltf) => {
   });
   target.parent.add(cmesh);
   target.removeFromParent();
-  // three skips onBeforeRender for objects whose draw range is empty, so we keep a
-  // sentinel 3-index range (the mesh stays "rendered" and onBeforeRender fires);
-  // our onBeforeRender issues the real per-cluster multi-draw. The sentinel draw is
-  // a single real triangle of the mesh = harmless.
   geo.setDrawRange(0, 3);
 
-  // Fit camera.
   geo.computeBoundingSphere();
   const bs = geo.boundingSphere;
   window.__clusterStats.boundingRadius = bs.radius;

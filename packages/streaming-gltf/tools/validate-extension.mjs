@@ -1,16 +1,4 @@
 #!/usr/bin/env node
-// Conformance validator for the EP_progressive_lod glTF extension.
-//
-// Usage:
-//   node tools/validate-extension.mjs <model.glb>
-//
-// Reads the GLB's JSON chunk, locates extensions.EP_progressive_lod (or the
-// legacy extras.LOCAL_progressive fallback), and validates it against the JSON
-// Schema under extensions/EP_progressive_lod/schema/. If `ajv` is installed
-// it is used for full draft-07 validation; otherwise the tool falls back to a
-// dependency-free structural check so it still runs in a bare checkout.
-//
-// Exit code 0 = conformant, 1 = non-conformant or no payload found.
 
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -48,10 +36,9 @@ async function tryAjv(schemas, payload) {
   try {
     ({ default: Ajv } = await import('ajv'));
   } catch {
-    return null; // ajv not installed
+    return null;
   }
   const ajv = new Ajv({ allErrors: true, strict: false });
-  // Register sub-schemas under their $ref filenames.
   for (const [name, schema] of Object.entries(schemas)) {
     if (name !== 'glTF.EP_progressive_lod.schema.json') ajv.addSchema(schema, name);
   }

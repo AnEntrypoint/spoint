@@ -29,7 +29,7 @@ const pool = new ModelPool({ scene, renderer, camera, useGlobalMaterialPool: fal
 window.__pool = pool;
 
 const handle = pool.spawn(url, { position: [0,0,0] });
-scene.add(handle.root); // caller attaches the entity root (proxy.root -> actualEntity.root on ready)
+scene.add(handle.root);
 handle.on('ready', () => {
   const ent = handle.actualEntity;
   window.__ent = ent;
@@ -37,9 +37,7 @@ handle.on('ready', () => {
   window.__mp.isCluster = !!(ent && ent.clusterMeshes && ent.clusterMeshes.length);
   window.__mp.clusterMeshCount = ent && ent.clusterMeshes ? ent.clusterMeshes.length : 0;
   window.__mp.trackedMeshes = ent ? ent.trackedMeshes.length : -1;
-  // expose first cluster mesh stats
   window.__clm = ent && ent.clusterMeshes && ent.clusterMeshes[0];
-  // fit camera
   if (window.__clm) { window.__clm.geometry.computeBoundingSphere(); const bs = window.__clm.geometry.boundingSphere; window.__bs = bs;
     window.__fit = (m)=>{ camera.position.set(bs.center.x, bs.center.y, bs.center.z + bs.radius*m); camera.lookAt(bs.center); camera.updateMatrixWorld(); };
     window.__fit(2.5);

@@ -1,8 +1,8 @@
 # streaming-gltf — agent notes
 
-Cluster-LOD glTF renderer. The whole pipeline is cluster-based; the old
-discrete/progressive sibling-LOD format and its bakers are gone (v2.0.0, no
-backwards compatibility).
+Cluster-LOD glTF renderer. Static geometry is cluster-based end to end; the
+discrete/progressive sibling-LOD format survives only for skinned primitives
+(see below). No backwards compatibility with pre-2.0.0 bakes.
 
 ## Format: EP_cluster_lod (single valid GLB)
 
@@ -26,14 +26,23 @@ each unskinned static primitive into:
   NO reorder/quantize — reorder would scramble the cluster offset table). The
   baker also strips the now-dead `KHR_draco_mesh_compression` so stock loaders
   need no DRACOLoader.
+- The baker runs `dedup()` only: never the `meshopt()` transform (its `reorder()`
+  scrambles the cluster offset table) and never `prune()` (it garbage-collects the
+  coarse accessors, which only extras reference). `_fixCoarseIndexEncoding` finds
+  each coarse accessor by name after write, appends its indices uncompressed in a
+  new bufferView, and patches its final index into `coarseIndexAccessor`.
 
-Skinned / morph-target primitives are left untouched (cluster-LOD is static-only;
-VRM players keep their own path).
+Skinned / morph-target primitives are not clustered (cluster-LOD is static-only).
+`_bakeSkinnedLods` writes meshopt-simplified discrete siblings (ratios 0.4, 0.15)
+under `<outDir>/lods/` and splices `extensions.EP_progressive_lod` into the root
+JSON chunk, always with `textures: []` because `model-pool.js` iterates it; the
+runtime swaps sibling geometry onto the root's skeleton.
 
 ## Runtime
 
-`src/meshlet-codec.js` holds the bake-side `buildClusterLod`
-+ the browser-safe `parseClusterLod`/`attachClusterLod`.
+`src/meshlet-codec.js` holds the bake-side `buildClusterLod`/`buildClusterLodExtra`
+and the browser-safe `parseClusterLod`; `attachClusterLod` lives in
+`src/cluster-lod-mesh.js`.
 
 `src/cluster-lod-mesh.js` `ClusterLodMesh` (a `THREE.Mesh`)
 holds the unified geometry (LOD0 + coarse concatenated into one element buffer) and
@@ -42,9 +51,9 @@ bounding sphere, picks a LOD per visible cluster by projected screen size (with
 hysteresis), and declares the chosen index ranges as geometry GROUPS -- three's
 normal pipeline then issues one `drawElements` per group with the correct VAO/
 attributes (NOT a raw `WEBGL_multi_draw` call: `onBeforeRender` fires before three
-binds the VAO, so a manual multi-draw there hit stale buffer state -- see the
-inline comment in `_render()`). `drawRange` is left at the full index span so an
-empty group set still falls back to drawing the complete LOD0.
+binds the VAO, so a manual multi-draw there hit stale buffer state). When no
+cluster survives culling, `_render()` emits one fallback group spanning the full
+LOD0, and the constructor seeds that same group for the first frame.
 
 `model-pool.js` detects `EP_cluster_lod` at asset load, prepares the cluster
 geometry once, and each spawned `Entity` renders a `ClusterLodMesh` — bypassing
@@ -70,13 +79,7 @@ a moving/disappearing occluder doesn't leave it permanently hidden.
 `manifest.json`, bakes each source to `../assets/streaming-cluster/<name>.cluster.glb`,
 and writes `manifest.cluster.json`. Run heavy bakes as separate `node` processes,
 never inline in a long-lived host (large clustering OOMs an in-process worker).
-
-## Test
-
-`node test.js` (or `npm test`) is the single real-services witness: it bakes a
-real GLB through `bakeCluster` and asserts the format invariants via a real
-gltf-transform + meshoptimizer read-back (LOD0-sum == `primitive.indices`, all
-ranges in-bounds and multiple-of-3, stream tagging, coarse accessor count,
-EXT_meshopt_compression present, no draco). Keep it mock-free and <=200 lines.
+`SPOINT_NO_MESHOPT=1` skips the `EXT_meshopt_compression` write, for isolating
+client-side meshopt decode when on-disk and browser-decoded geometry disagree.
 
 @.gm/next-step.md
