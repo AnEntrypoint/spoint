@@ -1,3 +1,17 @@
+const HIT_EVENT = 'hit-feedback'
+const HEAL_EVENT = 'heal-feedback'
+const DAMAGE_PER_IMPULSE_UNIT = 10
+
+function toVec3(v) {
+  if (Array.isArray(v)) return [v[0] || 0, v[1] || 0, v[2] || 0]
+  if (v && typeof v === 'object') return [v.x || 0, v.y || 0, v.z || 0]
+  return null
+}
+
+function toPoint(v) {
+  return Array.isArray(v) ? { x: v[0], y: v[1], z: v[2] } : null
+}
+
 export default {
   description: 'Hit feedback system: screen shake and sound effects via backend. UI delegated to design-kit DamageNumbers component.',
   server: {
@@ -7,156 +21,74 @@ export default {
       { key: 'soundVolume', label: 'Hit sound volume', type: 'range', min: 0, max: 1, step: 0.1, default: 0.8 }
     ],
     setup(ctx) {
-      const c = ctx.config || {}
       ctx.state.lastDamageTime = 0
-      ctx.state.damageQueue = []
 
-      ctx.bus.on('damage', (event) => {
-        const { by, target, amount, position, direction } = event
-        if (target !== ctx.entity.id) return
-
+      ctx.bus.on('damage', ({ data }) => {
+        if (!data || data.target !== ctx.entity.id) return
+        const cfg = ctx.config
+        const amount = data.amount || 0
+        const direction = toVec3(data.direction)
         ctx.state.lastDamageTime = Date.now()
-        ctx.state.damageQueue.push({
-          amount: amount || 0,
-          position: position || ctx.entity.position,
-          direction: direction || null,
-          by: by || null,
-          timestamp: Date.now()
+        ctx.players.broadcast({
+          type: HIT_EVENT,
+          entityId: ctx.entity.id,
+          amount,
+          position: toVec3(data.position) || [...ctx.entity.position],
+          direction,
+          from: data.by ?? null,
+          screenShakeIntensity: cfg.screenShakeIntensity ?? 1,
+          showDamageNumbers: cfg.showDamageNumbers !== false,
+          soundVolume: cfg.soundVolume ?? 0.8
         })
-
-        const payload = {
-          damage: {
-            amount: amount || 0,
-            position: position || [ctx.entity.position.x, ctx.entity.position.y, ctx.entity.position.z],
-            direction: direction || null,
-            from: by || null,
-            config: {
-              screenShakeIntensity: c.screenShakeIntensity ?? 1,
-              showDamageNumbers: c.showDamageNumbers !== false,
-              soundVolume: c.soundVolume ?? 0.8
-            }
-          }
-        }
-
-        ctx.bus.emit('hit-feedback', payload)
-
-        if (ctx.physics?.applyImpulse && direction) {
-          const impulseScale = (amount || 0) / 10
-          ctx.physics.applyImpulse({
-            x: (direction.x || 0) * impulseScale,
-            y: 0,
-            z: (direction.z || 0) * impulseScale
-          })
+        if (direction && ctx.entity.bodyType === 'dynamic') {
+          const scale = amount / DAMAGE_PER_IMPULSE_UNIT
+          ctx.world.applyImpulse(ctx.entity.id, [direction[0] * scale, 0, direction[2] * scale])
         }
       })
 
-      ctx.bus.on('heal', (event) => {
-        const { target, amount } = event
-        if (target !== ctx.entity.id) return
-
-        ctx.bus.emit('heal-feedback', {
-          heal: {
-            amount: amount || 0,
-            position: [ctx.entity.position.x, ctx.entity.position.y, ctx.entity.position.z]
-          }
+      ctx.bus.on('heal', ({ data }) => {
+        if (!data || data.target !== ctx.entity.id) return
+        ctx.players.broadcast({
+          type: HEAL_EVENT,
+          entityId: ctx.entity.id,
+          amount: data.amount || 0,
+          position: toVec3(data.position) || [...ctx.entity.position],
+          showDamageNumbers: ctx.config.showDamageNumbers !== false
         })
-      })
-
-      ctx.onConfigChange?.((cfg) => {
-        if (cfg) {
-          c.screenShakeIntensity = cfg.screenShakeIntensity ?? c.screenShakeIntensity
-          c.showDamageNumbers = cfg.showDamageNumbers !== false
-          c.soundVolume = cfg.soundVolume ?? 0.8
-        }
       })
     }
   },
   client: {
-    setup(ctx, entities) {
-      const c = ctx.config || {}
-      let damageEffects = null
-      let damageNumbersComponent = null
-
-      ctx.bus.on('hit-feedback', (event) => {
-        const { damage } = event
-        if (!damageEffects) return
-
-        const worldPos = damage.position ? {
-          x: damage.position[0],
-          y: damage.position[1],
-          z: damage.position[2]
-        } : null
-
-        damageEffects.triggerDamage(damage.amount, worldPos, {
-          hitDirection: damage.direction,
-          soundVolume: damage.config?.soundVolume ?? 0.8,
-          screenShakeIntensity: damage.config?.screenShakeIntensity ?? 1,
-          showNumbers: damage.config?.showDamageNumbers !== false
+    setup(engine) {
+      engine._hitFeedback = { effects: null }
+    },
+    onEvent(payload, engine) {
+      const type = payload?.type
+      if (type !== HIT_EVENT && type !== HEAL_EVENT) return
+      const hf = engine._hitFeedback
+      if (!hf) return
+      const point = toPoint(payload.position)
+      if (type === HIT_EVENT) {
+        hf.effects ||= window.__damageEffects?.createDamageEffects?.(engine.scene, engine.camera, null) || null
+        hf.effects?.triggerDamage(payload.amount, point, {
+          hitDirection: payload.direction,
+          soundVolume: payload.soundVolume,
+          screenShakeIntensity: payload.screenShakeIntensity,
+          showNumbers: payload.showDamageNumbers
         })
-
-        if (damageNumbersComponent && damage.config?.showDamageNumbers !== false) {
-          const DamageNumbers = window.__DamageNumbers
-          if (DamageNumbers && typeof DamageNumbers.addNumber === 'function') {
-            const color = damage.amount > 25 ? '#ff0000' : '#ff4444'
-            const size = 32 + (damage.amount / 10)
-            DamageNumbers.addNumber({
-              damage: damage.amount,
-              position: worldPos,
-              color,
-              size
-            })
-          }
-        }
-      })
-
-      ctx.bus.on('heal-feedback', (event) => {
-        const { heal } = event
-        if (!damageNumbersComponent) return
-
-        const worldPos = heal.position ? {
-          x: heal.position[0],
-          y: heal.position[1],
-          z: heal.position[2]
-        } : null
-
-        const DamageNumbers = window.__DamageNumbers
-        if (DamageNumbers && typeof DamageNumbers.addNumber === 'function') {
-          DamageNumbers.addNumber({
-            damage: heal.amount,
-            position: worldPos,
-            color: '#00ff00',
-            size: 28,
-            isHeal: true
-          })
-        }
-      })
-
-      return {
-        onUpdate(dt) {
-          if (damageEffects && typeof damageEffects.update === 'function') {
-            damageEffects.update()
-          }
-        },
-        onClientRender(renderContext) {
-          if (!damageEffects && renderContext.scene && renderContext.camera) {
-            try {
-              const DamageEffectsModule = window.__damageEffects || {}
-              if (DamageEffectsModule.createDamageEffects) {
-                damageEffects = DamageEffectsModule.createDamageEffects(
-                  renderContext.scene,
-                  renderContext.camera,
-                  renderContext.audioListener,
-                  c
-                )
-              }
-            } catch (_) {}
-          }
-
-          if (!damageNumbersComponent && window.__DamageNumbers) {
-            damageNumbersComponent = window.__DamageNumbers
-          }
-        }
       }
+      if (payload.showDamageNumbers === false || !point) return
+      const heal = type === HEAL_EVENT
+      window.__DamageNumbers?.addNumber({
+        damage: payload.amount,
+        position: point,
+        color: heal ? '#00ff00' : payload.amount > 25 ? '#ff0000' : '#ff4444',
+        size: heal ? 28 : 32 + payload.amount / 10,
+        isHeal: heal
+      })
+    },
+    onFrame(dt, engine) {
+      engine._hitFeedback?.effects?.update()
     }
   }
 }
