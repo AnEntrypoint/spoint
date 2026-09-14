@@ -62,8 +62,8 @@ the submodule's own `main`, push to that repo's remote, then commit the new gitl
 `https://esm.sh/three@r128` keys to the local three so the kit's ModelPreview never loads a second
 three (`project/importmap-esmsh-three-dedupe`); COEP `require-corp` means every kit CDN must send CORP. The importmap must precede any module load/preload. No npm dependency on the
 kit (a second copy would silently disagree with the importmap). `nostr-tools` is injected into
-wireweave from `client/vendor/nostr-tools.mjs`. Pin a wireweave SHA if a build must be reproducible;
-`cross-repo-ci.yml` tests against wireweave@main daily. gmsniff and agentgui deliberately vendor the kit.
+wireweave from `client/vendor/nostr-tools.mjs`. Pin a wireweave SHA if a build must be reproducible; no CI in this repo tests against wireweave@main
+(the repo has no .github workflows). gmsniff and agentgui deliberately vendor the kit.
 Add a fourth submodule only with a documented runtime mechanism.
 
 ## All GUI lives in AnEntrypoint/design (`project/gui-kit-architecture-2026-08-21`)
