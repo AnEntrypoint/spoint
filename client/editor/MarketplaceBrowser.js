@@ -1,28 +1,6 @@
-/**
- * MarketplaceBrowser.js -- In-client marketplace browser panel for the spoint editor.
- *
- * This is the FIRST SLICE of plugin-marketplace-in-client-browser: a panel that
- * fetches the registry index, renders a searchable list of app/skill names and
- * descriptions, and shows app details (manifest). Install flow is deferred to a
- * sibling row (marketplace-browser-install-flow).
- *
- * Mount it from an app's client.setup() via ctx.editor.mountPanel():
- *   ctx.editor.mountPanel({ slot: 'inspector', label: 'Marketplace', render: createMarketplaceBrowser({ registryUrl }) })
- *
- * Or import directly in the editor shell:
- *   import { createMarketplaceBrowser } from './MarketplaceBrowser.js'
- */
-
 import { h } from 'anentrypoint-design'
 import { getSharedWM, Btn, Toolbar, SearchInput, EmptyState } from './wm/ui.js'
 
-/**
- * Create a marketplace browser panel.
- *
- * @param {object} opts
- * @param {string} [opts.registryUrl='http://localhost:3100'] - registry server URL
- * @returns {function} render(container) - call with a DOM container when mounted
- */
 export function createMarketplaceBrowser(opts = {}) {
   const registryUrl = opts.registryUrl || 'http://localhost:3100'
 
@@ -31,9 +9,8 @@ export function createMarketplaceBrowser(opts = {}) {
   let _selected = null
   let _loading = false
   let _error = null
-  let _filterKind = 'all' // 'all' | 'app' | 'skill'
+  let _filterKind = 'all'
 
-  /** Fetch the registry index */
   async function fetchIndex() {
     _loading = true
     _error = null
@@ -51,7 +28,6 @@ export function createMarketplaceBrowser(opts = {}) {
     }
   }
 
-  /** Fetch a single manifest */
   async function fetchManifest(name) {
     _selected = null
     render()
@@ -66,7 +42,6 @@ export function createMarketplaceBrowser(opts = {}) {
     }
   }
 
-  /** Filtered and sorted entries */
   function filteredEntries() {
     let list = _entries
     if (_search) {
@@ -89,7 +64,6 @@ export function createMarketplaceBrowser(opts = {}) {
     if (!_container) return
     _container.innerHTML = ''
 
-    // Toolbar
     const toolbar = document.createElement('div')
     toolbar.style.cssText = 'display:flex;align-items:center;gap:6px;padding:4px 0;flex-shrink:0'
     toolbar.innerHTML = ''
@@ -121,7 +95,6 @@ export function createMarketplaceBrowser(opts = {}) {
     toolbar.append(searchInput, kindSelect, refreshBtn)
     _container.appendChild(toolbar)
 
-    // Content area
     const content = document.createElement('div')
     content.style.cssText = 'flex:1;min-height:0;overflow-y:auto'
 
@@ -217,7 +190,6 @@ export function createMarketplaceBrowser(opts = {}) {
 
     container.append(title, kind, desc, author)
 
-    // Skill-specific details
     if (m.kind === 'skill' && m.skill) {
       const skillDiv = document.createElement('div')
       skillDiv.style.cssText = 'margin-top:8px;padding:8px;background:var(--ds-bg-hover);border-radius:4px;font-size:11px'
@@ -241,7 +213,6 @@ export function createMarketplaceBrowser(opts = {}) {
       container.appendChild(skillDiv)
     }
 
-    // Tags
     if (m.tags && m.tags.length > 0) {
       const tagsDiv = document.createElement('div')
       tagsDiv.style.cssText = 'margin-top:8px;display:flex;gap:4px;flex-wrap:wrap'
@@ -254,7 +225,6 @@ export function createMarketplaceBrowser(opts = {}) {
       container.appendChild(tagsDiv)
     }
 
-    // Dependencies
     if (m.dependencies && Object.keys(m.dependencies).length > 0) {
       const depsDiv = document.createElement('div')
       depsDiv.style.cssText = 'margin-top:8px;font-size:11px'
@@ -271,10 +241,8 @@ export function createMarketplaceBrowser(opts = {}) {
     }
   }
 
-  // Initial fetch
   fetchIndex()
 
-  // Return the render function for mountPanel
   return (container) => {
     _container = container
     if (container) {

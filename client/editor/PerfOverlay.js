@@ -1,14 +1,3 @@
-// PerfOverlay.js — per-app tick cost / per-entity draw contribution profiling overlay.
-// Reads from the live frame graph timing (window.__renderGraph.stats()) and TickHandler's
-// per-phase timers (window.__tickProfile) to show a compact overlay that can be toggled
-// via the command palette or the debug modes dropdown.
-//
-// Renders as a small DOM overlay in the top-right of the viewport (below the editor toolbar).
-// Clicking an entity row selects it in the editor.
-//
-// Integration:
-//   - client/app.js: PerfOverlay.install({ onSelectEntity })
-
 let _root = null, _visible = false, _interval = null, _onSelectEntity = null
 const UPDATE_INTERVAL_MS = 500
 
@@ -24,7 +13,6 @@ function _createRoot() {
 function _readFrameStats() {
   const stats = { fps: 0, tickMs: 0, tickPhases: {}, drawMs: 0, drawNodes: [] }
 
-  // Read from window.__renderGraph (RenderGraph stats)
   try {
     const rg = window.__renderGraph
     if (rg && rg.stats) {
@@ -40,7 +28,6 @@ function _readFrameStats() {
     }
   } catch (_) {}
 
-  // Read from window.__tickProfile (TickHandler phase timers)
   try {
     const tp = window.__tickProfile
     if (tp) {
@@ -53,7 +40,6 @@ function _readFrameStats() {
     }
   } catch (_) {}
 
-  // Read fps from window.__fps or the editor's setFps
   try {
     const fps = window.__fps || window.__app?.fps || 0
     stats.fps = fps | 0
@@ -63,7 +49,6 @@ function _readFrameStats() {
 }
 
 function _readAppTimings() {
-  // Read per-app tick costs from window.__appProfile if available
   try {
     const ap = window.__appProfile
     if (ap && ap.apps) return ap.apps
@@ -82,7 +67,6 @@ function _render() {
   html += `<span>draw ${stats.drawMs.toFixed(2)}ms</span>`
   html += '</div>'
 
-  // Tick phases
   if (Object.keys(stats.tickPhases).length) {
     html += '<div style="margin-bottom:4px;color:rgba(255,255,255,0.6)">Tick phases:</div>'
     const phases = Object.entries(stats.tickPhases).sort((a, b) => b[1] - a[1])
@@ -92,7 +76,6 @@ function _render() {
     }
   }
 
-  // Draw nodes (top 10 by time)
   if (stats.drawNodes.length) {
     html += '<div style="margin:4px 0;color:rgba(255,255,255,0.6)">Render nodes:</div>'
     const sorted = stats.drawNodes.sort((a, b) => b.ms - a.ms).slice(0, 10)
@@ -102,7 +85,6 @@ function _render() {
     }
   }
 
-  // App timings
   if (appTimings.length) {
     html += '<div style="margin:4px 0;color:rgba(255,255,255,0.6)">App tick costs:</div>'
     const sorted = appTimings.sort((a, b) => (b.ms || 0) - (a.ms || 0)).slice(0, 10)
@@ -113,7 +95,6 @@ function _render() {
 
   _root.innerHTML = html
 
-  // Wire click-to-select on entity rows
   _root.querySelectorAll('[data-entity-id]').forEach(el => {
     const eid = el.getAttribute('data-entity-id')
     if (eid && _onSelectEntity) {

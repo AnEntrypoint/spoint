@@ -1,13 +1,3 @@
-// EditorFsBrowse: in-browser file browser over the REAL apps/ tree (full recursive tree, not the
-// per-app flat LIST_APP_FILES list EditorApps.js uses). UI/UX adapted from ../thebird/docs/fsbrowse-app.js
-// (crumbs, list, new file/folder, rename, delete, open-in-editor) but every operation is a real wire call
-// (LIST_FS_TREE/GET_SOURCE/SAVE_SOURCE/MKDIR/DELETE_FILE/RENAME_FILE) against the server's real fs, not
-// thebird's per-instance IndexedDB store -- so there is no .keep-marker-for-empty-dirs workaround (a real
-// empty directory just IS empty) and directory rename is a single real fs.renameSync, not thebird's
-// read-all/write-all/delete-all IDB-workaround shape.
-//
-// Imperative DOM (not webjsx diff) for the list, matching EditorApps.js's own documented reason: the
-// reconciler has dropped a tree-item's 2nd (nested) child on re-render in this codebase before.
 import { createElement as h, applyDiff } from 'webjsx'
 import { showToast, showConfirm } from './EditPanelDOM.js'
 import { Btn, Toolbar, SearchInput, promptText, getSharedWM } from './wm/ui.js'
@@ -23,10 +13,6 @@ function join(a, b) { a = norm(a); b = norm(b); return a ? (b ? a + '/' + b : a)
 function parent(p) { p = norm(p); const i = p.lastIndexOf('/'); return i < 0 ? '' : p.slice(0, i) }
 function base(p) { p = norm(p); const i = p.lastIndexOf('/'); return i < 0 ? p : p.slice(i + 1) }
 
-// Resolves a full-tree-relative path (e.g. "foo/sub/bar.js") into the {appName,file} shape
-// GET_SOURCE/SAVE_SOURCE already speak (appName = first path segment, file = the rest, defaulting
-// to 'index.js' for a bare app-dir path) -- this is the ONLY place that split lives, so the wire
-// protocol doesn't need a whole second get/save-source-by-full-path pair.
 function splitAppPath(path) {
   const p = norm(path)
   const i = p.indexOf('/')
@@ -34,7 +20,6 @@ function splitAppPath(path) {
   return { appName: p.slice(0, i), file: p.slice(i + 1) }
 }
 
-// Finds the {type,name,size,binary} node at `path` by walking the tree from LIST_FS_TREE's root array.
 function findNode(tree, path) {
   const parts = norm(path).split('/').filter(Boolean)
   let level = tree, node = null
@@ -213,7 +198,6 @@ export function createEditorFsBrowse(container, { onListTree, onGetSource, onSav
     ta.style.cssText = 'width:100%;height:100%;box-sizing:border-box;background:var(--panel-0,#1e1e1e);color:var(--panel-text,#d4d4d4);font:12px/1.5 var(--ff-mono,monospace);border:none;padding:12px;resize:none;outline:none'
     ta.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); onSave?.(_openFile, ta.value, _pendingSave?.mtimeMs) } })
     mountEl.appendChild(ta)
-    // window.monaco may already be warm from EditorApps' own editor pane; reuse it if so, else stay on the textarea fallback.
     if (window.monaco) {
       try {
         mountEl.removeChild(ta)
@@ -271,14 +255,12 @@ export function createEditorFsBrowse(container, { onListTree, onGetSource, onSav
 
   return {
     render,
-    // LIST_FS_TREE response
     setTree(tree, error) {
       _loading = false
       _unavailable = error || null
       _tree = tree || []
       if (!_openFile) renderList()
     },
-    // GET_SOURCE response, keyed by the full path this panel asked for
     setSource(path, source, mtimeMs, binary, conflict, diskSource, error) {
       if (path !== _openFile) return
       if (conflict) {
@@ -286,19 +268,14 @@ export function createEditorFsBrowse(container, { onListTree, onGetSource, onSav
         _pendingSave = { source: diskSource, mtimeMs }
         return
       }
-      // A GET_SOURCE/SAVE_SOURCE failure (e.g. singleplayer's "cannot save non-index files" or a
-      // real fs error) was silently dropped here before -- the editor looked like it saved
-      // successfully (or loaded empty content) with no indication anything went wrong.
       if (error) { showToast(error, 'error'); if (source == null) return }
       _pendingSave = { source, mtimeMs }
       if (_openFile) render()
     },
-    // FS_OP_RESULT response (mkdir/delete/rename ack)
     onOpResult(op, ok, error) {
       if (ok) { showToast(op + ' ok', 'success') }
       else showToast(op + ' failed: ' + (error || 'unknown'), 'error')
     },
-    // FS_TREE_CHANGED push (external-agent edit, or another client's op) -- re-list live.
     onTreeChanged() { onListTree?.() },
     get currentDir() { return _cwd },
     splitAppPath

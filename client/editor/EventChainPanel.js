@@ -1,11 +1,6 @@
 import { h, applyDiff } from 'anentrypoint-design'
 import { EventChainManager } from '/src/game/EventChainManager.js'
 
-/**
- * createEventChainPanel
- * Full-featured visual GUI panel for editing, wiring, testing, and debugging
- * Universal Game Event Chains in the spoint editor.
- */
 export function createEventChainPanel(container, {
   manager = null,
   onChainChange = null,
@@ -21,7 +16,6 @@ export function createEventChainPanel(container, {
   let knownEntities = []
   let knownApps = []
 
-  // Ensure default initial chain if empty
   if (mgr.getChains().length === 0) {
     mgr.addChain({
       id: 'chain_interact_door',
@@ -39,20 +33,17 @@ export function createEventChainPanel(container, {
     })
   }
 
-  // Pre-select first chain
   const chains = mgr.getChains()
   if (chains.length > 0) {
     selectedChainId = chains[0].id
   }
 
-  // Subscribe to manager logs
   mgr.onLog((logEntry) => {
     logs.unshift(logEntry)
     if (logs.length > 100) logs.pop()
     render()
   })
 
-  // DOM Mount structure
   const root = document.createElement('div')
   root.className = 'ds-ep-event-chain-panel'
   root.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column;background:var(--panel-bg, #141416);color:var(--panel-text, #e0e0e0);font-family:var(--ff-mono, monospace);font-size:12px;overflow:hidden'
@@ -73,26 +64,20 @@ export function createEventChainPanel(container, {
     }
 
     const vnode = h('div', { style: 'flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden' }, [
-      // Top Toolbar
       renderToolbar(currentChains, activeChain),
 
-      // Main Split Body
       h('div', { style: 'flex:1;min-height:0;display:flex;flex-direction:row;overflow:hidden' }, [
-        // Left Sidebar: Chain List
         renderChainList(currentChains, activeChain),
 
-        // Right Main Area: Node Editor & Visual Graph
         renderChainDetail(activeChain)
       ]),
 
-      // Bottom Console / Event Logs
       renderLogConsole()
     ])
 
     applyDiff(root, [vnode])
   }
 
-  // Top Toolbar
   function renderToolbar(currentChains, activeChain) {
     return h('div', {
       style: 'display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--panel-1, #1e1e24);border-bottom:1px solid var(--rule, #2d2d35);gap:8px;flex-wrap:wrap'
@@ -103,7 +88,6 @@ export function createEventChainPanel(container, {
       ]),
 
       h('div', { style: 'display:flex;align-items:center;gap:6px' }, [
-        // New Chain Button
         h('button', {
           class: 'wm-btn',
           style: 'padding:4px 8px;font-size:11px;background:var(--accent, #50a0ff);color:#fff;border:none;border-radius:4px;cursor:pointer',
@@ -121,7 +105,6 @@ export function createEventChainPanel(container, {
           }
         }, '+ New Chain'),
 
-        // Test Selected Chain Button
         h('button', {
           class: 'wm-btn',
           style: 'padding:4px 8px;font-size:11px;background:var(--success, #28a745);color:#fff;border:none;border-radius:4px;cursor:pointer',
@@ -138,7 +121,6 @@ export function createEventChainPanel(container, {
           }
         }, '▶ Test Chain'),
 
-        // Preset Templates Menu
         h('select', {
           style: 'padding:4px;font-size:11px;background:var(--panel-2, #2a2a32);color:var(--panel-text);border:1px solid var(--rule);border-radius:4px',
           onchange: (e) => {
@@ -155,7 +137,6 @@ export function createEventChainPanel(container, {
           h('option', { value: 'collision' }, '💥 Collision Damage & Sound')
         ]),
 
-        // Export JSON
         h('button', {
           class: 'wm-btn',
           style: 'padding:4px 8px;font-size:11px;background:var(--panel-2);color:var(--panel-text);border:1px solid var(--rule);border-radius:4px;cursor:pointer',
@@ -166,7 +147,6 @@ export function createEventChainPanel(container, {
           }
         }, 'Export JSON'),
 
-        // Import JSON
         h('button', {
           class: 'wm-btn',
           style: 'padding:4px 8px;font-size:11px;background:var(--panel-2);color:var(--panel-text);border:1px solid var(--rule);border-radius:4px;cursor:pointer',
@@ -189,7 +169,6 @@ export function createEventChainPanel(container, {
     ])
   }
 
-  // Left Sidebar: Chain List
   function renderChainList(currentChains, activeChain) {
     return h('div', {
       style: 'width:240px;min-width:200px;background:var(--panel-1, #18181c);border-right:1px solid var(--rule, #2d2d35);display:flex;flex-direction:column;overflow-y:auto'
@@ -229,7 +208,6 @@ export function createEventChainPanel(container, {
                   ])
                 ]),
 
-                // Delete Button
                 h('button', {
                   style: 'background:none;border:none;color:var(--warn, #ff5555);cursor:pointer;font-size:12px;padding:2px 4px',
                   title: 'Delete Chain',
@@ -250,14 +228,12 @@ export function createEventChainPanel(container, {
     ])
   }
 
-  // Right Main Area: Node Editor & Visual Graph
   function renderChainDetail(chain) {
     if (!chain) {
       return h('div', { style: 'flex:1;display:flex;align-items:center;justify-content:center;color:var(--panel-text-3)' }, 'Select or create an event chain to edit.')
     }
 
     return h('div', { style: 'flex:1;min-height:0;display:flex;flex-direction:column;overflow-y:auto;padding:12px;gap:12px;background:var(--panel-bg, #141416)' }, [
-      // Chain Meta Header
       h('div', { style: 'display:flex;align-items:center;gap:12px;background:var(--panel-1, #1e1e24);padding:10px 14px;border-radius:8px;border:1px solid var(--rule)' }, [
         h('label', { style: 'font-weight:600;font-size:11px;color:var(--panel-text-3)' }, 'Chain Name:'),
         h('input', {
@@ -283,21 +259,16 @@ export function createEventChainPanel(container, {
         ])
       ]),
 
-      // Visual Node Graph Wiring Diagram
       renderGraphDiagram(chain),
 
-      // 1. TRIGGER SECTION
       renderTriggerSection(chain),
 
-      // 2. CONDITIONS SECTION
       renderConditionsSection(chain),
 
-      // 3. ACTIONS & DELAYS SECTION
       renderActionsSection(chain)
     ])
   }
 
-  // Interactive Visual Wiring Diagram (SVG)
   function renderGraphDiagram(chain) {
     const triggerLabel = `Trigger: ${chain.trigger?.type || 'onInteract'} (${chain.trigger?.entityId || '*'})`
     const condCount = chain.conditions?.length || 0
@@ -310,7 +281,6 @@ export function createEventChainPanel(container, {
       h('div', { style: 'font-size:10px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:1px' }, 'VISUAL EVENT FLOW WIRING'),
       
       h('div', { style: 'display:flex;align-items:center;gap:12px;overflow-x:auto;padding:8px 4px' }, [
-        // Trigger Node Card
         h('div', {
           style: 'min-width:140px;padding:8px 12px;background:rgba(80,160,255,0.15);border:1px solid var(--accent);border-radius:6px;display:flex;flex-direction:column;gap:2px'
         }, [
@@ -319,10 +289,8 @@ export function createEventChainPanel(container, {
           h('span', { style: 'font-size:9px;color:var(--panel-text-3)' }, `Target: ${chain.trigger?.entityId || '*'}`)
         ]),
 
-        // Arrow 1
         h('span', { style: 'color:var(--accent);font-size:14px;font-weight:700' }, '➔'),
 
-        // Conditions Node Card
         h('div', {
           style: `min-width:140px;padding:8px 12px;background:${condCount > 0 ? 'rgba(255,193,7,0.15)' : 'rgba(255,255,255,0.05)'};border:1px solid ${condCount > 0 ? '#ffc107' : 'var(--rule)'};border-radius:6px;display:flex;flex-direction:column;gap:2px`
         }, [
@@ -331,10 +299,8 @@ export function createEventChainPanel(container, {
           h('span', { style: 'font-size:9px;color:var(--panel-text-3)' }, condCount > 0 ? chain.conditions.map(c => c.type).join(', ') : 'Always True')
         ]),
 
-        // Arrow 2
         h('span', { style: 'color:var(--accent);font-size:14px;font-weight:700' }, '➔'),
 
-        // Actions Sequence Node Card
         h('div', {
           style: 'flex:1;min-width:180px;padding:8px 12px;background:rgba(40,167,69,0.15);border:1px solid #28a745;border-radius:6px;display:flex;flex-direction:column;gap:4px'
         }, [
@@ -351,7 +317,6 @@ export function createEventChainPanel(container, {
     ])
   }
 
-  // 1. Trigger Section
   function renderTriggerSection(chain) {
     const trigger = chain.trigger || { type: 'onInteract', entityId: '*' }
 
@@ -364,7 +329,6 @@ export function createEventChainPanel(container, {
       ]),
 
       h('div', { style: 'display:grid;grid-template-columns:1fr 1fr;gap:10px' }, [
-        // Trigger Type
         h('div', { style: 'display:flex;flex-direction:column;gap:4px' }, [
           h('label', { style: 'font-size:10px;color:var(--panel-text-3)' }, 'Trigger Event Type:'),
           h('select', {
@@ -385,7 +349,6 @@ export function createEventChainPanel(container, {
           ])
         ]),
 
-        // Target Entity ID
         h('div', { style: 'display:flex;flex-direction:column;gap:4px' }, [
           h('label', { style: 'font-size:10px;color:var(--panel-text-3)' }, 'Source Entity / Filter:'),
           h('select', {
@@ -404,7 +367,6 @@ export function createEventChainPanel(container, {
         ])
       ]),
 
-      // Type Specific Secondary Input
       trigger.type === 'onEnterZone' ? h('div', { style: 'display:flex;align-items:center;gap:8px;margin-top:4px' }, [
         h('label', { style: 'font-size:10px;color:var(--panel-text-3)' }, 'Zone ID:'),
         h('input', {
@@ -434,7 +396,6 @@ export function createEventChainPanel(container, {
     ])
   }
 
-  // 2. Conditions Section
   function renderConditionsSection(chain) {
     const conditions = chain.conditions || []
 
@@ -465,7 +426,6 @@ export function createEventChainPanel(container, {
             conditions.map((cond, idx) => h('div', {
               style: 'display:flex;align-items:center;gap:8px;padding:6px;background:var(--panel-2);border:1px solid var(--rule);border-radius:4px;flex-wrap:wrap'
             }, [
-              // Condition Type
               h('select', {
                 style: 'padding:3px;font-size:11px;background:var(--panel-1);color:var(--panel-text);border:1px solid var(--rule);border-radius:3px',
                 value: cond.type,
@@ -479,7 +439,6 @@ export function createEventChainPanel(container, {
                 h('option', { value: 'ifItemInInventory' }, 'If Item in Inventory')
               ]),
 
-              // Variable or Item Name Inputs
               cond.type === 'ifVariable' ? h('input', {
                 type: 'text',
                 placeholder: 'variableName',
@@ -500,7 +459,6 @@ export function createEventChainPanel(container, {
                 }
               }),
 
-              // Operator Select
               h('select', {
                 style: 'padding:3px;font-size:11px;background:var(--panel-1);color:var(--panel-text);border:1px solid var(--rule);border-radius:3px',
                 value: cond.operator || '==',
@@ -519,7 +477,6 @@ export function createEventChainPanel(container, {
                 h('option', { value: 'contains' }, 'contains')
               ]),
 
-              // Target Value
               h('input', {
                 type: 'text',
                 placeholder: 'Target Value',
@@ -532,7 +489,6 @@ export function createEventChainPanel(container, {
                 }
               }),
 
-              // Remove Condition
               h('button', {
                 style: 'background:none;border:none;color:var(--warn, #ff5555);cursor:pointer;margin-left:auto',
                 onclick: () => {
@@ -547,7 +503,6 @@ export function createEventChainPanel(container, {
     ])
   }
 
-  // 3. Actions & Delays Section
   function renderActionsSection(chain) {
     const actions = chain.actions || []
 
@@ -582,7 +537,6 @@ export function createEventChainPanel(container, {
                 h('div', { style: 'display:flex;align-items:center;gap:6px' }, [
                   h('span', { style: 'font-weight:700;color:#28a745' }, `${idx + 1}.`),
                   
-                  // Action Type Selector
                   h('select', {
                     style: 'padding:3px 6px;font-size:11px;background:var(--panel-1);color:var(--panel-text);border:1px solid var(--rule);border-radius:3px;font-weight:600',
                     value: act.type,
@@ -603,7 +557,6 @@ export function createEventChainPanel(container, {
                 ]),
 
                 h('div', { style: 'display:flex;align-items:center;gap:4px' }, [
-                  // Reorder buttons
                   h('button', {
                     disabled: idx === 0,
                     style: 'padding:2px 4px;font-size:10px;background:none;border:1px solid var(--rule);color:var(--panel-text);border-radius:3px;cursor:pointer',
@@ -627,7 +580,6 @@ export function createEventChainPanel(container, {
                     }
                   }, '▼'),
 
-                  // Remove action
                   h('button', {
                     style: 'background:none;border:none;color:var(--warn, #ff5555);cursor:pointer;font-size:12px;margin-left:4px',
                     onclick: () => {
@@ -640,14 +592,12 @@ export function createEventChainPanel(container, {
                 ])
               ]),
 
-              // Action Parameters Detail Box
               renderActionDetailFields(act)
             ]))
           )
     ])
   }
 
-  // Render fields specific to each action type
   function renderActionDetailFields(act) {
     switch (act.type) {
       case 'playSound':
@@ -794,7 +744,6 @@ export function createEventChainPanel(container, {
     }
   }
 
-  // Bottom Console / Event Logs
   function renderLogConsole() {
     return h('div', {
       style: 'height:100px;background:var(--panel-1, #141418);border-top:1px solid var(--rule);display:flex;flex-direction:column;overflow:hidden'
@@ -823,7 +772,6 @@ export function createEventChainPanel(container, {
     ])
   }
 
-  // Preset Template Loader
   function loadPresetTemplate(type) {
     if (type === 'chest') {
       const c = mgr.addChain({
@@ -887,7 +835,6 @@ export function createEventChainPanel(container, {
     render()
   }
 
-  // Initial render call
   render()
 
   return {

@@ -53,19 +53,7 @@ export function createEditorAPI({ client, entityMeshes, MSG, sendEditorUpdate, g
         getSelected: () => getSelectedId(),
         select(id) { setSelectedId(id) },
         destroy(id) { client.send(MSG.DESTROY_ENTITY, { entityId: id }) },
-        // App-maker API contract: position always AUTHORITATIVE (local-frame) meters, matching
-        // getEntity/getServerEntity below and MSG.PLACE_APP/PLACE_MODEL's own position params -- an app
-        // calling update(id, {position: getEntity(id).position}) must round-trip correctly regardless of
-        // how far the session has floating-origin-rebased. sendEditorUpdate (app.js's closure) sends
-        // changes straight to the wire, so `changes.position` here is passed through UNCONVERTED (it is
-        // already authoritative per this contract, not the render-space mesh.position editor.js's OWN
-        // internal sendEditorUpdate has to convert -- that is a distinct function/closure from this one).
         update(id, changes) { sendEditorUpdate(id, changes) },
-        // Three.js mesh transform, may lag server; getServerEntity is authoritative. position is still
-        // converted through floatingOrigin.toAuthoritative here (matching _buildEntityData's inspector
-        // fix) since mesh.position itself is render-space -- an app reading getEntity(id).position must
-        // see the real local-frame coordinate, not a near-zero rebased one, or that same round-trip
-        // through update() above would silently teleport the entity near the render-space origin.
         getEntity(id) { const m = entityMeshes.get(id); if (!m) return null; const p = floatingOrigin ? floatingOrigin.toAuthoritative(m.position) : m.position; return { id, position: [p.x, p.y, p.z], rotation: m.quaternion.toArray(), scale: m.scale.toArray(), custom: m.userData.custom || {}, _appName: m.userData._appName || null } },
         getServerEntity(id) { return _lastEntities.find(e => e && e.id === id) || null },
         get entities() { return _lastEntities },

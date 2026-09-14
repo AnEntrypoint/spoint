@@ -1,5 +1,3 @@
-// Review/buffer staging layer for AGENT-authored app-code edits, in front of the SAVE_SOURCE disk-save pipeline. Human Ctrl+S (EditPanelEditor.js doSave) bypasses this entirely and saves directly.
-
 const DB_NAME = 'spoint-agent-staging'
 const DB_VERSION = 1
 const STORE = 'edits'
@@ -72,7 +70,6 @@ export function createAgentEditStaging({ getSource, saveSource } = {}) {
 
   function subscribe(fn) { _listeners.add(fn); return () => _listeners.delete(fn) }
 
-  // A 'persisting' entry on load means the page closed mid-write; re-mark 'dirty' rather than guess which value committed.
   async function loadAll() {
     const db = await _ensureDB()
     const rows = await idbGetAll(db)
@@ -119,7 +116,6 @@ export function createAgentEditStaging({ getSource, saveSource } = {}) {
     } catch (_) { return null }
   }
 
-  // Default aborts on conflict (disk changed since staging) unless force=true.
   async function commitOne(appName, file, { force = false } = {}) {
     const e = get(appName, file)
     if (!e) return { ok: false, error: 'nothing staged for ' + appName + '/' + file }

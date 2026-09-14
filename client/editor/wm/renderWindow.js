@@ -1,4 +1,3 @@
-// Vendored verbatim from ../thebird/docs/vendor/kits/os/wm.js. Pure DOM paint; WindowController.js owns z-order/focus/drag/resize math.
 export function renderWindow(opts = {}) {
     const {
         title = 'window',

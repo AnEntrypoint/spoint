@@ -1,22 +1,7 @@
-// editor-layers-panel: named-layer grouping on top of SceneHierarchy.js's existing per-entity
-// _locked/_hiddenInEditor sets. A layer is a client-side-only (like lock/hidden) named group with
-// its own visibility/lock toggle that cascades to every member entity's individual flags -- the
-// per-entity flags remain the single source of truth SceneHierarchy/editor.js/app.js already read,
-// so this module never introduces a second competing lock/hidden mechanism, only a bulk-apply layer
-// on top of it. Entity->layer assignment persists server-side via the existing generic custom.*
-// EDITOR_UPDATE merge (src/sdk/EditorHandlers.js's EDITOR_UPDATE handler already does
-// entity.custom={...entity.custom,...changes.custom} for ANY custom key with zero server-code
-// changes needed) under custom._layer, following the same convention custom._interactable/
-// custom._collider already use -- no new message type required.
 const DEFAULT_LAYER = 'Default'
 
 export function createLayerRegistry({ setLocked, setHidden, isLocked, isHidden, sendLayerUpdate } = {}) {
-  // name -> { visible: bool, locked: bool } -- layer-wide toggle state, independent of any one
-  // member's individual flag (a layer toggle cascades OUT to members; it doesn't read them back in,
-  // matching how a real-time multi-select "Lock (3)" toast already works one level up).
   const _layers = new Map([[DEFAULT_LAYER, { visible: true, locked: false }]])
-  // entityId -> layer name. Entities with no explicit assignment are DEFAULT_LAYER (mirrors every
-  // other custom.* field's own "absent means default" convention elsewhere in this codebase).
   const _memberLayer = new Map()
 
   function ensureLayer(name) {
@@ -26,9 +11,8 @@ export function createLayerRegistry({ setLocked, setHidden, isLocked, isHidden, 
   }
 
   function deleteLayer(name) {
-    if (name === DEFAULT_LAYER) return false // Default is not removable, same as most DCC tools' base layer
+    if (name === DEFAULT_LAYER) return false
     if (!_layers.has(name)) return false
-    // Members fall back to Default rather than becoming orphaned/unassigned.
     for (const [id, layer] of _memberLayer) if (layer === name) _memberLayer.set(id, DEFAULT_LAYER)
     _layers.delete(name)
     return true
@@ -47,8 +31,6 @@ export function createLayerRegistry({ setLocked, setHidden, isLocked, isHidden, 
     ensureLayer(layerName)
     _memberLayer.set(entityId, layerName)
     sendLayerUpdate?.(entityId, layerName)
-    // A newly-assigned member inherits the layer's current visibility/lock immediately, so it
-    // doesn't sit in a hidden layer while still rendering, or vice versa.
     const state = _layers.get(layerName)
     setHidden?.(entityId, !state.visible)
     setLocked?.(entityId, state.locked)
@@ -80,9 +62,6 @@ export function createLayerRegistry({ setLocked, setHidden, isLocked, isHidden, 
     return membersOf(layerName)
   }
 
-  // Hydrates _memberLayer from live entity state (e.g. after a SCENE_GRAPH refresh) by reading each
-  // entity's custom._layer -- keeps this registry's assignment map in sync with the actual
-  // server-persisted source of truth instead of drifting from it across a reconnect/reload.
   function hydrateFromEntities(entities) {
     for (const e of entities || []) {
       const layer = e?.custom?._layer

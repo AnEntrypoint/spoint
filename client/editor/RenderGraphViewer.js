@@ -1,9 +1,6 @@
 import { h, applyDiff } from 'anentrypoint-design'
 import { Btn, Toolbar, EmptyState } from './wm/ui.js'
 
-// Parses window.__renderGraph.toMermaid() output back into {nodeIds, edges:[{from,to,key}]} --
-// toMermaid() is RenderGraph.js's own edge/id source (see NODE CONTRACT comment there), so this
-// stays correct by construction instead of re-deriving reads/writes independently.
 function parseMermaid(text) {
   const nodeIds = [], edges = []
   for (const line of (text || '').split('\n')) {
@@ -16,8 +13,6 @@ function parseMermaid(text) {
 }
 
 function layoutNodes(nodeIds, edges, disabledSet) {
-  // Simple layered layout: layer = 1 + max(layer of any predecessor), independent of any single
-  // real coordinate system -- enough to read dependency direction left-to-right at a glance.
   const layer = new Map(nodeIds.map(id => [id, 0]))
   const preds = new Map(nodeIds.map(id => [id, []]))
   for (const e of edges) if (preds.has(e.to)) preds.get(e.to).push(e.from)
@@ -82,8 +77,6 @@ function edgeSvg(nodesById, e) {
 }
 
 function mapspinnerSubNodes(passes, baseX, baseY) {
-  // Read-only descriptive sub-list -- mapspinner's internal passes are not independently
-  // controllable RenderGraph nodes, so these never get click/disable wiring.
   return passes.map((p, i) => {
     const x = baseX, y = baseY + i * 74
     return '<g class="rg-sub-node" transform="translate(' + x + ',' + y + ')">'
@@ -192,11 +185,6 @@ export function createRenderGraphViewer(container) {
       )
     }
 
-    // Resource-graph health strip: real construction-time diagnostics (dead-pass writes with zero
-    // reader/target consumers; render-target write pairs sharing a physical target with no ordering
-    // edge between them) surfaced directly from RenderGraph.js's resourceGraph()/deadPasses()/
-    // aliasHazards() -- the "auto-cull dead passes, alias render targets" half of this row, made
-    // visible in the SAME inspector rather than only a boot-time console.warn.
     let resourceHealthVNode = null
     if ((_lastDeadPasses && _lastDeadPasses.length) || (_lastAliasHazards && _lastAliasHazards.length)) {
       const healthChildren = []
@@ -216,7 +204,6 @@ export function createRenderGraphViewer(container) {
   render()
 
   return {
-    // Poll only while the owning window is open -- zero cost when closed (no interval, no reads).
     start() { if (_pollId) return; _poll(); _pollId = setInterval(_poll, 500) },
     stop() { if (_pollId) { clearInterval(_pollId); _pollId = null } },
     destroy() { this.stop(); window.removeEventListener('mouseup', _onWindowMouseUp) }

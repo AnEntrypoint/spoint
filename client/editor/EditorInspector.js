@@ -2,9 +2,6 @@ import { components as C, h, applyDiff } from 'anentrypoint-design'
 import { Btn, EmptyState } from './wm/ui.js'
 import { propField, dragNumberVNode, showConfirm, showToast } from './EditPanelDOM.js'
 
-// Strict relative-expression parse for numeric fields: '+5' / '-3' / '*2' / '/2' relative to the field's
-// CURRENT value. Anything else (plain '10', '-10' with no operator prefix meaning, garbage) falls through to
-// parseFloat as an absolute value, same as before this feature existed. No eval() -- fixed regex + switch only.
 const EXPR_RE = /^([+\-*/])\s*(-?\d+\.?\d*)$/
 function parseNumericExpr(raw, current) {
   const m = EXPR_RE.exec(String(raw).trim())
@@ -21,13 +18,8 @@ function parseNumericExpr(raw, current) {
   return null
 }
 
-// Per-field copy/paste clipboard: a single in-memory numeric slot (module-level, survives across renders/entities
-// within the session -- sessionStorage would also survive a reload but a plain var is enough for "copy here, paste
-// there" within one editor session and avoids JSON-parsing untrusted storage on every paste).
 let _numClipboard = null
 
-// Collapsed-section state: module-level so it persists across render() calls within the session (re-render must
-// not re-expand a section the user just collapsed), but does not need to survive a reload.
 const _collapsedSections = {}
 
 function sectionHeader(name, label, onToggle) {
@@ -50,13 +42,8 @@ function q2e([x,y,z,w]) {
   ]
 }
 
-// Mixed-value sentinel: distinguishes "every selected entity agrees on undefined" from "the values
-// differ" without colliding with a real stored value (undefined/null/0/'' are all valid custom.* values).
 const MIXED = Symbol('mixed')
 
-// Compares a field across [primary, ...extras] and returns either the single shared value or MIXED.
-// getter(entity) -> the field's raw value on that entity (deep-equal via JSON.stringify -- every field
-// this feeds is JSON-safe: numbers/strings/bools/plain-object custom values, never a class instance).
 function _sharedValue(entities, getter) {
   const first = getter(entities[0])
   const firstKey = JSON.stringify(first)
@@ -66,7 +53,6 @@ function _sharedValue(entities, getter) {
 
 export function createEditorInspector(container, { onDestroyEntity, onEditCode, onRename } = {}) {
   let _entity = null, _eProps = [], _onChange = null, _extraIds = [], _extraEntities = []
-  // Cache Euler triple: near gimbal lock, q2e's atan2/asin decomposition is non-unique, so a plain re-render could jump X/Z off the user's last-typed value.
   let _eulerCacheId = null, _eulerCacheQuat = null, _eulerCacheDeg = null
 
   container.classList.add('ds-ep-panel')
@@ -82,19 +68,9 @@ export function createEditorInspector(container, { onDestroyEntity, onEditCode, 
       return
     }
 
-    // Multi-select mode: N entities selected (primary _entity plus _extraIds riding along). Two families
-    // of field here: (1) position/rotation/scale bulk-edit as a RELATIVE DELTA (unchanged from before this
-    // row -- selected entities usually start at different transforms, so a delta preserves each entity's
-    // own offset from the others, matching "move the group" not "teleport everyone to one spot"); (2)
-    // SHARED fields (custom.* props + collider) as an ABSOLUTE overwrite with a real mixed-value indicator
-    // -- these are per-entity-type props where "the same value on every selected entity" is the actual ask
-    // (paint the group one color, swap every member's collider), computed across [primary, ...extraEntities].
     if (_extraIds && _extraIds.length > 0) {
       const n = 1 + _extraIds.length
       const allEntities = [_entity, ..._extraEntities]
-      // extraEntities may lag extraIds by one render tick (showEntity(ids) can arrive before the real data
-      // fetch resolves) -- fall back to delta-only transform editing (the pre-existing behavior) rather than
-      // computing shared fields against a data set that doesn't actually match the current selection count.
       const haveFullData = _extraEntities.length === _extraIds.length
       const bulkVec = (label, key) => {
         const axes = ['x','y','z']
@@ -122,14 +98,9 @@ export function createEditorInspector(container, { onDestroyEntity, onEditCode, 
           )
         )
       }
-      // Shared/mixed custom.* fields: the union of custom keys across every selected entity (not just the
-      // primary's), so a field only the 2nd entity has still shows up -- with 'undefined on N of M' folded
-      // into the mixed-value comparison naturally (JSON.stringify(undefined) !== JSON.stringify(realValue)).
       const customKeys = haveFullData
         ? [...new Set(allEntities.flatMap(e => Object.keys(e.custom || {})))].sort()
         : []
-      // A fresh vnode per call (not a single shared reused object) -- applyDiff/webjsx reconciles by
-      // identity in some kits, and this badge can appear at multiple field rows in the same render pass.
       const mixedBadge = () => h('span', { class: 'ds-ep-mixed-badge', title: 'Selected entities have different values for this field', style: 'font-size:9px;padding:1px 5px;border-radius:8px;background:rgba(255,180,60,0.18);color:#e0a030;margin-left:4px' }, 'mixed')
       const sharedField = (label, key, getter, renderInput) => {
         const shared = _sharedValue(allEntities, getter)
@@ -140,11 +111,6 @@ export function createEditorInspector(container, { onDestroyEntity, onEditCode, 
         )
       }
       const sharedCustomField = (key) => {
-        // Reuses the same input widgets propField renders for a single entity, but on emit routes through
-        // _bulkSet (absolute overwrite to every selected entity, one transaction) instead of a single-entity
-        // custom.* write. type is inferred from whichever selected entity actually has a value for this key
-        // (string/number/boolean at minimum -- vec3/color/select need real editorProp metadata this generic
-        // batch view doesn't have, so those stay a plain text/number field here; still correctly mixed-aware).
         const sample = allEntities.map(e => e.custom?.[key]).find(v => v !== undefined)
         const isBool = typeof sample === 'boolean'
         const isNum = typeof sample === 'number'
@@ -154,8 +120,6 @@ export function createEditorInspector(container, { onDestroyEntity, onEditCode, 
           return h('input', { class: 'ds-input-bare', value: isMixed ? '' : String(val ?? ''), placeholder: isMixed ? '(mixed)' : '', style: 'flex:1;min-width:0', onchange: e => _onChange?.('_bulkSet', { key: 'custom.' + key, value: e.target.value }) })
         })
       }
-      // Collider: shared across selection like a custom.* field, but it's a distinct top-level concept
-      // (custom._collider / .collider.type) with its own IconButtonGroup, same as the single-entity view.
       const COLLIDER_HINT_MULTI = { box: 'Bounding-box', sphere: 'Bounding-sphere', capsule: 'Capsule', trimesh: 'Exact geometry (static)', convex: 'Convex hull', none: 'No collision' }
       const anyPhysical = haveFullData && allEntities.some(e => e.model || e._appName === 'placed-model' || e.custom?.mesh || e.bodyType)
       const colliderGetter = (e) => e.custom?._collider || e.collider?.type || 'box'
@@ -187,7 +151,6 @@ export function createEditorInspector(container, { onDestroyEntity, onEditCode, 
       return
     }
 
-    // Update _entity[key] in place immediately, or consecutive axis edits in the same render read a stale pre-edit vec.
     const writeVec = (key, i, v) => {
       const c = _entity[key] ? [..._entity[key]] : [0,0,0]; c[i] = v
       _entity[key] = c
@@ -200,9 +163,6 @@ export function createEditorInspector(container, { onDestroyEntity, onEditCode, 
       _eulerCacheQuat = null
       _onChange?.('_rotEuler', deg)
     }
-    // Uniform-scale lock: when true, editing one scale axis proportionally scales the other two by the same
-    // ratio (newVal / oldVal on the edited axis). Guarded against a zero reference axis (ratio undefined -> skip
-    // the other axes, only the edited one changes) so a degenerate 0-scale entity can't divide-by-zero into NaN/Inf.
     const scaleLockKey = '_scaleLinked'
     const writeScale = (i, v) => {
       const cur = _entity.scale ? [..._entity.scale] : [1,1,1]
@@ -216,10 +176,6 @@ export function createEditorInspector(container, { onDestroyEntity, onEditCode, 
         writeVec('scale', i, v)
       }
     }
-    // Numeric expression support: dragNumberVNode's opts.allowExpr(rawString) is called on every typed commit,
-    // BEFORE its own absolute-number parse. Returning a finite number here wins; returning null falls through to
-    // dragNumberVNode's normal parseFloat path, so plain "10"/"-10" behave exactly as before this feature existed.
-    // `getCurrent` reads the LIVE value (not the closed-over vals[i]) so consecutive same-render edits compose.
     const exprOpts = (getCurrent) => ({ allowExpr: (raw) => parseNumericExpr(raw, getCurrent()) })
     const copyCell = (label, getVal) => ({
       oncontextmenu: (e) => {
@@ -258,7 +214,6 @@ export function createEditorInspector(container, { onDestroyEntity, onEditCode, 
           items: ['static','dynamic','kinematic'].map(id => ({ id, label: id, title: BODY_TYPE_HINT[id] })),
           value: _entity.bodyType || 'static',
           onChange: async (id) => {
-            // Confirm leaving static: physics can immediately drop/fling the prop.
             if (id !== 'static' && (_entity.bodyType || 'static') === 'static') {
               const ok = await showConfirm({ title: 'Change body type', message: 'Switch to "' + id + '"? ' + BODY_TYPE_HINT[id] + '.', confirmLabel: 'Switch' })
               if (!ok) return
@@ -287,9 +242,6 @@ export function createEditorInspector(container, { onDestroyEntity, onEditCode, 
     )
 
     const COLLIDER_HINT = { box: 'Bounding-box approximation, cheap', sphere: 'Bounding-sphere approximation, cheapest', capsule: 'Vertical capsule, good for character-like props', trimesh: 'Exact model geometry (static only), most accurate', convex: 'Convex hull of the model geometry, works for dynamic bodies', none: 'No collision' }
-    // Show the collider picker for ANY physical entity, not just models: a placed primitive (custom.mesh set) or
-    // any entity with a bodyType needs to pick its collider too. Gating to models left primitives colliderless in
-    // the inspector. Value seeds from custom._collider (what the server rebuilds from) first.
     const isPhysical = _entity.model || _entity._appName === 'placed-model' || _entity.appName === 'placed-model' || _entity.custom?.mesh || _entity.bodyType
     const colliderField = isPhysical ? h('label', { class: 'ds-ep-propfield block' },
       h('span', { class: 'ds-ep-propfield-label' }, 'Collider'),
@@ -302,9 +254,6 @@ export function createEditorInspector(container, { onDestroyEntity, onEditCode, 
       )
     ) : null
 
-    // Scale link/lock: a small toggle button placed next to the Scale row's label. When locked, editing one
-    // axis proportionally scales the other two (writeScale above); the button itself just flips the flag stored
-    // on the entity (survives across renders/re-selection the same way bodyType/collider do).
     const scaleLocked = !!_entity[scaleLockKey]
     const scaleLinkBtn = h('button', {
       class: 'ds-ep-scale-link', title: scaleLocked ? 'Uniform scale locked (click to unlock)' : 'Lock uniform scale',
@@ -330,7 +279,6 @@ export function createEditorInspector(container, { onDestroyEntity, onEditCode, 
       ...(colliderField ? [sectionHeader('collider', 'Collider', render), colliderSection] : [])
     ].filter(Boolean) })
 
-    // Stable id so applyDiff reconciles this host instead of rebuilding it (which dropped drag/focus state).
     const propsHostId = 'editor-inspector-app-props'
     const propsSectionHeader = _eProps.length ? sectionHeader('appProps', 'App Props', render) : null
     const propsHost = _eProps.length
@@ -359,9 +307,6 @@ export function createEditorInspector(container, { onDestroyEntity, onEditCode, 
       children: ['Delete Entity']
     })
 
-    // Editable name: seeded from the entity's label (custom.label) falling back to its id. Committing routes
-    // through onRename -> the existing server SET_LABEL (0x96) path, so a maker can name entities (killfeed,
-    // save keys, hierarchy readability) without leaving the inspector. Blank commit reverts to the id.
     const nameHead = onRename
       ? h('input', {
           class: 'ds-input-bare', value: _entity.custom?.label || _entity.id,
@@ -379,10 +324,7 @@ export function createEditorInspector(container, { onDestroyEntity, onEditCode, 
 
     if (_eProps.length) {
       const host = container.querySelector('#' + propsHostId)
-      // Keep collapsed/expanded display in sync even when the sig-gated rebuild below is skipped (a toggle
-      // click alone doesn't change the entity/prop-key sig, so it must be applied unconditionally here).
       if (host) host.style.display = _collapsedSections.appProps ? 'none' : 'block'
-      // Only rebuild content when entity id/prop keys change, or a drag-triggered re-render duplicates fields and steals focus.
       const sig = (_entity?.id || '') + '|' + _eProps.map(f => f.key || f.name || '').join(',')
       if (host && host.dataset.sig !== sig) {
         host.dataset.sig = sig

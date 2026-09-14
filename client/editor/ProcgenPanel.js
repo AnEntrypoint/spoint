@@ -1,29 +1,9 @@
-// procedural-content-editor-toolbar-integration: native editor-toolbar UI for the PCG suite (WFC /
-// L-system / noise-terrain generators shipped as src/procgen/{WFC,LSystem,NoiseTerrain}.js). Same
-// docked-window/wm.js-panel convention as RenderGraphViewer.js/WorldValidator.js/WaypointTimeline.js
-// (see AGENTS.md's Editor core catalog) -- NOT a bespoke UI system. Real scope shipped this slice:
-// generator picker, params + seed + regenerate, a live 2D-canvas preview per generator (grid glyphs
-// for WFC, turtle-graphics line render for L-systems, a greyscale heightmap for noise-terrain), and a
-// real "Place into World" action that materializes the generated structural data into real entities
-// via the existing PLACE_APP('box-static', ...) primitive-placement path (EditorHandlers.js MSG.PLACE_APP
-// PRIMITIVE branch) -- the same message client/app.js's Add-menu primitives already send, batched here.
-//
-// The 3 generator modules are pure ESM with zero Node built-ins (confirmed via source read: no `require`,
-// no `fs`/`path`/etc imports) so they import directly into the browser bundle from /src/procgen/*.js,
-// the same static-serving path editor.js already uses for /src/protocol/MessageTypes.js.
 import { h, applyDiff } from 'anentrypoint-design'
 import { Btn, Toolbar, EmptyState } from './wm/ui.js'
 import { runWFCWithRetries } from '/src/procgen/WFC.js'
 import { generateLSystemTree, PRESETS as LSYSTEM_PRESETS } from '/src/procgen/LSystem.js'
 import { generateHeightfield } from '/src/procgen/NoiseTerrain.js'
 
-// A small built-in dungeon/floor tileset so WFC has a real, immediately-runnable default without the
-// maker hand-authoring adjacency rules first -- rulesFromSockets derives adjacency from the socket ids
-// on each tile (WFC.js's own compact authoring convention), matching its module-level demo shape.
-// Socket keys MUST be the uppercase N/S/E/W WFC.js's DIRS/rulesFromSockets actually reads (confirmed
-// via source read) -- a lowercase key would silently read as undefined for every tile, making
-// `a.sockets[dir] === b.sockets[opp]` (undefined === undefined) true for every pair and producing a
-// fully-connected nonsense ruleset instead of a real dungeon layout, with no thrown error to catch it.
 const DEFAULT_WFC_TILES = [
   { id: 'floor', weight: 4, sockets: { N: 'f', S: 'f', E: 'f', W: 'f' } },
   { id: 'wall-n', weight: 1, sockets: { N: 'w', S: 'f', E: 'f', W: 'f' } },
@@ -32,7 +12,6 @@ const DEFAULT_WFC_TILES = [
   { id: 'wall-w', weight: 1, sockets: { N: 'f', S: 'f', E: 'f', W: 'w' } },
   { id: 'void', weight: 1, sockets: { N: 'w', S: 'w', E: 'w', W: 'w' } }
 ]
-// One shared glyph/colour per WFC tile id (preview canvas + Place-into-World both read this).
 const WFC_TILE_COLOR = { floor: '#3a6', 'wall-n': '#864', 'wall-s': '#864', 'wall-e': '#864', 'wall-w': '#864', void: '#222' }
 
 const GENERATORS = [
@@ -41,11 +20,6 @@ const GENERATORS = [
   { id: 'noise', label: 'Noise terrain (heightfield)' }
 ]
 
-// key (procedural-content-editor-toolbar-browser-witness): the outer h('label',...) AND each h('option',...)
-// below get a stable `key` -- switching generator kind re-renders `fields`/`options` with a different
-// length/order every time (WFC's 4 fields vs noise's 9), which is exactly the shape applyDiff's keyed
-// reconciliation needs a stable identity for; an unkeyed list here hit the same undefined.key crash the
-// generator-picker Btn() list did (see AGENTS.md/Btn's own key-forwarding fix in wm/ui.js).
 function _numberField(label, key, value, params, onChange, opts = {}) {
   return h('label', { key: 'f-' + key, style: 'display:flex;flex-direction:column;gap:2px;font:11px var(--ff-mono,monospace);color:var(--panel-text-2)' },
     label,
@@ -65,17 +39,10 @@ function _selectField(label, key, value, options, params, onChange) {
   )
 }
 
-// Runs the selected generator against the current params. Pure/exec_js-testable: takes no DOM, returns
-// {ok:true, result, meta} or {ok:false, error} -- WFC's own contradiction outcome is a real, expected,
-// non-throwing result (see WFC.js's own header comment), surfaced here as ok:false with error text
-// rather than thrown, so the panel can show it inline instead of crashing the render loop.
 export function runGenerator(kind, params) {
   try {
     if (kind === 'wfc') {
       const { width, height, seed } = params
-      // runWFCWithRetries returns runWFC's own shape: {ok:true, grid (FLAT row-major array of tile ids),
-      // width, height} on success, or {ok:false, reason, ...} (a real, expected outcome -- WFC's own
-      // header comment -- not a thrown error) once every retry seed still contradicts.
       const res = runWFCWithRetries({ width, height, tiles: DEFAULT_WFC_TILES, seed }, 20)
       if (!res.ok) return { ok: false, error: 'WFC did not converge: ' + res.reason + ' (tried ' + (res.tried ? res.tried.length : 1) + ' seed(s))' }
       return { ok: true, result: res, meta: { width, height } }
@@ -98,14 +65,8 @@ export function runGenerator(kind, params) {
   }
 }
 
-// Pure: turns a generator's raw result into the flat list of {appName, position, config} PLACE_APP
-// calls Place-into-World will fire, and the {min,max}/{count} summary label. spacing/scale params keep
-// generated content at a sane world size instead of one box-per-integer-unit crowding on top of itself.
 export function planPlacement(kind, result, params) {
   if (kind === 'wfc') {
-    // result is runWFC's own {ok:true, grid, width, height} shape -- grid is FLAT row-major (index =
-    // y*width+x), holding real tile id strings (see WFC.js's own comment on why it's a plain Array,
-    // not a typed array).
     const spacing = params.spacing || 2
     const { grid, width, height } = result
     const plan = []
@@ -119,7 +80,6 @@ export function planPlacement(kind, result, params) {
     return plan
   }
   if (kind === 'lsystem') {
-    // segments[].start/end are {x,y,z} objects (LSystem.js's own vec3 shape), not arrays.
     const scale = params.scale || 0.3
     return result.map(seg => {
       const mid = [(seg.start.x + seg.end.x) / 2 * scale, (seg.start.y + seg.end.y) / 2 * scale, (seg.start.z + seg.end.z) / 2 * scale]
@@ -129,7 +89,7 @@ export function planPlacement(kind, result, params) {
   }
   if (kind === 'noise') {
     const spacing = params.spacing || 2
-    const step = params.placeStep || 4 // sub-sample the grid -- a full-res heightfield placed 1:1 is thousands of boxes
+    const step = params.placeStep || 4
     const plan = []
     for (let y = 0; y < result.height; y += step) {
       for (let x = 0; x < result.width; x += step) {
@@ -159,7 +119,6 @@ function _drawWFCPreview(ctx, w, h, result) {
 function _drawLSystemPreview(ctx, w, h, segments) {
   ctx.clearRect(0, 0, w, h)
   if (!segments || !segments.length) return
-  // seg.start/end are {x,y,z} objects (LSystem.js's own vec3 shape) -- preview projects x/y (front view).
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity
   for (const s of segments) {
     for (const p of [s.start, s.end]) {
@@ -189,7 +148,6 @@ function _drawNoisePreview(ctx, w, h, hf) {
     const v = Math.round(t * 255)
     img.data[i * 4] = v; img.data[i * 4 + 1] = v; img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255
   }
-  // Draw at native res into an offscreen canvas then scale up -- putImageData ignores transforms.
   const off = document.createElement('canvas')
   off.width = hf.width; off.height = hf.height
   off.getContext('2d').putImageData(img, 0, 0)
@@ -206,7 +164,7 @@ const DEFAULT_PARAMS = {
 export function createProcgenPanel(container, { onPlaceBatch } = {}) {
   let _kind = 'wfc'
   let _params = { ...DEFAULT_PARAMS.wfc }
-  let _last = null // {ok, result, meta, error}
+  let _last = null
   let _placing = false
 
   container.classList.add('ds-ep-panel')
@@ -216,16 +174,6 @@ export function createProcgenPanel(container, { onPlaceBatch } = {}) {
     render()
   }
 
-  // root-caused live (procedural-content-editor-toolbar-browser-witness): the previous _canvas() built
-  // a raw document.createElement('canvas') DOM node and spliced it directly into applyDiff's children
-  // array. anentrypoint-design's own reconciler (dist/247420.js's Rt/Er) unconditionally reads
-  // e.type/e.props off every non-string/number/bigint child -- it has no raw-Element passthrough at
-  // all, so a real DOM node in that position crashed with the same "Cannot read properties of
-  // undefined (reading 'key')" the toolbar's stray `null` did, just one level deeper (inside
-  // previewArea, not caught by the earlier null-filter fix alone). Fix: build the canvas as a real
-  // vnode via h('canvas', {ref: cb}) -- the library's own documented ref convention (pn(): a function
-  // ref is invoked with the mounted element, matching React's callback-ref shape) -- and draw into it
-  // from the ref callback once the real element exists, instead of pre-building then splicing a node in.
   function _canvasVNode(draw) {
     return h('canvas', {
       width: 320, height: 240,
@@ -272,12 +220,6 @@ export function createProcgenPanel(container, { onPlaceBatch } = {}) {
 
     const paramsGrid = h('div', { style: 'display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 8px 8px' }, ...fields)
 
-    // root-caused live (procedural-content-editor-toolbar-browser-witness): anentrypoint-design's own
-    // Er/Je reconciler (dist/247420.js) treats ANY non-string/number/bigint child as a vnode needing
-    // `.props.key` -- typeof null==='object' and typeof undefined==='undefined' both pass that check,
-    // so a literal `null` placeholder (the "nothing to show yet" branch below) crashed applyDiff with
-    // "Cannot read properties of undefined (reading 'key')" on every re-render once toolbar children
-    // included one. Filter falsy entries out of the array instead of passing null/undefined through.
     const summarySpan = _last && _last.ok
       ? h('span', { style: 'font:10px var(--ff-mono,monospace);color:var(--panel-text-3)' },
           _kind === 'wfc' ? `${_last.meta.width}x${_last.meta.height} cells`

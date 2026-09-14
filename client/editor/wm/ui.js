@@ -32,11 +32,6 @@ export function Btn({ ghost, dense, primary, danger, title, onClick, key, childr
   ensureUiCSS()
   const cls = 'ds-ep-wm-btn' + (primary ? ' ds-ep-wm-btn-primary' : '') + (danger ? ' ds-ep-wm-btn-danger' : '') + (ghost ? ' ghost' : '') + (dense ? ' dense' : '')
   const label = title || children.filter(c => typeof c === 'string').join(' ') || undefined
-  // key (procedural-content-editor-toolbar-browser-witness): forwarded straight to webjsx's own h()
-  // props object exactly like every raw h(...) call already does (see WaypointTimeline.js's row Btns) --
-  // without it, a list of sibling Btn()s with no stable identity (e.g. ProcgenPanel.js's generator
-  // picker) makes applyDiff's keyed-reconciliation path read `undefined.key` on a re-render and throw,
-  // since Btn() never had a way to pass one through to the underlying button vnode.
   return h('button', { type: 'button', key, class: cls, title: title || undefined, 'aria-label': label, onclick: onClick }, ...children)
 }
 
@@ -59,7 +54,6 @@ export function EmptyState({ text = '' } = {}) {
   return h('div', { class: 'ds-ui-empty' }, text)
 }
 
-// validate(raw) returns {ok:true, value} or {ok:false, error}; omit for trimmed pass-through.
 export function promptText(wm, { title, label, placeholder, initial = '', confirmLabel = 'Save', validate } = {}) {
   ensureUiCSS()
   return new Promise(resolve => {
@@ -106,15 +100,6 @@ export function promptText(wm, { title, label, placeholder, initial = '', confir
   })
 }
 
-// Channel-picker dialog for HookFlow drag-to-wire (editor-node-graph-wire-channel-picker-multi-target):
-// a maker who just drag-wired source->target has no discoverable list of which bus channel the target
-// app actually listens on (custom.channel was previously free-text-only, guess-the-string). `channels`
-// is the target app's statically-scraped ctx.bus.on(...)/once(...) literal-string channel names (server's
-// LIST_APPS APP_LIST reply, EditorHandlers.js scrapeChannels) -- a <datalist> gives autocomplete over the
-// REAL known channels while staying a plain text input, so an app with zero scraped channels (a template-
-// literal/variable channel arg, or the non-Node/Worker singleplayer runtime which ships channels:[]) still
-// lets the maker type any channel string by hand, same escape hatch promptText already gives every other
-// free-text field in this file. Returns the trimmed channel string, or null on cancel (Escape/close/blank).
 export function promptChannel(wm, { title = 'Wire channel', targetAppKind = '', channels = [], initial = '' } = {}) {
   ensureUiCSS()
   return new Promise(resolve => {

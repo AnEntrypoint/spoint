@@ -13,10 +13,6 @@ function _fallback(code, container, onSave) {
 }
 
 let _sdkTypingsPromise = null
-// The ctx.* SDK surface (src/apps/AppContext.js) has no autocomplete without this -- an app author
-// gets zero hint of what methods exist (ctx.world.spawn vs ctx.spawnEntity, etc) and has to read
-// source or guess. addExtraLib feeds Monaco's JS language service a real ambient .d.ts so ctx.
-// autocompletes like any typed API, even though app files themselves stay plain .js.
 function _loadSdkTypings() {
   if (_sdkTypingsPromise) return _sdkTypingsPromise
   _sdkTypingsPromise = fetch('/editor/sdk-typings.d.ts').then(r => r.ok ? r.text() : '').catch(() => '')
@@ -82,7 +78,6 @@ export function renderEditorPane(pane, curApp, curFile, pendingCode, onSave, onB
     try { onSave(v); showToast('Saved apps/' + curApp + '/' + curFile) }
     catch (e) { showToast('Save failed: ' + e.message, 'error') }
   }).then(ed => {
-    // Pane may be torn down before Monaco's lazy load resolves; dispose the orphan instead of leaking it.
     if (!alive) { ed?.dispose?.(); return }
     edRef = ed
   })

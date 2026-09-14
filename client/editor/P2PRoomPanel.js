@@ -1,29 +1,5 @@
-/**
- * P2PRoomPanel.js -- Wireweave P2P room management panel for the spoint editor.
- *
- * Flagship demo first slice: "Host P2P Room" button creates a wireweave room,
- * displays the room ID, and generates a shareable join link. "Join Room" button
- * lets a friend paste a room ID and join.
- *
- * Uses the existing WireweaveBridge.js + WireweaveJoinClient.js infrastructure.
- * Dual-import safe (browser-only, no Node path).
- */
-
 import { createWireweaveBridge } from '../WireweaveBridge.js'
 
-/**
- * Create a P2P room panel. Returns { host, onHost, onJoin, onDestroy, setRoomId }.
- *
- * @param {Object} opts
- * @param {string} [opts.namespace] - wireweave namespace (default 'spoint')
- * @param {string} [opts.room] - room ID to join (if joining)
- * @param {string} [opts.displayName] - display name (default 'editor-host')
- * @param {Function} [opts.onRoomCreated] - called with { roomId, pubkey, joinUrl } when room is created
- * @param {Function} [opts.onPeerJoined] - called with { pubkey } when a peer connects
- * @param {Function} [opts.onPeerLeft] - called with { pubkey } when a peer disconnects
- * @param {Function} [opts.onError] - called with Error
- * @returns {{ host: HTMLElement, hostRoom: Function, joinRoom: Function, destroy: Function, getRoomState: Function }}
- */
 export function createP2PRoomPanel(opts = {}) {
   const {
     namespace = 'spoint',
@@ -39,12 +15,11 @@ export function createP2PRoomPanel(opts = {}) {
   let _roomId = initialRoom || null
   let _pubkey = null
   let _peerCount = 0
-  let _status = 'idle' // 'idle' | 'connecting' | 'hosting' | 'joining' | 'joined' | 'error'
+  let _status = 'idle'
 
   const host = document.createElement('div')
   host.style.cssText = 'display:flex;flex-direction:column;height:100%;font:12px var(--ff-mono,monospace);color:var(--panel-text,var(--fg))'
 
-  // --- DOM elements ---
   const statusEl = document.createElement('div')
   statusEl.style.cssText = 'padding:10px 12px;background:var(--panel-2,var(--bg-2));border-bottom:1px solid var(--panel-3,var(--bg-3));font-weight:600'
 
@@ -87,7 +62,6 @@ export function createP2PRoomPanel(opts = {}) {
   const actionsEl = document.createElement('div')
   actionsEl.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:12px'
 
-  // --- Host section ---
   const hostSection = document.createElement('div')
   hostSection.style.cssText = 'display:flex;flex-direction:column;gap:6px'
   const hostLabel = document.createElement('div')
@@ -99,7 +73,6 @@ export function createP2PRoomPanel(opts = {}) {
 
   hostSection.append(hostLabel, hostBtn)
 
-  // --- Join section ---
   const joinSection = document.createElement('div')
   joinSection.style.cssText = 'display:flex;flex-direction:column;gap:6px'
   const joinLabel = document.createElement('div')
@@ -117,7 +90,6 @@ export function createP2PRoomPanel(opts = {}) {
   joinInputRow.append(joinInput, joinBtn)
   joinSection.append(joinLabel, joinInputRow)
 
-  // --- Disconnect button ---
   const disconnectBtn = document.createElement('button')
   disconnectBtn.textContent = 'Disconnect'
   disconnectBtn.style.cssText = 'display:none;padding:6px 12px;font:12px monospace;cursor:pointer;background:var(--panel-3,var(--bg-3));color:var(--fg-2);border:1px solid var(--panel-3,var(--bg-3));border-radius:4px;margin-top:8px'
@@ -126,7 +98,6 @@ export function createP2PRoomPanel(opts = {}) {
   bodyEl.append(roomInfoEl, peersEl, actionsEl)
   host.append(statusEl, bodyEl)
 
-  // --- Helpers ---
   function _setStatus(text) {
     statusEl.textContent = text
   }
@@ -181,7 +152,6 @@ export function createP2PRoomPanel(opts = {}) {
   }
 
   function _parseRoomId(input) {
-    // Accept either a raw room ID or a URL containing ?room= or &room=
     const trimmed = input.trim()
     if (!trimmed) return null
     try {
@@ -189,7 +159,6 @@ export function createP2PRoomPanel(opts = {}) {
       const room = url.searchParams.get('room')
       if (room) return room
     } catch (_) {}
-    // Treat as raw room ID
     if (trimmed.length >= 3 && trimmed.length <= 128) return trimmed
     return null
   }
@@ -202,7 +171,6 @@ export function createP2PRoomPanel(opts = {}) {
     joinBtn.disabled = true
 
     try {
-      // Generate a human-readable room ID
       _roomId = _roomId || _generateRoomId()
 
       _bridge = await createWireweaveBridge({
@@ -215,7 +183,6 @@ export function createP2PRoomPanel(opts = {}) {
       _pubkey = _bridge.pubkey
       _bridge.roomId = _roomId
 
-      // Expose on window for debugging
       if (typeof window !== 'undefined') {
         window.__app = window.__app || {}
         window.__app.wireweave = _bridge
@@ -333,7 +300,6 @@ export function createP2PRoomPanel(opts = {}) {
     }
   }
 
-  // --- Event listeners ---
   hostBtn.addEventListener('click', hostRoom)
   joinBtn.addEventListener('click', () => joinRoom(joinInput.value))
   joinInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') joinRoom(joinInput.value) })
@@ -345,7 +311,6 @@ export function createP2PRoomPanel(opts = {}) {
       copyBtn.textContent = 'Copied!'
       setTimeout(() => { copyBtn.textContent = 'Copy link' }, 2000)
     }).catch(() => {
-      // Fallback: select and copy
       const ta = document.createElement('textarea')
       ta.value = url
       ta.style.cssText = 'position:fixed;left:-9999px'
@@ -358,9 +323,7 @@ export function createP2PRoomPanel(opts = {}) {
     })
   })
 
-  // If initialRoom was provided, auto-join
   if (initialRoom) {
-    // Defer to next tick so the DOM is attached
     setTimeout(() => joinRoom(initialRoom), 100)
   }
 
@@ -375,11 +338,6 @@ export function createP2PRoomPanel(opts = {}) {
   }
 }
 
-/**
- * Generate a human-readable room ID: two words + 4 digits.
- * Deterministic from timestamp so two hosts generating at the same ms get the same ID
- * (they'd be in the same room), but different enough to avoid collisions.
- */
 function _generateRoomId() {
   const words = [
     'blue', 'red', 'gold', 'cyber', 'neo', 'pixel', 'quantum', 'hyper',

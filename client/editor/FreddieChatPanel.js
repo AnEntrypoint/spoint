@@ -1,32 +1,8 @@
-/**
- * FreddieChatPanel.js -- Freddie chat panel for the spoint editor.
- *
- * Flagship demo first slice: wire the freddie chat UI into the spoint editor
- * window layout. Uses the FreddieBridge.js message protocol format for chat
- * messages and agent visualization commands.
- *
- * This panel provides:
- *  - Chat message input/output (text-based chat)
- *  - FreddieBridge message composition (viz.place, viz.update, etc.)
- *  - Integration with the editor's window manager
- *
- * Dual-import safe (browser-only, no Node path).
- */
-
 import {
   KIND_PLACE, KIND_UPDATE, KIND_REMOVE, KIND_CLEAR, KIND_DATASET, KIND_CAMERA,
   ALL_KINDS, validateMessage, computeLayout
 } from '/src/sdk/FreddieBridge.js'
 
-/**
- * Create a Freddie chat panel. Returns { host, sendMessage, addMessage, clear }.
- *
- * @param {Object} opts
- * @param {string} [opts.agentId] - freddie agent ID (default 'freddie-editor')
- * @param {Function} [opts.onSendMessage] - called with the freddie bridge message envelope
- * @param {Function} [opts.onReceiveMessage] - called when a message is received from external source
- * @returns {{ host: HTMLElement, sendMessage: Function, addMessage: Function, clear: Function, sendVizCommand: Function }}
- */
 export function createFreddieChatPanel(opts = {}) {
   const {
     agentId = 'freddie-editor',
@@ -40,7 +16,6 @@ export function createFreddieChatPanel(opts = {}) {
   const host = document.createElement('div')
   host.style.cssText = 'display:flex;flex-direction:column;height:100%;font:12px var(--ff-mono,monospace);color:var(--panel-text,var(--fg))'
 
-  // --- Header ---
   const header = document.createElement('div')
   header.style.cssText = 'padding:8px 12px;background:var(--panel-2,var(--bg-2));border-bottom:1px solid var(--panel-3,var(--bg-3));font-weight:600;display:flex;align-items:center;gap:8px'
   const headerDot = document.createElement('span')
@@ -50,11 +25,9 @@ export function createFreddieChatPanel(opts = {}) {
   headerTitle.textContent = `Freddie Chat (${agentId})`
   header.append(headerDot, headerTitle)
 
-  // --- Messages area ---
   const messagesEl = document.createElement('div')
   messagesEl.style.cssText = 'flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:6px'
 
-  // --- Input area ---
   const inputArea = document.createElement('div')
   inputArea.style.cssText = 'padding:8px;border-top:1px solid var(--panel-3,var(--bg-3));display:flex;gap:6px'
 
@@ -76,7 +49,6 @@ export function createFreddieChatPanel(opts = {}) {
 
   host.append(header, messagesEl, inputArea)
 
-  // --- Helpers ---
   function _scrollToBottom() {
     messagesEl.scrollTop = messagesEl.scrollHeight
   }
@@ -105,7 +77,6 @@ export function createFreddieChatPanel(opts = {}) {
     body.style.cssText = 'font:11px monospace;white-space:pre-wrap;word-break:break-word'
 
     if (msg.kind && msg.kind !== 'chat') {
-      // Viz command: show the payload
       body.textContent = JSON.stringify(msg.payload || msg, null, 2)
       row.style.background = 'var(--panel-2,var(--bg-2))'
     } else {
@@ -128,7 +99,6 @@ export function createFreddieChatPanel(opts = {}) {
     if (!text || !text.trim()) return
     const trimmed = text.trim()
 
-    // Check if it's a viz command
     if (trimmed.startsWith('/')) {
       _handleCommand(trimmed)
       return
@@ -166,7 +136,6 @@ export function createFreddieChatPanel(opts = {}) {
 
     switch (cmd) {
       case 'place': {
-        // /place box 0 0 0 0xff0000
         const primitive = parts[1] || 'box'
         const x = parseFloat(parts[2]) || 0
         const y = parseFloat(parts[3]) || 0
@@ -220,7 +189,6 @@ export function createFreddieChatPanel(opts = {}) {
         return
       }
       default: {
-        // Unknown command, send as text
         const msg = {
           id: _generateId(),
           ts: Date.now(),
@@ -238,7 +206,6 @@ export function createFreddieChatPanel(opts = {}) {
   }
 
   function _showVizMenu(anchorEl) {
-    // Simple viz command picker
     const menu = document.createElement('div')
     menu.style.cssText = 'position:absolute;background:var(--panel-0,var(--bg));border:1px solid var(--panel-3,var(--bg-3));border-radius:6px;padding:4px;z-index:10000;box-shadow:0 4px 12px rgba(0,0,0,0.3)'
     const rect = anchorEl.getBoundingClientRect()
@@ -283,7 +250,6 @@ export function createFreddieChatPanel(opts = {}) {
     messagesEl.innerHTML = ''
   }
 
-  // --- Event listeners ---
   sendBtn.addEventListener('click', () => sendMessage(inputEl.value))
   inputEl.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {

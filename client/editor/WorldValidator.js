@@ -1,19 +1,10 @@
 import { h, applyDiff } from 'anentrypoint-design'
 import { Btn, Toolbar, EmptyState } from './wm/ui.js'
 
-// world-lint: absurd coordinate magnitude past this radius is treated as "outside any reasonable
-// playable bounds" -- real spoint worlds place gameplay entities within a few hundred/thousand
-// units of the origin (terrain streams around the player, not the far reaches of float precision).
-// 50000 is generous headroom above every real placed-entity magnitude seen in shipped world defs
-// while still catching a genuine authoring slip (a dropped zero, a raw un-normalized GPS/ECEF value).
 const OUT_OF_BOUNDS_RADIUS = 50000
 
 const SPAWN_APP_NAMES = new Set(['spawn-point', 'respawn-zone'])
 
-// Real, structural lint checks -- every one reads only fields genuinely present on the live
-// SCENE_GRAPH entity tree (id/appName/label/position/children) or the live known-app registry
-// (APP_LIST), both already flowing into EditorShell for the Hierarchy/HookFlow/Inspector panels.
-// No synthetic/fabricated fields.
 function _flatten(nodes, depth, parentId, out) {
   for (const n of nodes || []) {
     if (!n || !n.id) continue
@@ -27,8 +18,6 @@ function lintWorld(entities, knownAppNames) {
   const flat = _flatten(entities, 0, null, [])
   const findings = []
 
-  // 1) Absurd coordinate magnitude -- entity is real, has a real position vector, and at least one
-  // axis exceeds the reasonable-playable-bounds radius.
   for (const { node } of flat) {
     const p = node.position
     if (!Array.isArray(p) || p.length < 3) continue
@@ -41,8 +30,6 @@ function lintWorld(entities, knownAppNames) {
     }
   }
 
-  // 2) Missing spawn points -- zero entities in the whole tree carry an app name of spawn-point or
-  // respawn-zone. A world with no way to spawn a player is a real, checkable authoring mistake.
   const hasSpawn = flat.some(({ node }) => SPAWN_APP_NAMES.has(node.appName))
   if (!hasSpawn) {
     findings.push({
@@ -51,11 +38,6 @@ function lintWorld(entities, knownAppNames) {
     })
   }
 
-  // 3) Duplicate entity ids -- getSceneGraph() is keyed off a server-side Map so same-parent
-  // collisions can't happen, but the tree is walked recursively (children arrays) and nothing
-  // stops the same id reappearing in two different branches if a future data source or a bugged
-  // reparent ever produces that; check the real flattened id set defensively rather than assume
-  // the invariant always holds upstream.
   const seenIds = new Map()
   for (const { node } of flat) {
     if (seenIds.has(node.id)) {
@@ -69,10 +51,6 @@ function lintWorld(entities, knownAppNames) {
     }
   }
 
-  // 4) Missing/unresolvable app name -- entity declares an appName that isn't in the live known-app
-  // registry (APP_LIST, the same list EditorApps.js's Add-app picker and the placeableApps menu use).
-  // Only checked when the caller actually has a real registry to check against (knownAppNames is a
-  // live Set fed from the server's own APP_LIST reply, never fabricated).
   if (knownAppNames && knownAppNames.size) {
     for (const { node } of flat) {
       if (node.appName && !knownAppNames.has(node.appName)) {
@@ -148,14 +126,10 @@ export function createWorldValidator(container, { onSelect } = {}) {
   render()
 
   return {
-    // Fed the same live entity tree EditorShell already tracks (SCENE_GRAPH-derived _entities) and
-    // the live known-app-name registry (APP_LIST-derived), so a lint pass never runs on stale or
-    // fabricated data -- re-running Validate World after either updates picks up the current state.
     updateEntities(entities) { _entities = entities || []; if (_findings !== null) _run() },
     updateKnownApps(apps) { _knownAppNames = new Set((apps || []).map(a => a.name).filter(Boolean)); if (_findings !== null) _run() },
     get findingCount() { return _findings === null ? null : _findings.length }
   }
 }
 
-// Exported for direct exec_js/console witnessing independent of the DOM panel shell.
 export { lintWorld, OUT_OF_BOUNDS_RADIUS, SPAWN_APP_NAMES }

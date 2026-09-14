@@ -1,29 +1,18 @@
-// Multi-user editor presence: broadcasts this client's own selection (and drag) to every OTHER
-// connected editor via MSG.EDITOR_PRESENCE (relayed server-side, never echoed back to the sender --
-// see src/sdk/EditorHandlers.js), and renders a screen-space badge over any entity a REMOTE editor
-// currently has selected. Deliberately DOM-overlay, not a scene-graph decoration: entityMeshes may be
-// a ModelPool-managed/instanced root (see AGENTS.md modelpool-* caveats) where attaching arbitrary
-// child objects or material overrides is unsafe; projecting camera-space onto a fixed DOM layer (same
-// technique as app.js's _dragHud) touches nothing pool-owned.
-//
-// Presence entries expire on their own (STALE_MS) as a fallback even without a clean PLAYER_LEAVE --
-// e.g. a client that hard-crashes mid-drag before the server's disconnect handler broadcasts PLAYER_LEAVE.
 const STALE_MS = 15000
 const DRAG_SEND_THROTTLE_MS = 250
+const PRESENCE_NEVER_SENT = undefined
 
 export function createEditorPresence({ client, MSG, camera, renderer, entityMeshes }) {
-  // remoteClientId -> { entityId, dragging, at }
   const remote = new Map()
   let _lastDragSendAt = 0
-  let _lastSentEntityId = undefined // undefined = "never sent", distinct from null = "sent a clear"
+  let _lastSentEntityId = PRESENCE_NEVER_SENT
 
   const root = document.createElement('div')
   root.className = 'ds-editor-presence-layer'
   root.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:8500;display:none'
   document.body.appendChild(root)
-  const badges = new Map() // remoteClientId -> DOM node
+  const badges = new Map()
 
-  // Stable-ish colour per remote client id, so the same peer keeps the same badge colour across a session.
   function _colorFor(id) {
     let h = 0
     for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0
@@ -46,9 +35,6 @@ export function createEditorPresence({ client, MSG, camera, renderer, entityMesh
     badges.delete(id)
   }
 
-  // Sends this client's current selection/drag state to every other editor. Called on selection change
-  // and (throttled) on drag-update; entityId===null means "cleared" and is always sent immediately
-  // (never throttled) so peers don't see a stale selection linger after a real deselect.
   function sendPresence(entityId, dragging) {
     if (entityId === _lastSentEntityId && !dragging) return
     _lastSentEntityId = entityId
@@ -62,7 +48,6 @@ export function createEditorPresence({ client, MSG, camera, renderer, entityMesh
     client.send(MSG.EDITOR_PRESENCE, { entityId, dragging: true })
   }
 
-  // MSG.EDITOR_PRESENCE inbound handler -- call from app.js's onMessage switch.
   function onPresenceMessage(payload) {
     const { clientId: fromId, entityId, dragging } = payload || {}
     if (!fromId) return
@@ -70,24 +55,20 @@ export function createEditorPresence({ client, MSG, camera, renderer, entityMesh
     remote.set(fromId, { entityId, dragging: !!dragging, at: Date.now() })
   }
 
-  // PLAYER_LEAVE handler -- call from app.js's onMessage switch so a departed editor's badge doesn't linger.
   function onPeerLeave(playerId) {
     if (remote.delete(playerId)) _dropBadge(playerId)
   }
 
   function _project(mesh) {
-    // Works for any Object3D (group/mesh/placeholder); position is enough for a badge anchor, no need
-    // for a full bounding-box (which ModelPool-swapped LOD nodes may not have stably sized anyway).
     const p = mesh.position.clone ? mesh.position.clone() : mesh.position
     const world = mesh.getWorldPosition ? mesh.getWorldPosition(p) : p
     const ndc = world.project(camera)
-    if (ndc.z > 1 || ndc.z < -1) return null // behind camera or past far plane
+    const behindCameraOrPastFarPlane = ndc.z > 1 || ndc.z < -1
+    if (behindCameraOrPastFarPlane) return null
     const r = renderer.domElement.getBoundingClientRect()
     return { x: r.left + (ndc.x * 0.5 + 0.5) * r.width, y: r.top + (1 - (ndc.y * 0.5 + 0.5)) * r.height }
   }
 
-  // Called once per animate() frame while the editor is open. Cheap: only iterates the (typically tiny)
-  // remote presence map, not the whole scene.
   function tick() {
     const now = Date.now()
     let any = false
@@ -108,9 +89,6 @@ export function createEditorPresence({ client, MSG, camera, renderer, entityMesh
     root.style.display = any ? 'block' : 'none'
   }
 
-  // Called on editor close (onEditModeChange(false) in app.js) so stale badges don't linger visible
-  // behind the closed editor overlay -- tick() simply stops being called once the editor is hidden,
-  // which would otherwise leave root.style.display at whatever it was on the last visible frame.
   function hide() { root.style.display = 'none' }
 
   return { sendPresence, sendDragThrottled, onPresenceMessage, onPeerLeave, tick, hide }

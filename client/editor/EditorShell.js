@@ -25,7 +25,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
   document.body.appendChild(overlay)
   _ensureEditorResponsiveCSS()
   _ensureWmCSS()
-  // wmRoot is a sibling of overlay, not a child: overlay's applyDiff reconciles its child list exactly and would silently remove wmRoot.
   const wmRoot = document.createElement('div')
   wmRoot.className = 'wm-root'
   wmRoot.style.cssText = 'position:fixed;inset:0;display:none'
@@ -33,7 +32,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
   const wm = createWindowController({ root: wmRoot, storageKeyPrefix: 'ds-editor-wm-' })
   setSharedWM(wm)
 
-  // Slots for imperative child components
   const hierarchyHost = document.createElement('div')
   hierarchyHost.style.cssText = 'flex:1;display:flex;flex-direction:column;min-height:0'
   const hierAppMount = document.createElement('div')
@@ -57,40 +55,25 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
   }
 
   const insp = mkSplit(); tabBodies.Inspector.append(insp.main, insp.appMount)
-  // Kit mount: a plain DOM seam at the top of the inspector pane where the
-  // design repo's game-editor-kit components (ResetButton) are mounted from
-  // app.js. No UI is rendered here -- the element only hosts kit output.
   const inspectorKitMount = document.createElement('div')
   insp.main.prepend(inspectorKitMount)
   const appsTab = mkSplit(); tabBodies.Apps.append(appsTab.main, appsTab.appMount)
   const evTab = mkSplit(); tabBodies.Events.append(evTab.main, evTab.appMount)
 
-  // Stable host for the Tabs component (webjsx-diffed each render) so the wm
-  // window body -- appended to the DOM exactly once by WindowController, outside
-  // webjsx's own diff cycle -- keeps working across every render() call.
   const inspectorTabsHost = document.createElement('div')
   inspectorTabsHost.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column'
 
   let _tab = 'Inspector'
   let _gizmoMode = 'translate'
-  // 'world' (default) uses fixed world axes for translate/scale drags; 'local' rotates them by the
-  // selected entity's own orientation. Mirrors editor.js's own _gizmoSpace default so the toolbar
-  // never opens out of sync with the real drag behavior.
   let _gizmoSpace = 'world'
-  // Multi-select pivot mode: 'active' (default, back-compat) pivots the whole batch drag off the
-  // primary selected entity; 'centroid' places the gizmo at the selection's geometric center;
-  // 'individual' rotates/scales each selected entity about its own origin.
   let _pivotMode = 'active'
   let _snapOn = false, _snapSz = 0.25
   let _minimapOverlayOn = false
   const snapPresets = [0.1, 0.25, 0.5, 1.0, 2.0, 5.0]
   let _dirty = false
   let _playtesting = false
-  let _debugMode = 'none' // 'none' | 'wireframe' | 'unlit' | 'overdraw' | 'lightcomplexity'
+  let _debugMode = 'none'
 
-  // Lazy: the RenderGraph inspector must cost zero while never opened (no host DOM, no poll
-  // interval) -- only createRenderGraphViewer (which starts render()-ing once, still zero-poll
-  // until start()) on first open.
   let _renderGraphHost = null, _renderGraphViewer = null
   let _p2pHost = null, _p2pPanel = null
   let _freddieChatHost = null, _freddieChatPanel = null
@@ -101,24 +84,18 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     _renderGraphViewer = createRenderGraphViewer(_renderGraphHost)
   }
 
-  // Same lazy-cost-zero-until-opened shape as the RenderGraph inspector above: zero host DOM, and
-  // the lint itself is on-demand (Validate World button inside the panel), never auto-run on open.
   let _validatorHost = null, _validatorPanel = null
   function _ensureWorldValidator() {
     if (_validatorPanel) return
     _validatorHost = document.createElement('div')
     _validatorHost.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column;height:100%'
     _validatorPanel = createWorldValidator(_validatorHost, {
-      // Reuses the exact same select-entity path SceneHierarchy/HookFlow already call -- clicking a
-      // lint row focuses/selects the offending entity in the viewport via the real onEntitySelect wiring.
       onSelect: id => { onEntitySelect?.(id); hierarchy.setSelected(id) }
     })
     _validatorPanel.updateEntities(_entities)
     _validatorPanel.updateKnownApps(_knownApps)
   }
 
-  // Same lazy-cost-zero-until-opened shape as the RenderGraph/WorldValidator windows above: no host DOM,
-  // no generator run, until the Procgen window is opened at least once (procedural-content-editor-toolbar-integration).
   let _procgenHost = null, _procgenPanel = null
   function _ensureProcgenPanel() {
     if (_procgenPanel) return
@@ -127,7 +104,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     _procgenPanel = createProcgenPanel(_procgenHost, { onPlaceBatch: (plan) => onPlaceBatch?.(plan) })
   }
 
-  // P2P Room panel: wireweave host/join room management (flagship-demo-wireweave-p2p-room)
   function _ensureP2PRoomPanel() {
     if (_p2pPanel) return
     _p2pHost = document.createElement('div')
@@ -142,7 +118,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     })
   }
 
-  // Freddie chat panel: freddie agent chat UI (flagship-demo-freddie-spoint-bridge)
   function _ensureFreddieChatPanel() {
     if (_freddieChatPanel) return
     _freddieChatHost = document.createElement('div')
@@ -151,7 +126,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
       _freddieChatPanel = m.createFreddieChatPanel({
         agentId: 'freddie-editor',
         onSendMessage: (msg) => {
-          // Forward freddie bridge messages to the server or external handler
           onOpenFreddieChat?.({ type: 'send', message: msg })
         }
       })
@@ -159,10 +133,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     })
   }
 
-  // Same lazy-cost-zero-until-opened shape as the RenderGraph/WorldValidator windows above: no host DOM until
-  // the Waypoint Timeline window is opened at least once. moving-platform-keyframe-timeline-followup first
-  // slice: a live list/timeline view over the existing apps/waypoint custom._waypoint+order data model
-  // (add/remove/reorder), not a new data model of its own -- see WaypointTimeline.js's own header comment.
   let _waypointHost = null, _waypointPanel = null
   function _ensureWaypointTimeline() {
     if (_waypointPanel) return
@@ -177,8 +147,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     _waypointPanel.updateEntities(_entities)
   }
 
-  // Same lazy-cost-zero-until-opened shape as the RenderGraph inspector above: no host DOM, no
-  // LIST_FS_TREE request, until the maker actually opens the FS Browse window.
   let _fsBrowseHost = null, _fsBrowsePanel = null
   function _ensureFsBrowsePanel() {
     if (_fsBrowsePanel) return
@@ -194,24 +162,12 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     })
   }
 
-  // Same lazy-cost-zero-until-opened shape as the RenderGraph/FS Browse hosts above: no host DOM until
-  // the History window is opened at least once. _renderHistoryBody is defined inside shellView (below,
-  // closes over onJumpToHistory) so this only allocates the persistent element the wm body attaches to.
   let _historyHost = null
   function _ensureHistoryHost() {
     if (_historyHost) return
     _historyHost = document.createElement('div')
     _historyHost.style.cssText = 'padding:8px;overflow-y:auto;height:100%;font:12px var(--ff-mono,monospace)'
   }
-  // History window body (editor-undo-transactionality-multiselect-batch-inspector): a live, clickable
-  // list of every named transaction currently on EditHistory's undo/redo stacks -- newest first, each
-  // row shows the human-readable name (e.g. "box-1 position" or "3 entities scale") and how long ago it
-  // landed. Clicking a row calls onJumpToHistory(txnId), which replays undo()/redo() the minimum number
-  // of steps to land exactly on that transaction's post-commit state (see EditHistory.jumpTo). The
-  // currently-live top-of-undo-stack entry (depth 0, state 'done') is highlighted so a maker can see
-  // "you are here" at a glance, matching the row's own "history panel ... jump to that undo state" ask.
-  // Outer-scope (not inside shellView, which is re-created every render): updateHistory() below calls
-  // this directly from outside shellView's closure to live-refresh an already-open window.
   function _renderHistoryBody(body) {
     const rows = _historyEntries
     applyDiff(body, [
@@ -245,7 +201,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     const groupLabel = (txt) => h('span', { style: 'font:8px/1 var(--ff-mono, monospace);text-transform:uppercase;letter-spacing:0.12em;color:var(--panel-text-3)' }, txt)
 
     const saveWorldLabel = _dirty ? 'Save World *' : 'Save World'
-    // Singleplayer has no server fs: the world def downloads as .js instead, must be manually moved into apps/world/.
     const saveWorldTitle = isSingleplayer
       ? 'Download the current scene as a .js file (singleplayer has no server filesystem -- move it into apps/world/ to reload it later)'
       : 'Save the current scene as a reloadable world'
@@ -277,9 +232,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
           const name = document.createElement('div')
           name.textContent = w
           row.appendChild(name)
-          // sandbox.js (apps/world/sandbox.js) ships with entities:[] -- the genuine blank-canvas
-          // starting point for a new maker, otherwise indistinguishable from any other saved world
-          // in this flat name list.
           if (w === 'sandbox') {
             const hint = document.createElement('div')
             hint.textContent = 'Empty starting point -- no placed entities, add everything from scratch'
@@ -319,17 +271,11 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
             value: _gizmoMode,
             onChange: (id) => { _gizmoMode = id; onGizmoModeChange?.(id); render() }
           }),
-          // editor-gizmo-local-world-toggle: world (fixed X/Y/Z) vs local (rotated by the selected
-          // entity's own orientation) drag axes. Also bound to the 'Y' key (unused before this,
-          // see EDITOR_SHORTCUTS below) since Blender/Unity both keyboard-bind this same toggle.
           groupLabel('Space'), C.IconButtonGroup({
             items: [{ id: 'world', label: 'World' }, { id: 'local', label: 'Local' }],
             value: _gizmoSpace,
             onChange: (id) => { _gizmoSpace = id; onGizmoSpaceChange?.(id); render() }
           }),
-          // editor-multiselect-pivot-options: only meaningful with 2+ entities selected, but stays
-          // always-visible/always-enabled (same convention as Align/Distribute/Group above) rather
-          // than computing selection count here.
           groupLabel('Pivot'), C.IconButtonGroup({
             items: [{ id: 'active', label: 'Active' }, { id: 'centroid', label: 'Centroid' }, { id: 'individual', label: 'Individual' }],
             value: _pivotMode,
@@ -346,10 +292,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
             onChange: (id) => { _snapSz = parseFloat(id); if (_snapOn) onSnapChange?.(_snapOn, _snapSz); render() },
             dense: true
           }),
-          // editor-align-distribute: align-to-primary and even-spacing tools for the current
-          // multi-select set. Both no-op (onAlign/onDistribute themselves report via showToast)
-          // when fewer than 2 entities are selected -- the buttons stay always-visible/always-enabled
-          // rather than computing selection count here, since EditorShell doesn't own selection state.
           groupLabel('Align'), C.IconButtonGroup({
             items: [{ id: 'x', label: 'X' }, { id: 'y', label: 'Y' }, { id: 'z', label: 'Z' }],
             value: null,
@@ -360,21 +302,15 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
             value: null,
             onChange: (axis) => onDistribute?.(axis)
           }),
-          // group-parent: bundles the current multi-selection under one new empty parent entity
-          // (GROUP_ENTITIES, 0xa3). No-ops with a toast (server-side) below 2 selected -- same
-          // always-visible/always-enabled convention as Align/Distribute above.
           groupLabel('Group'), C.Btn
             ? C.Btn({ dense: true, title: 'Group selected entities under a new parent', onClick: (e) => { e.preventDefault(); onGroup?.() }, children: ['Group'] })
             : h('button', { onclick: (e) => { onGroup?.() } }, 'Group'),
-          // Playtest: in-editor play/pause/eject with snapshot-and-rollback
           groupLabel('Play'), C.Btn
             ? C.Btn({ dense: true, title: _playtesting ? 'Stop playtest and restore world state' : 'Playtest in-editor (snapshot world, possess camera)', onClick: (e) => { e.preventDefault(); if (_playtesting) { _playtesting = false; onPlaytestStop?.(); } else { _playtesting = true; onPlaytestStart?.(); } render() }, children: [_playtesting ? '■ Stop' : '▶ Play'] })
             : h('button', { onclick: () => { if (_playtesting) { _playtesting = false; onPlaytestStop?.(); } else { _playtesting = true; onPlaytestStart?.(); } render() } }, _playtesting ? 'Stop' : 'Play'),
-          // Debug view modes dropdown
           groupLabel('View'), C.Btn
             ? C.Btn({ dense: true, title: 'Viewport debug render mode', onClick: (e) => { e.preventDefault(); const menu = [{ label: 'Normal', onSelect: () => { _debugMode = 'none'; onDebugModeChange?.('none'); render() } }, { label: 'Wireframe', onSelect: () => { _debugMode = 'wireframe'; onDebugModeChange?.('wireframe'); render() } }, { label: 'Unlit', onSelect: () => { _debugMode = 'unlit'; onDebugModeChange?.('unlit'); render() } }, { label: 'Overdraw', onSelect: () => { _debugMode = 'overdraw'; onDebugModeChange?.('overdraw'); render() } }, { label: 'Light Complexity', onSelect: () => { _debugMode = 'lightcomplexity'; onDebugModeChange?.('lightcomplexity'); render() } }]; const host = document.createElement('div'); host.className = 'ds-247420'; document.body.appendChild(host); applyDiff(host, [C.ContextMenu({ anchor: { x: e.clientX, y: e.clientY }, onClose: () => { host.remove() }, items: menu })]) }, children: ['View: ' + (_debugMode === 'none' ? 'Normal' : _debugMode)] })
-            : h('button', { onclick: () => { /* debug mode toggle */ } }, 'View'),
-          // Command palette trigger
+            : h('button', { onclick: () => { } }, 'View'),
           C.Btn
             ? C.Btn({ dense: true, title: 'Command palette (Ctrl+Shift+P)', onClick: (e) => { e.preventDefault(); onCommandPalette?.() }, children: ['⌘'] })
             : h('button', { onclick: () => onCommandPalette?.() }, '⌘')
@@ -394,7 +330,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
       })
     ])
 
-    // wm.open() no-ops on an already-open id, safe to call every render().
     if (!hierarchyHost._dsWmMounted) { hierarchyHost._dsWmMounted = true; hierarchyHost.append(hierAppMount) }
     wm.open({ id: 'scene', title: 'Scene', x: 12, y: 12, w: 320, h: 420, body: hierarchyHost })
     wm.open({ id: 'inspector', title: 'Inspector', x: window.innerWidth - 352, y: 12, w: 340, h: 460, body: inspectorTabsHost })
@@ -427,22 +362,12 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     const procgenBtn = C.Btn
       ? C.Btn({ ghost: true, dense: true, title: 'Procedural content generators (WFC grid layout, L-system tree, noise terrain): preview + place into the world', onClick: (e) => { e.preventDefault(); openProcgenWindow() }, children: ['Procgen'] })
       : h('button', { onclick: () => openProcgenWindow() }, 'Procgen')
-    // Minimap reference overlay (minimap-hud-editor-ui-integration): toggles a ground-plane textured
-    // with the same baked top-down PNG the HUD widget uses, for level-design orientation. Scene-mesh
-    // ownership stays in editor.js (same pattern as gizmoGroup/radiusGizmoGroup) -- this button is a
-    // pure UI affordance, calling back to whatever the app.js wiring provided; toggles its own pressed
-    // look via _minimapOverlayOn so the button state stays in sync even though the mesh itself lives
-    // outside this module.
     const minimapBtn = onToggleMinimapOverlay ? (C.Btn
       ? C.Btn({ ghost: true, dense: true, title: 'Toggle baked minimap ground-plane reference overlay (level-design orientation)', onClick: (e) => { e.preventDefault(); _minimapOverlayOn = !!onToggleMinimapOverlay(); render() }, children: [_minimapOverlayOn ? '✓ Minimap' : 'Minimap'] })
       : h('button', { onclick: () => { _minimapOverlayOn = !!onToggleMinimapOverlay(); render() } }, _minimapOverlayOn ? '✓ Minimap' : 'Minimap')) : null
     const historyBtn = C.Btn
       ? C.Btn({ ghost: true, dense: true, title: 'Named edit history: click any entry to jump to that undo state', onClick: (e) => { e.preventDefault(); openHistoryWindow() }, children: ['History (' + _historyEntries.filter(r => r.state === 'done').length + ')'] })
       : h('button', { onclick: () => openHistoryWindow() }, 'History')
-    // Dense single-line info strip (entity count / selection count / fps) -- verified+adjusted per
-    // editor-status-bar-info-density: prior memory reported an oversized ~68px bar with thin info content;
-    // this packs all three counters into one row alongside the existing status text/cam-coords/buttons rather
-    // than adding a second row, keeping the bar's height to a single line of text regardless of viewport size.
     const _selCount = hierarchy.selectionCount
     const infoStrip = h('div', {
       class: 'ds-ep-statusbar-info', style: 'display:flex;gap:10px;font:11px var(--ff-mono,monospace);color:var(--panel-text-2,var(--fg-2));white-space:nowrap;align-items:center'
@@ -454,11 +379,7 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     const status = h('div', { class: 'ds-ep-statusbar', style: 'pointer-events:all;display:flex;align-items:center;gap:12px;min-height:0;line-height:1.2;padding:2px 8px' },
       h('div', { class: 'ds-ep-statusbar-left' }, _statusLeft || 'Ready'),
       infoStrip,
-      // Per-frame camera coords are written directly via setCamCoords (textContent), not through render, to avoid diff thrash.
       h('div', { class: 'ds-ep-cam-coords', style: 'font:11px var(--ff-mono,monospace);color:var(--panel-text-2,var(--fg-2));white-space:nowrap' }, _camCoords),
-      // Bookmarks affordance: save/recall live in editor.js's keydown handler (owns `camera`
-      // directly); this button just surfaces the scheme via the same shortcuts window rather
-      // than wiring a redundant cross-module callback for a feature already keyboard-driven.
       C.Btn
         ? C.Btn({ ghost: true, dense: true, title: 'Camera bookmarks: Ctrl+Alt+1..9 to save, Alt+1..9 to recall', onClick: (e) => { e.preventDefault(); openShortcutsWindow() }, children: ['Bookmarks'] })
         : h('button', { onclick: () => openShortcutsWindow() }, 'Bookmarks'),
@@ -497,18 +418,12 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     }
 
     function openHistoryWindow() {
-      // Stable host (same lazy-persistent-body shape as RenderGraph/FS Browse above): wm.open() on an
-      // already-open id just focuses and returns the EXISTING handle without touching body, so a NEW
-      // element passed on a re-open would never actually get attached -- _historyHost must be created
-      // once and mutated in place via applyDiff on every call (open OR a live onChange re-render).
       _ensureHistoryHost()
       _renderHistoryBody(_historyHost)
       wm.open({ id: 'history', title: 'History', x: (window.innerWidth - 340) / 2, y: (window.innerHeight - 420) / 2, w: 340, h: 420, body: _historyHost })
     }
 
     function openRenderGraphWindow() {
-      // renderGraphHost + renderGraphViewer are created lazily once (module-scope closure below),
-      // reused across opens -- wm.open() no-ops on an already-open id so re-clicking just focuses it.
       _ensureRenderGraphViewer()
       const already = wm.getWindow('rendergraph')
       wm.open({
@@ -523,9 +438,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
       _ensureFsBrowsePanel()
       const already = wm.getWindow('fsbrowse')
       wm.open({ id: 'fsbrowse', title: 'FS Browse (apps/)', x: (window.innerWidth - 480) / 2, y: (window.innerHeight - 520) / 2, w: 480, h: 520, body: _fsBrowseHost })
-      // Fresh tree on every open, not just the first: an external agent may have created/deleted
-      // files while this window was closed, and FS_TREE_CHANGED pushes are only listened to while
-      // the panel object exists -- an explicit re-list on open covers the "closed the whole time" gap.
       onFsListTree?.()
     }
 
@@ -537,8 +449,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     function openWaypointTimelineWindow() {
       _ensureWaypointTimeline()
       wm.open({ id: 'waypointtimeline', title: 'Waypoints', x: (window.innerWidth - 420) / 2, y: (window.innerHeight - 440) / 2, w: 420, h: 440, body: _waypointHost })
-      // Fresh list on every open, same discipline as FS Browse above -- entities may have changed
-      // (waypoints placed/deleted via the normal Add menu / Delete key) while this window was closed.
       _waypointPanel?.updateEntities(_entities)
     }
 
@@ -578,11 +488,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     }
   })
 
-  // editor-layers-panel: cascading layer-wide visibility/lock on top of SceneHierarchy's own
-  // per-entity lock/hidden sets (see LayerRegistry.js's own header comment for the full design).
-  // Assignment persists server-side via the generic custom._layer EDITOR_UPDATE merge; sync back
-  // on every scene-graph refresh (updateScene call site below) so a reconnect/reload doesn't
-  // silently drop layer membership.
   const layers = createLayerRegistry({
     setLocked: (id, v) => hierarchy.setLocked(id, v),
     setHidden: (id, v) => hierarchy.setHiddenInEditor(id, v),
@@ -615,10 +520,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
   })
 
   let _onChange = null, _entities = [], _knownApps = [], _onTabChange = null, _statusLeft = 'Ready', _camCoords = '', _fps = 0
-  // Named-transaction history panel (editor-undo-transactionality): the live list from EditHistory.list(),
-  // pushed in by app.js's editHistory.onChange -> editPanel.updateHistory(list). Re-rendered on every
-  // change while the History window is open; when closed, updateHistory just updates the cached array so
-  // the NEXT open shows current state without needing a fresh push.
   let _historyEntries = []
 
   function _switchTab(t) {
@@ -627,9 +528,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     render()
     if (t === 'HookFlow') hfViewer.updateGraph(_entities)
     if (t === 'EventChains') eventChainPanel.updateEntitiesAndApps(_entities, _knownApps)
-    // HookFlow's live-signal wire pulses need the same event-log poll Events already runs -- both tabs
-    // share one evLog.start()/stop() cadence (2s interval, see EditorEventLog.js), evLog.updateEvents just
-    // also forwards to hfViewer below so switching tabs never double-polls the server.
     if (t === 'Events' || t === 'HookFlow') evLog.start(); else evLog.stop()
     if (_onTabChange) try { _onTabChange(t) } catch (_) {}
   }
@@ -648,28 +546,16 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     let _recent = loadRecent()
     let _query = ''
     let _highlight = -1
-    let _flatItems = []   // last-rendered selectable items (recent + filtered base), for keyboard nav
+    let _flatItems = []
     let _keyHandler = null
-    let _searchBox = null   // real <input> overlaid above the ContextMenu's own DOM
+    let _searchBox = null
     const close = () => {
       if (_keyHandler) { document.removeEventListener('keydown', _keyHandler, true); _keyHandler = null }
       if (_searchBox) { _searchBox.remove(); _searchBox = null }
       applyDiff(host, [])
     }
-    // editor-multi-place-drag: when armed, an Add-menu selection doesn't place a single copy --
-    // it arms the viewport's scatter-drag mode (see editor.js armScatterPlace) so the NEXT
-    // empty-space drag places a copy every ~2 world units of travel, ground-following via
-    // the same raycastHitPoint used for snap-to-surface.
     let _scatterOn = false
     const scatterState = { get on() { return _scatterOn }, toggle: () => { _scatterOn = !_scatterOn; repaint(buildAddMenuItems(place, openPropSubmenu, scatterState)) } }
-    // placePos (optional [x,y,z] world point, e.g. the viewport-context-menu's raycast-under-cursor position)
-    // overrides the caller's own default (viewport-center) placement position for both apps and prop models.
-    // Both callers of this already supply AUTHORITATIVE placePos (app.js's _viewportCenterPlacePos/
-    // _vpMenuPlacePos both convert through floatingOrigin.toAuthoritative). The scatter-place `hit` below
-    // is different: editor.js's armScatterPlace feeds it a RAW render-space raycastHitPoint per drag-step
-    // (see editor.js's own _scatterActive loop) -- convert it the same way here, or scatter-placing past
-    // the first floating-origin rebase drops every copy near the render-space origin instead of along
-    // the actual drag path (editor-inspector-gizmo-position-display-write-floating-origin).
     const _scatterHitAuth = (hit) => { if (!floatingOrigin) return [hit.x, hit.y, hit.z]; const a = floatingOrigin.toAuthoritative(hit); return [a.x, a.y, a.z] }
     const place = (id) => {
       _recent = recordRecent({ key: id, label: (ADD_PRIMITIVES.find(p => p.id === id) || {}).label || id, kind: 'primitive', value: id }, _recent)
@@ -684,11 +570,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
       else { onPlaceModel?.(url, placePos); showToast('Placed prop') }
     }
     let _lastBaseItems = []
-    // Composes recent-section + filtered base items into the final ContextMenu item list, and
-    // tracks the flat selectable subset (_flatItems) for arrow-key navigation. The search INPUT
-    // itself is a real DOM node positioned above the menu (see repaint), not a ContextMenu item --
-    // the kit's ContextMenu item shape ({label, onSelect, disabled}) has no documented custom-render
-    // hook, so composing a fabricated one would be unverified API surface.
     function _composeMenuItems(baseItems) {
       const recentItems = (!_query && _recent.length)
         ? [{ label: '★ Recent', disabled: true }, ...
@@ -701,7 +582,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
       const tag = (it) => it === highlighted ? { ...it, label: '▸ ' + it.label } : it
       return [...recentItems.map(tag), ...(recentItems.length && filteredBase.length ? [{ label: '───', disabled: true }] : []), ...filteredBase.map(tag)]
     }
-    // Deferred to a macrotask: re-rendering this host synchronously from onSelect races the kit's outside-click-close listener.
     const repaint = (baseItems) => setTimeout(() => {
       if (!host.isConnected) return
       _lastBaseItems = baseItems
@@ -710,14 +590,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
       _ensureSearchBox()
       _decorateThumbnails(rendered)
     }, 0)
-    // editor-place-menu-thumbnails: ContextMenu (anentrypoint-design, CDN-loaded, minified bundle)
-    // exposes no documented per-item icon/custom-render hook -- its item contract is strictly
-    // {label, onSelect, disabled} (see the _composeMenuItems comment above, verified against the
-    // live kit bundle: no icon/thumb/image field referenced anywhere in dist/247420.js's ContextMenu
-    // renderer). Rather than fabricate an unverified API surface on a black-box component, this
-    // decorates the ALREADY-RENDERED DOM rows after applyDiff, the same sidecar-DOM pattern already
-    // used for the search box above. Matches rows to their source item by exact label text (labels
-    // are unique per repaint: model names, or the '< Back' row which never carries a thumb).
     function _decorateThumbnails(items) {
       const byLabel = new Map()
       for (const it of items) if (it._thumb) byLabel.set(it.label.replace(/^▸ /, ''), it._thumb)
@@ -732,15 +604,10 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
         img.src = thumbUrl
         img.alt = ''
         img.style.cssText = 'width:20px;height:20px;object-fit:cover;border-radius:2px;margin-right:6px;vertical-align:middle;background:rgba(255,255,255,0.06)'
-        // Graceful fallback: a 404/broken thumb (e.g. CI ktx-fallback gap, see AGENTS.md
-        // sillos-scramble-hypothesis-disproven for a precedent of benign asset-pipeline gaps)
-        // just removes the broken image rather than showing a broken-image glyph.
         img.addEventListener('error', () => img.remove(), { once: true })
         row.insertBefore(img, row.firstChild)
       })
     }
-    // The filter input lives outside applyDiff's managed subtree (a sibling appended once, moved/
-    // refocused on each repaint) so typing never gets clobbered by the ContextMenu's own re-render.
     function _ensureSearchBox() {
       if (_searchBox && _searchBox.isConnected) { _searchBox.style.left = x + 'px'; _searchBox.style.top = y + 'px'; return }
       _searchBox = document.createElement('input')
@@ -749,7 +616,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
       _searchBox.value = _query
       _searchBox.style.cssText = `position:fixed;left:${x}px;top:${y}px;width:220px;box-sizing:border-box;z-index:9200;font:12px var(--ff-mono,monospace);padding:4px 6px;background:var(--panel-2,#1a1a1a);color:var(--panel-text,#eee);border:1px solid var(--rule,#444);border-radius:4px`
       _searchBox.addEventListener('input', () => { _query = _searchBox.value; _highlight = -1; repaint(_lastBaseItems) })
-      // Keep this input from stealing focus back after arrow/enter navigation clicks a menu row.
       _searchBox.addEventListener('keydown', (e) => { if (['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(e.key)) e.preventDefault() })
       document.body.appendChild(_searchBox)
       setTimeout(() => { if (_searchBox && _searchBox.isConnected) _searchBox.focus() }, 0)
@@ -764,9 +630,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
         }, openPropSubmenu))
       }).then(items => { if (host.isConnected) repaint(items) })
     }
-    // Arrow-key nav (up/down move _highlight through the flat selectable list), Enter places
-    // the highlighted row, Escape closes. Capture phase so it runs before the kit's own
-    // outside-click/keydown handling; only active while this menu's host is connected.
     _keyHandler = (e) => {
       if (!host.isConnected) return
       if (e.key === 'ArrowDown') { e.preventDefault(); _highlight = Math.min(_highlight + 1, _flatItems.length - 1); repaint(_lastBaseItems) }
@@ -786,11 +649,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     toggle() { const v = overlay.style.display === 'none' ? 'block' : 'none'; overlay.style.display = v; wmRoot.style.display = v },
     updateApps(apps) { appsPanel.setApps(apps); _knownApps = apps || []; _validatorPanel?.updateKnownApps(_knownApps); hfViewer.updateApps(_knownApps); eventChainPanel?.updateEntitiesAndApps(_entities, _knownApps) },
     updateScene(entities) { _entities = entities || []; setSceneEntityIds(_entities.map(e => e.id)); hierarchy.updateEntities(entities); layers.hydrateFromEntities(_entities); hfViewer.updateGraph(_entities); _validatorPanel?.updateEntities(_entities); _waypointPanel?.updateEntities(_entities); eventChainPanel?.updateEntitiesAndApps(_entities, _knownApps); render() },
-    // extraEntities (editor-undo-transactionality-multiselect-batch-inspector): the REAL field data
-    // (position/rotation/scale/custom/_appName) for every extra-selected entity, not just their bare
-    // ids -- the batch inspector needs it to compute shared-vs-mixed values across the selection.
-    // Optional/back-compat: any call site still passing only 3 args gets extraIds with no data,
-    // and the inspector's multi-select view degrades to delta-only bulk-edit (its pre-existing shape).
     showEntity(entity, eProps, extraIds, extraEntities) {
       inspector.showEntity(entity, eProps, extraIds, extraEntities); hierarchy.setSelected(entity?.id || null); _waypointPanel?.setSelected(entity?.id || null)
       overlay.classList.toggle('has-selection', !!entity)
@@ -803,7 +661,6 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
       const el = overlay.querySelector('.ds-ep-cam-coords')
       if (el) el.textContent = _camCoords
     },
-    // Direct-DOM-write like setCamCoords (no render()) so a ~1Hz fps update doesn't diff-thrash the whole status bar.
     setFps(fps) {
       _fps = fps | 0
       const el = overlay.querySelector('.ds-ep-info-fps')
@@ -821,29 +678,18 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
     get snapOn() { return _snapOn },
     updateAppFiles(name, files) { appsPanel.setAppFiles(name, files) },
     openCode(app, file, code) { appsPanel.openCode(app, file, code); _switchTab('Apps') },
-    // FS Browse window bundle -- all no-ops until the window has been opened at least once
-    // (panel created lazily by _ensureFsBrowsePanel), matching the RenderGraph zero-cost-until-open shape.
     updateFsTree(tree, error) { _fsBrowsePanel?.setTree(tree, error) },
     setFsSource(path, source, mtimeMs, binary, conflict, diskSource, error) { _fsBrowsePanel?.setSource(path, source, mtimeMs, binary, conflict, diskSource, error) },
     onFsOpResult(op, ok, error) { _fsBrowsePanel?.onOpResult(op, ok, error) },
     onFsTreeChanged() { _fsBrowsePanel?.onTreeChanged() },
     onEditorChange(fn) { _onChange = fn },
     onTabChange(fn) { _onTabChange = fn },
-    // "?" keydown handler (app.js) toggles this: opens the shortcuts window if closed, closes it if
-    // already open -- same list the toolbar "Shortcuts"/"Bookmarks" buttons open, single source (EDITOR_SHORTCUTS).
     toggleShortcutsHelp() { const w = wm.getWindow('shortcuts'); if (w) wm.close('shortcuts'); else openShortcutsWindow() },
     updateEventLog(events) { evLog.updateEvents(events); hfViewer.updateEvents(events) },
-    // Named-transaction history (editor-undo-transactionality-multiselect-batch-inspector): pushed by
-    // app.js's editHistory.onChange with EditHistory.list()'s live array. Cheap when the window is
-    // closed (just caches the array + refreshes the toolbar button's count via render()); repaints the
-    // window body directly only when it's actually open, matching setFps's direct-write-no-full-render
-    // shape for the common (window closed) case while staying live for the common (window open) case too.
     updateHistory(entries) { _historyEntries = entries || []; if (_historyHost && wm.getWindow('history')) _renderHistoryBody(_historyHost); render() },
     get visible() { return overlay.style.display !== 'none' },
     get selectedEntity() { return inspector.selectedEntity },
     get currentTab() { return _tab },
-    // Client-side-only lock/hidden-in-editor state, read by app.js (pick-gating passthrough + editor-overlay
-    // visibility override) without app.js needing to reach into SceneHierarchy directly.
     isLocked(id) { return hierarchy.isLocked(id) },
     isHiddenInEditor(id) { return hierarchy.isHiddenInEditor(id) },
     get hiddenInEditorIds() { return hierarchy.hiddenInEditorIds },

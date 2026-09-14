@@ -1,9 +1,3 @@
-// Add-menu / prop-category / recent-items / shortcuts-cheatsheet helpers for EditorShell.js's
-// createEditPanel: stateless (module-level RECENT_KEY/RECENT_MAX localStorage cache aside) menu-item
-// builders, name-prompt validation, and one-time CSS injection. Split out as EditorShell.js's largest
-// self-contained block -- none of these touch createEditPanel's own closure state, only their own
-// params/module-level caches/constants.
-
 import { ASSET_HOST, fetchAssetManifest } from './AssetManifest.js'
 import { promptText } from './wm/ui.js'
 
@@ -29,11 +23,6 @@ async function buildPropCategoryItems(onOpenCategory) {
   try {
     const manifest = await fetchAssetManifest()
     const cats = Object.keys(manifest).sort()
-    // editor-place-menu-thumbnails: category glyph is a graceful fallback differentiator for the
-    // category-list level (no per-category thumbnail exists in the manifest -- categories are just
-    // string keys grouping models, see AssetManifest.js/manifest.json shape). Real per-MODEL thumb
-    // images (manifest[cat][i].thumb, a live gh-pages-hosted PNG, confirmed present on every entry)
-    // are wired at the model-row level in buildCategoryMenuItems below.
     return cats.length
       ? cats.map(cat => ({ label: `${_categoryGlyph(cat)} ${cat} (${(manifest[cat] || []).length})`, onSelect: () => onOpenCategory(cat, manifest[cat] || []) }))
       : [{ label: '(no props in catalog)', disabled: true }]
@@ -42,9 +31,6 @@ async function buildPropCategoryItems(onOpenCategory) {
   }
 }
 
-// Coarse category->glyph map (text-only fallback differentiator; the manifest has no per-category
-// icon/image field, only per-model `thumb`). Deliberately small and approximate -- any unmatched
-// category still gets the neutral default glyph rather than nothing.
 const _CATEGORY_GLYPHS = [
   [/kitchen|appliance|fridge|oven|stove|dish/i, '\u{1F373}'],
   [/bath|shower|toilet|sink/i, '\u{1F6BF}'],
@@ -59,22 +45,14 @@ const _CATEGORY_GLYPHS = [
 ]
 function _categoryGlyph(cat) {
   for (const [re, glyph] of _CATEGORY_GLYPHS) if (re.test(cat)) return glyph
-  return '\u{1F4E6}' // generic package/prop glyph default
+  return '\u{1F4E6}'
 }
 
 function buildCategoryMenuItems(models, onPlaceModel, onBack) {
-  // _thumb carries the real manifest thumbnail URL (or null) through to the post-render DOM
-  // decoration pass in openAddMenu -- ContextMenu's item shape ({label,onSelect,disabled}) has no
-  // documented custom-render/icon hook (see openAddMenu's own comment), so the extra _thumb key
-  // rides along unused by the kit and is read back out by label-text matching after applyDiff.
   const items = models.map(m => ({ label: m.name, onSelect: () => onPlaceModel(ASSET_HOST + m.path), _thumb: m.thumb ? ASSET_HOST + m.thumb : null }))
   return [{ label: '< Back', onSelect: onBack }, ...items]
 }
 
-// --- Add-menu recent-items tracking (editor-add-menu-recent) ---------------------------------
-// localStorage-persisted, keyed by asset url (props) or primitive kind ('box-static' etc).
-// Pure functions (recordRecent/loadRecent) so the list/dedupe/cap logic is exec_js-testable
-// independent of any DOM/menu wiring.
 const RECENT_KEY = 'ds-editor-add-menu-recent'
 const RECENT_MAX = 8
 function loadRecent() {
@@ -85,7 +63,6 @@ function loadRecent() {
   } catch (_) { return [] }
 }
 function recordRecent(entry, existing) {
-  // entry: {key, label, kind:'primitive'|'prop', value}. Most-recent-first, deduped by key, capped at RECENT_MAX.
   const list = (existing || loadRecent()).filter(r => r.key !== entry.key)
   list.unshift(entry)
   const capped = list.slice(0, RECENT_MAX)
@@ -93,8 +70,6 @@ function recordRecent(entry, existing) {
   return capped
 }
 
-// --- Add-menu substring filter (editor-add-menu-search) --------------------------------------
-// Pure: filters a flat item list by substring match on label, case-insensitive.
 function filterMenuItems(items, query) {
   const q = (query || '').trim().toLowerCase()
   if (!q) return items
@@ -116,7 +91,6 @@ const TABS = ['Inspector', 'Apps', 'HookFlow', 'Events', 'EventChains']
 const EDITOR_SHORTCUTS = [
   { combo: 'G / W', scope: 'gizmo', label: 'Translate (move) gizmo' },
   { combo: 'R / E', scope: 'gizmo', label: 'Rotate gizmo' },
-  // Alt+S not bare S: bare WASDC drives the fly-camera, would collide with a plain letter shortcut.
   { combo: 'Alt+S', scope: 'gizmo', label: 'Scale gizmo' },
   { combo: 'F', scope: 'gizmo', label: 'Frame / focus selected entity' },
   { combo: 'Delete', scope: 'edit', label: 'Delete selected entity' },
@@ -144,12 +118,6 @@ let _wmCssInjected = false
 function _ensureWmCSS() {
   if (_wmCssInjected) return
   _wmCssInjected = true
-  // Absolute server path, not import.meta.url-relative: import.meta.url of a bundled
-  // app.js resolves to the bundle's own URL (not this source file's real location),
-  // which would silently mis-resolve these hrefs to /wm/*.css instead of
-  // /editor/wm/*.css once client/app.js is bundled by scripts/bundle-client.mjs. The
-  // editor/ directory is a fixed, server-mounted path (client/editor/wm/*.css), so an
-  // absolute reference is both bundling-safe and simpler than a relative one.
   for (const href of ['/editor/wm/os-token-bridge.css', '/editor/wm/wm.css']) {
     const l = document.createElement('link')
     l.rel = 'stylesheet'

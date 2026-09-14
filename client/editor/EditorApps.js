@@ -58,7 +58,6 @@ export function createEditorApps(container, { onPlace, onSave, onGetSource, onGe
 
   container.classList.add('ds-ep-panel')
 
-  // App list built imperatively, not via webjsx diff: the reconciler drops a tree-item's 2nd (file-list) child on re-render.
   let _toolbarHost = null, _listHost = null
   function _ensureHosts() {
     if (_toolbarHost && _toolbarHost.isConnected) return
@@ -68,7 +67,6 @@ export function createEditorApps(container, { onPlace, onSave, onGetSource, onGe
     _listHost.className = 'ds-ep-tree'
     _listHost.style.cssText = 'flex:1;min-height:0;overflow-y:auto'
     container.append(_toolbarHost, _listHost)
-    // Container starts detached; repaint toolbar on every host recreation or it gets silently dropped.
     renderToolbar()
   }
 
@@ -139,7 +137,6 @@ export function createEditorApps(container, { onPlace, onSave, onGetSource, onGe
       exp.className = 'ds-ep-tree-children'
       exp.style.cssText = 'padding-left:18px'
 
-      // Event Wiring / Bus Channels
       const listens = app.channels || []
       const emits = app.emitsChannels || []
       if (listens.length > 0 || emits.length > 0) {
@@ -241,7 +238,6 @@ export function createEditorApps(container, { onPlace, onSave, onGetSource, onGe
       return
     }
 
-    // Group filtered apps by category
     const groups = new Map()
     for (const app of filtered) {
       const cat = getAppCategory(app)
@@ -249,7 +245,6 @@ export function createEditorApps(container, { onPlace, onSave, onGetSource, onGe
       groups.get(cat).push(app)
     }
 
-    // Sort categories according to CATEGORY_ORDER
     const orderedCategories = CATEGORY_ORDER.filter(c => groups.has(c)).concat(
       [...groups.keys()].filter(c => !CATEGORY_ORDER.includes(c)).sort()
     )
@@ -267,7 +262,6 @@ export function createEditorApps(container, { onPlace, onSave, onGetSource, onGe
   }
 
   function render() {
-    // Must dispose the Monaco pane before wiping container, or its lazy-load liveness guard checks a stale flip.
     container._editorPaneDispose?.()
     if (_curApp && _curFile) {
       container.innerHTML = ''

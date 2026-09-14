@@ -30,7 +30,6 @@ function attachContextMenu(el, getItems) {
   return C.useContextMenu(el, null, ({ x, y }) => openContextMenu(x, y, getItems()))
 }
 
-// Shared node classification, reused by both the tree-row icon glyph and the search `type:` scope filter.
 function classifyNode(node) {
   if (node.model) return 'model'
   if (node.custom && node.custom.mesh) return 'primitive'
@@ -66,8 +65,6 @@ function flattenTree(nodes, depth, q, seen, expanded, out) {
   return out
 }
 
-// Drop an id from a batch drag if it is an ancestor of another id in the same batch -- reparenting an ancestor
-// under its own descendant target (or moving it while the descendant also moves) is structurally impossible.
 function isAncestorOf(parentOf, candidateId, descendantId) {
   let p = parentOf.get(descendantId)
   while (p != null) { if (p === candidateId) return true; p = parentOf.get(p) }
@@ -82,7 +79,6 @@ function indexParents(nodes, parentId, parentOf) {
   for (const n of nodes || []) { parentOf.set(n.id, parentId); indexParents(n.children, n.id, parentOf) }
 }
 
-// Above VIRTUALIZE_THRESHOLD, only viewport+overscan rows render as real TreeItems; the rest become 2 sized spacer divs.
 function sliceVirtualWindow(rows, scrollTop, viewportH, rowHeight, overscan) {
   const visibleCount = Math.max(1, Math.ceil((viewportH || 400) / rowHeight))
   const startIdx = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan)
@@ -98,11 +94,7 @@ export function createSceneHierarchy(container, { onSelect, onFocus, onDelete, o
   let _ents = [], _q = '', _sel = null
   const _expanded = new Set()
   const _seen = new Set()
-  // Extra ids ctrl/shift-clicked alongside the single primary _sel; when non-empty, Delete/Duplicate act on the full set.
   const _multiSel = new Set()
-  // Client-side-only (not persisted, not sent to server): entities locked against viewport gizmo-pick/drag,
-  // and entities hidden from the editor's own view (independent of gameplay visibility). Both remain toggleable
-  // and the entity remains selectable directly from this hierarchy panel regardless of either flag.
   const _locked = new Set()
   const _hiddenInEditor = new Set()
 
@@ -188,10 +180,7 @@ export function createSceneHierarchy(container, { onSelect, onFocus, onDelete, o
     el.addEventListener('mouseleave', () => { kebab.style.opacity = '0' })
   }
 
-  // Top/bottom third of a row = sibling-of-target reparent; middle third = child. children is an
-  // unordered Set server-side, so this only picks the parent, not sibling order.
   function attachRowDragDrop(el, node, id) {
-    // If this row is part of the current multi-selection, drag the whole set as one batch; otherwise single-id drag (existing behavior).
     const _dragIds = _bulkIds(node)
     const drag = C.useDraggable(el, { data: _dragIds.length > 1 ? { id, ids: _dragIds } : { id }, kind: 'scene-node' })
     let _indicator = null
@@ -244,12 +233,9 @@ export function createSceneHierarchy(container, { onSelect, onFocus, onDelete, o
       const row = rows.find(r => r.node.id === id); if (!row) return
       const node = row.node
       el.style.outline = _multiSel.has(id) ? '1px solid rgba(120,170,255,0.5)' : ''
-      // Guard: applyDiff may reuse the same DOM node across renders, so manual (non-vdom) listeners must attach only once or they accumulate.
       if (!el._dsRowBehaviorsBound) {
         el._dsRowBehaviorsBound = true
         el.addEventListener('dblclick', el._dsOnDblClick = () => onFocus?.(id))
-        // mousedown multi-select is now handled by the capture-phase delegate on the container
-        // (immune to vdom node replacement between mousedown and click).
       }
       _menuTeardowns.push(attachContextMenu(el, () => nodeMenuItems(node)))
       attachRowKebab(el, node)
@@ -257,9 +243,8 @@ export function createSceneHierarchy(container, { onSelect, onFocus, onDelete, o
     })
   }
 
-  // Above VIRTUALIZE_THRESHOLD, only viewport+overscan rows render as real TreeItems; the rest become 2 sized spacer divs.
   const VIRTUALIZE_THRESHOLD = 60
-  const ROW_HEIGHT = 28   // must match kit TreeItem's rendered row height
+  const KIT_TREE_ITEM_ROW_HEIGHT = 28
   const OVERSCAN = 8
   let _scrollTop = 0, _viewportH = 0
 
@@ -274,7 +259,6 @@ export function createSceneHierarchy(container, { onSelect, onFocus, onDelete, o
       tag: _appTag && _appTag !== _label ? _appTag : '',
       selected: node.id === _sel,
       depth, expanded, hasChildren: hasKids,
-      // No-op during search: subtrees render force-expanded then, so toggling would silently corrupt _expanded for after the search clears.
       onToggle: () => { if (_q) return; if (_expanded.has(node.id)) _expanded.delete(node.id); else _expanded.add(node.id); render() },
       onSelect: () => { _sel = node.id; onSelect?.(node.id); render() }
     })
@@ -307,7 +291,7 @@ export function createSceneHierarchy(container, { onSelect, onFocus, onDelete, o
     const virtualized = rows.length > VIRTUALIZE_THRESHOLD
     let treeChildren, spacerTop = 0, spacerBottom = 0, renderedRows = rows
     if (virtualized) {
-      ;({ spacerTop, spacerBottom, renderedRows } = sliceVirtualWindow(rows, _scrollTop, _viewportH, ROW_HEIGHT, OVERSCAN))
+      ;({ spacerTop, spacerBottom, renderedRows } = sliceVirtualWindow(rows, _scrollTop, _viewportH, KIT_TREE_ITEM_ROW_HEIGHT, OVERSCAN))
       treeChildren = renderedRows.map(_rowEl)
     } else {
       treeChildren = rows.map(_rowEl)
@@ -318,7 +302,6 @@ export function createSceneHierarchy(container, { onSelect, onFocus, onDelete, o
           EmptyState({ text: _ents.length ? 'No match' : 'No entities -- right-click the viewport or use Create to place one' }))
       : h('div', {
           class: 'ds-ep-panel-body flush', style: 'flex:1;min-height:0;overflow-y:auto',
-          // Drop onto the panel background (not a row) = unparent to root.
           ref: (el) => bindPanelBodyRef(el, virtualized)
         },
           virtualized
@@ -336,7 +319,6 @@ export function createSceneHierarchy(container, { onSelect, onFocus, onDelete, o
       body
     ])
 
-    // Tag rows with entity id so behaviors re-bind after diff; aligned against renderedRows, not full rows, when virtualized.
     const treeEls = container.querySelectorAll('.ds-ep-tree-item')
     treeEls.forEach((el, i) => { if (renderedRows[i]) el.setAttribute('data-eid', renderedRows[i].node.id) })
     if (renderedRows.length) attachRowBehaviors(renderedRows)
@@ -346,12 +328,6 @@ export function createSceneHierarchy(container, { onSelect, onFocus, onDelete, o
 
   container.tabIndex = 0
 
-  // Capture-phase delegated multi-select handler, immune to vdom node replacement between
-  // mousedown and mouseup (applyDiff re-renders the entire tree, which can swap the DOM node
-  // under an in-progress pointer interaction -- see the row
-  // scene-hierarchy-click-races-vdom-rerender-lost-click). The capture phase fires on the
-  // STABLE container before the event reaches any individual row element, so the data-eid
-  // lookup always succeeds regardless of whether the row was re-rendered mid-click.
   function onContainerMouseDown(e) {
     if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
       if (_multiSel.size) { _multiSel.clear(); render() }
@@ -368,8 +344,6 @@ export function createSceneHierarchy(container, { onSelect, onFocus, onDelete, o
     const item = e.target.closest('.ds-ep-tree-item[data-eid]')
     if (!item) return
     const id = item.getAttribute('data-eid')
-    // Don't handle clicks on the kebab button, expand/collapse toggles, or other controls
-    // inside the tree item -- those have their own handlers.
     if (e.target.closest('[data-kebab], .ds-ep-tree-toggle')) return
     _sel = id
     onSelect?.(id)
@@ -416,19 +390,12 @@ export function createSceneHierarchy(container, { onSelect, onFocus, onDelete, o
     updateEntities(ents) { _ents = ents || []; _parentOf.clear(); indexParents(_ents, null, _parentOf); render() },
     setSelected(id) { _sel = id; render() },
     get selectedId() { return _sel },
-    // Client-side-only lock/hidden-in-editor sets, read by editor.js (pick-gating) and app.js (editor-overlay
-    // visibility override). Never sent to the server, never persisted -- purely a local composing convenience.
     isLocked(id) { return _locked.has(id) },
     isHiddenInEditor(id) { return _hiddenInEditor.has(id) },
     get lockedIds() { return [..._locked] },
     get hiddenInEditorIds() { return [..._hiddenInEditor] },
-    // editor-layers-panel: direct programmatic set (not toggle) for LayerRegistry's cascading
-    // layer-wide visibility/lock apply -- the existing context-menu toggle methods above only flip
-    // relative to current per-entity state, which isn't what a layer-wide "make every member locked"
-    // operation needs (a member already locked individually shouldn't unlock on a layer-lock call).
     setLocked(id, v) { if (v) _locked.add(id); else _locked.delete(id); onLockChange?.([..._locked]); render() },
     setHiddenInEditor(id, v) { if (v) _hiddenInEditor.add(id); else _hiddenInEditor.delete(id); onHiddenChange?.([..._hiddenInEditor]); render() },
-    // Dense status-bar feed: 0 when nothing selected, 1 for a single selection, N when multi-selected.
     get selectionCount() {
       if (!_multiSel.size) return _sel ? 1 : 0
       const all = new Set(_multiSel); if (_sel) all.add(_sel)
