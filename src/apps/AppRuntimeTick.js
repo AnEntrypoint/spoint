@@ -75,7 +75,6 @@ export function mixinTick(runtime) {
 
   const _colGrid = new Map()
   const _colGridCells = new Map()
-  // below this collider count, O(n^2) brute pass wins; above, the uniform grid amortizes
   const _COL_GRID_THRESHOLD = 100
   const _COL_CELL_SZ = 4
   let _colPruneTick = 0
@@ -86,11 +85,6 @@ export function mixinTick(runtime) {
     if (c.length < _COL_GRID_THRESHOLD) this._tickCollisionsBrute(c); else this._tickCollisionsGrid(c)
   }
 
-  // Contact payload for `self`'s onCollision when it touches `other`. Beyond the other body's id/position/velocity
-  // it carries a contact `point` (surface midpoint between the two centres), a unit `normal` pointing from other
-  // toward self, and `impactSpeed` = the closing relative speed along that normal (>0 = approaching, the "how hard
-  // did it hit" a golf/basketball/dodgeball/tower-topple game reads). Approximated from centres + linear velocity
-  // (bounding-sphere collision, no per-vertex Jolt manifold), which is what the placement/gameplay layer needs.
   runtime._collisionPayload = function(self, other) {
     const sx=self.position, ox=other.position
     let nx=sx[0]-ox[0], ny=sx[1]-ox[1], nz=sx[2]-ox[2]
@@ -100,7 +94,7 @@ export function mixinTick(runtime) {
     const point = [sx[0]-nx*sr, sx[1]-ny*sr, sx[2]-nz*sr]
     const sv=self.velocity||[0,0,0], ov=other.velocity||[0,0,0]
     const rvx=sv[0]-ov[0], rvy=sv[1]-ov[1], rvz=sv[2]-ov[2]
-    const impactSpeed = -(rvx*nx+rvy*ny+rvz*nz)   // closing speed along the normal
+    const impactSpeed = -(rvx*nx+rvy*ny+rvz*nz)
     return { id: other.id, position: other.position, velocity: other.velocity, point, normal:[nx,ny,nz], impactSpeed }
   }
 
@@ -150,8 +144,6 @@ export function mixinTick(runtime) {
   }
 
   runtime._tickRespawn = function() {
-    // Date.now() is read lazily, only once some active body is actually below the kill-plane -- the
-    // common no-fallen-bodies tick never touches the clock (was one syscall per tick unconditionally).
     let now = 0
     for (const id of this._activeDynamicIds) {
       const e = this.entities.get(id); if (!e) continue
@@ -177,17 +169,6 @@ export function mixinTick(runtime) {
 
   let _interactPruneTick = 0
 
-  // _interactCooldowns is keyed by `runtime.currentTick` (a resimulate-safe simulation-tick number),
-  // NOT Date.now() wall-clock -- a GGPO-style rewind+resimulate pass restores every other piece of
-  // gamestate to its tick-N value then re-runs ticks N+1..M using the SAME per-tick dt sequence the
-  // original run used (see RollbackLoop.resimulateFrom); a tick-indexed "expires at tick X" value
-  // replays identically on both the original run and every resimulate pass, unlike a Date.now() ms
-  // timestamp which is compared against whatever the REAL clock happens to read at resimulate time
-  // (necessarily later than the original run's clock, corrupting the expired-or-not decision).
-  // The per-entity ms cooldown is converted to a tick count using `this.deltaTime`, the SAME dt value
-  // driving the current tick() call on both the original pass and any resimulate pass -- so the
-  // ms-to-ticks mapping is identical on replay even if dt itself varies tick to tick (variable-rate
-  // ticking), since each tick recomputes its own ticksFor(cooldownMs) from that tick's own dt.
   runtime._interactCooldownTicks = function(cooldownMs) {
     const dt = this.deltaTime > 0 ? this.deltaTime : (1 / 64)
     return Math.max(1, Math.round((cooldownMs / 1000) / dt))
@@ -219,9 +200,6 @@ export function mixinTick(runtime) {
     }
   }
 
-  // Fires watch.callback(playerId) once per tick for every player within radius of the watching
-  // entity's position -- O(watches x players), reusing the SAME per-tick players array _tickInteractables
-  // already computed rather than each registered app polling its own nearest-player scan.
   runtime._tickProximityWatches = function(players) {
     if (this._proximityWatches.size === 0) return
     for (const [entityId, watch] of this._proximityWatches) {
@@ -237,9 +215,6 @@ export function mixinTick(runtime) {
     }
   }
 
-  // ONE shared O(n^2/2) player-pair scan per tick for all registered player-contact watchers -- each pair
-  // within a watch's radius fires callback(a.id, b.id) once. The player list is materialised once; every
-  // watcher reuses it and the same pair distances are re-tested per watcher (watchers differ only in radius).
   runtime._tickPlayerContactWatches = function(players) {
     if (this._playerContactWatches.size === 0) return
     const arr = Array.isArray(players) ? players : [...players]

@@ -35,7 +35,6 @@ export class ReconnectManager {
   setSessionToken(token) { this._token = token }
   isReconnecting() { return this._state === 'waiting' || this._state === 'reconnecting' }
   sendReconnectMessage(ws) {
-    // TOCTOU: socket can close between the readyState check and send; swallow the throw, the reconnect machine retries
     if (this._token && this.isReconnecting() && ws?.readyState === WebSocket.OPEN) {
       try { ws.send(pack({ type: MSG.RECONNECT, payload: { sessionToken: this._token } })) }
       catch (e) { console.error('[reconnect] send failed:', e?.message || e) }

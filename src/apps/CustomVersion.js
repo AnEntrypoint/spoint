@@ -1,18 +1,5 @@
-// Version-counter tracking for entity.custom, replacing a per-tick JSON.stringify-and-compare in
-// SnapshotEncoder.custToStr. entity.custom is a plain object apps mutate two ways: wholesale
-// reassignment (ctx.entity.custom = {...}) and in-place field writes (ctx.entity.custom.color = x,
-// ent.custom._collider = y). Both must bump a version counter so the snapshot encoder can detect a
-// real change with an integer compare instead of re-stringifying every tick -- and, since reference
-// equality alone can't see in-place mutation (a real latent bug: the object identity never changes),
-// this is also a correctness fix, not just a perf one.
-//
-// installCustomVersion(entity) defines entity.custom as an accessor property: the raw value lives in
-// entity._customRaw, entity._customV is a monotonic counter bumped by wrapMutable's Proxy on any
-// set/deleteProperty trap (nested writes) and by the custom setter itself (wholesale reassignment).
-// Nested plain-object/array values inside custom are wrapped too (recursively, lazily on first get)
-// so a deep write like custom.weapon.ammo = 3 is also tracked.
 export function installCustomVersion(entity) {
-  if (Object.getOwnPropertyDescriptor(entity, 'custom')?.get) return // already installed
+  if (Object.getOwnPropertyDescriptor(entity, 'custom')?.get) return
   const initial = entity.custom
   entity._customRaw = null
   entity._customV = 0
@@ -37,9 +24,8 @@ function wrapMutable(obj, entity) {
     get(target, prop, receiver) {
       const v = Reflect.get(target, prop, receiver)
       if (prop === '__isCustomVersionProxy') return true
-      // Lazily wrap nested plain objects/arrays so deep writes (custom.a.b = x) also bump the version --
-      // only wrap plain data (object/array), never functions or already-wrapped values.
-      if (v !== null && typeof v === 'object' && !v.__isCustomVersionProxy && (v.constructor === Object || Array.isArray(v))) {
+      const isUnwrappedPlainData = v !== null && typeof v === 'object' && !v.__isCustomVersionProxy && (v.constructor === Object || Array.isArray(v))
+      if (isUnwrappedPlainData) {
         const wrapped = wrapMutable(v, entity)
         Reflect.set(target, prop, wrapped)
         return wrapped

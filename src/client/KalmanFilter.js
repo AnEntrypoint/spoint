@@ -1,3 +1,5 @@
+const LOW_PING_RTT_FLOOR_MS = 50
+
 export class KalmanFilter3D {
   constructor(config = {}) {
     this.positionQ = config.positionQ ?? 2.0
@@ -82,11 +84,10 @@ export class KalmanFilter3D {
     return this
   }
 
-  // rtt<50ms clamped to 0 so LAN/low-ping filtering stays byte-identical to the fixed baseline
   setQR(rtt, base) {
-    const r = (rtt > 50) ? (rtt - 50) : 0
-    this.positionQ = (base?.positionQ ?? 2.0) + r / 200
-    this.velocityR = (base?.velocityR ?? 0.1) + r / 150
+    const excessRtt = (rtt > LOW_PING_RTT_FLOOR_MS) ? (rtt - LOW_PING_RTT_FLOOR_MS) : 0
+    this.positionQ = (base?.positionQ ?? 2.0) + excessRtt / 200
+    this.velocityR = (base?.velocityR ?? 0.1) + excessRtt / 150
   }
 
   getState() { return { position: [this.x[0], this.x[1], this.x[2]], velocity: [this.v[0], this.v[1], this.v[2]] } }
@@ -125,11 +126,6 @@ export class SmoothStateTracker {
     return filter.update(position, velocity)
   }
 
-  // Staleness guard: skip predict() once the filter's last real update() is older than maxAge, holding
-  // the filter frozen at its last extrapolated state instead of integrating stale velocity forever (the
-  // same unbounded-extrapolation bug fixed in SmoothInterpolation.getDisplayState -- maxAge was declared
-  // in the constructor but never actually read here before this fix). now defaults to Date.now() to
-  // match KalmanFilter3D's own update()/init() timestamp convention for standalone (non-SmoothInterpolation) callers.
   predict(id, dt, now = Date.now()) {
     const filter = this.getFilter(id)
     if (!filter.initialized || (now - filter._lastUpdateMs) > this.maxAge) return filter

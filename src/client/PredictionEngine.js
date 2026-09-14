@@ -1,6 +1,9 @@
 import { ReconciliationEngine } from './ReconciliationEngine.js'
 import { applyMovement, DEFAULT_MOVEMENT } from '../shared/movement.js'
 
+const PRE_HANDSHAKE_TICK_RATE = 60
+const INPUT_HISTORY_SOFT_CAP = 256
+
 class RingBuffer {
   constructor(capacity = 512) {
     this._buf = new Array(capacity)
@@ -41,10 +44,7 @@ class RingBuffer {
 }
 
 export class PredictionEngine {
-  // 60Hz default (was 128) -- mirrors the server's default; the real value always arrives from the
-  // server's HANDSHAKE_ACK/RECONNECT_ACK payload.tickRate (see MessageHandler.js), this is a pre-handshake
-  // fallback only.
-  constructor(tickRate = 60) {
+  constructor(tickRate = PRE_HANDSHAKE_TICK_RATE) {
     this.tickRate = tickRate
     this.tickDuration = 1000 / tickRate
     this.localPlayerId = null
@@ -56,7 +56,7 @@ export class PredictionEngine {
     this.reconciliationEngine = new ReconciliationEngine()
     this.movement = { ...DEFAULT_MOVEMENT }
     this.gravityY = -9.81
-    this._pendingKnockback = null // { dir, impulse, startTime }
+    this._pendingKnockback = null
     this._knockbackWindow = 200
     this._enableKnockbackPreservation = true
   }
@@ -74,7 +74,6 @@ export class PredictionEngine {
     this._enableKnockbackPreservation = enabled
   }
 
-  // must integrate at the server's real tick rate or every snapshot triggers a reconciliation correction
   setTickRate(rate) { if (rate > 0) { this.tickRate = rate; this.tickDuration = 1000 / rate } }
 
   init(playerId, initialState = {}) {
@@ -82,7 +81,6 @@ export class PredictionEngine {
     const pos = initialState.position || [0, 0, 0]
     const rot = initialState.rotation || [0, 0, 0, 1]
     const vel = initialState.velocity || [0, 0, 0]
-    // coyoteRemaining/bufferRemaining/_jumpHeld are client-only accumulated state, deliberately preserved by _copyState (not overwritten on resimulate)
     this.localState = { id: playerId, position: [...pos], rotation: [...rot], velocity: [...vel], onGround: true, health: initialState.health || 100, coyoteRemaining: 0, bufferRemaining: 0, _jumpHeld: false }
     this.lastServerState = { id: playerId, position: [...pos], rotation: [...rot], velocity: [...vel], onGround: true, health: initialState.health || 100 }
     this.reconciliationEngine.reset()
@@ -90,12 +88,10 @@ export class PredictionEngine {
     this._pendingKnockback = null
   }
 
-  // sequence is client-owned (server echoes highest applied) so acks stay meaningful across packet loss
   addInput(input) {
     const seq = this._inputSeq++
     this.inputHistory.push({ sequence: seq, data: input })
-    // only drop the oldest entry once it's also acked -- shifting an unacked input causes a permanent desync
-    if (this.inputHistory.length > 256 &&
+    if (this.inputHistory.length > INPUT_HISTORY_SOFT_CAP &&
         this.inputHistory.at(0).sequence <= this._lastAckedSeq) {
       this.inputHistory.shift()
     }
@@ -122,7 +118,6 @@ export class PredictionEngine {
     }
   }
 
-  // display-only: localState stays exact for logic/aim/spawn; call once per render frame (decay is frame-rate-driven)
   getRenderState() {
     const ls = this.localState
     if (!ls) return null
@@ -132,15 +127,11 @@ export class PredictionEngine {
     r.position[0] = ls.position[0] - offset[0]
     r.position[1] = ls.position[1] - offset[1]
     r.position[2] = ls.position[2] - offset[2]
-    // rotation glides toward the (exact) predicted rotation separately from position, on its own
-    // smoothing constant -- decayRotation returns null once settled or if no glide is in progress,
-    // in which case r.rotation (already copied exact from ls above) is correct as-is
     const rotGlide = this.reconciliationEngine.decayRotation(ls.rotation)
     if (rotGlide) { r.rotation[0] = rotGlide[0]; r.rotation[1] = rotGlide[1]; r.rotation[2] = rotGlide[2]; r.rotation[3] = rotGlide[3] }
     return r
   }
 
-  // does NOT copy ephemeral movement timers (coyoteRemaining/bufferRemaining/_jumpHeld) -- do not add them here
   _copyState(src, dst) {
     dst.id = src.id; dst.onGround = src.onGround; dst.health = src.health; dst.inputSequence = src.inputSequence
     const sp = src.position, dp = dst.position; dp[0] = sp[0]; dp[1] = sp[1]; dp[2] = sp[2]
@@ -153,7 +144,6 @@ export class PredictionEngine {
       if (serverPlayer.id === this.localPlayerId) {
         this._copyState(serverPlayer, this.lastServerState)
         const ackedSeq = serverPlayer.inputSequence ?? -1
-        // only advance on a newer ack -- a reordered snapshot must not move _lastAckedSeq backward
         if (ackedSeq > this._lastAckedSeq) {
           this._lastAckedSeq = ackedSeq
           while (this.inputHistory.length > 0 && this.inputHistory.at(0).sequence <= ackedSeq) {
@@ -173,8 +163,6 @@ export class PredictionEngine {
 
   resimulate() {
     this._copyState(this.lastServerState, this.localState)
-    // Indexed walk instead of for-of over RingBuffer's generator iterator: a rollback replay is one
-    // generator object plus one resume + {value,done} step per unacked input, per misprediction.
     const hist = this.inputHistory
     for (let i = 0, n = hist.length; i < n; i++) {
       this.predict(hist.at(i).data)

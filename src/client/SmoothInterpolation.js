@@ -1,6 +1,8 @@
 import { KalmanFilter3D } from './KalmanFilter.js'
 import { JitterBuffer } from './JitterBuffer.js'
 
+const DEFAULT_MAX_EXTRAPOLATION_MS = 1000
+
 export class SmoothInterpolation {
   constructor(config = {}) {
     this.jitterBuffer = new JitterBuffer(config.jitter || {})
@@ -18,16 +20,7 @@ export class SmoothInterpolation {
     this._seenPlayers = new Set()
     this._seenEntities = new Set()
     this._displayResult = { players: [], entities: [] }
-    // Staleness cap: once a filter's underlying data (KalmanFilter3D._lastUpdateMs, stamped only by a
-    // real filter.update() call from addSnapshot) is older than this, getDisplayState stops calling
-    // predict() for that filter and holds it frozen at its last extrapolated position instead of
-    // continuing to integrate stale velocity forever. Covers packet loss, a disconnected/departed peer
-    // whose PLAYER_LEAVE never arrived, or a network partition -- addSnapshot simply stops being called
-    // while the render loop (and thus getDisplayState) keeps running. 1000ms is comfortably above
-    // JitterBuffer's own maxDelay (250ms default) plus real jitter, so normal buffered/bracketed
-    // rendering never trips it, while still bounding worst-case drift to <=1s of stale velocity instead
-    // of unbounded (a real bug this value fixes: 226m of drift measured over 5s of silence pre-fix).
-    this.maxExtrapolationMs = config.maxExtrapolationMs || 1000
+    this.maxExtrapolationMs = config.maxExtrapolationMs || DEFAULT_MAX_EXTRAPOLATION_MS
   }
 
   setLocalPlayer(id) { this.localPlayerId = id }
@@ -35,12 +28,6 @@ export class SmoothInterpolation {
   addSnapshot(snapshot) {
     this.jitterBuffer.addSnapshot(snapshot)
     const now = performance.now()
-    // The seen-id Sets exist only to drive the prune below, and the prune only runs when there are
-    // more filters than ids seen this snapshot (a player/entity actually left). A snapshot carries at
-    // most one entry per id (SnapshotProcessor emits one per _playerStates/_entityStates key), so the
-    // seen-COUNT the guard needs is just the loop's own tally -- the Set is filled only on the rare
-    // snapshot that actually prunes, removing one Set.add per player and per dynamic entity per
-    // snapshot from the steady state.
     const players = snapshot.players || []
     for (let i = 0; i < players.length; i++) {
       const p = players[i]
@@ -69,7 +56,6 @@ export class SmoothInterpolation {
         filter = new KalmanFilter3D(this.entityKalmanConfig)
         this.entityFilters.set(e.id, filter)
       }
-      // use server velocity, not null -- null forces the filter to numerically differentiate position (noisy)
       filter.update(e.position, e.velocity || null, now)
     }
     if (this.entityFilters.size > seenEntityCount) {
@@ -96,9 +82,6 @@ export class SmoothInterpolation {
         const player = players[i]
         const filter = this.playerFilters.get(player.id)
         if (!filter) continue
-        // Freeze (skip predict) once this filter's real data is older than maxExtrapolationMs -- see
-        // constructor comment. filter.x/filter.v are left exactly as they were on the last successful
-        // predict()/update(), so the displayed position holds steady rather than drifting further.
         if (now - filter._lastUpdateMs <= this.maxExtrapolationMs) filter.predict(dt)
         const pos = player.position
         pos[0] = filter.x[0]; pos[1] = filter.x[1]; pos[2] = filter.x[2]
@@ -144,12 +127,6 @@ export class SmoothInterpolation {
     this._lastDisplayTime = 0
   }
 
-  // Tab-visibility resync: drop the stale backlog a hidden tab accumulated (addSnapshot kept running
-  // while rAF/getDisplayState did not, so the buffer can hold many minutes of now-irrelevant
-  // snapshots) and jump straight to the latest received one. Kalman filters are left untouched -- the
-  // next addSnapshot's filter.update() call re-anchors them from the fresh snapshot's real
-  // position/velocity, and predict()'s dt is naturally clamped to 0.1s by getDisplayState, so a filter
-  // built on a stale position self-corrects within one frame; no need to also clear the filter maps.
   resyncToLatest() {
     this.jitterBuffer.resyncToLatest()
     this._lastDisplayTime = 0

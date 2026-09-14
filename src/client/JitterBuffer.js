@@ -50,11 +50,10 @@ class Deque {
   last() { return this.at(-1) }
 }
 
-// rolling window size for the p95 inter-arrival-jitter tracker: at a typical 20-60Hz snapshot rate
-// this spans roughly 1-3s of real history, wide enough to catch a bursty-but-recurring jitter
-// pattern without reacting to a single one-off spike (that's what p95, not p100/max, is for) and
-// without going stale-slow on a genuine sustained network condition change.
 const JITTER_WINDOW_SIZE = 60
+const JITTER_PERCENTILE = 0.95
+const P95_MIN_SAMPLES = 8
+const RTT_OUTLIER_FACTOR = 5
 
 export class JitterBuffer {
   constructor(config = {}) {
@@ -73,16 +72,10 @@ export class JitterBuffer {
     this.maxDelay = config.maxDelay || 250
     this.targetDelay = this.baseDelay
 
-    // real observed packet-arrival jitter samples (|clientDelta - serverDelta| per snapshot), kept
-    // as a rolling window so p95 can be recomputed from actual history instead of an EWMA guess.
-    // EWMA (this.jitter, above) reacts smoothly but systematically UNDER-covers a bursty jitter
-    // distribution (a p50-ish estimator smoothed over time is not a tail-coverage guarantee); p95
-    // is what "cover the jitter without dropping frames on the bad tail" actually means, and it's
-    // also what buffer sizing literature/webrtc-style jitter buffers converge on.
     this._jitterSamples = new Array(JITTER_WINDOW_SIZE)
     this._jitterSampleCount = 0
     this._jitterSampleIdx = 0
-    this._jitterSorted = null // lazily rebuilt cache, invalidated by every new sample
+    this._jitterSorted = null
     this.p95Jitter = 0
 
     this._result = { tick: 0, timestamp: 0, players: [], entities: [] }
@@ -90,14 +83,10 @@ export class JitterBuffer {
     this._entityPool = []
     this._oldP = new Map()
     this._oldE = new Map()
-    // Hoisted once: the interpolateSnapshot call in getSnapshotToRender used to allocate two fresh
-    // arrow closures on every call, i.e. on every render frame.
     this._getPlayerSlotFn = i => this._getPlayerSlot(i)
     this._getEntitySlotFn = i => this._getEntitySlot(i)
   }
 
-  // records one real inter-arrival jitter sample into the rolling window and recomputes p95 from
-  // the actual sorted sample set (small window, O(n log n) sort is cheap -- <=60 elements)
   _recordJitterSample(instantJitter) {
     this._jitterSamples[this._jitterSampleIdx] = instantJitter
     this._jitterSampleIdx = (this._jitterSampleIdx + 1) % JITTER_WINDOW_SIZE
@@ -107,9 +96,7 @@ export class JitterBuffer {
     for (let i = 0; i < n; i++) sorted[i] = this._jitterSamples[i]
     sorted.sort((a, b) => a - b)
     this._jitterSorted = sorted
-    // p95 index via ceil so a small sample count still picks a real observed value, not an
-    // out-of-range index (e.g. n=1 -> index 0, the only sample; n=20 -> index 18, the 19th value)
-    const idx = Math.min(n - 1, Math.ceil(n * 0.95) - 1)
+    const idx = Math.min(n - 1, Math.ceil(n * JITTER_PERCENTILE) - 1)
     this.p95Jitter = sorted[idx]
   }
 
@@ -133,18 +120,13 @@ export class JitterBuffer {
     this._recomputeDelay()
 
     const entry = { snapshot, clientTime: now, serverTime, tick: snapshot.tick || 0 }
-    // must insert in clientTime order (not tick order) -- getSnapshotToRender binary-searches on clientTime
     let i = this.buffer.length
     while (i > 0 && this.buffer.at(i - 1).clientTime > entry.clientTime) i--
-    // In-order arrival (clientTime is performance.now(), monotonic, so i === length on every
-    // non-reordered snapshot) appends via the ring's O(1) push instead of Deque.splice, which
-    // allocates a whole new backing array and copies every live entry on each insert.
     if (i === this.buffer.length) this.buffer.push(entry)
     else this.buffer.splice(i, 0, entry)
 
     while (this.buffer.length > this.maxSize) this.buffer.shift()
 
-    // eviction age tied to targetDelay, not a hardcoded floor, so a large baseDelay/maxDelay config doesn't starve the bracketing pair
     const maxAge = Math.max(this.targetDelay * 4, this.rtt + this.jitter * 3 + 150)
     const cutoff = now - maxAge
     while (this.buffer.length > 0 && this.buffer.first().clientTime < cutoff) this.buffer.shift()
@@ -191,29 +173,19 @@ export class JitterBuffer {
 
   updateRTT(pingTime, pongTime) {
     const instant = pongTime - pingTime
-    // reject negative (clock went backward) or >5x current estimate (reorder artifact) to avoid spiking rtt off one bad sample
     if (!Number.isFinite(instant) || instant < 0) return
-    if (this.rtt > 0 && instant > this.rtt * 5) return
+    if (this.rtt > 0 && instant > this.rtt * RTT_OUTLIER_FACTOR) return
     this.rttVariance = this.rttVariance * 0.75 + Math.abs(instant - this.rtt) * 0.25
     const alpha = instant > this.rtt ? 0.5 : 0.1
     this.rtt = this.rtt * (1 - alpha) + instant * alpha
     this._recomputeDelay()
   }
 
-  // RTT doesn't factor in here: local-input lag is hidden by prediction, not this buffer -- only
-  // snapshot spacing/jitter matters. The jitter term uses the real p95-based estimate
-  // (this.p95Jitter, an actual observed rolling-window percentile) instead of the EWMA (this.jitter)
-  // once enough samples exist to make p95 meaningful -- an EWMA of jitter systematically undercovers
-  // a bursty/heavy-tailed arrival distribution, since it's smoothing toward something closer to the
-  // mean/p50 than the tail a buffer actually needs to absorb without dropping frames. Below a small
-  // sample floor, p95 over 1-4 points is noise (could be a single early spike), so the EWMA is used
-  // as the more stable early estimate until the window has enough real history.
   _recomputeDelay() {
-    const jitterTerm = this._jitterSampleCount >= 8 ? this.p95Jitter : this.jitter
+    const jitterTerm = this._jitterSampleCount >= P95_MIN_SAMPLES ? this.p95Jitter : this.jitter
     const want = Math.min(this.maxDelay, Math.max(this.minDelay, this.snapInterval * 1.5 + jitterTerm * 2 + this.baseDelay))
-    // slew-limited so one bad rtt/jitter sample can't jump the window far enough to evict the bracketing pair (causes a remote-player teleport)
-    const MAX_SLEW = 30
-    this.targetDelay = Math.max(this.targetDelay - MAX_SLEW, Math.min(this.targetDelay + MAX_SLEW, want))
+    const MAX_TARGET_DELAY_SLEW_MS = 30
+    this.targetDelay = Math.max(this.targetDelay - MAX_TARGET_DELAY_SLEW_MS, Math.min(this.targetDelay + MAX_TARGET_DELAY_SLEW_MS, want))
   }
 
   getBufferHealth() { return this.buffer.length }
@@ -226,8 +198,6 @@ export class JitterBuffer {
     this.buffer = new Deque()
     this.lastServerTime = 0
     this.lastClientTime = 0
-    // a real reconnect/reset must not let pre-reconnect jitter samples leak into the post-reconnect
-    // p95 -- unlike resyncToLatest() (a tab-hidden resync, same link, intentionally keeps history)
     this._jitterSampleCount = 0
     this._jitterSampleIdx = 0
     this._jitterSorted = null
@@ -235,12 +205,6 @@ export class JitterBuffer {
     this.jitter = 0
   }
 
-  // Drop every buffered snapshot except the newest, keeping RTT/jitter estimates intact (unlike
-  // clear(), which also zeroes lastServerTime/lastClientTime -- those must survive so the very next
-  // addSnapshot() doesn't misread a real large gap as fresh jitter). Used when a tab was hidden and
-  // comes back: the buffer accumulated a stale backlog spanning the whole hidden period, and
-  // replaying it via normal interpolation would visibly fast-forward remote players/entities through
-  // that entire span. Snapping straight to latest is the correct resync, same intent as a reconnect.
   resyncToLatest() {
     const newest = this.buffer.last()
     this.buffer = new Deque()

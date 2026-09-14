@@ -1,9 +1,3 @@
-// Physical-layout keying: e.code (e.g. 'KeyW') identifies the physical key
-// regardless of active keyboard layout, so WASD stays in the same finger
-// positions on AZERTY/Dvorak/etc rather than tracking whatever glyph e.key
-// reports there. Non-letter keys (Space, ShiftLeft/Right, ControlLeft/Right,
-// arrows) are also layout-independent under e.code, so the whole map moves
-// over uniformly.
 function createKeyboardHandler() {
   const keys = new Map()
   if (typeof window !== 'undefined') {
@@ -40,18 +34,16 @@ function detectHandGesture(hand) {
   return { pinch, grab }
 }
 
-// Desktop gamepad: left stick -> analogForward/analogRight (same convention movement.js already
-// consumes from mobile), right stick -> yaw/pitch delta accumulated into the same vrYaw/vrPitch
-// closure vars the mobile/XR paths already drive via cam.setVRYaw. Face buttons map onto the same
-// jump/sprint/shoot/reload/crouch keys as keyboard so downstream code needs zero new branches.
-const GP_DEAD = 0.15
-const GP_LOOK_SPEED = 2.2 // rad/sec at full deflection, matches XR's smoothTurnSpeed feel
+const GP_STICK_DEADZONE = 0.15
+const GP_LOOK_SPEED_RAD_PER_SEC = 2.2
+const GP_BTN_A = 0, GP_BTN_B = 1, GP_BTN_X = 2, GP_BTN_Y = 3
+const GP_BTN_LEFT_BUMPER = 4, GP_BTN_RIGHT_BUMPER = 5, GP_BTN_LEFT_TRIGGER = 6, GP_BTN_RIGHT_TRIGGER = 7
+const GP_BTN_LEFT_STICK_PRESS = 10
 
 function pollDesktopGamepad(renderer) {
   if (typeof navigator === 'undefined' || !navigator.getGamepads) return null
-  // Skip any gamepad already owned by an active XR session -- XRSystem's own poll (via
-  // session.inputSources) already handles those; double-driving the same pad would double-move.
-  if (renderer?.xr?.isPresenting) return null
+  const xrSessionOwnsGamepads = renderer?.xr?.isPresenting
+  if (xrSessionOwnsGamepads) return null
   const pads = navigator.getGamepads()
   for (const gp of pads) {
     if (!gp || !gp.connected) continue
@@ -82,16 +74,14 @@ export function createInputHandler(config = {}) {
     const axes = gp.axes || [], btns = gp.buttons || []
     const lx = axes[0] ?? 0, ly = axes[1] ?? 0, rx = axes[2] ?? 0, ry = axes[3] ?? 0
     let analogForward = 0, analogRight = 0
-    if (Math.abs(lx) > GP_DEAD) analogRight = lx
-    if (Math.abs(ly) > GP_DEAD) analogForward = -ly
-    if (Math.abs(rx) > GP_DEAD) vrYaw -= rx * GP_LOOK_SPEED * dt
-    if (Math.abs(ry) > GP_DEAD) vrPitch = Math.max(-1.4, Math.min(1.4, vrPitch + ry * GP_LOOK_SPEED * dt))
+    if (Math.abs(lx) > GP_STICK_DEADZONE) analogRight = lx
+    if (Math.abs(ly) > GP_STICK_DEADZONE) analogForward = -ly
+    if (Math.abs(rx) > GP_STICK_DEADZONE) vrYaw -= rx * GP_LOOK_SPEED_RAD_PER_SEC * dt
+    if (Math.abs(ry) > GP_STICK_DEADZONE) vrPitch = Math.max(-1.4, Math.min(1.4, vrPitch + ry * GP_LOOK_SPEED_RAD_PER_SEC * dt))
     const pressed = i => !!btns[i]?.pressed
-    // Standard gamepad mapping: 0=A/Cross jump, 1=B/Circle sprint, 2=X/Square reload, 3=Y/Triangle interact,
-    // 4/5=bumpers crouch, 6/7=triggers shoot (either trigger fires, matches mouse-down being either button).
-    const jump = pressed(0), sprint = pressed(1) || pressed(10), reload = pressed(2)
-    const interact = pressed(3), crouch = pressed(4) || pressed(5)
-    const shoot = (btns[7]?.value ?? (pressed(7) ? 1 : 0)) > 0.3 || (btns[6]?.value ?? (pressed(6) ? 1 : 0)) > 0.3
+    const jump = pressed(GP_BTN_A), sprint = pressed(GP_BTN_B) || pressed(GP_BTN_LEFT_STICK_PRESS), reload = pressed(GP_BTN_X)
+    const interact = pressed(GP_BTN_Y), crouch = pressed(GP_BTN_LEFT_BUMPER) || pressed(GP_BTN_RIGHT_BUMPER)
+    const shoot = (btns[GP_BTN_RIGHT_TRIGGER]?.value ?? (pressed(GP_BTN_RIGHT_TRIGGER) ? 1 : 0)) > 0.3 || (btns[GP_BTN_LEFT_TRIGGER]?.value ?? (pressed(GP_BTN_LEFT_TRIGGER) ? 1 : 0)) > 0.3
     const forward = analogForward > 0.5, backward = analogForward < -0.5
     const left = analogRight < -0.5, right = analogRight > 0.5
     return { forward, backward, left, right, analogForward, analogRight, jump, sprint, crouch, shoot, reload, interact, yaw: vrYaw, pitch: vrPitch, mouseX: 0, mouseY: 0, isGamepad: true }
@@ -157,9 +147,6 @@ export function createInputHandler(config = {}) {
         vrYawDelta = mi.yaw; vrPitchDelta = mi.pitch; vrYaw += mi.yaw; vrPitch += mi.pitch
         mobileControls.resetLookDelta()
         const zoom = mi.zoom; if (mi.resetZoom) mi.resetZoom()
-        // chatWheelHeld/chatWheelDigit: mobile has no digit keys, so the wheel's single dedicated
-        // button (client/hud/MobileControlsUI.js's chat-bubble button) both opens AND immediately
-        // selects slot 1 while held -- see client/hud/ChatQuickWheel.js's mobile fallback note.
         return { forward: mi.forward, backward: mi.backward, left: mi.left, right: mi.right, jump: mi.jump, sprint: mi.sprint, crouch: mi.crouch, shoot: mi.shoot, reload: mi.reload, yaw: vrYaw, pitch: vrPitch, yawDelta: vrYawDelta, pitchDelta: vrPitchDelta, zoom, mouseX: 0, mouseY: 0, isMobile: true, interact: mi.interact || false, weapon: mi.weapon || false, analogForward: mi.analogForward || 0, analogRight: mi.analogRight || 0, chatWheelHeld: mi.chatWheel || false, chatWheelDigit: mi.chatWheel ? 1 : 0 }
       }
     }
@@ -172,24 +159,13 @@ export function createInputHandler(config = {}) {
     const gp = _getGamepadInput()
     const kbForward = keys.get('KeyW') || keys.get('ArrowUp') || false, kbBackward = keys.get('KeyS') || keys.get('ArrowDown') || false
     const kbLeft = keys.get('KeyA') || keys.get('ArrowLeft') || false, kbRight = keys.get('KeyD') || keys.get('ArrowRight') || false
-    // Emote wheel: hold B to show, digit 1-8 while held to pick a slot (radial-position order matches
-    // hud/EmoteWheel.js's own visual layout). emoteDigit is the raw currently-held digit (1-8) or 0 --
-    // the app layer, not this shared input reader, owns the actual clip-name mapping per digit.
     const emoteWheelHeld = keys.get('KeyB') || false
-    // Quick-chat wheel: hold V to show a radial pre-canned-message picker (client/hud/ChatQuickWheel.js,
-    // same visual component EmoteWheel uses), digit 1-8 while held to pick a slot. Distinct key from
-    // emote's B so the two wheels never fight over the same held-key state; both read the same digit
-    // keys since only one wheel can be open at a time in practice (mutual exclusion is the caller's
-    // job, same as emoteWheelHeld/chatWheelHeld already being independent booleans here).
     const chatWheelHeld = keys.get('KeyV') || false
     const wheelDigit = keys.get('Digit1') ? 1 : keys.get('Digit2') ? 2 : keys.get('Digit3') ? 3 : keys.get('Digit4') ? 4
       : keys.get('Digit5') ? 5 : keys.get('Digit6') ? 6 : keys.get('Digit7') ? 7 : keys.get('Digit8') ? 8 : 0
     const emoteDigit = wheelDigit
     const chatWheelDigit = wheelDigit
     if (!gp) return { forward: kbForward, backward: kbBackward, left: kbLeft, right: kbRight, jump: keys.get('Space') || false, sprint: keys.get('ShiftLeft') || keys.get('ShiftRight') || false, crouch: keys.get('KeyC') || keys.get('ControlLeft') || keys.get('ControlRight') || false, shoot: mouse.down, reload: keys.get('KeyR') || false, interact: keys.get('KeyE') || false, editToggle: _editActive, emoteWheelHeld, emoteDigit, chatWheelHeld, chatWheelDigit, mouseX: mouse.x, mouseY: mouse.y }
-    // Gamepad connected: merge with keyboard/mouse (either source can drive each control) so a
-    // gamepad on the desk doesn't disable WASD/mouse-look -- same "any source can assert" pattern
-    // the XR path already uses for shoot/reload across left+right controllers.
     const hasGpAnalog = gp.analogForward !== 0 || gp.analogRight !== 0
     return {
       forward: kbForward || gp.forward, backward: kbBackward || gp.backward, left: kbLeft || gp.left, right: kbRight || gp.right,
@@ -214,10 +190,6 @@ export function createInputHandler(config = {}) {
 
 export const InputHandler = createInputHandler
 
-// Keybind conflict detection: given a { action: keyCode } map (keyCode being
-// a physical e.code value, e.g. 'KeyW'), return every keyCode bound to more
-// than one action. Groundwork for a settings-menu rebind UI to warn before
-// two actions silently fight over the same physical key.
 export function findKeybindConflicts(bindings) {
   const byCode = new Map()
   for (const action in bindings) {

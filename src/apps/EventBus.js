@@ -25,7 +25,7 @@ export class EventBus {
 
   _rebuildWildcardTrie() {
     this._wildcardTrie = new Map()
-    for (const [pattern, handlers] of this._handlers) {
+    for (const [pattern, handlerSet] of this._handlers) {
       if (pattern.endsWith('*')) {
         const prefix = pattern.slice(0, -1)
         let node = this._wildcardTrie
@@ -33,8 +33,7 @@ export class EventBus {
           const c = prefix[i]; if (!node.has(c)) node.set(c, new Map())
           node = node.get(c)
         }
-        // must spread handlers (a Set) -- concat(set) would add the Set itself as one element
-        node.__handlers = (node.__handlers || []).concat([...handlers])
+        node.__handlers = (node.__handlers || []).concat([...handlerSet])
       }
     }
   }

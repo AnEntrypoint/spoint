@@ -2,7 +2,6 @@ export function lerpScalar(a, b, t) { return a + (b - a) * t }
 
 export function slerpQuat(out, q1, q2, t) {
   if (!q1 || !q2) {
-    // if both missing, write identity -- out is a reused slot, leaving it stale would carry over last frame's rotation forever
     const src = q2 || q1 || [0, 0, 0, 1]
     out[0] = src[0]; out[1] = src[1]; out[2] = src[2]; out[3] = src[3]
     return
@@ -29,11 +28,6 @@ export function interpolateSnapshot(result, playerPool, entityPool, getPlayerSlo
   result.tick = newer.tick
   result.timestamp = newer.timestamp
 
-  // Memoized on the `older` snapshot object identity (+ its tick, in case a caller ever recycles the
-  // snapshot object itself): the render loop calls this every frame, but `older` only advances when
-  // the jitter buffer's bracket moves (once per received snapshot), so the two id->entry Maps are
-  // rebuilt at snapshot rate instead of at frame rate. A snapshot's players/entities arrays are
-  // final once produced (SnapshotProcessor.processSnapshot), so a same-object hit is exact.
   if (oldPMap._src !== older || oldPMap._srcTick !== older.tick) {
     oldPMap.clear()
     for (const p of older.players || []) oldPMap.set(p.id, p)
@@ -73,11 +67,6 @@ export function interpolateSnapshot(result, playerPool, entityPool, getPlayerSlo
     }
   }
 
-  // Entities (physics-simulated props/debris) previously snapped straight to `newer` every call with
-  // no interpolation at all, unlike players just above -- visible as jumpy/stepped motion on any moving
-  // dynamic body, since a rendered frame lands between two snapshots but showed the raw newest one
-  // regardless of alpha. Mirrors the player lerp above; a static/sleeping body's position/rotation are
-  // identical between snapshots so lerping it is a correctness-preserving no-op, not a special case.
   if (oldEMap._src !== older || oldEMap._srcTick !== older.tick) {
     oldEMap.clear()
     for (const e of older.entities || []) oldEMap.set(e.id, e)
