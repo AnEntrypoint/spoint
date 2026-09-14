@@ -1,5 +1,4 @@
-const DECIMATE_GRID_RES_START = 6;
-const DECIMATE_GRID_RES_MAX = 64;
+import { applyGridDecimate } from './grid-decimate.js';
 
 let THREE = null;
 let GLTFLoader = null;
@@ -109,71 +108,6 @@ function _bakeQuantizeDecode(geo, matrix, decodeAABB) {
   geo.computeBoundingBox();
 }
 
-function _clusterDecimate(geo, triCap) {
-  const pos = geo.attributes.position;
-  if (!pos) return;
-  let ix = geo.index;
-  if (!ix) { const seq = new Uint32Array(pos.count); for (let i = 0; i < pos.count; i++) seq[i] = i; ix = { array: seq, count: pos.count }; }
-  const triCount = ix.count / 3;
-  if (triCount <= triCap) return;
-  const idx = ix.array;
-  const px = pos.array, pStride = pos.itemSize;
-  let mnx = Infinity, mny = Infinity, mnz = Infinity, mxx = -Infinity, mxy = -Infinity, mxz = -Infinity;
-  for (let i = 0; i < pos.count; i++) {
-    const x = px[i * pStride], y = px[i * pStride + 1], z = px[i * pStride + 2];
-    if (x < mnx) mnx = x; if (x > mxx) mxx = x;
-    if (y < mny) mny = y; if (y > mxy) mxy = y;
-    if (z < mnz) mnz = z; if (z > mxz) mxz = z;
-  }
-  const sx = (mxx - mnx) || 1, sy = (mxy - mny) || 1, sz = (mxz - mnz) || 1;
-  const nrm = geo.attributes.normal, col = geo.attributes.color;
-  for (let res = DECIMATE_GRID_RES_START; res <= DECIMATE_GRID_RES_MAX; res *= 2) {
-    const keptIndexOfVertex = new Int32Array(pos.count);
-    const keptIndexOfCell = new Map();
-    let kept = 0;
-    for (let i = 0; i < pos.count; i++) {
-      const gx = Math.min(res - 1, ((px[i * pStride] - mnx) / sx * res) | 0);
-      const gy = Math.min(res - 1, ((px[i * pStride + 1] - mny) / sy * res) | 0);
-      const gz = Math.min(res - 1, ((px[i * pStride + 2] - mnz) / sz * res) | 0);
-      const key = (gx * res + gy) * res + gz;
-      let rep = keptIndexOfCell.get(key);
-      if (rep === undefined) { rep = kept++; keptIndexOfCell.set(key, rep); }
-      keptIndexOfVertex[i] = rep;
-    }
-    const out = [];
-    for (let t = 0; t < idx.length; t += 3) {
-      const a = keptIndexOfVertex[idx[t]], b = keptIndexOfVertex[idx[t + 1]], c = keptIndexOfVertex[idx[t + 2]];
-      if (a !== b && b !== c && a !== c) { out.push(a, b, c); }
-    }
-    const outTris = out.length / 3;
-    if (outTris <= triCap || res === DECIMATE_GRID_RES_MAX) {
-      if (outTris < 1) return;
-      const sourceVertexOfKept = new Int32Array(kept).fill(-1);
-      for (let i = 0; i < pos.count; i++) { const r = keptIndexOfVertex[i]; if (sourceVertexOfKept[r] === -1) sourceVertexOfKept[r] = i; }
-      const newPos = new Float32Array(kept * 3);
-      const ct = col ? col.itemSize : 0;
-      const newNrm = nrm ? new Float32Array(kept * 3) : null;
-      const newCol = col ? new Float32Array(kept * ct) : null;
-      for (let r = 0; r < kept; r++) {
-        const s = sourceVertexOfKept[r];
-        newPos[r * 3] = pos.getX(s); newPos[r * 3 + 1] = pos.getY(s); newPos[r * 3 + 2] = pos.getZ(s);
-        if (newNrm) { newNrm[r * 3] = nrm.getX(s); newNrm[r * 3 + 1] = nrm.getY(s); newNrm[r * 3 + 2] = nrm.getZ(s); }
-        if (newCol) {
-          newCol[r * ct] = col.getX(s);
-          if (ct >= 2) newCol[r * ct + 1] = col.getY(s);
-          if (ct >= 3) newCol[r * ct + 2] = col.getZ(s);
-          if (ct >= 4) newCol[r * ct + 3] = col.getW(s);
-        }
-      }
-      geo.setAttribute('position', new THREE.BufferAttribute(newPos, 3, false));
-      if (newNrm) geo.setAttribute('normal', new THREE.BufferAttribute(newNrm, 3, false));
-      if (newCol) geo.setAttribute('color', new THREE.BufferAttribute(newCol, ct, false));
-      geo.setIndex(new THREE.BufferAttribute(kept > 65535 ? new Uint32Array(out) : new Uint16Array(out), 1));
-      return;
-    }
-  }
-}
-
 function extractGeometry(geo) {
   const attrs = {};
   for (const k of Object.keys(geo.attributes)) {
@@ -241,9 +175,7 @@ self.addEventListener('message', async (ev) => {
     gltf.scene.traverse((c) => { if (c.isMesh && !srcMesh) srcMesh = c; });
     if (!srcMesh) throw new Error('no mesh in LOD sibling');
     _bakeQuantizeDecode(srcMesh.geometry, srcMesh.matrixWorld, decodeAABB);
-    if (sloppyCap) {
-      try { _clusterDecimate(srcMesh.geometry, sloppyCap); } catch (e) { }
-    }
+    if (sloppyCap) applyGridDecimate(srcMesh.geometry, sloppyCap, THREE.BufferAttribute);
     const payload = extractGeometry(srcMesh.geometry);
     payload.bytes = buf.byteLength;
     self.postMessage({ id, ok: true, payload }, payloadTransferables(payload));

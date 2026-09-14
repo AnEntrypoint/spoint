@@ -14,6 +14,7 @@ setLowTierThreeRef(THREE);
 import { applyKtx2DeviceTierCap } from './ktx2-mip-cap.js';
 import { DeferredLoadQueue } from './deferred-load-queue.js';
 import { LodUnloadManager } from './lod-unload-manager.js';
+import { applyGridDecimate } from './grid-decimate.js';
 import { Emitter, InstancedSlot, _patchInstancedSlotMaterial, _zeroMatrix } from './model-pool-instanced-slot.js';
 import { BatchedFarTier } from './batched-far-tier.js';
 import { MaterialBucketBatcher } from './material-bucket-batcher.js';
@@ -306,7 +307,7 @@ class Asset {
           const payload = await this.pool._workerFetchLod(fullUrl, target.decodeAABB, sloppyCap);
           this.pool._trackBytes(this.url, fullUrl, payload.bytes);
           let geo = ModelPool._buildGeometryFromPayload(payload);
-          if (target.kind === 'unskinned') _clusterDecimate(geo, this.pool._farTriCap ?? DEFAULT_FAR_TRI_CAP);
+          if (target.kind === 'unskinned') applyGridDecimate(geo, this.pool._farTriCap ?? DEFAULT_FAR_TRI_CAP, THREE.BufferAttribute);
           this.geoCache.set(key, geo);
           this.byteWeights.set(key, payload.bytes);
           return geo;
@@ -325,7 +326,7 @@ class Asset {
         let geo = srcMesh?.geometry;
         if (geo) {
           _bakeQuantizeDecode(geo, srcMesh.matrixWorld, target.decodeAABB);
-          if (target.kind === 'unskinned') _clusterDecimate(geo, this.pool._farTriCap ?? DEFAULT_FAR_TRI_CAP);
+          if (target.kind === 'unskinned') applyGridDecimate(geo, this.pool._farTriCap ?? DEFAULT_FAR_TRI_CAP, THREE.BufferAttribute);
           this.geoCache.set(key, geo);
           this.byteWeights.set(key, bytes.byteLength);
         }
@@ -401,68 +402,6 @@ class Asset {
     this.rootBytes = null;
     this.rootGltf = null;
     this.state = 'disposed';
-  }
-}
-
-function _clusterDecimate(geo, triCap) {
-  const pos = geo.attributes.position;
-  if (!pos) return;
-  let ix = geo.index;
-  if (!ix) { const seq = new Uint32Array(pos.count); for (let i = 0; i < pos.count; i++) seq[i] = i; ix = { array: seq, count: pos.count }; }
-  if (ix.count / 3 <= triCap) return;
-  const idx = ix.array, px = pos.array, pStride = pos.itemSize;
-  let mnx = Infinity, mny = Infinity, mnz = Infinity, mxx = -Infinity, mxy = -Infinity, mxz = -Infinity;
-  for (let i = 0; i < pos.count; i++) {
-    const x = px[i * pStride], y = px[i * pStride + 1], z = px[i * pStride + 2];
-    if (x < mnx) mnx = x; if (x > mxx) mxx = x; if (y < mny) mny = y; if (y > mxy) mxy = y; if (z < mnz) mnz = z; if (z > mxz) mxz = z;
-  }
-  const sx = (mxx - mnx) || 1, sy = (mxy - mny) || 1, sz = (mxz - mnz) || 1;
-  const nrm = geo.attributes.normal, col = geo.attributes.color;
-  for (let res = 48; res >= 2; res = (res > 8 ? res >> 1 : res - 2)) {
-    const cellOf = new Int32Array(pos.count);
-    const cellMap = new Map();
-    let kept = 0;
-    for (let i = 0; i < pos.count; i++) {
-      const gx = Math.min(res - 1, ((px[i * pStride] - mnx) / sx * res) | 0);
-      const gy = Math.min(res - 1, ((px[i * pStride + 1] - mny) / sy * res) | 0);
-      const gz = Math.min(res - 1, ((px[i * pStride + 2] - mnz) / sz * res) | 0);
-      const key = (gx * res + gy) * res + gz;
-      let rep = cellMap.get(key);
-      if (rep === undefined) { rep = kept++; cellMap.set(key, rep); }
-      cellOf[i] = rep;
-    }
-    const out = [];
-    for (let t = 0; t < idx.length; t += 3) {
-      const a = cellOf[idx[t]], b = cellOf[idx[t + 1]], c = cellOf[idx[t + 2]];
-      if (a !== b && b !== c && a !== c) out.push(a, b, c);
-    }
-    const outTris = out.length / 3;
-    if (outTris <= triCap || res <= 2) {
-      if (outTris < 1) continue;
-      const srcOf = new Int32Array(kept).fill(-1);
-      for (let i = 0; i < pos.count; i++) { const r = cellOf[i]; if (srcOf[r] === -1) srcOf[r] = i; }
-      const newPos = new Float32Array(kept * 3);
-      const ct = col ? col.itemSize : 0;
-      const newNrm = nrm ? new Float32Array(kept * 3) : null;
-      const newCol = col ? new Float32Array(kept * ct) : null;
-      for (let r = 0; r < kept; r++) {
-        const s = srcOf[r];
-        newPos[r * 3] = pos.getX(s); newPos[r * 3 + 1] = pos.getY(s); newPos[r * 3 + 2] = pos.getZ(s);
-        if (newNrm) { newNrm[r * 3] = nrm.getX(s); newNrm[r * 3 + 1] = nrm.getY(s); newNrm[r * 3 + 2] = nrm.getZ(s); }
-        if (newCol) {
-          newCol[r * ct] = col.getX(s);
-          if (ct >= 2) newCol[r * ct + 1] = col.getY(s);
-          if (ct >= 3) newCol[r * ct + 2] = col.getZ(s);
-          if (ct >= 4) newCol[r * ct + 3] = col.getW(s);
-        }
-      }
-      geo.setAttribute('position', new THREE.BufferAttribute(newPos, 3, false));
-      if (newNrm) geo.setAttribute('normal', new THREE.BufferAttribute(newNrm, 3, false));
-      if (newCol) geo.setAttribute('color', new THREE.BufferAttribute(newCol, ct, false));
-      geo.setIndex(new THREE.BufferAttribute(kept > 65535 ? new Uint32Array(out) : new Uint16Array(out), 1));
-      geo.computeBoundingSphere(); geo.computeBoundingBox();
-      return;
-    }
   }
 }
 
