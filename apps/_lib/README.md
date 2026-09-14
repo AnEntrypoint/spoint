@@ -232,4 +232,3 @@ or a `ModelPool` proxy root, satisfies this) -- the constructor throws
 otherwise. A re-`trigger()` mid-distortion restarts the impact clock from the
 new impact (re-entrant safe, no accumulation).
 
-Tests: `npm test` (node --test, `apps/_lib/squash-stretch.test.js`).

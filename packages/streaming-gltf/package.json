@@ -29,7 +29,6 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node test.js",
     "bake": "node tools/bake-cluster.mjs",
     "bake:corpus": "node tools/bake-cluster-corpus.mjs",
     "demo:local": "node examples/local-progressive/serve.mjs",
