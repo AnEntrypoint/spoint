@@ -256,18 +256,17 @@ function resolveKey(entry) {
   return entry.k
 }
 
-function buildEntry(e, id, prevCache, sleeping) {
+function buildEntry(e, id, prevCache, sleeping, simulated) {
   const enc = encodeEntity(e), cust = enc[4]
   const prev = prevCache?.get(id)
   const custStr = resolveCustKey(e, cust, prev?.cust, prev?.custStr)
-  return { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: !!e.custom?._interior, sleeping: !!sleeping, _sleepJustSet: !!sleeping, _dirty: false, srcEntity: e, _lastCustomV: typeof e._customV === 'number' ? e._customV : null, _pBin: null, _pX: 0, _pY: 0, _pZ: 0, _pVelScore: 0 }
+  return { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: !!e.custom?._interior, sleeping: !!sleeping, _sleepJustSet: !!sleeping, simulated: !!simulated, _dirty: false, srcEntity: e, _lastCustomV: typeof e._customV === 'number' ? e._customV : null, _pBin: null, _pX: 0, _pY: 0, _pZ: 0, _pVelScore: 0 }
 }
 
 const NEAR2 = 20 * 20
 const MID2 = 60 * 60
 const _distScratch = {}
 
-export const PROP_BODY_TYPES = new Set(['dynamic', 'kinematic'])
 export const PROP_MAX_HZ = 15
 export const PROP_SLEEP_TICKMOD = 60
 export function propTickMod(snapHz) {
@@ -291,7 +290,18 @@ export function primeEntryDecode(entry) {
   return entry
 }
 
-function applyEntry(id, entry, nextMap, entities, prevEntityMap, useDistTier, vx, vy, vz, snapshotSeq, propModCap) {
+function nearestViewerDist2(entry, viewers) {
+  primeEntryDecode(entry)
+  let best = Infinity
+  for (let i = 0; i + 2 < viewers.length; i += 3) {
+    const dx = entry._pX-viewers[i], dy = entry._pY-viewers[i+1], dz = entry._pZ-viewers[i+2]
+    const d2 = dx*dx+dy*dy+dz*dz
+    if (d2 < best) best = d2
+  }
+  return best
+}
+
+function applyEntry(id, entry, nextMap, entities, prevEntityMap, viewers, snapshotSeq, propModCap) {
   const k = resolveKey(entry)
   let enc = entry.enc
   let farTier = false
@@ -300,25 +310,21 @@ function applyEntry(id, entry, nextMap, entities, prevEntityMap, useDistTier, vx
     if (entry.sleeping) {
       if (entry._sleepJustSet) entry._sleepJustSet = false
       else extraMod = PROP_SLEEP_TICKMOD
-    } else if (propModCap > 1 && PROP_BODY_TYPES.has(enc[3])) extraMod = propModCap
+    } else if (propModCap > 1 && entry.simulated) extraMod = propModCap
   }
   const prev = prevEntityMap.get(id)
   const prevCustStr = prev?.[2]
   const viewerMissedCustomChange = prevCustStr !== entry.custStr
   if (extraMod !== 1 && viewerMissedCustomChange) extraMod = 1
-  if (useDistTier && !entry.isEnv) {
-    primeEntryDecode(entry)
-    const dx = entry._pX-vx, dy = entry._pY-vy, dz = entry._pZ-vz
-    const d2 = dx*dx+dy*dy+dz*dz
+  let tickMod = extraMod
+  if (viewers && !entry.isEnv) {
+    const d2 = nearestViewerDist2(entry, viewers)
     const distTickMod = d2 < NEAR2 ? 1 : d2 < MID2 ? 4 : 16
     farTier = distTickMod === 16
-    const tickMod = Math.max(distTickMod, extraMod)
-    if (tickMod !== 1 && (snapshotSeq % tickMod) !== 0) {
-      nextMap.set(id, prev || [k, entry.cust, entry.custStr, null]); return
-    }
-  } else if (extraMod !== 1 && (snapshotSeq % extraMod) !== 0) {
-    nextMap.set(id, prev || [k, entry.cust, entry.custStr, null]); return
+    if (distTickMod > tickMod) tickMod = distTickMod
   }
+  const viewerHasBaseline = !!prev
+  if (viewerHasBaseline && tickMod !== 1 && (snapshotSeq % tickMod) !== 0) { nextMap.set(id, prev); return }
   if (farTier) enc = stripVelocityForFar(enc)
   nextMap.set(id, [k, entry.cust, entry.custStr, enc])
   if (!prev || prev[0] !== k) {
@@ -404,21 +410,21 @@ export class SnapshotEncoder {
       let entry = cache.get(id)
       if (entry) {
         fillEntityEnc(e, entry.enc)
-        entry._dirty = true; entry.sleeping = false; entry.srcEntity = e
+        entry._dirty = true; entry.sleeping = false; entry.simulated = e.bodyType === 'dynamic'; entry.srcEntity = e
       } else {
-        entry = buildEntry(e, id, null, false); cache.set(id, entry)
+        entry = buildEntry(e, id, null, false, e.bodyType === 'dynamic'); cache.set(id, entry)
       }
       if (entry.isEnv) envIds.push(id)
     }
     if (unmanagedIds) {
       for (const id of unmanagedIds) {
-        const e = entities.get(id); if (!e || e.bodyType === 'static') continue
+        const e = entities.get(id); if (!e) continue
         let entry = cache.get(id)
         if (entry) {
           fillEntityEnc(e, entry.enc)
-          entry._dirty = true; entry.sleeping = false; entry.srcEntity = e
+          entry._dirty = true; entry.sleeping = false; entry.simulated = false; entry.srcEntity = e
         } else {
-          entry = buildEntry(e, id, null, false); cache.set(id, entry)
+          entry = buildEntry(e, id, null, false, false); cache.set(id, entry)
         }
         if (entry.isEnv) envIds.push(id)
       }
@@ -448,13 +454,13 @@ export class SnapshotEncoder {
     const cache = new Map(), envIds = []
     for (const id of activeIds) {
       const e = entities.get(id); if (!e || e.bodyType === 'static') continue
-      const entry = buildEntry(e, id, prevCache, false)
+      const entry = buildEntry(e, id, prevCache, false, e.bodyType === 'dynamic')
       cache.set(id, entry); if (entry.isEnv) envIds.push(id)
     }
     if (unmanagedIds) {
       for (const id of unmanagedIds) {
-        const e = entities.get(id); if (!e || e.bodyType === 'static') continue
-        const entry = buildEntry(e, id, prevCache, false)
+        const e = entities.get(id); if (!e) continue
+        const entry = buildEntry(e, id, prevCache, false, false)
         cache.set(id, entry); if (entry.isEnv) envIds.push(id)
       }
     }
@@ -480,20 +486,19 @@ export class SnapshotEncoder {
     const nextMap = scratch ? scratch.spareMap : new Map()
     if (scratch) { entities.length = 0; nextMap.clear() }
     if (staticEntries) for (const { enc } of staticEntries) entities.push(enc)
-    const vx = viewerPos ? viewerPos[0] : 0, vy = viewerPos ? viewerPos[1] : 0, vz = viewerPos ? viewerPos[2] : 0
-    const useDistTier = seqNum !== undefined && !!viewerPos
+    const viewers = (seqNum !== undefined && viewerPos && viewerPos.length >= 3) ? viewerPos : null
     const seq = seqNum || 0
     const propModCap = propTickMod(snapHz)
     const relevantCount = Array.isArray(relevantIds) ? relevantIds.length : (relevantIds ? relevantIds.size : 0)
     const iterIds = (relevantIds && dynCache.size > relevantCount) ? relevantIds : null
     const relevantLookup = (!iterIds && Array.isArray(relevantIds)) ? new Set(relevantIds) : null
     if (iterIds) {
-      for (const id of iterIds) { const entry = dynCache.get(id); if (entry) applyEntry(id, entry, nextMap, entities, prevEntityMap, useDistTier, vx, vy, vz, seq, propModCap) }
-      for (const id of (dynCache._envIds || [])) { const entry = dynCache.get(id); if (entry) applyEntry(id, entry, nextMap, entities, prevEntityMap, false, 0, 0, 0, seq, propModCap) }
+      for (const id of iterIds) { const entry = dynCache.get(id); if (entry) applyEntry(id, entry, nextMap, entities, prevEntityMap, viewers, seq, propModCap) }
+      for (const id of (dynCache._envIds || [])) { const entry = dynCache.get(id); if (entry) applyEntry(id, entry, nextMap, entities, prevEntityMap, null, seq, propModCap) }
     } else {
       for (const [id, entry] of dynCache) {
         if (!entry.isEnv && relevantIds && (relevantLookup ? !relevantLookup.has(id) : !relevantIds.has(id))) continue
-        applyEntry(id, entry, nextMap, entities, prevEntityMap, useDistTier, vx, vy, vz, seq, propModCap)
+        applyEntry(id, entry, nextMap, entities, prevEntityMap, viewers, seq, propModCap)
       }
     }
     const removed = scratch ? scratch.removed : []

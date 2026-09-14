@@ -3,19 +3,27 @@ export function mixinPhysics(runtime) {
     this._physics.onBodyActivated = (physicsBodyId) => {
       const entityId = this._physicsBodyToEntityId.get(physicsBodyId)
       if (!entityId) return
+      const e = this.entities.get(entityId)
+      if (e?.bodyType === 'kinematic') return
       this._activeDynamicIds.add(entityId)
       this._sleepingDynamicIds.delete(entityId)
-      const e = this.entities.get(entityId)
       if (e) e._dynSleeping = false
     }
     this._physics.onBodyDeactivated = (physicsBodyId) => {
       const entityId = this._physicsBodyToEntityId.get(physicsBodyId)
       if (!entityId) return
+      const e = this.entities.get(entityId)
+      if (e?.bodyType === 'kinematic') return
       this._activeDynamicIds.delete(entityId)
       this._sleepingDynamicIds.add(entityId)
-      const e = this.entities.get(entityId)
       if (e) { e._dynSleeping = true; this._physics.syncDynamicBody(physicsBodyId, e) }
     }
+  }
+
+  runtime._pushKinematicBody = function(e) {
+    const p = e.position, b = this._physics.getBodyPosition(e._physicsBodyId)
+    const bodyAlreadyThere = b[0] === Math.fround(p[0]) && b[1] === Math.fround(p[1]) && b[2] === Math.fround(p[2])
+    if (!bodyAlreadyThere) this._physics.setBodyPosition(e._physicsBodyId, p)
   }
 
   runtime._syncDynamicBodies = function() {
@@ -23,7 +31,12 @@ export function mixinPhysics(runtime) {
     for (const id of this._activeDynamicIds) {
       const e = this.entities.get(id)
       if (!e || e._physicsBodyId === undefined) continue
-      this._physics.syncDynamicBody(e._physicsBodyId, e)
+      if (e.bodyType === 'kinematic') this._pushKinematicBody(e)
+      else this._physics.syncDynamicBody(e._physicsBodyId, e)
+    }
+    for (const id of this.getUnmanagedDynamicIds()) {
+      const e = this.entities.get(id)
+      if (e && e.bodyType === 'kinematic' && e._physicsBodyId !== undefined) this._pushKinematicBody(e)
     }
   }
 
