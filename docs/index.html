@@ -81,8 +81,8 @@ the submodule's own <code>main</code>, push to that repo's remote, then commit t
 <code>https://esm.sh/three@r128</code> keys to the local three so the kit's ModelPreview never loads a second
 three (<code>project/importmap-esmsh-three-dedupe</code>); COEP <code>require-corp</code> means every kit CDN must send CORP. The importmap must precede any module load/preload. No npm dependency on the
 kit (a second copy would silently disagree with the importmap). <code>nostr-tools</code> is injected into
-wireweave from <code>client/vendor/nostr-tools.mjs</code>. Pin a wireweave SHA if a build must be reproducible;
-<code>cross-repo-ci.yml</code> tests against wireweave@main daily. gmsniff and agentgui deliberately vendor the kit.
+wireweave from <code>client/vendor/nostr-tools.mjs</code>. Pin a wireweave SHA if a build must be reproducible; no CI in this repo tests against wireweave@main
+(the repo has no .github workflows). gmsniff and agentgui deliberately vendor the kit.
 Add a fourth submodule only with a documented runtime mechanism.</p><p><h2>All GUI lives in AnEntrypoint/design (<code>project/gui-kit-architecture-2026-08-21</code>)</h2></p><p>Every UI component (screens, dialogs, panels, editor kit incl. asset browser/model preview/undo
 history, damage numbers) is built in <code>AnEntrypoint/design</code> (<code>src/components/game-editor-kit/</code> for
 editor/gameplay panels) and reaches spoint only via the pinned CDN importmap entries. spoint keeps backend only
@@ -335,7 +335,7 @@ project-site subpaths, and verification steps.</p><p><h2>Load Testing</h2></p><p
 ├── IKSolver.js                   - Inverse kinematics (240 lines)
 ├── AnimationSystem.js            - Main integration (170 lines)
 ├── PlayerAnimatorAdapter.js      - Existing code adapter (80 lines)
-├── AnimationStreamingManager.js  - GLB streaming &amp; caching (320 lines)</p><p>apps/character-animator/
+└── AnimationStreamingManager.js  - GLB streaming &amp; caching (320 lines)</p><p>apps/character-animator/
 └── index.js                      - Example animator app (110 lines)</p><p>docs/
 ├── animation-system.md            - API documentation
 └── ANIMATION_SYSTEM_IMPLEMENTATION.md  - This file</code></pre></p><p><strong>Total</strong>: ~1800 lines of production code + tests + docs</p><p><h2>Performance Benchmarks</h2></p><p>Measured on typical development machine:</p><p><ul><li><strong>Single character full IK</strong>: 1-2ms per frame</li>
@@ -1311,176 +1311,76 @@ block set with the snippet above.)</p><p><h2>Known limitations / scoped-out foll
 <ul><li><strong>Auto-scaling worker count</strong> -- SHIPPED in sibling row</li>
 </ul>  <code>server-scale-room-orchestrator-elastic-worker-count</code>.
 </p></section>
-<section id="section-10"><h2>spoint — docs/navmesh-pathfinding.md</h2><p><h1>Navmesh Baking &amp; Pathfinding Guide</h1></p><p>Navmesh-based pathfinding enables NPCs, bots, and other scripted units to navigate complex multiplayer worlds intelligently, planning routes around obstacles and terrain.</p><p><h2>Architecture</h2></p><p><h3>Pipeline</h3></p><p>1. <strong>Baking</strong> (offline, pre-deploy)
-   - Input: World GLB + collision geometry (placed-model instances + terrain)
-   - Process: Recast-navigation geometry rasterization, region formation, polygon mesh generation
-   - Output: <code>apps/world/&lt;name&gt;.navmesh.json</code> with vertices, polygons, and connectivity</p><p>2. <strong>Runtime</strong> (server-side app)
-   - Load navmesh JSON at app init
-   - Query pathfinding via <code>NavmeshQuery.findPath(from, to)</code>
-   - Returns waypoint array for steering toward destination</p><p>3. <strong>Movement</strong> (steering)
-   - Use existing <code>ctx.defineSteering()</code> system to follow waypoints
-   - Optional local obstacle avoidance via raycast
-   - Entity position updated each tick</p><p><h3>Data Structure</h3></p><p>The navmesh JSON contains:</p><p><pre><code class="language-json">{
+<section id="section-10"><h2>spoint — docs/navmesh-pathfinding.md</h2><p><h1>Navmesh Baking &amp; Pathfinding</h1></p><p>Apps plan walkable routes through a world's static geometry with a navmesh baked offline by
+[recast-navigation](https://github.com/isaac-mason/recast-navigation-js) and queried at runtime
+through the engine's <code>ctx.navmesh()</code> capability. The same app code runs on the Node server and in
+the singleplayer Worker.</p><p><h2>Pipeline</h2></p><p>1. <strong>Bake</strong> (offline, <code>scripts/bake-navmesh.mjs</code>): reads <code>apps/world/&lt;world&gt;.js</code>, collects every
+   entity whose <code>model</code> is a <code>.glb</code> and whose <code>config.collider</code> is <code>'trimesh'</code>, applies the entity's
+   position/rotation/scale on top of the GLB node transforms, runs Recast's solo navmesh generator,
+   and writes <code>apps/world/&lt;world&gt;.navmesh.json</code>.
+2. <strong>Load</strong> (runtime, engine): <code>ctx.navmesh(worldName?)</code> reads that JSON (filesystem on the server,
+   <code>fetch</code> in the Worker) and resolves to a <code>NavmeshQuery</code>. One query object is shared by every app
+   instance in the same runtime and world.
+3. <strong>Query + move</strong> (app): <code>query.findPath(from, to)</code> returns string-pulled waypoints; the app follows
+   them with <code>ctx.defineSteering()</code>.</p><p><h2>Baking</h2></p><p><pre><code class="language-bash">npm run bake-navmesh -- --world=&lt;world&gt;</code></pre></p><p><code>--world</code> is the file stem under <code>apps/world/</code> (required). <code>--verbose</code> prints the stack on failure.
+The bake fails loudly when the world has no trimesh GLB entities or Recast produces no walkable
+polygons.</p><p>Measured on <code>apps/maps/aim_sillos.glb</code> (9334 triangles): 600 vertices, 278 polygons in 32 connected
+regions (largest 101), 58 KB, ~250 ms.</p><p>Agent defaults (<code>DEFAULT_AGENT</code> in <code>src/pathfinding/RecastIntegration.js</code>), in world units:</p><p>| key | default | meaning |
+|---|---|---|
+| <code>cellSize</code> / <code>cellHeight</code> | 0.3 / 0.2 | voxel size on xz / y |
+| <code>agentHeight</code> | 1.7 | floor-to-ceiling clearance |
+| <code>agentRadius</code> | 0.4 | walkable area is eroded by this much from walls |
+| <code>agentMaxClimb</code> | 0.5 | step height |
+| <code>agentMaxSlope</code> | 45 | degrees |
+| <code>regionMinSize</code> / <code>regionMergeSize</code> | 8 / 20 | voxel counts for island removal / merging |
+| <code>maxVertsPerPoly</code> | 6 | |</p><p><h2>File format (<code>version: 1</code>)</h2></p><p><pre><code class="language-json">{
   &quot;version&quot;: 1,
-  &quot;config&quot;: {
-    &quot;cellSize&quot;: 0.3,
-    &quot;cellHeight&quot;: 0.2,
-    &quot;agentHeight&quot;: 1.7,
-    &quot;agentRadius&quot;: 0.4,
-    &quot;agentMaxClimb&quot;: 0.5,
-    &quot;agentMaxSlope&quot;: 45
-  },
-  &quot;bounds&quot;: {
-    &quot;min&quot;: [-1000, -100, -1000],
-    &quot;max&quot;: [1000, 1000, 1000]
-  },
+  &quot;config&quot;: { &quot;cellSize&quot;: 0.3, &quot;cellHeight&quot;: 0.2, &quot;agentHeight&quot;: 1.8, &quot;agentRadius&quot;: 0.6, &quot;agentMaxClimb&quot;: 0.4, &quot;agentMaxSlope&quot;: 45 },
+  &quot;bounds&quot;: { &quot;min&quot;: [x, y, z], &quot;max&quot;: [x, y, z] },
   &quot;vertices&quot;: [[x, y, z], ...],
-  &quot;polygons&quot;: [
-    {
-      &quot;vertices&quot;: [vi0, vi1, vi2, ...],
-      &quot;flags&quot;: 0,
-      &quot;area&quot;: 0
-    },
-    ...
-  ],
-  &quot;links&quot;: [
-    {
-      &quot;polygon&quot;: 0,
-      &quot;neighbors&quot;: [1, 2, 5]
-    },
-    ...
-  ]
-}</code></pre></p><p><h2>Baking Workflow</h2></p><p><h3>1. Prepare World GLB</h3></p><p>Ensure your world GLB has proper collision geometry:
-<ul><li>Place models via the editor's &quot;Add&quot; menu or <code>worldDef.entities</code></li>
-<li>Models automatically get collision (trimesh for static, convex hull for dynamic)</li>
-<li>Terrain provides ground collision automatically</li>
+  &quot;polygons&quot;: [{ &quot;vertices&quot;: [i0, i1, i2, ...], &quot;flags&quot;: 0, &quot;area&quot;: 0 }, ...],
+  &quot;links&quot;: [{ &quot;polygon&quot;: 0, &quot;neighbors&quot;: [1, 5] }, ...]
+}</code></pre></p><p><code>config</code> records the voxel-rounded agent values actually used (float32, so <code>0.30000001</code>). Polygon vertex lists wind
+counter-clockwise in the x/z plane (positive <code>sum(x_i<em>z_{i+1} - x_{i+1}</em>z_i)</code>); Recast emits the
+opposite order, so the bake reverses it. <code>links</code> hold only real neighbours (tile-portal and null
+edges are dropped) and are symmetric.</p><p><h2>Runtime API</h2></p><p><pre><code class="language-javascript">setup(ctx) {
+  ctx.navmesh().then(
+    nav =&gt; { ctx.state.ready = true },
+    e =&gt; ctx.debug.warn(e.message)
+  )
+},</p><p>onMessage(ctx, msg) {
+  if (msg.type !== 'goTo') return
+  ctx.navmesh().then(nav =&gt; {
+    const waypoints = nav.findPath([...ctx.entity.position], msg.position)
+    if (waypoints) ctx.state.waypoints = waypoints
+  })
+}</code></pre></p><p><ul><li><code>ctx.navmesh(worldName = runtime.worldName)</code> returns a <code>Promise&lt;NavmeshQuery&gt;</code>. The world name is</li>
+</ul>  set by the engine (<code>WorkerEntry</code> from the singleplayer INIT's <code>worldName</code>; <code>ServerAPI.loadWorld</code>
+  from <code>worldDef.name || WORLD || 'tps-game'</code>). It rejects with a <code>TypeError</code> for anything that is not
+  a world file stem (no path separators), and with an <code>Error</code> naming the missing path/URL when the
+  world has no baked navmesh. A failed load is not cached, so baking and calling again works.
+<ul><li><code>findPath(from, to)</code> returns <code>Array&lt;[x, y, z]&gt;</code> starting at <code>from</code> and ending at <code>to</code>, or <code>null</code></li>
+</ul>  when either point is off the navmesh or the two points are in disconnected regions. Points are
+  located by x/z containment, choosing the containing polygon whose centroid height is closest to the
+  point's y (multi-level maps). The corridor is A* over polygon centroids; waypoints come from a
+  funnel pass over the shared edges, so every segment stays inside the walkable area. Results are
+  cached per (from, to) at 1 cm resolution, 100 entries; callers receive copies.
+<ul><li><code>locate(point)</code> returns the polygon index or <code>-1</code>.</li>
 </ul>
-Example world definition:
-<pre><code class="language-javascript">export const worldDef = {
-  terrain: { type: 'simplex', octaves: 6, scale: 300, baseHeight: 50 },
-  entities: [
-    { type: 'placed-model', model: 'trees/oak.glb', position: [0, 0, 10] },
-    { type: 'placed-model', model: 'rocks/boulder.glb', position: [20, 0, 0] },
-  ],
-}</code></pre></p><p><h3>2. Run Bake CLI</h3></p><p><pre><code class="language-bash">npm run bake-navmesh --world=aim_sillos</code></pre></p><p>Options:
-<ul><li><code>--world=&lt;name&gt;</code> — World name (default: aim_sillos)</li>
-<li><code>--verbose</code> — Detailed error output</li>
-</ul>
-Output:
-<ul><li><code>apps/world/&lt;name&gt;.navmesh.json</code> (created if not exists)</li>
-<li>Console reports: vertex count, polygon count, file size, bake time</li>
-</ul>
-Bake time target: <strong>&lt;30 seconds</strong> for typical worlds</p><p><h3>3. Verify Bake</h3></p><p>Check the generated JSON:
-<pre><code class="language-bash">cat apps/world/aim_sillos.navmesh.json | jq '.polygons | length'</code></pre></p><p>The JSON should contain:
-<ul><li><code>vertices</code>: 100+ navigable positions</li>
-<li><code>polygons</code>: 50+ walkable regions</li>
-<li><code>links</code>: Connectivity between regions</li>
-</ul>
-<h2>Runtime Integration</h2></p><p><h3>Loading Navmesh</h3></p><p><pre><code class="language-javascript">import { NavmeshQuery } from '../../src/pathfinding/NavmeshQuery.js'</p><p>// In app setup:
-const response = await fetch(<code>/apps/world/${worldName}.navmesh.json</code>)
-const navmeshData = await response.json()
-const navmesh = new NavmeshQuery(navmeshData)</code></pre></p><p><h3>Pathfinding API</h3></p><p><pre><code class="language-javascript">// Find path between two points
-const waypoints = navmesh.findPath(
-  [10, 5, 20],    // start position
-  [100, 5, 50],   // goal position
-  { /<em> config </em>/ }
-)</p><p>if (!waypoints) {
-  console.log('No path found (unreachable or outside navmesh)')
-} else {
-  console.log(<code>Path has ${waypoints.length} waypoints</code>)
-  // Use waypoints for steering
-}</code></pre></p><p>Returns: <code>Array&lt;[x, y, z]&gt;</code> waypoint positions, or <code>null</code> if unreachable</p><p><h3>NPC Steering Example</h3></p><p>Use the built-in <code>npc-navigator</code> app:</p><p><pre><code class="language-javascript">// Place NPC in editor or via worldDef
-ctx.world.sendToEntity(npcEntityId, {
-  type: 'setTarget',
-  position: [100, 5, 50]
-})</code></pre></p><p>Or in a custom app:</p><p><pre><code class="language-javascript">setup(ctx) {
-  ctx.state.navmesh = new NavmeshQuery(navmeshData)
-  ctx.state.steering = ctx.defineSteering({ speed: 3, arriveRadius: 0.5 })
-},</p><p>update(ctx, dt) {
-  const pos = ctx.entity.position
-  const target = ctx.state.currentTarget</p><p>  const waypoints = ctx.state.navmesh.findPath(pos, target)
-  if (!waypoints || waypoints.length === 0) return</p><p>  const nextWaypoint = waypoints[1] || waypoints[0]
-  const result = ctx.state.steering.step(pos, nextWaypoint, dt)
-  ctx.entity.position = result.position
-}</code></pre></p><p><h2>Patrol Routes</h2></p><p>The <code>npc-navigator</code> app supports patrol behavior:</p><p><pre><code class="language-javascript">// Define patrol route (ordered waypoints)
-const patrolRoute = [
-  [0, 0, 0],
-  [50, 0, 0],
-  [50, 0, 50],
-  [0, 0, 50],
-]</p><p>// Start patrol
-ctx.world.sendToEntity(npcEntityId, {
-  type: 'startPatrol',
-  route: patrolRoute,
-})</p><p>// Stop patrol
-ctx.world.sendToEntity(npcEntityId, {
-  type: 'stop',
-})</code></pre></p><p><h2>Combat Bot Integration</h2></p><p>The combat-bot app can be enhanced to use navmesh pathfinding:</p><p><pre><code class="language-javascript">// In combat-bot setup:
-ctx.state.navmesh = new NavmeshQuery(navmeshData)</p><p>// In combat-bot update (when pursuing target):
-const targetPos = target.state.position
-const waypoints = ctx.state.navmesh.findPath(pos, targetPos)</p><p>if (waypoints &amp;&amp; waypoints.length &gt; 1) {
-  // Path found: navigate around obstacles
-  const nextWaypoint = waypoints[1]
-  const result = ctx.state.steering.step(pos, nextWaypoint, dt)
-  ctx.entity.position = result.position
-} else if (los &amp;&amp; dist &lt;= range) {
-  // No pathfinding: close range with LOS, just steer direct
-  const r = ctx.state.steering.step(pos, [tp[0], pos[1], tp[2]], dt)
-  ctx.entity.position = r.position
-}</code></pre></p><p><h2>Performance</h2></p><p><h3>Baking</h3></p><p><ul><li>Typical world (&lt;1000 entities): 10–25 seconds</li>
-<li>Large world (10,000+ entities): 20–60 seconds</li>
-<li>Output file: 50–500 KB depending on complexity</li>
-</ul>
-<h3>Pathfinding Queries</h3></p><p><ul><li>Single query: &lt;5ms</li>
-<li>10 concurrent queries: &lt;50ms</li>
-<li>LRU cache: 100 entries (reuses recent paths)</li>
-</ul>
-<h3>Concurrent NPCs</h3></p><p><ul><li>10 NPCs pathfinding: &lt;10% CPU overhead</li>
-<li>50 NPCs pathfinding: &lt;30% CPU overhead</li>
-<li>Ideal for tower-defense, wave-defense, crowd scenarios</li>
-</ul>
-<h2>Troubleshooting</h2></p><p><h3>&quot;No navmesh found&quot;</h3></p><p><strong>Cause</strong>: <code>apps/world/&lt;name&gt;.navmesh.json</code> doesn't exist
-<strong>Fix</strong>: Run <code>npm run bake-navmesh --world=&lt;name&gt;</code></p><p><h3>&quot;Pathfinding returns null&quot;</h3></p><p><strong>Cause</strong>: Start or goal position outside navmesh bounds or in unwalkable region
-<strong>Fix</strong>: 
-1. Verify world bounds in bake config
-2. Check navmesh coverage with a visualization tool
-3. Adjust walkable slope/height in bake config and re-bake</p><p><h3>&quot;NPC stuck/jittering at waypoint&quot;</h3></p><p><strong>Cause</strong>: Waypoint too close to obstacle, steering instability
-<strong>Fix</strong>:
-1. Increase <code>stoppingDistance</code> in NPC config
-2. Ensure navmesh has sufficient polygon density (<code>detailSampleDist</code>)
-3. Re-bake with tighter cell size</p><p><h3>&quot;Bake time exceeds 30 seconds&quot;</h3></p><p><strong>Cause</strong>: Geometry too dense or world bounds too large
-<strong>Fix</strong>:
-1. Reduce detail LOD for placed models (fewer tris)
-2. Tighten world bounds to walkable area only
-3. Increase <code>cellSize</code> or <code>regionMinSize</code> in bake config
-4. Parallelize: bake multiple regions separately, merge JSONs</p><p><h2>Config Tuning</h2></p><p>Bake config parameters (in <code>scripts/bake-navmesh.mjs</code> or app):</p><p><ul><li><code>cellSize</code> (default 0.3): Vertical cell size. Smaller = more detail, slower bake.</li>
-<li><code>cellHeight</code> (default 0.2): Horizontal cell height. Smaller = more accuracy.</li>
-<li><code>agentHeight</code> (default 1.7): NPC height. Affects floor-to-ceiling clearance.</li>
-<li><code>agentRadius</code> (default 0.4): NPC width. Affects corridor widths.</li>
-<li><code>agentMaxClimb</code> (default 0.5): Max step height NPC can climb.</li>
-<li><code>agentMaxSlope</code> (default 45): Max slope angle (degrees) NPC can walk.</li>
-<li><code>tileSize</code> (default 32): Recast tile grid size. Larger = faster, less detail.</li>
-<li><code>regionMinSize</code> (default 8): Min region size before merge.</li>
-<li><code>detailSampleDist</code> (default 6): Detail mesh sampling distance.</li>
-</ul>
-<strong>Recommended starting point:</strong>
-<pre><code class="language-javascript">{
-  cellSize: 0.3,
-  cellHeight: 0.2,
-  agentHeight: 1.7,
-  agentRadius: 0.4,
-  agentMaxClimb: 0.5,
-  agentMaxSlope: 45,
-  tileSize: 32,
-  regionMinSize: 8,
-  detailSampleDist: 6,
-}</code></pre></p><p><h2>Future Enhancements</h2></p><p><ul><li>[ ] Spatial acceleration (quadtree/octree for polygon lookup)</li>
-<li>[ ] Funnel algorithm for smooth path pulling</li>
-<li>[ ] Dynamic obstacle avoidance with crowd simulation</li>
-<li>[ ] Multi-tile navmesh for very large worlds</li>
-<li>[ ] Live navmesh updates when geometry changes (placed models moved)</li>
-<li>[ ] Navmesh visualization tool in editor</li>
-</ul></p></section>
+Apps must not import engine modules or <code>node:*</code> themselves: <code>AppLoader</code> rejects app source
+containing <code>import(</code>, and the Worker has no filesystem. <code>ctx.navmesh()</code> is the supported route.</p><p>Measured on the aim_sillos navmesh: the 58.5 m cross-map query returns 9 waypoints in about 1 ms;
+200 random pairs in the largest region all resolve (max 0.7 ms), and 0 of 21 277 samples taken
+every 0.25 m along the returned segments fall outside the navmesh.</p><p><h2><code>npc-navigator</code> app</h2></p><p>Messages are broadcast APP_EVENTs; <code>npcId</code> addresses one NPC, omitted means every navigator.</p><p><pre><code class="language-javascript">client.send(MSG.APP_EVENT, { type: 'setTarget', npcId: 'npc-1', position: [19.6, -7.2, 0.5] })
+client.send(MSG.APP_EVENT, { type: 'startPatrol', npcId: 'npc-1', route: [[0, 0, 0], [10, 0, 0]] })
+client.send(MSG.APP_EVENT, { type: 'stop', npcId: 'npc-1' })</code></pre></p><p>Server apps reach it with <code>ctx.world.sendToEntity(npcId, { type: 'setTarget', position })</code>. Each
+found path is logged as <code>npc-navigator: path &lt;from&gt; -&gt; &lt;to&gt;: N waypoints ...</code>; a missing navmesh or
+unreachable target is logged as a warning and the NPC stays put. Editor props: <code>speed</code>,
+<code>stoppingDistance</code> (steering arrive radius), <code>avoidanceRadius</code> (raycast side-step distance).</p><p><h2>Troubleshooting</h2></p><p><ul><li><strong><code>navmesh not baked for world &quot;&lt;name&gt;&quot;</code></strong>: run <code>npm run bake-navmesh -- --world=&lt;name&gt;</code>.</li>
+<li><strong><code>findPath</code> returns <code>null</code></strong>: a point is outside the eroded walkable area (walls are inset by</li>
+</ul>  <code>agentRadius</code>) or in a different region; check <code>nav.locate(point)</code>.
+<ul><li><strong>World has no trimesh GLB entities</strong>: the bake only reads <code>.glb</code> entities with</li>
+</ul>  <code>config.collider: 'trimesh'</code>; terrain heightfields and primitive meshes are not baked.
+</p></section>
 <section id="section-11"><h2>spoint — docs/nostr-server-federation.md</h2><p><h1>Nostr Server Federation — Architecture</h1></p><p>&gt; PRD row: <code>ugc-nostr-server-federation</code>  
 &gt; Status: FIRST SLICE — architecture documentation + &quot;no duplicate implementation&quot; verification</p><p><h2>Overview</h2></p><p>spoint uses <strong>nostr</strong> (Nostr Protocol) as its <strong>serverless master server</strong> for both dedicated-server discovery and P2P room discovery. This is a single, unified mechanism — not two separate server-browser systems.</p><p><h2>Architecture</h2></p><p><h3>Publishers (server-side)</h3></p><p><strong>Dedicated servers</strong> publish via <code>src/sdk/ServerPresence.js</code>:</p><p><ul><li>Generates a persistent nostr keypair (stored in <code>data/nostr-identity.json</code>, gitignored)</li>
 <li>Publishes a replaceable NIP-78 <code>kind:30078</code> event with <code>d</code> tag <code>spoint-server:&lt;namespace&gt;:&lt;port&gt;</code></li>
@@ -2342,11 +2242,10 @@ const getPlayerState = (ctx, playerId) =&gt; {
   return ps
 }</code></pre></p><p><h3>Adding XP</h3></p><p><pre><code class="language-javascript">const addXp = (ctx, playerId, amount) =&gt; {
   const ps = getPlayerState(ctx, playerId)
-  ps.xp += amount</p><p>  // Check if level-up threshold reached
-  const nextLevelXp = getXpForLevel(ps.level)
-  while (ps.xp &gt;= nextLevelXp &amp;&amp; ps.level &lt; 10) {
+  ps.xp += amount</p><p>  // Level up while the threshold is reached; overflow XP carries into the next level
+  while (ps.level &lt; 10 &amp;&amp; ps.xp &gt;= getXpForLevel(ps.level)) {
+    ps.xp -= getXpForLevel(ps.level)
     ps.level++
-    ps.xp = 0
     ps.maxHealth += 10
     ps.health = ps.maxHealth
     ps.maxMana += 20
@@ -2364,23 +2263,30 @@ const getPlayerState = (ctx, playerId) =&gt; {
   1: { id: 'attack', name: 'Attack', cooldown: 0, manaCost: 0, damage: 10, range: 3 },
   5: { id: 'fireball', name: 'Fireball', cooldown: 5, manaCost: 20, damage: 30, range: 20 },
   10: { id: 'lightning-storm', name: 'Lightning Storm', cooldown: 10, manaCost: 50, damage: 60, range: 15 }
-}</p><p>const castAbility = (ctx, playerId, abilityId, targetPos) =&gt; {
+}</p><p>const castAbility = (ctx, playerId, abilityId) =&gt; {
   const ps = getPlayerState(ctx, playerId)
   const ability = Object.values(ABILITIES).find(a =&gt; a.id === abilityId)</p><p>  // Validation
   if (!ability || !ps.unlockedAbilities[abilityId]) return false  // not unlocked
   if (ps.mana &lt; ability.manaCost) return false                   // insufficient mana
-  if (ps.activeCooldowns[abilityId]) return false                // on cooldown</p><p>  // Apply cost and cooldown
+  if (ps.activeCooldowns[abilityId]) return false                // on cooldown</p><p>  // Cast from the caster's server-side position, never a client-supplied one
+  const origin = ctx.players.getById(playerId)?.state?.position
+  if (!origin) return false</p><p>  // Apply cost and cooldown
   ps.mana -= ability.manaCost
   ps.activeCooldowns[abilityId] = ability.cooldown</p><p>  // Resolve effect (damage nearby enemies)
-  const player = ctx.players.getById(playerId)
-  const nearby = ctx.world.nearby(player.state.position, ability.range)
-  
-  nearby.forEach(entityId =&gt; {
-    const entity = ctx.world.getEntity(entityId)
-    if (entity &amp;&amp; entity.custom?.enemyType) {
-      damageEntity(entity, ability.damage)
-    }
-  })</p><p>  return true
+  const rangeSq = ability.range * ability.range
+  const targets = ctx.world.query(e =&gt; !!e.custom?.enemyType &amp;&amp; (e.position[0] - origin[0]) <strong> 2 + (e.position[2] - origin[2]) </strong> 2 &lt;= rangeSq)
+  for (const enemy of targets) damageEntity(ctx, playerId, enemy, ability.damage)</p><p>  return true
+}</p><p>// ctx.world.query / getEntity return raw runtime entities: they have no destroy(),
+// so kills go through ctx.world.destroy(id). Reassign custom so the change is sent to clients.
+const damageEntity = (ctx, playerId, enemy, damage) =&gt; {
+  const custom = enemy.custom
+  const health = Math.max(0, (custom.health ?? custom.maxHealth ?? 10) - damage)
+  enemy.custom = { ...custom, health, isDamaged: true }
+  if (health &gt; 0) return 0
+  ctx.world.destroy(enemy.id)
+  addXp(ctx, playerId, custom.xpValue ?? 10)
+  updateQuestProgress(ctx, playerId, 'kill', custom.enemyType)
+  return custom.xpValue ?? 10
 }</code></pre></p><p><h3>Mana Regeneration &amp; Cooldowns</h3></p><p>Update every frame:</p><p><pre><code class="language-javascript">ctx.time.every(1, () =&gt; {
   ctx.players.getAll().forEach(p =&gt; {
     const ps = getPlayerState(ctx, p.id)
@@ -2441,27 +2347,26 @@ const getPlayerState = (ctx, playerId) =&gt; {
     ps.quest++
     ps.questProgress = 0
   }
-}</code></pre></p><p><h3>Triggering Quest Events</h3></p><p><pre><code class="language-javascript">// On enemy death
-ctx.bus.on('enemy.died', (e) =&gt; {
-  ctx.players.getAll().forEach(p =&gt; {
-    updateQuestProgress(ctx, p.id, 'kill', 'goblin')
-  })
-})</p><p>// On item collection
-ctx.bus.on('gold-coin-collected', (e) =&gt; {
-  updateQuestProgress(ctx, e.playerId, 'collect', 'gold-coin')
+}</code></pre></p><p><h3>Triggering Quest Events</h3></p><p>Bus handlers receive an envelope <code>{ channel, data, meta }</code>; the emitter's payload is <code>data</code>:</p><p><pre><code class="language-javascript">// On item collection (apps/gold-coin emits { playerId, coin })
+ctx.bus.on('gold-coin-collected', ({ data }) =&gt; {
+  if (data?.playerId == null) return
+  updateQuestProgress(ctx, data.playerId, 'collect', 'gold-coin')
+})</p><p>// On enemy death: only if your enemy apps emit such an event (the engine emits none)
+ctx.bus.on('enemy.died', ({ data }) =&gt; {
+  updateQuestProgress(ctx, data.killerId, 'kill', data.enemyType)
 })</p><p>// On reach location
 ctx.time.every(1, () =&gt; {
+  const tower = ctx.world.getEntity('tower-base')
+  if (!tower) return
   ctx.players.getAll().forEach(p =&gt; {
-    const tower = ctx.world.getEntity('tower-base')
-    const dist = Math.hypot(
-      p.state.position[0] - tower.position[0],
-      p.state.position[2] - tower.position[2]
-    )
+    const pos = p.state?.position
+    if (!pos) return
+    const dist = Math.hypot(pos[0] - tower.position[0], pos[2] - tower.position[2])
     if (dist &lt; 5) {
       updateQuestProgress(ctx, p.id, 'reach', 'tower-base')
     }
   })
-})</code></pre></p><p>---</p><p><h2>AbilityTree API</h2></p><p><h3>Ability Definition</h3></p><p>Abilities unlock at specific levels and cost mana:</p><p><pre><code class="language-javascript">const ABILITIES = {
+})</code></pre></p><p>Kills are simplest to count where they happen: <code>damageEntity</code> above advances the killer's kill quest itself.</p><p>---</p><p><h2>AbilityTree API</h2></p><p><h3>Ability Definition</h3></p><p>Abilities unlock at specific levels and cost mana:</p><p><pre><code class="language-javascript">const ABILITIES = {
   1: {
     id: 'attack',
     name: 'Attack',
@@ -2487,26 +2392,18 @@ ctx.time.every(1, () =&gt; {
   if (!ps.unlockedAbilities[abilityId]) return false  // not unlocked yet
   if (ps.mana &lt; ability.manaCost) return false        // insufficient mana
   if (ps.activeCooldowns[abilityId]) return false     // on cooldown</p><p>  return true
-}</code></pre></p><p><h3>Ability Effect Resolution</h3></p><p><pre><code class="language-javascript">const resolveAbilityEffect = (ctx, ability, originPos, targetPos) =&gt; {
-  // Find nearby entities in range
-  const nearby = ctx.world.nearby(targetPos, ability.range)</p><p>  // Apply damage to each enemy
-  nearby.forEach(entityId =&gt; {
+}</code></pre></p><p><h3>Ability Effect Resolution</h3></p><p>Shared XP for every player near the kill, on top of the killer's own award:</p><p><pre><code class="language-javascript">const resolveAbilityEffect = (ctx, casterId, ability, originPos) =&gt; {
+  // nearby() returns entity ids
+  const nearby = ctx.world.nearby(originPos, ability.range)</p><p>  nearby.forEach(entityId =&gt; {
     const entity = ctx.world.getEntity(entityId)
-    if (entity &amp;&amp; entity.custom?.enemyType) {
-      const xpDrop = damageEntity(entity, ability.damage)
-      if (xpDrop &gt; 0) {
-        // Enemy died, broadcast to all nearby players
-        ctx.players.getAll().forEach(p =&gt; {
-          const dist = Math.hypot(
-            p.state.position[0] - originPos[0],
-            p.state.position[2] - originPos[2]
-          )
-          if (dist &lt; 50) {
-            addXp(ctx, p.id, xpDrop)
-          }
-        })
-      }
-    }
+    if (!entity?.custom?.enemyType) return
+    const xpDrop = damageEntity(ctx, casterId, entity, ability.damage)
+    if (xpDrop === 0) return
+    ctx.players.getAll().forEach(p =&gt; {
+      const pos = p.state?.position
+      if (p.id === casterId || !pos) return
+      if (Math.hypot(pos[0] - originPos[0], pos[2] - originPos[2]) &lt; 50) addXp(ctx, p.id, xpDrop)
+    })
   })
 }</code></pre></p><p>---</p><p><h2>Progression Curves</h2></p><p><h3>XP Table (Exponential)</h3></p><p>By default, XP requirement grows exponentially:</p><p><pre><code class="language-javascript">const BASE_XP_TABLE = [
   0,      // level 0
@@ -2528,8 +2425,8 @@ const addXp = (ctx, playerId, amount) =&gt; {
   const ps = getPlayerState(ctx, playerId)
   ps.xp += amount</p><p>  const nextLevelXp = getXpForLevelQuadratic(ps.level)
   // ... rest of level-up logic
-}</code></pre></p><p><h3>Stat Scaling</h3></p><p>On level-up, stats increase:</p><p><pre><code class="language-javascript">ps.level++
-ps.xp = 0
+}</code></pre></p><p><h3>Stat Scaling</h3></p><p>On level-up, stats increase:</p><p><pre><code class="language-javascript">ps.xp -= getXpForLevel(ps.level)     // carry overflow XP
+ps.level++
 ps.maxHealth += 10                    // +10 HP per level
 ps.health = ps.maxHealth              // fully heal on level-up
 ps.maxMana += 20                      // +20 mana per level
@@ -2541,69 +2438,40 @@ ps.mana = ps.maxMana                  // fully restore on level-up</code></pre><
 }</p><p>ps.level++
 const statGain = LEVEL_UP_STATS[ps.level] || { hpGain: 10, manaGain: 20 }
 ps.maxHealth += statGain.hpGain
-ps.maxMana += statGain.manaGain</code></pre></p><p>---</p><p><h2>Network Sync Architecture</h2></p><p><h3>Client-Side Ability Casting</h3></p><p>Abilities are cast from the client via network message:</p><p><pre><code class="language-javascript">// client/render.onKeyDown or onInput
-onKeyDown(e, engine) {
-  if (e.key === '1') {  // ability hotkey 1
-    const players = engine.client.state?.players || []
-    const myPlayer = players.find(p =&gt; p.id === engine.playerId)
-    if (myPlayer) {
-      const dir = engine.cam.getAimDirection(myPlayer.state.position)
-      engine.network.send({
-        type: 'cast_ability',
-        abilityId: 'attack',
-        targetPos: [
-          myPlayer.state.position[0] + dir[0] * 15,
-          myPlayer.state.position[1],
-          myPlayer.state.position[2] + dir[2] * 15
-        ]
-      })
-    }
-  }
-}</code></pre></p><p><h3>Server-Side Message Handling</h3></p><p>The server validates and resolves ability effects:</p><p><pre><code class="language-javascript">onMessage(ctx, msg) {
-  if (!msg) return
-  if (msg.type === 'cast_ability') {
-    castAbility(ctx, msg.playerId || msg.senderId, msg.abilityId, msg.targetPos)
-  }
-}</code></pre></p><p><h3>Broadcasting State Changes</h3></p><p>The engine automatically broadcasts:
-<ul><li>Player position/rotation/health each snapshot (~250ms)</li>
-<li>Ability unlocks on level-up (via <code>player.levelup</code> bus event)</li>
-<li>Quest completion (via <code>quest.completed</code> bus event)</li>
-</ul>
-No manual sync code required; <code>ctx.entity.custom</code> fields are sent in every snapshot.</p><p>---</p><p><h2>Persistence &amp; Snapshot Model</h2></p><p><h3>Automatic Persistence</h3></p><p>Player progression is persisted automatically:</p><p><pre><code class="language-javascript">// In your app's setup(ctx):
-ctx.state.progression = ctx.state.progression || {}</p><p>// On every snapshot send, ctx.state fields are included
-// On server restart, ctx.state is restored from the saved snapshot</code></pre></p><p><h3>Custom Persistence</h3></p><p>To save/restore specific fields:</p><p><pre><code class="language-javascript">// Save on shutdown
-ctx.entity.custom = {
-  progression: ctx.state.progression,
-  questLog: ctx.state.questLog
-}</p><p>// Restore on startup
-if (ctx.entity.custom.progression) {
-  ctx.state.progression = ctx.entity.custom.progression
-}</code></pre></p><p><h3>Snapshot Structure</h3></p><p>Each player entity carries their progression in <code>custom</code>:</p><p><pre><code class="language-javascript">{
-  position: [x, y, z],
-  rotation: [x, y, z, w],
-  custom: {
-    level: 5,
-    xp: 120,
-    mana: 45,
-    health: 95,
-    quest: 2,
-    questProgress: 2,
-    unlockedAbilities: { attack: true, fireball: true },
-    activeCooldowns: { fireball: 3.5 }
-  }
-}</code></pre></p><p>On load, restore from snapshot:</p><p><pre><code class="language-javascript">if (msg.type === 'snapshot') {
-  ctx.state.progression = msg.custom.progression || ctx.state.progression
-}</code></pre></p><p>---</p><p><h2>Performance Best Practices</h2></p><p><h3>Update Frequency</h3></p><p>Keep expensive operations out of tight loops:</p><p><pre><code class="language-javascript">// GOOD: run every 1 second
+ps.maxMana += statGain.manaGain</code></pre></p><p>---</p><p><h2>Network Sync Architecture</h2></p><p><h3>Client-Side Ability Casting</h3></p><p>Abilities are cast from the client via a network message. The client only names the ability; the server resolves it from the caster's own position:</p><p><pre><code class="language-javascript">// client hooks (apps/rpg-tutorial/index.js)
+const ABILITY_KEYS = { 1: 'attack', 2: 'fireball', 3: 'lightning-storm' }</p><p>onKeyDown(e, engine) {
+  const abilityId = ABILITY_KEYS[e.key]
+  const unlocked = engine._rpgTutorial?.progress?.unlockedAbilities
+  if (e.repeat || !abilityId || !unlocked?.includes(abilityId)) return
+  engine.network.send({ type: 'cast_ability', abilityId })
+}</code></pre></p><p>The engine object passed to client hooks is shared by every app. It has no <code>on()</code>, no <code>state</code> bucket and no per-app player state, so keep your own under <code>engine._&lt;appName&gt;</code> (here <code>engine._rpgTutorial</code>). If you need the local player's position on the client, snapshot players carry it at the top level: <code>player.position</code>, not <code>player.state.position</code>. <code>player.state.position</code> exists only on the server.</p><p><h3>Server-Side Message Handling</h3></p><p>Client messages arrive in the server <code>onMessage(ctx, msg)</code> hook. <code>msg.senderId</code> is stamped by the server and is the only player id to trust:</p><p><pre><code class="language-javascript">onMessage(ctx, msg) {
+  if (msg?.type !== 'cast_ability' || msg.senderId == null) return
+  castAbility(ctx, msg.senderId, msg.abilityId)
+}</code></pre></p><p><h3>Sending State to Clients</h3></p><p>The engine's snapshots carry player position, rotation and health, and each entity's <code>custom</code>. Bus events (<code>player.levelup</code>, <code>quest.completed</code>) are server-side only and never reach a client. Progression therefore has to be pushed explicitly. rpg-tutorial sends one <code>rpg-progress</code> payload per player every second, and again after every change:</p><p><pre><code class="language-javascript">ctx.players.send(playerId, {
+  type: 'rpg-progress',
+  level: ps.level, xp: ps.xp, xpToNext: xpToNext(ps.level),
+  health: ps.health, maxHealth: ps.maxHealth, mana: ps.mana, maxMana: ps.maxMana,
+  quest: ps.quest, questTitle: QUESTS[ps.quest]?.title ?? null,
+  questProgress: ps.questProgress, questTarget: QUESTS[ps.quest]?.count ?? 0,
+  unlockedAbilities: [...ps.unlockedAbilities], cooldowns: { ...ps.cooldowns }
+})</code></pre></p><p>and the client keeps the latest one:</p><p><pre><code class="language-javascript">setup(engine) { engine._rpgTutorial = { progress: null } },</p><p>// every ctx.players.send / broadcast payload reaches every app's onEvent
+onEvent(payload, engine) {
+  if (payload?.type === 'rpg-progress') engine._rpgTutorial.progress = payload
+}</code></pre></p><p>---</p><p><h2>Persistence &amp; Snapshot Model</h2></p><p><h3>What Persists</h3></p><p><code>ctx.state</code> is the app's server-side state. It is never sent to clients. It survives a hot reload of the app, since the same object is handed to the new <code>setup</code>, and it is saved with the world snapshot (<code>src/sdk/WorldPersistence.js</code>, which records each entity's <code>ctx.state</code>).</p><p><pre><code class="language-javascript">// In your app's setup(ctx): read-or-create, never overwrite
+const progressOf = (ctx, playerId) =&gt; {
+  const players = ctx.state.rpgPlayers || (ctx.state.rpgPlayers = {})
+  return players[playerId] || (players[playerId] = { level: 1, xp: 0, quest: 0, questProgress: 0 })
+}</code></pre></p><p>On a restart, the saved <code>ctx.state</code> is swapped in <em>after</em> <code>setup</code> has already run. Always reach progression through <code>ctx.state</code> at use time, as <code>progressOf</code> does, rather than caching it in a closure during <code>setup</code>.</p><p><h3>What Clients See</h3></p><p>Clients never see <code>ctx.state</code>. They see <code>ctx.entity.custom</code>, which is sent in snapshots, and whatever you push with <code>ctx.players.send</code>/<code>broadcast</code>. Player progression belongs to players, not to the game-controller entity, so push it per player as shown in [Sending State to Clients](#sending-state-to-clients). There is no progression inside a player's snapshot entry.</p><p>---</p><p><h2>Performance Best Practices</h2></p><p><h3>Update Frequency</h3></p><p>Keep expensive operations out of tight loops:</p><p><pre><code class="language-javascript">// GOOD: run every 1 second
 ctx.time.every(1, () =&gt; {
   // mana regen, cooldown decay
-  ctx.players.forEach(p =&gt; { /<em> ... </em>/ })
+  ctx.players.getAll().forEach(p =&gt; { /<em> ... </em>/ })
 })</p><p>// AVOID: run every frame (60 Hz)
 onFrame(dt, engine) {
   // Don't recalculate progression here
 }</code></pre></p><p><h3>Spatial Queries</h3></p><p>Use spatial partitioning for nearby entity checks:</p><p><pre><code class="language-javascript">// O(1) with proper spatial hash
 const nearby = ctx.world.nearby(origin, radius)</p><p>// AVOID: O(n) query every frame
 const all = ctx.world.query(() =&gt; true)</code></pre></p><p><h3>Ability Resolution</h3></p><p>Batch ability effects:</p><p><pre><code class="language-javascript">// Good: find all enemies once
-const nearby = ctx.world.nearby(targetPos, ability.range)
+const nearby = ctx.world.nearby(origin, ability.range)
 nearby.forEach(entityId =&gt; {
   // Apply damage
 })</p><p>// Avoid: multiple queries for same data
@@ -2626,54 +2494,45 @@ export default {
 export default {
   server: {
     setup(ctx) {
-      ctx.state.progression = ctx.state.progression || {}</p><p>      // ... register quests, abilities, level-up handlers</p><p>      ctx.onMessage((ctx_msg, msg) =&gt; {
-        if (msg.type === 'cast_ability') {
-          castAbility(ctx, msg.playerId, msg.abilityId, msg.targetPos)
-        }
-      })
+      // ... register bus handlers (ctx.bus.on) and timers (ctx.time.every)
+    },
+    // Client messages and player joins/leaves all arrive here; there is no ctx.onMessage
+    onMessage(ctx, msg) {
+      if (msg?.type === 'cast_ability' &amp;&amp; msg.senderId != null) castAbility(ctx, msg.senderId, msg.abilityId)
     },
     update(ctx, dt) { /<em> ... </em>/ },
     teardown(ctx) {}
   },
   client: {
-    render(ctx) { /<em> ... </em>/ },
-    onKeyDown(e, engine) { /<em> cast abilities </em>/ },
-    onFrame(dt, engine) { /<em> update UI </em>/ }
+    setup(engine) { engine._yourGame = { progress: null } },
+    onEvent(payload, engine) { if (payload?.type === 'rpg-progress') engine._yourGame.progress = payload },
+    onKeyDown(e, engine) { /<em> engine.network.send({ type: 'cast_ability', abilityId }) </em>/ },
+    onFrame(dt, engine) { /<em> update UI from engine._yourGame.progress </em>/ }
   }
 }</code></pre></p><p><h3>Step 4: Test Progression Flow</h3></p><p><pre><code class="language-bash">npx spoint
-<h1>Visit http://localhost:3001/?world=your-game</h1></p><p><h1>In browser console:</h1>
-window.debug.client.state.players[0].custom.level  // check level
-window.debug.client.state.players[0].custom.xp     // check XP</code></pre></p><p>---</p><p><h2>Multiplayer Sync Details</h2></p><p><h3>Player Join Flow</h3></p><p>1. Client joins room, receives first snapshot
-2. Server calls <code>ctx.onMessage(playerJoin)</code>
-3. Initialize progression for this player ID
-4. Sync current state in next snapshot send</p><p><h3>Level-Up Broadcast</h3></p><p><pre><code class="language-javascript">ctx.bus.emit('player.levelup', {
-  playerId: id,
-  newLevel: level,
-  unlockedAbility: name
-})</p><p>// Engine broadcasts this to all players in world
-ctx.players.broadcast({ type: 'player.levelup', ... })</code></pre></p><p><h3>Ability Cooldown Sync</h3></p><p>Cooldowns are tracked server-side, sent in snapshot:</p><p><pre><code class="language-javascript">custom: {
-  activeCooldowns: {
-    fireball: 3.2  // 3.2 seconds remaining
-  }
-}</code></pre></p><p>Client displays cooldown UI based on this value.</p><p>---</p><p><h2>Debugging</h2></p><p><h3>Server-Side State</h3></p><p>In Node REPL:</p><p><pre><code class="language-javascript">globalThis.__DEBUG__.server.getEntity('game-app').custom.progression
-// { playerId1: { level: 5, xp: 120, ... }, ... }</code></pre></p><p><h3>Client-Side State</h3></p><p>In browser console:</p><p><pre><code class="language-javascript">window.debug.client.state.players[0]
-// { id, health, position, custom: { level, xp, ... } }</p><p>window.debug.engine.playerId
-// get local player ID</code></pre></p><p><h3>Quest Progress</h3></p><p><pre><code class="language-javascript">const ps = ctx.state.progression[playerId]
+<h1>Visit http://localhost:3001/?world=your-game</h1></p><p><h1>In browser console (the last progress payload your client's onEvent kept):</h1>
+window.__app.engine._yourGame.progress.level  // check level
+window.__app.engine._yourGame.progress.xp     // check XP</code></pre></p><p>---</p><p><h2>Multiplayer Sync Details</h2></p><p><h3>Player Join Flow</h3></p><p>1. The client joins the room and receives its first snapshot.
+2. The server calls every app's <code>onMessage(ctx, { type: 'player_join', playerId })</code>. A player who was already connected when <code>setup</code> ran, e.g. after a hot reload, sends no join and is only visible through <code>ctx.players.getAll()</code>.
+3. The app creates or looks up progression for that player id.
+4. The app pushes it with <code>ctx.players.send(playerId, ...)</code>. Pushes can land before the client has loaded the app module, and <code>onEvent</code> then drops them. Either push periodically, as rpg-tutorial does every second, or have the client's <code>setup</code> send a sync request (apps/tutorial-rpg does this).</p><p><h3>Level-Up Broadcast</h3></p><p><code>ctx.bus.emit</code> notifies other server-side apps only. To tell clients, send or broadcast explicitly:</p><p><pre><code class="language-javascript">ctx.bus.emit('player.levelup', { playerId: id, newLevel: level, unlockedAbility: name })   // other apps
+ctx.players.broadcast({ type: 'player.levelup', playerId: id, newLevel: level })            // every client's onEvent</code></pre></p><p><h3>Ability Cooldown Sync</h3></p><p>Cooldowns are tracked server-side and ride along in the pushed progress payload:</p><p><pre><code class="language-javascript">{ type: 'rpg-progress', ..., cooldowns: { fireball: 3 } }   // seconds remaining</code></pre></p><p>The client displays cooldown UI from <code>engine._&lt;app&gt;.progress.cooldowns</code>.</p><p>---</p><p><h2>Debugging</h2></p><p><h3>Server-Side State</h3></p><p>In the server process, e.g. under <code>node --inspect</code>:</p><p><pre><code class="language-javascript">globalThis.__DEBUG__.server.runtime.contexts.get('rpg-tutorial').state.rpgPlayers
+// { &lt;playerId&gt;: { level: 5, xp: 120, ... }, ... }</code></pre></p><p><h3>Client-Side State</h3></p><p>In browser console:</p><p><pre><code class="language-javascript">window.__app.engine._rpgTutorial.progress
+// the last rpg-progress payload: { level, xp, xpToNext, health, mana, questTitle, ... }</p><p>window.__app.engine.playerId
+// local player ID</code></pre></p><p><h3>Quest Progress</h3></p><p><pre><code class="language-javascript">const ps = ctx.state.progression[playerId]
 console.log(<code>Quest ${ps.quest}: progress ${ps.questProgress}/${QUESTS[ps.quest].count}</code>)</code></pre></p><p><h3>Ability Unlock</h3></p><p><pre><code class="language-javascript">const ps = ctx.state.progression[playerId]
 console.log('Unlocked:', Object.keys(ps.unlockedAbilities))</code></pre></p><p>---</p><p><h2>API Reference</h2></p><p><h3>Core Functions</h3></p><p>| Function | Args | Returns | Effect |
 |----------|------|---------|--------|
 | <code>getPlayerState(ctx, playerId)</code> | ctx, string | PlayerState | Get or create player progression |
 | <code>addXp(ctx, playerId, amount)</code> | ctx, string, number | void | Add XP, trigger level-ups |
-| <code>castAbility(ctx, playerId, abilityId, targetPos)</code> | ctx, string, string, [x,y,z] | bool | Validate and resolve ability |
-| <code>damageEntity(entity, damage)</code> | Entity, number | number | Damage enemy, return XP if killed |
+| <code>castAbility(ctx, playerId, abilityId)</code> | ctx, id, string | bool | Validate and resolve ability from the caster's server-side position |
+| <code>damageEntity(ctx, playerId, entity, damage)</code> | ctx, id, Entity, number | number | Damage enemy; on a kill, <code>ctx.world.destroy</code> it, credit the killer and return its XP |
 | <code>updateQuestProgress(ctx, playerId, objType, targetType)</code> | ctx, string, string, string | void | Increment quest objective |
-| <code>completeQuest(ctx, playerId)</code> | ctx, string | void | Mark current quest complete, advance |</p><p><h3>Event Triggers</h3></p><p>| Event | When | Payload |
-|-------|------|---------|
-| <code>player.levelup</code> | level-up occurs | <code>{ playerId, newLevel, unlockedAbility }</code> |
-| <code>quest.completed</code> | quest finishes | <code>{ playerId, questId, questTitle }</code> |
-| <code>gold-coin-collected</code> | collectible taken | <code>{ playerId, coin }</code> |
-| <code>combat.damage</code> | ability hits | <code>{ source, target, damage, ability }</code> |
-| <code>enemy.died</code> | health &lt;= 0 | <code>{ entityId, xpDrop }</code> |</p><p>---</p><p><h2>Troubleshooting</h2></p><p><h3>Players not leveling up</h3>
+| <code>completeQuest(ctx, playerId)</code> | ctx, string | void | Mark current quest complete, advance |</p><p><h3>Event Triggers</h3></p><p>Server-side bus events (<code>ctx.bus.emit</code> / <code>ctx.bus.on</code>). Handlers receive <code>{ channel, data, meta }</code> with the payload in <code>data</code>, and no client ever sees them.</p><p>| Event | Emitted by | Payload (<code>data</code>) |
+|-------|------------|------------------|
+| <code>player.levelup</code> | rpg-tutorial, on level-up | <code>{ playerId, newLevel, unlockedAbility }</code> |
+| <code>quest.completed</code> | rpg-tutorial, on quest completion | <code>{ playerId, questId, questTitle }</code> |
+| <code>gold-coin-collected</code> | apps/gold-coin, on pickup | <code>{ playerId, coin }</code> |</p><p>Events such as <code>combat.damage</code> or <code>enemy.died</code> exist only if your own apps emit them; the engine emits neither.</p><p>---</p><p><h2>Troubleshooting</h2></p><p><h3>Players not leveling up</h3>
 <ul><li>Check <code>addXp()</code> is called on enemy death</li>
 <li>Verify XP table: <code>BASE_XP_TABLE[level]</code> is set</li>
 <li>Inspect <code>ps.xp</code> value in debugger</li>
@@ -2689,9 +2548,13 @@ console.log('Unlocked:', Object.keys(ps.unlockedAbilities))</code></pre></p><p>-
 <li>Verify <code>questProgress</code> incremented</li>
 </ul>
 <h3>State not persisting</h3>
-<ul><li>Confirm <code>ctx.state.progression</code> saved before shutdown</li>
-<li>Check snapshot sends before disconnect</li>
-<li>Verify server loads saved state on startup</li>
+<ul><li>Keep progression in <code>ctx.state</code>: world persistence saves it, and a hot reload hands the same object to the new <code>setup</code></li>
+<li>Read it through <code>ctx.state</code> at use time. On restart the saved state is swapped in after <code>setup</code>, so a reference cached during <code>setup</code> points at the discarded object.</li>
+</ul>
+<h3>Client never shows progress</h3>
+<ul><li>Push it: <code>ctx.players.send(playerId, { type: 'rpg-progress', ... })</code>. Neither <code>ctx.state</code> nor bus events reach clients.</li>
+<li>Receive it in the client <code>onEvent(payload, engine)</code> hook. The engine object has no <code>on()</code>.</li>
+<li>Pushes sent before the client module loaded are dropped; push periodically or answer a sync request from the client's <code>setup</code></li>
 </ul>
 ---</p><p><h2>Example: Custom Ability Effect</h2></p><p><pre><code class="language-javascript">// Add custom ability that heals nearby allies
 const ABILITIES = {
@@ -2704,14 +2567,12 @@ const ABILITIES = {
     range: 15,
     healAmount: 25
   }
-}</p><p>const resolveAbilityEffect = (ctx, ability, origin, target) =&gt; {
+}</p><p>const resolveAbilityEffect = (ctx, casterId, ability, origin) =&gt; {
   if (ability.id === 'healing-aura') {
-    const nearby = ctx.world.nearby(origin, ability.range)
     ctx.players.getAll().forEach(p =&gt; {
-      const dist = Math.hypot(
-        p.state.position[0] - origin[0],
-        p.state.position[2] - origin[2]
-      )
+      const pos = p.state?.position
+      if (!pos) return
+      const dist = Math.hypot(pos[0] - origin[0], pos[2] - origin[2])
       if (dist &lt; ability.range) {
         p.state.health = Math.min(
           p.state.health + ability.healAmount,
@@ -2721,10 +2582,8 @@ const ABILITIES = {
     })
   }
 }</code></pre></p><p>---</p><p><h2>Example: Boss Encounter Design</h2></p><p><pre><code class="language-javascript">// Final boss requires level 10 to damage
-const castAbility = (ctx, playerId, abilityId, targetPos) =&gt; {
-  const ps = getPlayerState(ctx, playerId)
-  
-  // Find target boss
+const castAbility = (ctx, playerId, abilityId) =&gt; {
+  const ps = getPlayerState(ctx, playerId)</p><p>  // Find target boss
   const bossEntities = ctx.world.query(e =&gt; e.custom?.enemyType === 'final-boss')
   bossEntities.forEach(boss =&gt; {
     // Only damage if player is level 10+
@@ -2736,7 +2595,7 @@ const castAbility = (ctx, playerId, abilityId, targetPos) =&gt; {
       return
     }
     
-    damageEntity(boss, 30)
+    damageEntity(ctx, playerId, boss, 30)
   })
 }</code></pre></p><p>---</p><p><h2>See Also</h2></p><p><ul><li>[Spoint SKILL.md](../SKILL.md) — engine API reference</li>
 <li>[Game FSM guide](../apps/_lib/README.md#game-fsm) — state machine framework</li>
@@ -3680,9 +3539,9 @@ src/index.js                 SDK entry point
 examples/                    integration examples
 tests/                       SDK validation tests</code></pre></p><p><h2>Testing</h2></p><p><pre><code class="language-bash">npm test</code></pre></p><p>Tests validate SDK geometry output, shader compilation, and rendering invariants.</p><p><h2>License</h2></p><p>MIT
 </p></section>
-<section id="section-23"><h2>streaming-gltf — AGENTS.md</h2><p><h1>streaming-gltf — agent notes</h1></p><p>Cluster-LOD glTF renderer. The whole pipeline is cluster-based; the old
-discrete/progressive sibling-LOD format and its bakers are gone (v2.0.0, no
-backwards compatibility).</p><p><h2>Format: EP_cluster_lod (single valid GLB)</h2></p><p><code>tools/bake-cluster.mjs</code> (<code>bakeCluster(inGlb, outGlb)</code>, also <code>npm run bake</code>) turns
+<section id="section-23"><h2>streaming-gltf — AGENTS.md</h2><p><h1>streaming-gltf — agent notes</h1></p><p>Cluster-LOD glTF renderer. Static geometry is cluster-based end to end; the
+discrete/progressive sibling-LOD format survives only for skinned primitives
+(see below). No backwards compatibility with pre-2.0.0 bakes.</p><p><h2>Format: EP_cluster_lod (single valid GLB)</h2></p><p><code>tools/bake-cluster.mjs</code> (<code>bakeCluster(inGlb, outGlb)</code>, also <code>npm run bake</code>) turns
 each unskinned static primitive into:</p><p><ul><li><strong>One unified vertex+index buffer.</strong> <code>MeshoptClusterizer.buildMeshletsSpatial</code></li>
 </ul>  partitions the mesh into spatially coherent meshlets (&lt;=128 tris). For each
   cluster a hierarchy of LODs is produced by UV-aware <code>simplifyWithAttributes</code>
@@ -3699,18 +3558,27 @@ each unskinned static primitive into:</p><p><ul><li><strong>One unified vertex+i
 <ul><li><strong><code>EXT_meshopt_compression</code></strong> applied at write with <code>method: FILTER</code> (lossless,</li>
 </ul>  NO reorder/quantize — reorder would scramble the cluster offset table). The
   baker also strips the now-dead <code>KHR_draco_mesh_compression</code> so stock loaders
-  need no DRACOLoader.</p><p>Skinned / morph-target primitives are left untouched (cluster-LOD is static-only;
-VRM players keep their own path).</p><p><h2>Runtime</h2></p><p><code>src/meshlet-codec.js</code> holds the bake-side <code>buildClusterLod</code>
-+ the browser-safe <code>parseClusterLod</code>/<code>attachClusterLod</code>.</p><p><code>src/cluster-lod-mesh.js</code> <code>ClusterLodMesh</code> (a <code>THREE.Mesh</code>)
+  need no DRACOLoader.
+<ul><li>The baker runs <code>dedup()</code> only: never the <code>meshopt()</code> transform (its <code>reorder()</code></li>
+</ul>  scrambles the cluster offset table) and never <code>prune()</code> (it garbage-collects the
+  coarse accessors, which only extras reference). <code>_fixCoarseIndexEncoding</code> finds
+  each coarse accessor by name after write, appends its indices uncompressed in a
+  new bufferView, and patches its final index into <code>coarseIndexAccessor</code>.</p><p>Skinned / morph-target primitives are not clustered (cluster-LOD is static-only).
+<code>_bakeSkinnedLods</code> writes meshopt-simplified discrete siblings (ratios 0.4, 0.15)
+under <code>&lt;outDir&gt;/lods/</code> and splices <code>extensions.EP_progressive_lod</code> into the root
+JSON chunk, always with <code>textures: []</code> because <code>model-pool.js</code> iterates it; the
+runtime swaps sibling geometry onto the root's skeleton.</p><p><h2>Runtime</h2></p><p><code>src/meshlet-codec.js</code> holds the bake-side <code>buildClusterLod</code>/<code>buildClusterLodExtra</code>
+and the browser-safe <code>parseClusterLod</code>; <code>attachClusterLod</code> lives in
+<code>src/cluster-lod-mesh.js</code>.</p><p><code>src/cluster-lod-mesh.js</code> <code>ClusterLodMesh</code> (a <code>THREE.Mesh</code>)
 holds the unified geometry (LOD0 + coarse concatenated into one element buffer) and
 the parsed cluster set. Its <code>onBeforeRender</code> each frame: frustum-culls clusters by
 bounding sphere, picks a LOD per visible cluster by projected screen size (with
 hysteresis), and declares the chosen index ranges as geometry GROUPS -- three's
 normal pipeline then issues one <code>drawElements</code> per group with the correct VAO/
 attributes (NOT a raw <code>WEBGL_multi_draw</code> call: <code>onBeforeRender</code> fires before three
-binds the VAO, so a manual multi-draw there hit stale buffer state -- see the
-inline comment in <code>_render()</code>). <code>drawRange</code> is left at the full index span so an
-empty group set still falls back to drawing the complete LOD0.</p><p><code>model-pool.js</code> detects <code>EP_cluster_lod</code> at asset load, prepares the cluster
+binds the VAO, so a manual multi-draw there hit stale buffer state). When no
+cluster survives culling, <code>_render()</code> emits one fallback group spanning the full
+LOD0, and the constructor seeds that same group for the first frame.</p><p><code>model-pool.js</code> detects <code>EP_cluster_lod</code> at asset load, prepares the cluster
 geometry once, and each spawned <code>Entity</code> renders a <code>ClusterLodMesh</code> — bypassing
 the discrete-LOD machinery entirely (<code>trackedMeshes</code> stays empty; <code>_update</code> is a
 no-op for cluster entities; the per-cluster LOD self-drives off the camera).</p><p><code>src/occlusion-query-tier.js</code> <code>OcclusionQueryTier</code>
@@ -3727,21 +3595,22 @@ LOD/distance work is skipped while hidden, but it keeps getting re-tested) so
 a moving/disappearing occluder doesn't leave it permanently hidden.</p><p><h2>Bake the corpus</h2></p><p><code>npm run bake:corpus</code> (<code>tools/bake-cluster-corpus.mjs</code>) walks <code>../assets</code>
 <code>manifest.json</code>, bakes each source to <code>../assets/streaming-cluster/&lt;name&gt;.cluster.glb</code>,
 and writes <code>manifest.cluster.json</code>. Run heavy bakes as separate <code>node</code> processes,
-never inline in a long-lived host (large clustering OOMs an in-process worker).</p><p><h2>Test</h2></p><p><code>node test.js</code> (or <code>npm test</code>) is the single real-services witness: it bakes a
-real GLB through <code>bakeCluster</code> and asserts the format invariants via a real
-gltf-transform + meshoptimizer read-back (LOD0-sum == <code>primitive.indices</code>, all
-ranges in-bounds and multiple-of-3, stream tagging, coarse accessor count,
-EXT_meshopt_compression present, no draco). Keep it mock-free and &lt;=200 lines.</p><p>@.gm/next-step.md
+never inline in a long-lived host (large clustering OOMs an in-process worker).
+<code>SPOINT_NO_MESHOPT=1</code> skips the <code>EXT_meshopt_compression</code> write, for isolating
+client-side meshopt decode when on-disk and browser-decoded geometry disagree.</p><p>@.gm/next-step.md
 </p></section>
-<section id="section-24"><h2>streaming-gltf — README</h2><p><h1>Cluster-LOD glTF renderer</h1></p><p>A self-contained three.js renderer for large scenes of distinct glTF/GLB models
-using <strong>UV-aware spatial meshlet clusters</strong>: each model is baked into one valid
+<section id="section-24"><h2>streaming-gltf — README</h2><p><h1>Cluster-LOD glTF renderer</h1></p><p>A three.js renderer for large scenes of distinct glTF/GLB models using
+<strong>UV-aware spatial meshlet clusters</strong>: each static model is baked into one valid
 GLB of spatially coherent clusters, each carrying a hierarchy of UV-aware
 simplified LODs, packed into a single unified buffer. At runtime every visible
-cluster picks a LOD by projected screen size and the whole mesh draws in a single
-<code>WEBGL_multi_draw</code> call. Textures never tear (UV-aware simplification), and stock
-glTF viewers ignore the cluster metadata and render the full-resolution mesh.</p><p>See [AGENTS.md](AGENTS.md) for the format (<code>EP_cluster_lod</code> extras +
-<code>EXT_meshopt_compression</code>) and runtime details.</p><p><h2>Live demo</h2></p><p><strong>https://anentrypoint.github.io/streaming-gltf/</strong> — the stress demo, deployed
-from <code>examples/local-progressive/</code> by <code>.github/workflows/deploy-pages.yml</code>. It
+cluster picks a LOD by projected screen size, and the chosen index ranges become
+geometry groups, which three draws with one <code>drawElements</code> per group. Textures
+never tear (UV-aware simplification), and stock glTF viewers ignore the cluster
+metadata and render the full-resolution mesh.</p><p>See [AGENTS.md](AGENTS.md) for the format (<code>EP_cluster_lod</code> extras +
+<code>EXT_meshopt_compression</code>) and runtime details.</p><p><h2>Live demo</h2></p><p><strong>https://anentrypoint.github.io/streaming-gltf/</strong> — the stress demo from
+<code>examples/local-progressive/</code>, published from the former standalone repo. The
+package now lives in spoint's <code>packages/</code>, which carries no Pages workflow for
+it, so that deploy no longer tracks this source. It
 ships code only: <code>three</code> loads from a CDN (importmap) and the cluster-LOD models
 are streamed <strong>cross-origin</strong> from the assets host
 (<code>https://anentrypoint.github.io/assets/</code>), discovered from its unified
@@ -3749,160 +3618,113 @@ are streamed <strong>cross-origin</strong> from the assets host
 streaming-cluster/&lt;name&gt;.cluster.glb</code>). Override the asset source with
 <code>?assets=&lt;baseUrl&gt;</code>, or <code>?assets=local</code> with the dev server (<code>npm run demo:local</code>,
 which serves the sibling <code>../assets/streaming-cluster</code> corpus under <code>/cluster/</code>).</p><p><h2>SDK usage</h2></p><p><code>streaming-gltf</code> is an importable ES module. <code>three</code> and <code>@pixiv/three-vrm</code> are
-<strong>peer dependencies</strong> — provide them yourself (e.g. via an importmap pointing at
-a CDN build, or your bundler); they are not bundled.</p><p><pre><code class="language-js">import { ModelPool } from 'streaming-gltf';
-// also exported: ClusterLodMesh, attachClusterLod (runtime),
-// buildClusterLod, parseClusterLod, CLUSTER_LOD_EXTRA_KEY (codec).</p><p>const pool = new ModelPool({ scene, renderer, camera });
-const entity = pool.spawn(url, { position: [x, 0, z] }); // url -&gt; a cluster GLB</p><p>// per frame, after advancing the camera (per-cluster LOD + multi-draw self-drive):
-pool.update();</p><p>// sparse position targets — the GPU interpolates each frame:
-pool.setTarget(entity, x, y, z, durationMs);</code></pre></p><p>Bake a source GLB to the cluster-LOD format:</p><p><pre><code class="language-sh">npm run bake -- path/to/source.glb path/to/out.cluster.glb
-npm run bake:corpus            # whole ../assets corpus -&gt; manifest.cluster.json</code></pre></p><p><h2>VRM support</h2></p><p>VRM avatars load through <code>@pixiv/three-vrm</code> v3 (a peer dependency). When a baked
-GLB carries the <code>VRMC_vrm</code> extension, the <code>GLTFLoader</code> is registered with
+<strong>peer dependencies</strong> — provide them yourself (e.g. via an importmap, or your
+bundler); they are not bundled. The importmap must map <code>three</code> and
+<code>three/addons/</code>, because the LOD worker resolves its imports through it.</p><p><pre><code class="language-js">import { ModelPool } from 'streaming-gltf';</p><p>const pool = new ModelPool({ scene, renderer, camera });
+const entity = pool.spawn(url, { position: [x, 0, z] });</p><p>pool.update();
+pool.setTarget(entity, x, y, z, durationMs);</code></pre></p><p>Call <code>pool.update()</code> once per frame after moving the camera; cluster entities
+pick their own LODs in <code>onBeforeRender</code>. <code>setTarget</code> interpolates an entity to a
+position over <code>durationMs</code>. Other exports: <code>ensureSharedKtx2Loader</code> (runtime),
+<code>ClusterLodMesh</code>, <code>attachClusterLod</code> (cluster mesh), and <code>buildClusterLod</code>,
+<code>buildClusterLodExtra</code>, <code>parseClusterLod</code>, <code>CLUSTER_LOD_EXTRA_KEY</code> (codec).
+Subpath exports: <code>streaming-gltf/model-pool</code>, <code>/draco-loader</code>,
+<code>/cluster-lod-mesh</code>, <code>/meshlet-codec</code>, <code>/occlusion-query-tier</code>, <code>/bake</code>.</p><p>Bake a source GLB to the cluster-LOD format:</p><p><pre><code class="language-sh">npm run bake -- path/to/source.glb path/to/out.cluster.glb
+npm run bake:corpus            # whole ../assets corpus -&gt; manifest.cluster.json</code></pre></p><p><h2>VRM support</h2></p><p>VRM avatars load through <code>@pixiv/three-vrm</code> v3 (a peer dependency). When a GLB
+carries the <code>VRMC_vrm</code> extension, the root <code>GLTFLoader</code> is registered with
 <code>VRMLoaderPlugin</code> and the parsed <code>gltf.userData.vrm</code> runtime is driven each frame
 by <code>pool.update()</code> — humanoid bones, spring bones, expressions, and look-at all
-animate. The HUD in the example reports the detected humanoid bone count.</p><p>What works:</p><p><ul><li>Full humanoid / spring-bone / expression / look-at runtime on a VRM avatar.</li>
-<li>Progressive mesh + texture LOD on the avatar's primitives, exactly as for any</li>
-</ul>  other model. Sibling LOD chunks are loaded <strong>without</strong> the VRM plugin
-  (<code>includeVrm: false</code>), so MToon material setup runs once on the root only.
-<ul><li>MToon materials are LOD-swapped safely: texture-LOD application matches strictly</li>
-</ul>  by texture name against the material's existing slots, so it never stamps a
-  foreign bitmap into an MToon slot.</p><p>Multi-driver — every instance animates independently. <code>@pixiv/three-vrm</code> v3
+animate.</p><p>Skinned primitives are not clustered. The baker writes discrete mesh LOD
+siblings for them (ratios 0.4 and 0.15, under <code>lods/</code>, declared in
+<code>EP_progressive_lod</code> with no texture LODs). Siblings load <strong>without</strong> the VRM
+plugin, so MToon material setup runs once on the root only, and the pool swaps
+sibling geometry onto the root's skeleton.</p><p>Multi-driver — every instance animates independently. <code>@pixiv/three-vrm</code> v3
 exposes no skeleton-rebind clone (<code>VRM.prototype</code> is <code>[constructor, update]</code> only;
 there is no <code>vrm.clone()</code> / <code>VRMUtils.clone</code>), and its humanoid/spring-bone/
 expression managers bind the bones of the scene they were parsed against. Rather
 than share one runtime, the pool retains the asset's raw GLB bytes and **re-parses
-an independent VRM per driven entity** — each gets its own scene, its own humanoid/
-spring-bone/expression managers, and is driven independently by <code>vrm.update(dt)</code>.
-N pooled instances of one VRM all animate (distinct spring physics, distinct
-expressions); none freeze in bind pose. Per-instance parses are concurrency-bounded
-(heavy work) and queue when the limit is reached. This mirrors how a multiplayer
-host parses one VRM per player.</p><p><code>entity.dispose()</code> runs <code>VRMUtils.deepDispose()</code> on that entity's own VRM scene,
+an independent VRM per driven entity** — each gets its own scene and managers and
+is driven by <code>vrm.update(dt)</code>. At most 4 parses run at once; the rest queue.
+<code>examples/local-progressive/vrm-multidriver-witness.html</code> checks two instances.</p><p><code>entity.dispose()</code> runs <code>VRMUtils.deepDispose()</code> on that entity's own VRM scene,
 freeing its spring/collider/expression GPU resources without touching siblings.
-<code>pool.dispose()</code> tears the pool down (every entity, then every asset).</p><p><h2>Geometry decoding (Draco + meshopt)</h2></p><p>Baked GLBs are compressed with both meshopt and Draco
-(<code>KHR_draco_mesh_compression</code>). meshopt decodes via three's
-<code>MeshoptDecoder</code>. Draco decodes via <strong>[draco.js](https://github.com/mrdoob/draco.js)</strong>,
+<code>pool.dispose()</code> tears the pool down (every entity, then every asset).</p><p><h2>Geometry decoding (meshopt + Draco)</h2></p><p>Baked GLBs use <code>EXT_meshopt_compression</code>; the baker strips
+<code>KHR_draco_mesh_compression</code>. meshopt decodes via three's <code>MeshoptDecoder</code>.
+Unbaked Draco sources decode via <strong>[draco.js](https://github.com/mrdoob/draco.js)</strong>,
 mrdoob's pure-JavaScript port of the Draco decoder, vendored at
-<code>src/draco-loader.js</code> as a drop-in for three's own
-<code>DRACOLoader</code>.</p><p>This replaces the WASM Draco decoder. The win is deployment simplicity: no
-<code>.wasm</code> fetch and no runtime CDN — the previous setup pulled the decoder from
-<code>https://www.gstatic.com/draco/versioned/decoders/...</code> on first decode, a
-third-party runtime dependency with cross-origin/CSP exposure. draco.js is one
-~24 KB-gzipped ES module that ships with the page. It is decode-only (the
-bake-time encoder in <code>tools/bake-progressive.mjs</code> still uses the <code>draco3dgltf</code>
-WASM module, which is a dev-time Node dependency, not shipped to the browser),
-and implements the EdgeBreaker triangle-mesh path that glTF/Draco content uses.
-WASM is faster in absolute terms (~1.4-1.6x on large meshes) but the decode is
-byte-for-byte equivalent.</p><p>The LOD web worker (<code>lod-worker.js</code>) loads the same vendored module, rewriting
-its bare <code>three</code> import to the esm.sh URL the worker already uses, so
-Draco+meshopt sibling LODs decode off-thread too. Decoder logic is a port of
-Google Draco (Apache-2.0); the loader API mirrors three.js's <code>DRACOLoader</code> (MIT).</p><p><h2>Textures (single GPU-compressed KTX2)</h2></p><p>Each texture is baked to <strong>one</strong> mipmapped <strong>KTX2 (Basis Universal)</strong> file
-(<code>KHR_texture_basisu</code>) -- no per-size webp ladder. Color maps use <strong>ETC1S</strong>
-(sRGB, smallest), normal/ORM maps use <strong>UASTC</strong> (linear; ETC1S wrecks normals).
-At runtime a <code>KTX2Loader</code> (transcoder vendored at
-<code>examples/local-progressive/basis/</code>, served locally) transcodes it to a
-<strong>GPU-compressed</strong> texture for the device (BC7/BCn on desktop, ASTC/ETC2 on
-mobile) -- witnessed <code>isCompressedTexture</code> with a 10-level mip chain. The GPU mip
-chain handles distance LOD, so <strong>texture streaming is eliminated</strong>: progressive
-streaming is now geometry/vertex-only. Far entities render vertex-colored
-geometry (baked to match the texture); the single KTX2 arrives with the root GLB
-for the near/textured view -- vertices first, then texture.</p><p>Downscaled to <code>BAKE_TEX_SIZE</code> (default 1024; set e.g. <code>512</code> to compress harder)
-before encoding. <code>KHR_texture_basisu</code> is a standard Khronos extension, so any
-loader with a KTX2 transcoder (three, Babylon, model-viewer) opens it; it is
-declared required (KTX2 carries no fallback image), but the untextured
-geometry+vertex-color far path covers loaders without it. Encoded with
-<strong>ktx2-encoder</strong> (Basis); the transcoder is three.js's vendored Binomial Basis
-wasm (Apache-2.0).</p><p><h2>Layout</h2></p><p><ul><li><code>examples/local-progressive/</code> — the renderer (latest). Entry: <code>stress.html</code> →</li>
-</ul>  <code>stress.js</code> → <code>model-pool.js</code> (+ <code>draw-call-batching.js</code>, <code>batched-far-tier.js</code>,
-  <code>material-pool.js</code>, <code>deferred-load-queue.js</code>, <code>lod-unload-manager.js</code>,
-  <code>frustum-cache.js</code>, <code>multi-draw-optimizer.js</code> / <code>multi-draw-utils.js</code>,
-  <code>vertex-compression.js</code>, <code>draw-call-sorter.js</code>, <code>buffer-pool.js</code>,
-  <code>lod-worker.js</code>, <code>octahedral-impostor-ez.js</code> / <code>octahedral-impostor-ez-tier.js</code>).
-  <code>serve.mjs</code> is the dev server; <code>measure-fps.mjs</code> the steady-state FPS harness.
-<ul><li><code>tools/</code> — the conversion + download pipeline:</li>
-</ul>  - <code>bake-progressive.mjs</code> — convert one source GLB into a progressive GLB
-    (meshopt decimation + sharp texture resizing + a <code>EP_progressive_lod</code>
-    extension referencing sibling LOD files).
-  - <code>bake-all.mjs</code> — batch-bake every model under a source dir.
-  - <code>bake-streaming.mjs</code> — download + bake for the streaming workflow.
-<ul><li><code>models/</code> — source models fed to the bake tools.</li>
+<code>src/draco-loader.js</code> as a drop-in for three's own <code>DRACOLoader</code>: no <code>.wasm</code>
+fetch and no runtime CDN. It is decode-only (the baker reads Draco sources with
+the <code>draco3dgltf</code> Node module, a dev-time dependency not shipped to the browser).</p><p>The LOD web worker (<code>lod-worker.js</code>) is a module worker that imports the page's
+own three build: <code>ModelPool</code> resolves <code>three</code>, <code>GLTFLoader</code>, the meshopt decoder
+and this vendored Draco module through the page importmap (<code>import.meta.resolve</code>)
+and passes those URLs as worker query params, and <code>worker-module-remap.js</code>
+rewrites their bare <code>three</code> imports (module workers do not inherit the
+importmap). No CDN is contacted, so Draco+meshopt sibling LODs decode off-thread
+against the same three revision as the page. The worker registers a
+geometry-only GLTFLoader plugin, so it never decodes textures (KTX2 included)
+it would discard anyway. Decoder logic is a port of
+Google Draco (Apache-2.0); the loader API mirrors three.js's <code>DRACOLoader</code> (MIT).</p><p><h2>Textures</h2></p><p>The baker leaves textures as they are in the source, apart from dropping texture
+entries that have no image. At runtime, a <code>ModelPool</code> constructed with a
+<code>renderer</code> installs one shared <code>KTX2Loader</code> (Basis transcoder vendored in
+<code>src/basis/</code>, mip count capped per device tier by <code>ktx2-mip-cap.js</code>), so
+<code>KHR_texture_basisu</code> textures transcode to GPU-compressed formats.
+<code>ensureSharedKtx2Loader(renderer)</code> returns that loader for other loaders to reuse.</p><p><h2>Layout</h2></p><p><ul><li><code>index.js</code> — package entry (the exports above).</li>
+<li><code>src/</code> — runtime: <code>model-pool.js</code> (<code>ModelPool</code>), <code>cluster-lod-mesh.js</code>,</li>
+</ul>  <code>meshlet-codec.js</code>, <code>degenerate-triangles.js</code>, <code>cluster-material-merge.js</code>,
+  <code>texture-array-atlas.js</code>, <code>material-bucket-batcher.js</code>, <code>batched-far-tier.js</code>,
+  <code>occlusion-query-tier.js</code>, <code>hzb-tier.js</code>, <code>webgpu-hiz-tier.js</code>,
+  <code>octahedral-impostor-ez*.js</code>, the LOD worker (<code>lod-worker.js</code>,
+  <code>worker-module-remap.js</code>, <code>grid-decimate.js</code>), <code>draco-loader.js</code>, <code>basis/</code>, and
+  loading/budget helpers (<code>deferred-load-queue.js</code>, <code>lod-unload-manager.js</code>,
+  <code>frustum-cache.js</code>, <code>material-*.js</code>, <code>ktx2-mip-cap.js</code>).
+<ul><li><code>tools/</code> — <code>bake-cluster.mjs</code> (bake one GLB), <code>bake-cluster-corpus.mjs</code> (bake</li>
+</ul>  the <code>../assets</code> corpus), <code>spatial-split.mjs</code> (split a large GLB into an X/Z tile
+  grid and cluster-bake each tile, writing <code>&lt;name&gt;.tiles.json</code>),
+  <code>validate-extension.mjs</code> (<code>EP_progressive_lod</code> conformance check).
+<ul><li><code>examples/local-progressive/</code> — <code>stress.html</code> → <code>stress.js</code> (the stress demo,</li>
+</ul>  with <code>draw-call-batching.js</code> / <code>multi-draw-*.js</code>), <code>serve.mjs</code> (dev server),
+  <code>measure-fps.mjs</code> and <code>gpu-lerp-check.mjs</code> (headless harnesses), and single-
+  feature witness pages (<code>cluster-lod-test.html</code>, <code>model-pool-cluster-test.html</code>,
+  <code>vrm-multidriver-witness.html</code>, <code>webgpu-*.html</code>).
+<ul><li><code>extensions/EP_progressive_lod/</code> — spec and JSON Schema.</li>
 </ul>
-<h2>Usage</h2></p><p>Install deps once:</p><p><pre><code class="language-">npm install</code></pre></p><p>Convert source models into the progressive format the renderer loads
-(<code>examples/local-progressive/output_&lt;name&gt;/</code>):</p><p><pre><code class="language-">npm run bake:local -- models/&lt;model&gt;.glb examples/local-progressive/output_&lt;name&gt;
-<h1>or batch every model under a directory:</h1>
-npm run bake:all -- models</code></pre></p><p>Run the renderer (serves the stress demo at <code>/</code>):</p><p><pre><code class="language-">npm run demo:local
-<h1>open http://127.0.0.1:5180/</code></pre></h1></p><p>Measure steady-state FPS (hardware GPU via system Chrome):</p><p><pre><code class="language-">CHANNEL=chrome npm run measure -- 500</code></pre></p><p><h2>glTF extension: <code>EP_progressive_lod</code></h2></p><p>The bake pipeline emits a glTF extension, <strong><code>EP_progressive_lod</code></strong>, that
-declares the progressive LOD ladder (per-mesh and per-texture) the renderer
-consumes. The base glTF always carries the <em>coarsest</em> LOD, and the extension is
-declared in <code>extensionsUsed</code> — never <code>extensionsRequired</code> — so a viewer that
-does not implement it simply renders that coarse base and ignores the rest. Two
-storage modes are covered by one extension, discriminated by a <code>storage</code> field:
-<code>sibling-file</code> (higher LODs in sibling files, <code>bake-progressive.mjs</code>) and
-<code>single-glb-range</code> (all LODs packed as <code>bufferView</code> byte ranges in one GLB,
-range-fetched on demand, <code>bake-streaming.mjs</code>).</p><p><h3>Progressive (&quot;.plod-style&quot;) load on a regular glTF</h3></p><p><code>single-glb-range</code> is baked <strong>coarse-first</strong>: the base LOD (coarsest geometry +
-smallest textures) is packed immediately after the JSON chunk, and the default
-primitives/images reference it. So the one <code>model.streaming.glb</code> is a **valid
-glTF any loader opens** (it renders the coarse base; <code>EP_progressive_lod</code> is
-<code>extensionsUsed</code>, never required), AND a byte-prefix is the renderable base — a
-client can **HTTP-Range-fetch the prefix to show coarse, then range-fetch finer
-LODs as they arrive**, the progressive behaviour of a custom <code>.plod</code> stream but
-on a standard file. <code>examples/local-progressive/plod-gltf-stream.js</code> is the
-range consumer (<code>loadStreamingHeader</code> -&gt; <code>streamMeshLods</code> coarse-&gt;fine); the dev
-server (<code>serve.mjs</code>) supports HTTP Range. Witnessed: the coarse base builds from
-~58 KB of a 362 KB file (6 range requests) without downloading the whole model.</p><p>Size note: <code>single-glb-range</code> packs LOD attributes <strong>uncompressed</strong> (so each
-bufferView is a clean range to fetch), which is larger than the draco/meshopt
-<code>sibling-file</code> format. When download size matters more than single-file
-range-streaming, prefer <code>sibling-file</code> (the default), which also loads
-coarse-first and progressively. <code>single-glb-range</code> could adopt per-bufferView
-<code>EXT_meshopt_compression</code> to remove that size delta.</p><p><ul><li>Spec + JSON Schema: [<code>extensions/EP_progressive_lod/</code>](extensions/EP_progressive_lod/README.md)</li>
+<h2>Usage</h2></p><p><pre><code class="language-">npm install
+npm run demo:local                # http://127.0.0.1:5180/
+CHANNEL=chrome npm run measure -- 500 1000   # steady-state FPS per entity count</code></pre></p><p><h2>glTF extension: <code>EP_progressive_lod</code></h2></p><p>The baker emits <strong><code>EP_progressive_lod</code></strong> only for skinned primitives: it
+declares their discrete mesh LOD siblings (<code>storage: &quot;sibling-file&quot;</code>,
+<code>textures: []</code>). It is listed in <code>extensionsUsed</code>, never <code>extensionsRequired</code>, so
+a viewer that ignores it renders the full-resolution base. The runtime reads it,
+or the pre-rename <code>extras.LOCAL_progressive</code> payload. The spec and
+<code>validate-extension.mjs</code> also define a <code>single-glb-range</code> storage mode, but
+nothing in this package bakes or streams it any more.</p><p><ul><li>Spec + JSON Schema: [<code>extensions/EP_progressive_lod/</code>](extensions/EP_progressive_lod/README.md)</li>
 <li>Conformance check: <code>node tools/validate-extension.mjs &lt;model.glb&gt;</code></li>
 </ul>
 <strong>Registration status:</strong> the <code>EP</code> vendor prefix is <em>not yet registered</em> with
 the Khronos glTF extension registry; the name is provisional until a
 registration PR to [KhronosGroup/glTF](https://github.com/KhronosGroup/glTF)
-lands. Assets baked before the rename (payload under <code>extras.LOCAL_progressive</code>)
-are still read by the runtime via a compatibility fallback.</p><p><h2>Octahedral impostors (final LOD)</h2></p><p>Opt-in (<code>ModelPool</code> option <code>useImpostorFinalLod</code>, or the demo's <code>?impostor=1</code>).
-Past the vertex-color <code>BatchedMesh</code> far tier, a model below <code>impostorPx</code> (default
-14) screen pixels collapses to a single camera-facing billboard rendering <strong>lit</strong>
-impostors (<code>octahedral-impostor-ez-tier.js</code>): the on-the-fly atlas is a 2-target
-render (albedo + packed normal/depth) per asset, so the billboard receives scene
-lighting (a real <code>MeshStandardMaterial</code>) and blends the three nearest captured
-views with per-sprite plane-projected UVs. It bakes a 1024 atlas (handles
-~1M-triangle source models) incrementally, capped by <code>impostorMaxAssets</code> (default
-64). Each impostor'd asset gets its own <code>InstancedMesh</code>, so the far population
-draws in <strong>N draw calls for N distinct assets</strong> — not this renderer's bottleneck
-(triangle/fill is), and N is small at the farthest LOD. The impostor
-sampling/baking code is localized from
+lands.</p><p><h2>Octahedral impostors (final LOD)</h2></p><p>Opt-in (<code>ModelPool</code> option <code>useImpostorFinalLod</code>, or the demo's <code>?impostor=1</code>).
+Past the <code>BatchedMesh</code> far tier, a model below <code>impostorPx</code> (default 14) screen
+pixels collapses to a camera-facing billboard rendering <strong>lit</strong> impostors
+(<code>octahedral-impostor-ez-tier.js</code>): the atlas is a 2-target render (albedo +
+packed normal/depth) per asset, so the billboard receives scene lighting (a
+<code>MeshStandardMaterial</code>-based material) and blends the three nearest captured
+views. The atlas is 1024 px by default (<code>impostorTextureSize</code>), and at most
+<code>impostorMaxAssets</code> (default 64) assets get one. Each impostor'd asset gets its
+own <code>InstancedMesh</code>, so the far population draws in **N draw calls for N
+distinct assets**. The sampling/baking code is localized from
 [@three.ez/octahedron-imposter](https://github.com/agargaro/octahedral-impostor)
-(<code>octahedral-impostor-ez.js</code>).</p><p>The atlas is rendered <strong>on the fly</strong> in-browser the first time an asset reaches
-impostor distance — no bake step, no extra download. To avoid frame stalls, the
-bake is <strong>incremental</strong>: <code>impostorCellBudget</code> octahedral cells (default 4) are
-rendered per frame and the atlas accumulates over a few frames; each asset's
-render targets are eager-allocated at first bake so per-frame VRAM allocation is
-off the swap path. The budget is <strong>headroom-gated</strong> (like the LOD warm loader) —
-doubled when FPS sits above target so coverage converges faster, halved under
-target so baking never deepens a frame deficit.</p><p>An opt-in dithered mesh&lt;-&gt;impostor crossfade (<code>impostorFade</code>, <code>impostorFadeBandPx</code>)
-ramps the impostor's opacity in via a screen-space interleaved-gradient-noise
-discard as it acquires, so the LOD swap is a soft crossfade instead of a hard cut.</p><p><strong>History:</strong> a sibling unlit <code>sampler2DArray</code>-atlas tier
-(<code>octahedral-impostor.js</code> / <code>octahedral-impostor-tier.js</code>, 1 draw for ALL
-assets vs the lit tier's N-draws-for-N-assets) existed alongside this one,
-selected via a <code>useImpostorEz:false</code> opt-out. It was deleted (see
-<code>draw-call-audit-impostor-array-tier-deprecation-decision</code> in the spoint repo's
-PRD history) after an audit found it unreachable on every real serving path —
-the sole real <code>ModelPool</code> consumer hardcoded the lit variant, and no
-low-tier-device gating was ever wired to reach the unlit fallback. If
-N-draws-for-N-assets ever becomes a real bottleneck, the deleted tier's
-single-draw-via-array-texture idea is the concrete approach to fold back in as
-an opt-in mode on this tier, rather than reviving unlit dead code.</p><p><h2>Changelog</h2></p><p>See [CHANGELOG.md](CHANGELOG.md) for release notes per version.</p><p><h2>Notes</h2></p><p><ul><li>The renderer is draw-call-bound at scale; the FAR tier collapses many distinct</li>
-</ul>  models into a single <code>THREE.BatchedMesh</code> draw and the FPS controller adjusts
-  LOD <em>distance</em> (not a global ceiling) to hold the target frame rate.
-<ul><li>Baked <code>output_*/</code> assets are git-ignored (regenerate with the bake tools).</li>
+(<code>octahedral-impostor-ez.js</code>).</p><p>The atlas is rendered <strong>on the fly</strong> the first time an asset reaches impostor
+distance — no bake step, no extra download. The bake is <strong>incremental</strong>:
+<code>impostorCellBudget</code> octahedral cells (default 4) per frame, doubled when FPS is
+more than 10 above <code>targetFps</code> and halved below it. An opt-in dithered
+mesh&lt;-&gt;impostor crossfade (<code>impostorFade</code>, <code>impostorFadeBandPx</code>, default 6)
+replaces the hard cut.</p><p><h2>Changelog</h2></p><p>See [CHANGELOG.md](CHANGELOG.md) for release notes per version.</p><p><h2>Notes</h2></p><p><ul><li>The renderer is draw-call-bound at scale. The far tier collapses many distinct</li>
+</ul>  models into one <code>THREE.BatchedMesh</code> draw, and the FPS controller scales LOD
+  distance (<code>_lodDistanceScale</code>) to hold <code>targetFps</code> (default 50).
+<ul><li>Baked <code>examples/local-progressive/output_*/</code> assets are git-ignored.</li>
 </ul>
 <h2>Credits</h2></p><p><ul><li><strong>[@three.ez/octahedron-imposter](https://github.com/agargaro/octahedral-impostor)</strong></li>
 </ul>  by Andrea Gargaro (MIT) — the lit octahedral impostor (atlas capture + sampling
   shaders) is localized into <code>src/octahedral-impostor-ez.js</code>
-  (TS ported to JS, GLSL inlined, full-octahedron encode/decode completed). The
-  related <code>@three.ez/batched-mesh-extensions</code> was evaluated but not vendored: its
-  draw/cull wins are non-binding here (the far tier already draws in one call).
+  (TS ported to JS, GLSL inlined, full-octahedron encode/decode completed).
 <ul><li><strong>[draco.js](https://github.com/mrdoob/draco.js)</strong> by mrdoob (Apache-2.0) —</li>
 </ul>  vendored pure-JS Draco decoder (<code>draco-loader.js</code>).
 </p></section>
