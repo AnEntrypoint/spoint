@@ -188,8 +188,8 @@ export async function initMapspinnerRender(gl, opts = {}) {
   const probeVao = gl.createVertexArray();
   let _probePbo = null, _probeSync = null, _probeLastM = null;
   const _probeOut = new Float32Array(1);
-  function _issueProbeDraw(dir){
-    if (!_probePbo) { _probePbo = gl.createBuffer(); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, _probePbo); gl.bufferData(gl.PIXEL_PACK_BUFFER, 4, gl.STREAM_READ); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); }
+  const _probeSyncOut = new Float32Array(1);
+  function _drawProbeIntoFbo(dir){
     const pl = Math.hypot(dir[0],dir[1],dir[2])||1;
     gl.bindFramebuffer(gl.FRAMEBUFFER, probeFbo);
     gl.viewport(0,0,1,1);
@@ -201,11 +201,18 @@ export async function initMapspinnerRender(gl, opts = {}) {
     gl.uniform3f(PU('probeDir'), dir[0]/pl, dir[1]/pl, dir[2]/pl);
     gl.disable(gl.DEPTH_TEST);
     gl.drawArrays(gl.POINTS, 0, 1);
+  }
+  function _releaseProbeFbo(){
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.bindVertexArray(null);
+  }
+  function _issueProbeDraw(dir){
+    if (!_probePbo) { _probePbo = gl.createBuffer(); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, _probePbo); gl.bufferData(gl.PIXEL_PACK_BUFFER, 4, gl.STREAM_READ); gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); }
+    _drawProbeIntoFbo(dir);
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, _probePbo);
     gl.readPixels(0,0,1,1, gl.RED, gl.FLOAT, 0);
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.bindVertexArray(null);
+    _releaseProbeFbo();
   }
   function _readProbePbo(){
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, _probePbo);
@@ -228,10 +235,11 @@ export async function initMapspinnerRender(gl, opts = {}) {
   }
   function sampleGroundMSync(dir) {
     if (!probeProg) { ensureProbe(); return null; }
-    if (_probeSync) { gl.deleteSync(_probeSync); _probeSync = null; }
-    _issueProbeDraw(dir);
-    _readProbePbo();
-    return _probeLastM;
+    _drawProbeIntoFbo(dir);
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    gl.readPixels(0,0,1,1, gl.RED, gl.FLOAT, _probeSyncOut);
+    _releaseProbeFbo();
+    return _probeSyncOut[0];
   }
 
   const THC_BAKE_RES = 130;
@@ -1728,17 +1736,23 @@ export async function initMapspinnerRender(gl, opts = {}) {
         } catch (e) { window.__vdrsColorProbe = { error: String(e) }; }
       }
       const _fsr1 = (typeof window !== 'undefined' && window.__vdrsUpscaleFsr1 === true);
-      let _wroteDepth;
+      let _wroteDepth, _skyInSceneFbo = false;
       if (!_fsr1 && _wantDepthWriteback()) {
         _wroteDepth = passUpscaleAndDepthWriteback();
         if (typeof window !== 'undefined' && window.__passProbe === true) { _passProbeSnap('after-upscale-canvas', null, 0, 0); (window.__passProbeLog = window.__passProbeLog || []).push('writeback ran=' + _wroteDepth + ' (merged)'); _passProbeSnap('after-writeback-canvas', null, 0, 0); }
       } else {
+        _skyInSceneFbo = !_wantDepthWriteback();
+        if (_skyInSceneFbo) {
+          gl.bindFramebuffer(gl.FRAMEBUFFER, _vdrsFbo);
+          gl.viewport(0, 0, Math.max(1, Math.round(_vW*_vrs)), Math.max(1, Math.round(_vH*_vrs)));
+          drawSky(true);
+        }
         passUpscaleToCanvas();
         if (typeof window !== 'undefined' && window.__passProbe === true) _passProbeSnap('after-upscale-canvas', null, 0, 0);
         _wroteDepth = passPlanetDepthWriteback();
         if (typeof window !== 'undefined' && window.__passProbe === true) { (window.__passProbeLog = window.__passProbeLog || []).push('writeback ran=' + _wroteDepth); _passProbeSnap('after-writeback-canvas', null, 0, 0); }
       }
-      drawSky(_wroteDepth);
+      if (!_skyInSceneFbo) drawSky(_wroteDepth);
       if (typeof window !== 'undefined' && window.__passProbe === true) {
         _passProbeSnap('after-drawSky-canvas', null, 0, 0);
         if ((window.__passProbeFrames || []).length >= 4 && window.__passProbeOneShot !== false) window.__passProbe = false;
