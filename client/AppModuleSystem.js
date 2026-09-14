@@ -4,13 +4,6 @@ export function createAppModuleSystem(client, uiRoot) {
   const appModules = new Map()
   let _appModuleList = []
   const _trustedApps = new Set()
-  // renderAppUI diffs into a dedicated child of uiRoot, not uiRoot itself: applyDiff(uiRoot, hudVdom)
-  // used to treat uiRoot as its OWN exclusively-owned tree, so any per-tick diff pass silently evicted
-  // sibling nodes appended imperatively by other HUD widgets (client/hud/Chat.js's .ch-card,
-  // client/hud/VoiceIndicator.js's .vi-card, PeerHostUI's room-code card, ...) the instant the app-HUD
-  // rendered any UI -- live-witnessed both cards detached from the DOM (isConnected:false) within one
-  // renderAppUI cycle after mount. A stable dedicated container keeps this diff scoped to only the
-  // app-rendered fragment tree, leaving uiRoot's other children alone.
   const _appHudContainer = document.createElement('div')
   uiRoot.appendChild(_appHudContainer)
   function _ctxFor(appName, engineCtx) {
@@ -20,11 +13,6 @@ export function createAppModuleSystem(client, uiRoot) {
     return engineCtx
   }
 
-  // Rewrites relative AND root-absolute imports in app code to blob URLs since app code has no base
-  // URL to resolve against. Root-absolute ('/spoint/src/...') specifiers show up here because the
-  // gh-pages deploy's path-patch step absolutizes deep relative '../../src/...' imports in apps/**/*.js
-  // at build time (see .github/workflows/gh-pages.yml "Patch paths for gh-pages") -- a shipped app's
-  // source can carry either form depending on how many directories deep it lives.
   async function _resolveDepsToBlobs(source, baseUrl, revokes, seen = new Map()) {
     const re = /((?:from|import)\s*)(['"])(\.[^'"]+|\/[^'"]+)\2/g
     const specs = new Set()
@@ -51,7 +39,6 @@ export function createAppModuleSystem(client, uiRoot) {
   async function evaluateAppModule(code, appName) {
     const revokes = []
     try {
-      // Must resolve via import.meta.url, not a root-absolute path: 404s under a base-pathed host (gh-pages).
       const baseUrl = new URL(`./apps/${appName}/index.js`, import.meta.url).href
       const rewritten = code.includes('.') ? await _resolveDepsToBlobs(code, baseUrl, revokes) : code
       const url = URL.createObjectURL(new Blob([rewritten], { type: 'text/javascript' }))
@@ -101,13 +88,6 @@ export function createAppModuleSystem(client, uiRoot) {
     return null
   }
 
-  // PER-PLAYER HUD/UI: render() runs CLIENT-side, once per connected client, and renderCtx.playerId is THAT
-  // client's own id (proven live: playerId=1 on a real singleplayer client). So a per-player HUD is already
-  // first-class -- an app renders different UI per viewer by branching on renderCtx.playerId. For a server-driven
-  // per-player value (your score, your turn, your team), the server pushes it to ONE player with
-  // ctx.players.send(playerId, {hud:...}) (AppRuntime.sendToPlayer -> that client's onEvent), the client app
-  // stashes it keyed by playerId in onEvent, and render() reads it back via renderCtx.playerId. No global-only
-  // constraint exists; the single-template appearance is only because most apps don't branch on playerId yet.
   function renderAppUI(state, engineCtx, scene, camera, renderer, fpsDisplay, runtimeStatsUI = null) {
     const c = engineCtx.client; if (!c) return
     const uiFragments = []
@@ -127,9 +107,6 @@ export function createAppModuleSystem(client, uiRoot) {
     const hudVdom = createElement('div', { id: 'hud' },
       runtimeStatsUI ? null : createElement('div', { id: 'info' }, `FPS: ${fpsDisplay} | Players: ${state.players.length} | Tick: ${c.currentTick} | RTT: ${Math.round(c.getRTT())}ms | Buf: ${c.getBufferHealth()}`),
       runtimeStatsUI,
-      // pointer-events:auto so an app's rendered UI (buttons, cards, forms) is clickable out of the box
-      // -- the #hud overlay is pointer-events:none to let clicks reach the game, and previously every
-      // interactive app fragment had to re-opt-in manually. Apps can still set pointer-events:none inside.
       ...uiFragments.map(f => createElement('div', { 'data-app': f.id, style: 'pointer-events:auto' }, f.ui)),
       ...(interactPrompt ? [interactPrompt] : [])
     )

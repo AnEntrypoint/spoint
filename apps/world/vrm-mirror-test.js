@@ -1,24 +1,9 @@
-// VRM mirror-test scene (animation-vrm-spring-bone-lod-expression-wire). Boot with:
-//   WORLD=vrm-mirror-test node server.js
-// Purpose-built harness for live-witnessing (a) spring-bone LOD distance gating (window.__springBoneLodStats
-// on the local client, plus a manual page.evaluate reposition of the remote-mirror avatar to cross the
-// springBoneLodDist threshold) and (b) compact viseme/emote expression wire-code sync (drive the LOCAL
-// player's expressionManager, e.g. window.__app.pm.setVRMExpression(window.__app.client.playerId,'happy',1),
-// and read the SAME expression back off the REMOTE-rendered "mirror" avatar's own expressionManager to
-// confirm the code round-tripped through the real server wire, not just a local mirror-object reference).
-//
-// No terrain (fast, deterministic boot -- this is a pure client/server VRM+netcode harness, not a
-// rendering/terrain test), just a flat static ground box under the two players' feet so a real
-// multiplayer session (2 real connected clients) can stand and look at each other without falling
-// through. spawnPoint is a fixed "mirror stand" position; a second real browser session connecting to
-// this same world (or a synthetic remote-mesh injected via pm.createPlayerVRM in a single session, for
-// a one-tab live witness) becomes the "reflection" a few metres away, facing back.
 export default {
   port: 3097,
   tickRate: 64,
   entityTickRate: 15,
   gravity: [0, -18.0, 0],
-  relevanceRadius: 0,   // unbounded: both mirror-test participants must always see each other regardless of distance experiments
+  relevanceRadius: 0,
   physicsRadius: 30,
   physicsBodyBudget: 64,
   movement: {
@@ -46,7 +31,6 @@ export default {
   trustedApps: [],
   placeableApps: ['box-static'],
   entities: [
-    // Flat 60x60 ground plane (thin box) centered at the spawn stand.
     { id: 'mirror-ground', app: 'box-static', position: [0, -0.5, 0], config: { hx: 30, hy: 0.5, hz: 30, color: '#666677' } }
   ],
   spawnPoint: [0, 1, 0],

@@ -1,4 +1,3 @@
-// TEMPORARY throwaway world for bug-otb-ball-sync-rootcause live investigation.
 export default {
   spawnPoint: [0, 2, 5],
   gravity: [0, -9.81, 0],

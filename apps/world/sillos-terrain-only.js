@@ -1,7 +1,3 @@
-// Isolation harness step 2: sillos + terrain (mapspinner raw-GL draws), still NO vegetation/rocks
-// and no other entities -- tests whether terrain's presence alone (its own raw gl.bindBuffer/
-// drawElements calls competing with THREE's element-buffer state) is what triggers the sillos
-// GL error, isolating it from vegetation/InstancedMesh2 as a separate variable.
 const TERRAIN = {
   enabled: true,
   anchorDir: [-0.641, 0.2558, 0.7237],
@@ -13,7 +9,6 @@ const TERRAIN = {
   bakedHeightfield: '/apps/world/tps-game.hf',
   physics: { extent: 256, resolution: 2 },
   seed: 1337,
-  // vegetation intentionally omitted/disabled -- terrain-only isolation step.
 }
 
 export default {

@@ -1,10 +1,3 @@
-// Mesh-build/rewrite helpers for EntityLoader.js's createEntityLoader: softbody-cloth particle-grid
-// geometry, the freddie-bridge label sprite, and SPH-fluid droplet/surface render paths. Split out as
-// EntityLoader.js's largest self-contained block -- each function here only touches its own
-// module-scoped caches (_softbodyIndexCache, _fluidSurfaceSamples/_fluidSurfaceTotalMs) or explicit
-// params, never createEntityLoader's own closure state. Entity-id-keyed caches (_labelSprites,
-// _urlLoads) stay in EntityLoader.js since createEntityLoader itself reads/writes them directly.
-
 import * as THREE from 'three'
 import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 import { buildFluidSurfaceMesh } from './core/FluidSurface.js'
@@ -15,7 +8,6 @@ const MESH_BUILDERS = {
   box: (c) => new THREE.BoxGeometry(c.sx || 1, c.sy || 1, c.sz || 1),
   cylinder: (c) => new THREE.CylinderGeometry(c.r || 0.4, c.r || 0.4, c.h || 0.1, c.seg || 16),
   sphere: (c) => new THREE.SphereGeometry(c.r || 0.5, c.seg || 16, c.seg || 16),
-  // Must match AppPhysics.addColliderFromConfig's capsule defaults (r 0.3, h 1.8).
   capsule: (c) => new THREE.CapsuleGeometry(c.r || 0.3, c.h || 1.8, c.cap || 4, c.seg || 16)
 }
 const LOD_CONFIGS = { vrm: { far: 40, skipBeyond: 80 }, box: { far: 45, skipBeyond: 90 }, sphere: { far: 50, skipBeyond: 100 }, cylinder: { far: 50, skipBeyond: 100 }, capsule: { far: 50, skipBeyond: 100 }, default: { far: 60, skipBeyond: 120 } }
@@ -29,13 +21,7 @@ function _forceDoubleSide(obj) {
     for (const m of mats) { if (m && m.side !== THREE.DoubleSide) { m.side = THREE.DoubleSide; m.needsUpdate = true } }
   })
 }
-// Soft-body cloth render path (softbody-cloth-client-render-buffergeometry-vertex-path): builds the
-// static, once-per-entity parts of a cols*rows particle-grid mesh -- a plain quad-per-cell triangulation
-// ((cols-1)*(rows-1)*6 indices) and UVs -- shared by every particle-grid entity of the same cols/rows
-// (the index/UV buffers depend only on grid topology, never on the live particle positions), so a fresh
-// BufferGeometry per entity still reuses a cached index/UV pair keyed by "cols,rows" instead of
-// recomputing it on every softbody-bearing entity spawn.
-const _softbodyIndexCache = new Map() // "cols,rows" -> { index: Uint32Array, uv: Float32Array }
+const _softbodyIndexCache = new Map()
 function _softbodyGridTopology(cols, rows) {
   const key = `${cols},${rows}`
   let t = _softbodyIndexCache.get(key)
@@ -62,12 +48,6 @@ function _softbodyGridTopology(cols, rows) {
   _softbodyIndexCache.set(key, t)
   return t
 }
-// Builds a fresh BufferGeometry for a softbody-cloth entity's particle grid, positions initialized from
-// custom.softbody.positions (world-space, row-major x,y,z) minus originPos (the entity's own raw
-// authoritative position -- the mesh is parented under a group already translated there, matching every
-// other buildEntityMesh-built primitive's local-space convention). Normals computed once here; every
-// subsequent per-snapshot rewrite (see _rewriteSoftbodyGeometry below) recomputes them too, since a
-// genuinely deforming cloth needs correct per-frame shading, not stale spawn-time normals.
 function _buildSoftbodyGeometry(sb, originPos) {
   const { cols, rows, positions } = sb
   const { index, uv } = _softbodyGridTopology(cols, rows)
@@ -88,11 +68,6 @@ function _buildSoftbodyGeometry(sb, originPos) {
   geo.computeBoundingSphere()
   return geo
 }
-// Per-snapshot vertex-position REWRITE (not a full geometry rebuild): called from repaintEntity whenever
-// custom.softbody arrives with a topology matching the mesh already built (cols/rows unchanged -- a
-// mid-life cols/rows change is out of scope for this slice, matches softbody.js's own "grid topology is
-// fixed for the entity's life" design; setPin only toggles FIXED/DYNAMIC on an existing point, it never
-// resizes the grid). Returns false (caller should rebuild instead) if topology doesn't match.
 function _rewriteSoftbodyGeometry(mesh, sb, originPos) {
   const geo = mesh.geometry, attr = geo?.attributes?.position
   const count = sb.cols * sb.rows
@@ -110,21 +85,15 @@ function _rewriteSoftbodyGeometry(mesh, sb, originPos) {
   geo.computeBoundingSphere()
   return true
 }
-// Freddie-bridge viz entity label: canvas-texture sprite floating above the entity, matching the
-// pattern WaypointPath.js's _makeOrderLabelSprite already uses (sprite, not CSS2D, so it works in
-// the 3D scene without a separate CSS2DRenderer pass). Caller caches the returned sprite per entityId
-// (EntityLoader.js's own _labelSprites map) so repaintEntity can update/remove it without a full
-// scene traverse -- this function itself is stateless.
 function _makeLabelSprite(text) {
   const canvas = document.createElement('canvas')
   canvas.width = 256; canvas.height = 64
   const ctx = canvas.getContext('2d')
   ctx.clearRect(0, 0, 256, 64)
-  // Semi-transparent dark background pill
-  const tw = ctx.measureText(text || '').width
-  const pw = Math.min(240, Math.max(40, tw + 24))
+  const textWidth = ctx.measureText(text || '').width
+  const pillWidth = Math.min(240, Math.max(40, textWidth + 24))
   ctx.fillStyle = 'rgba(0,0,0,0.55)'
-  _roundRect(ctx, (256 - pw) / 2, 4, pw, 56, 12)
+  _roundRect(ctx, (256 - pillWidth) / 2, 4, pillWidth, 56, 12)
   ctx.fill()
   ctx.fillStyle = '#ffffff'
   ctx.font = 'bold 24px sans-serif'
@@ -151,31 +120,11 @@ function _roundRect(ctx, x, y, w, h, r) {
   ctx.quadraticCurveTo(x, y, x + r, y)
   ctx.closePath()
 }
-// SPH fluid particle-cloud render path (sph-fluid-client-render-particle-mesh): custom.fluid present
-// means this entity is a live particle cloud published by apps/_lib/fluid.js's publish() -- see that
-// module's doc comment for the wire shape: {particleCount, positions:[x,y,z,...]} world-space, row-major,
-// flat number array (NOT a typed array on the wire -- msgpackr-serialized plain array). This is the
-// simplest/cheapest of the two candidate approaches this row's own detail names (InstancedMesh2 of small
-// spheres vs a metaball/marching-squares surface reconstruction) -- droplets/foam look, not a smooth
-// fluid surface, but real and cheap, matching the same @three.ez/instanced-mesh primitive already proven
-// at scale for grass/veg/rain (see AGENTS.md grass-commitchunk-batched-addinstances + Weather.js's own
-// im.instances[i].position.set(...); inst.updateMatrix() per-frame-mutation pattern this mirrors exactly).
-// Capacity is fixed at build time to the entity's spawn-time custom.fluid.particleCount rounded up to the
-// nearest FLUID_CAPACITY_STEP (so a slowly-growing emitter doesn't force a capacity rebuild on every tick)
-// clamped to FLUID_MAX_CAPACITY -- a hard ceiling independent of any one instance's own maxParticles spec
-// field, since a scene could host multiple fluid sources and this is a per-entity GPU buffer allocation.
 const FLUID_CAPACITY_STEP = 128, FLUID_MAX_CAPACITY = 4096
 function _fluidCapacityFor(particleCount) {
   const n = Math.max(FLUID_CAPACITY_STEP, Math.ceil((particleCount || 1) / FLUID_CAPACITY_STEP) * FLUID_CAPACITY_STEP)
   return Math.min(n, FLUID_MAX_CAPACITY)
 }
-// Builds the InstancedMesh2 droplet cloud for a fluid entity. originPos is the entity's own raw spawn
-// position (mesh.userData convention shared with every other buildEntityMesh primitive: positions written
-// into the mesh are LOCAL to the entity's group, which is itself translated to originPos) -- but fluid.js
-// publishes WORLD-space positions (its own doc comment: "so positions()/the published wire buffer are
-// real world-space [x,y,z] triples", it maps its 2D solver plane onto world X/Z at a fixed worldY), so
-// every published position needs originPos subtracted, exactly like _buildSoftbodyGeometry does for
-// custom.softbody.positions.
 function _buildFluidMesh(fluid, originPos, renderer) {
   const capacity = _fluidCapacityFor(fluid.particleCount)
   const radius = fluid.particleRadius || 0.08
@@ -199,13 +148,6 @@ function _buildFluidMesh(fluid, originPos, renderer) {
   im.userData._fluidOrigin = [ox, oy, oz]
   return im
 }
-// Per-snapshot position REWRITE for an already-built fluid InstancedMesh2. Grows the live instance count
-// (im.addInstances) when the published particleCount increases (an emitter still spawning), up to the
-// mesh's fixed capacity -- a growth past capacity is silently clamped (matches fluid.js's own maxParticles
-// cap discipline; a scene with many fluid sources needs a hard per-entity ceiling regardless). Returns
-// false if the mesh's capacity has been exceeded and a full rebuild is warranted (mirrors
-// _rewriteSoftbodyGeometry's own false-means-rebuild contract), though in practice FLUID_MAX_CAPACITY is
-// only reached by a misconfigured spec since fluid-source's own editorProps cap maxParticles at 4096.
 function _rewriteFluidMesh(im, fluid, originPos) {
   if (!im || !im.userData.isFluid) return false
   const capacity = im.userData._fluidCapacity
@@ -231,16 +173,6 @@ function _rewriteFluidMesh(im, fluid, originPos) {
   }
   return true
 }
-// SPH fluid metaball/marching-squares SURFACE render path (sph-fluid-client-render-metaball-surface-
-// evaluation, follow-on to the InstancedMesh2 droplet cloud above): opt-in alternative render mode for
-// the SAME custom.fluid wire data, selected per-entity at first-build time via
-// RenderControls.get('fluidRenderMode') === 'surface' (default stays 'droplets', the shipped baseline --
-// this path never runs unless explicitly enabled). Builds a real THREE.Mesh whose geometry is a
-// FluidSurface.buildFluidSurfaceMesh contour, full-REBUILT every snapshot (not vertex-rewritten in place
-// like softbody/droplets -- marching squares can change vertex/index COUNT every step as particles
-// cross the isosurface threshold differently, so there is no fixed-topology buffer to rewrite into,
-// unlike the softbody grid's fixed cols*rows or the droplet cloud's fixed capacity; this is the real,
-// honest cost difference the row's own perf-A/B measures, not an implementation shortcut).
 function _buildFluidSurfaceMesh(fluid, originPos, cellSize, halfThickness) {
   const geo = buildFluidSurfaceMesh(THREE, fluid.positions || [], fluid.particleCount || 0, originPos, fluid.smoothingRadius || 0.5, cellSize, halfThickness)
   const mat = new THREE.MeshStandardMaterial({ color: fluid.color ?? 0x3a8bd8, roughness: 0.1, metalness: 0.05, transparent: true, opacity: 0.85, side: THREE.DoubleSide })
@@ -249,9 +181,6 @@ function _buildFluidSurfaceMesh(fluid, originPos, cellSize, halfThickness) {
   mesh.userData.isFluidSurface = true
   return mesh
 }
-// Per-snapshot REBUILD (see comment above for why this is a rebuild not a rewrite) + live perf stats,
-// mirrored onto RenderControls' fluidSurfaceStats (window.__fluidSurfaceStats) so the row's own required
-// live-measured-cost evaluation is a standing, inspectable number, not a one-off console.log.
 let _fluidSurfaceSamples = 0, _fluidSurfaceTotalMs = 0
 function _rewriteFluidSurfaceMesh(mesh, fluid, originPos, cellSize, halfThickness) {
   if (!mesh || !mesh.userData.isFluidSurface) return false

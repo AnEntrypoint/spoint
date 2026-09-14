@@ -1,8 +1,3 @@
-// Guided tutorial/onboarding world: a flat arena teaching core movement + interaction mechanics.
-// Uses checkpoint-marker entities for progression gates (author them in the editor) and a tutorial
-// orchestrator app (apps/tutorial/index.js) that walks the player through each step with HUD prompts.
-// Terrain is disabled so the player starts on a clean flat plane; the tutorial app handles the
-// progression sequence server-side.
 export default {
   port: 3001,
   tickRate: 64,
@@ -71,20 +66,13 @@ export default {
   },
   trustedApps: [],
   placeableApps: ['checkpoint-marker', 'trigger-volume', 'button', 'spawn-point', 'respawn-zone'],
-  // No terrain — flat arena for the tutorial so the player can focus on learning controls.
   terrain: { enabled: false },
   entities: [
     { id: 'tutorial-app', position: [0, 0, 0], app: 'tutorial' },
-    // Movement checkpoints: a linear sequence the player walks through. Each checkpoint-marker
-    // entity carries a custom._tutorialStep tag (order 0 = WASD walk, 1 = sprint, 2 = jump, 3 = interact).
-    // The tutorial app reads these at first update tick via ctx.world.query and builds the progression.
     { id: 'tut-step-wasd',     position: [0, 1, 3], app: 'checkpoint-marker', config: { order: 0, radius: 3, color: '#33ccff' } },
     { id: 'tut-step-sprint',   position: [0, 1, 9], app: 'checkpoint-marker', config: { order: 1, radius: 3, color: '#33ccff' } },
     { id: 'tut-step-jump',     position: [0, 1, 15], app: 'checkpoint-marker', config: { order: 2, radius: 3, color: '#33ccff' } },
-    // A button at the end to teach interaction (E key). The button app sends a message when
-    // interacted with; the tutorial app listens for it as the final step.
     { id: 'tut-button', position: [0, 1, 21], app: 'button', config: { target: 'tutorial-app', channel: 'tutorial.finish', prompt: 'Press E to interact' } },
-    // A respawn zone at the spawn point so the player always returns there.
     { id: 'tut-respawn', position: [0, 0.5, 0], app: 'respawn-zone', config: { radius: 5 } },
   ],
   spawnPoint: [0, 1.5, 0],

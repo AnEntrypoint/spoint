@@ -1,5 +1,3 @@
-// Isolation harness step 5: sillos + terrain + TREES only (rocks disabled), splitting
-// "vegetation/rocks" (step 3, reproduced) the other way from sillos-terrain-rocks-only.
 const TERRAIN = {
   enabled: true,
   anchorDir: [-0.641, 0.2558, 0.7237],

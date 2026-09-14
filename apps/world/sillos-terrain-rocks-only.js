@@ -1,6 +1,3 @@
-// Isolation harness step 4: sillos + terrain + ROCKS only (vegetation species disabled), to split
-// "vegetation/rocks" (step 3, reproduced) into its two InstancedMesh2 sub-consumers and find which
-// one (or both) actually triggers the sillos GL error.
 const TERRAIN = {
   enabled: true,
   anchorDir: [-0.641, 0.2558, 0.7237],

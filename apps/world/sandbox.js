@@ -1,4 +1,3 @@
-// boot with: WORLD=sandbox SANDBOX_APP=<name> node server.js
 const sandboxApp = (typeof process !== 'undefined' && process.env && process.env.SANDBOX_APP) || null
 
 export default {

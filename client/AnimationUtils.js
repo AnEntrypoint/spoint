@@ -74,22 +74,12 @@ export function detectBoneNameMap(scene) {
   return ANIM_TO_MIXAMO
 }
 
-// Reverse of ANIM_TO_MIXAMO: raw Mixamo rig bone name (as it appears in anim-lib.glb's own track
-// names, e.g. "LeftArm") -> semantic key (e.g. "leftArm"/"leftUpperArm" -- first match wins, both
-// resolve to the same Blender-convention target bone so the ambiguity is harmless).
 const _MIXAMO_NAME_TO_SEMANTIC = (() => {
   const m = {}
   for (const [semantic, mixamoName] of Object.entries(ANIM_TO_MIXAMO)) if (!(mixamoName in m)) m[mixamoName] = semantic
   return m
 })()
 
-// anim-lib.glb ships Mixamo rig bone names (mixamorig:Hips / mixamorigHips depending on whether the
-// loader preserved the colon). Bridges those to the PLAYER skeleton's own naming convention (VRM
-// humanoid normalized names like upper_armL, or Blender-style, detected via detectBoneNameMap) by
-// routing through the semantic key both ANIM_TO_BLENDER and ANIM_TO_MIXAMO share. Without this, a
-// VRM1 player (buildVRM0NormalizedRemap only fires for v0) gets zero bone-name translation at all --
-// every arm/leg/hand track's raw Mixamo name never matches any VRM bone, filterValidClipTracks drops
-// them all, and the character sits in bind pose while state-machine/mixer both report healthy.
 export function remapMixamoClip(clip, targetBoneMap, validBones) {
   const tracks = []
   for (const track of clip.tracks) {

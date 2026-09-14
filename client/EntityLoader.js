@@ -8,15 +8,6 @@ import { createStaticInstanceStore } from './core/StaticInstanceStore.js'
 import { RenderControls } from './core/RenderControls.js'
 import { SKIP_MATS_SET, PLACEHOLDER_DIMS, MESH_BUILDERS, LOD_CONFIGS, MAX_CONCURRENT_LOADS_INITIAL, MAX_CONCURRENT_LOADS_RUNTIME, _forceDoubleSide, _buildSoftbodyGeometry, _rewriteSoftbodyGeometry, _makeLabelSprite, _fluidCapacityFor, _buildFluidMesh, _rewriteFluidMesh, _buildFluidSurfaceMesh, _rewriteFluidSurfaceMesh } from './EntityLoaderMeshBuild.js'
 
-// Primitive entity dedup (primitive-entity-geometry-material-dedup): every box/sphere/cylinder/capsule
-// entity used to mint its own BufferGeometry + MeshStandardMaterial (live: 9 primitives -> 9 geometries
-// + 9 materials in tps-game). Identical params now share ONE geometry and ONE material, keyed on exactly
-// the parameters the MESH_BUILDERS / material constructor read (same `||`/`??` defaults, so a key
-// collision implies a byte-identical object). Shared objects carry userData._spointShared and are (a)
-// never disposed per entity (removeEntity/placeholder-swap skip them) and (b) COPY-ON-WRITE in
-// repaintEntity: the first per-entity material mutation clones the shared material for that entity
-// first, so painting one box never recolours its siblings. Non-primitive keys (an object-valued colour)
-// bypass the cache and behave exactly as before.
 const _primGeoCache = new Map()
 const _primMatCache = new Map()
 const _isKeyable = v => v === undefined || v === null || typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean'
@@ -44,9 +35,6 @@ function _sharedPrimitiveMaterial(c) {
   if (!m) { m = new THREE.MeshStandardMaterial({ color, roughness, metalness, emissive, emissiveIntensity }); m.userData._spointShared = true; _primMatCache.set(key, m) }
   return m
 }
-// Allocation-free paint signature (replaces the per-tick template-string _paintSig): one plain record per
-// entity root, compared field-by-field. null and undefined are both normalised to undefined (the old
-// string sig mapped both to '').
 const _n = v => (v == null ? undefined : v)
 function _paintRecordFrom(c) { return { color: _n(c.color), emissive: _n(c.emissive), emissiveIntensity: _n(c.emissiveIntensity), roughness: _n(c.roughness), metalness: _n(c.metalness), _wetness: _n(c._wetness) } }
 function _disposeOwned(c) {
@@ -54,11 +42,8 @@ function _disposeOwned(c) {
   if (c.material) { const ms = Array.isArray(c.material) ? c.material : [c.material]; for (const mm of ms) if (mm && !(mm.userData && mm.userData._spointShared)) mm.dispose() }
 }
 const _urlLoads = new Map()
-const _labelSprites = new Map() // entityId -> THREE.Sprite
+const _labelSprites = new Map()
 
-// Shared by both _doLoadEntityModel's legacy raw-parse path and _scheduleColliderExtraction's pool-routed
-// background path: walks a fully-transformed model, skipping SKIP_MATS_SET materials and invisible/non-mesh
-// nodes, and flattens every visible mesh's world-space vertices/indices into one combined trimesh buffer pair.
 function _extractInteriorTrimesh(model) {
   const verts = [], idxs = []; let off = 0; const _tv = new THREE.Vector3()
   model.traverse(c => {
@@ -75,26 +60,14 @@ function _extractInteriorTrimesh(model) {
 
 export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB, sceneGraph, modelPool = null, opts = {}) {
   let _onMeshReady = null, _onTrimeshReady = null
-  // Opt-in (default OFF, per the PRD row's own "staged rollout behind a feature flag" scope note):
-  // route eligible static (non-dynamic, non-pool, single-mesh, non-skinned, non-interactable) entities
-  // through StaticInstanceStore's typed-array transform store instead of a full THREE.Object3D scene-
-  // graph member. This only replaces the RAYCAST/transform bookkeeping cost (see StaticInstanceStore.js
-  // header) -- the entity still gets a real lightweight THREE.Mesh for rendering (GPU multi-draw
-  // submission is explicitly future work per that module's own header), so turning this on saves the
-  // scene.raycast/intersectObjects traversal cost for these entities (routed through store.raycastFirst
-  // instead, see _raycastEntities below) without changing what's drawn.
   const _useStaticInstanceStore = !!opts.useStaticInstanceStore
   const staticInstanceStore = _useStaticInstanceStore ? createStaticInstanceStore() : null
   const _renderer = opts.renderer || null
-  const _fluidMeshes = new Map() // entityId -> InstancedMesh2, so repaintEntity can find the right mesh without a full scene traverse
+  const _fluidMeshes = new Map()
   const entityMeshes = new Map()
   const _animatedEntities = []
-  // vehicles-wheel-visual-wire-sync: entity roots carrying a built vehicleWheels hub array (see
-  // _buildVehicleWheels below) -- app.js's per-frame tickVehicleWheels reads this list, spinning/
-  // steering each hub off the chassis's own already-wire-synced velocity/rotation (SceneGraph.getTarget).
   const _vehicleEntities = []
-  const _entityMixers = new Map()   // entityId -> mesh carrying userData._mixer/_actions/_curClip
-  // Cross-fade to a named clip on a mesh (built by the loader with gltf.animations). No-op if absent.
+  const _entityMixers = new Map()
   function _setEntityClip(mesh, clipName, { loop = true, fade = 0.25 } = {}) {
     const actions = mesh?.userData?._actions; if (!actions || !clipName) return
     const next = actions.get(clipName); if (!next || mesh.userData._curClip === clipName) return
@@ -117,15 +90,13 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
   let _bvhScheduled = false, _lodUpgradeScheduled = false, _activeLoads = 0
   const _matCache = new Map()
 
-  // Drop one reference to a parsed-GLTF cache entry; evict the entry once the last live use releases
-  // it (and no new parse is in flight). Single-sourced -- the release ran verbatim at 3 load-tail sites.
   const _releaseGltfRef = (url) => {
     const n = (_parsedGltfRefCount.get(url) || 1) - 1
     _parsedGltfRefCount.set(url, n)
     if (n <= 0 && !_parsedGltfInflight.has(url)) { _parsedGltfCache.delete(url); _parsedGltfRefCount.delete(url) }
   }
 
-  let _disposed = false   // gates async spawn/lod callbacks from resurrecting removed entities
+  let _disposed = false
   const _ric = typeof requestIdleCallback !== 'undefined' ? (fn) => requestIdleCallback(fn, { timeout: 16 }) : (fn) => setTimeout(fn, 16)
   function _scheduleBvhBuild(meshes) {
     for (const m of meshes) _bvhQueue.push(m)
@@ -187,15 +158,6 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
     mesh.castShadow = true; mesh.receiveShadow = true; mesh.userData.isPlaceholder = true; mesh.userData.templateName = templateName
     group.add(mesh); group.userData.spin = custom?.spin || 0; group.userData.hover = custom?.hover || 0; return group
   }
-  // vehicles-wheel-visual-wire-sync: builds one cylinder mesh per apps/vehicle wheelDef entry
-  // (custom.wheels, published once by the app's own setup() -- see that file's header comment for why
-  // this is static geometry, not a per-tick wire field). Each wheel is its own THREE.Group (a "hub")
-  // wrapping the visible cylinder -- the hub carries the STEER rotation (yaw around chassis-local Y,
-  // front wheels only) and the inner cylinder carries the SPIN rotation (roll around its own local X,
-  // matching World.js's own GetWheelWorldTransform([1,0,0],...) wheel-spin-axis convention) so the two
-  // rotations compose correctly instead of fighting over one Euler order. CylinderGeometry's default
-  // axis is Y; rotated -PI/2 around Z here so the wheel's roll axis (its own local X after that fixed
-  // rotation) lines up with the chassis-local X the steer hub will yaw a steerable wheel's hub around.
   function _buildVehicleWheels(group, custom) {
     const wheels = custom.wheels
     if (!Array.isArray(wheels) || wheels.length === 0) return null
@@ -218,12 +180,6 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
   }
   function buildEntityMesh(entityId, custom, originPos) {
     const c = custom || {}, geoType = c.mesh || 'box', group = new THREE.Group()
-    // Soft-body cloth (softbody-cloth-client-render-buffergeometry-vertex-path): custom.softbody present
-    // means this entity is a particle-grid cloth/flag/banner published live by apps/_lib/softbody.js's
-    // publish() -- build a real per-vertex grid mesh from it instead of any MESH_BUILDERS primitive.
-    // Double-sided by default (a cloth/flag is normally seen from both sides, unlike a solid prop) and
-    // unaffected by rotX/rotZ/vehicle/light/spin/hover below (a deforming particle mesh has no rigid
-    // rotation of its own -- shape comes entirely from the published positions).
     if (c.softbody && Number.isInteger(c.softbody.cols) && Number.isInteger(c.softbody.rows)) {
       const geo = _buildSoftbodyGeometry(c.softbody, originPos)
       const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: c.color ?? 0xffffff, roughness: c.roughness ?? 0.9, metalness: c.metalness ?? 0, emissive: c.emissive ?? 0x000000, emissiveIntensity: c.emissiveIntensity ?? 0, side: THREE.DoubleSide }))
@@ -232,11 +188,6 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
       group.add(mesh)
       return group
     }
-    // SPH fluid (sph-fluid-client-render-particle-mesh): custom.fluid present means this entity is a
-    // live particle cloud published by apps/_lib/fluid.js -- build an InstancedMesh2 droplet cloud
-    // instead of any MESH_BUILDERS primitive. Stashed in _fluidMeshes (keyed by entityId) so the
-    // per-snapshot repaint path below can find it directly, matching the pattern the vehicle-wheels
-    // hub array uses (group.userData.vehicleWheels) rather than a mesh.children?.find scan.
     if (c.fluid && Number.isFinite(c.fluid.particleCount)) {
       if (RenderControls.get('fluidRenderMode') === 'surface') {
         const surf = _buildFluidSurfaceMesh(c.fluid, originPos, RenderControls.get('fluidSurfaceCellSize'), RenderControls.get('fluidSurfaceThickness'))
@@ -253,22 +204,14 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
     }
     const geo = _sharedPrimitiveGeometry(geoType, c)
     const mesh = new THREE.Mesh(geo, _sharedPrimitiveMaterial(c))
-    // Seed the paint record from the values the shared material was built with, so the first repaintEntity
-    // call with an unchanged custom is a no-op (and the shared material stays shared, not cloned on tick 1).
     group.userData._paint = _paintRecordFrom(c)
     if (c.rotX) mesh.rotation.x = c.rotX; if (c.rotZ) mesh.rotation.z = c.rotZ
     mesh.castShadow = true; mesh.receiveShadow = true
-    // Material-authored wetness (ssr-material-wetness-mask-authoring): primitives (box/sphere/capsule)
-    // are the natural puddle/wet-road authoring shape (PRIMITIVE_EDITOR_PROPS/box-static write
-    // custom._wetness) -- stamp on the actual drawn mesh, same as the plain-GLB traverse below.
     mesh.userData.wetness = +(c._wetness) || 0
     group.add(mesh)
     if (c.light) group.add(new THREE.PointLight(c.light, c.lightIntensity || 1, c.lightRange || 4))
     if (c.vehicle && c.wheels) { const hubs = _buildVehicleWheels(group, c); if (hubs) _vehicleEntities.push(group) }
     if (c.spin) group.userData.spin = c.spin; if (c.hover) group.userData.hover = c.hover
-    // Freddie-bridge viz entity label: floating sprite above the mesh. Positioned at the top of
-    // the entity's bounding box (or a default height if no geometry). The label sprite is cached
-    // in _labelSprites so repaintEntity can update/remove it on custom.label changes.
     if (c.label) {
       const label = _makeLabelSprite(c.label)
       label.position.set(0, 1.5, 0)
@@ -292,10 +235,8 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
   function updateVisibility(camera) {
     const cp = camera.position
     for (const mesh of entityMeshes.values()) {
-      // ModelPool-routed meshes manage their own distance culling; skip the legacy flat cull for them.
       if (mesh.userData.isModelPool) continue
       const ud = mesh.userData, sc = mesh.scale
-      // Don't un-hide here: first draw stalls mid-shader-link (ANGLE/D3D11) until app.js onMeshReady clears it.
       if (ud._compileHidden) { mesh.visible = false; continue }
       let sq = ud._skipSq
       if (sq === undefined || sc.x !== ud._svx || sc.y !== ud._svy || sc.z !== ud._svz) {
@@ -310,37 +251,12 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
     }
   }
 
-  // isDynamicShadowCaster: ShadowCostProbe.js classification tag (measurement-only; see that file's
-  // header). Stamped here so EVERY _tagMesh call site (plain-GLB finalMesh, pool-routed root, each
-  // pool LOD-swap re-tag, and the empty-anchor placeholder) gets it consistently, matching the same
-  // bodyType==='dynamic' split this loader already uses for BVH/pooling/animation eligibility.
-  // wetness: material-authored SSR reflection mask (ssr-material-wetness-mask-authoring), a plain
-  // 0..1 float read from custom._wetness (placed-model/box-static editorProps write it there). Read
-  // ONCE per entity here (mirrors isDynamicShadowCaster) so SSR.js's wetness G-buffer pass can read
-  // a cheap per-object userData number instead of re-parsing custom every frame.
-  // modelUrl: the entity's source asset path (glTF/GLB), stamped here so it is the one stable
-  // identity key available on every entityMeshes root regardless of load path (plain GLB,
-  // ModelPool-routed, pool LOD-swap re-tag) -- used by the shader-warmup-manifest-per-map
-  // mechanism (client/core/SceneSetup.js warmupShaders + scripts/record-shader-manifest.mjs) to
-  // record/replay "which assets were resident in the first N seconds" without depending on
-  // material.uuid (regenerated per load) or material.name (glTF-authored, not guaranteed unique
-  // across a map's several source GLBs).
-  //
-  // Hoisted to factory scope (was a per-_doLoadEntityModel-call inline closure) so
-  // _spawnPoolMeshRenderOnly/_scheduleColliderExtraction (terrain-camera-burst-geometry-texture-
-  // backpressure's render/collider decoupling) can build the identical tagger without duplicating
-  // this field list a third time.
   function _makeTagMesh(entityId, entityState, entityAppMap) {
     return (m) => { m.userData.isEditable = true; m.userData.entityId = entityId; m.userData._appName = entityAppMap.get(entityId) || entityState.app || null; m.userData.custom = entityState.custom || {}; m.userData.isDynamicShadowCaster = entityState.bodyType === 'dynamic'; m.userData.wetness = +(entityState.custom?._wetness) || 0; m.userData.modelUrl = entityState.model || null }
   }
 
-  // Render-only pool spawn (terrain-camera-burst-geometry-texture-backpressure): the visual half of
-  // the former _spawnPoolMesh, called IMMEDIATELY once an entity is known pool-ready -- before, and
-  // independent of, the raw-GLTF-parse-for-colliders that _scheduleColliderExtraction runs separately.
-  // Mirrors _spawnPoolMesh's own wiring (proxy root, ready-swap re-tag, lod-changed re-tag) exactly,
-  // minus cam.addEnvironment/_entityColliders/scheduleFitShadow, which move to the collider step.
   function _spawnPoolMeshRenderOnly(entityId, entityState, url, entityAppMap, onFirstEntityLoaded, loadingScreenHidden) {
-    if (_disposed || entityMeshes.has(entityId)) return  // already spawned (e.g. a resurrected/duplicate load)
+    if (_disposed || entityMeshes.has(entityId)) return
     const _tagMesh = _makeTagMesh(entityId, entityState, entityAppMap)
     const tr = { position: entityState.position, rotation: entityState.rotation, scale: entityState.scale }
     const placeholder = new THREE.Group()
@@ -370,22 +286,9 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
     pendingLoads.delete(entityId); onFirstEntityLoaded(entityId)
   }
 
-  // Background collider-extraction step (terrain-camera-burst-geometry-texture-backpressure): runs the
-  // SAME raw-GLTF-parse + trimesh/collider-vertex-extraction _doLoadEntityModel used to run inline and
-  // BLOCKING before the render spawn, but now entirely decoupled from it -- the render spawn already
-  // happened synchronously in _spawnPoolMeshRenderOnly above. Scheduled via the file's existing _ric
-  // (requestIdleCallback) convention so it never competes with a busy frame; registers colliders
-  // (cam.addEnvironment) once the parse completes. A failed/slow parse degrades to "no collider for
-  // this entity yet" (matching the pre-existing raw-parse-failure degrade path's own philosophy: the
-  // pool-routed visual is independently valid and must not be held hostage by collider extraction).
   function _scheduleColliderExtraction(entityId, entityState, url, scheduleFitShadow) {
     _ric(async () => {
-      if (_disposed || !entityMeshes.has(entityId)) return  // entity removed/disposed while queued
-      // Tracks whether THIS call actually incremented _parsedGltfRefCount, so the catch block below
-      // only releases a ref it actually holds -- _releaseGltfRef defaults a never-incremented url to
-      // count 1 (see its own comment), so calling it unconditionally on a path that threw BEFORE the
-      // increment (e.g. the parse itself failing) would incorrectly decrement/evict a cache entry a
-      // DIFFERENT concurrent load of the same url still legitimately holds a live reference to.
+      if (_disposed || !entityMeshes.has(entityId)) return
       let _refHeld = false
       try {
         let gltf
@@ -436,7 +339,6 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
         }
         _releaseGltfRef(url)
       } catch (e) {
-        // Degrade, don't fail the entity: the pool-routed visual already rendered independently.
         console.warn('[gltf] deferred collider extraction failed for', url, '- pool-routed visual already rendered, collider skipped:', e?.message || e)
         if (_refHeld) _releaseGltfRef(url)
       }
@@ -447,7 +349,6 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
     const isEditorPlaceholder = entityState.custom?.editorPlaceholder === true
     const _tagMesh = _makeTagMesh(entityId, entityState, entityAppMap)
     if (!entityState.model || isEditorPlaceholder) {
-      // Defer (don't mark loaded) a model-backed entity whose model path hasn't arrived yet, or a stale orange placeholder box sticks forever.
       const _c = entityState.custom
       const _deliberatePrimitive = isEditorPlaceholder || (_c && (_c.mesh || _c.template || _c.color != null || _c.light != null || _c.fluid != null))
       const _awaitingModelPath = !entityState.model && !_deliberatePrimitive && (entityState.custom?._interior || entityAppMap.get(entityId) === 'placed-model' || entityState.app === 'placed-model')
@@ -466,34 +367,8 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
     if (loadingMgr.label !== STRINGS.loadingWorld) loadingMgr.setLabel(STRINGS.loadingWorld)
     const url = entityState.model.startsWith('./') ? '/' + entityState.model.slice(2) : entityState.model
     if (!_discoveredModelUrls.has(url)) { _discoveredModelUrls.add(url) }
-    // Pool-readiness is checked FIRST, ahead of the raw-GLTF parse below: a pool-routed entity discards
-    // the raw `model` entirely (replaced by ModelPool's own ClusterLodMesh root), so if the raw parse
-    // itself throws (live-hit: a legacy asset whose GLBTransformer-cached EXT_meshopt_compression
-    // buffer fails THREE's client-side meshopt_decoder with "Malformed buffer data" -- a pre-existing,
-    // unrelated GLBTransformer/meshopt-roundtrip bug, not this bake path's doing) it must NOT take the
-    // whole entity down with it when a perfectly valid cluster-LOD bake is sitting right there ready to
-    // serve. Pre-fix: the raw parse crashed inside the SAME try block that reaches the pool-routing
-    // check further down, so the catch below fired first and the entity got NO mesh at all -- not the
-    // crashed raw path, not the working pool path, nothing (env-sillos-class map entities went
-    // invisible with a live cold-boot failure a bake fix on this exact map made newly discoverable).
     const isDynamicEarly = entityState.bodyType === 'dynamic'
     const _poolReadyEarly = modelPool && !isDynamicEarly ? await modelPool.progressiveReady(url) : false
-    // DECOUPLE render from collider-extraction for pool-routed entities (terrain-camera-burst-
-    // geometry-texture-backpressure): a pool-routed entity's VISIBLE mesh comes entirely from
-    // ModelPool's own independent cluster-LOD geometry (prepared once per asset, unrelated to this raw
-    // parse) -- the raw GLTFLoader.parseAsync() call below exists ONLY to extract real per-vertex
-    // trimesh-collider data (see _onTrimeshReady/`colliders` usage further down) and, for a legacy
-    // asset, BVH. Previously this raw parse ran and had to FULLY COMPLETE before _spawnPoolMesh (the
-    // actual visible-mesh spawn) was ever called -- live-measured for apps/maps/aim_sillos.glb (a large
-    // interior map, ~1MB GLB, many meshes): a single GLTFLoader.parseAsync() call took 5.6 REAL
-    // SECONDS (see .gm/exec-spool/scratch/phase-timing-probe.mjs's own live witness), meaning the
-    // entity's render spawn -- which needs NONE of that parse's output -- was needlessly serialized
-    // behind 5.6s of unrelated collider-extraction parsing, the actual dominant contributor to a real
-    // Chromium main-thread stall/renderer-process-crash risk this PRD row exists to fix. Fix: spawn the
-    // pool mesh IMMEDIATELY once _poolReadyEarly is known (below), THEN run the raw parse + collider
-    // extraction as a background step that registers colliders (cam.addEnvironment) once it completes
-    // -- physics collision for this entity arrives a little later, but the entity is visible and the
-    // main thread is never blocked waiting on a parse the render path doesn't need.
     if (_poolReadyEarly) {
       _spawnPoolMeshRenderOnly(entityId, entityState, url, entityAppMap, onFirstEntityLoaded, loadingScreenHidden)
       _scheduleColliderExtraction(entityId, entityState, url, scheduleFitShadow)
@@ -505,29 +380,13 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
       if (_parsedGltfCache.has(url)) { gltf = _parsedGltfCache.get(url); loadingMgr.completeDownload(url) }
       else if (_parsedGltfInflight.has(url)) { gltf = await _parsedGltfInflight.get(url); loadingMgr.completeDownload(url) }
       else {
-        // Pool-ready entities never reach this branch (they returned early above, before this raw
-        // parse even starts -- see _spawnPoolMeshRenderOnly/_scheduleColliderExtraction), so a raw
-        // parse failure here always belongs to the legacy non-pool-routed path and always propagates
-        // (no pool-routed-degrade special case needed anymore: that degrade now lives entirely inside
-        // _scheduleColliderExtraction's own try/catch, decoupled from this function).
         const p = fetchCached(url).then(buf => gltfLoader.parseAsync(patchGLB(buf, url), '')); _parsedGltfInflight.set(url, p)
         try { gltf = await p } finally { _parsedGltfInflight.delete(url) }
         gltf.userData.__sharedGeo = new Map(); _parsedGltfCache.set(url, gltf); loadingMgr.completeDownload(url)
       }
       _parsedGltfRefCount.set(url, (_parsedGltfRefCount.get(url) || 0) + 1)
       const _sharedGeo = _parsedGltfCache.get(url)?.userData?.__sharedGeo
-      // Must clone(true): a shallow clone yields a childless root, silently dropping all colliders.
       const model = gltf.scene.clone(true)
-      // Fractured-GLB debris piece (destructibles-fractured-glb-shape-wiring): entityState.model here is
-      // a scripts/fracture-glb.mjs-baked multi-node GLB (one child node/mesh per Voronoi cell, named
-      // `piece_<index>` by that script's own doc.createNode(`piece_${i}`) call) -- this ONE entity must
-      // render only ITS OWN baked piece, not the whole fractured GLB's every piece stacked at the same
-      // spawn transform (which is what a naive `gltf.scene.clone(true)` would otherwise render, since the
-      // server-side physics shape (AppPhysics.js's addConvexFromModelAsync(pieceIndex)) already scopes to
-      // one mesh by index but nothing client-side did the equivalent scoping before this). Prune every
-      // child of the cloned scene down to the one node matching this entity's custom.pieceIndex before any
-      // of the shared-geometry/BVH/collider wiring below runs, so the rest of this function treats it
-      // exactly like any other single-mesh dynamic model with zero further special-casing.
       if (entityState.custom?.mesh === 'fracturedPiece' && Number.isInteger(entityState.custom?.pieceIndex)) {
         const wantName = `piece_${entityState.custom.pieceIndex}`
         const keep = model.children.find(c => c.name === wantName)
@@ -544,22 +403,9 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
       const mr = entityState.rotation; if (mr) model.quaternion.set(mr[0], mr[1], mr[2], mr[3])
       const ms = entityState.scale; if (ms) model.scale.set(ms[0], ms[1], ms[2])
       const isDynamic = entityState.bodyType === 'dynamic', colliders = [], bvhPending = []
-      // ShadowCostProbe.js classification tag (measurement-only, read by that module's scene walk,
-      // never consulted by any render/cull/physics path) -- mirrors the isDynamic split this loader
-      // already computes for BVH/pooling/animation, so a shadow-casting model entity is correctly
-      // bucketed static-vs-dynamic with zero extra logic.
       model.userData.isDynamicShadowCaster = isDynamic
-      // Material-authored wetness (ssr-material-wetness-mask-authoring): stamped per-mesh (not just
-      // the root) since SSR.js's wetness G-buffer pass reads userData off the actual drawn c.isMesh
-      // object during scene traversal, same reasoning as isDynamicShadowCaster just above.
       const _wetness = +(entityState.custom?._wetness) || 0
       model.userData.wetness = _wetness
-      // Fractured pieces carry no material (scripts/fracture-glb.mjs's own doc comment: "no UV/color/
-      // material -- fractured interior faces have no source UV/material data to inherit") -- glTF's
-      // spec-default is a plain white MeshStandardMaterial, so without this every piece would render
-      // stark white regardless of the debris color/roughness apps/destructible-debris's setup() passed
-      // through custom (the same color/roughness the uniform-box debris path already applies to ITS
-      // material construction -- this is the equivalent stamp for the fractured-mesh path).
       const _fracturedColor = entityState.custom?.mesh === 'fracturedPiece' ? entityState.custom : null
       model.traverse(c => {
         if (c.isMesh) {
@@ -572,17 +418,11 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
           if (!c.isSkinnedMesh && !isDynamic) { c.matrixAutoUpdate = false; bvhPending.push(c); colliders.push(c) }
           if (c.material) {
             if (c.isSkinnedMesh) { c.material.shadowSide = THREE.DoubleSide; return }
-            // key includes the fractured-piece roughness so two different debris colors/roughnesses never
-            // collide in _matCache (the cache key otherwise has no roughness component at all, since every
-            // OTHER material path here forces a fixed roughness=1 below regardless of source).
             const m = c.material, key = `${m.map?.uuid||''}|${m.normalMap?.uuid||''}|${m.emissiveMap?.uuid||''}|${m.color?.getHex()||0}|${m.emissive?.getHex()||0}|${_fracturedColor ? 'r' + (_fracturedColor.roughness ?? 0.85) : ''}`
             if (_matCache.has(key)) { c.material = _matCache.get(key) } else { m.shadowSide = THREE.DoubleSide; m.roughness = _fracturedColor ? (_fracturedColor.roughness ?? 0.85) : 1; m.metalness = 0; if (m.specularIntensity !== undefined) m.specularIntensity = 0; _matCache.set(key, m) }
           }
         }
       })
-      // Legacy non-pool-routed path only reaches here (pool-ready entities returned early above, well
-      // before this raw parse ever starts -- see _spawnPoolMeshRenderOnly/_scheduleColliderExtraction),
-      // so BVH scheduling always applies unconditionally now -- no _poolReady branch to skip it for.
       if (bvhPending.length > 0) _scheduleBvhBuild(bvhPending)
       model.updateMatrixWorld(true)
       const _interior = !!entityState.custom?._interior
@@ -590,7 +430,6 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
         const { verts, idxs } = _extractInteriorTrimesh(model)
         if (verts.length > 0 && idxs.length > 0) _onTrimeshReady(entityId, verts, idxs)
       }
-      // Async GLTF parse: guard against resurrecting a ghost mesh if removed/disposed while in flight.
       if (_disposed || !pendingLoads.has(entityId)) {
         pendingLoads.delete(entityId); onFirstEntityLoaded(entityId)
         _releaseGltfRef(url)
@@ -600,13 +439,6 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
       if (_interior) _forceDoubleSide(finalMesh)
       if (sceneGraph) sceneGraph.addNode(entityId, finalMesh); else scene.add(finalMesh); entityMeshes.set(entityId, finalMesh)
       if (model.userData.spin || model.userData.hover) _animatedEntities.push(finalMesh)
-      // StaticInstanceStore registration (opt-in, additive -- finalMesh above is still the real render
-      // path unchanged). Eligible: static body, single mesh (bucket key needs one geometry per
-      // instance), not interior/spin/hover (those need per-frame Object3D-level state this store
-      // doesn't track). Registers the SAME geometry finalMesh already renders with (untransformed,
-      // local-space, matching StaticInstanceStore's own "never bakes the transform into geometry"
-      // contract) and the entity's already-computed position/rotation/scale, so store.raycastFirst
-      // (see raycastEntities below) returns results identical to a scene.raycast hit on finalMesh.
       if (staticInstanceStore && !isDynamic && !_interior && !model.userData.spin && !model.userData.hover) {
         let _singleMesh = null, _meshCount = 0
         finalMesh.traverse(c => { if (c.isMesh && !c.isSkinnedMesh) { _meshCount++; if (_meshCount === 1) _singleMesh = c } })
@@ -615,10 +447,6 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
           staticInstanceStore.addInstance(entityId, bucketKey, _singleMesh.geometry, entityState.position, entityState.rotation, entityState.scale)
         }
       }
-      // Skeletal animation for non-player model entities (enemies walk/attack, VIP moves, creatures idle).
-      // Build a mixer + one action per gltf clip; the active clip is entity.custom._anim (flows via the
-      // snapshot custom bag) so a server app just sets entity.custom._anim = 'walk'. mixer.userData tags
-      // the mesh so the animate() loop updates it and _setEntityClip swaps clips on a custom change.
       if (gltf.animations && gltf.animations.length && !isDynamic) {
         const mixer = new THREE.AnimationMixer(finalMesh)
         const actions = new Map()
@@ -706,7 +534,6 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
     return { active, leaked }
   }
 
-  // Releases standing resources so a world-reload/reconnect doesn't leak the pending callbacks. Idempotent.
   function dispose() {
     if (_disposed) return
     _disposed = true
@@ -714,8 +541,6 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
     _lodUpgradeQueue.length = 0; _lodUpgradeScheduled = false
     if (staticInstanceStore) staticInstanceStore.dispose()
   }
-  // Drive every entity animation mixer one frame + apply any custom._anim clip change (the server sets
-  // entity.custom._anim; it arrives via the snapshot and is stashed on mesh.userData.custom by _tagMesh).
   function updateMixers(dt) {
     for (const [id, mesh] of _entityMixers) {
       if (!mesh || !mesh.userData._mixer) { _entityMixers.delete(id); continue }
@@ -724,40 +549,15 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
       mesh.userData._mixer.update(dt)
     }
   }
-  // Explicit client-side clip control (engine.entities.playClip): play a named clip on an entity.
   function playClip(entityId, clipName, opts) { const mesh = _entityMixers.get(entityId); if (mesh) _setEntityClip(mesh, clipName, opts) }
 
-  // Live material repaint: a server-side entity.custom.color/emissive/roughness/metalness change reaches the
-  // wire but the mesh was painted ONCE at build time and never refreshed -- crop-growth colour, damage flash,
-  // team recolour, powered-on emissive all silently dropped. Diff against the last-painted signature (cheap,
-  // skips the common no-change tick) and restamp the standard-material fields on every sub-mesh.
   function repaintEntity(entityId, custom, originPos) {
     const mesh = entityMeshes.get(entityId); if (!mesh || !custom) return false
-    // Soft-body cloth (softbody-cloth-client-render-buffergeometry-vertex-path): a per-snapshot vertex-
-    // position REWRITE, not a material repaint -- bypasses the visual-fields-only sig dedupe below since
-    // position deltas carry no color/emissive/roughness signature of their own (softbody.js's own
-    // publish() already dedupes via its PUBLISH_EPS threshold before this ever gets called with a
-    // materially-unchanged shape, so this rewrite always corresponds to a real published position delta).
     if (custom.softbody) {
       const softMesh = mesh.userData.isSoftbody ? mesh : mesh.children?.find(c => c.userData.isSoftbody)
       if (softMesh) _rewriteSoftbodyGeometry(softMesh, custom.softbody, originPos)
       mesh.userData.custom = custom
     }
-    // SPH fluid (sph-fluid-client-render-particle-mesh): per-snapshot droplet position rewrite, same
-    // bypass-the-visual-sig-dedupe rationale as softbody above -- position deltas carry no color/
-    // emissive/roughness signature, and fluid.js's own PUBLISH_EPS already dedupes upstream so every
-    // call here corresponds to a real published position/count delta.
-    // LAZY UPGRADE: apps/fluid-source/index.js deliberately ships a permanent placeholder
-    // custom={mesh:'box',...} anchor (its own doc comment: "keeps the ANCHOR point visible in-editor
-    // even before the client-side particle-mesh render path exists") ALONGSIDE custom.fluid once
-    // publish() first runs, not instead of it -- so the entity's FIRST snapshot can legitimately arrive
-    // with custom.fluid already set, but buildEntityMesh already ran (there is no re-entry point back
-    // into it once a mesh exists, matching every other custom-driven entity in this loader) and the
-    // real per-tick race (setup()'s placeholder-box custom write happening before the very first
-    // fluid.js publish() completes) means _fluidMeshes may genuinely never have an entry for this
-    // entityId. Build the InstancedMesh2 here on first sight instead of silently no-oping forever --
-    // swap out the placeholder box child (if any; a hand-authored custom.fluid-bearing entity with no
-    // box sibling is also valid) so a stale static anchor mesh doesn't linger behind the live cloud.
     if (custom.fluid) {
       const surfaceMode = RenderControls.get('fluidRenderMode') === 'surface'
       let im = _fluidMeshes.get(entityId)
@@ -777,23 +577,11 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
       }
       mesh.userData.custom = custom
     }
-    // The material-paint dedupe (the _paint record, compared below) only covers VISUAL fields on purpose (cheap per-tick call, most
-    // entities' custom never changes) -- but mesh.userData.custom was unconditionally gated behind that
-    // SAME check, so a non-visual custom field changing alone (found live while wiring apps/vehicle's
-    // driverId: an app that writes a plain state flag into custom, e.g. mount/possession/ownership,
-    // with no accompanying color/emissive/roughness/metalness/_wetness delta) never reached
-    // mesh.userData.custom at all -- any code reading it back client-side (debug tooling, another app's
-    // client half, an editor inspector read) saw a permanently stale snapshot from entity-load time.
-    // Always refresh userData.custom; only the expensive per-submesh material-property walk below stays
-    // gated on the visual-only sig so this fix costs one extra object reference write, not a repaint.
     mesh.userData.custom = custom
-    // Freddie-bridge viz entity label update: when custom.label changes, rebuild the sprite
-    // texture (canvas re-draw) or remove the sprite if label is cleared.
     const existingLabel = _labelSprites.get(entityId)
     if (custom.label) {
       if (existingLabel) {
         if (existingLabel.userData._labelText !== custom.label) {
-          // Rebuild the canvas texture for the new text
           const canvas = existingLabel.material.map?.image
           if (canvas && canvas.getContext) {
             const ctx = canvas.getContext('2d')
@@ -812,7 +600,6 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
           existingLabel.userData._labelText = custom.label
         }
       } else {
-        // Label added after initial build: create and attach
         const label = _makeLabelSprite(custom.label)
         label.position.set(0, 1.5, 0)
         label.userData._labelText = custom.label
@@ -820,7 +607,6 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
         _labelSprites.set(entityId, label)
       }
     } else if (existingLabel) {
-      // Label removed
       mesh.remove(existingLabel)
       existingLabel.material.map?.dispose()
       existingLabel.material.dispose()
@@ -831,10 +617,6 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
     if (rec && rec.color === pColor && rec.emissive === pEmissive && rec.emissiveIntensity === pEI && rec.roughness === pRough && rec.metalness === pMetal && rec._wetness === pWet) return false
     if (rec) { rec.color = pColor; rec.emissive = pEmissive; rec.emissiveIntensity = pEI; rec.roughness = pRough; rec.metalness = pMetal; rec._wetness = pWet }
     else mesh.userData._paint = { color: pColor, emissive: pEmissive, emissiveIntensity: pEI, roughness: pRough, metalness: pMetal, _wetness: pWet }
-    // Material-authored wetness (ssr-material-wetness-mask-authoring): live editor slider drag reaches
-    // here via the same custom.* wire delta as color/roughness -- restamp userData.wetness on both the
-    // root (debug/consistency) and every sub-mesh SSR.js's G-buffer pass actually samples, matching the
-    // build-time stamp in _doLoadEntityModel/buildEntityMesh above.
     const _wetness = +(custom._wetness) || 0
     mesh.userData.wetness = _wetness
     let touched = false
@@ -847,8 +629,6 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
         const willMutate = (custom.color != null && !!mat.color?.set) || (custom.emissive != null && !!mat.emissive?.set) || (custom.emissiveIntensity != null && 'emissiveIntensity' in mat) || (custom.roughness != null && 'roughness' in mat) || (custom.metalness != null && 'metalness' in mat)
         if (!willMutate) continue
         if (mat.userData && mat.userData._spointShared) {
-          // Copy-on-write: this material is the shared primitive-cache instance -- clone it for THIS
-          // entity before the first mutation so siblings built from the same key keep their own look.
           const own = mat.clone(); own.userData = { ...mat.userData, _spointShared: false }
           if (isArr) m[i] = own; else o.material = own
           mat = own
@@ -858,21 +638,11 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
         if (custom.emissiveIntensity != null && 'emissiveIntensity' in mat) { mat.emissiveIntensity = custom.emissiveIntensity; touched = true }
         if (custom.roughness != null && 'roughness' in mat) { mat.roughness = custom.roughness; touched = true }
         if (custom.metalness != null && 'metalness' in mat) { mat.metalness = custom.metalness; touched = true }
-        // No mat.needsUpdate: colour/emissive/emissiveIntensity/roughness/metalness are plain uniforms on
-        // every material family this touches (no define/program change), so the re-derive was pure cost.
       }
     })
     return touched
   }
 
-  // Optimistic local mesh.userData.custom merge-write, used by every editor call site that needs the
-  // entity's visible mesh updated immediately (ahead of the server's EDITOR_UPDATE round-trip) instead
-  // of showing stale state for the ~2s a heavily-loaded tick can take to answer. Centralizes the
-  // read-current/merge/write-back pattern app.js previously repeated at 4 separate call sites (each
-  // reading mesh.userData.custom fresh right before merging, to avoid the stale-read multi-target bug
-  // documented at those call sites) so the merge semantics live in one place. Returns the mesh (or null
-  // if the entity has no live mesh) so a caller that also needs `before`/`after` diffing for undo history
-  // can still read the pre-merge state itself before calling this.
   function mergeCustom(entityId, patch) {
     const mesh = entityMeshes.get(entityId)
     if (!mesh) return null

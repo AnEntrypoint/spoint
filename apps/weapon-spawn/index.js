@@ -1,10 +1,3 @@
-// A placeable WEAPON-SPAWN marker: a maker drops one (or several) to author where weapon pickups
-// spawn, mirroring apps/spawn-point's own marker pattern exactly (custom._weaponSpawn instead of
-// custom._spawnPoint, an id-per-entity + optional weaponType/team tag instead of a team-only tag).
-// This app itself is inert at runtime -- it only marks a position; a game (or, for this PRD row,
-// apps/playtest-bot's balance-visit tracker) reads the markers via collectWeaponSpawns below,
-// exactly the way apps/tps-game/server.js's findSpawnPoints/apps/playtest-bot's _auditSpawnLOS read
-// spawn-point markers via apps/spawn-point's own collectSpawnPoints export.
 export default {
   description: 'Weapon-spawn marker: drop one or more to author where weapon pickups spawn, for balance analysis.',
   server: {
@@ -31,9 +24,6 @@ export default {
   },
 }
 
-// Collect all placed weapon-spawn positions (optionally filtered by team) from any game/bot app that
-// imports this -- same shape as apps/spawn-point's collectSpawnPoints, but keeps the entity id (a
-// balance tracker needs a stable per-spawn identity to key visit counts by, not just a bare position).
 export function collectWeaponSpawns(ctx, team) {
   const out = []
   for (const e of ctx.world.query(e => e.custom && e.custom._weaponSpawn)) {

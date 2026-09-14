@@ -1,4 +1,3 @@
-// throwaway tod-rebuild-witness.mjs world -- safe to delete
 export default {
   "port": 40467,
   "tickRate": 60,

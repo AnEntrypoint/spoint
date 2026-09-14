@@ -1,6 +1,3 @@
-// ASCII bytes of `"textures"` -- the only glTF key this patch can ever act on. A raw byte scan of the
-// JSON chunk for it is orders of magnitude cheaper than TextDecoder+JSON.parse of a multi-hundred-KB
-// chunk (aim_sillos.glb's JSON chunk alone is ~300KB) and rules out every texture-less asset up front.
 const _TEXTURES_KEY = [0x22, 0x74, 0x65, 0x78, 0x74, 0x75, 0x72, 0x65, 0x73, 0x22]
 function _hasTexturesKey(bytes, start, len) {
   const end = start + len - _TEXTURES_KEY.length

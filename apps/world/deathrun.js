@@ -1,8 +1,3 @@
-// Deathrun/parkour world: apps/maps/deathrun_kosova.glb as the environment, apps/deathrun as the game
-// mode (checkpoint-driven run timer + persistent per-map leaderboard), checkpoint-marker as the
-// in-editor-placeable ordered start/finish/waypoint primitive. Mirrors apps/world/tps-game.js's shape
-// (movement/player/scene/camera tuning copied from the same base since deathrun is still a first/third
-// person mover on the same character controller -- only the game-mode entity + map differ).
 export default {
   port: 3002,
   tickRate: 64,
@@ -73,22 +68,8 @@ export default {
   },
   placeableApps: ['checkpoint-marker', 'trigger-volume', 'spawn-point', 'respawn-zone', 'moving-platform', 'waypoint'],
   entities: [
-    // collider:'trimesh' + _interior mirrors apps/world/tps-game.js's env-sillos entry -- deathrun_kosova
-    // is an enclosed corridor-run map, the same interior-DoubleSide-render + always-relevant-snapshot
-    // treatment applies. Position/scale are the map's natural origin-placed authoring transform (no prior
-    // render-scale bug history exists for this asset the way sillos had -- see AGENTS.md
-    // placement-y-tuned-for-broken-scale caveat -- so no compensating offset is applied here).
     { id: 'env-deathrun-kosova', model: './apps/maps/deathrun_kosova.glb', position: [0, 0, 0], scale: [1, 1, 1], app: 'placed-model', config: { collider: 'trimesh' }, custom: { _interior: true } },
     { id: 'deathrun', position: [0, 0, 0], app: 'deathrun', config: { map: 'deathrun_kosova', minY: -50 } },
-    // Two checkpoint-marker entities (order 0 = start, order 1 = finish) so the mode boots with a real,
-    // in-world-editable course out of the box instead of only the code-level synthetic fallback in
-    // apps/deathrun/index.js's setup(). A maker can add more via the editor's placeableApps entry to
-    // build the real multi-stage deathrun course; these two are the minimum viable start/finish pair.
-    // Positions verified LIVE via a real WebSocket-driven player walk (real physics/collision, not
-    // guessed): spawn [0,15.3,0] settles to ground at [0,12.43,0]; straight-line +Z movement hits real
-    // map geometry (a wall/gate) at z~11.2, but S then W/E reaches a long open corridor at y~12.43,
-    // z~-7.4 spanning roughly x=-18 to x=17 -- checkpoint-1 sits at the real-reachable far end of that
-    // corridor, confirmed traversable end-to-end by an actual driven run (see deathrun-live-server-boot-and-drive PRD row).
     { id: 'dr-checkpoint-0', app: 'checkpoint-marker', position: [0, 15, 0], config: { order: 0, radius: 5 } },
     { id: 'dr-checkpoint-1', app: 'checkpoint-marker', position: [17, 12.43, -7.4], config: { order: 1, radius: 5 } },
   ],

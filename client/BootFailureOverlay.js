@@ -1,11 +1,3 @@
-// Boot-diagnostics helpers for app.js: shadow-cascade-count resolution (device-aware default the
-// shadow pipeline registry itself has no knowledge of) and the single boot-failure overlay renderer,
-// reused by every early-boot catch site (WebGL2-context-creation failure, window.onerror,
-// unhandledrejection). Split out as the only two functions in app.js's top-level boot script with no
-// interleaved side-effecting script logic immediately around them -- app.js itself is a flat top-to-
-// bottom boot sequence, not a factory, so most of it cannot be safely cut without risking a module-eval
-// ordering regression; these two are genuinely self-contained.
-
 import { QualityPresets } from './core/QualityPresets.js'
 
 function _shadowCascadeCountForBoot(deviceInfo) {
@@ -16,11 +8,6 @@ function _shadowCascadeCountForBoot(deviceInfo) {
   return byTier[presetName] || 1
 }
 
-// Single boot-failure overlay renderer, reused by both the WebGL2-specific catch below AND the
-// generic window.onerror/unhandledrejection listeners -- one visual style for "the client failed
-// to boot" regardless of WHERE in the boot sequence it failed, instead of a blank canvas / silently
-// stuck loading screen. Idempotent (a data-flag guards double-render across multiple errors racing
-// in, e.g. a synchronous throw immediately followed by a rejected promise from the same root cause).
 let _bootFailureShown = false
 function _showBootFailureOverlay(title, detail) {
   if (_bootFailureShown) return
@@ -43,7 +30,7 @@ function _showBootFailureOverlay(title, detail) {
     document.body.appendChild(o)
     const ls = document.getElementById('loading-screen') || document.querySelector('.loading-screen')
     if (ls) ls.style.display = 'none'
-  } catch (_) { /* overlay itself must never throw during an already-failing boot */ }
+  } catch (_) { }
 }
 
 export { _shadowCascadeCountForBoot, _showBootFailureOverlay }

@@ -1,4 +1,3 @@
-// Saved by AgentAuthoringAPI /agent/save-world at 2026-08-21T18:35:05.724Z
 export default {
   "port": 8123,
   "tickRate": 60,

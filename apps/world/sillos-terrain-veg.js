@@ -1,5 +1,3 @@
-// Isolation harness step 3: sillos + terrain + vegetation/rocks (InstancedMesh2, the third real
-// candidate system for GPU-state interference), still no other placed entities.
 const TERRAIN = {
   enabled: true,
   anchorDir: [-0.641, 0.2558, 0.7237],

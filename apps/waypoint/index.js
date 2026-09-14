@@ -1,7 +1,3 @@
-// A placeable WAYPOINT marker: drop several to author an ordered path (race gates, AI patrol route, payload
-// track) with no code. Each carries an `order` number; a game app collects every _waypoint-tagged entity via
-// ctx.world.query, sorts by order, and feeds their positions to ctx.definePath (apps/_lib/path.js). The exported
-// collectWaypoints(ctx) helper does exactly that. Invisible-ish small marker by default.
 export function collectWaypoints(ctx) {
   const marks = ctx.world.query(e => e?.custom?._waypoint)
   return marks
