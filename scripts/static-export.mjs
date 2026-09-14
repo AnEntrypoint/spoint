@@ -73,7 +73,7 @@ async function main() {
   log('building client bundle...')
   execFileSync(process.execPath, [join(SDK_ROOT, 'scripts/bundle-client.mjs'), join(SDK_ROOT, 'client/app.js'), join(OUT, 'app.js'), ''], { stdio: 'inherit', cwd: SDK_ROOT })
 
-  for (const f of ['index.html', 'style.css', 'manifest.json', 'service-worker.js', 'favicon.svg', 'singleplayer-world.json']) {
+  for (const f of ['index.html', 'style.css', 'manifest.json', 'service-worker.js', 'favicon.svg']) {
     const src = join(SDK_ROOT, 'client', f)
     if (existsSync(src)) cpSync(src, join(OUT, f))
   }

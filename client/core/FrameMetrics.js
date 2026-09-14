@@ -233,82 +233,68 @@ export function createTerrainVdrsController() {
   return { tick }
 }
 
-// Adaptive fog: pulls fog.far in only under sustained slow frames (hysteresis-gated so a single jittery
-// frame can't thrash it); a fast device never changes.
-//
-// TIME-OF-DAY / WEATHER RECONCILIATION (fog-controller-time-of-day-integration): this is the ONLY writer
-// of scene.fog.far -- a dawn/dusk atmospheric-haze effect or a future rain/snow visibility drop must NOT
-// become a second uncoordinated writer racing the perf adapter (that would thrash fog.far between two
-// owners each assuming they're the only one moving it). Instead, external callers PROPOSE a ceiling
-// multiplier via setCeilMultiplier(source, factor) -- e.g. the time-of-day render-graph node calls
-// setCeilMultiplier('timeOfDay', 0.55) at dawn/dusk (denser real-world haze at low sun angles) and
-// setCeilMultiplier('timeOfDay', 1.0) at noon; the not-yet-shipped weather system would call
-// setCeilMultiplier('weather', 0.4) during active rain. Multiple sources compose multiplicatively (fog
-// gets denser, never fights itself back open) and the EFFECTIVE ceiling is
-// min(configFar(), configFar() * min(all registered multipliers)) -- this controller alone still owns
-// every actual write to fog.far, so perf-adaptation and atmosphere/weather-driven density are always
-// reconciled through the same hysteresis/step logic rather than stomping each other.
-//
-// A lowered ceiling must be respected even while frames are comfortably fast (the old code only ever
-// pulled fog.far in during a SLOW streak, so a tightening ceiling proposed while the device was fast
-// would just be ignored -- fog.far would sit above the new ceiling indefinitely). Below, the fast-path
-// clamps fog.far down to the ceiling immediately when the ceiling has dropped under the current value
-// (a ceiling tightening is a deliberate, already-hysteresis-free decision made upstream by the day-cycle
-// clock's own smooth per-frame lerp -- no separate hysteresis needed for a monotonic external signal),
-// then still steps back UP toward the (possibly time-of-day-limited) ceiling only under the normal
-// fast-frame hysteresis gate, same as before.
 export function createFogController() {
-  const FOG_SLOW_MS = 8.0             // sustained avg above this -> pull fog in
-  const FOG_FAST_MS = 6.0             // sustained avg below this -> push fog back out
-  const FOG_SLOW_FRAMES = 60          // frames the slow/fast condition must hold
-  const FOG_HYST = 3                  // consecutive qualifying windows before a step
+  const SLOW_FRAME_MS = 8.0
+  const FAST_FRAME_MS = 6.0
+  const FRAMES_PER_WINDOW = 60
+  const WINDOWS_BEFORE_STEP = 3
   const FOG_FAR_MIN = 120, FOG_FAR_DEFAULT = 200, FOG_STEP = 8
-  let acc = 0, n = 0, slowStreak = 0, fastStreak = 0
-  const _ceilMultipliers = new Map() // source name -> factor in (0,1]
+  let accumulatedMs = 0, framesInWindow = 0, slowStreak = 0, fastStreak = 0
+  let trackedFog = null, nearToFarRatio = 0, perfFar = Infinity
+  const ceilingMultipliers = new Map()
   function setCeilMultiplier(source, factor) {
     if (typeof source !== 'string' || !source) return
-    if (!Number.isFinite(factor) || factor <= 0) { _ceilMultipliers.delete(source); return }
-    _ceilMultipliers.set(source, Math.min(1, factor))
+    if (!Number.isFinite(factor) || factor <= 0) { ceilingMultipliers.delete(source); return }
+    ceilingMultipliers.set(source, Math.min(1, factor))
   }
-  function _combinedMultiplier() {
+  function combinedMultiplier() {
     let m = 1
-    for (const f of _ceilMultipliers.values()) m *= f
+    for (const f of ceilingMultipliers.values()) m *= f
     return m
   }
   function configFar() {
-    const v = (typeof window !== 'undefined' && Number.isFinite(window.__fogFar)) ? window.__fogFar : FOG_FAR_DEFAULT
-    return v
+    return (typeof window !== 'undefined' && Number.isFinite(window.__fogFar)) ? window.__fogFar : FOG_FAR_DEFAULT
   }
-  const _fogMirror = { far: 0, ceil: 0, baseCeil: 0, mult: 1, avgMs: 0 }
+  function adoptFog(fog) {
+    trackedFog = fog
+    const ratio = fog.near / fog.far
+    const bandIsValid = ratio >= 0 && ratio < 1
+    if (!bandIsValid) console.error('[fog] configured near', fog.near, 'is not below far', fog.far, '-- linear fog would paint every object in the fog colour; starting fog at the camera instead')
+    nearToFarRatio = bandIsValid ? ratio : 0
+    perfFar = Infinity
+  }
+  function applyBand(fog, far) {
+    fog.far = far
+    fog.near = far * nearToFarRatio
+  }
+  const fogMirror = { near: 0, far: 0, ceil: 0, baseCeil: 0, mult: 1, perfFar: 0, avgMs: 0 }
+  function publishMirror(fog, ceil, baseCeil, mult, avgMs) {
+    const f = fogMirror
+    f.near = fog.near; f.far = fog.far; f.ceil = ceil; f.baseCeil = baseCeil; f.mult = mult; f.perfFar = perfFar; f.avgMs = avgMs
+    if (window.__fogState !== f) window.__fogState = f
+  }
   function tick(scene, ms) {
     if (typeof window === 'undefined' || window.__fogAdaptOff) return
     const fog = scene && scene.fog
-    if (!fog || typeof fog.far !== 'number') return
+    if (!fog || fog.isFog !== true) return
+    if (fog !== trackedFog) adoptFog(fog)
     const baseCeil = configFar()
-    const mult = _combinedMultiplier()
+    const mult = combinedMultiplier()
     const ceil = Math.max(FOG_FAR_MIN, baseCeil * mult)
-    // Respect a tightened ceiling immediately regardless of frame-time streak state -- a time-of-day/
-    // weather-driven ceiling drop is an atmospheric-density decision, not a perf one, so it should not
-    // wait on FOG_HYST slow-frame windows to take effect.
-    if (fog.far > ceil) fog.far = ceil
-    acc += ms; n++
-    // window.__fogState is the documented debug/discovery mirror (RenderControls.js `fogState` knob) --
-    // it must reflect the CURRENT ceil/mult/far every tick, not just once every FOG_SLOW_FRAMES (60)
-    // samples. On a slow device (high avgMs) waiting for that window can take several real seconds,
-    // during which the mirror shows stale pre-tightening data even though fog.far itself was ALREADY
-    // clamped above -- caught live while verifying the time-of-day reconciliation (a >100ms/frame run
-    // left window.__fogState reporting mult:1 long after the real ceiling had already tightened).
-    if (typeof window !== 'undefined') { const f = _fogMirror; f.far = fog.far; f.ceil = ceil; f.baseCeil = baseCeil; f.mult = mult; f.avgMs = n > 0 ? acc / n : 0; if (window.__fogState !== f) window.__fogState = f }
-    if (n < FOG_SLOW_FRAMES) return
-    const avg = acc / n; acc = 0; n = 0
-    if (avg > FOG_SLOW_MS) {
+    perfFar = Math.min(Math.max(perfFar, FOG_FAR_MIN), Math.max(FOG_FAR_MIN, baseCeil))
+    applyBand(fog, Math.min(perfFar, ceil))
+    accumulatedMs += ms; framesInWindow++
+    if (framesInWindow < FRAMES_PER_WINDOW) { publishMirror(fog, ceil, baseCeil, mult, accumulatedMs / framesInWindow); return }
+    const avg = accumulatedMs / framesInWindow; accumulatedMs = 0; framesInWindow = 0
+    if (avg > SLOW_FRAME_MS) {
       slowStreak++; fastStreak = 0
-      if (slowStreak >= FOG_HYST && fog.far > FOG_FAR_MIN) { fog.far = Math.max(FOG_FAR_MIN, fog.far - FOG_STEP); slowStreak = 0 }
-    } else if (avg < FOG_FAST_MS) {
+      if (slowStreak >= WINDOWS_BEFORE_STEP) { perfFar = Math.max(FOG_FAR_MIN, fog.far - FOG_STEP); slowStreak = 0 }
+    } else if (avg < FAST_FRAME_MS) {
       fastStreak++; slowStreak = 0
-      if (fastStreak >= FOG_HYST && fog.far < ceil) { fog.far = Math.min(ceil, fog.far + FOG_STEP); fastStreak = 0 }
+      if (fastStreak >= WINDOWS_BEFORE_STEP) { perfFar = Math.min(baseCeil, perfFar + FOG_STEP); fastStreak = 0 }
     } else { slowStreak = 0; fastStreak = 0 }
-    if (typeof window !== 'undefined') { const f = _fogMirror; f.far = fog.far; f.ceil = ceil; f.baseCeil = baseCeil; f.mult = mult; f.avgMs = avg; if (window.__fogState !== f) window.__fogState = f }
+    applyBand(fog, Math.min(perfFar, ceil))
+    publishMirror(fog, ceil, baseCeil, mult, avg)
   }
   return { tick, setCeilMultiplier }
 }

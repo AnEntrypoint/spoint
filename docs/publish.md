@@ -31,8 +31,7 @@ This assembles everything a static host needs into `dist-static/`:
 - `app.js` -- the minified client bundle (esbuild, `scripts/bundle-client.mjs`)
 - `src/sdk/WorkerEntry.js` -- the bundled server-side module graph that runs inside the Worker
   (`scripts/bundle-worker.mjs`, same mechanism `client/BrowserServer.js` already expects at that path)
-- `index.html`, `style.css`, `manifest.json`, `service-worker.js`, `favicon.svg`,
-  `singleplayer-world.json` -- the app shell
+- `index.html`, `style.css`, `manifest.json`, `service-worker.js`, `favicon.svg` -- the app shell
 - `node_modules/` -- only the packages the client importmap actually references (three, jolt-physics,
   mapspinner, streaming-gltf, etc.)
 - `apps/` -- your project's own game code (`apps/_lib/` engine helpers are merged in automatically)

@@ -112,8 +112,8 @@ Press `P` to toggle editor mode:
 
 Add `?singleplayer` to the URL to run the **same server inside a Web Worker** (`BrowserServer` +
 `src/sdk/WorkerEntry.js`) instead of connecting to it over WebSocket — same origin, same code, no
-separate process. `?world=<name>` selects the world (default `tps-game`); `singleplayer-world.json`
-is the last-resort fallback.
+separate process. `?world=<name>` selects the world (default `tps-game`); a world module that fails to load stops
+the boot with a console error instead of substituting another world.
 
 ## Architecture
 

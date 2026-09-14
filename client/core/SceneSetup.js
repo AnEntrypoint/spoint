@@ -218,29 +218,11 @@ export function createRenderer(isMobile) {
   renderer.debug.checkShaderErrors = (typeof window !== 'undefined' && window.__checkShaderErrors) || false
   _applyCommonRendererSetup(renderer, isMobile)
   renderer.xr.enabled = true
-  let _ctxLostSceneState = null
   renderer.domElement.addEventListener('webglcontextlost', e => {
     e.preventDefault()
     console.warn('[renderer] WebGL context lost')
-    try {
-      _ctxLostSceneState = { background: scene.background?.getHex?.(), fog: scene.fog ? { color: scene.fog.color.getHex(), near: scene.fog.near, far: scene.fog.far } : null }
-    } catch (_) { _ctxLostSceneState = {} }
   }, false)
-  renderer.domElement.addEventListener('webglcontextrestored', () => {
-    if (_ctxLostSceneState) {
-      try {
-        if (_ctxLostSceneState.background != null) scene.background = new THREE.Color(_ctxLostSceneState.background)
-        if (_ctxLostSceneState.fog) {
-          if (_ctxLostSceneState.fog.type === 'exp2') {
-            scene.fog = new THREE.FogExp2(_ctxLostSceneState.fog.color, _ctxLostSceneState.fog.density)
-          } else {
-            scene.fog = new THREE.Fog(_ctxLostSceneState.fog.color, _ctxLostSceneState.fog.near, _ctxLostSceneState.fog.far)
-          }
-        }
-      } catch (_) {}
-    }
-    location.reload()
-  }, false)
+  renderer.domElement.addEventListener('webglcontextrestored', () => location.reload(), false)
   return renderer
 }
 

@@ -230,8 +230,8 @@ instead. The server refuses a second instance on an in-use port with a clear mes
 </ul>
 <h2>Singleplayer Mode</h2></p><p>Add <code>?singleplayer</code> to the URL to run the <strong>same server inside a Web Worker</strong> (<code>BrowserServer</code> +
 <code>src/sdk/WorkerEntry.js</code>) instead of connecting to it over WebSocket — same origin, same code, no
-separate process. <code>?world=&lt;name&gt;</code> selects the world (default <code>tps-game</code>); <code>singleplayer-world.json</code>
-is the last-resort fallback.</p><p><h2>Architecture</h2></p><p><pre><code class="language-">server.js                         Entry point
+separate process. <code>?world=&lt;name&gt;</code> selects the world (default <code>tps-game</code>); a world module that fails to load stops
+the boot with a console error instead of substituting another world.</p><p><h2>Architecture</h2></p><p><pre><code class="language-">server.js                         Entry point
 src/sdk/server.js                 Creates subsystems
 src/sdk/TickHandler.js            Per-tick: movement → physics → collisions → apps → snapshot
 src/physics/World.js              Jolt physics wrapper
@@ -809,8 +809,8 @@ resolve to the same script, <code>spoint-static-export</code> is just the packag
 <h1>or directly: node scripts/static-export.mjs dist-static</code></pre></h1></p><p>This assembles everything a static host needs into <code>dist-static/</code>:</p><p><ul><li><code>app.js</code> -- the minified client bundle (esbuild, <code>scripts/bundle-client.mjs</code>)</li>
 <li><code>src/sdk/WorkerEntry.js</code> -- the bundled server-side module graph that runs inside the Worker</li>
 </ul>  (<code>scripts/bundle-worker.mjs</code>, same mechanism <code>client/BrowserServer.js</code> already expects at that path)
-<ul><li><code>index.html</code>, <code>style.css</code>, <code>manifest.json</code>, <code>service-worker.js</code>, <code>favicon.svg</code>,</li>
-</ul>  <code>singleplayer-world.json</code> -- the app shell
+<ul><li><code>index.html</code>, <code>style.css</code>, <code>manifest.json</code>, <code>service-worker.js</code>, <code>favicon.svg</code> -- the app shell</li>
+</ul>
 <ul><li><code>node_modules/</code> -- only the packages the client importmap actually references (three, jolt-physics,</li>
 </ul>  mapspinner, streaming-gltf, etc.)
 <ul><li><code>apps/</code> -- your project's own game code (<code>apps/_lib/</code> engine helpers are merged in automatically)</li>

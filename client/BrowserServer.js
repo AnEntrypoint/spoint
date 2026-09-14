@@ -56,9 +56,8 @@ export class BrowserServer extends BaseClient {
 
     const _sourcesReady = (async () => {
       const _manifestPromise = fetch(new URL('apps-manifest.json', _root)).then(r => r.ok ? r.json() : null).catch(() => null)
-      const worldDef = this.config.worldDef ||
-        await fetch(new URL('singleplayer-world.json', _root)).then(r => r.ok ? r.json() : null).catch(() => null) ||
-        {}
+      const worldDef = this.config.worldDef
+      if (!worldDef) throw new Error('[BrowserServer] no worldDef supplied -- the world module failed to load, so there is no world to run')
       const appNames = [...new Set([
         ...((worldDef.entities || []).map(e => e.app).filter(Boolean)),
         ...((worldDef.placeableApps || [])),

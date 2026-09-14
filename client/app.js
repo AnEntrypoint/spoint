@@ -927,16 +927,14 @@ if (_hashQueryIdx >= 0) {
     if (!_params.has(k)) _params.append(k, v)
   }
 }
-// Default to singleplayer/tps-game when no mode is present in the URL at all (a bare visit),
-// matching client/index.html's removed redirect: previously a synchronous location.replace
-// added a full extra navigation before app.js even ran, purely to write these same defaults
-// into the URL bar first.
+const DEFAULT_WORLD = 'tps-game'
 const _hasAnyMode = _params.has('singleplayer') || _params.has('wwjoin') || _params.has('room') || _params.has('multiplayer')
 const _isSingleplayer = _hasAnyMode ? _params.has('singleplayer') : true
-const _worldParam = _params.get('world') || (_hasAnyMode ? null : 'tps-game')
 const _isHost = _params.has('host')
 const _joinOffer = _params.get('join')
 const _wwRoom = _params.get('room')
+const _runsInPageServer = _isSingleplayer || _isHost || !!_joinOffer || !!_wwRoom
+const _worldParam = _params.get('world') || (_runsInPageServer ? DEFAULT_WORLD : null)
 const _wwJoin = _params.has('wwjoin')
 const _showStats = _params.has('showStats')
 // ?connect=host:port -- click-to-join target for a dedicated server discovered via the server browser
@@ -1226,9 +1224,8 @@ function _splitAppPath(path) {
   return i < 0 ? { appName: p, file: 'index.js' } : { appName: p.slice(0, i), file: p.slice(i + 1) }
 }
 let _worldDef = null, _worldLoaded = false
-// Also loads the world module for host/join, not just singleplayer, or a hosted game silently falls back to the default world.
-if (_worldParam && (_isSingleplayer || _isHost || _wwRoom || _joinOffer)) {
-  const _wmod = await import(`/apps/world/${_worldParam}.js`).catch(() => null)
+if (_worldParam && _runsInPageServer) {
+  const _wmod = await import(`/apps/world/${_worldParam}.js`).catch(e => { console.error(`[world] failed to load /apps/world/${_worldParam}.js:`, e?.message || e); return null })
   if (_wmod?.default) _worldDef = _wmod.default
 }
 // Apply the shareable ?seed= override (see _seedParam above) before _worldDef is used by anything
@@ -2552,7 +2549,7 @@ let _lobby = null, _lobbyPromise = null
 function _getLobby() {
   if (!_lobbyPromise) {
     _lobbyPromise = import('./hud/createLobby.js').then(({ createLobby }) => {
-      _lobby = createLobby({ world: _worldParam || 'tps-game', onClose: () => clientMachine.send('CLOSE_LOBBY') })
+      _lobby = createLobby({ world: _worldParam || DEFAULT_WORLD, onClose: () => clientMachine.send('CLOSE_LOBBY') })
       window.__app.lobby = _lobby
       return _lobby
     })
