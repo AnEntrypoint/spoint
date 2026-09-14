@@ -6,7 +6,7 @@ import { fetchCached } from './ModelCache.js'
 import { STRINGS } from './core/strings.js'
 import { createStaticInstanceStore } from './core/StaticInstanceStore.js'
 import { RenderControls } from './core/RenderControls.js'
-import { SKIP_MATS_SET, PLACEHOLDER_DIMS, MESH_BUILDERS, LOD_CONFIGS, MAX_CONCURRENT_LOADS_INITIAL, MAX_CONCURRENT_LOADS_RUNTIME, _forceDoubleSide, _buildSoftbodyGeometry, _rewriteSoftbodyGeometry, _makeLabelSprite, _fluidCapacityFor, _buildFluidMesh, _rewriteFluidMesh, _buildFluidSurfaceMesh, _rewriteFluidSurfaceMesh } from './EntityLoaderMeshBuild.js'
+import { SKIP_MATS_SET, PLACEHOLDER_DIMS, MESH_BUILDERS, LOD_CONFIGS, MAX_CONCURRENT_LOADS_INITIAL, MAX_CONCURRENT_LOADS_RUNTIME, _forceDoubleSide, _buildSoftbodyGeometry, _rewriteSoftbodyGeometry, _makeLabelSprite, _paintLabel, _fluidCapacityFor, _buildFluidMesh, _rewriteFluidMesh, _buildFluidSurfaceMesh, _rewriteFluidSurfaceMesh } from './EntityLoaderMeshBuild.js'
 
 const _primGeoCache = new Map()
 const _primMatCache = new Map()
@@ -584,17 +584,7 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
         if (existingLabel.userData._labelText !== custom.label) {
           const canvas = existingLabel.material.map?.image
           if (canvas && canvas.getContext) {
-            const ctx = canvas.getContext('2d')
-            ctx.clearRect(0, 0, canvas.width, canvas.height)
-            const tw = ctx.measureText(custom.label).width
-            const pw = Math.min(240, Math.max(40, tw + 24))
-            ctx.fillStyle = 'rgba(0,0,0,0.55)'
-            _roundRect(ctx, (256 - pw) / 2, 4, pw, 56, 12)
-            ctx.fill()
-            ctx.fillStyle = '#ffffff'
-            ctx.font = 'bold 24px sans-serif'
-            ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-            ctx.fillText(String(custom.label), 128, 34)
+            _paintLabel(canvas, custom.label)
             existingLabel.material.map.needsUpdate = true
           }
           existingLabel.userData._labelText = custom.label

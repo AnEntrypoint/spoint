@@ -85,20 +85,24 @@ function _rewriteSoftbodyGeometry(mesh, sb, originPos) {
   geo.computeBoundingSphere()
   return true
 }
-function _makeLabelSprite(text) {
-  const canvas = document.createElement('canvas')
-  canvas.width = 256; canvas.height = 64
+const LABEL_CANVAS_W = 256, LABEL_CANVAS_H = 64
+function _paintLabel(canvas, text) {
+  const label = String(text || '')
   const ctx = canvas.getContext('2d')
-  ctx.clearRect(0, 0, 256, 64)
-  const textWidth = ctx.measureText(text || '').width
-  const pillWidth = Math.min(240, Math.max(40, textWidth + 24))
+  ctx.clearRect(0, 0, LABEL_CANVAS_W, LABEL_CANVAS_H)
+  ctx.font = 'bold 24px sans-serif'
+  const pillWidth = Math.min(240, Math.max(40, ctx.measureText(label).width + 24))
   ctx.fillStyle = 'rgba(0,0,0,0.55)'
-  _roundRect(ctx, (256 - pillWidth) / 2, 4, pillWidth, 56, 12)
+  _roundRect(ctx, (LABEL_CANVAS_W - pillWidth) / 2, 4, pillWidth, 56, 12)
   ctx.fill()
   ctx.fillStyle = '#ffffff'
-  ctx.font = 'bold 24px sans-serif'
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-  ctx.fillText(String(text || ''), 128, 34)
+  ctx.fillText(label, LABEL_CANVAS_W / 2, 34)
+}
+function _makeLabelSprite(text) {
+  const canvas = document.createElement('canvas')
+  canvas.width = LABEL_CANVAS_W; canvas.height = LABEL_CANVAS_H
+  _paintLabel(canvas, text)
   const tex = new THREE.CanvasTexture(canvas)
   tex.minFilter = THREE.LinearFilter
   const mat = new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true, opacity: 0.9 })
@@ -205,6 +209,6 @@ export {
   SKIP_MATS_SET, PLACEHOLDER_DIMS, MESH_BUILDERS, LOD_CONFIGS,
   MAX_CONCURRENT_LOADS_INITIAL, MAX_CONCURRENT_LOADS_RUNTIME,
   _forceDoubleSide, _buildSoftbodyGeometry, _rewriteSoftbodyGeometry,
-  _makeLabelSprite, _fluidCapacityFor, _buildFluidMesh, _rewriteFluidMesh,
+  _makeLabelSprite, _paintLabel, _fluidCapacityFor, _buildFluidMesh, _rewriteFluidMesh,
   _buildFluidSurfaceMesh, _rewriteFluidSurfaceMesh
 }
