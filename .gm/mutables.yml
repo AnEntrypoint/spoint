@@ -1479,3 +1479,20 @@
 - id: m-cold-server-boot-blocks-live-witness
   text: Attempted to boot a real spoint server (node server.js, tps-game world) this session to live-witness the grass-flicker/churn PRD rows via the cdp verb. Confirmed the server's HTTP listen() is gated (src/sdk/ServerBoot.js:229-234) behind Promise.all(envResolved.map(ensureProgressive)) -- an await on ALL worldDef entities with custom._interior finishing their environment GLB bake. tps-game prewarms 17+ map GLBs sequentially/4-at-a-time (each 10-40s), so cold boot to first-listen took 2+ minutes and was still not ready when killed. This blocks any same-session live browser witness on a cold checkout without either (a) a warm dist/cache from a prior run, or (b) budgeting several minutes purely for boot before any verification dispatch. Left several PRD rows (grass-flickering-on-off, grass-chunk-churn-flicker, everything-works-100-live-sweep, thebird-host-editor-full-wiring, models-lit-but-flat-missing-texture-after-long-background-stall) pending rather than force-closed, since their acceptance criteria require live witness this constraint prevented.
   status: unknown
+- id: fade-is-day-night-cycle
+  subject: 'Hypothesis: content-fades-to-silhouette is tps-game timeOfDay (dayLengthSec 600, startFraction 0.5) driving sunset at t=0.75 = 150s; KEYFRAMES deep-night ambient 0x0d1428@0.22 leaves models near-black. Unwitnessed until live elevationDeg + screenshot sequence over 3-4 minutes confirms.'
+  status: unknown
+  SESSION_ID: fade-sil-1
+- id: fade-sky-terrain-consistency-at-night
+  subject: 'Unknown: at night does the mapspinner sky/terrain darken in sync with THREE lights (consistent night) or stay lit so models read as silhouettes against a bright sky? Witness via screenshot at elevationDeg<-10.'
+  status: unknown
+  SESSION_ID: fade-sil-1
+- id: fade-intended-behaviour-night
+  subject: 'Assumed: user does not want objects to become unreadable silhouettes; a night phase that keeps content legible (moonlit floor, sky darkens consistently) is the target -- not disabling the cycle. Default chosen, disclose in commit.'
+  status: assumed
+  SESSION_ID: fade-sil-1
+- id: csweep-string-embedded-comments-are-data
+  subject: 'Comment-like text inside JS string/template literals (embedded GLSL, patch-deps ''// [spoint patch]'' idempotency markers, generated-file headers) is runtime data, not a JS comment: left byte-identical. Witness: scripts/patch-deps.mjs:120 emits ''// [spoint patch]'' marker strings; gen-height.mjs:475 header template; octahedral-impostor-ez.js:303 .replace into ''// #include''. acorn-based csweep strip only removes parser-level comments.'
+  status: resolved
+  witness: scripts/patch-deps.mjs:120, packages/mapspinner/scripts/gen-height.mjs:475, packages/streaming-gltf/src/octahedral-impostor-ez.js:303
+  session_id: cs-sweep-0914
