@@ -15,8 +15,6 @@ const _thresholdFrag = `
   void main() {
     vec3 c = texture2D(tScene, vUv).rgb;
     float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
-    // Soft-knee bright-pass: smoothly ramps in around uThreshold instead of a hard cutoff (avoids a
-    // harsh edge around bright objects like the pickup emissive spheres / tracer streaks).
     float soft = clamp(lum - uThreshold + uKnee, 0.0, 2.0 * uKnee);
     soft = soft * soft / max(0.0001, 4.0 * uKnee);
     float contribution = max(soft, lum - uThreshold);
@@ -29,11 +27,8 @@ const _blurFrag = `
   precision highp float;
   varying vec2 vUv;
   uniform sampler2D tSource;
-  uniform vec2 uDirection; // (1/width, 0) or (0, 1/height), pre-scaled by caller
+  uniform vec2 uDirection;
   void main() {
-    // 9-tap box blur, symmetric around the center texel -- cheap and, run twice (H then V) across
-    // a couple of composited frames, visually reads as a soft glow at the half-res scale this runs
-    // at without needing a real gaussian-weighted kernel.
     vec3 sum = texture2D(tSource, vUv).rgb * 0.227;
     for (int i = 1; i <= 4; i++) {
       float w = 0.194 - float(i) * 0.03;

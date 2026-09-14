@@ -72,13 +72,6 @@ void main() {
   #ifdef USE_TRANSMISSION
     diffuseColor.a *= material.transmissionAlpha;
   #endif
-  // Stay in linear space: this target is DATA (an albedo atlas re-sampled by the runtime impostor
-  // shader as a plain texture read, see IMPOSTOR_MAP_FRAGMENT), not a screen framebuffer -- encoding
-  // to the renderer's OUTPUT color space (srgb) here while createAtlasRenderTarget tags the target
-  // LinearSRGBColorSpace (i.e. "already linear, don't decode on sample") double-converts: bytes end
-  // up sRGB-encoded but get read back as if linear, crushing every baked color toward black uniformly
-  // (verified live: renderer.outputColorSpace='srgb', rt tagged LinearSRGBColorSpace, atlas sampled
-  // near-black 0-47/255 across all species tiles while the same trees render correct color close-up).
   gAlbedo = diffuseColor;
   #ifdef PREMULTIPLIED_ALPHA
     gAlbedo.rgb *= gAlbedo.a;
@@ -106,25 +99,11 @@ varying vec2 vSpriteUV2;
 varying vec2 vSpriteUV3;
 
 #ifdef EZ_FADE
-// Per-instance crossfade amount, 0 = fully transparent (mesh-only LOD still owns this pixel) ->
-// 1 = fully opaque impostor. Declared as an actual InstancedBufferAttribute (instanceFade) on the
-// per-asset THREE.InstancedMesh in octahedral-impostor-ez-tier.js (mirrors the existing per-instance
-// instanceMatrix, not the InstancedMesh2-only initUniformsPerInstance mechanism VegImpostorTier's
-// atlasTile uses -- model-pool's tier is a plain THREE.InstancedMesh).
 attribute float instanceFade;
 flat varying float vFade;
 #endif
 
 #ifdef EZ_PARALLAX
-// Depth-offset UV sampling (parallax-corrected impostor): each blended sprite's flat plane-projected
-// UV reads as if it were a flat card, so a close-range impostor looks visibly billboard-flat versus
-// the real geometry it replaces. ATLAS_FRAGMENT already packs 1.0-fragCoordZ (near=1, far=0) into
-// the normalDepth atlas's alpha channel per texel; IMPOSTOR_MAP_FRAGMENT re-samples that depth at the
-// flat UV first, then offsets the UV along the VIEW DIRECTION projected into EACH sprite's own
-// tangent/bitangent plane basis before the real color/normal sample -- so nearer texels (larger 1-z)
-// visibly shift toward the viewer, producing real per-fragment parallax instead of a flat card. The
-// offset is computed in the SAME per-sprite plane basis projectToPlaneUV already builds (tangent,
-// bitangent, normal), so it needs that basis passed through to the fragment stage per blended sprite.
 flat varying vec3 vViewDirLocal;
 flat varying vec3 vSpriteTangent1;
 flat varying vec3 vSpriteBitangent1;
@@ -139,8 +118,6 @@ vec2 encodeDirection(vec3 direction) {
   vec3 octahedron = direction / dot(direction, sign(direction));
   return vec2(1.0 + octahedron.x + octahedron.z, 1.0 + octahedron.z - octahedron.x) * 0.5;
   #else
-  // Full octahedron: inverse of octaGridToDir (y up). Normalize to the L1
-  // octahedron, fold the lower hemisphere, map square [-1,1] -> grid [0,1].
   vec3 o = direction / (abs(direction.x) + abs(direction.y) + abs(direction.z));
   float ox = o.x;
   float oz = o.z;
@@ -297,17 +274,8 @@ flat varying vec3 vSpriteBitangent2;
 flat varying vec3 vSpriteTangent3;
 flat varying vec3 vSpriteBitangent3;
 
-// Depth-offset UV: sample the packed depth (normalMap.a = 1-fragCoordZ, near=1/far=0) at the flat
-// (pre-atlas-tile-remap, i.e. this sprite's OWN [cellBase, cellBase+cellSize] atlas cell) UV, then push
-// the UV opposite the view direction proportional to (depth - 0.5) so nearer texels shift toward the
-// viewer -- the standard parallax-offset-mapping trick, applied per blended sprite in ITS OWN
-// tangent/bitangent plane basis (each of the 3 blended sprites has a different view-aligned plane, so
-// the offset direction differs per sprite). Clamped to cellBase..cellBase+cellSize -- NOT [0,1] --
-// so the offset can never sample a neighboring octahedral cell (or, once EZ_ATLAS_TILE is active,
-// bleed into a different asset's tile of the mega atlas): worst case the sample clamps flat at this
-// sprite's own cell edge, a bounded stretch artifact rather than a wrong-view/wrong-asset sample.
 vec2 parallaxOffsetUV(vec2 uv, vec2 cellBase, float cellSize, vec3 tangent, vec3 bitangent, vec3 normal) {
-  float depth = texture(normalMap, uv).a; // 1 = nearest, 0 = farthest within this sprite's capture
+  float depth = texture(normalMap, uv).a;
   vec3 viewTS = vec3(dot(vViewDirLocal, tangent), dot(vViewDirLocal, bitangent), dot(vViewDirLocal, normal));
   vec2 offset = viewTS.xy * ((depth - 0.5) * uParallaxScale);
   return clamp(uv + offset, cellBase, cellBase + vec2(cellSize));
@@ -316,9 +284,6 @@ vec2 parallaxOffsetUV(vec2 uv, vec2 cellBase, float cellSize, vec3 tangent, vec3
 
 #ifdef EZ_USE_NORMAL
 vec3 blendNormals(vec2 uv1, vec2 uv2, vec2 uv3) {
-  // inline the unpack (rgb*2-1) instead of three's unpackRGBToNormal: this function is injected at
-  // the clipping_planes_pars_fragment slot which is AFTER #include <packing> is consumed, so the
-  // helper is undeclared there (witnessed: 'unpackRGBToNormal no matching overloaded function').
   vec3 normalDepth1 = texture(normalMap, uv1).rgb * 2.0 - 1.0;
   vec3 normalDepth2 = texture(normalMap, uv2).rgb * 2.0 - 1.0;
   vec3 normalDepth3 = texture(normalMap, uv3).rgb * 2.0 - 1.0;
@@ -335,21 +300,10 @@ vec2 getUV(vec2 uv_f, vec2 frame, float frame_size) {
 #ifdef EZ_ATLAS_TILE
 uniform float uAtlasGridSide;
 uniform float uAtlasTileScale;
-// NOTE: the per-instance atlasTile varying is declared by InstancedMesh2 initUniformsPerInstance
-// just before main(), so the tile remap is done INLINE in IMPOSTOR_MAP_FRAGMENT (inside main, where
-// atlasTile is in scope) -- NOT in a global helper here (which precedes that declaration).
 #endif
 
 #ifdef EZ_FADE
 flat varying float vFade;
-// Screen-space interleaved-gradient-noise dithered discard (Jorge Jimenez, "Next Generation Post
-// Processing in Call of Duty: Advanced Warfare") -- a fixed per-pixel threshold pattern independent
-// of world/object position, so it applies uniformly to a camera-facing billboard with no seams
-// between its 3 blended sprite samples. Threshold-vs-fade (not multiply-into-alpha) keeps the draw
-// fully OPAQUE (depthWrite stays on, no back-to-front sort, no translucency blend cost) -- the
-// stipple pattern is the entire crossfade, same technique as three's own alphaHash but screen-space
-// instead of world-space (a billboard's world position doesn't vary across its own face the way a
-// hashed mesh surface needs).
 float ezFadeDither(vec2 fragCoord) {
   return fract(52.9829189 * fract(dot(fragCoord, vec2(0.06711056, 0.00583715))));
 }
@@ -364,18 +318,11 @@ vec2 uv2 = getUV(vSpriteUV2, vSprite2, spriteSize);
 vec2 uv3 = getUV(vSpriteUV3, vSprite3, spriteSize);
 
 #ifdef EZ_PARALLAX
-// Cell base = vSpriteN * spriteSize (same math getUV uses internally for the frame term), computed
-// here explicitly so the offset can be clamped to THIS sprite's own cell -- applied pre-atlas-tile-
-// remap so it composes correctly with EZ_ATLAS_TILE below (that remap is a pure affine reindex of the
-// already-cell-clamped uv into the mega atlas, so offsetting first then remapping == remapping the
-// offset cell).
 uv1 = parallaxOffsetUV(uv1, vSprite1 * spriteSize, spriteSize, vSpriteTangent1, vSpriteBitangent1, normalize(cross(vSpriteTangent1, vSpriteBitangent1)));
 uv2 = parallaxOffsetUV(uv2, vSprite2 * spriteSize, spriteSize, vSpriteTangent2, vSpriteBitangent2, normalize(cross(vSpriteTangent2, vSpriteBitangent2)));
 uv3 = parallaxOffsetUV(uv3, vSprite3 * spriteSize, spriteSize, vSpriteTangent3, vSpriteBitangent3, normalize(cross(vSpriteTangent3, vSpriteBitangent3)));
 #endif
 #ifdef EZ_ATLAS_TILE
-// remap each sprite uv into this instance's tile of the mega atlas (atlasTile = species index, in
-// scope here inside main). Both the colour samples below AND blendNormals(uv1,uv2,uv3) use these.
 vec2 ezTileBase = vec2(mod(atlasTile, uAtlasGridSide), floor(atlasTile / uAtlasGridSide));
 uv1 = (ezTileBase + uv1) * uAtlasTileScale;
 uv2 = (ezTileBase + uv2) * uAtlasTileScale;
@@ -386,21 +333,12 @@ vec4 sprite1, sprite2, sprite3;
 float test = 1.0 - alphaClamp;
 
 #ifdef EZ_FAR_SINGLE_SPRITE
-// CHEAP FAR PATH (vp-impostor-shader-cost): sample ONLY the single nearest octahedral view (no
-// 3-way sprite blend). This is the FARTHEST impostor tier where the ~3x fragment cost of blending
-// (3 albedo + 3 normal texture fetches per fragment) buys almost no visible quality -- the tree is a
-// few pixels tall. The tradeoff is slight view-popping as the camera orbits (the impostor snaps
-// between octa views instead of cross-fading); acceptable at extreme distance. LEVER: enable via the
-// material farSingleSprite:true option (define EZ_FAR_SINGLE_SPRITE) for the far/shared tier; the
-// nearer impostors keep the full 3-sprite blend below. Picks whichever sprite has the max weight so
-// it tracks the dominant view rather than always sprite1.
 {
   vec2 uvBest = uv1;
   if (vSpritesWeight.y >= vSpritesWeight.x && vSpritesWeight.y >= vSpritesWeight.z) uvBest = uv2;
   else if (vSpritesWeight.z >= vSpritesWeight.x && vSpritesWeight.z >= vSpritesWeight.y) uvBest = uv3;
   sprite1 = texture(map, uvBest);
   if (sprite1.a <= alphaClamp) discard;
-  // collapse uv1..uv3 to the chosen view so blendNormals (below) also samples once-ish via weights.
   uv1 = uvBest; uv2 = uvBest; uv3 = uvBest;
   sprite2 = sprite1; sprite3 = sprite1;
 }
@@ -432,10 +370,6 @@ vec4 blendedColor = sprite1 * vSpritesWeight.x + sprite2 * vSpritesWeight.y + sp
 if (blendedColor.a <= alphaClamp) discard;
 
 #ifdef EZ_FADE
-// vFade in [0,1]: dither out the fraction (1-vFade) of pixels so the billboard is stochastically
-// 0% .. 100% covered across its own face. depthWrite/depthTest are untouched (still fully opaque
-// where it DOES draw), so this composes correctly with the real mesh's own opaque draw behind it --
-// unlike an alpha-blended fade there is no draw-order dependency between the two LODs.
 if (ezFadeDither(gl_FragCoord.xy) > vFade) discard;
 #endif
 
@@ -446,9 +380,6 @@ blendedColor = vec4(vec3(blendedColor.rgb) / blendedColor.a, 1.0);
 
 export const IMPOSTOR_NORMAL_FRAGMENT_BEGIN = `
 #ifdef EZ_FAR_SINGLE_SPRITE
-// CHEAP FAR PATH (D1): sample ONE normal instead of blending 3. In single-sprite mode uv1 was
-// collapsed to the chosen best-sprite uv (IMPOSTOR_MAP_FRAGMENT), so one fetch matches the colour
-// path. Replicate blendNormals' inline unpack (rgb*2-1) using texture() (GLSL3, not texture2D).
 vec3 normal = texture(normalMap, uv1).rgb * 2.0 - 1.0;
 #else
 vec3 normal = blendNormals(uv1, uv2, uv3);

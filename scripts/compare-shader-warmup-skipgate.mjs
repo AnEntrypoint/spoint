@@ -48,13 +48,6 @@ async function main() {
           const group = new THREE.Group()
           for (let i = 0; i < N; i++) {
             const geo = new THREE.BoxGeometry(1, 1, 1)
-            // Give EVERY mesh its OWN texture (a tiny procedural DataTexture, distinct data per mesh)
-            // plus alternating defines (flatShading/vertexColors/normalMap) so each material lands on
-            // a genuinely DISTINCT WebGLProgram cache key -- three.js's program cache keys on the
-            // material's compiled #define set (map presence, flatShading, vertexColors, etc), NOT on
-            // uniform VALUES like plain color, so a shared-hue-only MeshStandardMaterial (this
-            // script's first version) collapsed onto one shared program and never exercised the real
-            // per-material compile cost 65 distinct GLB-authored materials actually pay.
             const texData = new Uint8Array([Math.floor((i * 37) % 255), Math.floor((i * 53) % 255), Math.floor((i * 19) % 255), 255])
             const tex = new THREE.DataTexture(texData, 1, 1, THREE.RGBAFormat)
             tex.needsUpdate = true
@@ -63,7 +56,7 @@ async function main() {
             if (useVertexColors) { const colors = new Float32Array(geoWithUv.attributes.position.count * 3).fill(0.5); geoWithUv.setAttribute('color', new THREE.BufferAttribute(colors, 3)) }
             const mat = new THREE.MeshStandardMaterial({ map: tex, flatShading: (i % 2) === 0, vertexColors: useVertexColors })
             const mesh = new THREE.Mesh(geoWithUv, mat)
-            mesh.position.set(offset + i, 1000, 1000)  // far outside the real camera frustum
+            mesh.position.set(offset + i, 1000, 1000)
             mesh.userData.modelUrl = './apps/maps/synthetic_' + tag + '_' + (i % 5) + '.glb'
             group.add(mesh)
             entityMeshes.set('synthetic-' + tag + '-' + i, mesh)
@@ -111,8 +104,6 @@ async function main() {
 
     const stutterExpr = `
       (async () => {
-        // Move each mesh to a small offset in front of the camera along its forward vector, simulating
-        // a first close approach.
         const THREE = await import('three')
         const fwd = new THREE.Vector3(); window.__camera.getWorldDirection(fwd)
         const base = window.__camera.position.clone().add(fwd.multiplyScalar(10))
@@ -120,20 +111,12 @@ async function main() {
           let i = 0
           for (const m of entityMeshes.values()) { m.position.copy(base).add(new THREE.Vector3((i % 9 - 4) * 1.3, (Math.floor(i / 9) - 3) * 1.3, 0)); i++ }
         }
-        // renderer.info.programs (three.js's own authoritative WebGLPrograms cache list) is the real
-        // signal: it only grows when a genuinely new (vertex,fragment,defines) combination is
-        // compiled+linked. Set B was left uncompiled by the skip-gate (run B above never called
-        // compileAsync/render on it) -- its first real render() call below is where three.js
-        // lazily creates+links each of its distinct programs for the first time, so
-        // renderer.info.programs.length must grow across that call. Set A's programs were already
-        // created during the warmup pass above, so its render() call should add zero.
         const programsBeforeB = window.__renderer2.info.programs.length
         placeInView(window.__setB.entityMeshes)
         const t0b = performance.now()
         window.__renderer2.render(window.__scene, window.__camera)
         const stutterB = performance.now() - t0b
         const programsAfterB = window.__renderer2.info.programs.length
-        // Move set B back out of view so it doesn't contaminate set A's measurement below.
         for (const m of window.__setB.entityMeshes.values()) m.position.set(1000, 1000, 1000)
         const programsBeforeA = window.__renderer2.info.programs.length
         placeInView(window.__setA.entityMeshes)

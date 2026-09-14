@@ -65,8 +65,6 @@ struct FrameParams {
   hzbH           : f32,
 };
 
-// drawIndexedIndirect args, WebGPU order: indexCount, instanceCount,
-// firstIndex, baseVertex, firstInstance (5 x u32/i32, 20 bytes each).
 struct IndirectArgs {
   indexCount    : atomic<u32>,
   instanceCount : u32,
@@ -82,14 +80,7 @@ struct IndirectArgs {
 @group(0) @binding(4) var hzbTex : texture_2d<f32>;
 @group(0) @binding(5) var hzbSampler : sampler;
 
-// Standard 6-plane frustum extraction from a combined view-projection
-// matrix (Gribb/Hartmann method) — algebraically the same test
-// THREE.Frustum.setFromProjectionMatrix performs on the CPU (cluster-lod-
-// mesh.js's per-frame _frustum cache), just evaluated per-invocation here
-// instead of once per mesh.
 fn aabbOutsidePlane(mn: vec3<f32>, mx: vec3<f32>, plane: vec4<f32>) -> bool {
-  // Positive-vertex (the AABB corner farthest along the plane normal) —
-  // if even that corner is behind the plane, the whole box is culled.
   let px = select(mn.x, mx.x, plane.x >= 0.0);
   let py = select(mn.y, mx.y, plane.y >= 0.0);
   let pz = select(mn.z, mx.z, plane.z >= 0.0);
@@ -97,8 +88,6 @@ fn aabbOutsidePlane(mn: vec3<f32>, mx: vec3<f32>, plane: vec4<f32>) -> bool {
 }
 
 fn frustumCulled(mn: vec3<f32>, mx: vec3<f32>, vp: mat4x4<f32>) -> bool {
-  // Rows of vp (transposed access) give the 6 clip planes in order
-  // left,right,bottom,top,near,far — same derivation THREE.Frustum uses.
   let r0 = vec4<f32>(vp[0][0], vp[1][0], vp[2][0], vp[3][0]);
   let r1 = vec4<f32>(vp[0][1], vp[1][1], vp[2][1], vp[3][1]);
   let r2 = vec4<f32>(vp[0][2], vp[1][2], vp[2][2], vp[3][2]);
@@ -110,10 +99,6 @@ fn frustumCulled(mn: vec3<f32>, mx: vec3<f32>, vp: mat4x4<f32>) -> bool {
   return false;
 }
 
-// HZB conservative mip-level selection — same rule as hzb-tier.js's
-// _selectLevel: smallest level whose texel footprint (2^level source
-// pixels) is >= the box's screen-space pixel span, so one texel MIN-covers
-// the box's entire footprint.
 fn selectHzbLevel(spanPx: f32, maxLevel: u32) -> u32 {
   let lvl = i32(ceil(log2(max(spanPx, 1.0))));
   return u32(clamp(lvl, 0, i32(maxLevel)));
@@ -125,10 +110,6 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   if (ci >= frame.clusterCount) { return; }
   let c = clusters[ci];
 
-  // World-space AABB (uniform-scale-safe transform of the local box; matches
-  // cluster-lod-mesh.js's applyMatrix4(matrixWorld) 8-corner re-fit closely
-  // enough for a conservative cull under the rotation the world matrix may
-  // carry — re-fit all 8 corners for full correctness).
   var wmn = vec3<f32>(1e30, 1e30, 1e30);
   var wmx = vec3<f32>(-1e30, -1e30, -1e30);
   for (var i = 0u; i < 8u; i = i + 1u) {
@@ -142,7 +123,6 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
 
   if (frustumCulled(wmn, wmx, frame.viewProjection)) { return; }
 
-  // --- HZB occlusion test (mirrors hzb-tier.js isOccludedBox) ---
   let wcenter = (frame.world * vec4<f32>(c.sphereCenter, 1.0)).xyz;
   var minZ = 1.0;
   var minX = 1e30; var maxX = -1e30; var minY = 1e30; var maxY = -1e30;
@@ -169,19 +149,11 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
     let spanPx = max((maxX - minX) * frame.hzbW, (maxY - minY) * frame.hzbH);
     let level = selectHzbLevel(spanPx, frame.hzbLevels - 1u);
     let texel = textureLoad(hzbTex, vec2<i32>(i32(cx * frame.hzbW) >> i32(level), i32(cy * frame.hzbH) >> i32(level)), i32(level)).r;
-    if (minZ >= texel + 1e-5) { return; } // conservatively occluded — skip, same as CPU tier's isOccludedBox
+    if (minZ >= texel + 1e-5) { return; }
   }
 
-  // --- LOD selection: algebraically identical to cluster-lod-mesh.js's
-  // _pickLod (squared-distance form, no sqrt/div per cluster) ---
   let toCam = frame.cameraPos - wcenter;
   let distSq = max(dot(toCam, toCam), 1e-6);
-  // World-space radius: approximate uniform scale via the world matrix's
-  // basis-column lengths (matches cluster-lod-mesh.js's this._scale
-  // derivation: sqrt(max of the three squared basis-column lengths),
-  // recomputed here directly from the world matrix so the GPU pass is
-  // self-contained (no extra CPU-computed scalar needs to round-trip
-  // through the frame uniform buffer).
   let basisX = vec3<f32>(frame.world[0][0], frame.world[0][1], frame.world[0][2]);
   let basisY = vec3<f32>(frame.world[1][0], frame.world[1][1], frame.world[1][2]);
   let basisZ = vec3<f32>(frame.world[2][0], frame.world[2][1], frame.world[2][2]);
@@ -189,11 +161,11 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   let worldRadius = c.sphereRadius * worldScale;
   let sizeSq = (frame.screenHeight * worldRadius) * (frame.screenHeight * worldRadius);
 
-  var lod = 2u; // default coarsest of the 3 packed slots
+  var lod = 2u;
   if (c.lodCount <= 1u) {
     lod = 0u;
   } else {
-    let eff0 = frame.threshold0 * frame.hystUp; // "going up" bias applied uniformly (GPU has no per-cluster _curLod history buffer this pass — see header note)
+    let eff0 = frame.threshold0 * frame.hystUp;
     if (sizeSq > eff0 * eff0 * frame.tanHalfSq * distSq) {
       lod = 0u;
     } else if (c.lodCount > 2u) {
@@ -208,13 +180,8 @@ fn main(@builtin(global_invocation_id) gid : vec3<u32>) {
   var offset = c.lod0Offset; var count = c.lod0Count;
   if (lod == 1u) { offset = c.lod1Offset; count = c.lod1Count; }
   if (lod == 2u) { offset = c.lod2Offset; count = c.lod2Count; }
-  if (count == 0u) { return; } // degenerate cluster record — nothing to draw
+  if (count == 0u) { return; }
 
-  // Claim a slot and write the drawIndexedIndirect record. One record per
-  // surviving cluster (no attempt to merge adjacent clusters' index ranges
-  // into a single draw — WebGPU's per-record firstIndex/indexCount already
-  // makes that unnecessary; the caller reads exactly drawCount real draws
-  // out of this buffer, not clusterCount).
   let slot = atomicAdd(&drawCount, 1u);
   indirectArgs[slot].instanceCount = 1u;
   indirectArgs[slot].firstIndex = offset;

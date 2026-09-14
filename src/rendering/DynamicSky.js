@@ -78,30 +78,23 @@ export class DynamicSky {
         uniform float uCloudCover;
         uniform float uTime;
 
-        // Simplified Rayleigh scattering atmosphere model
         vec3 computeAtmosphere(vec3 viewDir, vec3 sunDir) {
           float sunDot = max(dot(viewDir, sunDir), 0.0);
           float sunDotSmooth = smoothstep(0.0, 0.1, sunDot);
 
-          // Rayleigh scattering: blue light scattered more at grazing angles
           vec3 rayleigh = vec3(0.17, 0.39, 0.87) * uRayleighCoeff;
 
-          // Mie scattering: forward scattering (halos around sun)
           float mieFactor = (1.0 - uMieCoeff) + uMieCoeff * (1.0 - sunDot * sunDot) * (1.0 - sunDot * sunDot);
           vec3 mie = vec3(1.0, 1.0, 1.0) * (uMieCoeff / mieFactor);
 
-          // Sun elevation affects zenith color (warm horizon, blue zenith)
           float elevFraction = clamp((uSunElevation + 90.0) / 180.0, 0.0, 1.0);
           vec3 zenithColor = mix(vec3(0.8, 0.4, 0.1), vec3(0.2, 0.4, 0.9), elevFraction);
 
-          // Horizon color (warm at sunrise/sunset)
           vec3 horizonColor = mix(vec3(1.0, 0.4, 0.1), vec3(0.5, 0.7, 0.9), elevFraction);
 
-          // Blend between horizon and zenith based on view direction
           float verticalComponent = max(vWorldPos.y, 0.0);
           vec3 skyColor = mix(horizonColor, zenithColor, verticalComponent);
 
-          // Sun glow
           vec3 sunGlow = sunDotSmooth * vec3(1.0, 0.8, 0.4) * (1.0 - abs(uSunElevation) / 90.0);
 
           return (skyColor * rayleigh + sunGlow * mie) * uSkyIntensity;
@@ -146,7 +139,6 @@ export class DynamicSky {
         uniform vec2 uWindDirection;
         uniform float uCloudScale;
 
-        // Simplex-like noise (3D perlin substitute using sine-based hash)
         float cloudNoise(vec3 p) {
           vec3 i = floor(p);
           vec3 f = fract(p);
@@ -158,7 +150,6 @@ export class DynamicSky {
           return mix(hash, fract(sin(n + 1.0) * 43758.5453), f.x);
         }
 
-        // Fractional brownian motion for cloud detail
         float fbm(vec3 p, int octaves) {
           float value = 0.0;
           float amplitude = 0.5;
@@ -168,7 +159,7 @@ export class DynamicSky {
             value += cloudNoise(p * frequency) * amplitude;
             amplitude *= 0.5;
             frequency *= 2.0;
-            p += vec3(0.5, 0.3, 0.2); // Offset for variation
+            p += vec3(0.5, 0.3, 0.2);
           }
 
           return value;
@@ -178,21 +169,16 @@ export class DynamicSky {
           vec3 cloudPos = vWorldPos * uCloudScale;
           cloudPos.xy += uCloudOffset;
 
-          // Multi-octave noise for cloud structure
           float cloudPattern = fbm(cloudPos, 4);
 
-          // Threshold for cloud shape (higher coverage = lower threshold)
           float threshold = 1.0 - uCloudCover;
           float cloudDensity = smoothstep(threshold - 0.1, threshold + 0.2, cloudPattern);
 
-          // Reduce density at horizon for better sky visibility
           float horizonFade = max(vWorldPos.y + 0.2, 0.0) * 2.0;
           cloudDensity *= horizonFade;
 
-          // Apply density modulation
           cloudDensity *= uCloudDensity;
 
-          // Cloud color: white with slight blue tint
           vec3 cloudColor = vec3(0.95, 0.96, 0.98);
           vec3 shadowColor = vec3(0.3, 0.3, 0.4);
           vec3 finalColor = mix(shadowColor, cloudColor, cloudDensity);

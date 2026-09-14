@@ -123,23 +123,18 @@ export class TemporalAA {
           vec4 current = texture2D(tCurrent, vUv);
           vec2 motion = texture2D(tMotion, vUv).rg;
 
-          // Clamp motion magnitude to avoid extreme blur on fast movement
           float motionLen = length(motion);
           if (motionLen > uVelocityClamp) {
             motion = normalize(motion) * uVelocityClamp;
           }
 
-          // Reproject history using motion vector
           vec2 reprojUv = vUv - motion / uResolution;
           vec4 history = texture2D(tHistory, clamp(reprojUv, vec2(0.0), vec2(1.0)));
 
-          // Motion-adaptive blend: faster motion favors current frame
           float blendFactor = mix(uBlendMin, uBlendMax, clamp(motionLen / uVelocityClamp, 0.0, 1.0));
 
-          // Temporal accumulation with blend
           vec4 result = mix(history, current, blendFactor);
 
-          // Optional: clamping to reduce flickering (clamp result to current neighborhood)
           vec3 neighborMin = current.rgb;
           vec3 neighborMax = current.rgb;
           for (int i = -1; i <= 1; i++) {

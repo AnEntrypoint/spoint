@@ -77,39 +77,10 @@ export function makeGrassMaterial(wind) {
       uniform vec2 uBenderPosXZ[${MAX_BENDERS}];
       uniform int uBenderCount;
       uniform float uGrassBendRadius, uGrassBendStrength;
-      // uDecalPosXZRS: packed (x,z,radius,strength) per decal -- burn/flatten world-state, see
-      // src/terrain/GrassDecal.js. Unlike the bender loop above (radius is a single shared uniform),
-      // each decal carries its OWN radius+strength since real-world stamps (a small vehicle track vs a
-      // large explosion crater) vary in both.
       uniform vec4 uDecalPosXZRS[${MAX_DECALS}];
       uniform int uDecalCount;
       uniform float uGrassScorchShrink;
       uniform vec3 uGrassScorchColor;
-      // windPhase/tint/instShadow are NOT declared here -- InstancedMesh2.initUniformsPerInstance's
-      // material patch (wrapping this material's onBeforeCompile/customProgramCacheKey, see Uniforms.js
-      // + SquareDataTexture.getUniformsVertexGLSL) injects their float name; global declarations and
-      // per-instance texel-fetch assignment itself, ahead of this shader's own void main() body.
-      // instShadow: per-instance cached terrain-shadow scalar (0=fully shadowed .. 1=fully lit), set once
-      // per blade instance at placement time from the terrain-slope self-shadow approximation in
-      // src/terrain/GrassPlacement.js -- never a real per-fragment shadow-map PCF fetch.
-      //
-      // instancedmesh2-instanceindex-undeclared-identifier-vegetation-shader: InstancedMesh2's per-instance
-      // uniform injection (the windPhase/instShadow/tint texel-fetch above) ALSO needs the instanceIndex
-      // vertex attribute in scope -- normally provided for free by THREE's own ShaderLib templates via
-      // '#include <batching_pars_vertex>' (which @three.ez's ShaderChunk.js concatenates its own
-      // instanced_pars_vertex chunk onto), but this is a hand-written raw ShaderMaterial with NEITHER
-      // include, so instanceIndex was genuinely undeclared -- real live GL compile failure caught via a
-      // WebGL2RenderingContext.prototype.compileShader monkeypatch (ERROR 0:86/0:177 'instanceIndex' :
-      // undeclared identifier), reproduced live at PORT=8250 after ~29s of real gameplay streaming grass
-      // chunks in. '#include <instanced_pars_vertex>' (resolved by THREE's own resolveIncludes, which runs
-      // on every material's final shader string, ShaderMaterial included) declares BOTH instanceIndex and
-      // getInstancedMatrix(). This InstancedMesh2 also always sets USE_INSTANCING_INDIRECT (see
-      // InstancedMesh2.js _onBeforeCompile), which makes the raw instanceMatrix ATTRIBUTE a dummy
-      // zero-length buffer (the real per-instance matrix lives in matricesTexture instead) -- so every
-      // pre-existing raw instanceMatrix read below was ALSO silently wrong (would have rendered
-      // degenerate/zeroed blade transforms once the instanceIndex fix alone made this shader compile);
-      // fixed by locally shadowing instanceMatrix with the real computed matrix, the same pattern THREE's
-      // own instanced_vertex chunk uses for its built-in ShaderLib materials.
       varying float vGrassY, vTint, vInstShadow, vScorch;
       varying vec3 vWorldNormal;
       #include <common>
@@ -132,12 +103,6 @@ export function makeGrassMaterial(wind) {
         vec2 gWdir = normalize(uGrassWindDir + 1e-4);
         transformed.x += (gWdir.x * gAmp) + sin(gph) * gw * 0.25 * uGrassWind;
         transformed.z += (gWdir.y * gAmp) + cos(gph * 0.7) * gw * 0.25 * uGrassWind;
-        // Player/actor bend: radial push AWAY from each nearby bender's XZ position, same tip-weighted
-        // falloff (gw, 0 at base / max at tip) as the wind sway above so blades pivot from their planted
-        // base rather than translating whole -- and springs back to upright the instant a bender's
-        // distance exceeds uGrassBendRadius (a pure per-frame function of live bender position, no
-        // stored/animated spring state needed: the blade IS upright whenever no bender is close, and
-        // smoothstep gives a soft, non-snappy edge rather than a hard cutoff).
         vec2 bendXZ = vec2(0.0);
         for (int bi = 0; bi < ${MAX_BENDERS}; bi++) {
           if (bi >= uBenderCount) break;
@@ -151,14 +116,7 @@ export function makeGrassMaterial(wind) {
         }
         transformed.x += bendXZ.x * gw;
         transformed.z += bendXZ.y * gw;
-        // Bent blades lean rather than stretch: pull the tip down proportional to how far it swept
-        // sideways, same small-angle approximation as a rigid pivot (keeps blade length ~constant).
         transformed.y -= length(bendXZ) * gw * 0.35;
-        // Burn/flatten decal: unlike the bend loop above (a radial push), scorch is a pure SCALE-DOWN
-        // (shorter/thinner blade) + tint shift toward uGrassScorchColor -- no directional displacement,
-        // since a scorched patch has no "away from" direction the way a walked-through blade does.
-        // Per-decal falloff uses each stamp's own radius (smoothstep, soft edge matching GrassDecal.js's
-        // cosine-falloff intent closely enough for a cheap GPU approximation), strength scales its peak.
         float scorch = 0.0;
         for (int di = 0; di < ${MAX_DECALS}; di++) {
           if (di >= uDecalCount) break;
@@ -175,8 +133,6 @@ export function makeGrassMaterial(wind) {
         float gDist = length(gWXZ - uCamPosXZ);
         float gFade = 1.0 - smoothstep(uGrassRing * 0.7, uGrassRing, gDist);
         transformed.y *= gFade; transformed.x *= mix(0.5, 1.0, gFade); transformed.z *= mix(0.5, 1.0, gFade);
-        // flatten toward up, same 60% blend as before, computed once here (object-space, cheap) and
-        // carried to the fragment stage as a varying instead of touched per-fragment
         vec3 flatNormal = normalize(mix(normalize(normal), vec3(0.0, 1.0, 0.0), 0.6));
         vWorldNormal = normalize(mat3(instanceMatrix) * mat3(modelMatrix) * flatNormal);
         vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(transformed, 1.0);
@@ -191,16 +147,9 @@ export function makeGrassMaterial(wind) {
         vec3 gLo = vec3(0.12,0.22,0.06), gHi = mix(vec3(0.34,0.55,0.16), vec3(0.45,0.5,0.14), vTint);
         float gAO = 0.6 + 0.4 * smoothstep(0.0, 0.2, vGrassY);
         vec3 baseColor = mix(gLo, gHi, clamp(vGrassY, 0.0, 1.0)) * gAO * 2.0;
-        // Scorch tint: blend toward the dry/burnt color at full decal influence, same vScorch scalar
-        // that already shrank blade scale in the vertex stage.
         baseColor = mix(baseColor, uGrassScorchColor, vScorch);
-        // gl_FrontFacing flip: with FrontSide-only draw the two crossed quads still need a lit back
-        // face when viewed from behind, so mirror the normal instead of relying on a second draw pass.
         vec3 n = gl_FrontFacing ? vWorldNormal : -vWorldNormal;
-        // cheap Lambert-ish diffuse + baked/approximate AO, no GGX specular lobe, no env IBL sample --
-        // the flattened normal already means a full PBR BRDF evaluation would mostly reduce to this.
         float ndl = max(dot(n, uSunDir), 0.0);
-        // per-instance cached terrain-shadow value stands in for a real shadow-map PCF fetch
         vec3 lit = baseColor * (uAmbient + uSunColor * ndl * vInstShadow);
         gl_FragColor = vec4(lit, 1.0);
       }

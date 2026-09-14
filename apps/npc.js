@@ -61,11 +61,6 @@ export default {
   },
 
   clientCode: `
-    // NPC client code: the EntityLoader already checks entity.custom._npcVat and routes
-    // NPC entities to the shared VAT crowd renderer. This clientCode is a no-op stub --
-    // the actual rendering is handled by EntityLoader.js's existing VAT integration path.
-    // See client/EntityLoader.js's _attachVatNpc and PlayerLOD.js's REDUCED tier for the
-    // live rendering pipeline.
     export default {}
   `
 }

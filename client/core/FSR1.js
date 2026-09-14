@@ -10,7 +10,7 @@ const _easuFrag = `
   precision highp float;
   varying vec2 vUv;
   uniform sampler2D tSource;
-  uniform vec2 uSrcTexel;   // 1/sourceWidth, 1/sourceHeight
+  uniform vec2 uSrcTexel;
   void main() {
     vec2 uv = vUv;
     vec3 center = texture2D(tSource, uv).rgb;
@@ -25,9 +25,6 @@ const _easuFrag = `
     float lw = dot(w, vec3(0.2126, 0.7152, 0.0722));
     float lmin = min(lc, min(min(ln, ls), min(le, lw)));
     float lmax = max(lc, max(max(ln, ls), max(le, lw)));
-    // Local contrast in [0,1] drives the edge blend weight -- FSR1's "adapt to edges" behavior:
-    // flat regions (lmax≈lmin) stay a plain bilinear-equivalent center sample; edges pull in the
-    // directional neighbor average for a crisper resample instead of a soft blur.
     float contrast = clamp((lmax - lmin) * 4.0, 0.0, 1.0);
     vec3 dirAvg = (n + s + e + w) * 0.25;
     vec3 sharp = center * (1.0 + contrast * 0.5) - dirAvg * (contrast * 0.5);
@@ -40,7 +37,7 @@ const _rcasFrag = `
   varying vec2 vUv;
   uniform sampler2D tSource;
   uniform vec2 uTexel;
-  uniform float uSharpness; // 0..1, 0 = pass-through
+  uniform float uSharpness;
   void main() {
     vec2 uv = vUv;
     vec3 c  = texture2D(tSource, uv).rgb;
@@ -52,9 +49,6 @@ const _rcasFrag = `
     vec3 mx4 = max(max(n, s), max(e, w));
     vec3 mn = min(mn4, c);
     vec3 mx = max(mx4, c);
-    // RCAS peak-sharpen weight: ratio of available headroom to local contrast, so a pixel already
-    // at the local extremum (mn==mx, flat/already-clipped) gets zero sharpen -- the anti-ringing
-    // clamp the real AMD shader also has.
     vec3 reciprocalMx = 1.0 / max(mx, vec3(0.0001));
     vec3 ampl = clamp(min(mn, vec3(2.0) - mx) * reciprocalMx, vec3(0.0), vec3(1.0));
     ampl = sqrt(ampl);

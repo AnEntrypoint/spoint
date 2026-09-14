@@ -137,13 +137,6 @@ varying float vLodIndex;`
         .replace(
           '#include <project_vertex>',
           `#include <project_vertex>
-// (Removed the per-vertex projViewMatrix-derived GPU frustum cull that lived
-// here. It collapsed instances to NaN when projViewMatrix was stale/identity on
-// this shared pool material — which over-culled most FAR models off-screen
-// ("only a small group visible"). CPU-side frustum culling (root.visible) plus
-// the instanced bound-sphere path already handle culling correctly; this
-// per-vertex pass was both redundant and buggy. Witnessed: removing the cull
-// restores the full field of models.)
 vLodIndex = 0.0;`
         );
     }

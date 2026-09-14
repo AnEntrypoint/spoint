@@ -34,7 +34,6 @@ export function makeRainMaterial() {
       varying float vFade;
       void main() {
         vUv = uv;
-        // fade the quad edges (uv.x) so the streak reads as a soft line, not a hard-edged rectangle
         vFade = 1.0 - abs(uv.x * 2.0 - 1.0);
         vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
         gl_Position = projectionMatrix * mvPosition;

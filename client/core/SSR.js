@@ -22,21 +22,21 @@ const _prevClearColor = new THREE.Color()
 const _ssrFrag = `
   precision highp float;
   varying vec2 vUv;
-  uniform sampler2D tGBuffer;   // rgb = view-space normal*0.5+0.5, a = linear view-space depth (m)
-  uniform sampler2D tScene;     // full-res composited scene color (reflection source)
-  uniform sampler2D tWetness;   // r = per-fragment material-authored wetness 0..1 (see header)
-  uniform bool uHasWetness;     // false when the wetness G-buffer pass didn't run this frame (e.g. ssao off, own gbuffer path not yet built)
-  uniform float uWeatherWetness; // 0..1 scene-wide automatic weather-wetness scalar (see header, source c)
-  uniform vec2 uResolution;     // G-buffer resolution
+  uniform sampler2D tGBuffer;
+  uniform sampler2D tScene;
+  uniform sampler2D tWetness;
+  uniform bool uHasWetness;
+  uniform float uWeatherWetness;
+  uniform vec2 uResolution;
   uniform mat4 uProjectionMatrix;
-  uniform float uFovFactor;     // tan(fov/2)
+  uniform float uFovFactor;
   uniform float uAspect;
   uniform float uIntensity;
-  uniform float uMaxDistance;   // metres, march budget
-  uniform float uCamWorldY;     // camera world-space Y (for the sea-level band mask)
-  uniform float uSeaLevelY;     // world sea level Y, or a very negative sentinel when unknown
-  uniform float uBandHeight;    // metres above/below sea level a fragment may sit and still reflect
-  uniform mat3 uNormalViewToWorld; // rotation-only (rigid) view->world, for the per-fragment world-Y test
+  uniform float uMaxDistance;
+  uniform float uCamWorldY;
+  uniform float uSeaLevelY;
+  uniform float uBandHeight;
+  uniform mat3 uNormalViewToWorld;
 
   const int STEPS = 12;
 
@@ -47,8 +47,6 @@ const _ssrFrag = `
     return viewDir * t;
   }
 
-  // Projects a view-space position back to screen UV using the real projection matrix (perspective-
-  // correct, unlike the linear approximation reconstructViewPos's inverse would need).
   vec3 viewToScreen(vec3 viewPos) {
     vec4 clip = uProjectionMatrix * vec4(viewPos, 1.0);
     if (clip.w <= 0.0) return vec3(-1.0);
@@ -64,13 +62,6 @@ const _ssrFrag = `
     vec3 centerNormal = normalize(center.rgb * 2.0 - 1.0);
     vec3 centerPos = reconstructViewPos(vUv, centerDepth);
 
-    // Wetness mask = UNION of three independent sources (see header): the sea-level band (world-Y of
-    // the fragment, reconstructed via the SAME rigid rotation-only transform UnderwaterTint uses, no
-    // mat4 inverse), a real per-material authored wetness value sampled from tWetness, and the
-    // scene-wide automatic weather-wetness scalar (uWeatherWetness). Any source alone is sufficient --
-    // a puddle far from any water still reflects once authored, shoreline geometry with no authored
-    // wetness still gets the original band behavior, and rain-soaked ground reflects during a storm
-    // with zero per-entity authoring.
     float fragWorldY = dot(uNormalViewToWorld[1], centerPos) + uCamWorldY;
     float bandDist = abs(fragWorldY - uSeaLevelY);
     float bandFade = 1.0 - clamp(bandDist / uBandHeight, 0.0, 1.0);
@@ -78,19 +69,14 @@ const _ssrFrag = `
     float wetMask = max(max(bandFade, matWetness), uWeatherWetness);
     if (wetMask <= 0.0) { gl_FragColor = vec4(0.0); return; }
 
-    // Only near-upward-facing surfaces plausibly reflect the sky/scene above them (a wet horizontal
-    // surface, not a wall) -- fresnel-style view-angle term also strengthens grazing reflections.
     vec3 viewDir = normalize(centerPos);
     float ndotv = clamp(dot(centerNormal, -viewDir), 0.0, 1.0);
     if (centerNormal.y < 0.3) { gl_FragColor = vec4(0.0); return; }
     float fresnel = pow(1.0 - ndotv, 2.0);
 
     vec3 reflectDir = reflect(viewDir, centerNormal);
-    if (reflectDir.z >= 0.0) { gl_FragColor = vec4(0.0); return; } // reflecting toward the camera plane: no march target
+    if (reflectDir.z >= 0.0) { gl_FragColor = vec4(0.0); return; }
 
-    // Fixed-step screen-space march (deliberately small/cheap -- half-res already, gated to the
-    // narrow sea-level band above, and this row's own scope is a first slice not a production-grade
-    // hierarchical-Z or binary-refine tracer).
     vec3 rayPos = centerPos;
     float stepLen = uMaxDistance / float(STEPS);
     vec4 result = vec4(0.0);
@@ -102,9 +88,6 @@ const _ssrFrag = `
       if (sampledDepth <= 0.0) continue;
       float rayDepth = screenPos.z;
       float depthDiff = sampledDepth - rayDepth;
-      // A hit: the march point is now BEHIND the depth buffer at that screen position (something
-      // occupies that pixel nearer the camera than the ray currently is) but by a small margin
-      // (avoids matching geometry the ray simply marched straight through/past).
       if (depthDiff > 0.0 && depthDiff < stepLen * 2.0) {
         vec2 edgeFade = smoothstep(0.0, 0.08, screenPos.xy) * smoothstep(0.0, 0.08, 1.0 - screenPos.xy);
         float fade = edgeFade.x * edgeFade.y * (1.0 - float(i) / float(STEPS));

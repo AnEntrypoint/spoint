@@ -40,7 +40,6 @@ export function installEnhancedShadowFiltering() {
         bvec2 frustumTestVec = bvec2(inFrustum, shadowCoord.z <= 1.0);
         bool frustumTest = all(frustumTestVec);
         if (frustumTest) {
-          // Improved 3x3 PCF with Poisson disk offsets for better filtering
           vec2 poissonDisk[9] = vec2[](
             vec2(-1.0, -1.0), vec2(0.0, -1.0), vec2(1.0, -1.0),
             vec2(-1.0,  0.0), vec2(0.0,  0.0), vec2(1.0,  0.0),

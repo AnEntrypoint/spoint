@@ -262,7 +262,6 @@ uniform vec4 frustumPlanes[6];
 uniform sampler2D instanceTex;
 uniform float instanceTexWidth;
 mat4 readInstanceMatrix(int id) {
-  // 4 texels per instance; fetch by pixel center. height = 1.
   float base = float(id) * 4.0;
   vec4 c0 = texture2D(instanceTex, vec2((base + 0.5) / instanceTexWidth, 0.5));
   vec4 c1 = texture2D(instanceTex, vec2((base + 1.5) / instanceTexWidth, 0.5));
@@ -275,10 +274,6 @@ mat4 readInstanceMatrix(int id) {
       .replace(
         '#include <project_vertex>',
         `#ifdef USE_GPU_INSTANCE_TEX
-  // GPU-driven transform: rebuild this instance's model matrix from the
-  // instance data texture (by gl_InstanceID) instead of the instanceMatrix
-  // attribute. mvPosition is declared at outer scope (exactly like the stock
-  // <project_vertex> chunk) so downstream chunks that read it still compile.
   mat4 instMat = readInstanceMatrix(gl_InstanceID);
   vec4 mvPosition = modelViewMatrix * instMat * vec4(transformed, 1.0);
   gl_Position = projectionMatrix * mvPosition;
@@ -288,17 +283,6 @@ mat4 readInstanceMatrix(int id) {
   vec3 instCenter = instanceMatrix[3].xyz;
 #endif
 {
-  // GPU per-instance frustum cull.
-  // frustumPlanes are pre-normalized CPU-side (THREE.Frustum emits unit
-  // normals), so the plane equation reduces to dot(n, c) + w >= -r with no
-  // per-vertex sqrt/divide. (Removed the old length()/division — it was
-  // normalizing an already-unit vector. Also removed the dead lodLutTexture
-  // fetch + vLodIndex varying: LOD selection happens CPU-side, the varying
-  // was written but never read by any fragment shader.)
-  // Center is NOT a separate attribute: it is always exactly the instance's
-  // own model-matrix translation column, read directly from whichever
-  // transform path is active above (verified CPU-side: every JS write site
-  // passes the instance's own worldMat translation, never an offset center).
   if (instanceBoundSphere > 0.0) {
     vec3 c = instCenter;
     float r = instanceBoundSphere;

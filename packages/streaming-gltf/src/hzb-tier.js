@@ -4,8 +4,6 @@ const _v = new THREE.Vector3();
 const OCCLUSION_DEPTH_EPS = 1e-5;
 
 const FULLSCREEN_VS = `#version 300 es
-// Single oversized triangle covering the viewport with no vertex buffer —
-// gl_VertexID-driven, avoids a VBO/VAO attribute for a pass this cheap.
 out vec2 vUv;
 void main() {
   vec2 pos = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
@@ -16,8 +14,8 @@ void main() {
 const REDUCE_FS = `#version 300 es
 precision highp float;
 uniform sampler2D uSrc;
-uniform vec2 uSrcTexel;   // 1/srcWidth, 1/srcHeight
-uniform vec2 uSrcSize;    // srcWidth, srcHeight (for edge clamp)
+uniform vec2 uSrcTexel;
+uniform vec2 uSrcSize;
 in vec2 vUv;
 out vec4 oColor;
 void main() {

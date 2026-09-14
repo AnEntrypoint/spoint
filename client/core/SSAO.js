@@ -24,9 +24,6 @@ const _gbufferFrag = `
   varying vec3 vViewNormal;
   varying float vViewDepth;
   void main() {
-    // rgb = view-space normal (encoded 0..1), a = linear view-space depth (raw metres, decoded by
-    // the AO pass -- cheap and exact, no need for depth-buffer curve reconstruction since we own
-    // this G-buffer's encoding end to end).
     gl_FragColor = vec4(normalize(vViewNormal) * 0.5 + 0.5, vViewDepth);
   }
 `
@@ -39,15 +36,12 @@ const _aoFrag = `
   uniform float uRadius;
   uniform float uIntensity;
   uniform mat4 uProjectionMatrix;
-  uniform float uFovFactor; // tan(fov/2), for reconstructing view-space XY from uv+depth
+  uniform float uFovFactor;
 
   vec3 reconstructViewPos(vec2 uv, float depth) {
     vec2 ndc = uv * 2.0 - 1.0;
     float aspect = uResolution.x / uResolution.y;
     vec3 viewDir = normalize(vec3(ndc.x * uFovFactor * aspect, ndc.y * uFovFactor, -1.0));
-    // viewDir.z is negative-forward; scale so that the -z component equals -depth (linear depth
-    // stored is already the forward distance along -Z, not along the ray) using the ray's own
-    // -z-normalized parametrization.
     float t = depth / max(0.0001, -viewDir.z);
     return viewDir * t;
   }
@@ -55,7 +49,7 @@ const _aoFrag = `
   void main() {
     vec4 center = texture2D(tGBuffer, vUv);
     float centerDepth = center.a;
-    if (centerDepth <= 0.0) { gl_FragColor = vec4(1.0); return; } // background / no geometry: no AO
+    if (centerDepth <= 0.0) { gl_FragColor = vec4(1.0); return; }
     vec3 centerNormal = normalize(center.rgb * 2.0 - 1.0);
     vec3 centerPos = reconstructViewPos(vUv, centerDepth);
 
@@ -65,10 +59,10 @@ const _aoFrag = `
     vec2 dirs[DIRS];
     dirs[0] = vec2(1.0, 0.0); dirs[1] = vec2(-1.0, 0.0); dirs[2] = vec2(0.0, 1.0); dirs[3] = vec2(0.0, -1.0);
     float pixelRadius = max(2.0, uRadius * uResolution.y / max(1.0, centerDepth * uFovFactor * 2.0));
-    pixelRadius = min(pixelRadius, uResolution.y * 0.25); // clamp so distant/close geometry can't blow the kernel out
+    pixelRadius = min(pixelRadius, uResolution.y * 0.25);
 
     for (int d = 0; d < DIRS; d++) {
-      float horizonCos = 0.0; // cosine of the highest elevation angle found along this direction so far
+      float horizonCos = 0.0;
       for (int s = 1; s <= STEPS; s++) {
         float frac = float(s) / float(STEPS);
         vec2 offsetUv = vUv + dirs[d] * (pixelRadius * frac / uResolution);
@@ -80,7 +74,6 @@ const _aoFrag = `
         float dist = length(toSample);
         if (dist < 0.0001 || dist > uRadius) continue;
         float sampleCos = dot(centerNormal, toSample) / dist;
-        // Falloff so samples near the radius edge contribute less (avoids a hard cutoff ring).
         float falloff = clamp(1.0 - (dist / uRadius), 0.0, 1.0);
         horizonCos = max(horizonCos, sampleCos * falloff);
       }

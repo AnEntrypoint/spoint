@@ -145,7 +145,6 @@ export class DecalRenderer {
         uniform sampler2D uAtlasTexture;
         uniform float uAtlasGridSize;
 
-        // Per-instance attributes
         attribute vec3 aPosition;
         attribute vec4 aQuatRotation;
         attribute float aSize;
@@ -161,16 +160,13 @@ export class DecalRenderer {
         }
 
         void main() {
-          // Decode atlas index to UV offset
           float gridIdx = floor(aAtlasIdx);
           float gridX = mod(gridIdx, uAtlasGridSize);
           float gridY = floor(gridIdx / uAtlasGridSize);
           vec2 atlasUvOffset = vec2(gridX, gridY) / uAtlasGridSize;
 
-          // UV for this vertex (quad corner)
           vUv = (uv / uAtlasGridSize) + atlasUvOffset;
 
-          // Position: local quad -> world via decal transform
           vec3 posWorld = aPosition + (position * aSize);
           posWorld = rotateByQuat(posWorld - aPosition, aQuatRotation) + aPosition;
 
@@ -192,10 +188,8 @@ export class DecalRenderer {
         void main() {
           vec4 texColor = texture2D(uAtlasTexture, vUv);
 
-          // Discard fully transparent texels (helps with alpha-to-coverage on edges)
           if (texColor.a < 0.1) discard;
 
-          // Apply instance alpha (fade out effect)
           texColor.a *= vAlpha;
 
           gl_FragColor = texColor;
