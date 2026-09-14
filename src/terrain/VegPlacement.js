@@ -1,3 +1,5 @@
+import { elevationAtLocal } from './PlanetFrame.js'
+
 export const VEG = Object.freeze({
   CHUNK: 32,
   CELL: 4,
@@ -5,7 +7,6 @@ export const VEG = Object.freeze({
   JITTER: 1.8,
   SLOPE_D: 1.5,
   SLOPE_MAX: 0.6,
-  WATER_MARGIN: 0.5,
   SEA_REJECT: -2,
   TREELINE: 4000,
   TREELINE_FADE: 120,
@@ -70,6 +71,25 @@ export const ARIDITY_LINE = 0.28
 
 export const RELIEF_CALIBRATION_BASELINE = 0.01
 
+export function reliefMarginScaleOf(frame) {
+  return ((frame && frame.reliefScale) || RELIEF_CALIBRATION_BASELINE) / RELIEF_CALIBRATION_BASELINE
+}
+
+export function elevationAboveSea(frame, x, groundY, z) {
+  const e = elevationAtLocal(frame, x, groundY, z)
+  return Number.isFinite(e) ? e : NaN
+}
+
+export const RENDERED_BEACH_TOP_M = 15
+export const RENDERED_SAND_ONLY_BELOW_M = RENDERED_BEACH_TOP_M * 0.3
+
+export function renderedSoilWeight(elevAboveSea) {
+  const t = (elevAboveSea - RENDERED_SAND_ONLY_BELOW_M) / (RENDERED_BEACH_TOP_M - RENDERED_SAND_ONLY_BELOW_M)
+  if (!(t > 0)) return 0
+  if (t >= 1) return 1
+  return t * t * (3 - 2 * t)
+}
+
 export function speciesFor(temp, humidity, elevNorm, vT = 0, vH = 0) {
   const t = Math.round((temp + vT) * 10) / 10
   const h = Math.round((humidity + vH) * 10) / 10
@@ -107,14 +127,15 @@ export function classify(x, z, frame, anchorField, h, cellIx, cellIz) {
   const coin = rand(cellHash, K_COIN)
   if (coin >= base) return null
 
-  const elev = (h !== undefined) ? h : frame.groundHeightLocal(x, z)
+  const groundY = (h !== undefined) ? h : frame.groundHeightLocal(x, z)
+  if (!Number.isFinite(groundY)) return null
+  const elev = elevationAboveSea(frame, x, groundY, z)
   if (!Number.isFinite(elev)) return null
-  const reliefMarginScale = ((frame && frame.reliefScale) || RELIEF_CALIBRATION_BASELINE) / RELIEF_CALIBRATION_BASELINE
-  if (elev <= VEG.WATER_MARGIN * reliefMarginScale) return null
-  if (elev > VEG.TREELINE * reliefMarginScale) {
-    const treelineMul = 1 - (elev - VEG.TREELINE * reliefMarginScale) / (VEG.TREELINE_FADE * reliefMarginScale)
-    if (treelineMul <= 0 || coin >= base * treelineMul) return null
-  }
+  const reliefMarginScale = reliefMarginScaleOf(frame)
+  const treeline = VEG.TREELINE * reliefMarginScale
+  const treelineMul = elev > treeline ? 1 - (elev - treeline) / (VEG.TREELINE_FADE * reliefMarginScale) : 1
+  const densityMul = renderedSoilWeight(elev) * treelineMul
+  if (densityMul <= 0 || coin >= base * densityMul) return null
 
   const D = VEG.SLOPE_D
   const hx1 = frame.groundHeightLocal(x + D, z), hx0 = frame.groundHeightLocal(x - D, z)
@@ -135,7 +156,7 @@ export function classify(x, z, frame, anchorField, h, cellIx, cellIz) {
   const tiltQuat = [0, 0, 0, 1]
 
   return {
-    x: Math.fround(x), y: Math.fround(elev), z: Math.fround(z),
+    x: Math.fround(x), y: Math.fround(groundY), z: Math.fround(z),
     species, scale, yaw, windPhase,
     tiltQuat, normal: VEG_UP_NORMAL,
     trunkId: trunkIdOf(x, z),

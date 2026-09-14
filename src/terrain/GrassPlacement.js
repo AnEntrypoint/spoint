@@ -1,4 +1,4 @@
-import { hash3, rand, RELIEF_CALIBRATION_BASELINE } from './VegPlacement.js'
+import { hash3, rand, elevationAboveSea, renderedSoilWeight } from './VegPlacement.js'
 
 export const GRASS = Object.freeze({
   CHUNK: 32,
@@ -7,7 +7,6 @@ export const GRASS = Object.freeze({
   JITTER: 0.9,
   SLOPE_D: 1.0,
   SLOPE_MAX: 0.9,
-  WATER_MARGIN: 0.3,
   SEA_REJECT: -2,
   SCALE_MIN: 0.55,
   SCALE_SPAN: 0.85,
@@ -42,10 +41,10 @@ export function classify(x, z, frame, anchorField, h, cellIx, cellIz) {
   const ceiling = grassDensity(temp, humidity, 0)
   if (coin >= ceiling) return null
 
-  const elev = (h !== undefined) ? h : frame.groundHeightLocal(x, z)
-  if (!Number.isFinite(elev)) return null
-  const reliefMarginScale = ((frame && frame.reliefScale) || RELIEF_CALIBRATION_BASELINE) / RELIEF_CALIBRATION_BASELINE
-  if (elev <= GRASS.WATER_MARGIN * reliefMarginScale) return null
+  const groundY = (h !== undefined) ? h : frame.groundHeightLocal(x, z)
+  if (!Number.isFinite(groundY)) return null
+  const soil = renderedSoilWeight(elevationAboveSea(frame, x, groundY, z))
+  if (soil <= 0 || coin >= ceiling * soil) return null
 
   const D = GRASS.SLOPE_D
   const hx1 = frame.groundHeightLocal(x + D, z), hx0 = frame.groundHeightLocal(x - D, z)
@@ -56,7 +55,7 @@ export function classify(x, z, frame, anchorField, h, cellIx, cellIz) {
   if (grad > GRASS.SLOPE_MAX) return null
   const slopeRatio = grad / (grad + 1)
 
-  const accept = grassDensity(temp, humidity, slopeRatio)
+  const accept = grassDensity(temp, humidity, slopeRatio) * soil
   if (coin >= accept) return null
 
   const SUN_DIR = _GRASS_FIXED_APPROX_SUN_DIR
@@ -65,7 +64,7 @@ export function classify(x, z, frame, anchorField, h, cellIx, cellIz) {
   const ndl = (normX * SUN_DIR[0] + normY * SUN_DIR[1] + normZ * SUN_DIR[2]) / nLen
   const cellShadow = Math.fround(_clamp01(0.55 + 0.45 * ndl))
 
-  return { x: Math.fround(x), y: Math.fround(elev), z: Math.fround(z), cellHash, shadow: cellShadow }
+  return { x: Math.fround(x), y: Math.fround(groundY), z: Math.fround(z), cellHash, shadow: cellShadow }
 }
 
 function blade(cellHash, bi, x, y, z, cellShadow) {

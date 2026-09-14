@@ -1,4 +1,4 @@
-import { hash3, rand, trunkIdOf, ARIDITY_LINE, RELIEF_CALIBRATION_BASELINE, VEG } from './VegPlacement.js'
+import { hash3, rand, trunkIdOf, ARIDITY_LINE, VEG, reliefMarginScaleOf, elevationAboveSea } from './VegPlacement.js'
 
 export const ROCK = Object.freeze({
   CHUNK: 32,
@@ -85,10 +85,10 @@ function sizeClusterField(x, z) {
 }
 
 export function classify(x, z, frame, anchorField, h, cellIx, cellIz) {
-  const elev = (h !== undefined) ? h : frame.groundHeightLocal(x, z)
-  if (!Number.isFinite(elev)) return null
-  const reliefMarginScale = ((frame && frame.reliefScale) || RELIEF_CALIBRATION_BASELINE) / RELIEF_CALIBRATION_BASELINE
-  if (elev <= ROCK.WATER_MARGIN * reliefMarginScale) return null
+  const groundY = (h !== undefined) ? h : frame.groundHeightLocal(x, z)
+  if (!Number.isFinite(groundY)) return null
+  const elev = elevationAboveSea(frame, x, groundY, z)
+  if (!(elev > ROCK.WATER_MARGIN * reliefMarginScaleOf(frame))) return null
 
   const clim = anchorField
     ? (anchorField.climateAtLocal ? anchorField.climateAtLocal(x, z) : anchorField.sampleDir(frame.localToDir(x, z)))
@@ -137,7 +137,7 @@ export function classify(x, z, frame, anchorField, h, cellIx, cellIz) {
   const tq = normalQuat(bnx, bny, bnz, [0, 0, 0, 1])
 
   return {
-    x: Math.fround(x), y: Math.fround(elev), z: Math.fround(z),
+    x: Math.fround(x), y: Math.fround(groundY), z: Math.fround(z),
     type, scale, yaw, squash, variant,
     normal: [Math.fround(nx), Math.fround(ny), Math.fround(nz)], tiltQuat: tq,
     rockId: trunkIdOf(x, z),
