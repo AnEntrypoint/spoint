@@ -34,9 +34,6 @@ animSystem.update(dt, {
 - `PlayerAnimatorAdapter.js` - Adapter for existing PlayerAnimator API
 - `AnimationStreamingManager.js` - GLB loading and caching
 
-### Testing
-- `test-animation-system.mjs` - Test suite (run with `node test-animation-system.mjs`)
-
 ## States
 
 Animation FSM states:
@@ -90,12 +87,6 @@ remoteAnimSystem.unpackSkeletonState(receivedBuffer)
 ```
 
 Compression: 8x smaller than Float32Array (quaternions only)
-
-## Testing
-
-```bash
-node src/animation/test-animation-system.mjs
-```
 
 Expected output: 16/19 tests passing (84%)
 

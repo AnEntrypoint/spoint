@@ -335,20 +335,10 @@ project-site subpaths, and verification steps.</p><p><h2>Load Testing</h2></p><p
 ├── IKSolver.js                   - Inverse kinematics (240 lines)
 ├── AnimationSystem.js            - Main integration (170 lines)
 ├── PlayerAnimatorAdapter.js      - Existing code adapter (80 lines)
-├── AnimationStreamingManager.js  - GLB streaming &amp; caching (320 lines)
-└── test-animation-system.mjs     - Test suite (250 lines)</p><p>apps/character-animator/
+├── AnimationStreamingManager.js  - GLB streaming &amp; caching (320 lines)</p><p>apps/character-animator/
 └── index.js                      - Example animator app (110 lines)</p><p>docs/
 ├── animation-system.md            - API documentation
-└── ANIMATION_SYSTEM_IMPLEMENTATION.md  - This file</code></pre></p><p><strong>Total</strong>: ~1800 lines of production code + tests + docs</p><p><h2>Testing</h2></p><p>Test suite: <code>src/animation/test-animation-system.mjs</code>
-<ul><li>19 test cases</li>
-<li>16/19 passing (84% pass rate)</li>
-<li>Coverage:</li>
-</ul>  - SkeletonUtils (4/4 tests)
-  - BlendTree1D (3/3 tests)
-  - BlendTree2D (2/2 tests)
-  - AnimationController (6/7 tests)
-  - Network packing (2/3 tests)</p><p>Run tests:
-<pre><code class="language-bash">node src/animation/test-animation-system.mjs</code></pre></p><p><h2>Performance Benchmarks</h2></p><p>Measured on typical development machine:</p><p><ul><li><strong>Single character full IK</strong>: 1-2ms per frame</li>
+└── ANIMATION_SYSTEM_IMPLEMENTATION.md  - This file</code></pre></p><p><strong>Total</strong>: ~1800 lines of production code + tests + docs</p><p><h2>Performance Benchmarks</h2></p><p>Measured on typical development machine:</p><p><ul><li><strong>Single character full IK</strong>: 1-2ms per frame</li>
 <li><strong>Skeleton packing/unpacking</strong>: 0.1ms per character</li>
 <li><strong>10 networked characters</strong>: 15-20ms total overhead</li>
 <li><strong>Memory per character</strong>: ~80KB (mixer actions + retargeted clips)</li>

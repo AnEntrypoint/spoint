@@ -145,8 +145,7 @@ src/animation/
 ├── IKSolver.js                   - Inverse kinematics (240 lines)
 ├── AnimationSystem.js            - Main integration (170 lines)
 ├── PlayerAnimatorAdapter.js      - Existing code adapter (80 lines)
-├── AnimationStreamingManager.js  - GLB streaming & caching (320 lines)
-└── test-animation-system.mjs     - Test suite (250 lines)
+└── AnimationStreamingManager.js  - GLB streaming & caching (320 lines)
 
 apps/character-animator/
 └── index.js                      - Example animator app (110 lines)
@@ -157,23 +156,6 @@ docs/
 ```
 
 **Total**: ~1800 lines of production code + tests + docs
-
-## Testing
-
-Test suite: `src/animation/test-animation-system.mjs`
-- 19 test cases
-- 16/19 passing (84% pass rate)
-- Coverage:
-  - SkeletonUtils (4/4 tests)
-  - BlendTree1D (3/3 tests)
-  - BlendTree2D (2/2 tests)
-  - AnimationController (6/7 tests)
-  - Network packing (2/3 tests)
-
-Run tests:
-```bash
-node src/animation/test-animation-system.mjs
-```
 
 ## Performance Benchmarks
 
