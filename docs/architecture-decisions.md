@@ -100,9 +100,13 @@ cold-load latency?
   own static host (a legacy branch-push publish per the `ghpages-deploy-symlink-cp-collision` AGENTS.md
   entry) -- that path has no origin server of ours in the loop at all, so it inherits GitHub's own
   HTTP/2 termination for free regardless of anything done here.
-- `client/index.html`: the modulepreload hints already cover the three heaviest early-fetch modules
-  (`app.js`, `three.module.js`, `msgpackr/index.js`), landed this session, verified ordered after the
-  importmap per the file's own comment (`index.html:63-72`).
+- `client/index.html`: the modulepreload hints landed this session for the three heaviest early-fetch
+  modules (`app.js`, `three.module.js`, `msgpackr/index.js`). As shipped today the list also covers
+  `three.core.js`, `src/index.client.js`, `three-vrm`, `xstate`, `apps/world/tps-game.js` and the design kit
+  pinned at `https://unpkg.com/anentrypoint-design@1.0.34/dist/247420.js` (its `247420.css` gets a style
+  preload). Every hint sits after the `<script type="importmap">` block, because an importmap declared after
+  a module load or preload is rejected and bare specifiers stop remapping. `client/index.html` carries no
+  comments; that ordering rule is recorded in AGENTS.md.
 
 ### Alternatives considered (BBPF)
 
