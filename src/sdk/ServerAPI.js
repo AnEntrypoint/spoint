@@ -12,31 +12,8 @@ import {
   handleMetrics, handleBenchmark, handleFreddieViz
 } from './ServerAPIRoutes.js'
 import { createAgentAuthoringHandler } from './AgentAuthoringAPI.js'
-
-const DEFAULT_MINIMAP_RES = 256
-
-export async function bakeMinimapIfMissing(worldName, tcfg, opts = {}) {
-  const { existsSync } = await import('node:fs')
-  const { join } = await import('node:path')
-  const { pathToFileURL } = await import('node:url')
-  const outDir = join(process.cwd(), 'apps', 'world')
-  const base = `${worldName}.${tcfg.seed | 0}.minimap`
-  const outPng = join(outDir, `${base}.png`)
-  if (!opts.force && existsSync(outPng)) return
-  const bakeModUrl = pathToFileURL(join(process.cwd(), 'scripts', 'bake-minimap.mjs')).href
-  const { bakeMinimap } = await import(bakeModUrl)
-  const t0 = Date.now()
-  const { png, header } = await bakeMinimap({
-    seed: tcfg.seed | 0, radius: tcfg.radius, reliefScale: tcfg.reliefScale, anchorDir: tcfg.anchorDir,
-    extent: Number.isFinite(tcfg.minimapExtent) ? tcfg.minimapExtent : Math.min(tcfg.radius * 0.25, 16384),
-    res: Number.isFinite(tcfg.minimapRes) ? tcfg.minimapRes : DEFAULT_MINIMAP_RES, center: tcfg.center || [0, 0],
-  })
-  const { mkdirSync, writeFileSync } = await import('node:fs')
-  mkdirSync(outDir, { recursive: true })
-  writeFileSync(outPng, png)
-  writeFileSync(join(outDir, `${base}.json`), JSON.stringify(header))
-  console.log(`[minimap] baked ${base}.png (${header.N}x${header.N}, ${(png.length / 1024).toFixed(1)}KB, height ${header.minHeight}..${header.maxHeight}m) in ${Date.now() - t0}ms`)
-}
+import { resolveTerrainConfig, minimapDescriptor } from '../shared/terrainConfig.js'
+import { bakeMinimapIfMissing, isMinimapArtifactPath, bakeRequestedMinimapIfMissing } from './MinimapBake.js'
 
 export function createServerAPI(ctx) {
   const { config, port, tickRate, staticDirs, appLoader, appRuntime, physics, physicsIntegration, stageLoader } = ctx
@@ -89,12 +66,12 @@ export function createServerAPI(ctx) {
       for (const e of worldDef.entities || []) { if (e.app && !_loadedSet.has(e.app)) _missingApps.add(e.app) }
       if (_missingApps.size) console.error(`[loadWorld] world "${worldDef.name || '(unnamed)'}" references app(s) that failed to load: ${[..._missingApps].join(', ')} -- affected entities will have no server-side app logic`)
       try {
-        const _terrainEnt = (worldDef.entities || []).find(e => e.app === 'terrain')
-        const _tcfg = (_terrainEnt && _terrainEnt.config) || worldDef.terrain || null
+        const _tcfg = resolveTerrainConfig(worldDef)
         if (_tcfg && _tcfg.enabled !== false) ctx._terrainStreamer = await setupTerrainStreaming({ physics, playerManager, terrain: _tcfg })
-        if (_tcfg && _tcfg.enabled !== false && Number.isFinite(_tcfg.seed)) {
-          const _worldId = worldDef.name || process.env.WORLD || 'world'
-          worldDef._minimap = { base: `/apps/world/${_worldId}.${_tcfg.seed | 0}.minimap`, center: _tcfg.center || [0, 0], extent: Number.isFinite(_tcfg.minimapExtent) ? _tcfg.minimapExtent : Math.min(_tcfg.radius * 0.25, 16384) }
+        const _worldId = appRuntime.worldName
+        const _minimap = minimapDescriptor(_worldId, _tcfg)
+        if (_minimap) {
+          worldDef._minimap = _minimap
           bakeMinimapIfMissing(_worldId, _tcfg).catch(e => console.error('[minimap] bake-if-missing failed:', e?.message || e))
         }
       } catch (e) { console.error('[terrain] setup error:', e?.message || e) }
@@ -143,6 +120,16 @@ export function createServerAPI(ctx) {
           if (req.method === 'GET' && req.url === '/metrics') { handleMetrics(req, res, ctx); return }
           if (req.method === 'GET' && req.url === '/benchmark') { handleBenchmark(req, res, ctx); return }
           if (req.method === 'POST' && req.url === '/freddie/viz') { handleFreddieViz(req, res, appRuntime); return }
+          if (staticHandler && req.method === 'GET' && isMinimapArtifactPath(req.url.split('?')[0])) {
+            bakeRequestedMinimapIfMissing(req.url.split('?')[0])
+              .catch(e => console.error('[minimap] on-demand bake failed:', req.url, e?.message || e))
+              .then(() => staticHandler(req, res))
+              .catch(e => {
+                console.error('[static] handler error:', e?.message || e)
+                if (!res.headersSent) { res.writeHead(500); res.end('internal error') }
+              })
+            return
+          }
           if (staticHandler) {
             Promise.resolve(staticHandler(req, res)).catch(e => {
               console.error('[static] handler error:', e?.message || e)

@@ -63,6 +63,7 @@ import { installRenderControls, RenderControls } from './core/RenderControls.js'
 import { installMeshDebug } from './core/MeshDebug.js'
 import { pickExpressionCode, applyExpressionCode, EXPR_NEUTRAL } from './core/ExpressionCodes.js'
 import { codeToWeaponName } from '../src/shared/WeaponCodes.js'
+import { withTerrainSeed } from '../src/shared/terrainConfig.js'
 import { getSharedStreamingScheduler } from './core/StreamingScheduler.js'
 import { createPlacementScheduler, warmSceneryShaders } from './core/PlacementScheduler.js'
 import { getSharedCacheRevalidationSweep } from './core/CacheRevalidationSweep.js'
@@ -760,16 +761,7 @@ if (_worldParam && _runsInPageServer) {
   const _wmod = await import(`/apps/world/${_worldParam}.js`).catch(e => { console.error(`[world] failed to load /apps/world/${_worldParam}.js:`, e?.message || e); return null })
   if (_wmod?.default) _worldDef = _wmod.default
 }
-if (_seedParam != null && _worldDef && _worldDef.terrain) {
-  _worldDef = {
-    ..._worldDef,
-    terrain: {
-      ..._worldDef.terrain,
-      seed: _seedParam,
-      ...( _worldDef.terrain.vegetation ? { vegetation: { ..._worldDef.terrain.vegetation, seed: _seedParam } } : {} )
-    }
-  }
-}
+if (_seedParam != null && _worldDef) _worldDef = withTerrainSeed(_worldDef, _seedParam)
 for (const _e of (_worldDef?.entities || [])) if (_e.custom?._interior && _e.id) _envEntityIds.add(_e.id)
 try {
   const _envModels = [...new Set((_worldDef?.entities || []).filter(e => e.model && e.custom?._interior).map(e => e.model))]

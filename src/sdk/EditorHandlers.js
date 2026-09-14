@@ -1,5 +1,6 @@
 import { MSG } from '../protocol/MessageTypes.js'
 import { vecOK } from '../shared/vecGuard.js'
+import { minimapDescriptor, resolveTerrainConfig, withTerrainSeed } from '../shared/terrainConfig.js'
 import { BIOME_PRESETS } from '../terrain/BiomeOverride.js'
 import { createGrassDecal } from '../terrain/GrassDecal.js'
 import { createEditOpLog } from './EditOpLog.js'
@@ -13,8 +14,8 @@ let _fs = null, _path = null, _bakeMinimapIfMissing = null
 if (isNode) {
   _fs = await import('node:fs')
   _path = await import('node:path')
-  const _serverApiPath = (() => './' + 'ServerAPI' + '.js')()
-  _bakeMinimapIfMissing = (await import(_serverApiPath)).bakeMinimapIfMissing
+  const _minimapBakePath = (() => './' + 'MinimapBake' + '.js')()
+  _bakeMinimapIfMissing = (await import(_minimapBakePath)).bakeMinimapIfMissing
 }
 const readdirSync = _fs?.readdirSync, existsSync = _fs?.existsSync
 const readFileSync = _fs?.readFileSync, writeFileSync = _fs?.writeFileSync
@@ -431,11 +432,14 @@ export function createEditorHandlers(ctx) {
       if (seed === null) { connections.send(clientId, MSG.TERRAIN_CONFIG, { ok: false, error: 'invalid seed' }); return }
       const terrainEnt = [...appRuntime.entities.values()].find(e => e._appName === 'terrain' || e.app === 'terrain')
       const wd = ctx.currentWorldDef
-      const wdEnt = wd && Array.isArray(wd.entities) ? wd.entities.find(e => e.app === 'terrain') : null
-      const baseCfg = (wdEnt && wdEnt.config) || (wd && wd.terrain) || (terrainEnt && terrainEnt.custom) || {}
-      const newCfg = { ...baseCfg, seed }
-      if (wdEnt) wdEnt.config = newCfg
-      else if (wd) wd.terrain = newCfg
+      const reseededWd = wd ? withTerrainSeed(wd, seed) : null
+      const reseededCfg = resolveTerrainConfig(reseededWd)
+      const newCfg = reseededCfg || { ...((terrainEnt && terrainEnt.custom) || {}), seed }
+      if (wd && !reseededCfg) wd.terrain = newCfg
+      else if (wd) {
+        if (reseededWd.terrain) wd.terrain = reseededWd.terrain
+        if (Array.isArray(wd.entities)) reseededWd.entities.forEach((e, i) => { if (e !== wd.entities[i]) wd.entities[i] = e })
+      }
       ;(async () => {
         try {
           if (ctx._terrainStreamer?.stop) ctx._terrainStreamer.stop()
@@ -443,8 +447,8 @@ export function createEditorHandlers(ctx) {
           if (ctx._terrainStreamer?._rockStreamer?.stop) ctx._terrainStreamer._rockStreamer.stop()
           const { setupTerrainStreaming } = await import('../terrain/TerrainPhysics.js')
           ctx._terrainStreamer = await setupTerrainStreaming({ physics: ctx.physics, playerManager: ctx.playerManager, terrain: newCfg })
-          const worldId = wd?.name || (typeof process !== 'undefined' && process.env?.WORLD) || 'world'
-          const newMinimap = Number.isFinite(newCfg.seed) ? { base: `/apps/world/${worldId}.${newCfg.seed | 0}.minimap`, center: newCfg.center || [0, 0], extent: Number.isFinite(newCfg.minimapExtent) ? newCfg.minimapExtent : Math.min(newCfg.radius * 0.25, 16384) } : null
+          const worldId = appRuntime.worldName || wd?.name || (typeof process !== 'undefined' && process.env?.WORLD) || 'world'
+          const newMinimap = minimapDescriptor(worldId, newCfg)
           if (wd) wd._minimap = newMinimap
           connections.broadcast(MSG.TERRAIN_CONFIG, { ok: true, config: newCfg, minimap: newMinimap })
           if (isNode && newCfg.enabled !== false && Number.isFinite(newCfg.seed)) {

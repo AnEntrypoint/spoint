@@ -24,6 +24,7 @@ import { setupTerrainStreaming, loadPlanetSampler } from '../terrain/TerrainPhys
 import { allocateRingBuffer, TransformRingWriter } from '../transport/TransformRing.js'
 import { saveWorldSnapshot, restoreWorldSnapshot, worldDefFingerprint } from './WorldPersistence.js'
 import { isWorldName } from '../shared/worldName.js'
+import { resolveTerrainConfig, minimapDescriptor } from '../shared/terrainConfig.js'
 
 if (typeof setImmediate === 'undefined') globalThis.setImmediate = fn => setTimeout(fn, 0)
 
@@ -48,8 +49,9 @@ export async function init({ worldDef, worldName: selectedWorldName = null, apps
   const physics = new PhysicsWorld({ gravity, crouchHalfHeight: playerConfig.crouchHalfHeight })
   const physicsReady = physics.init()
 
-  if (worldDef.terrain && worldDef.terrain.enabled !== false) {
-    loadPlanetSampler({ radius: worldDef.terrain.radius, hpfTexRes: (worldDef.terrain.physics || {}).hpfTexRes, seed: worldDef.terrain.seed, reliefScale: worldDef.terrain.reliefScale }).catch(() => {})
+  const _tcfg = resolveTerrainConfig(worldDef)
+  if (_tcfg && _tcfg.enabled !== false) {
+    loadPlanetSampler({ radius: _tcfg.radius, hpfTexRes: (_tcfg.physics || {}).hpfTexRes, seed: _tcfg.seed, reliefScale: _tcfg.reliefScale }).catch(() => {})
   }
 
   const emitter = new EventEmitter(), eventBus = new EventBus(), eventLog = new EventLog({ maxSize: 1000 })
@@ -94,12 +96,8 @@ export async function init({ worldDef, worldName: selectedWorldName = null, apps
 
   const placedPromise = storage.get('placed-models').catch(e => { console.warn('[world-persistence] placed-models read failed:', e?.message || e); return null })
   await physicsReady
-  const _terrainEnt = (worldDef.entities || []).find(e => e.app === 'terrain')
-  const _tcfg = (_terrainEnt && _terrainEnt.config) || worldDef.terrain || null
-  if (_tcfg && _tcfg.enabled !== false && Number.isFinite(_tcfg.seed)) {
-    const _worldId = knownWorldName || SINGLEPLAYER_DEFAULT_WORLD_ID
-    worldDef._minimap = { base: `/apps/world/${_worldId}.${_tcfg.seed | 0}.minimap`, center: _tcfg.center || [0, 0], extent: Number.isFinite(_tcfg.minimapExtent) ? _tcfg.minimapExtent : Math.min(_tcfg.radius * 0.25, 16384) }
-  }
+  const _minimap = minimapDescriptor(knownWorldName || SINGLEPLAYER_DEFAULT_WORLD_ID, _tcfg)
+  if (_minimap) worldDef._minimap = _minimap
   if (_tcfg && _tcfg.enabled !== false) {
     setupTerrainStreaming({ physics, playerManager, terrain: _tcfg })
       .then(s => { _terrainStreamer = s; ctx._terrainStreamer = s })
