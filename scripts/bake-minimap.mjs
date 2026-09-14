@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import zlib from 'node:zlib'
 import { resolveTerrainConfig, minimapDescriptor, minimapExtentOf, minimapResOf } from '../src/shared/terrainConfig.js'
+import { MINIMAP_BAKE_CODE_VERSION } from '../src/static/BakeCodeVersion.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..')
@@ -135,6 +136,7 @@ export async function bakeMinimap(opts) {
   const header = {
     seed, radius, anchorDir, reliefScale, extent, N, center,
     minHeight: +min.toFixed(2), maxHeight: +max.toFixed(2),
+    codeVersion: MINIMAP_BAKE_CODE_VERSION,
     generatedAt: Date.now(),
   }
   return { png, heights, header, min, max }

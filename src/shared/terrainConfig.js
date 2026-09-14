@@ -20,6 +20,17 @@ export function minimapDescriptor(worldId, tcfg) {
   return { base: `/apps/world/${worldId}.${tcfg.seed | 0}.minimap`, center: tcfg.center || [0, 0], extent: minimapExtentOf(tcfg) }
 }
 
+export function minimapBakeParams(tcfg) {
+  return {
+    radius: tcfg.radius,
+    reliefScale: tcfg.reliefScale ?? null,
+    anchorDir: tcfg.anchorDir || [0, 1, 0],
+    extent: minimapExtentOf(tcfg),
+    res: minimapResOf(tcfg),
+    center: tcfg.center || [0, 0],
+  }
+}
+
 function reseedTerrainConfig(cfg, seed) {
   const reseeded = { ...cfg, seed }
   if (cfg.vegetation && typeof cfg.vegetation === 'object') reseeded.vegetation = { ...cfg.vegetation, seed }

@@ -41,3 +41,14 @@ export const KTX2_EXTRACT_CODE_VERSION = bakeCodeVersion([
   './GLBDraco.js',
   './GLBKtx2.js',
 ])
+
+export const MINIMAP_BAKE_CODE_VERSION = bakeCodeVersion([
+  '../../scripts/bake-minimap.mjs',
+  '../terrain/PlanetFrame.js',
+  '../shared/terrainConfig.js',
+  '../../packages/mapspinner/src/height-cpu.js',
+  '../../packages/mapspinner/src/height-gen.js',
+  '../../packages/mapspinner/src/anchor-field.js',
+  '../../packages/mapspinner/src/glsl-rt.js',
+  '../../packages/mapspinner/src/terrain-defaults.js',
+])
