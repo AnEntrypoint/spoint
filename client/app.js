@@ -1734,6 +1734,9 @@ clientMachine.subscribe(() => {
   _specWasSpectator = isSpec
 })
 const _vegFocusRebased = new THREE.Vector3()
+const _tpOverrideAuth = { x: 0, y: 0, z: 0 }
+const _tpOverrideRender = new THREE.Vector3()
+const _cameraAuthForRebase = new THREE.Vector3()
 const _colliderDebugFocus = new THREE.Vector3()
 const _entityPosRebased = new THREE.Vector3()
 let inputHandler=null, inputLoopId=null, latestState=null, latestInput=null, lastShootState=false, lastInteractState=false, lastHealth=100, _hierarchyDirty=false, fpsFrames=0, fpsLast=performance.now(), fpsDisplay=0, uiTimer=0, lastFrameTime=performance.now(), _lodCullAt=0, _entityCullAt=0, _profileFrames=0, _profileSum=0; const _sinTable=Array(360).fill(0).map((_,i)=>Math.sin(i*Math.PI/180)), _PLAYER_VIS_D2=6400, _PLAYER_ANIM_LOD_D2=1600, _leakProbeOn=(typeof location!=='undefined'&&location.search.includes('leak')); let _frameParity=0
@@ -2124,7 +2127,10 @@ function buildFrameSectionNodes() {
         const lid = ctx.res.localId
         if (window.__tpOverride && Array.isArray(window.__tpOverride)) {
           const _tpMesh = pm.playerMeshes.get(lid)
-          if (_tpMesh) _tpMesh.position.set(window.__tpOverride[0], window.__tpOverride[1], window.__tpOverride[2])
+          if (_tpMesh) {
+            _tpOverrideAuth.x = window.__tpOverride[0]; _tpOverrideAuth.y = window.__tpOverride[1]; _tpOverrideAuth.z = window.__tpOverride[2]
+            _tpMesh.position.copy(floatingOrigin.toRender(_tpOverrideAuth, _tpOverrideRender))
+          }
         }
         const local = client.getLocalState() || pm.playerStates.get(lid)
         ctx.res.localState = local
@@ -2151,7 +2157,7 @@ function buildFrameSectionNodes() {
       reads: ['vegFocus'], writes: ['originRebased'],
       terminal: true,
       run(ctx) {
-        const p = camera.position
+        const p = floatingOrigin.toAuthoritative(camera.position, _cameraAuthForRebase)
         const rebased = floatingOrigin.update(p.x, p.y, p.z)
         ctx.res.originRebased = rebased
         if (rebased) {
