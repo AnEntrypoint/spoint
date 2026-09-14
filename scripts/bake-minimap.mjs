@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import zlib from 'node:zlib'
-import { resolveTerrainConfig, minimapDescriptor } from '../src/shared/terrainConfig.js'
+import { resolveTerrainConfig, minimapDescriptor, minimapExtentOf, minimapResOf } from '../src/shared/terrainConfig.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..')
@@ -154,10 +154,12 @@ async function main() {
       anchorDir: args.anchorDir ? args.anchorDir.split(',').map(Number) : [0, 1, 0],
     }
   }
-  const extent = Number(args.extent || cfg.minimapExtent || 8192)
-  const res = Number(args.res || 512)
+  const worldBaked = args.world ? minimapDescriptor(String(args.world), cfg) : null
+  const extent = Number(args.extent || (worldBaked ? minimapExtentOf(cfg) : cfg.minimapExtent || 8192))
+  const res = Number(args.res || (worldBaked ? minimapResOf(cfg) : 512))
   const center = args.center ? args.center.split(',').map(Number) : (cfg.center || [0, 0])
-  const outPng = args.out ? path.resolve(REPO_ROOT, args.out) : path.join(REPO_ROOT, 'apps', 'world', `${args.world || 'minimap'}.minimap.png`)
+  const defaultOut = worldBaked ? path.join(REPO_ROOT, `${worldBaked.base}.png`) : path.join(REPO_ROOT, 'apps', 'world', 'minimap.minimap.png')
+  const outPng = args.out ? path.resolve(REPO_ROOT, args.out) : defaultOut
   const outJson = outPng.replace(/\.png$/i, '.json')
 
   const t0 = Date.now()

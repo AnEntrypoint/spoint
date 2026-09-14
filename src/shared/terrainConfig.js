@@ -1,5 +1,6 @@
 const MINIMAP_EXTENT_RADIUS_FRACTION = 0.25
 const MINIMAP_MAX_EXTENT_M = 16384
+const DEFAULT_MINIMAP_RES = 256
 
 export function resolveTerrainConfig(worldDef) {
   const entity = (worldDef?.entities || []).find(e => e && e.app === 'terrain')
@@ -8,6 +9,10 @@ export function resolveTerrainConfig(worldDef) {
 
 export function minimapExtentOf(tcfg) {
   return Number.isFinite(tcfg.minimapExtent) ? tcfg.minimapExtent : Math.min(tcfg.radius * MINIMAP_EXTENT_RADIUS_FRACTION, MINIMAP_MAX_EXTENT_M)
+}
+
+export function minimapResOf(tcfg) {
+  return Number.isFinite(tcfg.minimapRes) ? tcfg.minimapRes : DEFAULT_MINIMAP_RES
 }
 
 export function minimapDescriptor(worldId, tcfg) {

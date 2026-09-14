@@ -2,9 +2,8 @@ import { Worker } from 'node:worker_threads'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { resolveTerrainConfig, minimapDescriptor, minimapExtentOf, withTerrainSeed } from '../shared/terrainConfig.js'
+import { resolveTerrainConfig, minimapDescriptor, minimapExtentOf, minimapResOf, withTerrainSeed } from '../shared/terrainConfig.js'
 
-const DEFAULT_MINIMAP_RES = 256
 const MAX_ON_DEMAND_MINIMAP_BAKES = 64
 const MINIMAP_ARTIFACT_PATH = /^\/apps\/world\/([A-Za-z0-9_-]{1,128})\.(-?\d{1,10})\.minimap\.(?:json|png)$/
 const BAKE_WORKER_SOURCE = `const { parentPort, workerData } = require('node:worker_threads')
@@ -42,7 +41,7 @@ async function bakeAndWrite(base, tcfg) {
   const { png, header } = await bakeOffMainThread({
     seed: tcfg.seed | 0, radius: tcfg.radius, reliefScale: tcfg.reliefScale, anchorDir: tcfg.anchorDir,
     extent: minimapExtentOf(tcfg),
-    res: Number.isFinite(tcfg.minimapRes) ? tcfg.minimapRes : DEFAULT_MINIMAP_RES, center: tcfg.center || [0, 0],
+    res: minimapResOf(tcfg), center: tcfg.center || [0, 0],
   })
   mkdirSync(worldDir(), { recursive: true })
   writeFileSync(outPng, png)
