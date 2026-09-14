@@ -1,6 +1,3 @@
-// GLSL tokenizer used by gen-height.mjs's transpile pipeline -- pure, stateless (no reference to any
-// module-level parser/codegen state), extracted as the one genuinely separable piece of that file.
-
 export const KW = new Set(['if', 'else', 'for', 'while', 'return', 'const', 'struct', 'in', 'out', 'inout', 'highp', 'mediump', 'lowp', 'precision', 'uniform', 'attribute', 'varying', 'flat', 'break', 'continue', 'true', 'false'])
 export const TYPES = new Set(['void', 'float', 'int', 'uint', 'bool', 'vec2', 'vec3', 'vec4', 'ivec2', 'ivec3', 'uvec2', 'uvec3', 'mat2', 'mat3', 'mat4'])
 
@@ -25,6 +22,6 @@ export function tokenize(s) {
 
 export function strip(src) {
   let s = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ')
-  s = s.replace(/^[ \t]*#[^\n]*$/gm, ' ')   // drop #ifdef/#endif/#version/#define lines
+  s = s.replace(/^[ \t]*#[^\n]*$/gm, ' ')
   return s
 }

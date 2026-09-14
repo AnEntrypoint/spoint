@@ -1,18 +1,3 @@
-// verify.mjs -- permanent make-sure-it-works runner (2026-06-11 policy: every render/shader
-// fix is verified against the LIVE page before commit; compile-clean alone never ships).
-//
-// Drives the in-page witness suite (window.__diag.verifyAll / coastWitness / materialWitness /
-// shadeKeyWitness / limbScan / hazeProbe ... in planet.html) over RAW CDP using Node's built-in
-// WebSocket -- no relay, no per-call execution cap, no session recycling, zero dependencies.
-//
-// Usage:
-//   node scripts/verify.mjs                  # full suite (__diag.verifyAll)
-//   node scripts/verify.mjs materialWitness  # one probe
-//   node scripts/verify.mjs "expr"           # any expression on the planet page (await'ed)
-// Needs: dev server on :8080 and a chrome with --remote-debugging-port=9222 (headless ok):
-//   chrome --headless=new --remote-debugging-port=9222 --user-data-dir=.gm/.cdp-profile about:blank
-// Exit code 0 = pass, 1 = fail/error. Prints the JSON verdict.
-
 const CDP_HTTP = process.env.CDP_URL || 'http://localhost:9222';
 const PAGE_URL = process.env.PAGE_URL || 'http://localhost:8080/planet.html';
 const probe = process.argv[2] || 'verifyAll';
@@ -42,10 +27,8 @@ const evalIn = async (expression, awaitPromise = true) => {
   return r.result.value;
 };
 
-// wait for the orchestrator (cold shader compile can take minutes on SwiftShader)
-const deadline = Date.now() + 8 * 60 * 1000;
-// Close the created page on EVERY exit path (perf sweep follow-up 2026-06-11: early-exit/killed runs
-// leaked one headless planet.html per run; leaked pages poll /cmd and steal live-tab diagnostics).
+const ORCH_READY_TIMEOUT_MS = 8 * 60 * 1000;
+const deadline = Date.now() + ORCH_READY_TIMEOUT_MS;
 const closeTarget = () => send('Target.closeTarget', { targetId }).catch(() => {});
 process.on('SIGINT', async () => { await closeTarget(); process.exit(130); });
 process.on('SIGTERM', async () => { await closeTarget(); process.exit(143); });

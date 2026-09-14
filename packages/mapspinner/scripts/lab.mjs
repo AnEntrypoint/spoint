@@ -1,27 +1,3 @@
-// scripts/lab.mjs -- mapspinner CLI testing lab.
-//
-// Builds BOTH height representations from the single source of truth (src/shaders/terrain.glsl):
-//   - CPU: src/height-cpu.js (transpiled via scripts/gen-height.mjs -> src/height-gen.js), pure
-//     node, no GPU, golden-parity-locked to the shader. This renders the HEIGHT GRAPH.
-//   - GLSL: validated by loading planet.html in headless Chromium with the SwiftShader backend
-//     (--use-angle=swiftshader) -- a GPU-free, portable, deterministic software WebGL2 path. This
-//     is the "build the glsl" half and the CPU-vs-GPU parity oracle.
-//
-// Backend choice (user 2026-06-18 'pick the best option'): SwiftShader for the GLSL render-validate
-// (GPU-free + portable + CI-able) over ANGLE-d3d11 (Windows/FXC-specialised, WARP-fallback risk) and
-// native node-WebGL2 (none on win32). SwiftShader cannot witness the ANGLE/FXC mis-translation class
-// -- for that, point PAGE/CHROME at a Windows --use-angle=d3d11 runner; this lab defaults to portable.
-//
-// Usage:
-//   node scripts/lab.mjs heightmap [--res N] [--center lat,lon] [--span deg] [--radius m] [--hillshade] [--out f.png]
-//   node scripts/lab.mjs build                 # regen CPU height-gen.js + compile-check the GLSL
-//   node scripts/lab.mjs glsl-check            # headless SwiftShader: assert terrain.glsl compiles
-//   node scripts/lab.mjs parity [--n N]        # CPU heightAt vs GPU _PROBE_ sampleGroundM divergence
-//   node scripts/lab.mjs help
-//
-// The CPU heightmap + parity-vs-golden run GPU-free anywhere. glsl-check/parity self-launch a
-// headless SwiftShader Chromium (auto-detected) + the dev server (server.js) and tear both down.
-
 import { createHeightSampler } from '../src/height-cpu.js'
 import { encodePNGGray, toGray, crc32 } from './lab-png.mjs'
 import fs from 'node:fs'
@@ -33,11 +9,9 @@ import WebSocket from 'ws'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const OUT_DIR = path.join(ROOT, 'lab-out')
-// Verified LAND reference dir (height-cpu: ~1150m, warm/mid climate -> grass+rock). Set as window.__landDir
-// so parkAboveGround reliably frames LAND (the auto-pick / [0.333,-0.258,0.907] default often hit ocean).
 const LAND_REF = [0.4039, -0.6494, -0.6443]
+const GOLDEN_ANGLE_RAD = 2.399963229728653
 
-// ---------------------------------------------------------------- arg parsing
 function parseArgs(argv) {
   const a = { _: [] }
   for (let i = 0; i < argv.length; i++) {
@@ -53,19 +27,15 @@ function parseArgs(argv) {
 }
 const num = (v, d) => (v === undefined || v === true ? d : Number(v))
 
-// ---------------------------------------------------------------- geometry
-// world direction (unit, y-up) from geographic lat/lon in degrees.
 function dirFromLatLon(latDeg, lonDeg) {
   const la = latDeg * Math.PI / 180, lo = lonDeg * Math.PI / 180
   const cl = Math.cos(la)
   return [cl * Math.cos(lo), Math.sin(la), cl * Math.sin(lo)]
 }
 
-// ---------------------------------------------------------------- CPU height field
-// Sample heightAt over an equirectangular grid (full planet) or a centred region.
 function sampleField(opts) {
   const res = Math.max(8, Math.round(num(opts.res, 256)))
-  const radius = num(opts.radius, 6360000)            // Earth-scale metres -> readable elevations; shape is scale-invariant
+  const radius = num(opts.radius, 6360000)
   const seed = opts.seed !== undefined ? (num(opts.seed, 1337) | 0) : undefined
   const sampler = createHeightSampler({ radius, seed })
   let w, h, latOf, lonOf
@@ -76,7 +46,7 @@ function sampleField(opts) {
     latOf = (px, py) => clat + (0.5 - py / (h - 1)) * span
     lonOf = (px, py) => clon + (px / (w - 1) - 0.5) * span
   } else {
-    w = res * 2; h = res                               // equirectangular 2:1
+    w = res * 2; h = res
     latOf = (px, py) => 90 - (py / (h - 1)) * 180
     lonOf = (px, py) => (px / (w - 1)) * 360 - 180
   }
@@ -93,10 +63,8 @@ function sampleField(opts) {
   return { w, h, elev, min, max, mean: sum / (w * h), landFrac: land / (w * h), radius }
 }
 
-// ---------------------------------------------------------------- PNG encoding: see lab-png.mjs
 function ensureOutDir() { if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true }) }
 
-// ---------------------------------------------------------------- subcommand: heightmap
 function cmdHeightmap(args) {
   const field = sampleField(args)
   const gray = toGray(field, !!args.hillshade)
@@ -112,7 +80,6 @@ function cmdHeightmap(args) {
   return 0
 }
 
-// ---------------------------------------------------------------- subcommand: build (CPU + GLSL)
 async function cmdBuild(args) {
   console.log('[lab] building CPU height (scripts/gen-height.mjs -> src/height-gen.js)')
   const gen = spawnSync(process.execPath, [path.join(ROOT, 'scripts', 'gen-height.mjs')], { cwd: ROOT, encoding: 'utf8' })
@@ -122,7 +89,6 @@ async function cmdBuild(args) {
   return await cmdGlslCheck(args)
 }
 
-// ---------------------------------------------------------------- headless SwiftShader Chromium + CDP
 function findChrome() {
   if (process.env.CHROME) return process.env.CHROME
   const cands = [
@@ -147,7 +113,6 @@ function waitFor(fn, ms, every = 200) {
 }
 async function serverUp() { try { const r = await fetch('http://localhost:8080/planet.html', { method: 'HEAD' }); return r.ok || r.status === 200 } catch { return false } }
 
-// Launch (server if needed) + headless SwiftShader chrome, run `fn(evalIn)`, tear everything down.
 async function withHeadless(fn) {
   const chrome = findChrome()
   if (!chrome) return { ok: false, err: 'no chromium found (set CHROME=/path/to/chrome); CPU heightmap/parity still work GPU-free' }
@@ -181,10 +146,7 @@ async function withHeadless(fn) {
       if (r.exceptionDetails) throw new Error(r.exceptionDetails.text)
       return r.result.value
     }
-    // GL backend string up front (confirms SwiftShader is active even if the shader compile is slow)
     const vendor = await evalIn('(()=>{const c=document.createElement("canvas");const gl=c.getContext("webgl2");const e=gl&&gl.getExtension("WEBGL_debug_renderer_info");return gl&&e?gl.getParameter(e.UNMASKED_RENDERER_WEBGL):(gl?"webgl2":"no-webgl2");})()').catch(() => '?')
-    // wait for orch ready; the SwiftShader SOFTWARE cold-compile of the full terrain shader is very
-    // slow (minutes). On timeout, return a DIAGNOSTIC (not a bare throw) so the failure path is legible.
     const orchDeadline = Date.now() + (Number(process.env.LAB_ORCH_TIMEOUT_MS) || 8 * 60 * 1000)
     let st = 'init', pageErr = null
     while (Date.now() < orchDeadline) {
@@ -207,19 +169,14 @@ async function withHeadless(fn) {
   }
 }
 
-// SELF-SERVE visual witness: headless render of the terrain over LAND at a low oblique pose -> PNG.
-// `--d3d11` uses the real AMD/ANGLE-D3D11 (FXC) backend; default SwiftShader (GPU-free, portable).
 async function cmdShot(args) {
   ensureOutDir()
   if (args.d3d11) process.env.LAB_ANGLE = 'd3d11'
   const out = args.out ? path.resolve(String(args.out)) : path.join(OUT_DIR, 'shot.png')
   const altKm = num(args.alt, 4.0)
-  const pitch = num(args.pitch, 0.4)   // 0 = straight down, ~0.4 = oblique forward (ground fills frame)
-  const dir = args.dir ? ('[' + String(args.dir) + ']') : 'null'   // world dir to aim at (find a peak via height-cpu)
+  const pitch = num(args.pitch, 0.4)
+  const dir = args.dir ? ('[' + String(args.dir) + ']') : 'null'
   const r = await withHeadless(async (evalIn, screenshot) => {
-    // parkAboveGround (planet.html:1097): OBLIQUE pitch so the forward GROUND fills the frame (uses the
-    // GPU height probe to avoid empty/nadir-over-peak frames). parkOblique/litParkOverLand aim at the
-    // HORIZON/sky -- wrong for inspecting terrain.
     const parked = await evalIn(`(async()=>{
       const d = window.__diag || {}, p = window.__planet;
       window.__landDir = ${JSON.stringify(LAND_REF)};   // reliable LAND reference for parkAboveGround's default dir
@@ -237,15 +194,11 @@ async function cmdShot(args) {
   return r.ok ? 0 : 1
 }
 
-// A/B every scalar FS material/color lever (window.__<name>, read by gl-render _g): set each to an
-// EXTREME value, render on the GPU, and hash the framebuffer screenshot vs the baseline. A lever whose
-// extreme value produces an IDENTICAL frame has NO effect -> a dead lever to remove or fix.
 async function cmdAbFs(args) {
   if (args.d3d11) process.env.LAB_ANGLE = 'd3d11'
   ensureOutDir()
   const tmp = path.join(OUT_DIR, '_abfs.png')
   const hashFile = () => { const b = fs.readFileSync(tmp); let s = 0; for (let i = 0; i < b.length; i++) s = (s * 16777619 ^ b[i]) >>> 0; return (s >>> 0) + ':' + b.length }
-  // [name, extreme value clearly != default]. If even this changes nothing, the lever is dead.
   const L = [
     ['biomeTint', 1.0], ['texBright', 0.3], ['texSat', 3.0], ['texMix', 0], ['hazeMul', 4.0],
     ['exposure', 3.0], ['lookSat', 3.0], ['lookContrast', 3.0], ['reliefShade', 8.0], ['vertexAO', 3.0],
@@ -267,7 +220,6 @@ async function cmdAbFs(args) {
       await evalIn(`(async()=>{ try { delete window.__${name}; } catch(e){} ${FR} return 1; })()`);
       (h !== base ? changed : noEffect).push(name)
     }
-    // biome-ramp levers (window.__gen.state.biome, read by the C() helper -- colors + height/slope bands)
     const RAMP = [
       ['bcRock', [1, 0, 0]], ['bcGrass', [1, 0, 1]], ['bcSnow', [1, 0, 0]], ['bcShore', [1, 0, 0]], ['bcLowland', [0, 0, 1]],
       ['bandEdgesLo', [0, 50]], ['bandEdgesHi', [50, 120]], ['snowEdges', [0, 200]], ['slopeRock', [0, 0.05]], ['seaDepthM', 100],
@@ -297,34 +249,22 @@ async function cmdGlslCheck() {
 
 async function cmdParity(args) {
   const n = Math.max(1, Math.round(num(args.n, 64)))
-  // deterministic spiral of directions (no Math.random for reproducibility)
   const dirs = []
   for (let i = 0; i < n; i++) {
     const y = 1 - (i + 0.5) / n * 2
     const r = Math.sqrt(Math.max(0, 1 - y * y))
-    const th = i * 2.399963229728653                       // golden angle
+    const th = i * GOLDEN_ANGLE_RAD
     dirs.push([r * Math.cos(th), y, r * Math.sin(th)])
   }
   const r = await withHeadless(async (evalIn) => {
-    // CPU sampler at the PAGE's actual radius -> sampleGroundM and heightAt are the same scale, no normalising
     const pageR = Number(await evalIn('window.__WEBGL2_TERRAIN_R_M || 63600')) || 63600
     const sampler = createHeightSampler({ radius: pageR })
     const sg = 'window.__planetOrch && window.__planetOrch.render && window.__planetOrch.render.sampleGroundM'
-    // WARM the collision probe: its program is LAZY-compiled on the first sampleGroundM and returns
-    // null until ready (another slow SwiftShader cold-compile). Poll until a finite sample comes back.
     const warm = await waitFor(async () => {
       const v = await evalIn(`(()=>{ const o=window.__planetOrch, p=o&&o.render&&o.render.sampleGroundM; if(!p) return null; const h=p([0,1,0]); return (h!=null && isFinite(h))? h : null; })()`).catch(() => null)
       return v != null
     }, Number(process.env.LAB_PROBE_TIMEOUT_MS) || 4 * 60 * 1000, 2000).then(() => true).catch(() => false)
     if (!warm) return { samples: 0, note: 'sampleGroundM probe never warmed (lazy program compile too slow on SwiftShader; try --use-angle=d3d11 / a GPU chrome, or raise LAB_PROBE_TIMEOUT_MS)' }
-    // TIGHT ORACLE (mapspinner-sampleGroundM-probe-drift-preexisting-bug fix): sampleGroundM is
-    // ASYNC + 1-FRAME-STALE by design (gl-render.js -- correct/cheap for the per-frame collision
-    // hot path, WRONG for a one-off probe sweep like this one, which is not paced by the page's own
-    // rAF loop). The old double-call FRAME-SPACE workaround (call p(d), wait a frame, call p(d)
-    // again) only approximated convergence -- residual staleness still inflated the measured
-    // divergence (documented below as 'APPROXIMATE... NOT a tight oracle', 50m default tolerance).
-    // sampleGroundMSync(d) blocks until it can return THIS call's own result (bounded spin + fence
-    // wait, same discipline as the THC bake readback) -- exact, single-call, no frame-spacing needed.
     const gpu = await evalIn(`(()=>{
       const p = window.__planetOrch.render.sampleGroundMSync;
       const out = [];
@@ -335,7 +275,7 @@ async function cmdParity(args) {
     let maxAbs = 0, sumAbs = 0, cnt = 0
     for (let i = 0; i < dirs.length; i++) {
       if (gpu[i] == null || !isFinite(gpu[i])) continue
-      const cpu = sampler.heightAt(dirs[i])          // CPU sampler is at the PAGE radius -> direct compare
+      const cpu = sampler.heightAt(dirs[i])
       const d = Math.abs(cpu - gpu[i])
       maxAbs = Math.max(maxAbs, d); sumAbs += d; cnt++
     }
@@ -346,13 +286,6 @@ async function cmdParity(args) {
   const ran = r.ok && r.samples > 0
   const withinTol = ran && r.maxAbsM <= tolM
   console.log(JSON.stringify({ ...r, tolM, withinTol, ran }, null, 1))
-  // HARD GATE by default (terrain-height-parity-ci-wiring, 2026-07-22): sampleGroundMSync makes this
-  // an EXACT single-call oracle (no frame-spacing/staleness, see the note above), so a maxAbsM beyond
-  // tolM is a real, actionable CPU/GPU height divergence -- exit non-zero so a CI job actually fails
-  // red on it. Previously this returned 0 whenever the sweep merely RAN, even with withinTol:false,
-  // making the parity number purely informational and unable to fail a build (live-witnessed: a real
-  // injected 10x reliefScale divergence produced maxAbsM 297.212 > tolM 50 yet exited 0). --soft keeps
-  // the old report-only behavior for interactive/exploratory use.
   if (args.soft) return ran ? 0 : 1
   return (ran && withinTol) ? 0 : 1
 }
@@ -383,45 +316,22 @@ Backend: CPU heights = pure node (no GPU). GLSL = headless Chromium --use-angle=
   return 0
 }
 
-// ---------------------------------------------------------------- exports (for the live-witness
-// GPU-free self-test of the CLI lab's CPU height path; see AGENTS.md no-test-files-ever convention)
 export { parseArgs, dirFromLatLon, sampleField, crc32, encodePNGGray, toGray }
 
-// ---------------------------------------------------------------- main (only when run as the CLI entry)
 import { pathToFileURL } from 'node:url'
-// SETTLED parity over a LOCAL TANGENT PATCH around an anchor dir (matches a consumer's play patch,
-// e.g. spoint). Uses sampleGroundMSync (mapspinner-sampleGroundM-probe-drift-preexisting-bug fix)
-// for an exact single-call read per dir -- the old K-frame settle loop (tap the SAME dir for K
-// frames so the 1-frame-stale single-slot async probe fully converges) is no longer needed, kept
-// only as the --settle arg's now-informational default for callers that still pass it.
 async function cmdParityPatch(args) {
-  // RADIUS (cpu-gpu-height-parity-patch-anchor-divergence fix, 2026-07-21): this used to default to
-  // a HARDCODED 63600 -- 10x the live demo page's actual boot radius (planet-orchestrator's own
-  // `R = opts.radius || 6360.0`, undisturbed by planet.html's initMapspinnerPlanet call, which passes
-  // no radius opt at all -> the page always boots at R=6360 by default). A caller that omitted
-  // --radius therefore built the CPU sampler at R=63600 (wrong reliefScale = 63600/63600000 = 0.001,
-  // 10x the correct 6360/63600000 = 0.0001 -- height-cpu.js's own JSDoc documents opts.radius's
-  // default as 6360, matching the page, not this tool's stale 63600) AND computed sample directions
-  // via localToDir's R-scaled local-tangent-patch math (also 10x off, so the requested 320m reach
-  // sampled a geometrically different patch than intended) -- while the GPU probe (sampleGroundMSync)
-  // always reads the LIVE PAGE's real defRadius (6360) regardless of the CLI arg. A silent CPU/GPU
-  // radius mismatch, not a real height-shape divergence: this produced the row's measured maxAbsM
-  // 46.951 at the default anchor. FIX: mirror cmdParity's existing pattern -- read the live page's
-  // actual radius (window.__WEBGL2_TERRAIN_R_M) INSIDE withHeadless and use it unless the caller
-  // passed an explicit --radius override, so the default invocation is always self-consistent with
-  // whatever radius the page actually booted at (matching height-cpu.js's own documented default).
   const explicitR = args.radius != null ? num(args.radius, NaN) : null
   const A = args.anchor ? String(args.anchor).split(',').map(Number) : [-0.641, 0.2558, 0.7237]
-  const reach = num(args.reach, 320)   // metres half-extent of the local patch
+  const reach = num(args.reach, 320)
   const grid = Math.max(2, Math.round(num(args.grid, 7)))
-  const K = Math.max(3, Math.round(num(args.settle, 8)))   // frames to settle each dir
+  const settleFrames = Math.max(3, Math.round(num(args.settle, 8)))
   const nrm = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0]/l, v[1]/l, v[2]/l] }
   const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]
   const up = nrm(A)
   const ref = Math.abs(up[1]) < 0.99 ? [0,1,0] : [1,0,0]
   const east = nrm(cross(ref, up)); const north = cross(east, up)
   const localToDir = (R, x, z) => nrm([ up[0] + (east[0]*x + north[0]*z)/R, up[1] + (east[1]*x + north[1]*z)/R, up[2] + (east[2]*x + north[2]*z)/R ])
-  const detail = (args.detail != null) ? num(args.detail, 50) : null   // override uDetailOverlay on BOTH GPU render + CPU sampler
+  const detail = (args.detail != null) ? num(args.detail, 50) : null
   const r = await withHeadless(async (evalIn) => {
     const R = Number.isFinite(explicitR) ? explicitR : ((Number(await evalIn('window.__WEBGL2_TERRAIN_R_M || 6360'))) || 6360)
     const samples = []
@@ -453,7 +363,7 @@ async function cmdParityPatch(args) {
       const d = Math.abs(cpu - gpu[i]); maxAbs = Math.max(maxAbs, d); sumAbs += d; cnt++
       rows.push({ x: samples[i].x, z: samples[i].z, cpu: +cpu.toFixed(2), gpu: +gpu[i].toFixed(2), diff: +(gpu[i]-cpu).toFixed(2) })
     }
-    return { pageRadiusM: R, anchor: A, reachM: reach, settleFrames: K, samples: cnt, maxAbsM: +maxAbs.toFixed(3), meanAbsM: +(sumAbs/Math.max(1,cnt)).toFixed(3), rows }
+    return { pageRadiusM: R, anchor: A, reachM: reach, settleFrames, samples: cnt, maxAbsM: +maxAbs.toFixed(3), meanAbsM: +(sumAbs/Math.max(1,cnt)).toFixed(3), rows }
   })
   console.log(JSON.stringify(r, null, 1))
   return r.ok && r.samples > 0 ? 0 : 1

@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// perf-gate.mjs -- performance regression gate (zero deps, <80 lines)
 import { execFile } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { promisify } from 'node:util';
@@ -20,9 +19,6 @@ function writeBaseline(data) {
   console.log(JSON.stringify(data, null, 2));
 }
 
-// glsl-check now emits {ok, compiled, probe, vendor, pageErr} (no shaderCompileMs).
-// The perf-cost it gates is the headless compile+warm wall time, so MEASURE that here
-// and assert compiled===true with a finite probe (the shader actually built and ran).
 async function runGlslCheck() {
   console.log('[perf-gate] running lab.mjs glsl-check ...');
   let stdout = '', stderr = '';
@@ -42,7 +38,7 @@ async function runGlslCheck() {
   const combined = stdout + '\n' + stderr;
   const jm = combined.match(/\{[\s\S]*?"compiled"[\s\S]*?\}/);
   let parsed = null;
-  if (jm) { try { parsed = JSON.parse(jm[0]); } catch { /* fall through */ } }
+  if (jm) { try { parsed = JSON.parse(jm[0]); } catch { } }
   if (!parsed || parsed.compiled !== true) {
     console.error('[perf-gate] glsl-check did not report compiled:true:\n', combined.slice(0, 1000));
     process.exit(1);
@@ -85,7 +81,6 @@ async function main() {
     console.error('[perf-gate] no baseline found. Run with --update-baseline to create one.');
     process.exit(1);
   }
-  // accept the legacy shaderCompileMs key as the glsl-check wall-time baseline (same gate).
   const baseMs = baseline.glslCheckMs != null ? baseline.glslCheckMs : baseline.shaderCompileMs;
   if (baseMs == null) {
     console.error('[perf-gate] baseline missing glslCheckMs. Run with --update-baseline to refresh.');

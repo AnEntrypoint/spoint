@@ -1,29 +1,20 @@
-// scripts/ab-elevation.mjs -- A/B isolation of every ELEVATION term in the CPU height field.
-// For each term, samples heightAt over a fibonacci sphere WITH the default uniforms vs WITH the term
-// DISABLED, and reports max/mean |delta| + how many sample dirs it changes + the dir of max effect.
-// A term whose max |delta| ~ 0 is a NO-OP (computed but never affects elevation) -- the thing to find.
-// Specifically answers: do CANYONS actually affect the rendered elevation?  (npm run ab)
-
 import { createHeightSampler } from '../src/height-cpu.js'
 
 const N = Number(process.env.AB_N) || 20000
-const radius = 6360000   // Earth-scale metres -> readable deltas; the field is scale-invariant
+const GOLDEN_ANGLE_RAD = 2.399963229728653
+const radius = 6360000
 
-// term -> the uniform override that DISABLES/MINIMISES it. NOTE the guard `(x>0)?x:DEFAULT` on the
-// octave + cliff uniforms (terrain.glsl:181/364) means 0 == "unset -> use default", so disabling means
-// the NONZERO MINIMUM (1 octave; cliffAmt 0.01), not 0. canyonDepthMul also guards (0 -> floor depth 1,
-// not zero) so its A/B shows depth-2 vs depth-1, still proving canyons carve.
 const TERMS = [
-  ['canyon-depth',      { canyonDepthMul: 0 }],     // guard -> floor 60*1 vs default 60*2: shallower canyons
-  ['detail-overlay',    { uDetailOverlay: 0 }],     // detailFbm elevation add + flat-area valleys (default 6.0)
-  ['cliff-terrace',     { cliffAmt: 0.01 }],        // ~off (guard blocks 0); vs default 1.0
-  ['peak-octaves',      { uPeakOcts: 1 }],          // 1 vs default 3 octaves
-  ['broadlow-octaves',  { uBroadLowOcts: 1 }],      // 1 vs default 8 octaves
-  ['incise-ridge-oct',  { uInciseRidgeOcts: 1 }],   // 1 vs default 4 octaves
-  ['detailfbm-octaves', { uDetailFbmOcts: 1 }],     // 1 vs default 3 octaves
-  ['octmax-1',          { uOctMax: 1 }],            // clamp the whole broadShapeM loop to 1 octave (default 12)
-  ['land-bias',         { uLandBias: 300 }],        // OFF by default (0) -> turning ON should shift land up
-  ['climate-relief',    { uClimateRelief: 1 }],     // OFF by default (0) -> widens the flat-climate relief gates
+  ['canyon-depth',      { canyonDepthMul: 0 }],
+  ['detail-overlay',    { uDetailOverlay: 0 }],
+  ['cliff-terrace',     { cliffAmt: 0.01 }],
+  ['peak-octaves',      { uPeakOcts: 1 }],
+  ['broadlow-octaves',  { uBroadLowOcts: 1 }],
+  ['incise-ridge-oct',  { uInciseRidgeOcts: 1 }],
+  ['detailfbm-octaves', { uDetailFbmOcts: 1 }],
+  ['octmax-1',          { uOctMax: 1 }],
+  ['land-bias',         { uLandBias: 300 }],
+  ['climate-relief',    { uClimateRelief: 1 }],
 ]
 
 const base = createHeightSampler({ radius })
@@ -31,7 +22,7 @@ const dirs = []
 for (let i = 0; i < N; i++) {
   const y = 1 - (i + 0.5) / N * 2
   const r = Math.sqrt(Math.max(0, 1 - y * y))
-  const th = i * 2.399963229728653
+  const th = i * GOLDEN_ANGLE_RAD
   dirs.push([r * Math.cos(th), y, r * Math.sin(th)])
 }
 const baseH = dirs.map(d => base.heightAt(d))

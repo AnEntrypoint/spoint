@@ -28,8 +28,6 @@
   </div>
 
   <script type="module">
-    // mapspinner SDK integration example for external consumers (e.g., spoint)
-    
     import { createPlanet } from '../src/index.js';
 
     const canvas = document.getElementById('canvas');
@@ -44,7 +42,6 @@
       throw new Error('No WebGL2 context');
     }
 
-    // Enable required extensions
     gl.getExtension('OES_texture_float');
     gl.getExtension('OES_texture_float_linear');
     gl.getExtension('EXT_color_buffer_float');
@@ -54,12 +51,11 @@
     let frameCount = 0;
     let lastTime = Date.now();
 
-    // Initialize mapspinner SDK
     async function init() {
       try {
         planet = await createPlanet(gl, {
-          radius: 6360000,      // Earth radius (meters)
-          gridMeshSize: 16      // Mesh subdivision
+          radius: 6360000,
+          gridMeshSize: 16
         });
         console.log('mapspinner SDK initialized');
         render();
@@ -74,12 +70,10 @@
 
       if (!planet) return;
 
-      // Update camera and render one frame
       try {
         const frameResult = planet.frame();
         frameCount++;
         
-        // Update HUD
         const now = Date.now();
         const elapsed = now - lastTime;
         if (elapsed > 500) {
@@ -98,16 +92,13 @@
       }
     }
 
-    // Handle window resize
     window.addEventListener('resize', () => {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
       if (planet && planet.render && planet.render.cullMatrix) {
-        // Notify render layer of viewport change if needed
       }
     });
 
-    // Start initialization
     init();
   </script>
 </body>

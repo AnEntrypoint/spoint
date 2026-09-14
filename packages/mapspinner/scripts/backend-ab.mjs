@@ -1,12 +1,3 @@
-// backend-ab.mjs -- the "is this GPU/backend-keyed?" one-command answer (2026-06-12 tooling; the
-// question that cost a full day on the FXC per-callsite hunt). Launches TWO Chromes against the
-// live server -- default ANGLE (d3d11 on Windows) and vulkan -- parks BOTH at the same pose, and
-// prints renderer string + luminance stats + a verdict, saving side-by-side screenshots to .gm/.
-//
-//   node scripts/backend-ab.mjs                      # deterministic lowland pose
-//   node scripts/backend-ab.mjs 0.21 0.43 0.87 5     # camDir x y z + altKm
-//
-// Needs: server.js on :8080, Chrome installed. Cold d3d11 compile is ONCE per profile (cached after).
 import { spawn } from 'child_process';
 import fs from 'fs';
 
@@ -35,7 +26,6 @@ async function cdp(port) {
     ws.send(JSON.stringify(sessionId ? { id, method, params, sessionId } : { id, method, params })); });
   const { sessionId } = await send('Target.attachToTarget', { targetId: pg.id, flatten: true });
   await send('Runtime.enable', {}, sessionId);
-  // foreground so the compile poll runs at full rate (background rAF throttling)
   await fetch(`http://localhost:${port}/json/activate/${pg.id}`).catch(() => {});
   const evalIn = async (expression) => {
     const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true }, sessionId);

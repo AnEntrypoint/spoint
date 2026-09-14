@@ -1,7 +1,8 @@
-// No-dependency 8-bit grayscale PNG encoder (node zlib only) + heightfield->grayscale mapping, used
-// by scripts/lab.mjs's heightmap subcommand. Pure, stateless -- no reference to lab.mjs's CLI/CDP state.
-
 import zlib from 'node:zlib'
+
+const PNG_BIT_DEPTH_8 = 8
+const PNG_COLOR_TYPE_GRAYSCALE = 0
+const PNG_FILTER_NONE = 0
 
 const CRC_TABLE = (() => {
   const t = new Uint32Array(256)
@@ -24,22 +25,20 @@ function chunk(type, data) {
   const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(body), 0)
   return Buffer.concat([len, body, crc])
 }
-// grayscale 8-bit PNG from a width*height Uint8Array
 export function encodePNGGray(width, height, gray) {
   const sig = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
   const ihdr = Buffer.alloc(13)
   ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4)
-  ihdr[8] = 8; ihdr[9] = 0; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0   // 8-bit, grayscale
+  ihdr[8] = PNG_BIT_DEPTH_8; ihdr[9] = PNG_COLOR_TYPE_GRAYSCALE; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0
   const raw = Buffer.alloc((width + 1) * height)
   for (let y = 0; y < height; y++) {
-    raw[y * (width + 1)] = 0                                            // filter: none
+    raw[y * (width + 1)] = PNG_FILTER_NONE
     gray.subarray(y * width, (y + 1) * width).forEach((v, x) => { raw[y * (width + 1) + 1 + x] = v })
   }
   const idat = zlib.deflateSync(raw, { level: 9 })
   return Buffer.concat([sig, chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', Buffer.alloc(0))])
 }
 
-// map elevation field -> grayscale, optional hillshade relief
 export function toGray(field, hillshade) {
   const { w, h, elev, min, max } = field
   const g = new Uint8Array(w * h)
@@ -48,7 +47,6 @@ export function toGray(field, hillshade) {
     for (let i = 0; i < w * h; i++) g[i] = Math.max(0, Math.min(255, Math.round((elev[i] - min) / span * 255)))
     return g
   }
-  // simple lambert hillshade from finite-difference slope (light from NW, high)
   const lx = -0.5, ly = -0.5, lz = 0.7, ll = Math.hypot(lx, ly, lz)
   const scale = 255 / span
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {

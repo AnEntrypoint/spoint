@@ -1,14 +1,3 @@
-// needle-ab.mjs -- backend A/B for the patch-bake "height needle" defect (2026-07-04): isolated
-// single-texel +30m spikes in bakeTile output, deterministic + world-anchored, absent from the
-// float64 CPU mirror. If the needles vanish on a different ANGLE translator (swiftshader/vulkan)
-// they are the documented FXC mis-translation class; if they persist everywhere they are genuine
-// fp32 math in the fractal. Follows backend-ab.mjs's CDP pattern; needs no planet.html boot --
-// bakes a known-bad tile directly through patch-baker on a bare served page.
-//
-//   node scripts/needle-ab.mjs          # d3d11 (default ANGLE) vs swiftshader vs vulkan
-//
-// Known-bad tile (witnessed in the consumer world, radius 63600, reliefScale 0.001, no seed):
-// face=4, patchSpan=801.2109375, pi=-72, pj=33 -> outlier texels (71,6),(70,12),(69,18),(59,77),(53,112).
 import { spawn } from 'child_process';
 import fs from 'fs';
 
