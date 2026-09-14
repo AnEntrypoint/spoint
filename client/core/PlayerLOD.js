@@ -12,6 +12,7 @@ export const TIER_DOT = 2
 let _idxScratch = new Int32Array(0)
 let _d2Scratch = new Float64Array(0)
 const _full = new Set(), _reduced = new Set(), _dot = new Set()
+const _tierById = new Map()
 const _order = []
 
 function ensureScratchCapacity(n) {
