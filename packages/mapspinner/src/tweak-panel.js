@@ -1,21 +1,5 @@
-// tweak-panel.js -- LIVE control menus for every window.__ shader lever (no reload needed).
-//
-// Each row writes window.__<key>; gl-render reads window.__<key> EVERY FRAME via its g()/_g() helpers,
-// so moving a slider changes the look instantly. Grouped + collapsible. A row does NOT force-set the
-// global on build (so untouched levers keep gl-render's own default, and splitFactor stays on the
-// altitude ramp until you actually touch it) -- the global is written only when you move the control.
-//
-// Imported (cache-busted) by planet.html so it reliably reaches a warm tab. Add a lever here the moment
-// you wire a new window.__ uniform in gl-render -- this is the single place to expose tweakables.
-
 import { TERRAIN_DEFAULTS as TD } from './terrain-defaults.js';
 
-// [key, label, min, max, step, default-shown]. key -> window.__<key>.
-// The panel is a PURE LIVE OVERLAY: it does NOT force-set any global on boot (the SDK already
-// renders the blessed look from src/terrain-defaults.js -- TD below). A window.__<key> is written
-// ONLY when the user moves a control. The slider's displayed default + the 'r' reset target read
-// the SDK canonical TD[key] where it exists (single source of truth), falling back to the per-row
-// literal for UI-only levers (renderScale). The min/max/step/label columns are pure UI metadata.
 const GROUPS = [
   ['Canyon / carve', [
     ['canyonDepth',   'Canyon depth',          0,   80,   1,    40.0],
@@ -81,16 +65,10 @@ const GROUPS = [
     ['flatNormal',    'Flat normal (diag)',    0,   1,    1,    0.0],
   ]],
   ['Performance', [
-    // Render scale: drawing-buffer pixels per CSS pixel. Lower = faster (the deck is partly fill-bound:
-    // half-res measured -2ms/frame on the APU), softer (browser upscales). The biggest detail-PRESERVING
-    // FPS lever -- all geometry+material stays, just resolution drops. Live via window.__setRenderScale.
     ['renderScale',   'Render scale (fps<->sharp)', 0.4, 1.5, 0.05, 1.0],
   ]],
 ];
 
-// The SDK canonical default for a lever (single source of truth) -- TD[key] when present (scalar),
-// else the per-row literal for UI-only levers. The panel uses this for display + reset only; it does
-// NOT write the global at boot (removed: the SDK now renders the blessed look on its own).
 function levDefault(key, rowDef){
   const v = TD[key];
   return (typeof v === 'number') ? v : rowDef;
@@ -123,8 +101,8 @@ function build(){
 
     for (const [key, label, min, max, step, def] of levers) {
       const g = '__' + key;
-      const dflt = levDefault(key, def);                    // SDK canonical default (TD), UI-literal fallback
-      const cur = (window[g] != null) ? +window[g] : dflt;   // SHOW current/default, do NOT write the global until touched
+      const dflt = levDefault(key, def);
+      const cur = (window[g] != null) ? +window[g] : dflt;
       const row = document.createElement('div');
       row.style.cssText = 'display:flex;align-items:center;gap:4px;margin:1px 0';
 
@@ -140,7 +118,7 @@ function build(){
       num.style.cssText = 'flex:0 0 60px;background:#0a0e12;color:#cfe;border:1px solid #2a3a44;font:10px monospace';
 
       const apply = (v) => { v = +v; if (!isFinite(v)) return; window[g] = v; rng.value = v; num.value = v;
-        if (key === 'renderScale' && window.__setRenderScale) { window.__setRenderScale(v); return; }   // live buffer resize, not a shader uniform
+        if (key === 'renderScale' && window.__setRenderScale) { window.__setRenderScale(v); return; }
         const o = window.__planetOrch; if (o && o.clearCache) o.clearCache(); };
       rng.oninput = () => apply(rng.value);
       num.oninput = () => apply(num.value);
@@ -160,6 +138,6 @@ function build(){
   window.__tweakPanel = { rebuild: build };
 }
 
-function boot(){ build(); }   // build the panel only; NO force-apply -- the SDK renders the blessed look by default
+function boot(){ build(); }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
 else boot();
