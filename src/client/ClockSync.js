@@ -31,7 +31,6 @@ export class ClockSync {
       if (this.samples[i].rtt < best.rtt) best = this.samples[i]
     }
 
-    const prevOffset = this._offset
     this._offset = best.offset
     this._oneWayDelay = best.rtt / 2
 
@@ -47,7 +46,6 @@ export class ClockSync {
         this._lastDriftOffset = best.offset
       }
     }
-    void prevOffset
   }
 
   getEstimatedServerTime(localNow = Date.now()) {

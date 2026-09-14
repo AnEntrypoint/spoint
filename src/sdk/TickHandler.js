@@ -1,9 +1,9 @@
 import { MSG } from '../protocol/MessageTypes.js'
-import { SnapshotEncoder, unpackBinRecord, TombstoneLog, updateTombstones, PLAYER_LOD_REDUCED_HZ, filterEncodedPlayersTiered } from '../netcode/SnapshotEncoder.js'
+import { SnapshotEncoder, TombstoneLog, updateTombstones, PLAYER_LOD_REDUCED_HZ, filterEncodedPlayersTiered } from '../netcode/SnapshotEncoder.js'
 import { pack } from '../protocol/msgpack.js'
 import { applyMovement as _applyMovement, DEFAULT_MOVEMENT as _DEFAULT_MOVEMENT } from '../shared/movement.js'
 import { applyPlayerCollisions } from '../netcode/CollisionSystem.js'
-import { worldToCell, packCellKey, neighborCells } from '../terrain/CubeSphereCells.js'
+import { worldToCell, packCellKey } from '../terrain/CubeSphereCells.js'
 import { createServerTimeOfDay } from './ServerTimeOfDay.js'
 import { createServerWeather } from './ServerWeather.js'
 import { enforceMovementEnvelope } from '../netcode/InputGuard.js'
@@ -12,7 +12,6 @@ import { recordSnapshotBytes, recordTickPhase } from './Metrics.js'
 import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, getPlayerPriorityIds, clearPlayerPriorityAccumulator, _spatialCache, _cellPackCache, _ringCache, _cellCenterWorld } from './TickHandlerAOI.js'
 export { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, getPlayerPriorityIds } from './TickHandlerAOI.js'
 
-const MAX_SENDS_PER_TICK = 25
 const INPUT_BACKLOG_DRAIN = 2
 const PHYSICS_PLAYER_DIVISOR = 3
 const PHYSICS_MAX_ACCUM_DT = 1 / 20
@@ -30,7 +29,6 @@ const SNAP_COST_LOW_FRAC = 0.15
 const SNAP_COST_HIGH_FRAC = 0.35
 const PLAYER_LOD_FULL_COUNT_THRESHOLD = 30
 const BANDWIDTH_TRIM_MIN_ENTITIES = 6
-const BANDWIDTH_TRIM_MAX_ITERATIONS = 32
 const CROUCH_WIRE_BIT = 1
 const SWIMMING_WIRE_BIT = 2
 const DEFAULT_TICK_RATE_HZ = 60

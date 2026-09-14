@@ -1,30 +1,12 @@
 import { readFileSync, existsSync, mkdirSync, writeFileSync, statSync } from 'node:fs'
 import { join, dirname, basename, resolve as resolvePath, sep } from 'node:path'
 import { createHash } from 'node:crypto'
-import { fileURLToPath } from 'node:url'
+import { PROGRESSIVE_BAKE_CODE_VERSION as BAKE_CODE_VERSION } from './BakeCodeVersion.js'
 
 const CACHE_DIR_NAME = '.progressive-cache'
 const ROOT_NAME = 'model.progressive.glb'
 const MAX_CONCURRENT = 2
 const GLB_MAGIC = 0x46546c67
-
-const _BAKE_SRC_FILES = [
-  '../../packages/streaming-gltf/tools/bake-cluster.mjs',
-  '../../packages/streaming-gltf/src/meshlet-codec.js',
-  '../../packages/streaming-gltf/src/cluster-lod-mesh.js',
-  '../../packages/streaming-gltf/src/material-convergence.js',
-]
-const _thisDir = dirname(fileURLToPath(import.meta.url))
-function _bakeCodeVersion() {
-  const h = createHash('sha1')
-  for (const rel of _BAKE_SRC_FILES) {
-    const p = resolvePath(_thisDir, rel)
-    h.update(rel)
-    h.update(readFileSync(p))
-  }
-  return h.digest('hex').slice(0, 12)
-}
-const BAKE_CODE_VERSION = _bakeCodeVersion()
 
 let _active = 0
 const _waitQueue = []

@@ -5,7 +5,6 @@ export class GamepadController {
     this.enabled = typeof navigator !== 'undefined' && 'getGamepads' in navigator
     this.options = {
       deadzoneThreshold: options.deadzoneThreshold ?? 0.15,
-      pollIntervalMs: options.pollIntervalMs ?? 16,
       triggerThreshold: options.triggerThreshold ?? 0.5,
       ...options
     }
