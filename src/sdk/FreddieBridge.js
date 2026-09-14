@@ -1,3 +1,5 @@
+import { fnv1aString } from '../shared/fnv1a.js'
+
 export const KIND_PLACE = 'viz.place'
 export const KIND_UPDATE = 'viz.update'
 export const KIND_REMOVE = 'viz.remove'
@@ -73,8 +75,8 @@ export function computeLayout(items, layout, config = {}) {
     })
   } else if (layout === 'scatter') {
     items.forEach((item, i) => {
-      const h = simpleHash(item.id + 'x') / 0xffffffff
-      const h2 = simpleHash(item.id + 'z') / 0xffffffff
+      const h = fnv1aString(item.id + 'x') / 0xffffffff
+      const h2 = fnv1aString(item.id + 'z') / 0xffffffff
       positions.set(item.id, [
         (h - 0.5) * spacing * items.length * 0.5,
         (h2 - 0.5) * spacing * items.length * 0.5 * 0.3,
@@ -106,13 +108,4 @@ export function computeLayout(items, layout, config = {}) {
   }
 
   return positions
-}
-
-function simpleHash(str) {
-  let hash = 2166136261
-  for (let i = 0; i < str.length; i++) {
-    hash ^= str.charCodeAt(i)
-    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24)
-  }
-  return hash >>> 0
 }

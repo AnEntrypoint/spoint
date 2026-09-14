@@ -2,6 +2,7 @@ import { readFileSync, existsSync, statSync, writeFileSync, readdirSync } from '
 import { join, extname, sep } from 'node:path'
 import { gzipSync, brotliCompressSync, gzip, brotliCompress, constants as zlibConstants } from 'node:zlib'
 import { promisify } from 'node:util'
+import { fnv1aBytes } from '../shared/fnv1a.js'
 
 const BROTLI_OPTS = { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 5 } }
 
@@ -75,15 +76,11 @@ export class ByteBudgetLRU {
 export const fileCache = new ByteBudgetLRU(CACHE_BYTE_BUDGET)
 export const transformedCache = new ByteBudgetLRU(CACHE_BYTE_BUDGET)
 
-const FNV1A_OFFSET_BASIS = 2166136261
-const FNV1A_PRIME = 16777619
 const _contentHashCache = new Map()
 export function contentHashETag(fp, raw, mtime) {
   const cached = _contentHashCache.get(fp)
   if (cached && cached.mtime === mtime) return cached.hash
-  let hash = FNV1A_OFFSET_BASIS
-  for (let i = 0; i < raw.length; i++) { hash ^= raw[i]; hash = Math.imul(hash, FNV1A_PRIME) }
-  const hex = (hash >>> 0).toString(16)
+  const hex = fnv1aBytes(raw).toString(16)
   _contentHashCache.set(fp, { mtime, hash: hex })
   return hex
 }

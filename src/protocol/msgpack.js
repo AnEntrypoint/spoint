@@ -1,14 +1,16 @@
+import { FNV1A_32_OFFSET_BASIS, fnv1aStepString } from '../shared/fnv1a.js'
+
 export const WIRE_STRUCTURES = [
   ['type', 'payload'],
   ['seq', 'tick', 'serverTime', 'players', 'entities', 'removed', 'delta', 'dots']
 ]
 
-const FNV1A_32_OFFSET_BASIS = 0x811c9dc5
-const FNV1A_32_PRIME = 16777619
 function _computeStructHash() {
   let hash = FNV1A_32_OFFSET_BASIS
-  const step = (str) => { for (let i = 0; i < str.length; i++) { hash ^= str.charCodeAt(i); hash = Math.imul(hash, FNV1A_32_PRIME) } }
-  for (const fields of WIRE_STRUCTURES) { step('|'); for (const f of fields) { step(f); step(',') } }
+  for (const fields of WIRE_STRUCTURES) {
+    hash = fnv1aStepString(hash, '|')
+    for (const f of fields) { hash = fnv1aStepString(hash, f); hash = fnv1aStepString(hash, ',') }
+  }
   return (hash >>> 0).toString(16)
 }
 

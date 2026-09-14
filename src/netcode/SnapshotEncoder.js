@@ -3,6 +3,7 @@ import {
   BIN_RECORD_BYTES, POS_I16_MAX, SCALE_U16_MAX, clampI16, clampU16Scale,
   packBinRecord, unpackBinRecord, packQuat, unpackQuat
 } from './SnapshotBinFormat.js'
+import { FNV1A_32_OFFSET_BASIS, fnv1aStepString, fnv1aStepBytes, fnv1aStepFloat32 } from '../shared/fnv1a.js'
 
 export { unpackBinRecord, packQuat, unpackQuat }
 
@@ -216,34 +217,13 @@ export function encodeEntity(e) {
   return fillEntityEnc(e, new Array(6))
 }
 
-function fnv1aStep(hash, str) {
-  for (let i = 0; i < str.length; i++) { hash ^= str.charCodeAt(i); hash = Math.imul(hash, 16777619) }
-  return hash
-}
-
-const _f32buf = new ArrayBuffer(4)
-const _f32view = new DataView(_f32buf)
-function fnv1aStepNum(hash, n) {
-  _f32view.setFloat32(0, n)
-  hash ^= _f32view.getUint8(0); hash = Math.imul(hash, 16777619)
-  hash ^= _f32view.getUint8(1); hash = Math.imul(hash, 16777619)
-  hash ^= _f32view.getUint8(2); hash = Math.imul(hash, 16777619)
-  hash ^= _f32view.getUint8(3); hash = Math.imul(hash, 16777619)
-  return hash
-}
-
-function fnv1aStepBytes(hash, bytes) {
-  for (let i = 0; i < bytes.length; i++) { hash ^= bytes[i]; hash = Math.imul(hash, 16777619) }
-  return hash
-}
-
 function buildEntityKey(enc, custKey) {
-  let hash = 2166136261
-  hash = fnv1aStep(hash, enc[1])
+  let hash = FNV1A_32_OFFSET_BASIS
+  hash = fnv1aStepString(hash, enc[1])
   hash = fnv1aStepBytes(hash, enc[2])
-  hash = fnv1aStep(hash, enc[3])
-  hash = fnv1aStep(hash, '' + custKey)
-  hash = fnv1aStepNum(hash, enc[5])
+  hash = fnv1aStepString(hash, enc[3])
+  hash = fnv1aStepString(hash, '' + custKey)
+  hash = fnv1aStepFloat32(hash, enc[5])
   return hash >>> 0
 }
 
