@@ -33,11 +33,12 @@ Higher-detail LODs are addressed in one of two storage modes:
 
 - **`sibling-file`** — each higher LOD lives in a separate sibling file
   (`path` relative to the root asset). The client fetches a sibling only when it
-  decides to refine. This is the mode produced by `tools/bake-progressive.mjs`.
+  decides to refine. `tools/bake-cluster.mjs` emits this mode for skinned
+  primitives only (static geometry uses `EP_cluster_lod` instead).
 - **`single-glb-range`** — every LOD is packed into the single GLB's one BIN
   chunk as independent `bufferView` byte ranges. The client issues HTTP `Range`
-  requests for only the byte ranges of the LOD it needs. This is the mode
-  produced by `tools/bake-streaming.mjs`.
+  requests for only the byte ranges of the LOD it needs. No current baker
+  produces this mode; it survives in the schema and the validator only.
 
 The `storage` field on the extension object discriminates the two.
 
@@ -100,9 +101,9 @@ to dequantize position attributes back to mesh-local space) are optional hints.
 
 ## Known Implementations
 
-- Reference baker: `tools/bake-progressive.mjs` (sibling-file),
-  `tools/bake-streaming.mjs` (single-glb-range).
-- Reference runtime: `examples/local-progressive/model-pool.js` (three.js).
+- Reference baker: `tools/bake-cluster.mjs` `_bakeSkinnedLods` (sibling-file,
+  skinned primitives, `textures: []`).
+- Reference runtime: `src/model-pool.js` (three.js).
 - Conformance validator: `tools/validate-extension.mjs`.
 
 ## Resources
