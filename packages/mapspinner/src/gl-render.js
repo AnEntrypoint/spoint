@@ -12,9 +12,6 @@ const SHADER_CACHE_TAG = 'ms-0.1.264'
 const DESIGN_RADIUS_M = 6360000.0
 const HORIZON_SPHERE_DEPTH_BELOW_SEA = 150.0
 const SUBMERGED_FAR_REACH = 60000.0
-const PROBE_SYNC_SPIN_MS = 4
-const BAKE_READBACK_SPIN_MS = 2
-const FENCE_POLL_HARD_LIMIT_MS = 250
 const FXC_UNROLL_DEFEAT_LOOP_BOUND = 64
 const DIST_SORT_BUCKETS = 256
 const DIST_SORT_MAX_BUCKET = DIST_SORT_BUCKETS - 1
@@ -198,70 +195,42 @@ export async function initMapspinnerRender(gl, opts = {}) {
     gl.viewport(0,0,1,1);
     gl.useProgram(probeProg);
     gl.bindVertexArray(probeVao);
-    if (_hpfTex && _lastHpfTex !== _hpfTex) { _lastHpfTex = _hpfTex; gl.activeTexture(gl.TEXTURE0 + TU.hpf); gl.bindTexture(gl.TEXTURE_2D_ARRAY, _hpfTex); }
-    if (_hpfTex) _chuSet1i(PU, _chuP, 'hpfPool', TU.hpf);
-    if (_hpfTex2 && _lastHpfTex2 !== _hpfTex2) { _lastHpfTex2 = _hpfTex2; gl.activeTexture(gl.TEXTURE0 + TU.hpf2); gl.bindTexture(gl.TEXTURE_2D_ARRAY, _hpfTex2); }
-    if (_hpfTex2) _chuSet1i(PU, _chuP, 'hpfPool2', TU.hpf2);
-    gl.uniform1i(PU('hasHpf'), _hpfTex?1:0);
-    if (_lutTex) { gl.activeTexture(gl.TEXTURE0 + TU.transmittanceLUT); gl.bindTexture(gl.TEXTURE_2D, _lutTex); _chuSet1i(PU, _chuP, 'uTransmittanceLUT', TU.transmittanceLUT); }
-    if (_scatTex) { gl.activeTexture(gl.TEXTURE0 + TU.scatteringLUT); gl.bindTexture(gl.TEXTURE_2D_ARRAY, _scatTex); _chuSet1i(PU, _chuP, 'uScatteringLUT', TU.scatteringLUT); }
     _octClampAlt = 0;
     setComposeHeightUniforms(PU, _chuP);
+    _chuSet1f(PU, _chuP, 'defRadius', R);
     gl.uniform3f(PU('probeDir'), dir[0]/pl, dir[1]/pl, dir[2]/pl);
     gl.disable(gl.DEPTH_TEST);
     gl.drawArrays(gl.POINTS, 0, 1);
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, _probePbo);
     gl.readPixels(0,0,1,1, gl.RED, gl.FLOAT, 0);
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
-    const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
-    gl.flush();
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.bindVertexArray(null);
-    return fence;
+  }
+  function _readProbePbo(){
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, _probePbo);
+    gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, _probeOut);
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    _probeLastM = _probeOut[0];
   }
   function sampleGroundM(dir) {
     if (!probeProg) { ensureProbe(); return null; }
     if (_probeSync) {
       const st = gl.clientWaitSync(_probeSync, 0, 0);
-      if (st === gl.ALREADY_SIGNALED || st === gl.CONDITION_SATISFIED) {
-        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, _probePbo);
-        gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, _probeOut);
-        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
-        _probeLastM = _probeOut[0];
-        gl.deleteSync(_probeSync); _probeSync = null;
-      }
+      if (st !== gl.ALREADY_SIGNALED && st !== gl.CONDITION_SATISFIED) return _probeLastM;
+      _readProbePbo();
+      gl.deleteSync(_probeSync); _probeSync = null;
     }
-    if (!_probeSync) _probeSync = _issueProbeDraw(dir);
+    _issueProbeDraw(dir);
+    _probeSync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+    gl.flush();
     return _probeLastM;
   }
   function sampleGroundMSync(dir) {
     if (!probeProg) { ensureProbe(); return null; }
-    if (_probeSync) {
-      const st = gl.clientWaitSync(_probeSync, 0, 0);
-      if (st === gl.ALREADY_SIGNALED || st === gl.CONDITION_SATISFIED) {
-        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, _probePbo);
-        gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, _probeOut);
-        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
-        _probeLastM = _probeOut[0];
-      }
-      gl.deleteSync(_probeSync); _probeSync = null;
-    }
-    const fence = _issueProbeDraw(dir);
-    const spinUntil = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + PROBE_SYNC_SPIN_MS;
-    let status = gl.clientWaitSync(fence, 0, 0);
-    while (status === gl.TIMEOUT_EXPIRED && (typeof performance !== 'undefined' ? performance.now() : Date.now()) < spinUntil) {
-      status = gl.clientWaitSync(fence, 0, 0);
-    }
-    if (status === gl.TIMEOUT_EXPIRED) {
-      const _hardUntil = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + FENCE_POLL_HARD_LIMIT_MS;
-      do { status = gl.clientWaitSync(fence, gl.SYNC_FLUSH_COMMANDS_BIT, 0); }
-      while (status === gl.TIMEOUT_EXPIRED && (typeof performance !== 'undefined' ? performance.now() : Date.now()) < _hardUntil);
-    }
-    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, _probePbo);
-    gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, _probeOut);
-    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
-    gl.deleteSync(fence);
-    _probeLastM = _probeOut[0];
+    if (_probeSync) { gl.deleteSync(_probeSync); _probeSync = null; }
+    _issueProbeDraw(dir);
+    _readProbePbo();
     return _probeLastM;
   }
 
@@ -301,9 +270,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
     gl.viewport(0,0,THC_BAKE_RES,THC_BAKE_RES);
     gl.useProgram(bakeProg);
     gl.bindVertexArray(bakeVao);
-    if (_hpfTex){ gl.activeTexture(gl.TEXTURE0 + TU.hpf); gl.bindTexture(gl.TEXTURE_2D_ARRAY,_hpfTex); gl.uniform1i(BU('hpfPool'),TU.hpf); }
-    if (_hpfTex2){ gl.activeTexture(gl.TEXTURE0 + TU.hpf2); gl.bindTexture(gl.TEXTURE_2D_ARRAY,_hpfTex2); gl.uniform1i(BU('hpfPool2'),TU.hpf2); }
-    gl.uniform1i(BU('hasHpf'), _hpfTex?1:0);
     _octClampAlt = 0;
     setComposeHeightUniforms(BU, _chuB);
     gl.uniform1f(BU('defRadius'), R);
@@ -322,19 +288,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, _bakePbo);
     gl.bufferData(gl.PIXEL_PACK_BUFFER, byteLen, gl.STREAM_READ);
     gl.readPixels(0,0,THC_BAKE_RES,THC_BAKE_RES, gl.RED, gl.FLOAT, 0);
-    const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
-    gl.flush();
-    const spinUntil = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + BAKE_READBACK_SPIN_MS;
-    let status = gl.clientWaitSync(fence, 0, 0);
-    while (status === gl.TIMEOUT_EXPIRED && (typeof performance !== 'undefined' ? performance.now() : Date.now()) < spinUntil) {
-      status = gl.clientWaitSync(fence, 0, 0);
-    }
-    if (status === gl.TIMEOUT_EXPIRED) {
-      const hardUntil = (typeof performance !== 'undefined' ? performance.now() : Date.now()) + FENCE_POLL_HARD_LIMIT_MS;
-      do { status = gl.clientWaitSync(fence, gl.SYNC_FLUSH_COMMANDS_BIT, 0); }
-      while (status === gl.TIMEOUT_EXPIRED && (typeof performance !== 'undefined' ? performance.now() : Date.now()) < hardUntil);
-    }
-    gl.deleteSync(fence);
     const out = new Float32Array(byteLen / 4);
     gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, out);
     gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
@@ -461,7 +414,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
   const _wkeys = Object.create(null);
   const _wkey = (n) => _wkeys[n] || (_wkeys[n] = '__' + n);
   const _g = (n, d) => { if (typeof window === 'undefined') return d; const v = window[_wkey(n)]; return v != null ? +v : d; };
-  let _lastShadowTex = null;
   let _dummyShadowTex = null;
   function ensureDummyShadowTex() {
     if (_dummyShadowTex) return _dummyShadowTex;
@@ -618,7 +570,6 @@ export async function initMapspinnerRender(gl, opts = {}) {
     ensureTransmittanceLUT();
     ensureScatteringLUT();
   }
-  let _lastHpfTex = null, _lastHpfTex2 = null, _lastSurfAlb = null, _lastSurfNrm = null;
   function _chuSet1f(loc, chu, name, v){
     if (chu[name] === v) return;
     chu[name] = v; gl.uniform1f(loc(name), v);
@@ -1379,10 +1330,8 @@ export async function initMapspinnerRender(gl, opts = {}) {
     const hasHpf = !!_hpfTex;
     gl.activeTexture(gl.TEXTURE0 + TU.hpf);
     gl.bindTexture(gl.TEXTURE_2D_ARRAY, hasHpf ? _hpfTex : ensureDummyHeightPoolTex());
-    _lastHpfTex = hasHpf ? _hpfTex : null;
     gl.activeTexture(gl.TEXTURE0 + TU.hpf2);
     gl.bindTexture(gl.TEXTURE_2D_ARRAY, (hasHpf && _hpfTex2) ? _hpfTex2 : ensureDummyHeightPoolTex());
-    _lastHpfTex2 = (hasHpf && _hpfTex2) ? _hpfTex2 : null;
     gl.activeTexture(gl.TEXTURE0 + TU.transmittanceLUT);
     gl.bindTexture(gl.TEXTURE_2D, ensureTransmittanceLUT());
     gl.activeTexture(gl.TEXTURE0 + TU.scatteringLUT);
@@ -1391,14 +1340,12 @@ export async function initMapspinnerRender(gl, opts = {}) {
     const _surfTex = hasSurf ? _surfAlb : ensureDummySurfTex();
     const _surfTexN = hasSurf ? _surfNrm : _surfTex;
     gl.activeTexture(gl.TEXTURE0 + TU.surfAlb); gl.bindTexture(gl.TEXTURE_2D_ARRAY, _surfTex);
-    _lastSurfAlb = _surfTex;
     gl.activeTexture(gl.TEXTURE0 + TU.surfNrm); gl.bindTexture(gl.TEXTURE_2D_ARRAY, _surfTexN);
-    _lastSurfNrm = _surfTexN;
     const _si = cam.shadowInfo;
     gl.activeTexture(gl.TEXTURE0 + TU.shadow);
-    if (_si && _si.hasShadow && _si.texture) { gl.bindTexture(gl.TEXTURE_2D, _si.texture); _lastShadowTex = _si.texture; }
+    if (_si && _si.hasShadow && _si.texture) { gl.bindTexture(gl.TEXTURE_2D, _si.texture); }
     else {
-      gl.bindTexture(gl.TEXTURE_2D, ensureDummyShadowTex()); _lastShadowTex = 'dummy';
+      gl.bindTexture(gl.TEXTURE_2D, ensureDummyShadowTex());
       if (typeof window !== 'undefined' && window.__wantShadowProbe) {
         window.__shadowProbeCompareMode = gl.getTexParameter(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE);
         window.__shadowProbeBoundTex = !!gl.getParameter(gl.TEXTURE_BINDING_2D);
