@@ -1,28 +1,8 @@
-// FrameMetrics -- the per-frame measurement/adaptation controllers, extracted from app.js so the
-// frame loop reads as named ticks instead of ~95 lines of stats + hysteresis plumbing. Pure move:
-// each controller closes over ZERO boot state (its methods take explicit args) and keeps writing its own
-// window.__* debug mirror. None is a RenderGraph node -- they run in animate() AFTER renderGraph.run(),
-// outside the graph. Matches the CullingHub/ShadowPipeline/RuntimeStats factory + window.__install pattern.
-// The knobs (dprAuto/dprOff/dpr, fogFar/fogAdaptOff) are catalogued in RenderControls.js.
-
-// Allocation-free ring-buffer frame-time tracker, read via window.__perf.stats().
-//
-// GC-pressure audit (gc-pressure-audit-offscreencanvas-frame-pacing): allocation-rate tracking is
-// bolted on here rather than as a separate module because it needs to sample once per animate() tick,
-// same call site as the existing ms sample -- a second per-frame hook would just be another allocation
-// surface to audit. Sampling itself must stay allocation-free (same discipline as the ms ring above):
-// a second Float32Array ring for heap-delta-per-frame, no per-sample object/array creation.
-// performance.memory (Chrome/Chromium-only, non-standard but present in every real dev/CI target this
-// repo runs against -- see RenderControls.js's existing BUILD-HEAP probe) is the only in-browser signal
-// for actual JS heap growth; feature-detected once at tracker-creation, not per frame.
 const _HAS_HEAP = typeof performance !== 'undefined' && !!performance.memory
 export function createPerfTracker() {
   const N = 240, ring = new Float32Array(N), sortBuf = new Float32Array(N)
   let idx = 0, count = 0, lastMs = 0, drawCalls = 0, tris = 0, players = 0, entities = 0
   const _sessionSamples = []
-  // Allocation-rate ring: heapRing[i] = (usedJSHeapSize delta since previous frame, bytes), clamped to
-  // >=0 (a GC pause between frames drops usedJSHeapSize, which is a real free-not-alloc event, not a
-  // negative allocation -- clamping avoids that from washing out the running average below zero).
   const heapRing = _HAS_HEAP ? new Float32Array(N) : null
   let heapIdx = 0, heapCount = 0, lastHeap = _HAS_HEAP ? performance.memory.usedJSHeapSize : 0
   const perf = {
@@ -53,8 +33,6 @@ export function createPerfTracker() {
         out.gc = {
           avgBytesPerFrame: Math.round(avgBytesPerFrame),
           maxBytesPerFrame: Math.round(hmax),
-          // bytes/sec at the CURRENT measured fps -- the actual GC-pressure figure (allocator work the
-          // GC has to keep up with), not just a per-frame count that means nothing without frame rate.
           avgBytesPerSec: Math.round(avgBytesPerFrame * (1000 / avg)),
         }
       }
@@ -83,35 +61,20 @@ export function createPerfTracker() {
   return perf
 }
 
-// Vsync-miss detector -- distinct from a plain "long frame" flag. A long frame means JS work itself
-// (render + sim + adapt, i.e. _perf.lastMs) was slow. A vsync MISS means the rAF-to-rAF PRESENT interval
-// (the wall-clock gap between consecutive requestAnimationFrame timestamps) exceeded what the display's
-// actual refresh interval allows, even though JS work was short -- the frame was ready in time but the
-// compositor/GPU/driver failed to present it on the next vblank (a stall downstream of this code, not a
-// CPU-bound one). Distinguishing the two matters because the fix differs: a long frame is addressed by
-// cutting JS/draw-call cost (DPR/fog adaptation already do that); a vsync miss with short JS work points
-// at GPU-side contention (another process, driver overhead, thermal throttle) no amount of JS-side
-// cost-cutting touches.
-//
-// Refresh interval source: screen.refreshRate is not a standard/implemented browser API as of this
-// writing (proposed Window Management API only, no stable ship), so this ALWAYS falls back to inferring
-// the interval from a rolling median of recent rAF-to-rAF deltas -- the median (not mean) is deliberately
-// robust to the very misses/drops this detector is trying to flag (a handful of large outlier deltas from
-// real misses must not drag the assumed target interval upward and mask further misses). Re-inferred
-// continuously (not just once at boot) since a display can genuinely change refresh rate (adaptive sync,
-// external monitor swap) and a fixed boot-time constant would then misclassify every frame afterward.
 export function createVsyncMonitor() {
-  const N = 120                        // rolling window for the refresh-interval median
-  const deltas = new Float32Array(N)
+  const REFRESH_MEDIAN_WINDOW = 120
+  const deltas = new Float32Array(REFRESH_MEDIAN_WINDOW)
   let idx = 0, filled = 0
   let lastTs = -1
-  let inferredIntervalMs = 16.6667    // seeded at 60Hz until enough samples accrue
-  const sortBuf = new Float32Array(N)
+  const SIXTY_HZ_INTERVAL_MS = 16.6667
+  const MAX_PLAUSIBLE_PRESENT_GAP_MS = 250
+  let inferredIntervalMs = SIXTY_HZ_INTERVAL_MS
+  const sortBuf = new Float32Array(REFRESH_MEDIAN_WINDOW)
   let missStreak = 0, maxMissStreak = 0
   let missCount = 0, frameCount = 0
-  const MISS_THRESHOLD = 1.5          // present gap must exceed 1.5x the inferred interval to count as a miss
-  const JS_SHORT_FACTOR = 0.85        // JS work must be UNDER 0.85x the inferred interval to blame the compositor, not this frame's own JS
-  const _recentMisses = []            // ring of the last few miss events, for window.__vsync.recent()
+  const MISS_THRESHOLD = 1.5
+  const JS_SHORT_FACTOR = 0.85
+  const _recentMisses = []
   const _vsyncMirror = { refreshIntervalMs: 0, refreshHz: 0, lastDeltaMs: 0, isMiss: false, isCompositorStall: false, missedFrames: 0, missCount: 0, missStreak: 0, maxMissStreak: 0, frameCount: 0, missRate: 0, recent: () => _recentMisses.slice() }
   const _vsyncResult = { isMiss: false, isCompositorStall: false, deltaMs: 0, expectedMs: 0, missedFrames: 0 }
   const MAX_RECENT = 20
@@ -123,19 +86,13 @@ export function createVsyncMonitor() {
     return a[Math.floor(filled / 2)]
   }
 
-  // tick(ts, jsMs): ts = the requestAnimationFrame callback's own timestamp arg (rAF-to-rAF gap IS the
-  // real present-to-present interval the browser observed); jsMs = this frame's measured JS work
-  // (_perf.lastMs -- render + sim + adapt), used only to classify a miss as compositor-side vs CPU-side.
   function tick(ts, jsMs) {
     frameCount++
     if (lastTs < 0) { lastTs = ts; return { isMiss: false, deltaMs: 0, expectedMs: inferredIntervalMs, missedFrames: 0 } }
     const deltaMs = ts - lastTs
     lastTs = ts
-    // Feed the rolling median BEFORE classifying this frame, but only with plausible deltas -- a tab
-    // backgrounded/unthrottled rAF can produce multi-second gaps that would otherwise permanently poison
-    // the inferred interval upward (matches the ring-buffer clamp style used elsewhere in this file).
-    if (deltaMs > 0 && deltaMs < 250) {
-      deltas[idx] = deltaMs; idx = (idx + 1) % N; if (filled < N) filled++
+    if (deltaMs > 0 && deltaMs < MAX_PLAUSIBLE_PRESENT_GAP_MS) {
+      deltas[idx] = deltaMs; idx = (idx + 1) % REFRESH_MEDIAN_WINDOW; if (filled < REFRESH_MEDIAN_WINDOW) filled++
       inferredIntervalMs = _median()
     }
     const expectedMs = inferredIntervalMs
@@ -150,9 +107,6 @@ export function createVsyncMonitor() {
       if (_recentMisses.length > MAX_RECENT) _recentMisses.shift()
     } else missStreak = 0
     if (typeof window !== 'undefined') {
-      // Debug mirror mutated in place (one persistent object, raw numbers): the old per-frame object
-      // literal + closure + four toFixed()/re-parse round trips were pure allocation for a value only a
-      // console/inspector reads.
       const v = _vsyncMirror
       v.refreshIntervalMs = expectedMs; v.refreshHz = 1000 / expectedMs; v.lastDeltaMs = deltaMs
       v.isMiss = isMiss; v.isCompositorStall = isCompositorStall; v.missedFrames = missedFrames
@@ -167,22 +121,20 @@ export function createVsyncMonitor() {
   return { tick, reset }
 }
 
-// Adaptive dynamic-resolution controller. Default OFF: downscaling masks the real draw cost instead of
-// fixing it; opt in via window.__dprAuto=true.
 export function createDprController() {
   const deviceMax = (typeof window !== 'undefined') ? Math.min(window.devicePixelRatio || 1, 2) : 1
   let scale = 1, applied = -1, acc = 0, n = 0
-  const TARGET = 6.94                 // 144fps frame budget (ms)
-  const WIN = 45                      // frames per evaluation window
+  const FRAME_BUDGET_144HZ_MS = 6.94
+  const FRAMES_PER_WINDOW = 45
+  const LOWER_ABOVE_BUDGET = 1.15, RAISE_BELOW_BUDGET = 0.80
   const MIN = 0.40, MAX = 1.0, STEP = 0.08
   function tick(renderer, ms) {
     if (typeof window === 'undefined' || !window.__dprAuto || window.__dprOff) return
     acc += ms; n++
-    if (n < WIN) return
+    if (n < FRAMES_PER_WINDOW) return
     const avg = acc / n; acc = 0; n = 0
-    // hysteresis: lower when clearly over budget, raise only when comfortably under
-    if (avg > TARGET * 1.15 && scale > MIN) scale = Math.max(MIN, scale - STEP)
-    else if (avg < TARGET * 0.80 && scale < MAX) scale = Math.min(MAX, scale + STEP)
+    if (avg > FRAME_BUDGET_144HZ_MS * LOWER_ABOVE_BUDGET && scale > MIN) scale = Math.max(MIN, scale - STEP)
+    else if (avg < FRAME_BUDGET_144HZ_MS * RAISE_BELOW_BUDGET && scale < MAX) scale = Math.min(MAX, scale + STEP)
     const want = +(deviceMax * scale).toFixed(3)
     if (want !== applied) { try { renderer.setPixelRatio(want); applied = want } catch (_) {} }
     if (typeof window !== 'undefined') window.__dpr = { scale: +scale.toFixed(2), applied, deviceMax, avgMs: +avg.toFixed(2) }
@@ -190,40 +142,19 @@ export function createDprController() {
   return { tick }
 }
 
-// Adaptive TERRAIN internal-render-resolution controller -- the genuine "render at N%, present at
-// 100%" decouple (see true-upscale-decoupled-render-resolution PRD row, follow-up to FSR1.js).
-//
-// WHY THIS IS DIFFERENT FROM createDprController ABOVE: that controller's renderer.setPixelRatio(scale)
-// shrinks the WHOLE canvas drawing buffer -- terrain, THREE scene, and (implicitly) the final presented
-// image all drop together, then the browser bilinear-stretches the entire small buffer back up to CSS
-// size (the blur FSR1.js softens). This controller instead drives mapspinner's OWN pre-existing viewport
-// dynamic-resolution mechanism (gl-render.js's `_vdrsOn`/`ensureVdrsTargets` -- window.__vdrs=true routes
-// terrain+water into a FIXED-SIZE offscreen FBO, renders into a flexed sub-viewport at __vdrsScale <1,
-// then a fullscreen-quad LINEAR upscale blits that sub-rect back to the canvas at its ACTUAL size). The
-// canvas itself, and therefore renderer.setPixelRatio/THREE's own draw resolution, never changes -- only
-// the terrain pass (the dominant per-pixel cost: full-screen VS+FS fractal evaluation every frame, see
-// mapspinner's AGENTS.md "RUNTIME FPS is VERTEX-SHADER-bound") renders fewer pixels while the final
-// composited/presented frame stays full native resolution. This is the real AMD-reference FSR1 use case
-// (render at e.g. 70% linear resolution, upscale the OUTPUT to 100%) applied to the one draw pass that
-// already has a resolution-decoupled target to render into; THREE's own scene-color pass still draws
-// straight into the (always-full-res) canvas -- extending that to a genuinely lower-res THREE render
-// target too needs the bigger single-canvas-draw-contract change documented in FSR1.js/DepthComposite.js,
-// scoped out of this first slice.
-//
-// Default OFF (window.__vdrsAuto, RenderControls 'vdrsAuto'): downscaling masks real draw cost instead of
-// fixing it, same opt-in discipline as dprAuto. window.__vdrsOff force-disables regardless.
 export function createTerrainVdrsController() {
   let scale = 1, appliedOn = false, appliedScale = -1, acc = 0, n = 0
-  const TARGET = 6.94                 // 144fps frame budget (ms), same target as createDprController
-  const WIN = 45                      // frames per evaluation window
-  const MIN = 0.5, MAX = 1.0, STEP = 0.1   // mapspinner clamps __vdrsScale to [0.3,1.0] itself; stay inside that range
+  const FRAME_BUDGET_144HZ_MS = 6.94
+  const FRAMES_PER_WINDOW = 45
+  const LOWER_ABOVE_BUDGET = 1.15, RAISE_BELOW_BUDGET = 0.80
+  const MIN = 0.5, MAX = 1.0, STEP = 0.1
   function tick(ms) {
     if (typeof window === 'undefined' || !window.__vdrsAuto || window.__vdrsOff) return
     acc += ms; n++
-    if (n < WIN) return
+    if (n < FRAMES_PER_WINDOW) return
     const avg = acc / n; acc = 0; n = 0
-    if (avg > TARGET * 1.15 && scale > MIN) scale = Math.max(MIN, scale - STEP)
-    else if (avg < TARGET * 0.80 && scale < MAX) scale = Math.min(MAX, scale + STEP)
+    if (avg > FRAME_BUDGET_144HZ_MS * LOWER_ABOVE_BUDGET && scale > MIN) scale = Math.max(MIN, scale - STEP)
+    else if (avg < FRAME_BUDGET_144HZ_MS * RAISE_BELOW_BUDGET && scale < MAX) scale = Math.min(MAX, scale + STEP)
     const on = scale < 0.999
     if (on !== appliedOn) { window.__vdrs = on; appliedOn = on }
     const wantScale = +scale.toFixed(3)
