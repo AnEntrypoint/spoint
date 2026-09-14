@@ -1,8 +1,3 @@
-// Real end-to-end witness for edge-cf-durable-object-transport-adapter-real-websocketpair: a real
-// Node `ws` client connecting to the real Durable Object (running under `wrangler dev` local-edge-
-// runtime emulation), speaking the real msgpackr wire protocol, proving (1) a real client connects,
-// (2) receives a real SNAPSHOT, (3) sends real PLAYER_INPUT that (4) moves a real Jolt-simulated
-// player position -- round-tripped through the actual DO, not a mock.
 import WebSocket from 'ws'
 import { unpack, pack, ensurePacked } from '../../src/protocol/msgpack.js'
 import { MSG } from '../../src/protocol/MessageTypes.js'
@@ -10,11 +5,11 @@ import { unpackBinRecord } from '../../src/netcode/SnapshotEncoder.js'
 
 const PORT = process.argv[2] || '18802'
 const url = `ws://127.0.0.1:${PORT}/`
+const COALESCED_FRAME_SENTINEL = 0xff
 
 function unpackFrame(data) {
   const buf = data instanceof Buffer ? new Uint8Array(data) : data
-  // ConnectionManager's coalescing-frame format: sentinel 0xFF + repeated [u32 LE len][payload].
-  if (buf[0] === 0xff) {
+  if (buf[0] === COALESCED_FRAME_SENTINEL) {
     const out = []
     const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
     let off = 1
@@ -53,10 +48,6 @@ async function main() {
         log.push('HANDSHAKE_ACK playerId=' + playerId)
       } else if (msg.type === MSG.SNAPSHOT) {
         snapshotCount++
-        // Real wire shape (SnapshotEncoder.js's encodePlayer): a compact array record, not a plain
-        // object -- [id, 23-byte packed bin record (position/velocity/rotation/scale/flags),
-        // onGround, health, inputSequence, crouch, pitchYaw, expr, weapon]. Decode via the SAME
-        // unpackBinRecord the real client uses (client/core/SnapshotProcessor.js's own decode path).
         const players = msg.payload?.players || []
         const rec = players.find(p => Array.isArray(p) && p[0] === playerId) || players[0]
         if (Array.isArray(rec) && rec[1]) {
@@ -72,19 +63,14 @@ async function main() {
     }
   })
 
-  // No explicit HANDSHAKE needed -- ServerHandlers.js's onClientConnect auto-joins after a short grace
-  // window if the client sends nothing first (real client behavior: wait for HANDSHAKE_ACK).
   await new Promise(r => setTimeout(r, 500))
   log.push('post-connect grace window elapsed, playerId=' + playerId)
 
-  // Wait for a first real snapshot with a real position before sending input.
   const waitStart = Date.now()
   while (!firstSnapshotPos && Date.now() - waitStart < 5000) await new Promise(r => setTimeout(r, 100))
   if (!firstSnapshotPos) throw new Error('never received a snapshot with a player position')
   log.push('first real snapshot position: ' + JSON.stringify(firstSnapshotPos))
 
-  // Real PLAYER_INPUT: forward movement, sustained for real wall-clock time so the real Jolt-simulated
-  // character actually accumulates real displacement (not a single-tick nudge).
   let seq = 1, sendErrors = 0
   const inputInterval = setInterval(() => {
     try {
@@ -96,7 +82,6 @@ async function main() {
   await new Promise(r => setTimeout(r, 2000))
   clearInterval(inputInterval)
 
-  // Let a few more snapshots land reflecting the final position.
   await new Promise(r => setTimeout(r, 300))
 
   ws.close()

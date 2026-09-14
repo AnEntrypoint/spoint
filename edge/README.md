@@ -84,8 +84,9 @@ proxied through this router.
 Fix: the router's proxy fetch sets `x-spoint-edge-proxy: 1` on its request to the origin;
 `StaticHandler.js` checks that header and skips Early Hints for that one request only -- a real
 browser's direct request never carries it, so the optimization is untouched for anyone hitting the
-origin directly (or through a CDN that correctly forwards 1xx responses). See the paired comments in
-`edge/cf-do/spoint-do.js` and `src/sdk/StaticHandler.js`.
+origin directly (or through a CDN that correctly forwards 1xx responses). The header is set in
+`edge/cf-do/spoint-do.js` and checked in `src/sdk/StaticHandler.js`; recall
+`project/statichandler-early-hints-quirks` for the constraint.
 
 ## Still open (sibling PRD rows, not this slice's scope)
 
