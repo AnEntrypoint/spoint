@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import zlib from 'node:zlib'
+import { resolveTerrainConfig, minimapDescriptor } from '../src/shared/terrainConfig.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..')
@@ -87,8 +88,8 @@ function lerp3(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1])
 
 async function loadTerrainConfigFromWorld(worldName) {
   const mod = await import(pathToFileURL(path.join(REPO_ROOT, 'apps', 'world', `${worldName}.js`)).href)
-  const def = mod.default || mod
-  return def.terrain || (def.entities || []).find(e => e.app === 'terrain')?.config || null
+  const tcfg = resolveTerrainConfig(mod.default || mod)
+  return minimapDescriptor(worldName, tcfg) ? tcfg : null
 }
 
 export async function bakeMinimap(opts) {
@@ -144,7 +145,7 @@ async function main() {
   let cfg
   if (args.world) {
     cfg = await loadTerrainConfigFromWorld(String(args.world))
-    if (!cfg) { console.error(`[minimap] world "${args.world}" has no terrain config`); process.exit(1) }
+    if (!cfg) { console.error(`[minimap] world "${args.world}" has no bakeable terrain config (resolveTerrainConfig gave none, enabled:false, or no finite seed)`); process.exit(1) }
   } else {
     cfg = {
       seed: Number(args.seed || 0),
