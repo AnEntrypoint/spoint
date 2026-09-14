@@ -1,15 +1,13 @@
 const isMobile = typeof window !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+const MAX_GYRO_DEGREES_PER_SAMPLE = 8
 
 export class MobileControls {
   constructor(options = {}) {
     this.enabled = isMobile || options.forceEnable
     this.responsive = this._calcResponsive()
-    // Apply options first, then calculate layout with final values
     this.options = { joystickRadius: this.responsive.joystickRadius, lookJoystickRadius: this.responsive.joystickRadius, buttonSize: this.responsive.buttonSize, buttonSpacing: this.responsive.spacing, deadzone: 0.12, movementDeadzone: 0.15, rotationSensitivity: 0.003, zoomSensitivity: 0.008, autoShow: true, ...options }
     this.layout = this._calcLayout()
     this.state = { move: { x: 0, y: 0 }, look: { x: 0, y: 0 }, lookDelta: { yaw: 0, pitch: 0 }, jump: false, shoot: false, reload: false, sprint: false, crouch: false, zoom: 0, zoomDelta: 0, interact: false, menu: false, chatWheel: false }
-    // Opt-in gyro fine-aim: device tilt adds a small yaw/pitch delta on TOP of the touch-look joystick
-    // delta, default OFF (a player who never enables it gets byte-identical touch-only behavior).
     this.gyroAimEnabled = false
     this.gyroAimSensitivity = options.gyroAimSensitivity ?? 0.02
     this._gyroLastBeta = null; this._gyroLastGamma = null; this._gyroDelta = { yaw: 0, pitch: 0 }
@@ -58,9 +56,6 @@ export class MobileControls {
     this._ui?.onLayoutUpdate(this.layout, this.responsive)
   }
 
-  // Opt-in gyro fine-aim. Settings flag defaults off (constructor); caller (a settings toggle) drives
-  // this. iOS 13+ requires a user-gesture-triggered DeviceOrientationEvent.requestPermission() call
-  // before the event ever fires -- must be invoked from within a click/touch handler, never at boot.
   async setGyroAimEnabled(v) {
     if (!v) {
       if (this.gyroAimEnabled) window.removeEventListener('deviceorientation', this._onDeviceOrientation)
@@ -83,13 +78,10 @@ export class MobileControls {
 
   _onDeviceOrientation(e) {
     if (!this.gyroAimEnabled) return
-    // beta = front/back tilt (pitch), gamma = left/right tilt (yaw); both null on desktop/unsupported.
     if (e.beta == null || e.gamma == null) return
     if (this._gyroLastBeta != null) {
       const dBeta = e.beta - this._gyroLastBeta, dGamma = e.gamma - this._gyroLastGamma
-      // Clamp per-sample delta so a device-orientation discontinuity (portrait/landscape flip, or the
-      // beta/gamma wrap at the +-180/+-90 boundary) can't inject a huge single-frame look snap.
-      const clamp = v => Math.max(-8, Math.min(8, v))
+      const clamp = v => Math.max(-MAX_GYRO_DEGREES_PER_SAMPLE, Math.min(MAX_GYRO_DEGREES_PER_SAMPLE, v))
       this._gyroDelta.yaw += clamp(dGamma) * this.gyroAimSensitivity
       this._gyroDelta.pitch += clamp(dBeta) * this.gyroAimSensitivity
     }
@@ -196,10 +188,7 @@ export class MobileControls {
   getInput() {
     if (!this.enabled) return null
     const { move } = this.state, dz = 0.2
-    // Gyro delta adds ON TOP of the touch-look joystick delta (fine-aim nudge while thumb-dragging),
-    // not a replacement -- so touch-look stays the primary input and gyro just sharpens it.
     const yaw = this.state.lookDelta.yaw + this._gyroDelta.yaw, pitch = this.state.lookDelta.pitch + this._gyroDelta.pitch
-    // Screen Y is DOWN; joystick UP (forward) = negative dy. Flip so forward = positive.
     const forwardVal = -move.y
     return { forward: forwardVal < -dz, backward: forwardVal > dz, left: move.x < -dz, right: move.x > dz, jump: this.state.jump, shoot: this.state.shoot, reload: this.state.reload, sprint: this.state.sprint, crouch: this.state.crouch, yaw, pitch, zoom: this.state.zoomDelta, resetZoom: () => { this.state.zoomDelta = 0 }, moveX: move.x, moveY: move.y, mouseX: 0, mouseY: 0, interact: this.state.interact, analogForward: forwardVal, analogRight: move.x, chatWheel: this.state.chatWheel }
   }
@@ -223,11 +212,6 @@ export class MobileControls {
 }
 
 export function detectDevice() {
-  // ONE throwaway WebGL2 context answers both "is WebGL2 available" and "which GPU tier" (this used to
-  // create two, each left for GC to reclaim -- every extra context counts against the browser's
-  // per-page context limit and costs real driver time at boot). Explicitly released via
-  // WEBGL_lose_context once read; the renderer's own real context is created separately by
-  // SceneSetup.createRenderer.
   let hasWebGL2 = false, gpuTier = 'unknown'
   if (typeof document !== 'undefined') {
     let gl = null

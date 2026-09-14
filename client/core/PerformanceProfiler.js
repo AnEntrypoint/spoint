@@ -1,29 +1,21 @@
-// PerformanceProfiler -- Real-time performance monitoring overlay with FPS, frame-time breakdown,
-// entity costs, memory usage, and thermal telemetry. Minimal overhead (<1ms when disabled).
-// Toggle via F12 key. Overlay positioned top-left, movable via drag.
-//
-// Architecture:
-// - Allocation-free ring buffers for frame-time samples
-// - GPU timing via EXT_disjoint_timer_query (fallback to estimates if unavailable)
-// - Per-entity cost tracking via object pool
-// - Memory profiling via performance.memory (Chrome) with fallback
-// - Thermal data via Battery API and GPU workload estimation
-// - On-demand rendering to a canvas overlay (only when visible)
-
 const GPU_TIMERS_SUPPORTED = typeof WebGLRenderingContext !== 'undefined'
+const FRAME_BUDGET_60FPS_MS = 16.67
+const NS_PER_MS = 1000000
+const BYTES_PER_RGBA8_TEXEL = 4
+const BYTES_PER_VEC3_F32 = 12
+const BYTES_PER_U32_INDEX = 4
 
 export function createPerformanceProfiler(renderer, scene) {
-  const N = 240 // 4s at 60fps
+  const N = 240
   const state = {
     enabled: false,
-    mode: 'compact', // 'compact' | 'detailed' | 'profiler'
+    mode: 'compact',
     position: { x: 10, y: 10 },
     dragging: false,
     dragStart: { x: 0, y: 0 },
     offset: { x: 0, y: 0 },
   }
 
-  // Frame-time ring buffer
   const frames = new Float32Array(N)
   const gpuTimes = new Float32Array(N)
   const cpuTimes = new Float32Array(N)
@@ -31,11 +23,9 @@ export function createPerformanceProfiler(renderer, scene) {
   let lastFrameTime = performance.now()
   let lastGpuTime = 0
 
-  // Entity cost tracking
   const entityCosts = new Map()
   const maxTrackedEntities = 500
 
-  // GPU timer query extension
   let timerExt = null
   let timerQueries = { start: null, end: null }
   let gpuTimerSupported = false
@@ -57,7 +47,7 @@ export function createPerformanceProfiler(renderer, scene) {
     entityCount: 0,
     drawCalls: 0,
     triangles: 0,
-    thermalLevel: 0, // 0-1 estimated thermal load
+    thermalLevel: 0,
     batteryPercent: 100,
     isLowPowerMode: false,
   }
@@ -87,7 +77,6 @@ export function createPerformanceProfiler(renderer, scene) {
     overflow: hidden;
   `
 
-  // Header bar for dragging
   const header = document.createElement('div')
   header.style.cssText = `
     position: absolute;
@@ -121,7 +110,6 @@ export function createPerformanceProfiler(renderer, scene) {
   overlay.appendChild(canvas)
   overlay.appendChild(header)
 
-  // Setup GPU timer extension
   function initGPUTimers() {
     if (!renderer.getContext) return
     const gl = renderer.getContext()
@@ -159,7 +147,7 @@ export function createPerformanceProfiler(renderer, scene) {
       gl.endQuery(timerExt.TIME_ELAPSED_EXT)
       if (gl.getQueryParameter(timerQueries.end, timerExt.QUERY_RESULT_AVAILABLE_EXT)) {
         const result = gl.getQueryParameter(timerQueries.end, timerExt.QUERY_RESULT_EXT)
-        return result / 1000000 // nanoseconds to milliseconds
+        return result / NS_PER_MS
       }
     } catch (e) {
       gpuTimerSupported = false
@@ -167,7 +155,6 @@ export function createPerformanceProfiler(renderer, scene) {
     return lastGpuQueryTime
   }
 
-  // Update memory statistics
   function updateMemoryStats() {
     if (typeof performance !== 'undefined' && performance.memory) {
       profileState.memHeapMB = (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1)
@@ -175,20 +162,18 @@ export function createPerformanceProfiler(renderer, scene) {
       profileState.memUsagePercent = ((performance.memory.usedJSHeapSize / performance.memory.jsHeapSizeLimit) * 100).toFixed(1)
     }
 
-    // Estimate texture and geometry memory
     let texMem = 0, geoMem = 0
     renderer.info.memory?.textures?.forEach((t) => {
-      texMem += (t.width || 0) * (t.height || 0) * 4 // rough estimate: 4 bytes per pixel
+      texMem += (t.width || 0) * (t.height || 0) * BYTES_PER_RGBA8_TEXEL
     })
     renderer.info.memory?.geometries?.forEach((g) => {
-      geoMem += (g.vertices || 0) * 12 + (g.faces || 0) * 4 // vertices * 12 bytes + indices * 4 bytes
+      geoMem += (g.vertices || 0) * BYTES_PER_VEC3_F32 + (g.faces || 0) * BYTES_PER_U32_INDEX
     })
 
     profileState.textureMemMB = (texMem / 1024 / 1024).toFixed(1)
     profileState.geometryMemMB = (geoMem / 1024 / 1024).toFixed(1)
   }
 
-  // Update renderer stats
   function updateRendererStats() {
     const info = renderer.info
     profileState.drawCalls = info.render?.calls || 0
@@ -196,38 +181,32 @@ export function createPerformanceProfiler(renderer, scene) {
     profileState.entityCount = scene?.children?.length || 0
   }
 
-  // Update thermal/battery stats
   async function updateThermalStats() {
     if (navigator.getBattery) {
       try {
         const battery = await navigator.getBattery()
         profileState.batteryPercent = Math.round(battery.level * 100)
         profileState.isLowPowerMode = battery.dischargingTime < Infinity
-        // Estimate thermal level from battery discharge rate and GPU load
-        const gpuLoad = profileState.gpuMs / 16.67 // as fraction of 60fps frame budget
+        const gpuLoad = profileState.gpuMs / FRAME_BUDGET_60FPS_MS
         profileState.thermalLevel = Math.min(1, (gpuLoad * 0.7) + (profileState.isLowPowerMode ? 0.3 : 0))
       } catch (e) {
-        // Battery API not available
       }
     } else {
-      // Estimate from GPU load alone
-      const gpuLoad = profileState.gpuMs / 16.67
+      const gpuLoad = profileState.gpuMs / FRAME_BUDGET_60FPS_MS
       profileState.thermalLevel = Math.min(1, gpuLoad)
     }
   }
 
-  // Track per-entity costs
   function trackEntityCost(entity, cost) {
     if (entityCosts.size >= maxTrackedEntities) return
     entityCosts.set(entity.id || entity.uuid, {
       name: entity.name || 'Unknown',
-      cost, // in ms
+      cost,
       type: entity.type || 'Object3D',
       visible: entity.visible,
     })
   }
 
-  // Sample frame time
   function sampleFrame(cpuMs, gpuMs) {
     const now = performance.now()
     const dt = now - lastFrameTime
@@ -242,7 +221,6 @@ export function createPerformanceProfiler(renderer, scene) {
     profileState.lastMs = dt
     profileState.gpuMs = gpuMs
 
-    // Compute stats
     if (frameCount > 0) {
       let sum = 0, min = Infinity, max = -Infinity
       let cpuSum = 0
@@ -260,18 +238,15 @@ export function createPerformanceProfiler(renderer, scene) {
     }
   }
 
-  // Render the overlay
   function render() {
     if (!state.enabled) return
 
     const w = canvas.width / dpr
     const h = canvas.height / dpr
 
-    // Clear canvas
     ctx.fillStyle = 'rgba(0, 0, 0, 0.85)'
     ctx.fillRect(0, 0, w, h)
 
-    // Styling
     const fontSmall = `12px 'Courier New'`
     const fontLarge = `14px 'Courier New'`
     const colorGood = '#0f0'
@@ -281,13 +256,11 @@ export function createPerformanceProfiler(renderer, scene) {
 
     let y = 35
 
-    // FPS Display (top, large)
     ctx.font = 'bold 18px Courier'
     ctx.fillStyle = profileState.fps > 55 ? colorGood : profileState.fps > 30 ? colorWarn : colorBad
     ctx.fillText(`${profileState.fps} FPS`, 20, y)
     y += 25
 
-    // Frame time breakdown
     ctx.font = fontSmall
     ctx.fillStyle = colorNeutral
     ctx.fillText(`Frame: ${profileState.lastMs.toFixed(2)}ms`, 20, y)
@@ -297,7 +270,6 @@ export function createPerformanceProfiler(renderer, scene) {
     ctx.fillText(`CPU: ${profileState.cpuMs}ms | GPU: ${profileState.gpuMs.toFixed(2)}ms`, 20, y)
     y += 20
 
-    // Render stats
     ctx.fillStyle = colorNeutral
     ctx.fillText(`Draw Calls: ${profileState.drawCalls}`, 20, y)
     y += 16
@@ -306,7 +278,6 @@ export function createPerformanceProfiler(renderer, scene) {
     ctx.fillText(`Entities: ${profileState.entityCount}`, 20, y)
     y += 20
 
-    // Memory stats
     ctx.fillStyle = profileState.memUsagePercent > 80 ? colorBad : profileState.memUsagePercent > 60 ? colorWarn : colorGood
     ctx.fillText(`Memory: ${profileState.memHeapMB}/${profileState.memLimitMB} MB (${profileState.memUsagePercent}%)`, 20, y)
     y += 16
@@ -314,7 +285,6 @@ export function createPerformanceProfiler(renderer, scene) {
     ctx.fillText(`Textures: ${profileState.textureMemMB} MB | Geo: ${profileState.geometryMemMB} MB`, 20, y)
     y += 20
 
-    // Thermal / Battery
     ctx.fillStyle = profileState.thermalLevel > 0.8 ? colorBad : profileState.thermalLevel > 0.5 ? colorWarn : colorGood
     ctx.fillText(`Thermal: ${(profileState.thermalLevel * 100).toFixed(0)}% | Battery: ${profileState.batteryPercent}%`, 20, y)
     y += 16
@@ -325,7 +295,6 @@ export function createPerformanceProfiler(renderer, scene) {
       y += 16
     }
 
-    // Frame time graph (mini sparkline at bottom)
     y += 10
     ctx.strokeStyle = colorGood
     ctx.lineWidth = 1
@@ -334,7 +303,7 @@ export function createPerformanceProfiler(renderer, scene) {
     const graphHeight = 40
     const graphX = 20
     const graphY = y
-    const maxFrameMs = 33.33 // 30fps reference line
+    const maxFrameMs = 33.33
     for (let i = 0; i < frameCount; i++) {
       const x = graphX + (i / N) * graphWidth
       const frame = frames[(frameIdx - frameCount + i + N) % N]
@@ -344,11 +313,10 @@ export function createPerformanceProfiler(renderer, scene) {
     }
     ctx.stroke()
 
-    // Reference line at 16.67ms (60fps)
     ctx.strokeStyle = 'rgba(255, 255, 0, 0.3)'
     ctx.lineWidth = 1
     ctx.setLineDash([4, 4])
-    const refY = graphY + graphHeight - ((16.67 / maxFrameMs) * graphHeight)
+    const refY = graphY + graphHeight - ((FRAME_BUDGET_60FPS_MS / maxFrameMs) * graphHeight)
     ctx.beginPath()
     ctx.moveTo(graphX, refY)
     ctx.lineTo(graphX + graphWidth, refY)
@@ -360,7 +328,6 @@ export function createPerformanceProfiler(renderer, scene) {
     ctx.fillText('Frame time (ms)', graphX, graphY - 5)
   }
 
-  // Input handling for dragging
   function setupInputHandling() {
     header.addEventListener('mousedown', (e) => {
       state.dragging = true
@@ -384,7 +351,6 @@ export function createPerformanceProfiler(renderer, scene) {
       state.dragging = false
     })
 
-    // F12 key to toggle
     document.addEventListener('keydown', (e) => {
       if (e.key === 'F12' || (e.ctrlKey && e.key === 'Shift' && e.key === 'I')) {
         e.preventDefault()

@@ -1,96 +1,16 @@
-// OcclusionPolicy -- ONE shared occlusion-verdict policy, extracted from TerrainOcclusion.js and
-// SceneOcclusion.js, which independently hand-evolved the same decision shape (streak-based hide,
-// eyeAtIssue expiry, staleness fail-open, anomaly guard) with divergent constants and divergent
-// bug-fix vintages -- e.g. SceneOcclusion grew a symmetric 2-resolve UNHIDE_STREAK + a
-// STALE_RESOLVE_FRAMES fail-open + an ANOMALY_FRACTION guard that TerrainOcclusion never received,
-// while TerrainOcclusion's eyeAtIssue distance-expiry was never ported the other way. Per
-// constraints.md: one shared module, no hand-copied hysteresis variants; only the numeric constants
-// differ per consumer, in a config object.
-//
-// This module owns per-record VERDICT state transitions only -- never GPU query issue/resolve
-// mechanics (raw gl.beginQuery/drawElements, round-robin budget cursors, box geometry). Each caller
-// still owns its own query submission (terrain: raw WebGL2 in TerrainOcclusion.js; vegetation/rocks:
-// the vendored streaming-gltf OcclusionQueryTier) and calls into this module once per candidate,
-// per frame, with that candidate's fresh-resolve outcome (or "no fresh resolve this frame").
-//
-// createOcclusionPolicy(config) returns per-record helpers; callers keep their own Map<key, record>
-// where `record` is whatever shape they already use, as long as it carries the fields this module
-// reads/writes (documented per-function below) -- no forced record class, since TerrainOcclusion's
-// records also carry query/pending/center/size fields this module has no reason to know about.
-
 export function createOcclusionPolicy(config = {}) {
-  // Streak-based hide: N consecutive HIDDEN resolves before a candidate is treated as occluded.
-  // Both source systems used 2; kept as the shared default, per-consumer overridable.
   const HIDE_STREAK = config.hideStreak ?? 2
-  // Symmetric un-hide streak: N consecutive VISIBLE resolves before a hidden candidate is
-  // un-occluded. SceneOcclusion introduced this (UNHIDE_STREAK=2) specifically because
-  // query-budget starvation makes resolves sparse -- one noisy resolve on either side of a real
-  // verdict must not flip state. TerrainOcclusion's original un-hide was IMMEDIATE (un-cull on the
-  // very first visible resolve, its own comment calling that "damps oscillation" -- true only
-  // against a hide-side oscillator, not a resolve-noise oscillator). Default to the symmetric,
-  // more conservative behavior; a consumer that legitimately wants immediate un-hide (e.g. it
-  // issues a query every frame with no round-robin starvation, so resolve noise isn't a concern)
-  // sets unhideStreak: 1 explicitly, which reproduces TerrainOcclusion's prior behavior exactly.
   const UNHIDE_STREAK = config.unhideStreak ?? 2
-  // eyeAtIssue distance expiry: a HIDDEN verdict is only valid for the camera pose it was issued
-  // from. If the eye has moved past `max(expireMinM, recordSize * expireSizeMult)` since the query
-  // was issued, fail the verdict open (treat as visible) rather than trust a resolve describing a
-  // stale viewpoint. TerrainOcclusion always had this; SceneOcclusion never did (its candidates —
-  // vegetation/rock chunks — don't carry a per-candidate `size`+`eyeAtIssue` the same way). Off by
-  // default (enableEyeExpiry:false) since it needs the caller to actually track eyeAtIssue/size
-  // per record; TerrainOcclusion opts in explicitly.
   const ENABLE_EYE_EXPIRY = config.enableEyeExpiry ?? false
   const EXPIRE_MIN_M = config.expireMinM ?? 3
   const EXPIRE_SIZE_MULT = config.expireSizeMult ?? 1.5
-  // Stability gate for verdict flips: require N consecutive frames with the same occlusion query
-  // result before accepting a verdict change. Prevents alternating jitter (visible/hidden/visible)
-  // from rapid query oscillation (floating-point precision in terrain height, depth-buffer rounding).
-  // Default 2 (accept on second stable frame); close geometry may need higher values (4-6) to dampen
-  // high-frequency depth-jitter oscillation.
   const STABILITY_GATE = config.stabilityGate ?? 2
-  // Stale-resolve fail-open: a HIDDEN candidate that goes this many frames without a FRESH resolve
-  // arriving (distinct from eyeAtIssue expiry -- this fires even for a stationary camera, purely
-  // from query-budget starvation never reaching this candidate) re-earns its hysteresis from a
-  // clean slate rather than riding a frozen hidden verdict forever. SceneOcclusion's
-  // STALE_RESOLVE_FRAMES=90; TerrainOcclusion's closest equivalent is its rebuild-staleness check
-  // (see below) which fires on a DIFFERENT signal (record unseen by a rebuild, not resolve-count
-  // stalled) -- both are kept as distinct, independently configurable fail-opens since they detect
-  // different failure modes and a consumer may need either, both, or neither.
   const STALE_RESOLVE_FRAMES = config.staleResolveFrames ?? 90
-  // Rebuild-staleness fail-open: a record not refreshed by the candidate-producing rebuild in N
-  // frames stops receiving queries; if still hidden after a further M frames with zero rebuild
-  // contact, fail it open. TerrainOcclusion-specific shape (quadtree leaves only exist while a
-  // rebuild's predicate touches them); off by default, TerrainOcclusion opts in via
-  // isStaleFromRebuild(record, frameCounter) below.
   const REBUILD_STOP_QUERY_FRAMES = config.rebuildStopQueryFrames ?? 8
   const REBUILD_FAIL_OPEN_FRAMES = config.rebuildFailOpenFrames ?? 16
-  // Anomaly-fraction guard: a real view never legitimately occludes ~every candidate at once. If a
-  // resolved batch marks an implausibly large fraction occluded, the query mechanism itself is
-  // producing bad verdicts (see cull-false-occlusion-root-cause) -- reset every streak and fail the
-  // WHOLE BATCH open rather than hide the visible world for a frame. Off by default (needs a
-  // caller-computed fraction across its own candidate set); SceneOcclusion opts in.
   const ANOMALY_FRACTION = config.anomalyFraction ?? 0.30
   const ANOMALY_MIN_CANDIDATES = config.anomalyMinCandidates ?? 32
 
-  // Per-record streak/verdict fields this module reads and writes, on whatever object the caller
-  // passes as `rec` (own Map value type). Documented shape (subset used):
-  //   rec.streak (number)      -- consecutive-hidden-resolve count
-  //   rec.unstreak (number)    -- consecutive-visible-resolve count
-  //   rec.hidden (boolean)     -- current verdict
-  //   rec.seen (number)        -- last-observed tier resolve count (fresh-resolve detection)
-  //   rec.staleFrames (number) -- frames since a fresh resolve last arrived while hidden
-  //   rec.stableCount (number) -- frames with same verdict (depth-jitter stability gate)
-
-  // Result scratch for advance()/checkRebuildStaleness(): both returned a FRESH object literal on every
-  // call, and advance() is called once per live candidate per frame by BOTH consumers
-  // (SceneOcclusion.js:157 over its whole candidate array -- ~450 live veg/rock chunks measured in
-  // tps-game; TerrainOcclusion.js:152 per resolved record), i.e. hundreds of one-frame objects per frame
-  // just to carry 2-3 booleans. Closure-level scratch, the same convention TerrainOcclusion.js:213-218
-  // uses -- one pair per createOcclusionPolicy() instance, so the terrain and scene consumers never share
-  // a buffer. Re-entrancy is impossible: every call site reads the fields on the statement immediately
-  // after the call, inside a synchronous single-threaded per-candidate loop, and never retains the object
-  // (SceneOcclusion.js:157-160, TerrainOcclusion.js:152-154 and :161-162) -- there is no async/callback
-  // boundary anywhere between a call and its read.
   const _advanceOut = { hidden: false, flipped: false, failOpen: null }
   const _rebuildOut = { skipQuery: false, failOpen: false }
 
@@ -104,32 +24,19 @@ export function createOcclusionPolicy(config = {}) {
     return rec
   }
 
-  // Advance one record's hysteresis given this frame's resolve outcome. `resolveCount` is a
-  // caller-tracked monotonic counter (only advances on a FRESH tier resolve, mirroring both source
-  // systems' "don't collapse the streak into per-frame flips under a stale re-read" discipline) --
-  // pass the same value twice in a row to signal "no fresh resolve this frame" (staleness path).
-  // `occludedThisResolve` is only consulted when resolveCount actually advanced.
-  // Depth-jitter stability gate: verdicts that alternate every frame (visible/hidden/visible) are
-  // gated by stableCount -- require N frames of the SAME outcome before accepting a verdict flip.
-  // This prevents alternating query results (from floating-point jitter in dynamic terrain height)
-  // from creating the -2nd frame flicker pattern.
   function advance(rec, resolveCount, occludedThisResolve) {
     ensureRecord(rec)
     let flipped = false
     if (resolveCount !== rec.seen) {
       rec.seen = resolveCount
       rec.staleFrames = 0
-      // Track stability: has the verdict stayed the same across this resolve?
       const verdictNow = occludedThisResolve ? 'hidden' : 'visible'
       const verdictBefore = rec.hidden ? 'hidden' : 'visible'
       if (verdictNow === verdictBefore) {
-        // Verdict unchanged: increment stability counter
         rec.stableCount = (rec.stableCount || 0) + 1
       } else {
-        // Verdict flipped: reset stability counter (alternating jitter detected)
         rec.stableCount = 1
       }
-      // Only allow streak updates if verdict is stable (not on the very first flip)
       if (rec.stableCount >= STABILITY_GATE) {
         if (occludedThisResolve) {
           rec.streak++; rec.unstreak = 0
@@ -151,10 +58,6 @@ export function createOcclusionPolicy(config = {}) {
     return _advanceOut
   }
 
-  // eyeAtIssue distance expiry -- caller supplies the eye position at query-issue time
-  // (rec.eyeAtIssue, a caller-owned [x,y,z]) and the current eye position; returns true if the
-  // verdict should fail open (eye moved too far since issue). No-op (returns false) if
-  // enableEyeExpiry is off or inputs are missing -- callers that don't opt in never pay this check.
   function checkEyeExpiry(rec, eyeNow, sizeHint) {
     if (!ENABLE_EYE_EXPIRY || !rec.hidden || !eyeNow || !rec.eyeAtIssue) return false
     if (!eyeMovedPastExpiry(rec, eyeNow, sizeHint)) return false
@@ -162,10 +65,6 @@ export function createOcclusionPolicy(config = {}) {
     return true
   }
 
-  // Pure predicate: did the eye move past this record's expiry distance since query-issue time?
-  // Same EXPIRE_MIN_M/EXPIRE_SIZE_MULT the config already holds, single-sourced. No rec.hidden guard
-  // and no mutation -- for the resolve-time trigger (a FRESH occluded result whose eyeAtIssue is stale),
-  // distinct from checkEyeExpiry's pending-verdict trigger which fails an already-hidden record open.
   function eyeMovedPastExpiry(rec, eyeNow, sizeHint) {
     if (!eyeNow || !rec.eyeAtIssue) return false
     const px = eyeNow[0] - rec.eyeAtIssue[0], py = eyeNow[1] - rec.eyeAtIssue[1], pz = eyeNow[2] - rec.eyeAtIssue[2]
@@ -173,10 +72,6 @@ export function createOcclusionPolicy(config = {}) {
     return px * px + py * py + pz * pz > expireM * expireM
   }
 
-  // Rebuild-staleness fail-open, TerrainOcclusion-shaped: `framesSinceSeen` is frameCounter -
-  // rec.lastSeenFrame (caller-tracked). Returns { skipQuery, failOpen } -- skipQuery true past
-  // REBUILD_STOP_QUERY_FRAMES (caller should stop issuing queries for this record), failOpen true
-  // once REBUILD_FAIL_OPEN_FRAMES also elapses while still hidden.
   function checkRebuildStaleness(rec, framesSinceSeen) {
     const skipQuery = framesSinceSeen > REBUILD_STOP_QUERY_FRAMES
     let failOpen = false
@@ -188,11 +83,6 @@ export function createOcclusionPolicy(config = {}) {
     return _rebuildOut
   }
 
-  // Anomaly-fraction guard over a whole resolved batch. `occludedWeight`/`liveWeight` let a caller
-  // weight by instance count (SceneOcclusion's fix for "1.7% of chunks but 51.4% of instances
-  // occluded" undercounting) or just pass counts for unweighted candidates. Returns true if the
-  // batch should be treated as anomalous (caller should reset every record's streak/hidden and
-  // apply an empty occluded set for this frame instead of trusting the batch).
   function isAnomalousBatch(liveCount, liveWeight, occludedWeight) {
     if (liveCount < ANOMALY_MIN_CANDIDATES) return false
     const fraction = liveWeight > 0 ? occludedWeight / liveWeight : 0

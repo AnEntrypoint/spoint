@@ -1,4 +1,3 @@
-// Client visual layer for instanced rocks. Reads the SAME deterministic placement as the server (RockPhysics.js) so the visual rock matches the collided rock. One BatchedMesh holds all 6 SDF rock types, drawn in a single multiDraw call. window.__rocks / window.__rocksProfile.
 import * as THREE from 'three'
 import { makeRockSDF, marchRockSurface } from '/src/terrain/RockShapes.js'
 import { placementsForRockChunk, ROCK } from '/src/terrain/RockPlacement.js'
@@ -7,16 +6,16 @@ import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
 import { dbg } from './debug-log.js'
 
 const _dbgRocks = dbg('rocks')
-const _occBoxGeo = new THREE.BoxGeometry(1, 1, 1)   // shared, never-rendered proxy geo for occlusion candidates
+const _occBoxGeo = new THREE.BoxGeometry(1, 1, 1)
 const _occBoxMat = new THREE.MeshBasicMaterial()
 
 const DROP_MARGIN = 64
-const ROCK_BASE_SEED = 1337   // must match RockPhysics generateRockHullData baseSeed
+const ROCK_BASE_SEED = 1337
+const ROCKS_OPAQUE_DRAW_BAND = 1
 
 const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _yawQ = new THREE.Quaternion(), _camPos = new THREE.Vector3()
 const _m4 = new THREE.Matrix4(), _s = new THREE.Vector3(), _col = new THREE.Color()
 
-// Builds a rock type's geometry from the same SDF the server hull uses (seed parity).
 function buildRockGeo(typeIndex, res) {
   const sdf = makeRockSDF(ROCK_BASE_SEED + typeIndex * 7919)
   const { positions, indices } = marchRockSurface(res, sdf)
@@ -28,7 +27,6 @@ function buildRockGeo(typeIndex, res) {
   return g
 }
 
-// Procedural surface texture: no UVs, object-local multi-octave value noise (zero asset dependency). Per-instance shade via BatchedMesh setColorAt, not a custom uniform.
 function applyRockTexture(material) {
   material.flatShading = false
   material.onBeforeCompile = (shader) => {
@@ -50,11 +48,31 @@ function applyRockTexture(material) {
   return material
 }
 
+function skipUnchangedIndirectTextureUploads(bm, maxInstances) {
+  const origOBR = bm.onBeforeRender
+  let prevN = -1
+  const prevStarts = new Int32Array(maxInstances)
+  const prevCounts = new Int32Array(maxInstances)
+  const prevIndirect = new Uint32Array(maxInstances)
+  bm.onBeforeRender = function (renderer, sc, camera, geometry, material, group) {
+    const tex = this._indirectTexture
+    const vBefore = tex ? tex.version : 0
+    origOBR.call(this, renderer, sc, camera, geometry, material, group)
+    if (!tex) return
+    const n = this._multiDrawCount
+    const starts = this._multiDrawStarts, counts = this._multiDrawCounts, ind = tex.image.data
+    let same = n === prevN
+    if (same) for (let i = 0; i < n; i++) {
+      if (starts[i] !== prevStarts[i] || counts[i] !== prevCounts[i] || ind[i] !== prevIndirect[i]) { same = false; break }
+    }
+    if (same) { tex.version = vBefore; return }
+    prevN = n
+    for (let i = 0; i < n; i++) { prevStarts[i] = starts[i]; prevCounts[i] = counts[i]; prevIndirect[i] = ind[i] }
+  }
+}
+
 export async function createRocks(opts = {}) {
   const { renderer, scene, frame } = opts
-  // Client-visual paint-biome sync (terrain-paint-biome-client-visual-sync) -- see the matching comment
-  // in Vegetation.js's createVegetation for the full rationale; same wrap ordering as
-  // src/terrain/TerrainPhysics.js's cachedAnchorField/paintedAnchorField pair.
   const biomeOverride = createBiomeOverride()
   const anchorField = biomeOverride.wrapClimateField(createCachedAnchorField(opts.anchorField, frame))
   const cfg = opts.cfg || {}
@@ -80,35 +98,9 @@ export async function createRocks(opts = {}) {
   const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0.0 })
   applyRockTexture(mat)
   const bm = new THREE.BatchedMesh(MAX_INSTANCES, maxVerts, maxIdx, mat)
-  bm.frustumCulled = false   // BatchedMesh does its own per-instance culling
-  // BatchedMesh defaults sortObjects=true (back-to-front draw-order sort, needed for correct alpha
-  // blending) -- rocks are fully opaque, so the per-frame O(n log n) JS sort (getMatrixAt +
-  // getBoundingSphereAt + applyMatrix4 + depth-key dot product per instance, then Array.sort, up to
-  // MAX_INSTANCES=12000) buys nothing: same pattern Grass.js already declines for its own opaque blades.
+  bm.frustumCulled = false
   bm.sortObjects = false
-  // Dirty-checks the multiDraw result and rolls the indirect texture version back when unchanged: BatchedMesh.onBeforeRender otherwise re-uploads it every frame even on a still camera, ghost-copy-stalling D3D11/ANGLE.
-  {
-    const origOBR = bm.onBeforeRender
-    let prevN = -1
-    const prevStarts = new Int32Array(MAX_INSTANCES)
-    const prevCounts = new Int32Array(MAX_INSTANCES)
-    const prevIndirect = new Uint32Array(MAX_INSTANCES)
-    bm.onBeforeRender = function (renderer, sc, camera, geometry, material, group) {
-      const tex = this._indirectTexture
-      const vBefore = tex ? tex.version : 0
-      origOBR.call(this, renderer, sc, camera, geometry, material, group)
-      if (!tex) return
-      const n = this._multiDrawCount
-      const starts = this._multiDrawStarts, counts = this._multiDrawCounts, ind = tex.image.data
-      let same = n === prevN
-      if (same) for (let i = 0; i < n; i++) {
-        if (starts[i] !== prevStarts[i] || counts[i] !== prevCounts[i] || ind[i] !== prevIndirect[i]) { same = false; break }
-      }
-      if (same) { tex.version = vBefore; return }
-      prevN = n
-      for (let i = 0; i < n; i++) { prevStarts[i] = starts[i]; prevCounts[i] = counts[i]; prevIndirect[i] = ind[i] }
-    }
-  }
+  skipUnchangedIndirectTextureUploads(bm, MAX_INSTANCES)
   const geomIds = []
   for (let t = 0; t < ROCK.TYPES; t++) {
     if (!geos[t]) { geomIds.push(-1); continue }
@@ -116,16 +108,11 @@ export async function createRocks(opts = {}) {
   }
   scene.add(bm)
   bm.updateMatrix(); bm.matrixAutoUpdate = false
-  // Opaque draw-order band (perf only, zero visual effect -- depth test still enforces correct
-  // occlusion regardless of draw order): groups this subsystem's draws adjacently in THREE's opaque
-  // render list instead of interleaving with rocks/grass/terrain purely by camera distance, cutting
-  // GL program/texture-unit rebind churn between dissimilar shader families. Bands: rocks=1, grass=2,
-  // vegetation branch/leaf=3, shared impostor=4 (see Grass.js/Vegetation.js/VegImpostorTier.js).
-  bm.renderOrder = 1
+  bm.renderOrder = ROCKS_OPAQUE_DRAW_BAND
   const meshes = [{ im: bm, count: 0 }]
 
   const loaded = new Map()
-  let _occCands = null   // cached getOcclusionCandidates(); nulled on any loaded-set change
+  let _occCands = null
   let curSuper = null, totalInstances = 0
   const profile = { totalInstances: 0, visibleInstances: 0, drawCalls: 0, updateMs: 0, loads: 0, unloads: 0, types: ROCK.TYPES, buildErrors: buildErr, batched: true }
 
@@ -134,12 +121,6 @@ export async function createRocks(opts = {}) {
     if (loaded.has(key)) return
     const ids = []
     let list; try { list = placementsForRockChunk(cx, cz, frame, anchorField, worldSeed) } catch (_) { list = null }
-    // Real placed-rock extent (not a guessed fixed window): the occlusion query box for this chunk
-    // must bracket the ACTUAL ground elevation the rocks sit on, or a chunk on a dune/slope taller
-    // than a fixed [-4,8] guess puts the box entirely behind the nearer terrain -- self-occlusion at
-    // close range/steep angles (same defect class as terrain-occlusion-selfocclusion-envelope, never
-    // generalized to this shared streaming-gltf OcclusionQueryTier path). Track real min/max Y (+ each
-    // rock's own vertical extent, scale*squash) across every placed rock so the box always fronts them.
     let _minY = Infinity, _maxY = -Infinity
     if (list) for (let i = 0; i < list.length; i++) {
       if (totalInstances >= MAX_INSTANCES) break
@@ -162,8 +143,6 @@ export async function createRocks(opts = {}) {
       if (p.y - halfH < _minY) _minY = p.y - halfH
       if (p.y + halfH > _maxY) _maxY = p.y + halfH
     }
-    // Fall back to a sampled ground height (not a hardcoded guess) when the chunk placed zero rocks,
-    // so an empty-but-still-registered cell's box still fronts the real local terrain.
     if (_minY === Infinity) {
       let gh = 0
       try { gh = frame.groundHeightLocal(cx * CH + CH * 0.5, cz * CH + CH * 0.5) } catch (_) {}
@@ -188,10 +167,9 @@ export async function createRocks(opts = {}) {
   const LOADS_PER_FRAME = 3
   let _ringClean = false, _scanCx = NaN, _scanCz = NaN
   let _rockSpiral = null, _rockSpiralSpan = -1
-  let _rockSpiralCursor = 0   // forward-only resume index; reset on chunk-cell change
-  const _rockLoadFifo = []   // load-order FIFO -> O(1) amortized eviction candidate
+  let _rockSpiralCursor = 0
+  const _rockLoadFifo = []
   function _rockSpiralOffsets(span) {
-    // must be bounded/terminating (a prior manual spiral never terminated and OOM'd the tab)
     const out = []
     for (let dz = -span; dz <= span; dz++) for (let dx = -span; dx <= span; dx++) if (Math.hypot(dx, dz) <= span) out.push([dx, dz])
     out.sort((a, b) => Math.hypot(a[0], a[1]) - Math.hypot(b[0], b[1]))
@@ -211,8 +189,6 @@ export async function createRocks(opts = {}) {
       for (; _rockSpiralCursor < _rockSpiral.length; _rockSpiralCursor++) {
         const dx = _rockSpiral[_rockSpiralCursor][0], dz = _rockSpiral[_rockSpiralCursor][1]
         const cx = cCx + dx, cz = cCz + dz
-        // Chunk-CENTER distance -- was chunk CORNER, same root cause and fix as grass-chunk-churn-flicker
-        // (client/core/Grass.js) and the identical bug in Vegetation.js, found via the same tell-tale sweep.
         const ddx = cx * CH + CH * 0.5 - px, ddz = cz * CH + CH * 0.5 - pz
         if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(cx + ',' + cz)) continue
         loadChunk(cx, cz); didLoad = true; found = true; break
@@ -243,18 +219,6 @@ export async function createRocks(opts = {}) {
     _scanCx = cCx; _scanCz = cCz; _ringClean = !didLoad && !didDrop
   }
 
-  // Still-camera cull-freeze (ported from Grass.js/Vegetation.js): BatchedMesh.onBeforeRender's own
-  // early-exit (node_modules/three/src/objects/BatchedMesh.js:1507) skips its per-instance
-  // getMatrixAt+getBoundingSphereAt+frustum-intersect loop ONLY when _visibilityChanged is false AND
-  // perObjectFrustumCulled is false AND sortObjects is false. sortObjects is already false (see the
-  // comment above bm.sortObjects=false) but perObjectFrustumCulled defaults true and was never toggled
-  // here, so that O(instances) loop (up to MAX_INSTANCES=12000) ran EVERY frame unconditionally, camera
-  // moving or not -- unlike Vegetation.js/Grass.js's own InstancedMesh2 autoUpdate freeze, rocks had no
-  // equivalent gate at all. Toggle perObjectFrustumCulled off while camera position+rotation are both
-  // still (same IDLE_EPS/ROT_COS_EPS thresholds Grass.js uses) and re-arm instantly on any real movement
-  // OR a streaming mutation (a newly streamed-in/dropped rock must re-enter the frustum-cull pass the
-  // same frame it changes, or it would keep its stale visibility/culled state for the rest of the freeze
-  // window -- same _streamMutated gap class documented in Vegetation.js/Grass.js).
   let _cullFrozen = false
   let _lastPx = NaN, _lastPz = NaN, _idleFrames = 0
   const IDLE_EPS = 0.05
@@ -332,25 +296,17 @@ export async function createRocks(opts = {}) {
     return n
   }
 
-  // Same contract as Vegetation.js's getOcclusionCandidates/applyOcclusion -- rocks are a candidate to be culled, never an occluder.
   function getOcclusionCandidates() {
     if (_occCands) return _occCands
     const out = []
     for (const [key, cell] of loaded) {
       if (!cell._occProxy) {
         const root = new THREE.Object3D()
-        // must have a real (unit-box) mesh child: OcclusionQueryTier's Box3.setFromObject walks geometry not transforms, so a bare Object3D yields an empty box and the candidate never queries
         const perProxyOccBoxGeo = _occBoxGeo.clone()
         const boxMesh = new THREE.Mesh(perProxyOccBoxGeo, _occBoxMat)
         boxMesh.visible = false
         boxMesh.raycast = () => {}
         root.add(boxMesh)
-        // margin+lift: a box flush with the exact ground-anchored AABB false-occludes at steep downward
-        // viewing angles / close range (the "rocks disappear on approach" defect -- live-witnessed:
-        // clearing the occluded set un-hid a rock at 5m/8m-elevated camera that a flush box wrongly
-        // culled). aabbMin/aabbMax now bracket the REAL placed-rock elevation extent (see loadChunk), so
-        // LIFT only needs to cover half the box's own height (proportional, mirrors TerrainOcclusion.js's
-        // lift=maxElev*0.5) instead of a flat constant that's inadequate once rocks scale past a few metres.
         const rawH = cell.aabbMax[1] - cell.aabbMin[1]
         const MARGIN = 2, LIFT = Math.max(2, rawH * 0.5)
         const size = [cell.aabbMax[0] - cell.aabbMin[0] + MARGIN * 2, rawH + MARGIN * 2, cell.aabbMax[2] - cell.aabbMin[2] + MARGIN * 2]
@@ -359,8 +315,6 @@ export async function createRocks(opts = {}) {
         root.updateMatrixWorld(true)
         cell._occProxy = { root, key }
       }
-      // instanceCount refreshed every call so SceneOcclusion.js's shared anomaly guard can weight the
-      // occluded-fraction check by real instance density, not raw chunk count (same fix as Vegetation.js).
       cell._occProxy.instanceCount = cell.ids.length
       out.push(cell._occProxy)
     }
@@ -376,12 +330,7 @@ export async function createRocks(opts = {}) {
     }
   }
 
-  // Same rebuild-everything discipline as Vegetation.js's rebuildPlacement: unload every loaded chunk
-  // and reset the streamRing scan-cache so the next update() call re-visits every currently-in-range
-  // chunk fresh (through the now-repainted anchorField), rather than trusting the idle-camera early exit.
   function rebuildPlacement() { for (const key of [...loaded.keys()]) unloadChunk(key); curSuper = null; _ringClean = false; _scanCx = NaN; _scanCz = NaN }
-  // Applies an authoritative paint-biome stroke (see the matching Vegetation.js repaintBiome) to this
-  // client's own override layer, then rebuilds placement so visible rock density/type genuinely changes.
   function repaintBiome(x, z, radius, target, strength) { biomeOverride.applyPaintBrush(x, z, radius, target, strength); rebuildPlacement() }
 
   const api = { update, prewarm, warmShaders, dispose, _meshes: meshes, _bm: bm, get totalInstances() { return totalInstances }, get profile() { return profile }, rebuildPlacement, repaintBiome, biomeOverride, getOcclusionCandidates, applyOcclusion, cfg, renderDistance }

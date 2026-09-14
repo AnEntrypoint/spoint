@@ -1,41 +1,17 @@
-// Baked vertex-animation-texture (VAT) bake pipeline: samples a real THREE.AnimationMixer at a fixed
-// rate and encodes post-skin position+normal deltas into float DataTextures. Split from PlayerVAT.js --
-// the GPU crowd material/renderer that CONSUMES these bakes stays there. See that file's own header for
-// the full VAT design rationale (why this exists, multi-clip blend, normal-delta lighting follow-on).
-
 import * as THREE from 'three'
 
-// window.__tickAnimTiming / _tickAnimSamples live in app.js (the actual call site) -- this module only
-// consumes the resulting bake/renderer, it doesn't own the timing surface.
-
-const VAT_SAMPLE_HZ = 24 // resample rate baked into the texture; independent of the source clip's authored keyframe spacing (same discipline as AnimationClipCache.js's RESAMPLE_HZ)
+const VAT_SAMPLE_HZ = 24
 
 const _vtmp = new THREE.Vector3()
 const _baseVec = new THREE.Vector3()
 const _bindPos = new THREE.Vector3()
 const _boneMtx = new THREE.Matrix4()
-/**
- * Computes the post-skin world-space (mesh-local-space, i.e. relative to the SkinnedMesh's own
- * unmoved transform) position of vertex `vi` on `skinnedMesh` at its CURRENT pose (caller must have
- * already advanced the driving AnimationMixer + called skeleton.update() before calling this).
- * Exactly mirrors THREE.SkinnedMesh.applyBoneTransform's own CPU skin math (see
- * three/src/objects/SkinnedMesh.js): baseVector = bindPos * bindMatrix, accumulate per-bone
- * (bone.matrixWorld * boneInverse) * baseVector weighted, then multiply by bindMatrixInverse -- NOT the
- * skeleton's own precomputed boneMatrices array directly (that buffer already premultiplies bindMatrix
- * differently for GPU upload; reproducing the CPU-path formula verbatim, bone-by-bone, is what keeps
- * this bake bit-identical to what the GPU skinning path would have rendered).
- */
 function boneTransformInto(skinnedMesh, vi, target) {
   const geometry = skinnedMesh.geometry
   const skeleton = skinnedMesh.skeleton
   const posAttr = geometry.attributes.position
   const skinIndex = geometry.attributes.skinIndex
   const skinWeight = geometry.attributes.skinWeight
-  // _baseVec is a SEPARATE scratch from `target` -- target is caller-supplied and may alias a module-level
-  // scratch (bakeVAT passes _vtmp as target); reusing the same scratch for the internal base-vector AND the
-  // output accumulator caused target.set(0,0,0) below to wipe the base vector before it was consumed
-  // (found live: every baked frame read back as the raw un-skinned bind pose, a large CONSTANT delta at
-  // "frame 0" that should have been ~0 -- traced to exactly this aliasing bug).
   _baseVec.fromBufferAttribute(posAttr, vi).applyMatrix4(skinnedMesh.bindMatrix)
   target.set(0, 0, 0)
   for (let j = 0; j < 4; j++) {
@@ -55,22 +31,6 @@ const _skinnedNrm = new THREE.Vector3()
 const _skinMtx = new THREE.Matrix4()
 const _accumMtx = new THREE.Matrix4()
 const _weightedMtx = new THREE.Matrix4()
-/**
- * Computes the post-skin (mesh-local-space) NORMAL of vertex `vi` at the CURRENT pose, writing it into
- * `target`. Mirrors three's own GPU `skinnormal_vertex` chunk (see
- * three/src/renderers/shaders/ShaderChunk/skinnormal_vertex.glsl.js) verbatim rather than a generic
- * inverse-transpose normal-matrix recompute: skinMatrix = bindMatrixInverse * (per-bone-weighted sum of
- * boneMatrices) * bindMatrix, then objectNormal = skinMatrix * vec4(objectNormal, 0.0) -- a plain LINEAR
- * transform (w=0, no translation row), NOT a proper inverse-transpose normal-matrix; GPU skinning doesn't
- * correct for non-uniform scale either, so reproducing that exact (non-)correction is what keeps this
- * bake bit-identical to what the GPU skinning path would have rendered, same discipline as
- * boneTransformInto above. Matrix summation IS valid here (not an approximation): matrix multiplication
- * is linear, so sum(w_i * M_i) * v === sum(w_i * (M_i * v)) for any v -- weighting the MATRICES first
- * (like the GPU chunk does) and weighting the TRANSFORMED VECTORS first (like boneTransformInto does for
- * position) are mathematically identical; the position path already accumulates transformed vectors, this
- * one accumulates the matrices per source verbatim to mirror the shader chunk line-for-line for easy
- * cross-reference, both are correct.
- */
 function boneTransformNormalInto(skinnedMesh, vi, target) {
   const geometry = skinnedMesh.geometry
   const skeleton = skinnedMesh.skeleton
@@ -78,7 +38,7 @@ function boneTransformNormalInto(skinnedMesh, vi, target) {
   const skinIndex = geometry.attributes.skinIndex
   const skinWeight = geometry.attributes.skinWeight
   _baseNrm.fromBufferAttribute(normalAttr, vi)
-  _accumMtx.set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0) // zero matrix accumulator (skinMatrix += ...)
+  _accumMtx.set(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
   for (let j = 0; j < 4; j++) {
     const weight = skinWeight.getComponent(vi, j)
     if (weight === 0) continue
@@ -90,11 +50,6 @@ function boneTransformNormalInto(skinnedMesh, vi, target) {
   }
   _skinMtx.multiplyMatrices(skinnedMesh.bindMatrixInverse, _accumMtx)
   _skinMtx.multiply(skinnedMesh.bindMatrix)
-  // Deliberately NOT Vector3.transformDirection (it normalizes) -- the GPU skinnormal_vertex chunk this
-  // mirrors does a plain un-normalized mat4*vec4(n,0) transform; normalize_vertex/normal_fragment_begin
-  // downstream normalize exactly once, after normalMatrix + instancing are also applied, so normalizing
-  // here would double-normalize a not-yet-fully-transformed intermediate and desync from what the GPU
-  // skinning path (and this bake's own bit-identical-parity goal) actually produces.
   const e = _skinMtx.elements
   target.set(
     e[0] * _baseNrm.x + e[4] * _baseNrm.y + e[8] * _baseNrm.z,
@@ -104,27 +59,6 @@ function boneTransformNormalInto(skinnedMesh, vi, target) {
   return target
 }
 
-/**
- * Bakes `clip` on `skinnedMesh` (must already be skeleton-bound, i.e. skinnedMesh.skeleton is the real
- * pose skeleton, bindMatrixInverse set) into a VAT DataTexture pair. Returns
- * {texture, normalTexture, frameCount, vertexCount, duration, sampleHz} -- both textures are
- * (vertexCount wide) x (frameCount tall), RGBA32F, same (vertexIndex, frame) texel addressing. `texture`'s
- * rgb = (post-skin - bind-pose) POSITION delta for that vertex at that sampled frame (unchanged from the
- * first slice). `normalTexture`'s rgb = (post-skin - bind-pose) un-normalized NORMAL delta (see
- * boneTransformNormalInto's header for why it's deliberately un-normalized), animation-vat-normal-delta-
- * lighting's follow-on: sampling+adding this alongside the position delta lets REDUCED-tier crowd
- * lighting respond to the animated pose instead of shading against the static bind-pose normal baked into
- * the base geometry. Alpha unused on both (reserved, kept at 1 so non-EXT_color_buffer_float readback
- * tooling still sees a valid alpha channel). normalTexture is null if the source mesh has no `normal`
- * attribute (degrades to the pre-existing bind-pose-normal-only behavior, same as before this follow-on).
- *
- * Runs on a REAL THREE.AnimationMixer bound to the mesh's root (mixer.clipAction(clip).play()),
- * advancing mixer.update(dt) at VAT_SAMPLE_HZ and reading back the real post-skin vertex positions (and
- * normals) each step -- not an approximation, the literal same CPU skin math THREE performs to render a
- * frame, captured once instead of every frame forever. The normal sample piggybacks on the SAME per-frame
- * per-vertex loop the position sample already runs (incremental cost on an already-running pass, not a
- * second bake pass), per the row's explicit guidance.
- */
 export function bakeVAT(skinnedMesh, mixerRoot, clip, opts = {}) {
   const sampleHz = opts.sampleHz || VAT_SAMPLE_HZ
   const geometry = skinnedMesh.geometry
@@ -140,8 +74,6 @@ export function bakeVAT(skinnedMesh, mixerRoot, clip, opts = {}) {
   action.play()
   action.paused = true
 
-  // Cap texture width at a hardware-safe size; vertexCount for a typical VRM body mesh (a few thousand)
-  // comfortably fits one row, so this only matters for an unusually dense source mesh.
   const maxTexSize = opts.maxTexSize || 4096
   const width = Math.min(vertexCount, maxTexSize)
   const rowsPerFrame = Math.ceil(vertexCount / width)
@@ -154,12 +86,7 @@ export function bakeVAT(skinnedMesh, mixerRoot, clip, opts = {}) {
   for (let f = 0; f < frameCount; f++) {
     const t = Math.min(f * dt, clip.duration)
     action.time = t
-    mixer.update(0) // 0-dt update after directly setting action.time -- applies the pose for this exact sample time without accumulating drift
-    // mixer.update only writes the new LOCAL bone quaternion/position; matrixWorld (what boneTransformInto
-    // actually reads) is stale until the hierarchy is re-propagated. skeleton.update() alone is NOT enough
-    // -- it recomputes boneMatrices FROM bone.matrixWorld, so a missing updateMatrixWorld here silently
-    // bakes every frame at the bind pose (found live: frame-0 delta was a large CONSTANT offset instead of
-    // ~0, traced to exactly this missing call).
+    mixer.update(0)
     mixerRoot.updateMatrixWorld(true)
     skinnedMesh.skeleton.update()
     for (let vi = 0; vi < vertexCount; vi++) {
@@ -208,14 +135,6 @@ export function bakeVAT(skinnedMesh, mixerRoot, clip, opts = {}) {
   return { texture, normalTexture, frameCount, vertexCount, width, rowsPerFrame, duration: clip.duration, sampleHz }
 }
 
-/**
- * Bakes MULTIPLE clips against the same skinnedMesh/mixerRoot into independent VAT textures sharing one
- * vertex-index layout (same skinnedMesh.geometry -> same vatVertexIndex attribute works for all of them).
- * `clipsByName` is a Map/plain-object of name -> THREE.AnimationClip; `names` picks which entries to bake
- * and in what order (defaults to every key). Returns { idle, move, names, ... } -- `idle` and `move` are
- * the first two baked vatData results (the only two createVATCrowdRenderer's blend path consumes today),
- * plus `byName` for direct lookup if more than 2 are ever baked.
- */
 export function bakeVATMultiClip(skinnedMesh, mixerRoot, clipsByName, opts = {}) {
   const entries = clipsByName instanceof Map ? Array.from(clipsByName.entries()) : Object.entries(clipsByName)
   const names = opts.names || entries.map(([n]) => n)

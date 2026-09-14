@@ -103,9 +103,6 @@ export function createRuntimeStats() {
       createElement('div', { class: 'runtime-row' }, `RTT ${fmt(s.rtt, 0)}ms  |  BUF ${s.buffer}`),
       sparkline(s.rttHistory, Math.max(60, ...s.rttHistory, 1), 'runtime-spark-rtt')
     ]
-    // Glanceable culling health without opening the render-graph inspector: total occluded/candidate
-    // instances across every culling system plus fail-open/anomaly counts, sourced from the same
-    // window.__culling aggregate the RenderGraph capture() snapshot uses.
     if (s.culling && s.culling.totals) {
       const c = s.culling.totals
       rows.push(createElement('div', { class: 'runtime-row' }, `CULL ${c.occluded || 0}/${c.candidates || 0}  |  FAILOPEN ${c.failOpens || 0}  |  ANOMALY ${c.anomalyTrips || 0}`))
@@ -116,23 +113,15 @@ export function createRuntimeStats() {
   return { onFrame, snapshot, renderPanel }
 }
 
-// On-demand real draw-call audit: walks the live THREE scene graph and cross-references
-// against renderer.info to produce a per-material / per-cluster-LOD-mesh / geometry-reuse
-// breakdown -- the total renderer.info.render.calls counter alone (surfaced above in
-// snapshot()) says HOW MANY draw calls happened but not WHICH objects/materials/clusters
-// are responsible, so it can't drive a real reduction-priority decision on its own. Not
-// called every frame (real scene.traverse cost); call from a debug console/audit script.
-// Exposed as window.__runtimeStats.drawCallAudit(scene, renderer) via app.js's existing
-// window.__* debug-accessor convention.
 export function drawCallAudit(scene, renderer) {
   if (!scene || !renderer) return { error: 'scene-or-renderer-missing' }
 
   const info = renderer.info.render
   const mem = renderer.info.memory
 
-  const materialUsage = new Map() // material.uuid -> {type, name, transparent, meshCount}
-  const geometryUsage = new Map() // geometry.uuid -> mesh count sharing that exact geometry object
-  const clusterMeshes = [] // per ClusterLodMesh instance: groups (=real draw calls it issues), cluster count, visible/drawn tris
+  const materialUsage = new Map()
+  const geometryUsage = new Map()
+  const clusterMeshes = []
   let clusterLodMeshCount = 0, clusterLodTotalGroups = 0, clusterLodTotalClusters = 0
   let instancedMeshCount = 0, instancedTotalInstances = 0
   let plainMeshCount = 0

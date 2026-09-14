@@ -1,4 +1,3 @@
-// Dual import: same definition unit-testable under node and runnable in browser.
 const _isNode = typeof process !== 'undefined' && process.versions?.node
 const { createMachine, createActor, assign } = await import(_isNode ? 'xstate' : '/node_modules/xstate/dist/xstate.esm.js')
 import { STRINGS } from './strings.js'
@@ -7,7 +6,6 @@ const STEPS = ['assets', 'environment', 'firstSnapshot', 'models']
 
 const allDone = ({ context }) => STEPS.every((s) => context[s]) && context.entityPending <= 0
 
-// Soft fallback must gate on real content (firstSnapshot+environment): forcing ready on a bare timer would lift the curtain onto an empty scene while a singleplayer worker is still booting.
 const hasContent = ({ context }) => context.firstSnapshot && context.environment
 
 export const LOADING_FALLBACK_MS = 10000

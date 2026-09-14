@@ -1,30 +1,4 @@
-// RenderControls -- the single discoverable registry of every render/optimization CONTROL KNOB.
-//
-// WHY THIS EXISTS: the render + optimization pipeline used to be steered by ~two dozen scattered,
-// undocumented `window.__*` globals, each read ad-hoc deep inside a draw path. There was no way to
-// answer "what can I tweak, what does it do, what is its default" without grepping the whole codebase.
-// That undiscoverable coupling is exactly the counter-intuitive structure that let rendering bugs
-// (stale-shadow flash, underwater-tint blue trees, depth z-fight) hide. This registry is the one place
-// every knob is named, typed, defaulted, and documented.
-//
-// CONTRACT:
-//   - Every render/opt knob is one entry: { key, group, type, default, doc } (key = the historical
-//     `window.__<name>` name, so existing reads keep working unchanged).
-//   - `get(key)` returns the live value (reads window.__<key> if set, else the default). Modules SHOULD
-//     migrate to RenderControls.get(...) over time, but existing `window.__<key>` reads stay valid --
-//     the registry mirrors onto window.__<key> and window.__renderControls, it does not replace it.
-//   - `set(key, v)` writes the live value (window.__<key>) after validating the key exists.
-//   - `list()` prints every knob with its group, current value, default, and doc -- the discovery
-//     surface. `window.__renderControls.list()` in the console answers "what can I tweak".
-//
-// This registry is DEBUG/DISCOVERY + a single source of documentation. It does not itself change any
-// render behavior; it catalogs the knobs the render code already reads. Handles/accessors (window.__app,
-// __terrain, __scene, __renderGraph, __culling, per-system profile mirrors, __veg/__rocks/__grass debug
-// objects) are deliberately NOT here -- they are live object handles, not tunable knobs.
-
-// key is the window.__<key> global name (without the window.__ prefix).
 const CONTROLS = [
-  // ---- Depth / mapspinner<->THREE composite seam (see DepthComposite / TerrainBackdrop) ----
   { key: 'planetDepthToCanvas', group: 'depth-composite', type: 'boolean', default: true,
     doc: 'Stamp mapspinner terrain/water depth into the canvas depth buffer so the THREE scene is occluded by terrain. Off => THREE objects draw over terrain.' },
   { key: 'planetDepthBias', group: 'depth-composite', type: 'number', default: 0.000002,
@@ -32,7 +6,6 @@ const CONTROLS = [
   { key: 'hostShadowOff', group: 'depth-composite', type: 'boolean', default: false,
     doc: 'Diagnostic: skip the host-shadow bridge so mapspinner terrain draws fully lit (no THREE shadow projected onto it). Isolates terrain-received-shadow jitter from object shadows.' },
 
-  // ---- Adaptive resolution / device-pixel-ratio (perf) ----
   { key: 'vdrsScale', group: 'resolution', type: 'number', default: null,
     doc: 'Viewport dynamic-resolution scale in (0,1] for mapspinner terrain. null => use the world default. Lower = cheaper terrain, softer edges.' },
   { key: 'dprAuto', group: 'resolution', type: 'boolean', default: true,
@@ -60,7 +33,6 @@ const CONTROLS = [
   { key: 'threeVdrsState', group: 'resolution', type: 'object', default: null,
     doc: 'Read-only mirror of the THREE-scene-color VDRS adaptation loop (createThreeVdrsController): {scale, on, avgMs}.' },
 
-  // ---- Fog ----
   { key: 'fogFar', group: 'fog', type: 'number', default: 200,
     doc: 'Base fog far-plane ceiling (metres), the world-config value before any adaptation. Mirrored from the scene fog / world config.' },
   { key: 'fogAdaptOff', group: 'fog', type: 'boolean', default: false,
@@ -68,13 +40,9 @@ const CONTROLS = [
   { key: 'fogState', group: 'fog', type: 'object', default: null,
     doc: 'READ-ONLY mirror of the live FogController state ({far, ceil, baseCeil, mult, avgMs}), written whenever the controller ticks. `far` is the current fog.far; `ceil` is the EFFECTIVE ceiling (baseCeil * mult, the perf adapter never pushes far above this); `mult` is the combined time-of-day/weather density multiplier (client/core/FrameMetrics.js createFogController.setCeilMultiplier -- time-of-day proposes a denser/closer ceiling at dawn/dusk via elevation angle, a future weather system composes multiplicatively on top; FogController alone still owns every fog.far write, so perf-adaptation and atmosphere-driven density are always reconciled through one hysteresis/step path).' },
 
-  // ---- Time of day (see client/core/TimeOfDay.js) ----
   { key: 'timeOfDay', group: 'time-of-day', type: 'object', default: null,
     doc: 'READ-ONLY mirror of the live time-of-day state ({t, elevationDeg, dir}), written every frame by the time-of-day render-graph node. Control surface is window.__timeOfDayApi (setFraction(0..1), getFraction(), setDayLengthSec(sec), getDayLengthSec(), setPaused(bool), isPaused(), getClockString(), isLocalOverrideActive()) -- a function-call API, not a scalar knob, since it drives an animated clock rather than a static value. setFraction() sets an 8s local-override grace window (LOCAL_OVERRIDE_GRACE_MS in TimeOfDay.js) during which app.js onTimeOfDaySync (server-authoritative sync, when the world opts in) calls setFractionFromServer() instead, which no-ops while the override is active -- so a manual devtools/UI scrub is visible for at least 8s instead of being stomped by the next periodic server correction. World-level default/opt-out is _terrainCfg.timeOfDay ({dayLengthSec, startFraction} or false to disable) or ?tod=off.' },
 
-  // ---- Weather (see client/core/Weather.js -- camera-relative rain+snow particle systems plus a far
-  //      billboard-sheet LOD tier shared by both, weather-particle-system-rain-snow-tiers +
-  //      weather-snow-tier-and-billboard-far-lod) ----
   { key: 'weatherType', group: 'weather', type: 'string', default: null,
     doc: '"rain" | "snow" | "clear" (null => use the world config default from _terrainCfg.weather.type, or no weather at all if the world never opted in). Both "rain" and "snow" render a real near-tier sim (fast streaks / slow wind-drifted flakes) plus a shared far billboard-sheet tier beyond the near volume. Live-settable: window.__renderControls.set("weatherType","rain") takes effect next frame via the weather-update render-graph node. Also server-writable: when _terrainCfg.weather.serverAuthoritative===true (weather-server-driven-state-and-multiplayer-sync), a WEATHER_SYNC message (src/sdk/ServerWeather.js, client/app.js onWeatherSync) writes this SAME global on receipt -- a server-driven weather change and a manual devtools toggle both flow through the identical live-settable knob, indistinguishable to the weather-update render-graph node.' },
   { key: 'weatherIntensity', group: 'weather', type: 'number', default: null,
@@ -86,11 +54,9 @@ const CONTROLS = [
   { key: 'wetnessDryOutSec', group: 'weather', type: 'number', default: 60,
     doc: 'Seconds for `wetness` to fully decay 1->0 after rain stops (linear ramp-down). Ramp-up while raining is fast (a few seconds) since real rain wets a surface far quicker than it dries.' },
 
-  // ---- Water / sea ----
   { key: 'seaLevelY', group: 'water', type: 'number', default: null,
     doc: 'World-space sea-level Y (metres), spliced into the underwater-tint shader by UnderwaterTint.setSeaLevelY at terrain-ready. Drives the below-water tint threshold.' },
 
-  // ---- Vegetation render toggles (perf / debug) ----
   { key: 'vegWind', group: 'vegetation', type: 'boolean', default: true,
     doc: 'Vegetation wind animation. Off => static leaves/branches (also removes wind-driven shadow-caster motion).' },
   { key: 'vegLeafOff', group: 'vegetation', type: 'boolean', default: false,
@@ -104,7 +70,6 @@ const CONTROLS = [
   { key: 'vegImpostorParallaxScale', group: 'vegetation', type: 'number', default: 0.3,
     doc: 'Parallax offset magnitude in cell-local UV units for vegImpostorParallax (see octahedral-impostor-ez.js parallaxOffsetUV). 0.3 was tuned against a unit-scale synthetic test box; wide-canopy species with more depth relief may want a larger value, narrow conifers a smaller one. Read at the same boot-time point as vegImpostorParallax.' },
 
-  // ---- Grass ----
   { key: 'grassWind', group: 'grass', type: 'boolean', default: true,
     doc: 'Grass wind animation.' },
   { key: 'grassBend', group: 'grass', type: 'boolean', default: true,
@@ -112,27 +77,21 @@ const CONTROLS = [
   { key: 'grassDecal', group: 'grass', type: 'boolean', default: true,
     doc: 'Burn/flatten decals shrink+tint grass blades within a markScorched-stamped radius (client/core/Grass.js uDecalPosXZRS, backed by src/terrain/GrassDecal.js persistent sparse store). Off => decal stamps stay recorded in the store but have zero visible effect until re-enabled.' },
 
-  // ---- Tonemapping / color grading (see SceneSetup.createRenderer + QualityPresets.js) ----
   { key: 'toneMappingMode', group: 'tonemapping', type: 'string', default: 'ACESFilmic',
     doc: 'Tonemapping operator applied to the final HDR scene color before display: "ACESFilmic" (filmic highlight rolloff, current default), "AgX" (Blender/OCIO-style, cooler highlights, more saturation retained), "Neutral" (THREE.NeutralToneMapping, minimal-grade), or "Linear" (no rolloff -- highlights clip, mainly a diagnostic/comparison mode). Live-settable: window.__renderControls.set("toneMappingMode","AgX") re-applies immediately via applyToneMapping(renderer).' },
   { key: 'toneMappingExposure', group: 'tonemapping', type: 'number', default: 1.0,
     doc: 'Exposure multiplier applied before the tonemapping curve. Device-tier presets lower this on low-end GPUs (replaces the old ad-hoc isLowEndGpu override in app.js, which is now preset-driven via QualityPresets.js PRESETS[name].toneMappingExposure).' },
 
-  // ---- Shader / diagnostics ----
   { key: 'checkShaderErrors', group: 'diagnostics', type: 'boolean', default: false,
     doc: 'Enable THREE renderer.debug.checkShaderErrors (a real GPU sync per first-use shader variant -- on only for debugging).' },
   { key: 'thc', group: 'terrain', type: 'boolean', default: false,
     doc: 'Enable the mapspinner Terrain Height Cache (baked-tile fetch). Measured net-negative at the deck; kept as a lever, default off.' },
 
-  // ---- Shadow-pass cost measurement (see ShadowCostProbe.js -- read-only, does not touch ShadowPipeline) ----
   { key: 'shadowCostProbeArm', group: 'shadow-cost', type: 'boolean', default: false,
     doc: 'Arm the static-vs-dynamic shadow-caster cost split (ShadowCostProbe.js). Runs 3 extra masked shadowMap.render() passes every Nth real texel-step re-render, self-restoring. window.__shadowCost.stats() reads the result. Default off, zero cost when off.' },
   { key: 'shadowCascades', group: 'shadow-cost', type: 'number', default: 1,
     doc: 'Number of cascaded shadow maps ShadowPipeline.js follows/texel-snaps (1-3). Read ONCE at boot (client/app.js createShadowPipeline call) -- changing it live has no effect until next reload, unlike most knobs here, since adding/removing a cascade light mid-session is not yet supported. 1 = the original single-shadow behavior (byte-identical camera/cadence, zero regression risk). 2-3 add additional shadow-only DirectionalLights (intensity 0, never affect scene lighting) at wider extents, each independently texel-snapped and heartbeat-free exactly like cascade 0 -- see ShadowPipeline.js header. Device-tier default via QualityPresets.js (Low/Medium=1, High=2, Ultra=3); each extra cascade is a full additional shadow-map render pass on every texel step of ITS OWN cadence.' },
 
-  // ---- Ambient occlusion (see SSAO.js -- half-res GTAO-style screen-space AO, own dedicated
-  //      G-buffer pass, does NOT touch the shared canvas depth contract documented in
-  //      DepthComposite.js) ----
   { key: 'ssao', group: 'ambient-occlusion', type: 'boolean', default: false,
     doc: 'Half-res GTAO-style screen-space ambient occlusion. Device-tier default: off on low-tier, on for mid/high/ultra (see QualityPresets.js). Composited as a multiplicative darken pass over the canvas after scene-color.' },
   { key: 'ssaoRadius', group: 'ambient-occlusion', type: 'number', default: 3.0,
@@ -140,12 +99,6 @@ const CONTROLS = [
   { key: 'ssaoIntensity', group: 'ambient-occlusion', type: 'number', default: 4.0,
     doc: 'SSAO darkening strength multiplier applied to the raw occlusion term before compositing. See ssaoRadius doc -- tuned together via the same live A/B sweep (intensity<=4 alone at the default radius was imperceptible; intensity=4 at radius=3.0 was the smallest tested combination that produced a real measured effect, matching intensity=8/10 at smaller/larger radii).' },
 
-  // ---- Screen-space reflections (see SSR.js -- half-res raymarch against SSAO's shared G-buffer,
-  //      masked to the UNION of the sea-level wet-surface band, a real per-material wetness G-buffer
-  //      (custom._wetness, authored via placed-model/primitive editorProps -- see EntityLoader.js's
-  //      userData.wetness stamp), and the automatic weather-wetness scalar (window.__wetness, see
-  //      wetness group below); does NOT touch the shared canvas depth contract documented in
-  //      DepthComposite.js) ----
   { key: 'ssr', group: 'reflections', type: 'boolean', default: false,
     doc: 'Screen-space reflections for wet surfaces: near-sea-level geometry (see ssrBandHeight) OR any mesh with an authored custom._wetness value (puddle/wet-road/rain-soaked, placed-model/box-static/primitive editorProp -- see SSR.js header and EntityLoader.js userData.wetness) OR the live automatic weather-wetness scalar during rain (window.__wetness, see wetness knob -- rain-soaked ground reflects with zero per-entity authoring). Pool-routed (ModelPool ClusterLodMesh) entities are not yet covered by the material-wetness path, band-mask and weather-wetness still apply to them. Device-tier default: off (opt-in, higher cost than ssao/bloom -- see QualityPresets.js).' },
   { key: 'ssrIntensity', group: 'reflections', type: 'number', default: 0.6,
@@ -155,8 +108,6 @@ const CONTROLS = [
   { key: 'ssrBandHeight', group: 'reflections', type: 'number', default: 4.0,
     doc: 'Metres above/below seaLevelY a G-buffer fragment may sit and still be eligible for reflection via the sea-level-band mask. Independent of and additive to the per-material custom._wetness mask -- a fragment reflects if EITHER source says wet.' },
 
-  // ---- Bloom (see Bloom.js -- half-res threshold-extract + separable-blur + additive-composite,
-  //      does NOT touch the shared canvas depth contract documented in DepthComposite.js) ----
   { key: 'bloom', group: 'bloom', type: 'boolean', default: false,
     doc: 'Half-res threshold-extract + blur + additive-composite bloom pass over bright highlights (muzzle flashes, pickup/emissive glow). Device-tier default: off on low-tier, on for mid/high/ultra (see QualityPresets.js). Composited after scene-color and SSAO.' },
   { key: 'bloomThreshold', group: 'bloom', type: 'number', default: 1.0,
@@ -168,35 +119,24 @@ const CONTROLS = [
   { key: 'bloomBlurPasses', group: 'bloom', type: 'number', default: 1,
     doc: 'Number of full horizontal+vertical separable-blur passes applied to the bright-pass texture. Higher = smoother/wider glow, more GPU cost.' },
 
-  // ---- FSR1 spatial upscale/sharpen (see FSR1.js -- companion to the DPR controller below: a DPR
-  //      drop shrinks the WebGL drawing buffer, which the browser then bilinear-stretches back up
-  //      to CSS size; this pass replaces that dumb stretch with an EASU+RCAS upscale+sharpen so a
-  //      DPR drop is visually softened rather than a jarring blur/pixelation step) ----
   { key: 'fsr1', group: 'fsr1', type: 'boolean', default: false,
     doc: 'FSR1-style (EASU edge-adaptive upsample + RCAS contrast-adaptive sharpen) post-process pass, gated to only run while window.__dpr.scale < 1 (createDprController has actually downscaled the drawing buffer -- no-op at native resolution). Composited last, after bloom/ssr. Device-tier default: off (opt-in companion to dprAuto).' },
   { key: 'fsr1Sharpness', group: 'fsr1', type: 'number', default: 0.5,
     doc: 'RCAS sharpen strength, 0 (soft, EASU output only) to 1 (maximum contrast-adaptive sharpen, matches AMD reference RCAS weight range). Anti-ringing clamped per-pixel by local min/max contrast, same as the real FSR1 RCAS formula -- will not oversharpen already-flat regions.' },
 
-  // ---- Frame pacing (see FrameMetrics.js createVsyncMonitor -- read-only mirror at window.__vsync) ----
   { key: 'vsync', group: 'frame-pacing', type: 'object', default: null,
     doc: 'Read-only mirror of the vsync-miss detector (FrameMetrics.js createVsyncMonitor). Distinguishes a compositor/GPU-side present stall (isCompositorStall: rAF-to-rAF gap exceeded the inferred refresh interval even though this frame\'s own JS work was short) from an ordinary long-JS-work frame. window.__vsync.recent() lists the last 20 miss events; window.__vsync.missRate is the fraction of all frames that missed. Also CONSUMED downstream: client/app.js startInputLoop\'s independent setInterval(1000/60) input-sample loop is phase-unlocked from the rAF render loop, so it stamps this mirror (frame/miss/missStreak/missCount) onto every sent input object as `input._vsync` -- the sim/render pacing alignment follow-up -- letting server-side reconciliation see whether an input was sampled during/after a real vsync miss, without changing the send cadence itself.' },
 
-  // ---- OffscreenCanvas / worker-hosted rendering (see SceneSetup.probeOffscreenCanvasWorkerRendering; offscreencanvas-worker-rendering epic) ----
   { key: 'offscreenCanvasWorkerRenderingSupported', group: 'worker-rendering', type: 'boolean', default: null,
     doc: 'Read-only mirror of a real feature-detection probe (API surface + Worker construction + an actual WebGL2-in-worker round trip via a transferred throwaway OffscreenCanvas), run once at boot. null until the async probe resolves. NOT a toggle -- rendering always runs on the main thread today; this only reports whether a future worker-hosted render loop is viable on this browser. See window.__offscreenCanvasWorkerRenderingDetail for the per-layer breakdown (apiSurface/workerConstructible/webgl2InWorker/error).' },
   { key: 'workerRenderer', group: 'worker-rendering', type: 'object', default: null,
     doc: 'Not a live value -- an API handle. window.__workerRenderer.create(canvasEl) transfers a real canvas to a dedicated module Worker (client/workers/OffscreenRenderWorker.js) running a real THREE.WebGLRenderer render loop entirely off the main thread (the actual worker-hosted render mechanism, not just detection). window.__workerRenderer.test() spins up a throwaway offscreen canvas, runs it for ~3s, and returns real per-frame telemetry the worker posted back (frame count, draw calls, triangles) -- proof frames actually execute in the worker. Scoped to an isolated diagnostic canvas only; does NOT drive the main game scene (offscreencanvas-worker-migration-followup epic, first functional slice -- the full game-loop migration needs a DOM/window proxy layer for mapspinner/MobileControls/HUD first).' },
 
-  // ---- Texture / model VRAM budget (see client/ModelPoolAdapter.js + packages/streaming-gltf/src/
-  //      model-pool.js -- ModelPool's own per-frame byteBudget/LodUnloadManager eviction was already
-  //      fully wired and running; these two knobs are what makes it client-discoverable/configurable,
-  //      see half-res-transparents-temporal-upscale-texture-vram-budget PRD row) ----
   { key: 'vramBudgetMB', group: 'vram-budget', type: 'number', default: null,
     doc: 'Target GPU texture/mesh-LOD VRAM budget in MB for the model pool. null => auto (device-tier-derived estimate * 0.65, see model-pool.js _detectAvailableVRAM). Live-settable: window.__renderControls.set(\'vramBudgetMB\', 512) calls ModelPoolAdapter.setVramBudgetMB, which retargets both ModelPool.byteBudget and its LodUnloadManager in one call and takes effect within 5 frames (the periodic unload-scan cadence). Reducing this under memory pressure demotes/evicts non-visible mesh+texture LODs; the pool self-tightens further at runtime if the live VRAM ratio stays unsafe (see vramStats).' },
   { key: 'vramStats', group: 'vram-budget', type: 'object', default: null,
     doc: 'READ-ONLY mirror of the live VRAM budget tracker (ModelPoolAdapter.getVramStats()), refreshed once per frame: {usedMB, estimatedVramMB, currentRatio, peakRatio, byteBudgetMB, totalBytes, unloadedCount, visibleEntities, invisibleEntities, recentEvents}. recentEvents is a real ring-buffer log (real vram-warning/vram-critical/budget-pressure/budget-relaxed/budget-adjust events the pool actually emitted, not synthetic). window.__vramBudget mirrors the same data plus setBudgetMB()/log() convenience calls.' },
 
-  // ---- mapspinner-side knobs (read in packages/mapspinner/src/gl-render.js; documented here for discovery) ----
   { key: 'halfResWater', group: 'mapspinner-water', type: 'boolean', default: false,
     doc: 'mapspinner water-occlusion depth-share pass (near sea level). When active the scene renders into a single-sample VDRS FBO (losing MSAA) then upscales, purely so the water-occlusion depth test has a real depth buffer to blit (the default framebuffer cannot be read via blitFramebuffer). Default off (every quality preset sets this false) since the MSAA loss reads as a visible quality drop across the whole frame, not just water -- set true only to re-enable the occlusion-depth-share mechanism at the cost of full-frame MSAA.' },
   { key: 'vdrs', group: 'mapspinner-resolution', type: 'boolean', default: false,
@@ -222,14 +162,6 @@ const CONTROLS = [
   { key: 'frustumCull', group: 'mapspinner-lod', type: 'boolean', default: true,
     doc: 'mapspinner per-leaf screen-space frustum cull for off-screen quadtree leaves (planet-orchestrator.js frame(), read live every frame -- this window.__ global takes priority over opts.frustumCull when set, matching the source\'s own documented precedence). Off => every leaf in the quadtree\'s selected LOD set is drawn regardless of on-screen visibility, a real CPU-side perf cost with zero visual difference at normal camera framing (diagnostic/debug use only).' },
 
-  // ---- mapspinner composeHeight shape-control uniforms (packages/mapspinner/src/gl-render.js
-  //      setComposeHeightUniforms(), read live every draw call by BOTH the terrain render program
-  //      AND the _PROBE_ GPU collision program via the same cacheKey-memoized _chuSet path -- see
-  //      packages/mapspinner/AGENTS.md's FXC/ANGLE-d3d11 sections before touching ANYTHING near this
-  //      function in source. RENDER/_PROBE_ PARITY IS LOAD-BEARING: both call sites read the IDENTICAL
-  //      window.__<key> globals below, so the rendered mesh and the walkable collision surface stay in
-  //      sync by construction; registering these here is documentation/discovery ONLY -- it does not
-  //      change gl-render.js's call structure, its g(n,d) fallback helper, or the shared cacheKey. ----
   { key: 'hiFreqCut', group: 'mapspinner-composeheight', type: 'number', default: 1.0,
     doc: 'Fine-octave amplitude multiplier for the terrain fractal (uHiFreqCut, TERRAIN_DEFAULTS.hiFreqCut). DECISIVE for a real prior "blotchy at altitude" bug -- 0 removes the fine band entirely, 0.5 halves it. Applied identically in the render pass and the _PROBE_ collision program (parity).' },
   { key: 'detailOverlay', group: 'mapspinner-composeheight', type: 'number', default: 53.0,
@@ -271,14 +203,11 @@ const CONTROLS = [
   { key: 'reliefScale', group: 'mapspinner-composeheight', type: 'number', default: null,
     doc: 'Scale-invariant relief multiplier (uReliefScale). null => derived as opts.reliefScale ?? (planetRadius / 63600000.0), so the fractal relief tuned in absolute metres at the 6360km design radius scales proportionally to whatever radius the consumer actually passes. Parity-critical -- see the group-level doc above.' },
 
-  // ---- VRM spring-bone LOD (animation-vrm-spring-bone-lod-expression-wire) ----
   { key: 'springBoneLodDist', group: 'vrm-animation', type: 'number', default: 25,
     doc: 'Distance in metres from the camera beyond which a REMOTE VRM player\'s springBoneManager.update() (hair/cloth jiggle physics) is skipped for that frame -- humanoid pose/expressions/lookAt still update normally, only the secondary-motion spring-bone sim is gated. Local player is never gated. See client/app.js tickPlayerAnimators.' },
   { key: 'springBoneLodStats', group: 'vrm-animation', type: 'object', default: null,
     doc: 'READ-ONLY mirror of the live spring-bone LOD counters: {updated, skipped} remote-player springBoneManager.update() calls in the most recent frame.' },
 
-  // ---- SPH fluid client render (sph-fluid-client-render-metaball-surface-evaluation, follow-on to the
-  //      shipped sph-fluid-client-render-particle-mesh InstancedMesh2 droplet-cloud baseline) ----
   { key: 'fluidRenderMode', group: 'fluid', type: 'string', default: 'droplets',
     doc: '"droplets" (default, shipped baseline: an InstancedMesh2 of small spheres, one per SPH particle -- cheap, real, reads as discrete droplets/foam) | "surface" (opt-in: a metaball/marching-squares smooth 2D contour extruded into a thin slab, one real BufferGeometry per fluid entity, vertex-rewritten per snapshot -- costs real per-frame CPU to resample the scalar field + re-march the contour, see fluidSurfaceStats for the live-measured cost; per this row\'s own live perf-A/B, "surface" only pays off visually for a denser/settled pool, not a sparse emitter). Read PER-ENTITY at first-build time (buildEntityMesh/repaintEntity\'s lazy-upgrade path in client/EntityLoader.js) -- changing this live only affects entities built/rebuilt after the change, matching vegImpostorParallax\'s own boot-time-read discipline for construction-time render-mode choices.' },
   { key: 'fluidSurfaceCellSize', group: 'fluid', type: 'number', default: 0.15,
@@ -288,8 +217,6 @@ const CONTROLS = [
   { key: 'fluidSurfaceStats', group: 'fluid', type: 'object', default: null,
     doc: 'READ-ONLY mirror of the live per-entity metaball reconstruction cost, {lastMs, avgMs, samples, particleCount} for the MOST RECENTLY rebuilt "surface"-mode fluid entity -- the real live-measured per-frame CPU cost this row\'s own PRD detail required A/B\'d against the "droplets" baseline. Written by client/EntityLoader.js\'s _rewriteFluidSurfaceMesh on every rebuild.' },
 
-  // ---- Remaining mapspinner tuning knobs (read live in gl-render.js / planet-orchestrator.js,
-  //      registered for discovery only, zero mapspinner source change -- strategy (b)) ----
   { key: 'altOctClamp', group: 'mapspinner-composeheight', type: 'boolean', default: true,
     doc: 'Altitude-based octave clamping for the terrain fractal (gl-render.js _clampOcts, per-frame hot path). True => the octave count drops with altitude (fewer octaves farther from the deck, a GPU-vertex-cost optimization). False => flat full octave count at all altitudes (rollback lever if the clamping ever produces a visible pop at altitude transitions).' },
   { key: 'waterGrid', group: 'mapspinner-water', type: 'number', default: 4,
@@ -301,7 +228,7 @@ const CONTROLS = [
 ]
 
 const _byKey = new Map(CONTROLS.map(c => [c.key, c]))
-for (const c of CONTROLS) c.globalName = '__' + c.key   // precomputed: get() runs ~10x/frame from shouldRun gates; no per-call string concat
+for (const c of CONTROLS) c.globalName = '__' + c.key
 const _hasWindow = typeof window !== 'undefined'
 
 function get(key) {
@@ -311,16 +238,6 @@ function get(key) {
   return c.default
 }
 
-// Renderer-affecting knobs that need an imperative call on the live renderer, not just a
-// window.__<key> write a later read will pick up (matches the `_rendererHandle` pattern already
-// established in QualityPresets.js: most knobs are read lazily by their own subsystem, but a few
-// -- shadowMap.enabled, setPixelRatio, and now tonemapping -- are one-shot renderer.* property
-// writes with nothing else polling them per-frame, so `set()` must push them immediately).
-// `bindTonemapping(renderer, THREE)` registers BOTH handles (called once from SceneSetup.createRenderer
-// right after the renderer is built) so a later `set('toneMappingMode', ...)` from the console/UI can
-// re-apply immediately without this module importing THREE itself (kept a pure data+string registry,
-// per this file's existing no-side-effect contract -- THREE is a caller-supplied reference, never
-// imported here).
 let _tmRenderer = null
 let _tmTHREE = null
 function bindTonemapping(renderer, THREE) { _tmRenderer = renderer || _tmRenderer; _tmTHREE = THREE || _tmTHREE }
@@ -335,11 +252,6 @@ function _resolveToneMappingConstant(THREE, mode) {
   }
 }
 
-// Applies the current toneMappingMode/toneMappingExposure knob values to a live renderer.
-// Callable at boot (SceneSetup.createRenderer, passing its own just-built renderer+THREE) AND at
-// runtime (window.__renderControls.set(...) re-applies immediately via the bound handles, and
-// QualityPresets.apply() calls it per-preset) so the knob is genuinely live, not just a value
-// nothing re-reads until next reload.
 function applyToneMapping(renderer, THREE) {
   const r = renderer || _tmRenderer
   const T = THREE || _tmTHREE
@@ -383,14 +295,6 @@ export const RenderControls = {
   bindTonemapping, applyToneMapping,
 }
 
-// ---------------------------------------------------------------------------------------------
-// RUNTIME FLAGS -- the non-render query-string / env-var switches that gate boot-time behavior
-// (world selection, networking mode, server auth, one-shot debug probes). These are NOT
-// window.__* live knobs like CONTROLS above -- most are read once at module-load/boot time from
-// location.search or process.env, so `set()` on them would not retroactively change behavior.
-// This registry exists purely for DISCOVERY: `window.__flags.list()` answers "what flags exist,
-// where do I set them, what do they do" without grepping the whole codebase.
-// ---------------------------------------------------------------------------------------------
 const FLAGS = [
   { flag: '?veg=none', kind: 'query', group: 'vegetation', readAt: 'client/app.js',
     doc: 'Skip building vegetation entirely (Vegetation.js never constructed). Debug/perf isolation.' },
@@ -447,8 +351,6 @@ function listFlags() {
 
 export const RuntimeFlags = { flags: FLAGS, list: listFlags }
 
-// Live discovery surface: `window.__renderControls.list()` prints every render/opt knob + doc;
-// `window.__flags.list()` prints every non-render runtime flag (query-string + env var) + doc.
 export function installRenderControls() {
   if (typeof window !== 'undefined') {
     window.__renderControls = RenderControls

@@ -1,16 +1,3 @@
-// editor-multi-viewport (spoint-side half): real camera+render-loop plumbing for N additional
-// orthographic/perspective panes rendered as picture-in-picture insets over the primary scene,
-// entirely additive to the existing single-camera render path (RenderGraph.nodes.js's 'scene-color'
-// node, terrain VDRS upscale, post-processing chain) -- none of that is touched or re-routed. Layout
-// chrome (draggable panes, resize handles, a maximize toggle) belongs in AnEntrypoint/design per the
-// GUI-kit rule; this module owns only the camera objects and the renderer.setViewport/setScissor +
-// render() calls a design-kit panel would drive.
-//
-// Each viewport is a real THREE.Camera (orthographic top/front/side or a second perspective) plus a
-// pixel-rect {x,y,width,height} in canvas space (THREE's setViewport/setScissor origin is
-// bottom-left, same convention WebGL itself uses). update()'s caller passes the primary camera's
-// world position/target once per frame so an orthographic pane can optionally follow it (followTarget)
-// without a design-kit UI needing its own camera-sync logic.
 import * as THREE from 'three'
 
 const ORTHO_VIEWS = {
@@ -20,11 +7,9 @@ const ORTHO_VIEWS = {
 }
 
 export function createMultiViewport(renderer, scene) {
-  const panes = new Map()   // id -> { camera, rect: {x,y,width,height}, followTarget, orthoSize, kind }
+  const panes = new Map()
   let _nextId = 0
 
-  // kind: 'perspective' | 'top' | 'front' | 'side'. rect in canvas pixels (bottom-left origin).
-  // orthoSize: half-extent in world units for an orthographic pane's frustum (ignored for perspective).
   function addPane(kind, rect, opts = {}) {
     const id = 'vp' + (_nextId++)
     let camera
@@ -50,11 +35,6 @@ export function createMultiViewport(renderer, scene) {
   function getPanes() { return [...panes.values()] }
 
   const _v = new THREE.Vector3()
-  // Called once per frame, after the primary scene render (RenderGraph.nodes.js's 'scene-color' node
-  // has already drawn to the full canvas) -- each enabled pane's own setViewport/setScissor narrows
-  // subsequent draw calls to its rect, renders, and the caller must restore the full-canvas
-  // viewport/scissor afterward (done here) so the primary render path's own next-frame setup is
-  // never left in a partial-viewport state.
   function render(primaryCamera) {
     if (panes.size === 0) return
     const canvas = renderer.domElement
