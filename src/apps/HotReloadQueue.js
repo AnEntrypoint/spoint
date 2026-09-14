@@ -41,12 +41,13 @@ export class HotReloadQueue {
     const toVersion = fromVersion + 1
     if (rt._appVersions) rt._appVersions.set(name, toVersion)
     const migrateFn = (def.server || def)?.migrate
-    let customMigrated = false
+    let customMigrated = false, reloadedAny = false
     for (const [eid, ent] of rt.entities) {
       if (ent._appName !== name) continue
+      reloadedAny = true
       const old = rt.apps.get(eid), oldCtx = rt.contexts.get(eid)
       if (old && oldCtx) rt._safeCall(old.server || old, 'teardown', [oldCtx], 'teardown')
-      rt.clearTimers(eid)
+      rt._releaseAppContext(eid, oldCtx)
       if (typeof migrateFn === 'function') {
         try {
           const migrated = migrateFn(ent._appState, fromVersion, toVersion, ent.custom)
@@ -69,11 +70,14 @@ export class HotReloadQueue {
       rt.contexts.set(eid, ctx)
       rt.apps.set(eid, def)
       rt._pendingSetupIds.add(eid)
-      Promise.resolve(rt._safeCall(def.server || def, 'setup', [ctx], `hotReload(${name})`)).finally(() => {
+      rt._safeCall(def.server || def, 'setup', [ctx], `hotReload(${name})`).then(() => rt._deferOrRun(() => {
+        if (rt.contexts.get(eid) !== ctx) return
         rt._pendingSetupIds.delete(eid)
         rt._flushPendingEvents(eid)
-      })
+        rt._scheduleRebuild()
+      }))
     }
+    if (reloadedAny) { rt._rebuildUpdateList(); rt._rebuildCollisionList() }
     if (customMigrated && rt._placedModelStorage) rt._placedModelStorage.persist(rt)
   }
 

@@ -54,13 +54,21 @@ export class EventBus {
 
   scope(entityId) {
     const unsubs = []
+    let released = false
+    const subscribe = (ch, fn) => {
+      if (released) {
+        console.warn(`[EventBus] ${entityId}: ignored '${ch}' subscription on a released scope`)
+        return () => {}
+      }
+      const u = this.on(ch, fn); unsubs.push(u); return u
+    }
     const scoped = {
-      on: (ch, fn) => { const u = this.on(ch, fn); unsubs.push(u); return u },
+      on: subscribe,
       off: (ch, fn) => this.off(ch, fn),
-      once: (ch, fn) => { const wrapper = (...a) => { this.off(ch, wrapper); fn(...a) }; wrapper._original = fn; const u = this.on(ch, wrapper); unsubs.push(u); return u },
+      once: (ch, fn) => { const wrapper = (...a) => { this.off(ch, wrapper); fn(...a) }; wrapper._original = fn; return subscribe(ch, wrapper) },
       emit: (ch, data, meta = {}) => this.emit(ch, data, { ...meta, sourceEntity: entityId }),
       handover: (targetEntityId, stateData) => this.emit('system.handover', { targetEntityId, stateData }, { sourceEntity: entityId }),
-      destroy: () => { for (const u of unsubs) u(); unsubs.length = 0 }
+      destroy: () => { released = true; for (const u of unsubs) u(); unsubs.length = 0 }
     }
     this._scoped.set(entityId, scoped)
     return scoped

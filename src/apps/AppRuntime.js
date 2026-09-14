@@ -226,6 +226,7 @@ export class AppRuntime {
       await this._safeCall(appDef.server || appDef, 'setup', [ctx], `setup(${appName})`)
     } finally {
       this._deferOrRun(() => {
+        if (this.contexts.get(entityId) !== ctx) return
         this._pendingSetupIds.delete(entityId)
         if (this.entities.has(entityId)) this._flushPendingEvents(entityId)
         else this._pendingSetupQueues.delete(entityId)
@@ -261,12 +262,17 @@ export class AppRuntime {
     const appDef=this.apps.get(entityId), ctx=this.contexts.get(entityId)
     if (ctx?._teardownChildren) ctx._teardownChildren()
     if (appDef && ctx) this._safeCall(appDef.server||appDef, 'teardown', [ctx], 'teardown')
-    if (ctx?._runDisposers) ctx._runDisposers()
-    this._eventBus.destroyScope(entityId); this.clearTimers(entityId); this.apps.delete(entityId); this.contexts.delete(entityId)
-    this._pendingSetupQueues.delete(entityId)
-    this._proximityWatches.delete(entityId)
+    this._releaseAppContext(entityId, ctx)
+    this.apps.delete(entityId); this.contexts.delete(entityId)
+    this._pendingSetupIds.delete(entityId); this._pendingSetupQueues.delete(entityId)
     const entity = this.entities.get(entityId); if (entity) entity._appName = null
     this._rebuildUpdateList(); this._rebuildCollisionList()
+  }
+
+  _releaseAppContext(entityId, ctx) {
+    if (ctx?._runDisposers) ctx._runDisposers()
+    this._eventBus.destroyScope(entityId); this.clearTimers(entityId)
+    this._proximityWatches.delete(entityId); this._playerContactWatches.delete(entityId)
   }
 
   _rebuildUpdateList() {
@@ -594,7 +600,7 @@ export class AppRuntime {
   _safeCall(o, m, a, l) {
     if (!o?.[m]) return Promise.resolve()
     try { const r = o[m](...a); if (r?.catch) return r.catch(e => this._logAppError(l, e)); return Promise.resolve() }
-    catch (e) { this._logAppError(l, e); return Promise.reject(e) }
+    catch (e) { this._logAppError(l, e); return Promise.resolve() }
   }
 
   snapshotGameState(opts = {}) {
