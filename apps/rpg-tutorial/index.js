@@ -1,4 +1,18 @@
-const BASE_XP_TABLE = [0, 100, 250, 450, 700, 1000, 1350, 1750, 2200, 2700, 3250]
+const XP_TO_NEXT_LEVEL = [0, 100, 250, 450, 700, 1000, 1350, 1750, 2200, 2700, 3250]
+const MAX_LEVEL = 10
+const PROGRESS_EVENT = 'rpg-progress'
+const CAST_MESSAGE = 'cast_ability'
+const RESPAWN_POSITION = [0, 2, 25]
+const TOWER_ENTITY_ID = 'tower-base'
+const TOWER_REACH_RADIUS = 5
+const MANA_REGEN_PER_SECOND = 5
+const HEALTH_PER_LEVEL = 10
+const MANA_PER_LEVEL = 20
+const COIN_XP = 10
+const DEFAULT_ENEMY_XP = 10
+const DEFAULT_ENEMY_HEALTH = 10
+const GOBLIN_CAP = 5
+const COIN_CAP = 10
 
 const QUESTS = [
   { id: 0, title: 'Kill 3 Goblins', objectiveType: 'kill', targetType: 'goblin', count: 3, xpReward: 30 },
@@ -8,372 +22,195 @@ const QUESTS = [
   { id: 4, title: 'Defeat the Final Boss', objectiveType: 'kill', targetType: 'final-boss', count: 1, xpReward: 150 }
 ]
 
-const ABILITIES = {
-  1: { id: 'attack', name: 'Attack', level: 1, cooldown: 0, manaCost: 0, damage: 10, range: 3 },
-  5: { id: 'fireball', name: 'Fireball', level: 5, cooldown: 5, manaCost: 20, damage: 30, range: 20 },
-  10: { id: 'lightning-storm', name: 'Lightning Storm', level: 10, cooldown: 10, manaCost: 50, damage: 60, range: 15 }
+const ABILITIES_BY_UNLOCK_LEVEL = {
+  1: { id: 'attack', name: 'Attack', cooldown: 0, manaCost: 0, damage: 10, range: 3 },
+  5: { id: 'fireball', name: 'Fireball', cooldown: 5, manaCost: 20, damage: 30, range: 20 },
+  10: { id: 'lightning-storm', name: 'Lightning Storm', cooldown: 10, manaCost: 50, damage: 60, range: 15 }
+}
+const ABILITIES = Object.values(ABILITIES_BY_UNLOCK_LEVEL)
+const ABILITY_KEYS = { 1: 'attack', 2: 'fireball', 3: 'lightning-storm' }
+
+const xpToNext = (level) => XP_TO_NEXT_LEVEL[Math.min(level, MAX_LEVEL)]
+
+const horizontalDistSq = (a, b) => (a[0] - b[0]) ** 2 + (a[2] - b[2]) ** 2
+
+const progressOf = (ctx, playerId) => {
+  const players = ctx.state.rpgPlayers || (ctx.state.rpgPlayers = {})
+  return players[playerId] || (players[playerId] = {
+    level: 1, xp: 0, health: 100, maxHealth: 100, mana: 100, maxMana: 100,
+    quest: 0, questProgress: 0, unlockedAbilities: ['attack'], cooldowns: {}
+  })
 }
 
-const getXpForLevel = (level) => BASE_XP_TABLE[Math.min(level, 10)]
-
-const getPlayerState = (ctx, playerId) => {
-  ctx.state.progression = ctx.state.progression || {}
-  let ps = ctx.state.progression[playerId]
-  if (!ps) {
-    ps = {
-      playerId,
-      level: 1,
-      xp: 0,
-      health: 100,
-      maxHealth: 100,
-      mana: 100,
-      maxMana: 100,
-      quest: 0,
-      questProgress: 0,
-      unlockedAbilities: { attack: true },
-      activeCooldowns: {}
-    }
-    ctx.state.progression[playerId] = ps
-  }
-  return ps
+const sendProgress = (ctx, playerId) => {
+  const ps = progressOf(ctx, playerId)
+  const quest = QUESTS[ps.quest]
+  ctx.players.send(playerId, {
+    type: PROGRESS_EVENT,
+    level: ps.level,
+    xp: ps.xp,
+    xpToNext: xpToNext(ps.level),
+    health: ps.health,
+    maxHealth: ps.maxHealth,
+    mana: ps.mana,
+    maxMana: ps.maxMana,
+    quest: ps.quest,
+    questTitle: quest?.title ?? null,
+    questProgress: ps.questProgress,
+    questTarget: quest?.count ?? 0,
+    unlockedAbilities: [...ps.unlockedAbilities],
+    cooldowns: { ...ps.cooldowns }
+  })
 }
 
 const addXp = (ctx, playerId, amount) => {
-  const ps = getPlayerState(ctx, playerId)
+  const ps = progressOf(ctx, playerId)
   ps.xp += amount
-
-  const nextLevelXp = getXpForLevel(ps.level)
-  while (ps.xp >= nextLevelXp && ps.level < 10) {
+  while (ps.level < MAX_LEVEL && ps.xp >= xpToNext(ps.level)) {
+    ps.xp -= xpToNext(ps.level)
     ps.level++
-    ps.xp = 0
-    ps.maxHealth += 10
+    ps.maxHealth += HEALTH_PER_LEVEL
     ps.health = ps.maxHealth
-    ps.maxMana += 20
+    ps.maxMana += MANA_PER_LEVEL
     ps.mana = ps.maxMana
-
-    const abilityForLevel = Object.entries(ABILITIES).find(([lvl]) => parseInt(lvl) === ps.level)
-    if (abilityForLevel) {
-      ps.unlockedAbilities[abilityForLevel[1].id] = true
-    }
-
-    ctx.bus.emit('player.levelup', {
-      playerId,
-      newLevel: ps.level,
-      unlockedAbility: abilityForLevel ? abilityForLevel[1].name : null
-    })
+    const player = ctx.players.getById(playerId)
+    if (player?.state) player.state.health = ps.health
+    const unlocked = ABILITIES_BY_UNLOCK_LEVEL[ps.level]
+    if (unlocked) ps.unlockedAbilities.push(unlocked.id)
+    ctx.bus.emit('player.levelup', { playerId, newLevel: ps.level, unlockedAbility: unlocked?.name ?? null })
   }
 }
 
-const damageEntity = (entity, damage) => {
-  if (!entity.custom) entity.custom = {}
-  entity.custom.health = Math.max(0, (entity.custom.health || entity.custom.maxHealth || 10) - damage)
-  entity.custom.isDamaged = true
-
-  if (entity.custom.health <= 0) {
-    const xpDrop = entity.custom.xpValue || 10
-    entity.destroy()
-    return xpDrop
-  }
-  return 0
-}
-
-const castAbility = (ctx, playerId, abilityId, targetPos) => {
-  const ps = getPlayerState(ctx, playerId)
-  const ability = Object.values(ABILITIES).find(a => a.id === abilityId)
-
-  if (!ability || !ps.unlockedAbilities[abilityId]) return false
-  if (ps.mana < ability.manaCost) return false
-  if (ps.activeCooldowns[abilityId]) return false
-
-  ps.mana -= ability.manaCost
-  ps.activeCooldowns[abilityId] = ability.cooldown
-
-  const player = ctx.players.getById(playerId)
-  if (!player) return true
-
-  const origin = player.state.position
-  const nearby = ctx.world.nearby(origin, ability.range)
-
-  nearby.forEach(entityId => {
-    const entity = ctx.world.getEntity(entityId)
-    if (entity && entity.custom?.enemyType) {
-      damageEntity(entity, ability.damage)
-    }
-  })
-
-  return true
-}
-
-const updateQuestProgress = (ctx, playerId, objectiveType, targetType) => {
-  const ps = getPlayerState(ctx, playerId)
-  const currentQuest = QUESTS[ps.quest]
-  if (!currentQuest) return
-
-  if (currentQuest.objectiveType === objectiveType && currentQuest.targetType === targetType) {
-    ps.questProgress++
-
-    if (ps.questProgress >= (currentQuest.count || 1)) {
-      completeQuest(ctx, playerId)
-    }
-  }
-}
-
-const completeQuest = (ctx, playerId) => {
-  const ps = getPlayerState(ctx, playerId)
+const advanceQuest = (ctx, playerId, objectiveType, targetType) => {
+  const ps = progressOf(ctx, playerId)
   const quest = QUESTS[ps.quest]
-  if (!quest) return
-
+  if (!quest || quest.objectiveType !== objectiveType || quest.targetType !== targetType) return
+  ps.questProgress++
+  if (ps.questProgress < quest.count) return
+  ctx.bus.emit('quest.completed', { playerId, questId: quest.id, questTitle: quest.title })
+  ps.quest++
+  ps.questProgress = 0
   addXp(ctx, playerId, quest.xpReward)
-  ctx.bus.emit('quest.completed', { playerId, questId: ps.quest, questTitle: quest.title })
+}
 
-  if (ps.quest < QUESTS.length - 1) {
-    ps.quest++
-    ps.questProgress = 0
+const damageEnemy = (ctx, playerId, enemy, damage) => {
+  const custom = enemy.custom
+  const health = Math.max(0, (custom.health ?? custom.maxHealth ?? DEFAULT_ENEMY_HEALTH) - damage)
+  enemy.custom = { ...custom, health, isDamaged: true }
+  if (health > 0) return
+  ctx.world.destroy(enemy.id)
+  addXp(ctx, playerId, custom.xpValue ?? DEFAULT_ENEMY_XP)
+  advanceQuest(ctx, playerId, 'kill', custom.enemyType)
+}
+
+const castAbility = (ctx, playerId, abilityId) => {
+  const ps = progressOf(ctx, playerId)
+  const ability = ABILITIES.find(a => a.id === abilityId)
+  if (!ability || !ps.unlockedAbilities.includes(abilityId)) return
+  if (ps.mana < ability.manaCost || ps.cooldowns[abilityId]) return
+  const origin = ctx.players.getById(playerId)?.state?.position
+  if (!origin) return
+  ps.mana -= ability.manaCost
+  if (ability.cooldown > 0) ps.cooldowns[abilityId] = ability.cooldown
+  const rangeSq = ability.range * ability.range
+  const targets = ctx.world.query(e => !!e.custom?.enemyType && !!e.position && horizontalDistSq(e.position, origin) <= rangeSq)
+  for (const enemy of targets) damageEnemy(ctx, playerId, enemy, ability.damage)
+  sendProgress(ctx, playerId)
+}
+
+const spawnAround = (ctx, app, minDist, spread, y) => {
+  const angle = Math.random() * Math.PI * 2
+  const dist = minDist + Math.random() * spread
+  ctx.world.spawn(null, { position: [Math.cos(angle) * dist, y, Math.sin(angle) * dist], app, config: {} })
+}
+
+const tickPlayers = (ctx) => {
+  const tower = ctx.world.getEntity(TOWER_ENTITY_ID)
+  const reachSq = TOWER_REACH_RADIUS * TOWER_REACH_RADIUS
+  for (const p of ctx.players.getAll()) {
+    const ps = progressOf(ctx, p.id)
+    ps.mana = Math.min(ps.mana + MANA_REGEN_PER_SECOND, ps.maxMana)
+    for (const id of Object.keys(ps.cooldowns)) if (--ps.cooldowns[id] <= 0) delete ps.cooldowns[id]
+    if (Number.isFinite(p.state?.health)) ps.health = Math.min(p.state.health, ps.maxHealth)
+    if (ps.health <= 0) {
+      ps.health = ps.maxHealth
+      p.state.health = ps.maxHealth
+      ctx.players.setPosition(p.id, RESPAWN_POSITION)
+    }
+    const pos = p.state?.position
+    if (tower && pos && horizontalDistSq(pos, tower.position) < reachSq) advanceQuest(ctx, p.id, 'reach', TOWER_ENTITY_ID)
+    sendProgress(ctx, p.id)
   }
 }
 
 export default {
   server: {
     setup(ctx) {
-      ctx.state.progression = ctx.state.progression || {}
       ctx.state.spawnedMini = ctx.state.spawnedMini || false
       ctx.state.spawnedFinal = ctx.state.spawnedFinal || false
 
-      ctx.bus.on('gold-coin-collected', (e) => {
-        updateQuestProgress(ctx, e.playerId, 'collect', 'gold-coin')
-        addXp(ctx, e.playerId, 10)
+      ctx.bus.on('gold-coin-collected', ({ data }) => {
+        if (data?.playerId == null) return
+        addXp(ctx, data.playerId, COIN_XP)
+        advanceQuest(ctx, data.playerId, 'collect', 'gold-coin')
+        sendProgress(ctx, data.playerId)
       })
 
-      ctx.time.every(1, () => {
-        ctx.players.getAll().forEach(p => {
-          const ps = getPlayerState(ctx, p.id)
-          ps.mana = Math.min(ps.mana + 5, ps.maxMana)
-
-          Object.keys(ps.activeCooldowns).forEach(key => {
-            ps.activeCooldowns[key] -= 1
-            if (ps.activeCooldowns[key] <= 0) delete ps.activeCooldowns[key]
-          })
-
-          p.state.health = ps.health
-          if (p.state.health <= 0) {
-            ps.health = ps.maxHealth
-            ctx.players.setPosition(p.id, [0, 2, 25])
-          }
-        })
-      })
+      ctx.time.every(1, () => tickPlayers(ctx))
 
       ctx.time.every(5, () => {
-        const goblins = ctx.world.query(e => e.custom?.enemyType === 'goblin')
-        if (goblins.length < 5) {
-          const angle = Math.random() * Math.PI * 2
-          const dist = 15 + Math.random() * 20
-          ctx.world.spawn(null, {
-            position: [Math.cos(angle) * dist, 1, Math.sin(angle) * dist],
-            app: 'goblin',
-            config: {}
-          })
-        }
+        if (ctx.world.query(e => e.custom?.enemyType === 'goblin').length < GOBLIN_CAP) spawnAround(ctx, 'goblin', 15, 20, 1)
       })
 
       ctx.time.every(8, () => {
-        const coins = ctx.world.query(e => e.custom?.itemType === 'gold-coin')
-        if (coins.length < 10) {
-          const angle = Math.random() * Math.PI * 2
-          const dist = 15 + Math.random() * 30
-          ctx.world.spawn(null, {
-            position: [Math.cos(angle) * dist, 0.5, Math.sin(angle) * dist],
-            app: 'gold-coin',
-            config: {}
-          })
-        }
-      })
-
-      ctx.time.every(1, () => {
-        ctx.players.getAll().forEach(p => {
-          const ps = getPlayerState(ctx, p.id)
-          const tower = ctx.world.getEntity('tower-base')
-          if (tower) {
-            const dist = Math.hypot(p.state.position[0] - tower.position[0], p.state.position[2] - tower.position[2])
-            if (dist < 5) {
-              updateQuestProgress(ctx, p.id, 'reach', 'tower-base')
-            }
-          }
-        })
+        if (ctx.world.query(e => e.custom?.itemType === 'gold-coin').length < COIN_CAP) spawnAround(ctx, 'gold-coin', 15, 30, 0.5)
       })
 
       ctx.time.every(15, () => {
-        if (!ctx.state.spawnedMini) {
-          const miniCount = ctx.world.query(e => e.custom?.enemyType === 'mini-boss').length
-          if (miniCount === 0) {
-            ctx.world.spawn('mini-boss-1', {
-              position: [25, 1, -25],
-              app: 'mini-boss',
-              config: {}
-            })
-            ctx.state.spawnedMini = true
-          }
-        }
+        if (ctx.state.spawnedMini || ctx.world.query(e => e.custom?.enemyType === 'mini-boss').length > 0) return
+        ctx.world.spawn('mini-boss-1', { position: [25, 1, -25], app: 'mini-boss', config: {} })
+        ctx.state.spawnedMini = true
       })
 
       ctx.time.every(20, () => {
-        if (!ctx.state.spawnedFinal) {
-          ctx.players.getAll().forEach(p => {
-            const ps = getPlayerState(ctx, p.id)
-            if (ps.quest >= 4) {
-              const bossCount = ctx.world.query(e => e.custom?.enemyType === 'final-boss').length
-              if (bossCount === 0) {
-                ctx.world.spawn('final-boss-1', {
-                  position: [0, 1, -40],
-                  app: 'final-boss',
-                  config: {}
-                })
-                ctx.state.spawnedFinal = true
-              }
-            }
-          })
-        }
+        if (ctx.state.spawnedFinal) return
+        const someoneOnFinalQuest = ctx.players.getAll().some(p => QUESTS[progressOf(ctx, p.id).quest]?.targetType === 'final-boss')
+        if (!someoneOnFinalQuest || ctx.world.query(e => e.custom?.enemyType === 'final-boss').length > 0) return
+        ctx.world.spawn('final-boss-1', { position: [0, 1, -40], app: 'final-boss', config: {} })
+        ctx.state.spawnedFinal = true
       })
-
-      ctx.onMessage((ctx_msg, msg) => {
-        if (!msg) return
-        if (msg.type === 'player_join') {
-          const playerId = msg.playerId || msg.senderId
-          getPlayerState(ctx, playerId)
-        }
-        if (msg.type === 'cast_ability') {
-          castAbility(ctx, msg.playerId || msg.senderId, msg.abilityId, msg.targetPos || [0, 0, 0])
-        }
-      })
-
-      ctx.bus.on('system.playerAdded', (e) => {
-        getPlayerState(ctx, e.playerId)
-      })
-    },
-
-    update(ctx, dt) {
-      const progression = ctx.state.progression || {}
-      const player = ctx.players.getById(ctx.entity.id)
-      if (player && progression[player.id]) {
-        const ps = progression[player.id]
-        player.state.health = ps.health
-      }
     },
 
     onMessage(ctx, msg) {
-      if (!msg) return
-      if (msg.type === 'cast_ability') {
-        castAbility(ctx, msg.playerId || msg.senderId, msg.abilityId, msg.targetPos || [0, 0, 0])
-      }
-    },
-
-    teardown(ctx) {}
+      if (msg?.type !== CAST_MESSAGE || msg.senderId == null) return
+      castAbility(ctx, msg.senderId, msg.abilityId)
+    }
   },
 
   client: {
     setup(engine) {
-      engine.playerState = {
-        level: 1,
-        xp: 0,
-        maxXp: 100,
-        health: 100,
-        maxHealth: 100,
-        mana: 100,
-        maxMana: 100,
-        quest: 0,
-        questProgress: 0,
-        questTarget: 3,
-        unlockedAbilities: ['attack']
-      }
-
-      engine.on('onEvent', (msg) => {
-        if (msg.type === 'player.levelup') {
-          engine.playerState.level = msg.newLevel
-          engine.playerState.xp = 0
-          if (msg.unlockedAbility) {
-            engine.playerState.unlockedAbilities.push(msg.unlockedAbility)
-          }
-        } else if (msg.type === 'quest.completed') {
-          engine.playerState.quest++
-          engine.playerState.questProgress = 0
-        }
-      })
+      engine._rpgTutorial = { progress: null, shootHeld: false }
     },
 
-    render(ctx) {
-      const s = ctx.entity.custom || {}
-      return {
-        position: ctx.entity.position,
-        rotation: ctx.entity.rotation,
-        custom: s
-      }
+    onEvent(payload, engine) {
+      if (payload?.type !== PROGRESS_EVENT) return
+      const rpg = engine._rpgTutorial
+      if (rpg) rpg.progress = payload
     },
 
     onInput(input, engine) {
-      if (input.shoot && input.shoot.length > 0) {
-        const ability = input.shoot[0]
-        const dir = engine.cam.getAimDirection(engine.players[0]?.state.position || [0, 0, 0])
-        engine.network.send({
-          type: 'cast_ability',
-          abilityId: 'attack',
-          targetPos: [
-            engine.players[0]?.state.position[0] + dir[0] * 10,
-            engine.players[0]?.state.position[1],
-            engine.players[0]?.state.position[2] + dir[2] * 10
-          ]
-        })
-      }
-
-      const numKeys = Object.keys(input).filter(k => /^\d+$/.test(k))
-      numKeys.forEach(key => {
-        if (input[key]) {
-          const abilityMap = { '1': 'attack', '2': 'fireball', '3': 'lightning-storm' }
-          const ability = abilityMap[key]
-          if (ability && engine.playerState.unlockedAbilities.includes(ability)) {
-            const dir = engine.cam.getAimDirection(engine.players[0]?.state.position || [0, 0, 0])
-            engine.network.send({
-              type: 'cast_ability',
-              abilityId: ability,
-              targetPos: [
-                engine.players[0]?.state.position[0] + dir[0] * 15,
-                engine.players[0]?.state.position[1],
-                engine.players[0]?.state.position[2] + dir[2] * 15
-              ]
-            })
-          }
-        }
-      })
+      const rpg = engine._rpgTutorial
+      if (!rpg?.progress) return
+      const shooting = !!input.shoot
+      if (shooting && !rpg.shootHeld) engine.network.send({ type: CAST_MESSAGE, abilityId: 'attack' })
+      rpg.shootHeld = shooting
     },
 
     onKeyDown(e, engine) {
-      const key = e.key.toLowerCase()
-      const abilityMap = { '1': 'attack', '2': 'fireball', '3': 'lightning-storm' }
-      const ability = abilityMap[key]
-
-      if (ability && engine.playerState.unlockedAbilities.includes(ability)) {
-        const players = engine.client.state?.players || []
-        const myPlayer = players.find(p => p.id === engine.playerId)
-        if (myPlayer) {
-          const dir = engine.cam.getAimDirection(myPlayer.state.position)
-          engine.network.send({
-            type: 'cast_ability',
-            abilityId: ability,
-            targetPos: [
-              myPlayer.state.position[0] + dir[0] * 15,
-              myPlayer.state.position[1],
-              myPlayer.state.position[2] + dir[2] * 15
-            ]
-          })
-        }
-      }
-    },
-
-    onFrame(dt, engine) {
-      const players = engine.client.state?.players || []
-      const myPlayer = players.find(p => p.id === engine.playerId)
-
-      if (myPlayer) {
-        engine.playerState.health = myPlayer.state.health
-      }
+      const abilityId = ABILITY_KEYS[e.key]
+      const unlocked = engine._rpgTutorial?.progress?.unlockedAbilities
+      if (e.repeat || !abilityId || !unlocked?.includes(abilityId)) return
+      engine.network.send({ type: CAST_MESSAGE, abilityId })
     }
   }
 }
