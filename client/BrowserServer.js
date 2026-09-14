@@ -83,7 +83,7 @@ export class BrowserServer extends BaseClient {
       let _workerReady = false
       const _tryInit = () => {
         if (!_workerReady) return
-        _sourcesReady.then(({ worldDef, apps }) => this._worker.postMessage({ type: 'INIT', worldDef, apps, migrationSnapshot: this.config.migrationSnapshot || null, localPubkey: this.config.localPubkey || null, timeOfDaySeed: _lastTodSync })).catch(reject)
+        _sourcesReady.then(({ worldDef, apps }) => this._worker.postMessage({ type: 'INIT', worldDef, worldName: this.config.worldName || null, apps, migrationSnapshot: this.config.migrationSnapshot || null, localPubkey: this.config.localPubkey || null, timeOfDaySeed: _lastTodSync })).catch(reject)
       }
       this._worker.onerror = reject
       this._worker.onmessage = ({ data }) => {

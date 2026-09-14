@@ -23,6 +23,7 @@ import { createConnectionHandlers } from './ServerHandlers.js'
 import { setupTerrainStreaming, loadPlanetSampler } from '../terrain/TerrainPhysics.js'
 import { allocateRingBuffer, TransformRingWriter } from '../transport/TransformRing.js'
 import { saveWorldSnapshot, restoreWorldSnapshot, worldDefFingerprint } from './WorldPersistence.js'
+import { isWorldName } from '../shared/worldName.js'
 
 if (typeof setImmediate === 'undefined') globalThis.setImmediate = fn => setTimeout(fn, 0)
 
@@ -32,9 +33,11 @@ const TRANSFORM_RING_CAPACITY = 64
 
 let _ctx = null, _pending = [], _terrainStreamer = null, _transformRing = null
 
-export async function init({ worldDef, apps = [], migrationSnapshot = null, localPubkey = null, timeOfDaySeed = null }) {
+export async function init({ worldDef, worldName: selectedWorldName = null, apps = [], migrationSnapshot = null, localPubkey = null, timeOfDaySeed = null }) {
   await ensurePacked
-  const worldName = worldDef.name || worldDefFingerprint(worldDef)
+  if (selectedWorldName !== null && !isWorldName(selectedWorldName)) throw new TypeError(`[WorkerEntry] INIT worldName must be null or a world file stem, got ${JSON.stringify(selectedWorldName)}`)
+  const knownWorldName = worldDef.name || selectedWorldName
+  const worldName = knownWorldName || worldDefFingerprint(worldDef)
   if (timeOfDaySeed && worldDef?.terrain?.timeOfDay && worldDef.terrain.timeOfDay.serverAuthoritative === true) {
     worldDef.terrain.timeOfDay.seed = timeOfDaySeed
   }
@@ -58,6 +61,7 @@ export async function init({ worldDef, apps = [], migrationSnapshot = null, loca
   const inspector = new Inspector()
   const appRuntime = new AppRuntime({ gravity, playerManager, physics, physicsIntegration, connections, eventBus, eventLog, storage, sdkRoot: '', physicsRadius: worldDef.physicsRadius || 0, physicsBodyBudget: worldDef.physicsBodyBudget || 0, entityTickRate: worldDef.entityTickRate, tickRate, lagCompensator })
   appRuntime.setPlayerManager(playerManager)
+  appRuntime.worldName = knownWorldName || null
   const appLoader = new AppLoader(appRuntime, {})
   const stageLoader = new StageLoader(appRuntime)
   appRuntime.setStageLoader(stageLoader)
@@ -93,7 +97,7 @@ export async function init({ worldDef, apps = [], migrationSnapshot = null, loca
   const _terrainEnt = (worldDef.entities || []).find(e => e.app === 'terrain')
   const _tcfg = (_terrainEnt && _terrainEnt.config) || worldDef.terrain || null
   if (_tcfg && _tcfg.enabled !== false && Number.isFinite(_tcfg.seed)) {
-    const _worldId = worldDef.name || SINGLEPLAYER_DEFAULT_WORLD_ID
+    const _worldId = knownWorldName || SINGLEPLAYER_DEFAULT_WORLD_ID
     worldDef._minimap = { base: `/apps/world/${_worldId}.${_tcfg.seed | 0}.minimap`, center: _tcfg.center || [0, 0], extent: Number.isFinite(_tcfg.minimapExtent) ? _tcfg.minimapExtent : Math.min(_tcfg.radius * 0.25, 16384) }
   }
   if (_tcfg && _tcfg.enabled !== false) {

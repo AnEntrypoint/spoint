@@ -799,6 +799,7 @@ let client; const _clientConfig = {
   url: _connectTarget
     ? `${_connectTarget.port === 443 ? 'wss:' : 'ws:'}//${_connectTarget.host}:${_connectTarget.port}/ws`
     : `${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws`, predictionEnabled: _predictParam, smoothInterpolation: true,
+  worldName: _worldDef ? _worldParam : null,
   netSim: _netSimParam || undefined,
   onConnect: () => connectionStatus.setState('connected'),
   onDisconnect: () => { const rs = client?.getReconnectState?.(); connectionStatus.setState(rs?.state || 'waiting', rs?.attempts || 0) },
@@ -1023,7 +1024,7 @@ if (_wwJoin && _wwRoom) {
     _preboundBridge = _bridge
     client = new BrowserServer({ ..._clientConfig, worldDef: _worldDef || undefined })
     const { installHostAnnouncer, _test: _hostMigTest } = await import('./HostMigration.js')
-    installHostAnnouncer(_bridge, _worldDef || worldConfig)
+    installHostAnnouncer(_bridge, _worldDef || worldConfig, _clientConfig.worldName)
     _installCollisionDemotion(_bridge, _hostMigTest, {
       logLabel: ' (pre-boot)',
       getClient: () => client,

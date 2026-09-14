@@ -10,7 +10,7 @@ function decodeCtrl(data) {
   try { return JSON.parse(data.slice(CTRL_PREFIX.length)) } catch { return null }
 }
 
-function encodeFullWorldDef(worldDef) { return encodeCtrl({ type: 'full-worlddef', worldDef }) }
+function encodeFullWorldDef(worldDef, worldName) { return encodeCtrl({ type: 'full-worlddef', worldDef, worldName: worldName || null }) }
 
 function electWinner(candidates) {
   let best = null
@@ -40,6 +40,7 @@ export function installHostMigration({ client, bridge, worldDef, apps, ctxRoot, 
   let electing = false
   let electedWinnerPubkey = null
   let fullWorldDef = worldDef
+  let fullWorldName = null
   const state = { phase: 'connected', hostPubkey: client._hostPubkey, newHostPubkey: null, lastElection: null }
 
   function pubkeyOf(playerId) {
@@ -48,7 +49,7 @@ export function installHostMigration({ client, bridge, worldDef, apps, ctxRoot, 
   }
 
   function announceAsNewHost() {
-    installHostAnnouncer(bridge, fullWorldDef)
+    installHostAnnouncer(bridge, fullWorldDef, fullWorldName)
     const payload = encodeCtrl({ type: 'host-announce', pubkey: bridge.pubkey })
     let n = 0
     const iv = setInterval(() => {
@@ -63,7 +64,7 @@ export function installHostMigration({ client, bridge, worldDef, apps, ctxRoot, 
     client._hostPubkey = null
     client.connected = false
     const { BrowserServer } = await import('./BrowserServer.js')
-    const newServer = new BrowserServer({ ...ctxRoot, worldDef: fullWorldDef, migrationSnapshot: snapshot, localPubkey: bridge.pubkey })
+    const newServer = new BrowserServer({ ...ctxRoot, worldDef: fullWorldDef, worldName: fullWorldName, migrationSnapshot: snapshot, localPubkey: bridge.pubkey })
     await newServer.connect()
     const attached = new Set()
     const attachIfReady = pk => {
@@ -113,6 +114,7 @@ export function installHostMigration({ client, bridge, worldDef, apps, ctxRoot, 
     if (msg.type === 'host-announce') handleHostAnnounce(detail.peerPubkey, msg)
     else if (msg.type === 'full-worlddef' && detail.peerPubkey === state.hostPubkey && msg.worldDef && typeof msg.worldDef === 'object') {
       fullWorldDef = msg.worldDef
+      fullWorldName = typeof msg.worldName === 'string' ? msg.worldName : null
     }
   })
 
@@ -166,9 +168,9 @@ export function installHostMigration({ client, bridge, worldDef, apps, ctxRoot, 
   }
 }
 
-export function installHostAnnouncer(bridge, worldDef) {
+export function installHostAnnouncer(bridge, worldDef, worldName = null) {
   const hostPayload = encodeCtrl({ type: 'host-announce', pubkey: bridge.pubkey })
-  const worldPayload = worldDef ? encodeFullWorldDef(worldDef) : null
+  const worldPayload = worldDef ? encodeFullWorldDef(worldDef, worldName) : null
   const announce = () => { bridge.data.broadcast(hostPayload); if (worldPayload) bridge.data.broadcast(worldPayload) }
   bridge.data.addEventListener('peer-open', announce)
   announce()
