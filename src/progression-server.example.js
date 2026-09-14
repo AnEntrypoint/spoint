@@ -1,7 +1,3 @@
-// Server-side progression system example
-// Shows how to broadcast level-ups, quests, cooldowns to connected clients
-
-// --- 1. PLAYER STATE MANAGEMENT ---
 class PlayerProgression {
   constructor(playerId) {
     this.playerId = playerId
@@ -37,17 +33,14 @@ class PlayerProgression {
     this.currentXP -= this.xpToLevel
     this.level += 1
 
-    // Scale XP requirement (e.g., 100 * level^1.1)
     this.xpToLevel = Math.ceil(100 * Math.pow(this.level, 1.1))
 
-    // Broadcast to all clients in the room
     if (broadcastFn) {
       broadcastFn('PROGRESSION_LEVEL_UP', {
         playerId: this.playerId,
         level: this.level
       })
 
-      // Also unlock new abilities if applicable
       this.unlockAbilitiesForLevel(broadcastFn)
     }
   }
@@ -100,7 +93,6 @@ class PlayerProgression {
     this.activeQuests.splice(idx, 1)
     this.completedQuests.push(quest)
 
-    // Award XP from quest reward
     if (quest.reward && quest.reward.xp) {
       this.gainXP(quest.reward.xp, broadcastFn)
     }
@@ -159,11 +151,9 @@ class PlayerProgression {
   }
 }
 
-// --- 2. NETWORK MESSAGE HANDLERS ---
 export function setupProgressionHandlers(app, network) {
-  const playerProgress = new Map() // playerId -> PlayerProgression
+  const playerProgress = new Map()
 
-  // When a client connects, initialize their progression state
   network.on('player-join', (playerId) => {
     if (!playerProgress.has(playerId)) {
       playerProgress.set(playerId, new PlayerProgression(playerId))
@@ -171,7 +161,6 @@ export function setupProgressionHandlers(app, network) {
 
     const prog = playerProgress.get(playerId)
 
-    // Send current state to the new player
     network.broadcastTo(playerId, 'PROGRESSION_UPDATE', {
       ...prog.toPlayerState(),
       quests: prog.activeQuests,
@@ -180,7 +169,6 @@ export function setupProgressionHandlers(app, network) {
     })
   })
 
-  // Handle loadout swapping (client sends LOAD_LOADOUT or SAVE_LOADOUT)
   network.on('LOAD_LOADOUT', (data, playerId) => {
     const prog = playerProgress.get(playerId)
     if (!prog || !Number.isFinite(data.buildId)) return
@@ -188,10 +176,6 @@ export function setupProgressionHandlers(app, network) {
     const build = prog.loadouts[data.buildId]
     if (!build) return
 
-    // TODO: Apply gear from build to player
-    // build.gear.forEach(gearItem => applyGearToPlayer(player, gearItem))
-
-    // Broadcast update to the player
     network.broadcastTo(playerId, 'PROGRESSION_UPDATE', {
       hp: prog.hp,
       mana: prog.mana,
@@ -206,14 +190,8 @@ export function setupProgressionHandlers(app, network) {
     const build = prog.loadouts[data.buildId]
     if (!build) return
 
-    // TODO: Capture current player gear and save to build
-    // build.gear = captureCurrentPlayerGear(player)
-
-    // Could persist to database here
-    // await saveLoadoutToDatabase(playerId, data.buildId, build.gear)
   })
 
-  // Manually trigger a level up (for testing)
   network.on('TEST_LEVEL_UP', (data, playerId) => {
     const prog = playerProgress.get(playerId)
     if (!prog) return
@@ -223,7 +201,6 @@ export function setupProgressionHandlers(app, network) {
     })
   })
 
-  // Manually trigger a quest completion (for testing)
   network.on('TEST_COMPLETE_QUEST', (data, playerId) => {
     const prog = playerProgress.get(playerId)
     if (!prog || !data.questId) return
@@ -243,9 +220,6 @@ export function setupProgressionHandlers(app, network) {
   }
 }
 
-// --- 3. EXAMPLE: GAME LOGIC INTEGRATION ---
-// When the player kills an enemy, award XP and check for quests:
-
 export function onEnemyDefeated(player, enemy, network, progressionManager) {
   const prog = progressionManager.getPlayerProgress(player.id)
   if (!prog) return
@@ -256,7 +230,6 @@ export function onEnemyDefeated(player, enemy, network, progressionManager) {
     network.broadcast(type, { ...msg, playerId: player.id })
   })
 
-  // Check if any active quest objectives are satisfied
   prog.activeQuests.forEach((quest, qIdx) => {
     if (quest.id === 'kill-enemies-quest') {
       const obj = quest.objectives[0]
@@ -278,18 +251,16 @@ export function onEnemyDefeated(player, enemy, network, progressionManager) {
   })
 }
 
-// --- 4. EXAMPLE: ABILITY COOLDOWN ON USE ---
 export function onAbilityUsed(player, abilityId, network, progressionManager) {
   const prog = progressionManager.getPlayerProgress(player.id)
   if (!prog) return
 
-  const cooldownMs = 3000 // 3 second cooldown
+  const cooldownMs = 3000
 
   prog.setCooldown(abilityId, cooldownMs, (type, msg) => {
     network.broadcast(type, { ...msg, playerId: player.id })
   })
 
-  // Decay cooldown over time (or use a tick system)
   const decayInterval = setInterval(() => {
     const cd = prog.cooldowns[abilityId]
     if (!cd || cd <= 0) {
@@ -309,9 +280,6 @@ export function onAbilityUsed(player, abilityId, network, progressionManager) {
     }
   }, 100)
 }
-
-// --- 5. DATABASE PERSISTENCE (PSEUDO-CODE) ---
-// You would need to implement actual database saves:
 
 async function savePlayerProgress(playerId, progress, db) {
   await db.collection('player-progression').updateOne(

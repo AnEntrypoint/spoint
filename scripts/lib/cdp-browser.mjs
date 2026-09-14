@@ -1,36 +1,9 @@
-// cdp-browser.mjs -- playwright-free chromium driver over raw CDP.
-//
-// Why this exists: playwright is deliberately NOT a dependency of this repo. The gm `browser` verb is
-// the sanctioned interactive browser surface; for headless CI gates that must run under `node
-// scripts/<gate>.mjs`, this module is the single shared driver. It speaks CDP directly over a
-// WebSocket, exactly like scripts/lib/gpu-eval.mjs already did for the GPU probes -- this is that
-// same transport generalised to the page-interaction surface the CI gates need (mouse, keyboard,
-// multiple independent contexts, pageerror capture).
-//
-// Deliberately a SMALL surface: only what the real gates use, mirroring playwright's method names so
-// the gate bodies read unchanged. Anything beyond that belongs in the browser verb, not here.
-//
-//   import { launch } from './lib/cdp-browser.mjs'
-//   const browser = await launch()
-//   const page = await browser.newPage({ viewport: { width: 800, height: 600 } })
-//   await page.goto('http://localhost:8090/')
-//   const v = await page.evaluate(() => window.__app?.ready)
-//   await browser.close()
-
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import crypto from 'node:crypto'
 
-// External-origin relay (CDN assets behind an egress proxy). Headless chromium does not read
-// HTTPS_PROXY and a policy-enforcing MITM proxy can reset its TLS handshake outright (witnessed:
-// net::ERR_CONNECTION_RESET on every unpkg.com / cdn.jsdelivr.net request, the app's importmap
-// kit never loads, loadingMachine never reaches isReady, every browser gate times out). When
-// enabled, every non-localhost request is paused via the Fetch domain and served from a curl
-// fetch made by THIS node process (curl honors HTTPS_PROXY + the CA bundle), cached on disk by
-// URL hash so repeat runs are deterministic and offline-fast. Auto-on when HTTPS_PROXY is set;
-// force with CDP_RELAY_EXTERNAL=1, disable with CDP_RELAY_EXTERNAL=0.
 const RELAY_EXTERNAL = process.env.CDP_RELAY_EXTERNAL === '1' || (process.env.CDP_RELAY_EXTERNAL !== '0' && !!(process.env.HTTPS_PROXY || process.env.https_proxy))
 const RELAY_CACHE_DIR = process.env.CDP_RELAY_CACHE || path.join(os.tmpdir(), 'spoint-cdp-relay')
 function relayFetch(url) {
@@ -56,10 +29,6 @@ function relayFetch(url) {
   return { body: fs.readFileSync(bodyPath), meta }
 }
 
-// Locate a chromium/chrome binary WITHOUT playwright. CHROME env wins (CI sets it explicitly);
-// otherwise probe the standard per-platform install locations. The ms-playwright cache is still
-// read as a last resort so a developer machine that happens to have one keeps working, but nothing
-// installs or requires it.
 export function findChrome() {
   if (process.env.CHROME && fs.existsSync(process.env.CHROME)) return process.env.CHROME
   const candidates = [
@@ -75,11 +44,6 @@ export function findChrome() {
     '/Applications/Chromium.app/Contents/MacOS/Chromium',
   ].filter(Boolean)
   for (const p of candidates) { try { if (fs.existsSync(p)) return p } catch (_) {} }
-  // Last resort only -- a pre-existing cache is usable, but is never provisioned by this repo.
-  // PLAYWRIGHT_BROWSERS_PATH / /opt/pw-browsers are probed too: a Playwright-provisioned image
-  // (CI runners, this sandbox) puts the browser THERE and leaves ~/.cache/ms-playwright absent,
-  // so without these two entries findChrome() returned null and every browser-driven gate
-  // (cold-load, frame-time, terrain-camera-stress, gpu-eval) failed to launch at all.
   for (const base of [process.env.PLAYWRIGHT_BROWSERS_PATH, '/opt/pw-browsers', path.join(os.homedir(), 'AppData/Local/ms-playwright'), path.join(os.homedir(), '.cache/ms-playwright')].filter(Boolean)) {
     try {
       const dirs = fs.readdirSync(base).filter(d => /^chromium(_headless_shell)?-\d+$/.test(d))
@@ -95,30 +59,10 @@ export function findChrome() {
   return null
 }
 
-// How long to wait for a freshly-spawned chrome to write DevToolsActivePort.
-//
-// 20s was enough on a warm dev machine and NOT enough on a cold CI runner,
-// which failed with "chrome did not expose a CDP port within 20s" on a commit
-// whose only change was a .gm/prd.yml edit -- i.e. pure startup variance, not a
-// code regression. First launch on a fresh runner pays cold page cache and a
-// freshly-created profile directory, so the budget has to cover the slow case
-// rather than the observed-once fast one.
-//
-// Overridable because "slow machine" is environmental, not something the repo
-// can know: a loaded shared runner may legitimately need more.
 const CDP_PORT_TIMEOUT_MS = Number(process.env.CDP_PORT_TIMEOUT_MS || 60000)
 
 const wait = (ms) => new Promise(r => setTimeout(r, ms))
 
-// A global `WebSocket` only exists from Node 22 onward. CI pins Node 20, where
-// referencing it throws `ReferenceError: WebSocket is not defined` -- which is
-// exactly how this surfaced: green on a Node 24 dev machine, red in CI. Fall
-// back to the `ws` package (already a real dependency of this repo, used by the
-// server) so the driver works across both.
-//
-// Resolved once at module load rather than per-call, so a missing implementation
-// fails loudly at import with a message naming the cause, instead of throwing a
-// bare ReferenceError from deep inside a connection attempt.
 async function resolveWebSocket() {
   if (typeof globalThis.WebSocket === 'function') return globalThis.WebSocket
   try {
@@ -142,8 +86,6 @@ const waitFor = (fn, ms, every = 200) => new Promise((res, rej) => {
   tick()
 })
 
-// Serialize a page.evaluate argument the same way playwright does: a function (with optional arg) or
-// a bare expression string. Returns an expression string CDP can evaluate.
 function toExpression(fn, arg) {
   if (typeof fn === 'function') return `(${fn.toString()})(${arg === undefined ? '' : JSON.stringify(arg)})`
   return String(fn)
@@ -162,7 +104,6 @@ class Page {
 
   _send(method, params = {}) { return this._conn.send(method, params, this._sid) }
 
-  // Only 'pageerror' is supported -- it is the one event the real gates subscribe to.
   on(event, handler) {
     if (event === 'pageerror') this._errorHandlers.push(handler)
     return this
@@ -199,8 +140,6 @@ class Page {
   async goto(url, opts = {}) {
     const waitUntil = opts.waitUntil || 'load'
     await this._send('Page.navigate', { url })
-    // domcontentloaded/load both resolve off the lifecycle stream; fall back to a bounded settle so a
-    // gate never hangs forever on a page that never fires the exact event.
     const target = waitUntil === 'domcontentloaded' ? 'DOMContentLoaded' : 'load'
     await waitFor(() => this._conn._lifecycle.get(this._sid)?.has(target), opts.timeout || 30000, 100).catch(() => {})
     return null
@@ -232,7 +171,6 @@ class Page {
   }
 }
 
-// CDP dispatchMouseEvent wrapper matching the playwright mouse surface the gates use.
 class Mouse {
   constructor(page) { this._page = page; this._x = 0; this._y = 0; this._down = false }
   async move(x, y) {
@@ -260,7 +198,6 @@ class Mouse {
   }
 }
 
-// Minimal key mapping: the gates drive movement keys (KeyW/KeyA/KeyS/KeyD) and the odd letter key.
 const KEY_DEFS = {
   KeyW: { key: 'w', text: 'w', keyCode: 87 }, KeyA: { key: 'a', text: 'a', keyCode: 65 },
   KeyS: { key: 's', text: 's', keyCode: 83 }, KeyD: { key: 'd', text: 'd', keyCode: 68 },
@@ -273,7 +210,6 @@ class Keyboard {
   _def(code) {
     const d = KEY_DEFS[code]
     if (d) return { code, ...d }
-    // Fall back to a single-character key so an unmapped code still dispatches something real.
     const ch = code.startsWith('Key') ? code.slice(3).toLowerCase() : code
     return { code, key: ch, text: ch.length === 1 ? ch : undefined, keyCode: ch.toUpperCase().charCodeAt(0) || 0 }
   }
@@ -297,8 +233,6 @@ class Keyboard {
   }
 }
 
-// A BrowserContext maps to a real CDP browser context, giving the same isolation (separate storage,
-// separate session) that the two-client e2e gate depends on.
 class BrowserContext {
   constructor(browser, browserContextId, viewport) {
     this._browser = browser
@@ -349,7 +283,6 @@ class Browser {
   async close() {
     try { this._conn.close() } catch (_) {}
     try { this._proc.kill() } catch (_) {}
-    // Give chrome a moment to release the profile dir before removing it.
     await wait(150)
     try { fs.rmSync(this._profileDir, { recursive: true, force: true }) } catch (_) {}
   }
@@ -379,7 +312,6 @@ class Connection {
       const set = this._lifecycle.get(sid)
       if (set) set.add(m.params?.name === 'DOMContentLoaded' ? 'DOMContentLoaded' : m.params?.name === 'load' ? 'load' : m.params?.name)
     }
-    // Surface uncaught page exceptions to any registered pageerror handler.
     if (m.method === 'Fetch.requestPaused' && sid) {
       const page = this._pages.get(sid)
       if (page) page._onRequestPaused(m.params).catch(() => {})
@@ -406,8 +338,6 @@ class Connection {
   close() { try { this._ws.close() } catch (_) {} }
 }
 
-// Launch headless chromium and return a playwright-shaped Browser handle.
-// opts: { headless=true, args=[] }
 export async function launch(opts = {}) {
   const chrome = findChrome()
   if (!chrome) {
@@ -446,5 +376,4 @@ export async function launch(opts = {}) {
   return new Browser(conn, proc, profileDir)
 }
 
-// Named export mirroring playwright's `chromium` object so call sites read identically.
 export const chromium = { launch }

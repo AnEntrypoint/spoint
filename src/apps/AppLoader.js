@@ -3,6 +3,8 @@ const BLOCKED_PATTERNS = [
   'Object.prototype', 'globalThis', 'eval(', 'import('
 ]
 
+const FILE_CHANGE_DEBOUNCE_MS = 100
+
 let _nm = null
 async function _nodeModules() {
   if (_nm) return _nm
@@ -27,21 +29,7 @@ export class AppLoader {
     this._watchers = new Map()
     this._loaded = new Map()
     this._onReloadCallback = null
-    // Fired on EVERY fs event under a watched dir (not just .js reloads) so a browser-fs-tree
-    // client can refresh its listing when an agent creates/deletes/renames a file or folder.
     this._onTreeChangeCallback = null
-    // server-scale-hotreload-migrate-function-tick-fenced: per-app-name trailing debounce for
-    // _onFileChange, mirroring ReloadManager._debounce's own 100ms window (used for SDK/client
-    // files). A single logical disk write commonly fires node:fs/promises `watch`'s recursive
-    // mode MORE THAN ONCE for one save (live-witnessed on this Windows host: two 'change' events
-    // for one write, and this is a documented cross-platform fs.watch quirk, not Windows-only) --
-    // without debouncing, each event independently called queueReload(), so a single edit could
-    // enqueue TWO reloads of the same app. Harmless before this row (a reload with no migrate()
-    // is idempotent enough that firing twice just re-attaches the same def twice), but WITH a
-    // migrate() export a double-fire is a real correctness bug: the second reload's migrate()
-    // call would run against the ALREADY-migrated state and treat it as a fresh from-old-version
-    // transition, live-reproduced during this row's own harness as stats.hits getting reset to 0
-    // and reloads double-counted. Debouncing collapses a same-app double-fire into one reload.
     this._reloadDebounceTimers = new Map()
   }
 
@@ -56,7 +44,6 @@ export class AppLoader {
     return null
   }
 
-  // failed = app names whose loadApp() returned null, for the caller to diff against expected apps and warn
   async loadAll() {
     const { readdir, access, join, basename, extname } = await _nodeModules()
     const seen = new Set()
@@ -161,7 +148,7 @@ export class AppLoader {
     const timer = setTimeout(() => {
       this._reloadDebounceTimers.delete(name)
       this._onFileChange(name).catch(e => console.error(`[AppLoader] reload error for ${name}:`, e.message))
-    }, 100)
+    }, FILE_CHANGE_DEBOUNCE_MS)
     this._reloadDebounceTimers.set(name, timer)
   }
 
@@ -198,9 +185,6 @@ export class AppLoader {
 
   async loadFromString(name, source, deps = null) {
     if (!this._validate(source, name)) return null
-    // Edge fork: workerd does not implement URL.createObjectURL() -- a Blob+dynamic-import eval
-    // cannot work on the Cloudflare Workers runtime. The edge target should use loadFromModule
-    // (passing already-statically-imported module objects) instead of loadFromString.
     if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
       console.error(`[AppLoader] loadFromString: URL.createObjectURL unavailable (edge target) -- use loadFromModule(name, module) instead`)
       return null
@@ -224,10 +208,6 @@ export class AppLoader {
     }
   }
 
-  // Edge-compatible app loading: takes an already-statically-imported module object (no runtime
-  // eval needed) and registers it directly. The edge target (Cloudflare Workers / workerd) can
-  // statically import ES modules at deploy time but cannot use Blob + URL.createObjectURL +
-  // dynamic import at runtime, so this is the correct path for edge-deployed apps.
   loadFromModule(name, appModule) {
     const appDef = appModule && appModule.default ? appModule.default : appModule
     if (!appDef || typeof appDef !== 'object') {
@@ -255,17 +235,6 @@ export class AppLoader {
     )
   }
 
-  // Untrusted app loading: evaluates source through a sandbox evaluator that blocks
-  // filesystem/network/process access and exposes only the safe ctx.* API surface.
-  // Supports two tiers:
-  //   - SESCompartmentEvaluator (preferred): full SES/Compartment hard-lockdown
-  //   - SandboxEvaluator (fallback): proxy-based, for environments without SES
-  // The evaluator's evaluate() may be sync (SandboxEvaluator) or async (SESCompartmentEvaluator).
-  //
-  // evaluator: SandboxEvaluator or SESCompartmentEvaluator instance (shared across all untrusted loads).
-  // name: app name for registration.
-  // source: the app source code (plain JS, must export a default app def).
-  // deps: optional dependency map (same shape as loadFromString's deps).
   async loadUntrustedApp(evaluator, name, source, deps = null) {
     if (!evaluator || typeof evaluator.evaluate !== 'function') {
       console.error(`[AppLoader] loadUntrustedApp: evaluator must have an evaluate() method`)
