@@ -1,313 +1,123 @@
-# Navmesh Baking & Pathfinding Guide
+# Navmesh Baking & Pathfinding
 
-Navmesh-based pathfinding enables NPCs, bots, and other scripted units to navigate complex multiplayer worlds intelligently, planning routes around obstacles and terrain.
+Apps plan walkable routes through a world's static geometry with a navmesh baked offline by
+[recast-navigation](https://github.com/isaac-mason/recast-navigation-js) and queried at runtime
+through the engine's `ctx.navmesh()` capability. The same app code runs on the Node server and in
+the singleplayer Worker.
 
-## Architecture
+## Pipeline
 
-### Pipeline
+1. **Bake** (offline, `scripts/bake-navmesh.mjs`): reads `apps/world/<world>.js`, collects every
+   entity whose `model` is a `.glb` and whose `config.collider` is `'trimesh'`, applies the entity's
+   position/rotation/scale on top of the GLB node transforms, runs Recast's solo navmesh generator,
+   and writes `apps/world/<world>.navmesh.json`.
+2. **Load** (runtime, engine): `ctx.navmesh(worldName?)` reads that JSON (filesystem on the server,
+   `fetch` in the Worker) and resolves to a `NavmeshQuery`. One query object is shared by every app
+   instance in the same runtime and world.
+3. **Query + move** (app): `query.findPath(from, to)` returns string-pulled waypoints; the app follows
+   them with `ctx.defineSteering()`.
 
-1. **Baking** (offline, pre-deploy)
-   - Input: World GLB + collision geometry (placed-model instances + terrain)
-   - Process: Recast-navigation geometry rasterization, region formation, polygon mesh generation
-   - Output: `apps/world/<name>.navmesh.json` with vertices, polygons, and connectivity
+## Baking
 
-2. **Runtime** (server-side app)
-   - Load navmesh JSON at app init
-   - Query pathfinding via `NavmeshQuery.findPath(from, to)`
-   - Returns waypoint array for steering toward destination
+```bash
+npm run bake-navmesh -- --world=<world>
+```
 
-3. **Movement** (steering)
-   - Use existing `ctx.defineSteering()` system to follow waypoints
-   - Optional local obstacle avoidance via raycast
-   - Entity position updated each tick
+`--world` is the file stem under `apps/world/` (required). `--verbose` prints the stack on failure.
+The bake fails loudly when the world has no trimesh GLB entities or Recast produces no walkable
+polygons.
 
-### Data Structure
+Measured on `apps/maps/aim_sillos.glb` (9334 triangles): 600 vertices, 278 polygons in 32 connected
+regions (largest 101), 58 KB, ~250 ms.
 
-The navmesh JSON contains:
+Agent defaults (`DEFAULT_AGENT` in `src/pathfinding/RecastIntegration.js`), in world units:
+
+| key | default | meaning |
+|---|---|---|
+| `cellSize` / `cellHeight` | 0.3 / 0.2 | voxel size on xz / y |
+| `agentHeight` | 1.7 | floor-to-ceiling clearance |
+| `agentRadius` | 0.4 | walkable area is eroded by this much from walls |
+| `agentMaxClimb` | 0.5 | step height |
+| `agentMaxSlope` | 45 | degrees |
+| `regionMinSize` / `regionMergeSize` | 8 / 20 | voxel counts for island removal / merging |
+| `maxVertsPerPoly` | 6 | |
+
+## File format (`version: 1`)
 
 ```json
 {
   "version": 1,
-  "config": {
-    "cellSize": 0.3,
-    "cellHeight": 0.2,
-    "agentHeight": 1.7,
-    "agentRadius": 0.4,
-    "agentMaxClimb": 0.5,
-    "agentMaxSlope": 45
-  },
-  "bounds": {
-    "min": [-1000, -100, -1000],
-    "max": [1000, 1000, 1000]
-  },
+  "config": { "cellSize": 0.3, "cellHeight": 0.2, "agentHeight": 1.8, "agentRadius": 0.6, "agentMaxClimb": 0.4, "agentMaxSlope": 45 },
+  "bounds": { "min": [x, y, z], "max": [x, y, z] },
   "vertices": [[x, y, z], ...],
-  "polygons": [
-    {
-      "vertices": [vi0, vi1, vi2, ...],
-      "flags": 0,
-      "area": 0
-    },
-    ...
-  ],
-  "links": [
-    {
-      "polygon": 0,
-      "neighbors": [1, 2, 5]
-    },
-    ...
-  ]
+  "polygons": [{ "vertices": [i0, i1, i2, ...], "flags": 0, "area": 0 }, ...],
+  "links": [{ "polygon": 0, "neighbors": [1, 5] }, ...]
 }
 ```
 
-## Baking Workflow
+`config` records the voxel-rounded agent values actually used (float32, so `0.30000001`). Polygon vertex lists wind
+counter-clockwise in the x/z plane (positive `sum(x_i*z_{i+1} - x_{i+1}*z_i)`); Recast emits the
+opposite order, so the bake reverses it. `links` hold only real neighbours (tile-portal and null
+edges are dropped) and are symmetric.
 
-### 1. Prepare World GLB
-
-Ensure your world GLB has proper collision geometry:
-- Place models via the editor's "Add" menu or `worldDef.entities`
-- Models automatically get collision (trimesh for static, convex hull for dynamic)
-- Terrain provides ground collision automatically
-
-Example world definition:
-```javascript
-export const worldDef = {
-  terrain: { type: 'simplex', octaves: 6, scale: 300, baseHeight: 50 },
-  entities: [
-    { type: 'placed-model', model: 'trees/oak.glb', position: [0, 0, 10] },
-    { type: 'placed-model', model: 'rocks/boulder.glb', position: [20, 0, 0] },
-  ],
-}
-```
-
-### 2. Run Bake CLI
-
-```bash
-npm run bake-navmesh --world=aim_sillos
-```
-
-Options:
-- `--world=<name>` — World name (default: aim_sillos)
-- `--verbose` — Detailed error output
-
-Output:
-- `apps/world/<name>.navmesh.json` (created if not exists)
-- Console reports: vertex count, polygon count, file size, bake time
-
-Bake time target: **<30 seconds** for typical worlds
-
-### 3. Verify Bake
-
-Check the generated JSON:
-```bash
-cat apps/world/aim_sillos.navmesh.json | jq '.polygons | length'
-```
-
-The JSON should contain:
-- `vertices`: 100+ navigable positions
-- `polygons`: 50+ walkable regions
-- `links`: Connectivity between regions
-
-## Runtime Integration
-
-### Loading Navmesh
-
-```javascript
-import { NavmeshQuery } from '../../src/pathfinding/NavmeshQuery.js'
-
-// In app setup:
-const response = await fetch(`/apps/world/${worldName}.navmesh.json`)
-const navmeshData = await response.json()
-const navmesh = new NavmeshQuery(navmeshData)
-```
-
-### Pathfinding API
-
-```javascript
-// Find path between two points
-const waypoints = navmesh.findPath(
-  [10, 5, 20],    // start position
-  [100, 5, 50],   // goal position
-  { /* config */ }
-)
-
-if (!waypoints) {
-  console.log('No path found (unreachable or outside navmesh)')
-} else {
-  console.log(`Path has ${waypoints.length} waypoints`)
-  // Use waypoints for steering
-}
-```
-
-Returns: `Array<[x, y, z]>` waypoint positions, or `null` if unreachable
-
-### NPC Steering Example
-
-Use the built-in `npc-navigator` app:
-
-```javascript
-// Place NPC in editor or via worldDef
-ctx.world.sendToEntity(npcEntityId, {
-  type: 'setTarget',
-  position: [100, 5, 50]
-})
-```
-
-Or in a custom app:
+## Runtime API
 
 ```javascript
 setup(ctx) {
-  ctx.state.navmesh = new NavmeshQuery(navmeshData)
-  ctx.state.steering = ctx.defineSteering({ speed: 3, arriveRadius: 0.5 })
+  ctx.navmesh().then(
+    nav => { ctx.state.ready = true },
+    e => ctx.debug.warn(e.message)
+  )
 },
 
-update(ctx, dt) {
-  const pos = ctx.entity.position
-  const target = ctx.state.currentTarget
-
-  const waypoints = ctx.state.navmesh.findPath(pos, target)
-  if (!waypoints || waypoints.length === 0) return
-
-  const nextWaypoint = waypoints[1] || waypoints[0]
-  const result = ctx.state.steering.step(pos, nextWaypoint, dt)
-  ctx.entity.position = result.position
+onMessage(ctx, msg) {
+  if (msg.type !== 'goTo') return
+  ctx.navmesh().then(nav => {
+    const waypoints = nav.findPath([...ctx.entity.position], msg.position)
+    if (waypoints) ctx.state.waypoints = waypoints
+  })
 }
 ```
 
-## Patrol Routes
+- `ctx.navmesh(worldName = runtime.worldName)` returns a `Promise<NavmeshQuery>`. The world name is
+  set by the engine (`WorkerEntry` from the singleplayer INIT's `worldName`; `ServerAPI.loadWorld`
+  from `worldDef.name || WORLD || 'tps-game'`). It rejects with a `TypeError` for anything that is not
+  a world file stem (no path separators), and with an `Error` naming the missing path/URL when the
+  world has no baked navmesh. A failed load is not cached, so baking and calling again works.
+- `findPath(from, to)` returns `Array<[x, y, z]>` starting at `from` and ending at `to`, or `null`
+  when either point is off the navmesh or the two points are in disconnected regions. Points are
+  located by x/z containment, choosing the containing polygon whose centroid height is closest to the
+  point's y (multi-level maps). The corridor is A* over polygon centroids; waypoints come from a
+  funnel pass over the shared edges, so every segment stays inside the walkable area. Results are
+  cached per (from, to) at 1 cm resolution, 100 entries; callers receive copies.
+- `locate(point)` returns the polygon index or `-1`.
 
-The `npc-navigator` app supports patrol behavior:
+Apps must not import engine modules or `node:*` themselves: `AppLoader` rejects app source
+containing `import(`, and the Worker has no filesystem. `ctx.navmesh()` is the supported route.
 
-```javascript
-// Define patrol route (ordered waypoints)
-const patrolRoute = [
-  [0, 0, 0],
-  [50, 0, 0],
-  [50, 0, 50],
-  [0, 0, 50],
-]
+Measured on the aim_sillos navmesh: the 58.5 m cross-map query returns 9 waypoints in about 1 ms;
+200 random pairs in the largest region all resolve (max 0.7 ms), and 0 of 21 277 samples taken
+every 0.25 m along the returned segments fall outside the navmesh.
 
-// Start patrol
-ctx.world.sendToEntity(npcEntityId, {
-  type: 'startPatrol',
-  route: patrolRoute,
-})
+## `npc-navigator` app
 
-// Stop patrol
-ctx.world.sendToEntity(npcEntityId, {
-  type: 'stop',
-})
-```
-
-## Combat Bot Integration
-
-The combat-bot app can be enhanced to use navmesh pathfinding:
+Messages are broadcast APP_EVENTs; `npcId` addresses one NPC, omitted means every navigator.
 
 ```javascript
-// In combat-bot setup:
-ctx.state.navmesh = new NavmeshQuery(navmeshData)
-
-// In combat-bot update (when pursuing target):
-const targetPos = target.state.position
-const waypoints = ctx.state.navmesh.findPath(pos, targetPos)
-
-if (waypoints && waypoints.length > 1) {
-  // Path found: navigate around obstacles
-  const nextWaypoint = waypoints[1]
-  const result = ctx.state.steering.step(pos, nextWaypoint, dt)
-  ctx.entity.position = result.position
-} else if (los && dist <= range) {
-  // No pathfinding: close range with LOS, just steer direct
-  const r = ctx.state.steering.step(pos, [tp[0], pos[1], tp[2]], dt)
-  ctx.entity.position = r.position
-}
+client.send(MSG.APP_EVENT, { type: 'setTarget', npcId: 'npc-1', position: [19.6, -7.2, 0.5] })
+client.send(MSG.APP_EVENT, { type: 'startPatrol', npcId: 'npc-1', route: [[0, 0, 0], [10, 0, 0]] })
+client.send(MSG.APP_EVENT, { type: 'stop', npcId: 'npc-1' })
 ```
 
-## Performance
-
-### Baking
-
-- Typical world (<1000 entities): 10–25 seconds
-- Large world (10,000+ entities): 20–60 seconds
-- Output file: 50–500 KB depending on complexity
-
-### Pathfinding Queries
-
-- Single query: <5ms
-- 10 concurrent queries: <50ms
-- LRU cache: 100 entries (reuses recent paths)
-
-### Concurrent NPCs
-
-- 10 NPCs pathfinding: <10% CPU overhead
-- 50 NPCs pathfinding: <30% CPU overhead
-- Ideal for tower-defense, wave-defense, crowd scenarios
+Server apps reach it with `ctx.world.sendToEntity(npcId, { type: 'setTarget', position })`. Each
+found path is logged as `npc-navigator: path <from> -> <to>: N waypoints ...`; a missing navmesh or
+unreachable target is logged as a warning and the NPC stays put. Editor props: `speed`,
+`stoppingDistance` (steering arrive radius), `avoidanceRadius` (raycast side-step distance).
 
 ## Troubleshooting
 
-### "No navmesh found"
-
-**Cause**: `apps/world/<name>.navmesh.json` doesn't exist
-**Fix**: Run `npm run bake-navmesh --world=<name>`
-
-### "Pathfinding returns null"
-
-**Cause**: Start or goal position outside navmesh bounds or in unwalkable region
-**Fix**: 
-1. Verify world bounds in bake config
-2. Check navmesh coverage with a visualization tool
-3. Adjust walkable slope/height in bake config and re-bake
-
-### "NPC stuck/jittering at waypoint"
-
-**Cause**: Waypoint too close to obstacle, steering instability
-**Fix**:
-1. Increase `stoppingDistance` in NPC config
-2. Ensure navmesh has sufficient polygon density (`detailSampleDist`)
-3. Re-bake with tighter cell size
-
-### "Bake time exceeds 30 seconds"
-
-**Cause**: Geometry too dense or world bounds too large
-**Fix**:
-1. Reduce detail LOD for placed models (fewer tris)
-2. Tighten world bounds to walkable area only
-3. Increase `cellSize` or `regionMinSize` in bake config
-4. Parallelize: bake multiple regions separately, merge JSONs
-
-## Config Tuning
-
-Bake config parameters (in `scripts/bake-navmesh.mjs` or app):
-
-- `cellSize` (default 0.3): Vertical cell size. Smaller = more detail, slower bake.
-- `cellHeight` (default 0.2): Horizontal cell height. Smaller = more accuracy.
-- `agentHeight` (default 1.7): NPC height. Affects floor-to-ceiling clearance.
-- `agentRadius` (default 0.4): NPC width. Affects corridor widths.
-- `agentMaxClimb` (default 0.5): Max step height NPC can climb.
-- `agentMaxSlope` (default 45): Max slope angle (degrees) NPC can walk.
-- `tileSize` (default 32): Recast tile grid size. Larger = faster, less detail.
-- `regionMinSize` (default 8): Min region size before merge.
-- `detailSampleDist` (default 6): Detail mesh sampling distance.
-
-**Recommended starting point:**
-```javascript
-{
-  cellSize: 0.3,
-  cellHeight: 0.2,
-  agentHeight: 1.7,
-  agentRadius: 0.4,
-  agentMaxClimb: 0.5,
-  agentMaxSlope: 45,
-  tileSize: 32,
-  regionMinSize: 8,
-  detailSampleDist: 6,
-}
-```
-
-## Future Enhancements
-
-- [ ] Spatial acceleration (quadtree/octree for polygon lookup)
-- [ ] Funnel algorithm for smooth path pulling
-- [ ] Dynamic obstacle avoidance with crowd simulation
-- [ ] Multi-tile navmesh for very large worlds
-- [ ] Live navmesh updates when geometry changes (placed models moved)
-- [ ] Navmesh visualization tool in editor
+- **`navmesh not baked for world "<name>"`**: run `npm run bake-navmesh -- --world=<name>`.
+- **`findPath` returns `null`**: a point is outside the eroded walkable area (walls are inset by
+  `agentRadius`) or in a different region; check `nav.locate(point)`.
+- **World has no trimesh GLB entities**: the bake only reads `.glb` entities with
+  `config.collider: 'trimesh'`; terrain heightfields and primitive meshes are not baked.

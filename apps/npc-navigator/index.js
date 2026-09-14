@@ -1,5 +1,7 @@
+const EYE_HEIGHT = 1
+
 export default {
-  description: 'NPC navigator with navmesh pathfinding and waypoint following',
+  description: 'NPC navigator: follows navmesh paths from the world\'s baked navmesh (ctx.navmesh) or a fixed patrol route',
   server: {
     bodyType: 'dynamic',
     editorProps: [
@@ -11,149 +13,77 @@ export default {
     setup(ctx) {
       const c = ctx.config || {}
       ctx.entity.custom = { ...(ctx.entity.custom || {}), mesh: 'capsule', color: '#4488dd', sx: 0.5, sy: 1.7, sz: 0.5 }
-
-      ctx.state.navmesh = null
-      ctx.state.navmeshPath = null
       ctx.state.waypoints = []
-      ctx.state.currentWaypointIdx = 0
+      ctx.state.follow = { i: 0 }
       ctx.state.isMoving = false
       ctx.state.targetPos = null
-
+      ctx.state.lastPath = null
+      ctx.state.navmeshError = null
+      ctx.state.avoidanceRadius = c.avoidanceRadius ?? 2
       ctx.state.steering = ctx.defineSteering({
         speed: c.speed ?? 3,
         arriveRadius: c.stoppingDistance ?? 0.5,
         clampToTerrain: true,
         yOffset: 0.9,
       })
-
-      ctx.state.speed = c.speed ?? 3
-      ctx.state.stoppingDistance = c.stoppingDistance ?? 0.5
-      ctx.state.avoidanceRadius = c.avoidanceRadius ?? 2
-
-      _loadNavmesh(ctx)
+      ctx.navmesh().then(
+        () => { ctx.state.navmeshError = null },
+        e => { ctx.state.navmeshError = e.message; ctx.debug.warn(`npc-navigator: ${e.message}`) }
+      )
     },
 
     update(ctx, dt) {
       const st = ctx.state
-
       if (!st.isMoving) return
-
-      if (!st.waypoints || st.waypoints.length === 0) {
-        st.isMoving = false
-        return
-      }
-
       const pos = ctx.entity.position
-      const currentTarget = st.waypoints[st.currentWaypointIdx]
-
-      if (!currentTarget) {
-        st.isMoving = false
-        return
-      }
-
-      const dx = currentTarget[0] - pos[0]
-      const dy = currentTarget[1] - pos[1]
-      const dz = currentTarget[2] - pos[2]
-      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
-
-      if (dist < st.stoppingDistance) {
-        st.currentWaypointIdx++
-
-        if (st.currentWaypointIdx >= st.waypoints.length) {
-          st.isMoving = false
-          st.waypoints = []
-          st.currentWaypointIdx = 0
-          return
-        }
-      }
-
-      const nextTarget = st.waypoints[st.currentWaypointIdx]
-      const result = st.steering.step(pos, nextTarget, dt)
-
-      const avoidPos = _applyLocalAvoidance(ctx, pos, result.position, st.avoidanceRadius)
-
-      ctx.entity.position = avoidPos
+      const r = st.steering.followPath(pos, st.waypoints, dt, st.follow)
+      if (r.done) { _stop(st); return }
+      ctx.entity.position = _avoid(ctx, pos, r.position, st.avoidanceRadius)
     },
 
     onMessage(ctx, msg) {
       const st = ctx.state
-      if (!msg) return
-
-      if (msg.type === 'setTarget' && msg.position) {
-        if (!st.navmesh) {
-          console.warn('NPC navigator: navmesh not loaded')
-          return
-        }
-
-        const pos = ctx.entity.position
-        const waypoints = st.navmesh.findPath(pos, msg.position)
-
-        if (waypoints && waypoints.length > 0) {
-          st.waypoints = waypoints
-          st.currentWaypointIdx = 0
-          st.isMoving = true
-          st.targetPos = msg.position
-        } else {
-          console.warn('NPC navigator: no path found or target unreachable')
-        }
+      if (!msg || (msg.npcId != null && msg.npcId !== ctx.entity.id)) return
+      if (msg.type === 'setTarget' && Array.isArray(msg.position)) {
+        const from = [...ctx.entity.position], to = [...msg.position]
+        ctx.navmesh().then(nav => {
+          const path = nav.findPath(from, to)
+          st.lastPath = { from, to, waypoints: path }
+          if (!path) { ctx.debug.warn(`npc-navigator: no navmesh path from ${_fmt(from)} to ${_fmt(to)}`); return }
+          ctx.debug.log(`npc-navigator: path ${_fmt(from)} -> ${_fmt(to)}: ${path.length} waypoints ${path.map(_fmt).join(' ')}`)
+          _start(st, path, to)
+        }, e => { st.navmeshError = e.message; ctx.debug.warn(`npc-navigator: setTarget ignored, ${e.message}`) })
       } else if (msg.type === 'stop') {
-        st.isMoving = false
-        st.waypoints = []
-        st.currentWaypointIdx = 0
-      } else if (msg.type === 'startPatrol' && msg.route) {
-        st.waypoints = msg.route
-        st.currentWaypointIdx = 0
-        st.isMoving = true
+        _stop(st)
+      } else if (msg.type === 'startPatrol' && Array.isArray(msg.route) && msg.route.length) {
+        _start(st, msg.route.map(p => [...p]), null)
       }
     },
   },
 }
 
-async function _loadNavmesh(ctx) {
-  try {
-    const worldName = ctx.world?.name || 'aim_sillos'
+function _fmt(p) { return `[${p.map(v => v.toFixed(2)).join(',')}]` }
 
-    const { NavmeshQuery } = await import('../../src/pathfinding/NavmeshQuery.js')
-
-    try {
-      const fs = await import('node:fs')
-      const path = await import('node:path')
-      const navmeshPath = path.join(process.cwd(), 'apps', 'world', `${worldName}.navmesh.json`)
-      const data = fs.readFileSync(navmeshPath, 'utf-8')
-      const navmeshData = JSON.parse(data)
-      ctx.state.navmesh = new NavmeshQuery(navmeshData)
-      console.log(`Loaded navmesh for world: ${worldName}`)
-    } catch (e) {
-      console.warn(`Navmesh not found: ${worldName}.navmesh.json (run: npm run bake-navmesh --world=${worldName})`)
-    }
-  } catch (e) {
-    console.warn('Failed to load NavmeshQuery module:', e.message)
-  }
+function _start(st, waypoints, target) {
+  st.waypoints = waypoints
+  st.follow = { i: 0 }
+  st.targetPos = target
+  st.isMoving = true
 }
 
-function _applyLocalAvoidance(ctx, currentPos, targetPos, avoidanceRadius) {
-  const pos = [...currentPos]
+function _stop(st) {
+  st.isMoving = false
+  st.waypoints = []
+  st.follow = { i: 0 }
+}
 
-  const dir = [targetPos[0] - currentPos[0], 0, targetPos[2] - currentPos[2]]
-  const dist = Math.sqrt(dir[0] * dir[0] + dir[2] * dir[2])
-  if (dist > 0.001) {
-    dir[0] /= dist
-    dir[2] /= dist
-  }
-
-  const rayStart = [currentPos[0] + dir[0] * 0.5, currentPos[1] + 1, currentPos[2] + dir[2] * 0.5]
-  const rayEnd = [rayStart[0] + dir[0] * avoidanceRadius, rayStart[1], rayStart[2] + dir[2] * avoidanceRadius]
-
-  try {
-    const hits = ctx.world?.raycast?.(rayStart, rayEnd, { maxDistance: avoidanceRadius })
-    if (hits && hits.length > 0) {
-      const lateral = [-dir[2], 0, dir[0]]
-      const sidestep = 0.3
-      pos[0] += lateral[0] * sidestep
-      pos[2] += lateral[2] * sidestep
-    }
-  } catch (e) {
-  }
-
-  return pos
+function _avoid(ctx, from, to, radius) {
+  const dx = to[0] - from[0], dz = to[2] - from[2]
+  const d = Math.hypot(dx, dz)
+  if (d < 1e-4) return to
+  const dir = [dx / d, 0, dz / d]
+  const hit = ctx.raycast([from[0], from[1] + EYE_HEIGHT, from[2]], dir, radius)
+  if (!hit?.hit || hit.entityId === ctx.entity.id) return to
+  const sidestep = 0.3
+  return [to[0] - dir[2] * sidestep, to[1], to[2] + dir[0] * sidestep]
 }

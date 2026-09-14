@@ -19,8 +19,40 @@ import { defineTeams } from '../../apps/_lib/teams.js'
 import { defineWeapon } from '../../apps/_lib/weapon.js'
 import { definePlayerInventory } from '../../apps/_lib/inventory.js'
 import { definePath } from '../../apps/_lib/path.js'
+import { NavmeshQuery } from '../pathfinding/NavmeshQuery.js'
+import { isWorldName } from '../shared/worldName.js'
 
 const ENGINE_KEY_PREFIX_CHAR_CODE = 95
+const NAVMESH_FORMAT_VERSION = 1
+const _navmeshesByRuntime = new WeakMap()
+
+function _isNodeRuntime() { return typeof process !== 'undefined' && !!process.versions?.node }
+
+async function _readNavmeshJSON(worldName, sdkRoot) {
+  const file = `${worldName}.navmesh.json`
+  if (_isNodeRuntime()) {
+    const [{ readFile }, { resolve }] = await Promise.all([import('node:fs/promises'), import('node:path')])
+    const candidates = [...new Set([process.cwd(), sdkRoot].filter(Boolean).map(root => resolve(root, 'apps', 'world', file)))]
+    for (const fp of candidates) {
+      let text
+      try { text = await readFile(fp, 'utf-8') } catch (e) { if (e.code === 'ENOENT') continue; throw new Error(`navmesh ${fp}: ${e.message}`) }
+      return { data: JSON.parse(text), source: fp }
+    }
+    throw new Error(`navmesh not baked for world "${worldName}": none of ${candidates.join(', ')} exist (npm run bake-navmesh -- --world=${worldName})`)
+  }
+  const url = new URL(`../../apps/world/${file}`, import.meta.url)
+  const r = await fetch(url)
+  if (!r.ok) throw new Error(`navmesh not baked for world "${worldName}": GET ${url.pathname} -> HTTP ${r.status} (npm run bake-navmesh -- --world=${worldName})`)
+  return { data: await r.json(), source: url.href }
+}
+
+async function _buildNavmesh(worldName, sdkRoot) {
+  const { data, source } = await _readNavmeshJSON(worldName, sdkRoot)
+  if (!data || data.version !== NAVMESH_FORMAT_VERSION || !Array.isArray(data.vertices) || !Array.isArray(data.polygons) || !data.polygons.length) {
+    throw new Error(`navmesh ${source}: expected format version ${NAVMESH_FORMAT_VERSION} with non-empty vertices/polygons, got version=${data?.version} vertices=${data?.vertices?.length} polygons=${data?.polygons?.length}`)
+  }
+  return new NavmeshQuery(data)
+}
 const DEFAULT_LOS_TARGET_COLLIDER_TOLERANCE_M = 0.5
 
 export class AppContext {
@@ -287,6 +319,19 @@ export class AppContext {
   definePlayerInventory(spec) { return definePlayerInventory(spec, this) }
 
   definePath(points) { return definePath(points) }
+
+  navmesh(worldName = this._runtime.worldName) {
+    if (!isWorldName(worldName)) return Promise.reject(new TypeError(`[AppContext] navmesh: world name must be a world file stem, got ${JSON.stringify(worldName)} (runtime.worldName=${JSON.stringify(this._runtime.worldName)})`))
+    let byWorld = _navmeshesByRuntime.get(this._runtime)
+    if (!byWorld) _navmeshesByRuntime.set(this._runtime, byWorld = new Map())
+    let pending = byWorld.get(worldName)
+    if (!pending) {
+      pending = _buildNavmesh(worldName, this._runtime._sdkRoot)
+      pending.catch(() => { if (byWorld.get(worldName) === pending) byWorld.delete(worldName) })
+      byWorld.set(worldName, pending)
+    }
+    return pending
+  }
 
   raycast(origin, direction, maxDistance = 1000, excludeBodyId = null) {
     if (this._runtime._physics) {
