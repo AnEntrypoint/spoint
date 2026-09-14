@@ -1,8 +1,3 @@
-// Server identity: makes "WHICH checkout/process is answering this port?" a one-glance fact instead
-// of a silent trap. Motivated by two live-witnessed incidents where a long-lived server on a default
-// port served a DIFFERENT checkout's files than the one being edited, passing 200-status smoke checks
-// while byte-diverging from the tree under edit (stale-server-serves-wrong-checkout-trap).
-// Consumed by: boot() banner (src/sdk/server.js) and StaticHandler's /__identity JSON route.
 import { execFileSync } from 'node:child_process'
 import { realpathSync, readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'

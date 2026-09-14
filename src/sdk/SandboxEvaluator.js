@@ -1,28 +1,3 @@
-// Untrusted sandbox evaluator for user-uploaded app scripts.
-// Wraps source code in a function scope that receives a narrow ctx proxy, blocking access to
-// filesystem/network/process/dynamic-import globals and enforcing a per-tick CPU budget.
-//
-// Architecture:
-//   SandboxEvaluator.evaluate(source) -> { setup, update, teardown, ... } app def
-//   The source is executed in a sandboxed scope where:
-//     - globalThis is a restricted proxy (no process, require, import, fetch, etc.)
-//     - The ctx.* API surface is passed in as a narrow proxy (only the safe subset)
-//     - A step counter is incremented on every loop iteration; if it exceeds budget, the sandbox throws
-//
-// Integration point: AppLoader.loadUntrustedApp(name, source, ctxProxyFactory)
-//   - ctxProxyFactory is called per-app-instance to build the narrow ctx proxy
-//   - The sandbox is evaluated once and the resulting app def is registered normally
-//
-// This is a FIRST SLICE: the proxy-based sandbox blocks known dangerous globals but does NOT implement
-// a full SES/Compartment hard-lockdown (no membrane, no lockdown of intrinsics, no tamed Error stack).
-// A real SES/Compartment or QuickJS WASM tier is a follow-on row (modding-sandbox-ses-compartment).
-//
-// The blocked globals list is deliberately conservative: it blocks everything an app should not need
-// and permits only the safe subset (Math, JSON, Object, Array, String, Number, Boolean, Date, Map,
-// Set, WeakMap, WeakSet, Promise, Error, console, parseInt, parseFloat, isNaN, isFinite, NaN,
-// Infinity, undefined, null, true, false, Symbol, BigInt, Reflect, Proxy, ArrayBuffer, DataView,
-// TypedArrays, TextEncoder, TextDecoder, Atomics).
-
 const BLOCKED_GLOBALS = new Set([
   'process', 'require', 'import', 'eval', 'Function',
   'global', 'globalThis', 'window', 'self', 'document',
@@ -63,25 +38,18 @@ export class SandboxEvaluator {
     this._maxTicksPerFrame = opts.maxTicksPerFrame ?? 1000
   }
 
-  // Evaluate sandboxed source code and return the app definition object.
-  // The source MUST export a default object with server.setup/update/teardown etc.
-  // Returns { default: appDef } or null on failure.
   evaluate(source, name = '<sandbox>') {
     if (typeof source !== 'string' || source.length === 0) {
       console.error(`[SandboxEvaluator] empty source for "${name}"`)
       return null
     }
 
-    // Validate the source has no blatant escape attempts
     if (!this._validate(source, name)) return null
 
     try {
       const sandboxGlobal = this._createSandboxGlobal()
       const wrappedSource = this._wrapSource(source)
 
-      // Use an indirect eval through a Function constructor to avoid the sandbox accessing
-      // the caller's scope. The Function constructor only sees the global scope, which we
-      // replace with our sandboxed global.
       const fn = this._compileInSandbox(wrappedSource, sandboxGlobal)
       const appDef = fn()
 
@@ -98,7 +66,6 @@ export class SandboxEvaluator {
   }
 
   _validate(source, name) {
-    // Block patterns that indicate escape attempts
     const blocked = [
       'process.exit', 'child_process', '__proto__',
       'Object.prototype', 'globalThis', 'import(',
@@ -117,14 +84,12 @@ export class SandboxEvaluator {
   _createSandboxGlobal() {
     const sandbox = Object.create(null)
 
-    // Copy permitted globals
     for (const key of PERMITTED_GLOBALS) {
       if (key in globalThis) {
         sandbox[key] = globalThis[key]
       }
     }
 
-    // Add a safe console (no timers, no profiles)
     sandbox.console = {
       log: (...args) => console.log('[sandbox]', ...args),
       warn: (...args) => console.warn('[sandbox]', ...args),
@@ -133,11 +98,9 @@ export class SandboxEvaluator {
       debug: (...args) => console.debug('[sandbox]', ...args),
     }
 
-    // Step counter for CPU budget
     sandbox.__sandboxSteps = 0
     sandbox.__sandboxMaxSteps = this._maxStepsPerTick
 
-    // Budget check function injected into the sandbox
     sandbox.__checkBudget = () => {
       sandbox.__sandboxSteps++
       if (sandbox.__sandboxSteps > sandbox.__sandboxMaxSteps) {
@@ -145,7 +108,6 @@ export class SandboxEvaluator {
       }
     }
 
-    // Proxy to block access to anything not in the sandbox
     return new Proxy(sandbox, {
       get(target, prop, receiver) {
         if (prop in target) return Reflect.get(target, prop, receiver)
@@ -175,39 +137,22 @@ export class SandboxEvaluator {
   }
 
   _wrapSource(source) {
-    // Strip 'export default' and wrap the source so it returns the app definition.
-    // The source is of the form: `export default { server: { ... } }`
-    // We convert it to: `return ({ server: { ... } })`
-    // The Function constructor will be called with the sandbox globals as parameters,
-    // so any reference to Math/Object/etc. in the source resolves to the sandboxed versions.
     let body = source.trim()
-    // Handle export default <expr>
     if (body.startsWith('export default ')) {
       body = 'return (' + body.slice('export default '.length).trim() + ')'
     } else if (body.startsWith('export {')) {
-      // export { foo as default } or export { bar }
       body = 'return (' + body + ')'
     }
     return body
   }
 
   _compileInSandbox(wrappedSource, sandbox) {
-    // Use new Function() with the sandbox's keys as parameter names and values as args.
-    // This creates a function where every permitted global (Math, Object, Array, etc.) is
-    // a local variable shadowing the real global, preventing access to the real global scope.
-    // The function body is the wrapped source code which returns the app definition.
     const keys = Object.keys(sandbox)
     const fn = new Function(...keys, wrappedSource)
     const values = keys.map(k => sandbox[k])
     return () => fn(...values)
   }
 
-  // Build a narrow ctx proxy for an app instance. This is called per-entity after the app
-  // def is evaluated, providing the sandboxed app with only the safe ctx.* API surface.
-  // The proxy blocks:
-  //   - Access to ctx._runtime (internal)
-  //   - Access to ctx.entity._raw (internal entity)
-  //   - Any method that could reach the filesystem/network
   static createCtxProxy(ctx) {
     const BLOCKED_CTX = new Set([
       '_entity', '_runtime', '_state', '_entityProxy', '_busScope',
@@ -224,7 +169,6 @@ export class SandboxEvaluator {
           return undefined
         }
         const value = Reflect.get(target, prop, receiver)
-        // Wrap functions to check budget on each call
         if (typeof value === 'function') {
           return function (...args) {
             ctx.__checkBudget?.()

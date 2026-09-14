@@ -1,54 +1,3 @@
-/**
- * PublicBenchmark.js -- Server-side benchmark collector and JSON endpoint.
- *
- * FIRST SLICE of ugc-platform-npc-training-federation-monorepo-docs-wasm-native-benchmark
- * (item: "public benchmark/brag page").
- *
- * Collects runtime performance data from a live server and exposes it as a
- * standardized JSON endpoint at GET /benchmark. This data can feed a public
- * benchmark page (static HTML dashboard) showing:
- *  - 10k trees at 60fps on mid phone
- *  - N players per browser host
- *  - cold-load seconds per map
- *  - tick duration histogram
- *  - entity counts
- *  - memory usage
- *
- * The benchmark data is deliberately STANDARDIZED -- a single JSON shape
- * that any consumer (static HTML page, CI dashboard, README badge) can read.
- * It is NOT a Prometheus endpoint (that is a separate item, server-scale-prometheus-metrics-endpoint-dashboard).
- *
- * Shape:
- *  GET /benchmark returns:
- *  {
- *    server: {
- *      uptimeMs: number,
- *      tickRate: number,
- *      tickAvgMs: number,
- *      tickP50Ms: number,
- *      tickP99Ms: number,
- *      dilationFactor: number,
- *      playerCount: number,
- *      entityCount: number,
- *      physicsBodyCount: number,
- *      memoryRssMB: number,
- *      memoryHeapMB: number,
- *    },
- *    world: {
- *      name: string,
- *      entityCount: number,
- *      appCount: number,
- *      terrainEnabled: boolean,
- *    },
- *    build: {
- *      sha: string,       // git commit SHA
- *      branch: string,    // "main"
- *      nodeVersion: string,
- *    },
- *    timestamp: number,   // Unix ms
- *  }
- */
-
 import { execSync } from 'node:child_process'
 
 let _sha = null
@@ -67,17 +16,6 @@ function getGitInfo() {
   return { sha: _sha, branch: _branch }
 }
 
-/**
- * Collect benchmark data from a live server context.
- * Called from the server's HTTP handler for GET /benchmark.
- *
- * @param {object} ctx - server context
- * @param {import('./TickSystem.js').default} ctx.tickSystem
- * @param {import('../apps/AppRuntime.js').default} ctx.appRuntime
- * @param {object} ctx.players - PlayerManager
- * @param {object} ctx.physics - PhysicsWorld
- * @param {object} [ctx.worldDef] - world definition
- */
 export function collectBenchmark(ctx) {
   const tickSystem = ctx.tickSystem
   const runtime = ctx.appRuntime
@@ -117,11 +55,6 @@ export function collectBenchmark(ctx) {
   }
 }
 
-/**
- * Register the GET /benchmark endpoint on a Node http.Server.
- * @param {import('node:http').Server} httpServer
- * @param {() => object} collectFn - function returning benchmark data
- */
 export function registerBenchmarkEndpoint(httpServer, collectFn) {
   const existingListeners = httpServer.listeners('request').slice()
   httpServer.removeAllListeners('request')
@@ -143,7 +76,6 @@ export function registerBenchmarkEndpoint(httpServer, collectFn) {
       }
       return
     }
-    // Pass through to existing handlers
     for (const listener of existingListeners) {
       listener.call(httpServer, req, res)
     }

@@ -1,25 +1,13 @@
-// Byte-budgeted LRU caching + gzip/brotli compression infrastructure for StaticHandler.js's static
-// file server: raw file bytes, compressed variants, and transformed (GLB/VRM-optimized) variants.
-// No HTTP request/response handling here -- pure caching/compression, split out for a smaller,
-// single-responsibility file.
-
 import { readFileSync, existsSync, statSync, writeFileSync, readdirSync } from 'node:fs'
 import { join, extname, sep } from 'node:path'
 import { gzipSync, brotliCompressSync, gzip, brotliCompress, constants as zlibConstants } from 'node:zlib'
 import { promisify } from 'node:util'
 
-// quality 5: q11 default is 100x+ slower for marginal gain; q5 still beats gzip -6 by ~14% (measured on anim-lib.glb)
 const BROTLI_OPTS = { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 5 } }
 
 const gzipAsync = promisify(gzip)
 const brotliCompressAsync = promisify(brotliCompress)
 
-// Below this size, the sync zlib call costs sub-millisecond -- not worth the promise/microtask
-// overhead, and small-file callers (e.g. tests driving the handler with a bare mock `res` and
-// reading `res` synchronously right after the call returns) rely on the response being written
-// before the call returns. Above it (large JS bundles, GLB/VRM/wasm) sync compression can run
-// long enough to visibly stall the configured server tick loop sharing this event loop (60Hz default, per-world override), so it goes through the
-// async zlib API instead.
 const ASYNC_COMPRESS_THRESHOLD = 50 * 1024
 
 export function compress(raw, encoding) {
@@ -31,27 +19,12 @@ export async function compressAsync(raw, encoding) {
   return encoding === 'br' ? brotliCompressAsync(raw, BROTLI_OPTS) : gzipAsync(raw)
 }
 
-// excludes already-compressed/high-entropy image formats; GLB/VRM/glTF still win since they carry uncompressed JSON+animation data.
-// .wasm: live-measured jolt-physics.wasm.wasm 2021569B -> ~600KB brotli-q5 / basis_transcoder.wasm 527333B ->
-// ~200KB -- both are fetched on every cold boot (physics worker + KTX2 transcoder) and were served raw. A
-// Range request against a .wasm still gets the identity encoding (StaticHandler.js skips negotiation when
-// a Range header is present on a RANGE_EXTENSIONS path), so serveRangeable's 206 contract is unchanged.
-// .ktx2 deliberately NOT here: the progressive-mip client range-fetches it (see StaticHandler.js RANGE_EXTENSIONS).
 export const GZIP_EXTENSIONS = new Set(['.glb', '.vrm', '.gltf', '.js', '.mjs', '.css', '.html', '.json', '.wasm'])
 
-// Raw bytes for anything bigger than this never enter the in-memory cache -- a single huge asset
-// (large baked GLB, video, etc) would otherwise dominate the byte budget and evict everything else
-// for one requester's benefit. Still served fine, just re-read from disk (OS page cache absorbs the
-// repeat cost) instead of being pinned in process memory.
 export const MAX_CACHEABLE_BYTES = 20 * 1024 * 1024
 
-// Total byte budget across both LRU caches combined (raw file bytes + compressed variants +
-// transformed/optimized GLB variants). Split proportionally isn't necessary -- one shared budget,
-// evicted oldest-first, keeps the accounting simple and self-balancing between the two caches.
 const CACHE_BYTE_BUDGET = 256 * 1024 * 1024
 
-// Minimal Map-based LRU: `Map` iterates insertion order, so a re-set on touch (delete+set) moves an
-// entry to the "most recently used" end for free, and eviction just shifts from the front.
 export class ByteBudgetLRU {
   constructor(budget) {
     this.budget = budget
@@ -59,7 +32,6 @@ export class ByteBudgetLRU {
     this.map = new Map()
   }
   _sizeOf(entry) {
-    // entry.raw for fileCache rows, entry.variants Map values, entry.content for pass-through rows
     let n = entry.raw ? entry.raw.length : 0
     if (entry.variants) for (const v of entry.variants.values()) n += v.length
     if (entry.content) n += entry.content.length
@@ -68,7 +40,6 @@ export class ByteBudgetLRU {
   get(key) {
     const entry = this.map.get(key)
     if (!entry) return undefined
-    // touch: move to MRU position
     this.map.delete(key)
     this.map.set(key, entry)
     return entry
@@ -81,8 +52,6 @@ export class ByteBudgetLRU {
     this.bytes += this._sizeOf(entry)
     this._evictOverBudget()
   }
-  // call after mutating an entry already in the map in-place (e.g. adding a new compressed variant)
-  // so the tracked byte total stays accurate without a full re-set/re-promote.
   resync(key) {
     if (!this.map.has(key)) return
     let total = 0
@@ -106,20 +75,14 @@ export class ByteBudgetLRU {
 export const fileCache = new ByteBudgetLRU(CACHE_BYTE_BUDGET)
 export const transformedCache = new ByteBudgetLRU(CACHE_BYTE_BUDGET)
 
-// Content-hash ETag for /node_modules: third-party deps are re-materialized byte-identical on every
-// redeploy (fresh `npm install`/checkout gives every file a NEW mtime even when its bytes didn't
-// change), so an mtime-based ETag (the general path below) forces a needless revalidation round-trip
-// on every redeploy. Hashing raw content instead means an unchanged file keeps the SAME ETag across
-// redeploys, so a client's cached copy still 304s. Same fnv1a-1a used by SnapshotEncoder.js for
-// dirty-detection -- non-cryptographic, fast, adequate for a weak validator (ETag is not a security
-// boundary). Cached per (path, mtime) so a warm process only hashes each file once; a real content
-// edit still gets a fresh mtime and recomputes.
-const _contentHashCache = new Map() // fp -> { mtime, hash }
+const FNV1A_OFFSET_BASIS = 2166136261
+const FNV1A_PRIME = 16777619
+const _contentHashCache = new Map()
 export function contentHashETag(fp, raw, mtime) {
   const cached = _contentHashCache.get(fp)
   if (cached && cached.mtime === mtime) return cached.hash
-  let hash = 2166136261
-  for (let i = 0; i < raw.length; i++) { hash ^= raw[i]; hash = Math.imul(hash, 16777619) }
+  let hash = FNV1A_OFFSET_BASIS
+  for (let i = 0; i < raw.length; i++) { hash ^= raw[i]; hash = Math.imul(hash, FNV1A_PRIME) }
   const hex = (hash >>> 0).toString(16)
   _contentHashCache.set(fp, { mtime, hash: hex })
   return hex
@@ -130,12 +93,6 @@ export function isNodeModulesPath(fp) {
 
 const SIBLING_EXT = { br: '.br', gzip: '.gz' }
 
-// Disk-persisted sibling (<file>.br / <file>.gz next to the source) so a compressed variant
-// survives a process restart/redeploy instead of being recomputed from scratch every boot --
-// this is the actual "precompress at bake time" behavior; the in-memory Map above is still the
-// hot per-process cache layered on top so a warm process never touches disk twice for the same
-// (file, encoding) pair. A stale sibling (source mtime moved on) is detected via a ".meta" JSON
-// stamp recording the source mtime it was built from, same pattern as GLBTransformer's cache.
 function siblingPaths(fp, encoding) {
   const ext = SIBLING_EXT[encoding]
   return { body: fp + ext, meta: fp + ext + '.meta' }
@@ -156,10 +113,9 @@ function writeSibling(fp, encoding, srcMtime, content) {
   try {
     writeFileSync(body, content)
     writeFileSync(meta, JSON.stringify({ srcMtime }))
-  } catch { /* read-only fs (e.g. some CDN/edge mounts) -- in-memory cache above still serves fine */ }
+  } catch { }
 }
 
-// lazily-populated compressed variants keyed by encoding, so each of a br- and non-br-capable client pays the compression cost once
 export async function getCached(fp, ext, encoding) {
   const key = fp
   const mtime = statSync(fp).mtimeMs
@@ -187,12 +143,6 @@ export async function getCached(fp, ext, encoding) {
   return { mtime: cached.mtime, content: variant, encoding, raw: cached.raw }
 }
 
-// Disk-persisted compressed sibling for a TRANSFORMED (GLBTransformer) output, keyed by the content
-// hash of the transformed bytes rather than a source mtime: the transform result lives in
-// <dir>/.glb-cache/<name> (GLBTransformer.getCachePath) and its brotli/gzip variant used to be
-// recomputed in memory on every process start (live: aim_sillos.glb 3.8MB transformed -> brotli-q5
-// on the first request of every boot). `sibling` = { base, hash } from the caller; a mismatched or
-// absent hash in the .meta stamp means the transform output moved on and the variant is rebuilt.
 function readTransformedSibling(base, encoding, hash) {
   if (!base || !hash) return null
   const { body, meta } = siblingPaths(base, encoding)
@@ -210,7 +160,7 @@ function writeTransformedSibling(base, encoding, hash, content) {
   try {
     writeFileSync(body, content)
     writeFileSync(meta, JSON.stringify({ hash }))
-  } catch { /* read-only fs -- in-memory variant above still serves fine */ }
+  } catch { }
 }
 
 export async function getTransformedCached(fp, srcMtime, rawBuffer, encoding, sibling = null) {
@@ -234,14 +184,6 @@ export async function getTransformedCached(fp, srcMtime, rawBuffer, encoding, si
   return { srcMtime, content: variant, encoding }
 }
 
-// Bake-time precompression: walk each mounted static dir and populate the .br/.gz disk siblings
-// for every GZIP_EXTENSIONS file up front, so the very first request for any given asset already
-// hits a warm sibling instead of paying brotli-q5 compression inline. Safe to call repeatedly
-// (mtime-gated, same as the lazy path) -- intended to run once at server boot, backgrounded.
-// A node_modules-rooted mount (third-party deps, can be 10⁴-10⁵ files) is deliberately excluded --
-// walking + brotli-compressing the whole dependency tree at boot is unbounded work for code this
-// app doesn't own; those files still compress fine on the lazy per-request path (getCached), just
-// without the boot-time head start. Same for any nested node_modules encountered mid-walk.
 const PREWARM_SKIP_DIRS = new Set(['node_modules', '.glb-cache', '.progressive-cache', '.git'])
 
 export async function prewarmCompression(dirs) {
@@ -261,7 +203,7 @@ export async function prewarmCompression(dirs) {
         await getCached(fp, ext, 'br')
         await getCached(fp, ext, 'gzip')
         count++
-      } catch { /* unreadable file -- skip, request-time path still covers it */ }
+      } catch { }
     }
   }
   for (const { dir, prefix } of dirs) {
@@ -271,9 +213,6 @@ export async function prewarmCompression(dirs) {
   return count
 }
 
-// Parses a single-range `Range: bytes=start-end` header (the only form browsers/download managers
-// send for a resumed GLB/wasm fetch; multi-range is not worth supporting here). Returns null for
-// anything absent/malformed/unsatisfiable so the caller falls back to a plain 200.
 export function parseRange(rangeHeader, totalSize) {
   if (!rangeHeader || !rangeHeader.startsWith('bytes=')) return null
   const spec = rangeHeader.slice(6).split(',')[0].trim()
@@ -282,7 +221,6 @@ export function parseRange(rangeHeader, totalSize) {
   let start, end
   if (m[1] === '' && m[2] === '') return null
   if (m[1] === '') {
-    // suffix range: last N bytes
     const suffixLen = parseInt(m[2], 10)
     if (!Number.isFinite(suffixLen) || suffixLen <= 0) return null
     start = Math.max(0, totalSize - suffixLen)
@@ -296,8 +234,6 @@ export function parseRange(rangeHeader, totalSize) {
   return { start, end }
 }
 
-// Range/206 is only meaningful against the UNCOMPRESSED body -- a byte offset into a brotli/gzip
-// stream is meaningless to the client, so a Range request always gets the identity encoding.
 export function serveRangeable(req, res, buf, headers) {
   headers['Accept-Ranges'] = 'bytes'
   const range = parseRange(req.headers['range'], buf.length)
@@ -310,7 +246,7 @@ export function serveRangeable(req, res, buf, headers) {
   const { start, end } = range
   headers['Content-Range'] = `bytes ${start}-${end}/${buf.length}`
   headers['Content-Length'] = end - start + 1
-  delete headers['ETag'] // ETag above was computed for the whole-file 200 case; a 206 still names the same resource via Content-Range so omit rather than mismatch
+  delete headers['ETag']
   res.writeHead(206, headers)
   res.end(buf.subarray(start, end + 1))
 }

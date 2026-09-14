@@ -1,23 +1,8 @@
-// Server-side nostr auth challenge/response handler (cross-project-identity-nostr-login-flow).
-//
-// Flow: server generates a random challenge string, sends it to the client via NOSTR_AUTH_CHALLENGE.
-// Client signs the challenge with their nostr private key and returns a signed nostr event via
-// NOSTR_AUTH_RESPONSE. Server verifies the signature against the claimed pubkey using nostr-tools.
-//
-// Opt-in per worldDef.identity.nostrAuth (defaults to disabled). When enabled, every new connection
-// must pass the challenge before being allowed to join as a player -- the connection stays in a
-// "pending auth" state until a valid NOSTR_AUTH_RESPONSE arrives, and is disconnected after a
-// configurable timeout.
-//
-// Dual-import safe: always importable, only uses nostr-tools (already a direct dependency, used by
-// ServerPresence.js) -- no Node-specific APIs.
-
 const CHALLENGE_BYTES = 32
 const DEFAULT_TIMEOUT_MS = 15000
 const MAX_PUBKEY_LEN = 128
+const NIP98_HTTP_AUTH_KIND = 27235
 
-// Node crypto for random bytes (dynamic import, not a top-level static -- this module is ALSO
-// loaded in the browser Worker singleplayer path where `node:crypto` is unavailable).
 let _nodeCrypto = null
 async function _ensureNodeCrypto() {
   if (_nodeCrypto !== null) return _nodeCrypto
@@ -40,7 +25,6 @@ async function randomHex(bytes) {
 }
 
 export function createNostrAuthServer({ enableChallenge = false, challengeTimeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
-  // transport -> { challenge, timer, pubkey }
   const _pending = new Map()
 
   let _enabled = enableChallenge
@@ -50,9 +34,6 @@ export function createNostrAuthServer({ enableChallenge = false, challengeTimeou
 
   function setEnabled(v) { _enabled = !!v }
 
-  // Generate a challenge for a new connection. Returns a promise that resolves to the challenge string.
-  // The connection is registered as "pending" -- if no valid NOSTR_AUTH_RESPONSE arrives within
-  // timeoutMs, the connection is disconnected.
   async function challengeConnection(transport) {
     if (!_enabled) return null
     const challenge = await randomHex(CHALLENGE_BYTES)
@@ -67,7 +48,6 @@ export function createNostrAuthServer({ enableChallenge = false, challengeTimeou
     return challenge
   }
 
-  // Verify a client's signed response. Returns {ok:true, pubkey} on success, or {ok:false, error} on failure.
   async function verifyResponse(transport, payload) {
     if (!_enabled) return { ok: true, pubkey: null, skipped: true }
     const entry = _pending.get(transport)
@@ -87,12 +67,11 @@ export function createNostrAuthServer({ enableChallenge = false, challengeTimeou
 
     try {
       const NostrTools = await import('nostr-tools')
-      // Verify the signed event: the client must have signed an event with content === challenge
       const event = {
         id,
         pubkey,
         created_at: payload?.created_at || 0,
-        kind: payload?.kind || 27235, // NIP-98 HTTP Auth
+        kind: payload?.kind || NIP98_HTTP_AUTH_KIND,
         tags: payload?.tags || [],
         content: challenge,
         sig,
@@ -103,7 +82,6 @@ export function createNostrAuthServer({ enableChallenge = false, challengeTimeou
         return { ok: false, error: 'invalid signature' }
       }
 
-      // Verify the event content matches our challenge
       if (event.content !== challenge) {
         return { ok: false, error: 'signed event content does not match challenge' }
       }
@@ -114,7 +92,6 @@ export function createNostrAuthServer({ enableChallenge = false, challengeTimeou
     }
   }
 
-  // Clean up a pending challenge (connection closed before auth completed)
   function cancelChallenge(transport) {
     const entry = _pending.get(transport)
     if (entry) {

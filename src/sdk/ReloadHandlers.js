@@ -44,10 +44,6 @@ export function createReloadHandlers(deps) {
         const wm = await import(deps.worldConfigPath + '?' + t)
         const wd = wm.default || wm
         if (wd.movement) movement = wd.movement
-        // hotreload-worldDef-edit-no-restart: gravity/tickRate/player were previously baked into
-        // PhysicsWorld/PhysicsIntegration/TickSystem at construction, never re-read on a world edit.
-        // Applied live here (not swapped -- see PhysicsWorld.setGravity/TickSystemBase.setTickRate's
-        // own comments for why an in-place update is correct and a rebuild would drop live state).
         if (Array.isArray(wd.gravity) && wd.gravity.length === 3) {
           physics?.setGravity?.(wd.gravity)
           if (physicsIntegration) physicsIntegration.config.gravity = wd.gravity
