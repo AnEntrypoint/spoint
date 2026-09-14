@@ -27,6 +27,14 @@ export const GLB_TRANSFORM_CODE_VERSION = bakeCodeVersion([
   './GLBKtx2.js',
 ])
 
+export const PROGRESSIVE_BAKE_CODE_VERSION = bakeCodeVersion([
+  '../../packages/streaming-gltf/tools/bake-cluster.mjs',
+  '../../packages/streaming-gltf/src/meshlet-codec.js',
+  '../../packages/streaming-gltf/src/degenerate-triangles.js',
+  '../../packages/streaming-gltf/src/cluster-lod-mesh.js',
+  '../../packages/streaming-gltf/src/material-convergence.js',
+])
+
 export const KTX2_EXTRACT_CODE_VERSION = bakeCodeVersion([
   './KTX2Extract.js',
   './GLBTransformer.js',
