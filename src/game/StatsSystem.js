@@ -61,7 +61,7 @@ export function defineStatsSystem(spec = {}, appCtx) {
   const _pushToClient = (pid) => {
     const stats = statsSystem.getStats(pid)
     const equipment = statsSystem.getEquipment(pid)
-    appCtx.players?.send?.(String(pid), {
+    appCtx.players?.send?.(pid, {
       type: channel,
       level: stats.level,
       xp: stats.xp,
@@ -107,6 +107,10 @@ export function defineStatsSystem(spec = {}, appCtx) {
 
     getLevel(pid) {
       return _getPlayerData(pid).level
+    },
+
+    push(pid) {
+      _pushToClient(pid)
     },
 
     getStats(pid) {

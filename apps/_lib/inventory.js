@@ -118,7 +118,7 @@ export function definePlayerInventory(spec = {}, appCtx) {
     },
     reset(pid) { _bags.delete(String(pid)); const b = _bag(pid); _changed(pid, b) },
     clearAll() { _bags.clear() },
-    push(pid) { appCtx.players?.send?.(String(pid), { type: channel, ..._snapshot(_bag(pid)) }) },
+    push(pid) { appCtx.players?.send?.(pid, { type: channel, ..._snapshot(_bag(pid)) }) },
   }
   return inv
 }

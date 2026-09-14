@@ -9,8 +9,8 @@ AppRuntime (server tick loop)
   ├─ QuestSystem (per-player quest state)
   ├─ StatsSystem (per-player stats + equipment)
   ├─ PlayerManager (player tracking)
-  ├─ WorldPersistence (storage)
-  └─ TickHandler (network sync broadcasts)
+  ├─ WorldPersistence (saves each entity's ctx.state)
+  └─ ctx.players.send (each system pushes { type: channel, ... } to the affected player)
 ```
 
 ## Complete App Setup Example
@@ -41,9 +41,18 @@ const EQUIPMENT = {
   ]
 }
 
+const CHANNELS = { stats: 'my-rpg.stats', quests: 'my-rpg.quests', inventory: 'my-rpg.inventory', levelUp: 'my-rpg.levelUp' }
+const SYNC_REQUEST = 'my-rpg.sync'
+
+const welcome = (ctx, playerId) => {
+  ctx.stats.equipItem(playerId, 'iron-sword')
+  ctx.stats.equipItem(playerId, 'leather')
+  ctx.quests.startQuest(playerId, 'tutorial-1')
+  ctx.inventory.push(playerId)
+}
+
 export const server = {
-  async setup(ctx) {
-    // Initialize the stats system with level scaling
+  setup(ctx) {
     ctx.stats = defineStatsSystem({
       startLevel: 1,
       startXP: 0,
@@ -64,114 +73,85 @@ export const server = {
         speed: 0             // No speed scaling
       },
       equipment: EQUIPMENT,
-      onLevelUp: (ctx, data) => {
-        console.log(`Player ${data.playerId} reached level ${data.level}`)
-        // Broadcast level up event to all clients
-        ctx.world?.sendToEntity?.('*', {
-          type: 'playerLevelUp',
-          playerId: data.playerId,
-          level: data.level
-        })
+      channel: CHANNELS.stats,
+      onLevelUp: (ctx, { playerId, level }) => {
+        ctx.players.broadcast({ type: CHANNELS.levelUp, playerId, level })
       }
     }, ctx)
+    ctx.progression = ctx.stats   // claimReward grants XP through ctx.progression.addXP
 
-    // Initialize quest system
     ctx.quests = defineQuestSystem({
       quests: QUESTS,
-      onQuestStart: (ctx, data) => {
-        console.log(`Quest started: ${data.questId}`)
-      },
-      onQuestComplete: (ctx, data) => {
-        console.log(`Quest completed: ${data.questId}`)
-      },
-      onObjectiveProgress: (ctx, data) => {
-        console.log(`Progress: ${data.progress}/${data.target}`)
+      channel: CHANNELS.quests,
+      onQuestComplete: (ctx, { playerId, questId }) => {
+        console.log(`Quest ${questId} completed by ${playerId}`)
       }
     }, ctx)
 
-    // Initialize inventory
     ctx.inventory = definePlayerInventory({
       startItems: { 'starter-gold': 0 },
       startCurrency: 100,
       itemDefs: {
         'starter-gold': { maxStack: 999 }
-      }
+      },
+      channel: CHANNELS.inventory
     }, ctx)
 
-    // Spawn world entities
-    ctx.world.spawn('world', {
-      app: 'my-world-controller',
-      position: [0, 0, 0]
-    })
+    // spawnChild ties the entity to this app; the guard keeps a hot reload from spawning it twice
+    if (!ctx.world.getEntity('world')) {
+      ctx.world.spawnChild('world', { app: 'my-world-controller', position: [0, 0, 0] })
+    }
 
-    console.log('Game setup complete')
+    // Players already connected when setup runs (hot reload) never send player_join
+    for (const player of ctx.players.getAll()) welcome(ctx, player.id)
   },
 
-  onPlayerJoin(ctx, playerId) {
-    console.log(`Player ${playerId} joined`)
+  onMessage(ctx, msg) {
+    // Joins and leaves arrive here: { type: 'player_join' | 'player_leave', playerId }
+    if (msg?.type === 'player_join') welcome(ctx, msg.playerId)
 
-    // Give starting equipment
-    ctx.stats.equipItem(playerId, 'iron-sword')
-    ctx.stats.equipItem(playerId, 'leather')
-
-    // Auto-start first quest
-    ctx.quests.startQuest(playerId, 'tutorial-1')
-
-    // Send initial state to client
-    ctx.stats.push?.(playerId)
-    ctx.inventory.push(playerId)
-
-    // Get initial player stats for logging
-    const stats = ctx.stats.getStats(playerId)
-    console.log(`Player ${playerId} stats: HP=${stats.health}, DMG=${stats.damage}`)
+    // The client asks for a resend once its module has loaded (see client.setup)
+    if (msg?.type === SYNC_REQUEST && msg.senderId != null) {
+      ctx.stats.push(msg.senderId)
+      ctx.quests.push(msg.senderId)
+      ctx.inventory.push(msg.senderId)
+    }
   },
 
-  onPlayerLeave(ctx, playerId) {
-    console.log(`Player ${playerId} left`)
-    // Systems auto-cleanup on player disconnect
-  },
-
-  tick(ctx, dt) {
-    // Per-tick game logic can trigger quest progress
-    // E.g., check proximity to locations for reachLocation objectives
+  update(ctx, dt) {
+    // Per-tick game logic, e.g. proximity checks for reachLocation objectives
   }
 }
 
 export const client = {
-  mount(engine, options) {
-    console.log('Client mounted')
-
-    // Listen for stats updates from server
-    engine.on('stats', (data) => {
-      console.log(`Stats: Level ${data.level}, HP=${data.health}`)
-      // Update UI with new stats
-    })
-
-    // Listen for quest updates
-    engine.on('quests', (data) => {
-      console.log(`Quest: ${data.questId} - ${data.progress}/${data.target}`)
-      // Update quest tracker UI
-    })
-
-    // Listen for inventory updates
-    engine.on('inventory', (data) => {
-      console.log(`Inventory: ${JSON.stringify(data.items)}`)
-      // Update inventory UI
-    })
+  setup(engine) {
+    // The engine object is shared by every app and has no state bucket: keep yours under engine._<app>
+    engine._myRpg = { stats: null, quests: {}, inventory: null }
+    // Pushes sent at player_join can arrive before this module has loaded, so ask for a resend
+    engine.network.send({ type: SYNC_REQUEST })
   },
 
-  onMessage(engine, msg) {
-    if (msg.type === 'playerLevelUp') {
-      console.log(`Player ${msg.playerId} leveled up to ${msg.level}!`)
-      // Show level-up animation/notification
-    }
-
-    if (msg.type === 'questComplete') {
-      console.log(`Quest complete! Collect rewards.`)
-    }
+  // Every ctx.players.send / broadcast payload reaches every app's onEvent: filter on payload.type
+  onEvent(payload, engine) {
+    const rpg = engine._myRpg
+    if (!rpg) return
+    if (payload?.type === CHANNELS.stats) rpg.stats = payload                              // { level, xp, nextLevelXP, health, ..., equipment }
+    else if (payload?.type === CHANNELS.quests) rpg.quests[payload.questId] = payload      // { questId, state, progress: [...], completedAt }
+    else if (payload?.type === CHANNELS.inventory) rpg.inventory = payload                 // { items, currency }
+    else if (payload?.type === CHANNELS.levelUp) console.log(`Player ${payload.playerId} reached level ${payload.level}`)
   }
 }
 ```
+
+How this maps onto the engine's real app hooks:
+
+- **Server hooks** are `setup(ctx)`, `update(ctx, dt)`, `teardown(ctx)` and `onMessage(ctx, msg)`. There is no `onPlayerJoin`, `onPlayerLeave` or `tick` hook. Joins and leaves arrive through `onMessage` as `{ type: 'player_join', playerId }` and `{ type: 'player_leave', playerId }`. Messages a client sends with `engine.network.send(msg)` also arrive in `onMessage`, and `msg.senderId` is the only trustworthy player id.
+- **Client hooks** are `setup(engine)`, `onEvent(payload, engine)`, `onInput(input, engine)`, `onKeyDown`/`onKeyUp(e, engine)`, `onMouseDown`/`onMouseUp`, `onFrame(dt, engine)` and `render(ctx)`. The engine object has no `on()`, and there is no client `mount` or `onMessage`.
+- **Channels.** The three systems push `{ type: channel, ... }`. Their defaults are `'stats'`, `'quests'` and `'inventory'`. Give each app its own `channel` so two apps using these systems don't read each other's pushes.
+- **`push(playerId)`.** Each system has one: StatsSystem pushes stats and equipment, QuestSystem pushes every quest the player has started, and inventory pushes items and currency.
+- **Reward wiring.** `claimReward` grants XP through `ctx.progression.addXP` and items through `ctx.inventory.add`. It grants stat bonuses through `ctx.stats.applyBonus`, but only if that method exists. StatsSystem has no `applyBonus`, so `statBonuses` come back in the return value without being applied.
+
+The working version of this setup is [`apps/tutorial-rpg/index.js`](../../apps/tutorial-rpg/index.js).
 
 ## Server-Authoritative Pattern
 
@@ -182,8 +162,9 @@ All game state changes must originate on the server:
 // In app's onMessage or update handler
 onMessage(ctx, msg) {
   if (msg.type === 'collectItem') {
-    const playerId = msg.senderId  // From server, never trust client
+    const playerId = msg.senderId  // Stamped by the server, never read a client-supplied id
     const itemId = 'herb'          // From config, never from client
+    const questId = 'tutorial-1'
 
     // Server validates and applies
     ctx.inventory.add(playerId, itemId, 1)
@@ -204,7 +185,7 @@ onMessage(ctx, msg) {
 
 ## Persistence Integration
 
-Connect to AppRuntime's world persistence:
+The systems keep per-player data in their own closures, which world persistence cannot see. WorldPersistence saves each entity's `ctx.state`. On restart it swaps the saved `ctx.state` in *after* `setup` has run, so copy the systems' snapshots into `ctx.state` and restore them lazily, on the first `player_join` after boot:
 
 ```javascript
 export const server = {
@@ -212,25 +193,26 @@ export const server = {
     ctx.stats = defineStatsSystem({...}, ctx)
     ctx.quests = defineQuestSystem({...}, ctx)
 
-    // On world save
+    // Synchronous shutdown hooks run before the world snapshot is written
     ctx.onShutdown(() => {
-      const save = {
-        stats: ctx.stats.snapshot(),
-        quests: ctx.quests.snapshot()
-      }
-      ctx.storage.gameState = save
+      ctx.state.progressSave = { stats: ctx.stats.snapshot(), quests: ctx.quests.snapshot() }
     })
   },
 
-  // On world load (when player rejoins)
-  onPlayerJoin(ctx, playerId) {
-    if (ctx.storage.gameState) {
-      ctx.stats.restore(ctx.storage.gameState.stats)
-      ctx.quests.restore(ctx.storage.gameState.quests)
+  onMessage(ctx, msg) {
+    if (msg?.type !== 'player_join') return
+    // restore() replaces every player's data, so run it once, before any player's data is created
+    if (ctx.state.progressSave && !ctx._progressRestored) {
+      ctx.stats.restore(ctx.state.progressSave.stats)
+      ctx.quests.restore(ctx.state.progressSave.quests)
+      ctx._progressRestored = true
     }
+    welcome(ctx, msg.playerId)
   }
 }
 ```
+
+`ctx.storage` is a different store: an async key/value adapter (`await ctx.storage.get(key)`, `ctx.storage.set(key, value)`), namespaced per app. It is `null` when the server has no storage configured.
 
 ## Common Patterns
 
@@ -340,9 +322,8 @@ export const server = {
 - With 100 players: ~70 KB total
 
 ### Network Overhead
-- Stats update on level-up only (rare)
-- Quest progress batched every few seconds
-- Loadout swap on-demand (rare)
+- Each system sends one `ctx.players.send` to the affected player on every change: XP gain, equip, objective progress, inventory change
+- Nothing is batched or sent per tick; a client only sees state after a change, or when `push(playerId)` is called
 
 ### CPU Impact
 - 0.007ms per operation (verified)
@@ -361,7 +342,7 @@ console.assert(state.state === 'complete', 'Quest should be complete')
 // Test stats scaling
 ctx.stats.addXP(playerId, 10000)
 const stats = ctx.stats.getStats(playerId)
-console.assert(stats.level > 50, 'Should reach max level')
+console.assert(stats.level === 50, 'Should be capped at maxLevel')
 
 // Test persistence
 const snap1 = ctx.stats.snapshot()
@@ -371,23 +352,24 @@ const stats2 = ctx.stats.getStats(playerId)
 console.assert(stats2.level === stats.level, 'Restore should work')
 
 // Test loadout swap
-ctx.stats.equipItem(playerId, 'sword')
+ctx.stats.equipItem(playerId, 'iron-sword')
 ctx.stats.saveLoadout(playerId, 'build1')
-ctx.stats.equipItem(playerId, 'staff')
+ctx.stats.equipItem(playerId, 'steel-sword')
 ctx.stats.loadLoadout(playerId, 'build1')
 const eq = ctx.stats.getEquipment(playerId)
-console.assert(eq.weapon.id === 'sword', 'Loadout swap should work')
+console.assert(eq.weapon.id === 'iron-sword', 'Loadout swap should work')
 ```
 
 ## Troubleshooting
 
 **Q: Stats not persisting after server restart?**
-- A: Ensure `ctx.onShutdown()` calls `ctx.stats.snapshot()` and stores to `ctx.storage`
-- A: Verify `onPlayerJoin()` calls `ctx.stats.restore()` with saved data
+- A: Ensure `ctx.onShutdown()` copies `ctx.stats.snapshot()` into `ctx.state` (world persistence saves `ctx.state`)
+- A: Restore on the first `player_join` after boot, not in `setup`: the saved `ctx.state` is swapped in after `setup` runs
 
-**Q: Client shows old stats?**
-- A: Add `ctx.stats.push?.(playerId)` after any stat change
-- A: Ensure client listener calls `engine.on('stats', ...)`
+**Q: Client shows old stats or nothing at all?**
+- A: The systems push after every change. `ctx.stats.push(playerId)` resends on demand.
+- A: Ensure the client's `onEvent(payload, engine)` matches `payload.type` against the system's `channel`
+- A: Pushes sent before the client module loaded are dropped; have the client's `setup` request a resend (see the example)
 
 **Q: Equipment bonuses not applying?**
 - A: Verify equipment IDs match between `getStats()` call and `_equipmentLookup`
@@ -398,8 +380,8 @@ console.assert(eq.weapon.id === 'sword', 'Loadout swap should work')
 - A: Check `claimReward()` is actually called (not just completing objectives)
 
 **Q: Performance degradation with many players?**
-- A: Snapshot/restore only happens on join, not per-tick
-- A: Network broadcasts batch changes (see TickHandler)
+- A: Snapshot/restore only happens at shutdown and on the first join, not per-tick
+- A: Each change sends one message to one player; if a loop grants XP many times per tick, sum it first and call `addXP` once
 - A: If still slow, profile with `performance.now()` around operations
 
 ## Next Steps

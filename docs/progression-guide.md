@@ -92,11 +92,10 @@ const addXp = (ctx, playerId, amount) => {
   const ps = getPlayerState(ctx, playerId)
   ps.xp += amount
 
-  // Check if level-up threshold reached
-  const nextLevelXp = getXpForLevel(ps.level)
-  while (ps.xp >= nextLevelXp && ps.level < 10) {
+  // Level up while the threshold is reached; overflow XP carries into the next level
+  while (ps.level < 10 && ps.xp >= getXpForLevel(ps.level)) {
+    ps.xp -= getXpForLevel(ps.level)
     ps.level++
-    ps.xp = 0
     ps.maxHealth += 10
     ps.health = ps.maxHealth
     ps.maxMana += 20
@@ -128,7 +127,7 @@ const ABILITIES = {
   10: { id: 'lightning-storm', name: 'Lightning Storm', cooldown: 10, manaCost: 50, damage: 60, range: 15 }
 }
 
-const castAbility = (ctx, playerId, abilityId, targetPos) => {
+const castAbility = (ctx, playerId, abilityId) => {
   const ps = getPlayerState(ctx, playerId)
   const ability = Object.values(ABILITIES).find(a => a.id === abilityId)
 
@@ -137,22 +136,33 @@ const castAbility = (ctx, playerId, abilityId, targetPos) => {
   if (ps.mana < ability.manaCost) return false                   // insufficient mana
   if (ps.activeCooldowns[abilityId]) return false                // on cooldown
 
+  // Cast from the caster's server-side position, never a client-supplied one
+  const origin = ctx.players.getById(playerId)?.state?.position
+  if (!origin) return false
+
   // Apply cost and cooldown
   ps.mana -= ability.manaCost
   ps.activeCooldowns[abilityId] = ability.cooldown
 
   // Resolve effect (damage nearby enemies)
-  const player = ctx.players.getById(playerId)
-  const nearby = ctx.world.nearby(player.state.position, ability.range)
-  
-  nearby.forEach(entityId => {
-    const entity = ctx.world.getEntity(entityId)
-    if (entity && entity.custom?.enemyType) {
-      damageEntity(entity, ability.damage)
-    }
-  })
+  const rangeSq = ability.range * ability.range
+  const targets = ctx.world.query(e => !!e.custom?.enemyType && (e.position[0] - origin[0]) ** 2 + (e.position[2] - origin[2]) ** 2 <= rangeSq)
+  for (const enemy of targets) damageEntity(ctx, playerId, enemy, ability.damage)
 
   return true
+}
+
+// ctx.world.query / getEntity return raw runtime entities: they have no destroy(),
+// so kills go through ctx.world.destroy(id). Reassign custom so the change is sent to clients.
+const damageEntity = (ctx, playerId, enemy, damage) => {
+  const custom = enemy.custom
+  const health = Math.max(0, (custom.health ?? custom.maxHealth ?? 10) - damage)
+  enemy.custom = { ...custom, health, isDamaged: true }
+  if (health > 0) return 0
+  ctx.world.destroy(enemy.id)
+  addXp(ctx, playerId, custom.xpValue ?? 10)
+  updateQuestProgress(ctx, playerId, 'kill', custom.enemyType)
+  return custom.xpValue ?? 10
 }
 ```
 
@@ -256,33 +266,36 @@ const completeQuest = (ctx, playerId) => {
 
 ### Triggering Quest Events
 
+Bus handlers receive an envelope `{ channel, data, meta }`; the emitter's payload is `data`:
+
 ```javascript
-// On enemy death
-ctx.bus.on('enemy.died', (e) => {
-  ctx.players.getAll().forEach(p => {
-    updateQuestProgress(ctx, p.id, 'kill', 'goblin')
-  })
+// On item collection (apps/gold-coin emits { playerId, coin })
+ctx.bus.on('gold-coin-collected', ({ data }) => {
+  if (data?.playerId == null) return
+  updateQuestProgress(ctx, data.playerId, 'collect', 'gold-coin')
 })
 
-// On item collection
-ctx.bus.on('gold-coin-collected', (e) => {
-  updateQuestProgress(ctx, e.playerId, 'collect', 'gold-coin')
+// On enemy death: only if your enemy apps emit such an event (the engine emits none)
+ctx.bus.on('enemy.died', ({ data }) => {
+  updateQuestProgress(ctx, data.killerId, 'kill', data.enemyType)
 })
 
 // On reach location
 ctx.time.every(1, () => {
+  const tower = ctx.world.getEntity('tower-base')
+  if (!tower) return
   ctx.players.getAll().forEach(p => {
-    const tower = ctx.world.getEntity('tower-base')
-    const dist = Math.hypot(
-      p.state.position[0] - tower.position[0],
-      p.state.position[2] - tower.position[2]
-    )
+    const pos = p.state?.position
+    if (!pos) return
+    const dist = Math.hypot(pos[0] - tower.position[0], pos[2] - tower.position[2])
     if (dist < 5) {
       updateQuestProgress(ctx, p.id, 'reach', 'tower-base')
     }
   })
 })
 ```
+
+Kills are simplest to count where they happen: `damageEntity` above advances the killer's kill quest itself.
 
 ---
 
@@ -336,29 +349,23 @@ const canCastAbility = (ps, abilityId) => {
 
 ### Ability Effect Resolution
 
-```javascript
-const resolveAbilityEffect = (ctx, ability, originPos, targetPos) => {
-  // Find nearby entities in range
-  const nearby = ctx.world.nearby(targetPos, ability.range)
+Shared XP for every player near the kill, on top of the killer's own award:
 
-  // Apply damage to each enemy
+```javascript
+const resolveAbilityEffect = (ctx, casterId, ability, originPos) => {
+  // nearby() returns entity ids
+  const nearby = ctx.world.nearby(originPos, ability.range)
+
   nearby.forEach(entityId => {
     const entity = ctx.world.getEntity(entityId)
-    if (entity && entity.custom?.enemyType) {
-      const xpDrop = damageEntity(entity, ability.damage)
-      if (xpDrop > 0) {
-        // Enemy died, broadcast to all nearby players
-        ctx.players.getAll().forEach(p => {
-          const dist = Math.hypot(
-            p.state.position[0] - originPos[0],
-            p.state.position[2] - originPos[2]
-          )
-          if (dist < 50) {
-            addXp(ctx, p.id, xpDrop)
-          }
-        })
-      }
-    }
+    if (!entity?.custom?.enemyType) return
+    const xpDrop = damageEntity(ctx, casterId, entity, ability.damage)
+    if (xpDrop === 0) return
+    ctx.players.getAll().forEach(p => {
+      const pos = p.state?.position
+      if (p.id === casterId || !pos) return
+      if (Math.hypot(pos[0] - originPos[0], pos[2] - originPos[2]) < 50) addXp(ctx, p.id, xpDrop)
+    })
   })
 }
 ```
@@ -414,8 +421,8 @@ const addXp = (ctx, playerId, amount) => {
 On level-up, stats increase:
 
 ```javascript
+ps.xp -= getXpForLevel(ps.level)     // carry overflow XP
 ps.level++
-ps.xp = 0
 ps.maxHealth += 10                    // +10 HP per level
 ps.health = ps.maxHealth              // fully heal on level-up
 ps.maxMana += 20                      // +20 mana per level
@@ -444,113 +451,80 @@ ps.maxMana += statGain.manaGain
 
 ### Client-Side Ability Casting
 
-Abilities are cast from the client via network message:
+Abilities are cast from the client via a network message. The client only names the ability; the server resolves it from the caster's own position:
 
 ```javascript
-// client/render.onKeyDown or onInput
+// client hooks (apps/rpg-tutorial/index.js)
+const ABILITY_KEYS = { 1: 'attack', 2: 'fireball', 3: 'lightning-storm' }
+
 onKeyDown(e, engine) {
-  if (e.key === '1') {  // ability hotkey 1
-    const players = engine.client.state?.players || []
-    const myPlayer = players.find(p => p.id === engine.playerId)
-    if (myPlayer) {
-      const dir = engine.cam.getAimDirection(myPlayer.state.position)
-      engine.network.send({
-        type: 'cast_ability',
-        abilityId: 'attack',
-        targetPos: [
-          myPlayer.state.position[0] + dir[0] * 15,
-          myPlayer.state.position[1],
-          myPlayer.state.position[2] + dir[2] * 15
-        ]
-      })
-    }
-  }
+  const abilityId = ABILITY_KEYS[e.key]
+  const unlocked = engine._rpgTutorial?.progress?.unlockedAbilities
+  if (e.repeat || !abilityId || !unlocked?.includes(abilityId)) return
+  engine.network.send({ type: 'cast_ability', abilityId })
 }
 ```
+
+The engine object passed to client hooks is shared by every app. It has no `on()`, no `state` bucket and no per-app player state, so keep your own under `engine._<appName>` (here `engine._rpgTutorial`). If you need the local player's position on the client, snapshot players carry it at the top level: `player.position`, not `player.state.position`. `player.state.position` exists only on the server.
 
 ### Server-Side Message Handling
 
-The server validates and resolves ability effects:
+Client messages arrive in the server `onMessage(ctx, msg)` hook. `msg.senderId` is stamped by the server and is the only player id to trust:
 
 ```javascript
 onMessage(ctx, msg) {
-  if (!msg) return
-  if (msg.type === 'cast_ability') {
-    castAbility(ctx, msg.playerId || msg.senderId, msg.abilityId, msg.targetPos)
-  }
+  if (msg?.type !== 'cast_ability' || msg.senderId == null) return
+  castAbility(ctx, msg.senderId, msg.abilityId)
 }
 ```
 
-### Broadcasting State Changes
+### Sending State to Clients
 
-The engine automatically broadcasts:
-- Player position/rotation/health each snapshot (~250ms)
-- Ability unlocks on level-up (via `player.levelup` bus event)
-- Quest completion (via `quest.completed` bus event)
+The engine's snapshots carry player position, rotation and health, and each entity's `custom`. Bus events (`player.levelup`, `quest.completed`) are server-side only and never reach a client. Progression therefore has to be pushed explicitly. rpg-tutorial sends one `rpg-progress` payload per player every second, and again after every change:
 
-No manual sync code required; `ctx.entity.custom` fields are sent in every snapshot.
+```javascript
+ctx.players.send(playerId, {
+  type: 'rpg-progress',
+  level: ps.level, xp: ps.xp, xpToNext: xpToNext(ps.level),
+  health: ps.health, maxHealth: ps.maxHealth, mana: ps.mana, maxMana: ps.maxMana,
+  quest: ps.quest, questTitle: QUESTS[ps.quest]?.title ?? null,
+  questProgress: ps.questProgress, questTarget: QUESTS[ps.quest]?.count ?? 0,
+  unlockedAbilities: [...ps.unlockedAbilities], cooldowns: { ...ps.cooldowns }
+})
+```
+
+and the client keeps the latest one:
+
+```javascript
+setup(engine) { engine._rpgTutorial = { progress: null } },
+
+// every ctx.players.send / broadcast payload reaches every app's onEvent
+onEvent(payload, engine) {
+  if (payload?.type === 'rpg-progress') engine._rpgTutorial.progress = payload
+}
+```
 
 ---
 
 ## Persistence & Snapshot Model
 
-### Automatic Persistence
+### What Persists
 
-Player progression is persisted automatically:
-
-```javascript
-// In your app's setup(ctx):
-ctx.state.progression = ctx.state.progression || {}
-
-// On every snapshot send, ctx.state fields are included
-// On server restart, ctx.state is restored from the saved snapshot
-```
-
-### Custom Persistence
-
-To save/restore specific fields:
+`ctx.state` is the app's server-side state. It is never sent to clients. It survives a hot reload of the app, since the same object is handed to the new `setup`, and it is saved with the world snapshot (`src/sdk/WorldPersistence.js`, which records each entity's `ctx.state`).
 
 ```javascript
-// Save on shutdown
-ctx.entity.custom = {
-  progression: ctx.state.progression,
-  questLog: ctx.state.questLog
-}
-
-// Restore on startup
-if (ctx.entity.custom.progression) {
-  ctx.state.progression = ctx.entity.custom.progression
+// In your app's setup(ctx): read-or-create, never overwrite
+const progressOf = (ctx, playerId) => {
+  const players = ctx.state.rpgPlayers || (ctx.state.rpgPlayers = {})
+  return players[playerId] || (players[playerId] = { level: 1, xp: 0, quest: 0, questProgress: 0 })
 }
 ```
 
-### Snapshot Structure
+On a restart, the saved `ctx.state` is swapped in *after* `setup` has already run. Always reach progression through `ctx.state` at use time, as `progressOf` does, rather than caching it in a closure during `setup`.
 
-Each player entity carries their progression in `custom`:
+### What Clients See
 
-```javascript
-{
-  position: [x, y, z],
-  rotation: [x, y, z, w],
-  custom: {
-    level: 5,
-    xp: 120,
-    mana: 45,
-    health: 95,
-    quest: 2,
-    questProgress: 2,
-    unlockedAbilities: { attack: true, fireball: true },
-    activeCooldowns: { fireball: 3.5 }
-  }
-}
-```
-
-On load, restore from snapshot:
-
-```javascript
-if (msg.type === 'snapshot') {
-  ctx.state.progression = msg.custom.progression || ctx.state.progression
-}
-```
+Clients never see `ctx.state`. They see `ctx.entity.custom`, which is sent in snapshots, and whatever you push with `ctx.players.send`/`broadcast`. Player progression belongs to players, not to the game-controller entity, so push it per player as shown in [Sending State to Clients](#sending-state-to-clients). There is no progression inside a player's snapshot entry.
 
 ---
 
@@ -564,7 +538,7 @@ Keep expensive operations out of tight loops:
 // GOOD: run every 1 second
 ctx.time.every(1, () => {
   // mana regen, cooldown decay
-  ctx.players.forEach(p => { /* ... */ })
+  ctx.players.getAll().forEach(p => { /* ... */ })
 })
 
 // AVOID: run every frame (60 Hz)
@@ -591,7 +565,7 @@ Batch ability effects:
 
 ```javascript
 // Good: find all enemies once
-const nearby = ctx.world.nearby(targetPos, ability.range)
+const nearby = ctx.world.nearby(origin, ability.range)
 nearby.forEach(entityId => {
   // Apply damage
 })
@@ -642,23 +616,20 @@ export default {
 export default {
   server: {
     setup(ctx) {
-      ctx.state.progression = ctx.state.progression || {}
-
-      // ... register quests, abilities, level-up handlers
-
-      ctx.onMessage((ctx_msg, msg) => {
-        if (msg.type === 'cast_ability') {
-          castAbility(ctx, msg.playerId, msg.abilityId, msg.targetPos)
-        }
-      })
+      // ... register bus handlers (ctx.bus.on) and timers (ctx.time.every)
+    },
+    // Client messages and player joins/leaves all arrive here; there is no ctx.onMessage
+    onMessage(ctx, msg) {
+      if (msg?.type === 'cast_ability' && msg.senderId != null) castAbility(ctx, msg.senderId, msg.abilityId)
     },
     update(ctx, dt) { /* ... */ },
     teardown(ctx) {}
   },
   client: {
-    render(ctx) { /* ... */ },
-    onKeyDown(e, engine) { /* cast abilities */ },
-    onFrame(dt, engine) { /* update UI */ }
+    setup(engine) { engine._yourGame = { progress: null } },
+    onEvent(payload, engine) { if (payload?.type === 'rpg-progress') engine._yourGame.progress = payload },
+    onKeyDown(e, engine) { /* engine.network.send({ type: 'cast_ability', abilityId }) */ },
+    onFrame(dt, engine) { /* update UI from engine._yourGame.progress */ }
   }
 }
 ```
@@ -669,9 +640,9 @@ export default {
 npx spoint
 # Visit http://localhost:3001/?world=your-game
 
-# In browser console:
-window.debug.client.state.players[0].custom.level  // check level
-window.debug.client.state.players[0].custom.xp     // check XP
+# In browser console (the last progress payload your client's onEvent kept):
+window.__app.engine._yourGame.progress.level  // check level
+window.__app.engine._yourGame.progress.xp     // check XP
 ```
 
 ---
@@ -680,37 +651,29 @@ window.debug.client.state.players[0].custom.xp     // check XP
 
 ### Player Join Flow
 
-1. Client joins room, receives first snapshot
-2. Server calls `ctx.onMessage(playerJoin)`
-3. Initialize progression for this player ID
-4. Sync current state in next snapshot send
+1. The client joins the room and receives its first snapshot.
+2. The server calls every app's `onMessage(ctx, { type: 'player_join', playerId })`. A player who was already connected when `setup` ran, e.g. after a hot reload, sends no join and is only visible through `ctx.players.getAll()`.
+3. The app creates or looks up progression for that player id.
+4. The app pushes it with `ctx.players.send(playerId, ...)`. Pushes can land before the client has loaded the app module, and `onEvent` then drops them. Either push periodically, as rpg-tutorial does every second, or have the client's `setup` send a sync request (apps/tutorial-rpg does this).
 
 ### Level-Up Broadcast
 
-```javascript
-ctx.bus.emit('player.levelup', {
-  playerId: id,
-  newLevel: level,
-  unlockedAbility: name
-})
+`ctx.bus.emit` notifies other server-side apps only. To tell clients, send or broadcast explicitly:
 
-// Engine broadcasts this to all players in world
-ctx.players.broadcast({ type: 'player.levelup', ... })
+```javascript
+ctx.bus.emit('player.levelup', { playerId: id, newLevel: level, unlockedAbility: name })   // other apps
+ctx.players.broadcast({ type: 'player.levelup', playerId: id, newLevel: level })            // every client's onEvent
 ```
 
 ### Ability Cooldown Sync
 
-Cooldowns are tracked server-side, sent in snapshot:
+Cooldowns are tracked server-side and ride along in the pushed progress payload:
 
 ```javascript
-custom: {
-  activeCooldowns: {
-    fireball: 3.2  // 3.2 seconds remaining
-  }
-}
+{ type: 'rpg-progress', ..., cooldowns: { fireball: 3 } }   // seconds remaining
 ```
 
-Client displays cooldown UI based on this value.
+The client displays cooldown UI from `engine._<app>.progress.cooldowns`.
 
 ---
 
@@ -718,11 +681,11 @@ Client displays cooldown UI based on this value.
 
 ### Server-Side State
 
-In Node REPL:
+In the server process, e.g. under `node --inspect`:
 
 ```javascript
-globalThis.__DEBUG__.server.getEntity('game-app').custom.progression
-// { playerId1: { level: 5, xp: 120, ... }, ... }
+globalThis.__DEBUG__.server.runtime.contexts.get('rpg-tutorial').state.rpgPlayers
+// { <playerId>: { level: 5, xp: 120, ... }, ... }
 ```
 
 ### Client-Side State
@@ -730,11 +693,11 @@ globalThis.__DEBUG__.server.getEntity('game-app').custom.progression
 In browser console:
 
 ```javascript
-window.debug.client.state.players[0]
-// { id, health, position, custom: { level, xp, ... } }
+window.__app.engine._rpgTutorial.progress
+// the last rpg-progress payload: { level, xp, xpToNext, health, mana, questTitle, ... }
 
-window.debug.engine.playerId
-// get local player ID
+window.__app.engine.playerId
+// local player ID
 ```
 
 ### Quest Progress
@@ -761,20 +724,22 @@ console.log('Unlocked:', Object.keys(ps.unlockedAbilities))
 |----------|------|---------|--------|
 | `getPlayerState(ctx, playerId)` | ctx, string | PlayerState | Get or create player progression |
 | `addXp(ctx, playerId, amount)` | ctx, string, number | void | Add XP, trigger level-ups |
-| `castAbility(ctx, playerId, abilityId, targetPos)` | ctx, string, string, [x,y,z] | bool | Validate and resolve ability |
-| `damageEntity(entity, damage)` | Entity, number | number | Damage enemy, return XP if killed |
+| `castAbility(ctx, playerId, abilityId)` | ctx, id, string | bool | Validate and resolve ability from the caster's server-side position |
+| `damageEntity(ctx, playerId, entity, damage)` | ctx, id, Entity, number | number | Damage enemy; on a kill, `ctx.world.destroy` it, credit the killer and return its XP |
 | `updateQuestProgress(ctx, playerId, objType, targetType)` | ctx, string, string, string | void | Increment quest objective |
 | `completeQuest(ctx, playerId)` | ctx, string | void | Mark current quest complete, advance |
 
 ### Event Triggers
 
-| Event | When | Payload |
-|-------|------|---------|
-| `player.levelup` | level-up occurs | `{ playerId, newLevel, unlockedAbility }` |
-| `quest.completed` | quest finishes | `{ playerId, questId, questTitle }` |
-| `gold-coin-collected` | collectible taken | `{ playerId, coin }` |
-| `combat.damage` | ability hits | `{ source, target, damage, ability }` |
-| `enemy.died` | health <= 0 | `{ entityId, xpDrop }` |
+Server-side bus events (`ctx.bus.emit` / `ctx.bus.on`). Handlers receive `{ channel, data, meta }` with the payload in `data`, and no client ever sees them.
+
+| Event | Emitted by | Payload (`data`) |
+|-------|------------|------------------|
+| `player.levelup` | rpg-tutorial, on level-up | `{ playerId, newLevel, unlockedAbility }` |
+| `quest.completed` | rpg-tutorial, on quest completion | `{ playerId, questId, questTitle }` |
+| `gold-coin-collected` | apps/gold-coin, on pickup | `{ playerId, coin }` |
+
+Events such as `combat.damage` or `enemy.died` exist only if your own apps emit them; the engine emits neither.
 
 ---
 
@@ -796,9 +761,13 @@ console.log('Unlocked:', Object.keys(ps.unlockedAbilities))
 - Verify `questProgress` incremented
 
 ### State not persisting
-- Confirm `ctx.state.progression` saved before shutdown
-- Check snapshot sends before disconnect
-- Verify server loads saved state on startup
+- Keep progression in `ctx.state`: world persistence saves it, and a hot reload hands the same object to the new `setup`
+- Read it through `ctx.state` at use time. On restart the saved state is swapped in after `setup`, so a reference cached during `setup` points at the discarded object.
+
+### Client never shows progress
+- Push it: `ctx.players.send(playerId, { type: 'rpg-progress', ... })`. Neither `ctx.state` nor bus events reach clients.
+- Receive it in the client `onEvent(payload, engine)` hook. The engine object has no `on()`.
+- Pushes sent before the client module loaded are dropped; push periodically or answer a sync request from the client's `setup`
 
 ---
 
@@ -818,14 +787,12 @@ const ABILITIES = {
   }
 }
 
-const resolveAbilityEffect = (ctx, ability, origin, target) => {
+const resolveAbilityEffect = (ctx, casterId, ability, origin) => {
   if (ability.id === 'healing-aura') {
-    const nearby = ctx.world.nearby(origin, ability.range)
     ctx.players.getAll().forEach(p => {
-      const dist = Math.hypot(
-        p.state.position[0] - origin[0],
-        p.state.position[2] - origin[2]
-      )
+      const pos = p.state?.position
+      if (!pos) return
+      const dist = Math.hypot(pos[0] - origin[0], pos[2] - origin[2])
       if (dist < ability.range) {
         p.state.health = Math.min(
           p.state.health + ability.healAmount,
@@ -843,9 +810,9 @@ const resolveAbilityEffect = (ctx, ability, origin, target) => {
 
 ```javascript
 // Final boss requires level 10 to damage
-const castAbility = (ctx, playerId, abilityId, targetPos) => {
+const castAbility = (ctx, playerId, abilityId) => {
   const ps = getPlayerState(ctx, playerId)
-  
+
   // Find target boss
   const bossEntities = ctx.world.query(e => e.custom?.enemyType === 'final-boss')
   bossEntities.forEach(boss => {
@@ -858,7 +825,7 @@ const castAbility = (ctx, playerId, abilityId, targetPos) => {
       return
     }
     
-    damageEntity(boss, 30)
+    damageEntity(ctx, playerId, boss, 30)
   })
 }
 ```

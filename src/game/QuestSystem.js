@@ -36,7 +36,7 @@ export function defineQuestSystem(spec = {}, appCtx) {
     const data = _getPlayerData(pid)
     const quest = data.get(questId)
     if (quest) {
-      appCtx.players?.send?.(String(pid), {
+      appCtx.players?.send?.(pid, {
         type: channel,
         questId,
         state: quest.state,
@@ -145,6 +145,10 @@ export function defineQuestSystem(spec = {}, appCtx) {
 
       _pushToClient(pid, questId)
       return { xp: rewards.xp || 0, items: rewards.items || {}, statBonuses: rewards.statBonuses || {} }
+    },
+
+    push(pid) {
+      for (const questId of _getPlayerData(pid).keys()) _pushToClient(pid, questId)
     },
 
     getQuestState(pid, questId) {

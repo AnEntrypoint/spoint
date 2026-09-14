@@ -254,28 +254,25 @@ import { defineQuestSystem } from '../../src/game/QuestSystem.js'
 import { defineStatsSystem } from '../../src/game/StatsSystem.js'
 
 export const server = {
-  async setup(ctx) {
-    // Initialize systems
-    ctx.quests = defineQuestSystem(questConfig, ctx)
+  setup(ctx) {
     ctx.stats = defineStatsSystem(statsConfig, ctx)
-    
-    // Wire quest rewards to stats
-    questConfig.onQuestComplete = (ctx, data) => {
-      const rewards = data.rewards
-      if (rewards.xp) ctx.stats.addXP(data.playerId, rewards.xp)
-    }
+    // claimReward grants reward XP through ctx.progression.addXP
+    ctx.progression = ctx.stats
+    ctx.quests = defineQuestSystem(questConfig, ctx)
   },
-  
-  onPlayerJoin(ctx, playerId) {
-    // Start first quest
-    ctx.quests.startQuest(playerId, 'quest-1')
+
+  // There is no onPlayerJoin hook: joins arrive here as { type: 'player_join', playerId }
+  onMessage(ctx, msg) {
+    if (msg?.type === 'player_join') ctx.quests.startQuest(msg.playerId, 'quest-1')
   }
 }
 ```
 
+The systems push `{ type: channel, ... }` to the player with `ctx.players.send`, and a client reads the pushes in its `onEvent(payload, engine)` hook. [INTEGRATION.md](INTEGRATION.md) has the full server and client wiring.
+
 ## Tutorial App
 
-The tutorial RPG app demonstrates full integration:
+The tutorial RPG app wires the stats, quest and inventory systems to a client. On join it equips the starting gear and starts quest 1, and pushes stats, quests and inventory to the player. The objective apps below spawn, but they don't report kills, pickups or visits back yet, so quest progress only moves when your code calls `completeObjective`:
 
 - **apps/tutorial-rpg/index.js** - Main app with all systems
 - **apps/tutorial-rpg-world/index.js** - World controller
@@ -292,4 +289,4 @@ The tutorial creates a 5-quest chain:
 4. Talk to elder (talkToNPC objective)
 5. Defeat shadow beast (killN objective, boss fight)
 
-Each quest grants XP and rewards that feed into stat progression.
+A claimed quest grants its XP and items. Its `statBonuses` are returned but not applied, because StatsSystem has no `applyBonus`.

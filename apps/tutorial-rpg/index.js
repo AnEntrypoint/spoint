@@ -1,7 +1,12 @@
 import { defineQuestSystem } from '../../src/game/QuestSystem.js'
 import { defineStatsSystem } from '../../src/game/StatsSystem.js'
-import { defineGameFSM } from '../_lib/game-fsm.js'
 import { definePlayerInventory } from '../_lib/inventory.js'
+
+const CHANNELS = { stats: 'tutorial-rpg.stats', quests: 'tutorial-rpg.quests', inventory: 'tutorial-rpg.inventory', levelUp: 'tutorial-rpg.levelUp' }
+const SYNC_REQUEST = 'tutorial-rpg.sync'
+const WORLD_ENTITY_ID = 'tutorial-world'
+const FIRST_QUEST_ID = 'quest-1-kill-rats'
+const STARTING_GEAR = ['iron-sword', 'leather-armor']
 
 const QUEST_DEFINITIONS = {
   'quest-1-kill-rats': {
@@ -84,49 +89,33 @@ const EQUIPMENT_CATALOG = {
   ],
 }
 
+const welcome = (ctx, playerId) => {
+  for (const itemId of STARTING_GEAR) ctx.progression.equipItem(playerId, itemId)
+  ctx.quests.startQuest(playerId, FIRST_QUEST_ID)
+  ctx.inventory.push(playerId)
+}
+
+const pushAll = (ctx, playerId) => {
+  ctx.progression.push(playerId)
+  ctx.quests.push(playerId)
+  ctx.inventory.push(playerId)
+}
+
 export const server = {
-  async setup(ctx) {
+  setup(ctx) {
     ctx.progression = defineStatsSystem({
       startLevel: 1,
       startXP: 0,
       xpPerLevel: 100,
       maxLevel: 50,
-      baseStats: {
-        health: 100,
-        mana: 50,
-        damage: 10,
-        defense: 5,
-        speed: 1.0,
-      },
-      statScaling: {
-        health: 10,
-        mana: 5,
-        damage: 0.5,
-        defense: 0.25,
-        speed: 0,
-      },
+      baseStats: { health: 100, mana: 50, damage: 10, defense: 5, speed: 1.0 },
+      statScaling: { health: 10, mana: 5, damage: 0.5, defense: 0.25, speed: 0 },
       equipment: EQUIPMENT_CATALOG,
-      onLevelUp: (ctx, data) => {
-        console.log(`[TutorialRPG] Player ${data.playerId} leveled up to ${data.level}!`)
-        ctx.world?.sendToEntity?.('world', { type: 'levelUp', playerId: data.playerId, level: data.level })
-      },
-      onLoadoutSwap: (ctx, data) => {
-        console.log(`[TutorialRPG] Player ${data.playerId} swapped loadout`)
-      },
+      channel: CHANNELS.stats,
+      onLevelUp: (appCtx, { playerId, level }) => appCtx.players.send(playerId, { type: CHANNELS.levelUp, playerId, level }),
     }, ctx)
 
-    ctx.quests = defineQuestSystem({
-      quests: QUEST_DEFINITIONS,
-      onQuestStart: (ctx, data) => {
-        console.log(`[TutorialRPG] Player ${data.playerId} started quest ${data.questId}`)
-      },
-      onQuestComplete: (ctx, data) => {
-        console.log(`[TutorialRPG] Player ${data.playerId} completed quest ${data.questId}`)
-      },
-      onObjectiveProgress: (ctx, data) => {
-        console.log(`[TutorialRPG] Quest progress: ${data.playerId} - ${data.questId} obj[${data.objectiveIndex}]: ${data.progress}/${data.target}`)
-      },
-    }, ctx)
+    ctx.quests = defineQuestSystem({ quests: QUEST_DEFINITIONS, channel: CHANNELS.quests }, ctx)
 
     ctx.inventory = definePlayerInventory({
       startItems: { herb: 0, 'copper-ore': 0 },
@@ -140,49 +129,32 @@ export const server = {
         'shadow-core': { maxStack: 1 },
         'legendary-sword': { maxStack: 1 },
       },
+      channel: CHANNELS.inventory,
     }, ctx)
 
-    ctx.world.spawn('tutorial-world', {
-      app: 'tutorial-rpg-world',
-      position: [0, 0, 0],
-    })
-
-    console.log('[TutorialRPG] Server setup complete')
+    if (!ctx.world.getEntity(WORLD_ENTITY_ID)) ctx.world.spawnChild(WORLD_ENTITY_ID, { app: 'tutorial-rpg-world', position: [0, 0, 0] })
+    for (const player of ctx.players.getAll()) welcome(ctx, player.id)
   },
 
-  onPlayerJoin(ctx, playerId) {
-    console.log(`[TutorialRPG] Player ${playerId} joined`)
-
-    ctx.progression.equipItem(playerId, 'iron-sword')
-    ctx.progression.equipItem(playerId, 'leather-armor')
-
-    ctx.quests.startQuest(playerId, 'quest-1-kill-rats')
-
-    ctx.progression.getStats(playerId)
-    ctx.inventory.push(playerId)
+  onMessage(ctx, msg) {
+    if (msg?.type === 'player_join' && msg.playerId != null) welcome(ctx, msg.playerId)
+    else if (msg?.type === SYNC_REQUEST && msg.senderId != null) pushAll(ctx, msg.senderId)
   },
 }
 
+const CLIENT_SLOT_BY_CHANNEL = { [CHANNELS.stats]: 'stats', [CHANNELS.inventory]: 'inventory', [CHANNELS.levelUp]: 'lastLevelUp' }
+
 export const client = {
-  mount(engine, options) {
-    console.log('[TutorialRPG] Client mounted')
-
-    engine.on('quests', (data) => {
-      console.log('[TutorialRPG] Quest update:', data)
-    })
-
-    engine.on('stats', (data) => {
-      console.log('[TutorialRPG] Stats update: level', data.level, 'health', data.health)
-    })
-
-    engine.on('inventory', (data) => {
-      console.log('[TutorialRPG] Inventory update:', data)
-    })
+  setup(engine) {
+    engine._tutorialRpg = { stats: null, inventory: null, lastLevelUp: null, quests: {} }
+    engine.network.send({ type: SYNC_REQUEST })
   },
 
-  onMessage(engine, msg) {
-    if (msg.type === 'levelUp') {
-      console.log(`[TutorialRPG] Player ${msg.playerId} leveled up to ${msg.level}`)
-    }
+  onEvent(payload, engine) {
+    const rpg = engine._tutorialRpg
+    if (!rpg || typeof payload?.type !== 'string') return
+    if (payload.type === CHANNELS.quests) { rpg.quests[payload.questId] = payload; return }
+    const slot = CLIENT_SLOT_BY_CHANNEL[payload.type]
+    if (slot) rpg[slot] = payload
   },
 }
