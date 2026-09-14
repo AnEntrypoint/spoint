@@ -1,10 +1,3 @@
-// A placeable, ORDERED deathrun/parkour CHECKPOINT marker: drop several to author a start->finish run
-// sequence with no code. Each carries an `order` number (0 = start/spawn trigger, highest = finish) and a
-// radius. Mirrors apps/waypoint's collectWaypoints ordered-marker pattern exactly (custom-tagged entity,
-// collected server-side by the owning game app via ctx.world.query, sorted by order) -- this is the same
-// "author N markers, a game app reads them in order" primitive, specialized for deathrun's start/finish
-// semantics instead of a generic path. apps/deathrun/index.js is the intended collector: it feeds the
-// sorted marker list straight into apps/_lib/checkpoint.js's defineCheckpoint({checkpoints:[...]}).
 export function collectCheckpointMarkers(ctx) {
   const marks = ctx.world.query(e => e?.custom?._deathrunCheckpoint)
   return marks

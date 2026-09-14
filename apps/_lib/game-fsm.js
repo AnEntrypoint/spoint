@@ -1,29 +1,11 @@
-// spec = { initial, context?, states: { name: { enter/exit/tick(ctx,fsm), on: {EVT: target|{target,guard,action}}, after: {ms: target}, final? } } }; defineGameFSM(spec, appCtx)
 const _isNode = typeof process !== 'undefined' && !!process.versions?.node
-// Edge-target seam (edge-cf-durable-object-transport-adapter-real-websocketpair, same session as
-// World.js's getJolt() __SPOINT_EDGE_JOLT__ seam): a real Cloudflare Durable Object has
-// process.versions.node UNDEFINED (no nodejs_compat needed/wanted for this graph -- see World.js's
-// comment for why nodejs_compat itself breaks jolt-physics), so `_isNode` correctly evaluates false
-// there, same as a real browser -- but unlike a real browser, a DO's module resolution is a bundler
-// (esbuild via wrangler), which CAN resolve the bare 'xstate' specifier (a real bundleable pure-JS
-// npm package, zero Node-native hazard) but has no filesystem to serve the browser-only ABSOLUTE
-// '/node_modules/...' path from -- live-reproduced as a real workerd runtime error ('No such module
-// "node_modules/xstate/dist/xstate.esm.js"'), distinct from the BUILD-time-only esbuild-static-
-// resolution problem the specifier-built-at-runtime fix (still applied below) solves. The edge DO
-// entry script (edge/cf-do/jolt-edge-init.js's sibling initJoltForEdge, called before any app module
-// loads) sets this flag so xstate resolves via the bare specifier there too.
 let _xstate
-if (_isNode || typeof globalThis.__SPOINT_EDGE_BUNDLED__ !== 'undefined') {
-  // Real literal specifier (not obfuscated) -- 'xstate' is a real bundleable pure-JS npm package with
-  // zero Node-native hazard, so a bundler-based edge/DO build target SHOULD statically resolve+bundle
-  // it here, unlike jolt-physics/draco3dgltf's specifier-built-at-runtime fixes elsewhere in this
-  // session (those obfuscate a specifier that must NOT be bundled/resolved at all).
+const _bareXstateSpecifierResolvable = _isNode || typeof globalThis.__SPOINT_EDGE_BUNDLED__ !== 'undefined'
+if (_bareXstateSpecifierResolvable) {
   _xstate = await import('xstate')
 } else {
-  // Real un-bundled browser only: obfuscated so a bundler build never tries to statically resolve
-  // this absolute path (which has no real module behind it in a bundled/edge context anyway).
-  const _browserXstateSpec = (() => '/node_modules/' + 'xstate/dist/xstate.esm.js')()
-  _xstate = await import(_browserXstateSpec)
+  const _bundlerOpaqueBrowserXstateSpec = (() => '/node_modules/' + 'xstate/dist/xstate.esm.js')()
+  _xstate = await import(_bundlerOpaqueBrowserXstateSpec)
 }
 const { setup, createActor, assign } = _xstate
 
@@ -150,11 +132,11 @@ export function defineGameFSM(spec, appCtx) {
       _subs.add(fn)
       return () => _subs.delete(fn)
     },
-    // final states do not tick
     tick(dt) {
       if (_stopped) return
       const snap = actor.getSnapshot()
-      if (snap.status === 'done') return
+      const inFinalState = snap.status === 'done'
+      if (inFinalState) return
       const name = snap.value
       const st = spec.states[name]
       if (st && typeof st.tick === 'function') st.tick(getAppCtx(), dt, runtime)

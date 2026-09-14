@@ -8,10 +8,6 @@ export default {
       { key: 'mass', label: 'Mass (kg)', type: 'number', default: 50 },
       { key: 'color', label: 'Color', type: 'color', default: '#8B4513' },
       { key: 'roughness', label: 'Roughness', type: 'number', default: 0.8 },
-      // Per-entity-class CCD policy (physics-per-entity-class-ccd-policy): 'auto' keeps the engine
-      // default (CCD on for dynamic bodies), 'off' drops LinearCast's real per-step cost for a slow
-      // settled-once prop (most crates), 'always' is for a box a maker intends to be thrown/launched
-      // fast enough to otherwise tunnel through thin walls in one physics step.
       { key: 'ccd', label: 'CCD (fast-motion)', type: 'select', options: ['auto', 'always', 'off'], default: 'auto' }
     ],
     setup(ctx) {

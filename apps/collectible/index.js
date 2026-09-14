@@ -1,7 +1,3 @@
-// A placeable COLLECTIBLE (coin/star/gem): a maker drops it, sets its value + whether it respawns. When a player
-// walks into it, it awards `value` (emitted as a collected event the game's score system listens for), hides,
-// and optionally respawns after a cooldown. Uses definePickup's overlap scan -- the standard "walk over to grab"
-// primitive every platformer/collectathon needs, authorable with zero code.
 import { definePickup } from '../_lib/pickup.js'
 
 export default {
@@ -24,7 +20,6 @@ export default {
         cooldown: cfg.respawns ? (cfg.respawnMs ?? 5000) : 0,
         onCollect: (c2, player) => {
           c2.bus.emit(cfg.channel || 'collectible.collect', { by: player?.id ?? null, source: c2.entity.id, value: cfg.value ?? 1 })
-          // Hide/show for the respawn cycle: toggle a custom flag the client reads (or destroy if one-shot).
           if (!cfg.respawns) { if (c2.entity.custom) c2.entity.custom._collected = true }
         },
       }, ctx)

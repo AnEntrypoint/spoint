@@ -1,8 +1,3 @@
-// A placeable CAPTURE / CONTROL ZONE: the KotH / domination / hardpoint objective, authored in-editor with no
-// code. Drop it, set a radius + capture time. Each tick it counts players standing inside it and accrues capture
-// progress toward whoever is present; when progress fills it emits a `capture.owned` bus event (with the capturing
-// player ids) and holds. If nobody is inside, progress decays. A team-aware game app can read the occupant ids and
-// resolve them to teams (ctx.defineTeams). Pure per-tick radius scan -- no new engine primitive needed.
 export default {
   description: 'Capture/control zone: players standing in it accrue capture progress (KotH/domination/hardpoint).',
   server: {
@@ -16,7 +11,7 @@ export default {
     setup(ctx) {
       const c = ctx.config || {}
       ctx.entity.custom = { ...(ctx.entity.custom || {}), mesh: 'cylinder', color: c.color ?? '#33cc88', _captureZone: true, sx: (c.radius ?? 6) * 2, sy: 0.2, sz: (c.radius ?? 6) * 2 }
-      ctx.state.progress = ctx.state.progress || 0     // 0..1, preserved across hot reload
+      ctx.state.progress = ctx.state.progress || 0
       ctx.state.owned = ctx.state.owned || false
       ctx.onConfigChange?.((cfg) => { ctx.entity.custom.color = cfg.color ?? ctx.entity.custom.color })
     },
@@ -38,7 +33,6 @@ export default {
         ctx.state.progress = Math.max(0, ctx.state.progress - rate)
       }
       const channel = c.channel || 'capture'
-      // Emit occupancy every tick a change matters; emit 'owned' once when it fills.
       if (ctx.state.progress >= 1 && !ctx.state.owned) {
         ctx.state.owned = true
         ctx.bus.emit(channel + '.owned', { zone: ctx.entity.id, occupants })
@@ -46,9 +40,8 @@ export default {
         ctx.state.owned = false
         ctx.bus.emit(channel + '.lost', { zone: ctx.entity.id })
       }
-      // lightweight per-tick progress signal for a HUD/game app (throttled to whole-percent changes)
-      const pct = Math.round(ctx.state.progress * 100)
-      if (pct !== ctx.state._lastPct) { ctx.state._lastPct = pct; ctx.bus.emit(channel + '.progress', { zone: ctx.entity.id, progress: ctx.state.progress, occupants }) }
+      const wholePercent = Math.round(ctx.state.progress * 100)
+      if (wholePercent !== ctx.state._lastPct) { ctx.state._lastPct = wholePercent; ctx.bus.emit(channel + '.progress', { zone: ctx.entity.id, progress: ctx.state.progress, occupants }) }
     },
   },
 }

@@ -1,50 +1,3 @@
-// createSoftbodyCloth(spec, appCtx) -- a per-object NxM particle-grid cloth/rope primitive, mirroring
-// destructible.js's own shape (spec-driven, appCtx-scoped, tick(dt)-driven). Real implementation
-// follow-on from the soft-body-fluid-simulation-pbd-or-sph-via-wasm-for-destructible feasibility probe
-// (resolved): that probe proved a mass-spring particle grid built from @dimforge/rapier3d-compat's joint
-// primitives (RAPIER has no dedicated volumetric soft-body solver, only RigidBody+ImpulseJoint building
-// blocks) sags physically plausibly under gravity while pinned points stay exactly fixed, at ~0.226ms/
-// step for 36 particles + 60 springs.
-//
-// ARCHITECTURAL ISOLATION (matching the probe's own finding): every createSoftbodyCloth() call gets its
-// OWN independent RAPIER.World instance, fully separate from this project's PRIMARY jolt-physics World
-// (src/physics/World.js) that every other ctx.physics/ctx.world call routes through. No shared state, no
-// cross-talk -- a softbody cloth does not collide with, or get collided with by, the rest of the game's
-// physics; it is a self-contained visual/physical simulation driven purely by its own spec (gravity,
-// pin points, wind) and read out as a stream of world-space particle positions. This is a deliberate
-// scope boundary carried over from the probe: adding a SECOND full WASM physics engine as a live
-// gameplay dependency alongside jolt-physics is a real architectural commitment (bundle size, dual-WASM
-// memory, a second class of the exact embind/shared-buffer hazards already found+fixed twice in
-// jolt-physics this project cycle -- see AGENTS.md's jolt-get{angularvelocity,positionrotation}-shared-
-// buffer-double-destroy) -- keeping it fully isolated per-instance (never a shared/pooled World) is what
-// makes that commitment safe to make incrementally, one softbody-bearing app at a time, without touching
-// the primary physics engine's own lifecycle at all.
-//
-// RAPIER.init() IS ASYNC (WASM instantiation) -- createSoftbodyCloth() itself stays SYNCHRONOUS (matching
-// every other defineX(spec) factory's call convention, see AppContext.js), returning a handle immediately
-// whose tick(dt)/positions() gracefully no-op/return-null until the async init resolves. A single
-// module-level RAPIER import promise is shared across every instance (WASM module instantiation itself
-// is safe to share -- it is the World, RigidBody, and Joint instances that stay per-cloth-instance
-// isolated, matching the probe's finding that per-instance World isolation is what matters, not avoiding
-// the one-time WASM module load).
-//
-// WIRE / CLIENT RENDER PATH (deliberately NOT built this slice -- see the sibling PRD row this row's own
-// detail named as still-needed): particle positions are published into entity.custom.softbody each tick
-// they change (a flat number[] of x,y,z per row-major particle, plus cols/rows/spacing so a client CAN
-// reconstruct a deformed mesh from it). entity.custom already rides the generic delta-encoded/dirty-
-// detected wire path (SnapshotEncoder.js's _customV-driven dirty check, msgpackr-serialized whatever
-// plain JS value is present) with ZERO new wire-protocol surface -- exactly the transport
-// apps/vehicle's static custom.wheels publish and apps/destructible-debris's custom.mesh='fracturedPiece'
-// use today. What is genuinely NOT yet built (needs its own slice, filed as a sibling row): a
-// client/EntityLoader.js render path that takes custom.softbody and rewrites a real BufferGeometry's
-// per-vertex positions from it each snapshot, instead of the GLB-model-driven mesh path every other
-// entity type uses -- this is a real, distinct piece of client rendering work, not a corner this file
-// cuts silently.
-//
-// PARTICLE-COUNT BUDGET (also flagged by this row's own detail as unmeasured beyond one 36-particle
-// probe): see the stress-measurement section of this file's live verification for real multi-instance
-// numbers at 36/100/225 particles, informing (not yet enforcing) a real per-world particle budget.
-
 let _RAPIER = null
 let _rapierInitPromise = null
 
@@ -76,9 +29,6 @@ function _validateSpec(spec) {
   if (s.substeps != null && (!Number.isInteger(s.substeps) || s.substeps < 1)) throw new TypeError('[softbody] substeps must be a positive integer')
 }
 
-// Resolves the pins spec into a Set of "col,row" keys. Accepts an explicit [[col,row],...] array or the
-// two common presets a cloth/banner/flag needs: "top-corners" (just the two top corners, a flag-like
-// drape) or "top-row" (the entire top edge pinned, a curtain/banner).
 function _resolvePins(pins, cols, rows) {
   const out = new Set()
   if (pins == null || pins === 'top-corners') {
@@ -99,22 +49,6 @@ function _resolvePins(pins, cols, rows) {
   return out
 }
 
-// spec = {
-//   cols?: number             -- particle grid columns (default 6)
-//   rows?: number             -- particle grid rows (default 6)
-//   spacing?: number          -- rest distance (m) between adjacent particles (default 0.3)
-//   mass?: number             -- TOTAL cloth mass (kg), split evenly across every non-pinned particle (default 2)
-//   stiffness?: number        -- spring stiffness passed to RAPIER.JointData.spring (default 200)
-//   damping?: number          -- spring damping passed to RAPIER.JointData.spring (default 4)
-//   gravity?: [x,y,z]         -- this cloth's OWN isolated world gravity (default [0,-9.81,0])
-//   pins?: 'top-corners'|'top-row'|[[col,row],...] -- which grid points are fixed anchors (default 'top-corners')
-//   wind?: [x,y,z]            -- constant per-particle force (N), applied every tick via addForce (default null)
-//   bendSprings?: boolean     -- also add skip-one-neighbor diagonal/bend springs for stiffer, less floppy
-//                                cloth (default true)
-//   substeps?: number         -- physics substeps per tick(dt) call, for stability at larger dt (default 1)
-// }
-//
-// Returns a handle: { tick(dt), positions(), pinnedKeys, ready, particleCount, setPin(col,row,pinned), dispose() }
 export function createSoftbodyCloth(spec = {}, appCtx = null) {
   _validateSpec(spec)
   if (!appCtx) throw new TypeError('[softbody] appCtx is required')
@@ -136,46 +70,38 @@ export function createSoftbodyCloth(spec = {}, appCtx = null) {
   const perParticleMass = Math.max(0.01, totalMass / Math.max(1, nonPinnedCount))
 
   const _origin = [...appCtx.entity.position]
-  const _positions = new Float64Array(particleCount * 3) // row-major x,y,z; readable even before RAPIER finishes initializing (all zero -> filled at build)
+  const _positions = new Float64Array(particleCount * 3)
   let _ready = false
   let _disposed = false
   let _world = null
-  const _bodies = [] // row-major RigidBody handles, index = row*cols+col
+  const _bodies = []
 
   function _idx(col, row) { return row * cols + col }
 
   async function _build() {
     const RAPIER = await _ensureRapier()
-    if (_disposed) return // disposed while init was in flight
+    if (_disposed) return
     _world = new RAPIER.World({ x: gravity[0], y: gravity[1], z: gravity[2] })
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
         const key = `${col},${row}`
         const px = _origin[0] + col * spacing
-        const py = _origin[1] - row * spacing // grid hangs downward from its origin by default
+        const py = _origin[1] - row * spacing
         const pz = _origin[2]
         const pinned = pinKeys.has(key)
         const desc = pinned ? RAPIER.RigidBodyDesc.fixed() : RAPIER.RigidBodyDesc.dynamic()
         desc.setTranslation(px, py, pz)
         const body = _world.createRigidBody(desc)
-        // Every particle gets a real collider (mass properties), pinned or not -- a fixed() body's own
-        // motion is unaffected by having one (fixed bodies never move regardless of mass), but this is
-        // what makes setPin() reversible in BOTH directions. Live-witnessed real bug found+fixed while
-        // verifying this row: a fixed() body built with NO collider, later flipped to Dynamic via
-        // setBodyType(), has zero mass properties and never falls under gravity even though isFixed()
-        // correctly reports false and the joint/spring network is otherwise wired -- a genuinely inert,
-        // massless dynamic body. Attaching the collider unconditionally at build time (instead of only
-        // for the initially-non-pinned branch) closes that gap.
-        const cd = RAPIER.ColliderDesc.ball(Math.max(0.02, spacing * 0.15)).setDensity(1).setMass(perParticleMass)
-        _world.createCollider(cd, body)
+        const particleColliderDesc = RAPIER.ColliderDesc.ball(Math.max(0.02, spacing * 0.15)).setDensity(1).setMass(perParticleMass)
+        _world.createCollider(particleColliderDesc, body)
         _bodies[_idx(col, row)] = body
         const i3 = _idx(col, row) * 3
         _positions[i3] = px; _positions[i3 + 1] = py; _positions[i3 + 2] = pz
       }
     }
 
-    const structural = ([c1, r1], [c2, r2]) => {
+    const addSpring = ([c1, r1], [c2, r2]) => {
       const bA = _bodies[_idx(c1, r1)], bB = _bodies[_idx(c2, r2)]
       const dx = (c2 - c1) * spacing, dy = (r1 - r2) * spacing, dz = 0
       const restLen = Math.hypot(dx, dy, dz)
@@ -185,11 +111,11 @@ export function createSoftbodyCloth(spec = {}, appCtx = null) {
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
-        if (col + 1 < cols) structural([col, row], [col + 1, row])       // structural (horizontal)
-        if (row + 1 < rows) structural([col, row], [col, row + 1])       // structural (vertical)
+        if (col + 1 < cols) addSpring([col, row], [col + 1, row])
+        if (row + 1 < rows) addSpring([col, row], [col, row + 1])
         if (bendSprings) {
-          if (col + 2 < cols) structural([col, row], [col + 2, row])     // bend (horizontal skip-one)
-          if (row + 2 < rows) structural([col, row], [col, row + 2])     // bend (vertical skip-one)
+          if (col + 2 < cols) addSpring([col, row], [col + 2, row])
+          if (row + 2 < rows) addSpring([col, row], [col, row + 2])
         }
       }
     }
@@ -199,10 +125,6 @@ export function createSoftbodyCloth(spec = {}, appCtx = null) {
 
   _build()
 
-  // tick(dt): steps the isolated rapier World forward (with substeps for stability) and refreshes the
-  // readable _positions buffer. No-ops silently until the async WASM init/build completes -- a caller
-  // driving this from update(ctx,dt) every server tick simply sees zero movement for the few ticks
-  // RAPIER.init() takes, then real simulated motion from then on.
   function tick(dt) {
     if (!_ready || _disposed || !_world) return
     const subDt = dt / substeps
@@ -225,18 +147,10 @@ export function createSoftbodyCloth(spec = {}, appCtx = null) {
     }
   }
 
-  // Flat row-major [x0,y0,z0, x1,y1,z1, ...] world-space particle positions -- safe to call at any time
-  // (returns the last-known buffer, all-at-spawn-position before the async build completes).
   function positions() { return _positions }
 
-  // Publish the current particle positions into entity.custom.softbody, the same generic delta-encoded
-  // custom-field wire path every other custom-carrying entity already rides (SnapshotEncoder.js's
-  // _customV dirty-detection, zero new protocol surface). Only actually assigns (and so only bumps
-  // _customV) when the positions have genuinely moved past a small epsilon since the last publish, so an
-  // at-rest cloth (fully settled, e.g. all pins with no wind) does not spam a wire write every tick
-  // forever -- matches destructible.js's own "don't re-encode a stable prop" discipline.
   let _lastPublished = null
-  const PUBLISH_EPS = 0.0008 // meters; below this, treat the shape as visually unchanged since last publish
+  const PUBLISH_EPS_METERS = 0.0008
   function publish() {
     if (!_ready) return false
     if (_lastPublished) {
@@ -245,7 +159,7 @@ export function createSoftbodyCloth(spec = {}, appCtx = null) {
         const d = Math.abs(_positions[i] - _lastPublished[i])
         if (d > maxDelta) maxDelta = d
       }
-      if (maxDelta < PUBLISH_EPS) return false
+      if (maxDelta < PUBLISH_EPS_METERS) return false
     }
     _lastPublished = Float64Array.from(_positions)
     appCtx.entity.custom = {
@@ -255,8 +169,6 @@ export function createSoftbodyCloth(spec = {}, appCtx = null) {
     return true
   }
 
-  // Toggle a single grid point's pin state at runtime (e.g. "cut the rope" -- unpin a corner mid-game).
-  // Rebuilding a RigidBody's type in place (setBodyType) is cheaper and simpler than a full world rebuild.
   function setPin(col, row, pinned) {
     if (!_ready) return false
     const b = _bodies[_idx(col, row)]
@@ -267,9 +179,6 @@ export function createSoftbodyCloth(spec = {}, appCtx = null) {
     return true
   }
 
-  // Releases this cloth's isolated RAPIER.World (and every body/joint in it) -- register via
-  // appCtx._registerDisposer so it fires on detachApp/hot-reload/destroyEntity, matching health.js's and
-  // steering.js's own ComponentPool-slot-release precedent for a defineX() factory's cleanup hook.
   function dispose() {
     if (_disposed) return
     _disposed = true
