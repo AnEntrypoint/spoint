@@ -3,6 +3,7 @@ import { join, basename, dirname } from 'node:path'
 import { hasDraco, hasMeshopt, stripDraco, compressMeshopt } from './GLBDraco.js'
 import { applyKtx2 } from './GLBKtx2.js'
 import { GLB_TRANSFORM_CODE_VERSION } from './BakeCodeVersion.js'
+import { fnv1aBytes } from '../shared/fnv1a.js'
 
 const CACHE_DIR_NAME = '.glb-cache'
 const MAX_CONCURRENT = 4
@@ -26,9 +27,7 @@ const _memCache = new Map()
 
 const _hashCache = new Map()
 function contentHash(buffer) {
-  let hash = 2166136261
-  for (let i = 0; i < buffer.length; i++) { hash ^= buffer[i]; hash = Math.imul(hash, 16777619) }
-  return (hash >>> 0).toString(16)
+  return fnv1aBytes(buffer).toString(16)
 }
 function hashFor(filepath, mtime, buffer) {
   const cached = _hashCache.get(filepath)
