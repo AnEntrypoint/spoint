@@ -1,23 +1,5 @@
-// Spectator mode: free-fly camera + player-follow/chase camera, for casting/moderation/debugging.
-// Sibling to the editor/lobby modes in ClientMachine's `ready.mode` parallel region (see
-// ClientMachine.js's 'spectator' state, submodes 'free'/'follow').
-//
-// Free-fly reuses cam.js's EXISTING editor fly-camera unbound-movement code wholesale
-// (cam.setEditMode(true) + cam.update(..., latestInput) is byte-identical to what the editor uses --
-// no new physics-free-movement code was written, this module only drives the same entry point from a
-// different mode). Follow/chase reuses the app-programmatic `engineCtx.spectate(playerId)` orbit-cam
-// mechanism already wired into app.js's camera-input-update render-graph node (the `_spectateTarget`
-// path), adding the piece that mechanism never had: a real connected-player cycle list + a
-// player-facing HUD affordance, driven by the local user rather than only by game-app code.
-//
-// This module owns NO per-frame camera math itself -- it only (a) toggles cam.setEditMode for the
-// free submode and (b) writes the shared _spectateTarget-equivalent target id for the follow submode
-// via the injected `setSpectateTarget` callback (app.js's existing camera-input-update node already
-// reads that value every frame). Keeping the actual camera math in the one place it already lived
-// (cam.js's editMode branch, app.js's specMesh orbit branch) avoids a second, divergent copy.
-
 export function createSpectatorMode({ clientMachine, cam, pm, getLocalPlayerId, setSpectateTarget }) {
-  let _targetId = null   // last-followed player id, kept across free<->follow toggles so re-entering follow resumes the same target
+  let _targetId = null
   let _hudEl = null
 
   function _ensureHud() {
@@ -83,8 +65,6 @@ export function createSpectatorMode({ clientMachine, cam, pm, getLocalPlayerId, 
     _applyFollowTarget()
     _renderHud()
   }
-  // Real player-cycling affordance: advances/retreats through the live connected-players list
-  // (pm.playerStates, excludes the local player) and retargets the follow camera immediately.
   function cycleNext() { _cycle(1) }
   function cyclePrev() { _cycle(-1) }
   function _cycle(dir) {

@@ -1,73 +1,12 @@
-// ThreeVdrs -- the genuine "render at N%, present at 100%" resolution decouple for THREE's OWN
-// scene-color draw (trees/rocks/players/models), the sibling half of
-// true-upscale-decoupled-render-resolution (which shipped the terrain-only slice via mapspinner's
-// pre-existing VDRS FBO mechanism, see FrameMetrics.js createTerrainVdrsController). Gated behind
-// RenderControls('threeVdrs').
-//
-// WHY THIS WAS SCOPED OUT OF THE TERRAIN SLICE, AND HOW THIS MODULE CLEARS THAT BLOCKER:
-// DepthComposite.js's documented contract is that mapspinner's raw-GL terrain/water and THREE's
-// scene share ONE depth buffer baked straight into the CANVAS -- terrain writes its depth into the
-// canvas depth buffer BEFORE scene-color runs (terrain-depth-color node), then scene-color's
-// renderer.render(scene, camera) depth-TESTS against it so a tree behind a hill is correctly
-// occluded. A naive "render THREE into a smaller offscreen target, then upscale" breaks this: the
-// offscreen target's OWN depth buffer starts empty, so THREE objects would draw with no terrain
-// occlusion at all once composited back.
-//
-// The other naive direction (copy terrain's depth INTO the low-res target so THREE can depth-test
-// against it) is a genuine dead end in this pipeline, confirmed via mapspinner's own prior
-// investigation (gl-render.js's passPlanetDepthWriteback comment): a single-sample -> MSAA
-// blitFramebuffer of DEPTH is GL_INVALID_OPERATION, and this project's canvas is commonly MSAA
-// (antialias:true on non-mobile, SceneSetup.createRenderer) -- so a raw depth blit from the canvas
-// into any non-MSAA offscreen target is not legal WebGL. Reaching into mapspinner internals for its
-// _vdrsDepth texture (only populated when terrain's OWN vdrs mode is simultaneously active) would
-// require a new cross-package export plus keeping mapspinner's and THREE's internal render
-// resolutions coupled together -- exactly the "materially bigger architecture change" this row's own
-// PRD detail flags as separate scope, and it would still leave the common case (terrain VDRS off,
-// THREE VDRS on) with no depth source at all.
-//
-// THIS MODULE'S ACTUAL MECHANISM (the one that stays inside this row's bounded scope and needs zero
-// mapspinner changes): render THREE's scene into its own low-res WebGLRenderTarget WITH A REAL
-// DepthTexture attachment (same technique packages/streaming-gltf/src/hzb-tier.js's captureAndBuild
-// already uses to get a three-managed raw GL depth texture handle) -- this gives THREE objects
-// correct, real GPU depth-tested occlusion AGAINST EACH OTHER (a tree in front of a rock, a player
-// behind a wall-model) at the reduced internal resolution, the dominant per-object-count cost this
-// row is actually after. The low-res color is then EASU+RCAS upscaled (identical technique to
-// FSR1.js, duplicated rather than shared since FSR1.js's own targets are sized to the CURRENT
-// drawing-buffer resolution which is a different concern -- see that module's header) into a
-// full-canvas-resolution offscreen target, and finally composited onto the canvas via a GLSL3
-// fullscreen-quad draw that:
-//   (a) real-GPU-depth-tests against whatever terrain already wrote into the canvas depth buffer
-//       this frame (so terrain still correctly occludes the whole upscaled THREE result -- a tree
-//       behind a hill still disappears, exactly as it does today), and
-//   (b) writes gl_FragDepth from the (bilinearly-upsampled) low-res THREE depth, so the canvas depth
-//       buffer ends this composite holding THREE's own (upscaled) depth for any later same-frame
-//       consumer (SSAO/SSR read their OWN dedicated G-buffers, not the canvas depth -- see those
-//       modules' headers -- so this is a compatible, not just incidentally-safe, choice).
-// No re-encode of the depth CURVE is needed here (unlike mapspinner's cross-near/far writeback):
-// the low-res target renders with the EXACT SAME camera object (identical near/far/projection) as
-// the full-res composite, so the raw depth values are already on the same curve -- a straight
-// (bilinearly filtered) sample is correct.
-//
-// HONEST SCOPE: this decouples THREE-vs-THREE occlusion at reduced internal resolution (the
-// dominant cost when many trees/rocks/players are on screen) while still being correctly occluded
-// BY terrain/water at full fidelity (the depth-test in step (a) above is a real per-pixel GPU test
-// against terrain's full-res depth, not an approximation). What it does NOT yet do: make terrain's
-// OWN resolution track this same scale automatically (that is createTerrainVdrsController's
-// independent knob, vdrsAuto/vdrsScale) -- the two adaptive controllers are deliberately separate so
-// either can be tuned/disabled without the other, same as the existing dprAuto/vdrsAuto split.
-
 import * as THREE from 'three'
 import { RenderControls } from './RenderControls.js'
 
-const _fullscreenVert = /* glsl */`
+const _fullscreenVert = `
   varying vec2 vUv;
   void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
 `
 
-// Same simplified EASU (5-tap directional-gradient-weighted resample) as FSR1.js -- duplicated, not
-// imported, since this module's source/target resolutions are genuinely different (low-res THREE
-// render -> full canvas res) from FSR1.js's within-drawing-buffer case; see this module's header.
-const _easuFrag = /* glsl */`
+const _easuFrag = `
   precision highp float;
   varying vec2 vUv;
   uniform sampler2D tSource;
@@ -93,7 +32,7 @@ const _easuFrag = /* glsl */`
   }
 `
 
-const _rcasFrag = /* glsl */`
+const _rcasFrag = `
   precision highp float;
   varying vec2 vUv;
   uniform sampler2D tSource;
@@ -121,15 +60,7 @@ const _rcasFrag = /* glsl */`
   }
 `
 
-// Composite: samples the (already EASU+RCAS upscaled, full-canvas-res) THREE color AND the raw
-// low-res depth texture (bilinear-sampled at the SAME uv -- correct since both were rendered with
-// the identical camera/projection as the canvas composite, see module header), draws real color +
-// writes gl_FragDepth so downstream same-frame consumers see THREE's own depth in the canvas depth
-// buffer. GLSL3 (out variable + texture()) since gl_FragDepth needs a real fragment-shader output
-// declaration in WebGL2 core (no EXT_frag_depth extension needed) -- same technique mapspinner's own
-// dwProg re-encode shader and packages/streaming-gltf/src/octahedral-impostor-ez.js already use in
-// this codebase.
-const _compositeFrag = /* glsl */`
+const _compositeFrag = `
   precision highp float;
   in vec2 vUv;
   uniform sampler2D tColor;
@@ -140,7 +71,7 @@ const _compositeFrag = /* glsl */`
     gl_FragDepth = texture(tDepth, vUv).r;
   }
 `
-const _compositeVert = /* glsl */`
+const _compositeVert = `
   out vec2 vUv;
   void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }
 `
@@ -171,11 +102,6 @@ export class ThreeVdrs {
       depthTest: false,
       depthWrite: false,
     })
-    // depthTest:true/depthWrite:true + no `transparent` -- this draw MUST real-GPU-depth-test
-    // against terrain's already-written canvas depth (correct terrain occlusion, see module header
-    // point (a)) and MUST write depth (point (b)). THREE's material system needs an explicit
-    // `depthFunc`-compatible default (THREE default LessEqualDepth matches terrain-depth-color's own
-    // convention, unchanged).
     this._compositeMat = new THREE.ShaderMaterial({
       vertexShader: _compositeVert,
       fragmentShader: _compositeFrag,
@@ -232,10 +158,6 @@ export class ThreeVdrs {
     if (this._lowTarget) this._lowTarget.dispose()
   }
 
-  // Renders the THREE scene at a reduced internal resolution (scale in (0,1], clamped [0.3,1.0] to
-  // match mapspinner's own vdrsScale clamp discipline) into its own real depth-buffered target, then
-  // EASU+RCAS-upscales the color into a full-canvas-resolution target. Does not composite (mirrors
-  // FSR1/Bloom/SSAO's compute()/composite() split).
   compute(scale) {
     const size = new THREE.Vector2()
     this.renderer.getSize(size)
@@ -252,15 +174,11 @@ export class ThreeVdrs {
     const prevTarget = this.renderer.getRenderTarget()
     const prevAutoClear = this.renderer.autoClear
 
-    // 1. Low-res scene render: real depth buffer, real THREE-vs-THREE occlusion, at the reduced
-    //    resolution. Clears BOTH color and depth (this target has no prior-frame content that
-    //    matters -- unlike the canvas, terrain never writes into this offscreen target).
     this.renderer.setRenderTarget(this._lowTarget)
     this.renderer.autoClear = true
     this.renderer.clear(true, true, false)
     this.renderer.render(this.scene, this.camera)
 
-    // 2. EASU pass: upscale the low-res color into a full-canvas-res target.
     this._easuMat.uniforms.tSource.value = this._lowTarget.texture
     this._easuMat.uniforms.uSrcTexel.value.set(1 / lowW, 1 / lowH)
     this._quad.material = this._easuMat
@@ -268,7 +186,6 @@ export class ThreeVdrs {
     this.renderer.autoClear = true
     this.renderer.render(this._quadScene, this._quadCamera)
 
-    // 3. RCAS pass: sharpen the EASU output, still at full-canvas-res.
     this._rcasMat.uniforms.tSource.value = this._easuTarget.texture
     this._rcasMat.uniforms.uTexel.value.set(1 / fullW, 1 / fullH)
     this._rcasMat.uniforms.uSharpness.value = RenderControls.get('threeVdrsSharpness')
@@ -284,11 +201,6 @@ export class ThreeVdrs {
     this._hasContent = true
   }
 
-  // Draws the upscaled+sharpened THREE color onto the canvas, real-depth-tested against whatever is
-  // already in the canvas depth buffer (terrain, written by terrain-depth-color BEFORE this runs --
-  // see module header point (a)), and writes THREE's own upscaled depth back (point (b)). autoClear
-  // gating mirrors scene-color's own existing `if (hasTerrain) ...` shape so a world with no terrain
-  // backdrop still composites correctly.
   composite(hasTerrain) {
     if (!this._hasContent) return
     this._compositeMat.uniforms.tColor.value = this.outputColorTexture
@@ -311,11 +223,6 @@ export class ThreeVdrs {
   }
 }
 
-// Adaptive controller mirroring createTerrainVdrsController's exact hysteresis shape (FrameMetrics.js)
-// -- kept here rather than in FrameMetrics.js since it is a pure ThreeVdrs-scoped scale decision with
-// no other module needing it, and colocating it next to the mechanism it drives keeps the two
-// adaptive controllers (terrain's and THREE's) trivially independent-toggleable per this module's
-// header note. Default OFF (window.__threeVdrsAuto), same opt-in discipline as dprAuto/vdrsAuto.
 export function createThreeVdrsController() {
   let scale = 1, appliedOn = false, appliedScale = -1, acc = 0, n = 0
   const TARGET = 6.94
@@ -337,9 +244,6 @@ export function createThreeVdrsController() {
   return { tick }
 }
 
-// Lazy installer: constructs GPU resources on first call and stashes the instance on
-// ctx.threeVdrs. Debug handle is window.__threeVdrsDebug, never window.__threeVdrs -- RenderControls
-// mirrors the boolean flag onto that exact global name (same discipline as fsr1/ssao/bloom/etc).
 export function installThreeVdrs(ctx, renderer, scene, camera) {
   if (!ctx.threeVdrs) ctx.threeVdrs = new ThreeVdrs(renderer, scene, camera)
   if (typeof window !== 'undefined') window.__threeVdrsDebug = ctx.threeVdrs

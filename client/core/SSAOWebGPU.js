@@ -1,39 +1,3 @@
-// SSAOWebGPU -- TSL node-graph port of SSAO.js's half-res G-buffer + horizon-based AO + composite
-// pass, used only when the live renderer is a real THREE.WebGPURenderer (renderer.isWebGPURenderer
-// === true).
-//
-// WHY A SEPARATE FILE (not an in-place rewrite of SSAO.js): SSAO.js's raw-GLSL ShaderMaterial path
-// is still the ONLY implementation that runs under WebGLRenderer (the 100% non-experimental case);
-// WebGPURenderer does not compile raw GLSL at all (see docs/webgpu-shader-audit.md), so this is a
-// second, TSL-native implementation of the exact same algorithm, not a replacement. SSAO.js's own
-// factory (installSSAO) is made renderer-polymorphic below exactly like FSR1.js's installFSR1 /
-// Bloom.js's installBloom -- every caller (RenderGraph.nodes.js via buildSSAONodes, app.js) is
-// unchanged, this is purely an additional backend. Precedent: client/core/FSR1WebGPU.js and
-// client/core/BloomWebGPU.js, same file shape, same registerXWebGPU(mod) dynamic-import
-// registration discipline.
-//
-// PORT NOTES:
-//   - QuadMesh (three/webgpu export) replaces the hand-rolled `_quadScene`/`_quadCamera`/
-//     `PlaneGeometry(2,2)` trio SSAO.js builds manually -- same primitive Bloom/FSR1WebGPU use.
-//   - The G-buffer pass is the one piece SSAO.js's siblings don't need: `scene.overrideMaterial`
-//     is honored by WebGPURenderer exactly like WebGLRenderer (a real THREE.Scene property, not a
-//     WebGL-only mechanism), so the override strategy carries over unchanged -- only the override
-//     material itself needs to be a TSL node material (MeshBasicNodeMaterial with a positionNode/
-//     normalNode-driven colorNode) instead of a hand-rolled ShaderMaterial. Encoding is IDENTICAL
-//     to SSAO.js's GLSL: rgb = view-space normal packed 0..1, a = linear view-space depth.
-//   - `THREE.WebGLRenderTarget` -> `THREE.RenderTarget` (generic backend-agnostic base class,
-//     confirmed safe in the FSR1WebGPU.js/BloomWebGPU.js ports).
-//   - AO horizon-search math (4 directions x 3 steps) and MultiplyBlending composite are IDENTICAL
-//     to SSAO.js's GLSL -- transcribed node-for-node into TSL's Fn() graph, not reapproximated.
-//   - InstancedMesh2 per-instance transform: TSL's modelViewMatrix/normalMatrix built-ins already
-//     resolve the instanced transform for a NodeMaterial the same way THREE's own instanced_vertex
-//     chunk does for ShaderLib materials (confirmed via cross-reference against
-//     BloomWebGPU.js/FSR1WebGPU.js's own "no per-instance complexity" full-screen-only scope note --
-//     this file is the one exception that DOES touch per-instance scene geometry via overrideMaterial,
-//     so it is flagged medium-risk relative to Bloom/FSR1's pure-post-process shape, though the math
-//     itself needs no InstancedMesh2-specific handling since positionView/normalView are TSL's
-//     already-instance-aware built-ins).
-
 import * as THREE from 'three'
 import { MeshBasicNodeMaterial, QuadMesh } from 'three/webgpu'
 import {
@@ -43,8 +7,6 @@ import {
 } from 'three/tsl'
 import { RenderControls } from './RenderControls.js'
 
-// G-buffer encode: rgb = view-space normal packed 0..1, a = linear view-space depth (-positionView.z,
-// matching SSAO.js's vViewDepth = -mvPosition.z).
 function buildGBufferColorNode() {
   return Fn(() => {
     const n = normalize(normalView).mul(0.5).add(0.5)
@@ -53,7 +15,6 @@ function buildGBufferColorNode() {
   })()
 }
 
-// Horizon-based AO -- same 4-direction/3-step kernel as SSAO.js's _aoFrag, transcribed to TSL.
 function buildAoNode(gbufferTex, resolutionUniform, radiusUniform, intensityUniform, fovFactorUniform) {
   const reconstructViewPos = Fn(([uvIn, depth]) => {
     const ndc = uvIn.mul(2.0).sub(1.0)
