@@ -57,18 +57,14 @@ export async function extractMeshWithMeshopt(buf, json, prim, binOffset, meshNam
     const idxExt = idxView.extensions?.EXT_meshopt_compression
 
     if (idxExt) {
-      // idxExt.count is the shared bufferView's total decoded element count, not this primitive's own --
-      // many primitives can reference the same meshopt-compressed indices bufferView (gltfpack dedup),
-      // each slicing it via its own idxAcc.byteOffset/idxAcc.count. Decode the shared buffer once (cached
-      // per bufferView) and slice per-accessor, rather than treating idxExt.count as this primitive's size.
       let decodedIndices = idxView._decodedIndices
       if (!decodedIndices) {
         const idxSrcOff = binOffset + (idxExt.byteOffset || 0)
         const idxSrc = new Uint8Array(buf.buffer.slice(idxSrcOff, idxSrcOff + idxExt.byteLength))
         const idxStride = idxExt.byteStride || 2
-        const totalIndices = idxExt.count
-        const idxDst = new Uint8Array(totalIndices * idxStride)
-        decoder.decodeGltfBuffer(idxDst, totalIndices, idxStride, idxSrc, idxExt.mode || 'TRIANGLES', idxExt.filter || 'NONE')
+        const sharedViewIndexCount = idxExt.count
+        const idxDst = new Uint8Array(sharedViewIndexCount * idxStride)
+        decoder.decodeGltfBuffer(idxDst, sharedViewIndexCount, idxStride, idxSrc, idxExt.mode || 'TRIANGLES', idxExt.filter || 'NONE')
         decodedIndices = idxStride === 2 ? new Uint16Array(idxDst.buffer) : new Uint32Array(idxDst.buffer)
         idxView._decodedIndices = decodedIndices
       }

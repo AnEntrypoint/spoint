@@ -1,4 +1,6 @@
 const LAYER_DYNAMIC = 1
+const FALLBACK_CAPSULE_HALF_HEIGHT = 0.9
+const MIN_CARRY_GROUND_SPEED_SQ = 1e-6
 
 export class CharacterManager {
   constructor(gravity, crouchHalfHeight = 0.45, config = {}) {
@@ -6,11 +8,7 @@ export class CharacterManager {
     this.crouchHalfHeight = crouchHalfHeight
     this.characters = new Map()
     this._charShapes = new Map()
-    // charId -> onGround verdict read ONCE right after that character's last ExtendedUpdate (see update()).
-    // Jolt's CharacterVirtual only recomputes mGroundState inside Update/ExtendedUpdate/RefreshContacts;
-    // SetPosition/SetLinearVelocity (setCrouch, restoreAll, moving-platform carry) leave it untouched, so
-    // the cached verdict is exactly what a fresh GetGroundState() would return until the next update().
-    this._groundCache = new Map()
+    this._onGroundAtLastUpdate = new Map()
     this._nextCharId = 0
     this.J = null; this._jolt = null; this._physicsSystem = null
     this._filters = null; this._updateSettings = null
@@ -38,10 +36,6 @@ export class CharacterManager {
     this._tmpRVec3 = new J.RVec3(0, 0, 0)
   }
 
-  // Live gravity update (hotreload-worldDef-edit-no-restart, called from PhysicsWorld.setGravity):
-  // _charGravity is a Jolt Vec3 handle captured once at init(), not a live view onto this.gravity --
-  // every ExtendedUpdate call (see update() below) passes it by reference, so it must be destroyed
-  // and rebuilt for a gravity change to actually reach already-spawned characters' own integration.
   setGravity(gravity) {
     this.gravity = gravity
     if (this.J && this._charGravity) {
@@ -52,12 +46,7 @@ export class CharacterManager {
 
   addCharacter(radius, halfHeight, position, mass, charConfig) {
     const J = this.J
-    // Defense-in-depth (see PhysicsIntegration.js constructor comment for the root-caused caller-side
-    // bug this backstops): a non-finite/<=0 halfHeight builds a degenerate CapsuleShape whose
-    // CharacterVirtual.ExtendedUpdate never registers ground contact -- the character free-falls straight
-    // through a real static collider directly under it. Mirrors the pre-existing radius UB guard one call
-    // site up (PhysicsIntegration.addPlayerCollider).
-    if (!Number.isFinite(halfHeight) || halfHeight <= 0) halfHeight = 0.9
+    if (!Number.isFinite(halfHeight) || halfHeight <= 0) halfHeight = FALLBACK_CAPSULE_HALF_HEIGHT
     const cvs = new J.CharacterVirtualSettings()
     const slopeAngle = charConfig?.maxSlopeAngle ?? this.config.maxSlopeAngle
     cvs.mMass = mass || 80
@@ -89,19 +78,13 @@ export class CharacterManager {
     const ch = this.characters.get(charId); if (!ch) return
     const f = this._filters
     ch.ExtendedUpdate(dt, this._charGravity, this._updateSettings, f.bp, f.ol, f.body, f.shape, this._jolt.GetTempAllocator())
-    // One GetGroundState WASM call per update, shared by the moving-platform check below AND the
-    // caller's follow-up getGroundState() read (PhysicsIntegration.updatePlayerPhysics) -- was two calls.
     let onGround = false
-    if (ch.GetGroundState) { onGround = ch.GetGroundState() === this.J.EGroundState_OnGround; this._groundCache.set(charId, onGround) }
-    // Moving-platform carry: a rider standing on a kinematic/moving body should translate WITH it. Jolt's
-    // CharacterVirtual tracks the surface it stands on; read that surface's velocity and offset the character by
-    // groundVel*dt so it doesn't slide off a moving platform. Guarded: only when on-ground with a moving surface,
-    // and only if the runtime's Jolt build exposes GetGroundVelocity (older builds silently no-op, no regression).
+    if (ch.GetGroundState) { onGround = ch.GetGroundState() === this.J.EGroundState_OnGround; this._onGroundAtLastUpdate.set(charId, onGround) }
     if (onGround && ch.GetGroundVelocity) {
       const gv = ch.GetGroundVelocity()
       const vx = gv.GetX(), vy = gv.GetY(), vz = gv.GetZ()
       this.J.destroy(gv)
-      if (vx*vx + vy*vy + vz*vz > 1e-6) {
+      if (vx*vx + vy*vy + vz*vz > MIN_CARRY_GROUND_SPEED_SQ) {
         const p = ch.GetPosition()
         this._tmpRVec3.Set(p.GetX() + vx*dt, p.GetY() + vy*dt, p.GetZ() + vz*dt)
         ch.SetPosition(this._tmpRVec3)
@@ -149,21 +132,16 @@ export class CharacterManager {
 
   getGroundState(charId) {
     const ch = this.characters.get(charId); if (!ch) return false
-    const cached = this._groundCache.get(charId)
+    const cached = this._onGroundAtLastUpdate.get(charId)
     if (cached !== undefined) return cached
     return ch.GetGroundState() === this.J.EGroundState_OnGround
   }
 
   removeCharacter(charId) {
     const ch = this.characters.get(charId)
-    if (ch) { this.J.destroy(ch); this.characters.delete(charId); this._charShapes.delete(charId); this._groundCache.delete(charId) }
+    if (ch) { this.J.destroy(ch); this.characters.delete(charId); this._charShapes.delete(charId); this._onGroundAtLastUpdate.delete(charId) }
   }
 
-  // Rollback-netcode primitive (rollback-netcode-ggpo-style-input-rollback first slice): capture every
-  // live character's position+velocity for later exact restore. CharacterVirtual has no rotation state
-  // of its own (the capsule shape doesn't rotate) so only position+velocity round-trip; GetGroundState is
-  // deliberately NOT captured -- it's a derived read of nearby geometry Jolt recomputes fresh on the next
-  // ExtendedUpdate, not authoritative state, so restoring stale ground-state would fight Jolt's own logic.
   snapshotAll() {
     const out = {}
     for (const [id, ch] of this.characters) {
@@ -174,9 +152,6 @@ export class CharacterManager {
     return out
   }
 
-  // Restores exactly the characters present in `snap` (ids not in snap are left untouched -- a rollback
-  // caller snapshots+restores the same character set every time, so partial-snapshot semantics never
-  // apply in practice, but silently skipping an unknown id here is safer than throwing mid-restore).
   restoreAll(snap) {
     for (const idKey in snap) {
       const id = Number(idKey)
@@ -191,7 +166,7 @@ export class CharacterManager {
 
   destroy() {
     for (const ch of this.characters.values()) this.J.destroy(ch)
-    this.characters.clear(); this._groundCache.clear()
+    this.characters.clear(); this._onGroundAtLastUpdate.clear()
     if (!this._filters) return
     this.J.destroy(this._filters.bp); this.J.destroy(this._filters.ol)
     this.J.destroy(this._filters.body); this.J.destroy(this._filters.shape)

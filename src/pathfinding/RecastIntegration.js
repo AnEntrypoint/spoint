@@ -1,21 +1,11 @@
 import { extractMeshFromGLB } from '../physics/GLBLoader.js'
 
-// Navmesh baking: uses Recast library (npm recast-navigation) to convert collision geometry
-// into a navigable mesh, then serializes to JSON for runtime pathfinding queries.
-//
-// Design: input is a world GLB + collision geometry (from placed-model instances + terrain).
-// Output is a navmesh JSON with vertices, polygons, and connectivity for A* queries.
-//
-// This module handles the Node.js baking pipeline only, not runtime queries (see NavmeshQuery.js).
-// Node.js only: uses require/import of recast-navigation npm package.
-
 let Recast = null
 let NavMesh = null
 
 export async function initRecast() {
   if (Recast) return
   try {
-    // Try to import recast-navigation from npm
     const mod = await import('recast-navigation')
     Recast = mod.Recast
     NavMesh = mod.NavMesh
@@ -45,14 +35,12 @@ export async function bakeNavmesh(options = {}) {
   } = options
 
   try {
-    // Load GLB and extract collision geometry
     const mesh = extractMeshFromGLB(glbPath, 0)
 
     if (!mesh.vertices || !mesh.indices) {
       throw new Error(`No valid geometry in ${glbPath}`)
     }
 
-    // Create Recast config
     const config = new Recast.RecastConfig()
     config.cs = cellSize
     config.ch = cellHeight
@@ -71,7 +59,6 @@ export async function bakeNavmesh(options = {}) {
     config.bmin = worldBounds[0]
     config.bmax = worldBounds[1]
 
-    // Build Recast heightfield and navmesh
     const context = new Recast.RecastContext(false)
     const heightfield = Recast.rcAllocHeightfield()
     const compactHeightfield = Recast.rcAllocCompactHeightfield()
@@ -79,7 +66,6 @@ export async function bakeNavmesh(options = {}) {
     const polyMesh = Recast.rcAllocPolyMesh()
     const polyMeshDetail = Recast.rcAllocPolyMeshDetail()
 
-    // Rasterize input geometry
     const verts = mesh.vertices
     const tris = mesh.indices
 
@@ -91,7 +77,6 @@ export async function bakeNavmesh(options = {}) {
       throw new Error('Failed to rasterize triangles')
     }
 
-    // Filter unwalkable regions
     if (!Recast.rcFilterLowHangingWalkableObstacles(context, config.walkableClimb, heightfield)) {
       throw new Error('Failed to filter obstacles')
     }
@@ -102,17 +87,14 @@ export async function bakeNavmesh(options = {}) {
       throw new Error('Failed to filter low spans')
     }
 
-    // Compact heightfield
     if (!Recast.rcBuildCompactHeightfield(context, config.walkableHeight, config.walkableClimb, heightfield, compactHeightfield)) {
       throw new Error('Failed to build compact heightfield')
     }
 
-    // Erode walkable area
     if (!Recast.rcErodeWalkableArea(context, config.walkableRadius, compactHeightfield)) {
       throw new Error('Failed to erode walkable area')
     }
 
-    // Partition walkable surface into regions
     if (!Recast.rcBuildDistanceField(context, compactHeightfield)) {
       throw new Error('Failed to build distance field')
     }
@@ -120,25 +102,20 @@ export async function bakeNavmesh(options = {}) {
       throw new Error('Failed to build regions')
     }
 
-    // Trace and simplify region boundaries
     if (!Recast.rcBuildContours(context, compactHeightfield, config.walkableMaxSlope, config.maxVertsPerPoly, contourSet)) {
       throw new Error('Failed to build contours')
     }
 
-    // Build polygon mesh
     if (!Recast.rcBuildPolyMesh(context, contourSet, config.maxVertsPerPoly, polyMesh)) {
       throw new Error('Failed to build poly mesh')
     }
 
-    // Build detailed mesh
     if (!Recast.rcBuildPolyMeshDetail(context, polyMesh, compactHeightfield, detailSampleDist, detailSampleMaxError, polyMeshDetail)) {
       throw new Error('Failed to build poly mesh detail')
     }
 
-    // Extract mesh data to JSON
     const navmeshData = extractNavmeshJSON(polyMesh, polyMeshDetail, config)
 
-    // Cleanup
     Recast.rcFreeHeightField(heightfield)
     Recast.rcFreeCompactHeightfield(compactHeightfield)
     Recast.rcFreeContourSet(contourSet)
@@ -153,18 +130,15 @@ export async function bakeNavmesh(options = {}) {
 }
 
 function extractNavmeshJSON(polyMesh, polyMeshDetail, config) {
-  // Serialize Recast output to JSON format for runtime queries
   const vertices = []
   const polygons = []
   const links = []
 
-  // Extract vertices from polyMesh
   const verts = Recast.getPolyMeshVerts(polyMesh)
   for (let i = 0; i < verts.length; i += 3) {
     vertices.push([verts[i], verts[i + 1], verts[i + 2]])
   }
 
-  // Extract polygons and connectivity
   const polys = Recast.getPolyMeshPolys(polyMesh)
   const polyFlags = Recast.getPolyMeshFlags(polyMesh)
   const polyAreas = Recast.getPolyMeshAreas(polyMesh)
@@ -179,7 +153,6 @@ function extractNavmeshJSON(polyMesh, polyMeshDetail, config) {
       if (vi === 0xffff) break
       poly.push(vi)
 
-      // Extract neighbor links
       const neighborIdx = polys[i + nvp + j]
       if (neighborIdx !== 0) {
         neighbors.push(neighborIdx - 1)

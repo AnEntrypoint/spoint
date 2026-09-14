@@ -8,36 +8,13 @@ const _PARK_POS = [0, -100000, 0]
 let joltInstance = null
 export async function getJolt() {
   if (!joltInstance) {
-    // Edge-target seam (edge-cf-durable-object-transport-adapter-real-websocketpair): a Cloudflare
-    // Durable Object has no node:fs (so the Node branch's `jolt-physics/wasm-compat` import is right
-    // for AppRuntime.js's own isNode checks generally, but jolt-physics's OWN bundled Emscripten glue
-    // independently re-checks `process.versions.node` and crashes on `createRequire(import.meta.url)`
-    // when `nodejs_compat` is enabled -- live-reproduced via a real `wrangler dev` workerd instance)
-    // and no static URL to fetch the browser branch's `/node_modules/...` path from either (workerd has
-    // no filesystem route to serve that string, live-reproduced as a bundler-time unresolvable dynamic
-    // import). Real fix (proven live against workerd): the edge worker imports jolt-physics/wasm's
-    // native `.wasm` module binding at BUILD TIME (the only embedder-allowed way to get compiled Wasm
-    // into a Worker -- ahead-of-time compiled, not runtime `WebAssembly.instantiate()` from raw bytes,
-    // which workerd's embedder policy blocks outright) and instantiates it itself via Emscripten's
-    // standard `Module.instantiateWasm` hook (checked before either of Jolt's own broken internal
-    // branches run), then stashes the resulting live Jolt module here before any PhysicsWorld boots --
-    // see edge/cf-do/spoint-do.js's initJoltForEdge(). This is a pure opt-in: unset in every existing
-    // Node/browser boot path, so both of those branches are byte-unchanged from before this fix.
     if (typeof globalThis.__SPOINT_EDGE_JOLT__ !== 'undefined') {
       joltInstance = await globalThis.__SPOINT_EDGE_JOLT__
       return joltInstance
     }
     const _isNode = typeof process !== 'undefined' && process.versions?.node
-    // Specifier built at runtime (not a literal passed straight to import()) so an edge/DO bundler
-    // build (esbuild via wrangler) never tries to statically resolve the browser-only absolute
-    // '/node_modules/...' path -- it isn't reachable there anyway (see the __SPOINT_EDGE_JOLT__
-    // early-return above), but a bundler's static import-graph walk doesn't know that; it fails the
-    // WHOLE build on an unresolvable literal specifier regardless of runtime reachability. Zero
-    // behavior change for Node/browser: same two real specifiers, same ternary choice, just built as
-    // a string first (live-confirmed via a real wrangler --dry-run build that this defeats esbuild's
-    // static resolution while a literal ternary-in-import() does not).
-    const _joltSpec = _isNode ? 'jolt-physics/wasm-compat' : ('/node_modules/' + 'jolt-physics/dist/jolt-physics.wasm.js')
-    const { default: init } = await import(_joltSpec)
+    const _bundlerOpaqueJoltSpec = _isNode ? 'jolt-physics/wasm-compat' : ('/node_modules/' + 'jolt-physics/dist/jolt-physics.wasm.js')
+    const { default: init } = await import(_bundlerOpaqueJoltSpec)
     joltInstance = await init()
   }
   return joltInstance
@@ -83,28 +60,16 @@ export class PhysicsWorld {
     this._activationListener.OnBodyActivated = (ptr) => { if (this.onBodyActivated) this.onBodyActivated(this._heap32[ptr >> 2]) }
     this._activationListener.OnBodyDeactivated = (ptr) => { if (this.onBodyDeactivated) this.onBodyDeactivated(this._heap32[ptr >> 2]) }
     this.physicsSystem.SetBodyActivationListener(this._activationListener)
-    // Aggressive body-sleep tuning: Jolt's own defaults (mTimeBeforeSleep=0.5s, mPointVelocitySleepThreshold=0.03)
-    // were left untouched -- for a large scene of mostly-static-once-settled dynamic props (the 30k-model
-    // budget target) a shorter settle time + slightly higher velocity floor means far more of the active-body
-    // set self-sleeps via Jolt's own island-based sleep logic BEFORE the hard-activation-ring/global-budget
-    // logic in AppRuntimePhysics even has to intervene -- the two mechanisms are complementary, not redundant:
-    // this lowers the steady-state active count, the ring/budget logic bounds the worst case under load.
     if (typeof this.physicsSystem.GetPhysicsSettings === 'function' && typeof this.physicsSystem.SetPhysicsSettings === 'function') {
       const ps = this.physicsSystem.GetPhysicsSettings()
-      ps.mTimeBeforeSleep = 0.25              // was Jolt default 0.5s -- settle twice as fast
-      ps.mPointVelocitySleepThreshold = 0.05  // was Jolt default 0.03 -- sleep at a slightly higher residual jitter
+      ps.mTimeBeforeSleep = 0.25
+      ps.mPointVelocitySleepThreshold = 0.05
       this.physicsSystem.SetPhysicsSettings(ps)
     }
     this._charMgr.init(J, this.jolt, this.physicsSystem)
     return this
   }
 
-  // Live gravity update (hotreload-worldDef-edit-no-restart): mutates the running Jolt physics
-  // system's gravity vector via the real SetGravity call, updates this.gravity for every JS-side
-  // reader (PhysicsIntegration.config.gravity, CharacterManager fallback), and rebuilds
-  // CharacterManager's cached Jolt Vec3 (built once in its own init(), not a live reference to
-  // this.gravity -- mutating the array alone would leave every already-spawned character's
-  // ExtendedUpdate still integrating the stale gravity).
   setGravity(gravity) {
     this.gravity = gravity
     if (this.physicsSystem) {
@@ -124,8 +89,8 @@ export class PhysicsWorld {
     J.destroy(pos); J.destroy(rot)
     if (opts.mass) { cs.mMassPropertiesOverride.mMass = opts.mass; cs.mOverrideMassProperties = J.EOverrideMassProperties_CalculateInertia }
     if (opts.friction !== undefined) cs.mFriction = opts.friction
-    if (opts.restitution !== undefined) cs.mRestitution = opts.restitution   // bounciness 0..1
-    if (opts.gravityFactor !== undefined) cs.mGravityFactor = opts.gravityFactor   // 0 = float, <0 = anti-gravity
+    if (opts.restitution !== undefined) cs.mRestitution = opts.restitution
+    if (opts.gravityFactor !== undefined) cs.mGravityFactor = opts.gravityFactor
     if (opts.linearDamping !== undefined) cs.mLinearDamping = opts.linearDamping
     if (opts.angularDamping !== undefined) cs.mAngularDamping = opts.angularDamping
     if (opts.linearCast) cs.mMotionQuality = J.EMotionQuality_LinearCast
@@ -146,14 +111,6 @@ export class PhysicsWorld {
     return this._addBody(bs, position, J.EMotionType_Static, LAYER_STATIC, { rotation, meta: { type: 'static', shape: 'box' } })
   }
 
-  // activate: null (default) = EActivation_DontActivate (original behavior, correct for the STATIC
-  // shapeKey pool users this was written for -- terrain colliders etc, which never simulate dynamics
-  // either way). Pass true/false explicitly to force-activate or force-deactivate a DYNAMIC body being
-  // parked/revived through the pool -- see removeBody/addBody's pool paths below, and the header comment
-  // on why a dynamic body needs this (a merely-repositioned park with DontActivate does NOT deactivate an
-  // already-active body -- it keeps simulating/falling forever at the park position, a real measured
-  // per-tick cost live-witnessed while pooling destructible debris: a "parked" dynamic body fell
-  // continuously the whole time it sat in the pool, 6.46m of drift across 1s of ticks in one probe).
   _repositionBody(id, position, rotation, activate = null) {
     const b = this._getBody(id); if (!b) return
     this._tmpRVec3.Set(position[0], position[1], position[2])
@@ -174,12 +131,6 @@ export class PhysicsWorld {
       const free = this._bodyPool.get(sk)
       if (free && free.length) {
         const id = free.pop()
-        // Dynamic revive: reactivate + wipe stale linear/angular velocity from the piece's PREVIOUS life
-        // (live-witnessed carrying over: a body removeBody'd mid-fall at -4.8m/s kept that exact velocity
-        // into its next life at a totally different position, a real correctness bug for pooled debris --
-        // a freshly "destroyed" piece would otherwise inherit whatever momentum the last occupant of this
-        // pool slot happened to have when it despawned). Static/kinematic reuse (terrain colliders, the
-        // pool's original use case) is unaffected since motionType there is never 'dynamic'.
         const isDynamic = motionType === 'dynamic'
         this._repositionBody(id, position, opts.rotation, isDynamic ? true : null)
         if (isDynamic) {
@@ -201,9 +152,6 @@ export class PhysicsWorld {
       else { shape = new J.CapsuleShape(params[1], params[0]); if (ck) this._shapeCache.set(ck, shape) }
     }
     else if (shapeType === 'convex') {
-      // sr must outlive the _addBody call that consumes cvxShape -- see ShapeBuilder.js's buildConvexShape
-      // header comment (a real, live-reproduced WASM state-corruption bug found+fixed while wiring
-      // destructibles-fractured-glb-shape-wiring's dynamic convex debris bodies).
       const { shape: cvxShape, sr } = buildConvexShape(J, params, this._shapeCache, opts.shapeKey || null)
       const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
       const id = this._addBody(cvxShape, position, mt, motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC, { ...opts, meta: { type: motionType, shape: shapeType } })
@@ -237,7 +185,6 @@ export class PhysicsWorld {
       return Promise.resolve(this._addBody(this._shapeCache.get(cacheKey), position, mt, motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC, { ...opts, meta: { type: motionType, shape: 'convex' } }))
     }
     const result = this._convexQueue.then(() => {
-      // sr must outlive the _addBody call below -- see ShapeBuilder.js's buildConvexShape header comment.
       const { shape, sr } = buildConvexShape(J, params, this._shapeCache, cacheKey)
       const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
       const id = this._addBody(shape, position, mt, motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC, { ...opts, meta: { type: motionType, shape: 'convex' } })
@@ -247,20 +194,6 @@ export class PhysicsWorld {
     this._convexQueue = result.then(() => {}, () => {}); return result
   }
 
-  // Shape caching/welding: a static trimesh cooked from a GLB (extractAllMeshesFromGLBAsync + Jolt
-  // MeshShapeSettings.Create()) is real, measurable per-call cost -- full mesh extraction plus native
-  // triangle-list construction -- yet maps commonly place the SAME model many times (rocks, crates,
-  // barrels, props). Every prior call re-extracted and re-cooked from scratch even for an identical
-  // glbPath+scale pair. Cache key is glbPath+scale (buildTrimeshShape pre-scales vertices into world
-  // space, so two different scales of the same model genuinely need two different cooked shapes; a
-  // rotation-only difference does NOT, since rotation is applied at the body level via _addBody's
-  // BodyCreationSettings, not baked into the shape). The cached Shape is a real Jolt-side ref-counted
-  // object (Shape.AddRef/Release/GetRefCount, confirmed in jolt-physics.wasm-compat.d.ts) -- sharing one
-  // cooked shape across many bodies is Jolt's own supported "welding" pattern, same trust level as the
-  // pre-existing box/capsule/convex shapeKey cache in addBody/buildConvexShape above (which also never
-  // destroys a cached shape, relying on Jolt's own refcounting under each BodyCreationSettings/body).
-  // In-flight dedupe (_trimeshInflight) additionally prevents two concurrent placements of the same
-  // model+scale from racing two independent cook operations before either populates the cache.
   async addStaticTrimeshAsync(glbPath, meshIndex = 0, position = [0, 0, 0], scale = [1, 1, 1], rotation = [0, 0, 0, 1]) {
     if (!glbPath) throw new Error('addStaticTrimeshAsync: no glbPath (resolveAssetPath rejected or returned an empty path)')
     const J = this.Jolt
@@ -279,17 +212,6 @@ export class PhysicsWorld {
       }
       const built = await inflight
       shape = built.shape
-      // Live-witnessed hard rule (WASM "null function or function signature mismatch" crash on the
-      // NEXT distinct trimesh add otherwise): the ShapeResult (`sr`) must be destroyed only AFTER a
-      // real _addBody call has consumed/reffed the Shape it wraps -- destroying it any earlier (e.g.
-      // inside the .then() before the first body exists) corrupts Jolt's WASM state for subsequent
-      // shape creation, even though `shape` itself looks like a valid JS object at that point.
-      // `built` is the SAME object handed to every concurrent `await inflight` caller (a resolved
-      // Promise shares its value, it does not clone it) -- when N callers raced the same fresh key
-      // (the in-flight-dedupe case _trimeshInflight exists for), naively checking `built.sr` would
-      // have every one of them see it truthy and each call J.destroy(built.sr), a double-destroy of
-      // the same native object. Null it out on first claim so only ONE of the N awaiters (whichever
-      // microtask runs first, harmless which) actually owns and performs the destroy.
       if (built.sr) { srToDestroyAfterFirstUse = built.sr; built.sr = null }
     }
     const id = this._addBody(shape, position, J.EMotionType_Static, LAYER_STATIC, { rotation, meta: { type: 'static', shape: 'trimesh', shapeKey: key } })
@@ -342,9 +264,6 @@ export class PhysicsWorld {
   getCharacterGroundState(id) { return this._charMgr.getGroundState(id) }
   removeCharacter(id) { this._charMgr.removeCharacter(id) }
   get characters() { return this._charMgr.characters }
-  // Rollback-netcode primitive, character-body half of snapshotBodies/restoreBodies (players use
-  // CharacterVirtual, not regular Jolt bodies -- see CharacterManager.js's own snapshotAll/restoreAll
-  // header comment for why only position+velocity round-trip).
   snapshotCharacters() { return this._charMgr.snapshotAll() }
   restoreCharacters(snap) { this._charMgr.restoreAll(snap) }
 
@@ -362,15 +281,6 @@ export class PhysicsWorld {
     return true
   }
 
-  // Rollback-netcode primitive (rollback-netcode-ggpo-style-input-rollback first slice): capture every
-  // non-static body's full dynamics state (position, rotation, linear+angular velocity) for later exact
-  // restore, the save/rewind half of a GGPO-style save-state -> resimulate-forward loop. Static bodies
-  // (terrain, placed props with autoTrimesh, etc) are skipped entirely -- by construction a static body
-  // never moves under simulation, so capturing/restoring it is pure waste on every single rollback save,
-  // which per this row's own architecture happens on a tight per-tick budget. Uses the SAME
-  // GetPositionAndRotation/GetLinearAndAngularVelocity bulk-read convention syncDynamicBody already
-  // proved safe every tick in production (see the getBodyPosition/getBodyRotation header comment above
-  // for why the two single-field getters are NOT safe to call back-to-back -- this reuses the safe path).
   snapshotBodies() {
     const out = new Map()
     const bi = this.bodyInterface
@@ -389,15 +299,6 @@ export class PhysicsWorld {
     return out
   }
 
-  // Restores exactly the bodies present in `snap` (a Map from snapshotBodies, or a plain object with the
-  // same per-entry shape for a wire-deserialized snapshot). A body present in `snap` but since removed
-  // from the live world (removeBody'd between save and rollback -- e.g. a debris piece that despawned) is
-  // silently skipped, matching CharacterManager.restoreAll's same-set assumption: a rollback caller always
-  // restores against the identical body population it saved, so this is a defensive skip, not a real path.
-  // EActivation_Activate: a rolled-back body must be simulating again even if the pre-restore Jolt state
-  // happened to have it asleep (a resimulate pass needs every body live for the physics.step() calls that
-  // follow, or Jolt will not integrate a sleeping body and the resimulation silently diverges from a truly
-  // deterministic replay where that body was awake throughout).
   restoreBodies(snap) {
     const bi = this.bodyInterface, J = this.Jolt
     const entries = snap instanceof Map ? snap.entries() : Object.entries(snap)
@@ -413,46 +314,13 @@ export class PhysicsWorld {
     }
   }
 
-  // NOTE: routed through GetPositionAndRotation + the pre-allocated, never-destroyed _bulkOutP/_bulkOutR
-  // scratch pair (the same buffers syncDynamicBody already used safely), NOT the single-field
-  // GetPosition/GetRotation calls the two used to make independently. Real bug found+fixed this session
-  // (deterministic-simulation-jolt-fixed-point-rollback probe): calling getBodyPosition(id) then
-  // getBodyRotation(id) for the same body in the same tick -- in EITHER order, even across two separate
-  // loops over the same body set (not just interleaved per-body) -- crashed with a real, 100% reproducible
-  // "RuntimeError: memory access out of bounds" WASM trap, live-isolated down to a single dynamic body,
-  // first tick, fresh process (not a multi-world/heap-accumulation artifact). Root cause: GetPosition's and
-  // GetRotation's own embind wrappers each return a value via an embind by-value-return convention that,
-  // like the already-documented GetAngularVelocity buffer below, is NOT safe to Jolt.destroy() when a sibling
-  // getter's return value is live in the same synchronous scope -- calling BOTH getters (each individually
-  // safe when called alone, confirmed via a 600-tick isolation run) then destroying either return value
-  // corrupts shared WASM-side state the other getter's wrapper also touches. GetPositionAndRotation's own
-  // out-param convention was already proven safe under the identical 24-body/600-tick stress (syncDynamicBody
-  // uses it every tick in production) -- reusing it here fixes both getters without changing either's public
-  // signature or return shape. This is a real fix, not exemption: nothing new is heap-allocated per call to
-  // the reused _bulkOutP/_bulkOutR pair, same discipline as getBodyAngularVelocity's no-destroy fix.
   getBodyPosition(id) { const b = this._getBody(id); if (!b) return [0,0,0]; this.bodyInterface.GetPositionAndRotation(b.GetID(), this._bulkOutP, this._bulkOutR); return [this._bulkOutP.GetX(),this._bulkOutP.GetY(),this._bulkOutP.GetZ()] }
   getBodyRotation(id) { const b = this._getBody(id); if (!b) return [0,0,0,1]; this.bodyInterface.GetPositionAndRotation(b.GetID(), this._bulkOutP, this._bulkOutR); return [this._bulkOutR.GetX(),this._bulkOutR.GetY(),this._bulkOutR.GetZ(),this._bulkOutR.GetW()] }
   getBodyVelocity(id) { const b = this._getBody(id); if (!b) return [0,0,0]; const v = this.bodyInterface.GetLinearVelocity(b.GetID()); const r=[v.GetX(),v.GetY(),v.GetZ()]; this.Jolt.destroy(v); return r }
-  // NOTE: deliberately does NOT Jolt.destroy() the returned Vec3, unlike every sibling getter above.
-  // Live-reproduced real bug (destructibles-debris-lifetime-lod session): BodyInterface.GetAngularVelocity's
-  // embind wrapper returns a reference into a Jolt-internal reusable temp buffer (not a fresh heap Vec3 the
-  // way GetPosition/GetRotation/GetLinearVelocity's OWN return values behave when called in isolation) --
-  // destroying it here, then calling GetLinearVelocity (or GetAngularVelocity again) in the SAME tick during
-  // a body's collision-response step, corrupted that shared buffer: a real "RuntimeError: memory access out
-  // of bounds" WASM trap, deterministically reproduced at the exact tick a falling body first contacts the
-  // ground (collision resolution touches the same internal velocity buffer Jolt is about to hand back out).
-  // Isolated via paired probes: GetLinearVelocity-only (destroyed every tick) survives 500 ticks fine;
-  // GetAngularVelocity-only (destroyed every tick) ALSO survives fine; only the INTERLEAVED linear+angular
-  // sequence in one tick crashes -- and skipping the destroy() on angular's result alone (leaving linear's
-  // existing destroy() untouched) fully fixes it. A one-time-per-call skipped destroy on a reused Jolt-side
-  // temp buffer is not a real leak (nothing new is allocated per call to begin with).
   getBodyAngularVelocity(id) { const b = this._getBody(id); if (!b || !this.bodyInterface.GetAngularVelocity) return [0,0,0]; const v = this.bodyInterface.GetAngularVelocity(b.GetID()); return [v.GetX(),v.GetY(),v.GetZ()] }
   setBodyFriction(id, f) { const b = this._getBody(id); if (!b || !this.bodyInterface.SetFriction) return false; this.bodyInterface.SetFriction(b.GetID(), f); return true }
   setBodyRestitution(id, r) { const b = this._getBody(id); if (!b || !this.bodyInterface.SetRestitution) return false; this.bodyInterface.SetRestitution(b.GetID(), r); return true }
   setBodyPosition(id, p) { const b = this._getBody(id); if (!b) return; this._tmpRVec3.Set(p[0],p[1],p[2]); this.bodyInterface.SetPosition(b.GetID(), this._tmpRVec3, this.Jolt.EActivation_Activate) }
-  // Flip an existing body's Jolt motion type in place (Dynamic<->Kinematic) for the hard-activation-ring
-  // 30-100m tier -- reuses the same body/shape rather than destroy+recreate, so a ring crossing is one
-  // Jolt call instead of a full shape rebuild. EActivation_DontActivate: caller decides activation separately.
   setBodyMotionType(id, motionType) {
     const b = this._getBody(id); if (!b || !this.bodyInterface.SetMotionType) return false
     const J = this.Jolt
@@ -460,32 +328,17 @@ export class PhysicsWorld {
     this.bodyInterface.SetMotionType(b.GetID(), mt, J.EActivation_DontActivate)
     return true
   }
-  // Proximity-priority sleep: put an active body to sleep without destroying it (cheap to reactivate,
-  // unlike removeBody which frees the Jolt shape). DeactivateBody fires the same OnBodyDeactivated
-  // listener a natural velocity-threshold sleep would, so AppRuntimePhysics' bookkeeping (active/sleeping
-  // sets) stays correct via the existing listener, no separate code path needed downstream.
   deactivateBody(id) {
     const b = this._getBody(id); if (!b || !this.bodyInterface.DeactivateBody) return false
     this.bodyInterface.DeactivateBody(b.GetID())
     return true
   }
   setBodyVelocity(id, v) { const b = this._getBody(id); if (!b) return; this._tmpVec3.Set(v[0],v[1],v[2]); this.bodyInterface.SetLinearVelocity(b.GetID(), this._tmpVec3) }
-  // Undocumented-in-.d.ts but real, compiled-WASM-confirmed binding (same class of gap as the
-  // Vehicle* surface -- see project/vehicles-jolt-constraint-available-not-just-twobody in AGENTS.md).
-  // Needed to fully reset a REUSED dynamic body (pooled debris revival): SetLinearVelocity alone leaves
-  // stale angular velocity/spin from the body's PREVIOUS life on the pooled Jolt body, since Jolt does
-  // not reset angular velocity as a side effect of SetPosition/SetLinearVelocity.
   setBodyAngularVelocity(id, v) { const b = this._getBody(id); if (!b || !this.bodyInterface.SetAngularVelocity) return false; this._tmpVec3.Set(v[0],v[1],v[2]); this.bodyInterface.SetAngularVelocity(b.GetID(), this._tmpVec3); return true }
   addForce(id, f) { const b = this._getBody(id); if (!b) return; this._tmpVec3.Set(f[0],f[1],f[2]); this.bodyInterface.AddForce(b.GetID(), this._tmpVec3) }
-  // Optional worldPoint applies the impulse OFF-CENTRE (Jolt AddImpulse(id, impulse, point)) so it
-  // imparts spin/torque -- a ball curves, a kick tumbles a prop. Without it the impulse is centre-of-mass.
   addImpulse(id, im, worldPoint) { const b = this._getBody(id); if (!b) return; this._tmpVec3.Set(im[0],im[1],im[2]); if (worldPoint) { this._tmpRVec3.Set(worldPoint[0],worldPoint[1],worldPoint[2]); this.bodyInterface.AddImpulse(b.GetID(), this._tmpVec3, this._tmpRVec3) } else this.bodyInterface.AddImpulse(b.GetID(), this._tmpVec3) }
   setBodyGravityFactor(id, f) { const b = this._getBody(id); if (!b || typeof f !== 'number' || !Number.isFinite(f)) return; this.bodyInterface.SetGravityFactor(b.GetID(), f) }
 
-  // Join two bodies with a Jolt TwoBodyConstraint. type: 'fixed' (weld -- lock relative transform),
-  // 'point' (ball joint -- share a point, free rotation), 'distance' (rigid rod between anchors),
-  // 'hinge' (rotate about an axis). anchorA/anchorB are WORLD-space attach points (default both bodies'
-  // current positions). Returns a constraintId for removeConstraint, or null if a body is unknown.
   addConstraint(bodyIdA, bodyIdB, opts = {}) {
     if (!this.physicsSystem) return null
     const ba = this._getBody(bodyIdA), bb = this._getBody(bodyIdB)
@@ -514,7 +367,7 @@ export class PhysicsWorld {
         const ax = opts.axis || [0, 1, 0]
         settings.mHingeAxis1 = new J.Vec3(ax[0], ax[1], ax[2]); settings.mHingeAxis2 = new J.Vec3(ax[0], ax[1], ax[2])
         settings.mNormalAxis1 = new J.Vec3(1, 0, 0); settings.mNormalAxis2 = new J.Vec3(1, 0, 0)
-      } else { // fixed / weld
+      } else {
         settings = new J.FixedConstraintSettings()
         settings.mSpace = J.EConstraintSpace_WorldSpace
         settings.mPoint1 = new J.RVec3(aA[0], aA[1], aA[2]); settings.mPoint2 = new J.RVec3(aB[0], aB[1], aB[2])
@@ -536,10 +389,6 @@ export class PhysicsWorld {
   }
 
 
-  // Vehicle constraint methods (createWheeledVehicle, createTrackedVehicle, driver-input, wheel
-  // accessors, removeVehicle) live in VehiclePhysics.js, mixed onto this prototype below the class
-  // body -- see that file's header comment for the full WASM-crash-avoidance rationale.
-
   enqueueAdd(shapeType, params, position, motionType, opts, onAdded) {
     this._bodyQueue.push({ op: 'add', shapeType, params, position, motionType, opts: opts || {}, onAdded })
   }
@@ -548,7 +397,6 @@ export class PhysicsWorld {
     this._bodyQueue.push({ op: 'remove', id, force })
   }
 
-  // drainBodyQueue must run before physics.step() each tick: adds before removes.
   drainBodyQueue() {
     const q = this._bodyQueue
     if (q.length === 0) return 0
@@ -580,24 +428,12 @@ export class PhysicsWorld {
   getTerrainOffsetY() { return this._terrainOffsetY || 0 }
   terrainHeightAt(x, z) { return typeof this._terrainHeightAt === 'function' ? this._terrainHeightAt(x, z) + (this._terrainOffsetY || 0) : null }
 
-  // collisionSteps is Jolt's own real Step(deltaTime, inCollisionSteps) sub-stepping parameter --
-  // more collision steps per physics tick catch fast-moving bodies that would otherwise tunnel
-  // through thin colliders within a single tick's motion. Default stays 2 (unchanged from before
-  // this option existed) since quadrupling it unconditionally for every world would be a real,
-  // needless per-tick cost for the common case (most bodies are slow enough that 2 is already
-  // sufficient) -- a caller with genuinely fast projectiles/characters (the CCD-policy-per-entity-
-  // class need this pairs with) passes a higher value explicitly instead.
   step(dt, collisionSteps = 2) { if (this.jolt) this.jolt.Step(dt, collisionSteps) }
 
   removeBody(id, force = false) {
     const b = this._getBody(id); if (!b) return
     const sk = !force && this._bodyShapeKey.get(id)
     if (sk) {
-      // Force-deactivate a DYNAMIC body on park (see addBody's pool-hit revive comment above for the
-      // measured cost of NOT doing this): merely repositioning with DontActivate does not stop an
-      // already-active body from continuing to simulate/fall at the park position for however long it
-      // sits pooled. Static/kinematic park (the pool's original terrain-collider use case) is unaffected
-      // -- those never simulate dynamics regardless of active/inactive state.
       const isDynamic = this.bodyMeta.get(id)?.type === 'dynamic'
       this._repositionBody(id, _PARK_POS, null, isDynamic ? false : null)
       if (isDynamic) { this.setBodyVelocity(id, [0, 0, 0]); this.setBodyAngularVelocity(id, [0, 0, 0]) }
@@ -636,14 +472,6 @@ export class PhysicsWorld {
     })
   }
 
-  // Per-call Jolt scratch, created once and reused (same convention CharacterManager.init already uses
-  // for its own bp/ol/body/shape filters + _tmpVec3/_tmpRVec3). Removes 9 embind constructions and 7
-  // destroy() calls per raycast (measured 5.7us -> 1.15us per raycast against a real aim_sillos trimesh
-  // BVH). It also stops a real leak: the RVec3/Vec3 handed to the RRayCast constructor were the two
-  // allocations the old code never destroyed -- 80 bytes of WASM heap high-water per raycast, measured
-  // monotonic (8 MB per 100k casts) and flat once destroyed.
-  // Not re-entrant: raycast is fully synchronous with no user callback inside it, and asyncQuery's only
-  // other caller path invokes it in a plain sequential loop.
   _raycastScratch() {
     const J = this.Jolt
     let s = this._rcScratch
@@ -661,8 +489,6 @@ export class PhysicsWorld {
     if (!this.physicsSystem) return { hit: false, distance: maxDistance, body: null, position: null }
     const J = this.Jolt
     const len = Math.hypot(direction[0], direction[1], direction[2])
-    // Scalars, not a `dir` array: same `/len` division (NOT a reciprocal multiply -- that shifts the
-    // result by 1 ulp), so every returned number is bit-identical to the pre-scratch version.
     const dirX = len > 0 ? direction[0]/len : direction[0]
     const dirY = len > 0 ? direction[1]/len : direction[1]
     const dirZ = len > 0 ? direction[2]/len : direction[2]
@@ -671,8 +497,8 @@ export class PhysicsWorld {
     s.dir.Set(dirX*maxDistance, dirY*maxDistance, dirZ*maxDistance)
     s.ray.set_mOrigin(s.origin); s.ray.set_mDirection(s.dir)
     s.col.Reset()
-    const eb = excludeBodyId != null ? this._getBody(excludeBodyId) : null
-    const bf = eb ? new J.IgnoreSingleBodyFilter(eb.GetID()) : s.bf
+    const excludedBody = excludeBodyId != null ? this._getBody(excludeBodyId) : null
+    const bf = excludedBody ? new J.IgnoreSingleBodyFilter(excludedBody.GetID()) : s.bf
     const col = s.col
     this.physicsSystem.GetNarrowPhaseQuery().CastRay(s.ray, s.rs, col, s.bp, s.ol, bf, s.sf)
     let result
@@ -680,15 +506,10 @@ export class PhysicsWorld {
       const hit = col.get_mHit()
       const dist = hit.mFraction * maxDistance
       const position = [origin[0]+dirX*dist, origin[1]+dirY*dist, origin[2]+dirZ*dist]
-      // Resolve the hit body back to a World body id -- the World id IS the Jolt
-      // GetIndexAndSequenceNumber() (see addBody), so this keys the same bodyMeta / the runtime's
-      // _physicsBodyToEntityId reverse map directly. Callers get an ATTRIBUTED hit (which entity/body),
-      // not just a point -- this is the primitive that makes shoot/click-a-target games authorable.
       let bodyId = null, normal = null
       try {
         const bid = hit.mBodyID
         if (bid) bodyId = bid.GetIndexAndSequenceNumber()
-        // Surface normal at the hit point (world space), for oriented decals / bounce / aim feedback.
         const b = bodyId != null ? this._getBody(bodyId) : null
         if (b) {
           this._tmpRVec3.Set(position[0], position[1], position[2])
@@ -696,10 +517,10 @@ export class PhysicsWorld {
           normal = [n.GetX(), n.GetY(), n.GetZ()]
           J.destroy(n)
         }
-      } catch (_) { /* normal/body extraction is best-effort; position always returns */ }
+      } catch (_) { }
       result = { hit: true, distance: dist, body: null, bodyId, normal, position }
     } else result = { hit: false, distance: maxDistance, body: null, bodyId: null, normal: null, position: null }
-    if (eb) J.destroy(bf)   // only the per-call IgnoreSingleBodyFilter; the rest is reused scratch
+    if (excludedBody) J.destroy(bf)
     return result
   }
 

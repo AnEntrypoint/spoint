@@ -3,25 +3,8 @@ let _dracoDecoderPromise = null
 export async function getDracoDecoder() {
   if (!_dracoDecoderPromise) {
     try {
-      // Specifier built at runtime, not a bare literal import() -- draco3dgltf's own bundled
-      // Emscripten glue has unconditional top-level `require('fs')`/`require('path')` calls (no
-      // edge/browser fallback in the package itself, unlike jolt-physics/mapspinner/xstate/msgpackr
-      // which this session fixed the SAME class of build-time-static-resolution problem for), so a
-      // bundler-based edge/DO build target fails outright trying to statically resolve+bundle it --
-      // live-reproduced via a real `wrangler dev`/`wrangler deploy --dry-run` build against
-      // WorkerEntry.js's real dependency graph (this file is reached transitively via GLBLoader.js,
-      // used by World.js's GLB-based collider path). Draco-compressed GLB colliders are NOT yet
-      // edge-safe (see sibling PRD row edge-cf-draco-glb-collider-not-yet-edge-safe) -- this fix only
-      // makes the BUILD succeed for a world that never actually calls this function (any world using
-      // plain primitive colliders, like apps/world/e2e-ci-arena.js), matching this row's own scoped
-      // minimal-slice world. Runtime behavior for every existing Node caller is unchanged: same
-      // real 'draco3dgltf' package, same resolution.
-      // A plain string-concat literal (e.g. 'draco3d'+'gltf') is STILL constant-folded by esbuild back
-      // to a literal specifier and still breaks an edge/DO build -- confirmed live. A specifier built
-      // inside a wrapping function call is what actually defeats esbuild's static resolution (same
-      // fix as EditorHandlers.js's ServerAPI.js import, same session).
-      const _dracoSpec = (() => 'draco3d' + 'gltf')()
-      const dracoGltf = await import(_dracoSpec)
+      const _bundlerOpaqueDracoSpec = (() => 'draco3d' + 'gltf')()
+      const dracoGltf = await import(_bundlerOpaqueDracoSpec)
       _dracoDecoderPromise = dracoGltf.createDecoderModule()
     } catch(e) {
       throw new Error(`Failed to load Draco decoder: ${e.message}`)

@@ -7,54 +7,44 @@ class NavmeshQuery {
     this.bounds = navmeshData.bounds
     this.config = navmeshData.config || {}
 
-    // Build neighbor map for fast connectivity lookup
     this.neighborMap = new Map()
     for (const link of this.links) {
       this.neighborMap.set(link.polygon, link.neighbors)
     }
 
-    // LRU path cache: 100 entries
     this.pathCache = new Map()
     this.cacheOrder = []
     this.maxCacheEntries = 100
   }
 
-  // Find a path from start to goal, returning an array of waypoints (or null if unreachable)
   findPath(start, goal, config = {}) {
     const cacheKey = `${start.map(x => x.toFixed(2)).join(',')}_${goal.map(x => x.toFixed(2)).join(',')}`
 
-    // Check cache first
     if (this.pathCache.has(cacheKey)) {
       return this.pathCache.get(cacheKey)
     }
 
-    // Find which polygons contain start and goal
     const startPoly = this._findPolygonContaining(start)
     const goalPoly = this._findPolygonContaining(goal)
 
     if (startPoly === -1 || goalPoly === -1) {
-      return null // Start or goal outside navmesh
+      return null
     }
 
-    // A* search on polygon graph
     const path = this._astarSearch(startPoly, goalPoly, start, goal, config)
 
     if (!path) {
       return null
     }
 
-    // Path pulling: straight-line optimization to remove intermediate waypoints
     const pulled = this._pullPath(path, start, goal)
 
-    // Cache the result
     this._cacheResult(cacheKey, pulled)
 
     return pulled
   }
 
   _findPolygonContaining(point) {
-    // Simple linear search for now (could be optimized with spatial partitioning)
-    // Use AABB check as a first filter, then check actual containment
     for (let i = 0; i < this.polygons.length; i++) {
       if (this._pointInPolygon(point, i)) {
         return i
@@ -69,8 +59,6 @@ class NavmeshQuery {
     if (!poly || !poly.vertices || poly.vertices.length < 3) return false
     if (!this.vertices || this.vertices.length === 0) return false
 
-    // Simple convex polygon check (assumes navmesh polygons are convex)
-    // Project point onto polygon plane and check containment
     const verts = poly.vertices
       .map(vi => {
         if (vi >= 0 && vi < this.vertices.length) {
@@ -82,7 +70,6 @@ class NavmeshQuery {
 
     if (verts.length < 3) return false
 
-    // Calculate centroid and use it for simple containment test
     let cx = 0, cz = 0
     for (const v of verts) {
       cx += v[0]
@@ -91,7 +78,6 @@ class NavmeshQuery {
     cx /= verts.length
     cz /= verts.length
 
-    // AABB check as a first pass
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
     for (const v of verts) {
       minX = Math.min(minX, v[0])
@@ -104,7 +90,6 @@ class NavmeshQuery {
       return false
     }
 
-    // Cross-product based containment test
     const px = point[0], pz = point[2]
     for (let i = 0; i < verts.length; i++) {
       const v1 = verts[i]
@@ -130,7 +115,6 @@ class NavmeshQuery {
     fScore.set(startPoly, h)
 
     while (openSet.size > 0) {
-      // Find lowest fScore in open set
       let current = -1
       let lowestF = Infinity
       for (const node of openSet) {
@@ -142,7 +126,6 @@ class NavmeshQuery {
       }
 
       if (current === goalPoly) {
-        // Reconstruct path
         const path = [goalPoly]
         let c = current
         while (cameFrom.has(c)) {
@@ -171,11 +154,10 @@ class NavmeshQuery {
       }
     }
 
-    return null // No path found
+    return null
   }
 
   _heuristic(polyA, polyB) {
-    // Euclidean distance between polygon centroids
     const centroidA = this._polygonCentroid(polyA)
     const centroidB = this._polygonCentroid(polyB)
     const dx = centroidB[0] - centroidA[0]
@@ -207,19 +189,16 @@ class NavmeshQuery {
   }
 
   _pullPath(polygonPath, startPos, goalPos) {
-    // Straight-line optimization: remove waypoints that don't improve the path
     const waypoints = [startPos]
 
     for (let i = 1; i < polygonPath.length; i++) {
       const polyIdx = polygonPath[i]
       const centroid = this._polygonCentroid(polyIdx)
 
-      // Check if we can take a more direct route to this point
       const lastWaypoint = waypoints[waypoints.length - 1]
       const canDirectTo = this._canWalkDirectly(lastWaypoint, centroid)
 
       if (!canDirectTo) {
-        // Add intermediate waypoint
         const prevCentroid = this._polygonCentroid(polygonPath[i - 1])
         waypoints.push(prevCentroid)
       }
@@ -230,8 +209,6 @@ class NavmeshQuery {
   }
 
   _canWalkDirectly(from, to) {
-    // Simple check: if both points are on the navmesh and within line of sight
-    // For now, just return true (optimistic). A full implementation would raycast.
     const fromPoly = this._findPolygonContaining(from)
     const toPoly = this._findPolygonContaining(to)
     return fromPoly >= 0 && toPoly >= 0
@@ -247,7 +224,6 @@ class NavmeshQuery {
     }
   }
 
-  // Clear the path cache
   clearCache() {
     this.pathCache.clear()
     this.cacheOrder = []

@@ -33,36 +33,16 @@ async function readGLBAsync(pathOrUrl) {
 
 function readGLB(filepath) { return readGLBSync(filepath) }
 
-// De-interleaving bug found live while root-causing tps-game-player-freeze-heavy-vegetation-collider-freefall
-// (a player permanently wedged in place near the tps-game spawn point, inside apps/maps/aim_sillos.glb's
-// interior). This physics-only GLB loader (extractStandardMesh, used solely by ShapeBuilder.js's trimesh
-// builder -- never by the render path, which is why the earlier sillos-scramble-hypothesis-disproven
-// investigation checking THREE.GLTFLoader/bakeCluster/ModelPool.spawn found nothing wrong) always read
-// `posAcc.count * 12` TIGHTLY-PACKED bytes starting at the POSITION accessor's own byteOffset, ignoring the
-// bufferView's byteStride entirely. aim_sillos.glb (and, per the same live GLB inspection, likely most glTF
-// exporters that pack POSITION+NORMAL+TEXCOORD0+TEXCOORD1 into one interleaved vertex buffer) has EVERY
-// primitive's POSITION bufferView byteStride=40 (12 position + 12 normal + 8 uv0 + 8 uv1), not 12 -- so the
-// old tight-packed read spliced position/normal/UV bytes together as if they were sequential Vec3 positions,
-// producing garbage geometry (live-witnessed: computed world bounds X/Y/Z scrambled to near-identical wide
-// ranges instead of the model's real ~54x22x80m footprint). The resulting trimesh collider had real
-// triangles sitting many meters away from where the visible geometry actually is -- tps-game's spawn point
-// [0,15.3,0] free-fell into this garbage geometry and Jolt's CharacterVirtual.ExtendedUpdate wedged against
-// 42-50 simultaneous near-opposing contact normals every tick (live-captured via GetActiveContacts), netting
-// zero displacement forever despite a large, correctly-computed, non-zero commanded velocity. Fix: when
-// byteStride is present and differs from the tight-packed per-vertex size (3 floats = 12 bytes), read each
-// vertex's 3 floats individually at its own strided offset instead of one contiguous slice.
 export function extractStandardMesh(buf, json, prim, binOffset, meshName) {
   const posAcc = json.accessors[prim.attributes.POSITION]
   const posView = json.bufferViews[posAcc.bufferView]
   const posOff = binOffset + (posView.byteOffset || 0) + (posAcc.byteOffset || 0)
-  const TIGHT_STRIDE = 12 // 3 * float32
-  const stride = posView.byteStride || TIGHT_STRIDE
+  const PACKED_VEC3_F32_STRIDE = 12
+  const stride = posView.byteStride || PACKED_VEC3_F32_STRIDE
   let vertices
-  if (stride === TIGHT_STRIDE) {
-    vertices = new Float32Array(buf.buffer.slice(posOff, posOff + posAcc.count * TIGHT_STRIDE))
+  if (stride === PACKED_VEC3_F32_STRIDE) {
+    vertices = new Float32Array(buf.buffer.slice(posOff, posOff + posAcc.count * PACKED_VEC3_F32_STRIDE))
   } else {
-    // Interleaved buffer (POSITION sharing a vertex-sized stride with NORMAL/TEXCOORD/etc): each vertex's
-    // 3 position floats must be read at its own strided byte offset, not as one contiguous run.
     vertices = new Float32Array(posAcc.count * 3)
     const dv = new DataView(buf.buffer, buf.byteOffset || 0, buf.byteLength)
     for (let i = 0; i < posAcc.count; i++) {
