@@ -1,3 +1,4 @@
+import { Matrix4, Sphere } from 'three'
 import { extractFrustumPlanes, runComputeCullingPoC } from './WebGPUCullingProbe.js'
 
 const DEFAULT_PERSPECTIVE_VIEW_PROJECTION = [1.732, 0, 0, 0, 0, 2.414, 0, 0, 0, 0, -1.002, -1, 0, 0, -0.2, 0]
@@ -12,7 +13,7 @@ function _seededInstances(n, seed, spreadXZ = 1280, spreadY = 40, rMin = 2, rMax
   return out
 }
 
-function _cpuCullReference(instances, planes) {
+function cpuReferenceCull(instances, planes) {
   const n = instances.length
   const visFlags = new Uint8Array(n)
   let visibleCount = 0
@@ -41,7 +42,7 @@ export async function runVegetationScalePerfAB({ counts = [12000, 30000], runsPe
     let cpuResult
     for (let r = 0; r < runsPerScale; r++) {
       const t0 = performance.now()
-      cpuResult = _cpuCullReference(instances, planes)
+      cpuResult = cpuReferenceCull(instances, planes)
       cpuTimes.push(performance.now() - t0)
     }
     cpuTimes.sort((a, b) => a - b)
@@ -78,40 +79,51 @@ function viewProjectionOf(camera) {
   return vp.elements
 }
 
-function extractInstances(mesh) {
-  if (!mesh) return []
-  if (typeof mesh.getMatrixAt !== 'function') return []
-  const radius = (mesh.geometry && mesh.geometry.boundingSphere && mesh.geometry.boundingSphere.radius) || 2
-  const out = []
-  const m = new (mesh.matrixWorld ? mesh.matrixWorld.constructor : Object)()
-  const hasActiveCheck = typeof mesh.getActiveAt === 'function'
-  const upperBound = Array.isArray(mesh._instanceInfo) ? mesh._instanceInfo.length
-    : (mesh.instancesCount != null ? mesh.instancesCount : (mesh.count || 0))
-  for (let i = 0; i < upperBound; i++) {
-    if (hasActiveCheck) { try { if (!mesh.getActiveAt(i)) continue } catch (_) { continue } }
-    try {
-      mesh.getMatrixAt(i, m)
-    } catch (_) { continue }
-    out.push({ x: m.elements[12], y: m.elements[13], z: m.elements[14], radius, _idx: i })
-  }
-  return out
+const INSTANCED_MESH2 = 0, BATCHED_MESH = 1, INSTANCED_MESH = 2
+
+function instanceStoreKind(mesh) {
+  if (Number.isInteger(mesh._instancesArrayCount) && typeof mesh.getActiveAt === 'function') return INSTANCED_MESH2
+  if (Array.isArray(mesh._instanceInfo)) return BATCHED_MESH
+  return INSTANCED_MESH
 }
 
-function cpuReferenceCull(instances, planes) {
-  const visFlags = new Array(instances.length)
-  let visibleCount = 0
-  for (let i = 0; i < instances.length; i++) {
-    const inst = instances[i]
-    let inside = true
-    for (let p = 0; p < 6; p++) {
-      const [a, b, c, d] = planes[p]
-      const dist = a * inst.x + b * inst.y + c * inst.z + d
-      if (dist < -inst.radius) { inside = false; break }
-    }
-    visFlags[i] = inside ? 1 : 0
-    if (inside) visibleCount++
+function instanceIdEnd(mesh, kind) {
+  if (kind === INSTANCED_MESH2) return mesh._instancesArrayCount
+  if (kind === BATCHED_MESH) return mesh._instanceInfo.length
+  return mesh.count || 0
+}
+
+function instanceIsLive(mesh, kind, id) {
+  if (kind === INSTANCED_MESH2) return !!mesh.getActiveAt(id)
+  if (kind === BATCHED_MESH) return mesh._instanceInfo[id].active
+  return true
+}
+
+const _instanceMatrix = new Matrix4()
+const _localSphere = new Sphere()
+const _worldSphere = new Sphere()
+
+function localBoundingSphere(mesh, kind, id) {
+  if (kind === BATCHED_MESH) return mesh.getBoundingSphereAt(mesh.getGeometryIdAt(id), _localSphere)
+  const geometry = mesh.geometry
+  if (!geometry.boundingSphere) geometry.computeBoundingSphere()
+  return _localSphere.copy(geometry.boundingSphere)
+}
+
+function extractInstances(mesh) {
+  if (!mesh || typeof mesh.getMatrixAt !== 'function') return []
+  mesh.updateMatrixWorld()
+  const kind = instanceStoreKind(mesh)
+  const end = instanceIdEnd(mesh, kind)
+  const out = []
+  for (let id = 0; id < end; id++) {
+    if (!instanceIsLive(mesh, kind, id)) continue
+    mesh.getMatrixAt(id, _instanceMatrix)
+    _instanceMatrix.premultiply(mesh.matrixWorld)
+    _worldSphere.copy(localBoundingSphere(mesh, kind, id)).applyMatrix4(_instanceMatrix)
+    out.push({ x: _worldSphere.center.x, y: _worldSphere.center.y, z: _worldSphere.center.z, radius: _worldSphere.radius, _idx: id })
   }
-  return { visFlags, visibleCount }
+  return out
 }
 
 async function runOneSource(name, sourceFn, camera) {
