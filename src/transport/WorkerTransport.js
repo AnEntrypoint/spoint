@@ -8,8 +8,6 @@ export class WorkerTransport extends TransportWrapper {
     this.ready = true
   }
 
-  // mt is forwarded so the main thread can coalesce snapshot-family messages by type, else the
-  // worker->main postMessage queue grows unbounded when render lags behind the snapshot rate
   send(data, mt) {
     if (!this.ready) return false
     const buf = data instanceof Uint8Array
@@ -38,10 +36,6 @@ export class PeerTransport extends TransportWrapper {
     this.ready = true
   }
 
-  // mt forwarded (mirrors WorkerTransport.send above) so the main thread can identify a bare-SNAPSHOT
-  // PEER_SEND without decoding msgpack -- see client/BrowserServer.js's onPeerSnapshot tap
-  // (p2p-mesh-redundant-snapshot-relay-via-joiner-joiner-edges), which needs each peer's latest raw
-  // SNAPSHOT bytes to have something to relay when that peer's direct host edge looks degraded.
   send(data, mt) {
     if (!this.ready) return false
     const buf = data instanceof Uint8Array

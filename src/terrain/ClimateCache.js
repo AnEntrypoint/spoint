@@ -1,4 +1,3 @@
-// Sector key: same integer floor + sector-centre sample on client and server -> byte-identical climate, required for veg/physics parity.
 export const SECTOR_M = 8
 
 function sectorIndex(v) {
@@ -17,9 +16,8 @@ export function createCachedAnchorField(anchorField, frame) {
     const cx = sx * SECTOR_M + SECTOR_M * 0.5
     const cz = sz * SECTOR_M + SECTOR_M * 0.5
     const dir = frame.localToDir(cx, cz)
-    const raw = anchorField.sampleDir ? anchorField.sampleDir(dir) : null
-    // must copy: sampleDir returns a shared scratch object, caching the reference would alias every sector to the last sample.
-    v = raw ? { temp: raw.temp, humidity: raw.humidity, erosion: raw.erosion, seaBias: raw.seaBias } : null
+    const sharedScratchClimate = anchorField.sampleDir ? anchorField.sampleDir(dir) : null
+    v = sharedScratchClimate ? { temp: sharedScratchClimate.temp, humidity: sharedScratchClimate.humidity, erosion: sharedScratchClimate.erosion, seaBias: sharedScratchClimate.seaBias } : null
     cache.set(k, v)
     return v
   }

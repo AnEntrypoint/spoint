@@ -1,12 +1,8 @@
-// Server-authoritative sparse convex-hull rock colliders: keeps rocks within `radius` of the player-centroid as static bodies, from the same deterministic placement + SDF the client renders (parity with Rocks.js seed).
-// physScale is capped + bucketed so identical (type,bucket) reuse one cached ConvexHullShape; points array must be pre-scaled to the bucket before addBody.
-// The streaming/hysteresis/chunk-cache/time-budget loop lives in the shared createColliderStreamer base; this file supplies only the rock-specific placement, hull-bucket body args, and pool prewarm.
-
 import { placementsForRockChunk, ROCK } from './RockPlacement.js'
 import { generateRockHullData } from './RockShapes.js'
 import { createColliderStreamer } from './ColliderStreamer.js'
 
-const ROCK_BASE_SEED = 1337 // must match Rocks.js buildRockGeo seed
+const ROCK_BASE_SEED = 1337
 const PHYS_MAX = 3.5
 const BUCKETS = [2.0, 2.5, 3.0, 3.5]
 

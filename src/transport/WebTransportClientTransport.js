@@ -1,11 +1,5 @@
 import { TransportWrapper } from './TransportWrapper.js'
 
-// Browser-side counterpart to server WebTransportTransport.js: wraps a connected `WebTransport` session
-// (the real browser API, `new WebTransport(url)`) into the same TransportWrapper interface every other
-// client transport uses -- reliable ordered messages via a single bidirectional stream (mirrors the
-// server's one-stream-per-session convention in WebTransportServer.js/_acceptSessions), unreliable
-// best-effort messages via datagrams. `send()`/`sendUnreliable()` semantics match WebSocketTransport.js's
-// contract so PhysicsNetworkClient can swap between the two without any call-site branching.
 export class WebTransportClientTransport extends TransportWrapper {
   constructor(session) {
     super()
@@ -17,10 +11,6 @@ export class WebTransportClientTransport extends TransportWrapper {
     this._closed = false
   }
 
-  // Real async setup: negotiate the session, open the bidirectional stream, start read loops. Callers
-  // must await connect() (or race it) before relying on isOpen -- mirrors WebTransportTransport.js's
-  // constructor-driven _init but exposed as an explicit method since the client also needs to await
-  // `session.ready` itself (server sessions are already-accepted; client sessions are not).
   async connect() {
     try {
       await this.session.ready
@@ -111,20 +101,10 @@ export class WebTransportClientTransport extends TransportWrapper {
   }
 }
 
-// Real browser feature-detection -- never assumed. `WebTransport` is a global constructor only present
-// in Chromium-family browsers with HTTP/3 support; Firefox/Safari (as of this writing) and every Node/
-// Worker-without-DOM environment lack it entirely, so `typeof WebTransport === 'function'` is the actual
-// support signal (matches how `typeof WebSocket` is already checked implicitly by PhysicsNetworkClient's
-// existing `new WebSocket(url)` call).
 export function isWebTransportSupported() {
   return typeof WebTransport === 'function'
 }
 
-// Derives a WebTransport URL from the existing ws(s):// URL config, on the assumption a WebTransport
-// listener (WebTransportServer.js) shares the deployment's host but a distinct port (matches
-// ServerAPI.js's `ctx.config.webTransport.port`, default 4433) -- WebTransport requires HTTPS, so ws://
-// maps to https:// (dev) and wss:// maps to https:// (prod, same scheme either way since WebTransport has
-// no unencrypted variant).
 export function deriveWebTransportUrl(wsUrl, port) {
   try {
     const u = new URL(wsUrl)

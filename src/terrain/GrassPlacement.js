@@ -1,4 +1,3 @@
-// Dense ground grass, client-visual only (no colliders, no server parity contract). Salt-key block 20-26 must stay disjoint from VegPlacement (0-8) / RockPlacement (10-17).
 import { hash3, rand, RELIEF_CALIBRATION_BASELINE } from './VegPlacement.js'
 
 export const GRASS = Object.freeze({
@@ -18,12 +17,7 @@ export const GRASS = Object.freeze({
 
 const K_JITX = 20, K_JITZ = 21, K_COIN = 22, K_SCALE = 23, K_YAW = 24, K_TINT = 25, K_WIND = 26
 
-// Fixed approximate world sun direction for the cheap per-cell terrain-shadow scalar (classify() below).
-// Matches the client's default directional-light elevation closely enough for an AO-like approximation;
-// not wired to the live sun object (no such per-point sampling path exists in the placement pipeline --
-// see grass-shadow-approximation-via-per-instance-cached-terrain-value PRD row), a static value is
-// honest here rather than inventing a nonexistent dynamic-sun terrain query.
-const _GRASS_SUN_DIR = (() => { const x = 0.4, y = 0.8, z = 0.3, l = Math.hypot(x, y, z); return [x / l, y / l, z / l] })()
+const _GRASS_FIXED_APPROX_SUN_DIR = (() => { const x = 0.4, y = 0.8, z = 0.3, l = Math.hypot(x, y, z); return [x / l, y / l, z / l] })()
 
 const _clamp01 = (v) => v < 0 ? 0 : (v > 1 ? 1 : v)
 
@@ -32,13 +26,6 @@ export function grassDensity(temp, humidity, slopeRatio) {
   return _clamp01((0.18 + 0.78 * wet * (0.45 + 0.55 * warm)) * (0.25 + 0.75 * flat))
 }
 
-// Order matters: cheap climate/density-ceiling reject BEFORE any groundHeightLocal call (the dominant per-cell cost).
-// cellIx/cellIz: the candidate's OWN pre-jitter grid index (stable per-candidate identity). Optional --
-// falls back to rounding the passed x/z (matches prior behavior for direct/test callers with no grid
-// context) -- but placeGrassCell MUST pass its own ix/iz explicitly, or the post-jitter x/z can round to a
-// DIFFERENT cell's index (JITTER=0.9 is 45% of CELL=2, so this collision is common, not rare) and two
-// spatially-distinct grass clumps silently draw the exact same blade layout/scale/tint (see
-// RockPlacement.js's classify header for the same defect, live-witnessed there and fixed the identical way).
 export function classify(x, z, frame, anchorField, h, cellIx, cellIz) {
   const clim = anchorField
     ? (anchorField.climateAtLocal ? anchorField.climateAtLocal(x, z) : anchorField.sampleDir(frame.localToDir(x, z)))
@@ -57,8 +44,8 @@ export function classify(x, z, frame, anchorField, h, cellIx, cellIz) {
 
   const elev = (h !== undefined) ? h : frame.groundHeightLocal(x, z)
   if (!Number.isFinite(elev)) return null
-  const _rk = ((frame && frame.reliefScale) || RELIEF_CALIBRATION_BASELINE) / RELIEF_CALIBRATION_BASELINE
-  if (elev <= GRASS.WATER_MARGIN * _rk) return null
+  const reliefMarginScale = ((frame && frame.reliefScale) || RELIEF_CALIBRATION_BASELINE) / RELIEF_CALIBRATION_BASELINE
+  if (elev <= GRASS.WATER_MARGIN * reliefMarginScale) return null
 
   const D = GRASS.SLOPE_D
   const hx1 = frame.groundHeightLocal(x + D, z), hx0 = frame.groundHeightLocal(x - D, z)
@@ -72,13 +59,7 @@ export function classify(x, z, frame, anchorField, h, cellIx, cellIz) {
   const accept = grassDensity(temp, humidity, slopeRatio)
   if (coin >= accept) return null
 
-  // Cheap per-cell terrain self-shadow approximation reused as each blade's cached shadow value: the
-  // slope gradient is already sampled above for density/placement, so deriving a terrain-normal-vs-sun
-  // dot product here is free (no extra groundHeightLocal calls). This stands in for a real shadow-map
-  // lookup -- Grass.js's shader samples ONE cached scalar per instance in the vertex stage instead of a
-  // per-fragment PCF shadow-map fetch. Not a real occluder-cast shadow (no other geometry considered),
-  // but a reasonable ambient-occlusion-like darkening on steep slopes facing away from the sun.
-  const SUN_DIR = _GRASS_SUN_DIR
+  const SUN_DIR = _GRASS_FIXED_APPROX_SUN_DIR
   const normX = -dHdx, normZ = -dHdz, normY = 1
   const nLen = Math.hypot(normX, normY, normZ) || 1
   const ndl = (normX * SUN_DIR[0] + normY * SUN_DIR[1] + normZ * SUN_DIR[2]) / nLen
@@ -100,7 +81,6 @@ function blade(cellHash, bi, x, y, z, cellShadow) {
   }
 }
 
-// Shared by the atomic and incremental builders: both must iterate gz-outer/gx-inner for bit-identical ordered output.
 function placeGrassCell(chunkX, chunkZ, gx, gz, frame, anchorField, seed, out) {
   const baseX = chunkX * GRASS.CHUNK, baseZ = chunkZ * GRASS.CHUNK
   const cellX = baseX + gx * GRASS.CELL + GRASS.CELL * 0.5
@@ -109,8 +89,6 @@ function placeGrassCell(chunkX, chunkZ, gx, gz, frame, anchorField, seed, out) {
   const hh = hash3(seed, ix, iz)
   const jx = (rand(hh, K_JITX) * 2 - 1) * GRASS.JITTER
   const jz = (rand(hh, K_JITZ) * 2 - 1) * GRASS.JITTER
-  // pass this candidate's OWN pre-jitter (ix,iz) explicitly so classify's cellHash never collides
-  // with a neighboring cell's index after jitter is applied to x/z (see classify's header).
   const p = classify(cellX + jx, cellZ + jz, frame, anchorField, undefined, ix, iz)
   if (!p) return 0
   for (let b = 0; b < GRASS.BLADES_PER_CELL; b++) out.push(blade(p.cellHash, b, p.x, p.y, p.z, p.shadow))
@@ -126,7 +104,6 @@ export function placementsForGrassChunk(chunkX, chunkZ, frame, anchorField, worl
   return out
 }
 
-// Incremental builder: step(budgetMs) spreads placement across frames; same order as placementsForGrassChunk -> bit-identical when done.
 export function createGrassChunkCursor(chunkX, chunkZ, frame, anchorField, worldSeed, now) {
   const seed = (worldSeed | 0) ^ 0x6a55
   const clock = (typeof now === 'function') ? now : ((typeof performance !== 'undefined') ? () => performance.now() : () => 0)

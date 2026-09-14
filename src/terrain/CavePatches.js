@@ -1,24 +1,5 @@
-// CavePatches.js -- SDF-based cave/overhang patches for the terrain system.
-//
-// DESIGN: defines cave volumes as SDF (Signed Distance Function) primitives and
-// provides two operations:
-//   1. SUBTRACT from the terrain heightfield (creates bowl-shaped depressions --
-//      heightfields can't represent true overhangs, but the depression correctly
-//      removes the terrain surface where the cave intersects it).
-//   2. Generate marching-cubes geometry for the cave interior (reuses the existing
-//      RockTriTableShared.js TRI_TABLE/EDGE_TABLE -- the same infrastructure
-//      RockShapes.js uses for rock hull generation).
-//
-// The generated cave geometry is a separate 3D mesh patch that can be placed as a
-// model entity in the world, positioned at the cave's world-space location. The
-// heightfield subtraction ensures the terrain surface above the cave is removed.
-//
-// This is a BAKE-TIME pass (runs once per world seed, not per-frame).
-
 import { TRI_TABLE } from './RockTriTableShared.js'
 
-// Edge table for marching cubes (256 entries, same as RockShapes.js EDGE_TABLE).
-// Each bit indicates which edge of the cube is intersected by the isosurface.
 const EDGE_TABLE = new Int32Array([
   0x0,0x109,0x203,0x30a,0x406,0x50f,0x605,0x70c,0x80c,0x905,0xa0f,0xb06,0xc0a,0xd03,0xe09,0xf00,
   0x190,0x99,0x393,0x29a,0x596,0x49f,0x795,0x69c,0x99c,0x895,0xb9f,0xa96,0xd9a,0xc93,0xf99,0xe90,
@@ -38,37 +19,11 @@ const EDGE_TABLE = new Int32Array([
   0xf00,0xe09,0xd03,0xc0a,0xb06,0xa0f,0x905,0x80c,0x70c,0x605,0x50f,0x406,0x30a,0x203,0x109,0x0
 ])
 
-// SDF primitives for cave volumes. Each returns the signed distance from a
-// point (wx, wy, wz) in world space. Negative = inside the volume.
-
-/**
- * Spherical SDF: distance from a point to a sphere surface.
- * @param {number} wx - World X
- * @param {number} wy - World Y
- * @param {number} wz - World Z
- * @param {number} cx - Sphere center X
- * @param {number} cy - Sphere center Y
- * @param {number} cz - Sphere center Z
- * @param {number} r - Sphere radius
- * @returns {number} Signed distance (negative = inside).
- */
 export function sdfSphere(wx, wy, wz, cx, cy, cz, r) {
   const dx = wx - cx, dy = wy - cy, dz = wz - cz
   return Math.sqrt(dx * dx + dy * dy + dz * dz) - r
 }
 
-/**
- * Cylindrical SDF (vertical axis): distance from a point to a cylinder surface.
- * @param {number} wx - World X
- * @param {number} wy - World Y
- * @param {number} wz - World Z
- * @param {number} cx - Cylinder center X
- * @param {number} cy - Cylinder bottom Y
- * @param {number} cz - Cylinder center Z
- * @param {number} r - Cylinder radius
- * @param {number} h - Cylinder height
- * @returns {number} Signed distance (negative = inside).
- */
 export function sdfCylinder(wx, wy, wz, cx, cy, cz, r, h) {
   const dx = wx - cx, dz = wz - cz
   const dxy = Math.sqrt(dx * dx + dz * dz) - r
@@ -77,31 +32,12 @@ export function sdfCylinder(wx, wy, wz, cx, cy, cz, r, h) {
   return Math.max(dxy, dh)
 }
 
-/**
- * Torus SDF (horizontal ring): distance from a point to a torus surface.
- * @param {number} wx - World X
- * @param {number} wy - World Y
- * @param {number} wz - World Z
- * @param {number} cx - Torus center X
- * @param {number} cy - Torus center Y
- * @param {number} cz - Torus center Z
- * @param {number} R - Major radius (ring radius)
- * @param {number} r - Minor radius (tube radius)
- * @returns {number} Signed distance (negative = inside).
- */
 export function sdfTorus(wx, wy, wz, cx, cy, cz, R, r) {
   const dx = wx - cx, dy = wy - cy, dz = wz - cz
   const qx = Math.sqrt(dx * dx + dz * dz) - R
   return Math.sqrt(qx * qx + dy * dy) - r
 }
 
-/**
- * Compose multiple SDFs with a union (minimum) operation.
- * Returns a single SDF function that is the union of all inputs.
- *
- * @param {...function} sdfs - SDF functions to combine.
- * @returns {function} Combined SDF function.
- */
 export function unionSDF(...sdfs) {
   return (wx, wy, wz) => {
     let d = Infinity
@@ -113,20 +49,6 @@ export function unionSDF(...sdfs) {
   }
 }
 
-/**
- * Subtract an SDF cave volume from a terrain heightfield.
- * For each cell in the heightfield, evaluates the SDF at the cell's world
- * position and lowers the height where the SDF is negative (inside the cave).
- *
- * @param {Float32Array} heights - Input heightfield, width*width elements, row-major.
- * @param {number} width - Grid dimension (square).
- * @param {number} spacing - World-space distance between adjacent cells (metres).
- * @param {number} cornerX - World X of the heightfield corner (cell 0,0).
- * @param {number} cornerZ - World Z of the heightfield corner (cell 0,0).
- * @param {function} sdf - SDF function (wx, wy, wz) => signed distance.
- * @param {number} [cutDepth=50] - How deep to cut below the terrain surface (metres).
- * @returns {Float32Array} New heightfield with cave subtracted.
- */
 export function subtractCaveFromHeightfield(heights, width, spacing, cornerX, cornerZ, sdf, cutDepth = 50) {
   if (!heights || width < 2 || !Number.isFinite(spacing) || spacing <= 0) return heights
   if (typeof sdf !== 'function') return heights
@@ -142,12 +64,10 @@ export function subtractCaveFromHeightfield(heights, width, spacing, cornerX, co
 
       const wx = cornerX + ix * spacing
       const wz = cornerZ + iz * spacing
-      const wy = h // terrain surface height at this cell
+      const wy = h
 
       const d = sdf(wx, wy, wz)
       if (d < 0) {
-        // Cave intersects this cell: lower the heightfield to create a depression.
-        // The depth is proportional to how far inside the cave we are (clamped).
         const penetration = Math.min(-d, cutDepth)
         out[idx] = h - penetration
       }
@@ -157,20 +77,6 @@ export function subtractCaveFromHeightfield(heights, width, spacing, cornerX, co
   return out
 }
 
-/**
- * Generate marching-cubes geometry from an SDF volume.
- * Reuses the existing TRI_TABLE/EDGE_TABLE from RockTriTableShared.js.
- *
- * @param {number} res - Grid resolution (cubes per axis).
- * @param {function} sdf - SDF function (wx, wy, wz) => signed distance.
- * @param {number} x0 - Volume min X.
- * @param {number} x1 - Volume max X.
- * @param {number} y0 - Volume min Y.
- * @param {number} y1 - Volume max Y.
- * @param {number} z0 - Volume min Z.
- * @param {number} z1 - Volume max Z.
- * @returns {{positions: Float32Array, vc: number, indices: Uint32Array, ic: number}} Geometry data.
- */
 export function marchCaveSurface(res, sdf, x0, x1, y0, y1, z0, z1) {
   if (res < 2) return { positions: new Float32Array(0), vc: 0, indices: new Uint32Array(0), ic: 0 }
 
@@ -178,7 +84,6 @@ export function marchCaveSurface(res, sdf, x0, x1, y0, y1, z0, z1) {
   const dy = (y1 - y0) / (res - 1)
   const dz = (z1 - z0) / (res - 1)
 
-  // Sample the SDF field
   const field = new Float32Array(res * res * res)
   for (let k = 0, idx = 0; k < res; k++) {
     for (let j = 0; j < res; j++) {
@@ -279,24 +184,6 @@ export function marchCaveSurface(res, sdf, x0, x1, y0, y1, z0, z1) {
   }
 }
 
-/**
- * Create a spherical cave and subtract it from a heightfield, then generate
- * the cave interior geometry via marching cubes.
- *
- * @param {Float32Array} heights - Input heightfield.
- * @param {number} width - Grid dimension.
- * @param {number} spacing - Cell spacing.
- * @param {number} cornerX - Heightfield corner X.
- * @param {number} cornerZ - Heightfield corner Z.
- * @param {number} cx - Cave center X.
- * @param {number} cy - Cave center Y.
- * @param {number} cz - Cave center Z.
- * @param {number} radius - Cave radius.
- * @param {object} [opts] - Options.
- * @param {number} [opts.cutDepth] - Max depth to cut from heightfield.
- * @param {number} [opts.meshRes=16] - Marching cubes resolution.
- * @returns {{heights: Float32Array, caveGeometry: {positions: Float32Array, vc: number, indices: Uint32Array, ic: number}}}
- */
 export function createSphericalCave(heights, width, spacing, cornerX, cornerZ, cx, cy, cz, radius, opts = {}) {
   const { cutDepth, meshRes = 16 } = opts
 
@@ -304,8 +191,6 @@ export function createSphericalCave(heights, width, spacing, cornerX, cornerZ, c
 
   const newHeights = subtractCaveFromHeightfield(heights, width, spacing, cornerX, cornerZ, sdf, cutDepth)
 
-  // Generate the cave interior geometry (the "ceiling" surface of the sphere,
-  // bounded by the terrain surface). We sample a volume that encloses the sphere.
   const margin = radius * 0.2
   const caveGeo = marchCaveSurface(
     meshRes, sdf,

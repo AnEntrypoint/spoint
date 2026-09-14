@@ -1,5 +1,3 @@
-// Marching cubes triangle table (256 entries). Each row is a sequence of
-// edge indices forming triangles, terminated by -1.
 export const TRI_TABLE = [
   [-1],[0,8,3,-1],[0,1,9,-1],[1,8,3,9,8,1,-1],
   [1,2,10,-1],[0,8,3,1,2,10,-1],[9,2,10,0,2,9,-1],[2,8,3,2,10,8,10,9,8,-1],

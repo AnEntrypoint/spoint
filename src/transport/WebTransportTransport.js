@@ -5,7 +5,6 @@ export class WebTransportTransport extends TransportWrapper {
     super()
     this.type = 'webtransport'
     this.session = session
-    // stays false until _init wires up the stream/datagram reader; a send could race reliableWriter=null otherwise
     this.ready = false
     this.reliableWriter = null
     this.reliableReader = null
@@ -69,7 +68,6 @@ export class WebTransportTransport extends TransportWrapper {
   send(data) {
     if (!this.isOpen || !this.reliableWriter) return false
     try {
-      // write() rejects if the stream died mid-flight; mark closed instead of silently dropping
       this.reliableWriter.write(data).catch(() => { if (!this._closed) this._handleClose() })
       return true
     } catch (e) {
@@ -81,7 +79,6 @@ export class WebTransportTransport extends TransportWrapper {
     if (!this.isOpen) return false
     try {
       const writer = this.session.datagrams.writable.getWriter()
-      // releasing the lock before the write settles can drop the datagram under congestion
       writer.write(data).then(() => writer.releaseLock(), () => { try { writer.releaseLock() } catch (_) {} })
       return true
     } catch (e) {

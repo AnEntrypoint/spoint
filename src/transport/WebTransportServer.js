@@ -38,10 +38,6 @@ export class WebTransportServer extends EventEmitter {
       return false
     }
     try {
-      // secret must never ship as a literal default -- process.env.WEBTRANSPORT_SECRET when configured,
-      // else a freshly generated random secret (warned loudly, since it changes every boot and thus
-      // invalidates session resumption across restarts -- fine for dev, callers who need stable resumption
-      // must set WEBTRANSPORT_SECRET explicitly).
       let secret = process.env.WEBTRANSPORT_SECRET
       if (!secret) {
         secret = randomBytes(32).toString('hex')

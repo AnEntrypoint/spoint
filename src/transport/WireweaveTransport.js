@@ -21,7 +21,6 @@ export class WireweaveTransport extends TransportWrapper {
           const len = (view[off] << 24) | (view[off + 1] << 16) | (view[off + 2] << 8) | view[off + 3]
           off += 4
           if (off + len > view.byteLength) break
-          // zero-copy view: ConnectionManager.addClient decodes synchronously and never retains the buffer
           this.emit('message', new Uint8Array(view.buffer, view.byteOffset + off, len))
           off += len
         }
