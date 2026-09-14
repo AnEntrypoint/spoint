@@ -89,7 +89,7 @@ export default {
     fadeTime: 0.15
   },
   trustedApps: ['terrain'],
-  placeableApps: ['destructible-box', 'destructible-debris', 'box-dynamic', 'box-static', 'box-buoyant', 'button', 'trigger-volume', 'spawn-point', 'weapon-spawn', 'respawn-zone', 'collectible', 'pickup', 'moving-platform', 'capture-zone', 'waypoint', 'shrinking-zone', 'playtest-bot', 'vehicle', 'tank', 'softbody-cloth', 'fluid-source', 'fluid3d-source'],
+  placeableApps: ['destructible-box', 'destructible-debris', 'box-dynamic', 'box-static', 'box-buoyant', 'button', 'trigger-volume', 'spawn-point', 'weapon-spawn', 'respawn-zone', 'collectible', 'pickup', 'moving-platform', 'capture-zone', 'waypoint', 'shrinking-zone', 'shrinking-zone-ring', 'playtest-bot', 'vehicle', 'tank', 'softbody-cloth', 'fluid-source', 'fluid3d-source'],
   terrain: TERRAIN,
   entities: [
     { id: 'terrain', app: 'terrain', config: TERRAIN },

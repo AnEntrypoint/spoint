@@ -56,9 +56,6 @@ function buildBundle() {
   ]
 
   for (const [name, { source, filePath }] of modules) {
-    let wrapped = source
-      .replace(/from\s+['"]\.\.?\/['"]\s*;?/g, '')
-
     lines.push(`// ${name} (${filePath})`)
     lines.push(`export const _${name.replace(/[\/\-]/g, '_')} = (() => {`)
     lines.push(`  // Original source from apps/${filePath}:`)

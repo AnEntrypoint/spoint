@@ -20,6 +20,7 @@ export function isPoolOwner(poolId, entityId) {
 
 export function clearAllInventoryPools() {
   _pools.clear()
+  _poolOwners.clear()
 }
 
 export default getSharedInventory
