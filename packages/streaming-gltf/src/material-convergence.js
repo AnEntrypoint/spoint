@@ -1,10 +1,16 @@
 import { createHash } from 'node:crypto';
 
+const _textureHashCache = new WeakMap();
+
 function textureHash(tex) {
   if (!tex) return null;
+  if (_textureHashCache.has(tex)) return _textureHashCache.get(tex);
   const img = tex.getImage();
-  if (!img || !img.byteLength) return null;
-  return createHash('sha1').update(Buffer.isBuffer(img) ? img : Buffer.from(img.buffer, img.byteOffset, img.byteLength)).digest('hex');
+  const hash = img && img.byteLength
+    ? createHash('sha1').update(Buffer.isBuffer(img) ? img : Buffer.from(img.buffer, img.byteOffset, img.byteLength)).digest('hex')
+    : null;
+  _textureHashCache.set(tex, hash);
+  return hash;
 }
 
 function round(n, places = 4) {
@@ -12,25 +18,42 @@ function round(n, places = 4) {
   return Math.round(n * f) / f;
 }
 
-function factorKey(arr) {
-  return arr.map((n) => round(n)).join(',');
+const IDENTITY_SKIPPED_ATTRIBUTES = new Set(['name', 'extras']);
+const PROPERTY_TYPE_TEXTURE = 'Texture';
+
+function literalSignature(value) {
+  if (typeof value === 'number') return String(round(value));
+  if (Array.isArray(value) || ArrayBuffer.isView(value)) return `[${Array.from(value, (n) => (typeof n === 'number' ? round(n) : JSON.stringify(n))).join(',')}]`;
+  return JSON.stringify(value);
+}
+
+function refSignature(child) {
+  if (!child) return '-';
+  if (child.propertyType === PROPERTY_TYPE_TEXTURE) return `tex(${textureHash(child) || 'empty'}|${child.getMimeType()})`;
+  return `{${propertySignature(child)}}`;
+}
+
+function extensionsSignature(prop) {
+  return prop.listExtensions()
+    .map((ext) => `${ext.extensionName}{${propertySignature(ext)}}`)
+    .sort()
+    .join(',');
+}
+
+function propertySignature(prop) {
+  const parts = [];
+  for (const key of Object.keys(prop.getDefaults()).sort()) {
+    if (IDENTITY_SKIPPED_ATTRIBUTES.has(key)) continue;
+    if (key === 'extensions') { parts.push(`extensions:[${extensionsSignature(prop)}]`); continue; }
+    const value = prop.get(key);
+    const isRef = value !== null && typeof value === 'object' && !Array.isArray(value) && !ArrayBuffer.isView(value);
+    parts.push(`${key}:${isRef ? refSignature(prop.getRef(key)) : literalSignature(value)}`);
+  }
+  return parts.join('|');
 }
 
 function materialKey(material) {
-  const parts = [
-    `bc:${factorKey(material.getBaseColorFactor())}`,
-    `em:${factorKey(material.getEmissiveFactor())}`,
-    `rough:${round(material.getRoughnessFactor())}`,
-    `metal:${round(material.getMetallicFactor())}`,
-    `alpha:${material.getAlphaMode()}:${round(material.getAlphaCutoff())}`,
-    `ds:${material.getDoubleSided() ? 1 : 0}`,
-    `bcTex:${textureHash(material.getBaseColorTexture()) || '-'}`,
-    `emTex:${textureHash(material.getEmissiveTexture()) || '-'}`,
-    `nrmTex:${textureHash(material.getNormalTexture()) || '-'}`,
-    `occTex:${textureHash(material.getOcclusionTexture()) || '-'}`,
-    `mrTex:${textureHash(material.getMetallicRoughnessTexture()) || '-'}`,
-  ];
-  return parts.join('|');
+  return propertySignature(material);
 }
 
 function materialConvergenceReport(doc) {
@@ -109,14 +132,13 @@ function corpusMaterialConvergence(assetReports) {
 }
 
 const MATERIAL_BUCKET_EXTRAS_KEY = 'EP_material_bucket';
-const MATERIAL_BUCKET_HASH_HEX_LEN = 8;
 
 function stampMaterialBucketKeys(doc) {
   const root = doc.getRoot();
   const byMaterial = new Map();
   for (const mat of root.listMaterials()) {
     const key = materialKey(mat);
-    const hash = createHash('sha1').update(key).digest('hex').slice(0, MATERIAL_BUCKET_HASH_HEX_LEN);
+    const hash = createHash('sha1').update(key).digest('hex');
     const extras = mat.getExtras() || {};
     extras[MATERIAL_BUCKET_EXTRAS_KEY] = hash;
     mat.setExtras(extras);

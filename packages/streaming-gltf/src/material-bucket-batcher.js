@@ -34,6 +34,47 @@ function _buildCoarsestGeometry(cm) {
   return geo;
 }
 
+const SIGNATURE_SKIPPED_KEYS = new Set(['uuid', 'name', 'id', 'version', 'userData']);
+const PLAIN_OBJECT_SIGNATURE_DEPTH = 3;
+const _identityIds = new WeakMap();
+let _nextIdentityId = 1;
+
+function identityOf(obj) {
+  let id = _identityIds.get(obj);
+  if (!id) { id = _nextIdentityId++; _identityIds.set(obj, id); }
+  return `#${id}`;
+}
+
+function textureSignature(t) {
+  const img = t.image;
+  const dims = img ? `${img.width ?? '?'}x${img.height ?? '?'}x${img.depth ?? 1}` : 'no-image';
+  return `${t.constructor.name}(${dims}|${t.format},${t.type},${t.colorSpace},${t.wrapS},${t.wrapT},${t.magFilter},${t.minFilter},${t.anisotropy},${t.flipY},${t.channel},${t.offset.x},${t.offset.y},${t.repeat.x},${t.repeat.y},${t.rotation},${t.center.x},${t.center.y})`;
+}
+
+function valueSignature(v, depth) {
+  if (v === null || v === undefined) return String(v);
+  const kind = typeof v;
+  if (kind === 'number' || kind === 'boolean' || kind === 'string') return String(v);
+  if (kind === 'function') return identityOf(v);
+  if (v.isColor) return `c${v.getHexString()}`;
+  if (v.isVector2 || v.isVector3 || v.isVector4 || v.isEuler || v.isMatrix3 || v.isMatrix4) return `[${v.toArray().join(',')}]`;
+  if (v.isTexture) return textureSignature(v);
+  if (Array.isArray(v) && depth > 0) return `[${v.map((x) => valueSignature(x, depth - 1)).join(',')}]`;
+  if (Object.getPrototypeOf(v) === Object.prototype && depth > 0) {
+    return `{${Object.keys(v).sort().map((k) => `${k}:${valueSignature(v[k], depth - 1)}`).join(',')}}`;
+  }
+  return identityOf(v);
+}
+
+export function renderSignature(material) {
+  const parts = [material.type, material.customProgramCacheKey()];
+  for (const key of Object.keys(material).sort()) {
+    if (SIGNATURE_SKIPPED_KEYS.has(key) || key.startsWith('_')) continue;
+    parts.push(`${key}=${valueSignature(material[key], PLAIN_OBJECT_SIGNATURE_DEPTH)}`);
+  }
+  return parts.join(';');
+}
+
 export class MaterialBucketBatcher {
   constructor(pool, opts = {}) {
     this.pool = pool;
@@ -46,18 +87,28 @@ export class MaterialBucketBatcher {
   }
 
   _bucketFor(bucketKey, seedMaterial) {
-    let b = this._buckets.get(bucketKey);
-    if (b) return b;
     const material = Array.isArray(seedMaterial) ? seedMaterial[0] : seedMaterial;
+    let signature = null;
+    for (let variant = 0; ; variant++) {
+      const key = variant === 0 ? bucketKey : `${bucketKey}~${variant}`;
+      const b = this._buckets.get(key);
+      if (!b) return this._createBucket(key, material, signature ?? renderSignature(material));
+      if (b.material === material) return b;
+      if (signature === null) signature = renderSignature(material);
+      if (b.signature === signature) return b;
+    }
+  }
+
+  _createBucket(key, material, signature) {
     const mesh = new THREE.BatchedMesh(this.maxInstances, this.maxVerts, this.maxIndex, material);
     mesh.frustumCulled = false;
     mesh.perObjectFrustumCulled = true;
     mesh.sortObjects = false;
-    mesh.name = `material-bucket-${bucketKey}`;
+    mesh.name = `material-bucket-${key}`;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    b = { mesh, material, geometryIds: new Map(), instances: new Map() };
-    this._buckets.set(bucketKey, b);
+    const b = { key, mesh, material, signature, geometryIds: new Map(), instances: new Map() };
+    this._buckets.set(key, b);
     if (this.pool.scene) this.pool.scene.add(mesh);
     this.stats.bucketCount = this._buckets.size;
     return b;
@@ -86,7 +137,7 @@ export class MaterialBucketBatcher {
         id = b.mesh.addInstance(gid);
       }
       b.instances.set(entity, id);
-      this._entityBucket.set(entity, bucketKey);
+      this._entityBucket.set(entity, b.key);
       this.stats.instanceCount++;
       this.stats.drawCallsSaved = this.stats.instanceCount - this.stats.bucketCount;
     } else {
