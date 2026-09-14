@@ -6,8 +6,14 @@ const _wetUniform = { value: new Float32Array(1) }
 export function installWetnessTint() {
   if (_installed) return
   _installed = true
+  THREE.ShaderChunk.beginnormal_vertex += '\n#ifndef SPOINT_HAS_OBJECT_NORMAL\n#define SPOINT_HAS_OBJECT_NORMAL\n#endif'
   THREE.ShaderChunk.fog_pars_vertex += '\nvarying float vWetUp;'
-  THREE.ShaderChunk.fog_vertex += '\nvWetUp = dot(normalize(mat3(modelMatrix) * objectNormal), vec3(0.0, 1.0, 0.0));'
+  THREE.ShaderChunk.fog_vertex +=
+    '\n#ifdef SPOINT_HAS_OBJECT_NORMAL' +
+    '\nvWetUp = dot(normalize(mat3(modelMatrix) * objectNormal), vec3(0.0, 1.0, 0.0));' +
+    '\n#else' +
+    '\nvWetUp = 0.0;' +
+    '\n#endif'
   THREE.ShaderChunk.fog_pars_fragment +=
     '\nvarying float vWetUp;' +
     '\nuniform float spointWetness[1];' +
