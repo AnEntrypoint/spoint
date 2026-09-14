@@ -1,30 +1,8 @@
-// Device-tier max-texture-resolution policy for baked KTX2/BASIS textures.
-//
-// ktx2-device-tier-texture-resolution-policy: scripts/glb-processor.js's MAX_TEX=256 and
-// src/static/GLBKtx2.js's imageToKtx2 both downscale every source texture to ONE static 256px
-// ceiling before the KTX2 bake -- with `--generate-mipmap` (see GLBKtx2.js) that still produces a
-// REAL multi-level mip chain (256 -> 128 -> 64 -> ... -> 1px, levelCount=9), the same single baked
-// GLB is served to every client regardless of device tier. A high-tier desktop and a low-tier
-// mobile phone both currently receive (and three's stock KTX2Loader.parse() both TRANSCODE +
-// UPLOAD) the full level-0 256x256 mip, wasting low-tier GPU fill-rate/VRAM/transcode-CPU on
-// resolution that tier can't usefully spend (mirrors the already-shipped anisotropy device-tier
-// cap right below this module's sibling, _capAnisotropyByDeviceTier).
-//
-// Fix = client-side mip-selection policy (per the PRD row's option (a)): before handing a KTX2
-// buffer to KTX2Loader.parse(), strip the N highest-resolution leading levels the device tier is
-// not entitled to, so the transcoder only ever touches the levels a low-tier device should
-// actually receive. Zero server/bake changes, zero new HTTP requests (this operates on the KTX2
-// buffer already embedded in / already fetched with the GLB -- unlike client/core/ProgressiveKTX2.js's
-// range-fetch streaming, which is a different, currently-unwired mechanism for a genuinely separate
-// texture-LOD tier system). Byte-level container surgery mirrors ProgressiveKTX2.js's
-// parseKtx2Header/buildPartialKtx2 (same KTX2 2.0 format, same two non-obvious rewrites needed for
-// the transcoder to accept a level subset: pixelWidth/Height shifted to the sharpest kept level,
-// and BasisLZ Supercompression Global Data imageDescs filtered to the kept level indices) --
-// reimplemented here rather than imported cross-package since streaming-gltf is a standalone
-// published package that must not depend on client/core/*.
-
-const HEADER_LEN = 12 + 17 * 4; // identifier + 17 uint32 fields = 80
-const LEVEL_ENTRY_LEN = 24;     // 3x uint64
+const KTX2_IDENTIFIER_BYTES = 12;
+const HEADER_UINT32_FIELD_COUNT = 17;
+const HEADER_LEN = KTX2_IDENTIFIER_BYTES + HEADER_UINT32_FIELD_COUNT * 4;
+const LEVEL_ENTRY_UINT64_FIELD_COUNT = 3;
+const LEVEL_ENTRY_LEN = LEVEL_ENTRY_UINT64_FIELD_COUNT * 8;
 const KTX2_IDENTIFIER = [0xAB, 0x4B, 0x54, 0x58, 0x20, 0x32, 0x30, 0xBB, 0x0D, 0x0A, 0x1A, 0x0A];
 
 function _readU64LE(view, offset) {
@@ -38,13 +16,10 @@ function _setU64LE(view, offset, num) {
   view.setUint32(offset + 4, Math.floor(num / 4294967296), true);
 }
 
-// Minimal KTX2 header+level-index+DFD/KVD/SGD-imageDesc parse -- same shape as
-// client/core/ProgressiveKTX2.js's parseKtx2Header but operating on an already-complete in-memory
-// buffer (no prefix-fetch grow-and-retry needed; the whole file is already present).
 function _parseKtx2(buf) {
   const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
   if (bytes.length < HEADER_LEN) return null;
-  for (let i = 0; i < 12; i++) if (bytes[i] !== KTX2_IDENTIFIER[i]) return null;
+  for (let i = 0; i < KTX2_IDENTIFIER_BYTES; i++) if (bytes[i] !== KTX2_IDENTIFIER[i]) return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   const vkFormat = view.getUint32(12, true);
   const typeSize = view.getUint32(16, true);
@@ -99,11 +74,6 @@ function _parseKtx2(buf) {
   };
 }
 
-// Rebuilds a minimal valid KTX2 buffer containing only levels [startLevel..levelCount-1] (dropping
-// the `startLevel` sharpest/largest leading levels), matching client/core/ProgressiveKTX2.js's
-// buildPartialKtx2 byte layout + the same two required rewrites (pixelWidth/Height shifted by
-// startLevel so the transcoder's `pixelWidth >> levelIndex` math lines up; BasisLZ SGD imageDescs
-// filtered to the kept indices).
 function _stripLeadingLevels(header, startLevel) {
   const orderedIdx = [];
   for (let i = startLevel; i < header.levels.length; i++) orderedIdx.push(i);
@@ -206,10 +176,6 @@ function _stripLeadingLevels(header, startLevel) {
   return out.buffer;
 }
 
-// Device-tier -> max texture DIMENSION policy (mirrors _capAnisotropyByDeviceTier's tier bands).
-// Same deviceInfo shape as client/core/MobileControls.js's detectDevice(): { gpuTier: 'low'|
-// 'medium'|'unknown', isMobile, memoryMB }. No hint -> no cap (undefined = unlimited, identity
-// behavior for every existing no-deviceInfo caller).
 export function maxTexDimForDeviceTier(deviceInfoHint) {
   if (!deviceInfoHint || typeof deviceInfoHint !== 'object') return undefined;
   const { gpuTier, isMobile } = deviceInfoHint;
@@ -218,11 +184,6 @@ export function maxTexDimForDeviceTier(deviceInfoHint) {
   return undefined;
 }
 
-// Strips the N highest-resolution leading mip levels from a KTX2 buffer so its largest remaining
-// level's width/height is <= maxDim (always keeps at least the single coarsest level). Returns the
-// ORIGINAL buffer unchanged (identity) when maxDim is falsy, the buffer isn't a valid/parseable
-// KTX2 container, there's only one level, or the top level already fits -- so this is always a
-// safe no-op wrapper, never a hard requirement the buffer be KTX2.
 export function capKtx2Levels(buffer, maxDim) {
   if (!maxDim) return buffer;
   const header = _parseKtx2(buffer);
@@ -237,15 +198,10 @@ export function capKtx2Levels(buffer, maxDim) {
   try {
     return _stripLeadingLevels(header, startLevel);
   } catch {
-    // Any surgery failure (malformed SGD, truncated level data, etc.) falls back to the untouched
-    // original buffer -- correctness (full-res upload) over the resolution-budget optimization.
     return buffer;
   }
 }
 
-// Wraps a THREE.KTX2Loader instance's .parse so every transcode is preceded by the device-tier mip
-// cap above. Idempotent (checks a marker before re-wrapping) so it's safe to call once per pool
-// construction even though the loader itself is a module-level singleton shared across pools.
 export function applyKtx2DeviceTierCap(ktx2Loader, deviceInfoHint) {
   if (!ktx2Loader || ktx2Loader._deviceTierCapApplied) return ktx2Loader;
   const maxDim = maxTexDimForDeviceTier(deviceInfoHint);
