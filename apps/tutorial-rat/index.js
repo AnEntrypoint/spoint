@@ -1,5 +1,3 @@
-// Tutorial Rat: basic enemy that grants XP and quest progress on kill
-
 export const server = {
   setup(ctx) {
     ctx.state = {
@@ -15,7 +13,6 @@ export const server = {
   tick(ctx, dt) {
     if (!ctx.state.alive) return
 
-    // Simple AI: wander around
     const vel = ctx.entity.velocity
     if (Math.random() < 0.02) {
       const angle = Math.random() * Math.PI * 2
@@ -34,7 +31,6 @@ export const server = {
         ctx.state.alive = false
         ctx.entity.destroy()
 
-        // Notify quest system
         ctx.world.sendToEntity('tutorial-world', {
           type: 'ratKilled',
           playerId: msg.playerId,

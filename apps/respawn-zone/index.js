@@ -1,7 +1,3 @@
-// A placeable RESPAWN-ZONE: authors a fall-plane + respawn behaviour in-editor. A maker drops it, sets the
-// kill-plane Y and the respawn point; any player who falls below minY is teleported back to the respawn point.
-// Wraps defineCheckpoint from apps/_lib (the same fall-loop tps-game hand-rolls), so a platformer/parkour/racing
-// level gets safe respawn without code. The respawn point defaults to this entity's own position.
 import { defineCheckpoint } from '../_lib/checkpoint.js'
 
 export default {

@@ -1,7 +1,3 @@
-// A placeable SPAWN-POINT marker: the maker drops one (or several) to author where players spawn, instead of a
-// hardcoded grid. Each is a small static gizmo (no collider) carrying custom._spawnPoint so a game app (or the
-// engine spawn-finder) can collect placed spawn markers via ctx.world.queryEntities. Optional team tag for
-// team games. This app itself is inert at runtime -- it only marks a position; the game reads the markers.
 export default {
   description: 'Spawn-point marker: drop one or more to author where players (optionally per-team) start or respawn.',
   server: {
@@ -11,7 +7,6 @@ export default {
     ],
     setup(ctx) {
       const c = ctx.config || {}
-      // Tag the entity as a spawn point + carry the team so a game can filter. A faint gizmo mesh if requested.
       ctx.entity.custom = {
         ...(ctx.entity.custom || {}),
         _spawnPoint: true,
@@ -23,8 +18,6 @@ export default {
   },
 }
 
-// Collect all placed spawn-point positions (optionally filtered by team) from any game app that imports this.
-// Reads the live entity set via ctx.world.queryEntities -- a game uses these instead of a hardcoded grid.
 export function collectSpawnPoints(ctx, team) {
   const out = []
   for (const e of ctx.world.query(e => e.custom && e.custom._spawnPoint)) {

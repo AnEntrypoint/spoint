@@ -5,7 +5,6 @@ export default {
       const planeSize = 50
       const planeThickness = 0.5
 
-      // Floor plane with physics
       ctx.physics.addColliderFromConfig({
         type: 'box',
         size: [planeSize / 2, planeThickness / 2, planeSize / 2],
@@ -37,7 +36,6 @@ export default {
 
       console.log('[matrix-construct-room] creating plane geometry')
 
-      // Simple gray plane
       const planeMaterial = new THREE.MeshStandardMaterial({
         color: 0xcccccc,
         roughness: 0.8,
@@ -45,7 +43,6 @@ export default {
         side: THREE.DoubleSide
       })
 
-      // Main plane
       const planeGeo = new THREE.PlaneGeometry(planeSize, planeSize)
       const plane = new THREE.Mesh(planeGeo, planeMaterial)
       plane.rotation.x = -Math.PI / 2
@@ -53,13 +50,12 @@ export default {
       plane.receiveShadow = true
       scene.add(plane)
 
-      // Grid lines - blue X axis, red Z axis (matching original matrix room)
       const lineThickness = 0.05
       const halfSize = planeSize / 2
 
       const gridMat = new THREE.MeshBasicMaterial({ color: 0x888888 })
-      const xMat = new THREE.MeshBasicMaterial({ color: 0x0000ff })  // blue X axis
-      const zMat = new THREE.MeshBasicMaterial({ color: 0xff0000 })  // red Z axis
+      const xMat = new THREE.MeshBasicMaterial({ color: 0x0000ff })
+      const zMat = new THREE.MeshBasicMaterial({ color: 0xff0000 })
 
       for (let x = -halfSize; x <= halfSize; x += gridSize) {
         const mat = Math.abs(x) < 0.01 ? xMat : gridMat
@@ -76,7 +72,6 @@ export default {
         scene.add(line)
       }
 
-      // Origin marker
       const originGeo = new THREE.RingGeometry(0.3, 0.5, 32)
       const originMat = new THREE.MeshBasicMaterial({
         color: 0x333333,
@@ -89,7 +84,6 @@ export default {
       origin.position.y = lineThickness
       scene.add(origin)
 
-      // Outer boundary ring
       const boundaryGeo = new THREE.RingGeometry(halfSize - 0.2, halfSize, 64)
       const boundaryMat = new THREE.MeshBasicMaterial({
         color: 0x666666,

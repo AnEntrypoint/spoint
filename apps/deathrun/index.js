@@ -1,12 +1,3 @@
-// Deathrun/parkour game mode: wires apps/_lib/checkpoint.js's defineCheckpoint (per-player checkpoint
-// tracking + fall-plane respawn-to-last-checkpoint, already-existing primitive) together with a real
-// SERVER-AUTHORITATIVE run timer and a real per-map leaderboard (apps/deathrun/server.js, same debounced
-// ctx.storage atomic-write pattern apps/tps-game/server.js's scoreboard uses). Checkpoints are authored
-// in-editor via apps/checkpoint-marker (order 0 = start, highest order = finish) and collected once,
-// deferred to the first update() tick (see the setup() comment below). A run starts every time a player
-// enters the start volume (re-triggerable -- see _tickStartFinish) and stops the instant they enter the
-// finish volume; the elapsed ms is server Date.now()-derived (ctx.time.serverTime), never a
-// client-reported value, so a client cannot fake a fast run.
 import { defineCheckpoint } from '../_lib/checkpoint.js'
 import { collectCheckpointMarkers } from '../checkpoint-marker/index.js'
 import { loadLeaderboard, flushLeaderboard, recordRun, getTopEntries } from './server.js'
@@ -38,21 +29,6 @@ function makeOverlay() {
   return root
 }
 
-// Collects placed checkpoint-marker entities (sorted by order) and builds the course: BOTH (a) a
-// defineCheckpoint instance (apps/_lib/checkpoint.js) purely for its fall-plane respawn-to-last-
-// checkpoint behavior across the whole ordered sequence, which is a correct fit since "respawn at your
-// last checkpoint" only ever needs to reach a NEW highest index once per run, and (b) deathrun's OWN
-// re-triggerable start/finish radius check (see _tickStartFinish below) for the run-timer boundary
-// events specifically, because defineCheckpoint's own onCheckpoint only ever fires once per player per
-// index for the lifetime of that Map entry (monotonic `_cpIndex.get(id) < c.index` guard, see checkpoint.js)
-// -- LIVE-WITNESSED this session: a first real timed run finished correctly, but a SECOND real run by the
-// same connected player produced zero deathrun_start/deathrun_finish events at all, because index 0 and
-// the finish index had already been marked reached and can never re-fire for that player again. A
-// restartable game mode structurally cannot use defineCheckpoint's onCheckpoint for its start/finish
-// boundary, only for the (correctly one-shot-per-new-index) fall-respawn target update.
-// Falls back to a synthetic 2-point course at the world spawn if fewer than 2 markers are placed (so the
-// mode still boots in a world with no authored course yet). Called once, from the first real update()
-// tick -- see the setup() comment above for why collection cannot happen at setup time.
 function _buildCourse(ctx) {
   const markers = collectCheckpointMarkers(ctx)
   if (markers.length < 2) {
@@ -65,28 +41,20 @@ function _buildCourse(ctx) {
   ctx.state.finishIndex = cps.length - 1
   ctx.state.startCp = cps[0]
   ctx.state.finishCp = cps[cps.length - 1]
-  ctx.state._inStartVol = new Map()  // playerId -> bool, edge-detects start-volume entry (re-triggerable)
-  ctx.state._inFinishVol = new Map() // playerId -> bool, edge-detects finish-volume entry (re-triggerable)
+  ctx.state._inStartVol = new Map()
+  ctx.state._inFinishVol = new Map()
 
   ctx.state.checkpoint = defineCheckpoint({
     spawn: cps[0].position,
     minY: ctx.config?.minY ?? -50,
     checkpoints: cps.map(c => ({ position: c.position, radius: c.radius })),
     onRespawn: () => {
-      // Falling below the kill-plane respawns to the last checkpoint (existing defineCheckpoint
-      // behavior) -- the run timer is intentionally left untouched here: a fall mid-run is a
-      // setback, not a run-ending failure, matching deathrun/parkour genre convention.
     },
   }, ctx)
 
   console.log(`[deathrun] ${cps.length} checkpoint(s) loaded for map '${ctx.state.map}' (finish index ${ctx.state.finishIndex})`)
 }
 
-// Re-triggerable (edge-detected, not monotonic) start/finish volume check -- every player, every tick.
-// A player entering the start volume ALWAYS (re)seeds their run start, no matter how many times before;
-// entering the finish volume ALWAYS completes a run IF one was in progress. Edge-detected (entered==true
-// only on the frame crossing from outside to inside) so standing inside the volume doesn't restart the
-// timer every single tick.
 function _tickStartFinish(ctx) {
   const start = ctx.state.startCp, finish = ctx.state.finishCp
   if (!start || !finish) return
@@ -111,7 +79,7 @@ function _tickStartFinish(ctx) {
     if (inFinish && !wasInFinish) {
       const name = player.name || `Player ${player.id}`
       const startMs = ctx.state.activeRuns.get(name)
-      if (startMs == null) continue // reached the finish without a tracked start (e.g. joined mid-course) -- not a valid timed run
+      if (startMs == null) continue
       const timeMs = ctx.time.serverTime - startMs
       ctx.state.activeRuns.delete(name)
       const { recorded, rank, previousBest } = recordRun(ctx, ctx.state.map, name, timeMs)
@@ -127,23 +95,13 @@ export default {
   server: {
     async setup(ctx) {
       ctx.state.map = ctx.config?.map || 'deathrun_kosova'
-      ctx.state.activeRuns = new Map()       // playerName -> startMs (server clock)
-      ctx.state.lastResult = new Map()       // playerId -> { timeMs, isPB, rank }
-      ctx.state.checkpoint = null            // built once markers are collected -- see _buildCourse below
+      ctx.state.activeRuns = new Map()
+      ctx.state.lastResult = new Map()
+      ctx.state.checkpoint = null
 
       await loadLeaderboard(ctx)
       ctx.onShutdown(() => flushLeaderboard(ctx))
 
-      // Checkpoint-marker entities declared alongside this app in the SAME world-def entities[] array are
-      // spawned synchronously in array order (AppRuntime.spawnEntity), but each entity's OWN app.setup()
-      // (including checkpoint-marker's, which is what actually WRITES custom._deathrunCheckpoint) is
-      // attached via a fire-and-forget async _attachApp call -- so collecting markers here, synchronously
-      // inside THIS app's own setup(), races those still-pending setup() calls and can see zero markers
-      // even when several are declared right below this entity in the world def (live-witnessed: 0
-      // markers found despite 2 being declared). Deferring collection to the first real update() tick
-      // (ticks run on a timer well after the whole synchronous boot-time entity-spawn loop AND every
-      // entity's setup() has had a chance to run) is the same "wait for the next scheduling boundary"
-      // idiom AppRuntime._scheduleRebuild already uses (setImmediate) for an analogous ordering problem.
       ctx.state._courseBuilt = false
     },
     update(ctx, dt) {
@@ -151,8 +109,8 @@ export default {
         ctx.state._courseBuilt = true
         _buildCourse(ctx)
       }
-      ctx.state.checkpoint?.tick(dt) // fall-plane respawn-to-last-checkpoint only, see _buildCourse comment
-      _tickStartFinish(ctx)          // re-triggerable start/finish timer boundary, see its own comment
+      ctx.state.checkpoint?.tick(dt)
+      _tickStartFinish(ctx)
     },
     onMessage(ctx, msg) {
       if (!msg) return
@@ -160,17 +118,9 @@ export default {
         const p = ctx.players.getById(msg.playerId)
         const name = p?.name || `Player ${msg.playerId}`
         ctx.players.send(msg.playerId, { type: 'deathrun_leaderboard', map: ctx.state.map, top: getTopEntries(ctx, ctx.state.map, 10) })
-        // A run in progress at disconnect stays keyed by NAME (not the ephemeral playerId, which changes
-        // on reconnect) in ctx.state.activeRuns, so a genuine reconnect mid-run resumes its elapsed timer
-        // rather than losing it -- matches apps/tps-game/index.js's own by-name durable-state precedent
-        // for exactly this "ephemeral id changes, name persists" reconnect case.
         void name
       }
       if (msg.type === 'player_leave') {
-        // Intentionally NOT deleting ctx.state.activeRuns here: the entry is keyed by player NAME so a
-        // reconnect (new ephemeral playerId, same name) can resume the in-flight timer above. A player
-        // who leaves for good simply never finishes that run -- the entry sits harmlessly in the Map
-        // (bounded by distinct-name count, not unbounded growth) until overwritten by their next start.
         ctx.state.lastResult.delete(msg.playerId)
       }
     },
@@ -202,12 +152,6 @@ export default {
         }
       }
     },
-    // Every DOM write is dirty-compared against the last value written, matching apps/tps-game/
-    // client-app.js's onFrame (:230/:238/:247/:250/:252/:254/:267) -- these three were the only
-    // unconditional per-frame DOM writes left in any app hook. A textContent assignment replaces the
-    // element's text node and dirties it for style/layout even when the string is identical, and while
-    // no run is in flight all three values are constant, so this was 3 mutations/frame (180/s at 60fps)
-    // producing no visible change.
     onFrame(_dt, engine) {
       const dr = engine._deathrun; if (!dr) return
       if (dr._elTimer) {

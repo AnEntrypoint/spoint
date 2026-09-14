@@ -1,13 +1,3 @@
-// Minimal demonstration/host app for apps/_lib/softbody.js -- a placeable cloth/banner/flag that hangs
-// from configurable pin points and simulates via a real isolated @dimforge/rapier3d-compat mass-spring
-// particle grid (see softbody.js's own header for the full architectural-isolation rationale). Wire your
-// own game-specific soft-body object the same way: ctx.defineSoftbody() once in setup(), tick(dt) +
-// publish() every server tick from update(ctx,dt).
-//
-// The host entity itself carries NO Jolt collider (a softbody cloth is a self-contained secondary
-// simulation, not a rigid prop) -- its own position/rotation/scale stay static and exist only to give
-// the cloth a spawn-time anchor point (softbody.js reads appCtx.entity.position once at build time as
-// the grid's world-space origin).
 import { createSoftbodyCloth } from '../_lib/softbody.js'
 
 export default {
@@ -24,9 +14,6 @@ export default {
     ],
     setup(ctx) {
       const c = ctx.config || {}
-      // A default placeholder mesh (see destructible.js's own doc: EntityLoader falls back to an orange
-      // box for any custom-less entity) -- keeps the ANCHOR point visible in-editor even before the
-      // client-side particle-mesh render path (sibling row, not yet built) exists.
       if (!ctx.entity.custom) ctx.entity.custom = { mesh: 'box', color: '#dddddd', roughness: 0.9, sx: 0.1, sy: 0.1, sz: 0.1 }
       ctx.state.softbody = ctx.defineSoftbody({
         cols: c.cols ?? 6,
@@ -44,10 +31,6 @@ export default {
       sb.tick(dt)
       sb.publish()
     },
-    // Releases the isolated rapier World before a hot-reload re-runs setup() (matching apps/vehicle's
-    // teardown discipline) -- softbody.js's own dispose() is also registered via appCtx._registerDisposer
-    // so this call is technically redundant with the disposer firing on detachApp, but explicit here for
-    // the same "release native resources before re-setup" clarity every other physics-owning app follows.
     teardown(ctx) {
       ctx.state.softbody?.dispose()
     }

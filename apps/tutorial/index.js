@@ -1,8 +1,3 @@
-// Tutorial orchestrator: walks a new player through core mechanics (WASD, sprint, jump, interact)
-// using checkpoint-marker entities for progression gates and HUD text overlays for instruction prompts.
-// Collects placed checkpoint-marker entities (sorted by order) at first update tick, feeds each step's
-// prompt to the player via ctx.players.send(), and advances when the player reaches the next marker.
-// The final step is an interactable button — the tutorial listens for 'tutorial.finish' on the bus.
 import { collectCheckpointMarkers } from '../checkpoint-marker/index.js'
 
 const STEPS = [
@@ -53,11 +48,10 @@ export default {
     async setup(ctx) {
       ctx.state.step = 0
       ctx.state.finished = false
-      ctx.state._markers = null           // built on first update tick (see deathrun's _buildCourse comment)
-      ctx.state._stepReached = new Set()  // playerIds that have reached the current step
+      ctx.state._markers = null
+      ctx.state._stepReached = new Set()
       ctx.state._courseBuilt = false
 
-      // Listen for the button's 'tutorial.finish' event as the final step.
       ctx.bus?.on('tutorial.finish', () => {
         if (ctx.state.finished) return
         ctx.state.finished = true
@@ -84,7 +78,6 @@ export default {
     onMessage(ctx, msg) {
       if (!msg) return
       if (msg.type === 'player_join') {
-        // Send the current step prompt to the joining player.
         const step = STEPS[ctx.state.step]
         if (step) {
           ctx.players.send(msg.playerId, {
@@ -127,7 +120,6 @@ function _buildCourse(ctx) {
   }
   ctx.state._markers = markers
 
-  // Send the first step prompt to all connected players.
   const step = STEPS[0]
   if (step) {
     for (const player of ctx.players.getAll()) {
@@ -170,7 +162,6 @@ function _tickProgression(ctx) {
           finished: false,
         })
       }
-      // Reset the reached set so the next checkpoint can be triggered by the same player.
       ctx.state._stepReached = new Set()
     }
   }

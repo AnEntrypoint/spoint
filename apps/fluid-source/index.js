@@ -1,14 +1,3 @@
-// Minimal demonstration/host app for apps/_lib/fluid.js -- a placeable pool/puddle/fountain that
-// simulates via a real from-scratch WASM SPH solver (see fluid.js's own header for the emitter/
-// world-plane-mapping rationale, and src/fluid/SPHSolver.js / src/fluid/as-src/sph.ts for the underlying
-// WCSPH physics). Wire your own game-specific fluid the same way: ctx.defineFluid() once in setup(),
-// tick(dt) + publish() every server tick from update(ctx,dt) -- mirrors apps/softbody-cloth/index.js's
-// own shape exactly.
-//
-// The host entity itself carries NO Jolt collider (a fluid body is a self-contained secondary simulation,
-// not a rigid prop) -- its own position/rotation/scale stay static and exist only to give the fluid a
-// spawn-time anchor point (fluid.js reads appCtx.entity.position once at build time as the boundary's
-// world-space center).
 import { createFluidBody } from '../_lib/fluid.js'
 
 export default {
@@ -24,9 +13,6 @@ export default {
     ],
     setup(ctx) {
       const c = ctx.config || {}
-      // A default placeholder mesh (see destructible.js's own doc: EntityLoader falls back to an orange
-      // box for any custom-less entity) -- keeps the ANCHOR point visible in-editor even before the
-      // client-side particle-mesh render path (sibling row, not yet built) exists.
       if (!ctx.entity.custom) ctx.entity.custom = { mesh: 'box', color: '#3388cc', roughness: 0.1, sx: 0.15, sy: 0.05, sz: 0.15 }
       const half = (c.boundarySize ?? 4) / 2
       const origin = ctx.entity.position
@@ -45,10 +31,6 @@ export default {
       f.tick(dt)
       f.publish()
     },
-    // Releases the solver reference before a hot-reload re-runs setup() (matching apps/softbody-cloth's
-    // own teardown discipline) -- fluid.js's own dispose() is also registered via appCtx._registerDisposer
-    // so this call is technically redundant with the disposer firing on detachApp, but explicit here for
-    // the same "release resources before re-setup" clarity every other physics-owning app follows.
     teardown(ctx) {
       ctx.state.fluid?.dispose()
     }

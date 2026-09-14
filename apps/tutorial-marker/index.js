@@ -1,5 +1,3 @@
-// Tutorial Marker: location markers for quest objectives (shrine, checkpoints, etc)
-
 export const server = {
   setup(ctx) {
     ctx.state = { markerType: ctx.entity.custom?.marker || 'unknown' }

@@ -1,6 +1,3 @@
-// A placeable POWERUP PICKUP: a maker drops it, picks a kind (speed/rapid/damage/heal) + strength. On walk-over
-// it emits a buff event (the game's per-player buff/stat system listens on the channel) and respawns after a
-// delay. Distinct from apps/collectible (which awards score); this grants a temporary ability. Uses definePickup.
 import { definePickup } from '../_lib/pickup.js'
 
 export default {

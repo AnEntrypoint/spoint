@@ -21,7 +21,6 @@ const mergeConfig = (override) => ({
 export default {
   server: {
     setup(ctx) {
-      // must NOT start the collider streamer here -- engine boot already starts it before stage load; doing it here races the spawn-finder (77->4 spawn points)
       ctx.state.terrainConfig = mergeConfig(ctx.config)
       ctx.debug.log('[terrain] config registered (streamer owned by engine boot order)')
     }
@@ -29,16 +28,13 @@ export default {
 
   client: {
     setup(ctx) {
-      // must NOT push a default-merged config here -- engineCtx has no entity config, and pushing one clobbers the real tuned config (killed vegetation before)
       if (!ctx.editor || !ctx.editor.mountPanel) return
       const cfg = (ctx.getTerrainConfig && ctx.getTerrainConfig()) || mergeConfig(null)
       ctx.editor.mountPanel({
         slot: 'inspector',
         label: 'Terrain',
-        // must gate on selectedId: the inspector slot renders every mounted panel unconditionally, else these knobs show regardless of selection
         render(container, { selectedId }) {
           const ent = selectedId && ctx.editor.getServerEntity ? ctx.editor.getServerEntity(selectedId) : null
-          // check all 3 spellings (app/_appName/appName) -- different entity-list sources use different field names
           const isTerrain = !!ent && (ent.app === 'terrain' || ent._appName === 'terrain' || ent.appName === 'terrain')
           container.innerHTML = ''
           if (!isTerrain) {
@@ -65,7 +61,6 @@ export default {
             if (Number.isFinite(r) && r > 0 && ctx.rebuildTerrain) ctx.rebuildTerrain({ radius: r })
           })
           radWrap.append(radIn, radBtn); root.appendChild(radWrap)
-          // seed is server-authoritative: reshapes the whole planet + rebuilds the collider, broadcast to all clients
           const seedWrap = document.createElement('div'); seedWrap.style.cssText = 'margin-bottom:10px;display:flex;gap:6px'
           const seedIn = document.createElement('input'); seedIn.type = 'number'; seedIn.step = '1'
           seedIn.value = String(cfg.seed ?? 0)
@@ -78,17 +73,6 @@ export default {
           })
           seedWrap.append(seedIn, seedBtn); root.appendChild(seedWrap)
 
-          // Raise/lower/smooth/flatten brush (height-delta slices of the sculpt/volume/event-graph epic
-          // -- see AGENTS.md terrain-sculpt-volume-spline-event-graph-editing; paint-biome, the epic's
-          // fifth/climate-override brush, is its own panel section below this one; both share
-          // terrain-gpu-visible-sculpt-mesh-deformation as a follow-up for visibly updating the rendered
-          // mesh/vegetation, not just the collider).
-          // Writes a real heightfield DELTA over the procedural base (src/terrain/HeightDelta.js),
-          // server-authoritative like reseed above. Lower is a negative-strength raise (same falloff
-          // math, same wire message) -- the mode toggle below just flips which `brush` string is sent.
-          // `strengthIn` always holds a positive/unsigned value, but its CONTRACT differs by mode: a
-          // metres magnitude for raise/lower, a [0,1] blend factor for smooth/flatten (_applyStrengthContract
-          // swaps step/min/max/default/title on mode change so the same input serves all three meanings).
           const sculptTitle = document.createElement('div')
           sculptTitle.textContent = 'Sculpt brush'
           sculptTitle.style.cssText = 'font-weight:600;margin:14px 0 8px;border-top:1px solid rgba(255,255,255,0.12);padding-top:10px'
@@ -107,11 +91,6 @@ export default {
             smoothModeBtn.style.cssText = _brushMode === 'smooth' ? active : inactive
             flattenModeBtn.style.cssText = _brushMode === 'flatten' ? active : inactive
           }
-          // Smooth/flatten's strength is a [0,1] blend factor (not a metres magnitude like raise/lower)
-          // -- swap the input's step/min/max/default/title to match its contract on mode change, and
-          // re-clamp any value the user typed while in raise/lower mode so switching to smooth/flatten
-          // can't silently send an out-of-[0,1]-range value the server would otherwise have to clamp
-          // defensively.
           function _applyStrengthContract() {
             if (_brushMode === 'smooth' || _brushMode === 'flatten') {
               strengthIn.step = '0.05'; strengthIn.min = '0'; strengthIn.max = '1'
@@ -172,12 +151,6 @@ export default {
           })
           root.appendChild(sculptBtn)
 
-          // Paint-biome brush (fourth/final slice of the sculpt-brush epic -- src/terrain/BiomeOverride.js).
-          // Distinct from the height brushes above: overrides the climate tuple (temp/humidity/erosion)
-          // VegPlacement/RockPlacement/GrassPlacement's classify() reads, so a painted stroke changes
-          // WHAT grows/how dense, not the ground height -- a swatch/dropdown picker instead of a
-          // raise/lower-style strength-magnitude input. ctx.paintBiome mirrors ctx.sculptTerrain's
-          // server-authoritative send-only contract.
           const biomeTitle = document.createElement('div')
           biomeTitle.textContent = 'Paint biome'
           biomeTitle.style.cssText = 'font-weight:600;margin:14px 0 8px;border-top:1px solid rgba(255,255,255,0.12);padding-top:10px'

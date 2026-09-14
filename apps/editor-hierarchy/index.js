@@ -40,7 +40,6 @@ export default {
                         const tagSpan = document.createElement('span'); tagSpan.textContent = e.appName || e._appName || ''; tagSpan.style.cssText = 'font-size:9px;color:rgba(255,255,255,0.28)'
                         row.append(idSpan, tagSpan)
                         row.addEventListener('click', () => ctx.editor.select(e.id))
-                        // contextmenu deletes directly (non-blocking) instead of window.confirm() to avoid blocking jank
                         row.addEventListener('dblclick', () => ctx.editor.select(e.id))
                         row.addEventListener('contextmenu', ev => { ev.preventDefault(); ctx.editor.destroy(e.id) })
                         list.appendChild(row)

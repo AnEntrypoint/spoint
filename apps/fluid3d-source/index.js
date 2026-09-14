@@ -1,8 +1,3 @@
-// Minimal demonstration/host app for apps/_lib/fluid3d.js -- a placeable REAL 3D fluid volume (tank/pool
-// with actual vertical structure, varying Y per particle) simulated via the real from-scratch WASM 3D SPH
-// solver (see fluid3d.js's own header for the world-space-box rationale, and src/fluid/SPHSolver3D.js /
-// src/fluid/as-src/sph3d.ts for the underlying 3D WCSPH physics). Mirrors apps/fluid-source/index.js's
-// own shape exactly, swapped onto the 3D factory + a 3D (minY/maxY-bearing) boundary box.
 import { createFluid3DBody } from '../_lib/fluid3d.js'
 
 export default {
@@ -19,10 +14,6 @@ export default {
     ],
     setup(ctx) {
       const c = ctx.config || {}
-      // A default placeholder mesh (see destructible.js's own doc: EntityLoader falls back to an orange
-      // box for any custom-less entity) -- keeps the ANCHOR point visible in-editor even before the
-      // client-side particle-mesh render path (sibling row sph-fluid-3d-client-render-verification) has
-      // been live-witnessed against this app's real varying-Y output.
       if (!ctx.entity.custom) ctx.entity.custom = { mesh: 'box', color: '#2266aa', roughness: 0.1, sx: 0.15, sy: 0.05, sz: 0.15 }
       const halfXZ = (c.boundaryWidth ?? 3) / 2
       const height = c.boundaryHeight ?? 6
@@ -45,10 +36,6 @@ export default {
       f.tick(dt)
       f.publish()
     },
-    // Releases the solver reference before a hot-reload re-runs setup() (matching fluid-source's own
-    // teardown discipline) -- fluid3d.js's own dispose() is also registered via appCtx._registerDisposer
-    // so this call is technically redundant with the disposer firing on detachApp, but explicit here for
-    // the same "release resources before re-setup" clarity every other physics-owning app follows.
     teardown(ctx) {
       ctx.state.fluid3d?.dispose()
     }

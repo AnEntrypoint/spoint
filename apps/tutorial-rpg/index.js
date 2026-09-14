@@ -1,6 +1,3 @@
-// Tutorial RPG: 5-quest progression chain with stats scaling and loadout system
-// Tests: quest completion -> XP gain -> level up -> stat scaling -> equipment bonuses -> loadout save/swap
-
 import { defineQuestSystem } from '../../src/game/QuestSystem.js'
 import { defineStatsSystem } from '../../src/game/StatsSystem.js'
 import { defineGameFSM } from '../_lib/game-fsm.js'
@@ -89,7 +86,6 @@ const EQUIPMENT_CATALOG = {
 
 export const server = {
   async setup(ctx) {
-    // Initialize systems
     ctx.progression = defineStatsSystem({
       startLevel: 1,
       startXP: 0,
@@ -103,7 +99,6 @@ export const server = {
         speed: 1.0,
       },
       statScaling: {
-        // Level 1 = 100 HP, Level 50 = 100 + 49*10 = 590 HP (formula: 100 + (level-1)*10)
         health: 10,
         mana: 5,
         damage: 0.5,
@@ -147,7 +142,6 @@ export const server = {
       },
     }, ctx)
 
-    // Spawn world controller entity
     ctx.world.spawn('tutorial-world', {
       app: 'tutorial-rpg-world',
       position: [0, 0, 0],
@@ -159,14 +153,11 @@ export const server = {
   onPlayerJoin(ctx, playerId) {
     console.log(`[TutorialRPG] Player ${playerId} joined`)
 
-    // Give starting equipment
     ctx.progression.equipItem(playerId, 'iron-sword')
     ctx.progression.equipItem(playerId, 'leather-armor')
 
-    // Auto-start first quest
     ctx.quests.startQuest(playerId, 'quest-1-kill-rats')
 
-    // Send initial state
     ctx.progression.getStats(playerId)
     ctx.inventory.push(playerId)
   },
@@ -176,17 +167,14 @@ export const client = {
   mount(engine, options) {
     console.log('[TutorialRPG] Client mounted')
 
-    // Listen for quest updates
     engine.on('quests', (data) => {
       console.log('[TutorialRPG] Quest update:', data)
     })
 
-    // Listen for stats updates
     engine.on('stats', (data) => {
       console.log('[TutorialRPG] Stats update: level', data.level, 'health', data.health)
     })
 
-    // Listen for inventory updates
     engine.on('inventory', (data) => {
       console.log('[TutorialRPG] Inventory update:', data)
     })

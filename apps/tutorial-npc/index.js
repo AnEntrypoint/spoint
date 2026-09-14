@@ -1,5 +1,3 @@
-// Tutorial NPC: NPCs for quest interaction (elder, healer, etc)
-
 export const server = {
   setup(ctx) {
     ctx.state = { npcId: ctx.entity.custom?.npcId || 'unknown' }

@@ -1,7 +1,3 @@
-// A placeable SHRINKING ZONE (battle-royale storm circle): drop it and author the start radius, final radius,
-// shrink time and out-of-bounds damage in the inspector -- no code. Wraps apps/_lib/shrinking-zone.js
-// (defineShrinkingZone), which already handles the ring, the out-of-bounds scan and the damage/push penalty.
-// Centred on this entity's placed position.
 export default {
   description: 'Shrinking storm zone: an authored battle-royale safe circle that closes over time and hurts stragglers.',
   server: {

@@ -1,5 +1,3 @@
-// Tutorial Herb: collectible item for herb quest
-
 export const server = {
   setup(ctx) {
     ctx.state = { collected: false }

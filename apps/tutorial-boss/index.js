@@ -1,5 +1,3 @@
-// Tutorial Boss: Shadow Beast boss for final quest
-
 export const server = {
   setup(ctx) {
     ctx.state = {
@@ -16,7 +14,6 @@ export const server = {
   tick(ctx, dt) {
     if (!ctx.state.alive || !ctx.state.active) return
 
-    // Boss AI: patrol area
     const vel = ctx.entity.velocity
     if (Math.random() < 0.01) {
       const angle = Math.random() * Math.PI * 2

@@ -2,26 +2,19 @@ import { findSpawnPoints, getAvailableSpawnPoint, handleFire, loadScoreboard, fl
 import { collectSpawnPoints } from '../spawn-point/index.js'
 import { POWERUP_DEFS, POWERUP_RESPAWN_MS, POWERUP_PICKUP_RADIUS, EMOTE_CLIPS, spawnPowerup } from './shared.js'
 
+const EMOTE_RATE_LIMIT_MS = 800
+const MAX_REWIND_LATENCY_MS = 600
+
 export const tpsGameServer = {
   async setup(ctx) {
     ctx.state.map = 'schwust'
     ctx.state.mode = 'ffa'
     ctx.state.config = { respawnTime: 1.5, health: 100, damagePerHit: 20, headshotMultiplier: 2.5, headshotZone: 0.7, hitKnockback: 4, shootKnockback: 2, magazineSize: 30, reloadTime: 2000, spawnInvulnMs: 1500 }
     ctx.state.invuln = new Map()
-    // Placed spawn-point entities (apps/spawn-point) take priority over the raycast grid --
-    // a maker who drops markers gets exactly those; the grid is only the no-markers-placed
-    // fallback so existing worlds without markers keep working unchanged.
     const placedSpawns = collectSpawnPoints(ctx)
     ctx.state.spawnPoints = placedSpawns.length > 0 ? placedSpawns : findSpawnPoints(ctx)
     ctx.state.playerStats = new Map()
-    // Cumulative session/across-restart scoreboard, keyed by durable player name -- see server.js
-    // loadScoreboard/persistPlayerStat. Awaited here (AppRuntime awaits server.setup) so it is fully
-    // populated before the FIRST player_join can look a name up.
     await loadScoreboard(ctx)
-    // Register the debounced scoreboard write's flush with the engine's graceful-shutdown registry
-    // (ctx.onShutdown, src/apps/AppContext.js/AppRuntime.js) so a SIGINT/SIGTERM within the 500ms
-    // debounce window (see scheduleScoreboardPersist in server.js) doesn't silently drop the last
-    // burst of kill/death stat changes -- mirrors ctx.placedModelStorage.flush()'s own shutdown wiring.
     ctx.onShutdown(() => flushScoreboard(ctx))
     ctx.state.respawning = new Map()
     ctx.state.buffs = new Map()
@@ -53,15 +46,6 @@ export const tpsGameServer = {
   update(ctx, dt) {
     ctx.state.gameTime = (Date.now() - ctx.state.started) / 1000
     const now = Date.now()
-    // Defensive re-init: setup() constructs ctx.state.buffs as a real Map. The two real root causes
-    // that could hand back a non-Map here are both fixed upstream now: (1) the init-order race, where
-    // update() could run before setup()'s async loadScoreboard await resolves -- see AppRuntime.js's
-    // _pendingSetupIds skip in _rebuildUpdateList/_rebuildCollisionList; (2) a Map silently downgrading
-    // to a plain object across any restoreGameState/WorldPersistence round-trip, since a naive
-    // JSON.parse(JSON.stringify(...)) has no Map wire type -- fixed via AppRuntime.js's tagged
-    // cloneAppState (Map/Set-preserving replacer/reviver), used for entity._appState (ctx.state)
-    // specifically. This guard stays as cheap, top-of-update defense-in-depth against any future
-    // write path this loop hasn't been audited against yet, not because either known cause is still open.
     if (!(ctx.state.buffs instanceof Map)) ctx.state.buffs = new Map()
     for (const [pid, buff] of ctx.state.buffs) {
       if (now >= buff.expiresAt) { ctx.state.buffs.delete(pid); ctx.players.send(pid, { type: 'buff_expired' }) }
@@ -78,9 +62,6 @@ export const tpsGameServer = {
         if (t >= 0.5) { player.state.health = 0; ctx.state.respawning.set(player.id, { respawnAt: now + ctx.state.config.respawnTime * 1000, killer: null }); ctx.network.broadcast({ type: 'death', victim: player.id, killer: null, cause: 'fall' }); ctx.state.fallTimers.delete(player.id) }
       } else { ctx.state.fallTimers.delete(player.id) }
     }
-    // Same defensive re-init as ctx.state.buffs above (init-order race / Map->plain-object downgrade
-    // across a restoreGameState/WorldPersistence round-trip) -- powerups hit the identical hazard since
-    // it is also a Map constructed once in setup() with no per-tick type guard until now.
     if (!(ctx.state.powerups instanceof Map)) ctx.state.powerups = new Map()
     {
       for (const [id, pu] of ctx.state.powerups) {
@@ -108,7 +89,6 @@ export const tpsGameServer = {
       const player = ctx.players.getById(pid)
       if (player?.state) { player.state.health = ctx.state.config.health; player.state.velocity = [0, 0, 0]; ctx.players.setPosition(pid, sp) }
       ctx.state.invuln.set(pid, now + (ctx.state.config.spawnInvulnMs || 0))
-      // respawn must reset ammo/reload same as player_join, else stale magazine silently rejects every shot client thinks it has
       ctx.state.ammo.set(pid, ctx.state.config.magazineSize)
       ctx.state.reloading.delete(pid)
       ctx.players.send(pid, { type: 'respawn', position: sp, health: ctx.state.config.health, ammo: ctx.state.config.magazineSize, invulnMs: ctx.state.config.spawnInvulnMs })
@@ -120,13 +100,8 @@ export const tpsGameServer = {
     if (!msg) return
     if (msg.type === 'player_join') {
       const p = ctx.players.getById(msg.playerId)
-      // must not force health on reconnect: RECONNECT_ACK already restored it, forcing max would res a mid-blip death
       if (p?.state && !msg.reconnected) p.state.health = ctx.state.config.health
       if (!msg.reconnected || !ctx.state.playerStats.has(msg.playerId)) {
-        // Restore cumulative kills/deaths/damage from the durable by-name scoreboard (see server.js
-        // loadScoreboard/persistPlayerStat) if this player's name has a saved record -- a fresh Map
-        // entry every join/reconnect used to silently reset the live in-memory stats to zero even
-        // though the durable record on disk still had the player's real cumulative totals.
         const name = p?.name || `Player ${msg.playerId}`
         const saved = ctx.state.scoreboardByName?.[name]
         ctx.state.playerStats.set(msg.playerId, saved ? { kills: saved.kills || 0, deaths: saved.deaths || 0, damage: saved.damage || 0 } : { kills: 0, deaths: 0, damage: 0 })
@@ -135,11 +110,6 @@ export const tpsGameServer = {
       ctx.state.reloading.delete(msg.playerId)
     }
     if (msg.type === 'player_leave') {
-      // Final mirror-and-persist BEFORE dropping the in-memory entry -- covers the case where the
-      // last stat change since the previous debounce fired (e.g. a damage tick from the shot that
-      // killed the leaving player) hasn't hit disk yet. The durable by-name record is what survives;
-      // the in-memory playerStats Map is keyed by this ephemeral playerId and is safe to drop, since
-      // a future rejoin re-seeds from ctx.state.scoreboardByName (by name) on player_join above.
       persistPlayerStat(ctx, msg.playerId)
       ctx.state.playerStats.delete(msg.playerId); ctx.state.respawning.delete(msg.playerId)
       ctx.state.fallTimers.delete(msg.playerId); ctx.state.ammo.delete(msg.playerId); ctx.state.reloading.delete(msg.playerId); ctx.state.invuln.delete(msg.playerId)
@@ -152,17 +122,10 @@ export const tpsGameServer = {
       setTimeout(() => { ctx.state.ammo.set(playerId, ctx.state.config.magazineSize); ctx.state.reloading.delete(playerId); ctx.players.send(playerId, { type: 'reload_complete' }) }, ctx.state.config.reloadTime)
     }
     if (msg.type === 'emote') {
-      // Server-authoritative allowlist: never trust a client-supplied clip name directly into
-      // playAnimation (an arbitrary string reaching the animation library lookup is low-risk here
-      // since it only no-ops on a miss, but an explicit allowlist is the correct discipline for any
-      // client-triggered broadcast -- matches roadmap #78's own 'networked emote codes' framing,
-      // a CODE the client sends, not a free-text clip name). Rate-limited per player (reuses the
-      // same reload-style timestamp-gate pattern as the fire/reload handlers above) so a client
-      // can't spam a broadcast to every other connected player.
       const playerId = msg.senderId || msg.playerId
       const now = Date.now()
       const lastEmote = ctx.state.lastEmoteAt.get(playerId) || 0
-      if (now - lastEmote < 800) return
+      if (now - lastEmote < EMOTE_RATE_LIMIT_MS) return
       if (!EMOTE_CLIPS.has(msg.code)) return
       ctx.state.lastEmoteAt.set(playerId, now)
       ctx.players.playAnimation(playerId, EMOTE_CLIPS.get(msg.code), { loop: false })
@@ -176,10 +139,7 @@ export const tpsGameServer = {
       const shooter = ctx.players.getById(shooterId)
       const pos = shooter?.state?.position || [0, 0, 0]
       const origin = [pos[0], pos[1] + 0.9, pos[2]]
-      // msg.clientTime is expressed in ESTIMATED SERVER CLOCK time (BaseClient.sendFire adds the
-      // client's NTP-style clock offset before sending), so Date.now()-msg.clientTime here is a real
-      // one-way client->server delay estimate, not the old raw-clock-skew-conflated value.
-      const latencyMs = msg.clientTime ? Math.min(600, Math.max(0, Date.now() - msg.clientTime)) : 0
+      const latencyMs = msg.clientTime ? Math.min(MAX_REWIND_LATENCY_MS, Math.max(0, Date.now() - msg.clientTime)) : 0
       const fireData = { shooterId, origin, direction: msg.direction, latencyMs }
       ctx.bus.emit('combat.fire', fireData)
       if (shooter?.state) { shooter.state.velocity[0] -= msg.direction[0] * ctx.state.config.shootKnockback; shooter.state.velocity[2] -= msg.direction[2] * ctx.state.config.shootKnockback }

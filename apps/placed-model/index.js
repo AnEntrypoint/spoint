@@ -2,11 +2,6 @@ export default {
   server: {
     editorProps: [
       { key: '_collider', label: 'Collider', type: 'select', options: ['none', 'box', 'sphere', 'capsule', 'convex', 'trimesh'], default: 'none' },
-      // Material-authored wetness mask (ssr-material-wetness-mask-authoring): 0 = dry, 1 = fully wet
-      // (puddle/wet-road/rain-soaked). Consumed client-side by SSR.js's reflection mask via
-      // EntityLoader's userData.wetness tag -- see that file's header for the full data flow. Distinct
-      // from (additive to) SSR's existing sea-level-band mask: a wet road far from any water still
-      // reflects once authored here.
       { key: '_wetness', label: 'Wetness', type: 'range', min: 0, max: 1, step: 0.05, default: 0 }
     ],
     setup(ctx) {
