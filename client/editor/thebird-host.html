@@ -7,9 +7,7 @@
   <title>Thebird + Spoint — Flagship Demo</title>
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="https://unpkg.com/anentrypoint-design@1.0.34/dist/247420.css">
-  <!-- thebird desktop-shell CSS tokens (vendored from ../thebird/docs/vendor/kits/os/wm.css) -->
   <link rel="stylesheet" href="/editor/wm/wm.css">
-  <!-- os-token-bridge: aliases thebird's --os-* tokens to spoint's --ds-* tokens -->
   <link rel="stylesheet" href="/editor/wm/os-token-bridge.css">
   <script>
     (function () {
@@ -60,7 +58,6 @@
   }
   </script>
   <style>
-    /* thebird desktop shell: full-viewport window manager overlay */
     html, body {
       margin: 0;
       padding: 0;
@@ -72,7 +69,6 @@
     #thebird-desktop {
       position: absolute;
       inset: 0;
-      /* The desktop surface where thebird windows live */
       background: var(--os-bg-0, var(--bg, #030a10));
       overflow: hidden;
     }
@@ -80,7 +76,6 @@
       position: absolute;
       inset: 0;
       bottom: 40px;
-      /* Spoint editor is embedded as a full-desktop "app" */
     }
     .thebird-taskbar {
       position: absolute;
@@ -128,7 +123,6 @@
   </div>
 
   <script>
-    // Simple clock in the taskbar
     function updateClock() {
       const el = document.getElementById('clock');
       if (el) el.textContent = new Date().toLocaleTimeString();
@@ -137,11 +131,9 @@
     setInterval(updateClock, 30000);
   </script>
 
-  <!-- Load full Spoint app module which boots engine + BrowserServer + EditorShell -->
   <script type="module">
     import '/app.js'
 
-    // Expose thebird desktop integration handle
     window.__thebird = {
       name: 'thebird-desktop-host',
       get editPanel() { return window.debug?.editPanel || null }

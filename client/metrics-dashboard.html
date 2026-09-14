@@ -138,10 +138,7 @@
 (function () {
   'use strict';
 
-  // ---- Prometheus text-exposition-format parser (client-side, zero deps) ----
-  // Handles: `# HELP`, `# TYPE`, `name{label="val",...} value` and bare `name value` lines.
-  // Returns Map<metricName, Array<{labels, value}>>.
-  function parseProm(text) {
+  function parsePrometheusExposition(text) {
     const out = new Map();
     const lines = text.split('\n');
     for (const raw of lines) {
@@ -174,7 +171,6 @@
     return out;
   }
   function splitLabels(inner) {
-    // naive but sufficient split on top-level commas (label values are quoted, no nested braces here)
     const parts = [];
     let cur = '', inQuotes = false;
     for (let i = 0; i < inner.length; i++) {
@@ -205,7 +201,6 @@
     });
   }
 
-  // ---- sparkline (canvas, no deps) ----
   function drawSpark(canvas, series, color) {
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth || 200, h = canvas.clientHeight || 40;
@@ -227,14 +222,13 @@
       if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.stroke();
-    // fill under curve, low alpha
     ctx.lineTo(w - 1, h - 1); ctx.lineTo(1, h - 1); ctx.closePath();
     ctx.globalAlpha = 0.12; ctx.fillStyle = color; ctx.fill(); ctx.globalAlpha = 1;
   }
 
   const COLORS = { total: '#5b8cff', mv: '#33c17a', phys: '#e0a63a', snap: '#e0525a', players: '#5b8cff', entities: '#33c17a', bytes: '#e0a63a' };
   const MAX_POINTS = 120;
-  const series = {}; // key -> array of numbers
+  const series = {};
   function push(key, v) {
     if (v == null || Number.isNaN(v)) return;
     if (!series[key]) series[key] = [];
@@ -405,7 +399,7 @@
         return;
       }
       const text = await res.text();
-      const m = parseProm(text);
+      const m = parsePrometheusExposition(text);
       statusDot.className = 'dot ok';
       statusText.textContent = 'live';
       renderTiles(m);
@@ -436,9 +430,7 @@
     e.target.textContent = paused ? 'Resume' : 'Pause';
     statusText.textContent = paused ? 'paused' : 'live';
   });
-  window.addEventListener('resize', () => {
-    // redraw sparks at new canvas size on next poll tick (cheap, avoids stretched cached bitmaps)
-  });
+  window.addEventListener('resize', () => {});
 
   poll();
   schedule();

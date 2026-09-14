@@ -1,14 +1,9 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { background: #000; color: var(--panel-text, #fff); overflow: hidden; font-family: var(--ff-mono, monospace); }
-/* The WebGL game canvas is the full-page backdrop; body/.app must not paint an
-   opaque colour over it or the game area is invisible behind the shell. The kit
-   `canvas-host` rule covers this but is served via unpkg @latest whose CDN cache
-   can lag a publish, so spoint owns a local copy that is always served. */
 body.canvas-host, body.canvas-host .app, .canvas-host .app { background: none !important; }
 canvas { display: block; width: 100%; height: 100vh; }
 #ui-root { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; }
 #hud { width: 100%; height: 100%; }
-/* HUD against fully-rendered 3D scene: keep pure-black text-shadows for legibility. */
 #crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 24px; color: var(--panel-text, rgba(255,255,255,0.8)); text-shadow: 0 0 2px #000; }
 #health-bar { position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%); width: 200px; height: 8px; background: color-mix(in oklab, #000 60%, transparent); border: 1px solid var(--rule, rgba(255,255,255,0.3)); }
 #health-fill { height: 100%; width: 100%; background: var(--accent, #0f0); transition: width 0.2s, background-color 0.2s; }
@@ -68,10 +63,6 @@ canvas { display: block; width: 100%; height: 100vh; }
 #click-prompt { position: absolute; top: 50%; left: 50%; transform: translate(-50%, 30px); font-size: 18px; color: var(--panel-text, rgba(255,255,255,0.7)); text-shadow: 0 0 4px #000; z-index: 20; text-align: center; }
 #click-prompt .cp-hint { display: block; margin-top: 6px; font-size: 12px; opacity: 0.6; letter-spacing: 0.04em; }
 
-/* Dark-mode token overrides for legacy HUD selectors that don't get cascaded
-   var(--panel-text) (i.e. those that hard-code colours above as fallbacks). The
-   kit's [data-theme="ink"] already overrides the var() values; these rules cover
-   plain prefers-color-scheme: dark for browsers without theme attr applied. */
 @media (prefers-color-scheme: dark) {
   body { color: var(--panel-text, #e6edf3); }
   #crosshair { color: var(--panel-text, rgba(230,237,243,0.9)); }
@@ -254,8 +245,6 @@ canvas { display: block; width: 100%; height: 100vh; }
   touch-action: none;
 }
 
-/* Legacy .mobile-joystick selectors (kept for compat with any uncovered surface);
-   primary visuals come from MobileControlsUI.js injected styles using kit tokens. */
 .mobile-joystick {
   position: absolute;
   border-radius: 50%;
@@ -313,8 +302,6 @@ canvas { display: block; width: 100%; height: 100vh; }
   background: color-mix(in oklab, var(--accent, #6464ff) 40%, transparent);
 }
 
-/* #ar-button styling now comes from .btn .btn-primary kit class
-   (see client/XRControls.js createXRButton). Layout-only rules kept here. */
 #ar-button {
   position: fixed;
   bottom: 20px;
@@ -324,9 +311,6 @@ canvas { display: block; width: 100%; height: 100vh; }
   touch-action: none;
 }
 
-/* Editor layout helpers — used by EditorApps / EditorEventLog / HookFlowViewer.
-   All visual styling here delegates to anentrypoint-design kit tokens
-   (--panel-1, --panel-text-*, --rule, --accent, --ff-mono). No rgba()/hex. */
 .ds-ed-col { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .ds-ed-bar { display: flex; gap: 6px; padding: 8px 8px 4px; align-items: center; flex-shrink: 0; }
 .ds-ed-bar--tight { padding: 6px 8px; }
@@ -346,20 +330,12 @@ canvas { display: block; width: 100%; height: 100vh; }
 .ds-ed-panel-mount { height: 100%; display: flex; flex-direction: column; }
 .ds-ed-panel-mount--inspector { border-top: 1px dashed var(--rule, currentColor); margin-top: 8px; padding-top: 8px; }
 
-/* Shortcuts dialog: one shortcut per row (key chip + its description) instead of
-   a wall of bare keys. Mirrors the kit editor-primitives.css change locally
-   because the kit is served from unpkg @latest whose CDN cache lags a publish
-   (same belt-and-suspenders pattern as canvas-host above). */
 .ds-247420 .ds-kbd-group ul { flex-direction: column; flex-wrap: nowrap; }
 .ds-247420 .ds-kbd-group h3 { text-transform: capitalize; }
 .ds-247420 .ds-kbd-row { display: flex; align-items: baseline; gap: 8px; }
 .ds-247420 .ds-kbd-row .ds-kbd { flex: 0 0 auto; min-width: 3.5em; text-align: center; }
 .ds-247420 .ds-kbd-label { flex: 1 1 auto; opacity: 0.85; }
 
-/* Editor floating-dock layout + responsive/VR (mirror of the kit U4 change so a
-   stale CDN cannot regress the editor layout). Denser dock chrome, a tablet
-   width cap, phone bottom-sheets that keep the 3D canvas visible, and the docks
-   hidden in fullscreen/VR immersive so they never occlude the headset view. */
 .ds-247420 .ds-ep-dock-head { padding: 4px 8px; }
 .ds-247420 .ds-ep-dock-body { padding: 6px 8px; }
 @media (max-width: 820px) and (min-width: 761px) {
@@ -392,12 +368,6 @@ canvas { display: block; width: 100%; height: 100vh; }
   }
 }
 
-/* prefers-reduced-motion: neutralize decorative HUD/loading animation for players who've asked
-   the OS to minimize motion (vestibular-disorder accommodation). Functional transitions that
-   communicate real state (health-bar width/color, loading-bar fill) collapse to near-instant
-   rather than fully removing feedback; purely decorative loops (spinner bounce, joystick glow)
-   stop outright. Covers this file's own @keyframes/animation/transition rules; MobileControlsUI.js
-   and PeerHostUI.js inject their own <style> tags and carry a matching block alongside their CSS. */
 @media (prefers-reduced-motion: reduce) {
   #health-fill,
   .loading-bar-fill {

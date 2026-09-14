@@ -1,9 +1,3 @@
-/* --os-* aliases wm.css consumes, mapped to the SAME canonical .ds-247420
-   tokens anentrypoint-design already injects (colors_and_type.css) -- one
-   theme drives both namespaces, matching thebird's own theme.css alias
-   approach. Only the tokens wm.css actually reads are aliased (bar-h/rail-w/
-   tap/etc are thebird desktop-shell tokens spoint's editor overlay does not
-   use and are intentionally omitted). */
 :root {
   --os-accent: var(--accent);
   --os-bg-0: var(--bg);
@@ -19,9 +13,6 @@
   --os-mono: var(--ff-mono);
 }
 
-/* prefers-reduced-motion override for the vendored wm.css (kept byte-verbatim upstream, see its own
-   header comment) -- its only motion is the .wm-btn hover color/background transition; drop it here
-   in the spoint-owned sibling file rather than editing the vendored one. */
 @media (prefers-reduced-motion: reduce) {
   .wm-btn { transition: none; }
 }

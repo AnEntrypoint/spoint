@@ -51,14 +51,16 @@ AnEntrypoint publishes nothing to npm. Runtime sources, the only ones code may r
 
 | Repo | Runtime consumption | Edit checkout |
 |---|---|---|
-| `AnEntrypoint/design` | jsdelivr `https://cdn.jsdelivr.net/gh/AnEntrypoint/design@main/dist/247420.{js,css}`, bare specifier `anentrypoint-design`, in the importmaps of `client/index.html`, `client/landing/index.html`, `client/editor/thebird-host.html`, `scripts/bundle-client.mjs` | `vendor/design` |
+| `AnEntrypoint/design` | pinned CDN URLs in the importmaps (+ stylesheet/modulepreload links) of `client/index.html`, `client/landing/index.html`, `client/editor/thebird-host.html`, `scripts/bundle-client.mjs`: bare `anentrypoint-design` -> `unpkg.com/anentrypoint-design@1.0.34/dist/247420.{js,css}`; `game-editor-kit` -> jsdelivr `gh/AnEntrypoint/design@<sha>/src/components/game-editor-kit/index.js`. Bump all four files together. | `vendor/design` |
 | `AnEntrypoint/wireweave` | `package.json` optionalDependencies `github:AnEntrypoint/wireweave` (npm clones default branch; src/ only; importmaps remap to `/node_modules/wireweave/src/index.js`; Node uses bare `import('wireweave')`) | `vendor/wireweave` |
 | `AnEntrypoint/gm` | global `npx gm-skill install` / `gm-plugkit`, not a spoint dependency | `vendor/gm` |
 
 `vendor/*` are editing-only submodules: never import them from `client/`, `scripts/`, `src/`. Edit on
 the submodule's own `main`, push to that repo's remote, then commit the new gitlink in spoint
-(bookkeeping only); runtime picks the change up via CDN `@main` re-resolve, the next `npm install`, or a
-fresh `gm-skill install`. The importmap must precede any module load/preload. No npm dependency on the
+(bookkeeping only); runtime picks the change up when the pinned kit version/SHA is bumped, on the next
+`npm install` (wireweave), or on a fresh `gm-skill install`. The importmaps also remap
+`https://esm.sh/three@r128` keys to the local three so the kit's ModelPreview never loads a second
+three (`project/importmap-esmsh-three-dedupe`); COEP `require-corp` means every kit CDN must send CORP. The importmap must precede any module load/preload. No npm dependency on the
 kit (a second copy would silently disagree with the importmap). `nostr-tools` is injected into
 wireweave from `client/vendor/nostr-tools.mjs`. Pin a wireweave SHA if a build must be reproducible;
 `cross-repo-ci.yml` tests against wireweave@main daily. gmsniff and agentgui deliberately vendor the kit.
@@ -68,7 +70,7 @@ Add a fourth submodule only with a documented runtime mechanism.
 
 Every UI component (screens, dialogs, panels, editor kit incl. asset browser/model preview/undo
 history, damage numbers) is built in `AnEntrypoint/design` (`src/components/game-editor-kit/` for
-editor/gameplay panels) and reaches spoint only via the CDN importmap. spoint keeps backend only
+editor/gameplay panels) and reaches spoint only via the pinned CDN importmap entries. spoint keeps backend only
 (e.g. `src/editor/ThumbnailGenerator.js`, `src/editor/ThumbnailWorker.js`,
 `src/sdk/ModelBrowserHandler.js`, `src/effects/DamageEffects.js`, `apps/hit-feedback` event wiring).
 Reject any change adding UI-rendering `*.js`/`*.html`/`*.css` under `client/` without the design-repo

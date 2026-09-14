@@ -1,9 +1,3 @@
-// Ambient typings for the ctx.* SDK surface passed into every app's server.setup()/update()/onMessage()
-// etc (src/apps/AppContext.js). Loaded into Monaco via addExtraLib so app authors get real
-// autocomplete instead of guessing method names -- kept hand-written and minimal (real return
-// shapes are mostly plain objects/arrays, not modeled exhaustively). Regenerate by hand when
-// AppContext.js's public surface changes; this file is NOT auto-derived.
-
 declare const ctx: AppCtx
 
 interface AppCtx {
@@ -23,7 +17,6 @@ interface AppCtx {
   canSee(fromPos: [number, number, number], toPos: [number, number, number], opts?: any): boolean
   terrainHeightAt(x: number, z: number): number
 
-  // ctx.define* factories -- each wires a reusable behavior (see apps/_lib/*.js) against this ctx.
   defineGameFSM(spec: any): any
   defineBuffStack(spec: any): any
   defineShrinkingZone(spec: any): any
@@ -53,9 +46,7 @@ interface EntityProxy {
 }
 
 interface PhysicsAPI {
-  // Applies an instantaneous impulse via the low-level physics engine (internally addImpulse on the body);
-  // there is no separate PhysicsAPI.addImpulse -- use addForce here, or WorldAPI.applyImpulse(entityId, impulse, worldPoint).
-  addForce(force: [number, number, number]): void
+  addForce(impulse: [number, number, number]): void
   setVelocity(velocity: [number, number, number]): void
   setFriction(friction: number): void
   setRestitution(restitution: number): void

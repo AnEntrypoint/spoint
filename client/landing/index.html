@@ -28,7 +28,6 @@
   }
   </script>
   <style>
-    /* landing-local polish: tokens-only, no hardcoded colors */
     .lp-form-row { padding: 10px 16px; }
     .lp-join-error { padding: 8px 16px; color: #ff6b6b; font-size: 13px; }
     .lp-cta-actions {
@@ -45,7 +44,6 @@
       padding: 12px 14px;
       overflow-x: auto;
     }
-    /* focus-visible rings for keyboard users across all interactive elements */
     a:focus-visible,
     button:focus-visible,
     input:focus-visible,
@@ -56,7 +54,6 @@
       outline-offset: 2px;
       border-radius: 4px;
     }
-    /* respect reduced motion */
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after {
         animation-duration: 0.001ms !important;
@@ -65,16 +62,13 @@
         scroll-behavior: auto !important;
       }
     }
-    /* mobile (<=480px) */
     @media (max-width: 480px) {
       .lp-cta-actions { gap: 8px; }
       .lp-snippet pre { font-size: 12px; padding: 10px; }
     }
-    /* tablet polish */
     @media (max-width: 768px) {
       .lp-form-row { padding: 8px 12px; }
     }
-    /* desktop wide: keep snippet readable, not stretched */
     @media (min-width: 1280px) {
       .lp-snippet pre { max-width: 72ch; }
     }
@@ -167,15 +161,12 @@ function installSection() {
   })
 }
 
-// Room codes use the same unambiguous alphabet as the in-app lobby
-// (client/hud/createLobby.js) — no 0/O/1/I/L — so a code is easy to read aloud
-// and share. parseRoomCode accepts a bare code or a full join link.
-const _ROOM_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
+const UNAMBIGUOUS_ROOM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
 function generateRoomCode() {
   const buf = new Uint32Array(5)
   crypto.getRandomValues(buf)
   let out = ''
-  for (let i = 0; i < 5; i++) out += _ROOM_ALPHABET[buf[i] % _ROOM_ALPHABET.length]
+  for (let i = 0; i < 5; i++) out += UNAMBIGUOUS_ROOM_CODE_ALPHABET[buf[i] % UNAMBIGUOUS_ROOM_CODE_ALPHABET.length]
   return out
 }
 function parseRoomCode(raw) {
@@ -188,15 +179,8 @@ function parseRoomCode(raw) {
 
 function multiplayerSection(hero) {
   const demoBase = (hero.demo_href || './demo.html').split('?')[0]
-  // The hosted match runs tps-game explicitly so it matches the in-app lobby and
-  // every other entry point; the joiner receives the host's authoritative worldDef
-  // over wireweave regardless, but being explicit keeps the host URL self-describing.
   const hostWorld = (hero.demo_href || '').match(/world=([^&]+)/)?.[1] || 'tps-game'
 
-  // Resolve the join/host targets against the current document URL so a relative
-  // demo_href ('./demo.html') AND an absolute one ('/spoint/demo.html') both yield a
-  // single correct path. String-concatenating location.pathname + demoBase doubled
-  // the base ('/spoint//spoint/demo.html') whenever demo_href was absolute.
   const joinUrl = (id) => { const u = new URL(demoBase, location.href); u.search = '?wwjoin&room=' + id + '&fresh'; return u.href }
   const hostUrl = (id) => { const u = new URL(demoBase, location.href); u.search = '?room=' + id + '&world=' + encodeURIComponent(hostWorld) + '&fresh'; return u.href }
 
