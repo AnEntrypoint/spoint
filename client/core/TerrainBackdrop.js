@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { createPlanetFrame, DEFAULT_PATCH_MAX_LEVEL } from '/src/terrain/PlanetFrame.js'
+import { createPlanetFrame, elevationAtLocal, DEFAULT_PATCH_MAX_LEVEL } from '/src/terrain/PlanetFrame.js'
 import { createTerrainOcclusion } from './TerrainOcclusion.js'
 import { dbg } from './debug-log.js'
 import { RenderControls } from './RenderControls.js'
@@ -172,7 +172,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
         const hfn = frame._patchHeightOrNull
         let gh = hfn ? hfn(p.x, p.z) : frame.groundHeightLocal(p.x, p.z)
         if (gh === null) gh = (_lastSurfElevGh !== null) ? _lastSurfElevGh : frame.groundHeightLocal(p.x, p.z)
-        if (Number.isFinite(gh)) { surfElev = frame.anchorHeight + gh; _lastSurfElevGh = gh }
+        if (Number.isFinite(gh)) { surfElev = elevationAtLocal(frame, p.x, gh, p.z); _lastSurfElevGh = gh }
       } catch (_) {}
       const shadowInfo = RenderControls.get('hostShadowOff') ? undefined : _buildShadowInfo(sun)
       const _res = planet.frame(_eye, _tgt, fovy, 0, _sunE, elapsedSec, frame.up, surfElev / radius, shadowInfo)

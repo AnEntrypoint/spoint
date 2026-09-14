@@ -12,7 +12,7 @@ export function makeHeight(U, hpfSample) {
   const C_noiseLayer0 = { ltype: C_LTYPE_RIDGED, numOct: 10, gain: 0.5, ridgeOffset: 1.064, ridgeExp: 1.005, warpStr: 1.6, hmin: 0.0, hmax: 1.0 };
   const C_noiseLayer1 = { ltype: C_LTYPE_FBM, numOct: 18, gain: 0.5, ridgeOffset: 1.064, ridgeExp: 1.665, warpStr: 2.6, hmin: -2.0, hmax: 2.0 };
   const C_noiseLayer2 = { ltype: C_LTYPE_RIDGED, numOct: 18, gain: 0.5, ridgeOffset: 1.064, ridgeExp: 1.1, warpStr: 0.9, hmin: -2.0, hmax: 2.0 };
-  function sculptOverrideAt(dir0) { return 0.0; }
+  function sculptOverrideAt(dir0, hBase) { return 0.0; }
   function h3(p) {
     p = g.fract(g.mul(p, g.vec3(0.1031, 0.1030, 0.0973)));
     p = g.add(p, g.dot(p, g.add(g.sw(p, 'yxz'), 33.33)));
@@ -169,7 +169,7 @@ export function makeHeight(U, hpfSample) {
       }
     }
     h = (h * ((U.uReliefScale > 0.0) ? U.uReliefScale : 1.0));
-    h += sculptOverrideAt(dir0);
+    h += sculptOverrideAt(dir0, h);
     return h;
   }
 

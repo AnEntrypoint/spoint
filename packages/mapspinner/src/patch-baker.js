@@ -143,7 +143,7 @@ export async function createPatchBaker(opts = {}) {
 
 export function createPatchHeightFn({ baker, frame, maxLevel = TD.maxLevel, offsetY = 0, fallbackFn, blocking = true }) {
   if (!baker) return null
-  const R = frame.radius, aH = frame.anchorHeight, res = baker.res, gridMeshSize = TD.gridMeshSize
+  const R = frame.radius, res = baker.res, gridMeshSize = TD.gridMeshSize
   const finestLeaf = 2 * R / Math.pow(2, maxLevel)
   const visualSpacing = finestLeaf / (gridMeshSize - 1)
   const patchSpan = Math.max(8, visualSpacing * (res - 1))
@@ -166,34 +166,24 @@ export function createPatchHeightFn({ baker, frame, maxLevel = TD.maxLevel, offs
     _lastFace = face; _lastPi = pi; _lastPj = pj; _lastPatch = p
     return p
   }
-  function heightFnOrNull(x, z) {
-    const d = frame.localToDir(x, z)
+  function patchHeightAtDir(d) {
     const { face, ox, oy } = baker.dirToFace(d)
     const p = patchFor(face, ox, oy)
     if (!p) return null
-    return _sampleAbs(p, x, z, ox, oy)
-  }
-  function _sampleAbs(p, x, z, ox, oy) {
     const fx = (ox - p.ox) / patchSpan * (res - 1), fy = (oy - p.oy) / patchSpan * (res - 1)
     const ix = Math.max(0, Math.min(res - 2, Math.floor(fx))), iz = Math.max(0, Math.min(res - 2, Math.floor(fy)))
     const tx = fx - ix, tz = fy - iz, h = p.heights
     const h00 = h[iz * res + ix], h10 = h[iz * res + ix + 1], h01 = h[(iz + 1) * res + ix], h11 = h[(iz + 1) * res + ix + 1]
-    const abs = (h00 * (1 - tx) + h10 * tx) * (1 - tz) + (h01 * (1 - tx) + h11 * tx) * tz
-    const r2 = x * x + z * z, s = r2 / (R * R), sq = Math.sqrt(1 + s), drop = r2 / R / ((sq + 1) * sq)
-    return (abs - aH) - drop + offsetY
+    return (h00 * (1 - tx) + h10 * tx) * (1 - tz) + (h01 * (1 - tx) + h11 * tx) * tz
+  }
+  function heightFnOrNull(x, z) {
+    const y = frame.solveSurfaceY(x, z, patchHeightAtDir)
+    return y == null ? null : y + offsetY
   }
   function heightFn(x, z) {
-    const d = frame.localToDir(x, z)
-    const { face, ox, oy } = baker.dirToFace(d)
-    const p = patchFor(face, ox, oy)
-    if (!p) return fallbackFn ? fallbackFn(x, z) : frame.groundHeightLocal(x, z)
-    const fx = (ox - p.ox) / patchSpan * (res - 1), fy = (oy - p.oy) / patchSpan * (res - 1)
-    const ix = Math.max(0, Math.min(res - 2, Math.floor(fx))), iz = Math.max(0, Math.min(res - 2, Math.floor(fy)))
-    const tx = fx - ix, tz = fy - iz, h = p.heights
-    const h00 = h[iz * res + ix], h10 = h[iz * res + ix + 1], h01 = h[(iz + 1) * res + ix], h11 = h[(iz + 1) * res + ix + 1]
-    const abs = (h00 * (1 - tx) + h10 * tx) * (1 - tz) + (h01 * (1 - tx) + h11 * tx) * tz
-    const r2 = x * x + z * z, s = r2 / (R * R), sq = Math.sqrt(1 + s), drop = r2 / R / ((sq + 1) * sq)
-    return (abs - aH) - drop + offsetY
+    const y = heightFnOrNull(x, z)
+    if (y != null) return y
+    return fallbackFn ? fallbackFn(x, z) : frame.groundHeightLocal(x, z)
   }
   function prefetchAround(x, z) {
     const d = frame.localToDir(x, z)

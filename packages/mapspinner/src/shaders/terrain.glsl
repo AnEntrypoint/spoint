@@ -181,12 +181,12 @@ uniform float uSculptExtent;
 uniform sampler2D uSculptOverride;
 
 #if defined(_VERTEX_) || defined(_PROBE_) || defined(_HEIGHTBAKE_)
-highp float sculptOverrideAt(vec3 dir0){
+highp float sculptOverrideAt(vec3 dir0, highp float hBase){
     if (uSculptActive < 0.5) return 0.0;
-    highp float cosUp = dot(dir0, uSculptUp);
-    if (cosUp <= 0.0) return 0.0;
-    highp float x = defRadius * dot(dir0, uSculptEast) / cosUp;
-    highp float z = defRadius * dot(dir0, uSculptNorth) / cosUp;
+    if (dot(dir0, uSculptUp) <= 0.0) return 0.0;
+    highp float surfR = defRadius + hBase;
+    highp float x = surfR * dot(dir0, uSculptEast);
+    highp float z = surfR * dot(dir0, uSculptNorth);
     highp vec2 rel = vec2(x, z) - uSculptCenter;
     highp float ext = (uSculptExtent > 0.0) ? uSculptExtent : 1.0;
     highp vec2 uv = rel / (2.0 * ext) + 0.5;
@@ -204,7 +204,7 @@ highp float composeHeight(vec3 dir0, highp vec2 faceLocal, float tileM){
         if (h < bShelf) h = (h * h / bShelf) * (2.0 - h / bShelf);
     }
     h = h * (uReliefScale > 0.0 ? uReliefScale : 1.0);
-    h += sculptOverrideAt(dir0);
+    h += sculptOverrideAt(dir0, h);
     return h;
 }
 #endif

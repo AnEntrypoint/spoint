@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { RenderControls } from './RenderControls.js'
 import { getWetness as _getWeatherWetness } from './WetnessTint.js'
+import { SEA_SURFACE_GLSL, adoptSeaUniforms } from './UnderwaterTint.js'
 
 const _fullscreenVert = `
   varying vec2 vUv;
@@ -33,10 +34,10 @@ const _ssrFrag = `
   uniform float uAspect;
   uniform float uIntensity;
   uniform float uMaxDistance;
-  uniform float uCamWorldY;
-  uniform float uSeaLevelY;
+  uniform vec3 uCamWorld;
   uniform float uBandHeight;
   uniform mat3 uNormalViewToWorld;
+  ${SEA_SURFACE_GLSL}
 
   const int STEPS = 12;
 
@@ -62,8 +63,8 @@ const _ssrFrag = `
     vec3 centerNormal = normalize(center.rgb * 2.0 - 1.0);
     vec3 centerPos = reconstructViewPos(vUv, centerDepth);
 
-    float fragWorldY = dot(uNormalViewToWorld[1], centerPos) + uCamWorldY;
-    float bandDist = abs(fragWorldY - uSeaLevelY);
+    vec3 fragWorld = vec3(dot(uNormalViewToWorld[0], centerPos), dot(uNormalViewToWorld[1], centerPos), dot(uNormalViewToWorld[2], centerPos)) + uCamWorld;
+    float bandDist = spointSeaEnabled() ? abs(fragWorld.y - spointSeaSurfaceY(fragWorld)) : uBandHeight;
     float bandFade = 1.0 - clamp(bandDist / uBandHeight, 0.0, 1.0);
     float matWetness = uHasWetness ? texture2D(tWetness, vUv).r : 0.0;
     float wetMask = max(max(bandFade, matWetness), uWeatherWetness);
@@ -137,8 +138,7 @@ export class SSR {
         uAspect: { value: 1 },
         uIntensity: { value: RenderControls.get('ssrIntensity') },
         uMaxDistance: { value: RenderControls.get('ssrMaxDistance') },
-        uCamWorldY: { value: 0 },
-        uSeaLevelY: { value: -100000 },
+        uCamWorld: { value: new THREE.Vector3() },
         uBandHeight: { value: RenderControls.get('ssrBandHeight') },
         uNormalViewToWorld: { value: new THREE.Matrix3() },
       },
@@ -146,6 +146,7 @@ export class SSR {
       depthTest: false,
       depthWrite: false,
     })
+    adoptSeaUniforms(this._ssrMat.uniforms)
     this._quad = new THREE.Mesh(this._quadGeo, this._ssrMat)
     this._quad.frustumCulled = false
     this._quadScene.add(this._quad)
@@ -274,9 +275,7 @@ export class SSR {
     u.uIntensity.value = RenderControls.get('ssrIntensity')
     u.uMaxDistance.value = RenderControls.get('ssrMaxDistance')
     u.uBandHeight.value = RenderControls.get('ssrBandHeight')
-    u.uCamWorldY.value = this.camera.position.y
-    const seaY = RenderControls.get('seaLevelY')
-    u.uSeaLevelY.value = Number.isFinite(seaY) ? seaY : -100000
+    this.camera.getWorldPosition(u.uCamWorld.value)
     const vm = this.camera.matrixWorldInverse.elements
     u.uNormalViewToWorld.value.set(
       vm[0], vm[1], vm[2],

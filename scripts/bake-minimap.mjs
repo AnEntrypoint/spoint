@@ -93,7 +93,7 @@ async function loadTerrainConfigFromWorld(worldName) {
 
 export async function bakeMinimap(opts) {
   const { createHeightSampler } = await import('mapspinner/height-cpu')
-  const { createPlanetFrame } = await import(pathToFileURL(path.join(REPO_ROOT, 'src', 'terrain', 'PlanetFrame.js')).href)
+  const { createPlanetFrame, waterlineLocalY } = await import(pathToFileURL(path.join(REPO_ROOT, 'src', 'terrain', 'PlanetFrame.js')).href)
   const { createAnchorField } = await import('mapspinner/anchor-field')
 
   const radius = opts.radius
@@ -113,8 +113,6 @@ export async function bakeMinimap(opts) {
   const rgb = Buffer.alloc(N * N * 3)
   let min = Infinity, max = -Infinity
 
-  const seaLevel = 0
-
   for (let iz = 0; iz < N; iz++) {
     const z = center[1] - half + iz * step
     for (let ix = 0; ix < N; ix++) {
@@ -126,7 +124,7 @@ export async function bakeMinimap(opts) {
       if (h > max) max = h
       const dir = frame.localToDir(x, z)
       const climate = anchorField.sampleDir ? anchorField.sampleDir(dir) : { temp: 0.5, humidity: 0.5 }
-      const [r, g, b] = biomeColor(h, climate.temp || 0, climate.humidity || 0, seaLevel)
+      const [r, g, b] = biomeColor(h, climate.temp || 0, climate.humidity || 0, waterlineLocalY(frame, x, z))
       const o = idx * 3
       rgb[o] = r | 0; rgb[o + 1] = g | 0; rgb[o + 2] = b | 0
     }

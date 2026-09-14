@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { withGpuPage, drainedSampleGroundMExpr } from './lib/gpu-eval.mjs'
+import { withGpuPage } from './lib/gpu-eval.mjs'
 
 function parseArgs(argv) {
   const a = { _: [] }
@@ -8,34 +8,42 @@ function parseArgs(argv) {
   return a
 }
 const args = parseArgs(process.argv.slice(2))
-const PORT = Number(args.port || process.env.PORT || 8090), ANGLE = args.angle || process.env.ANGLE || 'd3d11'
+const PORT = Number(args.port || process.env.PORT || 8090)
 const EXTENT = Number(args.extent || 512), RES = Number(args.res || 16)
 const CENTER = (args.center ? args.center.split(',').map(Number) : [0, 0])
 const OUT = args.out || 'data/heightfield.json'
+const WORLD = args.world || null
+const PROBE_READY_MS = Number(process.env.GPU_EVAL_READY_MS || 90000)
 
-const out = await withGpuPage({ port: PORT, angle: ANGLE }, async (evalIn, { vendor }) => {
-  console.error(`[bake] backend=${ANGLE} renderer=${vendor}`)
-  const meta = await evalIn('(()=>{const f=window.__terrain.frame;return {anchorDir:f.anchorDir,radius:f.radius,anchorHeight:f.anchorHeight,reliefScale:f.reliefScale};})()')
-  const N = Math.max(2, Math.round(EXTENT / RES) + 1), half = EXTENT / 2, step = EXTENT / (N - 1)
-  console.error(`[bake] grid N=${N} step=${step.toFixed(2)}m extent=${EXTENT} center=${CENTER} -> ${N * N} GPU samples`)
-  const heights = new Array(N * N)
-  let done = 0
-  for (let iz = 0; iz < N; iz++) for (let ix = 0; ix < N; ix++) {
-    const x = CENTER[0] - half + ix * step, z = CENTER[1] - half + iz * step
-    const dirExpr = `window.__terrain.frame.localToDir(${x},${z})`
-    const h = await evalIn(`(async()=>{ const f=window.__terrain.frame; const abs=await ${drainedSampleGroundMExpr(dirExpr)};
-      if(!isFinite(abs)) return null; const R=f.radius, r2=${x}*${x}+${z}*${z}, s=r2/(R*R), sq=Math.sqrt(1+s), drop=r2/R/((sq+1)*sq);
-      return (abs - f.anchorHeight) - drop; })()`)
-    heights[iz * N + ix] = (typeof h === 'number' && isFinite(h)) ? +h.toFixed(4) : null
-    if (++done % 50 === 0) console.error(`[bake] ${done}/${N * N}`)
-  }
-  return { meta, N, heights }
-}).catch(e => { console.error('[bake] error:', e.message); process.exit(1) })
+function bakeHeightfieldScript({ N, half, step, center }) {
+  return `
+const f = __t.frame;
+const probeWaitStart = Date.now();
+while (__R.sampleGroundMSync(f.up) == null && Date.now() - probeWaitStart < ${PROBE_READY_MS}) await new Promise(r => setTimeout(r, 250));
+if (__R.sampleGroundMSync(f.up) == null) return { __error: 'GPU height probe never compiled within ${PROBE_READY_MS} ms' };
+const heights = new Array(${N * N});
+for (let iz = 0; iz < ${N}; iz++) for (let ix = 0; ix < ${N}; ix++) {
+  const y = f.solveSurfaceY(${center[0] - half} + ix * ${step}, ${center[1] - half} + iz * ${step}, (d) => __R.sampleGroundMSync(d));
+  heights[iz * ${N} + ix] = (y == null || !Number.isFinite(y)) ? null : +y.toFixed(4);
+}
+if (window.__renderer && window.__renderer.resetState) window.__renderer.resetState();
+const gl = document.querySelector('canvas') && document.querySelector('canvas').getContext('webgl2');
+const dbg = gl && gl.getExtension('WEBGL_debug_renderer_info');
+return { meta: { anchorDir: f.anchorDir, radius: f.radius, anchorHeight: f.anchorHeight, reliefScale: f.reliefScale }, heights, vendor: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : null };
+`.trim()
+}
 
-const { meta, N, heights } = out.result
+const N = Math.max(2, Math.round(EXTENT / RES) + 1), half = EXTENT / 2, step = EXTENT / (N - 1)
+console.error(`[bake] grid N=${N} step=${step.toFixed(2)}m extent=${EXTENT} center=${CENTER} -> ${N * N} exact render-inverse GPU samples`)
+const url = WORLD ? `http://localhost:${PORT}/?singleplayer&world=${encodeURIComponent(WORLD)}&nc=${Date.now()}` : undefined
+const out = await withGpuPage({ port: PORT, url }, async (run) => (await run(bakeHeightfieldScript({ N, half, step, center: CENTER }))).result)
+  .catch(e => { console.error('[bake] error:', e.message); process.exit(1) })
+
+const { meta, heights, vendor } = out
+console.error(`[bake] renderer=${vendor}`)
 const nNull = heights.filter(h => h == null).length
 const heightsOrZero = heights.map(h => (typeof h === 'number' && isFinite(h)) ? h : 0)
-const base = { anchorDir: meta.anchorDir, radius: meta.radius, reliefScale: meta.reliefScale, anchorHeight: meta.anchorHeight, extent: EXTENT, resolution: RES, N, center: CENTER, backend: ANGLE }
+const base = { anchorDir: meta.anchorDir, radius: meta.radius, reliefScale: meta.reliefScale, anchorHeight: meta.anchorHeight, extent: EXTENT, resolution: RES, N, center: CENTER, backend: vendor }
 
 let artifact
 const NODES_PER_SECTOR = Number(args.sector || 0)
@@ -55,8 +63,7 @@ const binary = /\.hf$/i.test(OUT) || args.binary
 if (binary) {
   if (!artifact.sectors) { console.error('[bake] --binary requires --sector S (binary format is sector-quant only)'); process.exit(2) }
   const { encodeHeightfield } = await import('mapspinner/heightfield-codec')
-  const ab = encodeHeightfield(artifact)
-  fs.writeFileSync(OUT, Buffer.from(ab))
+  fs.writeFileSync(OUT, Buffer.from(encodeHeightfield(artifact)))
 } else {
   fs.writeFileSync(OUT, JSON.stringify(artifact))
 }

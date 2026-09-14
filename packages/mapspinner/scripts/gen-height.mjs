@@ -17,7 +17,7 @@ const HEIGHT_FNS = [
   'composeHeight', 'continentalBias',
 ]
 const STUB_FNS = {
-  sculptOverrideAt: { params: ['dir0'], body: '0.0' },
+  sculptOverrideAt: { params: ['dir0', 'hBase'], body: '0.0' },
 }
 const UNIFORMS = new Set([
   'uLandBias', 'uBeachShelfM', 'canyonDepthMul', 'uDetailOverlay', 'uHiFreqCut', 'uCarveWide',
