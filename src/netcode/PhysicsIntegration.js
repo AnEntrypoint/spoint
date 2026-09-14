@@ -1,3 +1,5 @@
+import { waterlineLocalY } from '../terrain/PlanetFrame.js'
+
 const KILL_PLANE_Y = -100
 
 const SWIM_GRAVITY_MUL = 0.15
@@ -23,18 +25,9 @@ export class PhysicsIntegration {
     this.physicsWorld = world
   }
 
-  getSeaLevel() {
-    const frame = this.physicsWorld?._planetFrame
-    if (!frame || !Number.isFinite(frame.offsetY) || !Number.isFinite(frame.anchorHeight)) return null
-    return frame.offsetY - frame.anchorHeight
-  }
-
   _submersionFrac(y, x = 0, z = 0) {
-    const seaLevel = this.getSeaLevel()
-    if (seaLevel == null) return 0
-    const frame = this.physicsWorld._planetFrame
-    const radius = Number.isFinite(frame?.radius) && frame.radius > 0 ? frame.radius : Infinity
-    const waterlineY = seaLevel - (x * x + z * z) / (2 * radius)
+    const waterlineY = waterlineLocalY(this.physicsWorld?._planetFrame, x, z)
+    if (waterlineY == null) return 0
     const halfHeight = this.config.capsuleHalfHeight
     const bottomY = y - halfHeight
     const span = 2 * halfHeight

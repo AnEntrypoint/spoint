@@ -420,9 +420,14 @@ export interface AppContext {
   navCostAt(x: number, z: number): number;
 
   /**
-   * Get sea level Y coordinate
+   * Curvature-aware local-Y of the planet waterline at this entity's x/z (null without a planet frame)
    */
   readonly seaLevel: number | null;
+
+  /**
+   * Curvature-aware local-Y of the planet waterline at world x/z (null without a planet frame)
+   */
+  seaLevelAt(x: number, z: number): number | null;
 
   /**
    * Get terrain body ID (physics)

@@ -5,6 +5,12 @@ const _add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 const _scale = (a, s) => [a[0] * s, a[1] * s, a[2] * s]
 const _cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
 
+export function waterlineLocalY(frame, x, z) {
+  if (!frame || !Number.isFinite(frame.offsetY) || !Number.isFinite(frame.anchorHeight)) return null
+  const radius = Number.isFinite(frame.radius) && frame.radius > 0 ? frame.radius : Infinity
+  return frame.offsetY - frame.anchorHeight - (x * x + z * z) / (2 * radius)
+}
+
 export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0, reliefScale }) {
   const radius = sampler.radius
   const _reliefScale = (reliefScale != null) ? reliefScale : 0.01

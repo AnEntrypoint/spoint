@@ -31,15 +31,9 @@ export function defineBuoyancy(spec = {}, appCtx = null) {
     get submerged() { return _lastSubmersionFrac > 0 },
 
     tick(dt) {
-      const seaLevel = appCtx.seaLevel
-      if (seaLevel == null || !(dt > 0)) { _lastSubmersionFrac = 0; return }
-      const pos = appCtx.entity.position
-      if (!pos) { _lastSubmersionFrac = 0; return }
-      const frame = appCtx._runtime?._physics?._planetFrame
-      const radius = Number.isFinite(frame?.radius) && frame.radius > 0 ? frame.radius : Infinity
-      const curvatureSagitta = (pos[0] * pos[0] + pos[2] * pos[2]) / (2 * radius)
-      const waterlineY = seaLevel - curvatureSagitta
-      const y = pos[1]
+      const waterlineY = appCtx.seaLevel
+      if (waterlineY == null || !(dt > 0)) { _lastSubmersionFrac = 0; return }
+      const y = appCtx.entity.position[1]
       const bottomY = y - halfHeight
       const span = 2 * halfHeight
       const submersionFrac = Math.max(0, Math.min(1, (waterlineY - bottomY) / span))

@@ -1,6 +1,7 @@
 import { CliDebugger } from '../debug/CliDebugger.js'
 import { buildPhysicsAPI } from './AppPhysics.js'
 import { vec3 as _vec3, vec4 as _vec4, vecOK } from '../shared/vecGuard.js'
+import { waterlineLocalY } from '../terrain/PlanetFrame.js'
 import { defineGameFSM } from '../../apps/_lib/game-fsm.js'
 import { defineGameMode } from '../../apps/_lib/gamemode.js'
 import { createBuffStack } from '../../apps/_lib/buffs.js'
@@ -329,10 +330,14 @@ export class AppContext {
     return 1
   }
 
+  seaLevelAt(x, z) {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return null
+    return waterlineLocalY(this._runtime._physics?._planetFrame, x, z)
+  }
+
   get seaLevel() {
-    const frame = this._runtime._physics?._planetFrame
-    if (!frame || !Number.isFinite(frame.offsetY) || !Number.isFinite(frame.anchorHeight)) return null
-    return frame.offsetY - frame.anchorHeight
+    const p = this._entity.position
+    return vecOK(p, 3) ? this.seaLevelAt(p[0], p[2]) : null
   }
 
   get terrain() {
