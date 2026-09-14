@@ -1,37 +1,13 @@
-// Pure binary wire-format primitives for SnapshotEncoder.js: the fixed 23-byte numeric record
-// (position/velocity/rotation/scale/flags) and the 32-bit packed-quaternion encode/decode. No
-// closure/instance state -- split out as the one genuinely self-contained piece of that file.
-// See SnapshotEncoder.js's own header comment for the full wire-layout rationale.
-
-const Q1 = 100
+const WIRE_UNITS_PER_METER = 100
 const QSCALE = 511 * Math.SQRT2
 
-// --- Binary numeric record (DataView, replaces JS-array-through-msgpackr for the fixed numeric
-// fields: position/velocity/rotation/scale). id/model/bodyType/custom stay as native JS values
-// alongside this buffer -- they are variable-shape (strings, arbitrary objects) and packing them
-// into a fixed byte layout would be strictly worse (lossy or unbounded), not a real win. Position/
-// velocity are int16 at the existing Q1=100 (1cm) scale, clamped to +-327.67m -- entity/player
-// positions are always encoded relative to a region/session-local origin already (no planetary
-// float32 range concern here; see AGENTS.md floating-origin-camera-relative-rendering row for the
-// separate concern of >10km world coordinates, which is a rendering-layer issue, not a wire-format
-// one). Scale uses uint16 unsigned at the same Q1 scale (0..655.35, entities are never negatively
-// scaled). Rotation reuses packQuat's existing 32-bit packed representation verbatim -- not
-// reinvented. Fixed player/entity record is 23 bytes: 3*i16 pos + 3*i16 vel + u32 quat + 3*u16
-// scale + 1 flags byte = 6+6+4+6+1 = 23.
 export const BIN_RECORD_BYTES = 23
-export const POS_I16_MAX = 32767 / Q1   // 327.67
-export const SCALE_U16_MAX = 65535 / Q1 // 655.35
+export const POS_I16_MAX = 32767 / WIRE_UNITS_PER_METER
+export const SCALE_U16_MAX = 65535 / WIRE_UNITS_PER_METER
 
-export function clampI16(v) { return Math.max(-32767, Math.min(32767, Math.round((v || 0) * Q1))) }
-export function clampU16Scale(v) { return Math.max(0, Math.min(65535, Math.round((v ?? 1) * Q1))) }
+export function clampI16(v) { return Math.max(-32767, Math.min(32767, Math.round((v || 0) * WIRE_UNITS_PER_METER))) }
+export function clampU16Scale(v) { return Math.max(0, Math.min(65535, Math.round((v ?? 1) * WIRE_UNITS_PER_METER))) }
 
-// Packs the fixed numeric fields of one entity/player record into a 23-byte Uint8Array. flags:
-// caller-supplied bitfield (onGround/sleeping/etc for players/entities respectively). `into` (optional)
-// is a caller-owned 23-byte Uint8Array to write in place (pooled player records, see
-// SnapshotEncoder.encodePlayersOnce); absent, a fresh buffer is allocated -- entity records MUST stay
-// fresh per pack (prevEntityMap retains the previous tick's buffer for computeFieldDelta's byte compare).
-// Direct little-endian byte writes (no per-call DataView allocation -- this runs once per active entity
-// and once per player per tick); two's-complement int16 low/high bytes match DataView.setInt16(le).
 export function packBinRecord(px, py, pz, qrot, vx, vy, vz, sx, sy, sz, flags, into) {
   const b = into || new Uint8Array(BIN_RECORD_BYTES)
   let v = clampI16(px); b[0] = v & 0xFF; b[1] = (v >> 8) & 0xFF
@@ -48,15 +24,12 @@ export function packBinRecord(px, py, pz, qrot, vx, vy, vz, sx, sy, sz, flags, i
   return b
 }
 
-// Direct byte reads (no DataView per call): `(lo | hi << 8) << 16 >> 16` sign-extends exactly like
-// DataView.getInt16(le); the u32 quat is assembled with a multiply on the top byte so it stays unsigned.
-// A DataView argument (legacy caller shape) is re-viewed as bytes once.
 export function unpackBinRecord(buf, out) {
   const b = buf instanceof DataView ? new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) : buf
-  out.px = (((b[0] | (b[1] << 8)) << 16) >> 16) / Q1; out.py = (((b[2] | (b[3] << 8)) << 16) >> 16) / Q1; out.pz = (((b[4] | (b[5] << 8)) << 16) >> 16) / Q1
-  out.vx = (((b[6] | (b[7] << 8)) << 16) >> 16) / Q1; out.vy = (((b[8] | (b[9] << 8)) << 16) >> 16) / Q1; out.vz = (((b[10] | (b[11] << 8)) << 16) >> 16) / Q1
+  out.px = (((b[0] | (b[1] << 8)) << 16) >> 16) / WIRE_UNITS_PER_METER; out.py = (((b[2] | (b[3] << 8)) << 16) >> 16) / WIRE_UNITS_PER_METER; out.pz = (((b[4] | (b[5] << 8)) << 16) >> 16) / WIRE_UNITS_PER_METER
+  out.vx = (((b[6] | (b[7] << 8)) << 16) >> 16) / WIRE_UNITS_PER_METER; out.vy = (((b[8] | (b[9] << 8)) << 16) >> 16) / WIRE_UNITS_PER_METER; out.vz = (((b[10] | (b[11] << 8)) << 16) >> 16) / WIRE_UNITS_PER_METER
   out.qrot = (b[12] | (b[13] << 8) | (b[14] << 16)) + b[15] * 16777216
-  out.sx = (b[16] | (b[17] << 8)) / Q1; out.sy = (b[18] | (b[19] << 8)) / Q1; out.sz = (b[20] | (b[21] << 8)) / Q1
+  out.sx = (b[16] | (b[17] << 8)) / WIRE_UNITS_PER_METER; out.sy = (b[18] | (b[19] << 8)) / WIRE_UNITS_PER_METER; out.sz = (b[20] | (b[21] << 8)) / WIRE_UNITS_PER_METER
   out.flags = b[22]
   return out
 }
@@ -77,12 +50,6 @@ export function packQuat(rx, ry, rz, rw) {
   return packed >>> 0
 }
 
-// Unrolled per maxIdx branch (was a QUAT_IDX[] lookup + generic loop over `indices`) -- this runs
-// once per entity/player per snapshot, client-side, the hottest per-frame decode path, so the extra
-// array indirection through QUAT_IDX plus a 3-iteration loop with a data-dependent out-index write
-// is worth trading for 4 flat, branch-predictable unpacks. Each branch reads the same three 10-bit
-// fields off `packed` in the same bit order (most-significant first, j=2..0) as the original loop,
-// just with the literal QUAT_IDX[maxIdx] destination slots inlined instead of indexed.
 export function unpackQuat(packed, out) {
   const maxIdx = (packed >>> 30) & 0x3
   const c2 = (packed & 0x3FF) / QSCALE - Math.SQRT1_2; packed = packed >>> 10

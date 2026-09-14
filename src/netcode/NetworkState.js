@@ -5,7 +5,6 @@ export class NetworkState {
     this.players = new Map()
     this.tick = 0
     this.timestamp = 0
-    // getSnapshot() pool (see that method): reused result object + players array + per-id view objects.
     this._snapOut = { tick: 0, timestamp: 0, players: null }
     this._snapPlayers = []
     this._snapPool = null
@@ -32,13 +31,9 @@ export class NetworkState {
     return this.players.get(playerId)
   }
 
-  // `crouch` is a small bit-packed flags int (bit0=crouch, bit1=swimming), not a strict boolean -- see
-  // TickHandler.js's crouchFlags construction. Passed through opaque here; every downstream consumer of
-  // player.crouch already only tests truthiness or masks explicit bits, never `=== 1`.
   updatePlayer(playerId, position, rotation, velocity, onGround, health, inputSequence, crouch, lookPitch, lookYaw, expr, weapon) {
     const player = this.players.get(playerId)
     if (!player) return
-    // reject malformed vecs here or NaN poisons the broadcast snapshot for every client
     if (vecOK(position, 3)) player.position = position
     if (vecOK(rotation, 4)) player.rotation = rotation
     if (vecOK(velocity, 3)) player.velocity = velocity
@@ -48,13 +43,7 @@ export class NetworkState {
     player.crouch = crouch
     player.lookPitch = lookPitch
     player.lookYaw = lookYaw
-    // Compact viseme/emote expression code (animation-vrm-spring-bone-lod-expression-wire), u8 0-15,
-    // see client/core/ExpressionCodes.js. Same optional-numeric-field discipline as crouch/lookPitch/
-    // lookYaw above -- always a finite small int, no vecOK-style validation needed.
     player.expr = expr || 0
-    // Compact equipped-weapon code (animation-weapon-signal-clientside-wiring), u8, see
-    // src/shared/WeaponCodes.js. Server-authoritative (set via AppRuntime.setPlayerWeapon, never from
-    // client input), same optional-numeric-field discipline as expr above.
     player.weapon = weapon || 0
   }
 
@@ -62,11 +51,6 @@ export class NetworkState {
     return Array.from(this.players.values())
   }
 
-  // Pooled: the returned {tick,timestamp,players} object, its players array and each per-player view
-  // object are reused call to call (was 1 + 1 + N fresh objects per tick). Every consumer
-  // (TickHandler.buildAndSendSnapshots, ServerHandlers' join/reconnect encode, RegionWorkerEntry's
-  // handoff encode) reads the result synchronously and never retains it across calls; position/
-  // rotation/velocity are the same live array references they always were.
   getSnapshot() {
     const players = this._snapPlayers
     players.length = 0
@@ -104,25 +88,12 @@ export class NetworkState {
     this.players.clear()
   }
 
-  // Rollback-netcode primitive (rollback-entity-gamestate-snapshot): NetworkState is the server's own
-  // per-player WIRE-STATE CACHE (what buildAndSendSnapshots reads to encode the next outgoing snapshot),
-  // a pure derived mirror of PlayerManager's authoritative state written every tick by
-  // TickHandler.js's processPlayerMovement -> networkState.updatePlayer(...). It is entirely re-derivable
-  // by re-running the resimulate loop's own per-tick update call, so this snapshot/restore pair exists
-  // for the SAME reason PlayerManager's does -- restoring it directly is strictly cheaper than
-  // re-deriving it, and keeps the two caches from drifting apart mid-rollback (a resimulate pass that
-  // restores PlayerManager but leaves a stale NetworkState would broadcast the WRONG position for one
-  // tick until the next update call overwrites it). `tick`/`timestamp` are restored too since a rewind
-  // conceptually resets the server's own tick clock, not just the player payloads.
   snapshotState() {
     const players = new Map()
     for (const [id, p] of this.players) players.set(id, { ...p })
     return { tick: this.tick, timestamp: this.timestamp, players }
   }
 
-  // Restores exactly the players present in snap.players (Map or wire-deserialized plain object) --
-  // a player since removed is silently skipped, a player joined after the snapshot is left untouched,
-  // matching PlayerManager.restoreState's identical asymmetric-membership discipline.
   restoreState(snap) {
     this.tick = snap.tick
     this.timestamp = snap.timestamp

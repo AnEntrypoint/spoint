@@ -1,11 +1,3 @@
-// Shared fixed-timestep tick-scheduling base for TickSystem.js (adaptive, wall-clock-dilated) and
-// LockstepTickSystem.js (fixed-dt, deterministic). Both drivers need the IDENTICAL accumulator/catch-up
-// scheduling loop (a single setInterval at ~half the tick duration, consuming whole accumulated ticks
-// per firing, capped at maxSteps=4 so a stall's catch-up burst is bounded) -- what differs is ONLY how
-// each computes the dt handed to callbacks and whether it measures tick cost to adapt dilationFactor.
-// Subclasses override _computeDt() (the per-tick dt in seconds) and _onTickMeasured(budgetMs) (called
-// with each tick's real wall-clock cost, a no-op for the deterministic lockstep driver).
-
 export class TickSystemBase {
   constructor(tickRate = 60) {
     this.tickRate = tickRate
@@ -24,13 +16,6 @@ export class TickSystemBase {
 
   get running() { return this._state === 'running' }
 
-  // Live tick-rate update (hotreload-worldDef-edit-no-restart): tickRate/tickDuration are read fresh
-  // by _computeDt()/getTickDuration() every tick, so updating them in place is safe -- the only thing
-  // that must also change is the setInterval cadence itself (start() computes its firing interval from
-  // tickDuration once, at start time), so a running system is restarted at the new rate. currentTick/
-  // dilationFactor/accumulator are preserved (a mid-tick-count rate change should not reset progress or
-  // re-earn dilation recovery); the accumulator is scaled by the duration ratio so an in-flight partial
-  // tick's progress carries over proportionally rather than being silently discarded or double-counted.
   setTickRate(tickRate) {
     if (!Number.isFinite(tickRate) || tickRate <= 0) return
     const oldDuration = this.tickDuration
@@ -48,7 +33,6 @@ export class TickSystemBase {
   onDilation(cb) { this._dilationCallbacks.push(cb) }
 
   onTick(callback) {
-    // dedup by identity: re-registering the same callback must not fire it N times/tick
     if (this.callbacks.includes(callback)) return
     this.callbacks.push(callback)
   }
@@ -58,10 +42,6 @@ export class TickSystemBase {
     this._state = 'running'
     this.lastTickTime = performance.now()
     this._accumulator = 0
-    // Fixed-timestep scheduling: a single setInterval at roughly half the tick
-    // duration drives the loop; each firing consumes as many whole ticks as have
-    // accumulated (accumulator-based catch-up), instead of a setTimeout(...,1)/
-    // setImmediate busy-loop that drifts and burns CPU re-scheduling every ~1ms.
     const intervalMs = Math.max(1, this.tickDuration / 2)
     this._intervalHandle = setInterval(() => this._onInterval(), intervalMs)
     if (this._intervalHandle.unref) this._intervalHandle.unref()
@@ -73,8 +53,6 @@ export class TickSystemBase {
     this._accumulator += now - this.lastTickTime
     this.lastTickTime = now
     const maxSteps = 4
-    // Cap the catch-up burst so a long stall (debugger pause, GC, reload) doesn't
-    // try to replay an unbounded backlog of ticks in one go.
     const maxAccumulated = this.tickDuration * maxSteps
     if (this._accumulator > maxAccumulated) this._accumulator = maxAccumulated
     let steps = 0
@@ -86,7 +64,6 @@ export class TickSystemBase {
       this._accumulator -= this.tickDuration
       const t0 = performance.now()
       for (const callback of this.callbacks) {
-        // a throwing callback must not abort the loop / wedge pauseForReload's _tickInProgress
         try {
           callback(this.currentTick, dt)
         } catch (e) {
