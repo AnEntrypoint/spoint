@@ -1,9 +1,4 @@
 #!/usr/bin/env node
-// One-off: bake a uniform scale into a GLB's geometry (vertex positions), keeping
-// the entity transform at [1,1,1]. Used to bring the aim_sillos stage back to its
-// intended human scale (it was authored ~3x too large) without applying a <1
-// entity scale. Re-saves in place; the .prog/.glb caches are content-hash keyed so
-// the server re-bakes on next load.
 import { readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { NodeIO } from '@gltf-transform/core'
@@ -14,10 +9,6 @@ const [, , file, factorArg] = process.argv
 if (!file || !factorArg) { console.error('usage: rescale-glb.mjs <file.glb> <factor>'); process.exit(1) }
 const factor = parseFloat(factorArg)
 
-// The CS map GLBs carry EXT_texture_webp textures with no `source` and samplers
-// with null mag/min filters, both of which crash gltf-transform's GLTFReader.
-// Patch the GLB JSON chunk in place before handing it to the reader (same idiom
-// as scripts/glb-processor.js patchTextureSources).
 function patchGlb(buf) {
   const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
   const jsonLen = view.getUint32(12, true)
@@ -53,7 +44,6 @@ const io = new NodeIO()
 const doc = await io.readBinary(patchGlb(readFileSync(file)))
 const root = doc.getRoot()
 
-// Measure before
 function bounds() {
   let min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]
   for (const mesh of root.listMeshes())
@@ -68,7 +58,6 @@ function bounds() {
 }
 const before = bounds()
 
-// Scale every POSITION attribute (and bake node translations) by factor.
 for (const mesh of root.listMeshes())
   for (const prim of mesh.listPrimitives()) {
     const pos = prim.getAttribute('POSITION'); if (!pos) continue
@@ -76,7 +65,6 @@ for (const mesh of root.listMeshes())
     for (let i = 0; i < arr.length; i++) arr[i] *= factor
     pos.setArray(arr)
   }
-// Scale node local translations so multi-node hierarchies stay aligned.
 for (const node of root.listNodes()) {
   const t = node.getTranslation()
   node.setTranslation([t[0]*factor, t[1]*factor, t[2]*factor])

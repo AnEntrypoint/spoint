@@ -1,10 +1,3 @@
-// scripts/generate-docs-site.js -- unified docs site generator
-// Reads AGENTS.md / docs/*.md from spoint and wireweave, generates a single HTML page.
-// First slice of ugc-docs-site-unification.
-//
-// Usage: node scripts/generate-docs-site.js [--out <path>]
-// Default output: docs/index.html
-
 import { readFile, writeFile, readdir, stat } from 'node:fs/promises'
 import { basename, resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -57,33 +50,22 @@ function escapeHtml(s) {
 
 function markdownToHtml(md) {
   if (!md) return ''
-  // Simple markdown renderer: headings, code blocks, inline code, lists, paragraphs
   let html = escapeHtml(md)
-  // Fenced code blocks
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-    // code is already escaped, re-escape the backticks inside
     return `<pre><code class="language-${lang}">${code.trim()}</code></pre>`
   })
-  // Inline code
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
-  // Headings
   html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>')
   html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>')
   html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>')
   html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>')
-  // Bold
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-  // Italic
   html = html.replace(/\*(.+?)\*/g, '<em>$1</em>')
-  // Unordered lists
   html = html.replace(/^- (.+)$/gm, '<li>$1</li>')
   html = html.replace(/((?:<li>.*<\/li>\n?)+)/g, '<ul>$1</ul>')
-  // Paragraphs (double newlines)
   html = html.replace(/\n\n+/g, '</p><p>')
   html = '<p>' + html + '</p>'
-  // Clean up empty paragraphs
   html = html.replace(/<p>\s*<\/p>/g, '')
-  // Clean up nested paragraphs inside lists
   html = html.replace(/<ul><p>/g, '<ul>')
   html = html.replace(/<\/p><\/ul>/g, '</ul>')
   return html

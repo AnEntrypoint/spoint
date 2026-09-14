@@ -1,15 +1,4 @@
 #!/usr/bin/env node
-// perf-gate.mjs -- repo-root performance regression gate (zero deps).
-//
-// Boots the REAL spoint server (src/sdk/server.js boot()) against the REAL tps-game world
-// (apps/world/tps-game.js -- terrain + vegetation + rocks + the tps-game app, the actual game
-// entities a player loads into), lets its real 64Hz tick loop run for a short measurement
-// window, and reads TickSystem's own per-tick wall-time samples (`_tickBudgetMs`, the same
-// numbers TickSystem's own auto-dilation control loop uses) as the frame-budget metric.
-//
-// Follows the same pattern as packages/mapspinner/scripts/perf-gate.mjs (baseline JSON,
-// --update-baseline, +10% regression threshold, pass/fail exit code) adapted from a
-// package-isolated shader-compile stress scene to a real running game-world tick loop.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -22,31 +11,18 @@ const BASELINE_PATH = join(__dirname, '..', '.perf-baseline.json')
 const THRESHOLD = 1.10
 const UPDATE = process.argv.includes('--update-baseline')
 
-// Real measurement window: long enough to accumulate TickSystem's own DILATION_WINDOW (60
-// ticks) of samples at the world's configured 64Hz tick rate (~940ms) plus warmup headroom for
-// world load (physics init, terrain heightfield load, app spawn) before the window starts.
 const WARMUP_MS = 3000
 const MEASURE_MS = 4000
 
-// With-clients phase (informational, never gated): after the idle window, N real `ws` clients join
-// through the real handshake (same wire path as a browser's PhysicsNetworkClient), each streaming
-// PLAYER_INPUT at CLIENT_INPUT_HZ with a seeded walk, and the server's own per-tick numbers are read
-// again over CLIENT_MEASURE_MS -- TickSystem._tickBudgetMs (whole tick) plus onTick.getMetrics()'s
-// avgSnapMs (the snapshot-build phase alone, via the /metrics route that renders it; the returned
-// server object does not expose ctx). The idle number stays the gated one so an idle-only baseline
-// keeps comparing like-for-like; the with-clients numbers are printed, and written to the baseline
-// file (a separate `withClients` field) only on --update-baseline.
 const CLIENT_COUNT = Math.max(0, parseInt(process.env.PERF_GATE_CLIENTS || '4', 10))
 const CLIENT_SETTLE_MS = 1500
 const CLIENT_MEASURE_MS = 4000
 const CLIENT_INPUT_HZ = 30
 
-// Must mirror ConnectionManager.js's COALESCE_SENTINEL/frameCoalesced (server) and BaseClient.js's
-// splitCoalesced (client): flushAll folds every message queued for a client in one tick into ONE
-// socket.send() prefixed with 0xFF followed by repeated [uint32 LE length][payload] records.
+const COALESCE_SENTINEL = 0xff
 function decodeFrame(data) {
   const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
-  if (!(bytes.length > 0 && bytes[0] === 0xff)) return [unpack(bytes)]
+  if (!(bytes.length > 0 && bytes[0] === COALESCE_SENTINEL)) return [unpack(bytes)]
   const out = [], view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   let off = 1
   while (off + 4 <= bytes.length) {
@@ -71,8 +47,6 @@ async function readTickMetrics(port) {
   }
 }
 
-// Connects one real WebSocket client, resolves once its HANDSHAKE_ACK arrives, and returns a handle
-// whose input loop streams a seeded walk until stop().
 function connectClient(port, seed) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`)
@@ -98,8 +72,6 @@ function connectClient(port, seed) {
   })
 }
 
-// Runs the with-clients phase against an already-booted server. Never throws into the gate: any
-// failure here is reported and the idle result stands on its own.
 async function measureWithClients(server, port) {
   if (CLIENT_COUNT === 0) return null
   const tickSystem = server.tickSystem
@@ -117,8 +89,6 @@ async function measureWithClients(server, port) {
     const m1 = await readTickMetrics(port)
     const after = tickSystem.currentTick
     const sorted = samples.slice().sort((a, b) => a - b)
-    // getMetrics() averages accumulate from boot over ticks with players>0 and never reset on read, so
-    // the window's own average is the delta of (avg*count) between the two reads divided by the delta count.
     const n = m1.sampleCount - m0.sampleCount
     const winSnap = n > 0 ? (m1.snapAvgMs * m1.sampleCount - m0.snapAvgMs * m0.sampleCount) / n : NaN
     const winTotal = n > 0 ? (m1.totalAvgMs * m1.sampleCount - m0.totalAvgMs * m0.sampleCount) / n : NaN
@@ -150,13 +120,9 @@ function percentile(sorted, p) {
   return sorted[idx]
 }
 
-// Boots the real server against the real tps-game world, samples real per-tick CPU wall-time
-// over MEASURE_MS after a WARMUP_MS settle window, then shuts the server down cleanly.
 async function measureRealTickBudget() {
   console.log('[perf-gate] booting real server (WORLD=tps-game) ...')
   process.env.WORLD = process.env.WORLD || 'tps-game'
-  // Fixed, unlikely-to-collide port for the gate run -- overridable, but never the game's own
-  // default 3001 (a perf-gate run must not fight a real dev server already listening there).
   process.env.PORT = process.env.PORT || '3097'
   const { boot } = await import('../src/sdk/server.js')
   const server = await boot()
@@ -166,21 +132,14 @@ async function measureRealTickBudget() {
   console.log(`[perf-gate] warming up ${WARMUP_MS}ms (world load + physics settle) ...`)
   await new Promise(r => setTimeout(r, WARMUP_MS))
 
-  // Snapshot TickSystem's own rolling per-tick budget samples before and after the measurement
-  // window -- the delta is exactly the ticks that ran DURING this window, real wall-clock
-  // per-tick cost from the actual running game loop, not a synthetic stand-in.
   const before = tickSystem.currentTick
   console.log(`[perf-gate] measuring ${MEASURE_MS}ms of real ticks (tick=${before}, tickRate=${tickSystem.tickRate}Hz) ...`)
   await new Promise(r => setTimeout(r, MEASURE_MS))
   const after = tickSystem.currentTick
-  // _tickBudgetMs is a rolling window (DILATION_WINDOW=60 samples, see TickSystem.js) of the
-  // MOST RECENT ticks' wall time -- read it now, right after the window, so it reflects ticks
-  // from (approximately) this measurement period rather than stale ticks from warmup.
   const samples = tickSystem._tickBudgetMs.slice()
   const dilationFactor = tickSystem.dilationFactor
   console.log(`[perf-gate] idle window done (ticks ${before} -> ${after}, ${after - before} ticks ran, ${samples.length} samples captured)`)
 
-  // Informational with-clients phase on the SAME booted server, after the idle window has been read.
   let withClients = null
   try { withClients = await measureWithClients(server, parseInt(process.env.PORT, 10)) }
   catch (e) { console.warn(`[perf-gate] with-clients phase failed (idle result unaffected): ${e.message}`) }
@@ -216,10 +175,6 @@ async function main() {
     console.log(`[perf-gate] with-clients(N=${wc.clients}, informational): tick avg=${wc.avgMs.toFixed(3)}ms p50=${wc.p50Ms.toFixed(3)}ms p95=${wc.p95Ms.toFixed(3)}ms max=${wc.maxMs.toFixed(3)}ms | onTick.getMetrics avgSnapMs=${wc.snapAvgMs.toFixed(3)}ms avgTotalMs=${wc.totalAvgMs.toFixed(3)}ms over ${wc.ticks} ticks | ${wc.packs} packs, ${wc.bytesPerPack.toFixed(1)} bytes/pack, ${wc.snapshotsReceived} snapshots received by clients`)
   }
 
-  // Frame-budget headroom check, independent of the historical baseline: a tick loop already
-  // dilating (dilationFactor < 1) or blowing its own tick budget on p95 is a hard fail regardless
-  // of whether it regressed from a prior measurement -- this is the real-world consequence
-  // (TickSystem's own overload control has kicked in) that a baseline-relative check alone would miss.
   if (metrics.dilationFactor < 1.0) {
     console.error(`[perf-gate] FAIL: tick loop is self-dilating (dilationFactor=${metrics.dilationFactor} < 1.0) -- server is overloaded at real tick rate`)
     process.exit(1)
@@ -231,7 +186,6 @@ async function main() {
 
   if (UPDATE) {
     const base = { avgMs: metrics.avgMs, p50Ms: metrics.p50Ms, p95Ms: metrics.p95Ms, tickRate: metrics.tickRate }
-    // Separate, informational field: the gate above compares only the idle p50, never this.
     if (wc) base.withClients = { clients: wc.clients, avgMs: wc.avgMs, p50Ms: wc.p50Ms, p95Ms: wc.p95Ms, avgSnapMs: wc.snapAvgMs, bytesPerPack: wc.bytesPerPack }
     writeBaseline(base)
     console.log('[perf-gate] baseline updated. PASS')
@@ -252,21 +206,6 @@ async function main() {
     console.error('[perf-gate] baseline missing p50Ms. Run with --update-baseline to refresh.')
     process.exit(1)
   }
-  // A purely RELATIVE threshold is unusable at this magnitude. The tick loop
-  // measures ~0.07ms against a 15.625ms budget (under 0.5% utilization), so
-  // +10% is ~7 MICROseconds -- comfortably inside run-to-run jitter and inside
-  // the difference between this developer machine and a CI runner. Live
-  // evidence: three consecutive local runs measured 0.082/0.078/0.079ms (a
-  // 0.004ms spread, itself over half the entire "regression" allowance), and a
-  // baseline captured locally still failed on CI hardware.
-  //
-  // So a move must clear BOTH bars to count: the relative one (it grew
-  // meaningfully versus the recorded baseline) AND an absolute one (it is big
-  // enough to matter at all against the frame budget). ABS_FLOOR_MS is
-  // deliberately still ~1/78th of the 15.625ms budget -- a genuine regression
-  // that eats real frame time blows through it easily, while microsecond
-  // jitter on an essentially idle loop no longer reports a false alarm that
-  // trains everyone to re-baseline on sight.
   const ABS_FLOOR_MS = 0.20
   const limit = baseMs * THRESHOLD
   const overRelative = metrics.p50Ms > limit

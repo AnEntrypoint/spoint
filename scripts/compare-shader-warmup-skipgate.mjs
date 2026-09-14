@@ -1,39 +1,4 @@
 #!/usr/bin/env node
-// shader-warmup-manifest-wallclock-comparison-and-more-maps: isolates and directly witnesses the
-// ONE mechanism a boot-time in-map A/B cannot show on this repo's current map corpus (see
-// scripts/compare-shader-warmup.mjs's own honest finding: every real world here has too few
-// resident/model-backed entities to ever trip warmupShaders()'s `residentMeshes.length > 50`
-// skip-gate, so a real boot-time A/B on tps-game/deathrun lands within run-to-run noise -- both
-// paths already warm the same handful of meshes). This script calls the REAL warmupShaders()
-// export directly in a live page (dynamic import of the real served client/core/SceneSetup.js
-// module, not a mock/copy) against a SYNTHETIC but real THREE scene sized past the skip-gate
-// threshold (65 resident meshes, each with a genuinely distinct WebGLProgram cache key -- a unique
-// procedural DataTexture + alternating flatShading/vertexColors defines per mesh, since three.js
-// caches programs by (vertex,fragment,defines), not by material uniform values; an earlier version
-// of this script varied only material.color and the 65 meshes collapsed onto ONE shared program,
-// which would have understated the real per-material compile cost 65 distinct GLB materials pay).
-//
-// CONFIRMED live (see this script's own SUMMARY output, real renderer.info.programs deltas):
-// manifest-absent -> skip-gate fires, warmupShaders returns immediately (wallMs<2, zero new GPU
-// programs compiled -- window.__lastShaderWarmup records skipped:true/reason:'too-many-meshes').
-// manifest-present -> skip-gate lifted, all 65 meshes go through a real renderer.compileAsync +
-// render() pass (measured ~900-990ms real wall-clock on this dev machine/GPU, 5 genuinely NEW
-// programs added to renderer.info.programs -- confirms real GPU compilation happened, not a no-op).
-// The follow-on "move into camera view, time the first render()" first-use-stutter probe did NOT
-// show a measurable per-frame delta on this synthetic scene (~2ms either way) -- these procedural
-// single-pixel-texture materials are too cheap to compile/link for a visible stutter on a fast local
-// GPU/driver; a real GLB material (skinning, multiple UV sets, more complex defines) would cost
-// meaningfully more per compile, but reproducing that faithfully needs real GLB assets with that
-// shape, out of this script's synthetic-scene scope. The DECISIVE, load-bearing finding is the
-// program-count delta above, not the frame-time probe.
-//
-// Not a test file (AGENTS.md no-test-files-ever) -- a one-shot measurement tool, same class as
-// compare-shader-warmup.mjs; it prints real numbers from a real renderer.compileAsync call, it does
-// not assert pass/fail.
-//
-// Usage: PORT=8090 node server.js   (any world; only used to serve the ESM module + a page origin)
-//        node scripts/compare-shader-warmup-skipgate.mjs [port=8090] [world=tps-game]
-
 import { findChrome, waitFor } from './lib/gpu-eval.mjs'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -43,10 +8,6 @@ import { spawn } from 'node:child_process'
 async function main() {
   const port = Number(process.argv[2] || process.env.PORT || 8090)
   const world = process.argv[3] || 'tps-game'
-  // Navigate to the REAL singleplayer boot (not a blank page) so the served import map is active
-  // and window.__renderer/__scene/__camera already exist from the real boot -- the synthetic
-  // entities below are ADDED alongside the real scene contents, sharing the real renderer/GL
-  // context, not a fresh isolated one.
   const url = `http://localhost:${port}/?singleplayer&world=${world}&nc=${Date.now()}`
 
   console.log(`[compare-shader-warmup-skipgate] port=${port} world=${world}`)
@@ -74,18 +35,8 @@ async function main() {
       if (r.exceptionDetails) throw new Error(r.exceptionDetails.text)
       return r.result.value
     }
-    // Wait for the real boot to finish and expose window.__renderer/__scene/__camera (SceneSetup.js
-    // consumers, wired at client/app.js:620-627) plus a THREE global we can construct meshes from --
-    // window.__app.el.entityMeshes (already used by scripts/record-shader-manifest.mjs) confirms the
-    // real EntityLoader is up too.
     await waitFor(() => evalIn('!!(window.__renderer && window.__scene && window.__camera && window.__app && window.__app.el)').catch(() => false), 150000, 1000)
 
-    // Build TWO disjoint sets of 65 synthetic entity meshes (distinct materials/geometries per set,
-    // so set B's programs are never accidentally warmed as a side effect of compiling set A's) using
-    // THREE re-imported from the same served module the real scene's own materials come from (bare
-    // 'three' specifier resolves via the page's already-active import map). Both groups start
-    // positioned OFF to the side (outside the real camera frustum) so neither is inadvertently
-    // compiled by the real game's own render loop before this script's own controlled steps run.
     const setupExpr = `
       (async () => {
         const THREE = await import('three')
@@ -130,13 +81,9 @@ async function main() {
     const setupResult = await evalIn(setupExpr)
     console.log('[compare-shader-warmup-skipgate] scenes built:', JSON.stringify(setupResult))
 
-    // Loading-manager stub matching the real (setLabel,reportProcessing) contract warmupShaders calls.
     const loadingMgrExpr = `window.__loadingMgrStub = { setLabel: () => {}, reportProcessing: () => {} }`
     await evalIn(loadingMgrExpr)
 
-    // Run B (no manifest) -- this is the branch the skip-gate exists to protect: 65 resident meshes,
-    // no manifest, the pre-existing `residentMeshes.length > 50` guess-based cap fires. set B's
-    // programs stay UNCOMPILED after this call.
     const runBExpr = `
       (async () => {
         const t0 = performance.now()
@@ -148,14 +95,8 @@ async function main() {
     const programsAfterRunB = await evalIn('window.__renderer2.info.programs.length')
     console.log('[compare-shader-warmup-skipgate] run B (65 resident meshes, NO manifest -- skip-gate should fire, set B stays uncompiled):', JSON.stringify(runB), 'programs after run B call:', programsAfterRunB)
 
-    // Clear the localStorage scene-unchanged cache key between runs so run A doesn't get skipped as
-    // "scene unchanged" (a different, unrelated skip path) -- the sceneKey embeds manifestedMeshes
-    // count so A and B naturally get different keys anyway, but clear defensively for a clean signal.
     await evalIn(`(() => { localStorage.removeItem('lastShaderWarmupKey'); return true })()`)
 
-    // Run A (manifest covering all 65 synthetic modelUrls in set A) -- the skip-gate-lift branch:
-    // every manifest-matched mesh warms regardless of the >50 count. set A's programs ARE compiled
-    // after this call.
     const runAExpr = `
       (async () => {
         const manifest = { world: 'synthetic', modelUrls: ['./apps/maps/synthetic_a_0.glb','./apps/maps/synthetic_a_1.glb','./apps/maps/synthetic_a_2.glb','./apps/maps/synthetic_a_3.glb','./apps/maps/synthetic_a_4.glb'] }
@@ -168,12 +109,6 @@ async function main() {
     const programsAfterRunA = await evalIn('window.__renderer2.info.programs.length')
     console.log('[compare-shader-warmup-skipgate] run A (65 resident meshes, WITH manifest -- skip-gate should be LIFTED, all 65 warm, set A pre-compiled):', JSON.stringify(runA), 'programs after run A call:', programsAfterRunA, '(delta from run B:', programsAfterRunA - programsAfterRunB, ')')
 
-    // First-use-compile-stutter measurement: move each set INTO the camera frustum (simulating a
-    // player's first close approach to a manifest-covered vs non-covered asset) and measure the
-    // wall-clock of the single renderer.render() call that first draws it. Set B's meshes still hold
-    // never-linked programs (WebGLProgram creation deferred to first draw in three.js) -- that
-    // render call pays the real synchronous shader-link cost inline. Set A's meshes already have
-    // linked programs from the warmup pass above -- its first draw is a normal frame.
     const stutterExpr = `
       (async () => {
         // Move each mesh to a small offset in front of the camera along its forward vector, simulating

@@ -1,19 +1,4 @@
 #!/usr/bin/env node
-// Live witness harness for the spointreplay-file-format-deterministic-playback PRD row.
-//
-// Boots a REAL server (src/sdk/server.js createServer/loadWorld/start, same construction path
-// scripts/playtest-heatmap-run.mjs already uses), spawns a real virtual player via
-// playerManager.addPlayer + physicsIntegration.addPlayerCollider (mirroring ServerHandlers.js's
-// onClientConnect join sequence), drives it through a scripted real-tick input sequence
-// (forward/strafe/jump/turn) while ReplayRecorder (src/netcode/ReplayRecorder.js) hooks
-// playerManager.addInput to capture the exact applied-input stream, writes a real .spointreplay file
-// (src/netcode/ReplayFile.js), tears the server down, then boots a FRESH second server and feeds the
-// file back through ReplayPlayer (src/netcode/ReplayPlayer.js) to reproduce the session -- comparing
-// the replayed final player state against the originally-recorded final player state.
-//
-// Not a test file (no-test-files-ever): this is a runnable harness, its console output IS the live
-// witness, no assertion library involved -- exits 0/1 by manually checking the real numbers.
-
 import { pathToFileURL } from 'node:url'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -28,11 +13,8 @@ const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT_DIR = resolve(SDK_ROOT, 'data', 'replay-record-and-play')
 const REPLAY_PATH = resolve(OUT_DIR, 'witness-session.spointreplay')
 
-// Deterministic scripted input sequence: a real player-shaped control stream (walk forward, strafe,
-// jump, turn), NOT random -- so both the record run and any future eyeballing of the file are legible.
-// One entry per real tick index (relative to first input tick).
 function scriptedInputAt(i) {
-  const yaw = (i % 240) < 120 ? 0 : Math.PI / 2 // turn halfway through
+  const yaw = (i % 240) < 120 ? 0 : Math.PI / 2
   if (i < 40) return { forward: true, yaw, pitch: 0 }
   if (i < 60) return { forward: true, right: true, yaw, pitch: 0 }
   if (i === 60) return { forward: true, jump: true, yaw, pitch: 0 }
@@ -73,8 +55,6 @@ async function runRecordSession() {
 
   console.log(`[replay-record] real player ${playerId} spawned, driving ${SCRIPT_LENGTH} real ticks of scripted input`)
 
-  // Drive real ticks: poll tickSystem.currentTick (real setInterval-driven ticks, same pattern
-  // ReplayPlayer.js uses) and push one scripted input the first time we observe each new tick.
   let lastTick = server.tickSystem.currentTick
   let i = 0
   await new Promise((doneResolve) => {
@@ -92,8 +72,8 @@ async function runRecordSession() {
     }
     step()
   })
-  // let the last few inputs actually get consumed by processPlayerMovement before reading final state
-  await new Promise(r => setTimeout(r, 200))
+  const INPUT_DRAIN_MS = 200
+  await new Promise(r => setTimeout(r, INPUT_DRAIN_MS))
 
   const finalPlayer = server.playerManager.getPlayer(playerId)
   const recordedFinal = { position: [...finalPlayer.state.position], rotation: [...finalPlayer.state.rotation], velocity: [...finalPlayer.state.velocity] }
@@ -129,8 +109,8 @@ async function runPlaybackSession(worldDef, replayBuf) {
 
 async function main() {
   const { recordedFinal, worldDef } = await runRecordSession()
-  // small pause so the first server's port/socket is fully released before booting the second
-  await new Promise(r => setTimeout(r, 300))
+  const PORT_RELEASE_MS = 300
+  await new Promise(r => setTimeout(r, PORT_RELEASE_MS))
   const { finalStates } = await runPlaybackSession(worldDef, await (await import('node:fs/promises')).readFile(REPLAY_PATH))
 
   const replayedFinal = [...finalStates.values()][0]
@@ -151,10 +131,6 @@ async function main() {
   console.log(`  position delta (metres): ${posDelta.toFixed(6)}`)
   console.log(`  rotation delta (quat L2): ${rotDelta.toFixed(6)}`)
 
-  // Tolerance: this format's determinism scope (documented in ReplayFile.js) is same-process/same-build
-  // reproduction through the real tick loop, not cross-platform bit-exact Jolt -- a few mm of float
-  // divergence across two separate WASM instantiations is honestly expected and acceptable here; several
-  // METRES of divergence would mean the input stream/tick alignment is actually broken.
   const POS_TOLERANCE_M = 0.5
   const ROT_TOLERANCE = 0.05
   const ok = posDelta < POS_TOLERANCE_M && rotDelta < ROT_TOLERANCE

@@ -1,14 +1,4 @@
 #!/usr/bin/env node
-// Real live-session verification: boots the real spoint server (src/sdk/server.js's
-// createServer, the same code path server.js/boot() uses) on a random high port with a
-// minimal inline world def, connects a real raw WebSocket client (the `ws` package, same
-// as a browser client's PhysicsNetworkClient), sends a PLAYER_INPUT message, and confirms
-// a valid MSG.SNAPSHOT round-trips with the expected decoded shape. Prints PASS/FAIL to
-// stdout and exits 0/1 accordingly. Not a test file / no assertion framework -- a one-off
-// operational script exercising the real server + real wire protocol end to end.
-//
-// Usage: node scripts/verify-session.mjs
-
 import WebSocket from 'ws'
 import { createServer } from '../src/sdk/server.js'
 import { MSG, msgName } from '../src/protocol/MessageTypes.js'
@@ -22,13 +12,6 @@ function check(label, cond, detail) {
   else { FAIL.push(label); console.log(`  [FAIL] ${label}${detail ? ' -- ' + detail : ''}`) }
 }
 
-// Must mirror ConnectionManager.js's COALESCE_SENTINEL/frameCoalesced (server) and
-// BaseClient.js's splitCoalesced (real client decode) exactly: ConnectionManager.flushAll
-// folds every message queued for a client in one tick (e.g. HANDSHAKE_ACK + WORLD_DEF +
-// APP_MODULE + initial SNAPSHOT, all queued synchronously in onClientConnect) into a SINGLE
-// socket.send() prefixed with sentinel byte 0xFF, followed by repeated [uint32 LE
-// length][payload] records. A raw unpack() of that frame throws ("end of buffer not
-// reached") -- every real client (PhysicsNetworkClient/BrowserServer) splits first.
 const COALESCE_SENTINEL = 0xff
 const LEN_PREFIX_BYTES = 4
 function splitCoalesced(bytes) {
@@ -43,8 +26,6 @@ function splitCoalesced(bytes) {
   }
   return out
 }
-// Decodes one raw WS frame into its constituent {type,payload} messages, transparently
-// handling both the coalesced-multi-message and plain single-message wire shapes.
 function decodeFrame(data) {
   const bytes = data instanceof ArrayBuffer ? new Uint8Array(data) : data
   if (bytes.length > 0 && bytes[0] === COALESCE_SENTINEL) {
@@ -55,13 +36,8 @@ function decodeFrame(data) {
 
 async function main() {
   await ensurePacked
-  // Random high port avoids colliding with any real dev server already bound to 3000/8090
-  // (see AGENTS.md one-server-two-client-modes-same-origin -- never hardcode a shared port
-  // for a throwaway verification instance).
   const port = 20000 + Math.floor(Math.random() * 20000)
 
-  // Minimal self-contained world: no terrain/entities/apps required, keeps boot fast and
-  // makes this script runnable with zero external fixtures.
   const worldDef = {
     name: 'verify-session-world',
     tickRate: 30,
@@ -115,8 +91,6 @@ async function main() {
     check('HANDSHAKE_ACK carries tickRate', typeof hs?.tickRate === 'number')
     const playerId = hs.playerId
 
-    // Wait for the initial full SNAPSHOT (sent synchronously right after HANDSHAKE_ACK in
-    // ServerHandlers.onClientConnect) to confirm the join produced real server-side state.
     firstSnapshot = received.find(m => m.type === MSG.SNAPSHOT)
     if (!firstSnapshot) {
       firstSnapshot = await new Promise((resolve, reject) => {
@@ -139,14 +113,11 @@ async function main() {
     const joinedPlayer = decodedInitial.players.find(p => p.id === playerId)
     check('joined player has a finite position', Array.isArray(joinedPlayer?.position) && joinedPlayer.position.every(Number.isFinite), JSON.stringify(joinedPlayer?.position))
 
-    // Send a real move input (same envelope shape as PhysicsNetworkClient.sendInput).
     const inputSequence = 1
     const moveInput = { forward: 1, right: 0, jump: false, yaw: 0, pitch: 0 }
     ws.send(pack({ type: MSG.PLAYER_INPUT, payload: { input: moveInput, sequence: inputSequence } }))
     console.log('[verify-session] sent PLAYER_INPUT (forward move)')
 
-    // Confirm at least one more SNAPSHOT arrives after the input (proves the tick loop is
-    // alive and broadcasting, i.e. this is a live session, not a one-shot connect response).
     inputAckedSnapshot = await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('timeout waiting for post-input SNAPSHOT')), 5000)
       const onMsg = data => {

@@ -1,9 +1,3 @@
-// One-off live witness for the time-of-day clock-seed fix (uncommitted working-tree state).
-// Boots the real server on the serverAuthoritative construct world, loads the client in real
-// headless Chrome, records elevationDeg + sun.intensity, forces the app.js stall-recovery
-// rebuild path (hidden >5s with ticks stalled), then asserts the day/night clock did NOT
-// jump backward and sun.intensity is lit after the rebuild. Manual verification harness,
-// not a test file.
 import { chromium } from './lib/cdp-browser.mjs'
 
 const PORT = 21000 + Math.floor(Math.random() * 20000)
@@ -41,18 +35,12 @@ const before = await read()
 console.log('[witness] before rebuild:', JSON.stringify(before))
 if (before.cls !== 'BrowserServer') { console.log('[witness] FAIL: not singleplayer BrowserServer'); process.exit(1) }
 
-// Freeze the tick counter so the visibilitychange stall detector sees ticks not advancing,
-// then flip the page hidden for >5s and active again -- the exact app.js rebuild trigger.
 await page.evaluate(() => {
   const c = window.__client
   let frozen = c.currentTick
   Object.defineProperty(c, 'currentTick', { get: () => frozen, configurable: true })
 })
 await page._send('Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => {})
-// Headless pages never become document.hidden on their own; drive the handler's gate directly
-// by dispatching the visibilitychange event with visibilityState overridden via CDP-free trick:
-// the handler reads document.hidden, so emulate with Page.setWebLifecycleState frozen (throttles
-// timers AND reports hidden in headless-new).
 await page.evaluate(() => {
   Object.defineProperty(document, 'hidden', { get: () => window.__forceHidden === true, configurable: true })
   Object.defineProperty(document, 'visibilityState', { get: () => window.__forceHidden === true ? 'hidden' : 'visible', configurable: true })
@@ -65,15 +53,8 @@ await page.waitForTimeout(12000)
 const after = await read()
 console.log('[witness] after rebuild:', JSON.stringify(after))
 const rebuilt = after.cls === 'BrowserServer' && after.tick !== before.tick
-// startFraction 0.05 is deep night (boot elev ~-64deg; sun 0 is CORRECT there). The witness is
-// the clock continuing forward across the rebuild (elev strictly advanced, never snapping back
-// toward the boot-time value a startFraction reset would produce) and sun tracking the keyframe
-// value for the live elevation (0 at night, >0 past the dawn keyframe).
-// The unfixed behavior (live-witnessed negative control 2026-08-21) is NOT a backward jump but a
-// RESET-AND-CATCH-UP: the rebuilt server restarts the day at startFraction and only the
-// post-reconnect seconds re-elapse (1.63deg of advance in this window vs 4.48deg with the fix).
-// So the gate is full-window advance: ~17.6s of a 600s day at this elevation's rate ~0.25deg/s.
-const advanced = after.elev != null && before.elev != null && after.elev > before.elev + 3.0
+const MIN_ELEV_ADVANCE_DEG = 3.0
+const advanced = after.elev != null && before.elev != null && after.elev > before.elev + MIN_ELEV_ADVANCE_DEG
 const sunTracks = after.elev != null && after.sun != null ? (after.elev < -6 ? after.sun === 0 : after.sun > 0.05) : false
 const ok = rebuilt && advanced && sunTracks && !errors.length
 console.log(`[witness] rebuilt=${rebuilt} advanced=${advanced} sunTracks=${sunTracks} (elev ${before.elev} -> ${after.elev}) pageErrors=${errors.length}`)

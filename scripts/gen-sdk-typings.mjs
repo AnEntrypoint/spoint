@@ -1,32 +1,4 @@
 #!/usr/bin/env node
-// Generate ambient .d.ts typings for the ctx.* app SDK surface (src/apps/AppContext.js)
-// via the real `tsc` CLI (--allowJs --declaration --emitDeclarationOnly), instead of
-// hand-maintaining client/editor/sdk-typings.d.ts by eye every time AppContext.js's
-// public surface changes.
-//
-// Note on approach: the installed `typescript` devDependency is the 7.x native/Go
-// rewrite, whose npm package exposes ONLY `version`/`versionMajorMinor` -- none of the
-// classic JS Compiler API (`ts.createProgram` etc, see
-// https://github.com/microsoft/typescript-go) is available to `require('typescript')`
-// at this version. So this script shells out to the real `tsc` binary (still fully
-// functional for --allowJs --declaration --emitDeclarationOnly) rather than the
-// programmatic API. If a future upgrade restores the JS API, swap the execFile call
-// for a createProgram()+getEmitOutput() pass -- the rest of this script (temp dir,
-// diff summary) stays the same.
-//
-// This does NOT overwrite the curated, hand-maintained client/editor/sdk-typings.d.ts
-// in place: tsc's structural inference over plain JS (no formal @param/@returns JSDoc
-// blocks in AppContext.js today) produces `any`-typed parameters almost everywhere,
-// which is a real regression for Monaco autocomplete quality vs the hand-written file's
-// concrete tuple/union types. Instead this writes a SEPARATE generated file
-// (client/editor/sdk-typings.generated.d.ts) plus a drift report, so the generated
-// output can be diffed against the hand-maintained surface (new/removed method names,
-// changed signatures) without silently discarding better hand-written types. Promoting
-// generated output to replace the hand-maintained file is a deliberate, reviewed edit,
-// not an automatic side effect of running this script.
-//
-// Usage: node scripts/gen-sdk-typings.mjs   (npm run gen-typings)
-
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs'
@@ -41,16 +13,9 @@ const ROOT = join(__dirname, '..')
 const SOURCE = join(ROOT, 'src/apps/AppContext.js')
 const HAND_MAINTAINED = join(ROOT, 'client/editor/sdk-typings.d.ts')
 const GENERATED_OUT = join(ROOT, 'client/editor/sdk-typings.generated.d.ts')
-// Invoke tsc's JS entrypoint directly via `node`, not the node_modules/.bin shim --
-// the .cmd shim on Windows fails with `spawn EINVAL` under execFile without a shell,
-// and going through `node <script>` is portable across platforms either way.
 const TSC_BIN = join(ROOT, 'node_modules/typescript/bin/tsc')
 
 function extractMemberNames(dtsText) {
-  // Cheap structural scan (not a real TS parse -- this file has no `typescript`
-  // classic API available to walk an AST with, see note above): pull identifier-like
-  // names that look like method/property declarations at any indent level, for a
-  // same-vs-added/removed drift summary between the two files.
   const names = new Set()
   const re = /^\s*(?:get |set )?(readonly )?([A-Za-z_$][\w$]*)\s*[(:?]/gm
   let m
@@ -90,9 +55,6 @@ async function main() {
       if (stdout.trim()) console.log(stdout.trim())
       if (stderr.trim()) console.error(stderr.trim())
     } catch (e) {
-      // tsc exits non-zero on any diagnostic even with emitDeclarationOnly; still
-      // check whether the .d.ts landed (allowJs type errors are commonly non-fatal
-      // to declaration emit) before treating this as a hard failure.
       console.warn('[gen-sdk-typings] tsc reported diagnostics:')
       console.warn((e.stdout || e.message || String(e)).trim())
     }

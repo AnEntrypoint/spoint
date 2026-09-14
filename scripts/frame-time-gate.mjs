@@ -1,19 +1,4 @@
 #!/usr/bin/env node
-// frame-time-gate.mjs -- client-side real rendered-frame-time regression gate (zero deps).
-//
-// Boots the REAL server (src/sdk/server.js boot()) against tps-game, drives ONE real headless
-// Chromium client via scripts/lib/cdp-browser.mjs, waits for the real loadingMachine.isReady
-// signal (same terminal condition cold-load-gate.mjs uses), enters the editor via TOGGLE_EDITOR,
-// places the edit camera at a fixed pose, and samples real rAF frame deltas from the live
-// running renderer for two poses: static (camera held still) and orbit (camera yaws over the
-// capture window). Emits p50/p95/1%-low/avg draw-calls/avg triangles as JSON, matching the
-// documented recovery protocol (mutable prose): TOGGLE_EDITOR, setEditCameraPosition(50,
-// ground+10, 50), yaw 0.6, pitch -0.2, 8s rAF capture.
-//
-// Follows the committed-JSON-baseline + threshold + --update-baseline pattern already used by
-// scripts/perf-gate.mjs / scripts/cold-load-gate.mjs / scripts/bundle-size-gate.mjs.
-//
-// Usage: node scripts/frame-time-gate.mjs [--update-baseline]
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -49,9 +34,6 @@ function summarize(samples) {
   const sorted = samples.slice().sort((a, b) => a - b)
   const p50Ms = percentile(sorted, 0.5)
   const p95Ms = percentile(sorted, 0.95)
-  // "1% low" = the average of the slowest 1% of frames (highest frame times), the standard
-  // stutter-sensitive metric -- a plain p99 hides sustained-stutter cost that a single spike does
-  // not, since it averages the whole tail rather than reading one point in it.
   const tailCount = Math.max(1, Math.floor(sorted.length * 0.01))
   const tail = sorted.slice(sorted.length - tailCount)
   const onePercentLowMs = tail.reduce((a, b) => a + b, 0) / tail.length
@@ -63,11 +45,8 @@ async function capturePose(page) {
   await page.evaluate(() => {
     const cam = window.__app?.cam
     if (!cam || !cam.setEditCameraPosition) throw new Error('window.__app.cam.setEditCameraPosition not available -- not in editor mode')
-    // Fixed pose matching the documented protocol (TOGGLE_EDITOR,
-    // setEditCameraPosition(50, ground+10, 50)); ground height is approximated as 0 (tps-game's
-    // arena spawn plane) since no public ground-raycast API is exposed on window.__app.
     cam.setEditCameraPosition(50, 10, 50)
-    cam.editLook(600, -200) // deltas accumulate into yaw/pitch on the next update() tick
+    cam.editLook(600, -200)
   })
 
   const result = await page.evaluate((captureMs) => new Promise((resolve) => {
@@ -80,7 +59,7 @@ async function capturePose(page) {
     function tick(now) {
       const dt = now - last
       last = now
-      if (!first) frameDeltas.push(dt) // skip the first sample (includes setup jank, not a real frame delta)
+      if (!first) frameDeltas.push(dt)
       first = false
       const info = window.__app?.renderer?.info
       if (info) {
@@ -142,10 +121,6 @@ async function measureRealFrameTimes() {
     const staticResult = await capturePose(page)
 
     console.log('[frame-time-gate] capturing orbit pose (8s, r=8) ...')
-    // Orbit pose: yaw continuously advances during the capture window itself, not before it --
-    // driven inside the same page.evaluate as the sampling loop so the yaw sweep and the frame
-    // sampling share one rAF loop and cannot drift apart. editLook accumulates deltas into the
-    // camera's internal yaw/pitch state on the next update() tick (there is no direct yaw setter).
     const orbitResult = await page.evaluate((captureMs) => new Promise((resolve) => {
       const frameDeltas = []
       const drawCalls = []
@@ -153,8 +128,8 @@ async function measureRealFrameTimes() {
       let last = performance.now()
       let first = true
       const t0 = performance.now()
-      const MOUSE_SENSITIVITY = 0.002 // camera.js's own default, editLook(dx,dy): yaw += dx*sensitivity
-      const RADIANS_PER_MS = (Math.PI * 2) / captureMs // one full revolution over the capture window
+      const MOUSE_SENSITIVITY = 0.002
+      const RADIANS_PER_MS = (Math.PI * 2) / captureMs
       function tick(now) {
         const dt = now - last
         last = now
@@ -214,9 +189,6 @@ async function main() {
     process.exit(1)
   }
 
-  // Regression check keyed on the moving (orbit) p50 -- the doc names it as the number that
-  // actually matters for the 144Hz goal, and it is the more representative "real gameplay"
-  // sample versus a held-still static pose.
   const baseMs = baseline.orbit?.p50Ms
   if (baseMs == null) {
     console.error('[frame-time-gate] baseline missing orbit.p50Ms. Run with --update-baseline to refresh.')

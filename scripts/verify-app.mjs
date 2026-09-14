@@ -1,26 +1,4 @@
 #!/usr/bin/env node
-// verify-app.mjs -- deterministic live verification harness for agent-created apps (PRD row
-// agentic-game-making-pipeline). NOT a test file and NOT a test framework: no *.test.js, no
-// jest/mocha/vitest -- it is a runnable operational script (same discipline as scripts/e2e-ci.mjs
-// and scripts/verify-session.mjs) whose console PASS/FAIL output IS the live witness.
-//
-// What it does, end-to-end against the REAL system:
-//   1. Builds a throwaway world file (apps/world/agent-verify-tmp.js) placing one entity per
-//      requested app on a flat floor -- the same box-static-floor pattern as e2e-ci-arena.js,
-//      terrain-free so a cold boot is fast.
-//   2. Boots the real server (src/sdk/server.js boot(), the same path `npm start` uses) with
-//      WORLD=agent-verify-tmp, prewarm + watchers skipped (same env knobs e2e-ci.mjs sets).
-//   3. Asserts via the AgentAuthoringAPI HTTP surface (/agent/apps, /agent/entities) that every
-//      requested app actually REGISTERED and its entity actually SPAWNED server-side.
-//   4. Drives one real headless Chromium client (scripts/lib/cdp-browser.mjs, raw CDP) through
-//      the actual client/index.html multiplayer path, waits for connect + entity streaming, holds
-//      real KeyW input, then asserts ZERO uncaught page errors and ZERO console.error() calls.
-//   5. Exit code 0 only if every assertion held; non-zero otherwise (CI-usable as a gate).
-//
-// Usage:
-//   node scripts/verify-app.mjs app-one app-two ...    (default: the 5 CLI template apps)
-//   node scripts/verify-app.mjs --keep                (keep the temp world file for debugging)
-
 import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { writeFileSync, rmSync } from 'node:fs'
@@ -54,7 +32,6 @@ async function waitForEval(page, fn, arg, { timeoutMs = 60000, intervalMs = 200,
 }
 
 async function main() {
-  // 1. Throwaway world: flat floor + one entity per app, spread along X so nothing overlaps.
   const entities = [{ id: 'floor', app: 'box-static', position: [0, -1, 0], config: { hx: 100, hy: 1, hz: 100 } }]
   APPS.forEach((app, i) => entities.push({ id: `verify-${app}`, app, position: [(i - (APPS.length - 1) / 2) * 4, 2, 0] }))
   const worldFile = join(SDK_ROOT, 'apps', 'world', `${WORLD_NAME}.js`)
@@ -69,10 +46,6 @@ async function main() {
   process.env.SPOINT_NO_WATCH = '1'
 
   console.log(`[verify-app] booting real server on port ${PORT} (world=${WORLD_NAME})...`)
-  // Capture the in-process server's console.error output: AppRuntime deliberately keeps the server
-  // up when an app's setup() throws (fail-loud-not-fail-hard, it logs "[AppRuntime] setup(...)" to
-  // stderr) -- so a broken app boots "successfully" and only this stderr capture distinguishes it.
-  // Live-witnessed: a deliberate setup-throw sailed through every prior assertion until this was added.
   const serverErrors = []
   const origConsoleError = console.error.bind(console)
   console.error = (...a) => { serverErrors.push(a.map(String).join(' ')); origConsoleError(...a) }
@@ -84,7 +57,6 @@ async function main() {
   let exitCode = 0
   let browser
   try {
-    // 3. Server-side assertions through the real agent HTTP surface.
     const appsResp = await fetch(`${base}/agent/apps`).then(r => r.json())
     for (const app of APPS) {
       check(`app '${app}' is registered server-side`, appsResp.ok && appsResp.apps.includes(app),
@@ -97,18 +69,11 @@ async function main() {
         `live=[${Array.from(liveIds).slice(0, 20).join(',')}]`)
     }
 
-    // 4. Real headless browser client.
     browser = await chromium.launch({ headless: true, args: ['--use-gl=swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist'] })
     const context = await browser.newContext({ viewport: { width: 640, height: 480 } })
     const page = await context.newPage()
     const pageErrors = []
     page.on('pageerror', e => pageErrors.push(String(e)))
-    // cdp-browser.mjs deliberately supports ONLY the 'pageerror' subscription (its own header says
-    // so) -- a naive `page.on('console', ...)` is silently never wired and a "zero console.error"
-    // check becomes vacuous. Live-witnessed: the gm cdp-verb witness caught a real [app-eval]
-    // console.error on this exact page that the unwired handler reported as zero. So instead the
-    // collector is injected BEFORE any page script runs (Page.addScriptToEvaluateOnNewDocument)
-    // and read back by evaluating window.__verifyConsoleErrors.
     await page._send('Page.addScriptToEvaluateOnNewDocument', { source:
       'window.__verifyConsoleErrors=[];(function(){var ce=console.error.bind(console);' +
       'console.error=function(){window.__verifyConsoleErrors.push(Array.from(arguments).map(String).join(" "));' +
@@ -122,17 +87,12 @@ async function main() {
     const playerId = await waitForEval(page, () => window.__client?.connected && window.__client?.playerId, undefined, { label: 'client connect', timeoutMs: 120000 })
     check('headless client connected with a playerId', !!playerId, `playerId=${JSON.stringify(playerId)}`)
 
-    // Client-side snapshot must stream the app entities (floor + one per app). The wanted count is
-    // passed as an evaluate arg (page-side closures cannot see this script's variables).
     await waitForEval(page, (want) => {
       const n = window.__client?.state
       const ents = n?.entities ? Object.keys(n.entities).length : (n?.entitiesArray?.length ?? 0)
       return ents >= want
     }, 1 + APPS.length, { label: 'entity streaming', timeoutMs: 30000 }).catch(() => console.warn('[verify-app] entity-count poll timed out; relying on server-side entity check'))
     const consoleErrors1 = await readConsoleErrors()
-    // Client-module witness: window.debug.appModules (client/app.js line ~3605) is the live map of
-    // app client modules the browser actually evaluated. If a verified app's module never arrived,
-    // its client-side code path is silently untested -- surface that instead of passing vacuously.
     const loadedClientApps = await page.evaluate(() =>
       window.debug?.appModules ? Array.from(window.debug.appModules.keys()) : null).catch(() => null)
     for (const app of APPS) {
@@ -140,19 +100,9 @@ async function main() {
         `loaded=[${(loadedClientApps || []).slice(0, 30).join(',')}]`)
     }
     check('zero uncaught page errors in the browser client', pageErrors.length === 0, JSON.stringify(pageErrors).slice(0, 2000))
-    // Ambient noise: the client evaluates EVERY shipped app's client module regardless of world, and
-    // several PRE-EXISTING shipped apps already console.error on main (ecs-demo's bare '@spoint/ecs'
-    // specifier, hit-feedback/rpg-tutorial setup throws, tutorial-rpg/character-animator's
-    // '/node_modules/xstate/...' specifier, a repeating [app-input] throw) -- live-witnessed on an
-    // unmodified checkout with zero agent apps involved. The gate FAILS on any error attributable to
-    // an app under verification ("[app-eval] <app>:" / "[app-setup] <app> " / any line naming one of
-    // the verified app names); ambient unrelated-app noise is counted and PRINTED but does not fail,
-    // so this gate stays deterministic for the apps it exists to verify (they belong to the separate
-    // everything-works-100-live-sweep PRD row).
     const attributable = (errs) => errs.filter(l => APPS.some(a => l.includes(a) || l.includes(`[app-eval] ${a}:`) || l.includes(`[app-setup] ${a} `)))
     check('zero console.error() calls attributable to the verified apps', attributable(consoleErrors1).length === 0, JSON.stringify(attributable(consoleErrors1)).slice(0, 2000))
 
-    // Drive real input so update/render paths actually run under load, not just at rest.
     await page.keyboard.down('KeyW')
     await new Promise(r => setTimeout(r, 1500))
     await page.keyboard.up('KeyW')
@@ -163,12 +113,7 @@ async function main() {
     check('zero uncaught page errors after input drive', pageErrors.length === 0, JSON.stringify(pageErrors).slice(0, 2000))
     check('zero console.error() calls attributable to the verified apps after input drive', attributable(consoleErrors2).length === 0, JSON.stringify(attributable(consoleErrors2)).slice(0, 2000))
 
-    // Server-side gate: an app whose setup() throws is logged (not fatal) by AppRuntime -- surface it.
     console.error = origConsoleError
-    // Pre-existing, app-independent noise (present on an unmodified main with zero agent apps;
-    // live-witnessed on the clean 5-template run): Node's own DEP0152 PerformanceEntry
-    // DeprecationWarning banner and AppLoader's sandbox-policy "blocked pattern" notices for
-    // unrelated shipped apps (npc-navigator). Everything else fails the gate.
     const realServerErrors = serverErrors.filter(l =>
       !l.startsWith('(node:') &&
       !l.includes('Use `node --trace-deprecation') &&

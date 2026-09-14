@@ -1,19 +1,4 @@
 #!/usr/bin/env node
-/**
- * flagship-demo-e2e.mjs -- E2E integration test harness for the flagship demo flow.
- *
- * Exercises the full cross-project integration:
- *   thebird window -> freddie chat -> spoint editor -> wireweave P2P room -> friend join
- *
- * This is a FIRST SLICE: the harness structure and checkpoint definitions.
- * Actual headless browser automation (Playwright) is deferred until the
- * dependent rows (freddie-spoint-bridge, wireweave-p2p-room, friend-join-link)
- * are fully implemented. This file defines the contract and can be run as a
- * smoke test for the pieces that are already in place.
- *
- * Usage: node scripts/flagship-demo-e2e.mjs
- */
-
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readFile } from 'node:fs/promises'
@@ -31,7 +16,6 @@ async function main() {
   console.log('=== Flagship Demo E2E Integration Test Harness ===')
   console.log('')
 
-  // --- Phase 1: Source code presence (smoke test) ---
   console.log('--- Phase 1: Source file presence ---')
 
   const requiredFiles = [
@@ -55,7 +39,6 @@ async function main() {
     }
   }
 
-  // --- Phase 2: Message type registration ---
   console.log('')
   console.log('--- Phase 2: Protocol message types ---')
 
@@ -67,7 +50,6 @@ async function main() {
     check('FREDDIE_MESSAGE in MessageTypes', false, e.message)
   }
 
-  // --- Phase 3: EditorShell P2P/Chat button wiring ---
   console.log('')
   console.log('--- Phase 3: EditorShell integration ---')
 
@@ -86,7 +68,6 @@ async function main() {
     check('EditorShell integration', false, e.message)
   }
 
-  // --- Phase 4: App.js callback wiring ---
   console.log('')
   console.log('--- Phase 4: App.js callback wiring ---')
 
@@ -99,7 +80,6 @@ async function main() {
     check('App.js wiring', false, e.message)
   }
 
-  // --- Phase 5: P2PRoomPanel exports ---
   console.log('')
   console.log('--- Phase 5: P2PRoomPanel exports ---')
 
@@ -117,7 +97,6 @@ async function main() {
     check('P2PRoomPanel', false, e.message)
   }
 
-  // --- Phase 6: FreddieChatPanel exports ---
   console.log('')
   console.log('--- Phase 6: FreddieChatPanel exports ---')
 
@@ -136,7 +115,6 @@ async function main() {
     check('FreddieChatPanel', false, e.message)
   }
 
-  // --- Phase 7: Node syntax check ---
   console.log('')
   console.log('--- Phase 7: Node.js syntax check ---')
 
@@ -156,7 +134,6 @@ async function main() {
     }
   }
 
-  // --- Phase 8: Future phases (deferred) ---
   console.log('')
   console.log('--- Phase 8: Deferred (requires Playwright + running server) ---')
   console.log('  These checkpoints are defined but not yet exercised:')
@@ -173,7 +150,6 @@ async function main() {
   console.log('  8.11 Send /clear -> verify entities removed')
   console.log('')
 
-  // --- Summary ---
   console.log('=== Results ===')
   console.log(`  Passed: ${PASS.length}`)
   console.log(`  Failed: ${FAIL.length}`)

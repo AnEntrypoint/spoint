@@ -1,26 +1,4 @@
 #!/usr/bin/env node
-// terrain-camera-stress-gate.mjs -- real Playwright regression gate for the terrain-world-real-
-// chromium-crash-under-camera-movement finding: a real renderer-process crash was reproduced under
-// sustained, aggressive camera movement (large-amplitude, fast, held-drag pan) on a terrain+vegetation+
-// cluster-LOD world (tps-game), root-caused to unbounded simultaneous geometry/texture allocation and
-// fixed via terrain-camera-burst-geometry-texture-backpressure (commit e2225eed). Every CI-wired E2E gate
-// before this one (scripts/e2e-ci.mjs) exclusively exercised e2e-ci-arena, a deliberately terrain-free
-// arena that never routes through the fixed code path at all -- this script closes that coverage gap,
-// per PRD row ci-e2e-gate-never-exercises-terrain-world-camera-motion.
-//
-// Not a jest/mocha/vitest harness, no *.test.js files -- a runnable operational script whose console
-// PASS/FAIL output IS the live witness, matching e2e-ci.mjs's own no-test-files-ever discipline.
-//
-// Assertions:
-//  1. The page survives the aggressive camera-pan sequence without a browser-process crash ("Target
-//     crashed" or equivalent Playwright page-closed error).
-//  2. Post-pan, the page is still responsive (a page.evaluate round-trip succeeds).
-//  3. renderer.info resource counts (geometries/textures) stay within a sane bound relative to their
-//     pre-pan baseline -- a regression that reintroduces unbounded burst allocation should fail this
-//     even if it happens not to crash on a given CI runner's exact timing.
-//
-// Usage: node scripts/terrain-camera-stress-gate.mjs
-
 import { chromium } from './lib/cdp-browser.mjs'
 
 const PORT = 20000 + Math.floor(Math.random() * 20000)
@@ -97,13 +75,6 @@ async function main() {
       }).catch(() => null)
       console.log('[terrain-camera-stress] post-pan resource counts:', JSON.stringify(after))
 
-      // Bound generously above what this exact gate's own live baseline run measured after the fix
-      // landed (176 geometries / 130 textures against the full tps-game world's real content -- higher
-      // than the fix's own narrower witness scenario, since this gate's world/asset load is heavier) --
-      // this is a regression trip-wire against UNBOUNDED growth reappearing, not a tight perf budget; a
-      // real reintroduction of the pre-fix bug crashed the page outright well before hitting any count,
-      // so these caps exist as a second line of defense in case a future regression degrades gracefully
-      // instead of crashing.
       const GEOMETRY_CAP = 400
       const TEXTURE_CAP = 400
       const boundedGeometries = after && Number.isFinite(after.geometries) && after.geometries < GEOMETRY_CAP

@@ -1,16 +1,3 @@
-// jolt-arch-determinism-probe.mjs -- cross-CPU-architecture Jolt WASM bit-exactness probe.
-//
-// Runs a deterministic, scripted physics scenario through the real jolt-physics wasm-compat
-// build (the same single-threaded build src/physics/World.js imports) and prints a checksum of
-// every body's final position+rotation to stdout as JSON. Zero real-time/random inputs: body
-// layout comes from a fixed integer hash, dt/collisionSteps are fixed constants, tick count is
-// fixed -- so two runs on genuinely different CPU architectures (x64 vs arm64) produce either the
-// identical checksum (float64 IEEE-754 arithmetic is bit-reproducible across conforming
-// architectures) or a real divergence worth knowing about.
-//
-// Usage: node scripts/jolt-arch-determinism-probe.mjs
-// Output: a single JSON line to stdout: {arch, platform, nodeVersion, bodies, ticks, checksum, samples}
-
 import Jolt from 'jolt-physics/wasm-compat'
 
 const BODY_COUNT = 24
@@ -18,7 +5,6 @@ const TICKS = 600
 const DT = 1 / 60
 const COLLISION_STEPS = 2
 
-// Deterministic integer hash (no Math.random) -- same sequence on every architecture.
 function hash32(n) {
   let h = n | 0
   h = Math.imul(h ^ (h >>> 16), 0x45d9f3b)
@@ -56,7 +42,6 @@ async function main() {
   const physicsSystem = jolt.GetPhysicsSystem()
   const bodyInterface = physicsSystem.GetBodyInterface()
 
-  // Static ground plane.
   const groundShape = new J.BoxShape(new J.Vec3(50, 1, 50), 0.05, undefined)
   const groundSettings = new J.BodyCreationSettings(
     groundShape, new J.RVec3(0, -1, 0), new J.Quat(0, 0, 0, 1),
@@ -75,9 +60,6 @@ async function main() {
       shape, new J.RVec3(x, y, z), new J.Quat(0, 0, 0, 1),
       J.EMotionType_Dynamic, 1
     )
-    // CreateBody (not CreateAndAddBody) returns a real Body object whose own GetID()
-    // yields a fresh BodyID per call -- matches src/physics/World.js's own addBody
-    // pattern, avoiding any embind shared-return-value hazard.
     const body = bodyInterface.CreateBody(bs)
     bodyInterface.AddBody(body.GetID(), J.EActivation_Activate)
     bodies.push(body)
@@ -87,11 +69,6 @@ async function main() {
     jolt.Step(DT, COLLISION_STEPS)
   }
 
-  // GetPositionAndRotation's out-param convention (not the separate GetPosition/GetRotation
-  // getters) -- matches World.js's own safe pattern. Calling GetPosition then GetRotation
-  // separately for the same body is a real, documented embind shared-return-buffer hazard
-  // (Jolt's by-value getters can return a reference into an internal reused temp buffer);
-  // out-param writes into caller-owned RVec3/Quat scratch avoids it entirely.
   const outP = new J.RVec3()
   const outR = new J.Quat()
   const samples = []
@@ -103,7 +80,6 @@ async function main() {
   J.destroy(outP)
   J.destroy(outR)
 
-  // Checksum: fold every float64's raw bit pattern via a DataView, XOR-accumulate into a BigInt.
   const buf = new ArrayBuffer(8)
   const dv = new DataView(buf)
   let checksum = 0n
@@ -113,7 +89,7 @@ async function main() {
       const lo = BigInt(dv.getUint32(0, true))
       const hi = BigInt(dv.getUint32(4, true))
       checksum ^= (hi << 32n) | lo
-      checksum = ((checksum << 1n) | (checksum >> 63n)) & 0xffffffffffffffffn // rotate to spread bits
+      checksum = ((checksum << 1n) | (checksum >> 63n)) & 0xffffffffffffffffn
     }
   }
 

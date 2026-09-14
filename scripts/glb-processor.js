@@ -37,7 +37,6 @@ export function detectDraco(buf) {
   } catch { return false }
 }
 
-// Patch textures missing source so gltf-transform doesn't crash on EXT_texture_webp-only textures
 function patchTextureSources(buf) {
   const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
   const jsonLen = view.getUint32(12, true)
@@ -69,10 +68,6 @@ function patchTextureSources(buf) {
   return out
 }
 
-// Exported for scripts/prep-edge-collider-assets.mjs (edge-cf-draco-glb-collider-not-yet-edge-safe):
-// a real build-time-only Draco->plain re-encode, isolated from processGLB's texture-downscale
-// concerns so an edge/DO asset-prep pass can strip JUST the Draco extension without also touching
-// texture size/format (that stays optimize-models.js's job for the gh-pages static-asset path).
 export async function stripDraco(buf) {
   const io = await getIO()
   const patched = patchTextureSources(buf)
@@ -90,7 +85,6 @@ export async function processGLB(inputBuf) {
 
   const hasDraco = detectDraco(buf)
 
-  // Strip Draco first — must happen before texture rewrite since bufferView indices change
   if (hasDraco) buf = await stripDraco(buf)
 
   const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength)
@@ -127,18 +121,6 @@ export async function processGLB(inputBuf) {
   }
 
   const needsTextureFix = (json.textures || []).some(t => t.extensions?.EXT_texture_webp?.source !== undefined || t.source === undefined)
-  // Enforcement gate (ktx2-basis-enforcement-glb-processor): a GLB carrying ANY convertible image
-  // (webp/png/jpeg) must always reach the applyKtx2() bake below, even when neither a texture
-  // downscale nor a webp/missing-source fix nor a Draco strip was needed -- the previous early
-  // returns here (`replacements.size===0 && !needsTextureFix` with no draco -> null, i.e. "already
-  // optimized, skip entirely") silently bypassed KTX2/BASIS compression for the common case of a
-  // GLB whose only outstanding work IS the KTX2 bake, live-reproduced with a synthetic minimal GLB
-  // (64x64 PNG, valid source, no draco): processGLB returned null, meaning optimize-models.js (the
-  // offline dist bake this script drives) would ship that GLB with zero KTX2/BASIS compression even
-  // though the live-serve path (GLBTransformer.transformGLB) unconditionally calls the same
-  // applyKtx2 and would have compressed it. hasConvertibleImage below is genuinely independent of
-  // hasDraco/needsTextureFix/replacements so this only widens the enforcement gate, never narrows
-  // any existing behavior.
   const hasConvertibleImage = images.some(img => CONVERTIBLE.has(img.mimeType))
   if (replacements.size === 0 && !needsTextureFix && !hasDraco && !hasConvertibleImage) return null
 
@@ -214,11 +196,6 @@ export async function processGLB(inputBuf) {
     const r = await applyKtx2(out)
     if (r) return r
   } catch (e) {
-    // Not silently swallowed: applyKtx2 itself already falls back to plain-PNG per-image on any
-    // ktx-binary-unavailable/encode failure (imageToKtx2's own try/catch, see GLBKtx2.js), so a
-    // throw HERE means something upstream of that per-image fallback broke (a JSON/bufferView
-    // repack bug, not a missing `ktx` binary) -- worth a visible warning so CI doesn't quietly ship
-    // an unenforced GLB.
     console.warn('[glb-processor] applyKtx2 failed, shipping without KTX2/BASIS:', e.message)
   }
   return out
