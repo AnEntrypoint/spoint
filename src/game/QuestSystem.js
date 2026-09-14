@@ -3,6 +3,8 @@ export function defineQuestSystem(spec = {}, appCtx) {
 
   const quests = (spec.quests && typeof spec.quests === 'object') ? spec.quests : {}
   const channel = spec.channel || 'quests'
+  const statsSystem = () => spec.stats || appCtx.progression || null
+  const inventorySystem = () => spec.inventory || appCtx.inventory || null
 
   for (const [id, def] of Object.entries(quests)) {
     if (!def || typeof def !== 'object') throw new Error(`[quest] quest "${id}" must be an object`)
@@ -52,9 +54,8 @@ export function defineQuestSystem(spec = {}, appCtx) {
       if (!quests[questId]) return false
 
       const existing = data.get(questId)
-      if (existing && (existing.state === 'active' || existing.state === 'completed')) {
-        return false
-      }
+      const replayable = existing?.state === 'claimed' && quests[questId].repeatable === true
+      if (existing && !replayable) return false
 
       const questDef = quests[questId]
       const progress = questDef.objectives.map(() => 0)
@@ -79,29 +80,29 @@ export function defineQuestSystem(spec = {}, appCtx) {
       const questDef = quests[questId]
       if (!questDef || !questDef.objectives[objectiveIndex]) return false
 
+      if (!(typeof amount === 'number' && Number.isFinite(amount)) || amount <= 0) return false
+
       const objective = questDef.objectives[objectiveIndex]
-      const isComplete = objective.count && quest.progress[objectiveIndex] >= objective.count
+      const target = objective.count || 1
+      if (quest.progress[objectiveIndex] >= target) return false
 
-      if (isComplete) return false
-
-      quest.progress[objectiveIndex] = Math.min(objective.count || 1, quest.progress[objectiveIndex] + amount)
+      quest.progress[objectiveIndex] = Math.min(target, quest.progress[objectiveIndex] + amount)
 
       _fire('onObjectiveProgress', {
         playerId: String(pid),
         questId,
         objectiveIndex,
         progress: quest.progress[objectiveIndex],
-        target: objective.count || 1,
+        target,
       })
 
       _pushToClient(pid, questId)
 
-      const allComplete = questDef.objectives.every((obj, i) => {
-        return obj.count ? quest.progress[i] >= obj.count : quest.progress[i] > 0
-      })
+      const allComplete = questDef.objectives.every((obj, i) => quest.progress[i] >= (obj.count || 1))
 
       if (allComplete) {
         quest.state = 'complete'
+        quest.completedAt = Date.now()
         _fire('onQuestComplete', {
           playerId: String(pid),
           questId,
@@ -118,7 +119,6 @@ export function defineQuestSystem(spec = {}, appCtx) {
       const quest = data.get(questId)
 
       if (!quest || quest.state !== 'complete') return null
-      if (quest.state === 'claimed') return null
 
       const questDef = quests[questId]
       if (!questDef) return null
@@ -127,19 +127,22 @@ export function defineQuestSystem(spec = {}, appCtx) {
       quest.state = 'claimed'
       quest.claimedAt = Date.now()
 
-      if (rewards.xp && appCtx.progression?.addXP) {
-        appCtx.progression.addXP(pid, rewards.xp)
+      const stats = statsSystem()
+      const inventory = inventorySystem()
+
+      if (rewards.xp && stats?.addXP) {
+        stats.addXP(pid, rewards.xp)
       }
 
-      if (rewards.items && appCtx.inventory) {
+      if (rewards.items && inventory?.add) {
         for (const [itemId, count] of Object.entries(rewards.items)) {
-          appCtx.inventory.add(pid, itemId, count)
+          inventory.add(pid, itemId, count)
         }
       }
 
-      if (rewards.statBonuses && appCtx.stats?.applyBonus) {
+      if (rewards.statBonuses && stats?.applyBonus) {
         for (const [stat, bonus] of Object.entries(rewards.statBonuses)) {
-          appCtx.stats.applyBonus(pid, stat, bonus)
+          stats.applyBonus(pid, stat, bonus)
         }
       }
 

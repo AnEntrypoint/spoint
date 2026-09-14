@@ -43,6 +43,7 @@ export function defineStatsSystem(spec = {}, appCtx) {
         xp: startXP,
         equipment: new Map(),
         loadouts: new Map(),
+        bonuses: new Map(),
       }
       _playerData.set(key, data)
     }
@@ -72,6 +73,7 @@ export function defineStatsSystem(spec = {}, appCtx) {
       defense: stats.defense,
       speed: stats.speed,
       equipment,
+      bonuses: statsSystem.getBonuses(pid),
     })
   }
 
@@ -105,6 +107,21 @@ export function defineStatsSystem(spec = {}, appCtx) {
       return true
     },
 
+    applyBonus(pid, stat, amount) {
+      if (!Object.prototype.hasOwnProperty.call(baseStats, stat)) return false
+      if (!(typeof amount === 'number' && Number.isFinite(amount)) || amount === 0) return false
+
+      const bonuses = _getPlayerData(pid).bonuses
+      bonuses.set(stat, (bonuses.get(stat) || 0) + amount)
+
+      _pushToClient(pid)
+      return true
+    },
+
+    getBonuses(pid) {
+      return Object.fromEntries(_getPlayerData(pid).bonuses)
+    },
+
     getLevel(pid) {
       return _getPlayerData(pid).level
     },
@@ -130,6 +147,10 @@ export function defineStatsSystem(spec = {}, appCtx) {
             stats[stat] = (stats[stat] || 0) + bonus
           }
         }
+      }
+
+      for (const [stat, bonus] of data.bonuses) {
+        stats[stat] = (stats[stat] || 0) + bonus
       }
 
       return {
@@ -239,6 +260,7 @@ export function defineStatsSystem(spec = {}, appCtx) {
           level: playerData.level,
           xp: playerData.xp,
           equipment: Object.fromEntries(playerData.equipment),
+          bonuses: Object.fromEntries(playerData.bonuses),
           loadouts: Object.fromEntries(
             [...playerData.loadouts].map(([name, loadout]) => [name, { ...loadout }])
           ),
@@ -257,6 +279,15 @@ export function defineStatsSystem(spec = {}, appCtx) {
           xp: Math.max(0, playerData.xp || 0),
           equipment: new Map(),
           loadouts: new Map(),
+          bonuses: new Map(),
+        }
+
+        if (playerData.bonuses && typeof playerData.bonuses === 'object') {
+          for (const [stat, bonus] of Object.entries(playerData.bonuses)) {
+            if (Object.prototype.hasOwnProperty.call(baseStats, stat) && typeof bonus === 'number' && Number.isFinite(bonus)) {
+              restored.bonuses.set(stat, bonus)
+            }
+          }
         }
 
         if (playerData.equipment && typeof playerData.equipment === 'object') {

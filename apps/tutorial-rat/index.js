@@ -1,47 +1,21 @@
-export const server = {
-  setup(ctx) {
-    ctx.state = {
-      health: 10,
-      maxHealth: 10,
-      alive: true,
-    }
+import { defineTutorialFoe } from '../_lib/tutorial-rpg-kit.js'
 
-    ctx.physics.setBodyType('dynamic')
-    ctx.physics.setMass(5)
-  },
-
-  tick(ctx, dt) {
-    if (!ctx.state.alive) return
-
-    const vel = ctx.entity.velocity
-    if (Math.random() < 0.02) {
-      const angle = Math.random() * Math.PI * 2
-      const speed = 5
-      ctx.physics.setVelocity([Math.cos(angle) * speed, vel[1], Math.sin(angle) * speed])
-    }
-  },
-
-  onMessage(ctx, msg) {
-    if (msg.type === 'damage') {
-      if (!ctx.state.alive) return
-
-      ctx.state.health = Math.max(0, ctx.state.health - (msg.amount || 5))
-
-      if (ctx.state.health <= 0) {
-        ctx.state.alive = false
-        ctx.entity.destroy()
-
-        ctx.world.sendToEntity('tutorial-world', {
-          type: 'ratKilled',
-          playerId: msg.playerId,
-        })
-      }
-    }
-  },
-}
-
-export const client = {
-  mount(engine, options) {
-    console.log('[TutorialRat] Spawned')
+export default {
+  server: {
+    setup(ctx) {
+      ctx._foe = defineTutorialFoe(ctx, {
+        kind: 'rat',
+        name: 'Rat',
+        maxHp: 10,
+        look: { mesh: 'box', sx: 0.35, sy: 0.3, sz: 0.6, color: 0x6b5a4a, roughness: 0.9 },
+        halfExtents: [0.175, 0.15, 0.3],
+        mass: 5,
+        reach: 2.5,
+        wanderSpeed: 1.2,
+        leashRadius: 5,
+        wanderSeconds: 2,
+      })
+    },
+    onInteract(ctx, player) { ctx._foe.onInteract(ctx, player) },
   },
 }

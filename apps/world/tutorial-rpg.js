@@ -77,10 +77,16 @@ export default {
       position: [0, 0, 0],
       app: 'rpg-tutorial',
       config: {}
+    },
+    {
+      id: 'tutorial-rpg',
+      position: [0, 0, 0],
+      app: 'tutorial-rpg',
+      config: {}
     }
   ],
 
-  placeableApps: ['goblin', 'gold-coin', 'mini-boss', 'final-boss'],
+  placeableApps: ['goblin', 'gold-coin', 'mini-boss', 'final-boss', 'tutorial-rpg-world', 'tutorial-rat', 'tutorial-npc', 'tutorial-boss', 'tutorial-herb', 'tutorial-marker'],
 
   spawnPoint: [0, 2, 25]
 }

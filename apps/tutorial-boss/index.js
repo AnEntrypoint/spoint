@@ -1,53 +1,26 @@
-export const server = {
-  setup(ctx) {
-    ctx.state = {
-      health: 100,
-      maxHealth: 100,
-      alive: true,
-      active: ctx.entity.custom?.active || false,
-    }
+import { defineTutorialFoe, TUTORIAL_BUS } from '../_lib/tutorial-rpg-kit.js'
 
-    ctx.physics.setBodyType('dynamic')
-    ctx.physics.setMass(50)
-  },
-
-  tick(ctx, dt) {
-    if (!ctx.state.alive || !ctx.state.active) return
-
-    const vel = ctx.entity.velocity
-    if (Math.random() < 0.01) {
-      const angle = Math.random() * Math.PI * 2
-      const speed = 8
-      ctx.physics.setVelocity([Math.cos(angle) * speed, vel[1], Math.sin(angle) * speed])
-    }
-  },
-
-  onMessage(ctx, msg) {
-    if (msg.type === 'activate') {
-      ctx.state.active = true
-      console.log('[TutorialBoss] Activated!')
-    }
-
-    if (msg.type === 'damage') {
-      if (!ctx.state.alive || !ctx.state.active) return
-
-      ctx.state.health = Math.max(0, ctx.state.health - (msg.amount || 10))
-
-      if (ctx.state.health <= 0) {
-        ctx.state.alive = false
-        ctx.entity.destroy()
-
-        ctx.world.sendToEntity('tutorial-world', {
-          type: 'beastDefeated',
-          playerId: msg.playerId,
-        })
-      }
-    }
-  },
-}
-
-export const client = {
-  mount(engine, options) {
-    console.log('[TutorialBoss] Spawned')
+export default {
+  server: {
+    setup(ctx) {
+      ctx._foe = defineTutorialFoe(ctx, {
+        kind: 'shadow-beast',
+        name: 'Shadow Beast',
+        maxHp: 100,
+        look: { mesh: 'box', sx: 1.4, sy: 2.2, sz: 1.4, color: 0x2a1840, emissive: 0x5a1a8a, emissiveIntensity: 0.35 },
+        halfExtents: [0.7, 1.1, 0.7],
+        mass: 50,
+        reach: 3.5,
+        wanderSpeed: 1.5,
+        leashRadius: 6,
+        wanderSeconds: 3,
+        awake: false,
+        dormantLabel: 'Shadow Beast (slumbering)',
+        dormantPrompt: 'The Shadow Beast slumbers until the Elder sends you',
+      })
+      ctx.bus.on(TUTORIAL_BUS.bossState, ({ data }) => ctx._foe.setAwake(!!data?.awake))
+      ctx.bus.emit(TUTORIAL_BUS.bossQuery, { entityId: ctx.entity.id })
+    },
+    onInteract(ctx, player) { ctx._foe.onInteract(ctx, player) },
   },
 }
