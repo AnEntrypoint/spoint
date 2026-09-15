@@ -160,7 +160,7 @@ export class PredictionEngine {
   onServerSnapshot(snapshot, tick) {
     if (!Array.isArray(snapshot.players)) return
     for (const serverPlayer of snapshot.players) {
-      if (serverPlayer.id === this.localPlayerId) {
+      if (serverPlayer && serverPlayer.id === this.localPlayerId) {
         if (!isValidPlayerSnapshot(serverPlayer)) continue
         const prevX = this.lastServerState.position[0], prevZ = this.lastServerState.position[2]
         this._copyState(serverPlayer, this.lastServerState)

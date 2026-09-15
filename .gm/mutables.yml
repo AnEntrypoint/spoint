@@ -1599,3 +1599,9 @@
   session_id: fade-sil-1
   status: witnessed
   witness_evidence: 'Fixed in src/netcode/PhysicsIntegration.js: constructor now validates capsuleHalfHeight itself (finite and >0, falling back to 0.9) BEFORE computing/validating ankleClearance against it, so _physicalHalfHeight is guaranteed finite and positive regardless of which of the two contributing fields is malformed. Re-witnessed live (exec_js-fade-sil-1-17456-1789457392310-481): negativeCapsuleHalfHeight={capsuleHalfHeight:0.9,physicalHalfHeight:1} (was previously physicalHalfHeight:-5, an unguarded pass-through), nanCapsuleHalfHeight same correct clamp, normalStillCorrect=0.73 (unchanged, no regression to the intended 0.63+0.1 case), and joltNeverSeesNegativeHeight=true confirmed via a FakePhysicsWorld capturing the actual height argument addPlayerCollider passes to addPlayerCharacter.'
+- id: decide-adversarial-round2-null-element-gap
+  subject: Second adversarial review (independent, blind reviewer, re-checking commit 468a9ed2's own fix) found the players-array validation still dereferenced serverPlayer.id before checking serverPlayer was truthy, crashing on a null/undefined array element -- currently unreachable via the sole production caller (BaseClient.js always constructs a single truthy-guaranteed element) but a real, general totality gap against the function's own broader claim.
+  obligation_kind: postcondition
+  session_id: fade-sil-1
+  status: witnessed
+  witness_evidence: 'Fixed in src/client/PredictionEngine.js: onServerSnapshot''s loop now guards `serverPlayer &&` before reading `.id`. Re-witnessed live via exec_js against the exact reviewer reproductions: nullElement=''ok'', undefinedElement=''ok'' (no throw), nullThenValid=''ok'' with validEntryStillAppliedAfterNull=true (a real player entry later in the same array still applies correctly after skipping a null element), normalStillApplies=true (no regression to the single-element production shape).'
