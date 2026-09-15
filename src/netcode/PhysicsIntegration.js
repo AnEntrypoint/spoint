@@ -18,8 +18,8 @@ export class PhysicsIntegration {
       ankleClearance: config.ankleClearance ?? 0.1,
       playerMass: config.playerMass ?? 120
     }
-    const ankleClearanceUnsafe = !Number.isFinite(this.config.ankleClearance) || this.config.capsuleHalfHeight + this.config.ankleClearance <= 0
-    if (ankleClearanceUnsafe) this.config.ankleClearance = 0
+    if (!Number.isFinite(this.config.capsuleHalfHeight) || this.config.capsuleHalfHeight <= 0) this.config.capsuleHalfHeight = 0.9
+    if (!Number.isFinite(this.config.ankleClearance) || this.config.capsuleHalfHeight + this.config.ankleClearance <= 0) this.config.ankleClearance = 0
     this._physicalHalfHeight = this.config.capsuleHalfHeight + this.config.ankleClearance
     this.playerBodies = new Map()
     this._crouchStates = new Map()

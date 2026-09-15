@@ -7,6 +7,14 @@ const INPUT_HISTORY_HARD_CAP = INPUT_HISTORY_SOFT_CAP * 2
 const WEDGE_POS_EPS_SQ = 1e-8
 const WEDGE_VEL_EPS_SQ = 1e-6
 
+function isFiniteVec(v, len) {
+  return Array.isArray(v) && v.length === len && v.every(Number.isFinite)
+}
+
+function isValidPlayerSnapshot(p) {
+  return !!p && isFiniteVec(p.position, 3) && isFiniteVec(p.rotation, 4) && isFiniteVec(p.velocity, 3)
+}
+
 class RingBuffer {
   constructor(capacity = 512) {
     this._buf = new Array(capacity)
@@ -150,8 +158,10 @@ export class PredictionEngine {
   }
 
   onServerSnapshot(snapshot, tick) {
+    if (!Array.isArray(snapshot.players)) return
     for (const serverPlayer of snapshot.players) {
       if (serverPlayer.id === this.localPlayerId) {
+        if (!isValidPlayerSnapshot(serverPlayer)) continue
         const prevX = this.lastServerState.position[0], prevZ = this.lastServerState.position[2]
         this._copyState(serverPlayer, this.lastServerState)
         const dx = this.lastServerState.position[0] - prevX, dz = this.lastServerState.position[2] - prevZ
