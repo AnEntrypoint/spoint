@@ -3,7 +3,7 @@ import { applyMovement, DEFAULT_MOVEMENT } from '../shared/movement.js'
 
 const PRE_HANDSHAKE_TICK_RATE = 60
 const INPUT_HISTORY_SOFT_CAP = 256
-const INPUT_HISTORY_HARD_CAP = INPUT_HISTORY_SOFT_CAP * 2
+const MAX_TRACKED_CONNECTION_DEGRADATION_MS = 10000
 const WEDGE_POS_EPS_SQ = 1e-8
 const WEDGE_VEL_EPS_SQ = 1e-6
 
@@ -88,6 +88,10 @@ export class PredictionEngine {
 
   setTickRate(rate) { if (rate > 0) { this.tickRate = rate; this.tickDuration = 1000 / rate } }
 
+  inputHistoryHardCap() {
+    return Math.max(INPUT_HISTORY_SOFT_CAP + 1, Math.ceil(MAX_TRACKED_CONNECTION_DEGRADATION_MS / this.tickDuration))
+  }
+
   init(playerId, initialState = {}) {
     this.localPlayerId = playerId
     const pos = initialState.position || [0, 0, 0]
@@ -108,7 +112,8 @@ export class PredictionEngine {
         this.inputHistory.at(0).sequence <= this._lastAckedSeq) {
       this.inputHistory.shift()
     }
-    while (this.inputHistory.length > INPUT_HISTORY_HARD_CAP) {
+    const hardCap = this.inputHistoryHardCap()
+    while (this.inputHistory.length > hardCap) {
       this.inputHistory.shift()
     }
     this.predict(input)
