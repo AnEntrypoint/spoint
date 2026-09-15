@@ -1,4 +1,4 @@
-import { findSpawnPoints, getAvailableSpawnPoint, handleFire, loadScoreboard, flushScoreboard, persistPlayerStat } from './server.js'
+import { findSpawnPoints, getAvailableSpawnPoint, groundSnapCandidate, handleFire, loadScoreboard, flushScoreboard, persistPlayerStat } from './server.js'
 import { collectSpawnPoints } from '../spawn-point/index.js'
 import { POWERUP_DEFS, POWERUP_RESPAWN_MS, POWERUP_PICKUP_RADIUS, EMOTE_CLIPS, spawnPowerup } from './shared.js'
 
@@ -12,7 +12,8 @@ export const tpsGameServer = {
     ctx.state.config = { respawnTime: 1.5, health: 100, damagePerHit: 20, headshotMultiplier: 2.5, headshotZone: 0.7, hitKnockback: 4, shootKnockback: 2, magazineSize: 30, reloadTime: 2000, spawnInvulnMs: 1500 }
     ctx.state.invuln = new Map()
     const placedSpawns = collectSpawnPoints(ctx)
-    ctx.state.spawnPoints = placedSpawns.length > 0 ? placedSpawns : findSpawnPoints(ctx)
+    const rawSpawns = placedSpawns.length > 0 ? placedSpawns : findSpawnPoints(ctx)
+    ctx.state.spawnPoints = rawSpawns.map(sp => groundSnapCandidate(ctx, sp) || sp)
     ctx.state.playerStats = new Map()
     await loadScoreboard(ctx)
     ctx.onShutdown(() => flushScoreboard(ctx))

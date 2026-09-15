@@ -8,14 +8,17 @@ import { clearOutlierWindow } from '../netcode/OutlierDetector.js'
 import { createNostrAuthServer } from './NostrAuthServer.js'
 
 const SPAWN_SNAP_RAY_START_ABOVE = 20
-const SPAWN_SNAP_RAY_LENGTH = 40
+const SPAWN_SNAP_RAY_LENGTH = 2000
 const SPAWN_SNAP_GROUND_CLEARANCE = 2
 const MAX_TRACKED_RTT_MS = 10000
 
 function groundSnapSpawnPoint(ctx, sp) {
   if (!ctx.physics || typeof ctx.physics.raycast !== 'function') return sp
-  const hit = ctx.physics.raycast([sp[0], sp[1] + SPAWN_SNAP_RAY_START_ABOVE, sp[2]], [0, -1, 0], SPAWN_SNAP_RAY_LENGTH)
+  const liveTerrainY = typeof ctx.physics.terrainHeightAt === 'function' ? ctx.physics.terrainHeightAt(sp[0], sp[2]) : null
+  const heightHint = Number.isFinite(liveTerrainY) ? Math.max(sp[1], liveTerrainY) : sp[1]
+  const hit = ctx.physics.raycast([sp[0], heightHint + SPAWN_SNAP_RAY_START_ABOVE, sp[2]], [0, -1, 0], SPAWN_SNAP_RAY_LENGTH)
   if (hit && hit.hit && Number.isFinite(hit.position?.[1])) return [sp[0], hit.position[1] + SPAWN_SNAP_GROUND_CLEARANCE, sp[2]]
+  if (Number.isFinite(liveTerrainY)) return [sp[0], liveTerrainY + SPAWN_SNAP_GROUND_CLEARANCE, sp[2]]
   return sp
 }
 

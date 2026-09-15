@@ -57,6 +57,19 @@ export function findSpawnPoints(ctx) {
   return valid
 }
 
+const SPAWN_SNAP_START_ABOVE = 20
+const SPAWN_SNAP_RAY_LENGTH = 2000
+const SPAWN_GROUND_CLEARANCE = 2
+
+export function groundSnapCandidate(ctx, sp) {
+  const liveTerrainY = typeof ctx.terrainHeightAt === 'function' ? ctx.terrainHeightAt(sp[0], sp[2]) : null
+  const heightHint = Number.isFinite(liveTerrainY) ? Math.max(sp[1], liveTerrainY) : sp[1]
+  const hit = ctx.raycast([sp[0], heightHint + SPAWN_SNAP_START_ABOVE, sp[2]], [0, -1, 0], SPAWN_SNAP_RAY_LENGTH)
+  if (hit.hit && Number.isFinite(hit.position?.[1])) return [sp[0], hit.position[1] + SPAWN_GROUND_CLEARANCE, sp[2]]
+  if (Number.isFinite(liveTerrainY)) return [sp[0], liveTerrainY + SPAWN_GROUND_CLEARANCE, sp[2]]
+  return null
+}
+
 export function getAvailableSpawnPoint(ctx, spawnPoints) {
   const MIN_SAFE_DISTANCE = 25
   const activePlayers = ctx.players.getAll().filter(p => p.state && !ctx.state.respawning.has(p.id))
@@ -75,8 +88,8 @@ export function getAvailableSpawnPoint(ctx, spawnPoints) {
     return scored.map(s => s.sp)
   })()
   for (const sp of [...candidates, [0, 15, 0]]) {
-    const hit = ctx.raycast([sp[0], sp[1] + 10, sp[2]], [0, -1, 0], 15)
-    if (hit.hit && hit.position[1] > -3) return [sp[0], hit.position[1] + 2, sp[2]]
+    const snapped = groundSnapCandidate(ctx, sp)
+    if (snapped) return snapped
   }
   return candidates[0] || [0, 15, 0]
 }
