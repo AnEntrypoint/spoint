@@ -37,3 +37,4 @@ data/models/
 dist/
 codebase-vision-*/
 *.gmwitnesslive-check*.png
+server*.log
