@@ -89,7 +89,9 @@ export class PredictionEngine {
   setTickRate(rate) { if (rate > 0) { this.tickRate = rate; this.tickDuration = 1000 / rate } }
 
   inputHistoryHardCap() {
-    return Math.max(INPUT_HISTORY_SOFT_CAP + 1, Math.ceil(MAX_TRACKED_CONNECTION_DEGRADATION_MS / this.tickDuration))
+    const floor = INPUT_HISTORY_SOFT_CAP + 1
+    if (!Number.isFinite(this.tickDuration) || this.tickDuration <= 0) return floor
+    return Math.max(floor, Math.ceil(MAX_TRACKED_CONNECTION_DEGRADATION_MS / this.tickDuration))
   }
 
   init(playerId, initialState = {}) {

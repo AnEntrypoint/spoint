@@ -89,6 +89,10 @@ import { createDecalSystem } from './core/DecalSystem.js'
 import { BIOME_PRESETS } from '/src/terrain/BiomeOverride.js'
 import { ErrorTelemetry } from './core/ErrorTelemetry.js'
 import { installDevTools } from './core/DevToolsIntegration.js'
+import { createRequire } from 'module';
+
+var require = createRequire(import.meta.url);
+var module = { exports: {} };
 
 const _dbgTerrain = dbg('terrain')
 const _dbgNet = dbg('net')

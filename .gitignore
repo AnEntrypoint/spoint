@@ -38,3 +38,4 @@ dist/
 codebase-vision-*/
 *.gmwitnesslive-check*.png
 server*.log
+config.bat
