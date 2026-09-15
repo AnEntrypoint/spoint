@@ -1478,21 +1478,45 @@
   text: 'Screenshot equality is NOT a usable pass/fail signal for this client on its own: async vegetation/rock streaming reaches a different state on every run, so two captures of the SAME code differ by 13-59% of pixels. Any "no visual loss" claim must diff against a control (the same tree captured twice) and compare structural invariants (renderer.info.render.calls, scene mesh counts, per-system instance totals) which ARE stable run to run. This is how the scenery/cluster regression was caught and how the revert was proven clean.'
 - id: m-cold-server-boot-blocks-live-witness
   text: Attempted to boot a real spoint server (node server.js, tps-game world) this session to live-witness the grass-flicker/churn PRD rows via the cdp verb. Confirmed the server's HTTP listen() is gated (src/sdk/ServerBoot.js:229-234) behind Promise.all(envResolved.map(ensureProgressive)) -- an await on ALL worldDef entities with custom._interior finishing their environment GLB bake. tps-game prewarms 17+ map GLBs sequentially/4-at-a-time (each 10-40s), so cold boot to first-listen took 2+ minutes and was still not ready when killed. This blocks any same-session live browser witness on a cold checkout without either (a) a warm dist/cache from a prior run, or (b) budgeting several minutes purely for boot before any verification dispatch. Left several PRD rows (grass-flickering-on-off, grass-chunk-churn-flicker, everything-works-100-live-sweep, thebird-host-editor-full-wiring, models-lit-but-flat-missing-texture-after-long-background-stall) pending rather than force-closed, since their acceptance criteria require live witness this constraint prevented.
-  status: unknown
+  status: witnessed
+  witness_evidence: 'No longer blocks witnessing (2026-09-14): tps-game servers started this session on ports 3001, 3002, 3016 and 3018 each reached ''[server] http://localhost:<port> @ 64 TPS'' inside the polling wait (well under a minute on a warm bake cache), and live browser witnesses ran against them all session (fade fix, sculpt, vegetation, fracture). The prewarm gate still exists in ServerBoot but is fast once bakes are cached.'
 - id: fade-is-day-night-cycle
   subject: 'Hypothesis: content-fades-to-silhouette is tps-game timeOfDay (dayLengthSec 600, startFraction 0.5) driving sunset at t=0.75 = 150s; KEYFRAMES deep-night ambient 0x0d1428@0.22 leaves models near-black. Unwitnessed until live elevationDeg + screenshot sequence over 3-4 minutes confirms.'
-  status: unknown
+  status: witnessed
   SESSION_ID: fade-sil-1
+  witness_evidence: 'Witnessed live (off-screen headed Chrome, ANGLE D3D11, ?singleplayer tps-game): day cycle is the trigger, fog inversion the mechanism. app.js time-of-day node sets FogController ceiling mult 0.45 at elevDeg<=0 -> fog.far=9000 < tps-game fogNear 10000 -> three linear fog factor 1 for d<9000 -> every THREE object painted 100% fog colour (0x121a31 = exact fog colour). Onset elev<1.82deg ~267s after boot. A/B at el -54: near10000/far9000 walls lum 36/27.8; far20000 -> 10.6/0; near4000/far9000 -> 10.9/0; restore inverted -> 36.1/27.8. ?tod=off control unchanged.'
 - id: fade-sky-terrain-consistency-at-night
   subject: 'Unknown: at night does the mapspinner sky/terrain darken in sync with THREE lights (consistent night) or stay lit so models read as silhouettes against a bright sky? Witness via screenshot at elevationDeg<-10.'
-  status: unknown
+  status: witnessed
   SESSION_ID: fade-sil-1
+  witness_evidence: 'Witnessed: not in sync. Sky lum noon 244 vs el -54 206; terrain 155 vs 96. Sky dbg at el -54: raw radiance ~0.04, post-exposure 213 -> gl-render.js skyExposure mix(48,14,clamp(sunElevDot,0,1)) maximal below horizon. THREE night ambient lum(0x0d1428)=0.0073*0.22/pi ~0.0005*albedo vs terrain.glsl ambientFloor 0.14*albedo (~280x darker).'
 - id: fade-intended-behaviour-night
   subject: 'Assumed: user does not want objects to become unreadable silhouettes; a night phase that keeps content legible (moonlit floor, sky darkens consistently) is the target -- not disabling the cycle. Default chosen, disclose in commit.'
-  status: assumed
+  status: witnessed
   SESSION_ID: fade-sil-1
+  witness_evidence: 'Default applied and disclosed in commit 31673f20: day/night cycle kept; night content held at mapspinner''s own 0.14*albedo ambient floor so it stays legible (walls lum 43/40 textured at el -54 vs 36/28 flat fog colour before). Sky darkening left as mapspinner''s existing design (sky/terrain night ratios ~0.98/~0.9) and surfaced to the user as an art-direction option.'
 - id: csweep-string-embedded-comments-are-data
   subject: 'Comment-like text inside JS string/template literals (embedded GLSL, patch-deps ''// [spoint patch]'' idempotency markers, generated-file headers) is runtime data, not a JS comment: left byte-identical. Witness: scripts/patch-deps.mjs:120 emits ''// [spoint patch]'' marker strings; gen-height.mjs:475 header template; octahedral-impostor-ez.js:303 .replace into ''// #include''. acorn-based csweep strip only removes parser-level comments.'
   status: resolved
   witness: scripts/patch-deps.mjs:120, packages/mapspinner/scripts/gen-height.mjs:475, packages/streaming-gltf/src/octahedral-impostor-ez.js:303
   session_id: cs-sweep-0914
+- id: decision-types-dts-jsdoc
+  status: witnessed
+  text: 'User approved (2026-09-15): sweep types/*.d.ts JSDoc per-block -- drop where the name/type already says it, keep where the text is a consumer-facing API contract (units, ranges, lifecycle) no type can carry. Not a binary strip-all.'
+  SESSION_ID: fade-sil-1
+  witness_evidence: 'Executed by commit a036bdb1: per-block classification across all 4 .d.ts files, tsc --noEmit clean, zero internal consumers found. PRD row comment-sweep-types-dts-jsdoc resolved.'
+- id: decision-root-ai-report-clutter
+  status: witnessed
+  text: 'User approved (2026-09-15): fold any durable/accurate content from the root AI delivery-report markdown files into docs/, delete the rest (the delivery-summary framing/boilerplate itself).'
+  SESSION_ID: fade-sil-1
+  witness_evidence: Executed by commits 2de36e37 (10 reports deleted, 1 real finding folded into docs/performance.md) and f0afd1cc (missed MODEL_BROWSER_SUMMARY.txt + matching AGENTS.md stale claim). PRD row root-ai-delivery-report-clutter resolved.
+- id: decision-rpg-hud-design-kit
+  status: witnessed
+  text: 'User approved (2026-09-15): build the rpg-tutorial progress HUD as a real component in AnEntrypoint/design (vendor/design submodule, src/components/game-editor-kit/), push it, bump spoint pinned kit version across all 4 files (client/index.html, client/landing/index.html, client/editor/thebird-host.html, scripts/bundle-client.mjs) together, wire apps/rpg-tutorial client code to render via the imported component.'
+  SESSION_ID: fade-sil-1
+  witness_evidence: 'Executed: AnEntrypoint/design@08cfcc69 (RpgProgressHud component, live-rendered witness) + spoint f6b11f11 (kit pin bumped, rpg-tutorial wired, live frame-accurate re-render witnessed). PRD row rpg-tutorial-progress-hud-in-design-kit resolved.'
+- id: decision-terrain-seed-height
+  status: witnessed
+  text: 'User approved (2026-09-15): implement seed-driven terrain HEIGHT variation (not just biome colour) in packages/mapspinner composeHeight, per the row post-condition; rebake affected baked heightfields (tps-game.hf and siblings) and re-verify physics collider parity after the change.'
+  SESSION_ID: fade-sil-1
+  witness_evidence: 'Executed by commit 262865fd: continentalBias summed into composeHeight with a measured (not guessed) amplitude, height-gen.js regenerated, tps-game.hf rebaked, GPU/CPU parity verified to 15 sig figs, two-seed live witness shows real landform difference with stable player footing. Follow-on stale-spawn-point issue found and fixed separately in 898a2871. PRD row terrain-seed-does-not-change-height resolved.'
