@@ -3,6 +3,8 @@ import { applyMovement, DEFAULT_MOVEMENT } from '../shared/movement.js'
 
 const PRE_HANDSHAKE_TICK_RATE = 60
 const INPUT_HISTORY_SOFT_CAP = 256
+const WEDGE_POS_EPS_SQ = 1e-8
+const WEDGE_VEL_EPS_SQ = 1e-6
 
 class RingBuffer {
   constructor(capacity = 512) {
@@ -50,6 +52,7 @@ export class PredictionEngine {
     this.localPlayerId = null
     this.localState = null
     this.lastServerState = null
+    this.horizontallyWedged = false
     this.inputHistory = new RingBuffer()
     this._inputSeq = 0
     this._lastAckedSeq = -1
@@ -86,6 +89,7 @@ export class PredictionEngine {
     this.reconciliationEngine.reset()
     this._renderState = { id: playerId, position: [...pos], rotation: [...rot], velocity: [...vel], onGround: true, health: initialState.health || 100 }
     this._pendingKnockback = null
+    this.horizontallyWedged = false
   }
 
   addInput(input) {
@@ -108,9 +112,11 @@ export class PredictionEngine {
     const state = this.localState
     applyMovement(state, input, this.movement, dt)
     state.velocity[1] += this.gravityY * dt
-    state.position[0] += state.velocity[0] * dt
+    if (!this.horizontallyWedged) {
+      state.position[0] += state.velocity[0] * dt
+      state.position[2] += state.velocity[2] * dt
+    }
     state.position[1] += state.velocity[1] * dt
-    state.position[2] += state.velocity[2] * dt
     if (state.position[1] < 0) {
       state.position[1] = 0
       state.velocity[1] = 0
@@ -142,7 +148,13 @@ export class PredictionEngine {
   onServerSnapshot(snapshot, tick) {
     for (const serverPlayer of snapshot.players) {
       if (serverPlayer.id === this.localPlayerId) {
+        const prevX = this.lastServerState.position[0], prevZ = this.lastServerState.position[2]
         this._copyState(serverPlayer, this.lastServerState)
+        const dx = this.lastServerState.position[0] - prevX, dz = this.lastServerState.position[2] - prevZ
+        const vx = this.lastServerState.velocity[0], vz = this.lastServerState.velocity[2]
+        this.horizontallyWedged = this.lastServerState.onGround &&
+          (dx * dx + dz * dz) < WEDGE_POS_EPS_SQ &&
+          (vx * vx + vz * vz) > WEDGE_VEL_EPS_SQ
         const ackedSeq = serverPlayer.inputSequence ?? -1
         if (ackedSeq > this._lastAckedSeq) {
           this._lastAckedSeq = ackedSeq
