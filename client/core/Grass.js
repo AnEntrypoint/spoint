@@ -61,10 +61,13 @@ export async function createGrass(opts = {}) {
 
   function commitChunk(key, list, px, pz) {
     const ci2 = key.indexOf(','); const kcx = +key.slice(0, ci2), kcz = +key.slice(ci2 + 1)
-    const centerX = kcx * CH + CH * 0.5, centerZ = kcz * CH + CH * 0.5
+    const minX = kcx * CH, maxX = minX + CH, minZ = kcz * CH, maxZ = minZ + CH
+    const centerX = minX + CH * 0.5, centerZ = minZ + CH * 0.5
     let useMid = false
     if (Number.isFinite(px) && Number.isFinite(pz)) {
-      const ddx = centerX - px, ddz = centerZ - pz
+      const nearestX = px < minX ? minX : (px > maxX ? maxX : px)
+      const nearestZ = pz < minZ ? minZ : (pz > maxZ ? maxZ : pz)
+      const ddx = nearestX - px, ddz = nearestZ - pz
       useMid = (ddx * ddx + ddz * ddz) > LOD_NEAR_DIST * LOD_NEAR_DIST
     }
     const targetMesh = useMid ? imMid : im
