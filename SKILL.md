@@ -31,7 +31,7 @@ Project structure: `apps/world/index.js` (world config) + `apps/<name>/index.js`
 export default {
   port: 3001, tickRate: 64, gravity: [0, -9.81, 0],
   movement: { maxSpeed: 4.0, groundAccel: 10.0, airAccel: 1.0, friction: 6.0, stopSpeed: 2.0, jumpImpulse: 4.0 },
-  player: { health: 100, capsuleRadius: 0.4, capsuleHalfHeight: 0.9, modelScale: 1.323, feetOffset: 0.212 },
+  player: { health: 100, capsuleRadius: 0.4, capsuleHalfHeight: 0.9, modelScale: 1.323, feetOffset: 0.027 },
   scene: { skyColor: 0x87ceeb, fogColor: 0x87ceeb, fogNear: 80, fogFar: 200, sunIntensity: 1.5, sunPosition: [20, 40, 20] },
   terrain: { seed: 0, octaves: 10, frequency: 0.07, amplitude: 0.5, renderDistance: 4, chunkSize: 10, resolution: 96 },
   entities: [{ id: 'map', model: './apps/game/map.glb', position: [0,0,0], app: 'placed-model', config: { collider: 'trimesh' }, custom: { _interior: true } }],
@@ -82,7 +82,7 @@ export default {
   player: {
     health: 100, capsuleRadius: 0.4, capsuleHalfHeight: 0.9, crouchHalfHeight: 0.45,
     mass: 120, modelScale: 1.323,
-    feetOffset: 0.212      // feetOffset * modelScale = negative Y on model
+    feetOffset: 0.027      // feetOffset * modelScale = negative Y on model
   },
   scene: {
     skyColor: 0x87ceeb, fogColor: 0x87ceeb, fogNear: 80, fogFar: 200,

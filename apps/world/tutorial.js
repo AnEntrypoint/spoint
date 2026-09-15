@@ -26,7 +26,7 @@ export default {
     crouchHalfHeight: 0.315,
     mass: 120,
     modelScale: 1.323,
-    feetOffset: 0.212
+    feetOffset: 0.027
   },
   scene: {
     skyColor: 0x87ceeb,

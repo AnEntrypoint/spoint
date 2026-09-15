@@ -60,7 +60,7 @@ export default {
   tickRate: 64,
   gravity: [0, -18, 0],
   movement: { maxSpeed: 14, sprintSpeed: 24, groundAccel: 300, airAccel: 30, friction: 5, stopSpeed: 1, jumpImpulse: 5.5 },
-  player: { health: 100, capsuleRadius: 0.28, capsuleHalfHeight: 0.63, modelScale: 1.323, feetOffset: 0.212 },
+  player: { health: 100, capsuleRadius: 0.28, capsuleHalfHeight: 0.63, modelScale: 1.323, feetOffset: 0.027 },
   scene: { skyColor: 0x54c5eb, sunColor: 0xffffff, sunIntensity: 1.5, sunPosition: [21, 50, 20] },
   camera: { fov: 70, shoulderOffset: 0.35, zoomStages: [0, 1.5, 3, 5, 8], defaultZoomIndex: 2 },
   entities: [

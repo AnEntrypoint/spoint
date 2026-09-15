@@ -17,7 +17,7 @@ export default {
     capsuleRadius: 0.4,
     capsuleHalfHeight: 0.9,
     modelScale: 1.323,
-    feetOffset: 0.212
+    feetOffset: 0.027
   },
 
   scene: {

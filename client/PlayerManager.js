@@ -86,7 +86,7 @@ export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader, sceneGra
   function _attachVrmFeatures(id, vrm, animAssets, worldConfig, playerId, vrmVersion, skipScenePrep) {
     const pc = worldConfig.player || {}
     const modelScale = pc.modelScale || 1.323
-    const feetOffsetRatio = pc.feetOffset || 0.212
+    const feetOffsetRatio = pc.feetOffset ?? 0.027
     if (!skipScenePrep) {
       VRMUtils.removeUnnecessaryVertices(vrm.scene)
       VRMUtils.combineSkeletons(vrm.scene)
@@ -133,7 +133,7 @@ export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader, sceneGra
       const vrm = gltf.userData.vrm
       const pc = worldConfig.player || {}
       const modelScale = pc.modelScale || 1.323
-      const feetOffsetRatio = pc.feetOffset || 0.212
+      const feetOffsetRatio = pc.feetOffset ?? 0.027
       if (vrm) {
         VRMUtils.removeUnnecessaryVertices(vrm.scene)
         VRMUtils.combineSkeletons(vrm.scene)

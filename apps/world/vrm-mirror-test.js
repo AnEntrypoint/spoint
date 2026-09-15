@@ -13,7 +13,7 @@ export default {
   },
   player: {
     health: 100, capsuleRadius: 0.28, capsuleHalfHeight: 0.63, crouchHalfHeight: 0.315,
-    mass: 120, modelScale: 1.323, feetOffset: 0.212
+    mass: 120, modelScale: 1.323, feetOffset: 0.027
   },
   scene: {
     skyColor: 0x87ceeb, fogColor: 0x87ceeb, fogNear: 200, fogFar: 800,
