@@ -29,6 +29,7 @@ const ABILITIES_BY_UNLOCK_LEVEL = {
 }
 const ABILITIES = Object.values(ABILITIES_BY_UNLOCK_LEVEL)
 const ABILITY_KEYS = { 1: 'attack', 2: 'fireball', 3: 'lightning-storm' }
+const ABILITY_HOTKEYS = Object.fromEntries(Object.entries(ABILITY_KEYS).map(([key, id]) => [id, Number(key)]))
 
 const xpToNext = (level) => XP_TO_NEXT_LEVEL[Math.min(level, MAX_LEVEL)]
 
@@ -211,6 +212,32 @@ export default {
       const unlocked = engine._rpgTutorial?.progress?.unlockedAbilities
       if (e.repeat || !abilityId || !unlocked?.includes(abilityId)) return
       engine.network.send({ type: CAST_MESSAGE, abilityId })
+    },
+
+    onFrame(dt, engine) {
+      const progress = engine._rpgTutorial?.progress
+      const render = engine.kit?.renderRpgProgressHud
+      if (!progress || !render) return
+      render({
+        level: progress.level,
+        xp: progress.xp,
+        xpToNext: progress.xpToNext,
+        health: progress.health,
+        maxHealth: progress.maxHealth,
+        mana: progress.mana,
+        maxMana: progress.maxMana,
+        questTitle: progress.questTitle,
+        questProgress: progress.questProgress,
+        questTarget: progress.questTarget,
+        abilities: ABILITIES.map(a => ({
+          id: a.id,
+          name: a.name,
+          hotkey: ABILITY_HOTKEYS[a.id],
+          unlocked: progress.unlockedAbilities?.includes(a.id) ?? false,
+          cooldownRemaining: progress.cooldowns?.[a.id] ?? 0,
+          cooldownMax: a.cooldown
+        }))
+      })
     }
   }
 }

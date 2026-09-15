@@ -33,7 +33,7 @@ const _bareToAbs = {
   'xstate': `${BASE}/node_modules/xstate/dist/xstate.esm.js`,
   'msgpackr': `${BASE}/node_modules/msgpackr/index.js`,
   'anentrypoint-design': 'https://unpkg.com/anentrypoint-design@1.0.34/dist/247420.js',
-  'game-editor-kit': 'https://cdn.jsdelivr.net/gh/AnEntrypoint/design@70550868836df5d3c8cd3c85570090ff571edde0/src/components/game-editor-kit/index.js',
+  'game-editor-kit': 'https://cdn.jsdelivr.net/gh/AnEntrypoint/design@08cfcc69e01d49d4c722a154a1ba0ac891792fdd/src/components/game-editor-kit/index.js',
   'three-mesh-bvh': `${BASE}/vendor/three-mesh-bvh.module.js`,
   'streaming-gltf/model-pool': `${BASE}/node_modules/streaming-gltf/src/model-pool.js`,
   'streaming-gltf/draco-loader': `${BASE}/node_modules/streaming-gltf/src/draco-loader.js`,

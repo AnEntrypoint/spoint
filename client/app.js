@@ -5,7 +5,7 @@ import { PhysicsNetworkClient, InputHandler, MSG } from '/src/index.client.js'
 import { BrowserServer } from './BrowserServer.js'
 import { createElement, applyDiff } from 'webjsx'
 import { renderGameHud, renderLoadingScreen, renderHostJoinLobby } from 'anentrypoint-design'
-import { createDamageNumbers, ResetButton } from 'game-editor-kit'
+import { createDamageNumbers, ResetButton, RpgProgressHud } from 'game-editor-kit'
 import * as DamageEffects from '/src/effects/DamageEffects.js'
 const _designKit = { renderGameHud, renderLoadingScreen }
 import { LoadingManager } from './LoadingManager.js'
@@ -1470,6 +1470,14 @@ window.__DamageNumbers = {
   update(dtMs) { return damageNumbers.update(dtMs) },
   getActiveNumbers() { return damageNumbers.getActiveNumbers() },
   cleanup() { return damageNumbers.cleanup() }
+}
+
+let _rpgHudContainer = null
+_designKit.renderRpgProgressHud = (progress) => {
+  try {
+    if (!_rpgHudContainer) { _rpgHudContainer = document.createElement('div'); uiRoot.appendChild(_rpgHudContainer) }
+    applyDiff(_rpgHudContainer, [RpgProgressHud(progress)])
+  } catch (e) { window.__kitWiringError = (window.__kitWiringError || '') + ' rpgProgressHud: ' + (e?.message || e) }
 }
 
 try {
