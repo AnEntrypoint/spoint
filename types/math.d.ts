@@ -1,45 +1,24 @@
-/**
- * Math types shared between server and client
- */
-
-/**
- * 3D Vector type [x, y, z]
- */
+/** [x, y, z] tuple. */
 export type Vector3 = [number, number, number];
 
-/**
- * Quaternion type [x, y, z, w]
- */
+/** [x, y, z, w] tuple. */
 export type Quaternion = [number, number, number, number];
 
-/**
- * 4D Vector type [x, y, z, w]
- */
+/** [x, y, z, w] tuple. */
 export type Vector4 = [number, number, number, number];
 
-/**
- * 2D Vector type [x, z]
- */
+/** [x, z] tuple (ground plane -- not [x, y]). */
 export type Vector2 = [number, number];
 
-/**
- * Matrix 4x4 type
- */
+/** Flat 16-element array (4x4). */
 export type Matrix4 = number[];
 
-/**
- * Color type - hex number (0xRRGGBB) or null
- */
+/** Hex color (0xRRGGBB), or null. */
 export type Color = number | null;
 
-/**
- * Euler angles type [x, y, z] in radians
- */
+/** [x, y, z] in radians. */
 export type Euler = [number, number, number];
 
-/**
- * Raycast result from physics engine
- */
 export interface RaycastResult {
   hit: boolean;
   distance: number;
@@ -50,9 +29,6 @@ export interface RaycastResult {
   body?: any;
 }
 
-/**
- * Constraint/joint configuration
- */
 export interface ConstraintConfig {
   type: 'fixed' | 'point' | 'distance' | 'hinge' | 'prismatic' | 'ball';
   [key: string]: any;

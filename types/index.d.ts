@@ -86,77 +86,46 @@ export type {
   RenderControls
 } from './engine';
 
-/**
- * Declare global window augmentations for client-side access
- */
 declare global {
   interface Window {
-    /**
-     * Global app context (client-side)
-     * Contains scene, camera, input, players, entities, etc.
-     */
+    /** Global app context (client-side): scene, camera, input, players, entities, etc. */
     __app?: any;
 
-    /**
-     * Grass system instance
-     */
+    /** Grass system instance. */
     __grass?: any;
 
-    /**
-     * Vegetation system instance
-     */
+    /** Vegetation system instance. */
     __veg?: any;
 
-    /**
-     * Rocks system instance
-     */
+    /** Rocks system instance. */
     __rocks?: any;
 
-    /**
-     * Terrain instance
-     */
+    /** Terrain instance. */
     __terrain?: any;
 
-    /**
-     * Scene graph
-     */
+    /** Scene graph. */
     __scene?: any;
 
-    /**
-     * Camera instance
-     */
+    /** Camera instance. */
     __camera?: any;
 
-    /**
-     * Debug mode information
-     */
+    /** Debug mode information. */
     __debug?: any;
 
-    /**
-     * Device information
-     */
+    /** Device information. */
     __deviceInfo?: any;
 
-    /**
-     * Server instance (Node.js)
-     */
+    /** Server instance (Node.js). */
     __server?: any;
 
-    /**
-     * Time of day system
-     */
+    /** Time of day system. */
     __timeOfDay?: any;
 
-    /**
-     * Floating origin coordinator
-     */
+    /** Floating origin coordinator. */
     __floatingOrigin?: any;
   }
 }
 
-/**
- * Server-side app export shape
- */
 export default interface AppExport {
   description?: string;
   server?: {
