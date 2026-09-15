@@ -1605,3 +1605,9 @@
   session_id: fade-sil-1
   status: witnessed
   witness_evidence: 'Fixed in src/client/PredictionEngine.js: onServerSnapshot''s loop now guards `serverPlayer &&` before reading `.id`. Re-witnessed live via exec_js against the exact reviewer reproductions: nullElement=''ok'', undefinedElement=''ok'' (no throw), nullThenValid=''ok'' with validEntryStillAppliedAfterNull=true (a real player entry later in the same array still applies correctly after skipping a null element), normalStillApplies=true (no regression to the single-element production shape).'
+- id: state-sweep-inputhistoryhardcap-totality
+  subject: Totality/replay/effect-boundary sweep of the new inputHistoryHardCap() derived-bound method across extreme tick rates and repeated calls.
+  obligation_kind: totality
+  session_id: fade-sil-1
+  status: witnessed
+  witness_evidence: 'exec_js live run: hardCap at 1Hz=640(default before setTickRate call, i.e. constructor 64Hz), 1000Hz=10000, fractional 0.5Hz=257 (correctly floored just above the 256 soft cap, never below it). replayStable=true (two consecutive calls at the same tick rate return identical results, pure function of tickDuration). pureNoMutation=true (tickRate/tickDuration/inputHistory.length unchanged before vs after calling it).'
