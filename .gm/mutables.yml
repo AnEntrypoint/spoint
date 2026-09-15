@@ -1611,3 +1611,21 @@
   session_id: fade-sil-1
   status: witnessed
   witness_evidence: 'exec_js live run: hardCap at 1Hz=640(default before setTickRate call, i.e. constructor 64Hz), 1000Hz=10000, fractional 0.5Hz=257 (correctly floored just above the 256 soft cap, never below it). replayStable=true (two consecutive calls at the same tick rate return identical results, pure function of tickDuration). pureNoMutation=true (tickRate/tickDuration/inputHistory.length unchanged before vs after calling it).'
+- id: conc-sweep-inputhistoryhardcap
+  subject: 'Happens-before/disjointness check: inputHistoryHardCap() is a synchronous pure read of this.tickDuration with no await/IO boundary, called only from addInput() (itself synchronous), so it cannot interleave with a concurrent write to tickDuration mid-computation in this single-threaded JS runtime.'
+  obligation_kind: happens-before
+  session_id: fade-sil-1
+  status: witnessed
+  witness_evidence: 'Read confirmation of src/client/PredictionEngine.js: inputHistoryHardCap() has a single return statement reading this.tickDuration, no await, called synchronously from addInput()''s hard-cap eviction loop (itself synchronous, no yield points). setTickRate() (the only writer of tickDuration) is likewise fully synchronous. No concurrent-access hazard is reachable in this single-threaded execution model; matches the same conclusion already established for every other method on this class this session.'
+- id: sec-sweep-inputhistoryhardcap
+  subject: 'Security check: inputHistoryHardCap() derives from tickDuration, which is set only via setTickRate() from server-provided world config (trusted), never from untrusted client/network input -- no new attacker-controlled input reaches the derived bound.'
+  obligation_kind: least-privilege
+  session_id: fade-sil-1
+  status: witnessed
+  witness_evidence: codesearch/read confirmed the only caller of setTickRate() in the client is the connection-handshake/world-config path (server-authoritative tick rate), never derived from any network message field an untrusted peer controls per-message. The floor guard (Math.max(INPUT_HISTORY_SOFT_CAP+1, ...)) already prevents a pathological tick rate from ever collapsing the hard cap below the soft cap, closing the one theoretical DoS-adjacent shape (a hostile tick-rate value shrinking the buffer to uselessness) even though that value isn't attacker-reachable today.
+- id: res-sweep-inputhistoryhardcap-crucible
+  subject: 'Crucible/degradation sweep: confirm inputHistoryHardCap() keeps the buffer genuinely bounded (never unbounded) even at extreme tick rates, and never throws.'
+  obligation_kind: crucible
+  session_id: fade-sil-1
+  status: witnessed
+  witness_evidence: 'exec_js: at an extreme 1000Hz tick rate (10x the fastest real world config in this project), 50000 never-acked addInput() calls still bound the buffer to exactly 10000 entries (len=10000, matching inputHistoryHardCap()=10000) -- genuinely bounded, no unbounded growth, no throw, at both the low-tick-rate floor (257 at 0.5Hz) and this high-tick-rate ceiling. The bound is always explicit in code (a derived value, never implicit in whatever input distribution happened to be measured).'
