@@ -128,12 +128,30 @@ Data flow, each stage names its one file:
 2. MESH per patch is a GRID+2 grid (`src/gl-render.js`) whose outer ring is a SKIRT (terrain.glsl
    drops `vertex.z>0.5` verts radially below the surface) hiding LOD T-junction cracks. The outer
    ring is LOAD-BEARING — do not "just not draw it".
-3. HEIGHT assembled per-vertex in the VS (`src/shaders/terrain.glsl`): `h = cbias + bShape +
-   vDisp(land) + lake/river/canyon carves`. `bShape = fractalTerrainH(worldDir,reliefMul,ridgeMul)` =
-   THE shape (one continuous 14-oct world-dir fBm, LOD-invariant by construction). `cbias` = anchor
-   continental swell (`src/anchor-field.js`); `vDisp` = LOD-invariant micro-relief; carves via
-   `inciseRidgeField`. Collision = a GPU `_PROBE_` variant of the SAME shader (1px readback,
-   `gl-render.sampleGroundM`), no CPU mirror. — full design: recall "TV8 GPU-TERRAIN ARCHITECTURE
+3. HEIGHT assembled per-vertex in the VS (`src/shaders/terrain.glsl` `composeHeight`): current real
+   formula is `h = (fractalTerrainH(dir0)*750000 + continentalBias(dir0)*CONTINENTAL_BIAS_AMP +
+   uLandBias)` -> underwater-clamp/beach-shelf -> `*uReliefScale` -> `+sculptOverrideAt`.
+   `fractalTerrainH` = THE shape (one continuous 12-oct world-dir fBm, LOD-invariant by
+   construction). `continentalBias(dir) = hpfSample(dir).r` reads the seeded anchor field's
+   `seaBias` channel (`src/anchor-field.js`/`anchor-field-bands.js`) -- until 2026-09-15 this was
+   COMPUTED but never summed into `h`, so two different seeds on the same world produced identical
+   landform shape and differed only in `vClimate` (biome colour) and veg/rock/grass scatter; any
+   earlier text in this file claiming `h = cbias + bShape + ...` was aspirational doc-drift, not
+   real code. Fixed 2026-09-15 (`project/terrain-continentalbias-added-to-height`):
+   `CONTINENTAL_BIAS_AMP = 50.0`, derived from measured stats at the tps-game reference config
+   (radius 63600, reliefScale 0.001) -- `continentalBias` raw sd ~1008m, existing `heightAt` sd
+   ~128m -- so `AMP = TARGET_RATIO(0.4) * 128 / (0.001 * 1008) ~= 51`, rounded to 50, giving
+   continentalBias a measured ~39% relative-sd contribution (a real but secondary shaping term, not
+   dominant, not degenerate: post-fix land-only height sd only rose 53m->55m since stddevs add in
+   quadrature). `continentalBias` must live in the shader's shared (non-`_VERTEX_`-gated) preamble
+   next to `hpfSample`, not inside the `#ifdef _VERTEX_` block, or the `_PROBE_`/`_HEIGHTBAKE_`
+   compiles (which also call `composeHeight`) fail to link. There is currently no separate
+   `vDisp`/carve term in `composeHeight` -- the "Reduced octaves" note above already documents the
+   simplified single-fractal architecture; do not reintroduce that claim without adding the code.
+   Collision = a GPU `_PROBE_`/`_HEIGHTBAKE_` variant of the SAME `composeHeight`, or (Node/server,
+   no OffscreenCanvas) the pre-baked `.hf` sampled from that exact live shader -- no independent CPU
+   reimplementation; `height-gen.js`/`height-cpu.js` are transpiled from this same GLSL by
+   `scripts/gen-height.mjs`, never hand-edited. — full design: recall "TV8 GPU-TERRAIN ARCHITECTURE
    DECISION" in rs-learn.
 4. DEFORM: direct per-vertex sphere projection — `vWorld = dir0 * (R + h)`
    corner-blend deform; round at any tessellation, no flat patches at high GRID).

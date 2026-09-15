@@ -6,6 +6,7 @@ export function makeHeight(U, hpfSample) {
   const C_noiseLayer0 = { ltype: C_LTYPE_RIDGED, numOct: 10, gain: 0.5, ridgeOffset: 1.064, ridgeExp: 1.005, warpStr: 1.6, hmin: 0.0, hmax: 1.0 };
   const C_noiseLayer1 = { ltype: C_LTYPE_FBM, numOct: 18, gain: 0.5, ridgeOffset: 1.064, ridgeExp: 1.665, warpStr: 2.6, hmin: -2.0, hmax: 2.0 };
   const C_noiseLayer2 = { ltype: C_LTYPE_RIDGED, numOct: 18, gain: 0.5, ridgeOffset: 1.064, ridgeExp: 1.1, warpStr: 0.9, hmin: -2.0, hmax: 2.0 };
+  const C_CONTINENTAL_BIAS_AMP = 50.0;
   function sculptOverrideAt(dir0, hBase) { return 0.0; }
   function h3(p) {
     p = g.fract(g.mul(p, g.vec3(0.1031, 0.1030, 0.0973)));
@@ -152,7 +153,8 @@ export function makeHeight(U, hpfSample) {
 
   function composeHeight(dir0, faceLocal, tileM) {
     let frac = fractalTerrainH(dir0);
-    let h = ((frac * 750000.0) + U.uLandBias);
+    let cbias = (continentalBias(dir0) * C_CONTINENTAL_BIAS_AMP);
+    let h = (((frac * 750000.0) + cbias) + U.uLandBias);
     if ((h < 0.0)) {
       h = g.max((h * 1.25), (-350000.0));
     }

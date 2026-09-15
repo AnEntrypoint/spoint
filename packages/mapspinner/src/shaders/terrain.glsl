@@ -53,6 +53,8 @@ highp vec4 hpfSample(vec3 dir) {
     return vec4(se.x, se.y, th.x, th.y);
 }
 
+highp float continentalBias(vec3 dir) { return hpfSample(dir).r; }
+
 highp float h3(highp vec3 p) {
     p = fract(p * vec3(0.1031, 0.1030, 0.0973));
     p += dot(p, p.yxz + 33.33);
@@ -181,6 +183,8 @@ uniform float uSculptExtent;
 uniform sampler2D uSculptOverride;
 
 #if defined(_VERTEX_) || defined(_PROBE_) || defined(_HEIGHTBAKE_)
+const float CONTINENTAL_BIAS_AMP = 50.0;
+
 highp float sculptOverrideAt(vec3 dir0, highp float hBase){
     if (uSculptActive < 0.5) return 0.0;
     if (dot(dir0, uSculptUp) <= 0.0) return 0.0;
@@ -196,7 +200,8 @@ highp float sculptOverrideAt(vec3 dir0, highp float hBase){
 
 highp float composeHeight(vec3 dir0, highp vec2 faceLocal, float tileM){
     highp float frac = fractalTerrainH(dir0);
-    highp float h = frac * 750000.0 + uLandBias;
+    highp float cbias = continentalBias(dir0) * CONTINENTAL_BIAS_AMP;
+    highp float h = frac * 750000.0 + cbias + uLandBias;
     if (h < 0.0) {
         h = max(h * 1.25, -350000.0);
     } else {
@@ -281,9 +286,6 @@ mat3 faceFrame(float f){
     if (i==4) return mat3( 1.0,0.0,0.0,   0.0,1.0,0.0,   0.0,0.0,1.0);
     return            mat3(-1.0,0.0,0.0,  0.0,1.0,0.0,   0.0,0.0,-1.0);
 }
-
-highp float continentalBias(vec3 dir) { return hpfSample(dir).r; }
-
 
 void main() {
     highp vec4 defOffset = iOffset;
