@@ -3,6 +3,7 @@ import { applyMovement, DEFAULT_MOVEMENT } from '../shared/movement.js'
 
 const PRE_HANDSHAKE_TICK_RATE = 60
 const INPUT_HISTORY_SOFT_CAP = 256
+const INPUT_HISTORY_HARD_CAP = INPUT_HISTORY_SOFT_CAP * 2
 const WEDGE_POS_EPS_SQ = 1e-8
 const WEDGE_VEL_EPS_SQ = 1e-6
 
@@ -97,6 +98,9 @@ export class PredictionEngine {
     this.inputHistory.push({ sequence: seq, data: input })
     if (this.inputHistory.length > INPUT_HISTORY_SOFT_CAP &&
         this.inputHistory.at(0).sequence <= this._lastAckedSeq) {
+      this.inputHistory.shift()
+    }
+    while (this.inputHistory.length > INPUT_HISTORY_HARD_CAP) {
       this.inputHistory.shift()
     }
     this.predict(input)
