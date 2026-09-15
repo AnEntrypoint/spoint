@@ -8,6 +8,11 @@ const MAX_VRM_CONCURRENT = 6
 const _lookTargetVec = new THREE.Vector3()
 const AVATAR_CULL_RADIUS_MARGIN = 1.5
 
+function playerFeetOffset(worldConfig) {
+  const pc = worldConfig.player || {}
+  return (pc.capsuleRadius ?? 0.4) + (pc.capsuleHalfHeight ?? 0.9)
+}
+
 const _avatarBox = new THREE.Box3(), _avatarTmpBox = new THREE.Box3(), _avatarCenter = new THREE.Vector3(), _avatarScale = new THREE.Vector3(), _avatarInv = new THREE.Matrix4()
 function _applyAvatarCullBounds(root) {
   if (!root) return
@@ -103,7 +108,8 @@ export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader, sceneGra
   let _lastVrmCtx = null
   async function createPlayerVRM(id, vrmBuffer, animAssets, worldConfig, playerId) {
     _lastVrmCtx = { animAssets, worldConfig, playerId }
-    const group = new THREE.Group(); group.userData.vrmPending = true; group.userData.isDynamicShadowCaster = true; if (sceneGraph) sceneGraph.addNode(id, group, { isPlayer: true }); else scene.add(group); playerMeshes.set(id, group)
+    const feetOffset = playerFeetOffset(worldConfig)
+    const group = new THREE.Group(); group.userData.vrmPending = true; group.userData.isDynamicShadowCaster = true; if (sceneGraph) sceneGraph.addNode(id, group, { isPlayer: true, feetOffset }); else scene.add(group); playerMeshes.set(id, group)
     if (!vrmBuffer) return group
     if (modelPool && playerVrmUrl && typeof modelPool.spawnVRM === 'function') {
       const vrmVersion = detectVrmVersion(vrmBuffer)
@@ -111,9 +117,8 @@ export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader, sceneGra
         if (!playerMeshes.has(id)) return
         const vrm = entity?.vrm
         if (!vrm) { console.warn('[vrm] pool entity has no vrm for', id); return }
-        if (sceneGraph) { sceneGraph.removeNode(id); sceneGraph.addNode(id, root, { isPlayer: true }) }
+        if (sceneGraph) { sceneGraph.removeNode(id); sceneGraph.addNode(id, root, { isPlayer: true, feetOffset }) }
         else { scene.remove(group) }
-        root.userData.feetOffset = 0.91
         root.userData.isDynamicShadowCaster = true
         playerMeshes.set(id, root)
         _attachVrmFeatures(id, vrm, animAssets, worldConfig, playerId, vrmVersion, true)
@@ -138,7 +143,7 @@ export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader, sceneGra
         vrm.scene.scale.multiplyScalar(modelScale)
         vrm.scene.position.y = -feetOffsetRatio * modelScale
         _applyAvatarCullBounds(vrm.scene)
-        group.userData.feetOffset = 0.91; group.add(vrm.scene)
+        group.add(vrm.scene)
         if (_onAvatarReady) _onAvatarReady(vrm.scene)
         playerVrms.set(id, vrm); initVRMFeatures(id, vrm, vrmVersion)
         if (animAssets) playerAnimators.set(id, createPlayerAnimator(vrm, animAssets, vrmVersion, worldConfig.animation || {}))
@@ -152,7 +157,7 @@ export function createPlayerManager(scene, gltfLoader, cam, ktx2Loader, sceneGra
         gs.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = false } })
         gs.scale.multiplyScalar(modelScale); gs.position.y = -feetOffsetRatio * modelScale
         _applyAvatarCullBounds(gs)
-        group.userData.feetOffset = 0.91; group.add(gs)
+        group.add(gs)
         if (_onAvatarReady) _onAvatarReady(gs)
         if (animAssets) playerAnimators.set(id, createGLBAnimator(gs, gltf.animations || [], animAssets, worldConfig.animation || {}))
       }

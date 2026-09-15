@@ -15,8 +15,10 @@ export class PhysicsIntegration {
       capsuleRadius: config.capsuleRadius ?? 0.4,
       capsuleHalfHeight: config.capsuleHalfHeight ?? 0.9,
       crouchHalfHeight: config.crouchHalfHeight ?? 0.45,
+      ankleClearance: config.ankleClearance ?? 0.1,
       playerMass: config.playerMass ?? 120
     }
+    this._physicalHalfHeight = this.config.capsuleHalfHeight + this.config.ankleClearance
     this.playerBodies = new Map()
     this._crouchStates = new Map()
   }
@@ -28,7 +30,7 @@ export class PhysicsIntegration {
   _submersionFrac(y, x = 0, z = 0) {
     const waterlineY = waterlineLocalY(this.physicsWorld?._planetFrame, x, z)
     if (waterlineY == null) return 0
-    const halfHeight = this.config.capsuleHalfHeight
+    const halfHeight = this._physicalHalfHeight
     const bottomY = y - halfHeight
     const span = 2 * halfHeight
     return Math.max(0, Math.min(1, (waterlineY - bottomY) / span))
@@ -59,7 +61,7 @@ export class PhysicsIntegration {
     }
     const charId = this.physicsWorld.addPlayerCharacter(
       radius,
-      this.config.capsuleHalfHeight,
+      this._physicalHalfHeight,
       [0, 5, 0],
       this.config.playerMass
     )
