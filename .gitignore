@@ -32,4 +32,8 @@ apps/world/replay-witness-arena.js
 apps/world/playtest-*.js
 data/world-snapshot.json
 data/*_scoreboard.json
+data/e2e-ci/
+data/models/
 dist/
+codebase-vision-*/
+*.gmwitnesslive-check*.png
