@@ -70,9 +70,11 @@ Add a fourth submodule only with a documented runtime mechanism.
 
 Every UI component (screens, dialogs, panels, editor kit incl. asset browser/model preview/undo
 history, damage numbers) is built in `AnEntrypoint/design` (`src/components/game-editor-kit/` for
-editor/gameplay panels) and reaches spoint only via the pinned CDN importmap entries. spoint keeps backend only
-(e.g. `src/editor/ThumbnailGenerator.js`, `src/editor/ThumbnailWorker.js`,
-`src/sdk/ModelBrowserHandler.js`, `src/effects/DamageEffects.js`, `apps/hit-feedback` event wiring).
+editor/gameplay panels) and reaches spoint only via the pinned CDN importmap entries. spoint keeps
+backend only (e.g. `src/effects/DamageEffects.js`, `apps/hit-feedback` event wiring). The design
+kit's `ModelBrowser`/`ModelBrowserIntegration` UI panel already exists there; spoint has no
+`ThumbnailGenerator`/`ThumbnailWorker`/`ModelBrowserHandler` backend for it yet -- build one there,
+not under `client/`, when that panel needs real thumbnail/model data.
 Reject any change adding UI-rendering `*.js`/`*.html`/`*.css` under `client/` without the design-repo
 work; design change first, spoint integration next commit; verify on the live URL with `?v=<ts>`.
 
