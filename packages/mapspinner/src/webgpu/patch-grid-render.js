@@ -3,6 +3,7 @@ import { MapspinnerPipelineCache, TERRAIN_PATCH_VERTEX_BUFFERS } from './pipelin
 import { M4 } from '../gl-render-mat4.js'
 import { THC_BAKE_RES, createHeightBakePipeline, bakeHeightTileTexture } from './height-bake-compute.js'
 import { ATMOSPHERE_CORE_WGSL, atmosphereLutBindingsWgsl, ATMOSPHERE_LUT_FUNCS_WGSL } from './sky-render.js'
+import { canDecodeImages, decodeSurfaceTextureSet } from '../surface-texture-decode.js'
 
 const COMPOSEHEIGHT_MARKER = '@group(0) @binding(0)'
 const COMPOSEHEIGHT_FUNCTIONS_WGSL = TERRAIN_COMPOSEHEIGHT_WGSL.slice(0, TERRAIN_COMPOSEHEIGHT_WGSL.indexOf(COMPOSEHEIGHT_MARKER))
@@ -79,6 +80,172 @@ fn terrainAlbedoClimate(h: f32, slope: f32, rockSlope: f32, temp: f32, humid: f3
 }
 `
 
+const SURFACE_SPLAT_WGSL = `
+const TEX_TILE_BASE_M: f32 = 2400.0;
+const SPLAT_DESIGN_RADIUS_M: f32 = 6360000.0;
+const U_TEX_NRM_K: f32 = 0.4;
+const U_TEX_MIX: f32 = 1.0;
+const U_TEX_WARP: f32 = 1.0;
+const U_X_SOFT: f32 = 0.26;
+const U_X_FINGER: f32 = 0.2;
+const U_ORD_PUSH: f32 = 0.0;
+const U_TRI_SHARP: f32 = 3.0;
+const U_NRM_FADE0: f32 = 100.0;
+const U_NRM_FADE1: f32 = 1000.0;
+const U_X_FADE0: f32 = 100.0;
+const U_X_FADE1: f32 = 340.0;
+const U_TEX_FAR0: f32 = 0.0;
+const U_TEX_FAR1: f32 = 10000.0;
+const U_OCT_FAR0: f32 = 1.5;
+const U_OCT_FAR1: f32 = 15.0;
+const U_BIOME_TINT: f32 = 0.62;
+const U_TEX_BRIGHT: f32 = 1.12;
+const U_TEX_SAT: f32 = 1.2;
+const U_NRM_LOW: f32 = 0.4;
+const U_BEACH_WIDTH: f32 = 1.0;
+const TEX_LUMA: vec3<f32> = vec3<f32>(0.299, 0.587, 0.114);
+
+struct SplatResult {
+  albedo: vec3<f32>,
+  texDn: vec3<f32>,
+}
+
+fn texCamFracOf(camAbs: vec3<f32>, texTileM: f32) -> vec3<f32> {
+  let wrapM = texTileM * 8.0;
+  return camAbs - floor(camAbs / wrapM) * wrapM;
+}
+
+fn matColorForLayer(lay: f32) -> vec3<f32> {
+  if (lay < 0.5) { return BC_GRASS; }
+  if (lay < 1.5) { return BC_ROCK; }
+  if (lay < 2.5) { return BC_SHORE; }
+  return BC_SNOW;
+}
+
+fn ordForLayer(lay: f32) -> f32 {
+  if (lay < 0.5) { return 0.6; }
+  if (lay < 1.5) { return 0.3; }
+  if (lay < 2.5) { return 0.0; }
+  return 1.0;
+}
+
+fn meanLFor(lay: f32) -> f32 {
+  if (lay < 0.5) { return surfParams.meanL.x; }
+  if (lay < 1.5) { return surfParams.meanL.y; }
+  if (lay < 2.5) { return surfParams.meanL.z; }
+  return surfParams.meanL.w;
+}
+
+fn surfTriTap(wt: vec3<f32>, bw: vec3<f32>, layer: i32) -> vec4<f32> {
+  return textureSample(uSurfAlb, surfSampler, vec2<f32>(wt.y, wt.z), layer) * bw.x
+       + textureSample(uSurfAlb, surfSampler, vec2<f32>(wt.x, wt.z), layer) * bw.y
+       + textureSample(uSurfAlb, surfSampler, vec2<f32>(wt.x, wt.y), layer) * bw.z;
+}
+
+fn surfTriNrm(wt: vec3<f32>, bw: vec3<f32>, layer: i32, sn: vec3<f32>) -> vec3<f32> {
+  let px = textureSample(uSurfNrm, surfSampler, vec2<f32>(wt.y, wt.z), layer).rg * 2.0 - 1.0;
+  let py = textureSample(uSurfNrm, surfSampler, vec2<f32>(wt.x, wt.z), layer).rg * 2.0 - 1.0;
+  let pz = textureSample(uSurfNrm, surfSampler, vec2<f32>(wt.x, wt.y), layer).rg * 2.0 - 1.0;
+  return vec3<f32>(0.0, px.x, px.y) * (bw.x * sign(sn.x))
+       + vec3<f32>(py.x, 0.0, py.y) * (bw.y * sign(sn.y))
+       + vec3<f32>(pz.x, pz.y, 0.0) * (bw.z * sign(sn.z));
+}
+
+fn surfaceSplat(n: vec3<f32>, dir0: vec3<f32>, h: f32, slope: f32, rockSlope: f32, climate: vec2<f32>, biomeC: vec3<f32>, pxWorld: f32, camDist: f32, worldRel: vec3<f32>, texWarp: vec3<f32>, camWorldAbs: vec3<f32>, defRadius: f32, reliefScale: f32) -> SplatResult {
+  var result: SplatResult;
+  let texFarFade = 1.0 - smoothstep(U_TEX_FAR0 * reliefScale, U_TEX_FAR1 * reliefScale, pxWorld);
+  if (surfParams.flags.x < 0.5) {
+    result.albedo = biomeC;
+    result.texDn = vec3<f32>(0.0);
+    return result;
+  }
+  let temp = climate.x;
+  let humid = climate.y;
+  let dryHot = smoothstep(0.60, 0.85, 1.0 - humid) * smoothstep(0.42, 0.62, temp);
+  let bandWarpN = snoise3(dir0 * 1100.0) + 0.5 * snoise3(dir0 * 2580.0);
+  let bandWarp = bandWarpN * U_BAND_WARP * 0.25;
+  let beach = (1.0 - smoothstep(max(0.0, bandWarp), U_BEACH_TOP_M * U_BEACH_WIDTH + max(0.0, bandWarp), h))
+            * (1.0 - smoothstep(0.18, 0.55, slope));
+  let sandRegion = clamp(max(dryHot, beach), 0.0, 1.0);
+  let srLo = max(SLOPE_ROCK.x, 0.05);
+  let srHi = max(SLOPE_ROCK.y, srLo + 0.25);
+  let wRockSlope = smoothstep(mix(srLo, 0.50, sandRegion), mix(srHi, 0.70, sandRegion), rockSlope);
+  let snowHi = smoothstep(SNOW_EDGES.x + bandWarp, SNOW_EDGES.y + bandWarp, h);
+  let rockBand = smoothstep(SNOW_EDGES.x * 0.7 + bandWarp, SNOW_EDGES.x * 0.9 + bandWarp, h) * (1.0 - snowHi);
+  let wRock = max(wRockSlope, rockBand);
+  let wSnow = clamp(snowHi, 0.0, 1.0) * (1.0 - 0.6 * wRock);
+  let wSand = sandRegion * (1.0 - wRock) * (1.0 - wSnow) * (1.0 - smoothstep(0.30, 0.70, slope));
+  let wGrass = max(1.0 - wRock - wSnow - wSand, 0.0);
+  var w4 = vec4<f32>(wGrass, wRock, wSand, wSnow);
+  let uwM = 1.0 - smoothstep(U_BEACH_TOP_M * 0.3, U_BEACH_TOP_M, h);
+  w4.z = w4.z + (w4.x + w4.w) * uwM;
+  w4.x = w4.x * (1.0 - uwM);
+  w4.w = w4.w * (1.0 - uwM);
+  w4 = w4 / (w4.x + w4.y + w4.z + w4.w + 1e-4);
+
+  var lA = 0.0; var wA = w4.x;
+  var lB = 0.0; var wB = -1.0;
+  if (w4.y > wA) { lB = lA; wB = wA; lA = 1.0; wA = w4.y; } else if (w4.y > wB) { lB = 1.0; wB = w4.y; }
+  if (w4.z > wA) { lB = lA; wB = wA; lA = 2.0; wA = w4.z; } else if (w4.z > wB) { lB = 2.0; wB = w4.z; }
+  if (w4.w > wA) { lB = lA; wB = wA; lA = 3.0; wA = w4.w; } else if (w4.w > wB) { lB = 3.0; wB = w4.w; }
+
+  let texTileM = TEX_TILE_BASE_M * (defRadius / SPLAT_DESIGN_RADIUS_M);
+  var wt = (worldRel + texCamFracOf(camWorldAbs, texTileM)) / texTileM;
+  wt = wt + texWarp * U_TEX_WARP;
+  var tw = pow(abs(n), vec3<f32>(U_TRI_SHARP));
+  tw = tw / (tw.x + tw.y + tw.z + 1e-4);
+  let bAB = clamp(wA / max(wA + wB, 1e-4), 0.0, 1.0);
+  let wt4 = wt * 4.0;
+  let octFarFade = smoothstep(U_OCT_FAR0 * reliefScale, U_OCT_FAR1 * reliefScale, pxWorld);
+  let texFade = 1.0 - smoothstep(U_NRM_FADE0, U_NRM_FADE1, camDist);
+
+  let layerA = i32(lA + 0.5);
+  let albA = surfTriTap(wt4, tw, layerA);
+  let cA = mix(albA.rgb, surfTriTap(wt, tw, layerA).rgb, octFarFade);
+  let nA = surfTriNrm(wt4, tw, layerA, n) + surfTriNrm(wt, tw, layerA, n) * (1.7 * U_NRM_LOW);
+  let dispA = albA.a;
+  let mcA = matColorForLayer(lA);
+  var texMatColor = mcA;
+  var texNrm = nA;
+  let mA = meanLFor(lA);
+  let satA = max(mix(vec3<f32>(dot(cA, TEX_LUMA)), cA, U_TEX_SAT), vec3<f32>(0.0));
+  let detailA = satA * (dot(mcA, TEX_LUMA) / max(mA, 0.02));
+  var detail = detailA;
+  var bSharp = 1.0;
+  let crossFade = 1.0 - smoothstep(U_X_FADE0, U_X_FADE1, camDist);
+  let ordA = ordForLayer(lA);
+
+  let layerB = i32(lB + 0.5);
+  let albB = surfTriTap(wt4, tw, layerB);
+  let cB = mix(albB.rgb, surfTriTap(wt, tw, layerB).rgb, octFarFade);
+  let nB = surfTriNrm(wt4, tw, layerB, n) + surfTriNrm(wt, tw, layerB, n) * (1.7 * U_NRM_LOW);
+  let dispB = albB.a;
+  let ordB = ordForLayer(lB);
+  let mcB = matColorForLayer(lB);
+  let finger = (dispA - dispB) * U_X_FINGER * crossFade;
+  let s = (bAB - 0.5) * 2.0 + (ordA - ordB) * U_ORD_PUSH + finger;
+  bSharp = smoothstep(-U_X_SOFT, U_X_SOFT, s);
+  let mB = meanLFor(lB);
+  let satB = max(mix(vec3<f32>(dot(cB, TEX_LUMA)), cB, U_TEX_SAT), vec3<f32>(0.0));
+  let detailB = satB * (dot(mcB, TEX_LUMA) / max(mB, 0.02));
+  detail = mix(detailB, detailA, bSharp);
+  texMatColor = mix(mcB, mcA, bSharp);
+  texNrm = mix(nB, nA, bSharp);
+
+  let k = U_TEX_MIX * texFarFade;
+  var albedoOut = clamp(mix(texMatColor, detail, k), vec3<f32>(0.0), vec3<f32>(1.0));
+  let biomeTintHere = U_BIOME_TINT * (1.0 - 0.85 * clamp(w4.z, 0.0, 1.0));
+  albedoOut = mix(albedoOut, biomeC, biomeTintHere);
+  albedoOut = albedoOut * U_TEX_BRIGHT;
+  albedoOut = mix(biomeC, albedoOut, texFarFade);
+  result.albedo = albedoOut;
+  let texNrmLenSq = dot(texNrm, texNrm);
+  let safeTexNrm = select(vec3<f32>(0.0), normalize(texNrm), texNrmLenSq > 1e-12);
+  result.texDn = safeTexNrm * (U_TEX_NRM_K * k) * texFade;
+  return result;
+}
+`
+
 function buildRenderWgsl(gridSize) {
   const duP = 1.0 / gridSize
   return COMPOSEHEIGHT_FUNCTIONS_WGSL + ATMOSPHERE_CORE_WGSL + atmosphereLutBindingsWgsl(2, 0) + ATMOSPHERE_LUT_FUNCS_WGSL + TERRAIN_ALBEDO_WGSL + `
@@ -86,8 +253,17 @@ function buildRenderWgsl(gridSize) {
 @group(0) @binding(1) var<uniform> scalarA: vec4<f32>;
 @group(0) @binding(2) var<uniform> scalarB: vec4<f32>;
 @group(0) @binding(3) var<uniform> basis: array<vec4<f32>, 3>;
+@group(0) @binding(4) var surfSampler: sampler;
+@group(0) @binding(5) var uSurfAlb: texture_2d_array<f32>;
 @group(0) @binding(6) var<storage, read> hpfPool: array<f32>;
 @group(0) @binding(7) var<storage, read> sculptTex: array<f32>;
+@group(0) @binding(8) var uSurfNrm: texture_2d_array<f32>;
+struct SurfParams {
+  meanL: vec4<f32>,
+  flags: vec4<f32>,
+}
+@group(0) @binding(9) var<uniform> surfParams: SurfParams;
+` + SURFACE_SPLAT_WGSL + `
 
 struct FrameUniforms {
   viewProjNoEye: mat4x4<f32>,
@@ -118,6 +294,7 @@ struct VSOut {
   @location(2) nrm: vec3<f32>,
   @location(3) dir0: vec3<f32>,
   @location(4) climate: vec2<f32>,
+  @location(5) texWarp: vec3<f32>,
 }
 
 @vertex
@@ -172,6 +349,9 @@ fn vs_main(
 
   let climate = hpfClimateSample(dir0, hpfRes);
 
+  let texWarpBase = dir0 * 450.0;
+  let texWarp = vec3<f32>(snoise3(texWarpBase), snoise3(texWarpBase + vec3<f32>(7.3)), snoise3(texWarpBase + vec3<f32>(23.9))) * 1.2;
+
   var out: VSOut;
   out.pos = frame.viewProjNoEye * vec4<f32>(vRel, 1.0);
   out.worldRel = vRel;
@@ -179,6 +359,7 @@ fn vs_main(
   out.nrm = nrm;
   out.dir0 = dir0;
   out.climate = climate;
+  out.texWarp = texWarp;
   return out;
 }
 
@@ -194,12 +375,17 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let rockSlope = clamp(slope, 0.0, 1.0);
   let pxWorld = max(length(fwidth(in.worldRel)), 0.001);
   let reliefScale = bitcast<f32>(paramsU.w);
-  let albedo = terrainAlbedoClimate(in.height, slope, rockSlope, in.climate.x, in.climate.y, dir0, pxWorld, reliefScale);
+  var albedo = terrainAlbedoClimate(in.height, slope, rockSlope, in.climate.x, in.climate.y, dir0, pxWorld, reliefScale);
+
+  let camDist = length(vWorldAbs - camWorldAbs);
+  let splat = surfaceSplat(n, dir0, in.height, slope, rockSlope, in.climate, albedo, pxWorld, camDist, in.worldRel, in.texWarp, camWorldAbs, defRadius, reliefScale);
+  albedo = splat.albedo;
+  let nLit = normalize(n + splat.texDn);
 
   let pAtm = atmPos(vWorldAbs, defRadius);
   let camAtm = atmPos(camWorldAbs, defRadius);
   var skyIrr: vec3<f32>;
-  let sunIrr = atm_sunSkyIrradiance(pAtm, n, frame.sunDir, &skyIrr);
+  let sunIrr = atm_sunSkyIrradiance(pAtm, nLit, frame.sunDir, &skyIrr);
   let skyL = dot(skyIrr, vec3<f32>(0.2126, 0.7152, 0.0722));
   let skyIrrBalanced = mix(vec3<f32>(skyL), skyIrr, 0.35) * U_SKY_FILL * vec3<f32>(0.85, 0.92, 1.10);
   let ambientFloor = albedo * 0.14 + vec3<f32>(0.020, 0.026, 0.038);
@@ -466,6 +652,98 @@ export function createDepthTexture(device, width, height, format = 'depth24plus'
   })
 }
 
+const SURF_MAT_COUNT = 4
+
+function createDummySurfaceTextureArrays(device) {
+  const albTexture = device.createTexture({
+    label: 'patch-grid-render-surf-alb-dummy',
+    size: { width: 1, height: 1, depthOrArrayLayers: SURF_MAT_COUNT },
+    format: 'rgba8unorm-srgb',
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+  })
+  const nrmTexture = device.createTexture({
+    label: 'patch-grid-render-surf-nrm-dummy',
+    size: { width: 1, height: 1, depthOrArrayLayers: SURF_MAT_COUNT },
+    format: 'rgba8unorm',
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+  })
+  for (let m = 0; m < SURF_MAT_COUNT; m++) {
+    device.queue.writeTexture(
+      { texture: albTexture, origin: { x: 0, y: 0, z: m } },
+      new Uint8Array([128, 128, 128, 128]),
+      { bytesPerRow: 4, rowsPerImage: 1 },
+      { width: 1, height: 1, depthOrArrayLayers: 1 },
+    )
+    device.queue.writeTexture(
+      { texture: nrmTexture, origin: { x: 0, y: 0, z: m } },
+      new Uint8Array([128, 128, 255, 255]),
+      { bytesPerRow: 4, rowsPerImage: 1 },
+      { width: 1, height: 1, depthOrArrayLayers: 1 },
+    )
+  }
+  return { albTexture, nrmTexture }
+}
+
+function downsample2x(src, srcOffset, w, h) {
+  const w2 = Math.max(1, w >> 1), h2 = Math.max(1, h >> 1)
+  const out = new Uint8Array(w2 * h2 * 4)
+  for (let y = 0; y < h2; y++) {
+    for (let x = 0; x < w2; x++) {
+      const x0 = Math.min(w - 1, x * 2), x1 = Math.min(w - 1, x * 2 + 1)
+      const y0 = Math.min(h - 1, y * 2), y1 = Math.min(h - 1, y * 2 + 1)
+      const o00 = srcOffset + (y0 * w + x0) * 4, o10 = srcOffset + (y0 * w + x1) * 4
+      const o01 = srcOffset + (y1 * w + x0) * 4, o11 = srcOffset + (y1 * w + x1) * 4
+      const oo = (y * w2 + x) * 4
+      for (let c = 0; c < 4; c++) out[oo + c] = (src[o00 + c] + src[o10 + c] + src[o01 + c] + src[o11 + c] + 2) >> 2
+    }
+  }
+  return out
+}
+
+async function writeSurfaceTextureArrayMips(device, texture, data, matCount, sz) {
+  const mipCount = Math.log2(sz) + 1
+  for (let m = 0; m < matCount; m++) {
+    let levelData = data
+    let levelOffset = m * sz * sz * 4
+    let levelSz = sz
+    for (let level = 0; level < mipCount; level++) {
+      device.queue.writeTexture(
+        { texture, origin: { x: 0, y: 0, z: m }, mipLevel: level },
+        levelData,
+        { offset: levelOffset, bytesPerRow: levelSz * 4, rowsPerImage: levelSz },
+        { width: levelSz, height: levelSz, depthOrArrayLayers: 1 },
+      )
+      if (level < mipCount - 1) {
+        levelData = downsample2x(levelData, levelOffset, levelSz, levelSz)
+        levelOffset = 0
+        levelSz = Math.max(1, levelSz >> 1)
+      }
+    }
+    await new Promise((res) => setTimeout(res, 0))
+  }
+}
+
+async function createSurfaceTextureArraysWebGPU(device, { albAll, nrmAll, matCount, sz }) {
+  const mipCount = Math.log2(sz) + 1
+  const albTexture = device.createTexture({
+    label: 'patch-grid-render-surf-alb',
+    size: { width: sz, height: sz, depthOrArrayLayers: matCount },
+    format: 'rgba8unorm-srgb',
+    mipLevelCount: mipCount,
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+  })
+  const nrmTexture = device.createTexture({
+    label: 'patch-grid-render-surf-nrm',
+    size: { width: sz, height: sz, depthOrArrayLayers: matCount },
+    format: 'rgba8unorm',
+    mipLevelCount: mipCount,
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+  })
+  await writeSurfaceTextureArrayMips(device, albTexture, albAll, matCount, sz)
+  await writeSurfaceTextureArrayMips(device, nrmTexture, nrmAll, matCount, sz)
+  return { albTexture, nrmTexture }
+}
+
 export class PatchGridRenderer {
   constructor(device, opts = {}) {
     this.device = device
@@ -530,17 +808,19 @@ export class PatchGridRenderer {
         vertexBuffers: TERRAIN_PATCH_VERTEX_BUFFERS,
         label: 'patch-grid-render',
       })
-      this.bindGroup0 = device.createBindGroup({
-        layout: this.pipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: p.paramsU } },
-          { binding: 1, resource: { buffer: p.scalarA } },
-          { binding: 2, resource: { buffer: p.scalarB } },
-          { binding: 3, resource: { buffer: p.basis } },
-          { binding: 6, resource: { buffer: p.hpfPool } },
-          { binding: 7, resource: { buffer: p.sculptTex } },
-        ],
+      this.surfSampler = device.createSampler({
+        label: 'patch-grid-render-surf-sampler',
+        magFilter: 'linear', minFilter: 'linear', mipmapFilter: 'linear',
+        addressModeU: 'repeat', addressModeV: 'repeat',
+        maxAnisotropy: 8,
       })
+      this.surfParamsBuffer = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
+      device.queue.writeBuffer(this.surfParamsBuffer, 0, new Float32Array([0.2, 0.2, 0.2, 0.5, 0, 0, 0, 0]))
+      const dummySurf = createDummySurfaceTextureArrays(device)
+      this._surfAlbTexture = dummySurf.albTexture
+      this._surfNrmTexture = dummySurf.nrmTexture
+      this._surfTexReady = false
+      this._rebuildBindGroup0()
       this.bindGroup2 = device.createBindGroup({
         layout: this.pipeline.getBindGroupLayout(2),
         entries: [
@@ -549,6 +829,9 @@ export class PatchGridRenderer {
           { binding: 2, resource: opts.atmosphereSampler },
         ],
       })
+      if (opts.loadSurfaceTextures !== false && canDecodeImages()) {
+        this._loadSurfaceTexturesAsync(opts.surfaceTexturesBaseUrl)
+      }
     }
     this.bindGroup1 = device.createBindGroup({
       layout: this.pipeline.getBindGroupLayout(1),
@@ -562,6 +845,38 @@ export class PatchGridRenderer {
 
   updateFrame(frameUniforms) {
     writeFrameUniforms(this.device, this.frameUniformBuffer, frameUniforms)
+  }
+
+  _rebuildBindGroup0() {
+    const p = this.composeHeightParams
+    this.bindGroup0 = this.device.createBindGroup({
+      layout: this.pipeline.getBindGroupLayout(0),
+      entries: [
+        { binding: 0, resource: { buffer: p.paramsU } },
+        { binding: 1, resource: { buffer: p.scalarA } },
+        { binding: 2, resource: { buffer: p.scalarB } },
+        { binding: 3, resource: { buffer: p.basis } },
+        { binding: 4, resource: this.surfSampler },
+        { binding: 5, resource: this._surfAlbTexture.createView({ dimension: '2d-array' }) },
+        { binding: 6, resource: { buffer: p.hpfPool } },
+        { binding: 7, resource: { buffer: p.sculptTex } },
+        { binding: 8, resource: this._surfNrmTexture.createView({ dimension: '2d-array' }) },
+        { binding: 9, resource: { buffer: this.surfParamsBuffer } },
+      ],
+    })
+  }
+
+  async _loadSurfaceTexturesAsync(baseUrl) {
+    const { albAll, nrmAll, meanL, matCount, sz } = await decodeSurfaceTextureSet(baseUrl)
+    const { albTexture, nrmTexture } = await createSurfaceTextureArraysWebGPU(this.device, { albAll, nrmAll, matCount, sz })
+    const oldAlb = this._surfAlbTexture, oldNrm = this._surfNrmTexture
+    this._surfAlbTexture = albTexture
+    this._surfNrmTexture = nrmTexture
+    this._surfTexReady = true
+    this.device.queue.writeBuffer(this.surfParamsBuffer, 0, new Float32Array([meanL[0], meanL[1], meanL[2], meanL[3], 1, 0, 0, 0]))
+    this._rebuildBindGroup0()
+    oldAlb.destroy()
+    oldNrm.destroy()
   }
 
   bakeLayer(layerIndex, faceFrame, bakeOffset, bakeOpts, bakePipeline) {

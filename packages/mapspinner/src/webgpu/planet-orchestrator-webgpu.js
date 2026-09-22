@@ -10,6 +10,7 @@ import { SkyRenderer, computeCamRotCols, skyFadeFromAlt } from './sky-render.js'
 import { createTransmittanceLutTexture, createScatteringLutTexture, createAtmosphereLutSampler, supportsAtmosphereLutWebGPU } from './atmosphere-lut-compute.js'
 import { WaterRenderer, WaterOcclusionProbe, createSceneCopyTexture, captureSceneCopy } from './water-render.js'
 import { BilinearUpscale, Fsr1Upscale, DepthWriteback } from './vdrs-composite.js'
+import { SHAPE_UNIFORM_DEFAULTS } from '../terrain-defaults.js'
 
 const LOD_LEAN = 0.35
 const LOD_POP_ALTITUDE_MUL = 8.0
@@ -98,7 +99,7 @@ export async function initMapspinnerPlanetWebGPU(renderer, opts = {}) {
   const R = opts.radius || 6360000
   const maxLevel = opts.maxLevel ?? 11
   const splitFactor = opts.splitFactor ?? 0.6
-  const hpfRes = opts.hpfTexRes || 64
+  const hpfRes = opts.hpfTexRes || 128
 
   const hpf = createAnchorField({ seed: opts.hpfSeed || 1337 })
   const hpfPoolData = bakeHpfPoolData(hpf, hpfRes)
@@ -114,9 +115,12 @@ export async function initMapspinnerPlanetWebGPU(renderer, opts = {}) {
   const scatTex = createScatteringLutTexture(device, scatLut)
   const lutSampler = createAtmosphereLutSampler(device)
 
+  const landBias = opts.landBias != null ? opts.landBias : SHAPE_UNIFORM_DEFAULTS.uLandBias
+  const beachShelfM = opts.beachShelfM != null ? opts.beachShelfM : SHAPE_UNIFORM_DEFAULTS.uBeachShelfM
+
   const patchGrid = new PatchGridRenderer(device, {
     pipelineCache, colorFormat, defRadius: R,
-    composeHeight: { defRadius: R, hpfRes, sculptRes: SCULPT_RES, hpfPoolData, sculptTexData, reliefScale: opts.reliefScale },
+    composeHeight: { defRadius: R, hpfRes, sculptRes: SCULPT_RES, hpfPoolData, sculptTexData, reliefScale: opts.reliefScale, landBias, beachShelfM },
     transmittanceLutTexture: transTex, scatteringLutTexture: scatTex, atmosphereSampler: lutSampler,
   })
 
