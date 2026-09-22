@@ -209,6 +209,16 @@ if (hasWorkerPostMessage) {
       return
     }
 
+    if (data.type === 'DEBUG_COLLIDER_QUERY') {
+      if (!_ctx || !_ctx.physics || typeof _ctx.physics.raycast !== 'function') { self.postMessage({ type: 'DEBUG_COLLIDER_RESULT', reqId: data.reqId, hit: false, error: 'physics not ready' }); return }
+      const RAY_HALF_RANGE_M = 20000
+      try {
+        const r = _ctx.physics.raycast([data.x, RAY_HALF_RANGE_M, data.z], [0, -1, 0], RAY_HALF_RANGE_M * 2)
+        self.postMessage({ type: 'DEBUG_COLLIDER_RESULT', reqId: data.reqId, hit: !!r.hit, y: r.hit ? r.position[1] : null, bodyId: r.hit ? r.bodyId ?? r.body ?? null : null, terrainHeightSource: _ctx.physics._terrainHeightSource || null })
+      } catch (e) { self.postMessage({ type: 'DEBUG_COLLIDER_RESULT', reqId: data.reqId, hit: false, error: e?.message || String(e) }) }
+      return
+    }
+
     if (!_transport) { _pending.push(data); return }
     _dispatch(data)
   })

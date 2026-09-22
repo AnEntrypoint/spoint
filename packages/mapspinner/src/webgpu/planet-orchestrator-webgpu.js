@@ -26,7 +26,10 @@ function bakeHpfPoolData(hpf, hpfRes) {
       for (let x = 0; x < hpfRes; x++) {
         const fu = x / (hpfRes - 1)
         const s = hpf.sampleUV(face, fu, fv, bakeMaxLevel)
-        out[(face * hpfRes * hpfRes + y * hpfRes + x) * 4] = s.seaBias
+        const idx = (face * hpfRes * hpfRes + y * hpfRes + x) * 4
+        out[idx] = s.seaBias
+        out[idx + 2] = s.temp
+        out[idx + 3] = s.humidity
       }
     }
   }
@@ -104,16 +107,19 @@ export async function initMapspinnerPlanetWebGPU(renderer, opts = {}) {
   const colorFormat = (typeof navigator !== 'undefined' && navigator.gpu && navigator.gpu.getPreferredCanvasFormat)
     ? navigator.gpu.getPreferredCanvasFormat() : 'bgra8unorm'
   const pipelineCache = new MapspinnerPipelineCache(device)
-  const patchGrid = new PatchGridRenderer(device, {
-    pipelineCache, colorFormat, defRadius: R,
-    composeHeight: { defRadius: R, hpfRes, sculptRes: SCULPT_RES, hpfPoolData, sculptTexData, reliefScale: opts.reliefScale },
-  })
 
   const transLut = bakeTransmittanceLUT()
   const scatLut = bakeScatteringLUT()
   const transTex = createTransmittanceLutTexture(device, transLut)
   const scatTex = createScatteringLutTexture(device, scatLut)
   const lutSampler = createAtmosphereLutSampler(device)
+
+  const patchGrid = new PatchGridRenderer(device, {
+    pipelineCache, colorFormat, defRadius: R,
+    composeHeight: { defRadius: R, hpfRes, sculptRes: SCULPT_RES, hpfPoolData, sculptTexData, reliefScale: opts.reliefScale },
+    transmittanceLutTexture: transTex, scatteringLutTexture: scatTex, atmosphereSampler: lutSampler,
+  })
+
   const sky = new SkyRenderer(device, { pipelineCache, colorFormat, transmittanceLutTexture: transTex, scatteringLutTexture: scatTex, sampler: lutSampler })
   const occlusionProbe = new WaterOcclusionProbe(device)
   const bilinearUpscale = new BilinearUpscale(device, { pipelineCache, colorFormat })
@@ -197,8 +203,8 @@ export async function initMapspinnerPlanetWebGPU(renderer, opts = {}) {
     const { quads, viewProjNoEye, viewRel, camDirX, camDirY, camDirZ, camAlt, near, far } = collectQuads(camWorldPos, camTarget, fovy, camUp, aspect, surfElev)
     if (quads.length === 0) return { quadCount: 0, glError: 0, cached: false }
 
-    patchGrid.updateFrame({ viewProjNoEye, camDir: [camDirX, camDirY, camDirZ], camAlt })
     const sun = sunDir || [0, 0.6, 0.8]
+    patchGrid.updateFrame({ viewProjNoEye, camDir: [camDirX, camDirY, camDirZ], camAlt, sunDir: sun })
     sky.updateUniforms({
       camRotCols: computeCamRotCols(viewRel),
       projDiag: [(1 / Math.tan((fovy || 0.785) / 2)) / aspect, 1 / Math.tan((fovy || 0.785) / 2)],

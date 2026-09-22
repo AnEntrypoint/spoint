@@ -1,6 +1,6 @@
 import { MapspinnerPipelineCache } from './pipeline-cache.js'
 
-const ATMOSPHERE_WGSL = `
+export const ATMOSPHERE_CORE_WGSL = `
 const ATM_PI: f32 = 3.14159265358979;
 const ATM_BOTTOM: f32 = 6360.0;
 const ATM_TOP: f32 = 6500.0;
@@ -49,11 +49,17 @@ fn atm_densities(r: f32, dR: ptr<function, f32>, dM: ptr<function, f32>) {
   *dR = exp(-alt * ATM_INV_RAYLEIGH_H);
   *dM = exp(-alt * ATM_INV_MIE_H);
 }
+`
 
-@group(0) @binding(1) var transmittanceLUT: texture_2d<f32>;
-@group(0) @binding(2) var scatteringLUT: texture_2d_array<f32>;
-@group(0) @binding(3) var lutSampler: sampler;
+export function atmosphereLutBindingsWgsl(group, base) {
+  return `
+@group(${group}) @binding(${base}) var transmittanceLUT: texture_2d<f32>;
+@group(${group}) @binding(${base + 1}) var scatteringLUT: texture_2d_array<f32>;
+@group(${group}) @binding(${base + 2}) var lutSampler: sampler;
+`
+}
 
+export const ATMOSPHERE_LUT_FUNCS_WGSL = `
 fn atm_lutUV(r: f32, mu: f32) -> vec2<f32> {
   let rho = sqrt(max(r * r - ATM_BOTTOM2, 0.0));
   let u = clamp(rho / ATM_RHO_MAX, 0.0, 1.0);
@@ -151,7 +157,22 @@ fn atm_skyRadiance(cameraIn: vec3<f32>, viewRay: vec3<f32>, sun: vec3<f32>, tran
   *transmittance = mix(vec3<f32>(0.0), transSky, wSky);
   return mix(radGround, radSky, wSky);
 }
+
+fn atm_sunSkyIrradiance(point: vec3<f32>, normal: vec3<f32>, sun: vec3<f32>, skyIrradiance: ptr<function, vec3<f32>>) -> vec3<f32> {
+  let r = length(point);
+  let up = point / r;
+  let muS = dot(up, sun);
+  let tSun = atm_transmittanceToSun(up * (ATM_BOTTOM + 0.5), sun);
+  let direct = ATM_SOLAR_IRRADIANCE * tSun * clamp(dot(normal, sun), 0.0, 1.0);
+  let day = smoothstep(-0.10, 0.25, muS);
+  let rayTint = ATM_RAYLEIGH / ATM_RAYLEIGH.x;
+  let skyTint = mix(vec3<f32>(1.0), rayTint, 0.4);
+  *skyIrradiance = ATM_SOLAR_IRRADIANCE * 0.075 * day * skyTint * (0.5 * (1.0 + dot(normal, up)));
+  return direct;
+}
 `
+
+export const ATMOSPHERE_WGSL = ATMOSPHERE_CORE_WGSL + atmosphereLutBindingsWgsl(0, 1) + ATMOSPHERE_LUT_FUNCS_WGSL
 
 const SKY_UNIFORMS_WGSL = `
 struct SkyUniforms {

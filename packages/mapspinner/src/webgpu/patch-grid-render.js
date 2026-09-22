@@ -2,11 +2,86 @@ import { TERRAIN_COMPOSEHEIGHT_WGSL } from './terrain-composeheight-wgsl.js'
 import { MapspinnerPipelineCache, TERRAIN_PATCH_VERTEX_BUFFERS } from './pipeline-cache.js'
 import { M4 } from '../gl-render-mat4.js'
 import { THC_BAKE_RES, createHeightBakePipeline, bakeHeightTileTexture } from './height-bake-compute.js'
+import { ATMOSPHERE_CORE_WGSL, atmosphereLutBindingsWgsl, ATMOSPHERE_LUT_FUNCS_WGSL } from './sky-render.js'
 
 const COMPOSEHEIGHT_MARKER = '@group(0) @binding(0)'
 const COMPOSEHEIGHT_FUNCTIONS_WGSL = TERRAIN_COMPOSEHEIGHT_WGSL.slice(0, TERRAIN_COMPOSEHEIGHT_WGSL.indexOf(COMPOSEHEIGHT_MARKER))
 
-const RENDER_WGSL = COMPOSEHEIGHT_FUNCTIONS_WGSL + `
+const TERRAIN_ALBEDO_WGSL = `
+const BC_SHORE: vec3<f32> = vec3<f32>(0.82, 0.76, 0.52);
+const BC_LOWLAND: vec3<f32> = vec3<f32>(0.18, 0.38, 0.10);
+const BC_GRASS: vec3<f32> = vec3<f32>(0.30, 0.46, 0.12);
+const BC_ROCK: vec3<f32> = vec3<f32>(0.48, 0.40, 0.30);
+const BC_SNOW: vec3<f32> = vec3<f32>(0.94, 0.96, 1.00);
+const BAND_EDGES_LO: vec2<f32> = vec2<f32>(8.0, 20.0);
+const BAND_EDGES_HI: vec2<f32> = vec2<f32>(60.0, 100.0);
+const SNOW_EDGES: vec2<f32> = vec2<f32>(120.0, 180.0);
+const SLOPE_ROCK: vec2<f32> = vec2<f32>(0.25, 0.55);
+const U_BAND_WARP: f32 = 20.0;
+const U_BEACH_TOP_M: f32 = 15.0;
+const U_VARIATION_AMT: f32 = 0.05;
+const U_SKY_FILL: f32 = 0.3;
+const U_HAZE_MUL: f32 = 0.4;
+const U_TERMINATOR_GLOW: f32 = 0.6;
+const U_NIGHT_FLOOR: f32 = 0.18;
+const U_TERM_WIDTH: f32 = 0.45;
+const U_NIGHT_LIGHTS: f32 = 0.8;
+const U_EXPOSURE: f32 = 1.05;
+const U_LOOK_SAT: f32 = 1.25;
+const U_LOOK_CONTRAST: f32 = 1.0;
+
+fn terrainAlbedo(h: f32, slope: f32, rockSlope: f32, nwp: vec3<f32>, pxW: f32) -> vec3<f32> {
+  let rockWiden = smoothstep(20.0, 500.0, pxW) * 0.20;
+  var c: vec3<f32>;
+  if (h < 0.0) {
+    let depthT = clamp(-h / 300.0, 0.0, 1.0);
+    let bcSilt = vec3<f32>(0.12, 0.11, 0.09);
+    let bcBasalt = vec3<f32>(0.06, 0.06, 0.07);
+    var bedBase = mix(BC_SHORE, bcSilt, smoothstep(0.0, 0.5, depthT));
+    bedBase = mix(bedBase, bcBasalt, smoothstep(0.5, 1.0, depthT));
+    c = mix(bedBase, BC_ROCK, smoothstep(SLOPE_ROCK.x, SLOPE_ROCK.y, rockSlope));
+  } else {
+    c = mix(BC_SHORE, BC_LOWLAND, smoothstep(0.0, BAND_EDGES_LO.x, h));
+    c = mix(c, BC_GRASS, smoothstep(BAND_EDGES_LO.x, BAND_EDGES_LO.y, h));
+    let bww = nwp + vec3<f32>(snoise3(nwp * 130.0)) * 0.004;
+    let bandWarp = (snoise3(bww * 210.0) * 1.0 + snoise3(bww * 560.0) * 0.5 + snoise3(bww * 1450.0) * 0.25) * U_BAND_WARP;
+    c = mix(c, BC_ROCK, smoothstep(BAND_EDGES_HI.x + bandWarp, BAND_EDGES_HI.y + bandWarp, h));
+    c = mix(c, BC_SNOW, smoothstep(SNOW_EDGES.x + bandWarp, SNOW_EDGES.y + bandWarp, h));
+    c = mix(c, BC_ROCK, smoothstep(SLOPE_ROCK.x, SLOPE_ROCK.y + rockWiden, rockSlope) * step(0.0, h));
+  }
+  return c;
+}
+
+fn terrainAlbedoClimate(h: f32, slope: f32, rockSlope: f32, temp: f32, humid: f32, nwp: vec3<f32>, pxWorld: f32, reliefScale: f32) -> vec3<f32> {
+  var c = terrainAlbedo(h, slope, rockSlope, nwp, pxWorld);
+  if (h < 0.0) {
+    let seaIce = 1.0 - smoothstep(0.12, 0.22, temp);
+    return mix(c, vec3<f32>(0.82, 0.88, 0.94), seaIce * 0.9);
+  }
+  let mot = snoise3(nwp * 120.0);
+  c = c * (1.0 + U_VARIATION_AMT * mot);
+  let beachM = (1.0 - smoothstep(U_BEACH_TOP_M * 0.3, U_BEACH_TOP_M, h)) * (1.0 - smoothstep(SLOPE_ROCK.x, SLOPE_ROCK.y, rockSlope));
+  c = mix(c, BC_SHORE, beachM);
+  var ov = 0.0;
+  var oa = 0.0;
+  var fq = 75.0;
+  var am = 1.0;
+  for (var o = 0; o < 2; o = o + 1) {
+    let wl = 40000000.0 * reliefScale / fq;
+    let nyq = 1.0 - smoothstep(wl * 0.03, wl * 0.12, pxWorld);
+    ov = ov + am * nyq * snoise3(nwp * fq + vec3<f32>(f32(o) * 7.3));
+    oa = oa + am;
+    fq = fq * 5.0;
+    am = am * 0.6;
+  }
+  c = c * (1.0 + 0.02 * (ov / max(oa, 1e-3)));
+  return c;
+}
+`
+
+function buildRenderWgsl(gridSize) {
+  const duP = 1.0 / gridSize
+  return COMPOSEHEIGHT_FUNCTIONS_WGSL + ATMOSPHERE_CORE_WGSL + atmosphereLutBindingsWgsl(2, 0) + ATMOSPHERE_LUT_FUNCS_WGSL + TERRAIN_ALBEDO_WGSL + `
 @group(0) @binding(0) var<uniform> paramsU: vec4<u32>;
 @group(0) @binding(1) var<uniform> scalarA: vec4<f32>;
 @group(0) @binding(2) var<uniform> scalarB: vec4<f32>;
@@ -18,6 +93,7 @@ struct FrameUniforms {
   viewProjNoEye: mat4x4<f32>,
   camDir: vec3<f32>,
   camAlt: f32,
+  sunDir: vec3<f32>,
 }
 @group(1) @binding(0) var<uniform> frame: FrameUniforms;
 
@@ -39,6 +115,9 @@ struct VSOut {
   @builtin(position) pos: vec4<f32>,
   @location(0) worldRel: vec3<f32>,
   @location(1) height: f32,
+  @location(2) nrm: vec3<f32>,
+  @location(3) dir0: vec3<f32>,
+  @location(4) climate: vec2<f32>,
 }
 
 @vertex
@@ -65,29 +144,100 @@ fn vs_main(
   let north = basis[2].xyz;
   let reliefScale = bitcast<f32>(paramsU.w);
   let h = composeHeight(dir0, landBias, beachShelfM, hpfRes, sculptActive, up, east, north, sculptCenter, sculptExtent, defRadius, sculptRes, reliefScale);
-  let vRel = (dir0 - frame.camDir) * defRadius + dir0 * h - frame.camDir * frame.camAlt;
+
+  let duP = ${duP};
+  let offU = iOffset.z * duP;
+  let flPU = patchFaceWarp(absLocal + vec2<f32>(offU, 0.0), defRadius);
+  let dPU = normalize(localToWorld * vec3<f32>(flPU, defRadius));
+  let hPU = composeHeight(dPU, landBias, beachShelfM, hpfRes, sculptActive, up, east, north, sculptCenter, sculptExtent, defRadius, sculptRes, reliefScale);
+  let flMU = patchFaceWarp(absLocal + vec2<f32>(-offU, 0.0), defRadius);
+  let dMU = normalize(localToWorld * vec3<f32>(flMU, defRadius));
+  let hMU = composeHeight(dMU, landBias, beachShelfM, hpfRes, sculptActive, up, east, north, sculptCenter, sculptExtent, defRadius, sculptRes, reliefScale);
+  let flPV = patchFaceWarp(absLocal + vec2<f32>(0.0, offU), defRadius);
+  let dPV = normalize(localToWorld * vec3<f32>(flPV, defRadius));
+  let hPV = composeHeight(dPV, landBias, beachShelfM, hpfRes, sculptActive, up, east, north, sculptCenter, sculptExtent, defRadius, sculptRes, reliefScale);
+  let flMV = patchFaceWarp(absLocal + vec2<f32>(0.0, -offU), defRadius);
+  let dMV = normalize(localToWorld * vec3<f32>(flMV, defRadius));
+  let hMV = composeHeight(dMV, landBias, beachShelfM, hpfRes, sculptActive, up, east, north, sculptCenter, sculptExtent, defRadius, sculptRes, reliefScale);
+
+  let wPU = dPU * (defRadius + hPU);
+  let wMU = dMU * (defRadius + hMU);
+  let wPV = dPV * (defRadius + hPV);
+  let wMV = dMV * (defRadius + hMV);
+  var nrm = normalize(cross(wPU - wMU, wPV - wMV));
+  if (dot(nrm, dir0) < 0.0) { nrm = -nrm; }
+
+  let skirt = select(0.0, max(iOffset.z * 0.06, 30.0 * select(1.0, reliefScale, reliefScale > 0.0)), vertex.z > 0.5);
+  let vRel = (dir0 - frame.camDir) * defRadius + dir0 * (h - skirt) - frame.camDir * frame.camAlt;
+
+  let climate = hpfClimateSample(dir0, hpfRes);
+
   var out: VSOut;
   out.pos = frame.viewProjNoEye * vec4<f32>(vRel, 1.0);
   out.worldRel = vRel;
   out.height = h;
+  out.nrm = nrm;
+  out.dir0 = dir0;
+  out.climate = climate;
   return out;
 }
 
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
-  let dx = dpdx(in.worldRel);
-  let dy = dpdy(in.worldRel);
-  let n = normalize(cross(dx, dy));
-  let sun = normalize(vec3<f32>(0.4, 0.8, 0.3));
-  let ndotl = clamp(dot(n, sun), 0.0, 1.0);
-  let lowColor = vec3<f32>(0.15, 0.35, 0.12);
-  let highColor = vec3<f32>(0.55, 0.5, 0.45);
-  let t = clamp(in.height / 3000.0, 0.0, 1.0);
-  let base = mix(lowColor, highColor, t);
-  let lit = base * (0.25 + 0.75 * ndotl);
-  return vec4<f32>(lit, 1.0);
+  let defRadius = scalarB.z;
+  let n = normalize(in.nrm);
+  let dir0 = in.dir0;
+  let camWorldAbs = frame.camDir * (defRadius + frame.camAlt);
+  let vWorldAbs = in.worldRel + camWorldAbs;
+
+  let slope = 1.0 - max(0.0, dot(n, dir0));
+  let rockSlope = clamp(slope, 0.0, 1.0);
+  let pxWorld = max(length(fwidth(in.worldRel)), 0.001);
+  let reliefScale = bitcast<f32>(paramsU.w);
+  let albedo = terrainAlbedoClimate(in.height, slope, rockSlope, in.climate.x, in.climate.y, dir0, pxWorld, reliefScale);
+
+  let pAtm = atmPos(vWorldAbs, defRadius);
+  let camAtm = atmPos(camWorldAbs, defRadius);
+  var skyIrr: vec3<f32>;
+  let sunIrr = atm_sunSkyIrradiance(pAtm, n, frame.sunDir, &skyIrr);
+  let skyL = dot(skyIrr, vec3<f32>(0.2126, 0.7152, 0.0722));
+  let skyIrrBalanced = mix(vec3<f32>(skyL), skyIrr, 0.35) * U_SKY_FILL * vec3<f32>(0.85, 0.92, 1.10);
+  let ambientFloor = albedo * 0.14 + vec3<f32>(0.020, 0.026, 0.038);
+  let lit = albedo * (sunIrr * 1.25 + skyIrrBalanced) * (1.0 / ATM_PI) + ambientFloor;
+
+  let nwSun = dot(dir0, frame.sunDir);
+  var color = lit;
+  let segKm = pAtm - camAtm;
+  let dKm2 = dot(segKm, segKm);
+  let dKm = select(0.0, sqrt(dKm2), dKm2 > 9.0);
+  let apGate = smoothstep(3.0, 120.0, dKm);
+  if (apGate > 0.002) {
+    let vRay = segKm / max(dKm, 1e-4);
+    var apTrans: vec3<f32>;
+    let apInscat0 = atm_marchRadiance(camAtm, vRay, frame.sunDir, dKm, &apTrans);
+    let skyHaze = U_SKY_FILL * vec3<f32>(0.40, 0.55, 0.78) * (1.0 - apTrans);
+    let apInscat = max(apInscat0, skyHaze);
+    let hazed0 = lit * apTrans + apInscat;
+    let gz = 1.0 - abs(nwSun);
+    var graze = smoothstep(0.55, 1.0, gz);
+    graze = graze * graze;
+    let termDay = smoothstep(-0.02, 0.18, nwSun);
+    let hazed = hazed0 + U_TERMINATOR_GLOW * graze * termDay * vec3<f32>(1.0, 0.55, 0.34) * apGate;
+    color = mix(lit, hazed, apGate * U_HAZE_MUL);
+  }
+
+  let dayShade = mix(U_NIGHT_FLOOR, 1.0, smoothstep(-U_TERM_WIDTH, U_TERM_WIDTH, nwSun));
+  let nightFill = vec3<f32>(0.06, 0.075, 0.11) * U_NIGHT_LIGHTS;
+  let color2 = color * dayShade + nightFill * (1.0 - dayShade);
+  let c = color2 * U_EXPOSURE;
+  var mapped = clamp((c * (2.51 * c + 0.03)) / (c * (2.43 * c + 0.59) + 0.14), vec3<f32>(0.0), vec3<f32>(1.0));
+  let lum = dot(mapped, vec3<f32>(0.2126, 0.7152, 0.0722));
+  mapped = mix(vec3<f32>(lum), mapped, U_LOOK_SAT);
+  mapped = clamp((mapped - 0.5) * U_LOOK_CONTRAST + 0.5, vec3<f32>(0.0), vec3<f32>(1.0));
+  return vec4<f32>(pow(mapped, vec3<f32>(1.0 / 2.2)), 1.0);
 }
 `
+}
 
 function buildSampleWgsl(gridSize) {
   const duP = 1.0 / gridSize
@@ -158,7 +308,8 @@ fn vs_main(
   var nrm = normalize(cross(dPU * (defRadius + hPU) - dMU * (defRadius + hMU),
                              dPV * (defRadius + hPV) - dMV * (defRadius + hMV)));
   if (dot(nrm, dir0) < 0.0) { nrm = -nrm; }
-  let vRel = (dir0 - frame.camDir) * defRadius + dir0 * h - frame.camDir * frame.camAlt;
+  let skirt = select(0.0, max(iOffset.z * 0.06, 30.0), vertex.z > 0.5);
+  let vRel = (dir0 - frame.camDir) * defRadius + dir0 * (h - skirt) - frame.camDir * frame.camAlt;
   var out: VSOut;
   out.pos = frame.viewProjNoEye * vec4<f32>(vRel, 1.0);
   out.worldRel = vRel;
@@ -272,12 +423,12 @@ export function createComposeHeightParams(device, opts = {}) {
   const paramsBuf = new ArrayBuffer(16)
   new Uint32Array(paramsBuf).set([0, hpfRes, sculptRes, 0])
   new Float32Array(paramsBuf)[3] = reliefScale
-  const paramsU = createBufferWithData(device, new Uint32Array(paramsBuf), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST)
+  const paramsU = createBufferWithData(device, new Uint32Array(paramsBuf), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC)
   const scalarA = createBufferWithData(device, new Float32Array([
     opts.landBias || 0, opts.beachShelfM || 150, opts.sculptActive || 0, opts.sculptExtent || 0,
-  ]), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST)
+  ]), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC)
   const sculptCenter = opts.sculptCenter || [0, 0]
-  const scalarB = createBufferWithData(device, new Float32Array([sculptCenter[0], sculptCenter[1], defRadius, opts.poolRes || 0]), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST)
+  const scalarB = createBufferWithData(device, new Float32Array([sculptCenter[0], sculptCenter[1], defRadius, opts.poolRes || 0]), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC)
   const up = opts.sculptUp || [0, 1, 0]
   const east = opts.sculptEast || [1, 0, 0]
   const north = opts.sculptNorth || [0, 0, 1]
@@ -285,23 +436,25 @@ export function createComposeHeightParams(device, opts = {}) {
     up[0], up[1], up[2], 0,
     east[0], east[1], east[2], 0,
     north[0], north[1], north[2], 0,
-  ]), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST)
+  ]), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC)
   const hpfFloats = 6 * hpfRes * hpfRes * 4
-  const hpfPool = createBufferWithData(device, opts.hpfPoolData || new Float32Array(Math.max(hpfFloats, 4)), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
+  const hpfPool = createBufferWithData(device, opts.hpfPoolData || new Float32Array(Math.max(hpfFloats, 4)), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC)
   const sculptFloats = sculptRes * sculptRes
-  const sculptTex = createBufferWithData(device, opts.sculptTexData || new Float32Array(Math.max(sculptFloats, 4)), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST)
+  const sculptTex = createBufferWithData(device, opts.sculptTexData || new Float32Array(Math.max(sculptFloats, 4)), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC)
   return { paramsU, scalarA, scalarB, basis, hpfPool, sculptTex }
 }
 
 export function createFrameUniformBuffer(device) {
-  return device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
+  return device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
 }
 
-export function writeFrameUniforms(device, buffer, { viewProjNoEye, camDir, camAlt }) {
-  const data = new Float32Array(20)
+export function writeFrameUniforms(device, buffer, { viewProjNoEye, camDir, camAlt, sunDir }) {
+  const data = new Float32Array(24)
   data.set(viewProjNoEye, 0)
   data[16] = camDir[0]; data[17] = camDir[1]; data[18] = camDir[2]
   data[19] = camAlt
+  const sd = sunDir || [0, 0.6, 0.8]
+  data[20] = sd[0]; data[21] = sd[1]; data[22] = sd[2]
   device.queue.writeBuffer(buffer, 0, data)
 }
 
@@ -365,9 +518,13 @@ export class PatchGridRenderer {
         ],
       })
     } else {
+      if (!opts.transmittanceLutTexture || !opts.scatteringLutTexture || !opts.atmosphereSampler) {
+        throw new TypeError('PatchGridRenderer compute mode requires opts.transmittanceLutTexture, opts.scatteringLutTexture, opts.atmosphereSampler')
+      }
+      const renderWgsl = buildRenderWgsl(this.gridSize)
       this.pipeline = this.pipelineCache.getPipeline(this.stateKey, {
-        vertexCode: RENDER_WGSL,
-        fragmentCode: RENDER_WGSL,
+        vertexCode: renderWgsl,
+        fragmentCode: renderWgsl,
         colorFormat: this.colorFormat,
         depthFormat: this.depthFormat,
         vertexBuffers: TERRAIN_PATCH_VERTEX_BUFFERS,
@@ -382,6 +539,14 @@ export class PatchGridRenderer {
           { binding: 3, resource: { buffer: p.basis } },
           { binding: 6, resource: { buffer: p.hpfPool } },
           { binding: 7, resource: { buffer: p.sculptTex } },
+        ],
+      })
+      this.bindGroup2 = device.createBindGroup({
+        layout: this.pipeline.getBindGroupLayout(2),
+        entries: [
+          { binding: 0, resource: opts.transmittanceLutTexture.createView() },
+          { binding: 1, resource: opts.scatteringLutTexture.createView({ dimension: '2d-array' }) },
+          { binding: 2, resource: opts.atmosphereSampler },
         ],
       })
     }
@@ -435,6 +600,7 @@ export class PatchGridRenderer {
     passEncoder.setPipeline(this.pipeline)
     passEncoder.setBindGroup(0, this.bindGroup0)
     passEncoder.setBindGroup(1, this.bindGroup1)
+    if (this.bindGroup2) passEncoder.setBindGroup(2, this.bindGroup2)
     passEncoder.setVertexBuffer(0, this.gridVertexBuffer)
     passEncoder.setVertexBuffer(1, this.instanceBuffer)
     passEncoder.setIndexBuffer(this.gridIndexBuffer, 'uint32')
@@ -442,4 +608,4 @@ export class PatchGridRenderer {
   }
 }
 
-export { RENDER_WGSL, createBufferWithData, buildSampleWgsl }
+export { buildRenderWgsl, createBufferWithData, buildSampleWgsl }

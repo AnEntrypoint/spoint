@@ -88,6 +88,22 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
 
   if (typeof window !== 'undefined') window.__terrain = { heightAt: (d) => sampler.heightAt(d), groundHeightLocal: (x, z) => frame.groundHeightLocal(x, z), frame, planet, occlusionStats: () => _terrainOcclusion.getStats() }
 
+  const COLLIDER_PROBE_MAX_UP_DOT = 0.05
+  async function colliderProbe(dir) {
+    const l = Math.hypot(dir[0], dir[1], dir[2]) || 1
+    const dx = dir[0] / l, dy = dir[1] / l, dz = dir[2] / l
+    const upDot = dx * frame.up[0] + dy * frame.up[1] + dz * frame.up[2]
+    if (upDot <= COLLIDER_PROBE_MAX_UP_DOT) return { ok: false, reason: `direction ${Math.acos(Math.min(1, Math.max(-1, upDot))) * 180 / Math.PI} deg from anchorDir exceeds single-anchor local-frame coverage (gnomonic projection breaks down beyond ~90deg, guarded at ${Math.acos(COLLIDER_PROBE_MAX_UP_DOT) * 180 / Math.PI} deg)`, upDot }
+    const t = frame.radius + frame.anchorHeight
+    const L = t / upDot
+    const x = (dx * frame.east[0] + dy * frame.east[1] + dz * frame.east[2]) * L
+    const z = (dx * frame.north[0] + dy * frame.north[1] + dz * frame.north[2]) * L
+    if (typeof window === 'undefined' || !window.__client || typeof window.__client.queryColliderHeight !== 'function') return { ok: false, reason: 'no singleplayer BrowserServer client (window.__client.queryColliderHeight missing)', x, z }
+    const r = await window.__client.queryColliderHeight(x, z)
+    return { ok: !!r.hit, x, z, colliderY: r.hit ? r.y : null, terrainHeightSource: r.terrainHeightSource || null, raw: r }
+  }
+  if (typeof window !== 'undefined') window.__colliderProbe = colliderProbe
+
   const _fwd = new THREE.Vector3(), _pos = new THREE.Vector3(), _eye = [0, 0, 0], _tgt = [0, 0, 0]
   const sunLocal = (() => { const s = cfg.sun || [0, 0.343, 0.939]; const l = Math.hypot(s[0], s[1], s[2]) || 1; return [s[0] / l, s[1] / l, s[2] / l] })()
   const _sunE = [0, 0, 0]

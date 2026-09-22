@@ -161,6 +161,37 @@ fn continentalBias(dir: vec3<f32>, res: i32) -> f32 {
   return ea + wy * (eb - ea);
 }
 
+fn hpfTexelCh(face: i32, x: i32, y: i32, res: i32, channel: i32) -> f32 {
+  let idx = (face * res * res + (y * res + x)) * 4 + channel;
+  return hpfPool[idx];
+}
+
+fn hpfClimateSample(dir: vec3<f32>, res: i32) -> vec2<f32> {
+  let fuv = hpfFaceUV(normalize(dir));
+  let face = i32(fuv.x + 0.5);
+  let denom = res - 1;
+  let denomF = f32(denom);
+  let tx = fuv.y * denomF;
+  let ty = fuv.z * denomF;
+  let fx0 = floor(tx);
+  let fy0 = floor(ty);
+  let wx = quintic(tx - fx0);
+  let wy = quintic(ty - fy0);
+  var x0 = i32(fx0);
+  var y0 = i32(fy0);
+  if (x0 < 0) { x0 = 0; } else if (x0 > denom) { x0 = denom; }
+  if (y0 < 0) { y0 = 0; } else if (y0 > denom) { y0 = denom; }
+  let x1 = select(denom, x0 + 1, x0 < denom);
+  let y1 = select(denom, y0 + 1, y0 < denom);
+  let t00 = vec2<f32>(hpfTexelCh(face, x0, y0, res, 2), hpfTexelCh(face, x0, y0, res, 3));
+  let t10 = vec2<f32>(hpfTexelCh(face, x1, y0, res, 2), hpfTexelCh(face, x1, y0, res, 3));
+  let t01 = vec2<f32>(hpfTexelCh(face, x0, y1, res, 2), hpfTexelCh(face, x0, y1, res, 3));
+  let t11 = vec2<f32>(hpfTexelCh(face, x1, y1, res, 2), hpfTexelCh(face, x1, y1, res, 3));
+  let ea = mix(t00, t10, wx);
+  let eb = mix(t01, t11, wx);
+  return mix(ea, eb, wy);
+}
+
 fn sculptTexel(x: i32, y: i32, res: i32) -> f32 {
   var xi = x;
   var yi = y;

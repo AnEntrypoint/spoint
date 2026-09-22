@@ -39,6 +39,18 @@ export class BrowserServer extends BaseClient {
     return this._transformRingReader ? this._transformRingReader.readAll() : null
   }
 
+  queryColliderHeight(x, z, timeoutMs = 5000) {
+    if (!this._worker) return Promise.resolve({ hit: false, error: 'no worker' })
+    this._colliderReqSeq = (this._colliderReqSeq || 0) + 1
+    const reqId = this._colliderReqSeq
+    this._colliderPending = this._colliderPending || new Map()
+    return new Promise((resolve) => {
+      const t = setTimeout(() => { this._colliderPending.delete(reqId); resolve({ hit: false, error: 'timeout' }) }, timeoutMs)
+      this._colliderPending.set(reqId, (r) => { clearTimeout(t); resolve(r) })
+      this._worker.postMessage({ type: 'DEBUG_COLLIDER_QUERY', reqId, x, z })
+    })
+  }
+
   async _importModule(path) {
     const r = await fetch(new URL(path, _root))
     if (!r.ok) throw new Error(`${r.status} ${path}`)
@@ -91,6 +103,11 @@ export class BrowserServer extends BaseClient {
         if (data.type === 'INIT_ERROR') { reject(new Error(data.error + '\n' + data.stack)); return }
         if (data.type === 'TRANSFORM_RING') {
           try { this._transformRingReader = new TransformRingReader(data.sab, data.capacity) } catch (_) { this._transformRingReader = null }
+          return
+        }
+        if (data.type === 'DEBUG_COLLIDER_RESULT') {
+          const resolve = this._colliderPending && this._colliderPending.get(data.reqId)
+          if (resolve) { this._colliderPending.delete(data.reqId); resolve(data) }
           return
         }
         if (data.type === 'PEER_SEND') {
