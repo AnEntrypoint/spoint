@@ -1,4 +1,1 @@
-- id: tsl-mapspinner-epic
-  subject: 'Full WebGPU/WGSL-compute port of packages/mapspinner (gl-render.js 389 call sites + planet-orchestrator.js 12 call sites + patch-baker.js): from-scratch second rendering backend, per MapspinnerWebGPUFeasibility.js. User explicitly requested attempting this now despite documented 2-4 week scope'
-  session_id: gm-tsl-convert-20260922
-  status: pending
+[]
