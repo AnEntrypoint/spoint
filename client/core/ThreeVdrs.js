@@ -119,7 +119,7 @@ export class ThreeVdrs {
     if (this._lowTarget && this._lowW === lowW && this._lowH === lowH) return
     if (this._lowTarget) this._lowTarget.dispose()
     this._lowW = lowW; this._lowH = lowH
-    this._lowTarget = new THREE.WebGLRenderTarget(lowW, lowH, {
+    this._lowTarget = new THREE.RenderTarget(lowW, lowH, {
       type: THREE.HalfFloatType,
       format: THREE.RGBAFormat,
       minFilter: THREE.LinearFilter,
@@ -144,8 +144,8 @@ export class ThreeVdrs {
       wrapS: THREE.ClampToEdgeWrapping,
       wrapT: THREE.ClampToEdgeWrapping,
     }
-    this._easuTarget = new THREE.WebGLRenderTarget(fullW, fullH, opts)
-    this._rcasTarget = new THREE.WebGLRenderTarget(fullW, fullH, opts)
+    this._easuTarget = new THREE.RenderTarget(fullW, fullH, opts)
+    this._rcasTarget = new THREE.RenderTarget(fullW, fullH, opts)
     this._built = true
   }
 
