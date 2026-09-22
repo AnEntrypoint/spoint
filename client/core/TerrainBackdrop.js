@@ -25,15 +25,18 @@ function _createFallbackBackdrop() {
 }
 
 export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
-  if (renderer && renderer.isWebGPURenderer) {
-    console.warn('[terrain] WebGPURenderer active -> mapspinner has no WebGPU port yet, running without planet backdrop (see docs/webgpu-shader-audit.md)')
-    return _createFallbackBackdrop()
-  }
-  const gl = renderer.getContext()
-  const _terrainOcclusion = createTerrainOcclusion(gl, { minCandidates: cfg.occlusionMinCandidates ?? 32, maxElev: cfg.occlusionMaxElev ?? 200 })
-  let initMapspinnerPlanet, createHeightSampler
+  const isWebGPU = !!(renderer && renderer.isWebGPURenderer)
+  const gl = isWebGPU ? null : renderer.getContext()
+  const _terrainOcclusion = isWebGPU
+    ? { makePredicate: () => undefined, runQueries() {}, getStats: () => ({ flips: 0 }), clearVerdicts() {}, dispose() {}, snapshotOccludedKeys: () => [], setMaxQueriesPerFrame() {}, getMaxQueriesPerFrame: () => 0, getCandidateCount: () => 0 }
+    : createTerrainOcclusion(gl, { minCandidates: cfg.occlusionMinCandidates ?? 32, maxElev: cfg.occlusionMaxElev ?? 200 })
+  let initMapspinnerPlanet, createHeightSampler, initMapspinnerPlanetWebGPU
   try {
-    ;({ initMapspinnerPlanet } = await import('mapspinner/planet-orchestrator'))
+    if (isWebGPU) {
+      ;({ initMapspinnerPlanetWebGPU } = await import('mapspinner/webgpu/planet-orchestrator-webgpu'))
+    } else {
+      ;({ initMapspinnerPlanet } = await import('mapspinner/planet-orchestrator'))
+    }
     ;({ createHeightSampler } = await import('mapspinner/height-cpu'))
   } catch (e) {
     console.warn('[terrain] mapspinner import failed -> running without planet backdrop:', e?.message || e)
@@ -46,7 +49,12 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     if (_lightPlanet) return { frame: () => {}, clearCache: () => {} }
     let lastErr
     for (let attempt = 0; attempt < 3; attempt++) {
-      try { return await initMapspinnerPlanet(gl, { radius, gridMeshSize: 9, reliefScale: cfg.reliefScale, hpfSeed: cfg.seed, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : undefined, splitFactor: Number.isFinite(cfg.splitFactor) ? cfg.splitFactor : undefined, occlusionPredicate: cfg.occlusionCulling === false ? undefined : _terrainOcclusion.makePredicate(), geomorphLod: RenderControls.get('geomorphLod') !== false }) }
+      try {
+        if (isWebGPU) {
+          return await initMapspinnerPlanetWebGPU(renderer, { radius, hpfSeed: cfg.seed, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : undefined, splitFactor: Number.isFinite(cfg.splitFactor) ? cfg.splitFactor : undefined })
+        }
+        return await initMapspinnerPlanet(gl, { radius, gridMeshSize: 9, reliefScale: cfg.reliefScale, hpfSeed: cfg.seed, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : undefined, splitFactor: Number.isFinite(cfg.splitFactor) ? cfg.splitFactor : undefined, occlusionPredicate: cfg.occlusionCulling === false ? undefined : _terrainOcclusion.makePredicate(), geomorphLod: RenderControls.get('geomorphLod') !== false })
+      }
       catch (e) { lastErr = e; console.warn(`[terrain] planet init attempt ${attempt + 1}/3 failed:`, e?.message || e); await new Promise(r => setTimeout(r, 400 * (attempt + 1))) }
     }
     throw lastErr
@@ -166,7 +174,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
       _sunE[0] = frame.east[0] * sunLocal[0] + frame.up[0] * sunLocal[1] + frame.north[0] * sunLocal[2]
       _sunE[1] = frame.east[1] * sunLocal[0] + frame.up[1] * sunLocal[1] + frame.north[1] * sunLocal[2]
       _sunE[2] = frame.east[2] * sunLocal[0] + frame.up[2] * sunLocal[1] + frame.north[2] * sunLocal[2]
-      renderer.resetState()
+      if (!isWebGPU) renderer.resetState()
       let surfElev = frame.anchorHeight
       try {
         const hfn = frame._patchHeightOrNull
@@ -181,13 +189,13 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
         try { _terrainOcclusion.clearVerdicts() } catch (e) { _dbgTerrain('clearVerdicts failed in zero-quad fail-safe:', e?.message || e) }
         try { planet.clearCache && planet.clearCache() } catch (e) { _dbgTerrain('planet.clearCache failed in zero-quad fail-safe:', e?.message || e) }
       }
-      renderer.resetState()
+      if (!isWebGPU) renderer.resetState()
       if (scene.background !== null) scene.background = null
     } catch (e) {
       const msg = String(e && e.message || e)
       if (msg !== _lastRenderPlanetErr) { _lastRenderPlanetErr = msg; console.warn('[terrain] renderPlanet threw, painting fallback sky this frame:', msg) }
       if (scene.background === null) scene.background = _fallbackSkyColor
-      try { renderer.resetState() } catch (_) {}
+      if (!isWebGPU) try { renderer.resetState() } catch (_) {}
     }
   }
   let _lastRenderPlanetErr = null
@@ -196,7 +204,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   function runOcclusionQueries() {
     try {
       _terrainOcclusion.runQueries((typeof window !== 'undefined') ? window.__lastVP : null)
-      renderer.resetState()
+      if (!isWebGPU) renderer.resetState()
       const flips = _terrainOcclusion.getStats().flips
       if (flips !== _lastFlips) { _lastFlips = flips; try { planet.clearCache && planet.clearCache() } catch (_) {} }
     } catch (_) {}

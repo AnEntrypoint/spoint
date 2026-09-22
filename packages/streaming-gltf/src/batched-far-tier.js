@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { makeBatchedFarTierMaterialTSL } from './batched-far-tier-tsl.js';
 
 function _normalizeFarGeometry(src) {
   const pos = src.getAttribute('position');
@@ -54,55 +55,64 @@ export class BatchedFarTier {
     this.maxInstances = opts.maxInstances ?? 4096;
     this.maxVerts = opts.maxVerts ?? 3_000_000;
     this.maxIndex = opts.maxIndex ?? 6_000_000;
-    const material = new THREE.MeshBasicMaterial({ vertexColors: true });
 
     this._lerpTexelsPerInstance = 2;
     this._initLerpTexture(this.maxInstances);
     this._uNow = { value: 0 };
+    this._uNowNode = null;
 
-    material.onBeforeCompile = (shader) => {
-      shader.uniforms.uLerpTex = { value: this._lerpTex };
-      shader.uniforms.uLerpTexW = { value: this._lerpTexW };
-      shader.uniforms.uNow = this._uNow;
-      shader.vertexShader = shader.vertexShader.replace(
-        '#include <color_vertex>',
-        `#include <color_vertex>
-        #if defined( USE_COLOR_ALPHA )
-          vColor.rgb = pow(vColor.rgb, vec3(2.2));
-        #elif defined( USE_COLOR )
-          vColor = pow(vColor, vec3(2.2));
-        #endif`,
-      );
-      shader.vertexShader = shader.vertexShader.replace(
-        '#include <batching_pars_vertex>',
-        `#include <batching_pars_vertex>
-        uniform sampler2D uLerpTex;
-        uniform float uLerpTexW;
-        uniform float uNow;
-        vec4 _lerpTexel(int idx) {
-          int w = int(uLerpTexW);
-          return texelFetch(uLerpTex, ivec2(idx % w, idx / w), 0);
-        }`,
-      );
-      shader.vertexShader = shader.vertexShader.replace(
-        '#include <batching_vertex>',
-        `#include <batching_vertex>
-        #ifdef USE_BATCHING
-        {
-          int _bId = int(getIndirectIndex(gl_DrawID));
-          int _base = _bId * 2;
-          vec4 _p0 = _lerpTexel(_base);
-          vec4 _p1 = _lerpTexel(_base + 1);
-          float _dur = _p1.w;
-          if (_dur > 0.0) {
-            float _t = clamp((uNow - _p0.w) / _dur, 0.0, 1.0);
-            vec3 _lp = mix(_p0.xyz, _p1.xyz, _t);
-            batchingMatrix[3].xyz = _lp;
+    const isWebGPU = !!(pool && pool.renderer && pool.renderer.isWebGPURenderer);
+    let material;
+    if (isWebGPU) {
+      const built = makeBatchedFarTierMaterialTSL(this._lerpTex, this._lerpTexW, this._uNow.value);
+      material = built.material;
+      this._uNowNode = built.uNow;
+    } else {
+      material = new THREE.MeshBasicMaterial({ vertexColors: true });
+      material.onBeforeCompile = (shader) => {
+        shader.uniforms.uLerpTex = { value: this._lerpTex };
+        shader.uniforms.uLerpTexW = { value: this._lerpTexW };
+        shader.uniforms.uNow = this._uNow;
+        shader.vertexShader = shader.vertexShader.replace(
+          '#include <color_vertex>',
+          `#include <color_vertex>
+          #if defined( USE_COLOR_ALPHA )
+            vColor.rgb = pow(vColor.rgb, vec3(2.2));
+          #elif defined( USE_COLOR )
+            vColor = pow(vColor, vec3(2.2));
+          #endif`,
+        );
+        shader.vertexShader = shader.vertexShader.replace(
+          '#include <batching_pars_vertex>',
+          `#include <batching_pars_vertex>
+          uniform sampler2D uLerpTex;
+          uniform float uLerpTexW;
+          uniform float uNow;
+          vec4 _lerpTexel(int idx) {
+            int w = int(uLerpTexW);
+            return texelFetch(uLerpTex, ivec2(idx % w, idx / w), 0);
+          }`,
+        );
+        shader.vertexShader = shader.vertexShader.replace(
+          '#include <batching_vertex>',
+          `#include <batching_vertex>
+          #ifdef USE_BATCHING
+          {
+            int _bId = int(getIndirectIndex(gl_DrawID));
+            int _base = _bId * 2;
+            vec4 _p0 = _lerpTexel(_base);
+            vec4 _p1 = _lerpTexel(_base + 1);
+            float _dur = _p1.w;
+            if (_dur > 0.0) {
+              float _t = clamp((uNow - _p0.w) / _dur, 0.0, 1.0);
+              vec3 _lp = mix(_p0.xyz, _p1.xyz, _t);
+              batchingMatrix[3].xyz = _lp;
+            }
           }
-        }
-        #endif`,
-      );
-    };
+          #endif`,
+        );
+      };
+    }
     this.material = material;
     this.mesh = new THREE.BatchedMesh(this.maxInstances, this.maxVerts, this.maxIndex, material);
     this.mesh.frustumCulled = false;
@@ -179,7 +189,7 @@ export class BatchedFarTier {
     this._lerpTex = tex;
   }
 
-  updateNow(nowSec) { this._uNow.value = nowSec; }
+  updateNow(nowSec) { this._uNow.value = nowSec; if (this._uNowNode) this._uNowNode.value = nowSec; }
 
   setLerpTarget(id, x0, y0, z0, x1, y1, z1, startSec, durSec) {
     if (id < 0) return;

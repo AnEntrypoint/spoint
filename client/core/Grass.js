@@ -7,7 +7,103 @@ import { createModelExclusionField } from '/src/terrain/ModelExclusionField.js'
 import { createGrassDecal } from '/src/terrain/GrassDecal.js'
 import { dbg } from './debug-log.js'
 import { MAX_BENDERS, MAX_DECALS, UNUSED_BENDER_SLOT_XZ, makeBladeGeo, makeWind, makeGrassMaterial } from './GrassMaterial.js'
-import { makeGrassMaterialTSL } from './GrassTSL.js'
+import { makeGrassMaterialTSL, syncGrassMaterialTSL } from './GrassTSL.js'
+import { createWebGPUInstancedMesh } from './WebGPUInstancing.js'
+
+const GRASS_ATTRIBUTE_SCHEMA = { windPhase: 'float', tint: 'float', instShadow: 'float' }
+
+function createStreamingGrassInstancer(scene, geo, material, initialCapacity, attributeSchema) {
+  let capacity = initialCapacity
+  let rec = createWebGPUInstancedMesh(geo, material, capacity, attributeSchema)
+  scene.add(rec.mesh)
+  const freeIds = []
+  for (let i = capacity - 1; i >= 0; i--) freeIds.push(i)
+  let highWatermark = 0
+  const _matrixData = new Map()
+  const _attrData = new Map()
+  const _visibleData = new Map()
+  const _pos = new THREE.Vector3(), _quat = new THREE.Quaternion(), _scale = new THREE.Vector3(1, 1, 1), _m4 = new THREE.Matrix4()
+  const _entityProxy = {
+    position: { set(x, y, z) { _pos.set(x, y, z) } },
+    quaternion: { copy(q) { _quat.copy(q) } },
+    scale: { set(x, y, z) { _scale.set(x, y, z) } },
+  }
+
+  function _acquire() {
+    if (freeIds.length === 0) return -1
+    const id = freeIds.pop()
+    if (id + 1 > highWatermark) highWatermark = id + 1
+    return id
+  }
+
+  function _grow(minCapacity) {
+    const newCapacity = Math.max(minCapacity, capacity * 2)
+    const oldMesh = rec.mesh
+    const oldRenderOrder = oldMesh.renderOrder
+    const oldFrustumCulled = oldMesh.frustumCulled
+    const oldMatrixAutoUpdate = oldMesh.matrixAutoUpdate
+    rec = createWebGPUInstancedMesh(geo, material, newCapacity, attributeSchema)
+    for (const [id, m] of _matrixData) {
+      rec.setMatrixAt(id, m)
+      const attrs = _attrData.get(id)
+      if (attrs) for (const name in attrs) rec.setAttributeAt(id, name, attrs[name])
+      if (_visibleData.get(id) === false) rec.setVisibleAt(id, false)
+    }
+    for (let i = newCapacity - 1; i >= capacity; i--) freeIds.unshift(i)
+    capacity = newCapacity
+    rec.mesh.renderOrder = oldRenderOrder
+    rec.mesh.frustumCulled = oldFrustumCulled
+    rec.mesh.matrixAutoUpdate = oldMatrixAutoUpdate
+    scene.remove(oldMesh)
+    scene.add(rec.mesh)
+  }
+
+  const adapter = {
+    get capacity() { return capacity },
+    get mesh() { return rec.mesh },
+    perObjectFrustumCulled: false,
+    autoUpdate: true,
+    get frustumCulled() { return rec.mesh.frustumCulled },
+    set frustumCulled(v) { rec.mesh.frustumCulled = v },
+    get renderOrder() { return rec.mesh.renderOrder },
+    set renderOrder(v) { rec.mesh.renderOrder = v },
+    get matrixAutoUpdate() { return rec.mesh.matrixAutoUpdate },
+    set matrixAutoUpdate(v) { rec.mesh.matrixAutoUpdate = v },
+    updateMatrix() { rec.mesh.updateMatrix() },
+    addInstances(count, cb) {
+      for (let i = 0; i < count; i++) {
+        let id = _acquire()
+        if (id < 0) { _grow(capacity + 1); id = _acquire() }
+        _pos.set(0, 0, 0); _quat.identity(); _scale.set(1, 1, 1)
+        cb(_entityProxy, id)
+        _m4.compose(_pos, _quat, _scale)
+        rec.setMatrixAt(id, _m4)
+        _matrixData.set(id, _m4.clone())
+        _visibleData.set(id, true)
+      }
+    },
+    removeInstances(id) {
+      rec.releaseId(id)
+      freeIds.push(id)
+      _matrixData.delete(id)
+      _attrData.delete(id)
+      _visibleData.delete(id)
+    },
+    setUniformAt(id, name, value) {
+      rec.setAttributeAt(id, name, value)
+      let attrs = _attrData.get(id)
+      if (!attrs) { attrs = {}; _attrData.set(id, attrs) }
+      attrs[name] = value
+    },
+    setVisibilityAt(id, visible) {
+      rec.setVisibleAt(id, visible)
+      _visibleData.set(id, visible)
+    },
+    resizeBuffers(minCapacity) { if (minCapacity > capacity) _grow(minCapacity) },
+    dispose() { _matrixData.clear(); _attrData.clear(); _visibleData.clear() },
+  }
+  return adapter
+}
 
 export { MAX_BENDERS, MAX_DECALS }
 
@@ -37,37 +133,30 @@ export async function createGrass(opts = {}) {
   const INIT_CAP = Math.min(MAX_INSTANCES, 4096)
 
   const wind = makeWind()
-
-  if (renderer.isWebGPURenderer) {
-    console.warn('[Grass] the InstancedMesh2/NodeMaterial blocker is resolved (client/core/WebGPUInstancing.js, see AGENTS.md project/tsl-instancedmesh2-nodematerial-blocker) but Grass.js\'s chunk-streaming call sites (addInstances/removeInstances/setUniformAt/setVisibilityAt) are not yet ported onto it -- grass fails open (no grass rendered) under ?webgpu=1 until that port lands')
-    const { material: probeMat } = makeGrassMaterialTSL(wind)
-    probeMat.dispose()
-    const api = {
-      update() {}, tickWind() {}, prewarm: async () => 0, warmShaders() { return 0 }, dispose() {},
-      _im: null, _imMid: null,
-      get totalInstances() { return 0 },
-      get profile() { return { totalInstances: 0, loads: 0, unloads: 0, updateMs: 0, grassDrawCalls: 0, ringScans: 0, cullMs: 0, chunksCulled: 0 } },
-      rebuildPlacement() {}, repaintBiome() {}, biomeOverride, getOcclusionCandidates: () => [], applyOcclusion() {}, setBenders() {},
-      get benderCount() { return 0 }, get benderPosXZ() { return null },
-      markScorched() {}, decalStore: null, get decalCount() { return 0 }, get decalPosXZRS() { return null },
-      cfg, renderDistance,
-    }
-    if (typeof window !== 'undefined') window.__grass = api
-    return api
-  }
+  const isWebGPU = !!renderer.isWebGPURenderer
 
   const LOD_NEAR_DIST = Number.isFinite(cfg.grassLodNearDistance) ? cfg.grassLodNearDistance : 8
   const geoNear = makeBladeGeo(5)
   const geoMid = makeBladeGeo(1)
-  const mat = makeGrassMaterial(wind)
-  const im = new InstancedMesh2(geoNear, mat, { capacity: INIT_CAP, renderer })
-  const imMid = new InstancedMesh2(geoMid, mat, { capacity: Math.min(INIT_CAP, 2048), renderer })
-  for (const m of [im, imMid]) {
-    m.initUniformsPerInstance({ vertex: { windPhase: 'float', instShadow: 'float' }, fragment: { tint: 'float' } })
-    m.perObjectFrustumCulled = false
-    m.frustumCulled = false
+
+  let mat, im, imMid, grassNodes = null
+  if (isWebGPU) {
+    const built = makeGrassMaterialTSL(wind)
+    mat = built.material
+    grassNodes = built.nodes
+    im = createStreamingGrassInstancer(scene, geoNear, mat, INIT_CAP, GRASS_ATTRIBUTE_SCHEMA)
+    imMid = createStreamingGrassInstancer(scene, geoMid, mat, Math.min(INIT_CAP, 2048), GRASS_ATTRIBUTE_SCHEMA)
+  } else {
+    mat = makeGrassMaterial(wind)
+    im = new InstancedMesh2(geoNear, mat, { capacity: INIT_CAP, renderer })
+    imMid = new InstancedMesh2(geoMid, mat, { capacity: Math.min(INIT_CAP, 2048), renderer })
+    for (const m of [im, imMid]) {
+      m.initUniformsPerInstance({ vertex: { windPhase: 'float', instShadow: 'float' }, fragment: { tint: 'float' } })
+      m.perObjectFrustumCulled = false
+      m.frustumCulled = false
+    }
+    scene.add(im); scene.add(imMid)
   }
-  scene.add(im); scene.add(imMid)
   im.updateMatrix(); im.matrixAutoUpdate = false
   imMid.updateMatrix(); imMid.matrixAutoUpdate = false
   im.renderOrder = 2; imMid.renderOrder = 2
@@ -306,6 +395,7 @@ export async function createGrass(opts = {}) {
     profile.totalInstances = totalInstances
     profile.updateMs = ((typeof performance !== 'undefined') ? performance.now() : 0) - t0
     if (typeof window !== 'undefined') window.__grassProfile = profile
+    if (grassNodes) syncGrassMaterialTSL(grassNodes, wind)
   }
 
   function warmShaders(camera) { if (!camera) return 0; try { renderer.render(scene, camera); renderer.render(scene, camera) } catch (_) {} return 1 }
@@ -349,7 +439,7 @@ export async function createGrass(opts = {}) {
   }
 
   function dispose() {
-    try { scene.remove(im); scene.remove(imMid) } catch (e) { _dbgGrass('scene.remove failed on dispose:', e?.message || e) }
+    try { scene.remove(im.mesh || im); scene.remove(imMid.mesh || imMid) } catch (e) { _dbgGrass('scene.remove failed on dispose:', e?.message || e) }
     try { geoNear.dispose(); geoMid.dispose(); mat.dispose(); im.dispose && im.dispose(); imMid.dispose && imMid.dispose() } catch (e) { _dbgGrass('geo/mat/im dispose failed:', e?.message || e) }
     loaded.clear(); totalInstances = 0; _inflight = null; _occCands = null
     if (typeof window !== 'undefined' && window.__grass && window.__grass._im === im) delete window.__grass

@@ -42,13 +42,12 @@ export function makeGrassMaterialTSL(wind) {
   const windPhase = attribute('windPhase', 'float')
   const tint = attribute('tint', 'float')
   const instShadow = attribute('instShadow', 'float')
-  const instWorldXZ = attribute('instWorldXZ', 'vec2')
 
   const vGrassY = varying(positionLocal.y, 'vGrassY')
   const vTint = varying(tint, 'vTint')
   const vInstShadow = varying(instShadow, 'vInstShadow')
 
-  const bendField = Fn(() => {
+  const bendField = (instWorldXZ) => Fn(() => {
     const bendXZ = vec2(0.0, 0.0).toVar()
     Loop({ start: int(0), end: int(MAX_BENDERS), type: 'int', condition: '<' }, ({ i }) => {
       If(i.greaterThanEqual(int(uBenderCount)), () => { Break() })
@@ -61,9 +60,9 @@ export function makeGrassMaterialTSL(wind) {
       })
     })
     return bendXZ
-  })
+  })()
 
-  const scorchField = Fn(() => {
+  const scorchField = (instWorldXZ) => Fn(() => {
     const scorch = float(0.0).toVar()
     Loop({ start: int(0), end: int(MAX_DECALS), type: 'int', condition: '<' }, ({ i }) => {
       If(i.greaterThanEqual(int(uDecalCount)), () => { Break() })
@@ -76,12 +75,13 @@ export function makeGrassMaterialTSL(wind) {
       })
     })
     return scorch
-  })
+  })()
 
   let vScorch = null
 
   const displacedPosition = Fn((builder) => {
     const instanceMatrixNode = instanceMatrixNodeFor(builder.object)
+    const instWorldXZ = instanceMatrixNode.mul(vec4(0.0, 0.0, 0.0, 1.0)).xz
     const transformed = positionLocal.toVar()
     const gv = clamp(transformed.y, 0.0, 1.0)
     const gw = gv.mul(gv).mul(0.45)
@@ -93,12 +93,12 @@ export function makeGrassMaterialTSL(wind) {
     transformed.x.addAssign(gWdir.x.mul(gAmp).add(sin(gph).mul(gw).mul(0.25).mul(uGrassWind)))
     transformed.z.addAssign(gWdir.y.mul(gAmp).add(cos(gph.mul(0.7)).mul(gw).mul(0.25).mul(uGrassWind)))
 
-    const bendXZ = bendField()
+    const bendXZ = bendField(instWorldXZ)
     transformed.x.addAssign(bendXZ.x.mul(gw))
     transformed.z.addAssign(bendXZ.y.mul(gw))
     transformed.y.subAssign(bendXZ.length().mul(gw).mul(0.35))
 
-    const scorch = scorchField().toVar()
+    const scorch = scorchField(instWorldXZ).toVar()
     const scorchScale = mix(1.0, uGrassScorchShrink, scorch)
     transformed.mulAssign(scorchScale)
 
