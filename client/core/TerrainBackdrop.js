@@ -162,10 +162,11 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
       }
       const eyeW = frame.localToWorld(p.x, p.y, p.z)
       camera.getWorldDirection(_fwd)
+      const _fwdYSigned = isWebGPU ? -_fwd.y : _fwd.y
       const fE = [
-        frame.east[0] * _fwd.x + frame.up[0] * _fwd.y + frame.north[0] * _fwd.z,
-        frame.east[1] * _fwd.x + frame.up[1] * _fwd.y + frame.north[1] * _fwd.z,
-        frame.east[2] * _fwd.x + frame.up[2] * _fwd.y + frame.north[2] * _fwd.z,
+        frame.east[0] * _fwd.x + frame.up[0] * _fwdYSigned + frame.north[0] * _fwd.z,
+        frame.east[1] * _fwd.x + frame.up[1] * _fwdYSigned + frame.north[1] * _fwd.z,
+        frame.east[2] * _fwd.x + frame.up[2] * _fwdYSigned + frame.north[2] * _fwd.z,
       ]
       _eye[0] = eyeW[0]; _eye[1] = eyeW[1]; _eye[2] = eyeW[2]
       _trackReconcileMovement(eyeW)
