@@ -187,6 +187,33 @@ export async function probeAndCreateWebGPURenderer(isMobile) {
   return renderer
 }
 
+const STUCK_PIPELINE_ERROR_THRESHOLD = 3
+const STUCK_PIPELINE_WINDOW_MS = 2000
+const STUCK_PIPELINE_RECOVERY_COOLDOWN_MS = 5000
+export function installStuckPipelineRecovery(renderer, scene) {
+  if (!renderer || renderer.isWebGPURenderer !== true || !scene) return
+  let errorTimestamps = []
+  let lastRecoveryAt = 0
+  const priorOnError = typeof renderer.onError === 'function' ? renderer.onError.bind(renderer) : null
+  renderer.onError = (info) => {
+    if (priorOnError) priorOnError(info)
+    const msg = (info && info.message) || ''
+    if (!/RenderPipeline|CommandBuffer/.test(msg)) return
+    const now = (typeof performance !== 'undefined') ? performance.now() : Date.now()
+    errorTimestamps.push(now)
+    errorTimestamps = errorTimestamps.filter(t => now - t <= STUCK_PIPELINE_WINDOW_MS)
+    if (errorTimestamps.length < STUCK_PIPELINE_ERROR_THRESHOLD) return
+    if (now - lastRecoveryAt < STUCK_PIPELINE_RECOVERY_COOLDOWN_MS) return
+    lastRecoveryAt = now
+    errorTimestamps = []
+    console.warn('[renderer] stuck WebGPU pipeline failure detected -- forcing a scene-wide material recompile')
+    scene.traverse(obj => {
+      const mats = Array.isArray(obj.material) ? obj.material : (obj.material ? [obj.material] : [])
+      for (const m of mats) m.needsUpdate = true
+    })
+  }
+}
+
 export function setupLights(scene) {
   const ambient = new THREE.AmbientLight(0xfff4d6, 0.5)
   scene.add(ambient)

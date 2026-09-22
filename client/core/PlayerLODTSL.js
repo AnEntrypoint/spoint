@@ -1,9 +1,9 @@
 import { MeshBasicNodeMaterial } from 'three/webgpu'
-import { Fn, buffer, instanceIndex, cameraPosition, positionGeometry, vec3, vec4 } from 'three/tsl'
+import { Fn, storage, instanceIndex, cameraPosition, positionGeometry, vec3, vec4 } from 'three/tsl'
 
 function instanceMatrixNodeFor(object) {
   const im = object.instanceMatrix
-  return buffer(im.array, 'mat4', Math.max(im.count, 1)).element(instanceIndex)
+  return storage(im, 'mat4', Math.max(im.count, 1)).element(instanceIndex)
 }
 
 export function createDotMaterialTSL(matrixNode) {

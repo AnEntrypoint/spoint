@@ -106,8 +106,14 @@ export class MapspinnerPipelineCache {
       descriptor.multisample = { count: sampleCount }
     }
 
+    this.device.pushErrorScope('validation')
     const pipeline = this.device.createRenderPipeline(descriptor)
     this._pipelines.set(cacheKey, pipeline)
+    this.device.popErrorScope().then(err => {
+      if (!err) return
+      if (this._pipelines.get(cacheKey) === pipeline) this._pipelines.delete(cacheKey)
+      if (typeof console !== 'undefined') console.error(`mapspinner pipeline-cache: createRenderPipeline failed (${descriptor.label}): ${err.message}`)
+    })
     return pipeline
   }
 

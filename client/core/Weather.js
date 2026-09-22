@@ -9,11 +9,34 @@ import {
 const _q = new THREE.Quaternion(), _upY = new THREE.Vector3(0, 1, 0)
 const _camPos = new THREE.Vector3(), _camQuat = new THREE.Quaternion(), _authScratch = new THREE.Vector3()
 
+function createWebGPUUnsupportedWeather(cfg) {
+  let type = (cfg.type === 'rain' || cfg.type === 'snow') ? cfg.type : 'clear'
+  let intensity = THREE.MathUtils.clamp(Number.isFinite(cfg.intensity) ? cfg.intensity : 1, 0, 1)
+  const api = {
+    update() {}, dispose() {},
+    setType(t) { if (t === 'rain' || t === 'snow' || t === 'clear') type = t },
+    getType() { return type },
+    setIntensity(v) { if (Number.isFinite(v)) intensity = THREE.MathUtils.clamp(v, 0, 1) },
+    getIntensity() { return intensity },
+    getSnowAccumulationAt() { return 0 },
+    getWetness() { return 0 },
+    _im: null, _imSplash: null, _imSnow: null, _imFar: null, _snowAccum: null,
+    get activeCount() { return 0 },
+    get maxParticles() { return 0 },
+    get farActiveCount() { return 0 },
+    get maxFarParticles() { return 0 },
+    cfg,
+  }
+  if (typeof window !== 'undefined') window.__weather = api
+  return api
+}
+
 export function createWeather(opts = {}) {
   const { renderer, scene } = opts
   if (!renderer || !scene) throw new Error('createWeather: renderer/scene required')
   const cfg = opts.cfg || {}
   const frame = opts.frame || null
+  if (renderer.isWebGPURenderer) return createWebGPUUnsupportedWeather(cfg)
 
   const BOX_RADIUS = Number.isFinite(cfg.boxRadius) ? cfg.boxRadius : 22
   const BOX_HEIGHT = Number.isFinite(cfg.boxHeight) ? cfg.boxHeight : 18

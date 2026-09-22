@@ -31,7 +31,7 @@ import { createEditHistory } from './editor/EditHistory.js'
 import { createLivePreview } from './editor/LivePreview.js'
 import { createPersistentHistory } from './editor/PersistentHistory.js'
 import { createEditorPresence } from './editor/EditorPresence.js'
-import { createScene, createRenderer, probeAndCreateWebGPURenderer, setupLights, createLoaders, applySceneConfig, warmupShaders, limitTextureSize, setSeaLevelY, probeOffscreenCanvasWorkerRendering } from './core/SceneSetup.js'
+import { createScene, createRenderer, probeAndCreateWebGPURenderer, installStuckPipelineRecovery, setupLights, createLoaders, applySceneConfig, warmupShaders, limitTextureSize, setSeaLevelY, probeOffscreenCanvasWorkerRendering } from './core/SceneSetup.js'
 import { createWorkerRenderer } from './core/WorkerRenderer.js'
 import { createPlayerManager } from './PlayerManager.js'
 import { createEntityLoader } from './EntityLoader.js'
@@ -176,6 +176,11 @@ try {
       renderer = createRenderer(isMobileDevice)
     }
     if (renderer && renderer.isWebGPURenderer) {
+      try {
+        installStuckPipelineRecovery(renderer, scene)
+      } catch (recoveryErr) {
+        console.warn('[renderer] installStuckPipelineRecovery failed (non-fatal):', recoveryErr && (recoveryErr.message || recoveryErr))
+      }
       try {
         const { FSR1WebGPU } = await import('./core/FSR1WebGPU.js')
         registerFSR1WebGPU({ FSR1WebGPU })
