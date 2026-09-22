@@ -5,6 +5,7 @@ const ASSET_CACHE_NAME = 'spoint-assets-v1'
 const SHELL_FILES = ['/style.css', '/favicon.svg', '/manifest.json']
 const KEEP_CACHES = new Set([CACHE_NAME, NAV_CACHE_NAME, DEP_CACHE_NAME, ASSET_CACHE_NAME])
 const ASSET_EXT_RE = /\.(wasm|glb|vrm|ktx2|hf)$/i
+const DEV = /^(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)$/.test(self.location.hostname)
 
 self.addEventListener('install', event => {
   event.waitUntil(
@@ -58,6 +59,19 @@ async function _cachedWithRevalidate(cacheName, req) {
   return res
 }
 
+async function _networkFirst(cacheName, req) {
+  const cache = await caches.open(cacheName)
+  try {
+    const res = await fetch(req)
+    if (_cacheable(res)) cache.put(req, res.clone()).catch(() => {})
+    return res
+  } catch (err) {
+    const cached = await cache.match(req)
+    if (cached) return cached
+    throw err
+  }
+}
+
 self.addEventListener('fetch', event => {
   const req = event.request
   if (req.method !== 'GET') return
@@ -82,26 +96,24 @@ self.addEventListener('fetch', event => {
 
   const p = url.pathname
   if (p.startsWith('/node_modules/') || p.startsWith('/vendor/')) {
-    event.respondWith(_cachedWithRevalidate(DEP_CACHE_NAME, req))
+    event.respondWith(DEV ? _networkFirst(DEP_CACHE_NAME, req) : _cachedWithRevalidate(DEP_CACHE_NAME, req))
     return
   }
   if (ASSET_EXT_RE.test(p)) {
-    event.respondWith(_cachedWithRevalidate(ASSET_CACHE_NAME, req))
+    event.respondWith(DEV ? _networkFirst(ASSET_CACHE_NAME, req) : _cachedWithRevalidate(ASSET_CACHE_NAME, req))
     return
   }
 
   if (!SHELL_FILES.includes(p)) return
 
-  event.respondWith(
-    caches.match(req).then(cached => {
-      if (cached) return cached
-      return fetch(req).then(res => {
-        if (res && res.ok) {
-          const copy = res.clone()
-          caches.open(CACHE_NAME).then(cache => cache.put(req, copy)).catch(() => {})
-        }
-        return res
-      })
+  event.respondWith(DEV ? _networkFirst(CACHE_NAME, req) : caches.match(req).then(cached => {
+    if (cached) return cached
+    return fetch(req).then(res => {
+      if (res && res.ok) {
+        const copy = res.clone()
+        caches.open(CACHE_NAME).then(cache => cache.put(req, copy)).catch(() => {})
+      }
+      return res
     })
-  )
+  }))
 })
