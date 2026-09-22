@@ -203,7 +203,7 @@ fn sculptOverrideAt(dir0: vec3<f32>, hBase: f32, isActive: f32, up: vec3<f32>, e
 
 const CONTINENTAL_BIAS_AMP: f32 = 50.0;
 
-fn composeHeight(dir0: vec3<f32>, landBias: f32, beachShelfM: f32, hpfRes: i32, sculptActive: f32, sculptUp: vec3<f32>, sculptEast: vec3<f32>, sculptNorth: vec3<f32>, sculptCenter: vec2<f32>, sculptExtent: f32, defRadius: f32, sculptRes: i32) -> f32 {
+fn composeHeight(dir0: vec3<f32>, landBias: f32, beachShelfM: f32, hpfRes: i32, sculptActive: f32, sculptUp: vec3<f32>, sculptEast: vec3<f32>, sculptNorth: vec3<f32>, sculptCenter: vec2<f32>, sculptExtent: f32, defRadius: f32, sculptRes: i32, reliefScale: f32) -> f32 {
   let frac = fractalTerrainH(dir0);
   let cbias = continentalBias(dir0, hpfRes) * CONTINENTAL_BIAS_AMP;
   var h = frac * 750000.0 + cbias + landBias;
@@ -213,7 +213,7 @@ fn composeHeight(dir0: vec3<f32>, landBias: f32, beachShelfM: f32, hpfRes: i32, 
     let bShelf = select(150.0, beachShelfM, beachShelfM > 1.0);
     if (h < bShelf) { h = (h * h / bShelf) * (2.0 - h / bShelf); }
   }
-  h = h * 1.0;
+  h = h * select(1.0, reliefScale, reliefScale > 0.0);
   h = h + sculptOverrideAt(dir0, h, sculptActive, sculptUp, sculptEast, sculptNorth, sculptCenter, sculptExtent, defRadius, sculptRes);
   return h;
 }
@@ -245,6 +245,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
   let up = basis[0].xyz;
   let east = basis[1].xyz;
   let north = basis[2].xyz;
-  heights[idx] = composeHeight(d, landBias, beachShelfM, hpfRes, sculptActive, up, east, north, sculptCenter, sculptExtent, defRadius, sculptRes);
+  let reliefScale = bitcast<f32>(paramsU.w);
+  heights[idx] = composeHeight(d, landBias, beachShelfM, hpfRes, sculptActive, up, east, north, sculptCenter, sculptExtent, defRadius, sculptRes, reliefScale);
 }
 `

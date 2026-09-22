@@ -38,7 +38,8 @@ fn bakeMain(@builtin(global_invocation_id) gid: vec3<u32>) {
   let up = basis[0].xyz;
   let east = basis[1].xyz;
   let north = basis[2].xyz;
-  let h = composeHeight(dir0, landBias, beachShelfM, hpfRes, sculptActive, up, east, north, sculptCenter, sculptExtent, defRadius, sculptRes);
+  let reliefScale = bitcast<f32>(paramsU.w);
+  let h = composeHeight(dir0, landBias, beachShelfM, hpfRes, sculptActive, up, east, north, sculptCenter, sculptExtent, defRadius, sculptRes, reliefScale);
   textureStore(outTex, vec2<i32>(i32(gid.x), i32(gid.y)), vec4<f32>(h, 0.0, 0.0, 1.0));
 }
 `
@@ -80,8 +81,12 @@ export function bakeHeightTileTexture(device, faceFrame, bakeOffset, opts, pipel
   const east = o.east || [1, 0, 0]
   const north = o.north || [0, 0, 1]
 
+  const reliefScale = o.reliefScale != null ? o.reliefScale : defRadius / 63600000.0
   const paramsBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
-  device.queue.writeBuffer(paramsBuf, 0, new Uint32Array([res, hpfRes, sculptRes, 0]).buffer)
+  const paramsBytes = new ArrayBuffer(16)
+  new Uint32Array(paramsBytes).set([res, hpfRes, sculptRes, 0])
+  new Float32Array(paramsBytes)[3] = reliefScale
+  device.queue.writeBuffer(paramsBuf, 0, paramsBytes)
 
   const scalarABuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
   device.queue.writeBuffer(scalarABuf, 0, new Float32Array([landBias, beachShelfM, sculptActive, sculptExtent]).buffer)

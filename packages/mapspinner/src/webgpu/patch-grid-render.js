@@ -63,7 +63,8 @@ fn vs_main(
   let up = basis[0].xyz;
   let east = basis[1].xyz;
   let north = basis[2].xyz;
-  let h = composeHeight(dir0, landBias, beachShelfM, hpfRes, sculptActive, up, east, north, sculptCenter, sculptExtent, defRadius, sculptRes);
+  let reliefScale = bitcast<f32>(paramsU.w);
+  let h = composeHeight(dir0, landBias, beachShelfM, hpfRes, sculptActive, up, east, north, sculptCenter, sculptExtent, defRadius, sculptRes, reliefScale);
   let vRel = (dir0 - frame.camDir) * defRadius + dir0 * h - frame.camDir * frame.camAlt;
   var out: VSOut;
   out.pos = frame.viewProjNoEye * vec4<f32>(vRel, 1.0);
@@ -267,7 +268,11 @@ export function createComposeHeightParams(device, opts = {}) {
   if (!Number.isFinite(defRadius) || defRadius <= 0) throw new TypeError('createComposeHeightParams: opts.defRadius must be a positive finite number')
   const hpfRes = opts.hpfRes || 1
   const sculptRes = opts.sculptRes || 1
-  const paramsU = createBufferWithData(device, new Uint32Array([0, hpfRes, sculptRes, 0]), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST)
+  const reliefScale = opts.reliefScale != null ? opts.reliefScale : defRadius / 63600000.0
+  const paramsBuf = new ArrayBuffer(16)
+  new Uint32Array(paramsBuf).set([0, hpfRes, sculptRes, 0])
+  new Float32Array(paramsBuf)[3] = reliefScale
+  const paramsU = createBufferWithData(device, new Uint32Array(paramsBuf), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST)
   const scalarA = createBufferWithData(device, new Float32Array([
     opts.landBias || 0, opts.beachShelfM || 150, opts.sculptActive || 0, opts.sculptExtent || 0,
   ]), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST)

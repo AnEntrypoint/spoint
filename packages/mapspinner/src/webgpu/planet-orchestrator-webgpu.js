@@ -106,7 +106,7 @@ export async function initMapspinnerPlanetWebGPU(renderer, opts = {}) {
   const pipelineCache = new MapspinnerPipelineCache(device)
   const patchGrid = new PatchGridRenderer(device, {
     pipelineCache, colorFormat, defRadius: R,
-    composeHeight: { defRadius: R, hpfRes, sculptRes: SCULPT_RES, hpfPoolData, sculptTexData },
+    composeHeight: { defRadius: R, hpfRes, sculptRes: SCULPT_RES, hpfPoolData, sculptTexData, reliefScale: opts.reliefScale },
   })
 
   const transLut = bakeTransmittanceLUT()

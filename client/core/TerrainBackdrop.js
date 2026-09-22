@@ -51,7 +51,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         if (isWebGPU) {
-          return await initMapspinnerPlanetWebGPU(renderer, { radius, hpfSeed: cfg.seed, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : undefined, splitFactor: Number.isFinite(cfg.splitFactor) ? cfg.splitFactor : undefined })
+          return await initMapspinnerPlanetWebGPU(renderer, { radius, reliefScale: cfg.reliefScale, hpfSeed: cfg.seed, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : undefined, splitFactor: Number.isFinite(cfg.splitFactor) ? cfg.splitFactor : undefined })
         }
         return await initMapspinnerPlanet(gl, { radius, gridMeshSize: 9, reliefScale: cfg.reliefScale, hpfSeed: cfg.seed, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : undefined, splitFactor: Number.isFinite(cfg.splitFactor) ? cfg.splitFactor : undefined, occlusionPredicate: cfg.occlusionCulling === false ? undefined : _terrainOcclusion.makePredicate(), geomorphLod: RenderControls.get('geomorphLod') !== false })
       }

@@ -31,6 +31,7 @@ export class GroundProbe {
     this.sculptExtent = o.sculptExtent || 0
     this.sculptCenter = o.sculptCenter || [0, 0]
     this.defRadius = o.defRadius || 0
+    this.reliefScale = o.reliefScale != null ? o.reliefScale : (this.defRadius > 0 ? this.defRadius / 63600000.0 : 1.0)
     this.up = o.up || [0, 1, 0]
     this.east = o.east || [1, 0, 0]
     this.north = o.north || [0, 0, 1]
@@ -47,7 +48,7 @@ export class GroundProbe {
     this.sculptBuf.unmap()
 
     this.paramsBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
-    device.queue.writeBuffer(this.paramsBuf, 0, new Uint32Array([1, this.hpfRes, this.sculptRes, 0]).buffer)
+    this._writeParams()
 
     this.scalarABuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
     this.scalarBBuf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
@@ -91,12 +92,31 @@ export class GroundProbe {
     ]).buffer)
   }
 
+  _writeParams() {
+    const paramsBytes = new ArrayBuffer(16)
+    new Uint32Array(paramsBytes).set([1, this.hpfRes, this.sculptRes, 0])
+    new Float32Array(paramsBytes)[3] = this.reliefScale
+    this.device.queue.writeBuffer(this.paramsBuf, 0, paramsBytes)
+  }
+
   setBasis(up, east, north, defRadius) {
     this.up = up
     this.east = east
     this.north = north
-    if (defRadius !== undefined) this.defRadius = defRadius
+    if (defRadius !== undefined && defRadius !== this.defRadius) {
+      const trackingDefault = this.reliefScale === (this.defRadius > 0 ? this.defRadius / 63600000.0 : 1.0)
+      this.defRadius = defRadius
+      if (trackingDefault) {
+        this.reliefScale = this.defRadius > 0 ? this.defRadius / 63600000.0 : 1.0
+        this._writeParams()
+      }
+    }
     this._writeScalars()
+  }
+
+  setReliefScale(reliefScale) {
+    this.reliefScale = reliefScale
+    this._writeParams()
   }
 
   _dispatchInto(dir, staging) {
