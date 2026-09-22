@@ -8,7 +8,7 @@ import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
 import { dbg } from './debug-log.js'
 import { RenderControls } from './RenderControls.js'
 import { loadEzTree, makeWindUniforms, applyWind, awaitMatTextures, capGeo, simplifyGeo, buildSpecies, makeEmptyGeo, TARGET_H } from './VegetationBuild.js'
-import { createWebGPUInstancedMesh } from './WebGPUInstancing.js'
+import { createWebGPULodInstancer } from './WebGPUInstancing.js'
 import { makeWindUniformsTSL, tickWindTSL, applyWindTSL, applyTintTSL } from './VegetationTSL.js'
 
 const _dbgVeg = dbg('vegetation')
@@ -23,113 +23,6 @@ const VEG_ATTRIBUTE_SCHEMA = { windPhase: 'float', tint: 'float' }
 
 const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _camPos = new THREE.Vector3()
 const _vanMat = new THREE.Matrix4(), _vanProj = new THREE.Matrix4(), _vanFrustum = new THREE.Frustum()
-
-function createVegWebGPUInstancer(scene, geo, material, initialCapacity, attributeSchema) {
-  let capacity = initialCapacity
-  let rec = createWebGPUInstancedMesh(geo, material, capacity, attributeSchema)
-  scene.add(rec.mesh)
-  const freeIds = []
-  for (let i = capacity - 1; i >= 0; i--) freeIds.push(i)
-  let highWatermark = 0
-  const _matrixData = new Map()
-  const _attrData = new Map()
-  const _visibleData = new Map()
-  const _pos = new THREE.Vector3(), _quat = new THREE.Quaternion(), _scale = new THREE.Vector3(1, 1, 1), _m4 = new THREE.Matrix4()
-
-  function _acquire() {
-    if (freeIds.length === 0) return -1
-    const id = freeIds.pop()
-    if (id + 1 > highWatermark) highWatermark = id + 1
-    return id
-  }
-
-  function _grow(minCapacity) {
-    const newCapacity = Math.max(minCapacity, capacity * 2)
-    const oldMesh = rec.mesh
-    const oldRenderOrder = oldMesh.renderOrder
-    const oldFrustumCulled = oldMesh.frustumCulled
-    const oldMatrixAutoUpdate = oldMesh.matrixAutoUpdate
-    rec = createWebGPUInstancedMesh(geo, material, newCapacity, attributeSchema)
-    for (const [id, m] of _matrixData) {
-      rec.setMatrixAt(id, m)
-      const attrs = _attrData.get(id)
-      if (attrs) for (const name in attrs) rec.setAttributeAt(id, name, attrs[name])
-      if (_visibleData.get(id) === false) rec.setVisibleAt(id, false)
-    }
-    rec.mesh.count = highWatermark
-    for (let i = newCapacity - 1; i >= capacity; i--) freeIds.unshift(i)
-    capacity = newCapacity
-    rec.mesh.renderOrder = oldRenderOrder
-    rec.mesh.frustumCulled = oldFrustumCulled
-    rec.mesh.matrixAutoUpdate = oldMatrixAutoUpdate
-    scene.remove(oldMesh)
-    scene.add(rec.mesh)
-  }
-
-  function _makeEntity(id) {
-    return {
-      id,
-      position: { set(x, y, z) { _pos.set(x, y, z) } },
-      quaternion: { copy(q) { _quat.copy(q) } },
-      scale: { set(x, y, z) { _scale.set(x, y, z) }, setScalar(s) { _scale.set(s, s, s) } },
-      get visible() { return _visibleData.get(id) !== false },
-      set visible(v) { rec.setVisibleAt(id, v); _visibleData.set(id, v) },
-    }
-  }
-
-  const adapter = {
-    get capacity() { return capacity },
-    get mesh() { return rec.mesh },
-    get geometry() { return rec.mesh.geometry },
-    get material() { return material },
-    get count() { return rec.mesh.count },
-    perObjectFrustumCulled: false,
-    autoUpdate: true,
-    get visible() { return rec.mesh.visible },
-    set visible(v) { rec.mesh.visible = v },
-    get frustumCulled() { return rec.mesh.frustumCulled },
-    set frustumCulled(v) { rec.mesh.frustumCulled = v },
-    get renderOrder() { return rec.mesh.renderOrder },
-    set renderOrder(v) { rec.mesh.renderOrder = v },
-    get matrixAutoUpdate() { return rec.mesh.matrixAutoUpdate },
-    set matrixAutoUpdate(v) { rec.mesh.matrixAutoUpdate = v },
-    updateMatrix() { rec.mesh.updateMatrix() },
-    addInstances(count, cb) {
-      for (let i = 0; i < count; i++) {
-        let id = _acquire()
-        if (id < 0) { _grow(capacity + 1); id = _acquire() }
-        _pos.set(0, 0, 0); _quat.identity(); _scale.set(1, 1, 1)
-        cb(_makeEntity(id))
-        _m4.compose(_pos, _quat, _scale)
-        rec.setMatrixAt(id, _m4)
-        if (id + 1 > rec.mesh.count) rec.mesh.count = id + 1
-        _matrixData.set(id, _m4.clone())
-        _visibleData.set(id, true)
-      }
-    },
-    removeInstances(id) {
-      rec.releaseId(id)
-      freeIds.push(id)
-      _matrixData.delete(id)
-      _attrData.delete(id)
-      _visibleData.delete(id)
-    },
-    setUniformAt(id, name, value) {
-      rec.setAttributeAt(id, name, value)
-      let attrs = _attrData.get(id)
-      if (!attrs) { attrs = {}; _attrData.set(id, attrs) }
-      attrs[name] = value
-    },
-    setVisibilityAt(id, visible) {
-      rec.setVisibleAt(id, visible)
-      _visibleData.set(id, visible)
-    },
-    resizeBuffers(minCapacity) { if (minCapacity > capacity) _grow(minCapacity) },
-    dispose() { _matrixData.clear(); _attrData.clear(); _visibleData.clear() },
-  }
-  return adapter
-}
-
 
 export async function createVegetation(opts = {}) {
   const { renderer, scene, frame } = opts
@@ -205,11 +98,26 @@ export async function createVegetation(opts = {}) {
       branchGeo0.boundingBox = _treeBox.clone(); leafGeo0.boundingBox = _treeBox.clone()
       branchGeo0.boundingSphere = _treeSph.clone(); leafGeo0.boundingSphere = _treeSph.clone()
       let branch, leaf, impostor = false, impMatRef = null, impDims = null
+      const b1 = await simplifyGeo(branchGeo0, 0.28, false), b2 = await simplifyGeo(branchGeo0, 0.07, true)
+      const l1 = await simplifyGeo(leafGeo0, 0.30, false), l2 = await simplifyGeo(leafGeo0, 0.09, true)
+      const b2shadow = await simplifyGeo(branchGeo0, 0.07, true)
+      for (const g of [b1, b2, l1, l2, b2shadow]) { g.boundingBox = _treeBox.clone(); g.boundingSphere = _treeSph.clone() }
       if (isWebGPU) {
         applyWindTSL(sp.branchMat, windTSL); applyTintTSL(sp.branchMat)
         applyWindTSL(sp.leafMat, windTSL); applyTintTSL(sp.leafMat)
-        branch = createVegWebGPUInstancer(scene, branchGeo0, sp.branchMat, INIT_CAP, VEG_ATTRIBUTE_SCHEMA)
-        leaf = createVegWebGPUInstancer(scene, leafGeo0, sp.leafMat, INIT_CAP, VEG_ATTRIBUTE_SCHEMA)
+        branch = createWebGPULodInstancer(scene, [
+          { geometry: branchGeo0, material: sp.branchMat, distance: 0 },
+          { geometry: b1, material: sp.branchMat, distance: D1 },
+          { geometry: b2, material: sp.branchMat, distance: D2 },
+        ], INIT_CAP, VEG_ATTRIBUTE_SCHEMA, {
+          hysteresis: LOD_HYS, shadowGeometry: b2shadow, shadowMaterial: sp.branchMat,
+          shadowDistance: SHADOW_CAST,
+        })
+        leaf = createWebGPULodInstancer(scene, [
+          { geometry: leafGeo0, material: sp.leafMat, distance: 0 },
+          { geometry: l1, material: sp.leafMat, distance: D1 },
+          { geometry: l2, material: sp.leafMat, distance: D2 },
+        ], INIT_CAP, VEG_ATTRIBUTE_SCHEMA, { hysteresis: LOD_HYS })
       } else {
         branch = new InstancedMesh2(branchGeo0, applyWind(sp.branchMat, wind), { capacity: INIT_CAP, renderer })
         leaf = new InstancedMesh2(leafGeo0, applyWind(sp.leafMat, wind), { capacity: INIT_CAP, renderer })
@@ -218,10 +126,6 @@ export async function createVegetation(opts = {}) {
           m.perObjectFrustumCulled = true
           m.frustumCulled = false
         }
-        const b1 = await simplifyGeo(branchGeo0, 0.28, false), b2 = await simplifyGeo(branchGeo0, 0.07, true)
-        const l1 = await simplifyGeo(leafGeo0, 0.30, false), l2 = await simplifyGeo(leafGeo0, 0.09, true)
-        const b2shadow = await simplifyGeo(branchGeo0, 0.07, true)
-        for (const g of [b1, b2, l1, l2, b2shadow]) { g.boundingBox = _treeBox.clone(); g.boundingSphere = _treeSph.clone() }
         branch.addLOD(b1, branch.material, D1, LOD_HYS); branch.addLOD(b2, branch.material, D2, LOD_HYS)
         leaf.addLOD(l1, leaf.material, D1, LOD_HYS); leaf.addLOD(l2, leaf.material, D2, LOD_HYS)
         for (const mesh of [branch, leaf]) {
@@ -650,6 +554,15 @@ export async function createVegetation(opts = {}) {
       profile.cullFrozen = wantFrozen
     }
     if (totalInstances > 0) { try { if (!bvhBuilt) ensureBVH(); else rebuildBVHAfterIncrementalGrowth() } catch (_) { bvhBuilt = true } }
+    if (isWebGPU && camera) {
+      if (!wantFrozen) {
+        camera.getWorldPosition(_camPos)
+        for (const rec of meshes) {
+          if (rec.branch.updateLOD) rec.branch.updateLOD(_camPos)
+          if (rec.leaf.updateLOD) rec.leaf.updateLOD(_camPos)
+        }
+      }
+    }
     for (const rec of meshes) {
       const vis = rec.count > 0
       if (rec.branch.visible !== vis) { rec.branch.visible = vis; rec.leaf.visible = vis }
