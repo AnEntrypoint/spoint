@@ -326,23 +326,25 @@ export class DepthWriteback {
     this.uniformBuffer = device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
     this._bindGroupTex = null
     this._pipelineDepthFormat = null
+    this._pipelineSampleCount = null
     this.pipeline = null
   }
 
-  _pipelineFor(depthFormat) {
-    if (this.pipeline && this._pipelineDepthFormat === depthFormat) return this.pipeline
+  _pipelineFor(depthFormat, sampleCount) {
+    if (this.pipeline && this._pipelineDepthFormat === depthFormat && this._pipelineSampleCount === sampleCount) return this.pipeline
     this.pipeline = this.pipelineCache.getPipeline('depth-writeback-colormask-off', {
       vertexCode: DEPTH_WRITEBACK_WGSL, fragmentCode: DEPTH_WRITEBACK_WGSL,
-      depthFormat, depthOnly: true,
+      depthFormat, depthOnly: true, sampleCount,
       vertexBuffers: [], label: 'vdrs-depth-writeback',
     })
     this._pipelineDepthFormat = depthFormat
+    this._pipelineSampleCount = sampleCount
     this._bindGroupTex = null
     return this.pipeline
   }
 
-  render(passEncoder, { srcDepthTexture, uvScaleX, uvScaleY, depthEps, srcNear, srcFar, dstNear, dstFar, depthFormat }) {
-    const pipeline = this._pipelineFor(depthFormat || this.depthFormat)
+  render(passEncoder, { srcDepthTexture, uvScaleX, uvScaleY, depthEps, srcNear, srcFar, dstNear, dstFar, depthFormat, sampleCount }) {
+    const pipeline = this._pipelineFor(depthFormat || this.depthFormat, sampleCount || 1)
     const data = new Float32Array(16)
     data[0] = depthEps != null ? depthEps : 2e-6
     data[4] = uvScaleX; data[5] = uvScaleY

@@ -100,7 +100,7 @@ async function simplifyGeo(geo, ratio, sloppy) {
     if (!idx || !pos) return _stripInstanceIndexStamp(geo.clone())
     const target = Math.max(12, Math.floor((idx.length / 3) * ratio) * 3)
     const fn = sloppy && MeshoptSimplifier.simplifySloppy ? 'simplifySloppy' : 'simplify'
-    const args = sloppy ? [idx, pos, 3, target, 0.05] : [idx, pos, 3, target, 0.02, ['Sparse']]
+    const args = sloppy ? [idx, pos, 3, null, target, 0.05] : [idx, pos, 3, target, 0.02, ['Sparse']]
     const [newIdx] = MeshoptSimplifier[fn](...args)
     const out = geo.clone()
     if (newIdx && newIdx.length >= 3) out.setIndex(new THREE.BufferAttribute(newIdx, 1))

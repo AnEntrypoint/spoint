@@ -44,6 +44,27 @@ function nearFarForCam(R, camDist, alt, surfElev) {
   return { near, far }
 }
 
+function resolveThreeOwnedDepthTarget(renderer) {
+  if (renderer.needsFrameBufferTarget && typeof renderer._getFrameBufferTarget === 'function' && renderer._textures) {
+    const fbTarget = renderer._getFrameBufferTarget()
+    if (fbTarget) {
+      renderer._textures.updateRenderTarget(fbTarget, 0)
+      const rtData = renderer._textures.get(fbTarget)
+      const depthTexObj = rtData && rtData.depthTexture
+      if (depthTexObj) {
+        const backendDepthData = renderer.backend.get(depthTexObj)
+        const gpuDepthTex = backendDepthData && backendDepthData.texture
+        if (gpuDepthTex) return { texture: gpuDepthTex, depthFormat: gpuDepthTex.format, sampleCount: gpuDepthTex.sampleCount || 1 }
+      }
+    }
+  }
+  if (renderer.backend.textureUtils && typeof renderer.backend.textureUtils.getDepthBuffer === 'function') {
+    const sharedDepthTexture = renderer.backend.textureUtils.getDepthBuffer(true, false)
+    return { texture: sharedDepthTexture, depthFormat: sharedDepthTexture.format, sampleCount: 1 }
+  }
+  return null
+}
+
 function resolveThreeOwnedColorTarget(renderer, fallbackColorFormat) {
   if (renderer.needsFrameBufferTarget && typeof renderer._getFrameBufferTarget === 'function') {
     const fbTarget = renderer._getFrameBufferTarget()
@@ -244,18 +265,20 @@ export async function initMapspinnerPlanetWebGPU(renderer, opts = {}) {
     }
 
     const hostNearFar = (typeof window !== 'undefined') ? window.__hostNearFar : null
-    if (hostNearFar && renderer.backend.textureUtils && typeof renderer.backend.textureUtils.getDepthBuffer === 'function') {
-      const sharedDepthTexture = renderer.backend.textureUtils.getDepthBuffer(true, false)
-      const depthPass = encoder.beginRenderPass({
-        colorAttachments: [],
-        depthStencilAttachment: { view: sharedDepthTexture.createView(), depthLoadOp: 'clear', depthStoreOp: 'store', depthClearValue: 1.0 },
-      })
-      depthWriteback.render(depthPass, {
-        srcDepthTexture: depthTex, uvScaleX: vrs, uvScaleY: vrs, depthEps: 2e-6,
-        srcNear: near, srcFar: far, dstNear: hostNearFar.near, dstFar: hostNearFar.far,
-        depthFormat: sharedDepthTexture.format,
-      })
-      depthPass.end()
+    if (hostNearFar) {
+      const depthTarget = resolveThreeOwnedDepthTarget(renderer)
+      if (depthTarget) {
+        const depthPass = encoder.beginRenderPass({
+          colorAttachments: [],
+          depthStencilAttachment: { view: depthTarget.texture.createView(), depthLoadOp: 'clear', depthStoreOp: 'store', depthClearValue: 1.0 },
+        })
+        depthWriteback.render(depthPass, {
+          srcDepthTexture: depthTex, uvScaleX: vrs, uvScaleY: vrs, depthEps: 2e-6,
+          srcNear: near, srcFar: far, dstNear: hostNearFar.near, dstFar: hostNearFar.far,
+          depthFormat: depthTarget.depthFormat, sampleCount: depthTarget.sampleCount,
+        })
+        depthPass.end()
+      }
     }
 
     device.queue.submit([encoder.finish()])
