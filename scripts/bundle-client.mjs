@@ -40,6 +40,7 @@ const _bareToAbs = {
   'streaming-gltf/occlusion-query-tier': `${BASE}/node_modules/streaming-gltf/src/occlusion-query-tier.js`,
   'streaming-gltf/octahedral-impostor-ez': `${BASE}/node_modules/streaming-gltf/src/octahedral-impostor-ez.js`,
   'streaming-gltf/octahedral-impostor-ez-tier': `${BASE}/node_modules/streaming-gltf/src/octahedral-impostor-ez-tier.js`,
+  'streaming-gltf/octahedral-impostor-display-tsl': `${BASE}/node_modules/streaming-gltf/src/octahedral-impostor-display-tsl.js`,
   'streaming-gltf': `${BASE}/node_modules/streaming-gltf/index.js`,
   'wireweave': `${BASE}/node_modules/wireweave/src/index.js`,
   'nostr-tools': `${BASE}/vendor/nostr-tools.mjs`

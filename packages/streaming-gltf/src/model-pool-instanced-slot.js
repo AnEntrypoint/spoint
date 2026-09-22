@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CachedFrustumPlanes } from './frustum-cache.js';
+import { createInstancedSlotCullTSL, applyInstancedSlotCullPositionNode, resizeInstancedSlotCull, syncInstancedSlotCullBounds } from './instanced-slot-cull-tsl.js';
 
 const _zeroMatrix = new THREE.Matrix4().set(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0);
 const INITIAL_SLOT_CAPACITY = 32;
@@ -35,12 +36,20 @@ class InstancedSlot {
     this._uniforms = { projViewMatrix: { value: new THREE.Matrix4() } };
     if (!pool._frustumCache) pool._frustumCache = new CachedFrustumPlanes();
     this._uniforms.frustumPlanes = { value: pool._frustumCache.getPlaneUniforms() };
-    this._gpuInstanceTex = pool._enableGpuInstanceTex !== false;
-    if (this._gpuInstanceTex) {
+    this._webgpuCull = null;
+    if (material.isNodeMaterial) {
+      this._gpuInstanceTex = false;
       material = material.clone();
-      this._initInstanceTexture(this.capacity);
+      this._webgpuCull = createInstancedSlotCullTSL(this.capacity, pool._frustumCache.getPlaneUniforms());
+      applyInstancedSlotCullPositionNode(material, this._webgpuCull);
+    } else {
+      this._gpuInstanceTex = pool._enableGpuInstanceTex !== false;
+      if (this._gpuInstanceTex) {
+        material = material.clone();
+        this._initInstanceTexture(this.capacity);
+      }
+      _patchInstancedSlotMaterial(material, this._uniforms);
     }
-    _patchInstancedSlotMaterial(material, this._uniforms);
     this.material = material;
     this.mesh = new THREE.InstancedMesh(geo, material, this.capacity);
     this.mesh.frustumCulled = false;
@@ -97,6 +106,9 @@ class InstancedSlot {
   flushMatrixUpdates() {
     this._flushBoundAttr();
     if (this._gpuInstanceTex) { this.flushInstanceTexture(); return; }
+    if (this._webgpuCull) {
+      syncInstancedSlotCullBounds(this._webgpuCull, this.mesh.instanceMatrix.array, this._boundArray);
+    }
     if (this._dirtySlots.size > 0) {
       this.mesh.instanceMatrix.needsUpdate = true;
       this._dirtySlots.clear();
@@ -236,6 +248,10 @@ class InstancedSlot {
     this.mesh = next;
     this.capacity = newCap;
     this._dirtySlots = new Set();
+    if (this._webgpuCull) {
+      resizeInstancedSlotCull(this.material, this._webgpuCull, newCap, this.pool._frustumCache.getPlaneUniforms());
+      syncInstancedSlotCullBounds(this._webgpuCull, this.mesh.instanceMatrix.array, this._boundArray);
+    }
   }
 }
 

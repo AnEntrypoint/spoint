@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 import { createOctahedralImpostorMaterial } from 'streaming-gltf/octahedral-impostor-ez'
+import { makeOctahedralImpostorDisplayMaterialTSL } from 'streaming-gltf/octahedral-impostor-display-tsl'
+import { isWebGPUInstancingSupported, createWebGPUInstancedMesh } from './WebGPUInstancing.js'
 import { dbg } from './debug-log.js'
 
 const _dbgImpostor = dbg('impostor')
@@ -73,6 +75,7 @@ export function buildSharedImpostorAtlas(renderer, speciesAtlases, opts = {}) {
 export function createSharedImpostorMesh(renderer, atlas, dims, opts = {}) {
   if (!renderer || !atlas) return null
   const capacity = Math.min(opts.maxInstances || 20000, opts.initCapacity || 4096)
+  if (isWebGPUInstancingSupported(renderer)) return createSharedImpostorMeshWebGPU(atlas, dims, opts, capacity)
   const mat = createOctahedralImpostorMaterial({
     albedo: atlas.albedo, normalDepth: atlas.normal,
     useHemiOctahedron: false, spritesPerSide: opts.spritesPerSide || 8,
@@ -160,6 +163,52 @@ export function createSharedImpostorMesh(renderer, atlas, dims, opts = {}) {
   }
   function removeImpostor(id) { try { im.removeInstances(id) } catch (_) {} }
   return { mesh: im, material: mat, addImpostor, addImpostors, removeImpostor, get count() { return im.instancesCount || 0 } }
+}
+
+function createSharedImpostorMeshWebGPU(atlas, dims, opts, capacity) {
+  const nearCutoff = opts.nearCutoff
+  const hasNearLodCutoff = Number.isFinite(nearCutoff) && nearCutoff > 0
+  const mat = makeOctahedralImpostorDisplayMaterialTSL({
+    albedo: atlas.albedo, normalDepth: atlas.normal,
+    useHemiOctahedron: false, spritesPerSide: opts.spritesPerSide || 8,
+    transparent: false, alphaClamp: opts.alphaClamp ?? 0.4,
+    transform: new THREE.Matrix4(),
+    atlasTile: true, atlasGridSide: atlas.gridSide,
+    farSingleSprite: opts.farSingleSprite !== false,
+    parallax: opts.parallax === true, parallaxScale: opts.parallaxScale ?? 0.3,
+    nearCutoff: hasNearLodCutoff ? nearCutoff : 0,
+    fadeBandM: IMPOSTOR_DISSOLVE_FADE_BAND_M,
+    polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8,
+  })
+  const geo = new THREE.PlaneGeometry(1, 1)
+  const rec = createWebGPUInstancedMesh(geo, mat, capacity, { atlasTile: 'float' })
+  const im = rec.mesh
+  im.perObjectFrustumCulled = false
+  const _pos = new THREE.Vector3()
+  const _quat = new THREE.Quaternion()
+  const _scale = new THREE.Vector3()
+  const _m4 = new THREE.Matrix4()
+  function addImpostor(species, baseX, baseY, baseZ) {
+    const d = dims[species] || { center: [0, 1, 0], radius: 1 }
+    const sz = d.radius * 2
+    const id = rec.acquireId()
+    if (id < 0) return -1
+    _pos.set(baseX + d.center[0], baseY + d.center[1], baseZ + d.center[2])
+    _quat.identity()
+    _scale.setScalar(sz)
+    _m4.compose(_pos, _quat, _scale)
+    rec.setMatrixAt(id, _m4)
+    try { rec.setAttributeAt(id, 'atlasTile', species) } catch (_) {}
+    return id
+  }
+  function addImpostors(cands) {
+    const n = cands.length
+    const ids = new Array(n)
+    for (let i = 0; i < n; i++) { const c = cands[i]; ids[i] = addImpostor(c.species, c.x, c.y, c.z) }
+    return ids
+  }
+  function removeImpostor(id) { try { rec.releaseId(id) } catch (_) {} }
+  return { mesh: im, material: mat, addImpostor, addImpostors, removeImpostor, get count() { return rec.activeCount } }
 }
 
 export function probeAtlasTile(renderer, atlas, speciesIndex) {

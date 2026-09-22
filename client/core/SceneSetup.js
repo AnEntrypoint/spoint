@@ -194,7 +194,7 @@ export function setupLights(scene) {
   const studio = new THREE.DirectionalLight(0x4488ff, 0.4)
   studio.position.set(-20, 30, -10); studio.castShadow = false; scene.add(studio)
   const sun = new THREE.DirectionalLight(0xffffff, 1.5)
-  sun.position.set(21, 50, 20); sun.castShadow = false
+  sun.position.set(21, 50, 20); sun.castShadow = true
   sun.shadow.mapSize.set(1024, 1024)
   sun.shadow.bias = -0.0005
   sun.shadow.normalBias = 0.05
