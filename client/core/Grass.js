@@ -16,8 +16,8 @@ function createStreamingGrassInstancer(scene, geo, material, initialCapacity, at
   let capacity = initialCapacity
   let rec = createWebGPUInstancedMesh(geo, material, capacity, attributeSchema)
   scene.add(rec.mesh)
-  const freeIds = []
-  for (let i = capacity - 1; i >= 0; i--) freeIds.push(i)
+  const freeIds = new Set()
+  for (let i = 0; i < capacity; i++) freeIds.add(i)
   let highWatermark = 0
   const _matrixData = new Map()
   const _attrData = new Map()
@@ -30,8 +30,9 @@ function createStreamingGrassInstancer(scene, geo, material, initialCapacity, at
   }
 
   function _acquire() {
-    if (freeIds.length === 0) return -1
-    const id = freeIds.pop()
+    if (freeIds.size === 0) return -1
+    const id = freeIds.values().next().value
+    freeIds.delete(id)
     if (id + 1 > highWatermark) highWatermark = id + 1
     return id
   }
@@ -50,7 +51,7 @@ function createStreamingGrassInstancer(scene, geo, material, initialCapacity, at
       if (_visibleData.get(id) === false) rec.setVisibleAt(id, false)
     }
     rec.mesh.count = highWatermark
-    for (let i = newCapacity - 1; i >= capacity; i--) freeIds.unshift(i)
+    for (let i = capacity; i < newCapacity; i++) freeIds.add(i)
     capacity = newCapacity
     rec.mesh.renderOrder = oldRenderOrder
     rec.mesh.frustumCulled = oldFrustumCulled
@@ -86,7 +87,12 @@ function createStreamingGrassInstancer(scene, geo, material, initialCapacity, at
     },
     removeInstances(id) {
       rec.releaseId(id)
-      freeIds.push(id)
+      freeIds.add(id)
+      while (highWatermark > 0 && freeIds.has(highWatermark - 1)) {
+        freeIds.delete(highWatermark - 1)
+        highWatermark--
+      }
+      rec.mesh.count = highWatermark
       _matrixData.delete(id)
       _attrData.delete(id)
       _visibleData.delete(id)

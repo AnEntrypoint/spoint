@@ -27,13 +27,14 @@ export function createWebGPUInstancedMesh(geometry, material, capacity, attribut
     attributeArrays[name] = { array, itemSize, attr }
   }
 
-  const freeIds = []
-  for (let i = capacity - 1; i >= 0; i--) freeIds.push(i)
+  const freeIds = new Set()
+  for (let i = 0; i < capacity; i++) freeIds.add(i)
   let highWatermark = 0
 
   function acquireId() {
-    if (freeIds.length === 0) return -1
-    const id = freeIds.pop()
+    if (freeIds.size === 0) return -1
+    const id = freeIds.values().next().value
+    freeIds.delete(id)
     if (id + 1 > highWatermark) highWatermark = id + 1
     mesh.count = highWatermark
     _zeroMatrix.toArray(shadowMatrices, id * 16)
@@ -46,7 +47,12 @@ export function createWebGPUInstancedMesh(geometry, material, capacity, attribut
     _zeroMatrix.toArray(shadowMatrices, id * 16)
     mesh.setMatrixAt(id, _zeroMatrix)
     mesh.instanceMatrix.needsUpdate = true
-    freeIds.push(id)
+    freeIds.add(id)
+    while (highWatermark > 0 && freeIds.has(highWatermark - 1)) {
+      freeIds.delete(highWatermark - 1)
+      highWatermark--
+    }
+    mesh.count = highWatermark
   }
 
   function setMatrixAt(id, matrix) {
@@ -71,8 +77,8 @@ export function createWebGPUInstancedMesh(geometry, material, capacity, attribut
   }
 
   function clear() {
-    freeIds.length = 0
-    for (let i = capacity - 1; i >= 0; i--) freeIds.push(i)
+    freeIds.clear()
+    for (let i = 0; i < capacity; i++) freeIds.add(i)
     highWatermark = 0
     mesh.count = 0
   }
@@ -91,7 +97,7 @@ export function createWebGPUInstancedMesh(geometry, material, capacity, attribut
     clear,
     dispose,
     get capacity() { return capacity },
-    get activeCount() { return highWatermark - freeIds.length }
+    get activeCount() { return highWatermark - freeIds.size }
   }
 }
 
@@ -136,8 +142,8 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
   let capacity_ = capacity
   let { tiers, shadow } = buildTiers(capacity_)
 
-  const freeIds = []
-  for (let i = capacity_ - 1; i >= 0; i--) freeIds.push(i)
+  const freeIds = new Set()
+  for (let i = 0; i < capacity_; i++) freeIds.add(i)
   let highWatermark = 0
   const matrixData = new Map()
   const attrData = new Map()
@@ -153,8 +159,9 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
   }
 
   function acquire() {
-    if (freeIds.length === 0) return -1
-    const id = freeIds.pop()
+    if (freeIds.size === 0) return -1
+    const id = freeIds.values().next().value
+    freeIds.delete(id)
     if (id + 1 > highWatermark) { highWatermark = id + 1; setCounts() }
     return id
   }
@@ -172,7 +179,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
       if (shadow && inShadow.get(id)) shadow.setMatrixAt(id, m)
       if (visibleData.get(id) === false) { tiers[t].setVisibleAt(id, false); if (shadow) shadow.setVisibleAt(id, false) }
     }
-    for (let i = newCap - 1; i >= capacity_; i--) freeIds.unshift(i)
+    for (let i = capacity_; i < newCap; i++) freeIds.add(i)
     capacity_ = newCap
     for (const t of old.tiers) { scene.remove(t.mesh); t.dispose() }
     if (old.shadow) { scene.remove(old.shadow.mesh); old.shadow.dispose() }
@@ -230,7 +237,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     get mesh() { return tiers[0].mesh },
     get geometry() { return tiers[0].mesh.geometry },
     get material() { return levels[0].material },
-    get count() { return capacity_ - freeIds.length },
+    get count() { return capacity_ - freeIds.size },
     perObjectFrustumCulled: false,
     autoUpdate: true,
     get visible() { return tiers[0].mesh.visible },
@@ -260,7 +267,12 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
       const t = tierOf.get(id)
       if (t != null) tiers[t].releaseId(id); else tiers[0].releaseId(id)
       if (shadow && inShadow.get(id)) shadow.releaseId(id)
-      freeIds.push(id)
+      freeIds.add(id)
+      while (highWatermark > 0 && freeIds.has(highWatermark - 1)) {
+        freeIds.delete(highWatermark - 1)
+        highWatermark--
+      }
+      setCounts()
       matrixData.delete(id); attrData.delete(id); visibleData.delete(id); tierOf.delete(id); inShadow.delete(id)
     },
     setUniformAt(id, name, value) {
