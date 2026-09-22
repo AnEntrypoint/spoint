@@ -8,110 +8,9 @@ import { createGrassDecal } from '/src/terrain/GrassDecal.js'
 import { dbg } from './debug-log.js'
 import { MAX_BENDERS, MAX_DECALS, UNUSED_BENDER_SLOT_XZ, makeBladeGeo, makeWind, makeGrassMaterial } from './GrassMaterial.js'
 import { makeGrassMaterialTSL, syncGrassMaterialTSL } from './GrassTSL.js'
-import { createWebGPUInstancedMesh } from './WebGPUInstancing.js'
+import { createStreamingInstancer } from './WebGPUInstancing.js'
 
 const GRASS_ATTRIBUTE_SCHEMA = { windPhase: 'float', tint: 'float', instShadow: 'float' }
-
-function createStreamingGrassInstancer(scene, geo, material, initialCapacity, attributeSchema) {
-  let capacity = initialCapacity
-  let rec = createWebGPUInstancedMesh(geo, material, capacity, attributeSchema)
-  scene.add(rec.mesh)
-  const freeIds = new Set()
-  for (let i = 0; i < capacity; i++) freeIds.add(i)
-  let highWatermark = 0
-  const _matrixData = new Map()
-  const _attrData = new Map()
-  const _visibleData = new Map()
-  const _pos = new THREE.Vector3(), _quat = new THREE.Quaternion(), _scale = new THREE.Vector3(1, 1, 1), _m4 = new THREE.Matrix4()
-  const _entityProxy = {
-    position: { set(x, y, z) { _pos.set(x, y, z) } },
-    quaternion: { copy(q) { _quat.copy(q) } },
-    scale: { set(x, y, z) { _scale.set(x, y, z) } },
-  }
-
-  function _acquire() {
-    if (freeIds.size === 0) return -1
-    const id = freeIds.values().next().value
-    freeIds.delete(id)
-    if (id + 1 > highWatermark) highWatermark = id + 1
-    return id
-  }
-
-  function _grow(minCapacity) {
-    const newCapacity = Math.max(minCapacity, capacity * 2)
-    const oldMesh = rec.mesh
-    const oldRenderOrder = oldMesh.renderOrder
-    const oldFrustumCulled = oldMesh.frustumCulled
-    const oldMatrixAutoUpdate = oldMesh.matrixAutoUpdate
-    rec = createWebGPUInstancedMesh(geo, material, newCapacity, attributeSchema)
-    for (const [id, m] of _matrixData) {
-      rec.setMatrixAt(id, m)
-      const attrs = _attrData.get(id)
-      if (attrs) for (const name in attrs) rec.setAttributeAt(id, name, attrs[name])
-      if (_visibleData.get(id) === false) rec.setVisibleAt(id, false)
-    }
-    rec.mesh.count = highWatermark
-    for (let i = capacity; i < newCapacity; i++) freeIds.add(i)
-    capacity = newCapacity
-    rec.mesh.renderOrder = oldRenderOrder
-    rec.mesh.frustumCulled = oldFrustumCulled
-    rec.mesh.matrixAutoUpdate = oldMatrixAutoUpdate
-    scene.remove(oldMesh)
-    scene.add(rec.mesh)
-  }
-
-  const adapter = {
-    get capacity() { return capacity },
-    get mesh() { return rec.mesh },
-    perObjectFrustumCulled: false,
-    autoUpdate: true,
-    get frustumCulled() { return rec.mesh.frustumCulled },
-    set frustumCulled(v) { rec.mesh.frustumCulled = v },
-    get renderOrder() { return rec.mesh.renderOrder },
-    set renderOrder(v) { rec.mesh.renderOrder = v },
-    get matrixAutoUpdate() { return rec.mesh.matrixAutoUpdate },
-    set matrixAutoUpdate(v) { rec.mesh.matrixAutoUpdate = v },
-    updateMatrix() { rec.mesh.updateMatrix() },
-    addInstances(count, cb) {
-      for (let i = 0; i < count; i++) {
-        let id = _acquire()
-        if (id < 0) { _grow(capacity + 1); id = _acquire() }
-        _pos.set(0, 0, 0); _quat.identity(); _scale.set(1, 1, 1)
-        cb(_entityProxy, id)
-        _m4.compose(_pos, _quat, _scale)
-        rec.setMatrixAt(id, _m4)
-        if (id + 1 > rec.mesh.count) rec.mesh.count = id + 1
-        _matrixData.set(id, _m4.clone())
-        _visibleData.set(id, true)
-      }
-    },
-    removeInstances(id) {
-      rec.releaseId(id)
-      freeIds.add(id)
-      while (highWatermark > 0 && freeIds.has(highWatermark - 1)) {
-        freeIds.delete(highWatermark - 1)
-        highWatermark--
-      }
-      rec.mesh.count = highWatermark
-      _matrixData.delete(id)
-      _attrData.delete(id)
-      _visibleData.delete(id)
-    },
-    setUniformAt(id, name, value) {
-      rec.setAttributeAt(id, name, value)
-      let attrs = _attrData.get(id)
-      if (!attrs) { attrs = {}; _attrData.set(id, attrs) }
-      attrs[name] = value
-    },
-    setVisibilityAt(id, visible) {
-      rec.setVisibleAt(id, visible)
-      _visibleData.set(id, visible)
-    },
-    resizeBuffers(minCapacity) { if (minCapacity > capacity) _grow(minCapacity) },
-    dispose() { _matrixData.clear(); _attrData.clear(); _visibleData.clear() },
-  }
-  return adapter
-}
 
 export { MAX_BENDERS, MAX_DECALS }
 
@@ -152,8 +51,8 @@ export async function createGrass(opts = {}) {
     const built = makeGrassMaterialTSL(wind)
     mat = built.material
     grassNodes = built.nodes
-    im = createStreamingGrassInstancer(scene, geoNear, mat, INIT_CAP, GRASS_ATTRIBUTE_SCHEMA)
-    imMid = createStreamingGrassInstancer(scene, geoMid, mat, Math.min(INIT_CAP, 2048), GRASS_ATTRIBUTE_SCHEMA)
+    im = createStreamingInstancer(scene, geoNear, mat, INIT_CAP, GRASS_ATTRIBUTE_SCHEMA)
+    imMid = createStreamingInstancer(scene, geoMid, mat, Math.min(INIT_CAP, 2048), GRASS_ATTRIBUTE_SCHEMA)
   } else {
     mat = makeGrassMaterial(wind)
     im = new InstancedMesh2(geoNear, mat, { capacity: INIT_CAP, renderer })

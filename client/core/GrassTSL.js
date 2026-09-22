@@ -2,16 +2,13 @@ import * as THREE from 'three'
 import { MeshBasicNodeMaterial } from 'three/webgpu'
 import {
   Fn, Loop, If, Break, int, float, vec2, vec3, vec4,
-  uniform, uniformArray, attribute, varying, storage, instanceIndex,
+  uniform, uniformArray, attribute, varying,
   positionLocal, normalLocal, normalWorld, frontFacing,
   clamp, mix, smoothstep, dot, normalize, max, sin, cos
 } from 'three/tsl'
 
-function instanceMatrixNodeFor(object) {
-  const im = object.instanceMatrix
-  return storage(im, 'mat4', Math.max(im.count, 1)).element(instanceIndex)
-}
 import { MAX_BENDERS, MAX_DECALS, UNUSED_BENDER_SLOT_XZ, makeBladeGeo, makeWind } from './GrassMaterial.js'
+import { instanceMatrixNodeFor } from './WebGPUInstancing.js'
 
 export { MAX_BENDERS, MAX_DECALS, UNUSED_BENDER_SLOT_XZ, makeBladeGeo, makeWind }
 

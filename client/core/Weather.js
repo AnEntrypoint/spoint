@@ -3,40 +3,23 @@ import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 import { createGrassDecal } from '/src/terrain/GrassDecal.js'
 import {
   makeStreakGeo, makeSplashGeo, makeRainMaterial, makeSplashMaterial,
-  makeFlakeGeo, makeSnowMaterial, makeFarSheetMaterial
+  makeFlakeGeo, makeSnowMaterial, makeFarSheetMaterial,
 } from './WeatherMaterials.js'
+import { createStreamingInstancer } from './WebGPUInstancing.js'
+import {
+  makeRainMaterialTSL, makeSplashMaterialTSL, makeSnowMaterialTSL, makeFarSheetMaterialTSL,
+} from './WeatherMaterialsTSL.js'
 
 const _q = new THREE.Quaternion(), _upY = new THREE.Vector3(0, 1, 0)
 const _camPos = new THREE.Vector3(), _camQuat = new THREE.Quaternion(), _authScratch = new THREE.Vector3()
-
-function createWebGPUUnsupportedWeather(cfg) {
-  let type = (cfg.type === 'rain' || cfg.type === 'snow') ? cfg.type : 'clear'
-  let intensity = THREE.MathUtils.clamp(Number.isFinite(cfg.intensity) ? cfg.intensity : 1, 0, 1)
-  const api = {
-    update() {}, dispose() {},
-    setType(t) { if (t === 'rain' || t === 'snow' || t === 'clear') type = t },
-    getType() { return type },
-    setIntensity(v) { if (Number.isFinite(v)) intensity = THREE.MathUtils.clamp(v, 0, 1) },
-    getIntensity() { return intensity },
-    getSnowAccumulationAt() { return 0 },
-    getWetness() { return 0 },
-    _im: null, _imSplash: null, _imSnow: null, _imFar: null, _snowAccum: null,
-    get activeCount() { return 0 },
-    get maxParticles() { return 0 },
-    get farActiveCount() { return 0 },
-    get maxFarParticles() { return 0 },
-    cfg,
-  }
-  if (typeof window !== 'undefined') window.__weather = api
-  return api
-}
+const _wM4 = new THREE.Matrix4(), _wPos = new THREE.Vector3(), _wIdentScale = new THREE.Vector3(1, 1, 1), _wIdentQuat = new THREE.Quaternion()
 
 export function createWeather(opts = {}) {
   const { renderer, scene } = opts
   if (!renderer || !scene) throw new Error('createWeather: renderer/scene required')
   const cfg = opts.cfg || {}
   const frame = opts.frame || null
-  if (renderer.isWebGPURenderer) return createWebGPUUnsupportedWeather(cfg)
+  const isWebGPU = !!renderer.isWebGPURenderer
 
   const BOX_RADIUS = Number.isFinite(cfg.boxRadius) ? cfg.boxRadius : 22
   const BOX_HEIGHT = Number.isFinite(cfg.boxHeight) ? cfg.boxHeight : 18
@@ -76,39 +59,72 @@ export function createWeather(opts = {}) {
   }
   function getWetness() { return wetness }
 
+  const SPLASH_ATTRIBUTE_SCHEMA = { spawnTime: 'float' }
+
   const geoStreak = makeStreakGeo()
-  const matRain = makeRainMaterial()
-  const im = new InstancedMesh2(geoStreak, matRain, { capacity: MAX_PARTICLES, renderer, createEntities: true })
+  let matRain, im, splashNodes
+  if (isWebGPU) {
+    matRain = makeRainMaterialTSL().material
+    im = createStreamingInstancer(scene, geoStreak, matRain, MAX_PARTICLES, {})
+  } else {
+    matRain = makeRainMaterial()
+    im = new InstancedMesh2(geoStreak, matRain, { capacity: MAX_PARTICLES, renderer, createEntities: true })
+  }
   im.perObjectFrustumCulled = false
   im.frustumCulled = false
   im.visible = false
-  scene.add(im)
+  if (!isWebGPU) scene.add(im)
 
   const geoSplash = makeSplashGeo()
-  const matSplash = makeSplashMaterial()
-  const imSplash = new InstancedMesh2(geoSplash, matSplash, { capacity: MAX_SPLASHES, renderer, createEntities: true })
-  imSplash.initUniformsPerInstance({ vertex: { spawnTime: 'float' } })
+  let matSplash, imSplash
+  if (isWebGPU) {
+    const built = makeSplashMaterialTSL()
+    matSplash = built.material
+    splashNodes = built.nodes
+    imSplash = createStreamingInstancer(scene, geoSplash, matSplash, MAX_SPLASHES, SPLASH_ATTRIBUTE_SCHEMA)
+  } else {
+    matSplash = makeSplashMaterial()
+    imSplash = new InstancedMesh2(geoSplash, matSplash, { capacity: MAX_SPLASHES, renderer, createEntities: true })
+    imSplash.initUniformsPerInstance({ vertex: { spawnTime: 'float' } })
+  }
   imSplash.perObjectFrustumCulled = false
   imSplash.frustumCulled = false
   imSplash.visible = false
-  scene.add(imSplash)
+  if (!isWebGPU) scene.add(imSplash)
 
   const geoFlake = makeFlakeGeo()
-  const matSnow = makeSnowMaterial()
-  const imSnow = new InstancedMesh2(geoFlake, matSnow, { capacity: MAX_PARTICLES, renderer, createEntities: true })
+  let matSnow, imSnow
+  if (isWebGPU) {
+    matSnow = makeSnowMaterialTSL().material
+    imSnow = createStreamingInstancer(scene, geoFlake, matSnow, MAX_PARTICLES, {})
+  } else {
+    matSnow = makeSnowMaterial()
+    imSnow = new InstancedMesh2(geoFlake, matSnow, { capacity: MAX_PARTICLES, renderer, createEntities: true })
+  }
   imSnow.perObjectFrustumCulled = false
   imSnow.frustumCulled = false
   imSnow.visible = false
-  scene.add(imSnow)
+  if (!isWebGPU) scene.add(imSnow)
 
-  const matFarRain = makeFarSheetMaterial(new THREE.Color(0.72, 0.78, 0.86), 0.4, false)
-  const matFarSnow = makeFarSheetMaterial(new THREE.Color(0.95, 0.97, 1.0), 0.5, true)
+  let matFarRain, matFarSnow
+  if (isWebGPU) {
+    matFarRain = makeFarSheetMaterialTSL(new THREE.Color(0.72, 0.78, 0.86), 0.4, false).material
+    matFarSnow = makeFarSheetMaterialTSL(new THREE.Color(0.95, 0.97, 1.0), 0.5, true).material
+  } else {
+    matFarRain = makeFarSheetMaterial(new THREE.Color(0.72, 0.78, 0.86), 0.4, false)
+    matFarSnow = makeFarSheetMaterial(new THREE.Color(0.95, 0.97, 1.0), 0.5, true)
+  }
   const geoFarRain = makeStreakGeo(), geoFarSnow = makeFlakeGeo()
-  const imFar = new InstancedMesh2(geoFarRain, matFarRain, { capacity: MAX_FAR, renderer, createEntities: true })
+  let imFar
+  if (isWebGPU) {
+    imFar = createStreamingInstancer(scene, geoFarRain, matFarRain, MAX_FAR, {})
+  } else {
+    imFar = new InstancedMesh2(geoFarRain, matFarRain, { capacity: MAX_FAR, renderer, createEntities: true })
+  }
   imFar.perObjectFrustumCulled = false
   imFar.frustumCulled = false
   imFar.visible = false
-  scene.add(imFar)
+  if (!isWebGPU) scene.add(imFar)
   let _farGeoIsSnow = false
 
   const SNOW_MELT_HALF_LIFE_S = Number.isFinite(cfg.snowMeltHalfLifeS) ? cfg.snowMeltHalfLifeS : 1800
@@ -183,15 +199,20 @@ export function createWeather(opts = {}) {
   }
 
   function _spawnSplash(x, y, z, nowS) {
-    if (!imSplash.visible || !imSplash.instances) return
+    if (!imSplash.visible) return
     const id = _splashCursor
     _splashCursor = (_splashCursor + 1) % MAX_SPLASHES
     splashAge[id] = nowS
-    const inst = imSplash.instances[id]
-    if (!inst) return
-    inst.position.set(x, y, z)
-    inst.quaternion.identity()
-    inst.updateMatrix()
+    if (isWebGPU) {
+      _wM4.compose(_wPos.set(x, y, z), _wIdentQuat, _wIdentScale)
+      imSplash.setMatrixAt(id, _wM4)
+    } else {
+      const inst = imSplash.instances && imSplash.instances[id]
+      if (!inst) return
+      inst.position.set(x, y, z)
+      inst.quaternion.identity()
+      inst.updateMatrix()
+    }
     try { imSplash.setUniformAt(id, 'spawnTime', nowS) } catch (_) {}
   }
 
@@ -283,11 +304,16 @@ export function createWeather(opts = {}) {
           if (hitGround) _spawnSplash(dropX[i], gh + 0.02, dropZ[i], nowS)
           _respawnDroplet(i, cx, cy, cz)
         }
-        const inst = instances[i]
-        if (!inst) continue
-        inst.position.set(dropX[i], dropY[i], dropZ[i])
-        if (yawChanged) inst.quaternion.copy(_q)
-        inst.updateMatrix()
+        if (isWebGPU) {
+          _wM4.compose(_wPos.set(dropX[i], dropY[i], dropZ[i]), _q, _wIdentScale)
+          im.setMatrixAt(i, _wM4)
+        } else {
+          const inst = instances[i]
+          if (!inst) continue
+          inst.position.set(dropX[i], dropY[i], dropZ[i])
+          if (yawChanged) inst.quaternion.copy(_q)
+          inst.updateMatrix()
+        }
       }
     } else {
       const instances = imSnow.instances
@@ -315,11 +341,16 @@ export function createWeather(opts = {}) {
           }
           _respawnFlake(i, cx, cy, cz)
         }
-        const inst = instances[i]
-        if (!inst) continue
-        inst.position.set(snowX[i], snowY[i], snowZ[i])
-        inst.quaternion.copy(_camQuat)
-        inst.updateMatrix()
+        if (isWebGPU) {
+          _wM4.compose(_wPos.set(snowX[i], snowY[i], snowZ[i]), _camQuat, _wIdentScale)
+          imSnow.setMatrixAt(i, _wM4)
+        } else {
+          const inst = instances[i]
+          if (!inst) continue
+          inst.position.set(snowX[i], snowY[i], snowZ[i])
+          inst.quaternion.copy(_camQuat)
+          inst.updateMatrix()
+        }
       }
     }
 
@@ -333,14 +364,19 @@ export function createWeather(opts = {}) {
         const tooFar = ddx * ddx + ddz * ddz > FAR_RADIUS * FAR_RADIUS
         const tooLow = farY[i] < cy - FAR_HEIGHT * 0.55
         if (tooFar || tooLow) _respawnFar(i, cx, cy, cz, speedBase)
-        const inst = instances[i]
-        if (!inst) continue
-        inst.position.set(farX[i], farY[i], farZ[i])
-        inst.updateMatrix()
+        if (isWebGPU) {
+          _wM4.compose(_wPos.set(farX[i], farY[i], farZ[i]), _wIdentQuat, _wIdentScale)
+          imFar.setMatrixAt(i, _wM4)
+        } else {
+          const inst = instances[i]
+          if (!inst) continue
+          inst.position.set(farX[i], farY[i], farZ[i])
+          inst.updateMatrix()
+        }
       }
     }
 
-    matSplash.uniforms.uTime.value = nowS
+    if (isWebGPU) { if (splashNodes) splashNodes.uTime.value = nowS } else { matSplash.uniforms.uTime.value = nowS }
     snowAccum.tick(2)
   }
 
@@ -351,7 +387,7 @@ export function createWeather(opts = {}) {
   function getSnowAccumulationAt(x, z) { try { return snowAccum.sampleAt(x, z) } catch (_) { return 0 } }
 
   function dispose() {
-    try { scene.remove(im); scene.remove(imSplash); scene.remove(imSnow); scene.remove(imFar) } catch (_) {}
+    try { scene.remove(im.mesh || im); scene.remove(imSplash.mesh || imSplash); scene.remove(imSnow.mesh || imSnow); scene.remove(imFar.mesh || imFar) } catch (_) {}
     try { geoStreak.dispose(); matRain.dispose(); im.dispose && im.dispose() } catch (_) {}
     try { geoSplash.dispose(); matSplash.dispose(); imSplash.dispose && imSplash.dispose() } catch (_) {}
     try { geoFlake.dispose(); matSnow.dispose(); imSnow.dispose && imSnow.dispose() } catch (_) {}

@@ -247,7 +247,6 @@ export class WaterRenderer {
   }
 
   _ensureInstanceBuffer(quads) {
-    if (quads === this._quadsRef) return
     const data = buildInstanceData(quads)
     if (!this.instanceBuffer || this.instanceCapacity < data.byteLength) {
       if (this.instanceBuffer) this.instanceBuffer.destroy()
