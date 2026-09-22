@@ -8,6 +8,8 @@ import { MapspinnerPipelineCache, supportsPipelineCache } from './pipeline-cache
 import { PatchGridRenderer, perspectiveZeroToOne } from './patch-grid-render.js'
 import { SkyRenderer, computeCamRotCols, skyFadeFromAlt } from './sky-render.js'
 import { createTransmittanceLutTexture, createScatteringLutTexture, createAtmosphereLutSampler, supportsAtmosphereLutWebGPU } from './atmosphere-lut-compute.js'
+import { WaterRenderer, WaterOcclusionProbe, createSceneCopyTexture, captureSceneCopy } from './water-render.js'
+import { BilinearUpscale, Fsr1Upscale, DepthWriteback } from './vdrs-composite.js'
 
 const LOD_LEAN = 0.35
 const LOD_POP_ALTITUDE_MUL = 8.0
@@ -75,6 +77,11 @@ export async function initMapspinnerPlanetWebGPU(renderer, opts = {}) {
   const scatTex = createScatteringLutTexture(device, scatLut)
   const lutSampler = createAtmosphereLutSampler(device)
   const sky = new SkyRenderer(device, { pipelineCache, colorFormat, transmittanceLutTexture: transTex, scatteringLutTexture: scatTex, sampler: lutSampler })
+  const occlusionProbe = new WaterOcclusionProbe(device)
+  const bilinearUpscale = new BilinearUpscale(device, { pipelineCache, colorFormat })
+  const fsr1Upscale = new Fsr1Upscale(device, { pipelineCache, colorFormat })
+  const depthWriteback = new DepthWriteback(device, { pipelineCache, depthFormat: 'depth24plus' })
+  let water = null
 
   const qt = new Quadtree(R)
   let depthTex = null, dw = 0, dh = 0
@@ -82,7 +89,20 @@ export async function initMapspinnerPlanetWebGPU(renderer, opts = {}) {
     if (depthTex && dw === w && dh === h) return
     if (depthTex) depthTex.destroy()
     dw = w; dh = h
-    depthTex = device.createTexture({ label: 'mapspinner-webgpu-planet-depth', size: { width: w, height: h, depthOrArrayLayers: 1 }, format: 'depth24plus', usage: GPUTextureUsage.RENDER_ATTACHMENT })
+    depthTex = device.createTexture({ label: 'mapspinner-webgpu-planet-depth', size: { width: w, height: h, depthOrArrayLayers: 1 }, format: 'depth24plus', usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING })
+  }
+
+  let mainColorTex = null, sceneCopyTex = null, ow = 0, oh = 0
+  function ensureOffscreen(w, h) {
+    if (mainColorTex && ow === w && oh === h) return
+    if (mainColorTex) mainColorTex.destroy()
+    if (sceneCopyTex) sceneCopyTex.destroy()
+    ow = w; oh = h
+    mainColorTex = device.createTexture({
+      label: 'mapspinner-webgpu-planet-offscreen-color', size: { width: w, height: h, depthOrArrayLayers: 1 }, format: colorFormat,
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
+    })
+    sceneCopyTex = createSceneCopyTexture(device, w, h, colorFormat)
   }
 
   const cullScratch = { planes: new Float64Array(24), ex: 0, ey: 0, ez: 0, ux: 0, uy: 0, uz: 0, vx: 0, vy: 0, vz: 0, cx: 0, cy: 0, cz: 0, R, maxElev: R * CULL_ELEV_FRAC }
@@ -133,9 +153,10 @@ export async function initMapspinnerPlanetWebGPU(renderer, opts = {}) {
     if (!renderer.backend || !renderer.backend.context) return { quadCount: 0, glError: 0, cached: false }
     const w = renderer.domElement.width || 1, h = renderer.domElement.height || 1
     ensureDepth(w, h)
+    ensureOffscreen(w, h)
     const aspect = w / Math.max(1, h)
     const camUp = up || [0, 1, 0]
-    const { quads, viewProjNoEye, viewRel, camDirX, camDirY, camDirZ, camAlt } = collectQuads(camWorldPos, camTarget, fovy, camUp, aspect, surfElev)
+    const { quads, viewProjNoEye, viewRel, camDirX, camDirY, camDirZ, camAlt, near, far } = collectQuads(camWorldPos, camTarget, fovy, camUp, aspect, surfElev)
     if (quads.length === 0) return { quadCount: 0, glError: 0, cached: false }
 
     patchGrid.updateFrame({ viewProjNoEye, camDir: [camDirX, camDirY, camDirZ], camAlt })
@@ -149,18 +170,80 @@ export async function initMapspinnerPlanetWebGPU(renderer, opts = {}) {
       skyFade: skyFadeFromAlt(camAlt),
     })
 
-    const ctex = renderer.backend.context.getCurrentTexture()
+    if (!water) {
+      water = new WaterRenderer(device, {
+        pipelineCache, colorFormat, defRadius: R, oceanAmp: 1.0, oceanChoppy: 0.5,
+        sceneTexture: sceneCopyTex, frameUniformBuffer: patchGrid.frameUniformBuffer, width: w, height: h,
+      })
+    } else if (water.sceneTexture !== sceneCopyTex) {
+      water.setSceneTexture(sceneCopyTex)
+    }
+    water.updateOceanParams({ defRadius: R, oceanTime: time || 0, oceanAmp: 1.0, oceanChoppy: 0.5 })
+    water.updateResolution(w, h)
+
+    const vdrsOn = (typeof window !== 'undefined' && window.__vdrs === true)
+    const vrs = vdrsOn ? Math.min(1.0, Math.max(0.3, +window.__vdrsScale || 1.0)) : 1.0
+    const vw = Math.max(1, Math.round(w * vrs)), vh = Math.max(1, Math.round(h * vrs))
+
     const encoder = device.createCommandEncoder({ label: 'mapspinner-webgpu-planet-frame' })
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [{ view: ctex.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }],
+
+    const pass1 = encoder.beginRenderPass({
+      colorAttachments: [{ view: mainColorTex.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }],
       depthStencilAttachment: { view: depthTex.createView(), depthLoadOp: 'clear', depthStoreOp: 'store', depthClearValue: 1.0 },
+      occlusionQuerySet: occlusionProbe.querySet,
     })
-    patchGrid.render(pass, quads)
-    sky.render(pass, true)
-    pass.end()
+    pass1.setViewport(0, 0, vw, vh, 0, 1)
+    patchGrid.render(pass1, quads)
+    sky.render(pass1, true)
+    water.renderVisProbe(pass1, quads, occlusionProbe)
+    pass1.end()
+
+    const probeIdx = occlusionProbe.resolve(encoder)
+    captureSceneCopy(encoder, mainColorTex, sceneCopyTex, w, h)
+
+    const pass2 = encoder.beginRenderPass({
+      colorAttachments: [{ view: mainColorTex.createView(), loadOp: 'load', storeOp: 'store' }],
+      depthStencilAttachment: { view: depthTex.createView(), depthLoadOp: 'load', depthStoreOp: 'store' },
+    })
+    pass2.setViewport(0, 0, vw, vh, 0, 1)
+    water.render(pass2, quads)
+    pass2.end()
+
+    const ctex = renderer.backend.context.getCurrentTexture()
+    if (vdrsOn) {
+      const useFsr1 = (typeof window !== 'undefined' && window.__vdrsUpscaleFsr1 === true)
+      if (useFsr1) {
+        const sharpness = (typeof window !== 'undefined' && typeof window.__vdrsUpscaleFsr1Sharpness === 'number') ? window.__vdrsUpscaleFsr1Sharpness : 0.5
+        fsr1Upscale.render(encoder, { srcTexture: mainColorTex, srcFullW: w, srcFullH: h, renderScaleX: vrs, renderScaleY: vrs, dstView: ctex.createView(), dstW: w, dstH: h, sharpness })
+      } else {
+        const blitPass = encoder.beginRenderPass({ colorAttachments: [{ view: ctex.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] })
+        bilinearUpscale.render(blitPass, { srcTexture: mainColorTex, renderScaleX: vrs, renderScaleY: vrs })
+        blitPass.end()
+      }
+    } else {
+      const blitPass = encoder.beginRenderPass({ colorAttachments: [{ view: ctex.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] })
+      bilinearUpscale.render(blitPass, { srcTexture: mainColorTex, renderScaleX: 1.0, renderScaleY: 1.0 })
+      blitPass.end()
+    }
+
+    const hostNearFar = (typeof window !== 'undefined') ? window.__hostNearFar : null
+    if (hostNearFar && renderer.backend.textureUtils && typeof renderer.backend.textureUtils.getDepthBuffer === 'function') {
+      const sharedDepthTexture = renderer.backend.textureUtils.getDepthBuffer(true, false)
+      const depthPass = encoder.beginRenderPass({
+        colorAttachments: [],
+        depthStencilAttachment: { view: sharedDepthTexture.createView(), depthLoadOp: 'clear', depthStoreOp: 'store', depthClearValue: 1.0 },
+      })
+      depthWriteback.render(depthPass, {
+        srcDepthTexture: depthTex, uvScaleX: vrs, uvScaleY: vrs, depthEps: 2e-6,
+        srcNear: near, srcFar: far, dstNear: hostNearFar.near, dstFar: hostNearFar.far,
+        depthFormat: sharedDepthTexture.format,
+      })
+      depthPass.end()
+    }
+
     device.queue.submit([encoder.finish()])
-    void time
-    return { quadCount: quads.length, glError: 0, face: pickFace(camWorldPos), residentCount: 0, fallbackCount: 0, maxFallbackLevel: -1, frontFallback: 0, cached: false }
+    if (probeIdx >= 0) occlusionProbe.read(probeIdx)
+    return { quadCount: quads.length, glError: 0, face: pickFace(camWorldPos), residentCount: 0, fallbackCount: 0, maxFallbackLevel: -1, frontFallback: 0, cached: false, vdrsOn, vrs }
   }
 
   function setSculptOverride(center, extent, frameBasis, heights) {
@@ -183,5 +266,5 @@ export async function initMapspinnerPlanetWebGPU(renderer, opts = {}) {
   function clearSculptOverride() { setSculptOverride(null) }
   function clearCache() {}
 
-  return { frame, clearCache, setSculptOverride, clearSculptOverride, R, patchGrid, sky }
+  return { frame, clearCache, setSculptOverride, clearSculptOverride, R, patchGrid, sky, get water() { return water }, mainColorTex: () => mainColorTex, sceneCopyTex: () => sceneCopyTex, occlusionProbe: () => occlusionProbe }
 }

@@ -299,16 +299,26 @@ export class DepthWriteback {
     this.pipelineCache = opts.pipelineCache || new MapspinnerPipelineCache(device)
     this.depthFormat = opts.depthFormat || 'depth32float'
     this.sampler = opts.sampler || createDepthSampler(device)
-    this.pipeline = this.pipelineCache.getPipeline('depth-writeback-colormask-off', {
-      vertexCode: DEPTH_WRITEBACK_WGSL, fragmentCode: DEPTH_WRITEBACK_WGSL,
-      colorFormat: opts.colorFormat || 'bgra8unorm', depthFormat: this.depthFormat,
-      vertexBuffers: [], label: 'vdrs-depth-writeback',
-    })
     this.uniformBuffer = device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
     this._bindGroupTex = null
+    this._pipelineDepthFormat = null
+    this.pipeline = null
   }
 
-  render(passEncoder, { srcDepthTexture, uvScaleX, uvScaleY, depthEps, srcNear, srcFar, dstNear, dstFar }) {
+  _pipelineFor(depthFormat) {
+    if (this.pipeline && this._pipelineDepthFormat === depthFormat) return this.pipeline
+    this.pipeline = this.pipelineCache.getPipeline('depth-writeback-colormask-off', {
+      vertexCode: DEPTH_WRITEBACK_WGSL, fragmentCode: DEPTH_WRITEBACK_WGSL,
+      depthFormat, depthOnly: true,
+      vertexBuffers: [], label: 'vdrs-depth-writeback',
+    })
+    this._pipelineDepthFormat = depthFormat
+    this._bindGroupTex = null
+    return this.pipeline
+  }
+
+  render(passEncoder, { srcDepthTexture, uvScaleX, uvScaleY, depthEps, srcNear, srcFar, dstNear, dstFar, depthFormat }) {
+    const pipeline = this._pipelineFor(depthFormat || this.depthFormat)
     const data = new Float32Array(16)
     data[0] = depthEps != null ? depthEps : 2e-6
     data[4] = uvScaleX; data[5] = uvScaleY
@@ -317,7 +327,7 @@ export class DepthWriteback {
     this.device.queue.writeBuffer(this.uniformBuffer, 0, data)
     if (this._bindGroupTex !== srcDepthTexture) {
       this.bindGroup = this.device.createBindGroup({
-        layout: this.pipeline.getBindGroupLayout(0),
+        layout: pipeline.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: srcDepthTexture.createView() },
           { binding: 1, resource: this.sampler },
@@ -326,7 +336,7 @@ export class DepthWriteback {
       })
       this._bindGroupTex = srcDepthTexture
     }
-    passEncoder.setPipeline(this.pipeline)
+    passEncoder.setPipeline(pipeline)
     passEncoder.setBindGroup(0, this.bindGroup)
     passEncoder.draw(3, 1, 0, 0)
   }

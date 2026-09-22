@@ -73,12 +73,13 @@ export class MapspinnerPipelineCache {
     }
     const vertexEntryPoint = opts.vertexEntryPoint || 'vs_main'
     const fragmentEntryPoint = opts.fragmentEntryPoint || 'fs_main'
+    const depthOnly = !!opts.depthOnly
     const colorFormat = opts.colorFormat || 'bgra8unorm'
     const depthFormat = opts.depthFormat || 'depth24plus'
     const topology = opts.topology || 'triangle-list'
     const vertexBuffers = opts.vertexBuffers || TERRAIN_PATCH_VERTEX_BUFFERS
     const shaderId = opts.shaderId || (opts.vertexCode + '::' + opts.fragmentCode)
-    const cacheKey = [stateKey, shaderId, colorFormat, state.hasDepth ? depthFormat : 'nodepth', topology].join('|')
+    const cacheKey = [stateKey, shaderId, depthOnly ? 'depthonly' : colorFormat, state.hasDepth ? depthFormat : 'nodepth', topology].join('|')
 
     const cached = this._pipelines.get(cacheKey)
     if (cached) return cached
@@ -93,7 +94,7 @@ export class MapspinnerPipelineCache {
       fragment: {
         module: fragmentModule,
         entryPoint: fragmentEntryPoint,
-        targets: [{ format: colorFormat, blend: state.blend || undefined, writeMask: state.colorWrite }],
+        targets: depthOnly ? [] : [{ format: colorFormat, blend: state.blend || undefined, writeMask: state.colorWrite }],
       },
       primitive: { topology, cullMode: state.cullMode, frontFace: 'ccw' },
     }
