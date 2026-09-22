@@ -7,6 +7,7 @@ import { createModelExclusionField } from '/src/terrain/ModelExclusionField.js'
 import { createGrassDecal } from '/src/terrain/GrassDecal.js'
 import { dbg } from './debug-log.js'
 import { MAX_BENDERS, MAX_DECALS, UNUSED_BENDER_SLOT_XZ, makeBladeGeo, makeWind, makeGrassMaterial } from './GrassMaterial.js'
+import { makeGrassMaterialTSL } from './GrassTSL.js'
 
 export { MAX_BENDERS, MAX_DECALS }
 
@@ -36,6 +37,24 @@ export async function createGrass(opts = {}) {
   const INIT_CAP = Math.min(MAX_INSTANCES, 4096)
 
   const wind = makeWind()
+
+  if (renderer.isWebGPURenderer) {
+    console.warn('[Grass] the InstancedMesh2/NodeMaterial blocker is resolved (client/core/WebGPUInstancing.js, see AGENTS.md project/tsl-instancedmesh2-nodematerial-blocker) but Grass.js\'s chunk-streaming call sites (addInstances/removeInstances/setUniformAt/setVisibilityAt) are not yet ported onto it -- grass fails open (no grass rendered) under ?webgpu=1 until that port lands')
+    const { material: probeMat } = makeGrassMaterialTSL(wind)
+    probeMat.dispose()
+    const api = {
+      update() {}, tickWind() {}, prewarm: async () => 0, warmShaders() { return 0 }, dispose() {},
+      _im: null, _imMid: null,
+      get totalInstances() { return 0 },
+      get profile() { return { totalInstances: 0, loads: 0, unloads: 0, updateMs: 0, grassDrawCalls: 0, ringScans: 0, cullMs: 0, chunksCulled: 0 } },
+      rebuildPlacement() {}, repaintBiome() {}, biomeOverride, getOcclusionCandidates: () => [], applyOcclusion() {}, setBenders() {},
+      get benderCount() { return 0 }, get benderPosXZ() { return null },
+      markScorched() {}, decalStore: null, get decalCount() { return 0 }, get decalPosXZRS() { return null },
+      cfg, renderDistance,
+    }
+    if (typeof window !== 'undefined') window.__grass = api
+    return api
+  }
 
   const LOD_NEAR_DIST = Number.isFinite(cfg.grassLodNearDistance) ? cfg.grassLodNearDistance : 8
   const geoNear = makeBladeGeo(5)

@@ -56,7 +56,7 @@ import { createColliderDebug } from './core/ColliderDebug.js'
 import { createRenderGraph } from './core/RenderGraph.js'
 import { buildRenderSectionNodes } from './core/RenderGraph.nodes.js'
 import { buildSSAONodes, installSSAO, registerSSAOWebGPU } from './core/SSAO.js'
-import { buildSSRNodes, installSSR } from './core/SSR.js'
+import { buildSSRNodes, installSSR, registerSSRWebGPU } from './core/SSR.js'
 import { buildBloomNodes, installBloom, registerBloomWebGPU } from './core/Bloom.js'
 import { buildFSR1Nodes, installFSR1, registerFSR1WebGPU } from './core/FSR1.js'
 import { installRenderControls, RenderControls } from './core/RenderControls.js'
@@ -89,10 +89,6 @@ import { createDecalSystem } from './core/DecalSystem.js'
 import { BIOME_PRESETS } from '/src/terrain/BiomeOverride.js'
 import { ErrorTelemetry } from './core/ErrorTelemetry.js'
 import { installDevTools } from './core/DevToolsIntegration.js'
-import { createRequire } from 'module';
-
-var require = createRequire(import.meta.url);
-var module = { exports: {} };
 
 const _dbgTerrain = dbg('terrain')
 const _dbgNet = dbg('net')
@@ -198,6 +194,12 @@ try {
       } catch (ssaoErr) {
         console.warn('[renderer] SSAOWebGPU TSL pass registration failed (WebGPURenderer itself is still active):', ssaoErr && (ssaoErr.message || ssaoErr))
       }
+      try {
+        const { SSRWebGPU } = await import('./core/SSRWebGPU.js')
+        registerSSRWebGPU({ SSRWebGPU })
+      } catch (ssrErr) {
+        console.warn('[renderer] SSRWebGPU TSL pass registration failed (WebGPURenderer itself is still active):', ssrErr && (ssrErr.message || ssrErr))
+      }
     }
   } else {
     renderer = createRenderer(isMobileDevice)
@@ -250,7 +252,7 @@ if (typeof window !== 'undefined') {
   }
   const _shadowCascades = _shadowCascadeCountForBoot(_deviceInfoEarly)
   RenderControls.set('shadowCascades', _shadowCascades)
-  shadowPipeline = createShadowPipeline(sun, { extent: 60, cascades: _shadowCascades })
+  shadowPipeline = createShadowPipeline(sun, { extent: 60, cascades: _shadowCascades, renderer })
   installShadowCostProbe(renderer, scene, camera, shadowPipeline)
   timeOfDay = createTimeOfDay(sun, ambient, {
     studio,

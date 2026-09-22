@@ -1,6 +1,11 @@
 import { MeshLambertNodeMaterial } from 'three/webgpu'
-import { Fn, attribute, texture, uniform, vec2, vec3, mod, floor, min, mix, clamp, positionLocal, normalLocal } from 'three/tsl'
+import { Fn, attribute, texture, uniform, buffer, instanceIndex, vec2, vec3, vec4, mod, floor, min, mix, clamp, positionLocal, normalLocal } from 'three/tsl'
 import { bakeVAT, bakeVATMultiClip } from './PlayerVATBake.js'
+
+function instanceMatrixNodeFor(object) {
+  const im = object.instanceMatrix
+  return buffer(im.array, 'mat4', Math.max(im.count, 1)).element(instanceIndex)
+}
 
 export { bakeVAT, bakeVATMultiClip }
 
@@ -41,19 +46,17 @@ export function createVATMaterialTSL(vatData, opts = {}) {
   const idle = vatDims(vatData)
   const move = moveVatData ? vatDims(moveVatData) : null
 
-  const vatPhase = uniform(0)
-  const vatIdlePhase = uniform(0)
-  const vatBlend = uniform(0)
+  const vatPhase = attribute('vatPhase', 'float')
+  const vatIdlePhase = attribute('vatIdlePhase', 'float')
+  const vatBlend = attribute('vatBlend', 'float')
 
   const vertexIndex = attribute('vatVertexIndex', 'float')
 
   const mat = new MeshLambertNodeMaterial({ color: opts.color ?? 0xd8b48c })
   mat._vatHasNormal = hasNormalVAT
-  mat.vatPhase = vatPhase
-  mat.vatIdlePhase = vatIdlePhase
-  mat.vatBlend = vatBlend
 
-  mat.positionNode = Fn(() => {
+  mat.positionNode = Fn((builder) => {
+    const instanceMatrixNode = instanceMatrixNodeFor(builder.object)
     const deltaIdle = vatSampleClip(vatData.texture, vertexIndex, idle.width, idle.rowsPerFrame, idle.frameCount, idle.height, move ? vatIdlePhase : vatPhase)
     const delta = move
       ? mix(deltaIdle, vatSampleClip(moveVatData.texture, vertexIndex, move.width, move.rowsPerFrame, move.frameCount, move.height, vatPhase), clamp(vatBlend, 0.0, 1.0))
@@ -75,14 +78,9 @@ export function createVATMaterialTSL(vatData, opts = {}) {
       normalLocal.addAssign(nDelta)
     }
 
-    return positionLocal.add(delta)
+    const localPos = positionLocal.add(delta)
+    return instanceMatrixNode.mul(vec4(localPos, 1.0)).xyz
   })()
 
   return mat
-}
-
-export function updateVATMaterialUniforms(mat, { phase, idlePhase, blend } = {}) {
-  if (phase !== undefined) mat.vatPhase.value = phase
-  if (idlePhase !== undefined) mat.vatIdlePhase.value = idlePhase
-  if (blend !== undefined) mat.vatBlend.value = blend
 }

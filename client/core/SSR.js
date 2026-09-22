@@ -338,7 +338,23 @@ export function buildSSRNodes() {
 }
 
 export function installSSR(ctx, renderer, scene, camera) {
-  if (!ctx.ssr) ctx.ssr = new SSR(renderer, scene, camera)
+  if (!ctx.ssr) {
+    if (renderer && renderer.isWebGPURenderer) {
+      const { SSRWebGPU } = _requireSSRWebGPU()
+      ctx.ssr = new SSRWebGPU(renderer, scene, camera)
+    } else {
+      ctx.ssr = new SSR(renderer, scene, camera)
+    }
+  }
   if (typeof window !== 'undefined') window.__ssrDebug = ctx.ssr
   return ctx.ssr
+}
+
+let _SSRWebGPUModule = null
+function _requireSSRWebGPU() {
+  if (!_SSRWebGPUModule) throw new Error('SSRWebGPU not registered -- call registerSSRWebGPU() once at boot before installSSR runs under a WebGPURenderer')
+  return _SSRWebGPUModule
+}
+export function registerSSRWebGPU(mod) {
+  _SSRWebGPUModule = mod
 }

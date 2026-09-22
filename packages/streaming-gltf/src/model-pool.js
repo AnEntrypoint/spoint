@@ -5,10 +5,13 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { GlobalMaterialPool } from './material-pool.js';
+import { GlobalMaterialPoolTSL } from './material-poolTSL.js';
+import { createVertexColorNodeMaterial } from './model-poolTSL.js';
 import { ClusterLodMesh, attachClusterLod } from './cluster-lod-mesh.js';
 import { CLUSTER_LOD_EXTRA_KEY, lod0OnlyClusterLodExtras } from './meshlet-codec.js';
 import { mergeClusterMeshesByMaterial } from './cluster-material-merge.js';
 import { isArrayAtlasCandidate, buildTextureArray, buildArrayMaterial, tagGeometryLayer } from './texture-array-atlas.js';
+import { buildArrayMaterialTSL } from './texture-array-atlasTSL.js';
 import { applyLowTierMaterials, setThreeRef as setLowTierThreeRef } from './material-tier-swap.js';
 setLowTierThreeRef(THREE);
 import { applyKtx2DeviceTierCap } from './ktx2-mip-cap.js';
@@ -258,7 +261,9 @@ class Asset {
             const built = buildTextureArray(entries);
             if (!built) continue;
             const seedMaterial = entries[0].material;
-            const arrayMaterial = buildArrayMaterial(built.arrayTexture, seedMaterial);
+            const arrayMaterial = (this.pool?.renderer && this.pool.renderer.isWebGPURenderer)
+              ? buildArrayMaterialTSL(built.arrayTexture, seedMaterial, { tintCompose: this.pool._tintCompose })
+              : buildArrayMaterial(built.arrayTexture, seedMaterial);
             for (const cm of this.clusterMeshes) {
               const layerIdx = built.layerOf.get(cm.material);
               if (layerIdx == null) continue;
@@ -1373,7 +1378,10 @@ export class ModelPool extends Emitter {
       if (ktx2Loader) applyKtx2DeviceTierCap(ktx2Loader, opts.deviceInfo);
     }
     this.targetFps = opts.targetFps ?? 50;
-    this._globalMaterialPool = new GlobalMaterialPool(this.renderer, opts);
+    this._tintCompose = typeof opts.tintCompose === 'function' ? opts.tintCompose : null;
+    this._globalMaterialPool = (this.renderer && this.renderer.isWebGPURenderer)
+      ? new GlobalMaterialPoolTSL(this.renderer, opts)
+      : new GlobalMaterialPool(this.renderer, opts);
     this._globalMaterialPool._useGlobalMaterialPool = opts.useGlobalMaterialPool !== false;
     this._useBatchedFarTier = opts.useBatchedFarTier === true;
     this._batchedFarTier = null;
@@ -1875,6 +1883,8 @@ export class ModelPool extends Emitter {
     let mat;
     if (this._globalMaterialPool._useGlobalMaterialPool) {
       mat = this._globalMaterialPool.getMaterialForTier('far');
+    } else if (this.renderer && this.renderer.isWebGPURenderer) {
+      mat = createVertexColorNodeMaterial({ tintCompose: this._tintCompose });
     } else {
       mat = new THREE.MeshLambertMaterial({ vertexColors: true });
       mat.onBeforeCompile = (shader) => {

@@ -2,11 +2,3 @@
   subject: 'Full WebGPU/WGSL-compute port of packages/mapspinner (gl-render.js 389 call sites + planet-orchestrator.js 12 call sites + patch-baker.js): from-scratch second rendering backend, per MapspinnerWebGPUFeasibility.js. User explicitly requested attempting this now despite documented 2-4 week scope'
   session_id: gm-tsl-convert-20260922
   status: pending
-- id: tsl-webgpu-wiring
-  subject: Wire every new *WebGPU.js/*TSL.js material into SceneSetup.js/app.js material-selection branch under ?webgpu=1 (Bloom/SSAO/FSR1 already wired per earlier session; SSR, UnderwaterTint, WetnessTint, and all subsequently-ported files from this pass are not yet registered)
-  session_id: gm-tsl-convert-20260922
-  status: pending
-- id: tsl-instancedmesh2-nodematerial-blocker
-  subject: '@three.ez/instanced-mesh''s InstancedMesh2 has zero NodeMaterial/TSL support (confirmed: 0 codesearch hits for NodeMaterial in its src, onBeforeCompile typed only against WebGLProgramParametersWithUniforms, instanceMatrix is a permanently-empty placeholder under it -- real per-instance data lives only in a WebGL-only matricesTexture/ShaderChunk path). Blocks wiring TSL materials (Grass, PlayerLOD dot-sprite crowd renderer, PlayerVAT crowd renderer) to their existing instanced renderers. Needs either an InstancedMesh2 upstream patch/fork, or a bespoke TSL instancedArray-based replacement instancing path (precedent: webgpu-hiz-tier.js uses raw instancedArray already)'
-  session_id: gm-tsl-convert-20260922
-  status: pending

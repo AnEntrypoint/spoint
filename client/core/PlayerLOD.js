@@ -1,5 +1,7 @@
 import * as THREE from 'three'
 import { InstancedMesh2 } from '@three.ez/instanced-mesh'
+import { createDotMaterialTSL } from './PlayerLODTSL.js'
+import { createWebGPUInstancedMesh, isWebGPUInstancingSupported } from './WebGPUInstancing.js'
 
 export const PLAYER_LOD_FULL_COUNT = 30
 export const PLAYER_LOD_REDUCED_D = 120
@@ -81,12 +83,13 @@ function makeDotMaterial() {
   return mat
 }
 
-export function createCrowdDotRenderer(scene, opts = {}) {
+function createCrowdDotRendererWebGL(scene, opts) {
   const dotCellM = opts.dotCellM || 25
   const dotSize = opts.dotSize || 1.4
   const capacity = opts.capacity || 512
   const geo = makeDotGeo(dotSize)
   const mat = makeDotMaterial()
+
   const im = new InstancedMesh2(geo, mat, { capacity, renderer: opts.renderer })
   im.frustumCulled = false
   im.matrixAutoUpdate = false
@@ -95,7 +98,6 @@ export function createCrowdDotRenderer(scene, opts = {}) {
   im.updateMatrix()
 
   let activeCount = 0
-  const _pos = new THREE.Vector3(), _quat = new THREE.Quaternion(), _scaleVec = new THREE.Vector3()
 
   function ensureCapacity(n) {
     if (n <= im.capacity) return
@@ -133,6 +135,74 @@ export function createCrowdDotRenderer(scene, opts = {}) {
   function dispose() { scene.remove(im); geo.dispose(); mat.dispose() }
 
   return { instancedMesh: im, update, dispose, get count() { return activeCount } }
+}
+
+function createCrowdDotRendererWebGPU(scene, opts) {
+  const dotCellM = opts.dotCellM || 25
+  const dotSize = opts.dotSize || 1.4
+  let capacity = opts.capacity || 512
+  const geo = makeDotGeo(dotSize)
+  const _m4 = new THREE.Matrix4()
+
+  let inst = buildInstance(capacity)
+  let activeCount = 0
+
+  function buildInstance(cap) {
+    const mat = createDotMaterialTSL()
+    const rec = createWebGPUInstancedMesh(geo, mat, cap)
+    rec.mesh.renderOrder = 3
+    scene.add(rec.mesh)
+    return rec
+  }
+
+  function ensureCapacity(n) {
+    if (n <= capacity) return
+    capacity = Math.max(n, capacity * 2)
+    scene.remove(inst.mesh)
+    inst.dispose()
+    inst = buildInstance(capacity)
+  }
+
+  function update(dots, viewerY, groundHeightFn) {
+    if (!dots || dots.length === 0) {
+      if (activeCount > 0) { inst.clear(); activeCount = 0 }
+      return
+    }
+    const isBuckets = Array.isArray(dots[0])
+    ensureCapacity(dots.length)
+    inst.clear()
+    for (let i = 0; i < dots.length; i++) {
+      let x, z, y, scale
+      if (isBuckets) {
+        const [cx, cz, count] = dots[i]
+        x = (cx + 0.5) * dotCellM; z = (cz + 0.5) * dotCellM
+        y = groundHeightFn ? groundHeightFn(x, z) : viewerY
+        scale = dotSize * Math.min(3, 0.6 + Math.sqrt(count) * 0.35)
+      } else {
+        const p = dots[i]
+        x = p.x; z = p.z; y = groundHeightFn ? groundHeightFn(x, z) : p.y
+        scale = dotSize
+      }
+      const id = inst.acquireId()
+      if (id < 0) break
+      _m4.compose(
+        new THREE.Vector3(x, y + 0.05, z),
+        new THREE.Quaternion(),
+        new THREE.Vector3(scale, scale, scale)
+      )
+      inst.setMatrixAt(id, _m4)
+    }
+    activeCount = dots.length
+  }
+
+  function dispose() { scene.remove(inst.mesh); geo.dispose(); inst.dispose() }
+
+  return { instancedMesh: inst.mesh, update, dispose, get count() { return activeCount } }
+}
+
+export function createCrowdDotRenderer(scene, opts = {}) {
+  if (isWebGPUInstancingSupported(opts.renderer)) return createCrowdDotRendererWebGPU(scene, opts)
+  return createCrowdDotRendererWebGL(scene, opts)
 }
 
 const _dotFallbackScratch = []

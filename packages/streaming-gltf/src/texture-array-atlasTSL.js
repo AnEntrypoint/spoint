@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { texture, uv, attribute, int } from 'three/tsl';
 
-export function buildArrayMaterialTSL(arrayTexture, seedMaterial) {
+export function buildArrayMaterialTSL(arrayTexture, seedMaterial, opts = {}) {
   const material = new THREE.MeshStandardNodeMaterial({
     roughness: seedMaterial.roughness ?? 0.8,
     metalness: seedMaterial.metalness ?? 0.0,
@@ -14,6 +14,7 @@ export function buildArrayMaterialTSL(arrayTexture, seedMaterial) {
   const layerIndex = attribute('layerIndex', 'float');
   material.colorNode = texture(arrayTexture, uv()).depth(int(layerIndex));
   material.userData.isTextureArrayAtlas = true;
+  if (typeof opts.tintCompose === 'function') opts.tintCompose(material);
   return material;
 }
 

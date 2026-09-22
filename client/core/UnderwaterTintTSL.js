@@ -40,7 +40,7 @@ function buildUnderwaterMixNode(baseNode, seaU, seaShiftU) {
 }
 
 export function applyUnderwaterTintNode(material, seaU = seaUniform, seaShiftU = seaShiftUniform) {
-  const base = material.outputNode || vec4(material.colorNode || vec3(1, 1, 1), material.opacityNode || float(1))
+  const base = material.outputNode || material.colorNode || vec4(vec3(1, 1, 1), material.opacityNode || float(1))
   material.outputNode = buildUnderwaterMixNode(base, seaU, seaShiftU)
   material.needsUpdate = true
   return material.outputNode

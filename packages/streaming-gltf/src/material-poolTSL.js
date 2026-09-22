@@ -35,6 +35,7 @@ export class GlobalMaterialPoolTSL {
     this._farMaterial = new THREE.MeshLambertNodeMaterial({ vertexColors: false });
     this._farMaterial.name = 'FAR-tier-material-tsl';
     this._farMaterial.colorNode = vec4(pow(vertexColor().rgb, vec3(2.2)), vertexColor().a);
+    if (typeof this.opts.tintCompose === 'function') this.opts.tintCompose(this._farMaterial);
   }
 
   getMaterialForTier(tier) {

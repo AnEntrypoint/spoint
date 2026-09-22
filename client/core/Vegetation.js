@@ -30,6 +30,11 @@ export async function createVegetation(opts = {}) {
   const worldSeed = (opts.worldSeed ?? cfg.seed ?? 0) | 0
   if (!renderer || !scene || !frame) throw new Error('createVegetation: renderer/scene/frame required')
 
+  if (renderer.isWebGPURenderer) {
+    console.warn('[Vegetation] InstancedMesh2 has no NodeMaterial/WebGPU support yet (AGENTS.md tsl-instancedmesh2-nodematerial-blocker) -- vegetation fails open (no trees rendered) under ?webgpu=1')
+    return null
+  }
+
   let Tree
   try {
     ({ Tree } = await loadEzTree())

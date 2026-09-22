@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { installCascadeShadowSelect } from './CascadeShadowSelect.js'
+import { installCascadeShadowSelectTSL } from './CascadeShadowSelectTSL.js'
 
 const CASCADE_SPLIT = 3.2
 const MAX_CASCADES = 3
@@ -40,7 +41,11 @@ export function createShadowPipeline(sun, opts = {}) {
     })
   }
 
-  installCascadeShadowSelect(cascadeCount, _cascades.map(c => c.extent))
+  if (opts.renderer && opts.renderer.isWebGPURenderer) {
+    installCascadeShadowSelectTSL(_cascades.map(c => c.light), _cascades.map(c => c.extent))
+  } else {
+    installCascadeShadowSelect(cascadeCount, _cascades.map(c => c.extent))
+  }
 
   const _lightDir = new THREE.Vector3()
   const _right = new THREE.Vector3()

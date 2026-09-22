@@ -26,7 +26,7 @@ function buildWetnessMixNode(baseNode, specSumNode, wetU) {
 }
 
 export function applyWetnessTintNode(material, specSumNode = float(0.0), wetU = wetnessUniform) {
-  const base = material.outputNode || vec4(material.colorNode || vec3(1, 1, 1), material.opacityNode || float(1))
+  const base = material.outputNode || material.colorNode || vec4(vec3(1, 1, 1), material.opacityNode || float(1))
   material.outputNode = buildWetnessMixNode(base, specSumNode, wetU)
   material.needsUpdate = true
   return material.outputNode

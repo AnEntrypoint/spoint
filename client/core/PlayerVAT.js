@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 import { bakeVAT, bakeVATMultiClip } from './PlayerVATBake.js'
+import { createVATMaterialTSL } from './PlayerVATTSL.js'
+import { createWebGPUInstancedMesh } from './WebGPUInstancing.js'
 
 export { bakeVAT, bakeVATMultiClip }
 
@@ -107,6 +109,52 @@ export function createVATCrowdRenderer(scene, baseGeometry, vatData, opts = {}) 
   geo.computeBoundingSphere()
   if (geo.boundingSphere) geo.boundingSphere.radius = Math.max(geo.boundingSphere.radius, 1.2)
 
+  const isWebGPU = !!(opts.renderer && opts.renderer.isWebGPURenderer)
+  if (isWebGPU) return _createVATCrowdRendererWebGPU(scene, geo, idleData, moveData, opts, capacity)
+  return _createVATCrowdRendererWebGL(scene, geo, idleData, moveData, opts, capacity)
+}
+
+function _vatBlendRates(opts) {
+  return {
+    blendLowSpeed: opts.blendLowSpeed ?? 0.3,
+    blendHighSpeed: opts.blendHighSpeed ?? (opts.nominalSpeed || 4.0) * 0.5,
+    blendRate: opts.blendRate ?? 3.5,
+  }
+}
+
+function _advanceVatPhase(slot, moveData, idleData, opts, s, dt, setUniform) {
+  if (moveData) {
+    const { blendLowSpeed, blendHighSpeed, blendRate } = _vatBlendRates(opts)
+    const target = blendHighSpeed > blendLowSpeed
+      ? Math.max(0, Math.min(1, (s - blendLowSpeed) / (blendHighSpeed - blendLowSpeed)))
+      : (s > blendLowSpeed ? 1 : 0)
+    const chase = Math.min(1, blendRate * dt)
+    slot.blend += (target - slot.blend) * chase
+    if (Math.abs(slot.blend - target) < 0.001) slot.blend = target
+    setUniform('vatBlend', slot.blend)
+    slot.idlePhase = (slot.idlePhase + dt / idleData.duration) % 1
+    setUniform('vatIdlePhase', slot.idlePhase)
+    const nominal = opts.nominalSpeed || 4.0
+    const moveRate = Math.min(1.5, s / nominal)
+    slot.phase = (slot.phase + moveRate * dt / moveData.duration) % 1
+  } else {
+    const nominal = opts.nominalSpeed || 4.0
+    const rate = 0.15 + Math.min(1.5, s / nominal)
+    slot.phase = (slot.phase + rate * dt / idleData.duration) % 1
+  }
+  setUniform('vatPhase', slot.phase)
+}
+
+function _disposeVatTextures(idleData, moveData) {
+  idleData.texture.dispose()
+  if (idleData.normalTexture) idleData.normalTexture.dispose()
+  if (moveData) {
+    moveData.texture.dispose()
+    if (moveData.normalTexture) moveData.normalTexture.dispose()
+  }
+}
+
+function _createVATCrowdRendererWebGL(scene, geo, idleData, moveData, opts, capacity) {
   const mat = createVATMaterial(idleData, { ...opts, moveVatData: moveData })
   const im = new InstancedMesh2(geo, mat, { capacity, renderer: opts.renderer })
   const uniformSpec = { vatPhase: 'float' }
@@ -148,33 +196,10 @@ export function createVATCrowdRenderer(scene, baseGeometry, vatData, opts = {}) 
     _bySlot.delete(playerId)
   }
 
-  const blendLowSpeed = opts.blendLowSpeed ?? 0.3
-  const blendHighSpeed = opts.blendHighSpeed ?? (opts.nominalSpeed || 4.0) * 0.5
-  const blendRate = opts.blendRate ?? 3.5
-
   function update(playerId, position, rotY, speed, dt) {
     const id = acquire(playerId)
     const slot = _bySlot.get(playerId)
-    const s = speed || 0
-    if (moveData) {
-      const target = blendHighSpeed > blendLowSpeed
-        ? Math.max(0, Math.min(1, (s - blendLowSpeed) / (blendHighSpeed - blendLowSpeed)))
-        : (s > blendLowSpeed ? 1 : 0)
-      const chase = Math.min(1, blendRate * dt)
-      slot.blend += (target - slot.blend) * chase
-      if (Math.abs(slot.blend - target) < 0.001) slot.blend = target
-      try { im.setUniformAt(id, 'vatBlend', slot.blend) } catch (_) {}
-      slot.idlePhase = (slot.idlePhase + dt / idleData.duration) % 1
-      try { im.setUniformAt(id, 'vatIdlePhase', slot.idlePhase) } catch (_) {}
-      const nominal = opts.nominalSpeed || 4.0
-      const moveRate = Math.min(1.5, s / nominal)
-      slot.phase = (slot.phase + moveRate * dt / moveData.duration) % 1
-    } else {
-      const nominal = opts.nominalSpeed || 4.0
-      const rate = 0.15 + Math.min(1.5, s / nominal)
-      slot.phase = (slot.phase + rate * dt / idleData.duration) % 1
-    }
-    try { im.setUniformAt(id, 'vatPhase', slot.phase) } catch (_) {}
+    _advanceVatPhase(slot, moveData, idleData, opts, speed || 0, dt, (name, value) => { try { im.setUniformAt(id, name, value) } catch (_) {} })
     im.setMatrixAt(id, _composeMatrix(position, rotY))
   }
 
@@ -186,16 +211,67 @@ export function createVATCrowdRenderer(scene, baseGeometry, vatData, opts = {}) 
     scene.remove(im)
     geo.dispose()
     mat.dispose()
-    idleData.texture.dispose()
-    if (idleData.normalTexture) idleData.normalTexture.dispose()
-    if (moveData) {
-      moveData.texture.dispose()
-      if (moveData.normalTexture) moveData.normalTexture.dispose()
-    }
+    _disposeVatTextures(idleData, moveData)
     _bySlot.clear()
   }
 
   return { mesh: im, acquire, release, update, has, count, debugSlots, dispose }
+}
+
+function _createVATCrowdRendererWebGPU(scene, geo, idleData, moveData, opts, capacity) {
+  const mat = createVATMaterialTSL(idleData, { ...opts, moveVatData: moveData })
+  const attributeSchema = { vatPhase: 'float' }
+  if (moveData) { attributeSchema.vatBlend = 'float'; attributeSchema.vatIdlePhase = 'float' }
+  const rec = createWebGPUInstancedMesh(geo, mat, capacity, attributeSchema)
+  rec.mesh.castShadow = opts.castShadow !== false
+  rec.mesh.receiveShadow = false
+  scene.add(rec.mesh)
+
+  const _bySlot = new Map()
+
+  function acquire(playerId) {
+    let slot = _bySlot.get(playerId)
+    if (slot) return slot.id
+    const id = rec.acquireId()
+    if (id < 0) return -1
+    slot = { id, phase: 0, idlePhase: 0, blend: 0 }
+    _bySlot.set(playerId, slot)
+    rec.setAttributeAt(id, 'vatPhase', 0)
+    if (moveData) {
+      rec.setAttributeAt(id, 'vatBlend', 0)
+      rec.setAttributeAt(id, 'vatIdlePhase', 0)
+    }
+    return id
+  }
+
+  function release(playerId) {
+    const slot = _bySlot.get(playerId)
+    if (!slot) return
+    rec.releaseId(slot.id)
+    _bySlot.delete(playerId)
+  }
+
+  function update(playerId, position, rotY, speed, dt) {
+    const id = acquire(playerId)
+    if (id < 0) return
+    const slot = _bySlot.get(playerId)
+    _advanceVatPhase(slot, moveData, idleData, opts, speed || 0, dt, (name, value) => rec.setAttributeAt(id, name, value))
+    rec.setMatrixAt(id, _composeMatrix(position, rotY))
+  }
+
+  function has(playerId) { return _bySlot.has(playerId) }
+  function count() { return _bySlot.size }
+  function debugSlots() { return Array.from(_bySlot.entries()).map(([id, s]) => ({ playerId: id, instanceId: s.id, phase: s.phase, idlePhase: s.idlePhase, blend: s.blend })) }
+
+  function dispose() {
+    scene.remove(rec.mesh)
+    geo.dispose()
+    rec.dispose()
+    _disposeVatTextures(idleData, moveData)
+    _bySlot.clear()
+  }
+
+  return { mesh: rec.mesh, acquire, release, update, has, count, debugSlots, dispose }
 }
 
 const _mtx = new THREE.Matrix4()
@@ -216,6 +292,6 @@ export function installPlayerVATDebug(renderer) {
   window.__playerVAT = {
     stats() { return renderer ? { count: renderer.count(), capacity: renderer.mesh.capacity } : null },
     slots() { return renderer ? renderer.debugSlots() : [] },
-    hasNormalVAT() { return renderer ? !!renderer.mesh.material._vatHasNormal : null }
+    hasNormalVAT() { return (renderer && renderer.mesh) ? !!renderer.mesh.material._vatHasNormal : null }
   }
 }

@@ -1,5 +1,7 @@
 import { ModelPool } from 'streaming-gltf/model-pool'
 import * as THREE from 'three'
+import { applyUnderwaterTintNode } from './core/UnderwaterTintTSL.js'
+import { applyWetnessTintNode } from './core/WetnessTintTSL.js'
 
 const _debugBox = new THREE.Box3()
 const _debugSize = new THREE.Vector3()
@@ -20,8 +22,14 @@ function _disableClusterCull(root) {
   })
 }
 
+function _tintComposeForWebGPU(material) {
+  applyUnderwaterTintNode(material)
+  applyWetnessTintNode(material)
+}
+
 export function createModelPool(scene, renderer, camera, { vramBudgetMB, deviceInfo } = {}) {
-  const pool = new ModelPool({ scene, renderer, camera, useGlobalMaterialPool: false, workerCount: BOOT_BANDWIDTH_FRIENDLY_WORKER_COUNT, useOcclusionQuery: true, occlusionMinCandidates: 32, useImpostorFinalLod: true, impostorPx: 14, impostorTextureSize: 1024, impostorMaxAssets: 64, useBatchedFarTier: true, useMaterialBucketBatching: true, textureArrayAtlas: true, vramBudgetMB, deviceInfo })
+  const tintCompose = (renderer && renderer.isWebGPURenderer) ? _tintComposeForWebGPU : undefined
+  const pool = new ModelPool({ scene, renderer, camera, useGlobalMaterialPool: false, workerCount: BOOT_BANDWIDTH_FRIENDLY_WORKER_COUNT, useOcclusionQuery: true, occlusionMinCandidates: 32, useImpostorFinalLod: true, impostorPx: 14, impostorTextureSize: 1024, impostorMaxAssets: 64, useBatchedFarTier: true, useMaterialBucketBatching: true, textureArrayAtlas: true, vramBudgetMB, deviceInfo, tintCompose })
   try { pool.ceilingLod = null } catch (_) {}
 
   const VRAM_LOG_CAP = 40

@@ -4,6 +4,7 @@ import { placementsForRockChunk, ROCK } from '/src/terrain/RockPlacement.js'
 import { createCachedAnchorField } from '/src/terrain/ClimateCache.js'
 import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
 import { dbg } from './debug-log.js'
+import { makeRocksMaterialTSL } from './RocksTSL.js'
 
 const _dbgRocks = dbg('rocks')
 const _occBoxGeo = new THREE.BoxGeometry(1, 1, 1)
@@ -95,8 +96,9 @@ export async function createRocks(opts = {}) {
   for (const g of geos) { if (!g) continue; maxVerts += g.attributes.position.count; maxIdx += g.index ? g.index.count : 0 }
   maxVerts += 64; maxIdx += 64
 
-  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0.0 })
-  applyRockTexture(mat)
+  const mat = renderer.isWebGPURenderer
+    ? makeRocksMaterialTSL()
+    : applyRockTexture(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95, metalness: 0.0 }))
   const bm = new THREE.BatchedMesh(MAX_INSTANCES, maxVerts, maxIdx, mat)
   bm.frustumCulled = false
   bm.sortObjects = false

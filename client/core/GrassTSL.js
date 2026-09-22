@@ -2,10 +2,15 @@ import * as THREE from 'three'
 import { MeshBasicNodeMaterial } from 'three/webgpu'
 import {
   Fn, Loop, If, Break, int, float, vec2, vec3, vec4,
-  uniform, uniformArray, attribute, varying,
+  uniform, uniformArray, attribute, varying, buffer, instanceIndex,
   positionLocal, normalLocal, normalWorld, frontFacing,
   clamp, mix, smoothstep, dot, normalize, max, sin, cos
 } from 'three/tsl'
+
+function instanceMatrixNodeFor(object) {
+  const im = object.instanceMatrix
+  return buffer(im.array, 'mat4', Math.max(im.count, 1)).element(instanceIndex)
+}
 import { MAX_BENDERS, MAX_DECALS, UNUSED_BENDER_SLOT_XZ, makeBladeGeo, makeWind } from './GrassMaterial.js'
 
 export { MAX_BENDERS, MAX_DECALS, UNUSED_BENDER_SLOT_XZ, makeBladeGeo, makeWind }
@@ -75,7 +80,8 @@ export function makeGrassMaterialTSL(wind) {
 
   let vScorch = null
 
-  const displacedPosition = Fn(() => {
+  const displacedPosition = Fn((builder) => {
+    const instanceMatrixNode = instanceMatrixNodeFor(builder.object)
     const transformed = positionLocal.toVar()
     const gv = clamp(transformed.y, 0.0, 1.0)
     const gw = gv.mul(gv).mul(0.45)
@@ -104,7 +110,7 @@ export function makeGrassMaterialTSL(wind) {
 
     vScorch = varying(scorch, 'vScorch')
 
-    return transformed
+    return instanceMatrixNode.mul(vec4(transformed, 1.0)).xyz
   })
 
   const flatNormalLocal = normalize(mix(normalize(normalLocal), vec3(0.0, 1.0, 0.0), 0.6))
