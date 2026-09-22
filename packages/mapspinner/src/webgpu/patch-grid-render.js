@@ -415,7 +415,6 @@ export class PatchGridRenderer {
   }
 
   _ensureInstanceBuffer(quads) {
-    if (quads === this._quadsRef) return
     const data = this.mode === 'sample' ? buildInstanceDataThc(quads) : buildInstanceData(quads)
     if (!this.instanceBuffer || this.instanceCapacity < data.byteLength) {
       if (this.instanceBuffer) this.instanceBuffer.destroy()
