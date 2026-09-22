@@ -77,9 +77,10 @@ export class MapspinnerPipelineCache {
     const colorFormat = opts.colorFormat || 'bgra8unorm'
     const depthFormat = opts.depthFormat || 'depth24plus'
     const topology = opts.topology || 'triangle-list'
+    const sampleCount = opts.sampleCount || 1
     const vertexBuffers = opts.vertexBuffers || TERRAIN_PATCH_VERTEX_BUFFERS
     const shaderId = opts.shaderId || (opts.vertexCode + '::' + opts.fragmentCode)
-    const cacheKey = [stateKey, shaderId, depthOnly ? 'depthonly' : colorFormat, state.hasDepth ? depthFormat : 'nodepth', topology].join('|')
+    const cacheKey = [stateKey, shaderId, depthOnly ? 'depthonly' : colorFormat, state.hasDepth ? depthFormat : 'nodepth', topology, sampleCount].join('|')
 
     const cached = this._pipelines.get(cacheKey)
     if (cached) return cached
@@ -100,6 +101,9 @@ export class MapspinnerPipelineCache {
     }
     if (state.hasDepth) {
       descriptor.depthStencil = { format: depthFormat, depthWriteEnabled: state.depthWrite, depthCompare: state.depthCompare }
+    }
+    if (sampleCount > 1) {
+      descriptor.multisample = { count: sampleCount }
     }
 
     const pipeline = this.device.createRenderPipeline(descriptor)

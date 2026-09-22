@@ -186,20 +186,32 @@ export class BilinearUpscale {
     this.pipelineCache = opts.pipelineCache || new MapspinnerPipelineCache(device)
     this.colorFormat = opts.colorFormat || 'bgra8unorm'
     this.sampler = opts.sampler || createLinearSampler(device)
-    this.pipeline = this.pipelineCache.getPipeline('fullscreen-blit', {
-      vertexCode: BILINEAR_UPSCALE_WGSL, fragmentCode: BILINEAR_UPSCALE_WGSL,
-      colorFormat: this.colorFormat, vertexBuffers: [], label: 'vdrs-bilinear-upscale',
-    })
     this.uniformBuffer = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
     this._bindGroupTex = null
     this.bindGroup = null
+    this._pipelineSampleCount = null
+    this._pipelineColorFormat = null
+    this.pipeline = null
   }
 
-  render(passEncoder, { srcTexture, renderScaleX, renderScaleY }) {
+  _pipelineFor(sampleCount, colorFormat) {
+    if (this.pipeline && this._pipelineSampleCount === sampleCount && this._pipelineColorFormat === colorFormat) return this.pipeline
+    this.pipeline = this.pipelineCache.getPipeline('fullscreen-blit', {
+      vertexCode: BILINEAR_UPSCALE_WGSL, fragmentCode: BILINEAR_UPSCALE_WGSL,
+      colorFormat, sampleCount, vertexBuffers: [], label: 'vdrs-bilinear-upscale',
+    })
+    this._pipelineSampleCount = sampleCount
+    this._pipelineColorFormat = colorFormat
+    this._bindGroupTex = null
+    return this.pipeline
+  }
+
+  render(passEncoder, { srcTexture, renderScaleX, renderScaleY, sampleCount, colorFormat }) {
+    const pipeline = this._pipelineFor(sampleCount || 1, colorFormat || this.colorFormat)
     this.device.queue.writeBuffer(this.uniformBuffer, 0, new Float32Array([renderScaleX, renderScaleY, 0, 0]))
     if (this._bindGroupTex !== srcTexture) {
       this.bindGroup = this.device.createBindGroup({
-        layout: this.pipeline.getBindGroupLayout(0),
+        layout: pipeline.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: srcTexture.createView() },
           { binding: 1, resource: this.sampler },
@@ -208,7 +220,7 @@ export class BilinearUpscale {
       })
       this._bindGroupTex = srcTexture
     }
-    passEncoder.setPipeline(this.pipeline)
+    passEncoder.setPipeline(pipeline)
     passEncoder.setBindGroup(0, this.bindGroup)
     passEncoder.draw(3, 1, 0, 0)
   }
@@ -224,16 +236,27 @@ export class Fsr1Upscale {
       vertexCode: EASU_WGSL, fragmentCode: EASU_WGSL,
       colorFormat: 'rgba16float', vertexBuffers: [], label: 'vdrs-fsr1-easu',
     })
-    this.rcasPipeline = this.pipelineCache.getPipeline('fullscreen-blit', {
-      vertexCode: RCAS_WGSL, fragmentCode: RCAS_WGSL,
-      colorFormat: this.colorFormat, vertexBuffers: [], label: 'vdrs-fsr1-rcas',
-    })
+    this.rcasPipeline = null
+    this._rcasPipelineSampleCount = null
+    this._rcasPipelineColorFormat = null
     this.easuUniformBuffer = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
     this.rcasUniformBuffer = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
     this._intermediate = null
     this._iw = 0; this._ih = 0
     this._easuBindGroupTex = null
     this._rcasBindGroup = null
+  }
+
+  _rcasPipelineFor(sampleCount, colorFormat) {
+    if (this.rcasPipeline && this._rcasPipelineSampleCount === sampleCount && this._rcasPipelineColorFormat === colorFormat) return this.rcasPipeline
+    this.rcasPipeline = this.pipelineCache.getPipeline('fullscreen-blit', {
+      vertexCode: RCAS_WGSL, fragmentCode: RCAS_WGSL,
+      colorFormat, sampleCount, vertexBuffers: [], label: 'vdrs-fsr1-rcas',
+    })
+    this._rcasPipelineSampleCount = sampleCount
+    this._rcasPipelineColorFormat = colorFormat
+    this._rcasBindGroup = null
+    return this.rcasPipeline
   }
 
   _ensureIntermediate(w, h) {
@@ -244,7 +267,8 @@ export class Fsr1Upscale {
     this._rcasBindGroup = null
   }
 
-  render(commandEncoder, { srcTexture, srcFullW, srcFullH, renderScaleX, renderScaleY, dstView, dstW, dstH, sharpness }) {
+  render(commandEncoder, { srcTexture, srcFullW, srcFullH, renderScaleX, renderScaleY, dstView, dstW, dstH, sharpness, sampleCount, colorFormat }) {
+    const rcasPipeline = this._rcasPipelineFor(sampleCount || 1, colorFormat || this.colorFormat)
     this._ensureIntermediate(dstW, dstH)
     this.device.queue.writeBuffer(this.easuUniformBuffer, 0, new Float32Array([
       renderScaleX, renderScaleY, 0, 0,
@@ -275,7 +299,7 @@ export class Fsr1Upscale {
     ]))
     if (!this._rcasBindGroup) {
       this._rcasBindGroup = this.device.createBindGroup({
-        layout: this.rcasPipeline.getBindGroupLayout(0),
+        layout: rcasPipeline.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: this._intermediate.createView() },
           { binding: 1, resource: this.sampler },
@@ -286,7 +310,7 @@ export class Fsr1Upscale {
     const rcasPass = commandEncoder.beginRenderPass({
       colorAttachments: [{ view: dstView, loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }],
     })
-    rcasPass.setPipeline(this.rcasPipeline)
+    rcasPass.setPipeline(rcasPipeline)
     rcasPass.setBindGroup(0, this._rcasBindGroup)
     rcasPass.draw(3, 1, 0, 0)
     rcasPass.end()

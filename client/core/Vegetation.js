@@ -8,6 +8,8 @@ import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
 import { dbg } from './debug-log.js'
 import { RenderControls } from './RenderControls.js'
 import { loadEzTree, makeWindUniforms, applyWind, awaitMatTextures, capGeo, simplifyGeo, buildSpecies, makeEmptyGeo, TARGET_H } from './VegetationBuild.js'
+import { createWebGPUInstancedMesh } from './WebGPUInstancing.js'
+import { makeWindUniformsTSL, tickWindTSL, applyWindTSL, applyTintTSL } from './VegetationTSL.js'
 
 const _dbgVeg = dbg('vegetation')
 const _occBoxGeo = new THREE.BoxGeometry(1, 1, 1)
@@ -17,9 +19,116 @@ const DROP_HYSTERESIS_MARGIN_M = 64
 const VEG_MESH_OPAQUE_DRAW_ORDER = 3
 const VEG_SHARED_IMPOSTOR_OPAQUE_DRAW_ORDER = 4
 const BUILD_SLICE_BUDGET_MS = 8
+const VEG_ATTRIBUTE_SCHEMA = { windPhase: 'float', tint: 'float' }
 
 const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _camPos = new THREE.Vector3()
 const _vanMat = new THREE.Matrix4(), _vanProj = new THREE.Matrix4(), _vanFrustum = new THREE.Frustum()
+
+function createVegWebGPUInstancer(scene, geo, material, initialCapacity, attributeSchema) {
+  let capacity = initialCapacity
+  let rec = createWebGPUInstancedMesh(geo, material, capacity, attributeSchema)
+  scene.add(rec.mesh)
+  const freeIds = []
+  for (let i = capacity - 1; i >= 0; i--) freeIds.push(i)
+  let highWatermark = 0
+  const _matrixData = new Map()
+  const _attrData = new Map()
+  const _visibleData = new Map()
+  const _pos = new THREE.Vector3(), _quat = new THREE.Quaternion(), _scale = new THREE.Vector3(1, 1, 1), _m4 = new THREE.Matrix4()
+
+  function _acquire() {
+    if (freeIds.length === 0) return -1
+    const id = freeIds.pop()
+    if (id + 1 > highWatermark) highWatermark = id + 1
+    return id
+  }
+
+  function _grow(minCapacity) {
+    const newCapacity = Math.max(minCapacity, capacity * 2)
+    const oldMesh = rec.mesh
+    const oldRenderOrder = oldMesh.renderOrder
+    const oldFrustumCulled = oldMesh.frustumCulled
+    const oldMatrixAutoUpdate = oldMesh.matrixAutoUpdate
+    rec = createWebGPUInstancedMesh(geo, material, newCapacity, attributeSchema)
+    for (const [id, m] of _matrixData) {
+      rec.setMatrixAt(id, m)
+      const attrs = _attrData.get(id)
+      if (attrs) for (const name in attrs) rec.setAttributeAt(id, name, attrs[name])
+      if (_visibleData.get(id) === false) rec.setVisibleAt(id, false)
+    }
+    rec.mesh.count = highWatermark
+    for (let i = newCapacity - 1; i >= capacity; i--) freeIds.unshift(i)
+    capacity = newCapacity
+    rec.mesh.renderOrder = oldRenderOrder
+    rec.mesh.frustumCulled = oldFrustumCulled
+    rec.mesh.matrixAutoUpdate = oldMatrixAutoUpdate
+    scene.remove(oldMesh)
+    scene.add(rec.mesh)
+  }
+
+  function _makeEntity(id) {
+    return {
+      id,
+      position: { set(x, y, z) { _pos.set(x, y, z) } },
+      quaternion: { copy(q) { _quat.copy(q) } },
+      scale: { set(x, y, z) { _scale.set(x, y, z) }, setScalar(s) { _scale.set(s, s, s) } },
+      get visible() { return _visibleData.get(id) !== false },
+      set visible(v) { rec.setVisibleAt(id, v); _visibleData.set(id, v) },
+    }
+  }
+
+  const adapter = {
+    get capacity() { return capacity },
+    get mesh() { return rec.mesh },
+    get geometry() { return rec.mesh.geometry },
+    get material() { return material },
+    get count() { return rec.mesh.count },
+    perObjectFrustumCulled: false,
+    autoUpdate: true,
+    get visible() { return rec.mesh.visible },
+    set visible(v) { rec.mesh.visible = v },
+    get frustumCulled() { return rec.mesh.frustumCulled },
+    set frustumCulled(v) { rec.mesh.frustumCulled = v },
+    get renderOrder() { return rec.mesh.renderOrder },
+    set renderOrder(v) { rec.mesh.renderOrder = v },
+    get matrixAutoUpdate() { return rec.mesh.matrixAutoUpdate },
+    set matrixAutoUpdate(v) { rec.mesh.matrixAutoUpdate = v },
+    updateMatrix() { rec.mesh.updateMatrix() },
+    addInstances(count, cb) {
+      for (let i = 0; i < count; i++) {
+        let id = _acquire()
+        if (id < 0) { _grow(capacity + 1); id = _acquire() }
+        _pos.set(0, 0, 0); _quat.identity(); _scale.set(1, 1, 1)
+        cb(_makeEntity(id))
+        _m4.compose(_pos, _quat, _scale)
+        rec.setMatrixAt(id, _m4)
+        if (id + 1 > rec.mesh.count) rec.mesh.count = id + 1
+        _matrixData.set(id, _m4.clone())
+        _visibleData.set(id, true)
+      }
+    },
+    removeInstances(id) {
+      rec.releaseId(id)
+      freeIds.push(id)
+      _matrixData.delete(id)
+      _attrData.delete(id)
+      _visibleData.delete(id)
+    },
+    setUniformAt(id, name, value) {
+      rec.setAttributeAt(id, name, value)
+      let attrs = _attrData.get(id)
+      if (!attrs) { attrs = {}; _attrData.set(id, attrs) }
+      attrs[name] = value
+    },
+    setVisibilityAt(id, visible) {
+      rec.setVisibleAt(id, visible)
+      _visibleData.set(id, visible)
+    },
+    resizeBuffers(minCapacity) { if (minCapacity > capacity) _grow(minCapacity) },
+    dispose() { _matrixData.clear(); _attrData.clear(); _visibleData.clear() },
+  }
+  return adapter
+}
 
 
 export async function createVegetation(opts = {}) {
@@ -29,11 +138,7 @@ export async function createVegetation(opts = {}) {
   const cfg = opts.cfg || {}
   const worldSeed = (opts.worldSeed ?? cfg.seed ?? 0) | 0
   if (!renderer || !scene || !frame) throw new Error('createVegetation: renderer/scene/frame required')
-
-  if (renderer.isWebGPURenderer) {
-    console.warn('[Vegetation] InstancedMesh2 has no NodeMaterial/WebGPU support yet (AGENTS.md tsl-instancedmesh2-nodematerial-blocker) -- vegetation fails open (no trees rendered) under ?webgpu=1')
-    return null
-  }
+  const isWebGPU = !!renderer.isWebGPURenderer
 
   let Tree
   try {
@@ -69,6 +174,8 @@ export async function createVegetation(opts = {}) {
   const INIT_CAP = Math.min(MAX_INSTANCES, Number.isFinite(cfg.initCapacity) ? cfg.initCapacity : 2048)
   const wind = makeWindUniforms()
   if (typeof window !== 'undefined') { wind.uVegWind.value = window.__vegWind != null ? +window.__vegWind : 1 }
+  const windTSL = isWebGPU ? makeWindUniformsTSL() : null
+  if (isWebGPU && typeof window !== 'undefined') { windTSL.uVegWind.value = window.__vegWind != null ? +window.__vegWind : 1 }
 
   const D1 = Number.isFinite(cfg.lod1) ? cfg.lod1 : Math.min(14, renderDistance * 0.045)
   const D2 = Number.isFinite(cfg.lod2) ? cfg.lod2 : Math.min(35, renderDistance * 0.11)
@@ -97,50 +204,57 @@ export async function createVegetation(opts = {}) {
       const _treeSph = _treeBox.getBoundingSphere(new THREE.Sphere())
       branchGeo0.boundingBox = _treeBox.clone(); leafGeo0.boundingBox = _treeBox.clone()
       branchGeo0.boundingSphere = _treeSph.clone(); leafGeo0.boundingSphere = _treeSph.clone()
-      const branch = new InstancedMesh2(branchGeo0, applyWind(sp.branchMat, wind), { capacity: INIT_CAP, renderer })
-      const leaf = new InstancedMesh2(leafGeo0, applyWind(sp.leafMat, wind), { capacity: INIT_CAP, renderer })
-      for (const m of [branch, leaf]) {
-        m.initUniformsPerInstance({ vertex: { windPhase: 'float' }, fragment: { tint: 'float' } })
-        m.perObjectFrustumCulled = true
-        m.frustumCulled = false
-      }
-      const b1 = await simplifyGeo(branchGeo0, 0.28, false), b2 = await simplifyGeo(branchGeo0, 0.07, true)
-      const l1 = await simplifyGeo(leafGeo0, 0.30, false), l2 = await simplifyGeo(leafGeo0, 0.09, true)
-      const b2shadow = await simplifyGeo(branchGeo0, 0.07, true)
-      for (const g of [b1, b2, l1, l2, b2shadow]) { g.boundingBox = _treeBox.clone(); g.boundingSphere = _treeSph.clone() }
-      branch.addLOD(b1, branch.material, D1, LOD_HYS); branch.addLOD(b2, branch.material, D2, LOD_HYS)
-      leaf.addLOD(l1, leaf.material, D1, LOD_HYS); leaf.addLOD(l2, leaf.material, D2, LOD_HYS)
-      for (const mesh of [branch, leaf]) {
-        for (const child of mesh.children) {
-          if (child._geometry) { child._geometry.boundingBox = _treeBox.clone(); child._geometry.boundingSphere = _treeSph.clone() }
+      let branch, leaf, impostor = false, impMatRef = null, impDims = null
+      if (isWebGPU) {
+        applyWindTSL(sp.branchMat, windTSL); applyTintTSL(sp.branchMat)
+        applyWindTSL(sp.leafMat, windTSL); applyTintTSL(sp.leafMat)
+        branch = createVegWebGPUInstancer(scene, branchGeo0, sp.branchMat, INIT_CAP, VEG_ATTRIBUTE_SCHEMA)
+        leaf = createVegWebGPUInstancer(scene, leafGeo0, sp.leafMat, INIT_CAP, VEG_ATTRIBUTE_SCHEMA)
+      } else {
+        branch = new InstancedMesh2(branchGeo0, applyWind(sp.branchMat, wind), { capacity: INIT_CAP, renderer })
+        leaf = new InstancedMesh2(leafGeo0, applyWind(sp.leafMat, wind), { capacity: INIT_CAP, renderer })
+        for (const m of [branch, leaf]) {
+          m.initUniformsPerInstance({ vertex: { windPhase: 'float' }, fragment: { tint: 'float' } })
+          m.perObjectFrustumCulled = true
+          m.frustumCulled = false
         }
-      }
-      branch.addShadowLOD(b2shadow, 0)
-      branch.addShadowLOD(makeEmptyGeo(), SHADOW_CAST)
-      for (const shadowObj of branch.LODinfo.objects) {
-        const hasLibraryDefaultShaderMaterial = shadowObj !== branch && shadowObj.material && shadowObj.material.type === 'ShaderMaterial' && !shadowObj.material.vertexShader?.includes('uVegTime')
-        if (hasLibraryDefaultShaderMaterial) {
-          shadowObj.material = branch.material
+        const b1 = await simplifyGeo(branchGeo0, 0.28, false), b2 = await simplifyGeo(branchGeo0, 0.07, true)
+        const l1 = await simplifyGeo(leafGeo0, 0.30, false), l2 = await simplifyGeo(leafGeo0, 0.09, true)
+        const b2shadow = await simplifyGeo(branchGeo0, 0.07, true)
+        for (const g of [b1, b2, l1, l2, b2shadow]) { g.boundingBox = _treeBox.clone(); g.boundingSphere = _treeSph.clone() }
+        branch.addLOD(b1, branch.material, D1, LOD_HYS); branch.addLOD(b2, branch.material, D2, LOD_HYS)
+        leaf.addLOD(l1, leaf.material, D1, LOD_HYS); leaf.addLOD(l2, leaf.material, D2, LOD_HYS)
+        for (const mesh of [branch, leaf]) {
+          for (const child of mesh.children) {
+            if (child._geometry) { child._geometry.boundingBox = _treeBox.clone(); child._geometry.boundingSphere = _treeSph.clone() }
+          }
         }
-      }
-      let impostor = false, impMatRef = null, impDims = null
-      try {
-        if (!_buildImpostor) throw new Error('veg-bisect: impostor disabled (?veg=branch)')
-        await awaitMatTextures([sp.branchMat, sp.leafMat])
-        const sph = computeObjectBoundingSphere(sp.tree, new THREE.Sphere(), true)
-        if (sph && Number.isFinite(sph.radius) && sph.radius > 0) {
-          const transform = new THREE.Matrix4().makeScale(sph.radius * 2, sph.radius * 2, sph.radius * 2).setPosition(sph.center)
-          const impMat = createOctahedralImpostorMaterial({
-            baseType: THREE.MeshStandardMaterial, useHemiOctahedron: false,
-            spritesPerSide: 8, alphaClamp: 0.4, transform, transparent: false,
-            renderer, target: sp.tree, textureSize: 1024,
-            farSingleSprite: true,
-          })
-          impDims = { center: [sph.center.x, sph.center.y, sph.center.z], radius: sph.radius }
-          impostor = true; impMatRef = impMat
+        branch.addShadowLOD(b2shadow, 0)
+        branch.addShadowLOD(makeEmptyGeo(), SHADOW_CAST)
+        for (const shadowObj of branch.LODinfo.objects) {
+          const hasLibraryDefaultShaderMaterial = shadowObj !== branch && shadowObj.material && shadowObj.material.type === 'ShaderMaterial' && !shadowObj.material.vertexShader?.includes('uVegTime')
+          if (hasLibraryDefaultShaderMaterial) {
+            shadowObj.material = branch.material
+          }
         }
-      } catch (e) { console.warn('[veg] impostor bake failed (mesh-LOD-only):', name, e?.message || e) }
-      scene.add(branch); scene.add(leaf)
+        try {
+          if (!_buildImpostor) throw new Error('veg-bisect: impostor disabled (?veg=branch)')
+          await awaitMatTextures([sp.branchMat, sp.leafMat])
+          const sph = computeObjectBoundingSphere(sp.tree, new THREE.Sphere(), true)
+          if (sph && Number.isFinite(sph.radius) && sph.radius > 0) {
+            const transform = new THREE.Matrix4().makeScale(sph.radius * 2, sph.radius * 2, sph.radius * 2).setPosition(sph.center)
+            const impMat = createOctahedralImpostorMaterial({
+              baseType: THREE.MeshStandardMaterial, useHemiOctahedron: false,
+              spritesPerSide: 8, alphaClamp: 0.4, transform, transparent: false,
+              renderer, target: sp.tree, textureSize: 1024,
+              farSingleSprite: true,
+            })
+            impDims = { center: [sph.center.x, sph.center.y, sph.center.z], radius: sph.radius }
+            impostor = true; impMatRef = impMat
+          }
+        } catch (e) { console.warn('[veg] impostor bake failed (mesh-LOD-only):', name, e?.message || e) }
+        scene.add(branch); scene.add(leaf)
+      }
       branch.updateMatrix(); branch.matrixAutoUpdate = false
       leaf.updateMatrix(); leaf.matrixAutoUpdate = false
       branch.renderOrder = VEG_MESH_OPAQUE_DRAW_ORDER; leaf.renderOrder = VEG_MESH_OPAQUE_DRAW_ORDER
@@ -412,6 +526,7 @@ export async function createVegetation(opts = {}) {
   let _profAccum = 0
   function ensureBVH() {
     if (bvhBuilt) return
+    if (isWebGPU) { bvhBuilt = true; return }
     for (const rec of meshes) {
       try { rec.branch.computeBVH({ margin: BVH_MARGIN }); rec.leaf.computeBVH({ margin: BVH_MARGIN }); profile.bvhRebuilds++ } catch (_) {}
     }
@@ -423,6 +538,7 @@ export async function createVegetation(opts = {}) {
   let _instancesAtLastBVHBuild = 0
   const BVH_REBUILD_GROWTH_FRACTION = 0.5
   function rebuildBVHAfterIncrementalGrowth() {
+    if (isWebGPU) return
     if (!bvhBuilt || totalInstances === 0) return
     const grown = totalInstances - _instancesAtLastBVHBuild
     if (grown <= 0 || grown < _instancesAtLastBVHBuild * BVH_REBUILD_GROWTH_FRACTION) return
@@ -492,6 +608,7 @@ export async function createVegetation(opts = {}) {
   }
 
   function tickWind(dt) {
+    if (isWebGPU) { tickWindTSL(windTSL, dt); return }
     wind.uVegTime.value += dt
     if (typeof window !== 'undefined' && window.__vegWind != null) wind.uVegWind.value = +window.__vegWind
   }
@@ -584,7 +701,7 @@ export async function createVegetation(opts = {}) {
   function dispose() {
     for (const rec of meshes) {
       for (const m of [rec.branch, rec.leaf]) {
-        try { scene.remove(m); m.bvh && m.bvh.clear && m.bvh.clear() } catch (_) {}
+        try { scene.remove(m.mesh || m); m.bvh && m.bvh.clear && m.bvh.clear() } catch (_) {}
         try { m.geometry && m.geometry.dispose() } catch (_) {}
         try { m.material && m.material.dispose() } catch (_) {}
         try { m.dispose && m.dispose() } catch (_) {}

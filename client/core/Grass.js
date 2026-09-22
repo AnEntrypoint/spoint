@@ -49,6 +49,7 @@ function createStreamingGrassInstancer(scene, geo, material, initialCapacity, at
       if (attrs) for (const name in attrs) rec.setAttributeAt(id, name, attrs[name])
       if (_visibleData.get(id) === false) rec.setVisibleAt(id, false)
     }
+    rec.mesh.count = highWatermark
     for (let i = newCapacity - 1; i >= capacity; i--) freeIds.unshift(i)
     capacity = newCapacity
     rec.mesh.renderOrder = oldRenderOrder
@@ -78,6 +79,7 @@ function createStreamingGrassInstancer(scene, geo, material, initialCapacity, at
         cb(_entityProxy, id)
         _m4.compose(_pos, _quat, _scale)
         rec.setMatrixAt(id, _m4)
+        if (id + 1 > rec.mesh.count) rec.mesh.count = id + 1
         _matrixData.set(id, _m4.clone())
         _visibleData.set(id, true)
       }

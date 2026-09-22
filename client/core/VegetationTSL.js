@@ -1,4 +1,4 @@
-import { Fn, uniform, attribute, positionLocal, positionGeometry, sin, cos, vec3, vec4 } from 'three/tsl'
+import { Fn, uniform, attribute, positionLocal, positionGeometry, sin, cos, vec3, vec4, materialColor } from 'three/tsl'
 
 export function makeWindUniformsTSL() {
   return { uVegTime: uniform(0), uVegWind: uniform(1) }
@@ -27,11 +27,9 @@ export function applyWindTSL(material, wind) {
 }
 
 export function applyTintTSL(material) {
-  const base = material.colorNode
   material.colorNode = Fn(() => {
     const tint = attribute('tint', 'float')
-    const c = base ? base : vec4(1, 1, 1, 1)
-    return vec4(c.rgb.mul(tint), c.a)
+    return vec4(materialColor.rgb.mul(tint), materialColor.a)
   })()
   return material
 }

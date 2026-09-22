@@ -44,6 +44,23 @@ function nearFarForCam(R, camDist, alt, surfElev) {
   return { near, far }
 }
 
+function resolveThreeOwnedColorTarget(renderer, fallbackColorFormat) {
+  if (renderer.needsFrameBufferTarget && typeof renderer._getFrameBufferTarget === 'function') {
+    const fbTarget = renderer._getFrameBufferTarget()
+    if (fbTarget && fbTarget.texture) {
+      const backendTexData = renderer.backend.get(fbTarget.texture)
+      const gpuTex = backendTexData && (backendTexData.msaaTexture || backendTexData.texture)
+      if (gpuTex) return { texture: gpuTex, colorFormat: gpuTex.format, sampleCount: gpuTex.sampleCount || 1 }
+    }
+  }
+  const backendUtils = renderer.backend.utils
+  const canvasSamples = (backendUtils && typeof backendUtils.getSampleCount === 'function') ? backendUtils.getSampleCount(renderer.currentSamples || 0) : 1
+  if (canvasSamples > 1) {
+    return { texture: renderer.backend.textureUtils.getColorBuffer(), colorFormat: fallbackColorFormat, sampleCount: canvasSamples }
+  }
+  return { texture: renderer.backend.context.getCurrentTexture(), colorFormat: fallbackColorFormat, sampleCount: 1 }
+}
+
 export function supportsPlanetWebGPU(renderer) {
   return supportsPipelineCache(renderer) && supportsAtmosphereLutWebGPU(renderer.backend.device) && !!(renderer.backend.context)
 }
@@ -209,20 +226,20 @@ export async function initMapspinnerPlanetWebGPU(renderer, opts = {}) {
     water.render(pass2, quads)
     pass2.end()
 
-    const ctex = renderer.backend.context.getCurrentTexture()
+    const target = resolveThreeOwnedColorTarget(renderer, colorFormat)
     if (vdrsOn) {
       const useFsr1 = (typeof window !== 'undefined' && window.__vdrsUpscaleFsr1 === true)
       if (useFsr1) {
         const sharpness = (typeof window !== 'undefined' && typeof window.__vdrsUpscaleFsr1Sharpness === 'number') ? window.__vdrsUpscaleFsr1Sharpness : 0.5
-        fsr1Upscale.render(encoder, { srcTexture: mainColorTex, srcFullW: w, srcFullH: h, renderScaleX: vrs, renderScaleY: vrs, dstView: ctex.createView(), dstW: w, dstH: h, sharpness })
+        fsr1Upscale.render(encoder, { srcTexture: mainColorTex, srcFullW: w, srcFullH: h, renderScaleX: vrs, renderScaleY: vrs, dstView: target.texture.createView(), dstW: w, dstH: h, sharpness, sampleCount: target.sampleCount, colorFormat: target.colorFormat })
       } else {
-        const blitPass = encoder.beginRenderPass({ colorAttachments: [{ view: ctex.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] })
-        bilinearUpscale.render(blitPass, { srcTexture: mainColorTex, renderScaleX: vrs, renderScaleY: vrs })
+        const blitPass = encoder.beginRenderPass({ colorAttachments: [{ view: target.texture.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] })
+        bilinearUpscale.render(blitPass, { srcTexture: mainColorTex, renderScaleX: vrs, renderScaleY: vrs, sampleCount: target.sampleCount, colorFormat: target.colorFormat })
         blitPass.end()
       }
     } else {
-      const blitPass = encoder.beginRenderPass({ colorAttachments: [{ view: ctex.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] })
-      bilinearUpscale.render(blitPass, { srcTexture: mainColorTex, renderScaleX: 1.0, renderScaleY: 1.0 })
+      const blitPass = encoder.beginRenderPass({ colorAttachments: [{ view: target.texture.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] })
+      bilinearUpscale.render(blitPass, { srcTexture: mainColorTex, renderScaleX: 1.0, renderScaleY: 1.0, sampleCount: target.sampleCount, colorFormat: target.colorFormat })
       blitPass.end()
     }
 
