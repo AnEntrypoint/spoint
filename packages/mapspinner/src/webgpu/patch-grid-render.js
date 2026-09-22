@@ -279,4 +279,4 @@ export class PatchGridRenderer {
   }
 }
 
-export { RENDER_WGSL }
+export { RENDER_WGSL, createBufferWithData }
