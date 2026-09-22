@@ -13,6 +13,8 @@
     "./cluster-lod-mesh": "./src/cluster-lod-mesh.js",
     "./meshlet-codec": "./src/meshlet-codec.js",
     "./occlusion-query-tier": "./src/occlusion-query-tier.js",
+    "./octahedral-impostor-ez": "./src/octahedral-impostor-ez.js",
+    "./octahedral-impostor-display-tsl": "./src/octahedral-impostor-display-tsl.js",
     "./bake": "./tools/bake-cluster.mjs"
   },
   "files": [

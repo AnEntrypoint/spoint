@@ -49,7 +49,7 @@ const externalPlugin = {
   name: 'spoint-client-external',
   setup(b) {
     b.onResolve({ filter: /^\/(spoint\/)?(node_modules|src|apps|data|vendor)\// }, args => ({ path: args.path, external: true }))
-    b.onResolve({ filter: /^(xstate|msgpackr|anentrypoint-design|game-editor-kit|three-mesh-bvh|wireweave|nostr-tools|streaming-gltf(\/model-pool|\/draco-loader|\/occlusion-query-tier|\/octahedral-impostor-ez(-tier)?)?)$/ }, args => ({ path: _bareToAbs[args.path] || args.path, external: true }))
+    b.onResolve({ filter: /^(xstate|msgpackr|anentrypoint-design|game-editor-kit|three-mesh-bvh|wireweave|nostr-tools|streaming-gltf(\/model-pool|\/draco-loader|\/occlusion-query-tier|\/octahedral-impostor-ez(-tier)?|\/octahedral-impostor-display-tsl)?)$/ }, args => ({ path: _bareToAbs[args.path] || args.path, external: true }))
     b.onResolve({ filter: /^(three|mapspinner|jolt-physics)(\/|$)/ }, args => ({ path: args.path, external: true }))
     b.onResolve({ filter: /^node:/ }, args => ({ path: args.path, external: true }))
     b.onResolve({ filter: /^(fs|path|crypto|url|os|util|stream|events|worker_threads)$/ }, args => ({ path: args.path, external: true }))
