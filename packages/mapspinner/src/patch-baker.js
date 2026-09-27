@@ -95,7 +95,7 @@ export async function createPatchBaker(opts = {}) {
   if (typeof g.__thcEnsureBake === 'function') g.__thcEnsureBake()
   for (let k = 0; k < 20 && typeof g.__thcBakeReadback !== 'function'; k++) await new Promise(r => setTimeout(r, 100))
   if (typeof g.__thcBakeReadback !== 'function') { warn('__thcBakeReadback never appeared after init'); return null }
-  await new Promise(r => setTimeout(r, 200))
+  for (let k = 0; k < 80 && typeof planet.hpfPending === 'function' && planet.hpfPending() > 0; k++) await new Promise(r => setTimeout(r, 50))
   let res = 130
   function bakeTile(face, ox, oy, l, level = 0) {
     for (let k = 0; k < 12; k++) {

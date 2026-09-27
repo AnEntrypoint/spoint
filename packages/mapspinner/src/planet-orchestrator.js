@@ -375,5 +375,5 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
   }
 
   function clearCache() { _frameCache = null; }
-  return { frame, render, clearCache };
+  return { frame, render, clearCache, hpfPending: () => _t.bakeFacesPending | 0 };
 }

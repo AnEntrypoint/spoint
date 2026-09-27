@@ -197,6 +197,8 @@ export async function initMapspinnerRender(gl, opts = {}) {
     gl.bindVertexArray(probeVao);
     _octClampAlt = 0;
     setComposeHeightUniforms(PU, _chuP);
+    setHpfUniforms(PU, _chuP);
+    bindHpfTextures();
     _chuSet1f(PU, _chuP, 'defRadius', R);
     gl.uniform3f(PU('probeDir'), dir[0]/pl, dir[1]/pl, dir[2]/pl);
     gl.disable(gl.DEPTH_TEST);
@@ -280,6 +282,8 @@ export async function initMapspinnerRender(gl, opts = {}) {
     gl.bindVertexArray(bakeVao);
     _octClampAlt = 0;
     setComposeHeightUniforms(BU, _chuB);
+    setHpfUniforms(BU, _chuB);
+    bindHpfTextures();
     gl.uniform1f(BU('defRadius'), R);
     gl.uniformMatrix3fv(BU('uBakeFrame'), false, _faceFramesF32[face|0]);
     gl.uniform4f(BU('uBakeOffset'), ox, oy, l, level);
@@ -1230,6 +1234,18 @@ export async function initMapspinnerRender(gl, opts = {}) {
     return true;
   }
 
+  function setHpfUniforms(locFn, chu) {
+    _chuSet1i(locFn, chu, 'hpfPool', TU.hpf);
+    _chuSet1i(locFn, chu, 'hpfPool2', TU.hpf2);
+    gl.uniform1i(locFn('hasHpf'), _hpfTex ? 1 : 0);
+  }
+  function bindHpfTextures() {
+    gl.activeTexture(gl.TEXTURE0 + TU.hpf);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, _hpfTex || ensureDummyHeightPoolTex());
+    gl.activeTexture(gl.TEXTURE0 + TU.hpf2);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, (_hpfTex && _hpfTex2) ? _hpfTex2 : ensureDummyHeightPoolTex());
+  }
+
   function setFrameUniforms() {
     const cam = _F.cam, sunDir = _F.sunDir, time = _F.time, chu = _activeChu;
     gl.uniform3f(U('camWorld'), cam.eye[0], cam.eye[1], cam.eye[2]);
@@ -1237,9 +1253,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
     _chuSetM4(U, chu, 'defViewProjNoEye', _F.viewProjNoEye);
     gl.uniform3f(U('defCamDir'), _F.camDirX, _F.camDirY, _F.camDirZ);
     gl.uniform1f(U('defCamAlt'), _F.camAlt);
-    _chuSet1i(U, chu, 'hpfPool', TU.hpf);
-    _chuSet1i(U, chu, 'hpfPool2', TU.hpf2);
-    _chuSet1i(U, chu, 'hasHpf', _hpfTex ? 1 : 0);
+    setHpfUniforms(U, chu);
     _chuSet1i(U, chu, 'uTransmittanceLUT', TU.transmittanceLUT);
     _chuSet1i(U, chu, 'uScatteringLUT', TU.scatteringLUT);
     _chuSet1f(U, chu, 'uUseScatteringLUT', (typeof window !== 'undefined' && window.__useScatteringLUT != null) ? +window.__useScatteringLUT : 0);
@@ -1337,11 +1351,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
   const _ocEmpty = {};
 
   function bindFrameTextures(cam, thc) {
-    const hasHpf = !!_hpfTex;
-    gl.activeTexture(gl.TEXTURE0 + TU.hpf);
-    gl.bindTexture(gl.TEXTURE_2D_ARRAY, hasHpf ? _hpfTex : ensureDummyHeightPoolTex());
-    gl.activeTexture(gl.TEXTURE0 + TU.hpf2);
-    gl.bindTexture(gl.TEXTURE_2D_ARRAY, (hasHpf && _hpfTex2) ? _hpfTex2 : ensureDummyHeightPoolTex());
+    bindHpfTextures();
     gl.activeTexture(gl.TEXTURE0 + TU.transmittanceLUT);
     gl.bindTexture(gl.TEXTURE_2D, ensureTransmittanceLUT());
     gl.activeTexture(gl.TEXTURE0 + TU.scatteringLUT);
