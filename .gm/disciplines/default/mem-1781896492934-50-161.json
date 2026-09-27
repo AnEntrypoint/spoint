@@ -1,3 +1,0 @@
-## Resolved mutable: m-mapspinner-api-compat
-
-mapspinner not in direct package.json dependencies; no API compatibility issues as it's vendored or used indirectly

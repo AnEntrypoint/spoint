@@ -1,3 +1,0 @@
-## Resolved mutable: decision-consume-latest
-
-User answer + implemented: client/index.html:33 importmap -> https://unpkg.com/anentrypoint-design/dist/247420.js (floating @latest). Browser session 23 witnessed usesUnpkg=true.
