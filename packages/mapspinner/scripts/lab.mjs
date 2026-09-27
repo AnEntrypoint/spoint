@@ -9,7 +9,8 @@ import WebSocket from 'ws'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const OUT_DIR = path.join(ROOT, 'lab-out')
-const LAND_REF = [0.4039, -0.6494, -0.6443]
+const PARK_ABOVE_GROUND_DEFAULT_LAND_DIR = [0.4039, -0.6494, -0.6443]
+const OBLIQUE_SUN_LAT_BASE = 0.35
 const GOLDEN_ANGLE_RAD = 2.399963229728653
 
 function parseArgs(argv) {
@@ -179,8 +180,8 @@ async function cmdShot(args) {
   const r = await withHeadless(async (evalIn, screenshot) => {
     const parked = await evalIn(`(async()=>{
       const d = window.__diag || {}, p = window.__planet;
-      window.__landDir = ${JSON.stringify(LAND_REF)};   // reliable LAND reference for parkAboveGround's default dir
-      if (p && p.cam && p.cam.sunLatBase!==undefined) p.cam.sunLatBase = 0.35;   // oblique sun -> relief shading
+      window.__landDir = ${JSON.stringify(PARK_ABOVE_GROUND_DEFAULT_LAND_DIR)};
+      if (p && p.cam && p.cam.sunLatBase!==undefined) p.cam.sunLatBase = ${OBLIQUE_SUN_LAT_BASE};
       if (d.parkAboveGround) { try { const r = await d.parkAboveGround(${altKm}, ${dir}, ${pitch}); return (typeof r==='object')?JSON.stringify(r).slice(0,220):String(r); } catch(e){ return 'pag-err:'+e.message; } }
       if (d.landWitness) { try { await d.landWitness(${altKm}, ${pitch}); return 'landWitness'; } catch(e){ return 'lw-err:'+e.message; } }
       return 'no-park-fn';
@@ -211,7 +212,7 @@ async function cmdAbFs(args) {
   ]
   const FR = 'const f=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))); for(let i=0;i<5;i++) await f();'
   const r = await withHeadless(async (evalIn, screenshot) => {
-    await evalIn(`(async()=>{ window.__landDir=${JSON.stringify(LAND_REF)}; const d=window.__diag; if(d&&d.parkAboveGround) await d.parkAboveGround(${num(args.alt, 4)}, null, 0.4); const f=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))); for(let i=0;i<10;i++) await f(); return 1; })()`)
+    await evalIn(`(async()=>{ window.__landDir=${JSON.stringify(PARK_ABOVE_GROUND_DEFAULT_LAND_DIR)}; const d=window.__diag; if(d&&d.parkAboveGround) await d.parkAboveGround(${num(args.alt, 4)}, null, 0.4); const f=()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))); for(let i=0;i<10;i++) await f(); return 1; })()`)
     await screenshot(tmp); const base = hashFile()
     const changed = [], noEffect = []
     for (const [name, val] of L) {

@@ -1,27 +1,11 @@
-// spoint-core: portable WASM math, codec, and hash functions.
-// First slice of ugc-wasm-core-extraction — implements the 5 most portable core functions
-// identified from the spoint JS codebase:
-//   1. pack_quat / unpack_quat  (SnapshotEncoder.js — 32-bit quaternion compression)
-//   2. fnv1a_hash               (msgpack.js / LockstepChecksum.js — FNV-1a 32-bit hash)
-//   3. mul_quat                 (math.js — quaternion multiplication)
-//   4. rot_vec                  (math.js — rotate vector by quaternion)
-//
-// These are all pure functions with zero DOM/Node dependencies, making them ideal for
-// cross-platform WASM sharing. The JS equivalents are byte-identical in output.
-
 use wasm_bindgen::prelude::*;
 
 const QSCALE: f64 = 511.0 * std::f64::consts::SQRT_2;
 const FNV_PRIME: u32 = 16777619;
 const FNV_OFFSET: u32 = 0x811c9dc5;
 
-// ---- Quaternion pack/unpack (32-bit "smallest three" representation) ----
-
-/// Pack a quaternion into a 32-bit unsigned integer.
-/// The largest-magnitude component is dropped; its sign is encoded in the maxIdx,
-/// and the other three components are quantized to 10 bits each.
-/// Layout: [maxIdx:2][c0:10][c1:10][c2:10]
-/// Matches SnapshotEncoder.js packQuat byte-for-byte.
+/// Packed as [maxIdx:2][c0:10][c1:10][c2:10]: the largest-magnitude component is
+/// dropped and its sign is folded into the three that remain.
 #[wasm_bindgen]
 pub fn pack_quat(rx: f64, ry: f64, rz: f64, rw: f64) -> u32 {
     let arx = rx.abs();
@@ -57,8 +41,7 @@ pub fn pack_quat(rx: f64, ry: f64, rz: f64, rw: f64) -> u32 {
     packed
 }
 
-/// Unpack a 32-bit packed quaternion back into [rx, ry, rz, rw].
-/// Matches SnapshotEncoder.js unpackQuat byte-for-byte.
+/// Returns [rx, ry, rz, rw].
 #[wasm_bindgen]
 pub fn unpack_quat(packed: u32) -> Vec<f64> {
     let max_idx = ((packed >> 30) & 0x3) as usize;
@@ -82,10 +65,6 @@ pub fn unpack_quat(packed: u32) -> Vec<f64> {
     out.to_vec()
 }
 
-// ---- FNV-1a 32-bit hash ----
-
-/// Compute the FNV-1a 32-bit hash of a byte slice.
-/// Matches msgpack.js _computeStructHash and LockstepChecksum.js foldFloat64.
 #[wasm_bindgen]
 pub fn fnv1a_32(data: &[u8]) -> u32 {
     let mut hash = FNV_OFFSET;
@@ -96,14 +75,11 @@ pub fn fnv1a_32(data: &[u8]) -> u32 {
     hash
 }
 
-/// Compute the FNV-1a 32-bit hash of a string (UTF-8 encoded).
 #[wasm_bindgen]
 pub fn fnv1a_str(s: &str) -> u32 {
     fnv1a_32(s.as_bytes())
 }
 
-/// Step an FNV-1a hash with a f64 value, folding its raw IEEE 754 bits.
-/// Matches LockstepChecksum.js foldFloat64 (normalizes -0 to 0, NaN to a fixed pattern).
 #[wasm_bindgen]
 pub fn fnv1a_fold_f64(hash: u32, n: f64) -> u32 {
     let v = if n == 0.0 { 0.0_f64 } else if n.is_nan() { f64::NAN } else { n };
@@ -116,10 +92,7 @@ pub fn fnv1a_fold_f64(hash: u32, n: f64) -> u32 {
     h
 }
 
-// ---- Quaternion math ----
-
-/// Multiply two quaternions [x, y, z, w].
-/// Matches math.js mulQuat.
+/// Arguments and result are [x, y, z, w].
 #[wasm_bindgen]
 pub fn mul_quat(a: Vec<f64>, b: Vec<f64>) -> Vec<f64> {
     let (ax, ay, az, aw) = (a[0], a[1], a[2], a[3]);
@@ -132,8 +105,6 @@ pub fn mul_quat(a: Vec<f64>, b: Vec<f64>) -> Vec<f64> {
     ]
 }
 
-/// Rotate a 3D vector by a quaternion.
-/// Matches math.js rotVec.
 #[wasm_bindgen]
 pub fn rot_vec(v: Vec<f64>, q: Vec<f64>) -> Vec<f64> {
     let (vx, vy, vz) = (v[0], v[1], v[2]);
@@ -155,9 +126,8 @@ mod tests {
 
     #[test]
     fn pack_unpack_roundtrip() {
-        // Identity quaternion
-        let packed = pack_quat(0.0, 0.0, 0.0, 1.0);
-        let unpacked = unpack_quat(packed);
+        let identity_packed = pack_quat(0.0, 0.0, 0.0, 1.0);
+        let unpacked = unpack_quat(identity_packed);
         assert!((unpacked[3] - 1.0).abs() < 0.002, "w should be ~1.0, got {:?}", unpacked);
     }
 
@@ -165,7 +135,6 @@ mod tests {
     fn fnv1a_basic() {
         let hash = fnv1a_str("hello");
         assert_ne!(hash, 0);
-        // Same input = same hash
         assert_eq!(fnv1a_str("hello"), fnv1a_str("hello"));
     }
 

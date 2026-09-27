@@ -29,21 +29,36 @@ drain narrative into recall, never grow an audit log here.
 
 ## Main-only, no branches, lanmower-only
 
-Work directly on `main`; merge any stray work branch into `main` and delete it (`gh-pages` is a deploy
-artifact branch and stays). Commit only as `lanmower` (`657315+lanmower@users.noreply.github.com`);
-never attribute an AI assistant in any commit, PR, or file. Rule applies inside every submodule too.
+Work on `main`; merge stray branches in and delete them (`gh-pages` is a deploy artifact and stays).
+Commit only as `lanmower` (`657315+lanmower@users.noreply.github.com`); never attribute an AI
+assistant in a commit, PR, or file. Same inside every submodule.
 
-## Source has no comments
+## Zero-comment sweep
 
 Names and structure carry meaning; rationale that code cannot carry lives in recall (slugs below),
-the commit message, or this file. The 2026-09-14 sweep moved every source comment out of
-client/ src/ apps/ scripts/ packages/{mapspinner,streaming-gltf,ecs}/src. Kept on purpose: `@ts-*`,
-`eslint*`, `@vite-ignore`, `webpack*`, `/*! */`, `#__PURE__`, `sourceMappingURL` directives, and
-comment-looking text inside string/template literals (embedded GLSL, `scripts/patch-deps.mjs`'s
-`// [spoint patch]` idempotency markers, generated-file headers) -- that is runtime data.
-Generated/minified files are exempt: `packages/mapspinner/src/height-gen.js` (from terrain.glsl via
-`scripts/gen-height.mjs`, which strips GLSL comments itself), `*/basis/basis_transcoder.js`,
-`packages/streaming-gltf/src/draco-loader.js`, `client/editor/sdk-typings.generated.d.ts`.
+the commit message, or this file. Swept 2026-09-14: `client/` `src/` `apps/` `scripts/`
+`packages/{mapspinner,streaming-gltf,ecs}/src`. Swept 2026-09-28: `packages/*/examples/**`,
+`packages/*/scripts/**`, Rust. Kept on purpose, never re-flag:
+
+- `@ts-*`, `eslint*`, `@vite-ignore`, `webpack*`, `/*! */`, `#__PURE__`, `sourceMappingURL`.
+- comment-looking text inside string/template literals (embedded GLSL, `scripts/patch-deps.mjs`'s
+  `// [spoint patch]` idempotency markers, generated headers) -- runtime data.
+- Markdown (`src/game/INTEGRATION.md`, `apps/_lib/README.md`, any `*.md`): `//` in code examples is
+  prose. Never edit a doc to satisfy the sweep.
+- `types/*.d.ts` JSDoc: the published app-SDK contract (`ctx`, engine, math) that app authors read
+  as editor IntelliSense, not commentary on code -- its rationale cannot move to recall without
+  deleting the interface documentation.
+- Rust `///` rustdoc on a `#[wasm_bindgen]` export, only where it states an ABI fact the
+  signature cannot carry (in `packages/spoint-core/src/lib.rs`: `pack_quat`'s bit layout,
+  `unpack_quat`'s return order, `mul_quat`'s component order). Every other Rust comment is gone -- `//` banners, the file header block, and every `///` restating its own signature.
+- Vendored/generated, never edited: `client/vendor/` (upstream headers), `client/editor/wm/wm.css`
+  (verbatim thebird `os/wm.css` paint-only WM visuals), `packages/mapspinner/src/height-gen.js`,
+  `*/basis/basis_transcoder.js`, `packages/streaming-gltf/src/draco-loader.js`,
+  `client/editor/sdk-typings.generated.d.ts`.
+
+Known false positives, never re-flag: generator methods `*[Symbol.iterator]()` / `*entries()`, CSS
+`*` universal and `#id` selectors, GLSL `#ifdef` and `*` block-comment continuations, glob literals
+inside `console.log` strings, `//` inside `http://` URLs.
 
 ## AnEntrypoint dependencies and `vendor/*` submodules (`project/anentrypoint-consumption-and-submodules`)
 
@@ -56,38 +71,36 @@ AnEntrypoint publishes nothing to npm. Runtime sources, the only ones code may r
 | `AnEntrypoint/gm` | global `npx gm-skill install` / `gm-plugkit`, not a spoint dependency | `vendor/gm` |
 
 `vendor/*` are editing-only submodules: never import them from `client/`, `scripts/`, `src/`. Edit on
-the submodule's own `main`, push to that repo's remote, then commit the new gitlink in spoint
-(bookkeeping only); runtime picks the change up when the pinned kit version/SHA is bumped, on the next
-`npm install` (wireweave), or on a fresh `gm-skill install`. The importmaps also remap
-`https://esm.sh/three@r128` keys to the local three so the kit's ModelPreview never loads a second
-three (`project/importmap-esmsh-three-dedupe`); COEP `require-corp` means every kit CDN must send CORP. The importmap must precede any module load/preload. No npm dependency on the
-kit (a second copy would silently disagree with the importmap). `nostr-tools` is injected into
-wireweave from `client/vendor/nostr-tools.mjs`. Pin a wireweave SHA if a build must be reproducible; no CI in this repo tests against wireweave@main
-(the repo has no .github workflows). gmsniff and agentgui deliberately vendor the kit.
-Add a fourth submodule only with a documented runtime mechanism.
+the submodule's own `main`, push there, then commit the new gitlink here (bookkeeping only); runtime
+picks it up when the pinned version/SHA is bumped, on the next `npm install` (wireweave), or on a
+fresh `gm-skill install`. The importmaps also remap `https://esm.sh/three@r128` to the local three so
+the kit's ModelPreview never loads a second three (`project/importmap-esmsh-three-dedupe`); COEP
+`require-corp` means every kit CDN must send CORP, and the importmap must precede any module
+load/preload. No npm dependency on the kit (a second copy would disagree with the importmap).
+`nostr-tools` is injected into wireweave from `client/vendor/nostr-tools.mjs`. Pin a wireweave SHA for
+a reproducible build; no CI here tests wireweave@main (no .github workflows). gmsniff and agentgui
+deliberately vendor the kit. A fourth submodule needs a documented runtime mechanism.
 
 ## All GUI lives in AnEntrypoint/design (`project/gui-kit-architecture-2026-08-21`)
 
 Every UI component (screens, dialogs, panels, editor kit incl. asset browser/model preview/undo
-history, damage numbers) is built in `AnEntrypoint/design` (`src/components/game-editor-kit/` for
-editor/gameplay panels) and reaches spoint only via the pinned CDN importmap entries. spoint keeps
-backend only (e.g. `src/effects/DamageEffects.js`, `apps/hit-feedback` event wiring). The design
-kit's `ModelBrowser`/`ModelBrowserIntegration` UI panel already exists there; spoint has no
-`ThumbnailGenerator`/`ThumbnailWorker`/`ModelBrowserHandler` backend for it yet -- build one there,
-not under `client/`, when that panel needs real thumbnail/model data.
-Reject any change adding UI-rendering `*.js`/`*.html`/`*.css` under `client/` without the design-repo
-work; design change first, spoint integration next commit; verify on the live URL with `?v=<ts>`.
+history, damage numbers) is built in `AnEntrypoint/design` (`src/components/game-editor-kit/`) and
+reaches spoint only via the pinned CDN importmap entries; spoint keeps backend only (e.g.
+`src/effects/DamageEffects.js`, `apps/hit-feedback`). The kit's `ModelBrowser`/`ModelBrowserIntegration`
+panel already exists there; spoint has no `ThumbnailGenerator`/`ThumbnailWorker`/`ModelBrowserHandler`
+for it yet -- build one there, not under `client/`. Reject any UI-rendering `*.js`/`*.html`/`*.css`
+under `client/` without the design-repo work: design first, spoint integration next commit, verify on
+the live URL with `?v=<ts>`.
 
 ## Root-cause, never tune thresholds (`project/degenerate-triangle-threshold-is-not-a-tunable-guess`, `project/degenerate-triangle-third-copy-and-immutable-cache`)
 
-A bug that survives a numeric-threshold change was not fixed: re-diagnose the mechanism. Exhaust
-structural fixes first; derive any remaining threshold from a measured discontinuity in real data
-(aim_sillos.glb `EPS_AREA=1e-4` sits in a verified gap of the triangle-area histogram). When a fix
-correct at its own layer fails end-to-end, search the whole pipeline for another copy of the same check
-(the degenerate-triangle check lived in `src/physics/ShapeBuilder.js`,
-`packages/streaming-gltf/tools/bake-cluster.mjs`, and `packages/streaming-gltf/src/cluster-lod-mesh.js`).
-Any re-bakeable (non content-hashed) URL needs a real ETag; `immutable` without one serves stale
-pre-fix bytes. Verify rendering defects on live GPU-bound data (`window.__scene`), not bake re-parses.
+A bug that survives a numeric-threshold change was not fixed -- re-diagnose the mechanism. Exhaust
+structural fixes, then derive any threshold from a measured discontinuity in real data
+(aim_sillos.glb `EPS_AREA=1e-4` sits in a verified gap of the area histogram). When a fix correct at
+its own layer fails end-to-end, hunt another copy of the same check (the degenerate-triangle one lived
+in `src/physics/ShapeBuilder.js`, `packages/streaming-gltf/tools/bake-cluster.mjs` and
+`packages/streaming-gltf/src/cluster-lod-mesh.js`). A re-bakeable URL needs a real ETag; `immutable`
+without one serves stale pre-fix bytes. Verify rendering on live GPU data (`window.__scene`).
 
 ## Server-only endpoints are dead on the static gh-pages host
 
@@ -152,11 +165,21 @@ Load-bearing caveats:
 - Terrain/assets: colliders ring each player, never the centroid (`terrain-collider-streamer-per-player-rings`); placement is client/server hash parity (`terrain-placement-parity-salt-and-prejitter-cell`); glTF repack uses EXT_meshopt byte ranges (`glbktx2-meshopt-bufferview-ext-range`); rocks share seed 1337/stride 7919 with RockShapes (`rocks-visual-physics-seed-parity`).
 - Editor/UI/tooling: kit `applyDiff` crash classes, HUD overlays mount on `document.body` (`kit-applydiff-child-crash-classes`, `hud-overlay-mount-outside-uiroot`); harnesses use `?multiplayer` + `SPOINT_NO_WATCH=1` (`e2e-harness-multiplayer-param-and-no-watch`); bundle stays unhashed `dist/client/app.js` with streaming-gltf external (`bundle-client-outfile-and-externals`).
 
+Rationale moved out of source 2026-09-28: spoint-core (`packages/spoint-core/src/lib.rs`) is the first
+slice of ugc-wasm-core-extraction -- Rust twins of JS math that must stay byte-identical
+(`pack_quat`/`unpack_quat` <-> `SnapshotEncoder.js`; `fnv1a_32` <-> `msgpack.js _computeStructHash`;
+`fnv1a_fold_f64` <-> `LockstepChecksum.js foldFloat64`, folding raw little-endian f64 bits and mapping
+-0 to +0 so both runtimes agree; `mul_quat`/`rot_vec` <-> `math.js`). The GPU-instance-batching example
+declares `mvPosition` at outer scope the way `<project_vertex>` does because fog and other downstream
+chunks read it. FXC cold-compiles the mapspinner bake program in 30-90s, hence an explicit
+`fxcColdCompileBudgetMs` poll instead of one bounded retry. `lab.mjs` parks at `sunLatBase` 0.35
+because a near-overhead sun reads flat -- gentle relief only self-shades at an oblique angle.
+
 More slugs (prefix `project/`): client/core `csm-shaderchunk-patch-placement csm-unrolled-loop-index-not-i vrm-expression-v0-names-remapped-at-load occlusion-proxy-needs-geometry-child collider-debug-mirrors-terrainphysics-grid fluidsurface-winding-and-exact-rim-probe postpass-debug-global-and-msaa-copy shadowpipeline-per-light-needsupdate-dead-cascade0 ssr-wetness-skips-custom-onbeforerender terrainbackdrop-height-parity-invariants rendercontrols-knob-global-debug-handle-collision vat-bake-bind-pose-traps progressive-ktx2-partial-container-rewrites rocks-batchedmesh-perf-quirks scenery-shader-warm-real-render ssao-default-off-half-res-upsample-smear ios-gyro-permission-user-gesture instancedmesh2-lod-geometry-identity veg-instancedmesh2-cull-invariants veg-impostor-mesh-handoff-crossfade veg-impostor-zero-area-lod-bbox-bvh wetness-lights-fragment-begin-splice`; streaming-gltf `modelpool-webgpu-occlusion-tier-dynamic-import modelpool-lod-mesh-local-space modelpool-cluster-mesh-parent-and-drawrange modelpool-frame-drains-never-zero modelpool-slot-matrix-write-at-acquire modelpool-worker-float32-normalized-false modelpool-texture-slot-no-map-catchall modelpool-instanced-slot-dirty-run-uploads streaming-gltf-clusterlodmesh-once-per-frame-render streaming-gltf-clusterlodmesh-aabb-cull-cache streaming-gltf-interleaved-attribute-array-hazard streaming-gltf-fan-triangle-cluster-diagonal streaming-gltf-ktx2-mip-cap-mirrors-progressive-ktx2 occlusion-query-tier-flush-and-sticky-verdict occlusion-query-box-polygon-offset texture-array-atlas-map-required-and-no-2d-atlas octa-impostor-atlas-linear-albedo octa-impostor-params-fragment-scope webgpu-hiz-cull-mirrors-cpu-tiers grass-material-instancedmesh2-raw-shader`; mapspinner `mapspinner-webgl2-clientwaitsync-zero-timeout mapspinner-fbo-attachment-sampler-feedback-loop mapspinner-glsl-rt-fround-parity mapspinner-rgba32f-not-rgb32f-renderable mapspinner-depth-share-shader-pass-not-blit mapspinner-vdrs-depth-preclear-frame1 mapspinner-atmosphere-lut-param-mirror mapspinner-atmosphere-direct-sun-elevation-independent mapspinner-patchbaker-thc-globals-last-init-wins mapspinner-face-frame-and-offface-clamp mapspinner-cull-near-straddle-keep-mirror mapspinner-geomorph-per-vertex-default-off mapspinner-geomorph-crackfree-rules mapspinner-webgl2-array-upload-unpack-flags mapspinner-hpfsample-manual-quintic-taps mapspinner-hpf-inset-bake-pair mapspinner-water-visprobe-overreport mapspinner-splat-uv-camera-relative mapspinner-sculpt-override-domain mapspinner-anchor-field-worlddir-seam mapspinner-anchor-bands-infill-neutral mapspinner-hpf-aqt-overlay-guards mapspinner-scattering-lut-bake-guards mapspinner-sky-exposure-elevation-scaled-blue-bias`; client/editor/hud `editor-gizmo-axis-line-drag editor-applydiff-owns-container-children procgen-wfc-socket-keys-uppercase editor-duplicated-normalizers-sync editor-wm-css-absolute-href kit-contextmenu-editor-addmenu-quirks voice-wireweave-voicesession-audible-join importmap-esmsh-three-dedupe anim-sendloco-cooldown-before-actor-send browserserver-page-lineage-rebuild-state app-hud-applydiff-dedicated-container hostmigration-retire-joinclient-not-disconnect entity-primitive-shared-cache-invariants rollback-transport-stale-ticks-still-delivered snapshot-relay-getclient-thunk-and-fortarget service-worker-full-url-keys-network-first-nav vrm-update-single-driver-normalized-bones ghpages-head-probe-503-retry`; apps `audio-media-element-source-once component-pool-plain-arrays-epoch-f64 destructible-impact-scan-and-fractured-model sph-seed-lattice-must-fit-boundary game-fsm-xstate-specifier-bundler-opaque health-reentrant-callback-fresh-read shrinking-zone-ring-needs-placeableapps softbody-rapier-fixed-body-needs-collider app-moving-entity-bodytype-and-setposition checkpoint-oncheckpoint-one-shot-per-index destructible-debris-shapekey-folds-mass app-client-enginectx-shape app-teardown-releases-native-physics shrinking-zone-ring-unit-radius-mirror sph-particle-mass-derived-from-rest-density`; src/apps+client `apploader-hotreload-watch-debounce appruntime-pending-setup-event-queue appruntime-broadcastmessage-key-snapshot appruntime-vehicle-before-chassis-teardown appruntime-resim-deferral-flush-order appstate-map-set-tagged-snapshot snapshot-slot-release-window-vs-jitterbuffer interact-cooldown-tick-indexed hotreload-migrate-contract prediction-copystate-excludes-move-timers`; netcode `connectionmanager-split-reliable-unreliable-outbox inspector-debug-swallow-excludes-defined-msg lockstep-gameloop-seed-and-poll-stall-while-waiting lockstep-consensus-majority-sustained-ejection eventlog-ingestremote-cross-shard-contract physics-integration-config-nullish-per-field rollback-resim-hidden-state snapgroup-cursor-wraps-current-band rewind-slop-covers-history-window snapshot-sleeping-prop-throttle-escapes rollback-gameloop-registration-order msgpack-pack-throws-before-ready-timer-guard`; server `statichandler-early-hints-quirks static-cache-validators-and-compression server-reload-deps-mirror-tickhandler-args server-worldconfig-live-accessor server-loadworld-ordering room-directory-shared-process-state editor-update-collider-sync-order editor-place-app-seeds-config-not-custom auth-compare-length-mismatch-decoy minimap-descriptor-duplicated-boot-and-reseed tickhandler-rollback-sim-state-maps entity-direct-field-patch-invalidation worldpersistence-save-yield-and-timers`; physics/terrain/static `physics-body-pool-dynamic-park-revive procgen-mulberry32-warmup-and-wfc-plain-array sph-wasm-instance-is-a-simulation sph-solver-stiffness-and-mass-consistency terrain-collider-streamer-add-budget-per-add terrain-planetframe-basis-and-fresh-dir terrain-cubespherecells-face-frame-copy transport-open-event-not-microtask-poll glbktx2-ktx-cli-invocation gltf-transform-io-extension-registration idbadapter-open-timeout-cold-tab progressivebake-sanitize-sourceless-textures`; client/app.js + render graph `app-animate-skips-during-shader-warmup rendergraph-order-only-read-marker app-clear-editing-input-fresh-object player-mesh-visibility-flag-owners app-foliage-requires-planet p2p-host-claim-relay-window texture-recovery-after-long-hidden scenery-build-timeout-30s devtools-install-before-client-tdz editor-optimistic-custom-writeback host-camera-near-altitude-independent foliage-placement-authoritative-focus foliage-lod-sync-cadence-split shader-warmup-abort-no-interleaved-render skeleton-bone-texture-ping-pong tps-game-baked-heightfield-rebake tps-game-sillos-y-offset tps-game-ice-servers-demo-turn`; scripts `scripts-tsc-7x-no-js-api fracture-scale-eps-and-cap-winding patch-deps-instanced-mesh-pinned-patches cdp-browser-pageerror-only cdp-browser-ci-portability static-export-single-pass-base-prefix bundle-worker-node-only-deps-external scripts-ws-coalesced-frame-mirror worktree-setup-common-dir-and-ignore-scripts worktree-remove-follows-node-modules-junction`.
 
 ## Audit log
 
-Per-session narrative is not kept here (drained 2026-09-14; pre-drain text in `git log -p -- AGENTS.md`).
-Durable lessons from those sessions are the slugs above.
+Per-session narrative is drained (2026-09-14; pre-drain text in `git log -p -- AGENTS.md`); the
+durable lessons are the slugs above.
 
 @.gm/next-step.md

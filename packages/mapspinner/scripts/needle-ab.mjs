@@ -53,11 +53,12 @@ const BAKE_EXPR = `(async () => {
   const baker = await mod.createPatchBaker({ radius: 63600, reliefScale: 0.001 });
   if (!baker) return { err: 'baker null (no webgl2/float ext on this backend?)' };
   const span = 801.2109375, res = baker.res;
-  // FXC cold compile of the bake program can take 30-90s; poll instead of trusting one bounded retry.
+  const fxcColdCompileBudgetMs = 120000;
+  const bakePollIntervalMs = 2000;
   let h = null;
-  const until = Date.now() + 120000;
-  while (!h && Date.now() < until) { h = baker.bakeTile(4, -72 * span, 33 * span, span, 0); if (!h) await new Promise(r => setTimeout(r, 2000)); }
-  if (!h) return { err: 'bake null after 120s' };
+  const until = Date.now() + fxcColdCompileBudgetMs;
+  while (!h && Date.now() < until) { h = baker.bakeTile(4, -72 * span, 33 * span, span, 0); if (!h) await new Promise(r => setTimeout(r, bakePollIntervalMs)); }
+  if (!h) return { err: 'bake null after ' + (fxcColdCompileBudgetMs / 1000) + 's' };
   const out = [];
   for (let j = 1; j < res - 1; j++) for (let i = 1; i < res - 1; i++) {
     const v = h[j * res + i];

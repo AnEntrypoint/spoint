@@ -392,34 +392,37 @@ mat4 readInstanceMatrix(int id) {
       .replace(
         '#include <project_vertex>',
         `#ifdef USE_GPU_INSTANCE_TEX
-  // mvPosition declared at outer scope (like <project_vertex>) so downstream
-  // chunks (fog, etc.) that read it still compile.
   vec4 mvPosition = modelViewMatrix * readInstanceMatrix(gl_InstanceID) * vec4(transformed, 1.0);
   gl_Position = projectionMatrix * mvPosition;
 #else
   #include <project_vertex>
 #endif
 {
-  // GPU frustum cull + LOD selection
-  vLodIndex = instanceLodIndex; // pass LOD to fragment shader if needed
+  vLodIndex = instanceLodIndex;
 
   if (instanceBoundSphere.w > 0.0) {
     vec3 c = instanceBoundSphere.xyz;
     float r = instanceBoundSphere.w;
 
-    // Frustum cull: derive 6 clip-space planes from projViewMatrix
     vec4 row0 = vec4(projViewMatrix[0][0], projViewMatrix[1][0], projViewMatrix[2][0], projViewMatrix[3][0]);
     vec4 row1 = vec4(projViewMatrix[0][1], projViewMatrix[1][1], projViewMatrix[2][1], projViewMatrix[3][1]);
     vec4 row2 = vec4(projViewMatrix[0][2], projViewMatrix[1][2], projViewMatrix[2][2], projViewMatrix[3][2]);
     vec4 row3 = vec4(projViewMatrix[0][3], projViewMatrix[1][3], projViewMatrix[2][3], projViewMatrix[3][3]);
 
+    vec4 planeLeft = row3 + row0;
+    vec4 planeRight = row3 - row0;
+    vec4 planeBottom = row3 + row1;
+    vec4 planeTop = row3 - row1;
+    vec4 planeNear = row3 + row2;
+    vec4 planeFar = row3 - row2;
+
     vec4 planes[6];
-    planes[0] = row3 + row0; // left
-    planes[1] = row3 - row0; // right
-    planes[2] = row3 + row1; // bottom
-    planes[3] = row3 - row1; // top
-    planes[4] = row3 + row2; // near
-    planes[5] = row3 - row2; // far
+    planes[0] = planeLeft;
+    planes[1] = planeRight;
+    planes[2] = planeBottom;
+    planes[3] = planeTop;
+    planes[4] = planeNear;
+    planes[5] = planeFar;
 
     bool outside = false;
     for (int i = 0; i < 6; i++) {
