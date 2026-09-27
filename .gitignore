@@ -39,3 +39,6 @@ codebase-vision-*/
 *.gmwitnesslive-check*.png
 server*.log
 config.bat
+
+# transient runtime emission (scratch logs/captures) -- never commit
+.scratch_*
