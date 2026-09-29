@@ -2,6 +2,17 @@ import { unpack } from '../protocol/msgpack.js'
 import { MSG } from '../protocol/MessageTypes.js'
 import { SnapshotProcessor } from './SnapshotProcessor.js'
 import { MessageHandler } from './MessageHandler.js'
+import { createInputStepper } from './InputStepper.js'
+import { encodeInputPacket, quantizeInput } from '../protocol/InputCodec.js'
+
+const REDUNDANT_INPUT_RECORDS = 4
+const INPUT_BUFFER_MIN_DEPTH = 1
+const INPUT_BUFFER_MAX_DEPTH = 6
+const JITTER_COVER = 2
+const JITTER_EMA_ALPHA = 0.05
+const INPUT_DEPTH_EMA_ALPHA = 0.1
+const INPUT_RATE_GAIN = 0.02
+const INPUT_RATE_MAX_ADJUST = 0.04
 
 const COALESCE_SENTINEL = 0xff
 const LEN_PREFIX_BYTES = 4
@@ -30,6 +41,16 @@ export class BaseClient {
     this.dilationFactor = 1.0
     this.callbacks = { onConnect: config.onConnect || (() => {}), onDisconnect: config.onDisconnect || (() => {}), onPlayerJoined: config.onPlayerJoined || (() => {}), onPlayerLeft: config.onPlayerLeft || (() => {}), onEntityAdded: config.onEntityAdded || (() => {}), onEntityRemoved: config.onEntityRemoved || (() => {}), onSnapshot: config.onSnapshot || (() => {}), onRender: config.onRender || (() => {}), onStateUpdate: config.onStateUpdate || (() => {}), onWorldDef: config.onWorldDef || (() => {}), onAppModule: config.onAppModule || (() => {}), onAssetUpdate: config.onAssetUpdate || (() => {}), onAppEvent: config.onAppEvent || (() => {}), onHotReload: config.onHotReload || (() => {}), onEditorSelect: config.onEditorSelect || (() => {}), onMessage: config.onMessage || (() => {}), onDilation: config.onDilation || (() => {}), onMessageError: config.onMessageError || (() => {}), onPeerRttTable: config.onPeerRttTable || (() => {}), onTerrainConfig: config.onTerrainConfig || (() => {}), onTerrainSculptAck: config.onTerrainSculptAck || (() => {}), onTerrainPaintBiomeAck: config.onTerrainPaintBiomeAck || (() => {}), onGrassDecalSync: config.onGrassDecalSync || (() => {}), onTerrainSculptSync: config.onTerrainSculptSync || (() => {}), onTimeOfDaySync: config.onTimeOfDaySync || (() => {}), onWeatherSync: config.onWeatherSync || (() => {}), onTeleportAck: (p) => { config.onTeleportAck?.(p); this._settleTeleportAck(p) } }
     this._teleportWaiters = new Map()
+    this._inputStepper = null
+    this._inputRateAdjust = 0
+    this._inputDepthEma = -1
+    this._arrivalJitterMs = 0
+    this._lastSnapArrival = 0
+    this._lastSnapTick = 0
+    this._plainInputSeq = 1
+    this._plainInputs = []
+    this.protocolRejected = null
+    this._groundSurface = typeof config.predictionGroundSurface === 'function' ? config.predictionGroundSurface : null
     this._teleportReqSeq = 0
     this._snapProc = new SnapshotProcessor({ callbacks: this.callbacks })
     this._msgHandler = new MessageHandler({ ...config, callbacks: this.callbacks })
@@ -54,9 +75,11 @@ export class BaseClient {
     if (msg.type === MSG.NOSTR_AUTH_CHALLENGE) { this._handleNostrAuthChallenge(msg.payload || {}); return }
     try {
       const result = this._msgHandler.handleMessage(msg.type, msg.payload || {}, this._snapProc)
+      if (result?.protocolMismatch) { this._rejectProtocol(result.protocolMismatch); return }
+      if ((msg.type === MSG.HANDSHAKE_ACK || msg.type === MSG.RECONNECT_ACK) && this._groundSurface) this._msgHandler.getPredEngine()?.setGroundSurface(this._groundSurface)
       this._handleSessionTokens(msg.type, result)
       if (result && (msg.type === MSG.SNAPSHOT || msg.type === MSG.STATE_CORRECTION || msg.type === MSG.STATE_RECOVERY)) this._onSnapshot(result, msg.type)
-      if (msg.type === MSG.TICK_DILATION) { this.dilationFactor = msg.payload?.factor ?? 1.0; this.callbacks.onDilation(this.dilationFactor) }
+      if (msg.type === MSG.TICK_DILATION) { this.dilationFactor = msg.payload?.factor ?? 1.0; this._msgHandler.getPredEngine()?.setDilation(this.dilationFactor); this.callbacks.onDilation(this.dilationFactor) }
     } catch (e) { console.error('[client] message handler failed (type ' + msg?.type + '):', e?.message || e); this.callbacks.onMessageError('handler', e, msg?.type) }
   }
 
@@ -82,6 +105,71 @@ export class BaseClient {
 
   _handleSessionTokens(type, result) {}
 
+  _rejectProtocol(message) {
+    this.protocolRejected = message
+    this.stopInputLoop()
+    this.callbacks.onMessageError('protocol', new Error(message))
+    try { this.disconnect?.() } catch (e) { console.error('[client] disconnect after protocol mismatch failed:', e?.message || e) }
+  }
+
+  setPredictionGroundSurface(surfaceHeightAt) {
+    this._groundSurface = typeof surfaceHeightAt === 'function' ? surfaceHeightAt : null
+    this._msgHandler.getPredEngine()?.setGroundSurface(this._groundSurface)
+  }
+
+  get inputTickRate() { return this._msgHandler.getPredEngine()?.tickRate || this.config.tickRate }
+
+  inputPeriodMs() { return 1000 / (this.inputTickRate * (1 + this._inputRateAdjust)) }
+
+  _trackArrivalJitter(tick) {
+    const now = performance.now()
+    if (this._lastSnapArrival > 0 && tick > this._lastSnapTick) {
+      const expectedMs = (tick - this._lastSnapTick) * 1000 / this.inputTickRate
+      const dev = Math.abs((now - this._lastSnapArrival) - expectedMs)
+      this._arrivalJitterMs = this._arrivalJitterMs * (1 - JITTER_EMA_ALPHA) + dev * JITTER_EMA_ALPHA
+    }
+    this._lastSnapArrival = now; this._lastSnapTick = tick
+  }
+
+  inputBufferTargetDepth() {
+    const tickMs = 1000 / this.inputTickRate
+    return Math.max(INPUT_BUFFER_MIN_DEPTH, Math.min(INPUT_BUFFER_MAX_DEPTH, INPUT_BUFFER_MIN_DEPTH + JITTER_COVER * this._arrivalJitterMs / tickMs))
+  }
+
+  _updateInputRate(serverDepth) {
+    if (!(serverDepth >= 0)) return
+    this._inputDepthEma = this._inputDepthEma < 0 ? serverDepth : this._inputDepthEma * (1 - INPUT_DEPTH_EMA_ALPHA) + serverDepth * INPUT_DEPTH_EMA_ALPHA
+    const err = this.inputBufferTargetDepth() - this._inputDepthEma
+    this._inputRateAdjust = Math.max(-INPUT_RATE_MAX_ADJUST, Math.min(INPUT_RATE_MAX_ADJUST, err * INPUT_RATE_GAIN))
+  }
+
+  startInputLoop(produceInput) {
+    this.stopInputLoop()
+    this._inputStepper = createInputStepper({ getPeriodMs: () => this.inputPeriodMs(), onStep: () => { const input = produceInput(); if (input) this.sendInput(input) } })
+    this._inputStepper.start()
+    return () => this.stopInputLoop()
+  }
+
+  stopInputLoop() { if (this._inputStepper) { this._inputStepper.stop(); this._inputStepper = null } }
+
+  sendInput(input) {
+    if (this.protocolRejected) return
+    const schema = this._msgHandler.getInputSchema()
+    const predEngine = this._msgHandler.getPredEngine()
+    const q = quantizeInput(schema, input)
+    let entries
+    if (this.config.predictionEnabled && predEngine) {
+      predEngine.addInput(q)
+      entries = predEngine.getUnackedInputs(REDUNDANT_INPUT_RECORDS)
+    } else {
+      const sequence = this._plainInputSeq++
+      this._plainInputs.push({ sequence, data: q })
+      if (this._plainInputs.length > REDUNDANT_INPUT_RECORDS) this._plainInputs.shift()
+      entries = this._plainInputs
+    }
+    this.send(MSG.INPUT, encodeInputPacket(schema, entries))
+  }
+
   _onSnapshot(data, msgType) {
     const incomingTick = data.tick || 0
     const isReorderedSnapshot = msgType === MSG.SNAPSHOT && this.lastSnapshotTick && incomingTick < this.lastSnapshotTick
@@ -95,6 +183,8 @@ export class BaseClient {
       const localState = this._snapProc.getPlayerState(this.playerId)
       if (localState) predEngine.onServerSnapshot({ players: [localState] }, this.currentTick)
     }
+    if (msgType === MSG.SNAPSHOT) this._trackArrivalJitter(incomingTick)
+    if (this.playerId && msgType === MSG.SNAPSHOT) this._updateInputRate(this._snapProc.getPlayerState(this.playerId)?.inputBuffer)
     const pArr = this.state.players; pArr.length = 0
     for (const v of this._snapProc.getAllPlayerStates().values()) pArr.push(v)
     const eArr = this.state.entities; eArr.length = 0

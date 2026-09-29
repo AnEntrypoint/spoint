@@ -1,8 +1,9 @@
 import { PredictionEngine } from './PredictionEngine.js'
 import { SmoothInterpolation } from './SmoothInterpolation.js'
 import { ClockSync } from './ClockSync.js'
-import { MSG, WIRE_PROTOCOL_VERSION } from '../protocol/MessageTypes.js'
+import { MSG, WIRE_PROTOCOL_VERSION, DISCONNECT_REASONS } from '../protocol/MessageTypes.js'
 import { WIRE_STRUCT_HASH } from '../protocol/msgpack.js'
+import { createInputSchema, DEFAULT_INPUT_SCHEMA } from '../protocol/InputCodec.js'
 
 const PRE_HANDSHAKE_TICK_RATE = 60
 
@@ -15,7 +16,10 @@ export class MessageHandler {
     this._callbacks = config.callbacks || {}
     this._clockSync = new ClockSync(config.clockSync)
     this._peerRttTable = { rtt: {}, pubkeys: {} }
+    this._inputSchema = DEFAULT_INPUT_SCHEMA
   }
+
+  getInputSchema() { return this._inputSchema }
 
   handleMessage(type, payload, snapProc) {
     if (type === MSG.HANDSHAKE_ACK) {
@@ -25,7 +29,12 @@ export class MessageHandler {
     } else if (type === MSG.STATE_RECOVERY) {
       return payload.snapshot
     } else if (type === MSG.DISCONNECT_REASON) {
-      if (payload.code === 4) return { invalidate: true }
+      if (payload.code === DISCONNECT_REASONS.INVALID_SESSION) return { invalidate: true }
+      if (payload.code === DISCONNECT_REASONS.PROTOCOL_MISMATCH) {
+        const msg = `[client] server v${payload.version} rejected this v${WIRE_PROTOCOL_VERSION} client (protocol mismatch); hard-reload`
+        console.error(msg)
+        return { protocolMismatch: msg }
+      }
     } else if (type === MSG.SNAPSHOT || type === MSG.STATE_CORRECTION) {
       return payload
     } else if (type === MSG.PLAYER_LEAVE) {
@@ -35,6 +44,7 @@ export class MessageHandler {
       if (payload.movement && this._predEngine) this._predEngine.setMovement(payload.movement)
       if (payload.gravity && this._predEngine) this._predEngine.setGravity(payload.gravity)
       if (payload.tickRate && this._predEngine) this._predEngine.setTickRate(payload.tickRate)
+      this._inputSchema = createInputSchema(payload.netcode || null)
       try { this._callbacks.onWorldDef?.(payload) }
       catch (e) { console.error('[client] onWorldDef failed:', e?.message || e) }
     } else if (type === MSG.APP_EVENT) {
@@ -82,9 +92,11 @@ export class MessageHandler {
   }
 
   _handleHandshake(payload) {
-    const serverVersion = payload.version ?? WIRE_PROTOCOL_VERSION
+    const serverVersion = payload.version ?? 1
     if (serverVersion !== WIRE_PROTOCOL_VERSION) {
-      console.error(`[client] WIRE PROTOCOL MISMATCH: server v${serverVersion} vs client v${WIRE_PROTOCOL_VERSION} - snapshots/messages may be misread; update the stale side`)
+      const msg = `[client] WIRE PROTOCOL MISMATCH: server v${serverVersion} vs client v${WIRE_PROTOCOL_VERSION}; refusing to run the session, hard-reload the stale side`
+      console.error(msg)
+      return { protocolMismatch: msg }
     }
     this._checkStructHash(payload.structHash)
     this._playerId = payload.playerId
@@ -118,13 +130,12 @@ export class MessageHandler {
     const prevEngine = this._predEngine
     this._predEngine = new PredictionEngine(payload.tickRate || this._config.tickRate || PRE_HANDSHAKE_TICK_RATE)
     this._predEngine.init(this._playerId, { position: payload.position, health: payload.health })
-    if (prevEngine && Array.isArray(prevEngine.inputHistory) && prevEngine.inputHistory.length) {
-      const unacked = prevEngine.inputHistory.filter(e => e.sequence > prevEngine._lastAckedSeq)
-      if (unacked.length) {
-        this._predEngine.inputHistory = unacked
-        this._predEngine._inputSeq = prevEngine._inputSeq
-        this._predEngine._lastAckedSeq = prevEngine._lastAckedSeq
-      }
+    if (prevEngine) {
+      this._predEngine._inputSeq = prevEngine._inputSeq
+      this._predEngine._lastAckedSeq = prevEngine._inputSeq - 1
+      this._predEngine.setMovement(prevEngine.movement)
+      this._predEngine.gravityY = prevEngine.gravityY
+      if (prevEngine._surface) this._predEngine.setGroundSurface(prevEngine._surface.heightAt)
     }
     if (this._config.smoothInterpolation !== false && !this._smoothInterp) {
       this._smoothInterp = new SmoothInterpolation({ predictionEnabled: this._config.predictionEnabled !== false })

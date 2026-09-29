@@ -4,6 +4,7 @@ import { createServer } from '../src/sdk/server.js'
 import { MSG, msgName } from '../src/protocol/MessageTypes.js'
 import { pack, unpack, ensurePacked } from '../src/protocol/msgpack.js'
 import { SnapshotEncoder } from '../src/netcode/SnapshotEncoder.js'
+import { encodeInputPacket, DEFAULT_INPUT_SCHEMA } from '../src/protocol/InputCodec.js'
 
 const PASS = []
 const FAIL = []
@@ -114,8 +115,8 @@ async function main() {
     check('joined player has a finite position', Array.isArray(joinedPlayer?.position) && joinedPlayer.position.every(Number.isFinite), JSON.stringify(joinedPlayer?.position))
 
     const inputSequence = 1
-    const moveInput = { forward: 1, right: 0, jump: false, yaw: 0, pitch: 0 }
-    ws.send(pack({ type: MSG.PLAYER_INPUT, payload: { input: moveInput, sequence: inputSequence } }))
+    const moveInput = { forward: true, right: false, jump: false, yaw: 0, pitch: 0 }
+    ws.send(pack({ type: MSG.PLAYER_INPUT, payload: encodeInputPacket(DEFAULT_INPUT_SCHEMA, [{ sequence: inputSequence, data: moveInput }]) }))
     console.log('[verify-session] sent PLAYER_INPUT (forward move)')
 
     inputAckedSnapshot = await new Promise((resolve, reject) => {

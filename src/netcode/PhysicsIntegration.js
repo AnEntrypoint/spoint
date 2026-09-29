@@ -1,4 +1,5 @@
 import { waterlineLocalY } from '../terrain/PlanetFrame.js'
+import { verticalVelocity } from '../shared/characterStep.js'
 
 const KILL_PLANE_Y = -100
 const KILL_DEPTH_BELOW_TERRAIN_M = 100
@@ -86,6 +87,13 @@ export class PhysicsIntegration {
     this.physicsWorld.readCharacterVelocity(data.charId, state.velocity)
     data.onGround = state.swimming ? false : this.physicsWorld.getCharacterGroundState(data.charId)
     state.onGround = data.onGround
+    this._readGroundNormal(data.charId, state)
+  }
+
+  _readGroundNormal(charId, state) {
+    const n = state.groundNormal || (state.groundNormal = [0, 1, 0])
+    const ok = state.onGround && typeof this.physicsWorld.readCharacterGroundNormal === 'function' && this.physicsWorld.readCharacterGroundNormal(charId, n)
+    if (!ok) { n[0] = 0; n[1] = 1; n[2] = 0 }
   }
 
   updatePlayerPhysics(playerId, state, deltaTime) {
@@ -95,7 +103,7 @@ export class PhysicsIntegration {
     }
     const charId = data.charId
     const onGround = data.onGround
-    let vy = onGround ? (state.velocity[1] > 0 ? state.velocity[1] : 0) : state.velocity[1] + this.config.gravity[1] * deltaTime
+    let vy = verticalVelocity(state.velocity[1], onGround, this.config.gravity[1], deltaTime)
     const swim = this._resolveSwimVelocity(state, deltaTime, vy, !!state._jumpHeld)
     vy = swim.vy
     const vx = state.velocity[0] * swim.dragMul, vz = state.velocity[2] * swim.dragMul
@@ -105,6 +113,7 @@ export class PhysicsIntegration {
     this.physicsWorld.readCharacterVelocity(charId, state.velocity)
     data.onGround = state.swimming ? false : this.physicsWorld.getCharacterGroundState(charId)
     state.onGround = data.onGround
+    this._readGroundNormal(charId, state)
     if (this._applyKillPlane(state)) {
       this.physicsWorld.setCharacterPosition(charId, state.position)
     }

@@ -10,6 +10,7 @@ export class CharacterManager {
     this.characters = new Map()
     this._charShapes = new Map()
     this._onGroundAtLastUpdate = new Map()
+    this._groundNormals = new Map()
     this._nextCharId = 0
     this.J = null; this._jolt = null; this._physicsSystem = null
     this._filters = null; this._updateSettings = null
@@ -81,10 +82,10 @@ export class CharacterManager {
     ch.ExtendedUpdate(dt, this._charGravity, this._updateSettings, f.bp, f.ol, f.body, f.shape, this._jolt.GetTempAllocator())
     let onGround = false
     if (ch.GetGroundState) { onGround = ch.GetGroundState() === this.J.EGroundState_OnGround; this._onGroundAtLastUpdate.set(charId, onGround) }
+    this._captureGroundNormal(charId, ch, onGround)
     if (onGround && ch.GetGroundVelocity) {
       const gv = ch.GetGroundVelocity()
       const vx = gv.GetX(), vy = gv.GetY(), vz = gv.GetZ()
-      this.J.destroy(gv)
       if (vx*vx + vy*vy + vz*vz > MIN_CARRY_GROUND_SPEED_SQ) {
         const p = ch.GetPosition()
         this._tmpRVec3.Set(p.GetX() + vx*dt, p.GetY() + vy*dt, p.GetZ() + vz*dt)
@@ -108,15 +109,13 @@ export class CharacterManager {
   getVelocity(charId) {
     const ch = this.characters.get(charId); if (!ch) return [0, 0, 0]
     const v = ch.GetLinearVelocity()
-    const r = [v.GetX(), v.GetY(), v.GetZ()]
-    this.J.destroy(v); return r
+    return [v.GetX(), v.GetY(), v.GetZ()]
   }
 
   readVelocity(charId, out) {
     const ch = this.characters.get(charId); if (!ch) return
     const v = ch.GetLinearVelocity()
     out[0] = v.GetX(); out[1] = v.GetY(); out[2] = v.GetZ()
-    this.J.destroy(v)
   }
 
   setVelocity(charId, velocity) {
@@ -131,6 +130,23 @@ export class CharacterManager {
     ch.SetPosition(this._tmpRVec3)
   }
 
+  _captureGroundNormal(charId, ch, onGround) {
+    let n = this._groundNormals.get(charId)
+    if (!n) { n = [0, 1, 0, 0]; this._groundNormals.set(charId, n) }
+    n[3] = 0
+    if (!onGround || !ch.GetGroundNormal) return
+    const g = ch.GetGroundNormal()
+    const x = g.GetX(), y = g.GetY(), z = g.GetZ()
+    if (y > 0 && Number.isFinite(x) && Number.isFinite(z)) { n[0] = x; n[1] = y; n[2] = z; n[3] = 1 }
+  }
+
+  readGroundNormal(charId, out) {
+    const n = this._groundNormals.get(charId)
+    if (!n || !n[3]) return false
+    out[0] = n[0]; out[1] = n[1]; out[2] = n[2]
+    return true
+  }
+
   getGroundState(charId) {
     const ch = this.characters.get(charId); if (!ch) return false
     const cached = this._onGroundAtLastUpdate.get(charId)
@@ -140,7 +156,7 @@ export class CharacterManager {
 
   removeCharacter(charId) {
     const ch = this.characters.get(charId)
-    if (ch) { this.J.destroy(ch); this.characters.delete(charId); this._charShapes.delete(charId); this._onGroundAtLastUpdate.delete(charId) }
+    if (ch) { this.J.destroy(ch); this.characters.delete(charId); this._charShapes.delete(charId); this._onGroundAtLastUpdate.delete(charId); this._groundNormals.delete(charId) }
   }
 
   snapshotAll() {
@@ -148,7 +164,6 @@ export class CharacterManager {
     for (const [id, ch] of this.characters) {
       const p = ch.GetPosition(), v = ch.GetLinearVelocity()
       out[id] = { position: [p.GetX(), p.GetY(), p.GetZ()], velocity: [v.GetX(), v.GetY(), v.GetZ()] }
-      this.J.destroy(v)
     }
     return out
   }

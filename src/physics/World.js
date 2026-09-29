@@ -269,6 +269,7 @@ export class PhysicsWorld {
   setCharacterVelocity(id, v) { this._charMgr.setVelocity(id, v) }
   setCharacterPosition(id, p) { this._charMgr.setPosition(id, p) }
   getCharacterGroundState(id) { return this._charMgr.getGroundState(id) }
+  readCharacterGroundNormal(id, out) { return this._charMgr.readGroundNormal(id, out) }
   removeCharacter(id) { this._charMgr.removeCharacter(id) }
   get characters() { return this._charMgr.characters }
   snapshotCharacters() { return this._charMgr.snapshotAll() }

@@ -3,12 +3,21 @@ import { WIRE_STRUCT_HASH, unpack, pack } from '../protocol/msgpack.js'
 import { SnapshotEncoder } from '../netcode/SnapshotEncoder.js'
 import { createEditorHandlers } from './EditorHandlers.js'
 import { timingSafeTokenEqual } from './authCompare.js'
-import { isInputRateLimited, clearInputBucket, sanitizeInputPayload } from '../netcode/InputGuard.js'
+import { isInputRateLimited, clearInputBucket } from '../netcode/InputGuard.js'
+import { createInputSchema, decodeInputPacket, DEFAULT_INPUT_SCHEMA } from '../protocol/InputCodec.js'
 import { clearOutlierWindow } from '../netcode/OutlierDetector.js'
 import { createNostrAuthServer } from './NostrAuthServer.js'
 import { groundSnapSpawnPoint } from './Relocation.js'
 
 const MAX_TRACKED_RTT_MS = 10000
+
+const _schemaByWorldDef = new WeakMap()
+function inputSchemaFor(worldDef) {
+  if (!worldDef) return DEFAULT_INPUT_SCHEMA
+  let s = _schemaByWorldDef.get(worldDef)
+  if (!s) { s = createInputSchema(worldDef.netcode); _schemaByWorldDef.set(worldDef, s) }
+  return s
+}
 
 function readEditorTokenIfNodeRuntime() {
   return typeof process !== 'undefined' && process.env ? process.env.EDITOR_TOKEN : undefined
@@ -169,6 +178,16 @@ export function createConnectionHandlers(ctx) {
     connections.emit('message', playerId, msg)
   }
 
+  function rejectInputPacket(clientId, reason, payload) {
+    const legacyObjectPayload = payload !== null && typeof payload === 'object' && !(payload instanceof Uint8Array)
+    if (!legacyObjectPayload) { console.warn(`[input] dropped malformed input packet from client ${clientId}: ${reason}`); return }
+    console.error(`[input] client ${clientId} sent a pre-v${WIRE_PROTOCOL_VERSION} object input payload; disconnecting (protocol mismatch, hard-reload the client)`)
+    connections.send(clientId, MSG.DISCONNECT_REASON, { code: DISCONNECT_REASONS.PROTOCOL_MISMATCH, version: WIRE_PROTOCOL_VERSION })
+    connections.flushAll()
+    const client = connections.getClient(clientId)
+    try { client?.transport?.close() } catch {}
+  }
+
   connections.on('message', (clientId, msg) => {
     _onClientMessage(clientId, msg).catch(err => console.error(`[connection] message handler failed (type ${msg?.type}) for client ${clientId}:`, err?.stack || err?.message || err))
   })
@@ -193,9 +212,9 @@ export function createConnectionHandlers(ctx) {
     }
     if (msg.type === MSG.INPUT || msg.type === MSG.PLAYER_INPUT) {
       if (isInputRateLimited(clientId)) return
-      const pl = msg.payload || {}
-      if (Array.isArray(pl.redundant)) for (const r of pl.redundant) if (r && typeof r === 'object' && Number.isFinite(r.sequence)) playerManager.addInput(clientId, sanitizeInputPayload(r.data), r.sequence)
-      playerManager.addInput(clientId, sanitizeInputPayload(pl.input || pl), pl.sequence)
+      const decoded = decodeInputPacket(inputSchemaFor(ctx.currentWorldDef), msg.payload)
+      if (!decoded.accepted) { rejectInputPacket(clientId, decoded.reason, msg.payload); return }
+      for (const e of decoded.entries) playerManager.addInput(clientId, e.data, e.sequence)
       return
     }
     if (msg.type === MSG.APP_EVENT) {

@@ -111,18 +111,24 @@ function instrumentPrediction(h, rec) {
   const pe = h.client._msgHandler.getPredEngine()
   if (!pe || pe.__harness) return !!pe
   pe.__harness = true
-  const predictedBySeq = new Map()
-  const addInput = pe.addInput.bind(pe)
-  pe.addInput = input => { const seq = addInput(input); predictedBySeq.set(seq, [...pe.localState.position]); if (predictedBySeq.size > 2048) predictedBySeq.delete(predictedBySeq.keys().next().value); return seq }
   const onSnap = pe.onServerSnapshot.bind(pe)
+  let lastAck = -1
   pe.onServerSnapshot = (snap, tick) => {
     const sp = snap.players?.[0]
-    if (sp && predictedBySeq.has(sp.inputSequence)) rec.mispredict.push(dist3(sp.position, predictedBySeq.get(sp.inputSequence)))
-    return onSnap(snap, tick)
+    const before = pe.stats.corrections
+    if (sp && sp.inputSequence > lastAck) {
+      lastAck = sp.inputSequence
+      const pred = pe.predictedAt(sp.inputSequence)
+      if (pred) {
+        const e = dist3(sp.position, pred.position)
+        rec.mispredict.push(e)
+        if (e > MISPREDICT_M && rec.worst.length < 40) rec.worst.push({ seq: sp.inputSequence, errM: e, server: { p: [...sp.position], v: [...sp.velocity], g: sp.onGround }, predicted: { p: [...pred.position], v: [...pred.velocity], g: pred.onGround }, input: pred.data })
+      }
+    }
+    const r = onSnap(snap, tick)
+    if (pe.stats.corrections > before) { rec.corrections++; rec.correctionJumpM.push(pe.stats.lastCorrectionM) }
+    return r
   }
-  const re = pe.reconciliationEngine
-  const reconcile = re.reconcile.bind(re)
-  re.reconcile = (s, l, t) => { const r = reconcile(s, l, t); rec.reconcileDivergence.push(r.divergence); if (r.needsCorrection) rec.corrections++; return r }
   return true
 }
 
@@ -171,33 +177,36 @@ async function runOne(cond, predict, worldDef) {
   const place = (h, pos) => { const p = server.playerManager.getPlayer(h.client.playerId); if (!p) return; p.state.position[0] = pos[0]; p.state.position[1] = pos[1]; p.state.position[2] = pos[2]; server.physicsIntegration.setPlayerPosition(p.id, pos) }
   place(mover, [0, 1.2, 0]); place(shooter, [0, 1.2, 10])
   bots.forEach((b, i) => place(b, [20 + 4 * i, 1.2, -20]))
-  const rec = { mispredict: [], reconcileDivergence: [], corrections: 0 }
+  const rec = { mispredict: [], correctionJumpM: [], corrections: 0, worst: [] }
   const localFrames = [], remoteFrames = [], libRemoteFrames = [], meshLag = []
   const onsets = []
   let lastMoverInput = {}, runStart = 0, lastFrameAt = 0, shootAcc = 0, meterBase = null
   const botRng = mulberry32(7)
   const botInputs = bots.map(() => ({ yaw: 0, pitch: 0 }))
-  const stopInput = scheduler.every(1000 / 60, now => {
-    if (!runStart) runStart = now + 1500
+  runStart = performance.now() + 1500
+  const shooterRec = { mispredict: [], correctionJumpM: [], corrections: 0, worst: [] }
+  mover.client.startInputLoop(() => {
+    const now = performance.now()
     if (!meterBase && now >= runStart) meterBase = all.map(h => ({ inBytes: h.meter.inBytes, outBytes: h.meter.outBytes, inMsgs: h.meter.inMsgs, snap: h.meter.byType.SNAPSHOT || 0 }))
-    const ms = Math.max(0, now - runStart)
-    const inp = now < runStart ? { yaw: 0, pitch: 0 } : moverInputAt(ms)
+    instrumentPrediction(mover, rec)
+    const inp = now < runStart ? { yaw: 0, pitch: 0 } : moverInputAt(now - runStart)
     const dir = wishDir(inp)
     if (dir && !wishDir(lastMoverInput) && now >= runStart) {
       const mid = mover.client.playerId
       onsets.push({ t: now, dir, localStart: viewPos(mover, mid), remoteStart: viewPos(shooter, mid), truthStart: truth.get(mid)?.at(now) ? [...truth.get(mid).at(now)] : null, local: null, remote: null, server: null })
     }
     lastMoverInput = inp
-    mover.client.sendInput(inp)
-    shooter.client.sendInput({ yaw: 0, pitch: 0 })
-    bots.forEach((b, i) => { if (botRng() < 0.03) botInputs[i] = { forward: botRng() < 0.6, left: botRng() < 0.3, right: botRng() < 0.3, yaw: botRng() * 6.28, pitch: 0 }; b.client.sendInput(botInputs[i]) })
-    for (const h of [mover, shooter]) instrumentPrediction(h, h === mover ? rec : { mispredict: [], reconcileDivergence: [], corrections: 0 })
+    return inp
   })
+  shooter.client.startInputLoop(() => { instrumentPrediction(shooter, shooterRec); return { yaw: 0, pitch: 0 } })
+  bots.forEach((b, i) => b.client.startInputLoop(() => { if (botRng() < 0.03) botInputs[i] = { forward: botRng() < 0.6, left: botRng() < 0.3, right: botRng() < 0.3, yaw: botRng() * 6.28, pitch: 0 }; return botInputs[i] }))
+  const stopInput = () => all.forEach(h => h.client.stopInputLoop())
   const stopFrames = scheduler.every(1000 / FPS, now => {
     const frameDt = lastFrameAt ? (now - lastFrameAt) / 1000 : 1 / FPS
     lastFrameAt = now
     for (const h of all) {
       const lerp = 1.0 - Math.exp(-((h.client.getRTT() > 100 ? 24 : 16)) * frameDt)
+      if (h.client.config.predictionEnabled && h.client.playerId != null) h.view.sceneGraph.setLocalPlayerTransform(h.client.playerId, h.client.getRenderState())
       h.view.sceneGraph.tick(frameDt, lerp)
     }
     if (!runStart || now < runStart) return
@@ -244,7 +253,9 @@ async function runOne(cond, predict, worldDef) {
     inputToVisual: {
       localMs: summarize(onsets.map(o => o.local)), remoteMs: summarize(onsets.map(o => o.remote)), serverMs: summarize(onsets.map(o => o.server)), onsets: onsets.length
     },
-    mispredict: predict ? { rate: rec.mispredict.filter(e => e > MISPREDICT_M).length / Math.max(1, rec.mispredict.length), errM: summarize(rec.mispredict), correctionsApplied: rec.corrections, reconcileDivergenceM: summarize(rec.reconcileDivergence) } : null,
+    mispredict: predict ? { rate: rec.mispredict.filter(e => e > MISPREDICT_M).length / Math.max(1, rec.mispredict.length), errM: summarize(rec.mispredict), correctionsApplied: rec.corrections, correctionRate: rec.corrections / Math.max(1, rec.mispredict.length), correctionJumpM: summarize(rec.correctionJumpM), shooterCorrections: shooterRec.corrections, worst: rec.worst } : null,
+    serverInput: (() => { const p = server.playerManager.getPlayer(mid); return p ? { starves: p.inputStarves || 0, catchUps: p.inputCatchUps || 0, depth: p.inputBufferDepth ?? null, starvesPerS: (p.inputStarves || 0) / elapsedS } : null })(),
+    inputRateAdjust: mover.client._inputRateAdjust,
     localVisual: { ...detectPops(localFrames), popsPerMin: detectPops(localFrames).pops / (elapsedS / 60), meshBehindPredictedM: summarize(meshLag), vsServerPresent: trM ? summarize(localFrames.map(f => dist3(f.p, trM.at(f.t)))) : null },
     remoteInterp: trM ? effectiveDelay(remoteFrames, trM) : null,
     remoteInterpLibrary: trM ? effectiveDelay(libRemoteFrames, trM) : null,
@@ -265,7 +276,7 @@ async function runOne(cond, predict, worldDef) {
 
 function row(r) {
   const c = r.cond, iv = r.inputToVisual, m = r.mispredict, ri = r.remoteInterp, h = r.hitReg
-  return `| ${c.latencyMs}/${c.jitterMs}/${c.lossPct}% | ${r.predict ? 'on' : 'off'} | ${fmt(r.rttMs, 0)} | ${fmt(iv.localMs.p50, 0)}/${fmt(iv.localMs.p95, 0)} | ${fmt(iv.remoteMs.p50, 0)} | ${m ? fmt(m.rate * 100, 0) + '%' : '-'} | ${m ? fmt(m.errM.p95 * 100, 1) : '-'} | ${fmt(r.localVisual.popsPerMin, 0)} | ${fmt(r.localVisual.maxBackM * 100, 1)} | ${ri ? ri.delayMs : '-'} | ${ri ? fmt(ri.errAtDelay.mean * 100, 1) : '-'} | ${ri ? fmt(ri.errVsPresent.mean * 100, 0) : '-'} | ${fmt(h.hitRate * 100, 0)}% | ${fmt(h.missM.p50 * 100, 0)} | ${fmt(r.bandwidth.downKBps, 1)}/${fmt(r.bandwidth.upKBps, 1)} | ${fmt(r.snapshots.hz, 1)} | ${fmt(r.ticks.hz, 1)} p99 ${fmt(r.ticks.intervalMs.p99, 1)} |`
+  return `| ${c.latencyMs}/${c.jitterMs}/${c.lossPct}% | ${r.predict ? 'on' : 'off'} | ${fmt(r.rttMs, 0)} | ${fmt(iv.localMs.p50, 0)}/${fmt(iv.localMs.p95, 0)} | ${fmt(iv.remoteMs.p50, 0)} | ${m ? fmt(m.rate * 100, 0) + '%' : '-'} | ${m ? fmt(m.errM.p95 * 100, 1) : '-'} | ${fmt(r.localVisual.popsPerMin, 0)} | ${fmt(r.localVisual.maxBackM * 100, 1)} | ${ri ? ri.delayMs : '-'} | ${ri ? fmt(ri.errAtDelay.mean * 100, 1) : '-'} | ${ri ? fmt(ri.errVsPresent.mean * 100, 0) : '-'} | ${fmt(h.hitRate * 100, 0)}% | ${fmt(h.missM.p50 * 100, 0)} | ${fmt(r.bandwidth.downKBps, 1)}/${fmt(r.bandwidth.upKBps, 1)} | ${fmt(r.snapshots.hz, 1)} | ${fmt(r.ticks.hz, 1)} p99 ${fmt(r.ticks.intervalMs.p99, 1)} | ${r.serverInput ? fmt(r.serverInput.starvesPerS, 1) : '-'} |`
 }
 
 async function main() {
@@ -278,7 +289,7 @@ async function main() {
     console.log(`[netcode-harness] run latency=${cond.latencyMs}ms jitter=${cond.jitterMs}ms loss=${cond.lossPct}% predict=${predict} channel=${CHANNEL}`)
     results.push(await runOne(cond, predict, worldDef))
   }
-  const header = '| one-way ms/jitter/loss | predict | RTT | local in->visual p50/p95 ms | remote in->visual p50 ms | mispredict rate | mispredict p95 cm | local pops/min | max pop cm | remote eff. delay ms | remote err@delay cm | remote err vs present cm | hit% (aim at view) | miss p50 cm | KB/s down/up | snap Hz | tick Hz / p99 interval ms |\n|' + '---|'.repeat(17)
+  const header = '| one-way ms/jitter/loss | predict | RTT | local in->visual p50/p95 ms | remote in->visual p50 ms | mispredict rate | mispredict p95 cm | local pops/min | max pop cm | remote eff. delay ms | remote err@delay cm | remote err vs present cm | hit% (aim at view) | miss p50 cm | KB/s down/up | snap Hz | tick Hz / p99 interval ms | input starves/s |\n|' + '---|'.repeat(18)
   const table = [header, ...results.map(row)].join('\n')
   console.log('\n' + table + '\n')
   const outPath = resolve(OUT_DIR, `run-${Date.now()}.json`)

@@ -1,3 +1,5 @@
+import { unpackGroundNormal } from '../shared/groundNormalWire.js'
+
 const TAU = 2 * Math.PI
 const QSCALE = 511 * Math.SQRT2
 const Q1 = 100
@@ -35,7 +37,7 @@ function unpackBinRecord(buf) {
 }
 
 function makePlayerSlot() {
-  return { id: 0, position: [0, 0, 0], rotation: [0, 0, 0, 1], velocity: [0, 0, 0], onGround: false, health: 100, inputSequence: 0, crouch: 0, lookPitch: 0, lookYaw: 0, expr: 0, weapon: 0, tier: 0 }
+  return { id: 0, position: [0, 0, 0], rotation: [0, 0, 0, 1], velocity: [0, 0, 0], onGround: false, health: 100, inputSequence: 0, crouch: 0, lookPitch: 0, lookYaw: 0, expr: 0, weapon: 0, inputBuffer: -1, groundNormal: [0, 1, 0], tier: 0 }
 }
 
 function fillPlayerArrReduced(s, p) {
@@ -68,6 +70,8 @@ function fillPlayerArr(s, p) {
   s.lookYaw = ((p[6] || 0) & 0xFF) / 256 * TAU
   s.expr = p[7] || 0
   s.weapon = p[8] || 0
+  s.inputBuffer = p[9] ?? -1
+  unpackGroundNormal(p[10] || 0, s.groundNormal)
 }
 
 function fillPlayerObj(s, p) {
@@ -83,6 +87,7 @@ function fillPlayerObj(s, p) {
   s.inputSequence = p.inputSequence ?? 0; s.crouch = p.crouch ?? 0; s.lookPitch = p.lookPitch ?? 0; s.lookYaw = p.lookYaw ?? 0
   s.expr = p.expr ?? 0
   s.weapon = p.weapon ?? 0
+  s.inputBuffer = p.inputBuffer ?? -1
   s.tier = PLAYER_TIER_FULL
 }
 
@@ -148,7 +153,8 @@ function copyPlayerStateInto(dst, s) {
   dst.velocity[0] = s.velocity[0]; dst.velocity[1] = s.velocity[1]; dst.velocity[2] = s.velocity[2]
   dst.onGround = s.onGround; dst.health = s.health; dst.inputSequence = s.inputSequence; dst.crouch = s.crouch
   dst.lookPitch = s.lookPitch; dst.lookYaw = s.lookYaw; dst.tier = s.tier || 0
-  dst.expr = s.expr || 0; dst.weapon = s.weapon || 0
+  dst.expr = s.expr || 0; dst.weapon = s.weapon || 0; dst.inputBuffer = s.inputBuffer ?? -1
+  if (s.groundNormal) { const g = dst.groundNormal || (dst.groundNormal = [0, 1, 0]); g[0] = s.groundNormal[0]; g[1] = s.groundNormal[1]; g[2] = s.groundNormal[2] }
   return dst
 }
 

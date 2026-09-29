@@ -1,11 +1,16 @@
 import { ReconciliationEngine } from './ReconciliationEngine.js'
-import { applyMovement, DEFAULT_MOVEMENT } from '../shared/movement.js'
+import { DEFAULT_MOVEMENT } from '../shared/movement.js'
+import { predictCharacterStep } from '../shared/characterStep.js'
 
 const PRE_HANDSHAKE_TICK_RATE = 60
-const INPUT_HISTORY_SOFT_CAP = 256
 const MAX_TRACKED_CONNECTION_DEGRADATION_MS = 10000
+const INPUT_HISTORY_FLOOR = 257
 const WEDGE_POS_EPS_SQ = 1e-8
 const WEDGE_VEL_EPS_SQ = 1e-6
+const RECONCILE_POS_EPS_M = 0.015
+const SURFACE_MATCH_M = 0.25
+const SURFACE_OFFSET_ALPHA = 0.2
+const MOVE_STATE_KEYS = ['coyoteRemaining', 'bufferRemaining', '_jumpHeld', '_crouchHeld', 'slideRemaining', 'sliding']
 
 function isFiniteVec(v, len) {
   return Array.isArray(v) && v.length === len && v.every(Number.isFinite)
@@ -15,84 +20,119 @@ function isValidPlayerSnapshot(p) {
   return !!p && isFiniteVec(p.position, 3) && isFiniteVec(p.rotation, 4) && isFiniteVec(p.velocity, 3)
 }
 
-class RingBuffer {
-  constructor(capacity = 512) {
-    this._buf = new Array(capacity)
-    this._head = 0
-    this._tail = 0
-    this._capacity = capacity
+function makeEntry() {
+  return { sequence: -1, data: null, position: [0, 0, 0], velocity: [0, 0, 0], onGround: true, groundY: 0, move: {} }
+}
+
+class InputHistory {
+  constructor(capacity) { this._buf = []; this._head = 0; this._len = 0; this._grow(capacity) }
+  _grow(capacity) {
+    const old = this._buf, oldCap = old.length, next = new Array(capacity)
+    for (let i = 0; i < this._len; i++) next[i] = old[(this._head + i) % oldCap]
+    for (let i = this._len; i < capacity; i++) next[i] = makeEntry()
+    this._buf = next; this._head = 0
   }
-  get length() { return this._tail - this._head }
-  push(v) {
-    if (this._tail - this._head >= this._capacity) {
-      const newCap = this._capacity * 2
-      const newBuf = new Array(newCap)
-      for (let i = this._head; i < this._tail; i++) newBuf[i - this._head] = this._buf[i % this._capacity]
-      this._buf = newBuf; this._capacity = newCap
-      this._tail -= this._head; this._head = 0
-    }
-    this._buf[this._tail % this._capacity] = v
-    this._tail++
+  get length() { return this._len }
+  get capacity() { return this._buf.length }
+  at(i) { return i >= 0 && i < this._len ? this._buf[(this._head + i) % this._buf.length] : undefined }
+  pushSlot() {
+    if (this._len === this._buf.length) { this._head = (this._head + 1) % this._buf.length; this._len-- }
+    const e = this._buf[(this._head + this._len) % this._buf.length]
+    this._len++
+    return e
   }
-  shift() {
-    if (this._head >= this._tail) return undefined
-    this._head++
+  dropThrough(sequence) { while (this._len > 0 && this.at(0).sequence <= sequence) { this._head = (this._head + 1) % this._buf.length; this._len-- } }
+  indexOf(sequence) {
+    if (!this._len) return -1
+    const i = sequence - this.at(0).sequence
+    return i >= 0 && i < this._len && this.at(i).sequence === sequence ? i : -1
   }
-  *[Symbol.iterator]() {
-    for (let i = this._head; i < this._tail; i++) yield this._buf[i % this._capacity]
-  }
-  at(i) {
-    if (i < 0) i = this.length + i
-    if (i < 0 || i >= this.length) return undefined
-    return this._buf[(this._head + i) % this._capacity]
-  }
-  last(n) {
-    n = Math.min(n, this.length)
-    const out = new Array(n)
-    for (let i = 0; i < n; i++) out[i] = this._buf[(this._tail - n + i) % this._capacity]
-    return out
-  }
+  clear() { this._head = 0; this._len = 0 }
+  *[Symbol.iterator]() { for (let i = 0; i < this._len; i++) yield this.at(i) }
+  last(n) { const k = Math.min(n, this._len), out = new Array(k); for (let i = 0; i < k; i++) out[i] = this.at(this._len - k + i); return out }
+}
+
+function saveEntry(e, state) {
+  const sp = state.position, sv = state.velocity
+  e.position[0] = sp[0]; e.position[1] = sp[1]; e.position[2] = sp[2]
+  e.velocity[0] = sv[0]; e.velocity[1] = sv[1]; e.velocity[2] = sv[2]
+  e.onGround = state.onGround; e.groundY = state.groundY
+  for (const k of MOVE_STATE_KEYS) e.move[k] = state[k]
 }
 
 export class PredictionEngine {
   constructor(tickRate = PRE_HANDSHAKE_TICK_RATE) {
     this.tickRate = tickRate
     this.tickDuration = 1000 / tickRate
+    this.dilation = 1
     this.localPlayerId = null
     this.localState = null
     this.lastServerState = null
     this.horizontallyWedged = false
+    this.verticallyBlocked = false
     this._teleportTick = -1
-    this.inputHistory = new RingBuffer()
-    this._inputSeq = 0
-    this._lastAckedSeq = -1
+    this.inputHistory = new InputHistory(this.inputHistoryHardCap())
+    this._inputSeq = 1
+    this._lastAckedSeq = 0
     this.reconciliationEngine = new ReconciliationEngine()
     this.movement = { ...DEFAULT_MOVEMENT }
     this.gravityY = -9.81
+    this._ground = null
+    this._surface = null
     this._pendingKnockback = null
     this._knockbackWindow = 200
     this._enableKnockbackPreservation = true
+    this.stats = { acks: 0, corrections: 0, lastCorrectionM: 0, maxCorrectionM: 0 }
+    this._env = { gravityY: this.gravityY, ground: null, wedged: false, groundNormal: null }
   }
 
   setMovement(m) { Object.assign(this.movement, m) }
 
   setGravity(g) { if (g && g[1] != null) this.gravityY = g[1] }
 
+  setGroundProvider(fn) { this._ground = typeof fn === 'function' ? fn : null }
+
+  setGroundSurface(surfaceHeightAt) {
+    if (typeof surfaceHeightAt !== 'function') { this._surface = null; this.setGroundProvider(null); return }
+    this._surface = { heightAt: surfaceHeightAt, standOffset: NaN, onSurface: false }
+    const s = this._surface
+    this.setGroundProvider((x, z) => {
+      if (!s.onSurface) return null
+      const h = s.heightAt(x, z)
+      return Number.isFinite(h) ? h + s.standOffset : null
+    })
+  }
+
+  _calibrateSurface(server) {
+    const s = this._surface
+    if (!s || !server.onGround) return
+    const h = s.heightAt(server.position[0], server.position[2])
+    if (!Number.isFinite(h)) { s.onSurface = false; return }
+    const offset = server.position[1] - h
+    if (!Number.isFinite(s.standOffset)) { s.standOffset = offset; s.onSurface = true; return }
+    s.onSurface = Math.abs(offset - s.standOffset) <= SURFACE_MATCH_M
+    if (s.onSurface) s.standOffset += (offset - s.standOffset) * SURFACE_OFFSET_ALPHA
+  }
+
+  setDilation(f) { if (Number.isFinite(f) && f > 0) this.dilation = f }
+
   recordKnockback(dir, impulse, now = Date.now()) {
     if (!this._enableKnockbackPreservation) return
     this._pendingKnockback = { dir: [...dir], impulse, startTime: now }
   }
 
-  setKnockbackPreservation(enabled) {
-    this._enableKnockbackPreservation = enabled
+  setKnockbackPreservation(enabled) { this._enableKnockbackPreservation = enabled }
+
+  setTickRate(rate) {
+    if (!(rate > 0)) return
+    this.tickRate = rate; this.tickDuration = 1000 / rate
+    const cap = this.inputHistoryHardCap()
+    if (cap > this.inputHistory.capacity) this.inputHistory._grow(cap)
   }
 
-  setTickRate(rate) { if (rate > 0) { this.tickRate = rate; this.tickDuration = 1000 / rate } }
-
   inputHistoryHardCap() {
-    const floor = INPUT_HISTORY_SOFT_CAP + 1
-    if (!Number.isFinite(this.tickDuration) || this.tickDuration <= 0) return floor
-    return Math.max(floor, Math.ceil(MAX_TRACKED_CONNECTION_DEGRADATION_MS / this.tickDuration))
+    if (!Number.isFinite(this.tickDuration) || this.tickDuration <= 0) return INPUT_HISTORY_FLOOR
+    return Math.max(INPUT_HISTORY_FLOOR, Math.ceil(MAX_TRACKED_CONNECTION_DEGRADATION_MS / this.tickDuration))
   }
 
   init(playerId, initialState = {}) {
@@ -100,12 +140,14 @@ export class PredictionEngine {
     const pos = initialState.position || [0, 0, 0]
     const rot = initialState.rotation || [0, 0, 0, 1]
     const vel = initialState.velocity || [0, 0, 0]
-    this.localState = { id: playerId, position: [...pos], rotation: [...rot], velocity: [...vel], onGround: true, health: initialState.health || 100, coyoteRemaining: 0, bufferRemaining: 0, _jumpHeld: false }
-    this.lastServerState = { id: playerId, position: [...pos], rotation: [...rot], velocity: [...vel], onGround: true, health: initialState.health || 100 }
+    const health = initialState.health || 100
+    this.localState = { id: playerId, position: [...pos], rotation: [...rot], velocity: [...vel], onGround: true, groundY: pos[1], health, coyoteRemaining: 0, bufferRemaining: 0, _jumpHeld: false }
+    this.lastServerState = { id: playerId, position: [...pos], rotation: [...rot], velocity: [...vel], onGround: true, health }
+    this._renderState = { id: playerId, position: [...pos], rotation: [...rot], velocity: [...vel], onGround: true, health }
     this.reconciliationEngine.reset()
-    this._renderState = { id: playerId, position: [...pos], rotation: [...rot], velocity: [...vel], onGround: true, health: initialState.health || 100 }
     this._pendingKnockback = null
     this.horizontallyWedged = false
+    this._hasServerState = false
   }
 
   teleport(position, velocity, tick) {
@@ -115,7 +157,8 @@ export class PredictionEngine {
       s.position[0] = position[0]; s.position[1] = position[1]; s.position[2] = position[2]
       s.velocity[0] = v[0]; s.velocity[1] = v[1]; s.velocity[2] = v[2]
     }
-    this.inputHistory = new RingBuffer()
+    if (this.localState) { this.localState.groundY = position[1]; this.localState.onGround = false }
+    this.inputHistory.clear()
     this._lastAckedSeq = this._inputSeq - 1
     this.reconciliationEngine.reset()
     this._pendingKnockback = null
@@ -125,51 +168,37 @@ export class PredictionEngine {
 
   addInput(input) {
     const seq = this._inputSeq++
-    this.inputHistory.push({ sequence: seq, data: input })
-    if (this.inputHistory.length > INPUT_HISTORY_SOFT_CAP &&
-        this.inputHistory.at(0).sequence <= this._lastAckedSeq) {
-      this.inputHistory.shift()
-    }
-    const hardCap = this.inputHistoryHardCap()
-    while (this.inputHistory.length > hardCap) {
-      this.inputHistory.shift()
-    }
-    this.predict(input)
+    this._step(input)
+    const e = this.inputHistory.pushSlot()
+    e.sequence = seq; e.data = input
+    saveEntry(e, this.localState)
     return seq
   }
 
-  getUnackedInputs(max = 4) {
-    return this.inputHistory.last(max)
+  getUnackedInputs(max = 4) { return this.inputHistory.last(max) }
+
+  predictedAt(sequence) {
+    const i = this.inputHistory.indexOf(sequence)
+    return i < 0 ? null : this.inputHistory.at(i)
   }
 
-  predict(input) {
-    const dt = this.tickDuration / 1000
-    const state = this.localState
-    applyMovement(state, input, this.movement, dt)
-    state.velocity[1] += this.gravityY * dt
-    if (!this.horizontallyWedged) {
-      state.position[0] += state.velocity[0] * dt
-      state.position[2] += state.velocity[2] * dt
-    }
-    state.position[1] += state.velocity[1] * dt
-    if (state.position[1] < 0) {
-      state.position[1] = 0
-      state.velocity[1] = 0
-      state.onGround = true
-    }
+  _step(input) {
+    const env = this._env
+    env.gravityY = this.gravityY; env.ground = this._ground; env.wedged = this.horizontallyWedged; env.groundNormal = this.lastServerState?.groundNormal || null
+    predictCharacterStep(this.localState, input, this.movement, (this.tickDuration * this.dilation) / 1000, env)
   }
+
+  predict(input) { this._step(input) }
 
   getRenderState() {
     const ls = this.localState
     if (!ls) return null
-    const offset = this.reconciliationEngine.decay()
+    const offset = this.reconciliationEngine.decay(performance.now())
     const r = this._renderState || (this._renderState = { id: ls.id, position: [0, 0, 0], rotation: [0, 0, 0, 1], velocity: [0, 0, 0], onGround: true, health: 100 })
     this._copyState(ls, r)
     r.position[0] = ls.position[0] - offset[0]
     r.position[1] = ls.position[1] - offset[1]
     r.position[2] = ls.position[2] - offset[2]
-    const rotGlide = this.reconciliationEngine.decayRotation(ls.rotation)
-    if (rotGlide) { r.rotation[0] = rotGlide[0]; r.rotation[1] = rotGlide[1]; r.rotation[2] = rotGlide[2]; r.rotation[3] = rotGlide[3] }
     return r
   }
 
@@ -178,58 +207,70 @@ export class PredictionEngine {
     const sp = src.position, dp = dst.position; dp[0] = sp[0]; dp[1] = sp[1]; dp[2] = sp[2]
     const sr = src.rotation, dr = dst.rotation; dr[0] = sr[0]; dr[1] = sr[1]; dr[2] = sr[2]; dr[3] = sr[3]
     const sv = src.velocity, dv = dst.velocity; dv[0] = sv[0]; dv[1] = sv[1]; dv[2] = sv[2]
+    if (src.groundNormal) { const g = dst.groundNormal || (dst.groundNormal = [0, 1, 0]); g[0] = src.groundNormal[0]; g[1] = src.groundNormal[1]; g[2] = src.groundNormal[2] }
   }
 
   onServerSnapshot(snapshot, tick) {
     if (!Array.isArray(snapshot.players)) return
     if (tick <= this._teleportTick) return
     for (const serverPlayer of snapshot.players) {
-      if (serverPlayer && serverPlayer.id === this.localPlayerId) {
-        if (!isValidPlayerSnapshot(serverPlayer)) continue
-        const prevX = this.lastServerState.position[0], prevZ = this.lastServerState.position[2]
-        this._copyState(serverPlayer, this.lastServerState)
-        const dx = this.lastServerState.position[0] - prevX, dz = this.lastServerState.position[2] - prevZ
-        const vx = this.lastServerState.velocity[0], vz = this.lastServerState.velocity[2]
-        this.horizontallyWedged = this.lastServerState.onGround &&
-          (dx * dx + dz * dz) < WEDGE_POS_EPS_SQ &&
-          (vx * vx + vz * vz) > WEDGE_VEL_EPS_SQ
-        const ackedSeq = serverPlayer.inputSequence ?? -1
-        if (ackedSeq > this._lastAckedSeq) {
-          this._lastAckedSeq = ackedSeq
-          while (this.inputHistory.length > 0 && this.inputHistory.at(0).sequence <= ackedSeq) {
-            this.inputHistory.shift()
-          }
-        }
-        const reconciliation = this.reconciliationEngine.reconcile(
-          this.lastServerState, this.localState, tick
-        )
-        if (reconciliation.needsCorrection) {
-          this.reconciliationEngine.applyCorrection(this.localState, reconciliation.correction)
-          this.resimulate()
-        }
-      }
+      if (!serverPlayer || serverPlayer.id !== this.localPlayerId) continue
+      if (!isValidPlayerSnapshot(serverPlayer)) continue
+      this._reconcile(serverPlayer)
     }
   }
 
-  resimulate() {
-    this._copyState(this.lastServerState, this.localState)
-    const hist = this.inputHistory
-    for (let i = 0, n = hist.length; i < n; i++) {
-      this.predict(hist.at(i).data)
+  _reconcile(serverPlayer) {
+    const prevX = this.lastServerState.position[0], prevY = this.lastServerState.position[1], prevZ = this.lastServerState.position[2]
+    this._copyState(serverPlayer, this.lastServerState)
+    const sv = this.lastServerState
+    const dx = sv.position[0] - prevX, dy = sv.position[1] - prevY, dz = sv.position[2] - prevZ
+    this.horizontallyWedged = sv.onGround && (dx * dx + dz * dz) < WEDGE_POS_EPS_SQ && (sv.velocity[0] ** 2 + sv.velocity[2] ** 2) > WEDGE_VEL_EPS_SQ
+    this.verticallyBlocked = !sv.onGround && dy * dy < WEDGE_POS_EPS_SQ && sv.velocity[1] < -Math.sqrt(WEDGE_VEL_EPS_SQ)
+    this._calibrateSurface(sv)
+    const ackedSeq = serverPlayer.inputSequence ?? -1
+    const firstContact = !this._hasServerState
+    this._hasServerState = true
+    if (ackedSeq <= this._lastAckedSeq && !firstContact) return
+    const ackIdx = this.inputHistory.indexOf(ackedSeq)
+    const predicted = ackIdx >= 0 ? this.inputHistory.at(ackIdx) : null
+    if (ackedSeq > this._lastAckedSeq) this._lastAckedSeq = ackedSeq
+    this.stats.acks++
+    let err = Infinity
+    if (predicted) {
+      const p = predicted.position, s = sv.position
+      err = Math.hypot(p[0] - s[0], p[1] - s[1], p[2] - s[2])
     }
-    this._preserveKnockbackVelocity(Date.now())
+    this.inputHistory.dropThrough(ackedSeq)
+    if (err <= RECONCILE_POS_EPS_M) return
+    this.stats.corrections++
+    this._rebaseAndReplay(sv, predicted)
   }
+
+  _rebaseAndReplay(server, predictedAtAck) {
+    const ls = this.localState
+    const beforeX = ls.position[0], beforeY = ls.position[1], beforeZ = ls.position[2]
+    const sp = server.position, sv = server.velocity
+    ls.position[0] = sp[0]; ls.position[1] = sp[1]; ls.position[2] = sp[2]
+    ls.velocity[0] = sv[0]; ls.velocity[1] = sv[1]; ls.velocity[2] = sv[2]
+    ls.onGround = server.onGround
+    ls.groundY = server.onGround || this.verticallyBlocked ? sp[1] : NaN
+    if (predictedAtAck) for (const k of MOVE_STATE_KEYS) ls[k] = predictedAtAck.move[k]
+    for (const e of this.inputHistory) { this._step(e.data); saveEntry(e, ls) }
+    this._preserveKnockbackVelocity(Date.now())
+    const jump = Math.hypot(ls.position[0] - beforeX, ls.position[1] - beforeY, ls.position[2] - beforeZ)
+    this.stats.lastCorrectionM = jump
+    if (jump > this.stats.maxCorrectionM) this.stats.maxCorrectionM = jump
+    this.reconciliationEngine.absorb(ls.position[0] - beforeX, ls.position[1] - beforeY, ls.position[2] - beforeZ, ls.onGround)
+  }
+
+  resimulate() { this._rebaseAndReplay(this.lastServerState, null) }
 
   _preserveKnockbackVelocity(now) {
     if (!this._enableKnockbackPreservation || !this._pendingKnockback) return
     const kb = this._pendingKnockback
-    const elapsed = now - kb.startTime
-    if (elapsed > this._knockbackWindow) {
-      this._pendingKnockback = null
-      return
-    }
-    const vel = this.localState.velocity
-    const dir = kb.dir
+    if (now - kb.startTime > this._knockbackWindow) { this._pendingKnockback = null; return }
+    const vel = this.localState.velocity, dir = kb.dir
     const component = vel[0] * dir[0] + vel[2] * dir[2]
     if (component < kb.impulse) {
       vel[0] += (kb.impulse - component) * dir[0]
@@ -241,9 +282,7 @@ export class PredictionEngine {
 
   calculateDivergence() {
     if (!this.lastServerState || !this.localState) return 0
-    const dx = this.localState.position[0] - this.lastServerState.position[0]
-    const dy = this.localState.position[1] - this.lastServerState.position[1]
-    const dz = this.localState.position[2] - this.lastServerState.position[2]
-    return Math.sqrt(dx * dx + dy * dy + dz * dz)
+    const a = this.localState.position, b = this.lastServerState.position
+    return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
   }
 }

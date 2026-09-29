@@ -200,12 +200,6 @@ export class BrowserServer extends BaseClient {
     return { answer: { type: pc.localDescription.type, sdp: pc.localDescription.sdp }, candidates: [] }
   }
 
-  sendInput(input) {
-    const predEngine = this._msgHandler.getPredEngine()
-    if (this.config.predictionEnabled && predEngine) predEngine.addInput(input)
-    this.send(MSG.INPUT, { input })
-  }
-
   send(type, payload) {
     if (!this._worker) return
     const packed = pack({ type, payload })
@@ -216,6 +210,7 @@ export class BrowserServer extends BaseClient {
   step() {}
 
   disconnect() {
+    this.stopInputLoop()
     if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this._onVisibilityChange)
     if (this._worker) { this._worker.postMessage({ type: 'CLIENT_DISCONNECT' }); this._worker.terminate(); this._worker = null }
     this.connected = false

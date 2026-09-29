@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh'
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree; THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree; THREE.Mesh.prototype.raycast = acceleratedRaycast
-import { PhysicsNetworkClient, InputHandler, MSG } from '/src/index.client.js'
+import { PhysicsNetworkClient, InputHandler, MSG, createInputStepper } from '/src/index.client.js'
 import { BrowserServer } from './BrowserServer.js'
 import './core/Relocation.js'
 import { createElement, applyDiff } from 'webjsx'
@@ -816,13 +816,14 @@ function _sanitizeConnectTarget(raw) {
 }
 const _connectTarget = _sanitizeConnectTarget(_connectParam)
 const _netSimParam = _params.get('netsim')
-const _predictParam = _params.has('predict')
+const _predictParam = _params.get('predict') !== '0'
 let client; const _clientConfig = {
   url: _connectTarget
     ? `${_connectTarget.port === 443 ? 'wss:' : 'ws:'}//${_connectTarget.host}:${_connectTarget.port}/ws`
     : `${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws`, predictionEnabled: _predictParam, smoothInterpolation: true,
   worldName: _worldDef ? _worldParam : null,
   netSim: _netSimParam || undefined,
+  predictionGroundSurface: (x, z) => (window.__terrain && typeof window.__terrain.groundHeightLocal === 'function') ? window.__terrain.groundHeightLocal(x, z) : null,
   onConnect: () => connectionStatus.setState('connected'),
   onDisconnect: () => { const rs = client?.getReconnectState?.(); connectionStatus.setState(rs?.state || 'waiting', rs?.attempts || 0) },
   onStateUpdate: state => {
@@ -1849,7 +1850,7 @@ function clearEditingInput(input, frozenYaw, frozenPitch) {
 function startInputLoop() {
   if (inputLoopId) return
   inputHandler=InputHandler({ renderer, snapTurnAngle: xrSystem?.vrSettings.snapTurnAngle, smoothTurnSpeed: xrSystem?.vrSettings.smoothTurnSpeed, onMenuPressed: ()=>{ if (xrSystem?.isPresenting) xrSystem.toggleSettings() } }); if (mobileControls) inputHandler.setMobileControls(mobileControls)
-  inputLoopId=setInterval(()=>{
+  inputLoopId=createInputStepper({ getPeriodMs: () => client?.inputPeriodMs ? client.inputPeriodMs() : 1000/60, onStep: ()=>{
     if (!client.connected) return; const input=inputHandler.getInput(); latestInput=input
     input._vsync = window.__vsync ? { frame: window.__vsync.frameCount, miss: window.__vsync.isMiss, missStreak: window.__vsync.missStreak, missCount: window.__vsync.missCount } : null
     { const _f=pm.playerExpressions.get(client.playerId); input.expr = _f ? pickExpressionCode(_f.expressions) : EXPR_NEUTRAL }
@@ -1867,7 +1868,8 @@ function startInputLoop() {
     if (!_editing) { _frozenLookYaw = input.yaw; _frozenLookPitch = input.pitch }
     const sendInput = (_editing || _frozenInput) ? clearEditingInput(input, input.yaw, input.pitch) : input
     ams.dispatchInput(sendInput,engineCtx); client.sendInput(sendInput)
-  }, 1000/60)
+  } })
+  inputLoopId.start()
 }
 renderer.domElement.addEventListener('click', ()=>{
   if (!inputConfig.pointerLock || document.pointerLockElement) return
@@ -2138,6 +2140,7 @@ function buildFrameSectionNodes() {
         const _tickDt = performance.now() - _tickT0
         _tickAnimSamples[_tickAnimIdx] = _tickDt; _tickAnimIdx = (_tickAnimIdx + 1) % TICK_ANIM_SAMPLE_CAPACITY; if (_tickAnimCount < TICK_ANIM_SAMPLE_CAPACITY) _tickAnimCount++
         const _ring = client.readTransformRing?.()
+        if (client.config?.predictionEnabled && lid != null) sceneGraph.setLocalPlayerTransform(lid, client.getRenderState())
         if (_ring) sceneGraph.setPlayerTransformsFromRing(_ring, lid)
         ctx.res.sceneGraphMoved = sceneGraph.tick(ctx.res.frameDt, ctx.res.lerpFactor)
         if (!ctx.res.isEditorFrame) replayBuffer.record(ctx.now)

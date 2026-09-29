@@ -34,6 +34,7 @@ data/world-snapshot.json
 data/*_scoreboard.json
 data/e2e-ci/
 data/netcode-harness/
+data/replay-record-and-play/
 data/models/
 dist/
 codebase-vision-*/

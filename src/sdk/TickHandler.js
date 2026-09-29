@@ -13,7 +13,11 @@ import { recordSnapshotBytes, recordTickPhase } from './Metrics.js'
 import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, getPlayerPriorityIds, clearPlayerPriorityAccumulator, _spatialCache, _cellPackCache, _ringCache } from './TickHandlerAOI.js'
 export { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, getPlayerPriorityIds } from './TickHandlerAOI.js'
 
-const INPUT_BACKLOG_DRAIN = 2
+const INPUT_BUFFER_CATCHUP_DEPTH = 8
+const STARVE_HOLD_SECONDS = 0.25
+const INPUT_STEP_BANK = 16
+const GAP_WAIT_MAX_TICKS = 4
+const MAX_CATCHUP_STEPS_PER_TICK = 3
 const PHYSICS_PLAYER_DIVISOR = 3
 const PHYSICS_MAX_ACCUM_DT = 1 / 20
 const SNAP_UNRELIABLE = true
@@ -39,55 +43,100 @@ const STATIC_MOTION_IDLE_SECONDS = 1
 
 let _lastYaw = NaN, _lastSinHalf = 0, _lastCosHalf = 1
 
+function accrueStepBudget(player, tickMs, stepsTaken) {
+  const now = performance.now()
+  const elapsedSteps = player.inputBudgetAt ? (now - player.inputBudgetAt) / tickMs : 1
+  player.inputBudgetAt = now
+  player.inputStepBudget = Math.max(-1, Math.min(INPUT_STEP_BANK, (player.inputStepBudget || 0) + elapsedSteps - stepsTaken))
+}
+
+function sequenceGapAhead(player, inputs) {
+  const next = inputs[0].sequence
+  return next != null && !!player.ackSequence && next > player.ackSequence + 1
+}
+
+function waitForSequenceGap(player, inputs) {
+  if (!sequenceGapAhead(player, inputs)) { player.gapWaitTicks = 0; return false }
+  if ((player.gapWaitTicks || 0) >= GAP_WAIT_MAX_TICKS) {
+    player.gapWaitTicks = 0
+    player.inputGapsSkipped = (player.inputGapsSkipped || 0) + (inputs[0].sequence - player.ackSequence - 1)
+    return false
+  }
+  player.gapWaitTicks = (player.gapWaitTicks || 0) + 1
+  return true
+}
+
+function neutralInput(last) {
+  return { yaw: last.yaw || 0, pitch: last.pitch || 0, crouch: !!last.crouch, expr: last.expr || 0 }
+}
+
+function takeNextInput(player, inputs) {
+  const next = inputs.shift()
+  player.lastInput = next.data
+  if (next.sequence != null) player.ackSequence = next.sequence
+  player.hasSentInput = true
+}
+
+function stepPlayerMovement(player, deps, tick, dt, playerIdleCounts, playerAccumDt) {
+  const { playerManager, physicsIntegration, applyMovement, movement } = deps
+  const st = player.state
+  const inp = player.lastInput || null
+  if (inp) {
+    const yaw = inp.yaw || 0
+    if (yaw !== _lastYaw) { const half = yaw / 2; _lastSinHalf = Math.sin(half); _lastCosHalf = Math.cos(half); _lastYaw = yaw }
+    st.rotation[0] = 0; st.rotation[1] = _lastSinHalf; st.rotation[2] = 0; st.rotation[3] = _lastCosHalf
+    st.crouch = inp.crouch ? 1 : 0; st.lookPitch = inp.pitch || 0; st.lookYaw = yaw
+    st.expr = inp.expr || 0
+  }
+  if (player.teleportHold && stepTeleportHold(player, physicsIntegration)) {
+    playerIdleCounts.delete(player.id); playerAccumDt.delete(player.id)
+    return
+  }
+  applyMovement(st, inp, movement, dt, playerManager.getMovementOverride?.(player.id) || null)
+  if (inp) physicsIntegration.setCrouch(player.id, !!inp.crouch)
+  const wishedVx = st.velocity[0], wishedVz = st.velocity[2]
+  const hasInput = inp && (inp.forward || inp.backward || inp.left || inp.right || inp.jump)
+  const atRest = wishedVx * wishedVx + wishedVz * wishedVz < 1e-4
+  const isIdle = !hasInput && st.onGround && atRest
+  const idleCount = playerIdleCounts.get(player.id) || 0
+  if (isIdle && idleCount >= 1) { playerIdleCounts.set(player.id, idleCount + 1); playerAccumDt.delete(player.id); return }
+  const accumDt = Math.min(PHYSICS_MAX_ACCUM_DT, (playerAccumDt.get(player.id) || 0) + dt)
+  if (hasInput || !atRest || !st.onGround || (tick + player.id) % PHYSICS_PLAYER_DIVISOR === 0) {
+    physicsIntegration.updatePlayerPhysics(player.id, st, accumDt); st.velocity[0] = wishedVx; st.velocity[2] = wishedVz; playerAccumDt.delete(player.id)
+  } else { playerAccumDt.set(player.id, accumDt) }
+  playerIdleCounts.set(player.id, isIdle ? idleCount + 1 : 0)
+}
+
 function processPlayerMovement(players, deps, tick, dt, playerIdleCounts, playerAccumDt) {
-  const { playerManager, physicsIntegration, lagCompensator, networkState, applyMovement, movement, eventLog, transformRingWriter } = deps
+  const { playerManager, lagCompensator, networkState, movement, eventLog, transformRingWriter } = deps
   for (const player of players) {
     const inputs = playerManager.getInputs(player.id)
     const st = player.state
-    if (inputs.length > 0) {
-      if (inputs.length <= INPUT_BACKLOG_DRAIN) {
-        const last = inputs[inputs.length - 1]
-        player.lastInput = last.data
-        if (last.sequence != null) player.ackSequence = last.sequence
-        playerManager.clearInputs(player.id)
-      } else {
-        const next = inputs.shift()
-        player.lastInput = next.data
-        if (next.sequence != null) player.ackSequence = next.sequence
-      }
+    let holdForInput = false
+    if (inputs.length > 0 && !waitForSequenceGap(player, inputs)) { takeNextInput(player, inputs); player.starvedTicks = 0 }
+    else if (player.hasSentInput) {
+      player.inputStarves = (player.inputStarves || 0) + 1
+      player.starvedTicks = (player.starvedTicks || 0) + 1
+      holdForInput = player.starvedTicks <= deps.starveHoldTicks
+      if (!holdForInput && player.lastInput) player.lastInput = neutralInput(player.lastInput)
     }
-    const inp = player.lastInput || null
-    if (inp) {
-      const yaw = inp.yaw || 0
-      if (yaw !== _lastYaw) { const half = yaw / 2; _lastSinHalf = Math.sin(half); _lastCosHalf = Math.cos(half); _lastYaw = yaw }
-      st.rotation[0] = 0; st.rotation[1] = _lastSinHalf; st.rotation[2] = 0; st.rotation[3] = _lastCosHalf
-      st.crouch = inp.crouch ? 1 : 0; st.lookPitch = inp.pitch || 0; st.lookYaw = yaw
-      st.expr = inp.expr || 0
+    if (!holdForInput) stepPlayerMovement(player, deps, tick, dt, playerIdleCounts, playerAccumDt)
+    accrueStepBudget(player, deps.tickMs, holdForInput ? 0 : 1)
+    let extra = 0
+    while (inputs.length > INPUT_BUFFER_CATCHUP_DEPTH && extra < MAX_CATCHUP_STEPS_PER_TICK && player.inputStepBudget >= 1 && !sequenceGapAhead(player, inputs)) {
+      takeNextInput(player, inputs)
+      player.inputStepBudget -= 1
+      player.inputCatchUps = (player.inputCatchUps || 0) + 1
+      stepPlayerMovement(player, deps, tick, dt, playerIdleCounts, playerAccumDt)
+      extra++
     }
-    if (player.teleportHold && stepTeleportHold(player, physicsIntegration)) {
-      playerIdleCounts.delete(player.id); playerAccumDt.delete(player.id)
-    } else {
-      applyMovement(st, inp, movement, dt, playerManager.getMovementOverride?.(player.id) || null)
-      if (inp) physicsIntegration.setCrouch(player.id, !!inp.crouch)
-      const wishedVx = st.velocity[0], wishedVz = st.velocity[2]
-      const hasInput = inp && (inp.forward || inp.backward || inp.left || inp.right || inp.jump)
-      const isIdle = !hasInput && st.onGround && wishedVx * wishedVx + wishedVz * wishedVz < 1e-4
-      const idleCount = playerIdleCounts.get(player.id) || 0
-      if (isIdle && idleCount >= 1) { playerIdleCounts.set(player.id, idleCount + 1); playerAccumDt.delete(player.id) }
-      else {
-        const accumDt = Math.min(PHYSICS_MAX_ACCUM_DT, (playerAccumDt.get(player.id) || 0) + dt)
-        if (hasInput || inp?.jump || !st.onGround || (tick + player.id) % PHYSICS_PLAYER_DIVISOR === 0) {
-          physicsIntegration.updatePlayerPhysics(player.id, st, accumDt); st.velocity[0] = wishedVx; st.velocity[2] = wishedVz; playerAccumDt.delete(player.id)
-        } else { playerAccumDt.set(player.id, accumDt) }
-        playerIdleCounts.set(player.id, isIdle ? idleCount + 1 : 0)
-      }
-    }
+    player.inputBufferDepth = inputs.length
     if (enforceMovementEnvelope(st, movement)) {
       eventLog?.record('anticheat_envelope_clamp', { playerId: player.id, position: [...st.position] }, { actor: player.id, reason: 'movement_envelope' })
     }
     lagCompensator.recordPlayerPosition(player.id, st.position, st.rotation, st.velocity, tick)
     const crouchFlags = (st.crouch ? CROUCH_WIRE_BIT : 0) | (st.swimming ? SWIMMING_WIRE_BIT : 0)
-    networkState.updatePlayer(player.id, st.position, st.rotation, st.velocity, st.onGround, st.health, player.ackSequence ?? player.inputSequence, crouchFlags, st.lookPitch||0, st.lookYaw||0, st.expr||0, st.weapon||0)
+    networkState.updatePlayer(player.id, st.position, st.rotation, st.velocity, st.onGround, st.health, player.ackSequence ?? player.inputSequence, crouchFlags, st.lookPitch||0, st.lookYaw||0, st.expr||0, st.weapon||0, player.inputBufferDepth || 0, st.groundNormal || null)
     if (transformRingWriter) transformRingWriter.write(player.id, st.position, st.rotation, st.velocity)
   }
 }
@@ -336,7 +385,7 @@ export function createTickHandler(deps) {
   const applyMovement = _movement?.applyMovement || _applyMovement
   const DEFAULT_MOVEMENT = _movement?.DEFAULT_MOVEMENT || _DEFAULT_MOVEMENT
   const movement = { ...DEFAULT_MOVEMENT, ...m }
-  const mvDeps = { playerManager, physicsIntegration, lagCompensator, networkState, applyMovement, movement, eventLog: deps.eventLog, transformRingWriter: deps.transformRingWriter || null }
+  const mvDeps = { playerManager, physicsIntegration, lagCompensator, networkState, applyMovement, movement, eventLog: deps.eventLog, transformRingWriter: deps.transformRingWriter || null, starveHoldTicks: Math.max(1, Math.round(tickRate * STARVE_HOLD_SECONDS)), tickMs: 1000 / tickRate }
   const playerScratch = new Map()
   function getPlayerScratch(id) {
     let s = playerScratch.get(id)

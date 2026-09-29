@@ -117,17 +117,6 @@ export class WireweaveJoinClient extends BaseClient {
         return this._bridge.data.send(this._hostPubkey, buf)
     }
 
-    sendInput(input) {
-        const predEngine = this._msgHandler.getPredEngine()
-        if (this.config.predictionEnabled && predEngine) {
-            const sequence = predEngine.addInput(input)
-            const redundant = predEngine.getUnackedInputs(4)
-            this.send(MSG.INPUT, { input, sequence, redundant })
-            return
-        }
-        this.send(MSG.INPUT, { input })
-    }
-
     send(type, payload) {
         const packed = pack({ type, payload })
         const buf = packed.buffer.slice(packed.byteOffset, packed.byteOffset + packed.byteLength)
@@ -138,6 +127,7 @@ export class WireweaveJoinClient extends BaseClient {
     step() {}
 
     disconnect() {
+        this.stopInputLoop()
         if (this._bridge) { this._bridge.destroy(); this._bridge = null }
         this.connected = false
         this.callbacks.onDisconnect?.()

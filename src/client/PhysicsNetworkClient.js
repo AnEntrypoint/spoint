@@ -7,8 +7,6 @@ import { WebSocketClientTransport } from '../transport/WebSocketClientTransport.
 import { NetworkSimTransport, NETWORK_SIM_PRESETS } from '../transport/NetworkSimTransport.js'
 import { TransportMigrationTrigger } from './TransportMigrationTrigger.js'
 
-const REDUNDANT_INPUT_COUNT = 4
-
 function createHeartbeatManager(isOpen, sendPing, onVisible) {
   let timer = null, visibilityListener = null
   return {
@@ -252,24 +250,13 @@ export class PhysicsNetworkClient extends BaseClient {
     if (oldWs) { try { oldWs.close() } catch (e) {} }
   }
 
-  sendInput(input) {
-    if (!this._isOpen()) return
-    const predEngine = this._msgHandler.getPredEngine()
-    let sequence, redundant
-    if (this.config.predictionEnabled && predEngine) {
-      sequence = predEngine.addInput(input)
-      redundant = predEngine.getUnackedInputs(REDUNDANT_INPUT_COUNT)
-    } else {
-      sequence = (this._localInputSeq = (this._localInputSeq || 0) + 1)
-    }
-    this._safeSend(pack({ type: MSG.INPUT, payload: { input, sequence, redundant } }), isUnreliable(MSG.INPUT))
-  }
+  sendInput(input) { if (this._isOpen()) super.sendInput(input) }
 
   send(type, payload) { this._safeSend(pack({ type, payload }), isUnreliable(type)) }
 
   getReconnectState() { return { state: this._reconnect._state, attempts: this._reconnect._attempts } }
 
-  disconnect() { this._destroyed = true; this._reconnect.clear(); this._heartbeat.stop(); this._migrationTrigger?.stop(); if (this.transport) this.transport.close(); if (this.ws) this.ws.close() }
+  disconnect() { this._destroyed = true; this.stopInputLoop(); this._reconnect.clear(); this._heartbeat.stop(); this._migrationTrigger?.stop(); if (this.transport) this.transport.close(); if (this.ws) this.ws.close() }
 
   getTransportType() { return this._transportType }
 

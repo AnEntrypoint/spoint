@@ -4,6 +4,7 @@ import {
   packBinRecord, unpackBinRecord, packQuat, unpackQuat
 } from './SnapshotBinFormat.js'
 import { FNV1A_32_OFFSET_BASIS, fnv1aStepString, fnv1aStepBytes, fnv1aStepFloat32 } from '../shared/fnv1a.js'
+import { packGroundNormal, unpackGroundNormal } from '../shared/groundNormalWire.js'
 
 export { unpackBinRecord, packQuat, unpackQuat }
 
@@ -19,8 +20,10 @@ function encodePlayer(p) {
   const pitchN=Math.max(0,Math.min(255,Math.round(((p.lookPitch||0)+HALF_PI)/Math.PI*255)))
   const yawN=Math.round(((p.lookYaw||0)%TAU+TAU)%TAU/TAU*256)&0xFF
   const bin = packBinRecord(px,py,pz, packQuat(rx,ry,rz,rw), vx,vy,vz, 1,1,1, p.onGround?PLAYER_FLAG_ONGROUND:0)
-  return [p.id, bin, p.onGround?1:0, Math.round(p.health||0), p.inputSequence||0, p.crouch||0, (pitchN<<8)|yawN, p.expr||0, p.weapon||0]
+  return [p.id, bin, p.onGround?1:0, Math.round(p.health||0), p.inputSequence||0, p.crouch||0, (pitchN<<8)|yawN, p.expr||0, p.weapon||0, inputBufferByte(p.inputBuffer), packGroundNormal(p.groundNormal)]
 }
+
+function inputBufferByte(depth) { return Math.max(0, Math.min(255, depth | 0)) }
 
 const _playerEncPool = new Map()
 const _playerEncMap = new Map()
@@ -32,7 +35,7 @@ function encodePlayerInto(p, rec) {
   rec.flip ^= 1
   const bin = packBinRecord(px,py,pz, packQuat(rx,ry,rz,rw), vx,vy,vz, 1,1,1, p.onGround?PLAYER_FLAG_ONGROUND:0, rec.bins[rec.flip])
   const a = rec.arr
-  a[0]=p.id; a[1]=bin; a[2]=p.onGround?1:0; a[3]=Math.round(p.health||0); a[4]=p.inputSequence||0; a[5]=p.crouch||0; a[6]=(pitchN<<8)|yawN; a[7]=p.expr||0; a[8]=p.weapon||0
+  a[0]=p.id; a[1]=bin; a[2]=p.onGround?1:0; a[3]=Math.round(p.health||0); a[4]=p.inputSequence||0; a[5]=p.crouch||0; a[6]=(pitchN<<8)|yawN; a[7]=p.expr||0; a[8]=p.weapon||0; a[9]=inputBufferByte(p.inputBuffer); a[10]=packGroundNormal(p.groundNormal)
   return a
 }
 
@@ -358,7 +361,7 @@ export class SnapshotEncoder {
     const gen = ++_playerEncGen
     for (const p of (players || [])) {
       let rec = _playerEncPool.get(p.id)
-      if (!rec) { rec = { arr: new Array(9), bins: [new Uint8Array(BIN_RECORD_BYTES), new Uint8Array(BIN_RECORD_BYTES)], flip: 0, gen }; _playerEncPool.set(p.id, rec) }
+      if (!rec) { rec = { arr: new Array(11), bins: [new Uint8Array(BIN_RECORD_BYTES), new Uint8Array(BIN_RECORD_BYTES)], flip: 0, gen }; _playerEncPool.set(p.id, rec) }
       rec.gen = gen
       m.set(p.id, encodePlayerInto(p, rec))
     }
@@ -552,7 +555,7 @@ export class SnapshotEncoder {
       if (p.length < MIN_FULL_PLAYER_RECORD_LEN) return null
       unpackBinRecord(p[1], bin)
       const rot = unpackQuat(bin.qrot, [0,0,0,0])
-      return { id:p[0], position:[bin.px,bin.py,bin.pz], rotation:rot, velocity:[bin.vx,bin.vy,bin.vz], onGround:p[2]===1, health:p[3], inputSequence:p[4], crouch:p[5]||0, lookPitch:(((p[6]||0)>>8)&0xFF)/255*Math.PI-HALF_PI, lookYaw:((p[6]||0)&0xFF)/256*TAU, expr:p[7]||0, weapon:p[8]||0 }
+      return { id:p[0], position:[bin.px,bin.py,bin.pz], rotation:rot, velocity:[bin.vx,bin.vy,bin.vz], onGround:p[2]===1, health:p[3], inputSequence:p[4], crouch:p[5]||0, lookPitch:(((p[6]||0)>>8)&0xFF)/255*Math.PI-HALF_PI, lookYaw:((p[6]||0)&0xFF)/256*TAU, expr:p[7]||0, weapon:p[8]||0, inputBuffer:p[9]||0, groundNormal:unpackGroundNormal(p[10]||0, [0,1,0]) }
     }).filter(p => p !== null)
     const entities = (data.entities||[]).map(e => {
       if (!Array.isArray(e)) return e

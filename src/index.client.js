@@ -1,6 +1,7 @@
 export { InputHandler, findKeybindConflicts } from './client/InputHandler.js'
 export { PhysicsNetworkClient } from './client/PhysicsNetworkClient.js'
 export { MSG } from './protocol/MessageTypes.js'
+export { createInputStepper } from './client/InputStepper.js'
 export { KalmanFilter3D, SmoothStateTracker } from './client/KalmanFilter.js'
 export { JitterBuffer } from './client/JitterBuffer.js'
 export { SmoothInterpolation } from './client/SmoothInterpolation.js'

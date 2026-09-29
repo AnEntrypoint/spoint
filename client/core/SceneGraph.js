@@ -53,10 +53,25 @@ export function createSceneGraph(scene, floatingOrigin) {
     }
   }
 
+  function setLocalPlayerTransform(lid, state) {
+    const node = _nodes.get(lid)
+    if (!node || !state?.position) return
+    for (const n of _nodes.values()) if (n !== node) n.direct = false
+    node.direct = true
+    let px = state.position[0], py = state.position[1] - node.feetOffset, pz = state.position[2]
+    if (floatingOrigin) {
+      _toRenderTmp.x = px; _toRenderTmp.y = py; _toRenderTmp.z = pz
+      const r = floatingOrigin.toRender(_toRenderTmp); px = r.x; py = r.y; pz = r.z
+    }
+    const t = node.target
+    t.x = px; t.y = py; t.z = pz
+    t.vx = state.velocity?.[0] || 0; t.vy = state.velocity?.[1] || 0; t.vz = state.velocity?.[2] || 0
+  }
+
   function setPlayerTransforms(players, lid, getLocalState) {
     for (const p of players) {
       const node = _nodes.get(p.id)
-      if (!node) continue
+      if (!node || node.direct) continue
       const lc = p.id === lid ? getLocalState() : null
       const fo = node.feetOffset
       const src = lc ? (lc.position || p.position) : p.position
@@ -76,7 +91,7 @@ export function createSceneGraph(scene, floatingOrigin) {
     for (const [id, xf] of ringMap) {
       if (xf.stale) continue
       const node = _nodes.get(id)
-      if (!node) continue
+      if (!node || node.direct) continue
       const fo = node.feetOffset
       let px = xf.position[0], py = xf.position[1] - fo, pz = xf.position[2]
       if (floatingOrigin) {
@@ -98,7 +113,7 @@ export function createSceneGraph(scene, floatingOrigin) {
       if (t.x === undefined) continue
       if (node.isPlayer) {
         if (t.x !== node.group.position.x || t.z !== node.group.position.z) moved = true
-        applyPlayerTransform(node.group, t, lerpFactor)
+        applyPlayerTransform(node.group, t, node.direct ? undefined : lerpFactor)
       } else {
         if (node.group.visible === false) continue
         if (t.x === node._lx && t.y === node._ly && t.z === node._lz && t.rx === node._lrx &&
@@ -127,5 +142,5 @@ export function createSceneGraph(scene, floatingOrigin) {
 
   function setLocalPlayer(id) {}
 
-  return { addNode, removeNode, setParent, setEntityTransforms, setPlayerTransforms, setPlayerTransformsFromRing, tick, getNode, getTarget, has, nodes, setLocalPlayer }
+  return { addNode, removeNode, setParent, setEntityTransforms, setPlayerTransforms, setLocalPlayerTransform, setPlayerTransformsFromRing, tick, getNode, getTarget, has, nodes, setLocalPlayer }
 }

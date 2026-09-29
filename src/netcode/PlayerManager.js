@@ -1,6 +1,7 @@
 import { pack } from '../protocol/msgpack.js'
 
 const PLAYERS_PER_SNAP_GROUP = 50
+const MAX_BUFFERED_INPUTS = 128
 
 export class PlayerManager {
   constructor() {
@@ -77,22 +78,24 @@ export class PlayerManager {
   addInput(playerId, input, clientSeq) {
     const player = this.players.get(playerId)
     if (!player) return
-    let seq
-    if (clientSeq != null && Number.isFinite(clientSeq)) {
-      if (player.lastClientSeq != null && clientSeq <= player.lastClientSeq) return
-      player.lastClientSeq = clientSeq
-      seq = clientSeq
-    } else {
-      player.inputSequence++
-      seq = player.inputSequence
-    }
-    const now = Date.now()
-    player.lastInputTime = now
     const inputs = this.inputBuffers.get(playerId)
-    if (inputs) {
-      inputs.push({ sequence: seq, data: input, timestamp: now })
-      if (inputs.length > 128) inputs.shift()
+    if (!inputs) return
+    const now = Date.now()
+    if (clientSeq == null || !Number.isFinite(clientSeq)) {
+      player.inputSequence++
+      player.lastInputTime = now
+      inputs.push({ sequence: player.inputSequence, data: input, timestamp: now })
+      if (inputs.length > MAX_BUFFERED_INPUTS) inputs.shift()
+      return
     }
+    if (clientSeq <= (player.ackSequence || 0)) return
+    let i = inputs.length
+    while (i > 0 && inputs[i - 1].sequence > clientSeq) i--
+    if (i > 0 && inputs[i - 1].sequence === clientSeq) return
+    inputs.splice(i, 0, { sequence: clientSeq, data: input, timestamp: now })
+    if (player.lastClientSeq == null || clientSeq > player.lastClientSeq) player.lastClientSeq = clientSeq
+    player.lastInputTime = now
+    if (inputs.length > MAX_BUFFERED_INPUTS) inputs.shift()
   }
 
   getInputs(playerId) {
