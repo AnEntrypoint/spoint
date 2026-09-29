@@ -86,7 +86,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     return _createFallbackBackdrop()
   }
 
-  if (typeof window !== 'undefined') window.__terrain = { heightAt: (d) => sampler.heightAt(d), groundHeightLocal: (x, z) => frame.groundHeightLocal(x, z), frame, planet, occlusionStats: () => _terrainOcclusion.getStats() }
+  if (typeof window !== 'undefined') window.__terrain = { heightAt: (d) => sampler.heightAt(d), groundHeightLocal: (x, z) => frame.groundHeightLocal(x, z), frame, planet, sampler, seed: cfg.seed, occlusionStats: () => _terrainOcclusion.getStats() }
 
   const COLLIDER_PROBE_MAX_UP_DOT = 0.05
   async function colliderProbe(dir) {

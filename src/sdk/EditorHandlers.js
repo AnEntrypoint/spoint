@@ -6,6 +6,7 @@ import { createGrassDecal } from '../terrain/GrassDecal.js'
 import { createEditOpLog } from './EditOpLog.js'
 import { createAgentEditServer } from './AgentEditServer.js'
 import { createPrefabSpawner } from './PrefabSpawner.js'
+import { createRelocationHandlers } from './Relocation.js'
 import { PrefabLibrary } from '../editor/PrefabLibrary.js'
 import { TEXT_EXTS, isTextFile, sanitizeFsError, WORLD_CONFIG_KEYS, serializeEntity, serializeWorld, serializeWorldSource } from './EditorHandlersSerialize.js'
 
@@ -186,6 +187,7 @@ export function createEditorHandlers(ctx) {
   }
 
   const HANDLERS = {
+    ...createRelocationHandlers(ctx),
     [MSG.EDITOR_UPDATE]: (payload, clientId) => {
       const { entityId, changes } = payload || {}
       if (entityId && changes) {

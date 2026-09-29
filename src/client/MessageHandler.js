@@ -67,7 +67,18 @@ export class MessageHandler {
       this._callbacks.onWeatherSync?.(payload)
     } else if (type === MSG.DESTROY_ENTITY) {
       this._callbacks.onEntityRemoved?.(payload.entityId)
+    } else if (type === MSG.TELEPORT_ACK) {
+      this._handleTeleportAck(payload)
     }
+  }
+
+  _handleTeleportAck(payload) {
+    if (payload.op === 'to' && payload.phase === 'placed' && payload.ok) {
+      this._smoothInterp?.reset()
+      if (this._smoothInterp) this._smoothInterp.setLocalPlayer(this._playerId)
+      this._predEngine?.teleport(payload.position, payload.velocity, payload.tick)
+    }
+    this._callbacks.onTeleportAck?.(payload)
   }
 
   _handleHandshake(payload) {

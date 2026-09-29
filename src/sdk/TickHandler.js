@@ -8,6 +8,7 @@ import { createServerTimeOfDay } from './ServerTimeOfDay.js'
 import { createServerWeather } from './ServerWeather.js'
 import { enforceMovementEnvelope } from '../netcode/InputGuard.js'
 import { checksumBodies } from '../netcode/LockstepChecksum.js'
+import { stepTeleportHold } from '../netcode/TeleportHold.js'
 import { recordSnapshotBytes, recordTickPhase } from './Metrics.js'
 import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, getPlayerPriorityIds, clearPlayerPriorityAccumulator, _spatialCache, _cellPackCache, _ringCache } from './TickHandlerAOI.js'
 export { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, getPlayerPriorityIds } from './TickHandlerAOI.js'
@@ -63,19 +64,23 @@ function processPlayerMovement(players, deps, tick, dt, playerIdleCounts, player
       st.crouch = inp.crouch ? 1 : 0; st.lookPitch = inp.pitch || 0; st.lookYaw = yaw
       st.expr = inp.expr || 0
     }
-    applyMovement(st, inp, movement, dt, playerManager.getMovementOverride?.(player.id) || null)
-    if (inp) physicsIntegration.setCrouch(player.id, !!inp.crouch)
-    const wishedVx = st.velocity[0], wishedVz = st.velocity[2]
-    const hasInput = inp && (inp.forward || inp.backward || inp.left || inp.right || inp.jump)
-    const isIdle = !hasInput && st.onGround && wishedVx * wishedVx + wishedVz * wishedVz < 1e-4
-    const idleCount = playerIdleCounts.get(player.id) || 0
-    if (isIdle && idleCount >= 1) { playerIdleCounts.set(player.id, idleCount + 1); playerAccumDt.delete(player.id) }
-    else {
-      const accumDt = Math.min(PHYSICS_MAX_ACCUM_DT, (playerAccumDt.get(player.id) || 0) + dt)
-      if (hasInput || inp?.jump || !st.onGround || (tick + player.id) % PHYSICS_PLAYER_DIVISOR === 0) {
-        physicsIntegration.updatePlayerPhysics(player.id, st, accumDt); st.velocity[0] = wishedVx; st.velocity[2] = wishedVz; playerAccumDt.delete(player.id)
-      } else { playerAccumDt.set(player.id, accumDt) }
-      playerIdleCounts.set(player.id, isIdle ? idleCount + 1 : 0)
+    if (player.teleportHold && stepTeleportHold(player, physicsIntegration)) {
+      playerIdleCounts.delete(player.id); playerAccumDt.delete(player.id)
+    } else {
+      applyMovement(st, inp, movement, dt, playerManager.getMovementOverride?.(player.id) || null)
+      if (inp) physicsIntegration.setCrouch(player.id, !!inp.crouch)
+      const wishedVx = st.velocity[0], wishedVz = st.velocity[2]
+      const hasInput = inp && (inp.forward || inp.backward || inp.left || inp.right || inp.jump)
+      const isIdle = !hasInput && st.onGround && wishedVx * wishedVx + wishedVz * wishedVz < 1e-4
+      const idleCount = playerIdleCounts.get(player.id) || 0
+      if (isIdle && idleCount >= 1) { playerIdleCounts.set(player.id, idleCount + 1); playerAccumDt.delete(player.id) }
+      else {
+        const accumDt = Math.min(PHYSICS_MAX_ACCUM_DT, (playerAccumDt.get(player.id) || 0) + dt)
+        if (hasInput || inp?.jump || !st.onGround || (tick + player.id) % PHYSICS_PLAYER_DIVISOR === 0) {
+          physicsIntegration.updatePlayerPhysics(player.id, st, accumDt); st.velocity[0] = wishedVx; st.velocity[2] = wishedVz; playerAccumDt.delete(player.id)
+        } else { playerAccumDt.set(player.id, accumDt) }
+        playerIdleCounts.set(player.id, isIdle ? idleCount + 1 : 0)
+      }
     }
     if (enforceMovementEnvelope(st, movement)) {
       eventLog?.record('anticheat_envelope_clamp', { playerId: player.id, position: [...st.position] }, { actor: player.id, reason: 'movement_envelope' })

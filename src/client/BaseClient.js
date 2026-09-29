@@ -28,7 +28,9 @@ export class BaseClient {
     this.currentTick = 0
     this.lastSnapshotTick = 0
     this.dilationFactor = 1.0
-    this.callbacks = { onConnect: config.onConnect || (() => {}), onDisconnect: config.onDisconnect || (() => {}), onPlayerJoined: config.onPlayerJoined || (() => {}), onPlayerLeft: config.onPlayerLeft || (() => {}), onEntityAdded: config.onEntityAdded || (() => {}), onEntityRemoved: config.onEntityRemoved || (() => {}), onSnapshot: config.onSnapshot || (() => {}), onRender: config.onRender || (() => {}), onStateUpdate: config.onStateUpdate || (() => {}), onWorldDef: config.onWorldDef || (() => {}), onAppModule: config.onAppModule || (() => {}), onAssetUpdate: config.onAssetUpdate || (() => {}), onAppEvent: config.onAppEvent || (() => {}), onHotReload: config.onHotReload || (() => {}), onEditorSelect: config.onEditorSelect || (() => {}), onMessage: config.onMessage || (() => {}), onDilation: config.onDilation || (() => {}), onMessageError: config.onMessageError || (() => {}), onPeerRttTable: config.onPeerRttTable || (() => {}), onTerrainConfig: config.onTerrainConfig || (() => {}), onTerrainSculptAck: config.onTerrainSculptAck || (() => {}), onTerrainPaintBiomeAck: config.onTerrainPaintBiomeAck || (() => {}), onGrassDecalSync: config.onGrassDecalSync || (() => {}), onTerrainSculptSync: config.onTerrainSculptSync || (() => {}), onTimeOfDaySync: config.onTimeOfDaySync || (() => {}), onWeatherSync: config.onWeatherSync || (() => {}) }
+    this.callbacks = { onConnect: config.onConnect || (() => {}), onDisconnect: config.onDisconnect || (() => {}), onPlayerJoined: config.onPlayerJoined || (() => {}), onPlayerLeft: config.onPlayerLeft || (() => {}), onEntityAdded: config.onEntityAdded || (() => {}), onEntityRemoved: config.onEntityRemoved || (() => {}), onSnapshot: config.onSnapshot || (() => {}), onRender: config.onRender || (() => {}), onStateUpdate: config.onStateUpdate || (() => {}), onWorldDef: config.onWorldDef || (() => {}), onAppModule: config.onAppModule || (() => {}), onAssetUpdate: config.onAssetUpdate || (() => {}), onAppEvent: config.onAppEvent || (() => {}), onHotReload: config.onHotReload || (() => {}), onEditorSelect: config.onEditorSelect || (() => {}), onMessage: config.onMessage || (() => {}), onDilation: config.onDilation || (() => {}), onMessageError: config.onMessageError || (() => {}), onPeerRttTable: config.onPeerRttTable || (() => {}), onTerrainConfig: config.onTerrainConfig || (() => {}), onTerrainSculptAck: config.onTerrainSculptAck || (() => {}), onTerrainPaintBiomeAck: config.onTerrainPaintBiomeAck || (() => {}), onGrassDecalSync: config.onGrassDecalSync || (() => {}), onTerrainSculptSync: config.onTerrainSculptSync || (() => {}), onTimeOfDaySync: config.onTimeOfDaySync || (() => {}), onWeatherSync: config.onWeatherSync || (() => {}), onTeleportAck: (p) => { config.onTeleportAck?.(p); this._settleTeleportAck(p) } }
+    this._teleportWaiters = new Map()
+    this._teleportReqSeq = 0
     this._snapProc = new SnapshotProcessor({ callbacks: this.callbacks })
     this._msgHandler = new MessageHandler({ ...config, callbacks: this.callbacks })
   }
@@ -101,6 +103,24 @@ export class BaseClient {
     this.callbacks.onSnapshot(data)
     try { this.callbacks.onStateUpdate(this.state) }
     catch (e) { console.error('[client] onStateUpdate failed:', e?.message || e); this.callbacks.onMessageError('stateUpdate', e) }
+  }
+
+  _settleTeleportAck(ack) {
+    const w = this._teleportWaiters.get(ack.reqId)
+    if (!w) return
+    if (!ack.ok) { this._teleportWaiters.delete(ack.reqId); clearTimeout(w.timer); w.reject(Object.assign(new Error(ack.error || 'teleport rejected'), { ack })); return }
+    if (ack.op === 'probe') { this._teleportWaiters.delete(ack.reqId); clearTimeout(w.timer); w.resolve(ack); return }
+    if (ack.phase === 'placed') { w.placed = ack; return }
+    if (ack.phase === 'grounded') { this._teleportWaiters.delete(ack.reqId); clearTimeout(w.timer); w.resolve({ placed: w.placed, grounded: ack }) }
+  }
+
+  requestTeleport(op, spec, timeoutMs = 20000) {
+    const reqId = ++this._teleportReqSeq
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { this._teleportWaiters.delete(reqId); reject(new Error(`teleport ${op} timed out after ${timeoutMs}ms (no ack; server without relocation support or client not editor-authorised)`)) }, timeoutMs)
+      this._teleportWaiters.set(reqId, { resolve, reject, timer, placed: null })
+      this.send(MSG.TELEPORT, { ...spec, op, reqId })
+    })
   }
 
   sendFire(data) {

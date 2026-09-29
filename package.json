@@ -9,7 +9,7 @@
     "packages/*"
   ],
   "sideEffects": [
-    "src/protocol/MessageTypes.js"
+    "src/protocol/MessageTypes.js", "client/core/Relocation.js"
   ],
   "bin": {
     "spoint": "./server.js",

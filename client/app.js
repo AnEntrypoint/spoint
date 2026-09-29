@@ -3,6 +3,7 @@ import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree; THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree; THREE.Mesh.prototype.raycast = acceleratedRaycast
 import { PhysicsNetworkClient, InputHandler, MSG } from '/src/index.client.js'
 import { BrowserServer } from './BrowserServer.js'
+import './core/Relocation.js'
 import { createElement, applyDiff } from 'webjsx'
 import { renderGameHud, renderLoadingScreen, renderHostJoinLobby } from 'anentrypoint-design'
 import { createDamageNumbers, ResetButton, RpgProgressHud } from 'game-editor-kit'
@@ -1833,6 +1834,7 @@ function startInputLoop() {
     input._vsync = window.__vsync ? { frame: window.__vsync.frameCount, miss: window.__vsync.isMiss, missStreak: window.__vsync.missStreak, missCount: window.__vsync.missCount } : null
     { const _f=pm.playerExpressions.get(client.playerId); input.expr = _f ? pickExpressionCode(_f.expressions) : EXPR_NEUTRAL }
     if (_chatQuickWheel && !clientMachine.isEditor && !clientMachine.isSpectator) _chatQuickWheel.update(!!input.chatWheelHeld, input.chatWheelDigit || 0)
+    window.__spoint._drive(input, cam)
     if (input.yaw!==undefined) cam.setVRYaw(input.yaw); else { input.yaw=cam.yaw; input.pitch=cam.pitch }
     if (input.zoom) cam.onWheel({ deltaY: -input.zoom*100, preventDefault: ()=>{} })
     if (input.isMobile&&input.pitchDelta!==undefined) cam.adjustVRPitch(input.pitchDelta)

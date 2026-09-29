@@ -62,6 +62,7 @@ export class PredictionEngine {
     this.localState = null
     this.lastServerState = null
     this.horizontallyWedged = false
+    this._teleportTick = -1
     this.inputHistory = new RingBuffer()
     this._inputSeq = 0
     this._lastAckedSeq = -1
@@ -105,6 +106,21 @@ export class PredictionEngine {
     this._renderState = { id: playerId, position: [...pos], rotation: [...rot], velocity: [...vel], onGround: true, health: initialState.health || 100 }
     this._pendingKnockback = null
     this.horizontallyWedged = false
+  }
+
+  teleport(position, velocity, tick) {
+    const v = velocity || [0, 0, 0]
+    for (const s of [this.localState, this.lastServerState, this._renderState]) {
+      if (!s) continue
+      s.position[0] = position[0]; s.position[1] = position[1]; s.position[2] = position[2]
+      s.velocity[0] = v[0]; s.velocity[1] = v[1]; s.velocity[2] = v[2]
+    }
+    this.inputHistory = new RingBuffer()
+    this._lastAckedSeq = this._inputSeq - 1
+    this.reconciliationEngine.reset()
+    this._pendingKnockback = null
+    this.horizontallyWedged = false
+    this._teleportTick = tick ?? -1
   }
 
   addInput(input) {
@@ -166,6 +182,7 @@ export class PredictionEngine {
 
   onServerSnapshot(snapshot, tick) {
     if (!Array.isArray(snapshot.players)) return
+    if (tick <= this._teleportTick) return
     for (const serverPlayer of snapshot.players) {
       if (serverPlayer && serverPlayer.id === this.localPlayerId) {
         if (!isValidPlayerSnapshot(serverPlayer)) continue

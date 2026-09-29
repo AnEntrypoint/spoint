@@ -124,7 +124,10 @@ export const MSG = {
   AGENT_EDIT_APPROVE: 0xbe,
   AGENT_EDIT_REJECT: 0xbf,
 
-  EDIT_OP_LOG_SINCE: 0xc0
+  EDIT_OP_LOG_SINCE: 0xc0,
+
+  TELEPORT: 0xc2,
+  TELEPORT_ACK: 0xc3
 }
 
 const nameMap = new Map()
