@@ -59,7 +59,7 @@ export function createPlacementScheduler(getHandles) {
       try { rocks.update(dt, camera, focus) } catch (_) {}
     }
     if (grass && typeof grass.update === 'function') {
-      try { grass.update(dt, camera, focus, _EMPTY_BENDERS) } catch (_) {}
+      try { grass.update(dt, camera, focus) } catch (_) {}
     }
     return true
   }
@@ -68,7 +68,7 @@ export function createPlacementScheduler(getHandles) {
     if (_timer != null) return
     _timer = setInterval(() => {
       const now = (typeof performance !== 'undefined') ? performance.now() : Date.now()
-      runPlacementTick(now)
+      if (now - _lastTickAtMs >= PLACEMENT_INTERVAL_MS) runPlacementTick(now)
     }, PLACEMENT_INTERVAL_MS)
     if (_timer && typeof _timer.unref === 'function') _timer.unref()
   }
@@ -79,8 +79,6 @@ export function createPlacementScheduler(getHandles) {
 
   return { start, stop, runPlacementTick, shouldTick }
 }
-
-const _EMPTY_BENDERS = []
 
 if (typeof window !== 'undefined') {
   window.__placementScheduler = { create: createPlacementScheduler }

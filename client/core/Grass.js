@@ -231,6 +231,7 @@ export async function createGrass(opts = {}) {
   const _cullQ = new THREE.Quaternion()
 
   function setBenders(list) {
+    if (typeof window !== 'undefined' && window.__grassBend === false) list = null
     const arr = wind.uBenderPosXZ.value
     let n = 0
     if (list) {
@@ -280,8 +281,7 @@ export async function createGrass(opts = {}) {
 
   function update(dt, camera, playerPos, benders) {
     const t0 = (typeof performance !== 'undefined') ? performance.now() : 0
-    if (typeof window !== 'undefined' && window.__grassBend === false) setBenders(null)
-    else setBenders(benders)
+    if (benders !== undefined) setBenders(benders)
     let px, pz
     if (playerPos && Array.isArray(playerPos.position)) { px = playerPos.position[0]; pz = playerPos.position[2] }
     else if (Array.isArray(playerPos)) { px = playerPos[0]; pz = playerPos[2] }
