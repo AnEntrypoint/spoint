@@ -70,5 +70,3 @@ export function setCascadeSplits(extents, scene) {
   if (scene) scene.traverse(o => { const m = o.material; if (!m) return; for (const mm of (Array.isArray(m) ? m : [m])) mm.needsUpdate = true })
   if (typeof window !== 'undefined' && window.__cascadeShadowSelect) window.__cascadeShadowSelect.splits = e.slice()
 }
-
-export function isCascadeShadowSelectInstalled() { return _installed }

@@ -25,7 +25,3 @@ export function dbg(namespace) {
     console.log(prefix, ...args)
   }
 }
-
-export function _resetDebugLogCache() {
-  _enabled = null
-}

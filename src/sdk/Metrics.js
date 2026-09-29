@@ -127,8 +127,6 @@ export function recordTickPhase(phase, ms) {
   h.observe(ms)
 }
 
-export function gcTracker() { return _gc }
-
 export function renderMetrics(sources = {}) {
   const lines = []
   const g = (name, help, value) => lines.push(`# HELP ${name} ${help}`, `# TYPE ${name} gauge`, `${name} ${value}`)

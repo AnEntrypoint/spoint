@@ -14,5 +14,3 @@ const NAME_TO_CODE = {
 
 export function weaponNameToCode(name) { return NAME_TO_CODE[name] ?? WEAPON_UNARMED }
 export function codeToWeaponName(code) { return CODE_TO_NAME[code] ?? null }
-
-export const WEAPON_CODE_COUNT = 8

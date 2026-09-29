@@ -3,7 +3,6 @@ const QSCALE = 511 * Math.SQRT2
 
 export const BIN_RECORD_BYTES = 29
 export const POS_I32_MAX = 2147483647 / WIRE_UNITS_PER_METER
-export const VEL_I16_MAX = 32767 / WIRE_UNITS_PER_METER
 export const SCALE_U16_MAX = 65535 / WIRE_UNITS_PER_METER
 
 export function clampI16(v) { return Math.max(-32767, Math.min(32767, Math.round((v || 0) * WIRE_UNITS_PER_METER))) }

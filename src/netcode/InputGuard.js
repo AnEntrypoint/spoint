@@ -20,14 +20,6 @@ export function clearInputBucket(clientId) {
   _inputBuckets.delete(clientId)
 }
 
-export function inputGuardStats() {
-  const out = []
-  for (const [clientId, b] of _inputBuckets) {
-    if (b.totalDropped > 0) out.push({ clientId, tokensRemaining: Math.round(b.tokens * 10) / 10, droppedSinceLog: b.droppedSinceLog, totalDropped: b.totalDropped })
-  }
-  return out
-}
-
 const NUMERIC_INPUT_FIELDS = ['yaw', 'pitch', 'analogForward', 'analogRight']
 const MAX_ABS_ANGLE = 1e6
 

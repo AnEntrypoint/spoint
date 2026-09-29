@@ -174,16 +174,3 @@ export function runWFCWithRetries(options, attempts = 20) {
   }
   return { ok: false, reason: 'exhausted-retries', tried }
 }
-
-export function gridToString(result, glyphs) {
-  if (!result.ok) return `<unsolved: ${result.reason}>`
-  const { grid, width, height } = result
-  const get = glyphs instanceof Map ? (id) => glyphs.get(id) : (id) => glyphs[id]
-  const lines = []
-  for (let y = 0; y < height; y++) {
-    let line = ''
-    for (let x = 0; x < width; x++) line += get(grid[y * width + x]) ?? '?'
-    lines.push(line)
-  }
-  return lines.join('\n')
-}

@@ -100,7 +100,6 @@
     "mapspinner": "*",
     "meshoptimizer": "^1.2.0",
     "msgpackr": "^2.0.4",
-    "simplex-noise": "^4.0.3",
     "streaming-gltf": "*",
     "webjsx": "^0.0.73",
     "ws": "^8.21.1",
@@ -115,11 +114,9 @@
     "wireweave": "github:AnEntrypoint/wireweave"
   },
   "devDependencies": {
-    "@gltf-transform/cli": "^4.4.1",
     "@gltf-transform/core": "^4.4.0",
     "assemblyscript": "^0.28.20",
     "esbuild": "^0.28.1",
-    "flatspace": "^1.0.18",
     "monaco-editor": "^0.56.0",
     "recast-navigation": "^0.43.1",
     "three": "^0.185.1",

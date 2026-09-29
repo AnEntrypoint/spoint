@@ -159,19 +159,3 @@ export function createHeightSampler(opts = {}) {
     return v * amplitude
   }
 }
-
-export function heightfieldToString(result, ramp = ' .:-=+*#%@') {
-  const { heights, width, height, min, max } = result
-  const range = max - min
-  const lines = []
-  for (let y = 0; y < height; y++) {
-    let line = ''
-    for (let x = 0; x < width; x++) {
-      const t = range > 0 ? (heights[y * width + x] - min) / range : 0
-      const gi = Math.min(ramp.length - 1, Math.max(0, Math.floor(t * ramp.length)))
-      line += ramp[gi]
-    }
-    lines.push(line)
-  }
-  return lines.join('\n')
-}

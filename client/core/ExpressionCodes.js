@@ -65,5 +65,3 @@ export function applyExpressionCode(setExpressionFn, id, code, lastCode) {
   const name = CODE_TO_NAME[code]
   if (name) setExpressionFn(id, name, 1)
 }
-
-export const EXPR_CODE_COUNT = 16

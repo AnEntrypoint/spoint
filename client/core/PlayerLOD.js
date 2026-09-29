@@ -51,12 +51,6 @@ export function classifyPlayerTiers(entries, viewerPos, fullCount = PLAYER_LOD_F
 }
 function _byD2(a, b) { return _d2Scratch[a] - _d2Scratch[b] }
 
-export function tierForRankAndDistance(rank, d2, fullCount = PLAYER_LOD_FULL_COUNT, reducedD2 = PLAYER_LOD_REDUCED_D2) {
-  if (rank < fullCount) return TIER_FULL
-  if (d2 < reducedD2) return TIER_REDUCED
-  return TIER_DOT
-}
-
 function makeDotGeo(size) {
   const geo = new THREE.PlaneGeometry(size, size)
   geo.rotateX(-Math.PI / 2)

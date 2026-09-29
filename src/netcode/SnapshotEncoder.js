@@ -38,12 +38,10 @@ function encodePlayerInto(p, rec) {
 
 export const PLAYER_LOD_FULL_COUNT = 30
 export const PLAYER_LOD_REDUCED2 = 120 * 120
-export const PLAYER_LOD_REDUCED_TICKMOD = 1
 export const PLAYER_LOD_REDUCED_HZ = 5
 
 export const PLAYER_TIER_FULL = 0
 export const PLAYER_TIER_REDUCED = 1
-export const PLAYER_TIER_DOT = 2
 
 function encodeReducedPlayer(p) {
   const [px, , pz] = p.position

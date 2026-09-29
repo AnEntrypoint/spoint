@@ -103,8 +103,3 @@ export async function buildFetchManifest(worldName, worldDef, project, sdkRoot) 
   _manifestCache.set(worldName, { mtimeKey, manifest })
   return manifest
 }
-
-export function clearManifestCache(worldName) {
-  if (worldName) _manifestCache.delete(worldName)
-  else _manifestCache.clear()
-}

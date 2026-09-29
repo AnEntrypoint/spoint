@@ -221,15 +221,3 @@ function createSharedImpostorMeshWebGPU(atlas, dims, opts, capacity) {
   function removeImpostor(id) { try { rec.releaseId(id) } catch (_) {} }
   return { mesh: im, material: mat, addImpostor, addImpostors, removeImpostor, get count() { return rec.activeCount } }
 }
-
-export function probeAtlasTile(renderer, atlas, speciesIndex) {
-  if (!renderer || !atlas) return -1
-  const t = atlas.tiles[speciesIndex]; if (!t) return -1
-  const cx = t.col * atlas.atlasSize + (atlas.atlasSize >> 1)
-  const cy = t.row * atlas.atlasSize + (atlas.atlasSize >> 1)
-  const buf = new Uint8Array(8 * 8 * 4)
-  try { renderer.readRenderTargetPixels(atlas.albedoRT, cx - 4, cy - 4, 8, 8, buf) } catch (_) { return -1 }
-  let nonZero = 0
-  for (let i = 0; i < buf.length; i += 4) { if (buf[i] || buf[i + 1] || buf[i + 2] || buf[i + 3]) nonZero++ }
-  return nonZero
-}

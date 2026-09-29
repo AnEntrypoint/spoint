@@ -121,13 +121,6 @@ export function getTransformed(filepath) {
   return result.buffer || null
 }
 
-export function getTransformedHash(filepath) {
-  const mtime = statSync(filepath).mtimeMs
-  const result = _getOrStartTransform(filepath, mtime)
-  if (!result.buffer) return null
-  return hashFor(filepath, mtime, result.buffer)
-}
-
 export async function getTransformedHashAsync(filepath) {
   const buffer = await getTransformedAsync(filepath)
   if (!buffer) return null
