@@ -212,10 +212,12 @@ export class BaseClient {
     })
   }
 
+  getViewTick(now = performance.now()) {
+    return this._msgHandler.getTimeline().displayedTick(now) ?? this.lastSnapshotTick
+  }
+
   sendFire(data) {
-    const cs = this._msgHandler.getClockSync?.()
-    const clientTime = cs ? cs.getEstimatedServerTime() : Date.now()
-    this.send(MSG.APP_EVENT, { type: 'fire', shooterId: this.playerId, clientTime, ...data })
+    this.send(MSG.APP_EVENT, { type: 'fire', shooterId: this.playerId, viewTick: this.getViewTick(), ...data })
   }
   sendReload() { this.send(MSG.APP_EVENT, { type: 'reload', playerId: this.playerId }) }
   sendLaunch(data) { this.send(MSG.APP_EVENT, { type: 'launch', senderId: this.playerId, ...data }) }

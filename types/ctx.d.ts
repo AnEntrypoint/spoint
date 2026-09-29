@@ -256,8 +256,25 @@ export interface EventLogMeta {
   [key: string]: any;
 }
 
-/** Opaque lag-compensation state used for network hit registration; shape is backend-specific. */
+export interface RewoundPlayerState {
+  tick: number;
+  position: [number, number, number];
+  rotation: [number, number, number, number];
+  velocity: [number, number, number];
+}
+
+/** Server-side rewind of player history for hit registration against what a shooter saw. */
 export interface LagCompensator {
+  readonly latestTick: number;
+  readonly windowTicks: number;
+  /** Validate a client-reported view tick (fire payload `viewTick`): null when non-finite or in the future, clamped to the history window when too old. */
+  resolveViewTick(reportedTick: number, currentTick?: number): number | null;
+  /** Per-shooter rewind rate limit; false means resolve the shot against current state. */
+  acceptRewind(shooterId: number, nowMs?: number): boolean;
+  /** Player state blended between the two history samples bracketing a fractional tick; never extrapolates. */
+  rewindAtTick(playerId: number, tick: number): RewoundPlayerState | null;
+  /** The client origin if it lies within maxDriftM of the shooter's eye, otherwise the server eye position. */
+  validateShotOrigin(shooterPosition: [number, number, number], clientOrigin: [number, number, number] | undefined, eyeHeight: number, maxDriftM?: number): [number, number, number];
   [key: string]: any;
 }
 

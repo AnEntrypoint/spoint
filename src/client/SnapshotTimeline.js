@@ -8,6 +8,7 @@ const MAX_DELAY_MS = 400
 const RESYNC_ERROR_MS = 200
 const CONVERGE_PER_S = 4
 const MAX_EXTRAPOLATE_MS = 100
+const DISPLAY_STALE_MS = 250
 const TAU = 2 * Math.PI
 
 function lerp(a, b, t) { return a + (b - a) * t }
@@ -115,6 +116,11 @@ export class SnapshotTimeline {
       dst.push(o)
     }
     return out
+  }
+
+  displayedTick(now = performance.now()) {
+    if (!Number.isFinite(this._renderMs) || now - this._lastSampleNow > DISPLAY_STALE_MS) return null
+    return this._renderMs / this.tickMs
   }
 
   resync() { this._renderMs = NaN }

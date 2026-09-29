@@ -48,6 +48,7 @@ export type {
   EventLog,
   EventLogMeta,
   LagCompensator,
+  RewoundPlayerState,
   AppContext,
   AppDefinition,
   EditorProp

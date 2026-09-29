@@ -3,8 +3,6 @@ import { recordHit } from '../../src/netcode/OutlierDetector.js'
 
 const SCOREBOARD_KEY = 'scoreboard'
 const SCOREBOARD_PERSIST_DEBOUNCE_MS = 500
-const MAX_EXTRAPOLATION_SEC = 0.05
-const MAX_EXTRAPOLATION_M = 0.5
 const HITBOX_CENTER_HEIGHT = 0.9
 const HITBOX_RADIUS_SQ = 0.36
 const HITBOX_HEIGHT = 1.8
@@ -101,18 +99,17 @@ export function getAvailableSpawnPoint(ctx, spawnPoints) {
   return candidates[0] || [0, 15, 0]
 }
 
-export function resolveTargetPoint(target, lagComp, latencyMs) {
-  const rewound = latencyMs > 0 && lagComp ? lagComp.getPlayerStateAtTime(target.id, latencyMs) : null
-  if (latencyMs > 0 && lagComp && !rewound) return null
-  let tp = rewound ? rewound.position : target.state.position
-  if (rewound && rewound.velocity) {
-    const ahead = Math.min(MAX_EXTRAPOLATION_SEC, (latencyMs * 0.5) / 1000)
-    let ex0 = rewound.velocity[0] * ahead, ex1 = rewound.velocity[1] * ahead, ex2 = rewound.velocity[2] * ahead
-    const exMag = Math.hypot(ex0, ex1, ex2)
-    if (exMag > MAX_EXTRAPOLATION_M) { const k = MAX_EXTRAPOLATION_M / exMag; ex0 *= k; ex1 *= k; ex2 *= k }
-    tp = [tp[0] + ex0, tp[1] + ex1, tp[2] + ex2]
-  }
-  return { tp, rewound }
+export function resolveFireRequest(lagComp, shooterId, shooterPosition, msg) {
+  const eye = [shooterPosition[0], shooterPosition[1] + HITBOX_CENTER_HEIGHT, shooterPosition[2]]
+  if (!lagComp) return { origin: eye, viewTick: null }
+  const origin = lagComp.validateShotOrigin(shooterPosition, msg.origin, HITBOX_CENTER_HEIGHT)
+  const viewTick = lagComp.acceptRewind(shooterId) ? lagComp.resolveViewTick(msg.viewTick) : null
+  return { origin, viewTick }
+}
+
+export function resolveTargetPoint(target, lagComp, viewTick) {
+  const rewound = viewTick != null && lagComp ? lagComp.rewindAtTick(target.id, viewTick) : null
+  return { tp: rewound ? [...rewound.position] : target.state.position, rewound }
 }
 
 export function rayVsCapsule(origin, direction, range, tp) {
@@ -126,15 +123,14 @@ export function rayVsCapsule(origin, direction, range, tp) {
   return { proj, dot }
 }
 
-export function findHitLinear(ctx, players, shooterId, origin, direction, latencyMs, range) {
+export function findHitLinear(ctx, players, shooterId, origin, direction, viewTick, range) {
   const lagComp = ctx.lagCompensator
   for (const target of players) {
     if (!target.state || target.id === shooterId) continue
     if (ctx.state.respawning.has(target.id)) continue
     if ((ctx.state.invuln?.get(target.id) ?? 0) > Date.now()) continue
     if ((target.state.health ?? ctx.state.config.health) <= 0) continue
-    const resolved = resolveTargetPoint(target, lagComp, latencyMs)
-    if (!resolved) continue
+    const resolved = resolveTargetPoint(target, lagComp, viewTick)
     const hit = rayVsCapsule(origin, direction, range, resolved.tp)
     if (!hit) continue
     return { target, tp: resolved.tp, rewound: resolved.rewound, proj: hit.proj }
@@ -142,7 +138,7 @@ export function findHitLinear(ctx, players, shooterId, origin, direction, latenc
   return null
 }
 
-export function findHitSpatial(ctx, players, shooterId, origin, direction, latencyMs, range, liveIndex) {
+export function findHitSpatial(ctx, players, shooterId, origin, direction, viewTick, range, liveIndex) {
   const lagComp = ctx.lagCompensator
   const index = liveIndex || buildLiveIndex(players)
   const candidates = []
@@ -163,8 +159,7 @@ export function findHitSpatial(ctx, players, shooterId, origin, direction, laten
     if (ctx.state.respawning.has(target.id)) continue
     if ((ctx.state.invuln?.get(target.id) ?? 0) > Date.now()) continue
     if ((target.state.health ?? ctx.state.config.health) <= 0) continue
-    const resolved = resolveTargetPoint(target, lagComp, latencyMs)
-    if (!resolved) continue
+    const resolved = resolveTargetPoint(target, lagComp, viewTick)
     const hit = rayVsCapsule(origin, direction, range, resolved.tp)
     if (!hit) continue
     return { target, tp: resolved.tp, rewound: resolved.rewound, proj: hit.proj }
@@ -173,7 +168,7 @@ export function findHitSpatial(ctx, players, shooterId, origin, direction, laten
 }
 
 export function handleFire(ctx, msg) {
-  const { shooterId, origin, direction, latencyMs } = msg
+  const { shooterId, origin, direction, viewTick } = msg
   if (!origin || !direction) return
   const players = ctx.players.getAll()
   const range = 1000
@@ -185,7 +180,7 @@ export function handleFire(ctx, msg) {
     ctx.state._rewindIndex = buildLiveIndex(players)
     ctx.state._rewindIndexTick = tick
   }
-  const found = findHitSpatial(ctx, players, shooterId, origin, direction, latencyMs, range, ctx.state._rewindIndex)
+  const found = findHitSpatial(ctx, players, shooterId, origin, direction, viewTick, range, ctx.state._rewindIndex)
   if (found) {
     const { target, tp, rewound, proj } = found
     const hitRatio = (proj[1] - tp[1]) / HITBOX_HEIGHT
@@ -202,7 +197,8 @@ export function handleFire(ctx, msg) {
       lethal: newHp <= 0,
       resultHealth: newHp,
       rewound: !!rewound,
-      latencyMs,
+      viewTick,
+      rewoundTicks: viewTick != null && ctx.lagCompensator ? ctx.lagCompensator.latestTick - viewTick : 0,
       hitPosition: proj,
       targetPosition: tp,
       hitbox: { radiusSq: HITBOX_RADIUS_SQ, heightOffset: HITBOX_CENTER_HEIGHT, headshotRatio: ctx.state.config.headshotZone, hitRatio },

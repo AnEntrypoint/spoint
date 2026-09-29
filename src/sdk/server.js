@@ -35,7 +35,7 @@ export async function createServerDeps(config, tickRate) {
   await physics.init()
   const emitter = new EventEmitter(), eventBus = new EventBus(), eventLog = new EventLog({ maxSize: 1000 })
   const storage = new FSAdapter(storageDir), tickSystem = new TickSystem(tickRate)
-  const playerManager = new PlayerManager(), networkState = new NetworkState(), lagCompensator = new LagCompensator()
+  const playerManager = new PlayerManager(), networkState = new NetworkState(), lagCompensator = new LagCompensator(undefined, tickRate)
   const physicsIntegration = new PhysicsIntegration({ gravity, physicsWorld: physics, capsuleRadius: playerConfig.capsuleRadius, capsuleHalfHeight: playerConfig.capsuleHalfHeight, crouchHalfHeight: playerConfig.crouchHalfHeight, playerMass: playerConfig.mass })
   const connections = new ConnectionManager({ heartbeatInterval: config.heartbeatInterval || 1000, heartbeatTimeout: config.heartbeatTimeout || 10000 })
   const sessions = new SessionStore({ ttl: config.sessionTTL || 60000 })

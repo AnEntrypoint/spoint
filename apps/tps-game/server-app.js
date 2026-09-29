@@ -1,9 +1,8 @@
-import { fallFloorY, findSpawnPoints, getAvailableSpawnPoint, groundSnapCandidate, handleFire, loadScoreboard, flushScoreboard, persistPlayerStat } from './server.js'
+import { fallFloorY, findSpawnPoints, getAvailableSpawnPoint, groundSnapCandidate, handleFire, loadScoreboard, flushScoreboard, persistPlayerStat, resolveFireRequest } from './server.js'
 import { collectSpawnPoints } from '../spawn-point/index.js'
 import { POWERUP_DEFS, POWERUP_RESPAWN_MS, POWERUP_PICKUP_RADIUS, EMOTE_CLIPS, spawnPowerup } from './shared.js'
 
 const EMOTE_RATE_LIMIT_MS = 800
-const MAX_REWIND_LATENCY_MS = 600
 
 export const tpsGameServer = {
   async setup(ctx) {
@@ -144,9 +143,8 @@ export const tpsGameServer = {
       ctx.state.ammo.set(shooterId, ammo - 1)
       const shooter = ctx.players.getById(shooterId)
       const pos = shooter?.state?.position || [0, 0, 0]
-      const origin = [pos[0], pos[1] + 0.9, pos[2]]
-      const latencyMs = msg.clientTime ? Math.min(MAX_REWIND_LATENCY_MS, Math.max(0, Date.now() - msg.clientTime)) : 0
-      const fireData = { shooterId, origin, direction: msg.direction, latencyMs }
+      const { origin, viewTick } = resolveFireRequest(ctx.lagCompensator, shooterId, pos, msg)
+      const fireData = { shooterId, origin, direction: msg.direction, viewTick }
       ctx.bus.emit('combat.fire', fireData)
       if (shooter?.state) { shooter.state.velocity[0] -= msg.direction[0] * ctx.state.config.shootKnockback; shooter.state.velocity[2] -= msg.direction[2] * ctx.state.config.shootKnockback }
       ctx.players.send(shooterId, { type: 'aimpunch', intensity: 0.3 })

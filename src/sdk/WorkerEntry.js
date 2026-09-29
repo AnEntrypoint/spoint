@@ -56,7 +56,8 @@ export async function init({ worldDef, worldName: selectedWorldName = null, apps
 
   const emitter = new EventEmitter(), eventBus = new EventBus(), eventLog = new EventLog({ maxSize: 1000 })
   const storage = new IDBAdapter(), tickSystem = new TickSystem(tickRate)
-  const playerManager = new PlayerManager(), networkState = new NetworkState(), lagCompensator = new LagCompensator()
+  const playerManager = new PlayerManager(), networkState = new NetworkState(), lagCompensator = new LagCompensator(undefined, tickRate)
+  if (Number.isFinite(worldDef.netcode?.maxRewindMs) && worldDef.netcode.maxRewindMs >= 0) lagCompensator.historyWindow = worldDef.netcode.maxRewindMs
   const physicsIntegration = new PhysicsIntegration({ gravity, physicsWorld: physics, capsuleRadius: playerConfig.capsuleRadius, capsuleHalfHeight: playerConfig.capsuleHalfHeight, crouchHalfHeight: playerConfig.crouchHalfHeight, playerMass: playerConfig.mass })
   const connections = new ConnectionManager({ heartbeatInterval: 1000, heartbeatTimeout: 10000 })
   const sessions = new SessionStore({ ttl: 60000 })

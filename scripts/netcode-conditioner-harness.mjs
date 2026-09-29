@@ -14,7 +14,6 @@ const OUT_DIR = resolve(SDK_ROOT, 'data', 'netcode-harness')
 const FEET_OFFSET = 0.91
 const HITBOX_CENTER_HEIGHT = 0.9
 const HITBOX_RADIUS = 0.6
-const TPS_REWIND_CAP_MS = 600
 const MOVE_ONSET_M = 0.03
 const MISPREDICT_M = 0.02
 
@@ -41,7 +40,7 @@ const { MSG } = await import('../src/protocol/MessageTypes.js')
 const { unpack } = await import('../src/protocol/msgpack.js')
 const MSG_NAMES = new Map(Object.entries(MSG).map(([k, v]) => [v, k]))
 const { createSceneGraph } = await import('../client/core/SceneGraph.js')
-const { resolveTargetPoint, rayVsCapsule } = await import('../apps/tps-game/server.js')
+const { resolveTargetPoint, resolveFireRequest, findHitLinear } = await import('../apps/tps-game/server.js')
 
 function freePort() {
   return new Promise((res, rej) => { const s = createNetServer(); s.once('error', rej); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)) }) })
@@ -162,15 +161,17 @@ async function runOne(cond, predict, worldDef) {
     const pl = msg.payload
     const shooterP = server.playerManager.getPlayer(clientId), target = server.playerManager.getPlayer(mover.client.playerId)
     if (!shooterP || !target) return
-    const latencyMs = pl.clientTime ? Math.min(TPS_REWIND_CAP_MS, Math.max(0, Date.now() - pl.clientTime)) : 0
-    const origin = [shooterP.state.position[0], shooterP.state.position[1] + HITBOX_CENTER_HEIGHT, shooterP.state.position[2]]
-    const resolved = resolveTargetPoint(target, server.lagCompensator, latencyMs)
-    if (!resolved) { shots.push({ hit: false, missM: null, latencyMs, noHistory: true }); return }
+    const lc = server.lagCompensator
+    const { origin, viewTick } = resolveFireRequest(lc, clientId, shooterP.state.position, pl)
+    const tpsCtx = { lagCompensator: lc, state: { respawning: new Map(), invuln: new Map(), config: { health: 100 } } }
+    const found = findHitLinear(tpsCtx, [target], clientId, origin, pl.direction, viewTick, 1000)
+    const resolved = resolveTargetPoint(target, lc, viewTick)
     const c = [resolved.tp[0], resolved.tp[1] + HITBOX_CENTER_HEIGHT, resolved.tp[2]]
     const d = pl.direction, to = [c[0] - origin[0], c[1] - origin[1], c[2] - origin[2]]
     const along = to[0] * d[0] + to[1] * d[1] + to[2] * d[2]
     const missM = Math.hypot(to[0] - d[0] * along, to[1] - d[1] * along, to[2] - d[2] * along)
-    shots.push({ hit: !!rayVsCapsule(origin, d, 1000, resolved.tp), missM, latencyMs, shooterViewErrM: pl.viewErrM })
+    const rewindTicks = viewTick == null ? 0 : lc.latestTick - viewTick
+    shots.push({ hit: !!found, missM, rewindMs: rewindTicks * 1000 / lc.tickRate, victimBehindLiveM: dist3(resolved.tp, target.state.position), shooterViewErrM: pl.viewErrM, rejected: viewTick == null })
   })
   await Promise.all(all.map(h => h.client.connect()))
   const t0 = performance.now()
@@ -261,7 +262,7 @@ async function runOne(cond, predict, worldDef) {
     remoteInterp: trM ? effectiveDelay(remoteFrames, trM) : null,
     interpolation: interpStats.length ? { targetDelayMs: summarize(interpStats.map(s => s.delayMs)), jitterMs: summarize(interpStats.map(s => s.jitterMs)), intervalMs: summarize(interpStats.map(s => s.intervalMs)), ahead: summarize(interpStats.map(s => s.ahead)), final: interpStats[interpStats.length - 1] } : null,
     remotePops: detectPops(remoteFrames.map((f, i) => ({ ...f, v: i ? [(f.p[0] - remoteFrames[i - 1].p[0]) / ((f.t - remoteFrames[i - 1].t) / 1000 || 1), 0, (f.p[2] - remoteFrames[i - 1].p[2]) / ((f.t - remoteFrames[i - 1].t) / 1000 || 1)] : [0, 0, 0] }))),
-    hitReg: { shots: shots.length, hitRate: shots.filter(s => s.hit).length / Math.max(1, shots.length), missM: summarize(shots.map(s => s.missM)), shooterViewVsPresentM: summarize(shots.map(s => s.shooterViewErrM)), rewindLatencyMs: summarize(shots.map(s => s.latencyMs)) },
+    hitReg: { shots: shots.length, hitRate: shots.filter(s => s.hit).length / Math.max(1, shots.length), missM: summarize(shots.map(s => s.missM)), shooterViewVsPresentM: summarize(shots.map(s => s.shooterViewErrM)), rewindMs: summarize(shots.map(s => s.rewindMs)), victimBehindLiveM: summarize(shots.map(s => s.victimBehindLiveM)), rejectedViewTicks: shots.filter(s => s.rejected).length, lagCompStats: server.lagCompensator.getStats() },
     bandwidth: { downKBps: (mover.meter.inBytes - meterBase[0].inBytes) / 1024 / elapsedS, upKBps: (mover.meter.outBytes - meterBase[0].outBytes) / 1024 / elapsedS, downMsgsPerS: (mover.meter.inMsgs - meterBase[0].inMsgs) / elapsedS, snapshotBytesAvg: ((mover.meter.byType.SNAPSHOT || 0) - meterBase[0].snap) / Math.max(1, mover.snapTimes.filter(t => t >= runStart).length), shooterDownKBps: (shooter.meter.inBytes - meterBase[1].inBytes) / 1024 / elapsedS, moverDownBytesByType: mover.meter.byType },
     snapshots: { hz: sTimes.length / elapsedS, gapMs: summarize(snapGaps), gapStdevMs: stdev(snapGaps) },
     ticks: { hz: (tickTimes.length - 1) / tickSpanS, intervalMs: summarize(intervals), intervalStdevMs: stdev(intervals), burstFrac: intervals.filter(x => x < 2).length / Math.max(1, intervals.length) },

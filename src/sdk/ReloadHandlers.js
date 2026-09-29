@@ -73,7 +73,7 @@ export function createReloadHandlers(deps) {
 
   const reloadLagCompensator = async () => {
     const { LagCompensator: New } = await import('../netcode/LagCompensator.js?' + Date.now())
-    swapInstance(lagCompensator, New, [lagCompensator.historyWindow], ['playerHistory'])
+    swapInstance(lagCompensator, New, [lagCompensator.historyWindow, lagCompensator.tickRate], ['playerHistory', 'latestTick'])
   }
 
   const reloadPlayerManager = async () => {
