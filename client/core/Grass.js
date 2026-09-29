@@ -1,12 +1,14 @@
 import * as THREE from 'three'
 import { InstancedMesh2 } from '@three.ez/instanced-mesh'
+import { createExactPatchFrame } from './ExactPatchFrame.js'
 import { placementsForGrassChunk, createGrassChunkCursor, GRASS } from '/src/terrain/GrassPlacement.js'
 import { createCachedAnchorField } from '/src/terrain/ClimateCache.js'
 import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
 import { createModelExclusionField } from '/src/terrain/ModelExclusionField.js'
 import { createGrassDecal } from '/src/terrain/GrassDecal.js'
 import { dbg } from './debug-log.js'
-import { MAX_BENDERS, MAX_DECALS, UNUSED_BENDER_SLOT_XZ, makeBladeGeo, makeWind, makeGrassMaterial } from './GrassMaterial.js'
+import { MAX_BENDERS, MAX_DECALS, UNUSED_BENDER_SLOT_XZ, makeWind, makeGrassMaterial } from './GrassMaterial.js'
+import { makeClumpGeo } from './GrassClump.js'
 import { makeGrassMaterialTSL, syncGrassMaterialTSL } from './GrassTSL.js'
 import { createStreamingInstancer } from './WebGPUInstancing.js'
 
@@ -19,6 +21,9 @@ const _occBoxGeo = new THREE.BoxGeometry(1, 1, 1)
 const _occBoxMat = new THREE.MeshBasicMaterial()
 
 const DROP_MARGIN = 16
+const CLUMP_WIDTH_MIN = 1.35
+const CLUMP_WIDTH_SPAN = 0.7
+const CLUMP_HEIGHT_SCALE = 0.75
 const REGROWTH_DISABLED_HALF_LIFE_S = 1e12
 const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _camPos = new THREE.Vector3()
 
@@ -43,8 +48,8 @@ export async function createGrass(opts = {}) {
   const isWebGPU = !!renderer.isWebGPURenderer
 
   const LOD_NEAR_DIST = Number.isFinite(cfg.grassLodNearDistance) ? cfg.grassLodNearDistance : 8
-  const geoNear = makeBladeGeo(5)
-  const geoMid = makeBladeGeo(1)
+  const geoNear = makeClumpGeo(3, 4)
+  const geoMid = makeClumpGeo(1, 2)
 
   let mat, im, imMid, grassNodes = null
   if (isWebGPU) {
@@ -69,6 +74,8 @@ export async function createGrass(opts = {}) {
   im.renderOrder = 2; imMid.renderOrder = 2
 
   const loaded = new Map()
+  const deferredChunks = new Set()
+  const exactFrame = createExactPatchFrame(frame)
   let _occCands = null
   let totalInstances = 0
   const profile = { totalInstances: 0, loads: 0, unloads: 0, updateMs: 0, grassDrawCalls: 2, ringScans: 0, cullMs: 0, chunksCulled: 0 }
@@ -101,7 +108,8 @@ export async function createGrass(opts = {}) {
         e.position.set(p.x, p.y, p.z)
         _q.setFromAxisAngle(_v.set(0, 1, 0), p.yaw)
         e.quaternion.copy(_q)
-        e.scale.set(1, p.scale, 1)
+        const width = CLUMP_WIDTH_MIN + CLUMP_WIDTH_SPAN * p.tint
+        e.scale.set(width, p.scale * CLUMP_HEIGHT_SCALE, width)
         entries.push({ id, windPhase: p.windPhase, tint: p.tint, shadow: Number.isFinite(p.shadow) ? p.shadow : 1 })
       })
       totalInstances += batch
@@ -122,8 +130,15 @@ export async function createGrass(opts = {}) {
   function loadChunk(cx, cz, px, pz) {
     const key = cx + ',' + cz
     if (loaded.has(key)) return
-    let list; try { list = placementsForGrassChunk(cx, cz, frame, anchorField, worldSeed) } catch (_) { list = null }
+    exactFrame.beginChunk()
+    let list; try { list = placementsForGrassChunk(cx, cz, exactFrame.placementFrame, anchorField, worldSeed) } catch (_) { list = null }
+    if (exactFrame.missing) { deferGrassChunk(cx, cz); return }
     commitChunk(key, list, px, pz)
+  }
+
+  function deferGrassChunk(cx, cz) {
+    deferredChunks.add(cx + ',' + cz)
+    exactFrame.prefetchChunk(cx * CH + CH * 0.5, cz * CH + CH * 0.5)
   }
 
   function unloadChunk(key) {
@@ -146,7 +161,7 @@ export async function createGrass(opts = {}) {
   let _inflight = null
   function streamRing(px, pz) {
     if (_inflight) {
-      if (_inflight.cursor.step(LOAD_BUDGET)) { commitChunk(_inflight.key, _inflight.cursor.blades, _inflight.px, _inflight.pz); _inflight = null }
+      if (stepInflight()) finishInflight()
       else { _ringClean = false; return }
     }
     const cCx = Math.round(px / CH), cCz = Math.round(pz / CH)
@@ -156,14 +171,22 @@ export async function createGrass(opts = {}) {
     if (span !== _spiralSpan) { _spiral = _spiralOffsets(span); _spiralSpan = span }
     let didLoad = false, didDrop = false
     if (totalInstances < MAX_INSTANCES) {
+      for (const key of deferredChunks) {
+        const ci = key.indexOf(','); const kx = +key.slice(0, ci), kz = +key.slice(ci + 1)
+        const ddx = kx * CH + CH * 0.5 - px, ddz = kz * CH + CH * 0.5 - pz
+        deferredChunks.delete(key)
+        if (ddx * ddx + ddz * ddz > dropRadiusSq) continue
+        startInflight(kx, kz, px, pz)
+        didLoad = true; break
+      }
+    }
+    if (totalInstances < MAX_INSTANCES && !_inflight) {
       for (const [dx, dz] of _spiral) {
         const cx = cCx + dx, cz = cCz + dz
         const key = cx + ',' + cz
         const ddx = cx * CH + CH * 0.5 - px, ddz = cz * CH + CH * 0.5 - pz
-        if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(key)) continue
-        loaded.set(key, { entries: [], pending: true })
-        _inflight = { key, cursor: createGrassChunkCursor(cx, cz, frame, anchorField, worldSeed), px, pz }
-        if (_inflight.cursor.step(LOAD_BUDGET)) { loaded.delete(key); commitChunk(key, _inflight.cursor.blades, px, pz); _inflight = null }
+        if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(key) || deferredChunks.has(key)) continue
+        startInflight(cx, cz, px, pz)
         didLoad = true; break
       }
     }
@@ -173,7 +196,31 @@ export async function createGrass(opts = {}) {
       const ddx = kx * CH + CH * 0.5 - px, ddz = kz * CH + CH * 0.5 - pz
       if ((ddx * ddx + ddz * ddz) > dropRadiusSq) { unloadChunk(key); didDrop = true; break }
     }
-    _scanCx = cCx; _scanCz = cCz; _ringClean = !didLoad && !didDrop && !_inflight
+    _scanCx = cCx; _scanCz = cCz; _ringClean = !didLoad && !didDrop && !_inflight && deferredChunks.size === 0
+    profile.deferredChunks = deferredChunks.size
+  }
+
+  function stepInflight() {
+    exactFrame.beginChunk()
+    const done = _inflight.cursor.step(LOAD_BUDGET)
+    if (exactFrame.missing) _inflight.missing = true
+    return done
+  }
+
+  function finishInflight() {
+    const { key, cursor, px, pz, missing, cx, cz } = _inflight
+    _inflight = null
+    loaded.delete(key)
+    if (missing) { deferGrassChunk(cx, cz); return }
+    commitChunk(key, cursor.blades, px, pz)
+  }
+
+  function startInflight(cx, cz, px, pz) {
+    const key = cx + ',' + cz
+    loaded.set(key, { entries: [], pending: true })
+    exactFrame.beginChunk()
+    _inflight = { key, cx, cz, cursor: createGrassChunkCursor(cx, cz, exactFrame.placementFrame, anchorField, worldSeed), px, pz, missing: false }
+    if (stepInflight()) finishInflight()
   }
 
   let _cullFrozen = false
@@ -365,14 +412,14 @@ export async function createGrass(opts = {}) {
       if (((typeof performance !== 'undefined') ? performance.now() : 0) - t0 > budgetMs) break
       const cx = cCx + dx, cz = cCz + dz
       const ddx = cx * CH + CH * 0.5 - px, ddz = cz * CH + CH * 0.5 - pz
-      if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(cx + ',' + cz)) continue
-      loadChunk(cx, cz, px, pz); n++
+      if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(cx + ',' + cz) || deferredChunks.has(cx + ',' + cz)) continue
+      loadChunk(cx, cz, px, pz); if (!deferredChunks.has(cx + ',' + cz)) n++
       if (n % 8 === 0) await _yieldFrame()
     }
     return n
   }
 
-  function rebuildPlacement() { _inflight = null; for (const key of [...loaded.keys()]) unloadChunk(key); _ringClean = false; _scanCx = NaN; _scanCz = NaN }
+  function rebuildPlacement() { _inflight = null; deferredChunks.clear(); for (const key of [...loaded.keys()]) unloadChunk(key); _ringClean = false; _scanCx = NaN; _scanCz = NaN }
   function repaintBiome(x, z, radius, target, strength) { biomeOverride.applyPaintBrush(x, z, radius, target, strength); rebuildPlacement() }
 
   const api = { update, tickWind, prewarm, warmShaders, dispose, _im: im, _imMid: imMid, get totalInstances() { return totalInstances }, get profile() { return profile }, rebuildPlacement, repaintBiome, biomeOverride, getOcclusionCandidates, applyOcclusion, setBenders, get benderCount() { return wind.uBenderCount.value }, get benderPosXZ() { return wind.uBenderPosXZ.value }, markScorched, decalStore, get decalCount() { return wind.uDecalCount.value }, get decalPosXZRS() { return wind.uDecalPosXZRS.value }, cfg, renderDistance }

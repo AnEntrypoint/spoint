@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { makeClumpAlphaTexture } from './GrassClump.js'
 
 export const MAX_BENDERS = 8
 
@@ -6,35 +7,24 @@ export const MAX_DECALS = 8
 
 export const UNUSED_BENDER_SLOT_XZ = 1e6
 
-export function makeBladeGeo(segments) {
-  const N = Number.isFinite(segments) && segments >= 1 ? segments | 0 : 5
-  const wBase = 0.07, curve = 0.18
-  const pos = [], idx = []
-  const quads = [[[-1, 0], [1, 0]], [[0, -1], [0, 1]]]
-  let vi = 0
-  for (const [a, b] of quads) {
-    for (let s = 0; s <= N; s++) {
-      const v = s / N
-      const w = wBase * (1 - v)
-      const bend = curve * v * v
-      pos.push(a[0] * w + bend, v, a[1] * w, b[0] * w + bend, v, b[1] * w)
-    }
-    for (let s = 0; s < N; s++) {
-      const r0 = vi + s * 2, r1 = r0 + 2
-      idx.push(r0, r0 + 1, r1, r0 + 1, r1 + 1, r1)
-    }
-    vi += (N + 1) * 2
-  }
-  const g = new THREE.BufferGeometry()
-  g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3))
-  g.setIndex(idx)
-  g.computeVertexNormals()
-  g.computeBoundingSphere(); g.computeBoundingBox()
-  return g
-}
+export const GRASS_ALPHA_CUTOFF = 0.3
+
+export const GRASS_NOISE_GLSL = `
+      float grassHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+      float grassNoise(vec2 p) {
+        vec2 i = floor(p), f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(mix(grassHash(i), grassHash(i + vec2(1.0, 0.0)), u.x),
+                   mix(grassHash(i + vec2(0.0, 1.0)), grassHash(i + vec2(1.0, 1.0)), u.x), u.y);
+      }
+`
 
 export function makeWind() {
   return {
+    uClumpTex: { value: makeClumpAlphaTexture() },
+    uGrassBase: { value: new THREE.Color(0.19, 0.25, 0.11) },
+    uGrassTip1: { value: new THREE.Color(0.61, 0.83, 0.55) },
+    uGrassTip2: { value: new THREE.Color(0.12, 0.21, 0.16) },
     uGrassTime: { value: 0 }, uGrassWind: { value: 1 }, uGrassWindDir: { value: new THREE.Vector2(0.8, 0.6) },
     uCamPosXZ: { value: new THREE.Vector2(0, 0) }, uGrassRing: { value: 44 },
     uSunDir: { value: new THREE.Vector3(0.4, 0.8, 0.3).normalize() }, uSunColor: { value: new THREE.Color(1, 1, 0.96) },
@@ -52,7 +42,14 @@ export function makeWind() {
 
 export function makeGrassMaterial(wind) {
   const material = new THREE.ShaderMaterial({
+    fog: true,
+    side: THREE.DoubleSide,
     uniforms: {
+      ...THREE.UniformsLib.fog,
+      uClumpTex: wind.uClumpTex,
+      uGrassBase: wind.uGrassBase,
+      uGrassTip1: wind.uGrassTip1,
+      uGrassTip2: wind.uGrassTip2,
       uGrassTime: wind.uGrassTime,
       uGrassWind: wind.uGrassWind,
       uGrassWindDir: wind.uGrassWindDir,
@@ -70,7 +67,6 @@ export function makeGrassMaterial(wind) {
       uGrassScorchShrink: wind.uGrassScorchShrink,
       uGrassScorchColor: wind.uGrassScorchColor
     },
-    side: THREE.FrontSide,
     vertexShader: `
       uniform float uGrassTime, uGrassWind, uGrassRing;
       uniform vec2 uGrassWindDir, uCamPosXZ;
@@ -82,23 +78,28 @@ export function makeGrassMaterial(wind) {
       uniform float uGrassScorchShrink;
       uniform vec3 uGrassScorchColor;
       varying float vGrassY, vTint, vInstShadow, vScorch;
-      varying vec3 vWorldNormal;
+      varying vec3 vWorldNormal, vToCamera;
+      varying vec2 vUv, vFieldXZ;
       #include <common>
+      #include <fog_pars_vertex>
       #include <instanced_pars_vertex>
+      ${GRASS_NOISE_GLSL}
       void main() {
         #ifdef USE_INSTANCING_INDIRECT
           mat4 instanceMatrix = getInstancedMatrix();
         #endif
         vGrassY = position.y;
+        vUv = uv;
         vTint = tint;
         vInstShadow = instShadow;
         vec3 transformed = position;
         vec2 gWXZ = instanceMatrix[3].xz;
         float gv = clamp(position.y, 0.0, 1.0);
         float gw = gv * gv * 0.45;
-        float gFlow = sin(dot(gWXZ, vec2(0.06, 0.045)) + uGrassTime * 1.4)
+        float gGust = grassNoise(gWXZ * 0.11 + uGrassWindDir * uGrassTime * 0.35);
+        float gFlow = sin(dot(gWXZ, vec2(0.06, 0.045)) + gGust * 5.5 + uGrassTime * 1.4)
                     + 0.5 * sin(dot(gWXZ, vec2(-0.11, 0.09)) + uGrassTime * 2.3);
-        float gAmp = (0.6 + 0.4 * gFlow) * gw * uGrassWind;
+        float gAmp = (0.55 + 0.4 * gFlow) * gw * uGrassWind;
         float gph = uGrassTime * 2.2 + windPhase;
         vec2 gWdir = normalize(uGrassWindDir + 1e-4);
         transformed.x += (gWdir.x * gAmp) + sin(gph) * gw * 0.25 * uGrassWind;
@@ -133,28 +134,48 @@ export function makeGrassMaterial(wind) {
         float gDist = length(gWXZ - uCamPosXZ);
         float gFade = 1.0 - smoothstep(uGrassRing * 0.7, uGrassRing, gDist);
         transformed.y *= gFade; transformed.x *= mix(0.5, 1.0, gFade); transformed.z *= mix(0.5, 1.0, gFade);
-        vec3 flatNormal = normalize(mix(normalize(normal), vec3(0.0, 1.0, 0.0), 0.6));
+        vec3 flatNormal = normalize(mix(normalize(normal), vec3(0.0, 1.0, 0.0), 0.75));
         vWorldNormal = normalize(mat3(instanceMatrix) * mat3(modelMatrix) * flatNormal);
-        vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(transformed, 1.0);
+        vec4 instPos = instanceMatrix * vec4(transformed, 1.0);
+        vFieldXZ = instPos.xz;
+        vec4 mvPosition = modelViewMatrix * instPos;
+        vToCamera = cameraPosition - (modelMatrix * instPos).xyz;
         gl_Position = projectionMatrix * mvPosition;
+        #include <fog_vertex>
       }
     `,
     fragmentShader: `
-      uniform vec3 uSunDir, uSunColor, uAmbient, uGrassScorchColor;
+      uniform vec3 uSunDir, uSunColor, uAmbient, uGrassScorchColor, uGrassBase, uGrassTip1, uGrassTip2;
+      uniform sampler2D uClumpTex;
       varying float vGrassY, vTint, vInstShadow, vScorch;
-      varying vec3 vWorldNormal;
+      varying vec3 vWorldNormal, vToCamera;
+      varying vec2 vUv, vFieldXZ;
+      #include <common>
+      #include <fog_pars_fragment>
+      ${GRASS_NOISE_GLSL}
       void main() {
-        vec3 gLo = vec3(0.12,0.22,0.06), gHi = mix(vec3(0.34,0.55,0.16), vec3(0.45,0.5,0.14), vTint);
-        float gAO = 0.6 + 0.4 * smoothstep(0.0, 0.2, vGrassY);
-        vec3 baseColor = mix(gLo, gHi, clamp(vGrassY, 0.0, 1.0)) * gAO * 2.0;
+        float blade = texture2D(uClumpTex, vUv).r;
+        if (blade < ${GRASS_ALPHA_CUTOFF.toFixed(2)}) discard;
+        float fieldNoise = grassNoise(vFieldXZ * 0.085);
+        float variation = clamp(fieldNoise * 0.65 + vTint * 0.35, 0.0, 1.0);
+        vec3 tip = mix(uGrassTip1, uGrassTip2, variation);
+        float along = smoothstep(0.0, 0.95, vUv.y);
+        vec3 baseColor = mix(uGrassBase, tip, along);
+        baseColor *= mix(0.78, 1.1, smoothstep(0.55, 1.0, blade));
+        baseColor *= 0.62 + 0.38 * smoothstep(0.0, 0.3, vUv.y);
         baseColor = mix(baseColor, uGrassScorchColor, vScorch);
-        vec3 n = gl_FrontFacing ? vWorldNormal : -vWorldNormal;
+        vec3 n = normalize(vWorldNormal);
         float ndl = max(dot(n, uSunDir), 0.0);
-        vec3 lit = baseColor * (uAmbient + uSunColor * ndl * vInstShadow);
+        float wrap = 0.4 + 0.6 * ndl;
+        vec3 viewDir = normalize(vToCamera);
+        float backlit = pow(clamp(dot(viewDir, -uSunDir), 0.0, 1.0), 3.0) * vUv.y;
+        vec3 lit = baseColor * (uAmbient + uSunColor * wrap * vInstShadow);
+        lit += baseColor * uSunColor * backlit * 0.55 * vInstShadow;
         gl_FragColor = vec4(lit, 1.0);
+        #include <fog_fragment>
       }
     `
   })
-  material.customProgramCacheKey = () => 'grassblade-lambert'
+  material.customProgramCacheKey = () => 'grassclump-fluffy'
   return material
 }

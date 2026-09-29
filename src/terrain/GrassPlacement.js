@@ -10,8 +10,8 @@ export const GRASS = Object.freeze({
   SEA_REJECT: -2,
   SCALE_MIN: 0.55,
   SCALE_SPAN: 0.85,
-  BLADES_PER_CELL: 7,
-  CLUMP_R: 0.95,
+  BLADES_PER_CELL: 11,
+  CLUMP_R: 1.15,
 })
 
 const K_JITX = 20, K_JITZ = 21, K_COIN = 22, K_SCALE = 23, K_YAW = 24, K_TINT = 25, K_WIND = 26
@@ -22,7 +22,7 @@ const _clamp01 = (v) => v < 0 ? 0 : (v > 1 ? 1 : v)
 
 export function grassDensity(temp, humidity, slopeRatio) {
   const wet = _clamp01(humidity), warm = _clamp01(temp), flat = 1 - _clamp01(slopeRatio)
-  return _clamp01((0.18 + 0.78 * wet * (0.45 + 0.55 * warm)) * (0.25 + 0.75 * flat))
+  return _clamp01((0.5 + 0.5 * wet * (0.45 + 0.55 * warm)) * (0.35 + 0.65 * flat))
 }
 
 export function classify(x, z, frame, anchorField, h, cellIx, cellIz) {
@@ -64,14 +64,15 @@ export function classify(x, z, frame, anchorField, h, cellIx, cellIz) {
   const ndl = (normX * SUN_DIR[0] + normY * SUN_DIR[1] + normZ * SUN_DIR[2]) / nLen
   const cellShadow = Math.fround(_clamp01(0.55 + 0.45 * ndl))
 
-  return { x: Math.fround(x), y: Math.fround(groundY), z: Math.fround(z), cellHash, shadow: cellShadow }
+  return { x: Math.fround(x), y: Math.fround(groundY), z: Math.fround(z), cellHash, shadow: cellShadow, dHdx, dHdz }
 }
 
-function blade(cellHash, bi, x, y, z, cellShadow) {
+function blade(cellHash, bi, x, y, z, cellShadow, dHdx, dHdz) {
   const h = hash3(cellHash | 0, bi + 1, 0)
   const ang = rand(h, K_YAW) * Math.PI * 2, rad = Math.sqrt(rand(h, K_JITX)) * GRASS.CLUMP_R
+  const offX = Math.cos(ang) * rad, offZ = Math.sin(ang) * rad
   return {
-    x: Math.fround(x + Math.cos(ang) * rad), y, z: Math.fround(z + Math.sin(ang) * rad),
+    x: Math.fround(x + offX), y: Math.fround(y + dHdx * offX + dHdz * offZ), z: Math.fround(z + offZ),
     scale: Math.fround(GRASS.SCALE_MIN + rand(h, K_SCALE) * GRASS.SCALE_SPAN),
     yaw: Math.fround(rand(h, K_YAW) * Math.PI * 2),
     tint: Math.fround(rand(h, K_TINT)),
@@ -90,7 +91,7 @@ function placeGrassCell(chunkX, chunkZ, gx, gz, frame, anchorField, seed, out) {
   const jz = (rand(hh, K_JITZ) * 2 - 1) * GRASS.JITTER
   const p = classify(cellX + jx, cellZ + jz, frame, anchorField, undefined, ix, iz)
   if (!p) return 0
-  for (let b = 0; b < GRASS.BLADES_PER_CELL; b++) out.push(blade(p.cellHash, b, p.x, p.y, p.z, p.shadow))
+  for (let b = 0; b < GRASS.BLADES_PER_CELL; b++) out.push(blade(p.cellHash, b, p.x, p.y, p.z, p.shadow, p.dHdx, p.dHdz))
   return GRASS.BLADES_PER_CELL
 }
 

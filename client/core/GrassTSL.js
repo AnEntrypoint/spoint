@@ -4,13 +4,27 @@ import {
   Fn, Loop, If, Break, int, float, vec2, vec3, vec4,
   uniform, uniformArray, attribute, varying,
   positionLocal, normalLocal, normalWorld, frontFacing,
-  clamp, mix, smoothstep, dot, normalize, max, sin, cos
+  clamp, mix, smoothstep, dot, normalize, max, sin, cos, texture, uv, fract, floor, pow,
+  cameraPosition, positionWorld
 } from 'three/tsl'
 
-import { MAX_BENDERS, MAX_DECALS, UNUSED_BENDER_SLOT_XZ, makeBladeGeo, makeWind } from './GrassMaterial.js'
+import { MAX_BENDERS, MAX_DECALS, UNUSED_BENDER_SLOT_XZ, GRASS_ALPHA_CUTOFF, makeWind } from './GrassMaterial.js'
 import { instanceMatrixNodeFor } from './WebGPUInstancing.js'
 
-export { MAX_BENDERS, MAX_DECALS, UNUSED_BENDER_SLOT_XZ, makeBladeGeo, makeWind }
+export { MAX_BENDERS, MAX_DECALS, UNUSED_BENDER_SLOT_XZ, makeWind }
+
+const grassHash = Fn(([p]) => fract(sin(dot(p, vec2(127.1, 311.7))).mul(43758.5453)))
+
+const grassNoise = Fn(([p]) => {
+  const i = floor(p)
+  const f = fract(p)
+  const u = f.mul(f).mul(float(3.0).sub(f.mul(2.0)))
+  const a = grassHash(i)
+  const b = grassHash(i.add(vec2(1.0, 0.0)))
+  const c = grassHash(i.add(vec2(0.0, 1.0)))
+  const d = grassHash(i.add(vec2(1.0, 1.0)))
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y)
+})
 
 export function makeGrassMaterialTSL(wind) {
   const uGrassTime = uniform(wind.uGrassTime.value)
@@ -27,6 +41,10 @@ export function makeGrassMaterialTSL(wind) {
   const uDecalCount = uniform(wind.uDecalCount.value)
   const uGrassScorchShrink = uniform(wind.uGrassScorchShrink.value)
   const uGrassScorchColor = uniform(wind.uGrassScorchColor.value)
+  const uGrassBase = uniform(wind.uGrassBase.value)
+  const uGrassTip1 = uniform(wind.uGrassTip1.value)
+  const uGrassTip2 = uniform(wind.uGrassTip2.value)
+  const clumpSample = texture(wind.uClumpTex.value, uv())
 
   const benderSlots = []
   for (let i = 0; i < MAX_BENDERS; i++) benderSlots.push(new THREE.Vector2(UNUSED_BENDER_SLOT_XZ, UNUSED_BENDER_SLOT_XZ))
@@ -40,7 +58,8 @@ export function makeGrassMaterialTSL(wind) {
   const tint = attribute('tint', 'float')
   const instShadow = attribute('instShadow', 'float')
 
-  const vGrassY = varying(positionLocal.y, 'vGrassY')
+  const vUv = varying(uv(), 'vUv')
+  let vFieldXZ = null
   const vTint = varying(tint, 'vTint')
   const vInstShadow = varying(instShadow, 'vInstShadow')
 
@@ -82,9 +101,10 @@ export function makeGrassMaterialTSL(wind) {
     const transformed = positionLocal.toVar()
     const gv = clamp(transformed.y, 0.0, 1.0)
     const gw = gv.mul(gv).mul(0.45)
-    const gFlow = sin(dot(instWorldXZ, vec2(0.06, 0.045)).add(uGrassTime.mul(1.4)))
+    const gGust = grassNoise(instWorldXZ.mul(0.11).add(uGrassWindDir.mul(uGrassTime).mul(0.35)))
+    const gFlow = sin(dot(instWorldXZ, vec2(0.06, 0.045)).add(gGust.mul(5.5)).add(uGrassTime.mul(1.4)))
       .add(sin(dot(instWorldXZ, vec2(-0.11, 0.09)).add(uGrassTime.mul(2.3))).mul(0.5))
-    const gAmp = float(0.6).add(gFlow.mul(0.4)).mul(gw).mul(uGrassWind)
+    const gAmp = float(0.55).add(gFlow.mul(0.4)).mul(gw).mul(uGrassWind)
     const gph = uGrassTime.mul(2.2).add(windPhase)
     const gWdir = normalize(uGrassWindDir.add(1e-4))
     transformed.x.addAssign(gWdir.x.mul(gAmp).add(sin(gph).mul(gw).mul(0.25).mul(uGrassWind)))
@@ -106,35 +126,46 @@ export function makeGrassMaterialTSL(wind) {
     transformed.z.mulAssign(mix(0.5, 1.0, gFade))
 
     vScorch = varying(scorch, 'vScorch')
+    vFieldXZ = varying(instWorldXZ, 'vFieldXZ')
 
     return instanceMatrixNode.mul(vec4(transformed, 1.0)).xyz
   })
 
-  const flatNormalLocal = normalize(mix(normalize(normalLocal), vec3(0.0, 1.0, 0.0), 0.6))
+  const flatNormalLocal = normalize(mix(normalize(normalLocal), vec3(0.0, 1.0, 0.0), 0.75))
 
   const litColor = Fn(() => {
-    const gLo = vec3(0.12, 0.22, 0.06)
-    const gHi = mix(vec3(0.34, 0.55, 0.16), vec3(0.45, 0.5, 0.14), vTint)
-    const gAO = float(0.6).add(smoothstep(0.0, 0.2, vGrassY).mul(0.4))
-    const baseColor = mix(gLo, gHi, clamp(vGrassY, 0.0, 1.0)).mul(gAO).mul(2.0).toVar()
+    const blade = clumpSample.r
+    const fieldNoise = grassNoise(vFieldXZ.mul(0.085))
+    const variation = clamp(fieldNoise.mul(0.65).add(vTint.mul(0.35)), 0.0, 1.0)
+    const tip = mix(uGrassTip1, uGrassTip2, variation)
+    const along = smoothstep(0.0, 0.95, vUv.y)
+    const baseColor = mix(uGrassBase, tip, along).toVar()
+    baseColor.mulAssign(mix(0.78, 1.1, smoothstep(0.55, 1.0, blade)))
+    baseColor.mulAssign(float(0.62).add(smoothstep(0.0, 0.3, vUv.y).mul(0.38)))
     baseColor.assign(mix(baseColor, uGrassScorchColor, vScorch))
-    const n = frontFacing.select(normalWorld, normalWorld.negate())
-    const ndl = max(dot(n, uSunDir), 0.0)
-    const lit = baseColor.mul(uAmbient.add(uSunColor.mul(ndl).mul(vInstShadow)))
-    return vec4(lit, 1.0)
+    const ndl = max(dot(normalize(normalWorld), uSunDir), 0.0)
+    const wrap = float(0.4).add(ndl.mul(0.6))
+    const viewDir = normalize(cameraPosition.sub(positionWorld))
+    const backlit = pow(clamp(dot(viewDir, uSunDir.negate()), 0.0, 1.0), 3.0).mul(vUv.y)
+    const lit = baseColor.mul(uAmbient.add(uSunColor.mul(wrap).mul(vInstShadow)))
+      .add(baseColor.mul(uSunColor).mul(backlit).mul(0.55).mul(vInstShadow))
+    return vec4(pow(lit, vec3(1.7)), 1.0)
   })
 
-  const material = new MeshBasicNodeMaterial({ side: THREE.FrontSide })
+  const material = new MeshBasicNodeMaterial({ side: THREE.DoubleSide })
+  material.opacityNode = clumpSample.r
+  material.alphaTest = GRASS_ALPHA_CUTOFF
   material.normalNode = flatNormalLocal
   material.positionNode = displacedPosition()
   material.colorNode = litColor()
-  material.customProgramCacheKey = () => 'grassblade-lambert-tsl'
+  material.customProgramCacheKey = () => 'grassclump-fluffy-tsl'
 
   return {
     material,
     nodes: {
       uGrassTime, uGrassWind, uGrassWindDir, uCamPosXZ, uGrassRing,
       uSunDir, uSunColor, uAmbient, uGrassBendRadius, uGrassBendStrength,
+      uGrassBase, uGrassTip1, uGrassTip2,
       uBenderCount, uDecalCount, uGrassScorchShrink, uGrassScorchColor,
       benderSlots, decalSlots
     }
