@@ -18,27 +18,6 @@ export function emitEnvelope(bus, channel, data, meta = {}) {
   }
 }
 
-export function wrapEventBus(bus) {
-  return {
-    on: bus.on.bind(bus),
-    off: bus.off.bind(bus),
-    once: bus.once.bind(bus),
-    emit: (channel, data, meta = {}) => emitEnvelope(bus, channel, data, meta),
-    emitRaw: bus.emit.bind(bus),
-    scope: bus.scope.bind(bus),
-    destroyScope: bus.destroyScope.bind(bus),
-    clear: bus.clear.bind(bus),
-  }
-}
-
-export function parseSource(source) {
-  const parts = source.split(':')
-  const repo = parts[0] || 'unknown'
-  const component = parts[1] || 'unknown'
-  const identifier = parts.slice(2).join(':') || null
-  return { repo, component, identifier }
-}
-
 export function validateEnvelope(env) {
   const errors = []
   if (!env || typeof env !== 'object') return { valid: false, errors: ['envelope must be an object'] }

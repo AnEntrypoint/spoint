@@ -54,30 +54,4 @@ export function collectBenchmark(ctx) {
     timestamp: Date.now(),
   }
 }
-
-export function registerBenchmarkEndpoint(httpServer, collectFn) {
-  const existingListeners = httpServer.listeners('request').slice()
-  httpServer.removeAllListeners('request')
-
-  httpServer.on('request', (req, res) => {
-    if (req.method === 'GET' && req.url === '/benchmark') {
-      try {
-        const data = collectFn()
-        const json = JSON.stringify(data)
-        res.writeHead(200, {
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache',
-          'Access-Control-Allow-Origin': '*',
-        })
-        res.end(json)
-      } catch (err) {
-        res.writeHead(500, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: 'benchmark collection failed', detail: err.message }))
-      }
-      return
-    }
-    for (const listener of existingListeners) {
-      listener.call(httpServer, req, res)
-    }
-  })
-}
+

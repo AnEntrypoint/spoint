@@ -64,7 +64,7 @@ flowchart TD
 |------|----------------|
 | `vegetation-render-distance` | max visibility radius over veg/rocks/grass = THREE's camera far floor |
 | `host-near-far` | publish `hostNearFar {near,far}` = the SINGLE near/far the depth writeback + THREE projection share |
-| `terrain-depth-color` | mapspinner draws terrain+water+sky, writes re-encoded depth to canvas (see **DepthComposite**) |
+| `terrain-depth-color` | mapspinner draws terrain+water+sky, writes re-encoded depth to canvas |
 | `camera-projection-apply` | set THREE `camera.near/far = hostNearFar` so both depth buffers share one curve |
 | `foliage-lod-sync` | veg/rocks/grass LOD + cull update with the current-frame camera |
 | `scene-color` | `renderer.render(scene, camera)` with `autoClear=false`, depth-testing against terrain depth |
@@ -77,7 +77,6 @@ flowchart TD
 ### Rendering & composite seams (the ones that used to be implicit)
 - **RenderGraph** (`core/RenderGraph.js`) — the per-frame DAG orchestrator; single-writer-enforced, cycle-checked, watchdogged, `toMermaid()`.
 - **RenderControls** (`core/RenderControls.js`) — the single discoverable registry of all render/opt control knobs. `window.__renderControls.list()`.
-- **DepthComposite** (`core/DepthComposite.js`) — the documented contract for the mapspinner↔THREE shared-depth handoff (pass order, invariants, z-fight debug checklist, health-check).
 - **ShadowPipeline** (`core/ShadowPipeline.js`) — the single owner of the sun shadow map(s): player-follow + texel-snap stability + re-render cadence + sun-direction aim. 1-3 CASCADES (`shadowCascades` RenderControls knob, device-tier default Low/Medium=1 High=2 Ultra=3, resolved once at boot): cascade 0 IS `sun` itself (byte-identical to the pre-cascade single-shadow behavior); cascades 1-2 are additional shadow-only `DirectionalLight`s (intensity 0) at wider extents (geometric split ×3.2), each independently texel-snapped/heartbeat-free on its OWN per-light `needsUpdate` gate. `forceUpdate()` forces every cascade to re-render (used when new shadow-casters stream in — THREE resets each light's own `shadow.needsUpdate` after rendering it, independently of the renderer-level flag). Consumers: THREE's WebGLShadowMap object shadows, now per-fragment CASCADE-SELECTED (`core/CascadeShadowSelect.js` — see below) instead of multiplicatively accumulated, + the terrain host-shadow bridge (cascade 0 / `sun` ONLY — folding cascade-select into the bridge itself is a further deferred follow-up, since the bridge is a separate raw-GL consumer outside THREE's material/shader pipeline).
 - **CascadeShadowSelect** (`core/CascadeShadowSelect.js`) — patches `THREE.ShaderChunk.lights_fragment_begin` ONCE (same global-chunk-patch precedent as UnderwaterTint) so each fragment picks the ONE nearest cascade covering it by camera-space depth (with a cross-fade blend band at cascade boundaries), replacing THREE's stock per-light multiplicative shadow accumulation. COMPLETE NO-OP for `cascadeCount<=1` — the proven-safe single-cascade path never reaches this code at all (structural, not just inert), zero regression risk to the historically fragile close-tree-flicker subsystem.
 - **UnderwaterTint** (`core/UnderwaterTint.js`) — tints submerged THREE geometry blue via a documented global fog-chunk patch, gated on the camera being at/below water so above-water geometry never false-tints.
@@ -122,7 +121,7 @@ flowchart TD
 
 | seam | owner | knob(s) | why it is subtle |
 |------|-------|---------|------------------|
-| shared depth (terrain occludes THREE) | DepthComposite contract + `terrain-depth-color` node + gl-render.js writeback | `planetDepthToCanvas`, `planetDepthBias` | terrain draws FIRST (raw GL) then THREE composites with `autoClear=false`; depth is re-encoded to a shared near/far |
+| shared depth (terrain occludes THREE) | `host-near-far` + `terrain-depth-color` + `camera-projection-apply` nodes + gl-render.js writeback | `planetDepthToCanvas`, `planetDepthBias` | terrain draws FIRST (raw GL) then THREE composites with `autoClear=false`; depth is re-encoded to a shared near/far |
 | host-shadow bridge (terrain receives THREE shadow) | ShadowPipeline (map) + TerrainBackdrop `_buildShadowInfo` | `hostShadowOff` | mapspinner terrain is outside THREE's mesh graph; its shadow comes from threading THREE's shadow depth texture + an ECEF→local matrix into terrain.glsl |
 | shadow map stability | ShadowPipeline | — | player-following map re-render jitters both consumers; fixed by light-space texel-snap + re-render-only-on-step |
 | underwater tint | UnderwaterTint | `seaLevelY` | mapspinner paints water before the THREE scene draws; a global fog-chunk patch tints submerged geometry, gated on camera-below-water |

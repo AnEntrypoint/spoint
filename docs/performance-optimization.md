@@ -355,7 +355,6 @@ if (heapDelta > 100_000) {  // >100KB/frame
 
 2. **Mipmapping + compression:**
    - Use KTX2 + Basis compression (50% → 15% of original size)
-   - `src/client/core/ProgressiveKTX2.js` loads mips progressively
 
 3. **LOD textures:**
    ```javascript

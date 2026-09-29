@@ -13,10 +13,6 @@ const DEFAULTS = {
   musicVolume: 1,
   qualityPreset: 'Medium',
   dprAuto: false,
-  fontScale: 100,
-  colorblindMode: 'normal',
-  reducedMotion: false,
-  gamepadEnabled: true,
 }
 
 function loadSaved() {
@@ -169,10 +165,6 @@ export function createSettingsMenu({ getCam = () => null, getRenderer = () => nu
     values.dprAuto = v; _persist()
     if (typeof window !== 'undefined') { window.__dprAuto = v; window.__dprOff = !v }
   }
-  function _applyFontScale(v) { values.fontScale = v; _persist(); if (typeof window !== 'undefined' && window.__a11y) window.__a11y.setFontScale(v) }
-  function _applyColorblindMode(mode) { values.colorblindMode = mode; _persist(); if (typeof window !== 'undefined' && window.__colorblindFilter) window.__colorblindFilter.setMode(mode) }
-  function _applyReducedMotion(v) { values.reducedMotion = v; _persist(); if (typeof window !== 'undefined' && window.__a11y) window.__a11y.setReducedMotion(v) }
-  function _applyGamepadEnabled(v) { values.gamepadEnabled = v; _persist(); if (typeof window !== 'undefined' && window.__gamepadController) { if (v) window.__gamepadController.enable(); else window.__gamepadController.disable() } }
 
   function applyAllOnLoad() {
     const cam = getCam()
@@ -276,15 +268,6 @@ export function createSettingsMenu({ getCam = () => null, getRenderer = () => nu
     panel.appendChild(_row('Music Volume', _range(0, 1, 0.01, values.musicVolume, _applyMusicVolume)))
     panel.appendChild(_row('Quality Preset', _select(QualityPresets.names, values.qualityPreset, _applyQualityPreset)))
     panel.appendChild(_row('Auto Resolution', _checkbox(values.dprAuto, _applyDprAuto)))
-
-    const a11yH3 = document.createElement('h3')
-    a11yH3.textContent = 'Accessibility'
-    panel.appendChild(a11yH3)
-
-    panel.appendChild(_row('Font Scale', _range(80, 120, 5, values.fontScale, _applyFontScale)))
-    panel.appendChild(_row('Colorblind Mode', _select(['normal', 'deuteranopia', 'protanopia', 'tritanopia'], values.colorblindMode, _applyColorblindMode)))
-    panel.appendChild(_row('Reduced Motion', _checkbox(values.reducedMotion, _applyReducedMotion)))
-    panel.appendChild(_row('Gamepad Support', _checkbox(values.gamepadEnabled, _applyGamepadEnabled)))
 
     const cacheSection = _buildCacheSection()
     _cacheSectionCancel = cacheSection.cancel
