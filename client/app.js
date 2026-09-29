@@ -1757,6 +1757,11 @@ clientMachine.subscribe(() => {
   _specWasSpectator = isSpec
 })
 const _vegFocusRebased = new THREE.Vector3()
+const _vegFocusAuth = { x: 0, y: 0, z: 0 }
+function _localFocusToRender(authPos) {
+  _vegFocusAuth.x = authPos[0]; _vegFocusAuth.y = authPos[1]; _vegFocusAuth.z = authPos[2]
+  return floatingOrigin.toRender(_vegFocusAuth, _vegFocusRebased)
+}
 const _tpOverrideAuth = { x: 0, y: 0, z: 0 }
 const _tpOverrideRender = new THREE.Vector3()
 const _cameraAuthForRebase = new THREE.Vector3()
@@ -2172,7 +2177,8 @@ function buildFrameSectionNodes() {
         xrSystem?.syncVRPosition(local); xrSystem?.update(ctx.res.frameDt, local, ams.appModules, ctx.now)
         ctx.res.vegFocus = (cam.getEditMode() && cam.getEditCameraPosition) ? cam.getEditCameraPosition()
           : specMesh ? _specTmp
-          : local
+          : local && local.position ? _localFocusToRender(local.position)
+          : undefined
       },
     },
     {
@@ -2185,11 +2191,9 @@ function buildFrameSectionNodes() {
         ctx.res.originRebased = rebased
         if (rebased) {
           const vf = ctx.res.vegFocus
-          const vfPos = vf && (vf.position || vf)
-          if (Array.isArray(vfPos)) ctx.res.vegFocus = floatingOrigin.toRender({ x: vfPos[0], y: vfPos[1], z: vfPos[2] }, _vegFocusRebased)
-          else if (vfPos && typeof vfPos.x === 'number' && vf !== camera && vf !== cam.getEditCameraPosition?.()) {
+          if (vf && typeof vf.x === 'number' && vf !== camera.position && vf !== cam.getEditCameraPosition?.()) {
             const d = floatingOrigin.getLastDelta()
-            vfPos.x += d.x; vfPos.y += d.y; vfPos.z += d.z
+            vf.x += d.x; vf.y += d.y; vf.z += d.z
           }
         }
       },
@@ -2316,7 +2320,7 @@ function buildFrameSectionNodes() {
       run(ctx) {
         if (colliderDebug && colliderDebug.visible) {
           const vf = ctx.res.vegFocus
-          const authFocus = floatingOrigin.toAuthoritative(vf && vf.position ? { x: vf.position[0], y: vf.position[1], z: vf.position[2] } : (vf || camera.position), _colliderDebugFocus)
+          const authFocus = floatingOrigin.toAuthoritative(vf || camera.position, _colliderDebugFocus)
           try { colliderDebug.update(authFocus, el.entityMeshes) } catch (_) {}
         }
         if (typeof editor !== 'undefined' && (ctx.res.isEditorFrame || editPanel.visible)) editor.updateGizmo()

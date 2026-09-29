@@ -107,7 +107,7 @@ export function buildRenderSectionNodes() {
           const frameDt = ctx.res.frameDt || 0
           let vegFocus = ctx.res.vegFocus || ctx.camera.position
           if (ctx.floatingOrigin) {
-            vegFocus = ctx.floatingOrigin.toAuthoritative(vegFocus.position ? { x: vegFocus.position[0], y: vegFocus.position[1], z: vegFocus.position[2] } : vegFocus, _authVegFocus)
+            vegFocus = ctx.floatingOrigin.toAuthoritative(vegFocus, _authVegFocus)
           }
           if (veg) {
             try { if (typeof veg.updateStreaming === 'function') veg.updateStreaming(frameDt, ctx.camera, vegFocus, pose); else if (typeof veg.update === 'function') veg.update(frameDt, ctx.camera, vegFocus, shadowStill) } catch (_) {}
