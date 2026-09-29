@@ -30,10 +30,14 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   const _terrainOcclusion = isWebGPU
     ? { makePredicate: () => undefined, runQueries() {}, getStats: () => ({ flips: 0 }), clearVerdicts() {}, dispose() {}, snapshotOccludedKeys: () => [], setMaxQueriesPerFrame() {}, getMaxQueriesPerFrame: () => 0, getCandidateCount: () => 0 }
     : createTerrainOcclusion(gl, { minCandidates: cfg.occlusionMinCandidates ?? 32, maxElev: cfg.occlusionMaxElev ?? 200 })
-  let initMapspinnerPlanet, createHeightSampler, initMapspinnerPlanetWebGPU
+  const isTslTerrain = isWebGPU && typeof location !== 'undefined' && /[?&]tslterrain=1\b/.test(location.search)
+  const terrainHashVersion = isTslTerrain ? (Number(new URLSearchParams(location.search).get('terrainhash')) || cfg.hashVersion || 1) : 1
+  let initMapspinnerPlanet, createHeightSampler, initMapspinnerPlanetWebGPU, initMapspinnerPlanetTSL
   performance.mark('terrain:start')
   try {
-    if (isWebGPU) {
+    if (isTslTerrain) {
+      ;({ initMapspinnerPlanetTSL } = await import('/node_modules/mapspinner/src/tsl/planet-tsl.js'))
+    } else if (isWebGPU) {
       ;({ initMapspinnerPlanetWebGPU } = await import('mapspinner/webgpu/planet-orchestrator-webgpu'))
     } else {
       ;({ initMapspinnerPlanet } = await import('mapspinner/planet-orchestrator'))
@@ -52,6 +56,9 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     let lastErr
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
+        if (isTslTerrain) {
+          return await initMapspinnerPlanetTSL(renderer, scene, { radius, reliefScale: cfg.reliefScale, hpfSeed: cfg.seed, hashVersion: terrainHashVersion, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : undefined, splitFactor: Number.isFinite(cfg.splitFactor) ? cfg.splitFactor : undefined })
+        }
         if (isWebGPU) {
           return await initMapspinnerPlanetWebGPU(renderer, { radius, reliefScale: cfg.reliefScale, hpfSeed: cfg.seed, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : undefined, splitFactor: Number.isFinite(cfg.splitFactor) ? cfg.splitFactor : undefined })
         }
@@ -66,9 +73,9 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   try {
     planet = await _initPlanet()
     performance.mark('terrain:planet-init')
-    sampler =createHeightSampler({ radius, seed: cfg.seed, reliefScale: cfg.reliefScale })
+    sampler =createHeightSampler({ radius, seed: cfg.seed, reliefScale: cfg.reliefScale, hashVersion: terrainHashVersion })
     frame = createPlanetFrame({ sampler, anchorDir: cfg.anchorDir || [0, 1, 0], offsetY: cfg.offsetY || 0, reliefScale: cfg.reliefScale })
-    if (cfg.gpuPatchCollider !== false) {
+    if (cfg.gpuPatchCollider !== false && terrainHashVersion === 1) {
       try {
         const { createPatchBaker, createPatchHeightFn } = await import('/node_modules/mapspinner/src/patch-baker.js')
         const baker = await createPatchBaker({ radius, reliefScale: cfg.reliefScale, seed: cfg.seed }).catch(() => null)
@@ -175,6 +182,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   function renderPlanet(camera, elapsedSec, sun, toAuthoritative) {
     try {
       camera.getWorldPosition(_pos)
+      if (isTslTerrain) _tslView.cameraRenderPosition.copy(_pos)
       const p = toAuthoritative ? toAuthoritative(_pos, _pos) : _pos
       if (frame._patchPrefetch && elapsedSec - _lastPrefetchSec > 0.25) {
         _lastPrefetchSec = elapsedSec
@@ -203,14 +211,15 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
         if (Number.isFinite(gh)) { surfElev = elevationAtLocal(frame, p.x, gh, p.z); _lastSurfElevGh = gh }
       } catch (_) {}
       const shadowInfo = RenderControls.get('hostShadowOff') ? undefined : _buildShadowInfo(sun)
-      const _res = planet.frame(_eye, _tgt, fovy, 0, _sunE, elapsedSec, frame.up, surfElev / radius, shadowInfo)
+      const _res = planet.frame(_eye, _tgt, fovy, 0, _sunE, elapsedSec, frame.up, surfElev / radius, shadowInfo, isTslTerrain ? _tslView : undefined)
       if (_res && _res.cached === false && _res.quadCount === 0) {
         _dbgTerrain('zero-quad fail-safe triggered -> clearing occlusion verdicts + planet cache')
         try { _terrainOcclusion.clearVerdicts() } catch (e) { _dbgTerrain('clearVerdicts failed in zero-quad fail-safe:', e?.message || e) }
         try { planet.clearCache && planet.clearCache() } catch (e) { _dbgTerrain('planet.clearCache failed in zero-quad fail-safe:', e?.message || e) }
       }
       if (!isWebGPU) renderer.resetState()
-      if (scene.background !== null) scene.background = null
+      if (isTslTerrain) { if (scene.background !== _tslSkyColor) scene.background = _tslSkyColor }
+      else if (scene.background !== null) scene.background = null
     } catch (e) {
       const msg = String(e && e.message || e)
       if (msg !== _lastRenderPlanetErr) { _lastRenderPlanetErr = msg; console.warn('[terrain] renderPlanet threw, painting fallback sky this frame:', msg) }
@@ -220,6 +229,8 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   }
   let _lastRenderPlanetErr = null
   const _fallbackSkyColor = new THREE.Color(0x87ceeb)
+  const _tslSkyColor = new THREE.Color(0x87ceeb)
+  const _tslView = isTslTerrain ? { cameraRenderPosition: new THREE.Vector3(), east: frame.east, up: frame.up, north: frame.north } : null
   let _lastFlips = 0
   function runOcclusionQueries() {
     try {
@@ -234,5 +245,6 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   function occlusionPredicateSnapshot() { return _terrainOcclusion.snapshotOccludedKeys() }
   function setOcclusionQueryBudget(n) { _terrainOcclusion.setMaxQueriesPerFrame(n) }
   function getOcclusionQueryBudget() { return _terrainOcclusion.getMaxQueriesPerFrame() }
-  return { planet, frame, sampler, renderPlanet, runOcclusionQueries, update, dispose, getOcclusionStats: () => _terrainOcclusion.getStats(), getOcclusionCandidateCount: () => _terrainOcclusion.getCandidateCount(), occlusionPredicateSnapshot, setOcclusionQueryBudget, getOcclusionQueryBudget, setSunLocal }
+  const sceneFarHint = () => (isTslTerrain && typeof planet.sceneFar === 'function') ? planet.sceneFar() : 0
+  return { planet, frame, sampler, renderPlanet, sceneFarHint, runOcclusionQueries, update, dispose, getOcclusionStats: () => _terrainOcclusion.getStats(), getOcclusionCandidateCount: () => _terrainOcclusion.getCandidateCount(), occlusionPredicateSnapshot, setOcclusionQueryBudget, getOcclusionQueryBudget, setSunLocal }
 }

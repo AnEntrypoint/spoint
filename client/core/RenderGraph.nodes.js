@@ -47,7 +47,8 @@ export function buildRenderSectionNodes() {
         const planetRadius = (ctx.terrainBackdrop.planet && ctx.terrainBackdrop.planet.radius) || 63600
         const distToCenter = camDist + planetRadius
         const wantNear = ALTITUDE_INDEPENDENT_NEAR_M
-        const wantFar = Math.min(Math.max(vegFar, 100), distToCenter)
+        const terrainSceneFar = ctx.terrainBackdrop.sceneFarHint ? ctx.terrainBackdrop.sceneFarHint() : 0
+        const wantFar = Math.min(Math.max(vegFar, 100, terrainSceneFar), distToCenter)
         ctx.res.hostNearFar = { near: wantNear, far: wantFar }
         if (typeof window !== 'undefined') window.__hostNearFar = ctx.res.hostNearFar
       },

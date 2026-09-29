@@ -2,6 +2,8 @@ import { makeHeight } from './height-gen.js'
 import { createAnchorField } from './anchor-field.js'
 import * as g from './glsl-rt.js'
 import { SHAPE_UNIFORM_DEFAULTS } from './terrain-defaults.js'
+import { defineHeightSpec, assertHashVersion, HASH_VERSION_FLOAT } from './tsl/height-spec.js'
+import { createJsOps } from './tsl/ops-js.js'
 
 export const HEIGHT_UNIFORM_DEFAULTS = {
   hasHpf: 1,
@@ -58,13 +60,19 @@ export function createHeightSampler(opts = {}) {
     }
     return out
   }
+  const hashVersion = assertHashVersion(opts.hashVersion ?? HASH_VERSION_FLOAT)
   const H = makeHeight(U, hpfSample)
+  const spec = hashVersion === HASH_VERSION_FLOAT ? null : defineHeightSpec(createJsOps(
+    { hpfRes: RES, landBias: U.uLandBias, beachShelfM: U.uBeachShelfM, reliefScale: 0 },
+    (face, x, y) => { const buf = _faceBuf[face] || _bakeFace(face); const o = (y * RES + x) * 4; return [buf[o], buf[o + 1], buf[o + 2], buf[o + 3]] },
+    { precision: 'f64' },
+  ), { hashVersion })
 
   function heightAt(dir) {
     const d = g.normalize(dir)
-    return H.composeHeight(d, [0, 0], 100) * reliefScale
+    return (spec ? spec.composeHeight(d) : H.composeHeight(d, [0, 0], 100)) * reliefScale
   }
   function surfacePoint(dir) { const d = g.normalize(dir); return g.mul(d, radius + heightAt(d)) }
 
-  return { heightAt, surfacePoint, radius, anchorField: af, uniforms: U, _fns: H }
+  return { heightAt, surfacePoint, radius, anchorField: af, uniforms: U, hashVersion, _fns: H }
 }
