@@ -1,10 +1,10 @@
 import { sampleMinimapCell } from '../../src/shared/MinimapBiome.js'
 
 const SIZE_PX = 168
-const VIEW_SPAN_M = 256
-const BUFFER_SPAN_M = 384
-const BUFFER_CELLS = 96
-const REFRESH_DRIFT_M = 32
+const VIEW_SPAN_M = 512
+const BUFFER_SPAN_M = 768
+const BUFFER_CELLS = 128
+const REFRESH_DRIFT_M = 64
 const SLICE_MS = 1.5
 const ARROW_LENGTH_PX = 9
 const ARROW_HALF_WIDTH_PX = 6
