@@ -56,8 +56,7 @@ export class PhysicsNetworkClient extends BaseClient {
       try { this._rawSend(pack({ type: MSG.HEARTBEAT, payload: { timestamp: this._pingSent } })) }
       catch (e) { this._onClose() }
     }, () => {
-      const smoothInterp = this._msgHandler.getSmoothInterp()
-      smoothInterp?.resyncToLatest()
+      this._msgHandler.getTimeline().resync()
     })
   }
 

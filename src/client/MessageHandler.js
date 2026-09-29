@@ -1,17 +1,20 @@
 import { PredictionEngine } from './PredictionEngine.js'
-import { SmoothInterpolation } from './SmoothInterpolation.js'
+import { SnapshotTimeline } from './SnapshotTimeline.js'
 import { ClockSync } from './ClockSync.js'
 import { MSG, WIRE_PROTOCOL_VERSION, DISCONNECT_REASONS } from '../protocol/MessageTypes.js'
 import { WIRE_STRUCT_HASH } from '../protocol/msgpack.js'
 import { createInputSchema, DEFAULT_INPUT_SCHEMA } from '../protocol/InputCodec.js'
 
 const PRE_HANDSHAKE_TICK_RATE = 60
+const RTT_EMA_ALPHA = 0.25
+const RTT_OUTLIER_FACTOR = 5
 
 export class MessageHandler {
   constructor(config = {}) {
     this._config = config
     this._predEngine = null
-    this._smoothInterp = null
+    this._timeline = new SnapshotTimeline({ tickRate: config.tickRate || PRE_HANDSHAKE_TICK_RATE })
+    this._rttMs = 0
     this._playerId = null
     this._callbacks = config.callbacks || {}
     this._clockSync = new ClockSync(config.clockSync)
@@ -44,6 +47,7 @@ export class MessageHandler {
       if (payload.movement && this._predEngine) this._predEngine.setMovement(payload.movement)
       if (payload.gravity && this._predEngine) this._predEngine.setGravity(payload.gravity)
       if (payload.tickRate && this._predEngine) this._predEngine.setTickRate(payload.tickRate)
+      if (payload.tickRate) this._timeline.setTickRate(payload.tickRate)
       this._inputSchema = createInputSchema(payload.netcode || null)
       try { this._callbacks.onWorldDef?.(payload) }
       catch (e) { console.error('[client] onWorldDef failed:', e?.message || e) }
@@ -84,8 +88,7 @@ export class MessageHandler {
 
   _handleTeleportAck(payload) {
     if (payload.op === 'to' && payload.phase === 'placed' && payload.ok) {
-      this._smoothInterp?.reset()
-      if (this._smoothInterp) this._smoothInterp.setLocalPlayer(this._playerId)
+      this._timeline.reset()
       this._predEngine?.teleport(payload.position, payload.velocity, payload.tick)
     }
     this._callbacks.onTeleportAck?.(payload)
@@ -102,10 +105,8 @@ export class MessageHandler {
     this._playerId = payload.playerId
     this._predEngine = new PredictionEngine(payload.tickRate || this._config.tickRate || PRE_HANDSHAKE_TICK_RATE)
     this._predEngine.init(this._playerId)
-    if (this._config.smoothInterpolation !== false) {
-      this._smoothInterp = new SmoothInterpolation({ predictionEnabled: this._config.predictionEnabled !== false })
-      this._smoothInterp.setLocalPlayer(this._playerId)
-    }
+    this._timeline.setTickRate(payload.tickRate || this._config.tickRate || PRE_HANDSHAKE_TICK_RATE)
+    this._timeline.reset()
     return { sessionToken: payload.sessionToken }
   }
 
@@ -122,10 +123,7 @@ export class MessageHandler {
     const oldPlayerId = this._playerId
     this._playerId = payload.playerId
     snapProc?.clear()
-    if (this._smoothInterp) {
-      this._smoothInterp.reset()
-      this._smoothInterp.setLocalPlayer(this._playerId)
-    }
+    this._timeline.reset()
     if (oldPlayerId) this._callbacks.onPlayerLeft?.(oldPlayerId)
     const prevEngine = this._predEngine
     this._predEngine = new PredictionEngine(payload.tickRate || this._config.tickRate || PRE_HANDSHAKE_TICK_RATE)
@@ -137,18 +135,13 @@ export class MessageHandler {
       this._predEngine.gravityY = prevEngine.gravityY
       if (prevEngine._surface) this._predEngine.setGroundSurface(prevEngine._surface.heightAt)
     }
-    if (this._config.smoothInterpolation !== false && !this._smoothInterp) {
-      this._smoothInterp = new SmoothInterpolation({ predictionEnabled: this._config.predictionEnabled !== false })
-      this._smoothInterp.setLocalPlayer(this._playerId)
-    }
+    this._timeline.setTickRate(payload.tickRate || this._config.tickRate || PRE_HANDSHAKE_TICK_RATE)
     return { sessionToken: payload.sessionToken }
   }
 
   _handleHeartbeat(payload) {
     const t3 = Date.now()
-    if (this._smoothInterp && payload.timestamp) {
-      this._smoothInterp.updateRTT(payload.timestamp, t3)
-    }
+    if (typeof payload.timestamp === 'number') this._recordRtt(t3 - payload.timestamp)
     if (typeof payload.timestamp === 'number' && typeof payload.serverTime === 'number') {
       this._clockSync.addSample(payload.timestamp, payload.serverTime, t3)
     }
@@ -156,12 +149,18 @@ export class MessageHandler {
 
   getPlayerId() { return this._playerId }
   getPredEngine() { return this._predEngine }
-  getSmoothInterp() { return this._smoothInterp }
+  getTimeline() { return this._timeline }
   getStructMismatch() { return this._structMismatch }
   getClockSync() { return this._clockSync }
 
   getRTT() {
-    return this._smoothInterp?.getRTT() || 0
+    return this._rttMs
+  }
+
+  _recordRtt(sample) {
+    if (!Number.isFinite(sample) || sample < 0) return
+    if (this._rttMs > 0 && sample > this._rttMs * RTT_OUTLIER_FACTOR) return
+    this._rttMs = this._rttMs > 0 ? this._rttMs * (1 - RTT_EMA_ALPHA) + sample * RTT_EMA_ALPHA : sample
   }
 
   getOneWayDelay() {
@@ -173,7 +172,7 @@ export class MessageHandler {
   }
 
   getBufferHealth() {
-    return this._smoothInterp?.getBufferHealth() || 0
+    return this._timeline.bufferedAhead
   }
 
   getPeerRttTable() { return this._peerRttTable }

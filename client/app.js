@@ -2142,6 +2142,7 @@ function buildFrameSectionNodes() {
         const _ring = client.readTransformRing?.()
         if (client.config?.predictionEnabled && lid != null) sceneGraph.setLocalPlayerTransform(lid, client.getRenderState())
         if (_ring) sceneGraph.setPlayerTransformsFromRing(_ring, lid)
+        else if (client.getInterpolatedState) sceneGraph.setRemotePlayerTransforms(client.getInterpolatedState(performance.now()).players, lid)
         ctx.res.sceneGraphMoved = sceneGraph.tick(ctx.res.frameDt, ctx.res.lerpFactor)
         if (!ctx.res.isEditorFrame) replayBuffer.record(ctx.now)
         tickAnimatedEntities(ctx.res.frameDt)

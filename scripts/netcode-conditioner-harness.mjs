@@ -178,7 +178,7 @@ async function runOne(cond, predict, worldDef) {
   place(mover, [0, 1.2, 0]); place(shooter, [0, 1.2, 10])
   bots.forEach((b, i) => place(b, [20 + 4 * i, 1.2, -20]))
   const rec = { mispredict: [], correctionJumpM: [], corrections: 0, worst: [] }
-  const localFrames = [], remoteFrames = [], libRemoteFrames = [], meshLag = []
+  const localFrames = [], remoteFrames = [], interpStats = [], meshLag = []
   const onsets = []
   let lastMoverInput = {}, runStart = 0, lastFrameAt = 0, shootAcc = 0, meterBase = null
   const botRng = mulberry32(7)
@@ -207,6 +207,7 @@ async function runOne(cond, predict, worldDef) {
     for (const h of all) {
       const lerp = 1.0 - Math.exp(-((h.client.getRTT() > 100 ? 24 : 16)) * frameDt)
       if (h.client.config.predictionEnabled && h.client.playerId != null) h.view.sceneGraph.setLocalPlayerTransform(h.client.playerId, h.client.getRenderState())
+      if (h.client.getInterpolatedState) h.view.sceneGraph.setRemotePlayerTransforms(h.client.getInterpolatedState(now).players, h.client.playerId)
       h.view.sceneGraph.tick(frameDt, lerp)
     }
     if (!runStart || now < runStart) return
@@ -215,8 +216,7 @@ async function runOne(cond, predict, worldDef) {
     const ls = mover.client.getLocalState()
     if (lp && ls) { localFrames.push({ t: now, p: lp, v: [...ls.velocity] }); meshLag.push(dist3(lp, ls.position)) }
     if (rp) remoteFrames.push({ t: now, p: rp })
-    const lib = shooter.client.getSmoothState(now)?.players?.find(p => p.id === mid)
-    if (lib) libRemoteFrames.push({ t: now, p: [...lib.position] })
+    if (shooter.client.getInterpolationStats) interpStats.push(shooter.client.getInterpolationStats())
     const trM = truth.get(mid)
     for (const o of onsets) {
       const along = (p, s) => p && s ? (p[0] - s[0]) * o.dir[0] + (p[2] - s[2]) * o.dir[2] : -Infinity
@@ -258,7 +258,7 @@ async function runOne(cond, predict, worldDef) {
     inputRateAdjust: mover.client._inputRateAdjust,
     localVisual: { ...detectPops(localFrames), popsPerMin: detectPops(localFrames).pops / (elapsedS / 60), meshBehindPredictedM: summarize(meshLag), vsServerPresent: trM ? summarize(localFrames.map(f => dist3(f.p, trM.at(f.t)))) : null },
     remoteInterp: trM ? effectiveDelay(remoteFrames, trM) : null,
-    remoteInterpLibrary: trM ? effectiveDelay(libRemoteFrames, trM) : null,
+    interpolation: interpStats.length ? { targetDelayMs: summarize(interpStats.map(s => s.delayMs)), jitterMs: summarize(interpStats.map(s => s.jitterMs)), intervalMs: summarize(interpStats.map(s => s.intervalMs)), ahead: summarize(interpStats.map(s => s.ahead)), final: interpStats[interpStats.length - 1] } : null,
     remotePops: detectPops(remoteFrames.map((f, i) => ({ ...f, v: i ? [(f.p[0] - remoteFrames[i - 1].p[0]) / ((f.t - remoteFrames[i - 1].t) / 1000 || 1), 0, (f.p[2] - remoteFrames[i - 1].p[2]) / ((f.t - remoteFrames[i - 1].t) / 1000 || 1)] : [0, 0, 0] }))),
     hitReg: { shots: shots.length, hitRate: shots.filter(s => s.hit).length / Math.max(1, shots.length), missM: summarize(shots.map(s => s.missM)), shooterViewVsPresentM: summarize(shots.map(s => s.shooterViewErrM)), rewindLatencyMs: summarize(shots.map(s => s.latencyMs)) },
     bandwidth: { downKBps: (mover.meter.inBytes - meterBase[0].inBytes) / 1024 / elapsedS, upKBps: (mover.meter.outBytes - meterBase[0].outBytes) / 1024 / elapsedS, downMsgsPerS: (mover.meter.inMsgs - meterBase[0].inMsgs) / elapsedS, snapshotBytesAvg: ((mover.meter.byType.SNAPSHOT || 0) - meterBase[0].snap) / Math.max(1, mover.snapTimes.filter(t => t >= runStart).length), shooterDownKBps: (shooter.meter.inBytes - meterBase[1].inBytes) / 1024 / elapsedS, moverDownBytesByType: mover.meter.byType },

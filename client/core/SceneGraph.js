@@ -53,10 +53,7 @@ export function createSceneGraph(scene, floatingOrigin) {
     }
   }
 
-  function setLocalPlayerTransform(lid, state) {
-    const node = _nodes.get(lid)
-    if (!node || !state?.position) return
-    for (const n of _nodes.values()) if (n !== node) n.direct = false
+  function placeDirect(node, state) {
     node.direct = true
     let px = state.position[0], py = state.position[1] - node.feetOffset, pz = state.position[2]
     if (floatingOrigin) {
@@ -66,6 +63,19 @@ export function createSceneGraph(scene, floatingOrigin) {
     const t = node.target
     t.x = px; t.y = py; t.z = pz
     t.vx = state.velocity?.[0] || 0; t.vy = state.velocity?.[1] || 0; t.vz = state.velocity?.[2] || 0
+  }
+
+  function setLocalPlayerTransform(lid, state) {
+    const node = _nodes.get(lid)
+    if (node && state?.position) placeDirect(node, state)
+  }
+
+  function setRemotePlayerTransforms(players, lid) {
+    for (const p of players) {
+      if (p.id === lid) continue
+      const node = _nodes.get(p.id)
+      if (node && node.isPlayer) placeDirect(node, p)
+    }
   }
 
   function setPlayerTransforms(players, lid, getLocalState) {
@@ -142,5 +152,5 @@ export function createSceneGraph(scene, floatingOrigin) {
 
   function setLocalPlayer(id) {}
 
-  return { addNode, removeNode, setParent, setEntityTransforms, setPlayerTransforms, setLocalPlayerTransform, setPlayerTransformsFromRing, tick, getNode, getTarget, has, nodes, setLocalPlayer }
+  return { addNode, removeNode, setParent, setEntityTransforms, setPlayerTransforms, setLocalPlayerTransform, setRemotePlayerTransforms, setPlayerTransformsFromRing, tick, getNode, getTarget, has, nodes, setLocalPlayer }
 }

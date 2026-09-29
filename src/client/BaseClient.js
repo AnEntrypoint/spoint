@@ -176,8 +176,7 @@ export class BaseClient {
     if (isReorderedSnapshot) return
     this.lastSnapshotTick = this.currentTick = incomingTick
     const snapshotForBuffer = this._snapProc.processSnapshot(data, this.currentTick)
-    const smoothInterp = this._msgHandler.getSmoothInterp()
-    if (smoothInterp) smoothInterp.addSnapshot(snapshotForBuffer)
+    if (msgType === MSG.SNAPSHOT) this._msgHandler.getTimeline().addSnapshot(snapshotForBuffer, performance.now())
     const predEngine = this._msgHandler.getPredEngine()
     if (this.playerId && this.config.predictionEnabled && predEngine) {
       const localState = this._snapProc.getPlayerState(this.playerId)
@@ -222,7 +221,8 @@ export class BaseClient {
   sendLaunch(data) { this.send(MSG.APP_EVENT, { type: 'launch', senderId: this.playerId, ...data }) }
   sendEmote(code) { this.send(MSG.APP_EVENT, { type: 'emote', senderId: this.playerId, code }) }
 
-  getSmoothState(now) { const si = this._msgHandler.getSmoothInterp(); return si ? si.getDisplayState(now) : this.state }
+  getInterpolatedState(now = performance.now()) { return this._msgHandler.getTimeline().sample(now) }
+  getInterpolationStats() { return this._msgHandler.getTimeline().getStats() }
   getRTT() { return this._msgHandler.getRTT() }
   getOneWayDelay() { return this._msgHandler.getOneWayDelay?.() || 0 }
   getPeerRttTable() { return this._msgHandler.getPeerRttTable?.() || {} }
