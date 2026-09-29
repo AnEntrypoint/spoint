@@ -221,6 +221,7 @@ uniform float uWetness;
 
 uniform highp float oceanTime;
 uniform float oceanAmp;
+uniform float oceanSeaMean;
 uniform float oceanChoppy;
 uniform float oceanFoam;
 
@@ -349,23 +350,7 @@ void main() {
         if (dot(vN, dir0) < 0.0) vN = -vN;
     }
     highp float h = hN0;
-    highp float hR;
-    if (uIsWater > 0.5) {
-        vec3 refAxisW = (abs(dir0.y) < 0.99) ? vec3(0.0,1.0,0.0) : vec3(1.0,0.0,0.0);
-        vec3 uxW = normalize(cross(refAxisW, dir0));
-        vec3 uyW = cross(dir0, uxW);
-        const float SWELL_FREQ = 0.016;
-        const float SWELL_SPEED = 1.2;
-        const float SWELL_AMP = 0.8;
-        vec2 swellTime = vec2(oceanTime * SWELL_SPEED * 0.6, oceanTime * SWELL_SPEED * 0.4);
-        highp vec2 swellP = vec2(dot(dir0, uxW), dot(dir0, uyW)) * defRadius;
-        vec2 d0 = vec2(0.866, 0.5); vec2 d1 = vec2(-0.5, 0.866);
-        float swell = (seaOctave((swellP * SWELL_FREQ + d0 * swellTime.x), oceanChoppy) +
-                       seaOctave((swellP * SWELL_FREQ + d1 * swellTime.y), oceanChoppy)) * 0.5;
-        hR = (swell - 0.5) * SWELL_AMP * oceanAmp;
-    } else {
-        hR = h;
-    }
+    highp float hR = (uIsWater > 0.5) ? 0.0 : h;
     highp float skirt = (vertex.z > 0.5 && uIsWater < 0.5) ? max(defOffset.z * 0.06, 30.0 * (uReliefScale > 0.0 ? uReliefScale : 1.0)) : 0.0;
 
     vH    = hN0;
@@ -703,7 +688,7 @@ void main() {
                 highp vec3 pi = camWorld + rayDir * ti;
                 highp vec2 wpi = vec2(dot(pi - wOriginW, ux), dot(pi - wOriginW, uy));
                 float rayH = dot(pi - uz * terrainR, uz);
-                float fi = rayH - seaHeight(wpi, oceanTime, 0, 8);
+                float fi = rayH - (seaHeight(wpi, oceanTime, 0, 8) - oceanSeaMean);
                 if (fi < 0.0) { tMin = ti - stepT; tMax = ti; break; }
             }
             for (int i = 0; i < 5; i++) {
@@ -712,7 +697,7 @@ void main() {
                 highp vec3 pm = camWorld + rayDir * tMid;
                 highp vec2 wpm = vec2(dot(pm - wOriginW, ux), dot(pm - wOriginW, uy));
                 float rayH = dot(pm - uz * terrainR, uz);
-                float fi = rayH - seaHeight(wpm, oceanTime, 0, 8);
+                float fi = rayH - (seaHeight(wpm, oceanTime, 0, 8) - oceanSeaMean);
                 if (fi < 0.0) tMax = tMid; else tMin = tMid;
             }
             tHit = (tMin + tMax) * 0.5;

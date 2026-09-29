@@ -4,11 +4,12 @@ import { bakeScatteringLUT, SCAT_LUT_WIDTH, SCAT_LUT_HEIGHT, SCAT_LUT_LAYERS } f
 import { canDecodeImages, decodeSurfaceTextureSet } from './surface-texture-decode.js';
 
 import { TU, M4 } from './gl-render-mat4.js';
+import { seaHeightMean } from './sea-waves.js';
 
 let _sharedRawTransLUT = null
 let _sharedRawScatLUT = null
 let _sharedSurfaceTexDecode = null
-const SHADER_CACHE_TAG = 'ms-0.1.264'
+const SHADER_CACHE_TAG = 'ms-0.1.265'
 const DESIGN_RADIUS_M = 6360000.0
 const HORIZON_SPHERE_DEPTH_BELOW_SEA = 150.0
 const SUBMERGED_FAR_REACH = 60000.0
@@ -1335,8 +1336,11 @@ export async function initMapspinnerRender(gl, opts = {}) {
     }
     const oc = (typeof window !== 'undefined' && window.__cam) || _ocEmpty;
     gl.uniform1f(U('oceanTime'), time || 0.0);
-    _chuSet1f(U, chu, 'oceanAmp', (oc.oceanAmplitude != null) ? oc.oceanAmplitude : 1.0);
-    _chuSet1f(U, chu, 'oceanChoppy', (oc.oceanChoppiness != null) ? oc.oceanChoppiness : 0.5);
+    const _oceanAmp = (oc.oceanAmplitude != null) ? oc.oceanAmplitude : 1.0;
+    _chuSet1f(U, chu, 'oceanAmp', _oceanAmp);
+    const _oceanChoppy = (oc.oceanChoppiness != null) ? oc.oceanChoppiness : 0.5;
+    _chuSet1f(U, chu, 'oceanChoppy', _oceanChoppy);
+    _chuSet1f(U, chu, 'oceanSeaMean', seaHeightMean(_oceanChoppy, _oceanAmp));
     _chuSet1f(U, chu, 'oceanFoam', (oc.oceanFoam != null) ? oc.oceanFoam : 0.5);
     _chuSet1f(U, chu, 'uBeachTopM', _g('beachTop', TD.beachTop));
     _chuSetM4(U, chu, 'defViewProjRel', _F.viewProjRel);

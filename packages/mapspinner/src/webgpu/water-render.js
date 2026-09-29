@@ -81,13 +81,8 @@ fn vs_main(
   let refAxisW = select(vec3<f32>(1.0,0.0,0.0), vec3<f32>(0.0,1.0,0.0), abs(dir0.y) < 0.99);
   let uxW = normalize(cross(refAxisW, dir0));
   let uyW = cross(dir0, uxW);
-  let swellTime = vec2<f32>(waterParams.oceanTime * 0.72, waterParams.oceanTime * 0.48);
   let swellP = vec2<f32>(dot(dir0, uxW), dot(dir0, uyW)) * defRadius;
-  let d0 = vec2<f32>(0.866, 0.5);
-  let d1 = vec2<f32>(-0.5, 0.866);
-  let swell = (seaOctave(swellP * 0.016 + d0 * swellTime.x, waterParams.oceanChoppy)
-             + seaOctave(swellP * 0.016 + d1 * swellTime.y, waterParams.oceanChoppy)) * 0.5;
-  let hR = (swell - 0.5) * 0.8 * waterParams.oceanAmp;
+  let hR = 0.0;
 
   let vRel = (dir0 - frame.camDir) * defRadius + dir0 * hR - frame.camDir * frame.camAlt;
   var out: VSOut;
