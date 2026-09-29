@@ -339,7 +339,6 @@ export async function createVegetation(opts = {}) {
     const _aabbMin = [b[0], _minY, b[1]], _aabbMax = [b[2], _maxY, b[3]]
     loaded.set(key, { entries, aabbMin: _aabbMin, aabbMax: _aabbMax, occluded: false })
     _occCands = null
-    _vegLoadFifo.push(key)
     profile.loads++
     return true
   }
@@ -356,7 +355,7 @@ export async function createVegetation(opts = {}) {
     profile.unloads++
   }
 
-  const LOADS_PER_FRAME = 1
+  const LOAD_BUDGET_MS = Number.isFinite(cfg.vegLoadBudgetMs) ? cfg.vegLoadBudgetMs : 2
   const DEFERRED_RETRIES_PER_FRAME = 2
   let _ringClean = false, _scanKey = NaN
   let _lastPx = NaN, _lastPz = NaN, _idleFrames = 0
@@ -368,8 +367,9 @@ export async function createVegetation(opts = {}) {
   })
   let _cullDirty = true
   let _vegSpiralCursor = 0
-  const _vegLoadFifo = []
+  const streamFocus = [NaN, NaN]
   function streamRing(px, pz) {
+    streamFocus[0] = px; streamFocus[1] = pz
     const cKey = placementRing.focusKeyAt(px, pz)
     curSuper = cKey
     if (_ringClean && cKey === _scanKey) return
@@ -382,35 +382,25 @@ export async function createVegetation(opts = {}) {
     for (const key of deferredChunks) { if (retryKeys.length >= DEFERRED_RETRIES_PER_FRAME) break; retryKeys.push(key) }
     for (const key of retryKeys) {
       deferredChunks.delete(key)
-      if (placementRing.distSq(key, px, pz) > dropRadiusSq) continue
+      if (placementRing.distSqFromFocus(key) > dropRadiusSq) continue
       if (loadChunk(key, px, pz)) didLoad = true
     }
-    for (let n = 0; n < LOADS_PER_FRAME && totalInstances < MAX_INSTANCES; n++) {
+    const loadT0 = performance.now()
+    for (let n = 0; totalInstances < MAX_INSTANCES && (n === 0 || performance.now() - loadT0 < LOAD_BUDGET_MS); n++) {
       let found = false
       for (; _vegSpiralCursor < ring.length; _vegSpiralCursor++) {
         const key = ring[_vegSpiralCursor]
-        if (placementRing.distSq(key, px, pz) > ringRadiusSq || loaded.has(key) || deferredChunks.has(key)) continue
+        if (placementRing.distSqFromFocus(key) > ringRadiusSq || loaded.has(key) || deferredChunks.has(key)) continue
         if (loadChunk(key, px, pz)) didLoad = true
         found = true; break
       }
       if (!found) break
     }
     let didDrop = false
-    while (_vegLoadFifo.length) {
-      const key = _vegLoadFifo[0]
-      if (!loaded.has(key)) { _vegLoadFifo.shift(); continue }
-      if (placementRing.distSq(key, px, pz) > dropRadiusSq) {
-        _vegLoadFifo.shift(); unloadChunk(key); didDrop = true
-      }
-      break
-    }
-    if (!didDrop && _vegLoadFifo.length && (_cellChanged || totalInstances >= MAX_INSTANCES)) {
-      for (const key of loaded.keys()) {
-        if (placementRing.distSq(key, px, pz) > dropRadiusSq) {
-          const fi = _vegLoadFifo.indexOf(key); if (fi >= 0) _vegLoadFifo.splice(fi, 1)
-          unloadChunk(key); didDrop = true; break
-        }
-      }
+    for (const key of loaded.keys()) {
+      if (placementRing.distSqFromFocus(key) <= dropRadiusSq) continue
+      if (didDrop && performance.now() - loadT0 >= LOAD_BUDGET_MS) break
+      unloadChunk(key); didDrop = true
     }
     _scanKey = cKey; _ringClean = !didLoad && !didDrop && deferredChunks.size === 0
     profile.deferredChunks = deferredChunks.size
@@ -427,7 +417,7 @@ export async function createVegetation(opts = {}) {
     for (const key of ring) {
       if (n >= maxChunks || totalInstances >= MAX_INSTANCES) break
       if (((typeof performance !== 'undefined') ? performance.now() : 0) - t0 > budgetMs) break
-      if (placementRing.distSq(key, px, pz) > ringRadiusSq || loaded.has(key)) continue
+      if (placementRing.distSqFromFocus(key) > ringRadiusSq || loaded.has(key)) continue
       if (loadChunk(key, px, pz)) n++
       if (n % PREWARM_BATCH === 0) await _yieldFrame()
     }
@@ -545,7 +535,7 @@ export async function createVegetation(opts = {}) {
       _idleFrames = still ? _idleFrames + 1 : 0
       _lastPx = px; _lastPz = pz
       profile.streamCalls = (profile.streamCalls || 0) + 1
-      if (!still || (_idleFrames % IDLE_STRIDE) === 0) { if (streamRing(px, pz)) _cullDirty = true }
+      if (!still || !_ringClean || (_idleFrames % IDLE_STRIDE) === 0) { if (streamRing(px, pz)) _cullDirty = true }
       else profile.streamIdleSkips = (profile.streamIdleSkips || 0) + 1
     }
     if (shadowStill === false) _cullDirty = true
@@ -688,6 +678,7 @@ export async function createVegetation(opts = {}) {
     biomeOverride,
     getOcclusionCandidates, applyOcclusion,
     cfg, renderDistance,
+    streamState: () => placementRing.streamState(loaded, deferredChunks, streamFocus, ringRadiusSq, dropRadiusSq),
   }
   if (typeof window !== 'undefined') window.__veg = api
   return api

@@ -153,7 +153,9 @@ export async function createGrass(opts = {}) {
   let _ringClean = false, _scanKey = NaN
   const LOAD_BUDGET = Number.isFinite(cfg.grassLoadBudgetMs) ? cfg.grassLoadBudgetMs : 4
   let _inflight = null
+  const streamFocus = [NaN, NaN]
   function streamRing(px, pz) {
+    streamFocus[0] = px; streamFocus[1] = pz
     if (_inflight) {
       if (stepInflight()) finishInflight()
       else { _ringClean = false; return }
@@ -166,21 +168,21 @@ export async function createGrass(opts = {}) {
     if (totalInstances < MAX_INSTANCES) {
       for (const key of deferredChunks) {
         deferredChunks.delete(key)
-        if (placementRing.distSq(key, px, pz) > dropRadiusSq) continue
+        if (placementRing.distSqFromFocus(key) > dropRadiusSq) continue
         startInflight(key, px, pz)
         didLoad = true; break
       }
     }
     if (totalInstances < MAX_INSTANCES && !_inflight) {
       for (const key of ring) {
-        if (placementRing.distSq(key, px, pz) > ringRadiusSq || loaded.has(key) || deferredChunks.has(key)) continue
+        if (placementRing.distSqFromFocus(key) > ringRadiusSq || loaded.has(key) || deferredChunks.has(key)) continue
         startInflight(key, px, pz)
         didLoad = true; break
       }
     }
     for (const key of loaded.keys()) {
       if (_inflight && key === _inflight.key) continue
-      if (placementRing.distSq(key, px, pz) > dropRadiusSq) { unloadChunk(key); didDrop = true; break }
+      if (placementRing.distSqFromFocus(key) > dropRadiusSq) { unloadChunk(key); didDrop = true; break }
     }
     _scanKey = cKey; _ringClean = !didLoad && !didDrop && !_inflight && deferredChunks.size === 0
     profile.deferredChunks = deferredChunks.size
@@ -384,7 +386,7 @@ export async function createGrass(opts = {}) {
     for (const key of ring) {
       if (totalInstances >= MAX_INSTANCES) break
       if (((typeof performance !== 'undefined') ? performance.now() : 0) - t0 > budgetMs) break
-      if (placementRing.distSq(key, px, pz) > ringRadiusSq || loaded.has(key) || deferredChunks.has(key)) continue
+      if (placementRing.distSqFromFocus(key) > ringRadiusSq || loaded.has(key) || deferredChunks.has(key)) continue
       loadChunk(key, px, pz); if (!deferredChunks.has(key)) n++
       if (n % 8 === 0) await _yieldFrame()
     }
@@ -394,7 +396,7 @@ export async function createGrass(opts = {}) {
   function rebuildPlacement() { _inflight = null; deferredChunks.clear(); for (const key of [...loaded.keys()]) unloadChunk(key); _ringClean = false; _scanKey = NaN }
   function repaintBiome(x, z, radius, target, strength) { biomeOverride.applyPaintBrush(x, z, radius, target, strength); rebuildPlacement() }
 
-  const api = { update, updateVisibility, tickWind, prewarm, warmShaders, dispose, _im: im, _imMid: imMid, get totalInstances() { return totalInstances }, get profile() { return profile }, rebuildPlacement, repaintBiome, biomeOverride, getOcclusionCandidates, applyOcclusion, setBenders, get benderCount() { return wind.uBenderCount.value }, get benderPosXZ() { return wind.uBenderPosXZ.value }, markScorched, decalStore, get decalCount() { return wind.uDecalCount.value }, get decalPosXZRS() { return wind.uDecalPosXZRS.value }, cfg, renderDistance }
+  const api = { update, streamState: () => placementRing.streamState(loaded, deferredChunks, streamFocus, ringRadiusSq, dropRadiusSq), updateVisibility, tickWind, prewarm, warmShaders, dispose, _im: im, _imMid: imMid, get totalInstances() { return totalInstances }, get profile() { return profile }, rebuildPlacement, repaintBiome, biomeOverride, getOcclusionCandidates, applyOcclusion, setBenders, get benderCount() { return wind.uBenderCount.value }, get benderPosXZ() { return wind.uBenderPosXZ.value }, markScorched, decalStore, get decalCount() { return wind.uDecalCount.value }, get decalPosXZRS() { return wind.uDecalPosXZRS.value }, cfg, renderDistance }
   if (typeof window !== 'undefined') window.__grass = api
   return api
 }

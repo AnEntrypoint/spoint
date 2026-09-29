@@ -4,9 +4,7 @@ import { createHeightDelta, loadHeightDelta } from './HeightDelta.js'
 import { createBiomeOverride, loadBiomeOverride } from './BiomeOverride.js'
 import { loadSplineCarveLayer } from './SplineCarve.js'
 import { loadCaveCarveLayer } from './CaveSDF.js'
-
-const _now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
-const NON_FINITE_HEIGHT_FALLBACK_M = -1000
+import { createTerrainStreamer } from './HeightfieldStreamer.js'
 
 let _samplerPromise = null
 export function loadPlanetSampler(opts = {}) {
@@ -17,127 +15,6 @@ export function loadPlanetSampler(opts = {}) {
       .then(m => m.createHeightSampler({ radius: opts.radius, hpfTexRes: opts.hpfTexRes, seed: opts.seed, reliefScale: opts.reliefScale }))
   }
   return _samplerPromise
-}
-
-export function sampleTerrainGrid({ heightFn, extent = 510, resolution = 4, center = [0, 0] }) {
-  let N = Math.max(2, Math.round(extent / resolution)); if (N % 2 !== 0) N += 1
-  const spacing = extent / (N - 1)
-  const cornerX = center[0] - extent / 2, cornerZ = center[1] - extent / 2
-  const samples = new Float32Array(N * N)
-  const t0 = _now()
-  for (let z = 0; z < N; z++) {
-    const wz = cornerZ + z * spacing, row = z * N
-    for (let x = 0; x < N; x++) {
-      let h = heightFn(cornerX + x * spacing, wz)
-      if (!Number.isFinite(h)) h = NON_FINITE_HEIGHT_FALLBACK_M
-      samples[row + x] = h
-    }
-  }
-  return { samples, N, spacing, extent, center: [center[0], center[1]], corner: [cornerX, cornerZ], sampleMs: _now() - t0 }
-}
-
-export async function sampleTerrainGridChunked({ heightFn, N, spacing, cornerX, cornerZ, budgetMs = 2, isAborted = () => false }) {
-  const samples = new Float32Array(N * N)
-  const t0 = _now()
-  let slice = _now()
-  for (let z = 0; z < N; z++) {
-    const wz = cornerZ + z * spacing, row = z * N
-    for (let x = 0; x < N; x++) {
-      let h = heightFn(cornerX + x * spacing, wz)
-      if (!Number.isFinite(h)) h = NON_FINITE_HEIGHT_FALLBACK_M
-      samples[row + x] = h
-    }
-    if (_now() - slice >= budgetMs) {
-      await new Promise(r => setTimeout(r, 0))
-      if (isAborted()) return null
-      slice = _now()
-    }
-  }
-  return { samples, sampleMs: _now() - t0 }
-}
-
-export function installHeightfield(physics, grid) {
-  if (!physics || typeof physics.addHeightField !== 'function' || !grid) return null
-  const { samples, N, spacing, corner, extent, sampleMs } = grid
-  const id = physics.addHeightField(samples, N, [spacing, 1, spacing], [corner[0], 0, corner[1]])
-  if (id == null) { console.error('[terrain] heightfield build failed (Jolt rejected the shape)'); return null }
-  console.log(`[terrain] planet heightfield N=${N} (${N * N}) extent=${extent}m spacing=${spacing.toFixed(2)}m sample=${(sampleMs || 0).toFixed(1)}ms id=${id}`)
-  return { id, N, spacing, corner, extent }
-}
-
-export function createTerrainStreamer(opts = {}) {
-  const physics = opts.physics, getCenter = typeof opts.getCenter === 'function' ? opts.getCenter : () => null
-  const heightFn = opts.heightFn
-  const extent = Number.isFinite(opts.extent) && opts.extent > 0 ? opts.extent : 510
-  const resolution = Number.isFinite(opts.resolution) && opts.resolution > 0 ? opts.resolution : 4
-  const rebuildAt = Number.isFinite(opts.rebuildAt) ? opts.rebuildAt : 0.4
-  const intervalMs = Number.isFinite(opts.intervalMs) ? opts.intervalMs : 300
-  const budgetMs = Number.isFinite(opts.budgetMs) && opts.budgetMs > 0 ? opts.budgetMs : 2
-  let N = Math.max(2, Math.round(extent / resolution)); if (N % 2 !== 0) N += 1
-  const spacing = extent / (N - 1)
-  let curCenter = null, curBodyId = null, rebuilding = false, disposed = false, _timer = null, rebuildCount = 0
-
-  async function _buildAt(cx, cz, gridN, gridSpacing) {
-    const useN = Number.isFinite(gridN) && gridN >= 2 ? gridN : N
-    const useSpacing = Number.isFinite(gridSpacing) && gridSpacing > 0 ? gridSpacing : (useN === N ? spacing : extent / (useN - 1))
-    const cornerX = cx - extent / 2, cornerZ = cz - extent / 2
-    const t0 = _now()
-    const g = await sampleTerrainGridChunked({ heightFn, N: useN, spacing: useSpacing, cornerX, cornerZ, budgetMs, isAborted: () => disposed })
-    if (!g || disposed) return null
-    const newId = physics.addHeightField(g.samples, useN, [useSpacing, 1, useSpacing], [cornerX, 0, cornerZ])
-    if (newId == null) { console.error('[terrain] streamer: Jolt rejected field'); return null }
-    return { newId, cornerX, cornerZ, wallMs: _now() - t0, sampleMs: g.sampleMs, N: useN }
-  }
-
-  async function _rebuild(cx, cz) {
-    if (rebuilding || disposed || !heightFn) return
-    rebuilding = true
-    try {
-      const r = await _buildAt(cx, cz)
-      if (!r || disposed) return
-      const oldId = curBodyId
-      curBodyId = r.newId; curCenter = [cx, cz]; physics.setTerrainBodyId(r.newId); rebuildCount++
-      if (oldId != null && oldId !== r.newId) physics.removeBody(oldId)
-      console.log(`[terrain] planet heightfield re-centered #${rebuildCount} at (${cx.toFixed(0)},${cz.toFixed(0)}) N=${N} ${r.wallMs.toFixed(0)}ms(sample ${r.sampleMs.toFixed(0)}ms) id=${r.newId}`)
-    } catch (e) { console.error('[terrain] streamer rebuild error:', e?.message || e) }
-    finally { rebuilding = false }
-  }
-  function _check() {
-    if (disposed) return
-    try {
-      const c = getCenter()
-      if (Array.isArray(c) && c.length === 2 && Number.isFinite(c[0]) && Number.isFinite(c[1]) && curCenter && !rebuilding) {
-        if (Math.hypot(c[0] - curCenter[0], c[1] - curCenter[1]) > extent * rebuildAt) _rebuild(c[0], c[1])
-      }
-    } catch (_) {}
-    _timer = setTimeout(_check, intervalMs)
-  }
-  async function start(initialGrid) {
-    if (disposed) return
-    if (initialGrid) {
-      const r = installHeightfield(physics, initialGrid)
-      if (r) { curBodyId = r.id; curCenter = initialGrid.center || [0, 0] }
-    } else {
-      const center = curCenter || [0, 0]
-      const coarseN = (N >= 32) ? (Math.max(8, Math.round(N / 4) + (Math.round(N / 4) % 2)) ) : 0
-      if (coarseN && coarseN < N) {
-        const cr = await _buildAt(center[0], center[1], coarseN)
-        if (cr && !disposed) {
-          curBodyId = cr.newId; curCenter = center; physics.setTerrainBodyId(cr.newId)
-          console.log(`[terrain] planet heightfield COARSE N=${coarseN} extent=${extent}m built ${cr.wallMs.toFixed(0)}ms(sample ${cr.sampleMs.toFixed(0)}ms) id=${cr.newId} -> refining to N=${N}`)
-        }
-      }
-      const r = await _buildAt(center[0], center[1])
-      if (r && !disposed) {
-        const oldId = curBodyId
-        curBodyId = r.newId; curCenter = center; physics.setTerrainBodyId(r.newId)
-        if (oldId != null && oldId !== r.newId) physics.removeBody(oldId)
-        console.log(`[terrain] planet heightfield N=${N} extent=${extent}m spacing=${spacing.toFixed(2)}m built ${r.wallMs.toFixed(0)}ms(sample ${r.sampleMs.toFixed(0)}ms) id=${r.newId}`)
-      }
-    }
-    _timer = setTimeout(_check, intervalMs)
-  }
-  return { start, stop() { disposed = true; if (_timer) clearTimeout(_timer) }, get center() { return curCenter }, get bodyId() { return curBodyId }, get rebuildCount() { return rebuildCount }, _rebuild }
 }
 
 function _dequantizeSectorized(artifact) {
@@ -233,14 +110,6 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef, 
   const heightDelta = loadHeightDelta(heightDeltaJSON, baseHeightFn)
   const caveCarve = loadCaveCarveLayer(caveCarveJSON || (Array.isArray(tcfg.caveCarve) ? { version: 2, volumes: tcfg.caveCarve } : null))
   const heightFn = caveCarve.wrapHeightFn(splineCarve.wrapHeightFn(heightDelta.wrapHeightFn(baseHeightFn)))
-  const getCenter = () => {
-    let sx = 0, sz = 0, n = 0
-    const players = playerManager && playerManager.players
-    if (players && typeof players.values === 'function') {
-      for (const p of players.values()) { const pos = p?.state?.position; if (pos && Number.isFinite(pos[0]) && Number.isFinite(pos[2])) { sx += pos[0]; sz += pos[2]; n++ } }
-    }
-    return n ? [sx / n, sz / n] : (tcfg.center || [0, 0])
-  }
   const getCenters = () => {
     const out = []
     const players = playerManager && playerManager.players
@@ -257,8 +126,8 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef, 
     gridRes = Math.min(tphys.resolution || gpuPatch.spacing, gpuPatch.spacing)
     if (gridRes !== tphys.resolution) console.log(`[terrain] collider grid resolution -> ${gridRes.toFixed(2)}m (clamped to finest display LOD spacing; was ${tphys.resolution})`)
   }
-  const streamer = createTerrainStreamer({ physics, getCenter, heightFn, extent: tphys.extent || 510, resolution: gridRes })
-  await streamer.start()
+  const streamer = createTerrainStreamer({ physics, getCenters, heightFn, extent: tphys.extent || 510, resolution: gridRes })
+  await streamer.start(tcfg.center || [0, 0])
   const offsetYNotFoldedIntoHeightFn = 0
   physics.setTerrainHeightSource(heightFn, frame, offsetYNotFoldedIntoHeightFn)
 
@@ -296,10 +165,6 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef, 
   }
   streamer.heightDelta = heightDelta
   streamer.baseHeightFn = baseHeightFn
-  streamer.resculpt = async function resculpt() {
-    const c = streamer.center || (getCenter ? getCenter() : null) || tcfg.center || [0, 0]
-    await streamer._rebuild(c[0], c[1])
-  }
   physics._terrainStreamer = streamer
   return streamer
 }

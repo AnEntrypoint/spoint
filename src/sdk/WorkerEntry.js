@@ -232,9 +232,13 @@ if (hasWorkerPostMessage) {
         : undefined
       const rs = _ctx._terrainStreamer && _ctx._terrainStreamer._rockStreamer
       const rockStreamer = rs ? { liveCount: rs.liveCount, centers: rs.centers, rebuildCount: rs.rebuildCount, chunkCacheSize: rs.chunkCacheSize } : null
+      const ts = _ctx._terrainStreamer, trs = ts && ts._trunkStreamer
+      const terrainFields = ts && ts.fields ? ts.fields : null
+      const workerPlayers = [..._ctx.playerManager.players.values()].map(p => ({ id: p.id, position: p.state && p.state.position ? [...p.state.position] : null }))
+      const trunkStreamer = trs ? { liveCount: trs.liveCount, centers: trs.centers, rebuildCount: trs.rebuildCount } : null
       const frame = physics._planetFrame
       const heightProbe = (data.probePoints || []).map(([x, z]) => ({ colliderFn: physics.terrainHeightAt(x, z), frame: frame ? frame.groundHeightLocal(x, z) : null }))
-      self.postMessage({ type: 'DEBUG_COLLIDER_RESULT', reqId: data.reqId, hits, rockBodies, rockStreamer, rockIdCount: rockIds ? rockIds.size : null, heightProbe, heightSource: physics._terrainHeightSource })
+      self.postMessage({ type: 'DEBUG_COLLIDER_RESULT', reqId: data.reqId, hits, rockBodies, rockStreamer, trunkStreamer, terrainFields, terrainBodyId: physics.getTerrainBodyId(), workerPlayers, rockIdCount: rockIds ? rockIds.size : null, heightProbe, heightSource: physics._terrainHeightSource })
       return
     }
 

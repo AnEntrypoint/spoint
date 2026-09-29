@@ -169,7 +169,6 @@ export async function createRocks(opts = {}) {
     const _aabbMin = [b[0], _minY, b[1]], _aabbMax = [b[2], _maxY, b[3]]
     loaded.set(key, { ids, aabbMin: _aabbMin, aabbMax: _aabbMax, occluded: false })
     _occCands = null
-    _rockLoadFifo.push(key)
     meshes[0].count = totalInstances
     profile.loads++
     return true
@@ -181,12 +180,13 @@ export async function createRocks(opts = {}) {
     loaded.delete(key); _occCands = null; meshes[0].count = totalInstances; profile.unloads++
   }
 
-  const LOADS_PER_FRAME = 3
+  const LOAD_BUDGET_MS = Number.isFinite(cfg.rockLoadBudgetMs) ? cfg.rockLoadBudgetMs : 2
   const DEFERRED_RETRIES_PER_FRAME = 4
   let _ringClean = false, _scanKey = NaN
   let _rockSpiralCursor = 0
-  const _rockLoadFifo = []
+  const streamFocus = [NaN, NaN]
   function streamRing(px, pz) {
+    streamFocus[0] = px; streamFocus[1] = pz
     const cKey = placementRing.focusKeyAt(px, pz)
     curSuper = cKey
     if (_ringClean && cKey === _scanKey) return
@@ -198,35 +198,25 @@ export async function createRocks(opts = {}) {
     for (const key of deferredChunks) { if (retryKeys.length >= DEFERRED_RETRIES_PER_FRAME) break; retryKeys.push(key) }
     for (const key of retryKeys) {
       deferredChunks.delete(key)
-      if (placementRing.distSq(key, px, pz) > dropRadiusSq) continue
+      if (placementRing.distSqFromFocus(key) > dropRadiusSq) continue
       if (loadChunk(key)) didLoad = true
     }
-    for (let n = 0; n < LOADS_PER_FRAME && totalInstances < MAX_INSTANCES; n++) {
+    const loadT0 = performance.now()
+    for (let n = 0; totalInstances < MAX_INSTANCES && (n === 0 || performance.now() - loadT0 < LOAD_BUDGET_MS); n++) {
       let found = false
       for (; _rockSpiralCursor < ring.length; _rockSpiralCursor++) {
         const key = ring[_rockSpiralCursor]
-        if (placementRing.distSq(key, px, pz) > ringRadiusSq || loaded.has(key) || deferredChunks.has(key)) continue
+        if (placementRing.distSqFromFocus(key) > ringRadiusSq || loaded.has(key) || deferredChunks.has(key)) continue
         if (loadChunk(key)) didLoad = true
         found = true; break
       }
       if (!found) break
     }
     let didDrop = false
-    while (_rockLoadFifo.length) {
-      const key = _rockLoadFifo[0]
-      if (!loaded.has(key)) { _rockLoadFifo.shift(); continue }
-      if (placementRing.distSq(key, px, pz) > dropRadiusSq) {
-        _rockLoadFifo.shift(); unloadChunk(key); didDrop = true
-      }
-      break
-    }
-    if (!didDrop && _rockLoadFifo.length) {
-      for (const key of loaded.keys()) {
-        if (placementRing.distSq(key, px, pz) > dropRadiusSq) {
-          const fi = _rockLoadFifo.indexOf(key); if (fi >= 0) _rockLoadFifo.splice(fi, 1)
-          unloadChunk(key); didDrop = true; break
-        }
-      }
+    for (const key of loaded.keys()) {
+      if (placementRing.distSqFromFocus(key) <= dropRadiusSq) continue
+      if (didDrop && performance.now() - loadT0 >= LOAD_BUDGET_MS) break
+      unloadChunk(key); didDrop = true
     }
     _scanKey = cKey; _ringClean = !didLoad && !didDrop && deferredChunks.size === 0
     profile.deferredChunks = deferredChunks.size
@@ -284,7 +274,7 @@ export async function createRocks(opts = {}) {
     for (const key of ring) {
       if (totalInstances >= MAX_INSTANCES) break
       if (((typeof performance !== 'undefined') ? performance.now() : 0) - t0 > budgetMs) break
-      if (placementRing.distSq(key, px, pz) > ringRadiusSq || loaded.has(key)) continue
+      if (placementRing.distSqFromFocus(key) > ringRadiusSq || loaded.has(key)) continue
       if (loadChunk(key)) n++
       if (n % 8 === 0) await _yieldFrame()
     }
@@ -328,7 +318,7 @@ export async function createRocks(opts = {}) {
   function rebuildPlacement() { for (const key of [...loaded.keys()]) unloadChunk(key); deferredChunks.clear(); curSuper = null; _ringClean = false; _scanKey = NaN }
   function repaintBiome(x, z, radius, target, strength) { biomeOverride.applyPaintBrush(x, z, radius, target, strength); rebuildPlacement() }
 
-  const api = { update, updateVisibility, prewarm, warmShaders, dispose, _meshes: meshes, _bm: bm, get totalInstances() { return totalInstances }, get profile() { return profile }, rebuildPlacement, repaintBiome, biomeOverride, getOcclusionCandidates, applyOcclusion, cfg, renderDistance }
+  const api = { update, streamState: () => placementRing.streamState(loaded, deferredChunks, streamFocus, ringRadiusSq, dropRadiusSq), updateVisibility, prewarm, warmShaders, dispose, _meshes: meshes, _bm: bm, get totalInstances() { return totalInstances }, get profile() { return profile }, rebuildPlacement, repaintBiome, biomeOverride, getOcclusionCandidates, applyOcclusion, cfg, renderDistance }
   if (typeof window !== 'undefined') window.__rocks = api
   return api
 }
