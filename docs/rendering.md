@@ -56,14 +56,6 @@ future change can be gauged against the whole picture instead of one file at a t
   `oldestPendingFrames` aggregates as MAX across systems (a worst-case pending age), every other key
   sums.
 
-- **`client/core/OcclusionQueryVisualizer.js`** -- `window.__occlusionQueryDebug`, a ColliderDebug.js-
-  style toggleable overlay drawing every registered consumer's candidate AABBs, color-coded by
-  verdict state (visible=green, occluded=red, pending=yellow, failed-open=cyan,
-  anomaly-skipped=magenta). Each consumer exposes `getDebugBoxes()`; the visualizer's
-  `registerProvider(name, fn)` wires them in. Wiring the toggle hotkey + per-frame `update()` call
-  into app.js/the editor is owned by sibling scopes (RenderGraph wiring / inspector UI) -- this file
-  is the ready-to-wire primitive, same split as the budget arbiter above.
-
 ## The false-occlusion bug (cull-false-occlusion-root-cause)
 
 See the root-cause section below once live investigation completes this session. SceneOcclusion's

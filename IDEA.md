@@ -1,1 +1,0 @@
-the entrypoint project

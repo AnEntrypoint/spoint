@@ -27,29 +27,28 @@
   <h2>Table of Contents</h2>
   <ul><li><a href="#section-0">spoint — AGENTS.md</a></li>
 <li><a href="#section-1">spoint — README</a></li>
-<li><a href="#section-2">spoint — docs/ANIMATION_SYSTEM_IMPLEMENTATION.md</a></li>
-<li><a href="#section-3">spoint — docs/animation-system.md</a></li>
-<li><a href="#section-4">spoint — docs/anticheat.md</a></li>
-<li><a href="#section-5">spoint — docs/architecture-decisions.md</a></li>
-<li><a href="#section-6">spoint — docs/editor-composing.md</a></li>
-<li><a href="#section-7">spoint — docs/engine-graph.md</a></li>
-<li><a href="#section-8">spoint — docs/getting-started.md</a></li>
-<li><a href="#section-9">spoint — docs/multi-process-room-orchestrator.md</a></li>
-<li><a href="#section-10">spoint — docs/navmesh-pathfinding.md</a></li>
-<li><a href="#section-11">spoint — docs/nostr-server-federation.md</a></li>
-<li><a href="#section-12">spoint — docs/performance-optimization.md</a></li>
-<li><a href="#section-13">spoint — docs/performance.md</a></li>
-<li><a href="#section-14">spoint — docs/prefab-system.md</a></li>
-<li><a href="#section-15">spoint — docs/progression-guide.md</a></li>
-<li><a href="#section-16">spoint — docs/publish.md</a></li>
-<li><a href="#section-17">spoint — docs/quick-reference.md</a></li>
-<li><a href="#section-18">spoint — docs/rendering.md</a></li>
-<li><a href="#section-19">spoint — docs/webgpu-shader-audit.md</a></li>
-<li><a href="#section-20">wireweave — README</a></li>
-<li><a href="#section-21">mapspinner — AGENTS.md</a></li>
-<li><a href="#section-22">mapspinner — README</a></li>
-<li><a href="#section-23">streaming-gltf — AGENTS.md</a></li>
-<li><a href="#section-24">streaming-gltf — README</a></li></ul>
+<li><a href="#section-2">spoint — docs/animation-system.md</a></li>
+<li><a href="#section-3">spoint — docs/anticheat.md</a></li>
+<li><a href="#section-4">spoint — docs/architecture-decisions.md</a></li>
+<li><a href="#section-5">spoint — docs/editor-composing.md</a></li>
+<li><a href="#section-6">spoint — docs/engine-graph.md</a></li>
+<li><a href="#section-7">spoint — docs/getting-started.md</a></li>
+<li><a href="#section-8">spoint — docs/multi-process-room-orchestrator.md</a></li>
+<li><a href="#section-9">spoint — docs/navmesh-pathfinding.md</a></li>
+<li><a href="#section-10">spoint — docs/nostr-server-federation.md</a></li>
+<li><a href="#section-11">spoint — docs/performance-optimization.md</a></li>
+<li><a href="#section-12">spoint — docs/performance.md</a></li>
+<li><a href="#section-13">spoint — docs/prefab-system.md</a></li>
+<li><a href="#section-14">spoint — docs/progression-guide.md</a></li>
+<li><a href="#section-15">spoint — docs/publish.md</a></li>
+<li><a href="#section-16">spoint — docs/quick-reference.md</a></li>
+<li><a href="#section-17">spoint — docs/rendering.md</a></li>
+<li><a href="#section-18">spoint — docs/webgpu-shader-audit.md</a></li>
+<li><a href="#section-19">wireweave — README</a></li>
+<li><a href="#section-20">mapspinner — AGENTS.md</a></li>
+<li><a href="#section-21">mapspinner — README</a></li>
+<li><a href="#section-22">streaming-gltf — AGENTS.md</a></li>
+<li><a href="#section-23">streaming-gltf — README</a></li></ul>
 </nav>
 <section id="section-0"><h2>spoint — AGENTS.md</h2><p><h1>AGENTS.md</h1></p><p>--JULES STOPGAP DONT EDIT START--</p><p><h2>Skills</h2></p><p>This project has task-specific skills available.</p><p>&gt; <strong>MANDATORY:</strong> Before writing any code, creating any file, or running any command,
 &gt; you <strong>MUST</strong> first read <code>SKILLS.md</code> and check for relevant skills.
@@ -318,195 +317,7 @@ Env vars: </code>BOT_COUNT<code>, </code>BOT_DURATION<code>, </code>BOT_HZ<code>
 
 MIT
 </p></section>
-<section id="section-2"><h2>spoint — docs/ANIMATION_SYSTEM_IMPLEMENTATION.md</h2><p><h1>Skeletal Animation System - Implementation Summary</h1></p><p>This document summarizes the complete skeletal animation system implementation for spoint.</p><p><h2>Deliverables Completed</h2></p><p><h3>1. Core Animation Module (<code>src/animation/</code>)</h3></p><p><h4>SkeletonUtils.js</h4>
-<ul><li><strong>Purpose</strong>: Bone manipulation and network transport utilities</li>
-<li><strong>Key Features</strong>:</li>
-</ul>  - Humanoid bone name mapping (supports Mixamo, VRM, generic naming conventions)
-  - Quaternion packing/unpacking for network (Int16Array, 8x smaller than Float32Array)
-  - Skeleton state serialization for network synchronization
-  - Bone traversal and lookup utilities</p><p><h4>BlendTree.js  </h4>
-<ul><li><strong>Purpose</strong>: Smooth animation interpolation</li>
-<li><strong>Key Features</strong>:</li>
-</ul>  - <strong>BlendTree1D</strong>: Speed-based blending (idle→walk→run→sprint)
-  - <strong>BlendTree2D</strong>: Directional movement blending (forward/back, left/right)
-  - <strong>AnimationBlender</strong>: High-level mixer management with fade support
-  - Inverse distance weighted blending for smooth transitions</p><p><h4>AnimationController.js</h4>
-<ul><li><strong>Purpose</strong>: FSM-based animation state machine</li>
-<li><strong>Implementation</strong>:</li>
-</ul>  - xstate5 machine (same pattern as existing game-fsm.js)
-  - States: idle, walk, run, sprint, jump, land, attack, die
-  - Automatic transitions on speed/direction changes
-  - Support for time-based transitions (landing cooldown)
-  - Per-state enter/exit/tick lifecycle hooks</p><p><h4>IKSolver.js</h4>
-<ul><li><strong>Purpose</strong>: Inverse kinematics for natural limb positioning</li>
-<li><strong>Key Features</strong>:</li>
-</ul>  - <strong>TwoBoneIKSolver</strong>: CCD-based solver for arm/leg reaching
-  - <strong>FootIKSolver</strong>: Terrain height adjustment via raycasting
-  - <strong>IKChain</strong>: Composable IK chains (leftArm, rightArm, leftFoot, rightFoot)
-  - <strong>IKRig</strong>: Per-character IK management
-  - Pole vector support for natural joint bending
-  - Selectable FK/IK blending via weight parameter</p><p><h4>AnimationSystem.js</h4>
-<ul><li><strong>Purpose</strong>: High-level integration of all components</li>
-<li><strong>Features</strong>:</li>
-</ul>  - Automatic skeleton extraction from models
-  - Integrated motion controller FSM
-  - Per-character IK chains with chainable API
-  - Skeleton state packing/unpacking for network
-  - VRM compatibility with humanoid naming
-  - One-line initialization: <code>new AnimationSystem(model, options)</code></p><p><h3>2. Production Utilities</h3></p><p><h4>PlayerAnimatorAdapter.js</h4>
-<ul><li>Drop-in adapter for existing PlayerAnimator API</li>
-<li>Manages motion state update loop</li>
-<li>IK target control for reaching/aiming</li>
-<li>Backward-compatible state machine interface</li>
-<li>Minimal breaking changes to existing code</li>
-</ul>
-<h4>AnimationStreamingManager.js</h4>
-<ul><li>Asynchronous GLB animation loading and caching</li>
-<li>Lightweight GLB parser (no THREE.GLTFLoader needed)</li>
-<li>LRU cache with configurable size</li>
-<li>Duplicate request deduplication</li>
-<li>Statistics tracking (cache hits, pending requests)</li>
-<li>Production-ready error handling</li>
-</ul>
-<h3>3. Apps and Examples</h3></p><p><h4>character-animator (<code>apps/character-animator/</code>)</h4>
-<ul><li>Reusable app component demonstrating animation system usage</li>
-<li>Supports multiple animation clips</li>
-<li>Motion state control API</li>
-<li>IK target setting for interactive control</li>
-</ul>
-<h3>4. Documentation</h3></p><p><h4>animation-system.md</h4>
-<ul><li>Comprehensive API documentation</li>
-<li>Usage examples (basic setup, animations, IK, networking)</li>
-<li>Blend tree examples (1D speed, 2D direction)</li>
-<li>VRM model support guide</li>
-<li>Performance notes and optimization tips</li>
-<li>Humanoid bone mapping table</li>
-<li>Debugging guide with examples</li>
-</ul>
-<h4>ANIMATION_SYSTEM_IMPLEMENTATION.md (this file)</h4>
-<ul><li>Implementation summary</li>
-<li>File structure and responsibilities</li>
-<li>Success criteria verification</li>
-<li>Integration guidelines</li>
-</ul>
-<h2>Success Criteria - Verification</h2></p><p>✓ <strong>Smooth 60fps walk/run blending</strong>
-<ul><li>1D blend tree implemented and tested</li>
-<li>Smooth interpolation between speed thresholds</li>
-<li>Test coverage: BlendTree1D tests passing</li>
-</ul>
-✓ <strong>Character aims/attacks in all directions</strong>
-<ul><li>2D blend tree for directional movement</li>
-<li>FSM state machine with automatic direction handling</li>
-<li>Test coverage: BlendTree2D tests passing</li>
-</ul>
-✓ <strong>Foot IK lands on uneven terrain correctly</strong>
-<ul><li>FootIKSolver with terrain raycast support</li>
-<li>Integrated into IK chains</li>
-<li>Configurable raycast distance and upward direction</li>
-<li>Ready for terrain integration via raycastCallback</li>
-</ul>
-✓ <strong>10+ networked characters animate simultaneously</strong>
-<ul><li>Quaternion packing: 8x smaller than Float32Array</li>
-<li>Per-character lightweight skeleton state</li>
-<li>No regression vs existing PlayerAnimator</li>
-<li>Designed for 10+ concurrent players</li>
-</ul>
-✓ <strong>VRM models animate correctly</strong>
-<ul><li>Humanoid bone name normalization</li>
-<li>VRM v0 and v1 support</li>
-<li>Compatible with existing VRM loader</li>
-<li>Tested with standard bone names</li>
-</ul>
-✓ <strong>Supports GLB animation streaming</strong>
-<ul><li>AnimationStreamingManager for async loading</li>
-<li>Animation caching with LRU eviction</li>
-<li>Deduplicates concurrent requests</li>
-<li>Works with existing caching infrastructure</li>
-</ul>
-✓ <strong>Backward compatible</strong>
-<ul><li>PlayerAnimatorAdapter for existing code</li>
-<li>Uses same xstate5 pattern as game-fsm.js</li>
-<li>No modifications to PlayerManager required</li>
-<li>Can coexist with existing animations</li>
-</ul>
-<h2>File Structure</h2></p><p><pre><code class="language-">src/animation/
-├── SkeletonUtils.js              - Bone utilities and network packing (270 lines)
-├── BlendTree.js                  - Animation blending (230 lines)
-├── AnimationController.js        - FSM state machine (220 lines)
-├── IKSolver.js                   - Inverse kinematics (240 lines)
-├── AnimationSystem.js            - Main integration (170 lines)
-├── PlayerAnimatorAdapter.js      - Existing code adapter (80 lines)
-└── AnimationStreamingManager.js  - GLB streaming &amp; caching (320 lines)</p><p>apps/character-animator/
-└── index.js                      - Example animator app (110 lines)</p><p>docs/
-├── animation-system.md            - API documentation
-└── ANIMATION_SYSTEM_IMPLEMENTATION.md  - This file</code></pre></p><p><strong>Total</strong>: ~1800 lines of production code + tests + docs</p><p><h2>Performance Benchmarks</h2></p><p>Measured on typical development machine:</p><p><ul><li><strong>Single character full IK</strong>: 1-2ms per frame</li>
-<li><strong>Skeleton packing/unpacking</strong>: 0.1ms per character</li>
-<li><strong>10 networked characters</strong>: 15-20ms total overhead</li>
-<li><strong>Memory per character</strong>: ~80KB (mixer actions + retargeted clips)</li>
-<li><strong>No regression vs PlayerAnimator</strong>: Confirmed via profiling</li>
-</ul>
-<h2>Integration Path</h2></p><p><h3>Phase 1: Coexistence (Recommended)</h3>
-1. Drop in AnimationSystem alongside existing PlayerAnimator
-2. Use PlayerAnimatorAdapter for new characters
-3. Existing code continues working unchanged
-4. Gradual migration path available</p><p><h3>Phase 2: Gradual Replacement (Optional)</h3>
-1. Create player characters with AnimationSystem
-2. Remote players still use existing PlayerAnimator
-3. Both systems coexist and share GLB assets
-4. Switch remote players to AnimationSystem when ready</p><p><h3>Phase 3: Full Migration (Future)</h3>
-1. All players use AnimationSystem
-2. Simplified PlayerManager code
-3. Unified networking protocol
-4. Complete IK implementation available</p><p><h2>Network Protocol</h2></p><p>Skeleton state over network:</p><p><pre><code class="language-javascript">// Packing (server or local client)
-const buffer = new Int16Array(skeleton.bones.length * 4)
-animSystem.packSkeletonState(buffer)
-// Send buffer as message payload</p><p>// Unpacking (remote client)
-remoteAnimSystem.unpackSkeletonState(receivedBuffer)</p><p>// Compression ratio: 8x smaller than Float32Array
-// Example: 54 bones = 216 components
-// Float32: 216 * 4 bytes = 864 bytes
-// Int16: 216 * 2 bytes = 432 bytes (50% reduction)</code></pre></p><p><h2>VRM Support</h2></p><p>Full VRM v0 and v1 support:
-<ul><li>Normalized bone name mapping</li>
-<li>Expression/blend shape handling (via controller)</li>
-<li>Compatible with three-vrm plugin</li>
-<li>Humanoid skeleton auto-detection</li>
-</ul>
-<pre><code class="language-javascript">const loader = new GLTFLoader()
-loader.register(parser =&gt; new VRMLoaderPlugin(parser))
-const gltf = await loader.loadAsync('avatar.vrm')</p><p>const animSystem = new AnimationSystem(gltf.scene, {
-  clips: gltf.animations,
-})</code></pre></p><p><h2>Future Enhancements</h2></p><p><ul><li>[ ] Procedural walking IK for uneven terrain</li>
-<li>[ ] Constraint-based IK (joint limits, pole targets)</li>
-<li>[ ] Animation blending based on slope</li>
-<li>[ ] Facial expression and morph target support</li>
-<li>[ ] Dynamic footstep sound placement</li>
-<li>[ ] Ragdoll physics fallback on death</li>
-<li>[ ] Animation retargeting for different skeleton scales</li>
-<li>[ ] Gait cycle analysis for natural locomotion</li>
-</ul>
-<h2>Key Design Decisions</h2></p><p>1. <strong>xstate5 over custom FSM</strong>: Proven pattern, maintainable, reusable
-2. <strong>Separate IK chains</strong>: Flexible, testable, can disable per-character
-3. <strong>Network-first quaternion packing</strong>: Optimized for multiplayer scaling
-4. <strong>Adapter pattern over replacement</strong>: Safe gradual migration path
-5. <strong>Humanoid bone mapping</strong>: Works with existing VRM/Mixamo assets
-6. <strong>Per-character IK</strong>: No global state, thread-safe for future parallelization</p><p><h2>Dependencies</h2></p><p><ul><li><strong>three.js</strong>: Existing project dependency (used for skeleton, mixer, geometry)</li>
-<li><strong>xstate</strong>: Already in package.json (^5.32.5)</li>
-</ul>
-No new external dependencies added.</p><p><h2>Known Limitations</h2></p><p>1. <strong>IK solver</strong>: CCD-based, not FABRIK. Good enough for limbs, overkill for hands/fingers
-2. <strong>Foot IK</strong>: Requires raycast callback. Doesn't work without terrain collision setup
-3. <strong>Procedural animation</strong>: Not included. Existing animation clips required
-4. <strong>Morph targets</strong>: Not yet integrated. Bone-based animation only
-5. <strong>Constraint limits</strong>: Not implemented. Bones can bend past realistic angles</p><p>All limitations are acceptable for current phase and documented for future work.</p><p><h2>Commit History</h2></p><p>1. <code>6a5d026c</code> - feat: add skeleton animation system (initial implementation)
-2. <code>6ff3da02</code> - feat: add GPU-accelerated particle system (concurrent work)
-3. <code>1b96716d</code> - fix: animation system quaternion packing and skeleton extraction
-4. <code>c7a8a9d7</code> - feat: PlayerAnimatorAdapter and AnimationStreamingManager</p><p><h2>Maintenance Notes</h2></p><p><ul><li><strong>Skeleton utils</strong>: Add new bone mapping as new models are supported</li>
-<li><strong>Blend trees</strong>: Thresholds tuned for &quot;average humanoid&quot; speed. Adjust per game if needed</li>
-<li><strong>IK chains</strong>: Pre-configured for standard humanoid. Extend for custom skeletons</li>
-<li><strong>Test suite</strong>: Run before shipping to verify quaternion packing precision</li>
-<li><strong>Network protocol</strong>: Int16Array format is stable. Safe for cross-version multiplayer</li>
-</ul>
-<h2>Questions &amp; Support</h2></p><p>See <code>docs/animation-system.md</code> for API documentation and usage examples.
-</p></section>
-<section id="section-3"><h2>spoint — docs/animation-system.md</h2><p><h1>Skeletal Animation System</h1></p><p>A comprehensive animation system for humanoid character animation in spoint, featuring blend trees, inverse kinematics, animation state machines, and network synchronization.</p><p><h2>Architecture</h2></p><p><h3>Core Components</h3></p><p>1. <strong>SkeletonUtils</strong> (<code>src/animation/SkeletonUtils.js</code>)
+<section id="section-2"><h2>spoint — docs/animation-system.md</h2><p><h1>Skeletal Animation System</h1></p><p>A comprehensive animation system for humanoid character animation in spoint, featuring blend trees, inverse kinematics, animation state machines, and network synchronization.</p><p><h2>Architecture</h2></p><p><h3>Core Components</h3></p><p>1. <strong>SkeletonUtils</strong> (<code>src/animation/SkeletonUtils.js</code>)
    - Bone lookup and manipulation helpers
    - Humanoid bone name normalization
    - Quaternion/position packing for network transport</p><p>2. <strong>BlendTree</strong> (<code>src/animation/BlendTree.js</code>)
@@ -674,7 +485,7 @@ rightFoot        | RightFoot, footR, foot.r</code></pre></p><p><h2>Future Enhanc
 })</code></pre></p><p>Check skeleton structure:</p><p><pre><code class="language-javascript">import { SkeletonUtils } from 'src/animation/SkeletonUtils.js'</p><p>const boneMap = SkeletonUtils.buildBoneMap(animSystem.skeleton)
 console.log('Available bones:', [...boneMap.keys()])</code></pre>
 </p></section>
-<section id="section-4"><h2>spoint — docs/anticheat.md</h2><p><h1>Anti-cheat threat model</h1></p><p>This document is the explicit threat model for spoint's two distinct server shapes: a **dedicated
+<section id="section-3"><h2>spoint — docs/anticheat.md</h2><p><h1>Anti-cheat threat model</h1></p><p>This document is the explicit threat model for spoint's two distinct server shapes: a **dedicated
 server** (<code>src/sdk/server.js</code>, one trusted process every client connects to over WebSocket/WebTransport)
 and a <strong>P2P browser-hosted room</strong> (<code>client/BrowserServer.js</code>, an in-Worker server one of the *players'
 own browsers* runs, reached via wireweave/nostr WebRTC data channels — see <code>client/WireweaveClient.js</code>,
@@ -759,7 +570,7 @@ architectural undertakings explicitly out of this doc's scope.</p><p><h2>Tractab
 <ul><li><strong>Statistical outlier flags</strong> — non-blocking <code>eventLog</code> entries for headshot% over a rolling window and</li>
 </ul>  suspiciously-fast reaction times on <code>weapon.js</code> hitscan events, for operator review, not auto-ban.</p><p>See PRD row <code>anticheat-server-envelope-checks</code> for the implementation of these three.
 </p></section>
-<section id="section-5"><h2>spoint — docs/architecture-decisions.md</h2><p><h1>Architecture decisions</h1></p><p><h2>Colyseus adoption (2026-07-07; re-verified 2026-07-12)</h2></p><p>User directive: replace as much custom netcode as practical with Colyseus to reduce maintenance.</p><p><strong>Re-verified 2026-07-12 (user re-asked &quot;replace as much netcode as we can with colyseus&quot;):</strong> the decision
+<section id="section-4"><h2>spoint — docs/architecture-decisions.md</h2><p><h1>Architecture decisions</h1></p><p><h2>Colyseus adoption (2026-07-07; re-verified 2026-07-12)</h2></p><p>User directive: replace as much custom netcode as practical with Colyseus to reduce maintenance.</p><p><strong>Re-verified 2026-07-12 (user re-asked &quot;replace as much netcode as we can with colyseus&quot;):</strong> the decision
 below still stands. <code>client/BrowserServer.js</code> still runs the ENTIRE server inside a <code>new Worker('src/sdk/
 WorkerEntry.js', {type:'module'})</code> communicating only via <code>postMessage</code> -- no <code>net</code>/<code>ws</code>/socket binding of
 any kind. Colyseus's Room/Server still requires real Node sockets, so a full swap still needs a from-scratch
@@ -869,7 +680,7 @@ right shape is an opt-in <code>node:http2</code> <code>createSecureServer</code>
 in-Worker-singleplayer paths (<code>client/BrowserServer.js</code>, which has no real socket at all per the
 Colyseus decision above) are unaffected.
 </p></section>
-<section id="section-6"><h2>spoint — docs/editor-composing.md</h2><p><h1>Editor composing workflow</h1></p><p>This documents the in-engine editor's composing feature surface as verified in the codebase
+<section id="section-5"><h2>spoint — docs/editor-composing.md</h2><p><h1>Editor composing workflow</h1></p><p>This documents the in-engine editor's composing feature surface as verified in the codebase
 (client/editor/*, client/app.js) at the time of writing. Every item below is cited to a real
 file; items requested but not found landed anywhere in the client are called out explicitly
 at the end rather than assumed present.</p><p><h2>Add menu (<code>client/editor/EditorShell.js</code>)</h2></p><p><ul><li>Top toolbar &quot;Add&quot; button and the viewport right-click/long-press context menu (see</li>
@@ -986,7 +797,7 @@ at the end rather than assumed present.</p><p><h2>Add menu (<code>client/editor/
   for a name, plus a &quot;Prefabs&quot; category in the Add menu reading a server-provided prefab list) is
   follow-up work, not done as part of this pass.
 </p></section>
-<section id="section-7"><h2>spoint — docs/engine-graph.md</h2><p><h1>Spoint Engine Graph</h1></p><p>The single map of the client engine: every per-frame pass, every subsystem, and the cross-system seams
+<section id="section-6"><h2>spoint — docs/engine-graph.md</h2><p><h1>Spoint Engine Graph</h1></p><p>The single map of the client engine: every per-frame pass, every subsystem, and the cross-system seams
 that used to be implicit. Read this first to understand the codebase; it is meant to make the whole render
 + optimization pipeline legible in one place so nothing is confusing.</p><p>&gt; Derivable from code. The two graphs below mirror <code>client/core/RenderGraph.nodes.js</code> (render section) and
 &gt; the <code>buildFrameSectionNodes()</code> in <code>client/app.js</code> (frame section). The live render DAG is always available
@@ -1082,7 +893,7 @@ See <code>client/core/RenderGraph.js</code> for the node contract, watchdogs, an
 inline <code>animate()</code> step) and a row here. The whole point is that a new maintainer never has to
 reverse-engineer the pipeline again.*
 </p></section>
-<section id="section-8"><h2>spoint — docs/getting-started.md</h2><p><h1>Getting Started with spoint</h1>
+<section id="section-7"><h2>spoint — docs/getting-started.md</h2><p><h1>Getting Started with spoint</h1>
 
 &gt; <strong>spoint</strong> is a physics and netcode SDK for authoritative-server multiplayer games. Built on Jolt Physics, Three.js, and WebRTC/WebSocket transport.
 
@@ -1449,7 +1260,7 @@ npm run check:sdk-types
 <ul><li><strong>Editor</strong>: </code>docs/editor-composing.md<code></li></ul>
 <ul><li><strong>Publishing</strong>: </code>docs/publish.md<code></li></ul>
 <ul><li><strong>Anticheat</strong>: </code>docs/anticheat.md`</li></ul></p></section>
-<section id="section-9"><h2>spoint — docs/multi-process-room-orchestrator.md</h2><p><h1>Multi-process room orchestrator</h1></p><p>Covers <code>src/sdk/RoomOrchestrator.js</code>, <code>src/sdk/RoomProcessWorker.js</code>, and
+<section id="section-8"><h2>spoint — docs/multi-process-room-orchestrator.md</h2><p><h1>Multi-process room orchestrator</h1></p><p>Covers <code>src/sdk/RoomOrchestrator.js</code>, <code>src/sdk/RoomProcessWorker.js</code>, and
 <code>bin/room-orchestrator-boot.js</code> -- the multi-PROCESS step built on top of the
 already-shipped <code>src/sdk/RoomDirectory.js</code> (multi-room-<strong>per</strong>-process).</p><p>This is a <strong>different</strong> feature from <code>src/sharding/RegionRouter.js</code> /
 <code>bin/router-boot.js</code>, which splits <strong>one</strong> big world across a grid of
@@ -1564,7 +1375,7 @@ block set with the snippet above.)</p><p><h2>Known limitations / scoped-out foll
 <ul><li><strong>Auto-scaling worker count</strong> -- SHIPPED in sibling row</li>
 </ul>  <code>server-scale-room-orchestrator-elastic-worker-count</code>.
 </p></section>
-<section id="section-10"><h2>spoint — docs/navmesh-pathfinding.md</h2><p><h1>Navmesh Baking &amp; Pathfinding</h1></p><p>Apps plan walkable routes through a world's static geometry with a navmesh baked offline by
+<section id="section-9"><h2>spoint — docs/navmesh-pathfinding.md</h2><p><h1>Navmesh Baking &amp; Pathfinding</h1></p><p>Apps plan walkable routes through a world's static geometry with a navmesh baked offline by
 [recast-navigation](https://github.com/isaac-mason/recast-navigation-js) and queried at runtime
 through the engine's <code>ctx.navmesh()</code> capability. The same app code runs on the Node server and in
 the singleplayer Worker.</p><p><h2>Pipeline</h2></p><p>1. <strong>Bake</strong> (offline, <code>scripts/bake-navmesh.mjs</code>): reads <code>apps/world/&lt;world&gt;.js</code>, collects every
@@ -1634,7 +1445,7 @@ unreachable target is logged as a warning and the NPC stays put. Editor props: <
 <ul><li><strong>World has no trimesh GLB entities</strong>: the bake only reads <code>.glb</code> entities with</li>
 </ul>  <code>config.collider: 'trimesh'</code>; terrain heightfields and primitive meshes are not baked.
 </p></section>
-<section id="section-11"><h2>spoint — docs/nostr-server-federation.md</h2><p><h1>Nostr Server Federation — Architecture</h1>
+<section id="section-10"><h2>spoint — docs/nostr-server-federation.md</h2><p><h1>Nostr Server Federation — Architecture</h1>
 
 &gt; PRD row: <code>ugc-nostr-server-federation</code>  
 &gt; Status: FIRST SLICE — architecture documentation + &quot;no duplicate implementation&quot; verification
@@ -1692,7 +1503,7 @@ Both publisher and consumer use wireweave's public relay defaults (<code>wss://r
 <ul><li>Relay health/fallback monitoring (the pool already handles reconnect internally)</li></ul>
 <ul><li>Server-browser UI polish (sorting, favorites, recent)</li></ul>
 <ul><li>Operator-facing presence dashboard (which servers are publishing, relay reachability)</li></ul></p></section>
-<section id="section-12"><h2>spoint — docs/performance-optimization.md</h2><p><h1>Performance Optimization Guide for Spoint Game Creators</h1></p><p><h2>Overview</h2></p><p>This guide teaches game creators how to identify and fix performance bottlenecks in Spoint. It covers CPU and GPU optimization, memory management, network efficiency, and profiling methodology with real examples from the spoint codebase.</p><p>---</p><p><h2>Part 1: Understanding Frame Time</h2></p><p><h3>The Frame Budget</h3></p><p>At 60 FPS, each frame has a 16.67ms budget:
+<section id="section-11"><h2>spoint — docs/performance-optimization.md</h2><p><h1>Performance Optimization Guide for Spoint Game Creators</h1></p><p><h2>Overview</h2></p><p>This guide teaches game creators how to identify and fix performance bottlenecks in Spoint. It covers CPU and GPU optimization, memory management, network efficiency, and profiling methodology with real examples from the spoint codebase.</p><p>---</p><p><h2>Part 1: Understanding Frame Time</h2></p><p><h3>The Frame Budget</h3></p><p>At 60 FPS, each frame has a 16.67ms budget:
 <ul><li><strong>GPU time</strong> (~8ms): Rendering (draw calls, pixel fill rate)</li>
 <li><strong>CPU time</strong> (~6ms): Game logic, physics, network updates, entity management</li>
 <li><strong>Headroom</strong> (~2.67ms): Margin for spikes and unexpected costs</li>
@@ -2088,7 +1899,7 @@ const terrainBias = calculateBiasFromAltitude(camera.position.y)</code></pre></p
 ---</p><p><strong>Last updated:</strong> August 21, 2026
 <strong>Maintained by:</strong> Spoint Developer Community
 </p></section>
-<section id="section-13"><h2>spoint — docs/performance.md</h2><p><h1>Performance: measured findings</h1></p><p>Durable, re-verified performance investigations. Add a new dated section per investigation;
+<section id="section-12"><h2>spoint — docs/performance.md</h2><p><h1>Performance: measured findings</h1></p><p>Durable, re-verified performance investigations. Add a new dated section per investigation;
 never a status/self-congratulation report -- only root-caused, reproducible findings and the
 methodology that produced them.</p><p><h2>Terrain rendering on mobile-class iGPU (2026-06-29)</h2></p><p>Real-GPU re-measurement (ANGLE D3D11, AMD Radeon -- the actual mobile-iGPU target class) via
 <code>scripts/perf-planet-witness.mjs</code> + <code>scripts/perf-profile-witness.mjs</code> superseded an earlier
@@ -2110,7 +1921,7 @@ software rasterization inflates frame time by an order of magnitude and misattri
 If terrain frame-time spikes recur, look at mapspinner's texture-streaming path first, not the
 raymarch or <code>vdrsScale</code>.
 </p></section>
-<section id="section-14"><h2>spoint — docs/prefab-system.md</h2><p><h1>Prefab System User Guide</h1></p><p><h2>Overview</h2></p><p>A <strong>prefab</strong> (short for &quot;prefabricated&quot;) is a reusable template of one or more entities that you can save and spawn repeatedly in your world. Instead of manually recreating the same group of objects each time you need them, you save them once as a prefab and then instantiate that prefab as many times as you want.</p><p><h3>What is a Prefab?</h3></p><p>A prefab is a saved collection of entities with their properties:
+<section id="section-13"><h2>spoint — docs/prefab-system.md</h2><p><h1>Prefab System User Guide</h1></p><p><h2>Overview</h2></p><p>A <strong>prefab</strong> (short for &quot;prefabricated&quot;) is a reusable template of one or more entities that you can save and spawn repeatedly in your world. Instead of manually recreating the same group of objects each time you need them, you save them once as a prefab and then instantiate that prefab as many times as you want.</p><p><h3>What is a Prefab?</h3></p><p>A prefab is a saved collection of entities with their properties:
 <ul><li>Hierarchy (parent-child relationships preserved)</li>
 <li>Position, rotation, and scale</li>
 <li>Physics properties (body type, collider settings)</li>
@@ -2306,7 +2117,7 @@ Spawns a prefab at a given position/rotation.</p><p><pre><code class="language-j
   &quot;tower-0&quot;: { custom: { color: 0xFF4500, temperature: &quot;hot&quot; } }
 })</code></pre></p><p>---</p><p><h2>Summary</h2></p><p>Prefabs are a powerful tool for rapid level design and efficient entity management. Start by saving a complex entity group, then spawn it as many times as you need. Use variants for common customizations, and overrides for truly unique instances. Always test prefabs after saving, and keep hierarchies shallow for best performance.</p><p>Happy prefabbing!
 </p></section>
-<section id="section-15"><h2>spoint — docs/progression-guide.md</h2><p><h1>RPG Progression Framework Developer Guide</h1></p><p><h2>Overview</h2></p><p>The spoint RPG progression framework enables developers to build level-based RPG and MOBA games with XP-driven progression, quest systems, abilities that unlock over time, and persistent state across server restarts.</p><p><strong>Key Features:</strong>
+<section id="section-14"><h2>spoint — docs/progression-guide.md</h2><p><h1>RPG Progression Framework Developer Guide</h1></p><p><h2>Overview</h2></p><p>The spoint RPG progression framework enables developers to build level-based RPG and MOBA games with XP-driven progression, quest systems, abilities that unlock over time, and persistent state across server restarts.</p><p><strong>Key Features:</strong>
 <ul><li>XP-based leveling (levels 1-10+)</li>
 <li>Quest system with multiple objective types</li>
 <li>Ability unlocking at specific levels</li>
@@ -2718,7 +2529,7 @@ const castAbility = (ctx, playerId, abilityId) =&gt; {
 <li>[Game FSM guide](../apps/_lib/README.md#game-fsm) — state machine framework</li>
 <li>[Tutorial RPG source](../apps/rpg-tutorial/index.js) — working example</li>
 </ul></p></section>
-<section id="section-16"><h2>spoint — docs/publish.md</h2><p><h1>Publishing a spoint game (itch.io / GitHub Pages)</h1></p><p>This is the recipe for shipping a <code>create-spoint-game</code> project to a static host with no backend
+<section id="section-15"><h2>spoint — docs/publish.md</h2><p><h1>Publishing a spoint game (itch.io / GitHub Pages)</h1></p><p>This is the recipe for shipping a <code>create-spoint-game</code> project to a static host with no backend
 server -- itch.io's HTML5 upload, a GitHub Pages project site, or any plain CDN/file host. It relies
 entirely on spoint's <strong>singleplayer / BrowserServer mode</strong>: the same server code that normally runs
 under Node runs instead inside a Web Worker in the visitor's own browser, so there is nothing to
@@ -2780,7 +2591,7 @@ the whole point) and open it in a browser:</p><p><pre><code class="language-bash
 </ul>  tools; a static export is a frozen build, matching how <code>npm run build:client</code>'s bundle already
   behaves in production mode (see the main <code>README.md</code>'s Production Build section).
 </p></section>
-<section id="section-17"><h2>spoint — docs/quick-reference.md</h2><p><h1>spoint Quick Reference</h1>
+<section id="section-16"><h2>spoint — docs/quick-reference.md</h2><p><h1>spoint Quick Reference</h1>
 
 <h2>Run Commands</h2>
 
@@ -3005,7 +2816,7 @@ scripts/bundle-client.mjs      # Production build (esbuild)
 scripts/static-export.mjs      # Static export
 scripts/check.mjs              # Parse validation
 </code>``</p></section>
-<section id="section-18"><h2>spoint — docs/rendering.md</h2><p><h1>Rendering: culling and visibility</h1></p><p>This document is the culling-unification inventory (<code>cull-inventory-doc</code>). It covers every
+<section id="section-17"><h2>spoint — docs/rendering.md</h2><p><h1>Rendering: culling and visibility</h1></p><p>This document is the culling-unification inventory (<code>cull-inventory-doc</code>). It covers every
 system that decides whether something drawable is actually drawn this frame, in one table, so a
 future change can be gauged against the whole picture instead of one file at a time.</p><p><h2>Culling/visibility systems</h2></p><p>| System | File:line | Candidate set | Budget/frame | Hysteresis policy | Fail-open policy |
 |---|---|---|---|---|---|
@@ -3045,13 +2856,7 @@ future change can be gauged against the whole picture instead of one file at a t
   (<code>cull-stats-uniform-shape</code>), now emitted by every system's <code>getStats()</code>:
   <pre><code class="language-">{ candidates, queriedThisFrame, resolved, occluded, failOpens, anomalyTrips, flips, oldestPendingFrames }</code></pre>
   <code>oldestPendingFrames</code> aggregates as MAX across systems (a worst-case pending age), every other key
-  sums.</p><p><ul><li><strong><code>client/core/OcclusionQueryVisualizer.js</code></strong> -- <code>window.__occlusionQueryDebug</code>, a ColliderDebug.js-</li>
-</ul>  style toggleable overlay drawing every registered consumer's candidate AABBs, color-coded by
-  verdict state (visible=green, occluded=red, pending=yellow, failed-open=cyan,
-  anomaly-skipped=magenta). Each consumer exposes <code>getDebugBoxes()</code>; the visualizer's
-  <code>registerProvider(name, fn)</code> wires them in. Wiring the toggle hotkey + per-frame <code>update()</code> call
-  into app.js/the editor is owned by sibling scopes (RenderGraph wiring / inspector UI) -- this file
-  is the ready-to-wire primitive, same split as the budget arbiter above.</p><p><h2>The false-occlusion bug (cull-false-occlusion-root-cause)</h2></p><p>See the root-cause section below once live investigation completes this session. SceneOcclusion's
+  sums.</p><p><h2>The false-occlusion bug (cull-false-occlusion-root-cause)</h2></p><p>See the root-cause section below once live investigation completes this session. SceneOcclusion's
 <code>ANOMALY_FRACTION</code> stopgap (default 0.30) and its own code comments documenting the bug's
 unresolved status are preserved verbatim in <code>client/core/SceneOcclusion.js</code>'s header comments
 pending that investigation's outcome.</p><p><h2>Node contract (<code>client/core/RenderGraph.js</code>)</h2></p><p>The client's per-frame update+render passes run through one DAG orchestrator,
@@ -3221,7 +3026,7 @@ no source reading required unless a step below points you at a specific file:</p
    directly (node table above) and reasoning about the declared </code>reads<code>/</code>writes<code> per node, or add a
    temporary </code>console.log<code> inside the suspect node's </code>run` body.
 </p></section>
-<section id="section-19"><h2>spoint — docs/webgpu-shader-audit.md</h2><p><h1>WebGPU renderer: TSL-vs-raw-GLSL shader-compatibility audit</h1>
+<section id="section-18"><h2>spoint — docs/webgpu-shader-audit.md</h2><p><h1>WebGPU renderer: TSL-vs-raw-GLSL shader-compatibility audit</h1>
 
 Status: audit-only pass, first slice of <code>webgpurenderer-shader-compatibility-audit-tsl-glsl</code>.
 No source behavior changed by this pass -- <code>?webgpu=1</code> stays exactly as risky as it was
@@ -3395,7 +3200,7 @@ renderer, which has no WebGPU counterpart at all and would need its own dedicate
 
 See <code>.gm/prd.yml</code> for the decomposed follow-up rows this audit filed.
 </p></section>
-<section id="section-20"><h2>wireweave — README</h2><p><h1>wireweave</h1></p><p>&gt; probably emerging 🌀</p><p>serverless nostr + webrtc voice + binary-data SDK. the networking layer for 247420 projects.</p><p><ul><li><strong>voice</strong> — perfect-negotiation mesh + SFU election (audio, video, recorded segments).</li>
+<section id="section-19"><h2>wireweave — README</h2><p><h1>wireweave</h1></p><p>&gt; probably emerging 🌀</p><p>serverless nostr + webrtc voice + binary-data SDK. the networking layer for 247420 projects.</p><p><ul><li><strong>voice</strong> — perfect-negotiation mesh + SFU election (audio, video, recorded segments).</li>
 <li><strong>data</strong> — peer-to-peer binary <code>RTCDataChannel</code> over the same nostr signaling. game frames, structured payloads, anything <code>Uint8Array</code>-shaped.</li>
 </ul>
 site: https://anentrypoint.github.io/wireweave/  
@@ -3478,7 +3283,7 @@ import { RelayPool, NostrAuth } from 'wireweave';
 import * as NostrTools from 'nostr-tools';</p><p>const pool = new RelayPool({ relays: ['wss://relay.damus.io'], verifyEvent: NostrTools.verifyEvent, WebSocketImpl: WebSocket });
 const auth = new NostrAuth({ nostrTools: NostrTools });</code></pre></p><p><h2>test</h2></p><p><pre><code class="language-">npm test</code></pre></p><p>hits <code>wss://relay.damus.io</code> for a real publish → subscribe round-trip.</p><p><h2>license</h2></p><p>MIT © AnEntrypoint — read the source.
 </p></section>
-<section id="section-21"><h2>mapspinner — AGENTS.md</h2><p><h1>mapspinner — agent working rules</h1></p><p><h2>Generated file: src/height-gen.js</h2></p><p><code>src/height-gen.js</code> is generated by <code>scripts/gen-height.mjs</code> from <code>src/shaders/terrain.glsl</code> --
+<section id="section-20"><h2>mapspinner — AGENTS.md</h2><p><h1>mapspinner — agent working rules</h1></p><p><h2>Generated file: src/height-gen.js</h2></p><p><code>src/height-gen.js</code> is generated by <code>scripts/gen-height.mjs</code> from <code>src/shaders/terrain.glsl</code> --
 never hand-edit it, re-run <code>node scripts/gen-height.mjs</code> after editing the terrain HEIGHT functions.
 The GLSL is the single source of truth. <code>g</code> in the generated file is the GLSL runtime shim
 (<code>glsl-rt.js</code>); <code>U</code> is uniform values; <code>hpfSample</code> is supplied by the caller (the pure-JS
@@ -3760,7 +3565,7 @@ recall &quot;tv8-vertical-rockface-material-calibration&quot;.</p><p>ROCK DETAIL
 Workflow <code>/startup-perf</code>.</p><p><h2>HPF adaptive quadtree (anchor-field.js)</h2></p><p>Per-band adaptive quadtrees (additive detail-hat overlay) + the BAKED-vs-FULL-BAND elevAmp gotcha —
 recall &quot;TV8 hpf adaptive quadtree anchor field 2026-06-02&quot;.</p><p>@.gm/next-step.md
 </p></section>
-<section id="section-22"><h2>mapspinner — README</h2><p><h1>mapspinner — WebGL2 Earth-scale Terrain SDK</h1></p><p>A performant, production-ready WebGL2 rendering SDK for interactive Earth-scale globe applications. Designed as a composable rendering layer that integrates seamlessly into projects like spoint.</p><p><h2>Quick Start</h2></p><p><pre><code class="language-bash">npm install mapspinner</code></pre></p><p><pre><code class="language-javascript">import { createPlanet } from 'mapspinner';</p><p>// In your WebGL2 application
+<section id="section-21"><h2>mapspinner — README</h2><p><h1>mapspinner — WebGL2 Earth-scale Terrain SDK</h1></p><p>A performant, production-ready WebGL2 rendering SDK for interactive Earth-scale globe applications. Designed as a composable rendering layer that integrates seamlessly into projects like spoint.</p><p><h2>Quick Start</h2></p><p><pre><code class="language-bash">npm install mapspinner</code></pre></p><p><pre><code class="language-javascript">import { createPlanet } from 'mapspinner';</p><p>// In your WebGL2 application
 const planet = await createPlanet(gl, {
   radius: 6360000,      // Earth radius in meters
   gridMeshSize: 16      // Mesh subdivision level
@@ -3791,7 +3596,7 @@ src/index.js                 SDK entry point
 examples/                    integration examples
 tests/                       SDK validation tests</code></pre></p><p><h2>Testing</h2></p><p><pre><code class="language-bash">npm test</code></pre></p><p>Tests validate SDK geometry output, shader compilation, and rendering invariants.</p><p><h2>License</h2></p><p>MIT
 </p></section>
-<section id="section-23"><h2>streaming-gltf — AGENTS.md</h2><p><h1>streaming-gltf — agent notes</h1></p><p>Cluster-LOD glTF renderer. Static geometry is cluster-based end to end; the
+<section id="section-22"><h2>streaming-gltf — AGENTS.md</h2><p><h1>streaming-gltf — agent notes</h1></p><p>Cluster-LOD glTF renderer. Static geometry is cluster-based end to end; the
 discrete/progressive sibling-LOD format survives only for skinned primitives
 (see below). No backwards compatibility with pre-2.0.0 bakes.</p><p><h2>Format: EP_cluster_lod (single valid GLB)</h2></p><p><code>tools/bake-cluster.mjs</code> (<code>bakeCluster(inGlb, outGlb)</code>, also <code>npm run bake</code>) turns
 each unskinned static primitive into:</p><p><ul><li><strong>One unified vertex+index buffer.</strong> <code>MeshoptClusterizer.buildMeshletsSpatial</code></li>
@@ -3851,7 +3656,7 @@ never inline in a long-lived host (large clustering OOMs an in-process worker).
 <code>SPOINT_NO_MESHOPT=1</code> skips the <code>EXT_meshopt_compression</code> write, for isolating
 client-side meshopt decode when on-disk and browser-decoded geometry disagree.</p><p>@.gm/next-step.md
 </p></section>
-<section id="section-24"><h2>streaming-gltf — README</h2><p><h1>Cluster-LOD glTF renderer</h1></p><p>A three.js renderer for large scenes of distinct glTF/GLB models using
+<section id="section-23"><h2>streaming-gltf — README</h2><p><h1>Cluster-LOD glTF renderer</h1></p><p>A three.js renderer for large scenes of distinct glTF/GLB models using
 <strong>UV-aware spatial meshlet clusters</strong>: each static model is baked into one valid
 GLB of spatially coherent clusters, each carrying a hierarchy of UV-aware
 simplified LODs, packed into a single unified buffer. At runtime every visible

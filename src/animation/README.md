@@ -30,10 +30,6 @@ animSystem.update(dt, {
 - `IKSolver.js` - Inverse kinematics solvers
 - `SkeletonUtils.js` - Bone utilities and network packing
 
-### Utilities (Production)
-- `PlayerAnimatorAdapter.js` - Adapter for existing PlayerAnimator API
-- `AnimationStreamingManager.js` - GLB loading and caching
-
 ## States
 
 Animation FSM states:
@@ -88,12 +84,9 @@ remoteAnimSystem.unpackSkeletonState(receivedBuffer)
 
 Compression: 8x smaller than Float32Array (quaternions only)
 
-Expected output: 16/19 tests passing (84%)
-
 ## Documentation
 
 - `docs/animation-system.md` - Complete API documentation
-- `docs/ANIMATION_SYSTEM_IMPLEMENTATION.md` - Implementation details and performance notes
 - `apps/character-animator/` - Example usage
 
 ## Performance
@@ -106,10 +99,8 @@ Expected output: 16/19 tests passing (84%)
 ## Compatibility
 
 - ✓ VRM v0 and v1 models
-- ✓ GLB animation streaming
 - ✓ THREE.AnimationMixer
 - ✓ xstate5 FSM pattern
-- ✓ Backward compatible via PlayerAnimatorAdapter
 
 ## Design
 
