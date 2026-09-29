@@ -1,9 +1,11 @@
 import { angleFromAnchorDeg } from './relocation.js'
+import { DEFAULT_MAX_SLOPE_ANGLE_RAD } from '../physics/CharacterManager.js'
 
 const AXIS_NAMES = ['x', 'y', 'z']
 const OUT_KM = [5, 20, 100]
 const SEARCH_BOOKMARKS = ['coast', 'hills', 'forest', 'rocks']
 const REACHABLE_BELOW_ANCHOR_DEG = 87
+const WALKABLE_BELOW_ANCHOR_DEG = DEFAULT_MAX_SLOPE_ANGLE_RAD * 180 / Math.PI
 
 function cubeDirections() {
   const out = []
@@ -37,7 +39,8 @@ export function listBookmarks(worldDef, frame) {
   directions.push({ name: 'pole-north', dir: [0, 1, 0] }, { name: 'pole-south', dir: [0, -1, 0] })
   for (const d of directions) {
     const angleDeg = frame ? angleFromAnchorDeg(frame, d.dir) : null
-    list.push({ name: d.name, spec: { dir: d.dir }, angleDeg, reachable: angleDeg === null ? null : angleDeg < REACHABLE_BELOW_ANCHOR_DEG })
+    const known = angleDeg !== null
+    list.push({ name: d.name, spec: { dir: d.dir }, angleDeg, reachable: known ? angleDeg < REACHABLE_BELOW_ANCHOR_DEG : null, tiltWalkable: known ? angleDeg < WALKABLE_BELOW_ANCHOR_DEG : null })
   }
   return list
 }

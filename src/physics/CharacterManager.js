@@ -1,6 +1,7 @@
 const LAYER_DYNAMIC = 1
 const FALLBACK_CAPSULE_HALF_HEIGHT = 0.9
 const MIN_CARRY_GROUND_SPEED_SQ = 1e-6
+export const DEFAULT_MAX_SLOPE_ANGLE_RAD = 0.7854
 
 export class CharacterManager {
   constructor(gravity, crouchHalfHeight = 0.45, config = {}) {
@@ -14,7 +15,7 @@ export class CharacterManager {
     this._filters = null; this._updateSettings = null
     this._charGravity = null; this._tmpVec3 = null; this._tmpRVec3 = null
     this.config = {
-      maxSlopeAngle: config.maxSlopeAngle ?? 0.7854,
+      maxSlopeAngle: config.maxSlopeAngle ?? DEFAULT_MAX_SLOPE_ANGLE_RAD,
       maxStepHeight: config.maxStepHeight ?? 0.4,
       stickToFloorDistance: config.stickToFloorDistance ?? 0.5
     }

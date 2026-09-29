@@ -4,7 +4,8 @@ export const DEFAULT_CLEARANCE_M = 2
 export const MAX_CLEARANCE_M = 500
 export const MAX_ABS_COORD_M = 1e7
 const MIN_UP_DOT = 0.05
-const ELEVATION_REFINE_PASSES = 3
+const ELEVATION_REFINE_PASSES = 8
+const ELEVATION_REFINE_TOL_M = 1e-3
 const DEG = Math.PI / 180
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -25,25 +26,34 @@ export function angleFromAnchorDeg(frame, dir) {
   return Math.acos(Math.max(-1, Math.min(1, dot(dir, frame.up) / l))) / DEG
 }
 
+function rayMissM(frame, d, x, y, z) {
+  const p = frame.localToDir(x, z, y)
+  return frame.radius * Math.hypot(p[0] - d[0], p[1] - d[1], p[2] - d[2])
+}
+
 export function dirToLocalXZ(frame, dir, heightAt) {
   const l = Math.hypot(dir[0], dir[1], dir[2])
   if (!(l > 0)) return null
   const d = [dir[0] / l, dir[1] / l, dir[2] / l]
   if (!(dot(d, frame.up) > MIN_UP_DOT)) return null
-  let elevation = frame.anchorHeight
-  let x = 0, z = 0
-  const passes = typeof heightAt === 'function' ? ELEVATION_REFINE_PASSES : 1
-  for (let i = 0; i < passes; i++) {
-    const rho = frame.radius + elevation
-    x = rho * dot(d, frame.east); z = rho * dot(d, frame.north)
-    if (i + 1 < passes) {
-      const y = heightAt(x, z)
-      const e = Number.isFinite(y) ? elevationAtLocal(frame, x, y, z) : null
-      if (!Number.isFinite(e)) break
-      elevation = e
-    }
+  const dirElevation = typeof frame.elevationAtDir === 'function' ? frame.elevationAtDir(d) : null
+  let elevation = Number.isFinite(dirElevation) ? dirElevation : frame.anchorHeight
+  const de = dot(d, frame.east), dn = dot(d, frame.north)
+  let x = (frame.radius + elevation) * de, z = (frame.radius + elevation) * dn
+  if (typeof heightAt !== 'function') return [x, z]
+  let bestX = x, bestZ = z, bestMiss = Infinity
+  for (let i = 0; i < ELEVATION_REFINE_PASSES; i++) {
+    const y = heightAt(x, z)
+    const e = Number.isFinite(y) ? elevationAtLocal(frame, x, y, z) : null
+    if (!Number.isFinite(e)) break
+    const miss = rayMissM(frame, d, x, y, z)
+    if (miss < bestMiss) { bestMiss = miss; bestX = x; bestZ = z }
+    const nx = (frame.radius + e) * de, nz = (frame.radius + e) * dn
+    const moved = Math.hypot(nx - x, nz - z)
+    x = nx; z = nz
+    if (moved < ELEVATION_REFINE_TOL_M) break
   }
-  return [x, z]
+  return [bestX, bestZ]
 }
 
 export function resolveTarget(spec, { frame, heightAt } = {}) {

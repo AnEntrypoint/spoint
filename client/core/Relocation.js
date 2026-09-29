@@ -125,7 +125,7 @@ async function route(waypoints, opts = {}) {
 
 function bookmarks(name, spec) {
   if (name === undefined) {
-    return bookmarkTable().map(b => ({ name: b.name, kind: b.search ? 'search' : 'coords', reachable: b.reachable ?? true, angleDeg: b.angleDeg ?? null, custom: customBookmarks.has(b.name) }))
+    return bookmarkTable().map(b => ({ name: b.name, kind: b.search ? 'search' : 'coords', reachable: b.reachable ?? true, tiltWalkable: b.tiltWalkable ?? true, angleDeg: b.angleDeg ?? null, custom: customBookmarks.has(b.name) }))
   }
   if (spec === undefined) return specFor(name)
   customBookmarks.set(name, spec === 'here' ? hereSpec() : spec)
