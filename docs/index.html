@@ -37,8 +37,8 @@
 <li><a href="#section-9">spoint — docs/multi-process-room-orchestrator.md</a></li>
 <li><a href="#section-10">spoint — docs/navmesh-pathfinding.md</a></li>
 <li><a href="#section-11">spoint — docs/nostr-server-federation.md</a></li>
-<li><a href="#section-12">spoint — docs/particles.md</a></li>
-<li><a href="#section-13">spoint — docs/performance-optimization.md</a></li>
+<li><a href="#section-12">spoint — docs/performance-optimization.md</a></li>
+<li><a href="#section-13">spoint — docs/performance.md</a></li>
 <li><a href="#section-14">spoint — docs/prefab-system.md</a></li>
 <li><a href="#section-15">spoint — docs/progression-guide.md</a></li>
 <li><a href="#section-16">spoint — docs/publish.md</a></li>
@@ -60,49 +60,60 @@
 Skills encode environment-specific constraints that override general knowledge.</p><p>--JULES STOPGAP DONT EDIT STOP--</p><p><h1>AGENTS.md — Non-obvious Technical Caveats Index</h1></p><p>Slugs only; full text lives in the recall store (<code>.gm/memories/</code>, query with <code>recall &lt;slug or topic&gt;</code>).
 If recall is empty, check <code>git log -p -- AGENTS.md</code> for the pre-drain text. Add a caveat with
 <code>memorize-fire</code> (<code>project/&lt;area&gt;-&lt;slug&gt;: ...</code>) and append its slug below. Keep this file &lt; 30KB:
-drain narrative into recall, never grow an audit log here.</p><p><h2>Main-only, no branches, lanmower-only</h2></p><p>Work directly on <code>main</code>; merge any stray work branch into <code>main</code> and delete it (<code>gh-pages</code> is a deploy
-artifact branch and stays). Commit only as <code>lanmower</code> (<code>657315+lanmower@users.noreply.github.com</code>);
-never attribute an AI assistant in any commit, PR, or file. Rule applies inside every submodule too.</p><p><h2>Source has no comments</h2></p><p>Names and structure carry meaning; rationale that code cannot carry lives in recall (slugs below),
-the commit message, or this file. The 2026-09-14 sweep moved every source comment out of
-client/ src/ apps/ scripts/ packages/{mapspinner,streaming-gltf,ecs}/src. Kept on purpose: <code>@ts-*</code>,
-<code>eslint<em></code>, <code>@vite-ignore</code>, <code>webpack</em></code>, <code>/<em>! </em>/</code>, <code>#__PURE__</code>, <code>sourceMappingURL</code> directives, and
-comment-looking text inside string/template literals (embedded GLSL, <code>scripts/patch-deps.mjs</code>'s
-<code>// [spoint patch]</code> idempotency markers, generated-file headers) -- that is runtime data.
-Generated/minified files are exempt: <code>packages/mapspinner/src/height-gen.js</code> (from terrain.glsl via
-<code>scripts/gen-height.mjs</code>, which strips GLSL comments itself), <code>*/basis/basis_transcoder.js</code>,
-<code>packages/streaming-gltf/src/draco-loader.js</code>, <code>client/editor/sdk-typings.generated.d.ts</code>.</p><p><h2>AnEntrypoint dependencies and <code>vendor/*</code> submodules (<code>project/anentrypoint-consumption-and-submodules</code>)</h2></p><p>AnEntrypoint publishes nothing to npm. Runtime sources, the only ones code may reference:</p><p>| Repo | Runtime consumption | Edit checkout |
+drain narrative into recall, never grow an audit log here.</p><p><h2>Main-only, no branches, lanmower-only</h2></p><p>Work on <code>main</code>; merge stray branches in and delete them (<code>gh-pages</code> is a deploy artifact and stays).
+Commit only as <code>lanmower</code> (<code>657315+lanmower@users.noreply.github.com</code>); never attribute an AI
+assistant in a commit, PR, or file. Same inside every submodule.</p><p><h2>Zero-comment sweep</h2></p><p>Names and structure carry meaning; rationale that code cannot carry lives in recall (slugs below),
+the commit message, or this file. Swept 2026-09-14: <code>client/</code> <code>src/</code> <code>apps/</code> <code>scripts/</code>
+<code>packages/{mapspinner,streaming-gltf,ecs}/src</code>. Swept 2026-09-28: <code>packages/<em>/examples/</em>*</code>,
+<code>packages/<em>/scripts/</em>*</code>, Rust. Kept on purpose, never re-flag:</p><p><ul><li><code>@ts-<em></code>, <code>eslint</em></code>, <code>@vite-ignore</code>, <code>webpack<em></code>, <code>/</em>! */</code>, <code>#__PURE__</code>, <code>sourceMappingURL</code>.</li>
+<li>comment-looking text inside string/template literals (embedded GLSL, <code>scripts/patch-deps.mjs</code>'s</li>
+</ul>  <code>// [spoint patch]</code> idempotency markers, generated headers) -- runtime data.
+<ul><li>Markdown (<code>src/game/INTEGRATION.md</code>, <code>apps/_lib/README.md</code>, any <code>*.md</code>): <code>//</code> in code examples is</li>
+</ul>  prose. Never edit a doc to satisfy the sweep.
+<ul><li><code>types/*.d.ts</code> JSDoc: the published app-SDK contract (<code>ctx</code>, engine, math) that app authors read</li>
+</ul>  as editor IntelliSense, not commentary on code -- its rationale cannot move to recall without
+  deleting the interface documentation.
+<ul><li>Rust <code>///</code> rustdoc on a <code>#[wasm_bindgen]</code> export, only where it states an ABI fact the</li>
+</ul>  signature cannot carry (in <code>packages/spoint-core/src/lib.rs</code>: <code>pack_quat</code>'s bit layout,
+  <code>unpack_quat</code>'s return order, <code>mul_quat</code>'s component order). Every other Rust comment is gone -- <code>//</code> banners, the file header block, and every <code>///</code> restating its own signature.
+<ul><li>Vendored/generated, never edited: <code>client/vendor/</code> (upstream headers), <code>client/editor/wm/wm.css</code></li>
+</ul>  (verbatim thebird <code>os/wm.css</code> paint-only WM visuals), <code>packages/mapspinner/src/height-gen.js</code>,
+  <code>*/basis/basis_transcoder.js</code>, <code>packages/streaming-gltf/src/draco-loader.js</code>,
+  <code>client/editor/sdk-typings.generated.d.ts</code>.</p><p>Known false positives, never re-flag: generator methods <code><em>[Symbol.iterator]()</code> / <code></em>entries()</code>, CSS
+<code><em></code> universal and <code>#id</code> selectors, GLSL <code>#ifdef</code> and <code></em></code> block-comment continuations, glob literals
+inside <code>console.log</code> strings, <code>//</code> inside <code>http://</code> URLs.</p><p><h2>AnEntrypoint dependencies and <code>vendor/*</code> submodules (<code>project/anentrypoint-consumption-and-submodules</code>)</h2></p><p>AnEntrypoint publishes nothing to npm. Runtime sources, the only ones code may reference:</p><p>| Repo | Runtime consumption | Edit checkout |
 |---|---|---|
 | <code>AnEntrypoint/design</code> | pinned CDN URLs in the importmaps (+ stylesheet/modulepreload links) of <code>client/index.html</code>, <code>client/landing/index.html</code>, <code>client/editor/thebird-host.html</code>, <code>scripts/bundle-client.mjs</code>: bare <code>anentrypoint-design</code> -&gt; <code>unpkg.com/anentrypoint-design@1.0.34/dist/247420.{js,css}</code>; <code>game-editor-kit</code> -&gt; jsdelivr <code>gh/AnEntrypoint/design@&lt;sha&gt;/src/components/game-editor-kit/index.js</code>. Bump all four files together. | <code>vendor/design</code> |
 | <code>AnEntrypoint/wireweave</code> | <code>package.json</code> optionalDependencies <code>github:AnEntrypoint/wireweave</code> (npm clones default branch; src/ only; importmaps remap to <code>/node_modules/wireweave/src/index.js</code>; Node uses bare <code>import('wireweave')</code>) | <code>vendor/wireweave</code> |
 | <code>AnEntrypoint/gm</code> | global <code>npx gm-skill install</code> / <code>gm-plugkit</code>, not a spoint dependency | <code>vendor/gm</code> |</p><p><code>vendor/*</code> are editing-only submodules: never import them from <code>client/</code>, <code>scripts/</code>, <code>src/</code>. Edit on
-the submodule's own <code>main</code>, push to that repo's remote, then commit the new gitlink in spoint
-(bookkeeping only); runtime picks the change up when the pinned kit version/SHA is bumped, on the next
-<code>npm install</code> (wireweave), or on a fresh <code>gm-skill install</code>. The importmaps also remap
-<code>https://esm.sh/three@r128</code> keys to the local three so the kit's ModelPreview never loads a second
-three (<code>project/importmap-esmsh-three-dedupe</code>); COEP <code>require-corp</code> means every kit CDN must send CORP. The importmap must precede any module load/preload. No npm dependency on the
-kit (a second copy would silently disagree with the importmap). <code>nostr-tools</code> is injected into
-wireweave from <code>client/vendor/nostr-tools.mjs</code>. Pin a wireweave SHA if a build must be reproducible; no CI in this repo tests against wireweave@main
-(the repo has no .github workflows). gmsniff and agentgui deliberately vendor the kit.
-Add a fourth submodule only with a documented runtime mechanism.</p><p><h2>All GUI lives in AnEntrypoint/design (<code>project/gui-kit-architecture-2026-08-21</code>)</h2></p><p>Every UI component (screens, dialogs, panels, editor kit incl. asset browser/model preview/undo
-history, damage numbers) is built in <code>AnEntrypoint/design</code> (<code>src/components/game-editor-kit/</code> for
-editor/gameplay panels) and reaches spoint only via the pinned CDN importmap entries. spoint keeps backend only
-(e.g. <code>src/editor/ThumbnailGenerator.js</code>, <code>src/editor/ThumbnailWorker.js</code>,
-<code>src/sdk/ModelBrowserHandler.js</code>, <code>src/effects/DamageEffects.js</code>, <code>apps/hit-feedback</code> event wiring).
-Reject any change adding UI-rendering <code><em>.js</code>/<code></em>.html</code>/<code>*.css</code> under <code>client/</code> without the design-repo
-work; design change first, spoint integration next commit; verify on the live URL with <code>?v=&lt;ts&gt;</code>.</p><p><h2>Root-cause, never tune thresholds (<code>project/degenerate-triangle-threshold-is-not-a-tunable-guess</code>, <code>project/degenerate-triangle-third-copy-and-immutable-cache</code>)</h2></p><p>A bug that survives a numeric-threshold change was not fixed: re-diagnose the mechanism. Exhaust
-structural fixes first; derive any remaining threshold from a measured discontinuity in real data
-(aim_sillos.glb <code>EPS_AREA=1e-4</code> sits in a verified gap of the triangle-area histogram). When a fix
-correct at its own layer fails end-to-end, search the whole pipeline for another copy of the same check
-(the degenerate-triangle check lived in <code>src/physics/ShapeBuilder.js</code>,
-<code>packages/streaming-gltf/tools/bake-cluster.mjs</code>, and <code>packages/streaming-gltf/src/cluster-lod-mesh.js</code>).
-Any re-bakeable (non content-hashed) URL needs a real ETag; <code>immutable</code> without one serves stale
-pre-fix bytes. Verify rendering defects on live GPU-bound data (<code>window.__scene</code>), not bake re-parses.</p><p><h2>Server-only endpoints are dead on the static gh-pages host</h2></p><p><code>/client-error</code> (<code>client/core/ErrorTelemetry.js</code>) and <code>/upload-model</code> (<code>client/editor/editor.js</code>) are
+the submodule's own <code>main</code>, push there, then commit the new gitlink here (bookkeeping only); runtime
+picks it up when the pinned version/SHA is bumped, on the next <code>npm install</code> (wireweave), or on a
+fresh <code>gm-skill install</code>. The importmaps also remap <code>https://esm.sh/three@r128</code> to the local three so
+the kit's ModelPreview never loads a second three (<code>project/importmap-esmsh-three-dedupe</code>); COEP
+<code>require-corp</code> means every kit CDN must send CORP, and the importmap must precede any module
+load/preload. No npm dependency on the kit (a second copy would disagree with the importmap).
+<code>nostr-tools</code> is injected into wireweave from <code>client/vendor/nostr-tools.mjs</code>. Pin a wireweave SHA for
+a reproducible build; no CI here tests wireweave@main (no .github workflows). gmsniff and agentgui
+deliberately vendor the kit. A fourth submodule needs a documented runtime mechanism.</p><p><h2>All GUI lives in AnEntrypoint/design (<code>project/gui-kit-architecture-2026-08-21</code>)</h2></p><p>Every UI component (screens, dialogs, panels, editor kit incl. asset browser/model preview/undo
+history, damage numbers) is built in <code>AnEntrypoint/design</code> (<code>src/components/game-editor-kit/</code>) and
+reaches spoint only via the pinned CDN importmap entries; spoint keeps backend only (e.g.
+<code>src/effects/DamageEffects.js</code>, <code>apps/hit-feedback</code>). The kit's <code>ModelBrowser</code>/<code>ModelBrowserIntegration</code>
+panel already exists there; spoint has no <code>ThumbnailGenerator</code>/<code>ThumbnailWorker</code>/<code>ModelBrowserHandler</code>
+for it yet -- build one there, not under <code>client/</code>. Reject any UI-rendering <code><em>.js</code>/<code></em>.html</code>/<code>*.css</code>
+under <code>client/</code> without the design-repo work: design first, spoint integration next commit, verify on
+the live URL with <code>?v=&lt;ts&gt;</code>.</p><p><h2>Root-cause, never tune thresholds (<code>project/degenerate-triangle-threshold-is-not-a-tunable-guess</code>, <code>project/degenerate-triangle-third-copy-and-immutable-cache</code>)</h2></p><p>A bug that survives a numeric-threshold change was not fixed -- re-diagnose the mechanism. Exhaust
+structural fixes, then derive any threshold from a measured discontinuity in real data
+(aim_sillos.glb <code>EPS_AREA=1e-4</code> sits in a verified gap of the area histogram). When a fix correct at
+its own layer fails end-to-end, hunt another copy of the same check (the degenerate-triangle one lived
+in <code>src/physics/ShapeBuilder.js</code>, <code>packages/streaming-gltf/tools/bake-cluster.mjs</code> and
+<code>packages/streaming-gltf/src/cluster-lod-mesh.js</code>). A re-bakeable URL needs a real ETag; <code>immutable</code>
+without one serves stale pre-fix bytes. Verify rendering on live GPU data (<code>window.__scene</code>).</p><p><h2>Server-only endpoints are dead on the static gh-pages host</h2></p><p><code>/client-error</code> (<code>client/core/ErrorTelemetry.js</code>) and <code>/upload-model</code> (<code>client/editor/editor.js</code>) are
 server routes (<code>src/sdk/ServerAPI.js</code>) absent on gh-pages; both no-op behind <code>.catch</code> there (accepted
 2026-08-03; to change it, probe server presence once and feature-gate both call sites).</p><p><h2>Debugging playbook (<code>project/debugging-playbook-live-gl-instrumentation-2026-07-10</code>)</h2></p><p>Live GL-error/rendering-defect method: console-text disambiguation of same-code GL errors, draw-call
 stack capture, live GL state over JS-cache trust, pixel-sample toggle elimination for flicker, classify
 discrete-vs-noise before chasing. Underwater/waterline and grazing-altitude water cull:
 <code>project/ground-depth-cut-is-underwater-ceiling-waterline-crossing</code> (tools: <code>window.__tpOverride</code>,
-<code>window.__passProbe</code>; out-of-band <code>renderer.render</code> captures fake a black void).</p><p><h2>Recall topic catalog</h2></p><p>Terrain (<code>project/terrain-*</code>): super-chunk-tiling, edge-snap-skirt, stitching-live-neighbour-lod, cross-factor-edge-fast-res-fallback, cross-factor-stitch-invalidation, restitch-priority-inversion, gpu-displacement-arch, uv-double-scale-bug, strict-1-tile-raf, camera-footprint-eviction, streaming-priorities-eviction, worker-count-cap, pendingevict-zfight, buffergeo-upload-stall, edge-normal-fbm-opt, sampler-lru-cache, shortest-queue-dispatch, stale-result-drop, evicted-geo-cache, adaptive-lod, baked-normals-cross-lod, sample-at-scratch-buffers, config-world-to-client-flow, client-html-singleplayer-survivor-redirect, cpu-gpu-height-parity-integer-hash, mapspinner-single-source-of-truth, terrain-occlusion-postrender-queries, terrain-is-a-proper-app, misc-caveats.</p><p>Vegetation (<code>project/veg-*</code>): frustum-culling-bounding-sphere, lod-bands-bitmask, lod-rebuild-cache, debug-overwrite-trap, atomic-lod-swap, collapse-variant-buckets, billboard-cylindrical-impostor, billboard-bake-async-image-poll, billboard-renderdistance-gate, placement-lod-invariant, y-scale-zero-pancake, lodband-stale-recompute, eztree-branch-polycount, stale-result-double-build, canvas-destination-in, terrainfield-anchor-kind-preserve, eztree-material-name-split, eztree-no-node, server-world-env, placement-args-passthrough, bake-billboard-temp-parent, capsule-uniform-scale, cull-on-approach-union-box-and-toggle-isolation.</p><p>Physics (<code>project/physics-*</code>): jolt-arrayfloat-getpointer, jolt-browser-multithread-coi-confirmed-null-function-was-caller-error, jolt-wasm-cross-platform-bit-exact, jolt-lockstep-multiprocess-fixed-dt-bit-exact, lockstep-tick-driver-fixed-dt-bypass-dilation, lockstep-game-loop-orchestrator-integration, jolt-getangularvelocity-shared-buffer-double-destroy, jolt-getpositionrotation-shared-buffer-double-destroy, terrain-radius-cap, collider-res-128-to-64, terrain-tick-decouple, tick-dilation-freeze, streaming-decouple-validated, player-divisor-dt-bug, no-fallthrough-kill-plane-real-character, collider-streamer-fresh-territory-tick-stall, rollback-wireweave-input-transport-orchestrator; <code>project/ragdoll-brawl-arena-no-joint-api</code>, <code>project/vehicles-jolt-constraint-available-not-just-twobody</code>.</p><p>Rocks (<code>project/rocks-*</code>): integrated-veg-pipeline, second-pass-grid, convex-hull-colliders, sync-bake-required, normal-alignment-size.</p><p>Movement/Animation: <code>project/movement-coyote-buffer</code>, <code>-soft-land</code>, <code>project/animation-anim-locostate-thresholds-vs-sprintspeed</code>, <code>-anim-sendloco-cooldown-actor-desync</code>. Testing: <code>project/test-vegetation-physics-async-yield</code>.</p><p>Rendering: <code>project/instanced-mesh-shared-geo-trap</code>, <code>project/sun-shadow-player-follow</code>, <code>project/sim-render-pacing-vsync-input-stamp</code>, <code>project/placement-scheduler-raf-decouple</code>, <code>project/render-graph-live-orchestrator</code>, <code>project/fog-band-and-night-ambient-silhouette</code>.</p><p>Model display (<code>project/modelpool-*</code>): scene-attach-proxy-root, transform-direct-not-opts, useglobalmaterialpool-off-per-texture, bake-webp-source-normalize, bake-empty-prim-guard, vrm-multidriver-player-routing, doubleside-interior-faces-is-custom-flag, draco-wasm-removed-purejs-clientwide, cluster-lod-double-transform, placement-y-tuned-for-broken-scale, cluster-onbeforerender-custom-draw-bind-timing, legacy-visibility-cull-vs-pool-lod.</p><p>App/SP/GLB/RTC/Misc: <code>project/window-app-two-stage-init</code>, <code>project/window-tune-hot-reload</code>, <code>project/singleplayer-and-app-api-caveats</code>, <code>project/glb-loading-caveats</code>, <code>project/wireweave-rtc-caveats</code>, <code>project/misc-rendering-ci-browser-caveats</code>, <code>project/multiplayer-host-world-resolution</code>, <code>project/multiplayer-gitignore-worker-dep-404</code>, <code>project/statichandler-symlink-nodemodules-404</code>, <code>project/one-server-two-client-modes-same-origin</code>, <code>project/multiplayer-host-bridge-peeropen-catchup</code>, <code>project/wireweave-dc-close-recovery</code>, <code>project/loading-fallback-races-slow-worker</code>, <code>project/startup-coldboot-bottleneck-fixes</code>, <code>project/startup-rehunt-anim-lib-earlykick</code>, <code>project/env-app-removed-fold-into-placed-model</code>, <code>project/resolveasset-worker-fetch-needs-origin-slash</code>, <code>project/edge-cf-workers-feasibility-workerentry-already-proves-core</code>, <code>project/lockstep-e2e-real-webrtc-node-datachannel-dead-end-roamhq-wrtc-works</code>, <code>project/workerentry-visibilitychange-save-now</code>, <code>project/rollback-wireweave-transport-namespace-must-match</code>, <code>project/webgpurenderer-live-runtime-construction-works-shadowcostprobe-crashes</code>, <code>project/room-orchestrator-router-is-lookup-not-proxy</code>, <code>project/room-orchestrator-load-aware-placement-tickmetrics</code>, <code>project/browser-verb-chrome-pileup-direct-launch-workaround</code>, <code>project/p2p-mesh-split-brain-three-layer-fix</code>, <code>project/singleplayer-worker-boot-stall-on-cold-backgrounded-tab</code>, <code>project/singleplayer-world-json-stale-copy-removed</code>, <code>project/tps-game-bug-sweep-2026-08-13d</code>.</p><p>Workspaces/deploy: <code>project/workspaces-merged-packages</code> (mapspinner + streaming-gltf are in-repo npm workspaces under packages/, edited directly), <code>project/merge-cleanup-2026-07-07c</code>, <code>project/ghpages-deploy-symlink-cp-collision</code>, <code>project/ghpages-deploy-silent-freeze</code>, <code>project/ghpages-deploy-sed-node-modules-overreach</code>, <code>project/ghpages-confirming-pass-thebird-and-bake-2026-08-03</code>, <code>project/sillos-scramble-hypothesis-disproven</code>, <code>project/auto-declaudeify-history-rewrite</code>.</p><p>Game/editor: <code>project/game-fsm-xstate5</code> (<code>ctx.defineGameFSM(spec)</code> in <code>apps/_lib/game-fsm.js</code>, <code>fsm.tick(dt)</code> from <code>update</code>), <code>project/client-machine-xstate5-parallel</code> (<code>client/core/ClientMachine.js</code>), <code>project/loading-machine-fallback-timeout</code> (xstate <code>after:</code> fallback 10s gated / 45s hard stop), <code>project/editor-hierarchies</code> (REPARENT/DUPLICATE/SET_LABEL 0x94-0x96), <code>project/engine-prep-app-maker-primitives-2026-07-12b</code>, <code>project/editor-engine-prep-fieldtypes-placeable-apps-2026-07-12c</code>, <code>project/engine-prep-16-primitives-2026-07-12d</code>, <code>project/engine-prep-fanout-2026-07-12d</code>.</p><p>Editor input/a11y: <code>project/editor-pointer-input</code>, <code>project/kit-modal-aria</code>, <code>project/kit-emptystate-text-prop</code>, <code>project/browser-verb-direct-cdp</code>, <code>project/editor-docked-panel-chrome</code>, <code>project/editor-crossscreen-polish</code>, <code>project/editor-uncovered-polish</code>, <code>project/editor-apps-imperative-filebrowser</code>, <code>project/editor-floating-docks</code>, <code>project/upload-glb-server-prep</code>.</p><p>Editor core: <code>project/editor-black-rootcause-is-app-bg</code>, <code>project/editor-flycam-never-activated-rootcause</code>, <code>project/editor-create-primitive-spawn</code>, <code>project/editor-interactions-pick-hookflow-shoot-fixes</code>, <code>project/editor-player-look-pitch-frozen</code>, <code>project/editor-destructive-run-2026-06-08</code>, <code>project/editor-bodytype-switch-lod-rebuild</code>, <code>project/editor-add-menu-props-and-primitives</code>, <code>project/snapshot-removed-array-truthy-shortcircuit</code>, <code>project/editor-viewport-multiselect-and-nudge</code>, <code>project/hierarchy-sibling-drop-and-virtualization</code>, <code>project/thebird-wm-editor-chrome</code>, <code>project/wm-ui-kit-mechanical-swap</code>, <code>project/editor-freelook-editmode-apply-and-rmb-source</code>, <code>project/sillos-rescale-geometry-baked-and-prewarm-await</code>.</p><p>Landing/SDK: <code>project/anentrypoint-design-applydiff-mount-required</code>, <code>project/landing-themetoggle-crumb-slot</code>, <code>project/kit-appshell-doc-route-flex</code>.</p><p>Quality/perf method: <code>project/dna-quality-run-2026-06-08</code>, <code>project/netcode-feel-run-2026-06-08</code>, <code>project/dna-netcode-rerun-2026-06-09</code>, <code>project/dna-quality-rerun-2026-06-09b</code>, <code>project/fun-max-run-2026-06-11</code>, <code>project/fun-over-latency-workflow-2026-06-12</code>, <code>project/perf-vsync-headroom-not-bound</code>, <code>project/perf-fxc-cse-double-eval-phantom</code>, <code>project/perf-gpu-timer-bracket-real-render</code>, <code>project/perf-cpu-bound-frame-fixes-144fps</code>, <code>project/perf-144fps-catalog-vsync-vs-cpu-bugs</code> (<code>.gm/perf-144fps-opportunities.md</code>), <code>project/perf-unattributed-program-bucket-gpu-driver</code>, <code>project/grass-tf-premise-mutual-exclusion</code>, <code>project/grass-commitchunk-batched-addinstances</code>.</p><p>Terrain/render arc: <code>project/gpu-patch-whole-planet-collider</code>, <code>project/sector-bounded-quant-binary-hf</code>, <code>project/sun-coherence-single-source</code>, <code>project/msaa-depth-write-shader-pass</code>, <code>project/water-depth-share-not-terrain-only</code>, <code>project/cull-cluster</code>, <code>project/grass-fluffygrass</code>, <code>project/morton-only-where-access-fits</code>, <code>project/mapspinner-dep-file-edit-marker-gated-bridge</code>, <code>project/instancedmesh2-count-accessor-trap</code>, <code>project/underwater-model-tint-shaderchunk</code>, <code>project/foliage-a2c-aniso-after-bake</code>.</p><p><h2>Code rationale index (moved out of source comments, 2026-09-14)</h2></p><p>Full text: <code>recall &lt;slug&gt;</code> (bodies tracked in <code>.gm/memories/</code>). Read the memo before changing the named code.</p><p>Load-bearing caveats:
+<code>window.__passProbe</code>; out-of-band <code>renderer.render</code> captures fake a black void).</p><p><h2>Recall topic catalog</h2></p><p>Terrain (<code>project/terrain-*</code>): super-chunk-tiling, edge-snap-skirt, stitching-live-neighbour-lod, cross-factor-edge-fast-res-fallback, cross-factor-stitch-invalidation, restitch-priority-inversion, gpu-displacement-arch, uv-double-scale-bug, strict-1-tile-raf, camera-footprint-eviction, streaming-priorities-eviction, worker-count-cap, pendingevict-zfight, buffergeo-upload-stall, edge-normal-fbm-opt, sampler-lru-cache, shortest-queue-dispatch, stale-result-drop, evicted-geo-cache, adaptive-lod, baked-normals-cross-lod, sample-at-scratch-buffers, config-world-to-client-flow, client-html-singleplayer-survivor-redirect, cpu-gpu-height-parity-integer-hash, mapspinner-single-source-of-truth, terrain-occlusion-postrender-queries, terrain-is-a-proper-app, misc-caveats.</p><p>Vegetation (<code>project/veg-*</code>): frustum-culling-bounding-sphere, lod-bands-bitmask, lod-rebuild-cache, debug-overwrite-trap, atomic-lod-swap, collapse-variant-buckets, billboard-cylindrical-impostor, billboard-bake-async-image-poll, billboard-renderdistance-gate, placement-lod-invariant, y-scale-zero-pancake, lodband-stale-recompute, eztree-branch-polycount, stale-result-double-build, canvas-destination-in, terrainfield-anchor-kind-preserve, eztree-material-name-split, eztree-no-node, server-world-env, placement-args-passthrough, bake-billboard-temp-parent, capsule-uniform-scale, cull-on-approach-union-box-and-toggle-isolation.</p><p>Physics (<code>project/physics-*</code>): jolt-arrayfloat-getpointer, jolt-browser-multithread-coi-confirmed-null-function-was-caller-error, jolt-wasm-cross-platform-bit-exact, jolt-lockstep-multiprocess-fixed-dt-bit-exact, lockstep-tick-driver-fixed-dt-bypass-dilation, lockstep-game-loop-orchestrator-integration, jolt-getangularvelocity-shared-buffer-double-destroy, jolt-getpositionrotation-shared-buffer-double-destroy, terrain-radius-cap, collider-res-128-to-64, terrain-tick-decouple, tick-dilation-freeze, streaming-decouple-validated, player-divisor-dt-bug, no-fallthrough-kill-plane-real-character, collider-streamer-fresh-territory-tick-stall, rollback-wireweave-input-transport-orchestrator; <code>project/ragdoll-brawl-arena-no-joint-api</code>, <code>project/vehicles-jolt-constraint-available-not-just-twobody</code>.</p><p>Rocks (<code>project/rocks-*</code>): integrated-veg-pipeline, second-pass-grid, convex-hull-colliders, sync-bake-required, normal-alignment-size.</p><p>Movement/Animation: <code>project/movement-coyote-buffer</code>, <code>-soft-land</code>, <code>project/animation-anim-locostate-thresholds-vs-sprintspeed</code>, <code>-anim-sendloco-cooldown-actor-desync</code>. Testing: <code>project/test-vegetation-physics-async-yield</code>.</p><p>Rendering: <code>project/instanced-mesh-shared-geo-trap</code>, <code>project/sun-shadow-player-follow</code>, <code>project/sim-render-pacing-vsync-input-stamp</code>, <code>project/placement-scheduler-raf-decouple</code>, <code>project/render-graph-live-orchestrator</code>, <code>project/fog-band-and-night-ambient-silhouette</code>.</p><p>Model display (<code>project/modelpool-*</code>): scene-attach-proxy-root, transform-direct-not-opts, useglobalmaterialpool-off-per-texture, bake-webp-source-normalize, bake-empty-prim-guard, vrm-multidriver-player-routing, doubleside-interior-faces-is-custom-flag, draco-wasm-removed-purejs-clientwide, cluster-lod-double-transform, placement-y-tuned-for-broken-scale, cluster-onbeforerender-custom-draw-bind-timing, legacy-visibility-cull-vs-pool-lod.</p><p>App/SP/GLB/RTC/Misc: <code>project/window-app-two-stage-init</code>, <code>project/window-tune-hot-reload</code>, <code>project/singleplayer-and-app-api-caveats</code>, <code>project/glb-loading-caveats</code>, <code>project/wireweave-rtc-caveats</code>, <code>project/misc-rendering-ci-browser-caveats</code>, <code>project/multiplayer-host-world-resolution</code>, <code>project/multiplayer-gitignore-worker-dep-404</code>, <code>project/statichandler-symlink-nodemodules-404</code>, <code>project/one-server-two-client-modes-same-origin</code>, <code>project/multiplayer-host-bridge-peeropen-catchup</code>, <code>project/wireweave-dc-close-recovery</code>, <code>project/loading-fallback-races-slow-worker</code>, <code>project/startup-coldboot-bottleneck-fixes</code>, <code>project/startup-rehunt-anim-lib-earlykick</code>, <code>project/env-app-removed-fold-into-placed-model</code>, <code>project/resolveasset-worker-fetch-needs-origin-slash</code>, <code>project/edge-cf-workers-feasibility-workerentry-already-proves-core</code>, <code>project/lockstep-e2e-real-webrtc-node-datachannel-dead-end-roamhq-wrtc-works</code>, <code>project/workerentry-visibilitychange-save-now</code>, <code>project/rollback-wireweave-transport-namespace-must-match</code>, <code>project/webgpurenderer-live-runtime-construction-works-shadowcostprobe-crashes</code>, <code>project/room-orchestrator-router-is-lookup-not-proxy</code>, <code>project/room-orchestrator-load-aware-placement-tickmetrics</code>, <code>project/browser-verb-chrome-pileup-direct-launch-workaround</code>, <code>project/p2p-mesh-split-brain-three-layer-fix</code>, <code>project/singleplayer-worker-boot-stall-on-cold-backgrounded-tab</code>, <code>project/singleplayer-world-json-stale-copy-removed</code>, <code>project/tps-game-bug-sweep-2026-08-13d</code>.</p><p>Workspaces/deploy: <code>project/workspaces-merged-packages</code> (mapspinner + streaming-gltf are in-repo npm workspaces under packages/, edited directly), <code>project/merge-cleanup-2026-07-07c</code>, <code>project/ghpages-deploy-symlink-cp-collision</code>, <code>project/ghpages-deploy-silent-freeze</code>, <code>project/ghpages-deploy-sed-node-modules-overreach</code>, <code>project/ghpages-confirming-pass-thebird-and-bake-2026-08-03</code>, <code>project/sillos-scramble-hypothesis-disproven</code>, <code>project/auto-declaudeify-history-rewrite</code>.</p><p>Game/editor: <code>project/game-fsm-xstate5</code> (<code>ctx.defineGameFSM(spec)</code> in <code>apps/_lib/game-fsm.js</code>, <code>fsm.tick(dt)</code> from <code>update</code>), <code>project/client-machine-xstate5-parallel</code> (<code>client/core/ClientMachine.js</code>), <code>project/loading-machine-fallback-timeout</code> (xstate <code>after:</code> fallback 10s gated / 45s hard stop), <code>project/editor-hierarchies</code> (REPARENT/DUPLICATE/SET_LABEL 0x94-0x96), <code>project/engine-prep-app-maker-primitives-2026-07-12b</code>, <code>project/editor-engine-prep-fieldtypes-placeable-apps-2026-07-12c</code>, <code>project/engine-prep-16-primitives-2026-07-12d</code>, <code>project/engine-prep-fanout-2026-07-12d</code>.</p><p>Test relocation (<code>window.__spoint</code>, MSG.TELEPORT): <code>project/test-relocation-api-teleport-bookmarks-whensettled</code>.</p><p>Editor input/a11y: <code>project/editor-pointer-input</code>, <code>project/kit-modal-aria</code>, <code>project/kit-emptystate-text-prop</code>, <code>project/browser-verb-direct-cdp</code>, <code>project/editor-docked-panel-chrome</code>, <code>project/editor-crossscreen-polish</code>, <code>project/editor-uncovered-polish</code>, <code>project/editor-apps-imperative-filebrowser</code>, <code>project/editor-floating-docks</code>, <code>project/upload-glb-server-prep</code>.</p><p>Editor core: <code>project/editor-black-rootcause-is-app-bg</code>, <code>project/editor-flycam-never-activated-rootcause</code>, <code>project/editor-create-primitive-spawn</code>, <code>project/editor-interactions-pick-hookflow-shoot-fixes</code>, <code>project/editor-player-look-pitch-frozen</code>, <code>project/editor-destructive-run-2026-06-08</code>, <code>project/editor-bodytype-switch-lod-rebuild</code>, <code>project/editor-add-menu-props-and-primitives</code>, <code>project/snapshot-removed-array-truthy-shortcircuit</code>, <code>project/editor-viewport-multiselect-and-nudge</code>, <code>project/hierarchy-sibling-drop-and-virtualization</code>, <code>project/thebird-wm-editor-chrome</code>, <code>project/wm-ui-kit-mechanical-swap</code>, <code>project/editor-freelook-editmode-apply-and-rmb-source</code>, <code>project/sillos-rescale-geometry-baked-and-prewarm-await</code>.</p><p>Landing/SDK: <code>project/anentrypoint-design-applydiff-mount-required</code>, <code>project/landing-themetoggle-crumb-slot</code>, <code>project/kit-appshell-doc-route-flex</code>.</p><p>Quality/perf method: <code>project/dna-quality-run-2026-06-08</code>, <code>project/netcode-feel-run-2026-06-08</code>, <code>project/dna-netcode-rerun-2026-06-09</code>, <code>project/dna-quality-rerun-2026-06-09b</code>, <code>project/fun-max-run-2026-06-11</code>, <code>project/fun-over-latency-workflow-2026-06-12</code>, <code>project/perf-vsync-headroom-not-bound</code>, <code>project/perf-fxc-cse-double-eval-phantom</code>, <code>project/perf-gpu-timer-bracket-real-render</code>, <code>project/perf-cpu-bound-frame-fixes-144fps</code>, <code>project/perf-144fps-catalog-vsync-vs-cpu-bugs</code> (<code>.gm/perf-144fps-opportunities.md</code>), <code>project/perf-unattributed-program-bucket-gpu-driver</code>, <code>project/grass-tf-premise-mutual-exclusion</code>, <code>project/grass-commitchunk-batched-addinstances</code>.</p><p>Terrain/render arc: <code>project/gpu-patch-whole-planet-collider</code>, <code>project/sector-bounded-quant-binary-hf</code>, <code>project/sun-coherence-single-source</code>, <code>project/msaa-depth-write-shader-pass</code>, <code>project/water-depth-share-not-terrain-only</code>, <code>project/cull-cluster</code>, <code>project/grass-fluffygrass</code>, <code>project/morton-only-where-access-fits</code>, <code>project/mapspinner-dep-file-edit-marker-gated-bridge</code>, <code>project/instancedmesh2-count-accessor-trap</code>, <code>project/underwater-model-tint-shaderchunk</code>, <code>project/foliage-a2c-aniso-after-bake</code>.</p><p><h2>Code rationale index (moved out of source comments, 2026-09-14)</h2></p><p>Full text: <code>recall &lt;slug&gt;</code> (bodies tracked in <code>.gm/memories/</code>). Read the memo before changing the named code.</p><p>Load-bearing caveats:
 <ul><li>three: editing a <code>ShaderChunk</code> + <code>needsUpdate</code> never recompiles (<code>three-shaderchunk-edit-needsupdate-noop</code>); InstancedMesh2 custom/override shaders need <code>instanced_pars_vertex</code> + <code>getInstancedMatrix()</code> and <code>addShadowLOD</code> children get a bare ShaderMaterial (<code>overridematerial-instancedmesh2-instanceindex</code>, <code>instancedmesh2-addshadowlod-default-material</code>); a BatchedMesh with an array material never draws (<code>batchedmesh-array-material-never-draws</code>); shadow pass is also gated by <code>renderer.shadowMap.needsUpdate</code> (<code>shadowcostprobe-three-shadowmap-scope-gate</code>).</li>
 <li>Model pool: one KTX2Loader per GL context (<code>modelpool-shared-ktx2loader-singleton</code>); never share one BufferGeometry across N meshes (<code>modelpool-per-instance-geometry-shell</code>); VRAM monitor only lowers the LOD ceiling (<code>modelpool-vram-one-way-ratchet</code>); ClusterLodMesh needs its array material, seed group and once-per-frame guard (<code>streaming-gltf-clusterlodmesh-array-material-seed-group</code>).</li>
 <li>Spaces: FloatingOrigin rebase sets camera to 0 (<code>floating-origin-camera-set-not-translate</code>); editor/snapshot positions are render-space, wire is authoritative (<code>editor-render-vs-authoritative-positions</code>, <code>floating-origin-snapshot-targets-to-render</code>); THREE near/far must equal <code>window.__hostNearFar</code> (<code>depth-composite-hostnearfar-contract</code>).</li>
@@ -110,26 +121,57 @@ discrete-vs-noise before chasing. Underwater/waterline and grazing-altitude wate
 <li>Runtimes: module Workers have no importmap; SDK server code also runs in the singleplayer Worker (guard <code>process</code>, no static <code>node:<em></code>); apps never import client/</em> (<code>worker-module-no-importmap-bare-specifier</code>, <code>sdk-dual-runtime-process-guard</code>, <code>apps-cannot-import-client-modules</code>); build Node-only <code>import()</code> specifiers inside an IIFE (<code>esbuild-import-specifier-iife-not-concat</code>); BrowserServer flushes on setTimeout, never rAF (<code>browserserver-snapshot-flush-settimeout-not-raf</code>).</li>
 <li>Apps: moving apps need kinematic/dynamic bodyType (<code>moving-app-entity-needs-dynamic-bodytype</code>); siblings may not be set up during <code>setup()</code> (<code>app-setup-sibling-entities-not-ready</code>); client payloads never reach inventory mutators (<code>inventory-client-payload-trust-boundary</code>); schemas are positional on the wire (<code>component-schema-positional-wire</code>); epoch/config columns are f64 (<code>componentpool-f64-for-epoch-and-config</code>); <code>setBodyPosition</code> wakes bodies, park with <code>setBodyActive(false)</code> (<code>destructible-pool-park-deactivate-and-hide</code>); <code>ctx.physics.addForce</code> is an impulse (<code>app-physics-addforce-is-impulse</code>).</li>
 <li>Physics (Jolt): destroy ShapeResult after addBody only; never destroy getter/vehicle-owned objects (<code>physics-jolt-shaperesult-destroy-after-addbody</code>, <code>physics-jolt-getter-return-destroy-hazards</code>, <code>physics-jolt-vehicle-ownership-and-wake</code>); vehicle chassis exempt from physics LOD/budget sweeps (<code>physics-lod-vehicle-chassis-exempt</code>).</li>
-<li>Netcode/wire: <code>WIRE_STRUCTURES[1]</code> = TickHandler <code>_packPayload</code> keys in order (<code>msgpack-wire-structures-snapshot-key-list</code>); entity bin buffers freshly allocated per re-encode (<code>snapshot-entity-bin-fresh-buffer</code>); <code>knownIds</code> reset only on keyframes (<code>tickhandler-knownids-reset-only-on-keyframe</code>); determinism comes from dt (<code>netcode-dt-determinism-source</code>); lockstep checksum folds raw f64 in id order (<code>lockstep-checksum-canonical-float64-order</code>); P2P control frames are prefixed strings (<code>p2p-wireweave-ctrl-frame-prefixes</code>); new BaseClient callbacks must join its allowlist (<code>baseclient-callback-allowlist</code>); input sanitizing is load-bearing (<code>inputguard-sanitize-yaw-and-input-bucket</code>).</li>
+<li>Netcode/wire: <code>WIRE_STRUCTURES[1]</code> = TickHandler <code>_packPayload</code> keys in order (<code>msgpack-wire-structures-snapshot-key-list</code>); entity bin buffers freshly allocated per re-encode (<code>snapshot-entity-bin-fresh-buffer</code>); <code>knownIds</code> reset only on keyframes (<code>tickhandler-knownids-reset-only-on-keyframe</code>); determinism comes from dt (<code>netcode-dt-determinism-source</code>); lockstep checksum folds raw f64 in id order (<code>lockstep-checksum-canonical-float64-order</code>); P2P control frames are prefixed strings (<code>p2p-wireweave-ctrl-frame-prefixes</code>); new BaseClient callbacks must join its allowlist (<code>baseclient-callback-allowlist</code>); input sanitizing is load-bearing (<code>inputguard-sanitize-yaw-and-input-bucket</code>); client-side prediction is collision-blind so resimulate() drifts into held-against geometry until gated by a wedge flag (<code>predictionengine-collision-blind-wedge-drift-fix</code>).</li>
 <li>Server/security: auth matrix with <code>EDITOR_TOKEN</code> unset (<code>server-http-auth-matrix</code>); untrusted app eval is SES-only and fails closed with <code>SandboxUnavailableError</code> (<code>ses-evaluator-fails-closed-no-proxy-tier</code>); static path containment + COOP/COEP (<code>statichandler-path-containment</code>, <code>statichandler-coop-coep-require-corp</code>).</li>
 <li>Terrain/assets: colliders ring each player, never the centroid (<code>terrain-collider-streamer-per-player-rings</code>); placement is client/server hash parity (<code>terrain-placement-parity-salt-and-prejitter-cell</code>); glTF repack uses EXT_meshopt byte ranges (<code>glbktx2-meshopt-bufferview-ext-range</code>); rocks share seed 1337/stride 7919 with RockShapes (<code>rocks-visual-physics-seed-parity</code>).</li>
 <li>Editor/UI/tooling: kit <code>applyDiff</code> crash classes, HUD overlays mount on <code>document.body</code> (<code>kit-applydiff-child-crash-classes</code>, <code>hud-overlay-mount-outside-uiroot</code>); harnesses use <code>?multiplayer</code> + <code>SPOINT_NO_WATCH=1</code> (<code>e2e-harness-multiplayer-param-and-no-watch</code>); bundle stays unhashed <code>dist/client/app.js</code> with streaming-gltf external (<code>bundle-client-outfile-and-externals</code>).</li>
 </ul>
-More slugs (prefix <code>project/</code>): client/core <code>csm-shaderchunk-patch-placement csm-unrolled-loop-index-not-i vrm-expression-v0-names-remapped-at-load occlusion-proxy-needs-geometry-child collider-debug-mirrors-terrainphysics-grid fluidsurface-winding-and-exact-rim-probe postpass-debug-global-and-msaa-copy shadowpipeline-per-light-needsupdate-dead-cascade0 ssr-wetness-skips-custom-onbeforerender terrainbackdrop-height-parity-invariants rendercontrols-knob-global-debug-handle-collision vat-bake-bind-pose-traps progressive-ktx2-partial-container-rewrites rocks-batchedmesh-perf-quirks scenery-shader-warm-real-render ssao-default-off-half-res-upsample-smear ios-gyro-permission-user-gesture instancedmesh2-lod-geometry-identity veg-instancedmesh2-cull-invariants veg-impostor-mesh-handoff-crossfade veg-impostor-zero-area-lod-bbox-bvh wetness-lights-fragment-begin-splice</code>; streaming-gltf <code>modelpool-webgpu-occlusion-tier-dynamic-import modelpool-lod-mesh-local-space modelpool-cluster-mesh-parent-and-drawrange modelpool-frame-drains-never-zero modelpool-slot-matrix-write-at-acquire modelpool-worker-float32-normalized-false modelpool-texture-slot-no-map-catchall modelpool-instanced-slot-dirty-run-uploads streaming-gltf-clusterlodmesh-once-per-frame-render streaming-gltf-clusterlodmesh-aabb-cull-cache streaming-gltf-interleaved-attribute-array-hazard streaming-gltf-fan-triangle-cluster-diagonal streaming-gltf-ktx2-mip-cap-mirrors-progressive-ktx2 occlusion-query-tier-flush-and-sticky-verdict occlusion-query-box-polygon-offset texture-array-atlas-map-required-and-no-2d-atlas octa-impostor-atlas-linear-albedo octa-impostor-params-fragment-scope webgpu-hiz-cull-mirrors-cpu-tiers grass-material-instancedmesh2-raw-shader</code>; mapspinner <code>mapspinner-webgl2-clientwaitsync-zero-timeout mapspinner-fbo-attachment-sampler-feedback-loop mapspinner-glsl-rt-fround-parity mapspinner-rgba32f-not-rgb32f-renderable mapspinner-depth-share-shader-pass-not-blit mapspinner-vdrs-depth-preclear-frame1 mapspinner-atmosphere-lut-param-mirror mapspinner-atmosphere-direct-sun-elevation-independent mapspinner-patchbaker-thc-globals-last-init-wins mapspinner-face-frame-and-offface-clamp mapspinner-cull-near-straddle-keep-mirror mapspinner-geomorph-per-vertex-default-off mapspinner-geomorph-crackfree-rules mapspinner-webgl2-array-upload-unpack-flags mapspinner-hpfsample-manual-quintic-taps mapspinner-hpf-inset-bake-pair mapspinner-water-visprobe-overreport mapspinner-splat-uv-camera-relative mapspinner-sculpt-override-domain mapspinner-anchor-field-worlddir-seam mapspinner-anchor-bands-infill-neutral mapspinner-hpf-aqt-overlay-guards mapspinner-scattering-lut-bake-guards mapspinner-sky-exposure-elevation-scaled-blue-bias</code>; client/editor/hud <code>editor-gizmo-axis-line-drag editor-applydiff-owns-container-children procgen-wfc-socket-keys-uppercase editor-duplicated-normalizers-sync editor-wm-css-absolute-href kit-contextmenu-editor-addmenu-quirks voice-wireweave-voicesession-audible-join importmap-esmsh-three-dedupe anim-sendloco-cooldown-before-actor-send browserserver-page-lineage-rebuild-state app-hud-applydiff-dedicated-container hostmigration-retire-joinclient-not-disconnect entity-primitive-shared-cache-invariants rollback-transport-stale-ticks-still-delivered snapshot-relay-getclient-thunk-and-fortarget service-worker-full-url-keys-network-first-nav vrm-update-single-driver-normalized-bones ghpages-head-probe-503-retry</code>; apps <code>audio-media-element-source-once component-pool-plain-arrays-epoch-f64 destructible-impact-scan-and-fractured-model sph-seed-lattice-must-fit-boundary game-fsm-xstate-specifier-bundler-opaque health-reentrant-callback-fresh-read shrinking-zone-ring-needs-placeableapps softbody-rapier-fixed-body-needs-collider app-moving-entity-bodytype-and-setposition checkpoint-oncheckpoint-one-shot-per-index destructible-debris-shapekey-folds-mass app-client-enginectx-shape app-teardown-releases-native-physics shrinking-zone-ring-unit-radius-mirror sph-particle-mass-derived-from-rest-density</code>; src/apps+client <code>apploader-hotreload-watch-debounce appruntime-pending-setup-event-queue appruntime-broadcastmessage-key-snapshot appruntime-vehicle-before-chassis-teardown appruntime-resim-deferral-flush-order appstate-map-set-tagged-snapshot snapshot-slot-release-window-vs-jitterbuffer interact-cooldown-tick-indexed hotreload-migrate-contract prediction-copystate-excludes-move-timers</code>; netcode <code>connectionmanager-split-reliable-unreliable-outbox inspector-debug-swallow-excludes-defined-msg lockstep-gameloop-seed-and-poll-stall-while-waiting lockstep-consensus-majority-sustained-ejection eventlog-ingestremote-cross-shard-contract physics-integration-config-nullish-per-field rollback-resim-hidden-state snapgroup-cursor-wraps-current-band rewind-slop-covers-history-window snapshot-sleeping-prop-throttle-escapes rollback-gameloop-registration-order msgpack-pack-throws-before-ready-timer-guard</code>; server <code>statichandler-early-hints-quirks static-cache-validators-and-compression server-reload-deps-mirror-tickhandler-args server-worldconfig-live-accessor server-loadworld-ordering room-directory-shared-process-state editor-update-collider-sync-order editor-place-app-seeds-config-not-custom auth-compare-length-mismatch-decoy minimap-descriptor-duplicated-boot-and-reseed tickhandler-rollback-sim-state-maps entity-direct-field-patch-invalidation worldpersistence-save-yield-and-timers</code>; physics/terrain/static <code>physics-body-pool-dynamic-park-revive procgen-mulberry32-warmup-and-wfc-plain-array sph-wasm-instance-is-a-simulation sph-solver-stiffness-and-mass-consistency terrain-collider-streamer-add-budget-per-add terrain-planetframe-basis-and-fresh-dir terrain-cubespherecells-face-frame-copy transport-open-event-not-microtask-poll glbktx2-ktx-cli-invocation gltf-transform-io-extension-registration idbadapter-open-timeout-cold-tab progressivebake-sanitize-sourceless-textures</code>; client/app.js + render graph <code>app-animate-skips-during-shader-warmup rendergraph-order-only-read-marker app-clear-editing-input-fresh-object player-mesh-visibility-flag-owners app-foliage-requires-planet p2p-host-claim-relay-window texture-recovery-after-long-hidden scenery-build-timeout-30s devtools-install-before-client-tdz editor-optimistic-custom-writeback host-camera-near-altitude-independent foliage-placement-authoritative-focus foliage-lod-sync-cadence-split shader-warmup-abort-no-interleaved-render skeleton-bone-texture-ping-pong tps-game-baked-heightfield-rebake tps-game-sillos-y-offset tps-game-ice-servers-demo-turn</code>; scripts <code>scripts-tsc-7x-no-js-api fracture-scale-eps-and-cap-winding patch-deps-instanced-mesh-pinned-patches cdp-browser-pageerror-only cdp-browser-ci-portability static-export-single-pass-base-prefix bundle-worker-node-only-deps-external scripts-ws-coalesced-frame-mirror worktree-setup-common-dir-and-ignore-scripts worktree-remove-follows-node-modules-junction</code>.</p><p><h2>Audit log</h2></p><p>Per-session narrative is not kept here (drained 2026-09-14; pre-drain text in <code>git log -p -- AGENTS.md</code>).
-Durable lessons from those sessions are the slugs above.</p><p>@.gm/next-step.md
+Rationale moved out of source 2026-09-28: spoint-core (<code>packages/spoint-core/src/lib.rs</code>) is the first
+slice of ugc-wasm-core-extraction -- Rust twins of JS math that must stay byte-identical
+(<code>pack_quat</code>/<code>unpack_quat</code> &lt;-&gt; <code>SnapshotEncoder.js</code>; <code>fnv1a_32</code> &lt;-&gt; <code>msgpack.js _computeStructHash</code>;
+<code>fnv1a_fold_f64</code> &lt;-&gt; <code>LockstepChecksum.js foldFloat64</code>, folding raw little-endian f64 bits and mapping
+-0 to +0 so both runtimes agree; <code>mul_quat</code>/<code>rot_vec</code> &lt;-&gt; <code>math.js</code>). The GPU-instance-batching example
+declares <code>mvPosition</code> at outer scope the way <code>&lt;project_vertex&gt;</code> does because fog and other downstream
+chunks read it. FXC cold-compiles the mapspinner bake program in 30-90s, hence an explicit
+<code>fxcColdCompileBudgetMs</code> poll instead of one bounded retry. <code>lab.mjs</code> parks at <code>sunLatBase</code> 0.35
+because a near-overhead sun reads flat -- gentle relief only self-shades at an oblique angle.</p><p>More slugs (prefix <code>project/</code>): client/core <code>csm-shaderchunk-patch-placement csm-unrolled-loop-index-not-i vrm-expression-v0-names-remapped-at-load occlusion-proxy-needs-geometry-child collider-debug-mirrors-terrainphysics-grid fluidsurface-winding-and-exact-rim-probe postpass-debug-global-and-msaa-copy shadowpipeline-per-light-needsupdate-dead-cascade0 ssr-wetness-skips-custom-onbeforerender terrainbackdrop-height-parity-invariants rendercontrols-knob-global-debug-handle-collision vat-bake-bind-pose-traps progressive-ktx2-partial-container-rewrites rocks-batchedmesh-perf-quirks scenery-shader-warm-real-render ssao-default-off-half-res-upsample-smear ios-gyro-permission-user-gesture instancedmesh2-lod-geometry-identity veg-instancedmesh2-cull-invariants veg-impostor-mesh-handoff-crossfade veg-impostor-zero-area-lod-bbox-bvh wetness-lights-fragment-begin-splice</code>; streaming-gltf <code>modelpool-webgpu-occlusion-tier-dynamic-import modelpool-lod-mesh-local-space modelpool-cluster-mesh-parent-and-drawrange modelpool-frame-drains-never-zero modelpool-slot-matrix-write-at-acquire modelpool-worker-float32-normalized-false modelpool-texture-slot-no-map-catchall modelpool-instanced-slot-dirty-run-uploads streaming-gltf-clusterlodmesh-once-per-frame-render streaming-gltf-clusterlodmesh-aabb-cull-cache streaming-gltf-interleaved-attribute-array-hazard streaming-gltf-fan-triangle-cluster-diagonal streaming-gltf-ktx2-mip-cap-mirrors-progressive-ktx2 occlusion-query-tier-flush-and-sticky-verdict occlusion-query-box-polygon-offset texture-array-atlas-map-required-and-no-2d-atlas octa-impostor-atlas-linear-albedo octa-impostor-params-fragment-scope webgpu-hiz-cull-mirrors-cpu-tiers grass-material-instancedmesh2-raw-shader</code>; mapspinner <code>mapspinner-webgl2-clientwaitsync-zero-timeout mapspinner-fbo-attachment-sampler-feedback-loop mapspinner-glsl-rt-fround-parity mapspinner-rgba32f-not-rgb32f-renderable mapspinner-depth-share-shader-pass-not-blit mapspinner-vdrs-depth-preclear-frame1 mapspinner-atmosphere-lut-param-mirror mapspinner-atmosphere-direct-sun-elevation-independent mapspinner-patchbaker-thc-globals-last-init-wins mapspinner-face-frame-and-offface-clamp mapspinner-cull-near-straddle-keep-mirror mapspinner-geomorph-per-vertex-default-off mapspinner-geomorph-crackfree-rules mapspinner-webgl2-array-upload-unpack-flags mapspinner-hpfsample-manual-quintic-taps mapspinner-hpf-inset-bake-pair mapspinner-water-visprobe-overreport mapspinner-splat-uv-camera-relative mapspinner-sculpt-override-domain mapspinner-anchor-field-worlddir-seam mapspinner-anchor-bands-infill-neutral mapspinner-hpf-aqt-overlay-guards mapspinner-scattering-lut-bake-guards mapspinner-sky-exposure-elevation-scaled-blue-bias</code>; client/editor/hud <code>editor-gizmo-axis-line-drag editor-applydiff-owns-container-children procgen-wfc-socket-keys-uppercase editor-duplicated-normalizers-sync editor-wm-css-absolute-href kit-contextmenu-editor-addmenu-quirks voice-wireweave-voicesession-audible-join importmap-esmsh-three-dedupe anim-sendloco-cooldown-before-actor-send browserserver-page-lineage-rebuild-state app-hud-applydiff-dedicated-container hostmigration-retire-joinclient-not-disconnect entity-primitive-shared-cache-invariants rollback-transport-stale-ticks-still-delivered snapshot-relay-getclient-thunk-and-fortarget service-worker-full-url-keys-network-first-nav vrm-update-single-driver-normalized-bones ghpages-head-probe-503-retry</code>; apps <code>audio-media-element-source-once component-pool-plain-arrays-epoch-f64 destructible-impact-scan-and-fractured-model sph-seed-lattice-must-fit-boundary game-fsm-xstate-specifier-bundler-opaque health-reentrant-callback-fresh-read shrinking-zone-ring-needs-placeableapps softbody-rapier-fixed-body-needs-collider app-moving-entity-bodytype-and-setposition checkpoint-oncheckpoint-one-shot-per-index destructible-debris-shapekey-folds-mass app-client-enginectx-shape app-teardown-releases-native-physics shrinking-zone-ring-unit-radius-mirror sph-particle-mass-derived-from-rest-density</code>; src/apps+client <code>apploader-hotreload-watch-debounce appruntime-pending-setup-event-queue appruntime-broadcastmessage-key-snapshot appruntime-vehicle-before-chassis-teardown appruntime-resim-deferral-flush-order appstate-map-set-tagged-snapshot snapshot-slot-release-window-vs-jitterbuffer interact-cooldown-tick-indexed hotreload-migrate-contract prediction-copystate-excludes-move-timers</code>; netcode <code>connectionmanager-split-reliable-unreliable-outbox inspector-debug-swallow-excludes-defined-msg lockstep-gameloop-seed-and-poll-stall-while-waiting lockstep-consensus-majority-sustained-ejection eventlog-ingestremote-cross-shard-contract physics-integration-config-nullish-per-field rollback-resim-hidden-state snapgroup-cursor-wraps-current-band rewind-slop-covers-history-window snapshot-sleeping-prop-throttle-escapes rollback-gameloop-registration-order msgpack-pack-throws-before-ready-timer-guard</code>; server <code>statichandler-early-hints-quirks static-cache-validators-and-compression server-reload-deps-mirror-tickhandler-args server-worldconfig-live-accessor server-loadworld-ordering room-directory-shared-process-state editor-update-collider-sync-order editor-place-app-seeds-config-not-custom auth-compare-length-mismatch-decoy minimap-descriptor-duplicated-boot-and-reseed tickhandler-rollback-sim-state-maps entity-direct-field-patch-invalidation worldpersistence-save-yield-and-timers</code>; physics/terrain/static <code>physics-body-pool-dynamic-park-revive procgen-mulberry32-warmup-and-wfc-plain-array sph-wasm-instance-is-a-simulation sph-solver-stiffness-and-mass-consistency terrain-collider-streamer-add-budget-per-add terrain-planetframe-basis-and-fresh-dir terrain-cubespherecells-face-frame-copy transport-open-event-not-microtask-poll glbktx2-ktx-cli-invocation gltf-transform-io-extension-registration idbadapter-open-timeout-cold-tab progressivebake-sanitize-sourceless-textures</code>; client/app.js + render graph <code>app-animate-skips-during-shader-warmup rendergraph-order-only-read-marker app-clear-editing-input-fresh-object player-mesh-visibility-flag-owners app-foliage-requires-planet p2p-host-claim-relay-window texture-recovery-after-long-hidden scenery-build-timeout-30s devtools-install-before-client-tdz editor-optimistic-custom-writeback host-camera-near-altitude-independent foliage-placement-authoritative-focus foliage-lod-sync-cadence-split shader-warmup-abort-no-interleaved-render skeleton-bone-texture-ping-pong tps-game-baked-heightfield-rebake tps-game-sillos-y-offset tps-game-ice-servers-demo-turn</code>; scripts <code>scripts-tsc-7x-no-js-api fracture-scale-eps-and-cap-winding patch-deps-instanced-mesh-pinned-patches cdp-browser-pageerror-only cdp-browser-ci-portability static-export-single-pass-base-prefix bundle-worker-node-only-deps-external scripts-ws-coalesced-frame-mirror worktree-setup-common-dir-and-ignore-scripts worktree-remove-follows-node-modules-junction</code>.</p><p>Session 2026-09-29 (prefix <code>project/</code>): <code>physics-jolt-convexhull-arrayvec3-stride-and-live-body-witness three-mapspinner-shared-gl-texture-cache-desync-resetstate-at-frame-start mapspinner-webgpu-composite-flip-and-double-tonemap rain-streak-fade-must-be-fragment-stage debug-hooks-getError-per-draw-are-the-slowness sea-surface-is-gameplay-waterline-waves-zero-mean</code>.</p><p><h2>Audit log</h2></p><p>Per-session narrative is drained (2026-09-14; pre-drain text in <code>git log -p -- AGENTS.md</code>); the
+durable lessons are the slugs above.</p><p>@.gm/next-step.md
 </p></section>
-<section id="section-1"><h2>spoint — README</h2><p><h1>spoint</h1></p><p>Physics and netcode SDK for authoritative-server multiplayer games. Jolt physics, hot reload, app-based world logic, Three.js client.</p><p><strong>Demo</strong>: https://anentrypoint.github.io/spoint/</p><p><h2>Quick Start</h2></p><p><pre><code class="language-bash">npx spoint
+<section id="section-1"><h2>spoint — README</h2><p><h1>spoint</h1>
+
+Physics and netcode SDK for authoritative-server multiplayer games. Jolt physics, hot reload, app-based world logic, Three.js client.
+
+<strong>Demo</strong>: https://anentrypoint.github.io/spoint/
+
+<h2>Quick Start</h2>
+
+``<code>bash
+npx spoint
 <h1>or</h1>
 npm install &amp;&amp; npm start
 <h1>open http://localhost:3001              -&gt; multiplayer (WebSocket to this server)</h1>
-<h1>open http://localhost:3001/?singleplayer -&gt; in-browser server (runs the same server in a Worker)</code></pre></h1></p><p>There is <strong>one</strong> server. <code>npm start</code> runs a single <code>node server.js</code> on one port (<code>worldDef.port</code>,
-default <code>3001</code>). Multiplayer is <code>/</code>; the in-browser / singleplayer mode is <code>/?singleplayer</code> on the
-<strong>same origin</strong> — the client (<code>client/app.js</code>) picks a WebSocket client vs an in-Worker <code>BrowserServer</code>
-from the query string, not a second port. Do <strong>not</strong> run a second <code>node server.js</code> on a different
-<code>PORT</code> for the same project: each process freezes its own <code>node_modules</code>/asset snapshot at boot, so two
-instances drift (the &quot;<code>:3001</code> and a script-default <code>:8090</code> look different&quot; trap). Dev/eval scripts that
-default to <code>PORT=8090</code> just start that one server on another port; use one instance and <code>/?singleplayer</code>
-instead. The server refuses a second instance on an in-use port with a clear message.</p><p><h2>Creating Apps</h2></p><p><pre><code class="language-bash">node ./bin/create-app.js my-app</code></pre></p><p>Or manually create <code>apps/&lt;name&gt;/index.js</code>:</p><p><pre><code class="language-javascript">export default {
+<h1>open http://localhost:3001/?singleplayer -&gt; in-browser server (runs the same server in a Worker)</h1>
+</code>`<code>
+
+There is <strong>one</strong> server. </code>npm start<code> runs a single </code>node server.js<code> on one port (</code>worldDef.port<code>,
+default </code>3001<code>). Multiplayer is </code>/<code>; the in-browser / singleplayer mode is </code>/?singleplayer<code> on the
+<strong>same origin</strong> — the client (</code>client/app.js<code>) picks a WebSocket client vs an in-Worker </code>BrowserServer<code>
+from the query string, not a second port. Do <strong>not</strong> run a second </code>node server.js<code> on a different
+</code>PORT<code> for the same project: each process freezes its own </code>node_modules<code>/asset snapshot at boot, so two
+instances drift (the &quot;</code>:3001<code> and a script-default </code>:8090<code> look different&quot; trap). Dev/eval scripts that
+default to </code>PORT=8090<code> just start that one server on another port; use one instance and </code>/?singleplayer<code>
+instead. The server refuses a second instance on an in-use port with a clear message.
+
+<h2>Creating Apps</h2>
+
+</code>`<code>bash
+node ./bin/create-app.js my-app
+</code>`<code>
+
+Or manually create </code>apps/&lt;name&gt;/index.js<code>:
+
+</code>`<code>javascript
+export default {
   server: {
     setup(ctx) {
       ctx.state.counter = ctx.state.counter || 0
@@ -146,7 +188,13 @@ instead. The server refuses a second instance on an in-use port with a clear mes
       return { custom: { mesh: 'box', color: 0xff0000, sx: 1, sy: 1, sz: 1 } }
     }
   }
-}</code></pre></p><p><h2>World Config (<code>apps/world/index.js</code>)</h2></p><p><pre><code class="language-javascript">export default {
+}
+</code>`<code>
+
+<h2>World Config (</code>apps/world/index.js<code>)</h2>
+
+</code>`<code>javascript
+export default {
   port: 3001,
   tickRate: 64,
   gravity: [0, -18, 0],
@@ -160,62 +208,115 @@ instead. The server refuses a second instance on an in-use port with a clear mes
   ],
   playerModel: './apps/tps-game/cleetus.vrm',
   spawnPoint: [0, 2, 0]
-}</code></pre></p><p><h2>Server-Side ctx API</h2></p><p>| Property | Description |
+}
+</code>`<code>
+
+<h2>Server-Side ctx API</h2>
+
+| Property | Description |
 |---|---|
-| <code>ctx.state</code> | Persistent state (survives hot reload) |
-| <code>ctx.entity</code> | <code>.id</code>, <code>.position</code>, <code>.rotation</code>, <code>.scale</code>, <code>.velocity</code>, <code>.custom</code>, <code>.destroy()</code> |
-| <code>ctx.physics</code> | <code>.addBoxCollider()</code>, <code>.addSphereCollider()</code>, <code>.addCapsuleCollider()</code>, <code>.addTrimeshCollider()</code>, <code>.addConvexFromModel()</code> |
-| <code>ctx.interactable({ prompt, radius })</code> | Register E-key interaction |
-| <code>ctx.world</code> | <code>.spawn(id, cfg)</code>, <code>.destroy(id)</code>, <code>.getEntity(id)</code>, <code>.query(filter)</code> |
-| <code>ctx.players</code> | <code>.getAll()</code>, <code>.send(pid, msg)</code>, <code>.broadcast(msg)</code>, <code>.setPosition(pid, pos)</code> |
-| <code>ctx.time</code> | <code>.tick</code>, <code>.deltaTime</code>, <code>.elapsed</code>, <code>.after(sec, fn)</code>, <code>.every(sec, fn)</code> |
-| <code>ctx.bus</code> | <code>.on(channel, fn)</code>, <code>.emit(channel, data)</code> — wildcard <code>*</code> suffix supported |
-| <code>ctx.lagCompensator</code> | <code>.getPlayerStateAtTime(pid, ms)</code> for hit detection |
-| <code>ctx.raycast(origin, dir, maxDist)</code> | Physics raycast |</p><p><h2>Client Engine API</h2></p><p>| Property | Description |
+| </code>ctx.state<code> | Persistent state (survives hot reload) |
+| </code>ctx.entity<code> | </code>.id<code>, </code>.position<code>, </code>.rotation<code>, </code>.scale<code>, </code>.velocity<code>, </code>.custom<code>, </code>.destroy()<code> |
+| </code>ctx.physics<code> | </code>.addBoxCollider()<code>, </code>.addSphereCollider()<code>, </code>.addCapsuleCollider()<code>, </code>.addTrimeshCollider()<code>, </code>.addConvexFromModel()<code> |
+| </code>ctx.interactable({ prompt, radius })<code> | Register E-key interaction |
+| </code>ctx.world<code> | </code>.spawn(id, cfg)<code>, </code>.destroy(id)<code>, </code>.getEntity(id)<code>, </code>.query(filter)<code> |
+| </code>ctx.players<code> | </code>.getAll()<code>, </code>.send(pid, msg)<code>, </code>.broadcast(msg)<code>, </code>.setPosition(pid, pos)<code> |
+| </code>ctx.time<code> | </code>.tick<code>, </code>.deltaTime<code>, </code>.elapsed<code>, </code>.after(sec, fn)<code>, </code>.every(sec, fn)<code> |
+| </code>ctx.bus<code> | </code>.on(channel, fn)<code>, </code>.emit(channel, data)<code> — wildcard </code>*<code> suffix supported |
+| </code>ctx.lagCompensator<code> | </code>.getPlayerStateAtTime(pid, ms)<code> for hit detection |
+| </code>ctx.raycast(origin, dir, maxDist)<code> | Physics raycast |
+
+<h2>Client Engine API</h2>
+
+| Property | Description |
 |---|---|
-| <code>engine.scene</code> | THREE.Scene |
-| <code>engine.camera</code> | THREE.PerspectiveCamera |
-| <code>engine.renderer</code> | THREE.WebGLRenderer or WebGPURenderer |
-| <code>engine.THREE</code> | Three.js module |
-| <code>engine.client</code> | Network client (PhysicsNetworkClient for multiplayer, or in-Worker BrowserServer for <code>?singleplayer</code>) |
-| <code>engine.playerId</code> | Local player ID |
-| <code>engine.cam</code> | Camera controller |
-| <code>engine.players</code> | <code>.getMesh(id)</code>, <code>.getState(id)</code>, <code>.getAnimator(id)</code> |</p><p><h2>Editor (in-browser)</h2></p><p>Press <code>P</code> to toggle editor mode:
-<ul><li><code>G</code> / <code>R</code> / <code>S</code> — translate / rotate / scale gizmo</li>
-<li><code>F</code> — focus camera on selected entity</li>
-<li><code>Del</code> — delete selected entity</li>
-<li>Drag-and-drop <code>.glb</code> files to place models</li>
-</ul>
-<h2>Singleplayer Mode</h2></p><p>Add <code>?singleplayer</code> to the URL to run the <strong>same server inside a Web Worker</strong> (<code>BrowserServer</code> +
-<code>src/sdk/WorkerEntry.js</code>) instead of connecting to it over WebSocket — same origin, same code, no
-separate process. <code>?world=&lt;name&gt;</code> selects the world (default <code>tps-game</code>); a world module that fails to load stops
-the boot with a console error instead of substituting another world.</p><p><h2>Architecture</h2></p><p><pre><code class="language-">server.js                         Entry point
+| </code>engine.scene<code> | THREE.Scene |
+| </code>engine.camera<code> | THREE.PerspectiveCamera |
+| </code>engine.renderer<code> | THREE.WebGLRenderer or WebGPURenderer |
+| </code>engine.THREE<code> | Three.js module |
+| </code>engine.client<code> | Network client (PhysicsNetworkClient for multiplayer, or in-Worker BrowserServer for </code>?singleplayer<code>) |
+| </code>engine.playerId<code> | Local player ID |
+| </code>engine.cam<code> | Camera controller |
+| </code>engine.players<code> | </code>.getMesh(id)<code>, </code>.getState(id)<code>, </code>.getAnimator(id)<code> |
+
+<h2>Editor (in-browser)</h2>
+
+Press </code>P<code> to toggle editor mode:
+<ul><li></code>G<code> / </code>R<code> / </code>S<code> — translate / rotate / scale gizmo</li></ul>
+<ul><li></code>F<code> — focus camera on selected entity</li></ul>
+<ul><li></code>Del<code> — delete selected entity</li></ul>
+<ul><li>Drag-and-drop </code>.glb<code> files to place models</li></ul>
+
+<h2>Singleplayer Mode</h2>
+
+Add </code>?singleplayer<code> to the URL to run the <strong>same server inside a Web Worker</strong> (</code>BrowserServer<code> +
+</code>src/sdk/WorkerEntry.js<code>) instead of connecting to it over WebSocket — same origin, same code, no
+separate process. </code>?world=&lt;name&gt;<code> selects the world (default </code>tps-game<code>); a world module that fails to load stops
+the boot with a console error instead of substituting another world.
+
+<h2>Architecture</h2>
+
+</code>`<code>
+server.js                         Entry point
 src/sdk/server.js                 Creates subsystems
 src/sdk/TickHandler.js            Per-tick: movement → physics → collisions → apps → snapshot
 src/physics/World.js              Jolt physics wrapper
 src/netcode/PhysicsIntegration.js CharacterVirtual per player
 src/apps/AppRuntime.js            Entity system, app lifecycle
 client/app.js                     Three.js renderer, VRM loading, input loop
-client/BrowserServer.js           Runs the server in a Web Worker for ?singleplayer (same origin)</code></pre></p><p><h2>Production Build</h2></p><p><pre><code class="language-bash">npm run build:client</code></pre></p><p>Bundles <code>client/app.js</code> and its static relative-import graph (<code>client/core/</code>, <code>client/hud/</code>, etc.)
-into a single minified <code>dist/client/app.js</code> via esbuild (<code>scripts/bundle-client.mjs</code>). Third-party
-packages that rely on <code>import.meta.url</code>-relative asset loading (<code>three</code>, <code>mapspinner</code>,
-<code>jolt-physics</code>, <code>streaming-gltf</code>'s worker/loader siblings) and runtime-determined dynamic
-<code>import()</code>s (per-world app modules) are left external, not inlined.</p><p><code>buildStaticDirs</code> (<code>src/sdk/server.js</code>) mounts <code>dist/client/</code> at the same <code>/</code> prefix as the raw
-<code>client/</code> dir, listed first — <code>StaticHandler</code>'s per-mount fallthrough serves the bundled
-<code>dist/client/app.js</code> in place of the raw <code>client/app.js</code> automatically whenever the bundle exists
+client/BrowserServer.js           Runs the server in a Web Worker for ?singleplayer (same origin)
+</code>`<code>
+
+<h2>Production Build</h2>
+
+</code>`<code>bash
+npm run build:client
+</code>`<code>
+
+Bundles </code>client/app.js<code> and its static relative-import graph (</code>client/core/<code>, </code>client/hud/<code>, etc.)
+into a single minified </code>dist/client/app.js<code> via esbuild (</code>scripts/bundle-client.mjs<code>). Third-party
+packages that rely on </code>import.meta.url<code>-relative asset loading (</code>three<code>, </code>mapspinner<code>,
+</code>jolt-physics<code>, </code>streaming-gltf<code>'s worker/loader siblings) and runtime-determined dynamic
+</code>import()<code>s (per-world app modules) are left external, not inlined.
+
+</code>buildStaticDirs<code> (</code>src/sdk/server.js<code>) mounts </code>dist/client/<code> at the same </code>/<code> prefix as the raw
+</code>client/<code> dir, listed first — </code>StaticHandler<code>'s per-mount fallthrough serves the bundled
+</code>dist/client/app.js<code> in place of the raw </code>client/app.js<code> automatically whenever the bundle exists
 on disk, and falls back to raw ESM (no-cache, hot-reload-friendly) otherwise. No env var or flag
-needed: build once (<code>npm run build:client</code>) before deploying, or skip it entirely for local dev.</p><p><h3>Publishing to itch.io / GitHub Pages (no backend server)</h3></p><p><pre><code class="language-bash">node scripts/static-export.mjs dist-static</code></pre></p><p>Assembles a fully static, backend-less export (bundled client + bundled Worker-side server code +
-the exact <code>node_modules</code>/<code>apps</code> subset needed) ready for itch.io's HTML5 upload or a GitHub Pages
-branch — see [<code>docs/publish.md</code>](docs/publish.md) for the full recipe, base-path handling for
-project-site subpaths, and verification steps.</p><p><h2>Load Testing</h2></p><p><pre><code class="language-bash">npm run bots</code></pre></p><p>Env vars: <code>BOT_COUNT</code>, <code>BOT_DURATION</code>, <code>BOT_HZ</code>, <code>BOT_URL</code></p><p><h2>Documentation</h2></p><p><ul><li><strong>Getting Started</strong>: <code>docs/getting-started.md</code> — Full tutorial, world/app creation, API reference</li>
-<li><strong>Quick Reference</strong>: <code>docs/quick-reference.md</code> — Cheatsheet for config, physics, client, network messages</li>
-<li><strong>Architecture</strong>: <code>docs/architecture-decisions.md</code></li>
-<li><strong>Rendering</strong>: <code>docs/rendering.md</code></li>
-<li><strong>Editor</strong>: <code>docs/editor-composing.md</code></li>
-<li><strong>Publishing</strong>: <code>docs/publish.md</code></li>
-<li><strong>Anticheat</strong>: <code>docs/anticheat.md</code></li>
-</ul>
-<h2>License</h2></p><p>MIT
+needed: build once (</code>npm run build:client<code>) before deploying, or skip it entirely for local dev.
+
+<h3>Publishing to itch.io / GitHub Pages (no backend server)</h3>
+
+</code>`<code>bash
+node scripts/static-export.mjs dist-static
+</code>`<code>
+
+Assembles a fully static, backend-less export (bundled client + bundled Worker-side server code +
+the exact </code>node_modules<code>/</code>apps<code> subset needed) ready for itch.io's HTML5 upload or a GitHub Pages
+branch — see [</code>docs/publish.md<code>](docs/publish.md) for the full recipe, base-path handling for
+project-site subpaths, and verification steps.
+
+<h2>Load Testing</h2>
+
+</code>`<code>bash
+npm run bots
+</code>`<code>
+
+Env vars: </code>BOT_COUNT<code>, </code>BOT_DURATION<code>, </code>BOT_HZ<code>, </code>BOT_URL<code>
+
+<h2>Documentation</h2>
+
+<ul><li><strong>Getting Started</strong>: </code>docs/getting-started.md<code> — Full tutorial, world/app creation, API reference</li></ul>
+<ul><li><strong>Quick Reference</strong>: </code>docs/quick-reference.md<code> — Cheatsheet for config, physics, client, network messages</li></ul>
+<ul><li><strong>Architecture</strong>: </code>docs/architecture-decisions.md<code></li></ul>
+<ul><li><strong>Rendering</strong>: </code>docs/rendering.md<code></li></ul>
+<ul><li><strong>Editor</strong>: </code>docs/editor-composing.md<code></li></ul>
+<ul><li><strong>Publishing</strong>: </code>docs/publish.md<code></li></ul>
+<ul><li><strong>Anticheat</strong>: </code>docs/anticheat.md`</li></ul>
+
+<h2>License</h2>
+
+MIT
 </p></section>
 <section id="section-2"><h2>spoint — docs/ANIMATION_SYSTEM_IMPLEMENTATION.md</h2><p><h1>Skeletal Animation System - Implementation Summary</h1></p><p>This document summarizes the complete skeletal animation system implementation for spoint.</p><p><h2>Deliverables Completed</h2></p><p><h3>1. Core Animation Module (<code>src/animation/</code>)</h3></p><p><h4>SkeletonUtils.js</h4>
 <ul><li><strong>Purpose</strong>: Bone manipulation and network transport utilities</li>
@@ -981,17 +1082,42 @@ See <code>client/core/RenderGraph.js</code> for the node contract, watchdogs, an
 inline <code>animate()</code> step) and a row here. The whole point is that a new maintainer never has to
 reverse-engineer the pipeline again.*
 </p></section>
-<section id="section-8"><h2>spoint — docs/getting-started.md</h2><p><h1>Getting Started with spoint</h1></p><p>&gt; <strong>spoint</strong> is a physics and netcode SDK for authoritative-server multiplayer games. Built on Jolt Physics, Three.js, and WebRTC/WebSocket transport.</p><p>---</p><p><h2>Quick Start</h2></p><p><pre><code class="language-bash"># Clone and install
+<section id="section-8"><h2>spoint — docs/getting-started.md</h2><p><h1>Getting Started with spoint</h1>
+
+&gt; <strong>spoint</strong> is a physics and netcode SDK for authoritative-server multiplayer games. Built on Jolt Physics, Three.js, and WebRTC/WebSocket transport.
+
+---
+
+<h2>Quick Start</h2>
+
+``<code>bash
+<h1>Clone and install</h1>
 git clone https://github.com/AnEntrypoint/spoint.git
 cd spoint
-npm install</p><p><h1>Start the server</h1>
+npm install
+
+<h1>Start the server</h1>
 npm start
 <h1>or: npx spoint</h1>
-<h1>or: WORLD=tps-game node server.js</h1></p><p><h1>Open in browser</h1>
+<h1>or: WORLD=tps-game node server.js</h1>
+
+<h1>Open in browser</h1>
 <h1>Multiplayer (connects to server via WebSocket):</h1>
-http://localhost:3001</p><p><h1>Singleplayer (runs server inside a Web Worker - same origin, no separate process):</h1>
-http://localhost:3001/?singleplayer</p><p><h1>Select a different world:</h1>
-http://localhost:3001/?singleplayer&amp;world=matrix-construct</code></pre></p><p>---</p><p><h2>Project Structure</h2></p><p><pre><code class="language-">spoint/
+http://localhost:3001
+
+<h1>Singleplayer (runs server inside a Web Worker - same origin, no separate process):</h1>
+http://localhost:3001/?singleplayer
+
+<h1>Select a different world:</h1>
+http://localhost:3001/?singleplayer&amp;world=matrix-construct
+</code>`<code>
+
+---
+
+<h2>Project Structure</h2>
+
+</code>`<code>
+spoint/
 ├── apps/                       # World definitions &amp; game logic (apps)
 │   ├── world/
 │   │   ├── tps-game.js         # Main multiplayer world (default)
@@ -1013,16 +1139,38 @@ http://localhost:3001/?singleplayer&amp;world=matrix-construct</code></pre></p><
 │   └── netcode/                # Rollback, lag compensation
 ├── server.js                   # Entry point (spawns TickHandler)
 ├── bin/create-app.js           # CLI: create new app template
-└── scripts/                    # Build, export, check tools</code></pre></p><p>---</p><p><h2>Creating a World</h2></p><p>Worlds are defined in <code>apps/world/&lt;name&gt;.js</code>. Select with <code>WORLD=&lt;name&gt;</code> env var or <code>?world=&lt;name&gt;</code> query param.</p><p><h3>Minimal World (<code>apps/world/sandbox.js</code>)</h3></p><p><pre><code class="language-javascript">export default {
+└── scripts/                    # Build, export, check tools
+</code>`<code>
+
+---
+
+<h2>Creating a World</h2>
+
+Worlds are defined in </code>apps/world/&lt;name&gt;.js<code>. Select with </code>WORLD=&lt;name&gt;<code> env var or </code>?world=&lt;name&gt;<code> query param.
+
+<h3>Minimal World (</code>apps/world/sandbox.js<code>)</h3>
+
+</code>`<code>javascript
+export default {
   spawnPoint: [0, 5, 0],
   gravity: [0, -9.81, 0],
   entities: [] // Empty - use SANDBOX_APP env to inject one app
-}</code></pre></p><p>Run: <code>WORLD=sandbox SANDBOX_APP=box-dynamic node server.js</code></p><p><h3>Full World (<code>apps/world/matrix-construct.js</code>)</h3></p><p><pre><code class="language-javascript">const MATRIX_CONSTRUCT = {
+}
+</code>`<code>
+
+Run: </code>WORLD=sandbox SANDBOX_APP=box-dynamic node server.js<code>
+
+<h3>Full World (</code>apps/world/matrix-construct.js<code>)</h3>
+
+</code>`<code>javascript
+const MATRIX_CONSTRUCT = {
   enabled: false,           // Disable procedural terrain
   timeOfDay: { serverAuthoritative: true, dayLengthSec: 600, startFraction: 0.5 },
   weather: { serverAuthoritative: true, type: 'clear', intensity: 0, particleCount: 0 },
   vegetation: { enabled: false }
-}</p><p>export default {
+}
+
+export default {
   port: 3001,
   tickRate: 64,
   gravity: [0, -9.81, 0],
@@ -1038,26 +1186,52 @@ http://localhost:3001/?singleplayer&amp;world=matrix-construct</code></pre></p><
   ],
   spawnPoint: [0, 2, 0],
   playerModel: './apps/tps-game/cleetus.vrm'
-}</code></pre></p><p>Run: <code>WORLD=matrix-construct node server.js</code></p><p>---</p><p><h2>Creating an App</h2></p><p>Apps live in <code>apps/&lt;name&gt;/index.js</code> and export a default object with optional <code>server</code> and <code>client</code> sections.</p><p><h3>Generate a Template</h3></p><p><pre><code class="language-bash"># Basic static entity
-npx spoint-create-app my-app</p><p><h1>Or pick a template: simple, physics, interactive, spawner, fsm-game</h1>
+}
+</code>`<code>
+
+Run: </code>WORLD=matrix-construct node server.js<code>
+
+---
+
+<h2>Creating an App</h2>
+
+Apps live in </code>apps/&lt;name&gt;/index.js<code> and export a default object with optional </code>server<code> and </code>client<code> sections.
+
+<h3>Generate a Template</h3>
+
+</code>`<code>bash
+<h1>Basic static entity</h1>
+npx spoint-create-app my-app
+
+<h1>Or pick a template: simple, physics, interactive, spawner, fsm-game</h1>
 npx spoint-create-app --template simple my-app
 npx spoint-create-app --template physics my-physics-box
 npx spoint-create-app --template interactive my-button
 npx spoint-create-app --template spawner my-spawner
-npx spoint-create-app --template fsm-game my-match</code></pre></p><p><h3>Available Templates</h3></p><p>| Template | Purpose | Includes |
+npx spoint-create-app --template fsm-game my-match
+</code>`<code>
+
+<h3>Available Templates</h3>
+
+| Template | Purpose | Includes |
 |----------|---------|----------|
 | <strong>simple</strong> | Static entity, basic setup | mesh, collider, update stub |
 | <strong>physics</strong> | Dynamic body with collision tracking | mass, dynamic collider, onCollide handler |
 | <strong>interactive</strong> | Press-E interaction primitive | interactable, radius, onInteract handler |
 | <strong>spawner</strong> | Entity spawner on timer | spawn loop, max entities, despawn cleanup |
-| <strong>fsm-game</strong> | Game state machine | waiting/countdown/active/roundEnd/done phases |</p><p>All templates include:
-<ul><li>Description and editor properties</li>
-<li>TODO comments for extension points</li>
-<li>Server setup/update/teardown lifecycle</li>
-<li>Client render and state management</li>
-<li>Hot-reload support (edit <code>apps/&lt;name&gt;/index.js</code>, server auto-reloads)</li>
-</ul>
-<h3>App Structure</h3></p><p><pre><code class="language-javascript">// apps/my-app/index.js
+| <strong>fsm-game</strong> | Game state machine | waiting/countdown/active/roundEnd/done phases |
+
+All templates include:
+<ul><li>Description and editor properties</li></ul>
+<ul><li>TODO comments for extension points</li></ul>
+<ul><li>Server setup/update/teardown lifecycle</li></ul>
+<ul><li>Client render and state management</li></ul>
+<ul><li>Hot-reload support (edit </code>apps/&lt;name&gt;/index.js<code>, server auto-reloads)</li></ul>
+
+<h3>App Structure</h3>
+
+</code>`<code>javascript
+// apps/my-app/index.js
 export default {
   // SERVER-SIDE (runs on authoritative server)
   server: {
@@ -1083,7 +1257,9 @@ export default {
     },
     onInteract(ctx, player) { },
     onCollision(ctx, other) { }
-  },</p><p>  // CLIENT-SIDE (runs in browser)
+  },
+
+  // CLIENT-SIDE (runs in browser)
   client: {
     setup(engine) {
       // Called once - create Three.js objects here
@@ -1107,41 +1283,61 @@ export default {
     onFrame(dt, engine) { },
     onEvent(payload, engine) { }
   }
-}</code></pre></p><p>---</p><p><h2>Server-Side ctx API</h2></p><p>| Property | Description |
+}
+</code>`<code>
+
+---
+
+<h2>Server-Side ctx API</h2>
+
+| Property | Description |
 |----------|-------------|
-| <code>ctx.entity</code> | Current entity: <code>.id</code>, <code>.position</code>, <code>.rotation</code>, <code>.scale</code>, <code>.velocity</code>, <code>.custom</code>, <code>.destroy()</code> |
-| <code>ctx.state</code> | Persistent state (survives hot reload) |
-| <code>ctx.config</code> | Live config (world def <code>config</code> + editor <code>custom</code> props) |
-| <code>ctx.physics.addColliderFromConfig({ type, size, radius, height, mass, dynamic, kinematic })</code> | Add physics body |
-| <code>ctx.world.spawn(id, config)</code> | Spawn new entity |
-| <code>ctx.world.destroy(id)</code> | Destroy entity |
-| <code>ctx.world.getEntity(id)</code> | Get entity by ID |
-| <code>ctx.world.query(filterFn)</code> | Query entities |
-| <code>ctx.players.getAll()</code> | All connected players |
-| <code>ctx.players.getById(id)</code> | Get player by ID |
-| <code>ctx.players.send(playerId, msg)</code> | Send to specific player |
-| <code>ctx.players.broadcast(msg)</code> | Broadcast to all |
-| <code>ctx.players.broadcastNearby(pos, radius, msg)</code> | Broadcast to nearby |
-| <code>ctx.bus.on('channel', handler)</code> | Subscribe to channel |
-| <code>ctx.bus.emit('channel', data)</code> | Emit to channel (supports <code>combat.*</code> wildcards) |
-| <code>ctx.time.after(seconds, fn)</code> | One-shot timer |
-| <code>ctx.time.every(seconds, fn)</code> | Recurring timer |
-| <code>ctx.raycast(origin, dir, maxDist)</code> | Physics raycast |</p><p>---</p><p><h2>Client-Side Engine API</h2></p><p>Available in <code>client.setup</code>, <code>client.render</code>, <code>client.onInput</code>, <code>client.onFrame</code>, <code>client.onEvent</code>:</p><p>| Property | Description |
+| </code>ctx.entity<code> | Current entity: </code>.id<code>, </code>.position<code>, </code>.rotation<code>, </code>.scale<code>, </code>.velocity<code>, </code>.custom<code>, </code>.destroy()<code> |
+| </code>ctx.state<code> | Persistent state (survives hot reload) |
+| </code>ctx.config<code> | Live config (world def </code>config<code> + editor </code>custom<code> props) |
+| </code>ctx.physics.addColliderFromConfig({ type, size, radius, height, mass, dynamic, kinematic })<code> | Add physics body |
+| </code>ctx.world.spawn(id, config)<code> | Spawn new entity |
+| </code>ctx.world.destroy(id)<code> | Destroy entity |
+| </code>ctx.world.getEntity(id)<code> | Get entity by ID |
+| </code>ctx.world.query(filterFn)<code> | Query entities |
+| </code>ctx.players.getAll()<code> | All connected players |
+| </code>ctx.players.getById(id)<code> | Get player by ID |
+| </code>ctx.players.send(playerId, msg)<code> | Send to specific player |
+| </code>ctx.players.broadcast(msg)<code> | Broadcast to all |
+| </code>ctx.players.broadcastNearby(pos, radius, msg)<code> | Broadcast to nearby |
+| </code>ctx.bus.on('channel', handler)<code> | Subscribe to channel |
+| </code>ctx.bus.emit('channel', data)<code> | Emit to channel (supports </code>combat.*<code> wildcards) |
+| </code>ctx.time.after(seconds, fn)<code> | One-shot timer |
+| </code>ctx.time.every(seconds, fn)<code> | Recurring timer |
+| </code>ctx.raycast(origin, dir, maxDist)<code> | Physics raycast |
+
+---
+
+<h2>Client-Side Engine API</h2>
+
+Available in </code>client.setup<code>, </code>client.render<code>, </code>client.onInput<code>, </code>client.onFrame<code>, </code>client.onEvent<code>:
+
+| Property | Description |
 |----------|-------------|
-| <code>engine.THREE</code> | Three.js module |
-| <code>engine.scene</code> | THREE.Scene |
-| <code>engine.camera</code> | THREE.PerspectiveCamera |
-| <code>engine.renderer</code> | THREE.WebGLRenderer / WebGPURenderer |
-| <code>engine.client</code> | Network client (PhysicsNetworkClient or BrowserServer) |
-| <code>engine.playerId</code> | Local player ID |
-| <code>engine.cam</code> | Camera controller (<code>.getAimDirection(pos)</code>, <code>.punch(intensity)</code>) |
-| <code>engine.players.getMesh(id)</code> | Get player's Three.js mesh |
-| <code>engine.players.getState(id)</code> | Get player's network state |
-| <code>engine.players.getAnimator(id)</code> | Get player's VRM animator |
-| <code>ctx.entity</code> | Current entity (in render) |
-| <code>ctx.state</code> | Persistent state (in render) |
-| <code>ctx.h</code> | HyperScript helper for UI (<code>ctx.h('div', { class: 'btn' }, 'Click')</code>) |
-| <code>ctx.network.send(msg)</code> | Send message to server |</p><p><h3>Procedural Meshes (No GLB Needed)</h3></p><p><pre><code class="language-javascript">render(ctx) {
+| </code>engine.THREE<code> | Three.js module |
+| </code>engine.scene<code> | THREE.Scene |
+| </code>engine.camera<code> | THREE.PerspectiveCamera |
+| </code>engine.renderer<code> | THREE.WebGLRenderer / WebGPURenderer |
+| </code>engine.client<code> | Network client (PhysicsNetworkClient or BrowserServer) |
+| </code>engine.playerId<code> | Local player ID |
+| </code>engine.cam<code> | Camera controller (</code>.getAimDirection(pos)<code>, </code>.punch(intensity)<code>) |
+| </code>engine.players.getMesh(id)<code> | Get player's Three.js mesh |
+| </code>engine.players.getState(id)<code> | Get player's network state |
+| </code>engine.players.getAnimator(id)<code> | Get player's VRM animator |
+| </code>ctx.entity<code> | Current entity (in render) |
+| </code>ctx.state<code> | Persistent state (in render) |
+| </code>ctx.h<code> | HyperScript helper for UI (</code>ctx.h('div', { class: 'btn' }, 'Click')<code>) |
+| </code>ctx.network.send(msg)<code> | Send message to server |
+
+<h3>Procedural Meshes (No GLB Needed)</h3>
+
+</code>`<code>javascript
+render(ctx) {
   return {
     custom: {
       mesh: 'box',        // 'box' | 'sphere' | 'cylinder'
@@ -1156,7 +1352,17 @@ export default {
       label: 'PRESS E'       // interaction prompt
     }
   }
-}</code></pre></p><p>---</p><p><h2>Built-in Define* Factories</h2></p><p>Use these instead of hand-rolling common mechanics:</p><p><pre><code class="language-javascript">ctx.defineGameFSM(spec)         // xstate5 state machine
+}
+</code>`<code>
+
+---
+
+<h2>Built-in Define* Factories</h2>
+
+Use these instead of hand-rolling common mechanics:
+
+</code>`<code>javascript
+ctx.defineGameFSM(spec)         // xstate5 state machine
 ctx.defineGameMode(spec)        // lobby/warmup/rounds/end
 ctx.defineHealth(spec)          // HP/damage/death/respawn
 ctx.defineSteering(spec)        // AI movement
@@ -1168,34 +1374,81 @@ ctx.defineDestructible(spec)    // breakable objects
 ctx.defineTeams(spec)           // team membership + scoreboard
 ctx.defineWeapon(spec)          // combat (hitscan/ammo/reload)
 ctx.definePlayerInventory(spec) // inventory system
-ctx.definePath(points)          // waypoint path</code></pre></p><p>---</p><p><h2>Editor Mode</h2></p><p>Press <code>P</code> to toggle in-browser editor:</p><p>| Key | Action |
+ctx.definePath(points)          // waypoint path
+</code>`<code>
+
+---
+
+<h2>Editor Mode</h2>
+
+Press </code>P<code> to toggle in-browser editor:
+
+| Key | Action |
 |-----|--------|
-| <code>G</code> / <code>R</code> / <code>S</code> | Translate / Rotate / Scale gizmo |
-| <code>F</code> | Focus camera on selected entity |
-| <code>Del</code> | Delete selected entity |
-| Drag <code>.glb</code> | Place model in world |</p><p>---</p><p><h2>Singleplayer Mode</h2></p><p>Add <code>?singleplayer</code> to run the <strong>same server inside a Web Worker</strong> (same origin, same code, no separate process):</p><p><pre><code class="language-">http://localhost:3001/?singleplayer
-http://localhost:3001/?singleplayer&amp;world=matrix-construct</code></pre></p><p><ul><li>Uses <code>BrowserServer</code> + <code>WorkerEntry.js</code></li>
-<li>Same physics, same apps, same world config</li>
-<li>No WebSocket - direct function calls</li>
-</ul>
----</p><p><h2>Verification Commands</h2></p><p><pre><code class="language-bash"># Parse-check all source files
-npm run check</p><p><h1>Run tests (same as check)</h1>
-npm test</p><p><h1>Build client bundle for production</h1>
-npm run build:client</p><p><h1>Static export for itch.io / GitHub Pages</h1>
-npm run static-export</p><p><h1>Check SDK types</h1>
-npm run check:sdk-types</code></pre></p><p>---</p><p><h2>Common Pitfalls</h2></p><p>1. <strong>Physics only activates in <code>setup()</code></strong> — <code>entity.bodyType = 'static'</code> does nothing without <code>ctx.physics.*</code>
-2. <strong>Set <code>movement.maxSpeed</code> explicitly</strong> — code default is 8.0
+| </code>G<code> / </code>R<code> / </code>S<code> | Translate / Rotate / Scale gizmo |
+| </code>F<code> | Focus camera on selected entity |
+| </code>Del<code> | Delete selected entity |
+| Drag </code>.glb<code> | Place model in world |
+
+---
+
+<h2>Singleplayer Mode</h2>
+
+Add </code>?singleplayer<code> to run the <strong>same server inside a Web Worker</strong> (same origin, same code, no separate process):
+
+</code>`<code>
+http://localhost:3001/?singleplayer
+http://localhost:3001/?singleplayer&amp;world=matrix-construct
+</code>`<code>
+
+<ul><li>Uses </code>BrowserServer<code> + </code>WorkerEntry.js<code></li></ul>
+<ul><li>Same physics, same apps, same world config</li></ul>
+<ul><li>No WebSocket - direct function calls</li></ul>
+
+---
+
+<h2>Verification Commands</h2>
+
+</code>`<code>bash
+<h1>Parse-check all source files</h1>
+npm run check
+
+<h1>Run tests (same as check)</h1>
+npm test
+
+<h1>Build client bundle for production</h1>
+npm run build:client
+
+<h1>Static export for itch.io / GitHub Pages</h1>
+npm run static-export
+
+<h1>Check SDK types</h1>
+npm run check:sdk-types
+</code>`<code>
+
+---
+
+<h2>Common Pitfalls</h2>
+
+1. <strong>Physics only activates in </code>setup()<code></strong> — </code>entity.bodyType = 'static'<code> does nothing without </code>ctx.physics.*<code>
+2. <strong>Set </code>movement.maxSpeed<code> explicitly</strong> — code default is 8.0
 3. <strong>Horizontal velocity is wish-based</strong> — only Y velocity comes from physics
-4. <strong>Capsule params</strong>: <code>addCapsuleCollider(radius, fullHeight)</code> — full height, halved internally
-5. <strong>Trimesh is static-only</strong> — use <code>addConvexCollider</code> for dynamic/kinematic
-6. <strong>AppLoader blocked strings</strong> — <code>process.exit</code>, <code>child_process</code>, <code>require(</code>, <code>__proto__</code>, <code>Object.prototype</code>, <code>globalThis</code>, <code>eval(</code>, <code>import(</code> silently prevent load
-7. <strong>Single server only</strong> — don't run second <code>node server.js</code> on different PORT; use <code>/?singleplayer</code>
-8. <strong>Loading screen waits for</strong>: WebSocket, VRM, entity models, first snapshot, world entities</p><p>---</p><p><h2>Useful Links</h2></p><p><ul><li><strong>Demo</strong>: https://anentrypoint.github.io/spoint/</li>
-<li><strong>Architecture</strong>: <code>docs/architecture-decisions.md</code></li>
-<li><strong>Rendering</strong>: <code>docs/rendering.md</code></li>
-<li><strong>Editor</strong>: <code>docs/editor-composing.md</code></li>
-<li><strong>Publishing</strong>: <code>docs/publish.md</code></li>
-<li><strong>Anticheat</strong>: <code>docs/anticheat.md</code></li></ul></p></section>
+4. <strong>Capsule params</strong>: </code>addCapsuleCollider(radius, fullHeight)<code> — full height, halved internally
+5. <strong>Trimesh is static-only</strong> — use </code>addConvexCollider<code> for dynamic/kinematic
+6. <strong>AppLoader blocked strings</strong> — </code>process.exit<code>, </code>child_process<code>, </code>require(<code>, </code>__proto__<code>, </code>Object.prototype<code>, </code>globalThis<code>, </code>eval(<code>, </code>import(<code> silently prevent load
+7. <strong>Single server only</strong> — don't run second </code>node server.js<code> on different PORT; use </code>/?singleplayer<code>
+8. <strong>Loading screen waits for</strong>: WebSocket, VRM, entity models, first snapshot, world entities
+
+---
+
+<h2>Useful Links</h2>
+
+<ul><li><strong>Demo</strong>: https://anentrypoint.github.io/spoint/</li></ul>
+<ul><li><strong>Architecture</strong>: </code>docs/architecture-decisions.md<code></li></ul>
+<ul><li><strong>Rendering</strong>: </code>docs/rendering.md<code></li></ul>
+<ul><li><strong>Editor</strong>: </code>docs/editor-composing.md<code></li></ul>
+<ul><li><strong>Publishing</strong>: </code>docs/publish.md<code></li></ul>
+<ul><li><strong>Anticheat</strong>: </code>docs/anticheat.md`</li></ul></p></section>
 <section id="section-9"><h2>spoint — docs/multi-process-room-orchestrator.md</h2><p><h1>Multi-process room orchestrator</h1></p><p>Covers <code>src/sdk/RoomOrchestrator.js</code>, <code>src/sdk/RoomProcessWorker.js</code>, and
 <code>bin/room-orchestrator-boot.js</code> -- the multi-PROCESS step built on top of the
 already-shipped <code>src/sdk/RoomDirectory.js</code> (multi-room-<strong>per</strong>-process).</p><p>This is a <strong>different</strong> feature from <code>src/sharding/RegionRouter.js</code> /
@@ -1381,223 +1634,65 @@ unreachable target is logged as a warning and the NPC stays put. Editor props: <
 <ul><li><strong>World has no trimesh GLB entities</strong>: the bake only reads <code>.glb</code> entities with</li>
 </ul>  <code>config.collider: 'trimesh'</code>; terrain heightfields and primitive meshes are not baked.
 </p></section>
-<section id="section-11"><h2>spoint — docs/nostr-server-federation.md</h2><p><h1>Nostr Server Federation — Architecture</h1></p><p>&gt; PRD row: <code>ugc-nostr-server-federation</code>  
-&gt; Status: FIRST SLICE — architecture documentation + &quot;no duplicate implementation&quot; verification</p><p><h2>Overview</h2></p><p>spoint uses <strong>nostr</strong> (Nostr Protocol) as its <strong>serverless master server</strong> for both dedicated-server discovery and P2P room discovery. This is a single, unified mechanism — not two separate server-browser systems.</p><p><h2>Architecture</h2></p><p><h3>Publishers (server-side)</h3></p><p><strong>Dedicated servers</strong> publish via <code>src/sdk/ServerPresence.js</code>:</p><p><ul><li>Generates a persistent nostr keypair (stored in <code>data/nostr-identity.json</code>, gitignored)</li>
-<li>Publishes a replaceable NIP-78 <code>kind:30078</code> event with <code>d</code> tag <code>spoint-server:&lt;namespace&gt;:&lt;port&gt;</code></li>
-<li>Payload: <code>{action, worldName, host, port, mode, players, maxPlayers, tickRate, protocolVersion, ts}</code></li>
-<li>Cadence: <code>online</code> on boot, <code>offline</code> on shutdown, <code>heartbeat</code> every 30s</li>
-<li>Opt-in only: <code>worldDef.presence.enabled</code> or <code>SPOINT_PRESENCE=1</code> env var</li>
-<li>Reuses <code>wireweave</code>'s own <code>RelayPool</code> + <code>NostrAuth</code> primitives (zero hand-rolled nostr client)</li>
-</ul>
-<strong>P2P rooms</strong> (wireweave-hosted) publish via <code>node_modules/wireweave/src/data.js</code>:</p><p><ul><li>Already shipped, already used by <code>client/HostMigration.js</code> for peer mesh discovery</li>
-<li>Same <code>kind:30078</code>, different <code>d</code> tag: <code>wireweave-data:&lt;roomId&gt;</code></li>
-<li>Payload: <code>{action, name, room, ts}</code></li>
-</ul>
-<h3>Consumer (client-side)</h3></p><p><code>client/ServerBrowser.js</code> is the single client-side server browser:</p><p><ul><li>Subscribes via <code>RelayPool</code> to a single nostr filter scoped to the shared <code>ns</code> tag</li>
-<li>Merges dedicated + P2P rooms into one unified list</li>
-<li>Disambiguates by <code>d</code> tag prefix (<code>spoint-server:</code> vs <code>wireweave-data:</code>)</li>
-<li>Pings dedicated servers via a lightweight WS connect to <code>ws://host:port/ws</code></li>
-<li>Shows P2P room latency as relay RTT</li>
-<li>Click-to-join: dedicated → <code>?connect=host:port</code>, P2P → <code>?wwjoin&amp;room=&lt;id&gt;</code></li>
-<li>Presence rows expire after 90s (3x the 30s heartbeat cadence)</li>
-</ul>
-<h3>Relays</h3></p><p>Both publisher and consumer use wireweave's public relay defaults (<code>wss://relay.damus.io</code>, <code>wss://nos.lol</code>, <code>wss://relay.primal.net</code>). A world/server can pin its own relay set via <code>worldDef.presence.relays</code> or <code>SPOINT_PRESENCE_RELAYS</code> env var.</p><p><h2>&quot;No duplicate implementation&quot; verification</h2></p><p>| Concern | Verdict | Evidence |
+<section id="section-11"><h2>spoint — docs/nostr-server-federation.md</h2><p><h1>Nostr Server Federation — Architecture</h1>
+
+&gt; PRD row: <code>ugc-nostr-server-federation</code>  
+&gt; Status: FIRST SLICE — architecture documentation + &quot;no duplicate implementation&quot; verification
+
+<h2>Overview</h2>
+
+spoint uses <strong>nostr</strong> (Nostr Protocol) as its <strong>serverless master server</strong> for both dedicated-server discovery and P2P room discovery. This is a single, unified mechanism — not two separate server-browser systems.
+
+<h2>Architecture</h2>
+
+<h3>Publishers (server-side)</h3>
+
+<strong>Dedicated servers</strong> publish via <code>src/sdk/ServerPresence.js</code>:
+
+<ul><li>Generates a persistent nostr keypair (stored in <code>data/nostr-identity.json</code>, gitignored)</li></ul>
+<ul><li>Publishes a replaceable NIP-78 <code>kind:30078</code> event with <code>d</code> tag <code>spoint-server:&lt;namespace&gt;:&lt;port&gt;</code></li></ul>
+<ul><li>Payload: <code>{action, worldName, host, port, mode, players, maxPlayers, tickRate, protocolVersion, ts}</code></li></ul>
+<ul><li>Cadence: <code>online</code> on boot, <code>offline</code> on shutdown, <code>heartbeat</code> every 30s</li></ul>
+<ul><li>Opt-in only: <code>worldDef.presence.enabled</code> or <code>SPOINT_PRESENCE=1</code> env var</li></ul>
+<ul><li>Reuses <code>wireweave</code>'s own <code>RelayPool</code> + <code>NostrAuth</code> primitives (zero hand-rolled nostr client)</li></ul>
+
+<strong>P2P rooms</strong> (wireweave-hosted) publish via <code>node_modules/wireweave/src/data.js</code>:
+
+<ul><li>Already shipped, already used by <code>client/HostMigration.js</code> for peer mesh discovery</li></ul>
+<ul><li>Same <code>kind:30078</code>, different <code>d</code> tag: <code>wireweave-data:&lt;roomId&gt;</code></li></ul>
+<ul><li>Payload: <code>{action, name, room, ts}</code></li></ul>
+
+<h3>Consumer (client-side)</h3>
+
+<code>client/ServerBrowser.js</code> is the single client-side server browser:
+
+<ul><li>Subscribes via <code>RelayPool</code> to a single nostr filter scoped to the shared <code>ns</code> tag</li></ul>
+<ul><li>Merges dedicated + P2P rooms into one unified list</li></ul>
+<ul><li>Disambiguates by <code>d</code> tag prefix (<code>spoint-server:</code> vs <code>wireweave-data:</code>)</li></ul>
+<ul><li>Pings dedicated servers via a lightweight WS connect to <code>ws://host:port/ws</code></li></ul>
+<ul><li>Shows P2P room latency as relay RTT</li></ul>
+<ul><li>Click-to-join: dedicated → <code>?connect=host:port</code>, P2P → <code>?wwjoin&amp;room=&lt;id&gt;</code></li></ul>
+<ul><li>Presence rows expire after 90s (3x the 30s heartbeat cadence)</li></ul>
+
+<h3>Relays</h3>
+
+Both publisher and consumer use wireweave's public relay defaults (<code>wss://relay.damus.io</code>, <code>wss://nos.lol</code>, <code>wss://relay.primal.net</code>). A world/server can pin its own relay set via <code>worldDef.presence.relays</code> or <code>SPOINT_PRESENCE_RELAYS</code> env var.
+
+<h2>&quot;No duplicate implementation&quot; verification</h2>
+
+| Concern | Verdict | Evidence |
 |---|---|---|
 | Second server browser? | No | <code>client/ServerBrowser.js</code> is the only client-side nostr consumer. <code>Grep</code> for <code>kind:30078</code>/<code>RelayPool</code>/<code>server-browser</code> across <code>client/</code> and <code>src/</code> confirms a single implementation. |
 | Second presence publisher? | No | <code>src/sdk/ServerPresence.js</code> is the only server-side nostr presence publisher. <code>Grep</code> for <code>createServerPresence</code> across <code>src/</code> confirms a single call site in <code>server.js:443</code>. |
 | Overlapping with wireweave? | No | <code>ServerPresence.js</code> reuses wireweave's <code>RelayPool</code>/<code>NostrAuth</code> rather than importing <code>nostr-tools</code> directly — it is one integration point, not two. |
-| Per-row feature drift? | No | The &quot;text-chat-matchmaking-server-browser-anticheat&quot; row (which this row's detail says &quot;already covers this functionally&quot;) is the same mechanism — <code>ServerPresence.js</code> + <code>ServerBrowser.js</code> are the single implementation both rows reference. |</p><p><h2>Remaining scope</h2></p><p><ul><li>Relay health/fallback monitoring (the pool already handles reconnect internally)</li>
-<li>Server-browser UI polish (sorting, favorites, recent)</li>
-<li>Operator-facing presence dashboard (which servers are publishing, relay reachability)</li></ul></p></section>
-<section id="section-12"><h2>spoint — docs/particles.md</h2><p><h1>Particle System Documentation</h1></p><p>A performant, GPU-accelerated particle system for visual effects including explosions, impacts, fire, smoke, sparks, and blood splatter.</p><p><h2>Overview</h2></p><p>The particle system consists of four main components:</p><p><ul><li><strong>ParticlePool</strong>: Object pooling for efficient memory reuse</li>
-<li><strong>ParticleEmitter</strong>: Declarative emitter definitions with various shapes and properties</li>
-<li><strong>ParticleRenderer</strong>: GPU-accelerated rendering via THREE.Points with custom shaders</li>
-<li><strong>EffectLibrary</strong>: Pre-built effects ready to spawn</li>
-<li><strong>ParticleSystem</strong>: Main manager handling all emitters and rendering</li>
-</ul>
-<h2>Quick Start</h2></p><p><pre><code class="language-javascript">import { ParticleSystem } from 'src/particles/ParticleSystem.js';</p><p>const particleSystem = new ParticleSystem(scene, camera, {
-  maxPoolSize: 5000,
-  enableNetworkSync: true
-});</p><p>particleSystem.spawnEffect('explosion', [0, 2, 0], {
-  particleCount: 100,
-  startSize: 0.2,
-  endSize: 0.02
-});</p><p>function animate(dt) {
-  particleSystem.update(dt);
-  renderer.render(scene, camera);
-}</code></pre></p><p><h2>API Reference</h2></p><p><h3>ParticlePool</h3></p><p>Manages particle allocation and reuse for memory efficiency.</p><p><pre><code class="language-javascript">const pool = new ParticlePool(initialSize);</p><p>const particle = pool.acquire(type);
-particle.position[0] = x;
-particle.position[1] = y;
-particle.position[2] = z;</p><p>pool.release(particle);
-pool.clear();
-pool.getActiveCount();</code></pre></p><p><strong>Methods:</strong>
-<ul><li><code>acquire(type)</code>: Get an active particle</li>
-<li><code>release(particle)</code>: Return a particle to the pool</li>
-<li><code>expand()</code>: Grow the pool (automatic)</li>
-<li><code>shrink()</code>: Shrink the pool if usage is low</li>
-<li><code>getActiveParticles()</code>: Get all active particles</li>
-<li><code>getActiveCount()</code>: Get count of active particles</li>
-<li><code>clear()</code>: Deactivate all particles</li>
-</ul>
-<h3>ParticleEmitter</h3></p><p>Defines how particles spawn, move, and appear.</p><p><pre><code class="language-javascript">import { ParticleEmitter, EmitterShapeType, EmitterMode } from 'src/particles/ParticleEmitter.js';</p><p>const emitter = new ParticleEmitter({
-  mode: EmitterMode.BURST,
-  shapeType: EmitterShapeType.SPHERE,
-  shapeSize: [1, 1, 1],
-  burstCount: 100,
-  lifetime: 1.5,
-  initialVelocity: [0, 2, 0],
-  velocityVariance: [1, 0.5, 1],
-  gravity: [0, -9.8, 0],
-  drag: 0.02,
-  startSize: 0.2,
-  endSize: 0.02,
-  startColor: [255, 200, 100, 255],
-  endColor: [255, 100, 50, 0]
-});</p><p>emitter.setPosition(x, y, z);
-const emission = emitter.update(dt);
-const particles = emitter.spawn(pool, count);</code></pre></p><p><strong>Emitter Shapes:</strong>
-<ul><li><code>POINT</code>: Single origin point</li>
-<li><code>SPHERE</code>: Uniformly distributed sphere</li>
-<li><code>BOX</code>: Uniform box distribution</li>
-<li><code>CONE</code>: Cone-shaped spray</li>
-</ul>
-<strong>Emission Modes:</strong>
-<ul><li><code>BURST</code>: Emit all particles instantly</li>
-<li><code>CONTINUOUS</code>: Emit at a constant spawn rate</li>
-</ul>
-<strong>Configuration Options:</strong>
-<ul><li><code>position</code>: [x, y, z] emitter position</li>
-<li><code>velocity</code>: [x, y, z] emitter velocity (for moving emitters)</li>
-<li><code>mode</code>: EmitterMode.BURST or EmitterMode.CONTINUOUS</li>
-<li><code>shapeType</code>: Type of emission shape</li>
-<li><code>shapeSize</code>: [x, y, z] size of emission shape</li>
-<li><code>shapeAngle</code>: Cone angle in degrees</li>
-<li><code>spawnRate</code>: Particles per second (for continuous mode)</li>
-<li><code>burstCount</code>: Particles to emit (for burst mode)</li>
-<li><code>lifetime</code>: Average particle lifetime in seconds</li>
-<li><code>lifetimeVariance</code>: Variation in lifetime</li>
-<li><code>initialVelocity</code>: [x, y, z] base particle velocity</li>
-<li><code>velocityVariance</code>: [x, y, z] velocity randomness</li>
-<li><code>gravity</code>: [x, y, z] acceleration vector</li>
-<li><code>drag</code>: Air resistance factor (0-1)</li>
-<li><code>angularVelocity</code>: Rotation speed</li>
-<li><code>angularVelocityVariance</code>: Rotation randomness</li>
-<li><code>startSize</code>: Initial particle size</li>
-<li><code>endSize</code>: Final particle size</li>
-<li><code>startColor</code>: [r, g, b, a] initial color (0-255)</li>
-<li><code>endColor</code>: [r, g, b, a] final color (0-255)</li>
-<li><code>seed</code>: Seeding for deterministic randomness</li>
-</ul>
-<h3>ParticleRenderer</h3></p><p>GPU-accelerated rendering using THREE.Points.</p><p><pre><code class="language-javascript">import { ParticleRenderer, BlendMode } from 'src/rendering/ParticleRenderer.js';</p><p>const renderer = new ParticleRenderer(scene, camera, {
-  blendMode: BlendMode.ADDITIVE,
-  maxParticles: 10000,
-  lodDistance: 100,
-  lodFactor: 0.5
-});</p><p>renderer.update(particles, camera);
-renderer.setTexture(texture);
-renderer.setBlendMode(BlendMode.ADDITIVE);
-renderer.dispose();</code></pre></p><p><strong>Blend Modes:</strong>
-<ul><li><code>NORMAL</code>: Standard alpha blending</li>
-<li><code>ADDITIVE</code>: Additive blending (fire, light)</li>
-<li><code>MULTIPLY</code>: Multiply blending (shadows)</li>
-</ul>
-<strong>Features:</strong>
-<ul><li>Automatic LOD (Level of Detail) at distance</li>
-<li>Billboard rendering (particles always face camera)</li>
-<li>Texture atlas support for multiple particle types</li>
-<li>Dynamic buffer updates</li>
-</ul>
-<h3>EffectLibrary</h3></p><p>Pre-built effect templates.</p><p><pre><code class="language-javascript">import { EffectLibrary } from 'src/particles/EffectLibrary.js';</p><p>const emitter = EffectLibrary.createExplosion({
-  particleCount: 100,
-  radius: 1,
-  startColor: [255, 200, 100, 255]
-});</p><p>const emitter = EffectLibrary.createFire({
-  spawnRate: 200,
-  size: 0.3
-});</p><p>const emitter = EffectLibrary.createSmoke({
-  radius: 0.5,
-  spawnRate: 100
-});</p><p>const emitter = EffectLibrary.createSparks({ particleCount: 80 });
-const emitter = EffectLibrary.createImpact({ spread: 1 });
-const emitter = EffectLibrary.createBlood({ direction: [0, 1, 0] });
-const emitter = EffectLibrary.createWaterSplash({ radius: 0.5 });
-const emitter = EffectLibrary.createDust({ width: 1 });</code></pre></p><p><h3>ParticleSystem</h3></p><p>Main system managing all emitters and particles.</p><p><pre><code class="language-javascript">import { ParticleSystem } from 'src/particles/ParticleSystem.js';</p><p>const system = new ParticleSystem(scene, camera, {
-  maxPoolSize: 5000,
-  enableNetworkSync: true,
-  gravity: [0, -9.8, 0]
-});</p><p>const effectId = system.spawnEffect('explosion', [0, 2, 0], {
-  particleCount: 100,
-  startSize: 0.2
-});</p><p>system.registerEmitter(id, emitter);
-system.unregisterEmitter(id);</p><p>system.update(deltaTime);</p><p>const stats = system.getStats();
-system.clear();
-system.dispose();</code></pre></p><p><strong>Network Synchronization:</strong></p><p><pre><code class="language-javascript">system.enableNetworkSync = true;
-system.onEmitterStatesBroadcast = (states) =&gt; {
-  networkClient.broadcast('particle-states', states);
-};</p><p>networkClient.on('particle-states', (states) =&gt; {
-  states.forEach(state =&gt; {
-    system.syncEmitterState(state.id, state);
-  });
-});</code></pre></p><p>States include: <code>id</code>, <code>position</code>, <code>seed</code>, <code>emittedCount</code> for deterministic client-side reproduction.</p><p><h2>Performance Optimization</h2></p><p><h3>LOD System</h3>
-The renderer automatically reduces particle size at distance:
-<pre><code class="language-javascript">const renderer = new ParticleRenderer(scene, camera, {
-  lodDistance: 100,    // Distance threshold
-  lodFactor: 0.5       // Size multiplier beyond threshold
-});</code></pre></p><p><h3>Pool Management</h3>
-The pool automatically expands as needed and shrinks when idle:
-<pre><code class="language-javascript">pool.expand();  // Grows pool by 1.5x
-pool.shrink();  // Shrinks if usage is &lt;25%</code></pre></p><p><h3>Efficient Updates</h3>
-Use seeded random for deterministic effects across clients:
-<pre><code class="language-javascript">const emitter = new ParticleEmitter({
-  seed: 12345  // Same seed = same particles
-});</code></pre></p><p><h2>Integration with Physics</h2></p><p>To spawn particles on collision:</p><p><pre><code class="language-javascript">physicsWorld.on('collision', (bodyA, bodyB, impulse) =&gt; {
-  const position = bodyA.getPosition();
-  system.spawnEffect('impact', [position.x, position.y, position.z], {
-    direction: calculateCollisionNormal(bodyA, bodyB),
-    particleCount: 50
-  });
-});</code></pre></p><p><h2>Multiplayer Synchronization</h2></p><p>The particle system supports deterministic seeding for client-side particle spawning:</p><p><pre><code class="language-javascript">system.enableNetworkSync = true;</p><p>networkServer.broadcast('particle-effect', {
-  type: 'explosion',
-  position: [0, 2, 0],
-  seed: 12345,
-  timestamp: now
-});</p><p>networkClient.on('particle-effect', (data) =&gt; {
-  system.spawnEffect(data.type, data.position, {
-    seed: data.seed
-  });
-});</code></pre></p><p>All clients with the same seed produce identical particle sequences, eliminating per-particle network traffic.</p><p><h2>Success Criteria Met</h2></p><p><ul><li>✓ Spawn 100 particles simultaneously at 60fps (tested)</li>
-<li>✓ Explosions look impactful (configurable burst, varied sizes, colors)</li>
-<li>✓ Fire/smoke effects atmospheric (upward motion, fade with height)</li>
-<li>✓ 10 simultaneous emitters no performance regression</li>
-<li>✓ Works in multiplayer via deterministic seeding</li>
-<li>✓ Particle impacts visible immediately (client-side spawning)</li>
-</ul>
-<h2>Example: Complete Scene Setup</h2></p><p><pre><code class="language-javascript">import { ParticleSystem } from 'src/particles/ParticleSystem.js';
-import * as THREE from 'three';</p><p>const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight);
-const renderer = new THREE.WebGLRenderer();
-renderer.setSize(window.innerWidth, window.innerHeight);
-document.body.appendChild(renderer.domElement);</p><p>const particleSystem = new ParticleSystem(scene, camera, {
-  maxPoolSize: 5000,
-  renderConfig: {
-    maxParticles: 10000,
-    blendMode: 'additive'
-  }
-});</p><p>let time = 0;
-function animate(dt) {
-  time += dt;</p><p>  if (Math.floor(time) % 2 === 0) {
-    particleSystem.spawnEffect('fire', [0, 2, 0]);
-  }</p><p>  particleSystem.update(dt);
-  renderer.render(scene, camera);
-  requestAnimationFrame(animate);
-}</p><p>animate(0);</code></pre></p><p><h2>Debugging</h2></p><p>Access particle statistics:
-<pre><code class="language-javascript">const stats = particleSystem.getStats();
-console.log(<code>Emitters: ${stats.emitterCount}</code>);
-console.log(<code>Active particles: ${stats.particleCount}</code>);
-console.log(<code>Pool size: ${stats.poolSize}</code>);
-console.log(<code>Simulated: ${stats.simCount}</code>);</code></pre>
-</p></section>
-<section id="section-13"><h2>spoint — docs/performance-optimization.md</h2><p><h1>Performance Optimization Guide for Spoint Game Creators</h1></p><p><h2>Overview</h2></p><p>This guide teaches game creators how to identify and fix performance bottlenecks in Spoint. It covers CPU and GPU optimization, memory management, network efficiency, and profiling methodology with real examples from the spoint codebase.</p><p>---</p><p><h2>Part 1: Understanding Frame Time</h2></p><p><h3>The Frame Budget</h3></p><p>At 60 FPS, each frame has a 16.67ms budget:
+| Per-row feature drift? | No | The &quot;text-chat-matchmaking-server-browser-anticheat&quot; row (which this row's detail says &quot;already covers this functionally&quot;) is the same mechanism — <code>ServerPresence.js</code> + <code>ServerBrowser.js</code> are the single implementation both rows reference. |
+
+<h2>Remaining scope</h2>
+
+<ul><li>Relay health/fallback monitoring (the pool already handles reconnect internally)</li></ul>
+<ul><li>Server-browser UI polish (sorting, favorites, recent)</li></ul>
+<ul><li>Operator-facing presence dashboard (which servers are publishing, relay reachability)</li></ul></p></section>
+<section id="section-12"><h2>spoint — docs/performance-optimization.md</h2><p><h1>Performance Optimization Guide for Spoint Game Creators</h1></p><p><h2>Overview</h2></p><p>This guide teaches game creators how to identify and fix performance bottlenecks in Spoint. It covers CPU and GPU optimization, memory management, network efficiency, and profiling methodology with real examples from the spoint codebase.</p><p>---</p><p><h2>Part 1: Understanding Frame Time</h2></p><p><h3>The Frame Budget</h3></p><p>At 60 FPS, each frame has a 16.67ms budget:
 <ul><li><strong>GPU time</strong> (~8ms): Rendering (draw calls, pixel fill rate)</li>
 <li><strong>CPU time</strong> (~6ms): Game logic, physics, network updates, entity management</li>
 <li><strong>Headroom</strong> (~2.67ms): Margin for spikes and unexpected costs</li>
@@ -1992,6 +2087,28 @@ const terrainBias = calculateBiasFromAltitude(camera.position.y)</code></pre></p
 </ul>
 ---</p><p><strong>Last updated:</strong> August 21, 2026
 <strong>Maintained by:</strong> Spoint Developer Community
+</p></section>
+<section id="section-13"><h2>spoint — docs/performance.md</h2><p><h1>Performance: measured findings</h1></p><p>Durable, re-verified performance investigations. Add a new dated section per investigation;
+never a status/self-congratulation report -- only root-caused, reproducible findings and the
+methodology that produced them.</p><p><h2>Terrain rendering on mobile-class iGPU (2026-06-29)</h2></p><p>Real-GPU re-measurement (ANGLE D3D11, AMD Radeon -- the actual mobile-iGPU target class) via
+<code>scripts/perf-planet-witness.mjs</code> + <code>scripts/perf-profile-witness.mjs</code> superseded an earlier
+2026-06-21 headless (<code>--disable-gpu</code>, SwiftShader software raster) audit that had flagged terrain
+raymarching as the bottleneck; that finding was a pure SwiftShader artifact and is retracted.</p><p><ul><li>Baseline on real hardware: ~12-14ms/frame (~72-85fps), p50 11-14ms -- comfortably above 30fps.</li>
+<li>Terrain raymarching (the per-pixel fBm raymarch, <code>__terrain.planet.frame</code>) is NOT the</li>
+</ul>  bottleneck: 0.2-0.3ms CPU/call. Toggling <code>window.__vdrsScale</code> across 1.0/0.75/0.5 produced no
+  measurable frame-time delta (run-to-run variance exceeded any scale effect) -- adaptive
+  renderScale buys nothing on this path.
+<ul><li>The real cost is mapspinner terrain TEXTURE STREAMING, not per-pixel rendering:</li>
+</ul>  <code>loadSurfaceTextures</code> (<code>node_modules/mapspinner</code> <code>gl-render.js:569</code>, 6.1% of frame),
+  <code>texSubImage2D</code> (7.5%), <code>readPixels</code> (3.5%), <code>delin</code> (<code>gl-render.js:593</code>) -- all inside
+  mapspinner, out of scope for a client-side fix. These streaming calls produce the p99 ~68ms /
+  max ~104ms frame-time outliers, not the raymarch.
+<ul><li>Client-side hot nodes (BVH frustum cull, placement noise) are small (~4% and ~2% combined) and</li>
+</ul>  already optimized; vegetation was independently confirmed well-optimized in the 2026-06-21 pass.</p><p><strong>No confident client-side speedup exists for this path.</strong> Re-measure on real GPU hardware (never
+<code>--disable-gpu</code>/SwiftShader) before trusting any terrain-rendering perf hypothesis -- headless
+software rasterization inflates frame time by an order of magnitude and misattributes the cause.
+If terrain frame-time spikes recur, look at mapspinner's texture-streaming path first, not the
+raymarch or <code>vdrsScale</code>.
 </p></section>
 <section id="section-14"><h2>spoint — docs/prefab-system.md</h2><p><h1>Prefab System User Guide</h1></p><p><h2>Overview</h2></p><p>A <strong>prefab</strong> (short for &quot;prefabricated&quot;) is a reusable template of one or more entities that you can save and spawn repeatedly in your world. Instead of manually recreating the same group of objects each time you need them, you save them once as a prefab and then instantiate that prefab as many times as you want.</p><p><h3>What is a Prefab?</h3></p><p>A prefab is a saved collection of entities with their properties:
 <ul><li>Hierarchy (parent-child relationships preserved)</li>
@@ -2663,21 +2780,44 @@ the whole point) and open it in a browser:</p><p><pre><code class="language-bash
 </ul>  tools; a static export is a frozen build, matching how <code>npm run build:client</code>'s bundle already
   behaves in production mode (see the main <code>README.md</code>'s Production Build section).
 </p></section>
-<section id="section-17"><h2>spoint — docs/quick-reference.md</h2><p><h1>spoint Quick Reference</h1></p><p><h2>Run Commands</h2></p><p><pre><code class="language-bash"># Start server (default world: tps-game)
+<section id="section-17"><h2>spoint — docs/quick-reference.md</h2><p><h1>spoint Quick Reference</h1>
+
+<h2>Run Commands</h2>
+
+``<code>bash
+<h1>Start server (default world: tps-game)</h1>
 npm start
 <h1>or</h1>
 npx spoint
 <h1>or</h1>
-WORLD=tps-game node server.js</p><p><h1>Singleplayer mode (in-browser server)</h1>
-<h1>http://localhost:3001/?singleplayer</h1></p><p><h1>Custom world</h1>
+WORLD=tps-game node server.js
+
+<h1>Singleplayer mode (in-browser server)</h1>
+<h1>http://localhost:3001/?singleplayer</h1>
+
+<h1>Custom world</h1>
 WORLD=matrix-construct node server.js
-<h1>http://localhost:3001/?singleplayer&amp;world=matrix-construct</h1></p><p><h1>Create new app</h1>
+<h1>http://localhost:3001/?singleplayer&amp;world=matrix-construct</h1>
+
+<h1>Create new app</h1>
 npx spoint-create-app my-app
-npx spoint-create-app --template physics my-app</p><p><h1>Build for production</h1>
-npm run build:client</p><p><h1>Static export (itch.io / GitHub Pages)</h1>
-npm run static-export</p><p><h1>Verify</h1>
+npx spoint-create-app --template physics my-app
+
+<h1>Build for production</h1>
+npm run build:client
+
+<h1>Static export (itch.io / GitHub Pages)</h1>
+npm run static-export
+
+<h1>Verify</h1>
 npm run check
-npm test</code></pre></p><p><h2>World Config Keys</h2></p><p><pre><code class="language-javascript">{
+npm test
+</code>`<code>
+
+<h2>World Config Keys</h2>
+
+</code>`<code>javascript
+{
   port: 3001,
   tickRate: 64,
   entityTickRate: 15,
@@ -2722,7 +2862,13 @@ npm test</code></pre></p><p><h2>World Config Keys</h2></p><p><pre><code class="l
   playerModel: './apps/tps-game/cleetus.vrm',
   trustedApps: ['terrain'],
   placeableApps: ['box-dynamic', 'destructible-box', ...]
-}</code></pre></p><p><h2>Physics Colliders</h2></p><p><pre><code class="language-javascript">ctx.physics.addColliderFromConfig({
+}
+</code>`<code>
+
+<h2>Physics Colliders</h2>
+
+</code>`<code>javascript
+ctx.physics.addColliderFromConfig({
   type: 'box',        // box | sphere | capsule | convex | trimesh | none
   size: [1, 1, 1],    // half-extents (box)
   radius: 0.5,        // sphere/capsule
@@ -2731,7 +2877,15 @@ npm test</code></pre></p><p><h2>World Config Keys</h2></p><p><pre><code class="l
   dynamic: true,      // or kinematic: true
   position: [0, 1, 0], // offset from entity origin
   rotation: [0, 0, 0, 1]
-})</code></pre></p><p><strong>Important</strong>: Capsule uses <code>height</code> = full height (halved internally). Trimesh = static only.</p><p><h2>Client Render Return</h2></p><p><pre><code class="language-javascript">render(ctx) {
+})
+</code>`<code>
+
+<strong>Important</strong>: Capsule uses </code>height<code> = full height (halved internally). Trimesh = static only.
+
+<h2>Client Render Return</h2>
+
+</code>`<code>javascript
+render(ctx) {
   return {
     position: [x, y, z],
     rotation: [x, y, z, w],  // quaternion
@@ -2748,7 +2902,13 @@ npm test</code></pre></p><p><h2>World Config Keys</h2></p><p><pre><code class="l
     },
     ui: ctx.h('div', { class: 'btn' }, 'Click')  // HyperScript
   }
-}</code></pre></p><p><h2>Define* Factories</h2></p><p><pre><code class="language-javascript">ctx.defineHealth({ max: 100, respawnTime: 3 })
+}
+</code>`<code>
+
+<h2>Define* Factories</h2>
+
+</code>`<code>javascript
+ctx.defineHealth({ max: 100, respawnTime: 3 })
 ctx.defineWeapon({ type: 'hitscan', damage: 25, fireRate: 10, magazineSize: 30, reloadTime: 2000 })
 ctx.defineGameMode({ lobby: 10, warmup: 5, round: 300, end: 10 })
 ctx.defineBuffStack({ maxStacks: 3, duration: 10 })
@@ -2760,7 +2920,13 @@ ctx.defineSteering({ maxSpeed: 5, wanderRadius: 50 })
 ctx.defineCheckpoint({ respawnAt: [0, 5, 0] })
 ctx.defineGameFSM({ initial: 'idle', states: { ... } })
 ctx.definePlayerInventory({ capacity: 20 })
-ctx.definePath([[0,0,0], [10,0,10]])</code></pre></p><p><h2>Client Input Object</h2></p><p><pre><code class="language-javascript">onInput(input, engine) {
+ctx.definePath([[0,0,0], [10,0,10]])
+</code>`<code>
+
+<h2>Client Input Object</h2>
+
+</code>`<code>javascript
+onInput(input, engine) {
   input.forward      // W / Up
   input.backward     // S / Down
   input.left         // A / Left
@@ -2774,10 +2940,18 @@ ctx.definePath([[0,0,0], [10,0,10]])</code></pre></p><p><h2>Client Input Object<
   input.emoteDigit      // 1-8 (while holding Q)
   input.mouseX       // Mouse delta X
   input.mouseY       // Mouse delta Y
-}</code></pre></p><p><h2>Network Messages</h2></p><p><pre><code class="language-javascript">// Client -&gt; Server
+}
+</code>`<code>
+
+<h2>Network Messages</h2>
+
+</code>`<code>javascript
+// Client -&gt; Server
 engine.client.sendFire({ origin: [x,y,z], direction: [x,y,z] })
 engine.client.sendReload()
-engine.client.sendEmote('wave')  // code from EMOTE_CLIPS</p><p>// Server -&gt; Client (via onEvent)
+engine.client.sendEmote('wave')  // code from EMOTE_CLIPS
+
+// Server -&gt; Client (via onEvent)
 { type: 'hit', shooter, target, damage, headshot, pos, dir, knockback }
 { type: 'world_hit', pos, normal }
 { type: 'death', victim, killer, cause, headshot, streak, killerKills, killerName }
@@ -2788,19 +2962,35 @@ engine.client.sendEmote('wave')  // code from EMOTE_CLIPS</p><p>// Server -&gt; 
 { type: 'empty_click' }
 { type: 'hazard_damage', playerId, damage }
 { type: 'reload_start', duration }
-{ type: 'reload_complete' }</code></pre></p><p><h2>Editor Shortcuts</h2></p><p>| Key | Action |
+{ type: 'reload_complete' }
+</code>`<code>
+
+<h2>Editor Shortcuts</h2>
+
+| Key | Action |
 |-----|--------|
-| <code>P</code> | Toggle editor |
-| <code>G</code> | Translate gizmo |
-| <code>R</code> | Rotate gizmo |
-| <code>S</code> | Scale gizmo |
-| <code>F</code> | Focus selected |
-| <code>Del</code> | Delete selected |
-| Drag <code>.glb</code> | Place model |</p><p><h2>Verified Remote Models (unpkg)</h2></p><p><pre><code class="language-">https://raw.githubusercontent.com/anEntrypoint/assets/main/broken_car_b6d2e66d_v1.glb
+| </code>P<code> | Toggle editor |
+| </code>G<code> | Translate gizmo |
+| </code>R<code> | Rotate gizmo |
+| </code>S<code> | Scale gizmo |
+| </code>F<code> | Focus selected |
+| </code>Del<code> | Delete selected |
+| Drag </code>.glb<code> | Place model |
+
+<h2>Verified Remote Models (unpkg)</h2>
+
+</code>`<code>
+https://raw.githubusercontent.com/anEntrypoint/assets/main/broken_car_b6d2e66d_v1.glb
 https://raw.githubusercontent.com/anEntrypoint/assets/main/crashed_car_f2b577ae_v1.glb
 https://raw.githubusercontent.com/anEntrypoint/assets/main/blue_shipping_container_60b5ea93_v1.glb
 https://raw.githubusercontent.com/anEntrypoint/assets/main/dumpster_b076662a_v1.glb
-https://raw.githubusercontent.com/anEntrypoint/assets/main/large_rock_051293c4_v1.glb</code></pre></p><p><h2>Key Files</h2></p><p><pre><code class="language-">server.js                      # Entry point
+https://raw.githubusercontent.com/anEntrypoint/assets/main/large_rock_051293c4_v1.glb
+</code>`<code>
+
+<h2>Key Files</h2>
+
+</code>`<code>
+server.js                      # Entry point
 src/sdk/TickHandler.js         # Main loop (movement → physics → apps → snapshot)
 src/sdk/World.js               # Jolt physics world
 src/apps/AppRuntime.js         # Entity/app lifecycle
@@ -2813,7 +3003,8 @@ client/hud/Chat.js             # Chat HUD
 client/hud/EmoteWheel.js       # Emote radial menu
 scripts/bundle-client.mjs      # Production build (esbuild)
 scripts/static-export.mjs      # Static export
-scripts/check.mjs              # Parse validation</code></pre></p></section>
+scripts/check.mjs              # Parse validation
+</code>``</p></section>
 <section id="section-18"><h2>spoint — docs/rendering.md</h2><p><h1>Rendering: culling and visibility</h1></p><p>This document is the culling-unification inventory (<code>cull-inventory-doc</code>). It covers every
 system that decides whether something drawable is actually drawn this frame, in one table, so a
 future change can be gauged against the whole picture instead of one file at a time.</p><p><h2>Culling/visibility systems</h2></p><p>| System | File:line | Candidate set | Budget/frame | Hysteresis policy | Fail-open policy |
@@ -3030,14 +3221,20 @@ no source reading required unless a step below points you at a specific file:</p
    directly (node table above) and reasoning about the declared </code>reads<code>/</code>writes<code> per node, or add a
    temporary </code>console.log<code> inside the suspect node's </code>run` body.
 </p></section>
-<section id="section-19"><h2>spoint — docs/webgpu-shader-audit.md</h2><p><h1>WebGPU renderer: TSL-vs-raw-GLSL shader-compatibility audit</h1></p><p>Status: audit-only pass, first slice of <code>webgpurenderer-shader-compatibility-audit-tsl-glsl</code>.
+<section id="section-19"><h2>spoint — docs/webgpu-shader-audit.md</h2><p><h1>WebGPU renderer: TSL-vs-raw-GLSL shader-compatibility audit</h1>
+
+Status: audit-only pass, first slice of <code>webgpurenderer-shader-compatibility-audit-tsl-glsl</code>.
 No source behavior changed by this pass -- <code>?webgpu=1</code> stays exactly as risky as it was
 (experimental, off by default, documented in <code>RenderControls.js</code>'s <code>?webgpu=1</code> catalog entry).
 This document is the &quot;which shaders are TSL-portable vs need a WGSL rewrite vs can defer to a
 WebGL2 fallback island&quot; triage the PRD row asked for, produced by reading every real call site
 listed in the row's own detail plus everything the same codesearch pattern (<code>onBeforeCompile</code>,
 <code>ShaderChunk</code>, <code>new THREE.ShaderMaterial</code>, <code>WebGLRenderTarget</code>, <code>renderer.getContext()</code>, raw
-<code>gl.*</code> calls) turned up across <code>client/core</code>, <code>packages/mapspinner</code>, <code>packages/streaming-gltf</code>.</p><p><h2>Why this matters (recap)</h2></p><p><code>THREE.WebGPURenderer</code> does not compile raw GLSL. <code>onBeforeCompile</code>/<code>ShaderChunk</code> string-surgery
+<code>gl.*</code> calls) turned up across <code>client/core</code>, <code>packages/mapspinner</code>, <code>packages/streaming-gltf</code>.
+
+<h2>Why this matters (recap)</h2>
+
+<code>THREE.WebGPURenderer</code> does not compile raw GLSL. <code>onBeforeCompile</code>/<code>ShaderChunk</code> string-surgery
 -- the mechanism nearly every custom-shader effect in this codebase uses -- has no meaning for a
 WebGPU material; those materials need a TSL (<code>three/tsl</code>) node graph or a hand-written WGSL
 module talking to <code>renderer.backend</code> directly. A <code>WebGLRenderTarget</code> is also WebGL-specific (the
@@ -3046,13 +3243,23 @@ it but the reverse isn't given). <code>renderer.getContext()</code> returns a re
 only under <code>WebGLRenderer</code>; under <code>WebGPURenderer</code> there is no GL context to hand back, so any
 caller that does raw <code>gl.createShader</code>/<code>gl.drawArrays</code>/etc. against it throws or silently no-ops
 depending on what <code>getContext()</code> actually returns for that backend (unverified at audit time --
-see Open question at the end).</p><p><h2>Method</h2></p><p>Real codesearch across the three named surfaces, cross-referenced against each file's own header
+see Open question at the end).
+
+<h2>Method</h2>
+
+Real codesearch across the three named surfaces, cross-referenced against each file's own header
 comment (most of these components already document <em>why</em> they patch ShaderChunk / hand-roll GLSL,
 which is exactly the information needed to judge portability). No renderer was booted under
 <code>?webgpu=1</code> for this pass -- see &quot;What this audit did NOT do&quot; -- so every verdict below is a
-static-source classification, not yet a live pass/fail witness against a real WebGPU device.</p><p><h2>Findings: raw-GLSL-patch surface (client/core)</h2></p><p>17 files patch <code>THREE.ShaderChunk</code> globally, or hand-roll a <code>ShaderMaterial</code>/<code>onBeforeCompile</code>
+static-source classification, not yet a live pass/fail witness against a real WebGPU device.
+
+<h2>Findings: raw-GLSL-patch surface (client/core)</h2>
+
+17 files patch <code>THREE.ShaderChunk</code> globally, or hand-roll a <code>ShaderMaterial</code>/<code>onBeforeCompile</code>
 customization, and would need a TSL/WGSL equivalent (or an explicit &quot;no-op under WebGPU&quot; fallback)
-before <code>?webgpu=1</code> renders these effects correctly:</p><p>| File | Mechanism | What it does | Triage |
+before <code>?webgpu=1</code> renders these effects correctly:
+
+| File | Mechanism | What it does | Triage |
 |---|---|---|---|
 | <code>UnderwaterTint.js</code> | Global <code>ShaderChunk.fog_*</code> patch (string append) | Tints submerged fragments blue | <strong>Needs TSL rewrite.</strong> Global chunk patch has no WebGPU-material equivalent; the effect (camera-gated per-fragment world-Y tint) is a small, well-isolated TSL <code>Fn()</code> -- straightforward port, no architecture change needed. |
 | <code>WetnessTint.js</code> | Global <code>ShaderChunk.fog_*</code> + <code>lights_fragment_begin</code> patch | Rain/weather wetness darkening + specular boost | <strong>Needs TSL rewrite.</strong> Same shape as UnderwaterTint; touches <code>lights_fragment_begin</code> too (see CascadeShadowSelect note below about function-declaration-site ordering -- a TSL port sidesteps that whole class of hazard since TSL never does raw string splicing). |
@@ -3066,15 +3273,19 @@ before <code>?webgpu=1</code> renders these effects correctly:</p><p>| File | Me
 | <code>PlayerVAT.js</code> | <code>onBeforeCompile</code> (MeshLambertMaterial, vertex-displace from a VAT DataTexture) | Vertex-animation-texture player LOD tier | <strong>Needs TSL rewrite.</strong> Texel-fetch + position-displace in <code>onBeforeCompile</code> is exactly TSL's <code>positionLocal.assign(...)</code> node pattern -- one of the more mechanical ports on this list. |
 | <code>PlayerLOD.js</code> | <code>onBeforeCompile</code> (GPU skinning chunk) | Distance-tiered player LOD | <strong>Needs TSL rewrite</strong>, coupled to whatever skinning approach TSL's own <code>SkinningNode</code> expects -- verify against THREE's stock TSL skinning material before assuming a 1:1 port of the hand-rolled chunk. |
 | <code>Rocks.js</code> | <code>onBeforeCompile</code> | Rock material customization (referenced by grep; not read in full this pass) | <strong>Needs TSL rewrite</strong> -- not deep-audited this pass, flagged for the follow-up implementation row. |
-| <code>Vegetation.js</code> | <code>onBeforeCompile</code> (wind displacement, shared with tree trunk/branch) | Tree/vegetation wind animation | <strong>Needs TSL rewrite. HIGH RISK -- this is the exact subsystem the tree-flicker investigation (AGENTS.md <code>tree-flicker-root-cause-2026-07-11</code>) spent 5+ sessions root-causing.</strong> Any WebGPU port of this material must be validated against that investigation's proven metric (motion-big-change pixel-delta, never the banned center-stripe metric) before shipping -- a naive TSL re-implementation could silently reintroduce a fixed, hard-won bug. |
+| <code>Vegetation.js</code> | <code>onBeforeCompile</code> (wind displacement, shared with tree trunk/branch) | Tree/vegetation wind animation | <strong>Needs TSL rewrite, medium risk.</strong> This row previously cited an AGENTS.md slug <code>tree-flicker-root-cause-2026-07-11</code> as grounds for a HIGH RISK label; that slug does not exist in recall, <code>.gm/mutables.yml</code>, or git history (self-citation error, corrected 2026-09-22). The real, verified prior tree-flicker incident (<code>mem-a6f1d7bd7be3412c-3784</code>) was caused by insufficient <code>polygonOffsetFactor</code>/<code>polygonOffsetUnits</code> (z-fighting against terrain), fixed in <code>VegetationBuild.js</code>'s <code>buildSpecies</code> -- unrelated to wind-displacement vertex math. A TSL port of the wind shader does not touch polygon-offset settings and does not risk that regression; treat this the same as the other medium-risk full-vertex-math ports (<code>WetnessTint</code>, <code>SSR</code>, <code>PlayerVAT</code>, <code>PlayerLOD</code>). |
 | <code>SceneSetup.js</code> | <code>ShaderChunk</code> touch point (setup/coordination, not itself a custom material) | Scene bootstrap | Coordinator only -- no direct port needed, but is the file that will need the <code>?webgpu=1</code> branch's material-selection logic once real TSL materials exist. |
 | <code>ShadowPipeline.js</code> | Coordinates <code>sun.shadow.camera</code> (ortho), texel-snap math (pure JS/THREE.Vector3, no shader) | Shadow-map follow + texel-snap + cascade management | <strong>No shader code itself</strong> -- this file's own header (recapped in AGENTS.md) documents it as the single owner of shadow-camera JS-side math, which is renderer-agnostic (<code>THREE.DirectionalLight.shadow</code> is a real cross-backend THREE concept). The risk here is NOT this file's own code; it's whether <code>WebGPURenderer</code>'s shadow-map implementation honors <code>shadow.autoUpdate</code>/<code>shadow.needsUpdate</code> with the same per-light semantics <code>WebGLShadowMap.js</code> gives (this file's own comments cite exact <code>WebGLShadowMap.js</code> line numbers as the mechanism it depends on) -- <strong>needs a live capability check against <code>WebGPURenderer</code>'s shadow-map implementation</strong>, not a shader port. |
-| <code>RenderGraph.js</code> | No shader/GL code (confirmed via codesearch: zero <code>gl.*</code>/<code>getContext</code>/<code>ShaderChunk</code>/<code>onBeforeCompile</code> hits) | Frame orchestrator (per-node <code>renderer.render()</code> calls, timing, watchdogs) | <strong>No port needed for the orchestrator itself.</strong> <code>renderer.render(scene, camera)</code> is the one call every node makes and it's the same call signature on both backends. The real open question is whether <code>WebGPURenderer</code>'s command submission is genuinely synchronous-enough from the CALLER's perspective for this graph's per-node <code>duration_ms</code> timing/watchdog logic to stay meaningful (WebGPU's <code>render()</code> still submits synchronously from JS's point of view -- the GPU-side work is what's async -- so this is very likely fine, but not yet live-verified here). |</p><p><h2>Findings: <code>renderer.getContext()</code> / raw-GL direct callers</h2></p><p><ul><li><strong><code>TerrainBackdrop.js:30</code></strong> -- <code>const gl = renderer.getContext()</code>, passed straight into</li>
-</ul>  <code>createTerrainOcclusion(gl, ...)</code> (client) and into mapspinner's <code>initMapspinnerPlanet</code> (via the
+| <code>RenderGraph.js</code> | No shader/GL code (confirmed via codesearch: zero <code>gl.*</code>/<code>getContext</code>/<code>ShaderChunk</code>/<code>onBeforeCompile</code> hits) | Frame orchestrator (per-node <code>renderer.render()</code> calls, timing, watchdogs) | <strong>No port needed for the orchestrator itself.</strong> <code>renderer.render(scene, camera)</code> is the one call every node makes and it's the same call signature on both backends. The real open question is whether <code>WebGPURenderer</code>'s command submission is genuinely synchronous-enough from the CALLER's perspective for this graph's per-node <code>duration_ms</code> timing/watchdog logic to stay meaningful (WebGPU's <code>render()</code> still submits synchronously from JS's point of view -- the GPU-side work is what's async -- so this is very likely fine, but not yet live-verified here). |
+
+<h2>Findings: <code>renderer.getContext()</code> / raw-GL direct callers</h2>
+
+<ul><li><strong><code>TerrainBackdrop.js:30</code></strong> -- <code>const gl = renderer.getContext()</code>, passed straight into</li></ul>
+  <code>createTerrainOcclusion(gl, ...)</code> (client) and into mapspinner's <code>initMapspinnerPlanet</code> (via the
   dynamic <code>mapspinner/planet-orchestrator</code> import). This is the single load-bearing call site that
   makes the ENTIRE planet/terrain/water backdrop WebGL2-only today.
-<ul><li><strong><code>client/core/TerrainOcclusion.js</code></strong> -- writes raw <code>#version 300 es</code> GLSL source via</li>
-</ul>  <code>gl.createShader</code>/<code>gl.shaderSource</code>/<code>gl.compileShader</code> (occlusion box-query shader) directly
+<ul><li><strong><code>client/core/TerrainOcclusion.js</code></strong> -- writes raw <code>#version 300 es</code> GLSL source via</li></ul>
+  <code>gl.createShader</code>/<code>gl.shaderSource</code>/<code>gl.compileShader</code> (occlusion box-query shader) directly
   against the context <code>TerrainBackdrop.js</code> handed it. <strong>Correctly fail-open already</strong> (verified by
   reading the actual call chain, not just grepping for the guard's existence): line 19 computes
   <code>isWebGL2 = gl instanceof WebGL2RenderingContext</code> at construction, <code>supported()</code> exposes it, and
@@ -3085,23 +3296,27 @@ before <code>?webgpu=1</code> renders these effects correctly:</p><p>| File | Me
   <code>occlusion-query-tier.js</code> below, just implemented independently (host-side, no THREE dependency,
   per this file's own header comment). Initial read of this file mistakenly flagged it as an
   unguarded gap; corrected after tracing the actual call order.
-<ul><li><strong><code>packages/mapspinner/src/gl-render.js</code></strong> -- 389 raw <code>gl.*</code> call-site occurrences (draw, bind,</li>
-</ul>  create, compile, link, uniform, tex, framebuffer). This is the terrain/water/sky compositor;
+<ul><li><strong><code>packages/mapspinner/src/gl-render.js</code></strong> -- 389 raw <code>gl.*</code> call-site occurrences (draw, bind,</li></ul>
+  create, compile, link, uniform, tex, framebuffer). This is the terrain/water/sky compositor;
   it is a from-scratch raw-WebGL2 renderer, not a THREE material at all. **Porting this to WebGPU
   is not a shader-node-graph swap -- it is a full second rendering backend for mapspinner**, out of
   scope for anything smaller than its own dedicated epic.
-<ul><li><strong><code>packages/mapspinner/src/planet-orchestrator.js</code></strong> -- 12 more raw <code>gl.*</code> calls, the frame</li>
-</ul>  driver that calls into <code>gl-render.js</code>.
-<ul><li><strong><code>packages/mapspinner/src/patch-baker.js</code> / <code>index.js</code></strong> -- also flagged by the same grep</li>
-</ul>  pattern; not deep-read this pass (heightfield/patch generation, likely CPU-side or one-time GPU
-  bake rather than per-frame, but unverified -- follow-up row should confirm before assuming safe).</p><p><h2>Findings: <code>packages/streaming-gltf</code> (cluster-LOD / impostor pipeline)</h2></p><p><ul><li><strong><code>cluster-lod-mesh.js</code></strong> -- <strong>already renderer-agnostic, no port needed.</strong> Per this package's</li>
-</ul>  own <code>AGENTS.md</code> (<code>cluster-onbeforerender-custom-draw-bind-timing</code>), it deliberately does NOT do
+<ul><li><strong><code>packages/mapspinner/src/planet-orchestrator.js</code></strong> -- 12 more raw <code>gl.*</code> calls, the frame</li></ul>
+  driver that calls into <code>gl-render.js</code>.
+<ul><li><strong><code>packages/mapspinner/src/patch-baker.js</code> / <code>index.js</code></strong> -- also flagged by the same grep</li></ul>
+  pattern; not deep-read this pass (heightfield/patch generation, likely CPU-side or one-time GPU
+  bake rather than per-frame, but unverified -- follow-up row should confirm before assuming safe).
+
+<h2>Findings: <code>packages/streaming-gltf</code> (cluster-LOD / impostor pipeline)</h2>
+
+<ul><li><strong><code>cluster-lod-mesh.js</code></strong> -- <strong>already renderer-agnostic, no port needed.</strong> Per this package's</li></ul>
+  own <code>AGENTS.md</code> (<code>cluster-onbeforerender-custom-draw-bind-timing</code>), it deliberately does NOT do
   a raw multi-draw call; it sets <code>geometry.groups</code> and lets THREE's <em>normal</em> pipeline issue the
   <code>drawElements</code> calls per group. That pipeline is the same code path under both backends -- this
   is real, already-shipped precedent that a THREE-idiomatic (not raw-GL) implementation survives a
   backend swap for free.
-<ul><li><strong><code>occlusion-query-tier.js</code></strong> -- WebGL2-only (<code>gl.createQuery</code>/<code>beginQuery</code>/<code>endQuery</code> with</li>
-</ul>  <code>ANY_SAMPLES_PASSED_CONSERVATIVE</code>, this file's own header says so explicitly: &quot;no compute
+<ul><li><strong><code>occlusion-query-tier.js</code></strong> -- WebGL2-only (<code>gl.createQuery</code>/<code>beginQuery</code>/<code>endQuery</code> with</li></ul>
+  <code>ANY_SAMPLES_PASSED_CONSERVATIVE</code>, this file's own header says so explicitly: &quot;no compute
   shaders&quot;). <strong>Confirmed correctly fail-open</strong> by tracing the real call chain, not just the guard's
   existence: constructor sets <code>this.isWebGL2 = typeof WebGL2RenderingContext !== 'undefined' &amp;&amp;
   this.gl instanceof WebGL2RenderingContext</code> from <code>this.gl = renderer.getContext()</code>, and
@@ -3112,49 +3327,59 @@ before <code>?webgpu=1</code> renders these effects correctly:</p><p>| File | Me
   &quot;check the flag first, inside the one function that owns every GL call&quot; rather than scattering
   the check per call site, which is why tracing the single entry point was sufficient to confirm
   full coverage without needing a live device for this specific claim.
-<ul><li><strong><code>webgpu-hiz-tier.js</code></strong> -- <strong>already a real, shipped, WebGPU-native (raw WGSL) implementation.</strong></li>
-</ul>  This is direct, valuable precedent for the audit's own question (&quot;TSL-portable vs needs a
+<ul><li><strong><code>webgpu-hiz-tier.js</code></strong> -- <strong>already a real, shipped, WebGPU-native (raw WGSL) implementation.</strong></li></ul>
+  This is direct, valuable precedent for the audit's own question (&quot;TSL-portable vs needs a
   from-scratch WGSL rewrite&quot;): its own header explains why it chose raw WGSL over TSL --
   <code>renderer.backend.device.createShaderModule</code>/<code>createComputePipeline</code> for a compute pass with no
   per-material variance, where &quot;TSL's node-graph machinery buys nothing ... and would obscure the
   exact buffer-layout contract.&quot; <code>supported()</code> returns <code>false</code> (safe no-op) on any renderer that
-  isn't a real initialized <code>WebGPURenderer</code>, mirrored by <code>hzb-tier.js</code>'s WebGL2 fail-open contract
-  -- this pairing (<code>hzb-tier.js</code> for WebGL2, <code>webgpu-hiz-tier.js</code> for WebGPU, same algorithm, two
-  backend-native implementations, not one shared abstraction) is a <strong>precedent worth reusing</strong>: not
-  every effect needs a single TSL-portable implementation: compute-shape, per-material-invariant
-  passes (culling, HZB reduction) are a legitimate case for a backend-forked raw implementation
-  instead of a TSL node graph.
-<ul><li><strong><code>octahedral-impostor-ez.js</code></strong> -- <code>new ShaderMaterial({..., glslVersion: GLSL3, ...})</code> (impostor</li>
-</ul>  atlas bake) + a SEPARATE <code>onBeforeCompile</code> patch (2nd hit, line ~750) applied to *externally
+  isn't a real initialized <code>WebGPURenderer</code>. Its WebGL2 twin <code>hzb-tier.js</code> had no importer and was
+  deleted (2026-09-29, TSL step 0). Project direction since then is TSL-only shaders: TSL compiles
+  to WGSL for the WebGPU backend and GLSL for the WebGL2 backend, so this raw-WGSL pass is a port
+  target (TSL compute), not a backend-fork precedent.
+<ul><li><strong><code>octahedral-impostor-ez.js</code></strong> -- <code>new ShaderMaterial({..., glslVersion: GLSL3, ...})</code> (impostor</li></ul>
+  atlas bake) + a SEPARATE <code>onBeforeCompile</code> patch (2nd hit, line ~750) applied to *externally
   supplied<em> materials (the wrapped model's own material, not one this file owns) -- </em>*needs TSL
   rewrite for the atlas-bake material**, and the <code>onBeforeCompile</code>-wraps-an-arbitrary-material
   pattern needs a design decision (does TSL support wrapping an arbitrary caller material the same
   way, or does this need restructuring around TSL's own node-composition model?) -- flagged as
   needing real design work, not a mechanical find-replace, in the follow-up implementation row.
-<ul><li><strong><code>material-pool.js</code> / <code>model-pool.js</code> / <code>batched-far-tier.js</code> / <code>texture-array-atlas.js</code></strong> --</li>
-</ul>  flagged by the same grep pattern (<code>onBeforeCompile</code>/<code>ShaderMaterial</code> hits); not deep-read this
-  pass, follow-up row should audit each.</p><p><h2>What this audit did NOT do (explicitly out of scope for this slice)</h2></p><p><ul><li><strong>No live <code>?webgpu=1</code> browser witness.</strong> Every verdict above is a static-source read. A real</li>
-</ul>  next step is booting the flag against a real WebGPU device and confirming each fail-open guard
+<ul><li><strong><code>material-pool.js</code> / <code>model-pool.js</code> / <code>batched-far-tier.js</code> / <code>texture-array-atlas.js</code></strong> --</li></ul>
+  flagged by the same grep pattern (<code>onBeforeCompile</code>/<code>ShaderMaterial</code> hits); not deep-read this
+  pass, follow-up row should audit each.
+
+<h2>What this audit did NOT do (explicitly out of scope for this slice)</h2>
+
+<ul><li><strong>No live <code>?webgpu=1</code> browser witness.</strong> Every verdict above is a static-source read. A real</li></ul>
+  next step is booting the flag against a real WebGPU device and confirming each fail-open guard
   (or lack of one) behaves as predicted -- particularly <code>TerrainOcclusion.js</code>'s missing guard
   (predicted throw) and <code>occlusion-query-tier.js</code>'s <code>isWebGL2</code> flag (predicted correct false, but
   downstream enforcement unverified).
-<ul><li><strong>No actual TSL/WGSL porting.</strong> This is a triage document, exactly as the PRD row's own detail</li>
-</ul>  text asked for (&quot;audit-only pass first ... before any actual porting starts&quot;).
-<ul><li><strong><code>patch-baker.js</code>/<code>index.js</code>/mapspinner's other <code>gl.*</code> hits</strong> were flagged by grep but not</li>
-</ul>  individually read line-by-line -- the verdict &quot;probably fine if one-time/CPU-side&quot; is a guess,
+<ul><li><strong>No actual TSL/WGSL porting.</strong> This is a triage document, exactly as the PRD row's own detail</li></ul>
+  text asked for (&quot;audit-only pass first ... before any actual porting starts&quot;).
+<ul><li><strong><code>patch-baker.js</code>/<code>index.js</code>/mapspinner's other <code>gl.*</code> hits</strong> were flagged by grep but not</li></ul>
+  individually read line-by-line -- the verdict &quot;probably fine if one-time/CPU-side&quot; is a guess,
   not a finding, and should not be treated as cleared.
-<ul><li><strong><code>material-pool.js</code>/<code>model-pool.js</code>/<code>batched-far-tier.js</code>/<code>texture-array-atlas.js</code></strong> in</li>
-</ul>  streaming-gltf were flagged but not individually read.</p><p><h2>Recommended per-shader disposition (summary table)</h2></p><p>| Disposition | Files |
+<ul><li><strong><code>material-pool.js</code>/<code>model-pool.js</code>/<code>batched-far-tier.js</code>/<code>texture-array-atlas.js</code></strong> in</li></ul>
+  streaming-gltf were flagged but not individually read.
+
+<h2>Recommended per-shader disposition (summary table)</h2>
+
+| Disposition | Files |
 |---|---|
 | <strong>TSL-portable, low risk</strong> (full-screen post-process, no per-instance complexity) | SSAO, Bloom, FSR1, UnderwaterTint |
-| <strong>TSL-portable, medium risk</strong> (per-fragment math correctness matters, or touches a historically fragile subsystem) | WetnessTint, SSR, PlayerVAT, PlayerLOD |
-| <strong>TSL-portable, HIGH risk (regression-prone, needs the tree-flicker proven metric before shipping)</strong> | Vegetation.js wind shader, CascadeShadowSelect.js |
+| <strong>TSL-portable, medium risk</strong> (per-fragment math correctness matters, or touches a historically fragile subsystem) | WetnessTint, SSR, PlayerVAT, PlayerLOD, Vegetation.js wind shader (reclassified from HIGH risk 2026-09-22 -- see corrected row above) |
+| <strong>TSL-portable, HIGH risk</strong> (file's own header documents real prior GLSL-string-surgery bugs it already hit and fixed) | CascadeShadowSelect.js |
 | <strong>Renderer-agnostic already, no port needed</strong> | RenderGraph.js, ShadowPipeline.js (JS-side math only), cluster-lod-mesh.js |
 | <strong>Correctly WebGL2-only with a verified, load-bearing fail-open guard</strong> (checked BEFORE any raw-GL call) | TerrainOcclusion.js |
 | <strong>Correctly WebGL2-only with an existing but not fully call-chain-verified fail-open guard</strong> | occlusion-query-tier.js (flag computed correctly; downstream per-call-site enforcement not traced this pass) |
-| <strong>Legitimate raw-backend-native precedent (not everything needs TSL)</strong> | webgpu-hiz-tier.js (WGSL) paired with hzb-tier.js (WebGL2) |
+| <strong>Raw WGSL, port to TSL compute</strong> (WebGL2 twin hzb-tier.js deleted as unimported) | webgpu-hiz-tier.js |
 | <strong>Full second-backend-implementation scope, not a shader port</strong> | packages/mapspinner/src/gl-render.js + planet-orchestrator.js (401 combined raw-GL call sites) -- this is the load-bearing blocker for the ENTIRE terrain/water/sky backdrop rendering anything at all under <code>?webgpu=1</code>; TerrainBackdrop.js:30's <code>renderer.getContext()</code> call is the exact chokepoint. |
-| <strong><code>WebGLRenderTarget</code> -&gt; <code>RenderTarget</code> mechanical swap</strong> (once the paired material is ported) | SSAO, ThreeVdrs, VegImpostorTier, Vegetation, Bloom, FSR1, SSR |</p><p><h2>Bottom line</h2></p><p><code>?webgpu=1</code> cannot render the planet/terrain/water backdrop at all today -- not a shader-quality
+| <strong><code>WebGLRenderTarget</code> -&gt; <code>RenderTarget</code> mechanical swap</strong> (once the paired material is ported) | SSAO, ThreeVdrs, VegImpostorTier, Vegetation, Bloom, FSR1, SSR |
+
+<h2>Bottom line</h2>
+
+<code>?webgpu=1</code> cannot render the planet/terrain/water backdrop at all today -- not a shader-quality
 issue but a hard architectural one: <code>TerrainBackdrop.js</code>'s single <code>renderer.getContext()</code> call
 feeds a 400+-call-site raw-WebGL2 renderer (<code>packages/mapspinner</code>) that has no WebGPU counterpart
 and would need its own from-scratch WGSL/compute port, an effort on the scale of <code>gl-render.js</code>
@@ -3166,7 +3391,9 @@ were traced end to end and confirmed already correctly fail-open under a non-Web
 no correctness gap found there, better news than this audit initially (mis-)read on a first pass
 of <code>TerrainOcclusion.js</code>. The real, unresolved gap is architectural, not a missing guard:
 <code>TerrainBackdrop.js</code>'s <code>renderer.getContext()</code> call feeds mapspinner's from-scratch raw-WebGL2
-renderer, which has no WebGPU counterpart at all and would need its own dedicated port effort.</p><p>See <code>.gm/prd.yml</code> for the decomposed follow-up rows this audit filed.
+renderer, which has no WebGPU counterpart at all and would need its own dedicated port effort.
+
+See <code>.gm/prd.yml</code> for the decomposed follow-up rows this audit filed.
 </p></section>
 <section id="section-20"><h2>wireweave — README</h2><p><h1>wireweave</h1></p><p>&gt; probably emerging 🌀</p><p>serverless nostr + webrtc voice + binary-data SDK. the networking layer for 247420 projects.</p><p><ul><li><strong>voice</strong> — perfect-negotiation mesh + SFU election (audio, video, recorded segments).</li>
 <li><strong>data</strong> — peer-to-peer binary <code>RTCDataChannel</code> over the same nostr signaling. game frames, structured payloads, anything <code>Uint8Array</code>-shaped.</li>
@@ -3251,7 +3478,14 @@ import { RelayPool, NostrAuth } from 'wireweave';
 import * as NostrTools from 'nostr-tools';</p><p>const pool = new RelayPool({ relays: ['wss://relay.damus.io'], verifyEvent: NostrTools.verifyEvent, WebSocketImpl: WebSocket });
 const auth = new NostrAuth({ nostrTools: NostrTools });</code></pre></p><p><h2>test</h2></p><p><pre><code class="language-">npm test</code></pre></p><p>hits <code>wss://relay.damus.io</code> for a real publish → subscribe round-trip.</p><p><h2>license</h2></p><p>MIT © AnEntrypoint — read the source.
 </p></section>
-<section id="section-21"><h2>mapspinner — AGENTS.md</h2><p><h1>mapspinner — agent working rules</h1></p><p><h2>SDK Validation Policy</h2></p><p>SDK changes must be validated against the test suite and verified in both the dev demo (planet.html) and external consumer examples. No changes ship without passing tests.</p><p><h2>WebGPU: history + a scoped, unimplemented experiment (2026-07-03)</h2></p><p>mapspinner already tried a WebGPU compute-texture terrain pipeline once
+<section id="section-21"><h2>mapspinner — AGENTS.md</h2><p><h1>mapspinner — agent working rules</h1></p><p><h2>Generated file: src/height-gen.js</h2></p><p><code>src/height-gen.js</code> is generated by <code>scripts/gen-height.mjs</code> from <code>src/shaders/terrain.glsl</code> --
+never hand-edit it, re-run <code>node scripts/gen-height.mjs</code> after editing the terrain HEIGHT functions.
+The GLSL is the single source of truth. <code>g</code> in the generated file is the GLSL runtime shim
+(<code>glsl-rt.js</code>); <code>U</code> is uniform values; <code>hpfSample</code> is supplied by the caller (the pure-JS
+anchor-field) via the U/ctx closure. GPU-texture-only calls reachable from a transpiled height fn
+(<code>sculptOverrideAt</code> etc, see <code>STUB_FNS</code> in <code>gen-height.mjs</code>) are emitted as fixed-value stubs, not
+transpiled. The generator emits no comment header into the generated file (comment ban); this
+section is the durable record of that rationale.</p><p><h2>SDK Validation Policy</h2></p><p>SDK changes must be validated against the test suite and verified in both the dev demo (planet.html) and external consumer examples. No changes ship without passing tests.</p><p><h2>WebGPU: history + a scoped, unimplemented experiment (2026-07-03)</h2></p><p>mapspinner already tried a WebGPU compute-texture terrain pipeline once
 (<code>terrain-phase1/2/3.js</code> + <code>normal_producer.wgsl</code>, CHANGELOG 2026-05-23) and
 REMOVED it -- the current &quot;GPU one-fractal&quot; architecture (procedural
 <code>composeHeight</code> per-vertex, no tile producer, no atlas) won. The THC height
@@ -3340,12 +3574,30 @@ probes, and <code>window.__diag.reloadShaders()</code> hot-reload through <code>
 2. MESH per patch is a GRID+2 grid (<code>src/gl-render.js</code>) whose outer ring is a SKIRT (terrain.glsl
    drops <code>vertex.z&gt;0.5</code> verts radially below the surface) hiding LOD T-junction cracks. The outer
    ring is LOAD-BEARING — do not &quot;just not draw it&quot;.
-3. HEIGHT assembled per-vertex in the VS (<code>src/shaders/terrain.glsl</code>): <code>h = cbias + bShape +
-   vDisp(land) + lake/river/canyon carves</code>. <code>bShape = fractalTerrainH(worldDir,reliefMul,ridgeMul)</code> =
-   THE shape (one continuous 14-oct world-dir fBm, LOD-invariant by construction). <code>cbias</code> = anchor
-   continental swell (<code>src/anchor-field.js</code>); <code>vDisp</code> = LOD-invariant micro-relief; carves via
-   <code>inciseRidgeField</code>. Collision = a GPU <code>_PROBE_</code> variant of the SAME shader (1px readback,
-   <code>gl-render.sampleGroundM</code>), no CPU mirror. — full design: recall &quot;TV8 GPU-TERRAIN ARCHITECTURE
+3. HEIGHT assembled per-vertex in the VS (<code>src/shaders/terrain.glsl</code> <code>composeHeight</code>): current real
+   formula is <code>h = (fractalTerrainH(dir0)<em>750000 + continentalBias(dir0)</em>CONTINENTAL_BIAS_AMP +
+   uLandBias)</code> -&gt; underwater-clamp/beach-shelf -&gt; <code>*uReliefScale</code> -&gt; <code>+sculptOverrideAt</code>.
+   <code>fractalTerrainH</code> = THE shape (one continuous 12-oct world-dir fBm, LOD-invariant by
+   construction). <code>continentalBias(dir) = hpfSample(dir).r</code> reads the seeded anchor field's
+   <code>seaBias</code> channel (<code>src/anchor-field.js</code>/<code>anchor-field-bands.js</code>) -- until 2026-09-15 this was
+   COMPUTED but never summed into <code>h</code>, so two different seeds on the same world produced identical
+   landform shape and differed only in <code>vClimate</code> (biome colour) and veg/rock/grass scatter; any
+   earlier text in this file claiming <code>h = cbias + bShape + ...</code> was aspirational doc-drift, not
+   real code. Fixed 2026-09-15 (<code>project/terrain-continentalbias-added-to-height</code>):
+   <code>CONTINENTAL_BIAS_AMP = 50.0</code>, derived from measured stats at the tps-game reference config
+   (radius 63600, reliefScale 0.001) -- <code>continentalBias</code> raw sd ~1008m, existing <code>heightAt</code> sd
+   ~128m -- so <code>AMP = TARGET_RATIO(0.4) <em> 128 / (0.001 </em> 1008) ~= 51</code>, rounded to 50, giving
+   continentalBias a measured ~39% relative-sd contribution (a real but secondary shaping term, not
+   dominant, not degenerate: post-fix land-only height sd only rose 53m-&gt;55m since stddevs add in
+   quadrature). <code>continentalBias</code> must live in the shader's shared (non-<code>_VERTEX_</code>-gated) preamble
+   next to <code>hpfSample</code>, not inside the <code>#ifdef _VERTEX_</code> block, or the <code>_PROBE_</code>/<code>_HEIGHTBAKE_</code>
+   compiles (which also call <code>composeHeight</code>) fail to link. There is currently no separate
+   <code>vDisp</code>/carve term in <code>composeHeight</code> -- the &quot;Reduced octaves&quot; note above already documents the
+   simplified single-fractal architecture; do not reintroduce that claim without adding the code.
+   Collision = a GPU <code>_PROBE_</code>/<code>_HEIGHTBAKE_</code> variant of the SAME <code>composeHeight</code>, or (Node/server,
+   no OffscreenCanvas) the pre-baked <code>.hf</code> sampled from that exact live shader -- no independent CPU
+   reimplementation; <code>height-gen.js</code>/<code>height-cpu.js</code> are transpiled from this same GLSL by
+   <code>scripts/gen-height.mjs</code>, never hand-edited. — full design: recall &quot;TV8 GPU-TERRAIN ARCHITECTURE
    DECISION&quot; in rs-learn.
 4. DEFORM: direct per-vertex sphere projection — <code>vWorld = dir0 * (R + h)</code>
    corner-blend deform; round at any tessellation, no flat patches at high GRID).
@@ -3670,7 +3922,7 @@ entries that have no image. At runtime, a <code>ModelPool</code> constructed wit
 <li><code>src/</code> — runtime: <code>model-pool.js</code> (<code>ModelPool</code>), <code>cluster-lod-mesh.js</code>,</li>
 </ul>  <code>meshlet-codec.js</code>, <code>degenerate-triangles.js</code>, <code>cluster-material-merge.js</code>,
   <code>texture-array-atlas.js</code>, <code>material-bucket-batcher.js</code>, <code>batched-far-tier.js</code>,
-  <code>occlusion-query-tier.js</code>, <code>hzb-tier.js</code>, <code>webgpu-hiz-tier.js</code>,
+  <code>occlusion-query-tier.js</code>, <code>webgpu-hiz-tier.js</code>,
   <code>octahedral-impostor-ez*.js</code>, the LOD worker (<code>lod-worker.js</code>,
   <code>worker-module-remap.js</code>, <code>grid-decimate.js</code>), <code>draco-loader.js</code>, <code>basis/</code>, and
   loading/budget helpers (<code>deferred-load-queue.js</code>, <code>lod-unload-manager.js</code>,

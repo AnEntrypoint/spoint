@@ -110,12 +110,10 @@ before `?webgpu=1` renders these effects correctly:
   `renderer.backend.device.createShaderModule`/`createComputePipeline` for a compute pass with no
   per-material variance, where "TSL's node-graph machinery buys nothing ... and would obscure the
   exact buffer-layout contract." `supported()` returns `false` (safe no-op) on any renderer that
-  isn't a real initialized `WebGPURenderer`, mirrored by `hzb-tier.js`'s WebGL2 fail-open contract
-  -- this pairing (`hzb-tier.js` for WebGL2, `webgpu-hiz-tier.js` for WebGPU, same algorithm, two
-  backend-native implementations, not one shared abstraction) is a **precedent worth reusing**: not
-  every effect needs a single TSL-portable implementation: compute-shape, per-material-invariant
-  passes (culling, HZB reduction) are a legitimate case for a backend-forked raw implementation
-  instead of a TSL node graph.
+  isn't a real initialized `WebGPURenderer`. Its WebGL2 twin `hzb-tier.js` had no importer and was
+  deleted (2026-09-29, TSL step 0). Project direction since then is TSL-only shaders: TSL compiles
+  to WGSL for the WebGPU backend and GLSL for the WebGL2 backend, so this raw-WGSL pass is a port
+  target (TSL compute), not a backend-fork precedent.
 - **`octahedral-impostor-ez.js`** -- `new ShaderMaterial({..., glslVersion: GLSL3, ...})` (impostor
   atlas bake) + a SEPARATE `onBeforeCompile` patch (2nd hit, line ~750) applied to *externally
   supplied* materials (the wrapped model's own material, not one this file owns) -- **needs TSL
@@ -152,7 +150,7 @@ before `?webgpu=1` renders these effects correctly:
 | **Renderer-agnostic already, no port needed** | RenderGraph.js, ShadowPipeline.js (JS-side math only), cluster-lod-mesh.js |
 | **Correctly WebGL2-only with a verified, load-bearing fail-open guard** (checked BEFORE any raw-GL call) | TerrainOcclusion.js |
 | **Correctly WebGL2-only with an existing but not fully call-chain-verified fail-open guard** | occlusion-query-tier.js (flag computed correctly; downstream per-call-site enforcement not traced this pass) |
-| **Legitimate raw-backend-native precedent (not everything needs TSL)** | webgpu-hiz-tier.js (WGSL) paired with hzb-tier.js (WebGL2) |
+| **Raw WGSL, port to TSL compute** (WebGL2 twin hzb-tier.js deleted as unimported) | webgpu-hiz-tier.js |
 | **Full second-backend-implementation scope, not a shader port** | packages/mapspinner/src/gl-render.js + planet-orchestrator.js (401 combined raw-GL call sites) -- this is the load-bearing blocker for the ENTIRE terrain/water/sky backdrop rendering anything at all under `?webgpu=1`; TerrainBackdrop.js:30's `renderer.getContext()` call is the exact chokepoint. |
 | **`WebGLRenderTarget` -> `RenderTarget` mechanical swap** (once the paired material is ported) | SSAO, ThreeVdrs, VegImpostorTier, Vegetation, Bloom, FSR1, SSR |
 

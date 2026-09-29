@@ -172,20 +172,43 @@ export function createRenderer(isMobile) {
   return renderer
 }
 
-export async function probeAndCreateWebGPURenderer(isMobile) {
-  const { probeWebGPU } = await import('./WebGPUCullingProbe.js')
-  const probe = await probeWebGPU()
-  if (!probe.supported) {
-    const e = new Error('WebGPU is not available: ' + (probe.detail && probe.detail.error || 'unknown'))
-    e.code = 'NO_WEBGPU'
-    e.detail = probe.detail
-    throw e
+export async function probeAndCreateWebGPURenderer(isMobile, forceWebGL = false) {
+  if (forceWebGL) {
+    if (!probeWebGL2()) { const e = new Error('WebGL2 is not available'); e.code = 'NO_WEBGL2'; throw e }
+  } else {
+    const { probeWebGPU } = await import('./WebGPUCullingProbe.js')
+    const probe = await probeWebGPU()
+    if (!probe.supported) {
+      const e = new Error('WebGPU is not available: ' + (probe.detail && probe.detail.error || 'unknown'))
+      e.code = 'NO_WEBGPU'
+      e.detail = probe.detail
+      throw e
+    }
   }
   const { WebGPURenderer } = await import('three/webgpu')
-  const renderer = new WebGPURenderer({ antialias: !isMobile, powerPreference: 'high-performance' })
+  const renderer = new WebGPURenderer({ antialias: !isMobile, powerPreference: 'high-performance', forceWebGL })
   await renderer.init()
   _applyCommonRendererSetup(renderer, isMobile)
   return renderer
+}
+
+function _unmaskedGlRenderer(gl) {
+  if (!gl) return null
+  const ext = gl.getExtension('WEBGL_debug_renderer_info')
+  return gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER)
+}
+
+function _webgpuAdapterLabel(device) {
+  const info = device && device.adapterInfo
+  if (!info) return null
+  return [info.vendor, info.architecture, info.description].filter(Boolean).join(' ') || null
+}
+
+export function describeRenderer(renderer) {
+  if (!renderer.isWebGPURenderer) return { class: 'WebGLRenderer', backend: 'webgl2-legacy', glRenderer: _unmaskedGlRenderer(renderer.getContext()) }
+  const backend = renderer.backend
+  if (backend.isWebGLBackend) return { class: 'WebGPURenderer', backend: 'webgl2', glRenderer: _unmaskedGlRenderer(backend.gl) }
+  return { class: 'WebGPURenderer', backend: 'webgpu', glRenderer: _webgpuAdapterLabel(backend.device) }
 }
 
 const STUCK_PIPELINE_ERROR_THRESHOLD = 3

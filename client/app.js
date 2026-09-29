@@ -32,7 +32,7 @@ import { createEditHistory } from './editor/EditHistory.js'
 import { createLivePreview } from './editor/LivePreview.js'
 import { createPersistentHistory } from './editor/PersistentHistory.js'
 import { createEditorPresence } from './editor/EditorPresence.js'
-import { createScene, createRenderer, probeAndCreateWebGPURenderer, installStuckPipelineRecovery, setupLights, createLoaders, applySceneConfig, warmupShaders, limitTextureSize, setSeaLevelY, probeOffscreenCanvasWorkerRendering } from './core/SceneSetup.js'
+import { createScene, createRenderer, probeAndCreateWebGPURenderer, describeRenderer, installStuckPipelineRecovery, setupLights, createLoaders, applySceneConfig, warmupShaders, limitTextureSize, setSeaLevelY, probeOffscreenCanvasWorkerRendering } from './core/SceneSetup.js'
 import { createWorkerRenderer } from './core/WorkerRenderer.js'
 import { createPlayerManager } from './PlayerManager.js'
 import { createEntityLoader } from './EntityLoader.js'
@@ -167,13 +167,13 @@ if (typeof window !== 'undefined') {
 }
 
 const _webgpuOptIn = typeof location !== 'undefined' && /[?&]webgpu=1\b/.test(location.search)
+const _forceWebGLBackend = _webgpuOptIn && /[?&]forcewebgl=1\b/.test(location.search)
 try {
   if (_webgpuOptIn) {
     try {
-      renderer = await probeAndCreateWebGPURenderer(isMobileDevice)
-      console.warn('[renderer] ?webgpu=1 -> using THREE.WebGPURenderer (experimental, shader-compatibility audit not yet done -- see AGENTS.md webgpurenderer-primary-renderer-switch-staged-rollout)')
+      renderer = await probeAndCreateWebGPURenderer(isMobileDevice, _forceWebGLBackend)
     } catch (webgpuErr) {
-      console.warn('[renderer] ?webgpu=1 requested but WebGPU init failed, falling back to WebGL2:', webgpuErr && (webgpuErr.message || webgpuErr))
+      console.warn(`[renderer] ?webgpu=1${_forceWebGLBackend ? '&forcewebgl=1' : ''} requested but WebGPURenderer init failed, falling back to legacy WebGLRenderer:`, webgpuErr && (webgpuErr.message || webgpuErr))
       renderer = createRenderer(isMobileDevice)
     }
     if (renderer && renderer.isWebGPURenderer) {
@@ -210,6 +210,9 @@ try {
   } else {
     renderer = createRenderer(isMobileDevice)
   }
+  const rendererInfo = describeRenderer(renderer)
+  if (typeof window !== 'undefined') window.__rendererInfo = rendererInfo
+  console.info(`[renderer] ${rendererInfo.class} backend=${rendererInfo.backend} gpu=${rendererInfo.glRenderer}`)
 } catch (err) {
   _showBootFailureOverlay('WebGL2 is required', 'This 3D world needs a browser with WebGL2 support. Please update your browser, enable hardware acceleration, or try a different device.\n\n' + ((err && (err.stack || err.message)) || String(err)))
   throw err

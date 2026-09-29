@@ -121,7 +121,7 @@ entries that have no image. At runtime, a `ModelPool` constructed with a
 - `src/` — runtime: `model-pool.js` (`ModelPool`), `cluster-lod-mesh.js`,
   `meshlet-codec.js`, `degenerate-triangles.js`, `cluster-material-merge.js`,
   `texture-array-atlas.js`, `material-bucket-batcher.js`, `batched-far-tier.js`,
-  `occlusion-query-tier.js`, `hzb-tier.js`, `webgpu-hiz-tier.js`,
+  `occlusion-query-tier.js`, `webgpu-hiz-tier.js`,
   `octahedral-impostor-ez*.js`, the LOD worker (`lod-worker.js`,
   `worker-module-remap.js`, `grid-decimate.js`), `draco-loader.js`, `basis/`, and
   loading/budget helpers (`deferred-load-queue.js`, `lod-unload-manager.js`,
