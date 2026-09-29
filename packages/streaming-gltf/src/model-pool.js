@@ -847,6 +847,7 @@ class Entity extends Emitter {
     if (this.clusterMeshes && this.clusterMeshes.length) {
       if (this.root.matrixAutoUpdate) this.root.updateMatrixWorld();
       if (this.animationMixer) this.animationMixer.update(dt);
+      for (const clm of this.clusterMeshes) if (clm.visible) clm.prepare(camera, viewportHeight, this.pool._lastTick);
       if (this.pool._useImpostorFinalLod || this.pool._useMaterialBucketBatching) {
         const clm = this.clusterMeshes[0];
         const sphere = clm.geometry?.boundingSphere;

@@ -9,7 +9,8 @@ const _projScreen = new THREE.Matrix4();
 const _v = new THREE.Vector3();
 const _size = new THREE.Vector2();
 
-let _camCache = { renderer: null, camera: null, frame: -1, sh: 1080, tanHalf: 1 };
+let _camCache = { camera: null, frame: -1, sh: 1080, tanHalf: 1 };
+const COMPACT_INDEX_CAPACITY_LIMIT = 4194304;
 
 const DEFAULT_LOD_THRESHOLDS = [120, 40];
 const MIN_CAMERA_DIST_SQ = 1e-6;
@@ -50,6 +51,21 @@ export class ClusterLodMesh extends THREE.Mesh {
     this.onBeforeRender = this._render.bind(this);
     this.frustumCulled = false;
 
+    this._compact = false;
+    const srcIndex = geometry.index ? geometry.index.array : null;
+    const capacity = srcIndex ? _drawCapacity(clusterSet, this.lod0Count) : 0;
+    if (srcIndex && capacity <= COMPACT_INDEX_CAPACITY_LIMIT) {
+      this._srcIndex = srcIndex;
+      const drawIndex = new THREE.BufferAttribute(new srcIndex.constructor(capacity), 1);
+      drawIndex.setUsage(THREE.DynamicDrawUsage);
+      drawIndex.array.set(srcIndex.subarray(0, this.lod0Count), 0);
+      this._drawIndex = drawIndex;
+      this._drawGroup = { start: 0, count: this.lod0Count, materialIndex: 0 };
+      geometry.setIndex(drawIndex);
+      geometry.groups = [this._drawGroup];
+      this._compact = true;
+      return;
+    }
     const firstFrameSeedGroup = { start: 0, count: this.lod0Count, materialIndex: 0 };
     geometry.groups = [firstFrameSeedGroup];
   }
@@ -74,28 +90,21 @@ export class ClusterLodMesh extends THREE.Mesh {
     return lod;
   }
 
-  _render(renderer, scene, camera, geometry) {
-    const index = geometry.index;
-    if (!index || !this.clusterSet) return;
-
-    const frame = renderer.info.render.frame;
-
-    const alreadyRenderedThisFrame = this._lastRenderFrame === frame;
-    if (alreadyRenderedThisFrame) return;
-    this._lastRenderFrame = frame;
-    if (_camCache.renderer !== renderer || _camCache.camera !== camera || _camCache.frame !== frame) {
+  _cameraState(camera, sh, key) {
+    if (_camCache.camera !== camera || _camCache.frame !== key || _camCache.sh !== sh) {
       _projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       _frustum.setFromProjectionMatrix(_projScreen);
       _v.setFromMatrixPosition(camera.matrixWorld);
-      let sh = this._screenHeight;
-      const sz = renderer.getDrawingBufferSize(_size);
-      if (sz.y > 0) sh = sz.y;
       const tanHalf = camera.isPerspectiveCamera ? Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5) : 1;
-      _camCache.renderer = renderer; _camCache.camera = camera; _camCache.frame = frame;
-      _camCache.camPos = _v.clone(); _camCache.sh = sh; _camCache.tanHalf = tanHalf;
+      _camCache.camera = camera; _camCache.frame = key; _camCache.sh = sh;
+      _camCache.camPos = _v.clone(); _camCache.tanHalf = tanHalf;
       _camCache.tanHalfSq = tanHalf * tanHalf;
     }
-    const camPos = _camCache.camPos, sh = _camCache.sh, tanHalfSq = _camCache.tanHalfSq;
+    return _camCache;
+  }
+
+  _selectClusters(cam) {
+    const camPos = cam.camPos, sh = cam.sh, tanHalfSq = cam.tanHalfSq;
     const me = this.matrixWorld.elements;
 
     const last = this._lastMatrixEls;
@@ -154,6 +163,58 @@ export class ClusterLodMesh extends THREE.Mesh {
       n++;
       drawnTris += lod.count / 3;
     }
+    this.stats.visibleClusters = visible;
+    this.stats.drawnTris = drawnTris;
+    return n;
+  }
+
+  _writeCompactIndex(n) {
+    const dst = this._drawIndex.array, src = this._srcIndex, pool = this._groupPoolByClusterIndex, drawnCi = this._drawnCi;
+    let w = 0;
+    if (n === 0) {
+      dst.set(src.subarray(0, this.lod0Count), 0);
+      w = this.lod0Count;
+      this.stats.drawnTris = w / 3;
+    } else {
+      let runStart = -1, runEnd = -1;
+      for (let i = 0; i < n; i++) {
+        const g = pool[drawnCi[i]];
+        if (g.start === runEnd) { runEnd += g.count; continue; }
+        if (runStart >= 0) { dst.set(src.subarray(runStart, runEnd), w); w += runEnd - runStart; }
+        runStart = g.start; runEnd = g.start + g.count;
+      }
+      dst.set(src.subarray(runStart, runEnd), w); w += runEnd - runStart;
+    }
+    this._drawGroup.count = w;
+    this._drawIndex.clearUpdateRanges();
+    this._drawIndex.addUpdateRange(0, w);
+    this._drawIndex.needsUpdate = true;
+    this.stats.multiDrawSubmissions = 1;
+  }
+
+  prepare(camera, viewportHeight, stamp) {
+    if (!this._compact || !this.clusterSet) return;
+    const cam = this._cameraState(camera, viewportHeight > 0 ? viewportHeight : this._screenHeight, stamp);
+    const n = this._selectClusters(cam);
+    this._writeCompactIndex(n);
+  }
+
+  _render(renderer, scene, camera, geometry) {
+    if (this._compact) return;
+    const index = geometry.index;
+    if (!index || !this.clusterSet) return;
+
+    const frame = renderer.info.render.frame;
+
+    const alreadyRenderedThisFrame = this._lastRenderFrame === frame;
+    if (alreadyRenderedThisFrame) return;
+    this._lastRenderFrame = frame;
+    const sz = renderer.getDrawingBufferSize(_size);
+    const cam = this._cameraState(camera, sz.y > 0 ? sz.y : this._screenHeight, frame);
+    const n = this._selectClusters(cam);
+    const pool = this._groupPoolByClusterIndex;
+    const drawnCi = this._drawnCi;
+    let drawnTris = this.stats.drawnTris;
     const view = this._groupView || (this._groupView = []);
     view.length = 0;
     if (n === 0) {
@@ -165,10 +226,19 @@ export class ClusterLodMesh extends THREE.Mesh {
       for (let i = 0; i < drawnCi.length; i++) view.push(pool[drawnCi[i]]);
     }
     geometry.groups = view;
-    this.stats.visibleClusters = visible;
     this.stats.drawnTris = drawnTris;
     this.stats.multiDrawSubmissions = geometry.groups.length;
   }
+}
+
+function _drawCapacity(clusterSet, lod0Count) {
+  let sum = 0;
+  for (const c of clusterSet.clusters) {
+    let m = 0;
+    for (const l of c.lods) if (l.count > m) m = l.count;
+    sum += m;
+  }
+  return Math.max(sum, lod0Count);
 }
 
 function _inferLod0Count(clusterSet) {
