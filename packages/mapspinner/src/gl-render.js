@@ -5,6 +5,7 @@ import { canDecodeImages, decodeSurfaceTextureSet } from './surface-texture-deco
 
 import { TU, M4 } from './gl-render-mat4.js';
 import { seaHeightMean } from './sea-waves.js';
+import { resolvePoolParams } from './pool-params.js';
 
 let _sharedRawTransLUT = null
 let _sharedRawScatLUT = null
@@ -112,8 +113,10 @@ export async function initMapspinnerRender(gl, opts = {}) {
   let _bw = bakeOnly ? null : buildTerrainProgram(src, atmoSrc, ' _WATERPASS_', _b.vs);
   let _curVs = _b ? _b.vs : null;
   if (!bakeOnly) {
+    if (typeof performance !== 'undefined' && performance.mark) performance.mark('mapspinner:terrain-src');
     await awaitProgramLink(_b.p, _b.vs, _b.fs, 'terrain');
     await awaitProgramLink(_bw.p, null, _bw.fs, 'water');
+    if (typeof performance !== 'undefined' && performance.mark) performance.mark('mapspinner:terrain-linked');
   }
   let prog = _b ? _b.p : null;
   let waterProg = _bw ? _bw.p : null;
@@ -1302,6 +1305,11 @@ export async function initMapspinnerRender(gl, opts = {}) {
     _chuSet1f(U, chu, 'uTexPhoto',   _g('texPhoto', TD.texPhoto));
     _chuSet1f(U, chu, 'uTexPhotoNear', _g('texPhotoNear', TD.texPhotoNear));
     _chuSet4f(U, chu, 'uSurfMeanL', _surfMeanL[0], _surfMeanL[1], _surfMeanL[2], _surfMeanL[3]);
+    const _pool = resolvePoolParams();
+    _chuSet4f(U, chu, 'uPoolDispLo', _pool.lo[0], _pool.lo[1], _pool.lo[2], _pool.lo[3]);
+    _chuSet4f(U, chu, 'uPoolDispHi', _pool.hi[0], _pool.hi[1], _pool.hi[2], _pool.hi[3]);
+    _chuSet4f(U, chu, 'uPoolSpec', _pool.spec[0], _pool.spec[1], _pool.spec[2], _pool.spec[3]);
+    _chuSet1f(U, chu, 'uPoolCover', _pool.cover);
     _chuSet1f(U, chu, 'uFlatNormal',      _g('flatNormal', TD.flatNormal));
     _chuSet1f(U, chu, 'uReliefShade',    _g('reliefShade', TD.reliefShade));
     _chuSet1f(U, chu, 'uSkyFill',        _g('skyFill', TD.skyFill));

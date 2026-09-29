@@ -4,6 +4,9 @@ import { M4 } from '../gl-render-mat4.js'
 import { THC_BAKE_RES, createHeightBakePipeline, bakeHeightTileTexture } from './height-bake-compute.js'
 import { ATMOSPHERE_CORE_WGSL, atmosphereLutBindingsWgsl, ATMOSPHERE_LUT_FUNCS_WGSL } from './sky-render.js'
 import { canDecodeImages, decodeSurfaceTextureSet } from '../surface-texture-decode.js'
+import { resolvePoolParams, resolveWetness } from '../pool-params.js'
+
+const POOL_PARAMS_BYTES = 64
 
 const COMPOSEHEIGHT_MARKER = '@group(0) @binding(0)'
 const COMPOSEHEIGHT_FUNCTIONS_WGSL = TERRAIN_COMPOSEHEIGHT_WGSL.slice(0, TERRAIN_COMPOSEHEIGHT_WGSL.indexOf(COMPOSEHEIGHT_MARKER))
@@ -108,6 +111,11 @@ const TEX_LUMA: vec3<f32> = vec3<f32>(0.299, 0.587, 0.114);
 struct SplatResult {
   albedo: vec3<f32>,
   texDn: vec3<f32>,
+  pool: f32,
+}
+
+fn poolForLayer(lay: i32, disp: f32) -> f32 {
+  return 1.0 - smoothstep(surfParams.poolLo[lay], surfParams.poolHi[lay], disp);
 }
 
 fn texCamFracOf(camAbs: vec3<f32>, texTileM: f32) -> vec3<f32> {
@@ -157,6 +165,7 @@ fn surfaceSplat(n: vec3<f32>, dir0: vec3<f32>, h: f32, slope: f32, rockSlope: f3
   if (surfParams.flags.x < 0.5) {
     result.albedo = biomeC;
     result.texDn = vec3<f32>(0.0);
+    result.pool = surfParams.poolState.y;
     return result;
   }
   let temp = climate.x;
@@ -231,8 +240,10 @@ fn surfaceSplat(n: vec3<f32>, dir0: vec3<f32>, h: f32, slope: f32, rockSlope: f3
   detail = mix(detailB, detailA, bSharp);
   texMatColor = mix(mcB, mcA, bSharp);
   texNrm = mix(nB, nA, bSharp);
+  let poolTex = mix(poolForLayer(layerB, dispB), poolForLayer(layerA, dispA), bSharp);
 
   let k = U_TEX_MIX * texFarFade;
+  result.pool = mix(surfParams.poolState.y, poolTex, k);
   var albedoOut = clamp(mix(texMatColor, detail, k), vec3<f32>(0.0), vec3<f32>(1.0));
   let biomeTintHere = U_BIOME_TINT * (1.0 - 0.85 * clamp(w4.z, 0.0, 1.0));
   albedoOut = mix(albedoOut, biomeC, biomeTintHere);
@@ -261,6 +272,10 @@ function buildRenderWgsl(gridSize) {
 struct SurfParams {
   meanL: vec4<f32>,
   flags: vec4<f32>,
+  poolLo: vec4<f32>,
+  poolHi: vec4<f32>,
+  poolSpec: vec4<f32>,
+  poolState: vec4<f32>,
 }
 @group(0) @binding(9) var<uniform> surfParams: SurfParams;
 ` + SURFACE_SPLAT_WGSL + `
@@ -410,6 +425,18 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     let termDay = smoothstep(-0.02, 0.18, nwSun);
     let hazed = hazed0 + U_TERMINATOR_GLOW * graze * termDay * vec3<f32>(1.0, 0.55, 0.34) * apGate;
     color = mix(lit, hazed, apGate * U_HAZE_MUL);
+  }
+
+  let wetness = surfParams.poolState.x;
+  if (wetness > 0.001 && in.height > 0.0) {
+    color = color * mix(1.0, 0.65, wetness);
+    let wetViewDir = normalize(-in.worldRel);
+    let halfDir = normalize(frame.sunDir + wetViewDir);
+    let pool = splat.pool * (1.0 - smoothstep(surfParams.poolSpec.z, surfParams.poolSpec.w, slope)) * wetness;
+    let specExp = mix(surfParams.poolSpec.x, surfParams.poolSpec.y, pool);
+    let poolFresnel = 0.02 + 0.98 * pow(1.0 - max(dot(n, wetViewDir), 0.0), 5.0);
+    let spec = pow(max(dot(n, halfDir), 0.0), specExp) * (specExp + 8.0) * (1.0 / (8.0 * ATM_PI));
+    color = color * (1.0 - poolFresnel * pool) + (sunIrr * spec + skyIrr * (1.0 / ATM_PI)) * (poolFresnel * pool);
   }
 
   let dayShade = mix(U_NIGHT_FLOOR, 1.0, smoothstep(-U_TERM_WIDTH, U_TERM_WIDTH, nwSun));
@@ -814,8 +841,10 @@ export class PatchGridRenderer {
         addressModeU: 'repeat', addressModeV: 'repeat',
         maxAnisotropy: 8,
       })
-      this.surfParamsBuffer = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
+      this.surfParamsBuffer = device.createBuffer({ size: 32 + POOL_PARAMS_BYTES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
       device.queue.writeBuffer(this.surfParamsBuffer, 0, new Float32Array([0.2, 0.2, 0.2, 0.5, 0, 0, 0, 0]))
+      this._poolParams = new Float32Array(POOL_PARAMS_BYTES / 4)
+      this._writePoolParams()
       const dummySurf = createDummySurfaceTextureArrays(device)
       this._surfAlbTexture = dummySurf.albTexture
       this._surfNrmTexture = dummySurf.nrmTexture
@@ -845,6 +874,16 @@ export class PatchGridRenderer {
 
   updateFrame(frameUniforms) {
     writeFrameUniforms(this.device, this.frameUniformBuffer, frameUniforms)
+    if (this._poolParams) this._writePoolParams()
+  }
+
+  _writePoolParams() {
+    const p = resolvePoolParams(), a = this._poolParams
+    a[0] = p.lo[0]; a[1] = p.lo[1]; a[2] = p.lo[2]; a[3] = p.lo[3]
+    a[4] = p.hi[0]; a[5] = p.hi[1]; a[6] = p.hi[2]; a[7] = p.hi[3]
+    a[8] = p.spec[0]; a[9] = p.spec[1]; a[10] = p.spec[2]; a[11] = p.spec[3]
+    a[12] = resolveWetness(); a[13] = p.cover
+    this.device.queue.writeBuffer(this.surfParamsBuffer, 32, a)
   }
 
   _rebuildBindGroup0() {

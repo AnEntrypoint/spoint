@@ -54,6 +54,14 @@ export const TERRAIN_DEFAULTS = {
   octFar1: 15.0,
   texTile: 2400.0,
 
+  poolDispLo: [0.455, 0.408, 0.275, 0.404],
+  poolDispHi: [0.498, 0.545, 0.388, 0.486],
+  poolCover: 0.18,
+  poolSpecExpRough: 24.0,
+  poolSpecExpSharp: 256.0,
+  poolSlope0: 0.08,
+  poolSlope1: 0.25,
+
   beachTop: 15.0,
   beachWidth: 1.0,
   bandWarp: 20.0,

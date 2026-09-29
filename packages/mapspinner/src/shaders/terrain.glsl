@@ -499,6 +499,10 @@ uniform float uReliefShade;
 uniform float uTexPhoto;
 uniform float uTexPhotoNear;
 uniform vec4 uSurfMeanL;
+uniform vec4 uPoolDispLo;
+uniform vec4 uPoolDispHi;
+uniform vec4 uPoolSpec;
+uniform float uPoolCover;
 uniform float uBiomeTint;
 uniform float uTexBright;
 uniform float uTexSat;
@@ -804,6 +808,7 @@ void main() {
     vec4 climate = vClimate;
     vec3 albedo = terrainAlbedoClimate(vH, slope, microSlope, climate.z, climate.w, vWorld, pxWorld);
     vec3 texDn = vec3(0.0);
+    float poolMask = uPoolCover;
     highp float camDist = length(camWorld - vWorld);
     float texFarFade = 1.0 - smoothstep(uTexFar0 * uReliefScale, uTexFar1 * uReliefScale, pxWorld);
     if (uHasSurfTex > 0.5 && uTexMix > 0.001 && texFarFade > 0.001) {
@@ -849,6 +854,8 @@ void main() {
             else                nA = surfTriNrm(uSurfNrm, wt4, tw, lA, n) * 1.0;
         }
         float dispA = albA.a;
+        int iA = int(lA + 0.5);
+        float poolTex = 1.0 - smoothstep(uPoolDispLo[iA], uPoolDispHi[iA], dispA);
         vec3 mcA = lA < 0.5 ? bcGrass : (lA < 1.5 ? bcRock : (lA < 2.5 ? bcShore : bcSnow));
         vec3 texMatColor = mcA;
         vec3 texNrm = nA;
@@ -881,8 +888,11 @@ void main() {
             detail = mix(detailB, detailA, bSharp);
             texMatColor = mix(mcB, mcA, bSharp);
             texNrm = mix(nB, nA, bSharp);
+            int iB = int(lB + 0.5);
+            poolTex = mix(1.0 - smoothstep(uPoolDispLo[iB], uPoolDispHi[iB], dispB), poolTex, bSharp);
         }
         float k = uTexMix * texFarFade;
+        poolMask = mix(uPoolCover, poolTex, k);
         albedo = clamp(mix(texMatColor, detail, k), 0.0, 1.0);
         float biomeTintHere = uBiomeTint * (1.0 - 0.85 * clamp(w4.z, 0.0, 1.0));
         albedo = mix(albedo, biomeC, biomeTintHere);
@@ -991,8 +1001,11 @@ void main() {
         color *= mix(1.0, 0.65, uWetness);
         vec3 wetViewDir = normalize(camWorld - vWorld);
         vec3 halfDir = normalize(sunDir + wetViewDir);
-        float spec = pow(max(dot(n, halfDir), 0.0), 24.0);
-        color += spec * uWetness * 0.5 * vec3(1.0, 1.0, 0.95);
+        float pool = poolMask * (1.0 - smoothstep(uPoolSpec.z, uPoolSpec.w, slope)) * uWetness;
+        float specExp = mix(uPoolSpec.x, uPoolSpec.y, pool);
+        float poolFresnel = 0.02 + 0.98 * pow(1.0 - max(dot(n, wetViewDir), 0.0), 5.0);
+        float spec = pow(max(dot(n, halfDir), 0.0), specExp) * (specExp + 8.0) * (1.0 / (8.0 * ATM_PI));
+        color = color * (1.0 - poolFresnel * pool) + (sunIrr * spec + skyIrr * (1.0 / ATM_PI)) * (poolFresnel * pool);
     }
     float macroMu = nwSun;
     float dayShade = mix(uNightFloor, 1.0, smoothstep(-uTermWidth, uTermWidth, macroMu));
