@@ -126,11 +126,13 @@ export function marchRockSurface(res, sdf) {
   return { positions: positions.subarray(0, vc*3), vc, indices: indices.subarray(0, ic), ic }
 }
 
-export function generateRockHullData(numShapes = 6, baseSeed = 1337, hullRes = 12) {
+export const ROCK_MESH_RES = 16
+
+export function generateRockHullData(numShapes = 6, baseSeed = 1337, hullRes = ROCK_MESH_RES) {
   const out = []
   for (let s = 0; s < numShapes; s++) {
     const sdf = makeRockSDF(baseSeed + s * 7919)
-    const { positions: hullPos } = marchRockSurface(hullRes, sdf)
+    const { positions: hullPos, indices: hullIdx } = marchRockSurface(hullRes, sdf)
     let cx = 0, cy = 0, cz = 0
     const vCount = hullPos.length / 3
     for (let v = 0; v < vCount; v++) { cx += hullPos[v*3]; cy += hullPos[v*3+1]; cz += hullPos[v*3+2] }
@@ -143,7 +145,8 @@ export function generateRockHullData(numShapes = 6, baseSeed = 1337, hullRes = 1
       if (hullPos[v*3+1] > maxY) maxY = hullPos[v*3+1]
     }
     out.push({
-      positions: hullPos,
+      positions: hullPos.slice(),
+      indices: hullIdx.slice(),
       vCount,
       avgRadius: total / vCount,
       squashRatio: ((maxY - minY) / 2) / (total / vCount),

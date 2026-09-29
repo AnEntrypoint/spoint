@@ -12,7 +12,41 @@ export const ROCK = Object.freeze({
   FLOOR: 0.025,
   SCALE_MIN: 2.0,
   SCALE_SPAN: 8.0,
+  SQUASH_MIN: 0.55,
+  SQUASH_SPAN: 0.55,
 })
+
+export const ROCK_SCALE_LEVELS = 10
+export const ROCK_SQUASH_LEVELS = 3
+
+function logStepOf(lo, hi, n) {
+  return Math.log(hi / lo) / n
+}
+
+function logTableOf(lo, step, n) {
+  const t = new Float32Array(n)
+  for (let i = 0; i < n; i++) t[i] = lo * Math.exp((i + 0.5) * step)
+  return t
+}
+
+function logLevelOf(value, lo, step, n) {
+  const i = Math.round(Math.log((value > lo ? value : lo) / lo) / step - 0.5)
+  return i < 0 ? 0 : i > n - 1 ? n - 1 : i
+}
+
+const SCALE_STEP = logStepOf(ROCK.SCALE_MIN, ROCK.SCALE_MIN + ROCK.SCALE_SPAN, ROCK_SCALE_LEVELS)
+const SQUASH_STEP = logStepOf(ROCK.SQUASH_MIN, ROCK.SQUASH_MIN + ROCK.SQUASH_SPAN, ROCK_SQUASH_LEVELS)
+
+export const ROCK_SCALE_TABLE = logTableOf(ROCK.SCALE_MIN, SCALE_STEP, ROCK_SCALE_LEVELS)
+export const ROCK_SQUASH_TABLE = logTableOf(ROCK.SQUASH_MIN, SQUASH_STEP, ROCK_SQUASH_LEVELS)
+
+export function rockScaleLevel(scale) {
+  return logLevelOf(scale, ROCK.SCALE_MIN, SCALE_STEP, ROCK_SCALE_LEVELS)
+}
+
+export function rockSquashLevel(squash) {
+  return logLevelOf(squash, ROCK.SQUASH_MIN, SQUASH_STEP, ROCK_SQUASH_LEVELS)
+}
 
 const K_COIN = 10, K_TYPE = 11, K_SCALE = 12, K_YAW = 13, K_TILTX = 14, K_TILTZ = 15, K_SQUASH = 16, K_VAR = 17
 
@@ -127,10 +161,10 @@ export function classify(x, z, frame, anchorField, h, cellIx, cellIz) {
   const type = Math.floor(rand(cellHash, K_TYPE) * ROCK.TYPES) % ROCK.TYPES
   const sc = rand(cellHash, K_SCALE)
   const scBiased = Math.max(0, Math.min(1, sc + (cluster - 0.5) * 0.6))
-  const scale = Math.fround(ROCK.SCALE_MIN + scBiased * scBiased * scBiased * ROCK.SCALE_SPAN)
+  const scale = ROCK_SCALE_TABLE[rockScaleLevel(ROCK.SCALE_MIN + scBiased * scBiased * scBiased * ROCK.SCALE_SPAN)]
   const yaw = Math.fround(rand(cellHash, K_YAW) * Math.PI * 2)
   const wob = (rand(cellHash, K_TILTX) - 0.5) * 0.12, wobZ = (rand(cellHash, K_TILTZ) - 0.5) * 0.12
-  const squash = Math.fround(0.55 + rand(cellHash, K_SQUASH) * 0.55)
+  const squash = ROCK_SQUASH_TABLE[rockSquashLevel(ROCK.SQUASH_MIN + rand(cellHash, K_SQUASH) * ROCK.SQUASH_SPAN)]
   const variant = Math.fround(rand(cellHash, K_VAR))
   let bnx = nx + wob, bny = ny, bnz = nz + wobZ
   const bl = Math.hypot(bnx, bny, bnz); bnx /= bl; bny /= bl; bnz /= bl

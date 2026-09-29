@@ -9,6 +9,7 @@ function estimateBodyBytes(a) {
   const args = a.args
   let n = 0
   if (args && typeof args.byteLength === 'number') n = args.byteLength
+  else if (args && args.vertices && args.indices) n = args.vertices.byteLength + args.indices.byteLength
   else if (Array.isArray(args)) n = args.length * 4
   return _BODY_OVERHEAD_BYTES + n
 }

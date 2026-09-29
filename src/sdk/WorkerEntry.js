@@ -219,6 +219,25 @@ if (hasWorkerPostMessage) {
       return
     }
 
+    if (data.type === 'DEBUG_COLLIDER_RAYS') {
+      const physics = _ctx && _ctx.physics
+      if (!physics || typeof physics.raycast !== 'function') { self.postMessage({ type: 'DEBUG_COLLIDER_RESULT', reqId: data.reqId, error: 'physics not ready', hits: [] }); return }
+      const rockIds = physics.getRockColliderIds && physics.getRockColliderIds()
+      const hits = data.rays.map(({ origin, direction, maxDistance }) => {
+        const r = physics.raycast(origin, direction, maxDistance)
+        return r.hit ? { distance: r.distance, bodyId: r.bodyId, isRock: !!(rockIds && rockIds.has(r.bodyId)) } : null
+      })
+      const rockBodies = data.includeRockBodies && rockIds
+        ? [...rockIds].map(id => ({ id, position: physics.getBodyPosition(id), rotation: physics.getBodyRotation(id), shapeKey: physics._bodyShapeKey.get(id) }))
+        : undefined
+      const rs = _ctx._terrainStreamer && _ctx._terrainStreamer._rockStreamer
+      const rockStreamer = rs ? { liveCount: rs.liveCount, centers: rs.centers, rebuildCount: rs.rebuildCount, chunkCacheSize: rs.chunkCacheSize } : null
+      const frame = physics._planetFrame
+      const heightProbe = (data.probePoints || []).map(([x, z]) => ({ colliderFn: physics.terrainHeightAt(x, z), frame: frame ? frame.groundHeightLocal(x, z) : null }))
+      self.postMessage({ type: 'DEBUG_COLLIDER_RESULT', reqId: data.reqId, hits, rockBodies, rockStreamer, rockIdCount: rockIds ? rockIds.size : null, heightProbe, heightSource: physics._terrainHeightSource })
+      return
+    }
+
     if (!_transport) { _pending.push(data); return }
     _dispatch(data)
   })

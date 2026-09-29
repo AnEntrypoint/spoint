@@ -2,9 +2,10 @@ import { extractAllMeshesFromGLBAsync } from './GLBLoader.js'
 
 export function buildConvexShape(J, params, shapeCache, cacheKey) {
   if (cacheKey && shapeCache.has(cacheKey)) return { shape: shapeCache.get(cacheKey), cached: true, sr: null }
-  const pts = new J.VertexList(), f3 = new J.Float3(0, 0, 0)
-  for (let i = 0; i < params.length; i += 3) { f3.x = params[i]; f3.y = params[i+1]; f3.z = params[i+2]; pts.push_back(f3) }
-  J.destroy(f3)
+  const pts = new J.ArrayVec3(), v3 = new J.Vec3(0, 0, 0)
+  pts.reserve(params.length / 3)
+  for (let i = 0; i < params.length; i += 3) { v3.Set(params[i], params[i+1], params[i+2]); pts.push_back(v3) }
+  J.destroy(v3)
   const cvx = new J.ConvexHullShapeSettings(); cvx.set_mPoints(pts)
   const sr = cvx.Create()
   if (!sr.IsValid()) {
@@ -14,6 +15,28 @@ export function buildConvexShape(J, params, shapeCache, cacheKey) {
   }
   const shape = sr.Get()
   J.destroy(pts); J.destroy(cvx)
+  if (cacheKey) shapeCache.set(cacheKey, shape)
+  return { shape, cached: false, sr }
+}
+
+export function buildMeshShape(J, params, shapeCache, cacheKey) {
+  if (cacheKey && shapeCache.has(cacheKey)) return { shape: shapeCache.get(cacheKey), cached: true, sr: null }
+  const { vertices, indices } = params
+  const triangleCount = indices.length / 3
+  const triangles = new J.TriangleList(); triangles.resize(triangleCount)
+  const f3 = new J.Float3(0, 0, 0)
+  for (let t = 0; t < triangleCount; t++) {
+    const tri = triangles.at(t)
+    for (let v = 0; v < 3; v++) { const idx = indices[t*3+v]; f3.x = vertices[idx*3]; f3.y = vertices[idx*3+1]; f3.z = vertices[idx*3+2]; tri.set_mV(v, f3) }
+  }
+  const settings = new J.MeshShapeSettings(triangles), sr = settings.Create()
+  J.destroy(f3); J.destroy(triangles); J.destroy(settings)
+  if (!sr.IsValid()) {
+    const err = sr.GetError().c_str()
+    J.destroy(sr)
+    throw new Error(`[buildMeshShape] MeshShapeSettings.Create() failed: ${err} (${triangleCount} triangles)`)
+  }
+  const shape = sr.Get()
   if (cacheKey) shapeCache.set(cacheKey, shape)
   return { shape, cached: false, sr }
 }

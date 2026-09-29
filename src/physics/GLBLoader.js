@@ -97,14 +97,27 @@ export async function extractMeshFromGLBAsync(filepath, meshIndex = 0) {
   return result
 }
 
+function nodeIndicesByMesh(json, nodeTransforms) {
+  const byMesh = new Map()
+  ;(json.nodes || []).forEach((n, i) => {
+    if (n.mesh === undefined) return
+    const key = nodeTransforms[i].join(',')
+    let entry = byMesh.get(n.mesh)
+    if (!entry) byMesh.set(n.mesh, entry = { seen: new Set(), nodes: [] })
+    if (entry.seen.has(key)) return
+    entry.seen.add(key); entry.nodes.push(i)
+  })
+  return new Map([...byMesh].map(([meshIdx, entry]) => [meshIdx, entry.nodes]))
+}
+
 export async function extractAllVerticesFromGLBAsync(filepath) {
   const { buf, json, binOffset } = await readGLBAsync(filepath)
   const nodeTransforms = buildNodeTransforms(json)
   const chunks = []
+  const nodesByMesh = nodeIndicesByMesh(json, nodeTransforms)
   for (let meshIdx = 0; meshIdx < (json.meshes || []).length; meshIdx++) {
     const mesh = json.meshes[meshIdx]
-    const nodeIdx = (json.nodes || []).findIndex(n => n.mesh === meshIdx)
-    const worldTransform = nodeIdx >= 0 ? nodeTransforms[nodeIdx] : null
+    const placements = nodesByMesh.get(meshIdx) || [-1]
     for (const prim of mesh.primitives) {
       let result
       try {
@@ -114,7 +127,7 @@ export async function extractAllVerticesFromGLBAsync(filepath) {
             ? await extractMeshWithMeshopt(buf, json, prim, binOffset, mesh.name)
             : extractStandardMesh(buf, json, prim, binOffset, mesh.name)
       } catch (e) { console.warn(`[GLBLoader] Skipping mesh[${meshIdx}] verts: ${e.message}`); continue }
-      chunks.push(worldTransform ? applyTransformMatrix(result.vertices, worldTransform) : result.vertices)
+      for (const nodeIdx of placements) chunks.push(nodeIdx >= 0 ? applyTransformMatrix(result.vertices, nodeTransforms[nodeIdx]) : result.vertices)
     }
   }
   if (chunks.length === 0) throw new Error('No valid mesh primitives found in GLB')
@@ -131,10 +144,10 @@ export async function extractAllMeshesFromGLBAsync(filepath) {
   const allVertices = [], allIndices = []
   let vertexOffset = 0, totalTriangles = 0
 
+  const nodesByMesh = nodeIndicesByMesh(json, nodeTransforms)
   for (let meshIdx = 0; meshIdx < (json.meshes || []).length; meshIdx++) {
     const mesh = json.meshes[meshIdx]
-    const nodeIdx = (json.nodes || []).findIndex(n => n.mesh === meshIdx)
-    const worldTransform = nodeIdx >= 0 ? nodeTransforms[nodeIdx] : null
+    const placements = nodesByMesh.get(meshIdx) || [-1]
     for (let primIdx = 0; primIdx < mesh.primitives.length; primIdx++) {
       const prim = mesh.primitives[primIdx]
       const matName = prim.material !== undefined ? (materials[prim.material]?.name || '') : ''
@@ -148,13 +161,14 @@ export async function extractAllMeshesFromGLBAsync(filepath) {
             : extractStandardMesh(buf, json, prim, binOffset, mesh.name)
       } catch (e) { console.warn(`[GLBLoader] Skipping mesh[${meshIdx}] prim[${primIdx}]: ${e.message}`); continue }
       if (!result.indices || result.triangleCount === 0) continue
-      const verts = worldTransform ? applyTransformMatrix(result.vertices, worldTransform) : result.vertices
-      allVertices.push(verts)
-      const remapped = new Uint32Array(result.indices.length)
-      for (let i = 0; i < result.indices.length; i++) remapped[i] = result.indices[i] + vertexOffset
-      allIndices.push(remapped)
-      vertexOffset += result.vertexCount
-      totalTriangles += result.triangleCount
+      for (const nodeIdx of placements) {
+        allVertices.push(nodeIdx >= 0 ? applyTransformMatrix(result.vertices, nodeTransforms[nodeIdx]) : result.vertices)
+        const remapped = new Uint32Array(result.indices.length)
+        for (let i = 0; i < result.indices.length; i++) remapped[i] = result.indices[i] + vertexOffset
+        allIndices.push(remapped)
+        vertexOffset += result.vertexCount
+        totalTriangles += result.triangleCount
+      }
     }
   }
 

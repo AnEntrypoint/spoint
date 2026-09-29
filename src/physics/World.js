@@ -1,7 +1,7 @@
 import { extractMeshFromGLB } from './GLBLoader.js'
 import { CharacterManager } from './CharacterManager.js'
 import { installVehiclePhysics } from './VehiclePhysics.js'
-import { buildConvexShape, buildTrimeshShape } from './ShapeBuilder.js'
+import { buildConvexShape, buildMeshShape, buildTrimeshShape } from './ShapeBuilder.js'
 
 const LAYER_STATIC = 0, LAYER_DYNAMIC = 1, NUM_LAYERS = 2
 const _PARK_POS = [0, -100000, 0]
@@ -156,6 +156,12 @@ export class PhysicsWorld {
       const { shape: cvxShape, sr } = buildConvexShape(J, params, this._shapeCache, opts.shapeKey || null)
       const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
       const id = this._addBody(cvxShape, position, mt, motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC, { ...opts, meta: { type: motionType, shape: shapeType } })
+      if (sr) J.destroy(sr)
+      return id
+    }
+    else if (shapeType === 'mesh') {
+      const { shape: meshShape, sr } = buildMeshShape(J, params, this._shapeCache, opts.shapeKey || null)
+      const id = this._addBody(meshShape, position, J.EMotionType_Static, LAYER_STATIC, { ...opts, meta: { type: 'static', shape: shapeType } })
       if (sr) J.destroy(sr)
       return id
     }

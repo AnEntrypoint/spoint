@@ -29,6 +29,10 @@ function registerBody(ent, runtime, bid, mt) {
   if (mt === 'dynamic') runtime._activeDynamicIds?.add(ent.id)
 }
 
+function scaledShapeKey(model, scale) {
+  return `${model}|${scale[0]},${scale[1]},${scale[2]}`
+}
+
 function fallbackBox(ent, runtime, mt) {
   ent.collider = { type: 'box', size: [0.5, 0.5, 0.5] }
   const ccd = resolveCCD(ent, mt)
@@ -138,8 +142,9 @@ export function buildPhysicsAPI(ent, runtime) {
         if (runtime._physics) {
           const mt = motionType(ent)
           const ccd = resolveCCD(ent, mt)
-          if (mt === 'dynamic') ent._bodyDef = { shapeType: 'convex', params: points, motionType: mt, opts: { mass: ent.mass, shapeKey: ent.model, linearCast: ccd } }
-          const bid = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass, shapeKey: ent.model, linearCast: ccd })
+          const shapeKey = scaledShapeKey(ent.model, sc)
+          if (mt === 'dynamic') ent._bodyDef = { shapeType: 'convex', params: points, motionType: mt, opts: { mass: ent.mass, shapeKey, linearCast: ccd } }
+          const bid = runtime._physics.addBody('convex', points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass, shapeKey, linearCast: ccd })
           registerBody(ent, runtime, bid, mt)
         }
       } catch (err) {
@@ -168,7 +173,7 @@ export function buildPhysicsAPI(ent, runtime) {
       const raw = mesh.vertices
       const points = (sc[0] === 1 && sc[1] === 1 && sc[2] === 1) ? Array.from(raw) : Array.from(raw).map((v, i) => v * sc[i % 3])
       ent.collider = { type: 'convex', points }
-      const shapeKey = shapeKeyOverride || ent.model
+      const shapeKey = shapeKeyOverride || scaledShapeKey(ent.model, sc)
       if (runtime._physics) {
         const ccd = resolveCCD(ent, mt)
         if (mt === 'dynamic') ent._bodyDef = { shapeType: 'convex', params: points, motionType: mt, opts: { mass: ent.mass, shapeKey, linearCast: ccd } }

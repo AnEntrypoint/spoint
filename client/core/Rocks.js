@@ -1,6 +1,7 @@
 import * as THREE from 'three'
-import { makeRockSDF, marchRockSurface } from '/src/terrain/RockShapes.js'
+import { makeRockSDF, marchRockSurface, ROCK_MESH_RES } from '/src/terrain/RockShapes.js'
 import { placementsForRockChunk, ROCK } from '/src/terrain/RockPlacement.js'
+import { createExactPatchFrame } from './ExactPatchFrame.js'
 import { createCachedAnchorField } from '/src/terrain/ClimateCache.js'
 import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
 import { dbg } from './debug-log.js'
@@ -90,7 +91,7 @@ export async function createRocks(opts = {}) {
   const geos = []
   let buildErr = 0
   for (let t = 0; t < ROCK.TYPES; t++) {
-    try { geos.push(buildRockGeo(t, 16)) } catch (e) { buildErr++; geos.push(null); console.error('[rocks] geo build failed:', t, e?.message || e) }
+    try { geos.push(buildRockGeo(t, ROCK_MESH_RES)) } catch (e) { buildErr++; geos.push(null); console.error('[rocks] geo build failed:', t, e?.message || e) }
   }
   let maxVerts = 0, maxIdx = 0
   for (const g of geos) { if (!g) continue; maxVerts += g.attributes.position.count; maxIdx += g.index ? g.index.count : 0 }
@@ -114,15 +115,24 @@ export async function createRocks(opts = {}) {
   const meshes = [{ im: bm, count: 0 }]
 
   const loaded = new Map()
+  const deferredChunks = new Set()
+  const exactFrame = createExactPatchFrame(frame)
   let _occCands = null
   let curSuper = null, totalInstances = 0
   const profile = { totalInstances: 0, visibleInstances: 0, drawCalls: 0, updateMs: 0, loads: 0, unloads: 0, types: ROCK.TYPES, buildErrors: buildErr, batched: true }
 
   function loadChunk(cx, cz) {
     const key = cx + ',' + cz
-    if (loaded.has(key)) return
+    if (loaded.has(key)) return true
     const ids = []
-    let list; try { list = placementsForRockChunk(cx, cz, frame, anchorField, worldSeed) } catch (_) { list = null }
+    exactFrame.beginChunk()
+    let list; try { list = placementsForRockChunk(cx, cz, exactFrame.placementFrame, anchorField, worldSeed) } catch (_) { list = null }
+    if (exactFrame.missing) {
+      deferredChunks.add(key)
+      exactFrame.prefetchChunk(cx * CH + CH * 0.5, cz * CH + CH * 0.5)
+      return false
+    }
+    deferredChunks.delete(key)
     let _minY = Infinity, _maxY = -Infinity
     if (list) for (let i = 0; i < list.length; i++) {
       if (totalInstances >= MAX_INSTANCES) break
@@ -157,6 +167,7 @@ export async function createRocks(opts = {}) {
     _rockLoadFifo.push(key)
     meshes[0].count = totalInstances
     profile.loads++
+    return true
   }
 
   function unloadChunk(key) {
@@ -167,6 +178,7 @@ export async function createRocks(opts = {}) {
 
   const CH = ROCK.CHUNK
   const LOADS_PER_FRAME = 3
+  const DEFERRED_RETRIES_PER_FRAME = 4
   let _ringClean = false, _scanCx = NaN, _scanCz = NaN
   let _rockSpiral = null, _rockSpiralSpan = -1
   let _rockSpiralCursor = 0
@@ -186,14 +198,25 @@ export async function createRocks(opts = {}) {
     if (span !== _rockSpiralSpan) { _rockSpiral = _rockSpiralOffsets(span); _rockSpiralSpan = span; _rockSpiralCursor = 0 }
     if (cCx !== _scanCx || cCz !== _scanCz) _rockSpiralCursor = 0
     let didLoad = false
+    const retryKeys = []
+    for (const key of deferredChunks) { if (retryKeys.length >= DEFERRED_RETRIES_PER_FRAME) break; retryKeys.push(key) }
+    for (const key of retryKeys) {
+      const ci = key.indexOf(',')
+      const kx = +key.slice(0, ci), kz = +key.slice(ci + 1)
+      const ddx = kx * CH + CH * 0.5 - px, ddz = kz * CH + CH * 0.5 - pz
+      deferredChunks.delete(key)
+      if (ddx * ddx + ddz * ddz > dropRadiusSq) continue
+      if (loadChunk(kx, kz)) didLoad = true
+    }
     for (let n = 0; n < LOADS_PER_FRAME && totalInstances < MAX_INSTANCES; n++) {
       let found = false
       for (; _rockSpiralCursor < _rockSpiral.length; _rockSpiralCursor++) {
         const dx = _rockSpiral[_rockSpiralCursor][0], dz = _rockSpiral[_rockSpiralCursor][1]
         const cx = cCx + dx, cz = cCz + dz
         const ddx = cx * CH + CH * 0.5 - px, ddz = cz * CH + CH * 0.5 - pz
-        if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(cx + ',' + cz)) continue
-        loadChunk(cx, cz); didLoad = true; found = true; break
+        if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(cx + ',' + cz) || deferredChunks.has(cx + ',' + cz)) continue
+        if (loadChunk(cx, cz)) didLoad = true
+        found = true; break
       }
       if (!found) break
     }
@@ -218,7 +241,8 @@ export async function createRocks(opts = {}) {
         }
       }
     }
-    _scanCx = cCx; _scanCz = cCz; _ringClean = !didLoad && !didDrop
+    _scanCx = cCx; _scanCz = cCz; _ringClean = !didLoad && !didDrop && deferredChunks.size === 0
+    profile.deferredChunks = deferredChunks.size
   }
 
   let _cullFrozen = false
@@ -292,7 +316,7 @@ export async function createRocks(opts = {}) {
       const cx = cCx + dx, cz = cCz + dz
       const ddx = cx * CH + CH * 0.5 - px, ddz = cz * CH + CH * 0.5 - pz
       if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(cx + ',' + cz)) continue
-      loadChunk(cx, cz); n++
+      if (loadChunk(cx, cz)) n++
       if (n % 8 === 0) await _yieldFrame()
     }
     return n
@@ -332,7 +356,7 @@ export async function createRocks(opts = {}) {
     }
   }
 
-  function rebuildPlacement() { for (const key of [...loaded.keys()]) unloadChunk(key); curSuper = null; _ringClean = false; _scanCx = NaN; _scanCz = NaN }
+  function rebuildPlacement() { for (const key of [...loaded.keys()]) unloadChunk(key); deferredChunks.clear(); curSuper = null; _ringClean = false; _scanCx = NaN; _scanCz = NaN }
   function repaintBiome(x, z, radius, target, strength) { biomeOverride.applyPaintBrush(x, z, radius, target, strength); rebuildPlacement() }
 
   const api = { update, prewarm, warmShaders, dispose, _meshes: meshes, _bm: bm, get totalInstances() { return totalInstances }, get profile() { return profile }, rebuildPlacement, repaintBiome, biomeOverride, getOcclusionCandidates, applyOcclusion, cfg, renderDistance }

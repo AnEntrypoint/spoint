@@ -19,7 +19,7 @@ export const TRUNK = Object.freeze([
   { r: 0.34, h: 5.2 },
 ])
 
-export const TRUNK_SCALE_BUCKETS = Object.freeze([0.8, 0.9, 1.0, 1.1, 1.2])
+export const TRUNK_SCALE_BUCKETS = Object.freeze([0.6, 0.75, 0.9, 1.05, 1.2, 1.35, 1.5])
 export function trunkScaleBucket(scale) {
   let bi = 0, best = Infinity
   for (let i = 0; i < TRUNK_SCALE_BUCKETS.length; i++) { const d = Math.abs(TRUNK_SCALE_BUCKETS[i] - scale); if (d < best) { best = d; bi = i } }
@@ -52,7 +52,12 @@ export function createTrunkColliderStreamer(opts = {}) {
       if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z)) return null
       const bi = trunkScaleBucket(p.scale), bs = TRUNK_SCALE_BUCKETS[bi]
       const r = t.r * bs, halfH = (t.h * bs) / 2
-      return { shape: 'box', args: [r, halfH, r], position: [p.x, p.y + halfH, p.z], rotation: p.tiltQuat, shapeKey: trunkShapeKey(p.species, bi) }
+      const [qx, qy, qz, qw] = p.tiltQuat
+      const tx = -2 * qz * halfH, tz = 2 * qx * halfH
+      const centerX = p.x + qw * tx + qy * tz
+      const centerY = p.y + halfH + qz * tx - qx * tz
+      const centerZ = p.z + qw * tz - qy * tx
+      return { shape: 'box', args: [r, halfH, r], position: [centerX, centerY, centerZ], rotation: p.tiltQuat, shapeKey: trunkShapeKey(p.species, bi) }
     },
     prewarm: (physics, cap) => {
       const perKey = Math.max(8, Math.ceil(cap / (SPECIES.length * TRUNK_SCALE_BUCKETS.length)))

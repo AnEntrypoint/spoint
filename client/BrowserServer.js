@@ -39,7 +39,7 @@ export class BrowserServer extends BaseClient {
     return this._transformRingReader ? this._transformRingReader.readAll() : null
   }
 
-  queryColliderHeight(x, z, timeoutMs = 5000) {
+  _colliderRequest(message, timeoutMs) {
     if (!this._worker) return Promise.resolve({ hit: false, error: 'no worker' })
     this._colliderReqSeq = (this._colliderReqSeq || 0) + 1
     const reqId = this._colliderReqSeq
@@ -47,8 +47,16 @@ export class BrowserServer extends BaseClient {
     return new Promise((resolve) => {
       const t = setTimeout(() => { this._colliderPending.delete(reqId); resolve({ hit: false, error: 'timeout' }) }, timeoutMs)
       this._colliderPending.set(reqId, (r) => { clearTimeout(t); resolve(r) })
-      this._worker.postMessage({ type: 'DEBUG_COLLIDER_QUERY', reqId, x, z })
+      this._worker.postMessage({ ...message, reqId })
     })
+  }
+
+  queryColliderHeight(x, z, timeoutMs = 5000) {
+    return this._colliderRequest({ type: 'DEBUG_COLLIDER_QUERY', x, z }, timeoutMs)
+  }
+
+  queryColliderRays(rays, { includeRockBodies = false, probePoints, timeoutMs = 10000 } = {}) {
+    return this._colliderRequest({ type: 'DEBUG_COLLIDER_RAYS', rays, includeRockBodies, probePoints }, timeoutMs)
   }
 
   async _importModule(path) {

@@ -345,7 +345,7 @@ export class AppRuntime {
             const points = (sc[0] === 1 && sc[1] === 1 && sc[2] === 1) ? Array.from(raw) : Array.from(raw).map((v, i) => v * sc[i % 3])
             const bodyMt = entity._bodyDef?.motionType || mt
             entity.collider = { type: 'convex', points }
-            entity._bodyDef = { shapeType: 'convex', params: points, motionType: bodyMt, opts: { mass: entity.mass, shapeKey: entity.model, linearCast: resolveCCD(entity, bodyMt) } }
+            entity._bodyDef = { shapeType: 'convex', params: points, motionType: bodyMt, opts: { mass: entity.mass, shapeKey: `${entity.model}|${sc[0]},${sc[1]},${sc[2]}`, linearCast: resolveCCD(entity, bodyMt) } }
             entity._bodyActive = false
           }).catch(e => { console.warn(`[physics] ${entity.model}: convex-hull collider resize failed (${e.message}), keeping scale-based box fallback`) })
         }
