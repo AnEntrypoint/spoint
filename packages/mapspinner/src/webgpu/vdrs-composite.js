@@ -12,20 +12,69 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VSOut {
   p.y = select(-1.0, 3.0, vid == 2u);
   var out: VSOut;
   out.pos = vec4<f32>(p, 0.0, 1.0);
-  out.uv = p * 0.5 + vec2<f32>(0.5, 0.5);
+  out.uv = vec2<f32>(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
   return out;
 }
 `
 
-const BILINEAR_UPSCALE_FS_WGSL = `
+const ACES_INPUT_ROWS = [[0.59719, 0.35458, 0.04823], [0.07600, 0.90834, 0.01566], [0.02840, 0.13383, 0.83777]]
+const ACES_OUTPUT_ROWS = [[1.60475, -0.53108, -0.07367], [-0.10208, 1.10813, -0.00605], [-0.00327, -0.07276, 1.07602]]
+
+function invertRows3(m) {
+  const [[a, b, c], [d, e, f], [g, h, i]] = m
+  const det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+  return [
+    [(e * i - f * h) / det, (c * h - b * i) / det, (b * f - c * e) / det],
+    [(f * g - d * i) / det, (a * i - c * g) / det, (c * d - a * f) / det],
+    [(d * h - e * g) / det, (b * g - a * h) / det, (a * e - b * d) / det],
+  ]
+}
+
+function wgslMat3FromRows(rows) {
+  const col = (j) => `vec3<f32>(${rows[0][j].toPrecision(9)}, ${rows[1][j].toPrecision(9)}, ${rows[2][j].toPrecision(9)})`
+  return `mat3x3<f32>(${col(0)}, ${col(1)}, ${col(2)})`
+}
+
+const TARGET_TRANSFER_WGSL = `
+const ACES_INPUT_INV = ${wgslMat3FromRows(invertRows3(ACES_INPUT_ROWS))};
+const ACES_OUTPUT_INV = ${wgslMat3FromRows(invertRows3(ACES_OUTPUT_ROWS))};
+
+fn srgbToLinear(c: vec3<f32>) -> vec3<f32> {
+  let lo = c / 12.92;
+  let hi = pow((c + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4));
+  return select(hi, lo, c <= vec3<f32>(0.04045));
+}
+
+fn invertAcesFilmic(t: vec3<f32>, exposure: f32) -> vec3<f32> {
+  let z = clamp(ACES_OUTPUT_INV * clamp(t, vec3<f32>(0.0), vec3<f32>(0.995)), vec3<f32>(0.0), vec3<f32>(0.995));
+  let a = 0.983729 * z - vec3<f32>(1.0);
+  let b = 0.983729 * 0.4329510 * z - vec3<f32>(0.0245786);
+  let c = 0.238081 * z + vec3<f32>(0.000090537);
+  let y = (-b - sqrt(max(b * b - 4.0 * a * c, vec3<f32>(0.0)))) / (2.0 * a);
+  return max(ACES_INPUT_INV * y, vec3<f32>(0.0)) * (0.6 / exposure);
+}
+
+fn displayToTarget(display: vec3<f32>, tp: vec4<f32>) -> vec3<f32> {
+  if (tp.z < 0.5) { return display; }
+  let t = clamp(srgbToLinear(display), vec3<f32>(0.0), vec3<f32>(0.995));
+  let mode = i32(tp.x + 0.5);
+  if (mode == 1) { return t / tp.y; }
+  if (mode == 2) { return t / (vec3<f32>(1.0) - t) / tp.y; }
+  if (mode == 4) { return invertAcesFilmic(t, tp.y); }
+  return t;
+}
+`
+
+const BILINEAR_UPSCALE_FS_WGSL = TARGET_TRANSFER_WGSL + `
 @group(0) @binding(0) var srcTex: texture_2d<f32>;
 @group(0) @binding(1) var srcSampler: sampler;
-struct UpscaleParams { uvScale: vec4<f32> }
+struct UpscaleParams { uvScale: vec4<f32>, targetTransfer: vec4<f32> }
 @group(0) @binding(2) var<uniform> up: UpscaleParams;
 
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
-  return textureSampleLevel(srcTex, srcSampler, in.uv * up.uvScale.xy, 0.0);
+  let c = textureSampleLevel(srcTex, srcSampler, in.uv * up.uvScale.xy, 0.0);
+  return vec4<f32>(displayToTarget(c.rgb, up.targetTransfer), c.a);
 }
 `
 
@@ -59,10 +108,10 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 }
 `
 
-const RCAS_FS_WGSL = `
+const RCAS_FS_WGSL = TARGET_TRANSFER_WGSL + `
 @group(0) @binding(0) var srcTex: texture_2d<f32>;
 @group(0) @binding(1) var srcSampler: sampler;
-struct RcasParams { texel: vec4<f32>, sharpness: vec4<f32> }
+struct RcasParams { texel: vec4<f32>, sharpness: vec4<f32>, targetTransfer: vec4<f32> }
 @group(0) @binding(2) var<uniform> rp: RcasParams;
 
 @fragment
@@ -86,7 +135,7 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
   let numerator = w4 * (n + s + e + w) + c;
   let denominator = vec3<f32>(1.0) + 4.0 * w4;
   let result = numerator / denominator;
-  return vec4<f32>(clamp(result, vec3<f32>(0.0), vec3<f32>(4.0)), 1.0);
+  return vec4<f32>(displayToTarget(clamp(result, vec3<f32>(0.0), vec3<f32>(4.0)), rp.targetTransfer), 1.0);
 }
 `
 
@@ -160,6 +209,15 @@ export const RCAS_WGSL = FULLSCREEN_VS_WGSL + RCAS_FS_WGSL
 export const DEPTH_WRITEBACK_WGSL = FULLSCREEN_VS_WGSL + DEPTH_WRITEBACK_FS_WGSL
 export const UPSCALE_DEPTH_WRITEBACK_WGSL = FULLSCREEN_VS_WGSL + UPSCALE_DEPTH_WRITEBACK_FS_WGSL
 
+export const DISPLAY_REFERRED_TRANSFER = [0, 1, 0, 0]
+
+function transferUniform(head, targetTransfer) {
+  const out = new Float32Array(head.length + 4)
+  out.set(head, 0)
+  out.set(targetTransfer || DISPLAY_REFERRED_TRANSFER, head.length)
+  return out
+}
+
 export function createLinearSampler(device) {
   return device.createSampler({ magFilter: 'linear', minFilter: 'linear', addressModeU: 'clamp-to-edge', addressModeV: 'clamp-to-edge' })
 }
@@ -186,7 +244,7 @@ export class BilinearUpscale {
     this.pipelineCache = opts.pipelineCache || new MapspinnerPipelineCache(device)
     this.colorFormat = opts.colorFormat || 'bgra8unorm'
     this.sampler = opts.sampler || createLinearSampler(device)
-    this.uniformBuffer = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
+    this.uniformBuffer = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
     this._bindGroupTex = null
     this.bindGroup = null
     this._pipelineSampleCount = null
@@ -206,9 +264,9 @@ export class BilinearUpscale {
     return this.pipeline
   }
 
-  render(passEncoder, { srcTexture, renderScaleX, renderScaleY, sampleCount, colorFormat }) {
+  render(passEncoder, { srcTexture, renderScaleX, renderScaleY, sampleCount, colorFormat, targetTransfer }) {
     const pipeline = this._pipelineFor(sampleCount || 1, colorFormat || this.colorFormat)
-    this.device.queue.writeBuffer(this.uniformBuffer, 0, new Float32Array([renderScaleX, renderScaleY, 0, 0]))
+    this.device.queue.writeBuffer(this.uniformBuffer, 0, transferUniform([renderScaleX, renderScaleY, 0, 0], targetTransfer))
     if (this._bindGroupTex !== srcTexture) {
       this.bindGroup = this.device.createBindGroup({
         layout: pipeline.getBindGroupLayout(0),
@@ -240,7 +298,7 @@ export class Fsr1Upscale {
     this._rcasPipelineSampleCount = null
     this._rcasPipelineColorFormat = null
     this.easuUniformBuffer = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
-    this.rcasUniformBuffer = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
+    this.rcasUniformBuffer = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST })
     this._intermediate = null
     this._iw = 0; this._ih = 0
     this._easuBindGroupTex = null
@@ -267,7 +325,7 @@ export class Fsr1Upscale {
     this._rcasBindGroup = null
   }
 
-  render(commandEncoder, { srcTexture, srcFullW, srcFullH, renderScaleX, renderScaleY, dstView, dstW, dstH, sharpness, sampleCount, colorFormat }) {
+  render(commandEncoder, { srcTexture, srcFullW, srcFullH, renderScaleX, renderScaleY, dstView, dstW, dstH, sharpness, sampleCount, colorFormat, targetTransfer }) {
     const rcasPipeline = this._rcasPipelineFor(sampleCount || 1, colorFormat || this.colorFormat)
     this._ensureIntermediate(dstW, dstH)
     this.device.queue.writeBuffer(this.easuUniformBuffer, 0, new Float32Array([
@@ -293,10 +351,10 @@ export class Fsr1Upscale {
     easuPass.draw(3, 1, 0, 0)
     easuPass.end()
 
-    this.device.queue.writeBuffer(this.rcasUniformBuffer, 0, new Float32Array([
+    this.device.queue.writeBuffer(this.rcasUniformBuffer, 0, transferUniform([
       1 / dstW, 1 / dstH, 0, 0,
       sharpness != null ? sharpness : 0.5, 0, 0, 0,
-    ]))
+    ], targetTransfer))
     if (!this._rcasBindGroup) {
       this._rcasBindGroup = this.device.createBindGroup({
         layout: rcasPipeline.getBindGroupLayout(0),

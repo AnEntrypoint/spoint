@@ -258,19 +258,20 @@ export async function initMapspinnerPlanetWebGPU(renderer, opts = {}) {
     pass2.end()
 
     const target = resolveThreeOwnedColorTarget(renderer, colorFormat)
+    const targetTransfer = [renderer.toneMapping || 0, renderer.toneMappingExposure || 1, target.colorFormat.endsWith('float') ? 1 : 0, 0]
     if (vdrsOn) {
       const useFsr1 = (typeof window !== 'undefined' && window.__vdrsUpscaleFsr1 === true)
       if (useFsr1) {
         const sharpness = (typeof window !== 'undefined' && typeof window.__vdrsUpscaleFsr1Sharpness === 'number') ? window.__vdrsUpscaleFsr1Sharpness : 0.5
-        fsr1Upscale.render(encoder, { srcTexture: mainColorTex, srcFullW: w, srcFullH: h, renderScaleX: vrs, renderScaleY: vrs, dstView: target.texture.createView(), dstW: w, dstH: h, sharpness, sampleCount: target.sampleCount, colorFormat: target.colorFormat })
+        fsr1Upscale.render(encoder, { srcTexture: mainColorTex, srcFullW: w, srcFullH: h, renderScaleX: vrs, renderScaleY: vrs, dstView: target.texture.createView(), dstW: w, dstH: h, sharpness, sampleCount: target.sampleCount, colorFormat: target.colorFormat, targetTransfer })
       } else {
         const blitPass = encoder.beginRenderPass({ colorAttachments: [{ view: target.texture.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] })
-        bilinearUpscale.render(blitPass, { srcTexture: mainColorTex, renderScaleX: vrs, renderScaleY: vrs, sampleCount: target.sampleCount, colorFormat: target.colorFormat })
+        bilinearUpscale.render(blitPass, { srcTexture: mainColorTex, renderScaleX: vrs, renderScaleY: vrs, sampleCount: target.sampleCount, colorFormat: target.colorFormat, targetTransfer })
         blitPass.end()
       }
     } else {
       const blitPass = encoder.beginRenderPass({ colorAttachments: [{ view: target.texture.createView(), loadOp: 'clear', storeOp: 'store', clearValue: { r: 0, g: 0, b: 0, a: 1 } }] })
-      bilinearUpscale.render(blitPass, { srcTexture: mainColorTex, renderScaleX: 1.0, renderScaleY: 1.0, sampleCount: target.sampleCount, colorFormat: target.colorFormat })
+      bilinearUpscale.render(blitPass, { srcTexture: mainColorTex, renderScaleX: 1.0, renderScaleY: 1.0, sampleCount: target.sampleCount, colorFormat: target.colorFormat, targetTransfer })
       blitPass.end()
     }
 
