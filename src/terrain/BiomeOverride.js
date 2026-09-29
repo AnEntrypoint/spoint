@@ -71,8 +71,8 @@ export function createBiomeOverride(strokes) {
     if (!baseField || typeof baseField.climateAtLocal !== 'function') return baseField
     return {
       ...baseField,
-      climateAtLocal(x, z) {
-        const base = baseField.climateAtLocal(x, z)
+      climateAtLocal(x, z, dir) {
+        const base = baseField.climateAtLocal(x, z, dir)
         const ov = overrideAt(x, z)
         if (!ov) return base
         if (!base) return { temp: ov.temp, humidity: ov.humidity, erosion: ov.erosion, seaBias: 0 }

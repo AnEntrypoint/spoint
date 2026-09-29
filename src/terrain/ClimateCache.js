@@ -1,30 +1,26 @@
-export const SECTOR_M = 8
+import { createPlacementLattice } from './PlacementLattice.js'
 
-function sectorIndex(v) {
-  return Math.floor(v / SECTOR_M)
-}
+export const SECTOR_M = 8
 
 export function createCachedAnchorField(anchorField, frame) {
   if (!anchorField || !frame) return anchorField
   const cache = new Map()
-  const keyOf = (sx, sz) => ((sx & 0x3fffff) * 0x400000) + (sz & 0x3fffff)
+  const lattice = createPlacementLattice(frame.radius, SECTOR_M, 1)
 
-  function atSector(sx, sz) {
-    const k = keyOf(sx, sz)
+  function atDir(dir) {
+    const k = lattice.chunkKeyOfDir(dir[0], dir[1], dir[2])
     let v = cache.get(k)
     if (v !== undefined) return v
-    const cx = sx * SECTOR_M + SECTOR_M * 0.5
-    const cz = sz * SECTOR_M + SECTOR_M * 0.5
-    const dir = frame.localToDir(cx, cz)
-    const sharedScratchClimate = anchorField.sampleDir ? anchorField.sampleDir(dir) : null
+    const centre = lattice.chunkCentreDir(k, [0, 0, 0])
+    const sharedScratchClimate = anchorField.sampleDir ? anchorField.sampleDir(centre) : null
     v = sharedScratchClimate ? { temp: sharedScratchClimate.temp, humidity: sharedScratchClimate.humidity, erosion: sharedScratchClimate.erosion, seaBias: sharedScratchClimate.seaBias } : null
     cache.set(k, v)
     return v
   }
 
   return {
-    climateAtLocal(x, z) {
-      return atSector(sectorIndex(x), sectorIndex(z))
+    climateAtLocal(x, z, dir) {
+      return atDir(dir || frame.localToDir(x, z))
     },
     sampleDir(dir) {
       return anchorField.sampleDir ? anchorField.sampleDir(dir) : null

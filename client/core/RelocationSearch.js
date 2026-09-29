@@ -1,6 +1,7 @@
 import { elevationAtLocal } from '/src/terrain/PlanetFrame.js'
 import { placementsForChunk, VEG } from '/src/terrain/VegPlacement.js'
 import { placementsForRockChunk, ROCK } from '/src/terrain/RockPlacement.js'
+import { latticeFor, chunkKeyAtLocal, chunkCentreLocal } from '/src/terrain/PlacementChart.js'
 
 const COAST_RAYS = 16
 const COAST_STEP_M = 100
@@ -63,13 +64,15 @@ async function hills({ frame, heightAt }, yieldSlice) {
   return best && { x: best.x, z: best.z }
 }
 
-async function densestChunk({ frame, sampler, seed }, placements, chunkSize, yieldSlice) {
+async function densestChunk({ frame, sampler, seed }, placements, spec, yieldSlice) {
+  const lattice = latticeFor(frame, spec)
   let best = null
-  for (let cx = -CHUNK_SCAN_HALF_CHUNKS; cx <= CHUNK_SCAN_HALF_CHUNKS; cx += CHUNK_SCAN_STRIDE) {
-    for (let cz = -CHUNK_SCAN_HALF_CHUNKS; cz <= CHUNK_SCAN_HALF_CHUNKS; cz += CHUNK_SCAN_STRIDE) {
+  for (let sx = -CHUNK_SCAN_HALF_CHUNKS; sx <= CHUNK_SCAN_HALF_CHUNKS; sx += CHUNK_SCAN_STRIDE) {
+    for (let sz = -CHUNK_SCAN_HALF_CHUNKS; sz <= CHUNK_SCAN_HALF_CHUNKS; sz += CHUNK_SCAN_STRIDE) {
       await yieldSlice()
-      const n = placements(cx, cz, frame, sampler.anchorField, seed).length
-      if (n > 0 && (!best || n > best.n)) best = { n, x: (cx + 0.5) * chunkSize, z: (cz + 0.5) * chunkSize }
+      const key = chunkKeyAtLocal(lattice, frame, sx * spec.CHUNK, sz * spec.CHUNK)
+      const n = placements(key, frame, sampler.anchorField, seed).length
+      if (n > 0 && (!best || n > best.n)) { const c = chunkCentreLocal(lattice, frame, key, [0, 0]); best = { n, x: c[0], z: c[1] } }
     }
   }
   return best && { x: best.x, z: best.z }
@@ -78,8 +81,8 @@ async function densestChunk({ frame, sampler, seed }, placements, chunkSize, yie
 const SEARCHES = {
   coast,
   hills,
-  forest: (ctx, yieldSlice) => densestChunk(ctx, placementsForChunk, VEG.CHUNK, yieldSlice),
-  rocks: (ctx, yieldSlice) => densestChunk(ctx, placementsForRockChunk, ROCK.CHUNK, yieldSlice),
+  forest: (ctx, yieldSlice) => densestChunk(ctx, placementsForChunk, VEG, yieldSlice),
+  rocks: (ctx, yieldSlice) => densestChunk(ctx, placementsForRockChunk, ROCK, yieldSlice),
 }
 
 const _cache = new Map()

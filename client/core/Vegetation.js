@@ -1,11 +1,13 @@
 import * as THREE from 'three'
 import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 import { createOctahedralImpostorMaterial, computeObjectBoundingSphere } from 'streaming-gltf/octahedral-impostor-ez'
-import { buildSharedImpostorAtlas, createSharedImpostorMesh, IMPOSTOR_DISSOLVE_FADE_BAND_M } from './VegImpostorTier.js'
+import { buildSharedImpostorAtlas, createSharedImpostorMesh, impostorHandoffDistances } from './VegImpostorTier.js'
 import { placementsForChunk, VEG, SPECIES, VEG_SHAPE_VARIANTS } from '/src/terrain/VegPlacement.js'
 import { createCachedAnchorField } from '/src/terrain/ClimateCache.js'
 import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
 import { createExactPatchFrame } from './ExactPatchFrame.js'
+import { createPlacementRing } from './PlacementRing.js'
+import { createCullFreeze } from './CullFreeze.js'
 import { dbg } from './debug-log.js'
 import { RenderControls } from './RenderControls.js'
 import { loadEzTree, makeWindUniforms, applyWind, awaitMatTextures, capGeo, simplifyGeo, buildSpecies, makeEmptyGeo, TARGET_H } from './VegetationBuild.js'
@@ -235,38 +237,39 @@ export async function createVegetation(opts = {}) {
     } catch (e) { console.warn('[veg] shared impostor build failed (per-species fallback):', e?.message || e); sharedImpostor = null }
   }
 
-  const FAR_LOD_SWAP = Math.max(D2, IMPOSTOR_NEAR_CUTOFF - IMPOSTOR_DISSOLVE_FADE_BAND_M)
+  const FAR_LOD_SWAP = Math.max(D2 * (1 + LOD_HYS), impostorHandoffDistances(IMPOSTOR_NEAR_CUTOFF).meshEnd)
   for (const rec of meshes) {
     if (!rec.impostor && rec.impTile == null) continue
     if (sharedImpostor && rec.impTile != null) {
-      rec.branch.addLOD(makeEmptyGeo(), rec.branch.material, FAR_LOD_SWAP, LOD_HYS)
-      rec.leaf.addLOD(makeEmptyGeo(), rec.leaf.material, FAR_LOD_SWAP, LOD_HYS)
+      rec.branch.addLOD(makeEmptyGeo(), rec.branch.material, FAR_LOD_SWAP, 0)
+      rec.leaf.addLOD(makeEmptyGeo(), rec.leaf.material, FAR_LOD_SWAP, 0)
     } else if (rec.impMat) {
       const impPlane = new THREE.PlaneGeometry(1, 1)
       if (rec.branch.geometry && rec.branch.geometry.boundingSphere) impPlane.boundingSphere = rec.branch.geometry.boundingSphere.clone()
-      rec.branch.addLOD(impPlane, rec.impMat, FAR_LOD_SWAP, LOD_HYS)
-      rec.leaf.addLOD(makeEmptyGeo(), rec.leaf.material, FAR_LOD_SWAP, LOD_HYS)
+      rec.branch.addLOD(impPlane, rec.impMat, FAR_LOD_SWAP, 0)
+      rec.leaf.addLOD(makeEmptyGeo(), rec.leaf.material, FAR_LOD_SWAP, 0)
     }
   }
 
   const loaded = new Map()
   const deferredChunks = new Set()
   const exactFrame = createExactPatchFrame(frame)
+  const placementRing = createPlacementRing(frame, VEG, ringRadius)
   let _occCands = null
   let curSuper = null
   let totalInstances = 0
   const profile = { totalInstances: 0, visibleInstances: 0, drawCalls: 0, updateMs: 0, loads: 0, unloads: 0, bvhRebuilds: 0, species: speciesList.length, buildErrors: buildErr, impostors: meshes.filter(m => m.impostor).length }
 
-  function loadChunk(cx, cz, px, pz) {
-    const key = cx + ',' + cz
+  function loadChunk(key, px, pz) {
     if (loaded.has(key)) return true
     const entries = []
     let list
     exactFrame.beginChunk()
-    try { list = placementsForChunk(cx, cz, exactFrame.placementFrame, anchorField, worldSeed) } catch (_) { list = null }
+    try { list = placementsForChunk(key, exactFrame.placementFrame, anchorField, worldSeed) } catch (_) { list = null }
     if (exactFrame.missing) {
       deferredChunks.add(key)
-      exactFrame.prefetchChunk(cx * CH + CH * 0.5, cz * CH + CH * 0.5)
+      const c = placementRing.centre(key)
+      exactFrame.prefetchChunk(c[0], c[1])
       return false
     }
     deferredChunks.delete(key)
@@ -294,7 +297,8 @@ export async function createVegetation(opts = {}) {
     }
     if (_minY === Infinity) {
       let gh = 0
-      try { gh = frame.groundHeightLocal(cx * CH + CH * 0.5, cz * CH + CH * 0.5) } catch (_) {}
+      const c = placementRing.centre(key)
+      try { gh = frame.groundHeightLocal(c[0], c[1]) } catch (_) {}
       if (!Number.isFinite(gh)) gh = 0
       _minY = gh - 2; _maxY = gh + 2
     }
@@ -305,7 +309,6 @@ export async function createVegetation(opts = {}) {
         _q.setFromAxisAngle(_v.set(0, 1, 0), c.yaw); _leanQ.set(c.tilt[0], c.tilt[1], c.tilt[2], c.tilt[3]); _q.premultiply(_leanQ)
         e.position.set(c.x, c.y, c.z); e.quaternion.copy(_q); e.scale.setScalar(c.scale)
         c.branchId = e.id
-        c.branchEntity = e
       })
       bi = 0
       rec.leaf.addInstances(bucket.length, (e) => {
@@ -313,7 +316,6 @@ export async function createVegetation(opts = {}) {
         _q.setFromAxisAngle(_v.set(0, 1, 0), c.yaw); _leanQ.set(c.tilt[0], c.tilt[1], c.tilt[2], c.tilt[3]); _q.premultiply(_leanQ)
         e.position.set(c.x, c.y, c.z); e.quaternion.copy(_q); e.scale.setScalar(c.scale)
         c.leafId = e.id
-        c.leafEntity = e
       })
       rec.count += bucket.length
       let impIds = null
@@ -323,7 +325,7 @@ export async function createVegetation(opts = {}) {
       for (let i = 0; i < bucket.length; i++) {
         const c = bucket[i]
         const impId = impIds ? impIds[i] : -1
-        entries.push({ rec, branchId: c.branchId, leafId: c.leafId, branchEntity: c.branchEntity, leafEntity: c.leafEntity, impId, windPhase: c.windPhase, tint: c.tint })
+        entries.push({ rec, branchId: c.branchId, leafId: c.leafId, impId, windPhase: c.windPhase, tint: c.tint })
       }
     }
     for (const en of entries) {
@@ -333,7 +335,8 @@ export async function createVegetation(opts = {}) {
         en.rec.branch.setUniformAt(en.branchId, 'tint', tintValue); en.rec.leaf.setUniformAt(en.leafId, 'tint', tintValue)
       } catch (_) {}
     }
-    const _aabbMin = [cx * CH, _minY, cz * CH], _aabbMax = [(cx + 1) * CH, _maxY, (cz + 1) * CH]
+    const b = placementRing.bounds(key, list)
+    const _aabbMin = [b[0], _minY, b[1]], _aabbMax = [b[2], _maxY, b[3]]
     loaded.set(key, { entries, aabbMin: _aabbMin, aabbMax: _aabbMax, occluded: false })
     _occCands = null
     _vegLoadFifo.push(key)
@@ -353,52 +356,41 @@ export async function createVegetation(opts = {}) {
     profile.unloads++
   }
 
-  const CH = VEG.CHUNK
   const LOADS_PER_FRAME = 1
   const DEFERRED_RETRIES_PER_FRAME = 2
-  let _ringClean = false, _scanCx = NaN, _scanCz = NaN
+  let _ringClean = false, _scanKey = NaN
   let _lastPx = NaN, _lastPz = NaN, _idleFrames = 0
   const IDLE_EPS = 0.05, IDLE_STRIDE = 16
-  let _cullFrozen = false
-  let _lastQx = NaN, _lastQy = NaN, _lastQz = NaN, _lastQw = NaN
-  const ROT_COS_EPS = 0.999985
-  const _cullQ = new THREE.Quaternion()
-  let _vegSpiral = null, _vegSpiralSpan = -1
+  const cullFreeze = createCullFreeze((auto) => {
+    for (const rec of meshes) { rec.branch.autoUpdate = auto; rec.leaf.autoUpdate = auto }
+    if (sharedImpostor) sharedImpostor.mesh.autoUpdate = auto
+    profile.cullFrozen = !auto
+  })
+  let _cullDirty = true
   let _vegSpiralCursor = 0
   const _vegLoadFifo = []
-  function _vegSpiralOffsets(span) {
-    const out = []
-    for (let dz = -span; dz <= span; dz++) for (let dx = -span; dx <= span; dx++) if (Math.hypot(dx, dz) <= span) out.push([dx, dz])
-    out.sort((a, b) => Math.hypot(a[0], a[1]) - Math.hypot(b[0], b[1]))
-    return out
-  }
   function streamRing(px, pz) {
-    const cCx = Math.round(px / CH), cCz = Math.round(pz / CH)
-    curSuper = [cCx, cCz]
-    if (_ringClean && cCx === _scanCx && cCz === _scanCz) return
+    const cKey = placementRing.focusKeyAt(px, pz)
+    curSuper = cKey
+    if (_ringClean && cKey === _scanKey) return
     profile.ringScans = (profile.ringScans || 0) + 1
-    const span = Math.ceil(ringRadius / CH)
-    if (span !== _vegSpiralSpan) { _vegSpiral = _vegSpiralOffsets(span); _vegSpiralSpan = span; _vegSpiralCursor = 0 }
-    if (cCx !== _scanCx || cCz !== _scanCz) _vegSpiralCursor = 0
+    const ring = placementRing.ringAt(px, pz, cKey)
+    const _cellChanged = cKey !== _scanKey
+    if (_cellChanged) _vegSpiralCursor = 0
     let didLoad = false
     const retryKeys = []
     for (const key of deferredChunks) { if (retryKeys.length >= DEFERRED_RETRIES_PER_FRAME) break; retryKeys.push(key) }
     for (const key of retryKeys) {
-      const ci = key.indexOf(',')
-      const kx = +key.slice(0, ci), kz = +key.slice(ci + 1)
-      const ddx = kx * CH + CH * 0.5 - px, ddz = kz * CH + CH * 0.5 - pz
       deferredChunks.delete(key)
-      if (ddx * ddx + ddz * ddz > dropRadiusSq) continue
-      if (loadChunk(kx, kz, px, pz)) didLoad = true
+      if (placementRing.distSq(key, px, pz) > dropRadiusSq) continue
+      if (loadChunk(key, px, pz)) didLoad = true
     }
     for (let n = 0; n < LOADS_PER_FRAME && totalInstances < MAX_INSTANCES; n++) {
       let found = false
-      for (; _vegSpiralCursor < _vegSpiral.length; _vegSpiralCursor++) {
-        const dx = _vegSpiral[_vegSpiralCursor][0], dz = _vegSpiral[_vegSpiralCursor][1]
-        const cx = cCx + dx, cz = cCz + dz
-        const ddx = cx * CH + CH * 0.5 - px, ddz = cz * CH + CH * 0.5 - pz
-        if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(cx + ',' + cz) || deferredChunks.has(cx + ',' + cz)) continue
-        if (loadChunk(cx, cz, px, pz)) didLoad = true
+      for (; _vegSpiralCursor < ring.length; _vegSpiralCursor++) {
+        const key = ring[_vegSpiralCursor]
+        if (placementRing.distSq(key, px, pz) > ringRadiusSq || loaded.has(key) || deferredChunks.has(key)) continue
+        if (loadChunk(key, px, pz)) didLoad = true
         found = true; break
       }
       if (!found) break
@@ -407,27 +399,20 @@ export async function createVegetation(opts = {}) {
     while (_vegLoadFifo.length) {
       const key = _vegLoadFifo[0]
       if (!loaded.has(key)) { _vegLoadFifo.shift(); continue }
-      const ci = key.indexOf(',')
-      const kx = +key.slice(0, ci), kz = +key.slice(ci + 1)
-      const ddx = kx * CH + CH * 0.5 - px, ddz = kz * CH + CH * 0.5 - pz
-      if ((ddx * ddx + ddz * ddz) > dropRadiusSq) {
+      if (placementRing.distSq(key, px, pz) > dropRadiusSq) {
         _vegLoadFifo.shift(); unloadChunk(key); didDrop = true
       }
       break
     }
-    const _cellChanged = cCx !== _scanCx || cCz !== _scanCz
     if (!didDrop && _vegLoadFifo.length && (_cellChanged || totalInstances >= MAX_INSTANCES)) {
       for (const key of loaded.keys()) {
-        const ci = key.indexOf(',')
-        const kx = +key.slice(0, ci), kz = +key.slice(ci + 1)
-        const ddx = kx * CH + CH * 0.5 - px, ddz = kz * CH + CH * 0.5 - pz
-        if ((ddx * ddx + ddz * ddz) > dropRadiusSq) {
+        if (placementRing.distSq(key, px, pz) > dropRadiusSq) {
           const fi = _vegLoadFifo.indexOf(key); if (fi >= 0) _vegLoadFifo.splice(fi, 1)
           unloadChunk(key); didDrop = true; break
         }
       }
     }
-    _scanCx = cCx; _scanCz = cCz; _ringClean = !didLoad && !didDrop && deferredChunks.size === 0
+    _scanKey = cKey; _ringClean = !didLoad && !didDrop && deferredChunks.size === 0
     profile.deferredChunks = deferredChunks.size
     return didLoad || didDrop
   }
@@ -437,17 +422,13 @@ export async function createVegetation(opts = {}) {
   async function prewarm(px, pz, maxChunks = 64, budgetMs = 4000) {
     if (!Number.isFinite(px) || !Number.isFinite(pz)) return 0
     const t0 = (typeof performance !== 'undefined') ? performance.now() : 0
-    const cCx = Math.round(px / CH), cCz = Math.round(pz / CH)
-    const span = Math.ceil(ringRadius / CH)
-    if (span !== _vegSpiralSpan) { _vegSpiral = _vegSpiralOffsets(span); _vegSpiralSpan = span }
+    const ring = placementRing.ringAt(px, pz, placementRing.focusKeyAt(px, pz))
     let n = 0
-    for (const [dx, dz] of _vegSpiral) {
+    for (const key of ring) {
       if (n >= maxChunks || totalInstances >= MAX_INSTANCES) break
       if (((typeof performance !== 'undefined') ? performance.now() : 0) - t0 > budgetMs) break
-      const cx = cCx + dx, cz = cCz + dz
-      const ddx = cx * CH + CH * 0.5 - px, ddz = cz * CH + CH * 0.5 - pz
-      if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(cx + ',' + cz)) continue
-      if (loadChunk(cx, cz, px, pz)) n++
+      if (placementRing.distSq(key, px, pz) > ringRadiusSq || loaded.has(key)) continue
+      if (loadChunk(key, px, pz)) n++
       if (n % PREWARM_BATCH === 0) await _yieldFrame()
     }
     if (totalInstances > 0 && !bvhBuilt) ensureBVH()
@@ -558,47 +539,17 @@ export async function createVegetation(opts = {}) {
     else if (Array.isArray(playerPos)) { px = playerPos[0]; pz = playerPos[2] }
     else if (playerPos && Number.isFinite(playerPos.x)) { px = playerPos.x; pz = playerPos.z }
     else if (camera) { camera.getWorldPosition(_camPos); px = _camPos.x; pz = _camPos.z }
-    let cameraStill = false
-    let _streamMutated = false
     if (Number.isFinite(px) && Number.isFinite(pz)) {
       const mdx = px - _lastPx, mdz = pz - _lastPz
       const still = Number.isFinite(mdx) && (mdx * mdx + mdz * mdz) < IDLE_EPS * IDLE_EPS
-      cameraStill = still
       _idleFrames = still ? _idleFrames + 1 : 0
+      _lastPx = px; _lastPz = pz
       profile.streamCalls = (profile.streamCalls || 0) + 1
-      if (!still || (_idleFrames % IDLE_STRIDE) === 0) _streamMutated = !!streamRing(px, pz)
+      if (!still || (_idleFrames % IDLE_STRIDE) === 0) { if (streamRing(px, pz)) _cullDirty = true }
       else profile.streamIdleSkips = (profile.streamIdleSkips || 0) + 1
     }
-    let rotationStill = true
-    if (camera) {
-      camera.getWorldQuaternion(_cullQ)
-      if (Number.isFinite(_lastQw)) {
-        const dot = _cullQ.x * _lastQx + _cullQ.y * _lastQy + _cullQ.z * _lastQz + _cullQ.w * _lastQw
-        rotationStill = Math.abs(dot) >= ROT_COS_EPS
-      } else rotationStill = false
-    }
-    const wantFrozen = cameraStill && rotationStill && shadowStill !== false && _idleFrames > 0 && !_streamMutated
-    if (!wantFrozen) {
-      if (Number.isFinite(px) && Number.isFinite(pz)) { _lastPx = px; _lastPz = pz }
-      if (camera) { _lastQx = _cullQ.x; _lastQy = _cullQ.y; _lastQz = _cullQ.z; _lastQw = _cullQ.w }
-    }
-    if (wantFrozen !== _cullFrozen) {
-      _cullFrozen = wantFrozen
-      const auto = !wantFrozen
-      for (const rec of meshes) { rec.branch.autoUpdate = auto; rec.leaf.autoUpdate = auto }
-      if (sharedImpostor) sharedImpostor.mesh.autoUpdate = auto
-      profile.cullFrozen = wantFrozen
-    }
+    if (shadowStill === false) _cullDirty = true
     if (totalInstances > 0) { try { if (!bvhBuilt) ensureBVH(); else rebuildBVHAfterIncrementalGrowth() } catch (_) { bvhBuilt = true } }
-    if (isWebGPU && camera) {
-      if (!wantFrozen) {
-        camera.getWorldPosition(_camPos)
-        for (const rec of meshes) {
-          if (rec.branch.updateLOD) rec.branch.updateLOD(_camPos)
-          if (rec.leaf.updateLOD) rec.leaf.updateLOD(_camPos)
-        }
-      }
-    }
     for (const rec of meshes) {
       const vis = rec.count > 0
       if (rec.branch.visible !== vis) { rec.branch.visible = vis; rec.leaf.visible = vis }
@@ -606,7 +557,7 @@ export async function createVegetation(opts = {}) {
       if (typeof window !== 'undefined' && window.__vegAllOff) { rec.branch.visible = false; rec.leaf.visible = false }
       if (typeof window !== 'undefined' && window.__vegHideFar && window.__vegHideFar.includes(rec.name)) { rec.branch.visible = false; rec.leaf.visible = false }
     }
-    if (typeof window !== 'undefined' && window.__vegAllOff && sharedImpostor) sharedImpostor.mesh.visible = false
+    if (typeof window !== 'undefined' && sharedImpostor) sharedImpostor.mesh.visible = !window.__vegAllOff
     if (typeof window !== 'undefined' && window.__vegVanishProbe && camera) _vanishProbe(camera)
     _profAccum += dt
     if (_profAccum >= 0.25) {
@@ -644,6 +595,19 @@ export async function createVegetation(opts = {}) {
       try { profile.drawCalls = renderer.info.render.calls } catch (_) {}
       profile.updateMs = ((typeof performance !== 'undefined') ? performance.now() : 0) - t0
       if (typeof window !== 'undefined') window.__vegProfile = profile
+    }
+  }
+
+  function updateVisibility(camera, pose, shadowStill) {
+    const live = _cullDirty || shadowStill === false
+    _cullDirty = false
+    const frozen = cullFreeze.step(camera, pose, live)
+    if (isWebGPU && camera && !frozen) {
+      camera.getWorldPosition(_camPos)
+      for (const rec of meshes) {
+        if (rec.branch.updateLOD) rec.branch.updateLOD(_camPos)
+        if (rec.leaf.updateLOD) rec.leaf.updateLOD(_camPos)
+      }
     }
   }
 
@@ -704,8 +668,8 @@ export async function createVegetation(opts = {}) {
       if (shouldHide === cell.occluded) continue
       cell.occluded = shouldHide
       for (const en of cell.entries) {
-        try { if (en.branchEntity) en.branchEntity.visible = !shouldHide } catch (_) {}
-        try { if (en.leafEntity) en.leafEntity.visible = !shouldHide } catch (_) {}
+        try { en.rec.branch.setVisibilityAt(en.branchId, !shouldHide) } catch (_) {}
+        try { en.rec.leaf.setVisibilityAt(en.leafId, !shouldHide) } catch (_) {}
         if (sharedImpostor && en.impId != null && en.impId >= 0) {
           try { sharedImpostor.mesh.setVisibilityAt(en.impId, !shouldHide) } catch (_) {}
         }
@@ -714,11 +678,12 @@ export async function createVegetation(opts = {}) {
   }
 
   const api = {
-    update, tickWind, prewarm, warmShaders, dispose, _meshes: meshes,
+    update, updateVisibility, tickWind, prewarm, warmShaders, dispose, _meshes: meshes,
+    castShadows: true,
     get sharedImpostor() { return sharedImpostor ? sharedImpostor.mesh : null },
     get totalInstances() { return totalInstances },
     get profile() { return profile },
-    rebuildPlacement() { for (const key of [...loaded.keys()]) unloadChunk(key); deferredChunks.clear(); curSuper = null; _ringClean = false; _scanCx = NaN; _scanCz = NaN },
+    rebuildPlacement() { for (const key of [...loaded.keys()]) unloadChunk(key); deferredChunks.clear(); curSuper = null; _ringClean = false; _scanKey = NaN },
     repaintBiome(x, z, radius, target, strength) { biomeOverride.applyPaintBrush(x, z, radius, target, strength); this.rebuildPlacement() },
     biomeOverride,
     getOcclusionCandidates, applyOcclusion,

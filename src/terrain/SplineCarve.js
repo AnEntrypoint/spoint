@@ -226,8 +226,8 @@ export function createSplineCarveLayer() {
     if (!baseField || typeof baseField.climateAtLocal !== 'function') return baseField
     return {
       ...baseField,
-      climateAtLocal(x, z) {
-        const base = baseField.climateAtLocal(x, z)
+      climateAtLocal(x, z, dir) {
+        const base = baseField.climateAtLocal(x, z, dir)
         const kind = kindAt(x, z)
         if (!kind) return base
         return base ? { ...base, blocked: kind } : { blocked: kind }

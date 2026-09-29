@@ -42,7 +42,7 @@ export function createTrunkColliderStreamer(opts = {}) {
     byteBudget: opts.byteBudget,
     maxCenters: opts.maxCenters,
     bodiesPerChunk: opts.bodiesPerChunk,
-    chunkSize: VEG.CHUNK,
+    latticeSpec: VEG,
     idField: 'trunkId',
     logTag: '[veg]',
     placementsFor: placementsForChunk,

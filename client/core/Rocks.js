@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import { makeRockSDF, marchRockSurface, ROCK_MESH_RES } from '/src/terrain/RockShapes.js'
 import { placementsForRockChunk, ROCK } from '/src/terrain/RockPlacement.js'
 import { createExactPatchFrame } from './ExactPatchFrame.js'
+import { createCullFreeze } from './CullFreeze.js'
+import { createPlacementRing } from './PlacementRing.js'
 import { createCachedAnchorField } from '/src/terrain/ClimateCache.js'
 import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
 import { dbg } from './debug-log.js'
@@ -117,19 +119,20 @@ export async function createRocks(opts = {}) {
   const loaded = new Map()
   const deferredChunks = new Set()
   const exactFrame = createExactPatchFrame(frame)
+  const placementRing = createPlacementRing(frame, ROCK, ringRadius)
   let _occCands = null
   let curSuper = null, totalInstances = 0
   const profile = { totalInstances: 0, visibleInstances: 0, drawCalls: 0, updateMs: 0, loads: 0, unloads: 0, types: ROCK.TYPES, buildErrors: buildErr, batched: true }
 
-  function loadChunk(cx, cz) {
-    const key = cx + ',' + cz
+  function loadChunk(key) {
     if (loaded.has(key)) return true
     const ids = []
     exactFrame.beginChunk()
-    let list; try { list = placementsForRockChunk(cx, cz, exactFrame.placementFrame, anchorField, worldSeed) } catch (_) { list = null }
+    let list; try { list = placementsForRockChunk(key, exactFrame.placementFrame, anchorField, worldSeed) } catch (_) { list = null }
     if (exactFrame.missing) {
       deferredChunks.add(key)
-      exactFrame.prefetchChunk(cx * CH + CH * 0.5, cz * CH + CH * 0.5)
+      const c = placementRing.centre(key)
+      exactFrame.prefetchChunk(c[0], c[1])
       return false
     }
     deferredChunks.delete(key)
@@ -157,11 +160,13 @@ export async function createRocks(opts = {}) {
     }
     if (_minY === Infinity) {
       let gh = 0
-      try { gh = frame.groundHeightLocal(cx * CH + CH * 0.5, cz * CH + CH * 0.5) } catch (_) {}
+      const c = placementRing.centre(key)
+      try { gh = frame.groundHeightLocal(c[0], c[1]) } catch (_) {}
       if (!Number.isFinite(gh)) gh = 0
       _minY = gh - 2; _maxY = gh + 2
     }
-    const _aabbMin = [cx * CH, _minY, cz * CH], _aabbMax = [(cx + 1) * CH, _maxY, cz * CH + CH]
+    const b = placementRing.bounds(key, list)
+    const _aabbMin = [b[0], _minY, b[1]], _aabbMax = [b[2], _maxY, b[3]]
     loaded.set(key, { ids, aabbMin: _aabbMin, aabbMax: _aabbMax, occluded: false })
     _occCands = null
     _rockLoadFifo.push(key)
@@ -176,46 +181,32 @@ export async function createRocks(opts = {}) {
     loaded.delete(key); _occCands = null; meshes[0].count = totalInstances; profile.unloads++
   }
 
-  const CH = ROCK.CHUNK
   const LOADS_PER_FRAME = 3
   const DEFERRED_RETRIES_PER_FRAME = 4
-  let _ringClean = false, _scanCx = NaN, _scanCz = NaN
-  let _rockSpiral = null, _rockSpiralSpan = -1
+  let _ringClean = false, _scanKey = NaN
   let _rockSpiralCursor = 0
   const _rockLoadFifo = []
-  function _rockSpiralOffsets(span) {
-    const out = []
-    for (let dz = -span; dz <= span; dz++) for (let dx = -span; dx <= span; dx++) if (Math.hypot(dx, dz) <= span) out.push([dx, dz])
-    out.sort((a, b) => Math.hypot(a[0], a[1]) - Math.hypot(b[0], b[1]))
-    return out
-  }
   function streamRing(px, pz) {
-    const cCx = Math.round(px / CH), cCz = Math.round(pz / CH)
-    curSuper = [cCx, cCz]
-    if (_ringClean && cCx === _scanCx && cCz === _scanCz) return
+    const cKey = placementRing.focusKeyAt(px, pz)
+    curSuper = cKey
+    if (_ringClean && cKey === _scanKey) return
     profile.ringScans = (profile.ringScans || 0) + 1
-    const span = Math.ceil(ringRadius / CH)
-    if (span !== _rockSpiralSpan) { _rockSpiral = _rockSpiralOffsets(span); _rockSpiralSpan = span; _rockSpiralCursor = 0 }
-    if (cCx !== _scanCx || cCz !== _scanCz) _rockSpiralCursor = 0
+    const ring = placementRing.ringAt(px, pz, cKey)
+    if (cKey !== _scanKey) _rockSpiralCursor = 0
     let didLoad = false
     const retryKeys = []
     for (const key of deferredChunks) { if (retryKeys.length >= DEFERRED_RETRIES_PER_FRAME) break; retryKeys.push(key) }
     for (const key of retryKeys) {
-      const ci = key.indexOf(',')
-      const kx = +key.slice(0, ci), kz = +key.slice(ci + 1)
-      const ddx = kx * CH + CH * 0.5 - px, ddz = kz * CH + CH * 0.5 - pz
       deferredChunks.delete(key)
-      if (ddx * ddx + ddz * ddz > dropRadiusSq) continue
-      if (loadChunk(kx, kz)) didLoad = true
+      if (placementRing.distSq(key, px, pz) > dropRadiusSq) continue
+      if (loadChunk(key)) didLoad = true
     }
     for (let n = 0; n < LOADS_PER_FRAME && totalInstances < MAX_INSTANCES; n++) {
       let found = false
-      for (; _rockSpiralCursor < _rockSpiral.length; _rockSpiralCursor++) {
-        const dx = _rockSpiral[_rockSpiralCursor][0], dz = _rockSpiral[_rockSpiralCursor][1]
-        const cx = cCx + dx, cz = cCz + dz
-        const ddx = cx * CH + CH * 0.5 - px, ddz = cz * CH + CH * 0.5 - pz
-        if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(cx + ',' + cz) || deferredChunks.has(cx + ',' + cz)) continue
-        if (loadChunk(cx, cz)) didLoad = true
+      for (; _rockSpiralCursor < ring.length; _rockSpiralCursor++) {
+        const key = ring[_rockSpiralCursor]
+        if (placementRing.distSq(key, px, pz) > ringRadiusSq || loaded.has(key) || deferredChunks.has(key)) continue
+        if (loadChunk(key)) didLoad = true
         found = true; break
       }
       if (!found) break
@@ -224,33 +215,25 @@ export async function createRocks(opts = {}) {
     while (_rockLoadFifo.length) {
       const key = _rockLoadFifo[0]
       if (!loaded.has(key)) { _rockLoadFifo.shift(); continue }
-      const ci = key.indexOf(','); const kx = +key.slice(0, ci), kz = +key.slice(ci + 1)
-      const ddx = kx * CH + CH * 0.5 - px, ddz = kz * CH + CH * 0.5 - pz
-      if ((ddx * ddx + ddz * ddz) > dropRadiusSq) {
+      if (placementRing.distSq(key, px, pz) > dropRadiusSq) {
         _rockLoadFifo.shift(); unloadChunk(key); didDrop = true
       }
       break
     }
     if (!didDrop && _rockLoadFifo.length) {
       for (const key of loaded.keys()) {
-        const ci = key.indexOf(','); const kx = +key.slice(0, ci), kz = +key.slice(ci + 1)
-        const ddx = kx * CH + CH * 0.5 - px, ddz = kz * CH + CH * 0.5 - pz
-        if ((ddx * ddx + ddz * ddz) > dropRadiusSq) {
+        if (placementRing.distSq(key, px, pz) > dropRadiusSq) {
           const fi = _rockLoadFifo.indexOf(key); if (fi >= 0) _rockLoadFifo.splice(fi, 1)
           unloadChunk(key); didDrop = true; break
         }
       }
     }
-    _scanCx = cCx; _scanCz = cCz; _ringClean = !didLoad && !didDrop && deferredChunks.size === 0
+    _scanKey = cKey; _ringClean = !didLoad && !didDrop && deferredChunks.size === 0
     profile.deferredChunks = deferredChunks.size
   }
 
-  let _cullFrozen = false
-  let _lastPx = NaN, _lastPz = NaN, _idleFrames = 0
-  const IDLE_EPS = 0.05
-  let _lastQx = NaN, _lastQy = NaN, _lastQz = NaN, _lastQw = NaN
-  const ROT_COS_EPS = 0.999985
-  const _cullQ = new THREE.Quaternion()
+  const cullFreeze = createCullFreeze((auto) => { bm.perObjectFrustumCulled = auto; profile.cullFrozen = !auto })
+  let _cullDirty = true
 
   function update(dt, camera, playerPos) {
     const t0 = (typeof performance !== 'undefined') ? performance.now() : 0
@@ -259,32 +242,22 @@ export async function createRocks(opts = {}) {
     else if (Array.isArray(playerPos)) { px = playerPos[0]; pz = playerPos[2] }
     else if (playerPos && Number.isFinite(playerPos.x)) { px = playerPos.x; pz = playerPos.z }
     else if (camera) { camera.getWorldPosition(_camPos); px = _camPos.x; pz = _camPos.z }
-    let cameraStill = false, _streamMutated = false
     if (Number.isFinite(px) && Number.isFinite(pz)) {
-      const mdx = px - _lastPx, mdz = pz - _lastPz
-      cameraStill = Number.isFinite(mdx) && (mdx * mdx + mdz * mdz) < IDLE_EPS * IDLE_EPS
-      _idleFrames = cameraStill ? _idleFrames + 1 : 0
-      _lastPx = px; _lastPz = pz
       const _beforeLoaded = loaded.size
       streamRing(px, pz)
-      _streamMutated = loaded.size !== _beforeLoaded
+      if (loaded.size !== _beforeLoaded) _cullDirty = true
     }
-    let rotationStill = true
-    if (camera) {
-      camera.getWorldQuaternion(_cullQ)
-      if (Number.isFinite(_lastQw)) {
-        const dot = _cullQ.x * _lastQx + _cullQ.y * _lastQy + _cullQ.z * _lastQz + _cullQ.w * _lastQw
-        rotationStill = Math.abs(dot) >= ROT_COS_EPS
-      } else rotationStill = false
-      _lastQx = _cullQ.x; _lastQy = _cullQ.y; _lastQz = _cullQ.z; _lastQw = _cullQ.w
-    }
-    const wantFrozen = cameraStill && rotationStill && _idleFrames > 0 && !_streamMutated
-    if (wantFrozen !== _cullFrozen) { _cullFrozen = wantFrozen; bm.perObjectFrustumCulled = !wantFrozen; profile.cullFrozen = wantFrozen }
     profile.totalInstances = totalInstances; profile.visibleInstances = bm.instanceCount || totalInstances
     try { profile.drawCalls = renderer.info.render.calls } catch (_) {}
     profile.rockDrawCalls = 1
     profile.updateMs = ((typeof performance !== 'undefined') ? performance.now() : 0) - t0
     if (typeof window !== 'undefined') window.__rocksProfile = profile
+  }
+
+  function updateVisibility(camera, pose) {
+    const live = _cullDirty
+    _cullDirty = false
+    cullFreeze.step(camera, pose, live)
   }
 
   function warmShaders(camera) {
@@ -306,17 +279,13 @@ export async function createRocks(opts = {}) {
   async function prewarm(px, pz, budgetMs = 60000) {
     if (!Number.isFinite(px) || !Number.isFinite(pz)) return 0
     const t0 = (typeof performance !== 'undefined') ? performance.now() : 0
-    const cCx = Math.round(px / CH), cCz = Math.round(pz / CH)
-    const span = Math.ceil(ringRadius / CH)
-    if (span !== _rockSpiralSpan) { _rockSpiral = _rockSpiralOffsets(span); _rockSpiralSpan = span }
+    const ring = placementRing.ringAt(px, pz, placementRing.focusKeyAt(px, pz))
     let n = 0
-    for (const [dx, dz] of _rockSpiral) {
+    for (const key of ring) {
       if (totalInstances >= MAX_INSTANCES) break
       if (((typeof performance !== 'undefined') ? performance.now() : 0) - t0 > budgetMs) break
-      const cx = cCx + dx, cz = cCz + dz
-      const ddx = cx * CH + CH * 0.5 - px, ddz = cz * CH + CH * 0.5 - pz
-      if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(cx + ',' + cz)) continue
-      if (loadChunk(cx, cz)) n++
+      if (placementRing.distSq(key, px, pz) > ringRadiusSq || loaded.has(key)) continue
+      if (loadChunk(key)) n++
       if (n % 8 === 0) await _yieldFrame()
     }
     return n
@@ -356,10 +325,10 @@ export async function createRocks(opts = {}) {
     }
   }
 
-  function rebuildPlacement() { for (const key of [...loaded.keys()]) unloadChunk(key); deferredChunks.clear(); curSuper = null; _ringClean = false; _scanCx = NaN; _scanCz = NaN }
+  function rebuildPlacement() { for (const key of [...loaded.keys()]) unloadChunk(key); deferredChunks.clear(); curSuper = null; _ringClean = false; _scanKey = NaN }
   function repaintBiome(x, z, radius, target, strength) { biomeOverride.applyPaintBrush(x, z, radius, target, strength); rebuildPlacement() }
 
-  const api = { update, prewarm, warmShaders, dispose, _meshes: meshes, _bm: bm, get totalInstances() { return totalInstances }, get profile() { return profile }, rebuildPlacement, repaintBiome, biomeOverride, getOcclusionCandidates, applyOcclusion, cfg, renderDistance }
+  const api = { update, updateVisibility, prewarm, warmShaders, dispose, _meshes: meshes, _bm: bm, get totalInstances() { return totalInstances }, get profile() { return profile }, rebuildPlacement, repaintBiome, biomeOverride, getOcclusionCandidates, applyOcclusion, cfg, renderDistance }
   if (typeof window !== 'undefined') window.__rocks = api
   return api
 }

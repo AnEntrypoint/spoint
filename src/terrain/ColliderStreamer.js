@@ -14,7 +14,7 @@ function estimateBodyBytes(a) {
   return _BODY_OVERHEAD_BYTES + n
 }
 
-const chunkKey = (cx, cz) => ((cx & 0x3fffff) * 0x400000) + (cz & 0x3fffff)
+import { latticeFor, ringAroundLocal } from './PlacementChart.js'
 
 function clusterCenters(centers, mergeRadius, maxCenters) {
   const picked = []
@@ -67,7 +67,7 @@ export function createColliderStreamer(spec = {}) {
   const mergeRadius = radius * 0.75
   const maxCenters = Number.isFinite(spec.maxCenters) && spec.maxCenters > 0 ? spec.maxCenters : 8
   const byteBudget = Number.isFinite(spec.byteBudget) && spec.byteBudget > 0 ? spec.byteBudget : cap * DEFAULT_BYTE_BUDGET_CAP_MULTIPLE * DEFAULT_BYTE_BUDGET_BYTES_PER_BODY
-  const CHUNK = spec.chunkSize
+  const latticeSpec = spec.latticeSpec
   const idField = spec.idField
   const placementsFor = spec.placementsFor
   const bodyArgs = spec.bodyArgs
@@ -106,34 +106,31 @@ export function createColliderStreamer(spec = {}) {
   const _EMPTY = Object.freeze([])
   let _budgetDeadline = 0, _newThisPass = 0, _deferred = false, _budgetOff = false
   function _beginBudget(unbudgeted) { _budgetDeadline = _now() + COMPUTE_BUDGET_MS; _newThisPass = 0; _deferred = false; _budgetOff = !!unbudgeted }
-  function chunkPlacements(cx, cz) {
-    const k = chunkKey(cx, cz)
+  function chunkPlacements(k) {
     let v = _chunkCacheGet(k)
     if (v) return v
     if (!_budgetOff && (_newThisPass >= MAX_NEW_CHUNKS_PER_PASS || _now() >= _budgetDeadline)) { _deferred = true; return _EMPTY }
-    v = placementsFor(cx, cz, frame, anchorField, worldSeed); _chunkCacheSet(k, v); _newThisPass++
+    v = placementsFor(k, frame, anchorField, worldSeed); _chunkCacheSet(k, v); _newThisPass++
     return v
   }
 
   const radiusSq = radius * radius, keepRadiusSq = keepRadius * keepRadius
 
   function _classifyOne(cx, cz, keepOut, candMap) {
-    const chunkR = Math.ceil((keepRadius + CHUNK) / CHUNK)
-    const c0x = Math.round(cx / CHUNK), c0z = Math.round(cz / CHUNK)
-    for (let dz = -chunkR; dz <= chunkR; dz++) {
-      for (let dx = -chunkR; dx <= chunkR; dx++) {
-        const list = chunkPlacements(c0x + dx, c0z + dz)
-        for (let i = 0; i < list.length; i++) {
-          const p = list[i]
-          const ddx = p.x - cx, ddz = p.z - cz
-          const d2 = ddx * ddx + ddz * ddz
-          if (d2 <= keepRadiusSq) {
-            const id = p[idField]
-            keepOut.add(id)
-            if (d2 <= radiusSq) {
-              const prev = candMap.get(id)
-              if (!prev || d2 < prev.d) candMap.set(id, { p, d: d2 })
-            }
+    const lattice = latticeFor(frame, latticeSpec)
+    const ring = ringAroundLocal(lattice, frame, cx, cz, keepRadius + lattice.chunkM)
+    for (let r = 0; r < ring.length; r++) {
+      const list = chunkPlacements(ring[r].key)
+      for (let i = 0; i < list.length; i++) {
+        const p = list[i]
+        const ddx = p.x - cx, ddz = p.z - cz
+        const d2 = ddx * ddx + ddz * ddz
+        if (d2 <= keepRadiusSq) {
+          const id = p[idField]
+          keepOut.add(id)
+          if (d2 <= radiusSq) {
+            const prev = candMap.get(id)
+            if (!prev || d2 < prev.d) candMap.set(id, { p, d: d2 })
           }
         }
       }

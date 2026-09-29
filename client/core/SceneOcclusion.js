@@ -8,7 +8,7 @@ const _dbgOcclusion = dbg('occlusion')
 export function createSceneOcclusion(renderer, opts = {}) {
   const tier = new OcclusionQueryTier(renderer, { minCandidates: opts.minCandidates ?? 32, maxQueriesPerFrame: opts.maxQueriesPerFrame ?? 16 })
   const subsystems = []
-  const _occludedKeys = new Set()
+  const _occludedBySub = []
   const _policy = createOcclusionPolicy({
     hideStreak: 2,
     unhideStreak: 2,
@@ -35,7 +35,7 @@ export function createSceneOcclusion(renderer, opts = {}) {
 
   function unregister(name) {
     const i = subsystems.findIndex(s => s.name === name)
-    if (i >= 0) { subsystems.splice(i, 1); _lastSubArrays.splice(i, 1); _candCache = null }
+    if (i >= 0) { subsystems.splice(i, 1); _lastSubArrays.splice(i, 1); _occludedBySub.splice(i, 1); _candCache = null }
   }
 
   const _occCamPos = new THREE.Vector3(), _occCamQ = new THREE.Quaternion()
@@ -69,8 +69,11 @@ export function createSceneOcclusion(renderer, opts = {}) {
     let candidates
     if (changed) {
       candidates = []
-      for (const { subsystem } of subsystems) {
-        try { candidates.push(...subsystem.getOcclusionCandidates()) } catch (e) { _dbgOcclusion('getOcclusionCandidates failed:', e?.message || e) }
+      for (let i = 0; i < subsystems.length; i++) {
+        let arr = null
+        try { arr = subsystems[i].subsystem.getOcclusionCandidates() } catch (e) { _dbgOcclusion('getOcclusionCandidates failed:', e?.message || e) }
+        if (!arr) continue
+        for (const c of arr) { c._occSub = i; c._occKey = i + ':' + c.key; candidates.push(c) }
       }
       _candCache = candidates
     } else {
@@ -81,18 +84,19 @@ export function createSceneOcclusion(renderer, opts = {}) {
     const still = _cameraStillFor(camera) && !changed
     tier.maxQueriesPerFrame = still ? 0 : _configuredBudget
     tier.runQueries(camera, candidates)
-    _occludedKeys.clear()
+    for (const s of _occludedBySub) s.clear()
+    while (_occludedBySub.length < subsystems.length) _occludedBySub.push(new Set())
     _uniform.failOpens = 0; _uniform.flips = 0
     if (changed) {
       _liveKeys.clear()
       _liveInstancesCached = 0
       for (let i = 0; i < candidates.length; i++) {
         const c = candidates[i]
-        _liveKeys.add(c.key)
-        _lastCandByKey.set(c.key, c)
+        _liveKeys.add(c._occKey)
+        _lastCandByKey.set(c._occKey, c)
         _liveInstancesCached += Number.isFinite(c.instanceCount) ? c.instanceCount : 1
-        let st = _streaks.get(c.key)
-        if (!st) { st = _policy.ensureRecord({}); _streaks.set(c.key, st) }
+        let st = _streaks.get(c._occKey)
+        if (!st) { st = _policy.ensureRecord({}); _streaks.set(c._occKey, st) }
         c._occStreak = st
       }
       for (const key of _streaks.keys()) {
@@ -108,20 +112,20 @@ export function createSceneOcclusion(renderer, opts = {}) {
     for (let i = 0; i < candidates.length; i++) {
       const c = candidates[i]
       let st = c._occStreak
-      if (!st) { st = _streaks.get(c.key); if (!st) { st = _policy.ensureRecord({}); _streaks.set(c.key, st) } c._occStreak = st }
+      if (!st) { st = _streaks.get(c._occKey); if (!st) { st = _policy.ensureRecord({}); _streaks.set(c._occKey, st) } c._occStreak = st }
       const resolves = tier.getResolveCount(c)
       const result = _policy.advance(st, resolves, tier.isOccluded(c))
       if (result.flipped) _uniform.flips++
       if (result.failOpen) { _uniform.failOpens++; st._lastFailOpenFrame = _frameCounter }
-      if (st.hidden) { _occludedKeys.add(c.key); _occludedInstances += Number.isFinite(c.instanceCount) ? c.instanceCount : 1 }
+      if (st.hidden) { _occludedBySub[c._occSub].add(c.key); _occludedInstances += Number.isFinite(c.instanceCount) ? c.instanceCount : 1 }
     }
     if (_policy.isAnomalousBatch(_liveKeys.size, _liveInstances, _occludedInstances)) {
       for (const st of _streaks.values()) { _policy.resetRecord(st); st._anomalySkippedFrame = _frameCounter }
-      _occludedKeys.clear()
+      for (const s of _occludedBySub) s.clear()
       _uniform.anomalyTrips++
     }
-    for (const { subsystem } of subsystems) {
-      try { subsystem.applyOcclusion(_occludedKeys) } catch (_) {}
+    for (let i = 0; i < subsystems.length; i++) {
+      try { subsystems[i].subsystem.applyOcclusion(_occludedBySub[i]) } catch (_) {}
     }
   }
 
@@ -159,7 +163,7 @@ export function createSceneOcclusion(renderer, opts = {}) {
     const cands = _candCache || []
     for (const c of cands) {
       if (!c || !c.root || !c.root.position) continue
-      const st = _streaks.get(c.key)
+      const st = _streaks.get(c._occKey)
       let state = 'visible'
       if (st) {
         if (st._anomalySkippedFrame === _frameCounter) state = 'anomaly-skipped'
@@ -172,7 +176,11 @@ export function createSceneOcclusion(renderer, opts = {}) {
     return out
   }
 
-  function snapshotOccludedKeys() { return new Set(_occludedKeys) }
+  function snapshotOccludedKeys() {
+    const out = new Set()
+    for (let i = 0; i < _occludedBySub.length; i++) for (const k of _occludedBySub[i]) out.add(i + ':' + k)
+    return out
+  }
 
   return { register, unregister, runQueries, getStats, getCandidateCount, dispose, supported: () => tier.supported(), snapshotOccludedKeys, setMaxQueriesPerFrame, getMaxQueriesPerFrame, getDebugBoxes }
 }

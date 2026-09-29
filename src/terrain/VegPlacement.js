@@ -1,4 +1,6 @@
-import { elevationAtLocal } from './PlanetFrame.js'
+import {
+  latticeFor, surfaceAlongDir, tangentFrame, tangentFrameQuat, quatMulF32, radialSlopeAt, climateAt, valueNoise3,
+} from './PlacementChart.js'
 
 export const VEG = Object.freeze({
   CHUNK: 32,
@@ -59,22 +61,12 @@ function smoothstep(a, b, x) {
   return t * t * (3 - 2 * t)
 }
 
-function latticeValue(seed, ix, iz) {
-  return hash3(seed, ix, iz) / 4294967296
+export function seaNoise(seed, s, cellM) {
+  return valueNoise3(hash3, seed, s[0], s[1], s[2], cellM)
 }
 
-export function valueNoise(seed, x, z, cellM) {
-  const fx = x / cellM, fz = z / cellM
-  const ix = Math.floor(fx), iz = Math.floor(fz)
-  const tx = fx - ix, tz = fz - iz
-  const sx = tx * tx * (3 - 2 * tx), sz = tz * tz * (3 - 2 * tz)
-  const a = latticeValue(seed, ix, iz), b = latticeValue(seed, ix + 1, iz)
-  const c = latticeValue(seed, ix, iz + 1), d = latticeValue(seed, ix + 1, iz + 1)
-  return (a + (b - a) * sx) + ((c + (d - c) * sx) - (a + (b - a) * sx)) * sz
-}
-
-export function groveAt(x, z) {
-  return valueNoise(GROVE_SEED, x, z, GROVE_CELL_M) * 0.7 + valueNoise(GROVE_SEED ^ 0x9e37, x, z, GROVE_DETAIL_CELL_M) * 0.3
+export function groveAt(s) {
+  return seaNoise(GROVE_SEED, s, GROVE_CELL_M) * 0.7 + seaNoise(GROVE_SEED ^ 0x9e37, s, GROVE_DETAIL_CELL_M) * 0.3
 }
 
 export function tintMultiplier(hue, sat, value) {
@@ -109,26 +101,12 @@ export function rand(h, k) {
   return (x >>> 0) / 4294967296
 }
 
-const TRUNK_ID_QUANTUM_M = 0.04
-export function trunkIdOf(x, z) {
-  const qx = (Math.round(x / TRUNK_ID_QUANTUM_M) & 0xffff) >>> 0
-  const qz = (Math.round(z / TRUNK_ID_QUANTUM_M) & 0xffff) >>> 0
-  let m = 0
-  for (let i = 0; i < 16; i++) m |= ((qx >> i) & 1) << (2 * i) | ((qz >> i) & 1) << (2 * i + 1)
-  return m >>> 0
-}
-
 export const ARIDITY_LINE = 0.28
 
 export const RELIEF_CALIBRATION_BASELINE = 0.01
 
 export function reliefMarginScaleOf(frame) {
   return ((frame && frame.reliefScale) || RELIEF_CALIBRATION_BASELINE) / RELIEF_CALIBRATION_BASELINE
-}
-
-export function elevationAboveSea(frame, x, groundY, z) {
-  const e = elevationAtLocal(frame, x, groundY, z)
-  return Number.isFinite(e) ? e : NaN
 }
 
 export const RENDERED_BEACH_TOP_M = 15
@@ -159,48 +137,68 @@ export function baseDensity(temp, humidity, erosion = 0) {
   return (0.12 + 0.73 * wet * (0.4 + 0.6 * warm)) * (1 - 0.45 * ero)
 }
 
-const VEG_UP_NORMAL = Object.freeze([0, 1, 0])
+const BASE_DENSITY_CEILING = baseDensity(1, 1, 0)
 
-export function classify(x, z, frame, anchorField, h, cellIx, cellIz) {
-  const clim = anchorField
-    ? (anchorField.climateAtLocal ? anchorField.climateAtLocal(x, z) : anchorField.sampleDir(frame.localToDir(x, z)))
-    : null
+export function createPlacementCell(frame) {
+  return { dir: [0, 0, 0], sea: [0, 0, 0], at: [0, 0, 0], row: 0, j: 0, id: 0, area: 1, rho: frame.radius + frame.anchorHeight }
+}
+
+export function placementCellAt(frame, lattice, dec, gx, gz, prejitterSeed, jitterOverCell, kJx, kJz, cell) {
+  const i = dec[1] * lattice.cellsPerChunk + gx, j = dec[2] * lattice.cellsPerChunk + gz
+  const row = lattice.hashRow(dec[0], i)
+  const h = hash3(prejitterSeed, row, j)
+  const d = lattice.cellDir(dec[0], i + 0.5 + (rand(h, kJx) * 2 - 1) * jitterOverCell, j + 0.5 + (rand(h, kJz) * 2 - 1) * jitterOverCell, cell.dir)
+  const r = frame.radius
+  cell.sea[0] = d[0] * r; cell.sea[1] = d[1] * r; cell.sea[2] = d[2] * r
+  cell.row = row; cell.j = j
+  cell.id = lattice.cellId(dec[0], i, j)
+  cell.area = lattice.cellAreaOverTarget(i + 0.5, j + 0.5)
+  return cell
+}
+
+export function surfaceOfCell(frame, cell) {
+  const d = cell.dir
+  const rho = surfaceAlongDir(frame, d[0], d[1], d[2], cell.rho, cell.at)
+  if (Number.isFinite(rho)) cell.rho = rho
+  return rho
+}
+
+export function classify(frame, anchorField, cell) {
+  const s = cell.sea
+  const grove = groveAt(s)
+  const groveWeight = smoothstep(0.30, 0.70, grove)
+  const groveMul = (GROVE_MUL_FLOOR + GROVE_MUL_SPAN * groveWeight) * cell.area
+  const cellHash = hash3(0x5eed | 0, cell.row, cell.j)
+  const coin = rand(cellHash, K_COIN)
+  if (coin >= BASE_DENSITY_CEILING * groveMul) return null
+
+  const rho = surfaceOfCell(frame, cell)
+  if (!Number.isFinite(rho)) return null
+  const x = cell.at[0], groundY = cell.at[1], z = cell.at[2]
+  const clim = climateAt(anchorField, x, z, cell.dir)
   const temp = clim && Number.isFinite(clim.temp) ? clim.temp : 0.5
   const humidity = clim && Number.isFinite(clim.humidity) ? clim.humidity : 0.5
   const erosion = clim && Number.isFinite(clim.erosion) ? clim.erosion : 0.3
   if (clim && Number.isFinite(clim.seaBias) && clim.seaBias < VEG.SEA_REJECT) return null
   if (clim && clim.blocked) return null
-
-  const grove = groveAt(x, z)
-  const groveWeight = smoothstep(0.30, 0.70, grove)
-  const base = baseDensity(temp, humidity, erosion) * (GROVE_MUL_FLOOR + GROVE_MUL_SPAN * groveWeight)
-  const ix = (cellIx !== undefined) ? cellIx : Math.round(x / VEG.CELL)
-  const iz = (cellIz !== undefined) ? cellIz : Math.round(z / VEG.CELL)
-  const cellHash = hash3(0x5eed | 0, ix, iz)
-  const coin = rand(cellHash, K_COIN)
+  const base = baseDensity(temp, humidity, erosion) * groveMul
   if (coin >= base) return null
 
-  const groundY = (h !== undefined) ? h : frame.groundHeightLocal(x, z)
-  if (!Number.isFinite(groundY)) return null
-  const elev = elevationAboveSea(frame, x, groundY, z)
-  if (!Number.isFinite(elev)) return null
+  const elev = rho - frame.radius
   const reliefMarginScale = reliefMarginScaleOf(frame)
   const treeline = VEG.TREELINE * reliefMarginScale
   const treelineMul = elev > treeline ? 1 - (elev - treeline) / (VEG.TREELINE_FADE * reliefMarginScale) : 1
   const densityMul = renderedSoilWeight(elev) * treelineMul
   if (densityMul <= 0 || coin >= base * densityMul) return null
 
-  const D = VEG.SLOPE_D
-  const hx1 = frame.groundHeightLocal(x + D, z), hx0 = frame.groundHeightLocal(x - D, z)
-  const hz1 = frame.groundHeightLocal(x, z + D), hz0 = frame.groundHeightLocal(x, z - D)
-  if (!Number.isFinite(hx1) || !Number.isFinite(hx0) || !Number.isFinite(hz1) || !Number.isFinite(hz0)) return null
-  const dHdx = (hx1 - hx0) / (2 * D), dHdz = (hz1 - hz0) / (2 * D)
-  const grad = Math.hypot(dHdx, dHdz)
-  if (grad > VEG.SLOPE_MAX) return null
+  const tf = tangentFrame(frame, cell.dir[0], cell.dir[1], cell.dir[2])
+  const slope = radialSlopeAt(frame, tf, rho, VEG.SLOPE_D)
+  if (!slope) return null
+  if (Math.hypot(slope[0], slope[1]) > VEG.SLOPE_MAX) return null
 
   const elevNorm = Math.max(0, Math.min(1, elev / VEG.TREELINE))
-  const vT = (rand(cellHash, K_VARIANT) - 0.5) * 0.30 + (valueNoise(PATCH_T_SEED, x, z, PATCH_CELL_M) - 0.5) * 0.60
-  const vH = (rand(cellHash, K_SPECIESH) - 0.5) * 0.30 + (valueNoise(PATCH_H_SEED, x, z, PATCH_CELL_M) - 0.5) * 0.60
+  const vT = (rand(cellHash, K_VARIANT) - 0.5) * 0.30 + (seaNoise(PATCH_T_SEED, s, PATCH_CELL_M) - 0.5) * 0.60
+  const vH = (rand(cellHash, K_SPECIESH) - 0.5) * 0.30 + (seaNoise(PATCH_H_SEED, s, PATCH_CELL_M) - 0.5) * 0.60
   const climateGenus = speciesFor(temp, humidity, elevNorm, vT, vH)
   const understoryChance = UNDERSTORY_BASE + UNDERSTORY_CLEARING_GAIN * (1 - groveWeight)
   const genus = rand(cellHash, K_UNDERSTORY) < understoryChance ? SP_BUSH : climateGenus
@@ -213,8 +211,8 @@ export function classify(x, z, frame, anchorField, h, cellIx, cellIz) {
   const shape = Math.min(VEG_SHAPE_VARIANTS - 1, Math.floor(rand(cellHash, K_SHAPE) * VEG_SHAPE_VARIANTS))
   const leanR = rand(cellHash, K_LEAN)
   const leanMax = genus === SP_BUSH ? LEAN_MAX_BUSH : LEAN_MAX_TREE
-  const tiltQuat = leanQuat(leanR * leanR * leanMax, rand(cellHash, K_LEAN_DIR) * Math.PI * 2)
-  const season = (valueNoise(SEASON_SEED, x, z, SEASON_CELL_M) - 0.5) * 2
+  const tiltQuat = quatMulF32(tangentFrameQuat(tf), leanQuat(leanR * leanR * leanMax, rand(cellHash, K_LEAN_DIR) * Math.PI * 2))
+  const season = (seaNoise(SEASON_SEED, s, SEASON_CELL_M) - 0.5) * 2
   const hue = Math.max(-1, Math.min(1, (rand(cellHash, K_TINT_HUE) * 2 - 1) * TINT_HUE_RANDOM_WEIGHT + season * TINT_HUE_SEASON_WEIGHT))
   const sat = TINT_SAT_LOW + TINT_SAT_SPAN * rand(cellHash, K_TINT_SAT)
   const value = (TINT_BRIGHT_LOW + TINT_BRIGHT_SPAN * rand(cellHash, K_TINT_VAL)) * (1 - TINT_AGE_DARKEN * (scale - 1))
@@ -223,24 +221,21 @@ export function classify(x, z, frame, anchorField, h, cellIx, cellIz) {
   return {
     x: Math.fround(x), y: Math.fround(groundY), z: Math.fround(z),
     species, shape, scale, yaw, windPhase, tint,
-    tiltQuat, normal: VEG_UP_NORMAL,
-    trunkId: trunkIdOf(x, z),
+    tiltQuat, normal: [Math.fround(tf.upL[0]), Math.fround(tf.upL[1]), Math.fround(tf.upL[2])],
+    trunkId: cell.id,
   }
 }
 
-export function placementsForChunk(chunkX, chunkZ, frame, anchorField, worldSeed) {
+export function placementsForChunk(key, frame, anchorField, worldSeed) {
   const out = []
-  const baseX = chunkX * VEG.CHUNK, baseZ = chunkZ * VEG.CHUNK
+  const lattice = latticeFor(frame, VEG)
+  const dec = lattice.decodeChunk(key, [0, 0, 0])
   const seed = (worldSeed | 0) ^ 0x7eed
+  const cell = createPlacementCell(frame)
   for (let gz = 0; gz < VEG.GRID; gz++) {
     for (let gx = 0; gx < VEG.GRID; gx++) {
-      const cellX = baseX + gx * VEG.CELL + VEG.CELL * 0.5
-      const cellZ = baseZ + gz * VEG.CELL + VEG.CELL * 0.5
-      const ix = Math.round(cellX / VEG.CELL), iz = Math.round(cellZ / VEG.CELL)
-      const h = hash3(seed, ix, iz)
-      const jx = (rand(h, K_JITX) * 2 - 1) * VEG.JITTER
-      const jz = (rand(h, K_JITZ) * 2 - 1) * VEG.JITTER
-      const p = classify(cellX + jx, cellZ + jz, frame, anchorField, undefined, ix, iz)
+      placementCellAt(frame, lattice, dec, gx, gz, seed, VEG.JITTER / VEG.CELL, K_JITX, K_JITZ, cell)
+      const p = classify(frame, anchorField, cell)
       if (p) out.push(p)
     }
   }

@@ -9,6 +9,10 @@ const _dbgImpostor = dbg('impostor')
 
 export const IMPOSTOR_DISSOLVE_FADE_BAND_M = 3.0
 
+export function impostorHandoffDistances(nearCutoff) {
+  return { impostorStart: nearCutoff - IMPOSTOR_DISSOLVE_FADE_BAND_M, meshEnd: nearCutoff + IMPOSTOR_DISSOLVE_FADE_BAND_M }
+}
+
 export function buildSharedImpostorAtlas(renderer, speciesAtlases, opts = {}) {
   const list = (speciesAtlases || []).filter(a => a && a.albedo)
   const n = list.length
@@ -130,8 +134,7 @@ export function createSharedImpostorMesh(renderer, atlas, dims, opts = {}) {
   im.perObjectFrustumCulled = true
   im.frustumCulled = false
   if (hasNearLodCutoff) {
-    const hys = Number.isFinite(opts.lodHysteresis) ? opts.lodHysteresis : 0.12
-    try { im.addLOD(_stampUnitCullVolume(new THREE.PlaneGeometry(1, 1)), mat, nearCutoff, hys) } catch (_) {}
+    try { im.addLOD(_stampUnitCullVolume(new THREE.PlaneGeometry(1, 1)), mat, impostorHandoffDistances(nearCutoff).impostorStart, 0) } catch (_) {}
   }
   const _c = new THREE.Vector3()
   function addImpostor(species, baseX, baseY, baseZ) {

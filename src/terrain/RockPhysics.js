@@ -59,7 +59,7 @@ export function createRockColliderStreamer(opts = {}) {
     byteBudget: opts.byteBudget,
     maxCenters: opts.maxCenters,
     bodiesPerChunk: opts.bodiesPerChunk,
-    chunkSize: ROCK.CHUNK,
+    latticeSpec: ROCK,
     idField: 'rockId',
     logTag: '[rocks]',
     placementsFor: placementsForRockChunk,

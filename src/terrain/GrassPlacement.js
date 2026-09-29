@@ -1,4 +1,5 @@
-import { hash3, rand, elevationAboveSea, renderedSoilWeight } from './VegPlacement.js'
+import { hash3, rand, renderedSoilWeight, createPlacementCell, placementCellAt, surfaceOfCell } from './VegPlacement.js'
+import { latticeFor, tangentFrame, tangentToLocal, tangentHeadingInChart, radialSlopeAt, climateAt } from './PlacementChart.js'
 
 export const GRASS = Object.freeze({
   CHUNK: 32,
@@ -25,37 +26,34 @@ export function grassDensity(temp, humidity, slopeRatio) {
   return _clamp01((0.5 + 0.5 * wet * (0.45 + 0.55 * warm)) * (0.35 + 0.65 * flat))
 }
 
-export function classify(x, z, frame, anchorField, h, cellIx, cellIz) {
-  const clim = anchorField
-    ? (anchorField.climateAtLocal ? anchorField.climateAtLocal(x, z) : anchorField.sampleDir(frame.localToDir(x, z)))
-    : null
+export function classify(frame, anchorField, cell) {
+  const cellHash = hash3(0x6a55 | 0, cell.row, cell.j)
+  const coin = rand(cellHash, K_COIN)
+  if (coin >= cell.area) return null
+
+  const rho = surfaceOfCell(frame, cell)
+  if (!Number.isFinite(rho)) return null
+  const x = cell.at[0], groundY = cell.at[1], z = cell.at[2]
+  const clim = climateAt(anchorField, x, z, cell.dir)
   const temp = clim && Number.isFinite(clim.temp) ? clim.temp : 0.5
   const humidity = clim && Number.isFinite(clim.humidity) ? clim.humidity : 0.5
   if (clim && Number.isFinite(clim.seaBias) && clim.seaBias < GRASS.SEA_REJECT) return null
   if (clim && clim.blocked) return null
 
-  const ix = (cellIx !== undefined) ? cellIx : Math.round(x / GRASS.CELL)
-  const iz = (cellIz !== undefined) ? cellIz : Math.round(z / GRASS.CELL)
-  const cellHash = hash3(0x6a55 | 0, ix, iz)
-  const coin = rand(cellHash, K_COIN)
-  const ceiling = grassDensity(temp, humidity, 0)
+  const ceiling = grassDensity(temp, humidity, 0) * cell.area
   if (coin >= ceiling) return null
-
-  const groundY = (h !== undefined) ? h : frame.groundHeightLocal(x, z)
-  if (!Number.isFinite(groundY)) return null
-  const soil = renderedSoilWeight(elevationAboveSea(frame, x, groundY, z))
+  const soil = renderedSoilWeight(rho - frame.radius)
   if (soil <= 0 || coin >= ceiling * soil) return null
 
-  const D = GRASS.SLOPE_D
-  const hx1 = frame.groundHeightLocal(x + D, z), hx0 = frame.groundHeightLocal(x - D, z)
-  const hz1 = frame.groundHeightLocal(x, z + D), hz0 = frame.groundHeightLocal(x, z - D)
-  if (!Number.isFinite(hx1) || !Number.isFinite(hx0) || !Number.isFinite(hz1) || !Number.isFinite(hz0)) return null
-  const dHdx = (hx1 - hx0) / (2 * D), dHdz = (hz1 - hz0) / (2 * D)
+  const tf = tangentFrame(frame, cell.dir[0], cell.dir[1], cell.dir[2])
+  const slope = radialSlopeAt(frame, tf, rho, GRASS.SLOPE_D)
+  if (!slope) return null
+  const dHdx = slope[0], dHdz = slope[1]
   const grad = Math.hypot(dHdx, dHdz)
   if (grad > GRASS.SLOPE_MAX) return null
   const slopeRatio = grad / (grad + 1)
 
-  const accept = grassDensity(temp, humidity, slopeRatio) * soil
+  const accept = grassDensity(temp, humidity, slopeRatio) * soil * cell.area
   if (coin >= accept) return null
 
   const SUN_DIR = _GRASS_FIXED_APPROX_SUN_DIR
@@ -64,48 +62,43 @@ export function classify(x, z, frame, anchorField, h, cellIx, cellIz) {
   const ndl = (normX * SUN_DIR[0] + normY * SUN_DIR[1] + normZ * SUN_DIR[2]) / nLen
   const cellShadow = Math.fround(_clamp01(0.55 + 0.45 * ndl))
 
-  return { x: Math.fround(x), y: Math.fround(groundY), z: Math.fround(z), cellHash, shadow: cellShadow, dHdx, dHdz }
+  return { x, y: groundY, z, cellHash, shadow: cellShadow, dHdx, dHdz, tf, heading: tangentHeadingInChart(tf) }
 }
 
-function blade(cellHash, bi, x, y, z, cellShadow, dHdx, dHdz) {
-  const h = hash3(cellHash | 0, bi + 1, 0)
+function blade(p, bi) {
+  const h = hash3(p.cellHash | 0, bi + 1, 0)
   const ang = rand(h, K_YAW) * Math.PI * 2, rad = Math.sqrt(rand(h, K_JITX)) * GRASS.CLUMP_R
-  const offX = Math.cos(ang) * rad, offZ = Math.sin(ang) * rad
+  const offE = Math.cos(ang) * rad, offN = Math.sin(ang) * rad
+  const off = tangentToLocal(p.tf, offE, p.dHdx * offE + p.dHdz * offN, offN)
   return {
-    x: Math.fround(x + offX), y: Math.fround(y + dHdx * offX + dHdz * offZ), z: Math.fround(z + offZ),
+    x: Math.fround(p.x + off[0]), y: Math.fround(p.y + off[1]), z: Math.fround(p.z + off[2]),
     scale: Math.fround(GRASS.SCALE_MIN + rand(h, K_SCALE) * GRASS.SCALE_SPAN),
-    yaw: Math.fround(rand(h, K_YAW) * Math.PI * 2),
+    yaw: Math.fround(rand(h, K_YAW) * Math.PI * 2 + p.heading),
     tint: Math.fround(rand(h, K_TINT)),
     windPhase: Math.fround(rand(h, K_WIND) * Math.PI * 2),
-    shadow: Number.isFinite(cellShadow) ? cellShadow : 1,
+    shadow: Number.isFinite(p.shadow) ? p.shadow : 1,
   }
 }
 
-function placeGrassCell(chunkX, chunkZ, gx, gz, frame, anchorField, seed, out) {
-  const baseX = chunkX * GRASS.CHUNK, baseZ = chunkZ * GRASS.CHUNK
-  const cellX = baseX + gx * GRASS.CELL + GRASS.CELL * 0.5
-  const cellZ = baseZ + gz * GRASS.CELL + GRASS.CELL * 0.5
-  const ix = Math.round(cellX / GRASS.CELL), iz = Math.round(cellZ / GRASS.CELL)
-  const hh = hash3(seed, ix, iz)
-  const jx = (rand(hh, K_JITX) * 2 - 1) * GRASS.JITTER
-  const jz = (rand(hh, K_JITZ) * 2 - 1) * GRASS.JITTER
-  const p = classify(cellX + jx, cellZ + jz, frame, anchorField, undefined, ix, iz)
+function placeGrassCell(frame, lattice, dec, gx, gz, anchorField, seed, cell, out) {
+  placementCellAt(frame, lattice, dec, gx, gz, seed, GRASS.JITTER / GRASS.CELL, K_JITX, K_JITZ, cell)
+  const p = classify(frame, anchorField, cell)
   if (!p) return 0
-  for (let b = 0; b < GRASS.BLADES_PER_CELL; b++) out.push(blade(p.cellHash, b, p.x, p.y, p.z, p.shadow, p.dHdx, p.dHdz))
+  for (let b = 0; b < GRASS.BLADES_PER_CELL; b++) out.push(blade(p, b))
   return GRASS.BLADES_PER_CELL
 }
 
-export function placementsForGrassChunk(chunkX, chunkZ, frame, anchorField, worldSeed) {
-  const out = []
-  const seed = (worldSeed | 0) ^ 0x6a55
-  for (let gz = 0; gz < GRASS.GRID; gz++)
-    for (let gx = 0; gx < GRASS.GRID; gx++)
-      placeGrassCell(chunkX, chunkZ, gx, gz, frame, anchorField, seed, out)
-  return out
+export function placementsForGrassChunk(key, frame, anchorField, worldSeed) {
+  const cursor = createGrassChunkCursor(key, frame, anchorField, worldSeed, () => 0)
+  cursor.step(Infinity)
+  return cursor.blades
 }
 
-export function createGrassChunkCursor(chunkX, chunkZ, frame, anchorField, worldSeed, now) {
+export function createGrassChunkCursor(key, frame, anchorField, worldSeed, now) {
   const seed = (worldSeed | 0) ^ 0x6a55
+  const lattice = latticeFor(frame, GRASS)
+  const dec = lattice.decodeChunk(key, [0, 0, 0])
+  const cell = createPlacementCell(frame)
   const clock = (typeof now === 'function') ? now : ((typeof performance !== 'undefined') ? () => performance.now() : () => 0)
   const blades = []
   let gx = 0, gz = 0, done = (GRASS.GRID <= 0)
@@ -113,7 +106,7 @@ export function createGrassChunkCursor(chunkX, chunkZ, frame, anchorField, world
     if (done) return done
     const t0 = clock()
     do {
-      placeGrassCell(chunkX, chunkZ, gx, gz, frame, anchorField, seed, blades)
+      placeGrassCell(frame, lattice, dec, gx, gz, anchorField, seed, cell, blades)
       if (++gx >= GRASS.GRID) { gx = 0; if (++gz >= GRASS.GRID) { done = true; break } }
     } while (clock() - t0 < budgetMs)
     return done

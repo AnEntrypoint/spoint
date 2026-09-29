@@ -97,5 +97,5 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
     return surf
   }
   const elevationAtDir = (d) => sampler.heightAt(_norm(d))
-  return { radius, up, east, north, anchorDir: up, anchorHeight, anchorSurfaceWorld, offsetY, reliefScale: _reliefScale, localToDir, solveSurfaceY, groundHeightLocal, localToWorld, elevationAtDir }
+  return { radius, up, east, north, anchorDir: up, anchorHeight, anchorSurfaceWorld, offsetY, reliefScale: _reliefScale, localToDir, solveSurfaceY, groundHeightLocal, cpuGroundHeightLocal: groundHeightLocal, localToWorld, elevationAtDir }
 }

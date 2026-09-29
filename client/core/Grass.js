@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 import { createExactPatchFrame } from './ExactPatchFrame.js'
+import { createCullFreeze } from './CullFreeze.js'
+import { createPlacementRing } from './PlacementRing.js'
 import { placementsForGrassChunk, createGrassChunkCursor, GRASS } from '/src/terrain/GrassPlacement.js'
 import { createCachedAnchorField } from '/src/terrain/ClimateCache.js'
 import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
@@ -76,15 +78,15 @@ export async function createGrass(opts = {}) {
   const loaded = new Map()
   const deferredChunks = new Set()
   const exactFrame = createExactPatchFrame(frame)
+  const placementRing = createPlacementRing(frame, GRASS, ringRadius)
   let _occCands = null
   let totalInstances = 0
   const profile = { totalInstances: 0, loads: 0, unloads: 0, updateMs: 0, grassDrawCalls: 2, ringScans: 0, cullMs: 0, chunksCulled: 0 }
   const _frustum = new THREE.Frustum(), _projMat = new THREE.Matrix4(), _cullBox = new THREE.Box3()
 
   function commitChunk(key, list, px, pz) {
-    const ci2 = key.indexOf(','); const kcx = +key.slice(0, ci2), kcz = +key.slice(ci2 + 1)
-    const minX = kcx * CH, maxX = minX + CH, minZ = kcz * CH, maxZ = minZ + CH
-    const centerX = minX + CH * 0.5, centerZ = minZ + CH * 0.5
+    const [minX, minZ, maxX, maxZ] = placementRing.bounds(key, list)
+    const [centerX, centerZ] = placementRing.centre(key)
     let useMid = false
     if (Number.isFinite(px) && Number.isFinite(pz)) {
       const nearestX = px < minX ? minX : (px > maxX ? maxX : px)
@@ -121,24 +123,24 @@ export async function createGrass(opts = {}) {
       if (!Number.isFinite(gh)) gh = 0
       _minY = gh - 1; _maxY = gh + 1
     }
-    const _aabbMin = [kcx * CH, _minY, kcz * CH], _aabbMax = [(kcx + 1) * CH, _maxY, (kcz + 1) * CH]
+    const _aabbMin = [minX, _minY, minZ], _aabbMax = [maxX, _maxY, maxZ]
     loaded.set(key, { entries, mesh: targetMesh, aabbMin: _aabbMin, aabbMax: _aabbMax, occluded: false, inFrustum: true })
     _occCands = null
     profile.loads++
   }
 
-  function loadChunk(cx, cz, px, pz) {
-    const key = cx + ',' + cz
+  function loadChunk(key, px, pz) {
     if (loaded.has(key)) return
     exactFrame.beginChunk()
-    let list; try { list = placementsForGrassChunk(cx, cz, exactFrame.placementFrame, anchorField, worldSeed) } catch (_) { list = null }
-    if (exactFrame.missing) { deferGrassChunk(cx, cz); return }
+    let list; try { list = placementsForGrassChunk(key, exactFrame.placementFrame, anchorField, worldSeed) } catch (_) { list = null }
+    if (exactFrame.missing) { deferGrassChunk(key); return }
     commitChunk(key, list, px, pz)
   }
 
-  function deferGrassChunk(cx, cz) {
-    deferredChunks.add(cx + ',' + cz)
-    exactFrame.prefetchChunk(cx * CH + CH * 0.5, cz * CH + CH * 0.5)
+  function deferGrassChunk(key) {
+    deferredChunks.add(key)
+    const c = placementRing.centre(key)
+    exactFrame.prefetchChunk(c[0], c[1])
   }
 
   function unloadChunk(key) {
@@ -148,15 +150,7 @@ export async function createGrass(opts = {}) {
     loaded.delete(key); _occCands = null; profile.unloads++
   }
 
-  const CH = GRASS.CHUNK
-  let _ringClean = false, _scanCx = NaN, _scanCz = NaN
-  function _spiralOffsets(span) {
-    const out = []
-    for (let dz = -span; dz <= span; dz++) for (let dx = -span; dx <= span; dx++) if (Math.hypot(dx, dz) <= span) out.push([dx, dz])
-    out.sort((a, b) => Math.hypot(a[0], a[1]) - Math.hypot(b[0], b[1]))
-    return out
-  }
-  let _spiral = null, _spiralSpan = -1
+  let _ringClean = false, _scanKey = NaN
   const LOAD_BUDGET = Number.isFinite(cfg.grassLoadBudgetMs) ? cfg.grassLoadBudgetMs : 4
   let _inflight = null
   function streamRing(px, pz) {
@@ -164,39 +158,31 @@ export async function createGrass(opts = {}) {
       if (stepInflight()) finishInflight()
       else { _ringClean = false; return }
     }
-    const cCx = Math.round(px / CH), cCz = Math.round(pz / CH)
-    if (_ringClean && cCx === _scanCx && cCz === _scanCz) return
+    const cKey = placementRing.focusKeyAt(px, pz)
+    if (_ringClean && cKey === _scanKey) return
     profile.ringScans++
-    const span = Math.ceil(ringRadius / CH)
-    if (span !== _spiralSpan) { _spiral = _spiralOffsets(span); _spiralSpan = span }
+    const ring = placementRing.ringAt(px, pz, cKey)
     let didLoad = false, didDrop = false
     if (totalInstances < MAX_INSTANCES) {
       for (const key of deferredChunks) {
-        const ci = key.indexOf(','); const kx = +key.slice(0, ci), kz = +key.slice(ci + 1)
-        const ddx = kx * CH + CH * 0.5 - px, ddz = kz * CH + CH * 0.5 - pz
         deferredChunks.delete(key)
-        if (ddx * ddx + ddz * ddz > dropRadiusSq) continue
-        startInflight(kx, kz, px, pz)
+        if (placementRing.distSq(key, px, pz) > dropRadiusSq) continue
+        startInflight(key, px, pz)
         didLoad = true; break
       }
     }
     if (totalInstances < MAX_INSTANCES && !_inflight) {
-      for (const [dx, dz] of _spiral) {
-        const cx = cCx + dx, cz = cCz + dz
-        const key = cx + ',' + cz
-        const ddx = cx * CH + CH * 0.5 - px, ddz = cz * CH + CH * 0.5 - pz
-        if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(key) || deferredChunks.has(key)) continue
-        startInflight(cx, cz, px, pz)
+      for (const key of ring) {
+        if (placementRing.distSq(key, px, pz) > ringRadiusSq || loaded.has(key) || deferredChunks.has(key)) continue
+        startInflight(key, px, pz)
         didLoad = true; break
       }
     }
     for (const key of loaded.keys()) {
       if (_inflight && key === _inflight.key) continue
-      const ci = key.indexOf(','); const kx = +key.slice(0, ci), kz = +key.slice(ci + 1)
-      const ddx = kx * CH + CH * 0.5 - px, ddz = kz * CH + CH * 0.5 - pz
-      if ((ddx * ddx + ddz * ddz) > dropRadiusSq) { unloadChunk(key); didDrop = true; break }
+      if (placementRing.distSq(key, px, pz) > dropRadiusSq) { unloadChunk(key); didDrop = true; break }
     }
-    _scanCx = cCx; _scanCz = cCz; _ringClean = !didLoad && !didDrop && !_inflight && deferredChunks.size === 0
+    _scanKey = cKey; _ringClean = !didLoad && !didDrop && !_inflight && deferredChunks.size === 0
     profile.deferredChunks = deferredChunks.size
   }
 
@@ -208,27 +194,53 @@ export async function createGrass(opts = {}) {
   }
 
   function finishInflight() {
-    const { key, cursor, px, pz, missing, cx, cz } = _inflight
+    const { key, cursor, px, pz, missing } = _inflight
     _inflight = null
     loaded.delete(key)
-    if (missing) { deferGrassChunk(cx, cz); return }
+    if (missing) { deferGrassChunk(key); return }
     commitChunk(key, cursor.blades, px, pz)
   }
 
-  function startInflight(cx, cz, px, pz) {
-    const key = cx + ',' + cz
+  function startInflight(key, px, pz) {
     loaded.set(key, { entries: [], pending: true })
     exactFrame.beginChunk()
-    _inflight = { key, cx, cz, cursor: createGrassChunkCursor(cx, cz, exactFrame.placementFrame, anchorField, worldSeed), px, pz, missing: false }
+    _inflight = { key, cursor: createGrassChunkCursor(key, exactFrame.placementFrame, anchorField, worldSeed), px, pz, missing: false }
     if (stepInflight()) finishInflight()
   }
 
-  let _cullFrozen = false
-  let _lastPx = NaN, _lastPz = NaN, _idleFrames = 0
+  let _lastPx = NaN, _lastPz = NaN
   const IDLE_EPS = 0.05
-  let _lastQx = NaN, _lastQy = NaN, _lastQz = NaN, _lastQw = NaN
-  const ROT_COS_EPS = 0.999985
-  const _cullQ = new THREE.Quaternion()
+  const cullFreeze = createCullFreeze((auto) => { im.autoUpdate = auto; imMid.autoUpdate = auto; profile.cullFrozen = !auto })
+  let _cullDirty = true
+
+  function cullChunksToFrustum(camera) {
+    const tc0 = (typeof performance !== 'undefined') ? performance.now() : 0
+    camera.updateMatrixWorld()
+    _projMat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
+    _frustum.setFromProjectionMatrix(_projMat)
+    let culledCount = 0
+    for (const [, cell] of loaded) {
+      if (cell.pending) continue
+      _cullBox.min.set(cell.aabbMin[0], cell.aabbMin[1], cell.aabbMin[2])
+      _cullBox.max.set(cell.aabbMax[0], cell.aabbMax[1], cell.aabbMax[2])
+      const inFrustum = _frustum.intersectsBox(_cullBox)
+      if (!inFrustum) culledCount++
+      if (inFrustum === cell.inFrustum) continue
+      cell.inFrustum = inFrustum
+      if (cell.occluded) continue
+      const mesh = cell.mesh || im
+      for (const en of cell.entries) { try { mesh.setVisibilityAt(en.id, inFrustum) } catch (_) {} }
+    }
+    profile.chunksCulled = culledCount
+    profile.cullMs = ((typeof performance !== 'undefined') ? performance.now() : 0) - tc0
+  }
+
+  function updateVisibility(camera, pose) {
+    if (!camera) return
+    const live = _cullDirty
+    _cullDirty = false
+    if (!cullFreeze.step(camera, pose, live)) cullChunksToFrustum(camera)
+  }
 
   function setBenders(list) {
     if (typeof window !== 'undefined' && window.__grassBend === false) list = null
@@ -287,14 +299,14 @@ export async function createGrass(opts = {}) {
     else if (Array.isArray(playerPos)) { px = playerPos[0]; pz = playerPos[2] }
     else if (playerPos && Number.isFinite(playerPos.x)) { px = playerPos.x; pz = playerPos.z }
     else if (camera) { camera.getWorldPosition(_camPos); px = _camPos.x; pz = _camPos.z }
-    let cameraStill = false, _streamMutated = false
+    let cameraStill = false
     if (Number.isFinite(px) && Number.isFinite(pz)) {
       const mdx = px - _lastPx, mdz = pz - _lastPz
       cameraStill = Number.isFinite(mdx) && (mdx * mdx + mdz * mdz) < IDLE_EPS * IDLE_EPS
-      _idleFrames = cameraStill ? _idleFrames + 1 : 0
+      _lastPx = px; _lastPz = pz
       const _beforeInflight = !!_inflight, _beforeLoaded = loaded.size
       streamRing(px, pz)
-      _streamMutated = (!!_inflight !== _beforeInflight) || (loaded.size !== _beforeLoaded)
+      if ((!!_inflight !== _beforeInflight) || (loaded.size !== _beforeLoaded)) _cullDirty = true
       wind.uCamPosXZ.value.set(px, pz)
       const decalOff = (typeof window !== 'undefined' && window.__grassDecal === false)
       const nowMs = t0 || ((typeof performance !== 'undefined') ? performance.now() : Date.now())
@@ -309,45 +321,7 @@ export async function createGrass(opts = {}) {
         wind.uDecalCount.value = 0
       }
     }
-    let rotationStill = true
-    if (camera) {
-      camera.getWorldQuaternion(_cullQ)
-      if (Number.isFinite(_lastQw)) {
-        const dot = _cullQ.x * _lastQx + _cullQ.y * _lastQy + _cullQ.z * _lastQz + _cullQ.w * _lastQw
-        rotationStill = Math.abs(dot) >= ROT_COS_EPS
-      } else rotationStill = false
-    }
-    const wantFrozen = cameraStill && rotationStill && _idleFrames > 0 && !_streamMutated
-    if (!wantFrozen) {
-      if (Number.isFinite(px) && Number.isFinite(pz)) { _lastPx = px; _lastPz = pz }
-      if (camera) { _lastQx = _cullQ.x; _lastQy = _cullQ.y; _lastQz = _cullQ.z; _lastQw = _cullQ.w }
-    }
-    if (wantFrozen !== _cullFrozen) {
-      _cullFrozen = wantFrozen
-      im.autoUpdate = !wantFrozen; imMid.autoUpdate = !wantFrozen
-      profile.cullFrozen = wantFrozen
-    }
     wind.uGrassRing.value = ringRadius
-    if (!wantFrozen && camera) {
-      const tc0 = (typeof performance !== 'undefined') ? performance.now() : 0
-      _projMat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
-      _frustum.setFromProjectionMatrix(_projMat)
-      let culledCount = 0
-      for (const [key, cell] of loaded) {
-        if (cell.pending) continue
-        _cullBox.min.set(cell.aabbMin[0], cell.aabbMin[1], cell.aabbMin[2])
-        _cullBox.max.set(cell.aabbMax[0], cell.aabbMax[1], cell.aabbMax[2])
-        const inFrustum = _frustum.intersectsBox(_cullBox)
-        if (inFrustum === cell.inFrustum) { if (!inFrustum) culledCount++; continue }
-        cell.inFrustum = inFrustum
-        if (!inFrustum) culledCount++
-        if (cell.occluded) continue
-        const mesh = cell.mesh || im
-        for (const en of cell.entries) { try { mesh.setVisibilityAt(en.id, inFrustum) } catch (_) {} }
-      }
-      profile.chunksCulled = culledCount
-      profile.cullMs = ((typeof performance !== 'undefined') ? performance.now() : 0) - tc0
-    }
     profile.totalInstances = totalInstances
     profile.updateMs = ((typeof performance !== 'undefined') ? performance.now() : 0) - t0
     if (typeof window !== 'undefined') window.__grassProfile = profile
@@ -405,26 +379,22 @@ export async function createGrass(opts = {}) {
   async function prewarm(px, pz, budgetMs = 60000) {
     if (!Number.isFinite(px) || !Number.isFinite(pz)) return 0
     const t0 = (typeof performance !== 'undefined') ? performance.now() : 0
-    const cCx = Math.round(px / CH), cCz = Math.round(pz / CH)
-    const span = Math.ceil(ringRadius / CH)
-    if (span !== _spiralSpan) { _spiral = _spiralOffsets(span); _spiralSpan = span }
+    const ring = placementRing.ringAt(px, pz, placementRing.focusKeyAt(px, pz))
     let n = 0
-    for (const [dx, dz] of _spiral) {
+    for (const key of ring) {
       if (totalInstances >= MAX_INSTANCES) break
       if (((typeof performance !== 'undefined') ? performance.now() : 0) - t0 > budgetMs) break
-      const cx = cCx + dx, cz = cCz + dz
-      const ddx = cx * CH + CH * 0.5 - px, ddz = cz * CH + CH * 0.5 - pz
-      if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(cx + ',' + cz) || deferredChunks.has(cx + ',' + cz)) continue
-      loadChunk(cx, cz, px, pz); if (!deferredChunks.has(cx + ',' + cz)) n++
+      if (placementRing.distSq(key, px, pz) > ringRadiusSq || loaded.has(key) || deferredChunks.has(key)) continue
+      loadChunk(key, px, pz); if (!deferredChunks.has(key)) n++
       if (n % 8 === 0) await _yieldFrame()
     }
     return n
   }
 
-  function rebuildPlacement() { _inflight = null; deferredChunks.clear(); for (const key of [...loaded.keys()]) unloadChunk(key); _ringClean = false; _scanCx = NaN; _scanCz = NaN }
+  function rebuildPlacement() { _inflight = null; deferredChunks.clear(); for (const key of [...loaded.keys()]) unloadChunk(key); _ringClean = false; _scanKey = NaN }
   function repaintBiome(x, z, radius, target, strength) { biomeOverride.applyPaintBrush(x, z, radius, target, strength); rebuildPlacement() }
 
-  const api = { update, tickWind, prewarm, warmShaders, dispose, _im: im, _imMid: imMid, get totalInstances() { return totalInstances }, get profile() { return profile }, rebuildPlacement, repaintBiome, biomeOverride, getOcclusionCandidates, applyOcclusion, setBenders, get benderCount() { return wind.uBenderCount.value }, get benderPosXZ() { return wind.uBenderPosXZ.value }, markScorched, decalStore, get decalCount() { return wind.uDecalCount.value }, get decalPosXZRS() { return wind.uDecalPosXZRS.value }, cfg, renderDistance }
+  const api = { update, updateVisibility, tickWind, prewarm, warmShaders, dispose, _im: im, _imMid: imMid, get totalInstances() { return totalInstances }, get profile() { return profile }, rebuildPlacement, repaintBiome, biomeOverride, getOcclusionCandidates, applyOcclusion, setBenders, get benderCount() { return wind.uBenderCount.value }, get benderPosXZ() { return wind.uBenderPosXZ.value }, markScorched, decalStore, get decalCount() { return wind.uDecalCount.value }, get decalPosXZRS() { return wind.uDecalPosXZRS.value }, cfg, renderDistance }
   if (typeof window !== 'undefined') window.__grass = api
   return api
 }
