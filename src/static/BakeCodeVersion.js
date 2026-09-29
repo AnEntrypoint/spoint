@@ -46,6 +46,7 @@ export const MINIMAP_BAKE_CODE_VERSION = bakeCodeVersion([
   '../../scripts/bake-minimap.mjs',
   '../terrain/PlanetFrame.js',
   '../shared/terrainConfig.js',
+  '../shared/MinimapBiome.js',
   '../../packages/mapspinner/src/height-cpu.js',
   '../../packages/mapspinner/src/height-gen.js',
   '../../packages/mapspinner/src/anchor-field.js',

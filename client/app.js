@@ -636,15 +636,19 @@ window.__runtimeStats = { ...runtimeStats, drawCallAudit: () => drawCallAudit(sc
 const connectionStatus = createConnectionStatus()
 if (window.__app) window.__connectionStatus = connectionStatus
 let minimapHUD = { update() {}, dispose() {} }
-const _minimapXZ = { x: 0, z: 0 }
-function _getLocalXZ() {
+const _minimapPose = { x: 0, z: 0, yaw: 0 }
+const _minimapCamDir = new THREE.Vector3()
+function _getMinimapPose() {
   const mesh = pm.playerMeshes.get(client.playerId)
   if (!mesh) return null
   const fo = (typeof window !== 'undefined') && window.__floatingOrigin
-  if (fo) { const a = fo.toAuthoritative(mesh.position); _minimapXZ.x = a.x; _minimapXZ.z = a.z }
-  else { _minimapXZ.x = mesh.position.x; _minimapXZ.z = mesh.position.z }
-  return _minimapXZ
+  if (fo) { const a = fo.toAuthoritative(mesh.position); _minimapPose.x = a.x; _minimapPose.z = a.z }
+  else { _minimapPose.x = mesh.position.x; _minimapPose.z = mesh.position.z }
+  camera.getWorldDirection(_minimapCamDir)
+  _minimapPose.yaw = Math.atan2(_minimapCamDir.x, -_minimapCamDir.z)
+  return _minimapPose
 }
+const _getMinimapTerrain = () => (window.__app && window.__app.terrain) || null
 const engineCtx = {
   scene, camera, renderer, THREE, createElement, createEmoteWheel,
   pick: (clientX, clientY) => _raycastEntity(clientX, clientY),
@@ -863,7 +867,7 @@ let client; const _clientConfig = {
     if (wd.scene) applySceneConfig(wd.scene,scene,ambient,sun,studio,camera)
     if (wd.terrain && wd.terrain.enabled!==false) _terrainCfg=wd.terrain
     try { minimapHUD.dispose() } catch (_) {}
-    minimapHUD = wd._minimap ? createMinimapHUD(wd._minimap, _getLocalXZ) : { update() {}, dispose() {} }
+    minimapHUD = wd._minimap ? createMinimapHUD(wd._minimap, _getMinimapPose, _getMinimapTerrain) : { update() {}, dispose() {} }
     if (typeof window !== 'undefined') window.__minimapMeta = wd._minimap || null
     if (wd.camera) cam.applyConfig(wd.camera)
     if (wd.input) { inputConfig={pointerLock:true,...wd.input}; if (!inputConfig.pointerLock) clickPrompt.style.display='none' }
@@ -873,7 +877,7 @@ let client; const _clientConfig = {
     if (payload?.config) {
       engineCtx.rebuildTerrain(payload.config)
       try { minimapHUD.dispose() } catch (_) {}
-      minimapHUD = payload.minimap ? createMinimapHUD(payload.minimap, _getLocalXZ) : { update() {}, dispose() {} }
+      minimapHUD = payload.minimap ? createMinimapHUD(payload.minimap, _getMinimapPose, _getMinimapTerrain) : { update() {}, dispose() {} }
       if (typeof window !== 'undefined') window.__minimapMeta = payload.minimap || null
     } else if (payload?.ok === false) console.error('[terrain] reseed failed:', payload.error)
   },

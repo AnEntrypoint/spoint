@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import zlib from 'node:zlib'
 import { resolveTerrainConfig, minimapDescriptor, minimapExtentOf, minimapResOf } from '../src/shared/terrainConfig.js'
+import { sampleMinimapCell } from '../src/shared/MinimapBiome.js'
 import { MINIMAP_BAKE_CODE_VERSION } from '../src/static/BakeCodeVersion.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -10,11 +11,6 @@ const REPO_ROOT = path.resolve(__dirname, '..')
 const PNG_BIT_DEPTH = 8
 const PNG_COLOR_TYPE_RGB = 2
 const PNG_FILTER_NONE = 0
-const DEEP_OCEAN_BELOW_M = -200
-const BEACH_TOP_M = 8
-const SNOWCAP_ABOVE_M = 2200
-const ROCK_SNOW_BLEND_ABOVE_M = 1300
-const UPLAND_ABOVE_M = 500
 const MIN_GRID_RES = 2
 
 function parseArgs(argv) {
@@ -67,26 +63,6 @@ export function encodePNGRGB(width, height, rgb) {
   return Buffer.concat([sig, chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', Buffer.alloc(0))])
 }
 
-function biomeColor(height, temp, humidity, seaLevel) {
-  const h = height - seaLevel
-  if (h < DEEP_OCEAN_BELOW_M) return [18, 42, 92]
-  if (h < 0) return [42, 92, 158]
-  if (h < BEACH_TOP_M) return [214, 199, 152]
-  if (h > SNOWCAP_ABOVE_M) return [235, 238, 242]
-  if (h > ROCK_SNOW_BLEND_ABOVE_M) {
-    const t = Math.max(0, Math.min(1, (h - ROCK_SNOW_BLEND_ABOVE_M) / 900))
-    return lerp3([120, 118, 108], [235, 238, 242], t)
-  }
-  if (h > UPLAND_ABOVE_M) return lerp3([96, 128, 74], [120, 118, 108], Math.max(0, Math.min(1, (h - UPLAND_ABOVE_M) / 800)))
-  const dry = [176, 164, 108]
-  const forest = [58, 108, 58]
-  const grass = [104, 150, 76]
-  let base = lerp3(dry, grass, Math.max(0, Math.min(1, humidity)))
-  base = lerp3(base, forest, Math.max(0, Math.min(1, humidity - 0.5)) * 2 * Math.max(0, Math.min(1, (temp - 0.15) / 0.7)))
-  return base
-}
-function lerp3(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t] }
-
 async function loadTerrainConfigFromWorld(worldName) {
   const mod = await import(pathToFileURL(path.join(REPO_ROOT, 'apps', 'world', `${worldName}.js`)).href)
   const tcfg = resolveTerrainConfig(mod.default || mod)
@@ -95,7 +71,7 @@ async function loadTerrainConfigFromWorld(worldName) {
 
 export async function bakeMinimap(opts) {
   const { createHeightSampler } = await import('mapspinner/height-cpu')
-  const { createPlanetFrame, waterlineLocalY } = await import(pathToFileURL(path.join(REPO_ROOT, 'src', 'terrain', 'PlanetFrame.js')).href)
+  const { createPlanetFrame } = await import(pathToFileURL(path.join(REPO_ROOT, 'src', 'terrain', 'PlanetFrame.js')).href)
   const { createAnchorField } = await import('mapspinner/anchor-field')
 
   const radius = opts.radius
@@ -110,25 +86,23 @@ export async function bakeMinimap(opts) {
   const frame = createPlanetFrame({ sampler, anchorDir, offsetY: 0, reliefScale })
   const anchorField = sampler.anchorField || createAnchorField({ seed })
 
-  const half = extent / 2, step = extent / (N - 1)
+  const half = extent / 2, step = extent / N
   const heights = new Float32Array(N * N)
   const rgb = Buffer.alloc(N * N * 3)
+  const cell = [0, 0, 0]
   let min = Infinity, max = -Infinity
 
   for (let iz = 0; iz < N; iz++) {
-    const z = center[1] - half + iz * step
+    const z = center[1] - half + (iz + 0.5) * step
     for (let ix = 0; ix < N; ix++) {
-      const x = center[0] - half + ix * step
-      const h = frame.groundHeightLocal(x, z)
+      const x = center[0] - half + (ix + 0.5) * step
+      const h = sampleMinimapCell(frame, anchorField, x, z, cell)
       const idx = iz * N + ix
       heights[idx] = h
       if (h < min) min = h
       if (h > max) max = h
-      const dir = frame.localToDir(x, z)
-      const climate = anchorField.sampleDir ? anchorField.sampleDir(dir) : { temp: 0.5, humidity: 0.5 }
-      const [r, g, b] = biomeColor(h, climate.temp || 0, climate.humidity || 0, waterlineLocalY(frame, x, z))
       const o = idx * 3
-      rgb[o] = r | 0; rgb[o + 1] = g | 0; rgb[o + 2] = b | 0
+      rgb[o] = cell[0]; rgb[o + 1] = cell[1]; rgb[o + 2] = cell[2]
     }
   }
 

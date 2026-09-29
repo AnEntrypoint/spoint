@@ -1,5 +1,13 @@
+import { sampleMinimapCell } from '../../src/shared/MinimapBiome.js'
+
 const SIZE_PX = 168
-const DOT_RADIUS_PX = 4
+const VIEW_SPAN_M = 256
+const BUFFER_SPAN_M = 384
+const BUFFER_CELLS = 96
+const REFRESH_DRIFT_M = 32
+const SLICE_MS = 1.5
+const ARROW_LENGTH_PX = 9
+const ARROW_HALF_WIDTH_PX = 6
 
 function ensureStyles() {
   if (document.getElementById('minimap-hud-style')) return
@@ -21,9 +29,9 @@ function ensureStyles() {
   document.head.appendChild(style)
 }
 
-export function createMinimapHUD(minimapMeta, getLocalXZ) {
+export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
   ensureStyles()
-  const state = { armed: false, header: null, img: null }
+  const state = { baked: null, terrain: null, current: null, work: null, version: 0 }
   if (!minimapMeta || !minimapMeta.base || !Array.isArray(minimapMeta.center) || !Number.isFinite(minimapMeta.extent) || minimapMeta.extent <= 0) {
     return { update() {}, dispose() {} }
   }
@@ -37,58 +45,97 @@ export function createMinimapHUD(minimapMeta, getLocalXZ) {
   root.appendChild(canvas)
   document.body.appendChild(root)
 
-  async function load() {
+  const bufferCanvas = document.createElement('canvas')
+  bufferCanvas.width = BUFFER_CELLS; bufferCanvas.height = BUFFER_CELLS
+  const bufferCtx = bufferCanvas.getContext('2d')
+  const pxPerMeter = canvas.width / VIEW_SPAN_M
+  const cellMeters = BUFFER_SPAN_M / BUFFER_CELLS
+  const cellRgb = [0, 0, 0]
+
+  async function loadBaked() {
     try {
-      const res = await fetch(minimapMeta.base + '.json')
-      if (!res.ok) return
-      const header = await res.json()
-      if (!header || !Number.isFinite(header.N) || header.N < 2) return
       const img = new Image()
       const loaded = new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject })
       img.src = minimapMeta.base + '.png'
       await loaded
-      state.header = header
-      state.img = img
-      state.armed = true
-      root.style.display = 'block'
-      _drawBase()
+      state.baked = img
+      state.version++
     } catch (e) {
-      state.armed = false
+      state.baked = null
     }
   }
-  load()
+  loadBaked()
 
-  function _drawBase() {
-    if (!state.img) return
-    ctx2d.clearRect(0, 0, canvas.width, canvas.height)
-    ctx2d.drawImage(state.img, 0, 0, canvas.width, canvas.height)
+  function beginRefresh(pose, frame, anchorField) {
+    state.work = { cx: pose.x, cz: pose.z, row: 0, frame, anchorField, image: bufferCtx.createImageData(BUFFER_CELLS, BUFFER_CELLS) }
   }
 
-  let _lastPx = NaN, _lastPy = NaN
-  function update() {
-    if (!state.armed) return
-    const p = getLocalXZ && getLocalXZ()
-    let px = NaN, py = NaN
-    if (p && Number.isFinite(p.x) && Number.isFinite(p.z)) {
-      const [cx, cz] = minimapMeta.center
-      const half = minimapMeta.extent / 2
-      const u = (p.x - (cx - half)) / minimapMeta.extent
-      const v = (p.z - (cz - half)) / minimapMeta.extent
-      const insideBakedExtent = u >= 0 && u <= 1 && v >= 0 && v <= 1
-      if (insideBakedExtent) { px = u * canvas.width; py = v * canvas.height }
+  function advanceRefresh() {
+    const w = state.work
+    const deadline = performance.now() + SLICE_MS
+    const left = w.cx - BUFFER_SPAN_M / 2, top = w.cz - BUFFER_SPAN_M / 2
+    while (w.row < BUFFER_CELLS && performance.now() < deadline) {
+      const z = top + (w.row + 0.5) * cellMeters
+      for (let i = 0; i < BUFFER_CELLS; i++) {
+        sampleMinimapCell(w.frame, w.anchorField, left + (i + 0.5) * cellMeters, z, cellRgb)
+        const o = (w.row * BUFFER_CELLS + i) * 4
+        w.image.data[o] = cellRgb[0]; w.image.data[o + 1] = cellRgb[1]; w.image.data[o + 2] = cellRgb[2]; w.image.data[o + 3] = 255
+      }
+      w.row++
     }
-    const dotRasterPositionUnchanged = (Number.isNaN(px) && Number.isNaN(_lastPx)) || (Math.abs(px - _lastPx) < 0.5 && Math.abs(py - _lastPy) < 0.5)
-    if (dotRasterPositionUnchanged) return
-    _lastPx = px; _lastPy = py
-    _drawBase()
-    if (Number.isNaN(px)) return
-    const r = DOT_RADIUS_PX * dpr
+    if (w.row < BUFFER_CELLS) return
+    bufferCtx.putImageData(w.image, 0, 0)
+    state.current = { cx: w.cx, cz: w.cz }
+    state.work = null
+    state.version++
+  }
+
+  function driftFrom(anchor, pose) {
+    return Math.max(Math.abs(pose.x - anchor.cx), Math.abs(pose.z - anchor.cz))
+  }
+
+  function drawWorldImage(img, leftM, topM, spanM, pose) {
+    const dx = (leftM - (pose.x - VIEW_SPAN_M / 2)) * pxPerMeter
+    const dy = (topM - (pose.z - VIEW_SPAN_M / 2)) * pxPerMeter
+    ctx2d.drawImage(img, dx, dy, spanM * pxPerMeter, spanM * pxPerMeter)
+  }
+
+  function drawMarker(yaw) {
+    ctx2d.save()
+    ctx2d.translate(canvas.width / 2, canvas.height / 2)
+    ctx2d.rotate(yaw)
+    const len = ARROW_LENGTH_PX * dpr, half = ARROW_HALF_WIDTH_PX * dpr
     ctx2d.beginPath()
-    ctx2d.arc(px, py, r, 0, Math.PI * 2)
+    ctx2d.moveTo(0, -len); ctx2d.lineTo(half, len * 0.7); ctx2d.lineTo(0, len * 0.35); ctx2d.lineTo(-half, len * 0.7); ctx2d.closePath()
     ctx2d.fillStyle = '#ffdd33'
-    ctx2d.strokeStyle = 'rgba(0,0,0,0.7)'
+    ctx2d.strokeStyle = 'rgba(0,0,0,0.75)'
     ctx2d.lineWidth = 1.5 * dpr
     ctx2d.fill(); ctx2d.stroke()
+    ctx2d.restore()
+  }
+
+  let drawnX = NaN, drawnZ = NaN, drawnYaw = NaN, drawnVersion = -1
+  function update() {
+    const pose = getPose && getPose()
+    if (!pose || !Number.isFinite(pose.x) || !Number.isFinite(pose.z)) return
+    const terrain = getTerrain && getTerrain()
+    const frame = terrain && terrain.frame
+    if (terrain !== state.terrain) { state.terrain = terrain; state.current = null; state.work = null }
+    if (frame && !state.work && (!state.current || driftFrom(state.current, pose) > REFRESH_DRIFT_M)) {
+      beginRefresh(pose, frame, terrain.sampler && terrain.sampler.anchorField)
+    }
+    if (state.work) advanceRefresh()
+    const liveCovers = state.current && driftFrom(state.current, pose) <= (BUFFER_SPAN_M - VIEW_SPAN_M) / 2
+    if (!liveCovers && !state.baked) return
+    const yaw = Number.isFinite(pose.yaw) ? pose.yaw : 0
+    if (pose.x === drawnX && pose.z === drawnZ && yaw === drawnYaw && state.version === drawnVersion) return
+    drawnX = pose.x; drawnZ = pose.z; drawnYaw = yaw; drawnVersion = state.version
+    ctx2d.fillStyle = '#0a1620'
+    ctx2d.fillRect(0, 0, canvas.width, canvas.height)
+    if (liveCovers) drawWorldImage(bufferCanvas, state.current.cx - BUFFER_SPAN_M / 2, state.current.cz - BUFFER_SPAN_M / 2, BUFFER_SPAN_M, pose)
+    else drawWorldImage(state.baked, minimapMeta.center[0] - minimapMeta.extent / 2, minimapMeta.center[1] - minimapMeta.extent / 2, minimapMeta.extent, pose)
+    drawMarker(yaw)
+    root.style.display = 'block'
   }
 
   function dispose() { root.remove() }
