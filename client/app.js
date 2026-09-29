@@ -2329,6 +2329,7 @@ function animate(ts) {
   if (window.__warmupInFlight) return
   const now = ts || performance.now()
   _graphCtx.now = now
+  if (!renderer.isWebGPURenderer) renderer.resetState()
   frameGraph.run(_graphCtx)
   decalSystem.tick(_graphCtx.res.frameDt || 0.016)
   if (damageNumbers) damageNumbers.update(Math.max(4, Math.round((_graphCtx.res.frameDt || 0.016) * 1000)))
