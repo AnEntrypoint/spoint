@@ -64,7 +64,7 @@ import { installRenderControls, RenderControls } from './core/RenderControls.js'
 import { installMeshDebug } from './core/MeshDebug.js'
 import { pickExpressionCode, applyExpressionCode, EXPR_NEUTRAL } from './core/ExpressionCodes.js'
 import { codeToWeaponName } from '../src/shared/WeaponCodes.js'
-import { withTerrainSeed } from '../src/shared/terrainConfig.js'
+import { withTerrainSeed, withTerrainHashVersion, parseTerrainHashOverride } from '../src/shared/terrainConfig.js'
 import { getSharedStreamingScheduler } from './core/StreamingScheduler.js'
 import { createPlacementScheduler, warmSceneryShaders } from './core/PlacementScheduler.js'
 import { getSharedCacheRevalidationSweep } from './core/CacheRevalidationSweep.js'
@@ -637,6 +637,7 @@ const _showStats = _params.has('showStats')
 const _connectParam = _params.get('connect')
 const _seedParamRaw = _params.get('seed')
 const _seedParam = _seedParamRaw != null && _seedParamRaw !== '' && Number.isFinite(Number(_seedParamRaw)) ? (Number(_seedParamRaw) | 0) : null
+const _terrainHashParam = (() => { try { return parseTerrainHashOverride(_params.get('terrainhash')) } catch (e) { console.error(`[terrain] ?terrainhash ignored: ${e.message}`); return null } })()
 const _shaderManifestPromise = (typeof fetch === 'function' && _worldParam)
   ? fetch(`/apps/world/${_worldParam}.shadermanifest.json`, { cache: 'no-cache' })
       .then(r => r.ok ? r.json() : null)
@@ -789,6 +790,8 @@ if (_worldParam && _runsInPageServer) {
   if (_wmod?.default) _worldDef = _wmod.default
 }
 if (_seedParam != null && _worldDef) _worldDef = withTerrainSeed(_worldDef, _seedParam)
+if (_terrainHashParam != null && _worldDef) _worldDef = withTerrainHashVersion(_worldDef, _terrainHashParam)
+else if (_terrainHashParam != null) console.warn(`[terrain] ?terrainhash=${_terrainHashParam} ignored: the world config comes from a remote server (set SPOINT_TERRAIN_HASH there)`)
 for (const _e of (_worldDef?.entities || [])) if (_e.custom?._interior && _e.id) _envEntityIds.add(_e.id)
 try {
   const _envModels = [...new Set((_worldDef?.entities || []).filter(e => e.model && e.custom?._interior).map(e => e.model))]

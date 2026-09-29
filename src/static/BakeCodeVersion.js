@@ -50,6 +50,9 @@ export const MINIMAP_BAKE_CODE_VERSION = bakeCodeVersion([
   '../../packages/mapspinner/src/height-cpu.js',
   '../../packages/mapspinner/src/height-gen.js',
   '../../packages/mapspinner/src/anchor-field.js',
+  '../../packages/mapspinner/src/anchor-field-bands.js',
+  '../../packages/mapspinner/src/tsl/height-spec.js',
+  '../../packages/mapspinner/src/tsl/ops-js.js',
   '../../packages/mapspinner/src/glsl-rt.js',
   '../../packages/mapspinner/src/terrain-defaults.js',
 ])

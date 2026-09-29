@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import zlib from 'node:zlib'
-import { resolveTerrainConfig, minimapDescriptor, minimapExtentOf, minimapResOf } from '../src/shared/terrainConfig.js'
+import { resolveTerrainConfig, minimapDescriptor, minimapExtentOf, minimapResOf, terrainHashVersionOf, parseTerrainHashOverride, withTerrainHashVersion } from '../src/shared/terrainConfig.js'
 import { sampleMinimapCell } from '../src/shared/MinimapBiome.js'
 import { MINIMAP_BAKE_CODE_VERSION } from '../src/static/BakeCodeVersion.js'
 
@@ -63,9 +63,10 @@ export function encodePNGRGB(width, height, rgb) {
   return Buffer.concat([sig, chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', Buffer.alloc(0))])
 }
 
-async function loadTerrainConfigFromWorld(worldName) {
+async function loadTerrainConfigFromWorld(worldName, hashOverride) {
   const mod = await import(pathToFileURL(path.join(REPO_ROOT, 'apps', 'world', `${worldName}.js`)).href)
-  const tcfg = resolveTerrainConfig(mod.default || mod)
+  const worldDef = mod.default || mod
+  const tcfg = resolveTerrainConfig(hashOverride == null ? worldDef : withTerrainHashVersion(worldDef, hashOverride))
   return minimapDescriptor(worldName, tcfg) ? tcfg : null
 }
 
@@ -81,8 +82,9 @@ export async function bakeMinimap(opts) {
   const extent = Number.isFinite(opts.extent) && opts.extent > 0 ? opts.extent : 8192
   const N = Number.isFinite(opts.res) && opts.res >= MIN_GRID_RES ? Math.round(opts.res) : MIN_GRID_RES
   const center = opts.center || [0, 0]
+  const hashVersion = terrainHashVersionOf(opts)
 
-  const sampler = await createHeightSampler({ radius, seed, reliefScale })
+  const sampler = await createHeightSampler({ radius, seed, reliefScale, hashVersion })
   const frame = createPlanetFrame({ sampler, anchorDir, offsetY: 0, reliefScale })
   const anchorField = sampler.anchorField || createAnchorField({ seed })
 
@@ -108,7 +110,7 @@ export async function bakeMinimap(opts) {
 
   const png = encodePNGRGB(N, N, rgb)
   const header = {
-    seed, radius, anchorDir, reliefScale, extent, N, center,
+    seed, radius, anchorDir, reliefScale, hashVersion, extent, N, center,
     minHeight: +min.toFixed(2), maxHeight: +max.toFixed(2),
     codeVersion: MINIMAP_BAKE_CODE_VERSION,
     generatedAt: Date.now(),
@@ -119,8 +121,9 @@ export async function bakeMinimap(opts) {
 async function main() {
   const args = parseArgs(process.argv.slice(2))
   let cfg
+  const hashOverride = parseTerrainHashOverride(args.hashVersion)
   if (args.world) {
-    cfg = await loadTerrainConfigFromWorld(String(args.world))
+    cfg = await loadTerrainConfigFromWorld(String(args.world), hashOverride)
     if (!cfg) { console.error(`[minimap] world "${args.world}" has no bakeable terrain config (resolveTerrainConfig gave none, enabled:false, or no finite seed)`); process.exit(1) }
   } else {
     cfg = {
@@ -128,6 +131,7 @@ async function main() {
       radius: Number(args.radius || 63600),
       reliefScale: args.reliefScale != null ? Number(args.reliefScale) : undefined,
       anchorDir: args.anchorDir ? args.anchorDir.split(',').map(Number) : [0, 1, 0],
+      hashVersion: hashOverride ?? undefined,
     }
   }
   const worldBaked = args.world ? minimapDescriptor(String(args.world), cfg) : null
@@ -140,7 +144,7 @@ async function main() {
 
   const t0 = Date.now()
   const { png, header } = await bakeMinimap({
-    seed: cfg.seed, radius: cfg.radius, reliefScale: cfg.reliefScale, anchorDir: cfg.anchorDir,
+    seed: cfg.seed, radius: cfg.radius, reliefScale: cfg.reliefScale, anchorDir: cfg.anchorDir, hashVersion: cfg.hashVersion,
     extent, res, center,
   })
   fs.mkdirSync(path.dirname(outPng), { recursive: true })

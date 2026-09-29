@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { createPlanetFrame, elevationAtLocal, DEFAULT_PATCH_MAX_LEVEL } from '/src/terrain/PlanetFrame.js'
+import { terrainHashVersionOf, DEFAULT_TERRAIN_HASH_VERSION } from '/src/shared/terrainConfig.js'
 import { createTerrainOcclusion } from './TerrainOcclusion.js'
 import { dbg } from './debug-log.js'
 import { RenderControls } from './RenderControls.js'
@@ -30,8 +31,10 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   const _terrainOcclusion = isWebGPU
     ? { makePredicate: () => undefined, runQueries() {}, getStats: () => ({ flips: 0 }), clearVerdicts() {}, dispose() {}, snapshotOccludedKeys: () => [], setMaxQueriesPerFrame() {}, getMaxQueriesPerFrame: () => 0, getCandidateCount: () => 0 }
     : createTerrainOcclusion(gl, { minCandidates: cfg.occlusionMinCandidates ?? 32, maxElev: cfg.occlusionMaxElev ?? 200 })
-  const isTslTerrain = isWebGPU && typeof location !== 'undefined' && /[?&]tslterrain=1\b/.test(location.search)
-  const terrainHashVersion = isTslTerrain ? (Number(new URLSearchParams(location.search).get('terrainhash')) || cfg.hashVersion || 1) : 1
+  const terrainHashVersion = terrainHashVersionOf(cfg)
+  const isLegacyHash = terrainHashVersion === DEFAULT_TERRAIN_HASH_VERSION
+  const isTslTerrain = isWebGPU && (!isLegacyHash || (typeof location !== 'undefined' && /[?&]tslterrain=1\b/.test(location.search)))
+  if (!isLegacyHash && !isTslTerrain) console.error(`[terrain] world terrain hashVersion ${terrainHashVersion} needs the TSL terrain (?webgpu=1); the legacy GLSL renderer draws hashVersion 1, so the visible ground will not match physics or placement`)
   let initMapspinnerPlanet, createHeightSampler, initMapspinnerPlanetWebGPU, initMapspinnerPlanetTSL
   performance.mark('terrain:start')
   try {
@@ -75,7 +78,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     performance.mark('terrain:planet-init')
     sampler =createHeightSampler({ radius, seed: cfg.seed, reliefScale: cfg.reliefScale, hashVersion: terrainHashVersion })
     frame = createPlanetFrame({ sampler, anchorDir: cfg.anchorDir || [0, 1, 0], offsetY: cfg.offsetY || 0, reliefScale: cfg.reliefScale })
-    if (cfg.gpuPatchCollider !== false && terrainHashVersion === 1) {
+    if (cfg.gpuPatchCollider !== false && isLegacyHash) {
       try {
         const { createPatchBaker, createPatchHeightFn } = await import('/node_modules/mapspinner/src/patch-baker.js')
         const baker = await createPatchBaker({ radius, reliefScale: cfg.reliefScale, seed: cfg.seed }).catch(() => null)

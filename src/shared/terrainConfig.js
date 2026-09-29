@@ -1,10 +1,29 @@
 const MINIMAP_EXTENT_RADIUS_FRACTION = 0.25
 const MINIMAP_MAX_EXTENT_M = 16384
 const DEFAULT_MINIMAP_RES = 256
+export const DEFAULT_TERRAIN_HASH_VERSION = 1
+export const TERRAIN_HASH_VERSIONS = Object.freeze([1, 2])
 
 export function resolveTerrainConfig(worldDef) {
   const entity = (worldDef?.entities || []).find(e => e && e.app === 'terrain')
   return (entity && entity.config) || worldDef?.terrain || null
+}
+
+export function terrainHashVersionOf(tcfg) {
+  const v = tcfg?.hashVersion ?? DEFAULT_TERRAIN_HASH_VERSION
+  if (!TERRAIN_HASH_VERSIONS.includes(v)) throw new RangeError(`terrain hashVersion must be one of ${TERRAIN_HASH_VERSIONS.join(', ')}, got ${JSON.stringify(v)}`)
+  return v
+}
+
+export function parseTerrainHashOverride(raw) {
+  if (raw == null || raw === '') return null
+  return terrainHashVersionOf({ hashVersion: Number(raw) })
+}
+
+export function minimapBaseName(worldId, tcfg) {
+  const v = terrainHashVersionOf(tcfg)
+  const hashTag = v === DEFAULT_TERRAIN_HASH_VERSION ? '' : `.h${v}`
+  return `${worldId}.${tcfg.seed | 0}${hashTag}.minimap`
 }
 
 export function minimapExtentOf(tcfg) {
@@ -17,13 +36,14 @@ export function minimapResOf(tcfg) {
 
 export function minimapDescriptor(worldId, tcfg) {
   if (!tcfg || tcfg.enabled === false || !Number.isFinite(tcfg.seed)) return null
-  return { base: `/apps/world/${worldId}.${tcfg.seed | 0}.minimap`, center: tcfg.center || [0, 0], extent: minimapExtentOf(tcfg) }
+  return { base: `/apps/world/${minimapBaseName(worldId, tcfg)}`, center: tcfg.center || [0, 0], extent: minimapExtentOf(tcfg) }
 }
 
 export function minimapBakeParams(tcfg) {
   return {
     radius: tcfg.radius,
     reliefScale: tcfg.reliefScale ?? null,
+    hashVersion: terrainHashVersionOf(tcfg),
     anchorDir: tcfg.anchorDir || [0, 1, 0],
     extent: minimapExtentOf(tcfg),
     res: minimapResOf(tcfg),
@@ -37,24 +57,33 @@ function reseedTerrainConfig(cfg, seed) {
   return reseeded
 }
 
-export function withTerrainSeed(worldDef, seed) {
-  if (!Number.isInteger(seed)) throw new TypeError(`withTerrainSeed: seed must be an integer, got ${JSON.stringify(seed)}`)
+function mapTerrainConfigs(worldDef, patchConfig) {
   if (!worldDef || typeof worldDef !== 'object') return worldDef
-  const reseededBySource = new Map()
-  const reseed = cfg => {
-    if (!reseededBySource.has(cfg)) reseededBySource.set(cfg, reseedTerrainConfig(cfg, seed))
-    return reseededBySource.get(cfg)
+  const patchedBySource = new Map()
+  const patch = cfg => {
+    if (!patchedBySource.has(cfg)) patchedBySource.set(cfg, patchConfig(cfg))
+    return patchedBySource.get(cfg)
   }
   const isConfigObject = v => !!v && typeof v === 'object' && !Array.isArray(v)
-  const reseedEntity = e => {
+  const patchEntity = e => {
     if (!e || e.app !== 'terrain') return e
     const next = { ...e }
-    if (isConfigObject(e.config)) next.config = reseed(e.config)
-    if (isConfigObject(e.custom) && Number.isFinite(e.custom.seed)) next.custom = reseed(e.custom)
+    if (isConfigObject(e.config)) next.config = patch(e.config)
+    if (isConfigObject(e.custom) && Number.isFinite(e.custom.seed)) next.custom = patch(e.custom)
     return next
   }
   const next = { ...worldDef }
-  if (isConfigObject(worldDef.terrain)) next.terrain = reseed(worldDef.terrain)
-  if (Array.isArray(worldDef.entities)) next.entities = worldDef.entities.map(reseedEntity)
+  if (isConfigObject(worldDef.terrain)) next.terrain = patch(worldDef.terrain)
+  if (Array.isArray(worldDef.entities)) next.entities = worldDef.entities.map(patchEntity)
   return next
+}
+
+export function withTerrainSeed(worldDef, seed) {
+  if (!Number.isInteger(seed)) throw new TypeError(`withTerrainSeed: seed must be an integer, got ${JSON.stringify(seed)}`)
+  return mapTerrainConfigs(worldDef, cfg => reseedTerrainConfig(cfg, seed))
+}
+
+export function withTerrainHashVersion(worldDef, hashVersion) {
+  terrainHashVersionOf({ hashVersion })
+  return mapTerrainConfigs(worldDef, cfg => ({ ...cfg, hashVersion }))
 }

@@ -18,6 +18,7 @@ const PROBE_READY_MS = Number(process.env.GPU_EVAL_READY_MS || 90000)
 function bakeHeightfieldScript({ N, half, step, center }) {
   return `
 const f = __t.frame;
+if ((f.hashVersion ?? 1) !== 1) return { __error: 'terrain hashVersion ' + f.hashVersion + ': the GLSL probe bakes only hashVersion 1; hashVersion >= 2 needs no baked heightfield because the CPU sampler matches the GPU exactly' };
 const probeWaitStart = Date.now();
 while (__R.sampleGroundMSync(f.up) == null && Date.now() - probeWaitStart < ${PROBE_READY_MS}) await new Promise(r => setTimeout(r, 250));
 if (__R.sampleGroundMSync(f.up) == null) return { __error: 'GPU height probe never compiled within ${PROBE_READY_MS} ms' };

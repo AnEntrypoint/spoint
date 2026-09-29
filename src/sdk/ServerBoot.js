@@ -7,6 +7,7 @@ import { prewarmProgressive, ensureProgressive } from '../static/ProgressiveBake
 import { createServer } from './server.js'
 import { logServerIdentity } from './ServerIdentity.js'
 import { createServerPresence } from './ServerPresence.js'
+import { parseTerrainHashOverride, withTerrainHashVersion } from '../shared/terrainConfig.js'
 
 export function buildUniquePathList(paths) {
   const out = [], seen = new Set()
@@ -106,7 +107,10 @@ export async function boot(overrides = {}) {
   const worldPath = existsSync(localWorld) ? localWorld : existsSync(fallbackLocal) ? fallbackLocal : resolve(SDK_ROOT, 'apps/world/index.js')
   if (worldName !== 'index') console.log(`[boot] using world: ${worldName}`)
   if (!existsSync(worldPath)) console.log('[boot] no world found, using bundled SDK defaults')
-  const worldDef = (await import(pathToFileURL(worldPath).href + `?t=${Date.now()}`)).default || {}
+  const loadedWorldDef = (await import(pathToFileURL(worldPath).href + `?t=${Date.now()}`)).default || {}
+  const terrainHashOverride = parseTerrainHashOverride(process.env.SPOINT_TERRAIN_HASH)
+  const worldDef = terrainHashOverride == null ? loadedWorldDef : withTerrainHashVersion(loadedWorldDef, terrainHashOverride)
+  if (terrainHashOverride != null) console.log(`[boot] SPOINT_TERRAIN_HASH=${terrainHashOverride}: terrain hashVersion overridden in the world config`)
   const localApps = resolve(PROJECT, 'apps'), sdkApps = join(SDK_ROOT, 'apps')
   const appsDirs = buildUniquePathList(existsSync(localApps) ? [localApps, sdkApps] : [sdkApps])
   console.debug(`[boot] loading from: ${appsDirs.join(', ')}`)

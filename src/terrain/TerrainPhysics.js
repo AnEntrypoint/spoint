@@ -5,16 +5,25 @@ import { createBiomeOverride, loadBiomeOverride } from './BiomeOverride.js'
 import { loadSplineCarveLayer } from './SplineCarve.js'
 import { loadCaveCarveLayer } from './CaveSDF.js'
 import { createTerrainStreamer } from './HeightfieldStreamer.js'
+import { terrainHashVersionOf, DEFAULT_TERRAIN_HASH_VERSION } from '../shared/terrainConfig.js'
 
-let _samplerPromise = null
+let _latestSampler = { key: null, promise: null }
+export function planetSamplerOptsOf(tcfg) {
+  return { radius: tcfg.radius, hpfTexRes: (tcfg.physics || {}).hpfTexRes, seed: tcfg.seed, reliefScale: tcfg.reliefScale, hashVersion: terrainHashVersionOf(tcfg) }
+}
 export function loadPlanetSampler(opts = {}) {
-  if (!_samplerPromise) {
+  const o = { radius: opts.radius, hpfTexRes: opts.hpfTexRes, seed: opts.seed, reliefScale: opts.reliefScale, hashVersion: terrainHashVersionOf(opts) }
+  const key = JSON.stringify([o.radius, o.hpfTexRes, o.seed, o.reliefScale, o.hashVersion])
+  if (_latestSampler.key !== key) {
     const _isNode = typeof process !== 'undefined' && process.versions?.node
     const _samplerSpec = _isNode ? 'mapspinner/height-cpu' : ('/node_modules/' + 'mapspinner/src/height-cpu.js')
-    _samplerPromise = import(_samplerSpec)
-      .then(m => m.createHeightSampler({ radius: opts.radius, hpfTexRes: opts.hpfTexRes, seed: opts.seed, reliefScale: opts.reliefScale }))
+    _latestSampler = { key, promise: import(_samplerSpec).then(m => m.createHeightSampler(o)) }
   }
-  return _samplerPromise
+  return _latestSampler.promise
+}
+
+function bakedHashVersionOf(artifact) {
+  return artifact.hashVersion ?? DEFAULT_TERRAIN_HASH_VERSION
 }
 
 function _dequantizeSectorized(artifact) {
@@ -51,8 +60,19 @@ export function createBakedHeightField(artifact) {
   }
 }
 
-async function loadBakedHeightField(url) {
+async function loadBakedHeightField(url, hashVersion) {
   if (!url) return null
+  const artifact = await readBakedHeightField(url)
+  if (!artifact) return null
+  const bakedVersion = bakedHashVersionOf(artifact)
+  if (bakedVersion !== hashVersion) {
+    console.warn(`[terrain] ignoring baked heightfield ${url}: baked with terrain hashVersion ${bakedVersion}, world uses ${hashVersion} -> exact CPU height`)
+    return null
+  }
+  return createBakedHeightField(artifact)
+}
+
+async function readBakedHeightField(url) {
   try {
     const _isNode = typeof process !== 'undefined' && process.versions?.node
     if (/\.hf$/i.test(url)) {
@@ -61,15 +81,13 @@ async function loadBakedHeightField(url) {
       let buf
       if (_isNode) { const fs = await import('node:fs'); buf = fs.readFileSync(url.replace(/^\//, '')); buf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) }
       else { const r = await fetch(url); if (!r.ok) return null; buf = await r.arrayBuffer() }
-      const dec = decodeHeightfield(buf)
-      if (!dec) return null
-      return createBakedHeightField(dec)
+      return decodeHeightfield(buf)
     }
     let json
     if (_isNode) { const fs = await import('node:fs'); json = JSON.parse(fs.readFileSync(url.replace(/^\//, ''), 'utf8')) }
     else { const r = await fetch(url); if (!r.ok) return null; json = await r.json() }
     if (!json || !json.N || !(Array.isArray(json.heights) || (json.sectors && Array.isArray(json.q)))) return null
-    return createBakedHeightField(json)
+    return json
   } catch (_) { return null }
 }
 
@@ -87,17 +105,18 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef, 
   const tcfg = terrain || (worldDef && worldDef.terrain) || null
   if (!tcfg || tcfg.enabled === false || !physics || typeof physics.addHeightField !== 'function') return null
   const tphys = tcfg.physics || {}
-  const sampler = await loadPlanetSampler({ radius: tcfg.radius, hpfTexRes: tphys.hpfTexRes, seed: tcfg.seed, reliefScale: tcfg.reliefScale })
+  const hashVersion = terrainHashVersionOf(tcfg)
+  const sampler = await loadPlanetSampler(planetSamplerOptsOf(tcfg))
   const frame = createPlanetFrame({ sampler, anchorDir: tcfg.anchorDir || [0, 1, 0], offsetY: tcfg.offsetY || 0, reliefScale: tcfg.reliefScale })
   const cachedAnchorField = createCachedAnchorField(sampler.anchorField, frame)
   const biomeOverride = loadBiomeOverride(biomeOverrideJSON)
   const splineCarve = loadSplineCarveLayer(splineCarveJSON, (x, z) => frame.groundHeightLocal(x, z))
   const paintedAnchorField = splineCarve.wrapClimateField(biomeOverride.wrapClimateField(cachedAnchorField))
   const offsetY = tcfg.offsetY || 0
-  const gpuPatch = (tcfg.gpuPatchCollider !== false)
+  const gpuPatch = (tcfg.gpuPatchCollider !== false && hashVersion === DEFAULT_TERRAIN_HASH_VERSION)
     ? await createGpuPatchHeightFn({ frame, tcfg, offsetY }).catch(() => null)
     : null
-  const baked = gpuPatch ? null : await loadBakedHeightField(tcfg.bakedHeightfield).catch(() => null)
+  const baked = gpuPatch ? null : await loadBakedHeightField(tcfg.bakedHeightfield, hashVersion).catch(() => null)
   const baseHeightFn = gpuPatch
     ? gpuPatch.heightFn
     : baked

@@ -326,6 +326,8 @@ const FLAGS = [
     doc: 'Transport simulation harness: wraps the real WebSocket/WebTransport connection in NetworkSimTransport, injecting loss/latency/jitter/reorder so netcode is tuned against a real degraded link instead of localhost. Preset names: clean, broadbandGood, wifiTypical, cellular4g, roadmapTarget (150ms/3% loss), degradedWan, brutal (see NETWORK_SIM_PRESETS). Live-retune after connecting via window.__netSim.configure({lossPct,latencyMs,jitterMs,reorderPct}); inspect drop/reorder counts via window.__netSim.getStats().' },
   { flag: '?world=<name>', kind: 'query', group: 'world', readAt: 'client/app.js',
     doc: 'World definition name to load client-side (singleplayer / world override). See also the server-side WORLD env var.' },
+  { flag: '?terrainhash=<n>', kind: 'query', group: 'world', readAt: 'client/app.js (withTerrainHashVersion)',
+    doc: 'Dev override of the world config terrain.hashVersion (1 = legacy float hash, 2 = integer hash) applied to the world definition before the in-page server boots, so the singleplayer worker physics, placement, minimap and TSL render all use the same heights. hashVersion != 1 auto-selects the TSL terrain under ?webgpu=1. Ignored for a remote server; set SPOINT_TERRAIN_HASH=<n> on that server instead.' },
   { flag: '?editorToken=<token>', kind: 'query', group: 'editor-auth', readAt: 'client/app.js',
     doc: 'Opts a locally-run editor connection into the EDITOR_TOKEN auth gate (sent as X-Editor-Token) without touching regular player connections.' },
   { flag: 'WORLD', kind: 'env', group: 'world', readAt: 'src/sdk/server.js, scripts/perf-gate.mjs',

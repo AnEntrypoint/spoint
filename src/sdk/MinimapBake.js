@@ -2,11 +2,12 @@ import { Worker } from 'node:worker_threads'
 import { existsSync, mkdirSync, writeFileSync, readFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { resolveTerrainConfig, minimapDescriptor, minimapExtentOf, minimapResOf, minimapBakeParams, withTerrainSeed } from '../shared/terrainConfig.js'
+import { resolveTerrainConfig, minimapDescriptor, minimapExtentOf, minimapResOf, minimapBakeParams, minimapBaseName, withTerrainSeed, withTerrainHashVersion, DEFAULT_TERRAIN_HASH_VERSION, TERRAIN_HASH_VERSIONS } from '../shared/terrainConfig.js'
 import { MINIMAP_BAKE_CODE_VERSION } from '../static/BakeCodeVersion.js'
 
 const MAX_ON_DEMAND_MINIMAP_BAKES = 64
-const MINIMAP_ARTIFACT_PATH = /^\/apps\/world\/([A-Za-z0-9_-]{1,128})\.(-?\d{1,10})\.minimap\.(?:json|png)$/
+const TAGGED_HASH_VERSIONS = TERRAIN_HASH_VERSIONS.filter(v => v !== DEFAULT_TERRAIN_HASH_VERSION).join('|')
+const MINIMAP_ARTIFACT_PATH = new RegExp(`^/apps/world/([A-Za-z0-9_-]{1,128})\\.(-?\\d{1,10})(?:\\.h(${TAGGED_HASH_VERSIONS}))?\\.minimap\\.(?:json|png)$`)
 const BAKE_WORKER_SOURCE = `const { parentPort, workerData } = require('node:worker_threads')
 import(workerData.bakeModUrl)
   .then(m => m.bakeMinimap(workerData.opts))
@@ -32,6 +33,7 @@ export function isMinimapStale(header, tcfg) {
   const params = minimapBakeParams(tcfg)
   if (header.radius !== params.radius) return true
   if ((header.reliefScale ?? null) !== params.reliefScale) return true
+  if ((header.hashVersion ?? DEFAULT_TERRAIN_HASH_VERSION) !== params.hashVersion) return true
   if (header.extent !== params.extent) return true
   if (header.N !== params.res) return true
   if (!sameArray(header.anchorDir, params.anchorDir)) return true
@@ -50,7 +52,7 @@ function bakeOffMainThread(opts) {
 }
 
 export function bakeMinimapIfMissing(worldName, tcfg, opts = {}) {
-  const base = `${worldName}.${tcfg.seed | 0}.minimap`
+  const base = minimapBaseName(worldName, tcfg)
   if (inFlightBakes.has(base)) return inFlightBakes.get(base)
   const exists = existsSync(join(worldDir(), `${base}.png`))
   if (opts.force || !exists) {
@@ -74,6 +76,7 @@ async function bakeAndWrite(base, tcfg) {
   const t0 = Date.now()
   const { png, header } = await bakeOffMainThread({
     seed: tcfg.seed | 0, radius: tcfg.radius, reliefScale: tcfg.reliefScale, anchorDir: tcfg.anchorDir,
+    hashVersion: minimapBakeParams(tcfg).hashVersion,
     extent: minimapExtentOf(tcfg),
     res: minimapResOf(tcfg), center: tcfg.center || [0, 0],
   })
@@ -92,11 +95,11 @@ export function isMinimapArtifactPath(path) {
   return MINIMAP_ARTIFACT_PATH.test(path)
 }
 
-async function bakeWorldSeedIfMissing(worldName, seed) {
+async function bakeWorldSeedIfMissing(worldName, seed, hashVersion) {
   const worldFile = join(worldDir(), `${worldName}.js`)
   if (!existsSync(worldFile)) return
   const mod = await import(pathToFileURL(worldFile).href)
-  const tcfg = resolveTerrainConfig(withTerrainSeed(mod.default || mod, seed))
+  const tcfg = resolveTerrainConfig(withTerrainHashVersion(withTerrainSeed(mod.default || mod, seed), hashVersion))
   if (!minimapDescriptor(worldName, tcfg)) return
   await bakeMinimapIfMissing(worldName, tcfg)
 }
@@ -104,12 +107,12 @@ async function bakeWorldSeedIfMissing(worldName, seed) {
 export function bakeRequestedMinimapIfMissing(path) {
   const m = MINIMAP_ARTIFACT_PATH.exec(path)
   if (!m) return Promise.resolve()
-  const worldName = m[1], seed = Number(m[2])
+  const worldName = m[1], seed = Number(m[2]), hashVersion = m[3] ? Number(m[3]) : DEFAULT_TERRAIN_HASH_VERSION
   if ((seed | 0) !== seed) return Promise.resolve()
-  const key = `${worldName}.${seed}`
+  const key = `${worldName}.${seed}.h${hashVersion}`
   if (onDemandBakes.has(key)) return onDemandBakes.get(key)
   if (onDemandBakes.size >= MAX_ON_DEMAND_MINIMAP_BAKES) return Promise.resolve()
-  const bake = onDemandQueue.then(() => bakeWorldSeedIfMissing(worldName, seed))
+  const bake = onDemandQueue.then(() => bakeWorldSeedIfMissing(worldName, seed, hashVersion))
   onDemandQueue = bake.catch(() => {})
   onDemandBakes.set(key, bake)
   return bake

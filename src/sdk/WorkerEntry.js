@@ -20,7 +20,7 @@ import { EventLog } from '../netcode/EventLog.js'
 import { IDBAdapter } from '../storage/IDBAdapter.js'
 import { WorkerTransport, PeerTransport } from '../transport/WorkerTransport.js'
 import { createConnectionHandlers } from './ServerHandlers.js'
-import { setupTerrainStreaming, loadPlanetSampler } from '../terrain/TerrainPhysics.js'
+import { setupTerrainStreaming, loadPlanetSampler, planetSamplerOptsOf } from '../terrain/TerrainPhysics.js'
 import { allocateRingBuffer, TransformRingWriter } from '../transport/TransformRing.js'
 import { saveWorldSnapshot, restoreWorldSnapshot, worldDefFingerprint } from './WorldPersistence.js'
 import { isWorldName } from '../shared/worldName.js'
@@ -51,7 +51,7 @@ export async function init({ worldDef, worldName: selectedWorldName = null, apps
 
   const _tcfg = resolveTerrainConfig(worldDef)
   if (_tcfg && _tcfg.enabled !== false) {
-    loadPlanetSampler({ radius: _tcfg.radius, hpfTexRes: (_tcfg.physics || {}).hpfTexRes, seed: _tcfg.seed, reliefScale: _tcfg.reliefScale }).catch(() => {})
+    loadPlanetSampler(planetSamplerOptsOf(_tcfg)).catch(() => {})
   }
 
   const emitter = new EventEmitter(), eventBus = new EventBus(), eventLog = new EventLog({ maxSize: 1000 })
