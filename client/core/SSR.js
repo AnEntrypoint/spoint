@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { RenderControls } from './RenderControls.js'
+import { renderDeferringUnreadyPrograms } from './ProgramReadiness.js'
 import { getWetness as _getWeatherWetness } from './WetnessTint.js'
 import { SEA_SURFACE_GLSL, adoptSeaUniforms } from './UnderwaterTint.js'
 
@@ -228,7 +229,7 @@ export class SSR {
     this.renderer.autoClear = true
     this.renderer.setClearColor(0x000000, 1)
     this.scene.overrideMaterial = this._wetnessMat
-    this.renderer.render(this.scene, this.camera)
+    renderDeferringUnreadyPrograms(this.renderer, this.scene, this.camera)
     this.scene.overrideMaterial = prevOverride
 
     this.renderer.setRenderTarget(prevTarget)

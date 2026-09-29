@@ -1,5 +1,6 @@
 import { RenderControls } from './RenderControls.js'
 import { resolveCameraPose } from './PlacementScheduler.js'
+import { renderDeferringUnreadyPrograms } from './ProgramReadiness.js'
 
 const _authVegFocus = { x: 0, y: 0, z: 0 }
 const _camPose = { x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1 }
@@ -164,7 +165,7 @@ export function buildRenderSectionNodes() {
           if (hasTerrain) ctx.renderer.autoClear = true
         } else {
           if (hasTerrain) ctx.renderer.autoClear = false
-          ctx.renderer.render(ctx.scene, ctx.camera)
+          renderDeferringUnreadyPrograms(ctx.renderer, ctx.scene, ctx.camera)
           if (hasTerrain) ctx.renderer.autoClear = true
         }
         ctx.res.sceneDepth = { target: 'canvas', frameId: ctx.frameId }

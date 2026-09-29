@@ -31,6 +31,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     ? { makePredicate: () => undefined, runQueries() {}, getStats: () => ({ flips: 0 }), clearVerdicts() {}, dispose() {}, snapshotOccludedKeys: () => [], setMaxQueriesPerFrame() {}, getMaxQueriesPerFrame: () => 0, getCandidateCount: () => 0 }
     : createTerrainOcclusion(gl, { minCandidates: cfg.occlusionMinCandidates ?? 32, maxElev: cfg.occlusionMaxElev ?? 200 })
   let initMapspinnerPlanet, createHeightSampler, initMapspinnerPlanetWebGPU
+  performance.mark('terrain:start')
   try {
     if (isWebGPU) {
       ;({ initMapspinnerPlanetWebGPU } = await import('mapspinner/webgpu/planet-orchestrator-webgpu'))
@@ -38,6 +39,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
       ;({ initMapspinnerPlanet } = await import('mapspinner/planet-orchestrator'))
     }
     ;({ createHeightSampler } = await import('mapspinner/height-cpu'))
+    performance.mark('terrain:modules')
   } catch (e) {
     console.warn('[terrain] mapspinner import failed -> running without planet backdrop:', e?.message || e)
     return _createFallbackBackdrop()
@@ -63,12 +65,14 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   if (typeof window !== 'undefined' && window.__planetDepthBias === undefined) RenderControls.set('planetDepthBias', 0.000002)
   try {
     planet = await _initPlanet()
-    sampler = createHeightSampler({ radius, seed: cfg.seed, reliefScale: cfg.reliefScale })
+    performance.mark('terrain:planet-init')
+    sampler =createHeightSampler({ radius, seed: cfg.seed, reliefScale: cfg.reliefScale })
     frame = createPlanetFrame({ sampler, anchorDir: cfg.anchorDir || [0, 1, 0], offsetY: cfg.offsetY || 0, reliefScale: cfg.reliefScale })
     if (cfg.gpuPatchCollider !== false) {
       try {
         const { createPatchBaker, createPatchHeightFn } = await import('/node_modules/mapspinner/src/patch-baker.js')
         const baker = await createPatchBaker({ radius, reliefScale: cfg.reliefScale, seed: cfg.seed }).catch(() => null)
+        performance.mark('terrain:patch-baker')
         const fractalGHL = frame.groundHeightLocal
         const ph = baker && createPatchHeightFn({ baker, frame, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : DEFAULT_PATCH_MAX_LEVEL, offsetY: cfg.offsetY || 0, fallbackFn: fractalGHL, blocking: false })
         if (ph) {

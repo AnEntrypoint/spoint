@@ -6,6 +6,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import { VRMLoaderPlugin } from '@pixiv/three-vrm'
 import { installUnderwaterTint, setSeaLevelY } from './UnderwaterTint.js'
 import { RenderControls } from './RenderControls.js'
+import { renderDeferringUnreadyPrograms } from './ProgramReadiness.js'
 export { installUnderwaterTint, setSeaLevelY }
 
 export function createScene() {
@@ -320,11 +321,11 @@ export async function warmupShaders(renderer, scene, camera, entityMeshes, playe
     }
     if (abortSignal?.aborted) { _record({ aborted: true, total, manifestedCount: manifestedMeshes.length }); return }
     renderer.shadowMap.needsUpdate = true
-    renderer.render(scene, camera)
+    renderDeferringUnreadyPrograms(renderer, scene, camera)
     if (abortSignal?.aborted) { _record({ aborted: true, total, manifestedCount: manifestedMeshes.length }); return }
     await new Promise(r => requestAnimationFrame(r))
     if (abortSignal?.aborted) { _record({ aborted: true, total, manifestedCount: manifestedMeshes.length }); return }
-    renderer.render(scene, camera)
+    renderDeferringUnreadyPrograms(renderer, scene, camera)
     localStorage.setItem('lastShaderWarmupKey', sceneKey)
     loadingMgr.reportProcessing(total, total)
     console.log('[shader] warmup done, meshes:', total, manifestUrls ? `(${manifestedMeshes.length} manifest-driven)` : '')

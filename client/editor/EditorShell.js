@@ -9,7 +9,7 @@ import { createRenderGraphViewer } from './RenderGraphViewer.js'
 import { createProcgenPanel } from './ProcgenPanel.js'
 import { createEditorEventLog } from './EditorEventLog.js'
 import { createWorldValidator } from './WorldValidator.js'
-import { createWaypointTimeline } from 'game-editor-kit'
+import { editorKit } from '../core/EditorKit.js'
 import { createEventChainPanel } from './EventChainPanel.js'
 import { showToast, setSceneEntityIds } from './EditPanelDOM.js'
 import { ASSET_HOST } from './AssetManifest.js'
@@ -135,16 +135,19 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
 
   let _waypointHost = null, _waypointPanel = null
   function _ensureWaypointTimeline() {
-    if (_waypointPanel) return
+    if (_waypointHost) return
     _waypointHost = document.createElement('div')
     _waypointHost.style.cssText = 'flex:1;min-height:0;display:flex;flex-direction:column;height:100%'
-    _waypointPanel = createWaypointTimeline(_waypointHost, {
-      onSelect: id => { onEntitySelect?.(id); hierarchy.setSelected(id) },
-      onAdd: (nextOrder) => onAddWaypoint?.(nextOrder),
-      onRemove: id => onDestroyEntity?.(id),
-      onReorder: (delta) => onReorderWaypoints?.(delta)
+    editorKit.then((kit) => {
+      if (!kit) return
+      _waypointPanel = kit.createWaypointTimeline(_waypointHost, {
+        onSelect: id => { onEntitySelect?.(id); hierarchy.setSelected(id) },
+        onAdd: (nextOrder) => onAddWaypoint?.(nextOrder),
+        onRemove: id => onDestroyEntity?.(id),
+        onReorder: (delta) => onReorderWaypoints?.(delta)
+      })
+      _waypointPanel.updateEntities(_entities)
     })
-    _waypointPanel.updateEntities(_entities)
   }
 
   let _fsBrowseHost = null, _fsBrowsePanel = null

@@ -1,7 +1,8 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 
 const PINNED_VERSIONS = {
-  '@three.ez/instanced-mesh': '0.3.16'
+  '@three.ez/instanced-mesh': '0.3.16',
+  'three': '0.185.1'
 }
 
 function checkPinnedVersion(pkgName) {
@@ -94,4 +95,30 @@ patch(
     for (let a = 0; a < n.length; a++)
       s[a] = n[a].distance - n[a].distance * n[a].hysteresis;`,
   'three.ez BVH LOD hysteresis (trunk-flicker root cause)'
+)
+
+patch(
+  'node_modules/@three.ez/instanced-mesh/build/index.js',
+  't.deferUnreadyPrograms === true && !s.isReady()',
+  `    const s = n.currentProgram, o = s?.program;
+    if (!o) return;`,
+  `    const s = n.currentProgram, o = s?.program;
+    if (!o || (t.deferUnreadyPrograms === true && !s.isReady())) return;`,
+  'three.ez bindTextures skips a still-compiling program'
+)
+
+patch(
+  'node_modules/three/build/three.module.js',
+  '_this.deferUnreadyPrograms === true && program.isReady() === false',
+  `\t\t\tlet refreshProgram = false;\n\t\t\tlet refreshMaterial = false;\n\t\t\tlet refreshLights = false;\n\n\t\t\tconst p_uniforms = program.getUniforms(),`,
+  `\t\t\tif ( _this.deferUnreadyPrograms === true && program.isReady() === false ) { _this.deferredProgramDraws ++; return null; }\n\n\t\t\tlet refreshProgram = false;\n\t\t\tlet refreshMaterial = false;\n\t\t\tlet refreshLights = false;\n\n\t\t\tconst p_uniforms = program.getUniforms(),`,
+  'three setProgram defers a still-compiling program'
+)
+
+patch(
+  'node_modules/three/build/three.module.js',
+  'const program = setProgram( camera, scene, geometry, material, object );\n\t\t\tif ( program === null ) return;',
+  `\t\t\tconst program = setProgram( camera, scene, geometry, material, object );\n`,
+  `\t\t\tconst program = setProgram( camera, scene, geometry, material, object );\n\t\t\tif ( program === null ) return;\n`,
+  'three renderBufferDirect skips a deferred draw'
 )

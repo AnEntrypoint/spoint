@@ -42,7 +42,7 @@ function _analyzeSSAOGbufferMaterial() {
 
   const hasOverrideMaterial = source.includes('overrideMaterial')
   const hasGBufferMat = source.includes('_gbufferMat')
-  const hasSceneRender = source.includes('renderer.render(this.scene')
+  const hasSceneRender = source.includes('renderDeferringUnreadyPrograms(this.renderer, this.scene')
 
   return {
     mechanism: 'scene.overrideMaterial = hand-rolled ShaderMaterial (raw GLSL vertex+fragment shaders)',

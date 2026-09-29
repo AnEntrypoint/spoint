@@ -6,7 +6,8 @@ import { BrowserServer } from './BrowserServer.js'
 import './core/Relocation.js'
 import { createElement, applyDiff } from 'webjsx'
 import { renderGameHud, renderLoadingScreen, renderHostJoinLobby } from 'anentrypoint-design'
-import { createDamageNumbers, ResetButton, RpgProgressHud } from 'game-editor-kit'
+import { editorKit } from './core/EditorKit.js'
+import { whenProgramsReady, takeDeferredDraws } from './core/ProgramReadiness.js'
 import * as DamageEffects from '/src/effects/DamageEffects.js'
 const _designKit = { renderGameHud, renderLoadingScreen }
 import { LoadingManager } from './LoadingManager.js'
@@ -22,7 +23,6 @@ import { createClientStateMachine } from './core/ClientMachine.js'
 import { createSpectatorMode } from './core/SpectatorMode.js'
 import { createLoadingStateMachine } from './core/LoadingMachine.js'
 import { createEditPanel } from './editor/EditorShell.js'
-import { createCommandPalette } from 'game-editor-kit'
 import { EditorAutosave } from './editor/EditorAutosave.js'
 import { PerfOverlay } from './editor/PerfOverlay.js'
 import { showConfirm, showToast } from './editor/EditPanelDOM.js'
@@ -273,9 +273,11 @@ const loadingMgr = new LoadingManager(), loadingScreen = createLoadingScreen(loa
 const loadingMachine = createLoadingStateMachine()
 if (window.__app) window.__app.loadingMachine = loadingMachine
 let _loadingFinished = false
+const SHADER_WARMUP_MAX_MS = 6000
 async function _finishLoading() {
   if (_loadingFinished) return
   _loadingFinished = true
+  performance.mark('boot:loading-ready')
   loadingMgr.setLabel('Starting game...')
   el.onMeshReady = m => { if (m) gateCompile(m); else { try { renderer.compileAsync(scene, camera).catch(() => {}) } catch (_) {} } }
   const SCENERY_BUILD_TIMEOUT_MS = 30000
@@ -312,15 +314,19 @@ async function _finishLoading() {
       })
     }
   }
+  performance.mark('boot:scenery-built')
   const _shaderManifest = await _shaderManifestPromise
   if (!_isSingleplayer || el.entityMeshes.size < 10 || _shaderManifest) {
     loadingMgr.setLabel('Compiling shaders...')
     const _warmupAbort = { aborted: false }
     window.__warmupInFlight = true
     try {
-      await Promise.race([warmupShaders(renderer, scene, camera, el.entityMeshes, pm.playerMeshes, loadingMgr, _warmupAbort, _shaderManifest), new Promise(r => setTimeout(r, 6000)).then(() => { _warmupAbort.aborted = true })])
+      await Promise.race([warmupShaders(renderer, scene, camera, el.entityMeshes, pm.playerMeshes, loadingMgr, _warmupAbort, _shaderManifest), new Promise(r => setTimeout(r, SHADER_WARMUP_MAX_MS)).then(() => { _warmupAbort.aborted = true })])
     } catch (_) { _warmupAbort.aborted = true } finally { window.__warmupInFlight = false }
   }
+  loadingMgr.setLabel('Compiling shaders...')
+  await whenProgramsReady(renderer, SHADER_WARMUP_MAX_MS)
+  performance.mark('boot:shaders-warm')
   loadingMgr.setLabel('Starting game...')
   loadingScreen.hide()
   if (window.__app) window.__app.revealedAt = performance.now()
@@ -388,6 +394,7 @@ async function _buildWorldScenery() {
   const _hp = (tag) => { if (typeof location === 'undefined' || !location.search.includes('leak')) return; try { const m = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : -1; console.log('[BUILD-HEAP] ' + tag + ' = ' + m + 'MB') } catch (_) {} }
   _hp('start')
   const tb = await createTerrainBackdrop(renderer, scene, _terrainCfg)
+  performance.mark('boot:terrain')
   _hp('after-backdrop')
   terrainBackdrop = tb; try { scene.background = null } catch (e) { _dbgTerrain('clear scene.background failed:', e?.message || e) }
   try { sculptOverlay = createSculptOverlay(tb) } catch (e) { console.warn('[terrain] sculptOverlay init failed:', e?.message || e) }
@@ -413,7 +420,7 @@ async function _buildWorldScenery() {
       if (typeof location !== 'undefined' && /[?&]drawcollider/.test(location.search)) colliderDebug.setVisible(true)
     } catch (e) { console.error('[colliderDebug] init failed:', e?.message || e) }
     const rp = _ensureRocks(tb), gp = _ensureGrass(tb), vp = _ensureVegetation(tb)
-    await Promise.all([rp, gp, vp].filter(Boolean)); _hp('after-rocks-grass-veg')
+    await Promise.all([rp, gp, vp].filter(Boolean)); performance.mark('boot:foliage-built'); _hp('after-rocks-grass-veg')
     _ensureCaves(tb); _hp('after-caves')
     _ensureWeather(tb); _hp('after-weather')
   } else {
@@ -435,6 +442,7 @@ async function _buildWorldScenery() {
       grass && grass.prewarm ? grass.prewarm(px, pz, PLAYABLE_BUDGET_MS) : null,
     ])
     _hp('after-veg-rocks-grass-prewarm')
+    performance.mark('boot:foliage-prewarmed')
     warmSceneryShaders(renderer, scene, camera)
     _hp('after-prewarm-warm')
   } catch (e) { console.error('[veg] prewarm/warm failed:', e?.message || e) }
@@ -1475,38 +1483,45 @@ const livePreview = createLivePreview({
 
 const _dnProjectVec = new THREE.Vector3()
 let damageNumbers = null
-try {
-damageNumbers = createDamageNumbers(scene, {
-  project(v) { return _dnProjectVec.set(v.x, v.y, v.z).project(camera) }
-})
-} catch (e) { window.__kitWiringError = 'damageNumbers: ' + (e?.message || e) }
 window.__damageEffects = DamageEffects
 window.__DamageNumbers = {
-  addNumber(payload) { return damageNumbers.addNumber(payload.damage, payload.position, { color: payload.color }) },
-  update(dtMs) { return damageNumbers.update(dtMs) },
-  getActiveNumbers() { return damageNumbers.getActiveNumbers() },
-  cleanup() { return damageNumbers.cleanup() }
+  addNumber(payload) { return damageNumbers ? damageNumbers.addNumber(payload.damage, payload.position, { color: payload.color }) : null },
+  update(dtMs) { return damageNumbers ? damageNumbers.update(dtMs) : null },
+  getActiveNumbers() { return damageNumbers ? damageNumbers.getActiveNumbers() : [] },
+  cleanup() { return damageNumbers ? damageNumbers.cleanup() : null }
 }
 
-let _rpgHudContainer = null
-_designKit.renderRpgProgressHud = (progress) => {
+let _rpgHudContainer = null, _rpgHudPending = null, _rpgProgressHud = null
+function _paintRpgHud(progress) {
   try {
     if (!_rpgHudContainer) { _rpgHudContainer = document.createElement('div'); uiRoot.appendChild(_rpgHudContainer) }
-    applyDiff(_rpgHudContainer, [RpgProgressHud(progress)])
+    applyDiff(_rpgHudContainer, [_rpgProgressHud(progress)])
   } catch (e) { window.__kitWiringError = (window.__kitWiringError || '') + ' rpgProgressHud: ' + (e?.message || e) }
 }
+_designKit.renderRpgProgressHud = (progress) => { if (_rpgProgressHud) _paintRpgHud(progress); else _rpgHudPending = progress }
 
-try {
-if (editPanel.inspectorKitMount) {
-  applyDiff(editPanel.inspectorKitMount, [
-    ResetButton({
-      livePreview,
-      onReset: () => editPanel.toast('Preview edits reverted'),
-      onError: (msg) => editPanel.toast(msg, 'error')
-    })
-  ])
-}
-} catch (e) { window.__kitWiringError = (window.__kitWiringError||'') + ' resetBtn: ' + (e?.message || e) }
+let _commandPalette = null
+editorKit.then((kit) => {
+  if (!kit) return
+  try {
+    damageNumbers = kit.createDamageNumbers(scene, { project(v) { return _dnProjectVec.set(v.x, v.y, v.z).project(camera) } })
+  } catch (e) { window.__kitWiringError = (window.__kitWiringError || '') + ' damageNumbers: ' + (e?.message || e) }
+  _rpgProgressHud = kit.RpgProgressHud
+  if (_rpgHudPending) { const p = _rpgHudPending; _rpgHudPending = null; _paintRpgHud(p) }
+  try {
+    if (editPanel.inspectorKitMount) {
+      applyDiff(editPanel.inspectorKitMount, [
+        kit.ResetButton({
+          livePreview,
+          onReset: () => editPanel.toast('Preview edits reverted'),
+          onError: (msg) => editPanel.toast(msg, 'error')
+        })
+      ])
+    }
+  } catch (e) { window.__kitWiringError = (window.__kitWiringError || '') + ' resetBtn: ' + (e?.message || e) }
+  try { _commandPalette = kit.createCommandPalette({ wm: editPanel.wm, commands: _buildCommandPaletteCommands() }) }
+  catch (e) { window.__kitWiringError = (window.__kitWiringError || '') + ' commandPalette: ' + (e?.message || e) }
+})
 
 function _buildCommandPaletteCommands() {
   return [
@@ -1543,8 +1558,7 @@ function _buildCommandPaletteCommands() {
     { id: 'editor:paste', label: 'Paste', keywords: 'paste', action: () => editor.pasteOntoSelectedEntity?.() },
   ]
 }
-const _commandPalette = createCommandPalette({ wm: editPanel.wm, commands: _buildCommandPaletteCommands() })
-editor.onCommandPalette(() => _commandPalette.toggle(_buildCommandPaletteCommands()))
+editor.onCommandPalette(() => _commandPalette?.toggle(_buildCommandPaletteCommands()))
 
 PerfOverlay.install({
   onSelectEntity: (id) => {
@@ -2348,6 +2362,7 @@ function animate(ts) {
   _graphCtx.modelPool = modelPool; _graphCtx.sceneOcclusion = sceneOcclusion
   occlusionQueryBudget.reportFrameTime(_perf.lastMs)
   renderGraph.run(_graphCtx)
+  if (takeDeferredDraws(renderer) > 0) shadowPipeline?.forceUpdate()
   multiViewport.render(camera)
   minimapHUD.update()
   _perf.sample(performance.now() - now, renderer, pm.playerMeshes.size, el.entityMeshes.size)

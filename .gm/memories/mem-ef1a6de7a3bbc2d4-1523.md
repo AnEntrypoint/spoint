@@ -1,0 +1,8 @@
+---
+key: mem-ef1a6de7a3bbc2d4-1523
+ns: default
+created: 1790704909909
+updated: 1790704909909
+---
+
+project/startup-deferred-program-compile-and-kit-lazy: 2026-09-29 cold-boot measurements (RTC 3060, uncapped vsync). (1) gm cdp runner v0.1.142 wraps every gl.draw* with gl.getError (sync GPU round trip) -> ~2/3 of frame time in `wrapped`; delete own draw props from renderer.getContext() in-page before measuring. (2) game-editor-kit static import pulled ~180 unbundled jsdelivr files (ModelBrowser.js imports ../../components.js) and held DCL to 9-24 s cold; now lazy via client/core/EditorKit.js (editorKit promise). (3) three r185 setProgram blocks in WebGLUniforms on first use of a still-linking program (4-5 s of loading long tasks); scripts/patch-deps.mjs now patches three + three.ez so renderer.deferUnreadyPrograms skips draws whose program isReady() is false; client/core/ProgramReadiness.js renderDeferringUnreadyPrograms wraps main scene, SSAO gbuffer, SSR wetness, ThreeVdrs scene renders (not post quads, not bakes); app.js forces a shadow refresh while deferredProgramDraws>0 and awaits whenProgramsReady before hiding the overlay. (4) overlay outlives loadingMachine.isReady by design: _finishLoading runs terrain GPU compile (~5-6.6 s cold, awaitProgramLink poll), foliage build (~4-5 s main thread: ez-tree generate, impostor atlas bake, simplify), prewarm and shader warmup; vegetation species build now overlaps terrain compile (createVegetation takes a terrain promise). Reveal 27.5-41.5 s -> 14.1-17.5 s; max long task 800-820 -> 410-569 ms. Marks: performance marks boot:*, terrain:*, mapspinner:*.

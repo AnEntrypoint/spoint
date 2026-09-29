@@ -1,3 +1,5 @@
+import { renderDeferringUnreadyPrograms } from './ProgramReadiness.js'
+
 const PLACEMENT_INTERVAL_MS = 250
 const MIN_TICK_GAP_MS = 40
 
@@ -19,7 +21,7 @@ export function resolveCameraPose(camera, out) {
 
 export function warmSceneryShaders(renderer, scene, camera) {
   if (!renderer || !scene || !camera) return 0
-  try { renderer.render(scene, camera); renderer.render(scene, camera) } catch (_) {}
+  try { renderDeferringUnreadyPrograms(renderer, scene, camera); renderDeferringUnreadyPrograms(renderer, scene, camera) } catch (_) {}
   return 2
 }
 

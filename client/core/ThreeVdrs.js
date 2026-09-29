@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { RenderControls } from './RenderControls.js'
+import { renderDeferringUnreadyPrograms } from './ProgramReadiness.js'
 
 const _fullscreenVert = `
   varying vec2 vUv;
@@ -177,7 +178,7 @@ export class ThreeVdrs {
     this.renderer.setRenderTarget(this._lowTarget)
     this.renderer.autoClear = true
     this.renderer.clear(true, true, false)
-    this.renderer.render(this.scene, this.camera)
+    renderDeferringUnreadyPrograms(this.renderer, this.scene, this.camera)
 
     this._easuMat.uniforms.tSource.value = this._lowTarget.texture
     this._easuMat.uniforms.uSrcTexel.value.set(1 / lowW, 1 / lowH)

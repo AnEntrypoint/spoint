@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { RenderControls } from './RenderControls.js'
+import { renderDeferringUnreadyPrograms } from './ProgramReadiness.js'
 
 const _gbufferVert = `
   varying vec3 vViewNormal;
@@ -199,7 +200,7 @@ export class SSAO {
     this.renderer.autoClear = true
     this.renderer.setClearColor(0x000000, 0)
     this.scene.overrideMaterial = this._gbufferMat
-    this.renderer.render(this.scene, this.camera)
+    renderDeferringUnreadyPrograms(this.renderer, this.scene, this.camera)
     this.scene.overrideMaterial = prevOverride
 
     const fov = this.camera.fov ? THREE.MathUtils.degToRad(this.camera.fov) : Math.PI / 3

@@ -35,6 +35,7 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
   const _t = { start: _now() };
   const render = await initMapspinnerRender(gl, { radius: R, gridMeshSize, reliefScale: opts.reliefScale, bakeOnly: !!opts.bakeOnly });
   _t.shaderCompileMs = +(_now() - _t.start).toFixed(0);
+  if (typeof performance !== 'undefined' && performance.mark) performance.mark('mapspinner:render-init');
   const qt = new Quadtree(R);
 
   const _tHpf0 = _now();
