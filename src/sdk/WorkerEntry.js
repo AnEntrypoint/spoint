@@ -110,7 +110,7 @@ export async function init({ worldDef, worldName: selectedWorldName = null, apps
   _transformRing = allocateRingBuffer(TRANSFORM_RING_CAPACITY)
   const transformRingWriter = _transformRing ? new TransformRingWriter(_transformRing.sab, _transformRing.capacity) : null
   ctx.transformRingWriter = transformRingWriter
-  ctx.setTickHandler(createTickHandler({ networkState, playerManager, physicsIntegration, lagCompensator, physics, appRuntime, connections, movement: ctx.movement, stageLoader, eventLog, tickRate, getRelevanceRadius: () => worldDef.relevanceRadius || 0, getWorldTimeOfDayConfig: () => worldDef.terrain?.timeOfDay || null, getWorldWeatherConfig: () => worldDef.terrain?.weather || null, transformRingWriter, onAutoSave: () => { saveWorldSnapshot(ctx).catch(e => console.error('[world-persistence] periodic save failed:', e.message)) } }))
+  ctx.setTickHandler(createTickHandler({ networkState, playerManager, physicsIntegration, lagCompensator, physics, appRuntime, connections, movement: ctx.movement, stageLoader, eventLog, tickRate, getRelevanceRadius: () => worldDef.relevanceRadius || 0, getNetcodeConfig: () => worldDef.netcode || null,  getWorldTimeOfDayConfig: () => worldDef.terrain?.timeOfDay || null, getWorldWeatherConfig: () => worldDef.terrain?.weather || null, transformRingWriter, onAutoSave: () => { saveWorldSnapshot(ctx).catch(e => console.error('[world-persistence] periodic save failed:', e.message)) } }))
   ctx.onClientConnect = createConnectionHandlers(ctx).onClientConnect
 
   stageLoader.loadFromDefinition('main', worldDef)

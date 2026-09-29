@@ -59,19 +59,31 @@ function makeEntitySlot() {
   return { id: 0, model: null, position: [0, 0, 0], rotation: [0, 0, 0, 1], velocity: [0, 0, 0], bodyType: 'static', custom: null, scale: [1, 1, 1], sleeping: false }
 }
 
+function unpackPlayerBin(buf) {
+  const b = buf instanceof DataView ? new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) : buf
+  _bin.px = i32(b, 0); _bin.py = i32(b, 4); _bin.pz = i32(b, 8)
+  _bin.vx = i16(b, 12); _bin.vy = i16(b, 14); _bin.vz = i16(b, 16)
+  _bin.qrot = (b[18] | (b[19] << 8) | (b[20] << 16)) + b[21] * 16777216
+  return _bin
+}
+
 function fillPlayerArr(s, p) {
   s.id = p[0]
-  const bin = unpackBinRecord(p[1])
+  const bin = unpackPlayerBin(p[1])
   s.position[0] = bin.px; s.position[1] = bin.py; s.position[2] = bin.pz
   unpackQuat(bin.qrot, s.rotation)
   s.velocity[0] = bin.vx; s.velocity[1] = bin.vy; s.velocity[2] = bin.vz
-  s.onGround = p[2] === 1; s.health = p[3]; s.inputSequence = p[4]; s.crouch = p[5] || 0
-  s.lookPitch = (((p[6] || 0) >> 8) & 0xFF) / 255 * Math.PI - Math.PI / 2
-  s.lookYaw = ((p[6] || 0) & 0xFF) / 256 * TAU
-  s.expr = p[7] || 0
-  s.weapon = p[8] || 0
-  s.inputBuffer = p[9] ?? -1
-  unpackGroundNormal(p[10] || 0, s.groundNormal)
+  s.onGround = p[2] === 1; s.health = p[3]; s.crouch = p[4] || 0
+  s.lookPitch = (((p[5] || 0) >> 8) & 0xFF) / 255 * Math.PI - Math.PI / 2
+  s.lookYaw = ((p[5] || 0) & 0xFF) / 256 * TAU
+  s.expr = p[6] || 0
+  s.weapon = p[7] || 0
+}
+
+function applySelfBlock(s, me) {
+  s.inputSequence = me[0] || 0
+  s.inputBuffer = me[1] ?? -1
+  unpackGroundNormal(me[2] || 0, s.groundNormal)
 }
 
 function fillPlayerObj(s, p) {
@@ -206,7 +218,7 @@ export class SnapshotProcessor {
     for (const slot of oldest.entities) this._entitySlotPool.release(slot)
   }
 
-  processSnapshot(data, tick) {
+  processSnapshot(data, tick, selfId = null) {
     this.lastSnapshotTick = tick
     this._callCount++
     const snapshotForBuffer = { tick: data.tick || 0, timestamp: data.timestamp || Date.now(), players: [], entities: [] }
@@ -233,6 +245,7 @@ export class SnapshotProcessor {
         if (!track.rotation) track.rotation = [0, 0, 0, 1]
         if (!track.velocity) track.velocity = [0, 0, 0]
       }
+      if (pid === selfId && Array.isArray(data.me)) applySelfBlock(track, data.me)
       snapshotForBuffer.players.push(copyPlayerStateInto(this._playerSlotPool.acquire(), track))
     }
     for (const [pid, track] of this._playerStates) {

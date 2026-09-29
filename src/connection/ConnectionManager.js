@@ -133,6 +133,19 @@ export class ConnectionManager extends EventEmitter {
     }
   }
 
+  sendNow(clientId, type, payload = {}) {
+    const client = this.clients.get(clientId)
+    if (!client || !client.transport.isOpen) return false
+    try {
+      _sendObj.type = type; _sendObj.payload = payload
+      const data = pack(_sendObj)
+      return isUnreliable(type) ? client.transport.sendUnreliable(data, type) : client.transport.send(data, type)
+    } catch (err) {
+      console.error(`[connection] sendNow error to ${clientId}:`, err.message)
+      return false
+    }
+  }
+
   broadcast(type, payload = {}) {
     _sendObj.type = type; _sendObj.payload = payload
     const data = pack(_sendObj)

@@ -19,6 +19,7 @@ const MOVE_ONSET_M = 0.03
 const MISPREDICT_M = 0.02
 
 const args = Object.fromEntries(process.argv.slice(2).map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true'] }))
+if (args.precise === 'true') process.env.SPOINT_PRECISE_TICKS = '1'
 const DURATION_MS = Number(args.duration || 20000)
 const WORLD = args.world || 'arena'
 const HARNESS_ARENA = {

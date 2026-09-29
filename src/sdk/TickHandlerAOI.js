@@ -70,7 +70,6 @@ function computeRingRelevantIds(cellKey, cellFace, cellCx, cellCy, cellsPerFace,
 }
 
 const _spatialCache = new Map()
-const _cellPackCache = new Map()
 const _ringCache = new Map()
 const _priorityAccumulators = new Map()
 const _priorityBuckets = [[], [], [], []]
@@ -178,4 +177,4 @@ function trimEntitiesToBudget(entities, staticCount, viewerPos, dynCache) {
   return { entities: trimmed, trimmedCount: dropSet.size }
 }
 
-export { trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, _cellCenterWorld, _spatialCache, _cellPackCache, _ringCache }
+export { trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, _cellCenterWorld, _spatialCache, _ringCache }

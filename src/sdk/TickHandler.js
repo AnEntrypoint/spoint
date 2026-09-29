@@ -1,5 +1,5 @@
 import { MSG } from '../protocol/MessageTypes.js'
-import { SnapshotEncoder, TombstoneLog, updateTombstones, PLAYER_LOD_REDUCED_HZ, filterEncodedPlayersTiered } from '../netcode/SnapshotEncoder.js'
+import { SnapshotEncoder, TombstoneLog, updateTombstones, PLAYER_LOD_REDUCED_HZ, filterEncodedPlayersTiered, encodeSelfBlock } from '../netcode/SnapshotEncoder.js'
 import { pack } from '../protocol/msgpack.js'
 import { applyMovement as _applyMovement, DEFAULT_MOVEMENT as _DEFAULT_MOVEMENT } from '../shared/movement.js'
 import { applyPlayerCollisions } from '../netcode/CollisionSystem.js'
@@ -10,7 +10,7 @@ import { enforceMovementEnvelope } from '../netcode/InputGuard.js'
 import { checksumBodies } from '../netcode/LockstepChecksum.js'
 import { stepTeleportHold } from '../netcode/TeleportHold.js'
 import { recordSnapshotBytes, recordTickPhase } from './Metrics.js'
-import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, getPlayerPriorityIds, clearPlayerPriorityAccumulator, _spatialCache, _cellPackCache, _ringCache } from './TickHandlerAOI.js'
+import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, getPlayerPriorityIds, clearPlayerPriorityAccumulator, _spatialCache, _ringCache } from './TickHandlerAOI.js'
 export { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, getPlayerPriorityIds } from './TickHandlerAOI.js'
 
 const INPUT_BUFFER_CATCHUP_DEPTH = 8
@@ -22,14 +22,8 @@ const PHYSICS_PLAYER_DIVISOR = 3
 const PHYSICS_MAX_ACCUM_DT = 1 / 20
 const SNAP_UNRELIABLE = true
 const SNAP_RATE_MIN_HZ = 8
-const SNAP_RATE_MAX_HZ = 30
-const SNAP_RATE_IDLE_HZ = 4
 const SNAP_RATE_ADJUST_INTERVAL = 64
 const AUTO_SAVE_INTERVAL = 300
-const SNAP_PLAYER_LOW = 4
-const SNAP_PLAYER_HIGH = 16
-const SNAP_RTT_LOW = 50
-const SNAP_RTT_HIGH = 200
 const SNAP_COST_LOW_FRAC = 0.15
 const SNAP_COST_HIGH_FRAC = 0.35
 const PLAYER_LOD_FULL_COUNT_THRESHOLD = 30
@@ -37,8 +31,6 @@ const BANDWIDTH_TRIM_MIN_ENTITIES = 6
 const CROUCH_WIRE_BIT = 1
 const SWIMMING_WIRE_BIT = 2
 const DEFAULT_TICK_RATE_HZ = 60
-const SNAP_BAND_HYSTERESIS_HZ = 2
-const SNAP_BAND_HOLD_SECONDS = 2
 const STATIC_MOTION_IDLE_SECONDS = 1
 
 let _lastYaw = NaN, _lastSinHalf = 0, _lastCosHalf = 1
@@ -143,15 +135,15 @@ function processPlayerMovement(players, deps, tick, dt, playerIdleCounts, player
 
 
 const _playersByIdScratch = new Map()
-const _cellSharedPackCache = new Map()
 const _packWrapper = { type: MSG.SNAPSHOT, payload: null }
-const _packPayload = { seq: 0, tick: 0, serverTime: 0, players: null, entities: null, removed: undefined, delta: 1, dots: undefined }
+const _packPayload = { seq: 0, tick: 0, serverTime: 0, players: null, entities: null, removed: undefined, delta: 1, dots: undefined, me: undefined }
 
-function packSnapshot(seq, encoded) {
+function packSnapshot(seq, encoded, me) {
   _packPayload.seq = seq; _packPayload.tick = encoded.tick; _packPayload.serverTime = encoded.serverTime
   _packPayload.players = encoded.players; _packPayload.entities = encoded.entities
   _packPayload.removed = encoded.removed; _packPayload.delta = encoded.delta
   _packPayload.dots = encoded.dots
+  _packPayload.me = me
   _packWrapper.payload = _packPayload
   const buf = pack(_packWrapper)
   recordSnapshotBytes(buf.length)
@@ -229,8 +221,6 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     const snapshotHz = deps.getSnapshotHz ? deps.getSnapshotHz() : 20
     const reducedTickMod = Math.max(1, Math.round(snapshotHz / PLAYER_LOD_REDUCED_HZ))
     _spatialCache.clear()
-    _cellPackCache.clear()
-    _cellSharedPackCache.clear()
     _ringCache.clear()
     let dynCache = null
     let unmanagedIds = null
@@ -325,23 +315,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
       if (playerDots) encoded.dots = playerDots
       state.playerLastTick.set(player.id, tick)
       playerEntityMaps.set(player.id, entityMap)
-      let packIdenticalAcrossCell = false
-      if (!isTiered && !playerDots) {
-        let nearSet = cached.nearbySet
-        if (!nearSet) { nearSet = new Set(cached.nearbyPlayerIds); cached.nearbySet = nearSet }
-        packIdenticalAcrossCell = nearSet.has(player.id)
-      }
-      let packedData
-      if (packIdenticalAcrossCell && encoded.entities.length === 0 && !encoded.removed) {
-        packedData = _cellPackCache.get(cellKey)
-        if (!packedData) { packedData = packSnapshot(snapshotSeq, encoded); _cellPackCache.set(cellKey, packedData) }
-      } else if (packIdenticalAcrossCell && useSharedCell && !isFreshToCell) {
-        packedData = _cellSharedPackCache.get(cellKey)
-        if (!packedData) { packedData = packSnapshot(snapshotSeq, encoded); _cellSharedPackCache.set(cellKey, packedData) }
-      } else {
-        packedData = packSnapshot(snapshotSeq, encoded)
-      }
-      connections.sendPacked(player.id, packedData, SNAP_UNRELIABLE, MSG.SNAPSHOT)
+      connections.sendPacked(player.id, packSnapshot(snapshotSeq, encoded, encodeSelfBlock(playersById.get(player.id))), SNAP_UNRELIABLE, MSG.SNAPSHOT)
     }
     if (dynCache !== null && (state.playerLastTick.size > 0 || state.cellLastTick.size > 0)) {
       let minTick = tick
@@ -365,10 +339,11 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     const prevMap = (isKeyframe || state.broadcastEntityMap.size === 0) ? new Map() : state.broadcastEntityMap
     const { encoded, entityMap } = SnapshotEncoder.encodeDelta(combined, prevMap)
     state.broadcastEntityMap = entityMap
-    const data = packSnapshot(snapshotSeq, encoded)
+    const selfById = _playersByIdScratch; selfById.clear()
+    for (const p of playerSnap.players) selfById.set(p.id, p)
     for (const player of players) {
       if (!isKeyframe && player.snapGroup % snapGroups !== curGroup) continue
-      connections.sendPacked(player.id, data, SNAP_UNRELIABLE, MSG.SNAPSHOT)
+      connections.sendPacked(player.id, packSnapshot(snapshotSeq, encoded, encodeSelfBlock(selfById.get(player.id))), SNAP_UNRELIABLE, MSG.SNAPSHOT)
     }
   }
 }
@@ -399,47 +374,20 @@ export function createTickHandler(deps) {
   let snapshotSeq = 0, profileLog = 0, profileSum = 0, profileSumSnap = 0, profileSumPhys = 0, profileSumMv = 0, profileCount = 0
   let _lastBudgetWarnMs = 0
 
-  let _lastBandHz = tickRate
-  let _rateChangeTick = 0
   let _snapCostEmaMs = 0
   const SNAP_COST_EMA_ALPHA = 0.2
 
-  function _computeSnapshotInterval(players, tick) {
-    const pc = players.length
-    let bandHz = tickRate
-    if (pc === 0) {
-      bandHz = SNAP_RATE_IDLE_HZ
-    } else if (pc <= SNAP_PLAYER_LOW) {
-      bandHz = SNAP_RATE_MAX_HZ
-    } else if (pc >= SNAP_PLAYER_HIGH) {
-      bandHz = SNAP_RATE_MIN_HZ
-    } else {
-      const t = (pc - SNAP_PLAYER_LOW) / (SNAP_PLAYER_HIGH - SNAP_PLAYER_LOW)
-      bandHz = Math.round(SNAP_RATE_MAX_HZ - t * (SNAP_RATE_MAX_HZ - SNAP_RATE_MIN_HZ))
-    }
-    const rateDiff = bandHz - _lastBandHz
-    const tickSinceChange = tick - _rateChangeTick
-    const dampedBandHz = (Math.abs(rateDiff) <= SNAP_BAND_HYSTERESIS_HZ || tickSinceChange < tickRate * SNAP_BAND_HOLD_SECONDS) ? _lastBandHz : bandHz
-    if (dampedBandHz !== _lastBandHz) { _lastBandHz = dampedBandHz; _rateChangeTick = tick }
-    let targetHz = dampedBandHz
-    let avgRtt = 0
-    try {
-      const conns = connections?.clients
-      if (conns && conns.size > 0) {
-        let rttSum = 0, rttCount = 0
-        for (const client of conns.values()) {
-          if (client.rtt != null) { rttSum += client.rtt; rttCount++ }
-        }
-        if (rttCount > 0) avgRtt = rttSum / rttCount
-      }
-    } catch (_) {}
-    if (avgRtt > SNAP_RTT_HIGH) targetHz = Math.max(SNAP_RATE_MIN_HZ, Math.round(targetHz * 0.5))
-    else if (avgRtt > SNAP_RTT_LOW) targetHz = Math.round(targetHz * 0.75)
-    if (avgRtt < SNAP_RTT_LOW && targetHz < SNAP_RATE_MAX_HZ) targetHz = Math.min(SNAP_RATE_MAX_HZ, targetHz + 2)
+  function _configuredSnapshotHz() {
+    const hz = deps.getNetcodeConfig?.()?.snapshotRate
+    return Number.isFinite(hz) && hz > 0 ? Math.min(tickRate, hz) : tickRate
+  }
+
+  function _computeSnapshotInterval() {
+    let targetHz = _configuredSnapshotHz()
     const tickBudgetMs = 1000 / tickRate
-    if (_snapCostEmaMs > tickBudgetMs * SNAP_COST_HIGH_FRAC) targetHz = Math.max(SNAP_RATE_MIN_HZ, Math.round(targetHz * 0.5))
-    else if (_snapCostEmaMs > tickBudgetMs * SNAP_COST_LOW_FRAC) targetHz = Math.round(targetHz * 0.75)
-    return Math.max(1, Math.round(tickRate / Math.max(SNAP_RATE_IDLE_HZ, Math.min(SNAP_RATE_MAX_HZ, targetHz))))
+    if (_snapCostEmaMs > tickBudgetMs * SNAP_COST_HIGH_FRAC) targetHz = targetHz * 0.5
+    else if (_snapCostEmaMs > tickBudgetMs * SNAP_COST_LOW_FRAC) targetHz = targetHz * 0.75
+    return Math.max(1, Math.round(tickRate / Math.max(SNAP_RATE_MIN_HZ, targetHz)))
   }
 
   function simulateTick(tick, dt, players) {
@@ -459,7 +407,7 @@ export function createTickHandler(deps) {
 
     if (tick - _snapRateAdjustTick >= SNAP_RATE_ADJUST_INTERVAL) {
       _snapRateAdjustTick = tick
-      _snapshotInterval = _computeSnapshotInterval(players, tick)
+      _snapshotInterval = _computeSnapshotInterval()
       if (players.length > 0 && connections) {
         _lastSnapRate = Math.round(tickRate / _snapshotInterval)
         connections.emit('snapshot-rate', { rate: _lastSnapRate, tick, interval: _snapshotInterval })

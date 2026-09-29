@@ -43,6 +43,7 @@ export function createServerAPI(ctx) {
 
     async loadWorld(worldDef) {
       ctx.currentWorldDef = worldDef
+      if (typeof worldDef.netcode?.preciseTicks === 'boolean') tickSystem.precise = worldDef.netcode.preciseTicks
       appRuntime.worldName = worldDef.name || process.env.WORLD || 'tps-game'
       if (worldDef.spawnPoints?.length) ctx.worldSpawnPoints = worldDef.spawnPoints
       else if (worldDef.spawnPoint) ctx.worldSpawnPoints = [worldDef.spawnPoint]

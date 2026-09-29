@@ -24,6 +24,24 @@ export function packBinRecord(px, py, pz, qrot, vx, vy, vz, sx, sy, sz, flags, i
   return b
 }
 
+export const PLAYER_BIN_RECORD_BYTES = 22
+
+export function packPlayerBinRecord(px, py, pz, qrot, vx, vy, vz, into) {
+  const b = into || new Uint8Array(PLAYER_BIN_RECORD_BYTES)
+  putI32(b, 0, clampI32Pos(px)); putI32(b, 4, clampI32Pos(py)); putI32(b, 8, clampI32Pos(pz))
+  putI16(b, 12, clampI16(vx)); putI16(b, 14, clampI16(vy)); putI16(b, 16, clampI16(vz))
+  putI32(b, 18, qrot >>> 0)
+  return b
+}
+
+export function unpackPlayerBinRecord(buf, out) {
+  const b = buf instanceof DataView ? new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) : buf
+  out.px = getI32(b, 0); out.py = getI32(b, 4); out.pz = getI32(b, 8)
+  out.vx = getI16(b, 12); out.vy = getI16(b, 14); out.vz = getI16(b, 16)
+  out.qrot = (b[18] | (b[19] << 8) | (b[20] << 16)) + b[21] * 16777216
+  return out
+}
+
 export function unpackBinRecord(buf, out) {
   const b = buf instanceof DataView ? new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) : buf
   out.px = getI32(b, 0); out.py = getI32(b, 4); out.pz = getI32(b, 8)

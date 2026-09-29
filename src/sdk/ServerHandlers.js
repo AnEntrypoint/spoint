@@ -204,9 +204,9 @@ export function createConnectionHandlers(ctx) {
           if (client.rtt < 0) client.rtt = 0
           if (client.rtt > MAX_TRACKED_RTT_MS) client.rtt = MAX_TRACKED_RTT_MS
         }
-        connections.send(clientId, MSG.HEARTBEAT_ACK, { timestamp: ts, serverTime: now })
+        connections.sendNow(clientId, MSG.HEARTBEAT_ACK, { timestamp: ts, serverTime: now })
       } else {
-        connections.send(clientId, MSG.HEARTBEAT_ACK, {})
+        connections.sendNow(clientId, MSG.HEARTBEAT_ACK, {})
       }
       return
     }

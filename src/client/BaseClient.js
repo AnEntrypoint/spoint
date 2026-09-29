@@ -175,7 +175,7 @@ export class BaseClient {
     const isReorderedSnapshot = msgType === MSG.SNAPSHOT && this.lastSnapshotTick && incomingTick < this.lastSnapshotTick
     if (isReorderedSnapshot) return
     this.lastSnapshotTick = this.currentTick = incomingTick
-    const snapshotForBuffer = this._snapProc.processSnapshot(data, this.currentTick)
+    const snapshotForBuffer = this._snapProc.processSnapshot(data, this.currentTick, this.playerId)
     if (msgType === MSG.SNAPSHOT) this._msgHandler.getTimeline().addSnapshot(snapshotForBuffer, performance.now())
     const predEngine = this._msgHandler.getPredEngine()
     if (this.playerId && this.config.predictionEnabled && predEngine) {
