@@ -292,7 +292,6 @@ export async function createGrass(opts = {}) {
       const mdx = px - _lastPx, mdz = pz - _lastPz
       cameraStill = Number.isFinite(mdx) && (mdx * mdx + mdz * mdz) < IDLE_EPS * IDLE_EPS
       _idleFrames = cameraStill ? _idleFrames + 1 : 0
-      _lastPx = px; _lastPz = pz
       const _beforeInflight = !!_inflight, _beforeLoaded = loaded.size
       streamRing(px, pz)
       _streamMutated = (!!_inflight !== _beforeInflight) || (loaded.size !== _beforeLoaded)
@@ -317,9 +316,12 @@ export async function createGrass(opts = {}) {
         const dot = _cullQ.x * _lastQx + _cullQ.y * _lastQy + _cullQ.z * _lastQz + _cullQ.w * _lastQw
         rotationStill = Math.abs(dot) >= ROT_COS_EPS
       } else rotationStill = false
-      _lastQx = _cullQ.x; _lastQy = _cullQ.y; _lastQz = _cullQ.z; _lastQw = _cullQ.w
     }
     const wantFrozen = cameraStill && rotationStill && _idleFrames > 0 && !_streamMutated
+    if (!wantFrozen) {
+      if (Number.isFinite(px) && Number.isFinite(pz)) { _lastPx = px; _lastPz = pz }
+      if (camera) { _lastQx = _cullQ.x; _lastQy = _cullQ.y; _lastQz = _cullQ.z; _lastQw = _cullQ.w }
+    }
     if (wantFrozen !== _cullFrozen) {
       _cullFrozen = wantFrozen
       im.autoUpdate = !wantFrozen; imMid.autoUpdate = !wantFrozen

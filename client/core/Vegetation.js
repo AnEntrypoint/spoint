@@ -565,7 +565,6 @@ export async function createVegetation(opts = {}) {
       const still = Number.isFinite(mdx) && (mdx * mdx + mdz * mdz) < IDLE_EPS * IDLE_EPS
       cameraStill = still
       _idleFrames = still ? _idleFrames + 1 : 0
-      _lastPx = px; _lastPz = pz
       profile.streamCalls = (profile.streamCalls || 0) + 1
       if (!still || (_idleFrames % IDLE_STRIDE) === 0) _streamMutated = !!streamRing(px, pz)
       else profile.streamIdleSkips = (profile.streamIdleSkips || 0) + 1
@@ -577,9 +576,12 @@ export async function createVegetation(opts = {}) {
         const dot = _cullQ.x * _lastQx + _cullQ.y * _lastQy + _cullQ.z * _lastQz + _cullQ.w * _lastQw
         rotationStill = Math.abs(dot) >= ROT_COS_EPS
       } else rotationStill = false
-      _lastQx = _cullQ.x; _lastQy = _cullQ.y; _lastQz = _cullQ.z; _lastQw = _cullQ.w
     }
     const wantFrozen = cameraStill && rotationStill && shadowStill !== false && _idleFrames > 0 && !_streamMutated
+    if (!wantFrozen) {
+      if (Number.isFinite(px) && Number.isFinite(pz)) { _lastPx = px; _lastPz = pz }
+      if (camera) { _lastQx = _cullQ.x; _lastQy = _cullQ.y; _lastQz = _cullQ.z; _lastQw = _cullQ.w }
+    }
     if (wantFrozen !== _cullFrozen) {
       _cullFrozen = wantFrozen
       const auto = !wantFrozen
