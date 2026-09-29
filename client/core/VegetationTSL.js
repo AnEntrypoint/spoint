@@ -22,13 +22,13 @@ export function buildWindPositionNode(wind) {
 
 export function applyWindTSL(material, wind) {
   material.positionNode = buildWindPositionNode(wind)
-  material.customProgramCacheKey = () => 'vegwind3tsl'
+  material.customProgramCacheKey = () => 'vegwind4tsl'
   return material
 }
 
 export function applyTintTSL(material) {
   material.colorNode = Fn(() => {
-    const tint = attribute('tint', 'float')
+    const tint = attribute('tint', 'vec3')
     return vec4(materialColor.rgb.mul(tint), materialColor.a)
   })()
   return material

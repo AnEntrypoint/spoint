@@ -2,9 +2,10 @@ import * as THREE from 'three'
 import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 import { createOctahedralImpostorMaterial, computeObjectBoundingSphere } from 'streaming-gltf/octahedral-impostor-ez'
 import { buildSharedImpostorAtlas, createSharedImpostorMesh, IMPOSTOR_DISSOLVE_FADE_BAND_M } from './VegImpostorTier.js'
-import { placementsForChunk, VEG, SPECIES } from '/src/terrain/VegPlacement.js'
+import { placementsForChunk, VEG, SPECIES, VEG_SHAPE_VARIANTS } from '/src/terrain/VegPlacement.js'
 import { createCachedAnchorField } from '/src/terrain/ClimateCache.js'
 import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
+import { createExactPatchFrame } from './ExactPatchFrame.js'
 import { dbg } from './debug-log.js'
 import { RenderControls } from './RenderControls.js'
 import { loadEzTree, makeWindUniforms, applyWind, awaitMatTextures, capGeo, simplifyGeo, buildSpecies, makeEmptyGeo, TARGET_H } from './VegetationBuild.js'
@@ -19,7 +20,10 @@ const DROP_HYSTERESIS_MARGIN_M = 64
 const VEG_MESH_OPAQUE_DRAW_ORDER = 3
 const VEG_SHARED_IMPOSTOR_OPAQUE_DRAW_ORDER = 4
 const BUILD_SLICE_BUDGET_MS = 8
-const VEG_ATTRIBUTE_SCHEMA = { windPhase: 'float', tint: 'float' }
+const VEG_ATTRIBUTE_SCHEMA = { windPhase: 'float', tint: 'vec3' }
+const _tintUniform = new THREE.Vector3()
+const _leanQ = new THREE.Quaternion()
+const SHARED_IMPOSTOR_BAKE = Symbol('shape variants share the species impostor bake')
 
 const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _camPos = new THREE.Vector3()
 const _vanMat = new THREE.Matrix4(), _vanProj = new THREE.Matrix4(), _vanFrustum = new THREE.Frustum()
@@ -33,9 +37,9 @@ export async function createVegetation(opts = {}) {
   if (!renderer || !scene || !frame) throw new Error('createVegetation: renderer/scene/frame required')
   const isWebGPU = !!renderer.isWebGPURenderer
 
-  let Tree
+  let Tree, TreePreset
   try {
-    ({ Tree } = await loadEzTree())
+    ({ Tree, TreePreset } = await loadEzTree())
     if (typeof Tree !== 'function') throw new Error('ez-tree module loaded but exports no Tree constructor')
   } catch (e) {
     console.error('[veg] @dgreenheck/ez-tree failed to load -- vegetation skipped this session (rest of the client is unaffected):', e?.message || e)
@@ -78,6 +82,10 @@ export async function createVegetation(opts = {}) {
   const LOD_HYS = Number.isFinite(cfg.lodHysteresis) ? cfg.lodHysteresis : 0.12
   const BVH_MARGIN = Number.isFinite(cfg.bvhMargin) ? cfg.bvhMargin : 24
   const speciesList = Array.isArray(cfg.species) && cfg.species.length ? cfg.species : SPECIES
+  const SHAPE_VARIANTS = Number.isFinite(cfg.shapeVariants) ? Math.max(1, Math.min(VEG_SHAPE_VARIANTS, Math.floor(cfg.shapeVariants))) : VEG_SHAPE_VARIANTS
+  const buildList = []
+  for (let v = 0; v < SHAPE_VARIANTS; v++) for (const name of speciesList) buildList.push({ name, variant: v })
+  const recKey = (name, variant) => name + '#' + variant
   const _vegMode = (typeof location !== 'undefined' && (location.search.match(/[?&]veg=(\w+)/) || [])[1]) || 'full'
   const _buildImpostor = _vegMode !== 'branch'
   const USE_SHARED_IMPOSTOR = cfg.sharedImpostor !== false && (_vegMode === 'full' || _vegMode === 'shared')
@@ -86,10 +94,10 @@ export async function createVegetation(opts = {}) {
 
   let buildErr = 0
   let _buildT0 = (typeof performance !== 'undefined') ? performance.now() : 0
-  for (let i = 0; i < speciesList.length; i++) {
-    const name = speciesList[i]
+  for (let i = 0; i < buildList.length; i++) {
+    const { name, variant } = buildList[i]
     try {
-      const sp = buildSpecies(name, Tree)
+      const sp = buildSpecies(name, Tree, variant, TreePreset)
       const branchGeo0 = await capGeo(sp.branchGeo, Number.isFinite(cfg.branchTriCap) ? cfg.branchTriCap : 2200)
       const leafGeo0 = await capGeo(sp.leafGeo, Number.isFinite(cfg.leafTriCap) ? cfg.leafTriCap : 1400)
       branchGeo0.computeBoundingBox(); leafGeo0.computeBoundingBox()
@@ -122,7 +130,7 @@ export async function createVegetation(opts = {}) {
         branch = new InstancedMesh2(branchGeo0, applyWind(sp.branchMat, wind), { capacity: INIT_CAP, renderer })
         leaf = new InstancedMesh2(leafGeo0, applyWind(sp.leafMat, wind), { capacity: INIT_CAP, renderer })
         for (const m of [branch, leaf]) {
-          m.initUniformsPerInstance({ vertex: { windPhase: 'float' }, fragment: { tint: 'float' } })
+          m.initUniformsPerInstance({ vertex: { windPhase: 'float' }, fragment: { tint: 'vec3' } })
           m.perObjectFrustumCulled = true
           m.frustumCulled = false
         }
@@ -143,6 +151,7 @@ export async function createVegetation(opts = {}) {
         }
         try {
           if (!_buildImpostor) throw new Error('veg-bisect: impostor disabled (?veg=branch)')
+          if (variant > 0) throw SHARED_IMPOSTOR_BAKE
           await awaitMatTextures([sp.branchMat, sp.leafMat])
           const sph = computeObjectBoundingSphere(sp.tree, new THREE.Sphere(), true)
           if (sph && Number.isFinite(sph.radius) && sph.radius > 0) {
@@ -156,13 +165,13 @@ export async function createVegetation(opts = {}) {
             impDims = { center: [sph.center.x, sph.center.y, sph.center.z], radius: sph.radius }
             impostor = true; impMatRef = impMat
           }
-        } catch (e) { console.warn('[veg] impostor bake failed (mesh-LOD-only):', name, e?.message || e) }
+        } catch (e) { if (e !== SHARED_IMPOSTOR_BAKE) console.warn('[veg] impostor bake failed (mesh-LOD-only):', name, e?.message || e) }
         scene.add(branch); scene.add(leaf)
       }
       branch.updateMatrix(); branch.matrixAutoUpdate = false
       leaf.updateMatrix(); leaf.matrixAutoUpdate = false
       branch.renderOrder = VEG_MESH_OPAQUE_DRAW_ORDER; leaf.renderOrder = VEG_MESH_OPAQUE_DRAW_ORDER
-      meshes.push({ name, branch, leaf, count: 0, impostor, impMat: impMatRef, impDims })
+      meshes.push({ name, variant, branch, leaf, count: 0, impostor, impMat: impMatRef, impDims })
     } catch (e) { buildErr++; console.error('[veg] species build failed:', name, e?.message || e) }
     const _now = (typeof performance !== 'undefined') ? performance.now() : 0
     if (_now - _buildT0 > BUILD_SLICE_BUDGET_MS) {
@@ -170,7 +179,7 @@ export async function createVegetation(opts = {}) {
       _buildT0 = (typeof performance !== 'undefined') ? performance.now() : 0
     }
   }
-  const recByName = new Map(meshes.map(r => [r.name, r]))
+  const recByKey = new Map(meshes.map(r => [recKey(r.name, r.variant), r]))
 
   try {
     const maxAniso = 1
@@ -207,7 +216,9 @@ export async function createVegetation(opts = {}) {
             parallaxScale: RenderControls.get('vegImpostorParallaxScale'),
           })
           if (sharedImpostor) {
-            impRecs.forEach((r, i) => { r.impTile = i })
+            const tileByName = new Map()
+            impRecs.forEach((r, i) => { r.impTile = i; tileByName.set(r.name, i) })
+            for (const r of meshes) if (tileByName.has(r.name)) r.impTile = tileByName.get(r.name)
             sharedImpostor.atlas = atlas
             scene.add(sharedImpostor.mesh)
             sharedImpostor.mesh.updateMatrix(); sharedImpostor.mesh.matrixAutoUpdate = false
@@ -226,7 +237,7 @@ export async function createVegetation(opts = {}) {
 
   const FAR_LOD_SWAP = Math.max(D2, IMPOSTOR_NEAR_CUTOFF - IMPOSTOR_DISSOLVE_FADE_BAND_M)
   for (const rec of meshes) {
-    if (!rec.impostor) continue
+    if (!rec.impostor && rec.impTile == null) continue
     if (sharedImpostor && rec.impTile != null) {
       rec.branch.addLOD(makeEmptyGeo(), rec.branch.material, FAR_LOD_SWAP, LOD_HYS)
       rec.leaf.addLOD(makeEmptyGeo(), rec.leaf.material, FAR_LOD_SWAP, LOD_HYS)
@@ -239,6 +250,8 @@ export async function createVegetation(opts = {}) {
   }
 
   const loaded = new Map()
+  const deferredChunks = new Set()
+  const exactFrame = createExactPatchFrame(frame)
   let _occCands = null
   let curSuper = null
   let totalInstances = 0
@@ -246,10 +259,17 @@ export async function createVegetation(opts = {}) {
 
   function loadChunk(cx, cz, px, pz) {
     const key = cx + ',' + cz
-    if (loaded.has(key)) return
+    if (loaded.has(key)) return true
     const entries = []
     let list
-    try { list = placementsForChunk(cx, cz, frame, anchorField, worldSeed) } catch (_) { list = null }
+    exactFrame.beginChunk()
+    try { list = placementsForChunk(cx, cz, exactFrame.placementFrame, anchorField, worldSeed) } catch (_) { list = null }
+    if (exactFrame.missing) {
+      deferredChunks.add(key)
+      exactFrame.prefetchChunk(cx * CH + CH * 0.5, cz * CH + CH * 0.5)
+      return false
+    }
+    deferredChunks.delete(key)
     const _haveCam = Number.isFinite(px) && Number.isFinite(pz)
     const byRec = new Map()
     let _minY = Infinity, _maxY = -Infinity
@@ -262,12 +282,11 @@ export async function createVegetation(opts = {}) {
         if (d > FALLOFF_NEAR && _treeCoin(p.trunkId) >= vegKeepProb(d)) continue
       }
       const name = SPECIES[p.species]
-      const rec = recByName.get(name)
+      const rec = recByKey.get(recKey(name, Math.min(p.shape | 0, SHAPE_VARIANTS - 1)))
       if (!rec) continue
-      const tint = 0.82 + (Math.sin(p.windPhase * 1.7) * 0.5 + 0.5) * 0.32
       let bucket = byRec.get(rec)
       if (!bucket) { bucket = []; byRec.set(rec, bucket) }
-      bucket.push({ x: p.x, y: p.y, z: p.z, yaw: p.yaw, scale: p.scale, windPhase: p.windPhase, tint })
+      bucket.push({ x: p.x, y: p.y, z: p.z, yaw: p.yaw, scale: p.scale, windPhase: p.windPhase, tint: p.tint, tilt: p.tiltQuat })
       totalInstances++
       const treeH = (TARGET_H[name] || 9) * p.scale
       if (p.y < _minY) _minY = p.y
@@ -283,7 +302,7 @@ export async function createVegetation(opts = {}) {
       let bi = 0
       rec.branch.addInstances(bucket.length, (e) => {
         const c = bucket[bi++]
-        _q.setFromAxisAngle(_v.set(0, 1, 0), c.yaw)
+        _q.setFromAxisAngle(_v.set(0, 1, 0), c.yaw); _leanQ.set(c.tilt[0], c.tilt[1], c.tilt[2], c.tilt[3]); _q.premultiply(_leanQ)
         e.position.set(c.x, c.y, c.z); e.quaternion.copy(_q); e.scale.setScalar(c.scale)
         c.branchId = e.id
         c.branchEntity = e
@@ -291,7 +310,7 @@ export async function createVegetation(opts = {}) {
       bi = 0
       rec.leaf.addInstances(bucket.length, (e) => {
         const c = bucket[bi++]
-        _q.setFromAxisAngle(_v.set(0, 1, 0), c.yaw)
+        _q.setFromAxisAngle(_v.set(0, 1, 0), c.yaw); _leanQ.set(c.tilt[0], c.tilt[1], c.tilt[2], c.tilt[3]); _q.premultiply(_leanQ)
         e.position.set(c.x, c.y, c.z); e.quaternion.copy(_q); e.scale.setScalar(c.scale)
         c.leafId = e.id
         c.leafEntity = e
@@ -299,7 +318,7 @@ export async function createVegetation(opts = {}) {
       rec.count += bucket.length
       let impIds = null
       if (sharedImpostor && rec.impTile != null) {
-        impIds = sharedImpostor.addImpostors(bucket.map(c => ({ species: rec.impTile, x: c.x, y: c.y, z: c.z })))
+        impIds = sharedImpostor.addImpostors(bucket.map(c => ({ species: rec.impTile, x: c.x, y: c.y, z: c.z, scale: c.scale, tint: c.tint })))
       }
       for (let i = 0; i < bucket.length; i++) {
         const c = bucket[i]
@@ -310,7 +329,8 @@ export async function createVegetation(opts = {}) {
     for (const en of entries) {
       try {
         en.rec.branch.setUniformAt(en.branchId, 'windPhase', en.windPhase); en.rec.leaf.setUniformAt(en.leafId, 'windPhase', en.windPhase)
-        en.rec.branch.setUniformAt(en.branchId, 'tint', en.tint); en.rec.leaf.setUniformAt(en.leafId, 'tint', en.tint)
+        const tintValue = isWebGPU ? en.tint : _tintUniform.fromArray(en.tint)
+        en.rec.branch.setUniformAt(en.branchId, 'tint', tintValue); en.rec.leaf.setUniformAt(en.leafId, 'tint', tintValue)
       } catch (_) {}
     }
     const _aabbMin = [cx * CH, _minY, cz * CH], _aabbMax = [(cx + 1) * CH, _maxY, (cz + 1) * CH]
@@ -318,6 +338,7 @@ export async function createVegetation(opts = {}) {
     _occCands = null
     _vegLoadFifo.push(key)
     profile.loads++
+    return true
   }
 
   function unloadChunk(key) {
@@ -334,6 +355,7 @@ export async function createVegetation(opts = {}) {
 
   const CH = VEG.CHUNK
   const LOADS_PER_FRAME = 1
+  const DEFERRED_RETRIES_PER_FRAME = 2
   let _ringClean = false, _scanCx = NaN, _scanCz = NaN
   let _lastPx = NaN, _lastPz = NaN, _idleFrames = 0
   const IDLE_EPS = 0.05, IDLE_STRIDE = 16
@@ -359,14 +381,25 @@ export async function createVegetation(opts = {}) {
     if (span !== _vegSpiralSpan) { _vegSpiral = _vegSpiralOffsets(span); _vegSpiralSpan = span; _vegSpiralCursor = 0 }
     if (cCx !== _scanCx || cCz !== _scanCz) _vegSpiralCursor = 0
     let didLoad = false
+    const retryKeys = []
+    for (const key of deferredChunks) { if (retryKeys.length >= DEFERRED_RETRIES_PER_FRAME) break; retryKeys.push(key) }
+    for (const key of retryKeys) {
+      const ci = key.indexOf(',')
+      const kx = +key.slice(0, ci), kz = +key.slice(ci + 1)
+      const ddx = kx * CH + CH * 0.5 - px, ddz = kz * CH + CH * 0.5 - pz
+      deferredChunks.delete(key)
+      if (ddx * ddx + ddz * ddz > dropRadiusSq) continue
+      if (loadChunk(kx, kz, px, pz)) didLoad = true
+    }
     for (let n = 0; n < LOADS_PER_FRAME && totalInstances < MAX_INSTANCES; n++) {
       let found = false
       for (; _vegSpiralCursor < _vegSpiral.length; _vegSpiralCursor++) {
         const dx = _vegSpiral[_vegSpiralCursor][0], dz = _vegSpiral[_vegSpiralCursor][1]
         const cx = cCx + dx, cz = cCz + dz
         const ddx = cx * CH + CH * 0.5 - px, ddz = cz * CH + CH * 0.5 - pz
-        if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(cx + ',' + cz)) continue
-        loadChunk(cx, cz, px, pz); didLoad = true; found = true; break
+        if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(cx + ',' + cz) || deferredChunks.has(cx + ',' + cz)) continue
+        if (loadChunk(cx, cz, px, pz)) didLoad = true
+        found = true; break
       }
       if (!found) break
     }
@@ -394,7 +427,8 @@ export async function createVegetation(opts = {}) {
         }
       }
     }
-    _scanCx = cCx; _scanCz = cCz; _ringClean = !didLoad && !didDrop
+    _scanCx = cCx; _scanCz = cCz; _ringClean = !didLoad && !didDrop && deferredChunks.size === 0
+    profile.deferredChunks = deferredChunks.size
     return didLoad || didDrop
   }
 
@@ -413,7 +447,7 @@ export async function createVegetation(opts = {}) {
       const cx = cCx + dx, cz = cCz + dz
       const ddx = cx * CH + CH * 0.5 - px, ddz = cz * CH + CH * 0.5 - pz
       if ((ddx * ddx + ddz * ddz) > ringRadiusSq || loaded.has(cx + ',' + cz)) continue
-      loadChunk(cx, cz, px, pz); n++
+      if (loadChunk(cx, cz, px, pz)) n++
       if (n % PREWARM_BATCH === 0) await _yieldFrame()
     }
     if (totalInstances > 0 && !bvhBuilt) ensureBVH()
@@ -682,7 +716,7 @@ export async function createVegetation(opts = {}) {
     get sharedImpostor() { return sharedImpostor ? sharedImpostor.mesh : null },
     get totalInstances() { return totalInstances },
     get profile() { return profile },
-    rebuildPlacement() { for (const key of [...loaded.keys()]) unloadChunk(key); curSuper = null; _ringClean = false; _scanCx = NaN; _scanCz = NaN },
+    rebuildPlacement() { for (const key of [...loaded.keys()]) unloadChunk(key); deferredChunks.clear(); curSuper = null; _ringClean = false; _scanCx = NaN; _scanCz = NaN },
     repaintBiome(x, z, radius, target, strength) { biomeOverride.applyPaintBrush(x, z, radius, target, strength); this.rebuildPlacement() },
     biomeOverride,
     getOcclusionCandidates, applyOcclusion,

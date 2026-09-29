@@ -79,6 +79,7 @@ export function makeOctahedralImpostorDisplayMaterialTSL(params) {
 
   const isTransparent = !!p.transparent
   const atlasTile = !!p.atlasTile
+  const tintAttribute = !!p.tintAttribute
   const farSingleSprite = p.farSingleSprite !== false
   const parallax = p.parallax === true && !!p.normalDepth
   const hasNormalDepth = !!p.normalDepth
@@ -276,7 +277,7 @@ export function makeOctahedralImpostorDisplayMaterialTSL(params) {
       Discard(dither.greaterThan(fade))
     }
 
-    return blended
+    return tintAttribute ? vec4(blended.rgb.mul(attribute('tint', 'vec3')), blended.a) : blended
   })
 
   if (hasNormalDepth) {
@@ -315,7 +316,7 @@ export function makeOctahedralImpostorDisplayMaterialTSL(params) {
 
   material.positionNode = displacedPosition()
   material.colorNode = colorOutput()
-  material.customProgramCacheKey = () => `octaimpostor-display-tsl_${isTransparent}_${atlasTile}_${farSingleSprite}_${parallax}_${hasNormalDepth}_${!!nearCutoff}`
+  material.customProgramCacheKey = () => `octaimpostor-display-tsl_${isTransparent}_${atlasTile}_${farSingleSprite}_${parallax}_${hasNormalDepth}_${!!nearCutoff}_${tintAttribute}`
 
   return material
 }

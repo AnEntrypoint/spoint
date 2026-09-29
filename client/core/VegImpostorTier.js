@@ -101,6 +101,7 @@ export function createSharedImpostorMesh(renderer, atlas, dims, opts = {}) {
       shader.fragmentShader = 'uniform float uImpNearCutoff;\nvarying float vImpCamDist;\n' + shader.fragmentShader
       shader.fragmentShader = shader.fragmentShader.replace('#include <dithering_fragment>',
         '#include <dithering_fragment>\n' +
+        'gl_FragColor.rgb *= tint;\n' +
         `float _impFade = clamp((vImpCamDist - (uImpNearCutoff - ${IMPOSTOR_DISSOLVE_FADE_BAND_M.toFixed(1)})) / ${IMPOSTOR_DISSOLVE_FADE_BAND_M.toFixed(1)}, 0.0, 1.0);\n` +
         'float _impDither = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));\n' +
         'if (_impDither > _impFade) discard;')
@@ -125,7 +126,7 @@ export function createSharedImpostorMesh(renderer, atlas, dims, opts = {}) {
   }
   _stampUnitCullVolume(baseGeo)
   const im = new InstancedMesh2(baseGeo, mat, { capacity, renderer })
-  im.initUniformsPerInstance({ fragment: { atlasTile: 'float' } })
+  im.initUniformsPerInstance({ fragment: { atlasTile: 'float', tint: 'vec3' } })
   im.perObjectFrustumCulled = true
   im.frustumCulled = false
   if (hasNearLodCutoff) {
@@ -144,6 +145,7 @@ export function createSharedImpostorMesh(renderer, atlas, dims, opts = {}) {
     try { im.setUniformAt(id, 'atlasTile', species) } catch (_) {}
     return id
   }
+  const _tint = new THREE.Vector3()
   function addImpostors(cands) {
     const n = cands.length
     if (n === 0) return []
@@ -152,13 +154,19 @@ export function createSharedImpostorMesh(renderer, atlas, dims, opts = {}) {
     im.addInstances(n, (e) => {
       const c = cands[bi]
       const d = dims[c.species] || { center: [0, 1, 0], radius: 1 }
-      const sz = d.radius * 2
-      e.position.set(c.x + d.center[0], c.y + d.center[1], c.z + d.center[2])
-      e.scale.setScalar(sz)
+      const k = c.scale || 1
+      e.position.set(c.x + d.center[0] * k, c.y + d.center[1] * k, c.z + d.center[2] * k)
+      e.scale.setScalar(d.radius * 2 * k)
       ids[bi] = e.id
       bi++
     })
-    for (let i = 0; i < n; i++) { try { im.setUniformAt(ids[i], 'atlasTile', cands[i].species) } catch (_) {} }
+    for (let i = 0; i < n; i++) {
+      try {
+        im.setUniformAt(ids[i], 'atlasTile', cands[i].species)
+        const t = cands[i].tint
+        im.setUniformAt(ids[i], 'tint', t ? _tint.set(t[0], t[1], t[2]) : _tint.set(1, 1, 1))
+      } catch (_) {}
+    }
     return ids
   }
   function removeImpostor(id) { try { im.removeInstances(id) } catch (_) {} }
@@ -173,7 +181,7 @@ function createSharedImpostorMeshWebGPU(atlas, dims, opts, capacity) {
     useHemiOctahedron: false, spritesPerSide: opts.spritesPerSide || 8,
     transparent: false, alphaClamp: opts.alphaClamp ?? 0.4,
     transform: new THREE.Matrix4(),
-    atlasTile: true, atlasGridSide: atlas.gridSide,
+    atlasTile: true, atlasGridSide: atlas.gridSide, tintAttribute: true,
     farSingleSprite: opts.farSingleSprite !== false,
     parallax: opts.parallax === true, parallaxScale: opts.parallaxScale ?? 0.3,
     nearCutoff: hasNearLodCutoff ? nearCutoff : 0,
@@ -181,30 +189,30 @@ function createSharedImpostorMeshWebGPU(atlas, dims, opts, capacity) {
     polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8,
   })
   const geo = new THREE.PlaneGeometry(1, 1)
-  const rec = createWebGPUInstancedMesh(geo, mat, capacity, { atlasTile: 'float' })
+  const rec = createWebGPUInstancedMesh(geo, mat, capacity, { atlasTile: 'float', tint: 'vec3' })
   const im = rec.mesh
   im.perObjectFrustumCulled = false
   const _pos = new THREE.Vector3()
   const _quat = new THREE.Quaternion()
   const _scale = new THREE.Vector3()
   const _m4 = new THREE.Matrix4()
-  function addImpostor(species, baseX, baseY, baseZ) {
+  const _white = [1, 1, 1]
+  function addImpostor(species, baseX, baseY, baseZ, scale = 1, tint = _white) {
     const d = dims[species] || { center: [0, 1, 0], radius: 1 }
-    const sz = d.radius * 2
     const id = rec.acquireId()
     if (id < 0) return -1
-    _pos.set(baseX + d.center[0], baseY + d.center[1], baseZ + d.center[2])
+    _pos.set(baseX + d.center[0] * scale, baseY + d.center[1] * scale, baseZ + d.center[2] * scale)
     _quat.identity()
-    _scale.setScalar(sz)
+    _scale.setScalar(d.radius * 2 * scale)
     _m4.compose(_pos, _quat, _scale)
     rec.setMatrixAt(id, _m4)
-    try { rec.setAttributeAt(id, 'atlasTile', species) } catch (_) {}
+    try { rec.setAttributeAt(id, 'atlasTile', species); rec.setAttributeAt(id, 'tint', tint) } catch (_) {}
     return id
   }
   function addImpostors(cands) {
     const n = cands.length
     const ids = new Array(n)
-    for (let i = 0; i < n; i++) { const c = cands[i]; ids[i] = addImpostor(c.species, c.x, c.y, c.z) }
+    for (let i = 0; i < n; i++) { const c = cands[i]; ids[i] = addImpostor(c.species, c.x, c.y, c.z, c.scale || 1, c.tint || _white) }
     return ids
   }
   function removeImpostor(id) { try { rec.releaseId(id) } catch (_) {} }

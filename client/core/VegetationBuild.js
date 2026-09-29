@@ -53,7 +53,7 @@ function applyWind(material, wind) {
     shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>',
       '#include <color_fragment>\n diffuseColor.rgb *= tint;')
   }
-  material.customProgramCacheKey = () => 'vegwind3'
+  material.customProgramCacheKey = () => 'vegwind4'
   return material
 }
 
@@ -108,9 +108,56 @@ async function simplifyGeo(geo, ratio, sloppy) {
   } catch (_) { return _stripInstanceIndexStamp(geo.clone()) }
 }
 
-function buildSpecies(name, Tree) {
+const VARIANT_LEAF_TINT_BIAS = [[1, 1, 1], [1.06, 1.0, 0.90], [0.92, 1.04, 1.0]]
+
+function nameHash(s) {
+  let h = 2166136261 >>> 0
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0
+  return h
+}
+
+function variantRng(name, variant) {
+  let a = nameHash(name) ^ Math.imul(variant, 0x9e3779b1)
+  return () => {
+    a = (a + 0x6d2b79f5) | 0
+    let t = Math.imul(a ^ (a >>> 15), 1 | a)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+function biasHexTint(hex, bias) {
+  const r = Math.min(255, Math.round(((hex >> 16) & 255) * bias[0]))
+  const g = Math.min(255, Math.round(((hex >> 8) & 255) * bias[1]))
+  const b = Math.min(255, Math.round((hex & 255) * bias[2]))
+  return (r << 16) | (g << 8) | b
+}
+
+function perturbPreset(json, name, variant) {
+  const rnd = variantRng(name, variant)
+  const span = (c) => 1 + (rnd() * 2 - 1) * c
+  const o = json
+  o.seed = (Math.imul(o.seed | 0, 31) + Math.floor(rnd() * 1e6) + variant) | 0
+  for (const l of [1, 2, 3]) {
+    if (o.branch.angle[l] != null) o.branch.angle[l] *= span(0.22)
+    if (o.branch.length[l] != null) o.branch.length[l] *= span(0.2)
+  }
+  for (const l of [0, 1, 2]) if (o.branch.children[l] != null) o.branch.children[l] = Math.max(1, Math.round(o.branch.children[l] * span(0.25)))
+  for (const l of [0, 1, 2, 3]) if (o.branch.gnarliness[l] != null) o.branch.gnarliness[l] *= span(0.5)
+  o.branch.length[0] *= span(0.15)
+  o.branch.force.strength *= span(0.5)
+  o.leaves.size *= span(0.2)
+  o.leaves.angle *= span(0.3)
+  o.leaves.count = Math.max(1, Math.round(o.leaves.count * span(0.2)))
+  o.leaves.tint = biasHexTint(o.leaves.tint, VARIANT_LEAF_TINT_BIAS[variant % VARIANT_LEAF_TINT_BIAS.length])
+  return o
+}
+
+function buildSpecies(name, Tree, variant = 0, TreePreset = null) {
   const tree = new Tree()
-  tree.loadPreset(PRESET[name] || name)
+  const presetName = PRESET[name] || name
+  if (variant > 0 && TreePreset && TreePreset[presetName]) tree.loadFromJson(perturbPreset(structuredClone(TreePreset[presetName]), name, variant))
+  else tree.loadPreset(presetName)
   const branchGeo = tree.branchesMesh.geometry
   const leafGeo = tree.leavesMesh.geometry
   const branchMat = tree.branchesMesh.material
