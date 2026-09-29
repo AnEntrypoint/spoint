@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import {
   Fn, uniform, positionWorld, cameraPosition,
-  vec2, vec3, vec4, float, clamp, max, sqrt, dot, mix,
+  vec2, vec3, vec4, float, clamp, max, sqrt, dot, mix, output,
 } from 'three/tsl'
 
 const SUBMERGE_MARGIN_M = 2.0
@@ -40,8 +40,8 @@ function buildUnderwaterMixNode(baseNode, seaU, seaShiftU) {
 }
 
 export function applyUnderwaterTintNode(material, seaU = seaUniform, seaShiftU = seaShiftUniform) {
-  const base = material.outputNode || material.colorNode || vec4(vec3(1, 1, 1), material.opacityNode || float(1))
-  material.outputNode = buildUnderwaterMixNode(base, seaU, seaShiftU)
+  const litOutput = material.outputNode || output
+  material.outputNode = buildUnderwaterMixNode(litOutput, seaU, seaShiftU)
   material.needsUpdate = true
   return material.outputNode
 }

@@ -1,5 +1,5 @@
 import { MeshLambertNodeMaterial } from 'three/webgpu'
-import { Fn, attribute, texture, uniform, storage, instanceIndex, vec2, vec3, vec4, mod, floor, min, mix, clamp, positionLocal, normalLocal } from 'three/tsl'
+import { Fn, attribute, texture, uniform, storage, instanceIndex, vec2, vec3, vec4, mod, floor, min, mix, clamp, positionGeometry, normalLocal } from 'three/tsl'
 import { bakeVAT, bakeVATMultiClip } from './PlayerVATBake.js'
 
 function instanceMatrixNodeFor(object) {
@@ -75,10 +75,10 @@ export function createVATMaterialTSL(vatData, opts = {}) {
             clamp(vatBlend, 0.0, 1.0)
           )
         : nDeltaIdle
-      normalLocal.addAssign(nDelta)
+      normalLocal.addAssign(instanceMatrixNode.mul(vec4(nDelta, 0.0)).xyz)
     }
 
-    const localPos = positionLocal.add(delta)
+    const localPos = positionGeometry.add(delta)
     return instanceMatrixNode.mul(vec4(localPos, 1.0)).xyz
   })()
 

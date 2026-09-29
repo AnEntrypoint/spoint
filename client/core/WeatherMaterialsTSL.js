@@ -3,7 +3,7 @@ import { MeshBasicNodeMaterial } from 'three/webgpu'
 import {
   Fn, Discard, vec2, vec3, vec4, float,
   uniform, attribute, varying, uv,
-  positionLocal, positionView,
+  positionGeometry, positionView,
   clamp, mix, smoothstep, distance, abs, step, oneMinus,
 } from 'three/tsl'
 import { instanceMatrixNodeFor } from './WebGPUInstancing.js'
@@ -38,7 +38,7 @@ export function makeSplashMaterialTSL() {
   const displacedPosition = Fn((builder) => {
     const instanceMatrixNode = instanceMatrixNodeFor(builder.object)
     const scale = mix(0.15, 1.0, age)
-    const p = positionLocal.mul(scale)
+    const p = positionGeometry.mul(scale)
     return instanceMatrixNode.mul(vec4(p, 1.0)).xyz
   })
 

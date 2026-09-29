@@ -3,7 +3,7 @@ import { MeshBasicNodeMaterial } from 'three/webgpu'
 import {
   Fn, Loop, If, Break, int, float, vec2, vec3, vec4,
   uniform, uniformArray, attribute, varying,
-  positionLocal, normalLocal, normalWorld, frontFacing,
+  positionGeometry, normalGeometry, modelWorldMatrix,
   clamp, mix, smoothstep, dot, normalize, max, sin, cos, texture, uv, fract, floor, pow,
   cameraPosition, positionWorld
 } from 'three/tsl'
@@ -94,11 +94,12 @@ export function makeGrassMaterialTSL(wind) {
   })()
 
   let vScorch = null
+  let vWorldNormal = null
 
   const displacedPosition = Fn((builder) => {
     const instanceMatrixNode = instanceMatrixNodeFor(builder.object)
     const instWorldXZ = instanceMatrixNode.mul(vec4(0.0, 0.0, 0.0, 1.0)).xz
-    const transformed = positionLocal.toVar()
+    const transformed = positionGeometry.toVar()
     const gv = clamp(transformed.y, 0.0, 1.0)
     const gw = gv.mul(gv).mul(0.45)
     const gGust = grassNoise(instWorldXZ.mul(0.11).add(uGrassWindDir.mul(uGrassTime).mul(0.35)))
@@ -127,11 +128,11 @@ export function makeGrassMaterialTSL(wind) {
 
     vScorch = varying(scorch, 'vScorch')
     vFieldXZ = varying(instWorldXZ, 'vFieldXZ')
+    const flatNormalGeometry = normalize(mix(normalize(normalGeometry), vec3(0.0, 1.0, 0.0), 0.75))
+    vWorldNormal = varying(normalize(modelWorldMatrix.mul(vec4(instanceMatrixNode.mul(vec4(flatNormalGeometry, 0.0)).xyz, 0.0)).xyz), 'vWorldNormal')
 
     return instanceMatrixNode.mul(vec4(transformed, 1.0)).xyz
   })
-
-  const flatNormalLocal = normalize(mix(normalize(normalLocal), vec3(0.0, 1.0, 0.0), 0.75))
 
   const litColor = Fn(() => {
     const blade = clumpSample.r
@@ -143,7 +144,7 @@ export function makeGrassMaterialTSL(wind) {
     baseColor.mulAssign(mix(0.78, 1.1, smoothstep(0.55, 1.0, blade)))
     baseColor.mulAssign(float(0.62).add(smoothstep(0.0, 0.3, vUv.y).mul(0.38)))
     baseColor.assign(mix(baseColor, uGrassScorchColor, vScorch))
-    const ndl = max(dot(normalize(normalWorld), uSunDir), 0.0)
+    const ndl = max(dot(normalize(vWorldNormal), uSunDir), 0.0)
     const wrap = float(0.4).add(ndl.mul(0.6))
     const viewDir = normalize(cameraPosition.sub(positionWorld))
     const backlit = pow(clamp(dot(viewDir, uSunDir.negate()), 0.0, 1.0), 3.0).mul(vUv.y)
@@ -155,7 +156,6 @@ export function makeGrassMaterialTSL(wind) {
   const material = new MeshBasicNodeMaterial({ side: THREE.DoubleSide })
   material.opacityNode = clumpSample.r
   material.alphaTest = GRASS_ALPHA_CUTOFF
-  material.normalNode = flatNormalLocal
   material.positionNode = displacedPosition()
   material.colorNode = litColor()
   material.customProgramCacheKey = () => 'grassclump-fluffy-tsl'

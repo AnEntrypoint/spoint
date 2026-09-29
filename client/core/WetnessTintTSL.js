@@ -1,6 +1,6 @@
 import {
   Fn, uniform, mat3, modelWorldMatrix, normalLocal, normalize,
-  vec3, vec4, float, clamp, max, pow, dot, mix, smoothstep,
+  vec3, vec4, float, clamp, max, pow, dot, mix, smoothstep, output,
 } from 'three/tsl'
 
 export const wetnessUniform = uniform(0)
@@ -26,8 +26,8 @@ function buildWetnessMixNode(baseNode, specSumNode, wetU) {
 }
 
 export function applyWetnessTintNode(material, specSumNode = float(0.0), wetU = wetnessUniform) {
-  const base = material.outputNode || material.colorNode || vec4(vec3(1, 1, 1), material.opacityNode || float(1))
-  material.outputNode = buildWetnessMixNode(base, specSumNode, wetU)
+  const litOutput = material.outputNode || output
+  material.outputNode = buildWetnessMixNode(litOutput, specSumNode, wetU)
   material.needsUpdate = true
   return material.outputNode
 }
