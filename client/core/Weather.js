@@ -3,8 +3,11 @@ import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 import { createGrassDecal } from '/src/terrain/GrassDecal.js'
 import {
   makeStreakGeo, makeSplashGeo, makeRainMaterial, makeSplashMaterial,
-  makeFlakeGeo, makeSnowMaterial, makeFarSheetMaterial,
+  makeFlakeGeo, makeSnowMaterial, makeFarSheetMaterial, makeWeatherShared,
 } from './WeatherMaterials.js'
+import {
+  makeSeedAttributes, makeFieldGeometry, makeFieldMesh, fillRainSeed, fillSnowSeed,
+} from './WeatherGpu.js'
 import { createStreamingInstancer } from './WebGPUInstancing.js'
 import {
   makeRainMaterialTSL, makeSplashMaterialTSL, makeSnowMaterialTSL, makeFarSheetMaterialTSL,
@@ -61,14 +64,22 @@ export function createWeather(opts = {}) {
 
   const SPLASH_ATTRIBUTE_SCHEMA = { spawnTime: 'float' }
 
+  const gpuShared = makeWeatherShared()
+  const NEAR_BOX_HALF_PER_RADIUS = Math.sqrt(Math.PI) / 2
+  const NEAR_BOX = { half: BOX_RADIUS * NEAR_BOX_HALF_PER_RADIUS, span: BOX_HEIGHT * 1.6, bottomRel: -BOX_HEIGHT * 0.6 }
+  const FAR_BOX = { half: FAR_RADIUS * NEAR_BOX_HALF_PER_RADIUS, span: FAR_HEIGHT * 1.55, bottomRel: -FAR_HEIGHT * 0.55 }
+  const FAR_ANNULUS_AREA = Math.PI * (FAR_RADIUS * FAR_RADIUS - FAR_INNER * FAR_INNER)
+  const FAR_DENSITY_SCALE = (2 * FAR_BOX.half) * (2 * FAR_BOX.half) / FAR_ANNULUS_AREA
+  const FAR_GPU_CAPACITY = Math.ceil(MAX_FAR * FAR_DENSITY_SCALE)
+
   const geoStreak = makeStreakGeo()
   let matRain, im, splashNodes
   if (isWebGPU) {
     matRain = makeRainMaterialTSL().material
     im = createStreamingInstancer(scene, geoStreak, matRain, MAX_PARTICLES, {})
   } else {
-    matRain = makeRainMaterial()
-    im = new InstancedMesh2(geoStreak, matRain, { capacity: MAX_PARTICLES, renderer, createEntities: true })
+    matRain = makeRainMaterial(gpuShared, NEAR_BOX, FALL_SPEED)
+    im = makeFieldMesh(makeFieldGeometry(geoStreak, makeSeedAttributes(MAX_PARTICLES, fillRainSeed)), matRain)
   }
   im.perObjectFrustumCulled = false
   im.frustumCulled = false
@@ -98,8 +109,8 @@ export function createWeather(opts = {}) {
     matSnow = makeSnowMaterialTSL().material
     imSnow = createStreamingInstancer(scene, geoFlake, matSnow, MAX_PARTICLES, {})
   } else {
-    matSnow = makeSnowMaterial()
-    imSnow = new InstancedMesh2(geoFlake, matSnow, { capacity: MAX_PARTICLES, renderer, createEntities: true })
+    matSnow = makeSnowMaterial(gpuShared, NEAR_BOX, SNOW_FALL_SPEED, { amp: SNOW_DRIFT_AMP, freq: SNOW_DRIFT_FREQ })
+    imSnow = makeFieldMesh(makeFieldGeometry(geoFlake, makeSeedAttributes(MAX_PARTICLES, fillSnowSeed)), matSnow)
   }
   imSnow.perObjectFrustumCulled = false
   imSnow.frustumCulled = false
@@ -111,15 +122,18 @@ export function createWeather(opts = {}) {
     matFarRain = makeFarSheetMaterialTSL(new THREE.Color(0.72, 0.78, 0.86), 0.4, false).material
     matFarSnow = makeFarSheetMaterialTSL(new THREE.Color(0.95, 0.97, 1.0), 0.5, true).material
   } else {
-    matFarRain = makeFarSheetMaterial(new THREE.Color(0.72, 0.78, 0.86), 0.4, false)
-    matFarSnow = makeFarSheetMaterial(new THREE.Color(0.95, 0.97, 1.0), 0.5, true)
+    matFarRain = makeFarSheetMaterial(new THREE.Color(0.72, 0.78, 0.86), 0.4, false, gpuShared, FAR_BOX, FALL_SPEED)
+    matFarSnow = makeFarSheetMaterial(new THREE.Color(0.95, 0.97, 1.0), 0.5, true, gpuShared, FAR_BOX, SNOW_FALL_SPEED)
   }
-  const geoFarRain = makeStreakGeo(), geoFarSnow = makeFlakeGeo()
+  let geoFarRain = makeStreakGeo(), geoFarSnow = makeFlakeGeo()
   let imFar
   if (isWebGPU) {
     imFar = createStreamingInstancer(scene, geoFarRain, matFarRain, MAX_FAR, {})
   } else {
-    imFar = new InstancedMesh2(geoFarRain, matFarRain, { capacity: MAX_FAR, renderer, createEntities: true })
+    const farSeeds = makeSeedAttributes(FAR_GPU_CAPACITY, fillRainSeed)
+    geoFarRain = makeFieldGeometry(geoFarRain, farSeeds)
+    geoFarSnow = makeFieldGeometry(geoFarSnow, farSeeds)
+    imFar = makeFieldMesh(geoFarRain, matFarRain)
   }
   imFar.perObjectFrustumCulled = false
   imFar.frustumCulled = false
@@ -216,6 +230,58 @@ export function createWeather(opts = {}) {
     try { imSplash.setUniformAt(id, 'spawnTime', nowS) } catch (_) {}
   }
 
+  let _rainSplashCarry = 0
+  let _snowLandCarry = 0
+
+  function _randomDiscPoint(cx, cz) {
+    const ang = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * BOX_RADIUS
+    return [cx + Math.cos(ang) * r, cz + Math.sin(ang) * r]
+  }
+
+  function _groundInsideFallWindow(gh, cy) {
+    return gh > cy + NEAR_BOX.bottomRel && gh < cy + BOX_HEIGHT
+  }
+
+  function _updateGpuFields(dt, camera, isSnow, cx, cy, cz, wantActive, wantFar) {
+    const nowS = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000
+    const dtc = Number.isFinite(dt) && dt > 0 ? Math.min(dt, 0.1) : 0
+    camera.getWorldQuaternion(_camQuat)
+    const camYaw = Math.atan2(2 * (_camQuat.w * _camQuat.y + _camQuat.x * _camQuat.z), 1 - 2 * (_camQuat.y * _camQuat.y + _camQuat.x * _camQuat.x))
+    gpuShared.uTime.value = nowS
+    gpuShared.uCam.value.set(cx, cy, cz)
+    gpuShared.uYaw.value.set(Math.cos(camYaw), Math.sin(camYaw))
+    gpuShared.uCamRight.value.set(1, 0, 0).applyQuaternion(_camQuat)
+    gpuShared.uCamUp.value.set(0, 1, 0).applyQuaternion(_camQuat)
+    ;(isSnow ? imSnow : im).geometry.instanceCount = wantActive
+    imFar.geometry.instanceCount = Math.min(FAR_GPU_CAPACITY, Math.round(wantFar * FAR_DENSITY_SCALE))
+
+    const impactsPerSecond = wantActive / NEAR_BOX.span
+    if (isSnow) {
+      _snowLandCarry += impactsPerSecond * SNOW_FALL_SPEED * dtc
+      const landings = Math.min(Math.floor(_snowLandCarry), 24)
+      _snowLandCarry -= Math.floor(_snowLandCarry)
+      if (_snowAccumEnabled()) {
+        for (let k = 0; k < landings; k++) {
+          const [x, z] = _randomDiscPoint(cx, cz)
+          if (_groundInsideFallWindow(_groundHeight(x, z), cy)) {
+            try { snowAccum.markScorched(x, z, 0.6, 0.03 * intensity) } catch (_) {}
+          }
+        }
+      }
+    } else {
+      _rainSplashCarry += impactsPerSecond * FALL_SPEED * dtc
+      const splashes = Math.min(Math.floor(_rainSplashCarry), MAX_SPLASHES)
+      _rainSplashCarry -= Math.floor(_rainSplashCarry)
+      for (let k = 0; k < splashes; k++) {
+        const [x, z] = _randomDiscPoint(cx, cz)
+        const gh = _groundHeight(x, z)
+        if (_groundInsideFallWindow(gh, cy)) _spawnSplash(x, gh + 0.02, z, nowS)
+      }
+    }
+    matSplash.uniforms.uTime.value = nowS
+    snowAccum.tick(2)
+  }
+
   function update(dt, camera, floatingOrigin) {
     _tickWetness(Number.isFinite(dt) ? dt : 0)
     const active = (type === 'rain' || type === 'snow') && intensity > 0 && !!camera
@@ -243,7 +309,7 @@ export function createWeather(opts = {}) {
 
     const wantActive = Math.max(1, Math.round(MAX_PARTICLES * intensity))
     const wantFar = Math.max(1, Math.round(MAX_FAR * intensity))
-    if (!_idsAdded) {
+    if (isWebGPU && !_idsAdded) {
       let ci = 0
       im.addInstances(MAX_PARTICLES, (e) => {
         const i = ci++
@@ -256,7 +322,7 @@ export function createWeather(opts = {}) {
       imSplash.addInstances(MAX_SPLASHES, (e, id) => { e.position.set(0, -1e6, 0); try { imSplash.setUniformAt(id, 'spawnTime', -1e6) } catch (_) {} })
       _splashIdsAdded = true
     }
-    if (!_snowIdsAdded) {
+    if (isWebGPU && !_snowIdsAdded) {
       let si = 0
       imSnow.addInstances(MAX_PARTICLES, (e) => {
         const i = si++
@@ -265,7 +331,7 @@ export function createWeather(opts = {}) {
       })
       _snowIdsAdded = true
     }
-    if (!_farIdsAdded) {
+    if (isWebGPU && !_farIdsAdded) {
       let fi = 0
       const speedBase = isSnow ? SNOW_FALL_SPEED : FALL_SPEED
       imFar.addInstances(MAX_FAR, (e) => {
@@ -275,6 +341,8 @@ export function createWeather(opts = {}) {
       })
       _farIdsAdded = true
     }
+
+    if (!isWebGPU) { _updateGpuFields(dt, camera, isSnow, cx, cy, cz, wantActive, wantFar); return }
 
     const nowS = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000
     const dtc = Number.isFinite(dt) && dt > 0 ? Math.min(dt, 0.1) : 0

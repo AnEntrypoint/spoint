@@ -25,32 +25,60 @@ export function makeSplashGeo() {
   return g
 }
 
-export function makeRainMaterial() {
+export function makeWeatherShared() {
+  return {
+    uTime: { value: 0 },
+    uCam: { value: new THREE.Vector3() },
+    uYaw: { value: new THREE.Vector2(1, 0) },
+    uCamRight: { value: new THREE.Vector3(1, 0, 0) },
+    uCamUp: { value: new THREE.Vector3(0, 1, 0) },
+  }
+}
+
+const FIELD_PARS = `
+  attribute vec4 aSeed;
+  uniform float uTime, uBoxHalf, uSpan, uBottomRel, uSpeed;
+  uniform vec3 uCam;
+  uniform vec2 uYaw;
+  vec3 fieldCenter(vec4 seed) {
+    vec2 rel = mod(seed.xy * (2.0 * uBoxHalf) - uCam.xz + uBoxHalf, 2.0 * uBoxHalf) - uBoxHalf;
+    float bottom = uCam.y + uBottomRel;
+    float y = bottom + mod(seed.w * uSpan - uTime * uSpeed * seed.z - bottom, uSpan);
+    return vec3(uCam.x + rel.x, y, uCam.z + rel.y);
+  }
+`
+
+function fieldUniforms(shared, box, speed) {
+  return { ...shared, uBoxHalf: { value: box.half }, uSpan: { value: box.span }, uBottomRel: { value: box.bottomRel }, uSpeed: { value: speed } }
+}
+
+export function makeRainMaterial(shared, box, speed) {
   const material = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, side: THREE.DoubleSide,
-    uniforms: { uColor: { value: new THREE.Color(0.72, 0.78, 0.86) }, uOpacity: { value: 0.6 } },
+    uniforms: { ...fieldUniforms(shared, box, speed), uColor: { value: new THREE.Color(0.72, 0.78, 0.86) }, uOpacity: { value: 0.6 } },
     vertexShader: `
+      ${FIELD_PARS}
       varying vec2 vUv;
-      varying float vFade;
       void main() {
         vUv = uv;
-        vFade = 1.0 - abs(uv.x * 2.0 - 1.0);
-        vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+        vec3 p = vec3(position.x * uYaw.x + position.z * uYaw.y, position.y, -position.x * uYaw.y + position.z * uYaw.x);
+        vec4 mvPosition = modelViewMatrix * vec4(p + fieldCenter(aSeed), 1.0);
         gl_Position = projectionMatrix * mvPosition;
       }
     `,
     fragmentShader: `
       uniform vec3 uColor; uniform float uOpacity;
-      varying vec2 vUv; varying float vFade;
+      varying vec2 vUv;
       void main() {
-        float streak = smoothstep(0.0, 0.15, vUv.y) * smoothstep(1.0, 0.85, vUv.y);
-        float a = uOpacity * vFade * (0.3 + 0.7 * streak);
+        float fade = 1.0 - abs(vUv.x * 2.0 - 1.0);
+        float streak = smoothstep(0.0, 0.15, vUv.y) * (1.0 - smoothstep(0.85, 1.0, vUv.y));
+        float a = uOpacity * fade * (0.3 + 0.7 * streak);
         if (a < 0.01) discard;
         gl_FragColor = vec4(uColor, a);
       }
     `,
   })
-  material.customProgramCacheKey = () => 'weather-rain-streak'
+  material.customProgramCacheKey = () => 'weather-rain-streak-gpu'
   return material
 }
 
@@ -102,15 +130,28 @@ export function makeFlakeGeo() {
   return g
 }
 
-export function makeSnowMaterial() {
+export function makeSnowMaterial(shared, box, speed, drift) {
   const material = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, side: THREE.DoubleSide,
-    uniforms: { uColor: { value: new THREE.Color(0.95, 0.97, 1.0) }, uOpacity: { value: 0.8 } },
+    uniforms: {
+      ...fieldUniforms(shared, box, speed),
+      uColor: { value: new THREE.Color(0.95, 0.97, 1.0) }, uOpacity: { value: 0.8 },
+      uDriftAmp: { value: drift.amp }, uDriftFreq: { value: drift.freq },
+    },
     vertexShader: `
+      ${FIELD_PARS}
+      attribute vec2 aSeed2;
+      uniform vec3 uCamRight, uCamUp;
+      uniform float uDriftAmp, uDriftFreq;
       varying vec2 vUv;
       void main() {
         vUv = uv;
-        vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+        float freq = uDriftFreq * aSeed2.y;
+        float ang = uTime * freq * 6.28318530718 + aSeed2.x;
+        vec2 drift = uDriftAmp / (6.28318530718 * freq) * vec2(sin(ang), -cos(ang));
+        vec3 center = fieldCenter(aSeed) + vec3(drift.x, 0.0, drift.y);
+        vec3 world = center + uCamRight * position.x + uCamUp * position.y;
+        vec4 mvPosition = modelViewMatrix * vec4(world, 1.0);
         gl_Position = projectionMatrix * mvPosition;
       }
     `,
@@ -125,22 +166,24 @@ export function makeSnowMaterial() {
       }
     `,
   })
-  material.customProgramCacheKey = () => 'weather-snow-flake'
+  material.customProgramCacheKey = () => 'weather-snow-flake-gpu'
   return material
 }
 
-export function makeFarSheetMaterial(baseColor, opacity, roundDot) {
+export function makeFarSheetMaterial(baseColor, opacity, roundDot, shared, box, speed) {
   const material = new THREE.ShaderMaterial({
     transparent: true, depthWrite: false, side: THREE.DoubleSide,
     uniforms: {
+      ...fieldUniforms(shared, box, speed),
       uColor: { value: baseColor.clone() }, uOpacity: { value: opacity },
       uFadeNear: { value: 40 }, uFadeFar: { value: 90 },
     },
     vertexShader: `
+      ${FIELD_PARS}
       varying vec2 vUv; varying float vDist;
       void main() {
         vUv = uv;
-        vec4 mvPosition = modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+        vec4 mvPosition = modelViewMatrix * vec4(position + fieldCenter(aSeed), 1.0);
         vDist = -mvPosition.z;
         gl_Position = projectionMatrix * mvPosition;
       }
@@ -158,6 +201,6 @@ export function makeFarSheetMaterial(baseColor, opacity, roundDot) {
       }
     `,
   })
-  material.customProgramCacheKey = () => `weather-far-sheet-${roundDot ? 'snow' : 'rain'}`
+  material.customProgramCacheKey = () => `weather-far-sheet-gpu-${roundDot ? 'snow' : 'rain'}`
   return material
 }
