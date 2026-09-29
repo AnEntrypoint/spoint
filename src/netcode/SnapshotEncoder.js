@@ -1,6 +1,6 @@
 import { getComponentSchema, encodeCustomFields, decodeCustomFields } from '../../apps/_lib/ComponentSchema.js'
 import {
-  BIN_RECORD_BYTES, POS_I16_MAX, SCALE_U16_MAX, clampI16, clampU16Scale,
+  BIN_RECORD_BYTES, POS_I32_MAX, SCALE_U16_MAX, clampI32Pos, clampU16Scale,
   packBinRecord, unpackBinRecord, packQuat, unpackQuat
 } from './SnapshotBinFormat.js'
 import { FNV1A_32_OFFSET_BASIS, fnv1aStepString, fnv1aStepBytes, fnv1aStepFloat32 } from '../shared/fnv1a.js'
@@ -48,7 +48,7 @@ export const PLAYER_TIER_DOT = 2
 function encodeReducedPlayer(p) {
   const [px, , pz] = p.position
   const yawN = Math.round(((p.lookYaw || 0) % TAU + TAU) % TAU / TAU * 256) & 0xFF
-  return [p.id, clampI16(px), clampI16(pz), yawN, PLAYER_TIER_REDUCED]
+  return [p.id, clampI32Pos(px), clampI32Pos(pz), yawN, PLAYER_TIER_REDUCED]
 }
 
 function dist2(ax, ay, az, bx, by, bz) { const dx = ax-bx, dy = ay-by, dz = az-bz; return dx*dx+dy*dy+dz*dz }

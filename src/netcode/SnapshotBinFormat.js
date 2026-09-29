@@ -1,36 +1,37 @@
 const WIRE_UNITS_PER_METER = 100
 const QSCALE = 511 * Math.SQRT2
 
-export const BIN_RECORD_BYTES = 23
-export const POS_I16_MAX = 32767 / WIRE_UNITS_PER_METER
+export const BIN_RECORD_BYTES = 29
+export const POS_I32_MAX = 2147483647 / WIRE_UNITS_PER_METER
+export const VEL_I16_MAX = 32767 / WIRE_UNITS_PER_METER
 export const SCALE_U16_MAX = 65535 / WIRE_UNITS_PER_METER
 
 export function clampI16(v) { return Math.max(-32767, Math.min(32767, Math.round((v || 0) * WIRE_UNITS_PER_METER))) }
+export function clampI32Pos(v) { return Math.max(-2147483647, Math.min(2147483647, Math.round((v || 0) * WIRE_UNITS_PER_METER))) }
 export function clampU16Scale(v) { return Math.max(0, Math.min(65535, Math.round((v ?? 1) * WIRE_UNITS_PER_METER))) }
+
+function putI32(b, o, v) { b[o] = v & 0xFF; b[o + 1] = (v >> 8) & 0xFF; b[o + 2] = (v >> 16) & 0xFF; b[o + 3] = (v >> 24) & 0xFF }
+function getI32(b, o) { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) / WIRE_UNITS_PER_METER }
+function putI16(b, o, v) { b[o] = v & 0xFF; b[o + 1] = (v >> 8) & 0xFF }
+function getI16(b, o) { return (((b[o] | (b[o + 1] << 8)) << 16) >> 16) / WIRE_UNITS_PER_METER }
 
 export function packBinRecord(px, py, pz, qrot, vx, vy, vz, sx, sy, sz, flags, into) {
   const b = into || new Uint8Array(BIN_RECORD_BYTES)
-  let v = clampI16(px); b[0] = v & 0xFF; b[1] = (v >> 8) & 0xFF
-  v = clampI16(py); b[2] = v & 0xFF; b[3] = (v >> 8) & 0xFF
-  v = clampI16(pz); b[4] = v & 0xFF; b[5] = (v >> 8) & 0xFF
-  v = clampI16(vx); b[6] = v & 0xFF; b[7] = (v >> 8) & 0xFF
-  v = clampI16(vy); b[8] = v & 0xFF; b[9] = (v >> 8) & 0xFF
-  v = clampI16(vz); b[10] = v & 0xFF; b[11] = (v >> 8) & 0xFF
-  v = qrot >>> 0; b[12] = v & 0xFF; b[13] = (v >>> 8) & 0xFF; b[14] = (v >>> 16) & 0xFF; b[15] = (v >>> 24) & 0xFF
-  v = clampU16Scale(sx); b[16] = v & 0xFF; b[17] = (v >> 8) & 0xFF
-  v = clampU16Scale(sy); b[18] = v & 0xFF; b[19] = (v >> 8) & 0xFF
-  v = clampU16Scale(sz); b[20] = v & 0xFF; b[21] = (v >> 8) & 0xFF
-  b[22] = flags & 0xFF
+  putI32(b, 0, clampI32Pos(px)); putI32(b, 4, clampI32Pos(py)); putI32(b, 8, clampI32Pos(pz))
+  putI16(b, 12, clampI16(vx)); putI16(b, 14, clampI16(vy)); putI16(b, 16, clampI16(vz))
+  putI32(b, 18, qrot >>> 0)
+  putI16(b, 22, clampU16Scale(sx)); putI16(b, 24, clampU16Scale(sy)); putI16(b, 26, clampU16Scale(sz))
+  b[28] = flags & 0xFF
   return b
 }
 
 export function unpackBinRecord(buf, out) {
   const b = buf instanceof DataView ? new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) : buf
-  out.px = (((b[0] | (b[1] << 8)) << 16) >> 16) / WIRE_UNITS_PER_METER; out.py = (((b[2] | (b[3] << 8)) << 16) >> 16) / WIRE_UNITS_PER_METER; out.pz = (((b[4] | (b[5] << 8)) << 16) >> 16) / WIRE_UNITS_PER_METER
-  out.vx = (((b[6] | (b[7] << 8)) << 16) >> 16) / WIRE_UNITS_PER_METER; out.vy = (((b[8] | (b[9] << 8)) << 16) >> 16) / WIRE_UNITS_PER_METER; out.vz = (((b[10] | (b[11] << 8)) << 16) >> 16) / WIRE_UNITS_PER_METER
-  out.qrot = (b[12] | (b[13] << 8) | (b[14] << 16)) + b[15] * 16777216
-  out.sx = (b[16] | (b[17] << 8)) / WIRE_UNITS_PER_METER; out.sy = (b[18] | (b[19] << 8)) / WIRE_UNITS_PER_METER; out.sz = (b[20] | (b[21] << 8)) / WIRE_UNITS_PER_METER
-  out.flags = b[22]
+  out.px = getI32(b, 0); out.py = getI32(b, 4); out.pz = getI32(b, 8)
+  out.vx = getI16(b, 12); out.vy = getI16(b, 14); out.vz = getI16(b, 16)
+  out.qrot = (b[18] | (b[19] << 8) | (b[20] << 16)) + b[21] * 16777216
+  out.sx = (b[22] | (b[23] << 8)) / WIRE_UNITS_PER_METER; out.sy = (b[24] | (b[25] << 8)) / WIRE_UNITS_PER_METER; out.sz = (b[26] | (b[27] << 8)) / WIRE_UNITS_PER_METER
+  out.flags = b[28]
   return out
 }
 

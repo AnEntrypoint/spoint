@@ -1,6 +1,7 @@
 import { waterlineLocalY } from '../terrain/PlanetFrame.js'
 
 const KILL_PLANE_Y = -100
+const KILL_DEPTH_BELOW_TERRAIN_M = 100
 
 const SWIM_GRAVITY_MUL = 0.15
 const SWIM_DRAG = 1.5
@@ -110,14 +111,20 @@ export class PhysicsIntegration {
     return state
   }
 
+  _killPlaneY(x, z) {
+    const groundY = this.physicsWorld?.terrainHeightAt?.(x, z)
+    return Number.isFinite(groundY) ? groundY - KILL_DEPTH_BELOW_TERRAIN_M : KILL_PLANE_Y
+  }
+
   _applyKillPlane(state) {
     const p = state.position
-    const badY = !Number.isFinite(p[1]) || p[1] < KILL_PLANE_Y
+    const killY = this._killPlaneY(p[0], p[2])
+    const badY = !Number.isFinite(p[1]) || p[1] < killY
     const badX = !Number.isFinite(p[0])
     const badZ = !Number.isFinite(p[2])
     if (badY || badX || badZ) {
       p[0] = Number.isFinite(p[0]) ? p[0] : 0
-      p[1] = KILL_PLANE_Y
+      p[1] = killY
       p[2] = Number.isFinite(p[2]) ? p[2] : 0
       state.velocity[0] = 0; state.velocity[1] = 0; state.velocity[2] = 0
       return true

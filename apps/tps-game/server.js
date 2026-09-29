@@ -8,6 +8,13 @@ const MAX_EXTRAPOLATION_M = 0.5
 const HITBOX_CENTER_HEIGHT = 0.9
 const HITBOX_RADIUS_SQ = 0.36
 const HITBOX_HEIGHT = 1.8
+const FALL_DEPTH_BELOW_GROUND_M = 20
+const FALL_FLOOR_WITHOUT_TERRAIN_Y = -20
+
+export function fallFloorY(ctx, x, z) {
+  const groundY = typeof ctx.terrainHeightAt === 'function' ? ctx.terrainHeightAt(x, z) : null
+  return Number.isFinite(groundY) ? groundY - FALL_DEPTH_BELOW_GROUND_M : FALL_FLOOR_WITHOUT_TERRAIN_Y
+}
 
 export async function loadScoreboard(ctx) {
   let byName = null

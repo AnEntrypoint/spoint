@@ -1,4 +1,4 @@
-import { findSpawnPoints, getAvailableSpawnPoint, groundSnapCandidate, handleFire, loadScoreboard, flushScoreboard, persistPlayerStat } from './server.js'
+import { fallFloorY, findSpawnPoints, getAvailableSpawnPoint, groundSnapCandidate, handleFire, loadScoreboard, flushScoreboard, persistPlayerStat } from './server.js'
 import { collectSpawnPoints } from '../spawn-point/index.js'
 import { POWERUP_DEFS, POWERUP_RESPAWN_MS, POWERUP_PICKUP_RADIUS, EMOTE_CLIPS, spawnPowerup } from './shared.js'
 
@@ -56,8 +56,9 @@ export const tpsGameServer = {
     for (const player of allPlayers) {
       if (!player.state || ctx.state.respawning.has(player.id)) continue
       if ((player.state.health ?? ctx.state.config.health) <= 0) continue
-      const y = player.state.position?.[1] ?? 0
-      if (y < -20) {
+      const pos = player.state.position
+      const y = pos?.[1] ?? 0
+      if (pos && y < fallFloorY(ctx, pos[0], pos[2])) {
         const t = (ctx.state.fallTimers.get(player.id) || 0) + dt
         ctx.state.fallTimers.set(player.id, t)
         if (t >= 0.5) { player.state.health = 0; ctx.state.respawning.set(player.id, { respawnAt: now + ctx.state.config.respawnTime * 1000, killer: null }); ctx.network.broadcast({ type: 'death', victim: player.id, killer: null, cause: 'fall' }); ctx.state.fallTimers.delete(player.id) }
@@ -114,6 +115,10 @@ export const tpsGameServer = {
       persistPlayerStat(ctx, msg.playerId)
       ctx.state.playerStats.delete(msg.playerId); ctx.state.respawning.delete(msg.playerId)
       ctx.state.fallTimers.delete(msg.playerId); ctx.state.ammo.delete(msg.playerId); ctx.state.reloading.delete(msg.playerId); ctx.state.invuln.delete(msg.playerId)
+    }
+    if (msg.type === 'player_teleport' && msg.senderId === undefined) {
+      ctx.state.fallTimers.delete(msg.playerId)
+      if (ctx.state.respawning.delete(msg.playerId)) { const p = ctx.players.getById(msg.playerId); if (p?.state) p.state.health = ctx.state.config.health }
     }
     if (msg.type === 'reload') {
       const playerId = msg.senderId || msg.playerId

@@ -22,13 +22,15 @@ function unpackQuat(packed, out) {
 }
 
 const _bin = { px:0, py:0, pz:0, vx:0, vy:0, vz:0, qrot:0, sx:1, sy:1, sz:1, flags:0 }
+function i32(b, o) { return (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) / Q1 }
+function i16(b, o) { return (((b[o] | (b[o + 1] << 8)) << 16) >> 16) / Q1 }
 function unpackBinRecord(buf) {
   const b = buf instanceof DataView ? new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength) : buf
-  _bin.px = (((b[0] | (b[1] << 8)) << 16) >> 16) / Q1; _bin.py = (((b[2] | (b[3] << 8)) << 16) >> 16) / Q1; _bin.pz = (((b[4] | (b[5] << 8)) << 16) >> 16) / Q1
-  _bin.vx = (((b[6] | (b[7] << 8)) << 16) >> 16) / Q1; _bin.vy = (((b[8] | (b[9] << 8)) << 16) >> 16) / Q1; _bin.vz = (((b[10] | (b[11] << 8)) << 16) >> 16) / Q1
-  _bin.qrot = (b[12] | (b[13] << 8) | (b[14] << 16)) + b[15] * 16777216
-  _bin.sx = (b[16] | (b[17] << 8)) / Q1; _bin.sy = (b[18] | (b[19] << 8)) / Q1; _bin.sz = (b[20] | (b[21] << 8)) / Q1
-  _bin.flags = b[22]
+  _bin.px = i32(b, 0); _bin.py = i32(b, 4); _bin.pz = i32(b, 8)
+  _bin.vx = i16(b, 12); _bin.vy = i16(b, 14); _bin.vz = i16(b, 16)
+  _bin.qrot = (b[18] | (b[19] << 8) | (b[20] << 16)) + b[21] * 16777216
+  _bin.sx = (b[22] | (b[23] << 8)) / Q1; _bin.sy = (b[24] | (b[25] << 8)) / Q1; _bin.sz = (b[26] | (b[27] << 8)) / Q1
+  _bin.flags = b[28]
   return _bin
 }
 
