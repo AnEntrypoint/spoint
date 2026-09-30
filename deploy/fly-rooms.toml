@@ -45,6 +45,7 @@ primary_region = "iad"        # placeholder -- pick the region closest to your p
   buildpacks = ["gcr.io/paketo-buildpacks/nodejs"]
 
 [env]
+  NODE_ENV = "production"
   ROOM_WORKER_COUNT = "4"
   ROUTER_PORT = "3400"
   ROOM_PORT_MIN = "19000"

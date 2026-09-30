@@ -71,15 +71,27 @@ async function transformGLB(inputBuffer) {
   return null
 }
 
+const _sourceHashCache = new Map()
+function sourceHashFor(filepath, mtime) {
+  const c = _sourceHashCache.get(filepath)
+  if (c && c.mtime === mtime) return c.hash
+  const hash = contentHash(readFileSync(filepath))
+  _sourceHashCache.set(filepath, { mtime, hash })
+  return hash
+}
+
 function _getOrStartTransform(filepath, mtime) {
   const mem = _memCache.get(filepath)
   if (mem && mem.mtime === mtime) return { buffer: mem.buffer }
+  if (_inFlight.has(filepath)) return { promise: _inFlight.get(filepath) }
   const cachePath = getCachePath(filepath)
   const cacheMetaPath = cachePath + '.meta'
   if (existsSync(cachePath) && existsSync(cacheMetaPath)) {
     try {
       const meta = JSON.parse(readFileSync(cacheMetaPath, 'utf8'))
-      if (meta.srcMtime === mtime && meta.codeVersion === GLB_TRANSFORM_CODE_VERSION) {
+      const sameSource = meta.codeVersion === GLB_TRANSFORM_CODE_VERSION && (meta.srcMtime === mtime || (!!meta.srcHash && meta.srcHash === sourceHashFor(filepath, mtime)))
+      if (sameSource) {
+        if (meta.srcMtime !== mtime || !meta.srcHash) writeFileSync(cacheMetaPath, JSON.stringify({ ...meta, srcMtime: mtime, srcHash: meta.srcHash || sourceHashFor(filepath, mtime) }))
         const cached = readFileSync(cachePath)
         _memCache.set(filepath, { mtime, buffer: cached })
         return { buffer: cached }
@@ -96,7 +108,7 @@ function _getOrStartTransform(filepath, mtime) {
         const transformed = await transformGLB(inputBuf)
         if (transformed) {
           writeFileSync(cachePath, transformed)
-          writeFileSync(cacheMetaPath, JSON.stringify({ srcMtime: mtime, codeVersion: GLB_TRANSFORM_CODE_VERSION }))
+          writeFileSync(cacheMetaPath, JSON.stringify({ srcMtime: mtime, srcHash: contentHash(inputBuf), codeVersion: GLB_TRANSFORM_CODE_VERSION }))
           _memCache.set(filepath, { mtime, buffer: transformed })
           const pct = Math.round((1 - transformed.length / inputBuf.length) * 100)
           console.log(`[glb-transform] done ${basename(filepath)} ${(inputBuf.length/1024).toFixed(0)}KB -> ${(transformed.length/1024).toFixed(0)}KB (${pct > 0 ? '-' : '+'}${Math.abs(pct)}%) in ${Date.now()-t0}ms`)

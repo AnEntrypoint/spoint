@@ -1,3 +1,6 @@
+[variables]
+NODE_ENV = "production"
+
 [phases.setup]
 nixPkgs = ["nodejs_20"]
 
@@ -6,7 +9,7 @@ nixPkgs = ["nodejs_20"]
 # --no-save (package.json/lockfile untouched) purely for the build phase below. A failed add is
 # non-fatal: scripts/bundle-*.mjs --if-stale skip cleanly without esbuild and ServerBoot.js then
 # serves raw ESM -- the bundle is a boot-time optimization, never a boot requirement.
-cmds = ["npm ci --omit=dev", "npm install --no-save --no-audit --no-fund esbuild@^0.28.1 || true"]
+cmds = ["npm ci --omit=dev", "npm install --no-save --no-audit --no-fund --include=dev esbuild@^0.28.1 || true"]
 
 [phases.build]
 # dist/client/app.js (+ chunks, apps-manifest.json) and dist/src/sdk/WorkerEntry.js -- served by

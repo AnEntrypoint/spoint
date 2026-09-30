@@ -40,6 +40,8 @@ export function urlToFile(url, staticDirs) {
   return null
 }
 
+const FLOOR_CACHE_CAP = 16
+
 export function createModuleGraph({ staticDirs, importMap, roots }) {
   const deps = new Map(), eagerDeps = new Map(), parents = new Map(), fileToUrl = new Map(), versions = new Map()
   let effective = new Map()
@@ -91,21 +93,38 @@ export function createModuleGraph({ staticDirs, importMap, roots }) {
     }
   }
 
-  const propagate = () => {
-    effective = new Map()
+  const computeEffective = (floor) => {
+    const out = new Map()
     for (const [changed, v] of versions) {
+      if (v <= floor) continue
       const queue = [changed], seen = new Set()
       while (queue.length) {
         const u = queue.pop()
         if (seen.has(u)) continue
         seen.add(u)
-        if ((effective.get(u) || 0) < v) effective.set(u, v)
+        if ((out.get(u) || 0) < v) out.set(u, v)
         queue.push(...(parents.get(u) || []))
       }
     }
+    return out
   }
 
-  const effectiveVersion = (url) => effective.get(url) || 0
+  let effectiveByFloor = new Map()
+  const propagate = () => {
+    effective = computeEffective(0)
+    effectiveByFloor = new Map()
+  }
+
+  const effectiveFor = (floor) => {
+    if (!floor) return effective
+    if (!effectiveByFloor.has(floor)) {
+      if (effectiveByFloor.size >= FLOOR_CACHE_CAP) effectiveByFloor.clear()
+      effectiveByFloor.set(floor, computeEffective(floor))
+    }
+    return effectiveByFloor.get(floor)
+  }
+
+  const effectiveVersion = (url, floor = 0) => effectiveFor(floor).get(url) || 0
 
   const ancestors = (url) => {
     const out = {}, queue = [url]
@@ -118,11 +137,11 @@ export function createModuleGraph({ staticDirs, importMap, roots }) {
     return out
   }
 
-  const rewrite = (source, fromUrl) => source.replace(IMPORT_RE, (whole, pre, q, spec) => {
+  const rewrite = (source, fromUrl, floor = 0) => source.replace(IMPORT_RE, (whole, pre, q, spec) => {
     const target = resolveSpecifier(spec, fromUrl, importMap)
     if (!target || !deps.has(target)) return whole
-    const v = effectiveVersion(target)
-    return v ? `${pre}${q}${target}?hmr=${v}${q}` : whole
+    const v = effectiveVersion(target, floor)
+    return v ? `${pre}${q}${target}?hmr=${v}${floor ? '&p=' + floor : ''}${q}` : whole
   })
 
   const urlOfFile = (absPath) => {

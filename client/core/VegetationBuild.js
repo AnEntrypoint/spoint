@@ -153,7 +153,16 @@ function perturbPreset(json, name, variant) {
   return o
 }
 
+const _speciesTemplates = new Map()
+
 function buildSpecies(name, Tree, variant = 0, TreePreset = null) {
+  const key = name + '#' + variant
+  let t = _speciesTemplates.get(key)
+  if (!t) { t = generateSpecies(name, Tree, variant, TreePreset); _speciesTemplates.set(key, t) }
+  return { branchGeo: t.branchGeo.clone(), leafGeo: t.leafGeo.clone(), branchMat: t.branchMat.clone(), leafMat: t.leafMat.clone(), tree: t.tree, dims: { ...t.dims } }
+}
+
+function generateSpecies(name, Tree, variant, TreePreset) {
   const tree = new Tree()
   const presetName = PRESET[name] || name
   if (variant > 0 && TreePreset && TreePreset[presetName]) tree.loadFromJson(perturbPreset(structuredClone(TreePreset[presetName]), name, variant))

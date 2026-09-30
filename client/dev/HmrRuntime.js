@@ -2,15 +2,20 @@ const EVENTS_URL = '/__hmr/events'
 const POSE_KEY = '__spointHmrPose'
 const ONLY_KEY = '__spointHmrOnly'
 const LOG_CAP = 200
+const LOG_KEY = '__spointHmrLog'
+const PERSISTED_LOG_CAP = 50
+const SERVER_WAIT_MS = 60000
+const SERVER_POLL_MS = 250
 const TICK_HANDLER_PATHS = new Set(['src/sdk/TickHandler.js', 'src/shared/movement.js'])
 
 const acceptors = new Map()
 const disposers = new Map()
 const store = new Map()
 const instances = new Map()
-const log = []
+const log = (() => { try { return JSON.parse(sessionStorage.getItem(LOG_KEY) || '[]') } catch (_) { return [] } })()
 let queue = Promise.resolve()
 let lastBootId = null
+let liveBootId = null
 let toastModule = null
 
 const keyOf = (url) => new URL(url, location.href).pathname
@@ -35,6 +40,7 @@ function record(ev, result, detail = '') {
   const entry = { seq: ev.seq, kind: ev.kind, path: ev.path, result, detail, serverStamp: ev.t, appliedAt: Date.now(), ms: ev.t ? Date.now() - ev.t : null }
   log.push(entry)
   if (log.length > LOG_CAP) log.shift()
+  try { sessionStorage.setItem(LOG_KEY, JSON.stringify(log.slice(-PERSISTED_LOG_CAP))) } catch (_) {}
   console.log(`[hmr] ${ev.path} -> ${result}${detail ? ' (' + detail + ')' : ''}${entry.ms != null ? ' in ' + entry.ms + 'ms' : ''}`)
   window.dispatchEvent(new CustomEvent('spoint-hmr', { detail: entry }))
   const kind = result === 'reload' || result === 'server-restart-needed' ? 'warn' : result === 'failed' ? 'error' : 'success'
@@ -60,13 +66,26 @@ async function restorePose() {
   try { await window.__spoint?.teleport?.({ x: pose.x, y: pose.y, z: pose.z }, { clearance: 0 }) } catch (e) { console.warn('[hmr] pose restore failed:', e?.message || e) }
 }
 
-function reloadPreserving(ev, reason) {
-  record(ev, 'reload', reason)
-  savePose()
-  setTimeout(() => location.reload(), 60)
+async function waitForServer(staleBootId) {
+  const until = Date.now() + SERVER_WAIT_MS
+  while (Date.now() < until) {
+    const restarted = !staleBootId || (liveBootId && liveBootId !== staleBootId)
+    const r = restarted ? await fetch('/__identity', { cache: 'no-store' }).catch(() => null) : null
+    if (r?.ok) return true
+    await new Promise(res => setTimeout(res, SERVER_POLL_MS))
+  }
+  return false
 }
 
-function versionedUrl(key, v) { return `${key}?hmr=${v}` }
+async function reloadPreserving(ev, reason) {
+  record(ev, 'reload', reason)
+  savePose()
+  await waitForServer(ev.restarting ? ev.bootId : null)
+  location.reload()
+}
+
+const PAGE_FLOOR = Math.floor(performance.timeOrigin)
+function versionedUrl(key, v) { return `${key}?hmr=${v}&p=${PAGE_FLOOR}` }
 
 function trackChain(ev, boundary) {
   for (const node of Object.keys(ancestorsOf(ev, ev.url))) {
@@ -155,7 +174,7 @@ async function applyBoundary(ev, boundary) {
 async function applyWorkerSide(ev) {
   const client = window.__app?.client
   if (!TICK_HANDLER_PATHS.has(ev.path) || !client?.hotReloadTickHandler) return null
-  return (await client.hotReloadTickHandler(ev.v)) ? 'worker tick handler swapped' : null
+  return (await client.hotReloadTickHandler(ev.v, PAGE_FLOOR)) ? 'worker tick handler swapped' : null
 }
 
 async function applyModule(ev) {
@@ -265,6 +284,7 @@ function connect() {
   source.onmessage = (msg) => {
     let ev
     try { ev = JSON.parse(msg.data) } catch (_) { return }
+    if (ev.kind === 'hello') liveBootId = ev.bootId
     queue = queue.then(() => apply(ev))
   }
 }

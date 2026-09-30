@@ -118,6 +118,13 @@ export function createDevHmr({ sdkRoot, staticDirs, log = console, onLibChanged 
       const restarting = requestRestart('world definition ' + rel)
       return { ...base, kind: 'world', restarting, reason: 'world definition changed; the running world is rebuilt from it' }
     }
+    if (rel.startsWith('src/behaviours/') && MODULE_RE.test(rel)) {
+      const url = '/' + rel
+      graph.markChanged(url, stamp)
+      const apps = appsDependingOn(url)
+      if (apps.length) onLibChanged?.(apps)
+      return { ...base, kind: 'app', apps, v: stamp }
+    }
     if (rel.startsWith('apps/') && MODULE_RE.test(rel)) {
       const own = /^apps\/([^/]+)\//.exec(rel)?.[1]
       const url = '/' + rel
@@ -232,7 +239,8 @@ export function createDevHmr({ sdkRoot, staticDirs, log = console, onLibChanged 
       const fp = urlToFile(path, liveDirs)
       if (!fp) return false
       res.writeHead(200, headers('text/javascript'))
-      res.end(graph.rewrite(readFileSync(fp, 'utf8'), path))
+      const floor = Math.max(0, Math.floor(Number(new URLSearchParams(query).get('p')) || 0))
+      res.end(graph.rewrite(readFileSync(fp, 'utf8'), path, floor))
       return true
     }
     return false
