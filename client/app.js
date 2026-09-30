@@ -715,6 +715,7 @@ const engineCtx = {
       try { grass && grass.dispose && grass.dispose() } catch (e) { _dbgTerrain('grass dispose failed on reseed:', e?.message || e) }
       try { caveMeshes && caveMeshes.dispose && caveMeshes.dispose() } catch (e) { _dbgTerrain('caveMeshes dispose failed on reseed:', e?.message || e) }
       vegetation = null; rocks = null; grass = null; caveMeshes = null
+      if (window.__app) { window.__app.vegetation = null; window.__app.rocks = null }
       try { weather && weather.dispose && weather.dispose() } catch (e) { _dbgTerrain('weather dispose failed on reseed:', e?.message || e) }
       weather = null
     }

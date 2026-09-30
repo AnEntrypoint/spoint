@@ -31,7 +31,45 @@ const NEUTRAL_CLIMATE = { temp: 0.5, humidity: 0.5 }
 export function sampleMinimapCell(frame, anchorField, x, z, out) {
   const h = frame.groundHeightLocal(x, z)
   const climate = anchorField && anchorField.sampleDir ? anchorField.sampleDir(frame.localToDir(x, z)) : NEUTRAL_CLIMATE
-  const rgb = biomeColor(h, climate.temp || 0, climate.humidity || 0, waterlineLocalY(frame, x, z))
-  out[0] = rgb[0] | 0; out[1] = rgb[1] | 0; out[2] = rgb[2] | 0
+  const seaLevel = waterlineLocalY(frame, x, z)
+  const rgb = biomeColor(h, climate.temp || 0, climate.humidity || 0, seaLevel)
+  out[0] = rgb[0] | 0; out[1] = rgb[1] | 0; out[2] = rgb[2] | 0; out[3] = h >= seaLevel ? 1 : 0
   return h
+}
+
+const SUN_RAW = [-0.55, 0.62, -0.56]
+const SUN_LEN = Math.hypot(SUN_RAW[0], SUN_RAW[1], SUN_RAW[2])
+const SUN_X = SUN_RAW[0] / SUN_LEN, SUN_Y = SUN_RAW[1] / SUN_LEN, SUN_Z = SUN_RAW[2] / SUN_LEN
+const RELIEF_EXAGGERATION = 3
+const LIGHT_GAIN = 0.55
+const STEEP_FROM = 0.25, STEEP_TO = 1.2, STEEP_DARKEN = 0.22
+const SHADE_MIN = 0.5, SHADE_MAX = 1.3
+
+export function reliefShade(dhdx, dhdz) {
+  const gx = dhdx * RELIEF_EXAGGERATION, gz = dhdz * RELIEF_EXAGGERATION
+  const lambert = (SUN_Y - gx * SUN_X - gz * SUN_Z) / Math.sqrt(gx * gx + 1 + gz * gz)
+  const lit = 1 + LIGHT_GAIN * (lambert / SUN_Y - 1)
+  const t = Math.max(0, Math.min(1, (Math.hypot(dhdx, dhdz) - STEEP_FROM) / (STEEP_TO - STEEP_FROM)))
+  const shade = lit * (1 - STEEP_DARKEN * t * t * (3 - 2 * t))
+  if (!Number.isFinite(shade)) return 1
+  return shade < SHADE_MIN ? SHADE_MIN : shade > SHADE_MAX ? SHADE_MAX : shade
+}
+
+export function shadeHeightGrid(heights, rows, cols, spacingM, land, rgbIn, rgbOut, inChannels, outChannels, shadeOut) {
+  for (let r = 0; r < rows; r++) {
+    const up = r > 0 ? r - 1 : r, dn = r < rows - 1 ? r + 1 : r
+    for (let c = 0; c < cols; c++) {
+      const i = r * cols + c
+      const ic = i * inChannels, oc = i * outChannels
+      let m = 1
+      if (land[i]) {
+        const lf = c > 0 ? c - 1 : c, rt = c < cols - 1 ? c + 1 : c
+        const dhdx = rt > lf ? (heights[r * cols + rt] - heights[r * cols + lf]) / ((rt - lf) * spacingM) : 0
+        const dhdz = dn > up ? (heights[dn * cols + c] - heights[up * cols + c]) / ((dn - up) * spacingM) : 0
+        m = reliefShade(dhdx, dhdz)
+      }
+      if (shadeOut) shadeOut[i] = m
+      rgbOut[oc] = Math.min(255, rgbIn[ic] * m); rgbOut[oc + 1] = Math.min(255, rgbIn[ic + 1] * m); rgbOut[oc + 2] = Math.min(255, rgbIn[ic + 2] * m)
+    }
+  }
 }

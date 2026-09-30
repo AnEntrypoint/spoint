@@ -3,7 +3,7 @@ import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import zlib from 'node:zlib'
 import { resolveTerrainConfig, minimapDescriptor, minimapExtentOf, minimapResOf, terrainHashVersionOf, terrainCarvesOf, parseTerrainHashOverride, withTerrainHashVersion } from '../src/shared/terrainConfig.js'
-import { sampleMinimapCell } from '../src/shared/MinimapBiome.js'
+import { sampleMinimapCell, shadeHeightGrid } from '../src/shared/MinimapBiome.js'
 import { MINIMAP_BAKE_CODE_VERSION } from '../src/static/BakeCodeVersion.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -91,8 +91,10 @@ export async function bakeMinimap(opts) {
 
   const half = extent / 2, step = extent / N
   const heights = new Float32Array(N * N)
+  const biomeRgb = new Uint8Array(N * N * 3)
+  const land = new Uint8Array(N * N)
   const rgb = Buffer.alloc(N * N * 3)
-  const cell = [0, 0, 0]
+  const cell = [0, 0, 0, 0]
   let min = Infinity, max = -Infinity
 
   for (let iz = 0; iz < N; iz++) {
@@ -102,12 +104,14 @@ export async function bakeMinimap(opts) {
       const h = sampleMinimapCell(frame, anchorField, x, z, cell)
       const idx = iz * N + ix
       heights[idx] = h
+      land[idx] = cell[3]
       if (h < min) min = h
       if (h > max) max = h
       const o = idx * 3
-      rgb[o] = cell[0]; rgb[o + 1] = cell[1]; rgb[o + 2] = cell[2]
+      biomeRgb[o] = cell[0]; biomeRgb[o + 1] = cell[1]; biomeRgb[o + 2] = cell[2]
     }
   }
+  shadeHeightGrid(heights, N, N, step, land, biomeRgb, rgb, 3, 3)
 
   const png = encodePNGRGB(N, N, rgb)
   const header = {
