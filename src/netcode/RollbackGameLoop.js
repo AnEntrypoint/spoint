@@ -142,7 +142,7 @@ export function createRollbackGameLoop({ tickSystem, transport, rollback, roster
   function prune() {
     const keep = simTick - rollback.windowSize
     for (const t of used.keys()) { if (t >= keep) break; used.delete(t) }
-    for (const m of confirmed.values()) for (const t of m.keys()) { if (t >= keep - 1) break; m.delete(t) }
+    for (const m of confirmed.values()) for (const t of m.keys()) if (t < keep - 1) m.delete(t)
   }
 
   function onDriverTick(driverTick, dt) {

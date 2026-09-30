@@ -1,5 +1,4 @@
 import { DesyncDetector } from './DesyncDetector.js'
-import { checksumBodies } from './LockstepChecksum.js'
 
 const CTRL_PREFIX = 'wwlockstep:'
 
@@ -13,35 +12,37 @@ function decodeCtrl(data) {
 }
 
 export const DEFAULT_CONSECUTIVE_DESYNCS_REQUIRED = 3
+const DESYNC_LOG_LIMIT = 16
 
 export class ConsensusVoter {
   constructor({
-    transport,
-    physics,
+    bridge,
+    checksumOf,
     localPeerId,
     expectedPeerIds,
-    hostPeerId,
+    hostPeerId = null,
     checksumIntervalTicks = 30,
     consecutiveDesyncsRequired = DEFAULT_CONSECUTIVE_DESYNCS_REQUIRED,
     onCheatingHost = null,
     onCheatingPeer = null,
     onEjectionReady = null,
   } = {}) {
-    if (!transport?.bridge?.data) throw new Error('[ConsensusVoter] transport (LockstepInputTransport) is required')
-    if (!physics || typeof physics.snapshotBodies !== 'function') throw new Error('[ConsensusVoter] physics (PhysicsWorld) is required')
+    if (!bridge?.data) throw new Error('[ConsensusVoter] bridge (wireweave bridge or WorkerBridgeProxy) is required')
+    if (typeof checksumOf !== 'function') throw new Error('[ConsensusVoter] checksumOf(tick) is required')
     if (!localPeerId) throw new Error('[ConsensusVoter] localPeerId is required')
     if (!Array.isArray(expectedPeerIds) || expectedPeerIds.length < 2) {
       throw new Error('[ConsensusVoter] expectedPeerIds must be an array of at least 2 peer pubkeys')
     }
 
-    this.transport = transport
-    this.physics = physics
+    this.bridge = bridge
+    this.checksumOf = checksumOf
     this.localPeerId = localPeerId
     this.hostPeerId = hostPeerId
     this.consecutiveDesyncsRequired = consecutiveDesyncsRequired
     this.onCheatingHost = onCheatingHost
     this.onCheatingPeer = onCheatingPeer
     this.onEjectionReady = onEjectionReady
+    this.desyncLog = []
 
     this._detector = new DesyncDetector({
       checksumIntervalTicks,
@@ -58,36 +59,39 @@ export class ConsensusVoter {
     this._onData = ({ detail }) => {
       const msg = decodeCtrl(detail?.data)
       if (!msg || msg.type !== 'checksum' || typeof msg.tick !== 'number' || !msg.pubkey || !msg.checksum) return
-      if (msg.pubkey === this.localPeerId) return
+      if (msg.pubkey === this.localPeerId || msg.pubkey !== detail.peerPubkey) return
       this._ingestRemoteChecksum(msg.tick, msg.pubkey, msg.checksum)
     }
-    this.transport.bridge.data.addEventListener('data', this._onData)
+    this.bridge.data.addEventListener('data', this._onData)
 
-    this.stats = { checksumsSent: 0, checksumsReceived: 0, desyncsDetected: 0, ejectionsFired: 0 }
+    this.stats = { checksumsSent: 0, checksumsReceived: 0, checksumsIgnored: 0, verified: 0, desyncsDetected: 0, unattributedDesyncs: 0, firstDesyncTick: null, ejectionsFired: 0 }
   }
 
   tick(tick) {
     if (!this._detector.isChecksumTick(tick)) return
-
-    const snap = this.physics.snapshotBodies()
-    const checksum = checksumBodies(tick, snap)
+    const checksum = this.checksumOf(tick)
     this._detector.reportChecksum(tick, this.localPeerId, checksum)
     this.stats.checksumsSent++
+    this.bridge.data.broadcast(encodeChecksumMsg(tick, this.localPeerId, checksum))
+  }
 
-    const payload = encodeChecksumMsg(tick, this.localPeerId, checksum)
-    this.transport.bridge.data.broadcast(payload)
+  removePeer(peerId) {
+    const track = this._peerDesync.get(peerId)
+    if (track) track.ejected = true
+    this._detector.removePeer(peerId)
   }
 
   _ingestRemoteChecksum(tick, pubkey, checksum) {
-    try {
-      this._detector.reportChecksum(tick, pubkey, checksum)
-      this.stats.checksumsReceived++
-    } catch (e) {
-    }
+    if (!this._detector.expects(pubkey)) { this.stats.checksumsIgnored++; return }
+    this._detector.reportChecksum(tick, pubkey, checksum)
+    this.stats.checksumsReceived++
   }
 
   _onDesync(tick, result) {
     this.stats.desyncsDetected++
+    if (this.stats.firstDesyncTick == null) this.stats.firstDesyncTick = tick
+    if (this.desyncLog.length < DESYNC_LOG_LIMIT) this.desyncLog.push({ tick, reports: Object.fromEntries(result.reports), offenders: [...result.offenders] })
+    if (!result.strictMajority) { this.stats.unattributedDesyncs++; return }
     const { offenders } = result
 
     for (const [pk, track] of this._peerDesync) {
@@ -126,7 +130,8 @@ export class ConsensusVoter {
     }
   }
 
-  _onVerified(tick, checksum) {
+  _onVerified() {
+    this.stats.verified++
     for (const [, track] of this._peerDesync) {
       if (track.ejected) continue
       track.consecutiveCount = 0
@@ -145,12 +150,13 @@ export class ConsensusVoter {
     }
     return {
       ...this.stats,
+      desyncLog: [...this.desyncLog],
       peers: peerState,
       pendingChecksumRows: this._detector.pendingCount,
     }
   }
 
   destroy() {
-    this.transport.bridge.data.removeEventListener('data', this._onData)
+    this.bridge.data.removeEventListener('data', this._onData)
   }
 }

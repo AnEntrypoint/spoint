@@ -2,6 +2,9 @@ const LAYER_DYNAMIC = 1
 const FALLBACK_CAPSULE_HALF_HEIGHT = 0.9
 const MIN_CARRY_GROUND_SPEED_SQ = 1e-6
 export const DEFAULT_MAX_SLOPE_ANGLE_RAD = 0.7854
+export const MAX_WALL_PLANES = 2
+const WALL_MAX_NORMAL_Y = 0.3
+const WALL_ABOVE_STEP_M = 0.05
 
 export class CharacterManager {
   constructor(gravity, crouchHalfHeight = 0.45, config = {}) {
@@ -11,6 +14,7 @@ export class CharacterManager {
     this._charShapes = new Map()
     this._onGroundAtLastUpdate = new Map()
     this._groundNormals = new Map()
+    this._walls = new Map()
     this._nextCharId = 0
     this.J = null; this._jolt = null; this._physicsSystem = null
     this._filters = null; this._updateSettings = null
@@ -83,6 +87,7 @@ export class CharacterManager {
     let onGround = false
     if (ch.GetGroundState) { onGround = ch.GetGroundState() === this.J.EGroundState_OnGround; this._onGroundAtLastUpdate.set(charId, onGround) }
     this._captureGroundNormal(charId, ch, onGround)
+    this._captureWalls(charId, ch)
     if (onGround && ch.GetGroundVelocity) {
       const gv = ch.GetGroundVelocity()
       const vx = gv.GetX(), vy = gv.GetY(), vz = gv.GetZ()
@@ -145,7 +150,43 @@ export class CharacterManager {
       const onGround = ch.GetGroundState() === this.J.EGroundState_OnGround
       this._onGroundAtLastUpdate.set(id, onGround)
       this._captureGroundNormal(id, ch, onGround)
+      this._captureWalls(id, ch)
     }
+  }
+
+  _captureWalls(charId, ch) {
+    let w = this._walls.get(charId)
+    if (!w) { w = new Float64Array(1 + MAX_WALL_PLANES * 2); this._walls.set(charId, w) }
+    w[0] = 0
+    const shape = this._charShapes.get(charId)
+    if (!shape || !ch.GetActiveContacts) return
+    const contacts = ch.GetActiveContacts()
+    const n = contacts.size()
+    if (!n) return
+    const feetY = ch.GetPosition().GetY() - shape.standHeight - shape.radius
+    const minContactY = feetY + this.config.maxStepHeight + WALL_ABOVE_STEP_M
+    const staticType = this.J.EMotionType_Static
+    for (let i = 0; i < n && w[0] < MAX_WALL_PLANES; i++) {
+      const c = contacts.at(i)
+      if (!c.mHadCollision || c.mIsSensorB || c.mMotionTypeB !== staticType) continue
+      if (c.mPosition.GetY() < minContactY) continue
+      const cn = c.mContactNormal
+      const nx = cn.GetX(), ny = cn.GetY(), nz = cn.GetZ()
+      if (Math.abs(ny) > WALL_MAX_NORMAL_Y) continue
+      const len = Math.hypot(nx, nz)
+      if (!(len > 0)) continue
+      const k = 1 + w[0] * 2
+      w[k] = nx / len; w[k + 1] = nz / len
+      w[0]++
+    }
+  }
+
+  readWallNormals(charId, out) {
+    const w = this._walls.get(charId)
+    const count = w ? w[0] : 0
+    out.length = count * 2
+    for (let i = 0; i < count * 2; i++) out[i] = w[1 + i]
+    return count
   }
 
   readGroundNormal(charId, out) {
@@ -164,7 +205,7 @@ export class CharacterManager {
 
   removeCharacter(charId) {
     const ch = this.characters.get(charId)
-    if (ch) { this.J.destroy(ch); this.characters.delete(charId); this._charShapes.delete(charId); this._onGroundAtLastUpdate.delete(charId); this._groundNormals.delete(charId) }
+    if (ch) { this.J.destroy(ch); this.characters.delete(charId); this._charShapes.delete(charId); this._onGroundAtLastUpdate.delete(charId); this._groundNormals.delete(charId); this._walls.delete(charId) }
   }
 
   snapshotAll() {

@@ -264,7 +264,7 @@ export interface NetcodeConfig {
   preciseTicks?: boolean;
   peers?: number;
   rollback?: { inputDelayTicks?: number; maxRollbackTicks?: number; checksumIntervalTicks?: number };
-  lockstep?: { inputDelayTicks?: number; checksumIntervalTicks?: number; stallTicks?: number };
+  lockstep?: { inputDelayTicks?: number; checksumIntervalTicks?: number; stallTicks?: number; maxCatchUpTicks?: number };
   inputButtons?: string[];
   inputAxes?: string[];
 }

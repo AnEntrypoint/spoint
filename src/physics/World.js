@@ -270,6 +270,7 @@ export class PhysicsWorld {
   setCharacterPosition(id, p) { this._charMgr.setPosition(id, p) }
   getCharacterGroundState(id) { return this._charMgr.getGroundState(id) }
   readCharacterGroundNormal(id, out) { return this._charMgr.readGroundNormal(id, out) }
+  readCharacterWallNormals(id, out) { return this._charMgr.readWallNormals(id, out) }
   removeCharacter(id) { this._charMgr.removeCharacter(id) }
   get characters() { return this._charMgr.characters }
   createStateRecorder() { return new this.Jolt.StateRecorderImpl() }

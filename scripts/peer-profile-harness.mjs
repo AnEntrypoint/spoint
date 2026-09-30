@@ -16,7 +16,10 @@ const { createPeerSimSession } = await import('../src/netcode/PeerSimSession.js'
 const baseWorld = (await import(pathToFileURL(resolve(SDK_ROOT, 'apps/world', WORLD + '.js')).href)).default
 const profileName = baseWorld.netcode?.profile
 const overrides = {}
-for (const k of ['inputDelayTicks', 'maxRollbackTicks', 'checksumIntervalTicks']) if (args[k] != null) overrides[k] = Number(args[k])
+for (const k of ['inputDelayTicks', 'maxRollbackTicks', 'checksumIntervalTicks', 'stallTicks', 'maxCatchUpTicks']) if (args[k] != null) overrides[k] = Number(args[k])
+const PEER_COUNT = Number(args.peers || baseWorld.netcode?.peers || 2)
+const KILL_PEER = args.killPeer || null, KILL_AT_MS = Number(args.killAtMs || 0)
+const CHEAT_PEER = args.cheatPeer || null, CHEAT_AT_MS = Number(args.cheatAtMs || 0)
 const worldDef = { ...baseWorld, netcode: { ...baseWorld.netcode, [profileName]: { ...(baseWorld.netcode?.[profileName] || {}), ...overrides } } }
 
 async function bootPeer(pubkey, roster, post) {
@@ -46,21 +49,44 @@ function scriptedInput(ms, phase) {
   if (t < 600) return { right: true, yaw: 0, pitch: 0 }
   if (t < 900) return { jump: true, yaw: 0, pitch: 0 }
   if (t < 1500) return { left: true, forward: t > 1200, yaw: 0, pitch: 0 }
+  if (t < 1800) return { interact: true, yaw: 0, pitch: 0 }
+  if (t < 1900) return { shoot: true, yaw: 0, pitch: 0 }
   return { yaw: 0, pitch: 0 }
 }
 
+function cheat(ctx) {
+  const e = ctx.appRuntime.entities.get('unit-0-0') || [...ctx.appRuntime.entities.values()].find(x => x.bodyType === 'dynamic')
+  if (e) e.position[1] += 0.01
+}
+
+function peerSummary(st, elapsedS) {
+  const l = st.loop, c = st.corrections
+  const base = { simTicks: l.simTick, simHz: +(l.simTick / elapsedS).toFixed(1), stalls: l.stalls, desyncs: l.desyncs, checksumsCompared: l.checksumsCompared, firstDesyncTick: l.firstDesyncTick }
+  if (st.profile === 'lockstep') {
+    return { ...base, timeSyncYields: l.timeSyncYields, advantage: l.localAdvantage, catchUpTicks: l.catchUpTicks, maxStallRun: l.maxStallRun, inputLatencyMs: l.inputLatencyMs, drops: l.dropLog, evicted: l.evicted, ejections: l.voter?.ejectionsFired ?? 0, unattributedDesyncs: l.voter?.unattributedDesyncs ?? 0, lateInputsIgnored: l.lateInputsIgnored }
+  }
+  return {
+    ...base, timeSyncYields: l.timeSyncYields, advantage: l.localAdvantage,
+    rollbacks: l.rollbacks, rollbacksPerS: +(l.rollbacks / elapsedS).toFixed(2), avgDepth: +l.avgRollbackDepth.toFixed(2), maxDepth: l.maxRollbackDepth, unrecoverable: l.unrecoverableRollbacks,
+    mispredictions: l.mispredictions, remoteCorrectionAvgCm: c.count ? +(c.remoteSumM / Math.max(1, c.count / 2) * 100).toFixed(2) : 0, remoteCorrectionMaxCm: +(c.remoteMaxM * 100).toFixed(2),
+    inputLatencyMs: +(l.simTick ? (st.options.inputDelayTicks * 1000 / (worldDef.tickRate || 60)) : 0).toFixed(1)
+  }
+}
+
 async function main() {
-  const roster = ['peer-a', 'peer-b']
+  const roster = Array.from({ length: PEER_COUNT }, (_, i) => 'peer-' + String.fromCharCode(97 + i))
   const peers = new Map()
-  const lanes = new Map(roster.map((pk, i) => [pk, { at: 0, delay: linkDelay(mulberry32(i + 3)) }]))
+  const dead = new Set()
+  const lanes = new Map()
+  for (const a of roster) for (const b of roster) if (a !== b) lanes.set(a + '>' + b, { at: 0, delay: linkDelay(mulberry32(lanes.size + 3)) })
   const postFor = from => msg => {
-    if (msg.type !== 'BRIDGE_BROADCAST') return
+    if (msg.type !== 'BRIDGE_BROADCAST' || dead.has(from)) return
     for (const [pk, ctx] of peers) {
       if (pk === from) continue
-      const lane = lanes.get(pk)
+      const lane = lanes.get(from + '>' + pk)
       const at = Math.max(lane.at, performance.now() + lane.delay())
       lane.at = at
-      setTimeout(() => ctx.peerSession.bridge.deliver(from, msg.data), Math.max(0, at - performance.now()))
+      setTimeout(() => { if (!dead.has(from)) ctx.peerSession.bridge.deliver(from, msg.data) }, Math.max(0, at - performance.now()))
     }
   }
   for (const pk of roster) peers.set(pk, await bootPeer(pk, roster, postFor(pk)))
@@ -71,6 +97,9 @@ async function main() {
     ctx.playerManager.addInput(ctx.peerSession.localPlayerId, scriptedInput(performance.now() - t0, i * 700), seq++)
   }, 1000 / 60))
   for (const [i, pk] of roster.entries()) setTimeout(() => peers.get(pk).peerSession.start(), i * Number(args.startSkewMs || 400))
+  if (KILL_PEER) setTimeout(() => { dead.add(KILL_PEER); peers.get(KILL_PEER).peerSession.loop.stop() }, KILL_AT_MS)
+  let cheater = null
+  if (CHEAT_PEER) setTimeout(() => { cheater = setInterval(() => cheat(peers.get(CHEAT_PEER)), 1000 / 60) }, CHEAT_AT_MS)
   const tickLog = new Map()
   const logger = setInterval(() => {
     for (const [pk, ctx] of peers) {
@@ -87,26 +116,25 @@ async function main() {
   }, 50)
   await new Promise(r => setTimeout(r, DURATION_MS))
   clearInterval(logger)
+  if (cheater) clearInterval(cheater)
+  const honest = roster.filter(pk => pk !== KILL_PEER && pk !== CHEAT_PEER)
   const ordered = [...tickLog.entries()].sort((a, b) => a[0] - b[0])
-  const settledTick = Math.min(...[...peers.values()].map(c => c.peerSession.loop.simTick)) - (worldDef.netcode?.[profileName]?.maxRollbackTicks ?? 12) - 2
-  const inBoth = ([t, row]) => t <= settledTick && row['peer-a']?.players && row['peer-b']?.players
-  const firstInputMismatch = ordered.filter(inBoth).find(([, row]) => JSON.stringify(row['peer-a'].used) !== JSON.stringify(row['peer-b'].used))
-  const firstStateMismatch = ordered.filter(inBoth).find(([, row]) => JSON.stringify([row['peer-a'].players, row['peer-a'].bodies]) !== JSON.stringify([row['peer-b'].players, row['peer-b'].bodies]))
+  const settleMargin = profileName === 'rollback' ? (worldDef.netcode?.rollback?.maxRollbackTicks ?? 12) + 2 : 0
+  const settledTick = Math.min(...honest.map(pk => peers.get(pk).peerSession.loop.simTick)) - settleMargin
+  const inAll = ([t, row]) => t <= settledTick && honest.every(pk => row[pk])
+  const differs = (row, pick) => honest.some(pk => JSON.stringify(pick(row[pk])) !== JSON.stringify(pick(row[honest[0]])))
+  const comparable = ordered.filter(inAll)
+  const firstInputMismatch = comparable.find(([, row]) => differs(row, r => r.used))
+  const firstStateMismatch = comparable.filter(([, row]) => honest.every(pk => row[pk].players)).find(([, row]) => differs(row, r => [r.players, r.bodies]))
   feeders.forEach(clearInterval)
   const elapsedS = (performance.now() - t0) / 1000
   const summary = {}
   for (const [pk, ctx] of peers) {
     const st = ctx.peerSession.getStats()
     ctx.peerSession.stop()
-    const l = st.loop, c = st.corrections
-    summary[pk] = {
-      simTicks: l.simTick, simHz: +(l.simTick / elapsedS).toFixed(1), stalls: l.stalls, timeSyncYields: l.timeSyncYields, advantage: l.localAdvantage, desyncs: l.desyncs, checksumsCompared: l.checksumsCompared,
-      rollbacks: l.rollbacks, rollbacksPerS: +(l.rollbacks / elapsedS).toFixed(2), avgDepth: +l.avgRollbackDepth.toFixed(2), maxDepth: l.maxRollbackDepth, unrecoverable: l.unrecoverableRollbacks,
-      mispredictions: l.mispredictions, remoteCorrectionAvgCm: c.count ? +(c.remoteSumM / Math.max(1, c.count / 2) * 100).toFixed(2) : 0, remoteCorrectionMaxCm: +(c.remoteMaxM * 100).toFixed(2),
-      inputLatencyMs: +(l.simTick ? (st.options.inputDelayTicks * 1000 / (worldDef.tickRate || 60)) : 0).toFixed(1)
-    }
+    summary[pk] = peerSummary(st, elapsedS)
   }
-  console.log(JSON.stringify({ world: WORLD, profile: profileName, cond: { latencyMs: LAT, jitterMs: JIT, lossPct: LOSS }, peers: summary, firstInputMismatchTick: firstInputMismatch?.[0] ?? null, firstStateMismatchTick: firstStateMismatch?.[0] ?? null }))
+  console.log(JSON.stringify({ world: WORLD, profile: profileName, peers: PEER_COUNT, cond: { latencyMs: LAT, jitterMs: JIT, lossPct: LOSS }, killed: KILL_PEER, cheater: CHEAT_PEER, ticksCompared: comparable.length, peerStats: summary, firstInputMismatchTick: firstInputMismatch?.[0] ?? null, firstStateMismatchTick: firstStateMismatch?.[0] ?? null }))
   for (const ctx of peers.values()) { ctx.tickSystem.stop(); ctx.physics.destroy() }
   process.exit(0)
 }

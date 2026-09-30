@@ -12,6 +12,22 @@ function slopeRise(n, dx, dz) {
   return -(n[0] * dx + n[2] * dz) / n[1]
 }
 
+export const WALL_HEIGHT_REACH_M = 1.5
+export const WALL_UNPROVEN_REACH_M = 0.3
+
+function slideAlongWalls(p, walls, extentM) {
+  for (let i = 0; i < walls.length; i++) {
+    const w = walls[i]
+    const t = w.nx * p[2] - w.nz * p[0]
+    const reach = Math.min(extentM, WALL_UNPROVEN_REACH_M + w.tMax - w.tMin)
+    if (t < w.tMin - reach || t > w.tMax + reach) continue
+    if (Math.abs(p[1] - w.ay) > WALL_HEIGHT_REACH_M) continue
+    const s = w.nx * p[0] + w.nz * p[2] - w.d
+    if (s >= 0) continue
+    p[0] -= w.nx * s; p[2] -= w.nz * s
+  }
+}
+
 export function predictCharacterStep(state, input, movement, dt, env) {
   const wasGrounded = !!state.onGround
   const result = applyMovement(state, input, movement, dt)
@@ -21,6 +37,7 @@ export function predictCharacterStep(state, input, movement, dt, env) {
   const dx = env.wedged ? 0 : v[0] * dt, dz = env.wedged ? 0 : v[2] * dt
   p[0] += dx; p[2] += dz
   p[1] += vy * dt
+  if (env.walls) slideAlongWalls(p, env.walls, env.wallExtentM)
   const sampled = env.ground ? env.ground(p[0], p[2], p[1]) : null
   const rise = wasGrounded && !result.jumped ? slopeRise(env.groundNormal, dx, dz) : 0
   const floor = Number.isFinite(sampled) ? sampled : (Number.isFinite(state.groundY) ? state.groundY + rise : NaN)

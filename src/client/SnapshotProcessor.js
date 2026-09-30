@@ -1,4 +1,10 @@
 import { unpackGroundNormal } from '../shared/groundNormalWire.js'
+import { unpackWallPlanes } from '../shared/wallPlaneWire.js'
+
+function copyWallPlanes(src, dst) {
+  dst.length = src.length
+  for (let i = 0; i < src.length; i++) dst[i] = src[i]
+}
 
 const TAU = 2 * Math.PI
 const QSCALE = 511 * Math.SQRT2
@@ -84,6 +90,7 @@ function applySelfBlock(s, me) {
   s.inputSequence = me[0] || 0
   s.inputBuffer = me[1] ?? -1
   unpackGroundNormal(me[2] || 0, s.groundNormal)
+  unpackWallPlanes(me[3], s.wallPlanes || (s.wallPlanes = []))
 }
 
 function fillPlayerObj(s, p) {
@@ -167,6 +174,7 @@ function copyPlayerStateInto(dst, s) {
   dst.lookPitch = s.lookPitch; dst.lookYaw = s.lookYaw; dst.tier = s.tier || 0
   dst.expr = s.expr || 0; dst.weapon = s.weapon || 0; dst.inputBuffer = s.inputBuffer ?? -1
   if (s.groundNormal) { const g = dst.groundNormal || (dst.groundNormal = [0, 1, 0]); g[0] = s.groundNormal[0]; g[1] = s.groundNormal[1]; g[2] = s.groundNormal[2] }
+  if (s.wallPlanes) copyWallPlanes(s.wallPlanes, dst.wallPlanes || (dst.wallPlanes = []))
   return dst
 }
 

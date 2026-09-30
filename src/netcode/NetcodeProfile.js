@@ -1,6 +1,5 @@
 import { ROLLBACK_DEFAULTS } from './RollbackGameLoop.js'
-
-export const LOCKSTEP_DEFAULTS = Object.freeze({ inputDelayTicks: 3, checksumIntervalTicks: 30, stallTicks: 600 })
+import { LOCKSTEP_DEFAULTS } from './LockstepGameLoop.js'
 
 const PROFILE_DEFAULTS = Object.freeze({
   authoritative: Object.freeze({}),

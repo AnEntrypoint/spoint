@@ -103,6 +103,9 @@ export class PhysicsIntegration {
     const n = state.groundNormal || (state.groundNormal = [0, 1, 0])
     const ok = state.onGround && typeof this.physicsWorld.readCharacterGroundNormal === 'function' && this.physicsWorld.readCharacterGroundNormal(charId, n)
     if (!ok) { n[0] = 0; n[1] = 1; n[2] = 0 }
+    const w = state.wallNormals || (state.wallNormals = [])
+    if (typeof this.physicsWorld.readCharacterWallNormals === 'function') this.physicsWorld.readCharacterWallNormals(charId, w)
+    else w.length = 0
   }
 
   updatePlayerPhysics(playerId, state, deltaTime) {

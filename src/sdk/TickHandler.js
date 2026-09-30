@@ -140,7 +140,7 @@ function recordPlayerTick(player, deps, tick) {
   }
   lagCompensator.recordPlayerPosition(player.id, st.position, st.rotation, st.velocity, tick)
   const crouchFlags = (st.crouch ? CROUCH_WIRE_BIT : 0) | (st.swimming ? SWIMMING_WIRE_BIT : 0)
-  networkState.updatePlayer(player.id, st.position, st.rotation, st.velocity, st.onGround, st.health, player.ackSequence ?? player.inputSequence, crouchFlags, st.lookPitch||0, st.lookYaw||0, st.expr||0, st.weapon||0, player.inputBufferDepth || 0, st.groundNormal || null)
+  networkState.updatePlayer(player.id, st.position, st.rotation, st.velocity, st.onGround, st.health, player.ackSequence ?? player.inputSequence, crouchFlags, st.lookPitch||0, st.lookYaw||0, st.expr||0, st.weapon||0, player.inputBufferDepth || 0, st.groundNormal || null, st.wallNormals || null)
   if (transformRingWriter) transformRingWriter.write(player.id, st.position, st.rotation, st.velocity)
 }
 

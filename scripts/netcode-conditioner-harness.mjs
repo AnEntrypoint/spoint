@@ -25,6 +25,26 @@ const HARNESS_ARENA = {
   name: 'netcode-harness-arena', tickRate: 60, gravity: [0, -9.81, 0], spawnPoints: [[0, 3, 0], [0, 3, 8]],
   entities: [{ id: 'floor', app: 'box-static', position: [0, -1, 0], config: { hx: 100, hy: 1, hz: 100 } }]
 }
+const HARNESS_WALL = {
+  ...HARNESS_ARENA, name: 'netcode-harness-wall',
+  entities: [...HARNESS_ARENA.entities, { id: 'wall', app: 'box-static', position: [-2, 1.5, 0], config: { hx: 0.25, hy: 1.5, hz: 40 } }],
+  harness: { shooterAt: [8, 1.2, 10], script: [[700, {}], [3000, { right: true, forward: true }], [700, {}], [3000, { right: true, backward: true }], [700, {}], [1500, { left: true }], [700, {}], [1500, { right: true }]] }
+}
+const HARNESS_WALL_END = {
+  ...HARNESS_WALL, name: 'netcode-harness-wall-end',
+  entities: [...HARNESS_ARENA.entities, { id: 'wall', app: 'box-static', position: [-2, 1.5, 1.5], config: { hx: 0.25, hy: 1.5, hz: 3 } }]
+}
+const STAIR_STEPS = 8, STAIR_RISE = 0.2, STAIR_RUN = 0.5
+const HARNESS_STAIRS = {
+  ...HARNESS_ARENA, name: 'netcode-harness-stairs',
+  entities: [
+    ...HARNESS_ARENA.entities,
+    ...Array.from({ length: STAIR_STEPS }, (_, k) => ({ id: `step-${k}`, app: 'box-static', position: [0, (k + 1) * STAIR_RISE / 2, 2 + k * STAIR_RUN + STAIR_RUN / 2], config: { hx: 3, hy: (k + 1) * STAIR_RISE / 2, hz: STAIR_RUN / 2 } })),
+    { id: 'landing', app: 'box-static', position: [0, STAIR_STEPS * STAIR_RISE / 2, 2 + STAIR_STEPS * STAIR_RUN + 3], config: { hx: 3, hy: STAIR_STEPS * STAIR_RISE / 2, hz: 3 } }
+  ],
+  harness: { shooterAt: [8, 1.2, 4], script: [[700, {}], [2500, { forward: true }], [700, {}], [2500, { backward: true }], [700, {}]] }
+}
+const INLINE_WORLDS = { arena: HARNESS_ARENA, wall: HARNESS_WALL, 'wall-end': HARNESS_WALL_END, stairs: HARNESS_STAIRS }
 const FPS = Number(args.fps || 60)
 const BOTS = Number(args.bots || 0)
 const CHANNEL = args.channel || 'ws'
@@ -67,10 +87,9 @@ const MOVER_SCRIPT = [
   [450, { forward: true }], [350, { forward: true, right: true }], [350, { left: true }], [700, {}],
   [500, { backward: true, sprint: true }], [700, {}], [400, { forward: true, jump: true }], [900, {}]
 ]
-const SCRIPT_MS = MOVER_SCRIPT.reduce((s, [d]) => s + d, 0)
-function moverInputAt(ms) {
-  let t = ms % SCRIPT_MS
-  for (const [d, inp] of MOVER_SCRIPT) { if (t < d) return { ...inp, yaw: 0, pitch: 0 }; t -= d }
+function moverInputAt(ms, script = MOVER_SCRIPT) {
+  let t = ms % script.reduce((s, [d]) => s + d, 0)
+  for (const [d, inp] of script) { if (t < d) return { ...inp, yaw: 0, pitch: 0 }; t -= d }
   return { yaw: 0, pitch: 0 }
 }
 
@@ -111,6 +130,7 @@ function instrumentPrediction(h, rec) {
   const pe = h.client._msgHandler.getPredEngine()
   if (!pe || pe.__harness) return !!pe
   pe.__harness = true
+  if (args.wallHints === 'off') pe._rememberWalls = () => {}
   const onSnap = pe.onServerSnapshot.bind(pe)
   let lastAck = -1
   pe.onServerSnapshot = (snap, tick) => {
@@ -122,7 +142,7 @@ function instrumentPrediction(h, rec) {
       if (pred) {
         const e = dist3(sp.position, pred.position)
         rec.mispredict.push(e)
-        if (e > MISPREDICT_M && rec.worst.length < 40) rec.worst.push({ seq: sp.inputSequence, errM: e, server: { p: [...sp.position], v: [...sp.velocity], g: sp.onGround }, predicted: { p: [...pred.position], v: [...pred.velocity], g: pred.onGround }, input: pred.data })
+        if (e > MISPREDICT_M && rec.worst.length < 40) rec.worst.push({ seq: sp.inputSequence, errM: e, server: { p: [...sp.position], v: [...sp.velocity], g: sp.onGround }, predicted: { p: [...pred.position], v: [...pred.velocity], g: pred.onGround }, input: pred.data, walls: (pe.walls || []).map(w => [w.nx, w.nz, w.d]), serverWalls: sp.wallPlanes ? [...sp.wallPlanes] : null })
       }
     }
     const r = onSnap(snap, tick)
@@ -177,7 +197,7 @@ async function runOne(cond, predict, worldDef) {
   const t0 = performance.now()
   while (!all.every(h => h.client.playerId) && performance.now() - t0 < 10000) await new Promise(r => setTimeout(r, 20))
   const place = (h, pos) => { const p = server.playerManager.getPlayer(h.client.playerId); if (!p) return; p.state.position[0] = pos[0]; p.state.position[1] = pos[1]; p.state.position[2] = pos[2]; server.physicsIntegration.setPlayerPosition(p.id, pos) }
-  place(mover, [0, 1.2, 0]); place(shooter, [0, 1.2, 10])
+  place(mover, [0, 1.2, 0]); place(shooter, worldDef.harness?.shooterAt || [0, 1.2, 10])
   bots.forEach((b, i) => place(b, [20 + 4 * i, 1.2, -20]))
   const rec = { mispredict: [], correctionJumpM: [], corrections: 0, worst: [] }
   const localFrames = [], remoteFrames = [], interpStats = [], meshLag = []
@@ -191,7 +211,7 @@ async function runOne(cond, predict, worldDef) {
     const now = performance.now()
     if (!meterBase && now >= runStart) meterBase = all.map(h => ({ inBytes: h.meter.inBytes, outBytes: h.meter.outBytes, inMsgs: h.meter.inMsgs, snap: h.meter.byType.SNAPSHOT || 0 }))
     instrumentPrediction(mover, rec)
-    const inp = now < runStart ? { yaw: 0, pitch: 0 } : moverInputAt(now - runStart)
+    const inp = now < runStart ? { yaw: 0, pitch: 0 } : moverInputAt(now - runStart, worldDef.harness?.script)
     const dir = wishDir(inp)
     if (dir && !wishDir(lastMoverInput) && now >= runStart) {
       const mid = mover.client.playerId
@@ -285,7 +305,7 @@ async function main() {
   const workDir = resolve(OUT_DIR, `work-${process.pid}`)
   await mkdir(resolve(workDir, 'data'), { recursive: true })
   process.chdir(workDir)
-  const worldDef = WORLD === 'arena' ? HARNESS_ARENA : (await import(pathToFileURL(resolve(SDK_ROOT, 'apps/world', WORLD + '.js')).href)).default
+  const worldDef = INLINE_WORLDS[WORLD] || (await import(pathToFileURL(resolve(SDK_ROOT, 'apps/world', WORLD + '.js')).href)).default
   const results = []
   for (const cond of CONDITIONS) for (const predict of PREDICT_MODES) {
     console.log(`[netcode-harness] run latency=${cond.latencyMs}ms jitter=${cond.jitterMs}ms loss=${cond.lossPct}% predict=${predict} channel=${CHANNEL}`)

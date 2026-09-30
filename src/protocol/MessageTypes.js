@@ -1,4 +1,4 @@
-export const WIRE_PROTOCOL_VERSION = 3
+export const WIRE_PROTOCOL_VERSION = 4
 
 export const MSG = {
   HANDSHAKE: 0x01,

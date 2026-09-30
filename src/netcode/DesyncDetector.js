@@ -18,6 +18,8 @@ export class DesyncDetector {
 
   isChecksumTick(tick) { return tick % this.checksumIntervalTicks === 0 }
 
+  expects(peerId) { return this.expectedPeerIds.includes(peerId) }
+
   reportChecksum(tick, peerId, checksum) {
     if (!this.expectedPeerIds.includes(peerId)) {
       throw new Error(`[DesyncDetector] checksum reported by unknown peer ${peerId}, not in expectedPeerIds`)
@@ -48,14 +50,25 @@ export class DesyncDetector {
       return { status: 'verified', tick, checksum: majorityChecksum }
     }
 
+    const strictMajority = majorityCount * 2 > row.size
     const offenders = []
-    for (const [peerId, cs] of row) if (cs !== majorityChecksum) offenders.push(peerId)
-    const result = { status: 'desync', tick, reports: row, majorityChecksum, offenders }
+    if (strictMajority) for (const [peerId, cs] of row) if (cs !== majorityChecksum) offenders.push(peerId)
+    const result = { status: 'desync', tick, reports: row, majorityChecksum: strictMajority ? majorityChecksum : null, strictMajority, offenders }
     if (this.onDesync) this.onDesync(tick, result)
     return result
   }
 
   dropPending(tick) { this._pending.delete(tick) }
+
+  removePeer(peerId) {
+    const i = this.expectedPeerIds.indexOf(peerId)
+    if (i < 0) return
+    this.expectedPeerIds.splice(i, 1)
+    for (const [tick, row] of [...this._pending]) {
+      row.delete(peerId)
+      if (this.expectedPeerIds.length && row.size >= this.expectedPeerIds.length) this._resolve(tick, row)
+    }
+  }
 
   _evictOverflow() {
     while (this._pending.size > this._maxPendingRows) {

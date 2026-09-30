@@ -10,7 +10,13 @@ const WEDGE_VEL_EPS_SQ = 1e-6
 const RECONCILE_POS_EPS_M = 0.015
 const SURFACE_MATCH_M = 0.25
 const SURFACE_OFFSET_ALPHA = 0.2
-const MOVE_STATE_KEYS = ['coyoteRemaining', 'bufferRemaining', '_jumpHeld', '_crouchHeld', 'slideRemaining', 'sliding']
+const WALL_CACHE_SIZE = 6
+const WALL_MATCH_NORMAL = 0.02
+const WALL_MATCH_OFFSET_M = 0.05
+const WALL_FORGET_M = 6
+const WALL_EXTENT_BASE_M = 1
+const WALL_PASSED_M = 0.02
+const MOVE_STATE_KEYS =['coyoteRemaining', 'bufferRemaining', '_jumpHeld', '_crouchHeld', 'slideRemaining', 'sliding']
 
 function isFiniteVec(v, len) {
   return Array.isArray(v) && v.length === len && v.every(Number.isFinite)
@@ -83,7 +89,8 @@ export class PredictionEngine {
     this._knockbackWindow = 200
     this._enableKnockbackPreservation = true
     this.stats = { acks: 0, corrections: 0, lastCorrectionM: 0, maxCorrectionM: 0 }
-    this._env = { gravityY: this.gravityY, ground: null, wedged: false, groundNormal: null }
+    this.walls = []
+    this._env = { gravityY: this.gravityY, ground: null, wedged: false, groundNormal: null, walls: null, wallExtentM: WALL_EXTENT_BASE_M }
   }
 
   setMovement(m) { Object.assign(this.movement, m) }
@@ -147,6 +154,7 @@ export class PredictionEngine {
     this.reconciliationEngine.reset()
     this._pendingKnockback = null
     this.horizontallyWedged = false
+    this.walls.length = 0
     this._hasServerState = false
   }
 
@@ -163,6 +171,7 @@ export class PredictionEngine {
     this.reconciliationEngine.reset()
     this._pendingKnockback = null
     this.horizontallyWedged = false
+    this.walls.length = 0
     this._teleportTick = tick ?? -1
   }
 
@@ -184,8 +193,10 @@ export class PredictionEngine {
 
   _step(input) {
     const env = this._env
-    env.gravityY = this.gravityY; env.ground = this._ground; env.wedged = this.horizontallyWedged; env.groundNormal = this.lastServerState?.groundNormal || null
-    predictCharacterStep(this.localState, input, this.movement, (this.tickDuration * this.dilation) / 1000, env)
+    env.gravityY = this.gravityY; env.ground = this._ground; env.wedged = this.horizontallyWedged; env.groundNormal = this.lastServerState?.groundNormal || null; env.walls = this.walls
+    const dt = (this.tickDuration * this.dilation) / 1000, v = this.localState.velocity
+    env.wallExtentM = WALL_EXTENT_BASE_M + Math.hypot(v[0], v[2]) * (this.inputHistory.length + 1) * dt
+    predictCharacterStep(this.localState, input, this.movement, dt, env)
   }
 
   predict(input) { this._step(input) }
@@ -210,6 +221,28 @@ export class PredictionEngine {
     if (src.groundNormal) { const g = dst.groundNormal || (dst.groundNormal = [0, 1, 0]); g[0] = src.groundNormal[0]; g[1] = src.groundNormal[1]; g[2] = src.groundNormal[2] }
   }
 
+  _rememberWalls(server) {
+    const planes = server.wallPlanes, sp = server.position, walls = this.walls
+    for (let i = 0; planes && i + 2 < planes.length; i += 3) {
+      const nx = planes[i], nz = planes[i + 1], d = planes[i + 2]
+      let w = walls.find(x => Math.abs(x.nx - nx) < WALL_MATCH_NORMAL && Math.abs(x.nz - nz) < WALL_MATCH_NORMAL && Math.abs(x.d - d) < WALL_MATCH_OFFSET_M)
+      const t = nx * sp[2] - nz * sp[0]
+      if (!w) {
+        if (walls.length >= WALL_CACHE_SIZE) walls.shift()
+        w = { nx, nz, d, ay: 0, tMin: t, tMax: t }
+        walls.push(w)
+      }
+      w.nx = nx; w.nz = nz; w.d = d; w.ay = sp[1]
+      if (t < w.tMin) w.tMin = t
+      if (t > w.tMax) w.tMax = t
+    }
+    for (let i = walls.length - 1; i >= 0; i--) {
+      const w = walls[i]
+      const t = w.nx * sp[2] - w.nz * sp[0], off = w.nx * sp[0] + w.nz * sp[2] - w.d
+      if (off > WALL_FORGET_M || off < -WALL_PASSED_M || t < w.tMin - WALL_FORGET_M || t > w.tMax + WALL_FORGET_M) walls.splice(i, 1)
+    }
+  }
+
   onServerSnapshot(snapshot, tick) {
     if (!Array.isArray(snapshot.players)) return
     if (tick <= this._teleportTick) return
@@ -223,6 +256,7 @@ export class PredictionEngine {
   _reconcile(serverPlayer) {
     const prevX = this.lastServerState.position[0], prevY = this.lastServerState.position[1], prevZ = this.lastServerState.position[2]
     this._copyState(serverPlayer, this.lastServerState)
+    this._rememberWalls(serverPlayer)
     const sv = this.lastServerState
     const dx = sv.position[0] - prevX, dy = sv.position[1] - prevY, dz = sv.position[2] - prevZ
     this.horizontallyWedged = sv.onGround && (dx * dx + dz * dz) < WEDGE_POS_EPS_SQ && (sv.velocity[0] ** 2 + sv.velocity[2] ** 2) > WEDGE_VEL_EPS_SQ

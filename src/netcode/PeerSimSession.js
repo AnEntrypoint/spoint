@@ -2,6 +2,10 @@ import { LockstepTickSystem } from './LockstepTickSystem.js'
 import { createRollbackLoop } from './RollbackLoop.js'
 import { createRollbackGameLoop } from './RollbackGameLoop.js'
 import { RollbackInputTransport } from './RollbackInputTransport.js'
+import { createLockstepGameLoop } from './LockstepGameLoop.js'
+import { LockstepInputTransport } from './LockstepInputTransport.js'
+import { ConsensusVoter } from './ConsensusVoter.js'
+import { wireCheatEjection } from './CheatEjection.js'
 import { createWorkerBridgeProxy } from './WorkerBridgeProxy.js'
 import { checksumBodies, createChecksumFold } from './LockstepChecksum.js'
 import { resolveNetcodeProfile, PEER_SIMULATED_PROFILES } from './NetcodeProfile.js'
@@ -102,13 +106,29 @@ export function createPeerSimSession(ctx, { roster, localPubkey, post }) {
     }
   }
 
+  function liveChecksum(tick) {
+    const core = checksumOf(tick, { bodies: physics.snapshotBodies(), players: playerManager.snapshotState() })
+    const fold = createChecksumFold().pushInt(parseInt(core.slice(0, 8), 16)).pushInt(parseInt(core.slice(8), 16))
+    const ids = [...ctx.appRuntime.entities.keys()].sort()
+    for (const id of ids) {
+      const e = ctx.appRuntime.entities.get(id)
+      for (const v of e.position) fold.push(v)
+    }
+    return fold.digest()
+  }
+
   const tickSystem = new LockstepTickSystem(ctx.tickRate)
-  let loop = null
+  let loop = null, transport = null, voter = null
   if (profile.name === 'rollback') {
-    const transport = new RollbackInputTransport({ bridge })
+    transport = new RollbackInputTransport({ bridge })
     const rollback = createRollbackLoop({ capture, apply, windowSize: STATE_RING_TICKS })
     loop = createRollbackGameLoop({ tickSystem, transport, rollback, roster: sorted, localPeerId: localPubkey, simulate, getLocalInput, checksumOf, observeRollback, options: profile.options })
-    loop.transport = transport
+  }
+  if (profile.name === 'lockstep') {
+    transport = new LockstepInputTransport({ bridge })
+    voter = new ConsensusVoter({ bridge, checksumOf: liveChecksum, localPeerId: localPubkey, expectedPeerIds: sorted, checksumIntervalTicks: profile.options.checksumIntervalTicks })
+    loop = createLockstepGameLoop({ tickSystem, transport, roster: sorted, localPeerId: localPubkey, simulate: (t, dt, byPeer) => simulate(t, dt, byPeer, false), getLocalInput, voter, options: profile.options })
+    wireCheatEjection({ voter, transport: loop })
   }
   if (!loop) throw new Error(`[PeerSimSession] no peer loop for netcode profile '${profile.name}'`)
 
@@ -130,10 +150,12 @@ export function createPeerSimSession(ctx, { roster, localPubkey, post }) {
     },
     stop() {
       loop?.stop()
+      transport?.destroy?.()
+      voter?.destroy()
       if (statsTimer) clearInterval(statsTimer)
       for (const r of recorders) physics.destroyStateRecorder(r)
       recorders.length = 0
     },
-    getStats() { return { profile: profile.name, options: profile.options, localPlayerId, loop: loop.getStats(), corrections: { ...corrections }, transport: loop.transport?.getStats?.() } }
+    getStats() { return { profile: profile.name, options: profile.options, localPlayerId, loop: loop.getStats(), corrections: { ...corrections }, transport: transport.getStats() } }
   }
 }

@@ -6,6 +6,7 @@ import {
 } from './SnapshotBinFormat.js'
 import { FNV1A_32_OFFSET_BASIS, fnv1aStepString, fnv1aStepBytes, fnv1aStepFloat32 } from '../shared/fnv1a.js'
 import { packGroundNormal, unpackGroundNormal } from '../shared/groundNormalWire.js'
+import { packWallPlanes, unpackWallPlanes } from '../shared/wallPlaneWire.js'
 
 export { unpackBinRecord, packQuat, unpackQuat }
 
@@ -25,12 +26,13 @@ function encodePlayer(p) {
 }
 
 export function encodeSelfBlock(p) {
-  return p ? [p.inputSequence||0, inputBufferByte(p.inputBuffer), packGroundNormal(p.groundNormal)] : undefined
+  return p ? [p.inputSequence||0, inputBufferByte(p.inputBuffer), packGroundNormal(p.groundNormal), packWallPlanes(p.wallNormals, p.position)] : undefined
 }
 
 export function decodeSelfBlock(me, out) {
   out.inputSequence = me[0] || 0; out.inputBuffer = me[1] ?? -1
   out.groundNormal = unpackGroundNormal(me[2] || 0, out.groundNormal || [0, 1, 0])
+  out.wallPlanes = unpackWallPlanes(me[3], out.wallPlanes || [])
   return out
 }
 
