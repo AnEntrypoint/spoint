@@ -97,7 +97,7 @@ export default {
     { id: 'spawn-sillos-1', position: [-15, 2.27, -10], app: 'spawn-point', config: { team: 'any' } },
     { id: 'spawn-sillos-2', position: [15, 2.27, -10], app: 'spawn-point', config: { team: 'any' } },
     { id: 'spawn-sillos-3', position: [-15, 2.27, -35], app: 'spawn-point', config: { team: 'any' } },
-    { id: 'spawn-sillos-4', position: [15, 2.27, -35], app: 'spawn-point', config: { team: 'any' } },
+    { id: 'spawn-sillos-4', position: [15, 2.27, -33.5], app: 'spawn-point', config: { team: 'any' } },
     { id: 'tps-game', position: [0, 0, 0], app: 'tps-game' }
   ],
   spawnPoint: [-15, 2.27, -10],

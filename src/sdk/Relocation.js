@@ -1,13 +1,14 @@
 import { MSG } from '../protocol/MessageTypes.js'
 import { resolveTarget } from '../shared/relocation.js'
 import { beginTeleportHold } from '../netcode/TeleportHold.js'
+import { spawnSurfaceY } from '../shared/SpawnSurface.js'
 
 const SNAP_RAY_START_ABOVE = 20
 const SNAP_RAY_LENGTH = 2000
 const PROBE_RAY_START_ABOVE = 50
 const PROBE_RAY_LENGTH = 4000
 const SPAWN_CLEARANCE = 2
-const SPAWN_PROBE_ABOVE = 2
+const FALLBACK_STANDING_OFFSET = 1.4
 const SPAWN_STATIC_WAIT_RADIUS = 256
 const SPAWN_HOLD_MAX_MS = 20000
 const SPAWN_HOLD_MOVED_EPS = 0.01
@@ -35,10 +36,11 @@ export function snapToGround(ctx, x, hintY, z, clearance, snap = 'first') {
 export function probeSpawnGroundY(ctx, sp) {
   const physics = ctx.physics
   if (!physics || typeof physics.raycast !== 'function') return null
-  const liveY = terrainY(physics, sp[0], sp[2])
-  const probeY = (liveY !== null ? Math.max(sp[1], liveY) : sp[1]) + SPAWN_PROBE_ABOVE
-  const hit = physics.raycast([sp[0], probeY, sp[2]], [0, -1, 0], SNAP_RAY_LENGTH)
-  return hit && hit.hit && Number.isFinite(hit.position?.[1]) ? hit.position[1] : null
+  const standingOffset = ctx.physicsIntegration?.standingCentreY?.(0)
+  return spawnSurfaceY((o, d, l) => physics.raycast(o, d, l), sp, {
+    standingOffset: standingOffset > 0 ? standingOffset : FALLBACK_STANDING_OFFSET,
+    terrainY: terrainY(physics, sp[0], sp[2]),
+  })
 }
 
 export function groundSnapSpawnPoint(ctx, sp) {
@@ -110,7 +112,7 @@ export function probeGround(ctx, x, z, fromY) {
   return { hit: !!(r && r.hit), y: r && r.hit ? r.position[1] : null, terrainY: liveY }
 }
 
-export function teleportPlayer(ctx, playerId, spec, { onGrounded } = {}) {
+export function teleportPlayer(ctx, playerId, spec, { onGrounded = null } = {}) {
   const player = ctx.playerManager.getPlayer(playerId)
   if (!player) throw new Error(`teleport: no player ${playerId}`)
   const physics = ctx.physics

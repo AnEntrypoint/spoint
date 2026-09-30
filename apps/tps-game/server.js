@@ -1,5 +1,6 @@
 import { buildLiveIndex } from '../../src/netcode/RewindSpatialIndex.js'
 import { recordHit } from '../../src/netcode/OutlierDetector.js'
+import { spawnSurfaceY } from '../../src/shared/SpawnSurface.js'
 
 const SCOREBOARD_KEY = 'scoreboard'
 const SCOREBOARD_PERSIST_DEBOUNCE_MS = 500
@@ -62,15 +63,16 @@ export function findSpawnPoints(ctx) {
   return valid
 }
 
-const SPAWN_SNAP_START_ABOVE = 2
-const SPAWN_SNAP_RAY_LENGTH = 2000
 const SPAWN_GROUND_CLEARANCE = 2
 
 function groundSnapCandidate(ctx, sp) {
   const liveTerrainY = typeof ctx.terrainHeightAt === 'function' ? ctx.terrainHeightAt(sp[0], sp[2]) : null
-  const heightHint = Number.isFinite(liveTerrainY) ? Math.max(sp[1], liveTerrainY) : sp[1]
-  const hit = ctx.raycast([sp[0], heightHint + SPAWN_SNAP_START_ABOVE, sp[2]], [0, -1, 0], SPAWN_SNAP_RAY_LENGTH)
-  if (hit.hit && Number.isFinite(hit.position?.[1])) return [sp[0], hit.position[1] + SPAWN_GROUND_CLEARANCE, sp[2]]
+  const surfaceY = spawnSurfaceY((o, d, l) => ctx.raycast(o, d, l), sp, {
+    standingOffset: HITBOX_CENTER_HEIGHT,
+    headroom: SPAWN_GROUND_CLEARANCE + HITBOX_HEIGHT,
+    terrainY: liveTerrainY,
+  })
+  if (surfaceY !== null) return [sp[0], surfaceY + SPAWN_GROUND_CLEARANCE, sp[2]]
   if (Number.isFinite(liveTerrainY)) return [sp[0], liveTerrainY + SPAWN_GROUND_CLEARANCE, sp[2]]
   return null
 }

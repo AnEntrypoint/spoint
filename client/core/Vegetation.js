@@ -25,6 +25,7 @@ const BUILD_SLICE_BUDGET_MS = 8
 const VEG_ATTRIBUTE_SCHEMA = { windPhase: 'float', tint: 'vec3' }
 const _tintUniform = new THREE.Vector3()
 const _leanQ = new THREE.Quaternion()
+const barkTintLuma = (t) => 0.2126 * t[0] + 0.7152 * t[1] + 0.0722 * t[2]
 const SHARED_IMPOSTOR_BAKE = Symbol('shape variants share the species impostor bake')
 
 function hideLastLevel(lodSet) {
@@ -347,8 +348,9 @@ export async function createVegetation(opts = {}) {
     for (const en of entries) {
       try {
         en.rec.branch.setUniformAt(en.branchId, 'windPhase', en.windPhase); en.rec.leaf.setUniformAt(en.leafId, 'windPhase', en.windPhase)
-        const tintValue = isWebGPU ? en.tint : _tintUniform.fromArray(en.tint)
-        en.rec.branch.setUniformAt(en.branchId, 'tint', tintValue); en.rec.leaf.setUniformAt(en.leafId, 'tint', tintValue)
+        const barkLuma = barkTintLuma(en.tint)
+        en.rec.branch.setUniformAt(en.branchId, 'tint', isWebGPU ? [barkLuma, barkLuma, barkLuma] : _tintUniform.setScalar(barkLuma))
+        en.rec.leaf.setUniformAt(en.leafId, 'tint', isWebGPU ? en.tint : _tintUniform.fromArray(en.tint))
       } catch (_) {}
     }
     const b = placementRing.bounds(key, list)

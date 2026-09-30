@@ -24,7 +24,7 @@ const SP_ASH_S = 5, SP_ASH_L = 6, SP_ASPEN_S = 7, SP_ASPEN_L = 8, SP_BUSH2 = 9
 const SP_BUSH3 = 10, SP_OAK_S = 11, SP_OAK_M = 12, SP_PINE_S = 13, SP_PINE_L = 14
 
 const K_JITX = 0, K_JITZ = 1, K_COIN = 2, K_VARIANT = 3, K_YAW = 4, K_SCALE = 5, K_WIND = 6, K_SPECIESH = 7, K_SIZE = 8
-const K_SHAPE = 9, K_TINT_HUE = 10, K_TINT_SAT = 11, K_TINT_VAL = 12, K_LEAN = 13, K_LEAN_DIR = 14, K_UNDERSTORY = 15
+const K_SHAPE = 9, K_TINT_HUE = 10, K_TINT_SAT = 11, K_TINT_VAL = 12, K_LEAN = 13, K_LEAN_DIR = 14, K_UNDERSTORY = 15, K_COMPANION = 16
 
 export const VEG_SHAPE_VARIANTS = 3
 
@@ -36,9 +36,12 @@ const SCALE_LOW = 0.62, SCALE_SPAN_AGE = 0.72, SCALE_AGE_SKEW = 1.4
 const SIZE_CLASS_SCALE = [0.90, 1.0, 1.10]
 const LEAN_MAX_TREE = 0.09, LEAN_MAX_BUSH = 0.16
 const TINT_BRIGHT_LOW = 0.80, TINT_BRIGHT_SPAN = 0.36, TINT_AGE_DARKEN = 0.06
-const TINT_SAT_LOW = 0.10, TINT_SAT_SPAN = 0.70
-const TINT_HUE_RANDOM_WEIGHT = 0.65, TINT_HUE_SEASON_WEIGHT = 0.35
-const TINT_WARM = Object.freeze([1.16, 1.02, 0.72]), TINT_COOL = Object.freeze([0.84, 1.0, 1.10])
+const TINT_SAT_LOW = 0.35, TINT_SAT_SPAN = 0.65
+const TINT_HUE_RANDOM_WEIGHT = 0.55, TINT_HUE_SEASON_WEIGHT = 0.45
+const TINT_WARM = Object.freeze([1.22, 0.76, 0.52]), TINT_COOL = Object.freeze([0.64, 1.07, 0.58])
+const GENUS_TINT_STRENGTH = Object.freeze({ [SP_PINE]: 0.4, [SP_BUSH]: 0.8 })
+const COMPANION_CHANCE = 0.22
+const COMPANION_GENUS = Object.freeze({ [SP_OAK]: SP_ASH, [SP_ASH]: SP_ASPEN, [SP_ASPEN]: SP_OAK, [SP_PINE]: SP_ASPEN })
 
 const SIZE_SIBLINGS = {
   [SP_OAK]: [SP_OAK_S, SP_OAK_M, SP_OAK],
@@ -201,7 +204,9 @@ export function classify(frame, anchorField, cell) {
   const vH = (rand(cellHash, K_SPECIESH) - 0.5) * 0.30 + (seaNoise(PATCH_H_SEED, s, PATCH_CELL_M) - 0.5) * 0.60
   const climateGenus = speciesFor(temp, humidity, elevNorm, vT, vH)
   const understoryChance = UNDERSTORY_BASE + UNDERSTORY_CLEARING_GAIN * (1 - groveWeight)
-  const genus = rand(cellHash, K_UNDERSTORY) < understoryChance ? SP_BUSH : climateGenus
+  const companion = COMPANION_GENUS[climateGenus]
+  const canopyGenus = companion !== undefined && rand(cellHash, K_COMPANION) < COMPANION_CHANCE ? companion : climateGenus
+  const genus = rand(cellHash, K_UNDERSTORY) < understoryChance ? SP_BUSH : canopyGenus
   const sizeClass = sizeClassOf(rand(cellHash, K_SIZE), elevNorm)
   const species = sizeSibling(genus, sizeClass)
   const age = Math.pow(rand(cellHash, K_SCALE), SCALE_AGE_SKEW)
@@ -214,7 +219,7 @@ export function classify(frame, anchorField, cell) {
   const tiltQuat = quatMulF32(tangentFrameQuat(tf), leanQuat(leanR * leanR * leanMax, rand(cellHash, K_LEAN_DIR) * Math.PI * 2))
   const season = (seaNoise(SEASON_SEED, s, SEASON_CELL_M) - 0.5) * 2
   const hue = Math.max(-1, Math.min(1, (rand(cellHash, K_TINT_HUE) * 2 - 1) * TINT_HUE_RANDOM_WEIGHT + season * TINT_HUE_SEASON_WEIGHT))
-  const sat = TINT_SAT_LOW + TINT_SAT_SPAN * rand(cellHash, K_TINT_SAT)
+  const sat = (TINT_SAT_LOW + TINT_SAT_SPAN * rand(cellHash, K_TINT_SAT)) * (GENUS_TINT_STRENGTH[genus] ?? 1)
   const value = (TINT_BRIGHT_LOW + TINT_BRIGHT_SPAN * rand(cellHash, K_TINT_VAL)) * (1 - TINT_AGE_DARKEN * (scale - 1))
   const tint = tintMultiplier(hue, sat, value)
 

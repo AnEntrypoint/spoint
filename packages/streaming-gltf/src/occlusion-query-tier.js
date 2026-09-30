@@ -11,6 +11,7 @@ const _mvpArr = new Float32Array(16);
 const QUERY_BOX_INFLATE_M = 1e-4;
 const QUERY_BOX_DEPTH_SLOPE_BIAS = -4;
 const QUERY_BOX_DEPTH_UNITS_BIAS = -8;
+const STUCK_QUERY_FRAMES = 120;
 
 export class OcclusionQueryTier {
   constructor(renderer, opts = {}) {
@@ -22,7 +23,8 @@ export class OcclusionQueryTier {
     this._rrCursor = 0;
     this._records = new Map();
     this._pendingInIssueOrder = [];
-    this.stats = { queried: 0, occluded: 0, resolved: 0, supported: this.isWebGL2 };
+    this._frame = 0;
+    this.stats = { queried: 0, occluded: 0, resolved: 0, recycled: 0, supported: this.isWebGL2 };
     this._boxProgram = null;
     this._boxVao = null;
   }
@@ -72,29 +74,69 @@ export class OcclusionQueryTier {
     this._indexType = idxAttr.array instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
   }
 
-  runQueries(camera, candidates) {
-    if (!this.isWebGL2 || !candidates.length) return;
-    const gl = this.gl;
-    this._ensureBoxGeometry();
-    if (!this._boxProgram) return;
+  _applyResult(gl, rec) {
+    rec.occluded = gl.getQueryParameter(rec.query, gl.QUERY_RESULT) === 0;
+    rec.pending = false;
+    rec.resolves = (rec.resolves || 0) + 1;
+  }
 
+  _recycle(gl, rec) {
+    gl.deleteQuery(rec.query);
+    rec.query = gl.createQuery();
+    rec.pending = false;
+    rec.occluded = false;
+  }
+
+  _resolvePending(gl) {
+    const order = this._pendingInIssueOrder;
     let resolved = 0, occluded = 0;
-    const issueOrder = this._pendingInIssueOrder;
     let head = 0;
-    for (; head < issueOrder.length; head++) {
-      const rec = issueOrder[head];
+    for (; head < order.length; head++) {
+      const rec = order[head];
       if (rec.released) continue;
       if (!gl.getQueryParameter(rec.query, gl.QUERY_RESULT_AVAILABLE)) break;
-      const passed = gl.getQueryParameter(rec.query, gl.QUERY_RESULT);
-      rec.occluded = passed === 0;
-      rec.pending = false;
-      rec.resolves = (rec.resolves || 0) + 1;
+      this._applyResult(gl, rec);
       resolved++;
       if (rec.occluded) occluded++;
     }
-    if (head > 0) issueOrder.splice(0, head);
+    if (head < order.length) {
+      const blocked = order[head];
+      const newest = order[order.length - 1];
+      const overtaken = newest !== blocked && !newest.released && gl.getQueryParameter(newest.query, gl.QUERY_RESULT_AVAILABLE);
+      const expired = this._frame - blocked.issuedFrame > STUCK_QUERY_FRAMES;
+      if (overtaken || expired) {
+        const stillPending = [];
+        for (let i = head; i < order.length; i++) {
+          const rec = order[i];
+          if (rec.released) continue;
+          if (gl.getQueryParameter(rec.query, gl.QUERY_RESULT_AVAILABLE)) {
+            this._applyResult(gl, rec);
+            resolved++;
+            if (rec.occluded) occluded++;
+          } else if (overtaken || this._frame - rec.issuedFrame > STUCK_QUERY_FRAMES) {
+            this._recycle(gl, rec);
+            this.stats.recycled++;
+          } else stillPending.push(rec);
+        }
+        order.length = 0;
+        for (const rec of stillPending) order.push(rec);
+        head = 0;
+      }
+    }
+    if (head > 0) order.splice(0, head);
     this.stats.resolved = resolved;
     this.stats.occluded = occluded;
+  }
+
+  runQueries(camera, candidates) {
+    if (!this.isWebGL2 || !candidates.length) return;
+    const gl = this.gl;
+    if (gl.isContextLost()) return;
+    this._ensureBoxGeometry();
+    if (!this._boxProgram) return;
+
+    this._frame++;
+    this._resolvePending(gl);
 
     if (this.maxQueriesPerFrame <= 0) { this.stats.queried = 0; return; }
 
@@ -149,6 +191,7 @@ export class OcclusionQueryTier {
       gl.drawElements(gl.TRIANGLES, this._indexCount, this._indexType, 0);
       gl.endQuery(gl.ANY_SAMPLES_PASSED_CONSERVATIVE);
       rec.pending = true;
+      rec.issuedFrame = this._frame;
       this._pendingInIssueOrder.push(rec);
       queried++;
     }
