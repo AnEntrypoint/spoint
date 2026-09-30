@@ -63,6 +63,15 @@ function makePatchGeometry(capacity) {
   return { geo, offsets, faces, capacity }
 }
 
+let hotSwapTerrainMaterial = null
+let terrainMaterialAcceptRegistered = false
+function registerTerrainMaterialAccept() {
+  const hmr = globalThis.__spointHmr
+  if (!hmr || terrainMaterialAcceptRegistered) return
+  terrainMaterialAcceptRegistered = true
+  hmr.accept(new URL('./terrain-material-tsl.js', import.meta.url).pathname, (m) => hotSwapTerrainMaterial?.(m))
+}
+
 export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   if (!renderer || !renderer.isWebGPURenderer) throw new Error('mapspinner tsl planet: requires a three WebGPURenderer (WebGPU or WebGL2 backend)')
   const R = opts.radius || 6360000
@@ -80,11 +89,13 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   const hpfTexture = makeHpfTexture(hpfData, hpfRes)
   const sky = createSkyTSL({ radius: R, luts: await lutJob })
   if (opts.sky !== false) scene.backgroundNode = sky.node
-  const { material, uniforms: u, lighting, makeHeightSpec, faceU, faceV, faceC } = createTerrainMaterialTSL({
+  const terrainArgs = {
     sky, defRadius: R, reliefScale, hpfRes, hpfTexture, gridSize: GRID_SIZE, hashVersion, carves,
     landBias: opts.landBias != null ? opts.landBias : SHAPE_UNIFORM_DEFAULTS.uLandBias,
     beachShelfM: opts.beachShelfM != null ? opts.beachShelfM : SHAPE_UNIFORM_DEFAULTS.uBeachShelfM,
-  })
+  }
+  const { material, uniforms: u, lighting: initialLighting, makeHeightSpec, faceU, faceV, faceC } = createTerrainMaterialTSL(terrainArgs)
+  let lighting = initialLighting
 
   let patch = makePatchGeometry(INITIAL_QUAD_CAPACITY)
   const mesh = new THREE.Mesh(patch.geo, material)
@@ -97,6 +108,15 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   scene.add(mesh)
   const water = opts.water === false ? null : createWaterTSL({ spec: makeHeightSpec(), terrainUniforms: u, faceU, faceV, faceC })
   if (water) { water.mesh.renderOrder = WATER_DRAWS_BEFORE_OTHER_TRANSPARENTS; scene.add(water.mesh) }
+  const swapTerrainMaterial = (m) => {
+    const next = m.createTerrainMaterialTSL({ ...terrainArgs, reuse: { uniforms: u, faceU, faceV, faceC } })
+    const prev = mesh.material
+    mesh.material = next.material
+    lighting = next.lighting
+    prev.dispose()
+  }
+  hotSwapTerrainMaterial = swapTerrainMaterial
+  registerTerrainMaterialAccept()
 
   const surfaceState = { ready: false, error: null, disposed: false }
   if (opts.loadSurfaceTextures !== false && canDecodeImages()) {
@@ -201,7 +221,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
       u.up.value.set(view.up[0], view.up[1], view.up[2])
       u.north.value.set(view.north[0], view.north[1], view.north[2])
       sky.update({ camWorldPos, sunDir: sunDir || DEFAULT_SUN_DIR, view })
-      if (lighting.update({ sunLight: view.sunLight })) material.needsUpdate = true
+      lighting.update({ sunLight: view.sunLight })
       if (opts.sky !== false && scene.backgroundNode !== sky.node) scene.backgroundNode = sky.node
     }
     u.reliefShade.value = typeof window !== 'undefined' && Number.isFinite(window.__reliefShade) ? window.__reliefShade : TD.reliefShade
@@ -222,8 +242,9 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     if (scene.backgroundNode === sky.node) scene.backgroundNode = null
     sky.dispose()
     surfaceState.disposed = true
+    if (hotSwapTerrainMaterial === swapTerrainMaterial) hotSwapTerrainMaterial = null
     patch.geo.dispose()
-    material.dispose()
+    mesh.material.dispose()
     u.surfAlb.value.dispose()
     u.surfNrm.value.dispose()
     hpfTexture.dispose()

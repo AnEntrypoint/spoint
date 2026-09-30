@@ -57,6 +57,7 @@ export function createTimeOfDay(sun, ambient, opts = {}) {
   const LOCAL_OVERRIDE_GRACE_MS = 8000
   const tiltDeg = Number.isFinite(opts.azimuthTiltDeg) ? opts.azimuthTiltDeg : 23
   const onDirectionChange = typeof opts.onDirectionChange === 'function' ? opts.onDirectionChange : null
+  const ownsSunPosition = opts.ownsSunPosition !== false
   const studio = opts.studio || null
   let _studioBaseIntensity = null
 
@@ -85,7 +86,7 @@ export function createTimeOfDay(sun, ambient, opts = {}) {
   function _apply() {
     if (studio && _studioBaseIntensity === null) _studioBaseIntensity = studio.intensity
     const dir = _computeDirection(t)
-    const changed = Math.abs(dir[0] - _lastDirX) > DIR_EPS || Math.abs(dir[1] - _lastDirY) > DIR_EPS || Math.abs(dir[2] - _lastDirZ) > DIR_EPS
+    const changed = !(Math.abs(dir[0] - _lastDirX) <= DIR_EPS && Math.abs(dir[1] - _lastDirY) <= DIR_EPS && Math.abs(dir[2] - _lastDirZ) <= DIR_EPS)
     if (changed) {
       _lastDirX = dir[0]; _lastDirY = dir[1]; _lastDirZ = dir[2]
       if (onDirectionChange) { try { onDirectionChange(dir) } catch (_) {} }
@@ -94,7 +95,7 @@ export function createTimeOfDay(sun, ambient, opts = {}) {
     const kf = _lerpKeyframes(elevDeg)
     if (sun) {
       sun.color.setHex(kf.sunColor); sun.intensity = kf.sunIntensity
-      sun.position.set(dir[0] * SUN_DIST, dir[1] * SUN_DIST, dir[2] * SUN_DIST)
+      if (ownsSunPosition) sun.position.set(dir[0] * SUN_DIST, dir[1] * SUN_DIST, dir[2] * SUN_DIST)
     }
     if (ambient) { ambient.color.setHex(kf.ambientColor); ambient.intensity = kf.ambientIntensity }
     if (studio && _studioBaseIntensity !== null) studio.intensity = _studioBaseIntensity * kf.fillScale

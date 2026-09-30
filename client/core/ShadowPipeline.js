@@ -5,6 +5,7 @@ import { SHADOW_CASTER_ONLY_LAYER } from './ShadowLayers.js'
 
 const CASCADE_SPLIT = 3.2
 const MAX_CASCADES = 3
+const SHADOW_REDRAW_CASTER_HEIGHT_M = 20
 
 export function createShadowPipeline(sun, opts = {}) {
   const scene = opts.scene || sun.parent || null
@@ -49,6 +50,7 @@ export function createShadowPipeline(sun, opts = {}) {
     installCascadeShadowSelect(cascadeCount, _cascades.map(c => c.extent))
   }
 
+  const _requestedOffset = new THREE.Vector3()
   const _lightDir = new THREE.Vector3()
   const _right = new THREE.Vector3()
   const _up = new THREE.Vector3()
@@ -63,7 +65,10 @@ export function createShadowPipeline(sun, opts = {}) {
   function setSunDirection(dir) {
     if (!dir) return
     const l = Math.hypot(dir[0], dir[1], dir[2]) || 1
-    offset.set(dir[0] / l * offsetLen, dir[1] / l * offsetLen, dir[2] / l * offsetLen)
+    _requestedOffset.set(dir[0] / l * offsetLen, dir[1] / l * offsetLen, dir[2] / l * offsetLen)
+    for (const c of _cascades) { if (!c.light.castShadow) c.light.position.copy(c.light.target.position).add(_requestedOffset) }
+    if (_requestedOffset.angleTo(offset) <= texelWorld(0) / SHADOW_REDRAW_CASTER_HEIGHT_M) return
+    offset.copy(_requestedOffset)
     for (const c of _cascades) c._lastSnapped.set(NaN, NaN, NaN)
   }
 

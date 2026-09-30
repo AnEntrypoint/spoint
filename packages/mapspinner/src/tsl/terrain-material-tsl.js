@@ -53,9 +53,9 @@ export function makeSurfaceTextures({ albAll, nrmAll, matCount, sz }) {
   }
 }
 
-export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias, beachShelfM, hpfRes, hpfTexture, gridSize, hashVersion, carves = [] }) {
-  const placeholder = makeSurfaceTextures({ albAll: new Uint8Array(16).fill(128), nrmAll: new Uint8Array([128, 128, 255, 255, 128, 128, 255, 255, 128, 128, 255, 255, 128, 128, 255, 255]), matCount: 4, sz: 1 })
-  const u = {
+export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias, beachShelfM, hpfRes, hpfTexture, gridSize, hashVersion, carves = [], reuse = null }) {
+  const placeholder = reuse ? null : makeSurfaceTextures({ albAll: new Uint8Array(16).fill(128), nrmAll: new Uint8Array([128, 128, 255, 255, 128, 128, 255, 255, 128, 128, 255, 255, 128, 128, 255, 255]), matCount: 4, sz: 1 })
+  const u = reuse ? reuse.uniforms : {
     defRadius: uniform(defRadius),
     reliefScale: uniform(reliefScale),
     landBias: uniform(landBias),
@@ -82,9 +82,9 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
     surfAlb: texture(placeholder.alb),
     surfNrm: texture(placeholder.nrm),
   }
-  const faceU = uniformArray(FACE_FRAME.map((f) => v3(f.u)), 'vec3')
-  const faceV = uniformArray(FACE_FRAME.map((f) => v3(f.v)), 'vec3')
-  const faceC = uniformArray(FACE_FRAME.map((f) => v3(f.c)), 'vec3')
+  const faceU = reuse ? reuse.faceU : uniformArray(FACE_FRAME.map((f) => v3(f.u)), 'vec3')
+  const faceV = reuse ? reuse.faceV : uniformArray(FACE_FRAME.map((f) => v3(f.v)), 'vec3')
+  const faceC = reuse ? reuse.faceC : uniformArray(FACE_FRAME.map((f) => v3(f.c)), 'vec3')
 
   const makeHeightSpec = () => defineHeightSpec(createTslOps({
     params: { landBias: u.landBias, beachShelfM: u.beachShelfM, reliefScale: u.reliefScale, hpfRes: u.hpfRes },

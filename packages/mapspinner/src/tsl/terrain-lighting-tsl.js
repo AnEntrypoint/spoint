@@ -18,6 +18,7 @@ const AMBIENT_FLOOR_ALBEDO = 0.14
 const AMBIENT_FLOOR_ADD = [0.020, 0.026, 0.038]
 const AP_GATE_KM = [3.0, 120.0]
 const SUN_DARK_LUMINANCE = 1e-4
+const SHADOW_CASCADE_NAME_PREFIX = 'shadowCascade'
 const RAYLEIGH_SKY_TINT = 0.4
 const SKY_DAY_MU = [-0.10, 0.25]
 
@@ -42,6 +43,12 @@ export function createLegacyTerrainLighting({ sky, planetNormal, up, wetPool, vi
   const skyIrr = solar.mul(0.075).mul(smoothstep(SKY_DAY_MU[0], SKY_DAY_MU[1], muS)).mul(skyTint).mul(dot(planetNormal, up).add(1.0).mul(0.5))
   const skyBalanced = mix(vec3(luminance(skyIrr)), skyIrr, SKY_BALANCE_TO_GREY).mul(u.skyFill).mul(vec3(...SKY_FILL_TINT))
   const sunRef = { light: null }
+  const sunFlags = new WeakMap()
+  const sunFlagFor = (light) => {
+    let flag = sunFlags.get(light)
+    if (!flag) { flag = uniform(0).onRenderUpdate(() => (light === sunRef.light ? 1 : 0)); sunFlags.set(light, flag) }
+    return flag
+  }
   const poolFresnel = pow(float(1.0).sub(max(dot(planetNormal, viewDirPlanet), 0.0)), 5.0).mul(0.98).add(0.02)
   const poolWeight = poolFresnel.mul(wetPool.pool)
   const poolKeep = float(1.0).sub(poolWeight)
@@ -49,15 +56,15 @@ export function createLegacyTerrainLighting({ sky, planetNormal, up, wetPool, vi
   class LegacyTerrainLightingModel extends THREE.LightingModel {
     direct({ lightDirection, lightColor, lightNode, reflectedLight }) {
       const light = lightNode && lightNode.light
-      if (light && light === sunRef.light) {
+      if (light && light.isDirectionalLight) {
+        if (light.name.startsWith(SHADOW_CASCADE_NAME_PREFIX)) return
         const shadowK = select(u.sunLum.greaterThan(SUN_DARK_LUMINANCE), clamp(luminance(lightColor).div(u.sunLum), 0.0, 1.0), float(1.0))
         const sunIrr = sunIrrBase.mul(dot(planetNormal, u.sunPlanet).clamp()).mul(shadowK)
         const halfPlanet = normalize(u.sunPlanet.add(viewDirPlanet))
         const spec = pow(max(dot(planetNormal, halfPlanet), 0.0), wetPool.specExp).mul(wetPool.specExp.add(8.0)).mul(1 / (8 * Math.PI))
-        reflectedLight.directDiffuse.addAssign(diffuseColor.rgb.mul(sunIrr).mul(SUN_IRRADIANCE_GAIN * INV_PI).mul(poolKeep).add(sunIrr.mul(spec).mul(poolWeight)))
+        reflectedLight.directDiffuse.addAssign(diffuseColor.rgb.mul(sunIrr).mul(SUN_IRRADIANCE_GAIN * INV_PI).mul(poolKeep).add(sunIrr.mul(spec).mul(poolWeight)).mul(sunFlagFor(light)))
         return
       }
-      if (light && light.isDirectionalLight) return
       reflectedLight.directDiffuse.addAssign(diffuseColor.rgb.mul(lightColor).mul(normalView.dot(lightDirection).clamp()).mul(INV_PI))
     }
 
@@ -101,10 +108,8 @@ export function createLegacyTerrainLighting({ sky, planetNormal, up, wetPool, vi
     u.lookSat.value = g('lookSat', TD.lookSat)
     u.lookContrast.value = g('lookContrast', TD.lookContrast)
     const light = sunLight && sunLight.isDirectionalLight ? sunLight : null
-    const rebuild = light !== sunRef.light
     sunRef.light = light
     u.sunLum.value = light ? light.intensity * (0.2126 * light.color.r + 0.7152 * light.color.g + 0.0722 * light.color.b) : 0
-    return rebuild
   }
 
   return { LightingModel: LegacyTerrainLightingModel, gradeOutput, update, uniforms: u }
