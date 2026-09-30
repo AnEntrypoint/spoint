@@ -99,6 +99,7 @@ const _dbgWater = dbg('water')
 const _dbgBoot = dbg('boot')
 const _dbgEditor = dbg('editor')
 const _dbgInput = dbg('input')
+const _hmrFactories = { createVegetation, createRocks, createGrass, createWeather, createTerrainBackdrop, createSceneOcclusion, createRenderGraph, buildRenderSectionNodes, buildSSAONodes, buildBloomNodes, buildSSRNodes, buildFSR1Nodes, createSettingsMenu, createPauseMenu, createChatQuickWheel }
 
 if (typeof navigator !== 'undefined' && navigator.serviceWorker) {
   navigator.serviceWorker.register('/service-worker.js').catch(() => {})
@@ -350,7 +351,7 @@ function _ensureVegetation(tb) {
   if (!vcfg || vcfg.enabled === false) return null
   if (typeof location !== 'undefined' && /[?&]veg=none/.test(location.search)) { console.warn('[veg] ?veg=none -> vegetation skipped'); return null }
   const anchorField = tb.sampler && tb.sampler.anchorField
-  return createVegetation({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0 })
+  return _hmrFactories.createVegetation({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0 })
     .then(v => { vegetation = v; if (window.__app) window.__app.vegetation = v; sceneOcclusion.register('vegetation', v) })
     .catch(e => console.error('[veg] init failed:', e?.message || e))
 }
@@ -360,7 +361,7 @@ function _ensureRocks(tb) {
   if (vcfg.rocks === false) return null
   if (typeof location !== 'undefined' && /[?&]norocks/.test(location.search)) { console.warn('[rocks] ?norocks -> rocks skipped'); return null }
   const anchorField = tb.sampler && tb.sampler.anchorField
-  return createRocks({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0 })
+  return _hmrFactories.createRocks({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0 })
     .then(r => { rocks = r; if (window.__app) window.__app.rocks = r; sceneOcclusion.register('rocks', r) })
     .catch(e => console.error('[rocks] init failed:', e?.message || e))
 }
@@ -380,7 +381,7 @@ function _ensureGrass(tb) {
   if (vcfg.grass === false) return null
   if (typeof location !== 'undefined' && /[?&]nograss/.test(location.search)) { console.warn('[grass] ?nograss -> grass skipped'); return null }
   const anchorField = tb.sampler && tb.sampler.anchorField
-  return createGrass({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0, placedModels: worldConfig.entities })
+  return _hmrFactories.createGrass({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0, placedModels: worldConfig.entities })
     .then(g => { grass = g; if (window.__app) window.__app.grass = g; sceneOcclusion.register('grass', g) })
     .catch(e => console.error('[grass] init failed:', e?.message || e))
 }
@@ -389,7 +390,7 @@ function _ensureWeather(tb) {
   const wcfg = _terrainCfg.weather
   if (!wcfg || wcfg === false) return null
   try {
-    weather = createWeather({ renderer, scene, frame: tb && tb.frame, cfg: wcfg })
+    weather = _hmrFactories.createWeather({ renderer, scene, frame: tb && tb.frame, cfg: wcfg })
     if (window.__app) window.__app.weather = weather
   } catch (e) { console.error('[weather] init failed:', e?.message || e) }
   return null
@@ -398,7 +399,8 @@ async function _buildWorldScenery() {
   if (!_terrainCfg || terrainBackdrop) return
   const _hp = (tag) => { if (typeof location === 'undefined' || !location.search.includes('leak')) return; try { const m = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : -1; console.log('[BUILD-HEAP] ' + tag + ' = ' + m + 'MB') } catch (_) {} }
   _hp('start')
-  const tb = await createTerrainBackdrop(renderer, scene, _terrainCfg)
+  let tb = await _hmrFactories.createTerrainBackdrop(renderer, scene, _terrainCfg)
+  if (terrainBackdrop && terrainBackdrop !== tb) { tb.dispose(); tb = terrainBackdrop; if (tb.registerDebugGlobals) tb.registerDebugGlobals() }
   performance.mark('boot:terrain')
   _hp('after-backdrop')
   terrainBackdrop = tb; try { scene.background = null } catch (e) { _dbgTerrain('clear scene.background failed:', e?.message || e) }
@@ -479,6 +481,7 @@ const clickPrompt = document.getElementById('click-prompt')
 if (deviceInfo.isMobile && clickPrompt) clickPrompt.style.display = 'none'
 const _pids = new Set(), _eids = new Set()
 let worldConfig={}, vrmBuffer=null, animAssets=null, assetsLoaded=false, firstSnapshotReceived=false, _fitShadowTimer=null
+let _terrainBuildGen = 0
 let terrainBackdrop=null, _terrainCfg=null, vegetation=null, rocks=null, grass=null, colliderDebug=null, weather=null, sculptOverlay=null, caveMeshes=null
 let _pendingSculptBackfill = null
 let _pendingSpPrefetch = null
@@ -492,7 +495,7 @@ function _applyPendingSculptBackfill() {
 }
 const modelPool=createModelPool(scene,renderer,camera,{deviceInfo})
 const decalSystem = createDecalSystem(scene, THREE)
-const sceneOcclusion=createSceneOcclusion(renderer)
+let sceneOcclusion=_hmrFactories.createSceneOcclusion(renderer)
 window.__sceneOcclusion=sceneOcclusion
 const occlusionQueryBudget=createOcclusionQueryBudget()
 window.__occlusionQueryBudget=occlusionQueryBudget
@@ -675,6 +678,75 @@ globalThis.__spointHmr?.accept('/hud/Chat.js', m => {
   try { hud.destroy() } catch (_) {}
   window.__app.chatHUD = m.createChatHUD(uiRoot, () => window.__app.wireweave)
 })
+if (globalThis.__spointHmr) {
+  const hmr = globalThis.__spointHmr
+  const scenery = {
+    Vegetation: { key: 'vegetation', get: () => vegetation, clear: () => { vegetation = null }, ensure: tb => _ensureVegetation(tb) },
+    Rocks: { key: 'rocks', get: () => rocks, clear: () => { rocks = null }, ensure: tb => _ensureRocks(tb) },
+    Grass: { key: 'grass', get: () => grass, clear: () => { grass = null }, ensure: tb => _ensureGrass(tb) },
+  }
+  for (const [name, s] of Object.entries(scenery)) hmr.accept(`/core/${name}.js`, async m => {
+    _hmrFactories['create' + name] = m['create' + name]
+    const old = s.get()
+    if (!old) return
+    s.clear()
+    sceneOcclusion.unregister(s.key)
+    if (window.__app) window.__app[s.key] = null
+    old.dispose?.()
+    await s.ensure(terrainBackdrop)
+  })
+  hmr.accept('/core/Weather.js', m => {
+    _hmrFactories.createWeather = m.createWeather
+    const old = weather
+    if (!old) return
+    weather = null
+    if (window.__app) window.__app.weather = null
+    old.dispose?.()
+    _ensureWeather(terrainBackdrop)
+  })
+  hmr.accept('/core/TerrainBackdrop.js', async m => {
+    _hmrFactories.createTerrainBackdrop = m.createTerrainBackdrop
+    if (terrainBackdrop) await engineCtx.rebuildTerrain({})
+  })
+  hmr.accept('/core/SceneOcclusion.js', m => {
+    _hmrFactories.createSceneOcclusion = m.createSceneOcclusion
+    const old = sceneOcclusion
+    sceneOcclusion = m.createSceneOcclusion(renderer)
+    window.__sceneOcclusion = sceneOcclusion
+    for (const [key, sys] of [['vegetation', vegetation], ['rocks', rocks], ['grass', grass]]) if (sys) sceneOcclusion.register(key, sys)
+    old.dispose?.()
+  })
+  const graphBuilders = { '/core/RenderGraph.js': ['createRenderGraph'], '/core/RenderGraph.nodes.js': ['buildRenderSectionNodes'], '/core/SSAO.js': ['buildSSAONodes'], '/core/Bloom.js': ['buildBloomNodes'], '/core/SSR.js': ['buildSSRNodes'], '/core/FSR1.js': ['buildFSR1Nodes'] }
+  for (const [file, names] of Object.entries(graphBuilders)) hmr.accept(file, m => {
+    for (const n of names) _hmrFactories[n] = m[n]
+    renderGraph = _buildMainRenderGraph()
+  })
+  const menus = {
+    '/hud/SettingsMenu.js': () => { const old = settingsMenu; const d = old.destroy || old.dispose; if (!d) throw new Error('SettingsMenu has no destroy/dispose to swap it in place'); d.call(old); settingsMenu = _hmrFactories.createSettingsMenu({ getCam: () => cam, getRenderer: () => renderer }); if (window.__app) window.__app.settingsMenu = settingsMenu },
+    '/hud/PauseMenu.js': () => { const old = pauseMenu; const d = old.destroy || old.dispose; if (!d) throw new Error('PauseMenu has no destroy/dispose to swap it in place'); d.call(old); pauseMenu = _hmrFactories.createPauseMenu({ requestPointerLock: _safeRequestPointerLock, settingsMenu, getRoomInfo: () => _wwRoom ? { code: _wwRoom, joinLink: `${location.origin}${location.pathname}?wwjoin&room=${_wwRoom}` } : null }); if (window.__app) window.__app.pauseMenu = pauseMenu },
+  }
+  hmr.accept('/hud/SettingsMenu.js', m => { _hmrFactories.createSettingsMenu = m.createSettingsMenu; menus['/hud/SettingsMenu.js'](); menus['/hud/PauseMenu.js']() })
+  hmr.accept('/hud/PauseMenu.js', m => { _hmrFactories.createPauseMenu = m.createPauseMenu; menus['/hud/PauseMenu.js']() })
+  hmr.accept('/hud/ChatQuickWheel.js', m => {
+    _hmrFactories.createChatQuickWheel = m.createChatQuickWheel
+    if (!_chatQuickWheel) return
+    const old = _chatQuickWheel
+    ;(old.destroy || old.dispose)?.call(old)
+    _chatQuickWheel = m.createChatQuickWheel(() => (window.__app.chatHUD?.joined ? window.__app.chatHUD.chat : null))
+  })
+  const modelUrlOf = e => e?.model ? (e.model.startsWith('./') ? '/' + e.model.slice(2) : e.model) : null
+  hmr.acceptAsset(async url => {
+    const users = (latestState?.entities || []).filter(e => modelUrlOf(e) === url && el.entityMeshes.has(e.id))
+    if (!users.length) return false
+    for (const e of users) el.removeEntity(e.id)
+    const asset = modelPool.pool?._assets?.get(url)
+    if (asset) { modelPool.pool._assets.delete(url); asset.dispose?.() }
+    el.invalidateModel(url)
+    await dbDelete(url)
+    for (const e of users) el.loadEntityModel(e.id, e, entityAppMap, firstSnapshotEntityPending, onFirstEntityLoaded, _scheduleFitShadow, _loadingFinished)
+    return true
+  })
+}
 const engineCtx = {
   scene, camera, renderer, THREE, createElement, createEmoteWheel,
   pick: (clientX, clientY) => _raycastEntity(clientX, clientY),
@@ -730,8 +802,11 @@ const engineCtx = {
       try { weather && weather.dispose && weather.dispose() } catch (e) { _dbgTerrain('weather dispose failed on reseed:', e?.message || e) }
       weather = null
     }
-    return createTerrainBackdrop(renderer, scene, _terrainCfg)
+    const buildGen = ++_terrainBuildGen
+    return _hmrFactories.createTerrainBackdrop(renderer, scene, _terrainCfg)
       .then(tb => {
+        if (buildGen !== _terrainBuildGen) { tb.dispose(); if (terrainBackdrop && terrainBackdrop.registerDebugGlobals) terrainBackdrop.registerDebugGlobals(); return }
+        if (terrainBackdrop && terrainBackdrop !== tb) { try { terrainBackdrop.dispose() } catch (e) { _dbgTerrain('superseded terrainBackdrop dispose failed:', e?.message || e) } }
         terrainBackdrop = tb; if (window.__app) window.__app.terrain = tb
         try { sculptOverlay = createSculptOverlay(tb) } catch (e) { console.warn('[terrain] sculptOverlay reseed-rebuild failed:', e?.message || e) }
         _applyPendingSculptBackfill()
@@ -1740,10 +1815,10 @@ function _safeRequestPointerLock() {
     if (p && typeof p.catch === 'function') p.catch(e => console.warn('[input] requestPointerLock rejected:', e?.message || e))
   } catch (e) { console.warn('[input] requestPointerLock failed:', e?.message || e) }
 }
-const settingsMenu = createSettingsMenu({ getCam: () => cam, getRenderer: () => renderer })
+let settingsMenu = _hmrFactories.createSettingsMenu({ getCam: () => cam, getRenderer: () => renderer })
 if (window.__app) window.__app.settingsMenu = settingsMenu
 let _hasEverLocked = false
-const pauseMenu = createPauseMenu({
+let pauseMenu = _hmrFactories.createPauseMenu({
   requestPointerLock: _safeRequestPointerLock,
   settingsMenu,
   getRoomInfo: () => _wwRoom ? { code: _wwRoom, joinLink: `${location.origin}${location.pathname}?wwjoin&room=${_wwRoom}` } : null,
@@ -2062,7 +2137,8 @@ function tickPlayerAnimators(lid, frameDt, isEditor) {
 }
 const _springBoneLodStats={updated:0,skipped:0}
 
-const renderGraph = createRenderGraph([...buildRenderSectionNodes(), ...buildSSAONodes(), ...buildBloomNodes(), ...buildSSRNodes(), ...buildFSR1Nodes()])
+const _buildMainRenderGraph = () => _hmrFactories.createRenderGraph([..._hmrFactories.buildRenderSectionNodes(), ..._hmrFactories.buildSSAONodes(), ..._hmrFactories.buildBloomNodes(), ..._hmrFactories.buildSSRNodes(), ..._hmrFactories.buildFSR1Nodes()])
+let renderGraph = _buildMainRenderGraph()
 const _graphCtx = { res: {}, renderer, scene, camera, floatingOrigin, occlusionQueryBudget, pm }
 const placementScheduler = createPlacementScheduler(() => ({ vegetation, rocks, grass, camera, floatingOrigin, pm }))
 placementScheduler.start()

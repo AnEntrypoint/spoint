@@ -41,7 +41,7 @@ export function urlToFile(url, staticDirs) {
 }
 
 export function createModuleGraph({ staticDirs, importMap, roots }) {
-  const deps = new Map(), parents = new Map(), fileToUrl = new Map(), versions = new Map()
+  const deps = new Map(), eagerDeps = new Map(), parents = new Map(), fileToUrl = new Map(), versions = new Map()
   let effective = new Map()
 
   const link = (url, targets) => {
@@ -54,14 +54,32 @@ export function createModuleGraph({ staticDirs, importMap, roots }) {
     const fp = urlToFile(url, staticDirs)
     if (!fp) { link(url, new Set()); return [] }
     try { fileToUrl.set(realpathSync(fp), url) } catch {}
-    const targets = new Set()
+    const targets = new Set(), eagerTargets = new Set()
     const source = readFileSync(fp, 'utf8')
     for (const m of source.matchAll(IMPORT_RE)) {
       const target = resolveSpecifier(m[3], url, importMap)
-      if (target && MODULE_EXT_RE.test(target)) targets.add(target)
+      if (!target || !MODULE_EXT_RE.test(target)) continue
+      targets.add(target)
+      if (!m[1].includes('(')) eagerTargets.add(target)
     }
+    eagerDeps.set(url, eagerTargets)
     link(url, targets)
     return [...targets]
+  }
+
+  const isEager = (root, url) => {
+    const seen = new Set([root]), stack = [root]
+    while (stack.length) {
+      const u = stack.pop()
+      if (u === url) return true
+      for (const d of eagerDeps.get(u) || []) if (!seen.has(d)) { seen.add(d); stack.push(d) }
+    }
+    return false
+  }
+
+  const seed = (entries) => {
+    for (const [url, v] of entries) if (deps.has(url) && Number.isFinite(v) && !versions.has(url)) versions.set(url, v)
+    propagate()
   }
 
   const crawl = (start) => {
@@ -119,6 +137,13 @@ export function createModuleGraph({ staticDirs, importMap, roots }) {
     propagate()
   }
 
+  const forgetPatched = (url, stamp) => {
+    if (versions.get(url) !== stamp) return false
+    versions.delete(url)
+    propagate()
+    return true
+  }
+
   crawl(roots)
-  return { crawl, rewrite, ancestors, urlOfFile, markChanged, effectiveVersion, reaches: (root, url) => root in ancestors(url) || url === root, size: () => deps.size, parents }
+  return { crawl, rewrite, ancestors, urlOfFile, markChanged, forgetPatched, seed, isEager, effectiveVersion, reaches: (root, url) => root in ancestors(url) || url === root, size: () => deps.size, parents }
 }

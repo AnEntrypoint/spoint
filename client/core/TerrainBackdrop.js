@@ -108,7 +108,8 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     return _createFallbackBackdrop()
   }
 
-  if (typeof window !== 'undefined') window.__terrain = { heightAt: (d) => sampler.heightAt(d), groundHeightLocal: (x, z) => frame.groundHeightLocal(x, z), frame, planet, sampler, seed: cfg.seed, occlusionStats: () => _terrainOcclusion.getStats() }
+  const registerDebugGlobals = () => { if (typeof window === 'undefined') return; window.__terrain = { heightAt: (d) => sampler.heightAt(d), groundHeightLocal: (x, z) => frame.groundHeightLocal(x, z), frame, planet, sampler, seed: cfg.seed, occlusionStats: () => _terrainOcclusion.getStats() }; window.__colliderProbe = colliderProbe }
+  registerDebugGlobals()
 
   const COLLIDER_PROBE_MAX_UP_DOT = 0.05
   async function colliderProbe(dir) {
@@ -124,7 +125,6 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     const r = await window.__client.queryColliderHeight(x, z)
     return { ok: !!r.hit, x, z, colliderY: r.hit ? r.y : null, terrainHeightSource: r.terrainHeightSource || null, raw: r }
   }
-  if (typeof window !== 'undefined') window.__colliderProbe = colliderProbe
 
   const _fwd = new THREE.Vector3(), _pos = new THREE.Vector3(), _eye = [0, 0, 0], _tgt = [0, 0, 0], _fwdE = [0, 0, 0]
   const sunLocal = (() => { const s = cfg.sun || [0, 0.343, 0.939]; const l = Math.hypot(s[0], s[1], s[2]) || 1; return [s[0] / l, s[1] / l, s[2] / l] })()
@@ -193,7 +193,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   function renderPlanet(camera, elapsedSec, sun, toAuthoritative) {
     try {
       camera.getWorldPosition(_pos)
-      if (isTslTerrain) _tslView.cameraRenderPosition.copy(_pos)
+      if (isTslTerrain) { _tslView.cameraRenderPosition.copy(_pos); _tslView.sunLight = sun || null }
       const p = toAuthoritative ? toAuthoritative(_pos, _pos) : _pos
       if (frame._patchPrefetch && elapsedSec - _lastPrefetchSec > 0.25) {
         _lastPrefetchSec = elapsedSec
@@ -238,7 +238,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   }
   let _lastRenderPlanetErr = null
   const _fallbackSkyColor = new THREE.Color(0x87ceeb)
-  const _tslView = isTslTerrain ? { cameraRenderPosition: new THREE.Vector3(), east: frame.east, up: frame.up, north: frame.north } : null
+  const _tslView = isTslTerrain ? { cameraRenderPosition: new THREE.Vector3(), east: frame.east, up: frame.up, north: frame.north, sunLight: null } : null
   let _lastFlips = 0
   function runOcclusionQueries() {
     try {
@@ -254,5 +254,5 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   function setOcclusionQueryBudget(n) { _terrainOcclusion.setMaxQueriesPerFrame(n) }
   function getOcclusionQueryBudget() { return _terrainOcclusion.getMaxQueriesPerFrame() }
   const sceneFarHint = () => (isTslTerrain && typeof planet.sceneFar === 'function') ? planet.sceneFar() : 0
-  return { planet, frame, sampler, drawsInScene: isTslTerrain, renderPlanet, sceneFarHint, runOcclusionQueries, update, dispose, getOcclusionStats: () => _terrainOcclusion.getStats(), getOcclusionCandidateCount: () => _terrainOcclusion.getCandidateCount(), occlusionPredicateSnapshot, setOcclusionQueryBudget, getOcclusionQueryBudget, setSunLocal }
+  return { planet, frame, sampler, registerDebugGlobals, drawsInScene: isTslTerrain, renderPlanet, sceneFarHint, runOcclusionQueries, update, dispose, getOcclusionStats: () => _terrainOcclusion.getStats(), getOcclusionCandidateCount: () => _terrainOcclusion.getCandidateCount(), occlusionPredicateSnapshot, setOcclusionQueryBudget, getOcclusionQueryBudget, setSunLocal }
 }

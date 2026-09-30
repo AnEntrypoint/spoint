@@ -74,12 +74,14 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   const hashVersion = assertHashVersion(opts.hashVersion ?? HASH_VERSION_FLOAT)
   const carves = opts.carves || []
   const hpfSeed = opts.hpfSeed || 1337
-  const lutJob = opts.sky === false ? null : bakeAtmosphereLUTs()
+  const lutJob = bakeAtmosphereLUTs()
   const hpfJob = runModuleWorkerJob(new URL('./hpf-bake-worker.js', import.meta.url), { seed: hpfSeed, res: hpfRes }, (d) => d.data)
   const hpfData = (hpfJob && await hpfJob) || bakeHpfTexels(createAnchorField({ seed: hpfSeed }), hpfRes)
   const hpfTexture = makeHpfTexture(hpfData, hpfRes)
-  const { material, uniforms: u, makeHeightSpec, faceU, faceV, faceC } = createTerrainMaterialTSL({
-    defRadius: R, reliefScale, hpfRes, hpfTexture, gridSize: GRID_SIZE, hashVersion, carves,
+  const sky = createSkyTSL({ radius: R, luts: await lutJob })
+  if (opts.sky !== false) scene.backgroundNode = sky.node
+  const { material, uniforms: u, lighting, makeHeightSpec, faceU, faceV, faceC } = createTerrainMaterialTSL({
+    sky, defRadius: R, reliefScale, hpfRes, hpfTexture, gridSize: GRID_SIZE, hashVersion, carves,
     landBias: opts.landBias != null ? opts.landBias : SHAPE_UNIFORM_DEFAULTS.uLandBias,
     beachShelfM: opts.beachShelfM != null ? opts.beachShelfM : SHAPE_UNIFORM_DEFAULTS.uBeachShelfM,
   })
@@ -95,8 +97,6 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   scene.add(mesh)
   const water = opts.water === false ? null : createWaterTSL({ spec: makeHeightSpec(), terrainUniforms: u, faceU, faceV, faceC })
   if (water) { water.mesh.renderOrder = WATER_DRAWS_BEFORE_OTHER_TRANSPARENTS; scene.add(water.mesh) }
-  const sky =lutJob ? createSkyTSL({ radius: R, luts: await lutJob }) : null
-  if (sky) scene.backgroundNode = sky.node
 
   const surfaceState = { ready: false, error: null, disposed: false }
   if (opts.loadSurfaceTextures !== false && canDecodeImages()) {
@@ -200,8 +200,11 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
       u.east.value.set(view.east[0], view.east[1], view.east[2])
       u.up.value.set(view.up[0], view.up[1], view.up[2])
       u.north.value.set(view.north[0], view.north[1], view.north[2])
-      if (sky) sky.update({ camWorldPos, sunDir: sunDir || DEFAULT_SUN_DIR, view })
+      sky.update({ camWorldPos, sunDir: sunDir || DEFAULT_SUN_DIR, view })
+      if (lighting.update({ sunLight: view.sunLight })) material.needsUpdate = true
+      if (opts.sky !== false && scene.backgroundNode !== sky.node) scene.backgroundNode = sky.node
     }
+    u.reliefShade.value = typeof window !== 'undefined' && Number.isFinite(window.__reliefShade) ? window.__reliefShade : TD.reliefShade
     const pool = resolvePoolParams()
     u.poolLo.value.set(pool.lo[0], pool.lo[1], pool.lo[2], pool.lo[3])
     u.poolHi.value.set(pool.hi[0], pool.hi[1], pool.hi[2], pool.hi[3])
@@ -216,7 +219,8 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   function dispose() {
     scene.remove(mesh)
     if (water) { scene.remove(water.mesh); water.dispose() }
-    if (sky) { if (scene.backgroundNode === sky.node) scene.backgroundNode = null; sky.dispose() }
+    if (scene.backgroundNode === sky.node) scene.backgroundNode = null
+    sky.dispose()
     surfaceState.disposed = true
     patch.geo.dispose()
     material.dispose()
@@ -231,7 +235,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   })
 
   return {
-    frame, dispose, R, mesh, material, water, uniforms: u, isTSL: true, hashVersion, probeHeights,
+    frame, dispose, R, mesh, material, water, lighting, sky, uniforms: u, isTSL: true, hashVersion, probeHeights,
     sceneFar: () => lastFar,
     clearCache() { quadCache.res = null },
     setSculptOverride() {},

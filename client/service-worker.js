@@ -95,6 +95,7 @@ self.addEventListener('fetch', event => {
   if (req.headers.has('range')) return
 
   const p = url.pathname
+  if (url.searchParams.has('hmr')) return
   if (p.startsWith('/node_modules/') || p.startsWith('/vendor/')) {
     event.respondWith(DEV ? _networkFirst(DEP_CACHE_NAME, req) : _cachedWithRevalidate(DEP_CACHE_NAME, req))
     return

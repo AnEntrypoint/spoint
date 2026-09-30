@@ -26,6 +26,8 @@ import { createServerAPI } from './ServerAPI.js'
 import { createConnectionHandlers } from './ServerHandlers.js'
 import { saveWorldSnapshot } from './WorldPersistence.js'
 import { buildUniquePathList, collectWatchableFiles } from './ServerBoot.js'
+import { isDevHmrEnabled } from './DevHmr.js'
+import { registerAppModuleVersioning } from './DevAppModuleVersions.js'
 
 const PLACED_MODELS_PERSIST_DEBOUNCE_MS = 500
 
@@ -89,6 +91,7 @@ export function wireServerHandlers(ctx) {
 }
 
 export async function createServer(config = {}) {
+  if (isDevHmrEnabled()) registerAppModuleVersioning(config.appsDirs)
   const port = config.port || 3000, tickRate = config.tickRate || 60
   const movement = config.movement || {}, staticDirs = config.staticDirs || []
   const deps = await createServerDeps(config, tickRate)

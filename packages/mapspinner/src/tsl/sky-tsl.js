@@ -151,7 +151,14 @@ export function createSkyTSL({ radius, luts }) {
     u.fade.value = Math.max(0.0, 1.0 - (Math.hypot(camWorldPos[0], camWorldPos[1], camWorldPos[2]) - radius) / SKY_FADE_ALTITUDE_M)
   }
 
+  const groundR = ATM_BOTTOM + 0.5
+  const groundMuHorizon = -Math.sqrt(Math.max(0, 1 - (ATM_BOTTOM * ATM_BOTTOM) / (groundR * groundR)))
+  const transmittanceToSunAtGround = (up, sun) => {
+    const mu = dot(up, sun)
+    return transmittance(float(groundR), mu).mul(smoothstep(groundMuHorizon - 0.035, groundMuHorizon + 0.005, mu))
+  }
+
   function dispose() { transTex.dispose(); scatTex.dispose() }
 
-  return { node, update, dispose, uniforms: u }
+  return { node, update, dispose, uniforms: u, marchRadiance, transmittanceToSunAtGround, solarIrradiance: solar }
 }

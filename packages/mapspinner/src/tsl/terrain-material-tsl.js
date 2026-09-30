@@ -1,18 +1,20 @@
 import * as THREE from 'three/webgpu'
 import {
   Fn, Loop, If, float, int, vec2, vec3, vec4, uniform, uniformArray, attribute, varyingProperty, texture, select,
-  normalize, cross, dot, max, mix, smoothstep, clamp, length, fwidth, sqrt, tan, cameraViewMatrix, property,
+  normalize, cross, dot, max, mix, smoothstep, clamp, length, fwidth, tan, cameraViewMatrix, property, output,
 } from 'three/tsl'
 import { FACE_FRAME } from '../planet-orchestrator-cull.js'
 import { TERRAIN_DEFAULTS as TD } from '../terrain-defaults.js'
 import { defineHeightSpec } from './height-spec.js'
 import { createTslOps } from './ops-tsl.js'
 import { terrainAlbedoClimate, surfaceSplat } from './surface-splat-tsl.js'
+import { createLegacyTerrainLighting } from './terrain-lighting-tsl.js'
 
 const FD_TAPS = 5
 const QUARTER_PI = 0.7853981634
-const DRY_ROUGHNESS = 0.92
 const WET_DARKEN = 0.65
+const NORMAL_TOWARD_UP = 0.05
+const ATM_BOTTOM_KM = 6360.0
 const SKIRT_MIN_M = 30.0
 const SKIRT_PATCH_FRAC = 0.06
 const TEX_WARP_FREQ = 450.0
@@ -51,7 +53,7 @@ export function makeSurfaceTextures({ albAll, nrmAll, matCount, sz }) {
   }
 }
 
-export function createTerrainMaterialTSL({ defRadius, reliefScale, landBias, beachShelfM, hpfRes, hpfTexture, gridSize, hashVersion, carves = [] }) {
+export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias, beachShelfM, hpfRes, hpfTexture, gridSize, hashVersion, carves = [] }) {
   const placeholder = makeSurfaceTextures({ albAll: new Uint8Array(16).fill(128), nrmAll: new Uint8Array([128, 128, 255, 255, 128, 128, 255, 255, 128, 128, 255, 255, 128, 128, 255, 255]), matCount: 4, sz: 1 })
   const u = {
     defRadius: uniform(defRadius),
@@ -76,6 +78,7 @@ export function createTerrainMaterialTSL({ defRadius, reliefScale, landBias, bea
     poolSpec: uniform(new THREE.Vector4(TD.poolSpecExpRough, TD.poolSpecExpSharp, TD.poolSlope0, TD.poolSlope1)),
     poolCover: uniform(TD.poolCover),
     wetness: uniform(0),
+    reliefShade: uniform(TD.reliefShade),
     surfAlb: texture(placeholder.alb),
     surfNrm: texture(placeholder.nrm),
   }
@@ -136,8 +139,8 @@ export function createTerrainMaterialTSL({ defRadius, reliefScale, landBias, bea
     return u.camRender.add(toLocal(vRel))
   })()
 
-  const n = normalize(vN)
   const dir0 = normalize(vDir)
+  const n = normalize(mix(normalize(vN), dir0, NORMAL_TOWARD_UP))
   const slope = float(1.0).sub(max(0.0, dot(n, dir0)))
   const rockSlope = clamp(slope, 0.0, 1.0)
   const pxWorld = max(length(fwidth(vRelP)), 0.001)
@@ -151,16 +154,24 @@ export function createTerrainMaterialTSL({ defRadius, reliefScale, landBias, bea
     poolP.assign(splat.pool.mul(float(1.0).sub(smoothstep(u.poolSpec.z, u.poolSpec.w, slope))).mul(wet))
     return vec4(splat.albedo.mul(mix(1.0, WET_DARKEN, wet)), 1.0)
   })()
-  const poolRoughness = sqrt(sqrt(float(2.0).div(mix(u.poolSpec.x, u.poolSpec.y, poolP).add(2.0))))
-  const nLit = normalize(n.add(texDnP))
+  const nRelief = select(u.reliefShade.greaterThan(1.0), normalize(dir0.add(n.sub(dir0).mul(u.reliefShade))), n)
+  const nLit = normalize(nRelief.add(texDnP))
+  const lighting = createLegacyTerrainLighting({
+    sky, planetNormal: nLit, up: dir0,
+    wetPool: { pool: poolP, specExp: mix(u.poolSpec.x, u.poolSpec.y, poolP) },
+    viewDirPlanet: normalize(vRelP.negate()),
+    relAtm: vRelP.mul(float(ATM_BOTTOM_KM).div(u.defRadius)),
+  })
 
   const material = new THREE.MeshStandardNodeMaterial()
   material.name = 'mapspinner-terrain-tsl'
+  material.setupLightingModel = () => new lighting.LightingModel()
   material.positionNode = positionNode
   material.colorNode = colorNode
-  material.roughnessNode = mix(DRY_ROUGHNESS, poolRoughness, poolP)
   material.normalNode = normalize(cameraViewMatrix.mul(vec4(toLocal(nLit), 0.0)).xyz)
+  material.outputNode = Fn(() => lighting.gradeOutput(output))()
   material.metalness = 0.0
+  material.fog = false
   material.side = THREE.DoubleSide
-  return { material, uniforms: u, spec, makeHeightSpec, faceU, faceV, faceC }
+  return { material, uniforms: u, lighting, spec, makeHeightSpec, faceU, faceV, faceC }
 }

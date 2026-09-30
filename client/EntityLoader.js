@@ -640,5 +640,10 @@ export function createEntityLoader(scene, gltfLoader, cam, loadingMgr, patchGLB,
     return mesh
   }
 
-  return { entityMeshes, _animatedEntities, _vehicleEntities, _hullMeshes, loadEntityModel, removeEntity, rebuildEntityHierarchy, updateVisibility, updateMixers, playClip, repaintEntity, LOD_CONFIGS, scheduleLodUpgrades: _scheduleLodUpgrades, prefetchModels, getEntityLeakReport, dispose, staticInstanceStore, mergeCustom, set onMeshReady(fn) { _onMeshReady = fn }, set onTrimeshReady(fn) { _onTrimeshReady = fn } }
+  function invalidateModel(url) {
+    _parsedGltfCache.delete(url)
+    _parsedGltfRefCount.delete(url)
+  }
+
+  return { entityMeshes, _animatedEntities, _vehicleEntities, _hullMeshes, loadEntityModel, removeEntity, invalidateModel, rebuildEntityHierarchy, updateVisibility, updateMixers, playClip, repaintEntity, LOD_CONFIGS, scheduleLodUpgrades: _scheduleLodUpgrades, prefetchModels, getEntityLeakReport, dispose, staticInstanceStore, mergeCustom, set onMeshReady(fn) { _onMeshReady = fn }, set onTrimeshReady(fn) { _onTrimeshReady = fn } }
 }

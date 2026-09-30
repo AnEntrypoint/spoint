@@ -110,7 +110,7 @@ export function createServerAPI(ctx) {
         })
         const staticHandler = staticDirs.length > 0 ? createStaticHandler(staticDirs, { getWorldInfo }) : null
         const handleAgentRoute = createAgentAuthoringHandler()
-        ctx.devHmr = staticHandler && isDevHmrEnabled() ? createDevHmr({ sdkRoot: ctx.sdkRoot, staticDirs }) : null
+        ctx.devHmr = staticHandler && isDevHmrEnabled() ? createDevHmr({ sdkRoot: ctx.sdkRoot, staticDirs, onLibChanged: names => { for (const n of names) if (appLoader._loaded.has(n)) appLoader._debounceFileChange(n) } }) : null
         const httpHandler = (req, res) => {
           if (ctx.devHmr?.handle(req, res)) return
           if (req.url.startsWith('/agent/')) { handleAgentRoute(req, res, appRuntime, ctx); return }
@@ -248,6 +248,6 @@ function attachWSHandlers(ctx) {
   if (!process.env.SPOINT_NO_WATCH) {
     ctx.appLoader.watchAll()
     ctx.setupSDKWatchers()
-    ctx.devHmr?.start()
+    ctx.devHmr?.start(ctx.port)
   }
 }

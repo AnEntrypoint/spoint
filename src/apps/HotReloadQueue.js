@@ -74,6 +74,8 @@ export class HotReloadQueue {
         if (rt.contexts.get(eid) !== ctx) return
         rt._pendingSetupIds.delete(eid)
         rt._flushPendingEvents(eid)
+        rt._markDirty(eid)
+        if (ent.bodyType === 'static') rt._staticVersion++
         rt._scheduleRebuild()
       }))
     }

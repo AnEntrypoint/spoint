@@ -19,6 +19,8 @@ const listOf = (map, key) => { if (!map.has(key)) map.set(key, []); return map.g
 
 function accept(url, fn) { listOf(acceptors, keyOf(url)).push({ fn, self: false }) }
 function acceptSelf(url, fn) { listOf(acceptors, keyOf(url)).push({ fn, self: true }) }
+const assetHandlers = []
+function acceptAsset(fn) { assetHandlers.push(fn) }
 function dispose(url, fn) { listOf(disposers, keyOf(url)).push(fn) }
 function data(url) { const k = keyOf(url); if (!store.has(k)) store.set(k, {}); return store.get(k) }
 
@@ -104,8 +106,13 @@ function patchClass(oldCls, newCls) {
   }
 }
 
+function wasLoaded(url) {
+  return performance.getEntriesByName(new URL(url, location.href).href).length > 0
+}
+
 async function tryClassPatch(ev) {
-  const olds = [ev.url, ...(instances.get(ev.url) || [])]
+  const olds = [...(ev.eager || wasLoaded(ev.url) ? [ev.url] : []), ...(instances.get(ev.url) || [])]
+  if (!olds.length) return false
   const newMod = await import(versionedUrl(ev.url, ev.v))
   const names = Object.keys(newMod)
   const classes = names.filter(n => isClass(newMod[n]))
@@ -116,7 +123,8 @@ async function tryClassPatch(ev) {
     if (!sameValue(oldMod[n], newMod[n])) return false
   }
   for (const oldMod of oldMods) for (const n of classes) patchClass(oldMod[n], newMod[n])
-  listOf(instances, ev.url).push(versionedUrl(ev.url, ev.v))
+  if (ev.worker) listOf(instances, ev.url).push(versionedUrl(ev.url, ev.v))
+  else fetch(`/__hmr/patched?url=${encodeURIComponent(ev.url)}&v=${ev.v}`, { method: 'POST' }).catch(() => {})
   return classes
 }
 
@@ -159,7 +167,7 @@ async function applyModule(ev) {
     if (done) parts.push(done)
   }
   if (ev.worker && !isSingleplayer() && !ev.client) return record(ev, ev.serverHot ? 'server-hot-swapped' : 'server-restart-needed')
-  if (ev.serverStale && !isSingleplayer()) parts.push('multiplayer server still runs the old copy until restart')
+  if (ev.serverStale && !isSingleplayer()) parts.push(ev.restarting ? 'multiplayer server restarting with it' : 'multiplayer server still runs the old copy until restart')
   if (!ev.client) return parts.length ? record(ev, 'worker-swapped', parts.join('; ')) : record(ev, 'noop', 'not in client graph')
   if (!acceptors.get(ev.url)?.length) {
     const patched = await tryClassPatch(ev).catch(e => { console.warn('[hmr] class patch failed:', e); return false })
@@ -191,19 +199,25 @@ function applyCss(ev) {
 
 async function applyApp(ev) {
   if (!ev.apps.length) return record(ev, 'noop', 'no app imports this file')
-  if (!isSingleplayer()) return record(ev, 'app-reloaded', `server hot-reloads ${ev.apps.join(',')}${ev.path.startsWith('apps/_lib/') ? ' (multiplayer node server keeps the cached _lib module until restart)' : ''}`)
+  if (!isSingleplayer()) return record(ev, 'app-reloaded', `server hot-reloads ${ev.apps.join(',')}`)
   const client = window.__app.client
   if (!client.hotReloadApp) return reloadPreserving(ev, 'BrowserServer has no hotReloadApp')
-  const results = await Promise.all(ev.apps.map(n => client.hotReloadApp(n)))
-  const failed = ev.apps.filter((_, i) => !results[i])
+  const running = new Set(window.__app.engine?.entityAppMap?.values?.() || [])
+  const apps = ev.apps.filter(n => running.has(n))
+  if (!apps.length) return record(ev, 'noop', `no running entity uses ${ev.apps.join(',')}`)
+  const results = await Promise.all(apps.map(n => client.hotReloadApp(n)))
+  const failed = apps.filter((_, i) => !results[i])
   if (failed.length) return record(ev, 'failed', 'worker rejected ' + failed.join(','))
-  return record(ev, 'app-reloaded', 'worker ' + ev.apps.join(','))
+  return record(ev, 'app-reloaded', 'worker ' + apps.join(','))
 }
 
 async function applyAsset(ev) {
   await Promise.all(ev.urls.map(u => fetch(u, { cache: 'reload' }).catch(() => null)))
   const handled = []
-  for (const u of ev.urls) for (const h of acceptors.get(u) || []) { await h.fn(u, ev); handled.push(u) }
+  for (const u of ev.urls) {
+    for (const h of acceptors.get(u) || []) { await h.fn(u, ev); handled.push(u) }
+    for (const h of assetHandlers) if (await h(u, ev)) handled.push(u)
+  }
   if (handled.length) return record(ev, 'asset-swapped', handled.join(','))
   return reloadPreserving(ev, 'asset re-fetched into the HTTP cache; no in-place consumer registered for it')
 }
@@ -221,8 +235,13 @@ async function apply(ev) {
   if (ev.kind === 'hello') {
     const restarted = lastBootId && lastBootId !== ev.bootId
     lastBootId = ev.bootId
-    if (restarted) return reloadPreserving({ ...ev, path: 'server', t: Date.now() }, 'server restarted; its module versions no longer match this page')
-    return
+    if (!restarted) return
+    const restartEv = { ...ev, path: 'server', t: Date.now() }
+    if (!isSingleplayer()) return reloadPreserving(restartEv, 'multiplayer server restarted; rejoining at the same pose')
+    const versions = {}
+    for (const [key, urls] of instances) { const v = Number(new URL(urls[urls.length - 1], location.href).searchParams.get('hmr')); if (v) versions[key] = v }
+    const r = await fetch('/__hmr/sync', { method: 'POST', body: JSON.stringify(versions) }).catch(() => null)
+    return r?.ok ? record(restartEv, 'resynced', `${Object.keys(versions).length} module version(s) handed back to the restarted server`) : reloadPreserving(restartEv, 'server restarted and version resync failed')
   }
   const filter = readOnlyFilter()
   if (filter && !filter.test(ev.path)) return record(ev, 'ignored', 'outside __spointHmr.only filter')
@@ -231,7 +250,8 @@ async function apply(ev) {
     if (ev.kind === 'module') return await applyModule(ev)
     if (ev.kind === 'app') return await applyApp(ev)
     if (ev.kind === 'asset') return await applyAsset(ev)
-    if (ev.kind === 'server') return record(ev, ev.hot ? 'server-hot-swapped' : 'server-restart-needed')
+    if (ev.kind === 'server') return record(ev, ev.hot ? 'server-hot-swapped' : ev.restarting ? 'server-restarting' : 'server-restart-needed')
+    if (ev.kind === 'world') return isSingleplayer() || !ev.restarting ? reloadPreserving(ev, ev.reason) : record(ev, 'server-restarting', 'world rebuild; this page rejoins at the same pose when the server is back')
     if (ev.kind === 'reload') return reloadPreserving(ev, ev.reason)
     return record(ev, 'noop', ev.reason || '')
   } catch (e) {
@@ -249,6 +269,7 @@ function connect() {
   }
 }
 
-globalThis.__spointHmr = { accept, acceptSelf, dispose, data, only, log, settled: () => queue }
+globalThis.__spointHmr = { accept, acceptSelf, acceptAsset, dispose, data, only, log, settled: () => queue }
+performance.setResourceTimingBufferSize?.(20000)
 connect()
 restorePose()
