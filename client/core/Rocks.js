@@ -182,6 +182,7 @@ export async function createRocks(opts = {}) {
 
   const LOAD_BUDGET_MS = Number.isFinite(cfg.rockLoadBudgetMs) ? cfg.rockLoadBudgetMs : 2
   const DEFERRED_RETRIES_PER_FRAME = 4
+  const _retryKeys = []
   let _ringClean = false, _scanKey = NaN
   let _rockSpiralCursor = 0
   const streamFocus = [NaN, NaN]
@@ -194,15 +195,18 @@ export async function createRocks(opts = {}) {
     const ring = placementRing.ringAt(px, pz, cKey)
     if (cKey !== _scanKey) _rockSpiralCursor = 0
     let didLoad = false
-    const retryKeys = []
-    for (const key of deferredChunks) { if (retryKeys.length >= DEFERRED_RETRIES_PER_FRAME) break; retryKeys.push(key) }
-    for (const key of retryKeys) {
+    const loadT0 = performance.now()
+    let attempts = 0
+    _retryKeys.length = 0
+    for (const key of deferredChunks) { if (_retryKeys.length >= DEFERRED_RETRIES_PER_FRAME) break; _retryKeys.push(key) }
+    for (const key of _retryKeys) {
+      if (attempts > 0 && performance.now() - loadT0 >= LOAD_BUDGET_MS) break
       deferredChunks.delete(key)
       if (placementRing.distSqFromFocus(key) > dropRadiusSq) continue
+      attempts++
       if (loadChunk(key)) didLoad = true
     }
-    const loadT0 = performance.now()
-    for (let n = 0; totalInstances < MAX_INSTANCES && (n === 0 || performance.now() - loadT0 < LOAD_BUDGET_MS); n++) {
+    for (let ringAttempts = 0; totalInstances < MAX_INSTANCES && (ringAttempts === 0 || performance.now() - loadT0 < LOAD_BUDGET_MS); ringAttempts++) {
       let found = false
       for (; _rockSpiralCursor < ring.length; _rockSpiralCursor++) {
         const key = ring[_rockSpiralCursor]

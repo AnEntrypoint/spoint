@@ -221,7 +221,7 @@ export async function createGrass(opts = {}) {
     _projMat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
     _frustum.setFromProjectionMatrix(_projMat)
     let culledCount = 0
-    for (const [, cell] of loaded) {
+    for (const cell of loaded.values()) {
       if (cell.pending) continue
       _cullBox.min.set(cell.aabbMin[0], cell.aabbMin[1], cell.aabbMin[2])
       _cullBox.max.set(cell.aabbMax[0], cell.aabbMax[1], cell.aabbMax[2])

@@ -395,6 +395,7 @@ export async function createVegetation(opts = {}) {
 
   const LOAD_BUDGET_MS = Number.isFinite(cfg.vegLoadBudgetMs) ? cfg.vegLoadBudgetMs : 2
   const DEFERRED_RETRIES_PER_FRAME = 2
+  const _retryKeys = []
   let _ringClean = false, _scanKey = NaN
   let _lastPx = NaN, _lastPz = NaN, _idleFrames = 0
   const IDLE_EPS = 0.05, IDLE_STRIDE = 16
@@ -417,15 +418,18 @@ export async function createVegetation(opts = {}) {
     const _cellChanged = cKey !== _scanKey
     if (_cellChanged) _vegSpiralCursor = 0
     let didLoad = false
-    const retryKeys = []
-    for (const key of deferredChunks) { if (retryKeys.length >= DEFERRED_RETRIES_PER_FRAME) break; retryKeys.push(key) }
-    for (const key of retryKeys) {
+    const loadT0 = performance.now()
+    let attempts = 0
+    _retryKeys.length = 0
+    for (const key of deferredChunks) { if (_retryKeys.length >= DEFERRED_RETRIES_PER_FRAME) break; _retryKeys.push(key) }
+    for (const key of _retryKeys) {
+      if (attempts > 0 && performance.now() - loadT0 >= LOAD_BUDGET_MS) break
       deferredChunks.delete(key)
       if (placementRing.distSqFromFocus(key) > dropRadiusSq) continue
+      attempts++
       if (loadChunk(key, px, pz)) didLoad = true
     }
-    const loadT0 = performance.now()
-    for (let n = 0; totalInstances < MAX_INSTANCES && (n === 0 || performance.now() - loadT0 < LOAD_BUDGET_MS); n++) {
+    for (let ringAttempts = 0; totalInstances < MAX_INSTANCES && (ringAttempts === 0 || performance.now() - loadT0 < LOAD_BUDGET_MS); ringAttempts++) {
       let found = false
       for (; _vegSpiralCursor < ring.length; _vegSpiralCursor++) {
         const key = ring[_vegSpiralCursor]
@@ -627,9 +631,10 @@ export async function createVegetation(opts = {}) {
       profile.meshInstances = meshInst
       profile.vegDrawCalls = vegDraws
       try { profile.drawCalls = renderer.info.render.calls } catch (_) {}
-      profile.updateMs = ((typeof performance !== 'undefined') ? performance.now() : 0) - t0
       if (typeof window !== 'undefined') window.__vegProfile = profile
     }
+    profile.updateMs = ((typeof performance !== 'undefined') ? performance.now() : 0) - t0
+    if (!(profile.updateMaxMs >= profile.updateMs)) profile.updateMaxMs = profile.updateMs
   }
 
   function updateVisibility(camera, pose, shadowStill) {

@@ -81,7 +81,15 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     if (cfg.gpuPatchCollider !== false && isLegacyHash) {
       try {
         const { createPatchBaker, createPatchHeightFn } = await import('/node_modules/mapspinner/src/patch-baker.js')
-        const baker = await createPatchBaker({ radius, reliefScale: cfg.reliefScale, seed: cfg.seed }).catch(() => null)
+        const { createRemotePatchBaker } = await import('/node_modules/mapspinner/src/patch-baker-remote.js')
+        const bakerOpts = { radius, reliefScale: cfg.reliefScale, seed: cfg.seed }
+        const forceMainThreadBake = typeof location !== 'undefined' && /[?&]patchbake=main\b/.test(location.search)
+        let baker = forceMainThreadBake ? null : await createRemotePatchBaker(bakerOpts).catch(() => null)
+        if (!baker) {
+          if (!forceMainThreadBake) console.warn('[terrain] patch-height worker unavailable -> main-thread GPU patch bake (readbacks stall the frame)')
+          baker = await createPatchBaker(bakerOpts).catch(() => null)
+        }
+        if (typeof window !== 'undefined') window.__patchBaker = baker
         performance.mark('terrain:patch-baker')
         const fractalGHL = frame.groundHeightLocal
         const ph = baker && createPatchHeightFn({ baker, frame, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : DEFAULT_PATCH_MAX_LEVEL, offsetY: cfg.offsetY || 0, fallbackFn: fractalGHL, blocking: false })
@@ -118,7 +126,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   }
   if (typeof window !== 'undefined') window.__colliderProbe = colliderProbe
 
-  const _fwd = new THREE.Vector3(), _pos = new THREE.Vector3(), _eye = [0, 0, 0], _tgt = [0, 0, 0]
+  const _fwd = new THREE.Vector3(), _pos = new THREE.Vector3(), _eye = [0, 0, 0], _tgt = [0, 0, 0], _fwdE = [0, 0, 0]
   const sunLocal = (() => { const s = cfg.sun || [0, 0.343, 0.939]; const l = Math.hypot(s[0], s[1], s[2]) || 1; return [s[0] / l, s[1] / l, s[2] / l] })()
   const _sunE = [0, 0, 0]
   function setSunLocal(dir) {
@@ -193,11 +201,10 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
       }
       const eyeW = frame.localToWorld(p.x, p.y, p.z)
       camera.getWorldDirection(_fwd)
-      const fE = [
-        frame.east[0] * _fwd.x + frame.up[0] * _fwd.y + frame.north[0] * _fwd.z,
-        frame.east[1] * _fwd.x + frame.up[1] * _fwd.y + frame.north[1] * _fwd.z,
-        frame.east[2] * _fwd.x + frame.up[2] * _fwd.y + frame.north[2] * _fwd.z,
-      ]
+      const fE = _fwdE
+      fE[0] = frame.east[0] * _fwd.x + frame.up[0] * _fwd.y + frame.north[0] * _fwd.z
+      fE[1] = frame.east[1] * _fwd.x + frame.up[1] * _fwd.y + frame.north[1] * _fwd.z
+      fE[2] = frame.east[2] * _fwd.x + frame.up[2] * _fwd.y + frame.north[2] * _fwd.z
       _eye[0] = eyeW[0]; _eye[1] = eyeW[1]; _eye[2] = eyeW[2]
       _trackReconcileMovement(eyeW)
       _tgt[0] = eyeW[0] + fE[0] * 1000; _tgt[1] = eyeW[1] + fE[1] * 1000; _tgt[2] = eyeW[2] + fE[2] * 1000
