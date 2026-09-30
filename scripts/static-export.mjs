@@ -22,7 +22,7 @@ function findPackageDir(pkg) {
   return null
 }
 
-const EXCLUDE_RE = /(^|[\\/])\.glb-cache([\\/]|$)|\.test\.js$|(^|[\\/])\.git([\\/]|$)/
+const EXCLUDE_RE = /(^|[\\/])\.glb-cache([\\/]|$)|\.test\.js$|(^|[\\/])\.git([\\/]|$)|\.(br|gz)(\.meta)?$/
 const cpFilter = (src) => !EXCLUDE_RE.test(src)
 const MIN_INLINED_WORKER_BUNDLE_BYTES = 51200
 
@@ -70,31 +70,18 @@ async function main() {
   mkdirSync(join(OUT, 'node_modules'), { recursive: true })
   mkdirSync(join(OUT, 'apps'), { recursive: true })
 
+  cpSync(join(SDK_ROOT, 'client'), OUT, { recursive: true, filter: cpFilter })
   log('building client bundle...')
   execFileSync(process.execPath, [join(SDK_ROOT, 'scripts/bundle-client.mjs'), join(SDK_ROOT, 'client/app.js'), join(OUT, 'app.js'), ''], { stdio: 'inherit', cwd: SDK_ROOT })
 
-  for (const f of ['index.html', 'style.css', 'manifest.json', 'service-worker.js', 'favicon.svg']) {
-    const src = join(SDK_ROOT, 'client', f)
-    if (existsSync(src)) cpSync(src, join(OUT, f))
-  }
-  if (existsSync(join(SDK_ROOT, 'client/vendor'))) cpSync(join(SDK_ROOT, 'client/vendor'), join(OUT, 'vendor'), { recursive: true, filter: cpFilter })
-
-  const SRC_DIRS = ['client', 'protocol', 'shared', 'sdk', 'connection', 'debug', 'netcode', 'physics', 'apps', 'stage', 'storage', 'transport', 'spatial', 'terrain']
-  for (const d of SRC_DIRS) {
-    const s = join(SDK_ROOT, 'src', d)
-    if (existsSync(s)) cpSync(s, join(OUT, 'src', d), { recursive: true, filter: cpFilter })
-  }
-  for (const f of ['math.js', 'index.client.js']) {
-    const s = join(SDK_ROOT, 'src', f)
-    if (existsSync(s)) cpSync(s, join(OUT, 'src', f))
-  }
+  cpSync(join(SDK_ROOT, 'src'), join(OUT, 'src'), { recursive: true, filter: cpFilter })
 
   const sdkLib = join(SDK_ROOT, 'apps/_lib')
   if (existsSync(sdkLib)) cpSync(sdkLib, join(OUT, 'apps/_lib'), { recursive: true, filter: cpFilter })
   const projApps = resolve(PROJECT, 'apps')
   const appsSrc = existsSync(projApps) ? projApps : join(SDK_ROOT, 'apps')
   cpSync(appsSrc, join(OUT, 'apps'), { recursive: true, filter: cpFilter })
-  log(`apps/ copied from ${rel(appsSrc)}${existsSync(sdkLib) ? ' (+ engine apps/_lib)' : ''}`)
+  log(`apps/ copied from ${rel(appsSrc)}${existsSync(sdkLib) ? ' (+ engine apps/_lib re-export shims)' : ''}`)
 
   const appFiles = []
   ;(function walk(dir, prefix) {
@@ -120,8 +107,7 @@ async function main() {
   }
   log(`WorkerEntry bundled -> ${bundledBytes} bytes`)
 
-  const PACKAGES = ['three', '@pixiv/three-vrm', 'webjsx', 'msgpackr', 'meshoptimizer', 'jolt-physics', 'xstate',
-    '@dgreenheck/ez-tree', '@three.ez/instanced-mesh', 'bvh.js', 'mapspinner', 'streaming-gltf']
+  const PACKAGES = [...new Set([...readFileSync(join(SDK_ROOT, 'client/index.html'), 'utf8').matchAll(/\/node_modules\/((?:@[^/"]+\/)?[^/"]+)/g)].map(m => m[1]))]
   let missingPkgs = []
   for (const pkg of PACKAGES) {
     const src = findPackageDir(pkg)

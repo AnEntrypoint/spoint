@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync, statSync, readdirSync, mkdirSync } from 'node:fs'
-import { join, dirname, extname } from 'node:path'
+import { join, dirname, extname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 
@@ -56,9 +56,9 @@ const externalPlugin = {
   }
 }
 
-const outdir = outfile.replace(/\/[^/]+$/, '')
+const outdir = dirname(outfile)
 const CLIENT_EXTS = new Set(['.js', '.mjs', '.css'])
-const bundleFresh = IF_STALE && isFresh(join(ROOT, outfile), join(ROOT, 'client'), CLIENT_EXTS)
+const bundleFresh = IF_STALE && isFresh(resolve(ROOT, outfile), join(ROOT, 'client'), CLIENT_EXTS)
 if (bundleFresh) {
   console.log(`[bundle-client] ${outfile} is fresh (newer than every client/ source) -- skipping`)
 } else {
@@ -92,10 +92,10 @@ if (bundleFresh) {
 }
 
 const manifestOut = join(outdir, 'apps-manifest.json')
-if (IF_STALE && isFresh(join(ROOT, manifestOut), join(ROOT, 'apps'), new Set(['.js', '.mjs']))) {
+if (IF_STALE && isFresh(resolve(ROOT, manifestOut), join(ROOT, 'apps'), new Set(['.js', '.mjs']))) {
   console.log(`[bundle-client] ${manifestOut} is fresh -- skipping`)
 } else {
-  mkdirSync(join(ROOT, outdir), { recursive: true })
-  const r = spawnSync(process.execPath, [join(ROOT, 'scripts', 'bundle-apps-manifest.mjs'), join(ROOT, manifestOut), '--all'], { stdio: 'inherit' })
+  mkdirSync(resolve(ROOT, outdir), { recursive: true })
+  const r = spawnSync(process.execPath, [join(ROOT, 'scripts', 'bundle-apps-manifest.mjs'), resolve(ROOT, manifestOut), '--all'], { stdio: 'inherit' })
   if (r.status !== 0) console.warn('[bundle-client] apps manifest generation failed (BrowserServer falls back to its live dependency walk)')
 }

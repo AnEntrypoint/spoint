@@ -360,7 +360,7 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
       ? C.Btn({ ghost: true, dense: true, title: 'Lint the currently-loaded world for common authoring mistakes', onClick: (e) => { e.preventDefault(); openWorldValidatorWindow() }, children: ['Validate World'] })
       : h('button', { onclick: () => openWorldValidatorWindow() }, 'Validate World')
     const waypointsBtn = C.Btn
-      ? C.Btn({ ghost: true, dense: true, title: 'Waypoint path timeline: add/remove/reorder the waypoint entities apps/waypoint + apps/_lib/path.js read', onClick: (e) => { e.preventDefault(); openWaypointTimelineWindow() }, children: ['Waypoints'] })
+      ? C.Btn({ ghost: true, dense: true, title: 'Waypoint path timeline: add/remove/reorder the waypoint entities apps/waypoint + src/behaviours/path.js read', onClick: (e) => { e.preventDefault(); openWaypointTimelineWindow() }, children: ['Waypoints'] })
       : h('button', { onclick: () => openWaypointTimelineWindow() }, 'Waypoints')
     const procgenBtn = C.Btn
       ? C.Btn({ ghost: true, dense: true, title: 'Procedural content generators (WFC grid layout, L-system tree, noise terrain): preview + place into the world', onClick: (e) => { e.preventDefault(); openProcgenWindow() }, children: ['Procgen'] })

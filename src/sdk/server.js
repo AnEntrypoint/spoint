@@ -75,7 +75,7 @@ export function wireServerHandlers(ctx) {
       ['src/netcode/NetworkState.js', reloadHandlers.reloadNetworkState]
     ])
     const clientReload = (relPath) => connections.broadcast(MSG.HOT_RELOAD, { timestamp: Date.now(), path: relPath })
-    const scanRoots = [sdk('client'), sdk('apps/_lib'), sdk('src/client'), sdk('src/netcode'), sdk('src/shared'), sdk('src/sdk')]
+    const scanRoots = [sdk('client'), sdk('src/behaviours'), sdk('src/client'), sdk('src/netcode'), sdk('src/shared'), sdk('src/sdk')]
     const discovered = buildUniquePathList(scanRoots.flatMap(root => collectWatchableFiles(root)))
     discovered.push(sdk('apps/world/index.js'))
     for (const absPath of discovered) {

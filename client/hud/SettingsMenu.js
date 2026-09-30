@@ -1,5 +1,5 @@
 import { QualityPresets } from '../core/QualityPresets.js'
-import { AudioMixer } from '../../apps/_lib/audio.js'
+import { AudioMixer } from '../../src/client/AudioMixer.js'
 import { getCacheStats, clearCache } from '../ModelCache.js'
 
 const STORAGE_KEY = 'spoint.settings'

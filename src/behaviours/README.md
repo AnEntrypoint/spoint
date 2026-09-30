@@ -16,7 +16,7 @@ still direct imports. Prefer the `ctx.define*` form in app code.
 
 ## game-fsm.js — declarative game-state FSM builder
 
-`ctx.defineGameFSM(spec)` (or `import { defineGameFSM } from 'apps/_lib/game-fsm.js'`)
+`ctx.defineGameFSM(spec)` (or `import { defineGameFSM } from 'src/behaviours/game-fsm.js'`)
 compiles a declarative spec into a real [xstate 5](https://stately.ai/docs) machine
 and returns a thin runtime. Use it to orchestrate game phases (lobby, countdown,
 rounds, match-end) instead of hand-rolling state in `update()` with ad-hoc Maps
@@ -169,7 +169,7 @@ reproduces its pre-migration `match_phase`/`countdown`/`round_start`/
   (`addScore` is a no-op returning 0).
 - `phaseNames` must resolve to 5 distinct state names or the spec throws at
   build time (same fail-fast discipline as `defineGameFSM`'s own validation).
-- `apps/_lib/shrinking-zone.js` has no phase-FSM shape of its own (a pure
+- `src/behaviours/shrinking-zone.js` has no phase-FSM shape of its own (a pure
   battle-royale-ring damage/push `tick()` primitive, never uses
   `defineGameFSM`) — nothing from it composes into `defineGameMode`; a BR
   mode combines `defineGameMode` (match loop) with a separate

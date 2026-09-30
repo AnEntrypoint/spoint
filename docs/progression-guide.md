@@ -835,5 +835,5 @@ const castAbility = (ctx, playerId, abilityId) => {
 ## See Also
 
 - [Spoint SKILL.md](../SKILL.md) — engine API reference
-- [Game FSM guide](../apps/_lib/README.md#game-fsm) — state machine framework
+- [Game FSM guide](../src/behaviours/README.md#game-fsm) — state machine framework
 - [Tutorial RPG source](../apps/rpg-tutorial/index.js) — working example

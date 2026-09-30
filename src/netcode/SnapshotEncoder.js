@@ -1,4 +1,4 @@
-import { getComponentSchema, encodeCustomFields, decodeCustomFields } from '../../apps/_lib/ComponentSchema.js'
+import { getComponentSchema, encodeCustomFields, decodeCustomFields } from '../protocol/ComponentSchema.js'
 import {
   BIN_RECORD_BYTES, POS_I32_MAX, SCALE_U16_MAX, clampI32Pos, clampU16Scale,
   packBinRecord, unpackBinRecord, packQuat, unpackQuat,

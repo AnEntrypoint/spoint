@@ -1,4 +1,4 @@
-import { defineGameFSM } from '../../apps/_lib/game-fsm.js'
+import { defineGameFSM } from '../behaviours/game-fsm.js'
 
 export function createAnimationController(blender, options = {}) {
   const config = {

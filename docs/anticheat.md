@@ -19,11 +19,11 @@ gameplay-relevant state a client can affect goes through it:
 - **Movement/physics**: `PhysicsIntegration.js` runs the real Jolt simulation server-side; a client's
   `PLAYER_INPUT` is *input* (desired move/look/actions), never a position write. The server computes the
   resulting position and that's what gets snapshotted back out.
-- **Hit registration**: `apps/_lib/weapon.js`'s hitscan runs server-side against server-side player
+- **Hit registration**: `src/behaviours/weapon.js`'s hitscan runs server-side against server-side player
   positions (with lag compensation — see the `clock-sync-ntp-style-plus-lag-comp-validation` row for the
   timestamp-validation piece this doc's rate-limiting proposal below explicitly composes with, not
   duplicates).
-- **Pickups**: `apps/_lib/pickup.js`'s `definePickup(spec, appCtx).tick(dt)` polls `appCtx.players.getAll()`
+- **Pickups**: `src/behaviours/pickup.js`'s `definePickup(spec, appCtx).tick(dt)` polls `appCtx.players.getAll()`
   (server-side player state) against the pickup entity's own position, called only from the app's
   server-tick `update(ctx, dt)`. There is no client-trusted "I picked this up" message a malicious client
   could forge — collection is entirely a server-side proximity poll. **Confirmed already

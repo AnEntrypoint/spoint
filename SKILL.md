@@ -336,7 +336,7 @@ ctx.definePath(points)        // ordered-waypoint path -> length/pointAt(d)/prog
 Placeable objective apps (in tps-game placeableApps, drop + configure in the editor):
 `capture-zone` (KotH/domination progress), `waypoint` (ordered path marker — read via
 `collectWaypoints(ctx)`), `shrinking-zone` (battle-royale storm circle).
-See `apps/_lib/README.md` for each spec's fields.
+See `src/behaviours/README.md` for each spec's fields.
 
 ### ctx.onPlayerProximity / ctx.onConfigChange
 ```js

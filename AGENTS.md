@@ -43,7 +43,7 @@ the commit message, or this file. Swept 2026-09-14: `client/` `src/` `apps/` `sc
 - `@ts-*`, `eslint*`, `@vite-ignore`, `webpack*`, `/*! */`, `#__PURE__`, `sourceMappingURL`.
 - comment-looking text inside string/template literals (embedded GLSL, `scripts/patch-deps.mjs`'s
   `// [spoint patch]` idempotency markers, generated headers) -- runtime data.
-- Markdown (`src/game/INTEGRATION.md`, `apps/_lib/README.md`, any `*.md`): `//` in code examples is
+- Markdown (`src/game/INTEGRATION.md`, `src/behaviours/README.md`, any `*.md`): `//` in code examples is
   prose. Never edit a doc to satisfy the sweep.
 - `types/*.d.ts` JSDoc: the published app-SDK contract (`ctx`, engine, math) that app authors read
   as editor IntelliSense, not commentary on code -- its rationale cannot move to recall without
@@ -129,10 +129,12 @@ Netcode (docs/netcode.md), prefix `project/`: `netcode-authoritative-path-defect
 
 Test relocation (`window.__spoint`, MSG.TELEPORT): `project/test-relocation-api-teleport-bookmarks-whensettled`.
 
-Game/editor entry points: `ctx.defineGameFSM(spec)` in `apps/_lib/game-fsm.js` (`fsm.tick(dt)` from `update`);
+Game/editor entry points: `ctx.defineGameFSM(spec)` in `src/behaviours/game-fsm.js` (`fsm.tick(dt)` from `update`);
 `client/core/ClientMachine.js` (xstate5 parallel); loading machine fallback is xstate `after:` 10s gated / 45s
 hard stop; editor hierarchy messages REPARENT/DUPLICATE/SET_LABEL are 0x94-0x96; mapspinner and streaming-gltf
-are in-repo npm workspaces under `packages/`, edited directly.
+are in-repo npm workspaces under `packages/`, edited directly. Engine behaviour primitives live in `src/behaviours/`
+(`apps/_lib/*` are one-release re-export shims); static compression cache is `.spoint-cache/static/`; static-export
+fixes and outDir rule (`project/engine-apps-boundary-b0-b1-2026-09-30`).
 
 ## Code rationale index (moved out of source comments, 2026-09-14)
 
