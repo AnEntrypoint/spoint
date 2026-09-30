@@ -14,6 +14,7 @@ import { createSkyTSL } from './sky-tsl.js'
 import { bakeAtmosphereLUTs } from '../atmosphere-lut-job.js'
 import { runModuleWorkerJob } from '../worker-job.js'
 import { createTerrainMaterialTSL, makeHpfTexture, makeSurfaceTextures } from './terrain-material-tsl.js'
+import { createWaterTSL } from './water-tsl.js'
 
 const GRID_SIZE = TD.gridMeshSize
 const LOD_STEP = 3.6
@@ -24,6 +25,7 @@ const INITIAL_QUAD_CAPACITY = 2048
 const DEFAULT_FOVY = 0.785
 const DEFAULT_SUN_DIR = [0, 0.6, 0.8]
 const TERRAIN_DRAWS_AFTER_OPAQUE_OCCLUDERS = 10
+const WATER_DRAWS_BEFORE_OTHER_TRANSPARENTS = -1
 const SURFACE_DECODE_TIMEOUT_MS = 60000
 const QUAD_CACHE_MIN_FORWARD_DOT = 0.99999
 
@@ -76,7 +78,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   const hpfJob = runModuleWorkerJob(new URL('./hpf-bake-worker.js', import.meta.url), { seed: hpfSeed, res: hpfRes }, (d) => d.data)
   const hpfData = (hpfJob && await hpfJob) || bakeHpfTexels(createAnchorField({ seed: hpfSeed }), hpfRes)
   const hpfTexture = makeHpfTexture(hpfData, hpfRes)
-  const { material, uniforms: u } = createTerrainMaterialTSL({
+  const { material, uniforms: u, makeHeightSpec, faceU, faceV, faceC } = createTerrainMaterialTSL({
     defRadius: R, reliefScale, hpfRes, hpfTexture, gridSize: GRID_SIZE, hashVersion, carves,
     landBias: opts.landBias != null ? opts.landBias : SHAPE_UNIFORM_DEFAULTS.uLandBias,
     beachShelfM: opts.beachShelfM != null ? opts.beachShelfM : SHAPE_UNIFORM_DEFAULTS.uBeachShelfM,
@@ -91,7 +93,9 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   mesh.castShadow = false
   mesh.renderOrder = TERRAIN_DRAWS_AFTER_OPAQUE_OCCLUDERS
   scene.add(mesh)
-  const sky = lutJob ? createSkyTSL({ radius: R, luts: await lutJob }) : null
+  const water = opts.water === false ? null : createWaterTSL({ spec: makeHeightSpec(), terrainUniforms: u, faceU, faceV, faceC })
+  if (water) { water.mesh.renderOrder = WATER_DRAWS_BEFORE_OTHER_TRANSPARENTS; scene.add(water.mesh) }
+  const sky =lutJob ? createSkyTSL({ radius: R, luts: await lutJob }) : null
   if (sky) scene.backgroundNode = sky.node
 
   const surfaceState = { ready: false, error: null }
@@ -142,7 +146,8 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     patch.geo.instanceCount = n
     patch.offsets.clearUpdateRanges(); patch.offsets.addUpdateRange(0, n * 4); patch.offsets.needsUpdate = true
     patch.faces.clearUpdateRanges(); patch.faces.addUpdateRange(0, n); patch.faces.needsUpdate = true
-    return { quadCount: n, camDist, near: nf.near, far: nf.far }
+    const waterQuadCount = water ? water.setQuads(patch.offsets.array, patch.faces.array, n) : 0
+    return { quadCount: n, waterQuadCount, camDist, near: nf.near, far: nf.far }
   }
 
   function growCapacity(capacity, keep) {
@@ -200,12 +205,14 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     u.poolSpec.value.set(pool.spec[0], pool.spec[1], pool.spec[2], pool.spec[3])
     u.poolCover.value = pool.cover
     u.wetness.value = resolveWetness()
+    if (water) water.update({ camWorldPos, camDist, R, sunDir: sunDir || DEFAULT_SUN_DIR, time, ocean: typeof window !== 'undefined' ? window.__cam : null })
     lastFar = nf.far
-    return { quadCount: res.quadCount, glError: 0, face: pickFace(camWorldPos), cached: quadCache.hit, near: nf.near, far: nf.far, surfaceReady: surfaceState.ready, surfaceError: surfaceState.error }
+    return { quadCount: res.quadCount, waterQuadCount: res.waterQuadCount, glError: 0, face: pickFace(camWorldPos), cached: quadCache.hit, near: nf.near, far: nf.far, surfaceReady: surfaceState.ready, surfaceError: surfaceState.error }
   }
 
   function dispose() {
     scene.remove(mesh)
+    if (water) { scene.remove(water.mesh); water.dispose() }
     if (sky) { if (scene.backgroundNode === sky.node) scene.backgroundNode = null; sky.dispose() }
     patch.geo.dispose()
     material.dispose()
@@ -218,7 +225,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   })
 
   return {
-    frame, dispose, R, mesh, material, uniforms: u, isTSL: true, hashVersion, probeHeights,
+    frame, dispose, R, mesh, material, water, uniforms: u, isTSL: true, hashVersion, probeHeights,
     sceneFar: () => lastFar,
     clearCache() { quadCache.res = null },
     setSculptOverride() {},

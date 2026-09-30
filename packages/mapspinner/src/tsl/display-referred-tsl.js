@@ -1,4 +1,4 @@
-import { float, vec3, uniform, select, pow, sqrt, max, clamp, mat3 } from 'three/tsl'
+import { float, vec3, uniform, select, pow, sqrt, max, clamp, mat3, acesFilmicToneMapping, reinhardToneMapping, linearToneMapping, sRGBTransferOETF } from 'three/tsl'
 
 const TONE_MAPPING_LINEAR = 1
 const TONE_MAPPING_REINHARD = 2
@@ -33,6 +33,13 @@ function invertAcesFilmic(t) {
   const c = z.mul(0.238081).add(0.000090537)
   const y = b.negate().sub(sqrt(max(b.mul(b).sub(a.mul(c).mul(4.0)), vec3(0.0)))).div(a.mul(2.0))
   return max(acesInputInverse.mul(y), vec3(0.0)).mul(float(0.6).div(toneMappingExposure))
+}
+
+export function sceneLinearToDisplayReferred(linear) {
+  const mapped = select(toneMappingMode.equal(TONE_MAPPING_ACES), acesFilmicToneMapping(linear, toneMappingExposure),
+    select(toneMappingMode.equal(TONE_MAPPING_REINHARD), reinhardToneMapping(linear, toneMappingExposure),
+      select(toneMappingMode.equal(TONE_MAPPING_LINEAR), linearToneMapping(linear, toneMappingExposure), linear)))
+  return sRGBTransferOETF(clamp(mapped, vec3(0.0), vec3(1.0)))
 }
 
 export function displayReferredToSceneLinear(display) {

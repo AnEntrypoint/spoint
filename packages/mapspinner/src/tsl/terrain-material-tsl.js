@@ -83,10 +83,11 @@ export function createTerrainMaterialTSL({ defRadius, reliefScale, landBias, bea
   const faceV = uniformArray(FACE_FRAME.map((f) => v3(f.v)), 'vec3')
   const faceC = uniformArray(FACE_FRAME.map((f) => v3(f.c)), 'vec3')
 
-  const spec = defineHeightSpec(createTslOps({
+  const makeHeightSpec = () => defineHeightSpec(createTslOps({
     params: { landBias: u.landBias, beachShelfM: u.beachShelfM, reliefScale: u.reliefScale, hpfRes: u.hpfRes },
     hpfTexture, loopBoundDelta: u.loopBoundDelta, carves,
   }), { hashVersion, carveCount: carves.length })
+  const spec = makeHeightSpec()
 
   const vH = varyingProperty('float', 'vTerrH')
   const vN = varyingProperty('vec3', 'vTerrN')
@@ -161,5 +162,5 @@ export function createTerrainMaterialTSL({ defRadius, reliefScale, landBias, bea
   material.normalNode = normalize(cameraViewMatrix.mul(vec4(toLocal(nLit), 0.0)).xyz)
   material.metalness = 0.0
   material.side = THREE.DoubleSide
-  return { material, uniforms: u, spec }
+  return { material, uniforms: u, spec, makeHeightSpec, faceU, faceV, faceC }
 }
