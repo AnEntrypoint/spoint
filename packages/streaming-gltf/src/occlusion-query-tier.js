@@ -21,6 +21,7 @@ export class OcclusionQueryTier {
     this.maxQueriesPerFrame = opts.maxQueriesPerFrame ?? 32;
     this._rrCursor = 0;
     this._records = new Map();
+    this._pendingInIssueOrder = [];
     this.stats = { queried: 0, occluded: 0, resolved: 0, supported: this.isWebGL2 };
     this._boxProgram = null;
     this._boxVao = null;
@@ -78,10 +79,12 @@ export class OcclusionQueryTier {
     if (!this._boxProgram) return;
 
     let resolved = 0, occluded = 0;
-    for (const [entity, rec] of this._records) {
-      if (!rec.pending) continue;
-      const available = gl.getQueryParameter(rec.query, gl.QUERY_RESULT_AVAILABLE);
-      if (!available) continue;
+    const issueOrder = this._pendingInIssueOrder;
+    let head = 0;
+    for (; head < issueOrder.length; head++) {
+      const rec = issueOrder[head];
+      if (rec.released) continue;
+      if (!gl.getQueryParameter(rec.query, gl.QUERY_RESULT_AVAILABLE)) break;
       const passed = gl.getQueryParameter(rec.query, gl.QUERY_RESULT);
       rec.occluded = passed === 0;
       rec.pending = false;
@@ -89,6 +92,7 @@ export class OcclusionQueryTier {
       resolved++;
       if (rec.occluded) occluded++;
     }
+    if (head > 0) issueOrder.splice(0, head);
     this.stats.resolved = resolved;
     this.stats.occluded = occluded;
 
@@ -145,6 +149,7 @@ export class OcclusionQueryTier {
       gl.drawElements(gl.TRIANGLES, this._indexCount, this._indexType, 0);
       gl.endQuery(gl.ANY_SAMPLES_PASSED_CONSERVATIVE);
       rec.pending = true;
+      this._pendingInIssueOrder.push(rec);
       queried++;
     }
     this._rrCursor = idx;
@@ -169,6 +174,7 @@ export class OcclusionQueryTier {
   release(entity) {
     const rec = this._records.get(entity);
     if (!rec) return;
+    rec.released = true;
     this.gl.deleteQuery(rec.query);
     this._records.delete(entity);
   }
@@ -177,6 +183,7 @@ export class OcclusionQueryTier {
     const gl = this.gl;
     for (const rec of this._records.values()) gl.deleteQuery(rec.query);
     this._records.clear();
+    this._pendingInIssueOrder.length = 0;
     if (this._boxProgram) { gl.deleteProgram(this._boxProgram.prog); this._boxProgram = null; }
     if (this._boxVao) { gl.deleteVertexArray(this._boxVao); this._boxVao = null; }
   }

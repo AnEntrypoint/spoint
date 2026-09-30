@@ -31,6 +31,10 @@ export class PhysicsIntegration {
     this.physicsWorld = world
   }
 
+  standingCentreY(groundY) {
+    return groundY + this._physicalHalfHeight + this.config.capsuleRadius
+  }
+
   _submersionFrac(y, x = 0, z = 0) {
     const waterlineY = waterlineLocalY(this.physicsWorld?._planetFrame, x, z)
     if (waterlineY == null) return 0

@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 import { createExactPatchFrame } from './ExactPatchFrame.js'
-import { createCullFreeze } from './CullFreeze.js'
+import { createCullFreeze, setInstancedCullAuto } from './CullFreeze.js'
 import { createPlacementRing } from './PlacementRing.js'
 import { placementsForGrassChunk, createGrassChunkCursor, GRASS } from '/src/terrain/GrassPlacement.js'
 import { createCachedAnchorField } from '/src/terrain/ClimateCache.js'
@@ -212,7 +212,7 @@ export async function createGrass(opts = {}) {
 
   let _lastPx = NaN, _lastPz = NaN
   const IDLE_EPS = 0.05
-  const cullFreeze = createCullFreeze((auto) => { im.autoUpdate = auto; imMid.autoUpdate = auto; profile.cullFrozen = !auto })
+  const cullFreeze = createCullFreeze((auto) => { setInstancedCullAuto(im, auto); setInstancedCullAuto(imMid, auto); profile.cullFrozen = !auto })
   let _cullDirty = true
 
   function cullChunksToFrustum(camera) {

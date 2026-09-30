@@ -7,7 +7,7 @@ import { isInputRateLimited, clearInputBucket } from '../netcode/InputGuard.js'
 import { createInputSchema, decodeInputPacket, DEFAULT_INPUT_SCHEMA } from '../protocol/InputCodec.js'
 import { clearOutlierWindow } from '../netcode/OutlierDetector.js'
 import { createNostrAuthServer } from './NostrAuthServer.js'
-import { groundSnapSpawnPoint } from './Relocation.js'
+import { groundSnapSpawnPoint, holdSpawnUntilGrounded } from './Relocation.js'
 
 const MAX_TRACKED_RTT_MS = 10000
 
@@ -55,7 +55,7 @@ export function createConnectionHandlers(ctx) {
     const spawnPoints = ctx.worldSpawnPoints || [ctx.worldSpawnPoint]
     const rejoin = (transport.type === 'peer' && transport._peerId && ctx.pendingRejoinState?.get(transport._peerId))
       || (transport.type === 'worker' && ctx.localRejoinState) || null
-    const sp = rejoin ? [...rejoin.position] : groundSnapSpawnPoint(ctx, [...spawnPoints[Math.floor(Math.random() * spawnPoints.length)]])
+    const sp = rejoin ? [...rejoin.position] : [...spawnPoints[Math.floor(Math.random() * spawnPoints.length)]]
     const playerConfig = ctx.currentWorldDef?.player || {}
     const playerId = playerManager.addPlayer(transport, { position: sp, health: rejoin?.health ?? playerConfig.health, rotation: rejoin?.rotation })
     networkState.addPlayer(playerId, { position: sp })
@@ -63,6 +63,7 @@ export function createConnectionHandlers(ctx) {
     physicsIntegration.setPlayerPosition(playerId, sp)
     const playerState = playerManager.getPlayer(playerId).state
     lagCompensator.recordPlayerPosition(playerId, playerState.position, playerState.rotation, playerState.velocity, tickSystem.currentTick)
+    holdSpawnUntilGrounded(ctx, playerId, sp, { rejoin: !!rejoin })
     return playerId
   }
 

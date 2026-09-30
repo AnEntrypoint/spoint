@@ -7,11 +7,11 @@ import { createCachedAnchorField } from '/src/terrain/ClimateCache.js'
 import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
 import { createExactPatchFrame } from './ExactPatchFrame.js'
 import { createPlacementRing } from './PlacementRing.js'
-import { createCullFreeze } from './CullFreeze.js'
+import { createCullFreeze, setInstancedCullAuto } from './CullFreeze.js'
 import { dbg } from './debug-log.js'
 import { RenderControls } from './RenderControls.js'
 import { loadEzTree, makeWindUniforms, applyWind, awaitMatTextures, capGeo, simplifyGeo, buildSpecies, makeEmptyGeo, TARGET_H } from './VegetationBuild.js'
-import { createWebGPULodInstancer } from './WebGPUInstancing.js'
+import { createWebGPULodInstancer } from './WebGPULodInstancer.js'
 import { makeWindUniformsTSL, tickWindTSL, applyWindTSL, applyTintTSL } from './VegetationTSL.js'
 
 const _dbgVeg = dbg('vegetation')
@@ -26,6 +26,17 @@ const VEG_ATTRIBUTE_SCHEMA = { windPhase: 'float', tint: 'vec3' }
 const _tintUniform = new THREE.Vector3()
 const _leanQ = new THREE.Quaternion()
 const SHARED_IMPOSTOR_BAKE = Symbol('shape variants share the species impostor bake')
+
+function hideLastLevel(lodSet) {
+  const levels = lodSet && lodSet.levels
+  if (levels && levels.length) levels[levels.length - 1].object.visible = false
+}
+
+function freezeLevelMatrices(mesh) {
+  const levels = mesh && mesh.LODinfo && mesh.LODinfo.objects
+  if (!levels) return
+  for (const level of levels) if (level !== mesh) { level.updateMatrix(); level.matrixAutoUpdate = false }
+}
 
 const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _camPos = new THREE.Vector3()
 const _vanMat = new THREE.Matrix4(), _vanProj = new THREE.Matrix4(), _vanFrustum = new THREE.Frustum()
@@ -145,6 +156,7 @@ export async function createVegetation(opts = {}) {
         }
         branch.addShadowLOD(b2shadow, 0)
         branch.addShadowLOD(makeEmptyGeo(), SHADOW_CAST)
+        hideLastLevel(branch.LODinfo.shadowRender)
         for (const shadowObj of branch.LODinfo.objects) {
           const hasLibraryDefaultShaderMaterial = shadowObj !== branch && shadowObj.material && shadowObj.material.type === 'ShaderMaterial' && !shadowObj.material.vertexShader?.includes('uVegTime')
           if (hasLibraryDefaultShaderMaterial) {
@@ -243,13 +255,17 @@ export async function createVegetation(opts = {}) {
     if (sharedImpostor && rec.impTile != null) {
       rec.branch.addLOD(makeEmptyGeo(), rec.branch.material, FAR_LOD_SWAP, 0)
       rec.leaf.addLOD(makeEmptyGeo(), rec.leaf.material, FAR_LOD_SWAP, 0)
+      hideLastLevel(rec.branch.LODinfo.render); hideLastLevel(rec.leaf.LODinfo.render)
     } else if (rec.impMat) {
       const impPlane = new THREE.PlaneGeometry(1, 1)
       if (rec.branch.geometry && rec.branch.geometry.boundingSphere) impPlane.boundingSphere = rec.branch.geometry.boundingSphere.clone()
       rec.branch.addLOD(impPlane, rec.impMat, FAR_LOD_SWAP, 0)
       rec.leaf.addLOD(makeEmptyGeo(), rec.leaf.material, FAR_LOD_SWAP, 0)
+      hideLastLevel(rec.leaf.LODinfo.render)
     }
   }
+  for (const rec of meshes) { freezeLevelMatrices(rec.branch); freezeLevelMatrices(rec.leaf) }
+  if (sharedImpostor) freezeLevelMatrices(sharedImpostor.mesh)
 
   const loaded = new Map()
   const deferredChunks = new Set()
@@ -361,8 +377,8 @@ export async function createVegetation(opts = {}) {
   let _lastPx = NaN, _lastPz = NaN, _idleFrames = 0
   const IDLE_EPS = 0.05, IDLE_STRIDE = 16
   const cullFreeze = createCullFreeze((auto) => {
-    for (const rec of meshes) { rec.branch.autoUpdate = auto; rec.leaf.autoUpdate = auto }
-    if (sharedImpostor) sharedImpostor.mesh.autoUpdate = auto
+    for (const rec of meshes) { setInstancedCullAuto(rec.branch, auto); setInstancedCullAuto(rec.leaf, auto) }
+    if (sharedImpostor) setInstancedCullAuto(sharedImpostor.mesh, auto)
     profile.cullFrozen = !auto
   })
   let _cullDirty = true
@@ -554,14 +570,19 @@ export async function createVegetation(opts = {}) {
       _profAccum = 0
       let vis = 0, impostorInst = 0, meshInst = 0, vegDraws = 0
       const countDraws = (im) => {
-        const lc = im.LODinfo && im.LODinfo.render && im.LODinfo.render.count
-        if (lc && lc.length) { let n = 0; for (let i = 0; i < lc.length; i++) if ((lc[i] || 0) > 0) n++; return n }
+        const lod = im.LODinfo && im.LODinfo.render
+        const lc = lod && lod.count
+        if (lc && lc.length) { let n = 0; for (let i = 0; i < lc.length; i++) if ((lc[i] || 0) > 0 && lod.levels[i].object.visible) n++; return n }
         return (im.count || 0) > 0 ? 1 : 0
       }
       for (const rec of meshes) {
         vis += (rec.branch.count || 0)
         const c = rec.branch.LODinfo && rec.branch.LODinfo.render && rec.branch.LODinfo.render.count
-        if (c && c.length) { impostorInst += c[c.length - 1] || 0; for (let i = 0; i < c.length - 1; i++) meshInst += c[i] || 0 }
+        if (c && c.length) {
+          const farLevelDraws = rec.branch.LODinfo.render.levels[c.length - 1].object.visible
+          if (farLevelDraws) impostorInst += c[c.length - 1] || 0
+          for (let i = 0; i < c.length - 1; i++) meshInst += c[i] || 0
+        }
         vegDraws += countDraws(rec.branch) + countDraws(rec.leaf)
       }
       let sharedImpInst = 0, sharedImpDraws = 0
@@ -589,7 +610,7 @@ export async function createVegetation(opts = {}) {
   }
 
   function updateVisibility(camera, pose, shadowStill) {
-    const live = _cullDirty || shadowStill === false
+    const live = _cullDirty || shadowStill === false || renderer.shadowMap.needsUpdate === true
     _cullDirty = false
     const frozen = cullFreeze.step(camera, pose, live)
     if (isWebGPU && camera && !frozen) {
@@ -657,6 +678,7 @@ export async function createVegetation(opts = {}) {
       const shouldHide = occludedKeys.has(key)
       if (shouldHide === cell.occluded) continue
       cell.occluded = shouldHide
+      _cullDirty = true
       for (const en of cell.entries) {
         try { en.rec.branch.setVisibilityAt(en.branchId, !shouldHide) } catch (_) {}
         try { en.rec.leaf.setVisibilityAt(en.leafId, !shouldHide) } catch (_) {}

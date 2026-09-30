@@ -62,11 +62,11 @@ export function findSpawnPoints(ctx) {
   return valid
 }
 
-const SPAWN_SNAP_START_ABOVE = 20
+const SPAWN_SNAP_START_ABOVE = 2
 const SPAWN_SNAP_RAY_LENGTH = 2000
 const SPAWN_GROUND_CLEARANCE = 2
 
-export function groundSnapCandidate(ctx, sp) {
+function groundSnapCandidate(ctx, sp) {
   const liveTerrainY = typeof ctx.terrainHeightAt === 'function' ? ctx.terrainHeightAt(sp[0], sp[2]) : null
   const heightHint = Number.isFinite(liveTerrainY) ? Math.max(sp[1], liveTerrainY) : sp[1]
   const hit = ctx.raycast([sp[0], heightHint + SPAWN_SNAP_START_ABOVE, sp[2]], [0, -1, 0], SPAWN_SNAP_RAY_LENGTH)

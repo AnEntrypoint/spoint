@@ -154,6 +154,12 @@ Load-bearing caveats:
 spoint-core Rust twins of JS math (byte-identical pairs) and other rationale moved out of source 2026-09-28:
 `project/spoint-core-rust-js-twins-byte-identical`.
 
+Perf/spawn 2026-09-30 (prefix `project/`): InstancedMesh2 LOD children cull and hidden empty levels plus the
+three/bvh.js count-0 and far-band patches (`veg-instancedmesh2-lod-children-cull-and-empty-levels-2026-09-30`);
+WebGPU DynamicDrawUsage re-uploads every render and dense LOD tiers (`webgpu-dynamicdraw-reupload-and-dense-lod-tiers-2026-09-30`);
+spawn hold until static trimeshes land, floor probe from +2 m (`spawn-hold-until-static-colliders-and-floor-probe-2026-09-30`);
+vegetation A/B numbers and remaining GPU-backpressure long tasks (`veg-variation-perf-ab-and-remaining-costs-2026-09-30`).
+
 ## Audit log
 
 Per-session narrative is drained (2026-09-14; pre-drain text in `git log -p -- AGENTS.md`); the

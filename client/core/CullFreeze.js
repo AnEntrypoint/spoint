@@ -1,6 +1,13 @@
 const POSITION_STILL_EPS_SQ = 0.05 * 0.05
 const ROTATION_STILL_COS = 0.999985
 
+export function setInstancedCullAuto(mesh, auto) {
+  if (!mesh) return
+  mesh.autoUpdate = auto
+  const levels = mesh.LODinfo && mesh.LODinfo.objects
+  if (levels) for (const level of levels) level.autoUpdate = auto
+}
+
 export function createCullFreeze(applyAutoUpdate) {
   let frozen = false
   let x = NaN, y = NaN, z = NaN, qx = 0, qy = 0, qz = 0, qw = NaN

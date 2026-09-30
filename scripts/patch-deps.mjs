@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 
 const PINNED_VERSIONS = {
   '@three.ez/instanced-mesh': '0.3.16',
+  'bvh.js': '0.0.13',
   'three': '0.185.1'
 }
 
@@ -121,4 +122,60 @@ patch(
   `\t\t\tconst program = setProgram( camera, scene, geometry, material, object );\n`,
   `\t\t\tconst program = setProgram( camera, scene, geometry, material, object );\n\t\t\tif ( program === null ) return;\n`,
   'three renderBufferDirect skips a deferred draw'
+)
+
+patch(
+  'node_modules/three/build/three.module.js',
+  'if ( object.isInstancedMesh === true && object.count === 0 ) return;',
+  `\t\t\tconst frontFaceCW = ( object.isMesh && object.matrixWorld.determinantAffine() < 0 );\n`,
+  `\t\t\tif ( object.isInstancedMesh === true && object.count === 0 ) return;\n\n\t\t\tconst frontFaceCW = ( object.isMesh && object.matrixWorld.determinantAffine() < 0 );\n`,
+  'three renderBufferDirect skips an instanced mesh with no instances before setProgram'
+)
+
+patch(
+  'node_modules/bvh.js/build/index.js',
+  'frustumCullingLOD(t, i, n, r, k = n.length)',
+  `  frustumCullingLOD(t, i, n, r) {
+    if (this.root === null) return;
+    const f = this.frustum.setFromProjectionMatrix(t);
+    s(this.root, 63, null);
+    function s(c, u, a) {
+      const y = c.box;
+      if (a === null && (a = l(y)), c.object !== void 0) {`,
+  `  frustumCullingLOD(t, i, n, r, k = n.length) {
+    if (this.root === null) return;
+    const f = this.frustum.setFromProjectionMatrix(t);
+    s(this.root, 63, null);
+    function s(c, u, a) {
+      const y = c.box;
+      if (a === null && (a = l(y)), a !== null && a >= k) return;
+      if (c.object !== void 0) {`,
+  'bvh.js frustumCullingLOD prunes nodes wholly inside a skipped far band'
+)
+
+patch(
+  'node_modules/bvh.js/build/index.js',
+  'if (u === null && (u = l(c.box)), u !== null && u >= k) return;',
+  `    function o(c, u) {
+      if (u === null && (u = l(c.box)), c.object !== void 0) {`,
+  `    function o(c, u) {
+      if (u === null && (u = l(c.box)), u !== null && u >= k) return;
+      if (c.object !== void 0) {`,
+  'bvh.js frustumCullingLOD showAll path prunes the skipped far band'
+)
+
+patch(
+  'node_modules/@three.ez/instanced-mesh/build/index.js',
+  'while (k > 1 && n[k - 1].object.visible === false) k--;',
+  `    const o = this._cameraPos;
+    o[0] = e.x, o[1] = e.y, o[2] = e.z, this._margin > 0 && this.accurateCulling ? this.bvh.frustumCullingLOD(t.elements, o, s, (a, c, h, u) => {
+      h.isIntersectedMargin(a.box, u, this._margin) && i(a, c);
+    }) : this.bvh.frustumCullingLOD(t.elements, o, s, i);`,
+  `    const o = this._cameraPos;
+    let k = n.length;
+    while (k > 1 && n[k - 1].object.visible === false) k--;
+    o[0] = e.x, o[1] = e.y, o[2] = e.z, this._margin > 0 && this.accurateCulling ? this.bvh.frustumCullingLOD(t.elements, o, s, (a, c, h, u) => {
+      h.isIntersectedMargin(a.box, u, this._margin) && i(a, c);
+    }, k) : this.bvh.frustumCullingLOD(t.elements, o, s, i, k);`,
+  'three.ez BVH LOD cull skips trailing hidden LOD levels'
 )

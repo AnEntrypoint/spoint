@@ -7,6 +7,10 @@ const SNAP_RAY_LENGTH = 2000
 const PROBE_RAY_START_ABOVE = 50
 const PROBE_RAY_LENGTH = 4000
 const SPAWN_CLEARANCE = 2
+const SPAWN_PROBE_ABOVE = 2
+const SPAWN_STATIC_WAIT_RADIUS = 256
+const SPAWN_HOLD_MAX_MS = 20000
+const SPAWN_HOLD_MOVED_EPS = 0.01
 
 function terrainY(physics, x, z) {
   const y = typeof physics?.terrainHeightAt === 'function' ? physics.terrainHeightAt(x, z) : null
@@ -28,8 +32,73 @@ export function snapToGround(ctx, x, hintY, z, clearance, snap = 'first') {
   return Number.isFinite(hintY) ? [x, hintY, z] : null
 }
 
+export function probeSpawnGroundY(ctx, sp) {
+  const physics = ctx.physics
+  if (!physics || typeof physics.raycast !== 'function') return null
+  const liveY = terrainY(physics, sp[0], sp[2])
+  const probeY = (liveY !== null ? Math.max(sp[1], liveY) : sp[1]) + SPAWN_PROBE_ABOVE
+  const hit = physics.raycast([sp[0], probeY, sp[2]], [0, -1, 0], SNAP_RAY_LENGTH)
+  return hit && hit.hit && Number.isFinite(hit.position?.[1]) ? hit.position[1] : null
+}
+
 export function groundSnapSpawnPoint(ctx, sp) {
-  return snapToGround(ctx, sp[0], sp[1], sp[2], SPAWN_CLEARANCE) || sp
+  const groundY = probeSpawnGroundY(ctx, sp)
+  return groundY !== null ? [sp[0], groundY + SPAWN_CLEARANCE, sp[2]] : sp
+}
+
+function staticCollidersPendingNear(ctx, p) {
+  const runtime = ctx.appRuntime
+  if (runtime?._pendingTrimeshBuilds?.size > 0) return true
+  const pending = runtime?._pendingTrimeshEntities
+  if (!pending || pending.size === 0) return false
+  for (const ent of pending.values()) {
+    const e = ent.position || [0, 0, 0]
+    if (Math.hypot(e[0] - p[0], e[2] - p[2]) <= SPAWN_STATIC_WAIT_RADIUS) return true
+  }
+  return false
+}
+
+export function holdSpawnUntilGrounded(ctx, playerId, sp, { rejoin = false } = {}) {
+  const player = ctx.playerManager.getPlayer(playerId)
+  if (!player) return
+  const probeGroundY = () => {
+    if (staticCollidersPendingNear(ctx, sp)) return null
+    if (!rejoin) return probeSpawnGroundY(ctx, sp)
+    if (!ctx.physics || typeof ctx.physics.raycast !== 'function') return null
+    const r = ctx.physics.raycast([sp[0], sp[1], sp[2]], [0, -1, 0], SNAP_RAY_LENGTH)
+    return r && r.hit && Number.isFinite(r.position?.[1]) ? r.position[1] : null
+  }
+  beginTeleportHold(player, {
+    maxMs: SPAWN_HOLD_MAX_MS,
+    probeGroundY,
+    onRelease: ({ groundY }) => {
+      if (rejoin) return
+      const p = player.state.position
+      const movedDuringHold = Math.abs(p[0] - sp[0]) + Math.abs(p[1] - sp[1]) + Math.abs(p[2] - sp[2]) > SPAWN_HOLD_MOVED_EPS
+      if (movedDuringHold) return
+      const y = groundY !== null ? groundY : probeSpawnGroundY(ctx, sp)
+      if (y === null) return
+      placePlayerAt(ctx, playerId, [sp[0], ctx.physicsIntegration.standingCentreY(y), sp[2]])
+    },
+  })
+}
+
+function placePlayerAt(ctx, playerId, position) {
+  const { playerManager, physicsIntegration, lagCompensator, appRuntime } = ctx
+  const player = playerManager.getPlayer(playerId)
+  if (!player) return
+  const st = player.state
+  st.position[0] = position[0]; st.position[1] = position[1]; st.position[2] = position[2]
+  st.velocity[0] = 0; st.velocity[1] = 0; st.velocity[2] = 0
+  st.onGround = false
+  st.swimming = false
+  physicsIntegration.setPlayerPosition(playerId, position)
+  const charId = physicsIntegration.playerBodies.get(playerId)?.charId
+  if (charId && physicsIntegration.physicsWorld) physicsIntegration.physicsWorld.setCharacterVelocity(charId, [0, 0, 0])
+  playerManager.clearInputs(playerId)
+  player.lastInput = null
+  lagCompensator.clearPlayerHistory(playerId)
+  appRuntime.broadcastMessage({ type: 'player_teleport', playerId, position: [...position] })
 }
 
 export function probeGround(ctx, x, z, fromY) {
@@ -42,8 +111,7 @@ export function probeGround(ctx, x, z, fromY) {
 }
 
 export function teleportPlayer(ctx, playerId, spec, { onGrounded } = {}) {
-  const { playerManager, physicsIntegration, lagCompensator, appRuntime, tickSystem } = ctx
-  const player = playerManager.getPlayer(playerId)
+  const player = ctx.playerManager.getPlayer(playerId)
   if (!player) throw new Error(`teleport: no player ${playerId}`)
   const physics = ctx.physics
   const frame = physics?._planetFrame || null
@@ -55,20 +123,9 @@ export function teleportPlayer(ctx, playerId, spec, { onGrounded } = {}) {
     position = snapToGround(ctx, target.x, Number.NEGATIVE_INFINITY, target.z, target.clearance, target.snap)
     if (!position) throw new Error('teleport: no terrain height at target and no explicit y')
   }
-  const st = player.state
-  st.position[0] = position[0]; st.position[1] = position[1]; st.position[2] = position[2]
-  st.velocity[0] = 0; st.velocity[1] = 0; st.velocity[2] = 0
-  st.onGround = false
-  st.swimming = false
-  physicsIntegration.setPlayerPosition(playerId, position)
-  const charId = physicsIntegration.playerBodies.get(playerId)?.charId
-  if (charId && physicsIntegration.physicsWorld) physicsIntegration.physicsWorld.setCharacterVelocity(charId, [0, 0, 0])
-  playerManager.clearInputs(playerId)
-  player.lastInput = null
-  lagCompensator.clearPlayerHistory(playerId)
+  placePlayerAt(ctx, playerId, position)
   beginTeleportHold(player, { onRelease: (release) => onGrounded?.(release) })
-  appRuntime.broadcastMessage({ type: 'player_teleport', playerId, position: [...position] })
-  return { position, tick: tickSystem.currentTick }
+  return { position, tick: ctx.tickSystem.currentTick }
 }
 
 export function createRelocationHandlers(ctx) {
