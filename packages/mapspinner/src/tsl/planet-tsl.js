@@ -98,11 +98,14 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   const sky =lutJob ? createSkyTSL({ radius: R, luts: await lutJob }) : null
   if (sky) scene.backgroundNode = sky.node
 
-  const surfaceState = { ready: false, error: null }
+  const surfaceState = { ready: false, error: null, disposed: false }
   if (opts.loadSurfaceTextures !== false && canDecodeImages()) {
     const decodeJob = runModuleWorkerJob(new URL('../surface-texture-worker.js', import.meta.url), { baseUrl: opts.surfaceTexturesBaseUrl }, (d) => (d.albAll && d.nrmAll ? d : null), SURFACE_DECODE_TIMEOUT_MS)
     Promise.resolve(decodeJob).then((set) => set || decodeSurfaceTextureSet(opts.surfaceTexturesBaseUrl)).then((set) => {
+      if (surfaceState.disposed) return
       const tex = makeSurfaceTextures(set)
+      u.surfAlb.value.dispose()
+      u.surfNrm.value.dispose()
       u.surfAlb.value = tex.alb
       u.surfNrm.value = tex.nrm
       u.meanL.value.set(set.meanL[0], set.meanL[1], set.meanL[2], set.meanL[3])
@@ -214,8 +217,11 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     scene.remove(mesh)
     if (water) { scene.remove(water.mesh); water.dispose() }
     if (sky) { if (scene.backgroundNode === sky.node) scene.backgroundNode = null; sky.dispose() }
+    surfaceState.disposed = true
     patch.geo.dispose()
     material.dispose()
+    u.surfAlb.value.dispose()
+    u.surfNrm.value.dispose()
     hpfTexture.dispose()
   }
 

@@ -249,7 +249,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     } catch (_) {}
   }
   function update() {}
-  function dispose() { try { planet.clearCache && planet.clearCache() } catch (e) { _dbgTerrain('planet.clearCache failed on dispose:', e?.message || e) }; try { _terrainOcclusion.dispose() } catch (e) { _dbgTerrain('terrainOcclusion dispose failed:', e?.message || e) }; if (typeof window !== 'undefined' && window.__terrain && window.__terrain.planet === planet) delete window.__terrain }
+  function dispose() { try { planet.clearCache && planet.clearCache() } catch (e) { _dbgTerrain('planet.clearCache failed on dispose:', e?.message || e) }; if (isTslTerrain && typeof planet.dispose === 'function') planet.dispose(); try { _terrainOcclusion.dispose() } catch (e) { _dbgTerrain('terrainOcclusion dispose failed:', e?.message || e) }; if (typeof window !== 'undefined' && window.__terrain && window.__terrain.planet === planet) delete window.__terrain }
   function occlusionPredicateSnapshot() { return _terrainOcclusion.snapshotOccludedKeys() }
   function setOcclusionQueryBudget(n) { _terrainOcclusion.setMaxQueriesPerFrame(n) }
   function getOcclusionQueryBudget() { return _terrainOcclusion.getMaxQueriesPerFrame() }
