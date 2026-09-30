@@ -9,12 +9,13 @@ import { wireCheatEjection } from './CheatEjection.js'
 import { createWorkerBridgeProxy } from './WorkerBridgeProxy.js'
 import { checksumBodies, createChecksumFold } from './LockstepChecksum.js'
 import { resolveNetcodeProfile, PEER_SIMULATED_PROFILES } from './NetcodeProfile.js'
+import { DEFAULT_SPAWN_POINT, playerDefault } from '../shared/worldDefaults.js'
 
 const STATE_RING_TICKS = 32
 const STATS_POST_INTERVAL_MS = 1000
 
 function spawnFor(ctx, index) {
-  const pts = ctx.worldSpawnPoints || [ctx.worldSpawnPoint || [0, 5, 0]]
+  const pts = ctx.worldSpawnPoints || [ctx.worldSpawnPoint || [...DEFAULT_SPAWN_POINT]]
   return [...pts[index % pts.length]]
 }
 
@@ -30,7 +31,7 @@ export function createPeerSimSession(ctx, { roster, localPubkey, post }) {
     const sp = spawnFor(ctx, i)
     const id = playerManager.addPlayer(null, { position: sp, health: playerConfig.health })
     networkState.addPlayer(id, { position: sp })
-    physicsIntegration.addPlayerCollider(id, playerConfig.capsuleRadius || 0.4)
+    physicsIntegration.addPlayerCollider(id, playerDefault(playerConfig, 'capsuleRadius'))
     physicsIntegration.setPlayerPosition(id, sp)
     const st = playerManager.getPlayer(id).state
     lagCompensator.recordPlayerPosition(id, st.position, st.rotation, st.velocity, 0)

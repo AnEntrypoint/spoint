@@ -331,7 +331,7 @@ const FLAGS = [
   { flag: '?editorToken=<token>', kind: 'query', group: 'editor-auth', readAt: 'client/app.js',
     doc: 'Opts a locally-run editor connection into the EDITOR_TOKEN auth gate (sent as X-Editor-Token) without touching regular player connections.' },
   { flag: 'WORLD', kind: 'env', group: 'world', readAt: 'src/sdk/server.js, scripts/perf-gate.mjs',
-    doc: 'Server-side world definition name to boot (default "tps-game"). Set as an environment variable on the node server.js process, not a query param.' },
+    doc: 'Server-side world definition name to boot (default: the defaultWorld exported by apps/world/index.js). Set as an environment variable on the node server.js process, not a query param.' },
   { flag: 'EDITOR_TOKEN', kind: 'env', group: 'editor-auth', readAt: 'src/sdk/ServerAPI.js, src/sdk/ServerHandlers.js, src/sdk/authCompare.js',
     doc: 'Server-side editor-endpoint auth token. Unset = open (dev default, endpoint unauthenticated). Set = required via X-Editor-Token header on every editor request, refused outright if absent/mismatched.' },
   { flag: 'PORT', kind: 'env', group: 'server', readAt: 'src/sdk/server.js, scripts/*.mjs',

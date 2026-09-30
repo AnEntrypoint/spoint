@@ -77,7 +77,7 @@ npm test
   ],
   
   spawnPoint: [0, 2, 0],
-  playerModel: './apps/tps-game/cleetus.vrm',
+  playerModel: '/assets/default-avatar.vrm',
   trustedApps: ['terrain'],
   placeableApps: ['box-dynamic', 'destructible-box', ...]
 }

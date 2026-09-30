@@ -1,4 +1,5 @@
 import { decodeReplay } from './ReplayFile.js'
+import { playerDefault } from '../shared/worldDefaults.js'
 
 export class ReplayPlayer {
   constructor({ createServer, worldDef, replayBuf, sdkConfig = {} }) {
@@ -29,7 +30,7 @@ export class ReplayPlayer {
       const newId = server.playerManager.addPlayer(fakeSocket, { position: p.spawn.position, rotation: p.spawn.rotation, health: p.spawn.health, name: p.name })
       idMap.set(p.id, newId)
       server.networkState.addPlayer(newId, { position: p.spawn.position })
-      const capsuleRadius = this._worldDef.player?.capsuleRadius || 0.4
+      const capsuleRadius = playerDefault(this._worldDef.player, 'capsuleRadius')
       server.physicsIntegration.addPlayerCollider(newId, capsuleRadius)
       server.physicsIntegration.setPlayerPosition(newId, p.spawn.position)
     }

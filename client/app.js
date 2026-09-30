@@ -67,6 +67,7 @@ import { installMeshDebug } from './core/MeshDebug.js'
 import { pickExpressionCode, applyExpressionCode, EXPR_NEUTRAL } from './core/ExpressionCodes.js'
 import { codeToWeaponName } from '../src/shared/WeaponCodes.js'
 import { withTerrainSeed, withTerrainHashVersion, parseTerrainHashOverride } from '../src/shared/terrainConfig.js'
+import { defaultWorldNameOf, isWorldName } from '../src/shared/worldName.js'
 import { getSharedStreamingScheduler } from './core/StreamingScheduler.js'
 import { createPlacementScheduler, warmSceneryShaders } from './core/PlacementScheduler.js'
 import { getSharedCacheRevalidationSweep } from './core/CacheRevalidationSweep.js'
@@ -92,6 +93,9 @@ import { createDecalSystem } from './core/DecalSystem.js'
 import { BIOME_PRESETS } from '/src/terrain/BiomeOverride.js'
 import { ErrorTelemetry } from './core/ErrorTelemetry.js'
 import { installDevTools } from './core/DevToolsIntegration.js'
+import { assertWorld } from '/src/shared/worldResolve.js'
+import { expandWorldPresets } from '/src/shared/worldPresets.js'
+import { worldPlayerModel } from '/src/shared/worldDefaults.js'
 
 const _dbgTerrain = dbg('terrain')
 const _dbgNet = dbg('net')
@@ -268,6 +272,7 @@ if (typeof window !== 'undefined') {
   installShadowCostProbe(renderer, scene, camera, shadowPipeline)
   timeOfDay = createTimeOfDay(sun, ambient, {
     studio,
+    ownsSunPosition: false,
     onDirectionChange(dir) {
       try { shadowPipeline && shadowPipeline.setSunDirection(dir) } catch (e) { _dbgTerrain('timeOfDay->shadowPipeline setSunDirection failed:', e?.message || e) }
       try { terrainBackdrop && terrainBackdrop.setSunLocal && terrainBackdrop.setSunLocal(dir) } catch (e) { _dbgTerrain('timeOfDay->terrainBackdrop setSunLocal failed:', e?.message || e) }
@@ -347,23 +352,33 @@ async function _finishLoading() {
 }
 function _ensureVegetation(tb) {
   if (vegetation || !tb || !_terrainCfg) return null
+  if (_foliagePending.vegetation) return _foliagePending.vegetation
   const vcfg = _terrainCfg.vegetation
   if (!vcfg || vcfg.enabled === false) return null
   if (typeof location !== 'undefined' && /[?&]veg=none/.test(location.search)) { console.warn('[veg] ?veg=none -> vegetation skipped'); return null }
   const anchorField = tb.sampler && tb.sampler.anchorField
-  return _hmrFactories.createVegetation({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0 })
-    .then(v => { vegetation = v; if (window.__app) window.__app.vegetation = v; sceneOcclusion.register('vegetation', v) })
+  const gen = _foliageGen
+  const pending = _hmrFactories.createVegetation({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0 })
+    .then(v => { if (gen !== _foliageGen) { v?.dispose?.(); return } vegetation = v; if (window.__app) window.__app.vegetation = v; sceneOcclusion.register('vegetation', v) })
     .catch(e => console.error('[veg] init failed:', e?.message || e))
+    .finally(() => { if (_foliagePending.vegetation === pending) _foliagePending.vegetation = null })
+  _foliagePending.vegetation = pending
+  return pending
 }
 function _ensureRocks(tb) {
   if (rocks || !tb || !_terrainCfg) return null
+  if (_foliagePending.rocks) return _foliagePending.rocks
   const vcfg = _terrainCfg.vegetation || {}
   if (vcfg.rocks === false) return null
   if (typeof location !== 'undefined' && /[?&]norocks/.test(location.search)) { console.warn('[rocks] ?norocks -> rocks skipped'); return null }
   const anchorField = tb.sampler && tb.sampler.anchorField
-  return _hmrFactories.createRocks({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0 })
-    .then(r => { rocks = r; if (window.__app) window.__app.rocks = r; sceneOcclusion.register('rocks', r) })
+  const gen = _foliageGen
+  const pending = _hmrFactories.createRocks({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0 })
+    .then(r => { if (gen !== _foliageGen) { r?.dispose?.(); return } rocks = r; if (window.__app) window.__app.rocks = r; sceneOcclusion.register('rocks', r) })
     .catch(e => console.error('[rocks] init failed:', e?.message || e))
+    .finally(() => { if (_foliagePending.rocks === pending) _foliagePending.rocks = null })
+  _foliagePending.rocks = pending
+  return pending
 }
 function _ensureCaves(tb) {
   if (caveMeshes || !tb || !_terrainCfg) return null
@@ -377,13 +392,18 @@ function _ensureCaves(tb) {
 }
 function _ensureGrass(tb) {
   if (grass || !tb || !_terrainCfg) return null
+  if (_foliagePending.grass) return _foliagePending.grass
   const vcfg = _terrainCfg.vegetation || {}
   if (vcfg.grass === false) return null
   if (typeof location !== 'undefined' && /[?&]nograss/.test(location.search)) { console.warn('[grass] ?nograss -> grass skipped'); return null }
   const anchorField = tb.sampler && tb.sampler.anchorField
-  return _hmrFactories.createGrass({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0, placedModels: worldConfig.entities })
-    .then(g => { grass = g; if (window.__app) window.__app.grass = g; sceneOcclusion.register('grass', g) })
+  const gen = _foliageGen
+  const pending = _hmrFactories.createGrass({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0, placedModels: worldConfig.entities })
+    .then(g => { if (gen !== _foliageGen) { g?.dispose?.(); return } grass = g; if (window.__app) window.__app.grass = g; sceneOcclusion.register('grass', g) })
     .catch(e => console.error('[grass] init failed:', e?.message || e))
+    .finally(() => { if (_foliagePending.grass === pending) _foliagePending.grass = null })
+  _foliagePending.grass = pending
+  return pending
 }
 function _ensureWeather(tb) {
   if (weather || !_terrainCfg) return null
@@ -400,10 +420,14 @@ async function _buildWorldScenery() {
   const _hp = (tag) => { if (typeof location === 'undefined' || !location.search.includes('leak')) return; try { const m = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : -1; console.log('[BUILD-HEAP] ' + tag + ' = ' + m + 'MB') } catch (_) {} }
   _hp('start')
   let tb = await _hmrFactories.createTerrainBackdrop(renderer, scene, _terrainCfg)
-  if (terrainBackdrop && terrainBackdrop !== tb) { tb.dispose(); tb = terrainBackdrop; if (tb.registerDebugGlobals) tb.registerDebugGlobals() }
+  if (terrainBackdrop && terrainBackdrop !== tb) {
+    const liveHasPlanet = typeof terrainBackdrop.registerDebugGlobals === 'function'
+    if (liveHasPlanet || typeof tb.registerDebugGlobals !== 'function') { tb.dispose(); tb = terrainBackdrop; if (liveHasPlanet) tb.registerDebugGlobals(); if (_bootSceneryStarted) return }
+    else { try { terrainBackdrop.dispose() } catch (e) { _dbgTerrain('failed boot terrainBackdrop dispose failed:', e?.message || e) } }
+  }
   performance.mark('boot:terrain')
   _hp('after-backdrop')
-  terrainBackdrop = tb; try { scene.background = null } catch (e) { _dbgTerrain('clear scene.background failed:', e?.message || e) }
+  terrainBackdrop = tb; _bootSceneryStarted = true; try { scene.background = null } catch (e) { _dbgTerrain('clear scene.background failed:', e?.message || e) }
   try { sculptOverlay = createSculptOverlay(tb) } catch (e) { console.warn('[terrain] sculptOverlay init failed:', e?.message || e) }
   _applyPendingSculptBackfill()
   const _bootSunDir = (_terrainCfg && _terrainCfg.sun) || [0, 0.343, 0.939]
@@ -482,6 +506,10 @@ if (deviceInfo.isMobile && clickPrompt) clickPrompt.style.display = 'none'
 const _pids = new Set(), _eids = new Set()
 let worldConfig={}, vrmBuffer=null, animAssets=null, assetsLoaded=false, firstSnapshotReceived=false, _fitShadowTimer=null
 let _terrainBuildGen = 0
+let _terrainReseedPending = false
+let _foliageGen = 0
+const _foliagePending = { vegetation: null, rocks: null, grass: null }
+let _bootSceneryStarted = false
 let terrainBackdrop=null, _terrainCfg=null, vegetation=null, rocks=null, grass=null, colliderDebug=null, weather=null, sculptOverlay=null, caveMeshes=null
 let _pendingSculptBackfill = null
 let _pendingSpPrefetch = null
@@ -629,14 +657,16 @@ if (_hashQueryIdx >= 0) {
     if (!_params.has(k)) _params.append(k, v)
   }
 }
-const DEFAULT_WORLD = 'tps-game'
+const _defaultWorldName = () => import('/apps/world/index.js').then(defaultWorldNameOf, e => { console.error('[world] no default world: /apps/world/index.js failed to load:', e?.message || e); return null })
 const _hasAnyMode = _params.has('singleplayer') || _params.has('wwjoin') || _params.has('room') || _params.has('multiplayer')
 const _isSingleplayer = _hasAnyMode ? _params.has('singleplayer') : true
 const _isHost = _params.has('host')
 const _joinOffer = _params.get('join')
 const _wwRoom = _params.get('room')
 const _runsInPageServer = _isSingleplayer || _isHost || !!_joinOffer || !!_wwRoom
-const _worldParam = _params.get('world') || (_runsInPageServer ? DEFAULT_WORLD : null)
+const _requestedWorld = _params.get('world') || null
+if (_requestedWorld && !isWorldName(_requestedWorld)) throw new TypeError(`?world must be a world file stem, got ${JSON.stringify(_requestedWorld)}`)
+const _worldParam = _requestedWorld || (_runsInPageServer ? await _defaultWorldName() : null)
 const _wwJoin = _params.has('wwjoin')
 const _showStats = _params.has('showStats')
 const _connectParam = _params.get('connect')
@@ -788,6 +818,7 @@ const engineCtx = {
   rebuildTerrain(partial) {
     const seedChanged = partial && Object.prototype.hasOwnProperty.call(partial, 'seed') && partial.seed !== (_terrainCfg || {}).seed
     _terrainCfg = { ...(_terrainCfg || {}), ...(partial || {}) }
+    if (seedChanged) _terrainReseedPending = true
     const old = terrainBackdrop; terrainBackdrop = null
     try { old && old.dispose && old.dispose() } catch (e) { _dbgTerrain('old terrainBackdrop dispose failed:', e?.message || e) }
     sculptOverlay = null
@@ -798,6 +829,7 @@ const engineCtx = {
       try { grass && grass.dispose && grass.dispose() } catch (e) { _dbgTerrain('grass dispose failed on reseed:', e?.message || e) }
       try { caveMeshes && caveMeshes.dispose && caveMeshes.dispose() } catch (e) { _dbgTerrain('caveMeshes dispose failed on reseed:', e?.message || e) }
       vegetation = null; rocks = null; grass = null; caveMeshes = null
+      _foliageGen++; _foliagePending.vegetation = null; _foliagePending.rocks = null; _foliagePending.grass = null
       if (window.__app) { window.__app.vegetation = null; window.__app.rocks = null }
       try { weather && weather.dispose && weather.dispose() } catch (e) { _dbgTerrain('weather dispose failed on reseed:', e?.message || e) }
       weather = null
@@ -811,7 +843,9 @@ const engineCtx = {
         try { sculptOverlay = createSculptOverlay(tb) } catch (e) { console.warn('[terrain] sculptOverlay reseed-rebuild failed:', e?.message || e) }
         _applyPendingSculptBackfill()
         try { const f = tb.frame; if (f) setSeaLevelY((f.offsetY || 0) - (f.anchorHeight || 0), scene, f.radius) } catch (_) {}
-        if (seedChanged && tb && window.__terrain) {
+        const reseed = _terrainReseedPending
+        _terrainReseedPending = false
+        if (reseed && tb && window.__terrain) {
           const rp = _ensureRocks(tb); const gp = _ensureGrass(tb); const vp = _ensureVegetation(tb)
           _ensureCaves(tb); _ensureWeather(tb)
           return Promise.all([rp, gp, vp].filter(Boolean)).catch(e => console.error('[terrain] reseed veg/rock/grass rebuild failed:', e?.message || e))
@@ -876,7 +910,7 @@ function _splitAppPath(path) {
 let _worldDef = null, _worldLoaded = false
 if (_worldParam && _runsInPageServer) {
   const _wmod = await import(`/apps/world/${_worldParam}.js`).catch(e => { console.error(`[world] failed to load /apps/world/${_worldParam}.js:`, e?.message || e); return null })
-  if (_wmod?.default) _worldDef = _wmod.default
+  if (_wmod?.default) _worldDef = assertWorld(expandWorldPresets(_wmod.default), _worldParam)
 }
 if (_seedParam != null && _worldDef) _worldDef = withTerrainSeed(_worldDef, _seedParam)
 if (_terrainHashParam != null && _worldDef) _worldDef = withTerrainHashVersion(_worldDef, _terrainHashParam)
@@ -890,8 +924,9 @@ try {
   }
 } catch (_) {}
 try {
-  if (_worldDef?.playerModel) {
-    const _pvu = _worldDef.playerModel.startsWith('./') ? new URL(_worldDef.playerModel, location.href).pathname : _worldDef.playerModel
+  const _worldPlayerModel = _worldDef ? worldPlayerModel(_worldDef) : null
+  if (_worldPlayerModel) {
+    const _pvu = _worldPlayerModel.startsWith('./') ? new URL(_worldPlayerModel, location.href).pathname : _worldPlayerModel
     pm.setPlayerVrmUrl(_pvu); initAssets(_pvu)
   }
 } catch (_) {}
@@ -957,10 +992,12 @@ let client; const _clientConfig = {
   onWorldDef: wd => {
     if (_worldLoaded) { try { el.dispose() } catch (e) { _dbgEditor('EntityLoader dispose failed on world reload:', e?.message || e) } try { modelPool.dispose() } catch (e) { _dbgEditor('modelPool dispose failed on world reload:', e?.message || e) } }
     _worldLoaded = true
-    loadingMgr.setLabel('Syncing with server...'); worldConfig=wd; loadingMachine.send('WORLD_CONFIG')
-    const criticalModels = [wd.playerModel, ...(wd.entities||[]).filter(e=>e.custom?._interior||e.custom?.noAutoLod).map(e=>e.model)].filter(Boolean)
+    loadingMgr.setLabel('Syncing with server...'); worldConfig=wd
+    if (wd.terrain && wd.terrain.enabled!==false) _terrainCfg=wd.terrain
+    loadingMachine.send('WORLD_CONFIG')
+    const criticalModels = [worldPlayerModel(wd), ...(wd.entities||[]).filter(e=>e.custom?._interior||e.custom?.noAutoLod).map(e=>e.model)].filter(Boolean)
     if (criticalModels.length > 0) loadingMgr.setFixedTotal(new Set(criticalModels).size)
-    if (wd.playerModel) { const _pvu = wd.playerModel.startsWith('./')?new URL(wd.playerModel,location.href).pathname:wd.playerModel; pm.setPlayerVrmUrl(_pvu); initAssets(_pvu) }
+    const _wdPlayerModel = worldPlayerModel(wd); if (_wdPlayerModel) { const _pvu = _wdPlayerModel.startsWith('./')?new URL(_wdPlayerModel,location.href).pathname:_wdPlayerModel; pm.setPlayerVrmUrl(_pvu); initAssets(_pvu) }
     else { assetsLoaded=true; loadingMachine.send('ASSETS_DONE') }
     if (!wd.entities || wd.entities.length===0) loadingMachine.send('ENVIRONMENT_DONE')
     if (wd.entities) for (const e of wd.entities) { if (e.app) entityAppMap.set(e.id,e.app) }
@@ -970,7 +1007,7 @@ let client; const _clientConfig = {
     if (modelUrls.length > 0 && !_isSingleplayer) el.prefetchModels(modelUrls).catch(() => {})
     else if (modelUrls.length > 0 && _isSingleplayer) _pendingSpPrefetch = modelUrls
     if (wd.scene) applySceneConfig(wd.scene,scene,ambient,sun,studio,camera)
-    if (wd.terrain && wd.terrain.enabled!==false) _terrainCfg=wd.terrain
+    if (_loadingFinished && _terrainCfg && !terrainBackdrop) _buildWorldScenery().catch(e => console.error('[terrain] late scenery build failed:', e?.message || e))
     try { minimapHUD.dispose() } catch (_) {}
     minimapHUD = wd._minimap ? createMinimapHUD(wd._minimap, _getMinimapPose, _getMinimapTerrain) : { update() {}, dispose() {} }
     if (typeof window !== 'undefined') window.__minimapMeta = wd._minimap || null
@@ -1787,7 +1824,7 @@ let _lobby = null, _lobbyPromise = null
 function _getLobby() {
   if (!_lobbyPromise) {
     _lobbyPromise = import('./hud/createLobby.js').then(({ createLobby }) => {
-      _lobby = createLobby({ world: _worldParam || DEFAULT_WORLD, onClose: () => clientMachine.send('CLOSE_LOBBY') })
+      _lobby = createLobby({ world: _worldParam, onClose: () => clientMachine.send('CLOSE_LOBBY') })
       window.__app.lobby = _lobby
       return _lobby
     })

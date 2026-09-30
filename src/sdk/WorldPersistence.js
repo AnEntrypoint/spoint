@@ -2,6 +2,7 @@ import { canonicalJSON } from '../shared/canonicalJSON.js'
 import { createChecksumFold } from '../netcode/LockstepChecksum.js'
 
 export const WORLD_SNAPSHOT_FORMAT_VERSION = 1
+const LEGACY_UNNAMED_WORLD = null
 
 function mapToEntries(m) { return m ? [...m.entries()] : [] }
 function entriesToMap(e) { return new Map(e || []) }
@@ -77,7 +78,8 @@ export async function restoreWorldSnapshot(ctx) {
     return { restored: false, reason: 'version-mismatch' }
   }
   const worldName = resolveWorldName(ctx)
-  if (snap.world !== worldName) {
+  const legacyUnnamedMatch = snap.world === LEGACY_UNNAMED_WORLD && ctx.config?.worldLocatedByDefault === true
+  if (snap.world !== worldName && !legacyUnnamedMatch) {
     console.warn(`[world-persistence] snapshot world mismatch (saved="${snap.world}" current="${worldName}") -- discarding, booting clean`)
     return { restored: false, reason: 'world-mismatch' }
   }

@@ -1,7 +1,7 @@
 {
   "name": "Spoint",
   "short_name": "Spoint",
-  "start_url": "./?singleplayer&world=tps-game",
+  "start_url": "./?singleplayer",
   "display": "standalone",
   "background_color": "#030a10",
   "theme_color": "#030a10",

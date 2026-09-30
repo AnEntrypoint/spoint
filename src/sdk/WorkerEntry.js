@@ -26,11 +26,12 @@ import { allocateRingBuffer, TransformRingWriter } from '../transport/TransformR
 import { saveWorldSnapshot, restoreWorldSnapshot, worldDefFingerprint } from './WorldPersistence.js'
 import { isWorldName } from '../shared/worldName.js'
 import { resolveTerrainConfig, minimapDescriptor } from '../shared/terrainConfig.js'
+import { worldGravity, worldTickRate, worldSpawnPoints } from '../shared/worldDefaults.js'
+import { assertWorld } from '../shared/worldResolve.js'
+import { expandWorldPresets } from '../shared/worldPresets.js'
 
 if (typeof setImmediate === 'undefined') Object.assign(globalThis, { setImmediate: fn => setTimeout(fn, 0) })
 
-const DEFAULT_TICK_RATE_HZ = 60
-const SINGLEPLAYER_DEFAULT_WORLD_ID = 'tps-game'
 const TRANSFORM_RING_CAPACITY = 64
 
 let _ctx = null, _pending = [], _terrainStreamer = null, _transformRing = null
@@ -38,14 +39,15 @@ let _ctx = null, _pending = [], _terrainStreamer = null, _transformRing = null
 export async function init({ worldDef, worldName: selectedWorldName = null, apps = [], migrationSnapshot = null, localPubkey = null, timeOfDaySeed = null, peerSession = null }) {
   await ensurePacked
   if (selectedWorldName !== null && !isWorldName(selectedWorldName)) throw new TypeError(`[WorkerEntry] INIT worldName must be null or a world file stem, got ${JSON.stringify(selectedWorldName)}`)
+  worldDef = assertWorld(expandWorldPresets(worldDef), selectedWorldName)
   const knownWorldName = worldDef.name || selectedWorldName
   const worldName = knownWorldName || worldDefFingerprint(worldDef)
   if (timeOfDaySeed && worldDef?.terrain?.timeOfDay && worldDef.terrain.timeOfDay.serverAuthoritative === true) {
     worldDef.terrain.timeOfDay.seed = timeOfDaySeed
   }
-  const gravity = worldDef.gravity || [0, -9.81, 0]
+  const gravity = worldGravity(worldDef)
   const playerConfig = worldDef.player || {}
-  const tickRate = worldDef.tickRate || DEFAULT_TICK_RATE_HZ
+  const tickRate = worldTickRate(worldDef)
 
   const physics = new PhysicsWorld({ gravity, crouchHalfHeight: playerConfig.crouchHalfHeight })
   const physicsReady = physics.init()
@@ -87,8 +89,8 @@ export async function init({ worldDef, worldName: selectedWorldName = null, apps
     physics,
     lagCompensator, physicsIntegration, connections, sessions, inspector,
     appRuntime, appLoader, stageLoader, sdkRoot: '',
-    currentWorldDef: worldDef, worldName, worldSpawnPoint: worldDef.spawnPoint || [0, 5, 0],
-    worldSpawnPoints: worldDef.spawnPoints || [worldDef.spawnPoint || [0, 5, 0]],
+    currentWorldDef: worldDef, worldName, worldSpawnPoint: worldSpawnPoints(worldDef)[0],
+    worldSpawnPoints: worldSpawnPoints(worldDef),
     snapshotSeq: 0, handlerState: { fn: null },
     onTick: (tick, dt) => { if (ctx.handlerState.fn) ctx.handlerState.fn(tick, dt); connections.flushAll() },
     setTickHandler: fn => { ctx.handlerState.fn = fn; ctx.tickHandlerFn = fn; ctx.serverTimeOfDay = fn?.serverTimeOfDay || null; ctx.serverWeather = fn?.serverWeather || null },
@@ -99,7 +101,7 @@ export async function init({ worldDef, worldName: selectedWorldName = null, apps
   const deterministicPeerWorld = !!peerSession
   const placedPromise = deterministicPeerWorld ? Promise.resolve(null) : storage.get('placed-models').catch(e => { console.warn('[world-persistence] placed-models read failed:', e?.message || e); return null })
   await physicsReady
-  const _minimap = minimapDescriptor(knownWorldName || SINGLEPLAYER_DEFAULT_WORLD_ID, _tcfg)
+  const _minimap = minimapDescriptor(knownWorldName, _tcfg)
   if (_minimap) worldDef._minimap = _minimap
   if (_tcfg && _tcfg.enabled !== false) {
     setupTerrainStreaming({ physics, playerManager, terrain: _tcfg })
@@ -224,7 +226,7 @@ if (hasWorkerPostMessage) {
     if (data.type === 'HMR_TICK_HANDLER') {
       let ok = false
       try {
-        const { createTickHandler: next } = await import(`./TickHandler.js?hmr=${data.v}`)
+        const { createTickHandler: next } = await import(`./TickHandler.js?hmr=${data.v}&p=${data.floor || 0}`)
         _ctx.setTickHandler(next(_ctx._tickHandlerArgs))
         ok = true
       } catch (e) { console.error('[hmr] worker tick handler swap failed:', e?.message || e) }

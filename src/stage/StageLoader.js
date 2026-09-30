@@ -1,4 +1,5 @@
 import { Stage } from './Stage.js'
+import { worldPlayerModel } from '../shared/worldDefaults.js'
 
 function vecOK(v, n) {
   if (!Array.isArray(v) || v.length !== n) return false
@@ -19,7 +20,7 @@ export class StageLoader {
       planetRadius: worldDef.planetRadius || 0,
       gravity: worldDef.gravity,
       spawnPoint: worldDef.spawnPoint,
-      playerModel: worldDef.playerModel
+      playerModel: worldPlayerModel(worldDef)
     })
     stage.bind(this._runtime)
 

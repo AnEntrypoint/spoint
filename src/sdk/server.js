@@ -28,11 +28,12 @@ import { saveWorldSnapshot } from './WorldPersistence.js'
 import { buildUniquePathList, collectWatchableFiles } from './ServerBoot.js'
 import { isDevHmrEnabled } from './DevHmr.js'
 import { registerAppModuleVersioning } from './DevAppModuleVersions.js'
+import { DEFAULT_TICK_RATE_HZ, DEFAULT_GRAVITY } from '../shared/worldDefaults.js'
 
 const PLACED_MODELS_PERSIST_DEBOUNCE_MS = 500
 
 export async function createServerDeps(config, tickRate) {
-  const { gravity = [0, -9.81, 0], playerConfig = {}, storageDir = './data', appsDirs = [], sdkRoot } = config
+  const { gravity = [...DEFAULT_GRAVITY], playerConfig = {}, storageDir = './data', appsDirs = [], sdkRoot } = config
   const physics = new PhysicsWorld({ gravity, crouchHalfHeight: playerConfig.crouchHalfHeight })
   await physics.init()
   const emitter = new EventEmitter(), eventBus = new EventBus(), eventLog = new EventLog({ maxSize: 1000 })
@@ -59,7 +60,8 @@ export async function createServerDeps(config, tickRate) {
 
 export function wireServerHandlers(ctx) {
   const { networkState, playerManager, physicsIntegration, lagCompensator, physics, appRuntime, connections, movement, tickRate, tickSystem, stageLoader, eventLog, reloadManager, sdkRoot } = ctx
-  const worldConfigUrl = pathToFileURL(existsSync(resolve(process.cwd(), 'apps/world/index.js')) ? resolve(process.cwd(), 'apps/world/index.js') : join(sdkRoot, 'apps/world/index.js')).href
+  const worldPath = ctx.config?.worldPath || null
+  const worldConfigUrl = worldPath ? pathToFileURL(worldPath).href : null
   const reloadHandlers = createReloadHandlers({ networkState, playerManager, physicsIntegration, lagCompensator, physics, appRuntime, connections, movement, tickRate, tickSystem, worldConfigPath: worldConfigUrl, getRelevanceRadius: () => ctx.currentWorldDef?.relevanceRadius || 0, getNetcodeConfig: () => ctx.currentWorldDef?.netcode || null,  getWorldTimeOfDayConfig: () => ctx.currentWorldDef?.terrain?.timeOfDay || null, getWorldWeatherConfig: () => ctx.currentWorldDef?.terrain?.weather || null, onAutoSave: () => { saveWorldSnapshot(ctx).catch(e => console.error('[world-persistence] periodic save failed:', e.message)) } })
   ctx.reloadHandlers = reloadHandlers
   ctx.setTickHandler(createTickHandler({ networkState, playerManager, physicsIntegration, lagCompensator, physics, appRuntime, connections, movement, stageLoader, eventLog, tickRate, getRelevanceRadius: () => ctx.currentWorldDef?.relevanceRadius || 0, getNetcodeConfig: () => ctx.currentWorldDef?.netcode || null,  getWorldTimeOfDayConfig: () => ctx.currentWorldDef?.terrain?.timeOfDay || null, getWorldWeatherConfig: () => ctx.currentWorldDef?.terrain?.weather || null, onAutoSave: () => { saveWorldSnapshot(ctx).catch(e => console.error('[world-persistence] periodic save failed:', e.message)) } }))
@@ -70,7 +72,6 @@ export function wireServerHandlers(ctx) {
     const SPECIFIC_RELOAD = new Map([
       ['src/sdk/TickHandler.js', reloadTick],
       ['src/shared/movement.js', reloadTick],
-      ['apps/world/index.js', reloadTick],
       ['src/netcode/PhysicsIntegration.js', reloadHandlers.reloadPhysicsIntegration],
       ['src/netcode/LagCompensator.js', reloadHandlers.reloadLagCompensator],
       ['src/netcode/PlayerManager.js', reloadHandlers.reloadPlayerManager],
@@ -79,7 +80,10 @@ export function wireServerHandlers(ctx) {
     const clientReload = (relPath) => connections.broadcast(MSG.HOT_RELOAD, { timestamp: Date.now(), path: relPath })
     const scanRoots = [sdk('client'), sdk('src/behaviours'), sdk('src/client'), sdk('src/netcode'), sdk('src/shared'), sdk('src/sdk')]
     const discovered = buildUniquePathList(scanRoots.flatMap(root => collectWatchableFiles(root)))
-    discovered.push(sdk('apps/world/index.js'))
+    if (worldPath) {
+      discovered.push(worldPath)
+      SPECIFIC_RELOAD.set(relative(sdkRoot, worldPath).split('\\').join('/'), reloadTick)
+    }
     for (const absPath of discovered) {
       const relPath = relative(sdkRoot, absPath).split('\\').join('/')
       const id = relPath.replace(/\//g, '-').replace(/\.m?js$/, '')
@@ -92,11 +96,11 @@ export function wireServerHandlers(ctx) {
 
 export async function createServer(config = {}) {
   if (isDevHmrEnabled()) registerAppModuleVersioning(config.appsDirs)
-  const port = config.port || 3000, tickRate = config.tickRate || 60
+  const port = config.port || 3000, tickRate = config.tickRate || DEFAULT_TICK_RATE_HZ
   const movement = config.movement || {}, staticDirs = config.staticDirs || []
   const deps = await createServerDeps(config, tickRate)
   const ctx = {
-    config, port, tickRate, appsDirs: config.appsDirs || [], gravity: config.gravity || [0, -9.81, 0],
+    config, port, tickRate, appsDirs: config.appsDirs || [], gravity: config.gravity || [...DEFAULT_GRAVITY],
     movement, staticDirs, ...deps, currentWorldDef: null, worldSpawnPoint: [0, 5, 0],
     snapshotSeq: 0, httpServer: null, wss: null, wtServer: null,
     handlerState: { fn: null }, tickHandlerFn: null, serverTimeOfDay: null, serverWeather: null, placedModelStorage: null,

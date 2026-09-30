@@ -22,35 +22,9 @@ const TERRAIN = {
 }
 
 export default {
+  presets: ['tps'],
   port: 3001,
-  tickRate: 64,
-  entityTickRate: 15,
-  gravity: [0, -18.0, 0],
-  relevanceRadius: 200,
-  physicsRadius: 30,
   physicsBodyBudget: 512,
-  movement: {
-    maxSpeed: 7.0,
-    sprintSpeed: 12.0,
-    groundAccel: 300.0,
-    airAccel: 30.0,
-    airMaxSpeed: 0.15,
-    airSpeedCap: 16.0,
-    friction: 5.0,
-    stopSpeed: 1.0,
-    jumpImpulse: 5.5,
-    collisionRestitution: 0.2,
-    collisionDamping: 0.25
-  },
-  player: {
-    health: 100,
-    capsuleRadius: 0.28,
-    capsuleHalfHeight: 0.63,
-    crouchHalfHeight: 0.315,
-    mass: 120,
-    modelScale: 1.323,
-    feetOffset: 0.027
-  },
   scene: {
     skyColor: 0xff9a5c,
     fogColor: 0xffb389,
@@ -70,30 +44,11 @@ export default {
     shadowRadius: 12,
     shadowBlurSamples: 8
   },
-  camera: {
-    fov: 70,
-    shoulderOffset: 0.35,
-    shoulderOffsets: [0, 0.55, 0.35, 0.1, 0.0],
-    headHeight: 1.85,
-    zoomStages: [0, 2, 4, 8, 18],
-    defaultZoomIndex: 2,
-    followSpeed: 12.0,
-    snapSpeed: 30.0,
-    mouseSensitivity: 0.002,
-    pitchRange: [-1.4, 1.4]
-  },
-  animation: {
-    mixerTimeScale: 1.3,
-    walkTimeScale: 2.4,
-    jogTimeScale: 1.9,
-    sprintTimeScale: 1.0,
-    fadeTime: 0.15
-  },
   trustedApps: ['terrain'],
   placeableApps: ['destructible-box', 'destructible-debris', 'box-dynamic', 'box-static', 'box-buoyant', 'button', 'trigger-volume', 'spawn-point', 'weapon-spawn', 'respawn-zone', 'collectible', 'pickup', 'moving-platform', 'capture-zone', 'waypoint', 'shrinking-zone', 'shrinking-zone-ring', 'playtest-bot', 'vehicle', 'tank', 'softbody-cloth', 'fluid-source', 'fluid3d-source'],
   terrain: TERRAIN,
   entities: [
-    { id: 'terrain', app: 'terrain', config: TERRAIN },
+    { id: 'terrain', app: 'terrain' },
     { id: 'env-sillos', model: './apps/maps/aim_sillos.glb', position: [0, 10.31, 0], scale: [1, 1, 1], app: 'placed-model', config: { collider: 'trimesh' }, custom: { _interior: true } },
     { id: 'spawn-sillos-1', position: [-15, 2.27, -10], app: 'spawn-point', config: { team: 'any' } },
     { id: 'spawn-sillos-2', position: [15, 2.27, -10], app: 'spawn-point', config: { team: 'any' } },
@@ -101,10 +56,5 @@ export default {
     { id: 'spawn-sillos-4', position: [15, 2.27, -33.5], app: 'spawn-point', config: { team: 'any' } },
     { id: 'tps-game', position: [0, 0, 0], app: 'tps-game' }
   ],
-  spawnPoint: [-15, 2.27, -10],
-  playerModel: './apps/tps-game/cleetus.vrm',
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
-  ]
+  spawnPoint: [-15, 2.27, -10]
 }

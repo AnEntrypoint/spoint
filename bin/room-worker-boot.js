@@ -73,7 +73,7 @@ async function main() {
         const body = await readJsonBody(req)
         if (!body || !body.roomId) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'roomId required' })); return }
         try {
-          const handle = await directory.createRoom(body.roomId, body.worldName || 'tps-game', body.opts || {})
+          const handle = await directory.createRoom(body.roomId, body.worldName || null, body.opts || {})
           res.writeHead(201, { 'Content-Type': 'application/json' })
           res.end(JSON.stringify({ roomId: body.roomId, port: handle.port, worldName: handle.worldName }))
         } catch (e) {

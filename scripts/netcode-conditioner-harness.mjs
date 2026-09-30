@@ -385,7 +385,7 @@ async function main() {
   const workDir = resolve(OUT_DIR, `work-${process.pid}`)
   await mkdir(resolve(workDir, 'data'), { recursive: true })
   process.chdir(workDir)
-  const worldDef = INLINE_WORLDS[WORLD] || (await import(pathToFileURL(resolve(SDK_ROOT, 'apps/world', WORLD + '.js')).href)).default
+  const worldDef = INLINE_WORLDS[WORLD] || await (await import('../src/sdk/WorldLocator.js')).loadWorldModule(resolve(SDK_ROOT, 'apps/world', WORLD + '.js'))
   const results = []
   for (const cond of CONDITIONS) for (const predict of PREDICT_MODES) {
     console.log(`[netcode-harness] run latency=${cond.latencyMs}ms jitter=${cond.jitterMs}ms loss=${cond.lossPct}% predict=${predict} channel=${CHANNEL}`)

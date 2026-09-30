@@ -8,6 +8,7 @@ import { createInputSchema, decodeInputPacket, DEFAULT_INPUT_SCHEMA } from '../p
 import { clearOutlierWindow } from '../netcode/OutlierDetector.js'
 import { createNostrAuthServer } from './NostrAuthServer.js'
 import { groundSnapSpawnPoint, holdSpawnUntilGrounded } from './Relocation.js'
+import { playerDefault } from '../shared/worldDefaults.js'
 
 const MAX_TRACKED_RTT_MS = 10000
 const SERVER_ONLY_APP_EVENT_TYPES = new Set(['player_join', 'player_leave', 'player_teleport', 'damage'])
@@ -60,7 +61,7 @@ export function createConnectionHandlers(ctx) {
     const playerConfig = ctx.currentWorldDef?.player || {}
     const playerId = playerManager.addPlayer(transport, { position: sp, health: rejoin?.health ?? playerConfig.health, rotation: rejoin?.rotation })
     networkState.addPlayer(playerId, { position: sp })
-    physicsIntegration.addPlayerCollider(playerId, playerConfig.capsuleRadius || 0.4)
+    physicsIntegration.addPlayerCollider(playerId, playerDefault(playerConfig, 'capsuleRadius'))
     physicsIntegration.setPlayerPosition(playerId, sp)
     const playerState = playerManager.getPlayer(playerId).state
     lagCompensator.recordPlayerPosition(playerId, playerState.position, playerState.rotation, playerState.velocity, tickSystem.currentTick)
@@ -288,12 +289,12 @@ export function createConnectionHandlers(ctx) {
       if (client.sessionToken && client.sessionToken !== _token) sessions.destroy(client.sessionToken)
       connections.detachClient(clientId)
       const _vec = (v, n) => (Array.isArray(v) && v.length === n && v.every(Number.isFinite)) ? v : undefined
-      const _maxHealth = playerConfig.health ?? 100
+      const _maxHealth = playerDefault(playerConfig, 'health')
       const health = (Number.isFinite(savedState.health) && savedState.health >= 0)
         ? Math.min(savedState.health, _maxHealth) : _maxHealth
       const newId = playerManager.addPlayer(transport, { position: sp, health, velocity: _vec(savedState.velocity, 3), rotation: _vec(savedState.rotation, 4) })
       networkState.addPlayer(newId, { position: sp })
-      physicsIntegration.addPlayerCollider(newId, playerConfig.capsuleRadius || 0.4)
+      physicsIntegration.addPlayerCollider(newId, playerDefault(playerConfig, 'capsuleRadius'))
       physicsIntegration.setPlayerPosition(newId, sp)
       const reconnClient = connections.addClient(newId, transport)
       reconnClient.sessionToken = msg.payload.sessionToken

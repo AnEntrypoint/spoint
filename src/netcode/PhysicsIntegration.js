@@ -1,5 +1,6 @@
 import { waterlineLocalY } from '../terrain/PlanetFrame.js'
 import { verticalVelocity } from '../shared/characterStep.js'
+import { PLAYER_DEFAULTS } from '../shared/worldDefaults.js'
 
 const KILL_PLANE_Y = -100
 const KILL_DEPTH_BELOW_TERRAIN_M = 100
@@ -14,11 +15,11 @@ export class PhysicsIntegration {
     this.physicsWorld = config.physicsWorld || null
     this.config = {
       gravity: config.gravity ?? [0, -9.81, 0],
-      capsuleRadius: config.capsuleRadius ?? 0.4,
-      capsuleHalfHeight: config.capsuleHalfHeight ?? 0.9,
+      capsuleRadius: config.capsuleRadius ?? PLAYER_DEFAULTS.capsuleRadius,
+      capsuleHalfHeight: config.capsuleHalfHeight ?? PLAYER_DEFAULTS.capsuleHalfHeight,
       crouchHalfHeight: config.crouchHalfHeight ?? 0.45,
       ankleClearance: config.ankleClearance ?? 0.1,
-      playerMass: config.playerMass ?? 120
+      playerMass: config.playerMass ?? PLAYER_DEFAULTS.mass
     }
     this._derivePhysicalHalfHeight()
     this.playerBodies = new Map()
@@ -26,7 +27,7 @@ export class PhysicsIntegration {
   }
 
   _derivePhysicalHalfHeight() {
-    if (!Number.isFinite(this.config.capsuleHalfHeight) || this.config.capsuleHalfHeight <= 0) this.config.capsuleHalfHeight = 0.9
+    if (!Number.isFinite(this.config.capsuleHalfHeight) || this.config.capsuleHalfHeight <= 0) this.config.capsuleHalfHeight = PLAYER_DEFAULTS.capsuleHalfHeight
     if (!Number.isFinite(this.config.ankleClearance) || this.config.capsuleHalfHeight + this.config.ankleClearance <= 0) this.config.ankleClearance = 0
     this._physicalHalfHeight = this.config.capsuleHalfHeight + this.config.ankleClearance
   }

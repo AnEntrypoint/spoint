@@ -21,7 +21,6 @@ const mergeConfig = (override) => ({
 export default {
   server: {
     setup(ctx) {
-      ctx.state.terrainConfig = mergeConfig(ctx.config)
       ctx.debug.log('[terrain] config registered (streamer owned by engine boot order)')
     }
   },

@@ -18,7 +18,7 @@ function parseRoomCode(raw) {
   return code.length >= 3 && code.length <= 12 ? code : null
 }
 
-export function createLobby({ world = 'tps-game', onClose: onCloseCb = null } = {}) {
+export function createLobby({ world = null, onClose: onCloseCb = null } = {}) {
   let lobby = null
 
   function open() {
@@ -28,7 +28,7 @@ export function createLobby({ world = 'tps-game', onClose: onCloseCb = null } = 
         const code = generateRoomCode()
         const joinLink = `${location.origin}${location.pathname}?wwjoin&room=${code}`
         lobby.showHosting(code, joinLink)
-        location.href = `${location.pathname}?room=${code}&world=${encodeURIComponent(world)}`
+        location.href = `${location.pathname}?room=${code}${world ? '&world=' + encodeURIComponent(world) : ''}`
       },
       onJoin: (raw) => {
         const code = parseRoomCode(raw)

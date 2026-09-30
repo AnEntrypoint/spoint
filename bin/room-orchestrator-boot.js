@@ -71,7 +71,7 @@ async function main() {
       const url = new URL(req.url, 'http://localhost')
       if (req.method === 'POST' && url.pathname === '/rooms') {
         const roomId = url.searchParams.get('roomId')
-        const world = url.searchParams.get('world') || 'tps-game'
+        const world = url.searchParams.get('world') || null
         if (!roomId) { res.writeHead(400, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'roomId query param required' })); return }
         try {
           const result = await orchestrator.createRoom(roomId, world)

@@ -8,6 +8,8 @@ import { createServer } from './server.js'
 import { logServerIdentity } from './ServerIdentity.js'
 import { createServerPresence } from './ServerPresence.js'
 import { parseTerrainHashOverride, withTerrainHashVersion } from '../shared/terrainConfig.js'
+import { locateWorld, loadWorldModule } from './WorldLocator.js'
+import { worldTickRate, worldPlayerModel } from '../shared/worldDefaults.js'
 
 export function buildUniquePathList(paths) {
   const out = [], seen = new Set()
@@ -99,13 +101,9 @@ export async function boot(overrides = {}) {
   const SDK_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..')
   assertNodeModulesLinked(SDK_ROOT)
   const PROJECT = process.cwd()
-  const worldName = process.env.WORLD || 'tps-game'
-  const localWorld = resolve(PROJECT, `apps/world/${worldName}.js`)
-  const fallbackLocal = resolve(PROJECT, 'apps/world/index.js')
-  const worldPath = existsSync(localWorld) ? localWorld : existsSync(fallbackLocal) ? fallbackLocal : resolve(SDK_ROOT, 'apps/world/index.js')
-  if (worldName !== 'index') console.log(`[boot] using world: ${worldName}`)
-  if (!existsSync(worldPath)) console.log('[boot] no world found, using bundled SDK defaults')
-  const loadedWorldDef = (await import(pathToFileURL(worldPath).href + `?t=${Date.now()}`)).default || {}
+  const { name: worldName, path: worldPath } = await locateWorld({ project: PROJECT, sdkRoot: SDK_ROOT, name: process.env.WORLD || null })
+  console.log(worldPath ? `[boot] using world: ${worldName} (${relative(PROJECT, worldPath) || worldPath})` : '[boot] no world found, using bundled SDK defaults')
+  const loadedWorldDef = await loadWorldModule(worldPath)
   const terrainHashOverride = parseTerrainHashOverride(process.env.SPOINT_TERRAIN_HASH)
   const worldDef = terrainHashOverride == null ? loadedWorldDef : withTerrainHashVersion(loadedWorldDef, terrainHashOverride)
   if (terrainHashOverride != null) console.log(`[boot] SPOINT_TERRAIN_HASH=${terrainHashOverride}: terrain hashVersion overridden in the world config`)
@@ -114,10 +112,11 @@ export async function boot(overrides = {}) {
   console.debug(`[boot] loading from: ${appsDirs.join(', ')}`)
   const config = {
     port: parseInt(process.env.PORT || String(worldDef.port || 3000), 10),
-    tickRate: worldDef.tickRate || 60, appsDirs, sdkRoot: SDK_ROOT,
+    tickRate: worldTickRate(worldDef), appsDirs, sdkRoot: SDK_ROOT,
     gravity: worldDef.gravity, movement: worldDef.movement, playerConfig: worldDef.player,
     physicsRadius: worldDef.physicsRadius || 0, physicsBodyBudget: worldDef.physicsBodyBudget || 0, entityTickRate: worldDef.entityTickRate,
     staticDirs: buildStaticDirs(SDK_ROOT, PROJECT, appsDirs),
+    worldName, worldPath, worldLocatedByDefault: !process.env.WORLD,
     ...overrides
   }
   setImmediate(() => {
@@ -126,14 +125,14 @@ export async function boot(overrides = {}) {
       .catch(e => console.error('[static] prewarm error:', e.message))
   })
   const server = await createServer(config)
-  await server.loadWorld(worldDef)
+  await server.loadWorld(worldDef, worldName)
   if (server.runtime && typeof server.runtime.waitForPendingTrimeshBuilds === 'function') {
     const { waited, timedOut } = await server.runtime.waitForPendingTrimeshBuilds()
     if (waited > 0) console.log(`[boot] waited for ${waited} pending trimesh collider build(s)${timedOut ? ' (timed out, proceeding anyway)' : ''}`)
   }
   const resolveModel = m => {
     const rel = m.startsWith('./') ? m.slice(2) : m.startsWith('/') ? m.slice(1) : m
-    for (const dir of [PROJECT, SDK_ROOT]) { const fp = resolve(dir, rel); if (existsSync(fp)) return fp }
+    for (const dir of [PROJECT, SDK_ROOT, join(SDK_ROOT, 'client')]) { const fp = resolve(dir, rel); if (existsSync(fp)) return fp }
     return null
   }
   if (process.env.SPOINT_SKIP_PREWARM) {
@@ -141,7 +140,7 @@ export async function boot(overrides = {}) {
   } else {
     const referenced = buildUniquePathList([
       ...(worldDef.entities || []).filter(e => e.model).map(e => resolveModel(e.model)).filter(Boolean),
-      ...(worldDef.playerModel ? [resolveModel(worldDef.playerModel)].filter(Boolean) : []),
+      ...(worldPlayerModel(worldDef) ? [resolveModel(worldPlayerModel(worldDef))].filter(Boolean) : []),
       ...[join(SDK_ROOT, 'client', 'anim-lib.glb'), resolve(PROJECT, 'client', 'anim-lib.glb')].filter(existsSync),
     ])
     await prewarmFiles(referenced).catch(e => console.error('[prewarm] error:', e))

@@ -13,7 +13,8 @@ const [LAT, JIT, LOSS] = (args.cond || '25/5/1').split('/').map(Number)
 
 const { createServerDeps, wireServerHandlers } = await import('../src/sdk/server.js')
 const { createPeerSimSession } = await import('../src/netcode/PeerSimSession.js')
-const baseWorld = (await import(pathToFileURL(resolve(SDK_ROOT, 'apps/world', WORLD + '.js')).href)).default
+const { loadWorldModule } = await import('../src/sdk/WorldLocator.js')
+const baseWorld = await loadWorldModule(resolve(SDK_ROOT, 'apps/world', WORLD + '.js'))
 const profileName = baseWorld.netcode?.profile
 const overrides = {}
 for (const k of ['inputDelayTicks', 'maxRollbackTicks', 'checksumIntervalTicks', 'stallTicks', 'maxCatchUpTicks']) if (args[k] != null) overrides[k] = Number(args[k])

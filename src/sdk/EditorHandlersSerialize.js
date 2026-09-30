@@ -9,7 +9,7 @@ function sanitizeFsError(e, clientRelativePath) {
   return `${code}: operation failed on '${clientRelativePath}'`
 }
 
-const WORLD_CONFIG_KEYS = ['port', 'tickRate', 'entityTickRate', 'gravity', 'relevanceRadius', 'physicsRadius', 'physicsBodyBudget', 'movement', 'player', 'scene', 'camera', 'animation', 'input', 'spawnPoint', 'spawnPoints', 'playerModel', 'trustedApps']
+const WORLD_CONFIG_KEYS = ['port', 'tickRate', 'entityTickRate', 'gravity', 'relevanceRadius', 'physicsRadius', 'physicsBodyBudget', 'movement', 'player', 'scene', 'camera', 'animation', 'input', 'spawnPoint', 'spawnPoints', 'playerModel', 'trustedApps', 'placeableApps', 'terrain', 'netcode']
 
 function serializeEntity(e) {
   const out = { id: e.id }

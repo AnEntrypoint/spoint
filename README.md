@@ -67,7 +67,7 @@ export default {
     { id: 'env', model: './apps/maps/mymap.glb', position: [0, 0, 0], scale: [1, 1, 1], bodyType: 'static' },
     { id: 'game', position: [0, 0, 0], app: 'tps-game' }
   ],
-  playerModel: './apps/tps-game/cleetus.vrm',
+  playerModel: '/assets/default-avatar.vrm',
   spawnPoint: [0, 2, 0]
 }
 ```

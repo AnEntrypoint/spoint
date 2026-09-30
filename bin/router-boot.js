@@ -1,25 +1,23 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs'
 import { resolve, join, dirname } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import { RegionRouter } from '../src/sharding/RegionRouter.js'
 import { assertNodeModulesLinked, buildStaticDirs } from '../src/sdk/server.js'
+import { locateWorld, loadWorldModule } from '../src/sdk/WorldLocator.js'
 
 const SDK_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
 async function main() {
   assertNodeModulesLinked(SDK_ROOT)
   const PROJECT = process.cwd()
-  const worldName = process.env.WORLD || 'tps-game'
-  const localWorld = resolve(PROJECT, `apps/world/${worldName}.js`)
-  const fallbackLocal = resolve(PROJECT, 'apps/world/index.js')
-  const worldPath = existsSync(localWorld) ? localWorld : existsSync(fallbackLocal) ? fallbackLocal : resolve(SDK_ROOT, 'apps/world/index.js')
-  if (!existsSync(worldPath)) {
-    console.error(`[router-boot] FATAL: no world found for WORLD=${worldName} (looked at ${localWorld}, ${fallbackLocal}, and the bundled SDK default) -- cannot resolve a worldDef to shard.`)
+  const { name: worldName, path: worldPath } = await locateWorld({ project: PROJECT, sdkRoot: SDK_ROOT, name: process.env.WORLD || null })
+  if (!worldPath) {
+    console.error('[router-boot] FATAL: no world found (set WORLD or add apps/world/index.js) -- cannot resolve a worldDef to shard.')
     process.exit(1)
   }
   console.log(`[router-boot] using world: ${worldName}`)
-  const worldDef = (await import(pathToFileURL(worldPath).href + `?t=${Date.now()}`)).default || {}
+  const worldDef = await loadWorldModule(worldPath)
 
   const shardCfg = worldDef.shardGrid || {}
   const gridRadius = parseInt(process.env.SHARD_GRID_RADIUS || String(shardCfg.radius ?? 1), 10)

@@ -6,7 +6,7 @@ import { WebSocketTransport } from '../transport/WebSocketTransport.js'
 import { WebTransportServer } from '../transport/WebTransportServer.js'
 import { createUploadHandler } from './UploadHandler.js'
 import { setupTerrainStreaming } from '../terrain/TerrainPhysics.js'
-import { restoreWorldSnapshot, saveWorldSnapshot } from './WorldPersistence.js'
+import { restoreWorldSnapshot, saveWorldSnapshot, worldDefFingerprint } from './WorldPersistence.js'
 import {
   handleUploadModel, handleDebugLog, handleClientError, handleDebugServer,
   handleMetrics, handleBenchmark, handleFreddieViz
@@ -15,6 +15,9 @@ import { createAgentAuthoringHandler } from './AgentAuthoringAPI.js'
 import { resolveTerrainConfig, minimapDescriptor } from '../shared/terrainConfig.js'
 import { bakeMinimapIfMissing, isMinimapArtifactPath, bakeRequestedMinimapIfMissing } from './MinimapBake.js'
 import { createDevHmr, isDevHmrEnabled } from './DevHmr.js'
+import { DEFAULT_SPAWN_POINT, worldIceServers } from '../shared/worldDefaults.js'
+import { assertWorld } from '../shared/worldResolve.js'
+import { expandWorldPresets } from '../shared/worldPresets.js'
 
 export function createServerAPI(ctx) {
   const { config, port, tickRate, staticDirs, appLoader, appRuntime, physics, physicsIntegration, stageLoader } = ctx
@@ -42,14 +45,18 @@ export function createServerAPI(ctx) {
 
     stageLoader,
 
-    async loadWorld(worldDef) {
+    async loadWorld(worldDef, worldName = null) {
+      worldDef = assertWorld(expandWorldPresets(worldDef), worldName)
+      if (!worldDef.iceServers && process.env.SPOINT_ICE_SERVERS) worldDef = { ...worldDef, iceServers: worldIceServers(worldDef) }
       ctx.currentWorldDef = worldDef
       if (typeof worldDef.netcode?.preciseTicks === 'boolean') tickSystem.precise = worldDef.netcode.preciseTicks
       if (Number.isFinite(worldDef.netcode?.maxRewindMs) && worldDef.netcode.maxRewindMs >= 0) lagCompensator.historyWindow = worldDef.netcode.maxRewindMs
-      appRuntime.worldName = worldDef.name || process.env.WORLD || 'tps-game'
+      const knownWorldName = worldDef.name || worldName || ctx.config?.worldName || null
+      ctx.worldName = knownWorldName || worldDefFingerprint(worldDef)
+      appRuntime.worldName = knownWorldName
       if (worldDef.spawnPoints?.length) ctx.worldSpawnPoints = worldDef.spawnPoints
       else if (worldDef.spawnPoint) ctx.worldSpawnPoints = [worldDef.spawnPoint]
-      ctx.worldSpawnPoint = ctx.worldSpawnPoints?.[0] || worldDef.spawnPoint || [0, 5, 0]
+      ctx.worldSpawnPoint = ctx.worldSpawnPoints?.[0] || worldDef.spawnPoint || [...DEFAULT_SPAWN_POINT]
       if (!ctx.config.playerConfig && worldDef.player) {
         physicsIntegration.applyPlayerConfig(worldDef.player)
         console.log('[loadWorld] adopted worldDef.player capsule config into physicsIntegration (createServer() was called without config.playerConfig): ' +
@@ -103,7 +110,7 @@ export function createServerAPI(ctx) {
       return new Promise((resolve, reject) => {
         const uploadHandler = createUploadHandler(appRuntime, connections, playerManager)
         const getWorldInfo = () => ({
-          worldName: ctx.currentWorldDef?.name || process.env.WORLD || 'tps-game',
+          worldName: ctx.worldName,
           worldDef: ctx.currentWorldDef,
           project: process.cwd(),
           sdkRoot: ctx.sdkRoot,

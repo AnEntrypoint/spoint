@@ -1,7 +1,7 @@
 import { createServer, buildStaticDirs } from './server.js'
 import { resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
-import { existsSync } from 'node:fs'
+import { locateWorld, loadWorldModule } from './WorldLocator.js'
+import { worldTickRate } from '../shared/worldDefaults.js'
 
 export class RoomDirectory {
   constructor({ sdkRoot = null, projectRoot = null, portRange = [19000, 19999] } = {}) {
@@ -13,14 +13,9 @@ export class RoomDirectory {
     this._reservedPorts = new Set()
   }
 
-  async _loadWorldDef(worldName) {
-    const localWorld = resolve(this.projectRoot, `apps/world/${worldName}.js`)
-    const fallbackLocal = resolve(this.projectRoot, 'apps/world/index.js')
-    const worldPath = existsSync(localWorld) ? localWorld
-      : existsSync(fallbackLocal) ? fallbackLocal
-      : resolve(this.sdkRoot, 'apps/world/index.js')
-    const worldDef = (await import(pathToFileURL(worldPath).href + `?t=${Date.now()}`)).default || {}
-    return worldDef
+  async _locateWorld(worldName) {
+    const located = await locateWorld({ project: this.projectRoot, sdkRoot: this.sdkRoot, name: worldName || null })
+    return { name: located.name, path: located.path, worldDef: await loadWorldModule(located.path) }
   }
 
   _nextFreePort() {
@@ -40,20 +35,21 @@ export class RoomDirectory {
     if (this._reservedPorts.has(port)) throw new Error(`RoomDirectory: port ${port} already reserved by an in-flight createRoom() call`)
     this._reservedPorts.add(port)
     try {
-      const worldDef = await this._loadWorldDef(worldName)
+      const { name: resolvedWorldName, path: worldPath, worldDef } = await this._locateWorld(worldName)
       const appsDirs = [resolve(this.projectRoot, 'apps')]
       const config = {
-        port, tickRate: worldDef.tickRate || 60, appsDirs, sdkRoot: this.sdkRoot,
+        port, tickRate: worldTickRate(worldDef), appsDirs, sdkRoot: this.sdkRoot,
         gravity: worldDef.gravity, movement: worldDef.movement, playerConfig: worldDef.player,
         physicsRadius: worldDef.physicsRadius || 0, physicsBodyBudget: worldDef.physicsBodyBudget || 0,
         entityTickRate: worldDef.entityTickRate,
         staticDirs: buildStaticDirs(this.sdkRoot, this.projectRoot, appsDirs),
+        worldName: resolvedWorldName, worldPath,
         ...opts.configOverrides,
       }
       const server = await createServer(config)
-      await server.loadWorld(worldDef)
+      await server.loadWorld(worldDef, resolvedWorldName)
       const info = await server.start()
-      const handle = { roomId, worldName, port: info.port, server, bootedAt: Date.now() }
+      const handle = { roomId, worldName: resolvedWorldName, port: info.port, server, bootedAt: Date.now() }
       this.rooms.set(roomId, handle)
       return handle
     } finally {

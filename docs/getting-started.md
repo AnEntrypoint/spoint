@@ -101,7 +101,7 @@ export default {
     { id: 'tps-game', position: [0, 0, 0], app: 'tps-game' }
   ],
   spawnPoint: [0, 2, 0],
-  playerModel: './apps/tps-game/cleetus.vrm'
+  playerModel: '/assets/default-avatar.vrm'
 }
 ```
 

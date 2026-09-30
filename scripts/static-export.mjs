@@ -144,7 +144,7 @@ function patchBase(dir, base) {
     let content = readFileSync(f, 'utf8')
     const before = content
     const htmlAttrAlt = /\.html$/.test(f) ? '|href="\\/|src="\\/' : ''
-    const re = new RegExp(`(["'\`])\\/node_modules\\/|(["'\`])\\/src\\/|(["'\`])\\/apps\\/|(["'\`])\\/vendor\\/|(["'\`])\\/data\\/${htmlAttrAlt}`, 'g')
+    const re = new RegExp(`(["'\`])\\/node_modules\\/|(["'\`])\\/src\\/|(["'\`])\\/apps\\/|(["'\`])\\/vendor\\/|(["'\`])\\/data\\/|(["'\`])\\/assets\\/${htmlAttrAlt}`, 'g')
     content = content.replace(re, (m) => {
       if (m.startsWith('href="')) return `href="${base}/`
       if (m.startsWith('src="')) return `src="${base}/`

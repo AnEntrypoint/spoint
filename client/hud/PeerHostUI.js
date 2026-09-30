@@ -1,4 +1,5 @@
 import { components as C, h, applyDiff } from 'anentrypoint-design'
+import { DEFAULT_ICE_SERVERS } from '../../src/shared/worldDefaults.js'
 
 function ensureStyle() {
   if (document.getElementById('peer-host-ui-style')) return
@@ -44,14 +45,12 @@ export function createRoomCodeUI(uiRoot, code, joinLink) {
   return { node: card, destroy() { card.remove() } }
 }
 
-const _DEFAULT_ICE_SERVERS = [{ urls: 'stun:stun.l.google.com:19302' }]
-
 export function createPeerHostUI(uiRoot, getClient, iceServers) {
   ensureStyle()
   const card = document.createElement('div')
   card.className = 'panel ds-247420 ph-card'
   uiRoot.appendChild(card)
-  const _ice = Array.isArray(iceServers) && iceServers.length ? iceServers : _DEFAULT_ICE_SERVERS
+  const _ice = Array.isArray(iceServers) && iceServers.length ? iceServers : DEFAULT_ICE_SERVERS
 
   const _b64 = obj => btoa(JSON.stringify(obj))
   const _unb64 = s => { try { return JSON.parse(atob(s)) } catch (_) { return null } }

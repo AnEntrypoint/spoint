@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { resolve, join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { getTemplateContent } from '../../bin/templates.js'
+import { DEFAULT_TICK_RATE_HZ, worldGravity, worldSpawnPoints } from '../shared/worldDefaults.js'
 
 const __dirname = import.meta.dirname || dirname(fileURLToPath(import.meta.url))
 const SDK_ROOT = resolve(__dirname, '..', '..')
@@ -144,9 +145,9 @@ export function createAgentAuthoringHandler() {
         for (const [id, e] of appRuntime.entities) entities.push(encodeWorldEntity(id, e))
         const def = {
           port: ctx?.port || 3001,
-          tickRate: ctx?.tickRate || 60,
-          gravity: ctx?.currentWorldDef?.gravity || [0, -9.81, 0],
-          spawnPoint: ctx?.currentWorldDef?.spawnPoint || [0, 5, 0],
+          tickRate: ctx?.tickRate || DEFAULT_TICK_RATE_HZ,
+          gravity: worldGravity(ctx?.currentWorldDef),
+          spawnPoint: worldSpawnPoints(ctx?.currentWorldDef)[0],
           entities,
         }
         const src = '// Saved by AgentAuthoringAPI /agent/save-world at ' + new Date().toISOString() +

@@ -10,6 +10,7 @@ import { RegionIPCTransport } from './RegionIPCTransport.js'
 import {
   regionBoundsWithGhost, authoritativeRegionFor, DEFAULT_CELL_SIZE, DEFAULT_GHOST_MARGIN
 } from './RegionGrid.js'
+import { worldTickRate, DEFAULT_GRAVITY, DEFAULT_SPAWN_POINT, playerDefault } from '../shared/worldDefaults.js'
 
 const SDK_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..')
 
@@ -29,7 +30,7 @@ async function init({ region, worldDef, cellSize: cs, ghostMargin: gm, port }) {
   regionId = region
   cellSize = cs || DEFAULT_CELL_SIZE
   ghostMargin = gm != null ? gm : DEFAULT_GHOST_MARGIN
-  const tickRate = worldDef.tickRate || 60
+  const tickRate = worldTickRate(worldDef)
   const localApps = join(process.cwd(), 'apps'), sdkApps = join(SDK_ROOT, 'apps')
   const appsDirs = existsSync(localApps) ? [localApps, sdkApps] : [sdkApps]
   const config = {
@@ -41,7 +42,7 @@ async function init({ region, worldDef, cellSize: cs, ghostMargin: gm, port }) {
   }
   const deps = await createServerDeps(config, tickRate)
   ctx = {
-    config, port: config.port, tickRate, appsDirs, gravity: config.gravity || [0, -9.81, 0],
+    config, port: config.port, tickRate, appsDirs, gravity: config.gravity || [...DEFAULT_GRAVITY],
     movement: config.movement || {}, staticDirs: config.staticDirs, ...deps,
     currentWorldDef: null, worldSpawnPoint: [0, 5, 0], snapshotSeq: 0,
     handlerState: { fn: null },
@@ -60,7 +61,7 @@ async function init({ region, worldDef, cellSize: cs, ghostMargin: gm, port }) {
   ctx.currentWorldDef = worldDef
   if (worldDef.spawnPoints?.length) ctx.worldSpawnPoints = worldDef.spawnPoints
   else if (worldDef.spawnPoint) ctx.worldSpawnPoints = [worldDef.spawnPoint]
-  ctx.worldSpawnPoint = ctx.worldSpawnPoints?.[0] || worldDef.spawnPoint || [0, 5, 0]
+  ctx.worldSpawnPoint = ctx.worldSpawnPoints?.[0] || worldDef.spawnPoint || [...DEFAULT_SPAWN_POINT]
   await ctx.appLoader.loadAll()
   const scopedWorldDef = {
     ...worldDef,
@@ -129,7 +130,7 @@ function acceptHandoff({ playerId, fromRegion, state, sessionToken }) {
     position: state.position, rotation: state.rotation, velocity: state.velocity, health: state.health, name: state.name
   })
   ctx.networkState.addPlayer(newId, { position: state.position })
-  ctx.physicsIntegration.addPlayerCollider(newId, playerConfig.capsuleRadius || 0.4)
+  ctx.physicsIntegration.addPlayerCollider(newId, playerDefault(playerConfig, 'capsuleRadius'))
   ctx.physicsIntegration.setPlayerPosition(newId, state.position)
   const client = ctx.connections.addClient(newId, transport)
   client.sessionToken = sessionToken || ctx.sessions.create(newId, ctx.playerManager.getPlayer(newId).state)

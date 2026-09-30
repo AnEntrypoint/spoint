@@ -134,7 +134,10 @@ Game/editor entry points: `ctx.defineGameFSM(spec)` in `src/behaviours/game-fsm.
 hard stop; editor hierarchy messages REPARENT/DUPLICATE/SET_LABEL are 0x94-0x96; mapspinner and streaming-gltf
 are in-repo npm workspaces under `packages/`, edited directly. Engine behaviour primitives live in `src/behaviours/`
 (`apps/_lib/*` are one-release re-export shims); static compression cache is `.spoint-cache/static/`; static-export
-fixes and outDir rule (`project/engine-apps-boundary-b0-b1-2026-09-30`).
+fixes and outDir rule (`project/engine-apps-boundary-b0-b1-2026-09-30`). Default world is `apps/world/index.js`
+`defaultWorld`; worlds are validated (`src/shared/worldResolve.js`), defaulted (`src/shared/worldDefaults.js`) and
+preset-expanded (`presets: ['tps']`, `src/presets/`) in every runtime; default avatar `client/assets/default-avatar.vrm`
+(CC0); TURN only via `SPOINT_ICE_SERVERS` (`project/engine-apps-boundary-b2-b4-world-registry-resolve-presets-2026-09-30`).
 
 ## Code rationale index (moved out of source comments, 2026-09-14)
 
@@ -166,7 +169,7 @@ vegetation A/B numbers and remaining GPU-backpressure long tasks (`veg-variation
 spawn surface standing/lifted/dropped rule and the spawn-4 floor gap (`spawn-surface-standing-lifted-dropped-2026-09-30`);
 stuck occlusion queries recycled instead of freezing every verdict (`occlusion-query-tier-stuck-query-recycle-2026-09-30`);
 stronger tint palette, companion genus, interior-hides-foliage screenshot trap (`veg-variation-strengthened-metrics-and-witness-method-2026-09-30`);
-dev HMR (`src/sdk/DevHmr.js` + `client/dev/HmrRuntime.js`, `__spointHmr.accept/acceptSelf/dispose/data/only`, bundle->ESM switch, SP worker app/tick swap, `localhost` 200 ms connect trap) (`dev-hmr-system-2026-09-30`), default-on HMR, [::1] bridge, dev supervisor restarts + gap replay, node apps/ mtime loader hook, feature accept hooks via `_hmrFactories` (`dev-hmr-batch2-2026-09-30`); local prediction collides with a mirrored static tile world (`prediction-collision-mirror-static-tiles-2026-09-30`), streaming heights bake in a worker (`patch-bake-worker-readback-off-main-thread`), local player drawn between the last two tick positions (`local-player-step-trail-render-interpolation-and-jank-sources-2026-09-30`).
+dev HMR (`src/sdk/DevHmr.js` + `client/dev/HmrRuntime.js`, `__spointHmr.accept/acceptSelf/dispose/data/only`, bundle->ESM switch, SP worker app/tick swap, `localhost` 200 ms connect trap) (`dev-hmr-system-2026-09-30`), default-on HMR, [::1] bridge, dev supervisor restarts + gap replay, node apps/ mtime loader hook, feature accept hooks via `_hmrFactories` (`dev-hmr-batch2-2026-09-30`), NODE_ENV=production in deploy configs, GLB cache by source hash, veg species templates, per-page version floor, TSL material-only swap (`dev-hmr-batch3-2026-09-30`); local prediction collides with a mirrored static tile world (`prediction-collision-mirror-static-tiles-2026-09-30`), streaming heights bake in a worker (`patch-bake-worker-readback-off-main-thread`), local player drawn between the last two tick positions (`local-player-step-trail-render-interpolation-and-jank-sources-2026-09-30`).
 
 ## Audit log
 

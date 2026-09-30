@@ -1,4 +1,5 @@
 import { anchorBasis, tangentLocalToDir } from '../terrain/PlanetFrame.js'
+import { isWorldName, WORLD_DIR } from './worldName.js'
 
 const MINIMAP_EXTENT_RADIUS_FRACTION = 0.25
 const MINIMAP_MAX_EXTENT_M = 16384
@@ -51,8 +52,8 @@ export function minimapResOf(tcfg) {
 }
 
 export function minimapDescriptor(worldId, tcfg) {
-  if (!tcfg || tcfg.enabled === false || !Number.isFinite(tcfg.seed)) return null
-  return { base: `/apps/world/${minimapBaseName(worldId, tcfg)}`, center: tcfg.center || [0, 0], extent: minimapExtentOf(tcfg) }
+  if (!isWorldName(worldId) || !tcfg || tcfg.enabled === false || !Number.isFinite(tcfg.seed)) return null
+  return { base: `/${WORLD_DIR}/${minimapBaseName(worldId, tcfg)}`, center: tcfg.center || [0, 0], extent: minimapExtentOf(tcfg) }
 }
 
 export function minimapBakeParams(tcfg) {

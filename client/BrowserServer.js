@@ -2,6 +2,7 @@ import { pack, unpack, ensurePacked } from '/src/protocol/msgpack.js'
 import { MSG } from '/src/protocol/MessageTypes.js'
 import { BaseClient } from '/src/client/BaseClient.js'
 import { TransformRingReader } from '/src/transport/TransformRing.js'
+import { DEFAULT_ICE_SERVERS } from '/src/shared/worldDefaults.js'
 
 const _COALESCE_SENTINEL = 0xff
 const _PEER_SIM_FRAME = /^ww(rollback|lockstep):/
@@ -82,8 +83,8 @@ export class BrowserServer extends BaseClient {
     return this._hmrRequest({ type: 'HMR_APP', name, source, deps })
   }
 
-  hotReloadTickHandler(v) {
-    return this._hmrRequest({ type: 'HMR_TICK_HANDLER', v })
+  hotReloadTickHandler(v, floor = 0) {
+    return this._hmrRequest({ type: 'HMR_TICK_HANDLER', v, floor })
   }
 
   async _importModule(path) {
@@ -233,7 +234,7 @@ export class BrowserServer extends BaseClient {
 
   async addPeer(offer, iceServers) {
     const peerId = Math.random().toString(36).slice(2)
-    const pc = new RTCPeerConnection({ iceServers: iceServers?.length ? iceServers : [{ urls: 'stun:stun.l.google.com:19302' }] })
+    const pc = new RTCPeerConnection({ iceServers: iceServers?.length ? iceServers : DEFAULT_ICE_SERVERS })
     pc.addEventListener('datachannel', ({ channel }) => {
       if (channel.label !== 'reliable') return
       channel.binaryType = 'arraybuffer'

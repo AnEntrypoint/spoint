@@ -1,4 +1,5 @@
 import { pack } from '../protocol/msgpack.js'
+import { PLAYER_DEFAULTS } from '../shared/worldDefaults.js'
 
 const PLAYERS_PER_SNAP_GROUP = 50
 const MAX_BUFFERED_INPUTS = 128
@@ -30,7 +31,7 @@ export class PlayerManager {
         rotation: initialState.rotation || [0, 0, 0, 1],
         velocity: initialState.velocity || [0, 0, 0],
         onGround: false,
-        health: initialState.health ?? 100
+        health: initialState.health ?? PLAYER_DEFAULTS.health
       },
       inputSequence: 0,
       lastClientSeq: null,

@@ -1,3 +1,5 @@
+import { assertWorld } from '../shared/worldResolve.js'
+import { expandWorldPresets } from '../shared/worldPresets.js'
 function swapInstance(target, NewClass, constructArgs, stateKeys) {
   const oldProto = Object.getPrototypeOf(target)
   const oldOwnDescriptors = Object.getOwnPropertyDescriptors(target)
@@ -42,7 +44,7 @@ export function createReloadHandlers(deps) {
     if (deps.worldConfigPath) {
       try {
         const wm = await import(deps.worldConfigPath + '?' + t)
-        const wd = wm.default || wm
+        const wd = assertWorld(expandWorldPresets(wm.default || wm))
         if (wd.movement) movement = wd.movement
         if (Array.isArray(wd.gravity) && wd.gravity.length === 3) {
           physics?.setGravity?.(wd.gravity)
@@ -53,7 +55,7 @@ export function createReloadHandlers(deps) {
           deps.tickSystem?.setTickRate?.(wd.tickRate)
         }
         if (wd.player && physicsIntegration) physicsIntegration.applyPlayerConfig(wd.player)
-      } catch (e) {}
+      } catch (e) { console.error('[reload] world definition not applied:', e?.message || e) }
     }
     return refreshHandler({ ...deps, movement, tickRate, _movement: { applyMovement, DEFAULT_MOVEMENT } })
   }

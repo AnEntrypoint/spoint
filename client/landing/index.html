@@ -179,10 +179,10 @@ function parseRoomCode(raw) {
 
 function multiplayerSection(hero) {
   const demoBase = (hero.demo_href || './demo.html').split('?')[0]
-  const hostWorld = (hero.demo_href || '').match(/world=([^&]+)/)?.[1] || 'tps-game'
+  const hostWorld = (hero.demo_href || '').match(/world=([^&]+)/)?.[1] || null
 
   const joinUrl = (id) => { const u = new URL(demoBase, location.href); u.search = '?wwjoin&room=' + id + '&fresh'; return u.href }
-  const hostUrl = (id) => { const u = new URL(demoBase, location.href); u.search = '?room=' + id + '&world=' + encodeURIComponent(hostWorld) + '&fresh'; return u.href }
+  const hostUrl = (id) => { const u = new URL(demoBase, location.href); u.search = '?room=' + id + (hostWorld ? '&world=' + encodeURIComponent(hostWorld) : '') + '&fresh'; return u.href }
 
   const onHost = () => {
     const id = generateRoomCode()
