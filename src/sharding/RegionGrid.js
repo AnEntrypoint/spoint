@@ -7,16 +7,12 @@ export function regionIdFor(x, z, cellSize = DEFAULT_CELL_SIZE) {
   return `${rx},${rz}`
 }
 
-export function regionIdFromCoords(rx, rz) {
-  return `${rx},${rz}`
-}
-
-export function parseRegionId(regionId) {
+function parseRegionId(regionId) {
   const [rx, rz] = regionId.split(',').map(Number)
   return { rx, rz }
 }
 
-export function regionBounds(regionId, cellSize = DEFAULT_CELL_SIZE) {
+function regionBounds(regionId, cellSize = DEFAULT_CELL_SIZE) {
   const { rx, rz } = parseRegionId(regionId)
   return {
     minX: rx * cellSize, maxX: (rx + 1) * cellSize,

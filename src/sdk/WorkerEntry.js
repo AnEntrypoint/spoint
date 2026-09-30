@@ -27,7 +27,7 @@ import { saveWorldSnapshot, restoreWorldSnapshot, worldDefFingerprint } from './
 import { isWorldName } from '../shared/worldName.js'
 import { resolveTerrainConfig, minimapDescriptor } from '../shared/terrainConfig.js'
 
-if (typeof setImmediate === 'undefined') globalThis.setImmediate = fn => setTimeout(fn, 0)
+if (typeof setImmediate === 'undefined') Object.assign(globalThis, { setImmediate: fn => setTimeout(fn, 0) })
 
 const DEFAULT_TICK_RATE_HZ = 60
 const SINGLEPLAYER_DEFAULT_WORLD_ID = 'tps-game'
@@ -194,7 +194,7 @@ if (hasWorkerPostMessage) {
     if (data.type === 'INIT') {
       let ctx
       try { ctx = await init(data) } catch(e) { self.postMessage({ type: 'INIT_ERROR', error: e.message, stack: String(e.stack) }); return }
-      _transport = new WorkerTransport((...args) => self.postMessage(...args))
+      _transport = new WorkerTransport((msg, transfer) => self.postMessage(msg, transfer))
       ctx.onClientConnect(_transport)
       ctx.peerSession?.start()
       if (_transformRing) self.postMessage({ type: 'TRANSFORM_RING', sab: _transformRing.sab, capacity: _transformRing.capacity })
@@ -205,7 +205,7 @@ if (hasWorkerPostMessage) {
 
     if (data.type === 'PEER_CONNECT') {
       if (!_ctx) return
-      const t = new PeerTransport(data.peerId, (...args) => self.postMessage(...args))
+      const t = new PeerTransport(data.peerId, (msg, transfer) => self.postMessage(msg, transfer))
       _peerTransports.set(data.peerId, t)
       _ctx.onClientConnect(t)
       return

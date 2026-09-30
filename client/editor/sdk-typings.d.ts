@@ -8,7 +8,9 @@ interface AppCtx {
   readonly config: any
   readonly state: any
   readonly bus: BusScope | null
+  readonly lagCompensator: LagCompensator | null
 
+  navmesh(worldName?: string): Promise<any>
   onConfigChange(cb: (config: any) => void): void
   onPlayerProximity(radius: number, callback: (playerId: string, entered: boolean) => void): void
   interactable(config?: { prompt?: string, radius?: number }): void
@@ -95,6 +97,29 @@ interface PlayersAPI {
   nearestOtherPlayer(playerId: string, radius?: number): any
   after(seconds: number, fn: () => void): void
   every(seconds: number, fn: () => void): void
+}
+
+interface RewoundPlayerState {
+  tick: number
+  timestamp: number
+  position: [number, number, number]
+  rotation: [number, number, number, number]
+  velocity: [number, number, number]
+}
+
+interface LagCompensator {
+  historyWindow: number
+  readonly tickRate: number
+  readonly latestTick: number
+  readonly windowTicks: number
+  resolveViewTick(reportedTick: number, currentTick?: number): number | null
+  acceptRewind(shooterId: number, nowMs?: number): boolean
+  rewindAtTick(playerId: number, tick: number, out?: RewoundPlayerState | null): RewoundPlayerState | null
+  getPlayerStateAtTime(playerId: number, millisAgo: number): RewoundPlayerState | null
+  validateShotOrigin(shooterPosition: [number, number, number], clientOrigin: [number, number, number] | undefined, eyeHeight: number, maxDriftM?: number): [number, number, number]
+  detectTeleport(playerId: number, newPosition: [number, number, number], threshold?: number): boolean
+  clearPlayerHistory(playerId: number): void
+  getStats(): Record<string, number>
 }
 
 interface BusScope {

@@ -101,7 +101,7 @@ async function createGpuPatchHeightFn({ frame, tcfg, offsetY }) {
   return createPatchHeightFn({ baker, frame, maxLevel: Number.isFinite(tcfg.maxLevel) ? tcfg.maxLevel : DEFAULT_PATCH_MAX_LEVEL, offsetY, fallbackFn: fractalGHL })
 }
 
-export async function setupTerrainStreaming({ physics, playerManager, worldDef, terrain, heightDeltaJSON, biomeOverrideJSON, splineCarveJSON, caveCarveJSON }) {
+export async function setupTerrainStreaming({ physics, playerManager, worldDef = null, terrain = null, heightDeltaJSON = null, biomeOverrideJSON = null, splineCarveJSON = null, caveCarveJSON = null }) {
   const tcfg = terrain || (worldDef && worldDef.terrain) || null
   if (!tcfg || tcfg.enabled === false || !physics || typeof physics.addHeightField !== 'function') return null
   const tphys = tcfg.physics || {}

@@ -153,9 +153,7 @@ export function createServerAPI(ctx) {
               `[server]   :8090 look different' drift). Kill the running instance to restart it, e.g.\n` +
               `[server]   (Windows) npx kill-port ${port}   or   (unix) lsof -ti tcp:${port} | xargs kill.\n`
             )
-            const e = new Error(`Port ${port} already in use -- a spoint server is already running (see message above).`)
-            e.code = 'EADDRINUSE'; e.spointSingleInstance = true
-            reject(e); return
+            reject(Object.assign(new Error(`Port ${port} already in use -- a spoint server is already running (see message above).`), { code: 'EADDRINUSE', spointSingleInstance: true })); return
           }
           reject(err)
         })

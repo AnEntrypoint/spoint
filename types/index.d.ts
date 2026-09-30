@@ -48,8 +48,13 @@ export type {
   EventLog,
   EventLogMeta,
   LagCompensator,
+  LagCompensatorStats,
   RewoundPlayerState,
   NetcodeConfig,
+  RollbackNetcodeOptions,
+  LockstepNetcodeOptions,
+  WorldDefinition,
+  PlayerTeleportMessage,
   AppContext,
   AppDefinition,
   EditorProp

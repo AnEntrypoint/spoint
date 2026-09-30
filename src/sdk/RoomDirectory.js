@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url'
 import { existsSync } from 'node:fs'
 
 export class RoomDirectory {
-  constructor({ sdkRoot, projectRoot, portRange = [19000, 19999] } = {}) {
+  constructor({ sdkRoot = null, projectRoot = null, portRange = [19000, 19999] } = {}) {
     if (!sdkRoot) throw new Error('RoomDirectory requires { sdkRoot }')
     this.sdkRoot = sdkRoot
     this.projectRoot = projectRoot || sdkRoot

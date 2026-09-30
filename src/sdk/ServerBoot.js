@@ -90,9 +90,7 @@ export function assertNodeModulesLinked(sdkRoot) {
     `  this clear error. Fix: run "node scripts/worktree-setup.mjs" from this worktree (links node_modules as a\n` +
     `  junction/symlink to the main checkout), or "npm install" here directly for a fully worktree-local install.`
   console.error(msg)
-  const err = new Error(`node_modules missing at ${nodeModulesDir} -- run scripts/worktree-setup.mjs`)
-  err.spointNodeModulesMissing = true
-  throw err
+  throw Object.assign(new Error(`node_modules missing at ${nodeModulesDir} -- run scripts/worktree-setup.mjs`), { spointNodeModulesMissing: true })
 }
 
 export async function boot(overrides = {}) {
@@ -198,7 +196,7 @@ export function installGracefulShutdown(server, presence = null) {
     if (shuttingDown) return
     shuttingDown = true
     console.log(`[server] received ${signal}, flushing pending writes before exit...`)
-    const timeout = new Promise(resolve => setTimeout(() => { console.warn(`[server] shutdown flush exceeded ${SHUTDOWN_TIMEOUT_MS}ms, proceeding anyway`); resolve() }, SHUTDOWN_TIMEOUT_MS))
+    const timeout = new Promise(resolve => setTimeout(() => { console.warn(`[server] shutdown flush exceeded ${SHUTDOWN_TIMEOUT_MS}ms, proceeding anyway`); resolve(undefined) }, SHUTDOWN_TIMEOUT_MS))
     Promise.race([Promise.allSettled([server.flushAll(), presence ? presence.stop() : Promise.resolve()]), timeout]).then(() => {
       console.log('[server] flush complete, stopping server...')
       try { server.stop() } catch (e) { console.error('[server] stop() error:', e.message) }

@@ -5,11 +5,11 @@ const BLOCKED_SOURCE_PATTERNS = [
   'WebAssembly.', 'new Worker',
 ]
 
-const LOCKDOWN_OPTIONS = {
+const LOCKDOWN_OPTIONS = Object.freeze({
   errorTaming: 'unsafe',
   stackFiltering: 'verbose',
   overrideTaming: 'severe',
-}
+})
 
 export class SandboxUnavailableError extends Error {
   constructor(appName, cause) {
@@ -29,10 +29,10 @@ async function lockDownAndGetCompartment() {
   } catch (e) {
     if (!isAlreadyLockedDown(e)) throw e
   }
-  if (typeof globalThis.Compartment !== 'function' || !Object.isFrozen(Object.prototype)) {
+  if (typeof Compartment !== 'function' || !Object.isFrozen(Object.prototype)) {
     throw new Error('lockdown completed without hardened intrinsics and a Compartment constructor')
   }
-  return globalThis.Compartment
+  return Compartment
 }
 
 let sesSettlement = null

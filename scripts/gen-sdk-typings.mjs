@@ -40,6 +40,7 @@ async function main() {
   const tmp = mkdtempSync(join(tmpdir(), 'sdk-typings-'))
   try {
     const args = [
+      '--ignoreConfig',
       '--allowJs', '--declaration', '--emitDeclarationOnly',
       '--outDir', tmp,
       '--skipLibCheck',

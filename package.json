@@ -9,7 +9,8 @@
     "packages/*"
   ],
   "sideEffects": [
-    "src/protocol/MessageTypes.js", "client/core/Relocation.js"
+    "src/protocol/MessageTypes.js",
+    "client/core/Relocation.js"
   ],
   "bin": {
     "spoint": "./server.js",
@@ -115,6 +116,7 @@
   },
   "devDependencies": {
     "@gltf-transform/core": "^4.4.0",
+    "@types/node": "^24.19.0",
     "assemblyscript": "^0.28.20",
     "esbuild": "^0.28.1",
     "monaco-editor": "^0.56.0",

@@ -2,7 +2,7 @@ import { RoomDirectory } from './RoomDirectory.js'
 
 let directory = null
 
-process.on('message', async (msg) => {
+async function handleOrchestratorMessage(msg) {
   if (!msg || typeof msg !== 'object') return
   try {
     switch (msg.type) {
@@ -48,7 +48,9 @@ process.on('message', async (msg) => {
   } catch (e) {
     console.error('[RoomProcessWorker] unhandled error:', e?.message || e)
   }
-})
+}
+
+process.on('message', handleOrchestratorMessage)
 
 process.on('uncaughtException', (e) => {
   console.error('[RoomProcessWorker] uncaughtException (process stays up, error logged; a room-scoped throw should not be able to reach here since RoomDirectory/createServer isolate per-room state, but a genuinely process-fatal error should be visible, not silently swallowed):', e)

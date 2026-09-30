@@ -64,7 +64,7 @@ export class AppRuntime {
     mixinPhysics(this); mixinTick(this); mixinStaticMotion(this); if (this._physics) this._registerPhysicsCallbacks()
     this._hotReload = new HotReloadQueue(this); this._eventBus = c.eventBus || new EventBus()
     this._appVersions = new Map()
-    this._eventLog = c.eventLog||null; this._storage = c.storage||null; this._sdkRoot = c.sdkRoot||null
+    this._eventLog = c.eventLog||null; this._storage = c.storage||null; this._sdkRoot = c.sdkRoot||null; this.worldName = null
     this._snapshotCache = null; this._snapshotVersion = 0; this._entityVersions = new Map()
     this._eventBus.on('*', ev => { if (!ev.channel.startsWith('system.')) this._log('bus_event', { channel:ev.channel, data:ev.data }, ev.meta) })
     this._eventBus.on('system.handover', ev => { const {targetEntityId,stateData}=ev.data||{}; if (targetEntityId) this.fireEvent(targetEntityId,'onHandover',ev.meta.sourceEntity,stateData) })

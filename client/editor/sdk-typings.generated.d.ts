@@ -12,6 +12,7 @@ export declare class AppContext {
     _entityProxy: {
         readonly id: any;
         readonly model: any;
+        readonly bodyType: any;
         position: any;
         rotation: any;
         scale: any;
@@ -24,6 +25,8 @@ export declare class AppContext {
     };
     _debugger: CliDebugger;
     _busScope: any;
+    _disposed: boolean;
+    _pendingShutdownHooks: Set<any> | null;
     _physicsAPI: {
         setInteractable: (radius?: number) => void;
         setStatic: (v: any) => void;
@@ -32,16 +35,18 @@ export declare class AppContext {
         setMass: (v: any) => void;
         setLinearDamping: (v: any) => void;
         setAngularDamping: (v: any) => void;
-        addBoxCollider: (s: any) => void;
+        setCCDPolicy: (v: any) => void;
+        addBoxCollider: (s: any, shapeKey: any) => void;
         addSphereCollider: (r: any) => void;
         addCapsuleCollider: (r: any, h: any) => void;
         addTrimeshCollider: () => Promise<void>;
         addConvexCollider: (points: any) => void;
         addConvexFromModel: (meshIndex?: number) => void;
-        addConvexFromModelAsync: (meshIndex?: number) => Promise<void>;
+        addConvexFromModelAsync: (meshIndex: number | undefined, shapeKeyOverride: any) => Promise<void>;
         addColliderFromConfig: (cfg?: {}) => Promise<void> | undefined;
         addForce: (f: any) => void;
         setVelocity: (v: any) => void;
+        setPosition: (p: any) => void;
         getVelocity: () => any;
         getAngularVelocity: () => any;
         getRotation: () => any;
@@ -49,12 +54,26 @@ export declare class AppContext {
         tiltFromUpright: () => number;
         setFriction: (f: any) => boolean;
         setRestitution: (r: any) => boolean;
+        setMotionType: (motionType: any) => any;
+        getMotionType: () => any;
+        getBodyId: () => any;
+        createVehicle: (wheelDefs: any, opts: any) => any;
+        setVehicleInput: (forward: any, right: any, brake: any, handbrake: any) => any;
+        createTrackedVehicle: (wheelDefs: any, opts: any) => any;
+        setTrackedVehicleInput: (forward: any, leftRatio: any, rightRatio: any, brake: any) => any;
+        getVehicleWheelTransform: (wheelIndex: any) => any;
+        getVehicleWheelState: (wheelIndex: any) => any;
+        hasVehicle: () => boolean;
+        destroyVehicle: () => any;
     } | undefined;
-    _configListeners: Set<any> | undefined;
+    _configListeners: Set<any> | null | undefined;
+    _disposers: any[] | null | undefined;
     constructor(entity: any, runtime: any);
+    _admitsRegistration(kind: any): boolean;
     _buildEntityProxy(): {
         readonly id: any;
         readonly model: any;
+        readonly bodyType: any;
         position: any;
         rotation: any;
         scale: any;
@@ -68,6 +87,7 @@ export declare class AppContext {
     get entity(): {
         readonly id: any;
         readonly model: any;
+        readonly bodyType: any;
         position: any;
         rotation: any;
         scale: any;
@@ -86,16 +106,18 @@ export declare class AppContext {
         setMass: (v: any) => void;
         setLinearDamping: (v: any) => void;
         setAngularDamping: (v: any) => void;
-        addBoxCollider: (s: any) => void;
+        setCCDPolicy: (v: any) => void;
+        addBoxCollider: (s: any, shapeKey: any) => void;
         addSphereCollider: (r: any) => void;
         addCapsuleCollider: (r: any, h: any) => void;
         addTrimeshCollider: () => Promise<void>;
         addConvexCollider: (points: any) => void;
         addConvexFromModel: (meshIndex?: number) => void;
-        addConvexFromModelAsync: (meshIndex?: number) => Promise<void>;
+        addConvexFromModelAsync: (meshIndex: number | undefined, shapeKeyOverride: any) => Promise<void>;
         addColliderFromConfig: (cfg?: {}) => Promise<void> | undefined;
         addForce: (f: any) => void;
         setVelocity: (v: any) => void;
+        setPosition: (p: any) => void;
         getVelocity: () => any;
         getAngularVelocity: () => any;
         getRotation: () => any;
@@ -103,6 +125,17 @@ export declare class AppContext {
         tiltFromUpright: () => number;
         setFriction: (f: any) => boolean;
         setRestitution: (r: any) => boolean;
+        setMotionType: (motionType: any) => any;
+        getMotionType: () => any;
+        getBodyId: () => any;
+        createVehicle: (wheelDefs: any, opts: any) => any;
+        setVehicleInput: (forward: any, right: any, brake: any, handbrake: any) => any;
+        createTrackedVehicle: (wheelDefs: any, opts: any) => any;
+        setTrackedVehicleInput: (forward: any, leftRatio: any, rightRatio: any, brake: any) => any;
+        getVehicleWheelTransform: (wheelIndex: any) => any;
+        getVehicleWheelState: (wheelIndex: any) => any;
+        hasVehicle: () => boolean;
+        destroyVehicle: () => any;
     };
     get world(): {
         spawn: (id: any, cfg: any) => any;
@@ -118,10 +151,13 @@ export declare class AppContext {
         applyImpulse: (entityId: any, impulse: any, worldPoint: any) => any;
         setVelocity: (entityId: any, velocity: any) => any;
         setGravityFactor: (entityId: any, factor: any) => any;
+        setBodyActive: (entityId: any, active: any) => any;
         setPosition: (entityId: any, position: any, rotation: any) => any;
         weld: (entityA: any, entityB: any, opts: any) => any;
         joint: (entityA: any, entityB: any, opts: any) => any;
         removeConstraint: (constraintId: any) => any;
+        setMotionType: (entityId: any, motionType: any) => any;
+        isAtRest: (entityId: any, eps: any) => any;
         readonly gravity: any;
     };
     get players(): {
@@ -135,12 +171,13 @@ export declare class AppContext {
         setName: (pid: any, name: any) => any;
         setAppearance: (pid: any, appearance: any) => any;
         setModel: (pid: any, url: any) => any;
+        setWeapon: (pid: any, name: any) => any;
         setMovementOverride: (pid: any, overrides: any) => any;
         setLifecycle: (pid: any, state: any, opts: any) => any;
         playAnimation: (pid: any, clip: any, opts: any) => any;
         attachEntity: (pid: any, entityId: any, offset: any) => any;
         detachEntity: (entityId: any) => any;
-        onPlayerContact: (radius: any, cb: any) => any;
+        onPlayerContact: (radius: any, cb: any) => () => void;
         nearestOtherPlayer: (playerId: any, radius: any) => any;
     };
     get time(): {
@@ -148,12 +185,13 @@ export declare class AppContext {
         readonly deltaTime: any;
         readonly elapsed: any;
         readonly serverTime: number;
-        after: (seconds: any, fn: any) => any;
-        every: (seconds: any, fn: any) => any;
+        after: (seconds: any, fn: any) => void;
+        every: (seconds: any, fn: any) => void;
     };
     get config(): any;
-    onConfigChange(cb: any): () => boolean;
+    onConfigChange(cb: any): () => void;
     _fireConfigChange(): void;
+    onShutdown(cb: any): () => void;
     get state(): any;
     set state(v: any);
     get network(): {
@@ -162,6 +200,7 @@ export declare class AppContext {
     };
     get lagCompensator(): any;
     get bus(): any;
+    get eventLog(): any;
     get storage(): {
         get: (key: any) => any;
         set: (key: any, value: any) => any;
@@ -171,7 +210,9 @@ export declare class AppContext {
     } | null;
     get debug(): CliDebugger;
     interactable(config?: {}): void;
-    onPlayerProximity(radius: any, callback: any): any;
+    onPlayerProximity(radius: any, callback: any): () => void;
+    _registerDisposer(fn: any): void;
+    _runDisposers(): void;
     _teardownChildren(): void;
     defineGameFSM(spec: any): {
         readonly context: any;
@@ -185,6 +226,7 @@ export declare class AppContext {
         tick(dt: any): void;
         stop(): void;
     };
+    defineGameMode(spec: any): any;
     defineBuffStack(spec: any): {
         apply(playerId: any, buffKey: any, delta: any): any;
         set(playerId: any, buffKey: any, value: any): any;
@@ -249,11 +291,51 @@ export declare class AppContext {
         readonly damageTaken: number;
         readonly health: any;
         readonly debrisIds: any[];
+        readonly debrisPoolSize: number;
+        readonly debrisPoolFree: number;
+        readonly debrisLOD: {
+            id: any;
+            age: any;
+            remaining: any;
+            lod: any;
+        }[];
         damage(amount: any): boolean;
         impact(velocity: any): boolean;
         destroy(): boolean;
         respawn(): boolean;
         reset(): void;
+        tick(dt: any): void;
+        drain: () => void;
+    };
+    defineSoftbody(spec: any): {
+        readonly ready: boolean;
+        readonly particleCount: number;
+        readonly pinnedKeys: Set<any>;
+        tick: (dt: any) => void;
+        positions: () => Float64Array<ArrayBuffer>;
+        publish: () => boolean;
+        setPin: (col: any, row: any, pinned: any) => boolean;
+        dispose: () => void;
+    };
+    defineFluid(spec: any): {
+        readonly ready: boolean;
+        readonly particleCount: number;
+        tick: (dt: any) => void;
+        positions: () => Float64Array<ArrayBuffer>;
+        publish: () => boolean;
+        dispose: () => void;
+    };
+    defineFluid3D(spec: any): {
+        readonly ready: boolean;
+        readonly particleCount: number;
+        tick: (dt: any) => void;
+        positions: () => Float64Array<ArrayBuffer>;
+        publish: () => boolean;
+        dispose: () => void;
+    };
+    defineBuoyancy(spec: any): {
+        readonly submersionFrac: number;
+        readonly submerged: boolean;
         tick(dt: any): void;
     };
     defineTeams(spec: any): {
@@ -297,7 +379,7 @@ export declare class AppContext {
     };
     definePlayerInventory(spec: any): {
         add(pid: any, item: any, n?: number): any;
-        remove(pid: any, item: any, n?: number): any;
+        remove(pid: any, item: any, n?: number): number;
         count(pid: any, item: any): any;
         has(pid: any, item: any, n?: number): boolean;
         items(pid: any): {
@@ -311,10 +393,16 @@ export declare class AppContext {
             ok: boolean;
             reason: string;
             currency?: undefined;
+            granted?: undefined;
         } | {
             reason?: undefined;
             ok: boolean;
             currency: any;
+            granted: {};
+        };
+        dropOnDeath(pid: any): {
+            dropped: {};
+            kept: {};
         };
         reset(pid: any): void;
         clearAll(): void;
@@ -332,18 +420,29 @@ export declare class AppContext {
         };
         directionAt: (distance: any) => number[];
     };
+    navmesh(worldName?: any): any;
     raycast(origin: any, direction: any, maxDistance?: number, excludeBodyId?: null): any;
     canSee(fromPos: any, toPos: any, opts?: {}): boolean;
     get terrainBodyId(): any;
     terrainHeightAt(x: any, z: any): any;
+    terrainKindAt(x: any, z: any): any;
+    navCostAt(x: any, z: any): 0.5 | 1 | 3;
+    seaLevelAt(x: any, z: any): number | null;
+    get seaLevel(): number | null;
     get terrain(): {
         startStreaming: (tcfg: any) => Promise<{
-            start: (initialGrid: any) => Promise<void>;
-            stop(): void;
-            readonly center: any;
+            start: (fallbackCenter?: number[]) => Promise<void>;
+            stop: () => void;
+            resculpt: () => Promise<void>;
+            readonly fields: {
+                bodyId: any;
+                center: any[];
+            }[];
+            readonly center: any[] | null;
             readonly bodyId: any;
             readonly rebuildCount: number;
-            _rebuild: (cx: any, cz: any) => Promise<void>;
+            readonly busy: boolean;
+            readonly maxFields: any;
         } | null>;
     };
 }

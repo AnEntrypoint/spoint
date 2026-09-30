@@ -124,6 +124,10 @@ export interface Player {
     position?: Vector3;
     rotation?: Quaternion;
     velocity?: Vector3;
+    onGround?: boolean;
+    health?: number;
+    /** Flat [nx, nz, nx, nz, ...] horizontal normals of the static walls the character touched this tick; the owning client receives them as wall-plane prediction hints (snapshot self block `me[3]`, protocol v4). */
+    wallNormals?: number[] | null;
     [key: string]: any;
   };
   readonly appearance?: {
@@ -256,39 +260,112 @@ export interface EventLogMeta {
   [key: string]: any;
 }
 
-/** World-definition `netcode` block; see docs/netcode.md. */
+/** Rollback profile options; each value is a non-negative integer (validated at world load by `resolveNetcodeProfile`). */
+export interface RollbackNetcodeOptions {
+  /** Ticks between sampling local input and simulating it. Default 1. */
+  inputDelayTicks?: number;
+  /** A peer never simulates more than this many ticks past the slowest confirmed remote input; `maxRollbackTicks + inputDelayTicks` must stay below the snapshot ring size. Default 12. */
+  maxRollbackTicks?: number;
+  /** Ticks between settled-state checksum exchanges; mismatches count as desyncs. Default 30. */
+  checksumIntervalTicks?: number;
+}
+
+/** Lockstep profile options; each value is a non-negative integer, `inputDelayTicks` and `maxCatchUpTicks` at least 1. */
+export interface LockstepNetcodeOptions {
+  /** Local input sampled while simulating tick t is scheduled for t + inputDelayTicks; set above one-way latency plus jitter, in ticks. Default 3. */
+  inputDelayTicks?: number;
+  /** Ticks between `ConsensusVoter` checksums; with 3+ peers a minority diverging on 3 consecutive checksums is ejected. Default 30. */
+  checksumIntervalTicks?: number;
+  /** Driver ticks a peer may be missing before it is dropped. Default 600. */
+  stallTicks?: number;
+  /** Maximum sim ticks run per driver tick while catching up after a stall. Default 4. */
+  maxCatchUpTicks?: number;
+}
+
+/** World-definition `netcode` block; `src/netcode/NetcodeProfile.js` owns names, defaults and validation, a bad value throws at load. See docs/netcode.md. */
 export interface NetcodeConfig {
+  /** 'authoritative' (default): server simulation, client prediction, lag compensation. 'rollback' and 'lockstep': every peer simulates the whole world from exchanged inputs, no host; the sim must be deterministic. */
   profile?: 'authoritative' | 'rollback' | 'lockstep';
+  /** Authoritative only: snapshots per second; defaults to the world tickRate. */
   snapshotRate?: number;
+  /** Authoritative only: lag-compensation history window in ms (sets `LagCompensator.historyWindow`), the victim-fairness cap on rewind. Default 1000. */
   maxRewindMs?: number;
+  /** Spin-precise server ticks (costs a core on Windows). */
   preciseTicks?: boolean;
+  /** Rollback/lockstep: the session starts once this many peers agree on a roster. Default 2. */
   peers?: number;
-  rollback?: { inputDelayTicks?: number; maxRollbackTicks?: number; checksumIntervalTicks?: number };
-  lockstep?: { inputDelayTicks?: number; checksumIntervalTicks?: number; stallTicks?: number; maxCatchUpTicks?: number };
+  rollback?: RollbackNetcodeOptions;
+  lockstep?: LockstepNetcodeOptions;
+  /** Extra boolean input fields carried on the binary input wire. */
   inputButtons?: string[];
+  /** Extra float input fields carried on the binary input wire. */
   inputAxes?: string[];
+}
+
+/** The world-definition fields app code reads to adapt to netcode and relocation; the full world file carries more. */
+export interface WorldDefinition {
+  name?: string;
+  tickRate?: number;
+  netcode?: NetcodeConfig;
+  /** false rejects every MSG.TELEPORT relocation request (`window.__spoint.teleport`, `?at=`/`?bookmark=`/`?spawn=`) with "relocation disabled by this world". */
+  relocation?: boolean;
+  [key: string]: any;
+}
+
+/** Broadcast to server apps' `onMessage` (with no `senderId`) whenever the server places a player: a relocation teleport or a spawn snapped to ground after a hold. Velocity and queued input are zeroed and the player's lag-compensation history is cleared before it is sent. */
+export interface PlayerTeleportMessage {
+  type: 'player_teleport';
+  playerId: number;
+  position: [number, number, number];
+  senderId?: undefined;
 }
 
 export interface RewoundPlayerState {
   tick: number;
+  /** Monotonic ms when the sample was recorded; 0 on a freshly allocated result. */
+  timestamp: number;
   position: [number, number, number];
   rotation: [number, number, number, number];
   velocity: [number, number, number];
 }
 
-/** Server-side rewind of player history for hit registration against what a shooter saw. */
+export interface LagCompensatorStats {
+  trackedPlayers: number;
+  totalSamples: number;
+  rewinds: number;
+  clamped: number;
+  rejected: number;
+  rateLimited: number;
+  maxRewindTicks: number;
+  maxRewindMs: number;
+}
+
+/** Server-side rewind of player history for hit registration against what a shooter saw (authoritative profile). Player ids are the server's numeric player ids. */
 export interface LagCompensator {
+  /** History window in ms; world `netcode.maxRewindMs` or env SPOINT_LAG_HISTORY_WINDOW, default 1000. */
+  historyWindow: number;
+  readonly tickRate: number;
   readonly latestTick: number;
+  /** historyWindow expressed in ticks, at least 1. */
   readonly windowTicks: number;
-  /** Validate a client-reported view tick (fire payload `viewTick`): null when non-finite or in the future, clamped to the history window when too old. */
+  setTickRate(tickRate: number): void;
+  /** Called by the tick handler once per player per tick; apps do not need to call it. */
+  recordPlayerPosition(playerId: number, position: Vector3, rotation: Quaternion, velocity: Vector3, tick: number): void;
+  /** Validate a client-reported view tick (fire payload `viewTick`): null when non-finite or more than one tick in the future, clamped to the history window when too old. */
   resolveViewTick(reportedTick: number, currentTick?: number): number | null;
-  /** Per-shooter rewind rate limit; false means resolve the shot against current state. */
+  /** Per-shooter token bucket (10 rewinds, refilling 20/s); false means resolve the shot against current state. */
   acceptRewind(shooterId: number, nowMs?: number): boolean;
-  /** Player state blended between the two history samples bracketing a fractional tick; never extrapolates. */
-  rewindAtTick(playerId: number, tick: number): RewoundPlayerState | null;
-  /** The client origin if it lies within maxDriftM of the shooter's eye, otherwise the server eye position. */
-  validateShotOrigin(shooterPosition: [number, number, number], clientOrigin: [number, number, number] | undefined, eyeHeight: number, maxDriftM?: number): [number, number, number];
-  [key: string]: any;
+  /** Player state blended between the two history samples bracketing a fractional tick, clamped to the oldest/newest sample, never extrapolated; pass `out` to reuse a result object. */
+  rewindAtTick(playerId: number, tick: number, out?: RewoundPlayerState | null): RewoundPlayerState | null;
+  /** rewindAtTick at `latestTick - millisAgo` converted to ticks. */
+  getPlayerStateAtTime(playerId: number, millisAgo: number): RewoundPlayerState | null;
+  /** The client origin if it lies within maxDriftM (default 2 m) of the shooter's eye, otherwise the server eye position. */
+  validateShotOrigin(shooterPosition: Vector3, clientOrigin: Vector3 | undefined, eyeHeight: number, maxDriftM?: number): Vector3;
+  /** True when newPosition is more than `threshold` (default 50 m) from the player's newest sample. */
+  detectTeleport(playerId: number, newPosition: Vector3, threshold?: number): boolean;
+  /** Drop a player's history and rewind bucket; relocation calls it so no shot rewinds across a teleport. */
+  clearPlayerHistory(playerId: number): void;
+  getStats(): LagCompensatorStats;
 }
 
 export interface AppContext {
@@ -309,7 +386,11 @@ export interface AppContext {
   readonly storage: StorageAPI | null;
   readonly debug: DebugUtil;
   readonly eventLog: EventLog | null;
+  /** The server's lag compensator; null only when the runtime was built without one. */
   readonly lagCompensator: LagCompensator | null;
+
+  /** Navmesh for a world file stem (defaults to the running world), built once per world and cached; rejects with a TypeError when the name is not a world file stem. */
+  navmesh(worldName?: string): Promise<any>;
 
   terrainHeightAt(x: number, z: number): number | null;
 

@@ -95,7 +95,7 @@ export async function createServer(config = {}) {
     config, port, tickRate, appsDirs: config.appsDirs || [], gravity: config.gravity || [0, -9.81, 0],
     movement, staticDirs, ...deps, currentWorldDef: null, worldSpawnPoint: [0, 5, 0],
     snapshotSeq: 0, httpServer: null, wss: null, wtServer: null,
-    handlerState: { fn: null },
+    handlerState: { fn: null }, tickHandlerFn: null, serverTimeOfDay: null, serverWeather: null, placedModelStorage: null,
     onTick: (tick, dt) => { if (ctx.handlerState.fn) ctx.handlerState.fn(tick, dt); deps.connections.flushAll() },
     setTickHandler: fn => { ctx.handlerState.fn = fn; ctx.tickHandlerFn = fn; ctx.serverTimeOfDay = fn?.serverTimeOfDay || null; ctx.serverWeather = fn?.serverWeather || null }
   }

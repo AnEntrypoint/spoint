@@ -8,9 +8,10 @@ export { readJsonBody }
 const SDK_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const WORKER_ENTRY = join(SDK_ROOT, 'src', 'sdk', 'RoomProcessWorker.js')
 const DEFAULT_LOCAL_WORKER_HOST = '127.0.0.1'
+const workerMessageType = (msg) => (msg && typeof msg === 'object' ? msg.type : undefined)
 
 export class RoomOrchestrator {
-  constructor({ sdkRoot, projectRoot, workerCount = 2, portRange = [19000, 19999], elasticScaling = false, elasticScaleUpThreshold = 0.8, elasticScaleDownCooldownMs = 120000, elasticScaleCheckIntervalMs = 30000, workerHosts = {}, restartOnCrash = true, maxRestarts = 3, restartWindowMs = 60000, externalWorkerHeartbeatIntervalMs = 10000 } = {}) {
+  constructor({ sdkRoot = null, projectRoot = null, workerCount = 2, portRange = [19000, 19999], elasticScaling = false, elasticScaleUpThreshold = 0.8, elasticScaleDownCooldownMs = 120000, elasticScaleCheckIntervalMs = 30000, workerHosts = {}, restartOnCrash = true, maxRestarts = 3, restartWindowMs = 60000, externalWorkerHeartbeatIntervalMs = 10000 } = {}) {
     if (!sdkRoot) throw new Error('RoomOrchestrator requires { sdkRoot }')
     this.sdkRoot = sdkRoot
     this.projectRoot = projectRoot || sdkRoot
@@ -63,7 +64,7 @@ export class RoomOrchestrator {
       let settled = false
       const timeout = setTimeout(() => { if (!settled) { settled = true; reject(new Error(`spawnWorker: worker ${workerIndex} did not become ready in time`)) } }, 15000)
       p.on('message', (msg) => {
-        if (msg?.type === 'WORKER_READY') { if (settled) return; settled = true; clearTimeout(timeout); entry.ready = true; resolve(p) }
+        if (workerMessageType(msg) === 'WORKER_READY') { if (settled) return; settled = true; clearTimeout(timeout); entry.ready = true; resolve(p) }
         else this._handleWorkerMessage(workerIndex, msg)
       })
       p.on('exit', (code, signal) => {
@@ -407,7 +408,7 @@ export class RoomOrchestrator {
     this.stopElasticScaling()
     await Promise.allSettled(this.workers.map((w, i) => (w?.ready && !w.isExternal ? this._send(i, { type: 'SHUTDOWN' }).catch(() => {}) : Promise.resolve())))
     this.roomToWorker.clear()
-    if (this.httpServer) await new Promise((resolve) => this.httpServer.close(() => resolve()))
+    if (this.httpServer) await new Promise((resolve) => this.httpServer.close(() => resolve(undefined)))
   }
 }
 
