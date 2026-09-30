@@ -186,7 +186,8 @@ export async function probeAndCreateWebGPURenderer(isMobile, forceWebGL = false)
     }
   }
   const { WebGPURenderer } = await import('three/webgpu')
-  const renderer = new WebGPURenderer({ antialias: !isMobile, powerPreference: 'high-performance', forceWebGL })
+  const trackTimestamp = typeof location !== 'undefined' && /[?&]gputime=1\b/.test(location.search)
+  const renderer = new WebGPURenderer({ antialias: !isMobile, powerPreference: 'high-performance', forceWebGL, trackTimestamp })
   await renderer.init()
   _applyCommonRendererSetup(renderer, isMobile)
   return renderer

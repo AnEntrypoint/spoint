@@ -1,14 +1,34 @@
-import { MeshStandardNodeMaterial } from 'three/webgpu'
+import { MeshStandardNodeMaterial, MeshBasicNodeMaterial } from 'three/webgpu'
 import {
-  Fn, If, Discard, vec2, vec3, vec4, float, mat3, uniform, texture, attribute, varying,
-  buffer, instanceIndex, cameraPosition, cameraViewMatrix, modelWorldMatrix, positionGeometry,
+  Fn, If, Discard, vec2, vec3, vec4, float, mat4, uniform, texture, attribute, varying,
+  buffer, instanceIndex, cameraPosition, modelWorldMatrix, positionGeometry,
   screenCoordinate, select, mix, min, floor, fract, ceil, abs, dot, mod, clamp,
+  instancedBufferAttribute, mrt, output, normalMap, normalView, positionView, cameraNear, cameraFar, uv,
 } from 'three/tsl'
-import { Matrix4 } from 'three'
+import { Matrix4, Color, Vector2 } from 'three'
+
+const IMPOSTOR_CAPTURE_ALPHA_CUT = 0.2
 
 function instanceMatrixNodeFor(object) {
+  const interleaved = object.userData && object.userData.instanceMatrixInterleaved
+  if (interleaved) return mat4(...[0, 4, 8, 12].map((offset) => instancedBufferAttribute(interleaved, 'vec4', 16, offset)))
   const im = object.instanceMatrix
   return buffer(im.array, 'mat4', Math.max(im.count, 1)).element(instanceIndex)
+}
+
+export function makeImpostorCaptureMaterialTSL(source) {
+  const m = new MeshBasicNodeMaterial()
+  let albedo = vec4(uniform(source.color ? source.color.clone() : new Color(1, 1, 1)), float(source.opacity ?? 1))
+  if (source.map) albedo = albedo.mul(texture(source.map, uv()))
+  if (source.alphaMap) albedo = vec4(albedo.rgb, albedo.a.mul(texture(source.alphaMap, uv()).g))
+  const n = source.normalMap ? normalMap(texture(source.normalMap, uv()), uniform(source.normalScale ? source.normalScale.clone() : new Vector2(1, 1))) : normalView
+  const depth01 = positionView.z.negate().sub(cameraNear).div(cameraFar.sub(cameraNear))
+  m.colorNode = albedo
+  m.alphaTestNode = float(Math.max(IMPOSTOR_CAPTURE_ALPHA_CUT, source.alphaTest || 0))
+  m.mrtNode = mrt({ output, normalDepth: vec4(n.normalize().mul(0.5).add(0.5), float(1.0).sub(depth01)) })
+  m.side = source.side
+  m.transparent = false
+  return m
 }
 
 function encodeDirectionTSL(direction) {
@@ -86,12 +106,10 @@ export function makeOctahedralImpostorDisplayMaterialTSL(params) {
   const nearCutoff = Number.isFinite(p.nearCutoff) && p.nearCutoff > 0 ? p.nearCutoff : 0
   const fadeBandM = Number.isFinite(p.fadeBandM) ? p.fadeBandM : 3.0
 
-  const material = new MeshStandardNodeMaterial({
-    transparent: isTransparent,
-    side: p.side,
-    depthWrite: p.depthWrite,
-    depthTest: p.depthTest,
-  })
+  const material = new MeshStandardNodeMaterial({ transparent: isTransparent })
+  if (p.side !== undefined) material.side = p.side
+  if (p.depthWrite !== undefined) material.depthWrite = p.depthWrite
+  if (p.depthTest !== undefined) material.depthTest = p.depthTest
   material.roughness = p.roughness ?? 1.0
   material.metalness = p.metalness ?? 0.0
   material.polygonOffset = !!p.polygonOffset
@@ -109,6 +127,7 @@ export function makeOctahedralImpostorDisplayMaterialTSL(params) {
 
   const albedoMap = p.albedo
   const normalDepthMap = p.normalDepth
+  const atlasUV = p.atlasFlipY === true ? (u) => vec2(u.x, float(1.0).sub(u.y)) : (u) => u
 
   let vSprite1 = null
   let vSprite2 = null
@@ -197,7 +216,7 @@ export function makeOctahedralImpostorDisplayMaterialTSL(params) {
     if (parallax) {
       const applyParallax = (uvBase, cellBase, tangent, bitangent) => {
         const normal = tangent.cross(bitangent).normalize()
-        const depthS = texture(normalDepthMap, uvBase).a
+        const depthS = texture(normalDepthMap, atlasUV(uvBase)).a
         const viewTS = vec3(dot(vViewDirLocal, tangent), dot(vViewDirLocal, bitangent), dot(vViewDirLocal, normal))
         const offset = viewTS.xy.mul(depthS.sub(0.5).mul(uParallaxScale))
         return clamp(uvBase.add(offset), cellBase, cellBase.add(vec2(spriteSize)))
@@ -225,7 +244,7 @@ export function makeOctahedralImpostorDisplayMaterialTSL(params) {
         uv2,
         select(vSpritesWeight.z.greaterThanEqual(vSpritesWeight.x).and(vSpritesWeight.z.greaterThanEqual(vSpritesWeight.y)), uv3, uv1),
       )
-      const s = texture(albedoMap, uvBest)
+      const s = texture(albedoMap, atlasUV(uvBest))
       Discard(s.a.lessThanEqual(uAlphaClamp))
       sprite1c.assign(s)
       sprite2c.assign(s)
@@ -236,27 +255,27 @@ export function makeOctahedralImpostorDisplayMaterialTSL(params) {
     } else {
       const test = float(1.0).sub(uAlphaClamp)
       If(vSpritesWeight.x.greaterThanEqual(test), () => {
-        const s1 = texture(albedoMap, uv1)
+        const s1 = texture(albedoMap, atlasUV(uv1))
         Discard(s1.a.lessThanEqual(uAlphaClamp))
         sprite1c.assign(s1)
-        sprite2c.assign(texture(albedoMap, uv2))
-        sprite3c.assign(texture(albedoMap, uv3))
+        sprite2c.assign(texture(albedoMap, atlasUV(uv2)))
+        sprite3c.assign(texture(albedoMap, atlasUV(uv3)))
       }).ElseIf(vSpritesWeight.y.greaterThanEqual(test), () => {
-        const s2 = texture(albedoMap, uv2)
+        const s2 = texture(albedoMap, atlasUV(uv2))
         Discard(s2.a.lessThanEqual(uAlphaClamp))
         sprite2c.assign(s2)
-        sprite1c.assign(texture(albedoMap, uv1))
-        sprite3c.assign(texture(albedoMap, uv3))
+        sprite1c.assign(texture(albedoMap, atlasUV(uv1)))
+        sprite3c.assign(texture(albedoMap, atlasUV(uv3)))
       }).ElseIf(vSpritesWeight.z.greaterThanEqual(test), () => {
-        const s3 = texture(albedoMap, uv3)
+        const s3 = texture(albedoMap, atlasUV(uv3))
         Discard(s3.a.lessThanEqual(uAlphaClamp))
         sprite3c.assign(s3)
-        sprite1c.assign(texture(albedoMap, uv1))
-        sprite2c.assign(texture(albedoMap, uv2))
+        sprite1c.assign(texture(albedoMap, atlasUV(uv1)))
+        sprite2c.assign(texture(albedoMap, atlasUV(uv2)))
       }).Else(() => {
-        sprite1c.assign(texture(albedoMap, uv1))
-        sprite2c.assign(texture(albedoMap, uv2))
-        sprite3c.assign(texture(albedoMap, uv3))
+        sprite1c.assign(texture(albedoMap, atlasUV(uv1)))
+        sprite2c.assign(texture(albedoMap, atlasUV(uv2)))
+        sprite3c.assign(texture(albedoMap, atlasUV(uv3)))
       })
     }
 
@@ -295,28 +314,28 @@ export function makeOctahedralImpostorDisplayMaterialTSL(params) {
         uv3 = tileBase.add(uv3).mul(uAtlasTileScale)
       }
 
-      let worldNormal
+      let spriteViewNormal
       if (farSingleSprite) {
         const uvBest = select(
           vSpritesWeight.y.greaterThanEqual(vSpritesWeight.x).and(vSpritesWeight.y.greaterThanEqual(vSpritesWeight.z)),
           uv2,
           select(vSpritesWeight.z.greaterThanEqual(vSpritesWeight.x).and(vSpritesWeight.z.greaterThanEqual(vSpritesWeight.y)), uv3, uv1),
         )
-        worldNormal = texture(normalDepthMap, uvBest).rgb.mul(2.0).sub(1.0)
+        spriteViewNormal = texture(normalDepthMap, atlasUV(uvBest)).rgb.mul(2.0).sub(1.0)
       } else {
-        const n1 = texture(normalDepthMap, uv1).rgb.mul(2.0).sub(1.0)
-        const n2 = texture(normalDepthMap, uv2).rgb.mul(2.0).sub(1.0)
-        const n3 = texture(normalDepthMap, uv3).rgb.mul(2.0).sub(1.0)
-        worldNormal = n1.mul(vSpritesWeight.x).add(n2.mul(vSpritesWeight.y)).add(n3.mul(vSpritesWeight.z)).normalize()
+        const n1 = texture(normalDepthMap, atlasUV(uv1)).rgb.mul(2.0).sub(1.0)
+        const n2 = texture(normalDepthMap, atlasUV(uv2)).rgb.mul(2.0).sub(1.0)
+        const n3 = texture(normalDepthMap, atlasUV(uv3)).rgb.mul(2.0).sub(1.0)
+        spriteViewNormal = n1.mul(vSpritesWeight.x).add(n2.mul(vSpritesWeight.y)).add(n3.mul(vSpritesWeight.z)).normalize()
       }
 
-      return mat3(cameraViewMatrix).mul(worldNormal).normalize()
+      return spriteViewNormal.normalize()
     })()
   }
 
   material.positionNode = displacedPosition()
   material.colorNode = colorOutput()
-  material.customProgramCacheKey = () => `octaimpostor-display-tsl_${isTransparent}_${atlasTile}_${farSingleSprite}_${parallax}_${hasNormalDepth}_${!!nearCutoff}_${tintAttribute}`
+  material.customProgramCacheKey = () => `octaimpostor-display-tsl_${isTransparent}_${atlasTile}_${farSingleSprite}_${parallax}_${hasNormalDepth}_${!!nearCutoff}_${tintAttribute}_${p.atlasFlipY === true}`
 
   return material
 }

@@ -11,10 +11,11 @@ import { bakeHpfTexels } from './ops-js.js'
 import { assertHashVersion, HASH_VERSION_FLOAT } from './height-spec.js'
 import { createHeightProbeTSL } from './height-probe-tsl.js'
 import { createSkyTSL } from './sky-tsl.js'
+import { bakeAtmosphereLUTs } from '../atmosphere-lut-job.js'
+import { runModuleWorkerJob } from '../worker-job.js'
 import { createTerrainMaterialTSL, makeHpfTexture, makeSurfaceTextures } from './terrain-material-tsl.js'
 
-const GRID_SIZE = 16
-const LOD_LEAN = 0.35
+const GRID_SIZE = TD.gridMeshSize
 const LOD_STEP = 3.6
 const LOD_POP_ALTITUDE_MUL = 8.0
 const HORIZON_SPHERE_DEPTH_BELOW_SEA = 150.0
@@ -22,6 +23,9 @@ const SUBMERGED_FAR_REACH = 60000.0
 const INITIAL_QUAD_CAPACITY = 2048
 const DEFAULT_FOVY = 0.785
 const DEFAULT_SUN_DIR = [0, 0.6, 0.8]
+const TERRAIN_DRAWS_AFTER_OPAQUE_OCCLUDERS = 10
+const SURFACE_DECODE_TIMEOUT_MS = 60000
+const QUAD_CACHE_MIN_FORWARD_DOT = 0.99999
 
 function nearFarForCam(R, camDist, alt, surfElev) {
   const altAboveTerrain = Math.max(0.001, alt - R * (surfElev || 0))
@@ -33,6 +37,16 @@ function nearFarForCam(R, camDist, alt, surfElev) {
   return { near, far: farGround * (1.0 - fBlend) + camDist * fBlend }
 }
 
+function aimGroundPoint(camWorldPos, fwd, camDist, R) {
+  const fl = Math.hypot(fwd[0], fwd[1], fwd[2]) || 1
+  const fx = fwd[0] / fl, fy = fwd[1] / fl, fz = fwd[2] / fl
+  const b = camWorldPos[0] * fx + camWorldPos[1] * fy + camWorldPos[2] * fz
+  const disc = b * b - (camDist * camDist - R * R)
+  if (!(disc > 0)) return null
+  const t = -b - Math.sqrt(disc)
+  return t > 0 ? [camWorldPos[0] + t * fx, camWorldPos[1] + t * fy, camWorldPos[2] + t * fz] : null
+}
+
 function makePatchGeometry(capacity) {
   const grid = buildGridGeometry(GRID_SIZE)
   const geo = new THREE.InstancedBufferGeometry()
@@ -40,8 +54,6 @@ function makePatchGeometry(capacity) {
   geo.setIndex(new THREE.BufferAttribute(grid.indices, 1))
   const offsets = new THREE.InstancedBufferAttribute(new Float32Array(capacity * 4), 4)
   const faces = new THREE.InstancedBufferAttribute(new Float32Array(capacity), 1)
-  offsets.setUsage(THREE.DynamicDrawUsage)
-  faces.setUsage(THREE.DynamicDrawUsage)
   geo.setAttribute('iOffset', offsets)
   geo.setAttribute('iFace', faces)
   geo.instanceCount = 0
@@ -55,12 +67,14 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   if (!Number.isFinite(R) || R <= 0) throw new TypeError(`mapspinner tsl planet: opts.radius must be a positive finite number, got ${opts.radius}`)
   const reliefScale = opts.reliefScale != null ? opts.reliefScale : R / 63600000.0
   const maxLevel = opts.maxLevel ?? 11
-  const splitFactor = opts.splitFactor ?? 0.6
+  const splitFactor = opts.splitFactor ?? TD.splitFactor
   const hpfRes = opts.hpfTexRes || 128
   const hashVersion = assertHashVersion(opts.hashVersion ?? HASH_VERSION_FLOAT)
   const carves = opts.carves || []
-
-  const hpfData = bakeHpfTexels(createAnchorField({ seed: opts.hpfSeed || 1337 }), hpfRes)
+  const hpfSeed = opts.hpfSeed || 1337
+  const lutJob = opts.sky === false ? null : bakeAtmosphereLUTs()
+  const hpfJob = runModuleWorkerJob(new URL('./hpf-bake-worker.js', import.meta.url), { seed: hpfSeed, res: hpfRes }, (d) => d.data)
+  const hpfData = (hpfJob && await hpfJob) || bakeHpfTexels(createAnchorField({ seed: hpfSeed }), hpfRes)
   const hpfTexture = makeHpfTexture(hpfData, hpfRes)
   const { material, uniforms: u } = createTerrainMaterialTSL({
     defRadius: R, reliefScale, hpfRes, hpfTexture, gridSize: GRID_SIZE, hashVersion, carves,
@@ -75,14 +89,15 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   mesh.matrixAutoUpdate = false
   mesh.receiveShadow = true
   mesh.castShadow = false
-  mesh.renderOrder = -10
+  mesh.renderOrder = TERRAIN_DRAWS_AFTER_OPAQUE_OCCLUDERS
   scene.add(mesh)
-  const sky = opts.sky === false ? null : createSkyTSL({ radius: R })
+  const sky = lutJob ? createSkyTSL({ radius: R, luts: await lutJob }) : null
   if (sky) scene.backgroundNode = sky.node
 
   const surfaceState = { ready: false, error: null }
   if (opts.loadSurfaceTextures !== false && canDecodeImages()) {
-    decodeSurfaceTextureSet(opts.surfaceTexturesBaseUrl).then((set) => {
+    const decodeJob = runModuleWorkerJob(new URL('../surface-texture-worker.js', import.meta.url), { baseUrl: opts.surfaceTexturesBaseUrl }, (d) => (d.albAll && d.nrmAll ? d : null), SURFACE_DECODE_TIMEOUT_MS)
+    Promise.resolve(decodeJob).then((set) => set || decodeSurfaceTextureSet(opts.surfaceTexturesBaseUrl)).then((set) => {
       const tex = makeSurfaceTextures(set)
       u.surfAlb.value = tex.alb
       u.surfNrm.value = tex.nrm
@@ -100,11 +115,11 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     const fwd = [camTarget[0] - camWorldPos[0], camTarget[1] - camWorldPos[1], camTarget[2] - camWorldPos[2]]
     const nf = nearFarForCam(R, camDist, camDist - R, surfElev)
     const viewProjNoEye = M4.mul(perspectiveZeroToOne(fovy, aspect, nf.near, nf.far), M4.lookAt([0, 0, 0], fwd, camUp))
-    const sf = splitFactor * LOD_LEAN
-    qt.computeSplitDist(sf * LOD_STEP, viewportH, fovy)
-    qt.setConfig(R, maxLevel, sf * LOD_POP_ALTITUDE_MUL)
+    qt.computeSplitDist(splitFactor * LOD_STEP, viewportH, fovy)
+    qt.setConfig(R, maxLevel, splitFactor * LOD_POP_ALTITUDE_MUL)
     extractFrustumPlanes(viewProjNoEye, cull.planes)
     cull.ex = camWorldPos[0]; cull.ey = camWorldPos[1]; cull.ez = camWorldPos[2]
+    const aim = aimGroundPoint(camWorldPos, fwd, camDist, R)
     let n = 0
     for (let face = 0; face < 6; face++) {
       const F = FACE_FRAME[face]
@@ -112,7 +127,8 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
       cull.vx = F.v[0]; cull.vy = F.v[1]; cull.vz = F.v[2]
       cull.cx = F.c[0]; cull.cy = F.c[1]; cull.cz = F.c[2]
       const lc = worldToFaceLocal(face, camWorldPos, R)
-      const leaves = qt.updateQuadtree(lc[0], lc[1], lc[2], lc[0], lc[1], undefined, undefined, camDist - R, cull)
+      const al = aim ? worldToFaceLocal(face, aim, R) : null
+      const leaves = qt.updateQuadtree(lc[0], lc[1], lc[2], lc[0], lc[1], al ? al[0] : undefined, al ? al[1] : undefined, camDist - R, cull)
       for (let i = 0; i < leaves.length; i++) {
         const q = leaves[i]
         if ((q.level | 0) >= 2 && quadOutsideFrustum(face, q.ox, q.oy, q.l, R, viewProjNoEye, camWorldPos)) continue
@@ -143,12 +159,31 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   const wrap = (v) => v - Math.floor(v / texWrapM) * texWrapM
 
   let lastFar = 0
+  const quadCache = { res: null, hit: false, pos: [0, 0, 0], fwd: [0, 0, 0], fovy: 0, w: 0, h: 0 }
+  function quadsFor(camWorldPos, camTarget, fy, up, w, h, surfElev) {
+    const c = quadCache
+    const camDist = Math.hypot(camWorldPos[0], camWorldPos[1], camWorldPos[2])
+    const moveTol = Math.min(250.0, Math.max(1.0, (camDist - R) * 0.00005))
+    const fl = Math.hypot(camTarget[0] - camWorldPos[0], camTarget[1] - camWorldPos[1], camTarget[2] - camWorldPos[2]) || 1
+    const fx = (camTarget[0] - camWorldPos[0]) / fl, fyv = (camTarget[1] - camWorldPos[1]) / fl, fz = (camTarget[2] - camWorldPos[2]) / fl
+    const unchanged = c.res && c.fovy === fy && c.w === w && c.h === h
+      && Math.hypot(camWorldPos[0] - c.pos[0], camWorldPos[1] - c.pos[1], camWorldPos[2] - c.pos[2]) <= moveTol
+      && fx * c.fwd[0] + fyv * c.fwd[1] + fz * c.fwd[2] >= QUAD_CACHE_MIN_FORWARD_DOT
+    c.hit = !!unchanged
+    if (unchanged) return c.res
+    c.res = writeQuads(camWorldPos, camTarget, fy, up, w / Math.max(1, h), h, surfElev)
+    c.pos[0] = camWorldPos[0]; c.pos[1] = camWorldPos[1]; c.pos[2] = camWorldPos[2]
+    c.fwd[0] = fx; c.fwd[1] = fyv; c.fwd[2] = fz
+    c.fovy = fy; c.w = w; c.h = h
+    return c.res
+  }
   function frame(camWorldPos, camTarget, fovy, displayMode, sunDir, time, up, surfElev, shadowInfo, view) {
     const canvas = renderer.domElement
     const w = canvas.width || 1, h = canvas.height || 1
     const fy = fovy || DEFAULT_FOVY
-    const res = writeQuads(camWorldPos, camTarget, fy, up || [0, 1, 0], w / Math.max(1, h), h, surfElev)
-    const camDist = res.camDist
+    const res = quadsFor(camWorldPos, camTarget, fy, up || [0, 1, 0], w, h, surfElev)
+    const camDist = Math.hypot(camWorldPos[0], camWorldPos[1], camWorldPos[2])
+    const nf = nearFarForCam(R, camDist, camDist - R, surfElev)
     u.camDir.value.set(camWorldPos[0] / camDist, camWorldPos[1] / camDist, camWorldPos[2] / camDist)
     u.camAlt.value = camDist - R
     u.texCamFrac.value.set(wrap(camWorldPos[0]), wrap(camWorldPos[1]), wrap(camWorldPos[2]))
@@ -165,8 +200,8 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     u.poolSpec.value.set(pool.spec[0], pool.spec[1], pool.spec[2], pool.spec[3])
     u.poolCover.value = pool.cover
     u.wetness.value = resolveWetness()
-    lastFar = res.far
-    return { quadCount: res.quadCount, glError: 0, face: pickFace(camWorldPos), cached: false, near: res.near, far: res.far, surfaceReady: surfaceState.ready, surfaceError: surfaceState.error }
+    lastFar = nf.far
+    return { quadCount: res.quadCount, glError: 0, face: pickFace(camWorldPos), cached: quadCache.hit, near: nf.near, far: nf.far, surfaceReady: surfaceState.ready, surfaceError: surfaceState.error }
   }
 
   function dispose() {
@@ -185,7 +220,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   return {
     frame, dispose, R, mesh, material, uniforms: u, isTSL: true, hashVersion, probeHeights,
     sceneFar: () => lastFar,
-    clearCache() {},
+    clearCache() { quadCache.res = null },
     setSculptOverride() {},
     clearSculptOverride() {},
   }

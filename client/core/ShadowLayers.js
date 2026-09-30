@@ -1,0 +1,1 @@
+export const SHADOW_CASTER_ONLY_LAYER = 30

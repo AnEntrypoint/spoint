@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { InstancedMesh2 } from '@three.ez/instanced-mesh'
-import { createOctahedralImpostorMaterial, computeObjectBoundingSphere } from 'streaming-gltf/octahedral-impostor-ez'
+import { createOctahedralImpostorMaterial, computeObjectBoundingSphere, createTextureAtlas } from 'streaming-gltf/octahedral-impostor-ez'
+import { makeImpostorCaptureMaterialTSL } from 'streaming-gltf/octahedral-impostor-display-tsl'
 import { buildSharedImpostorAtlas, createSharedImpostorMesh, impostorHandoffDistances } from './VegImpostorTier.js'
 import { placementsForChunk, VEG, SPECIES, VEG_SHAPE_VARIANTS } from '/src/terrain/VegPlacement.js'
 import { createCachedAnchorField } from '/src/terrain/ClimateCache.js'
@@ -41,6 +42,7 @@ function freezeLevelMatrices(mesh) {
 
 const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _camPos = new THREE.Vector3()
 const _vanMat = new THREE.Matrix4(), _vanProj = new THREE.Matrix4(), _vanFrustum = new THREE.Frustum()
+const _cullMat = new THREE.Matrix4(), _cullShift = new THREE.Matrix4(), _cullFrustum = new THREE.Frustum()
 
 export async function createVegetation(opts = {}) {
   const { renderer, scene, frame } = opts
@@ -140,6 +142,19 @@ export async function createVegetation(opts = {}) {
           { geometry: l1, material: sp.leafMat, distance: D1 },
           { geometry: l2, material: sp.leafMat, distance: D2 },
         ], INIT_CAP, VEG_ATTRIBUTE_SCHEMA, { hysteresis: LOD_HYS })
+        try {
+          if (!_buildImpostor) throw new Error('veg-bisect: impostor disabled (?veg=branch)')
+          if (variant > 0) throw SHARED_IMPOSTOR_BAKE
+          if (!USE_SHARED_IMPOSTOR) throw new Error('WebGPU draws impostors only through the shared atlas (?veg=full or ?veg=shared)')
+          await awaitMatTextures([sp.branchMat, sp.leafMat])
+          const sph = computeObjectBoundingSphere(sp.tree, new THREE.Sphere(), true)
+          if (sph && Number.isFinite(sph.radius) && sph.radius > 0) {
+            const baked = createTextureAtlas({ renderer, target: sp.tree, useHemiOctahedron: false, spritesPerSide: 8, textureSize: 1024, makeCaptureMaterial: makeImpostorCaptureMaterialTSL })
+            impDims = { center: [sph.center.x, sph.center.y, sph.center.z], radius: sph.radius }
+            impostor = true
+            impMatRef = { map: baked.albedo, normalMap: baked.normalDepth, dispose() { baked.renderTarget.dispose() } }
+          }
+        } catch (e) { if (e !== SHARED_IMPOSTOR_BAKE) console.warn('[veg] impostor bake failed (mesh-LOD-only):', name, e?.message || e) }
       } else {
         branch = new InstancedMesh2(branchGeo0, applyWind(sp.branchMat, wind), { capacity: INIT_CAP, renderer })
         leaf = new InstancedMesh2(leafGeo0, applyWind(sp.leafMat, wind), { capacity: INIT_CAP, renderer })
@@ -249,11 +264,16 @@ export async function createVegetation(opts = {}) {
       }
     } catch (e) { console.warn('[veg] shared impostor build failed (per-species fallback):', e?.message || e); sharedImpostor = null }
   }
+  if (isWebGPU && !sharedImpostor) {
+    for (const r of meshes) { if (r.impMat) { try { r.impMat.dispose() } catch (_) {} r.impMat = null } }
+  }
 
   const FAR_LOD_SWAP = Math.max(D2 * (1 + LOD_HYS), impostorHandoffDistances(IMPOSTOR_NEAR_CUTOFF).meshEnd)
   for (const rec of meshes) {
     if (!rec.impostor && rec.impTile == null) continue
-    if (sharedImpostor && rec.impTile != null) {
+    if (isWebGPU) {
+      if (sharedImpostor && rec.impTile != null) { rec.branch.setMeshFarDistance(FAR_LOD_SWAP); rec.leaf.setMeshFarDistance(FAR_LOD_SWAP) }
+    } else if (sharedImpostor && rec.impTile != null) {
       rec.branch.addLOD(makeEmptyGeo(), rec.branch.material, FAR_LOD_SWAP, 0)
       rec.leaf.addLOD(makeEmptyGeo(), rec.leaf.material, FAR_LOD_SWAP, 0)
       hideLastLevel(rec.branch.LODinfo.render); hideLastLevel(rec.leaf.LODinfo.render)
@@ -384,6 +404,7 @@ export async function createVegetation(opts = {}) {
     profile.cullFrozen = !auto
   })
   let _cullDirty = true
+  const _lastCullMat = new THREE.Matrix4()
   let _vegSpiralCursor = 0
   const streamFocus = [NaN, NaN]
   function streamRing(px, pz) {
@@ -615,14 +636,30 @@ export async function createVegetation(opts = {}) {
     const live = _cullDirty || shadowStill === false || renderer.shadowMap.needsUpdate === true
     _cullDirty = false
     const frozen = cullFreeze.step(camera, pose, live)
-    if (isWebGPU && camera && !frozen) {
-      camera.getWorldPosition(_camPos)
+    if (isWebGPU && camera && !frozen && meshes.length) {
+      const origin = meshes[0].branch.mesh.position
+      camera.getWorldPosition(_camPos).sub(origin)
+      _cullMat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(_cullShift.makeTranslation(origin.x, origin.y, origin.z))
+      const viewChanged = !_cullMat.equals(_lastCullMat)
+      if (viewChanged) { _lastCullMat.copy(_cullMat); _cullFrustum.setFromProjectionMatrix(_cullMat) }
       for (const rec of meshes) {
-        if (rec.branch.updateLOD) rec.branch.updateLOD(_camPos)
-        if (rec.leaf.updateLOD) rec.leaf.updateLOD(_camPos)
+        rec.branch.updateLOD(_camPos, _cullFrustum, viewChanged)
+        rec.leaf.updateLOD(_camPos, _cullFrustum, viewChanged)
       }
     }
   }
+
+  function applyCellOcclusion(cell) {
+    const visible = !cell.occluded
+    for (const en of cell.entries) {
+      try { en.rec.branch.setVisibilityAt(en.branchId, visible) } catch (_) {}
+      try { en.rec.leaf.setVisibilityAt(en.leafId, visible) } catch (_) {}
+      if (sharedImpostor && en.impId != null && en.impId >= 0) {
+        try { sharedImpostor.mesh.setVisibilityAt(en.impId, visible) } catch (_) {}
+      }
+    }
+  }
+
 
   function dispose() {
     for (const rec of meshes) {
@@ -681,13 +718,7 @@ export async function createVegetation(opts = {}) {
       if (shouldHide === cell.occluded) continue
       cell.occluded = shouldHide
       _cullDirty = true
-      for (const en of cell.entries) {
-        try { en.rec.branch.setVisibilityAt(en.branchId, !shouldHide) } catch (_) {}
-        try { en.rec.leaf.setVisibilityAt(en.leafId, !shouldHide) } catch (_) {}
-        if (sharedImpostor && en.impId != null && en.impId >= 0) {
-          try { sharedImpostor.mesh.setVisibilityAt(en.impId, !shouldHide) } catch (_) {}
-        }
-      }
+      applyCellOcclusion(cell)
     }
   }
 

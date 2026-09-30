@@ -2,6 +2,7 @@ import { TERRAIN_DEFAULTS as TD } from './terrain-defaults.js';
 import { bakeTransmittanceLUT, LUT_WIDTH, LUT_HEIGHT } from './atmosphere-transmittance-lut.js';
 import { bakeScatteringLUT, SCAT_LUT_WIDTH, SCAT_LUT_HEIGHT, SCAT_LUT_LAYERS } from './atmosphere-scattering-lut.js';
 import { canDecodeImages, decodeSurfaceTextureSet } from './surface-texture-decode.js';
+import { startLutBakeWorker } from './atmosphere-lut-job.js';
 
 import { TU, M4 } from './gl-render-mat4.js';
 import { seaHeightMean } from './sea-waves.js';
@@ -20,20 +21,6 @@ const DIST_SORT_MAX_BUCKET = DIST_SORT_BUCKETS - 1
 const WATER_HIDDEN_AFTER_EMPTY_QUERIES = 2
 const WATER_PROBE_MIN_RELIABLE_ALT_M = 5.0
 const WATER_WINDING_FLIP_ALT_M = 5.0
-function _startLutBakeWorker() {
-  try {
-    if (typeof Worker === 'undefined') return null
-    const w = new Worker(new URL('./atmosphere-lut-worker.js', import.meta.url), { type: 'module' })
-    return new Promise((resolve) => {
-      let done = false
-      const finish = (v) => { if (done) return; done = true; try { w.terminate() } catch (_) {} resolve(v) }
-      w.onmessage = (ev) => { const d = ev.data; finish((d && d.ok && d.trans && d.scat) ? { trans: d.trans, scat: d.scat } : null) }
-      w.onerror = () => finish(null)
-      w.onmessageerror = () => finish(null)
-      w.postMessage({})
-    })
-  } catch (_) { return null }
-}
 function _startSurfaceDecodeWorker() {
   try {
     if (typeof Worker === 'undefined') return null
@@ -71,7 +58,7 @@ export async function initMapspinnerRender(gl, opts = {}) {
     ? '?v=' + (typeof performance !== 'undefined' ? (performance.now()|0) : Date.now())
     : '?v=' + SHADER_CACHE_TAG;
   const _fetchOpts = _shaderNoCache ? { cache: 'reload' } : { cache: 'no-cache' };
-  const _lutJob = (!bakeOnly && !_sharedRawTransLUT) ? _startLutBakeWorker() : null;
+  const _lutJob = (!bakeOnly && !_sharedRawTransLUT) ? startLutBakeWorker() : null;
   const _fetchText = (rel) => fetch(new URL(rel + _sv, import.meta.url), _fetchOpts).then(r => r.text());
   let [src, atmoSrc] = await Promise.all([
     _fetchText('./shaders/terrain.glsl'),

@@ -3,8 +3,9 @@ import {
   Fn, float, int, vec2, vec3, vec4, uniform, texture, select, positionLocal,
   normalize, dot, length, sqrt, max, min, clamp, mix, smoothstep, pow, floor, atanh,
 } from 'three/tsl'
-import { bakeTransmittanceLUT, ATM_BOTTOM, ATM_TOP, ATM_RAYLEIGH } from '../atmosphere-transmittance-lut.js'
-import { bakeScatteringLUT, SCAT_LUT_LAYERS } from '../atmosphere-scattering-lut.js'
+import { ATM_BOTTOM, ATM_TOP, ATM_RAYLEIGH } from '../atmosphere-transmittance-lut.js'
+import { SCAT_LUT_LAYERS } from '../atmosphere-scattering-lut.js'
+import { bakeAtmosphereLUTsSync } from '../atmosphere-lut-job.js'
 import { displayReferredToSceneLinear } from './display-referred-tsl.js'
 
 const ATM_MIE_SCAT = 0.003996
@@ -41,9 +42,8 @@ function lutTexture(tex) {
   return tex
 }
 
-export function createSkyTSL({ radius }) {
-  const trans = bakeTransmittanceLUT()
-  const scat = bakeScatteringLUT(undefined, undefined, undefined, undefined, trans)
+export function createSkyTSL({ radius, luts }) {
+  const { trans, scat } = luts || bakeAtmosphereLUTsSync()
   const transTex = lutTexture(new THREE.DataTexture(halfFloatRGBA(trans.data, trans.width * trans.height, 3), trans.width, trans.height))
   const scatTex = lutTexture(new THREE.DataArrayTexture(halfFloatRGBA(scat.data, scat.width * scat.height * scat.layers, 4), scat.width, scat.height, scat.layers))
 

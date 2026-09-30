@@ -110,13 +110,11 @@ export class OctahedralImpostorEzTier {
     const mesh = new THREE.InstancedMesh(geo, material, this.maxInstances);
     mesh.frustumCulled = false;
     mesh.count = 0;
-    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     mesh.name = `octahedral-impostor-ez:${job.layer}`;
     let fadeAttr = null;
     if (this.useFade) {
       const arr = new Float32Array(this.maxInstances).fill(1);
       fadeAttr = new THREE.InstancedBufferAttribute(arr, 1);
-      fadeAttr.setUsage(THREE.DynamicDrawUsage);
       geo.setAttribute('instanceFade', fadeAttr);
     }
     this.mesh.add(mesh);

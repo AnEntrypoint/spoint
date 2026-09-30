@@ -1,14 +1,35 @@
 import * as THREE from 'three'
+import { SHADOW_CASTER_ONLY_LAYER } from './ShadowLayers.js'
 
 const ITEM_SIZE = { float: 1, vec2: 2, vec3: 3, vec4: 4 }
 const _pos = new THREE.Vector3(), _quat = new THREE.Quaternion(), _scale = new THREE.Vector3(1, 1, 1)
 const _m4 = new THREE.Matrix4()
+const LOD_REEVAL_MOVE_SQ = 0.5 * 0.5
+const NO_MESH_TIER = -1
 
 function createDensePool(scene, geometry, material, capacity, attributeSchema, props, shadowOnly) {
   const ids = []
   const slotOf = new Map()
   let mesh = null, attrs = null, cap = 0
-  let shadowDrawPending = false
+  let dirtyLo = 0, dirtyHi = -1, uploadedSinceMark = true
+
+  function setDirtyRange(attr, itemSize, n, newWindow) {
+    const ranges = attr.updateRanges
+    if (newWindow || ranges.length === 0) { attr.clearUpdateRanges(); attr.addUpdateRange(dirtyLo * itemSize, n * itemSize) }
+    else { ranges[0].start = dirtyLo * itemSize; ranges[0].count = n * itemSize }
+    attr.needsUpdate = true
+  }
+
+  function markSlotDirty(slot) {
+    const newWindow = uploadedSinceMark
+    if (newWindow) { dirtyLo = slot; dirtyHi = slot; uploadedSinceMark = false }
+    else { if (slot < dirtyLo) dirtyLo = slot; if (slot > dirtyHi) dirtyHi = slot }
+    const n = dirtyHi - dirtyLo + 1
+    setDirtyRange(mesh.instanceMatrix, 16, n, newWindow)
+    for (const name in attrs) setDirtyRange(attrs[name], attrs[name].itemSize, n, newWindow)
+    mesh.count = ids.length
+    mesh.visible = props.visible && ids.length > 0
+  }
 
   function build(newCap) {
     const next = new THREE.InstancedMesh(geometry, material, newCap)
@@ -28,13 +49,15 @@ function createDensePool(scene, geometry, material, capacity, attributeSchema, p
       mesh.dispose()
     }
     mesh = next; attrs = nextAttrs; cap = newCap
+    uploadedSinceMark = true
     applyProps()
+    mesh.count = ids.length
     if (shadowOnly) {
       mesh.castShadow = true
-      mesh.onBeforeShadow = () => { mesh.count = ids.length; shadowDrawPending = true }
-      mesh.onBeforeRender = () => { if (shadowDrawPending) shadowDrawPending = false; else mesh.count = 0 }
+      mesh.layers.set(SHADOW_CASTER_ONLY_LAYER)
+      mesh.onBeforeShadow = () => { uploadedSinceMark = true }
     } else {
-      mesh.count = ids.length
+      mesh.onBeforeRender = () => { uploadedSinceMark = true }
     }
     scene.add(mesh)
   }
@@ -43,15 +66,9 @@ function createDensePool(scene, geometry, material, capacity, attributeSchema, p
     if (!mesh) return
     mesh.frustumCulled = false
     mesh.renderOrder = props.renderOrder
-    mesh.visible = props.visible
+    mesh.visible = props.visible && ids.length > 0
     mesh.matrixAutoUpdate = props.matrixAutoUpdate
     mesh.updateMatrix()
-  }
-
-  function markDirty() {
-    mesh.instanceMatrix.needsUpdate = true
-    for (const name in attrs) attrs[name].needsUpdate = true
-    if (!shadowOnly) mesh.count = ids.length
   }
 
   function writeSlot(slot, rec) {
@@ -70,7 +87,7 @@ function createDensePool(scene, geometry, material, capacity, attributeSchema, p
     const slot = ids.length
     ids.push(id); slotOf.set(id, slot)
     writeSlot(slot, rec)
-    markDirty()
+    markSlotDirty(slot)
   }
 
   function remove(id) {
@@ -84,7 +101,7 @@ function createDensePool(scene, geometry, material, capacity, attributeSchema, p
       ids[slot] = movedId; slotOf.set(movedId, slot)
     }
     ids.pop(); slotOf.delete(id)
-    markDirty()
+    markSlotDirty(slot)
   }
 
   function setAttr(id, name, value) {
@@ -92,7 +109,7 @@ function createDensePool(scene, geometry, material, capacity, attributeSchema, p
     if (slot === undefined || !a) return
     if (a.itemSize === 1) a.array[slot] = value
     else for (let i = 0; i < a.itemSize; i++) a.array[slot * a.itemSize + i] = value[i]
-    a.needsUpdate = true
+    markSlotDirty(slot)
   }
 
   function dispose() { scene.remove(mesh); mesh.dispose() }
@@ -110,22 +127,30 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
   const tiers = levels.map(lv => createDensePool(scene, lv.geometry, lv.material, capacity, attributeSchema, props, false))
   const shadow = opts.shadowGeometry ? createDensePool(scene, opts.shadowGeometry, opts.shadowMaterial || levels[0].material, capacity, attributeSchema, props, true) : null
   const pools = shadow ? [...tiers, shadow] : tiers
-  const instances = new Map()
+  const recs = []
   const freeIds = []
-  let nextId = 0
+  let liveCount = 0
+
+  let meshFarSq = Infinity
 
   function tierFor(dsq) {
+    if (dsq >= meshFarSq) return NO_MESH_TIER
     for (let i = thresholdsSq.length - 1; i > 0; i--) if (dsq >= thresholdsSq[i]) return i
     return 0
   }
 
+  function addToTier(tier, id, rec) { if (tier !== NO_MESH_TIER) tiers[tier].add(id, rec) }
+  function removeFromTier(tier, id) { if (tier !== NO_MESH_TIER) tiers[tier].remove(id) }
+
+  const inView = (rec) => rec.visible && !rec.viewCulled
+
   function show(id, rec) {
-    tiers[rec.tier].add(id, rec)
+    if (!rec.viewCulled) addToTier(rec.tier, id, rec)
     if (shadow && rec.shadowWanted) shadow.add(id, rec)
   }
 
   function hide(id, rec) {
-    tiers[rec.tier].remove(id)
+    removeFromTier(rec.tier, id)
     if (shadow) shadow.remove(id)
   }
 
@@ -136,21 +161,42 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     scale: { set(x, y, z) { _scale.set(x, y, z) }, setScalar(s) { _scale.set(s, s, s) } },
   }
 
-  function updateLOD(cameraPos) {
-    for (const [id, rec] of instances) {
-      const m = rec.matrix
-      const dx = m[12] - cameraPos.x, dy = m[13] - cameraPos.y, dz = m[14] - cameraPos.z
-      const dsq = dx * dx + dy * dy + dz * dz
-      const tier = tierFor(dsq)
-      const shadowWanted = shadowDistSq >= 0 && dsq <= shadowDistSq
-      if (tier !== rec.tier) {
-        if (rec.visible) { tiers[rec.tier].remove(id); tiers[tier].add(id, rec) }
-        rec.tier = tier
+  let lodEyeX = 0, lodEyeY = 0, lodEyeZ = 0, lodStale = true
+  const baseGeometry = levels[0].geometry
+  if (!baseGeometry.boundingSphere) baseGeometry.computeBoundingSphere()
+  const levelBounds = baseGeometry.boundingSphere
+
+  function placeInTier(id, rec, tier, culled) {
+    const wasDrawn = inView(rec) && rec.tier !== NO_MESH_TIER
+    const nowDrawn = rec.visible && !culled && tier !== NO_MESH_TIER
+    if (wasDrawn && (!nowDrawn || tier !== rec.tier)) tiers[rec.tier].remove(id)
+    const addNow = nowDrawn && (!wasDrawn || tier !== rec.tier)
+    rec.tier = tier; rec.viewCulled = culled
+    if (addNow) tiers[tier].add(id, rec)
+  }
+
+  function updateLOD(cameraPos, frustum, viewChanged) {
+    const ex = cameraPos.x - lodEyeX, ey = cameraPos.y - lodEyeY, ez = cameraPos.z - lodEyeZ
+    const moved = lodStale || ex * ex + ey * ey + ez * ez >= LOD_REEVAL_MOVE_SQ
+    if (!moved && !viewChanged) return
+    if (moved) { lodEyeX = cameraPos.x; lodEyeY = cameraPos.y; lodEyeZ = cameraPos.z; lodStale = false }
+    for (let id = 0; id < recs.length; id++) {
+      const rec = recs[id]
+      if (rec === null) continue
+      let tier = rec.tier
+      if (moved) {
+        const m = rec.matrix
+        const dx = m[12] - lodEyeX, dy = m[13] - lodEyeY, dz = m[14] - lodEyeZ
+        const dsq = dx * dx + dy * dy + dz * dz
+        tier = tierFor(dsq)
+        const shadowWanted = shadowDistSq >= 0 && dsq <= shadowDistSq
+        if (shadow && shadowWanted !== rec.shadowWanted) {
+          rec.shadowWanted = shadowWanted
+          if (rec.visible) { if (shadowWanted) shadow.add(id, rec); else shadow.remove(id) }
+        }
       }
-      if (shadow && shadowWanted !== rec.shadowWanted) {
-        rec.shadowWanted = shadowWanted
-        if (rec.visible) { if (shadowWanted) shadow.add(id, rec); else shadow.remove(id) }
-      }
+      const culled = frustum && tier !== NO_MESH_TIER ? !frustum.intersectsSphere(rec.bounds) : false
+      if (tier !== rec.tier || culled !== rec.viewCulled) placeInTier(id, rec, tier, culled)
     }
   }
 
@@ -159,7 +205,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     get mesh() { return tiers[0].mesh },
     get geometry() { return tiers[0].mesh.geometry },
     get material() { return levels[0].material },
-    get count() { return instances.size },
+    get count() { return liveCount },
     perObjectFrustumCulled: false,
     autoUpdate: true,
     get visible() { return props.visible },
@@ -173,43 +219,51 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     updateMatrix() { for (const p of pools) p.mesh.updateMatrix() },
     addInstances(count, cb) {
       for (let i = 0; i < count; i++) {
-        const id = freeIds.length ? freeIds.pop() : nextId++
+        const id = freeIds.length ? freeIds.pop() : recs.length
         _pos.set(0, 0, 0); _quat.identity(); _scale.set(1, 1, 1)
         proxy.id = id
         cb(proxy)
         _m4.compose(_pos, _quat, _scale)
-        const rec = { matrix: Float32Array.from(_m4.elements), attrs: {}, tier: 0, shadowWanted: false, visible: true }
-        instances.set(id, rec)
+        const rec = { matrix: Float32Array.from(_m4.elements), attrs: {}, tier: 0, shadowWanted: false, visible: true, viewCulled: false, bounds: new THREE.Sphere().copy(levelBounds).applyMatrix4(_m4) }
+        recs[id] = rec
+        liveCount++
         tiers[0].add(id, rec)
       }
+      if (count > 0) lodStale = true
     },
     removeInstances(id) {
-      const rec = instances.get(id)
+      const rec = recs[id]
       if (!rec) return
       if (rec.visible) hide(id, rec)
-      instances.delete(id)
+      recs[id] = null
+      liveCount--
       freeIds.push(id)
     },
     setUniformAt(id, name, value) {
-      const rec = instances.get(id)
+      const rec = recs[id]
       if (!rec) return
       rec.attrs[name] = typeof value === 'number' ? value : Array.from(value)
       if (!rec.visible) return
-      tiers[rec.tier].setAttr(id, name, value)
+      if (!rec.viewCulled && rec.tier !== NO_MESH_TIER) tiers[rec.tier].setAttr(id, name, value)
       if (shadow && rec.shadowWanted) shadow.setAttr(id, name, value)
     },
     setVisibilityAt(id, visible) {
-      const rec = instances.get(id)
+      const rec = recs[id]
       if (!rec || rec.visible === visible) return
       rec.visible = visible
       if (visible) show(id, rec); else hide(id, rec)
     },
     resizeBuffers() {},
     updateLOD,
+    setMeshFarDistance(d) {
+      if (!(d > 0)) throw new RangeError(`WebGPULodInstancer.setMeshFarDistance: distance must be positive, got ${d}`)
+      meshFarSq = d * d
+      lodStale = true
+    },
     get lodTierCount() { return tiers.length },
     get shadowActiveCount() { return shadow ? shadow.size : 0 },
     get tierMeshes() { return tiers.map(t => t.mesh) },
     get shadowMesh() { return shadow ? shadow.mesh : null },
-    dispose() { for (const p of pools) p.dispose(); instances.clear(); freeIds.length = 0 },
+    dispose() { for (const p of pools) p.dispose(); recs.length = 0; liveCount = 0; freeIds.length = 0 },
   }
 }

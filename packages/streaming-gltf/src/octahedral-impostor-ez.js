@@ -103,14 +103,18 @@ function _makeCaptureMaterial(material) {
   return shaderMaterial;
 }
 
-function _overrideTargetMaterial(target) {
+function _overrideTargetMaterial(target, makeCaptureMaterial) {
+  const created = [];
   target.traverse((mesh) => {
     if (mesh.material) {
       const material = mesh.material;
       mesh.userData[USERDATA_MAT_KEY] = material;
-      mesh.material = Array.isArray(material) ? material.map((m) => _makeCaptureMaterial(m)) : _makeCaptureMaterial(material);
+      const capture = Array.isArray(material) ? material.map((m) => makeCaptureMaterial(m)) : makeCaptureMaterial(material);
+      mesh.material = capture;
+      if (Array.isArray(capture)) created.push(...capture); else created.push(capture);
     }
   });
+  return created;
 }
 
 function _restoreTargetMaterial(target) {
@@ -132,6 +136,8 @@ export function createAtlasRenderTarget(atlasSize) {
   rt.textures[1].magFilter = NearestFilter;
   rt.textures[1].type = UnsignedByteType;
   rt.textures[1].colorSpace = LinearSRGBColorSpace;
+  rt.textures[0].name = 'output';
+  rt.textures[1].name = 'normalDepth';
   return rt;
 }
 
@@ -154,12 +160,21 @@ export function renderAtlasCells(renderer, target, renderTarget, opts) {
   _camera.zoom = cameraFactor; _camera.near = 0.001; _camera.far = bSphere.radius * 2 + 0.001;
   _camera.updateProjectionMatrix();
 
+  const cellViewportOnTarget = renderer.isWebGPURenderer === true;
+  const oldAutoClear = renderer.autoClear;
   renderer.setRenderTarget(renderTarget);
   renderer.setScissorTest(true);
   renderer.setPixelRatio(1);
   renderer.setClearAlpha(0);
+  if (cellViewportOnTarget && cellStart === 0) {
+    renderTarget.scissorTest = false;
+    renderTarget.viewport.set(0, 0, atlasSize, atlasSize);
+    renderTarget.scissor.set(0, 0, atlasSize, atlasSize);
+    renderer.clear();
+  }
+  if (cellViewportOnTarget) { renderer.autoClear = false; renderTarget.scissorTest = true; }
 
-  _overrideTargetMaterial(target);
+  const captureMaterials = _overrideTargetMaterial(target, opts.makeCaptureMaterial || _makeCaptureMaterial);
   for (let k = cellStart; k < end; k++) {
     const col = k % countPerSide, row = Math.floor(k / countPerSide);
     _coords.set(col / countMinusOne, row / countMinusOne);
@@ -169,11 +184,24 @@ export function renderAtlasCells(renderer, target, renderTarget, opts) {
     _camera.lookAt(bSphere.center);
     const xOffset = (col / countPerSide) * atlasSize;
     const yOffset = (row / countPerSide) * atlasSize;
-    renderer.setViewport(xOffset, yOffset, spriteSize, spriteSize);
-    renderer.setScissor(xOffset, yOffset, spriteSize, spriteSize);
+    if (cellViewportOnTarget) {
+      const yTop = atlasSize - yOffset - spriteSize;
+      renderTarget.viewport.set(xOffset, yTop, spriteSize, spriteSize);
+      renderTarget.scissor.set(xOffset, yTop, spriteSize, spriteSize);
+    } else {
+      renderer.setViewport(xOffset, yOffset, spriteSize, spriteSize);
+      renderer.setScissor(xOffset, yOffset, spriteSize, spriteSize);
+    }
     renderer.render(target, _camera);
   }
   _restoreTargetMaterial(target);
+  for (const m of captureMaterials) m.dispose();
+  if (cellViewportOnTarget) {
+    renderer.autoClear = oldAutoClear;
+    renderTarget.scissorTest = false;
+    renderTarget.viewport.set(0, 0, atlasSize, atlasSize);
+    renderTarget.scissor.set(0, 0, atlasSize, atlasSize);
+  }
 
   renderer.setRenderTarget(oldTarget);
   renderer.setScissorTest(oldScissorTest);
@@ -196,6 +224,7 @@ export function createTextureAtlas(params) {
   renderAtlasCells(renderer, target, renderTarget, {
     atlasSize, countPerSide, bSphere: _bSphere, cameraFactor: params.cameraFactor ?? 1,
     useHemiOctahedron, cellStart: 0, cellCount: countPerSide * countPerSide,
+    makeCaptureMaterial: params.makeCaptureMaterial,
   });
   return { renderTarget, albedo: renderTarget.textures[0], normalDepth: renderTarget.textures[1] };
 }

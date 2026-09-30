@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu'
 import {
   Fn, Loop, If, float, int, vec2, vec3, vec4, uniform, uniformArray, attribute, varyingProperty, texture, select,
-  normalize, cross, dot, max, mix, smoothstep, clamp, length, fwidth, sqrt, tan, cameraViewMatrix,
+  normalize, cross, dot, max, mix, smoothstep, clamp, length, fwidth, sqrt, tan, cameraViewMatrix, property,
 } from 'three/tsl'
 import { FACE_FRAME } from '../planet-orchestrator-cull.js'
 import { TERRAIN_DEFAULTS as TD } from '../terrain-defaults.js'
@@ -140,18 +140,24 @@ export function createTerrainMaterialTSL({ defRadius, reliefScale, landBias, bea
   const slope = float(1.0).sub(max(0.0, dot(n, dir0)))
   const rockSlope = clamp(slope, 0.0, 1.0)
   const pxWorld = max(length(fwidth(vRelP)), 0.001)
-  const biomeC = terrainAlbedoClimate({ snoise3: spec.snoise3, h: vH, rockSlope, temp: vClim.x, nwp: dir0, pxWorld, reliefScale: u.reliefScale })
-  const splat = surfaceSplat({ snoise3: spec.snoise3, u, n, dir0, h: vH, slope, rockSlope, humid: vClim.y, temp: vClim.x, biomeC, pxWorld, camDist: length(vRelP), worldRel: vRelP, texWarp: vWarp })
   const wet = select(vH.greaterThan(0.0), u.wetness, float(0.0))
-  const pool = splat.pool.mul(float(1.0).sub(smoothstep(u.poolSpec.z, u.poolSpec.w, slope))).mul(wet)
-  const poolRoughness = sqrt(sqrt(float(2.0).div(mix(u.poolSpec.x, u.poolSpec.y, pool).add(2.0))))
-  const nLit = normalize(n.add(splat.texDn))
+  const texDnP = property('vec3', 'terrTexDn')
+  const poolP = property('float', 'terrPool')
+  const colorNode = Fn(() => {
+    const biomeC = terrainAlbedoClimate({ snoise3: spec.snoise3, h: vH, rockSlope, temp: vClim.x, nwp: dir0, pxWorld, reliefScale: u.reliefScale })
+    const splat = surfaceSplat({ snoise3: spec.snoise3, u, n, dir0, h: vH, slope, rockSlope, humid: vClim.y, temp: vClim.x, biomeC, pxWorld, camDist: length(vRelP), worldRel: vRelP, texWarp: vWarp })
+    texDnP.assign(splat.texDn)
+    poolP.assign(splat.pool.mul(float(1.0).sub(smoothstep(u.poolSpec.z, u.poolSpec.w, slope))).mul(wet))
+    return vec4(splat.albedo.mul(mix(1.0, WET_DARKEN, wet)), 1.0)
+  })()
+  const poolRoughness = sqrt(sqrt(float(2.0).div(mix(u.poolSpec.x, u.poolSpec.y, poolP).add(2.0))))
+  const nLit = normalize(n.add(texDnP))
 
   const material = new THREE.MeshStandardNodeMaterial()
   material.name = 'mapspinner-terrain-tsl'
   material.positionNode = positionNode
-  material.colorNode = vec4(splat.albedo.mul(mix(1.0, WET_DARKEN, wet)), 1.0)
-  material.roughnessNode = mix(DRY_ROUGHNESS, poolRoughness, pool)
+  material.colorNode = colorNode
+  material.roughnessNode = mix(DRY_ROUGHNESS, poolRoughness, poolP)
   material.normalNode = normalize(cameraViewMatrix.mul(vec4(toLocal(nLit), 0.0)).xyz)
   material.metalness = 0.0
   material.side = THREE.DoubleSide

@@ -115,6 +115,7 @@ export function createRenderGraph(nodes, opts = {}) {
   }
 
   let profiling = false
+  let profileHook = null
   const disabled = new Set()
   const stats = new Map()
   for (const n of nodes) { const st = { ms: 0, ema: 0, calls: 0, tris: 0, runs: 0, skips: 0, errors: 0 }; stats.set(n.id, st); n._stats = st; n._disabled = false }
@@ -146,6 +147,10 @@ export function createRenderGraph(nodes, opts = {}) {
     watchdogLog,
     get profiling() { return profiling },
     setProfiling(v) { profiling = !!v },
+    setProfileHook(hook) {
+      if (hook && (typeof hook.before !== 'function' || typeof hook.after !== 'function')) throw new TypeError('RenderGraph.setProfileHook: hook needs before(id) and after(id) functions')
+      profileHook = hook || null
+    },
     disable(id) {
       const n = byId.get(id)
       if (!n) { console.warn(`[render-graph] disable('${id}'): no such node. Nodes: ${order.join(', ')}`); return false }
@@ -217,9 +222,11 @@ export function createRenderGraph(nodes, opts = {}) {
             const s = node._stats
             const ri = ctx.renderer ? ctx.renderer.info.render : null
             const c0 = ri ? ri.calls : 0, tri0 = ri ? ri.triangles : 0
+            if (profileHook) profileHook.before(node.id)
             const t0 = performance.now()
-            try { node.run(ctx) } catch (e) { _nodeThrew(node.id, e, graph.frameId); return }
+            try { node.run(ctx) } catch (e) { if (profileHook) profileHook.after(node.id); _nodeThrew(node.id, e, graph.frameId); return }
             s.ms = performance.now() - t0
+            if (profileHook) profileHook.after(node.id)
             s.ema = s.ema === 0 ? s.ms : s.ema * 0.9 + s.ms * 0.1
             if (ri) { s.calls = ri.calls - c0; s.tris = ri.triangles - tri0 }
             s.runs++

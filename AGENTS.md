@@ -156,7 +156,9 @@ spoint-core Rust twins of JS math (byte-identical pairs) and other rationale mov
 
 Perf/spawn 2026-09-30 (prefix `project/`): InstancedMesh2 LOD children cull and hidden empty levels plus the
 three/bvh.js count-0 and far-band patches (`veg-instancedmesh2-lod-children-cull-and-empty-levels-2026-09-30`);
-WebGPU DynamicDrawUsage re-uploads every render and dense LOD tiers (`webgpu-dynamicdraw-reupload-and-dense-lod-tiers-2026-09-30`);
+WebGPU DynamicDrawUsage re-uploads every render (`webgpu-dynamicdrawusage-reuploads-every-render`), vec3 padding full copy
+(`webgpu-vec3-attribute-padding-full-copy`), TSL perf parity causes and fixes (`tsl-webgpu-perf-parity-2026-09-30`), impostor atlas
+viewport/orientation/normals on WebGPURenderer (`webgpurenderer-impostor-atlas-orientation-and-normals`);
 spawn hold until static trimeshes land, floor probe from +2 m (`spawn-hold-until-static-colliders-and-floor-probe-2026-09-30`);
 vegetation A/B numbers and remaining GPU-backpressure long tasks (`veg-variation-perf-ab-and-remaining-costs-2026-09-30`);
 spawn surface standing/lifted/dropped rule and the spawn-4 floor gap (`spawn-surface-standing-lifted-dropped-2026-09-30`);

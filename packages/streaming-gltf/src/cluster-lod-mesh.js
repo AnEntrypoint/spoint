@@ -57,7 +57,6 @@ export class ClusterLodMesh extends THREE.Mesh {
     if (srcIndex && capacity <= COMPACT_INDEX_CAPACITY_LIMIT) {
       this._srcIndex = srcIndex;
       const drawIndex = new THREE.BufferAttribute(new srcIndex.constructor(capacity), 1);
-      drawIndex.setUsage(THREE.DynamicDrawUsage);
       drawIndex.array.set(srcIndex.subarray(0, this.lod0Count), 0);
       this._drawIndex = drawIndex;
       this._drawGroup = { start: 0, count: this.lod0Count, materialIndex: 0 };

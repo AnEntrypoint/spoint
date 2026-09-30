@@ -1,5 +1,5 @@
 import {
-  float, vec2, vec3, vec4, int, select, texture, smoothstep, step, mix, clamp, max, abs, pow, dot, sign, length,
+  If, float, vec2, vec3, vec4, int, select, texture, smoothstep, step, mix, clamp, max, abs, pow, dot, sign, length, dFdx, dFdy,
 } from 'three/tsl'
 import { TERRAIN_DEFAULTS as TD } from '../terrain-defaults.js'
 
@@ -44,16 +44,24 @@ export function terrainAlbedoClimate({ snoise3, h, rockSlope, temp, nwp, pxWorld
   return select(h.lessThan(0.0), seaOut, landOut)
 }
 
-function triTap(tex, wt, bw, layer) {
-  return texture(tex, vec2(wt.y, wt.z)).depth(layer).mul(bw.x)
-    .add(texture(tex, vec2(wt.x, wt.z)).depth(layer).mul(bw.y))
-    .add(texture(tex, vec2(wt.x, wt.y)).depth(layer).mul(bw.z))
+const planeTap = (tex, g, uvSw, layer) => texture(tex, g.p[uvSw]).grad(g.dx[uvSw], g.dy[uvSw]).depth(layer)
+
+function triplanarGrads(wt, scale) {
+  const p = wt.mul(scale), dx = dFdx(wt).mul(scale), dy = dFdy(wt).mul(scale)
+  const sw = (v) => ({ yz: vec2(v.y, v.z), xz: vec2(v.x, v.z), xy: vec2(v.x, v.y) })
+  return { p: sw(p), dx: sw(dx), dy: sw(dy) }
 }
 
-function triNrm(tex, wt, bw, layer, n) {
-  const px = texture(tex, vec2(wt.y, wt.z)).depth(layer).rg.mul(2.0).sub(1.0)
-  const py = texture(tex, vec2(wt.x, wt.z)).depth(layer).rg.mul(2.0).sub(1.0)
-  const pz = texture(tex, vec2(wt.x, wt.y)).depth(layer).rg.mul(2.0).sub(1.0)
+function triTap(tex, g, bw, layer) {
+  return planeTap(tex, g, 'yz', layer).mul(bw.x)
+    .add(planeTap(tex, g, 'xz', layer).mul(bw.y))
+    .add(planeTap(tex, g, 'xy', layer).mul(bw.z))
+}
+
+function triNrm(tex, g, bw, layer, n) {
+  const px = planeTap(tex, g, 'yz', layer).rg.mul(2.0).sub(1.0)
+  const py = planeTap(tex, g, 'xz', layer).rg.mul(2.0).sub(1.0)
+  const pz = planeTap(tex, g, 'xy', layer).rg.mul(2.0).sub(1.0)
   return vec3(0.0, px.x, px.y).mul(bw.x.mul(sign(n.x)))
     .add(vec3(py.x, 0.0, py.y).mul(bw.y.mul(sign(n.y))))
     .add(vec3(pz.x, pz.y, 0.0).mul(bw.z.mul(sign(n.z))))
@@ -96,16 +104,18 @@ export function surfaceSplat({ snoise3, u, n, dir0, h, slope, rockSlope, humid, 
   const tw0 = pow(abs(n), vec3(TD.triSharp))
   const tw = tw0.div(tw0.x.add(tw0.y).add(tw0.z).add(1e-4))
   const bAB = clamp(wA.div(max(wA.add(wB), 1e-4)), 0.0, 1.0)
-  const wt4 = wt.mul(4.0)
+  const gNear = triplanarGrads(wt, 4.0), gFar = triplanarGrads(wt, 1.0)
   const octFarFade = smoothstep(rs.mul(TD.octFar0), rs.mul(TD.octFar1), pxWorld)
   const texFade = float(1.0).sub(smoothstep(TD.nrmFade0, TD.nrmFade1, camDist))
   const crossFade = float(1.0).sub(smoothstep(TD.xFade0, TD.xFade1, camDist))
 
   const layerSample = (l) => {
     const li = int(l.add(0.5))
-    const albNear = triTap(u.surfAlb, wt4, tw, li)
-    const col = mix(albNear.rgb, triTap(u.surfAlb, wt, tw, li).rgb, octFarFade)
-    const nrm = triNrm(u.surfNrm, wt4, tw, li, n).add(triNrm(u.surfNrm, wt, tw, li, n).mul(1.7 * TD.nrmLow))
+    const albNear = triTap(u.surfAlb, gNear, tw, li).toVar()
+    const col = albNear.rgb.toVar()
+    If(octFarFade.notEqual(0.0), () => { col.assign(mix(albNear.rgb, triTap(u.surfAlb, gFar, tw, li).rgb, octFarFade)) })
+    const nrm = vec3(0.0).toVar()
+    If(texFade.notEqual(0.0), () => { nrm.assign(triNrm(u.surfNrm, gNear, tw, li, n).add(triNrm(u.surfNrm, gFar, tw, li, n).mul(1.7 * TD.nrmLow))) })
     const matColor = byLayer(l, [BC_GRASS, BC_ROCK, BC_SHORE, BC_SNOW])
     const ord = byLayer(l, [float(0.6), float(0.3), float(0.0), float(1.0)])
     const meanL = byLayer(l, [u.meanL.x, u.meanL.y, u.meanL.z, u.meanL.w])
@@ -115,20 +125,29 @@ export function surfaceSplat({ snoise3, u, n, dir0, h, slope, rockSlope, humid, 
     const pool = float(1.0).sub(smoothstep(byLayer(l, [u.poolLo.x, u.poolLo.y, u.poolLo.z, u.poolLo.w]), byLayer(l, [u.poolHi.x, u.poolHi.y, u.poolHi.z, u.poolHi.w]), disp))
     return { nrm, matColor, ord, detail, disp, pool }
   }
-  const A = layerSample(lA), B = layerSample(lB)
-  const finger = A.disp.sub(B.disp).mul(TD.xFinger).mul(crossFade)
-  const bSharp = smoothstep(-TD.xSoft, TD.xSoft, bAB.sub(0.5).mul(2.0).add(A.ord.sub(B.ord).mul(TD.ordPush)).add(finger))
-  const detail = mix(B.detail, A.detail, bSharp)
-  const matColor = mix(B.matColor, A.matColor, bSharp)
-  const texNrm = mix(B.nrm, A.nrm, bSharp)
-  const poolTex = mix(B.pool, A.pool, bSharp)
 
+  const albedo = vec3(biomeC).toVar()
+  const texDn = vec3(0.0).toVar()
+  const pool = float(u.poolCover).toVar()
   const k = texFarFade.mul(TD.texMix).mul(u.surfReady)
-  const pool = mix(u.poolCover, poolTex, k)
-  const albedo0 = clamp(mix(matColor, detail, k), vec3(0.0), vec3(1.0))
-  const tinted = mix(albedo0, biomeC, float(TD.biomeTint).mul(clamp(w4.z, 0.0, 1.0).mul(-0.85).add(1.0)))
-  const albedo = mix(biomeC, tinted.mul(TD.texBright), texFarFade)
-  const safeNrm = select(dot(texNrm, texNrm).greaterThan(1e-12), texNrm.div(length(texNrm).max(1e-6)), vec3(0.0))
-  const texDn = safeNrm.mul(k.mul(TD.texNrmK)).mul(texFade)
-  return { albedo: select(u.surfReady.greaterThan(0.5), albedo, biomeC), texDn, pool }
+  If(u.surfReady.greaterThan(0.5).and(texFarFade.greaterThan(0.001)), () => {
+    const A = layerSample(lA)
+    const detail = A.detail.toVar(), matColor = A.matColor.toVar(), texNrm = A.nrm.toVar(), poolTex = A.pool.toVar()
+    If(wB.greaterThan(0.02), () => {
+      const B = layerSample(lB)
+      const finger = A.disp.sub(B.disp).mul(TD.xFinger).mul(crossFade)
+      const bSharp = smoothstep(-TD.xSoft, TD.xSoft, bAB.sub(0.5).mul(2.0).add(A.ord.sub(B.ord).mul(TD.ordPush)).add(finger))
+      detail.assign(mix(B.detail, A.detail, bSharp))
+      matColor.assign(mix(B.matColor, A.matColor, bSharp))
+      texNrm.assign(mix(B.nrm, A.nrm, bSharp))
+      poolTex.assign(mix(B.pool, A.pool, bSharp))
+    })
+    pool.assign(mix(u.poolCover, poolTex, k))
+    const albedo0 = clamp(mix(matColor, detail, k), vec3(0.0), vec3(1.0))
+    const tinted = mix(albedo0, biomeC, float(TD.biomeTint).mul(clamp(w4.z, 0.0, 1.0).mul(-0.85).add(1.0)))
+    albedo.assign(mix(biomeC, tinted.mul(TD.texBright), texFarFade))
+    const safeNrm = select(dot(texNrm, texNrm).greaterThan(1e-12), texNrm.div(length(texNrm).max(1e-6)), vec3(0.0))
+    texDn.assign(safeNrm.mul(k.mul(TD.texNrmK)).mul(texFade))
+  })
+  return { albedo, texDn, pool }
 }

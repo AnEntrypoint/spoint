@@ -53,10 +53,8 @@ class InstancedSlot {
     this.material = material;
     this.mesh = new THREE.InstancedMesh(geo, material, this.capacity);
     this.mesh.frustumCulled = false;
-    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this._boundArray = new Float32Array(this.capacity);
     this._boundAttr = new THREE.InstancedBufferAttribute(this._boundArray, 1);
-    this._boundAttr.setUsage(THREE.DynamicDrawUsage);
     this.mesh.geometry.setAttribute('instanceBoundSphere', this._boundAttr);
     this._boundDirtyRuns = [];
     const zero = new THREE.Matrix4().set(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0);
@@ -215,7 +213,6 @@ class InstancedSlot {
     const old = this.mesh;
     const next = new THREE.InstancedMesh(this.geometry, this.material, newCap);
     next.frustumCulled = false;
-    next.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     if (this._gpuInstanceTex) {
       const oldData = this._instTexData;
       this._initInstanceTexture(newCap);
@@ -236,7 +233,6 @@ class InstancedSlot {
     newBounds.set(this._boundArray);
     this._boundArray = newBounds;
     this._boundAttr = new THREE.InstancedBufferAttribute(newBounds, 1);
-    this._boundAttr.setUsage(THREE.DynamicDrawUsage);
     next.geometry.setAttribute('instanceBoundSphere', this._boundAttr);
     this._boundDirtyRuns = [];
     const parent = old.parent;

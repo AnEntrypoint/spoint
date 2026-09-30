@@ -13,6 +13,14 @@ export function impostorHandoffDistances(nearCutoff) {
   return { impostorStart: nearCutoff - IMPOSTOR_DISSOLVE_FADE_BAND_M, meshEnd: nearCutoff + IMPOSTOR_DISSOLVE_FADE_BAND_M }
 }
 
+export function atlasSampledFlipped(renderer) {
+  return !!(renderer && renderer.isWebGPURenderer)
+}
+
+function tileCopyRowsTopDown(renderer) {
+  return !!(renderer && renderer.isWebGPURenderer && renderer.backend && renderer.backend.isWebGPUBackend)
+}
+
 export function buildSharedImpostorAtlas(renderer, speciesAtlases, opts = {}) {
   const list = (speciesAtlases || []).filter(a => a && a.albedo)
   const n = list.length
@@ -38,9 +46,10 @@ export function buildSharedImpostorAtlas(renderer, speciesAtlases, opts = {}) {
   const tiles = []
   let copied = 0
   const disposeSource = opts.disposeSource !== false
+  const topDownStorage = tileCopyRowsTopDown(renderer)
   for (let i = 0; i < n; i++) {
     const col = i % gridSide, row = Math.floor(i / gridSide)
-    _dst.set(col * atlasSize, row * atlasSize)
+    _dst.set(col * atlasSize, topDownStorage ? mega - (row + 1) * atlasSize : row * atlasSize)
     try {
       renderer.copyTextureToTexture(list[i].albedo, albedoRT.texture, null, _dst)
       if (normalRT && list[i].normal) renderer.copyTextureToTexture(list[i].normal, normalRT.texture, null, _dst)
@@ -55,6 +64,7 @@ export function buildSharedImpostorAtlas(renderer, speciesAtlases, opts = {}) {
 
   const _regenMips = (rt) => {
     if (!rt) return
+    if (renderer.isWebGPURenderer) { renderer.backend.generateMipmaps(rt.texture); return }
     try {
       const gl = renderer.getContext()
       const props = renderer.properties.get(rt.texture)
@@ -79,7 +89,7 @@ export function buildSharedImpostorAtlas(renderer, speciesAtlases, opts = {}) {
 export function createSharedImpostorMesh(renderer, atlas, dims, opts = {}) {
   if (!renderer || !atlas) return null
   const capacity = Math.min(opts.maxInstances || 20000, opts.initCapacity || 4096)
-  if (isWebGPUInstancingSupported(renderer)) return createSharedImpostorMeshWebGPU(atlas, dims, opts, capacity)
+  if (isWebGPUInstancingSupported(renderer)) return createSharedImpostorMeshWebGPU(atlas, dims, { ...opts, atlasFlipY: atlasSampledFlipped(renderer) }, opts.maxInstances || capacity)
   const mat = createOctahedralImpostorMaterial({
     albedo: atlas.albedo, normalDepth: atlas.normal,
     useHemiOctahedron: false, spritesPerSide: opts.spritesPerSide || 8,
@@ -184,7 +194,7 @@ function createSharedImpostorMeshWebGPU(atlas, dims, opts, capacity) {
     useHemiOctahedron: false, spritesPerSide: opts.spritesPerSide || 8,
     transparent: false, alphaClamp: opts.alphaClamp ?? 0.4,
     transform: new THREE.Matrix4(),
-    atlasTile: true, atlasGridSide: atlas.gridSide, tintAttribute: true,
+    atlasTile: true, atlasGridSide: atlas.gridSide, tintAttribute: true, atlasFlipY: opts.atlasFlipY === true,
     farSingleSprite: opts.farSingleSprite !== false,
     parallax: opts.parallax === true, parallaxScale: opts.parallaxScale ?? 0.3,
     nearCutoff: hasNearLodCutoff ? nearCutoff : 0,

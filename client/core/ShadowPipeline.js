@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { installCascadeShadowSelect } from './CascadeShadowSelect.js'
 import { installCascadeShadowSelectTSL } from './CascadeShadowSelectTSL.js'
+import { SHADOW_CASTER_ONLY_LAYER } from './ShadowLayers.js'
 
 const CASCADE_SPLIT = 3.2
 const MAX_CASCADES = 3
@@ -42,6 +43,7 @@ export function createShadowPipeline(sun, opts = {}) {
   }
 
   if (opts.renderer && opts.renderer.isWebGPURenderer) {
+    for (const c of _cascades) c.light.shadow.camera.layers.enable(SHADOW_CASTER_ONLY_LAYER)
     installCascadeShadowSelectTSL(_cascades.map(c => c.light), _cascades.map(c => c.extent))
   } else {
     installCascadeShadowSelect(cascadeCount, _cascades.map(c => c.extent))
