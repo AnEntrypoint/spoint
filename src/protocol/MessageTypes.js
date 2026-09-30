@@ -127,7 +127,10 @@ export const MSG = {
   EDIT_OP_LOG_SINCE: 0xc0,
 
   TELEPORT: 0xc2,
-  TELEPORT_ACK: 0xc3
+  TELEPORT_ACK: 0xc3,
+
+  COLLISION_CONFIG: 0xc4,
+  COLLISION_TILE: 0xc5
 }
 
 const nameMap = new Map()

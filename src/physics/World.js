@@ -2,6 +2,7 @@ import { extractMeshFromGLB } from './GLBLoader.js'
 import { CharacterManager } from './CharacterManager.js'
 import { installVehiclePhysics } from './VehiclePhysics.js'
 import { buildConvexShape, buildMeshShape, buildTrimeshShape } from './ShapeBuilder.js'
+import { createStaticTileIndex } from './StaticTileIndex.js'
 
 const LAYER_STATIC = 0, LAYER_DYNAMIC = 1, NUM_LAYERS = 2
 const _PARK_POS = [0, -100000, 0]
@@ -23,6 +24,7 @@ export async function getJolt() {
 export class PhysicsWorld {
   constructor(config = {}) {
     this.gravity = config.gravity || [0, -9.81, 0]
+    this.joltLimits = config.joltLimits || null
     this.Jolt = null; this.jolt = null; this.physicsSystem = null; this.bodyInterface = null
     this.bodies = new Map(); this.bodyMeta = new Map(); this.bodyIds = new Map()
     this._objFilter = null; this._ovbp = null
@@ -48,6 +50,8 @@ export class PhysicsWorld {
     const settings = new J.JoltSettings()
     settings.mObjectLayerPairFilter = objFilter; settings.mBroadPhaseLayerInterface = bpI
     settings.mObjectVsBroadPhaseLayerFilter = ovbp
+    const lim = this.joltLimits
+    if (lim) { settings.mMaxBodies = lim.maxBodies; settings.mMaxBodyPairs = lim.maxBodyPairs; settings.mMaxContactConstraints = lim.maxContactConstraints }
     this._objFilter = objFilter; this._ovbp = ovbp
     this.jolt = new J.JoltInterface(settings); J.destroy(settings)
     this.physicsSystem = this.jolt.GetPhysicsSystem(); this.bodyInterface = this.physicsSystem.GetBodyInterface()
@@ -102,7 +106,16 @@ export class PhysicsWorld {
     const id = body.GetID().GetIndexAndSequenceNumber()
     this.bodies.set(id, body); this.bodyMeta.set(id, opts.meta || {}); this.bodyIds.set(id, body.GetID())
     if (opts.shapeKey) this._bodyShapeKey.set(id, opts.shapeKey)
+    this._staticTiles?.update(id)
     return id
+  }
+
+  enableStaticTiles(tileM) {
+    if (!this._staticTiles && this.Jolt) {
+      this._staticTiles = createStaticTileIndex(this, tileM)
+      for (const id of this.bodies.keys()) this._staticTiles.update(id)
+    }
+    return this._staticTiles || null
   }
 
   addStaticBox(halfExtents, position, rotation) {
@@ -123,6 +136,7 @@ export class PhysicsWorld {
       this.bodyInterface.SetPosition(b.GetID(), this._tmpRVec3, act)
     }
     if (activate === false && this.bodyInterface.DeactivateBody) this.bodyInterface.DeactivateBody(b.GetID())
+    this._staticTiles?.update(id)
   }
 
   addBody(shapeType, params, position, motionType, opts = {}) {
@@ -347,12 +361,13 @@ export class PhysicsWorld {
   getBodyAngularVelocity(id) { const b = this._getBody(id); if (!b || !this.bodyInterface.GetAngularVelocity) return [0,0,0]; const v = this.bodyInterface.GetAngularVelocity(b.GetID()); return [v.GetX(),v.GetY(),v.GetZ()] }
   setBodyFriction(id, f) { const b = this._getBody(id); if (!b || !this.bodyInterface.SetFriction) return false; this.bodyInterface.SetFriction(b.GetID(), f); return true }
   setBodyRestitution(id, r) { const b = this._getBody(id); if (!b || !this.bodyInterface.SetRestitution) return false; this.bodyInterface.SetRestitution(b.GetID(), r); return true }
-  setBodyPosition(id, p) { const b = this._getBody(id); if (!b) return; this._tmpRVec3.Set(p[0],p[1],p[2]); this.bodyInterface.SetPosition(b.GetID(), this._tmpRVec3, this.Jolt.EActivation_Activate) }
+  setBodyPosition(id, p) { const b = this._getBody(id); if (!b) return; this._tmpRVec3.Set(p[0],p[1],p[2]); this.bodyInterface.SetPosition(b.GetID(), this._tmpRVec3, this.Jolt.EActivation_Activate); this._staticTiles?.update(id) }
   setBodyMotionType(id, motionType) {
     const b = this._getBody(id); if (!b || !this.bodyInterface.SetMotionType) return false
     const J = this.Jolt
     const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
     this.bodyInterface.SetMotionType(b.GetID(), mt, J.EActivation_DontActivate)
+    this._staticTiles?.update(id)
     return true
   }
   deactivateBody(id) {
@@ -466,6 +481,7 @@ export class PhysicsWorld {
     }
     this.bodyInterface.RemoveBody(b.GetID()); this.bodyInterface.DestroyBody(b.GetID())
     this.bodies.delete(id); this.bodyMeta.delete(id); this.bodyIds.delete(id); this._bodyShapeKey.delete(id)
+    this._staticTiles?.update(id)
   }
 
   asyncQuery(queries) {
@@ -557,6 +573,7 @@ export class PhysicsWorld {
     }
     if (this._vehWheelAxes) { this.Jolt.destroy(this._vehWheelAxes.right); this.Jolt.destroy(this._vehWheelAxes.up); this._vehWheelAxes = null }
     this._charMgr.destroy()
+    if (this._staticTiles) { this._staticTiles.destroy(); this._staticTiles = null }
     if (this._vehicles) for (const [id] of this._vehicles) this.removeVehicle(id)
     for (const [id] of this.bodies) this.removeBody(id, true)
     this._bodyPool.clear(); this._bodyShapeKey.clear()

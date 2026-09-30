@@ -16,6 +16,7 @@ const HITBOX_CENTER_HEIGHT = 0.9
 const HITBOX_RADIUS = 0.6
 const MOVE_ONSET_M = 0.03
 const MISPREDICT_M = 0.02
+const RESPAWN_JUMP_M = 3
 
 const args = Object.fromEntries(process.argv.slice(2).map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true'] }))
 if (args.precise === 'true') process.env.SPOINT_PRECISE_TICKS = '1'
@@ -93,6 +94,54 @@ function moverInputAt(ms, script = MOVER_SCRIPT) {
   return { yaw: 0, pitch: 0 }
 }
 
+const ROUTE_SPAWN = [-15, 3.7, -10]
+const ROUTE_LEG_MS = 1600
+const GOLDEN_YAW = 2.39996
+
+function contactKinds(server, playerId) {
+  const pw = server.physicsIntegration.physicsWorld
+  const body = server.physicsIntegration.playerBodies.get(playerId)
+  const ch = body && pw?._charMgr?.characters.get(body.charId)
+  if (!ch) return []
+  const contacts = ch.GetActiveContacts(), n = contacts.size(), out = []
+  const trunks = pw.getTrunkColliderIds?.(), rocks = pw.getRockColliderIds?.(), terrainId = pw.getTerrainBodyId?.()
+  for (let i = 0; i < n; i++) {
+    const c = contacts.at(i)
+    if (!c.mHadCollision) continue
+    const id = c.mBodyB.GetIndexAndSequenceNumber(), ny = c.mContactNormal.GetY()
+    const meta = pw.bodyMeta.get(id)
+    const kind = trunks?.has?.(id) ? 'trunk' : rocks?.has?.(id) ? 'rock' : meta?.shape === 'heightfield' || id === terrainId ? 'terrain' : meta?.type !== 'static' ? 'dynamic' : meta?.shape || 'static'
+    out.push(kind + (ny > 0.95 ? ':floor' : ny > 0.3 ? ':slope' : ny < -0.3 ? ':ceiling' : ':wall'))
+  }
+  return out
+}
+
+function routeInput(server, playerId, ms, leg) {
+  const p = server.playerManager.getPlayer(playerId)?.state?.position
+  if (!p) return { yaw: 0, pitch: 0 }
+  if (!leg.rng) leg.rng = mulberry32(99)
+  const stuck = leg.checkAt != null && ms - leg.checkAt > 600 && Math.hypot(p[0] - leg.checkPos[0], p[2] - leg.checkPos[2]) < 0.6
+  if (leg.checkAt == null || ms - leg.checkAt > 600) { leg.checkAt = ms; leg.checkPos = [p[0], p[1], p[2]] }
+  const k = Math.floor(ms / ROUTE_LEG_MS)
+  if (k !== leg.k || (stuck && ms - leg.pushStart > 900)) {
+    leg.k = k; leg.n = (leg.n || 0) + 1; leg.pushStart = ms
+    const pw = server.physicsIntegration.physicsWorld, ids = [...(pw.getTrunkColliderIds?.() || []), ...(pw.getRockColliderIds?.() || [])]
+    let best = null, bestD = Infinity
+    if (leg.n % 3 === 1) for (const id of ids) {
+      if (leg.visited.has(id)) continue
+      const bp = pw.getBodyPosition(id), d = Math.hypot(bp[0] - p[0], bp[2] - p[2])
+      if (bp[1] > -1000 && d > 2 && d < 60 && d < bestD) { bestD = d; best = { id, bp } }
+    }
+    if (best) { leg.visited.add(best.id); leg.target = best.bp }
+    else if (leg.n % 3 === 2) leg.target = [-25 + leg.rng() * 50, p[1], -45 + leg.rng() * 50]
+    else { const a = leg.rng() * Math.PI * 2; leg.target = [p[0] + Math.sin(a) * 30, p[1], p[2] + Math.cos(a) * 30] }
+  }
+  const phase = ((ms - leg.pushStart) % ROUTE_LEG_MS) / ROUTE_LEG_MS
+  const t = leg.target, yaw = Math.atan2(t[0] - p[0], t[2] - p[2])
+  const strafe = phase > 0.75 ? (leg.n % 2 ? { right: true } : { left: true }) : {}
+  return { forward: true, sprint: leg.n % 4 !== 3, jump: leg.n % 5 === 4 && phase > 0.5 && phase < 0.55, crouch: leg.n % 7 === 6 && phase > 0.3, ...strafe, yaw, pitch: 0 }
+}
+
 function createHarnessClient({ url, profile, predict, scheduler, seed }) {
   const meter = { inBytes: 0, outBytes: 0, inMsgs: 0, outMsgs: 0, byType: {} }
   const view = { sceneGraph: createSceneGraph({ add() {} }, null), nodes: new Map() }
@@ -110,7 +159,7 @@ function createHarnessClient({ url, profile, predict, scheduler, seed }) {
   }
   const snapTimes = []
   client = new HarnessClient({
-    url, predictionEnabled: predict, smoothInterpolation: true, autoMigrate: false, webTransport: { enabled: false },
+    url, predictionEnabled: predict, smoothInterpolation: true, collisionMirror: args.mirror !== 'off', autoMigrate: false, webTransport: { enabled: false },
     onSnapshot: () => snapTimes.push(performance.now()),
     onStateUpdate: state => {
       const lid = client.playerId
@@ -126,7 +175,7 @@ function viewPos(h, id) {
   return g && g.userData.initialized ? [g.position.x, g.position.y + FEET_OFFSET, g.position.z] : null
 }
 
-function instrumentPrediction(h, rec) {
+function instrumentPrediction(h, rec, seqKinds) {
   const pe = h.client._msgHandler.getPredEngine()
   if (!pe || pe.__harness) return !!pe
   pe.__harness = true
@@ -142,6 +191,19 @@ function instrumentPrediction(h, rec) {
       if (pred) {
         const e = dist3(sp.position, pred.position)
         rec.mispredict.push(e)
+        if (seqKinds) {
+          const kinds = new Set()
+          for (let q = rec.lastKindSeq + 1; q <= sp.inputSequence; q++) for (const k of seqKinds.get(q) || ['air-or-none']) kinds.add(k)
+          rec.lastKindSeq = sp.inputSequence
+          const key = [...kinds].sort().join('+') || 'none'
+          const b = rec.byKind[key] || (rec.byKind[key] = { acks: 0, mis: 0, errs: [], vErrs: [] })
+          b.acks++
+          if (e > RESPAWN_JUMP_M) rec.respawns = (rec.respawns || 0) + 1
+          else if (e > MISPREDICT_M) {
+            b.mis++; b.errs.push(e); b.vErrs.push(Math.abs(sp.position[1] - pred.position[1]))
+            if (/trunk|rock|terrain/.test(key) && (b.samples || (b.samples = [])).length < 6) b.samples.push({ seq: sp.inputSequence, errM: e, d: sp.position.map((x, i) => +(x - pred.position[i]).toFixed(3)), s: sp.position.map(x => +x.toFixed(2)), sv: sp.velocity.map(x => +x.toFixed(2)), pv: pred.velocity.map(x => +x.toFixed(2)), sg: sp.onGround, pg: pred.onGround })
+          }
+        }
         if (e > MISPREDICT_M && rec.worst.length < 40) rec.worst.push({ seq: sp.inputSequence, errM: e, server: { p: [...sp.position], v: [...sp.velocity], g: sp.onGround }, predicted: { p: [...pred.position], v: [...pred.velocity], g: pred.onGround }, input: pred.data, walls: (pe.walls || []).map(w => [w.nx, w.nz, w.d]), serverWalls: sp.wallPlanes ? [...sp.wallPlanes] : null })
       }
     }
@@ -197,9 +259,18 @@ async function runOne(cond, predict, worldDef) {
   const t0 = performance.now()
   while (!all.every(h => h.client.playerId) && performance.now() - t0 < 10000) await new Promise(r => setTimeout(r, 20))
   const place = (h, pos) => { const p = server.playerManager.getPlayer(h.client.playerId); if (!p) return; p.state.position[0] = pos[0]; p.state.position[1] = pos[1]; p.state.position[2] = pos[2]; server.physicsIntegration.setPlayerPosition(p.id, pos) }
-  place(mover, [0, 1.2, 0]); place(shooter, worldDef.harness?.shooterAt || [0, 1.2, 10])
+  place(mover, args.route === 'tps' ? ROUTE_SPAWN : [0, 1.2, 0]); place(shooter, worldDef.harness?.shooterAt || [0, 1.2, 10])
   bots.forEach((b, i) => place(b, [20 + 4 * i, 1.2, -20]))
-  const rec = { mispredict: [], correctionJumpM: [], corrections: 0, worst: [] }
+  const rec = { mispredict: [], correctionJumpM: [], corrections: 0, worst: [], byKind: {}, lastKindSeq: 0 }
+  const seqKinds = new Map(), routeLeg = { k: -1, target: null, visited: new Set(), pushStart: 0 }
+  if (args.route === 'tps') server.tickSystem.onTick(() => {
+    const p = server.playerManager.getPlayer(mover.client.playerId)
+    if (!p || p.ackSequence == null) return
+    const kinds = contactKinds(server, p.id)
+    const prev = seqKinds.get(p.ackSequence)
+    seqKinds.set(p.ackSequence, prev ? [...new Set([...prev, ...kinds])] : kinds)
+  })
+  const renderOffset = [], drawnJerk = []
   const localFrames = [], remoteFrames = [], interpStats = [], meshLag = []
   const onsets = []
   let lastMoverInput = {}, runStart = 0, lastFrameAt = 0, shootAcc = 0, meterBase = null
@@ -210,8 +281,8 @@ async function runOne(cond, predict, worldDef) {
   mover.client.startInputLoop(() => {
     const now = performance.now()
     if (!meterBase && now >= runStart) meterBase = all.map(h => ({ inBytes: h.meter.inBytes, outBytes: h.meter.outBytes, inMsgs: h.meter.inMsgs, snap: h.meter.byType.SNAPSHOT || 0 }))
-    instrumentPrediction(mover, rec)
-    const inp = now < runStart ? { yaw: 0, pitch: 0 } : moverInputAt(now - runStart, worldDef.harness?.script)
+    instrumentPrediction(mover, rec, args.route === 'tps' ? seqKinds : null)
+    const inp = now < runStart ? { yaw: 0, pitch: 0 } : args.route === 'tps' ? routeInput(server, mover.client.playerId, now - runStart, routeLeg) : moverInputAt(now - runStart, worldDef.harness?.script)
     const dir = wishDir(inp)
     if (dir && !wishDir(lastMoverInput) && now >= runStart) {
       const mid = mover.client.playerId
@@ -236,7 +307,13 @@ async function runOne(cond, predict, worldDef) {
     const mid = mover.client.playerId, sid = shooter.client.playerId
     const lp = viewPos(mover, mid), rp = viewPos(shooter, mid)
     const ls = mover.client.getLocalState()
-    if (lp && ls) { localFrames.push({ t: now, p: lp, v: [...ls.velocity] }); meshLag.push(dist3(lp, ls.position)) }
+    if (lp && ls) {
+      localFrames.push({ t: now, p: lp, v: [...ls.velocity] }); meshLag.push(dist3(lp, ls.position))
+      const off = mover.client._msgHandler.getPredEngine()?.reconciliationEngine?.errorOffset
+      if (off) renderOffset.push(Math.hypot(off[0], off[1], off[2]))
+      const n = localFrames.length
+      if (n >= 3) { const a = localFrames[n - 3].p, b = localFrames[n - 2].p, c = localFrames[n - 1].p; drawnJerk.push(Math.hypot(c[0] - 2 * b[0] + a[0], c[1] - 2 * b[1] + a[1], c[2] - 2 * b[2] + a[2])) }
+    }
     if (rp) remoteFrames.push({ t: now, p: rp })
     if (shooter.client.getInterpolationStats) interpStats.push(shooter.client.getInterpolationStats())
     const trM = truth.get(mid)
@@ -247,7 +324,7 @@ async function runOne(cond, predict, worldDef) {
       if (o.server == null && trM && along(trM.at(now), o.truthStart) >= MOVE_ONSET_M) o.server = now - o.t
     }
     shootAcc += frameDt
-    if (shootAcc >= 0.2 && rp && sid) {
+    if (shootAcc >= 0.2 && rp && sid && (args.route !== 'tps' || args.shoot === 'on')) {
       shootAcc = 0
       const sp = shooter.client.getLocalState()?.position
       if (sp) {
@@ -275,7 +352,10 @@ async function runOne(cond, predict, worldDef) {
     inputToVisual: {
       localMs: summarize(onsets.map(o => o.local)), remoteMs: summarize(onsets.map(o => o.remote)), serverMs: summarize(onsets.map(o => o.server)), onsets: onsets.length
     },
-    mispredict: predict ? { rate: rec.mispredict.filter(e => e > MISPREDICT_M).length / Math.max(1, rec.mispredict.length), errM: summarize(rec.mispredict), correctionsApplied: rec.corrections, correctionRate: rec.corrections / Math.max(1, rec.mispredict.length), correctionJumpM: summarize(rec.correctionJumpM), shooterCorrections: shooterRec.corrections, worst: rec.worst } : null,
+    mispredict: predict ? { rate: rec.mispredict.filter(e => e > MISPREDICT_M).length / Math.max(1, rec.mispredict.length), errM: summarize(rec.mispredict), correctionsApplied: rec.corrections, correctionRate: rec.corrections / Math.max(1, rec.mispredict.length), correctionJumpM: summarize(rec.correctionJumpM), shooterCorrections: shooterRec.corrections, worst: rec.worst, byKind: Object.fromEntries(Object.entries(rec.byKind).map(([k, b]) => [k, { acks: b.acks, misRate: b.mis / b.acks, errM: summarize(b.errs), vErrM: summarize(b.vErrs), samples: b.samples }])), respawns: rec.respawns || 0 } : null,
+    routeSpan: localFrames.length ? [0, 1, 2].map(k => [Math.min(...localFrames.map(f => f.p[k])), Math.max(...localFrames.map(f => f.p[k]))]) : null,
+    drawn: { renderOffsetM: summarize(renderOffset), jerkM: summarize(drawnJerk), jerkOver2cm: drawnJerk.filter(j => j > 0.02).length / Math.max(1, elapsedS) },
+    mirror: (() => { const pe = mover.client._msgHandler.getPredEngine(); return pe?.collisionMirrorStats ? pe.collisionMirrorStats() : null })(),
     serverInput: (() => { const p = server.playerManager.getPlayer(mid); return p ? { starves: p.inputStarves || 0, catchUps: p.inputCatchUps || 0, depth: p.inputBufferDepth ?? null, starvesPerS: (p.inputStarves || 0) / elapsedS } : null })(),
     inputRateAdjust: mover.client._inputRateAdjust,
     localVisual: { ...detectPops(localFrames), popsPerMin: detectPops(localFrames).pops / (elapsedS / 60), meshBehindPredictedM: summarize(meshLag), vsServerPresent: trM ? summarize(localFrames.map(f => dist3(f.p, trM.at(f.t)))) : null },
@@ -288,7 +368,7 @@ async function runOne(cond, predict, worldDef) {
     ticks: { hz: (tickTimes.length - 1) / tickSpanS, intervalMs: summarize(intervals), intervalStdevMs: stdev(intervals), burstFrac: intervals.filter(x => x < 2).length / Math.max(1, intervals.length) },
     conditioner: { mover: mover.client._netSim?.getStats?.() || null }
   }
-  for (const h of all) { try { h.client.disconnect() } catch {} }
+  for (const h of all) { try { h.client.disconnect() } catch {} try { h.client._msgHandler._collisionMirror?.dispose() } catch {} }
   scheduler.stop()
   await new Promise(r => setTimeout(r, 200))
   server.stop()

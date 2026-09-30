@@ -17,7 +17,7 @@ const WALL_MATCH_OFFSET_M = 0.05
 const WALL_FORGET_M = 6
 const WALL_EXTENT_BASE_M = 1
 const WALL_PASSED_M = 0.02
-const MOVE_STATE_KEYS =['coyoteRemaining', 'bufferRemaining', '_jumpHeld', '_crouchHeld', 'slideRemaining', 'sliding']
+const MOVE_STATE_KEYS =['coyoteRemaining', 'bufferRemaining', '_jumpHeld', '_crouchHeld', 'slideRemaining', 'sliding', '_physCrouch', '_crouchDy']
 
 function isFiniteVec(v, len) {
   return Array.isArray(v) && v.length === len && v.every(Number.isFinite)
@@ -91,12 +91,17 @@ export class PredictionEngine {
     this._enableKnockbackPreservation = true
     this.stats = { acks: 0, corrections: 0, lastCorrectionM: 0, maxCorrectionM: 0 }
     this.walls = []
-    this._env = { gravityY: this.gravityY, ground: null, wedged: false, groundNormal: null, walls: null, wallExtentM: WALL_EXTENT_BASE_M }
+    this._env = { gravityY: this.gravityY, ground: null, wedged: false, groundNormal: null, walls: null, wallExtentM: WALL_EXTENT_BASE_M, collider: null }
+    this._mirror = null
     this._trail = createStepTrail()
     this._trailPos = [0, 0, 0]
   }
 
   setMovement(m) { Object.assign(this.movement, m) }
+
+  setCollisionMirror(mirror) { this._mirror = mirror || null }
+
+  collisionMirrorStats() { return this._mirror ? this._mirror.getStats() : null }
 
   setGravity(g) { if (g && g[1] != null) this.gravityY = g[1] }
 
@@ -206,6 +211,9 @@ export class PredictionEngine {
     env.gravityY = this.gravityY; env.ground = this._ground; env.wedged = this.horizontallyWedged; env.groundNormal = this.lastServerState?.groundNormal || null; env.walls = this.walls
     const dt = (this.tickDuration * this.dilation) / 1000, v = this.localState.velocity
     env.wallExtentM = WALL_EXTENT_BASE_M + Math.hypot(v[0], v[2]) * (this.inputHistory.length + 1) * dt
+    const m = this._mirror
+    env.collider = m && m.ready && m.covers(this.localState.position) ? m : null
+    if (m && m.ready && !env.collider) m.noteUncovered()
     predictCharacterStep(this.localState, input, this.movement, dt, env)
   }
 

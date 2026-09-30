@@ -4,6 +4,7 @@ import { ClockSync } from './ClockSync.js'
 import { MSG, WIRE_PROTOCOL_VERSION, DISCONNECT_REASONS } from '../protocol/MessageTypes.js'
 import { WIRE_STRUCT_HASH } from '../protocol/msgpack.js'
 import { createInputSchema, DEFAULT_INPUT_SCHEMA } from '../protocol/InputCodec.js'
+import { createCollisionMirror } from './CollisionMirror.js'
 
 const PRE_HANDSHAKE_TICK_RATE = 60
 const RTT_EMA_ALPHA = 0.25
@@ -20,6 +21,14 @@ export class MessageHandler {
     this._clockSync = new ClockSync(config.clockSync)
     this._peerRttTable = { rtt: {}, pubkeys: {} }
     this._inputSchema = DEFAULT_INPUT_SCHEMA
+    this._collisionMirror = null
+  }
+
+  _onCollisionConfig(payload) {
+    if (this._config.collisionMirror === false) return
+    if (!this._collisionMirror) this._collisionMirror = createCollisionMirror()
+    this._collisionMirror.configure(payload).catch(e => console.error('[client] collision mirror init failed:', e?.message || e))
+    this._predEngine?.setCollisionMirror(this._collisionMirror)
   }
 
   getInputSchema() { return this._inputSchema }
@@ -83,6 +92,10 @@ export class MessageHandler {
       this._callbacks.onEntityRemoved?.(payload.entityId)
     } else if (type === MSG.TELEPORT_ACK) {
       this._handleTeleportAck(payload)
+    } else if (type === MSG.COLLISION_CONFIG) {
+      this._onCollisionConfig(payload)
+    } else if (type === MSG.COLLISION_TILE) {
+      this._collisionMirror?.onTile(payload, this._predEngine?.localState?.position)
     }
   }
 
@@ -105,6 +118,7 @@ export class MessageHandler {
     this._playerId = payload.playerId
     this._predEngine = new PredictionEngine(payload.tickRate || this._config.tickRate || PRE_HANDSHAKE_TICK_RATE)
     this._predEngine.init(this._playerId)
+    this._predEngine.setCollisionMirror(this._collisionMirror)
     this._timeline.setTickRate(payload.tickRate || this._config.tickRate || PRE_HANDSHAKE_TICK_RATE)
     this._timeline.reset()
     return { sessionToken: payload.sessionToken }
@@ -128,6 +142,7 @@ export class MessageHandler {
     const prevEngine = this._predEngine
     this._predEngine = new PredictionEngine(payload.tickRate || this._config.tickRate || PRE_HANDSHAKE_TICK_RATE)
     this._predEngine.init(this._playerId, { position: payload.position, health: payload.health })
+    this._predEngine.setCollisionMirror(this._collisionMirror)
     if (prevEngine) {
       this._predEngine._inputSeq = prevEngine._inputSeq
       this._predEngine._lastAckedSeq = prevEngine._inputSeq - 1

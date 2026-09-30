@@ -1,6 +1,7 @@
 import { MSG } from '../protocol/MessageTypes.js'
 import { SnapshotEncoder, TombstoneLog, updateTombstones, PLAYER_LOD_REDUCED_HZ, filterEncodedPlayersTiered, encodeSelfBlock } from '../netcode/SnapshotEncoder.js'
 import { pack } from '../protocol/msgpack.js'
+import { createCollisionTileStreamer } from '../netcode/CollisionTileStreamer.js'
 import { applyMovement as _applyMovement, DEFAULT_MOVEMENT as _DEFAULT_MOVEMENT } from '../shared/movement.js'
 import { applyPlayerCollisions } from '../netcode/CollisionSystem.js'
 import { worldToCell, packCellKey } from '../terrain/CubeSphereCells.js'
@@ -381,6 +382,7 @@ export function createTickHandler(deps) {
   const snapState = { broadcastEntityMap: new Map(), staticEntityMap: new Map(), staticEntityIds: null, lastStaticEntries: null, staticByGroup: [], lastDynVersion: -1, prevDynCache: null, tombstoneLog: new TombstoneLog(), knownIds: null, playerLastTick: new Map(), cellEntityMaps: new Map(), cellLastTick: new Map(), playerCell: new Map() }
   const playerIdleCounts = new Map(), playerAccumDt = new Map()
   const grid = new Map(), gridCells = new Map()
+  const collisionTiles = createCollisionTileStreamer({ physics, physicsIntegration, connections, getNetcodeConfig: deps.getNetcodeConfig })
   let snapshotSeq = 0, profileLog = 0, profileSum = 0, profileSumSnap = 0, profileSumPhys = 0, profileSumMv = 0, profileCount = 0
   let _lastBudgetWarnMs = 0
 
@@ -426,6 +428,7 @@ export function createTickHandler(deps) {
 
     const t1pre = performance.now()
     simulateTick(tick, dt, players, explicitInputs)
+    if (connections) collisionTiles.tick(tick, players)
     const t4 = performance.now()
     const t1 = t1pre, t2 = t1pre, t3 = t4
     if (players.length > 0 && tick % _snapshotInterval === 0) {
@@ -494,5 +497,6 @@ export function createTickHandler(deps) {
     playerAccumDt.clear(); for (const [k, v] of s.playerAccumDt) playerAccumDt.set(k, v)
   }
   onTick.serverWeather = serverWeather
+  onTick.collisionTiles = collisionTiles
   return onTick
 }
