@@ -124,3 +124,8 @@
   acceptance_criteria: 'measured with a real network conditioner (added latency 0/50/100/150 ms, jitter, 1-5% loss) in real browsers and headless clients: input-to-visual latency, misprediction rate, correction magnitude and visibility, remote entity interpolation error, hit-registration accuracy versus shooter''s view (lag compensation), bandwidth per client, tick stability at the target tick rate; defects found are fixed with before/after numbers; profile switching (authoritative, rollback, lockstep) proven by an e2e harness per mode with two or more real clients (WebRTC where relevant); docs and recall updated; no regression in singleplayer or existing multiplayer'
   session_id: mcp-instruction-30232-1790658115841
   status: pending
+- id: sdk-typings-49-diagnostics
+  subject: 'npm run check:sdk-types reports 49 TypeScript diagnostics at HEAD (pre-existing, found while verifying netcode batch 4: none in lines changed there, including files server.js, WorkerEntry.js, ServerAPI.js, AppContext.js). The published app-SDK typing contract (types/*.d.ts, client/editor/sdk-typings.generated.d.ts) must typecheck cleanly so app authors get correct IntelliSense. Triage the 49 diagnostics, fix the real type errors (or the typings that are wrong), regenerate the generated typings, and keep check:sdk-types green.'
+  acceptance_criteria: npm run check:sdk-types reports 0 diagnostics; types/ctx.d.ts documents the netcode/lag-compensation/relocation APIs added today accurately; generated typings regenerated; npm run check and bundles still pass
+  session_id: mcp-instruction-30232-1790658115841
+  status: pending

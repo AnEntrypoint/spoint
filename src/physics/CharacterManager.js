@@ -140,6 +140,14 @@ export class CharacterManager {
     if (y > 0 && Number.isFinite(x) && Number.isFinite(z)) { n[0] = x; n[1] = y; n[2] = z; n[3] = 1 }
   }
 
+  refreshGroundCaches() {
+    for (const [id, ch] of this.characters) {
+      const onGround = ch.GetGroundState() === this.J.EGroundState_OnGround
+      this._onGroundAtLastUpdate.set(id, onGround)
+      this._captureGroundNormal(id, ch, onGround)
+    }
+  }
+
   readGroundNormal(charId, out) {
     const n = this._groundNormals.get(charId)
     if (!n || !n[3]) return false

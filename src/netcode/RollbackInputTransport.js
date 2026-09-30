@@ -8,11 +8,12 @@ function decodeCtrl(data) {
 const DEFAULT_STALL_TICKS = 180
 
 export class RollbackInputTransport {
-  constructor({ bridge, stallTicks = DEFAULT_STALL_TICKS, onRemoteInput = null } = {}) {
+  constructor({ bridge, stallTicks = DEFAULT_STALL_TICKS, onRemoteInput = null, onRemoteChecksum = null } = {}) {
     if (!bridge?.data) throw new Error('RollbackInputTransport: bridge.data required')
     this.bridge = bridge
     this.stallTicks = stallTicks
     this.onRemoteInput = onRemoteInput
+    this.onRemoteChecksum = onRemoteChecksum
 
     this._roster = new Set()
     this._dropped = new Set()
@@ -27,31 +28,41 @@ export class RollbackInputTransport {
     bridge.data.addEventListener('peer-closed', this._onPeerClose)
     for (const [pk, peer] of bridge.data.peers) if (peer?.dc?.readyState === 'open') this._roster.add(pk)
 
-    this.stats = { sent: 0, received: 0, staleIgnored: 0 }
+    this.stats = { sent: 0, received: 0, staleIgnored: 0, checksumsSent: 0, checksumsReceived: 0 }
   }
 
   get myPubkey() { return this.bridge.pubkey }
 
-  submitLocalInput(tick, input) {
-    const me = this.myPubkey
-    if (!me) throw new Error('RollbackInputTransport: bridge not connected (no pubkey yet)')
-    const n = this.bridge.data.broadcast(encodeCtrl({ type: 'input', tick, input }))
+  submitLocalInput(tick, input, advantage = 0) {
+    if (!this.myPubkey) throw new Error('RollbackInputTransport: bridge not connected (no pubkey yet)')
+    const n = this.bridge.data.broadcast(encodeCtrl({ type: 'input', tick, input, adv: advantage }))
     this.stats.sent++
     return n
   }
 
+  submitChecksum(tick, checksum) {
+    this.bridge.data.broadcast(encodeCtrl({ type: 'checksum', tick, checksum }))
+    this.stats.checksumsSent++
+  }
+
   _handleFrame(detail) {
     const msg = decodeCtrl(detail?.data)
-    if (!msg || msg.type !== 'input' || typeof msg.tick !== 'number') return
+    if (!msg || typeof msg.tick !== 'number') return
     const from = detail.peerPubkey
     if (!from || from === this.myPubkey) return
+    if (msg.type === 'checksum') {
+      this.stats.checksumsReceived++
+      if (this.onRemoteChecksum) this.onRemoteChecksum(from, msg.tick, msg.checksum)
+      return
+    }
+    if (msg.type !== 'input') return
     this._roster.add(from)
     this._dropped.delete(from)
-    const last = this._lastTickByPeer.get(from) || -1
-    if (msg.tick < last) { this.stats.staleIgnored++ }
+    const last = this._lastTickByPeer.get(from) ?? -1
+    if (msg.tick < last) this.stats.staleIgnored++
     if (msg.tick > last) this._lastTickByPeer.set(from, msg.tick)
     this.stats.received++
-    if (this.onRemoteInput) this.onRemoteInput(from, msg.tick, msg.input)
+    if (this.onRemoteInput) this.onRemoteInput(from, msg.tick, msg.input, Number.isFinite(msg.adv) ? msg.adv : 0)
   }
 
   dropPeer(pubkey) {
@@ -72,12 +83,7 @@ export class RollbackInputTransport {
   getRoster() { return [...this._roster].filter(pk => !this._dropped.has(pk)) }
 
   getStats() {
-    return {
-      ...this.stats,
-      roster: [...this._roster],
-      dropped: [...this._dropped],
-      lastTickByPeer: Object.fromEntries(this._lastTickByPeer),
-    }
+    return { ...this.stats, roster: [...this._roster], dropped: [...this._dropped], lastTickByPeer: Object.fromEntries(this._lastTickByPeer) }
   }
 
   destroy() {
@@ -89,5 +95,3 @@ export class RollbackInputTransport {
 }
 
 export const createRollbackInputTransport = (opts) => new RollbackInputTransport(opts)
-
-export const _test = { CTRL_PREFIX, encodeCtrl, decodeCtrl, DEFAULT_STALL_TICKS }

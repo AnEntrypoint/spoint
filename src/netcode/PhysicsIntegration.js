@@ -70,6 +70,14 @@ export class PhysicsIntegration {
       this.config.playerMass
     )
     this.playerBodies.set(playerId, { id: playerId, charId, onGround: false })
+    this._crouchStates.set(playerId, false)
+  }
+
+  snapshotCrouchStates() { return new Map(this._crouchStates) }
+
+  restoreCrouchStates(snap) {
+    this._crouchStates.clear()
+    for (const [id, v] of snap) this._crouchStates.set(id, v)
   }
 
   removePlayerCollider(playerId) {
@@ -78,6 +86,7 @@ export class PhysicsIntegration {
       this.physicsWorld.removeCharacter(data.charId)
     }
     this.playerBodies.delete(playerId)
+    this._crouchStates.delete(playerId)
   }
 
   resyncPlayerFromPhysics(playerId, state) {

@@ -49,6 +49,7 @@ export type {
   EventLogMeta,
   LagCompensator,
   RewoundPlayerState,
+  NetcodeConfig,
   AppContext,
   AppDefinition,
   EditorProp

@@ -4,6 +4,7 @@ import { BaseClient } from '/src/client/BaseClient.js'
 import { TransformRingReader } from '/src/transport/TransformRing.js'
 
 const _COALESCE_SENTINEL = 0xff
+const _PEER_SIM_FRAME = /^ww(rollback|lockstep):/
 function _isBareSnapshotFrame(mt, bytes) {
   if (mt !== MSG.SNAPSHOT) return false
   const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
@@ -73,6 +74,7 @@ export class BrowserServer extends BaseClient {
     const workerUrl = new URL('src/sdk/WorkerEntry.js', _root)
     this._worker = new Worker(workerUrl, { type: 'module' })
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this._onVisibilityChange)
+    if (this.config.peerSession) this._relayPeerFrames(this.config.peerSession)
 
     const _sourcesReady = (async () => {
       const _manifestPromise = fetch(new URL('apps-manifest.json', _root)).then(r => r.ok ? r.json() : null).catch(() => null)
@@ -103,7 +105,8 @@ export class BrowserServer extends BaseClient {
       let _workerReady = false
       const _tryInit = () => {
         if (!_workerReady) return
-        _sourcesReady.then(({ worldDef, apps }) => this._worker.postMessage({ type: 'INIT', worldDef, worldName: this.config.worldName || null, apps, migrationSnapshot: this.config.migrationSnapshot || null, localPubkey: this.config.localPubkey || null, timeOfDaySeed: _lastTodSync })).catch(reject)
+        const ps = this.config.peerSession
+        _sourcesReady.then(({ worldDef, apps }) => this._worker.postMessage({ type: 'INIT', worldDef, worldName: this.config.worldName || null, apps, migrationSnapshot: this.config.migrationSnapshot || null, localPubkey: this.config.localPubkey || null, timeOfDaySeed: _lastTodSync, peerSession: ps ? { roster: [...ps.roster], localPubkey: ps.localPubkey } : null })).catch(reject)
       }
       this._worker.onerror = reject
       this._worker.onmessage = ({ data }) => {
@@ -118,6 +121,9 @@ export class BrowserServer extends BaseClient {
           if (resolve) { this._colliderPending.delete(data.reqId); resolve(data) }
           return
         }
+        if (data.type === 'BRIDGE_BROADCAST') { this.config.peerSession?.bridge.data.broadcast(data.data); return }
+        if (data.type === 'BRIDGE_SEND') { this.config.peerSession?.bridge.data.send(data.to, data.data); return }
+        if (data.type === 'PEER_STATS') { this.peerStats = data.stats; return }
         if (data.type === 'PEER_SEND') {
           const ch = this._peerChannels.get(data.peerId)
           if (ch?.readyState === 'open') ch.send(data.data)
@@ -159,6 +165,25 @@ export class BrowserServer extends BaseClient {
         }
       }
     })
+  }
+
+  _relayPeerFrames({ bridge, roster, delay = null }) {
+    const members = new Set(roster)
+    let orderedAt = 0
+    const toWorker = msg => {
+      if (!delay) { this._worker?.postMessage(msg); return }
+      const at = Math.max(orderedAt, performance.now() + delay())
+      orderedAt = at
+      setTimeout(() => this._worker?.postMessage(msg), Math.max(0, at - performance.now()))
+    }
+    bridge.data.addEventListener('data', ({ detail }) => {
+      const frame = detail?.data
+      if (typeof frame !== 'string' || !members.has(detail.peerPubkey) || !_PEER_SIM_FRAME.test(frame)) return
+      toWorker({ type: 'PEER_FRAME', from: detail.peerPubkey, data: frame })
+    })
+    const onClose = ({ detail }) => { if (members.has(detail?.peerPubkey)) toWorker({ type: 'PEER_LEFT', pubkey: detail.peerPubkey }) }
+    bridge.data.addEventListener('peer-close', onClose)
+    bridge.data.addEventListener('peer-closed', onClose)
   }
 
   attachWireweavePeer(peerId, dc) {

@@ -20,6 +20,7 @@ import { EventLog } from '../netcode/EventLog.js'
 import { IDBAdapter } from '../storage/IDBAdapter.js'
 import { WorkerTransport, PeerTransport } from '../transport/WorkerTransport.js'
 import { createConnectionHandlers } from './ServerHandlers.js'
+import { createPeerSimSession } from '../netcode/PeerSimSession.js'
 import { setupTerrainStreaming, loadPlanetSampler, planetSamplerOptsOf } from '../terrain/TerrainPhysics.js'
 import { allocateRingBuffer, TransformRingWriter } from '../transport/TransformRing.js'
 import { saveWorldSnapshot, restoreWorldSnapshot, worldDefFingerprint } from './WorldPersistence.js'
@@ -34,7 +35,7 @@ const TRANSFORM_RING_CAPACITY = 64
 
 let _ctx = null, _pending = [], _terrainStreamer = null, _transformRing = null
 
-export async function init({ worldDef, worldName: selectedWorldName = null, apps = [], migrationSnapshot = null, localPubkey = null, timeOfDaySeed = null }) {
+export async function init({ worldDef, worldName: selectedWorldName = null, apps = [], migrationSnapshot = null, localPubkey = null, timeOfDaySeed = null, peerSession = null }) {
   await ensurePacked
   if (selectedWorldName !== null && !isWorldName(selectedWorldName)) throw new TypeError(`[WorkerEntry] INIT worldName must be null or a world file stem, got ${JSON.stringify(selectedWorldName)}`)
   const knownWorldName = worldDef.name || selectedWorldName
@@ -95,7 +96,8 @@ export async function init({ worldDef, worldName: selectedWorldName = null, apps
   }
   appRuntime.setPlacedModelStorage(ctx.placedModelStorage)
 
-  const placedPromise = storage.get('placed-models').catch(e => { console.warn('[world-persistence] placed-models read failed:', e?.message || e); return null })
+  const deterministicPeerWorld = !!peerSession
+  const placedPromise = deterministicPeerWorld ? Promise.resolve(null) : storage.get('placed-models').catch(e => { console.warn('[world-persistence] placed-models read failed:', e?.message || e); return null })
   await physicsReady
   const _minimap = minimapDescriptor(knownWorldName || SINGLEPLAYER_DEFAULT_WORLD_ID, _tcfg)
   if (_minimap) worldDef._minimap = _minimap
@@ -116,7 +118,7 @@ export async function init({ worldDef, worldName: selectedWorldName = null, apps
 
   stageLoader.loadFromDefinition('main', worldDef)
   try { await appRuntime.waitForPendingTrimeshBuilds?.() } catch (e) { console.error('[world-persistence] waitForPendingTrimeshBuilds error:', e.message) }
-  try { await restoreWorldSnapshot(ctx) } catch (e) { console.error('[world-persistence] restore error:', e.message) }
+  if (!deterministicPeerWorld) { try { await restoreWorldSnapshot(ctx) } catch (e) { console.error('[world-persistence] restore error:', e.message) } }
 
   if (migrationSnapshot && typeof migrationSnapshot === 'object') {
     try {
@@ -155,8 +157,12 @@ export async function init({ worldDef, worldName: selectedWorldName = null, apps
     }
   }
 
-  tickSystem.onTick(ctx.onTick)
-  tickSystem.start()
+  if (peerSession) {
+    ctx.peerSession = createPeerSimSession(ctx, { roster: peerSession.roster, localPubkey: peerSession.localPubkey, post: msg => self.postMessage(msg) })
+  } else {
+    tickSystem.onTick(ctx.onTick)
+    tickSystem.start()
+  }
 
   _ctx = ctx
   return ctx
@@ -190,6 +196,7 @@ if (hasWorkerPostMessage) {
       try { ctx = await init(data) } catch(e) { self.postMessage({ type: 'INIT_ERROR', error: e.message, stack: String(e.stack) }); return }
       _transport = new WorkerTransport((...args) => self.postMessage(...args))
       ctx.onClientConnect(_transport)
+      ctx.peerSession?.start()
       if (_transformRing) self.postMessage({ type: 'TRANSFORM_RING', sab: _transformRing.sab, capacity: _transformRing.capacity })
       for (const msg of _pending) _dispatch(msg)
       _pending = []
@@ -203,6 +210,9 @@ if (hasWorkerPostMessage) {
       _ctx.onClientConnect(t)
       return
     }
+
+    if (data.type === 'PEER_FRAME') { _ctx?.peerSession?.bridge.deliver(data.from, data.data); return }
+    if (data.type === 'PEER_LEFT') { _ctx?.peerSession?.bridge.peerLeft(data.pubkey); return }
 
     if (data.type === 'SAVE_NOW') {
       if (!_ctx) return

@@ -256,6 +256,19 @@ export interface EventLogMeta {
   [key: string]: any;
 }
 
+/** World-definition `netcode` block; see docs/netcode.md. */
+export interface NetcodeConfig {
+  profile?: 'authoritative' | 'rollback' | 'lockstep';
+  snapshotRate?: number;
+  maxRewindMs?: number;
+  preciseTicks?: boolean;
+  peers?: number;
+  rollback?: { inputDelayTicks?: number; maxRollbackTicks?: number; checksumIntervalTicks?: number };
+  lockstep?: { inputDelayTicks?: number; checksumIntervalTicks?: number; stallTicks?: number };
+  inputButtons?: string[];
+  inputAxes?: string[];
+}
+
 export interface RewoundPlayerState {
   tick: number;
   position: [number, number, number];

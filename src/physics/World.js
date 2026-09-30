@@ -272,6 +272,24 @@ export class PhysicsWorld {
   readCharacterGroundNormal(id, out) { return this._charMgr.readGroundNormal(id, out) }
   removeCharacter(id) { this._charMgr.removeCharacter(id) }
   get characters() { return this._charMgr.characters }
+  createStateRecorder() { return new this.Jolt.StateRecorderImpl() }
+
+  saveExactState(recorder) {
+    recorder.Clear()
+    this.physicsSystem.SaveState(recorder)
+    for (const ch of this._charMgr.characters.values()) ch.SaveState(recorder)
+    return recorder
+  }
+
+  restoreExactState(recorder) {
+    recorder.Rewind()
+    if (!this.physicsSystem.RestoreState(recorder)) throw new Error('[PhysicsWorld] Jolt RestoreState failed: recorder does not match the current body set')
+    for (const ch of this._charMgr.characters.values()) ch.RestoreState(recorder)
+    this._charMgr.refreshGroundCaches()
+  }
+
+  destroyStateRecorder(recorder) { if (recorder && this.Jolt) this.Jolt.destroy(recorder) }
+
   snapshotCharacters() { return this._charMgr.snapshotAll() }
   restoreCharacters(snap) { this._charMgr.restoreAll(snap) }
 

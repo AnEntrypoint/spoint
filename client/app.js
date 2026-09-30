@@ -2,6 +2,8 @@ import * as THREE from 'three'
 import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-mesh-bvh'
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree; THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree; THREE.Mesh.prototype.raycast = acceleratedRaycast
 import { PhysicsNetworkClient, InputHandler, MSG, createInputStepper } from '/src/index.client.js'
+import { resolveNetcodeProfile } from '/src/netcode/NetcodeProfile.js'
+import { NETWORK_SIM_PRESETS } from '/src/transport/NetworkSimTransport.js'
 import { BrowserServer } from './BrowserServer.js'
 import './core/Relocation.js'
 import { createElement, applyDiff } from 'webjsx'
@@ -1018,7 +1020,18 @@ function _installCollisionDemotion(bridgeRef, _hostMigTest, { logLabel, getClien
   return () => bridgeRef.data.removeEventListener('data', _onPossibleCollision)
 }
 let _preboundBridge = null
-if (_wwJoin && _wwRoom) {
+const _netcodeProfile = _worldDef ? resolveNetcodeProfile(_worldDef) : null
+if (_wwRoom && _netcodeProfile?.peerSimulated) {
+  const { createWireweaveBridge } = await import('./WireweaveBridge.js')
+  const { formPeerRoster, peerFrameDelay } = await import('./PeerRoster.js')
+  const _bridge = await createWireweaveBridge({ namespace: 'spoint', room: _wwRoom, displayName: 'peer', freshKey: _params.has('fresh'), iceServers: _worldDef?.iceServers || null })
+  await _bridge.connect()
+  _bridge.roomId = _wwRoom
+  window.__app = window.__app || {}; window.__app.wireweave = _bridge
+  const _roster = await formPeerRoster(_bridge, _netcodeProfile.minPeers)
+  _dbgNet(`${_netcodeProfile.name} session: roster`, _roster.map(pk => pk.slice(0, 8)).join(','))
+  client = new BrowserServer({ ..._clientConfig, predictionEnabled: false, worldDef: _worldDef, peerSession: { bridge: _bridge, roster: _roster, localPubkey: _bridge.pubkey, delay: peerFrameDelay(NETWORK_SIM_PRESETS[_netSimParam] || null) } })
+} else if (_wwJoin && _wwRoom) {
   const { WireweaveJoinClient } = await import('./WireweaveJoinClient.js')
   client = new WireweaveJoinClient({ ..._clientConfig, room: _wwRoom, freshKey: _params.has('fresh') })
 } else if (_wwRoom) {
@@ -2422,7 +2435,7 @@ client.connect().then(async ()=>{
     const { installSnapshotRelayJoiner } = await import('./SnapshotRelay.js')
     window.__app.snapshotRelay = installSnapshotRelayJoiner({ getClient: () => client, bridge: window.__app.wireweave })
   }
-  if (_wwRoom && !_wwJoin && client.attachWireweavePeer) {
+  if (_wwRoom && !_wwJoin && !_netcodeProfile?.peerSimulated && client.attachWireweavePeer) {
     let bridge = _preboundBridge
     const _preboundHostAnnounceInstalled = !!_preboundBridge
     if (!bridge) {

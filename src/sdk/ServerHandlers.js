@@ -51,7 +51,7 @@ export function createConnectionHandlers(ctx) {
     }
   }
 
-  function _joinNewPlayer(transport) {
+  function _spawnJoiningPlayer(transport) {
     const spawnPoints = ctx.worldSpawnPoints || [ctx.worldSpawnPoint]
     const rejoin = (transport.type === 'peer' && transport._peerId && ctx.pendingRejoinState?.get(transport._peerId))
       || (transport.type === 'worker' && ctx.localRejoinState) || null
@@ -63,6 +63,12 @@ export function createConnectionHandlers(ctx) {
     physicsIntegration.setPlayerPosition(playerId, sp)
     const playerState = playerManager.getPlayer(playerId).state
     lagCompensator.recordPlayerPosition(playerId, playerState.position, playerState.rotation, playerState.velocity, tickSystem.currentTick)
+    return playerId
+  }
+
+  function _joinNewPlayer(transport) {
+    const playerId = ctx.peerSession ? ctx.peerSession.claimLocalPlayer(transport) : _spawnJoiningPlayer(transport)
+    const sp = [...playerManager.getPlayer(playerId).state.position]
     const client = connections.addClient(playerId, transport)
     client.sessionToken = sessions.create(playerId, playerManager.getPlayer(playerId).state)
     client.isEditor = !readEditorTokenIfNodeRuntime()

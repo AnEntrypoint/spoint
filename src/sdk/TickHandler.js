@@ -99,11 +99,16 @@ function stepPlayerMovement(player, deps, tick, dt, playerIdleCounts, playerAccu
   playerIdleCounts.set(player.id, isIdle ? idleCount + 1 : 0)
 }
 
-function processPlayerMovement(players, deps, tick, dt, playerIdleCounts, playerAccumDt) {
-  const { playerManager, lagCompensator, networkState, movement, eventLog, transformRingWriter } = deps
+function processPlayerMovement(players, deps, tick, dt, playerIdleCounts, playerAccumDt, explicitInputs = null) {
+  const { playerManager } = deps
   for (const player of players) {
     const inputs = playerManager.getInputs(player.id)
-    const st = player.state
+    if (explicitInputs) {
+      player.lastInput = explicitInputs.get(player.id) ?? null
+      stepPlayerMovement(player, deps, tick, dt, playerIdleCounts, playerAccumDt)
+      recordPlayerTick(player, deps, tick)
+      continue
+    }
     let holdForInput = false
     if (inputs.length > 0 && !waitForSequenceGap(player, inputs)) { takeNextInput(player, inputs); player.starvedTicks = 0 }
     else if (player.hasSentInput) {
@@ -123,14 +128,20 @@ function processPlayerMovement(players, deps, tick, dt, playerIdleCounts, player
       extra++
     }
     player.inputBufferDepth = inputs.length
-    if (enforceMovementEnvelope(st, movement)) {
-      eventLog?.record('anticheat_envelope_clamp', { playerId: player.id, position: [...st.position] }, { actor: player.id, reason: 'movement_envelope' })
-    }
-    lagCompensator.recordPlayerPosition(player.id, st.position, st.rotation, st.velocity, tick)
-    const crouchFlags = (st.crouch ? CROUCH_WIRE_BIT : 0) | (st.swimming ? SWIMMING_WIRE_BIT : 0)
-    networkState.updatePlayer(player.id, st.position, st.rotation, st.velocity, st.onGround, st.health, player.ackSequence ?? player.inputSequence, crouchFlags, st.lookPitch||0, st.lookYaw||0, st.expr||0, st.weapon||0, player.inputBufferDepth || 0, st.groundNormal || null)
-    if (transformRingWriter) transformRingWriter.write(player.id, st.position, st.rotation, st.velocity)
+    recordPlayerTick(player, deps, tick)
   }
+}
+
+function recordPlayerTick(player, deps, tick) {
+  const { lagCompensator, networkState, movement, eventLog, transformRingWriter } = deps
+  const st = player.state
+  if (enforceMovementEnvelope(st, movement)) {
+    eventLog?.record('anticheat_envelope_clamp', { playerId: player.id, position: [...st.position] }, { actor: player.id, reason: 'movement_envelope' })
+  }
+  lagCompensator.recordPlayerPosition(player.id, st.position, st.rotation, st.velocity, tick)
+  const crouchFlags = (st.crouch ? CROUCH_WIRE_BIT : 0) | (st.swimming ? SWIMMING_WIRE_BIT : 0)
+  networkState.updatePlayer(player.id, st.position, st.rotation, st.velocity, st.onGround, st.health, player.ackSequence ?? player.inputSequence, crouchFlags, st.lookPitch||0, st.lookYaw||0, st.expr||0, st.weapon||0, player.inputBufferDepth || 0, st.groundNormal || null)
+  if (transformRingWriter) transformRingWriter.write(player.id, st.position, st.rotation, st.velocity)
 }
 
 
@@ -390,8 +401,8 @@ export function createTickHandler(deps) {
     return Math.max(1, Math.round(tickRate / Math.max(SNAP_RATE_MIN_HZ, targetHz)))
   }
 
-  function simulateTick(tick, dt, players) {
-    processPlayerMovement(players, mvDeps, tick, dt, playerIdleCounts, playerAccumDt)
+  function simulateTick(tick, dt, players, explicitInputs = null) {
+    processPlayerMovement(players, mvDeps, tick, dt, playerIdleCounts, playerAccumDt, explicitInputs)
     const cellSz = physicsIntegration.config.capsuleRadius * 8, minDist = physicsIntegration.config.capsuleRadius * 2
     applyPlayerCollisions(players, grid, gridCells, cellSz, minDist * minDist, minDist, dt, physicsIntegration)
     if (typeof physics.drainBodyQueue === 'function') physics.drainBodyQueue()
@@ -399,7 +410,7 @@ export function createTickHandler(deps) {
     appRuntime.tick(tick, dt)
   }
 
-  function onTick(tick, dt) {
+  function onTick(tick, dt, explicitInputs = null) {
     const t0 = performance.now()
     const serverNow = Date.now()
     networkState.setTick(tick, serverNow)
@@ -415,7 +426,7 @@ export function createTickHandler(deps) {
     }
 
     const t1pre = performance.now()
-    simulateTick(tick, dt, players)
+    simulateTick(tick, dt, players, explicitInputs)
     const t4 = performance.now()
     const t1 = t1pre, t2 = t1pre, t3 = t4
     if (players.length > 0 && tick % _snapshotInterval === 0) {
