@@ -10,6 +10,7 @@ import { resolvePoolParams, resolveWetness } from '../pool-params.js'
 import { bakeHpfTexels } from './ops-js.js'
 import { assertHashVersion, HASH_VERSION_FLOAT } from './height-spec.js'
 import { createHeightProbeTSL } from './height-probe-tsl.js'
+import { createSkyTSL } from './sky-tsl.js'
 import { createTerrainMaterialTSL, makeHpfTexture, makeSurfaceTextures } from './terrain-material-tsl.js'
 
 const GRID_SIZE = 16
@@ -20,6 +21,7 @@ const HORIZON_SPHERE_DEPTH_BELOW_SEA = 150.0
 const SUBMERGED_FAR_REACH = 60000.0
 const INITIAL_QUAD_CAPACITY = 2048
 const DEFAULT_FOVY = 0.785
+const DEFAULT_SUN_DIR = [0, 0.6, 0.8]
 
 function nearFarForCam(R, camDist, alt, surfElev) {
   const altAboveTerrain = Math.max(0.001, alt - R * (surfElev || 0))
@@ -56,11 +58,12 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   const splitFactor = opts.splitFactor ?? 0.6
   const hpfRes = opts.hpfTexRes || 128
   const hashVersion = assertHashVersion(opts.hashVersion ?? HASH_VERSION_FLOAT)
+  const carves = opts.carves || []
 
   const hpfData = bakeHpfTexels(createAnchorField({ seed: opts.hpfSeed || 1337 }), hpfRes)
   const hpfTexture = makeHpfTexture(hpfData, hpfRes)
   const { material, uniforms: u } = createTerrainMaterialTSL({
-    defRadius: R, reliefScale, hpfRes, hpfTexture, gridSize: GRID_SIZE, hashVersion,
+    defRadius: R, reliefScale, hpfRes, hpfTexture, gridSize: GRID_SIZE, hashVersion, carves,
     landBias: opts.landBias != null ? opts.landBias : SHAPE_UNIFORM_DEFAULTS.uLandBias,
     beachShelfM: opts.beachShelfM != null ? opts.beachShelfM : SHAPE_UNIFORM_DEFAULTS.uBeachShelfM,
   })
@@ -74,6 +77,8 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   mesh.castShadow = false
   mesh.renderOrder = -10
   scene.add(mesh)
+  const sky = opts.sky === false ? null : createSkyTSL({ radius: R })
+  if (sky) scene.backgroundNode = sky.node
 
   const surfaceState = { ready: false, error: null }
   if (opts.loadSurfaceTextures !== false && canDecodeImages()) {
@@ -152,6 +157,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
       u.east.value.set(view.east[0], view.east[1], view.east[2])
       u.up.value.set(view.up[0], view.up[1], view.up[2])
       u.north.value.set(view.north[0], view.north[1], view.north[2])
+      if (sky) sky.update({ camWorldPos, sunDir: sunDir || DEFAULT_SUN_DIR, view })
     }
     const pool = resolvePoolParams()
     u.poolLo.value.set(pool.lo[0], pool.lo[1], pool.lo[2], pool.lo[3])
@@ -165,13 +171,14 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
 
   function dispose() {
     scene.remove(mesh)
+    if (sky) { if (scene.backgroundNode === sky.node) scene.backgroundNode = null; sky.dispose() }
     patch.geo.dispose()
     material.dispose()
     hpfTexture.dispose()
   }
 
   const probeHeights = createHeightProbeTSL(renderer, {
-    hpfTexture, hashVersion,
+    hpfTexture, hashVersion, carves,
     params: { landBias: u.landBias, beachShelfM: u.beachShelfM, reliefScale: u.reliefScale, hpfRes: u.hpfRes },
   })
 

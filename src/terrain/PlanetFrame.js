@@ -38,13 +38,23 @@ export function elevationAtLocal(frame, x, y, z) {
   return (t - radius) + r2 / (l + t)
 }
 
-export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0, reliefScale }) {
-  const radius = sampler.radius
-  const _reliefScale = (reliefScale != null) ? reliefScale : 0.01
+export function anchorBasis(anchorDir) {
   const up = _norm(anchorDir)
   const ref = Math.abs(up[1]) < 0.99 ? [0, 1, 0] : [1, 0, 0]
   const east = _norm(_cross(ref, up))
   const north = _cross(east, up)
+  return { up, east, north }
+}
+
+export function tangentLocalToDir(basis, radius, x, z) {
+  const { up, east, north } = basis
+  return _norm([up[0] * radius + east[0] * x + north[0] * z, up[1] * radius + east[1] * x + north[1] * z, up[2] * radius + east[2] * x + north[2] * z])
+}
+
+export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0, reliefScale }) {
+  const radius = sampler.radius
+  const _reliefScale = (reliefScale != null) ? reliefScale : 0.01
+  const { up, east, north } = anchorBasis(anchorDir)
   const anchorHeight = sampler.heightAt(up)
   const _e0 = east[0], _e1 = east[1], _e2 = east[2]
   const _n0 = north[0], _n1 = north[1], _n2 = north[2]

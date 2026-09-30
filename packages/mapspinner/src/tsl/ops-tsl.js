@@ -1,12 +1,23 @@
 import {
   Fn, Loop, float, int, uint, ivec2, vec3, select, textureLoad,
-  floor, fract, abs, pow, max, min, clamp, mix, dot, normalize, sin, cos,
+  floor, fract, abs, pow, max, min, clamp, mix, dot, normalize, sin, cos, uniformArray,
 } from 'three/tsl'
+import { Vector4 } from 'three/webgpu'
+import { OCTAVE_ROTATION_COS, OCTAVE_ROTATION_SIN } from './height-spec.js'
 
 const node = (x) => (typeof x === 'number' ? float(x) : x)
 
-export function createTslOps({ params, hpfTexture, loopBoundDelta }) {
+export function createTslOps({ params, hpfTexture, loopBoundDelta, carves = [] }) {
+  const rotationCos = uniformArray(Array.from(OCTAVE_ROTATION_COS), 'float')
+  const rotationSin = uniformArray(Array.from(OCTAVE_ROTATION_SIN), 'float')
+  const carveCentre = carves.length ? uniformArray(carves.map((c) => new Vector4(c.dir[0], c.dir[1], c.dir[2], c.targetH)), 'vec4') : null
+  const carveBand = carves.length ? uniformArray(carves.map((c) => new Vector4(c.innerChord2, c.outerChord2, 0, 0)), 'vec4') : null
   return {
+    carve: (i) => {
+      const centre = carveCentre.element(int(i)), band = carveBand.element(int(i))
+      return [centre.xyz, band.x, band.y, centre.w]
+    },
+    octaveRotation: (i) => [rotationCos.element(int(i)), rotationSin.element(int(i))],
     v3: (x, y, z) => vec3(node(x), node(y), node(z)),
     x: (v) => v.x, y: (v) => v.y, z: (v) => v.z,
     swz: (v, s) => v[s],

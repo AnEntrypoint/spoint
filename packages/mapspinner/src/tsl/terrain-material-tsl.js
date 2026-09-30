@@ -51,7 +51,7 @@ export function makeSurfaceTextures({ albAll, nrmAll, matCount, sz }) {
   }
 }
 
-export function createTerrainMaterialTSL({ defRadius, reliefScale, landBias, beachShelfM, hpfRes, hpfTexture, gridSize, hashVersion }) {
+export function createTerrainMaterialTSL({ defRadius, reliefScale, landBias, beachShelfM, hpfRes, hpfTexture, gridSize, hashVersion, carves = [] }) {
   const placeholder = makeSurfaceTextures({ albAll: new Uint8Array(16).fill(128), nrmAll: new Uint8Array([128, 128, 255, 255, 128, 128, 255, 255, 128, 128, 255, 255, 128, 128, 255, 255]), matCount: 4, sz: 1 })
   const u = {
     defRadius: uniform(defRadius),
@@ -85,8 +85,8 @@ export function createTerrainMaterialTSL({ defRadius, reliefScale, landBias, bea
 
   const spec = defineHeightSpec(createTslOps({
     params: { landBias: u.landBias, beachShelfM: u.beachShelfM, reliefScale: u.reliefScale, hpfRes: u.hpfRes },
-    hpfTexture, loopBoundDelta: u.loopBoundDelta,
-  }), { hashVersion })
+    hpfTexture, loopBoundDelta: u.loopBoundDelta, carves,
+  }), { hashVersion, carveCount: carves.length })
 
   const vH = varyingProperty('float', 'vTerrH')
   const vN = varyingProperty('vec3', 'vTerrN')

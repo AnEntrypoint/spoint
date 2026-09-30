@@ -1,11 +1,7 @@
 import { MeshLambertNodeMaterial } from 'three/webgpu'
-import { Fn, attribute, texture, uniform, storage, instanceIndex, vec2, vec3, vec4, mod, floor, min, mix, clamp, positionGeometry, normalLocal } from 'three/tsl'
+import { Fn, attribute, texture, uniform, vec2, vec3, vec4, mod, floor, min, mix, clamp, positionGeometry, normalLocal } from 'three/tsl'
 import { bakeVAT, bakeVATMultiClip } from './PlayerVATBake.js'
-
-function instanceMatrixNodeFor(object) {
-  const im = object.instanceMatrix
-  return storage(im, 'mat4', Math.max(im.count, 1)).element(instanceIndex)
-}
+import { instanceMatrixNodeFor } from './WebGPUInstancing.js'
 
 export { bakeVAT, bakeVATMultiClip }
 

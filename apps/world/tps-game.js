@@ -9,6 +9,7 @@ const TERRAIN = {
   bakedHeightfield: '/apps/world/tps-game.hf',
   physics: { extent: 256, resolution: 2 },
   seed: 1337,
+  carves: [{ center: [0, -20], radius: 60, falloff: 40 }],
   timeOfDay: { serverAuthoritative: true, dayLengthSec: 600, startFraction: 0.5 },
   weather: { serverAuthoritative: true, type: 'rain', intensity: 0.6, particleCount: 3000 },
   vegetation: {

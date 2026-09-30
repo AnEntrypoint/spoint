@@ -1,7 +1,8 @@
 import * as THREE from 'three'
-import { storage, instanceIndex } from 'three/tsl'
+import { mat4, instancedDynamicBufferAttribute } from 'three/tsl'
 
 const ITEM_SIZE = { float: 1, vec2: 2, vec3: 3, vec4: 4 }
+const MATRIX_FLOATS = 16
 const _zeroMatrix = new THREE.Matrix4().makeScale(0, 0, 0)
 
 export function isWebGPUInstancingSupported(renderer) {
@@ -9,14 +10,19 @@ export function isWebGPUInstancingSupported(renderer) {
 }
 
 export function instanceMatrixNodeFor(object) {
-  const im = object.instanceMatrix
-  return storage(im, 'mat4', Math.max(im.count, 1)).element(instanceIndex)
+  const interleaved = object.userData.instanceMatrixInterleaved
+  if (!interleaved) throw new Error(`instanceMatrixNodeFor: ${object.name || object.type} was not built by createWebGPUInstancedMesh (no userData.instanceMatrixInterleaved)`)
+  return mat4(...[0, 4, 8, 12].map((offset) => instancedDynamicBufferAttribute(interleaved, 'vec4', MATRIX_FLOATS, offset)))
 }
 
 export function createWebGPUInstancedMesh(geometry, material, capacity, attributeSchema = {}) {
   const mesh = new THREE.InstancedMesh(geometry, material, capacity)
   mesh.frustumCulled = false
   mesh.count = 0
+  const interleaved = new THREE.InstancedInterleavedBuffer(mesh.instanceMatrix.array, MATRIX_FLOATS, 1)
+  interleaved.setUsage(THREE.DynamicDrawUsage)
+  mesh.userData.instanceMatrixInterleaved = interleaved
+  const markMatricesDirty = () => { mesh.instanceMatrix.needsUpdate = true; interleaved.needsUpdate = true }
 
   const shadowMatrices = new Float32Array(capacity * 16)
 
@@ -43,14 +49,14 @@ export function createWebGPUInstancedMesh(geometry, material, capacity, attribut
     mesh.count = highWatermark
     _zeroMatrix.toArray(shadowMatrices, id * 16)
     mesh.setMatrixAt(id, _zeroMatrix)
-    mesh.instanceMatrix.needsUpdate = true
+    markMatricesDirty()
     return id
   }
 
   function releaseId(id) {
     _zeroMatrix.toArray(shadowMatrices, id * 16)
     mesh.setMatrixAt(id, _zeroMatrix)
-    mesh.instanceMatrix.needsUpdate = true
+    markMatricesDirty()
     freeIds.add(id)
     while (highWatermark > 0 && freeIds.has(highWatermark - 1)) {
       freeIds.delete(highWatermark - 1)
@@ -62,13 +68,13 @@ export function createWebGPUInstancedMesh(geometry, material, capacity, attribut
   function setMatrixAt(id, matrix) {
     matrix.toArray(shadowMatrices, id * 16)
     mesh.setMatrixAt(id, matrix)
-    mesh.instanceMatrix.needsUpdate = true
+    markMatricesDirty()
   }
 
   function setVisibleAt(id, visible) {
     if (visible) mesh.instanceMatrix.array.set(shadowMatrices.subarray(id * 16, id * 16 + 16), id * 16)
     else mesh.setMatrixAt(id, _zeroMatrix)
-    mesh.instanceMatrix.needsUpdate = true
+    markMatricesDirty()
   }
 
   function setAttributeAt(id, name, value) {

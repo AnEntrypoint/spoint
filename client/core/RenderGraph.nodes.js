@@ -156,7 +156,7 @@ export function buildRenderSectionNodes() {
       targets: { sceneDepth: 'canvas', sceneColor: 'canvas' },
       required: true,
       run(ctx) {
-        const hasTerrain = !!ctx.terrainBackdrop
+        const hasTerrain = !!ctx.terrainBackdrop && !ctx.terrainBackdrop.drawsInScene
         const scale = (typeof window !== 'undefined') ? +window.__threeVdrsScale || 1.0 : 1.0
         const useVdrs = RenderControls.get('threeVdrs') === true && !!ctx.threeVdrs && scale < 0.999
         if (useVdrs) {

@@ -1,10 +1,6 @@
 import { MeshBasicNodeMaterial } from 'three/webgpu'
-import { Fn, storage, instanceIndex, cameraPosition, positionGeometry, vec3, vec4 } from 'three/tsl'
-
-function instanceMatrixNodeFor(object) {
-  const im = object.instanceMatrix
-  return storage(im, 'mat4', Math.max(im.count, 1)).element(instanceIndex)
-}
+import { Fn, cameraPosition, positionGeometry, vec3, vec4 } from 'three/tsl'
+import { instanceMatrixNodeFor } from './WebGPUInstancing.js'
 
 export function createDotMaterialTSL(matrixNode) {
   const mat = new MeshBasicNodeMaterial({ color: 0xffcc66, transparent: true, opacity: 0.85, depthWrite: false })

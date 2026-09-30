@@ -2,9 +2,9 @@ import { Fn, instancedArray, instanceIndex, uniform } from 'three/tsl'
 import { defineHeightSpec } from './height-spec.js'
 import { createTslOps } from './ops-tsl.js'
 
-export function createHeightProbeTSL(renderer, { hpfTexture, params, hashVersion }) {
+export function createHeightProbeTSL(renderer, { hpfTexture, params, hashVersion, carves = [] }) {
   const loopBoundDelta = uniform(0, 'int')
-  const spec = defineHeightSpec(createTslOps({ params, hpfTexture, loopBoundDelta }), { hashVersion })
+  const spec = defineHeightSpec(createTslOps({ params, hpfTexture, loopBoundDelta, carves }), { hashVersion, carveCount: carves.length })
   return async function probeHeights(dirs) {
     const n = dirs.length
     if (n === 0) return new Float32Array(0)

@@ -10,6 +10,7 @@ import {
 
 import { MAX_BENDERS, MAX_DECALS, UNUSED_BENDER_SLOT_XZ, GRASS_ALPHA_CUTOFF, makeWind } from './GrassMaterial.js'
 import { instanceMatrixNodeFor } from './WebGPUInstancing.js'
+import { displayReferredToSceneLinear } from '/node_modules/mapspinner/src/tsl/display-referred-tsl.js'
 
 export { MAX_BENDERS, MAX_DECALS, UNUSED_BENDER_SLOT_XZ, makeWind }
 
@@ -150,7 +151,7 @@ export function makeGrassMaterialTSL(wind) {
     const backlit = pow(clamp(dot(viewDir, uSunDir.negate()), 0.0, 1.0), 3.0).mul(vUv.y)
     const lit = baseColor.mul(uAmbient.add(uSunColor.mul(wrap).mul(vInstShadow)))
       .add(baseColor.mul(uSunColor).mul(backlit).mul(0.55).mul(vInstShadow))
-    return vec4(pow(lit, vec3(1.7)), 1.0)
+    return vec4(displayReferredToSceneLinear(clamp(lit, vec3(0.0), vec3(1.0))), 1.0)
   })
 
   const material = new MeshBasicNodeMaterial({ side: THREE.DoubleSide })

@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import zlib from 'node:zlib'
-import { resolveTerrainConfig, minimapDescriptor, minimapExtentOf, minimapResOf, terrainHashVersionOf, parseTerrainHashOverride, withTerrainHashVersion } from '../src/shared/terrainConfig.js'
+import { resolveTerrainConfig, minimapDescriptor, minimapExtentOf, minimapResOf, terrainHashVersionOf, terrainCarvesOf, parseTerrainHashOverride, withTerrainHashVersion } from '../src/shared/terrainConfig.js'
 import { sampleMinimapCell } from '../src/shared/MinimapBiome.js'
 import { MINIMAP_BAKE_CODE_VERSION } from '../src/static/BakeCodeVersion.js'
 
@@ -83,8 +83,9 @@ export async function bakeMinimap(opts) {
   const N = Number.isFinite(opts.res) && opts.res >= MIN_GRID_RES ? Math.round(opts.res) : MIN_GRID_RES
   const center = opts.center || [0, 0]
   const hashVersion = terrainHashVersionOf(opts)
+  const carves = opts.carves || []
 
-  const sampler = await createHeightSampler({ radius, seed, reliefScale, hashVersion })
+  const sampler = await createHeightSampler({ radius, seed, reliefScale, hashVersion, carves })
   const frame = createPlanetFrame({ sampler, anchorDir, offsetY: 0, reliefScale })
   const anchorField = sampler.anchorField || createAnchorField({ seed })
 
@@ -110,7 +111,7 @@ export async function bakeMinimap(opts) {
 
   const png = encodePNGRGB(N, N, rgb)
   const header = {
-    seed, radius, anchorDir, reliefScale, hashVersion, extent, N, center,
+    seed, radius, anchorDir, reliefScale, hashVersion, carves, extent, N, center,
     minHeight: +min.toFixed(2), maxHeight: +max.toFixed(2),
     codeVersion: MINIMAP_BAKE_CODE_VERSION,
     generatedAt: Date.now(),
@@ -145,7 +146,7 @@ async function main() {
   const t0 = Date.now()
   const { png, header } = await bakeMinimap({
     seed: cfg.seed, radius: cfg.radius, reliefScale: cfg.reliefScale, anchorDir: cfg.anchorDir, hashVersion: cfg.hashVersion,
-    extent, res, center,
+    carves: terrainCarvesOf(cfg), extent, res, center,
   })
   fs.mkdirSync(path.dirname(outPng), { recursive: true })
   fs.writeFileSync(outPng, png)

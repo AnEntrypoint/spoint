@@ -5,15 +5,15 @@ import { createBiomeOverride, loadBiomeOverride } from './BiomeOverride.js'
 import { loadSplineCarveLayer } from './SplineCarve.js'
 import { loadCaveCarveLayer } from './CaveSDF.js'
 import { createTerrainStreamer } from './HeightfieldStreamer.js'
-import { terrainHashVersionOf, DEFAULT_TERRAIN_HASH_VERSION } from '../shared/terrainConfig.js'
+import { terrainHashVersionOf, terrainCarvesOf, DEFAULT_TERRAIN_HASH_VERSION } from '../shared/terrainConfig.js'
 
 let _latestSampler = { key: null, promise: null }
 export function planetSamplerOptsOf(tcfg) {
-  return { radius: tcfg.radius, hpfTexRes: (tcfg.physics || {}).hpfTexRes, seed: tcfg.seed, reliefScale: tcfg.reliefScale, hashVersion: terrainHashVersionOf(tcfg) }
+  return { radius: tcfg.radius, hpfTexRes: (tcfg.physics || {}).hpfTexRes, seed: tcfg.seed, reliefScale: tcfg.reliefScale, hashVersion: terrainHashVersionOf(tcfg), carves: terrainCarvesOf(tcfg) }
 }
 export function loadPlanetSampler(opts = {}) {
-  const o = { radius: opts.radius, hpfTexRes: opts.hpfTexRes, seed: opts.seed, reliefScale: opts.reliefScale, hashVersion: terrainHashVersionOf(opts) }
-  const key = JSON.stringify([o.radius, o.hpfTexRes, o.seed, o.reliefScale, o.hashVersion])
+  const o = { radius: opts.radius, hpfTexRes: opts.hpfTexRes, seed: opts.seed, reliefScale: opts.reliefScale, hashVersion: terrainHashVersionOf(opts), carves: opts.carves || [] }
+  const key = JSON.stringify([o.radius, o.hpfTexRes, o.seed, o.reliefScale, o.hashVersion, o.carves])
   if (_latestSampler.key !== key) {
     const _isNode = typeof process !== 'undefined' && process.versions?.node
     const _samplerSpec = _isNode ? 'mapspinner/height-cpu' : ('/node_modules/' + 'mapspinner/src/height-cpu.js')

@@ -17,7 +17,7 @@ export class OcclusionQueryTier {
   constructor(renderer, opts = {}) {
     this.renderer = renderer;
     this.gl = renderer.getContext();
-    this.isWebGL2 = typeof WebGL2RenderingContext !== 'undefined' && this.gl instanceof WebGL2RenderingContext;
+    this.isWebGL2 = !renderer.isWebGPURenderer && typeof WebGL2RenderingContext !== 'undefined' && this.gl instanceof WebGL2RenderingContext;
     this.minCandidates = opts.minCandidates ?? 64;
     this.maxQueriesPerFrame = opts.maxQueriesPerFrame ?? 32;
     this._rrCursor = 0;

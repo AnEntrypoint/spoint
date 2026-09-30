@@ -1,4 +1,5 @@
 import * as g from '../glsl-rt.js'
+import { OCTAVE_ROTATION_COS, OCTAVE_ROTATION_SIN } from './height-spec.js'
 
 const isArr = Array.isArray
 const identity = (x) => x
@@ -62,6 +63,8 @@ export function createJsOps(params, hpfTexel, { precision = 'glsl-rt' } = {}) {
     uxor: (a, b) => (a ^ b) >>> 0,
     ushr: (a, n) => a >>> n,
     ufloat: (a) => a,
+    octaveRotation: (i) => [OCTAVE_ROTATION_COS[i], OCTAVE_ROTATION_SIN[i]],
+    carve: (i) => { const c = params.carves[i]; return [c.dir, c.innerChord2, c.outerChord2, c.targetH] },
     fold: (count, init, body) => {
       let s = init
       for (let i = 0; i < count; i++) s = body(i, s)

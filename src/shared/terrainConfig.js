@@ -1,3 +1,5 @@
+import { anchorBasis, tangentLocalToDir } from '../terrain/PlanetFrame.js'
+
 const MINIMAP_EXTENT_RADIUS_FRACTION = 0.25
 const MINIMAP_MAX_EXTENT_M = 16384
 const DEFAULT_MINIMAP_RES = 256
@@ -13,6 +15,20 @@ export function terrainHashVersionOf(tcfg) {
   const v = tcfg?.hashVersion ?? DEFAULT_TERRAIN_HASH_VERSION
   if (!TERRAIN_HASH_VERSIONS.includes(v)) throw new RangeError(`terrain hashVersion must be one of ${TERRAIN_HASH_VERSIONS.join(', ')}, got ${JSON.stringify(v)}`)
   return v
+}
+
+export function terrainCarvesOf(tcfg) {
+  const carves = tcfg?.carves
+  if (carves == null || terrainHashVersionOf(tcfg) === DEFAULT_TERRAIN_HASH_VERSION) return []
+  if (!Array.isArray(carves)) throw new TypeError(`terrain carves must be an array, got ${JSON.stringify(carves)}`)
+  const radius = tcfg.radius
+  if (!(radius > 0)) throw new RangeError(`terrain carves need a positive terrain radius, got ${JSON.stringify(radius)}`)
+  const basis = anchorBasis(tcfg.anchorDir || [0, 1, 0])
+  return carves.map((c) => {
+    const [x, z] = c?.center || []
+    if (!Number.isFinite(x) || !Number.isFinite(z) || !(c.radius >= 0) || !(c.falloff > 0)) throw new RangeError(`terrain carve needs center [x, z], radius >= 0 and falloff > 0, got ${JSON.stringify(c)}`)
+    return { dir: tangentLocalToDir(basis, radius, x, z), innerM: c.radius, outerM: c.radius + c.falloff }
+  })
 }
 
 export function parseTerrainHashOverride(raw) {
@@ -44,6 +60,7 @@ export function minimapBakeParams(tcfg) {
     radius: tcfg.radius,
     reliefScale: tcfg.reliefScale ?? null,
     hashVersion: terrainHashVersionOf(tcfg),
+    carves: terrainCarvesOf(tcfg),
     anchorDir: tcfg.anchorDir || [0, 1, 0],
     extent: minimapExtentOf(tcfg),
     res: minimapResOf(tcfg),

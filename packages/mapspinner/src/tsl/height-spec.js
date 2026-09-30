@@ -7,6 +7,7 @@ export const DEFAULT_BEACH_SHELF_M = 150.0
 export const HASH_VERSION_FLOAT = 1
 export const HASH_VERSION_INTEGER = 2
 export const HASH_VERSIONS = [HASH_VERSION_FLOAT, HASH_VERSION_INTEGER]
+export const MAX_TERRAIN_CARVES = 4
 
 const LATTICE_MUL_X = 0x8da6b343
 const LATTICE_MUL_Y = 0xd8163841
@@ -14,14 +15,25 @@ const LATTICE_MUL_Z = 0xcb1ab31f
 const AVALANCHE_MUL_A = 0x7feb352d
 const AVALANCHE_MUL_B = 0x846ca68b
 const UNIT_24BIT = 1.0 / 16777216.0
+const OCTAVE_ROTATION_STEP = 0.5236
+export const OCTAVE_ROTATION_TABLE_SIZE = 32
+export const OCTAVE_ROTATION_COS = Float32Array.from({ length: OCTAVE_ROTATION_TABLE_SIZE }, (_, i) => Math.cos(i * OCTAVE_ROTATION_STEP))
+export const OCTAVE_ROTATION_SIN = Float32Array.from({ length: OCTAVE_ROTATION_TABLE_SIZE }, (_, i) => Math.sin(i * OCTAVE_ROTATION_STEP))
 
 export function assertHashVersion(hashVersion) {
   if (!HASH_VERSIONS.includes(hashVersion)) throw new RangeError(`terrain hashVersion must be one of ${HASH_VERSIONS.join(', ')}, got ${hashVersion}`)
   return hashVersion
 }
 
-export function defineHeightSpec(o, { hashVersion = HASH_VERSION_FLOAT } = {}) {
+export function carveChord2(radiusM, planetRadiusM) {
+  const a = radiusM / planetRadiusM
+  return a * a
+}
+
+export function defineHeightSpec(o, { hashVersion = HASH_VERSION_FLOAT, carveCount = 0 } = {}) {
   assertHashVersion(hashVersion)
+  if (!Number.isInteger(carveCount) || carveCount < 0 || carveCount > MAX_TERRAIN_CARVES) throw new RangeError(`terrain carveCount must be an integer 0..${MAX_TERRAIN_CARVES}, got ${carveCount}`)
+  if (carveCount > 0 && hashVersion === HASH_VERSION_FLOAT) throw new RangeError('terrain carves need hashVersion 2: the legacy GLSL terrain (hashVersion 1) has no carve term, so a carve would split physics from the rendered ground')
   const floatHash = o.fn('msH3', [['p', 'vec3']], 'float', (p) => {
     const q0 = o.fract(o.mul(p, o.v3(0.1031, 0.1030, 0.0973)))
     const q = o.add(q0, o.dot(q0, o.add(o.swz(q0, 'yxz'), 33.33)))
@@ -59,8 +71,12 @@ export function defineHeightSpec(o, { hashVersion = HASH_VERSION_FLOAT } = {}) {
     return o.mix(o.mix(x00, x10, uy), o.mix(x01, x11, uy), uz)
   })
 
-  const rotateDomain = (p, angle) => {
-    const c = o.cos(angle), s = o.sin(angle)
+  const octaveRotation = hashVersion === HASH_VERSION_INTEGER
+    ? (i) => o.octaveRotation(i)
+    : (i) => { const angle = o.mul(i, OCTAVE_ROTATION_STEP); return [o.cos(angle), o.sin(angle)] }
+
+  const rotateDomain = (p, i) => {
+    const [c, s] = octaveRotation(i)
     return o.v3(o.sub(o.mul(c, o.x(p)), o.mul(s, o.z(p))), o.y(p), o.add(o.mul(s, o.x(p)), o.mul(c, o.z(p))))
   }
 
@@ -76,7 +92,7 @@ export function defineHeightSpec(o, { hashVersion = HASH_VERSION_FLOAT } = {}) {
       const signal = o.let(o.pow(o.max(o.sub(offset, o.abs(snoise3(p))), 0.0), exponent))
       return [
         o.add(v, o.mul(o.mul(signal, w), a)), o.clamp(signal, 0.0, 1.0), o.add(n, a), o.mul(a, gain),
-        rotateDomain(o.mul(p, 2.0), o.mul(i, 0.5236)),
+        rotateDomain(o.mul(p, 2.0), i),
       ]
     })
     return o.div(v, o.max(norm, 1e-5))
@@ -139,11 +155,28 @@ export function defineHeightSpec(o, { hashVersion = HASH_VERSION_FLOAT } = {}) {
     const shelf = o.sel(o.gt(beachParam, 1.0), beachParam, DEFAULT_BEACH_SHELF_M)
     const shelved = o.sel(o.lt(h, shelf), o.mul(o.div(o.mul(h, h), shelf), o.sub(2.0, o.div(h, shelf))), h)
     const underwater = o.max(o.mul(h, UNDERWATER_GAIN), UNDERWATER_FLOOR_M)
-    const reliefParam = o.param('reliefScale')
-    return o.mul(o.sel(o.lt(h, 0.0), underwater, shelved), o.sel(o.gt(reliefParam, 0.0), reliefParam, 1.0))
+    return o.sel(o.lt(h, 0.0), underwater, shelved)
   }
 
-  const composeHeight = (dir0) => shapeHeight(fractalTerrainH(dir0), o.x(hpfSample(dir0)))
+  const applyReliefScale = (h) => {
+    const reliefParam = o.param('reliefScale')
+    return o.mul(h, o.sel(o.gt(reliefParam, 0.0), reliefParam, 1.0))
+  }
 
-  return { hashVersion, h3, snoise3, fractalTerrainH, hpfSample, composeHeight, cubeFaceUV }
+  const carveTerrain = (dir0, h) => {
+    if (carveCount === 0) return h
+    const dir = o.normalize(dir0)
+    const [carved] = o.fold(carveCount, [h], (i, [hPrev]) => {
+      const [center, innerChord2, outerChord2, targetH] = o.carve(i)
+      const offset = o.sub(dir, center)
+      const t = o.clamp(o.div(o.sub(o.dot(offset, offset), innerChord2), o.sub(outerChord2, innerChord2)), 0.0, 1.0)
+      return [o.mix(targetH, hPrev, o.mul(o.mul(t, t), o.sub(3.0, o.mul(2.0, t))))]
+    })
+    return carved
+  }
+
+  const naturalHeight = (dir0) => shapeHeight(fractalTerrainH(dir0), o.x(hpfSample(dir0)))
+  const composeHeight = (dir0) => applyReliefScale(carveTerrain(dir0, naturalHeight(dir0)))
+
+  return { hashVersion, carveCount, h3, snoise3, fractalTerrainH, hpfSample, naturalHeight, composeHeight, cubeFaceUV }
 }

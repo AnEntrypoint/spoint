@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { createPlanetFrame, elevationAtLocal, DEFAULT_PATCH_MAX_LEVEL } from '/src/terrain/PlanetFrame.js'
-import { terrainHashVersionOf, DEFAULT_TERRAIN_HASH_VERSION } from '/src/shared/terrainConfig.js'
+import { terrainHashVersionOf, terrainCarvesOf, DEFAULT_TERRAIN_HASH_VERSION } from '/src/shared/terrainConfig.js'
 import { createTerrainOcclusion } from './TerrainOcclusion.js'
 import { dbg } from './debug-log.js'
 import { RenderControls } from './RenderControls.js'
@@ -60,7 +60,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         if (isTslTerrain) {
-          return await initMapspinnerPlanetTSL(renderer, scene, { radius, reliefScale: cfg.reliefScale, hpfSeed: cfg.seed, hashVersion: terrainHashVersion, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : undefined, splitFactor: Number.isFinite(cfg.splitFactor) ? cfg.splitFactor : undefined })
+          return await initMapspinnerPlanetTSL(renderer, scene, { radius, reliefScale: cfg.reliefScale, hpfSeed: cfg.seed, hashVersion: terrainHashVersion, carves: sampler.carves, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : undefined, splitFactor: Number.isFinite(cfg.splitFactor) ? cfg.splitFactor : undefined })
         }
         if (isWebGPU) {
           return await initMapspinnerPlanetWebGPU(renderer, { radius, reliefScale: cfg.reliefScale, hpfSeed: cfg.seed, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : undefined, splitFactor: Number.isFinite(cfg.splitFactor) ? cfg.splitFactor : undefined })
@@ -74,9 +74,9 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   if (typeof window !== 'undefined' && window.__planetDepthToCanvas === undefined) RenderControls.set('planetDepthToCanvas', true)
   if (typeof window !== 'undefined' && window.__planetDepthBias === undefined) RenderControls.set('planetDepthBias', 0.000002)
   try {
+    sampler = createHeightSampler({ radius, seed: cfg.seed, reliefScale: cfg.reliefScale, hashVersion: terrainHashVersion, carves: terrainCarvesOf(cfg) })
     planet = await _initPlanet()
     performance.mark('terrain:planet-init')
-    sampler =createHeightSampler({ radius, seed: cfg.seed, reliefScale: cfg.reliefScale, hashVersion: terrainHashVersion })
     frame = createPlanetFrame({ sampler, anchorDir: cfg.anchorDir || [0, 1, 0], offsetY: cfg.offsetY || 0, reliefScale: cfg.reliefScale })
     if (cfg.gpuPatchCollider !== false && isLegacyHash) {
       try {
@@ -221,8 +221,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
         try { planet.clearCache && planet.clearCache() } catch (e) { _dbgTerrain('planet.clearCache failed in zero-quad fail-safe:', e?.message || e) }
       }
       if (!isWebGPU) renderer.resetState()
-      if (isTslTerrain) { if (scene.background !== _tslSkyColor) scene.background = _tslSkyColor }
-      else if (scene.background !== null) scene.background = null
+      if (!isTslTerrain && scene.background !== null) scene.background = null
     } catch (e) {
       const msg = String(e && e.message || e)
       if (msg !== _lastRenderPlanetErr) { _lastRenderPlanetErr = msg; console.warn('[terrain] renderPlanet threw, painting fallback sky this frame:', msg) }
@@ -232,7 +231,6 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   }
   let _lastRenderPlanetErr = null
   const _fallbackSkyColor = new THREE.Color(0x87ceeb)
-  const _tslSkyColor = new THREE.Color(0x87ceeb)
   const _tslView = isTslTerrain ? { cameraRenderPosition: new THREE.Vector3(), east: frame.east, up: frame.up, north: frame.north } : null
   let _lastFlips = 0
   function runOcclusionQueries() {
@@ -249,5 +247,5 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   function setOcclusionQueryBudget(n) { _terrainOcclusion.setMaxQueriesPerFrame(n) }
   function getOcclusionQueryBudget() { return _terrainOcclusion.getMaxQueriesPerFrame() }
   const sceneFarHint = () => (isTslTerrain && typeof planet.sceneFar === 'function') ? planet.sceneFar() : 0
-  return { planet, frame, sampler, renderPlanet, sceneFarHint, runOcclusionQueries, update, dispose, getOcclusionStats: () => _terrainOcclusion.getStats(), getOcclusionCandidateCount: () => _terrainOcclusion.getCandidateCount(), occlusionPredicateSnapshot, setOcclusionQueryBudget, getOcclusionQueryBudget, setSunLocal }
+  return { planet, frame, sampler, drawsInScene: isTslTerrain, renderPlanet, sceneFarHint, runOcclusionQueries, update, dispose, getOcclusionStats: () => _terrainOcclusion.getStats(), getOcclusionCandidateCount: () => _terrainOcclusion.getCandidateCount(), occlusionPredicateSnapshot, setOcclusionQueryBudget, getOcclusionQueryBudget, setSunLocal }
 }

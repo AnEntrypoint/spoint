@@ -34,6 +34,7 @@ export function isMinimapStale(header, tcfg) {
   if (header.radius !== params.radius) return true
   if ((header.reliefScale ?? null) !== params.reliefScale) return true
   if ((header.hashVersion ?? DEFAULT_TERRAIN_HASH_VERSION) !== params.hashVersion) return true
+  if (JSON.stringify(header.carves ?? []) !== JSON.stringify(params.carves)) return true
   if (header.extent !== params.extent) return true
   if (header.N !== params.res) return true
   if (!sameArray(header.anchorDir, params.anchorDir)) return true
@@ -77,6 +78,7 @@ async function bakeAndWrite(base, tcfg) {
   const { png, header } = await bakeOffMainThread({
     seed: tcfg.seed | 0, radius: tcfg.radius, reliefScale: tcfg.reliefScale, anchorDir: tcfg.anchorDir,
     hashVersion: minimapBakeParams(tcfg).hashVersion,
+    carves: minimapBakeParams(tcfg).carves,
     extent: minimapExtentOf(tcfg),
     res: minimapResOf(tcfg), center: tcfg.center || [0, 0],
   })

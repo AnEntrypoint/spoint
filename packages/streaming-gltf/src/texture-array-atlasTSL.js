@@ -11,8 +11,8 @@ export function buildArrayMaterialTSL(arrayTexture, seedMaterial, opts = {}) {
     transparent: seedMaterial.transparent ?? false,
   });
   material.name = 'texture-array-atlas-material-tsl';
-  const layerIndex = attribute('layerIndex', 'float');
-  material.colorNode = texture(arrayTexture, uv()).depth(int(layerIndex));
+  const nearestLayer = int(attribute('layerIndex', 'float').add(0.5));
+  material.colorNode = texture(arrayTexture, uv()).depth(nearestLayer);
   material.userData.isTextureArrayAtlas = true;
   if (typeof opts.tintCompose === 'function') opts.tintCompose(material);
   return material;
