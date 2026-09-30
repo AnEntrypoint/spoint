@@ -124,6 +124,7 @@ export function createTimeOfDay(sun, ambient, opts = {}) {
   function setFractionFromServer(frac) { if (!isLocalOverrideActive() && Number.isFinite(frac)) { t = ((frac % 1) + 1) % 1; return _apply() } }
   function setDayLengthSec(sec) { if (Number.isFinite(sec) && sec > 0) dayLengthSec = sec }
   function getDayLengthSec() { return dayLengthSec }
+  function notifyDirection() { if (onDirectionChange) onDirectionChange(_computeDirection(t)) }
   function setPaused(p) { paused = !!p }
   function isPaused() { return paused }
   function getClockString() {
@@ -133,7 +134,7 @@ export function createTimeOfDay(sun, ambient, opts = {}) {
     return `${hh}:${mm}`
   }
 
-  const api = { update, setFraction, setFractionFromServer, isLocalOverrideActive, getFraction, setDayLengthSec, getDayLengthSec, setPaused, isPaused, getClockString }
+  const api = { update, notifyDirection, setFraction, setFractionFromServer, isLocalOverrideActive, getFraction, setDayLengthSec, getDayLengthSec, setPaused, isPaused, getClockString }
   if (typeof window !== 'undefined') window.__timeOfDayApi = api
   return api
 }

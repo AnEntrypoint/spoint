@@ -359,7 +359,7 @@ function _ensureVegetation(tb) {
   const anchorField = tb.sampler && tb.sampler.anchorField
   const gen = _foliageGen
   const pending = _hmrFactories.createVegetation({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0 })
-    .then(v => { if (gen !== _foliageGen) { v?.dispose?.(); return } vegetation = v; if (window.__app) window.__app.vegetation = v; sceneOcclusion.register('vegetation', v) })
+    .then(v => { if (gen !== _foliageGen) { v?.dispose?.(); if (vegetation) window.__veg = vegetation; return } vegetation = v; if (window.__app) window.__app.vegetation = v; sceneOcclusion.register('vegetation', v) })
     .catch(e => console.error('[veg] init failed:', e?.message || e))
     .finally(() => { if (_foliagePending.vegetation === pending) _foliagePending.vegetation = null })
   _foliagePending.vegetation = pending
@@ -374,7 +374,7 @@ function _ensureRocks(tb) {
   const anchorField = tb.sampler && tb.sampler.anchorField
   const gen = _foliageGen
   const pending = _hmrFactories.createRocks({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0 })
-    .then(r => { if (gen !== _foliageGen) { r?.dispose?.(); return } rocks = r; if (window.__app) window.__app.rocks = r; sceneOcclusion.register('rocks', r) })
+    .then(r => { if (gen !== _foliageGen) { r?.dispose?.(); if (rocks) window.__rocks = rocks; return } rocks = r; if (window.__app) window.__app.rocks = r; sceneOcclusion.register('rocks', r) })
     .catch(e => console.error('[rocks] init failed:', e?.message || e))
     .finally(() => { if (_foliagePending.rocks === pending) _foliagePending.rocks = null })
   _foliagePending.rocks = pending
@@ -399,7 +399,7 @@ function _ensureGrass(tb) {
   const anchorField = tb.sampler && tb.sampler.anchorField
   const gen = _foliageGen
   const pending = _hmrFactories.createGrass({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0, placedModels: worldConfig.entities })
-    .then(g => { if (gen !== _foliageGen) { g?.dispose?.(); return } grass = g; if (window.__app) window.__app.grass = g; sceneOcclusion.register('grass', g) })
+    .then(g => { if (gen !== _foliageGen) { g?.dispose?.(); if (grass) window.__grass = grass; return } grass = g; if (window.__app) window.__app.grass = g; sceneOcclusion.register('grass', g) })
     .catch(e => console.error('[grass] init failed:', e?.message || e))
     .finally(() => { if (_foliagePending.grass === pending) _foliagePending.grass = null })
   _foliagePending.grass = pending
@@ -439,6 +439,7 @@ async function _buildWorldScenery() {
     if (_todCfg && Number.isFinite(_todCfg.dayLengthSec)) timeOfDay.setDayLengthSec(_todCfg.dayLengthSec)
     if (_todCfg && Number.isFinite(_todCfg.startFraction)) timeOfDay.setFraction(_todCfg.startFraction)
     timeOfDay.setPaused(false)
+    timeOfDay.notifyDirection()
   }
   if (window.__app) window.__app.terrain = tb
   _hp('after-terrain-panel')
@@ -830,7 +831,7 @@ const engineCtx = {
       try { caveMeshes && caveMeshes.dispose && caveMeshes.dispose() } catch (e) { _dbgTerrain('caveMeshes dispose failed on reseed:', e?.message || e) }
       vegetation = null; rocks = null; grass = null; caveMeshes = null
       _foliageGen++; _foliagePending.vegetation = null; _foliagePending.rocks = null; _foliagePending.grass = null
-      if (window.__app) { window.__app.vegetation = null; window.__app.rocks = null }
+      if (window.__app) { window.__app.vegetation = null; window.__app.rocks = null; window.__app.grass = null }
       try { weather && weather.dispose && weather.dispose() } catch (e) { _dbgTerrain('weather dispose failed on reseed:', e?.message || e) }
       weather = null
     }
@@ -840,6 +841,7 @@ const engineCtx = {
         if (buildGen !== _terrainBuildGen) { tb.dispose(); if (terrainBackdrop && terrainBackdrop.registerDebugGlobals) terrainBackdrop.registerDebugGlobals(); return }
         if (terrainBackdrop && terrainBackdrop !== tb) { try { terrainBackdrop.dispose() } catch (e) { _dbgTerrain('superseded terrainBackdrop dispose failed:', e?.message || e) } }
         terrainBackdrop = tb; if (window.__app) window.__app.terrain = tb
+        if (timeOfDay && !timeOfDay.isPaused()) timeOfDay.notifyDirection()
         try { sculptOverlay = createSculptOverlay(tb) } catch (e) { console.warn('[terrain] sculptOverlay reseed-rebuild failed:', e?.message || e) }
         _applyPendingSculptBackfill()
         try { const f = tb.frame; if (f) setSeaLevelY((f.offsetY || 0) - (f.anchorHeight || 0), scene, f.radius) } catch (_) {}
