@@ -1,6 +1,6 @@
 import { existsSync, statSync, realpathSync } from 'node:fs'
 import { join, extname, resolve, sep } from 'node:path'
-import { getTransformedAsync, getTransformedHashAsync, getCachePath } from '../static/GLBTransformer.js'
+import { getTransformedAsync, getTransformedHashAsync } from '../static/GLBTransformer.js'
 import { getProgressive, resolveBakedFile } from '../static/ProgressiveBake.js'
 import { getKtx2Extracted, resolveKtx2File } from '../static/KTX2Extract.js'
 import { buildFetchManifest } from '../static/FetchManifest.js'
@@ -234,7 +234,7 @@ export function createStaticHandler(dirs, opts = {}) {
               res.end()
               return
             }
-            const entry = await getTransformedCached(fp, srcMtime, transformed, encoding, contentHash ? { base: getCachePath(fp), hash: contentHash } : null)
+            const entry = await getTransformedCached(fp, srcMtime, transformed, encoding, contentHash)
             if (entry.encoding) headers['Content-Encoding'] = entry.encoding
             if (RANGE_EXTENSIONS.has(ext) && !entry.encoding) {
               serveRangeable(req, res, entry.content, headers)

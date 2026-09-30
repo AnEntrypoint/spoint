@@ -1,5 +1,6 @@
-import { readFileSync, existsSync, statSync, writeFileSync, readdirSync } from 'node:fs'
-import { join, extname, sep } from 'node:path'
+import { readFileSync, existsSync, statSync, writeFileSync, readdirSync, mkdirSync, rmSync, renameSync } from 'node:fs'
+import { join, extname, sep, resolve, basename } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { gzipSync, brotliCompressSync, gzip, brotliCompress, constants as zlibConstants } from 'node:zlib'
 import { promisify } from 'node:util'
 import { fnv1aBytes } from '../shared/fnv1a.js'
@@ -88,29 +89,74 @@ export function isNodeModulesPath(fp) {
   return fp.includes(sep + 'node_modules' + sep) || fp.endsWith(sep + 'node_modules')
 }
 
-const SIBLING_EXT = { br: '.br', gzip: '.gz' }
+export const STATIC_CACHE_DIR = resolve(process.env.SPOINT_STATIC_CACHE_DIR || join(process.cwd(), '.spoint-cache', 'static'))
 
-function siblingPaths(fp, encoding) {
-  const ext = SIBLING_EXT[encoding]
-  return { body: fp + ext, meta: fp + ext + '.meta' }
+const STATIC_CACHE_CODE_VERSION = fnv1aBytes(Buffer.concat([
+  readFileSync(fileURLToPath(import.meta.url)),
+  Buffer.from(`${process.versions.zlib}|${process.versions.brotli}|${JSON.stringify(BROTLI_OPTS)}`)
+])).toString(16)
+
+const ENCODING_EXT = { br: 'br', gzip: 'gz' }
+const STALE_TMP_MS = 60 * 1000
+
+function cacheEntryPaths(fp, encoding) {
+  const key = fnv1aBytes(Buffer.from(resolve(fp))).toString(16) + '-' + basename(fp).replace(/[^\w.-]/g, '_') + '.' + ENCODING_EXT[encoding]
+  const body = join(STATIC_CACHE_DIR, key)
+  return { body, meta: body + '.meta' }
 }
 
-function readSiblingIfFresh(fp, encoding, srcMtime) {
-  const { body, meta } = siblingPaths(fp, encoding)
+function readCacheEntry(fp, encoding, stamp) {
+  const { body, meta } = cacheEntryPaths(fp, encoding)
   if (!existsSync(body) || !existsSync(meta)) return null
   try {
     const m = JSON.parse(readFileSync(meta, 'utf8'))
-    if (m.srcMtime !== srcMtime) return null
-    return readFileSync(body)
+    if (m.codeVersion !== STATIC_CACHE_CODE_VERSION || m.src !== resolve(fp) || m.stamp !== stamp) return null
+    const content = readFileSync(body)
+    if (content.length !== m.bytes || fnv1aBytes(content).toString(16) !== m.hash) return null
+    return content
   } catch { return null }
 }
 
-function writeSibling(fp, encoding, srcMtime, content) {
-  const { body, meta } = siblingPaths(fp, encoding)
+function writeAtomic(path, data) {
+  const tmp = `${path}.tmp-${process.pid}-${Date.now()}`
+  writeFileSync(tmp, data)
+  renameSync(tmp, path)
+}
+
+function writeCacheEntry(fp, encoding, stamp, content) {
+  const { body, meta } = cacheEntryPaths(fp, encoding)
   try {
-    writeFileSync(body, content)
-    writeFileSync(meta, JSON.stringify({ srcMtime }))
-  } catch { }
+    mkdirSync(STATIC_CACHE_DIR, { recursive: true })
+    writeAtomic(body, content)
+    writeAtomic(meta, JSON.stringify({ src: resolve(fp), stamp, codeVersion: STATIC_CACHE_CODE_VERSION, bytes: content.length, hash: fnv1aBytes(content).toString(16) }))
+  } catch (e) {
+    console.warn(`[static-cache] write skipped for ${fp}: ${e?.message || e}`)
+  }
+}
+
+export function pruneStaticCache() {
+  let removed = 0
+  let names
+  try { names = readdirSync(STATIC_CACHE_DIR) } catch { return 0 }
+  for (const name of names) {
+    if (name.includes('.tmp-')) {
+      const tmp = join(STATIC_CACHE_DIR, name)
+      try { if (Date.now() - statSync(tmp).mtimeMs > STALE_TMP_MS) { rmSync(tmp, { force: true }); removed++ } } catch { }
+      continue
+    }
+    if (!name.endsWith('.meta')) continue
+    const meta = join(STATIC_CACHE_DIR, name)
+    let keep = false
+    try {
+      const m = JSON.parse(readFileSync(meta, 'utf8'))
+      keep = m.codeVersion === STATIC_CACHE_CODE_VERSION && typeof m.src === 'string' && existsSync(m.src.replace(/#transformed$/, ''))
+    } catch { }
+    if (keep) continue
+    rmSync(meta, { force: true })
+    rmSync(meta.slice(0, -'.meta'.length), { force: true })
+    removed++
+  }
+  return removed
 }
 
 export async function getCached(fp, ext, encoding) {
@@ -129,10 +175,11 @@ export async function getCached(fp, ext, encoding) {
   if (!shouldCompress) return { mtime: cached.mtime, content: cached.raw, encoding: null, raw: cached.raw }
   let variant = cached.variants.get(encoding)
   if (!variant) {
-    variant = readSiblingIfFresh(fp, encoding, cached.mtime)
+    const stamp = `mtime:${cached.mtime}`
+    variant = readCacheEntry(fp, encoding, stamp)
     if (!variant) {
       variant = await compressAsync(cached.raw, encoding)
-      writeSibling(fp, encoding, cached.mtime, variant)
+      writeCacheEntry(fp, encoding, stamp, variant)
     }
     cached.variants.set(encoding, variant)
     if (cacheable) fileCache.resync(key)
@@ -140,27 +187,7 @@ export async function getCached(fp, ext, encoding) {
   return { mtime: cached.mtime, content: variant, encoding, raw: cached.raw }
 }
 
-function readTransformedSibling(base, encoding, hash) {
-  if (!base || !hash) return null
-  const { body, meta } = siblingPaths(base, encoding)
-  if (!existsSync(body) || !existsSync(meta)) return null
-  try {
-    const m = JSON.parse(readFileSync(meta, 'utf8'))
-    if (m.hash !== hash) return null
-    return readFileSync(body)
-  } catch { return null }
-}
-
-function writeTransformedSibling(base, encoding, hash, content) {
-  if (!base || !hash) return
-  const { body, meta } = siblingPaths(base, encoding)
-  try {
-    writeFileSync(body, content)
-    writeFileSync(meta, JSON.stringify({ hash }))
-  } catch { }
-}
-
-export async function getTransformedCached(fp, srcMtime, rawBuffer, encoding, sibling = null) {
+export async function getTransformedCached(fp, srcMtime, rawBuffer, encoding, contentHash = null) {
   let cached = transformedCache.get(fp)
   if (!cached || cached.srcMtime !== srcMtime) {
     cached = { srcMtime, variants: new Map(), raw: rawBuffer.length <= MAX_CACHEABLE_BYTES ? rawBuffer : null }
@@ -170,10 +197,11 @@ export async function getTransformedCached(fp, srcMtime, rawBuffer, encoding, si
   if (!encoding) return { srcMtime, content: rawBuffer, encoding: null }
   let variant = cached.variants.get(encoding)
   if (!variant) {
-    variant = readTransformedSibling(sibling?.base, encoding, sibling?.hash)
+    const stamp = contentHash ? `transformed:${contentHash}` : null
+    variant = stamp ? readCacheEntry(fp + '#transformed', encoding, stamp) : null
     if (!variant) {
       variant = await compressAsync(rawBuffer, encoding)
-      writeTransformedSibling(sibling?.base, encoding, sibling?.hash, variant)
+      if (stamp) writeCacheEntry(fp + '#transformed', encoding, stamp, variant)
     }
     cached.variants.set(encoding, variant)
     if (rawBuffer.length <= MAX_CACHEABLE_BYTES) transformedCache.resync(fp)
@@ -184,6 +212,8 @@ export async function getTransformedCached(fp, srcMtime, rawBuffer, encoding, si
 const PREWARM_SKIP_DIRS = new Set(['node_modules', '.glb-cache', '.progressive-cache', '.git'])
 
 export async function prewarmCompression(dirs) {
+  const pruned = pruneStaticCache()
+  if (pruned) console.log(`[static-cache] pruned ${pruned} stale entr${pruned === 1 ? 'y' : 'ies'} from ${STATIC_CACHE_DIR}`)
   let count = 0
   async function walk(dir) {
     let entries
@@ -194,7 +224,6 @@ export async function prewarmCompression(dirs) {
       if (e.isDirectory()) { await walk(fp); continue }
       const ext = extname(e.name)
       if (!GZIP_EXTENSIONS.has(ext)) continue
-      if (ext === '.br' || ext === '.gz') continue
       try {
         if (statSync(fp).size <= 100) continue
         await getCached(fp, ext, 'br')
