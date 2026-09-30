@@ -145,21 +145,21 @@ export class BaseClient {
 
   startInputLoop(produceInput) {
     this.stopInputLoop()
-    this._inputStepper = createInputStepper({ getPeriodMs: () => this.inputPeriodMs(), onStep: () => { const input = produceInput(); if (input) this.sendInput(input) } })
+    this._inputStepper = createInputStepper({ getPeriodMs: () => this.inputPeriodMs(), onStep: (stepAt, periodMs) => { const input = produceInput(); if (input) this.sendInput(input, stepAt, periodMs) } })
     this._inputStepper.start()
     return () => this.stopInputLoop()
   }
 
   stopInputLoop() { if (this._inputStepper) { this._inputStepper.stop(); this._inputStepper = null } }
 
-  sendInput(input) {
+  sendInput(input, stepAt, periodMs) {
     if (this.protocolRejected) return
     const schema = this._msgHandler.getInputSchema()
     const predEngine = this._msgHandler.getPredEngine()
     const q = quantizeInput(schema, input)
     let entries
     if (this.config.predictionEnabled && predEngine) {
-      predEngine.addInput(q)
+      predEngine.addInput(q, stepAt, periodMs)
       entries = predEngine.getUnackedInputs(REDUNDANT_INPUT_RECORDS)
     } else {
       const sequence = this._plainInputSeq++
@@ -230,7 +230,7 @@ export class BaseClient {
   getPeerRttTable() { return this._msgHandler.getPeerRttTable?.() || {} }
   getBufferHealth() { return this._msgHandler.getBufferHealth() }
   getLocalState() { const pred = this._msgHandler.getPredEngine(); return this.config.predictionEnabled && pred ? pred.localState : this._snapProc.getPlayerState(this.playerId) }
-  getRenderState() { const pred = this._msgHandler.getPredEngine(); return this.config.predictionEnabled && pred ? (pred.getRenderState() || pred.localState) : this.getLocalState() }
+  getRenderState(renderAt) { const pred = this._msgHandler.getPredEngine(); return this.config.predictionEnabled && pred ? (pred.getRenderState(renderAt) || pred.localState) : this.getLocalState() }
   getRemoteState(id) { return this._snapProc.getPlayerState(id) }
   getAllStates() { return this._snapProc.getAllPlayerStates() }
   getEntity(id) { return this._snapProc.getEntity(id) }

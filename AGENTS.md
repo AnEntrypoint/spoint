@@ -125,7 +125,7 @@ rs-learn store, so for those the name plus `git log` on the named file is all th
 `project/code-rationale-slug-index-part2-netcode-server-apps-scripts` (every per-file rationale slug moved out
 of source comments, each with a memo). `recall <area or file name>` surfaces the catalog and the memo together.
 
-Netcode (docs/netcode.md), prefix `project/`: `netcode-authoritative-path-defects`, `netcode-input-pipeline-exact-prediction-invariants`, `snapshot-timeline-remote-interpolation`, `tick-scheduler-and-snapshot-wire-v3`, `lag-compensation-view-tick-rewind`, `netcode-rollback-profile-exact-resim`, `netcode-lockstep-profile-agreed-drop-and-pacing`, `prediction-wall-plane-hints-position-only`, `jolt-value-getters-are-static-temps-never-destroy`.
+Netcode (docs/netcode.md), prefix `project/`: `netcode-authoritative-path-defects`, `netcode-input-pipeline-exact-prediction-invariants`, `snapshot-timeline-remote-interpolation`, `tick-scheduler-and-snapshot-wire-v3`, `lag-compensation-view-tick-rewind`, `netcode-rollback-profile-exact-resim`, `netcode-lockstep-profile-agreed-drop-and-pacing`, `prediction-wall-plane-hints-position-only`, `jolt-value-getters-are-static-temps-never-destroy`, `local-player-step-trail-render-interpolation-and-jank-sources-2026-09-30`.
 
 Test relocation (`window.__spoint`, MSG.TELEPORT): `project/test-relocation-api-teleport-bookmarks-whensettled`.
 

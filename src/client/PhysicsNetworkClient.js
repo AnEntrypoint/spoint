@@ -249,7 +249,7 @@ export class PhysicsNetworkClient extends BaseClient {
     if (oldWs) { try { oldWs.close() } catch (e) {} }
   }
 
-  sendInput(input) { if (this._isOpen()) super.sendInput(input) }
+  sendInput(input, stepAt, periodMs) { if (this._isOpen()) super.sendInput(input, stepAt, periodMs) }
 
   send(type, payload) { this._safeSend(pack({ type, payload }), isUnreliable(type)) }
 

@@ -1863,7 +1863,7 @@ function clearEditingInput(input, frozenYaw, frozenPitch) {
 function startInputLoop() {
   if (inputLoopId) return
   inputHandler=InputHandler({ renderer, snapTurnAngle: xrSystem?.vrSettings.snapTurnAngle, smoothTurnSpeed: xrSystem?.vrSettings.smoothTurnSpeed, onMenuPressed: ()=>{ if (xrSystem?.isPresenting) xrSystem.toggleSettings() } }); if (mobileControls) inputHandler.setMobileControls(mobileControls)
-  inputLoopId=createInputStepper({ getPeriodMs: () => client?.inputPeriodMs ? client.inputPeriodMs() : 1000/60, onStep: ()=>{
+  inputLoopId=createInputStepper({ getPeriodMs: () => client?.inputPeriodMs ? client.inputPeriodMs() : 1000/60, onStep: (stepAt, periodMs)=>{
     if (!client.connected) return; const input=inputHandler.getInput(); latestInput=input
     input._vsync = window.__vsync ? { frame: window.__vsync.frameCount, miss: window.__vsync.isMiss, missStreak: window.__vsync.missStreak, missCount: window.__vsync.missCount } : null
     { const _f=pm.playerExpressions.get(client.playerId); input.expr = _f ? pickExpressionCode(_f.expressions) : EXPR_NEUTRAL }
@@ -1880,7 +1880,7 @@ function startInputLoop() {
     const local=pm.playerStates.get(client.playerId); if (local?.health<lastHealth) { inputHandler.pulse('left',0.8,200); inputHandler.pulse('right',0.8,200) }; if (local) lastHealth=local.health
     if (!_editing) { _frozenLookYaw = input.yaw; _frozenLookPitch = input.pitch }
     const sendInput = (_editing || _frozenInput) ? clearEditingInput(input, input.yaw, input.pitch) : input
-    ams.dispatchInput(sendInput,engineCtx); client.sendInput(sendInput)
+    ams.dispatchInput(sendInput,engineCtx); client.sendInput(sendInput, stepAt, periodMs)
   } })
   inputLoopId.start()
 }
@@ -2147,13 +2147,14 @@ function buildFrameSectionNodes() {
       terminal: true,
       run(ctx) {
         const lid = ctx.res.localId
+        inputLoopId?.pump()
         if (_hierarchyDirty && latestState && latestState.entities.length > 0) { el.rebuildEntityHierarchy(latestState.entities); _hierarchyDirty = false }
         const _tickT0 = performance.now()
         tickPlayerAnimators(lid, ctx.res.frameDt, ctx.res.isEditorFrame)
         const _tickDt = performance.now() - _tickT0
         _tickAnimSamples[_tickAnimIdx] = _tickDt; _tickAnimIdx = (_tickAnimIdx + 1) % TICK_ANIM_SAMPLE_CAPACITY; if (_tickAnimCount < TICK_ANIM_SAMPLE_CAPACITY) _tickAnimCount++
         const _ring = client.readTransformRing?.()
-        if (client.config?.predictionEnabled && lid != null) sceneGraph.setLocalPlayerTransform(lid, client.getRenderState())
+        if (client.config?.predictionEnabled && lid != null) sceneGraph.setLocalPlayerTransform(lid, client.getRenderState(ctx.now))
         if (_ring) sceneGraph.setPlayerTransformsFromRing(_ring, lid)
         else if (client.getInterpolatedState) sceneGraph.setRemotePlayerTransforms(client.getInterpolatedState(performance.now()).players, lid)
         ctx.res.sceneGraphMoved = sceneGraph.tick(ctx.res.frameDt, ctx.res.lerpFactor)
@@ -2213,7 +2214,7 @@ function buildFrameSectionNodes() {
           camera.position.set(_specTmp.x - Math.sin(cam.yaw) * d, _specTmp.y + hgt, _specTmp.z - Math.cos(cam.yaw) * d)
           camera.lookAt(_specTmp.x, _specTmp.y, _specTmp.z)
         } else if (!xrSystem?.isPresenting || ctx.res.isEditorFrame) cam.update(local, pm.playerMeshes.get(lid), ctx.res.frameDt, latestInput)
-        xrSystem?.syncVRPosition(local); xrSystem?.update(ctx.res.frameDt, local, ams.appModules, ctx.now)
+        xrSystem?.syncVRPosition(xrSystem.isPresenting ? (client.getRenderState?.(ctx.now) || local) : local); xrSystem?.update(ctx.res.frameDt, local, ams.appModules, ctx.now)
         ctx.res.vegFocus = (cam.getEditMode() && cam.getEditCameraPosition) ? cam.getEditCameraPosition()
           : specMesh ? _specTmp
           : local && local.position ? _localFocusToRender(local.position)

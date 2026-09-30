@@ -1,6 +1,7 @@
 import { ReconciliationEngine } from './ReconciliationEngine.js'
 import { DEFAULT_MOVEMENT } from '../shared/movement.js'
 import { predictCharacterStep } from '../shared/characterStep.js'
+import { createStepTrail } from './StepTrail.js'
 
 const PRE_HANDSHAKE_TICK_RATE = 60
 const MAX_TRACKED_CONNECTION_DEGRADATION_MS = 10000
@@ -91,6 +92,8 @@ export class PredictionEngine {
     this.stats = { acks: 0, corrections: 0, lastCorrectionM: 0, maxCorrectionM: 0 }
     this.walls = []
     this._env = { gravityY: this.gravityY, ground: null, wedged: false, groundNormal: null, walls: null, wallExtentM: WALL_EXTENT_BASE_M }
+    this._trail = createStepTrail()
+    this._trailPos = [0, 0, 0]
   }
 
   setMovement(m) { Object.assign(this.movement, m) }
@@ -156,6 +159,7 @@ export class PredictionEngine {
     this.horizontallyWedged = false
     this.walls.length = 0
     this._hasServerState = false
+    this._trail.reset()
   }
 
   teleport(position, velocity, tick) {
@@ -173,11 +177,17 @@ export class PredictionEngine {
     this.horizontallyWedged = false
     this.walls.length = 0
     this._teleportTick = tick ?? -1
+    this._trail.reset()
   }
 
-  addInput(input) {
+  addInput(input, stepAt, periodMs) {
     const seq = this._inputSeq++
+    const timed = Number.isFinite(stepAt) && periodMs > 0
+    const p = this.localState.position
+    if (!timed) this._trail.reset()
+    else if (this._trail.length === 0) this._trail.push(stepAt, p[0], p[1], p[2])
     this._step(input)
+    if (timed) this._trail.push(stepAt + periodMs, p[0], p[1], p[2])
     const e = this.inputHistory.pushSlot()
     e.sequence = seq; e.data = input
     saveEntry(e, this.localState)
@@ -201,15 +211,16 @@ export class PredictionEngine {
 
   predict(input) { this._step(input) }
 
-  getRenderState() {
+  getRenderState(renderAt) {
     const ls = this.localState
     if (!ls) return null
     const offset = this.reconciliationEngine.decay(performance.now())
     const r = this._renderState || (this._renderState = { id: ls.id, position: [0, 0, 0], rotation: [0, 0, 0, 1], velocity: [0, 0, 0], onGround: true, health: 100 })
     this._copyState(ls, r)
-    r.position[0] = ls.position[0] - offset[0]
-    r.position[1] = ls.position[1] - offset[1]
-    r.position[2] = ls.position[2] - offset[2]
+    const src = this._trail.sample(renderAt, this._trailPos) ? this._trailPos : ls.position
+    r.position[0] = src[0] - offset[0]
+    r.position[1] = src[1] - offset[1]
+    r.position[2] = src[2] - offset[2]
     return r
   }
 
@@ -296,6 +307,7 @@ export class PredictionEngine {
     this.stats.lastCorrectionM = jump
     if (jump > this.stats.maxCorrectionM) this.stats.maxCorrectionM = jump
     this.reconciliationEngine.absorb(ls.position[0] - beforeX, ls.position[1] - beforeY, ls.position[2] - beforeZ, ls.onGround)
+    this._trail.shift(ls.position[0] - beforeX, ls.position[1] - beforeY, ls.position[2] - beforeZ)
   }
 
   resimulate() { this._rebaseAndReplay(this.lastServerState, null) }
