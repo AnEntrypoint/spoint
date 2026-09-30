@@ -208,6 +208,14 @@ export class AppLoader {
     }
   }
 
+  async hotReloadFromString(name, source, deps = null) {
+    const appDef = await this.loadFromString(name, source, deps)
+    if (!appDef) return false
+    const cb = this._onReloadCallback ? (n) => this._onReloadCallback(n, this._loaded.get(n)?.clientCode) : null
+    this._runtime.queueReload(name, appDef, cb)
+    return true
+  }
+
   loadFromModule(name, appModule) {
     const appDef = appModule && appModule.default ? appModule.default : appModule
     if (!appDef || typeof appDef !== 'object') {

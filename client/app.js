@@ -664,6 +664,17 @@ function _getMinimapPose() {
   return _minimapPose
 }
 const _getMinimapTerrain = () => (window.__app && window.__app.terrain) || null
+globalThis.__spointHmr?.accept('/hud/MinimapHUD.js', m => {
+  const meta = window.__minimapMeta
+  try { minimapHUD.dispose() } catch (_) {}
+  minimapHUD = meta ? m.createMinimapHUD(meta, _getMinimapPose, _getMinimapTerrain) : { update() {}, dispose() {} }
+})
+globalThis.__spointHmr?.accept('/hud/Chat.js', m => {
+  const hud = window.__app?.chatHUD, uiRoot = hud?.node?.parentNode
+  if (!uiRoot) return
+  try { hud.destroy() } catch (_) {}
+  window.__app.chatHUD = m.createChatHUD(uiRoot, () => window.__app.wireweave)
+})
 const engineCtx = {
   scene, camera, renderer, THREE, createElement, createEmoteWheel,
   pick: (clientX, clientY) => _raycastEntity(clientX, clientY),

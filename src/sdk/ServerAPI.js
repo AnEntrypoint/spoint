@@ -14,6 +14,7 @@ import {
 import { createAgentAuthoringHandler } from './AgentAuthoringAPI.js'
 import { resolveTerrainConfig, minimapDescriptor } from '../shared/terrainConfig.js'
 import { bakeMinimapIfMissing, isMinimapArtifactPath, bakeRequestedMinimapIfMissing } from './MinimapBake.js'
+import { createDevHmr, isDevHmrEnabled } from './DevHmr.js'
 
 export function createServerAPI(ctx) {
   const { config, port, tickRate, staticDirs, appLoader, appRuntime, physics, physicsIntegration, stageLoader } = ctx
@@ -109,7 +110,9 @@ export function createServerAPI(ctx) {
         })
         const staticHandler = staticDirs.length > 0 ? createStaticHandler(staticDirs, { getWorldInfo }) : null
         const handleAgentRoute = createAgentAuthoringHandler()
+        ctx.devHmr = staticHandler && isDevHmrEnabled() ? createDevHmr({ sdkRoot: ctx.sdkRoot, staticDirs }) : null
         const httpHandler = (req, res) => {
+          if (ctx.devHmr?.handle(req, res)) return
           if (req.url.startsWith('/agent/')) { handleAgentRoute(req, res, appRuntime, ctx); return }
           if (req.method === 'POST' && req.url === '/upload-model') { handleUploadModel(req, res, uploadHandler); return }
           if (req.method === 'POST' && req.url === '/debug-log') { handleDebugLog(req, res); return }
@@ -164,6 +167,7 @@ export function createServerAPI(ctx) {
     stop() {
       tickSystem.stop()
       appLoader.stopWatching()
+      ctx.devHmr?.stop()
       reloadManager.destroy()
       connections.destroy()
       sessions.destroyAll()
@@ -244,5 +248,6 @@ function attachWSHandlers(ctx) {
   if (!process.env.SPOINT_NO_WATCH) {
     ctx.appLoader.watchAll()
     ctx.setupSDKWatchers()
+    ctx.devHmr?.start()
   }
 }

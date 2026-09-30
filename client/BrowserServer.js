@@ -60,6 +60,32 @@ export class BrowserServer extends BaseClient {
     return this._colliderRequest({ type: 'DEBUG_COLLIDER_RAYS', rays, includeRockBodies, probePoints }, timeoutMs)
   }
 
+  _hmrRequest(message, timeoutMs = 15000) {
+    if (!this._worker) return Promise.resolve(false)
+    this._hmrSeq = (this._hmrSeq || 0) + 1
+    const reqId = this._hmrSeq
+    this._hmrPending = this._hmrPending || new Map()
+    return new Promise((resolve) => {
+      const t = setTimeout(() => { this._hmrPending.delete(reqId); resolve(false) }, timeoutMs)
+      this._hmrPending.set(reqId, (ok) => { clearTimeout(t); resolve(ok) })
+      this._worker.postMessage({ ...message, reqId })
+    })
+  }
+
+  async hotReloadApp(name) {
+    const indexUrl = new URL(`apps/${name}/index.js`, _root)
+    const r = await fetch(indexUrl, { cache: 'no-cache', signal: AbortSignal.timeout(10000) }).catch(() => null)
+    if (!r?.ok) return false
+    const source = await r.text()
+    const deps = await Promise.race([_resolveRelativeDeps(source, indexUrl), new Promise(resolve => setTimeout(() => resolve(null), 10000))])
+    if (!deps) return false
+    return this._hmrRequest({ type: 'HMR_APP', name, source, deps })
+  }
+
+  hotReloadTickHandler(v) {
+    return this._hmrRequest({ type: 'HMR_TICK_HANDLER', v })
+  }
+
   async _importModule(path) {
     const r = await fetch(new URL(path, _root))
     if (!r.ok) throw new Error(`${r.status} ${path}`)
@@ -114,6 +140,11 @@ export class BrowserServer extends BaseClient {
         if (data.type === 'INIT_ERROR') { reject(new Error(data.error + '\n' + data.stack)); return }
         if (data.type === 'TRANSFORM_RING') {
           try { this._transformRingReader = new TransformRingReader(data.sab, data.capacity) } catch (_) { this._transformRingReader = null }
+          return
+        }
+        if (data.type === 'HMR_RESULT') {
+          const done = this._hmrPending && this._hmrPending.get(data.reqId)
+          if (done) { this._hmrPending.delete(data.reqId); done(!!data.ok) }
           return
         }
         if (data.type === 'DEBUG_COLLIDER_RESULT') {

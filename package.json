@@ -23,7 +23,7 @@
   "scripts": {
     "prestart": "node scripts/bundle-client.mjs --if-stale && node scripts/bundle-worker.mjs --if-stale",
     "start": "node server.js",
-    "dev": "node --watch --watch-path=src server.js",
+    "dev": "node scripts/dev.mjs",
     "create-app": "node ./bin/create-app.js",
     "verify-app": "node ./scripts/verify-app.mjs",
     "create-project": "node ./bin/create-project.js",

@@ -113,7 +113,8 @@ export async function init({ worldDef, worldName: selectedWorldName = null, apps
   _transformRing = allocateRingBuffer(TRANSFORM_RING_CAPACITY)
   const transformRingWriter = _transformRing ? new TransformRingWriter(_transformRing.sab, _transformRing.capacity) : null
   ctx.transformRingWriter = transformRingWriter
-  ctx.setTickHandler(createTickHandler({ networkState, playerManager, physicsIntegration, lagCompensator, physics, appRuntime, connections, movement: ctx.movement, stageLoader, eventLog, tickRate, getRelevanceRadius: () => worldDef.relevanceRadius || 0, getNetcodeConfig: () => worldDef.netcode || null,  getWorldTimeOfDayConfig: () => worldDef.terrain?.timeOfDay || null, getWorldWeatherConfig: () => worldDef.terrain?.weather || null, transformRingWriter, onAutoSave: () => { saveWorldSnapshot(ctx).catch(e => console.error('[world-persistence] periodic save failed:', e.message)) } }))
+  ctx._tickHandlerArgs = ({ networkState, playerManager, physicsIntegration, lagCompensator, physics, appRuntime, connections, movement: ctx.movement, stageLoader, eventLog, tickRate, getRelevanceRadius: () => worldDef.relevanceRadius || 0, getNetcodeConfig: () => worldDef.netcode || null,  getWorldTimeOfDayConfig: () => worldDef.terrain?.timeOfDay || null, getWorldWeatherConfig: () => worldDef.terrain?.weather || null, transformRingWriter, onAutoSave: () => { saveWorldSnapshot(ctx).catch(e => console.error('[world-persistence] periodic save failed:', e.message)) } })
+  ctx.setTickHandler(createTickHandler(ctx._tickHandlerArgs))
   ctx.onClientConnect = createConnectionHandlers(ctx).onClientConnect
 
   stageLoader.loadFromDefinition('main', worldDef)
@@ -213,6 +214,23 @@ if (hasWorkerPostMessage) {
 
     if (data.type === 'PEER_FRAME') { _ctx?.peerSession?.bridge.deliver(data.from, data.data); return }
     if (data.type === 'PEER_LEFT') { _ctx?.peerSession?.bridge.peerLeft(data.pubkey); return }
+
+    if (data.type === 'HMR_APP') {
+      const ok = _ctx ? await _ctx.appLoader.hotReloadFromString(data.name, data.source, data.deps).catch(e => { console.error('[hmr] worker app reload failed:', e?.message || e); return false }) : false
+      self.postMessage({ type: 'HMR_RESULT', reqId: data.reqId, ok })
+      return
+    }
+
+    if (data.type === 'HMR_TICK_HANDLER') {
+      let ok = false
+      try {
+        const { createTickHandler: next } = await import(`./TickHandler.js?hmr=${data.v}`)
+        _ctx.setTickHandler(next(_ctx._tickHandlerArgs))
+        ok = true
+      } catch (e) { console.error('[hmr] worker tick handler swap failed:', e?.message || e) }
+      self.postMessage({ type: 'HMR_RESULT', reqId: data.reqId, ok })
+      return
+    }
 
     if (data.type === 'SAVE_NOW') {
       if (!_ctx) return

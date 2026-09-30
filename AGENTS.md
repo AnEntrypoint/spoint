@@ -163,7 +163,8 @@ spawn hold until static trimeshes land, floor probe from +2 m (`spawn-hold-until
 vegetation A/B numbers and remaining GPU-backpressure long tasks (`veg-variation-perf-ab-and-remaining-costs-2026-09-30`);
 spawn surface standing/lifted/dropped rule and the spawn-4 floor gap (`spawn-surface-standing-lifted-dropped-2026-09-30`);
 stuck occlusion queries recycled instead of freezing every verdict (`occlusion-query-tier-stuck-query-recycle-2026-09-30`);
-stronger tint palette, companion genus, interior-hides-foliage screenshot trap (`veg-variation-strengthened-metrics-and-witness-method-2026-09-30`).
+stronger tint palette, companion genus, interior-hides-foliage screenshot trap (`veg-variation-strengthened-metrics-and-witness-method-2026-09-30`);
+dev HMR (`src/sdk/DevHmr.js` + `client/dev/HmrRuntime.js`, `__spointHmr.accept/acceptSelf/dispose/data/only`, bundle->ESM switch, SP worker app/tick swap, `localhost` 200 ms connect trap) (`dev-hmr-system-2026-09-30`); local prediction collides with a mirrored static tile world (`prediction-collision-mirror-static-tiles-2026-09-30`), streaming heights bake in a worker (`patch-bake-worker-readback-off-main-thread`), local player drawn between the last two tick positions (`local-player-step-trail-render-interpolation-and-jank-sources-2026-09-30`).
 
 ## Audit log
 

@@ -82,6 +82,7 @@ export function wireServerHandlers(ctx) {
       const relPath = relative(sdkRoot, absPath).split('\\').join('/')
       const id = relPath.replace(/\//g, '-').replace(/\.m?js$/, '')
       const specific = SPECIFIC_RELOAD.get(relPath)
+      if (!specific && ctx.devHmr) continue
       reloadManager.addWatcher(id, absPath, specific || (() => clientReload(relPath)))
     }
   }
