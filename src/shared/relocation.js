@@ -61,7 +61,7 @@ export function resolveTarget(spec, { frame, heightAt } = {}) {
   if (!spec || typeof spec !== 'object') throw new Error('teleport target must be an object or [x,y,z]')
   const alt = spec.alt === undefined ? null : spec.alt
   if (alt !== null && !(Number.isFinite(alt) && Math.abs(alt) <= MAX_ABS_COORD_M)) throw new Error('teleport alt must be a finite number')
-  let x, z, y = null
+  let x, z, y = null, standNearY = null
   if (spec.lat !== undefined || spec.lon !== undefined) {
     if (!Number.isFinite(spec.lat) || !Number.isFinite(spec.lon) || Math.abs(spec.lat) > 90) throw new Error('teleport lat/lon must be finite degrees, |lat| <= 90')
     if (!frame) throw new Error('teleport lat/lon needs a planet frame (world has no terrain)')
@@ -78,9 +78,13 @@ export function resolveTarget(spec, { frame, heightAt } = {}) {
     x = spec.x; z = spec.z; y = spec.y === undefined ? null : spec.y
     if (!isCoord(x) || !isCoord(z)) throw new Error('teleport needs finite x and z (|v| <= 1e7)')
     if (y !== null && !isCoord(y)) throw new Error('teleport y must be finite (|v| <= 1e7)')
+    if (spec.standNearY !== undefined) {
+      if (!isCoord(spec.standNearY)) throw new Error('teleport standNearY must be finite (|v| <= 1e7)')
+      if (y === null) standNearY = spec.standNearY
+    }
   }
   const clearance = spec.clearance === undefined ? (alt ?? DEFAULT_CLEARANCE_M) : spec.clearance
   if (!Number.isFinite(clearance) || clearance < 0 || clearance > MAX_CLEARANCE_M) throw new Error(`teleport clearance must be within 0..${MAX_CLEARANCE_M}`)
   const snap = spec.snap === 'first' ? 'first' : 'terrain'
-  return { x, y, z, clearance, snap }
+  return { x, y, z, clearance, snap, standNearY }
 }

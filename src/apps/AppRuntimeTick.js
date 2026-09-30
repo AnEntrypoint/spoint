@@ -1,4 +1,9 @@
 const _PROFILE = typeof process !== 'undefined' && !!process.env?.GM_PROFILE
+const ENTITY_FALL_FLOOR_Y = -20
+const ENTITY_FALL_DEPTH_BELOW_TERRAIN_M = 20
+const ENTITY_RESPAWN_DELAY_S = 5
+const ENTITY_RESPAWN_COOLDOWN_S = 1
+const ENTITY_FALL_CHECK_EVERY_TICKS = 8
 
 export function mixinTick(runtime) {
   runtime.tick = function(tickNum, dt) {
@@ -143,15 +148,20 @@ export function mixinTick(runtime) {
     }
   }
 
+  runtime._entityFallFloorY = function(p) {
+    const groundY = this._physics?.terrainHeightAt?.(p[0], p[2])
+    return Number.isFinite(groundY) ? groundY - ENTITY_FALL_DEPTH_BELOW_TERRAIN_M : ENTITY_FALL_FLOOR_Y
+  }
+
   runtime._tickRespawn = function() {
-    let now = 0
+    if (this.currentTick % ENTITY_FALL_CHECK_EVERY_TICKS !== 0) return
+    const now = this.elapsed
     for (const id of this._activeDynamicIds) {
       const e = this.entities.get(id); if (!e) continue
-      if (e.position[1] < -20) {
-        if (now === 0) now = Date.now()
-        if (!this._respawnTimer.has(id)) this._respawnTimer.set(id, { startTime: now, lastRespawn: 0 })
+      if (e.position[1] < this._entityFallFloorY(e.position)) {
+        if (!this._respawnTimer.has(id)) this._respawnTimer.set(id, { startTime: now, lastRespawn: null })
         const timer = this._respawnTimer.get(id)
-        if ((now - timer.startTime) / 1000 >= 5 && now - timer.lastRespawn >= 1000) {
+        if (now - timer.startTime >= ENTITY_RESPAWN_DELAY_S && (timer.lastRespawn === null || now - timer.lastRespawn >= ENTITY_RESPAWN_COOLDOWN_S)) {
           const spawnPos = e._spawnPosition || [0, 20, 0]
           e.position[0] = spawnPos[0]; e.position[1] = spawnPos[1]; e.position[2] = spawnPos[2]
           e.velocity[0] = 0; e.velocity[1] = 0; e.velocity[2] = 0

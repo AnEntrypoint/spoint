@@ -101,6 +101,14 @@ export function getAvailableSpawnPoint(ctx, spawnPoints) {
   return candidates[0] || [0, 15, 0]
 }
 
+export function normalizeShotDirection(d) {
+  if (!Array.isArray(d) || d.length !== 3 || !d.every(Number.isFinite)) return null
+  const m = Math.max(Math.abs(d[0]), Math.abs(d[1]), Math.abs(d[2]))
+  if (!(m > 0)) return null
+  const x = d[0] / m, y = d[1] / m, z = d[2] / m, len = Math.hypot(x, y, z)
+  return [x / len, y / len, z / len]
+}
+
 export function resolveFireRequest(lagComp, shooterId, shooterPosition, msg) {
   const eye = [shooterPosition[0], shooterPosition[1] + HITBOX_CENTER_HEIGHT, shooterPosition[2]]
   if (!lagComp) return { origin: eye, viewTick: null }

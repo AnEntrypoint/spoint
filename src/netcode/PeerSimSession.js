@@ -65,11 +65,12 @@ export function createPeerSimSession(ctx, { roster, localPubkey, post }) {
     const lastInputs = new Map()
     for (const p of playerManager.getConnectedPlayers()) lastInputs.set(p.id, p.lastInput ? { ...p.lastInput } : null)
     const exact = physics.saveExactState(recorders[tick % recorders.length])
-    return { exact, bodies: physics.snapshotBodies(), players: playerManager.snapshotState(), lastInputs, sim: ctx.tickHandlerFn.snapshotSimState(), crouch: physicsIntegration.snapshotCrouchStates() }
+    return { exact, bodies: physics.snapshotBodies(), players: playerManager.snapshotState(), lastInputs, sim: ctx.tickHandlerFn.snapshotSimState(), crouch: physicsIntegration.snapshotCrouchStates(), clock: ctx.appRuntime.captureRuntimeClock() }
   }
 
   function apply(snap) {
     physics.restoreExactState(snap.exact)
+    ctx.appRuntime.restoreRuntimeClock(snap.clock)
     playerManager.restoreState(snap.players)
     physicsIntegration.restoreCrouchStates(snap.crouch)
     ctx.tickHandlerFn.restoreSimState(snap.sim)

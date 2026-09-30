@@ -1,4 +1,4 @@
-import { fallFloorY, findSpawnPoints, getAvailableSpawnPoint, handleFire, loadScoreboard, flushScoreboard, persistPlayerStat, resolveFireRequest } from './server.js'
+import { fallFloorY, findSpawnPoints, getAvailableSpawnPoint, handleFire, loadScoreboard, flushScoreboard, persistPlayerStat, resolveFireRequest, normalizeShotDirection } from './server.js'
 import { collectSpawnPoints } from '../spawn-point/index.js'
 import { POWERUP_DEFS, POWERUP_RESPAWN_MS, POWERUP_PICKUP_RADIUS, EMOTE_CLIPS, spawnPowerup } from './shared.js'
 
@@ -137,6 +137,8 @@ export const tpsGameServer = {
     }
     if (msg.type === 'fire') {
       const shooterId = msg.senderId || msg.shooterId
+      const direction = normalizeShotDirection(msg.direction)
+      if (!direction) return
       if (ctx.state.reloading.has(shooterId)) return
       const ammo = ctx.state.ammo.get(shooterId) ?? 0
       if (ammo <= 0) { ctx.players.send(shooterId, { type: 'empty_click' }); return }
@@ -144,9 +146,9 @@ export const tpsGameServer = {
       const shooter = ctx.players.getById(shooterId)
       const pos = shooter?.state?.position || [0, 0, 0]
       const { origin, viewTick } = resolveFireRequest(ctx.lagCompensator, shooterId, pos, msg)
-      const fireData = { shooterId, origin, direction: msg.direction, viewTick }
+      const fireData = { shooterId, origin, direction, viewTick }
       ctx.bus.emit('combat.fire', fireData)
-      if (shooter?.state) { shooter.state.velocity[0] -= msg.direction[0] * ctx.state.config.shootKnockback; shooter.state.velocity[2] -= msg.direction[2] * ctx.state.config.shootKnockback }
+      if (shooter?.state) { shooter.state.velocity[0] -= direction[0] * ctx.state.config.shootKnockback; shooter.state.velocity[2] -= direction[2] * ctx.state.config.shootKnockback }
       ctx.players.send(shooterId, { type: 'aimpunch', intensity: 0.3 })
       handleFire(ctx, fireData)
     }

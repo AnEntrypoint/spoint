@@ -40,6 +40,7 @@ export function probeSpawnGroundY(ctx, sp) {
   return spawnSurfaceY((o, d, l) => physics.raycast(o, d, l), sp, {
     standingOffset: standingOffset > 0 ? standingOffset : FALLBACK_STANDING_OFFSET,
     terrainY: terrainY(physics, sp[0], sp[2]),
+    radius: ctx.physicsIntegration?.config?.capsuleRadius || 0,
   })
 }
 
@@ -120,7 +121,10 @@ export function teleportPlayer(ctx, playerId, spec, { onGrounded = null } = {}) 
   const heightAt = physics && typeof physics.terrainHeightAt === 'function' ? (x, z) => physics.terrainHeightAt(x, z) : undefined
   const target = resolveTarget(spec, { frame, heightAt })
   let position
+  const standY = target.standNearY !== null ? probeSpawnGroundY(ctx, [target.x, target.standNearY, target.z]) : null
   if (target.y !== null) position = [target.x, target.y, target.z]
+  else if (standY !== null) position = [target.x, ctx.physicsIntegration.standingCentreY(standY), target.z]
+  else if (target.standNearY !== null) position = [target.x, target.standNearY, target.z]
   else {
     position = snapToGround(ctx, target.x, Number.NEGATIVE_INFINITY, target.z, target.clearance, target.snap)
     if (!position) throw new Error('teleport: no terrain height at target and no explicit y')
@@ -138,6 +142,7 @@ export function createRelocationHandlers(ctx) {
     const op = payload?.op === 'probe' ? 'probe' : 'to'
     const reply = (body) => connections.send(clientId, MSG.TELEPORT_ACK, { reqId, op, ...body })
     if (ctx.currentWorldDef?.relocation === false) { reply({ ok: false, error: 'relocation disabled by this world (relocation: false)' }); return }
+    if (ctx.peerSession && op === 'to') { reply({ ok: false, error: `relocation would desync the '${ctx.peerSession.profile?.name}' peer-simulated session: a teleport is not a peer input` }); return }
     try {
       if (op === 'probe') {
         if (!Number.isFinite(payload.x) || !Number.isFinite(payload.z)) throw new Error('probe needs finite x and z')

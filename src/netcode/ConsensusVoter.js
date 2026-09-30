@@ -13,6 +13,7 @@ function decodeCtrl(data) {
 
 export const DEFAULT_CONSECUTIVE_DESYNCS_REQUIRED = 3
 const DESYNC_LOG_LIMIT = 16
+const REMOTE_CHECKSUM_PAST_HORIZON_ROWS = 16
 
 export class ConsensusVoter {
   constructor({
@@ -68,6 +69,7 @@ export class ConsensusVoter {
   }
 
   tick(tick) {
+    this._localTick = tick
     if (!this._detector.isChecksumTick(tick)) return
     const checksum = this.checksumOf(tick)
     this._detector.reportChecksum(tick, this.localPeerId, checksum)
@@ -81,8 +83,16 @@ export class ConsensusVoter {
     this._detector.removePeer(peerId)
   }
 
+  _withinChecksumHorizon(tick) {
+    if (!this._detector.isChecksumTick(tick)) return false
+    const local = this._localTick || 0
+    const interval = this._detector.checksumIntervalTicks
+    const futureRows = this._detector._maxPendingRows - REMOTE_CHECKSUM_PAST_HORIZON_ROWS - 1
+    return tick <= local + futureRows * interval && tick > local - REMOTE_CHECKSUM_PAST_HORIZON_ROWS * interval
+  }
+
   _ingestRemoteChecksum(tick, pubkey, checksum) {
-    if (!this._detector.expects(pubkey)) { this.stats.checksumsIgnored++; return }
+    if (!this._detector.expects(pubkey) || !this._withinChecksumHorizon(tick)) { this.stats.checksumsIgnored++; return }
     this._detector.reportChecksum(tick, pubkey, checksum)
     this.stats.checksumsReceived++
   }

@@ -18,7 +18,8 @@ export class SessionStore {
       playerId,
       state: state ? { ...state } : {},
       createdAt: Date.now(),
-      lastTouched: Date.now()
+      lastTouched: Date.now(),
+      pinned: false
     }
     this.sessions.set(token, session)
     this._setupExpire(token)
@@ -36,6 +37,25 @@ export class SessionStore {
       }
     }
     session.lastTouched = Date.now()
+    if (!session.pinned) this._refreshExpire(token)
+    return true
+  }
+
+  pin(token) {
+    const session = this.sessions.get(token)
+    if (!session) return false
+    session.pinned = true
+    const timer = this.timers.get(token)
+    if (timer) clearTimeout(timer)
+    this.timers.delete(token)
+    return true
+  }
+
+  release(token) {
+    const session = this.sessions.get(token)
+    if (!session) return false
+    session.pinned = false
+    session.lastTouched = Date.now()
     this._refreshExpire(token)
     return true
   }
@@ -43,12 +63,12 @@ export class SessionStore {
   get(token) {
     const session = this.sessions.get(token)
     if (!session) return null
-    if (Date.now() - session.lastTouched > this.ttl) {
+    if (!session.pinned && Date.now() - session.lastTouched > this.ttl) {
       this.destroy(token)
       return null
     }
     session.lastTouched = Date.now()
-    this._refreshExpire(token)
+    if (!session.pinned) this._refreshExpire(token)
     return session
   }
 

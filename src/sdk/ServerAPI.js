@@ -50,11 +50,7 @@ export function createServerAPI(ctx) {
       else if (worldDef.spawnPoint) ctx.worldSpawnPoints = [worldDef.spawnPoint]
       ctx.worldSpawnPoint = ctx.worldSpawnPoints?.[0] || worldDef.spawnPoint || [0, 5, 0]
       if (!ctx.config.playerConfig && worldDef.player) {
-        const pc = worldDef.player
-        if (Number.isFinite(pc.capsuleRadius)) physicsIntegration.config.capsuleRadius = pc.capsuleRadius
-        if (Number.isFinite(pc.capsuleHalfHeight)) physicsIntegration.config.capsuleHalfHeight = pc.capsuleHalfHeight
-        if (Number.isFinite(pc.crouchHalfHeight)) physicsIntegration.config.crouchHalfHeight = pc.crouchHalfHeight
-        if (Number.isFinite(pc.mass)) physicsIntegration.config.playerMass = pc.mass
+        physicsIntegration.applyPlayerConfig(worldDef.player)
         console.log('[loadWorld] adopted worldDef.player capsule config into physicsIntegration (createServer() was called without config.playerConfig): ' +
           `radius=${physicsIntegration.config.capsuleRadius} halfHeight=${physicsIntegration.config.capsuleHalfHeight}`)
       }

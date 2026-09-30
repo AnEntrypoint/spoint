@@ -7,7 +7,6 @@ import { worldToCell, packCellKey } from '../terrain/CubeSphereCells.js'
 import { createServerTimeOfDay } from './ServerTimeOfDay.js'
 import { createServerWeather } from './ServerWeather.js'
 import { enforceMovementEnvelope } from '../netcode/InputGuard.js'
-import { checksumBodies } from '../netcode/LockstepChecksum.js'
 import { stepTeleportHold } from '../netcode/TeleportHold.js'
 import { recordSnapshotBytes, recordTickPhase } from './Metrics.js'
 import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, getPlayerPriorityIds, clearPlayerPriorityAccumulator, _spatialCache, _ringCache } from './TickHandlerAOI.js'
@@ -495,16 +494,5 @@ export function createTickHandler(deps) {
     playerAccumDt.clear(); for (const [k, v] of s.playerAccumDt) playerAccumDt.set(k, v)
   }
   onTick.serverWeather = serverWeather
-  onTick.attachDesyncChecksum = (desyncTransport, checksumFn) => {
-    const detector = desyncTransport.detector
-    const physics_ = desyncTransport.physics
-    const computeChecksum = checksumFn || ((t) => checksumBodies(t, physics_.snapshotBodies()))
-    return function simulateTickWithChecksum(tick, dt, players) {
-      simulateTick(tick, dt, players)
-      if (!detector.isChecksumTick(tick)) return null
-      const checksum = computeChecksum(tick)
-      return desyncTransport.reportLocalChecksum(tick, checksum)
-    }
-  }
   return onTick
 }

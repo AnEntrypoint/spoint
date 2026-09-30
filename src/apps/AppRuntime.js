@@ -627,7 +627,7 @@ export class AppRuntime {
     const timers = new Map()
     for (const [eid, list] of this._timers) timers.set(eid, list.map(t => ({ remaining: t.remaining, repeat: t.repeat, interval: t.interval, fn: t.fn })))
     const interactCooldowns = new Map(this._interactCooldowns)
-    return { tick: this.currentTick, entities, respawnTimers, timers, interactCooldowns }
+    return { tick: this.currentTick, elapsed: this.elapsed, entities, respawnTimers, timers, interactCooldowns }
   }
 
   restoreGameState(snap) {
@@ -644,12 +644,30 @@ export class AppRuntime {
       if (ctx) ctx._state = e._appState
       this._markDirty(id)
     }
+    if (Number.isFinite(snap.elapsed)) this.elapsed = snap.elapsed
+    this._respawnTimer.clear()
     for (const [id, t] of snap.respawnTimers) this._respawnTimer.set(id, { startTime: t.startTime, lastRespawn: t.lastRespawn })
     for (const [eid, list] of snap.timers) {
       if (!this.entities.has(eid)) continue
       this._timers.set(eid, list.map(t => ({ remaining: t.remaining, repeat: t.repeat, interval: t.interval, fn: t.fn })))
     }
     if (snap.interactCooldowns) this._interactCooldowns = new Map(snap.interactCooldowns)
+  }
+
+  captureRuntimeClock() {
+    const timerRemaining = []
+    for (const list of this._timers.values()) for (const t of list) timerRemaining.push(t, t.remaining)
+    const respawnTimers = new Map()
+    for (const [id, t] of this._respawnTimer) respawnTimers.set(id, { startTime: t.startTime, lastRespawn: t.lastRespawn })
+    return { elapsed: this.elapsed, respawnTimers, timerRemaining }
+  }
+
+  restoreRuntimeClock(clock) {
+    this.elapsed = clock.elapsed
+    this._respawnTimer.clear()
+    for (const [id, t] of clock.respawnTimers) this._respawnTimer.set(id, { startTime: t.startTime, lastRespawn: t.lastRespawn })
+    const r = clock.timerRemaining
+    for (let i = 0; i < r.length; i += 2) r[i].remaining = r[i + 1]
   }
 
   setResimSuppressed(v) {

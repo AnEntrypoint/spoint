@@ -10,6 +10,7 @@ import { createNostrAuthServer } from './NostrAuthServer.js'
 import { groundSnapSpawnPoint, holdSpawnUntilGrounded } from './Relocation.js'
 
 const MAX_TRACKED_RTT_MS = 10000
+const SERVER_ONLY_APP_EVENT_TYPES = new Set(['player_join', 'player_leave', 'player_teleport', 'damage'])
 
 const _schemaByWorldDef = new WeakMap()
 function inputSchemaFor(worldDef) {
@@ -72,6 +73,7 @@ export function createConnectionHandlers(ctx) {
     const sp = [...playerManager.getPlayer(playerId).state.position]
     const client = connections.addClient(playerId, transport)
     client.sessionToken = sessions.create(playerId, playerManager.getPlayer(playerId).state)
+    sessions.pin(client.sessionToken)
     client.isEditor = !readEditorTokenIfNodeRuntime()
     connections.send(playerId, MSG.HANDSHAKE_ACK, { playerId, tick: tickSystem.currentTick, sessionToken: client.sessionToken, tickRate: ctx.tickRate, version: WIRE_PROTOCOL_VERSION, structHash: WIRE_STRUCT_HASH })
     sendWorldDefAndModules(playerId)
@@ -225,6 +227,7 @@ export function createConnectionHandlers(ctx) {
       return
     }
     if (msg.type === MSG.APP_EVENT) {
+      if (SERVER_ONLY_APP_EVENT_TYPES.has(msg.payload?.type)) { console.warn(`[app-event] dropped client ${clientId} event of server-only type '${msg.payload.type}'`); return }
       if (msg.payload?.type === 'voice_identity' && typeof msg.payload?.pubkey === 'string' && msg.payload.pubkey) {
         const pubkey = msg.payload.pubkey.slice(0, 128)
         if (voiceIdentities.get(clientId) !== pubkey) {
@@ -260,6 +263,8 @@ export function createConnectionHandlers(ctx) {
       const playerConfig = ctx.currentWorldDef?.player || {}
       let sp = savedState.position
       if (!Array.isArray(sp) || sp.length !== 3 || sp.some(x => !Number.isFinite(x))) sp = groundSnapSpawnPoint(ctx, [...ctx.worldSpawnPoint])
+      const supersededClient = oldId !== clientId ? connections.getClient(oldId) : null
+      if (supersededClient) supersededClient.sessionToken = null
       if (playerManager.getPlayer(oldId)) {
         playerManager.removePlayer(oldId)
         networkState.removePlayer(oldId)
@@ -280,6 +285,7 @@ export function createConnectionHandlers(ctx) {
         transformRingWriter?.release(clientId)
         connections.broadcast(MSG.PLAYER_LEAVE, { playerId: clientId })
       }
+      if (client.sessionToken && client.sessionToken !== _token) sessions.destroy(client.sessionToken)
       connections.detachClient(clientId)
       const _vec = (v, n) => (Array.isArray(v) && v.length === n && v.every(Number.isFinite)) ? v : undefined
       const _maxHealth = playerConfig.health ?? 100
@@ -293,6 +299,7 @@ export function createConnectionHandlers(ctx) {
       reconnClient.sessionToken = msg.payload.sessionToken
       reconnClient.isEditor = !readEditorTokenIfNodeRuntime()
       sessions.update(msg.payload.sessionToken, { state: playerManager.getPlayer(newId).state })
+      sessions.pin(msg.payload.sessionToken)
       connections.send(newId, MSG.RECONNECT_ACK, { playerId: newId, tick: tickSystem.currentTick, sessionToken: msg.payload.sessionToken, tickRate: ctx.tickRate, position: sp, health, structHash: WIRE_STRUCT_HASH })
       sendWorldDefAndModules(newId)
       const snap = networkState.getSnapshot()
@@ -349,7 +356,7 @@ export function createConnectionHandlers(ctx) {
 
   connections.on('disconnect', (clientId, reason) => {
     const client = connections.getClient(clientId)
-    if (client?.sessionToken) { const p = playerManager.getPlayer(clientId); if (p) sessions.update(client.sessionToken, { state: p.state }) }
+    if (client?.sessionToken) { const p = playerManager.getPlayer(clientId); if (p) sessions.update(client.sessionToken, { state: p.state }); sessions.release(client.sessionToken) }
     appRuntime.broadcastMessage({ type: 'player_leave', playerId: clientId })
     physicsIntegration.removePlayerCollider(clientId)
     lagCompensator.clearPlayerHistory(clientId)

@@ -12,11 +12,11 @@ export class DesyncDetector {
     this.onDesync = onDesync
     this.onVerified = onVerified
     this._pending = new Map()
-    this._resolvedTicks = []
+    this._resolvedTicks = new Set()
     this._maxPendingRows = 64
   }
 
-  isChecksumTick(tick) { return tick % this.checksumIntervalTicks === 0 }
+  isChecksumTick(tick) { return Number.isInteger(tick) && tick % this.checksumIntervalTicks === 0 }
 
   expects(peerId) { return this.expectedPeerIds.includes(peerId) }
 
@@ -24,6 +24,7 @@ export class DesyncDetector {
     if (!this.expectedPeerIds.includes(peerId)) {
       throw new Error(`[DesyncDetector] checksum reported by unknown peer ${peerId}, not in expectedPeerIds`)
     }
+    if (!this.isChecksumTick(tick) || this._resolvedTicks.has(tick)) return null
     let row = this._pending.get(tick)
     if (!row) {
       row = new Map()
@@ -37,8 +38,8 @@ export class DesyncDetector {
 
   _resolve(tick, row) {
     this._pending.delete(tick)
-    this._resolvedTicks.push(tick)
-    if (this._resolvedTicks.length > RESOLVED_TICK_HISTORY_MAX) this._resolvedTicks.shift()
+    this._resolvedTicks.add(tick)
+    if (this._resolvedTicks.size > RESOLVED_TICK_HISTORY_MAX) this._resolvedTicks.delete(this._resolvedTicks.values().next().value)
 
     const counts = new Map()
     for (const cs of row.values()) counts.set(cs, (counts.get(cs) || 0) + 1)
@@ -80,9 +81,3 @@ export class DesyncDetector {
   get pendingCount() { return this._pending.size }
 }
 
-export function recoverSnapshot(physics, authoritativeSnap) {
-  if (!physics || typeof physics.restoreBodies !== 'function') {
-    throw new Error('[DesyncDetector] recoverSnapshot requires a PhysicsWorld exposing restoreBodies')
-  }
-  physics.restoreBodies(authoritativeSnap)
-}

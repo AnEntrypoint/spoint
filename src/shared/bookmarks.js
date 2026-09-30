@@ -28,9 +28,9 @@ function cubeDirections() {
 export function listBookmarks(worldDef, frame) {
   const list = []
   const sp = worldDef?.spawnPoint
-  if (Array.isArray(sp) && sp.length === 3) list.push({ name: 'spawn', spec: { x: sp[0], y: sp[1], z: sp[2] } })
+  if (Array.isArray(sp) && sp.length === 3) list.push({ name: 'spawn', spec: { x: sp[0], standNearY: sp[1], z: sp[2] } })
   for (const e of worldDef?.entities || []) {
-    if (e.app === 'spawn-point' && Array.isArray(e.position)) list.push({ name: String(e.id).replace(/^spawn-/, ''), spec: { x: e.position[0], y: e.position[1], z: e.position[2] } })
+    if (e.app === 'spawn-point' && Array.isArray(e.position)) list.push({ name: String(e.id).replace(/^spawn-/, ''), spec: { x: e.position[0], standNearY: e.position[1], z: e.position[2] } })
   }
   list.push({ name: 'origin', spec: { x: 0, z: 0 } })
   for (const km of OUT_KM) list.push({ name: `out-${km}km`, spec: { x: km * 1000, z: 0 } })

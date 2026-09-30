@@ -35,11 +35,21 @@ export function columnSurfaces(raycast, x, topY, z) {
   return surfaces
 }
 
-function hasHeadroom(raycast, x, surfaceY, z, headroom) {
+const RIM_OFFSETS = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+
+function clearAbove(raycast, x, surfaceY, z, headroom) {
   return hitY(raycast([x, surfaceY + BELOW_HIT_SKIN_M, z], [0, 1, 0], headroom)) === null
 }
 
-export function spawnSurfaceY(raycast, pose, { standingOffset, headroom = 2 * standingOffset, terrainY = null }) {
+function hasHeadroom(raycast, x, surfaceY, z, headroom, radius) {
+  if (!clearAbove(raycast, x, surfaceY, z, headroom)) return false
+  if (!(radius > 0) || !(headroom > radius)) return true
+  const rimBaseY = surfaceY + radius
+  for (const [ox, oz] of RIM_OFFSETS) if (!clearAbove(raycast, x + ox * radius, rimBaseY, z + oz * radius, headroom - radius)) return false
+  return true
+}
+
+export function spawnSurfaceY(raycast, pose, { standingOffset, headroom = 2 * standingOffset, terrainY = null, radius = 0 }) {
   if (typeof raycast !== 'function' || !Number.isFinite(pose?.[1]) || !(standingOffset > 0) || !(headroom > 0)) return null
   const x = pose[0], z = pose[2]
   const poseY = Number.isFinite(terrainY) ? Math.max(pose[1], terrainY) : pose[1]
@@ -47,7 +57,7 @@ export function spawnSurfaceY(raycast, pose, { standingOffset, headroom = 2 * st
   const liftCeilingY = feetY + MAX_LIFT_BODY_HEIGHTS * headroom
   let standing = null, lifted = null, dropped = null
   for (const y of columnSurfaces(raycast, x, liftCeilingY + COLUMN_ABOVE_LIFT_M, z)) {
-    if (!hasHeadroom(raycast, x, y, z, headroom)) continue
+    if (!hasHeadroom(raycast, x, y, z, headroom, radius)) continue
     if (y > poseY) { if (y <= liftCeilingY) lifted = y }
     else if (y >= feetY - standingOffset) { if (standing === null) standing = y }
     else if (dropped === null) dropped = y

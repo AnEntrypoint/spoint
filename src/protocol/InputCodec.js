@@ -86,7 +86,7 @@ function readRecord(view, off, schema, end) {
     off += ANALOG_BYTES
   }
   if (off + axes.length * AXIS_BYTES > end) throw new RangeError('[InputCodec] truncated extra axes')
-  for (const a of axes) { input[a] = view.getFloat32(off, true); off += AXIS_BYTES }
+  for (const a of axes) { const v = view.getFloat32(off, true); input[a] = Number.isFinite(v) ? v : 0; off += AXIS_BYTES }
   return { sequence, data: input, next: off }
 }
 

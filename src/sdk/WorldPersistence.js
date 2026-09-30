@@ -42,6 +42,7 @@ export function buildWorldSnapshot(appRuntime, physics, worldName) {
     version: WORLD_SNAPSHOT_FORMAT_VERSION,
     world: worldName || null,
     tick: game.tick,
+    elapsed: game.elapsed,
     savedAt: Date.now(),
     entities,
     respawnTimers: mapToEntries(game.respawnTimers),
@@ -93,10 +94,12 @@ export async function restoreWorldSnapshot(ctx) {
       else bodiesSkippedNotFound++
     }
   }
+  const respawnTimersInSimSeconds = Number.isFinite(snap.elapsed)
   appRuntime.restoreGameState({
     tick: snap.tick,
+    elapsed: respawnTimersInSimSeconds ? snap.elapsed : undefined,
     entities,
-    respawnTimers: entriesToMap(snap.respawnTimers),
+    respawnTimers: respawnTimersInSimSeconds ? entriesToMap(snap.respawnTimers) : new Map(),
     timers: new Map(),
     interactCooldowns: entriesToMap(snap.interactCooldowns)
   })

@@ -20,11 +20,28 @@ export class PhysicsIntegration {
       ankleClearance: config.ankleClearance ?? 0.1,
       playerMass: config.playerMass ?? 120
     }
+    this._derivePhysicalHalfHeight()
+    this.playerBodies = new Map()
+    this._crouchStates = new Map()
+  }
+
+  _derivePhysicalHalfHeight() {
     if (!Number.isFinite(this.config.capsuleHalfHeight) || this.config.capsuleHalfHeight <= 0) this.config.capsuleHalfHeight = 0.9
     if (!Number.isFinite(this.config.ankleClearance) || this.config.capsuleHalfHeight + this.config.ankleClearance <= 0) this.config.ankleClearance = 0
     this._physicalHalfHeight = this.config.capsuleHalfHeight + this.config.ankleClearance
-    this.playerBodies = new Map()
-    this._crouchStates = new Map()
+  }
+
+  applyPlayerConfig(pc) {
+    if (!pc) return
+    if (Number.isFinite(pc.capsuleRadius) && pc.capsuleRadius > 0) this.config.capsuleRadius = pc.capsuleRadius
+    if (Number.isFinite(pc.capsuleHalfHeight) && pc.capsuleHalfHeight > 0) this.config.capsuleHalfHeight = pc.capsuleHalfHeight
+    if (Number.isFinite(pc.crouchHalfHeight) && pc.crouchHalfHeight > 0) {
+      this.config.crouchHalfHeight = pc.crouchHalfHeight
+      const charMgr = this.physicsWorld?._charMgr
+      if (charMgr) charMgr.crouchHalfHeight = pc.crouchHalfHeight
+    }
+    if (Number.isFinite(pc.mass) && pc.mass > 0) this.config.playerMass = pc.mass
+    this._derivePhysicalHalfHeight()
   }
 
   setPhysicsWorld(world) {

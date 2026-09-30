@@ -52,15 +52,7 @@ export function createReloadHandlers(deps) {
           tickRate = wd.tickRate
           deps.tickSystem?.setTickRate?.(wd.tickRate)
         }
-        if (wd.player) {
-          const pc = wd.player
-          if (physicsIntegration) {
-            if (Number.isFinite(pc.capsuleRadius)) physicsIntegration.config.capsuleRadius = pc.capsuleRadius
-            if (Number.isFinite(pc.capsuleHalfHeight)) physicsIntegration.config.capsuleHalfHeight = pc.capsuleHalfHeight
-            if (Number.isFinite(pc.crouchHalfHeight)) physicsIntegration.config.crouchHalfHeight = pc.crouchHalfHeight
-            if (Number.isFinite(pc.mass)) physicsIntegration.config.playerMass = pc.mass
-          }
-        }
+        if (wd.player && physicsIntegration) physicsIntegration.applyPlayerConfig(wd.player)
       } catch (e) {}
     }
     return refreshHandler({ ...deps, movement, tickRate, _movement: { applyMovement, DEFAULT_MOVEMENT } })
@@ -68,7 +60,7 @@ export function createReloadHandlers(deps) {
 
   const reloadPhysicsIntegration = async () => {
     const { PhysicsIntegration: New } = await import('../netcode/PhysicsIntegration.js?' + Date.now())
-    swapInstance(physicsIntegration, New, [{ ...physicsIntegration.config, physicsWorld: physics }], ['playerBodies'])
+    swapInstance(physicsIntegration, New, [{ ...physicsIntegration.config, physicsWorld: physics }], ['playerBodies', '_crouchStates'])
   }
 
   const reloadLagCompensator = async () => {
