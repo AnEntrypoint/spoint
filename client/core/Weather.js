@@ -148,13 +148,17 @@ export function createWeather(opts = {}) {
   const dropSpeed = new Float32Array(MAX_PARTICLES)
   let _idsAdded = false
   const dropGround = new Float32Array(MAX_PARTICLES)
+  const dropHitKnown = new Uint8Array(MAX_PARTICLES)
   const GROUND_RESAMPLE_BAND_M = 4
   let _lastWantRain = -1, _lastWantSnow = -1, _lastWantFar = -1
 
   const snowX = new Float32Array(MAX_PARTICLES), snowY = new Float32Array(MAX_PARTICLES), snowZ = new Float32Array(MAX_PARTICLES)
   const snowSpeed = new Float32Array(MAX_PARTICLES), snowPhase = new Float32Array(MAX_PARTICLES), snowFreqJ = new Float32Array(MAX_PARTICLES)
   const snowGH = new Float64Array(MAX_PARTICLES)
+  const snowHitKnown = new Uint8Array(MAX_PARTICLES)
+  const snowHitX = new Float32Array(MAX_PARTICLES), snowHitZ = new Float32Array(MAX_PARTICLES)
   const SNOW_GROUND_RESAMPLE_BAND_M = 2.0
+  const SNOW_HIT_DRIFT_M = 0.25
   let _snowIdsAdded = false
 
   const farX = new Float32Array(MAX_FAR), farY = new Float32Array(MAX_FAR), farZ = new Float32Array(MAX_FAR)
@@ -175,9 +179,15 @@ export function createWeather(opts = {}) {
   const GH_CANARY_MS = 500
   const _ghCache = new Map()
   let _ghCanaryX = NaN, _ghCanaryZ = NaN, _ghCanaryVal = NaN, _ghCanaryAt = 0
+  let _ghEpoch = -1, _ghHash = null
 
   function _groundHeight(x, z) {
     if (frame && typeof frame.groundHeightLocal === 'function') {
+      if (frame.chartEpoch !== _ghEpoch || frame.hashVersion !== _ghHash) {
+        _ghEpoch = frame.chartEpoch
+        _ghHash = frame.hashVersion
+        _ghCache.clear()
+      }
       const now = performance.now()
       if (Number.isFinite(_ghCanaryX) && now - _ghCanaryAt > GH_CANARY_MS) {
         _ghCanaryAt = now
@@ -191,13 +201,18 @@ export function createWeather(opts = {}) {
       if (hit !== undefined) return hit
       let gh = NaN
       try { gh = frame.groundHeightLocal(x, z) } catch (_) {}
-      if (!Number.isFinite(gh)) gh = NO_TERRAIN_GROUND_Y
+      if (!Number.isFinite(gh)) return NO_TERRAIN_GROUND_Y
       if (_ghCache.size >= GH_CACHE_MAX) _ghCache.clear()
       _ghCache.set(key, gh)
       if (!Number.isFinite(_ghCanaryX)) { _ghCanaryX = x; _ghCanaryZ = z; _ghCanaryVal = gh; _ghCanaryAt = now }
       return gh
     }
     return NO_TERRAIN_GROUND_Y
+  }
+
+  function _exactGround(x, z) {
+    if (!frame || typeof frame.groundHeightLocal !== 'function') return NaN
+    try { return frame.groundHeightLocal(x, z) } catch (_) { return NaN }
   }
 
   function _respawnDroplet(i, cx, cy, cz) {
@@ -207,6 +222,7 @@ export function createWeather(opts = {}) {
     dropY[i] = cy + BOX_HEIGHT * (0.3 + Math.random() * 0.7)
     dropSpeed[i] = FALL_SPEED * (0.85 + Math.random() * 0.3)
     dropGround[i] = _groundHeight(dropX[i], dropZ[i])
+    dropHitKnown[i] = 0
   }
 
   function _applyVisiblePrefix(mesh, want, last, max) {
@@ -225,6 +241,7 @@ export function createWeather(opts = {}) {
     snowPhase[i] = Math.random() * Math.PI * 2
     snowFreqJ[i] = 0.75 + Math.random() * 0.5
     snowGH[i] = _groundHeight(snowX[i], snowZ[i])
+    snowHitKnown[i] = 0
   }
 
   function _respawnFar(i, cx, cy, cz, speedBase) {
@@ -287,7 +304,7 @@ export function createWeather(opts = {}) {
       if (_snowAccumEnabled()) {
         for (let k = 0; k < landings; k++) {
           const [x, z] = _randomDiscPoint(cx, cz)
-          if (_groundInsideFallWindow(_groundHeight(x, z), cy)) {
+          if (_groundInsideFallWindow(_exactGround(x, z), cy)) {
             try { snowAccum.markScorched(x, z, 0.6, 0.03 * intensity) } catch (_) {}
           }
         }
@@ -388,9 +405,14 @@ export function createWeather(opts = {}) {
           dropX[i] = cx + Math.cos(ang) * r
           dropZ[i] = cz + Math.sin(ang) * r
           dropGround[i] = _groundHeight(dropX[i], dropZ[i])
+          dropHitKnown[i] = 0
         }
         let gh = dropGround[i]
-        if (dropY[i] <= gh + GROUND_RESAMPLE_BAND_M) { gh = _groundHeight(dropX[i], dropZ[i]); dropGround[i] = gh }
+        if (!dropHitKnown[i] && dropY[i] <= gh + GROUND_RESAMPLE_BAND_M) {
+          const exact = _exactGround(dropX[i], dropZ[i])
+          if (Number.isFinite(exact)) { dropGround[i] = exact; dropHitKnown[i] = 1 }
+          gh = dropGround[i]
+        }
         const hitGround = Number.isFinite(gh) && gh > -1e5 && dropY[i] <= gh + groundClearance
         if (hitGround || dropY[i] < cy - BOX_HEIGHT * 0.6) {
           if (hitGround) _spawnSplash(dropX[i], gh + 0.02, dropZ[i], nowS)
@@ -423,8 +445,15 @@ export function createWeather(opts = {}) {
           snowX[i] = cx + Math.cos(ang) * r
           snowZ[i] = cz + Math.sin(ang) * r
           snowGH[i] = _groundHeight(snowX[i], snowZ[i])
+          snowHitKnown[i] = 0
         }
-        const gh = (snowY[i] <= snowGH[i] + SNOW_GROUND_RESAMPLE_BAND_M) ? (snowGH[i] = _groundHeight(snowX[i], snowZ[i])) : snowGH[i]
+        let gh = snowGH[i]
+        const drifted = Math.abs(snowX[i] - snowHitX[i]) > SNOW_HIT_DRIFT_M || Math.abs(snowZ[i] - snowHitZ[i]) > SNOW_HIT_DRIFT_M
+        if (snowY[i] <= gh + SNOW_GROUND_RESAMPLE_BAND_M && (!snowHitKnown[i] || drifted)) {
+          const exact = _exactGround(snowX[i], snowZ[i])
+          if (Number.isFinite(exact)) { snowGH[i] = exact; snowHitKnown[i] = 1; snowHitX[i] = snowX[i]; snowHitZ[i] = snowZ[i] }
+          gh = snowGH[i]
+        }
         const hitGround = Number.isFinite(gh) && gh > -1e5 && snowY[i] <= gh + groundClearance
         if (hitGround || snowY[i] < cy - BOX_HEIGHT * 0.6) {
           if (hitGround && accumEnabled && accumStampBudget > 0) {
