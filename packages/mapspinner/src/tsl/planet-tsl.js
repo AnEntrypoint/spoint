@@ -150,10 +150,13 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
       ? Math.max(0.05, +window.__splitFactor)
       : splitFactor
     const ml = (typeof window !== 'undefined' && window.__maxLevel != null)
-      ? Math.max(1, window.__maxLevel | 0)
+      ? Math.max(2, Math.min(22, window.__maxLevel | 0))
       : maxLevel
+    const distF = (typeof window !== 'undefined' && window.__distFactor != null)
+      ? +window.__distFactor
+      : sf * LOD_POP_ALTITUDE_MUL
     qt.computeSplitDist(sf * LOD_STEP, viewportH, fovy)
-    qt.setConfig(R, ml, sf * LOD_POP_ALTITUDE_MUL)
+    qt.setConfig(R, ml, distF)
     extractFrustumPlanes(viewProjNoEye, cull.planes)
     cull.ex = camWorldPos[0]; cull.ey = camWorldPos[1]; cull.ez = camWorldPos[2]
     const aim = aimGroundPoint(camWorldPos, fwd, camDist, R)
