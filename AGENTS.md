@@ -33,6 +33,14 @@ Work on `main`; merge stray branches in and delete them (`gh-pages` is a deploy 
 Commit only as `lanmower` (`657315+lanmower@users.noreply.github.com`); never attribute an AI
 assistant in a commit, PR, or file. Same inside every submodule.
 
+Commit hygiene, learned five times on 2026-10-02: never `git add <paths>` followed by a bare
+`git commit` -- that commits the whole index, so another writer's staged files land under your
+message (`0292ad7b` did exactly that). Always `git_commit`/`git_finalize` **with an explicit
+`paths` list**. Never commit a file that imports a file which is not in the same commit: the
+session broke HEAD that way four times (`mapspinner/splat-weights`, `src/presets/*`,
+`AppContext.js` -> `AppGameplay.js`, `src/stdlib-apps/*` without its import rewrites).
+`.gm` pathspecs are silently dropped by the git verbs -- see the caveat at the end of this file.
+
 ## Zero-comment sweep
 
 Names and structure carry meaning; rationale that code cannot carry lives in recall (slugs below),
