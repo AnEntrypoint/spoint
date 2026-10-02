@@ -39,7 +39,7 @@ message (`0292ad7b` did exactly that). Always `git_commit`/`git_finalize` **with
 `paths` list**. Never commit a file that imports a file which is not in the same commit: the
 session broke HEAD that way four times (`mapspinner/splat-weights`, `src/presets/*`,
 `AppContext.js` -> `AppGameplay.js`, `src/stdlib-apps/*` without its import rewrites).
-`.gm` pathspecs are silently dropped by the git verbs -- see the caveat at the end of this file.
+`.gm` pathspecs are honoured by the git verbs since 2026-10-02 -- see the caveat at the end of this file.
 
 ## Zero-comment sweep
 
@@ -188,7 +188,7 @@ Session 2026-10-02 (prefix `project/`): `grass-placement-painted-splat-weights`,
 Two caveats from 2026-10-02 that are not yet in recall and will otherwise be rediscovered:
 
 - **Flat chart plus global gravity has an intrinsic tilt term.** With one tangent chart at `anchorDir` and gravity fixed at `[0,-18,0]`, the surface tilts away from the chart's up axis by roughly theta at angle theta from the anchor, so at theta=15 deg even constant-elevation ground reads as a 15 deg slope. Circumnavigation walkability therefore splits: of 43 non-walkable crossings, 26 are genuine cliffs (up to 74.23 deg terrain) and must stay non-walkable, while 17 are this curvature term (median excess 9.26 deg, max 17.31 deg, with a -9.09 deg floor where the terrain's own slope cancels part of the term -- a negative value is the signature, since a stale-cache read cannot be negative). Fix the 17 by shrinking the chart (`anchorsPerFace`), never by raising `MAX_SLOPE_DEG`, which is pinned to `DEFAULT_MAX_SLOPE_ANGLE_RAD = 0.7854` in `src/physics/CharacterManager.js`.
-- **gm's git verbs exclude `.gm` pathspecs and then commit the index.** `git_add {paths:[".gm/memories/..."]}` reports staged, then `git_commit`/`git_finalize` with the same `paths` return `nothing_to_commit: true` (both report `excluded: [".gm (everything not tracked-by-design)"]`) and `git_finalize` goes on to commit whatever else is staged -- which is how `1ed9d4ae` came to carry one agent's message over another's 67-file `apps/` -> `src/stdlib-apps/` move. `.gm/memories/*.md` IS tracked by design here, so commit those by hand and never call the git verbs with a `.gm` pathspec until this is fixed in `C:\dev\gm`.
+- **gm git verbs and `.gm` paths -- fixed 2026-10-02 in `AnEntrypoint/rs-plugkit` (`6f98e47`, `30786b6`, `crates/plugkit-core/src/wasm_dispatch/verbs.rs`).** An explicit `.gm`/`.agentplug` pathspec is now honoured, each response lists what was actually excluded (`excluded`, `excluded_but_dirty`) instead of a static label, and a pathspec that matches nothing returns `ok:false` + `error_code: pathspec_matches_nothing` and stages nothing rather than committing the index. Witnessed in a scratch repo: `git_commit {paths:[".gm/state.md"]}` commits only that file and leaves an unrelated staged file staged; an untracked `.gm/new-untracked.md` commits when explicitly requested; `git_commit {paths:["nonexistent-path.js"]}` refuses. Before the fix the named paths were dropped and `git_finalize` committed whatever else was staged, which is how `1ed9d4ae` came to carry one agent's message over another's 67-file `apps/` -> `src/stdlib-apps/` move. Read `committed` and `requested_paths` off the response rather than trusting the call.
 
 ## Audit log
 
