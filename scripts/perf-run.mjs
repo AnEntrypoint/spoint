@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { writeFileSync, mkdirSync, existsSync } from 'node:fs'
+import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
@@ -72,6 +72,11 @@ const INSTRUMENT = `(() => {
   W.__rigGlCount = 0
   W.__rigGlDraws = 0
   W.__rigGlOn = false
+  W.__rigWgpuCount = 0
+  W.__rigWgpuDraws = 0
+  W.__rigWgpuOn = false
+  const WGPU_DRAWF = new Set(['draw', 'drawIndexed', 'drawIndirect', 'drawIndexedIndirect'])
+  const WGPU_PROTOS = ['GPUDevice', 'GPUQueue', 'GPUCommandEncoder', 'GPURenderPassEncoder', 'GPUComputePassEncoder', 'GPURenderBundleEncoder', 'GPUCanvasContext']
   const DRAWF = new Set(['drawElements', 'drawArrays', 'drawElementsInstanced', 'drawArraysInstanced', 'drawRangeElements', 'multiDrawElementsWEBGL', 'multiDrawArraysWEBGL'])
   try {
     new PerformanceObserver((l) => {
@@ -131,36 +136,68 @@ const INSTRUMENT = `(() => {
     }
     return ctx
   }
+  const patchProto = (proto) => {
+    if (!proto) return
+    const names = Object.getOwnPropertyNames(proto)
+    for (let i = 0; i < names.length; i++) {
+      const k = names[i]
+      if (k === 'constructor') continue
+      const d = Object.getOwnPropertyDescriptor(proto, k)
+      if (!d || typeof d.value !== 'function') continue
+      const orig = d.value
+      Object.defineProperty(proto, k, {
+        value: function () {
+          if (W.__rigWgpuOn) { W.__rigWgpuCount++; if (WGPU_DRAWF.has(k)) W.__rigWgpuDraws++ }
+          return orig.apply(this, arguments)
+        },
+        writable: true, configurable: true,
+      })
+    }
+  }
+  for (let i = 0; i < WGPU_PROTOS.length; i++) if (W[WGPU_PROTOS[i]] && W[WGPU_PROTOS[i]].prototype) patchProto(W[WGPU_PROTOS[i]].prototype)
   let last = -1
   let draws = 0
+  let tris = 0
+  let lastDraws = -1
+  let lastTris = -1
   function tick(now) {
     const dt = last < 0 ? 0 : now - last
     last = now
     const info = W.__app && W.__app.renderer && W.__app.renderer.info
-    if (info) draws = info.render.calls
-    if (rig.frames.length < 400000) rig.frames.push([+now.toFixed(2), +dt.toFixed(2), draws, W.__rigGlOn ? W.__rigGlCount : -1, W.__rigGlOn ? W.__rigGlDraws : -1])
+    if (info) {
+      const drawCur = info.render.drawCalls !== undefined ? info.render.drawCalls : info.render.calls
+      const triCur = info.render.triangles
+      if (lastDraws >= 0) {
+        const dDraws = drawCur - lastDraws
+        const dTris = triCur - lastTris
+        draws = dDraws < 0 ? drawCur : dDraws
+        tris = dTris < 0 ? triCur : dTris
+      }
+      lastDraws = drawCur
+      lastTris = triCur
+    }
+    if (rig.frames.length < 400000) rig.frames.push([+now.toFixed(2), +dt.toFixed(2), draws, W.__rigGlOn ? W.__rigGlCount : -1, W.__rigGlOn ? W.__rigGlDraws : -1, tris, W.__rigWgpuOn ? W.__rigWgpuCount : -1, W.__rigWgpuOn ? W.__rigWgpuDraws : -1])
     requestAnimationFrame(tick)
   }
   requestAnimationFrame(tick)
 })()`
 
 const GPU_PROBE_PS1 = resolve(OUT_DIR, 'gpu-probe.ps1')
-const GPU_PROBE_SRC = `$e = Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine
+const GATE_PROBE_REPO = resolve(__dirname, 'perf-run-gate.ps1')
+const GPU_PROBE_FALLBACK = `$e = Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine
 $s = 0
 foreach ($x in $e) { if ($x.Name -match 'engtype_3D') { $s += [double]$x.UtilizationPercentage } }
 $t = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='chrome-headless-shell.exe'" | Where-Object { $_.CommandLine -match 'dev.train' }).Count
 $all = @(Get-CimInstance Win32_Process -Filter "Name='chrome.exe' OR Name='chrome-headless-shell.exe'").Count
 $c = [int](Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average
 Write-Output "gpu3d=$s train=$t chrome=$all cpu=$c"`
+const GPU_PROBE_SRC = existsSync(GATE_PROBE_REPO) ? readFileSync(GATE_PROBE_REPO, 'utf8') : GPU_PROBE_FALLBACK
 
 function sampleGpu() {
   const r = spawnSync('powershell', ['-NoProfile', '-File', GPU_PROBE_PS1], { encoding: 'utf8' })
   const out = (r.stdout || '').trim()
-  const m3d = /gpu3d=([\d.]+)/.exec(out)
-  const mtr = /train=(\d+)/.exec(out)
-  const mch = /chrome=(\d+)/.exec(out)
-  const mcpu = /cpu=(\d+)/.exec(out)
-  return { gpu3d: m3d ? Number(m3d[1]) : null, train: mtr ? Number(mtr[1]) : null, chrome: mch ? Number(mch[1]) : null, cpu: mcpu ? Number(mcpu[1]) : null }
+  const num = (re) => { const m = re.exec(out); return m ? Number(m[1]) : null }
+  return { gpu3d: num(/gpu3d=([\d.]+)/), train: num(/train=(\d+)/), gm: num(/gm=(\d+)/), perf: num(/perf=(\d+)/), other: num(/other=(\d+)/), user: num(/user=(\d+)/), chrome: num(/chrome=(\d+)/), cpu: num(/cpu=(\d+)/) }
 }
 
 function percentile(sorted, p) {
@@ -576,8 +613,8 @@ async function main() {
         const pos = await readPos()
         if (pos) { track.push(pos[1]); if (!track0) track0 = pos[1] }
       }
-      if (elapsed >= 3000 && !glArmed) { glArmed = true; await page.evaluate(() => { window.__rigGlOn = true; window.__rigGlCount = 0; window.__rigGlDraws = 0 }).catch(() => {}) }
-      if (elapsed >= 13000 && glArmed) { glArmed = false; await page.evaluate(() => { window.__rigGlOn = false }).catch(() => {}) }
+      if (elapsed >= 3000 && !glArmed) { glArmed = true; await page.evaluate(() => { window.__rigGlOn = true; window.__rigGlCount = 0; window.__rigGlDraws = 0; window.__rigWgpuOn = true; window.__rigWgpuCount = 0; window.__rigWgpuDraws = 0 }).catch(() => {}) }
+      if (elapsed >= 13000 && glArmed) { glArmed = false; await page.evaluate(() => { window.__rigGlOn = false; window.__rigWgpuOn = false }).catch(() => {}) }
     }
     if (held) {
       console.log(`[perf-run] step: release ${held} at end`)
@@ -619,7 +656,7 @@ async function main() {
         errors: rig.errors.slice(0, 40),
         perf, shadow, veg,
         refreshHz: window.__vsync ? window.__vsync.refreshHz : null,
-        rendererInfo: window.__app && window.__app.renderer ? { calls: window.__app.renderer.info.render.calls, tris: window.__app.renderer.info.render.triangles, programs: window.__app.renderer.info.programs ? window.__app.renderer.info.programs.length : null } : null,
+        rendererInfo: window.__app && window.__app.renderer ? { calls: window.__app.renderer.info.render.calls, drawCalls: window.__app.renderer.info.render.drawCalls, tris: window.__app.renderer.info.render.triangles, programs: window.__app.renderer.info.programs ? window.__app.renderer.info.programs.length : null } : null,
         shadowPipeline: window.__shadowPipeline ? window.__shadowPipeline.debug() : null,
         vegProfile: window.__vegProfile || null,
         graphStats: (() => {
@@ -635,7 +672,8 @@ async function main() {
     })
 
     const deltas = inPage.frames.filter((f) => f[1] > 0).map((f) => f[1]).sort((a, b) => a - b)
-    const draws = inPage.frames.filter((f) => f[2] > 0).map((f) => f[2])
+    const draws = inPage.frames.filter((f) => f[2] >= 0).map((f) => f[2])
+    const tris = inPage.frames.filter((f) => f[5] >= 0).map((f) => f[5])
     const glFrames = inPage.frames.filter((f) => f[3] >= 0 && f[4] >= 0)
     const glPerFrame = []
     const glDrawPerFrame = []
@@ -647,6 +685,17 @@ async function main() {
     }
     glPerFrame.sort((a, b) => a - b)
     glDrawPerFrame.sort((a, b) => a - b)
+    const wgpuFrames = inPage.frames.filter((f) => f[6] >= 0 && f[7] >= 0)
+    const wgpuPerFrame = []
+    const wgpuDrawPerFrame = []
+    for (let i = 1; i < wgpuFrames.length; i++) {
+      const d = wgpuFrames[i][6] - wgpuFrames[i - 1][6]
+      const g = wgpuFrames[i][7] - wgpuFrames[i - 1][7]
+      if (d > 0) wgpuPerFrame.push(d)
+      if (g >= 0) wgpuDrawPerFrame.push(g)
+    }
+    wgpuPerFrame.sort((a, b) => a - b)
+    wgpuDrawPerFrame.sort((a, b) => a - b)
 
     const allLong = (inPage.startupLongtasks || []).concat(inPage.longtasks || [])
     const lt60 = allLong.filter((t) => t.start < 60000)
@@ -689,6 +738,10 @@ async function main() {
         fps: +(1000 / Math.max(0.001, percentile(deltas, 0.5))).toFixed(1),
       },
       draws: {
+        avg: +(tris.reduce((a, b) => a + b, 0) / Math.max(1, tris.length)).toFixed(0),
+        p95: +percentile(tris.slice().sort((a, b) => a - b), 0.95).toFixed(0),
+      },
+      draws: {
         count: draws.length,
         avg: +(draws.reduce((a, b) => a + b, 0) / Math.max(1, draws.length)).toFixed(1),
         p95: +percentile(draws.slice().sort((a, b) => a - b), 0.95).toFixed(0),
@@ -704,6 +757,17 @@ async function main() {
         avg: +(glDrawPerFrame.reduce((a, b) => a + b, 0) / Math.max(1, glDrawPerFrame.length)).toFixed(1),
         p95: +percentile(glDrawPerFrame, 0.95).toFixed(0),
         max: Math.max(0, ...glDrawPerFrame),
+      },
+      wgpuCallsPerFrame: {
+        windowFrames: wgpuPerFrame.length,
+        avg: +(wgpuPerFrame.reduce((a, b) => a + b, 0) / Math.max(1, wgpuPerFrame.length)).toFixed(1),
+        p95: +percentile(wgpuPerFrame, 0.95).toFixed(0),
+      },
+      wgpuDrawsPerFrame: {
+        windowFrames: wgpuDrawPerFrame.length,
+        avg: +(wgpuDrawPerFrame.reduce((a, b) => a + b, 0) / Math.max(1, wgpuDrawPerFrame.length)).toFixed(1),
+        p95: +percentile(wgpuDrawPerFrame, 0.95).toFixed(0),
+        max: Math.max(0, ...wgpuDrawPerFrame),
       },
       longTasks: {
         first20s: lt20.length,
@@ -731,9 +795,10 @@ async function main() {
     console.log('\n[perf-run] === ' + LABEL + ' ===')
     console.log(`  gpu=${GPU} backend=${BACKEND} walk=${WALK} ${SECONDS}s  travelled=${out.travelledM}m in ${track.length} samples`)
     console.log(`  frames: n=${out.frames.count} min=${out.frames.minMs}ms p50=${out.frames.p50Ms}ms p95=${out.frames.p95Ms}ms p99=${out.frames.p99Ms}ms fps(p50)=${out.frames.fps}  refreshHz(inferred)=${revealed.refreshHz}`)
-    console.log(`  draws/frame avg=${out.draws.avg} p95=${out.draws.p95} max=${out.draws.max}`)
+    console.log(`  draws/frame avg=${out.draws.avg} p95=${out.draws.p95} max=${out.draws.max}  tris/frame avg=${out.trianglesPerFrame.avg} p95=${out.trianglesPerFrame.p95}`)
     console.log(`  GL calls/frame avg=${out.glCallsPerFrame.avg} p95=${out.glCallsPerFrame.p95} (n=${out.glCallsPerFrame.windowFrames})`)
     console.log(`  GL draw calls/frame avg=${out.glDrawCallsPerFrame.avg} p95=${out.glDrawCallsPerFrame.p95} max=${out.glDrawCallsPerFrame.max} (n=${out.glDrawCallsPerFrame.windowFrames})`)
+    console.log(`  WebGPU calls/frame avg=${out.wgpuCallsPerFrame.avg} p95=${out.wgpuCallsPerFrame.p95} draws/frame avg=${out.wgpuDrawsPerFrame.avg} max=${out.wgpuDrawsPerFrame.max} (n=${out.wgpuCallsPerFrame.windowFrames})`)
     console.log(`  long tasks: 0-20s=${out.longTasks.first20s} (>100ms ${out.longTasks.first20sOver100}, max ${out.longTasks.first20sMaxMs}ms) | 0-60s=${out.longTasks.first60s} (>100ms ${out.longTasks.first60sOver100}, max ${out.longTasks.first60sMaxMs}ms)`)
     console.log(`  errors: pageErrors=${out.pageErrors.length} consoleErrors=${out.consoleErrors.length}`)
   for (const e of out.pageErrors.slice(0, 6)) console.log('    pageerror: ' + e)
