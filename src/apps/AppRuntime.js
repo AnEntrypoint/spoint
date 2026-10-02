@@ -7,6 +7,8 @@ import { MSG } from '../protocol/MessageTypes.js'
 import { SpatialIndex } from '../spatial/Octree.js'
 import { vecOK } from '../shared/vecGuard.js'
 import { equipCodeOf, EQUIP_UNARMED } from '../shared/equipment.js'
+import { BEHAVIOUR_FACTORIES, validateBehaviourSpec } from './AppBehaviours.js'
+const PLAYER_BEHAVIOUR_ENTITY_ID = 'players'
 import { mixinPhysics } from './AppRuntimePhysics.js'
 import { mixinTick } from './AppRuntimeTick.js'
 import { mixinStaticMotion } from './AppRuntimeStaticMotion.js'
@@ -25,6 +27,7 @@ class HookedSet extends Set {
 export class AppRuntime {
   constructor(c = {}) {
     this._equipment = []
+    this._behaviours = new Map()
     this._unmanagedIds = []; this._unmanagedDirty = true
     const markUnmanagedDirty = () => { this._unmanagedDirty = true }
     this._staticCustomSum = 0
@@ -208,8 +211,49 @@ export class AppRuntime {
       this.trackTrimeshBuild(settled)
     }
     if (config.app) this._attachApp(entityId, config.app).catch(e => this._logAppError(`attachApp(${config.app})`, e))
+    if (config.behaviours) this._attachBehaviours(entityId, config.behaviours).catch(e => this._logAppError(`attachBehaviours(${entityId})`, e))
     this._spatialInsert(entity)
     return entity
+  }
+
+  _behaviourListFor(entityId) {
+    let list = this._behaviours.get(entityId)
+    if (!list) { list = []; this._behaviours.set(entityId, list) }
+    return list
+  }
+
+  async _attachBehaviours(entityId, spec) {
+    const entity = this.entities.get(entityId)
+    if (!entity) return
+    validateBehaviourSpec(spec, `entity ${entityId} behaviours`)
+    this._detachBehaviours(entityId)
+    const ctx = this.contexts.get(entityId) || new AppContext(entity, this)
+    this.contexts.set(entityId, ctx)
+    const list = this._behaviourListFor(entityId)
+    for (const [name, subSpec] of Object.entries(spec)) {
+      let api
+      try { api = BEHAVIOUR_FACTORIES[name](subSpec ?? {}, ctx) }
+      catch (e) { this._logAppError(`behaviour ${name}(${entityId})`, e); continue }
+      list.push({ name, api })
+      if (typeof api.setup === 'function') await this._safeCall(api, 'setup', [], `behaviour ${name}.setup(${entityId})`)
+    }
+    this._scheduleRebuild()
+  }
+
+  _detachBehaviours(entityId) {
+    const list = this._behaviours.get(entityId)
+    if (!list) return
+    for (const { name, api } of list) { if (typeof api.destroy === 'function') { try { api.destroy() } catch (e) { this._logAppError(`behaviour ${name}.destroy(${entityId})`, e) } } }
+    this._behaviours.delete(entityId)
+  }
+
+  installPlayerBehaviours(spec) {
+    if (!spec) return false
+    validateBehaviourSpec(spec, 'worldDef.players.behaviours')
+    const entity = this.entities.get(PLAYER_BEHAVIOUR_ENTITY_ID) || this.spawnEntity(PLAYER_BEHAVIOUR_ENTITY_ID, { behaviours: spec })
+    if (!entity) return false
+    if (!this._behaviours.has(PLAYER_BEHAVIOUR_ENTITY_ID)) this._attachBehaviours(PLAYER_BEHAVIOUR_ENTITY_ID, spec).catch(e => this._logAppError('installPlayerBehaviours', e))
+    return true
   }
 
   async _attachApp(entityId, appName) {
@@ -282,6 +326,11 @@ export class AppRuntime {
   _rebuildUpdateList() {
     this._updateList = []
     for (const [id, ad] of this.apps) { if (this._pendingSetupIds.has(id)) continue; const ctx=this.contexts.get(id); if (!ctx) continue; const s=ad.server||ad; if (typeof s.update==='function') this._updateList.push({id,update:s.update.bind(s),ctx}) }
+    for (const [id, list] of this._behaviours) {
+      if (this._pendingSetupIds.has(id)) continue
+      const ctx = this.contexts.get(id); if (!ctx) continue
+      for (const { api } of list) if (typeof api.tick === 'function') this._updateList.push({ id, update: (c, dt) => api.tick(dt), ctx })
+    }
   }
 
   _rebuildCollisionList() {
@@ -307,7 +356,7 @@ export class AppRuntime {
     for (const childId of [...entity.children]) this.destroyEntity(childId)
     if (entity.parent) { const p = this.entities.get(entity.parent); if (p) p.children.delete(entityId) }
     this._eventBus.destroyScope(entityId)
-    this.detachApp(entityId); this._spatialRemove(entityId); this.entities.delete(entityId)
+    this.detachApp(entityId); this._detachBehaviours(entityId); this._spatialRemove(entityId); this.entities.delete(entityId)
   }
 
   changeBodyType(entityId, newBodyType) {
@@ -527,7 +576,15 @@ export class AppRuntime {
   }
   fireInteract(eid, p) { this.fireEvent(eid, 'onInteract', p) }
   fireMessage(eid, m) { this.fireEvent(eid, 'onMessage', m) }
-  broadcastMessage(m) { for (const entityId of [...this.apps.keys()]) this.fireMessage(entityId, m) }
+  broadcastMessage(m) {
+    for (const entityId of [...this.apps.keys()]) this.fireMessage(entityId, m)
+    for (const [entityId, list] of this._behaviours) {
+      for (const { name, api } of list) {
+        if (typeof api.handle !== 'function') continue
+        try { api.handle(m) } catch (e) { this._logAppError(`behaviour ${name}.handle(${entityId})`, e) }
+      }
+    }
+  }
   addTimer(e, d, fn, r) { if (!this._timers.has(e)) this._timers.set(e, []); this._timers.get(e).push({ remaining: d, fn, repeat: r, interval: d }) }
   clearTimers(eid) { this._timers.delete(eid) }
   setPlayerManager(pm) { this._playerManager = pm }

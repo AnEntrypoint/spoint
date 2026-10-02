@@ -7,6 +7,27 @@ per-game special-casing anywhere; `src/apps/AppRuntime.js`'s `registerApp`/`_att
 is fully generic, and `src/apps/AppLoader.js` discovers/hot-reloads every app the same way
 regardless of what it does.
 
+## Declarative behaviours: a world without an app
+
+A world can declare engine behaviours instead of shipping an app. On the world:
+
+```js
+players: { behaviours: { combat: { config: { health: 100, damagePerHit: 20 } } } }
+```
+
+and on any entity:
+
+```js
+{ id: 'rules', behaviours: { health: { max: 100 } } }
+```
+
+`src/apps/AppBehaviours.js` holds the registry (`health`, `combat`, `checkpoint`,
+`pickup`, `steering`, `teams`, `buffs`); `AppRuntime` instantiates them, ticks
+anything exposing `tick(dt)`, forwards broadcast messages to `handle(msg)`, and
+tears them down with the entity. An unknown behaviour name is rejected at boot,
+not silently ignored. `apps/world/arena-combat.js` is a complete deathmatch on
+this path: no app code at all.
+
 ## Engine boundary
 
 Game-agnostic machinery lives in the engine, never in an app:

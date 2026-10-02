@@ -69,6 +69,7 @@ export async function init({ worldDef, worldName: selectedWorldName = null, apps
   appRuntime.setPlayerManager(playerManager)
   appRuntime.worldName = knownWorldName || null
   appRuntime.setEquipment(worldEquipment(worldDef))
+  appRuntime.installPlayerBehaviours(worldDef.players?.behaviours)
   const appLoader = new AppLoader(appRuntime, {})
   const stageLoader = new StageLoader(appRuntime)
   appRuntime.setStageLoader(stageLoader)

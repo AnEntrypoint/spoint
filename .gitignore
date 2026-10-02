@@ -45,3 +45,4 @@ server*.log
 # transient runtime emission (scratch logs/captures) -- never commit
 .scratch_*
 data/perf-run/
+.smoke*.log

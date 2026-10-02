@@ -55,6 +55,7 @@ export function createServerAPI(ctx) {
       ctx.worldName = knownWorldName || worldDefFingerprint(worldDef)
       appRuntime.worldName = knownWorldName
       appRuntime.setEquipment(worldEquipment(worldDef))
+      appRuntime.installPlayerBehaviours(worldDef.players?.behaviours)
       if (worldDef.spawnPoints?.length) ctx.worldSpawnPoints = worldDef.spawnPoints
       else if (worldDef.spawnPoint) ctx.worldSpawnPoints = [worldDef.spawnPoint]
       ctx.worldSpawnPoint = ctx.worldSpawnPoints?.[0] || worldDef.spawnPoint || [...DEFAULT_SPAWN_POINT]

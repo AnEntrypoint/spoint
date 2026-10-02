@@ -40,6 +40,10 @@ function checkSlices(w) {
     if (!Array.isArray(w.equipment) || !w.equipment.every(a => typeof a === 'string' && a !== '')) return reject('equipment', 'must be an array of non-empty equipment names (index 0 is equipment code 1)')
     if (new Set(w.equipment).size !== w.equipment.length) return reject('equipment', 'must not repeat an equipment name: the code is its index, so a duplicate is ambiguous')
   }
+  if (w.players !== undefined) {
+    if (!isObj(w.players)) return reject('players', 'must be an object')
+    if (w.players.behaviours !== undefined && !isObj(w.players.behaviours)) return reject('players.behaviours', 'must be an object mapping behaviour names to their spec')
+  }
   if (w.input?.mobileButtons !== undefined) {
     const buttons = w.input.mobileButtons
     if (!Array.isArray(buttons) || !buttons.every(b => b && typeof b === 'object' && typeof b.action === 'string' && b.action !== '')) {
@@ -59,6 +63,7 @@ function checkSlices(w) {
         ids.add(e.id)
       }
       if (e.app !== undefined && typeof e.app !== 'string') return reject(`entities[${i}].app`, 'must be an app name string')
+      if (e.behaviours !== undefined && !isObj(e.behaviours)) return reject(`entities[${i}].behaviours`, 'must be an object mapping behaviour names to their spec')
       if (e.position !== undefined && !isVec(e.position, 3)) return reject(`entities[${i}].position`, 'must be [x, y, z] finite numbers')
       if (e.rotation !== undefined && !isVec(e.rotation, 4)) return reject(`entities[${i}].rotation`, 'must be a [x, y, z, w] quaternion of finite numbers')
       if (e.scale !== undefined && !isVec(e.scale, 3)) return reject(`entities[${i}].scale`, 'must be [x, y, z] finite numbers')

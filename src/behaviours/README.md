@@ -49,6 +49,12 @@ ctx.onShutdown(() => combat.flush())
   `ctx.state`, so a handle stored there is a plain object after a snapshot
   restore. Cache it per `ctx` (a `WeakMap` keyed on `ctx` works).
 
+Any behaviour here can be declared from a world file instead of an app:
+`players: { behaviours: { combat: {...} } }` on the world, or
+`behaviours: { health: {...} } }` on an entity. The registry lives in
+`src/apps/AppBehaviours.js` and `AppRuntime` runs them (see apps/README.md,
+"Declarative behaviours").
+
 ## game-fsm.js — declarative game-state FSM builder
 
 `ctx.defineGameFSM(spec)` (or `import { defineGameFSM } from 'src/behaviours/game-fsm.js'`)
