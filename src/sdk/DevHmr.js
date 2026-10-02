@@ -118,8 +118,8 @@ export function createDevHmr({ sdkRoot, staticDirs, log = console, onLibChanged 
       const restarting = requestRestart('world definition ' + rel)
       return { ...base, kind: 'world', restarting, reason: 'world definition changed; the running world is rebuilt from it' }
     }
-    if (rel.startsWith('src/behaviours/') && MODULE_RE.test(rel)) {
-      const url = '/' + rel
+    if ((rel.startsWith('src/behaviours/') || rel.startsWith('src/stdlib-apps/')) && MODULE_RE.test(rel)) {
+      const url = rel.startsWith('src/stdlib-apps/') ? '/apps/' + rel.slice('src/stdlib-apps/'.length) : '/' + rel
       graph.markChanged(url, stamp)
       const apps = appsDependingOn(url)
       if (apps.length) onLibChanged?.(apps)

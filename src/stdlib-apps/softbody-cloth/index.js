@@ -1,4 +1,4 @@
-import { createSoftbodyCloth } from '../_lib/softbody.js'
+import { createSoftbodyCloth } from '../../../apps/_lib/softbody.js'
 
 export default {
   description: 'Placeable cloth/flag/banner: real isolated rapier3d-compat mass-spring particle grid, publishes live particle positions via entity.custom.softbody.',

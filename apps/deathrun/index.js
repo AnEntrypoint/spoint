@@ -1,6 +1,6 @@
 export const category = 'Demos & Games'
 import { defineCheckpoint } from '../_lib/checkpoint.js'
-import { collectCheckpointMarkers } from '../checkpoint-marker/index.js'
+import { collectCheckpointMarkers } from '../../src/stdlib-apps/checkpoint-marker/index.js'
 const LEADERBOARD_KEY = 'leaderboard'
 const MAX_ENTRIES_PER_MAP = 100
 const leaderboard = ctx => ctx.leaderboard(LEADERBOARD_KEY, { order: 'asc', maxEntries: MAX_ENTRIES_PER_MAP })

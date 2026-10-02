@@ -1,4 +1,4 @@
-import { defineBuoyancy } from '../_lib/buoyancy.js'
+import { defineBuoyancy } from '../../../apps/_lib/buoyancy.js'
 
 export default {
   description: 'Buoyant dynamic box: a physics-simulated crate that floats/bobs in water via real Archimedes-style buoyancy + submerged drag (apps/_lib/buoyancy.js).',

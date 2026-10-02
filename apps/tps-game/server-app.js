@@ -1,4 +1,4 @@
-import { collectSpawnPoints } from '../spawn-point/index.js'
+import { collectSpawnPoints } from '../../src/stdlib-apps/spawn-point/index.js'
 import { POWERUP_DEFS, POWERUP_RESPAWN_MS, EMOTE_CLIPS } from './shared.js'
 
 const EMOTE_RATE_LIMIT_MS = 800
@@ -40,7 +40,7 @@ export const tpsGameServer = {
     const combat = combatOf(ctx)
     ctx.state.config = { ...combat.config }
     await combat.setup()
-    ctx.onShutdown(() => combat.flush())
+    ctx.onShutdown(async () => { await combat.flush() })
   },
 
   update(ctx, dt) {

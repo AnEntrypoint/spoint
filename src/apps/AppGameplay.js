@@ -73,7 +73,9 @@ export function leaderboard(ctx, key, { order = 'asc', maxEntries = 100 } = {}) 
 export function persisted(ctx, key, initial, { debounceMs = DEFAULT_PERSIST_DEBOUNCE_MS } = {}) {
   let value = initial
   let timer = null
-  const write = () => ctx.storage?.set(key, value).catch(e => console.error(`[persisted] ${key} write error:`, e.message))
+  const write = async () => {
+    try { await ctx.storage?.set(key, value) } catch (e) { console.error(`[persisted] ${key} write error:`, e.message) }
+  }
   const ready = (async () => {
     try {
       const saved = await ctx.storage?.get(key)

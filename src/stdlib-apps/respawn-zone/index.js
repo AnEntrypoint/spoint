@@ -1,4 +1,4 @@
-import { defineCheckpoint } from '../_lib/checkpoint.js'
+import { defineCheckpoint } from '../../../apps/_lib/checkpoint.js'
 
 export default {
   description: 'Respawn zone: sets a fall-plane height that teleports a fallen player back to their last checkpoint.',

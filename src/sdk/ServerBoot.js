@@ -95,6 +95,13 @@ export function assertNodeModulesLinked(sdkRoot) {
   throw Object.assign(new Error(`node_modules missing at ${nodeModulesDir} -- run scripts/worktree-setup.mjs`), { spointNodeModulesMissing: true })
 }
 
+export function resolveAppsDirs(project, sdkRoot) {
+  const localApps = resolve(project, 'apps')
+  const stdlibApps = join(sdkRoot, 'src', 'stdlib-apps')
+  const sdkApps = join(sdkRoot, 'apps')
+  return buildUniquePathList(existsSync(localApps) ? [localApps, stdlibApps, sdkApps] : [stdlibApps, sdkApps])
+}
+
 export async function boot(overrides = {}) {
   const { ensurePacked } = await import('../protocol/msgpack.js')
   await ensurePacked
@@ -107,8 +114,7 @@ export async function boot(overrides = {}) {
   const terrainHashOverride = parseTerrainHashOverride(process.env.SPOINT_TERRAIN_HASH)
   const worldDef = terrainHashOverride == null ? loadedWorldDef : withTerrainHashVersion(loadedWorldDef, terrainHashOverride)
   if (terrainHashOverride != null) console.log(`[boot] SPOINT_TERRAIN_HASH=${terrainHashOverride}: terrain hashVersion overridden in the world config`)
-  const localApps = resolve(PROJECT, 'apps'), sdkApps = join(SDK_ROOT, 'apps')
-  const appsDirs = buildUniquePathList(existsSync(localApps) ? [localApps, sdkApps] : [sdkApps])
+  const appsDirs = resolveAppsDirs(PROJECT, SDK_ROOT)
   console.debug(`[boot] loading from: ${appsDirs.join(', ')}`)
   const config = {
     port: parseInt(process.env.PORT || String(worldDef.port || 3000), 10),

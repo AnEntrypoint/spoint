@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { RegionRouter } from '../src/sharding/RegionRouter.js'
 import { assertNodeModulesLinked, buildStaticDirs } from '../src/sdk/server.js'
 import { locateWorld, loadWorldModule } from '../src/sdk/WorldLocator.js'
+import { resolveAppsDirs } from '../src/sdk/ServerBoot.js'
 
 const SDK_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -27,8 +28,7 @@ async function main() {
     : (shardCfg.ghostMargin != null ? shardCfg.ghostMargin : undefined)
   const port = parseInt(process.env.PORT || String(worldDef.port || 3500), 10)
 
-  const localApps = resolve(PROJECT, 'apps'), sdkApps = join(SDK_ROOT, 'apps')
-  const appsDirs = existsSync(localApps) ? [localApps, sdkApps] : [sdkApps]
+  const appsDirs = resolveAppsDirs(PROJECT, SDK_ROOT)
   const staticDirs = buildStaticDirs(SDK_ROOT, PROJECT, appsDirs)
 
   const router = new RegionRouter({

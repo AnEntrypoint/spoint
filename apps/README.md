@@ -7,6 +7,19 @@ per-game special-casing anywhere; `src/apps/AppRuntime.js`'s `registerApp`/`_att
 is fully generic, and `src/apps/AppLoader.js` discovers/hot-reloads every app the same way
 regardless of what it does.
 
+## Where apps live
+
+Generic placeable apps that every game uses live with the engine in
+`src/stdlib-apps/` (box-static, prop-*, placed-model, spawn-point,
+trigger-volume, button, moving-platform, respawn-zone, checkpoint-marker,
+pickup, waypoint, capture-zone, shrinking-zone(-ring), destructible-*, vehicle,
+terrain, fluid*-source, softbody-cloth, box-buoyant). Game-specific apps stay in
+`apps/`. Both are served under the same `/apps/` URL prefix and resolved by
+`resolveAppsDirs()` (`src/sdk/ServerBoot.js`) in the order project `apps/`,
+then `src/stdlib-apps/`, then the engine's own `apps/`, so a project can shadow
+any stdlib app by name. A stdlib app reaches the behaviour shims as
+`../../../apps/_lib/<name>.js`.
+
 ## Declarative behaviours: a world without an app
 
 A world can declare engine behaviours instead of shipping an app. On the world:

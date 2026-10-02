@@ -1,4 +1,4 @@
-import { definePickup } from '../_lib/pickup.js'
+import { definePickup } from '../../../apps/_lib/pickup.js'
 
 export default {
   description: 'Powerup pickup: a player walking into it gains a timed effect (speed/rapid/damage/etc.).',

@@ -1,4 +1,4 @@
-import { definePickup } from '../_lib/pickup.js'
+import { definePickup } from '../../../apps/_lib/pickup.js'
 
 export default {
   description: 'Invisible trigger region: fires an event at a target entity when a player enters it.',

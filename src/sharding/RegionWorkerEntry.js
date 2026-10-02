@@ -11,6 +11,7 @@ import {
   regionBoundsWithGhost, authoritativeRegionFor, DEFAULT_CELL_SIZE, DEFAULT_GHOST_MARGIN
 } from './RegionGrid.js'
 import { worldTickRate, DEFAULT_GRAVITY, DEFAULT_SPAWN_POINT, playerDefault } from '../shared/worldDefaults.js'
+import { resolveAppsDirs } from '../sdk/ServerBoot.js'
 
 const SDK_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..')
 
@@ -31,8 +32,7 @@ async function init({ region, worldDef, cellSize: cs, ghostMargin: gm, port }) {
   cellSize = cs || DEFAULT_CELL_SIZE
   ghostMargin = gm != null ? gm : DEFAULT_GHOST_MARGIN
   const tickRate = worldTickRate(worldDef)
-  const localApps = join(process.cwd(), 'apps'), sdkApps = join(SDK_ROOT, 'apps')
-  const appsDirs = existsSync(localApps) ? [localApps, sdkApps] : [sdkApps]
+  const appsDirs = resolveAppsDirs(process.cwd(), SDK_ROOT)
   const config = {
     port: port || 0, tickRate, appsDirs, sdkRoot: SDK_ROOT,
     gravity: worldDef.gravity, movement: worldDef.movement, playerConfig: worldDef.player,

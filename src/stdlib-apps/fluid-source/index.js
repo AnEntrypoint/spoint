@@ -1,4 +1,4 @@
-import { createFluidBody } from '../_lib/fluid.js'
+import { createFluidBody } from '../../../apps/_lib/fluid.js'
 
 export default {
   description: 'Placeable pool/puddle/fountain: real from-scratch WASM SPH fluid, publishes a live particle cloud via entity.custom.fluid.',

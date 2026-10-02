@@ -1,4 +1,4 @@
-import { createDestructible } from '../_lib/destructible.js'
+import { createDestructible } from '../../../apps/_lib/destructible.js'
 
 export default {
   server: {

@@ -23,27 +23,33 @@ function parseArgs(argv) {
 
 function log(msg) { console.log(`[bundle-apps-manifest] ${msg}`) }
 
+const APP_DIRS = [join(ROOT, 'apps'), join(ROOT, 'src', 'stdlib-apps')]
+
 function resolveAppEntry(name) {
-  const flat = join(ROOT, 'apps', `${name}.js`)
-  if (existsSync(flat)) return flat
-  const folder = join(ROOT, 'apps', name, 'index.js')
-  if (existsSync(folder)) return folder
+  for (const dir of APP_DIRS) {
+    const flat = join(dir, `${name}.js`)
+    if (existsSync(flat)) return flat
+    const folder = join(dir, name, 'index.js')
+    if (existsSync(folder)) return folder
+  }
   return null
 }
 
 function resolveAllApps() {
-  const appsDir = join(ROOT, 'apps')
   const SKIP = new Set(['world', '_lib', 'maps', 'node_modules', '.git', '.gm'])
   const names = new Set()
-  const entries = readdirSync(appsDir, { withFileTypes: true })
-  for (const ent of entries) {
-    if (ent.name.startsWith('.') || SKIP.has(ent.name)) continue
-    if (ent.isDirectory()) {
-      if (existsSync(join(appsDir, ent.name, 'index.js'))) {
-        names.add(ent.name)
+  for (const appsDir of APP_DIRS) {
+    if (!existsSync(appsDir)) continue
+    const entries = readdirSync(appsDir, { withFileTypes: true })
+    for (const ent of entries) {
+      if (ent.name.startsWith('.') || SKIP.has(ent.name)) continue
+      if (ent.isDirectory()) {
+        if (existsSync(join(appsDir, ent.name, 'index.js'))) {
+          names.add(ent.name)
+        }
+      } else if (ent.isFile() && ent.name.endsWith('.js')) {
+        names.add(ent.name.slice(0, -3))
       }
-    } else if (ent.isFile() && ent.name.endsWith('.js')) {
-      names.add(ent.name.slice(0, -3))
     }
   }
   return [...names].sort()
@@ -69,13 +75,30 @@ function resolveRelativeDeps(source, baseFileUrl, seen) {
   return out
 }
 
-function bundleApp(name) {
+async function appMetadata(entry) {
+  let mod = null
+  try { mod = await import(pathToFileURL(entry).href) } catch { }
+  const def = mod?.default
+  const category = pickString(mod?.category, def?.category) || 'General'
+  const description = pickString(mod?.description, def?.description) || null
+  const declaredPlaceable = [mod?.placeable, def?.placeable].find(v => typeof v === 'boolean')
+  const out = { category, placeable: declaredPlaceable !== false }
+  if (description) out.description = description
+  return out
+}
+
+function pickString(...values) {
+  for (const v of values) if (typeof v === 'string' && v.trim()) return v.trim()
+  return null
+}
+
+async function bundleApp(name) {
   const entry = resolveAppEntry(name)
-  if (!entry) { log(`WARNING: app "${name}" not found under apps/ (checked apps/${name}.js and apps/${name}/index.js) -- skipped`); return null }
+  if (!entry) { log(`WARNING: app "${name}" not found under apps/ or src/stdlib-apps/ -- skipped`); return null }
   const source = readFileSync(entry, 'utf8')
   const baseUrl = pathToFileURL(entry)
   const deps = resolveRelativeDeps(source, baseUrl, new Map())
-  return { name, source, deps }
+  return { name, source, deps, ...(await appMetadata(entry)) }
 }
 
 async function resolveAppNamesFromWorld(worldName) {
@@ -102,7 +125,7 @@ async function main() {
 
   log(`resolving ${appNames.length} app(s)${explicitApps ? ' (explicit --apps list)' : world ? ` from apps/world/${world}.js` : ' (all ./apps directories)'}: ${appNames.join(', ')}`)
 
-  const apps = appNames.map(bundleApp).filter(Boolean)
+  const apps = (await Promise.all(appNames.map(bundleApp))).filter(Boolean)
   const failedCount = appNames.length - apps.length
   if (failedCount) log(`WARNING: ${failedCount} app(s) failed to resolve and were omitted from the manifest`)
 

@@ -1,4 +1,4 @@
-import { createFluid3DBody } from '../_lib/fluid3d.js'
+import { createFluid3DBody } from '../../../apps/_lib/fluid3d.js'
 
 export default {
   description: 'Placeable 3D fluid volume (tank/waterfall): real from-scratch WASM 3D SPH fluid with genuine varying-Y depth, publishes a live particle cloud via entity.custom.fluid.',

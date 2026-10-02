@@ -9,6 +9,7 @@ import { buildStaticDirs } from '../sdk/server.js'
 import {
   regionIdFor, authoritativeRegionFor, DEFAULT_CELL_SIZE, DEFAULT_GHOST_MARGIN
 } from './RegionGrid.js'
+import { resolveAppsDirs } from '../sdk/ServerBoot.js'
 
 const SDK_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..')
 const WORKER_ENTRY = join(SDK_ROOT, 'src/sharding/RegionWorkerEntry.js')
@@ -207,7 +208,7 @@ export class RegionRouter {
   }
 
   async start() {
-    const staticDirs = this.config.staticDirs || buildStaticDirs(SDK_ROOT, process.cwd(), existsSync(join(process.cwd(), 'apps')) ? [join(process.cwd(), 'apps'), join(SDK_ROOT, 'apps')] : [join(SDK_ROOT, 'apps')])
+    const staticDirs = this.config.staticDirs || buildStaticDirs(SDK_ROOT, process.cwd(), resolveAppsDirs(process.cwd(), SDK_ROOT))
     const staticHandler = staticDirs.length > 0 ? createStaticHandler(staticDirs) : null
     const httpHandler = (req, res) => {
       if (req.method === 'GET' && req.url === '/debug/router') {

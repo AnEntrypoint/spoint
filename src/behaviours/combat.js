@@ -15,11 +15,41 @@ export const DEFAULT_COMBAT = Object.freeze({
   range: 1000
 })
 
+const CONFIG_RULES = Object.freeze({
+  respawnTime: { rule: 'a finite number greater than 0', test: v => Number.isFinite(v) && v > 0 },
+  health: { rule: 'a finite number greater than 0', test: v => Number.isFinite(v) && v > 0 },
+  damagePerHit: { rule: 'a finite number greater than 0', test: v => Number.isFinite(v) && v > 0 },
+  headshotMultiplier: { rule: 'a finite number of at least 0', test: v => Number.isFinite(v) && v >= 0 },
+  headshotZone: { rule: 'a finite number between 0 and 1', test: v => Number.isFinite(v) && v >= 0 && v <= 1 },
+  hitKnockback: { rule: 'a finite number of at least 0', test: v => Number.isFinite(v) && v >= 0 },
+  shootKnockback: { rule: 'a finite number of at least 0', test: v => Number.isFinite(v) && v >= 0 },
+  magazineSize: { rule: 'an integer of at least 1', test: v => Number.isInteger(v) && v >= 1 },
+  reloadTime: { rule: 'a finite number of at least 0', test: v => Number.isFinite(v) && v >= 0 },
+  spawnInvulnMs: { rule: 'a finite number of at least 0', test: v => Number.isFinite(v) && v >= 0 },
+  fallKillDepth: { rule: 'a finite number greater than 0', test: v => Number.isFinite(v) && v > 0 },
+  fallKillGraceSec: { rule: 'a finite number of at least 0', test: v => Number.isFinite(v) && v >= 0 },
+  buffRegenFractionPerSec: { rule: 'a finite number of at least 0', test: v => Number.isFinite(v) && v >= 0 },
+  range: { rule: 'a finite number greater than 0', test: v => Number.isFinite(v) && v > 0 }
+})
+
 const POWERUP_PICKUP_RADIUS = 1.7
 const SPAWN_MARGIN = 3
 const SCAN_REACH_M = 30
+const SCAN_EXTENT_M = 800
+const SCAN_STEP_M = 200
 const LAST_RESORT_SPAWN = Object.freeze([0, 15, 0])
 const SCOREBOARD_MAX_ENTRIES = 200
+
+function describeValue(v) {
+  return typeof v === 'number' ? String(v) : JSON.stringify(v)
+}
+
+function rejectInvalidFields(values, rules, label) {
+  for (const [field, { rule, test }] of Object.entries(rules)) {
+    if (values[field] === undefined || test(values[field])) continue
+    throw new TypeError(`[combat] ${label}.${field} must be ${rule}, got ${describeValue(values[field])}`)
+  }
+}
 
 function powerupColor(def) {
   return { mesh: 'box', color: def.color, emissive: def.emissive, emissiveIntensity: 0.7, light: def.color, lightIntensity: 0.9, lightRange: 6, spin: 1.6, hover: 0.35, powerup: def.type }
@@ -27,8 +57,8 @@ function powerupColor(def) {
 
 function scanSpawnPoints(ctx) {
   const valid = []
-  for (let x = -850; x <= 1050; x += 180) {
-    for (let z = -80; z <= 960; z += 160) {
+  for (let x = -SCAN_EXTENT_M; x <= SCAN_EXTENT_M; x += SCAN_STEP_M) {
+    for (let z = -SCAN_EXTENT_M; z <= SCAN_EXTENT_M; z += SCAN_STEP_M) {
       const hit = ctx.raycast([x, 20, z], [0, -1, 0], SCAN_REACH_M, ctx.terrainBodyId)
       const arenaY = (hit.hit && hit.position[1] > -3) ? hit.position[1] : -Infinity
       const terrainY = ctx.terrainHeightAt(x, z)
@@ -51,6 +81,10 @@ export function defineCombat(spec = {}, ctx = null) {
   if (spec.powerups !== undefined && !Array.isArray(spec.powerups)) throw new TypeError('[combat] spec.powerups must be an array')
 
   const config = { ...DEFAULT_COMBAT, ...(spec.config || {}) }
+  rejectInvalidFields(config, CONFIG_RULES, 'spec.config')
+  if (spec.powerupRespawnMs !== undefined && !(Number.isFinite(spec.powerupRespawnMs) && spec.powerupRespawnMs >= 0)) throw new TypeError(`[combat] spec.powerupRespawnMs must be a finite number of at least 0, got ${describeValue(spec.powerupRespawnMs)}`)
+  if (spec.scoreboardKey !== undefined && (typeof spec.scoreboardKey !== 'string' || !spec.scoreboardKey)) throw new TypeError(`[combat] spec.scoreboardKey must be a non-empty string, got ${describeValue(spec.scoreboardKey)}`)
+  if (spec.spawnPoints !== undefined && !Array.isArray(spec.spawnPoints)) throw new TypeError(`[combat] spec.spawnPoints must be an array, got ${describeValue(spec.spawnPoints)}`)
   for (const k of ['onKill', 'onHit', 'onRespawn', 'onPowerup', 'onWorldHit', 'onDeath']) {
     if (spec[k] !== undefined && typeof spec[k] !== 'function') throw new TypeError(`[combat] spec.${k} must be a function`)
   }
@@ -66,7 +100,12 @@ export function defineCombat(spec = {}, ctx = null) {
     return { ...def, buff: { speedMultiplier: 1, fireRateMultiplier: 1, damageMultiplier: 1, ...buff } }
   })
   const scoreboard = ctx.persisted(spec.scoreboardKey || 'scoreboard', {})
-  const spawnPoints = Array.isArray(spec.spawnPoints) && spec.spawnPoints.length > 0 ? spec.spawnPoints.map(sp => [...sp]) : scanSpawnPoints(ctx)
+  const spawnPoints = Array.isArray(spec.spawnPoints) && spec.spawnPoints.length > 0
+    ? spec.spawnPoints.map((sp, i) => {
+      if (!Array.isArray(sp) || sp.length !== 3 || !sp.every(Number.isFinite)) throw new TypeError(`[combat] spec.spawnPoints[${i}] must be an array of 3 finite numbers, got ${describeValue(sp)}`)
+      return [...sp]
+    })
+    : scanSpawnPoints(ctx)
 
   const respawning = new Map()
   const invuln = new Map()
@@ -155,6 +194,7 @@ export function defineCombat(spec = {}, ctx = null) {
     addStat(targetId, { deaths: 1 })
     persistStat(shooterId)
     persistStat(targetId)
+    scoreboard.flush()
     respawning.set(targetId, { respawnAt: Date.now() + config.respawnTime * 1000, killer: shooterId })
     const now = Date.now()
     const prev = killStreaks.get(shooterId)
@@ -248,6 +288,7 @@ export function defineCombat(spec = {}, ctx = null) {
     respawning.set(player.id, { respawnAt: Date.now() + config.respawnTime * 1000, killer: null })
     addStat(player.id, { deaths: 1 })
     persistStat(player.id)
+    scoreboard.flush()
     ctx.network.broadcast({ type: 'death', victim: player.id, killer: null, cause: 'fall' })
     fallTimers.delete(player.id)
     if (spec.onDeath) spec.onDeath(ctx, { playerId: player.id, cause: 'fall' })
@@ -334,6 +375,7 @@ export function defineCombat(spec = {}, ctx = null) {
         persistStat(msg.playerId)
         playerStats.delete(msg.playerId); respawning.delete(msg.playerId)
         fallTimers.delete(msg.playerId); ammo.delete(msg.playerId); reloading.delete(msg.playerId); invuln.delete(msg.playerId)
+        killStreaks.delete(msg.playerId); buffs.delete(msg.playerId)
         return true
       }
       if (msg.type === 'player_teleport' && msg.senderId === undefined) {
