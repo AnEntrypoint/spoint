@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { existsSync, statSync, readdirSync, mkdirSync } from 'node:fs'
+import { existsSync, statSync, readdirSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, dirname, extname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const flags = new Set(process.argv.slice(2).filter(a => a.startsWith('--')))
@@ -59,7 +60,47 @@ const externalPlugin = {
 
 const outdir = dirname(outfile)
 const CLIENT_EXTS = new Set(['.js', '.mjs', '.css'])
-const bundleFresh = IF_STALE && isFresh(resolve(ROOT, outfile), join(ROOT, 'client'), CLIENT_EXTS)
+const hashOut = join(outdir, 'app.bundlehash.json')
+const SELF_SOURCE = fileURLToPath(import.meta.url)
+
+function collectInputs(dir, rel = '', out = []) {
+  let entries
+  try { entries = readdirSync(join(dir, rel), { withFileTypes: true }) } catch { return out }
+  for (const e of entries) {
+    const child = rel ? join(rel, e.name) : e.name
+    if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) collectInputs(dir, child, out); continue }
+    if (!CLIENT_EXTS.has(extname(e.name))) continue
+    out.push(child)
+  }
+  return out
+}
+
+function inputsHash() {
+  const h = createHash('sha256')
+  h.update(readFileSync(SELF_SOURCE))
+  for (const rel of collectInputs(join(ROOT, 'client')).sort()) {
+    h.update(rel)
+    h.update(readFileSync(join(ROOT, 'client', rel)))
+  }
+  return h.digest('hex')
+}
+
+function readStamp() {
+  try { return JSON.parse(readFileSync(resolve(ROOT, hashOut), 'utf8')).hash ?? null } catch { return null }
+}
+
+const WANT_HASH = inputsHash()
+if (flags.has('--check')) {
+  const got = readStamp()
+  if (got !== WANT_HASH) {
+    console.error(`[bundle-client] ${hashOut} is stale: stamped ${got ?? '(none)'} but inputs hash to ${WANT_HASH}`)
+    process.exit(1)
+  }
+  console.log(`[bundle-client] ${hashOut} matches inputs (${WANT_HASH.slice(0, 16)})`)
+  process.exit(0)
+}
+
+const bundleFresh = IF_STALE && readStamp() === WANT_HASH && isFresh(resolve(ROOT, outfile), join(ROOT, 'client'), CLIENT_EXTS)
 if (bundleFresh) {
   console.log(`[bundle-client] ${outfile} is fresh (newer than every client/ source) -- skipping`)
 } else {
@@ -90,6 +131,9 @@ if (bundleFresh) {
     }
   })
   console.log('[bundle-client] wrote', outdir)
+  mkdirSync(resolve(ROOT, outdir), { recursive: true })
+  writeFileSync(resolve(ROOT, hashOut), JSON.stringify({ hash: WANT_HASH, builtAt: new Date().toISOString() }) + '\n')
+  console.log('[bundle-client] stamped', hashOut, WANT_HASH.slice(0, 16))
 }
 
 const manifestOut = join(outdir, 'apps-manifest.json')
