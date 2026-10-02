@@ -696,6 +696,12 @@ const _worldParam = _requestedWorld || (_runsInPageServer ? await _defaultWorldN
 const _wwJoin = _params.has('wwjoin')
 const _showStats = _params.has('showStats')
 const _connectParam = _params.get('connect')
+const _wtUrlParam = _params.get('wtUrl') || null
+const _wtPortRaw = _params.get('wtPort')
+const _wtPortParam = _wtPortRaw != null && _wtPortRaw !== '' && Number.isFinite(Number(_wtPortRaw)) ? (Number(_wtPortRaw) | 0) : null
+const _webTransportConfig = _params.get('wt') === 'off'
+  ? { enabled: false }
+  : (_wtUrlParam || _wtPortParam != null ? { url: _wtUrlParam, port: _wtPortParam } : undefined)
 const _seedParamRaw = _params.get('seed')
 const _seedParam = _seedParamRaw != null && _seedParamRaw !== '' && Number.isFinite(Number(_seedParamRaw)) ? (Number(_seedParamRaw) | 0) : null
 const _terrainHashParam = (() => { try { return parseTerrainHashOverride(_params.get('terrainhash')) } catch (e) { console.error(`[terrain] ?terrainhash ignored: ${e.message}`); return null } })()
@@ -979,6 +985,7 @@ let client; const _clientConfig = {
     : `${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws`, predictionEnabled: _predictParam, smoothInterpolation: true,
   worldName: _worldDef ? _worldParam : null,
   netSim: _netSimParam || undefined,
+  webTransport: _webTransportConfig,
   predictionGroundSurface: (x, z) => (window.__terrain && typeof window.__terrain.groundHeightLocal === 'function') ? window.__terrain.groundHeightLocal(x, z) : null,
   onConnect: () => connectionStatus.setState('connected'),
   onDisconnect: () => { const rs = client?.getReconnectState?.(); connectionStatus.setState(rs?.state || 'waiting', rs?.attempts || 0) },
@@ -1175,8 +1182,22 @@ function _installCollisionDemotion(bridgeRef, _hostMigTest, { logLabel, getClien
   bridgeRef.data.addEventListener('data', _onPossibleCollision)
   return () => bridgeRef.data.removeEventListener('data', _onPossibleCollision)
 }
+function _warnNetcodeProfileDowngraded(profile, worldName) {
+  const msg = `[netcode] world "${worldName}" declares netcode profile "${profile.name}" but this URL carries no ?room=, so no peer roster can form: booting without peer simulation instead. Open every peer on ?room=<code>&world=${worldName} to run ${profile.name}.`
+  console.error(msg)
+  try {
+    if (document.getElementById('netcode-profile-warning')) return
+    const el = document.createElement('div')
+    el.id = 'netcode-profile-warning'
+    el.setAttribute('role', 'alert')
+    el.style.cssText = 'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:99998;max-width:min(760px,92vw);padding:10px 14px;background:rgba(24,12,0,0.94);color:#ffb020;border:1px solid #ffb020;border-radius:6px;font:13px/1.45 ui-monospace,monospace;pointer-events:none'
+    el.textContent = msg
+    document.body.appendChild(el)
+  } catch (_) { }
+}
 let _preboundBridge = null
 const _netcodeProfile = _worldDef ? resolveNetcodeProfile(_worldDef) : null
+if (_netcodeProfile?.peerSimulated && !_wwRoom) _warnNetcodeProfileDowngraded(_netcodeProfile, _worldParam)
 if (_wwRoom && _netcodeProfile?.peerSimulated) {
   const { createWireweaveBridge } = await import('./WireweaveBridge.js')
   const { formPeerRoster, peerFrameDelay } = await import('./PeerRoster.js')

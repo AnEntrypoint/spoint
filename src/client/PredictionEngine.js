@@ -296,7 +296,7 @@ export class PredictionEngine {
     }
     this.inputHistory.dropThrough(ackedSeq)
     if (firstContact) {
-      this._rebaseAndReplay(sv, predicted)
+      this._rebaseAndReplay(sv, predicted, false)
       this.reconciliationEngine.reset()
       this._trail.reset()
       return
@@ -306,7 +306,7 @@ export class PredictionEngine {
     this._rebaseAndReplay(sv, predicted)
   }
 
-  _rebaseAndReplay(server, predictedAtAck) {
+  _rebaseAndReplay(server, predictedAtAck, recordCorrection = true) {
     const ls = this.localState
     const beforeX = ls.position[0], beforeY = ls.position[1], beforeZ = ls.position[2]
     const sp = server.position, sv = server.velocity
@@ -318,13 +318,15 @@ export class PredictionEngine {
     for (const e of this.inputHistory) { this._step(e.data); saveEntry(e, ls) }
     this._preserveKnockbackVelocity(Date.now())
     const jump = Math.hypot(ls.position[0] - beforeX, ls.position[1] - beforeY, ls.position[2] - beforeZ)
-    this.stats.lastCorrectionM = jump
-    if (jump > this.stats.maxCorrectionM) this.stats.maxCorrectionM = jump
+    if (recordCorrection) {
+      this.stats.lastCorrectionM = jump
+      if (jump > this.stats.maxCorrectionM) this.stats.maxCorrectionM = jump
+    }
     this.reconciliationEngine.absorb(ls.position[0] - beforeX, ls.position[1] - beforeY, ls.position[2] - beforeZ, ls.onGround)
     this._trail.shift(ls.position[0] - beforeX, ls.position[1] - beforeY, ls.position[2] - beforeZ)
   }
 
-  resimulate() { this._rebaseAndReplay(this.lastServerState, null) }
+  resimulate() { this._rebaseAndReplay(this.lastServerState, null, false) }
 
   _preserveKnockbackVelocity(now) {
     if (!this._enableKnockbackPreservation || !this._pendingKnockback) return

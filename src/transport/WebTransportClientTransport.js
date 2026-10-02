@@ -1,5 +1,7 @@
 import { TransportWrapper } from './TransportWrapper.js'
 
+const HANDSHAKE_TIMEOUT_MS = 4000
+
 export class WebTransportClientTransport extends TransportWrapper {
   constructor(session) {
     super()
@@ -11,9 +13,12 @@ export class WebTransportClientTransport extends TransportWrapper {
     this._closed = false
   }
 
-  async connect() {
+  async connect(timeoutMs = HANDSHAKE_TIMEOUT_MS) {
+    let timer = null
     try {
-      await this.session.ready
+      if (timeoutMs > 0) await Promise.race([this.session.ready, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('webtransport handshake timed out')), timeoutMs) })])
+      else await this.session.ready
+      clearTimeout(timer)
       const stream = await this.session.createBidirectionalStream()
       this.reliableWriter = stream.writable.getWriter()
       this.reliableReader = stream.readable.getReader()
@@ -23,6 +28,8 @@ export class WebTransportClientTransport extends TransportWrapper {
       if (!this._closed) { this.ready = true; this.emit('open') }
       return true
     } catch (e) {
+      clearTimeout(timer)
+      try { this.session.close() } catch (_) {}
       this._handleClose()
       return false
     }

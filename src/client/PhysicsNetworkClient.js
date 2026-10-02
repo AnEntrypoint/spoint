@@ -25,6 +25,12 @@ function createHeartbeatManager(isOpen, sendPing, onVisible) {
   }
 }
 
+const WT_CONNECT_TIMEOUT_MS = 4000
+const WT_FIRST_CONNECT_TIMEOUT_MS = 750
+const WT_NEGATIVE_TTL_MS = 600000
+const WT_CACHE_PREFIX = 'spoint.wt.'
+const WT_ANNOUNCED_FAILURES = new Set()
+
 function createWebSocketConnection(url, onOpen, onMessage, onClose) {
   const ws = new WebSocket(url)
   ws.binaryType = 'arraybuffer'
@@ -42,6 +48,8 @@ export class PhysicsNetworkClient extends BaseClient {
     this.transport = null
     this._transportType = 'websocket'
     this._wtConfig = config.webTransport || {}
+    this._wtStatus = null
+    this._wtCache = new Map()
     this._netSimConfig = config.netSim || null
     this._netSim = null
     this._autoMigrateConfig = config.autoMigrate
@@ -102,25 +110,74 @@ export class PhysicsNetworkClient extends BaseClient {
     else if (result?.invalidate) this._reconnect.invalidateSession()
   }
 
+  _wtCacheRead(key) {
+    if (this._wtCache.has(key)) return this._wtCache.get(key)
+    let entry = null
+    try { if (typeof localStorage !== 'undefined') entry = JSON.parse(localStorage.getItem(key) || 'null') } catch (e) { entry = null }
+    if (entry) this._wtCache.set(key, entry)
+    return entry
+  }
+
+  _wtCacheWrite(key, entry) {
+    const merged = { ...(this._wtCache.get(key) || {}), ...entry }
+    this._wtCache.set(key, merged)
+    try { if (typeof localStorage !== 'undefined') localStorage.setItem(key, JSON.stringify(merged)) } catch (e) {}
+  }
+
+  _setWtStatus(status) {
+    this._wtStatus = status
+    if (typeof window !== 'undefined') window.__wtStatus = status
+    if (!status.failure) return
+    const key = status.url || status.failure
+    if (WT_ANNOUNCED_FAILURES.has(key)) return
+    WT_ANNOUNCED_FAILURES.add(key)
+    if (typeof console === 'undefined') return
+    const spent = status.elapsedMs == null ? '' : ` after ${status.elapsedMs} ms`
+    const suffix = status.cachedSkip ? ' (cached from an earlier failure)' : ''
+    const cause = status.supported === false
+      ? 'this browser has no WebTransport constructor'
+      : `${status.url || 'no url derived'}: ${status.failure}${spent}${suffix}`
+    console.info(`[webtransport] ${cause} -- this session runs over WebSocket, so snapshots ride the ordered transport; give the server a webTransport config (cert, key, port 4433) to serve the datagram path instead`)
+  }
+
   async _tryWebTransport(gen) {
     if (this._wtConfig.enabled === false) return false
-    if (!isWebTransportSupported()) return false
+    if (!isWebTransportSupported()) { this._setWtStatus({ supported: false, url: null, failure: 'browser-lacks-webtransport', transportType: 'websocket' }); return false }
     const wtUrl = this._wtConfig.url || deriveWebTransportUrl(this.config.url, this._wtConfig.port)
-    if (!wtUrl) return false
+    if (!wtUrl) { this._setWtStatus({ supported: true, url: null, failure: 'no-url-derived' }); return false }
+    const cacheKey = WT_CACHE_PREFIX + wtUrl
+    const cached = this._wtCacheRead(cacheKey)
+    if (cached && cached.failedUntil && cached.failedUntil > Date.now()) {
+      this._setWtStatus({ supported: true, url: wtUrl, failure: cached.failure || 'handshake-failed', cachedSkip: true, transportType: 'websocket' })
+      return false
+    }
+    const timeoutMs = this._wtConfig.connectTimeoutMs ?? (cached && cached.everConnected ? WT_CONNECT_TIMEOUT_MS : WT_FIRST_CONNECT_TIMEOUT_MS)
+    const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    this._setWtStatus({ supported: true, url: wtUrl, failure: null, timeoutMs, transportType: 'websocket' })
     try {
       const session = new WebTransport(wtUrl)
       const t = new WebTransportClientTransport(session)
-      const ok = await t.connect()
+      const ok = await t.connect(timeoutMs)
+      if (ok && t.isOpen) this._wtCacheWrite(cacheKey, { everConnected: true, failedUntil: 0 })
       if (gen !== this._connGen) { try { t.close() } catch (e) {} return false }
-      if (!ok || !t.isOpen) return false
+      if (!ok || !t.isOpen) { try { t.close() } catch (e) {} this._wtFail(wtUrl, cacheKey, startedAt, timeoutMs, 'handshake-failed'); return false }
       this.transport = this._wrapNetSim(t)
       this._transportType = 'webtransport'
+      this._setWtStatus({ supported: true, url: wtUrl, failure: null, timeoutMs, connected: true, transportType: 'webtransport' })
       this.transport.on('message', data => { if (gen !== this._connGen) return; this.onMessage(data) })
       this.transport.on('close', () => this._onClose(gen))
       return true
     } catch (e) {
+      this._wtFail(wtUrl, cacheKey, startedAt, timeoutMs, (e && e.message) || 'connect-threw')
       return false
     }
+  }
+
+  _wtFail(wtUrl, cacheKey, startedAt, timeoutMs, failure) {
+    const elapsed = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt
+    const inconclusive = elapsed >= timeoutMs * 0.8
+    this._setWtStatus({ supported: true, url: wtUrl, failure, timeoutMs, elapsedMs: Math.round(elapsed), inconclusive, transportType: 'websocket' })
+    if (!inconclusive) this._wtCacheWrite(cacheKey, { failure, failedUntil: Date.now() + WT_NEGATIVE_TTL_MS })
   }
 
   _wireWebSocketMessages(ws, gen) {
@@ -181,11 +238,15 @@ export class PhysicsNetworkClient extends BaseClient {
       else {
         const wtUrl = this._wtConfig.url || deriveWebTransportUrl(this.config.url, this._wtConfig.port)
         if (wtUrl) {
+          this._setWtStatus({ supported: true, url: wtUrl, failure: null, transportType: this._transportType })
           try {
             const session = new WebTransport(wtUrl)
             const t = new WebTransportClientTransport(session)
-            if (await t.connect()) candidate = t
-          } catch (e) { }
+            if (await t.connect(this._wtConfig.connectTimeoutMs ?? WT_CONNECT_TIMEOUT_MS)) candidate = t
+            else this._setWtStatus({ supported: true, url: wtUrl, failure: 'handshake-failed', transportType: this._transportType })
+          } catch (e) {
+            this._setWtStatus({ supported: true, url: wtUrl, failure: (e && e.message) || 'connect-threw', transportType: this._transportType })
+          }
         } else if (kind === 'webtransport') return 'unsupported'
       }
     }
@@ -258,6 +319,8 @@ export class PhysicsNetworkClient extends BaseClient {
   disconnect() { this._destroyed = true; this.stopInputLoop(); this._reconnect.clear(); this._heartbeat.stop(); this._migrationTrigger?.stop(); if (this.transport) this.transport.close(); if (this.ws) this.ws.close() }
 
   getTransportType() { return this._transportType }
+
+  getWebTransportStatus() { return this._wtStatus ? { ...this._wtStatus, transportType: this._transportType } : null }
 
   getAutoMigrateStats() { return this._migrationTrigger?.getStats() || null }
 }
