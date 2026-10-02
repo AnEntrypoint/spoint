@@ -317,6 +317,13 @@ async function main() {
       let sawVelocity = null
       let probeDumpAt = 0
       let probeDumps = 0
+      let navToInputSeqMs = null
+      const seqOf = () => page.evaluate(() => {
+        const s = (window.__client && window.__client.getLocalState) ? window.__client.getLocalState() : null
+        const i = window.__rigLastInput
+        return { seq: s ? s.inputSequence : null, input: i || null }
+      }).catch(() => null)
+      const seq0 = await seqOf()
       const moved = await (async () => {
         while (Date.now() - tInput < INPUT_WAIT_MS) {
           if (probeDown === null || Date.now() - probeDown > 1800) {
@@ -326,6 +333,11 @@ async function main() {
             probeDown = Date.now()
           }
           const p = await readPos()
+          if (navToInputSeqMs === null) {
+            const s = await seqOf()
+            if (s && s.seq != null && seq0 && s.seq !== seq0.seq) navToInputSeqMs = Date.now() - tNav
+            else if (s && s.input && (s.input.forward || s.input.back || s.input.left || s.input.right) && (!seq0 || !seq0.input)) navToInputSeqMs = Date.now() - tNav
+          }
           if (p0 && p) {
             const d = Math.hypot(p[1][0] - p0[1][0], p[1][1] - p0[1][1], p[1][2] - p0[1][2])
             if (d > maxD) maxD = d
@@ -383,7 +395,7 @@ async function main() {
         console.log('[perf-run] input diag: ' + JSON.stringify(st))
       }
     }
-    console.log(`[perf-run] nav->inputAccepted(first real movement)=${navToFirstMoveMs}ms`)
+    console.log(`[perf-run] nav->inputAccepted(first real movement)=${navToFirstMoveMs}ms  nav->inputReachedGame=${navToInputSeqMs}ms`)
 
     const gpuTimer = setInterval(() => gpuSamples.push({ t: Date.now() - tNav, ...sampleGpu() }), 5000)
 
