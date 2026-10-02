@@ -165,16 +165,8 @@ const INSTRUMENT = `(() => {
     last = now
     const info = W.__app && W.__app.renderer && W.__app.renderer.info
     if (info) {
-      const drawCur = info.render.drawCalls !== undefined ? info.render.drawCalls : info.render.calls
-      const triCur = info.render.triangles
-      if (lastDraws >= 0) {
-        const dDraws = drawCur - lastDraws
-        const dTris = triCur - lastTris
-        draws = dDraws < 0 ? drawCur : dDraws
-        tris = dTris < 0 ? triCur : dTris
-      }
-      lastDraws = drawCur
-      lastTris = triCur
+      draws = info.render.drawCalls !== undefined ? info.render.drawCalls : info.render.calls
+      tris = info.render.triangles
     }
     if (rig.frames.length < 400000) rig.frames.push([+now.toFixed(2), +dt.toFixed(2), draws, W.__rigGlOn ? W.__rigGlCount : -1, W.__rigGlOn ? W.__rigGlDraws : -1, tris, W.__rigWgpuOn ? W.__rigWgpuCount : -1, W.__rigWgpuOn ? W.__rigWgpuDraws : -1])
     requestAnimationFrame(tick)
@@ -340,6 +332,7 @@ async function main() {
 
     let navToFirstMoveMs = null
     let navToInputSeqMs = null
+    let navToInputProbeStart = null
     {
       await page._send('Page.bringToFront').catch(() => {})
       await page.evaluate(() => {
@@ -358,6 +351,8 @@ async function main() {
       if (!p0) console.log('[perf-run] WARN no player position source found -- input-acceptance will read null')
       else console.log('[perf-run] position source: ' + p0[0])
       const tInput = Date.now()
+      navToInputProbeStart = tInput - tNav
+      console.log(`[perf-run] input probe start: nav+${navToInputProbeStart}ms (overlayHidden at ${tRevealed}ms perf.now, so ${navToInputProbeStart - Math.round(tRevealed)}ms of that is harness overhead)`)
       const probeLegs = ['KeyW', 'KeyD', 'KeyS', 'KeyA']
       let probeIdx = 0
       let probeDown = null
@@ -672,7 +667,7 @@ async function main() {
     })
 
     const deltas = inPage.frames.filter((f) => f[1] > 0).map((f) => f[1]).sort((a, b) => a - b)
-    const draws = inPage.frames.filter((f) => f[2] >= 0).map((f) => f[2])
+    const threeDraws = inPage.frames.filter((f) => f[2] >= 0).map((f) => f[2])
     const tris = inPage.frames.filter((f) => f[5] >= 0).map((f) => f[5])
     const glFrames = inPage.frames.filter((f) => f[3] >= 0 && f[4] >= 0)
     const glPerFrame = []
@@ -696,6 +691,7 @@ async function main() {
     }
     wgpuPerFrame.sort((a, b) => a - b)
     wgpuDrawPerFrame.sort((a, b) => a - b)
+    const draws = wgpuDrawPerFrame.length ? wgpuDrawPerFrame : glDrawPerFrame
 
     const allLong = (inPage.startupLongtasks || []).concat(inPage.longtasks || [])
     const lt60 = allLong.filter((t) => t.start < 60000)
@@ -723,6 +719,8 @@ async function main() {
         navToIsReadyMs: tReady,
         revealedAtPerfNowMs: tRevealed,
         navToInputAcceptedMs: navToFirstMoveMs,
+        navToInputReachedGameMs: navToInputSeqMs,
+        navToInputProbeStartMs: navToInputProbeStart,
         terrainPresent: revealed.terrain,
         vegInstances: revealed.veg,
         refreshHz: revealed.refreshHz,
@@ -737,15 +735,24 @@ async function main() {
         avgMs: +(deltas.reduce((a, b) => a + b, 0) / Math.max(1, deltas.length)).toFixed(2),
         fps: +(1000 / Math.max(0.001, percentile(deltas, 0.5))).toFixed(1),
       },
-      draws: {
+      trianglesPerFrame: {
+        count: tris.length,
         avg: +(tris.reduce((a, b) => a + b, 0) / Math.max(1, tris.length)).toFixed(0),
         p95: +percentile(tris.slice().sort((a, b) => a - b), 0.95).toFixed(0),
+        max: Math.max(0, ...tris),
       },
       draws: {
+        source: wgpuDrawPerFrame.length ? 'wgpu-encoder-hook' : (glDrawPerFrame.length ? 'gl-context-hook' : 'none'),
         count: draws.length,
         avg: +(draws.reduce((a, b) => a + b, 0) / Math.max(1, draws.length)).toFixed(1),
         p95: +percentile(draws.slice().sort((a, b) => a - b), 0.95).toFixed(0),
         max: Math.max(0, ...draws),
+      },
+      threeInfoDrawCalls: {
+        count: threeDraws.length,
+        avg: +(threeDraws.reduce((a, b) => a + b, 0) / Math.max(1, threeDraws.length)).toFixed(1),
+        p95: +percentile(threeDraws.slice().sort((a, b) => a - b), 0.95).toFixed(0),
+        max: Math.max(0, ...threeDraws),
       },
       glCallsPerFrame: {
         windowFrames: glPerFrame.length,
@@ -795,7 +802,8 @@ async function main() {
     console.log('\n[perf-run] === ' + LABEL + ' ===')
     console.log(`  gpu=${GPU} backend=${BACKEND} walk=${WALK} ${SECONDS}s  travelled=${out.travelledM}m in ${track.length} samples`)
     console.log(`  frames: n=${out.frames.count} min=${out.frames.minMs}ms p50=${out.frames.p50Ms}ms p95=${out.frames.p95Ms}ms p99=${out.frames.p99Ms}ms fps(p50)=${out.frames.fps}  refreshHz(inferred)=${revealed.refreshHz}`)
-    console.log(`  draws/frame avg=${out.draws.avg} p95=${out.draws.p95} max=${out.draws.max}  tris/frame avg=${out.trianglesPerFrame.avg} p95=${out.trianglesPerFrame.p95}`)
+    console.log(`  draws/frame avg=${out.draws.avg} p95=${out.draws.p95} max=${out.draws.max} (source=${out.draws.source})  tris/frame avg=${out.trianglesPerFrame.avg} p95=${out.trianglesPerFrame.p95}`)
+    console.log(`  three info.render.drawCalls/frame avg=${out.threeInfoDrawCalls.avg} p95=${out.threeInfoDrawCalls.p95} max=${out.threeInfoDrawCalls.max}`)
     console.log(`  GL calls/frame avg=${out.glCallsPerFrame.avg} p95=${out.glCallsPerFrame.p95} (n=${out.glCallsPerFrame.windowFrames})`)
     console.log(`  GL draw calls/frame avg=${out.glDrawCallsPerFrame.avg} p95=${out.glDrawCallsPerFrame.p95} max=${out.glDrawCallsPerFrame.max} (n=${out.glDrawCallsPerFrame.windowFrames})`)
     console.log(`  WebGPU calls/frame avg=${out.wgpuCallsPerFrame.avg} p95=${out.wgpuCallsPerFrame.p95} draws/frame avg=${out.wgpuDrawsPerFrame.avg} max=${out.wgpuDrawsPerFrame.max} (n=${out.wgpuCallsPerFrame.windowFrames})`)
