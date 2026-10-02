@@ -19,6 +19,7 @@ const POWERUP_PICKUP_RADIUS = 1.7
 const SPAWN_MARGIN = 3
 const SCAN_REACH_M = 30
 const LAST_RESORT_SPAWN = Object.freeze([0, 15, 0])
+const SCOREBOARD_MAX_ENTRIES = 200
 
 function powerupColor(def) {
   return { mesh: 'box', color: def.color, emissive: def.emissive, emissiveIntensity: 0.7, light: def.color, lightIntensity: 0.9, lightRange: 6, spin: 1.6, hover: 0.35, powerup: def.type }
@@ -90,11 +91,30 @@ export function defineCombat(spec = {}, ctx = null) {
     return s
   }
 
+  function statsKeyOf(playerId) {
+    const peerId = ctx.players.getById(playerId)?.socket?._peerId
+    return (typeof peerId === 'string' && peerId) ? `peer:${peerId}` : `player:${playerId}`
+  }
+
+  function trimScoreboard() {
+    const board = scoreboard.value
+    const keys = Object.keys(board)
+    if (keys.length <= SCOREBOARD_MAX_ENTRIES) return
+    keys.sort((a, b) => (board[a].updatedAtMs ?? 0) - (board[b].updatedAtMs ?? 0) || (a < b ? -1 : a > b ? 1 : 0))
+    for (const stale of keys.slice(0, keys.length - SCOREBOARD_MAX_ENTRIES)) delete board[stale]
+  }
+
   function persistStat(id) {
     const stat = playerStats.get(id)
     if (!stat) return
-    const name = ctx.players.getById(id)?.name || `Player ${id}`
-    scoreboard.value[name] = { kills: stat.kills, deaths: stat.deaths, damage: stat.damage }
+    scoreboard.value[statsKeyOf(id)] = {
+      name: ctx.players.getById(id)?.name || `Player ${id}`,
+      kills: stat.kills,
+      deaths: stat.deaths,
+      damage: stat.damage,
+      updatedAtMs: Date.now()
+    }
+    trimScoreboard()
     scoreboard.save()
   }
 
@@ -293,9 +313,9 @@ export function defineCombat(spec = {}, ctx = null) {
         const p = ctx.players.getById(msg.playerId)
         if (p?.state && !msg.reconnected) p.state.health = config.health
         if (!msg.reconnected || !playerStats.has(msg.playerId)) {
-          const name = p?.name || `Player ${msg.playerId}`
-          const saved = scoreboard.value[name]
-          playerStats.set(msg.playerId, saved ? { kills: saved.kills || 0, deaths: saved.deaths || 0, damage: saved.damage || 0 } : { kills: 0, deaths: 0, damage: 0 })
+          const saved = scoreboard.value[statsKeyOf(msg.playerId)]
+          const restored = v => (Number.isFinite(v) ? v : 0)
+          playerStats.set(msg.playerId, { kills: restored(saved?.kills), deaths: restored(saved?.deaths), damage: restored(saved?.damage) })
         }
         ammo.set(msg.playerId, config.magazineSize)
         reloading.delete(msg.playerId)
