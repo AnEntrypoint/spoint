@@ -52,8 +52,8 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
     gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     return t;
   }
-  const hpfTex  = _mkHpfTex(gl.RG16F);
-  const hpfTex2 = _mkHpfTex(gl.RG8);
+  let hpfTex  = _mkHpfTex(gl.RG16F);
+  let hpfTex2 = _mkHpfTex(gl.RG8);
   const BAKE_MAX_LEVEL = Math.round(Math.log2(HPF_RES));
   const _bakeBuf  = new Float32Array(HPF_RES * HPF_RES * 2);
   const _bakeBuf2 = new Uint8Array(HPF_RES * HPF_RES * 2);
@@ -92,13 +92,19 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
   _t.totalInitMs = +(_now() - _t.start).toFixed(0);
   if (render.setHpf) render.setHpf(hpfTex, HPF_RES, hpfTex2);
 
+  let _bgHandle = null, _bgStopped = false, _bgIdle = false
   if (typeof window !== 'undefined') {
     const _rest = [0,1,2,3,4,5].filter(f => f !== _startFace);
-    const _bgYield = (cb) => (typeof requestIdleCallback !== 'undefined') ? requestIdleCallback(cb, {timeout: 32}) : setTimeout(cb, 0);
+    const _bgYield = (cb) => {
+      _bgIdle = typeof requestIdleCallback !== 'undefined'
+      _bgHandle = _bgIdle ? requestIdleCallback(cb, {timeout: 32}) : setTimeout(cb, 0)
+      return _bgHandle
+    };
     const ROWS_PER_SLICE = 32;
     let _bgFace = -1, _bgRow = 0;
     const _bgInset = (typeof window !== 'undefined' && window.__hpfInset === false) ? false : true;
     function _bgBakeNext(deadline) {
+      if (_bgStopped) return
       if (_bgFace < 0) {
         if (!_rest.length) { _t.bakeFacesPending = 0; clearCache(); return; }
         _bgFace = _rest.shift(); _bgRow = 0;
@@ -376,5 +382,17 @@ export async function initMapspinnerPlanet(gl, opts = {}) {
   }
 
   function clearCache() { _frameCache = null; }
-  return { frame, render, clearCache, hpfPending: () => _t.bakeFacesPending | 0 };
+  function dispose() {
+    _bgStopped = true
+    if (_bgHandle != null) {
+      if (_bgIdle && typeof cancelIdleCallback !== 'undefined') cancelIdleCallback(_bgHandle)
+      else if (!_bgIdle) clearTimeout(_bgHandle)
+      _bgHandle = null
+    }
+    clearCache()
+    if (hpfTex) { gl.deleteTexture(hpfTex); hpfTex = null }
+    if (hpfTex2) { gl.deleteTexture(hpfTex2); hpfTex2 = null }
+    if (render && typeof render.dispose === 'function') render.dispose()
+  }
+  return { frame, render, clearCache, dispose, hpfPending: () => _t.bakeFacesPending | 0 };
 }
