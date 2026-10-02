@@ -137,8 +137,11 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
 
   const _shadowMatrixArr = new Float32Array(16)
   let _worldToLocalM4 = null
+  let _worldToLocalEpoch = -1
   function _ensureWorldToLocalM4() {
-    if (_worldToLocalM4) return _worldToLocalM4
+    const epoch = Number.isFinite(frame.chartEpoch) ? frame.chartEpoch : 0
+    if (_worldToLocalM4 && _worldToLocalEpoch === epoch) return _worldToLocalM4
+    _worldToLocalEpoch = epoch
     const [ex, ey, ez] = frame.east, [ux, uy, uz] = frame.up, [nx, ny, nz] = frame.north
     const t = radius + frame.anchorHeight
     const Tx = ux * t, Ty = uy * t, Tz = uz * t

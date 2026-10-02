@@ -32,7 +32,7 @@ for (let iz = 0; iz < ${N}; iz++) for (let ix = 0; ix < ${N}; ix++) {
 if (window.__renderer && window.__renderer.resetState) window.__renderer.resetState();
 const gl = document.querySelector('canvas') && document.querySelector('canvas').getContext('webgl2');
 const dbg = gl && gl.getExtension('WEBGL_debug_renderer_info');
-return { meta: { anchorDir: f.anchorDir, radius: f.radius, anchorHeight: f.anchorHeight, reliefScale: f.reliefScale }, heights, vendor: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : null };
+return { meta: { anchorDir: f.anchorDir, radius: f.radius, anchorHeight: f.anchorHeight, reliefScale: f.reliefScale, chartEpoch: f.chartEpoch ?? 0 }, heights, vendor: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : null };
 `.trim()
 }
 
@@ -49,7 +49,7 @@ const heightsOrZero = heights.map(h => (typeof h === 'number' && isFinite(h)) ? 
 const worldTerrain = WORLD ? resolveTerrainConfig(await loadWorldModule((await locateWorld({ project: process.cwd(), sdkRoot: path.resolve(import.meta.dirname, '..'), name: WORLD })).path)) : null
 if (!worldTerrain) console.error('[bake] WARNING: no --world given, the artifact carries no terrainKey and loaders can only check radius/reliefScale/anchorDir')
 const terrainIdentity = worldTerrain ? { seed: worldTerrain.seed, hashVersion: terrainHashVersionOf(worldTerrain), terrainKey: terrainBakeKey(worldTerrain) } : {}
-const base = { anchorDir: meta.anchorDir, radius: meta.radius, reliefScale: meta.reliefScale, anchorHeight: meta.anchorHeight, extent: EXTENT, resolution: RES, N, center: CENTER, backend: vendor, ...terrainIdentity }
+const base = { chartEpoch: meta.chartEpoch ?? 0, anchorDir: meta.anchorDir, radius: meta.radius, reliefScale: meta.reliefScale, anchorHeight: meta.anchorHeight, extent: EXTENT, resolution: RES, N, center: CENTER, backend: vendor, ...terrainIdentity }
 
 let artifact
 const NODES_PER_SECTOR = Number(args.sector || 0)

@@ -60,7 +60,10 @@ export function createBakedHeightField(artifact) {
   }
 }
 
-function bakedTerrainMismatch(artifact, tcfg) {
+function bakedTerrainMismatch(artifact, tcfg, frame) {
+  const bakedEpoch = artifact.chartEpoch ?? 0
+  const liveEpoch = (frame && Number.isFinite(frame.chartEpoch)) ? frame.chartEpoch : 0
+  if (bakedEpoch !== liveEpoch) return `baked at chartEpoch ${bakedEpoch}, world frame is at chartEpoch ${liveEpoch}: the chart was reanchored, so its chart-local heights name different ground`
   if (artifact.terrainKey !== undefined) return artifact.terrainKey === terrainBakeKey(tcfg) ? null : `terrain key ${artifact.terrainKey} != world ${terrainBakeKey(tcfg)}`
   const unit = v => { const l = Math.hypot(...v); return v.map(c => c / l) }
   const sameDir = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === 3 && b.length === 3 && unit(a).every((v, i) => Math.abs(v - unit(b)[i]) < 1e-6)
@@ -70,7 +73,7 @@ function bakedTerrainMismatch(artifact, tcfg) {
   return null
 }
 
-async function loadBakedHeightField(url, hashVersion, tcfg) {
+async function loadBakedHeightField(url, hashVersion, tcfg, frame) {
   if (!url) return null
   const artifact = await readBakedHeightField(url)
   if (!artifact) return null
@@ -79,7 +82,7 @@ async function loadBakedHeightField(url, hashVersion, tcfg) {
     console.warn(`[terrain] ignoring baked heightfield ${url}: baked with terrain hashVersion ${bakedVersion}, world uses ${hashVersion} -> exact CPU height`)
     return null
   }
-  const mismatch = bakedTerrainMismatch(artifact, tcfg)
+  const mismatch = bakedTerrainMismatch(artifact, tcfg, frame)
   if (mismatch) {
     console.warn(`[terrain] ignoring baked heightfield ${url}: ${mismatch} -> exact CPU height`)
     return null
@@ -131,7 +134,7 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
   const gpuPatch = (tcfg.gpuPatchCollider !== false && hashVersion === LEGACY_TERRAIN_HASH_VERSION)
     ? await createGpuPatchHeightFn({ frame, tcfg, offsetY }).catch(() => null)
     : null
-  const baked = gpuPatch ? null : await loadBakedHeightField(tcfg.bakedHeightfield, hashVersion, tcfg).catch(() => null)
+  const baked = gpuPatch ? null : await loadBakedHeightField(tcfg.bakedHeightfield, hashVersion, tcfg, frame).catch(() => null)
   const baseHeightFn = gpuPatch
     ? gpuPatch.heightFn
     : baked

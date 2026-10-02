@@ -4,8 +4,9 @@ export const DEFAULT_CLEARANCE_M = 2
 export const MAX_CLEARANCE_M = 500
 export const MAX_ABS_COORD_M = 1e7
 const MIN_UP_DOT = 0.05
-const ELEVATION_REFINE_PASSES = 8
 const ELEVATION_REFINE_TOL_M = 1e-3
+const ELEVATION_BRACKET_PASSES = 16
+const ELEVATION_BISECT_PASSES = 64
 const DEG = Math.PI / 180
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -39,19 +40,41 @@ export function dirToLocalXZ(frame, dir, heightAt) {
   const dirElevation = typeof frame.elevationAtDir === 'function' ? frame.elevationAtDir(d) : null
   let elevation = Number.isFinite(dirElevation) ? dirElevation : frame.anchorHeight
   const de = dot(d, frame.east), dn = dot(d, frame.north)
-  let x = (frame.radius + elevation) * de, z = (frame.radius + elevation) * dn
+  const seed = frame.radius + elevation
+  let x = seed * de, z = seed * dn
   if (typeof heightAt !== 'function') return [x, z]
+  const probe = (s) => {
+    const px = s * de, pz = s * dn
+    const y = heightAt(px, pz)
+    if (!Number.isFinite(y)) return null
+    const e = elevationAtLocal(frame, px, y, pz)
+    if (!Number.isFinite(e)) return null
+    return { s: frame.radius + e, x: px, z: pz, y }
+  }
   let bestX = x, bestZ = z, bestMiss = Infinity
-  for (let i = 0; i < ELEVATION_REFINE_PASSES; i++) {
-    const y = heightAt(x, z)
-    const e = Number.isFinite(y) ? elevationAtLocal(frame, x, y, z) : null
-    if (!Number.isFinite(e)) break
-    const miss = rayMissM(frame, d, x, y, z)
-    if (miss < bestMiss) { bestMiss = miss; bestX = x; bestZ = z }
-    const nx = (frame.radius + e) * de, nz = (frame.radius + e) * dn
-    const moved = Math.hypot(nx - x, nz - z)
-    x = nx; z = nz
-    if (moved < ELEVATION_REFINE_TOL_M) break
+  let s = seed, prevS = 0, prevG = 0
+  let lo = 0, hi = 0, gLo = 0
+  for (let i = 0; i < ELEVATION_BRACKET_PASSES; i++) {
+    const p = probe(s)
+    if (!p) break
+    const miss = rayMissM(frame, d, p.x, p.y, p.z)
+    if (miss < bestMiss) { bestMiss = miss; bestX = p.x; bestZ = p.z }
+    const g = p.s - s
+    if (Math.abs(g) < ELEVATION_REFINE_TOL_M) return [p.x, p.z]
+    if (i > 0 && ((prevG < 0) !== (g < 0))) {
+      if (prevS < s) { lo = prevS; gLo = prevG; hi = s } else { lo = s; gLo = g; hi = prevS }
+      break
+    }
+    prevS = s; prevG = g; s = p.s
+  }
+  for (let i = 0; i < ELEVATION_BISECT_PASSES && hi - lo > ELEVATION_REFINE_TOL_M; i++) {
+    const mid = (lo + hi) / 2
+    const p = probe(mid)
+    if (!p) break
+    const miss = rayMissM(frame, d, p.x, p.y, p.z)
+    if (miss < bestMiss) { bestMiss = miss; bestX = p.x; bestZ = p.z }
+    const g = p.s - mid
+    if ((g < 0) === (gLo < 0)) { lo = mid; gLo = g } else { hi = mid }
   }
   return [bestX, bestZ]
 }
