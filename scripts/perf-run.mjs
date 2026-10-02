@@ -315,6 +315,8 @@ async function main() {
       let maxD = 0
       let loggedDrive = false
       let sawVelocity = null
+      let probeDumpAt = 0
+      let probeDumps = 0
       const moved = await (async () => {
         while (Date.now() - tInput < INPUT_WAIT_MS) {
           if (probeDown === null || Date.now() - probeDown > 1800) {
@@ -329,10 +331,22 @@ async function main() {
             if (d > maxD) maxD = d
             if (d > 0.25) return true
           }
-          if (!loggedDrive && Date.now() - tInput > 1500) {
-            loggedDrive = true
-            const li = await page.evaluate(() => window.__rigLastInput || null).catch(() => null)
-            console.log('[perf-run] drive input after 1.5s of ' + probeLegs[probeIdx % probeLegs.length] + ': ' + JSON.stringify(li))
+          if (Date.now() - tInput > 1500 && Date.now() - probeDumpAt > 1000 && probeDumps < 10) {
+            probeDumpAt = Date.now(); probeDumps++
+            const ds = await page.evaluate(() => {
+              const a = window.__app || {}
+              const s = (window.__client && window.__client.getLocalState) ? window.__client.getLocalState() : null
+              return {
+                machine: a.clientMachine ? String(a.clientMachine.state && (a.clientMachine.state.value || a.clientMachine.state)) : null,
+                input: window.__rigLastInput || null,
+                vel: s ? s.velocity : null,
+                onGround: s ? s.onGround : null,
+                seq: s ? s.inputSequence : null,
+                veg: window.__veg ? (window.__veg.instanceCount ?? window.__veg.count ?? null) : null,
+                pos: s ? s.position : null,
+              }
+            }).catch((e) => ({ error: e.message }))
+            console.log('[perf-run] probe t+' + Math.round(Date.now() - tInput) + 'ms: ' + JSON.stringify(ds))
           }
           if (Date.now() - tInput > 6000 && !sawVelocity) {
             sawVelocity = await page.evaluate(() => {
@@ -465,9 +479,9 @@ async function main() {
     while (Date.now() - walkStart < SECONDS * 1000) {
       if (WALK) {
         const code = legs[legIdx % legs.length]
-        await page.keyboard.down(code)
+        await page.keyboard.down(code).catch(() => {})
         await new Promise((r) => setTimeout(r, Math.min(LEG_MS, SECONDS * 1000)))
-        await page.keyboard.up(code)
+        await page.keyboard.up(code).catch(() => {})
         legIdx++
       } else {
         await new Promise((r) => setTimeout(r, 1000))
