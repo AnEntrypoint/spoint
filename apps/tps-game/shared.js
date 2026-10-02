@@ -4,7 +4,6 @@ export const POWERUP_DEFS = [
   { type: 'rapid', color: 0xffcc33, emissive: 0xaa6600, buff: { duration: 20, speedMultiplier: 1, fireRateMultiplier: 2, damageMultiplier: 1 } },
 ]
 export const POWERUP_RESPAWN_MS = 15000
-export const POWERUP_PICKUP_RADIUS = 1.7
 const HITBOX_CENTER_HEIGHT = 0.9
 const HITBOX_RADIUS_SQ = 0.36
 const HITBOX_HEIGHT = 1.8
@@ -29,13 +28,6 @@ export const EMOTE_WHEEL_SLOTS = [
   { code: 'confused', label: 'Confused' },
   { code: 'sit', label: 'Sit' },
 ]
-
-export function spawnPowerup(ctx, id, def, position) {
-  ctx.world.spawn(id, {
-    position: [...position], scale: [0.55, 0.55, 0.55],
-    custom: { mesh: 'box', powerup: def.type, color: def.color, emissive: def.emissive, emissiveIntensity: 0.7, light: def.color, lightIntensity: 0.9, lightRange: 6, spin: 1.6, hover: 0.35 }
-  })
-}
 
 export function predictHit(origin, dir, players, selfId, headshotZone) {
   if (!origin || !dir || !players) return null
