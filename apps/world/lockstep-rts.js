@@ -14,6 +14,7 @@ export default {
   name: 'lockstep-rts',
   presets: ['rts', 'arena'],
   arena: { size: ARENA, wallHeight: 2, floorColor: '#5b6b4a', wallColor: '#44503a' },
+  placeableApps: ['box-static'],
   spawnPoints: [[-ARENA * 0.75, 1.2, 4], [ARENA * 0.75, 1.2, 4]],
   netcode: {
     profile: 'lockstep',
