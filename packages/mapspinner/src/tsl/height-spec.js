@@ -30,10 +30,12 @@ export function carveChord2(radiusM, planetRadiusM) {
   return a * a
 }
 
-export function defineHeightSpec(o, { hashVersion = HASH_VERSION_FLOAT, carveCount = 0 } = {}) {
+export function defineHeightSpec(o, { hashVersion = HASH_VERSION_FLOAT, carveCount = 0, sculpt = false } = {}) {
   assertHashVersion(hashVersion)
   if (!Number.isInteger(carveCount) || carveCount < 0 || carveCount > MAX_TERRAIN_CARVES) throw new RangeError(`terrain carveCount must be an integer 0..${MAX_TERRAIN_CARVES}, got ${carveCount}`)
   if (carveCount > 0 && hashVersion === HASH_VERSION_FLOAT) throw new RangeError('terrain carves need hashVersion 2: the legacy GLSL terrain (hashVersion 1) has no carve term, so a carve would split physics from the rendered ground')
+  if (sculpt && typeof o.sculpt !== 'function') throw new TypeError('terrain sculpt requested but this ops backend cannot evaluate it: the sculpt override is a texture fetch, so a spec asked for sculpt must be built on the TSL ops, never on the CPU jsgen mirror')
+  const sculptHonoured = typeof o.sculpt === 'function'
   const floatHash = o.fn('msH3', [['p', 'vec3']], 'float', (p) => {
     const q0 = o.fract(o.mul(p, o.v3(0.1031, 0.1030, 0.0973)))
     const q = o.add(q0, o.dot(q0, o.add(o.swz(q0, 'yxz'), 33.33)))
@@ -178,8 +180,8 @@ export function defineHeightSpec(o, { hashVersion = HASH_VERSION_FLOAT, carveCou
   const naturalHeight = (dir0) => shapeHeight(fractalTerrainH(dir0), o.x(hpfSample(dir0)))
   const composeHeight = (dir0) => {
     const h = applyReliefScale(carveTerrain(dir0, naturalHeight(dir0)))
-    return o.sculpt ? o.add(h, o.sculpt(dir0, h)) : h
+    return sculptHonoured ? o.add(h, o.sculpt(dir0, h)) : h
   }
 
-  return { hashVersion, carveCount, h3, snoise3, fractalTerrainH, hpfSample, naturalHeight, composeHeight, cubeFaceUV }
+  return { hashVersion, carveCount, sculptHonoured, h3, snoise3, fractalTerrainH, hpfSample, naturalHeight, composeHeight, cubeFaceUV }
 }

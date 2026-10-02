@@ -15,6 +15,7 @@ export const HEIGHT_UNIFORM_DEFAULTS = {
 }
 
 export function createHeightSampler(opts = {}) {
+  if (opts.sculpt) throw new TypeError('createHeightSampler: the CPU height mirror cannot evaluate a sculpt override (it is a GPU texture fetch), so a sampler built with one would silently disagree with the rendered ground -- plumb the sculpt field through the spec instead of passing it here')
   const radius = opts.radius || 6360
   const reliefScale = opts.reliefScale != null ? opts.reliefScale : radius / 63600000
   const hpfTexRes = opts.hpfTexRes || 128

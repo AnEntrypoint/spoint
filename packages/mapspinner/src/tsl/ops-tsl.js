@@ -59,6 +59,6 @@ export function createTslOps({ params, hpfTexture, loopBoundDelta, carves = [], 
     },
     param: (name) => params[name],
     hpfTexel: (face, x, y) => textureLoad(hpfTexture, ivec2(int(x), int(node(face).mul(params.hpfRes).add(y))), int(0)),
-    sculpt: sculpt ? sculpt.op : null,
+    ...(sculpt ? { sculpt: sculpt.op } : null),
   }
 }

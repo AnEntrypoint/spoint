@@ -98,6 +98,7 @@ export function compileSnoise3({ hashVersion }) {
 export function compileHeightSpec({ hashVersion, carves = [], params, hpfFace, hpfRes }) {
   const { ops, build } = createCodegen(params)
   const spec = defineHeightSpec(ops, { hashVersion, carveCount: carves.length })
+  if (spec.sculptHonoured) throw new TypeError('compileHeightSpec: this spec carries a sculpt term, which is a texture fetch the CPU mirror cannot evaluate -- a CPU height from it would silently disagree with the rendered ground whenever a sculpt override is active')
   const { functions, body } = build((dir) => spec.composeHeight(dir))
   const source = `${functions}\nreturn function composeHeight(dx,dy,dz){${body}}`
   const factory = new Function('ROT_COS', 'ROT_SIN', 'CARVE', 'HPF', 'HPF_RES', source)
