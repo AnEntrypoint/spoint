@@ -675,6 +675,13 @@ async function main() {
     maxTerrainTiltDeg: +Math.max(...report.crossings.map(c => c.maxTerrainTiltDeg)).toFixed(3),
     edgeWalkable: report.crossings.filter(c => c.kind === 'edge' && c.walkable && c.failedSamples === 0).length,
     cornerWalkable: report.crossings.filter(c => c.kind === 'corner' && c.walkable && c.failedSamples === 0).length,
+    nonWalkableGenuineTerrain: report.crossings.filter(c => !c.walkable && c.failedSamples === 0 && c.maxTerrainTiltDeg >= MAX_SLOPE_DEG).length,
+    nonWalkableChartExcess: report.crossings.filter(c => !c.walkable && c.failedSamples === 0 && c.maxTerrainTiltDeg < MAX_SLOPE_DEG).length,
+    maxChartExcessDeg: +Math.max(...report.crossings.map(c => c.maxTiltDeg - c.maxTerrainTiltDeg)).toFixed(3),
+    medianChartExcessDeg: (() => {
+      const ex = report.crossings.map(c => c.maxTiltDeg - c.maxTerrainTiltDeg).sort((x, y) => x - y)
+      return +ex[ex.length >> 1].toFixed(3)
+    })(),
   }
 
   const cornerRoutes = report.routes.filter(r => r.kind === 'corner')
