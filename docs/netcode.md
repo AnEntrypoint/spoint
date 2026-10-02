@@ -22,8 +22,6 @@ export default {
 
 A bad value throws at load. Omitting `profile` does not: it falls back to `authoritative` even when a `lockstep` or `rollback` sub-config sits beside it, so a world that configures lockstep without naming it runs authoritative and only behaves lockstep if something else passes the profile in. `apps/world/lockstep-rts.js` had exactly that defect: it declared `netcode.lockstep{...}` with no `profile`, so the harness only ran lockstep because it was given `--profile=lockstep`.
 
-App loading is a separate gate from the profile: an entity whose `app` is missing from `worldDef.placeableApps` runs with no app behind it and logs `[AppRuntime] entity <id> references app "<name>" but it never loaded`. A preset's own entities need their app named in the world too.
-
 ## authoritative (default)
 
 Krunker-style server authority for fast shooters and anything with untrusted clients.
