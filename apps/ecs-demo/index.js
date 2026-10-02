@@ -1,3 +1,4 @@
+export const category = 'Demos & Games'
 import { createWorld, createQuery } from '@spoint/ecs'
 
 export default {

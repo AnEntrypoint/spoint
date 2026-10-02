@@ -278,6 +278,8 @@ export interface GlobalAppContext {
   playSound(name: string, opts?: AudioOpts): void;
   on(event: string, callback: (data: any) => void): () => void;
   send(message: any): void;
+  /** Publish a HUD stat for surfaces the engine owns (the VR wrist UI reads these). Pass null to clear. */
+  hud?: { stat(key: string, value: string | number | boolean | null): void };
 }
 
 export interface MobileDevice {

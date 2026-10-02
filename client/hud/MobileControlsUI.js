@@ -1,3 +1,4 @@
+import { worldMobileButtons } from '/src/shared/worldDefaults.js'
 const CSS = `
 @keyframes joyGlow{0%{box-shadow:0 0 15px color-mix(in oklab, var(--accent) 40%, transparent),inset 0 0 20px color-mix(in oklab, var(--accent) 10%, transparent)}100%{box-shadow:0 0 25px color-mix(in oklab, var(--accent) 60%, transparent),inset 0 0 30px color-mix(in oklab, var(--accent) 20%, transparent)}}
 @keyframes joyGlowLook{0%{box-shadow:0 0 15px color-mix(in oklab, var(--accent) 35%, transparent),inset 0 0 20px color-mix(in oklab, var(--accent) 8%, transparent)}100%{box-shadow:0 0 25px color-mix(in oklab, var(--accent) 55%, transparent),inset 0 0 30px color-mix(in oklab, var(--accent) 18%, transparent)}}
@@ -80,19 +81,35 @@ const VARIANT = {
   weapon: 'btn-primary'
 }
 
-function makeButton(id, icon, label, cls, action, size) {
+const BUTTON_DEFAULTS = {
+  jump: { icon: 'A', label: 'JUMP', cls: 'jump', grid: [2, 3] },
+  crouch: { icon: 'X', label: 'CROUCH', cls: 'crouch', grid: [1, 2] },
+  interact: { icon: 'Y', label: 'USE', cls: 'interact', grid: [2, 1] },
+  shoot: { icon: 'B', label: 'SHOOT', cls: 'weapon', grid: [3, 2] },
+  reload: { icon: 'Y', label: 'RELOAD', cls: 'reload', grid: [2, 1] }
+}
+
+const DEFAULT_MOBILE_BUTTONS = worldMobileButtons(null)
+
+function makeButton(spec, size) {
+  const id = spec.action
+  const base = BUTTON_DEFAULTS[id] || { icon: '', label: String(id).toUpperCase(), cls: id, grid: [3, 3] }
+  const icon = spec.icon ?? base.icon
+  const label = spec.label ?? base.label
+  const cls = spec.cls ?? base.cls
   const btn = document.createElement('button')
   const variant = VARIANT[cls] || 'btn-primary'
   btn.className = `btn ${variant} mobile-action-btn ${cls}`
-  btn.dataset.action = action || id
+  btn.dataset.action = id
   btn.style.width = `${size}px`
   btn.style.height = `${size}px`
   btn.innerHTML = `<span class="btn-icon">${icon}</span><span class="btn-label">${label}</span>`
   return btn
 }
 
-export function createMobileControlsUI(controls) {
+export function createMobileControlsUI(controls, buttons = DEFAULT_MOBILE_BUTTONS) {
   if (!controls.enabled) return { show: () => {}, hide: () => {}, update: () => {}, destroy: () => {} }
+  const actionButtons = Array.isArray(buttons) && buttons.length > 0 ? buttons : DEFAULT_MOBILE_BUTTONS
 
   injectStyle()
   const { responsive: res, layout: lay } = controls
@@ -134,19 +151,19 @@ export function createMobileControlsUI(controls) {
   btnsEl.className = 'row'
   btnsEl.style.cssText = `position:absolute;bottom:${lay.buttonsBottomOffset}px;right:${lay.buttonsRightOffset}px;pointer-events:auto;z-index:9999;display:grid;grid-template-columns:repeat(3,auto);grid-template-rows:repeat(3,auto);gap:12px;align-items:center;justify-items:center;padding:0;background:transparent;border:0;`
 
-  const jumpBtn = makeButton('jump', 'A', 'JUMP', 'jump', 'jump', bs)
-  jumpBtn.style.gridColumn = '2'; jumpBtn.style.gridRow = '3'
-  const crouchBtn = makeButton('crouch', 'X', 'CROUCH', 'crouch', 'crouch', bs)
-  crouchBtn.style.gridColumn = '1'; crouchBtn.style.gridRow = '2'
-  const shootBtn = makeButton('shoot', 'B', 'SHOOT', 'weapon', 'shoot', bs)
-  shootBtn.style.gridColumn = '3'; shootBtn.style.gridRow = '2'
-  const useBtn = makeButton('use', 'Y', 'RELOAD', 'reload', 'reload', bs)
-  useBtn.style.gridColumn = '2'; useBtn.style.gridRow = '1'
-
-  btnsEl.appendChild(crouchBtn)
-  btnsEl.appendChild(jumpBtn)
-  btnsEl.appendChild(useBtn)
-  btnsEl.appendChild(shootBtn)
+  const built = []
+  for (const spec of actionButtons) {
+    const base = BUTTON_DEFAULTS[spec.action] || { grid: [3, 3] }
+    const [col, row] = spec.grid ?? base.grid
+    const btn = makeButton(spec, bs)
+    btn.style.gridColumn = String(col)
+    btn.style.gridRow = String(row)
+    btnsEl.appendChild(btn)
+    built.push({ btn, spec })
+  }
+  const byAction = new Map(built.map(b => [b.spec.action, b]))
+  const useBtn = byAction.get('interact')?.btn || byAction.get('reload')?.btn || null
+  const reloadLabel = byAction.get('reload')?.spec.label ?? 'RELOAD'
 
   const zoomEl = document.createElement('div')
   zoomEl.className = 'mobile-zoom-controls'
@@ -184,10 +201,7 @@ export function createMobileControlsUI(controls) {
   container.appendChild(topBar)
   document.body.appendChild(container)
 
-  controls.buttons.set('jump', jumpBtn)
-  controls.buttons.set('crouch', crouchBtn)
-  controls.buttons.set('shoot', shootBtn)
-  controls.buttons.set('use', useBtn)
+  for (const { btn, spec } of built) controls.buttons.set(spec.action, btn)
   controls.buttons.set('zoomIn', zoomInBtn)
   controls.buttons.set('zoomOut', zoomOutBtn)
   controls.buttons.set('chatWheel', chatWheelBtn)
@@ -219,12 +233,15 @@ export function createMobileControlsUI(controls) {
     onLookJoystickMove: (lx, ly) => { },
     onLookJoystickEnd: () => { },
     onInteractablesChanged: targets => {
+      if (!useBtn) return
       const has = targets.size > 0
+      const dual = byAction.has('reload')
+      if (!dual) return
       useBtn.dataset.action = has ? 'interact' : 'reload'
       const variant = VARIANT[has ? 'interact' : 'reload'] || 'btn-primary'
       useBtn.className = `btn ${variant} mobile-action-btn ${has ? 'interact' : 'reload'}`
       const lbl = useBtn.querySelector('.btn-label')
-      if (lbl) lbl.textContent = has ? 'USE' : 'RELOAD'
+      if (lbl) lbl.textContent = has ? 'USE' : reloadLabel
     },
     onLayoutUpdate: (l, rsp) => {
       const rd = rsp.joystickRadius, rdd = rd * 2

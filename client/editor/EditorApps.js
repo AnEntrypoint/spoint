@@ -12,6 +12,8 @@ function _makeAppDraggable(el, appName) {
 }
 
 export function getAppCategory(app) {
+  const declared = typeof app === 'string' ? null : app?.category
+  if (typeof declared === 'string' && declared) return declared
   const name = (typeof app === 'string' ? app : app?.name || '').toLowerCase()
   if (name.startsWith('agent-') || name.startsWith('fsm-') || name === 'goblin' || name.startsWith('npc') || name === 'combat-bot') {
     return 'Agents & FSM'
@@ -27,9 +29,6 @@ export function getAppCategory(app) {
   }
   if (name.startsWith('box-') || name.startsWith('prop-') || name === 'placed-model' || name === 'tower' || name.startsWith('destructible-') || name === 'moving-platform' || name.startsWith('fluid') || name.startsWith('softbody-')) {
     return 'Physics & Props'
-  }
-  if (name === 'tps-game' || name.startsWith('rpg-') || name.startsWith('tutorial') || name === 'deathrun' || name.startsWith('matrix-') || name === 'ecs-demo' || name === 'example-progression') {
-    return 'Demos & Games'
   }
   return 'General'
 }

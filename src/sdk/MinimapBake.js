@@ -2,7 +2,7 @@ import { Worker } from 'node:worker_threads'
 import { existsSync, mkdirSync, writeFileSync, readFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { resolveTerrainConfig, minimapDescriptor, minimapExtentOf, minimapResOf, minimapBakeParams, minimapBaseName, withTerrainSeed, withTerrainHashVersion, DEFAULT_TERRAIN_HASH_VERSION, TERRAIN_HASH_VERSIONS } from '../shared/terrainConfig.js'
+import { resolveTerrainConfig, minimapDescriptor, minimapExtentOf, minimapResOf, minimapBakeParams, minimapBaseName, withTerrainSeed, withTerrainHashVersion, DEFAULT_TERRAIN_HASH_VERSION, LEGACY_TERRAIN_HASH_VERSION, TERRAIN_HASH_VERSIONS } from '../shared/terrainConfig.js'
 import { MINIMAP_BAKE_CODE_VERSION } from '../static/BakeCodeVersion.js'
 import { expandWorldPresets } from '../shared/worldPresets.js'
 import { findWorldFile, worldRoots } from './WorldLocator.js'
@@ -35,7 +35,7 @@ export function isMinimapStale(header, tcfg) {
   const params = minimapBakeParams(tcfg)
   if (header.radius !== params.radius) return true
   if ((header.reliefScale ?? null) !== params.reliefScale) return true
-  if ((header.hashVersion ?? DEFAULT_TERRAIN_HASH_VERSION) !== params.hashVersion) return true
+  if ((header.hashVersion ?? LEGACY_TERRAIN_HASH_VERSION) !== params.hashVersion) return true
   if (JSON.stringify(header.carves ?? []) !== JSON.stringify(params.carves)) return true
   if (header.extent !== params.extent) return true
   if (header.N !== params.res) return true

@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { createPlanetFrame, elevationAtLocal, DEFAULT_PATCH_MAX_LEVEL } from '/src/terrain/PlanetFrame.js'
-import { terrainHashVersionOf, terrainCarvesOf, DEFAULT_TERRAIN_HASH_VERSION } from '/src/shared/terrainConfig.js'
+import { terrainHashVersionOf, terrainCarvesOf, LEGACY_TERRAIN_HASH_VERSION } from '/src/shared/terrainConfig.js'
 import { createTerrainOcclusion } from './TerrainOcclusion.js'
 import { dbg } from './debug-log.js'
 import { RenderControls } from './RenderControls.js'
@@ -32,8 +32,8 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     ? { makePredicate: () => undefined, runQueries() {}, getStats: () => ({ flips: 0 }), clearVerdicts() {}, dispose() {}, snapshotOccludedKeys: () => [], setMaxQueriesPerFrame() {}, getMaxQueriesPerFrame: () => 0, getCandidateCount: () => 0 }
     : createTerrainOcclusion(gl, { minCandidates: cfg.occlusionMinCandidates ?? 32, maxElev: cfg.occlusionMaxElev ?? 200 })
   const terrainHashVersion = terrainHashVersionOf(cfg)
-  const isLegacyHash = terrainHashVersion === DEFAULT_TERRAIN_HASH_VERSION
-  const isTslTerrain = isWebGPU && (!isLegacyHash || (typeof location !== 'undefined' && /[?&]tslterrain=1\b/.test(location.search)))
+  const isLegacyHash = terrainHashVersion === LEGACY_TERRAIN_HASH_VERSION
+  const isTslTerrain = isWebGPU
   if (!isLegacyHash && !isTslTerrain) console.error(`[terrain] world terrain hashVersion ${terrainHashVersion} needs the TSL terrain (?webgpu=1); the legacy GLSL renderer draws hashVersion 1, so the visible ground will not match physics or placement`)
   let initMapspinnerPlanet, createHeightSampler, initMapspinnerPlanetWebGPU, initMapspinnerPlanetTSL
   performance.mark('terrain:start')
@@ -60,7 +60,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         if (isTslTerrain) {
-          return await initMapspinnerPlanetTSL(renderer, scene, { radius, reliefScale: cfg.reliefScale, hpfSeed: cfg.seed, hashVersion: terrainHashVersion, carves: sampler.carves, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : undefined, splitFactor: Number.isFinite(cfg.splitFactor) ? cfg.splitFactor : undefined })
+          return await initMapspinnerPlanetTSL(renderer, scene, { radius, reliefScale: cfg.reliefScale, hpfSeed: cfg.seed, hashVersion: terrainHashVersion, carves: sampler.carves, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : undefined, splitFactor: Number.isFinite(cfg.splitFactor) ? cfg.splitFactor : undefined, geomorphLod: RenderControls.get('geomorphLod') !== false })
         }
         if (isWebGPU) {
           return await initMapspinnerPlanetWebGPU(renderer, { radius, reliefScale: cfg.reliefScale, hpfSeed: cfg.seed, maxLevel: Number.isFinite(cfg.maxLevel) ? cfg.maxLevel : undefined, splitFactor: Number.isFinite(cfg.splitFactor) ? cfg.splitFactor : undefined })

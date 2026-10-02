@@ -1,3 +1,4 @@
+export const category = 'Demos & Games'
 export default {
   server: {
     setup(ctx) {

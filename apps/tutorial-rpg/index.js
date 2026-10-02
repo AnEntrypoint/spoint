@@ -1,3 +1,4 @@
+export const category = 'Demos & Games'
 import { defineQuestSystem } from '../../src/game/QuestSystem.js'
 import { defineStatsSystem } from '../../src/game/StatsSystem.js'
 import { definePlayerInventory } from '../_lib/inventory.js'

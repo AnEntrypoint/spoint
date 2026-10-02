@@ -309,6 +309,13 @@ export interface WorldDefinition {
   netcode?: NetcodeConfig;
   /** false rejects every MSG.TELEPORT relocation request (`window.__spoint.teleport`, `?at=`/`?bookmark=`/`?spawn=`) with "relocation disabled by this world". */
   relocation?: boolean;
+  /** Equipment names in wire order: index 0 is `state.weapon` code 1, code 0 is unarmed. Declares what a game's gear is called so the engine never hard-codes it. */
+  equipment?: string[];
+  input?: {
+    /** Mobile action buttons; each entry is `{ action, label?, icon?, grid?: [col, row] }`. Defaults to jump/crouch/interact. */
+    mobileButtons?: Array<{ action: string; label?: string; icon?: string; grid?: [number, number] }>;
+    [key: string]: any;
+  };
   [key: string]: any;
 }
 

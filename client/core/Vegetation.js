@@ -98,13 +98,37 @@ export async function createVegetation(opts = {}) {
   const LOD_HYS = Number.isFinite(cfg.lodHysteresis) ? cfg.lodHysteresis : 0.12
   const BVH_MARGIN = Number.isFinite(cfg.bvhMargin) ? cfg.bvhMargin : 24
   const speciesList = Array.isArray(cfg.species) && cfg.species.length ? cfg.species : SPECIES
-  const SHAPE_VARIANTS = Number.isFinite(cfg.shapeVariants) ? Math.max(1, Math.min(VEG_SHAPE_VARIANTS, Math.floor(cfg.shapeVariants))) : VEG_SHAPE_VARIANTS
+  const _shapeVariantsParam = (typeof location !== 'undefined') ? +((location.search.match(/[?&]vegVariants=(\d+)/) || [])[1]) : NaN
+  const SHAPE_VARIANTS = Number.isFinite(_shapeVariantsParam) ? Math.max(1, Math.min(VEG_SHAPE_VARIANTS, Math.floor(_shapeVariantsParam))) : Number.isFinite(cfg.shapeVariants) ? Math.max(1, Math.min(VEG_SHAPE_VARIANTS, Math.floor(cfg.shapeVariants))) : VEG_SHAPE_VARIANTS
   const buildList = []
   for (let v = 0; v < SHAPE_VARIANTS; v++) for (const name of speciesList) buildList.push({ name, variant: v })
   const recKey = (name, variant) => name + '#' + variant
   const _vegMode = (typeof location !== 'undefined' && (location.search.match(/[?&]veg=(\w+)/) || [])[1]) || 'full'
   const _buildImpostor = _vegMode !== 'branch'
   const USE_SHARED_IMPOSTOR = cfg.sharedImpostor !== false && (_vegMode === 'full' || _vegMode === 'shared')
+  const _vegShadowAllCascades = (typeof location !== 'undefined') && /[?&]vegShadowCascades=all/.test(location.search)
+  const _shadowCascade0Camera = (() => {
+    if (_vegShadowAllCascades) return null
+    const sp = opts.shadowPipeline
+    if (!sp || sp.cascadeCount < 2) return null
+    const l0 = sp.lights[0]
+    return (l0 && l0.shadow && l0.shadow.camera) || null
+  })()
+  const _vegShadowSphere = new THREE.Vector3()
+  let _vegShadowSkipFrame = -1
+  let _vegShadowSkipFar = false
+  function _vegShadowInsideCascade0(renderer, camera, cascade0, radius) {
+    const frame = renderer.info.render.frame
+    if (frame === _vegShadowSkipFrame) return _vegShadowSkipFar
+    _vegShadowSkipFrame = frame
+    camera.getWorldPosition(_vegShadowSphere).applyMatrix4(cascade0.matrixWorldInverse)
+    const depth = -_vegShadowSphere.z
+    _vegShadowSkipFar = Math.abs(_vegShadowSphere.x) + radius <= cascade0.right
+      && Math.abs(_vegShadowSphere.y) + radius <= cascade0.top
+      && depth - radius >= cascade0.near
+      && depth + radius <= cascade0.far
+    return _vegShadowSkipFar
+  }
 
   const meshes = []
 
@@ -177,6 +201,17 @@ export async function createVegetation(opts = {}) {
           const hasLibraryDefaultShaderMaterial = shadowObj !== branch && shadowObj.material && shadowObj.material.type === 'ShaderMaterial' && !shadowObj.material.vertexShader?.includes('uVegTime')
           if (hasLibraryDefaultShaderMaterial) {
             shadowObj.material = branch.material
+          }
+        }
+        if (_shadowCascade0Camera) {
+          const _vegBaseShadowHook = branch.onBeforeShadow
+          branch.onBeforeShadow = function (renderer, scene, camera, shadowCamera, geometry, depthMaterial, group) {
+            if (shadowCamera !== _shadowCascade0Camera && _vegShadowInsideCascade0(renderer, camera, _shadowCascade0Camera, SHADOW_CAST)) {
+              this.patchMaterial(renderer, depthMaterial)
+              this.count = 0
+              return
+            }
+            _vegBaseShadowHook.call(this, renderer, scene, camera, shadowCamera, geometry, depthMaterial, group)
           }
         }
         try {

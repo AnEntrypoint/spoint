@@ -6,7 +6,8 @@ import { FNV1A_32_OFFSET_BASIS, fnv1aStepString } from './fnv1a.js'
 const MINIMAP_EXTENT_RADIUS_FRACTION = 0.25
 const MINIMAP_MAX_EXTENT_M = 16384
 const DEFAULT_MINIMAP_RES = 256
-export const DEFAULT_TERRAIN_HASH_VERSION = 1
+export const DEFAULT_TERRAIN_HASH_VERSION = 2
+export const LEGACY_TERRAIN_HASH_VERSION = 1
 export const TERRAIN_HASH_VERSIONS = Object.freeze([1, 2])
 
 export function resolveTerrainConfig(worldDef) {
@@ -22,7 +23,7 @@ export function terrainHashVersionOf(tcfg) {
 
 export function terrainCarvesOf(tcfg) {
   const carves = tcfg?.carves
-  if (carves == null || terrainHashVersionOf(tcfg) === DEFAULT_TERRAIN_HASH_VERSION) return []
+  if (carves == null || terrainHashVersionOf(tcfg) === LEGACY_TERRAIN_HASH_VERSION) return []
   if (!Array.isArray(carves)) throw new TypeError(`terrain carves must be an array, got ${JSON.stringify(carves)}`)
   const radius = tcfg.radius
   if (!(radius > 0)) throw new RangeError(`terrain carves need a positive terrain radius, got ${JSON.stringify(radius)}`)
@@ -59,7 +60,7 @@ export function minimapDescriptor(worldId, tcfg) {
 }
 
 export function terrainBakeKey(tcfg) {
-  const slice = { seed: tcfg.seed ?? null, radius: tcfg.radius ?? null, reliefScale: tcfg.reliefScale ?? null, anchorDir: tcfg.anchorDir || [0, 1, 0], hashVersion: terrainHashVersionOf(tcfg), carves: terrainHashVersionOf(tcfg) === DEFAULT_TERRAIN_HASH_VERSION ? [] : (tcfg.carves || []) }
+  const slice = { seed: tcfg.seed ?? null, radius: tcfg.radius ?? null, reliefScale: tcfg.reliefScale ?? null, anchorDir: tcfg.anchorDir || [0, 1, 0], hashVersion: terrainHashVersionOf(tcfg), carves: terrainHashVersionOf(tcfg) === LEGACY_TERRAIN_HASH_VERSION ? [] : (tcfg.carves || []) }
   return (fnv1aStepString(FNV1A_32_OFFSET_BASIS, canonicalJSON(slice)) >>> 0).toString(16).padStart(8, '0')
 }
 

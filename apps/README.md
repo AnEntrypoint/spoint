@@ -23,6 +23,23 @@ Game-agnostic machinery lives in the engine, never in an app:
   playable world.
 - `src/netcode/Hitscan.js` — lag-compensated hit tests, exposed as `ctx.combat`.
 
+World files declare what the engine used to assume, so a game with different gear
+needs no engine change:
+
+- `equipment: ['Pistol', 'Rifle']` — index 0 is `state.weapon` code 1, code 0 is
+  unarmed (`src/shared/equipment.js`, `ctx.players.setWeapon(name)`).
+- `animation.equipment: { Pistol: { down, neutral, up, shoot, reload } }` plus
+  `animation.defaultEquipment` — the aim-pose trio and the shoot/reload clips a
+  game's rig uses. Without a declaration there are no aim poses, and
+  `animator.shoot()` / `animator.reload()` are no-ops instead of throwing.
+- `input.mobileButtons: [{ action, label?, icon?, grid? }]` — the on-screen action
+  buttons (defaults: jump, crouch, interact).
+- `engine.hud.stat(key, value)` publishes a stat for engine-owned surfaces such as
+  the VR wrist UI, which renders whatever the app publishes
+  (`ammo`, `reloading`, ...) and knows nothing about magazines or weapons.
+- An app may export `category` (e.g. `'Demos & Games'`) for the editor's Add menu;
+  a world may export `description`, shown in the editor's world list.
+
 An app should hold only what is unique to that game: tuning numbers, its own
 entities and models, and per-event announcements wired through the behaviour
 hooks.

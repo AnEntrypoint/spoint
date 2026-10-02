@@ -1,3 +1,4 @@
+export const category = 'Demos & Games'
 const XP_TO_NEXT_LEVEL = [0, 100, 250, 450, 700, 1000, 1350, 1750, 2200, 2700, 3250]
 const MAX_LEVEL = 10
 const PROGRESS_EVENT = 'rpg-progress'

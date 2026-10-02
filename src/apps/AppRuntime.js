@@ -6,7 +6,7 @@ import { mulQuat, rotVec } from '../math.js'
 import { MSG } from '../protocol/MessageTypes.js'
 import { SpatialIndex } from '../spatial/Octree.js'
 import { vecOK } from '../shared/vecGuard.js'
-import { weaponNameToCode } from '../shared/WeaponCodes.js'
+import { equipCodeOf, EQUIP_UNARMED } from '../shared/equipment.js'
 import { mixinPhysics } from './AppRuntimePhysics.js'
 import { mixinTick } from './AppRuntimeTick.js'
 import { mixinStaticMotion } from './AppRuntimeStaticMotion.js'
@@ -24,6 +24,7 @@ class HookedSet extends Set {
 
 export class AppRuntime {
   constructor(c = {}) {
+    this._equipment = []
     this._unmanagedIds = []; this._unmanagedDirty = true
     const markUnmanagedDirty = () => { this._unmanagedDirty = true }
     this._staticCustomSum = 0
@@ -539,9 +540,15 @@ export class AppRuntime {
   sendToPlayer(id, m) { if (this._resimSuppressed) return; if (this._connections) this._connections.send(id, MSG.APP_EVENT, m); else if (this._playerManager) this._playerManager.sendToPlayer(id, m) }
   setPlayerPosition(id, p) { if (!vecOK(p, 3)) return; this._physicsIntegration?.setPlayerPosition(id, p); if (this._playerManager) { const pl=this._playerManager.getPlayer(id); if (pl) pl.state.position=[...p] } }
   setPlayerName(id, name) { if (typeof name !== 'string') return false; const pl = this._playerManager?.getPlayer(id); if (!pl) return false; pl.name = name.trim().slice(0, 32) || pl.name; return true }
+  setEquipment(equipment) {
+    this._equipment = Array.isArray(equipment) ? equipment : []
+  }
+
   setPlayerWeapon(id, name) {
     const pl = this._playerManager?.getPlayer(id); if (!pl) return false
-    pl.state.weapon = weaponNameToCode(name)
+    const code = equipCodeOf(this._equipment, name)
+    if (code === EQUIP_UNARMED && name) { console.warn(`[runtime] setPlayerWeapon("${name}") is not in this world's equipment list; the player is left unarmed`); return false }
+    pl.state.weapon = code
     return true
   }
   setPlayerAppearance(id, appearance = {}) {

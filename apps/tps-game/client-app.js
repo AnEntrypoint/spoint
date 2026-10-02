@@ -194,6 +194,8 @@ export const tpsGameClient = {
   },
   onFrame(dt, engine) {
     const tps = engine._tps; if (!tps) return
+    engine.hud?.stat?.('ammo', `${tps.ammo}/${tps.magazineSize || 30}`)
+    engine.hud?.stat?.('reloading', tps.reloading)
     if (tps.boost && Date.now() >= tps.boost.expiresAt) tps.boost = null
     if (tps.flash && tps.flashOff && Date.now() >= tps.flashOff) { tps.flash.intensity = 0; tps.flashOff = 0 }
     engine.players.setAiming(engine.playerId, tps.isAiming)

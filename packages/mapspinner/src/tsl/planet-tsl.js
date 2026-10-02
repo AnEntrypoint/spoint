@@ -14,6 +14,7 @@ import { createSkyTSL } from './sky-tsl.js'
 import { bakeAtmosphereLUTs } from '../atmosphere-lut-job.js'
 import { runModuleWorkerJob } from '../worker-job.js'
 import { createTerrainMaterialTSL, makeHpfTexture, makeSurfaceTextures } from './terrain-material-tsl.js'
+import { SCULPT_RES } from './sculpt-tsl.js'
 import { createWaterTSL } from './water-tsl.js'
 
 const GRID_SIZE = TD.gridMeshSize
@@ -87,6 +88,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   const hpfJob = runModuleWorkerJob(new URL('./hpf-bake-worker.js', import.meta.url), { seed: hpfSeed, res: hpfRes }, (d) => d.data)
   const hpfData = (hpfJob && await hpfJob) || bakeHpfTexels(createAnchorField({ seed: hpfSeed }), hpfRes)
   const hpfTexture = makeHpfTexture(hpfData, hpfRes)
+  const geomorphLod = opts.geomorphLod !== false
   const sky = createSkyTSL({ radius: R, luts: await lutJob })
   if (opts.sky !== false) scene.backgroundNode = sky.node
   const terrainArgs = {
@@ -94,7 +96,8 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     landBias: opts.landBias != null ? opts.landBias : SHAPE_UNIFORM_DEFAULTS.uLandBias,
     beachShelfM: opts.beachShelfM != null ? opts.beachShelfM : SHAPE_UNIFORM_DEFAULTS.uBeachShelfM,
   }
-  const { material, uniforms: u, lighting: initialLighting, makeHeightSpec, faceU, faceV, faceC } = createTerrainMaterialTSL(terrainArgs)
+  const { material, uniforms: u, lighting: initialLighting, makeHeightSpec, faceU, faceV, faceC, sculpt } = createTerrainMaterialTSL(terrainArgs)
+  let currentSculpt = sculpt
   let lighting = initialLighting
 
   let patch = makePatchGeometry(INITIAL_QUAD_CAPACITY)
@@ -109,10 +112,11 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   const water = opts.water === false ? null : createWaterTSL({ spec: makeHeightSpec(), terrainUniforms: u, faceU, faceV, faceC })
   if (water) { water.mesh.renderOrder = WATER_DRAWS_BEFORE_OTHER_TRANSPARENTS; scene.add(water.mesh) }
   const swapTerrainMaterial = (m) => {
-    const next = m.createTerrainMaterialTSL({ ...terrainArgs, reuse: { uniforms: u, faceU, faceV, faceC } })
+    const next = m.createTerrainMaterialTSL({ ...terrainArgs, reuse: { uniforms: u, faceU, faceV, faceC, sculpt: currentSculpt } })
     const prev = mesh.material
     mesh.material = next.material
     lighting = next.lighting
+    currentSculpt = next.sculpt
     prev.dispose()
   }
   hotSwapTerrainMaterial = swapTerrainMaterial
@@ -214,6 +218,9 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     const nf = nearFarForCam(R, camDist, camDist - R, surfElev)
     u.camDir.value.set(camWorldPos[0] / camDist, camWorldPos[1] / camDist, camWorldPos[2] / camDist)
     u.camAlt.value = camDist - R
+    u.morphSplitDist.value = geomorphLod ? qt.splitDist : 0
+    u.morphDistFactor.value = qt.distFactor
+    u.morphMaxLevel.value = qt.maxLevel
     u.texCamFrac.value.set(wrap(camWorldPos[0]), wrap(camWorldPos[1]), wrap(camWorldPos[2]))
     if (view) {
       u.camRender.value.copy(view.cameraRenderPosition)
@@ -251,7 +258,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   }
 
   const probeHeights = createHeightProbeTSL(renderer, {
-    hpfTexture, hashVersion, carves,
+    hpfTexture, hashVersion, carves, sculpt: currentSculpt,
     params: { landBias: u.landBias, beachShelfM: u.beachShelfM, reliefScale: u.reliefScale, hpfRes: u.hpfRes },
   })
 
@@ -259,7 +266,8 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     frame, dispose, R, mesh, material, water, lighting, sky, uniforms: u, isTSL: true, hashVersion, probeHeights,
     sceneFar: () => lastFar,
     clearCache() { quadCache.res = null },
-    setSculptOverride() {},
-    clearSculptOverride() {},
+    SCULPT_RES,
+    setSculptOverride(center, extent, frameBasis, heights) { currentSculpt.set(center, extent, frameBasis, heights) },
+    clearSculptOverride() { currentSculpt.clear() },
   }
 }

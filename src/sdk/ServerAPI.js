@@ -15,7 +15,7 @@ import { createAgentAuthoringHandler } from './AgentAuthoringAPI.js'
 import { resolveTerrainConfig, minimapDescriptor } from '../shared/terrainConfig.js'
 import { bakeMinimapIfMissing, isMinimapArtifactPath, bakeRequestedMinimapIfMissing } from './MinimapBake.js'
 import { createDevHmr, isDevHmrEnabled } from './DevHmr.js'
-import { DEFAULT_SPAWN_POINT, worldIceServers } from '../shared/worldDefaults.js'
+import { DEFAULT_SPAWN_POINT, worldIceServers, worldEquipment } from '../shared/worldDefaults.js'
 import { assertWorld } from '../shared/worldResolve.js'
 import { expandWorldPresets } from '../shared/worldPresets.js'
 
@@ -54,6 +54,7 @@ export function createServerAPI(ctx) {
       const knownWorldName = worldDef.name || worldName || ctx.config?.worldName || null
       ctx.worldName = knownWorldName || worldDefFingerprint(worldDef)
       appRuntime.worldName = knownWorldName
+      appRuntime.setEquipment(worldEquipment(worldDef))
       if (worldDef.spawnPoints?.length) ctx.worldSpawnPoints = worldDef.spawnPoints
       else if (worldDef.spawnPoint) ctx.worldSpawnPoints = [worldDef.spawnPoint]
       ctx.worldSpawnPoint = ctx.worldSpawnPoints?.[0] || worldDef.spawnPoint || [...DEFAULT_SPAWN_POINT]

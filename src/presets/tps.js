@@ -43,6 +43,20 @@ export default {
     walkTimeScale: 2.4,
     jogTimeScale: 1.9,
     sprintTimeScale: 1.0,
-    fadeTime: 0.15
+    fadeTime: 0.15,
+    defaultEquipment: 'Pistol',
+    equipment: {
+      Pistol: { down: 'PistolAimDown', neutral: 'PistolAimNeutral', up: 'PistolAimUp', shoot: 'PistolShoot', reload: 'PistolReload' },
+      Rifle: { down: 'RifleAimDown', neutral: 'RifleAimNeutral', up: 'RifleAimUp', shoot: 'PistolShoot', reload: 'PistolReload' }
+    }
+  },
+  equipment: ['Pistol', 'Rifle'],
+  input: {
+    mobileButtons: [
+      { action: 'jump' },
+      { action: 'crouch' },
+      { action: 'shoot' },
+      { action: 'reload' }
+    ]
   }
 }

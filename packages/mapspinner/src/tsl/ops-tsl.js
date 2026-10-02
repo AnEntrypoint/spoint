@@ -7,7 +7,7 @@ import { OCTAVE_ROTATION_COS, OCTAVE_ROTATION_SIN } from './height-spec.js'
 
 const node = (x) => (typeof x === 'number' ? float(x) : x)
 
-export function createTslOps({ params, hpfTexture, loopBoundDelta, carves = [] }) {
+export function createTslOps({ params, hpfTexture, loopBoundDelta, carves = [], sculpt = null }) {
   const rotationCos = uniformArray(Array.from(OCTAVE_ROTATION_COS), 'float')
   const rotationSin = uniformArray(Array.from(OCTAVE_ROTATION_SIN), 'float')
   const carveCentre = carves.length ? uniformArray(carves.map((c) => new Vector4(c.dir[0], c.dir[1], c.dir[2], c.targetH)), 'vec4') : null
@@ -59,5 +59,6 @@ export function createTslOps({ params, hpfTexture, loopBoundDelta, carves = [] }
     },
     param: (name) => params[name],
     hpfTexel: (face, x, y) => textureLoad(hpfTexture, ivec2(int(x), int(node(face).mul(params.hpfRes).add(y))), int(0)),
+    sculpt: sculpt ? sculpt.op : null,
   }
 }

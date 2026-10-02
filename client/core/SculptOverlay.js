@@ -7,7 +7,11 @@ export function createSculptOverlay(terrainBackdrop) {
   const heightDelta = createHeightDelta()
   let _lastExtent = 0
 
-  function _render() { return terrainBackdrop?.planet?.render }
+  function _render() {
+    const p = terrainBackdrop?.planet
+    if (!p) return null
+    return typeof p.setSculptOverride === 'function' ? p : (p.render || null)
+  }
   function _frame() { return terrainBackdrop?.frame }
 
   function _upload(centerX, centerZ, extent) {

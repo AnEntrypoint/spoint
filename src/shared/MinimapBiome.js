@@ -1,5 +1,3 @@
-import { waterlineLocalY } from '../terrain/PlanetFrame.js'
-
 const DEEP_OCEAN_BELOW_M = -200
 const BEACH_TOP_M = 8
 const SNOWCAP_ABOVE_M = 2200
@@ -30,11 +28,15 @@ const NEUTRAL_CLIMATE = { temp: 0.5, humidity: 0.5 }
 
 export function sampleMinimapCell(frame, anchorField, x, z, out) {
   const h = frame.groundHeightLocal(x, z)
-  const climate = anchorField && anchorField.sampleDir ? anchorField.sampleDir(frame.localToDir(x, z)) : NEUTRAL_CLIMATE
-  const seaLevel = waterlineLocalY(frame, x, z)
-  const rgb = biomeColor(h, climate.temp || 0, climate.humidity || 0, seaLevel)
-  out[0] = rgb[0] | 0; out[1] = rgb[1] | 0; out[2] = rgb[2] | 0; out[3] = h >= seaLevel ? 1 : 0
-  return h
+  if (!Number.isFinite(h)) { out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 0; return NaN }
+  const dir = frame.localToDir(x, z, h)
+  const elevation = frame.elevationAtDir(dir)
+  if (!Number.isFinite(elevation)) { out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 0; return NaN }
+  const climate = anchorField && anchorField.sampleDir ? anchorField.sampleDir(dir) : NEUTRAL_CLIMATE
+  const rgb = biomeColor(elevation, climate.temp || 0, climate.humidity || 0, 0)
+  out[0] = rgb[0] | 0; out[1] = rgb[1] | 0; out[2] = rgb[2] | 0
+  out[3] = elevation >= 0 ? 1 : 0
+  return elevation
 }
 
 const SUN_RAW = [-0.55, 0.62, -0.56]

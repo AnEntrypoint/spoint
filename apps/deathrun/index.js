@@ -1,3 +1,4 @@
+export const category = 'Demos & Games'
 import { defineCheckpoint } from '../_lib/checkpoint.js'
 import { collectCheckpointMarkers } from '../checkpoint-marker/index.js'
 const LEADERBOARD_KEY = 'leaderboard'

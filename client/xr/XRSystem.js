@@ -4,6 +4,7 @@ import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js'
 import { VRButton } from 'three/addons/webxr/VRButton.js'
 import { XRControls, createXRButton } from './XRControls.js'
 import { createXRWidgets } from './XRWidgets.js'
+import { readHudStats } from '../hud/HudStats.js'
 
 const SMOOTH_TURN_SPEEDS = [0, 1.5, 3.0, 4.5]
 const SNAP_TURN_ANGLES = [15, 30, 45, 60, 90]
@@ -132,11 +133,11 @@ export function createXRSystem(renderer, scene, camera) {
     renderer.xr.setReferenceSpace(xrBaseReferenceSpace.getOffsetReferenceSpace(new XRRigidTransform(pos, { x: 0, y: 0, z: 0, w: 1 })))
   }
 
-  function update(dt, local, appModules, now) {
+  function update(dt, local, now) {
     const inVR = renderer.xr.isPresenting
     if (inVR && local && (now % 66 < 16)) {
-      const tps = appModules.get('tps-game')?._tps
-      widgets.updateWristUI(local.health ?? 100, tps?.ammo ?? 0, tps?.reloading ?? false)
+      const stats = readHudStats()
+      widgets.updateWristUI(local.health ?? 100, stats.ammo ?? '', stats.reloading === true)
     }
     if (now % 100 < 16) updateControllerVisibility()
     widgets.updateTeleportArc(handsDetected, handModels, xrBaseReferenceSpace)

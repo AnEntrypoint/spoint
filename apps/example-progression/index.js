@@ -1,3 +1,4 @@
+export const category = 'Demos & Games'
 import { defineProgression, DEFAULT_ABILITIES, DEFAULT_CONFIG } from '../../apps/_lib/progression.js'
 
 const customAbilities = [

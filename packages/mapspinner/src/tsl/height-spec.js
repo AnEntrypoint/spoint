@@ -176,7 +176,10 @@ export function defineHeightSpec(o, { hashVersion = HASH_VERSION_FLOAT, carveCou
   }
 
   const naturalHeight = (dir0) => shapeHeight(fractalTerrainH(dir0), o.x(hpfSample(dir0)))
-  const composeHeight = (dir0) => applyReliefScale(carveTerrain(dir0, naturalHeight(dir0)))
+  const composeHeight = (dir0) => {
+    const h = applyReliefScale(carveTerrain(dir0, naturalHeight(dir0)))
+    return o.sculpt ? o.add(h, o.sculpt(dir0, h)) : h
+  }
 
   return { hashVersion, carveCount, h3, snoise3, fractalTerrainH, hpfSample, naturalHeight, composeHeight, cubeFaceUV }
 }

@@ -16,6 +16,7 @@ import { LoadingManager } from './LoadingManager.js'
 import { createLoadingScreen } from './hud/createLoadingScreen.js'
 import { MobileControls, detectDevice } from './core/MobileControls.js'
 import { createMobileControlsUI } from './hud/MobileControlsUI.js'
+import { publishHudStat } from './hud/HudStats.js'
 import { createCameraController } from './core/camera.js'
 import { createMultiViewport } from './core/MultiViewport.js'
 import { preloadAnimationLibraryIfUncached, loadAnimationLibrary } from './AnimationLibrary.js'
@@ -65,8 +66,8 @@ import { buildFSR1Nodes, installFSR1, registerFSR1WebGPU } from './core/FSR1.js'
 import { installRenderControls, RenderControls } from './core/RenderControls.js'
 import { installMeshDebug } from './core/MeshDebug.js'
 import { pickExpressionCode, applyExpressionCode, EXPR_NEUTRAL } from './core/ExpressionCodes.js'
-import { codeToWeaponName } from '../src/shared/WeaponCodes.js'
-import { withTerrainSeed, withTerrainHashVersion, parseTerrainHashOverride } from '../src/shared/terrainConfig.js'
+import { equipNameOf } from '../src/shared/equipment.js'
+import { withTerrainSeed, withTerrainHashVersion, parseTerrainHashOverride, LEGACY_TERRAIN_HASH_VERSION } from '../src/shared/terrainConfig.js'
 import { defaultWorldNameOf, isWorldName } from '../src/shared/worldName.js'
 import { getSharedStreamingScheduler } from './core/StreamingScheduler.js'
 import { createPlacementScheduler, warmSceneryShaders } from './core/PlacementScheduler.js'
@@ -95,7 +96,7 @@ import { ErrorTelemetry } from './core/ErrorTelemetry.js'
 import { installDevTools } from './core/DevToolsIntegration.js'
 import { assertWorld } from '/src/shared/worldResolve.js'
 import { expandWorldPresets } from '/src/shared/worldPresets.js'
-import { worldPlayerModel } from '/src/shared/worldDefaults.js'
+import { worldPlayerModel, worldEquipment, worldMobileButtons } from '/src/shared/worldDefaults.js'
 
 const _dbgTerrain = dbg('terrain')
 const _dbgNet = dbg('net')
@@ -173,16 +174,26 @@ if (typeof window !== 'undefined') {
   })
 }
 
-const _webgpuOptIn = typeof location !== 'undefined' && /[?&]webgpu=1\b/.test(location.search)
+const _legacyGlOptIn = typeof location !== 'undefined' && /[?&]legacygl=1\b/.test(location.search)
+const _webgpuOptIn = typeof location !== 'undefined' && !_legacyGlOptIn
 const _forceWebGLBackend = _webgpuOptIn && /[?&]forcewebgl=1\b/.test(location.search)
 try {
   if (_webgpuOptIn) {
     try {
       renderer = await probeAndCreateWebGPURenderer(isMobileDevice, _forceWebGLBackend)
     } catch (webgpuErr) {
-      console.warn(`[renderer] ?webgpu=1${_forceWebGLBackend ? '&forcewebgl=1' : ''} requested but WebGPURenderer init failed, falling back to legacy WebGLRenderer:`, webgpuErr && (webgpuErr.message || webgpuErr))
-      renderer = createRenderer(isMobileDevice)
+      if (!_forceWebGLBackend) {
+        try {
+          renderer = await probeAndCreateWebGPURenderer(isMobileDevice, true)
+          console.warn('[renderer] WebGPU unavailable, WebGPURenderer is using its WebGL2 backend:', webgpuErr && (webgpuErr.message || webgpuErr))
+        } catch (webglBackendErr) {
+          console.warn('[renderer] WebGPURenderer with the WebGL2 backend also failed, falling back to legacy WebGLRenderer:', webglBackendErr && (webglBackendErr.message || webglBackendErr))
+        }
+      } else {
+        console.warn(`[renderer] ?webgpu=1&forcewebgl=1 requested but WebGPURenderer init failed, falling back to legacy WebGLRenderer:`, webgpuErr && (webgpuErr.message || webgpuErr))
+      }
     }
+    if (!renderer) renderer = createRenderer(isMobileDevice)
     if (renderer && renderer.isWebGPURenderer) {
       try {
         installStuckPipelineRecovery(renderer, scene)
@@ -284,7 +295,35 @@ const loadingMgr = new LoadingManager(), loadingScreen = createLoadingScreen(loa
 const loadingMachine = createLoadingStateMachine()
 if (window.__app) window.__app.loadingMachine = loadingMachine
 let _loadingFinished = false
+let _worldRevealed = false
 const SHADER_WARMUP_MAX_MS = 6000
+async function _revealWorld() {
+  if (_worldRevealed) return
+  _worldRevealed = true
+  const _shaderManifest = await _shaderManifestPromise
+  if (!_isSingleplayer || el.entityMeshes.size < 10 || _shaderManifest) {
+    loadingMgr.setLabel('Compiling shaders...')
+    const _warmupAbort = { aborted: false }
+    window.__warmupInFlight = true
+    try {
+      await Promise.race([warmupShaders(renderer, scene, camera, el.entityMeshes, pm.playerMeshes, loadingMgr, _warmupAbort, _shaderManifest), new Promise(r => setTimeout(r, SHADER_WARMUP_MAX_MS)).then(() => { _warmupAbort.aborted = true })])
+    } catch (_) { _warmupAbort.aborted = true } finally { window.__warmupInFlight = false }
+  }
+  loadingMgr.setLabel('Compiling shaders...')
+  await whenProgramsReady(renderer, SHADER_WARMUP_MAX_MS)
+  performance.mark('boot:shaders-warm')
+  loadingMgr.setLabel('Starting game...')
+  loadingScreen.hide()
+  if (window.__app) window.__app.revealedAt = performance.now()
+  if (_pendingSpPrefetch && _pendingSpPrefetch.length > 0) {
+    const urls = _pendingSpPrefetch; _pendingSpPrefetch = null
+    try {
+      const sched = getSharedStreamingScheduler()
+      for (const u of urls) sched.enqueue({ id: 'modelPrefetch:' + u, kind: 'modelPrefetch', features: { distance: 50000, screenSize: 1, inFrustum: false, gameplayBoost: 0 }, run: () => { el.prefetchModels([u]).catch(() => {}) } })
+    } catch (e) { _dbgBoot('singleplayer prefetch enqueue failed:', e?.message || e) }
+  }
+  try { window.__app?.clientMachine?.send('ASSETS_READY') } catch (e) { _dbgBoot('ASSETS_READY send failed:', e?.message || e) }
+}
 async function _finishLoading() {
   if (_loadingFinished) return
   _loadingFinished = true
@@ -326,29 +365,7 @@ async function _finishLoading() {
     }
   }
   performance.mark('boot:scenery-built')
-  const _shaderManifest = await _shaderManifestPromise
-  if (!_isSingleplayer || el.entityMeshes.size < 10 || _shaderManifest) {
-    loadingMgr.setLabel('Compiling shaders...')
-    const _warmupAbort = { aborted: false }
-    window.__warmupInFlight = true
-    try {
-      await Promise.race([warmupShaders(renderer, scene, camera, el.entityMeshes, pm.playerMeshes, loadingMgr, _warmupAbort, _shaderManifest), new Promise(r => setTimeout(r, SHADER_WARMUP_MAX_MS)).then(() => { _warmupAbort.aborted = true })])
-    } catch (_) { _warmupAbort.aborted = true } finally { window.__warmupInFlight = false }
-  }
-  loadingMgr.setLabel('Compiling shaders...')
-  await whenProgramsReady(renderer, SHADER_WARMUP_MAX_MS)
-  performance.mark('boot:shaders-warm')
-  loadingMgr.setLabel('Starting game...')
-  loadingScreen.hide()
-  if (window.__app) window.__app.revealedAt = performance.now()
-  if (_pendingSpPrefetch && _pendingSpPrefetch.length > 0) {
-    const urls = _pendingSpPrefetch; _pendingSpPrefetch = null
-    try {
-      const sched = getSharedStreamingScheduler()
-      for (const u of urls) sched.enqueue({ id: 'modelPrefetch:' + u, kind: 'modelPrefetch', features: { distance: 50000, screenSize: 1, inFrustum: false, gameplayBoost: 0 }, run: () => { el.prefetchModels([u]).catch(() => {}) } })
-    } catch (e) { _dbgBoot('singleplayer prefetch enqueue failed:', e?.message || e) }
-  }
-  try { window.__app?.clientMachine?.send('ASSETS_READY') } catch (e) { _dbgBoot('ASSETS_READY send failed:', e?.message || e) }
+  await _revealWorld()
 }
 function _ensureVegetation(tb) {
   if (vegetation || !tb || !_terrainCfg) return null
@@ -358,7 +375,7 @@ function _ensureVegetation(tb) {
   if (typeof location !== 'undefined' && /[?&]veg=none/.test(location.search)) { console.warn('[veg] ?veg=none -> vegetation skipped'); return null }
   const anchorField = tb.sampler && tb.sampler.anchorField
   const gen = _foliageGen
-  const pending = _hmrFactories.createVegetation({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0 })
+  const pending = _hmrFactories.createVegetation({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0, shadowPipeline })
     .then(v => { if (gen !== _foliageGen) { v?.dispose?.(); if (vegetation) window.__veg = vegetation; return } vegetation = v; if (window.__app) window.__app.vegetation = v; sceneOcclusion.register('vegetation', v) })
     .catch(e => console.error('[veg] init failed:', e?.message || e))
     .finally(() => { if (_foliagePending.vegetation === pending) _foliagePending.vegetation = null })
@@ -452,6 +469,7 @@ async function _buildWorldScenery() {
       if (typeof location !== 'undefined' && /[?&]drawcollider/.test(location.search)) colliderDebug.setVisible(true)
     } catch (e) { console.error('[colliderDebug] init failed:', e?.message || e) }
     const rp = _ensureRocks(tb), gp = _ensureGrass(tb), vp = _ensureVegetation(tb)
+    _revealWorld().catch(e => { _dbgBoot('early world reveal failed:', e?.message || e) })
     await Promise.all([rp, gp, vp].filter(Boolean)); performance.mark('boot:foliage-built'); _hp('after-rocks-grass-veg')
     _ensureCaves(tb); _hp('after-caves')
     _ensureWeather(tb); _hp('after-weather')
@@ -481,8 +499,14 @@ async function _buildWorldScenery() {
 }
 loadingMachine.subscribe((v) => { try { loadingMgr.setLabel(loadingMachine.label) } catch (_) {}; if (loadingMachine.isReady) _finishLoading() })
 loadingMgr.setLabel(STRINGS.loadingConnecting)
-const deviceInfo = _deviceInfoEarly; let mobileControls = null, inputConfig = { pointerLock: true }
-if (deviceInfo.isMobile) { mobileControls = new MobileControls({ joystickRadius: 45, rotationSensitivity: 0.003, zoomSensitivity: 0.008 }); createMobileControlsUI(mobileControls); inputConfig.pointerLock = false }
+const deviceInfo = _deviceInfoEarly; let mobileControls = null, mobileControlsUI = null, inputConfig = { pointerLock: true }
+let _worldDef = null
+if (deviceInfo.isMobile) { mobileControls = new MobileControls({ joystickRadius: 45, rotationSensitivity: 0.003, zoomSensitivity: 0.008 }); mobileControlsUI = createMobileControlsUI(mobileControls, worldMobileButtons(null)); inputConfig.pointerLock = false }
+const _rebuildMobileControls = (wd) => {
+  if (!deviceInfo.isMobile || !mobileControls) return
+  mobileControlsUI?.destroy?.()
+  mobileControlsUI = createMobileControlsUI(mobileControls, worldMobileButtons(wd))
+}
 installQualityPresets()
 QualityPresets.autoApplyPersisted({ renderer, deviceInfo })
 const cam = createCameraController(camera, scene)
@@ -506,6 +530,7 @@ const clickPrompt = document.getElementById('click-prompt')
 if (deviceInfo.isMobile && clickPrompt) clickPrompt.style.display = 'none'
 const _pids = new Set(), _eids = new Set()
 let worldConfig={}, vrmBuffer=null, animAssets=null, assetsLoaded=false, firstSnapshotReceived=false, _fitShadowTimer=null
+let _equipment=[]
 let _terrainBuildGen = 0
 let _terrainReseedPending = false
 let _foliageGen = 0
@@ -674,6 +699,7 @@ const _connectParam = _params.get('connect')
 const _seedParamRaw = _params.get('seed')
 const _seedParam = _seedParamRaw != null && _seedParamRaw !== '' && Number.isFinite(Number(_seedParamRaw)) ? (Number(_seedParamRaw) | 0) : null
 const _terrainHashParam = (() => { try { return parseTerrainHashOverride(_params.get('terrainhash')) } catch (e) { console.error(`[terrain] ?terrainhash ignored: ${e.message}`); return null } })()
+  ?? (renderer && renderer.isWebGPURenderer ? null : LEGACY_TERRAIN_HASH_VERSION)
 const _shaderManifestPromise = (typeof fetch === 'function' && _worldParam)
   ? fetch(`/apps/world/${_worldParam}.shadermanifest.json`, { cache: 'no-cache' })
       .then(r => r.ok ? r.json() : null)
@@ -795,6 +821,7 @@ const engineCtx = {
   get worldConfig() { return worldConfig }, get inputConfig() { return inputConfig },
   playerVrms: pm.playerVrms, entityAppMap, kit: _designKit,
   network: { send: msg => client.send(0x33, msg) },
+  hud: { stat: publishHudStat },
   setInputConfig(cfg) { Object.assign(inputConfig,cfg); if (!inputConfig.pointerLock) { if (clickPrompt) clickPrompt.style.display='none'; if (document.pointerLockElement) _safeExitPointerLock() } },
   players: { getMesh: id=>pm.playerMeshes.get(id), getState: id=>pm.playerStates.get(id), getAnimator: id=>pm.playerAnimators.get(id), setExpression: (id,n,v)=>pm.setVRMExpression(id,n,v), setAiming: (id,v)=>{ const s=pm.playerStates.get(id); if (s) s._aiming=v } },
   decals: { spawnDecal: (point, normal) => decalSystem.spawnDecal(point, normal), spawnTracer: (origin, target) => decalSystem.spawnTracer(origin, target) },
@@ -909,7 +936,7 @@ function _splitAppPath(path) {
   const i = p.indexOf('/')
   return i < 0 ? { appName: p, file: 'index.js' } : { appName: p.slice(0, i), file: p.slice(i + 1) }
 }
-let _worldDef = null, _worldLoaded = false
+let _worldLoaded = false
 if (_worldParam && _runsInPageServer) {
   const _runtimeConfigPromise = fetch(new URL('runtime-config.json', document.baseURI), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
   const _wmod = await import(`/apps/world/${_worldParam}.js`).catch(e => import(`/apps/world/_fixtures/${_worldParam}.js`).catch(e2 => { console.error(`[world] failed to load /apps/world/${_worldParam}.js:`, e?.message || e, '| _fixtures:', e2?.message || e2); return null }))
@@ -997,7 +1024,7 @@ let client; const _clientConfig = {
   onWorldDef: wd => {
     if (_worldLoaded) { try { el.dispose() } catch (e) { _dbgEditor('EntityLoader dispose failed on world reload:', e?.message || e) } try { modelPool.dispose() } catch (e) { _dbgEditor('modelPool dispose failed on world reload:', e?.message || e) } }
     _worldLoaded = true
-    loadingMgr.setLabel('Syncing with server...'); worldConfig=wd
+    loadingMgr.setLabel('Syncing with server...'); worldConfig=wd; _equipment=worldEquipment(wd); _rebuildMobileControls(wd)
     if (wd.terrain && wd.terrain.enabled!==false) _terrainCfg=wd.terrain
     loadingMachine.send('WORLD_CONFIG')
     const criticalModels = [worldPlayerModel(wd), ...(wd.entities||[]).filter(e=>e.custom?._interior||e.custom?.noAutoLod).map(e=>e.model)].filter(Boolean)
@@ -2134,7 +2161,7 @@ function tickPlayerAnimators(lid, frameDt, isEditor) {
       }
     }
     if (_animLodSkip) continue
-    if (anim.setWeapon) { const wn=codeToWeaponName(ps.weapon||0); if (wn) anim.setWeapon(wn) }
+    if (anim.setWeapon) { const wn=equipNameOf(_equipment, ps.weapon||0); if (wn) anim.setWeapon(wn) }
     try { anim.update(frameDt,ps.velocity,ps.onGround,ps.health,ps._aiming||false,(ps.crouch||0)&CROUCH_FLAG_BIT,mesh.rotation.y) }
     catch (_animErr) { if (id===lid) window.__animErr={msg:_animErr&&_animErr.message,stack:_animErr&&_animErr.stack,vel:ps.velocity&&ps.velocity.slice()} }
     if (id===lid&&(window.__wantAnimProbe||_showStats)&&anim.getDebug) { const _vx=ps.velocity?.[0]||0,_vz=ps.velocity?.[2]||0; window.__animProbe={...anim.getDebug(),speed:Math.sqrt(_vx*_vx+_vz*_vz),onGround:ps.onGround} }
@@ -2344,7 +2371,7 @@ function buildFrameSectionNodes() {
           camera.position.set(_specTmp.x - Math.sin(cam.yaw) * d, _specTmp.y + hgt, _specTmp.z - Math.cos(cam.yaw) * d)
           camera.lookAt(_specTmp.x, _specTmp.y, _specTmp.z)
         } else if (!xrSystem?.isPresenting || ctx.res.isEditorFrame) cam.update(local, pm.playerMeshes.get(lid), ctx.res.frameDt, latestInput)
-        xrSystem?.syncVRPosition(xrSystem.isPresenting ? (client.getRenderState?.(ctx.now) || local) : local); xrSystem?.update(ctx.res.frameDt, local, ams.appModules, ctx.now)
+        xrSystem?.syncVRPosition(xrSystem.isPresenting ? (client.getRenderState?.(ctx.now) || local) : local); xrSystem?.update(ctx.res.frameDt, local, ctx.now)
         ctx.res.vegFocus = (cam.getEditMode() && cam.getEditCameraPosition) ? cam.getEditCameraPosition()
           : specMesh ? _specTmp
           : local && local.position ? _localFocusToRender(local.position)

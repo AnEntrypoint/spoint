@@ -61,7 +61,13 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   }
 
   const { actions, additiveActions } = buildActionsFromClips(mixer, remappedClips, animConfig)
-  const smAnimConfig = additiveActions.has('PistolAimDown') || additiveActions.has('PistolAimNeutral') || additiveActions.has('PistolAimUp')
+  const declaredAimClips = () => {
+    const sets = animConfig.equipment || WEAPON_AIM_POSES
+    const out = []
+    for (const spec of Object.values(sets || {})) if (spec) out.push(spec.down, spec.neutral, spec.up)
+    return out
+  }
+  const smAnimConfig = declaredAimClips().some(c => additiveActions.has(c))
     ? { ...animConfig, suppressLegacyAim: true }
     : animConfig
   const sm = createAnimationStateMachine(mixer, root, actions, additiveActions, smAnimConfig)
@@ -98,9 +104,14 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
   const MOVE_ANGLE_SMOOTH = 8.0
   const LOCO_STATES = new Set(['IdleLoop', 'WalkLoop', 'JogFwdLoop', 'SprintLoop', 'CrouchIdleLoop', 'CrouchFwdLoop'])
 
-  let _weaponName = 'Pistol'
+  const equipSpec = (weaponName) => {
+    const declared = animConfig.equipment
+    if (declared && Object.prototype.hasOwnProperty.call(declared, weaponName)) return declared[weaponName] || null
+    return WEAPON_AIM_POSES[weaponName] || null
+  }
+  let _weaponName = animConfig.defaultEquipment ?? null
   const _resolveAimTrio = (weaponName) => {
-    const spec = WEAPON_AIM_POSES[weaponName]
+    const spec = equipSpec(weaponName)
     if (!spec) return null
     const down = additiveActions.get(spec.down) || null
     const neutral = additiveActions.get(spec.neutral) || null
@@ -148,8 +159,9 @@ export function createPlayerAnimator(vrm, allClips, vrmVersion, animConfig = {})
       sm.aim(active)
     },
     setWeapon(weaponName) {
-      if (!weaponName || weaponName === _weaponName) return
-      _weaponName = weaponName
+      if (weaponName === _weaponName) return
+      _weaponName = weaponName || null
+      sm.setWeapon?.(_weaponName)
       _aimTrio = _resolveAimTrio(_weaponName)
     },
     getDebug() {

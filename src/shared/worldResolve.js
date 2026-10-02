@@ -36,6 +36,17 @@ function checkSlices(w) {
     if (bad >= 0) return reject(`iceServers[${bad}].urls`, 'must be a string or an array of strings')
   }
   for (const k of ['placeableApps', 'trustedApps']) if (w[k] !== undefined && !(Array.isArray(w[k]) && w[k].every(a => typeof a === 'string'))) return reject(k, 'must be an array of app names')
+  if (w.equipment !== undefined) {
+    if (!Array.isArray(w.equipment) || !w.equipment.every(a => typeof a === 'string' && a !== '')) return reject('equipment', 'must be an array of non-empty equipment names (index 0 is equipment code 1)')
+    if (new Set(w.equipment).size !== w.equipment.length) return reject('equipment', 'must not repeat an equipment name: the code is its index, so a duplicate is ambiguous')
+  }
+  if (w.input?.mobileButtons !== undefined) {
+    const buttons = w.input.mobileButtons
+    if (!Array.isArray(buttons) || !buttons.every(b => b && typeof b === 'object' && typeof b.action === 'string' && b.action !== '')) {
+      return reject('input.mobileButtons', 'must be an array of objects with a non-empty action string')
+    }
+    if (new Set(buttons.map(b => b.action)).size !== buttons.length) return reject('input.mobileButtons', 'must not repeat an action: only the first button for an action is kept')
+  }
   if (w.entities !== undefined) {
     if (!Array.isArray(w.entities)) return reject('entities', 'must be an array')
     const ids = new Set()

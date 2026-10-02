@@ -54,11 +54,14 @@ export function tangentLocalToDir(basis, radius, x, z) {
 export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0, reliefScale }) {
   const radius = sampler.radius
   const _reliefScale = (reliefScale != null) ? reliefScale : 0.01
-  const { up, east, north } = anchorBasis(anchorDir)
-  const anchorHeight = sampler.heightAt(up)
-  const _e0 = east[0], _e1 = east[1], _e2 = east[2]
-  const _n0 = north[0], _n1 = north[1], _n2 = north[2]
-  const _u0 = up[0], _u1 = up[1], _u2 = up[2]
+  const { up: _u, east: _e, north: _n } = anchorBasis(anchorDir)
+  const up = [..._u]
+  const east = [..._e]
+  const north = [..._n]
+  let anchorHeight = sampler.heightAt(up)
+  let _e0 = east[0], _e1 = east[1], _e2 = east[2]
+  let _n0 = north[0], _n1 = north[1], _n2 = north[2]
+  let _u0 = up[0], _u1 = up[1], _u2 = up[2]
   const _solveTolTimesR = radius * RENDER_F32_HALF_ULP_REL * radius
   function renderDirAt(x, renderY, z) {
     const t = radius + anchorHeight + renderY
@@ -107,5 +110,21 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
     return surf
   }
   const elevationAtDir = (d) => sampler.heightAt(_norm(d))
-  return { radius, hashVersion: sampler.hashVersion, up, east, north, anchorDir: up, anchorHeight, anchorSurfaceWorld, offsetY, reliefScale: _reliefScale, localToDir, solveSurfaceY, groundHeightLocal, cpuGroundHeightLocal: groundHeightLocal, localToWorld, elevationAtDir }
+  const frame = { radius, hashVersion: sampler.hashVersion, up, east, north, anchorHeight, anchorSurfaceWorld, offsetY, reliefScale: _reliefScale, localToDir, solveSurfaceY, groundHeightLocal, cpuGroundHeightLocal: groundHeightLocal, localToWorld, elevationAtDir, chartEpoch: 0 }
+  Object.defineProperty(frame, 'anchorDir', { enumerable: true, configurable: true, get: () => [up[0], up[1], up[2]] })
+  function reanchor(newDir) {
+    const b = anchorBasis(newDir)
+    for (let i = 0; i < 3; i++) { up[i] = b.up[i]; east[i] = b.east[i]; north[i] = b.north[i] }
+    _e0 = east[0]; _e1 = east[1]; _e2 = east[2]
+    _n0 = north[0]; _n1 = north[1]; _n2 = north[2]
+    _u0 = up[0]; _u1 = up[1]; _u2 = up[2]
+    anchorHeight = sampler.heightAt(up)
+    frame.anchorHeight = anchorHeight
+    const lift = radius + anchorHeight
+    for (let i = 0; i < 3; i++) anchorSurfaceWorld[i] = up[i] * lift
+    frame.chartEpoch++
+    return [...up]
+  }
+  frame.reanchor = reanchor
+  return frame
 }

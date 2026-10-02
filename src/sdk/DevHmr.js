@@ -174,7 +174,7 @@ export function createDevHmr({ sdkRoot, staticDirs, log = console, onLibChanged 
   let bridge = null
   const start = (port) => {
     if (Number.isInteger(port) && port > 0) bridge = startLoopbackV6Bridge(port, log)
-    if (process.env.SPOINT_SUPERVISED === '1') process.on('message', m => { if (m?.type === 'spoint-shutdown') process.emit('SIGTERM', 'SIGTERM') })
+    if (process.env.SPOINT_SUPERVISED === '1') process.on('message', m => { const msg = Object(m); if (msg.type === 'spoint-shutdown') process.emit('SIGTERM', 'SIGTERM') })
     for (const root of WATCH_ROOTS) {
       const dir = join(sdkRoot, root)
       if (!existsSync(dir)) continue
@@ -265,7 +265,7 @@ export function startLoopbackV6Bridge(port, log = console) {
     inbound.on('error', drop)
     outbound.on('error', drop)
   })
-  bridge.on('error', e => log.warn(`[hmr] [::1]:${port} bridge unavailable (${e.code || e.message}); http://localhost pays the IPv6 fallback delay, use http://127.0.0.1:${port}`))
+  bridge.on('error', e => { const detail = Object(e); log.warn(`[hmr] [::1]:${port} bridge unavailable (${detail.code || detail.message}); http://localhost pays the IPv6 fallback delay, use http://127.0.0.1:${port}`) })
   bridge.listen(port, '::1', () => log.log(`[hmr] [::1]:${port} bridged to 127.0.0.1 so http://localhost:${port} connects without the IPv6 fallback delay`))
   return bridge
 }

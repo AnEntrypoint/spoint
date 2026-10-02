@@ -11,10 +11,11 @@ import { PrefabLibrary } from '../editor/PrefabLibrary.js'
 import { TEXT_EXTS, isTextFile, sanitizeFsError, WORLD_CONFIG_KEYS, serializeEntity, serializeWorld, serializeWorldSource } from './EditorHandlersSerialize.js'
 
 const isNode = typeof process !== 'undefined' && process.versions?.node
-let _fs = null, _path = null, _bakeMinimapIfMissing = null
+let _fs = null, _path = null, _url = null, _bakeMinimapIfMissing = null
 if (isNode) {
   _fs = await import('node:fs')
   _path = await import('node:path')
+  _url = await import('node:url')
   const _minimapBakePath = (() => './' + 'MinimapBake' + '.js')()
   _bakeMinimapIfMissing = (await import(_minimapBakePath)).bakeMinimapIfMissing
 }
@@ -420,11 +421,20 @@ export function createEditorHandlers(ctx) {
         connections.send(clientId, MSG.WORLD_SAVED, { ok: false, error: e.message })
       }
     },
-    [MSG.LIST_WORLDS]: (payload, clientId) => {
+    [MSG.LIST_WORLDS]: async (payload, clientId) => {
       if (!isNode || !readdirSync) { connections.send(clientId, MSG.WORLD_LIST, { worlds: [] }); return }
       try {
         const worldsRoot = resolvePath(process.cwd(), 'apps', 'world')
-        const worlds = existsSync(worldsRoot) ? readdirSync(worldsRoot).filter(f => f.endsWith('.js')).map(f => f.slice(0, -3)) : []
+        const files = existsSync(worldsRoot) ? readdirSync(worldsRoot).filter(f => f.endsWith('.js')).map(f => f.slice(0, -3)) : []
+        const worlds = []
+        for (const name of files) {
+          let description = null
+          try {
+            const mod = await import(_url.pathToFileURL(resolvePath(joinPath(worldsRoot, name + '.js'))).href)
+            if (typeof mod?.description === 'string') description = mod.description
+          } catch { }
+          worlds.push(description ? { name, description } : { name })
+        }
         connections.send(clientId, MSG.WORLD_LIST, { worlds })
       } catch (e) {
         connections.send(clientId, MSG.WORLD_LIST, { worlds: [], error: e.message })

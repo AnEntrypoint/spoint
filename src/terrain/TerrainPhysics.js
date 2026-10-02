@@ -5,7 +5,7 @@ import { createBiomeOverride, loadBiomeOverride } from './BiomeOverride.js'
 import { loadSplineCarveLayer } from './SplineCarve.js'
 import { loadCaveCarveLayer } from './CaveSDF.js'
 import { createTerrainStreamer } from './HeightfieldStreamer.js'
-import { terrainHashVersionOf, terrainCarvesOf, terrainBakeKey, DEFAULT_TERRAIN_HASH_VERSION } from '../shared/terrainConfig.js'
+import { terrainHashVersionOf, terrainCarvesOf, terrainBakeKey, LEGACY_TERRAIN_HASH_VERSION } from '../shared/terrainConfig.js'
 
 let _latestSampler = { key: null, promise: null }
 export function planetSamplerOptsOf(tcfg) {
@@ -23,7 +23,7 @@ export function loadPlanetSampler(opts = {}) {
 }
 
 function bakedHashVersionOf(artifact) {
-  return artifact.hashVersion ?? DEFAULT_TERRAIN_HASH_VERSION
+  return artifact.hashVersion ?? LEGACY_TERRAIN_HASH_VERSION
 }
 
 function _dequantizeSectorized(artifact) {
@@ -128,7 +128,7 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
   const splineCarve = loadSplineCarveLayer(splineCarveJSON, (x, z) => frame.groundHeightLocal(x, z))
   const paintedAnchorField = splineCarve.wrapClimateField(biomeOverride.wrapClimateField(cachedAnchorField))
   const offsetY = tcfg.offsetY || 0
-  const gpuPatch = (tcfg.gpuPatchCollider !== false && hashVersion === DEFAULT_TERRAIN_HASH_VERSION)
+  const gpuPatch = (tcfg.gpuPatchCollider !== false && hashVersion === LEGACY_TERRAIN_HASH_VERSION)
     ? await createGpuPatchHeightFn({ frame, tcfg, offsetY }).catch(() => null)
     : null
   const baked = gpuPatch ? null : await loadBakedHeightField(tcfg.bakedHeightfield, hashVersion, tcfg).catch(() => null)

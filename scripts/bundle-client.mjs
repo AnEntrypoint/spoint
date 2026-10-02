@@ -8,6 +8,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const flags = new Set(process.argv.slice(2).filter(a => a.startsWith('--')))
 const positional = process.argv.slice(2).filter(a => !a.startsWith('--'))
 const IF_STALE = flags.has('--if-stale')
+const MINIFY = !flags.has('--no-minify')
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '.gm', 'dist', '.glb-cache', '.progressive-cache'])
 function newestMtime(dir, exts, out = { max: 0 }) {
@@ -70,7 +71,7 @@ if (bundleFresh) {
   await build({
     entryPoints: [entry],
     bundle: true,
-    minify: true,
+    minify: MINIFY,
     format: 'esm',
     platform: 'browser',
     target: 'es2022',

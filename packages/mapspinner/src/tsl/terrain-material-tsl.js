@@ -1,13 +1,14 @@
 import * as THREE from 'three/webgpu'
 import {
   Fn, Loop, If, float, int, vec2, vec3, vec4, uniform, uniformArray, attribute, varyingProperty, texture, select,
-  normalize, cross, dot, max, mix, smoothstep, clamp, length, fwidth, tan, cameraViewMatrix, property, output,
+  normalize, cross, dot, max, mix, smoothstep, clamp, length, fwidth, tan, floor, cameraViewMatrix, property, output,
 } from 'three/tsl'
 import { FACE_FRAME } from '../planet-orchestrator-cull.js'
 import { TERRAIN_DEFAULTS as TD } from '../terrain-defaults.js'
 import { defineHeightSpec } from './height-spec.js'
 import { createTslOps } from './ops-tsl.js'
 import { terrainAlbedoClimate, surfaceSplat } from './surface-splat-tsl.js'
+import { createSculptOverrideTSL } from './sculpt-tsl.js'
 import { createLegacyTerrainLighting } from './terrain-lighting-tsl.js'
 
 const FD_TAPS = 5
@@ -79,6 +80,9 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
     poolCover: uniform(TD.poolCover),
     wetness: uniform(0),
     reliefShade: uniform(TD.reliefShade),
+    morphSplitDist: uniform(0),
+    morphDistFactor: uniform(1),
+    morphMaxLevel: uniform(0),
     surfAlb: texture(placeholder.alb),
     surfNrm: texture(placeholder.nrm),
   }
@@ -86,9 +90,10 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
   const faceV = reuse ? reuse.faceV : uniformArray(FACE_FRAME.map((f) => v3(f.v)), 'vec3')
   const faceC = reuse ? reuse.faceC : uniformArray(FACE_FRAME.map((f) => v3(f.c)), 'vec3')
 
+  const sculpt = reuse ? reuse.sculpt : createSculptOverrideTSL({ defRadius: u.defRadius })
   const makeHeightSpec = () => defineHeightSpec(createTslOps({
     params: { landBias: u.landBias, beachShelfM: u.beachShelfM, reliefScale: u.reliefScale, hpfRes: u.hpfRes },
-    hpfTexture, loopBoundDelta: u.loopBoundDelta, carves,
+    hpfTexture, loopBoundDelta: u.loopBoundDelta, carves, sculpt,
   }), { hashVersion, carveCount: carves.length })
   const spec = makeHeightSpec()
 
@@ -109,6 +114,17 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
     const R = u.defRadius
     const absLocal = off.xy.add(grid.xy.mul(off.z)).toVar()
     const step = off.z.mul(u.gridInv)
+    If(u.morphSplitDist.greaterThan(0.0).and(grid.z.lessThan(0.5)).and(off.w.greaterThanEqual(1.0)).and(off.w.lessThan(u.morphMaxLevel)), () => {
+      const flW = tan(absLocal.div(R).mul(QUARTER_PI)).mul(R)
+      const dW = normalize(fu.mul(flW.x).add(fv.mul(flW.y)).add(fc.mul(R)))
+      const distToCam = length(dW.mul(R).sub(u.camDir.mul(R.add(u.camAlt))))
+      const threshold = off.z.mul(u.morphSplitDist).mul(u.morphDistFactor)
+      const morphEnd = threshold.mul(2.0)
+      const m = clamp(morphEnd.sub(distToCam).div(morphEnd.sub(threshold)), 0.0, 1.0)
+      const vMorph = m.mul(m).mul(m.mul(-2.0).add(3.0))
+      const parentCell = off.z.mul(2.0).mul(u.gridInv)
+      absLocal.assign(mix(absLocal, floor(absLocal.div(parentCell).add(0.5)).mul(parentCell), vMorph))
+    })
     const h0 = float(0).toVar(), d0 = vec3(0).toVar()
     const wPU = vec3(0).toVar(), wMU = vec3(0).toVar(), wPV = vec3(0).toVar(), wMV = vec3(0).toVar()
     Loop({ start: int(0), end: u.fdTaps.add(u.loopBoundDelta), type: 'int', condition: '<' }, ({ i }) => {
@@ -173,5 +189,5 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
   material.metalness = 0.0
   material.fog = false
   material.side = THREE.DoubleSide
-  return { material, uniforms: u, lighting, spec, makeHeightSpec, faceU, faceV, faceC }
+  return { material, uniforms: u, lighting, spec, makeHeightSpec, faceU, faceV, faceC, sculpt }
 }

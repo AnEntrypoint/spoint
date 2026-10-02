@@ -50,7 +50,7 @@ export function createXRWidgets(renderer, scene, camera, vrSettings) {
     ctx.fillStyle = health > 60 ? '#00ff00' : health > 30 ? '#ffff00' : '#ff0000'
     ctx.fillText(`HP ${Math.round(health)}`, 10, 45)
     ctx.textAlign = 'right'; ctx.fillStyle = reloading ? '#ffff00' : '#00ffff'
-    ctx.fillText(reloading ? 'RELOAD' : `${ammo}/30`, 246, 45)
+    ctx.fillText(reloading ? 'RELOAD' : String(ammo ?? ''), 246, 45)
     ctx.font = '24px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffffff'
     ctx.fillText('SPAWNPOINT VR', 128, 100)
     wristUI.texture.needsUpdate = true

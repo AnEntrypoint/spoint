@@ -1,5 +1,7 @@
 const sandboxApp = (typeof process !== 'undefined' && process.env && process.env.SANDBOX_APP) || null
 
+export const description = 'Empty starting point -- no placed entities, add everything from scratch'
+
 export default {
   spawnPoint: [0, 5, 0],
   gravity: [0, -9.81, 0],

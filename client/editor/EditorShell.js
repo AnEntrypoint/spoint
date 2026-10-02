@@ -226,7 +226,9 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
       const body = document.createElement('div')
       body.style.cssText = 'display:flex;flex-direction:column;overflow-y:auto;height:100%'
       if (worlds.length) {
-        for (const w of worlds) {
+        for (const entry of worlds) {
+          const w = typeof entry === 'string' ? entry : entry?.name
+          const description = typeof entry === 'string' ? null : entry?.description
           const row = document.createElement('div')
           row.style.cssText = 'padding:6px 4px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.08)'
           row.setAttribute('role', 'button')
@@ -235,9 +237,9 @@ export function createEditPanel({ onPlace, onPlaceModel, onSave, onSaveWorld, on
           const name = document.createElement('div')
           name.textContent = w
           row.appendChild(name)
-          if (w === 'sandbox') {
+          if (description) {
             const hint = document.createElement('div')
-            hint.textContent = 'Empty starting point -- no placed entities, add everything from scratch'
+            hint.textContent = description
             hint.style.cssText = 'color:rgba(255,255,255,0.45);font-size:11px;margin-top:2px'
             row.appendChild(hint)
           }

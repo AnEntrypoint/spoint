@@ -1,3 +1,4 @@
+export const category = 'Demos & Games'
 import { collectCheckpointMarkers } from '../checkpoint-marker/index.js'
 
 const STEPS = [

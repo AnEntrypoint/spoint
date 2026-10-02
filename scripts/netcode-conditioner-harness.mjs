@@ -259,7 +259,7 @@ async function runOne(cond, predict, worldDef) {
   const t0 = performance.now()
   while (!all.every(h => h.client.playerId) && performance.now() - t0 < 10000) await new Promise(r => setTimeout(r, 20))
   const place = (h, pos) => { const p = server.playerManager.getPlayer(h.client.playerId); if (!p) return; p.state.position[0] = pos[0]; p.state.position[1] = pos[1]; p.state.position[2] = pos[2]; server.physicsIntegration.setPlayerPosition(p.id, pos) }
-  place(mover, args.route === 'tps' ? ROUTE_SPAWN : [0, 1.2, 0]); place(shooter, worldDef.harness?.shooterAt || [0, 1.2, 10])
+  place(mover, AT || (args.route === 'tps' ? ROUTE_SPAWN : [0, 1.2, 0])); place(shooter, worldDef.harness?.shooterAt || [0, 1.2, 10])
   bots.forEach((b, i) => place(b, [20 + 4 * i, 1.2, -20]))
   const rec = { mispredict: [], correctionJumpM: [], corrections: 0, worst: [], byKind: {}, lastKindSeq: 0 }
   const seqKinds = new Map(), routeLeg = { k: -1, target: null, visited: new Set(), pushStart: 0 }

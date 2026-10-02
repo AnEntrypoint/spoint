@@ -26,7 +26,7 @@ import { allocateRingBuffer, TransformRingWriter } from '../transport/TransformR
 import { saveWorldSnapshot, restoreWorldSnapshot, worldDefFingerprint } from './WorldPersistence.js'
 import { isWorldName } from '../shared/worldName.js'
 import { resolveTerrainConfig, minimapDescriptor } from '../shared/terrainConfig.js'
-import { worldGravity, worldTickRate, worldSpawnPoints } from '../shared/worldDefaults.js'
+import { worldGravity, worldTickRate, worldSpawnPoints, worldEquipment } from '../shared/worldDefaults.js'
 import { assertWorld } from '../shared/worldResolve.js'
 import { expandWorldPresets } from '../shared/worldPresets.js'
 
@@ -68,6 +68,7 @@ export async function init({ worldDef, worldName: selectedWorldName = null, apps
   const appRuntime = new AppRuntime({ gravity, playerManager, physics, physicsIntegration, connections, eventBus, eventLog, storage, sdkRoot: '', physicsRadius: worldDef.physicsRadius || 0, physicsBodyBudget: worldDef.physicsBodyBudget || 0, entityTickRate: worldDef.entityTickRate, tickRate, lagCompensator })
   appRuntime.setPlayerManager(playerManager)
   appRuntime.worldName = knownWorldName || null
+  appRuntime.setEquipment(worldEquipment(worldDef))
   const appLoader = new AppLoader(appRuntime, {})
   const stageLoader = new StageLoader(appRuntime)
   appRuntime.setStageLoader(stageLoader)

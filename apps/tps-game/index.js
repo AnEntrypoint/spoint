@@ -1,3 +1,4 @@
+export const category = 'Demos & Games'
 import { tpsGameServer } from './server-app.js'
 import { tpsGameClient } from './client-app.js'
 

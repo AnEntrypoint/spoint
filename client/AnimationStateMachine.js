@@ -63,6 +63,7 @@ const BLEND_TIERS_SKIP_WALK = [
 
 export function createAnimationStateMachine(mixer, root, actions, additiveActions, animConfig = {}) {
   const FADE = animConfig.fadeTime || FADE_TIME
+  let _weapon = animConfig.defaultEquipment ?? null
   const LOCO_STATES = new Set(['IdleLoop', 'WalkLoop', 'JogFwdLoop', 'SprintLoop', 'CrouchIdleLoop', 'CrouchFwdLoop'])
   const blendTiers = (animConfig.skipWalk ? BLEND_TIERS_SKIP_WALK : BLEND_TIERS).filter(t => actions.has(t.name))
   const blendReady = blendTiers.length >= 2
@@ -332,15 +333,26 @@ export function createAnimationStateMachine(mixer, root, actions, additiveAction
     }
     return true
   }
+  function equipSpec(name) {
+    const declared = animConfig.equipment
+    if (declared && Object.prototype.hasOwnProperty.call(declared, name)) return declared[name] || null
+    return WEAPON_AIM_POSES[name] || null
+  }
+  function resolveClip(name, fallback) {
+    const spec = equipSpec(name)
+    return (spec && spec[fallback]) || fallback
+  }
   function shoot() {
-    const action = actions.get('PistolShoot')
-    if (!action) return
+    const action = actions.get(resolveClip(_weapon, 'shoot'))
+    if (!action) return false
     action.reset().fadeIn(0.05).play()
+    return true
   }
   function reload() {
-    const action = actions.get('PistolReload')
-    if (!action) throw new Error('[anim] PistolReload animation not found')
+    const action = actions.get(resolveClip(_weapon, 'reload'))
+    if (!action) return false
     action.reset().fadeIn(0.1).play()
+    return true
   }
   function dispose() {
     actor.stop()
@@ -349,5 +361,5 @@ export function createAnimationStateMachine(mixer, root, actions, additiveAction
   }
   function getState() { return current }
   function getDebug() { return { state: current, timeScale: smoothTimeScale, smoothSpeed, blendWeights: Object.fromEntries(blendWeights) } }
-  return { transitionTo, play, update, aim, shoot, reload, dispose, getState, getDebug }
+  return { transitionTo, play, update, aim, shoot, reload, dispose, getState, getDebug, weaponName: () => _weapon, setWeapon: (name) => { _weapon = name || null } }
 }

@@ -1,3 +1,4 @@
+export const category = 'Demos & Games'
 import { TUTORIAL_BUS } from '../_lib/tutorial-rpg-kit.js'
 
 export default {
