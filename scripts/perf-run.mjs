@@ -30,6 +30,12 @@ const WALK = !has('no-walk')
 const LEG_MS = Number(flag('leg', '10000'))
 const INPUT_WAIT_MS = Number(flag('input-wait', '60000'))
 const EXTRA_QUERY = flag('extra', '')
+const ROUTE = flag('walk-route', '')
+const WALK_SPEED = Number(flag('walk-speed', '7'))
+const WALKER = ROUTE.length > 0
+const ROUTE_WAYPOINTS = ROUTE ? ROUTE.split(';').map((p) => { const n = p.split(',').map(Number); return { x: n[0], z: n[1] } }) : []
+const RELOCATE = /(^|&)(at|bookmark)=/.test(EXTRA_QUERY)
+const HEIGHT_PROBE = has('probe-heights')
 const HARD_TIMEOUT_MS = Number(flag('hard-timeout', '600000'))
 setTimeout(() => { console.log('[perf-run] HARD TIMEOUT after ' + HARD_TIMEOUT_MS + 'ms -- abandoning run'); process.exit(3) }, HARD_TIMEOUT_MS).unref()
 const OUT_FILE = resolve(OUT_DIR, LABEL + '.json')
@@ -163,6 +169,7 @@ function percentile(sorted, p) {
 }
 
 function aggregateProfile(profile) {
+  if (!profile || !profile.nodes) return { totalMs: 0, rows: [] }
   const byId = new Map()
   for (const n of profile.nodes) byId.set(n.id, n)
   const self = new Map()
@@ -192,7 +199,13 @@ function shortUrl(u) {
 
 async function main() {
   mkdirSync(OUT_DIR, { recursive: true })
-  writeFileSync(GPU_PROBE_PS1, GPU_PROBE_SRC)
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try { writeFileSync(GPU_PROBE_PS1, GPU_PROBE_SRC); break } catch (e) {
+      if (e && e.code !== 'EBUSY') throw e
+      if (attempt === 5) { console.log('[perf-run] gpu-probe.ps1 locked, reusing on-disk copy'); break }
+      await new Promise(r => setTimeout(r, 500))
+    }
+  }
   const port = String(20000 + Math.floor(Math.random() * 20000))
   process.env.WORLD = process.env.WORLD || 'tps-game'
   process.env.PORT = port
@@ -241,9 +254,7 @@ async function main() {
     const url = `http://localhost:${port}/${query}&world=tps-game&v=${Date.now()}${EXTRA_QUERY ? '&' + EXTRA_QUERY : ''}`
     console.log(`[perf-run] navigating ${url}`)
     const tNav = Date.now()
-    await page._send('Profiler.enable')
-    await page._send('Profiler.setSamplingInterval', { interval: 1000 })
-    await page._send('Profiler.start')
+    await page._send('Profiler.enable').catch(() => {})
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 })
 
     let readyAt = null
@@ -291,6 +302,7 @@ async function main() {
     if (revealed.error) console.log('[perf-run] reveal probe error: ' + revealed.error)
 
     let navToFirstMoveMs = null
+    let navToInputSeqMs = null
     {
       await page._send('Page.bringToFront').catch(() => {})
       await page.evaluate(() => {
@@ -317,7 +329,6 @@ async function main() {
       let sawVelocity = null
       let probeDumpAt = 0
       let probeDumps = 0
-      let navToInputSeqMs = null
       const seqOf = () => page.evaluate(() => {
         const s = (window.__client && window.__client.getLocalState) ? window.__client.getLocalState() : null
         const i = window.__rigLastInput
@@ -396,6 +407,7 @@ async function main() {
       }
     }
     console.log(`[perf-run] nav->inputAccepted(first real movement)=${navToFirstMoveMs}ms  nav->inputReachedGame=${navToInputSeqMs}ms`)
+    if (!WALKER && navToInputSeqMs === null) console.log('[perf-run] ASSERT FAILED: synthetic keys never reached the app input bucket (nav->inputReachedGame=null) -- this arm measured a standing player')
 
     const gpuTimer = setInterval(() => gpuSamples.push({ t: Date.now() - tNav, ...sampleGpu() }), 5000)
 
@@ -470,45 +482,129 @@ async function main() {
       console.log('[perf-run] material audit (bad cache key): ' + JSON.stringify(bad))
     }
 
-    if (!has('include-startup-profile')) {
-      await page._send('Profiler.stop').catch(() => {})
-      await page.evaluate(() => {
-        const r = window.__rig
-        if (!r) return
-        r.startupLongtasks = r.longtasks.slice()
-        r.longtasks.length = 0
-        r.frames.length = 0
-      }).catch(() => {})
-      await page._send('Profiler.start').catch(() => {})
-      await page.evaluate(() => { const p = window.__perf; if (p && p.reset) p.reset() }).catch(() => {})
+    console.log('[perf-run] step: clear startup samples')
+    await page.evaluate(() => {
+      const r = window.__rig
+      if (!r) return
+      r.startupLongtasks = r.longtasks.slice()
+      r.longtasks.length = 0
+      r.frames.length = 0
+    }).catch(() => {})
+    console.log('[perf-run] step: perf reset')
+    await page.evaluate(() => { const p = window.__perf; if (p && p.reset) p.reset() }).catch(() => {})
+    console.log('[perf-run] step: Profiler.setSamplingInterval + start')
+    await page._send('Profiler.setSamplingInterval', { interval: 5000 }).catch(() => {})
+    await page._send('Profiler.start').catch(() => {})
+    if (RELOCATE) {
+      console.log('[perf-run] step: relocation settle')
+      const rel = await page.evaluate(async () => {
+        const s = window.__spoint
+        if (!s) return { error: 'no __spoint' }
+        try { await s.whenSettled({ tolerance: 0.02, timeoutMs: 60000 }) } catch (e) { return { error: String((e && e.message) || e), boot: window.__spointBoot || null } }
+        return { boot: window.__spointBoot || null, where: s.where ? s.where() : null }
+      }).catch((e) => ({ error: e.message }))
+      console.log('[perf-run] relocation: ' + JSON.stringify(rel).slice(0, 400))
+    }
+    if (WALKER) {
+      const started = await page.evaluate(({ route, speed }) => {
+        const s = window.__spoint
+        if (!s || !s.route) return { error: 'no __spoint.route' }
+        window.__walkDone = null
+        s.route(route, { mode: 'walk', speed, settle: false, timeoutMs: 600000 })
+          .then((r) => { window.__walkDone = { legs: r.length, last: r[r.length - 1] } })
+          .catch((e) => { window.__walkDone = { error: String((e && e.message) || e) } })
+        return { ok: true }
+      }, { route: ROUTE_WAYPOINTS, speed: WALK_SPEED }).catch((e) => ({ error: e.message }))
+      console.log('[perf-run] walker: ' + JSON.stringify(started))
+    }
+    if (HEIGHT_PROBE) {
+      const armed = await page.evaluate(() => {
+        const t = window.__terrain
+        if (!t || !t.frame) return { error: 'no __terrain.frame' }
+        const f = t.frame
+        const stats = { gh: 0, hAt: 0, prefetch: 0, patchNull: 0, stacks: {} }
+        window.__heightProbe = stats
+        const wrap = (obj, key, name) => {
+          const orig = obj[key]
+          if (typeof orig !== 'function') return
+          obj[key] = function (...a) {
+            stats[name]++
+            if (stats[name] % 500 === 0) {
+              const line = ((new Error()).stack || '').split('\n').slice(2, 5).join(' | ')
+              stats.stacks[line] = (stats.stacks[line] || 0) + 1
+            }
+            return orig.apply(this, a)
+          }
+        }
+        wrap(f, 'groundHeightLocal', 'gh')
+        wrap(f, '_patchPrefetch', 'prefetch')
+        wrap(f, '_patchHeightOrNull', 'patchNull')
+        wrap(t, 'heightAt', 'hAt')
+        return { ok: true }
+      }).catch((e) => ({ error: e.message }))
+      console.log('[perf-run] height probe: ' + JSON.stringify(armed))
     }
 
     const walkStart = Date.now()
     const legs = WALK ? ['KeyW', 'KeyD', 'KeyS', 'KeyA'] : []
-    let legIdx = 0
-    let glArmed = false
+    const targetEnd = walkStart + SECONDS * 1000
+    let held = null
     const track = []
-    while (Date.now() - walkStart < SECONDS * 1000) {
-      if (WALK) {
-        const code = legs[legIdx % legs.length]
-        await page.keyboard.down(code).catch(() => {})
-        await new Promise((r) => setTimeout(r, Math.min(LEG_MS, SECONDS * 1000)))
-        await page.keyboard.up(code).catch(() => {})
-        legIdx++
-      } else {
-        await new Promise((r) => setTimeout(r, 1000))
+    let track0 = null
+    let lastTrackAt = 0
+    let glArmed = false
+    while (Date.now() < targetEnd) {
+      if (WALK && !WALKER) {
+        const idx = Math.floor((Date.now() - walkStart) / LEG_MS) % legs.length
+        const code = legs[idx]
+        if (code !== held) {
+          if (held) {
+            console.log(`[perf-run] step: release ${held} at t+${Date.now() - walkStart}ms`)
+            await page.keyboard.up(held).catch(() => {})
+          }
+          console.log(`[perf-run] step: hold ${code} at t+${Date.now() - walkStart}ms`)
+          await page.keyboard.down(code).catch(() => {})
+          held = code
+        }
       }
-      const pos = await readPos()
-      if (pos) track.push(pos[1])
-      const elapsed = Date.now() - walkStart
+      const slice = Math.min(1000, targetEnd - Date.now())
+      await new Promise((r) => setTimeout(r, Math.max(0, slice)))
+      const now = Date.now()
+      const elapsed = now - walkStart
+      if (now - lastTrackAt >= 5000) {
+        lastTrackAt = now
+        const pos = await readPos()
+        if (pos) { track.push(pos[1]); if (!track0) track0 = pos[1] }
+      }
       if (elapsed >= 3000 && !glArmed) { glArmed = true; await page.evaluate(() => { window.__rigGlOn = true; window.__rigGlCount = 0; window.__rigGlDraws = 0 }).catch(() => {}) }
       if (elapsed >= 13000 && glArmed) { glArmed = false; await page.evaluate(() => { window.__rigGlOn = false }).catch(() => {}) }
     }
+    if (held) {
+      console.log(`[perf-run] step: release ${held} at end`)
+      await page.keyboard.up(held).catch(() => {})
+    }
     const walkMs = Date.now() - walkStart
+    const maxDelta = track0 ? track.reduce((m, p) => Math.max(m, Math.hypot(p[0] - track0[0], p[1] - track0[1], p[2] - track0[2])), 0) : 0
+    console.log(`[perf-run] walk done in ${walkMs}ms, track samples=${track.length}, maxDelta=${maxDelta.toFixed(2)}m`)
+    if (WALKER) console.log('[perf-run] walker result: ' + JSON.stringify(await page.evaluate(() => window.__walkDone || null).catch(() => null)))
+    if (HEIGHT_PROBE) console.log('[perf-run] height probe result: ' + JSON.stringify(await page.evaluate(() => window.__heightProbe || null).catch(() => null)).slice(0, 3000))
+    if (WALK && maxDelta < 1) console.log(`[perf-run] ASSERT FAILED: player moved ${maxDelta.toFixed(3)}m over ${SECONDS}s -- not real movement`)
 
     clearInterval(gpuTimer)
-    const { profile } = await page._send('Profiler.stop')
+    console.log('[perf-run] step: final Profiler.stop')
+    let profile = null
+    try {
+      const stopped = await Promise.race([
+        page._send('Profiler.stop'),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('Profiler.stop exceeded 60s')), 60000)),
+      ])
+      profile = stopped.profile
+    } catch (e) {
+      console.log('[perf-run] cpu profile unavailable: ' + e.message)
+    }
+    console.log('[perf-run] step: capture after-shot')
     await shot(LABEL + '-after')
+    console.log('[perf-run] step: read in-page results')
 
     const inPage = await page.evaluate(() => {
       const rig = window.__rig || { frames: [], longtasks: [], errors: [] }
