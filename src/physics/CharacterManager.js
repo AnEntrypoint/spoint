@@ -5,6 +5,7 @@ export const DEFAULT_MAX_SLOPE_ANGLE_RAD = 0.7854
 export const MAX_WALL_PLANES = 2
 const WALL_MAX_NORMAL_Y = 0.3
 const WALL_ABOVE_STEP_M = 0.05
+const WALL_MERGE_DOT_MIN = 0.98
 
 export class CharacterManager {
   constructor(gravity, crouchHalfHeight = 0.45, config = {}) {
@@ -166,6 +167,8 @@ export class CharacterManager {
     const feetY = ch.GetPosition().GetY() - shape.standHeight - shape.radius
     const minContactY = feetY + this.config.maxStepHeight + WALL_ABOVE_STEP_M
     const staticType = this.J.EMotionType_Static
+    const charPos = ch.GetPosition()
+    const cx = charPos.GetX(), cz = charPos.GetZ()
     for (let i = 0; i < n && w[0] < MAX_WALL_PLANES; i++) {
       const c = contacts.at(i)
       if (!c.mHadCollision || c.mIsSensorB || c.mMotionTypeB !== staticType) continue
@@ -175,8 +178,14 @@ export class CharacterManager {
       if (Math.abs(ny) > WALL_MAX_NORMAL_Y) continue
       const len = Math.hypot(nx, nz)
       if (!(len > 0)) continue
+      const ux = nx / len, uz = nz / len
+      const cp = c.mPosition
+      if (ux * (cx - cp.GetX()) + uz * (cz - cp.GetZ()) <= 0) continue
+      let merged = false
+      for (let j = 0; j < w[0]; j++) if (w[1 + j * 2] * ux + w[2 + j * 2] * uz > WALL_MERGE_DOT_MIN) { merged = true; break }
+      if (merged) continue
       const k = 1 + w[0] * 2
-      w[k] = nx / len; w[k + 1] = nz / len
+      w[k] = ux; w[k + 1] = uz
       w[0]++
     }
   }

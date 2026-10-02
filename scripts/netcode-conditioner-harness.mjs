@@ -23,7 +23,7 @@ if (args.precise === 'true') process.env.SPOINT_PRECISE_TICKS = '1'
 const DURATION_MS = Number(args.duration || 20000)
 const WORLD = args.world || 'arena'
 const HARNESS_ARENA = {
-  name: 'netcode-harness-arena', tickRate: 60, gravity: [0, -9.81, 0], spawnPoints: [[0, 3, 0], [0, 3, 8]],
+  name: 'netcode-harness-arena', tickRate: 60, gravity: [0, -9.81, 0], placeableApps: ['box-static'], spawnPoints: [[0, 3, 0], [0, 3, 8]],
   entities: [{ id: 'floor', app: 'box-static', position: [0, -1, 0], config: { hx: 100, hy: 1, hz: 100 } }]
 }
 const HARNESS_WALL = {
@@ -51,6 +51,8 @@ const BOTS = Number(args.bots || 0)
 const CHANNEL = args.channel || 'ws'
 const TICK_OVERRIDE = args.tick ? Number(args.tick) : null
 const SNAP_HZ = args.snapHz ? Number(args.snapHz) : null
+const AT = args.at ? args.at.split(',').map(Number) : null
+const HOLD = args.hold ? Object.fromEntries(args.hold.split(',').map(k => [k, true])) : null
 const PREDICT_MODES = (args.predict || 'off,on').split(',').map(s => s === 'on')
 const CONDITIONS = args.cond
   ? args.cond.split(';').map(c => { const [l, j, p] = c.split('/').map(Number); return { latencyMs: l, jitterMs: j, lossPct: p } })
@@ -218,7 +220,7 @@ function instrumentPrediction(h, rec, seqKinds) {
 async function runOne(cond, predict, worldDef) {
   const port = await freePort()
   const tickRate = TICK_OVERRIDE || worldDef.tickRate || 60
-  const server = await createServer({ port, tickRate, appsDirs: [resolve(SDK_ROOT, 'apps')], sdkRoot: SDK_ROOT, gravity: worldDef.gravity, staticDirs: [], storageDir: resolve(process.cwd(), 'data') })
+  const server = await createServer({ port, tickRate, appsDirs: [resolve(SDK_ROOT, 'apps'), resolve(SDK_ROOT, 'src/stdlib-apps')], sdkRoot: SDK_ROOT, gravity: worldDef.gravity, staticDirs: [], storageDir: resolve(process.cwd(), 'data') })
   await server.loadWorld(worldDef)
   await server.start()
   const scheduler = createPreciseScheduler()
@@ -282,7 +284,7 @@ async function runOne(cond, predict, worldDef) {
     const now = performance.now()
     if (!meterBase && now >= runStart) meterBase = all.map(h => ({ inBytes: h.meter.inBytes, outBytes: h.meter.outBytes, inMsgs: h.meter.inMsgs, snap: h.meter.byType.SNAPSHOT || 0 }))
     instrumentPrediction(mover, rec, args.route === 'tps' ? seqKinds : null)
-    const inp = now < runStart ? { yaw: 0, pitch: 0 } : args.route === 'tps' ? routeInput(server, mover.client.playerId, now - runStart, routeLeg) : moverInputAt(now - runStart, worldDef.harness?.script)
+    const inp = now < runStart ? { yaw: 0, pitch: 0 } : HOLD ? { yaw: 0, pitch: 0, ...HOLD } : args.route === 'tps' ? routeInput(server, mover.client.playerId, now - runStart, routeLeg) : moverInputAt(now - runStart, worldDef.harness?.script)
     const dir = wishDir(inp)
     if (dir && !wishDir(lastMoverInput) && now >= runStart) {
       const mid = mover.client.playerId
