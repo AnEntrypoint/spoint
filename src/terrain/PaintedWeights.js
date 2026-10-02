@@ -1,4 +1,6 @@
-import { createSplatWeights, HASH_VERSION_FLOAT } from 'mapspinner/splat-weights'
+const _isNode = typeof process !== 'undefined' && process.versions?.node
+const _splatSpec = _isNode ? 'mapspinner/splat-weights' : '/node_modules/mapspinner/src/splat-weights.js'
+const { createSplatWeights, HASH_VERSION_FLOAT } = await import(_splatSpec)
 
 const _byHashVersion = new Map()
 
