@@ -1,6 +1,7 @@
 import {
   latticeFor, surfaceAlongDir, tangentFrame, tangentFrameQuat, quatMulF32, radialSlopeAt, climateAt, valueNoise3,
 } from './PlacementChart.js'
+import { paintedWeightsFor, paintedSlopeOf } from './PaintedWeights.js'
 
 export const VEG = Object.freeze({
   CHUNK: 32,
@@ -191,13 +192,14 @@ export function classify(frame, anchorField, cell) {
   const reliefMarginScale = reliefMarginScaleOf(frame)
   const treeline = VEG.TREELINE * reliefMarginScale
   const treelineMul = elev > treeline ? 1 - (elev - treeline) / (VEG.TREELINE_FADE * reliefMarginScale) : 1
-  const densityMul = renderedSoilWeight(elev) * treelineMul
-  if (densityMul <= 0 || coin >= base * densityMul) return null
-
   const tf = tangentFrame(frame, cell.dir[0], cell.dir[1], cell.dir[2])
   const slope = radialSlopeAt(frame, tf, rho, VEG.SLOPE_D)
   if (!slope) return null
   if (Math.hypot(slope[0], slope[1]) > VEG.SLOPE_MAX) return null
+  const soilMul = renderedSoilWeight(elev) * treelineMul
+  const painted = paintedWeightsFor(frame.hashVersion)(cell.dir, elev, paintedSlopeOf(slope[0], slope[1]), temp, humidity)
+  const densityMul = soilMul * painted.grass
+  if (densityMul <= 0 || coin >= base * densityMul) return null
 
   const elevNorm = Math.max(0, Math.min(1, elev / VEG.TREELINE))
   const vT = (rand(cellHash, K_VARIANT) - 0.5) * 0.30 + (seaNoise(PATCH_T_SEED, s, PATCH_CELL_M) - 0.5) * 0.60

@@ -2,6 +2,7 @@ import {
   hash3, rand, ARIDITY_LINE, VEG, reliefMarginScaleOf, seaNoise, createPlacementCell, placementCellAt, surfaceOfCell,
 } from './VegPlacement.js'
 import { latticeFor, tangentFrame, tangentFrameQuat, tangentToLocal, quatMulF32, radialSlopeAt, climateAt } from './PlacementChart.js'
+import { paintedWeightsFor, paintedSlopeOf } from './PaintedWeights.js'
 
 export const ROCK = Object.freeze({
   CHUNK: 32,
@@ -108,12 +109,14 @@ export function classify(frame, anchorField, cell) {
   const dHdx = slope[0], dHdz = slope[1]
   const grad = Math.hypot(dHdx, dHdz)
   const slopeRatio = grad / (grad + 1)
+  const temp = clim && Number.isFinite(clim.temp) ? clim.temp : 0.5
+  const paintedRock = paintedWeightsFor(frame.hashVersion)(cell.dir, elev, paintedSlopeOf(dHdx, dHdz), temp, humidity).rock
 
   let nx = -dHdx, ny = 1, nz = -dHdz
   const nl = Math.hypot(nx, ny, nz); nx /= nl; ny /= nl; nz /= nl
 
   const clusterStrength = MAX_CLUSTER_STRENGTH * (1 - slopeRatio)
-  const accept = Math.max(ROCK.FLOOR, Math.min(1, rockDensity(erosion, slopeRatio, humidity, elevNorm) * patch * (1 + clusterStrength * (cluster - 0.5)))) * cell.area
+  const accept = Math.max(ROCK.FLOOR, Math.min(1, rockDensity(erosion, slopeRatio, humidity, elevNorm) * patch * (1 + clusterStrength * (cluster - 0.5)))) * cell.area * paintedRock
   if (coin >= accept) return null
 
   const type = Math.floor(rand(cellHash, K_TYPE) * ROCK.TYPES) % ROCK.TYPES

@@ -146,8 +146,14 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     const fwd = [camTarget[0] - camWorldPos[0], camTarget[1] - camWorldPos[1], camTarget[2] - camWorldPos[2]]
     const nf = nearFarForCam(R, camDist, camDist - R, surfElev)
     const viewProjNoEye = M4.mul(perspectiveZeroToOne(fovy, aspect, nf.near, nf.far), M4.lookAt([0, 0, 0], fwd, camUp))
-    qt.computeSplitDist(splitFactor * LOD_STEP, viewportH, fovy)
-    qt.setConfig(R, maxLevel, splitFactor * LOD_POP_ALTITUDE_MUL)
+    const sf = (typeof window !== 'undefined' && window.__splitFactor != null)
+      ? Math.max(0.05, +window.__splitFactor)
+      : splitFactor
+    const ml = (typeof window !== 'undefined' && window.__maxLevel != null)
+      ? Math.max(1, window.__maxLevel | 0)
+      : maxLevel
+    qt.computeSplitDist(sf * LOD_STEP, viewportH, fovy)
+    qt.setConfig(R, ml, sf * LOD_POP_ALTITUDE_MUL)
     extractFrustumPlanes(viewProjNoEye, cull.planes)
     cull.ex = camWorldPos[0]; cull.ey = camWorldPos[1]; cull.ez = camWorldPos[2]
     const aim = aimGroundPoint(camWorldPos, fwd, camDist, R)
@@ -248,6 +254,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     if (water) { scene.remove(water.mesh); water.dispose() }
     if (scene.backgroundNode === sky.node) scene.backgroundNode = null
     sky.dispose()
+    currentSculpt.texture.dispose()
     surfaceState.disposed = true
     if (hotSwapTerrainMaterial === swapTerrainMaterial) hotSwapTerrainMaterial = null
     patch.geo.dispose()

@@ -24,7 +24,8 @@ export function createSculptOverrideTSL({ defRadius }) {
     const okBasis = frameBasis && frameBasis.up && frameBasis.east && frameBasis.north
     const finite = centerXZ && Number.isFinite(centerXZ[0]) && Number.isFinite(centerXZ[1]) && Number.isFinite(ext) && ext > 0
     if (!okBasis || !finite) { clear(); return }
-    if (heights && heights.length === data.length) { data.set(heights); tex.needsUpdate = true }
+    if (heights && heights.length !== data.length) { clear(); return }
+    if (heights) { data.set(heights); tex.needsUpdate = true }
     center.value.set(centerXZ[0], centerXZ[1])
     extent.value = ext
     up.value.set(frameBasis.up[0], frameBasis.up[1], frameBasis.up[2])
