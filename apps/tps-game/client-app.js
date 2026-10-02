@@ -1,7 +1,5 @@
-import { EMOTE_WHEEL_SLOTS, predictHit } from './shared.js'
+import { EMOTE_WHEEL_SLOTS, predictHit, COMBAT_CONFIG } from './shared.js'
 
-const DEFAULT_SHOOT_KNOCKBACK = 2
-const DEFAULT_HEADSHOT_ZONE = 0.7
 const TRACER_RANGE = 100
 const DMG_DEALT_WINDOW_MS = 500
 const PREDICTED_TONE_DEDUP_MS = 400
@@ -121,7 +119,7 @@ export const tpsGameClient = {
         if (engine.cam?.punch) engine.cam.punch(0.15)
         mobileVibrate(engine, 12)
         const lp = engine.client.getLocalState?.()
-        const knockback = tps.config?.shootKnockback ?? DEFAULT_SHOOT_KNOCKBACK
+        const knockback = COMBAT_CONFIG.shootKnockback
         if (lp && lp.velocity && dir) { lp.velocity[0] -= dir[0] * knockback; lp.velocity[2] -= dir[2] * knockback }
         const animator = engine.players.getAnimator(engine.playerId)
         if (animator) animator.shoot()
@@ -132,7 +130,7 @@ export const tpsGameClient = {
           const muzzle = [pos[0], pos[1] + 0.9, pos[2]]
           engine.decals.spawnTracer(muzzle, [muzzle[0] + dir[0] * TRACER_RANGE, muzzle[1] + dir[1] * TRACER_RANGE, muzzle[2] + dir[2] * TRACER_RANGE])
         }
-        const pred = predictHit([pos[0], pos[1] + 0.9, pos[2]], dir, engine.client.state?.players, engine.playerId, tps.config?.headshotZone ?? DEFAULT_HEADSHOT_ZONE)
+        const pred = predictHit([pos[0], pos[1] + 0.9, pos[2]], dir, engine.client.state?.players, engine.playerId, COMBAT_CONFIG.headshotZone)
         if (pred) {
           const tnow = Date.now()
           tps.hitMarkerTime = tnow; tps._predHitAt = tnow
@@ -254,9 +252,7 @@ export const tpsGameClient = {
     const tps = ctx.engine?._tps
     const boostSec = tps?.boost ? Math.ceil((tps.boost.expiresAt - Date.now()) / 1000) : 0
     const ammo = tps?.ammo ?? 0
-    if (tps && s.config) tps.config = s.config
-    if (tps && s.config?.magazineSize != null) tps.magazineSize = s.config.magazineSize
-    const magazine = s.config?.magazineSize ?? 30
+    const magazine = COMBAT_CONFIG.magazineSize
     const reloading = tps?.reloading ?? false
     const reloadDur = tps?.reloadDuration || 2000
     const reloadProgress = reloading && tps?.reloadEndTime ? Math.min(100, Math.round((1 - (tps.reloadEndTime - Date.now()) / reloadDur) * 100)) : 0

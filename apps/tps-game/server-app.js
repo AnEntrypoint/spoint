@@ -1,21 +1,10 @@
 import { collectSpawnPoints } from '../../src/stdlib-apps/spawn-point/index.js'
-import { POWERUP_DEFS, POWERUP_RESPAWN_MS, EMOTE_CLIPS } from './shared.js'
+import { POWERUP_DEFS, POWERUP_RESPAWN_MS, EMOTE_CLIPS, COMBAT_CONFIG } from './shared.js'
 
 const EMOTE_RATE_LIMIT_MS = 800
 
 const COMBAT_SPEC = {
-  config: {
-    respawnTime: 1.5,
-    health: 100,
-    damagePerHit: 20,
-    headshotMultiplier: 2.5,
-    headshotZone: 0.7,
-    hitKnockback: 4,
-    shootKnockback: 2,
-    magazineSize: 30,
-    reloadTime: 2000,
-    spawnInvulnMs: 1500
-  },
+  config: COMBAT_CONFIG,
   powerups: POWERUP_DEFS,
   powerupRespawnMs: POWERUP_RESPAWN_MS,
   scoreboardKey: 'scoreboard'

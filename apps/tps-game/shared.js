@@ -5,6 +5,19 @@ export const POWERUP_DEFS = [
   { type: 'speed', color: 0x33aaff, emissive: 0x0044aa, buff: { duration: 20, speedMultiplier: 1.5, fireRateMultiplier: 1, damageMultiplier: 1 } },
   { type: 'rapid', color: 0xffcc33, emissive: 0xaa6600, buff: { duration: 20, speedMultiplier: 1, fireRateMultiplier: 2, damageMultiplier: 1 } },
 ]
+export const COMBAT_CONFIG = {
+  respawnTime: 1.5,
+  health: 100,
+  damagePerHit: 20,
+  headshotMultiplier: 2.5,
+  headshotZone: 0.7,
+  hitKnockback: 4,
+  shootKnockback: 2,
+  magazineSize: 30,
+  reloadTime: 2000,
+  spawnInvulnMs: 1500
+}
+
 export const POWERUP_RESPAWN_MS = 15000
 const PREDICT_RANGE_M = 1000
 const DEFAULT_HEADSHOT_ZONE = 0.7

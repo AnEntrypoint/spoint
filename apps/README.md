@@ -9,6 +9,12 @@ regardless of what it does.
 
 ## Where apps live
 
+Client caveat: in a client app's `render`/`onFrame`, `ctx.state` is the **entity's
+`custom` block**, not the server-side `ctx.state` app state -- app state does not
+travel on the wire. Anything a client app needs from the server has to be published
+under `entity.custom` (tps-game publishes its combat tuning as
+`entity.custom.config` for exactly this reason).
+
 Generic placeable apps that every game uses live with the engine in
 `src/stdlib-apps/` (box-static, prop-*, placed-model, spawn-point,
 trigger-volume, button, moving-platform, respawn-zone, checkpoint-marker,
