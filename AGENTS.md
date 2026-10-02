@@ -138,6 +138,10 @@ fixes and outDir rule (`project/engine-apps-boundary-b0-b1-2026-09-30`). Default
 `defaultWorld`; worlds are validated (`src/shared/worldResolve.js`), defaulted (`src/shared/worldDefaults.js`) and
 preset-expanded (`presets: ['tps']`, `src/presets/`) in every runtime; default avatar `client/assets/default-avatar.vrm`
 (CC0); TURN only via `SPOINT_ICE_SERVERS` (`project/engine-apps-boundary-b2-b4-world-registry-resolve-presets-2026-09-30`).
+Gameplay lives in `src/behaviours/` too: `ctx.defineCombat(spec)` owns the shooter loop
+(spawns, health, ammo/reload, fall-kill, respawn, powerups, scoreboard, lag-compensated hits over
+`src/netcode/Hitscan.js` as `ctx.combat`), so `apps/tps-game` is a tuning object plus its assets
+(`project/engine-apps-boundary-b5-b8-combat-behaviour-presets-2026-10-02`).
 
 ## Code rationale index (moved out of source comments, 2026-09-14)
 

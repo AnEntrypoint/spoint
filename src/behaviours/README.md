@@ -1,18 +1,53 @@
-# apps/_lib
+# src/behaviours
 
-Shared building blocks for apps. Imported into app code via `ctx.*` helpers or
-directly from `apps/_lib/`.
+Engine behaviour primitives behind the app `ctx.define*` helpers. App code reaches
+them through `ctx`; `apps/_lib/<name>.js` keeps a one-line re-export of each for one
+release so older `import ... from '../_lib/<name>.js'` apps keep loading. New app code
+should call `ctx.defineX(spec)` and never import a path.
 
 ## Reachable from `ctx.define*` (no import needed)
 
 Every stateful factory here is exposed on the app `ctx` so a maker never has to
 know the file path: `ctx.defineGameFSM`, `ctx.defineGameMode`, `ctx.defineBuffStack`,
-`ctx.defineShrinkingZone`, `ctx.defineHealth`, `ctx.defineSteering`,
+`ctx.defineShrinkingZone`, `ctx.defineHealth`, `ctx.defineCombat`, `ctx.defineSteering`,
 `ctx.defineCheckpoint`, `ctx.definePickup`, `ctx.defineDestructible`,
 `ctx.defineTeams` — each is
 `ctx.defineX(spec)` and forwards `(spec, this)` to the underlying factory. The
 non-stateful pure helpers (`squash-stretch.js`, `defineAudio` client-side) are
 still direct imports. Prefer the `ctx.define*` form in app code.
+
+## combat.js — the whole shooter loop, so an app is a config plus its assets
+
+`ctx.defineCombat(spec)` owns everything a deathmatch game used to hand-write:
+spawn-point collection, health on join, ammo and reload, fall-kill, respawn with
+spawn invulnerability, powerup spawn/collect/respawn with buffs, per-player
+kill/death/damage stats persisted through `ctx.persisted`, and the full
+lag-compensated hit path (built on `src/netcode/Hitscan.js`, reachable as
+`ctx.combat`). `apps/tps-game/server-app.js` is the reference consumer: it keeps
+only its map name, its emote table and its tuning numbers.
+
+```js
+const combat = ctx.defineCombat({
+  config: { respawnTime: 1.5, health: 100, damagePerHit: 20, headshotMultiplier: 2.5,
+            headshotZone: 0.7, hitKnockback: 4, shootKnockback: 2,
+            magazineSize: 30, reloadTime: 2000, spawnInvulnMs: 1500 },
+  powerups: POWERUP_DEFS,
+  powerupRespawnMs: 15000,
+  spawnPoints: collectSpawnPoints(ctx)
+})
+await combat.setup()
+ctx.onShutdown(() => combat.flush())
+```
+
+- `tick(dt)` from `update`, `handle(msg)` from `onMessage` (returns true when it
+  consumed the message), `flush()` on shutdown.
+- `spawnPoints` is optional: without it the behaviour raycasts a grid for
+  walkable ground.
+- `onKill`, `onHit`, `onRespawn`, `onPowerup`, `onWorldHit`, `onDeath` hooks carry
+  the game-specific announcements; everything else is the engine's.
+- Keep the handle out of `ctx.state`: `restoreGameState` JSON round-trips
+  `ctx.state`, so a handle stored there is a plain object after a snapshot
+  restore. Cache it per `ctx` (a `WeakMap` keyed on `ctx` works).
 
 ## game-fsm.js — declarative game-state FSM builder
 

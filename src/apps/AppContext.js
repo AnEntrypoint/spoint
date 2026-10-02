@@ -7,6 +7,7 @@ import { defineGameMode } from '../behaviours/gamemode.js'
 import { createBuffStack } from '../behaviours/buffs.js'
 import { defineShrinkingZone } from '../behaviours/shrinking-zone.js'
 import { defineHealth } from '../behaviours/health.js'
+import { defineCombat } from '../behaviours/combat.js'
 import { defineSteering } from '../behaviours/steering.js'
 import { defineCheckpoint } from '../behaviours/checkpoint.js'
 import { definePickup } from '../behaviours/pickup.js'
@@ -343,6 +344,8 @@ export class AppContext {
   defineShrinkingZone(spec) { return defineShrinkingZone(spec, this) }
 
   defineHealth(spec) { return defineHealth(spec, this) }
+
+  defineCombat(spec = {}) { return defineCombat(spec, this) }
 
   defineSteering(spec) { return defineSteering(spec, this) }
 

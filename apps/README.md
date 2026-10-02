@@ -7,6 +7,26 @@ per-game special-casing anywhere; `src/apps/AppRuntime.js`'s `registerApp`/`_att
 is fully generic, and `src/apps/AppLoader.js` discovers/hot-reloads every app the same way
 regardless of what it does.
 
+## Engine boundary
+
+Game-agnostic machinery lives in the engine, never in an app:
+
+- `src/behaviours/*.js` — reusable behaviour primitives reached through
+  `ctx.define*`. `apps/_lib/<name>.js` is a one-line re-export kept for one
+  release; new app code calls `ctx.defineX(spec)` instead of importing a path.
+  `src/behaviours/combat.js` is the model: it owns health, respawn, ammo, the
+  lag-compensated hit path, powerups and the scoreboard, so a shooter app is a
+  tuning object plus its own assets and announcements.
+- `src/shared/worldDefaults.js`, `worldResolve.js`, `worldPresets.js` and
+  `src/presets/*.js` — world validation, neutral defaults and `presets: [...]`
+  expansion, so a world is data: `export default { presets: ['arena'] }` is a
+  playable world.
+- `src/netcode/Hitscan.js` — lag-compensated hit tests, exposed as `ctx.combat`.
+
+An app should hold only what is unique to that game: tuning numbers, its own
+entities and models, and per-event announcements wired through the behaviour
+hooks.
+
 ## Shape
 
 An app module's default export is:

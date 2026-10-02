@@ -447,6 +447,8 @@ export interface AppContext {
   defineBuffStack(spec: any): any;
   defineShrinkingZone(spec: any): any;
   defineHealth(spec: any): any;
+  /** Engine shooter loop (src/behaviours/combat.js): spawn points, health, ammo and reload, fall-kill, respawn with invulnerability, powerups with buffs, persisted kill/death/damage stats and the lag-compensated hit path. Returns { config, spawnPoints, statsOf, ammoOf, isRespawning, buffOf, setup(), tick(dt), handle(msg), flush() } -- keep the handle out of ctx.state. */
+  defineCombat(spec?: any): any;
   defineSteering(spec: any): any;
   defineCheckpoint(spec: any): any;
   definePickup(spec: any): any;

@@ -190,7 +190,7 @@ export const tpsGameClient = {
     if (payload.type === 'buff_applied' && tps) { tps.boost = { expiresAt: Date.now() + (payload.duration || 45) * 1000, fireRate: payload.fireRate || 1 }; tps.buffFlashAt = Date.now(); tps.juice?.tone(300, 0.18, 0.16, 600) }
     if (payload.type === 'buff_expired' && tps) { tps.boost = null; tps.juice?.tone(440, 0.16, 0.12, 200) }
     if (payload.type === 'reload_start' && tps) { tps.reloading = true; tps.reloadDuration = payload.duration || 2000; tps.reloadEndTime = Date.now() + tps.reloadDuration; tps.juice?.tone(280, 0.05, 0.13); const animator = engine.players?.getAnimator(engine.playerId); if (animator) animator.reload() }
-    if (payload.type === 'reload_complete' && tps) { tps.reloading = false; tps.reloadEndTime = null; tps.ammo = tps.magazineSize || 30; tps.juice?.tone(520, 0.05, 0.14) }
+    if (payload.type === 'reload_complete' && tps) { tps.reloading = false; tps.reloadEndTime = null; tps.ammo = payload.ammo ?? tps.magazineSize ?? 30; tps.juice?.tone(520, 0.05, 0.14) }
   },
   onFrame(dt, engine) {
     const tps = engine._tps; if (!tps) return
