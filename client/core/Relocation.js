@@ -163,7 +163,7 @@ function bootFromUrl() {
     clearInterval(poll)
     if (!ready) { window.__spointBoot = { error: 'client never became ready' }; return }
     go(target).then(report => { window.__spointBoot = { report }; console.log('[spoint] boot relocation settled', JSON.stringify(report)) })
-      .catch(error => { window.__spointBoot = { error: error.message, report: error.report }; console.error('[spoint] boot relocation failed:', error.message) })
+      .catch(error => { window.__spointBoot = { error: error.message, report: error.report }; console.error('[spoint] boot relocation failed:', error.message, 'stillChanging:', error.report?.stillChanging, 'pending:', error.report?.pending, 'frames:', error.report?.frames, 'ms:', error.report?.ms) })
   }, BOOT_POLL_MS)
 }
 

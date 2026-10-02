@@ -1,4 +1,5 @@
 const DEFAULT_IDLE_FRAMES = 30
+const DEFAULT_IDLE_MS = 500
 const DEFAULT_TIMEOUT_MS = 90000
 const GROUND_PROBE_EVERY_FRAMES = 6
 const GROUND_ABOVE_MAX_M = 15
@@ -41,16 +42,18 @@ function firstDrift(base, current, tolerance) {
   return null
 }
 
-export async function whenSettled({ idleFrames = DEFAULT_IDLE_FRAMES, timeoutMs = DEFAULT_TIMEOUT_MS, requireGround = true, tolerance = 0 } = {}) {
+export async function whenSettled({ idleFrames, idleMs = DEFAULT_IDLE_MS, timeoutMs = DEFAULT_TIMEOUT_MS, requireGround = true, tolerance = 0 } = {}) {
+  const idleWindowMs = idleFrames != null ? (idleFrames * 1000) / 60 : idleMs
   const client = window.__client
   if (!client || typeof client.requestTeleport !== 'function') throw new Error('whenSettled: no connected client')
   const frame = window.__terrain?.frame || null
   const t0 = performance.now()
-  let stable = 0, frames = 0, base = null, drifting = 'init', ground = null, patchExact = frame && typeof frame._patchHeightOrNull === 'function' ? false : null
+  let stableUntil = null, frames = 0, base = null, drifting = 'init', ground = null, patchExact = frame && typeof frame._patchHeightOrNull === 'function' ? false : null
   let last = null
   while (performance.now() - t0 < timeoutMs) {
     await nextFrame()
     frames++
+    const now = performance.now()
     const local = client.getLocalState()
     if (!local) continue
     const p = local.position
@@ -64,10 +67,12 @@ export async function whenSettled({ idleFrames = DEFAULT_IDLE_FRAMES, timeoutMs 
     const snap = streamerSnapshot()
     const ready = (!requireGround || ground?.supported) && patchExact !== false && snap.pending === 0
     drifting = base ? firstDrift(base, snap.loadedChunks, tolerance) : 'init'
-    if (ready && !drifting) stable++
-    else { stable = 0; base = { ...snap.loadedChunks } }
+    if (ready && !drifting) { if (stableUntil === null) stableUntil = now }
+    else { stableUntil = null; base = { ...snap.loadedChunks } }
     last = { position: [...p], groundHit: ground, patchExact, loadedChunks: snap.loadedChunks, pending: snap.pending }
-    if (stable >= idleFrames) return { ...last, frames, idleFrames: stable, ms: Math.round(performance.now() - t0) }
+    if (stableUntil !== null && now - stableUntil >= idleWindowMs) {
+      return { ...last, frames, idleMs: Math.round(now - stableUntil), idleWindowMs: Math.round(idleWindowMs), ms: Math.round(now - t0) }
+    }
   }
   const error = new Error(`whenSettled timed out after ${timeoutMs}ms`)
   error.report = { ...last, frames, ms: Math.round(performance.now() - t0), timedOut: true, stillChanging: drifting }
