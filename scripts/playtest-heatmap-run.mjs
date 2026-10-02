@@ -13,7 +13,7 @@ const OUT_DIR = resolve(SDK_ROOT, 'data', 'playtest-heatmap-run')
 const PORT = 20000 + Math.floor(Math.random() * 20000)
 
 async function main() {
-  const worldPath = resolve(SDK_ROOT, 'apps/world/playtest-heatmap-harness.js')
+  const worldPath = resolve(SDK_ROOT, 'apps/world/_fixtures/playtest-heatmap-harness.js')
   const worldDef = (await import(pathToFileURL(worldPath).href)).default
 
   const appsDirs = [resolve(SDK_ROOT, 'apps')]

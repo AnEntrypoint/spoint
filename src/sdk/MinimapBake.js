@@ -4,6 +4,8 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { resolveTerrainConfig, minimapDescriptor, minimapExtentOf, minimapResOf, minimapBakeParams, minimapBaseName, withTerrainSeed, withTerrainHashVersion, DEFAULT_TERRAIN_HASH_VERSION, TERRAIN_HASH_VERSIONS } from '../shared/terrainConfig.js'
 import { MINIMAP_BAKE_CODE_VERSION } from '../static/BakeCodeVersion.js'
+import { expandWorldPresets } from '../shared/worldPresets.js'
+import { findWorldFile, worldRoots } from './WorldLocator.js'
 
 const MAX_ON_DEMAND_MINIMAP_BAKES = 64
 const TAGGED_HASH_VERSIONS = TERRAIN_HASH_VERSIONS.filter(v => v !== DEFAULT_TERRAIN_HASH_VERSION).join('|')
@@ -98,10 +100,10 @@ export function isMinimapArtifactPath(path) {
 }
 
 async function bakeWorldSeedIfMissing(worldName, seed, hashVersion) {
-  const worldFile = join(worldDir(), `${worldName}.js`)
-  if (!existsSync(worldFile)) return
+  const worldFile = findWorldFile(worldName, worldRoots(process.cwd()))
+  if (!worldFile) return
   const mod = await import(pathToFileURL(worldFile).href)
-  const tcfg = resolveTerrainConfig(withTerrainHashVersion(withTerrainSeed(mod.default || mod, seed), hashVersion))
+  const tcfg = resolveTerrainConfig(withTerrainHashVersion(withTerrainSeed(expandWorldPresets(mod.default || mod), seed), hashVersion))
   if (!minimapDescriptor(worldName, tcfg)) return
   await bakeMinimapIfMissing(worldName, tcfg)
 }

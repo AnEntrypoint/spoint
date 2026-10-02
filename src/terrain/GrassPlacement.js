@@ -1,5 +1,6 @@
 import { hash3, rand, renderedSoilWeight, createPlacementCell, placementCellAt, surfaceOfCell } from './VegPlacement.js'
 import { latticeFor, tangentFrame, tangentToLocal, tangentHeadingInChart, radialSlopeAt, climateAt } from './PlacementChart.js'
+import { createSplatWeights, HASH_VERSION_FLOAT } from 'mapspinner/splat-weights'
 
 export const GRASS = Object.freeze({
   CHUNK: 32,
@@ -20,6 +21,14 @@ const K_JITX = 20, K_JITZ = 21, K_COIN = 22, K_SCALE = 23, K_YAW = 24, K_TINT = 
 const _GRASS_FIXED_APPROX_SUN_DIR = (() => { const x = 0.4, y = 0.8, z = 0.3, l = Math.hypot(x, y, z); return [x / l, y / l, z / l] })()
 
 const _clamp01 = (v) => v < 0 ? 0 : (v > 1 ? 1 : v)
+
+const _splatWeightsByHashVersion = new Map()
+function splatWeightsFor(hashVersion) {
+  const key = hashVersion ?? HASH_VERSION_FLOAT
+  let w = _splatWeightsByHashVersion.get(key)
+  if (!w) { w = createSplatWeights({ hashVersion: key }); _splatWeightsByHashVersion.set(key, w) }
+  return w
+}
 
 export function grassDensity(temp, humidity, slopeRatio) {
   const wet = _clamp01(humidity), warm = _clamp01(temp), flat = 1 - _clamp01(slopeRatio)
@@ -52,8 +61,9 @@ export function classify(frame, anchorField, cell) {
   const grad = Math.hypot(dHdx, dHdz)
   if (grad > GRASS.SLOPE_MAX) return null
   const slopeRatio = grad / (grad + 1)
+  const paintedGrass = splatWeightsFor(frame.hashVersion)(cell.dir, rho - frame.radius, 1 - 1 / Math.sqrt(1 + grad * grad), temp, humidity).grass
 
-  const accept = grassDensity(temp, humidity, slopeRatio) * soil * cell.area
+  const accept = grassDensity(temp, humidity, slopeRatio) * soil * paintedGrass * cell.area
   if (coin >= accept) return null
 
   const SUN_DIR = _GRASS_FIXED_APPROX_SUN_DIR

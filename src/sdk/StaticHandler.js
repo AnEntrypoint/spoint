@@ -5,12 +5,15 @@ import { getProgressive, resolveBakedFile } from '../static/ProgressiveBake.js'
 import { getKtx2Extracted, resolveKtx2File } from '../static/KTX2Extract.js'
 import { buildFetchManifest } from '../static/FetchManifest.js'
 import { getServerIdentity } from '../sdk/ServerIdentity.js'
+import { worldIceServers } from '../shared/worldDefaults.js'
 import {
   GZIP_EXTENSIONS, contentHashETag, isNodeModulesPath, getCached, getTransformedCached,
   prewarmCompression, serveRangeable
 } from './StaticCache.js'
 
 export { prewarmCompression }
+
+const RUNTIME_CONFIG_URL = '/runtime-config.json'
 
 function negotiateEncoding(req) {
   const ae = req.headers['accept-encoding'] || ''
@@ -88,6 +91,12 @@ export function createStaticHandler(dirs, opts = {}) {
         console.error('[fetch-manifest] build error:', e?.message || e)
         res.writeHead(500, { 'Cache-Control': 'no-store' }); res.end('manifest build error')
       }
+      return
+    }
+    if (url === RUNTIME_CONFIG_URL) {
+      const body = JSON.stringify(process.env.SPOINT_ICE_SERVERS ? { iceServers: worldIceServers(null) } : {})
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Content-Length': Buffer.byteLength(body) })
+      res.end(body)
       return
     }
     if (url === '/favicon.ico') {

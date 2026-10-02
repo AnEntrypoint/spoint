@@ -6,6 +6,8 @@ import { bakeNavmesh } from '../src/pathfinding/RecastIntegration.js'
 import { extractAllMeshesFromGLBAsync } from '../src/physics/GLBLoader.js'
 import { mat4TRS, applyTransformMatrix } from '../src/physics/GLBMath.js'
 import { isWorldName } from '../src/shared/worldName.js'
+import { expandWorldPresets } from '../src/shared/worldPresets.js'
+import { findWorldFile, worldRoots } from '../src/sdk/WorldLocator.js'
 
 const sdkRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 const projectRoot = process.cwd()
@@ -20,7 +22,8 @@ function resolveModel(model) {
 }
 
 function worldFile(name) {
-  for (const root of [projectRoot, sdkRoot]) { const fp = path.resolve(root, 'apps', 'world', `${name}.js`); if (fs.existsSync(fp)) return fp }
+  const fp = findWorldFile(name, worldRoots(projectRoot, sdkRoot))
+  if (fp) return fp
   throw new Error(`world apps/world/${name}.js not found under ${projectRoot} or ${sdkRoot}`)
 }
 
@@ -49,7 +52,7 @@ async function main() {
   if (!isWorldName(worldName)) throw new Error(`usage: npm run bake-navmesh -- --world=<apps/world file stem>, got ${JSON.stringify(worldName)}`)
   const inputPath = worldFile(worldName)
   const outputPath = path.resolve(projectRoot, 'apps', 'world', `${worldName}.navmesh.json`)
-  const worldDef = (await import(pathToFileURL(inputPath).href)).default || {}
+  const worldDef = expandWorldPresets((await import(pathToFileURL(inputPath).href)).default || {})
   const t0 = performance.now()
   const { positions, indices, sources } = await collectWalkableGeometry(worldDef)
   console.log(`Baking navmesh for ${worldName} from ${sources.join(', ')}`)

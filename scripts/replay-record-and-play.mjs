@@ -25,7 +25,7 @@ function scriptedInputAt(i) {
 const SCRIPT_LENGTH = 160
 
 async function runRecordSession() {
-  const worldPath = resolve(SDK_ROOT, 'apps/world/replay-witness-arena.js')
+  const worldPath = resolve(SDK_ROOT, 'apps/world/_fixtures/replay-witness-arena.js')
   const worldDef = (await import(pathToFileURL(worldPath).href)).default
   const PORT = 20000 + Math.floor(Math.random() * 20000)
   const config = {

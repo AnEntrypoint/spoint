@@ -1,5 +1,5 @@
 export default {
-  presets: ['tps'],
+  presets: ['tps', 'platformer'],
   port: 3002,
   physicsBodyBudget: 512,
   scene: {
@@ -21,7 +21,6 @@ export default {
     shadowRadius: 12,
     shadowBlurSamples: 8
   },
-  placeableApps: ['checkpoint-marker', 'trigger-volume', 'spawn-point', 'respawn-zone', 'moving-platform', 'waypoint'],
   entities: [
     { id: 'env-deathrun-kosova', model: './apps/maps/deathrun_kosova.glb', position: [0, 0, 0], scale: [1, 1, 1], app: 'placed-model', config: { collider: 'trimesh' }, custom: { _interior: true } },
     { id: 'deathrun', position: [0, 0, 0], app: 'deathrun', config: { map: 'deathrun_kosova', minY: -50 } },

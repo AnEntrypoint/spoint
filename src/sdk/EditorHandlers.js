@@ -411,6 +411,7 @@ export function createEditorHandlers(ctx) {
         const filePath = resolvePath(joinPath(worldsRoot, name + '.js'))
         const escapesWorldsRoot = filePath !== worldsRoot && !filePath.startsWith(worldsRoot + pathSep)
         if (escapesWorldsRoot) { connections.send(clientId, MSG.WORLD_SAVED, { ok: false, error: 'path escapes apps/world' }); return }
+        if (existsSync(resolvePath(worldsRoot, '_fixtures', name + '.js'))) { connections.send(clientId, MSG.WORLD_SAVED, { ok: false, exists: true, name, error: 'a fixture world named "' + name + '" exists; choose another name' }); return }
         if (existsSync(filePath) && !payload.overwrite) { connections.send(clientId, MSG.WORLD_SAVED, { ok: false, exists: true, name, error: 'a world named "' + name + '" already exists' }); return }
         const source = 'export default ' + serializeWorldSource(worldDef) + '\n'
         writeFileSync(filePath, source, 'utf8')

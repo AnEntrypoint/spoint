@@ -2,6 +2,8 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { expandWorldPresets } from '../src/shared/worldPresets.js'
+import { findWorldFile, worldRoots } from '../src/sdk/WorldLocator.js'
 
 const __dirname = import.meta.dirname || dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
@@ -77,10 +79,10 @@ function bundleApp(name) {
 }
 
 async function resolveAppNamesFromWorld(worldName) {
-  const worldFile = join(ROOT, 'apps/world', `${worldName}.js`)
+  const worldFile = findWorldFile(worldName, worldRoots(ROOT)) || join(ROOT, 'apps/world', `${worldName}.js`)
   if (!existsSync(worldFile)) throw new Error(`world module not found: ${worldFile}`)
   const mod = await import(pathToFileURL(worldFile).href)
-  const worldDef = mod.default || mod
+  const worldDef = expandWorldPresets(mod.default || mod)
   return [...new Set([
     ...((worldDef.entities || []).map(e => e.app).filter(Boolean)),
     ...((worldDef.placeableApps || [])),

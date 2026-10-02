@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { WORLD_INDEX, worldFileRel, defaultWorldNameOf, isWorldName } from '../shared/worldName.js'
+import { WORLD_INDEX, worldFileRel, worldFileCandidates, defaultWorldNameOf, isWorldName } from '../shared/worldName.js'
 import { expandWorldPresets } from '../shared/worldPresets.js'
 
 export function worldRoots(project, sdkRoot) {
@@ -9,8 +9,8 @@ export function worldRoots(project, sdkRoot) {
 }
 
 export function findWorldFile(name, roots) {
-  for (const root of roots) {
-    const fp = resolve(root, worldFileRel(name))
+  for (const rel of worldFileCandidates(name)) for (const root of roots) {
+    const fp = resolve(root, rel)
     if (existsSync(fp)) return fp
   }
   return null

@@ -5,6 +5,8 @@ import zlib from 'node:zlib'
 import { resolveTerrainConfig, minimapDescriptor, minimapExtentOf, minimapResOf, terrainHashVersionOf, terrainCarvesOf, parseTerrainHashOverride, withTerrainHashVersion } from '../src/shared/terrainConfig.js'
 import { sampleMinimapCell, shadeHeightGrid } from '../src/shared/MinimapBiome.js'
 import { MINIMAP_BAKE_CODE_VERSION } from '../src/static/BakeCodeVersion.js'
+import { expandWorldPresets } from '../src/shared/worldPresets.js'
+import { findWorldFile, worldRoots } from '../src/sdk/WorldLocator.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..')
@@ -64,8 +66,8 @@ export function encodePNGRGB(width, height, rgb) {
 }
 
 async function loadTerrainConfigFromWorld(worldName, hashOverride) {
-  const mod = await import(pathToFileURL(path.join(REPO_ROOT, 'apps', 'world', `${worldName}.js`)).href)
-  const worldDef = mod.default || mod
+  const mod = await import(pathToFileURL(findWorldFile(worldName, worldRoots(REPO_ROOT)) || path.join(REPO_ROOT, 'apps', 'world', `${worldName}.js`)).href)
+  const worldDef = expandWorldPresets(mod.default || mod)
   const tcfg = resolveTerrainConfig(hashOverride == null ? worldDef : withTerrainHashVersion(worldDef, hashOverride))
   return minimapDescriptor(worldName, tcfg) ? tcfg : null
 }

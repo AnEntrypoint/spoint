@@ -21,6 +21,7 @@ import { definePlayerInventory } from '../behaviours/inventory.js'
 import { definePath } from '../behaviours/path.js'
 import { NavmeshQuery } from '../pathfinding/NavmeshQuery.js'
 import { isWorldName } from '../shared/worldName.js'
+import { COMBAT_API, fallFloorY, pickSpawnPoint, persisted, leaderboard } from './AppGameplay.js'
 
 const ENGINE_KEY_PREFIX_CHAR_CODE = 95
 const NAVMESH_FORMAT_VERSION = 1
@@ -247,6 +248,22 @@ export class AppContext {
   }
 
   get lagCompensator() { return this._runtime._lagCompensator || null }
+
+  get combat() { return COMBAT_API }
+
+  fallFloorY(x, z, depth) { return fallFloorY(this, x, z, depth) }
+
+  pickSpawnPoint(spawnPoints, opts) { return pickSpawnPoint(this, spawnPoints, opts) }
+
+  persisted(key, initial, opts) { return this._store('persisted:' + key, () => persisted(this, key, initial, opts)) }
+
+  leaderboard(key, opts) { return this._store('leaderboard:' + key, () => leaderboard(this, key, opts)) }
+
+  _store(id, create) {
+    const stores = this._stores || (this._stores = new Map())
+    if (!stores.has(id)) stores.set(id, create())
+    return stores.get(id)
+  }
 
   get bus() { return this._busScope }
 

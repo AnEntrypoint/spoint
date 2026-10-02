@@ -1,6 +1,8 @@
 import { defineCheckpoint } from '../_lib/checkpoint.js'
 import { collectCheckpointMarkers } from '../checkpoint-marker/index.js'
-import { loadLeaderboard, flushLeaderboard, recordRun, getTopEntries } from './server.js'
+const LEADERBOARD_KEY = 'leaderboard'
+const MAX_ENTRIES_PER_MAP = 100
+const leaderboard = ctx => ctx.leaderboard(LEADERBOARD_KEY, { order: 'asc', maxEntries: MAX_ENTRIES_PER_MAP })
 
 function fmtTime(ms) {
   if (ms == null) return '--:--.--'
@@ -82,10 +84,10 @@ function _tickStartFinish(ctx) {
       if (startMs == null) continue
       const timeMs = ctx.time.serverTime - startMs
       ctx.state.activeRuns.delete(name)
-      const { recorded, rank, previousBest } = recordRun(ctx, ctx.state.map, name, timeMs)
+      const { recorded, rank, previousBest } = leaderboard(ctx).record(ctx.state.map, name, timeMs)
       ctx.state.lastResult.set(player.id, { timeMs, isPB: recorded, rank })
       ctx.players.send(player.id, { type: 'deathrun_finish', timeMs, isPB: recorded, rank, previousBest })
-      ctx.network.broadcast({ type: 'deathrun_leaderboard', map: ctx.state.map, top: getTopEntries(ctx, ctx.state.map, 10) })
+      ctx.network.broadcast({ type: 'deathrun_leaderboard', map: ctx.state.map, top: leaderboard(ctx).top(ctx.state.map, 10) })
     }
   }
 }
@@ -99,8 +101,8 @@ export default {
       ctx.state.lastResult = new Map()
       ctx.state.checkpoint = null
 
-      await loadLeaderboard(ctx)
-      ctx.onShutdown(() => flushLeaderboard(ctx))
+      await leaderboard(ctx).ready
+      ctx.onShutdown(() => leaderboard(ctx).flush())
 
       ctx.state._courseBuilt = false
     },
@@ -117,7 +119,7 @@ export default {
       if (msg.type === 'player_join') {
         const p = ctx.players.getById(msg.playerId)
         const name = p?.name || `Player ${msg.playerId}`
-        ctx.players.send(msg.playerId, { type: 'deathrun_leaderboard', map: ctx.state.map, top: getTopEntries(ctx, ctx.state.map, 10) })
+        ctx.players.send(msg.playerId, { type: 'deathrun_leaderboard', map: ctx.state.map, top: leaderboard(ctx).top(ctx.state.map, 10) })
         void name
       }
       if (msg.type === 'player_leave') {

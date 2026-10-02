@@ -13,6 +13,7 @@
     "./quadtree": "./src/quadtree.js",
     "./patch-baker": "./src/patch-baker.js",
     "./heightfield-codec": "./src/heightfield-codec.js",
+    "./splat-weights": "./src/splat-weights.js",
     "./*": "./src/*"
   },
   "type": "module",

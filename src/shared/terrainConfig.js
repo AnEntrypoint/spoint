@@ -1,5 +1,7 @@
 import { anchorBasis, tangentLocalToDir } from '../terrain/PlanetFrame.js'
 import { isWorldName, WORLD_DIR } from './worldName.js'
+import { canonicalJSON } from './canonicalJSON.js'
+import { FNV1A_32_OFFSET_BASIS, fnv1aStepString } from './fnv1a.js'
 
 const MINIMAP_EXTENT_RADIUS_FRACTION = 0.25
 const MINIMAP_MAX_EXTENT_M = 16384
@@ -56,6 +58,11 @@ export function minimapDescriptor(worldId, tcfg) {
   return { base: `/${WORLD_DIR}/${minimapBaseName(worldId, tcfg)}`, center: tcfg.center || [0, 0], extent: minimapExtentOf(tcfg) }
 }
 
+export function terrainBakeKey(tcfg) {
+  const slice = { seed: tcfg.seed ?? null, radius: tcfg.radius ?? null, reliefScale: tcfg.reliefScale ?? null, anchorDir: tcfg.anchorDir || [0, 1, 0], hashVersion: terrainHashVersionOf(tcfg), carves: terrainHashVersionOf(tcfg) === DEFAULT_TERRAIN_HASH_VERSION ? [] : (tcfg.carves || []) }
+  return (fnv1aStepString(FNV1A_32_OFFSET_BASIS, canonicalJSON(slice)) >>> 0).toString(16).padStart(8, '0')
+}
+
 export function minimapBakeParams(tcfg) {
   return {
     radius: tcfg.radius,
@@ -70,7 +77,8 @@ export function minimapBakeParams(tcfg) {
 }
 
 function reseedTerrainConfig(cfg, seed) {
-  const reseeded = { ...cfg, seed }
+  const { bakedHeightfield, ...rest } = cfg
+  const reseeded = seed === cfg.seed ? { ...cfg } : { ...rest, seed }
   if (cfg.vegetation && typeof cfg.vegetation === 'object') reseeded.vegetation = { ...cfg.vegetation, seed }
   return reseeded
 }

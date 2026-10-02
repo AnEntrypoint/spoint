@@ -1,4 +1,4 @@
-import { fallFloorY, findSpawnPoints, getAvailableSpawnPoint, handleFire, loadScoreboard, flushScoreboard, persistPlayerStat, resolveFireRequest, normalizeShotDirection } from './server.js'
+import { findSpawnPoints, handleFire, loadScoreboard, persistPlayerStat, scoreboard } from './server.js'
 import { collectSpawnPoints } from '../spawn-point/index.js'
 import { POWERUP_DEFS, POWERUP_RESPAWN_MS, POWERUP_PICKUP_RADIUS, EMOTE_CLIPS, spawnPowerup } from './shared.js'
 
@@ -15,7 +15,7 @@ export const tpsGameServer = {
     ctx.state.spawnPoints = rawSpawns.map(sp => [...sp])
     ctx.state.playerStats = new Map()
     await loadScoreboard(ctx)
-    ctx.onShutdown(() => flushScoreboard(ctx))
+    ctx.onShutdown(() => scoreboard(ctx).flush())
     ctx.state.respawning = new Map()
     ctx.state.buffs = new Map()
     ctx.state.ammo = new Map()
@@ -57,7 +57,7 @@ export const tpsGameServer = {
       if ((player.state.health ?? ctx.state.config.health) <= 0) continue
       const pos = player.state.position
       const y = pos?.[1] ?? 0
-      if (pos && y < fallFloorY(ctx, pos[0], pos[2])) {
+      if (pos && y < ctx.fallFloorY(pos[0], pos[2])) {
         const t = (ctx.state.fallTimers.get(player.id) || 0) + dt
         ctx.state.fallTimers.set(player.id, t)
         if (t >= 0.5) { player.state.health = 0; ctx.state.respawning.set(player.id, { respawnAt: now + ctx.state.config.respawnTime * 1000, killer: null }); ctx.network.broadcast({ type: 'death', victim: player.id, killer: null, cause: 'fall' }); ctx.state.fallTimers.delete(player.id) }
@@ -86,7 +86,7 @@ export const tpsGameServer = {
     }
     for (const [pid, data] of ctx.state.respawning) {
       if (now < data.respawnAt) continue
-      const sp = getAvailableSpawnPoint(ctx, ctx.state.spawnPoints)
+      const sp = ctx.pickSpawnPoint(ctx.state.spawnPoints, { exclude: p => ctx.state.respawning.has(p.id) })
       const player = ctx.players.getById(pid)
       if (player?.state) { player.state.health = ctx.state.config.health; player.state.velocity = [0, 0, 0]; ctx.players.setPosition(pid, sp) }
       ctx.state.invuln.set(pid, now + (ctx.state.config.spawnInvulnMs || 0))
@@ -104,7 +104,7 @@ export const tpsGameServer = {
       if (p?.state && !msg.reconnected) p.state.health = ctx.state.config.health
       if (!msg.reconnected || !ctx.state.playerStats.has(msg.playerId)) {
         const name = p?.name || `Player ${msg.playerId}`
-        const saved = ctx.state.scoreboardByName?.[name]
+        const saved = scoreboard(ctx).value[name]
         ctx.state.playerStats.set(msg.playerId, saved ? { kills: saved.kills || 0, deaths: saved.deaths || 0, damage: saved.damage || 0 } : { kills: 0, deaths: 0, damage: 0 })
       }
       ctx.state.ammo.set(msg.playerId, ctx.state.config.magazineSize)
@@ -137,7 +137,7 @@ export const tpsGameServer = {
     }
     if (msg.type === 'fire') {
       const shooterId = msg.senderId || msg.shooterId
-      const direction = normalizeShotDirection(msg.direction)
+      const direction = ctx.combat.normalizeShotDirection(msg.direction)
       if (!direction) return
       if (ctx.state.reloading.has(shooterId)) return
       const ammo = ctx.state.ammo.get(shooterId) ?? 0
@@ -145,7 +145,7 @@ export const tpsGameServer = {
       ctx.state.ammo.set(shooterId, ammo - 1)
       const shooter = ctx.players.getById(shooterId)
       const pos = shooter?.state?.position || [0, 0, 0]
-      const { origin, viewTick } = resolveFireRequest(ctx.lagCompensator, shooterId, pos, msg)
+      const { origin, viewTick } = ctx.combat.resolveFireRequest(ctx.lagCompensator, shooterId, pos, msg)
       const fireData = { shooterId, origin, direction, viewTick }
       ctx.bus.emit('combat.fire', fireData)
       if (shooter?.state) { shooter.state.velocity[0] -= direction[0] * ctx.state.config.shootKnockback; shooter.state.velocity[2] -= direction[2] * ctx.state.config.shootKnockback }

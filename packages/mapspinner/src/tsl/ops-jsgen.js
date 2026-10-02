@@ -88,6 +88,13 @@ function createCodegen(params) {
   return { ops, build }
 }
 
+export function compileSnoise3({ hashVersion }) {
+  const { ops, build } = createCodegen({})
+  const spec = defineHeightSpec(ops, { hashVersion })
+  const { functions, body } = build((dir) => spec.snoise3(dir))
+  return new Function('ROT_COS', 'ROT_SIN', 'CARVE', 'HPF', 'HPF_RES', `${functions}\nreturn function snoise3(dx,dy,dz){${body}}`)(OCTAVE_ROTATION_COS, OCTAVE_ROTATION_SIN, [], null, 0)
+}
+
 export function compileHeightSpec({ hashVersion, carves = [], params, hpfFace, hpfRes }) {
   const { ops, build } = createCodegen(params)
   const spec = defineHeightSpec(ops, { hashVersion, carveCount: carves.length })

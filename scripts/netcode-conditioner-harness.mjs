@@ -61,7 +61,7 @@ const { MSG } = await import('../src/protocol/MessageTypes.js')
 const { unpack } = await import('../src/protocol/msgpack.js')
 const MSG_NAMES = new Map(Object.entries(MSG).map(([k, v]) => [v, k]))
 const { createSceneGraph } = await import('../client/core/SceneGraph.js')
-const { resolveTargetPoint, resolveFireRequest, findHitLinear } = await import('../apps/tps-game/server.js')
+const { resolveTargetPoint, resolveFireRequest, findHitLinear } = await import('../src/netcode/Hitscan.js')
 
 function freePort() {
   return new Promise((res, rej) => { const s = createNetServer(); s.once('error', rej); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)) }) })
@@ -245,8 +245,7 @@ async function runOne(cond, predict, worldDef) {
     if (!shooterP || !target) return
     const lc = server.lagCompensator
     const { origin, viewTick } = resolveFireRequest(lc, clientId, shooterP.state.position, pl)
-    const tpsCtx = { lagCompensator: lc, state: { respawning: new Map(), invuln: new Map(), config: { health: 100 } } }
-    const found = findHitLinear(tpsCtx, [target], clientId, origin, pl.direction, viewTick, 1000)
+    const found = findHitLinear([target], { shooterId: clientId, origin, direction: pl.direction, viewTick, range: 1000, lagComp: lc, isTargetable: t => (t.state.health ?? 100) > 0 })
     const resolved = resolveTargetPoint(target, lc, viewTick)
     const c = [resolved.tp[0], resolved.tp[1] + HITBOX_CENTER_HEIGHT, resolved.tp[2]]
     const d = pl.direction, to = [c[0] - origin[0], c[1] - origin[1], c[2] - origin[2]]

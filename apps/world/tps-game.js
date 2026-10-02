@@ -1,14 +1,5 @@
 const TERRAIN = {
-  enabled: true,
-  anchorDir: [-0.641, 0.2558, 0.7237],
-  radius: 63600,
-  reliefScale: 0.001,
-  maxLevel: 13,
-  offsetY: 0,
-  center: [0, 0],
   bakedHeightfield: '/apps/world/tps-game.hf',
-  physics: { extent: 256, resolution: 2 },
-  seed: 1337,
   carves: [{ center: [0, -20], radius: 60, falloff: 40 }],
   timeOfDay: { serverAuthoritative: true, dayLengthSec: 600, startFraction: 0.5 },
   weather: { serverAuthoritative: true, type: 'rain', intensity: 0.6, particleCount: 3000 },
@@ -22,7 +13,7 @@ const TERRAIN = {
 }
 
 export default {
-  presets: ['tps'],
+  presets: ['tps', 'planet'],
   port: 3001,
   physicsBodyBudget: 512,
   scene: {
@@ -44,11 +35,9 @@ export default {
     shadowRadius: 12,
     shadowBlurSamples: 8
   },
-  trustedApps: ['terrain'],
   placeableApps: ['destructible-box', 'destructible-debris', 'box-dynamic', 'box-static', 'box-buoyant', 'button', 'trigger-volume', 'spawn-point', 'weapon-spawn', 'respawn-zone', 'collectible', 'pickup', 'moving-platform', 'capture-zone', 'waypoint', 'shrinking-zone', 'shrinking-zone-ring', 'playtest-bot', 'vehicle', 'tank', 'softbody-cloth', 'fluid-source', 'fluid3d-source'],
   terrain: TERRAIN,
   entities: [
-    { id: 'terrain', app: 'terrain' },
     { id: 'env-sillos', model: './apps/maps/aim_sillos.glb', position: [0, 10.31, 0], scale: [1, 1, 1], app: 'placed-model', config: { collider: 'trimesh' }, custom: { _interior: true } },
     { id: 'spawn-sillos-1', position: [-15, 2.27, -10], app: 'spawn-point', config: { team: 'any' } },
     { id: 'spawn-sillos-2', position: [15, 2.27, -10], app: 'spawn-point', config: { team: 'any' } },

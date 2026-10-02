@@ -28,9 +28,9 @@ apps/world/*.minimap.png
 apps/world/*-tmp.js
 apps/world/*-test*.js
 apps/world/sandbox.js
-apps/world/e2e-ci-arena.js
-apps/world/replay-witness-arena.js
-apps/world/playtest-*.js
+apps/world/_fixtures/e2e-ci-arena.js
+apps/world/_fixtures/replay-witness-arena.js
+apps/world/_fixtures/playtest-*.js
 data/world-snapshot.json
 data/*_scoreboard.json
 data/e2e-ci/

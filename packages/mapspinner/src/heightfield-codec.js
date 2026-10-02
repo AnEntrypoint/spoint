@@ -13,7 +13,7 @@ function _utf8Decode(u8) {
 export function encodeHeightfield(a) {
   const { N, sectors } = a
   const gridS = sectors.gridS, bits = sectors.bits || 8, nSec = gridS * gridS
-  const header = JSON.stringify({ N, extent: a.extent, center: a.center, anchorDir: a.anchorDir, radius: a.radius, reliefScale: a.reliefScale, anchorHeight: a.anchorHeight, sectors: { gridS, nodesPerSector: sectors.nodesPerSector, bits } })
+  const header = JSON.stringify({ N, extent: a.extent, center: a.center, anchorDir: a.anchorDir, radius: a.radius, reliefScale: a.reliefScale, anchorHeight: a.anchorHeight, seed: a.seed, hashVersion: a.hashVersion, terrainKey: a.terrainKey, sectors: { gridS, nodesPerSector: sectors.nodesPerSector, bits } })
   const hbytes = _utf8Encode(header)
   const headerPadToF32Align = (4 - ((8 + hbytes.length) & 3)) & 3
   const hlen = hbytes.length + headerPadToF32Align

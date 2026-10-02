@@ -1,6 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { withGpuPage } from './lib/gpu-eval.mjs'
+import { locateWorld, loadWorldModule } from '../src/sdk/WorldLocator.js'
+import { resolveTerrainConfig, terrainBakeKey, terrainHashVersionOf } from '../src/shared/terrainConfig.js'
 
 function parseArgs(argv) {
   const a = { _: [] }
@@ -44,7 +46,10 @@ const { meta, heights, vendor } = out
 console.error(`[bake] renderer=${vendor}`)
 const nNull = heights.filter(h => h == null).length
 const heightsOrZero = heights.map(h => (typeof h === 'number' && isFinite(h)) ? h : 0)
-const base = { anchorDir: meta.anchorDir, radius: meta.radius, reliefScale: meta.reliefScale, anchorHeight: meta.anchorHeight, extent: EXTENT, resolution: RES, N, center: CENTER, backend: vendor }
+const worldTerrain = WORLD ? resolveTerrainConfig(await loadWorldModule((await locateWorld({ project: process.cwd(), sdkRoot: path.resolve(import.meta.dirname, '..'), name: WORLD })).path)) : null
+if (!worldTerrain) console.error('[bake] WARNING: no --world given, the artifact carries no terrainKey and loaders can only check radius/reliefScale/anchorDir')
+const terrainIdentity = worldTerrain ? { seed: worldTerrain.seed, hashVersion: terrainHashVersionOf(worldTerrain), terrainKey: terrainBakeKey(worldTerrain) } : {}
+const base = { anchorDir: meta.anchorDir, radius: meta.radius, reliefScale: meta.reliefScale, anchorHeight: meta.anchorHeight, extent: EXTENT, resolution: RES, N, center: CENTER, backend: vendor, ...terrainIdentity }
 
 let artifact
 const NODES_PER_SECTOR = Number(args.sector || 0)

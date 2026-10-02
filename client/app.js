@@ -911,8 +911,11 @@ function _splitAppPath(path) {
 }
 let _worldDef = null, _worldLoaded = false
 if (_worldParam && _runsInPageServer) {
-  const _wmod = await import(`/apps/world/${_worldParam}.js`).catch(e => { console.error(`[world] failed to load /apps/world/${_worldParam}.js:`, e?.message || e); return null })
+  const _runtimeConfigPromise = fetch(new URL('runtime-config.json', document.baseURI), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
+  const _wmod = await import(`/apps/world/${_worldParam}.js`).catch(e => import(`/apps/world/_fixtures/${_worldParam}.js`).catch(e2 => { console.error(`[world] failed to load /apps/world/${_worldParam}.js:`, e?.message || e, '| _fixtures:', e2?.message || e2); return null }))
   if (_wmod?.default) _worldDef = assertWorld(expandWorldPresets(_wmod.default), _worldParam)
+  const _runtimeIce = _worldDef && !_worldDef.iceServers ? (await _runtimeConfigPromise)?.iceServers : null
+  if (Array.isArray(_runtimeIce) && _runtimeIce.length) _worldDef = assertWorld({ ..._worldDef, iceServers: _runtimeIce }, _worldParam)
 }
 if (_seedParam != null && _worldDef) _worldDef = withTerrainSeed(_worldDef, _seedParam)
 if (_terrainHashParam != null && _worldDef) _worldDef = withTerrainHashVersion(_worldDef, _terrainHashParam)

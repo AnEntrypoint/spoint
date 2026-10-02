@@ -389,6 +389,17 @@ export interface AppContext {
   /** The server's lag compensator; null only when the runtime was built without one. */
   readonly lagCompensator: LagCompensator | null;
 
+  /** Engine lag-compensated hitscan (src/netcode/Hitscan.js): normalizeShotDirection, resolveFireRequest, findHitSpatial(players, shot, liveIndex?), findHitLinear(players, shot), rayVsCapsule, hitHeightRatio, buildLiveIndex, DEFAULT_HITBOX, recordHit. A shot is { shooterId, origin, direction, viewTick, range, lagComp, isTargetable? }. */
+  readonly combat: Record<string, any>;
+  /** Kill-plane height under x/z: terrain height minus depth (default 20 m), or -20 without terrain. */
+  fallFloorY(x: number, z: number, depth?: number): number;
+  /** Least-occupied spawn point snapped onto walkable ground; exclude(player) skips players that should not count as occupants. */
+  pickSpawnPoint(spawnPoints: number[][], opts?: { exclude?: (player: any) => boolean; minSafeDistance?: number }): number[];
+  /** Debounced storage-backed value, cached per key on this context; await .ready before first read. */
+  persisted<T>(key: string, initial: T, opts?: { debounceMs?: number }): { readonly ready: Promise<void>; value: T; save(): void; flush(): Promise<void> };
+  /** Persistent per-scope leaderboard (asc keeps the lowest value, desc the highest), cached per key on this context. */
+  leaderboard(key: string, opts?: { order?: 'asc' | 'desc'; maxEntries?: number }): { readonly ready: Promise<void>; record(scope: string, name: string, value: number): { recorded: boolean; rank: number | null; previousBest: number | null }; top(scope: string, n?: number): Array<{ name: string; value: number; ts: number }>; entryCount(): number; flush(): Promise<void> };
+
   /** Navmesh for a world file stem (defaults to the running world), built once per world and cached; rejects with a TypeError when the name is not a world file stem. */
   navmesh(worldName?: string): Promise<any>;
 

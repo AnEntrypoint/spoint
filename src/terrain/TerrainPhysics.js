@@ -5,7 +5,7 @@ import { createBiomeOverride, loadBiomeOverride } from './BiomeOverride.js'
 import { loadSplineCarveLayer } from './SplineCarve.js'
 import { loadCaveCarveLayer } from './CaveSDF.js'
 import { createTerrainStreamer } from './HeightfieldStreamer.js'
-import { terrainHashVersionOf, terrainCarvesOf, DEFAULT_TERRAIN_HASH_VERSION } from '../shared/terrainConfig.js'
+import { terrainHashVersionOf, terrainCarvesOf, terrainBakeKey, DEFAULT_TERRAIN_HASH_VERSION } from '../shared/terrainConfig.js'
 
 let _latestSampler = { key: null, promise: null }
 export function planetSamplerOptsOf(tcfg) {
@@ -60,13 +60,28 @@ export function createBakedHeightField(artifact) {
   }
 }
 
-async function loadBakedHeightField(url, hashVersion) {
+function bakedTerrainMismatch(artifact, tcfg) {
+  if (artifact.terrainKey !== undefined) return artifact.terrainKey === terrainBakeKey(tcfg) ? null : `terrain key ${artifact.terrainKey} != world ${terrainBakeKey(tcfg)}`
+  const unit = v => { const l = Math.hypot(...v); return v.map(c => c / l) }
+  const sameDir = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === 3 && b.length === 3 && unit(a).every((v, i) => Math.abs(v - unit(b)[i]) < 1e-6)
+  if (artifact.radius !== tcfg.radius) return `radius ${artifact.radius} != world ${tcfg.radius}`
+  if ((artifact.reliefScale ?? null) !== (tcfg.reliefScale ?? null)) return `reliefScale ${artifact.reliefScale} != world ${tcfg.reliefScale}`
+  if (!sameDir(artifact.anchorDir, tcfg.anchorDir || [0, 1, 0])) return `anchorDir ${JSON.stringify(artifact.anchorDir)} != world ${JSON.stringify(tcfg.anchorDir)}`
+  return null
+}
+
+async function loadBakedHeightField(url, hashVersion, tcfg) {
   if (!url) return null
   const artifact = await readBakedHeightField(url)
   if (!artifact) return null
   const bakedVersion = bakedHashVersionOf(artifact)
   if (bakedVersion !== hashVersion) {
     console.warn(`[terrain] ignoring baked heightfield ${url}: baked with terrain hashVersion ${bakedVersion}, world uses ${hashVersion} -> exact CPU height`)
+    return null
+  }
+  const mismatch = bakedTerrainMismatch(artifact, tcfg)
+  if (mismatch) {
+    console.warn(`[terrain] ignoring baked heightfield ${url}: ${mismatch} -> exact CPU height`)
     return null
   }
   return createBakedHeightField(artifact)
@@ -116,7 +131,7 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
   const gpuPatch = (tcfg.gpuPatchCollider !== false && hashVersion === DEFAULT_TERRAIN_HASH_VERSION)
     ? await createGpuPatchHeightFn({ frame, tcfg, offsetY }).catch(() => null)
     : null
-  const baked = gpuPatch ? null : await loadBakedHeightField(tcfg.bakedHeightfield, hashVersion).catch(() => null)
+  const baked = gpuPatch ? null : await loadBakedHeightField(tcfg.bakedHeightfield, hashVersion, tcfg).catch(() => null)
   const baseHeightFn = gpuPatch
     ? gpuPatch.heightFn
     : baked
