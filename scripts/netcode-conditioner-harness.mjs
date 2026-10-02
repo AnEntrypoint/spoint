@@ -35,6 +35,16 @@ const HARNESS_WALL_END = {
   ...HARNESS_WALL, name: 'netcode-harness-wall-end',
   entities: [...HARNESS_ARENA.entities, { id: 'wall', app: 'box-static', position: [-2, 1.5, 1.5], config: { hx: 0.25, hy: 1.5, hz: 3 } }]
 }
+const HARNESS_CORNER = {
+  ...HARNESS_ARENA, name: 'netcode-harness-corner',
+  entities: [
+    ...HARNESS_ARENA.entities,
+    { id: 'wall-xa', app: 'box-static', position: [-2, 1.5, -14.4], config: { hx: 0.25, hy: 1.5, hz: 10 } },
+    { id: 'wall-xb', app: 'box-static', position: [-2, 1.5, 5.6], config: { hx: 0.25, hy: 1.5, hz: 10 } },
+    { id: 'wall-z', app: 'box-static', position: [0, 1.5, -5], config: { hx: 40, hy: 1.5, hz: 0.25 } }
+  ],
+  harness: { shooterAt: [8, 1.2, 10], script: [[700, {}], [4000, { right: true, backward: true }], [700, {}]] }
+}
 const STAIR_STEPS = 8, STAIR_RISE = 0.2, STAIR_RUN = 0.5
 const HARNESS_STAIRS = {
   ...HARNESS_ARENA, name: 'netcode-harness-stairs',
@@ -45,7 +55,7 @@ const HARNESS_STAIRS = {
   ],
   harness: { shooterAt: [8, 1.2, 4], script: [[700, {}], [2500, { forward: true }], [700, {}], [2500, { backward: true }], [700, {}]] }
 }
-const INLINE_WORLDS = { arena: HARNESS_ARENA, wall: HARNESS_WALL, 'wall-end': HARNESS_WALL_END, stairs: HARNESS_STAIRS }
+const INLINE_WORLDS = { arena: HARNESS_ARENA, wall: HARNESS_WALL, 'wall-end': HARNESS_WALL_END, corner: HARNESS_CORNER, stairs: HARNESS_STAIRS }
 const FPS = Number(args.fps || 60)
 const BOTS = Number(args.bots || 0)
 const CHANNEL = args.channel || 'ws'
