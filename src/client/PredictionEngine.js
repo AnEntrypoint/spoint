@@ -295,6 +295,12 @@ export class PredictionEngine {
       err = Math.hypot(p[0] - s[0], p[1] - s[1], p[2] - s[2])
     }
     this.inputHistory.dropThrough(ackedSeq)
+    if (firstContact) {
+      this._rebaseAndReplay(sv, predicted)
+      this.reconciliationEngine.reset()
+      this._trail.reset()
+      return
+    }
     if (err <= RECONCILE_POS_EPS_M) return
     this.stats.corrections++
     this._rebaseAndReplay(sv, predicted)

@@ -26,6 +26,10 @@ const SNAP_RATE_ADJUST_INTERVAL = 64
 const AUTO_SAVE_INTERVAL = 300
 const SNAP_COST_LOW_FRAC = 0.15
 const SNAP_COST_HIGH_FRAC = 0.35
+const SNAP_STALL_ENTER = 0.08
+const SNAP_STALL_EXIT = 0.03
+const SNAP_STALL_EMA_ALPHA = 0.02
+const SNAP_STALL_MAX_INTERVAL = 2
 const PLAYER_LOD_FULL_COUNT_THRESHOLD = 30
 const BANDWIDTH_TRIM_MIN_ENTITIES = 6
 const CROUCH_WIRE_BIT = 1
@@ -388,10 +392,22 @@ export function createTickHandler(deps) {
 
   let _snapCostEmaMs = 0
   const SNAP_COST_EMA_ALPHA = 0.2
+  let _stallEma = 0
+  let _stallInterval = 1
 
   function _configuredSnapshotHz() {
     const hz = deps.getNetcodeConfig?.()?.snapshotRate
     return Number.isFinite(hz) && hz > 0 ? Math.min(tickRate, hz) : tickRate
+  }
+
+  function _updateStallInterval(players) {
+    if (deps.getNetcodeConfig?.()?.adaptiveSnapshotRate === false) { _stallEma = 0; _stallInterval = 1; return }
+    if (!players.length) return
+    let starved = 0
+    for (const player of players) if ((player.starvedTicks || 0) > 0) starved++
+    _stallEma += (starved / players.length - _stallEma) * SNAP_STALL_EMA_ALPHA
+    if (_stallEma > SNAP_STALL_ENTER) _stallInterval = Math.min(SNAP_STALL_MAX_INTERVAL, _stallInterval + 1)
+    else if (_stallEma < SNAP_STALL_EXIT) _stallInterval = Math.max(1, _stallInterval - 1)
   }
 
   function _computeSnapshotInterval() {
@@ -399,7 +415,9 @@ export function createTickHandler(deps) {
     const tickBudgetMs = 1000 / tickRate
     if (_snapCostEmaMs > tickBudgetMs * SNAP_COST_HIGH_FRAC) targetHz = targetHz * 0.5
     else if (_snapCostEmaMs > tickBudgetMs * SNAP_COST_LOW_FRAC) targetHz = targetHz * 0.75
-    return Math.max(1, Math.round(tickRate / Math.max(SNAP_RATE_MIN_HZ, targetHz)))
+    const base = Math.max(1, Math.round(tickRate / Math.max(SNAP_RATE_MIN_HZ, targetHz)))
+    const maxInterval = Math.max(1, Math.round(tickRate / SNAP_RATE_MIN_HZ))
+    return Math.min(maxInterval, Math.max(1, base * _stallInterval))
   }
 
   function simulateTick(tick, dt, players, explicitInputs = null) {
@@ -417,6 +435,7 @@ export function createTickHandler(deps) {
     networkState.setTick(tick, serverNow)
     const players = playerManager.getConnectedPlayers()
 
+    _updateStallInterval(players)
     if (tick - _snapRateAdjustTick >= SNAP_RATE_ADJUST_INTERVAL) {
       _snapRateAdjustTick = tick
       _snapshotInterval = _computeSnapshotInterval()

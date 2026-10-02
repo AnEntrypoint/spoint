@@ -15,7 +15,7 @@ const { createServerDeps, wireServerHandlers } = await import('../src/sdk/server
 const { createPeerSimSession } = await import('../src/netcode/PeerSimSession.js')
 const { loadWorldModule } = await import('../src/sdk/WorldLocator.js')
 const baseWorld = await loadWorldModule(resolve(SDK_ROOT, 'apps/world', WORLD + '.js'))
-const profileName = baseWorld.netcode?.profile
+const profileName = args.profile || baseWorld.netcode?.profile || 'authoritative'
 const overrides = {}
 for (const k of ['inputDelayTicks', 'maxRollbackTicks', 'checksumIntervalTicks', 'stallTicks', 'maxCatchUpTicks']) if (args[k] != null) overrides[k] = Number(args[k])
 const PEER_COUNT = Number(args.peers || baseWorld.netcode?.peers || 2)

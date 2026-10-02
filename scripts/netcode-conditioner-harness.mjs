@@ -50,6 +50,7 @@ const FPS = Number(args.fps || 60)
 const BOTS = Number(args.bots || 0)
 const CHANNEL = args.channel || 'ws'
 const TICK_OVERRIDE = args.tick ? Number(args.tick) : null
+const SNAP_HZ = args.snapHz ? Number(args.snapHz) : null
 const PREDICT_MODES = (args.predict || 'off,on').split(',').map(s => s === 'on')
 const CONDITIONS = args.cond
   ? args.cond.split(';').map(c => { const [l, j, p] = c.split('/').map(Number); return { latencyMs: l, jitterMs: j, lossPct: p } })
@@ -360,6 +361,9 @@ async function runOne(cond, predict, worldDef) {
     localVisual: { ...detectPops(localFrames), popsPerMin: detectPops(localFrames).pops / (elapsedS / 60), meshBehindPredictedM: summarize(meshLag), vsServerPresent: trM ? summarize(localFrames.map(f => dist3(f.p, trM.at(f.t)))) : null },
     remoteInterp: trM ? effectiveDelay(remoteFrames, trM) : null,
     interpolation: interpStats.length ? { targetDelayMs: summarize(interpStats.map(s => s.delayMs)), jitterMs: summarize(interpStats.map(s => s.jitterMs)), intervalMs: summarize(interpStats.map(s => s.intervalMs)), ahead: summarize(interpStats.map(s => s.ahead)), final: interpStats[interpStats.length - 1] } : null,
+    remotePath: { afterServerMs: summarize(onsets.filter(o => o.remote != null && o.server != null).map(o => o.remote - o.server)) },
+    interpExtrapPct: interpStats.length ? (interpStats[interpStats.length - 1].extrapolatedSamples || 0) / Math.max(1, interpStats[interpStats.length - 1].samples || 0) : 0,
+    interpHeldPct: interpStats.length ? (interpStats[interpStats.length - 1].heldSamples || 0) / Math.max(1, interpStats[interpStats.length - 1].samples || 0) : 0,
     remotePops: detectPops(remoteFrames.map((f, i) => ({ ...f, v: i ? [(f.p[0] - remoteFrames[i - 1].p[0]) / ((f.t - remoteFrames[i - 1].t) / 1000 || 1), 0, (f.p[2] - remoteFrames[i - 1].p[2]) / ((f.t - remoteFrames[i - 1].t) / 1000 || 1)] : [0, 0, 0] }))),
     hitReg: { shots: shots.length, hitRate: shots.filter(s => s.hit).length / Math.max(1, shots.length), missM: summarize(shots.map(s => s.missM)), shooterViewVsPresentM: summarize(shots.map(s => s.shooterViewErrM)), rewindMs: summarize(shots.map(s => s.rewindMs)), victimBehindLiveM: summarize(shots.map(s => s.victimBehindLiveM)), rejectedViewTicks: shots.filter(s => s.rejected).length, lagCompStats: server.lagCompensator.getStats() },
     bandwidth: { downKBps: (mover.meter.inBytes - meterBase[0].inBytes) / 1024 / elapsedS, upKBps: (mover.meter.outBytes - meterBase[0].outBytes) / 1024 / elapsedS, downMsgsPerS: (mover.meter.inMsgs - meterBase[0].inMsgs) / elapsedS, snapshotBytesAvg: ((mover.meter.byType.SNAPSHOT || 0) - meterBase[0].snap) / Math.max(1, mover.snapTimes.filter(t => t >= runStart).length), shooterDownKBps: (shooter.meter.inBytes - meterBase[1].inBytes) / 1024 / elapsedS, moverDownBytesByType: mover.meter.byType },
@@ -377,7 +381,7 @@ async function runOne(cond, predict, worldDef) {
 
 function row(r) {
   const c = r.cond, iv = r.inputToVisual, m = r.mispredict, ri = r.remoteInterp, h = r.hitReg
-  return `| ${c.latencyMs}/${c.jitterMs}/${c.lossPct}% | ${r.predict ? 'on' : 'off'} | ${fmt(r.rttMs, 0)} | ${fmt(iv.localMs.p50, 0)}/${fmt(iv.localMs.p95, 0)} | ${fmt(iv.remoteMs.p50, 0)} | ${m ? fmt(m.rate * 100, 0) + '%' : '-'} | ${m ? fmt(m.errM.p95 * 100, 1) : '-'} | ${fmt(r.localVisual.popsPerMin, 0)} | ${fmt(r.localVisual.maxBackM * 100, 1)} | ${ri ? ri.delayMs : '-'} | ${ri ? fmt(ri.errAtDelay.mean * 100, 1) : '-'} | ${ri ? fmt(ri.errVsPresent.mean * 100, 0) : '-'} | ${fmt(h.hitRate * 100, 0)}% | ${fmt(h.missM.p50 * 100, 0)} | ${fmt(r.bandwidth.downKBps, 1)}/${fmt(r.bandwidth.upKBps, 1)} | ${fmt(r.snapshots.hz, 1)} | ${fmt(r.ticks.hz, 1)} p99 ${fmt(r.ticks.intervalMs.p99, 1)} | ${r.serverInput ? fmt(r.serverInput.starvesPerS, 1) : '-'} |`
+  return `| ${c.latencyMs}/${c.jitterMs}/${c.lossPct}% | ${r.predict ? 'on' : 'off'} | ${fmt(r.rttMs, 0)} | ${fmt(iv.localMs.p50, 0)}/${fmt(iv.localMs.p95, 0)} | ${fmt(iv.remoteMs.p50, 0)} | ${m ? fmt(m.rate * 100, 0) + '%' : '-'} | ${m ? fmt(m.errM.p95 * 100, 1) : '-'} | ${fmt(r.localVisual.popsPerMin, 0)} | ${fmt(r.localVisual.maxBackM * 100, 1)} | ${ri ? ri.delayMs : '-'} | ${r.interpolation ? fmt(r.interpolation.jitterMs.mean, 0) : '-'} | ${r.interpolation ? fmt(r.interpolation.intervalMs.mean, 0) : '-'} | ${r.remotePath ? fmt(r.remotePath.afterServerMs.p50, 0) : '-'} | ${fmt(r.interpExtrapPct * 100, 0)}/${fmt(r.interpHeldPct * 100, 0)}% | ${ri ? fmt(ri.errAtDelay.mean * 100, 1) : '-'} | ${ri ? fmt(ri.errVsPresent.mean * 100, 0) : '-'} | ${fmt(h.hitRate * 100, 0)}% | ${fmt(h.missM.p50 * 100, 0)} | ${fmt(r.bandwidth.downKBps, 1)}/${fmt(r.bandwidth.upKBps, 1)} | ${fmt(r.snapshots.hz, 1)} | ${fmt(r.ticks.hz, 1)} p99 ${fmt(r.ticks.intervalMs.p99, 1)} | ${r.serverInput ? fmt(r.serverInput.starvesPerS, 1) : '-'} |`
 }
 
 async function main() {
@@ -385,12 +389,14 @@ async function main() {
   await mkdir(resolve(workDir, 'data'), { recursive: true })
   process.chdir(workDir)
   const worldDef = INLINE_WORLDS[WORLD] || await (await import('../src/sdk/WorldLocator.js')).loadWorldModule(resolve(SDK_ROOT, 'apps/world', WORLD + '.js'))
+  if (SNAP_HZ) worldDef.netcode = { ...(worldDef.netcode || {}), snapshotRate: SNAP_HZ }
+  if (args.snapAdaptive === 'off') worldDef.netcode = { ...(worldDef.netcode || {}), adaptiveSnapshotRate: false }
   const results = []
   for (const cond of CONDITIONS) for (const predict of PREDICT_MODES) {
-    console.log(`[netcode-harness] run latency=${cond.latencyMs}ms jitter=${cond.jitterMs}ms loss=${cond.lossPct}% predict=${predict} channel=${CHANNEL}`)
+    console.log(`[netcode-harness] run latency=${cond.latencyMs}ms jitter=${cond.jitterMs}ms loss=${cond.lossPct}% predict=${predict} channel=${CHANNEL} snapHz=${SNAP_HZ || 'default'}`)
     results.push(await runOne(cond, predict, worldDef))
   }
-  const header = '| one-way ms/jitter/loss | predict | RTT | local in->visual p50/p95 ms | remote in->visual p50 ms | mispredict rate | mispredict p95 cm | local pops/min | max pop cm | remote eff. delay ms | remote err@delay cm | remote err vs present cm | hit% (aim at view) | miss p50 cm | KB/s down/up | snap Hz | tick Hz / p99 interval ms | input starves/s |\n|' + '---|'.repeat(18)
+  const header = '| one-way ms/jitter/loss | predict | RTT | local in->visual p50/p95 ms | remote in->visual p50 ms | mispredict rate | mispredict p95 cm | local pops/min | max pop cm | remote eff. delay ms | interp jitter ms | interp interval ms | remote - server ms | extrap/held % | remote err@delay cm | remote err vs present cm | hit% (aim at view) | miss p50 cm | KB/s down/up | snap Hz | tick Hz / p99 interval ms | input starves/s |\n|' + '---|'.repeat(22)
   const table = [header, ...results.map(row)].join('\n')
   console.log('\n' + table + '\n')
   const outPath = resolve(OUT_DIR, `run-${Date.now()}.json`)
