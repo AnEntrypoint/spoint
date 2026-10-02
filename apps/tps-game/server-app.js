@@ -27,7 +27,6 @@ export const tpsGameServer = {
     ctx.state.mode = 'ffa'
     ctx.state.lastEmoteAt = new Map()
     const combat = combatOf(ctx)
-    ctx.state.config = { ...combat.config }
     await combat.setup()
     ctx.onShutdown(async () => { await combat.flush() })
   },

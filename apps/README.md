@@ -9,11 +9,15 @@ regardless of what it does.
 
 ## Where apps live
 
-Client caveat: in a client app's `render`/`onFrame`, `ctx.state` is the **entity's
-`custom` block**, not the server-side `ctx.state` app state -- app state does not
-travel on the wire. Anything a client app needs from the server has to be published
-under `entity.custom` (tps-game publishes its combat tuning as
-`entity.custom.config` for exactly this reason).
+Client contract: in a client app's `render`/`onFrame`, `ctx.state` is the
+**entity's `custom` block**, which is a real replicated wire field (verified: an
+entity that sets `custom` arrives with it intact in a decoded snapshot). It is
+not the server-side `ctx.state` app state — app state never reaches the client
+at all. So anything a client app needs from the server has to be published under
+`entity.custom`, and a key the server never puts there reads as `undefined` on
+the client: guard it or, better, own the value in a module both sides import
+(the way tps-game shares `COMBAT_CONFIG` from `shared.js`). A fallback literal
+hides that the read is failing.
 
 Generic placeable apps that every game uses live with the engine in
 `src/stdlib-apps/` (box-static, prop-*, placed-model, spawn-point,
