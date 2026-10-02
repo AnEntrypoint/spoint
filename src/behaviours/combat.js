@@ -165,10 +165,17 @@ export function defineCombat(spec = {}, ctx = null) {
     if (spec.onKill) spec.onKill(ctx, { shooterId, targetId, damage, headshot, streak, stats })
   }
 
+  function isAlive(playerId) {
+    if (respawning.has(playerId)) return false
+    const player = ctx.players.getById(playerId)
+    return player?.state ? (player.state.health ?? config.health) > 0 : false
+  }
+
   function fire(msg) {
     const shooterId = msg.shooterId
     const direction = ctx.combat.normalizeShotDirection(msg.direction)
     if (!direction) return
+    if (!isAlive(shooterId)) return
     if (reloading.has(shooterId)) return
     if ((ammo.get(shooterId) ?? 0) <= 0) { ctx.players.send(shooterId, { type: 'empty_click' }); return }
     ammo.set(shooterId, (ammo.get(shooterId) ?? 0) - 1)
@@ -239,6 +246,8 @@ export function defineCombat(spec = {}, ctx = null) {
   function killByFall(player) {
     player.state.health = 0
     respawning.set(player.id, { respawnAt: Date.now() + config.respawnTime * 1000, killer: null })
+    addStat(player.id, { deaths: 1 })
+    persistStat(player.id)
     ctx.network.broadcast({ type: 'death', victim: player.id, killer: null, cause: 'fall' })
     fallTimers.delete(player.id)
     if (spec.onDeath) spec.onDeath(ctx, { playerId: player.id, cause: 'fall' })
