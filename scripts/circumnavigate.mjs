@@ -6,7 +6,7 @@ import { createAnchorField } from 'mapspinner/anchor-field'
 import { createPlacementLattice } from '../src/terrain/PlacementLattice.js'
 import { chunkKeyAtLocal } from '../src/terrain/PlacementChart.js'
 import { createPlanetFrame } from '../src/terrain/PlanetFrame.js'
-import { reanchorChartFor, createChartAnchorLattice, chartAnchorCellWorstAngleDeg, chartNeedsReanchor, CHART_ANCHORS_PER_FACE } from '../src/shared/chartAnchor.js'
+import { reanchorChartFor, createChartAnchorLattice, chartAnchorCellWorstAngleDeg, chartNeedsReanchor, chartNeedsReanchorForCell, CHART_ANCHORS_PER_FACE } from '../src/shared/chartAnchor.js'
 import { sampleMinimapCell, shadeHeightGrid } from '../src/shared/MinimapBiome.js'
 import { dirToLocalXZ, latLonToDir, dirToLatLon, angleFromAnchorDeg } from '../src/shared/relocation.js'
 import { elevationAtLocal } from '../src/terrain/PlanetFrame.js'
@@ -147,14 +147,14 @@ export function createChartWalker({ frame, sampler, anchorField, lattice, anchor
   let lastDir = null
 
   function maybeReanchor(dir) {
-    if (mode !== 'reanchor') return false
+    if (mode !== 'reanchor' && mode !== 'cell') return false
     const p = carried.local, v = carried.vel
     const yawBefore = carried.yaw
     const pitchBefore = carried.pitch
     const approachM = lastDir ? arcM(radius, lastDir, dir) : Infinity
     const dirBefore = frame.localToDir(p[0], p[2], p[1])
     const speedBefore = Math.hypot(v[0], v[1], v[2])
-    const shift = reanchorChartFor({ frame, lattice: anchorLattice, dir, thresholdDeg: reanchorAngleDeg })
+    const shift = reanchorChartFor({ frame, lattice: anchorLattice, dir, thresholdDeg: reanchorAngleDeg, cellTrigger: mode === 'cell' })
     if (!shift) return false
     const stepAngleDeg = 360 * expectedStepM / (2 * Math.PI * radius)
     const continuous = approachM <= 2 * expectedStepM && shift.angleBeforeDeg <= reanchorAngleDeg + stepAngleDeg
@@ -310,7 +310,11 @@ export function createChartWalker({ frame, sampler, anchorField, lattice, anchor
     minimapGrid,
     tiltAt,
     terrainTiltAt,
-    needsReanchor(dir) { return mode === 'reanchor' && !!anchorLattice && chartNeedsReanchor(frame, dir, reanchorAngleDeg) },
+    needsReanchor(dir) {
+      if (!anchorLattice) return false
+      if (mode === 'cell') return chartNeedsReanchorForCell(anchorLattice, frame, dir)
+      return mode === 'reanchor' && chartNeedsReanchor(frame, dir, reanchorAngleDeg)
+    },
     resetAnchorEvents() { const out = events.slice(); events.length = 0; return out },
     resetCarry() { carried.local = [0, 0, 0]; carried.vel = [7, 0, 0]; carried.yaw = Math.PI / 2; carried.pitch = 0; lastDir = null },
     takeContinuousCount() { const n = continuousAnchorChanges; continuousAnchorChanges = 0; return n },

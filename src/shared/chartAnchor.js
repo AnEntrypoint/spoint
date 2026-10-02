@@ -38,6 +38,13 @@ export function chartNeedsReanchor(frame, dir, thresholdDeg = CHART_REANCHOR_ANG
   return chartAnchorAngleDeg(frame, dir) > thresholdDeg
 }
 
+export function chartNeedsReanchorForCell(lattice, frame, dir) {
+  if (!lattice) return false
+  const target = chartAnchorForDir(lattice, dir)
+  const dx = target[0] - frame.up[0], dy = target[1] - frame.up[1], dz = target[2] - frame.up[2]
+  return dx * dx + dy * dy + dz * dz > 1e-18
+}
+
 export function snapshotChart(frame) {
   return {
     radius: frame.radius,
@@ -120,10 +127,10 @@ export function createChartTransfer(from, to) {
   return { m, qM, vec, point, quat, look, tiltRad: Math.acos(Math.max(-1, Math.min(1, m[4]))) }
 }
 
-export function reanchorChartFor({ frame, lattice, dir, thresholdDeg = CHART_REANCHOR_ANGLE_DEG }) {
+export function reanchorChartFor({ frame, lattice, dir, thresholdDeg = CHART_REANCHOR_ANGLE_DEG, cellTrigger = false }) {
   if (typeof frame.reanchor !== 'function') return null
   if (!lattice) return null
-  if (!chartNeedsReanchor(frame, dir, thresholdDeg)) return null
+  if (cellTrigger ? !chartNeedsReanchorForCell(lattice, frame, dir) : !chartNeedsReanchor(frame, dir, thresholdDeg)) return null
   const before = snapshotChart(frame)
   const target = chartAnchorForDir(lattice, dir)
   frame.reanchor(target)
