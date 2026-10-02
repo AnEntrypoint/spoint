@@ -296,6 +296,8 @@ const loadingMachine = createLoadingStateMachine()
 if (window.__app) window.__app.loadingMachine = loadingMachine
 let _loadingFinished = false
 let _worldRevealed = false
+let _resolveWorldBuilt = null
+const _worldBuiltPromise = new Promise(r => { _resolveWorldBuilt = r })
 const SHADER_WARMUP_MAX_MS = 6000
 async function _revealWorld() {
   if (_worldRevealed) return
@@ -313,6 +315,7 @@ async function _revealWorld() {
   await whenProgramsReady(renderer, SHADER_WARMUP_MAX_MS)
   performance.mark('boot:shaders-warm')
   loadingMgr.setLabel('Starting game...')
+  await _worldBuiltPromise
   loadingScreen.hide()
   if (window.__app) window.__app.revealedAt = performance.now()
   if (_pendingSpPrefetch && _pendingSpPrefetch.length > 0) {
@@ -364,6 +367,7 @@ async function _finishLoading() {
       })
     }
   }
+  _resolveWorldBuilt()
   performance.mark('boot:scenery-built')
   await _revealWorld()
 }
@@ -476,6 +480,7 @@ async function _buildWorldScenery() {
   } else {
     _dbgTerrain('planet backdrop unavailable (init failed) -> skipping vegetation/rocks/grass to avoid a broken-shader GPU leak')
     console.warn('[terrain] planet backdrop unavailable (init failed) -> skipping vegetation/rocks/grass to avoid a broken-shader GPU leak')
+    _resolveWorldBuilt()
     return
   }
   const PLAYABLE_RADIUS_M = 128
@@ -496,6 +501,7 @@ async function _buildWorldScenery() {
     warmSceneryShaders(renderer, scene, camera)
     _hp('after-prewarm-warm')
   } catch (e) { console.error('[veg] prewarm/warm failed:', e?.message || e) }
+  _resolveWorldBuilt()
 }
 loadingMachine.subscribe((v) => { try { loadingMgr.setLabel(loadingMachine.label) } catch (_) {}; if (loadingMachine.isReady) _finishLoading() })
 loadingMgr.setLabel(STRINGS.loadingConnecting)
