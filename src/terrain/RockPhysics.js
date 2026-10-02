@@ -7,9 +7,6 @@ import { createColliderStreamer } from './ColliderStreamer.js'
 
 const ROCK_BASE_SEED = 1337
 const VARIANTS_PER_TYPE = SCALE_LEVELS * SQUASH_LEVELS
-const PREWARM_BODY_BUDGET = 540
-export const ROCK_PREWARM_PER_KEY = Math.floor(PREWARM_BODY_BUDGET / (ROCK.TYPES * VARIANTS_PER_TYPE))
-const PREWARM_PER_KEY = ROCK_PREWARM_PER_KEY
 
 export function rockBodyQuat(tiltQuat, yaw) {
   const tx = tiltQuat[0], ty = tiltQuat[1], tz = tiltQuat[2], tw = tiltQuat[3]
@@ -76,19 +73,7 @@ export function createRockColliderStreamer(opts = {}) {
         shapeKey: variantShapeKey(type, si, qi),
       }
     },
-    prewarm: (physics) => {
-      for (let type = 0; type < ROCK.TYPES; type++) {
-        for (let si = 0; si < SCALE_LEVELS; si++) {
-          for (let qi = 0; qi < SQUASH_LEVELS; qi++) {
-            physics.preallocatePool('mesh', variants[type][si * SQUASH_LEVELS + qi], variantShapeKey(type, si, qi), PREWARM_PER_KEY)
-          }
-        }
-      }
-    },
   })
 
-  return Object.defineProperties(streamer, {
-    _variants: { value: variants },
-    _prewarmBodies: { value: ROCK.TYPES * VARIANTS_PER_TYPE * PREWARM_PER_KEY },
-  })
+  return Object.defineProperty(streamer, '_variants', { value: variants })
 }

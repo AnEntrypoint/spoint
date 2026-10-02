@@ -89,6 +89,7 @@ export function createColliderStreamer(spec = {}) {
   }
   let curCenter = null, rebuilding = false, disposed = false, _timer = null, rebuildCount = 0
   let curCenters = []
+  let prewarmMs = 0
 
   const _CHUNK_CACHE_CAP = 4096
   const _chunkCache = new Map()
@@ -187,6 +188,19 @@ export function createColliderStreamer(spec = {}) {
     return evicted
   }
 
+  function prewarmPools(desired) {
+    if (typeof physics.preallocatePool !== 'function') return
+    const demand = new Map()
+    for (let i = 0; i < desired.length; i++) {
+      const a = bodyArgs(desired[i].p)
+      if (!a || !a.shapeKey) continue
+      const d = demand.get(a.shapeKey)
+      if (d) d.count++
+      else demand.set(a.shapeKey, { count: 1, shape: a.shape, args: a.args })
+    }
+    for (const [shapeKey, d] of demand) physics.preallocatePool(d.shape, d.args, shapeKey, d.count)
+  }
+
   const ADD_BUDGET_MS = 2
   async function _rebuildMulti(centers, unbudgeted = false) {
     if (rebuilding || disposed || !frame || typeof physics?.addBody !== 'function') return
@@ -195,6 +209,9 @@ export function createColliderStreamer(spec = {}) {
     _beginBudget(unbudgeted)
     try {
       const { desired, keep } = classifyRings(centers)
+      const tp = _now()
+      prewarmPools(desired)
+      prewarmMs = _now() - tp
       let addDeadline = _now() + ADD_BUDGET_MS
       for (let i = 0; i < desired.length; i++) {
         if (disposed) return
@@ -248,13 +265,10 @@ export function createColliderStreamer(spec = {}) {
   async function start() {
     if (disposed) return
     const t0 = _now()
-    if (typeof spec.prewarm === 'function' && typeof physics.preallocatePool === 'function') spec.prewarm(physics, cap)
-    const t1 = _now()
     const raw = getCenters()
     const centers = raw.length ? clusterCenters(raw, mergeRadius, maxCenters) : [[0, 0]]
     await _rebuildMulti(centers, true)
-    const t2 = _now()
-    console.log(`${logTag} initial ring: ${live.size}/${cap} collider(s) over ${_chunkCache.size} chunk(s) for ${centers.length} center(s) (radius ${radius}m keep ${keepRadius.toFixed(1)}m) in ${(t2 - t1).toFixed(1)}ms (prewarm ${(t1 - t0).toFixed(1)}ms)`)
+    console.log(`${logTag} initial ring: ${live.size}/${cap} collider(s) over ${_chunkCache.size} chunk(s) for ${centers.length} center(s) (radius ${radius}m keep ${keepRadius.toFixed(1)}m) in ${(_now() - t0).toFixed(1)}ms (pool prewarm ${prewarmMs.toFixed(1)}ms)`)
     setColliderIds(_liveIds)
     _timer = setTimeout(_check, intervalMs)
   }

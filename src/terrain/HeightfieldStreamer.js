@@ -159,24 +159,34 @@ export function createTerrainStreamer(opts = {}) {
     else _timer = setTimeout(tick, intervalMs)
   }
 
+  async function refineField(coarseBodyId, coarseN, cx, cz) {
+    const fine = await buildField(cx, cz)
+    if (!fine || disposed) return
+    const index = fields.findIndex(f => f.bodyId === coarseBodyId)
+    if (index < 0) { physics.removeBody(fine.bodyId); return }
+    replaceField(index, fine)
+    physics.setTerrainBodyId(fine.bodyId)
+    console.log(`[terrain] planet heightfield refined N=${coarseN} -> N=${N} spacing=${spacing.toFixed(2)}m in ${fine.wallMs.toFixed(0)}ms(sample ${fine.sampleMs.toFixed(0)}ms) id=${fine.bodyId}`)
+  }
+
   async function start(fallbackCenter = [0, 0]) {
     const players = validCenters()
     const seed = players.length ? players[0] : fallbackCenter
-    const coarseN = N >= 32 ? Math.max(8, Math.round(N / 4) + (Math.round(N / 4) % 2)) : 0
+    const coarseN = N >= 16 ? Math.round(N / 2) + (Math.round(N / 2) % 2) : 0
+    let coarseBodyId = null
     await enqueue(async () => {
+      const first = await buildField(seed[0], seed[1], coarseN || N)
+      if (!first || disposed) return
+      fields.push({ bodyId: first.bodyId, center: first.center })
+      physics.setTerrainBodyId(first.bodyId)
       if (coarseN && coarseN < N) {
-        const coarse = await buildField(seed[0], seed[1], coarseN)
-        if (coarse && !disposed) {
-          fields.push({ bodyId: coarse.bodyId, center: coarse.center }); physics.setTerrainBodyId(coarse.bodyId)
-          console.log(`[terrain] planet heightfield COARSE N=${coarseN} extent=${extent}m built ${coarse.wallMs.toFixed(0)}ms id=${coarse.bodyId} -> refining to N=${N}`)
-        }
+        coarseBodyId = first.bodyId
+        console.log(`[terrain] planet heightfield COARSE N=${coarseN} extent=${extent}m built ${first.wallMs.toFixed(0)}ms id=${first.bodyId} -> refining to N=${N} off the boot path`)
+      } else {
+        console.log(`[terrain] planet heightfield N=${N} extent=${extent}m spacing=${spacing.toFixed(2)}m built ${first.wallMs.toFixed(0)}ms(sample ${first.sampleMs.toFixed(0)}ms) id=${first.bodyId}`)
       }
-      const fine = await buildField(seed[0], seed[1])
-      if (!fine || disposed) return
-      if (fields.length) replaceField(0, fine); else fields.push({ bodyId: fine.bodyId, center: fine.center })
-      physics.setTerrainBodyId(fine.bodyId)
-      console.log(`[terrain] planet heightfield N=${N} extent=${extent}m spacing=${spacing.toFixed(2)}m built ${fine.wallMs.toFixed(0)}ms(sample ${fine.sampleMs.toFixed(0)}ms) id=${fine.bodyId}`)
     })
+    if (coarseBodyId != null) enqueue(() => refineField(coarseBodyId, coarseN, seed[0], seed[1]))
     if (!disposed) _timer = setTimeout(tick, intervalMs)
   }
 

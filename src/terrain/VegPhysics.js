@@ -1,4 +1,4 @@
-import { placementsForChunk, VEG, SPECIES } from './VegPlacement.js'
+import { placementsForChunk, VEG } from './VegPlacement.js'
 import { createColliderStreamer } from './ColliderStreamer.js'
 
 export const TRUNK = Object.freeze([
@@ -58,16 +58,6 @@ export function createTrunkColliderStreamer(opts = {}) {
       const centerY = p.y + halfH + qz * tx - qx * tz
       const centerZ = p.z + qw * tz - qy * tx
       return { shape: 'box', args: [r, halfH, r], position: [centerX, centerY, centerZ], rotation: p.tiltQuat, shapeKey: trunkShapeKey(p.species, bi) }
-    },
-    prewarm: (physics, cap) => {
-      const perKey = Math.max(8, Math.ceil(cap / (SPECIES.length * TRUNK_SCALE_BUCKETS.length)))
-      for (let s = 0; s < SPECIES.length; s++) {
-        const t = TRUNK[s] || TRUNK[0]
-        for (let bi = 0; bi < TRUNK_SCALE_BUCKETS.length; bi++) {
-          const bs = TRUNK_SCALE_BUCKETS[bi]
-          physics.preallocatePool('box', [t.r * bs, (t.h * bs) / 2, t.r * bs], trunkShapeKey(s, bi), perKey)
-        }
-      }
     },
   })
 }
