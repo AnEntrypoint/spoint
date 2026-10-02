@@ -39,8 +39,8 @@ This assembles everything a static host needs into `dist-static/`:
 The script fails loudly (non-zero exit) if the WorkerEntry bundle comes out suspiciously small
 (<50KB) -- a sign the SDK graph didn't actually inline, which would silently break in a visitor's
 browser. Don't ignore that failure; it means something changed in the import graph and the export
-tool needs an update (compare against `.github/workflows/gh-pages.yml`'s own bundle step, which uses
-the identical mechanism for spoint's own demo deploy).
+tool needs an update. There is no CI workflow in this repo to compare against: spoint's own demo
+deploy is a manual run of the same script (see "spoint's own demo deploy" below).
 
 ## 2. Base-path handling
 
@@ -57,8 +57,7 @@ npx spoint-static-export dist-static --base=/your-repo-name
 
 This rewrites every absolute `/node_modules/...`, `/src/...`, `/apps/...`, `/vendor/...` reference
 in the exported JS/HTML to be prefixed with the base path -- without it, every asset request 404s
-under a subpath host (this is the same class of bug `.github/workflows/gh-pages.yml`'s own
-"Patch paths for gh-pages" step exists to fix for spoint's own demo).
+under a subpath host -- the same reason spoint's own demo export passes `--base=/spoint`.
 
 ## 3. Publish
 
@@ -81,11 +80,10 @@ npx spoint-static-export dist-static --base=/repo-name
 ```
 
 Then push `dist-static/`'s contents to a `gh-pages` branch (or configure Pages to serve from a
-`docs/` folder / GitHub Actions deploy, whichever this repo already uses). See
-`.github/workflows/gh-pages.yml` in the spoint repo itself for a complete, working CI example of
-this exact pattern (it deploys spoint's own demo the same way, just with its own hardcoded map
-assets instead of your project's `apps/`) -- copy its structure into your own project's workflow if
-you want the export to run automatically on every push.
+`docs/` folder / GitHub Actions deploy, whichever this repo already uses). This repo has no
+`.github/workflows/` at all: spoint's own demo deploy is the same command run by hand and the
+export pushed to the `gh-pages` branch. Add your own workflow if you want it to run on every
+push.
 
 **User/org root site** (`username.github.io`, this repo IS the pages source) -- no `--base` needed,
 same as itch.io.

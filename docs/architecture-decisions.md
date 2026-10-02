@@ -96,10 +96,11 @@ cold-load latency?
   the platform assigns, no reverse proxy or TLS-terminator config checked into this repo (Railway/
   nixpacks-style platforms terminate TLS themselves in front of the container and speak plain HTTP back
   to it -- confirmed by the total absence of any cert/key path or `NODE_TLS_*` env read in `src/sdk/`).
-  `.github/workflows/gh-pages.yml` deploys the OTHER target, the static demo, straight to GitHub Pages'
-  own static host (a legacy branch-push publish per the `ghpages-deploy-symlink-cp-collision` AGENTS.md
-  entry) -- that path has no origin server of ours in the loop at all, so it inherits GitHub's own
-  HTTP/2 termination for free regardless of anything done here.
+  The OTHER target, the static demo, is exported with `node scripts/static-export.mjs --base=/spoint`
+  and pushed to GitHub Pages' own static host (a branch-push publish per the
+  `ghpages-deploy-symlink-cp-collision` AGENTS.md entry). There is no `.github/workflows/` in this
+  repo, so that push is done by hand -- that path has no origin server of ours in the loop at all,
+  so it inherits GitHub's own HTTP/2 termination for free regardless of anything done here.
 - `client/index.html`: the modulepreload hints landed this session for the three heaviest early-fetch
   modules (`app.js`, `three.module.js`, `msgpackr/index.js`). As shipped today the list also covers
   `three.core.js`, `src/index.client.js`, `three-vrm`, `xstate`, `apps/world/tps-game.js` and the design kit
