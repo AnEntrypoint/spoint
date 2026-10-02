@@ -169,9 +169,33 @@ export function createWeather(opts = {}) {
   const RAIN_BILLBOARD_YAW_EPS_RAD = 0.02
   const NO_TERRAIN_GROUND_Y = -1e6
 
+  const GH_CELL_M = 1
+  const GH_KEY_SPAN = 1048576
+  const GH_CACHE_MAX = 32768
+  const GH_CANARY_MS = 500
+  const _ghCache = new Map()
+  let _ghCanaryX = NaN, _ghCanaryZ = NaN, _ghCanaryVal = NaN, _ghCanaryAt = 0
+
   function _groundHeight(x, z) {
     if (frame && typeof frame.groundHeightLocal === 'function') {
-      try { const gh = frame.groundHeightLocal(x, z); if (Number.isFinite(gh)) return gh } catch (_) {}
+      const now = performance.now()
+      if (Number.isFinite(_ghCanaryX) && now - _ghCanaryAt > GH_CANARY_MS) {
+        _ghCanaryAt = now
+        let probe = NaN
+        try { probe = frame.groundHeightLocal(_ghCanaryX, _ghCanaryZ) } catch (_) {}
+        if (!Number.isFinite(probe)) probe = NO_TERRAIN_GROUND_Y
+        if (probe !== _ghCanaryVal) { _ghCache.clear(); _ghCanaryVal = probe }
+      }
+      const key = Math.round(x / GH_CELL_M) * GH_KEY_SPAN + Math.round(z / GH_CELL_M)
+      const hit = _ghCache.get(key)
+      if (hit !== undefined) return hit
+      let gh = NaN
+      try { gh = frame.groundHeightLocal(x, z) } catch (_) {}
+      if (!Number.isFinite(gh)) gh = NO_TERRAIN_GROUND_Y
+      if (_ghCache.size >= GH_CACHE_MAX) _ghCache.clear()
+      _ghCache.set(key, gh)
+      if (!Number.isFinite(_ghCanaryX)) { _ghCanaryX = x; _ghCanaryZ = z; _ghCanaryVal = gh; _ghCanaryAt = now }
+      return gh
     }
     return NO_TERRAIN_GROUND_Y
   }
