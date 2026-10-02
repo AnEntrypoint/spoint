@@ -43,7 +43,7 @@ function testTarget(target, shot) {
   if (shot.isTargetable && !shot.isTargetable(target)) return null
   const resolved = resolveTargetPoint(target, shot.lagComp, shot.viewTick)
   const hit = rayVsCapsule(shot.origin, shot.direction, shot.range, resolved.tp, shot.hitbox || DEFAULT_HITBOX)
-  return hit ? { target, tp: resolved.tp, rewound: resolved.rewound, proj: hit.proj } : null
+  return hit ? { target, tp: resolved.tp, rewound: resolved.rewound, proj: hit.proj, dot: hit.dot } : null
 }
 
 export function findHitLinear(players, shot) {
@@ -56,20 +56,24 @@ export function findHitLinear(players, shot) {
 
 export function findHitSpatial(players, shot, liveIndex = null) {
   const index = liveIndex || buildLiveIndex(players)
-  const candidates = []
+  const byId = index.playersById || new Map(players.map(p => [p.id, p]))
   const seen = new Set()
+  let nearest = null
+  let nearestDot = Infinity
+  let nearestOrder = Infinity
   index.queryRay(shot.origin, shot.direction, shot.range, (entry) => {
     if (seen.has(entry.id)) return
     seen.add(entry.id)
-    candidates.push({ id: entry.id, arrayIndex: index.arrayIndexOf ? index.arrayIndexOf(entry.id) : -1 })
+    const found = testTarget(byId.get(entry.id), shot)
+    if (!found) return
+    const order = index.arrayIndexOf ? index.arrayIndexOf(entry.id) : -1
+    const closer = found.dot < nearestDot || (found.dot === nearestDot && order < nearestOrder)
+    if (!closer) return
+    nearest = found
+    nearestDot = found.dot
+    nearestOrder = order
   })
-  candidates.sort((a, b) => a.arrayIndex - b.arrayIndex)
-  const byId = index.playersById || new Map(players.map(p => [p.id, p]))
-  for (const c of candidates) {
-    const found = testTarget(byId.get(c.id), shot)
-    if (found) return found
-  }
-  return null
+  return nearest
 }
 
 export { buildLiveIndex }
