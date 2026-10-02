@@ -16,6 +16,7 @@ export default {
   arena: { size: ARENA, wallHeight: 2, floorColor: '#5b6b4a', wallColor: '#44503a' },
   spawnPoints: [[-ARENA * 0.75, 1.2, 4], [ARENA * 0.75, 1.2, 4]],
   netcode: {
+    profile: 'lockstep',
     lockstep: { inputDelayTicks: 3, checksumIntervalTicks: 30, stallTicks: 300, maxCatchUpTicks: 4 }
   },
   entities: [
