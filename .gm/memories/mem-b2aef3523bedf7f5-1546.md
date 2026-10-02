@@ -1,0 +1,8 @@
+---
+key: mem-b2aef3523bedf7f5-1546
+ns: default
+created: 1790948726537
+updated: 1790948726537
+---
+
+project/client-app-ctx-state-is-entity-custom-not-app-state: A client app's render/onFrame `ctx.state` is the ENTITY'S `custom` block (client/AppModuleSystem.js:82 builds the render context as `state: entity.custom || {}`), not the server-side `ctx.state` app state. Verified by decoding real msgpack snapshots from a live server on 2026-10-02: entities that set custom (env-sillos, spawn-sillos-1, powerup_damage) arrive with custom intact, so custom IS a real replicated wire field; an entity that never sets it (tps-game, terrain) arrives with custom null. App state itself NEVER crosses the wire -- src/apps/AppRuntime.js:686 puts `appState` only in the persistence/snapshot form, and the client entity slot (src/client/SnapshotProcessor.js:181 copyEntityStateInto, plus fillEntityArr/fillEntityObj) copies id, model, position, rotation, velocity, bodyType, custom, scale, sleeping and no appState. Consequence: a server `ctx.state.<key>` publish is unreadable by the client, and any `ctx.state.<key> ?? literal` read on the client silently takes the literal forever -- the fallback is what makes the failure invisible (this is how ed190d5877 shipped as a no-op claiming to dedup tps-game's shootKnockback/headshotZone/magazineSize). Fix patterns, in order of preference: own the value in a module both sides import (apps/tps-game/shared.js exports COMBAT_CONFIG, used by server-app.js and client-app.js), or publish it under `entity.custom`, or guard it so a missing key is loud. Never leave a fallback literal in place of a read that works.
