@@ -25,7 +25,7 @@ const worldDef = { ...baseWorld, netcode: { ...baseWorld.netcode, [profileName]:
 
 async function bootPeer(pubkey, roster, post) {
   const tickRate = worldDef.tickRate || 60
-  const deps = await createServerDeps({ gravity: worldDef.gravity, appsDirs: [resolve(SDK_ROOT, 'apps')], sdkRoot: SDK_ROOT, storageDir: resolve(SDK_ROOT, 'data', 'netcode-harness', 'peer-storage') }, tickRate)
+  const deps = await createServerDeps({ gravity: worldDef.gravity, appsDirs: [resolve(SDK_ROOT, 'apps'), resolve(SDK_ROOT, 'src', 'stdlib-apps')], sdkRoot: SDK_ROOT, storageDir: resolve(SDK_ROOT, 'data', 'netcode-harness', 'peer-storage') }, tickRate)
   const ctx = {
     config: {}, tickRate, gravity: worldDef.gravity, movement: worldDef.movement || {}, ...deps,
     currentWorldDef: worldDef, worldSpawnPoints: worldDef.spawnPoints, worldSpawnPoint: worldDef.spawnPoints[0],
