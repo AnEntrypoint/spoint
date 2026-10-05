@@ -85,7 +85,7 @@ export function defineCombat(spec = {}, ctx = null) {
   if (spec.powerupRespawnMs !== undefined && !(Number.isFinite(spec.powerupRespawnMs) && spec.powerupRespawnMs >= 0)) throw new TypeError(`[combat] spec.powerupRespawnMs must be a finite number of at least 0, got ${describeValue(spec.powerupRespawnMs)}`)
   if (spec.scoreboardKey !== undefined && (typeof spec.scoreboardKey !== 'string' || !spec.scoreboardKey)) throw new TypeError(`[combat] spec.scoreboardKey must be a non-empty string, got ${describeValue(spec.scoreboardKey)}`)
   if (spec.spawnPoints !== undefined && !Array.isArray(spec.spawnPoints)) throw new TypeError(`[combat] spec.spawnPoints must be an array, got ${describeValue(spec.spawnPoints)}`)
-  for (const k of ['onKill', 'onHit', 'onRespawn', 'onPowerup', 'onWorldHit', 'onDeath']) {
+  for (const k of ['onKill', 'onHit', 'onRespawn', 'onPowerup', 'onWorldHit', 'onDeath', 'shotBlocked']) {
     if (spec[k] !== undefined && typeof spec[k] !== 'function') throw new TypeError(`[combat] spec.${k} must be a function`)
   }
   const powerupDefs = (spec.powerups || []).map((def, i) => {
@@ -234,9 +234,11 @@ export function defineCombat(spec = {}, ctx = null) {
     const baseDamage = Math.round(config.damagePerHit * (buff ? buff.damage : 1))
     const shot = { shooterId, origin, direction, viewTick, range: config.range, lagComp: ctx.lagCompensator, isTargetable }
     const found = ctx.combat.findHitSpatial(players, shot, rewindIndex)
+    if (found && spec.shotBlocked && spec.shotBlocked(ctx, origin, direction, found.dot)) return
     if (!found) {
       const r = ctx.raycast(origin, direction, config.range, null)
       if (r?.hit && r.position) {
+        if (spec.shotBlocked && spec.shotBlocked(ctx, origin, direction, Math.hypot(r.position[0] - origin[0], r.position[1] - origin[1], r.position[2] - origin[2]))) return
         if (r.entityId != null) ctx.world.sendToEntity(r.entityId, { type: 'damage', amount: baseDamage, shooterId })
         ctx.network.broadcast({ type: 'world_hit', shooter: shooterId, pos: r.position, normal: r.normal || null })
         if (spec.onWorldHit) spec.onWorldHit(ctx, { shooterId, position: r.position })

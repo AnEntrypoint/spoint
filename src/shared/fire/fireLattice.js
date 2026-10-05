@@ -102,10 +102,18 @@ export function createFireLattice(placement, cellsPerFireCell = 2) {
     return out
   }
 
+  const placementCellsPerFace = placement.cellsPerFace
+  const ofPlacement = { face: 0, I: 0, J: 0 }
+  function cellOfPlacementId(id, out = ofPlacement) {
+    const j = id % placementCellsPerFace, rest = (id - j) / placementCellsPerFace, i = rest % placementCellsPerFace
+    out.face = (rest - i) / placementCellsPerFace; out.I = Math.floor(i / F); out.J = Math.floor(j / F)
+    return out
+  }
+
   return {
     cellsPerFireCell: F, cellsPerFace: n, faceCount: FACE_COUNT, cellM: placement.cellM * F, axes,
     cellKey: (face, I, J) => (face * n + I) * n + J,
     cellOfKey(key, out = cellOf) { const J = key % n, rest = (key - J) / n, I = rest % n; out.face = (rest - I) / n; out.I = I; out.J = J; return out },
-    walk, cellOfDir, cellCentreDir, windInFaceAxes,
+    walk, cellOfPlacementId, cellOfDir, cellCentreDir, windInFaceAxes,
   }
 }

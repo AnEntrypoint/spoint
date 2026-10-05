@@ -1,7 +1,7 @@
 import { FIRE_DIR_COUNT, FIRE_DIR_DI, FIRE_DIR_DJ } from './fireLattice.js'
 
 export const FIRE_STATE = Object.freeze({ UNBURNT: 0, BURNING: 1, BURNT: 2 })
-export const FIRE_EVENT = Object.freeze({ IGNITE: 0, EXTINGUISH: 1, WIND: 2, MOISTURE: 3, RAIN: 4 })
+export const FIRE_EVENT = Object.freeze({ IGNITE: 0, EXTINGUISH: 1, WIND: 2, MOISTURE: 3, RAIN: 4, IGNITE_AREA: 5 })
 
 const UNBURNT = 0
 const BURNING = 1
@@ -60,10 +60,12 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
   const classCount = classes.length
   const igniteHeat = new Uint16Array(classCount), burnRate = new Uint16Array(classCount), heatOut = new Uint16Array(classCount)
   const fuelInit = new Uint16Array(classCount), spotChance = new Uint16Array(classCount), spotHeat = new Uint16Array(classCount)
+  const smokeOf = new Uint8Array(classCount), damageOf = new Uint16Array(classCount)
   for (let c = 0; c < classCount; c++) {
     const k = classes[c]
     igniteHeat[c] = k.igniteHeat ?? 0; burnRate[c] = k.burnRate ?? 0; heatOut[c] = k.heatOut ?? 0
     fuelInit[c] = k.fuel ?? 0; spotChance[c] = k.spotChance ?? 0; spotHeat[c] = k.spotHeat ?? 0
+    smokeOf[c] = k.smoke ?? 0; damageOf[c] = k.damage ?? 0
   }
 
   const state = new Uint8Array(cellCapacity), cls = new Uint8Array(cellCapacity)
@@ -72,6 +74,8 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
   const tileNbr = new Int32Array(maxTiles * FIRE_DIR_COUNT).fill(NBR_UNKNOWN)
   const maskLo = new Uint32Array(maxTiles), maskHi = new Uint32Array(maxTiles), tileListed = new Uint8Array(maxTiles)
   const interiorLo = new Uint32Array(maxTiles), interiorHi = new Uint32Array(maxTiles)
+  const tileSerial = new Float64Array(maxTiles)
+  let changeSerial = 1, tileGeneration = 0
   const activeTiles = new Int32Array(maxTiles)
   let tableSize = 1
   while (tableSize < maxTiles * 2) tableSize <<= 1
@@ -125,7 +129,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     if (tileCount >= maxTiles) { stats.deniedTiles++; return -1 }
     const t = tileCount++
     tileFace[t] = face; tileI[t] = ti; tileJ[t] = tj
-    maskLo[t] = 0; maskHi[t] = 0; tileListed[t] = 0; interiorLo[t] = 0; interiorHi[t] = 0
+    maskLo[t] = 0; maskHi[t] = 0; tileListed[t] = 0; interiorLo[t] = 0; interiorHi[t] = 0; tileSerial[t] = ++changeSerial
     let slot = tileHash(face, ti, tj)
     while (table[slot] !== 0) slot = (slot + 1) & (tableSize - 1)
     table[slot] = t + 1
@@ -199,14 +203,28 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     addHeat(g, amount)
   }
 
+  function touchTile(g) { tileSerial[g >> TILE_CELL_SHIFT] = ++changeSerial }
+
   function ignite(face, I, J) {
     const g = cellAt(face, I, J)
     if (g < 0 || cls[g] === 0 || state[g] !== UNBURNT || fuel[g] === 0) return false
     if (!activate(g)) return false
     state[g] = BURNING
     heat[g] = heatOut[cls[g]]
+    timer[g] = stepIndex & MAX_U16
+    touchTile(g)
     stats.ignitions++
     return true
+  }
+
+  function igniteArea(face, I, J, radius) {
+    for (let dj = -radius; dj <= radius; dj++) {
+      for (let di = -radius; di <= radius; di++) {
+        if (di * di + dj * dj > radius * radius) continue
+        lattice.walk(face, I, J, di, dj, walked)
+        ignite(walked.face, walked.I, walked.J)
+      }
+    }
   }
 
   function extinguish(face, I, J, radius) {
@@ -252,6 +270,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
       scarCount--
       state[g] = UNBURNT; heat[g] = 0; timer[g] = 0
       fuel[g] = Math.floor(fuelInit[cls[g]] * regrowFuelFraction)
+      touchTile(g)
       clearInteriorAround(g)
     }
   }
@@ -263,6 +282,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
       case FIRE_EVENT.WIND: wind[0] = ev.wx; wind[1] = ev.wy; wind[2] = ev.wz; rebuildWeights(); break
       case FIRE_EVENT.MOISTURE: moisture = ev.value; break
       case FIRE_EVENT.RAIN: rain = ev.value; break
+      case FIRE_EVENT.IGNITE_AREA: igniteArea(ev.face, ev.I, ev.J, ev.radius); break
     }
   }
 
@@ -403,6 +423,8 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
       if (state[g] === BURNING) {
         if (fuel[g] === 0) {
           state[g] = BURNT; heat[g] = 0; keep ^= low; activeCount--
+          timer[g] = stepIndex & MAX_U16
+          touchTile(g)
           scarPush(g, stepIndex + regrowSteps)
         }
         continue
@@ -411,7 +433,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
       const wet = timer[g]
       if (wet !== 0) timer[g] = wet - 1
       const thr = igniteHeat[c] + ((igniteHeat[c] * moisture) >> MOISTURE_SHIFT)
-      if (heat[g] >= thr && wet === 0 && fuel[g] !== 0 && c !== 0) { state[g] = BURNING; heat[g] = heatOut[c]; stats.ignitions++; continue }
+      if (heat[g] >= thr && wet === 0 && fuel[g] !== 0 && c !== 0) { state[g] = BURNING; heat[g] = heatOut[c]; timer[g] = stepIndex & MAX_U16; touchTile(g); stats.ignitions++; continue }
       const hv = heat[g]
       const next = hv - ((hv >> COOL_SHIFT) + (hv !== 0 ? 1 : 0))
       heat[g] = next
@@ -448,7 +470,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
         if (state[g] !== UNBURNT || heat[g] !== 0 || timer[g] !== 0 || fuel[g] !== fuelInit[cls[g]]) return
       }
     }
-    table.fill(0); tileNbr.fill(NBR_UNKNOWN); tileCount = 0; activeTileCount = 0
+    table.fill(0); tileNbr.fill(NBR_UNKNOWN); tileCount = 0; activeTileCount = 0; tileGeneration++; changeSerial++
   }
 
   function skipQuietStep(tickNumber) {
@@ -530,7 +552,9 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     scarHead = 0; scarTail = scarCount % scarRingSize
     for (let i = 0; i < scarCount; i++) { scarRing[i] = s.scar[i * 2]; scarAt[i] = s.scar[i * 2 + 1] }
     table.fill(0); tileNbr.fill(NBR_UNKNOWN)
+    changeSerial++; tileGeneration++
     for (let t = 0; t < tileCount; t++) {
+      tileSerial[t] = changeSerial
       let slot = tileHash(tileFace[t], tileI[t], tileJ[t])
       while (table[slot] !== 0) slot = (slot + 1) & (tableSize - 1)
       table[slot] = t + 1
@@ -548,6 +572,23 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
       const g = peekCell(face, I, J)
       return g < 0 ? { state: UNBURNT, heat: 0, fuel: fuelInit[fuelClassAt(face, I, J)] } : { state: state[g], heat: heat[g], fuel: fuel[g] }
     },
+    get changeSerial() { return changeSerial },
+    get tileGeneration() { return tileGeneration },
+    tileIndexOf: (face, ti, tj) => findTile(face, ti, tj),
+    tileSerialOf: (t) => tileSerial[t],
+    readTileStage(t, out, offset) {
+      const base = t << TILE_CELL_SHIFT
+      for (let i = 0; i < TILE_CELLS; i++) {
+        const g = base + i, o = offset + i * 4, st = state[g]
+        out[o] = st
+        const age = (stepIndex - timer[g]) & MAX_U16
+        out[o + 1] = st === UNBURNT ? 0 : age > 255 ? 255 : age
+        out[o + 2] = cls[g]
+        out[o + 3] = 255
+      }
+    },
+    smokeAt(face, I, J) { const g = peekCell(face, I, J); return g < 0 || state[g] !== BURNING ? 0 : smokeOf[cls[g]] },
+    damageAt(face, I, J) { const g = peekCell(face, I, J); return g < 0 || state[g] !== BURNING ? 0 : damageOf[cls[g]] },
     stateCodeAt(face, I, J) { const g = peekCell(face, I, J); return g < 0 ? UNBURNT : state[g] },
     atBoundary: (tickNumber) => phase === 0 && tickNumber >= nextStepTick && tickNumber % stepTicks === 0,
     get stepStart() { return stepStart },

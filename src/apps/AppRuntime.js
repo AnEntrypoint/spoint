@@ -46,6 +46,7 @@ export class AppRuntime {
     }
     this.entities = createEcsEntityMap(); this.apps = new Map(); this.contexts = new Map(); this._updateList = []; this._staticVersion = 0; this._dynamicEntityIds = new HookedSet(markUnmanagedDirty); this._staticEntityIds = new HookedSet(onStaticChange)
     this.gravity = c.gravity || [0, -9.81, 0]
+    this.weatherSource = null
     this.currentTick = 0; this.deltaTime = 0; this.elapsed = 0
     this._playerManager = c.playerManager || null; this._physics = c.physics || null; this._physicsIntegration = c.physicsIntegration || null
     this._connections = c.connections || null; this._stageLoader = c.stageLoader || null

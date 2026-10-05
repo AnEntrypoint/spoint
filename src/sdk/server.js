@@ -105,7 +105,7 @@ export async function createServer(config = {}) {
     snapshotSeq: 0, httpServer: null, wss: null, wtServer: null,
     handlerState: { fn: null }, tickHandlerFn: null, serverTimeOfDay: null, serverWeather: null, placedModelStorage: null,
     onTick: (tick, dt) => { if (ctx.handlerState.fn) ctx.handlerState.fn(tick, dt); deps.connections.flushAll() },
-    setTickHandler: fn => { ctx.handlerState.fn = fn; ctx.tickHandlerFn = fn; ctx.serverTimeOfDay = fn?.serverTimeOfDay || null; ctx.serverWeather = fn?.serverWeather || null }
+    setTickHandler: fn => { ctx.handlerState.fn = fn; ctx.tickHandlerFn = fn; ctx.serverTimeOfDay = fn?.serverTimeOfDay || null; ctx.serverWeather = fn?.serverWeather || null; if (ctx.appRuntime) ctx.appRuntime.weatherSource = ctx.serverWeather }
   }
   let _placedPersistTimer = null, _placedPersistPending = null
   async function _writePlacedModels(placed) {

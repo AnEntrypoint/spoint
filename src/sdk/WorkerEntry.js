@@ -96,7 +96,7 @@ export async function init({ worldDef, worldName: selectedWorldName = null, apps
     worldSpawnPoints: worldSpawnPoints(worldDef),
     snapshotSeq: 0, handlerState: { fn: null },
     onTick: (tick, dt) => { if (ctx.handlerState.fn) ctx.handlerState.fn(tick, dt); connections.flushAll() },
-    setTickHandler: fn => { ctx.handlerState.fn = fn; ctx.tickHandlerFn = fn; ctx.serverTimeOfDay = fn?.serverTimeOfDay || null; ctx.serverWeather = fn?.serverWeather || null },
+    setTickHandler: fn => { ctx.handlerState.fn = fn; ctx.tickHandlerFn = fn; ctx.serverTimeOfDay = fn?.serverTimeOfDay || null; ctx.serverWeather = fn?.serverWeather || null; if (ctx.appRuntime) ctx.appRuntime.weatherSource = ctx.serverWeather },
     placedModelStorage: { persist: runtime => _persistPlaced(runtime, storage, worldDef, ctx.chartEpochLedger?.canonicalTransfer() ?? null) }
   }
   appRuntime.setPlacedModelStorage(ctx.placedModelStorage)

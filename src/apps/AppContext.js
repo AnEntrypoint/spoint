@@ -381,7 +381,11 @@ export class AppContext {
 
   defineCombat(spec = {}) { return this._chartAware(defineCombat(spec, this)) }
 
-  defineFire(spec = {}) { return defineFire(spec, this, () => this._runtime._physics?._planetFrame ?? null) }
+  defineFire(spec = {}) {
+    const runtime = this._runtime
+    const weatherOf = () => { const w = runtime.weatherSource; return w && w.isEnabled() ? { type: w.getType(), intensity: w.getIntensity() } : null }
+    return defineFire(spec, this, () => runtime._physics?._planetFrame ?? null, weatherOf)
+  }
 
   defineSteering(spec) { return defineSteering(spec, this) }
 
