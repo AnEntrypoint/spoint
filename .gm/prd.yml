@@ -155,21 +155,45 @@
   blockedBy: none
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending
-- id: prediction-physics-speed-parity-over-prediction
-  subject: On a clean link the local prediction replays on ~61% of acks because the server's Jolt character achieves less horizontal speed than the 7.0 m/s the shared step integrates; implementer to fix, netcode owner re-runs the arms
-  acceptance_criteria: 'Mechanism (measured, headless, real server + real PhysicsNetworkClient): achieved/commanded = 0.7500 / 0.8571 / 0.9231 at 30 / 60 / 120 Hz, matching 1/(1+10*dt) to four digits, so it is dt-dependent damping and NOT a constant 6/7; the 10 equals DEFAULT_MOVEMENT.friction but movement.friction 0/5/20 left achieved at 6.000 m/s at 60 Hz, so the entry point in the CharacterManager.update / ExtendedUpdate path is still unidentified. Done when: the entry point is named with file:line; fix site chosen (default: shared model only if the factor is dt-independent, which it is not, so the physics character update); after the fix, achieved/commanded at 30/60/120 Hz reads 1.000 within 0.5%, and the 0/0/0 sustained-walk harness arm shows corrections well below 61% of acks with jump p95 below RECONCILE_POS_EPS_M, at 60 / 30 / 15 Hz snapshots; standstill arm stays 0; no change to CharacterManager.js or characterStep.js by the netcode owner. Baseline to beat: run-1790960017182 0/0/0 = 772 corrections / 1273 acks, jump p50=p95=p99 1.667 cm.'
-  blockedBy: none
-  session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  status: pending
-- id: character-top-speed-depends-on-server-tick-rate-and-is-below-maxspeed
-  subject: Configured maxSpeed 7.0 m/s is achieved as 5.25 / 6.00 / 6.46 m/s at 30 / 60 / 120 Hz server ticks; moving it changes every speed tuning in the game, so this is a gameplay decision filed apart from the prediction parity row
-  acceptance_criteria: 'Decision recorded with the owner: whether 6.0 m/s (what players feel today at 60 Hz) or 7.0 m/s (configured) is the intended speed, with the tick-rate dependence eliminated either way so lockstep at 30 Hz and a 120 Hz server give the same speed as 60 Hz. Before touching it, list what is tuned against the current feel (tps-game chase distances, strafe, sprint = maxSpeed*1.75 achieved 10.50 vs configured 12.25, combat balance, recorded perf/netcode measurements) and measure achieved speed on the real character at 30/60/120 Hz after the change, walk and sprint, ground and slope.'
-  blockedBy: prediction-physics-speed-parity-over-prediction
-  session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  status: pending
 - id: threevdrs-webgpu-gate-browser-witness
   subject: 'Witness the ThreeVdrs WebGPU gate (001d37cdbc) live: on the default WebGPU backend, set threeVdrs=true (and threeVdrsScale < 1) and confirm exactly one ''[render-graph] threeVdrs is unavailable on WebGPURenderer'' warning, zero ''Material "ShaderMaterial" is not compatible'' / Invalid RenderPipeline / Invalid CommandBuffer lines over 60 s, the scene still rendering at full resolution, and on ?legacygl=1 the knob still engaging ThreeVdrs as before. Cannot be done in Node: WebGPURenderer is not constructible there (document is not defined), and a fake renderer would only prove the branch.'
   acceptance_criteria: Live page, both backends, reachability asserted (terrain + vegetation present), one named warning on WebGPU and no incompatible-material errors over 60 s; legacy path unchanged.
   area: tsl
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: chart-reanchor-server-state-migrators
+  title: 'Server migrator: rotate all chart-local state on a chart reanchor'
+  body: streamer.chartReanchor (src/terrain/ChartReanchorService.js, default-off tcfg.chartReanchor.enabled) decides and rotates the frame but step() throws until a migrator is registered via onReanchor. Write the migrators that apply event.transfer.point/vec/quat/look to every player state (position, velocity, yaw+pitch via look), character controller bodies, every entity and dynamic/kinematic physics body (setBodyPosition/setBodyRotation), app entity transforms, spawn points and worldDef anchors, in one tick, then drive step() from the server tick after physics.
+  acceptance_criteria: 'headless Node run on the real server loop with tcfg.chartReanchor.enabled: a player walked 20 km across several cell boundaries keeps continuous world position/velocity/forward (no jump above one tick of motion), a dynamic prop left behind keeps its world position, no respawn, step() never throws'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: chart-reanchor-colliders-and-baked-artifacts
+  title: Colliders and baked artifacts across a chart reanchor
+  body: 'Heightfield bodies (HeightfieldStreamer fields keyed by old chart-local centres), trunk and rock collider streamers (chunk caches are chart-local), and the baked heightfield/minimap/.hf artifacts (TerrainPhysics bakedTerrainMismatch, MinimapBake) are all chart-bound. On a reanchor: drop and rebuild heightfields at the new chart centres (coarse then refine), clear trunk/rock chunk caches, and reject baked artifacts whose chartEpoch or anchorDir differ (already rejected today, so a reanchored world falls back to exact CPU height unless baked per anchor). HeightfieldStreamer needs a mid-rebuild guard first: the busy early-return is latent today and becomes reachable once a reanchor can fire mid-rebuild. Also confirm gpuPatch.heightFn reads frame live rather than a bake-time snapshot.'
+  acceptance_criteria: 'headless: after a reanchor the player stands on a heightfield body whose centre is within its extent of the new chart origin, old fields are removed, ground height at the player equals frame.groundHeightLocal to within the spacing, rebuild cost per reanchor measured and reported'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: chart-reanchor-wire-epoch-and-client-consumers
+  title: Chart epoch on the wire and every client chart-local consumer
+  body: 'Add a protocol message carrying chartEpoch, the new anchorDir and the tick, so server and every client switch in the same tick; clients call frame.reanchor(dir) then createChartTransfer(from,to) on predicted position/velocity, yaw+pitch via look(), camera, floating origin, in-flight snapshots and the input history used by resimulate(). Key every chart-local cache on frame.chartEpoch: client/core/TerrainBackdrop.js, Weather.js (already keyed), src/terrain/PlacementChart.js, src/shared/relocation.js, vegetation/grass/rock placement, minimap window. Needs a browser witness: the GPU is shared with training so this row runs once the GPU is free.'
+  acceptance_criteria: 'live browser walk across several cell boundaries with chartReanchor enabled: no camera or minimap discontinuity, no prediction correction spike at the epoch tick, vegetation and terrain stay continuous (pixel compare before/after epoch), window.__scene shows no stale chart-local geometry'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: chart-reanchor-multiplayer-shared-chart
+  title: One shared chart cannot serve a spread-out party
+  body: 'createChartReanchorService anchors on the cell of the players'' centroid (sorted, order independent). Measured earlier: a shared flat chart tolerates a median party spread of only 1.56 deg (about 1.7 km) at the hard crossings, so beyond that the players far from the centroid read curvature as slope. Decide between a per-player-cluster chart (several frames, each with its own collider set) and radial gravity for the character, and implement the chosen one.'
+  acceptance_criteria: two simulated players 20 km apart both stand on walkable flat ground; measured chart excess per player reported; decision recorded in recall
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: boot-foliage-build-owns-6-to-8s
+  title: 'Foliage build (rocks, grass, vegetation) is the largest boot phase: 5.8-7.6 s of the 16-21 s to a playable world'
+  body: 'Measured across 8 arms on bundle 5133a3d0d11c036d: foliage build starts at the boot:terrain mark and ends at boot:foliage-built, median 7566 ms on WebGPU and 5833 ms on legacyGL, with the 1 s shader warm-up hidden inside it, then a 0.8-2.3 s prewarm. The overlay now waits for scenery-built, so this is directly the player''s wait. New marks boot:foliage-started, boot:rocks-created, boot:grass-created and boot:vegetation-created (client/app.js) say which of the three is the long pole. Next GPU window: read those marks, then profile only the long pole.'
+  acceptance_criteria: One GPU-window arm on the new bundle reports nav->mark for foliage-started, rocks-created, grass-created, vegetation-created; the long pole is named with its ms and the CPU profile top functions inside that interval; a fix at root cause (not a budget change) lowers terrain->foliage-built median over 3 same-bundle arms with idle evidence, and reachability PASS with vegetation instances unchanged.
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: boot-terrain-backdrop-4s-webgpu-8s-legacy
+  title: createTerrainBackdrop takes 4.1 s on WebGPU and 8.3 s on legacyGL although the heightfield is 22 ms coarse
+  body: boot:loading-ready to boot:terrain median is 4081 ms WebGPU (7224-10029 absolute) and 8310 ms legacyGL. The terrain heightfield is 22 ms coarse plus 216 ms refine off the boot path, so the remainder is planet render-pipeline and program creation inside createTerrainBackdrop, not network or terrain data. Not yet attributed to a sub-step.
+  acceptance_criteria: Sub-step marks inside createTerrainBackdrop (pipeline creation, program compile, texture upload) read in one GPU-window arm, the dominant sub-step named with ms, then a root-cause change that reduces boot:loading-ready to boot:terrain median over 3 same-bundle arms on both backends.
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending
