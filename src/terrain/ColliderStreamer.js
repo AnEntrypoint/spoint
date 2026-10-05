@@ -15,6 +15,7 @@ function estimateBodyBytes(a) {
 }
 
 import { latticeFor, ringAroundLocal } from './PlacementChart.js'
+import { reanchoredSeaLevelXZ } from './ChartLocalPoint.js'
 
 function clusterCenters(centers, mergeRadius, maxCenters) {
   const picked = []
@@ -150,13 +151,19 @@ export function createColliderStreamer(spec = {}) {
 
   const _PENDING = -1
   const _useQueue = typeof physics.enqueueAdd === 'function' && typeof physics.enqueueRemove === 'function'
+  const pendingTicket = new Map()
+  let nextTicket = 0
   function scheduleAdd(p) {
     const a = bodyArgs(p); if (!a) return
     const placementId = p[idField]
     _touch(placementId, estimateBodyBytes(a))
     if (_useQueue) {
       live.set(placementId, _PENDING)
+      const ticket = ++nextTicket
+      pendingTicket.set(placementId, ticket)
       physics.enqueueAdd(a.shape, a.args, a.position, 'static', { rotation: a.rotation, shapeKey: a.shapeKey }, (id) => {
+        if (pendingTicket.get(placementId) !== ticket) { if (id != null) physics.removeBody(id); return }
+        pendingTicket.delete(placementId)
         if (disposed) { if (id != null) physics.removeBody(id); live.delete(placementId); _untouch(placementId); return }
         if (id == null) { live.delete(placementId); _untouch(placementId); return }
         live.set(placementId, id)
@@ -170,7 +177,7 @@ export function createColliderStreamer(spec = {}) {
   }
   function scheduleRemove(placementId, bodyId) {
     _untouch(placementId)
-    if (bodyId === _PENDING) { live.delete(placementId); return }
+    if (bodyId === _PENDING) { pendingTicket.delete(placementId); live.delete(placementId); return }
     if (_useQueue) physics.enqueueRemove(bodyId); else physics.removeBody(bodyId)
     live.delete(placementId)
     _liveIds.delete(bodyId)
@@ -202,11 +209,14 @@ export function createColliderStreamer(spec = {}) {
   }
 
   const ADD_BUDGET_MS = 2
+  const epochOf = () => (frame && Number.isFinite(frame.chartEpoch) ? frame.chartEpoch : 0)
+  let staleEpochAborts = 0, reanchoredEpoch = -1
   async function _rebuildMulti(centers, unbudgeted = false) {
     if (rebuilding || disposed || !frame || typeof physics?.addBody !== 'function') return
     if (!Array.isArray(centers) || centers.length === 0) return
     rebuilding = true
     _beginBudget(unbudgeted)
+    const epochAtStart = epochOf()
     try {
       const { desired, keep } = classifyRings(centers)
       const tp = _now()
@@ -215,6 +225,7 @@ export function createColliderStreamer(spec = {}) {
       let addDeadline = _now() + ADD_BUDGET_MS
       for (let i = 0; i < desired.length; i++) {
         if (disposed) return
+        if (epochOf() !== epochAtStart) { staleEpochAborts++; return true }
         const { p } = desired[i]
         if (!live.has(p[idField])) {
           scheduleAdd(p)
@@ -227,6 +238,7 @@ export function createColliderStreamer(spec = {}) {
           _touch(p[idField], _lru.get(p[idField]) ?? estimateBodyBytes(bodyArgs(p)))
         }
       }
+      if (epochOf() !== epochAtStart) { staleEpochAborts++; return true }
       if (!_deferred) {
         for (const [placementId, bodyId] of [...live.entries()]) {
           if (keep.has(placementId)) continue
@@ -273,8 +285,29 @@ export function createColliderStreamer(spec = {}) {
     _timer = setTimeout(_check, intervalMs)
   }
 
+  function reanchor({ from, to, transfer, epoch }) {
+    if (epoch === reanchoredEpoch) return 0
+    reanchoredEpoch = epoch
+    if (typeof physics.drainBodyQueue === 'function') physics.drainBodyQueue()
+    const position = [0, 0, 0], rotation = [0, 0, 0, 1]
+    let moved = 0
+    for (const [placementId, bodyId] of live) {
+      if (bodyId === _PENDING) throw new Error(`${logTag} placement ${placementId} is still pending after the body queue drained, so it would stay on the old chart`)
+      transfer.point(physics.getBodyPosition(bodyId), position)
+      transfer.quat(physics.getBodyRotation(bodyId), rotation)
+      physics.setBodyTransform(bodyId, position, rotation)
+      moved++
+    }
+    curCenters = curCenters.map(([x, z]) => reanchoredSeaLevelXZ(from, to, x, z))
+    curCenter = curCenters[0] || null
+    _chunkCache.clear()
+    return moved
+  }
+
   return {
-    start,
+    start, reanchor,
+    get staleEpochAborts() { return staleEpochAborts },
+    get isRebuilding() { return rebuilding },
     stop() { disposed = true; if (_timer) clearTimeout(_timer); for (const id of live.values()) { if (id === _PENDING) continue; try { physics.removeBody(id) } catch (_) {} } live.clear(); _liveIds.clear(); _lru.clear(); _residentBytes = 0 },
     get liveCount() { return live.size },
     get center() { return curCenter },

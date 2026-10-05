@@ -6,6 +6,7 @@ import { loadSplineCarveLayer } from './SplineCarve.js'
 import { loadCaveCarveLayer } from './CaveSDF.js'
 import { createTerrainStreamer } from './HeightfieldStreamer.js'
 import { createChartReanchorService } from './ChartReanchorService.js'
+import { createTerrainReanchor } from './ChartReanchorTerrain.js'
 import { terrainHashVersionOf, terrainCarvesOf, terrainBakeKey, LEGACY_TERRAIN_HASH_VERSION } from '../shared/terrainConfig.js'
 
 let _latestSampler = { key: null, promise: null }
@@ -143,10 +144,12 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
       ? `the GLSL patch baker draws only hashVersion ${LEGACY_TERRAIN_HASH_VERSION} and this world resolves to hashVersion ${hashVersion}, which carries an integer hash and a carve term the legacy GLSL terrain has no code for`
       : (gpuPatch ? null : 'the GPU patch bake produced no height function')
   const baked = gpuPatch ? null : await loadBakedHeightField(tcfg.bakedHeightfield, hashVersion, tcfg, frame).catch(() => null)
+  const bakedAnchorDir = baked ? frame.anchorDir : null
+  const bakedFrameIsCurrent = () => frame.up[0] === bakedAnchorDir[0] && frame.up[1] === bakedAnchorDir[1] && frame.up[2] === bakedAnchorDir[2]
   const baseHeightFn = gpuPatch
     ? gpuPatch.heightFn
     : baked
-      ? ((x, z) => baked.covers(x, z) ? baked.heightAtLocal(x, z) + offsetY : frame.groundHeightLocal(x, z))
+      ? ((x, z) => bakedFrameIsCurrent() && baked.covers(x, z) ? baked.heightAtLocal(x, z) + offsetY : frame.groundHeightLocal(x, z))
       : ((x, z) => frame.groundHeightLocal(x, z))
   const bakedSpacingM = baked ? baked.extent / (baked.N - 1) : 0
   if (gpuPatch) { console.log(`[terrain] collider using LIVE GPU PATCH bake (whole-planet, exact, nothing stored): ${gpuPatch.spacing.toFixed(2)}m collider spacing == finest display LOD (maxLevel ${gpuPatch.maxLevel}, ${gpuPatch.patchSpan.toFixed(0)}m patches, ${gpuPatch.res} samples)`); physics._terrainHeightSource = 'gpu-patch' }
@@ -172,7 +175,7 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
     gridRes = Math.min(tphys.resolution || gpuPatch.spacing, gpuPatch.spacing)
     if (gridRes !== tphys.resolution) console.log(`[terrain] collider grid resolution -> ${gridRes.toFixed(2)}m (clamped to finest display LOD spacing; was ${tphys.resolution})`)
   }
-  const streamer = createTerrainStreamer({ physics, getCenters, heightFn, extent: tphys.extent || 510, resolution: gridRes })
+  const streamer = createTerrainStreamer({ physics, getCenters, heightFn, extent: tphys.extent || 510, resolution: gridRes, getEpoch: () => frame.chartEpoch })
   await streamer.start(tcfg.center || [0, 0])
   const offsetYNotFoldedIntoHeightFn = 0
   physics.setTerrainHeightSource(heightFn, frame, offsetYNotFoldedIntoHeightFn)
@@ -216,6 +219,22 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
       playerDirs: () => getCenters().map(([x, z]) => frame.localToDir(x, z)),
     })
     : null
+  if (streamer.chartReanchor) {
+    const terrainReanchor = createTerrainReanchor({
+      frame, sampler, offsetY, reliefScale: tcfg.reliefScale, physics, heightStreamer: streamer,
+      colliderStreamers: [trunkStreamer, rockStreamer].filter(Boolean),
+      getPlayers: getCenters,
+      blockers: [
+        () => physics._terrainHeightSource === 'gpu-patch' ? 'gpu-patch-height-function-is-bound-to-the-live-frame' : null,
+        () => heightDelta.cellCount > 0 ? 'height-delta-cells-are-chart-local' : null,
+        () => biomeOverride.cellCount > 0 ? 'biome-override-cells-are-chart-local' : null,
+        () => splineCarve.cellCount > 0 ? 'spline-carve-cells-are-chart-local' : null,
+        () => caveCarve.volumeCount > 0 ? 'cave-volumes-are-chart-local' : null,
+      ],
+    })
+    streamer.chartReanchor.addTerrainMigrator({ gate: terrainReanchor.gate, migrate: terrainReanchor.migrate })
+    streamer.terrainReanchor = terrainReanchor
+  }
   streamer.baseHeightFn = baseHeightFn
   physics._terrainStreamer = streamer
   return streamer

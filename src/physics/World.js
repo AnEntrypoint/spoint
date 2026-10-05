@@ -362,6 +362,7 @@ export class PhysicsWorld {
   setBodyFriction(id, f) { const b = this._getBody(id); if (!b || !this.bodyInterface.SetFriction) return false; this.bodyInterface.SetFriction(b.GetID(), f); return true }
   setBodyRestitution(id, r) { const b = this._getBody(id); if (!b || !this.bodyInterface.SetRestitution) return false; this.bodyInterface.SetRestitution(b.GetID(), r); return true }
   setBodyPosition(id, p) { const b = this._getBody(id); if (!b) return; this._tmpRVec3.Set(p[0],p[1],p[2]); this.bodyInterface.SetPosition(b.GetID(), this._tmpRVec3, this.Jolt.EActivation_Activate); this._staticTiles?.update(id) }
+  setBodyTransform(id, position, rotation) { this._repositionBody(id, position, rotation, null) }
   setBodyMotionType(id, motionType) {
     const b = this._getBody(id); if (!b || !this.bodyInterface.SetMotionType) return false
     const J = this.Jolt

@@ -63,7 +63,8 @@ export function createTerrainStreamer(opts = {}) {
   const spacing = extent / (N - 1)
   const half = extent / 2
   const fields = []
-  let queue = Promise.resolve(), busy = false, disposed = false, _timer = null, rebuildCount = 0, capWarned = false
+  const getEpoch = typeof opts.getEpoch === 'function' ? opts.getEpoch : () => 0
+  let queue = Promise.resolve(), busy = false, disposed = false, _timer = null, rebuildCount = 0, capWarned = false, staleEpochDiscards = 0
 
   function validCenters() {
     const raw = getCenters()
@@ -75,8 +76,10 @@ export function createTerrainStreamer(opts = {}) {
     const cornerX = snapCorner(cx), cornerZ = snapCorner(cz)
     const gridSpacing = extent / (gridN - 1)
     const t0 = _now()
-    const g = await sampleTerrainGridChunked({ heightFn, N: gridN, spacing: gridSpacing, cornerX, cornerZ, budgetMs, isAborted: () => disposed })
-    if (!g || disposed) return null
+    const epochAtStart = getEpoch()
+    const g = await sampleTerrainGridChunked({ heightFn, N: gridN, spacing: gridSpacing, cornerX, cornerZ, budgetMs, isAborted: () => disposed || getEpoch() !== epochAtStart })
+    if (disposed) return null
+    if (!g || getEpoch() !== epochAtStart) { staleEpochDiscards++; return null }
     const bodyId = physics.addHeightField(g.samples, gridN, [gridSpacing, 1, gridSpacing], [cornerX, 0, cornerZ])
     if (bodyId == null) { console.error('[terrain] streamer: Jolt rejected field'); return null }
     return { bodyId, center: [cornerX + half, cornerZ + half], N: gridN, wallMs: _now() - t0, sampleMs: g.sampleMs }
@@ -143,6 +146,41 @@ export function createTerrainStreamer(opts = {}) {
     publishPrimary(validCenters())
   }
 
+  async function prepareFields({ players, heightFn: preparedHeightFn, isAborted = () => false }) {
+    const planned = []
+    while (true) {
+      const need = nextUncoveredCluster(players, planned, coverRadius)
+      if (!need) break
+      if (planned.length >= maxFields) throw new Error(`prepareFields: ${need.uncovered} player(s) left uncovered at the heightfield cap ${maxFields}`)
+      const cornerX = snapCorner(need.center[0]), cornerZ = snapCorner(need.center[1])
+      const g = await sampleTerrainGridChunked({ heightFn: preparedHeightFn, N, spacing, cornerX, cornerZ, budgetMs, isAborted: () => disposed || isAborted() })
+      if (!g || disposed || isAborted()) return null
+      planned.push({ cornerX, cornerZ, center: [cornerX + half, cornerZ + half], N, samples: g.samples, sampleMs: g.sampleMs })
+    }
+    if (!planned.length) throw new Error('prepareFields: no players to cover')
+    const { load } = assignPlayers(players, planned, half)
+    let primaryIndex = 0
+    for (let f = 1; f < planned.length; f++) if (load[f] > load[primaryIndex]) primaryIndex = f
+    return { fields: planned, primaryIndex }
+  }
+
+  function installPrepared(prepared) {
+    const added = []
+    for (const f of prepared.fields) {
+      const bodyId = physics.addHeightField(f.samples, f.N, [spacing, 1, spacing], [f.cornerX, 0, f.cornerZ])
+      if (bodyId == null) {
+        for (const a of added) physics.removeBody(a.bodyId)
+        throw new Error('[terrain] streamer: Jolt rejected a prepared field, the old fields stay installed')
+      }
+      added.push({ bodyId, center: [...f.center] })
+    }
+    const replaced = fields.splice(0, fields.length, ...added)
+    for (const old of replaced) physics.removeBody(old.bodyId)
+    physics.setTerrainBodyId(added[prepared.primaryIndex].bodyId)
+    rebuildCount += added.length
+    return { installed: added.length, removed: replaced.length }
+  }
+
   function enqueue(work) {
     const run = queue.then(async () => {
       if (disposed || !heightFn) return
@@ -198,7 +236,9 @@ export function createTerrainStreamer(opts = {}) {
   }
 
   return {
-    start, stop,
+    start, stop, prepareFields, installPrepared,
+    get coverRadius() { return coverRadius },
+    get staleEpochDiscards() { return staleEpochDiscards },
     resculpt: () => enqueue(rebuildAll),
     get fields() { return fields.map(f => ({ bodyId: f.bodyId, center: [...f.center] })) },
     get center() { return fields.length ? [...fields[0].center] : null },
