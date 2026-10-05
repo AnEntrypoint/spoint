@@ -209,6 +209,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   const wrap = (v) => v - Math.floor(v / texWrapM) * texWrapM
 
   let lastFar = 0
+  let skyClampReleased = false
   const quadCache = { res: null, hit: false, pos: [0, 0, 0], fwd: [0, 0, 0], fovy: 0, w: 0, h: 0 }
   function quadsFor(camWorldPos, camTarget, fy, up, w, h, surfElev) {
     const c = quadCache
@@ -247,8 +248,8 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
       u.north.value.set(view.north[0], view.north[1], view.north[2])
       sky.update({ camWorldPos, sunDir: sunDir || DEFAULT_SUN_DIR, view })
       lighting.update({ sunLight: view.sunLight })
-      if (opts.sky !== false && scene.backgroundNode !== sky.node) scene.backgroundNode = sky.node
-      if (opts.sky !== false) releaseBackgroundNegativeClamp(renderer, scene)
+      if (opts.sky !== false && scene.backgroundNode !== sky.node) { scene.backgroundNode = sky.node; skyClampReleased = false }
+      if (opts.sky !== false && !skyClampReleased) skyClampReleased = releaseBackgroundNegativeClamp(renderer, scene)
     }
     u.reliefShade.value = typeof window !== 'undefined' && Number.isFinite(window.__reliefShade) ? window.__reliefShade : TD.reliefShade
     const pool = resolvePoolParams()
