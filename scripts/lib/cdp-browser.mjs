@@ -97,6 +97,7 @@ class Page {
     this._sid = sessionId
     this._targetId = targetId
     this._errorHandlers = []
+    this._handlers = new Map()
     this._closed = false
     this.mouse = new Mouse(this)
     this.keyboard = new Keyboard(this)
@@ -106,10 +107,28 @@ class Page {
 
   on(event, handler) {
     if (event === 'pageerror') this._errorHandlers.push(handler)
+    else {
+      if (!this._handlers.has(event)) this._handlers.set(event, new Set())
+      this._handlers.get(event).add(handler)
+    }
     return this
   }
 
-  _emitPageError(err) { for (const h of this._errorHandlers) { try { h(err) } catch (_) {} } }
+  _emit(event, payload) {
+    const handlers = this._handlers.get(event)
+    if (!handlers) return
+    for (const h of handlers) { try { h(payload) } catch (_) {} }
+  }
+
+  _emitPageError(err) {
+    this._emit('pageerror', err)
+    for (const h of this._errorHandlers) { try { h(err) } catch (_) {} }
+  }
+
+  async enableDomain(method) {
+    await this._send(method).catch(() => {})
+    return this
+  }
 
   async _installExternalRelay() {
     await this._send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] })
@@ -312,6 +331,8 @@ class Connection {
     }
     if (!m.method) return
     const sid = m.sessionId
+    const page = sid ? this._pages.get(sid) : null
+    if (page) page._emit(m.method, m.params)
     if (m.method === 'Page.lifecycleEvent' && sid) {
       const set = this._lifecycle.get(sid)
       if (set) set.add(m.params?.name === 'DOMContentLoaded' ? 'DOMContentLoaded' : m.params?.name === 'load' ? 'load' : m.params?.name)
