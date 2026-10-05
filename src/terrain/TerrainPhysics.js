@@ -5,6 +5,7 @@ import { createBiomeOverride, loadBiomeOverride } from './BiomeOverride.js'
 import { loadSplineCarveLayer } from './SplineCarve.js'
 import { loadCaveCarveLayer } from './CaveSDF.js'
 import { createTerrainStreamer } from './HeightfieldStreamer.js'
+import { createChartReanchorService } from './ChartReanchorService.js'
 import { terrainHashVersionOf, terrainCarvesOf, terrainBakeKey, LEGACY_TERRAIN_HASH_VERSION } from '../shared/terrainConfig.js'
 
 let _latestSampler = { key: null, promise: null }
@@ -209,6 +210,12 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
     if (rockStreamer) { rockStreamer.clearChunkCache(); await rockStreamer._rebuildMulti((rockStreamer.centers && rockStreamer.centers.length) ? rockStreamer.centers : getCenters(), true) }
   }
   streamer.heightDelta = heightDelta
+  streamer.chartReanchor = tcfg.chartReanchor?.enabled === true
+    ? createChartReanchorService({
+      frame, radius: tcfg.radius, anchorsPerFace: tcfg.chartReanchor.anchorsPerFace, hysteresisDeg: tcfg.chartReanchor.hysteresisDeg,
+      playerDirs: () => getCenters().map(([x, z]) => frame.localToDir(x, z)),
+    })
+    : null
   streamer.baseHeightFn = baseHeightFn
   physics._terrainStreamer = streamer
   return streamer
