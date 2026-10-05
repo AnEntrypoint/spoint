@@ -80,6 +80,7 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
     poolCover: uniform(TD.poolCover),
     wetness: uniform(0),
     reliefShade: uniform(TD.reliefShade),
+    bcRock: uniform(new THREE.Vector3(...TD.bcRock)),
     albedoOverride: uniform(new THREE.Vector4(0, 0, 0, 0)),
     morphSplitDist: uniform(0),
     morphDistFactor: uniform(1),
@@ -165,7 +166,7 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
   const texDnP = property('vec3', 'terrTexDn')
   const poolP = property('float', 'terrPool')
   const colorNode = Fn(() => {
-    const biomeC = terrainAlbedoClimate({ snoise3: spec.snoise3, h: vH, rockSlope, temp: vClim.x, nwp: dir0, pxWorld, reliefScale: u.reliefScale })
+    const biomeC = terrainAlbedoClimate({ snoise3: spec.snoise3, h: vH, rockSlope, temp: vClim.x, nwp: dir0, pxWorld, reliefScale: u.reliefScale, bcRock: u.bcRock })
     const splat = surfaceSplat({ snoise3: spec.snoise3, u, n, dir0, h: vH, slope, rockSlope, humid: vClim.y, temp: vClim.x, biomeC, pxWorld, camDist: length(vRelP), worldRel: vRelP, texWarp: vWarp })
     texDnP.assign(splat.texDn)
     poolP.assign(splat.pool.mul(float(1.0).sub(smoothstep(u.poolSpec.z, u.poolSpec.w, slope))).mul(wet))

@@ -142,6 +142,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
       u.surfAlb.value = tex.alb
       u.surfNrm.value = tex.nrm
       u.meanL.value.set(set.meanL[0], set.meanL[1], set.meanL[2], set.meanL[3])
+      if (set.rockMean) u.bcRock.value.set(set.rockMean[0], set.rockMean[1], set.rockMean[2])
       u.surfReady.value = 1
       surfaceState.ready = true
     }).catch((e) => { surfaceState.error = String(e && e.message || e) })

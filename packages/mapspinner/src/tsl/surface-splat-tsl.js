@@ -5,7 +5,7 @@ import { TERRAIN_DEFAULTS as TD } from '../terrain-defaults.js'
 
 const c3 = (a) => vec3(a[0], a[1], a[2])
 const BC_SHORE = c3(TD.bcShore), BC_LOWLAND = c3(TD.bcLowland), BC_GRASS = c3(TD.bcGrass)
-const BC_ROCK = c3(TD.bcRock), BC_SNOW = c3(TD.bcSnow)
+const BC_SNOW = c3(TD.bcSnow)
 const SLOPE_ROCK = TD.slopeRock
 const LUMA = vec3(0.299, 0.587, 0.114)
 const TEX_TILE_BASE_M = TD.texTile
@@ -14,12 +14,12 @@ const RIDGE_ALBEDO_OCTAVES = [[75.0, 1.0], [375.0, 0.6]]
 
 const byLayer = (lay, v) => select(lay.lessThan(0.5), v[0], select(lay.lessThan(1.5), v[1], select(lay.lessThan(2.5), v[2], v[3])))
 
-export function terrainAlbedoClimate({ snoise3, h, rockSlope, temp, nwp, pxWorld, reliefScale }) {
+export function terrainAlbedoClimate({ snoise3, h, rockSlope, temp, nwp, pxWorld, reliefScale, bcRock }) {
   const rockWiden = smoothstep(20.0, 500.0, pxWorld).mul(0.20)
   const depthT = clamp(h.negate().div(300.0), 0.0, 1.0)
   const bed0 = mix(BC_SHORE, vec3(0.12, 0.11, 0.09), smoothstep(0.0, 0.5, depthT))
   const bed = mix(bed0, vec3(0.06, 0.06, 0.07), smoothstep(0.5, 1.0, depthT))
-  const seaFloor = mix(bed, BC_ROCK, smoothstep(SLOPE_ROCK[0], SLOPE_ROCK[1], rockSlope))
+  const seaFloor = mix(bed, bcRock, smoothstep(SLOPE_ROCK[0], SLOPE_ROCK[1], rockSlope))
   const seaIce = float(1.0).sub(smoothstep(0.12, 0.22, temp))
   const seaOut = mix(seaFloor, vec3(0.82, 0.88, 0.94), seaIce.mul(0.9))
 
@@ -27,9 +27,9 @@ export function terrainAlbedoClimate({ snoise3, h, rockSlope, temp, nwp, pxWorld
   const land0 = mix(mix(BC_SHORE, BC_LOWLAND, smoothstep(0.0, lo[0], h)), BC_GRASS, smoothstep(lo[0], lo[1], h))
   const bww = nwp.add(vec3(snoise3(nwp.mul(130.0))).mul(0.004))
   const bandWarp = snoise3(bww.mul(210.0)).add(snoise3(bww.mul(560.0)).mul(0.5)).add(snoise3(bww.mul(1450.0)).mul(0.25)).mul(TD.bandWarp)
-  const land1 = mix(land0, BC_ROCK, smoothstep(bandWarp.add(hi[0]), bandWarp.add(hi[1]), h))
+  const land1 = mix(land0, bcRock, smoothstep(bandWarp.add(hi[0]), bandWarp.add(hi[1]), h))
   const land2 = mix(land1, BC_SNOW, smoothstep(bandWarp.add(sn[0]), bandWarp.add(sn[1]), h))
-  const land3 = mix(land2, BC_ROCK, smoothstep(SLOPE_ROCK[0], rockWiden.add(SLOPE_ROCK[1]), rockSlope).mul(step(0.0, h)))
+  const land3 = mix(land2, bcRock, smoothstep(SLOPE_ROCK[0], rockWiden.add(SLOPE_ROCK[1]), rockSlope).mul(step(0.0, h)))
   const mottled = land3.mul(snoise3(nwp.mul(120.0)).mul(TD.variationAmt).add(1.0))
   const beachM = float(1.0).sub(smoothstep(TD.beachTop * 0.3, TD.beachTop, h)).mul(float(1.0).sub(smoothstep(SLOPE_ROCK[0], SLOPE_ROCK[1], rockSlope)))
   const beached = mix(mottled, BC_SHORE, beachM)
@@ -116,7 +116,7 @@ export function surfaceSplat({ snoise3, u, n, dir0, h, slope, rockSlope, humid, 
     If(octFarFade.notEqual(0.0), () => { col.assign(mix(albNear.rgb, triTap(u.surfAlb, gFar, tw, li).rgb, octFarFade)) })
     const nrm = vec3(0.0).toVar()
     If(texFade.notEqual(0.0), () => { nrm.assign(triNrm(u.surfNrm, gNear, tw, li, n).add(triNrm(u.surfNrm, gFar, tw, li, n).mul(1.7 * TD.nrmLow))) })
-    const matColor = byLayer(l, [BC_GRASS, BC_ROCK, BC_SHORE, BC_SNOW])
+    const matColor = byLayer(l, [BC_GRASS, u.bcRock, BC_SHORE, BC_SNOW])
     const ord = byLayer(l, [float(0.6), float(0.3), float(0.0), float(1.0)])
     const meanL = byLayer(l, [u.meanL.x, u.meanL.y, u.meanL.z, u.meanL.w])
     const sat = max(mix(vec3(dot(col, LUMA)), col, TD.texSat), vec3(0.0))
