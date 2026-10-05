@@ -27,6 +27,14 @@ If recall is empty, check `git log -p -- AGENTS.md` for the pre-drain text. Add 
 `memorize-fire` (`project/<area>-<slug>: ...`) and append its slug below. Keep this file < 30KB:
 drain narrative into recall, never grow an audit log here.
 
+## Every opportunity is executed or filed (`project/working-rule-every-opportunity-is-executed-or-filed-2026-10-05`)
+
+A restructuring or optimization opportunity noticed while working is either executed in the same
+pass (small, in-lane, with its before/after witness) or filed with `prd-add` (id, title, body,
+acceptance_criteria) before the turn ends. A report that mentions one with no row id and no commit
+sha is incomplete. Spawned agents carry this rule and list what they executed and filed. An
+unmeasured speedup claim is still never executed.
+
 ## Main-only, no branches, lanmower-only
 
 Work on `main`; merge stray branches in and delete them (`gh-pages` is a deploy artifact and stays).
