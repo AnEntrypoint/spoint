@@ -23,7 +23,7 @@ let _packrPromise = null
 
 function _makePackr(Packr) {
   return new Packr({
-    useFloat32: 3,
+    useFloat32: 0,
     bundleStrings: true,
     structures: WIRE_STRUCTURES.map(s => s.slice()),
     saveStructures: false,

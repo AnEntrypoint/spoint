@@ -180,7 +180,12 @@ as of 2026-10-05 (`terrain.clusters.enabled !== true` returns null).
 - `project/chart-reanchor-wire-epoch-client-consumers-2026-10-05`: CHART_REANCHOR 0xc6, epoch on
   snapshots/inputs/events/teleports, the client consumer, harness
   `scripts/chart-reanchor-wire-harness.mjs`.
-  `msgpack-usefloat32-3-corrupts-double-low-bits`: exact doubles travel as float64 bytes.
+  `project/msgpack-usefloat32-lossy-doubles-audit`: `src/protocol/msgpack.js` builds Packr with
+  `useFloat32: 0`, so every non-integer travels as msgpack float64 (0xcb) and round-trips bit-exact.
+  `useFloat32: 4` (DECIMAL_FIT) is not enough — it silently drops 1 ulp on ~5% of short decimals
+  (`8.790000000000001` -> `8.79`) because its "is this an integer" guard runs in double arithmetic.
+  Integers and every byte-quantized field (player/entity bin records, ComponentSchema, InputCodec,
+  chartWireCodec) are unaffected, so the wire only grows where a raw JS-number float crosses it.
 - Jolt recycles the tree nodes of removed bodies only in `physics.step`, so re-adding thousands of
   bodies with no step between aborts the wasm.
 - `project/planet-chart-cell-keyed-vs-threshold-reanchor-and-runtime-slice-2026-10-05`: a flat chart
