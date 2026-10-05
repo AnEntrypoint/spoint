@@ -458,7 +458,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
 
   function tick(tickNumber) {
     if (phase === 0) {
-      if (tickNumber < nextStepTick || skipQuietStep(tickNumber)) return
+      if (tickNumber < nextStepTick || tickNumber % stepTicks !== 0 || skipQuietStep(tickNumber)) return
       beginStep(tickNumber)
     }
     const offset = tickNumber - stepStart
@@ -548,7 +548,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
       return g < 0 ? { state: UNBURNT, heat: 0, fuel: fuelInit[fuelClassAt(face, I, J)] } : { state: state[g], heat: heat[g], fuel: fuel[g] }
     },
     stateCodeAt(face, I, J) { const g = peekCell(face, I, J); return g < 0 ? UNBURNT : state[g] },
-    atBoundary: (tickNumber) => phase === 0 && tickNumber >= nextStepTick,
+    atBoundary: (tickNumber) => phase === 0 && tickNumber >= nextStepTick && tickNumber % stepTicks === 0,
     get stepStart() { return stepStart },
     get activeCount() { return activeCount },
     get activeTileCount() { return activeTileCount },

@@ -93,6 +93,11 @@ export function createFireTimeline({ kernel, windowSteps = DEFAULT_WINDOW_STEPS,
     return { ok: true }
   }
 
+  function startAt(tick) {
+    if (simTick !== 0 || log.length !== 0 || snapshots.size !== 0) throw new Error('[fireTimeline] startAt only applies to an empty timeline')
+    simTick = tick
+  }
+
   function adopt(snapshot, tick) {
     kernel.restore(snapshot)
     snapshots.clear()
@@ -101,7 +106,7 @@ export function createFireTimeline({ kernel, windowSteps = DEFAULT_WINDOW_STEPS,
   }
 
   return {
-    submit, advanceTo, rewindTo, adopt,
+    submit, advanceTo, rewindTo, adopt, startAt,
     checksum: () => kernel.checksum(),
     keyframe: () => ({ tick: simTick, snapshot: kernel.snapshot() }),
     get tick() { return simTick },

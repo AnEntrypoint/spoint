@@ -124,8 +124,7 @@ export function defineFire(spec = {}, appCtx = null, frameOf = null) {
     })
     const timeline = createFireTimeline({ kernel, windowSteps: config.windowSteps, keepSnapshots: resolved.rewind })
     world = { lattice, kernel, timeline }
-    const startTick = appCtx.time.tick
-    timeline.advanceTo(startTick)
+    timeline.startAt(appCtx.time.tick)
     if (resolved.role === 'authority') {
       if (resolved.wind.some(c => c !== 0)) emit({ kind: FIRE_EVENT.WIND, wx: resolved.wind[0], wy: resolved.wind[1], wz: resolved.wind[2] })
       if (resolved.moisture !== 0) emit({ kind: FIRE_EVENT.MOISTURE, value: resolved.moisture })
