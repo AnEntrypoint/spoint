@@ -789,6 +789,7 @@ async function main() {
     const lt20 = allLong.filter((t) => t.start < 20000)
 
     const prof = aggregateProfile(profile)
+    if (profile) writeFileSync(resolve(OUT_DIR, LABEL + '.cpuprofile'), JSON.stringify(profile))
     const mainThreadBreakdown = (metricsBefore && metricsAfter) ? (() => { const d = (k) => +(((metricsAfter[k] || 0) - (metricsBefore[k] || 0)) * 1000).toFixed(1); return { windowMs: +((metricsAfter.Timestamp - metricsBefore.Timestamp) * 1000).toFixed(1), taskMs: d('TaskDuration'), scriptMs: d('ScriptDuration'), layoutMs: d('LayoutDuration'), styleMs: d('RecalcStyleDuration'), layoutCount: Math.round((metricsAfter.LayoutCount || 0) - (metricsBefore.LayoutCount || 0)), styleRecalcCount: Math.round((metricsAfter.RecalcStyleCount || 0) - (metricsBefore.RecalcStyleCount || 0)), jsHeapUsedEndMB: +((metricsAfter.JSHeapUsedSize || 0) / 1048576).toFixed(1) } })() : null
     const heapStats = await page.evaluate(() => {
       const h = window.__rigHeap || []
