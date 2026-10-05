@@ -30,10 +30,11 @@ const NEUTRAL_CLIMATE = { temp: 0.5, humidity: 0.5 }
 
 const _guardedMinimapHeight = new WeakMap()
 
-export function sampleMinimapCell(frame, anchorField, x, z, out) {
+export function sampleMinimapCell(frame, anchorField, x, z, out, yGuess) {
   let guarded = _guardedMinimapHeight.get(frame)
-  if (!guarded) { guarded = guardedGroundHeight('minimap cell', (px, pz) => frame.groundHeightLocal(px, pz), NaN); _guardedMinimapHeight.set(frame, guarded) }
-  const h = guarded(x, z)
+  if (!guarded) { guarded = guardedGroundHeight('minimap cell', (px, pz, pg) => frame.groundHeightLocal(px, pz, pg), NaN); _guardedMinimapHeight.set(frame, guarded) }
+  const h = guarded(x, z, yGuess)
+  out[4] = h
   if (!Number.isFinite(h)) { out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 0; return NaN }
   const dir = frame.localToDir(x, z, h)
   const elevation = frame.elevationAtDir(dir)

@@ -149,8 +149,8 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
   const baseHeightFn = gpuPatch
     ? gpuPatch.heightFn
     : baked
-      ? ((x, z) => bakedFrameIsCurrent() && baked.covers(x, z) ? baked.heightAtLocal(x, z) + offsetY : frame.groundHeightLocal(x, z))
-      : ((x, z) => frame.groundHeightLocal(x, z))
+      ? ((x, z, yGuess) => bakedFrameIsCurrent() && baked.covers(x, z) ? baked.heightAtLocal(x, z) + offsetY : frame.groundHeightLocal(x, z, yGuess))
+      : ((x, z, yGuess) => frame.groundHeightLocal(x, z, yGuess))
   const bakedSpacingM = baked ? baked.extent / (baked.N - 1) : 0
   if (gpuPatch) { console.log(`[terrain] collider using LIVE GPU PATCH bake (whole-planet, exact, nothing stored): ${gpuPatch.spacing.toFixed(2)}m collider spacing == finest display LOD (maxLevel ${gpuPatch.maxLevel}, ${gpuPatch.patchSpan.toFixed(0)}m patches, ${gpuPatch.res} samples)`); physics._terrainHeightSource = 'gpu-patch' }
   else if (baked) { console.log(`[terrain] collider using BAKED heightfield (hashVersion ${hashVersion}, N=${baked.N}, extent=${baked.extent}m, spacing ${(bakedSpacingM * 100).toFixed(0)}cm) instead of the GPU patch bake: ${gpuPatchUnavailable}`); physics._terrainHeightSource = 'baked' }

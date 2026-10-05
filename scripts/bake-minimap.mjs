@@ -96,14 +96,18 @@ export async function bakeMinimap(opts) {
   const biomeRgb = new Uint8Array(N * N * 3)
   const land = new Uint8Array(N * N)
   const rgb = Buffer.alloc(N * N * 3)
-  const cell = [0, 0, 0, 0]
+  const cell = [0, 0, 0, 0, NaN]
   let min = Infinity, max = -Infinity
 
   for (let iz = 0; iz < N; iz++) {
     const z = center[1] - half + (iz + 0.5) * step
+    let prevY = NaN, prevY2 = NaN
     for (let ix = 0; ix < N; ix++) {
       const x = center[0] - half + (ix + 0.5) * step
-      const h = sampleMinimapCell(frame, anchorField, x, z, cell)
+      const guess = Number.isFinite(prevY) && Number.isFinite(prevY2) ? prevY + (prevY - prevY2) : prevY
+      const h = sampleMinimapCell(frame, anchorField, x, z, cell, guess)
+      prevY2 = prevY
+      prevY = cell[4]
       const idx = iz * N + ix
       heights[idx] = h
       land[idx] = cell[3]

@@ -152,8 +152,8 @@ export function createHeightDelta(strokes) {
 
   function wrapHeightFn(baseHeightFn) {
     if (typeof baseHeightFn !== 'function') return baseHeightFn
-    return function deltaWrappedHeightFn(x, z) {
-      const base = baseHeightFn(x, z)
+    return function deltaWrappedHeightFn(x, z, yGuess) {
+      const base = baseHeightFn(x, z, yGuess)
       if (!Number.isFinite(base)) return base
       return base + deltaAt(x, z)
     }

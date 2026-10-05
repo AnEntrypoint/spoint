@@ -176,14 +176,14 @@ export function createPatchHeightFn({ baker, frame, maxLevel = TD.maxLevel, offs
     const h00 = h[iz * res + ix], h10 = h[iz * res + ix + 1], h01 = h[(iz + 1) * res + ix], h11 = h[(iz + 1) * res + ix + 1]
     return (h00 * (1 - tx) + h10 * tx) * (1 - tz) + (h01 * (1 - tx) + h11 * tx) * tz
   }
-  function heightFnOrNull(x, z) {
-    const y = frame.solveSurfaceY(x, z, patchHeightAtDir)
+  function heightFnOrNull(x, z, yGuess) {
+    const y = frame.solveSurfaceY(x, z, patchHeightAtDir, undefined, yGuess)
     return y == null ? null : y + offsetY
   }
-  function heightFn(x, z) {
-    const y = heightFnOrNull(x, z)
+  function heightFn(x, z, yGuess) {
+    const y = heightFnOrNull(x, z, yGuess)
     if (y != null) return y
-    return fallbackFn ? fallbackFn(x, z) : frame.groundHeightLocal(x, z)
+    return fallbackFn ? fallbackFn(x, z, yGuess) : frame.groundHeightLocal(x, z, yGuess)
   }
   function prefetchAround(x, z) {
     const d = frame.localToDir(x, z)

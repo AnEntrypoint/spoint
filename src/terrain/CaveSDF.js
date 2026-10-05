@@ -137,8 +137,8 @@ export function createCaveCarveLayer() {
 
   function wrapHeightFn(baseHeightFn) {
     if (typeof baseHeightFn !== 'function') return baseHeightFn
-    return function caveWrappedHeightFn(x, z) {
-      const base = baseHeightFn(x, z)
+    return function caveWrappedHeightFn(x, z, yGuess) {
+      const base = baseHeightFn(x, z, yGuess)
       if (!Number.isFinite(base)) return base
       return base + heightDeltaAt(x, z, base)
     }

@@ -29,8 +29,8 @@ export class ChartRangeError extends SurfaceSolveError {
 }
 
 export function guardedGroundHeight(where, heightFn, fallback) {
-  return (x, z) => {
-    try { return heightFn(x, z) } catch (e) {
+  return (x, z, ...rest) => {
+    try { return heightFn(x, z, ...rest) } catch (e) {
       if (!(e instanceof SurfaceSolveError)) throw e
       if (!_reportedSolveFailures.has(where)) {
         _reportedSolveFailures.add(where)
@@ -116,10 +116,10 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
     const renderY = (y === undefined) ? renderYOnSphere(x * x + z * z, 0) : y - offsetY
     return renderDirAt(x, renderY, z)
   }
-  function solveSurfaceY(x, z, heightAtDir, toleranceM = SURFACE_SOLVE_TOLERANCE_M) {
+  function solveSurfaceY(x, z, heightAtDir, toleranceM = SURFACE_SOLVE_TOLERANCE_M, yGuess) {
     const r2 = x * x + z * z
     if (Number.isFinite(radius) && r2 >= radius * radius) throw new ChartRangeError(x, z, radius)
-    let y = renderYOnSphere(r2, 0), yPrev = 0, gPrev = 0
+    let y = Number.isFinite(yGuess) ? yGuess : renderYOnSphere(r2, 0), yPrev = 0, gPrev = 0
     let belowSurface = -Infinity, aboveSurface = Infinity
     let lastG = Infinity, gBelow = 0, gAbove = 0
     let checkpointK = -1, checkpointWidth = Infinity
@@ -159,15 +159,16 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
   const memoEpoch = new Int32Array(GROUND_MEMO_SLOTS).fill(-1)
   const memoFailure = new Array(GROUND_MEMO_SLOTS).fill(null)
   const sampleHeightAtDir = (d) => sampler.heightAt(d)
-  function groundHeightLocal(x, z) {
+  function groundHeightLocal(x, z, yGuess) {
     const slot = (Math.imul(Math.floor(x * GROUND_MEMO_CELLS_PER_M), GROUND_MEMO_HASH_X) ^ Math.imul(Math.floor(z * GROUND_MEMO_CELLS_PER_M), GROUND_MEMO_HASH_Z)) & (GROUND_MEMO_SLOTS - 1)
     if (memoX[slot] === x && memoZ[slot] === z && memoEpoch[slot] === frame.chartEpoch) {
       if (memoFailure[slot] !== null) throw memoFailure[slot]
       return memoHeight[slot]
     }
+    let guess = Number.isFinite(yGuess) && Number.isFinite(offsetY) ? yGuess - offsetY : NaN
     memoX[slot] = x; memoZ[slot] = z; memoEpoch[slot] = frame.chartEpoch; memoFailure[slot] = null
     try {
-      const y = solveSurfaceY(x, z, sampleHeightAtDir)
+      const y = solveSurfaceY(x, z, sampleHeightAtDir, SURFACE_SOLVE_TOLERANCE_M, guess)
       memoHeight[slot] = y == null ? NaN : y + offsetY
       return memoHeight[slot]
     } catch (e) {

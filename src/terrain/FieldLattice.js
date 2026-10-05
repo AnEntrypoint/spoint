@@ -31,7 +31,7 @@ export function createFieldLattice({ sampler, offsetY, reliefScale, anchor, live
     return Number.isFinite(y) ? y : GROUND_FALLBACK_Y
   }
 
-  const heightFn = (x, z) => frame.groundHeightLocal(x, z)
+  const heightFn = (x, z, yGuess) => frame.groundHeightLocal(x, z, yGuess)
 
   return {
     anchor: anchorSnapshot,

@@ -12,10 +12,15 @@ export async function sampleTerrainGridChunked({ heightFn, N, spacing, cornerX, 
   let slice = _now()
   for (let z = 0; z < N; z++) {
     const wz = cornerZ + z * spacing, row = z * N
+    let prev = NaN, prev2 = NaN
     for (let x = 0; x < N; x++) {
-      let h = heightFn(cornerX + x * spacing, wz)
+      const guess = Number.isFinite(prev) && Number.isFinite(prev2) ? prev + (prev - prev2) : prev
+      const raw = heightFn(cornerX + x * spacing, wz, guess)
+      let h = raw
       if (!Number.isFinite(h)) h = NON_FINITE_HEIGHT_FALLBACK_M
       samples[row + x] = h
+      prev2 = prev
+      prev = Number.isFinite(raw) ? raw : NaN
     }
     if (_now() - slice >= budgetMs) {
       await yieldToLoop()

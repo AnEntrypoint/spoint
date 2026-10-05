@@ -43,7 +43,7 @@ export function createTerrainReanchor({ frame, sampler, offsetY, reliefScale, ph
     const job = { targetDir, baseEpoch, promise: null }
     job.promise = heightStreamer.prepareFields({
       players: playersNew,
-      heightFn: (x, z) => shadow.groundHeightLocal(x, z),
+      heightFn: (x, z, yGuess) => shadow.groundHeightLocal(x, z, yGuess),
       isAborted: () => frame.chartEpoch !== baseEpoch,
     }).then(set => {
       preparing = null
