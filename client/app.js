@@ -365,18 +365,21 @@ async function _finishLoading() {
     }
     if (typeof window !== 'undefined' && !window.__terrain && _terrainCfg) {
       console.warn('[terrain] scenery build did not complete before timeout -> showing retry toast')
-      showToast('World scenery did not finish loading', 'warn', 8000, {
-        action: {
-          label: 'Retry',
-          onClick: () => {
-            try { terrainBackdrop && terrainBackdrop.dispose && terrainBackdrop.dispose() } catch (_) {}
-            terrainBackdrop = null
-            _buildWorldScenery()
-              .then(() => showToast('World scenery rebuilt', 'success'))
-              .catch(e => { console.error('[terrain] retry scenery build failed:', e?.message || e); showToast('Retry failed: ' + (e?.message || e), 'error') })
+      try {
+        showToast('World scenery did not finish loading', 'warn', 8000, {
+          action: {
+            label: 'Retry',
+            onClick: () => {
+              if (_sceneryBuildPromise) { showToast('World scenery is still building', 'warn', 4000); return }
+              try { terrainBackdrop && terrainBackdrop.dispose && terrainBackdrop.dispose() } catch (_) {}
+              terrainBackdrop = null
+              _buildWorldScenery()
+                .then(() => showToast('World scenery rebuilt', 'success'))
+                .catch(e => { console.error('[terrain] retry scenery build failed:', e?.message || e); showToast('Retry failed: ' + (e?.message || e), 'error') })
+            }
           }
-        }
-      })
+        })
+      } catch (e) { console.error('[terrain] retry toast failed:', e?.message || e) }
     }
   }
   _resolveWorldBuilt()
