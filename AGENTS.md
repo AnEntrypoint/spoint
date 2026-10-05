@@ -140,10 +140,14 @@ are 2x2 veg placement cells (8 m) on the placement cube-face lattice, keyed `(fa
 state is chart independent; a trunk's cell is exact integer arithmetic from its `trunkId`. Step
 boundaries are absolute ticks, so peers that start ticking at different times still apply an event
 at the same step. Only ignition/extinguish/weather events cross the wire
-(`src/shared/fire/fireWire.js`), and `spec.role: 'mirror'` cannot originate events. Open rows:
-`fire-s2b` (browser witness), `fire-s2c` (no wind field exists anywhere in the sim yet),
-`fire-s2d`/`fire-s2e` (tps-game), `fire-s3a` (client mirror + GPU), `fire-s4a-d`, `fire-s5a-d`,
-`fire-s6`.
+(`src/shared/fire/fireWire.js`), and `spec.role: 'mirror'` cannot originate events. Gameplay consumers:
+`ctx.navCostAt(x, z)` returns 8 over a burning cell and 2 over a charred one (steering divides speed
+by it, `src/behaviours/steering.js`), and players get `fire_burn` / `fire_burn_end` / `fire_death`
+payloads from `src/behaviours/fireGameplay.js`. tps-game wires all of it behind
+`config.fire.enabled`, shipped **false** (`apps/world/tps-game.js`). Open rows: `fire-s1b`
+(rollback/lockstep rewind hook), `fire-s1c` (late join keyframe), `fire-s1d`/`fire-s1e` (kernel
+perf), `fire-s2b` (browser witness), `fire-s2c` (no wind field exists anywhere in the sim yet),
+`fire-s2d`, `fire-s3a` (client mirror + GPU), `fire-s4a-d`, `fire-s5a-d`, `fire-s6`.
 
 ## Planet-wide multiplayer (`src/shared/clusterAssignment.js`, `src/sharding/`)
 
