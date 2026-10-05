@@ -65,10 +65,28 @@ export function createTerrainStreamer(opts = {}) {
   const fields = []
   const getEpoch = typeof opts.getEpoch === 'function' ? opts.getEpoch : () => 0
   let queue = Promise.resolve(), busy = false, disposed = false, _timer = null, rebuildCount = 0, capWarned = false, staleEpochDiscards = 0
+  let lattice = null
 
   function validCenters() {
     const raw = getCenters()
-    return Array.isArray(raw) ? raw.filter(c => Array.isArray(c) && Number.isFinite(c[0]) && Number.isFinite(c[1])) : []
+    const finite = Array.isArray(raw) ? raw.filter(c => Array.isArray(c) && Number.isFinite(c[0]) && Number.isFinite(c[1])) : []
+    return lattice ? finite.map(c => lattice.toLattice(c[0], c[1])) : finite
+  }
+  function placeBody(bodyId, cornerX, cornerZ) {
+    const { position, rotation } = lattice.placement(cornerX, cornerZ)
+    physics.setBodyTransform(bodyId, position, rotation)
+  }
+  function placeAllFields() {
+    for (const f of fields) placeBody(f.bodyId, f.center[0] - half, f.center[1] - half)
+  }
+  function setLattice(next) {
+    lattice = next
+    if (lattice) placeAllFields()
+  }
+  function dropLattice() {
+    if (!lattice) return
+    for (const f of fields) f.center = lattice.toChart(f.center[0], f.center[1])
+    lattice = null
   }
   function snapCorner(c) { return Math.round((c - half) / spacing) * spacing }
 
@@ -76,12 +94,14 @@ export function createTerrainStreamer(opts = {}) {
     const cornerX = snapCorner(cx), cornerZ = snapCorner(cz)
     const gridSpacing = extent / (gridN - 1)
     const t0 = _now()
-    const epochAtStart = getEpoch()
-    const g = await sampleTerrainGridChunked({ heightFn, N: gridN, spacing: gridSpacing, cornerX, cornerZ, budgetMs, isAborted: () => disposed || getEpoch() !== epochAtStart })
+    const epochAtStart = getEpoch(), latticeAtStart = lattice
+    const stale = () => lattice !== latticeAtStart || (!latticeAtStart && getEpoch() !== epochAtStart)
+    const g = await sampleTerrainGridChunked({ heightFn: latticeAtStart ? latticeAtStart.heightFn : heightFn, N: gridN, spacing: gridSpacing, cornerX, cornerZ, budgetMs, isAborted: () => disposed || stale() })
     if (disposed) return null
-    if (!g || getEpoch() !== epochAtStart) { staleEpochDiscards++; return null }
+    if (!g || stale()) { staleEpochDiscards++; return null }
     const bodyId = physics.addHeightField(g.samples, gridN, [gridSpacing, 1, gridSpacing], [cornerX, 0, cornerZ])
     if (bodyId == null) { console.error('[terrain] streamer: Jolt rejected field'); return null }
+    if (lattice) placeBody(bodyId, cornerX, cornerZ)
     return { bodyId, center: [cornerX + half, cornerZ + half], N: gridN, wallMs: _now() - t0, sampleMs: g.sampleMs }
   }
 
@@ -137,6 +157,7 @@ export function createTerrainStreamer(opts = {}) {
   }
 
   async function rebuildAll() {
+    dropLattice()
     for (let i = 0; i < fields.length; i++) {
       const built = await buildField(fields[i].center[0], fields[i].center[1])
       if (!built || disposed) return
@@ -164,6 +185,17 @@ export function createTerrainStreamer(opts = {}) {
     return { fields: planned, primaryIndex }
   }
 
+  function preparedSurfaceY(set, x, z) {
+    for (const f of set.fields) {
+      const fx = (x - f.cornerX) / spacing, fz = (z - f.cornerZ) / spacing
+      const i = Math.floor(fx), j = Math.floor(fz)
+      if (i < 0 || j < 0 || i >= f.N - 1 || j >= f.N - 1) continue
+      const tx = fx - i, tz = fz - j, row = j * f.N + i, h = f.samples
+      return tx >= tz ? h[row] + tx * (h[row + 1] - h[row]) + tz * (h[row + f.N + 1] - h[row + 1]) : h[row] + tz * (h[row + f.N] - h[row]) + tx * (h[row + f.N + 1] - h[row + f.N])
+    }
+    return null
+  }
+
   function installPrepared(prepared) {
     const added = []
     for (const f of prepared.fields) {
@@ -175,6 +207,7 @@ export function createTerrainStreamer(opts = {}) {
       added.push({ bodyId, center: [...f.center] })
     }
     const replaced = fields.splice(0, fields.length, ...added)
+    lattice = null
     for (const old of replaced) physics.removeBody(old.bodyId)
     physics.setTerrainBodyId(added[prepared.primaryIndex].bodyId)
     rebuildCount += added.length
@@ -236,7 +269,9 @@ export function createTerrainStreamer(opts = {}) {
   }
 
   return {
-    start, stop, prepareFields, installPrepared,
+    start, stop, prepareFields, installPrepared, preparedSurfaceY, setLattice, placeAllFields,
+    get lattice() { return lattice },
+    get liveHeightFn() { return heightFn },
     get coverRadius() { return coverRadius },
     get staleEpochDiscards() { return staleEpochDiscards },
     resculpt: () => enqueue(rebuildAll),
