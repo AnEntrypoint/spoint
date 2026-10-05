@@ -1,4 +1,3 @@
-import * as THREE from 'three'
 import { AnimationSystem } from '../../src/animation/AnimationSystem.js'
 
 export async function setup(scene, world, appCtx) {

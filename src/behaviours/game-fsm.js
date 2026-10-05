@@ -4,7 +4,7 @@ const _bareXstateSpecifierResolvable = _isNode || typeof globalThis.__SPOINT_EDG
 if (_bareXstateSpecifierResolvable) {
   _xstate = await import('xstate')
 } else {
-  const _bundlerOpaqueBrowserXstateSpec = (() => '/node_modules/' + 'xstate/dist/xstate.esm.js')()
+  const _bundlerOpaqueBrowserXstateSpec = (() => globalThis.location.origin + '/node_modules/' + 'xstate/dist/xstate.esm.js')()
   _xstate = await import(_bundlerOpaqueBrowserXstateSpec)
 }
 const { setup, createActor, assign } = _xstate

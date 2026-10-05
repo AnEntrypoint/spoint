@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { pathToFileURL, fileURLToPath } from 'node:url'
-import { localSpecifiers } from '../src/apps/appImports.js'
+import { ENGINE_ALIASES, localSpecifiers } from '../src/apps/appImports.js'
 import { expandWorldPresets } from '../src/shared/worldPresets.js'
 
 const execFileAsync = promisify(execFile)
@@ -45,7 +45,7 @@ async function worldAppSets() {
   return sets
 }
 
-function inspectManifestEntry(owner, file, source, deps, trail, problems, reachedFromWorlds) {
+function inspectManifestEntry(owner, file, source, deps, trail, problems) {
   for (const spec of localSpecifiers(source)) {
     const where = `${rel(file)} imports "${spec}"`
     if (spec.startsWith('/')) {
@@ -61,12 +61,10 @@ function inspectManifestEntry(owner, file, source, deps, trail, problems, reache
     }
     if (trail.includes(target)) continue
     const entrySource = typeof entry === 'string' ? entry : entry.source
-    inspectManifestEntry(owner, target, entrySource, typeof entry === 'string' ? {} : entry.deps, [...trail, target], problems, reachedFromWorlds)
+    inspectManifestEntry(owner, target, entrySource, typeof entry === 'string' ? {} : entry.deps, [...trail, target], problems)
   }
-  if (reachedFromWorlds) {
-    for (const m of source.matchAll(/(?:from|import)\s*['"]([^.'"/][^'"]*)['"]/g)) {
-      if (!m[1].startsWith('node:')) problems.push(`${rel(file)} imports bare specifier "${m[1]}": a worker blob has no importmap`)
-    }
+  for (const m of source.matchAll(/(?:from|import)\s*['"]([^.'"/][^'"]*)['"]/g)) {
+    if (!m[1].startsWith('node:') && !ENGINE_ALIASES[m[1]]) problems.push(`${rel(file)} imports bare specifier "${m[1]}": a worker blob has no importmap and the specifier is not an engine alias`)
   }
 }
 
@@ -99,13 +97,16 @@ export async function checkAppImports() {
     for (const app of manifest.apps) {
       const entryFile = APP_DIRS.map(d => [join(d, app.name, 'index.js'), join(d, `${app.name}.js`)]).flat().find(existsSync)
       appCount++
-      inspectManifestEntry(app.name, entryFile, app.source, app.deps, [entryFile], problems, reachable.has(app.name))
+      inspectManifestEntry(app.name, entryFile, app.source, app.deps, [entryFile], problems)
     }
     for (const name of reachable.keys()) {
       if (!manifest.apps.some(a => a.name === name)) problems.push(`world app "${name}" (used by ${reachable.get(name).join(', ')}) has no app module under apps/ or src/stdlib-apps/`)
     }
   } finally {
     rmSync(scratch, { recursive: true, force: true })
+  }
+  for (const [alias, served] of Object.entries(ENGINE_ALIASES)) {
+    if (!existsSync(join(ROOT, served))) problems.push(`engine alias "${alias}" points at ${served}: no such file under the repo root`)
   }
   const assetCount = checkAssets(problems)
   return { problems: [...new Set(problems)], appCount, assetCount }

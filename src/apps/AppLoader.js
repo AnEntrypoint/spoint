@@ -1,4 +1,4 @@
-import { rewriteLocalSpecifiers } from './appImports.js'
+import { engineAliasUrls, rewriteLocalSpecifiers } from './appImports.js'
 
 const BLOCKED_PATTERNS = [
   'process.exit', 'child_process', 'require(', '__proto__',
@@ -230,7 +230,7 @@ export class AppLoader {
   }
 
   _rewriteDeps(source, deps, revokes) {
-    const urlMap = {}
+    const urlMap = typeof location !== 'undefined' && location.origin && location.origin !== 'null' ? engineAliasUrls(location.origin) : {}
     for (const [spec, entry] of Object.entries(deps)) {
       if (!entry) continue
       const sub = typeof entry === 'string' ? { source: entry, deps: {} } : entry

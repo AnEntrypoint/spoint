@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, cpSync, readFileSync, writeFileSync, rmSync, sta
 import { join, dirname, resolve, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
+import { ENGINE_ALIASES } from '../src/apps/appImports.js'
 
 const __dirname = import.meta.dirname || dirname(fileURLToPath(import.meta.url))
 const SDK_ROOT = join(__dirname, '..')
@@ -74,12 +75,15 @@ async function main() {
   log('building client bundle...')
   execFileSync(process.execPath, [join(SDK_ROOT, 'scripts/bundle-client.mjs'), join(SDK_ROOT, 'client/app.js'), join(OUT, 'app.js'), ''], { stdio: 'inherit', cwd: SDK_ROOT })
 
+  execFileSync(process.execPath, [join(SDK_ROOT, 'scripts/bundle-apps-manifest.mjs'), join(OUT, 'apps-manifest.json'), '--all', '--check'], { stdio: 'inherit', cwd: SDK_ROOT })
+
   cpSync(join(SDK_ROOT, 'src'), join(OUT, 'src'), { recursive: true, filter: cpFilter })
 
   const sdkLib = join(SDK_ROOT, 'apps/_lib')
   if (existsSync(sdkLib)) cpSync(sdkLib, join(OUT, 'apps/_lib'), { recursive: true, filter: cpFilter })
   const projApps = resolve(PROJECT, 'apps')
   const appsSrc = existsSync(projApps) ? projApps : join(SDK_ROOT, 'apps')
+  cpSync(join(SDK_ROOT, 'src', 'stdlib-apps'), join(OUT, 'apps'), { recursive: true, filter: cpFilter })
   cpSync(appsSrc, join(OUT, 'apps'), { recursive: true, filter: cpFilter })
   log(`apps/ copied from ${rel(appsSrc)}${existsSync(sdkLib) ? ' (+ engine apps/_lib re-export shims)' : ''}`)
 
@@ -107,7 +111,8 @@ async function main() {
   }
   log(`WorkerEntry bundled -> ${bundledBytes} bytes`)
 
-  const PACKAGES = [...new Set([...readFileSync(join(SDK_ROOT, 'client/index.html'), 'utf8').matchAll(/\/node_modules\/((?:@[^/"]+\/)?[^/"]+)/g)].map(m => m[1]))]
+  const aliasPackages = Object.values(ENGINE_ALIASES).map(served => served.match(/^\/node_modules\/((?:@[^/]+\/)?[^/]+)/)[1])
+  const PACKAGES = [...new Set([...readFileSync(join(SDK_ROOT, 'client/index.html'), 'utf8').matchAll(/\/node_modules\/((?:@[^/"]+\/)?[^/"]+)/g)].map(m => m[1]), ...aliasPackages)]
   let missingPkgs = []
   for (const pkg of PACKAGES) {
     const src = findPackageDir(pkg)
