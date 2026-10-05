@@ -7,6 +7,9 @@ export default {
       ctx._startY = ctx.entity.position[1]
       ctx._t = 0
     },
+    onChartReanchor(ctx) {
+      ctx._startY = ctx.entity.position[1] + (ctx._t ?? 0) * DRIFT_UNITS_PER_SEC
+    },
     update(ctx, dt) {
       ctx._t += dt
       ctx.entity.position[1] = ctx._startY - ctx._t * DRIFT_UNITS_PER_SEC

@@ -60,7 +60,7 @@ export function createSoftbodyCloth(spec = {}, appCtx = null) {
   const stiffness = spec.stiffness ?? 200
   const damping = spec.damping ?? 4
   const gravity = spec.gravity ?? [0, -9.81, 0]
-  const wind = spec.wind ?? null
+  const wind = spec.wind ? [...spec.wind] : null
   const bendSprings = spec.bendSprings !== false
   const substeps = spec.substeps ?? 1
   const pinKeys = _resolvePins(spec.pins, cols, rows)
@@ -187,7 +187,20 @@ export function createSoftbodyCloth(spec = {}, appCtx = null) {
   }
   if (typeof appCtx._registerDisposer === 'function') appCtx._registerDisposer(dispose)
 
-  return {
+  function reexpressBodies(transfer) {
+    for (let i = 0; i < _bodies.length; i++) {
+      const body = _bodies[i]
+      const t = body.translation(), v = body.linvel(), w = body.angvel(), r = body.rotation()
+      const position = transfer.point([t.x, t.y, t.z]), velocity = transfer.vec([v.x, v.y, v.z]), spin = transfer.vec([w.x, w.y, w.z]), rotation = transfer.quat([r.x, r.y, r.z, r.w])
+      body.setTranslation({ x: position[0], y: position[1], z: position[2] }, true)
+      body.setRotation({ x: rotation[0], y: rotation[1], z: rotation[2], w: rotation[3] }, true)
+      body.setLinvel({ x: velocity[0], y: velocity[1], z: velocity[2] }, true)
+      body.setAngvel({ x: spin[0], y: spin[1], z: spin[2] }, true)
+      _positions[i * 3] = position[0]; _positions[i * 3 + 1] = position[1]; _positions[i * 3 + 2] = position[2]
+    }
+  }
+
+  const cloth = {
     get ready() { return _ready },
     get particleCount() { return particleCount },
     get pinnedKeys() { return new Set(pinKeys) },
@@ -195,8 +208,17 @@ export function createSoftbodyCloth(spec = {}, appCtx = null) {
     positions,
     publish,
     setPin,
-    dispose
+    dispose,
+    onChartReanchor({ transfer }) {
+      transfer.point(_origin, _origin)
+      if (wind) transfer.vec(wind, wind)
+      if (_ready && !_disposed) reexpressBodies(transfer)
+      _lastPublished = null
+      publish()
+    }
   }
+  if (typeof appCtx._chartAware === 'function') appCtx._chartAware(cloth)
+  return cloth
 }
 
 export default createSoftbodyCloth

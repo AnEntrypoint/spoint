@@ -64,6 +64,7 @@ export class AppRuntime {
     this._deferredPopulationOps = []; this._resimSuppressed = false
     this._deferredCommitmentOps = []
     this._pendingTrimeshBuilds = new Set()
+    this.chartReanchorBlocks = new Map()
     this._movedStaticIds = new HookedSet(markUnmanagedDirty)
     mixinPhysics(this); mixinTick(this); mixinStaticMotion(this); if (this._physics) this._registerPhysicsCallbacks()
     this._hotReload = new HotReloadQueue(this); this._eventBus = c.eventBus || new EventBus()

@@ -45,6 +45,8 @@ export function createFluidBody(spec = {}, appCtx = null) {
   let _emitAccumulator = 0
   let _emitStopped = false
   let _positions = new Float64Array(0)
+  const frameOrigin = [0, 0, 0]
+  const frameAxes = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
 
   function _seed(count) {
     if (count <= 0) return
@@ -90,9 +92,10 @@ export function createFluidBody(spec = {}, appCtx = null) {
     const n = flat.length / 2
     const out = new Float64Array(n * 3)
     for (let i = 0; i < n; i++) {
-      out[i * 3] = flat[i * 2]
-      out[i * 3 + 1] = worldY
-      out[i * 3 + 2] = flat[i * 2 + 1]
+      const sx = flat[i * 2], sz = flat[i * 2 + 1]
+      out[i * 3] = frameOrigin[0] + sx * frameAxes[0][0] + worldY * frameAxes[1][0] + sz * frameAxes[2][0]
+      out[i * 3 + 1] = frameOrigin[1] + sx * frameAxes[0][1] + worldY * frameAxes[1][1] + sz * frameAxes[2][1]
+      out[i * 3 + 2] = frameOrigin[2] + sx * frameAxes[0][2] + worldY * frameAxes[1][2] + sz * frameAxes[2][2]
     }
     _positions = out
   }
@@ -141,14 +144,23 @@ export function createFluidBody(spec = {}, appCtx = null) {
   }
   if (typeof appCtx._registerDisposer === 'function') appCtx._registerDisposer(dispose)
 
-  return {
+  const fluid = {
     get ready() { return _ready },
     get particleCount() { return _positions.length / 3 },
     tick,
     positions,
     publish,
-    dispose
+    dispose,
+    onChartReanchor({ transfer }) {
+      transfer.point(frameOrigin, frameOrigin)
+      for (const axis of frameAxes) transfer.vec(axis, axis)
+      _refreshPositions()
+      _lastPublished = null
+      publish()
+    }
   }
+  if (typeof appCtx._chartAware === 'function') appCtx._chartAware(fluid)
+  return fluid
 }
 
 export default createFluidBody

@@ -60,7 +60,9 @@ export function definePath(points) {
     return total > 0 ? bestAlong / total : 0
   }
 
-  return { length: total, count: n, pointAt, progressAt, nearestIndex, segmentAt, directionAt }
+  const onChartReanchor = ({ transfer }) => { for (const p of pts) transfer.point(p, p) }
+
+  return { length: total, count: n, pointAt, progressAt, nearestIndex, segmentAt, directionAt, onChartReanchor }
 }
 
 export default definePath

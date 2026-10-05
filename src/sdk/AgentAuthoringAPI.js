@@ -33,13 +33,15 @@ function readBody(req, limitBytes = 8 * 1024 * 1024) {
   })
 }
 
-function encodeWorldEntity(id, e) {
+function encodeWorldEntity(id, e, toBase = null) {
   const out = { id, app: e._appName || undefined }
   if (e.model) out.model = e.model
-  out.position = [...e.position]
-  const rot = Array.isArray(e.rotation)
+  const rebase = toBase && !e.parent
+  out.position = rebase ? toBase.point(e.position) : [...e.position]
+  const live = Array.isArray(e.rotation)
     ? [...e.rotation]
     : [e.rotation?.x || 0, e.rotation?.y || 0, e.rotation?.z || 0, e.rotation?.w ?? 1]
+  const rot = rebase ? toBase.quat(live) : live
   if (rot.some((v, i) => (i === 3 ? v !== 1 : v !== 0))) out.rotation = rot
   if (Array.isArray(e.scale) && e.scale.some(v => v !== 1)) out.scale = [...e.scale]
   if (e.config && typeof e.config === 'object' && Object.keys(e.config).length) out.config = e.config
@@ -63,7 +65,7 @@ export function createAgentAuthoringHandler() {
       if (req.method === 'GET' && path === '/agent/entities') {
         const out = []
         for (const [id, e] of appRuntime.entities) out.push(encodeWorldEntity(id, e))
-        json(res, 200, { ok: true, count: out.length, entities: out })
+        json(res, 200, { ok: true, count: out.length, chartEpoch: ctx?.chartEpochLedger?.currentEpoch ?? 0, entities: out })
         return
       }
 
@@ -142,7 +144,8 @@ export function createAgentAuthoringHandler() {
         const name = body.worldName
         if (typeof name !== 'string' || !APP_NAME_RE.test(name)) { json(res, 400, { ok: false, error: `invalid worldName '${name}'` }); return }
         const entities = []
-        for (const [id, e] of appRuntime.entities) entities.push(encodeWorldEntity(id, e))
+        const toBase = ctx?.chartEpochLedger?.canonicalTransfer() ?? null
+        for (const [id, e] of appRuntime.entities) entities.push(encodeWorldEntity(id, e, toBase))
         const def = {
           port: ctx?.port || 3001,
           tickRate: ctx?.tickRate || DEFAULT_TICK_RATE_HZ,

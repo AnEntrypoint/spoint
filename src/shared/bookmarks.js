@@ -25,15 +25,20 @@ function cubeDirections() {
   return out
 }
 
-export function listBookmarks(worldDef, frame) {
+function liveChartSpec(baseChartPoint, fromBase, withHeight) {
+  const p = fromBase ? fromBase.point(baseChartPoint) : baseChartPoint
+  return withHeight ? { x: p[0], standNearY: p[1], z: p[2] } : { x: p[0], z: p[2] }
+}
+
+export function listBookmarks(worldDef, frame, fromBase = null) {
   const list = []
   const sp = worldDef?.spawnPoint
-  if (Array.isArray(sp) && sp.length === 3) list.push({ name: 'spawn', spec: { x: sp[0], standNearY: sp[1], z: sp[2] } })
+  if (Array.isArray(sp) && sp.length === 3) list.push({ name: 'spawn', spec: liveChartSpec(sp, fromBase, true) })
   for (const e of worldDef?.entities || []) {
-    if (e.app === 'spawn-point' && Array.isArray(e.position)) list.push({ name: String(e.id).replace(/^spawn-/, ''), spec: { x: e.position[0], standNearY: e.position[1], z: e.position[2] } })
+    if (e.app === 'spawn-point' && Array.isArray(e.position)) list.push({ name: String(e.id).replace(/^spawn-/, ''), spec: liveChartSpec(e.position, fromBase, true) })
   }
-  list.push({ name: 'origin', spec: { x: 0, z: 0 } })
-  for (const km of OUT_KM) list.push({ name: `out-${km}km`, spec: { x: km * 1000, z: 0 } })
+  list.push({ name: 'origin', spec: liveChartSpec([0, 0, 0], fromBase, false) })
+  for (const km of OUT_KM) list.push({ name: `out-${km}km`, spec: liveChartSpec([km * 1000, 0, 0], fromBase, false) })
   for (const name of SEARCH_BOOKMARKS) list.push({ name, search: name })
   const directions = cubeDirections()
   directions.push({ name: 'pole-north', dir: [0, 1, 0] }, { name: 'pole-south', dir: [0, -1, 0] })

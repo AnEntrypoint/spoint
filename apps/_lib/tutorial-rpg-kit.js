@@ -14,6 +14,7 @@ const labelFor = (name, hp, maxHp) => `${name} ${Math.ceil(hp)}/${maxHp}`
 export function defineTutorialFoe(ctx, spec) {
   const { kind, name, maxHp, look, halfExtents, mass, reach, wanderSpeed, leashRadius, wanderSeconds } = spec
   const home = [...ctx.entity.position]
+  ctx._chartAware({ onChartReanchor({ transfer }) { transfer.point(home, home) } })
   const contributors = new Set()
   let awake = spec.awake !== false
 

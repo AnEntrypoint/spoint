@@ -28,22 +28,18 @@ export function createStaticTileIndex(world, tileM = STATIC_TILE_M, marginM = ST
     if (bigBodies.delete(id)) bigVersion++
   }
 
-  function boundsKey(b) {
-    const bb = b.GetWorldSpaceBounds(), mn = bb.mMin, mx = bb.mMax, r = b.GetRotation()
-    return mn.GetX() + ',' + mn.GetY() + ',' + mn.GetZ() + ',' + mx.GetX() + ',' + mx.GetY() + ',' + mx.GetZ() + ',' + r.GetX() + ',' + r.GetY() + ',' + r.GetZ() + ',' + r.GetW()
-  }
-
   function update(id) {
     const b = world.bodies.get(id)
     const live = !!b && b.GetMotionType() === J.EMotionType_Static && !b.IsSensor()
-    const key = live ? boundsKey(b) : null
-    if (key !== null && bodyBounds.get(id) === key) return
+    if (!live) { forget(id); return }
+    const bb = b.GetWorldSpaceBounds(), mn = bb.mMin, mx = bb.mMax, r = b.GetRotation()
+    const minX = mn.GetX(), minY = mn.GetY(), minZ = mn.GetZ(), maxX = mx.GetX(), maxY = mx.GetY(), maxZ = mx.GetZ()
+    const key = minX + ',' + minY + ',' + minZ + ',' + maxX + ',' + maxY + ',' + maxZ + ',' + r.GetX() + ',' + r.GetY() + ',' + r.GetZ() + ',' + r.GetW()
+    if (bodyBounds.get(id) === key) return
     forget(id)
-    if (!live) return
-    const bb = b.GetWorldSpaceBounds(), mn = bb.mMin, mx = bb.mMax
-    if (mn.GetY() > COLUMN_HALF_Y_M || mx.GetY() < -COLUMN_HALF_Y_M) return
-    const tx0 = Math.floor((mn.GetX() - marginM) / tileM), tx1 = Math.floor((mx.GetX() + marginM) / tileM)
-    const tz0 = Math.floor((mn.GetZ() - marginM) / tileM), tz1 = Math.floor((mx.GetZ() + marginM) / tileM)
+    if (minY > COLUMN_HALF_Y_M || maxY < -COLUMN_HALF_Y_M) return
+    const tx0 = Math.floor((minX - marginM) / tileM), tx1 = Math.floor((maxX + marginM) / tileM)
+    const tz0 = Math.floor((minZ - marginM) / tileM), tz1 = Math.floor((maxZ + marginM) / tileM)
     bodyBounds.set(id, key)
     if ((tx1 - tx0 + 1) * (tz1 - tz0 + 1) > MAX_TILES_PER_BODY) { bigBodies.add(id); bigVersion++; return }
     const keys = []
@@ -98,5 +94,5 @@ export function createStaticTileIndex(world, tileM = STATIC_TILE_M, marginM = ST
 
   function destroy() { J.destroy(one); J.destroy(com); J.destroy(lo); J.destroy(hi); tiles.clear(); bodyTiles.clear(); bodyBounds.clear(); bigBodies.clear() }
 
-  return { tileM, marginM, update, get, sweep, destroy, stats, get tileCount() { return tiles.size } }
+  return { tileM, marginM, update, forget, get, sweep, destroy, stats, get tileCount() { return tiles.size } }
 }

@@ -59,7 +59,6 @@ export default {
       transfer.point(st.home, st.home)
       transfer.point(st.lastPos, st.lastPos)
       if (st.wanderTarget) transfer.point(st.wanderTarget, st.wanderTarget)
-      st.path = null
       st.visited.clear()
       st.weaponSpawnsCheckedAtTick = -Infinity
     },

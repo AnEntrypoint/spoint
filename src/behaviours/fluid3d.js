@@ -140,6 +140,7 @@ export function createFluid3DBody(spec = {}, appCtx = null) {
     _solver = null
   }
   if (typeof appCtx._registerDisposer === 'function') appCtx._registerDisposer(dispose)
+  if (typeof appCtx._blockChartReanchor === 'function') appCtx._blockChartReanchor('fluid3d-solver-gravity-axis-is-bound-to-its-birth-chart')
 
   return {
     get ready() { return _ready },

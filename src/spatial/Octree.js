@@ -225,6 +225,21 @@ export class SpatialIndex {
     }
   }
 
+  reseat(positionOf) {
+    this._cells.clear()
+    this._idCell.clear()
+    for (const [id, point] of this._entities) {
+      const p = positionOf(id)
+      if (!p || !Number.isFinite(p[0]) || !Number.isFinite(p[1]) || !Number.isFinite(p[2])) { this._entities.delete(id); continue }
+      point[0] = p[0]; point[1] = p[1]; point[2] = p[2]
+      const key = cellKey(cellCoord(p[0]), cellCoord(p[2]))
+      let bucket = this._cells.get(key)
+      if (!bucket) { bucket = []; this._cells.set(key, bucket) }
+      bucket.push(id)
+      this._idCell.set(id, key)
+    }
+  }
+
   get relevanceRadius() {
     return this._relevanceRadius
   }

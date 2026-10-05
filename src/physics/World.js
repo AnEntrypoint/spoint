@@ -3,6 +3,7 @@ import { CharacterManager } from './CharacterManager.js'
 import { installVehiclePhysics } from './VehiclePhysics.js'
 import { buildConvexShape, buildMeshShape, buildTrimeshShape } from './ShapeBuilder.js'
 import { createStaticTileIndex } from './StaticTileIndex.js'
+import { createDormantStatics } from './DormantStatics.js'
 
 const LAYER_STATIC = 0, LAYER_DYNAMIC = 1, NUM_LAYERS = 2
 const _PARK_POS = [0, -100000, 0]
@@ -32,6 +33,7 @@ export class PhysicsWorld {
     this._trimeshCache = new Map(); this._trimeshInflight = new Map()
     this._bodyPool = new Map(); this._bodyShapeKey = new Map()
     this._bodyQueue = []
+    this._chartGuard = null; this._dormant = null
     this._constraints = new Map(); this._nextConstraintId = 0
     this._tmpVec3 = null; this._tmpRVec3 = null
     this._bulkOutP = null; this._bulkOutR = null; this._bulkOutLV = null; this._bulkOutAV = null
@@ -108,6 +110,19 @@ export class PhysicsWorld {
     if (opts.shapeKey) this._bodyShapeKey.set(id, opts.shapeKey)
     this._staticTiles?.update(id)
     return id
+  }
+
+  setChartFrameGuard(guard) { this._chartGuard = guard }
+
+  get dormantStatics() { return this._dormant || (this._dormant = createDormantStatics(this)) }
+
+  _captureCreationFrame(position, rotation) {
+    return { epoch: this._chartGuard ? this._chartGuard.epoch() : 0, position: [position[0], position[1], position[2]], rotation: rotation ? [rotation[0], rotation[1], rotation[2], rotation[3]] : null }
+  }
+
+  _resolveCreationFrame(born) {
+    if (!this._chartGuard || this._chartGuard.epoch() === born.epoch) return born
+    return this._chartGuard.reexpress(born)
   }
 
   enableStaticTiles(tileM) {
@@ -201,6 +216,7 @@ export class PhysicsWorld {
 
   addConvexBodyAsync(params, position, motionType, opts = {}) {
     const J = this.Jolt, cacheKey = opts.shapeKey || null
+    const born = this._captureCreationFrame(position, opts.rotation)
     if (cacheKey && this._shapeCache.has(cacheKey)) {
       const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
       return Promise.resolve(this._addBody(this._shapeCache.get(cacheKey), position, mt, motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC, { ...opts, meta: { type: motionType, shape: 'convex' } }))
@@ -208,7 +224,8 @@ export class PhysicsWorld {
     const result = this._convexQueue.then(() => {
       const { shape, sr } = buildConvexShape(J, params, this._shapeCache, cacheKey)
       const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
-      const id = this._addBody(shape, position, mt, motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC, { ...opts, meta: { type: motionType, shape: 'convex' } })
+      const placed = this._resolveCreationFrame(born)
+      const id = this._addBody(shape, placed.position, mt, motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC, { ...opts, ...(placed.rotation ? { rotation: placed.rotation } : {}), meta: { type: motionType, shape: 'convex' } })
       if (sr) J.destroy(sr)
       return id
     })
@@ -218,6 +235,7 @@ export class PhysicsWorld {
   async addStaticTrimeshAsync(glbPath, meshIndex = 0, position = [0, 0, 0], scale = [1, 1, 1], rotation = [0, 0, 0, 1]) {
     if (!glbPath) throw new Error('addStaticTrimeshAsync: no glbPath (resolveAssetPath rejected or returned an empty path)')
     const J = this.Jolt
+    const born = this._captureCreationFrame(position, rotation)
     const key = `${glbPath}|${scale[0]},${scale[1]},${scale[2]}`
     let shape = this._trimeshCache.get(key)
     let srToDestroyAfterFirstUse = null
@@ -235,7 +253,8 @@ export class PhysicsWorld {
       shape = built.shape
       if (built.sr) { srToDestroyAfterFirstUse = built.sr; built.sr = null }
     }
-    const id = this._addBody(shape, position, J.EMotionType_Static, LAYER_STATIC, { rotation, meta: { type: 'static', shape: 'trimesh', shapeKey: key } })
+    const placed = this._resolveCreationFrame(born)
+    const id = this._addBody(shape, placed.position, J.EMotionType_Static, LAYER_STATIC, { rotation: placed.rotation || rotation, meta: { type: 'static', shape: 'trimesh', shapeKey: key } })
     if (srToDestroyAfterFirstUse) J.destroy(srToDestroyAfterFirstUse)
     return id
   }
@@ -480,7 +499,9 @@ export class PhysicsWorld {
       free.push(id)
       return
     }
-    this.bodyInterface.RemoveBody(b.GetID()); this.bodyInterface.DestroyBody(b.GetID())
+    if (this._dormant && this._dormant.has(id)) this._dormant.forget(id)
+    else this.bodyInterface.RemoveBody(b.GetID())
+    this.bodyInterface.DestroyBody(b.GetID())
     this.bodies.delete(id); this.bodyMeta.delete(id); this.bodyIds.delete(id); this._bodyShapeKey.delete(id)
     this._staticTiles?.update(id)
   }
@@ -561,11 +582,16 @@ export class PhysicsWorld {
       result = { hit: true, distance: dist, body: null, bodyId, normal, position }
     } else result = { hit: false, distance: maxDistance, body: null, bodyId: null, normal: null, position: null }
     if (excludedBody) J.destroy(bf)
+    if (this._dormant && this._dormant.pendingCount > 0) {
+      const reach = this._dormant.firstReach(origin, [dirX, dirY, dirZ], maxDistance)
+      if (reach < (result.hit ? result.distance : maxDistance)) return { hit: false, distance: maxDistance, body: null, bodyId: null, normal: null, position: null, unavailable: 'static-colliders-migrating' }
+    }
     return result
   }
 
   destroy() {
     if (!this.Jolt) return
+    if (this._dormant) { this._dormant.destroy(); this._dormant = null }
     if (this._rcScratch) {
       const s = this._rcScratch, J = this.Jolt
       J.destroy(s.ray); J.destroy(s.origin); J.destroy(s.dir); J.destroy(s.rs)

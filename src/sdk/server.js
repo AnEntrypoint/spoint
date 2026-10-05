@@ -101,7 +101,7 @@ export async function createServer(config = {}) {
   const deps = await createServerDeps(config, tickRate)
   const ctx = {
     config, port, tickRate, appsDirs: config.appsDirs || [], gravity: config.gravity || [...DEFAULT_GRAVITY],
-    movement, staticDirs, ...deps, currentWorldDef: null, worldSpawnPoint: [0, 5, 0],
+    movement, staticDirs, ...deps, currentWorldDef: null, chartEpochLedger: null, worldSpawnPoint: [0, 5, 0],
     snapshotSeq: 0, httpServer: null, wss: null, wtServer: null,
     handlerState: { fn: null }, tickHandlerFn: null, serverTimeOfDay: null, serverWeather: null, placedModelStorage: null,
     onTick: (tick, dt) => { if (ctx.handlerState.fn) ctx.handlerState.fn(tick, dt); deps.connections.flushAll() },

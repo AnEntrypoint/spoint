@@ -21,12 +21,14 @@ import { defineWeapon } from '../behaviours/weapon.js'
 import { definePlayerInventory } from '../behaviours/inventory.js'
 import { definePath } from '../behaviours/path.js'
 import { NavmeshQuery } from '../pathfinding/NavmeshQuery.js'
+import { ChartNavmeshQuery } from '../pathfinding/ChartNavmeshQuery.js'
 import { isWorldName } from '../shared/worldName.js'
 import { COMBAT_API, fallFloorY, pickSpawnPoint, persisted, leaderboard } from './AppGameplay.js'
 
 const ENGINE_KEY_PREFIX_CHAR_CODE = 95
 const NAVMESH_FORMAT_VERSION = 1
 const _navmeshesByRuntime = new WeakMap()
+const _chartNavmeshes = new WeakMap()
 
 function _isNodeRuntime() { return typeof process !== 'undefined' && !!process.versions?.node }
 
@@ -333,6 +335,32 @@ export class AppContext {
     return api
   }
 
+  _chartAwareWeakly(api) {
+    (this._chartAwareWeak || (this._chartAwareWeak = [])).push(new WeakRef(api))
+    return api
+  }
+
+  _liveChartAwareApis() {
+    const live = [...(this._chartAwareApis ?? [])]
+    const weak = this._chartAwareWeak
+    if (weak) for (let i = weak.length - 1; i >= 0; i--) { const api = weak[i].deref(); if (api) live.push(api); else weak.splice(i, 1) }
+    return live
+  }
+
+  _blockChartReanchor(reason) {
+    const blocks = this._runtime.chartReanchorBlocks
+    blocks.set(reason, (blocks.get(reason) ?? 0) + 1)
+    let released = false
+    const release = () => {
+      if (released) return
+      released = true
+      const remaining = blocks.get(reason) - 1
+      if (remaining > 0) blocks.set(reason, remaining); else blocks.delete(reason)
+    }
+    this._registerDisposer(release)
+    return release
+  }
+
   _teardownChildren() {
     const ids = this._state._childIds
     if (!ids) return
@@ -374,7 +402,7 @@ export class AppContext {
 
   definePlayerInventory(spec) { return definePlayerInventory(spec, this) }
 
-  definePath(points) { return definePath(points) }
+  definePath(points) { return this._chartAwareWeakly(definePath(points)) }
 
   navmesh(worldName = this._runtime.worldName) {
     if (!isWorldName(worldName)) return Promise.reject(new TypeError(`[AppContext] navmesh: world name must be a world file stem, got ${JSON.stringify(worldName)} (runtime.worldName=${JSON.stringify(this._runtime.worldName)})`))
@@ -386,7 +414,13 @@ export class AppContext {
       pending.catch(() => { if (byWorld.get(worldName) === pending) byWorld.delete(worldName) })
       byWorld.set(worldName, pending)
     }
-    return pending
+    return pending.then(navmesh => this._chartLocalNavmesh(navmesh))
+  }
+
+  _chartLocalNavmesh(navmesh) {
+    let local = _chartNavmeshes.get(navmesh)
+    if (!local) _chartNavmeshes.set(navmesh, local = new ChartNavmeshQuery(navmesh, () => this._runtime.chartEpochLedger ?? null))
+    return local
   }
 
   raycast(origin, direction, maxDistance = 1000, excludeBodyId = null) {
