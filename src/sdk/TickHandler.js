@@ -1,6 +1,7 @@
 import { MSG } from '../protocol/MessageTypes.js'
 import { SnapshotEncoder, TombstoneLog, updateTombstones, PLAYER_LOD_REDUCED_HZ, filterEncodedPlayersTiered, encodeSelfBlock } from '../netcode/SnapshotEncoder.js'
 import { pack } from '../protocol/msgpack.js'
+import { currentChartEpoch, createChartReanchorMessage } from './chartWire.js'
 import { createCollisionTileStreamer } from '../netcode/CollisionTileStreamer.js'
 import { applyMovement as _applyMovement, DEFAULT_MOVEMENT as _DEFAULT_MOVEMENT } from '../shared/movement.js'
 import { applyPlayerCollisions } from '../netcode/CollisionSystem.js'
@@ -155,14 +156,15 @@ function recordPlayerTick(player, deps, tick) {
 
 const _playersByIdScratch = new Map()
 const _packWrapper = { type: MSG.SNAPSHOT, payload: null }
-const _packPayload = { seq: 0, tick: 0, serverTime: 0, players: null, entities: null, removed: undefined, delta: 1, dots: undefined, me: undefined }
+const _packPayload = { seq: 0, tick: 0, serverTime: 0, players: null, entities: null, removed: undefined, delta: 1, dots: undefined, me: undefined, chartEpoch: 0 }
 
-function packSnapshot(seq, encoded, me) {
+function packSnapshot(seq, encoded, me, chartEpoch) {
   _packPayload.seq = seq; _packPayload.tick = encoded.tick; _packPayload.serverTime = encoded.serverTime
   _packPayload.players = encoded.players; _packPayload.entities = encoded.entities
   _packPayload.removed = encoded.removed; _packPayload.delta = encoded.delta
   _packPayload.dots = encoded.dots
   _packPayload.me = me
+  _packPayload.chartEpoch = chartEpoch
   _packWrapper.payload = _packPayload
   const buf = pack(_packWrapper)
   recordSnapshotBytes(buf.length)
@@ -208,6 +210,7 @@ function groupPlayersByCell(players, snapGroups, curGroup, planetRadius, relevan
 
 function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isKeyframe, state, serverNow) {
   const { connections, stageLoader, getRelevanceRadius, networkState, playerEntityMaps } = deps
+  const chartEpoch = deps.getChartEpoch()
   const playerSnap = networkState.getSnapshot()
   const playerCount = players.length
   const snapGroups = Math.max(1, Math.ceil(playerCount / 50))
@@ -334,7 +337,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
       if (playerDots) encoded.dots = playerDots
       state.playerLastTick.set(player.id, tick)
       playerEntityMaps.set(player.id, entityMap)
-      connections.sendPacked(player.id, packSnapshot(snapshotSeq, encoded, encodeSelfBlock(playersById.get(player.id))), SNAP_UNRELIABLE, MSG.SNAPSHOT)
+      connections.sendPacked(player.id, packSnapshot(snapshotSeq, encoded, encodeSelfBlock(playersById.get(player.id)), chartEpoch), SNAP_UNRELIABLE, MSG.SNAPSHOT)
     }
     if (dynCache !== null && (state.playerLastTick.size > 0 || state.cellLastTick.size > 0)) {
       let minTick = tick
@@ -362,7 +365,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     for (const p of playerSnap.players) selfById.set(p.id, p)
     for (const player of players) {
       if (!isKeyframe && player.snapGroup % snapGroups !== curGroup) continue
-      connections.sendPacked(player.id, packSnapshot(snapshotSeq, encoded, encodeSelfBlock(selfById.get(player.id))), SNAP_UNRELIABLE, MSG.SNAPSHOT)
+      connections.sendPacked(player.id, packSnapshot(snapshotSeq, encoded, encodeSelfBlock(selfById.get(player.id)), chartEpoch), SNAP_UNRELIABLE, MSG.SNAPSHOT)
     }
   }
 }
@@ -386,7 +389,7 @@ export function createTickHandler(deps) {
     if (!s) { s = { entities: [], removed: [], spareMap: new Map() }; playerScratch.set(id, s) }
     return s
   }
-  const snapDeps = { connections, stageLoader, getRelevanceRadius, networkState, playerEntityMaps: new Map(), playerScratch, getPlayerScratch, getSnapshotHz: () => _lastSnapRate }
+  const snapDeps = { getChartEpoch: () => currentChartEpoch(physics), connections, stageLoader, getRelevanceRadius, networkState, playerEntityMaps: new Map(), playerScratch, getPlayerScratch, getSnapshotHz: () => _lastSnapRate }
   let snapState = createSnapState()
   let forceKeyframe = false
   const playerIdleCounts = new Map(), playerAccumDt = new Map()
@@ -433,12 +436,21 @@ export function createTickHandler(deps) {
     for (const player of playerManager.getConnectedPlayers()) collisionTiles.reset(player.id)
   }
 
-  function stepChartReanchor() {
+  function announceChartReanchor(event, tick) {
+    if (!connections) return
+    for (const clientId of [...connections.clients.keys()]) {
+      const ackSeq = playerManager.getPlayer(clientId)?.ackSequence ?? 0
+      connections.send(clientId, MSG.CHART_REANCHOR, createChartReanchorMessage(event, tick, ackSeq))
+    }
+  }
+
+  function stepChartReanchor(tick) {
     const service = physics._terrainStreamer?.chartReanchor
     if (!service) return
     const event = service.step()
     if (!event) return
     invalidateChartLocalSnapshotState()
+    announceChartReanchor(event, tick)
     deps.onChartReanchor?.(event)
   }
 
@@ -447,7 +459,7 @@ export function createTickHandler(deps) {
     const cellSz = physicsIntegration.config.capsuleRadius * 8, minDist = physicsIntegration.config.capsuleRadius * 2
     applyPlayerCollisions(players, grid, gridCells, cellSz, minDist * minDist, minDist, dt, physicsIntegration)
     if (typeof physics.drainBodyQueue === 'function') physics.drainBodyQueue()
-    if (explicitInputs === null) stepChartReanchor()
+    if (explicitInputs === null) stepChartReanchor(tick)
     physics.step(dt)
     appRuntime.tick(tick, dt)
   }

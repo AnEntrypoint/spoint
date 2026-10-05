@@ -155,12 +155,6 @@
   area: tsl
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending
-- id: chart-reanchor-wire-epoch-and-client-consumers
-  title: Chart epoch on the wire and every client chart-local consumer
-  body: 'Add a protocol message carrying chartEpoch, the new anchorDir and the tick, so server and every client switch in the same tick; clients call frame.reanchor(dir) then createChartTransfer(from,to) on predicted position/velocity, yaw+pitch via look(), camera, floating origin, in-flight snapshots and the input history used by resimulate(). Key every chart-local cache on frame.chartEpoch: client/core/TerrainBackdrop.js, Weather.js (already keyed), src/terrain/PlacementChart.js, src/shared/relocation.js, vegetation/grass/rock placement, minimap window. Needs a browser witness: the GPU is shared with training so this row runs once the GPU is free.'
-  acceptance_criteria: 'live browser walk across several cell boundaries with chartReanchor enabled: no camera or minimap discontinuity, no prediction correction spike at the epoch tick, vegetation and terrain stay continuous (pixel compare before/after epoch), window.__scene shows no stale chart-local geometry'
-  session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  status: pending
 - id: chart-reanchor-multiplayer-shared-chart
   title: One shared chart cannot serve a spread-out party
   body: 'createChartReanchorService anchors on the cell of the players'' centroid (sorted, order independent). Measured earlier: a shared flat chart tolerates a median party spread of only 1.56 deg (about 1.7 km) at the hard crossings, so beyond that the players far from the centroid read curvature as slope. Decide between a per-player-cluster chart (several frames, each with its own collider set) and radial gravity for the character, and implement the chosen one.'
@@ -291,5 +285,65 @@
 
     Candidate order once profiled (expected, not assumed): static-subtree freezing and render-list reuse; vegetation/shadow cull skipping (onBeforeShadow was 11.3% of frame); render bundles for static parts and material merging (924 calls per frame); GPU-driven culling with indirect args; simulation-LOD tick skipping; GC/allocation removal; worker render.
   acceptance_criteria: A CPU profile table (self and inclusive time, main-thread breakdown, GC) from 120 s of real movement on both GPUs exists before any implementation; each skipping or replay change ships with before/after CPU ms per frame, p50/p95/p99 frame time and WebGPU calls/frame on 3+ same-bundle arms with clean contamination buckets and PASS reachability; any visual change is witnessed by a pre-registered pixel criterion; correctness of skipped work is proven by an invalidation witness (change the input, show the cached or frozen result updates the same frame), because a skip that misses an invalidation is a silent staleness bug.
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: scattering-lut-zenith-undersampled
+  title: Scattering LUT is 1.3x too bright for steep rays at low altitude
+  body: 'atmosphere-scattering-lut.js v axis (linear in distance-to-top, 32 rows) puts every ray steeper than ~55 deg at 5.8 atm-km into row 0; LUT inscatter is 1.30-1.33x a 256-step truth there (CPU measured 2026-10-05). Consumers: TSL terrain aerial perspective via sky.marchRadiance, WGSL sky-render.js, atmosphere-lut-compute. The lutUV mapping is shared with legacy atmosphere.glsl so a reparametrisation changes every mirror together. TSL sky itself no longer uses the LUT.'
+  acceptance_criteria: scattering LUT lookup within 3 percent of a 256-step march for mu in [0.5,1] at r 6360.58..6366 km and muS in {0.1,0.6,0.9} in Node; all atm_lutUV mirrors changed together; WGSL sky within 3 levels of legacy GL in a staged parity boot
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: perf-framemetrics-session-instrument-lies
+  title: window.__perf.exportSession reports duration = samples / 60 and its frame times include rAF dispatch latency, so the app's own adaptive DPR/VDRS reads a value about 2x the real frame interval
+  body: 'client/core/FrameMetrics.js: exportSession() computes duration as s.length / 60 (a hardcoded 60 fps assumption; 166.7 s reported for a 120 s run) and caps samples at 10000. client/app.js:2576 feeds _perf.sample(performance.now() - now) where now is the rAF timestamp argument, so the sample is dispatch latency plus JS work, p50 13.45-14.7 ms against a true rAF interval of 6.95-13.84 ms on the same run. _perf.lastMs drives _adaptDpr, _adaptTerrainVdrs and _adaptThreeVdrs and occlusionQueryBudget.reportFrameTime, so the adaptive resolution and query budget react to an inflated number. Measured on D-metric-v2 and W-walk120 (see recall project/perf-frame-time-instruments-disagree).'
+  acceptance_criteria: The adaptive-quality inputs use the JS work time measured from callback entry (performance.now() at the top of animate, not the rAF timestamp) or the true inter-frame interval, whichever the controllers were tuned for, with the choice stated; exportSession duration is derived from summed frame time and not from sample count; a same-bundle A/B on the walk arm shows the DPR/VDRS decisions and p50/p95/p99 before and after, with reachability PASS.
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: chart-reanchor-collider-lattice-vs-client-ground-prediction
+  title: 'Sustained 1.5-2.9 cm vertical corrections after some chart epochs: the freshly prepared heightfield collider ripples against the client''s exact-function ground model'
+  body: 'Found by scripts/chart-reanchor-wire-harness.mjs on the final code: a 15-epoch chain on the reliefScale 0.0005 planet showed 0 corrections per epoch for epochs 2-12 and then 31 and 29 corrections within 1 s of epochs 14 and 15 (448 total, vertical error p50 1.5 cm, p95 2.3 cm, speed 7 m/s) in one run, while a repeat run of the same chain had 8 total and a service-off control walking 85 s had 7. tps-game chain (relief 0.01) showed 2-6 corrections per epoch from epoch 6. Server ground normals after an epoch alternate between triangle patches (n_z -0.056, -0.0025, -0.0716) where the pre-epoch collider was a single patch, so the new lattice phase (already measured up to 17 mm vs the exact function) exceeds RECONCILE_POS_EPS_M 0.015. Not a wire defect: wire, replay and mirror re-expression measured clean. Root cause lives in the terrain lattice (sample phase is anchored to the chart origin, so every epoch shifts it); do not tune the threshold.'
+  acceptance_criteria: scripts/chart-reanchor-wire-harness.mjs --scenario=chain on the relief 0.0005 world and --world=tps --epochs=6 each report <= 1 correction within 3 s of every epoch over 5 consecutive runs, via either a world-fixed lattice phase for heightfield samples or per-region collider-offset calibration in PredictionEngine; service-off control unchanged.
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: chart-reanchor-browser-client-callbacks
+  title: Browser client must consume onChartReanchoring / onChartReanchor / onChartResync
+  body: 'The headless wire consumer (src/client/ChartEpochSync.js) is done; client/app.js passes none of the new BaseClient callbacks. Needed in the browser: in onChartReanchoring swap the terrain frame and call setPredictionGroundSurface with the new chart''s height function BEFORE the replay samples it; in onChartReanchor re-express camera/input yaw and pitch with transfer.look and rebase the floating origin from transfer.point; onChartResync must reposition the camera loudly. Also verify BrowserServer (singleplayer worker) and WireweaveJoinClient deliver CHART_REANCHOR (reliable, non-snapshot) in order with COLLISION_TILE and do not coalesce it away, and that dist/client/app.js carries the new modules. Complements chart-reanchor-browser-holders (placement caches, GPU patch fn, minimap).'
+  acceptance_criteria: 'Browser walk across >= 3 epochs with chartReanchor enabled: PredictionEngine.stats.corrections unchanged across each epoch, camera and render position continuous (per-frame world step p95 within the no-epoch control), onChartResync never fires, numbers quoted; built bundle witnessed, not only source.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: msgpack-usefloat32-lossy-doubles-audit
+  title: 'msgpack Packr useFloat32:3 rounds doubles to ~1e-8 relative: audit every wire value that must stay exact'
+  body: 'Measured while debugging a 3-5 mm per-switch mismatch: pack/unpack of a chart snapshot loses 1e-8..3e-8 on east/up/north components and 1e-6 on anchorHeight, which at the 63.6 km lift is millimetres. Chart bases now travel as raw float64 bytes (src/shared/chartWireCodec.js). Other doubles on the msgpack path (WORLD_DEF terrain config, spawn positions in HANDSHAKE_ACK/RECONNECT_ACK, teleport acks, APP_EVENT vectors, persisted epoch/config columns) were not audited.'
+  acceptance_criteria: List of every msgpack payload field consumed as an exact double, each either proven insensitive (error below the consumer tolerance, measured) or moved to a lossless form; harness witness for each moved field.
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: prediction-rebase-replay-uses-latest-ground-normal
+  title: PredictionEngine._rebaseAndReplay replays every unacked input with the newest server ground normal; history entries now store the normal each step used
+  body: 'Seen while building the chart replay: replaying with one latest normal differs from the original per-step prediction by 1.85 mm per input on a 4-5.6 percent slope (20 mm over 10 inputs). Entries now carry normal/hasNormal (PredictionEngine.makeEntry, saveStepNormal) and the chart replay uses them; the ordinary rebase path still passes none. Unmeasured whether using stored normals there lowers the correction rate on slopes.'
+  acceptance_criteria: 'scripts/netcode-conditioner-harness.mjs --world=tps --route=tps at 0/0/0 and 50/10/2 predict on, A/B with the rebase path using stored normals: corrections per ack and mispredict p95 reported for both arms; ship only if lower, otherwise record the measurement and delete the stored-normal use there.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: node-client-sprint-misprediction-1p8cm
+  title: Sprinting Node PhysicsNetworkClient mispredicts ~15 times per second by ~1.8 cm (threshold 1.5 cm)
+  body: In scripts/chart-reanchor-wire-harness.mjs with --sprint=on on a flat-enough planet world and service off, 314 corrections in 20 s, horizontal error p50 1.8 cm at 12 m/s, against 5 corrections in 12 s walking. Likely per-step quantisation or speed-lerp difference between predictCharacterStep and the server at sprint; unmeasured cause.
+  acceptance_criteria: Root cause named with a witness that isolates it (per-tick server vs client position delta at constant sprint input), fix at that cause, and the sprint control reports <= 5 corrections per 20 s.
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: solve-surface-warm-start-cost
+  title: solveSurfaceY costs 34% more evaluations than the old loose tolerance (2.23 -> 2.99 mean) in sweeps
+  body: Sweeps over neighbouring points (heightfield builds, minimap cells, collider fields) restart each solve from the sea-level guess. A neighbour's solved y is a much closer first guess. Add an optional yGuess argument to PlanetFrame.solveSurfaceY and pass the previous cell's y from the sweep callers (HeightfieldStreamer field build, MinimapBake, bake-heightfield CPU path).
+  acceptance_criteria: Mean evaluations per solve in a row-major sweep drops below the old 2.23 with outputs identical to within the 1e-4 m tolerance; ns per solve before/after and the setupTerrainStreaming coarse 20 ms and refine ~200 ms builds measured interleaved x10 with median and IQR; hashVersion 2 isolated-point results stay bit-identical
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: ground-height-callers-unguarded-or-silent
+  title: Remaining groundHeightLocal callers either throw unguarded or swallow a SurfaceSolveError silently
+  body: 'guardedGroundHeight now covers client prediction, server terrain height source, TerrainBackdrop surface elevation, ColliderDebug and MinimapBiome. Still unguarded: client/core/Relocation.js heightAt, client/core/SculptOverlay.js flatten brush, client/app.js groundH pick probe. Still silent bare try/catch that would hide a SurfaceSolveError: client/core/Grass.js, Rocks.js, Vegetation.js, Weather.js, editor/editor.js; camera.js logs per call. Route each through guardedGroundHeight with its own named where and fallback.'
+  acceptance_criteria: codesearch of groundHeightLocal shows no call site that is neither wrapped by guardedGroundHeight nor a builder/bake that must throw; a forced SurfaceSolveError at each site prints exactly one named line per page load and the caller keeps running; zero comments
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: hashv1-height-function-step-discontinuities
+  title: The hashVersion 1 height function has position steps up to 16 mm (1554 of 65536 minimap cells at 15.9 km extent)
+  body: 'Found while fixing the minimap solve warning: CPU v1 heightAt jumps by several mm across 2 mm of position (e.g. local -3047,-1131 elevation 144.45287 -> 144.44879 -> 144.44624). solveSurfaceY now handles it and counts it in surfaceSolveStepDiscontinuities, but the source is unfound: candidates are the v1 float hash cell lattice, thermal erosion terms or a floor() in the noise. The GPU v1 path and the GPU patch-baker (f32 readback seams between patches) were not exercised headless and may add steps of their own.'
+  acceptance_criteria: Name the source term of the v1 step with a before/after measurement of maxJumpM over the 15.9 km minimap grid; either remove it or show it is inherent to the shipped v1 look; and measure the GPU patch-baker solve in a GPU window, reporting surfaceSolveStepDiscontinuities from a real boot at ?terrainhash=1&at=-2750,-750
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending

@@ -202,6 +202,8 @@ Two caveats from 2026-10-02 that are not yet in recall and will otherwise be red
 
 Session 2026-10-05 (prefix `project/`): `chart-reanchor-server-state-migrators-2026-10-05` (every server-side chart-local holder with file and mechanism, the grounded-velocity tilt clamp and why world velocity is not carried exactly for a grounded character, the fault policy that stops the tick loop on a half-migrated frame, the base-chart persistence rule, the measured continuity numbers, and what the wire row must carry). A new holder of chart-local state must either be re-expressed in `src/sdk/chartState/` or expose `onChartReanchor` (apps: `server.onChartReanchor(ctx, {transfer})`; behaviours made through `ctx.defineCombat/Checkpoint/ShrinkingZone/Destructible` register themselves via `AppContext._chartAware`).
 
+Chart re-anchor wire 2026-10-05 (prefix `project/`): `chart-reanchor-wire-epoch-client-consumers-2026-10-05` (CHART_REANCHOR 0xc6, epoch fields, client consumer, measured numbers; harness `scripts/chart-reanchor-wire-harness.mjs`), `msgpack-usefloat32-3-corrupts-double-low-bits` (exact doubles travel as float64 bytes).
+
 ## Audit log
 
 Per-session narrative is drained (2026-09-14; pre-drain text in `git log -p -- AGENTS.md`); the

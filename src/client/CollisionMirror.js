@@ -14,7 +14,7 @@ function hasMoveInput(input) {
 export function createCollisionMirror({ loadPhysicsWorld = () => import('../physics/World.js').then(m => m.PhysicsWorld) } = {}) {
   const tiles = new Map()
   const stats = { tiles: 0, builtTiles: 0, triangles: 0, builds: 0, buildMs: 0, maxBuildMs: 0, swaps: 0, mirroredSteps: 0, stepMs: 0, uncoveredSteps: 0, bytes: 0 }
-  let cfg = null, world = null, charId = null, generation = 0, active = null, lastPrebuildAt = 0
+  let cfg = null, cfgKey = null, world = null, charId = null, generation = 0, active = null, lastPrebuildAt = 0
   const last = [NaN, NaN, NaN]
 
   function dispose() {
@@ -37,7 +37,7 @@ export function createCollisionMirror({ loadPhysicsWorld = () => import('../phys
     world = w
     charId = mgr.addCharacter(c.radius, c.halfHeight, [0, 0, 0], c.mass, { maxSlopeAngle: c.maxSlopeAngle })
     last[0] = NaN
-    cfg = c
+    cfg = c; cfgKey = JSON.stringify(c)
   }
 
   function dropBody(t) {
@@ -49,6 +49,52 @@ export function createCollisionMirror({ loadPhysicsWorld = () => import('../phys
     t.bodyId = null; t.built = false
     stats.builtTiles--
   }
+
+  function clearTiles() {
+    if (world) for (const t of tiles.values()) dropBody(t)
+    tiles.clear(); active = null; last[0] = NaN; stats.tiles = 0
+  }
+
+  function reexpress(transfer) {
+    const seen = new Set(), triangles = [], p = [0, 0, 0]
+    for (const t of tiles.values()) {
+      const v = t.verts
+      for (let i = 0; i + TRIANGLE_FLOATS <= v.length; i += TRIANGLE_FLOATS) {
+        const key = v.subarray(i, i + TRIANGLE_FLOATS).join(',')
+        if (seen.has(key)) continue
+        seen.add(key)
+        const moved = new Float32Array(TRIANGLE_FLOATS)
+        for (let k = 0; k < 3; k++) {
+          p[0] = v[i + k * 3]; p[1] = v[i + k * 3 + 1]; p[2] = v[i + k * 3 + 2]
+          transfer.point(p, p)
+          moved[k * 3] = p[0]; moved[k * 3 + 1] = p[1]; moved[k * 3 + 2] = p[2]
+        }
+        triangles.push(moved)
+      }
+    }
+    clearTiles()
+    if (!cfg) return
+    const T = cfg.tileM, margin = cfg.marginM, buckets = new Map()
+    for (const tri of triangles) {
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
+      for (let k = 0; k < 3; k++) { const x = tri[k * 3], z = tri[k * 3 + 2]; if (x < minX) minX = x; if (x > maxX) maxX = x; if (z < minZ) minZ = z; if (z > maxZ) maxZ = z }
+      const tx0 = Math.floor((minX - margin) / T), tx1 = Math.floor((maxX + margin) / T), tz0 = Math.floor((minZ - margin) / T), tz1 = Math.floor((maxZ + margin) / T)
+      for (let tx = tx0; tx <= tx1; tx++) for (let tz = tz0; tz <= tz1; tz++) {
+        const k = tileKey(tx, tz)
+        let b = buckets.get(k)
+        if (!b) { b = { tx, tz, tris: [] }; buckets.set(k, b) }
+        b.tris.push(tri)
+      }
+    }
+    for (const [k, b] of buckets) {
+      const verts = new Float32Array(b.tris.length * TRIANGLE_FLOATS)
+      b.tris.forEach((tri, i) => verts.set(tri, i * TRIANGLE_FLOATS))
+      tiles.set(k, { tx: b.tx, tz: b.tz, hash: 0, verts, bodyId: null, built: false })
+    }
+    stats.tiles = tiles.size
+  }
+
+  function sameConfig(c) { return !!world && cfgKey === JSON.stringify(c) }
 
   function onTile(msg, nearPos) {
     if (!msg || !Number.isInteger(msg.tx) || !Number.isInteger(msg.tz)) return
@@ -161,5 +207,5 @@ export function createCollisionMirror({ loadPhysicsWorld = () => import('../phys
 
   function getStats() { return { ...stats, ready: !!world, stepMsAvg: stats.mirroredSteps ? stats.stepMs / stats.mirroredSteps : 0 } }
 
-  return { configure, onTile, covers, step, noteUncovered, getStats, dispose, get ready() { return !!world && !!cfg } }
+  return { configure, sameConfig, clearTiles, reexpress, onTile, covers, step, noteUncovered, getStats, dispose, get ready() { return !!world && !!cfg } }
 }

@@ -9,9 +9,22 @@ import { clearOutlierWindow } from '../netcode/OutlierDetector.js'
 import { createNostrAuthServer } from './NostrAuthServer.js'
 import { groundSnapSpawnPoint, holdSpawnUntilGrounded } from './Relocation.js'
 import { playerDefault } from '../shared/worldDefaults.js'
+import { chartHandshakeFields, currentChartEpoch, resolveEpochTransfer, reexpressInputEntries, reexpressShot, createChartResyncReply, chartWireStatsOf } from './chartWire.js'
 
 const MAX_TRACKED_RTT_MS = 10000
 const SERVER_ONLY_APP_EVENT_TYPES = new Set(['player_join', 'player_leave', 'player_teleport', 'damage'])
+
+const CHART_WARN_INTERVAL_MS = 1000
+const MAX_TRACKED_WARN_CLIENTS = 1024
+const lastChartWarnAt = new Map()
+
+function warnChartDropThrottled(clientId, message) {
+  const now = Date.now()
+  if (now - (lastChartWarnAt.get(clientId) || 0) < CHART_WARN_INTERVAL_MS) return
+  if (lastChartWarnAt.size > MAX_TRACKED_WARN_CLIENTS) lastChartWarnAt.clear()
+  lastChartWarnAt.set(clientId, now)
+  console.warn(message)
+}
 
 const _schemaByWorldDef = new WeakMap()
 function inputSchemaFor(worldDef) {
@@ -76,13 +89,13 @@ export function createConnectionHandlers(ctx) {
     client.sessionToken = sessions.create(playerId, playerManager.getPlayer(playerId).state)
     sessions.pin(client.sessionToken)
     client.isEditor = !readEditorTokenIfNodeRuntime()
-    connections.send(playerId, MSG.HANDSHAKE_ACK, { playerId, tick: tickSystem.currentTick, sessionToken: client.sessionToken, tickRate: ctx.tickRate, version: WIRE_PROTOCOL_VERSION, structHash: WIRE_STRUCT_HASH })
+    connections.send(playerId, MSG.HANDSHAKE_ACK, { playerId, tick: tickSystem.currentTick, sessionToken: client.sessionToken, tickRate: ctx.tickRate, version: WIRE_PROTOCOL_VERSION, structHash: WIRE_STRUCT_HASH, ...chartHandshakeFields(ctx) })
     sendWorldDefAndModules(playerId)
     const relevanceRadius = ctx.currentWorldDef?.relevanceRadius || 0
     const snapEntities = relevanceRadius > 0 ? appRuntime.getSnapshotForPlayer(sp, relevanceRadius) : appRuntime.getSnapshot()
     const playerSnap = networkState.getSnapshot()
     const combined = { tick: playerSnap.tick, timestamp: playerSnap.timestamp, players: playerSnap.players, entities: snapEntities.entities }
-    connections.send(playerId, MSG.SNAPSHOT, { seq: ++ctx.snapshotSeq, ...SnapshotEncoder.encode(combined) })
+    connections.send(playerId, MSG.SNAPSHOT, { seq: ++ctx.snapshotSeq, ...SnapshotEncoder.encode(combined), chartEpoch: currentChartEpoch(ctx.physics) })
     appRuntime.broadcastMessage({ type: 'player_join', playerId })
     connections.send(playerId, MSG.SCENE_GRAPH, { entities: appRuntime.getSceneGraph() })
     for (const [pid, pubkey] of voiceIdentities) connections.send(playerId, MSG.APP_EVENT, { type: 'voice_identity', playerId: pid, pubkey })
@@ -224,10 +237,25 @@ export function createConnectionHandlers(ctx) {
       if (isInputRateLimited(clientId)) return
       const decoded = decodeInputPacket(inputSchemaFor(ctx.currentWorldDef), msg.payload)
       if (!decoded.accepted) { rejectInputPacket(clientId, decoded.reason, msg.payload); return }
+      const gate = resolveEpochTransfer(ctx, decoded.chartEpoch)
+      if (gate.rejected) { warnChartDropThrottled(clientId, `[chart] dropped input packet from client ${clientId}: ${gate.rejected}`); return }
+      if (gate.transfer) { reexpressInputEntries(gate.transfer, decoded.entries); chartWireStatsOf(ctx).staleInputPackets++ }
       for (const e of decoded.entries) playerManager.addInput(clientId, e.data, e.sequence)
       return
     }
+    if (msg.type === MSG.CHART_REANCHOR) {
+      const epoch = msg.payload?.epoch
+      if (!Number.isInteger(epoch) || epoch < 0 || epoch === currentChartEpoch(ctx.physics)) return
+      const reply = createChartResyncReply(ctx, epoch)
+      if (reply) connections.send(clientId, MSG.CHART_REANCHOR, reply)
+      return
+    }
     if (msg.type === MSG.APP_EVENT) {
+      if (msg.payload?.chartEpoch != null) {
+        const gate = resolveEpochTransfer(ctx, msg.payload.chartEpoch)
+        if (gate.rejected) { warnChartDropThrottled(clientId, `[chart] dropped '${msg.payload.type}' event from client ${clientId}: ${gate.rejected}`); return }
+        if (gate.transfer) { reexpressShot(gate.transfer, msg.payload); chartWireStatsOf(ctx).staleShots++ }
+      }
       if (SERVER_ONLY_APP_EVENT_TYPES.has(msg.payload?.type)) { console.warn(`[app-event] dropped client ${clientId} event of server-only type '${msg.payload.type}'`); return }
       if (msg.payload?.type === 'voice_identity' && typeof msg.payload?.pubkey === 'string' && msg.payload.pubkey) {
         const pubkey = msg.payload.pubkey.slice(0, 128)
@@ -301,11 +329,11 @@ export function createConnectionHandlers(ctx) {
       reconnClient.isEditor = !readEditorTokenIfNodeRuntime()
       sessions.update(msg.payload.sessionToken, { state: playerManager.getPlayer(newId).state })
       sessions.pin(msg.payload.sessionToken)
-      connections.send(newId, MSG.RECONNECT_ACK, { playerId: newId, tick: tickSystem.currentTick, sessionToken: msg.payload.sessionToken, tickRate: ctx.tickRate, position: sp, health, structHash: WIRE_STRUCT_HASH })
+      connections.send(newId, MSG.RECONNECT_ACK, { playerId: newId, tick: tickSystem.currentTick, sessionToken: msg.payload.sessionToken, tickRate: ctx.tickRate, position: sp, health, structHash: WIRE_STRUCT_HASH, ...chartHandshakeFields(ctx) })
       sendWorldDefAndModules(newId)
       const snap = networkState.getSnapshot()
       const ents = appRuntime.getSnapshot()
-      connections.send(newId, MSG.STATE_RECOVERY, { snapshot: SnapshotEncoder.encode({ tick: snap.tick, timestamp: snap.timestamp, players: snap.players, entities: ents.entities }), tick: tickSystem.currentTick })
+      connections.send(newId, MSG.STATE_RECOVERY, { snapshot: SnapshotEncoder.encode({ tick: snap.tick, timestamp: snap.timestamp, players: snap.players, entities: ents.entities }), tick: tickSystem.currentTick, chartEpoch: currentChartEpoch(ctx.physics) })
       appRuntime.broadcastMessage({ type: 'player_join', playerId: newId, reconnected: true })
       emitter.emit('playerJoin', { id: newId, reconnected: true })
       return

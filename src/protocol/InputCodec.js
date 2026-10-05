@@ -13,6 +13,8 @@ const FLAG_ANALOG = 1
 const RECORD_FIXED_BYTES = 14
 const ANALOG_BYTES = 2
 const AXIS_BYTES = 4
+const FLAG_EPOCH_TAGGED = 0x80
+const EPOCH_BYTES = 4
 
 export function createInputSchema(netcodeConfig = null) {
   const extraButtons = Array.isArray(netcodeConfig?.inputButtons) ? netcodeConfig.inputButtons : []
@@ -90,15 +92,17 @@ function readRecord(view, off, schema, end) {
   return { sequence, data: input, next: off }
 }
 
-export function encodeInputPacket(schema, entries) {
+export function encodeInputPacket(schema, entries, chartEpoch = 0) {
   const n = Math.min(MAX_INPUTS_PER_PACKET, entries.length)
   const first = entries.length - n
-  let size = 1
+  const tagged = chartEpoch > 0
+  let size = tagged ? 1 + EPOCH_BYTES : 1
   for (let i = first; i < entries.length; i++) size += recordBytes(schema, entries[i].data)
   const out = new Uint8Array(size)
   const view = new DataView(out.buffer)
-  out[0] = n
+  out[0] = n | (tagged ? FLAG_EPOCH_TAGGED : 0)
   let off = 1
+  if (tagged) { view.setUint32(off, chartEpoch >>> 0, true); off += EPOCH_BYTES }
   for (let i = first; i < entries.length; i++) off = writeRecord(view, off, schema, entries[i].sequence, entries[i].data)
   return out
 }
@@ -106,18 +110,23 @@ export function encodeInputPacket(schema, entries) {
 export function decodeInputPacket(schema, bytes) {
   if (!(bytes instanceof Uint8Array)) return { accepted: false, reason: 'input payload is not binary (pre-v2 client?)' }
   if (bytes.length < 1) return { accepted: false, reason: 'empty input packet' }
-  const n = bytes[0]
+  const n = bytes[0] & ~FLAG_EPOCH_TAGGED
   if (n === 0 || n > MAX_INPUTS_PER_PACKET) return { accepted: false, reason: `input packet record count ${n} outside 1..${MAX_INPUTS_PER_PACKET}` }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
   const entries = []
   let off = 1
+  let chartEpoch = 0
+  if (bytes[0] & FLAG_EPOCH_TAGGED) {
+    if (bytes.length < 1 + EPOCH_BYTES) return { accepted: false, reason: 'truncated input packet chart epoch' }
+    chartEpoch = view.getUint32(off, true); off += EPOCH_BYTES
+  }
   try {
     for (let i = 0; i < n; i++) { const r = readRecord(view, off, schema, bytes.length); entries.push({ sequence: r.sequence, data: r.data }); off = r.next }
   } catch (e) {
     return { accepted: false, reason: e.message }
   }
   if (off !== bytes.length) return { accepted: false, reason: `input packet has ${bytes.length - off} trailing bytes` }
-  return { accepted: true, entries }
+  return { accepted: true, entries, chartEpoch }
 }
 
 export function quantizeInput(schema, input) {

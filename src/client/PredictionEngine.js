@@ -4,6 +4,7 @@ import { predictCharacterStep } from '../shared/characterStep.js'
 import { createStepTrail } from './StepTrail.js'
 import { separationPush } from '../netcode/CollisionSystem.js'
 import { PLAYER_DEFAULTS } from '../shared/worldDefaults.js'
+import { reexpressMotionState, copyAckedEntry, saveStepNormal } from './PredictionChart.js'
 
 const PRE_HANDSHAKE_TICK_RATE = 60
 const MAX_TRACKED_CONNECTION_DEGRADATION_MS = 10000
@@ -32,7 +33,7 @@ function isValidPlayerSnapshot(p) {
 }
 
 function makeEntry() {
-  return { sequence: -1, data: null, position: [0, 0, 0], velocity: [0, 0, 0], onGround: true, groundY: 0, move: {} }
+  return { sequence: -1, data: null, position: [0, 0, 0], velocity: [0, 0, 0], onGround: true, groundY: 0, move: {}, normal: [0, 1, 0], hasNormal: false }
 }
 
 class InputHistory {
@@ -93,7 +94,8 @@ export class PredictionEngine {
     this._pendingKnockback = null
     this._knockbackWindow = 200
     this._enableKnockbackPreservation = true
-    this.stats = { acks: 0, corrections: 0, lastCorrectionM: 0, maxCorrectionM: 0 }
+    this.stats = { acks: 0, corrections: 0, lastCorrectionM: 0, maxCorrectionM: 0, chartReanchors: 0, chartReplayShiftM: 0, chartReplayInputs: 0, chartReplayBase: 'none' }
+    this._lastAckedPrediction = makeEntry()
     this.walls = []
     this._env = { gravityY: this.gravityY, ground: null, wedged: false, groundNormal: null, walls: null, wallExtentM: WALL_EXTENT_BASE_M, collider: null }
     this._mirror = null
@@ -203,6 +205,7 @@ export class PredictionEngine {
     const e = this.inputHistory.pushSlot()
     e.sequence = seq; e.data = input
     saveEntry(e, this.localState)
+    saveStepNormal(e, this.lastServerState?.groundNormal)
     return seq
   }
 
@@ -213,9 +216,9 @@ export class PredictionEngine {
     return i < 0 ? null : this.inputHistory.at(i)
   }
 
-  _step(input, seq) {
+  _step(input, seq, groundNormal) {
     const env = this._env
-    env.gravityY = this.gravityY; env.ground = this._ground; env.wedged = this.horizontallyWedged; env.groundNormal = this.lastServerState?.groundNormal || null; env.walls = this.walls
+    env.gravityY = this.gravityY; env.ground = this._ground; env.wedged = this.horizontallyWedged; env.groundNormal = groundNormal || this.lastServerState?.groundNormal || null; env.walls = this.walls
     const dt = (this.tickDuration * this.dilation) / 1000, v = this.localState.velocity
     env.wallExtentM = WALL_EXTENT_BASE_M + Math.hypot(v[0], v[2]) * (this.inputHistory.length + 1) * dt
     const m = this._mirror
@@ -313,6 +316,7 @@ export class PredictionEngine {
     const ackIdx = this.inputHistory.indexOf(ackedSeq)
     const predicted = ackIdx >= 0 ? this.inputHistory.at(ackIdx) : null
     if (ackedSeq > this._lastAckedSeq) this._lastAckedSeq = ackedSeq
+    if (predicted) copyAckedEntry(this._lastAckedPrediction, predicted, MOVE_STATE_KEYS)
     this.stats.acks++
     let err = Infinity
     if (predicted) {
@@ -352,6 +356,57 @@ export class PredictionEngine {
   }
 
   resimulate() { this._rebaseAndReplay(this.lastServerState, null, false) }
+
+  applyChartTransfer(pass, ackSeq) {
+    const ls = this.localState
+    if (!ls) return
+    const transfer = pass.transfer
+    reexpressMotionState(pass, ls)
+    reexpressMotionState(pass, this.lastServerState)
+    reexpressMotionState(pass, this._renderState)
+    reexpressMotionState(pass, this._lastAckedPrediction)
+    for (const e of this.inputHistory) { reexpressMotionState(pass, e); if (e.hasNormal) pass.vector(e.normal); pass.look(e.data) }
+    this.walls.length = 0
+    const offset = this.reconciliationEngine.errorOffset
+    transfer.vec(offset, offset)
+    this._trail.reexpress(transfer)
+    if (this._pendingKnockback) pass.vector(this._pendingKnockback.dir)
+    this.stats.chartReanchors++
+    this._replayInputsAfterChartSwitch(ackSeq)
+  }
+
+  _replayInputsAfterChartSwitch(ackSeq) {
+    const history = this.inputHistory
+    if (!Number.isFinite(ackSeq) || history.length === 0 || history.at(history.length - 1).sequence <= ackSeq) return
+    const ackIdx = history.indexOf(ackSeq)
+    const entry = ackIdx >= 0 ? history.at(ackIdx) : (this._lastAckedPrediction.sequence === ackSeq ? this._lastAckedPrediction : null)
+    const authoritative = ackSeq === this._lastAckedSeq ? this.lastServerState : null
+    const base = authoritative || entry
+    if (!base) return
+    const ls = this.localState
+    this.stats.chartReplayBase = authoritative ? 'server' : 'entry'
+    this.stats.chartReplayInputs = 0
+    const beforeX = ls.position[0], beforeY = ls.position[1], beforeZ = ls.position[2]
+    for (let i = 0; i < 3; i++) { ls.position[i] = base.position[i]; ls.velocity[i] = base.velocity[i] }
+    ls.onGround = base.onGround
+    ls.groundY = base.onGround ? base.position[1] : (entry ? entry.groundY : NaN)
+    if (entry) for (const k of MOVE_STATE_KEYS) ls[k] = entry.move[k]
+    for (const e of history) if (e.sequence > ackSeq) { this._step(e.data, e.sequence, e.hasNormal ? e.normal : null); saveEntry(e, ls); this.stats.chartReplayInputs++ }
+    const dx = ls.position[0] - beforeX, dy = ls.position[1] - beforeY, dz = ls.position[2] - beforeZ
+    this.stats.chartReplayShiftM = Math.hypot(dx, dy, dz)
+    this.reconciliationEngine.absorb(dx, dy, dz, ls.onGround)
+    this._trail.shift(dx, dy, dz)
+  }
+
+  resyncToServer({ keepHistory }) {
+    if (!keepHistory) { this.inputHistory.clear(); this._lastAckedSeq = this._inputSeq - 1 }
+    this._hasServerState = false
+    this.reconciliationEngine.reset()
+    this._trail.reset()
+    this.horizontallyWedged = false
+    this.verticallyBlocked = false
+    this.walls.length = 0
+  }
 
   _preserveKnockbackVelocity(now) {
     if (!this._enableKnockbackPreservation || !this._pendingKnockback) return

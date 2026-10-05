@@ -4,6 +4,7 @@ import { SnapshotProcessor } from './SnapshotProcessor.js'
 import { MessageHandler } from './MessageHandler.js'
 import { createInputStepper } from './InputStepper.js'
 import { encodeInputPacket, quantizeInput } from '../protocol/InputCodec.js'
+import { createChartEpochSync } from './ChartEpochSync.js'
 
 const REDUNDANT_INPUT_RECORDS = 4
 const INPUT_BUFFER_MIN_DEPTH = 1
@@ -39,7 +40,7 @@ export class BaseClient {
     this.currentTick = 0
     this.lastSnapshotTick = 0
     this.dilationFactor = 1.0
-    this.callbacks = { onConnect: config.onConnect || (() => {}), onDisconnect: config.onDisconnect || (() => {}), onPlayerJoined: config.onPlayerJoined || (() => {}), onPlayerLeft: config.onPlayerLeft || (() => {}), onEntityAdded: config.onEntityAdded || (() => {}), onEntityRemoved: config.onEntityRemoved || (() => {}), onSnapshot: config.onSnapshot || (() => {}), onRender: config.onRender || (() => {}), onStateUpdate: config.onStateUpdate || (() => {}), onWorldDef: config.onWorldDef || (() => {}), onAppModule: config.onAppModule || (() => {}), onAssetUpdate: config.onAssetUpdate || (() => {}), onAppEvent: config.onAppEvent || (() => {}), onHotReload: config.onHotReload || (() => {}), onEditorSelect: config.onEditorSelect || (() => {}), onMessage: config.onMessage || (() => {}), onDilation: config.onDilation || (() => {}), onMessageError: config.onMessageError || (() => {}), onPeerRttTable: config.onPeerRttTable || (() => {}), onTerrainConfig: config.onTerrainConfig || (() => {}), onTerrainSculptAck: config.onTerrainSculptAck || (() => {}), onTerrainPaintBiomeAck: config.onTerrainPaintBiomeAck || (() => {}), onGrassDecalSync: config.onGrassDecalSync || (() => {}), onTerrainSculptSync: config.onTerrainSculptSync || (() => {}), onTimeOfDaySync: config.onTimeOfDaySync || (() => {}), onWeatherSync: config.onWeatherSync || (() => {}), onTeleportAck: (p) => { config.onTeleportAck?.(p); this._settleTeleportAck(p) } }
+    this.callbacks = { onConnect: config.onConnect || (() => {}), onDisconnect: config.onDisconnect || (() => {}), onPlayerJoined: config.onPlayerJoined || (() => {}), onPlayerLeft: config.onPlayerLeft || (() => {}), onEntityAdded: config.onEntityAdded || (() => {}), onEntityRemoved: config.onEntityRemoved || (() => {}), onSnapshot: config.onSnapshot || (() => {}), onRender: config.onRender || (() => {}), onStateUpdate: config.onStateUpdate || (() => {}), onWorldDef: config.onWorldDef || (() => {}), onAppModule: config.onAppModule || (() => {}), onAssetUpdate: config.onAssetUpdate || (() => {}), onAppEvent: config.onAppEvent || (() => {}), onHotReload: config.onHotReload || (() => {}), onEditorSelect: config.onEditorSelect || (() => {}), onMessage: config.onMessage || (() => {}), onDilation: config.onDilation || (() => {}), onMessageError: config.onMessageError || (() => {}), onPeerRttTable: config.onPeerRttTable || (() => {}), onTerrainConfig: config.onTerrainConfig || (() => {}), onTerrainSculptAck: config.onTerrainSculptAck || (() => {}), onTerrainPaintBiomeAck: config.onTerrainPaintBiomeAck || (() => {}), onGrassDecalSync: config.onGrassDecalSync || (() => {}), onTerrainSculptSync: config.onTerrainSculptSync || (() => {}), onTimeOfDaySync: config.onTimeOfDaySync || (() => {}), onWeatherSync: config.onWeatherSync || (() => {}), onTeleportAck: (p) => { config.onTeleportAck?.(p); this._settleTeleportAck(p) }, onChartReanchoring: config.onChartReanchoring || (() => {}), onChartReanchor: config.onChartReanchor || (() => {}), onChartResync: config.onChartResync || (() => {}) }
     this._teleportWaiters = new Map()
     this._inputStepper = null
     this._inputRateAdjust = 0
@@ -54,6 +55,12 @@ export class BaseClient {
     this._teleportReqSeq = 0
     this._snapProc = new SnapshotProcessor({ callbacks: this.callbacks })
     this._msgHandler = new MessageHandler({ ...config, callbacks: this.callbacks })
+    this._chart = createChartEpochSync({
+      callbacks: this.callbacks,
+      holders: () => ({ pred: this._msgHandler.getPredEngine(), timeline: this._msgHandler.getTimeline(), snapProc: this._snapProc, mirror: this._msgHandler.getCollisionMirror() }),
+      requestResync: epoch => this.send(MSG.CHART_REANCHOR, { epoch }),
+      replayAck: ack => this._msgHandler.handleMessage(MSG.TELEPORT_ACK, ack, this._snapProc)
+    })
   }
 
   get playerId() { return this._msgHandler.getPlayerId() }
@@ -74,8 +81,13 @@ export class BaseClient {
     } catch (e) { console.error('[client] wire decode failed (corrupt message dropped):', e?.message || e); this.callbacks.onMessageError('decode', e); return }
     if (msg.type === MSG.NOSTR_AUTH_CHALLENGE) { this._handleNostrAuthChallenge(msg.payload || {}); return }
     try {
-      const result = this._msgHandler.handleMessage(msg.type, msg.payload || {}, this._snapProc)
+      if (msg.type === MSG.CHART_REANCHOR) { this._chart.onBroadcast(msg.payload); return }
+      let payload = msg.payload || {}
+      if (msg.type === MSG.TELEPORT_ACK) { payload = this._chart.admitAck(payload); if (!payload) return }
+      const result = this._msgHandler.handleMessage(msg.type, payload, this._snapProc)
       if (result?.protocolMismatch) { this._rejectProtocol(result.protocolMismatch); return }
+      if (msg.type === MSG.HANDSHAKE_ACK || msg.type === MSG.RECONNECT_ACK) this._chart.adopt(msg.payload)
+      if (result && msg.type === MSG.SNAPSHOT && !this._chart.admitSnapshot(result)) return
       if ((msg.type === MSG.HANDSHAKE_ACK || msg.type === MSG.RECONNECT_ACK) && this._groundSurface) this._msgHandler.getPredEngine()?.setGroundSurface(this._groundSurface)
       this._handleSessionTokens(msg.type, result)
       if (result && (msg.type === MSG.SNAPSHOT || msg.type === MSG.STATE_CORRECTION || msg.type === MSG.STATE_RECOVERY)) this._onSnapshot(result, msg.type)
@@ -167,7 +179,7 @@ export class BaseClient {
       if (this._plainInputs.length > REDUNDANT_INPUT_RECORDS) this._plainInputs.shift()
       entries = this._plainInputs
     }
-    this.send(MSG.INPUT, encodeInputPacket(schema, entries))
+    this.send(MSG.INPUT, encodeInputPacket(schema, entries, this._chart.epoch ?? 0))
   }
 
   _onSnapshot(data, msgType) {
@@ -209,7 +221,7 @@ export class BaseClient {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => { this._teleportWaiters.delete(reqId); reject(new Error(`teleport ${op} timed out after ${timeoutMs}ms (no ack; server without relocation support or client not editor-authorised)`)) }, timeoutMs)
       this._teleportWaiters.set(reqId, { resolve, reject, timer, placed: null })
-      this.send(MSG.TELEPORT, { ...spec, op, reqId })
+      this.send(MSG.TELEPORT, { ...spec, op, reqId, chartEpoch: this._chart.epoch ?? undefined })
     })
   }
 
@@ -218,11 +230,14 @@ export class BaseClient {
   }
 
   sendFire(data) {
-    this.send(MSG.APP_EVENT, { type: 'fire', shooterId: this.playerId, viewTick: this.getViewTick(), ...data })
+    this.send(MSG.APP_EVENT, { type: 'fire', shooterId: this.playerId, viewTick: this.getViewTick(), chartEpoch: this._chart.epoch ?? undefined, ...data })
   }
   sendReload() { this.send(MSG.APP_EVENT, { type: 'reload', playerId: this.playerId }) }
-  sendLaunch(data) { this.send(MSG.APP_EVENT, { type: 'launch', senderId: this.playerId, ...data }) }
+  sendLaunch(data) { this.send(MSG.APP_EVENT, { type: 'launch', senderId: this.playerId, chartEpoch: this._chart.epoch ?? undefined, ...data }) }
   sendEmote(code) { this.send(MSG.APP_EVENT, { type: 'emote', senderId: this.playerId, code }) }
+
+  getChartEpoch() { return this._chart.epoch }
+  getChartStats() { return { ...this._chart.stats, heldNow: this._chart.heldSnapshots } }
 
   getInterpolatedState(now = performance.now()) { return this._msgHandler.getTimeline().sample(now) }
   getInterpolationStats() { return this._msgHandler.getTimeline().getStats() }

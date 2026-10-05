@@ -1,5 +1,6 @@
 import { unpackGroundNormal } from '../shared/groundNormalWire.js'
 import { unpackWallPlanes } from '../shared/wallPlaneWire.js'
+import { reexpressPlayerRecord, reexpressEntityRecord } from './reexpressRecords.js'
 
 function copyWallPlanes(src, dst) {
   dst.length = src.length
@@ -324,5 +325,9 @@ export class SnapshotProcessor {
   getEntity(eid) { return this._entityStates.get(eid) }
   getAllEntities() { return this._entityStates }
   removePlayer(pid) { this._playerStates.delete(pid); this._lastSeenCall.delete(pid) }
+  applyChartTransfer(pass) {
+    for (const track of this._playerStates.values()) reexpressPlayerRecord(pass, track)
+    for (const track of this._entityStates.values()) reexpressEntityRecord(pass, track)
+  }
   clear() { this._playerStates.clear(); this._entityStates.clear(); this._lastSeenCall.clear() }
 }

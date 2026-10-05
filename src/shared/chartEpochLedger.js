@@ -24,6 +24,7 @@ export function createChartEpochLedger({ frame, retainedEpochs = DEFAULT_RETAINE
 
   return {
     record,
+    chartAt: chartOf,
     get currentEpoch() { return current.chartEpoch },
     get current() { return current },
     get base() { return base },

@@ -1,4 +1,5 @@
 import { slerpQuat } from './interpolation.js'
+import { reexpressPlayerRecord } from './reexpressRecords.js'
 
 const MAX_BUFFERED_SNAPSHOTS = 32
 const OFFSET_WINDOW = 90
@@ -121,6 +122,10 @@ export class SnapshotTimeline {
   displayedTick(now = performance.now()) {
     if (!Number.isFinite(this._renderMs) || now - this._lastSampleNow > DISPLAY_STALE_MS) return null
     return this._renderMs / this.tickMs
+  }
+
+  applyChartTransfer(pass) {
+    for (const snap of this._snaps) for (const player of snap.players) reexpressPlayerRecord(pass, player)
   }
 
   resync() { this._renderMs = NaN }

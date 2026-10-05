@@ -2,6 +2,7 @@ import { MSG } from '../protocol/MessageTypes.js'
 import { resolveTarget } from '../shared/relocation.js'
 import { beginTeleportHold } from '../netcode/TeleportHold.js'
 import { spawnSurfaceY } from '../shared/SpawnSurface.js'
+import { currentChartEpoch, chartWireStatsOf } from './chartWire.js'
 
 const SNAP_RAY_START_ABOVE = 20
 const SNAP_RAY_LENGTH = 2000
@@ -140,7 +141,9 @@ export function createRelocationHandlers(ctx) {
   function handle(payload, clientId) {
     const reqId = Number.isSafeInteger(payload?.reqId) ? payload.reqId : null
     const op = payload?.op === 'probe' ? 'probe' : 'to'
-    const reply = (body) => connections.send(clientId, MSG.TELEPORT_ACK, { reqId, op, ...body })
+    const reply = (body) => connections.send(clientId, MSG.TELEPORT_ACK, { reqId, op, chartEpoch: currentChartEpoch(ctx.physics), ...body })
+    const staleEpoch = payload?.chartEpoch != null && payload.chartEpoch !== currentChartEpoch(ctx.physics)
+    if (staleEpoch) { chartWireStatsOf(ctx).rejectedTeleports++; reply({ ok: false, error: 'stale-chart-epoch', requestEpoch: payload.chartEpoch }); return }
     if (ctx.currentWorldDef?.relocation === false) { reply({ ok: false, error: 'relocation disabled by this world (relocation: false)' }); return }
     if (ctx.peerSession && op === 'to') { reply({ ok: false, error: `relocation would desync the '${ctx.peerSession.profile?.name}' peer-simulated session: a teleport is not a peer input` }); return }
     try {

@@ -34,5 +34,15 @@ export function createStepTrail() {
 
   function reset() { head = 0; count = 0 }
 
-  return { push, shift, sample, reset, get length() { return count } }
+  function reexpress(transfer) {
+    const p = [0, 0, 0]
+    for (let i = 0; i < count; i++) {
+      const s = slot(i) * 3
+      p[0] = points[s]; p[1] = points[s + 1]; p[2] = points[s + 2]
+      transfer.point(p, p)
+      points[s] = p[0]; points[s + 1] = p[1]; points[s + 2] = p[2]
+    }
+  }
+
+  return { push, shift, sample, reset, reexpress, get length() { return count } }
 }

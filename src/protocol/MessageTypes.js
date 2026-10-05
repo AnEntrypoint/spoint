@@ -1,4 +1,4 @@
-export const WIRE_PROTOCOL_VERSION = 4
+export const WIRE_PROTOCOL_VERSION = 5
 
 export const MSG = {
   HANDSHAKE: 0x01,
@@ -130,7 +130,9 @@ export const MSG = {
   TELEPORT_ACK: 0xc3,
 
   COLLISION_CONFIG: 0xc4,
-  COLLISION_TILE: 0xc5
+  COLLISION_TILE: 0xc5,
+
+  CHART_REANCHOR: 0xc6
 }
 
 const nameMap = new Map()

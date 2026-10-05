@@ -28,11 +28,14 @@ export class MessageHandler {
   _onCollisionConfig(payload) {
     if (this._config.collisionMirror === false) return
     if (!this._collisionMirror) this._collisionMirror = createCollisionMirror()
+    if (this._collisionMirror.sameConfig(payload)) { this._predEngine?.setCollisionMirror(this._collisionMirror); return }
     this._collisionMirror.configure(payload).catch(e => console.error('[client] collision mirror init failed:', e?.message || e))
     this._predEngine?.setCollisionMirror(this._collisionMirror)
   }
 
   getInputSchema() { return this._inputSchema }
+
+  getCollisionMirror() { return this._collisionMirror }
 
   handleMessage(type, payload, snapProc) {
     if (type === MSG.HANDSHAKE_ACK) {

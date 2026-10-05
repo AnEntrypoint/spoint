@@ -2,7 +2,7 @@ import { FNV1A_32_OFFSET_BASIS, fnv1aStepString } from '../shared/fnv1a.js'
 
 export const WIRE_STRUCTURES = [
   ['type', 'payload'],
-  ['seq', 'tick', 'serverTime', 'players', 'entities', 'removed', 'delta', 'dots', 'me']
+  ['seq', 'tick', 'serverTime', 'players', 'entities', 'removed', 'delta', 'dots', 'me', 'chartEpoch']
 ]
 
 function _computeStructHash() {
