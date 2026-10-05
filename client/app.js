@@ -339,20 +339,29 @@ async function _finishLoading() {
   const SCENERY_BUILD_TIMEOUT_MS = 30000
   if (_terrainCfg && !terrainBackdrop) {
     loadingMgr.setLabel('Building world (first load can take up to 30s)...')
-    try { await Promise.race([_buildWorldScenery(), new Promise(r => setTimeout(r, SCENERY_BUILD_TIMEOUT_MS))]) }
+    const _scenery = _buildWorldScenery()
+    try { await Promise.race([_scenery, new Promise(r => setTimeout(r, SCENERY_BUILD_TIMEOUT_MS))]) }
     catch (e) { console.error('[terrain] scenery build failed:', e?.message || e) }
     if (typeof window !== 'undefined' && _terrainCfg) {
       try { renderer.state.reset() } catch (_) {}
     }
     if (typeof window !== 'undefined' && !window.__terrain && _terrainCfg) {
-      _dbgTerrain('planet absent after first build (cold-load context storm) -> draining GL errors + one re-attempt')
-      console.warn('[terrain] planet absent after first build (cold-load context storm) -> draining GL errors + one re-attempt')
-      try { const _gl = renderer.getContext(); for (let _i = 0; _i < 64 && _gl.getError() !== _gl.NO_ERROR; _i++) {} } catch (_) {}
-      try { terrainBackdrop && terrainBackdrop.dispose && terrainBackdrop.dispose() } catch (_) {}
-      terrainBackdrop = null
-      await new Promise(r => setTimeout(r, 500))
-      try { await Promise.race([_buildWorldScenery(), new Promise(r => setTimeout(r, SCENERY_BUILD_TIMEOUT_MS))]) }
-      catch (e) { console.error('[terrain] scenery rebuild failed:', e?.message || e) }
+      if (_sceneryBuildPromise) {
+        loadingMgr.setLabel('Still building world...')
+        _dbgTerrain('planet absent at ' + SCENERY_BUILD_TIMEOUT_MS + 'ms with a build still running -> adopting it for one more window')
+        console.warn('[terrain] planet absent at ' + SCENERY_BUILD_TIMEOUT_MS + 'ms and a scenery build is still running -> adopting it for another ' + SCENERY_BUILD_TIMEOUT_MS + 'ms rather than starting a second build')
+        try { await Promise.race([_scenery, new Promise(r => setTimeout(r, SCENERY_BUILD_TIMEOUT_MS))]) }
+        catch (e) { console.error('[terrain] adopted scenery build failed:', e?.message || e) }
+      } else {
+        _dbgTerrain('planet absent after a settled build (cold-load context storm) -> draining GL errors + one re-attempt')
+        console.warn('[terrain] planet absent after a settled build (cold-load context storm) -> draining GL errors + one re-attempt')
+        try { const _gl = renderer.getContext(); for (let _i = 0; _i < 64 && _gl.getError() !== _gl.NO_ERROR; _i++) {} } catch (_) {}
+        try { terrainBackdrop && terrainBackdrop.dispose && terrainBackdrop.dispose() } catch (_) {}
+        terrainBackdrop = null
+        await new Promise(r => setTimeout(r, 500))
+        try { await Promise.race([_buildWorldScenery(), new Promise(r => setTimeout(r, SCENERY_BUILD_TIMEOUT_MS))]) }
+        catch (e) { console.error('[terrain] scenery rebuild failed:', e?.message || e) }
+      }
     }
     if (typeof window !== 'undefined' && !window.__terrain && _terrainCfg) {
       console.warn('[terrain] scenery build did not complete before timeout -> showing retry toast')
@@ -439,7 +448,16 @@ function _ensureWeather(tb) {
   } catch (e) { console.error('[weather] init failed:', e?.message || e) }
   return null
 }
-async function _buildWorldScenery() {
+function _buildWorldScenery() {
+  if (_sceneryBuildPromise) return _sceneryBuildPromise
+  if (!_terrainCfg || terrainBackdrop) return Promise.resolve()
+  const _p = _buildWorldSceneryOnce()
+  _sceneryBuildPromise = _p
+  const _clear = () => { if (_sceneryBuildPromise === _p) _sceneryBuildPromise = null }
+  _p.then(_clear, _clear)
+  return _p
+}
+async function _buildWorldSceneryOnce() {
   if (!_terrainCfg || terrainBackdrop) return
   const _hp = (tag) => { if (typeof location === 'undefined' || !location.search.includes('leak')) return; try { const m = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : -1; console.log('[BUILD-HEAP] ' + tag + ' = ' + m + 'MB') } catch (_) {} }
   _hp('start')
@@ -545,6 +563,7 @@ let _terrainBuildGen = 0
 let _terrainReseedPending = false
 let _foliageGen = 0
 const _foliagePending = { vegetation: null, rocks: null, grass: null }
+let _sceneryBuildPromise = null
 let _bootSceneryStarted = false
 let terrainBackdrop=null, _terrainCfg=null, vegetation=null, rocks=null, grass=null, colliderDebug=null, weather=null, sculptOverlay=null, caveMeshes=null
 let _pendingSculptBackfill = null
