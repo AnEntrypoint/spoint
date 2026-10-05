@@ -6,19 +6,27 @@ const WASM_RESERVE_FREE_BYTES = 64 * 1024 * 1024
 const WASM_RESERVE_MIN_PER_WORLD_BYTES = 8 * 1024 * 1024
 const yieldToLoop = () => new Promise(r => (typeof setImmediate === 'function' ? setImmediate(r) : setTimeout(r, 0)))
 
-export async function sampleTerrainGridChunked({ heightFn, N, spacing, cornerX, cornerZ, budgetMs = 2, isAborted = () => false }) {
+export async function sampleTerrainGridChunked({ heightFn, N, spacing, cornerX, cornerZ, budgetMs = 2, isAborted = () => false, seed = null }) {
   const samples = new Float32Array(N * N)
+  const filled = seed ? seed.filled : null
+  let reused = 0
+  if (seed) {
+    samples.set(seed.samples)
+    for (let k = 0; k < samples.length; k++) if (filled[k]) reused++
+  }
   const t0 = _now()
   let slice = _now()
   for (let z = 0; z < N; z++) {
     const wz = cornerZ + z * spacing, row = z * N
     let prev = NaN, prev2 = NaN
     for (let x = 0; x < N; x++) {
+      const k = row + x
+      if (filled && filled[k]) { prev2 = prev; prev = samples[k]; continue }
       const guess = Number.isFinite(prev) && Number.isFinite(prev2) ? prev + (prev - prev2) : prev
       const raw = heightFn(cornerX + x * spacing, wz, guess)
       let h = raw
       if (!Number.isFinite(h)) h = NON_FINITE_HEIGHT_FALLBACK_M
-      samples[row + x] = h
+      samples[k] = h
       prev2 = prev
       prev = Number.isFinite(raw) ? raw : NaN
     }
@@ -28,7 +36,7 @@ export async function sampleTerrainGridChunked({ heightFn, N, spacing, cornerX, 
       slice = _now()
     }
   }
-  return { samples, sampleMs: _now() - t0 }
+  return { samples, sampleMs: _now() - t0, reused, solved: samples.length - reused }
 }
 
 const chebyshev = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]))
@@ -101,19 +109,46 @@ export function createTerrainStreamer(opts = {}) {
   }
   function snapCorner(c) { return Math.round((c - half) / spacing) * spacing }
 
-  async function buildField(cx, cz, gridN = N) {
+  function seedFromResident(cornerX, cornerZ, gridN, gridSpacing, epoch, activeLattice) {
+    if (gridN !== N || !fields.length) return null
+    const samples = new Float32Array(gridN * gridN).fill(NaN)
+    const filled = new Uint8Array(gridN * gridN)
+    let any = false
+    for (const f of fields) {
+      if (!f.samples || f.N !== gridN || f.epoch !== epoch || f.lattice !== activeLattice) continue
+      const fx = f.center[0] - half, fz = f.center[1] - half
+      const dx = Math.round((cornerX - fx) / gridSpacing), dz = Math.round((cornerZ - fz) / gridSpacing)
+      if (dx >= gridN || dx <= -gridN || dz >= gridN || dz <= -gridN) continue
+      const i0 = Math.max(0, -dx), i1 = Math.min(gridN, gridN - dx)
+      const j0 = Math.max(0, -dz), j1 = Math.min(gridN, gridN - dz)
+      for (let j = j0; j < j1; j++) {
+        const dstRow = j * gridN, srcRow = (j + dz) * gridN
+        for (let i = i0; i < i1; i++) {
+          const v = f.samples[srcRow + i + dx]
+          if (!Number.isFinite(v)) continue
+          samples[dstRow + i] = v
+          filled[dstRow + i] = 1
+        }
+      }
+      any = true
+    }
+    return any ? { samples, filled } : null
+  }
+
+  async function buildField(cx, cz, gridN = N, reuse = false) {
     const cornerX = snapCorner(cx), cornerZ = snapCorner(cz)
     const gridSpacing = extent / (gridN - 1)
     const t0 = _now()
     const epochAtStart = getEpoch(), latticeAtStart = lattice
     const stale = () => lattice !== latticeAtStart || (!latticeAtStart && getEpoch() !== epochAtStart)
-    const g = await sampleTerrainGridChunked({ heightFn: latticeAtStart ? latticeAtStart.heightFn : heightFn, N: gridN, spacing: gridSpacing, cornerX, cornerZ, budgetMs, isAborted: () => disposed || stale() })
+    const seed = reuse ? seedFromResident(cornerX, cornerZ, gridN, gridSpacing, epochAtStart, latticeAtStart) : null
+    const g = await sampleTerrainGridChunked({ heightFn: latticeAtStart ? latticeAtStart.heightFn : heightFn, N: gridN, spacing: gridSpacing, cornerX, cornerZ, budgetMs, isAborted: () => disposed || stale(), seed })
     if (disposed) return null
     if (!g || stale()) { staleEpochDiscards++; return null }
     const bodyId = physics.addHeightField(g.samples, gridN, [gridSpacing, 1, gridSpacing], [cornerX, 0, cornerZ])
     if (bodyId == null) { console.error('[terrain] streamer: Jolt rejected field'); return null }
     if (lattice) placeBody(bodyId, cornerX, cornerZ)
-    return { bodyId, center: [cornerX + half, cornerZ + half], N: gridN, wallMs: _now() - t0, sampleMs: g.sampleMs }
+    return { bodyId, center: [cornerX + half, cornerZ + half], N: gridN, samples: g.samples, epoch: epochAtStart, lattice: latticeAtStart, reused: g.reused, solved: g.solved, wallMs: _now() - t0, sampleMs: g.sampleMs }
   }
 
   function publishPrimary(players) {
@@ -137,9 +172,11 @@ export function createTerrainStreamer(opts = {}) {
     return retired
   }
 
+  function fieldRecord(b) { return { bodyId: b.bodyId, center: b.center, N: b.N, samples: b.samples, epoch: b.epoch, lattice: b.lattice } }
+
   function replaceField(index, built) {
     const oldId = fields[index].bodyId
-    fields[index] = { bodyId: built.bodyId, center: built.center }
+    fields[index] = fieldRecord(built)
     if (oldId !== built.bodyId) physics.removeBody(oldId)
   }
 
@@ -160,11 +197,11 @@ export function createTerrainStreamer(opts = {}) {
         break
       }
       capWarned = false
-      const built = await buildField(need.center[0], need.center[1])
+      const built = await buildField(need.center[0], need.center[1], N, true)
       if (!built || disposed) break
-      fields.push({ bodyId: built.bodyId, center: built.center })
+      fields.push(fieldRecord(built))
       rebuildCount++
-      console.log(`[terrain] heightfield #${rebuildCount} at (${built.center[0].toFixed(0)},${built.center[1].toFixed(0)}) for ${need.members} player(s) N=${N} ${built.wallMs.toFixed(0)}ms(sample ${built.sampleMs.toFixed(0)}ms) id=${built.bodyId} fields=${fields.length}`)
+      console.log(`[terrain] heightfield #${rebuildCount} at (${built.center[0].toFixed(0)},${built.center[1].toFixed(0)}) for ${need.members} player(s) N=${N} reused=${built.reused}/${N * N} ${built.wallMs.toFixed(0)}ms(sample ${built.sampleMs.toFixed(0)}ms) id=${built.bodyId} fields=${fields.length}`)
       need = nextUncoveredCluster(validCenters(), fields, coverRadius, half)
     }
     if (disposed) return
@@ -221,7 +258,7 @@ export function createTerrainStreamer(opts = {}) {
         for (const a of added) physics.removeBody(a.bodyId)
         throw new Error('[terrain] streamer: Jolt rejected a prepared field, the old fields stay installed')
       }
-      added.push({ bodyId, center: [...f.center] })
+      added.push({ bodyId, center: [...f.center], N: f.N, samples: f.samples, epoch: getEpoch(), lattice: null })
     }
     const replaced = fields.splice(0, fields.length, ...added)
     lattice = null
@@ -242,9 +279,9 @@ export function createTerrainStreamer(opts = {}) {
       if (fields.length >= maxFields) break
       const heap = typeof physics.wasmHeapBytes === 'function' ? physics.wasmHeapBytes() : null
       if (heap && heap.free - fieldWasmBytes < reserveFreeBytes()) break
-      const f = await buildField(p[0], p[1])
+      const f = await buildField(p[0], p[1], N, true)
       if (!f || disposed) break
-      fields.push({ bodyId: f.bodyId, center: f.center })
+      fields.push(fieldRecord(f))
       rebuildCount++
       built++
     }
@@ -286,7 +323,7 @@ export function createTerrainStreamer(opts = {}) {
     await enqueue(async () => {
       const first = await buildField(seed[0], seed[1], coarseN || N)
       if (!first || disposed) return
-      fields.push({ bodyId: first.bodyId, center: first.center })
+      fields.push(fieldRecord(first))
       physics.setTerrainBodyId(first.bodyId)
       if (coarseN && coarseN < N) {
         coarseBodyId = first.bodyId
