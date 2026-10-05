@@ -1,5 +1,11 @@
 const MAGIC = 0x48464d31
 const JSON_WHITESPACE_PAD_BYTE = 0x20
+const SUPPORTED_BITS = [8, 16]
+
+function _assertBits(bits) {
+  if (!SUPPORTED_BITS.includes(bits)) throw new RangeError(`heightfield quantization must be one of ${SUPPORTED_BITS.join(' or ')} bits, got ${bits}: any other width quantizes to a wider range than the stored array can hold and decodes as wrapped garbage`)
+  return bits
+}
 
 function _utf8Encode(s) {
   if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(s)
@@ -12,7 +18,7 @@ function _utf8Decode(u8) {
 
 export function encodeHeightfield(a) {
   const { N, sectors } = a
-  const gridS = sectors.gridS, bits = sectors.bits || 8, nSec = gridS * gridS
+  const gridS = sectors.gridS, bits = _assertBits(sectors.bits || 8), nSec = gridS * gridS
   const header = JSON.stringify({ N, extent: a.extent, center: a.center, anchorDir: a.anchorDir, radius: a.radius, reliefScale: a.reliefScale, anchorHeight: a.anchorHeight, seed: a.seed, hashVersion: a.hashVersion, terrainKey: a.terrainKey, sectors: { gridS, nodesPerSector: sectors.nodesPerSector, bits } })
   const hbytes = _utf8Encode(header)
   const headerPadToF32Align = (4 - ((8 + hbytes.length) & 3)) & 3
@@ -40,7 +46,7 @@ export function decodeHeightfield(buf) {
   const hlen = dv.getUint32(4, true)
   const header = JSON.parse(_utf8Decode(new Uint8Array(buf, 8, hlen)))
   const { N, sectors } = header
-  const gridS = sectors.gridS, bits = sectors.bits || 8, nSec = gridS * gridS
+  const gridS = sectors.gridS, bits = _assertBits(sectors.bits || 8), nSec = gridS * gridS
   let off = 8 + hlen
   const sectorMin = new Float32Array(buf, off, nSec); off += 4 * nSec
   const sectorMax = new Float32Array(buf, off, nSec); off += 4 * nSec

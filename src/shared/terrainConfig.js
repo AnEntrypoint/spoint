@@ -46,6 +46,10 @@ export function minimapBaseName(worldId, tcfg) {
   return `${worldId}.${tcfg.seed | 0}${hashTag}.minimap`
 }
 
+export function minimapTaggedBaseName(worldId, seed, hashVersion) {
+  return `${worldId}.${seed | 0}.h${terrainHashVersionOf({ hashVersion })}.minimap`
+}
+
 export function minimapExtentOf(tcfg) {
   return Number.isFinite(tcfg.minimapExtent) ? tcfg.minimapExtent : Math.min(tcfg.radius * MINIMAP_EXTENT_RADIUS_FRACTION, MINIMAP_MAX_EXTENT_M)
 }

@@ -131,18 +131,26 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
   const splineCarve = loadSplineCarveLayer(splineCarveJSON, (x, z) => frame.groundHeightLocal(x, z))
   const paintedAnchorField = splineCarve.wrapClimateField(biomeOverride.wrapClimateField(cachedAnchorField))
   const offsetY = tcfg.offsetY || 0
-  const gpuPatch = (tcfg.gpuPatchCollider !== false && hashVersion === LEGACY_TERRAIN_HASH_VERSION)
-    ? await createGpuPatchHeightFn({ frame, tcfg, offsetY }).catch(() => null)
-    : null
+  const gpuPatchOptedOut = tcfg.gpuPatchCollider === false
+  const gpuPatchLegacyOnly = hashVersion !== LEGACY_TERRAIN_HASH_VERSION
+  const gpuPatch = (gpuPatchOptedOut || gpuPatchLegacyOnly)
+    ? null
+    : await createGpuPatchHeightFn({ frame, tcfg, offsetY }).catch(() => null)
+  const gpuPatchUnavailable = gpuPatchOptedOut
+    ? 'gpuPatchCollider is false in the world config'
+    : gpuPatchLegacyOnly
+      ? `the GLSL patch baker draws only hashVersion ${LEGACY_TERRAIN_HASH_VERSION} and this world resolves to hashVersion ${hashVersion}, which carries an integer hash and a carve term the legacy GLSL terrain has no code for`
+      : (gpuPatch ? null : 'the GPU patch bake produced no height function')
   const baked = gpuPatch ? null : await loadBakedHeightField(tcfg.bakedHeightfield, hashVersion, tcfg, frame).catch(() => null)
   const baseHeightFn = gpuPatch
     ? gpuPatch.heightFn
     : baked
       ? ((x, z) => baked.covers(x, z) ? baked.heightAtLocal(x, z) + offsetY : frame.groundHeightLocal(x, z))
       : ((x, z) => frame.groundHeightLocal(x, z))
+  const bakedSpacingM = baked ? baked.extent / (baked.N - 1) : 0
   if (gpuPatch) { console.log(`[terrain] collider using LIVE GPU PATCH bake (whole-planet, exact, nothing stored): ${gpuPatch.spacing.toFixed(2)}m collider spacing == finest display LOD (maxLevel ${gpuPatch.maxLevel}, ${gpuPatch.patchSpan.toFixed(0)}m patches, ${gpuPatch.res} samples)`); physics._terrainHeightSource = 'gpu-patch' }
-  else if (baked) { console.log(`[terrain] collider using BAKED GPU heightfield (N=${baked.N}, extent=${baked.extent}m) -- exact match to the rendered surface`); physics._terrainHeightSource = 'baked' }
-  else physics._terrainHeightSource = 'cpu'
+  else if (baked) { console.log(`[terrain] collider using BAKED heightfield (hashVersion ${hashVersion}, N=${baked.N}, extent=${baked.extent}m, spacing ${(bakedSpacingM * 100).toFixed(0)}cm) instead of the GPU patch bake: ${gpuPatchUnavailable}`); physics._terrainHeightSource = 'baked' }
+  else { console.log(`[terrain] collider using EXACT CPU height (no baked artifact covers the spawn): ${gpuPatchUnavailable}`); physics._terrainHeightSource = 'cpu' }
   if (gpuPatch) frame.groundHeightLocal = (x, z) => gpuPatch.heightFn(x, z)
   const heightDelta = loadHeightDelta(heightDeltaJSON, baseHeightFn)
   const caveCarve = loadCaveCarveLayer(caveCarveJSON || (Array.isArray(tcfg.caveCarve) ? { version: 2, volumes: tcfg.caveCarve } : null))

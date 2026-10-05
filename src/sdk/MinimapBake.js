@@ -2,13 +2,13 @@ import { Worker } from 'node:worker_threads'
 import { existsSync, mkdirSync, writeFileSync, readFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { resolveTerrainConfig, minimapDescriptor, minimapExtentOf, minimapResOf, minimapBakeParams, minimapBaseName, withTerrainSeed, withTerrainHashVersion, DEFAULT_TERRAIN_HASH_VERSION, LEGACY_TERRAIN_HASH_VERSION, TERRAIN_HASH_VERSIONS } from '../shared/terrainConfig.js'
+import { resolveTerrainConfig, minimapDescriptor, minimapExtentOf, minimapResOf, minimapBakeParams, minimapBaseName, minimapTaggedBaseName, withTerrainSeed, withTerrainHashVersion, DEFAULT_TERRAIN_HASH_VERSION, LEGACY_TERRAIN_HASH_VERSION, TERRAIN_HASH_VERSIONS } from '../shared/terrainConfig.js'
 import { MINIMAP_BAKE_CODE_VERSION } from '../static/BakeCodeVersion.js'
 import { expandWorldPresets } from '../shared/worldPresets.js'
 import { findWorldFile, worldRoots } from './WorldLocator.js'
 
-const MAX_ON_DEMAND_MINIMAP_BAKES = 64
-const TAGGED_HASH_VERSIONS = TERRAIN_HASH_VERSIONS.filter(v => v !== DEFAULT_TERRAIN_HASH_VERSION).join('|')
+const MAX_CONCURRENT_ON_DEMAND_MINIMAP_BAKES = 64
+const TAGGED_HASH_VERSIONS = TERRAIN_HASH_VERSIONS.join('|')
 const MINIMAP_ARTIFACT_PATH = new RegExp(`^/apps/world/([A-Za-z0-9_-]{1,128})\\.(-?\\d{1,10})(?:\\.h(${TAGGED_HASH_VERSIONS}))?\\.minimap\\.(?:json|png)$`)
 const BAKE_WORKER_SOURCE = `const { parentPort, workerData } = require('node:worker_threads')
 import(workerData.bakeModUrl)
@@ -55,7 +55,7 @@ function bakeOffMainThread(opts) {
 }
 
 export function bakeMinimapIfMissing(worldName, tcfg, opts = {}) {
-  const base = minimapBaseName(worldName, tcfg)
+  const base = opts.base || minimapBaseName(worldName, tcfg)
   if (inFlightBakes.has(base)) return inFlightBakes.get(base)
   const exists = existsSync(join(worldDir(), `${base}.png`))
   if (opts.force || !exists) {
@@ -99,13 +99,13 @@ export function isMinimapArtifactPath(path) {
   return MINIMAP_ARTIFACT_PATH.test(path)
 }
 
-async function bakeWorldSeedIfMissing(worldName, seed, hashVersion) {
+async function bakeWorldSeedIfMissing(worldName, seed, hashVersion, base) {
   const worldFile = findWorldFile(worldName, worldRoots(process.cwd()))
   if (!worldFile) return
   const mod = await import(pathToFileURL(worldFile).href)
   const tcfg = resolveTerrainConfig(withTerrainHashVersion(withTerrainSeed(expandWorldPresets(mod.default || mod), seed), hashVersion))
   if (!minimapDescriptor(worldName, tcfg)) return
-  await bakeMinimapIfMissing(worldName, tcfg)
+  await bakeMinimapIfMissing(worldName, tcfg, { base })
 }
 
 export function bakeRequestedMinimapIfMissing(path) {
@@ -113,11 +113,14 @@ export function bakeRequestedMinimapIfMissing(path) {
   if (!m) return Promise.resolve()
   const worldName = m[1], seed = Number(m[2]), hashVersion = m[3] ? Number(m[3]) : DEFAULT_TERRAIN_HASH_VERSION
   if ((seed | 0) !== seed) return Promise.resolve()
-  const key = `${worldName}.${seed}.h${hashVersion}`
+  const taggedBase = m[3] ? minimapTaggedBaseName(worldName, seed, Number(m[3])) : null
+  const key = taggedBase || `${worldName}.${seed}.untagged`
   if (onDemandBakes.has(key)) return onDemandBakes.get(key)
-  if (onDemandBakes.size >= MAX_ON_DEMAND_MINIMAP_BAKES) return Promise.resolve()
-  const bake = onDemandQueue.then(() => bakeWorldSeedIfMissing(worldName, seed, hashVersion))
-  onDemandQueue = bake.catch(() => {})
+  if (onDemandBakes.size >= MAX_CONCURRENT_ON_DEMAND_MINIMAP_BAKES) return Promise.resolve()
+  const bake = onDemandQueue.then(() => bakeWorldSeedIfMissing(worldName, seed, hashVersion, taggedBase))
+  const settled = bake.catch(() => {})
+  onDemandQueue = settled
   onDemandBakes.set(key, bake)
+  settled.then(() => onDemandBakes.delete(key))
   return bake
 }
