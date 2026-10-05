@@ -1,7 +1,7 @@
 export const DEFAULT_PATCH_MAX_LEVEL = 11
 
 export const SURFACE_SOLVE_TOLERANCE_M = 1e-4
-const SURFACE_SOLVE_MAX_EVALS = 40
+const SURFACE_SOLVE_MAX_EVALS = 64
 
 const _norm = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l] }
 const _add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
