@@ -50,6 +50,7 @@ export function createWebGPUInstancedMesh(geometry, material, capacity, attribut
   }
 
   const inUse = new Uint8Array(capacity)
+  const hidden = new Uint8Array(capacity)
   const recycledIds = []
   let neverUsedFrom = 0
   let highWatermark = 0
@@ -68,6 +69,7 @@ export function createWebGPUInstancedMesh(geometry, material, capacity, attribut
     if (id + 1 > highWatermark) highWatermark = id + 1
     mesh.count = highWatermark
     _zeroMatrix.toArray(shadowMatrices, id * 16)
+    hidden[id] = 0
     mesh.setMatrixAt(id, _zeroMatrix)
     markMatricesDirty(id)
     return id
@@ -75,6 +77,7 @@ export function createWebGPUInstancedMesh(geometry, material, capacity, attribut
 
   function releaseId(id) {
     _zeroMatrix.toArray(shadowMatrices, id * 16)
+    hidden[id] = 0
     mesh.setMatrixAt(id, _zeroMatrix)
     markMatricesDirty(id)
     if (inUse[id]) { inUse[id] = 0; acquiredCount--; recycledIds.push(id) }
@@ -83,14 +86,31 @@ export function createWebGPUInstancedMesh(geometry, material, capacity, attribut
   }
 
   function setMatrixAt(id, matrix) {
-    matrix.toArray(shadowMatrices, id * 16)
+    if (hidden[id]) matrix.toArray(shadowMatrices, id * 16)
     mesh.setMatrixAt(id, matrix)
     markMatricesDirty(id)
   }
 
+  function setTranslatedAt(id, basis, x, y, z) {
+    const a = mesh.instanceMatrix.array, o = id * 16
+    a[o] = basis[0]; a[o + 1] = basis[1]; a[o + 2] = basis[2]; a[o + 3] = 0
+    a[o + 4] = basis[4]; a[o + 5] = basis[5]; a[o + 6] = basis[6]; a[o + 7] = 0
+    a[o + 8] = basis[8]; a[o + 9] = basis[9]; a[o + 10] = basis[10]; a[o + 11] = 0
+    a[o + 12] = x; a[o + 13] = y; a[o + 14] = z; a[o + 15] = 1
+    if (hidden[id]) shadowMatrices.set(a.subarray(o, o + 16), o)
+    markMatricesDirty(id)
+  }
+
   function setVisibleAt(id, visible) {
-    if (visible) mesh.instanceMatrix.array.set(shadowMatrices.subarray(id * 16, id * 16 + 16), id * 16)
-    else mesh.setMatrixAt(id, _zeroMatrix)
+    const a = mesh.instanceMatrix.array, o = id * 16
+    if (visible) {
+      if (hidden[id]) a.set(shadowMatrices.subarray(o, o + 16), o)
+      hidden[id] = 0
+    } else {
+      if (!hidden[id]) shadowMatrices.set(a.subarray(o, o + 16), o)
+      hidden[id] = 1
+      mesh.setMatrixAt(id, _zeroMatrix)
+    }
     markMatricesDirty(id)
   }
 
@@ -122,6 +142,7 @@ export function createWebGPUInstancedMesh(geometry, material, capacity, attribut
     acquireId,
     releaseId,
     setMatrixAt,
+    setTranslatedAt,
     setVisibleAt,
     setAttributeAt,
     clear,
@@ -140,7 +161,7 @@ export function createStreamingInstancer(scene, geometry, material, initialCapac
   const freeIds = new Set()
   for (let i = 0; i < capacity; i++) freeIds.add(i)
   let highWatermark = 0
-  const _matrixIds = new Set()
+  let matrixSet = new Uint8Array(capacity)
   const _regrowMatrix = new THREE.Matrix4()
   const _attrData = new Map()
   const _visibleData = new Map()
@@ -165,10 +186,15 @@ export function createStreamingInstancer(scene, geometry, material, initialCapac
     const oldFrustumCulled = oldMesh.frustumCulled
     const oldMatrixAutoUpdate = oldMesh.matrixAutoUpdate
     const oldVisible = oldMesh.visible
-    const oldMatrices = rec.shadowMatrices
+    const oldShadow = rec.shadowMatrices, oldLive = oldMesh.instanceMatrix.array
+    const oldCapacity = capacity
     rec = createWebGPUInstancedMesh(geometry, material, newCapacity, attributeSchema)
-    for (const id of _matrixIds) {
-      rec.setMatrixAt(id, _regrowMatrix.fromArray(oldMatrices, id * 16))
+    const grownSet = new Uint8Array(newCapacity)
+    grownSet.set(matrixSet)
+    matrixSet = grownSet
+    for (let id = 0; id < oldCapacity; id++) {
+      if (!matrixSet[id]) continue
+      rec.setMatrixAt(id, _regrowMatrix.fromArray(_visibleData.get(id) === false ? oldShadow : oldLive, id * 16))
       const attrs = _attrData.get(id)
       if (attrs) for (const name in attrs) rec.setAttributeAt(id, name, attrs[name])
       if (_visibleData.get(id) === false) rec.setVisibleAt(id, false)
@@ -211,7 +237,7 @@ export function createStreamingInstancer(scene, geometry, material, initialCapac
         _streamM4.compose(_streamPos, _streamQuat, _streamScale)
         rec.setMatrixAt(id, _streamM4)
         if (id + 1 > rec.mesh.count) rec.mesh.count = id + 1
-        _matrixIds.add(id)
+        matrixSet[id] = 1
         _visibleData.set(id, true)
       }
     },
@@ -220,13 +246,17 @@ export function createStreamingInstancer(scene, geometry, material, initialCapac
       freeIds.add(id)
       while (highWatermark > 0 && freeIds.has(highWatermark - 1)) highWatermark--
       rec.mesh.count = highWatermark
-      _matrixIds.delete(id)
+      matrixSet[id] = 0
       _attrData.delete(id)
       _visibleData.delete(id)
     },
     setMatrixAt(id, matrix) {
       rec.setMatrixAt(id, matrix)
-      _matrixIds.add(id)
+      matrixSet[id] = 1
+    },
+    setTranslatedAt(id, basis, x, y, z) {
+      rec.setTranslatedAt(id, basis, x, y, z)
+      matrixSet[id] = 1
     },
     setUniformAt(id, name, value) {
       rec.setAttributeAt(id, name, value)
@@ -239,7 +269,7 @@ export function createStreamingInstancer(scene, geometry, material, initialCapac
       _visibleData.set(id, visible)
     },
     resizeBuffers(minCapacity) { if (minCapacity > capacity) _grow(minCapacity) },
-    dispose() { _matrixIds.clear(); _attrData.clear(); _visibleData.clear() },
+    dispose() { matrixSet.fill(0); _attrData.clear(); _visibleData.clear() },
   }
   return adapter
 }

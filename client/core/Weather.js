@@ -9,6 +9,7 @@ import {
   makeSeedAttributes, makeFieldGeometry, makeFieldMesh, fillRainSeed, fillSnowSeed,
 } from './WeatherGpu.js'
 import { createStreamingInstancer } from './WebGPUInstancing.js'
+import { createGroundNodeGrid } from './GroundNodeGrid.js'
 import {
   makeRainMaterialTSL, makeSplashMaterialTSL, makeSnowMaterialTSL, makeFarSheetMaterialTSL,
 } from './WeatherMaterialsTSL.js'
@@ -16,6 +17,14 @@ import {
 const _q = new THREE.Quaternion(), _upY = new THREE.Vector3(0, 1, 0)
 const _camPos = new THREE.Vector3(), _camQuat = new THREE.Quaternion(), _authScratch = new THREE.Vector3()
 const _wM4 = new THREE.Matrix4(), _wPos = new THREE.Vector3(), _wIdentScale = new THREE.Vector3(1, 1, 1), _wIdentQuat = new THREE.Quaternion()
+const _rainBasis = new THREE.Matrix4().elements, _snowBasis = new THREE.Matrix4().elements, _identityBasis = new THREE.Matrix4().elements
+const _basisM4 = new THREE.Matrix4()
+const _basisZero = new THREE.Vector3()
+
+function _fillBasis(target, quat) {
+  _basisM4.compose(_basisZero, quat, _wIdentScale)
+  for (let i = 0; i < 12; i++) target[i] = _basisM4.elements[i]
+}
 
 export function createWeather(opts = {}) {
   const { renderer, scene } = opts
@@ -148,17 +157,12 @@ export function createWeather(opts = {}) {
   const dropSpeed = new Float32Array(MAX_PARTICLES)
   let _idsAdded = false
   const dropGround = new Float32Array(MAX_PARTICLES)
-  const dropHitKnown = new Uint8Array(MAX_PARTICLES)
-  const GROUND_RESAMPLE_BAND_M = 4
   let _lastWantRain = -1, _lastWantSnow = -1, _lastWantFar = -1
 
   const snowX = new Float32Array(MAX_PARTICLES), snowY = new Float32Array(MAX_PARTICLES), snowZ = new Float32Array(MAX_PARTICLES)
   const snowSpeed = new Float32Array(MAX_PARTICLES), snowPhase = new Float32Array(MAX_PARTICLES), snowFreqJ = new Float32Array(MAX_PARTICLES)
   const snowGH = new Float64Array(MAX_PARTICLES)
-  const snowHitKnown = new Uint8Array(MAX_PARTICLES)
-  const snowHitX = new Float32Array(MAX_PARTICLES), snowHitZ = new Float32Array(MAX_PARTICLES)
   const SNOW_GROUND_RESAMPLE_BAND_M = 2.0
-  const SNOW_HIT_DRIFT_M = 0.25
   let _snowIdsAdded = false
 
   const farX = new Float32Array(MAX_FAR), farY = new Float32Array(MAX_FAR), farZ = new Float32Array(MAX_FAR)
@@ -173,46 +177,39 @@ export function createWeather(opts = {}) {
   const RAIN_BILLBOARD_YAW_EPS_RAD = 0.02
   const NO_TERRAIN_GROUND_Y = -1e6
 
-  const GH_CELL_M = 1
-  const GH_KEY_SPAN = 1048576
-  const GH_CACHE_MAX = 32768
   const GH_CANARY_MS = 500
-  const _ghCache = new Map()
   let _ghCanaryX = NaN, _ghCanaryZ = NaN, _ghCanaryVal = NaN, _ghCanaryAt = 0
   let _ghEpoch = -1, _ghHash = null
-
-  function _groundHeight(x, z) {
-    if (frame && typeof frame.groundHeightLocal === 'function') {
-      if (frame.chartEpoch !== _ghEpoch || frame.hashVersion !== _ghHash) {
-        _ghEpoch = frame.chartEpoch
-        _ghHash = frame.hashVersion
-        _ghCache.clear()
-      }
-      const now = performance.now()
-      if (Number.isFinite(_ghCanaryX) && now - _ghCanaryAt > GH_CANARY_MS) {
-        _ghCanaryAt = now
-        let probe = NaN
-        try { probe = frame.groundHeightLocal(_ghCanaryX, _ghCanaryZ) } catch (_) {}
-        if (!Number.isFinite(probe)) probe = NO_TERRAIN_GROUND_Y
-        if (probe !== _ghCanaryVal) { _ghCache.clear(); _ghCanaryVal = probe }
-      }
-      const key = Math.round(x / GH_CELL_M) * GH_KEY_SPAN + Math.round(z / GH_CELL_M)
-      const hit = _ghCache.get(key)
-      if (hit !== undefined) return hit
-      let gh = NaN
-      try { gh = frame.groundHeightLocal(x, z) } catch (_) {}
-      if (!Number.isFinite(gh)) return NO_TERRAIN_GROUND_Y
-      if (_ghCache.size >= GH_CACHE_MAX) _ghCache.clear()
-      _ghCache.set(key, gh)
-      if (!Number.isFinite(_ghCanaryX)) { _ghCanaryX = x; _ghCanaryZ = z; _ghCanaryVal = gh; _ghCanaryAt = now }
-      return gh
-    }
-    return NO_TERRAIN_GROUND_Y
-  }
 
   function _exactGround(x, z) {
     if (!frame || typeof frame.groundHeightLocal !== 'function') return NaN
     try { return frame.groundHeightLocal(x, z) } catch (_) { return NaN }
+  }
+
+  const _groundGrid = createGroundNodeGrid(_exactGround)
+
+  function _syncGroundGrid(nowMs) {
+    if (!frame || typeof frame.groundHeightLocal !== 'function') return
+    if (frame.chartEpoch !== _ghEpoch || frame.hashVersion !== _ghHash) {
+      _ghEpoch = frame.chartEpoch
+      _ghHash = frame.hashVersion
+      _groundGrid.invalidate()
+      _ghCanaryX = NaN
+    }
+    if (Number.isFinite(_ghCanaryX) && nowMs - _ghCanaryAt > GH_CANARY_MS) {
+      _ghCanaryAt = nowMs
+      const probe = _exactGround(_ghCanaryX, _ghCanaryZ)
+      if (!Object.is(probe, _ghCanaryVal)) { _groundGrid.invalidate(); _ghCanaryVal = probe }
+    }
+  }
+
+  function _groundHeight(x, z) {
+    if (!frame || typeof frame.groundHeightLocal !== 'function') return NO_TERRAIN_GROUND_Y
+    if (!Number.isFinite(_ghCanaryX)) {
+      _ghCanaryX = x; _ghCanaryZ = z; _ghCanaryVal = _exactGround(x, z); _ghCanaryAt = performance.now()
+    }
+    const gh = _groundGrid.heightAt(x, z)
+    return Number.isFinite(gh) ? gh : NO_TERRAIN_GROUND_Y
   }
 
   function _respawnDroplet(i, cx, cy, cz) {
@@ -222,7 +219,6 @@ export function createWeather(opts = {}) {
     dropY[i] = cy + BOX_HEIGHT * (0.3 + Math.random() * 0.7)
     dropSpeed[i] = FALL_SPEED * (0.85 + Math.random() * 0.3)
     dropGround[i] = _groundHeight(dropX[i], dropZ[i])
-    dropHitKnown[i] = 0
   }
 
   function _applyVisiblePrefix(mesh, want, last, max) {
@@ -241,7 +237,6 @@ export function createWeather(opts = {}) {
     snowPhase[i] = Math.random() * Math.PI * 2
     snowFreqJ[i] = 0.75 + Math.random() * 0.5
     snowGH[i] = _groundHeight(snowX[i], snowZ[i])
-    snowHitKnown[i] = 0
   }
 
   function _respawnFar(i, cx, cy, cz, speedBase) {
@@ -341,6 +336,7 @@ export function createWeather(opts = {}) {
     if (imFar.material !== (isSnow ? matFarSnow : matFarRain)) imFar.material = isSnow ? matFarSnow : matFarRain
     if (_farGeoIsSnow !== isSnow) { imFar.geometry = isSnow ? geoFarSnow : geoFarRain; _farGeoIsSnow = isSnow }
 
+    _syncGroundGrid(performance.now())
     camera.getWorldPosition(_camPos)
     let cx = _camPos.x, cy = _camPos.y, cz = _camPos.z
     if (floatingOrigin && typeof floatingOrigin.toAuthoritative === 'function') {
@@ -396,6 +392,7 @@ export function createWeather(opts = {}) {
 
     if (!isSnow) {
       const instances = im.instances
+      _fillBasis(_rainBasis, _q)
       _applyVisiblePrefix(im, wantActive, _lastWantRain, MAX_PARTICLES); _lastWantRain = wantActive
       for (let i = 0; i < wantActive; i++) {
         dropY[i] -= dropSpeed[i] * dtc
@@ -405,22 +402,15 @@ export function createWeather(opts = {}) {
           dropX[i] = cx + Math.cos(ang) * r
           dropZ[i] = cz + Math.sin(ang) * r
           dropGround[i] = _groundHeight(dropX[i], dropZ[i])
-          dropHitKnown[i] = 0
         }
-        let gh = dropGround[i]
-        if (!dropHitKnown[i] && dropY[i] <= gh + GROUND_RESAMPLE_BAND_M) {
-          const exact = _exactGround(dropX[i], dropZ[i])
-          if (Number.isFinite(exact)) { dropGround[i] = exact; dropHitKnown[i] = 1 }
-          gh = dropGround[i]
-        }
+        const gh = dropGround[i]
         const hitGround = Number.isFinite(gh) && gh > -1e5 && dropY[i] <= gh + groundClearance
         if (hitGround || dropY[i] < cy - BOX_HEIGHT * 0.6) {
           if (hitGround) _spawnSplash(dropX[i], gh + 0.02, dropZ[i], nowS)
           _respawnDroplet(i, cx, cy, cz)
         }
         if (isWebGPU) {
-          _wM4.compose(_wPos.set(dropX[i], dropY[i], dropZ[i]), _q, _wIdentScale)
-          im.setMatrixAt(i, _wM4)
+          im.setTranslatedAt(i, _rainBasis, dropX[i], dropY[i], dropZ[i])
         } else {
           const inst = instances[i]
           if (!inst) continue
@@ -431,6 +421,7 @@ export function createWeather(opts = {}) {
       }
     } else {
       const instances = imSnow.instances
+      _fillBasis(_snowBasis, _camQuat)
       const accumEnabled = _snowAccumEnabled()
       let accumStampBudget = 24
       _applyVisiblePrefix(imSnow, wantActive, _lastWantSnow, MAX_PARTICLES); _lastWantSnow = wantActive
@@ -445,15 +436,9 @@ export function createWeather(opts = {}) {
           snowX[i] = cx + Math.cos(ang) * r
           snowZ[i] = cz + Math.sin(ang) * r
           snowGH[i] = _groundHeight(snowX[i], snowZ[i])
-          snowHitKnown[i] = 0
         }
-        let gh = snowGH[i]
-        const drifted = Math.abs(snowX[i] - snowHitX[i]) > SNOW_HIT_DRIFT_M || Math.abs(snowZ[i] - snowHitZ[i]) > SNOW_HIT_DRIFT_M
-        if (snowY[i] <= gh + SNOW_GROUND_RESAMPLE_BAND_M && (!snowHitKnown[i] || drifted)) {
-          const exact = _exactGround(snowX[i], snowZ[i])
-          if (Number.isFinite(exact)) { snowGH[i] = exact; snowHitKnown[i] = 1; snowHitX[i] = snowX[i]; snowHitZ[i] = snowZ[i] }
-          gh = snowGH[i]
-        }
+        if (snowY[i] <= snowGH[i] + SNOW_GROUND_RESAMPLE_BAND_M) snowGH[i] = _groundHeight(snowX[i], snowZ[i])
+        const gh = snowGH[i]
         const hitGround = Number.isFinite(gh) && gh > -1e5 && snowY[i] <= gh + groundClearance
         if (hitGround || snowY[i] < cy - BOX_HEIGHT * 0.6) {
           if (hitGround && accumEnabled && accumStampBudget > 0) {
@@ -463,8 +448,7 @@ export function createWeather(opts = {}) {
           _respawnFlake(i, cx, cy, cz)
         }
         if (isWebGPU) {
-          _wM4.compose(_wPos.set(snowX[i], snowY[i], snowZ[i]), _camQuat, _wIdentScale)
-          imSnow.setMatrixAt(i, _wM4)
+          imSnow.setTranslatedAt(i, _snowBasis, snowX[i], snowY[i], snowZ[i])
         } else {
           const inst = instances[i]
           if (!inst) continue
@@ -486,8 +470,7 @@ export function createWeather(opts = {}) {
         const tooLow = farY[i] < cy - FAR_HEIGHT * 0.55
         if (tooFar || tooLow) _respawnFar(i, cx, cy, cz, speedBase)
         if (isWebGPU) {
-          _wM4.compose(_wPos.set(farX[i], farY[i], farZ[i]), _wIdentQuat, _wIdentScale)
-          imFar.setMatrixAt(i, _wM4)
+          imFar.setTranslatedAt(i, _identityBasis, farX[i], farY[i], farZ[i])
         } else {
           const inst = instances[i]
           if (!inst) continue
