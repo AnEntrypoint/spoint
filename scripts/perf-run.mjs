@@ -719,8 +719,6 @@ async function main() {
     } catch (e) {
       console.log('[perf-run] cpu profile unavailable: ' + e.message)
     }
-    console.log('[perf-run] step: capture after-shot')
-    await shot(LABEL + '-after')
     console.log('[perf-run] step: read in-page results')
 
     const inPage = await page.evaluate(() => {
@@ -780,6 +778,12 @@ async function main() {
     const wgpuSawDraws = wgpuDrawPerFrame.some((d) => d > 0)
     const draws = wgpuSawDraws ? wgpuDrawPerFrame : glDrawPerFrame
 
+    if (has('skip-after-shot')) console.log('[perf-run] after-shot skipped')
+    else {
+      console.log('[perf-run] step: capture after-shot')
+      await shot(LABEL + '-after')
+    }
+
     const allLong = (inPage.startupLongtasks || []).concat(inPage.longtasks || [])
     const lt60 = allLong.filter((t) => t.start < 60000)
     const lt20 = allLong.filter((t) => t.start < 20000)
@@ -809,8 +813,10 @@ async function main() {
     const walkOk = !WALKER || (!(walkDone && walkDone.error) && travelled >= 30)
     const seqAdvanced = typeof walkSeqStart === 'number' && typeof walkSeqEnd === 'number' && walkSeqEnd > walkSeqStart
     const inputReached = !WALKER || navToInputSeqMs !== null || seqAdvanced || travelled >= 30
+    const expectVendor = GPU === 'amd' ? 'amd' : (GPU === 'nvidia' ? 'nvidia' : null)
+    const adapterOk = !expectVendor || !!(adapterInfo && adapterInfo.vendor === expectVendor)
     const gpuPassesOk = !GPU_PASSES || !!(gpuPassResult && gpuPassResult.passes && gpuPassResult.passes.length > 0)
-    const reachability = { sceneryBuiltMarked, vegTotalInstances: vegTotal, vegNonZero: vegTotal > 0, drawsNonZero: drawsMeasured, walkOk, travelledM: +travelled.toFixed(1), inputSequenceStart: walkSeqStart, inputSequenceEnd: walkSeqEnd, inputReachedGameMs: navToInputSeqMs, inputReached, gpuPassesOk, pass: sceneryBuiltMarked && vegTotal > 0 && drawsMeasured && walkOk && inputReached && gpuPassesOk }
+    const reachability = { sceneryBuiltMarked, vegTotalInstances: vegTotal, vegNonZero: vegTotal > 0, drawsNonZero: drawsMeasured, walkOk, travelledM: +travelled.toFixed(1), inputSequenceStart: walkSeqStart, inputSequenceEnd: walkSeqEnd, inputReachedGameMs: navToInputSeqMs, inputReached, gpuPassesOk, adapterVendor: adapterInfo ? adapterInfo.vendor : null, adapterOk, pass: adapterOk && sceneryBuiltMarked && vegTotal > 0 && drawsMeasured && walkOk && inputReached && gpuPassesOk }
 
     const vegSpanTotals = {}
     for (const sp of inPage.vegSpans || []) {
