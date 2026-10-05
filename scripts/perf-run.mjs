@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { writeFileSync, mkdirSync, existsSync, readFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { spawnSync } from 'node:child_process'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createHash } from 'node:crypto'
+import { spawnSync, spawn } from 'node:child_process'
 import { chromium } from './lib/cdp-browser.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -35,12 +36,20 @@ const WALK_SPEED = Number(flag('walk-speed', '7'))
 const WALKER = ROUTE.length > 0
 const [VIEW_W, VIEW_H] = String(flag('viewport', '1280x720')).split('x').map(Number)
 const GPU_PASSES = has('gpu-passes')
+const SERVE_ROOT = resolve(String(flag('serve-root', ROOT)))
+const WORKTREE_META = has('worktree-meta') ? JSON.parse(readFileSync(String(flag('worktree-meta', '')), 'utf8')) : null
+const SERVER_ONLY = has('server-only')
 const INPUT_WAIT_EFFECTIVE_MS = WALKER ? 0 : INPUT_WAIT_MS
 const ROUTE_WAYPOINTS = ROUTE ? ROUTE.split(';').map((p) => { const n = p.split(',').map(Number); return { x: n[0], z: n[1] } }) : []
 const RELOCATE = /(^|&)(at|bookmark)=/.test(EXTRA_QUERY)
 const HEIGHT_PROBE = has('probe-heights')
 const HARD_TIMEOUT_MS = Number(flag('hard-timeout', '600000'))
-setTimeout(() => { console.log('[perf-run] HARD TIMEOUT after ' + HARD_TIMEOUT_MS + 'ms -- abandoning run'); process.exit(3) }, HARD_TIMEOUT_MS).unref()
+let spawnedChromePid = null
+setTimeout(() => {
+  console.log('[perf-run] HARD TIMEOUT after ' + HARD_TIMEOUT_MS + 'ms -- abandoning run')
+  if (spawnedChromePid && process.platform === 'win32') spawnSync('taskkill', ['/PID', String(spawnedChromePid), '/T', '/F'], { stdio: 'ignore' })
+  process.exit(3)
+}, HARD_TIMEOUT_MS).unref()
 const OUT_FILE = resolve(OUT_DIR, LABEL + '.json')
 
 const GPU_ARGS = {
@@ -243,6 +252,23 @@ $c = [int](Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercen
 Write-Output "gpu3d=$s train=$t chrome=$all cpu=$c"`
 const GPU_PROBE_SRC = existsSync(GATE_PROBE_REPO) ? readFileSync(GATE_PROBE_REPO, 'utf8') : GPU_PROBE_FALLBACK
 
+const HOST_CPU_PS1 = resolve(__dirname, 'perf-run-hostcpu.ps1')
+const HOST_CPU_CONTENDED_PCT = 90
+function parseHostCpu(out) {
+  const all = /all=(d+)/.exec(out), cores = /cores=(d+)/.exec(out), top = /top=(.*)$/m.exec(out)
+  return { allPct: all ? Number(all[1]) : null, cores: cores ? Number(cores[1]) : null, topCores: top ? top[1].trim().split(',').filter(Boolean).map((t) => { const i = t.lastIndexOf(':'); return [t.slice(0, i), Number(t.slice(i + 1))] }) : [] }
+}
+function sampleHostCpuSync() {
+  const r = spawnSync('powershell', ['-NoProfile', '-File', HOST_CPU_PS1], { encoding: 'utf8' })
+  return parseHostCpu(r.stdout || '')
+}
+function sampleHostCpuAsync(into, t0) {
+  const c = spawn('powershell', ['-NoProfile', '-File', HOST_CPU_PS1])
+  let out = ''
+  c.stdout.on('data', (d) => { out += d })
+  c.on('close', () => into.push({ t: Date.now() - t0, ...parseHostCpu(out) }))
+}
+
 function sampleGpu() {
   const r = spawnSync('powershell', ['-NoProfile', '-File', GPU_PROBE_PS1], { encoding: 'utf8' })
   const out = (r.stdout || '').trim()
@@ -313,12 +339,24 @@ async function main() {
   if (has('skip-prewarm')) process.env.SPOINT_SKIP_PREWARM = '1'
 
   const idleBefore = sampleGpu()
+  const hostCpuBefore = sampleHostCpuSync()
+  const hostCpuDuring = []
+  console.log('[perf-run] host cpu before: ' + JSON.stringify(hostCpuBefore))
   console.log(`[perf-run] idle probe before: gpu3d=${idleBefore.gpu3d} trainChrome=${idleBefore.train}`)
 
   console.log(`[perf-run] booting real server on ${port} (world=${process.env.WORLD}) ...`)
-  const { boot } = await import('../src/sdk/server.js')
+  if (SERVE_ROOT !== ROOT) process.chdir(SERVE_ROOT)
+  const { boot } = await import(pathToFileURL(resolve(SERVE_ROOT, 'src', 'sdk', 'server.js')).href)
   const server = await boot()
-  console.log('[perf-run] server up.')
+  console.log('[perf-run] server up from ' + SERVE_ROOT + (WORKTREE_META ? ' (worktree commit ' + WORKTREE_META.commit + ')' : ''))
+  if (SERVER_ONLY) {
+    const identity = await (await fetch(`http://127.0.0.1:${port}/__identity`)).json().catch((e) => ({ error: e.message }))
+    const appBytes = Buffer.from(await (await fetch(`http://127.0.0.1:${port}/app.js`)).arrayBuffer())
+    const servedAppSha = createHash('sha256').update(appBytes).digest('hex').slice(0, 16)
+    console.log('[perf-run] server-only: ' + JSON.stringify({ port, identity, servedAppSha, servedAppBytes: appBytes.length, worktree: WORKTREE_META }))
+    server.stop()
+    process.exit(0)
+  }
 
   const args = [...(GPU_ARGS[GPU] || GPU_ARGS.nvidia)]
   args.push('--enable-precise-memory-info')
@@ -327,6 +365,7 @@ async function main() {
   const gpuSamples = []
   try {
     browser = await chromium.launch({ headless: true, args })
+    spawnedChromePid = browser.pid
     const pidRecord = { label: LABEL, nodePid: process.pid, chromePid: browser.pid, profileDir: browser.profileDir, startedAt: new Date().toISOString() }
     writeFileSync(resolve(OUT_DIR, LABEL + '.pids.json'), JSON.stringify(pidRecord))
     console.log('[perf-run] spawned: ' + JSON.stringify(pidRecord))
@@ -518,6 +557,7 @@ async function main() {
     if (!WALKER && navToInputSeqMs === null) console.log('[perf-run] ASSERT FAILED: synthetic keys never reached the app input bucket (nav->inputReachedGame=null) -- this arm measured a standing player')
 
     const gpuTimer = setInterval(() => gpuSamples.push({ t: Date.now() - tNav, ...sampleGpu() }), 5000)
+    const hostCpuTimer = setInterval(() => sampleHostCpuAsync(hostCpuDuring, tNav), 10000)
 
     if (has('probe')) {
       const p = await page.evaluate(() => ({
@@ -708,6 +748,7 @@ async function main() {
     if (WALK && maxDelta < 1) console.log(`[perf-run] ASSERT FAILED: player moved ${maxDelta.toFixed(3)}m over ${SECONDS}s -- not real movement`)
 
     clearInterval(gpuTimer)
+    clearInterval(hostCpuTimer)
     const metricsAfter = await page._send('Performance.getMetrics').then((r) => Object.fromEntries(r.metrics.map((m) => [m.name, m.value]))).catch(() => null)
     const gpuPassResult = GPU_PASSES ? await page.evaluate(() => window.__rigPassStop ? window.__rigPassStop() : null).catch((e) => ({ error: e.message })) : null
     const walkSeqEnd = await page.evaluate(() => { const s = window.__client && window.__client.getLocalState ? window.__client.getLocalState() : null; return s ? s.inputSequence : null }).catch(() => null)
@@ -793,7 +834,7 @@ async function main() {
 
     const prof = aggregateProfile(profile)
     if (profile) writeFileSync(resolve(OUT_DIR, LABEL + '.cpuprofile'), JSON.stringify(profile))
-    const mainThreadBreakdown = (metricsBefore && metricsAfter) ? (() => { const d = (k) => +(((metricsAfter[k] || 0) - (metricsBefore[k] || 0)) * 1000).toFixed(1); return { windowMs: +((metricsAfter.Timestamp - metricsBefore.Timestamp) * 1000).toFixed(1), taskMs: d('TaskDuration'), scriptMs: d('ScriptDuration'), layoutMs: d('LayoutDuration'), styleMs: d('RecalcStyleDuration'), layoutCount: Math.round((metricsAfter.LayoutCount || 0) - (metricsBefore.LayoutCount || 0)), styleRecalcCount: Math.round((metricsAfter.RecalcStyleCount || 0) - (metricsBefore.RecalcStyleCount || 0)), jsHeapUsedEndMB: +((metricsAfter.JSHeapUsedSize || 0) / 1048576).toFixed(1) } })() : null
+    const mainThreadBreakdown = (metricsBefore && metricsAfter) ? (() => { const d = (k) => +(((metricsAfter[k] || 0) - (metricsBefore[k] || 0)) * 1000).toFixed(1); const windowFrames = inPage.frames.filter((fr) => fr[1] > 0).length; return { windowMs: +((metricsAfter.Timestamp - metricsBefore.Timestamp) * 1000).toFixed(1), threadTimeMs: d('ThreadTime'), cpuMsPerFrame: windowFrames ? +(d('ThreadTime') / windowFrames).toFixed(3) : null, scriptMsPerFrame: windowFrames ? +(d('ScriptDuration') / windowFrames).toFixed(3) : null, windowFrames, taskMs: d('TaskDuration'), scriptMs: d('ScriptDuration'), layoutMs: d('LayoutDuration'), styleMs: d('RecalcStyleDuration'), layoutCount: Math.round((metricsAfter.LayoutCount || 0) - (metricsBefore.LayoutCount || 0)), styleRecalcCount: Math.round((metricsAfter.RecalcStyleCount || 0) - (metricsBefore.RecalcStyleCount || 0)), jsHeapUsedEndMB: +((metricsAfter.JSHeapUsedSize || 0) / 1048576).toFixed(1) } })() : null
     const heapStats = await page.evaluate(() => {
       const h = window.__rigHeap || []
       const GC_DROP_BYTES = 131072
@@ -912,6 +953,9 @@ async function main() {
       },
       cpuProfile: { totalMs: +prof.totalMs.toFixed(1), top: prof.rows.slice(0, 30).map((r) => ({ fn: r.key, ms: +r.ms.toFixed(1), pct: +r.pct.toFixed(2) })), topInclusive: prof.inclRows.slice(0, 30).map((r) => ({ fn: r.key, ms: +r.ms.toFixed(1), pct: +r.pct.toFixed(2) })), gcSelfMs: +(prof.rows.filter((r) => r.key.startsWith('(garbage collector)')).reduce((a, r) => a + r.ms, 0)).toFixed(1) },
       adapterInfo,
+      hostCpu: (() => { const after = sampleHostCpuSync(); const peak = Math.max(hostCpuBefore.allPct || 0, after.allPct || 0, ...hostCpuDuring.map((x) => x.allPct || 0)); return { before: hostCpuBefore, during: hostCpuDuring, after, peakAllPct: peak, contendedThresholdPct: HOST_CPU_CONTENDED_PCT, contentionSensitive: peak >= HOST_CPU_CONTENDED_PCT, wallClockMetricsNote: 'frames, fps, long tasks and reveal are wall-clock and contention-sensitive; cpuMsPerFrame (main-thread ThreadTime) and GPU timestamps are the primary metrics' } })(),
+      serveRoot: SERVE_ROOT,
+      worktree: WORKTREE_META,
       pids: JSON.parse(readFileSync(resolve(OUT_DIR, LABEL + '.pids.json'), 'utf8')),
       mainThreadMs: mainThreadBreakdown,
       heapStats,
@@ -952,6 +996,7 @@ async function main() {
     console.log(`  vegProfile: ${JSON.stringify(inPage.vegProfile)}`)
     console.log(`  graph node stats: ${JSON.stringify(inPage.graphStats)}`)
     console.log(`  main thread ms: ${JSON.stringify(out.mainThreadMs)}`)
+    console.log(`  host cpu: peak=${out.hostCpu.peakAllPct}% contentionSensitive=${out.hostCpu.contentionSensitive} before=${JSON.stringify(out.hostCpu.before)} after=${JSON.stringify(out.hostCpu.after)} samples=${out.hostCpu.during.length}`)
     console.log(`  heap: ${JSON.stringify(out.heapStats)}  gcSelfMs(profile)=${out.cpuProfile.gcSelfMs}`)
     if (out.gpuPasses) { console.log(`  gpu frame ms: ${JSON.stringify(out.gpuPasses.frameGpuMs)} canvas=${out.gpuPasses.canvas}`); for (const p of (out.gpuPasses.passes || []).slice(0, 14)) console.log(`    gpu pass ${p.type} ctx${p.ctx} target=${p.target} scene=${p.scene} cam=${p.camera} shadowCam=${p.shadowCamera} avg=${p.avgMs}ms n=${p.samples} total=${p.totalMs}ms`) }
     console.log(`  cpu profile total=${out.cpuProfile.totalMs}ms`)
