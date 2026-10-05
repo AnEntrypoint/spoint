@@ -26,6 +26,17 @@ function headSourceText() {
   })
 }
 
+function sourceHasUncommittedChanges() {
+  const normalize = (t) => t.replace(/\r\n/g, '\n')
+  let head
+  try {
+    head = normalize(headSourceText())
+  } catch {
+    return false
+  }
+  return head !== normalize(readFileSync(SOURCE, 'utf8'))
+}
+
 function findEmittedDeclaration(root, fileName) {
   const stack = [root]
   while (stack.length) {
@@ -110,6 +121,11 @@ async function main() {
       const normalize = (t) => t.replace(/\r\n/g, '\n')
       const committedRaw = existsSync(GENERATED_OUT) ? readFileSync(GENERATED_OUT, 'utf8') : null
       const committed = committedRaw === null ? null : normalize(committedRaw)
+      if (committed !== normalize(output) && sourceHasUncommittedChanges()) {
+        console.log(`[gen-sdk-typings] ${SOURCE_REL} has uncommitted changes and the checked-in artifact has to match the committed source, so no on-disk regeneration can satisfy both.`)
+        console.log(`[gen-sdk-typings] drift is judged by CI and by the commit that changes ${SOURCE_REL}; regenerate the artifact in that same commit.`)
+        return
+      }
       if (committed === normalize(output)) {
         console.log(`[gen-sdk-typings] ${GENERATED_OUT} is up to date (${generated.split('\n').length} lines)`)
         return
