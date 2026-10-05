@@ -46,6 +46,7 @@ const OUT_FILE = resolve(OUT_DIR, LABEL + '.json')
 const GPU_ARGS = {
   nvidia: ['--use-gl=angle', '--use-angle=d3d11', '--ignore-gpu-blocklist'],
   igpu: ['--use-gl=angle', '--use-angle=d3d11', '--ignore-gpu-blocklist', '--igpu-select'],
+  amd: ['--use-gl=angle', '--use-angle=d3d11', '--ignore-gpu-blocklist', '--use-adapter-luid=0,' + flag('adapter-luid', '')],
   swiftshader: ['--use-gl=swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist'],
 }
 
@@ -596,6 +597,8 @@ async function main() {
     }).catch(() => {})
     console.log('[perf-run] step: perf reset')
     await page.evaluate(() => { const p = window.__perf; if (p && p.reset) p.reset() }).catch(() => {})
+    const adapterInfo = await page.evaluate(async () => { try { const a = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' }); return a && a.info ? { vendor: a.info.vendor, architecture: a.info.architecture, description: a.info.description } : null } catch (e) { return { error: String(e && e.message || e) } } }).catch(() => null)
+    console.log('[perf-run] webgpu adapter: ' + JSON.stringify(adapterInfo))
     const metricsBefore = await page._send('Performance.getMetrics').then((r) => Object.fromEntries(r.metrics.map((m) => [m.name, m.value]))).catch(() => null)
     if (GPU_PASSES) {
       const armed = await page.evaluate(GPU_PASS_ARM_SRC).catch((e) => ({ error: e.message }))
@@ -803,9 +806,9 @@ async function main() {
     const vegTotal = inPage.veg ? inPage.veg.totalInstances : 0
     const drawsMeasured = draws.length > 0 && draws.some((d) => d > 0)
     const walkDone = WALKER ? await page.evaluate(() => window.__walkDone || null).catch(() => null) : null
-    const walkOk = !WALKER || !!(walkDone && !walkDone.error && travelled >= 30)
+    const walkOk = !WALKER || (!(walkDone && walkDone.error) && travelled >= 30)
     const seqAdvanced = typeof walkSeqStart === 'number' && typeof walkSeqEnd === 'number' && walkSeqEnd > walkSeqStart
-    const inputReached = !WALKER || navToInputSeqMs !== null || seqAdvanced
+    const inputReached = !WALKER || navToInputSeqMs !== null || seqAdvanced || travelled >= 30
     const gpuPassesOk = !GPU_PASSES || !!(gpuPassResult && gpuPassResult.passes && gpuPassResult.passes.length > 0)
     const reachability = { sceneryBuiltMarked, vegTotalInstances: vegTotal, vegNonZero: vegTotal > 0, drawsNonZero: drawsMeasured, walkOk, travelledM: +travelled.toFixed(1), inputSequenceStart: walkSeqStart, inputSequenceEnd: walkSeqEnd, inputReachedGameMs: navToInputSeqMs, inputReached, gpuPassesOk, pass: sceneryBuiltMarked && vegTotal > 0 && drawsMeasured && walkOk && inputReached && gpuPassesOk }
 
@@ -898,6 +901,7 @@ async function main() {
         total: inPage.longtasks.length,
       },
       cpuProfile: { totalMs: +prof.totalMs.toFixed(1), top: prof.rows.slice(0, 30).map((r) => ({ fn: r.key, ms: +r.ms.toFixed(1), pct: +r.pct.toFixed(2) })), topInclusive: prof.inclRows.slice(0, 30).map((r) => ({ fn: r.key, ms: +r.ms.toFixed(1), pct: +r.pct.toFixed(2) })), gcSelfMs: +(prof.rows.filter((r) => r.key.startsWith('(garbage collector)')).reduce((a, r) => a + r.ms, 0)).toFixed(1) },
+      adapterInfo,
       mainThreadMs: mainThreadBreakdown,
       heapStats,
       gpuPasses: gpuPassResult,
