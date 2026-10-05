@@ -1,7 +1,6 @@
 import { pack } from '../protocol/msgpack.js'
 import { PLAYER_DEFAULTS } from '../shared/worldDefaults.js'
 
-const PLAYERS_PER_SNAP_GROUP = 50
 const MAX_BUFFERED_INPUTS = 128
 
 export class PlayerManager {
@@ -12,18 +11,13 @@ export class PlayerManager {
     this._connectedCache = null
     this._connectedGen = 0
     this._cachedGen = -1
-    this._nextSnapGroup = 0
   }
 
   addPlayer(socket, initialState = {}) {
     const playerId = this.nextPlayerId++
-    const snapGroups = Math.max(1, Math.ceil((this.players.size + 1) / PLAYERS_PER_SNAP_GROUP))
-    const snapGroup = this._nextSnapGroup % snapGroups
-    this._nextSnapGroup = (this._nextSnapGroup + 1) % snapGroups
     const pos = initialState.position || [0, 0, 0]
     const player = {
       id: playerId,
-      snapGroup,
       socket,
       name: (typeof initialState.name === 'string' && initialState.name.trim()) ? initialState.name.trim().slice(0, 32) : ('Player ' + playerId),
       state: {

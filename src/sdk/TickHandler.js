@@ -22,6 +22,7 @@ const MAX_CATCHUP_STEPS_PER_TICK = 3
 const PHYSICS_PLAYER_DIVISOR = 3
 const PHYSICS_MAX_ACCUM_DT = 1 / 20
 const SNAP_UNRELIABLE = true
+const PLAYERS_PER_SNAP_GROUP = 50
 const SNAP_RATE_MIN_HZ = 8
 const SNAP_RATE_ADJUST_INTERVAL = 64
 const AUTO_SAVE_INTERVAL = 300
@@ -196,10 +197,17 @@ const _playerCellScratch = new Map()
 const _cellViewersScratch = new Map()
 const _cellShareCache = new Map()
 
-function groupPlayersByCell(players, snapGroups, curGroup, planetRadius, relevanceRadius) {
+const _servedScratch = []
+
+function selectServedPlayers(players, snapGroups, curGroup, serveAll) {
+  _servedScratch.length = 0
+  for (let i = 0; i < players.length; i++) if (serveAll || i % snapGroups === curGroup) _servedScratch.push(players[i])
+  return _servedScratch
+}
+
+function groupPlayersByCell(served, planetRadius, relevanceRadius) {
   _playerCellScratch.clear(); _cellViewersScratch.clear()
-  for (const player of players) {
-    if (player.snapGroup % snapGroups !== curGroup) continue
+  for (const player of served) {
     const p = player.state.position
     const cell = resolvePlayerCell(p, planetRadius, relevanceRadius)
     _playerCellScratch.set(player.id, cell)
@@ -214,8 +222,9 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
   const chartEpoch = deps.getChartEpoch()
   const playerSnap = networkState.getSnapshot()
   const playerCount = players.length
-  const snapGroups = Math.max(1, Math.ceil(playerCount / 50))
-  const curGroup = tick % snapGroups
+  const snapGroups = Math.max(1, Math.ceil(playerCount / PLAYERS_PER_SNAP_GROUP))
+  const curGroup = snapshotSeq % snapGroups
+  const clientSeq = Math.floor(snapshotSeq / snapGroups)
   const activeStage = stageLoader ? stageLoader.getActiveStage() : null
   const relevanceRadius = activeStage ? activeStage.spatial.relevanceRadius : (getRelevanceRadius ? getRelevanceRadius() : 0)
   const planetRadius = activeStage ? (activeStage.spatial.planetRadius || 0) : 0
@@ -241,16 +250,16 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     const allEncodedPlayers = SnapshotEncoder.encodePlayersOnce(playerSnap.players)
     const playersById = _playersByIdScratch; playersById.clear()
     for (const p of playerSnap.players) playersById.set(p.id, p)
-    const snapshotHz = deps.getSnapshotHz ? deps.getSnapshotHz() : 20
+    const snapshotHz = (deps.getSnapshotHz ? deps.getSnapshotHz() : 20) / snapGroups
     const reducedTickMod = Math.max(1, Math.round(snapshotHz / PLAYER_LOD_REDUCED_HZ))
     _spatialCache.clear()
     _ringCache.clear()
     _cellShareCache.clear()
     let dynCache = null
     let unmanagedIds = null
-    groupPlayersByCell(players, snapGroups, curGroup, planetRadius, relevanceRadius)
-    for (const player of players) {
-      if (player.snapGroup % snapGroups !== curGroup) continue
+    const served = selectServedPlayers(players, snapGroups, curGroup, false)
+    groupPlayersByCell(served, planetRadius, relevanceRadius)
+    for (const player of served) {
       if (dynCache === null) {
         const activeIds = appRuntime.getActiveDynamicIds()
         unmanagedIds = appRuntime.getUnmanagedDynamicIds()
@@ -268,7 +277,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
       let preEncodedPlayers, playerDots, isTiered = false, isFreshToCell = false
       if (nearbyPlayerIds.length > PLAYER_LOD_FULL_COUNT_THRESHOLD) {
         isTiered = true
-        const tiered = filterEncodedPlayersTiered(allEncodedPlayers, playersById, nearbyPlayerIds, player.id, viewerPos, snapshotSeq, reducedTickMod)
+        const tiered = filterEncodedPlayersTiered(allEncodedPlayers, playersById, nearbyPlayerIds, player.id, viewerPos, clientSeq, reducedTickMod)
         preEncodedPlayers = tiered.players; playerDots = tiered.dots.length ? tiered.dots : undefined
       } else {
         preEncodedPlayers = SnapshotEncoder.filterEncodedPlayersWithSelf(allEncodedPlayers, nearbyPlayerIds, player.id)
@@ -290,7 +299,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
             relevantIds = relSet
           }
           const cellLastTick = state.cellLastTick.get(cellKey) || 0
-          const r = SnapshotEncoder.encodeDeltaFromCache(playerSnap.tick, serverNow, dynCache, relevantIds, cellMap, [], activeStaticEntries, state.staticEntityMap, state.staticEntityIds, snapshotSeq, _cellViewersScratch.get(cellKey), null, state.tombstoneLog, cellLastTick, snapshotHz)
+          const r = SnapshotEncoder.encodeDeltaFromCache(playerSnap.tick, serverNow, dynCache, relevantIds, cellMap, [], activeStaticEntries, state.staticEntityMap, state.staticEntityIds, clientSeq, _cellViewersScratch.get(cellKey), null, state.tombstoneLog, cellLastTick, snapshotHz)
           shared = { tick, entities: r.encoded.entities, removed: r.encoded.removed, entityMap: r.entityMap }
           r.entityMap._cellShared = true
           cached.sharedEncode = shared
@@ -321,7 +330,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
         }
         const clientLastTick = isNewPlayer ? 0 : (state.playerLastTick.get(player.id) || 0)
         const staticEntriesForCall = isNewPlayer ? state.lastStaticEntries : activeStaticEntries
-        const r = SnapshotEncoder.encodeDeltaFromCache(playerSnap.tick, serverNow, dynCache, relevantIds, prevPlayerMap, preEncodedPlayers, staticEntriesForCall, state.staticEntityMap, state.staticEntityIds, snapshotSeq, viewerPos, scratch, state.tombstoneLog, clientLastTick, snapshotHz)
+        const r = SnapshotEncoder.encodeDeltaFromCache(playerSnap.tick, serverNow, dynCache, relevantIds, prevPlayerMap, preEncodedPlayers, staticEntriesForCall, state.staticEntityMap, state.staticEntityIds, clientSeq, viewerPos, scratch, state.tombstoneLog, clientLastTick, snapshotHz)
         encoded = r.encoded; entityMap = r.entityMap
         scratch.spareMap = prevPlayerMap._cellShared ? new Map() : prevPlayerMap
         state.playerCell.delete(player.id)
@@ -363,8 +372,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     state.broadcastEntityMap = entityMap
     const selfById = _playersByIdScratch; selfById.clear()
     for (const p of playerSnap.players) selfById.set(p.id, p)
-    for (const player of players) {
-      if (!isKeyframe && player.snapGroup % snapGroups !== curGroup) continue
+    for (const player of selectServedPlayers(players, snapGroups, curGroup, isKeyframe)) {
       connections.sendPacked(player.id, packSnapshot(snapshotSeq, encoded, encodeSelfBlock(selfById.get(player.id)), chartEpoch), SNAP_UNRELIABLE, MSG.SNAPSHOT)
     }
   }
