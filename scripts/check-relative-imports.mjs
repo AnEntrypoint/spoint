@@ -1,0 +1,83 @@
+#!/usr/bin/env node
+import { readdirSync, statSync, readFileSync, existsSync } from 'node:fs'
+import { join, extname, dirname, resolve, sep } from 'node:path'
+
+const ROOTS = ['src', 'client', 'apps', 'scripts', 'bin', 'packages/mapspinner/src', 'packages/streaming-gltf/src', 'packages/ecs/src']
+const SKIP_DIRS = new Set(['node_modules', '.git', '.gm', 'dist', 'basis', 'draco', 'maps', 'vendor'])
+const SKIP_VENDORED_FILE = /(\.min\.js$|basis_transcoder|draco_decoder|jolt-physics)/
+const CANDIDATE_SUFFIXES = ['', '.js', '.mjs', '.json', '/index.js', '/index.mjs']
+
+const SPECIFIER_PATTERNS = [
+  /\bimport\s*\(\s*['"`]([^'"`\n]+)['"`]\s*\)/g,
+  /\brequire\s*\(\s*['"`]([^'"`\n]+)['"`]\s*\)/g,
+  /\bfrom\s*['"`]([^'"`\n]+)['"`]/g,
+  /\bimport\s+['"`]([^'"`\n]+)['"`]/g,
+]
+
+function collect(dir, out) {
+  let entries
+  try { entries = readdirSync(dir) } catch { return out }
+  for (const name of entries) {
+    const full = join(dir, name)
+    let st
+    try { st = statSync(full) } catch { continue }
+    if (st.isDirectory()) {
+      if (!SKIP_DIRS.has(name)) collect(full, out)
+    } else if ((extname(name) === '.js' || extname(name) === '.mjs') && !SKIP_VENDORED_FILE.test(full)) {
+      out.push(full)
+    }
+  }
+  return out
+}
+
+function lineOf(text, index) {
+  let line = 1
+  for (let i = 0; i < index; i++) if (text[i] === '\n') line++
+  return line
+}
+
+function specifiers(text) {
+  const found = []
+  for (const re of SPECIFIER_PATTERNS) {
+    re.lastIndex = 0
+    let m
+    while ((m = re.exec(text))) found.push({ spec: m[1], index: m.index })
+  }
+  return found
+}
+
+function resolves(target) {
+  for (const suffix of CANDIDATE_SUFFIXES) if (existsSync(target + suffix)) return true
+  return false
+}
+
+function main() {
+  const files = []
+  for (const root of ROOTS) collect(root, files)
+
+  const problems = []
+  let checked = 0
+  for (const file of files) {
+    let text
+    try { text = readFileSync(file, 'utf8') } catch { continue }
+    for (const { spec, index } of specifiers(text)) {
+      if (!spec.startsWith('.')) continue
+      if (spec.includes('${')) continue
+      const clean = spec.split('?')[0].split('#')[0]
+      if (!clean) continue
+      checked++
+      const target = resolve(dirname(file), clean.split('/').join(sep))
+      if (!resolves(target)) problems.push(`${file}:${lineOf(text, index)}: "${spec}" resolves to no file under ${target}`)
+    }
+  }
+
+  console.log(`check-relative-imports: ${checked} relative specifier(s) in ${files.length} file(s)`)
+  if (problems.length) {
+    console.error(`check-relative-imports: ${problems.length} unresolvable relative import(s):`)
+    for (const p of problems) console.error(`  ${p}`)
+    process.exit(1)
+  }
+  console.log('check-relative-imports: every relative specifier resolves')
+}
+
+main()
