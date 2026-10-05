@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { chromium } from './lib/cdp-browser.mjs'
+import { unreachedReasons } from './lib/witness-reachability.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
@@ -176,6 +177,17 @@ async function main() {
 
   console.log(`[frame-time-gate] static  p50=${metrics.static.p50Ms.toFixed(2)}ms p95=${metrics.static.p95Ms.toFixed(2)}ms 1%low=${metrics.static.onePercentLowMs.toFixed(2)}ms fps=${metrics.static.fps.toFixed(1)} draws=${metrics.static.avgDrawCalls.toFixed(0)} tris=${metrics.static.avgTriangles.toFixed(0)}`)
   console.log(`[frame-time-gate] orbit   p50=${metrics.orbit.p50Ms.toFixed(2)}ms p95=${metrics.orbit.p95Ms.toFixed(2)}ms 1%low=${metrics.orbit.onePercentLowMs.toFixed(2)}ms fps=${metrics.orbit.fps.toFixed(1)} draws=${metrics.orbit.avgDrawCalls.toFixed(0)} tris=${metrics.orbit.avgTriangles.toFixed(0)}`)
+
+  const unreached = unreachedReasons({
+    counts: { drawCalls: metrics.orbit.avgDrawCalls, triangles: metrics.orbit.avgTriangles, frames: raw.orbitResult.frameDeltas.length },
+    requiredCounts: ['drawCalls', 'triangles', 'frames'],
+  })
+  console.log(`[frame-time-gate] reachability: ${unreached.length === 0 ? 'REACHED' : 'UNREACHED'} ${JSON.stringify({ orbitDrawCalls: metrics.orbit.avgDrawCalls, orbitTriangles: metrics.orbit.avgTriangles, orbitFrames: raw.orbitResult.frameDeltas.length, unreached })}`)
+
+  if (unreached.length) {
+    console.error(`[frame-time-gate] RESULT: FAIL -- witness never reached the state it measured: ${unreached.join('; ')}`)
+    process.exit(1)
+  }
 
   if (UPDATE) {
     writeBaseline(metrics)

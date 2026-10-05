@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createHash } from 'node:crypto'
 import { spawnSync, spawn } from 'node:child_process'
 import { chromium } from './lib/cdp-browser.mjs'
+import { unreachedReasons } from './lib/witness-reachability.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -44,7 +45,10 @@ const ROUTE_WAYPOINTS = ROUTE ? ROUTE.split(';').map((p) => { const n = p.split(
 const RELOCATE = /(^|&)(at|bookmark)=/.test(EXTRA_QUERY)
 const HEIGHT_PROBE = has('probe-heights')
 const HARD_TIMEOUT_MS = Number(flag('hard-timeout', '600000'))
+const REQUIRED_MARKS = String(flag('require-mark', 'boot:scenery-built')).split(',').map((s) => s.trim()).filter(Boolean)
+const REQUIRED_COUNTS = String(flag('require-count', 'draws,frames')).split(',').map((s) => s.trim()).filter(Boolean)
 let spawnedChromePid = null
+let witnessUnreached = []
 setTimeout(() => {
   console.log('[perf-run] HARD TIMEOUT after ' + HARD_TIMEOUT_MS + 'ms -- abandoning run')
   if (spawnedChromePid && process.platform === 'win32') spawnSync('taskkill', ['/PID', String(spawnedChromePid), '/T', '/F'], { stdio: 'ignore' })
@@ -871,6 +875,13 @@ async function main() {
     const gpuPassesOk = !GPU_PASSES || !!(gpuPassResult && gpuPassResult.passes && gpuPassResult.passes.length > 0)
     const reachability = { sceneryBuiltMarked, vegTotalInstances: vegTotal, vegNonZero: vegTotal > 0, drawsNonZero: drawsMeasured, walkOk, travelledM: +travelled.toFixed(1), inputSequenceStart: walkSeqStart, inputSequenceEnd: walkSeqEnd, inputReachedGameMs: navToInputSeqMs, inputReached, gpuPassesOk, adapterVendor: adapterInfo ? adapterInfo.vendor : null, adapterOk, appLoadOk, appLoadErrors, pass: appLoadOk && adapterOk && sceneryBuiltMarked && vegTotal > 0 && drawsMeasured && walkOk && inputReached && gpuPassesOk }
 
+    witnessUnreached = unreachedReasons({
+      marks: inPage.marks,
+      requiredMarks: REQUIRED_MARKS,
+      counts: { draws: draws.reduce((m, d) => (d > m ? d : m), 0), frames: deltas.length, veg: vegTotal },
+      requiredCounts: REQUIRED_COUNTS,
+    })
+
     const vegSpanTotals = {}
     for (const sp of inPage.vegSpans || []) {
       const step = sp.name.slice(sp.name.lastIndexOf(':') + 1)
@@ -974,6 +985,7 @@ async function main() {
       vegSpanTotals,
       vegSpans: inPage.vegSpans,
       reachability,
+      witnessUnreached,
       perfSession: inPage.perf,
       veg: inPage.veg,
       travelledM: +travelled.toFixed(1),
@@ -994,6 +1006,7 @@ async function main() {
     console.log(`  WebGPU calls/frame avg=${out.wgpuCallsPerFrame.avg} p95=${out.wgpuCallsPerFrame.p95} draws/frame avg=${out.wgpuDrawsPerFrame.avg} max=${out.wgpuDrawsPerFrame.max} (n=${out.wgpuCallsPerFrame.windowFrames})`)
     console.log(`  long tasks: 0-20s=${out.longTasks.first20s} (>100ms ${out.longTasks.first20sOver100}, max ${out.longTasks.first20sMaxMs}ms) | 0-60s=${out.longTasks.first60s} (>100ms ${out.longTasks.first60sOver100}, max ${out.longTasks.first60sMaxMs}ms)`)
     console.log(`  reachability: ${reachability.pass ? 'PASS' : 'FAIL'} ${JSON.stringify(reachability)}`)
+    console.log(`  witness state reached: ${witnessUnreached.length === 0 ? 'YES' : 'NO -- ' + witnessUnreached.join('; ')}`)
     console.log(`  errors: pageErrors=${out.pageErrors.length} consoleErrors=${out.consoleErrors.length}`)
   for (const e of out.pageErrors.slice(0, 6)) console.log('    pageerror: ' + e)
   for (const e of out.consoleErrors.slice(0, 6)) console.log('    console: ' + e)
@@ -1015,6 +1028,10 @@ async function main() {
   } finally {
     if (browser) await browser.close()
     server.stop()
+  }
+  if (witnessUnreached.length) {
+    console.error(`[perf-run] RESULT: FAIL -- witness never reached the state it measured: ${witnessUnreached.join('; ')} (required marks: ${REQUIRED_MARKS.join(',') || 'none'}, required counts: ${REQUIRED_COUNTS.join(',') || 'none'})`)
+    process.exit(4)
   }
   process.exit(0)
 }
