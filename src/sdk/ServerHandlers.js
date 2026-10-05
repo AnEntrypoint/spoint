@@ -82,6 +82,12 @@ export function createConnectionHandlers(ctx) {
     return playerId
   }
 
+  function playersInInterest(players, position, relevanceRadius, selfId) {
+    if (!(relevanceRadius > 0)) return players
+    const near = new Set(appRuntime.nearbyPlayerIds(position, relevanceRadius))
+    return players.filter(p => p.id === selfId || near.has(p.id))
+  }
+
   function _joinNewPlayer(transport) {
     const playerId = ctx.peerSession ? ctx.peerSession.claimLocalPlayer(transport) : _spawnJoiningPlayer(transport)
     const sp = [...playerManager.getPlayer(playerId).state.position]
@@ -94,7 +100,7 @@ export function createConnectionHandlers(ctx) {
     const relevanceRadius = ctx.currentWorldDef?.relevanceRadius || 0
     const snapEntities = relevanceRadius > 0 ? appRuntime.getSnapshotForPlayer(sp, relevanceRadius) : appRuntime.getSnapshot()
     const playerSnap = networkState.getSnapshot()
-    const combined = { tick: playerSnap.tick, timestamp: playerSnap.timestamp, players: playerSnap.players, entities: snapEntities.entities }
+    const combined = { tick: playerSnap.tick, timestamp: playerSnap.timestamp, players: playersInInterest(playerSnap.players, sp, relevanceRadius, playerId), entities: snapEntities.entities }
     connections.send(playerId, MSG.SNAPSHOT, { seq: ++ctx.snapshotSeq, ...SnapshotEncoder.encode(combined), chartEpoch: currentChartEpoch(ctx.physics) })
     appRuntime.broadcastMessage({ type: 'player_join', playerId })
     connections.send(playerId, MSG.SCENE_GRAPH, { entities: appRuntime.getSceneGraph() })
@@ -332,8 +338,9 @@ export function createConnectionHandlers(ctx) {
       connections.send(newId, MSG.RECONNECT_ACK, { playerId: newId, tick: tickSystem.currentTick, sessionToken: msg.payload.sessionToken, tickRate: ctx.tickRate, position: sp, health, structHash: WIRE_STRUCT_HASH, ...chartHandshakeFields(ctx) })
       sendWorldDefAndModules(newId)
       const snap = networkState.getSnapshot()
-      const ents = appRuntime.getSnapshot()
-      connections.send(newId, MSG.STATE_RECOVERY, { snapshot: SnapshotEncoder.encode({ tick: snap.tick, timestamp: snap.timestamp, players: snap.players, entities: ents.entities }), tick: tickSystem.currentTick, chartEpoch: currentChartEpoch(ctx.physics) })
+      const recoveryRadius = ctx.currentWorldDef?.relevanceRadius || 0
+      const ents = recoveryRadius > 0 ? appRuntime.getSnapshotForPlayer(sp, recoveryRadius) : appRuntime.getSnapshot()
+      connections.send(newId, MSG.STATE_RECOVERY, { snapshot: SnapshotEncoder.encode({ tick: snap.tick, timestamp: snap.timestamp, players: playersInInterest(snap.players, sp, recoveryRadius, newId), entities: ents.entities }), tick: tickSystem.currentTick, chartEpoch: currentChartEpoch(ctx.physics) })
       appRuntime.broadcastMessage({ type: 'player_join', playerId: newId, reconnected: true })
       emitter.emit('playerJoin', { id: newId, reconnected: true })
       return

@@ -41,7 +41,7 @@ async function runChild() {
         try { type = unpack(bytes).type } catch {}
         const k = names.get(type) || String(type)
         meter.byType[k] = (meter.byType[k] || 0) + bytes.length
-        if (type === MSG.SNAPSHOT) meter.snapshots++
+        if (type === MSG.SNAPSHOT) { meter.snapshots++; if (meter.firstSnapshotBytes == null) meter.firstSnapshotBytes = bytes.length }
         return super._handleOneMessage(bytes)
       }
       _rawSend(buf, unreliable) { meter.outBytes += buf.length; meter.outMsgs++; return super._rawSend(buf, unreliable) }
@@ -139,7 +139,7 @@ async function runChild() {
       for (const r of clients.values()) {
         const p = predStats(r), mt = r.meter
         const ls = r.client.getLocalState()
-        out.push({ idx: r.spec.idx, id: r.client.playerId, connected: r.client.connected, inBytes: mt.inBytes, outBytes: mt.outBytes, inMsgs: mt.inMsgs, outMsgs: mt.outMsgs, byType: mt.byType, snapshots: mt.snapshots, nanStates: mt.nanStates, errors: mt.errors, trace: r.trace ?? null, epochs: mt.epochs, firstVisible: r.firstVisible ?? null, localFinite: finite(ls?.position) && finite(ls?.velocity), local: ls?.position ?? null, corrections: p ? p.corrections - r.correctionsBase : null, acks: p ? p.acks - r.acksBase : null, maxCorrectionM: p?.maxCorrectionM ?? null, rttMs: r.client.getRTT(), chart: r.client.getChartStats?.() ?? null })
+        out.push({ idx: r.spec.idx, id: r.client.playerId, connected: r.client.connected, inBytes: mt.inBytes, outBytes: mt.outBytes, inMsgs: mt.inMsgs, outMsgs: mt.outMsgs, byType: mt.byType, snapshots: mt.snapshots, nanStates: mt.nanStates, errors: mt.errors, trace: r.trace ?? null, epochs: mt.epochs, firstVisible: r.firstVisible ?? null, firstSnapshotBytes: mt.firstSnapshotBytes ?? null, localFinite: finite(ls?.position) && finite(ls?.velocity), local: ls?.position ?? null, corrections: p ? p.corrections - r.correctionsBase : null, acks: p ? p.acks - r.acksBase : null, maxCorrectionM: p?.maxCorrectionM ?? null, rttMs: r.client.getRTT(), chart: r.client.getChartStats?.() ?? null })
       }
       send({ t: 'report', rows: out })
     } else if (m.t === 'close') {
@@ -170,6 +170,7 @@ async function runParent() {
   const HYST = Number(args.hyst ?? 0.75)
   const PREDICT_N = Number(args.predict ?? N)
   const SHOOTERS = Number(args.shooters ?? 0)
+  const LATE_JOIN = Number(args.lateJoin || 0)
   const scenarios = (args.scenario || 'clustered').split(',')
   const results = []
   const outDir = resolve(SDK_ROOT, 'data', 'planet-harness')
@@ -456,6 +457,7 @@ async function runParent() {
     const grounded = connectedNow.filter(p => p.state.onGround).length
     const corr = reports.filter(r => r.corrections != null)
     const result = {
+      lateJoin: null,
       scenario: name, n: N, world: WORLD, service: SERVICE, durationS: round(elapsedS, 1), procs: PROCS, tickRate,
       connected: N - missingConnect, teleportsOk: teleports.filter(t => t.ok).length, teleportRefusals: refusals, teleportMs: summarize(teleports.filter(t => t.ok).map(t => t.ms)),
       anchorAngleDeg: summarize(poss.map(p => { const d = frame.localToDir(p[0], p[2], p[1]); return Math.acos(Math.max(-1, Math.min(1, vec.dot(d, frame.up)))) * 180 / Math.PI })),
@@ -472,6 +474,18 @@ async function runParent() {
       chart: { serverEpoch: frame.chartEpoch, epochsDuringRun: frame.chartEpoch - chartEpochs0, clientEpochsSeen: summarize(reports.map(r => r.epochs)), clientResyncs: reports.reduce((s, r) => s + (r.chart?.resyncRequests || 0), 0), clientHeldNow: reports.reduce((s, r) => s + (r.chart?.heldNow || 0), 0), reanchorCount: ring?.chartReanchor?.reanchorCount ?? 0, refusals: ring?.chartReanchor?.refusalCount ?? 0 },
       memory: { rssMB: [round(mem0.rss / 1048576, 1), round(mem1.rss / 1048576, 1)], heapMB: [round(mem0.heapUsed / 1048576, 1), round(mem1.heapUsed / 1048576, 1)], rssGrowthMBPerMin: round((mem1.rss - mem0.rss) / 1048576 / (elapsedS / 60), 1) },
       streaming: { heightfieldRebuilds: ring?.rebuildCount ?? null, heightfieldRebuildsDuringRun: (ring?.rebuildCount ?? 0) - (hf0 ?? 0), heightfieldBuildsPerS: round((logLines.heightfield - logs0.hf) / elapsedS, 3) }
+    }
+    if (LATE_JOIN > 0) {
+      const child = fork(fileURLToPath(import.meta.url), ['--child'], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'], execArgv: [] })
+      child.on('message', m => child.emit('__' + m.t, m))
+      await waitFor(child, 'ready')
+      const joined = waitFor(child, 'connected')
+      child.send({ t: 'connect', url, clients: Array.from({ length: LATE_JOIN }, (_, i) => ({ idx: 1000 + i, predict: false, shooter: false, yaw: 0 })) })
+      await joined
+      await sleep(2500)
+      const rows = (await (async () => { const r = waitFor(child, 'report'); child.send({ t: 'report' }); return r })()).rows
+      result.lateJoin = { clients: rows.length, playersInFirstSnapshot: summarize(rows.map(r => r.firstVisible)), firstSnapshotBytes: summarize(rows.map(r => r.firstSnapshotBytes)), serverPlayers: server.playerManager.getConnectedPlayers().length }
+      child.send({ t: 'close' })
     }
     children.forEach(c => c.send({ t: 'close' }))
     await sleep(300)
