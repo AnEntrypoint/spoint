@@ -6,6 +6,7 @@ import { findWorldFile, worldRoots } from '../src/sdk/WorldLocator.js'
 import { expandWorldPresets } from '../src/shared/worldPresets.js'
 import { resolveTerrainConfig, terrainBakeKey, terrainHashVersionOf, terrainCarvesOf, LEGACY_TERRAIN_HASH_VERSION } from '../src/shared/terrainConfig.js'
 import { createPlanetFrame } from '../src/terrain/PlanetFrame.js'
+import { HEIGHTFIELD_BAKE_CODE_VERSION } from '../src/static/BakeCodeVersion.js'
 
 function parseArgs(argv) {
   const a = { _: [] }
@@ -86,7 +87,7 @@ console.error(`[bake] height source=${vendor}`)
 const nNull = heights.filter(h => h == null).length
 const heightsOrZero = heights.map(h => (typeof h === 'number' && isFinite(h)) ? h : 0)
 const terrainIdentity = worldTerrain ? { seed: worldTerrain.seed, hashVersion: terrainHashVersionOf(worldTerrain), terrainKey: terrainBakeKey(worldTerrain) } : {}
-const base = { chartEpoch: meta.chartEpoch ?? 0, anchorDir: meta.anchorDir, radius: meta.radius, reliefScale: meta.reliefScale, anchorHeight: meta.anchorHeight, extent: EXTENT, resolution: RES, N, center: CENTER, backend: vendor, ...terrainIdentity }
+const base = { chartEpoch: meta.chartEpoch ?? 0, anchorDir: meta.anchorDir, radius: meta.radius, reliefScale: meta.reliefScale, anchorHeight: meta.anchorHeight, extent: EXTENT, resolution: RES, N, center: CENTER, backend: vendor, codeVersion: HEIGHTFIELD_BAKE_CODE_VERSION, ...terrainIdentity }
 
 let artifact
 const NODES_PER_SECTOR = Number(args.sector || 0)

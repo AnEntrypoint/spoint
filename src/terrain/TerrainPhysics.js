@@ -28,6 +28,15 @@ function bakedHashVersionOf(artifact) {
   return artifact.hashVersion ?? LEGACY_TERRAIN_HASH_VERSION
 }
 
+const _bakeCodeVersionSpec = ['..', 'static', 'BakeCodeVersion.js'].join('/')
+
+async function heightfieldBakeCodeVersion() {
+  const _isNode = typeof process !== 'undefined' && process.versions?.node
+  if (!_isNode) return null
+  const { HEIGHTFIELD_BAKE_CODE_VERSION } = await import(_bakeCodeVersionSpec)
+  return HEIGHTFIELD_BAKE_CODE_VERSION
+}
+
 function _dequantizeSectorized(artifact) {
   const { N, sectors, sectorMin, sectorMax, q } = artifact
   const Sn = sectors.nodesPerSector, gridS = sectors.gridS, qmax = sectors.qmax
@@ -51,7 +60,7 @@ export function createBakedHeightField(artifact) {
   const cx = (center && center[0]) || 0, cz = (center && center[1]) || 0
   const at = (ix, iz) => { ix = ix < 0 ? 0 : ix > N - 1 ? N - 1 : ix; iz = iz < 0 ? 0 : iz > N - 1 ? N - 1 : iz; const v = heights[iz * N + ix]; return (typeof v === 'number') ? v : 0 }
   return {
-    N, extent, center: [cx, cz],
+    N, extent, center: [cx, cz], codeVersion: artifact.codeVersion,
     covers(x, z) { return Math.abs(x - cx) <= half && Math.abs(z - cz) <= half },
     heightAtLocal(x, z) {
       const fx = (x - cx + half) / step, fz = (z - cz + half) / step
@@ -75,7 +84,7 @@ function bakedTerrainMismatch(artifact, tcfg, frame) {
   return null
 }
 
-async function loadBakedHeightField(url, hashVersion, tcfg, frame) {
+export async function loadBakedHeightField(url, hashVersion, tcfg, frame) {
   if (!url) return null
   const artifact = await readBakedHeightField(url)
   if (!artifact) return null
@@ -84,12 +93,23 @@ async function loadBakedHeightField(url, hashVersion, tcfg, frame) {
     console.warn(`[terrain] ignoring baked heightfield ${url}: baked with terrain hashVersion ${bakedVersion}, world uses ${hashVersion} -> exact CPU height`)
     return null
   }
+  const bakeCode = await heightfieldBakeCodeVersion()
+  const unverifiable = bakeCode === null
+  if (unverifiable ? !artifact.codeVersion : artifact.codeVersion !== bakeCode) {
+    const why = unverifiable
+      ? 'it carries no height code version and this runtime has no filesystem to rehash the bake sources into one'
+      : `baked with height code version ${artifact.codeVersion ?? '(none)'}, this tree bakes ${bakeCode}: the height-generation code changed under it`
+    console.warn(`[terrain] ignoring baked heightfield ${url}: ${why} -> exact CPU height`)
+    return null
+  }
   const mismatch = bakedTerrainMismatch(artifact, tcfg, frame)
   if (mismatch) {
     console.warn(`[terrain] ignoring baked heightfield ${url}: ${mismatch} -> exact CPU height`)
     return null
   }
-  return createBakedHeightField(artifact)
+  const field = createBakedHeightField(artifact)
+  field.codeVersionVerified = bakeCode !== null
+  return field
 }
 
 async function readBakedHeightField(url) {
@@ -153,7 +173,7 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
       : ((x, z, yGuess) => frame.groundHeightLocal(x, z, yGuess))
   const bakedSpacingM = baked ? baked.extent / (baked.N - 1) : 0
   if (gpuPatch) { console.log(`[terrain] collider using LIVE GPU PATCH bake (whole-planet, exact, nothing stored): ${gpuPatch.spacing.toFixed(2)}m collider spacing == finest display LOD (maxLevel ${gpuPatch.maxLevel}, ${gpuPatch.patchSpan.toFixed(0)}m patches, ${gpuPatch.res} samples)`); physics._terrainHeightSource = 'gpu-patch' }
-  else if (baked) { console.log(`[terrain] collider using BAKED heightfield (hashVersion ${hashVersion}, N=${baked.N}, extent=${baked.extent}m, spacing ${(bakedSpacingM * 100).toFixed(0)}cm) instead of the GPU patch bake: ${gpuPatchUnavailable}`); physics._terrainHeightSource = 'baked' }
+  else if (baked) { console.log(`[terrain] collider using BAKED heightfield (hashVersion ${hashVersion}, N=${baked.N}, extent=${baked.extent}m, spacing ${(bakedSpacingM * 100).toFixed(0)}cm, height code ${baked.codeVersion ?? '(none)'}${baked.codeVersionVerified ? '' : ' unverified: this runtime has no filesystem to rehash the bake sources with'}) instead of the GPU patch bake: ${gpuPatchUnavailable}`); physics._terrainHeightSource = 'baked' }
   else { console.log(`[terrain] collider using EXACT CPU height (no baked artifact covers the spawn): ${gpuPatchUnavailable}`); physics._terrainHeightSource = 'cpu' }
   if (gpuPatch) frame.groundHeightLocal = (x, z) => gpuPatch.heightFn(x, z)
   const heightDelta = loadHeightDelta(heightDeltaJSON, baseHeightFn)

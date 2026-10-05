@@ -87,7 +87,8 @@ async function main() {
     process.exit(1)
   }
   try {
-    await execFileAsync(process.execPath, ['scripts/check-cache-keys.mjs'])
+    const { stdout } = await execFileAsync(process.execPath, ['scripts/check-cache-keys.mjs'])
+    for (const line of stdout.split('\n')) if (line.trim()) console.log(line)
   } catch (e) {
     console.error('check: bake code-version closure:', (e.stderr || e.message || '').toString().trim())
     process.exit(1)

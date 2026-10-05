@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join, dirname, resolve, relative, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { BAKE_TRANSFORMS } from '../src/static/BakeCodeVersion.js'
+import { BAKE_TRANSFORMS, HEIGHTFIELD_BAKE_CODE_VERSION } from '../src/static/BakeCodeVersion.js'
 
 const ROOT = resolve(join(dirname(fileURLToPath(import.meta.url)), '..'))
 const BAKE_DIR = join(ROOT, 'src', 'static')
@@ -65,7 +65,14 @@ function importClosure(entries) {
   return [...seen.keys()].sort()
 }
 
-function main() {
+async function shippedHeightfields() {
+  const dir = join(ROOT, 'apps', 'world')
+  let names
+  try { names = readdirSync(dir) } catch { return [] }
+  return names.filter(n => n.endsWith('.hf')).sort().map(n => join('apps', 'world', n))
+}
+
+async function main() {
   const problems = []
   for (const transform of BAKE_TRANSFORMS) {
     const entries = transform.entries.map(e => resolve(BAKE_DIR, e))
@@ -78,13 +85,24 @@ function main() {
       console.log(`[check-cache-keys] ${transform.name}: all ${closure.length} imported file(s) declared (codeVersion ${transform.version})`)
     }
   }
+  const { decodeHeightfield } = await import('mapspinner/heightfield-codec')
+  for (const rel of await shippedHeightfields()) {
+    const buf = readFileSync(join(ROOT, rel))
+    const header = decodeHeightfield(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength))
+    if (!header) { problems.push(`  ${rel}: not a decodable .hf artifact`); continue }
+    if (header.codeVersion !== HEIGHTFIELD_BAKE_CODE_VERSION) {
+      problems.push(`  ${rel}: baked with height code version ${header.codeVersion ?? '(none)'}, this tree bakes ${HEIGHTFIELD_BAKE_CODE_VERSION} -- re-run: node scripts/bake-heightfield.mjs --world <name> --extent ${header.extent} --res ${header.extent / (header.N - 1)} --sector ${header.sectors.nodesPerSector} --bits ${header.sectors.bits} --out ${rel}`)
+    } else {
+      console.log(`[check-cache-keys] ${rel}: height code version ${header.codeVersion} matches this tree`)
+    }
+  }
   if (problems.length) {
-    console.error(`[check-cache-keys] ${problems.length} bake transform(s) can serve stale cached output:`)
+    console.error(`[check-cache-keys] ${problems.length} stale-bake problem(s):`)
     for (const p of problems) console.error(p)
-    console.error('  Add each file to its BAKE_INPUTS_* list in src/static/BakeCodeVersion.js.')
+    console.error('  Add each file to its BAKE_INPUTS_* list in src/static/BakeCodeVersion.js, or re-bake the artifact.')
     process.exit(1)
   }
   console.log(`[check-cache-keys] ${BAKE_TRANSFORMS.length} bake transforms declare their whole import closure`)
 }
 
-main()
+main().catch((e) => { console.error('[check-cache-keys] harness error:', e?.message || e); process.exit(2) })
