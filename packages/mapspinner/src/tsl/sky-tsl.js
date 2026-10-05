@@ -1,9 +1,9 @@
 import * as THREE from 'three/webgpu'
 import {
   Fn, float, int, vec2, vec3, vec4, uniform, texture, select, positionLocal,
-  normalize, dot, length, sqrt, max, min, clamp, mix, smoothstep, pow, floor, atanh,
+  normalize, dot, length, sqrt, max, min, clamp, mix, smoothstep, pow, floor, atanh, exp,
 } from 'three/tsl'
-import { ATM_BOTTOM, ATM_TOP, ATM_RAYLEIGH } from '../atmosphere-transmittance-lut.js'
+import { ATM_BOTTOM, ATM_TOP, ATM_RAYLEIGH, ATM_MIE_EXT, ATM_RAYLEIGH_H, ATM_MIE_H } from '../atmosphere-transmittance-lut.js'
 import { SCAT_LUT_LAYERS } from '../atmosphere-scattering-lut.js'
 import { bakeAtmosphereLUTsSync } from '../atmosphere-lut-job.js'
 import { displayReferredToSceneLinear } from './display-referred-tsl.js'
@@ -23,6 +23,7 @@ const SKY_EXPOSURE_LOW_SUN = 48.0
 const SKY_SATURATION = 1.3
 const HALO_COLOR = [0.32, 0.55, 1.0]
 const SKY_FADE_ALTITUDE_M = 100000.0
+const SKY_MARCH_STEPS = 8
 
 function halfFloatRGBA(src, texelCount, channels) {
   const out = new Uint16Array(texelCount * 4)
@@ -106,6 +107,37 @@ export function createSkyTSL({ radius, luts }) {
     return { radiance: select(dTop.greaterThan(0.0), radiance, vec3(0.0)), trans: select(dTop.greaterThan(0.0), trans, vec3(1.0)) }
   }
 
+  const transmittanceToSun = (p, sun) => {
+    const r = length(p)
+    const mu = dot(p, sun).div(r)
+    const muHorizon = sqrt(max(float(1.0).sub(float(ATM_BOTTOM * ATM_BOTTOM).div(r.mul(r))), 0.0)).negate()
+    return transmittance(r, mu).mul(smoothstep(muHorizon.sub(0.035), muHorizon.add(0.005), mu))
+  }
+
+  const marchSteps = (camera, ray, sun, dEnd) => {
+    const nu = dot(ray, sun)
+    const dt = dEnd.div(SKY_MARCH_STEPS)
+    const odR = float(0.0).toVar()
+    const odM = float(0.0).toVar()
+    const inscatR = vec3(0.0).toVar()
+    const inscatM = vec3(0.0).toVar()
+    const tView = vec3(1.0).toVar()
+    for (let i = 0; i < SKY_MARCH_STEPS; i++) {
+      const p = camera.add(ray.mul(dt.mul(i + 0.5)))
+      const altitude = length(p).sub(ATM_BOTTOM)
+      const dR = exp(altitude.div(-ATM_RAYLEIGH_H)).mul(dt)
+      const dM = exp(altitude.div(-ATM_MIE_H)).mul(dt)
+      odR.addAssign(dR)
+      odM.addAssign(dM)
+      tView.assign(exp(rayleigh.mul(odR).add(odM.mul(ATM_MIE_EXT)).negate()))
+      const t = tView.mul(transmittanceToSun(p, sun))
+      inscatR.addAssign(t.mul(dR))
+      inscatM.addAssign(t.mul(dM))
+    }
+    const radiance = solar.mul(inscatR.mul(rayleigh).mul(rayleighPhase(nu)).add(inscatM.mul(ATM_MIE_SCAT).mul(miePhase(nu))))
+    return { radiance, trans: tView }
+  }
+
   const node = Fn(() => {
     const v = normalize(positionLocal)
     const ray = normalize(u.east.mul(v.x).add(u.up.mul(v.y)).add(u.north.mul(v.z))).toVar()
@@ -118,8 +150,8 @@ export function createSkyTSL({ radius, luts }) {
     const mu = dot(camera, ray).div(r)
     const muTangent = sqrt(max(float(1.0).sub(float(ATM_BOTTOM * ATM_BOTTOM).div(r.mul(r))), 0.0)).negate()
     const wSky = smoothstep(muTangent.sub(ATM_HORIZON_BLEND_MU), muTangent.add(ATM_HORIZON_BLEND_MU), mu)
-    const sky = marchRadiance(camera, ray, sun, distToTop(r, mu))
-    const ground = marchRadiance(camera, ray, sun, max(distToGround(r, mu), 1e-3))
+    const sky = marchSteps(camera, ray, sun, distToTop(r, mu))
+    const ground = marchSteps(camera, ray, sun, max(distToGround(r, mu), 1e-3))
     const skyVisible = distToTop(r, mu).greaterThan(0.0).and(rIn.lessThanEqual(ATM_TOP).or(dtIn.greaterThanEqual(0.0)))
     const radianceBase = select(skyVisible, mix(ground.radiance, sky.radiance, wSky), vec3(0.0))
     const trans = select(skyVisible, mix(vec3(0.0), sky.trans, wSky), vec3(1.0))
