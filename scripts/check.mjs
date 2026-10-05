@@ -80,6 +80,12 @@ async function main() {
   console.log(`check: transform-validation guardrail intact (${GUARDED.length} write-boundary files)`)
 
   try {
+    await execFileAsync(process.execPath, ['scripts/check-cache-keys.mjs'])
+  } catch (e) {
+    console.error('check: bake code-version closure:', (e.stderr || e.message || '').toString().trim())
+    process.exit(1)
+  }
+  try {
     await execFileAsync(process.execPath, ['scripts/bundle-apps-manifest.mjs', '--if-changed'])
     console.log('check: apps-manifest.json regenerated from current sources')
   } catch (e) {
