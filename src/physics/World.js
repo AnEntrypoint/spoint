@@ -306,6 +306,10 @@ export class PhysicsWorld {
   readCharacterWallNormals(id, out) { return this._charMgr.readWallNormals(id, out) }
   removeCharacter(id) { this._charMgr.removeCharacter(id) }
   get characters() { return this._charMgr.characters }
+  wasmHeapBytes() {
+    const J = this.Jolt
+    return { total: J._emscripten_bind_JoltInterface_sGetTotalMemory_0(), free: J._emscripten_bind_JoltInterface_sGetFreeMemory_0() }
+  }
   createStateRecorder() { return new this.Jolt.StateRecorderImpl() }
 
   saveExactState(recorder) {

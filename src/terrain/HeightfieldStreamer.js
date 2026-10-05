@@ -1,7 +1,8 @@
 const _now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
 const NON_FINITE_HEIGHT_FALLBACK_M = -1000
-const FIELD_BYTE_BUDGET = 64 * 1024 * 1024
-const FIELD_BYTES_PER_SAMPLE = 8
+const FIELD_WASM_BUDGET_BYTES = 32 * 1024 * 1024
+const FIELD_WASM_BYTES_PER_SAMPLE = 4
+const WASM_RESERVE_FREE_BYTES = 64 * 1024 * 1024
 const yieldToLoop = () => new Promise(r => (typeof setImmediate === 'function' ? setImmediate(r) : setTimeout(r, 0)))
 
 export async function sampleTerrainGridChunked({ heightFn, N, spacing, cornerX, cornerZ, budgetMs = 2, isAborted = () => false }) {
@@ -61,7 +62,8 @@ export function createTerrainStreamer(opts = {}) {
   const intervalMs = Number.isFinite(opts.intervalMs) ? opts.intervalMs : 300
   const budgetMs = Number.isFinite(opts.budgetMs) && opts.budgetMs > 0 ? opts.budgetMs : 2
   let N = Math.max(2, Math.round(extent / resolution)); if (N % 2 !== 0) N += 1
-  const maxFields = Number.isInteger(opts.maxFields) && opts.maxFields > 0 ? opts.maxFields : Math.max(1, Math.floor(FIELD_BYTE_BUDGET / (N * N * FIELD_BYTES_PER_SAMPLE)))
+  const maxFields = Number.isInteger(opts.maxFields) && opts.maxFields > 0 ? opts.maxFields : Math.max(1, Math.floor(FIELD_WASM_BUDGET_BYTES / (N * N * FIELD_WASM_BYTES_PER_SAMPLE)))
+  const fieldWasmBytes = N * N * FIELD_WASM_BYTES_PER_SAMPLE
   const spacing = extent / (N - 1)
   const half = extent / 2
   const fields = []
@@ -142,6 +144,11 @@ export function createTerrainStreamer(opts = {}) {
       if (fields.length >= maxFields) retireUnowned(players)
       if (fields.length >= maxFields) {
         if (!capWarned) { console.warn(`[terrain] streamer: ${need.uncovered} player(s) uncovered, heightfield cap ${maxFields} reached`); capWarned = true }
+        break
+      }
+      const heap = typeof physics.wasmHeapBytes === 'function' ? physics.wasmHeapBytes() : null
+      if (heap && heap.free - fieldWasmBytes < WASM_RESERVE_FREE_BYTES) {
+        if (!capWarned) { console.error(`[terrain] streamer: refusing a new heightfield, the Jolt wasm heap has ${heap.free} of ${heap.total} B free and ${WASM_RESERVE_FREE_BYTES} B stay reserved for the rest of the world; ${fields.length} fields resident, ${need.uncovered} player(s) uncovered`); capWarned = true }
         break
       }
       capWarned = false
