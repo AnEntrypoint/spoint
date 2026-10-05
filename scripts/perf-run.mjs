@@ -662,6 +662,7 @@ async function main() {
           return out
         })(),
         marks: performance.getEntriesByType('mark').filter((m) => m.name.startsWith('boot:')).map((m) => ({ name: m.name, at: +m.startTime.toFixed(1) })),
+        vegSpans: performance.getEntriesByType('measure').filter((m) => m.name.startsWith('boot:veg:')).map((m) => ({ name: m.name.slice(9), start: +m.startTime.toFixed(1), ms: +m.duration.toFixed(1) })),
         measures: performance.getEntriesByType('measure').map((m) => ({ name: m.name, at: +m.startTime.toFixed(1), dur: +m.duration.toFixed(1) })),
       }
     })
@@ -709,6 +710,13 @@ async function main() {
     const vegTotal = inPage.veg ? inPage.veg.totalInstances : 0
     const drawsMeasured = draws.length > 0 && draws.some((d) => d > 0)
     const reachability = { sceneryBuiltMarked, vegTotalInstances: vegTotal, vegNonZero: vegTotal > 0, drawsNonZero: drawsMeasured, pass: sceneryBuiltMarked && vegTotal > 0 && drawsMeasured }
+
+    const vegSpanTotals = {}
+    for (const sp of inPage.vegSpans || []) {
+      const step = sp.name.slice(sp.name.lastIndexOf(':') + 1)
+      const t = vegSpanTotals[step] || (vegSpanTotals[step] = { count: 0, totalMs: 0, maxMs: 0 })
+      t.count++; t.totalMs = +(t.totalMs + sp.ms).toFixed(1); t.maxMs = Math.max(t.maxMs, sp.ms)
+    }
 
     const out = {
       label: LABEL,
@@ -795,6 +803,8 @@ async function main() {
       shadow: inPage.shadow,
       shadowPipeline: inPage.shadowPipeline,
       bootMarks: inPage.marks,
+      vegSpanTotals,
+      vegSpans: inPage.vegSpans,
       reachability,
       perfSession: inPage.perf,
       veg: inPage.veg,
@@ -820,6 +830,7 @@ async function main() {
   for (const e of out.pageErrors.slice(0, 6)) console.log('    pageerror: ' + e)
   for (const e of out.consoleErrors.slice(0, 6)) console.log('    console: ' + e)
   console.log(`  startup: nav->isReady=${tReady}ms  overlayHidden=${tRevealed}ms  nav->inputAccepted=${navToFirstMoveMs}ms`)
+    console.log(`  veg span totals: ${JSON.stringify(vegSpanTotals)}`)
     console.log(`  boot marks: ${inPage.marks.map((m) => m.name + '=' + m.at + 'ms').join('  ')}`)
     console.log(`  shadow: ${JSON.stringify(inPage.shadow)}`)
     console.log(`  vegProfile: ${JSON.stringify(inPage.vegProfile)}`)

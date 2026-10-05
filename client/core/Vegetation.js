@@ -25,6 +25,7 @@ const VEG_SHARED_IMPOSTOR_OPAQUE_DRAW_ORDER = 4
 const BUILD_SLICE_BUDGET_MS = 8
 const VEG_ATTRIBUTE_SCHEMA = { windPhase: 'float', tint: 'vec3' }
 const _tintUniform = new THREE.Vector3()
+const bootSpan = (step, label, t0) => { try { performance.measure('boot:veg:' + label + ':' + step, { start: t0, end: performance.now() }) } catch (_) {} }
 const _leanQ = new THREE.Quaternion()
 const barkTintLuma = (t) => 0.2126 * t[0] + 0.7152 * t[1] + 0.0722 * t[2]
 const SHARED_IMPOSTOR_BAKE = Symbol('shape variants share the species impostor bake')
@@ -137,7 +138,10 @@ export async function createVegetation(opts = {}) {
   for (let i = 0; i < buildList.length; i++) {
     const { name, variant } = buildList[i]
     try {
+      const label = name + '#' + variant
+      let _t = performance.now()
       const sp = buildSpecies(name, Tree, variant, TreePreset)
+      bootSpan('generate', label, _t); _t = performance.now()
       const branchGeo0 = await capGeo(sp.branchGeo, Number.isFinite(cfg.branchTriCap) ? cfg.branchTriCap : 2200)
       const leafGeo0 = await capGeo(sp.leafGeo, Number.isFinite(cfg.leafTriCap) ? cfg.leafTriCap : 1400)
       branchGeo0.computeBoundingBox(); leafGeo0.computeBoundingBox()
@@ -150,9 +154,11 @@ export async function createVegetation(opts = {}) {
       const l1 = await simplifyGeo(leafGeo0, 0.30, false), l2 = await simplifyGeo(leafGeo0, 0.09, true)
       const b2shadow = await simplifyGeo(branchGeo0, 0.07, true)
       for (const g of [b1, b2, l1, l2, b2shadow]) { g.boundingBox = _treeBox.clone(); g.boundingSphere = _treeSph.clone() }
+      bootSpan('simplify', label, _t); _t = performance.now()
       if (isWebGPU) {
         applyWindTSL(sp.branchMat, windTSL); applyTintTSL(sp.branchMat)
         applyWindTSL(sp.leafMat, windTSL); applyTintTSL(sp.leafMat)
+        bootSpan('materials', label, _t); _t = performance.now()
         branch = createWebGPULodInstancer(scene, [
           { geometry: branchGeo0, material: sp.branchMat, distance: 0 },
           { geometry: b1, material: sp.branchMat, distance: D1 },
@@ -166,6 +172,7 @@ export async function createVegetation(opts = {}) {
           { geometry: l1, material: sp.leafMat, distance: D1 },
           { geometry: l2, material: sp.leafMat, distance: D2 },
         ], INIT_CAP, VEG_ATTRIBUTE_SCHEMA, { hysteresis: LOD_HYS })
+        bootSpan('instancers', label, _t); _t = performance.now()
         try {
           if (!_buildImpostor) throw new Error('veg-bisect: impostor disabled (?veg=branch)')
           if (variant > 0) throw SHARED_IMPOSTOR_BAKE
@@ -179,6 +186,7 @@ export async function createVegetation(opts = {}) {
             impMatRef = { map: baked.albedo, normalMap: baked.normalDepth, dispose() { baked.renderTarget.dispose() } }
           }
         } catch (e) { if (e !== SHARED_IMPOSTOR_BAKE) console.warn('[veg] impostor bake failed (mesh-LOD-only):', name, e?.message || e) }
+        bootSpan('atlas', label, _t)
       } else {
         branch = new InstancedMesh2(branchGeo0, applyWind(sp.branchMat, wind), { capacity: INIT_CAP, renderer })
         leaf = new InstancedMesh2(leafGeo0, applyWind(sp.leafMat, wind), { capacity: INIT_CAP, renderer })
@@ -187,6 +195,7 @@ export async function createVegetation(opts = {}) {
           m.perObjectFrustumCulled = true
           m.frustumCulled = false
         }
+        bootSpan('materials', label, _t); _t = performance.now()
         branch.addLOD(b1, branch.material, D1, LOD_HYS); branch.addLOD(b2, branch.material, D2, LOD_HYS)
         leaf.addLOD(l1, leaf.material, D1, LOD_HYS); leaf.addLOD(l2, leaf.material, D2, LOD_HYS)
         for (const mesh of [branch, leaf]) {
@@ -194,6 +203,7 @@ export async function createVegetation(opts = {}) {
             if (child._geometry) { child._geometry.boundingBox = _treeBox.clone(); child._geometry.boundingSphere = _treeSph.clone() }
           }
         }
+        bootSpan('instancers', label, _t); _t = performance.now()
         branch.addShadowLOD(b2shadow, 0)
         branch.addShadowLOD(makeEmptyGeo(), SHADOW_CAST)
         hideLastLevel(branch.LODinfo.shadowRender)
@@ -203,6 +213,7 @@ export async function createVegetation(opts = {}) {
             shadowObj.material = branch.material
           }
         }
+        bootSpan('shadow', label, _t); _t = performance.now()
         if (_shadowCascade0Camera) {
           const _vegBaseShadowHook = branch.onBeforeShadow
           branch.onBeforeShadow = function (renderer, scene, camera, shadowCamera, geometry, depthMaterial, group) {
@@ -231,6 +242,7 @@ export async function createVegetation(opts = {}) {
             impostor = true; impMatRef = impMat
           }
         } catch (e) { if (e !== SHARED_IMPOSTOR_BAKE) console.warn('[veg] impostor bake failed (mesh-LOD-only):', name, e?.message || e) }
+        bootSpan('atlas', label, _t)
         scene.add(branch); scene.add(leaf)
       }
       branch.updateMatrix(); branch.matrixAutoUpdate = false
@@ -240,10 +252,13 @@ export async function createVegetation(opts = {}) {
     } catch (e) { buildErr++; console.error('[veg] species build failed:', name, e?.message || e) }
     const _now = (typeof performance !== 'undefined') ? performance.now() : 0
     if (_now - _buildT0 > BUILD_SLICE_BUDGET_MS) {
+      const _yieldT = performance.now()
       await new Promise(r => (typeof requestAnimationFrame !== 'undefined') ? requestAnimationFrame(() => r()) : setTimeout(r, 0))
+      bootSpan('yield', name + '#' + buildList[i].variant, _yieldT)
       _buildT0 = (typeof performance !== 'undefined') ? performance.now() : 0
     }
   }
+  performance.mark('boot:veg:counts:builds=' + buildList.length + ':materials=' + meshes.length * 2 + ':atlasBakes=' + meshes.filter(m => m.impostor).length + ':buildErrors=' + buildErr)
   const recByKey = new Map(meshes.map(r => [recKey(r.name, r.variant), r]))
 
   try {
@@ -263,6 +278,7 @@ export async function createVegetation(opts = {}) {
   } catch (e) { console.warn('[veg] mip/alpha setup skipped:', e?.message || e) }
 
   let sharedImpostor = null
+  const _sharedT = performance.now()
   if (USE_SHARED_IMPOSTOR) {
     try {
       const impRecs = meshes.filter(r => r.impostor && r.impMat && r.impDims)
@@ -299,6 +315,7 @@ export async function createVegetation(opts = {}) {
       }
     } catch (e) { console.warn('[veg] shared impostor build failed (per-species fallback):', e?.message || e); sharedImpostor = null }
   }
+  bootSpan('shared-atlas', 'all', _sharedT)
   if (isWebGPU && !sharedImpostor) {
     for (const r of meshes) { if (r.impMat) { try { r.impMat.dispose() } catch (_) {} r.impMat = null } }
   }
