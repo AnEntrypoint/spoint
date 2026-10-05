@@ -97,6 +97,7 @@ import { installDevTools } from './core/DevToolsIntegration.js'
 import { assertWorld } from '/src/shared/worldResolve.js'
 import { expandWorldPresets } from '/src/shared/worldPresets.js'
 import { worldPlayerModel, worldEquipment, worldMobileButtons } from '/src/shared/worldDefaults.js'
+performance.mark('boot:modules-evaluated')
 
 const _dbgTerrain = dbg('terrain')
 const _dbgNet = dbg('net')
@@ -194,6 +195,7 @@ try {
       }
     }
     if (!renderer) renderer = createRenderer(isMobileDevice)
+    performance.mark('boot:renderer-ready')
     if (renderer && renderer.isWebGPURenderer) {
       try {
         installStuckPipelineRecovery(renderer, scene)
@@ -380,7 +382,7 @@ function _ensureVegetation(tb) {
   const anchorField = tb.sampler && tb.sampler.anchorField
   const gen = _foliageGen
   const pending = _hmrFactories.createVegetation({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0, shadowPipeline })
-    .then(v => { if (gen !== _foliageGen) { v?.dispose?.(); if (vegetation) window.__veg = vegetation; return } vegetation = v; if (window.__app) window.__app.vegetation = v; sceneOcclusion.register('vegetation', v) })
+    .then(v => { performance.mark('boot:vegetation-created'); if (gen !== _foliageGen) { v?.dispose?.(); if (vegetation) window.__veg = vegetation; return } vegetation = v; if (window.__app) window.__app.vegetation = v; sceneOcclusion.register('vegetation', v) })
     .catch(e => console.error('[veg] init failed:', e?.message || e))
     .finally(() => { if (_foliagePending.vegetation === pending) _foliagePending.vegetation = null })
   _foliagePending.vegetation = pending
@@ -395,7 +397,7 @@ function _ensureRocks(tb) {
   const anchorField = tb.sampler && tb.sampler.anchorField
   const gen = _foliageGen
   const pending = _hmrFactories.createRocks({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0 })
-    .then(r => { if (gen !== _foliageGen) { r?.dispose?.(); if (rocks) window.__rocks = rocks; return } rocks = r; if (window.__app) window.__app.rocks = r; sceneOcclusion.register('rocks', r) })
+    .then(r => { performance.mark('boot:rocks-created'); if (gen !== _foliageGen) { r?.dispose?.(); if (rocks) window.__rocks = rocks; return } rocks = r; if (window.__app) window.__app.rocks = r; sceneOcclusion.register('rocks', r) })
     .catch(e => console.error('[rocks] init failed:', e?.message || e))
     .finally(() => { if (_foliagePending.rocks === pending) _foliagePending.rocks = null })
   _foliagePending.rocks = pending
@@ -420,7 +422,7 @@ function _ensureGrass(tb) {
   const anchorField = tb.sampler && tb.sampler.anchorField
   const gen = _foliageGen
   const pending = _hmrFactories.createGrass({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0, placedModels: worldConfig.entities })
-    .then(g => { if (gen !== _foliageGen) { g?.dispose?.(); if (grass) window.__grass = grass; return } grass = g; if (window.__app) window.__app.grass = g; sceneOcclusion.register('grass', g) })
+    .then(g => { performance.mark('boot:grass-created'); if (gen !== _foliageGen) { g?.dispose?.(); if (grass) window.__grass = grass; return } grass = g; if (window.__app) window.__app.grass = g; sceneOcclusion.register('grass', g) })
     .catch(e => console.error('[grass] init failed:', e?.message || e))
     .finally(() => { if (_foliagePending.grass === pending) _foliagePending.grass = null })
   _foliagePending.grass = pending
@@ -472,6 +474,7 @@ async function _buildWorldScenery() {
       if (window.__app) window.__app.colliderDebug = colliderDebug
       if (typeof location !== 'undefined' && /[?&]drawcollider/.test(location.search)) colliderDebug.setVisible(true)
     } catch (e) { console.error('[colliderDebug] init failed:', e?.message || e) }
+    performance.mark('boot:foliage-started')
     const rp = _ensureRocks(tb), gp = _ensureGrass(tb), vp = _ensureVegetation(tb)
     _revealWorld().catch(e => { _dbgBoot('early world reveal failed:', e?.message || e) })
     await Promise.all([rp, gp, vp].filter(Boolean)); performance.mark('boot:foliage-built'); _hp('after-rocks-grass-veg')
