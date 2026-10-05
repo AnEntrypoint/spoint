@@ -33,6 +33,9 @@ const EXTRA_QUERY = flag('extra', '')
 const ROUTE = flag('walk-route', '')
 const WALK_SPEED = Number(flag('walk-speed', '7'))
 const WALKER = ROUTE.length > 0
+const [VIEW_W, VIEW_H] = String(flag('viewport', '1280x720')).split('x').map(Number)
+const GPU_PASSES = has('gpu-passes')
+const INPUT_WAIT_EFFECTIVE_MS = WALKER ? 0 : INPUT_WAIT_MS
 const ROUTE_WAYPOINTS = ROUTE ? ROUTE.split(';').map((p) => { const n = p.split(',').map(Number); return { x: n[0], z: n[1] } }) : []
 const RELOCATE = /(^|&)(at|bookmark)=/.test(EXTRA_QUERY)
 const HEIGHT_PROBE = has('probe-heights')
@@ -67,7 +70,7 @@ const POS_SRC = `(() => {
 const INSTRUMENT = `(() => {
   const W = window
   if (W.__rig) return
-  const rig = { frames: [], longtasks: [], errors: [], glWindow: null, navStart: performance.timeOrigin }
+  const rig = { frames: [], longtasks: [], errors: [], heapSamples: 0, glWindow: null, navStart: performance.timeOrigin }
   W.__rig = rig
   W.__rigGlCount = 0
   W.__rigGlDraws = 0
@@ -169,9 +172,63 @@ const INSTRUMENT = `(() => {
       tris = info.render.triangles
     }
     if (rig.frames.length < 400000) rig.frames.push([+now.toFixed(2), +dt.toFixed(2), draws, W.__rigGlOn ? W.__rigGlCount : -1, W.__rigGlOn ? W.__rigGlDraws : -1, tris, W.__rigWgpuOn ? W.__rigWgpuCount : -1, W.__rigWgpuOn ? W.__rigWgpuDraws : -1])
+    if (W.__rigHeapOn && performance.memory && rig.heapSamples < 400000) { rig.heapSamples++; W.__rigHeap.push(performance.memory.usedJSHeapSize) }
     requestAnimationFrame(tick)
   }
+  W.__rigHeap = []
+  W.__rigHeapOn = false
   requestAnimationFrame(tick)
+})()`
+
+const GPU_PASS_ARM_SRC = `(() => {
+  const r = window.__app && window.__app.renderer
+  if (!r || !r.backend) return { error: 'no renderer' }
+  const b = r.backend
+  const hasFeature = !!(b.device && b.device.features && b.device.features.has('timestamp-query'))
+  if (!b.trackTimestamp) return { error: 'timestamp tracking off (needs ?gputime=1 and the timestamp-query feature)', trackTimestamp: false, hasFeature }
+  const meta = new Map()
+  const origUid = b.updateTimeStampUID.bind(b)
+  b.updateTimeStampUID = function (ctx) {
+    if (!meta.has(ctx.id)) {
+      const rt = ctx.renderTarget
+      meta.set(ctx.id, { compute: !!ctx.isComputeNode, target: rt ? (rt.width + 'x' + rt.height + (rt.name ? ':' + rt.name : '')) : 'canvas', scene: ctx.scene ? (ctx.scene.name || ctx.scene.type) : null, camera: ctx.camera ? (ctx.camera.name || ctx.camera.type) : null, shadowCamera: !!(ctx.camera && ctx.camera.isOrthographicCamera && rt) })
+    }
+    return origUid(ctx)
+  }
+  const tally = new Map()
+  const perFrameTotals = []
+  const drain = async () => {
+    for (const type of ['render', 'compute']) {
+      try { await r.resolveTimestampsAsync(type) } catch (_) { continue }
+      const pool = b.timestampQueryPool && b.timestampQueryPool[type]
+      if (!pool) continue
+      if (type === 'render' && pool.lastValue > 0 && perFrameTotals.length < 100000) perFrameTotals.push(+pool.lastValue.toFixed(4))
+      for (const [uid, ms] of pool.timestamps) {
+        const parts = uid.split(':')
+        const key = type + ':' + parts[2]
+        const t = tally.get(key) || { n: 0, sum: 0, max: 0 }
+        t.n++; t.sum += ms; if (ms > t.max) t.max = ms
+        tally.set(key, t)
+      }
+      pool.timestamps.clear()
+    }
+  }
+  const iv = setInterval(drain, 250)
+  window.__rigPassStop = async () => {
+    clearInterval(iv)
+    await drain()
+    const passes = []
+    for (const [key, t] of tally) {
+      const id = key.split(':')[1]
+      const m = meta.get(id) || meta.get(Number(id)) || {}
+      passes.push({ type: key.split(':')[0], ctx: id, ...m, samples: t.n, avgMs: +(t.sum / t.n).toFixed(4), maxMs: +t.max.toFixed(3), totalMs: +t.sum.toFixed(2) })
+    }
+    passes.sort((a, c) => c.totalMs - a.totalMs)
+    perFrameTotals.sort((a, c) => a - c)
+    const pc = (p) => perFrameTotals.length ? perFrameTotals[Math.min(perFrameTotals.length - 1, Math.floor(p * perFrameTotals.length))] : null
+    return { hasFeature, canvas: r.domElement ? r.domElement.width + 'x' + r.domElement.height : null, frameGpuMs: { n: perFrameTotals.length, p50: pc(0.5), p95: pc(0.95), p99: pc(0.99) }, passes }
+  }
+  return { ok: true, hasFeature }
 })()`
 
 const GPU_PROBE_PS1 = resolve(OUT_DIR, 'gpu-probe.ps1')
@@ -202,6 +259,10 @@ function aggregateProfile(profile) {
   const byId = new Map()
   for (const n of profile.nodes) byId.set(n.id, n)
   const self = new Map()
+  const incl = new Map()
+  const parentOf = new Map()
+  for (const n of profile.nodes) for (const c of (n.children || [])) parentOf.set(c, n.id)
+  const keyOf = (n) => { const cf = n.callFrame || {}; return (cf.functionName || '(anon)') + ' @ ' + shortUrl(cf.url) + ':' + (cf.lineNumber != null ? cf.lineNumber + 1 : '?') }
   let total = 0
   const samples = profile.samples || []
   const deltas = profile.timeDeltas || []
@@ -213,10 +274,19 @@ function aggregateProfile(profile) {
     const cf = n.callFrame || {}
     const key = (cf.functionName || '(anon)') + ' @ ' + shortUrl(cf.url) + ':' + (cf.lineNumber != null ? cf.lineNumber + 1 : '?')
     self.set(key, (self.get(key) || 0) + us)
+    const seen = new Set()
+    for (let a = n; a; a = byId.get(parentOf.get(a.id))) {
+      const k = a === n ? key : keyOf(a)
+      if (seen.has(k)) continue
+      seen.add(k)
+      incl.set(k, (incl.get(k) || 0) + us)
+    }
   }
   const rows = [...self.entries()].map(([k, us]) => ({ key: k, ms: us / 1000, pct: total ? (100 * us) / total : 0 }))
   rows.sort((a, b) => b.ms - a.ms)
-  return { totalMs: total / 1000, rows }
+  const inclRows = [...incl.entries()].map(([k, us]) => ({ key: k, ms: us / 1000, pct: total ? (100 * us) / total : 0 }))
+  inclRows.sort((a, b) => b.ms - a.ms)
+  return { totalMs: total / 1000, rows, inclRows }
 }
 
 function shortUrl(u) {
@@ -250,12 +320,13 @@ async function main() {
   console.log('[perf-run] server up.')
 
   const args = [...(GPU_ARGS[GPU] || GPU_ARGS.nvidia)]
+  args.push('--enable-precise-memory-info')
   if (GPU === 'igpu') args.push('--disable-features=UseGpuPreferenceForGpuProcess')
   let browser
   const gpuSamples = []
   try {
     browser = await chromium.launch({ headless: true, args })
-    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
+    const page = await browser.newPage({ viewport: { width: VIEW_W, height: VIEW_H } })
     const pageErrors = []
     page.on('pageerror', (e) => pageErrors.push(String(e && e.message || e)))
     await page._send('Page.addScriptToEvaluateOnNewDocument', { source: INSTRUMENT })
@@ -284,6 +355,7 @@ async function main() {
     console.log(`[perf-run] navigating ${url}`)
     const tNav = Date.now()
     await page._send('Profiler.enable').catch(() => {})
+    await page._send('Performance.enable').catch(() => {})
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 })
 
     let readyAt = null
@@ -368,7 +440,7 @@ async function main() {
       }).catch(() => null)
       const seq0 = await seqOf()
       const moved = await (async () => {
-        while (Date.now() - tInput < INPUT_WAIT_MS) {
+        while (Date.now() - tInput < INPUT_WAIT_EFFECTIVE_MS) {
           if (probeDown === null || Date.now() - probeDown > 1800) {
             if (probeDown !== null) await page.keyboard.up(probeLegs[probeIdx % probeLegs.length]).catch(() => {})
             probeIdx++
@@ -524,6 +596,12 @@ async function main() {
     }).catch(() => {})
     console.log('[perf-run] step: perf reset')
     await page.evaluate(() => { const p = window.__perf; if (p && p.reset) p.reset() }).catch(() => {})
+    const metricsBefore = await page._send('Performance.getMetrics').then((r) => Object.fromEntries(r.metrics.map((m) => [m.name, m.value]))).catch(() => null)
+    if (GPU_PASSES) {
+      const armed = await page.evaluate(GPU_PASS_ARM_SRC).catch((e) => ({ error: e.message }))
+      console.log('[perf-run] gpu passes: ' + JSON.stringify(armed))
+    }
+    await page.evaluate(() => { window.__rigHeap.length = 0; window.__rigHeapOn = true }).catch(() => {})
     console.log('[perf-run] step: Profiler.setSamplingInterval + start')
     await page._send('Profiler.setSamplingInterval', { interval: 5000 }).catch(() => {})
     await page._send('Profiler.start').catch(() => {})
@@ -537,6 +615,7 @@ async function main() {
       }).catch((e) => ({ error: e.message }))
       console.log('[perf-run] relocation: ' + JSON.stringify(rel).slice(0, 400))
     }
+    const walkSeqStart = await page.evaluate(() => { const s = window.__client && window.__client.getLocalState ? window.__client.getLocalState() : null; return s ? s.inputSequence : null }).catch(() => null)
     if (WALKER) {
       const started = await page.evaluate(({ route, speed }) => {
         const s = window.__spoint
@@ -623,6 +702,9 @@ async function main() {
     if (WALK && maxDelta < 1) console.log(`[perf-run] ASSERT FAILED: player moved ${maxDelta.toFixed(3)}m over ${SECONDS}s -- not real movement`)
 
     clearInterval(gpuTimer)
+    const metricsAfter = await page._send('Performance.getMetrics').then((r) => Object.fromEntries(r.metrics.map((m) => [m.name, m.value]))).catch(() => null)
+    const gpuPassResult = GPU_PASSES ? await page.evaluate(() => window.__rigPassStop ? window.__rigPassStop() : null).catch((e) => ({ error: e.message })) : null
+    const walkSeqEnd = await page.evaluate(() => { const s = window.__client && window.__client.getLocalState ? window.__client.getLocalState() : null; return s ? s.inputSequence : null }).catch(() => null)
     console.log('[perf-run] step: final Profiler.stop')
     let profile = null
     try {
@@ -700,6 +782,17 @@ async function main() {
     const lt20 = allLong.filter((t) => t.start < 20000)
 
     const prof = aggregateProfile(profile)
+    const mainThreadBreakdown = (metricsBefore && metricsAfter) ? (() => { const d = (k) => +(((metricsAfter[k] || 0) - (metricsBefore[k] || 0)) * 1000).toFixed(1); return { windowMs: +((metricsAfter.Timestamp - metricsBefore.Timestamp) * 1000).toFixed(1), taskMs: d('TaskDuration'), scriptMs: d('ScriptDuration'), layoutMs: d('LayoutDuration'), styleMs: d('RecalcStyleDuration'), layoutCount: Math.round((metricsAfter.LayoutCount || 0) - (metricsBefore.LayoutCount || 0)), styleRecalcCount: Math.round((metricsAfter.RecalcStyleCount || 0) - (metricsBefore.RecalcStyleCount || 0)), jsHeapUsedEndMB: +((metricsAfter.JSHeapUsedSize || 0) / 1048576).toFixed(1) } })() : null
+    const heapStats = await page.evaluate(() => {
+      const h = window.__rigHeap || []
+      const GC_DROP_BYTES = 131072
+      let gc = 0, freed = 0, alloc = 0
+      for (let i = 1; i < h.length; i++) { const d = h[i] - h[i - 1]; if (d < -GC_DROP_BYTES) { gc++; freed += -d } else if (d > 0) alloc += d }
+      alloc += freed
+      const frames = window.__rig ? window.__rig.frames : []
+      const secs = frames.length > 1 ? (frames[frames.length - 1][0] - frames[0][0]) / 1000 : 0
+      return { samples: h.length, gcDropThresholdBytes: GC_DROP_BYTES, gcCount: gc, gcFreedMB: +(freed / 1048576).toFixed(1), allocMBPerSec: secs ? +((alloc / 1048576) / secs).toFixed(2) : null, allocKBPerFrame: h.length > 1 ? +(alloc / 1024 / (h.length - 1)).toFixed(1) : null, windowSec: +secs.toFixed(1), preciseMemory: h.length > 2 && new Set(h.slice(0, 200)).size > 20 }
+    }).catch(() => null)
     let travelled = 0
     for (let i = 1; i < track.length; i++) {
       const a = track[i - 1], b = track[i]
@@ -709,7 +802,12 @@ async function main() {
     const sceneryBuiltMarked = inPage.marks.some((m) => m.name === 'boot:scenery-built')
     const vegTotal = inPage.veg ? inPage.veg.totalInstances : 0
     const drawsMeasured = draws.length > 0 && draws.some((d) => d > 0)
-    const reachability = { sceneryBuiltMarked, vegTotalInstances: vegTotal, vegNonZero: vegTotal > 0, drawsNonZero: drawsMeasured, pass: sceneryBuiltMarked && vegTotal > 0 && drawsMeasured }
+    const walkDone = WALKER ? await page.evaluate(() => window.__walkDone || null).catch(() => null) : null
+    const walkOk = !WALKER || !!(walkDone && !walkDone.error && travelled >= 30)
+    const seqAdvanced = typeof walkSeqStart === 'number' && typeof walkSeqEnd === 'number' && walkSeqEnd > walkSeqStart
+    const inputReached = !WALKER || navToInputSeqMs !== null || seqAdvanced
+    const gpuPassesOk = !GPU_PASSES || !!(gpuPassResult && gpuPassResult.passes && gpuPassResult.passes.length > 0)
+    const reachability = { sceneryBuiltMarked, vegTotalInstances: vegTotal, vegNonZero: vegTotal > 0, drawsNonZero: drawsMeasured, walkOk, travelledM: +travelled.toFixed(1), inputSequenceStart: walkSeqStart, inputSequenceEnd: walkSeqEnd, inputReachedGameMs: navToInputSeqMs, inputReached, gpuPassesOk, pass: sceneryBuiltMarked && vegTotal > 0 && drawsMeasured && walkOk && inputReached && gpuPassesOk }
 
     const vegSpanTotals = {}
     for (const sp of inPage.vegSpans || []) {
@@ -726,7 +824,7 @@ async function main() {
       seconds: SECONDS,
       walk: WALK,
       url,
-      viewport: '1280x720@1',
+      viewport: VIEW_W + 'x' + VIEW_H + '@1',
       idleBefore,
       gpuSamples,
       startup: {
@@ -799,7 +897,10 @@ async function main() {
         first60sMaxMs: +Math.max(0, ...lt60.map((t) => t.dur)).toFixed(1),
         total: inPage.longtasks.length,
       },
-      cpuProfile: { totalMs: +prof.totalMs.toFixed(1), top: prof.rows.slice(0, 30).map((r) => ({ fn: r.key, ms: +r.ms.toFixed(1), pct: +r.pct.toFixed(2) })) },
+      cpuProfile: { totalMs: +prof.totalMs.toFixed(1), top: prof.rows.slice(0, 30).map((r) => ({ fn: r.key, ms: +r.ms.toFixed(1), pct: +r.pct.toFixed(2) })), topInclusive: prof.inclRows.slice(0, 30).map((r) => ({ fn: r.key, ms: +r.ms.toFixed(1), pct: +r.pct.toFixed(2) })), gcSelfMs: +(prof.rows.filter((r) => r.key.startsWith('(garbage collector)')).reduce((a, r) => a + r.ms, 0)).toFixed(1) },
+      mainThreadMs: mainThreadBreakdown,
+      heapStats,
+      gpuPasses: gpuPassResult,
       shadow: inPage.shadow,
       shadowPipeline: inPage.shadowPipeline,
       bootMarks: inPage.marks,
@@ -835,7 +936,11 @@ async function main() {
     console.log(`  shadow: ${JSON.stringify(inPage.shadow)}`)
     console.log(`  vegProfile: ${JSON.stringify(inPage.vegProfile)}`)
     console.log(`  graph node stats: ${JSON.stringify(inPage.graphStats)}`)
+    console.log(`  main thread ms: ${JSON.stringify(out.mainThreadMs)}`)
+    console.log(`  heap: ${JSON.stringify(out.heapStats)}  gcSelfMs(profile)=${out.cpuProfile.gcSelfMs}`)
+    if (out.gpuPasses) { console.log(`  gpu frame ms: ${JSON.stringify(out.gpuPasses.frameGpuMs)} canvas=${out.gpuPasses.canvas}`); for (const p of (out.gpuPasses.passes || []).slice(0, 14)) console.log(`    gpu pass ${p.type} ctx${p.ctx} target=${p.target} scene=${p.scene} cam=${p.camera} shadowCam=${p.shadowCamera} avg=${p.avgMs}ms n=${p.samples} total=${p.totalMs}ms`) }
     console.log(`  cpu profile total=${out.cpuProfile.totalMs}ms`)
+    for (const r of out.cpuProfile.topInclusive.slice(0, 30)) console.log(`    incl ${r.pct.toFixed(2)}%  ${r.ms}ms  ${r.fn}`)
     for (const r of out.cpuProfile.top.slice(0, 20)) console.log(`    ${r.pct.toFixed(2)}%  ${r.ms}ms  ${r.fn}`)
     console.log(`  gpu idle after: ${JSON.stringify(out.idleAfter)}`)
     console.log(`  written ${OUT_FILE}`)
