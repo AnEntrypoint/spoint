@@ -148,7 +148,9 @@ export class PhysicsIntegration {
     data.onGround = state.swimming ? false : this.physicsWorld.getCharacterGroundState(charId)
     state.onGround = data.onGround
     this._readGroundNormal(charId, state)
-    if (this._applyKillPlane(state)) {
+    const p = state.position
+    const supported = state.onGround && Number.isFinite(p[0] + p[1] + p[2])
+    if (!supported && this._applyKillPlane(state)) {
       this.physicsWorld.setCharacterPosition(charId, state.position)
     }
     return state
