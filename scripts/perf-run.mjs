@@ -691,7 +691,8 @@ async function main() {
     }
     wgpuPerFrame.sort((a, b) => a - b)
     wgpuDrawPerFrame.sort((a, b) => a - b)
-    const draws = wgpuDrawPerFrame.length ? wgpuDrawPerFrame : glDrawPerFrame
+    const wgpuSawDraws = wgpuDrawPerFrame.some((d) => d > 0)
+    const draws = wgpuSawDraws ? wgpuDrawPerFrame : glDrawPerFrame
 
     const allLong = (inPage.startupLongtasks || []).concat(inPage.longtasks || [])
     const lt60 = allLong.filter((t) => t.start < 60000)
@@ -703,6 +704,11 @@ async function main() {
       const a = track[i - 1], b = track[i]
       travelled += Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2])
     }
+
+    const sceneryBuiltMarked = inPage.marks.some((m) => m.name === 'boot:scenery-built')
+    const vegTotal = inPage.veg ? inPage.veg.totalInstances : 0
+    const drawsMeasured = draws.length > 0 && draws.some((d) => d > 0)
+    const reachability = { sceneryBuiltMarked, vegTotalInstances: vegTotal, vegNonZero: vegTotal > 0, drawsNonZero: drawsMeasured, pass: sceneryBuiltMarked && vegTotal > 0 && drawsMeasured }
 
     const out = {
       label: LABEL,
@@ -742,7 +748,7 @@ async function main() {
         max: Math.max(0, ...tris),
       },
       draws: {
-        source: wgpuDrawPerFrame.length ? 'wgpu-encoder-hook' : (glDrawPerFrame.length ? 'gl-context-hook' : 'none'),
+        source: wgpuSawDraws ? 'wgpu-encoder-hook' : (glDrawPerFrame.some((d) => d > 0) ? 'gl-context-hook' : 'none'),
         count: draws.length,
         avg: +(draws.reduce((a, b) => a + b, 0) / Math.max(1, draws.length)).toFixed(1),
         p95: +percentile(draws.slice().sort((a, b) => a - b), 0.95).toFixed(0),
@@ -789,6 +795,7 @@ async function main() {
       shadow: inPage.shadow,
       shadowPipeline: inPage.shadowPipeline,
       bootMarks: inPage.marks,
+      reachability,
       perfSession: inPage.perf,
       veg: inPage.veg,
       travelledM: +travelled.toFixed(1),
@@ -808,6 +815,7 @@ async function main() {
     console.log(`  GL draw calls/frame avg=${out.glDrawCallsPerFrame.avg} p95=${out.glDrawCallsPerFrame.p95} max=${out.glDrawCallsPerFrame.max} (n=${out.glDrawCallsPerFrame.windowFrames})`)
     console.log(`  WebGPU calls/frame avg=${out.wgpuCallsPerFrame.avg} p95=${out.wgpuCallsPerFrame.p95} draws/frame avg=${out.wgpuDrawsPerFrame.avg} max=${out.wgpuDrawsPerFrame.max} (n=${out.wgpuCallsPerFrame.windowFrames})`)
     console.log(`  long tasks: 0-20s=${out.longTasks.first20s} (>100ms ${out.longTasks.first20sOver100}, max ${out.longTasks.first20sMaxMs}ms) | 0-60s=${out.longTasks.first60s} (>100ms ${out.longTasks.first60sOver100}, max ${out.longTasks.first60sMaxMs}ms)`)
+    console.log(`  reachability: ${reachability.pass ? 'PASS' : 'FAIL'} ${JSON.stringify(reachability)}`)
     console.log(`  errors: pageErrors=${out.pageErrors.length} consoleErrors=${out.consoleErrors.length}`)
   for (const e of out.pageErrors.slice(0, 6)) console.log('    pageerror: ' + e)
   for (const e of out.consoleErrors.slice(0, 6)) console.log('    console: ' + e)
