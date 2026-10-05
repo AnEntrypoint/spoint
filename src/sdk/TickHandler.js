@@ -194,6 +194,7 @@ function restoreTrimmedBaselines(sent, kept, staticCount, entityMap, prevMap) {
 
 const _playerCellScratch = new Map()
 const _cellViewersScratch = new Map()
+const _cellShareCache = new Map()
 
 function groupPlayersByCell(players, snapGroups, curGroup, planetRadius, relevanceRadius) {
   _playerCellScratch.clear(); _cellViewersScratch.clear()
@@ -244,6 +245,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     const reducedTickMod = Math.max(1, Math.round(snapshotHz / PLAYER_LOD_REDUCED_HZ))
     _spatialCache.clear()
     _ringCache.clear()
+    _cellShareCache.clear()
     let dynCache = null
     let unmanagedIds = null
     groupPlayersByCell(players, snapGroups, curGroup, planetRadius, relevanceRadius)
@@ -260,18 +262,16 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
       const isNewPlayer = !playerEntityMaps.has(player.id)
       const viewerPos = player.state.position
       const { cellKey, cellFace, cellCx, cellCy, cellsPerFace } = _playerCellScratch.get(player.id)
-      let cached = _spatialCache.get(cellKey)
-      if (!cached) {
-        cached = { nearbyPlayerIds: appRuntime.nearbyPlayerIds(viewerPos, relevanceRadius), relevantIds: appRuntime.getRelevantDynamicIds(viewerPos, relevanceRadius) }
-        _spatialCache.set(cellKey, cached)
-      }
+      let cached = _cellShareCache.get(cellKey)
+      if (!cached) { cached = {}; _cellShareCache.set(cellKey, cached) }
+      const nearbyPlayerIds = appRuntime.nearbyPlayerIds(viewerPos, relevanceRadius)
       let preEncodedPlayers, playerDots, isTiered = false, isFreshToCell = false
-      if (cached.nearbyPlayerIds && cached.nearbyPlayerIds.length > PLAYER_LOD_FULL_COUNT_THRESHOLD) {
+      if (nearbyPlayerIds.length > PLAYER_LOD_FULL_COUNT_THRESHOLD) {
         isTiered = true
-        const tiered = filterEncodedPlayersTiered(allEncodedPlayers, playersById, cached.nearbyPlayerIds, player.id, viewerPos, snapshotSeq, reducedTickMod)
+        const tiered = filterEncodedPlayersTiered(allEncodedPlayers, playersById, nearbyPlayerIds, player.id, viewerPos, snapshotSeq, reducedTickMod)
         preEncodedPlayers = tiered.players; playerDots = tiered.dots.length ? tiered.dots : undefined
       } else {
-        preEncodedPlayers = SnapshotEncoder.filterEncodedPlayersWithSelf(allEncodedPlayers, cached.nearbyPlayerIds, player.id)
+        preEncodedPlayers = SnapshotEncoder.filterEncodedPlayersWithSelf(allEncodedPlayers, nearbyPlayerIds, player.id)
       }
       const scratch = deps.getPlayerScratch(player.id)
       const prevPlayerMap = isNewPlayer ? new Map() : playerEntityMaps.get(player.id)
