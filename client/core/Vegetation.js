@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { guardedGroundHeight } from '/src/terrain/PlanetFrame.js'
 import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 import { createOctahedralImpostorMaterial, computeObjectBoundingSphere, createTextureAtlas } from 'streaming-gltf/octahedral-impostor-ez'
 import { makeImpostorCaptureMaterialTSL } from 'streaming-gltf/octahedral-impostor-display-tsl'
@@ -385,9 +386,8 @@ export async function createVegetation(opts = {}) {
       if (p.y + treeH > _maxY) _maxY = p.y + treeH
     }
     if (_minY === Infinity) {
-      let gh = 0
       const c = placementRing.centre(key)
-      try { gh = frame.groundHeightLocal(c[0], c[1]) } catch (_) {}
+      let gh = guardedGroundHeight('vegetation tile ground height', (x, z) => frame.groundHeightLocal(x, z), 0)(c[0], c[1])
       if (!Number.isFinite(gh)) gh = 0
       _minY = gh - 2; _maxY = gh + 2
     }

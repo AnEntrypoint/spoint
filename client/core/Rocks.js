@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { guardedGroundHeight } from '/src/terrain/PlanetFrame.js'
 import { makeRockSDF, marchRockSurface, ROCK_MESH_RES } from '/src/terrain/RockShapes.js'
 import { placementsForRockChunk, ROCK } from '/src/terrain/RockPlacement.js'
 import { createExactPatchFrame } from './ExactPatchFrame.js'
@@ -159,9 +160,8 @@ export async function createRocks(opts = {}) {
       if (p.y + halfH > _maxY) _maxY = p.y + halfH
     }
     if (_minY === Infinity) {
-      let gh = 0
       const c = placementRing.centre(key)
-      try { gh = frame.groundHeightLocal(c[0], c[1]) } catch (_) {}
+      let gh = guardedGroundHeight('rocks tile ground height', (x, z) => frame.groundHeightLocal(x, z), 0)(c[0], c[1])
       if (!Number.isFinite(gh)) gh = 0
       _minY = gh - 2; _maxY = gh + 2
     }

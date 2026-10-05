@@ -1,4 +1,5 @@
 import { createHeightDelta } from '/src/terrain/HeightDelta.js'
+import { guardedGroundHeight } from '/src/terrain/PlanetFrame.js'
 
 const WINDOW_MARGIN = 1.5
 const BACKFILL_EXTENT_DEFAULT = 48
@@ -42,7 +43,7 @@ export function createSculptOverlay(terrainBackdrop) {
     } else if (brush === 'flatten') {
       const frame = _frame()
       if (!frame || typeof frame.groundHeightLocal !== 'function' || !Number.isFinite(targetHeight)) return false
-      heightDelta.applyFlattenBrush((cx, cz) => frame.groundHeightLocal(cx, cz), x, z, radius, targetHeight, Math.min(1, Math.abs(strength)))
+      heightDelta.applyFlattenBrush(guardedGroundHeight('sculpt flatten brush', (cx, cz) => frame.groundHeightLocal(cx, cz), targetHeight), x, z, radius, targetHeight, Math.min(1, Math.abs(strength)))
     } else {
       heightDelta.applyRaiseBrush(x, z, radius, brush === 'lower' ? -Math.abs(strength) : Math.abs(strength))
     }

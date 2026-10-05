@@ -642,7 +642,7 @@ window.__debugDepthAt = function (px, py) {
     const firstWorldAuth = (firstWorld && floatingOrigin) ? floatingOrigin.toAuthoritative({ x: firstWorld[0], y: firstWorld[1], z: firstWorld[2] }) : (firstWorld ? { x: firstWorld[0], y: firstWorld[1], z: firstWorld[2] } : null)
     const camPosAuth = floatingOrigin ? floatingOrigin.toAuthoritative(camera.position) : camera.position
     const groundH = (window.__terrain && typeof window.__terrain.groundHeightLocal === 'function' && firstWorldAuth)
-      ? window.__terrain.groundHeightLocal(firstWorldAuth.x, firstWorldAuth.z)
+      ? guardedGroundHeight('app pick probe ground', (x, z) => window.__terrain.groundHeightLocal(x, z), null)(firstWorldAuth.x, firstWorldAuth.z)
       : null
     return {
       pixel: [x, y],

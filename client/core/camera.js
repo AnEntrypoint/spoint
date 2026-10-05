@@ -1,7 +1,7 @@
 import * as THREE from 'three'
-import { dbg } from './debug-log.js'
+import { guardedGroundHeight } from '/src/terrain/PlanetFrame.js'
 
-const _dbgCamera = dbg('camera')
+const _groundAt = guardedGroundHeight('camera altitude ground', (x, z) => window.__terrain.frame.groundHeightLocal(x, z), 0)
 const camTarget = new THREE.Vector3()
 const camRaycaster = new THREE.Raycaster()
 const camDir = new THREE.Vector3()
@@ -61,14 +61,12 @@ export function createCameraController(camera, scene) {
     if (dx * dx + dz * dz > ALT_SAMPLE_EPS2) {
       _lastAltSampleX = x; _lastAltSampleZ = z
       let ground = 0
-      try {
-        const f = typeof window !== 'undefined' && window.__terrain && window.__terrain.frame
-        if (f) {
-          const fo = typeof window !== 'undefined' && window.__floatingOrigin
-          const ax = fo ? x + fo.getShift().x : x, az = fo ? z + fo.getShift().z : z
-          ground = f.groundHeightLocal(ax, az)
-        }
-      } catch (e) { _dbgCamera('groundHeightLocal sample failed:', e?.message || e) }
+      const f = typeof window !== 'undefined' && window.__terrain && window.__terrain.frame
+      if (f) {
+        const fo = typeof window !== 'undefined' && window.__floatingOrigin
+        const ax = fo ? x + fo.getShift().x : x, az = fo ? z + fo.getShift().z : z
+        ground = _groundAt(ax, az)
+      }
       const alt = Math.max(0, y - ground)
       _cachedAltMul = Math.max(ALT_SPEED_MIN, Math.min(ALT_SPEED_MAX, ALT_SPEED_K * Math.sqrt(alt)))
     }

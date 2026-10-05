@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { guardedGroundHeight } from '/src/terrain/PlanetFrame.js'
 import { components as C } from 'anentrypoint-design'
 import { MSG } from '/src/protocol/MessageTypes.js'
 import { showToast } from './EditPanelDOM.js'
@@ -627,7 +628,8 @@ export function createEditor({ scene, camera, renderer, client, entityMeshes, pl
     mesh.renderOrder = -1
     const authX = meta.center[0], authZ = meta.center[1]
     let groundY = 0
-    try { const f = window.__terrain && window.__terrain.frame; if (f) groundY = f.groundHeightLocal(authX, authZ) } catch (_) {}
+    const ef = window.__terrain && window.__terrain.frame
+    if (ef) groundY = guardedGroundHeight('editor authoritative ground', (x, z) => ef.groundHeightLocal(x, z), groundY)(authX, authZ)
     const fo = window.__floatingOrigin
     if (fo) { const r = fo.toRender({ x: authX, y: groundY + MINIMAP_OVERLAY_GROUND_CLEARANCE, z: authZ }); mesh.position.copy(r) }
     else mesh.position.set(authX, groundY + MINIMAP_OVERLAY_GROUND_CLEARANCE, authZ)

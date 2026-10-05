@@ -1,3 +1,4 @@
+import { guardedGroundHeight } from '/src/terrain/PlanetFrame.js'
 import { resolveTarget } from '/src/shared/relocation.js'
 import { listBookmarks } from '/src/shared/bookmarks.js'
 import { searchBookmark } from './RelocationSearch.js'
@@ -25,7 +26,7 @@ function requireClient() {
 function planet() {
   const t = window.__terrain
   if (!t || !t.frame) return null
-  return { frame: t.frame, heightAt: (x, z) => t.frame.groundHeightLocal(x, z), sampler: t.sampler, seed: t.seed }
+  return { frame: t.frame, heightAt: guardedGroundHeight('relocation ground height', (x, z) => t.frame.groundHeightLocal(x, z), 0), sampler: t.sampler, seed: t.seed }
 }
 
 function bookmarkTable() {

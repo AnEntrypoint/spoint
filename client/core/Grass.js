@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { guardedGroundHeight } from '/src/terrain/PlanetFrame.js'
 import { InstancedMesh2 } from '@three.ez/instanced-mesh'
 import { createExactPatchFrame } from './ExactPatchFrame.js'
 import { createCullFreeze, setInstancedCullAuto } from './CullFreeze.js'
@@ -118,8 +119,7 @@ export async function createGrass(opts = {}) {
       for (const en of entries) { try { targetMesh.setUniformAt(en.id, 'windPhase', en.windPhase); targetMesh.setUniformAt(en.id, 'tint', en.tint); targetMesh.setUniformAt(en.id, 'instShadow', en.shadow) } catch (_) {} }
     }
     if (_minY === Infinity) {
-      let gh = 0
-      try { gh = frame.groundHeightLocal(centerX, centerZ) } catch (_) {}
+      let gh = guardedGroundHeight('grass tile ground height', (x, z) => frame.groundHeightLocal(x, z), 0)(centerX, centerZ)
       if (!Number.isFinite(gh)) gh = 0
       _minY = gh - 1; _maxY = gh + 1
     }
