@@ -80,6 +80,7 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
     poolCover: uniform(TD.poolCover),
     wetness: uniform(0),
     reliefShade: uniform(TD.reliefShade),
+    albedoOverride: uniform(new THREE.Vector4(0, 0, 0, 0)),
     morphSplitDist: uniform(0),
     morphDistFactor: uniform(1),
     morphMaxLevel: uniform(0),
@@ -168,7 +169,8 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
     const splat = surfaceSplat({ snoise3: spec.snoise3, u, n, dir0, h: vH, slope, rockSlope, humid: vClim.y, temp: vClim.x, biomeC, pxWorld, camDist: length(vRelP), worldRel: vRelP, texWarp: vWarp })
     texDnP.assign(splat.texDn)
     poolP.assign(splat.pool.mul(float(1.0).sub(smoothstep(u.poolSpec.z, u.poolSpec.w, slope))).mul(wet))
-    return vec4(splat.albedo.mul(mix(1.0, WET_DARKEN, wet)), 1.0)
+    const albedo = mix(splat.albedo, u.albedoOverride.rgb, u.albedoOverride.a)
+    return vec4(albedo.mul(mix(1.0, WET_DARKEN, wet)), 1.0)
   })()
   const nRelief = select(u.reliefShade.greaterThan(1.0), normalize(dir0.add(n.sub(dir0).mul(u.reliefShade))), n)
   const nLit = normalize(nRelief.add(texDnP))

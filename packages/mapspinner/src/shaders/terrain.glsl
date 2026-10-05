@@ -496,6 +496,7 @@ uniform float uTexNrmK;
 uniform float uTexMix;
 uniform float uTexWarp;
 uniform float uReliefShade;
+uniform vec4 uAlbedoOverride;
 uniform float uTexPhoto;
 uniform float uTexPhotoNear;
 uniform vec4 uSurfMeanL;
@@ -921,6 +922,7 @@ void main() {
         fragColor = vec4(col, 1.0); return;
     }
 #endif
+    albedo = mix(albedo, uAlbedoOverride.rgb, uAlbedoOverride.a);
     if (displayMode == 4) { fragColor = vec4(albedo, 1.0); return; }
     if (displayMode == 2) { fragColor = vec4(albedo, 1.0); return; }
 

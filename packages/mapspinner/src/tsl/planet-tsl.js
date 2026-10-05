@@ -252,6 +252,8 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
       if (opts.sky !== false && !skyClampReleased) skyClampReleased = releaseBackgroundNegativeClamp(renderer, scene)
     }
     u.reliefShade.value = typeof window !== 'undefined' && Number.isFinite(window.__reliefShade) ? window.__reliefShade : TD.reliefShade
+    const albedoOverride = typeof window !== 'undefined' && Array.isArray(window.__albedoOverride) && window.__albedoOverride.length === 4 ? window.__albedoOverride : [0, 0, 0, 0]
+    u.albedoOverride.value.set(albedoOverride[0], albedoOverride[1], albedoOverride[2], albedoOverride[3])
     const pool = resolvePoolParams()
     u.poolLo.value.set(pool.lo[0], pool.lo[1], pool.lo[2], pool.lo[3])
     u.poolHi.value.set(pool.hi[0], pool.hi[1], pool.hi[2], pool.hi[3])

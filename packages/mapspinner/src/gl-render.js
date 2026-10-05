@@ -1299,6 +1299,8 @@ export async function initMapspinnerRender(gl, opts = {}) {
     _chuSet1f(U, chu, 'uPoolCover', _pool.cover);
     _chuSet1f(U, chu, 'uFlatNormal',      _g('flatNormal', TD.flatNormal));
     _chuSet1f(U, chu, 'uReliefShade',    _g('reliefShade', TD.reliefShade));
+    const _ao = (typeof window !== 'undefined' && Array.isArray(window.__albedoOverride) && window.__albedoOverride.length === 4) ? window.__albedoOverride : [0, 0, 0, 0];
+    _chuSet4f(U, chu, 'uAlbedoOverride', _ao[0], _ao[1], _ao[2], _ao[3]);
     _chuSet1f(U, chu, 'uSkyFill',        _g('skyFill', TD.skyFill));
     _chuSet1f(U, chu, 'uTerminatorGlow', _g('terminatorGlow', TD.terminatorGlow));
     _chuSet1f(U, chu, 'uNightLights',    _g('nightLights', TD.nightLights));
