@@ -109,6 +109,16 @@ export function createTerrainStreamer(opts = {}) {
   }
   function snapCorner(c) { return Math.round((c - half) / spacing) * spacing }
 
+  function coversPosition(x, z) {
+    const p = lattice ? lattice.toLattice(x, z) : [x, z]
+    return fields.some(f => chebyshev(p, f.center) <= half)
+  }
+
+  function groundlessCenters() {
+    const uncovered = validCenters().filter(p => !fields.some(f => chebyshev(p, f.center) <= half))
+    return lattice ? uncovered.map(p => lattice.toChart(p[0], p[1])) : uncovered
+  }
+
   function seedFromResident(cornerX, cornerZ, gridN, gridSpacing, epoch, activeLattice) {
     if (gridN !== N || !fields.length) return null
     const samples = new Float32Array(gridN * gridN).fill(NaN)
@@ -344,8 +354,9 @@ export function createTerrainStreamer(opts = {}) {
   }
 
   return {
-    start, stop, prepareFields, installPrepared, preparedSurfaceY, setLattice, placeAllFields,
+    start, stop, prepareFields, installPrepared, preparedSurfaceY, setLattice, placeAllFields, coversPosition,
     cover: points => enqueue(() => coverPoints(points)),
+    get groundlessPlayers() { return groundlessCenters() },
     get lattice() { return lattice },
     get liveHeightFn() { return heightFn },
     get coverRadius() { return coverRadius },

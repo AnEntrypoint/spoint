@@ -62,10 +62,24 @@ function staticCollidersPendingNear(ctx, p) {
   return false
 }
 
+function terrainFieldMissingAt(ctx, p) {
+  const streamer = ctx._terrainStreamer
+  if (!streamer || typeof streamer.coversPosition !== 'function') return false
+  return !streamer.coversPosition(p[0], p[2])
+}
+
 export function holdSpawnUntilGrounded(ctx, playerId, sp, { rejoin = false } = {}) {
   const player = ctx.playerManager.getPlayer(playerId)
   if (!player) return
+  let groundlessWarned = false
   const probeGroundY = () => {
+    if (terrainFieldMissingAt(ctx, sp)) {
+      if (!groundlessWarned) {
+        groundlessWarned = true
+        console.warn(`[terrain] holding player ${playerId} at chart-local (${sp[0].toFixed(0)}, ${sp[2].toFixed(0)}): no heightfield collider covers it yet, so it is held until its field lands (groundless players now: ${JSON.stringify(ctx._terrainStreamer.groundlessPlayers.map(p => [Math.round(p[0]), Math.round(p[1])]))})`)
+      }
+      return null
+    }
     if (staticCollidersPendingNear(ctx, sp)) return null
     if (!rejoin) return probeSpawnGroundY(ctx, sp)
     if (!ctx.physics || typeof ctx.physics.raycast !== 'function') return null
