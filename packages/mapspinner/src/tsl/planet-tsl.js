@@ -10,7 +10,7 @@ import { resolvePoolParams, resolveWetness } from '../pool-params.js'
 import { bakeHpfTexels } from './ops-js.js'
 import { assertHashVersion, HASH_VERSION_FLOAT } from './height-spec.js'
 import { createHeightProbeTSL } from './height-probe-tsl.js'
-import { createSkyTSL } from './sky-tsl.js'
+import { createSkyTSL, releaseBackgroundNegativeClamp } from './sky-tsl.js'
 import { bakeAtmosphereLUTs } from '../atmosphere-lut-job.js'
 import { runModuleWorkerJob } from '../worker-job.js'
 import { createTerrainMaterialTSL, makeHpfTexture, makeSurfaceTextures } from './terrain-material-tsl.js'
@@ -248,6 +248,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
       sky.update({ camWorldPos, sunDir: sunDir || DEFAULT_SUN_DIR, view })
       lighting.update({ sunLight: view.sunLight })
       if (opts.sky !== false && scene.backgroundNode !== sky.node) scene.backgroundNode = sky.node
+      if (opts.sky !== false) releaseBackgroundNegativeClamp(renderer, scene)
     }
     u.reliefShade.value = typeof window !== 'undefined' && Number.isFinite(window.__reliefShade) ? window.__reliefShade : TD.reliefShade
     const pool = resolvePoolParams()

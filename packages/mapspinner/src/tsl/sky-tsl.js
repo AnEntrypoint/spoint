@@ -194,3 +194,15 @@ export function createSkyTSL({ radius, luts }) {
 
   return { node, update, dispose, uniforms: u, marchRadiance, transmittanceToSunAtGround, solarIrradiance: solar }
 }
+
+export function releaseBackgroundNegativeClamp(renderer, scene) {
+  const background = renderer._background
+  if (!background || typeof background.get !== 'function') throw new Error('three renderer no longer exposes _background; the sky cannot keep negative scene-linear red')
+  const { backgroundMesh, backgroundMeshNode } = background.get(scene)
+  if (!backgroundMesh) return false
+  const material = backgroundMesh.material
+  if (material.fragmentNode !== null) return true
+  material.fragmentNode = backgroundMeshNode
+  material.needsUpdate = true
+  return true
+}
