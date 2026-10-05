@@ -147,7 +147,7 @@ export function surfaceSplat({ snoise3, u, n, dir0, h, slope, rockSlope, humid, 
     const tinted = mix(albedo0, biomeC, float(TD.biomeTint).mul(clamp(w4.z, 0.0, 1.0).mul(-0.85).add(1.0)))
     albedo.assign(mix(biomeC, tinted.mul(TD.texBright), texFarFade))
     const safeNrm = select(dot(texNrm, texNrm).greaterThan(1e-12), texNrm.div(length(texNrm).max(1e-6)), vec3(0.0))
-    texDn.assign(safeNrm.mul(k.mul(TD.texNrmK)).mul(texFade))
+    texDn.assign(safeNrm.mul(k.mul(u.texNrmK)).mul(texFade))
   })
   return { albedo, texDn, pool }
 }

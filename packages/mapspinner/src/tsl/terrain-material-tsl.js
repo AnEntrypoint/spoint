@@ -81,6 +81,8 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
     poolCover: uniform(TD.poolCover),
     wetness: uniform(0),
     reliefShade: uniform(TD.reliefShade),
+    texNrmK: uniform(TD.texNrmK),
+    flatNormal: uniform(TD.flatNormal),
     bcRock: uniform(new THREE.Vector3(...TD.bcRock)),
     albedoOverride: uniform(new THREE.Vector4(0, 0, 0, 0)),
     morphSplitDist: uniform(0),
@@ -158,7 +160,7 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
   })()
 
   const dir0 = normalize(vDir)
-  const n = normalize(mix(normalize(vN), dir0, NORMAL_TOWARD_UP))
+  const n = select(u.flatNormal.greaterThan(0.5), dir0, normalize(mix(normalize(vN), dir0, NORMAL_TOWARD_UP)))
   const slope = float(1.0).sub(max(0.0, dot(n, dir0)))
   const rockSlope = clamp(slope, 0.0, 1.0)
   const pxWorld = max(length(fwidth(vRelP)), 0.001)
