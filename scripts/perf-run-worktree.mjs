@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { removeWorktreeSafely } from './lib/worktree-safe.mjs'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const argv = process.argv.slice(2)
@@ -54,12 +55,8 @@ function mirrorNodeModules(srcDir, dstDir) {
 }
 
 function removeWorktree() {
-  for (const p of links.reverse()) { try { rmdirSync(p) } catch (e) { console.error('[worktree] could not unlink junction ' + p + ': ' + e.message) } }
-  for (const p of copies) { try { unlinkSync(p) } catch (_) {} }
-  const nm = join(wt, 'node_modules')
-  if (existsSync(nm)) rmSync(nm, { recursive: true, force: true })
-  git(['worktree', 'remove', '--force', wt])
-  console.log('[worktree] removed ' + wt)
+  const res = removeWorktreeSafely({ repo: ROOT, worktree: wt })
+  console.log('[worktree] removed ' + wt + ' ' + JSON.stringify(res))
 }
 
 let exitCode = 1
