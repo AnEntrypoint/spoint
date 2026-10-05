@@ -69,6 +69,11 @@ export function createServerAPI(ctx) {
         ctx.gravity = [...worldDef.gravity]
         physicsIntegration.config.gravity = [...worldDef.gravity]
       }
+      if (worldDef.movement && Object.keys(worldDef.movement).length) {
+        for (const key of Object.keys(ctx.movement)) delete ctx.movement[key]
+        Object.assign(ctx.movement, worldDef.movement)
+        if (ctx.rebuildTickHandler) ctx.rebuildTickHandler()
+      }
       const { loaded: _loadedApps } = await appLoader.loadAll()
       const _loadedSet = new Set(_loadedApps)
       const _missingApps = new Set()

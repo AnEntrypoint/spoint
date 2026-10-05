@@ -58,13 +58,29 @@ export async function createServerDeps(config, tickRate) {
   return { physics, emitter, eventBus, eventLog, storage, tickSystem, playerManager, networkState, lagCompensator, physicsIntegration, connections, sessions, inspector, reloadManager, appRuntime, appLoader, stageLoader, sdkRoot: resolvedSdkRoot, _ctxRef }
 }
 
+function buildTickHandler(ctx) {
+  return createTickHandler({
+    networkState: ctx.networkState, playerManager: ctx.playerManager, physicsIntegration: ctx.physicsIntegration,
+    lagCompensator: ctx.lagCompensator, physics: ctx.physics, appRuntime: ctx.appRuntime,
+    connections: ctx.connections, movement: ctx.movement, stageLoader: ctx.stageLoader,
+    eventLog: ctx.eventLog, tickRate: ctx.tickRate,
+    getRelevanceRadius: () => ctx.currentWorldDef?.relevanceRadius || 0,
+    getNetcodeConfig: () => ctx.currentWorldDef?.netcode || null,
+    getWorldTimeOfDayConfig: () => ctx.currentWorldDef?.terrain?.timeOfDay || null,
+    getWorldWeatherConfig: () => ctx.currentWorldDef?.terrain?.weather || null,
+    onAutoSave: () => { saveWorldSnapshot(ctx).catch(e => console.error('[world-persistence] periodic save failed:', e.message)) }
+  })
+}
+
 export function wireServerHandlers(ctx) {
-  const { networkState, playerManager, physicsIntegration, lagCompensator, physics, appRuntime, connections, movement, tickRate, tickSystem, stageLoader, eventLog, reloadManager, sdkRoot } = ctx
+  const { networkState, playerManager, physicsIntegration, lagCompensator, physics, appRuntime, connections, movement, tickRate, tickSystem, eventLog, reloadManager, sdkRoot } = ctx
   const worldPath = ctx.config?.worldPath || null
   const worldConfigUrl = worldPath ? pathToFileURL(worldPath).href : null
-  const reloadHandlers = createReloadHandlers({ networkState, playerManager, physicsIntegration, lagCompensator, physics, appRuntime, connections, movement, tickRate, tickSystem, worldConfigPath: worldConfigUrl, getRelevanceRadius: () => ctx.currentWorldDef?.relevanceRadius || 0, getNetcodeConfig: () => ctx.currentWorldDef?.netcode || null,  getWorldTimeOfDayConfig: () => ctx.currentWorldDef?.terrain?.timeOfDay || null, getWorldWeatherConfig: () => ctx.currentWorldDef?.terrain?.weather || null, onAutoSave: () => { saveWorldSnapshot(ctx).catch(e => console.error('[world-persistence] periodic save failed:', e.message)) } })
+  const onAutoSave = () => { saveWorldSnapshot(ctx).catch(e => console.error('[world-persistence] periodic save failed:', e.message)) }
+  const reloadHandlers = createReloadHandlers({ networkState, playerManager, physicsIntegration, lagCompensator, physics, appRuntime, connections, movement, tickRate, tickSystem, worldConfigPath: worldConfigUrl, getRelevanceRadius: () => ctx.currentWorldDef?.relevanceRadius || 0, getNetcodeConfig: () => ctx.currentWorldDef?.netcode || null,  getWorldTimeOfDayConfig: () => ctx.currentWorldDef?.terrain?.timeOfDay || null, getWorldWeatherConfig: () => ctx.currentWorldDef?.terrain?.weather || null, onAutoSave })
   ctx.reloadHandlers = reloadHandlers
-  ctx.setTickHandler(createTickHandler({ networkState, playerManager, physicsIntegration, lagCompensator, physics, appRuntime, connections, movement, stageLoader, eventLog, tickRate, getRelevanceRadius: () => ctx.currentWorldDef?.relevanceRadius || 0, getNetcodeConfig: () => ctx.currentWorldDef?.netcode || null,  getWorldTimeOfDayConfig: () => ctx.currentWorldDef?.terrain?.timeOfDay || null, getWorldWeatherConfig: () => ctx.currentWorldDef?.terrain?.weather || null, onAutoSave: () => { saveWorldSnapshot(ctx).catch(e => console.error('[world-persistence] periodic save failed:', e.message)) } }))
+  ctx.rebuildTickHandler = () => ctx.setTickHandler(buildTickHandler(ctx))
+  ctx.rebuildTickHandler()
   ctx.onClientConnect = createConnectionHandlers(ctx).onClientConnect
   ctx.setupSDKWatchers = () => {
     const reloadTick = async () => ctx.setTickHandler(await reloadHandlers.reloadTickHandler())
