@@ -201,7 +201,7 @@ export function createStaticHandler(dirs, opts = {}) {
         if (!isNodeModulesLink && realFp !== baseResolved && !realFp.startsWith(baseResolved + sep)) continue
         const ext = extname(fp)
         const headers = { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' }
-        const isRevalidatable = ext === '.js' || ext === '.mjs' || ext === '.html' || ext === '.css'
+        const isRevalidatable = ext === '.js' || ext === '.mjs' || ext === '.html' || ext === '.css' || CONTENT_HASHED_EXTENSIONS.has(ext)
 
         const skipEarlyHints = req.headers['x-spoint-edge-proxy'] === '1'
         if (ext === '.html' && getWorldInfo && !skipEarlyHints && typeof res.writeEarlyHints === 'function') {
@@ -219,7 +219,7 @@ export function createStaticHandler(dirs, opts = {}) {
 
         if (isRevalidatable) {
           headers['Cache-Control'] = 'no-cache, must-revalidate'
-        } else if (ext === '.glb' || ext === '.vrm' || ext === '.gltf' || ext === '.wasm' || CONTENT_HASHED_EXTENSIONS.has(ext)) {
+        } else if (ext === '.glb' || ext === '.vrm' || ext === '.gltf' || ext === '.wasm') {
           headers['Cache-Control'] = 'public, max-age=86400, immutable'
         } else if (IMAGE_EXTENSIONS.has(ext)) {
           headers['Cache-Control'] = IMAGE_CACHE_CONTROL
