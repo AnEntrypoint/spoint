@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { execFile } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { promisify } from 'node:util'
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -15,6 +15,16 @@ const HAND_MAINTAINED = join(ROOT, 'client/editor/sdk-typings.d.ts')
 const GENERATED_OUT = join(ROOT, 'client/editor/sdk-typings.generated.d.ts')
 const TSC_BIN = join(ROOT, 'node_modules/typescript/bin/tsc')
 const CHECK_ONLY = process.argv.includes('--check')
+const FROM_HEAD = process.argv.includes('--from-head')
+const SOURCE_REL = 'src/apps/AppContext.js'
+
+function headSourceText() {
+  return execFileSync('git', ['show', `HEAD:${SOURCE_REL}`], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024
+  })
+}
 
 function findEmittedDeclaration(root, fileName) {
   const stack = [root]
@@ -52,7 +62,16 @@ async function main() {
   }
 
   const tmp = mkdtempSync(join(tmpdir(), 'sdk-typings-'))
+  let probe = null
   try {
+    let tscTarget = SOURCE
+    let emittedName = 'AppContext.d.ts'
+    if (FROM_HEAD) {
+      probe = join(dirname(SOURCE), 'AppContext.headprobe.js')
+      writeFileSync(probe, headSourceText())
+      tscTarget = probe
+      emittedName = 'AppContext.headprobe.d.ts'
+    }
     const args = [
       '--ignoreConfig',
       '--allowJs', '--declaration', '--emitDeclarationOnly',
@@ -62,7 +81,7 @@ async function main() {
       '--module', 'esnext',
       '--target', 'es2022',
       '--checkJs', 'false',
-      SOURCE
+      tscTarget
     ]
     console.log(`[gen-sdk-typings] running: node ${TSC_BIN} ${args.join(' ')}`)
     try {
@@ -74,9 +93,9 @@ async function main() {
       console.warn((e.stdout || e.message || String(e)).trim())
     }
 
-    const emitted = findEmittedDeclaration(tmp, 'AppContext.d.ts')
+    const emitted = findEmittedDeclaration(tmp, emittedName)
     if (!emitted) {
-      console.error(`[gen-sdk-typings] tsc emitted no AppContext.d.ts under ${tmp} -- aborting, see diagnostics above.`)
+      console.error(`[gen-sdk-typings] tsc emitted no ${emittedName} under ${tmp} -- aborting, see diagnostics above.`)
       process.exit(1)
     }
 
@@ -130,6 +149,7 @@ async function main() {
     }
   } finally {
     rmSync(tmp, { recursive: true, force: true })
+    if (probe) rmSync(probe, { force: true })
   }
 }
 

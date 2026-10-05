@@ -310,23 +310,6 @@ export declare class AppContext {
         readonly world: any;
         readonly activeCount: any;
         readonly stats: any;
-        readonly rollbackStats: {
-            rewinds: number;
-            resimTicks: number;
-            droppedRows: number;
-        };
-        readonly resyncStats: {
-            rows: number;
-            compared: number;
-            missed: number;
-            mismatches: number;
-            firstMismatch: null;
-            requestsReceived: number;
-            requestsSent: number;
-            adopted: number;
-        };
-        readonly needsResync: boolean;
-        readonly checksumHistory: [any, any][];
         readonly simTick: any;
         readonly names: string[];
         readonly weather: {
@@ -363,7 +346,6 @@ export declare class AppContext {
         setMoisture(value: any): any;
         setRain(value: any): any;
         stateAt(position: any): any;
-        stateAtLocal(x: any, z: any): any;
         isTrunkCharred(trunkId: any): boolean;
         stageMap(options: any): {
             data: Uint8Array<ArrayBuffer>;
@@ -401,21 +383,8 @@ export declare class AppContext {
                 tick: any;
                 hash: any;
             } | null;
-            adopted: {
-                tick: number;
-                hash: any;
-                bytes: number;
-            } | null;
         };
         checksum(): any;
-        keyframeMessage(): {
-            type: string;
-            k: any[];
-        };
-        requestResync(): {
-            type: string;
-            r: any[];
-        };
         rewindTo(tick: any): any;
         tick(dt: any): void;
         destroy(): void;
@@ -555,7 +524,7 @@ export declare class AppContext {
     get terrainBodyId(): any;
     terrainHeightAt(x: any, z: any): any;
     terrainKindAt(x: any, z: any): any;
-    navCostAt(x: any, z: any): 0.5 | 1 | 2 | 3 | 8;
+    navCostAt(x: any, z: any): 0.5 | 1 | 3;
     seaLevelAt(x: any, z: any): number | null;
     get seaLevel(): number | null;
     get terrain(): {
