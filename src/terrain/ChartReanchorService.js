@@ -7,6 +7,8 @@ export function createChartReanchorService({ frame, radius, playerDirs, anchorsP
   const migrators = []
   const terrainMigrators = []
   let reanchorCount = 0, refusalCount = 0, lastRefusal = null
+  const refusalTally = new Map()
+  const tally = reason => refusalTally.set(reason, (refusalTally.get(reason) || 0) + 1)
 
   function onReanchor(migrate) {
     migrators.push(migrate)
@@ -32,6 +34,7 @@ export function createChartReanchorService({ frame, radius, playerDirs, anchorsP
     if (!decision) return null
     if (decision.refusal) {
       refusalCount++
+      tally(decision.refusal)
       if (lastRefusal?.reason !== decision.refusal) console.warn(`[chart-reanchor] refusing to re-anchor: ${decision.refusal}${decision.worstPlayerAngleDeg === undefined ? '' : ` (worst player ${decision.worstPlayerAngleDeg.toFixed(2)} deg from the anchor, walkable limit ${decision.walkableLimitDeg.toFixed(2)} deg)`}; players this far apart need per-cluster charts`)
       lastRefusal = { reason: decision.refusal, decision, epoch: frame.chartEpoch }
       return null
@@ -39,6 +42,7 @@ export function createChartReanchorService({ frame, radius, playerDirs, anchorsP
     const reason = refusalOf(decision)
     if (reason) {
       refusalCount++
+      tally(reason)
       lastRefusal = { reason, decision, epoch: frame.chartEpoch }
       return null
     }
@@ -56,5 +60,6 @@ export function createChartReanchorService({ frame, radius, playerDirs, anchorsP
     get migratorCount() { return migrators.length },
     get refusalCount() { return refusalCount },
     get lastRefusal() { return lastRefusal },
+    get refusalsByReason() { return Object.fromEntries(refusalTally) },
   }
 }
