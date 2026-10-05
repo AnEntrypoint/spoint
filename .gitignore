@@ -47,3 +47,5 @@ server*.log
 .scratch_*
 data/perf-run/
 .smoke*.log
+*.tmp
+prof/
