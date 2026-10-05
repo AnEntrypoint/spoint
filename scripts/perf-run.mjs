@@ -327,6 +327,9 @@ async function main() {
   const gpuSamples = []
   try {
     browser = await chromium.launch({ headless: true, args })
+    const pidRecord = { label: LABEL, nodePid: process.pid, chromePid: browser.pid, profileDir: browser.profileDir, startedAt: new Date().toISOString() }
+    writeFileSync(resolve(OUT_DIR, LABEL + '.pids.json'), JSON.stringify(pidRecord))
+    console.log('[perf-run] spawned: ' + JSON.stringify(pidRecord))
     const page = await browser.newPage({ viewport: { width: VIEW_W, height: VIEW_H } })
     const pageErrors = []
     page.on('pageerror', (e) => pageErrors.push(String(e && e.message || e)))
@@ -909,6 +912,7 @@ async function main() {
       },
       cpuProfile: { totalMs: +prof.totalMs.toFixed(1), top: prof.rows.slice(0, 30).map((r) => ({ fn: r.key, ms: +r.ms.toFixed(1), pct: +r.pct.toFixed(2) })), topInclusive: prof.inclRows.slice(0, 30).map((r) => ({ fn: r.key, ms: +r.ms.toFixed(1), pct: +r.pct.toFixed(2) })), gcSelfMs: +(prof.rows.filter((r) => r.key.startsWith('(garbage collector)')).reduce((a, r) => a + r.ms, 0)).toFixed(1) },
       adapterInfo,
+      pids: JSON.parse(readFileSync(resolve(OUT_DIR, LABEL + '.pids.json'), 'utf8')),
       mainThreadMs: mainThreadBreakdown,
       heapStats,
       gpuPasses: gpuPassResult,

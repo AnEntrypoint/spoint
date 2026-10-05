@@ -256,6 +256,9 @@ class Browser {
     this._pages = []
   }
 
+  get pid() { return this._proc ? this._proc.pid : null }
+  get profileDir() { return this._profileDir }
+
   async newContext(opts = {}) {
     const { browserContextId } = await this._conn.send('Target.createBrowserContext', {})
     return new BrowserContext(this, browserContextId, opts.viewport)
@@ -283,6 +286,7 @@ class Browser {
   async close() {
     try { this._conn.close() } catch (_) {}
     try { this._proc.kill() } catch (_) {}
+    if (process.platform === 'win32' && this._proc && this._proc.pid) spawnSync('taskkill', ['/PID', String(this._proc.pid), '/T', '/F'], { stdio: 'ignore' })
     await wait(150)
     try { fs.rmSync(this._profileDir, { recursive: true, force: true }) } catch (_) {}
   }
