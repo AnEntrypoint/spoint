@@ -159,13 +159,20 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
   const heightDelta = loadHeightDelta(heightDeltaJSON, baseHeightFn)
   const caveCarve = loadCaveCarveLayer(caveCarveJSON || (Array.isArray(tcfg.caveCarve) ? { version: 2, volumes: tcfg.caveCarve } : null))
   const heightFn = caveCarve.wrapHeightFn(splineCarve.wrapHeightFn(heightDelta.wrapHeightFn(baseHeightFn)))
+  const outOfChartLimitM = frame.radius - (tphys.extent || 510)
+  let outOfChartWarned = 0
   const getCenters = () => {
     const out = []
     const players = playerManager && playerManager.players
     if (players && typeof players.values === 'function') {
       for (const p of players.values()) {
         const pos = p?.state?.position
-        if (pos && Number.isFinite(pos[0]) && Number.isFinite(pos[2])) out.push([pos[0], pos[2]])
+        if (!pos || !Number.isFinite(pos[0]) || !Number.isFinite(pos[2])) continue
+        if (Math.hypot(pos[0], pos[2]) >= outOfChartLimitM) {
+          if (outOfChartWarned++ === 0) console.warn(`[terrain] player at chart-local (${pos[0].toFixed(0)}, ${pos[2].toFixed(0)}), ${Math.hypot(pos[0], pos[2]).toFixed(0)} m from the chart anchor, is beyond the chart radius ${frame.radius} m: no terrain collider, vegetation or rocks are built for it (a flat chart has no ground there; enable chartReanchor or per-cluster charts)`)
+          continue
+        }
+        out.push([pos[0], pos[2]])
       }
     }
     return out.length ? out : [tcfg.center || [0, 0]]
@@ -175,7 +182,7 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
     gridRes = Math.min(tphys.resolution || gpuPatch.spacing, gpuPatch.spacing)
     if (gridRes !== tphys.resolution) console.log(`[terrain] collider grid resolution -> ${gridRes.toFixed(2)}m (clamped to finest display LOD spacing; was ${tphys.resolution})`)
   }
-  const streamer = createTerrainStreamer({ physics, getCenters, heightFn, extent: tphys.extent || 510, resolution: gridRes, getEpoch: () => frame.chartEpoch })
+  const streamer = createTerrainStreamer({ physics, getCenters, heightFn, extent: tphys.extent || 510, resolution: gridRes, maxFields: tphys.maxFields, getEpoch: () => frame.chartEpoch })
   await streamer.start(tcfg.center || [0, 0])
   const offsetYNotFoldedIntoHeightFn = 0
   physics.setTerrainHeightSource(guardedGroundHeight('server physics terrain height', heightFn, NaN), frame, offsetYNotFoldedIntoHeightFn)
@@ -187,7 +194,7 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
       const { createTrunkColliderStreamer } = await import('./VegPhysics.js')
       trunkStreamer = createTrunkColliderStreamer({
         physics, getCenters, frame, anchorField: paintedAnchorField, worldSeed: tcfg.seed | 0,
-        radius: vcfg.colliderRadius || 64, cap: vcfg.colliderCap || 384, byteBudget: vcfg.colliderByteBudget,
+        radius: vcfg.colliderRadius || 64, cap: vcfg.colliderCap || 384, byteBudget: vcfg.colliderByteBudget, maxCenters: vcfg.colliderMaxCenters,
       })
       await trunkStreamer.start()
     } catch (e) { console.error('[veg] trunk collider streamer failed:', e?.message || e) }
@@ -199,7 +206,7 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
       const { createRockColliderStreamer } = await import('./RockPhysics.js')
       rockStreamer = createRockColliderStreamer({
         physics, getCenters, frame, anchorField: paintedAnchorField, worldSeed: tcfg.seed | 0,
-        radius: vcfg.rockColliderRadius || 32, cap: vcfg.rockColliderCap || 128, byteBudget: vcfg.rockColliderByteBudget,
+        radius: vcfg.rockColliderRadius || 32, cap: vcfg.rockColliderCap || 128, byteBudget: vcfg.rockColliderByteBudget, maxCenters: vcfg.colliderMaxCenters,
       })
       await rockStreamer.start()
     } catch (e) { console.error('[rocks] collider streamer failed:', e?.message || e) }

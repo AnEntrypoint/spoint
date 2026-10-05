@@ -15,13 +15,22 @@ export class SurfaceSolveError extends RangeError {
   }
 }
 
+export class ChartRangeError extends SurfaceSolveError {
+  constructor(x, z, radius) {
+    super(x, z, 0, 0, NaN)
+    this.name = 'ChartRangeError'
+    this.message = `chart-local (${x}, ${z}) is ${Math.hypot(x, z)} m from the chart anchor, at or beyond the planet radius ${radius} m: a flat tangent chart has no ground there`
+    this.radius = radius
+  }
+}
+
 export function guardedGroundHeight(where, heightFn, fallback) {
   return (x, z) => {
     try { return heightFn(x, z) } catch (e) {
       if (!(e instanceof SurfaceSolveError)) throw e
       if (!_reportedSolveFailures.has(where)) {
         _reportedSolveFailures.add(where)
-        console.warn(`[terrain] ${where}: no ground height at chart-local (${e.x.toFixed(0)}, ${e.z.toFixed(0)}), ${Math.hypot(e.x, e.z).toFixed(0)} m from the chart anchor, solver residual ${e.residualM} m; degrading to ${fallback}`)
+        console.warn(`[terrain] ${where}: no ground height at chart-local (${e.x.toFixed(0)}, ${e.z.toFixed(0)}), ${Math.hypot(e.x, e.z).toFixed(0)} m from the chart anchor, ${e instanceof ChartRangeError ? 'beyond the chart radius' : `solver residual ${e.residualM} m`}; degrading to ${fallback}`)
       }
       return fallback
     }
@@ -105,6 +114,7 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
   }
   function solveSurfaceY(x, z, heightAtDir, toleranceM = SURFACE_SOLVE_TOLERANCE_M) {
     const r2 = x * x + z * z
+    if (Number.isFinite(radius) && r2 >= radius * radius) throw new ChartRangeError(x, z, radius)
     let y = renderYOnSphere(r2, 0), yPrev = 0, gPrev = 0
     let belowSurface = -Infinity, aboveSurface = Infinity
     let lastG = Infinity, gBelow = 0, gAbove = 0

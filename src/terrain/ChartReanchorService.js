@@ -30,6 +30,12 @@ export function createChartReanchorService({ frame, radius, playerDirs, anchorsP
     if (!migrators.length) throw new Error('chart reanchor stepped with no registered state migrator: rotating the frame alone would leave every chart-local position, collider and client on the old chart')
     const decision = chartAnchorDecision({ lattice, frame, dirs, hysteresisDeg })
     if (!decision) return null
+    if (decision.refusal) {
+      refusalCount++
+      if (lastRefusal?.reason !== decision.refusal) console.warn(`[chart-reanchor] refusing to re-anchor: ${decision.refusal}${decision.worstPlayerAngleDeg === undefined ? '' : ` (worst player ${decision.worstPlayerAngleDeg.toFixed(2)} deg from the anchor, walkable limit ${decision.walkableLimitDeg.toFixed(2)} deg)`}; players this far apart need per-cluster charts`)
+      lastRefusal = { reason: decision.refusal, decision, epoch: frame.chartEpoch }
+      return null
+    }
     const reason = refusalOf(decision)
     if (reason) {
       refusalCount++
