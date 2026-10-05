@@ -2,6 +2,10 @@ export const DEFAULT_PATCH_MAX_LEVEL = 11
 
 export const SURFACE_SOLVE_TOLERANCE_M = 1e-4
 const _reportedSolveFailures = new Set()
+const _stepDiscontinuities = { count: 0, maxJumpM: 0 }
+const BRACKET_HALVING_WINDOW = 6
+
+export function surfaceSolveStepDiscontinuities() { return { ..._stepDiscontinuities } }
 
 export class SurfaceSolveError extends RangeError {
   constructor(x, z, toleranceM, evaluations, residualM) {
@@ -103,7 +107,8 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
     const r2 = x * x + z * z
     let y = renderYOnSphere(r2, 0), yPrev = 0, gPrev = 0
     let belowSurface = -Infinity, aboveSurface = Infinity
-    let lastG = Infinity
+    let lastG = Infinity, gBelow = 0, gAbove = 0
+    let checkpointK = -1, checkpointWidth = Infinity
     for (let k = 0; k < SURFACE_SOLVE_MAX_EVALS; k++) {
       const h = heightAtDir(renderDirAt(x, y, z))
       if (h == null || !Number.isFinite(h)) return null
@@ -111,11 +116,24 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
       const g = yF - y
       lastG = g
       if (Math.abs(g) <= toleranceM) return yF
-      if (g > 0) belowSurface = Math.max(belowSurface, y)
-      else aboveSurface = Math.min(aboveSurface, y)
+      if (g > 0) { if (y > belowSurface) { belowSurface = y; gBelow = g } }
+      else if (y < aboveSurface) { aboveSurface = y; gAbove = g }
+      if (belowSurface > -Infinity && aboveSurface < Infinity && aboveSurface - belowSurface <= toleranceM) {
+        const jump = (belowSurface + gBelow) - (aboveSurface + gAbove)
+        _stepDiscontinuities.count++
+        if (jump > _stepDiscontinuities.maxJumpM) _stepDiscontinuities.maxJumpM = jump
+        return 0.5 * ((belowSurface + gBelow) + (aboveSurface + gAbove))
+      }
+      const bracketed = belowSurface > -Infinity && aboveSurface < Infinity
+      let mustBisect = false
+      if (bracketed) {
+        const width = aboveSurface - belowSurface
+        if (checkpointK < 0) { checkpointK = k; checkpointWidth = width }
+        else if (k - checkpointK >= BRACKET_HALVING_WINDOW) { mustBisect = width > 0.5 * checkpointWidth; checkpointK = k; checkpointWidth = width }
+      }
       let yNext = (k > 0 && g !== gPrev) ? y - g * (y - yPrev) / (g - gPrev) : yF
-      if (!(yNext > belowSurface && yNext < aboveSurface)) {
-        yNext = (belowSurface > -Infinity && aboveSurface < Infinity) ? 0.5 * (belowSurface + aboveSurface) : yF
+      if (mustBisect || !(yNext > belowSurface && yNext < aboveSurface)) {
+        yNext = bracketed ? 0.5 * (belowSurface + aboveSurface) : yF
       }
       yPrev = y; gPrev = g; y = yNext
     }
