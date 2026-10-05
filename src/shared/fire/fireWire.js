@@ -5,6 +5,8 @@ export const FIRE_MAX_EXTINGUISH_RADIUS_CELLS = 16
 export const FIRE_MAX_WIND_COMPONENT = 16
 export const FIRE_MAX_BYTE = 255
 export const FIRE_SEQ_RANGE = 4096
+export const FIRE_MAX_TICK = 2 ** 40
+export const FIRE_MAX_ROWS_PER_MESSAGE = 256
 
 const ARITY = Object.freeze({ [FIRE_EVENT.IGNITE]: 5, [FIRE_EVENT.EXTINGUISH]: 5, [FIRE_EVENT.WIND]: 6, [FIRE_EVENT.MOISTURE]: 4, [FIRE_EVENT.RAIN]: 4 })
 
@@ -26,7 +28,7 @@ export function decodeFireEvent(lattice, row) {
   if (!Array.isArray(row) || !Number.isInteger(row[0]) || ARITY[row[0]] === undefined) reject(row, 'unknown event kind')
   const kind = row[0]
   if (row.length !== ARITY[kind]) reject(row, `expected ${ARITY[kind]} fields`)
-  if (!isUint(row[1]) || !isUint(row[2]) || row[2] >= FIRE_SEQ_RANGE) reject(row, `tick must be a non-negative integer and seq 0..${FIRE_SEQ_RANGE - 1}`)
+  if (!isUint(row[1]) || row[1] > FIRE_MAX_TICK || !isUint(row[2]) || row[2] >= FIRE_SEQ_RANGE) reject(row, `tick must be an integer within 0..2^40 and seq 0..${FIRE_SEQ_RANGE - 1}`)
   const ev = { kind, tick: row[1], seq: row[2], id: row[1] * FIRE_SEQ_RANGE + row[2] }
   if (kind === FIRE_EVENT.IGNITE || kind === FIRE_EVENT.EXTINGUISH) {
     const key = row[3], n = lattice.cellsPerFace

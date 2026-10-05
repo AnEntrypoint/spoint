@@ -86,6 +86,7 @@ export function createFireLattice(placement, cellsPerFireCell = 2) {
     const du = dx * axes[o + 3] + dy * axes[o + 4] + dz * axes[o + 5]
     const dv = dx * axes[o + 6] + dy * axes[o + 7] + dz * axes[o + 8]
     const i = Math.floor((Math.atan2(du, dn) + FACE_EDGE_ANGLE) / cellAngle), j = Math.floor((Math.atan2(dv, dn) + FACE_EDGE_ANGLE) / cellAngle)
+    if (!Number.isFinite(i) || !Number.isFinite(j)) throw new RangeError(`[fireLattice] direction ${dx}, ${dy}, ${dz} has no cell`)
     out.face = face; out.I = i < 0 ? 0 : i >= n ? n - 1 : i; out.J = j < 0 ? 0 : j >= n ? n - 1 : j
     return out
   }

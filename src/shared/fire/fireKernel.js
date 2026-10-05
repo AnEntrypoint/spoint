@@ -55,6 +55,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
 
   const n = lattice.cellsPerFace
   const tilesPerAxis = Math.ceil(n / TILE_SIZE)
+  const partialLastTile = n % TILE_SIZE !== 0
   const cellCapacity = maxTiles * TILE_CELLS
   const classCount = classes.length
   const igniteHeat = new Uint16Array(classCount), burnRate = new Uint16Array(classCount), heatOut = new Uint16Array(classCount)
@@ -312,7 +313,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
       const di = FIRE_DIR_DI[d], dj = FIRE_DIR_DJ[d]
       const ni = li + di, nj = lj + dj
       let ng
-      if (ni >= 0 && ni < TILE_SIZE && nj >= 0 && nj < TILE_SIZE) ng = (t << TILE_CELL_SHIFT) | (nj << TILE_SHIFT) | ni
+      if (ni >= 0 && ni < TILE_SIZE && nj >= 0 && nj < TILE_SIZE && !(partialLastTile && (gI + di >= n || gJ + dj >= n))) ng = (t << TILE_CELL_SHIFT) | (nj << TILE_SHIFT) | ni
       else {
         const nI = gI + di, nJ = gJ + dj
         if (nI < 0 || nI >= n || nJ < 0 || nJ >= n) {

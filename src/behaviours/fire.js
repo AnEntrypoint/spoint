@@ -3,7 +3,7 @@ import { VEG } from '../terrain/VegPlacement.js'
 import { createFireLattice } from '../shared/fire/fireLattice.js'
 import { createFireKernel, FIRE_EVENT, FIRE_STATE } from '../shared/fire/fireKernel.js'
 import { createFireTimeline } from '../shared/fire/fireTimeline.js'
-import { encodeFireEvent, decodeFireEvent, FIRE_WIRE_TYPE, FIRE_SEQ_RANGE, FIRE_MAX_EXTINGUISH_RADIUS_CELLS, FIRE_MAX_WIND_COMPONENT, FIRE_MAX_BYTE } from '../shared/fire/fireWire.js'
+import { encodeFireEvent, decodeFireEvent, FIRE_WIRE_TYPE, FIRE_SEQ_RANGE, FIRE_MAX_ROWS_PER_MESSAGE, FIRE_MAX_EXTINGUISH_RADIUS_CELLS, FIRE_MAX_WIND_COMPONENT, FIRE_MAX_BYTE } from '../shared/fire/fireWire.js'
 
 export { FIRE_STATE }
 
@@ -218,17 +218,21 @@ export function defineFire(spec = {}, appCtx = null, frameOf = null) {
     applyRemote(payload) {
       if (!payload || payload.type !== FIRE_WIRE_TYPE) throw new TypeError(`[fire] remote payload must be a { type: '${FIRE_WIRE_TYPE}' } message`)
       const { lattice, timeline } = ensureWorld()
-      let rewound = 0
+      let rewound = 0, rejected = 0, firstReason = null
+      let checksum = null
       if (payload.c !== undefined) {
         if (!Array.isArray(payload.c) || payload.c.length !== 2 || !Number.isSafeInteger(payload.c[0]) || !Number.isSafeInteger(payload.c[1])) throw new TypeError(`[fire] malformed checksum row ${JSON.stringify(payload.c)}`)
-        return { ok: true, checksum: { tick: payload.c[0], hash: payload.c[1] } }
+        checksum = { tick: payload.c[0], hash: payload.c[1] }
       }
-      for (const row of payload.e ?? []) {
-        const r = timeline.submit(decodeFireEvent(lattice, row))
+      const rows = payload.e ?? []
+      if (!Array.isArray(rows) || rows.length > FIRE_MAX_ROWS_PER_MESSAGE) throw new TypeError(`[fire] a fire message carries at most ${FIRE_MAX_ROWS_PER_MESSAGE} rows`)
+      const events = rows.map(row => decodeFireEvent(lattice, row))
+      for (const ev of events) {
+        const r = timeline.submit(ev)
         if (r.rewound) rewound++
-        if (!r.ok) return { ok: false, reason: r.reason }
+        if (!r.ok) { rejected++; firstReason ??= r.reason }
       }
-      return { ok: true, rewound }
+      return { ok: rejected === 0, rejected, reason: firstReason, rewound, checksum }
     },
 
     checksum() { return ensureWorld().timeline.checksum() },
@@ -251,7 +255,7 @@ export function defineFire(spec = {}, appCtx = null, frameOf = null) {
       }
     },
 
-    destroy() { world = null; outbox = [] },
+    destroy() { world = null; outbox = []; lastChecksumStep = 0 },
   }
   return fire
 }
