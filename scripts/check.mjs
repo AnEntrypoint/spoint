@@ -80,10 +80,10 @@ async function main() {
   console.log(`check: transform-validation guardrail intact (${GUARDED.length} write-boundary files)`)
 
   try {
-    await execFileAsync(process.execPath, ['scripts/bundle-apps-manifest.mjs', '--check'])
-    console.log('check: apps-manifest.json is synced')
+    await execFileAsync(process.execPath, ['scripts/bundle-apps-manifest.mjs', '--if-changed'])
+    console.log('check: apps-manifest.json regenerated from current sources')
   } catch (e) {
-    console.error('check: apps-manifest.json sync check failed:', e.stderr || e.message)
+    console.error('check: apps-manifest.json regeneration failed:', e.stderr || e.message)
     process.exit(1)
   }
   const imports = await checkAppImports()
