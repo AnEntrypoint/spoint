@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu'
 import {
   Fn, Loop, If, float, int, vec2, vec3, vec4, uniform, uniformArray, attribute, varyingProperty, texture, select,
-  normalize, cross, dot, max, mix, smoothstep, clamp, length, fwidth, tan, floor, cameraViewMatrix, property, output,
+  normalize, cross, dot, max, mix, smoothstep, clamp, length, fwidth, tan, round, cameraViewMatrix, property, output,
 } from 'three/tsl'
 import { FACE_FRAME } from '../planet-orchestrator-cull.js'
 import { TERRAIN_DEFAULTS as TD } from '../terrain-defaults.js'
@@ -124,8 +124,8 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
       const morphEnd = threshold.mul(2.0)
       const m = clamp(morphEnd.sub(distToCam).div(morphEnd.sub(threshold)), 0.0, 1.0)
       const vMorph = m.mul(m).mul(m.mul(-2.0).add(3.0))
-      const parentCell = off.z.mul(2.0).mul(u.gridInv)
-      absLocal.assign(mix(absLocal, floor(absLocal.div(parentCell).add(0.5)).mul(parentCell), vMorph))
+      const parentCell = off.z.mul(2.0).div(gridSize)
+      absLocal.assign(mix(absLocal, round(absLocal.div(parentCell)).mul(parentCell), vMorph))
     })
     const h0 = float(0).toVar(), d0 = vec3(0).toVar()
     const wPU = vec3(0).toVar(), wMU = vec3(0).toVar(), wPV = vec3(0).toVar(), wMV = vec3(0).toVar()
