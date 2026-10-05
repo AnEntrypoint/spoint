@@ -73,6 +73,7 @@ export function createColliderStreamer(spec = {}) {
   const placementsFor = spec.placementsFor
   const bodyArgs = spec.bodyArgs
   const setColliderIds = spec.setColliderIds
+  let excludePlacement = typeof spec.excludePlacement === 'function' ? spec.excludePlacement : null
   const logTag = spec.logTag || '[collider]'
 
   const live = new Map()
@@ -125,6 +126,7 @@ export function createColliderStreamer(spec = {}) {
       const list = chunkPlacements(ring[r].key)
       for (let i = 0; i < list.length; i++) {
         const p = list[i]
+        if (excludePlacement !== null && excludePlacement(p[idField])) continue
         const ddx = p.x - cx, ddz = p.z - cz
         const d2 = ddx * ddx + ddz * ddz
         if (d2 <= keepRadiusSq) {
@@ -306,6 +308,23 @@ export function createColliderStreamer(spec = {}) {
 
   return {
     start, reanchor,
+    release(placementId) {
+      const bodyId = live.get(placementId)
+      if (bodyId === undefined) return false
+      scheduleRemove(placementId, bodyId)
+      return true
+    },
+    refresh() { return curCenters.length ? _rebuildMulti(curCenters, true) : null },
+    setExclude(fn) {
+      if (fn !== null && typeof fn !== 'function') throw new TypeError(`${logTag} setExclude needs a function or null`)
+      excludePlacement = fn
+    },
+    sweepExcluded() {
+      if (excludePlacement === null) return 0
+      let released = 0
+      for (const [placementId, bodyId] of [...live]) if (excludePlacement(placementId)) { scheduleRemove(placementId, bodyId); released++ }
+      return released
+    },
     get staleEpochAborts() { return staleEpochAborts },
     get isRebuilding() { return rebuilding },
     stop() { disposed = true; if (_timer) clearTimeout(_timer); for (const id of live.values()) { if (id === _PENDING) continue; try { physics.removeBody(id) } catch (_) {} } live.clear(); _liveIds.clear(); _lru.clear(); _residentBytes = 0 },

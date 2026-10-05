@@ -8,17 +8,21 @@ import { resolveFireSpec, describeValue, isVec3 } from './fireSpec.js'
 import { createFirebreakFuel } from './fireTerrain.js'
 import { createFireGameplay } from './fireGameplay.js'
 import { createFireWeather } from './fireWeather.js'
+import { createFireStageMap } from '../shared/fire/fireStageMap.js'
 
 export { FIRE_STATE }
 export { DEFAULT_FIRE, DEFAULT_FIRE_CLASSES, DEFAULT_FIRE_GAMEPLAY, DEFAULT_FIRE_WEATHER, resolveFireSpec } from './fireSpec.js'
 
-export function defineFire(spec = {}, appCtx = null, frameOf = null, weatherOf = null) {
+export function defineFire(spec = {}, appCtx = null, frameOf = null, weatherOf = null, trunkStreamerOf = null) {
   if (!appCtx || !appCtx.time) throw new TypeError('[fire] appCtx is required')
   const resolved = resolveFireSpec(spec)
   const { config } = resolved
   let world = null
   let outbox = []
   let lastChecksumStep = 0
+  let trunkStreamer = null
+  let trunkSerial = -1
+  let trunkScars = 0
   const cellScratch = { face: 0, I: 0, J: 0 }
   const weatherEmits = { rain: -1, moisture: -1 }
   const weather = resolved.weather
@@ -95,6 +99,20 @@ export function defineFire(spec = {}, appCtx = null, frameOf = null, weatherOf =
     if (emits.rain >= 0) emit({ kind: FIRE_EVENT.RAIN, value: emits.rain })
     if (emits.moisture >= 0) emit({ kind: FIRE_EVENT.MOISTURE, value: emits.moisture })
     weather.markEmitted(emits.rain >= 0 ? emits.rain : weather.emittedRain, emits.moisture >= 0 ? emits.moisture : weather.emittedMoisture)
+  }
+
+  function syncTrunks(kernel) {
+    if (trunkStreamer === null) {
+      const s = typeof trunkStreamerOf === 'function' ? trunkStreamerOf() : null
+      if (!s || typeof s.setExclude !== 'function') return
+      trunkStreamer = s
+      s.setExclude(id => fire.isTrunkCharred(id))
+    }
+    if (kernel.changeSerial === trunkSerial) return
+    trunkSerial = kernel.changeSerial
+    trunkStreamer.sweepExcluded()
+    if (kernel.scarCount < trunkScars) trunkStreamer.refresh()
+    trunkScars = kernel.scarCount
   }
 
   const gameplay = resolved.gameplay ? createFireGameplay({ appCtx, gameplay: resolved.gameplay, getWorld: () => world, cellOfPosition, frameOf: planetFrame }) : null
@@ -181,6 +199,8 @@ export function defineFire(spec = {}, appCtx = null, frameOf = null, weatherOf =
       return world.kernel.stateCodeAt(c.face, c.I, c.J) === FIRE_STATE.BURNT
     },
 
+    stageMap(options) { const w = ensureWorld(); return createFireStageMap({ kernel: w.kernel, lattice: w.lattice, ...options }) },
+
     isBurning(id) { return gameplay ? gameplay.isBurning(id) : false },
     smokeDepth(origin, direction, distance) { return gameplay ? gameplay.smokeDepth(origin, direction, distance) : 0 },
     rayBlocked(origin, direction, distance) { return gameplay ? gameplay.rayBlocked(origin, direction, distance) : false },
@@ -215,6 +235,7 @@ export function defineFire(spec = {}, appCtx = null, frameOf = null, weatherOf =
       if (!world) return
       const { kernel, timeline } = world
       timeline.advanceTo(simTick)
+      syncTrunks(kernel)
       if (gameplay && resolved.role === 'authority') gameplay.tickDamage(simTick, dt)
       if (resolved.role !== 'authority') return
       if (outbox.length > 0) {

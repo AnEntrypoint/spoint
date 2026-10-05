@@ -384,7 +384,7 @@ export class AppContext {
   defineFire(spec = {}) {
     const runtime = this._runtime
     const weatherOf = () => { const w = runtime.weatherSource; return w && w.isEnabled() ? { type: w.getType(), intensity: w.getIntensity() } : null }
-    return defineFire(spec, this, () => runtime._physics?._planetFrame ?? null, weatherOf)
+    return defineFire(spec, this, () => runtime._physics?._planetFrame ?? null, weatherOf, () => runtime._physics?._terrainStreamer?._trunkStreamer ?? null)
   }
 
   defineSteering(spec) { return defineSteering(spec, this) }

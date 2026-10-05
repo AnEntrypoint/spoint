@@ -44,6 +44,7 @@ export function createTrunkColliderStreamer(opts = {}) {
     bodiesPerChunk: opts.bodiesPerChunk,
     latticeSpec: VEG,
     idField: 'trunkId',
+    excludePlacement: opts.excludePlacement,
     logTag: '[veg]',
     placementsFor: placementsForChunk,
     setColliderIds: (ids) => opts.physics.setTrunkColliderIds(ids),

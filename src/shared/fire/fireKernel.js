@@ -581,8 +581,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
       for (let i = 0; i < TILE_CELLS; i++) {
         const g = base + i, o = offset + i * 4, st = state[g]
         out[o] = st
-        const age = (stepIndex - timer[g]) & MAX_U16
-        out[o + 1] = st === UNBURNT ? 0 : age > 255 ? 255 : age
+        out[o + 1] = st === UNBURNT ? 0 : timer[g] & 255
         out[o + 2] = cls[g]
         out[o + 3] = 255
       }
