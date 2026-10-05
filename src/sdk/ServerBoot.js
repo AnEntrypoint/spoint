@@ -1,6 +1,6 @@
 import { join, dirname, resolve, relative, extname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { existsSync, readdirSync, statSync, unlinkSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync, unlinkSync } from 'node:fs'
 import { prewarm, prewarmFiles } from '../static/GLBTransformer.js'
 import { prewarmCompression } from './StaticHandler.js'
 import { prewarmProgressive, ensureProgressive } from '../static/ProgressiveBake.js'
@@ -34,6 +34,30 @@ export function collectWatchableFiles(dir, out = []) {
   return out
 }
 
+function bundleStamp(stampPath) {
+  try { return JSON.parse(readFileSync(stampPath, 'utf8')) } catch { return null }
+}
+
+function stampInputFiles(stampPath, sdkRoot) {
+  const stamp = bundleStamp(stampPath)
+  const files = []
+  const seen = new Set()
+  for (const dir of Array.isArray(stamp?.watchDirs) ? stamp.watchDirs : []) {
+    for (const f of collectWatchableFiles(join(sdkRoot, dir))) if (!seen.has(f)) { seen.add(f); files.push(f) }
+  }
+  for (const rel of Array.isArray(stamp?.inputs) ? stamp.inputs : []) {
+    const abs = join(sdkRoot, rel)
+    if (!seen.has(abs) && existsSync(abs)) { seen.add(abs); files.push(abs) }
+  }
+  return files
+}
+
+function newestMtimeOf(files, base) {
+  return files.reduce((max, f) => {
+    try { return Math.max(max, statSync(base ? join(base, f) : f).mtimeMs) } catch { return max }
+  }, 0)
+}
+
 export function buildStaticDirs(sdkRoot, project, appsDirs) {
   const dirs = [
     { prefix: '/src/', dir: join(sdkRoot, 'src') },
@@ -48,7 +72,11 @@ export function buildStaticDirs(sdkRoot, project, appsDirs) {
     const bundleMtime = statSync(bundlePath).mtimeMs
     const clientDir = join(sdkRoot, 'client')
     const watchableFiles = existsSync(clientDir) ? collectWatchableFiles(clientDir) : (existsSync(rawEntryPath) ? [rawEntryPath] : [])
-    const rawMtime = watchableFiles.reduce((max, f) => { try { return Math.max(max, statSync(f).mtimeMs) } catch { return max } }, 0)
+    const bundledInputs = stampInputFiles(join(bundleDir, 'app.bundlehash.json'), sdkRoot)
+    const rawMtime = Math.max(
+      newestMtimeOf(watchableFiles, ''),
+      newestMtimeOf(bundledInputs, '')
+    )
     if (bundleMtime >= rawMtime) {
       console.log(`[server] serving PREBUILT BUNDLE from dist/client/app.js (built ${new Date(bundleMtime).toISOString()})`)
       const manifestPath = join(bundleDir, 'apps-manifest.json')
@@ -61,7 +89,7 @@ export function buildStaticDirs(sdkRoot, project, appsDirs) {
       }
       dirs.push({ prefix: '/', dir: bundleDir })
     } else {
-      console.log(`[server] dist/client/app.js is STALE (built ${new Date(bundleMtime).toISOString()}, client/app.js edited ${new Date(rawMtime).toISOString()}) -- falling through to raw ESM`)
+      console.log(`[server] dist/client/app.js is STALE (built ${new Date(bundleMtime).toISOString()}, a bundled input edited ${new Date(rawMtime).toISOString()}) -- falling through to raw ESM`)
     }
   } else {
     console.log('[server] serving raw ESM from client/ (no dist/client/app.js bundle present)')
@@ -71,12 +99,16 @@ export function buildStaticDirs(sdkRoot, project, appsDirs) {
   if (existsSync(workerBundlePath)) {
     const wbMtime = statSync(workerBundlePath).mtimeMs
     const srcDir = join(sdkRoot, 'src')
-    const srcMtime = collectWatchableFiles(srcDir).reduce((max, f) => { try { return Math.max(max, statSync(f).mtimeMs) } catch { return max } }, 0)
+    const workerInputs = stampInputFiles(join(workerBundleDir, 'sdk', 'WorkerEntry.bundlehash.json'), sdkRoot)
+    const srcMtime = Math.max(
+      newestMtimeOf(collectWatchableFiles(srcDir), ''),
+      newestMtimeOf(workerInputs, '')
+    )
     if (wbMtime >= srcMtime) {
       console.log(`[server] serving PREBUILT WORKER BUNDLE from dist/src/sdk/WorkerEntry.js (built ${new Date(wbMtime).toISOString()})`)
       dirs.unshift({ prefix: '/src/', dir: workerBundleDir })
     } else {
-      console.log(`[server] dist/src/sdk/WorkerEntry.js is STALE (built ${new Date(wbMtime).toISOString()}, src/ edited ${new Date(srcMtime).toISOString()}) -- falling through to raw ESM worker`)
+      console.log(`[server] dist/src/sdk/WorkerEntry.js is STALE (built ${new Date(wbMtime).toISOString()}, a bundled src/ or packages/ input edited ${new Date(srcMtime).toISOString()}) -- falling through to raw ESM worker`)
     }
   }
   dirs.push({ prefix: '/', dir: join(sdkRoot, 'client') })
