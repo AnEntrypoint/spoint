@@ -179,6 +179,7 @@ export class BaseClient {
     if (msgType === MSG.SNAPSHOT) this._msgHandler.getTimeline().addSnapshot(snapshotForBuffer, performance.now())
     const predEngine = this._msgHandler.getPredEngine()
     if (this.playerId && this.config.predictionEnabled && predEngine) {
+      predEngine.setPeers(this._snapProc.getAllPlayerStates())
       const localState = this._snapProc.getPlayerState(this.playerId)
       if (localState) predEngine.onServerSnapshot({ players: [localState] }, this.currentTick)
     }

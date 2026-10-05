@@ -1,5 +1,18 @@
 let _pruneTick = 0
 
+const SEPARATION_PUSH_VELOCITY_CAP = 3.0
+
+export function separationPush(dx, dy, dz, minDist, dt, out) {
+  const dist2 = dx * dx + dy * dy + dz * dz
+  if (dist2 >= minDist * minDist || dist2 === 0) return false
+  const dist = Math.sqrt(dist2), nx = dx / dist, nz = dz / dist
+  const halfPush = (minDist - dist) * 0.5, pushVel = Math.min(halfPush / dt, SEPARATION_PUSH_VELOCITY_CAP)
+  out[0] = nx * halfPush; out[1] = nz * halfPush; out[2] = nx * pushVel; out[3] = nz * pushVel
+  return true
+}
+
+const push = [0, 0, 0, 0]
+
 export function applyPlayerCollisions(players, grid, gridCells, cellSz, minDist2, minDist, dt, physicsIntegration) {
   grid.clear()
   for (const p of players) {
@@ -20,11 +33,10 @@ export function applyPlayerCollisions(players, grid, gridCells, cellSz, minDist2
       for (const other of neighbors) {
         if (other.id <= player.id) continue
         const ox = other.state.position[0], oy = other.state.position[1], oz = other.state.position[2]
-        const dx = ox - px, dy = oy - py, dz = oz - pz, dist2 = dx * dx + dy * dy + dz * dz
-        if (dist2 >= minDist2 || dist2 === 0) continue
-        const dist = Math.sqrt(dist2), nx = dx / dist, nz = dz / dist, overlap = minDist - dist, halfPush = overlap * 0.5, pushVel = Math.min(halfPush / dt, 3.0)
-        player.state.position[0] -= nx * halfPush; player.state.position[2] -= nz * halfPush; player.state.velocity[0] -= nx * pushVel; player.state.velocity[2] -= nz * pushVel
-        other.state.position[0] += nx * halfPush; other.state.position[2] += nz * halfPush; other.state.velocity[0] += nx * pushVel; other.state.velocity[2] += nz * pushVel
+        const dx = ox - px, dy = oy - py, dz = oz - pz
+        if (dx * dx + dy * dy + dz * dz >= minDist2 || !separationPush(dx, dy, dz, minDist, dt, push)) continue
+        player.state.position[0] -= push[0]; player.state.position[2] -= push[1]; player.state.velocity[0] -= push[2]; player.state.velocity[2] -= push[3]
+        other.state.position[0] += push[0]; other.state.position[2] += push[1]; other.state.velocity[0] += push[2]; other.state.velocity[2] += push[3]
         physicsIntegration.setPlayerPosition(player.id, player.state.position); physicsIntegration.setPlayerPosition(other.id, other.state.position)
       }
     }

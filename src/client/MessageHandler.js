@@ -5,6 +5,7 @@ import { MSG, WIRE_PROTOCOL_VERSION, DISCONNECT_REASONS } from '../protocol/Mess
 import { WIRE_STRUCT_HASH } from '../protocol/msgpack.js'
 import { createInputSchema, DEFAULT_INPUT_SCHEMA } from '../protocol/InputCodec.js'
 import { createCollisionMirror } from './CollisionMirror.js'
+import { playerDefault } from '../shared/worldDefaults.js'
 
 const PRE_HANDSHAKE_TICK_RATE = 60
 const RTT_EMA_ALPHA = 0.25
@@ -55,6 +56,7 @@ export class MessageHandler {
     } else if (type === MSG.WORLD_DEF) {
       if (payload.movement && this._predEngine) this._predEngine.setMovement(payload.movement)
       if (payload.gravity && this._predEngine) this._predEngine.setGravity(payload.gravity)
+      if (this._predEngine) this._predEngine.setPlayerRadius(playerDefault(payload.player, 'capsuleRadius'))
       if (payload.tickRate && this._predEngine) this._predEngine.setTickRate(payload.tickRate)
       if (payload.tickRate) this._timeline.setTickRate(payload.tickRate)
       this._inputSchema = createInputSchema(payload.netcode || null)
@@ -148,6 +150,7 @@ export class MessageHandler {
       this._predEngine._lastAckedSeq = prevEngine._inputSeq - 1
       this._predEngine.setMovement(prevEngine.movement)
       this._predEngine.gravityY = prevEngine.gravityY
+      this._predEngine.separationDistM = prevEngine.separationDistM
       if (prevEngine._surface) this._predEngine.setGroundSurface(prevEngine._surface.heightAt)
     }
     this._timeline.setTickRate(payload.tickRate || this._config.tickRate || PRE_HANDSHAKE_TICK_RATE)

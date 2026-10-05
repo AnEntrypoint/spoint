@@ -193,6 +193,7 @@ function instrumentPrediction(h, rec, seqKinds) {
   if (!pe || pe.__harness) return !!pe
   pe.__harness = true
   if (args.wallHints === 'off') pe._rememberWalls = () => {}
+  if (args.peerSeparation === 'off') { pe._peers = null; pe.setPeers = () => {} }
   const onSnap = pe.onServerSnapshot.bind(pe)
   let lastAck = -1
   pe.onServerSnapshot = (snap, tick) => {
@@ -231,7 +232,7 @@ async function runOne(cond, predict, worldDef) {
   const port = await freePort()
   const tickRate = TICK_OVERRIDE || worldDef.tickRate || 60
   const server = await createServer({ port, tickRate, appsDirs: [resolve(SDK_ROOT, 'apps'), resolve(SDK_ROOT, 'src/stdlib-apps')], sdkRoot: SDK_ROOT, gravity: worldDef.gravity, staticDirs: [], storageDir: resolve(process.cwd(), 'data') })
-  await server.loadWorld(worldDef)
+  await server.loadWorld({ ...worldDef, tickRate })
   await server.start()
   const scheduler = createPreciseScheduler()
   const truth = new Map(), tickTimes = []

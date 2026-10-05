@@ -2,6 +2,8 @@ import { ReconciliationEngine } from './ReconciliationEngine.js'
 import { DEFAULT_MOVEMENT } from '../shared/movement.js'
 import { predictCharacterStep } from '../shared/characterStep.js'
 import { createStepTrail } from './StepTrail.js'
+import { separationPush } from '../netcode/CollisionSystem.js'
+import { PLAYER_DEFAULTS } from '../shared/worldDefaults.js'
 
 const PRE_HANDSHAKE_TICK_RATE = 60
 const MAX_TRACKED_CONNECTION_DEGRADATION_MS = 10000
@@ -17,6 +19,8 @@ const WALL_MATCH_OFFSET_M = 0.05
 const WALL_FORGET_M = 6
 const WALL_EXTENT_BASE_M = 1
 const WALL_PASSED_M = 0.02
+const PEER_FRESH_WINDOW_S = 0.15
+const ZERO_VELOCITY = [0, 0, 0]
 const MOVE_STATE_KEYS =['coyoteRemaining', 'bufferRemaining', '_jumpHeld', '_crouchHeld', 'slideRemaining', 'sliding', '_physCrouch', '_crouchDy']
 
 function isFiniteVec(v, len) {
@@ -95,6 +99,9 @@ export class PredictionEngine {
     this._mirror = null
     this._trail = createStepTrail()
     this._trailPos = [0, 0, 0]
+    this._peers = null
+    this._pushOut = [0, 0, 0, 0]
+    this.separationDistM = PLAYER_DEFAULTS.capsuleRadius * 2
   }
 
   setMovement(m) { Object.assign(this.movement, m) }
@@ -191,7 +198,7 @@ export class PredictionEngine {
     const p = this.localState.position
     if (!timed) this._trail.reset()
     else if (this._trail.length === 0) this._trail.push(stepAt, p[0], p[1], p[2])
-    this._step(input)
+    this._step(input, seq)
     if (timed) this._trail.push(stepAt + periodMs, p[0], p[1], p[2])
     const e = this.inputHistory.pushSlot()
     e.sequence = seq; e.data = input
@@ -206,7 +213,7 @@ export class PredictionEngine {
     return i < 0 ? null : this.inputHistory.at(i)
   }
 
-  _step(input) {
+  _step(input, seq) {
     const env = this._env
     env.gravityY = this.gravityY; env.ground = this._ground; env.wedged = this.horizontallyWedged; env.groundNormal = this.lastServerState?.groundNormal || null; env.walls = this.walls
     const dt = (this.tickDuration * this.dilation) / 1000, v = this.localState.velocity
@@ -215,7 +222,25 @@ export class PredictionEngine {
     env.collider = m && m.ready && m.covers(this.localState.position) ? m : null
     if (m && m.ready && !env.collider) m.noteUncovered()
     predictCharacterStep(this.localState, input, this.movement, dt, env)
+    if ((this._inputSeq - 1 - this._lastAckedSeq) * dt <= PEER_FRESH_WINDOW_S) this._separateFromPeers(dt, seq === undefined ? 1 : seq - this._lastAckedSeq)
   }
+
+  _separateFromPeers(dt, ticksPastSnapshot) {
+    const peers = this._peers
+    if (!peers) return
+    const ls = this.localState, p = ls.position, v = ls.velocity, out = this._pushOut
+    const lead = Math.max(ticksPastSnapshot, 0) * dt
+    for (const [pid, peer] of peers) {
+      if (pid === this.localPlayerId || !isFiniteVec(peer.position, 3)) continue
+      const q = peer.position, w = isFiniteVec(peer.velocity, 3) ? peer.velocity : ZERO_VELOCITY
+      if (!separationPush(q[0] + w[0] * lead - p[0], q[1] + w[1] * lead - p[1], q[2] + w[2] * lead - p[2], this.separationDistM, dt, out)) continue
+      p[0] -= out[0]; p[2] -= out[1]; v[0] -= out[2]; v[2] -= out[3]
+    }
+  }
+
+  setPeers(playerStates) { this._peers = playerStates || null }
+
+  setPlayerRadius(radius) { if (Number.isFinite(radius) && radius > 0) this.separationDistM = radius * 2 }
 
   predict(input) { this._step(input) }
 
@@ -315,7 +340,7 @@ export class PredictionEngine {
     ls.onGround = server.onGround
     ls.groundY = server.onGround || this.verticallyBlocked ? sp[1] : NaN
     if (predictedAtAck) for (const k of MOVE_STATE_KEYS) ls[k] = predictedAtAck.move[k]
-    for (const e of this.inputHistory) { this._step(e.data); saveEntry(e, ls) }
+    for (const e of this.inputHistory) { this._step(e.data, e.sequence); saveEntry(e, ls) }
     this._preserveKnockbackVelocity(Date.now())
     const jump = Math.hypot(ls.position[0] - beforeX, ls.position[1] - beforeY, ls.position[2] - beforeZ)
     if (recordCorrection) {
