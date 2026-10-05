@@ -1,6 +1,28 @@
 export const DEFAULT_PATCH_MAX_LEVEL = 11
 
 export const SURFACE_SOLVE_TOLERANCE_M = 1e-4
+const _reportedSolveFailures = new Set()
+
+export class SurfaceSolveError extends RangeError {
+  constructor(x, z, toleranceM, evaluations, residualM) {
+    super(`solveSurfaceY did not reach ${toleranceM} m in ${evaluations} evaluations at local (${x}, ${z}): residual ${residualM} m`)
+    this.name = 'SurfaceSolveError'
+    this.x = x; this.z = z; this.residualM = residualM
+  }
+}
+
+export function guardedGroundHeight(where, heightFn, fallback) {
+  return (x, z) => {
+    try { return heightFn(x, z) } catch (e) {
+      if (!(e instanceof SurfaceSolveError)) throw e
+      if (!_reportedSolveFailures.has(where)) {
+        _reportedSolveFailures.add(where)
+        console.warn(`[terrain] ${where}: no ground height at chart-local (${e.x.toFixed(0)}, ${e.z.toFixed(0)}), ${Math.hypot(e.x, e.z).toFixed(0)} m from the chart anchor, solver residual ${e.residualM} m; degrading to ${fallback}`)
+      }
+      return fallback
+    }
+  }
+}
 const SURFACE_SOLVE_MAX_EVALS = 64
 
 const _norm = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l] }
@@ -97,7 +119,7 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
       }
       yPrev = y; gPrev = g; y = yNext
     }
-    throw new RangeError(`solveSurfaceY did not reach ${toleranceM} m in ${SURFACE_SOLVE_MAX_EVALS} evaluations at local (${x}, ${z}): residual ${lastG} m`)
+    throw new SurfaceSolveError(x, z, toleranceM, SURFACE_SOLVE_MAX_EVALS, lastG)
   }
   function groundHeightLocal(x, z) {
     const y = solveSurfaceY(x, z, (d) => sampler.heightAt(d))

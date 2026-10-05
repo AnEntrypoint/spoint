@@ -1,4 +1,4 @@
-import { createPlanetFrame, DEFAULT_PATCH_MAX_LEVEL } from './PlanetFrame.js'
+import { createPlanetFrame, guardedGroundHeight, DEFAULT_PATCH_MAX_LEVEL } from './PlanetFrame.js'
 import { createCachedAnchorField } from './ClimateCache.js'
 import { createHeightDelta, loadHeightDelta } from './HeightDelta.js'
 import { createBiomeOverride, loadBiomeOverride } from './BiomeOverride.js'
@@ -178,7 +178,7 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
   const streamer = createTerrainStreamer({ physics, getCenters, heightFn, extent: tphys.extent || 510, resolution: gridRes, getEpoch: () => frame.chartEpoch })
   await streamer.start(tcfg.center || [0, 0])
   const offsetYNotFoldedIntoHeightFn = 0
-  physics.setTerrainHeightSource(heightFn, frame, offsetYNotFoldedIntoHeightFn)
+  physics.setTerrainHeightSource(guardedGroundHeight('server physics terrain height', heightFn, NaN), frame, offsetYNotFoldedIntoHeightFn)
 
   let trunkStreamer = null
   const vcfg = tcfg.vegetation || null

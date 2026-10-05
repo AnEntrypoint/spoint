@@ -3,6 +3,7 @@ import { computeBoundsTree, disposeBoundsTree, acceleratedRaycast } from 'three-
 THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree; THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree; THREE.Mesh.prototype.raycast = acceleratedRaycast
 import { PhysicsNetworkClient, InputHandler, MSG, createInputStepper } from '/src/index.client.js'
 import { resolveNetcodeProfile } from '/src/netcode/NetcodeProfile.js'
+import { guardedGroundHeight } from '/src/terrain/PlanetFrame.js'
 import { NETWORK_SIM_PRESETS } from '/src/transport/NetworkSimTransport.js'
 import { BrowserServer } from './BrowserServer.js'
 import './core/Relocation.js'
@@ -995,7 +996,7 @@ let client; const _clientConfig = {
   worldName: _worldDef ? _worldParam : null,
   netSim: _netSimParam || undefined,
   webTransport: _webTransportConfig,
-  predictionGroundSurface: (x, z) => (window.__terrain && typeof window.__terrain.groundHeightLocal === 'function') ? window.__terrain.groundHeightLocal(x, z) : null,
+  predictionGroundSurface: guardedGroundHeight('client prediction ground surface', (x, z) => (window.__terrain && typeof window.__terrain.groundHeightLocal === 'function') ? window.__terrain.groundHeightLocal(x, z) : null, NaN),
   onConnect: () => connectionStatus.setState('connected'),
   onDisconnect: () => { const rs = client?.getReconnectState?.(); connectionStatus.setState(rs?.state || 'waiting', rs?.attempts || 0) },
   onStateUpdate: state => {

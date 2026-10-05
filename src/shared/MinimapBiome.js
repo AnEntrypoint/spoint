@@ -1,3 +1,5 @@
+import { guardedGroundHeight } from '../terrain/PlanetFrame.js'
+
 const DEEP_OCEAN_BELOW_M = -200
 const BEACH_TOP_M = 8
 const SNOWCAP_ABOVE_M = 2200
@@ -26,8 +28,12 @@ function lerp3(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1])
 
 const NEUTRAL_CLIMATE = { temp: 0.5, humidity: 0.5 }
 
+const _guardedMinimapHeight = new WeakMap()
+
 export function sampleMinimapCell(frame, anchorField, x, z, out) {
-  const h = frame.groundHeightLocal(x, z)
+  let guarded = _guardedMinimapHeight.get(frame)
+  if (!guarded) { guarded = guardedGroundHeight('minimap cell', (px, pz) => frame.groundHeightLocal(px, pz), NaN); _guardedMinimapHeight.set(frame, guarded) }
+  const h = guarded(x, z)
   if (!Number.isFinite(h)) { out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 0; return NaN }
   const dir = frame.localToDir(x, z, h)
   const elevation = frame.elevationAtDir(dir)
