@@ -212,15 +212,17 @@ const GPU_PASS_ARM_SRC = `(() => {
       try { await r.resolveTimestampsAsync(type) } catch (_) { continue }
       const pool = b.timestampQueryPool && b.timestampQueryPool[type]
       if (!pool) continue
-      if (type === 'render' && pool.lastValue > 0 && perFrameTotals.length < 100000) perFrameTotals.push(+pool.lastValue.toFixed(4))
+      const byFrame = new Map()
       for (const [uid, ms] of pool.timestamps) {
         const parts = uid.split(':')
         const key = type + ':' + parts[2]
+        if (type === 'render') { const fr = parts[3]; byFrame.set(fr, (byFrame.get(fr) || 0) + ms) }
         const t = tally.get(key) || { n: 0, sum: 0, max: 0 }
         t.n++; t.sum += ms; if (ms > t.max) t.max = ms
         tally.set(key, t)
       }
       pool.timestamps.clear()
+      if (type === 'render') { const frames = [...byFrame.keys()].sort((a, c) => Number(a.slice(1)) - Number(c.slice(1))); frames.pop(); for (const fr of frames) if (perFrameTotals.length < 100000) perFrameTotals.push(+byFrame.get(fr).toFixed(4)) }
     }
   }
   const iv = setInterval(drain, 250)
@@ -255,7 +257,7 @@ const GPU_PROBE_SRC = existsSync(GATE_PROBE_REPO) ? readFileSync(GATE_PROBE_REPO
 const HOST_CPU_PS1 = resolve(__dirname, 'perf-run-hostcpu.ps1')
 const HOST_CPU_CONTENDED_PCT = 90
 function parseHostCpu(out) {
-  const all = /all=(d+)/.exec(out), cores = /cores=(d+)/.exec(out), top = /top=(.*)$/m.exec(out)
+  const all = /all=(\d+)/.exec(out), cores = /cores=(\d+)/.exec(out), top = /top=(.*)$/m.exec(out)
   return { allPct: all ? Number(all[1]) : null, cores: cores ? Number(cores[1]) : null, topCores: top ? top[1].trim().split(',').filter(Boolean).map((t) => { const i = t.lastIndexOf(':'); return [t.slice(0, i), Number(t.slice(i + 1))] }) : [] }
 }
 function sampleHostCpuSync() {
