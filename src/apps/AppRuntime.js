@@ -6,9 +6,11 @@ import { mulQuat, rotVec } from '../math.js'
 import { MSG } from '../protocol/MessageTypes.js'
 import { SpatialIndex } from '../spatial/Octree.js'
 import { vecOK } from '../shared/vecGuard.js'
+import { beginTeleportHold } from '../netcode/TeleportHold.js'
 import { equipCodeOf, EQUIP_UNARMED } from '../shared/equipment.js'
 import { BEHAVIOUR_FACTORIES, validateBehaviourSpec } from './AppBehaviours.js'
 const PLAYER_BEHAVIOUR_ENTITY_ID = 'players'
+const SUPPORT_RAY_LENGTH_M = 60
 import { mixinPhysics } from './AppRuntimePhysics.js'
 import { mixinTick } from './AppRuntimeTick.js'
 import { mixinStaticMotion } from './AppRuntimeStaticMotion.js'
@@ -596,7 +598,17 @@ export class AppRuntime {
   getNearestPlayer(pos, r) { if (!vecOK(pos, 3) || typeof r !== 'number' || !Number.isFinite(r)) return null; const id = this._playerIndex?.nearest(pos, r); if (id != null) return this._playerManager?.getPlayer(id) || null; let n=null,md=r*r; for (const p of this.getPlayers()) { const pp=p.state?.position; if (!pp) continue; const dx=pp[0]-pos[0],dy=pp[1]-pos[1],dz=pp[2]-pos[2],d=dx*dx+dy*dy+dz*dz; if (d<md) { md=d; n=p } } return n }
   broadcastToPlayers(m) { if (this._resimSuppressed) return; if (this._connections) this._connections.broadcast(MSG.APP_EVENT, m); else if (this._playerManager) this._playerManager.broadcast(m) }
   sendToPlayer(id, m) { if (this._resimSuppressed) return; if (this._connections) this._connections.send(id, MSG.APP_EVENT, m); else if (this._playerManager) this._playerManager.sendToPlayer(id, m) }
-  setPlayerPosition(id, p) { if (!vecOK(p, 3)) return; this._physicsIntegration?.setPlayerPosition(id, p); if (this._playerManager) { const pl=this._playerManager.getPlayer(id); if (pl) pl.state.position=[...p] } }
+  setPlayerPosition(id, p) { if (!vecOK(p, 3)) return; this._physicsIntegration?.setPlayerPosition(id, p); if (this._playerManager) { const pl=this._playerManager.getPlayer(id); if (pl) { pl.state.position=[...p]; this._holdPlayerOverUnloadedGround(pl, p) } } }
+  _holdPlayerOverUnloadedGround(player, p) {
+    if (player.teleportHold) return
+    const physics = this._physics
+    if (typeof physics?.raycast !== 'function' || typeof physics.terrainHeightAt !== 'function') return
+    const terrainY = physics.terrainHeightAt(p[0], p[2])
+    if (!Number.isFinite(terrainY) || p[1] > terrainY + SUPPORT_RAY_LENGTH_M || p[1] < terrainY - SUPPORT_RAY_LENGTH_M) return
+    const below = physics.raycast([p[0], p[1], p[2]], [0, -1, 0], SUPPORT_RAY_LENGTH_M)
+    if (below && below.hit) return
+    beginTeleportHold(player, { onRelease: () => {} })
+  }
   setPlayerName(id, name) { if (typeof name !== 'string') return false; const pl = this._playerManager?.getPlayer(id); if (!pl) return false; pl.name = name.trim().slice(0, 32) || pl.name; return true }
   setEquipment(equipment) {
     this._equipment = Array.isArray(equipment) ? equipment : []

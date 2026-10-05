@@ -327,7 +327,7 @@ export function defineCombat(spec = {}, ctx = null) {
         if (!player.state || respawning.has(player.id)) continue
         if ((player.state.health ?? config.health) <= 0) continue
         const pos = player.state.position
-        if (pos && pos[1] < ctx.fallFloorY(pos[0], pos[2], config.fallKillDepth)) {
+        if (pos && !player.state.onGround && pos[1] < ctx.fallFloorY(pos[0], pos[2], config.fallKillDepth)) {
           const t = (fallTimers.get(player.id) || 0) + dt
           fallTimers.set(player.id, t)
           if (t >= config.fallKillGraceSec) killByFall(player)
