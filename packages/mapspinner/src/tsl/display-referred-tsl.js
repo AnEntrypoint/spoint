@@ -32,7 +32,7 @@ function invertAcesFilmic(t) {
   const b = z.mul(0.983729 * 0.4329510).sub(0.0245786)
   const c = z.mul(0.238081).add(0.000090537)
   const y = b.negate().sub(sqrt(max(b.mul(b).sub(a.mul(c).mul(4.0)), vec3(0.0)))).div(a.mul(2.0))
-  return max(acesInputInverse.mul(y), vec3(0.0)).mul(float(0.6).div(toneMappingExposure))
+  return acesInputInverse.mul(y).mul(float(0.6).div(toneMappingExposure))
 }
 
 export function sceneLinearToDisplayReferred(linear) {
