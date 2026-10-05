@@ -177,7 +177,9 @@ export function renderAtlasCells(renderer, target, renderTarget, opts) {
 
   const captureFactory = opts.makeCaptureMaterial
     || (renderer.isWebGPURenderer ? makeCaptureMaterialTSL : _makeCaptureMaterial)
-  const captureMaterials = _overrideTargetMaterial(target, captureFactory);
+  const captureMaterials = _overrideTargetMaterial(target, captureFactory)
+  const onCell = typeof opts.onCell === 'function' ? opts.onCell
+    : (typeof globalThis !== 'undefined' && typeof globalThis.__atlasCellProbe === 'function' ? globalThis.__atlasCellProbe : null);
   for (let k = cellStart; k < end; k++) {
     const col = k % countPerSide, row = Math.floor(k / countPerSide);
     _coords.set(col / countMinusOne, row / countMinusOne);
@@ -196,6 +198,14 @@ export function renderAtlasCells(renderer, target, renderTarget, opts) {
       renderer.setScissor(xOffset, yOffset, spriteSize, spriteSize);
     }
     renderer.render(target, _camera);
+    if (onCell) {
+      onCell({
+        k, col, row, camera: _camera, renderTarget, target, spriteSize, atlasSize, countPerSide, xOffset, yOffset,
+        viewportY: cellViewportOnTarget ? atlasSize - yOffset - spriteSize : yOffset,
+        originalMaterialKey: USERDATA_MAT_KEY,
+      });
+      renderer.setRenderTarget(renderTarget);
+    }
   }
   _restoreTargetMaterial(target);
   for (const m of captureMaterials) m.dispose();
