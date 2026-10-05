@@ -3,6 +3,7 @@ import { MSG } from '/src/protocol/MessageTypes.js'
 import { BaseClient } from '/src/client/BaseClient.js'
 import { TransformRingReader } from '/src/transport/TransformRing.js'
 import { DEFAULT_ICE_SERVERS } from '/src/shared/worldDefaults.js'
+import { localSpecifiers } from '/src/apps/appImports.js'
 
 const _COALESCE_SENTINEL = 0xff
 const _PEER_SIM_FRAME = /^ww(rollback|lockstep):/
@@ -276,13 +277,9 @@ export class BrowserServer extends BaseClient {
 }
 
 async function _resolveRelativeDeps(source, baseUrl, seen = new Map()) {
-  const re = /(?:from|import)\s*['"](\.[^'"]+|\/[^'"]+)['"]/g
   const out = {}
   const tasks = []
-  let m
-  while ((m = re.exec(source)) !== null) {
-    const spec = m[1]
-    if (out[spec] !== undefined) continue
+  for (const spec of localSpecifiers(source)) {
     out[spec] = ''
     tasks.push((async () => {
       const u = new URL(spec, baseUrl)

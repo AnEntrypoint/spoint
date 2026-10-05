@@ -1,3 +1,5 @@
+import { rewriteLocalSpecifiers } from './appImports.js'
+
 const BLOCKED_PATTERNS = [
   'process.exit', 'child_process', 'require(', '__proto__',
   'Object.prototype', 'globalThis', 'eval(', 'import('
@@ -238,9 +240,7 @@ export class AppLoader {
       revokes.push(url)
       urlMap[spec] = url
     }
-    return source.replace(/((?:from|import)\s*)(['"])(\.[^'"]+|\/[^'"]+)\2/g, (m, pre, q, spec) =>
-      urlMap[spec] ? `${pre}${q}${urlMap[spec]}${q}` : m
-    )
+    return rewriteLocalSpecifiers(source, urlMap)
   }
 
   async loadUntrustedApp(evaluator, name, source, deps = null) {

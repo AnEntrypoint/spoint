@@ -2,6 +2,7 @@ import { readdirSync, statSync, readFileSync } from 'node:fs'
 import { join, extname } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { checkAppImports } from './check-app-imports.mjs'
 
 const execFileAsync = promisify(execFile)
 
@@ -85,6 +86,13 @@ async function main() {
     console.error('check: apps-manifest.json sync check failed:', e.stderr || e.message)
     process.exit(1)
   }
+  const imports = await checkAppImports()
+  if (imports.problems.length) {
+    console.error(`check: ${imports.problems.length} app import/asset resolution problem(s):`)
+    for (const p of imports.problems) console.error(`  ${p}`)
+    process.exit(1)
+  }
+  console.log(`check: ${imports.appCount} apps resolve every import through the worker path, ${imports.assetCount} asset references exist`)
 }
 
 main().catch((e) => { console.error('check: harness error:', e); process.exit(2) })

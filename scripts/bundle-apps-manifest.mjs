@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { expandWorldPresets } from '../src/shared/worldPresets.js'
+import { localSpecifiers } from '../src/apps/appImports.js'
 import { findWorldFile, worldRoots } from '../src/sdk/WorldLocator.js'
 
 const __dirname = import.meta.dirname || dirname(fileURLToPath(import.meta.url))
@@ -56,21 +57,17 @@ function resolveAllApps() {
 }
 
 function resolveRelativeDeps(source, baseFileUrl, seen) {
-  const re = /(?:from|import)\s*['"](\.[^'"]+)['"]/g
   const out = {}
-  let m
-  while ((m = re.exec(source)) !== null) {
-    const spec = m[1]
-    if (out[spec] !== undefined) continue
+  for (const spec of localSpecifiers(source)) {
     const u = new URL(spec, baseFileUrl)
+    if (u.protocol !== 'file:') { out[spec] = null; continue }
+    if (seen.has(u.href)) { out[spec] = seen.get(u.href); continue }
     const filePath = fileURLToPath(u)
-    if (seen.has(u.href)) { out[spec] = seen.get(u.href).source; continue }
     if (!existsSync(filePath)) { out[spec] = null; continue }
-    const src = readFileSync(filePath, 'utf8')
-    const entry = { source: src, deps: {} }
+    const entry = { source: readFileSync(filePath, 'utf8'), deps: {} }
     seen.set(u.href, entry)
-    entry.deps = resolveRelativeDeps(src, u, seen)
-    out[spec] = { source: src, deps: entry.deps }
+    entry.deps = resolveRelativeDeps(entry.source, u, seen)
+    out[spec] = entry
   }
   return out
 }
