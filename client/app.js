@@ -1906,14 +1906,39 @@ function _getServerBrowser() {
   return _serverBrowserPromise
 }
 document.addEventListener('keydown', e => { const _mod=e.ctrlKey||e.metaKey; const _typing=e.target&&(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.isContentEditable); if(_mod&&e.code==='KeyZ'&&!e.shiftKey){e.preventDefault();editHistory.undo()}else if(_mod&&(e.code==='KeyY'||(e.shiftKey&&e.code==='KeyZ'))){e.preventDefault();editHistory.redo()}else if(e.code==='KeyM'&&!e.ctrlKey&&!e.metaKey){e.preventDefault();clientMachine.send('OPEN_LOBBY')}else if(e.code==='KeyB'&&e.shiftKey&&!_mod&&!e.altKey&&!_typing&&!e.repeat){ e.preventDefault(); _getServerBrowser().then(sb => sb.isOpen ? sb.close() : sb.open()) }else if(e.code==='KeyC'&&e.altKey&&!e.ctrlKey&&!e.metaKey&&!e.repeat){ if(colliderDebug){ colliderDebug.toggle(); console.log('[colliderDebug] visible:', colliderDebug.visible) } }else if(e.code==='KeyX'&&!e.ctrlKey&&!e.metaKey&&!e.altKey&&clientMachine.isEditor){ editPanel.toggleSnap() }else if((e.key==='?'||(e.shiftKey&&e.code==='Slash'))&&!_mod&&!e.altKey&&!_typing&&clientMachine.isEditor&&!e.repeat){ e.preventDefault(); editPanel.toggleShortcutsHelp() }; editor.onKeyDown(e); ams.dispatchKeyDown(e,engineCtx) }); document.addEventListener('keyup', e => ams.dispatchKeyUp(e,engineCtx))
+let _pointerLockState = { state: 'idle', detail: null }
+function _setPointerLockState(state, detail = null) {
+  _pointerLockState = { state, detail }
+  if (window.__app) window.__app.pointerLock = _pointerLockState
+}
 function _safeExitPointerLock() {
-  try { document.exitPointerLock() } catch (e) { console.warn('[input] exitPointerLock failed:', e?.message || e) }
+  try { document.exitPointerLock() } catch (e) { _dbgInput('exitPointerLock failed:', e?.message || e) }
+}
+function _pointerLockBlockedReason() {
+  if (navigator.userActivation && !navigator.userActivation.isActive) return 'no-user-activation'
+  if (typeof document.hasFocus === 'function' && !document.hasFocus()) return 'document-not-focused'
+  return null
 }
 function _safeRequestPointerLock() {
+  const blocked = _pointerLockBlockedReason()
+  if (blocked) {
+    _setPointerLockState('skipped', blocked)
+    _dbgInput('requestPointerLock skipped:', blocked)
+    return false
+  }
   try {
     const p = renderer.domElement.requestPointerLock()
-    if (p && typeof p.catch === 'function') p.catch(e => console.warn('[input] requestPointerLock rejected:', e?.message || e))
-  } catch (e) { console.warn('[input] requestPointerLock failed:', e?.message || e) }
+    _setPointerLockState('requested')
+    if (p && typeof p.then === 'function') {
+      p.then(() => { if (_pointerLockState.state === 'requested') _setPointerLockState('resolved-without-lock') },
+             e => _setPointerLockState('rejected', e?.message || String(e)))
+    }
+    return true
+  } catch (e) {
+    _setPointerLockState('failed', e?.message || String(e))
+    _dbgInput('requestPointerLock threw:', e?.message || e)
+    return false
+  }
 }
 let settingsMenu = _hmrFactories.createSettingsMenu({ getCam: () => cam, getRenderer: () => renderer })
 if (window.__app) window.__app.settingsMenu = settingsMenu
@@ -2081,6 +2106,7 @@ document.addEventListener('keydown', e => {
 })
 document.addEventListener('pointerlockchange', ()=>{
   const locked=document.pointerLockElement===renderer.domElement
+  _setPointerLockState(locked ? 'locked' : 'unlocked')
   clickPrompt.style.display=locked?'none':(inputConfig.pointerLock?'block':'none')
   if (locked) { document.addEventListener('mousemove',cam.onMouseMove); _hasEverLocked = true }
   else {

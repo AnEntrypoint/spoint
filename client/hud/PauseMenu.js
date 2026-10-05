@@ -101,12 +101,7 @@ export function createPauseMenu({ requestPointerLock = null, settingsMenu = null
   }
   function resume() {
     overlay.classList.remove('open')
-    if (requestPointerLock) {
-      try {
-        const p = requestPointerLock()
-        if (p && typeof p.catch === 'function') p.catch(e => console.warn('[pause-menu] requestPointerLock rejected:', e?.message || e))
-      } catch (e) { console.warn('[pause-menu] requestPointerLock failed:', e?.message || e) }
-    }
+    if (requestPointerLock) requestPointerLock()
     if (onResumeCb) onResumeCb()
   }
   function leaveMatch() {
