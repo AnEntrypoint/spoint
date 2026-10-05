@@ -126,6 +126,14 @@ if (leT && legGroundRef) {
     const lf = leL && leL.frames[label] && leL.frames[label].img
     r[label] = Object.fromEntries(['leftEdge', 'leftLower', 'terrain'].map(k => [k, { tsl: regionMean(f.img, masks[k]), legacy: lf ? regionMean(lf, masks[k]) : null, delta: lf ? regionMean(f.img, masks[k]).map((v, c) => +(v - regionMean(lf, masks[k])[c]).toFixed(2)) : null }]))
   }
+  const resp = (a, b, k) => leT.frames[a] && leT.frames[b] && leT.frames[a].img && leT.frames[b].img ? regionMean(leT.frames[a].img, masks[k]).map((v, c) => +(v - regionMean(leT.frames[b].img, masks[k])[c]).toFixed(2)) : null
+  const within = (d, lim) => d && d.every(x => Math.abs(x) <= lim)
+  out.leftEdgeScore = {
+    texNrmK0: { leftLowerDelta: r['le-texNrmK0'] && r['le-texNrmK0'].leftLower.delta, closesWithin1p5: within(r['le-texNrmK0'] && r['le-texNrmK0'].leftLower.delta, 1.5), reliefResponseDefault: resp('le-greyRelief1', 'le-grey', 'leftLower'), reliefResponseTexNrmK0: resp('le-texNrmK0Relief1', 'le-texNrmK0', 'leftLower'), reliefResponseWithin0p5: within(resp('le-texNrmK0Relief1', 'le-texNrmK0', 'leftLower'), 0.5) },
+    flatNormal: { leftLowerDelta: r['le-flatNormal'] && r['le-flatNormal'].leftLower.delta, closesWithin1p5: within(r['le-flatNormal'] && r['le-flatNormal'].leftLower.delta, 1.5) },
+    both: { leftLowerDelta: r['le-texNrmK0FlatNormal'] && r['le-texNrmK0FlatNormal'].leftLower.delta, leftEdgeDelta: r['le-texNrmK0FlatNormal'] && r['le-texNrmK0FlatNormal'].leftEdge.delta },
+    bothShadowOff: { leftLowerDelta: r['le-texNrmK0FlatNormalShadowOff'] && r['le-texNrmK0FlatNormalShadowOff'].leftLower.delta }
+  }
   out.leftEdge = r
 }
 

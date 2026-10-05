@@ -70,18 +70,31 @@ export function captureBody({ session, prefix = '', withSky = true }) {
   return lines.join('\n')
 }
 
+const HOOK_GLOBALS = ['__reliefShade', '__texNrmK', '__flatNormal']
+const hookState = set => "window.__albedoOverride=[0.8,0.8,0.8,1];window.__hazeMul=0.4;" +
+  HOOK_GLOBALS.map(k => k in set ? 'window.' + k + '=' + set[k] + ';' : 'delete window.' + k + ';').join('')
+const SHADOW_OFF = "const R=window.__app.renderer;window.__scene.traverse(o=>{if(o.isLight&&o.castShadow)o.castShadow=false});window.__hostShadowOff=true;if(R.shadowMap){R.shadowMap.enabled=false;R.shadowMap.needsUpdate=true}window.__scene.traverse(o=>{if(o.material){for(const m of [].concat(o.material))m.needsUpdate=true}})"
+
+export const LEFT_EDGE_STEPS = [
+  ['le-grey', {}],
+  ['le-greyRelief1', { __reliefShade: 1 }],
+  ['le-texNrmK0', { __texNrmK: 0 }],
+  ['le-texNrmK0Relief1', { __texNrmK: 0, __reliefShade: 1 }],
+  ['le-flatNormal', { __flatNormal: 1 }],
+  ['le-texNrmK0FlatNormal', { __texNrmK: 0, __flatNormal: 1 }],
+  ['le-greyHaze0', { haze0: true }]
+]
+
 export function leftEdgeBody({ session, extraGlobals = [] }) {
   const lines = ['sessionId=' + session]
-  const steps = [
-    ['le-grey', "window.__albedoOverride=[0.8,0.8,0.8,1];window.__hazeMul=0.4;delete window.__reliefShade"],
-    ['le-greyHaze0', "window.__hazeMul=0"],
-    ['le-greyRelief1Haze0', "window.__reliefShade=1"],
-    ['le-greyRelief1', "window.__hazeMul=0.4"],
-    ...extraGlobals.map(([k, v]) => ['le-extra-' + k.replace(/^__/, ''), 'window.' + k + '=' + v]),
-    ['le-greyRelief1ShadowOff', "const R=window.__app.renderer;window.__scene.traverse(o=>{if(o.isLight&&o.castShadow)o.castShadow=false});window.__hostShadowOff=true;if(R.shadowMap){R.shadowMap.enabled=false;R.shadowMap.needsUpdate=true}window.__scene.traverse(o=>{if(o.material){for(const m of [].concat(o.material))m.needsUpdate=true}})"]
-  ]
   lines.push(...evaluate(stepExpression("window.__app.cam.restore({yaw:1.0,pitch:0,zoomIndex:2})", 2000, 'le-groundPose')))
-  for (const [label, assign] of steps) lines.push(...evaluate(stepExpression(assign, 2500, label + '-step')), ...frame(label, FULL))
+  for (const [label, set] of LEFT_EDGE_STEPS) {
+    const assign = hookState(set) + (set.haze0 ? 'window.__hazeMul=0;' : '')
+    lines.push(...evaluate(stepExpression(assign, 2000, label + '-step')), ...frame(label, FULL))
+  }
+  for (const [k, v] of extraGlobals) lines.push(...evaluate(stepExpression(hookState({}) + 'window.' + k + '=' + v, 2000, 'le-extra-' + k.replace(/^__/, '') + '-step')), ...frame('le-extra-' + k.replace(/^__/, ''), FULL))
+  lines.push(...evaluate(stepExpression(hookState({ __texNrmK: 0, __flatNormal: 1 }) + SHADOW_OFF, 2500, 'le-texNrmK0FlatNormalShadowOff-step')), ...frame('le-texNrmK0FlatNormalShadowOff', FULL))
+  lines.push(...evaluate(stepExpression(hookState({}) + "window.__albedoOverride=[0,0,0,0]", 1000, 'le-restored')))
   return lines.join('\n')
 }
 
