@@ -1,6 +1,8 @@
 const _now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
 const NON_FINITE_HEIGHT_FALLBACK_M = -1000
-const DEFAULT_MAX_FIELDS = 8
+const FIELD_BYTE_BUDGET = 64 * 1024 * 1024
+const FIELD_BYTES_PER_SAMPLE = 8
+const yieldToLoop = () => new Promise(r => (typeof setImmediate === 'function' ? setImmediate(r) : setTimeout(r, 0)))
 
 export async function sampleTerrainGridChunked({ heightFn, N, spacing, cornerX, cornerZ, budgetMs = 2, isAborted = () => false }) {
   const samples = new Float32Array(N * N)
@@ -14,7 +16,7 @@ export async function sampleTerrainGridChunked({ heightFn, N, spacing, cornerX, 
       samples[row + x] = h
     }
     if (_now() - slice >= budgetMs) {
-      await new Promise(r => setTimeout(r, 0))
+      await yieldToLoop()
       if (isAborted()) return null
       slice = _now()
     }
@@ -39,10 +41,10 @@ function assignPlayers(players, fields, half) {
   return { owner, load }
 }
 
-function nextUncoveredCluster(players, fields, coverRadius) {
+function nextUncoveredCluster(players, fields, coverRadius, half) {
   const uncovered = players.filter(p => !fields.some(f => chebyshev(p, f.center) <= coverRadius))
   if (!uncovered.length) return null
-  const seed = uncovered[0]
+  const seed = uncovered.find(p => !fields.some(f => chebyshev(p, f.center) <= half)) || uncovered[0]
   const members = uncovered.filter(p => chebyshev(p, seed) <= coverRadius)
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
   for (const [x, z] of members) { if (x < minX) minX = x; if (x > maxX) maxX = x; if (z < minZ) minZ = z; if (z > maxZ) maxZ = z }
@@ -58,8 +60,8 @@ export function createTerrainStreamer(opts = {}) {
   const coverRadius = extent * (Number.isFinite(opts.rebuildAt) ? opts.rebuildAt : 0.4)
   const intervalMs = Number.isFinite(opts.intervalMs) ? opts.intervalMs : 300
   const budgetMs = Number.isFinite(opts.budgetMs) && opts.budgetMs > 0 ? opts.budgetMs : 2
-  const maxFields = Number.isInteger(opts.maxFields) && opts.maxFields > 0 ? opts.maxFields : DEFAULT_MAX_FIELDS
   let N = Math.max(2, Math.round(extent / resolution)); if (N % 2 !== 0) N += 1
+  const maxFields = Number.isInteger(opts.maxFields) && opts.maxFields > 0 ? opts.maxFields : Math.max(1, Math.floor(FIELD_BYTE_BUDGET / (N * N * FIELD_BYTES_PER_SAMPLE)))
   const spacing = extent / (N - 1)
   const half = extent / 2
   const fields = []
@@ -135,20 +137,20 @@ export function createTerrainStreamer(opts = {}) {
   async function pass() {
     const players = validCenters()
     if (!players.length) return
-    const need = nextUncoveredCluster(players, fields, coverRadius)
-    if (need) {
+    let need = nextUncoveredCluster(players, fields, coverRadius, half)
+    while (need && !disposed) {
       if (fields.length >= maxFields) retireUnowned(players)
       if (fields.length >= maxFields) {
         if (!capWarned) { console.warn(`[terrain] streamer: ${need.uncovered} player(s) uncovered, heightfield cap ${maxFields} reached`); capWarned = true }
-      } else {
-        capWarned = false
-        const built = await buildField(need.center[0], need.center[1])
-        if (built && !disposed) {
-          fields.push({ bodyId: built.bodyId, center: built.center })
-          rebuildCount++
-          console.log(`[terrain] heightfield #${rebuildCount} at (${built.center[0].toFixed(0)},${built.center[1].toFixed(0)}) for ${need.members} player(s) N=${N} ${built.wallMs.toFixed(0)}ms(sample ${built.sampleMs.toFixed(0)}ms) id=${built.bodyId} fields=${fields.length}`)
-        }
+        break
       }
+      capWarned = false
+      const built = await buildField(need.center[0], need.center[1])
+      if (!built || disposed) break
+      fields.push({ bodyId: built.bodyId, center: built.center })
+      rebuildCount++
+      console.log(`[terrain] heightfield #${rebuildCount} at (${built.center[0].toFixed(0)},${built.center[1].toFixed(0)}) for ${need.members} player(s) N=${N} ${built.wallMs.toFixed(0)}ms(sample ${built.sampleMs.toFixed(0)}ms) id=${built.bodyId} fields=${fields.length}`)
+      need = nextUncoveredCluster(validCenters(), fields, coverRadius, half)
     }
     if (disposed) return
     const now = validCenters()
@@ -170,7 +172,7 @@ export function createTerrainStreamer(opts = {}) {
   async function prepareFields({ players, heightFn: preparedHeightFn, isAborted = () => false }) {
     const planned = []
     while (true) {
-      const need = nextUncoveredCluster(players, planned, coverRadius)
+      const need = nextUncoveredCluster(players, planned, coverRadius, half)
       if (!need) break
       if (planned.length >= maxFields) throw new Error(`prepareFields: ${need.uncovered} player(s) left uncovered at the heightfield cap ${maxFields}`)
       const cornerX = snapCorner(need.center[0]), cornerZ = snapCorner(need.center[1])

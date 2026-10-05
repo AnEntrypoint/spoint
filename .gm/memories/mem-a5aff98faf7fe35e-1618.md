@@ -1,0 +1,8 @@
+---
+key: mem-a5aff98faf7fe35e-1618
+ns: default
+created: 1791206782025
+updated: 1791206782025
+---
+
+HeightfieldStreamer spread-player fix, measured 2026-10-05 (real setupTerrainStreaming + PhysicsWorld, tps-game, players on a 1 km grid, median of 3). Root cause of the 4.5 s per field: the field itself is ~0.55-0.7 s of solver CPU (16384 solveSurfaceY at ~3 evals per point, outside the baked .hf which already serves the central area as a bilinear lookup), the rest was the 2 ms sampling slices each yielding through setTimeout(0), which Windows clamps to ~15 ms, so wall was 3-8x CPU. Plus pass() built ONE field per pass (300 ms interval) and a fixed cap of 8. Fix: yieldToLoop (setImmediate, setTimeout fallback) in sampleTerrainGridChunked; pass loops until nothing is uncovered or the cap is hit; groundless players (outside every field's half-extent) are seeded before merely past-cover-radius ones; default cap = 64 MiB / (N*N*8 B) = 512 at N=128 (measured 51 KB RSS per N=128 field, so the budget is 2.5x conservative), explicit tphys.maxFields still wins. Before (cap 8 default): 16 players 8 covered in 15.2/15.9/16.8 s, 8 never; (cap 64) 16 covered median 18.6 s last 35.6 s; 64 players 60 covered last 148 s, median 77 s. After: 16 players all covered last 12.0/12.7/13.1 s, median 6.9-8.0 s; 64 players all 64 last 56.2 s, median 29.5 s; per-field wall 0.5-0.7 s. Field samples byte-identical (sha1 per field) to HEAD for 1 player and for 6 spread players. Remaining: sampling is still main-thread CPU (~0.6 s per field, 64 fields = ~38 s of one core), trunk and rock collider streamers keep maxCenters 8 and their own setTimeout(0) yield; see PRD rows. Reproduce: scratchpad ttg.mjs (N pitch maxS cap).
