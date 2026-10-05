@@ -12,10 +12,15 @@ if (!args.dir || !args.gpu) {
 }
 const repo = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..', '..')
 
+function readText(file) {
+  const t = fs.readFileSync(file, 'utf8')
+  return t.charCodeAt(0) === 0xfeff ? t.slice(1) : t
+}
+
 function load(name) {
   const f = path.join(args.dir, name + '.json')
   if (!fs.existsSync(f)) return null
-  const j = JSON.parse(fs.readFileSync(f, 'utf8'))
+  const j = JSON.parse(readText(f))
   const d = j.data || j
   const r = d.result !== undefined ? d.result : d
   const results = Array.isArray(r) ? r : (r.results || [])
@@ -40,6 +45,36 @@ const tslBoot = load('tsl-boot'), legBoot = load('legacy-boot')
 const tslSettle = pick('tsl-settle', 'tsl-boot'), legSettle = pick('legacy-settle', 'legacy-boot')
 const tslCap = load('tsl-capture'), legCap = load('legacy-capture')
 if (!tslBoot || !legBoot || !tslCap || !legCap) { console.error('missing one of tsl-boot, legacy-boot, tsl-capture, legacy-capture in ' + args.dir); process.exit(2) }
+
+const headNow = execSync('git rev-parse HEAD', { cwd: repo, encoding: 'utf8' }).trim()
+
+function manifestHead(file) {
+  if (!fs.existsSync(file)) return null
+  try {
+    const m = JSON.parse(readText(file))
+    return typeof m.head === 'string' && m.head ? { sha: m.head, source: 'manifest.json' } : null
+  } catch { return null }
+}
+
+function grabHead(dir) {
+  const f = path.join(dir, 'head.json')
+  if (!fs.existsSync(f)) return null
+  try {
+    const h = JSON.parse(readText(f))
+    const shas = [].concat(h.heads || h.head || []).filter(s => typeof s === 'string' && s)
+    return shas.length ? { sha: shas[0], source: 'head.json' } : null
+  } catch { return null }
+}
+
+function probeHead(boot) {
+  for (const v of (boot && boot.values) || []) if (v && typeof v.head === 'string' && v.head) return { sha: v.head, source: 'boot probe' }
+  return null
+}
+
+const headSources = [grabHead(args.dir), manifestHead(args.manifest || path.join(args.dir, 'manifest.json')), probeHead(tslBoot), probeHead(legBoot)].filter(Boolean)
+const headShas = [...new Set(headSources.map(s => s.sha))]
+const captureHead = headSources[0] || null
+const headMismatch = captureHead ? captureHead.sha !== headNow : null
 
 const settleOf = s => s && s.values.filter(v => v.settle !== undefined).slice(-1)[0]
 const gates = []
@@ -126,7 +161,31 @@ const skyMad = sets.skyPose && sets.skyPose.sky && sets.skyPose.sky.meanAbs
 const groundSkyMad = sets.ground && sets.ground.sky && sets.ground.sky.meanAbs
 gate('sky region TSL vs legacy within ' + SKY_GATE + ' (state settled)', skyMad != null && skyMad <= SKY_GATE && (groundSkyMad == null || groundSkyMad <= SKY_GATE), { skyPose: skyMad, groundPose: groundSkyMad })
 
-const out = { gpu: args.gpu, head: execSync('git rev-parse HEAD', { cwd: repo, encoding: 'utf8' }).trim(), criterion: { K, floorMin: FLOOR_MIN, skyGate: SKY_GATE }, verdict: gates.every(g => g.pass) ? 'pair valid' : 'pair invalid', gates, settle: { tsl: ts, legacy: ls }, executedHashes: uniqueHashes, sets }
+const guardRows = []
+for (const [arm, src] of [['tsl-boot', tslBoot], ['legacy-boot', legBoot], ['tsl-capture', tslCap], ['legacy-capture', legCap]]) {
+  for (const v of (src && src.values) || []) {
+    if (!v || typeof v !== 'object' || v.blocked === undefined) continue
+    guardRows.push({ arm, at: v.probe || v.frame || null, blocked: Number(v.blocked) || 0, canvas: v.canvas || v.cv || null })
+  }
+}
+const canvasSizes = [...new Set(guardRows.map(r => JSON.stringify(r.canvas)).filter(c => c !== 'null'))]
+const firstBlocked = guardRows.find(r => r.blocked > 0) || null
+
+const out = {
+  gpu: args.gpu,
+  head: headNow,
+  captureHead: captureHead && captureHead.sha,
+  captureHeadSource: captureHead && captureHead.source,
+  captureHeadShas: headShas,
+  headMismatch,
+  criterion: { K, floorMin: FLOOR_MIN, skyGate: SKY_GATE },
+  verdict: gates.every(g => g.pass) ? 'pair valid' : 'pair invalid',
+  gates,
+  settle: { tsl: ts, legacy: ls },
+  executedHashes: uniqueHashes,
+  inputGuard: { blocked, firstBlocked, canvasSizes, probes: guardRows },
+  sets
+}
 
 const gm0 = load('tsl-geomorph-off-capture')
 if (gm0 && legGroundRef) {
@@ -160,6 +219,11 @@ if (leT && legGroundRef) {
 
 fs.writeFileSync(path.join(args.dir, 'analysis-' + args.gpu + '.json'), JSON.stringify(out, null, 1))
 console.log(args.gpu + ' ' + out.verdict + ' (HEAD ' + out.head.slice(0, 8) + ')')
+if (!captureHead) console.log('HEAD UNKNOWN: no capture-time sha in ' + args.dir + ' -- this verdict names only the analyze-time HEAD ' + headNow.slice(0, 8) + ' and may attribute these frames to bytes that never rendered')
+else if (headShas.length > 1) console.log('HEAD DISAGREEMENT: capture-time sources disagree (' + headShas.map(s => s.slice(0, 8)).join(' vs ') + ') -- analyze-time HEAD ' + headNow.slice(0, 8))
+else if (headMismatch) console.log('HEAD MISMATCH: captured at ' + captureHead.sha.slice(0, 8) + ' (' + captureHead.source + '), analyzed at ' + headNow.slice(0, 8) + ' -- these frames were rendered by ' + captureHead.sha.slice(0, 8) + ', not by HEAD')
+else console.log('head ok: capture ' + captureHead.sha.slice(0, 8) + ' (' + captureHead.source + ') == analyze ' + headNow.slice(0, 8))
+if (firstBlocked) console.log('INPUT CONTAMINATED: first blockedInput=' + firstBlocked.blocked + ' at ' + firstBlocked.arm + '/' + firstBlocked.at + ' -- re-navigate, do not capture through it')
 for (const g of gates) console.log((g.pass ? 'PASS ' : 'FAIL ') + g.name + (g.detail ? ' ' + JSON.stringify(g.detail).slice(0, 160) : ''))
 for (const [set, rows] of Object.entries(sets)) {
   if (!rows) { console.log(set + ': missing frames'); continue }

@@ -1,6 +1,7 @@
 const ammoRead = "(document.body.innerText.split(String.fromCharCode(10)).filter(s=>s.indexOf('/')>0&&s.length<8).slice(-1)[0]||null)"
 
-export const inputBlockerHook = flags => "(()=>{" + flags +
+export const inputBlockerHook = (flags, head) => "(()=>{" + flags +
+  "window.__parityHead=" + JSON.stringify(head || null) + ";" +
   "const W={blockedInput:0,pageErrors:0,consoleErrors:0,consoleWarns:0,msgs:[],inputLog:[]};window.__witness=W;" +
   "for(const n of ['error','warn']){const o=console[n].bind(console);console[n]=(...a)=>{if(n==='error')W.consoleErrors++;else W.consoleWarns++;if(W.msgs.length<30)W.msgs.push(n+': '+a.map(x=>x&&x.stack?x.stack:String(x)).join(' ').slice(0,200));o(...a)}}" +
   "window.addEventListener('error',e=>{W.pageErrors++;if(W.msgs.length<30)W.msgs.push('PAGEERROR '+String(e.message||e).slice(0,200))});" +
@@ -13,7 +14,8 @@ export const inputBlockerHook = flags => "(()=>{" + flags +
 const signature = label => "JSON.stringify({frame:'" + label + "',t:new Date().toISOString(),cam:window.__app.cam.save(),ammo:" + ammoRead +
   ",veg:window.__veg.totalInstances,blocked:window.__witness.blockedInput,albedoOverride:window.__albedoOverride,reliefShade:window.__reliefShade===undefined?'default':window.__reliefShade,hazeMul:window.__hazeMul})"
 
-const inputCountExpression = label => "JSON.stringify({probe:'" + label + "',href:location.href,blocked:window.__witness?window.__witness.blockedInput:'no-witness'," +
+const inputCountExpression = label => "JSON.stringify({probe:'" + label + "',href:location.href,head:window.__parityHead||null,blocked:window.__witness?window.__witness.blockedInput:'no-witness'," +
+  "cv:(function(){var c=document.querySelector('canvas');return c?[c.width,c.height]:null})()," +
   "inputLog:window.__witness?window.__witness.inputLog:[],pageErrors:window.__witness?window.__witness.pageErrors:null})"
 
 const postNavExpression = () => inputCountExpression('postNavigate')
@@ -40,32 +42,34 @@ const FULL = { x: 0, y: 0, width: 1036, height: 647, scale: 0.5 }
 
 const frame = (label, clip) => [...evaluate(signature(label)), ...shot(clip)]
 
-export function bootBody({ session, url, minVeg, flags = '' }) {
+const DEVICE_METRICS = '{"width":1036,"height":647,"deviceScaleFactor":1.25,"mobile":false}'
+const guardLines = () => ['cdp Input.setIgnoreInputEvents', '{"ignore":true}', 'cdp Emulation.setDeviceMetricsOverride', DEVICE_METRICS]
+
+export function bootBody({ session, url, minVeg, flags = '', head = null }) {
   return [
     'sessionId=' + session,
     'events Debugger.scriptParsed where url~mapspinner limit=600',
     'events Runtime.exceptionThrown limit=40',
-    'cdp Input.setIgnoreInputEvents', '{"ignore":true}',
+    ...guardLines(),
     'cdp Page.enable', 'cdp Network.enable', '{}',
     'cdp Network.setCacheDisabled', '{"cacheDisabled":true}',
     'cdp Network.clearBrowserCache', '{}',
-    'cdp Emulation.setDeviceMetricsOverride', '{"width":1036,"height":647,"deviceScaleFactor":1.25,"mobile":false}',
-    'cdp Page.addScriptToEvaluateOnNewDocument', JSON.stringify({ source: inputBlockerHook(flags) }),
+    'cdp Page.addScriptToEvaluateOnNewDocument', JSON.stringify({ source: inputBlockerHook(flags, head) }),
     'cdp Page.navigate', JSON.stringify({ url }),
-    'cdp Input.setIgnoreInputEvents', '{"ignore":true}',
+    ...guardLines(),
     ...evaluate(postNavExpression()),
     ...evaluate(settleExpression(minVeg)).map((l, i) => i === 1 ? l.replace('"timeout":60000', '"timeout":130000') : l)
   ].join('\n')
 }
 
 export function settleBody({ session, minVeg }) {
-  return ['sessionId=' + session, ...evaluate(settleExpression(minVeg)).map((l, i) => i === 1 ? l.replace('"timeout":60000', '"timeout":130000') : l)].join('\n')
+  return ['sessionId=' + session, ...guardLines(), ...evaluate(settleExpression(minVeg)).map((l, i) => i === 1 ? l.replace('"timeout":60000', '"timeout":130000') : l)].join('\n')
 }
 
 export function captureBody({ session, prefix = '', withSky = true }) {
   const p = s => prefix + s
   const lines = ['sessionId=' + session]
-  lines.push('cdp Input.setIgnoreInputEvents', '{"ignore":true}')
+  lines.push(...guardLines())
   lines.push(...evaluate(inputCountExpression('captureStart')))
   if (withSky) {
     lines.push(...evaluate(stepExpression("window.__app.cam.restore({yaw:1.0,pitch:0.35,zoomIndex:2})", 2500, p('skyPose'))))
@@ -98,7 +102,7 @@ export const LEFT_EDGE_STEPS = [
 
 export function leftEdgeBody({ session, extraGlobals = [] }) {
   const lines = ['sessionId=' + session]
-  lines.push('cdp Input.setIgnoreInputEvents', '{"ignore":true}')
+  lines.push(...guardLines())
   lines.push(...evaluate(inputCountExpression('leftEdgeStart')))
   lines.push(...evaluate(stepExpression("window.__app.cam.restore({yaw:1.0,pitch:0,zoomIndex:2})", 2000, 'le-groundPose')))
   for (const [label, set] of LEFT_EDGE_STEPS) {
