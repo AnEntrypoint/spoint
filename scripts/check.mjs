@@ -93,6 +93,13 @@ async function main() {
     process.exit(1)
   }
   try {
+    const { stdout } = await execFileAsync(process.execPath, ['scripts/check-tsl-imports.mjs'])
+    for (const line of stdout.split('\n')) if (line.trim()) console.log(`check: ${line}`)
+  } catch (e) {
+    console.error('check: three export-name resolution:', (e.stderr || e.message || '').toString().trim())
+    process.exit(1)
+  }
+  try {
     await execFileAsync(process.execPath, ['scripts/bundle-apps-manifest.mjs', '--if-changed'])
     console.log('check: apps-manifest.json regenerated from current sources')
   } catch (e) {
