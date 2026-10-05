@@ -4,6 +4,10 @@ export const SURFACE_SOLVE_TOLERANCE_M = 1e-4
 const _reportedSolveFailures = new Set()
 const _stepDiscontinuities = { count: 0, maxJumpM: 0 }
 const BRACKET_HALVING_WINDOW = 6
+const GROUND_MEMO_SLOTS = 4096
+const GROUND_MEMO_CELLS_PER_M = 4
+const GROUND_MEMO_HASH_X = 73856093
+const GROUND_MEMO_HASH_Z = 19349663
 
 export function surfaceSolveStepDiscontinuities() { return { ..._stepDiscontinuities } }
 
@@ -149,9 +153,28 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
     }
     throw new SurfaceSolveError(x, z, toleranceM, SURFACE_SOLVE_MAX_EVALS, lastG)
   }
+  const memoX = new Float64Array(GROUND_MEMO_SLOTS).fill(NaN)
+  const memoZ = new Float64Array(GROUND_MEMO_SLOTS)
+  const memoHeight = new Float64Array(GROUND_MEMO_SLOTS)
+  const memoEpoch = new Int32Array(GROUND_MEMO_SLOTS).fill(-1)
+  const memoFailure = new Array(GROUND_MEMO_SLOTS).fill(null)
+  const sampleHeightAtDir = (d) => sampler.heightAt(d)
   function groundHeightLocal(x, z) {
-    const y = solveSurfaceY(x, z, (d) => sampler.heightAt(d))
-    return y == null ? NaN : y + offsetY
+    const slot = (Math.imul(Math.floor(x * GROUND_MEMO_CELLS_PER_M), GROUND_MEMO_HASH_X) ^ Math.imul(Math.floor(z * GROUND_MEMO_CELLS_PER_M), GROUND_MEMO_HASH_Z)) & (GROUND_MEMO_SLOTS - 1)
+    if (memoX[slot] === x && memoZ[slot] === z && memoEpoch[slot] === frame.chartEpoch) {
+      if (memoFailure[slot] !== null) throw memoFailure[slot]
+      return memoHeight[slot]
+    }
+    memoX[slot] = x; memoZ[slot] = z; memoEpoch[slot] = frame.chartEpoch; memoFailure[slot] = null
+    try {
+      const y = solveSurfaceY(x, z, sampleHeightAtDir)
+      memoHeight[slot] = y == null ? NaN : y + offsetY
+      return memoHeight[slot]
+    } catch (e) {
+      if (!(e instanceof SurfaceSolveError)) { memoEpoch[slot] = -1; throw e }
+      memoFailure[slot] = e
+      throw e
+    }
   }
   const anchorSurfaceWorld = _scale(up, radius + anchorHeight)
   function localToWorld(x, y, z) {
