@@ -8,6 +8,8 @@ import { createDormantStatics } from './DormantStatics.js'
 const LAYER_STATIC = 0, LAYER_DYNAMIC = 1, NUM_LAYERS = 2
 const _PARK_POS = [0, -100000, 0]
 let joltInstance = null
+let liveWorlds = 0
+export function livePhysicsWorldCount() { return liveWorlds }
 export async function getJolt() {
   if (!joltInstance) {
     if (typeof globalThis.__SPOINT_EDGE_JOLT__ !== 'undefined') {
@@ -56,6 +58,7 @@ export class PhysicsWorld {
     if (lim) { settings.mMaxBodies = lim.maxBodies; settings.mMaxBodyPairs = lim.maxBodyPairs; settings.mMaxContactConstraints = lim.maxContactConstraints }
     this._objFilter = objFilter; this._ovbp = ovbp
     this.jolt = new J.JoltInterface(settings); J.destroy(settings)
+    liveWorlds++
     this.physicsSystem = this.jolt.GetPhysicsSystem(); this.bodyInterface = this.physicsSystem.GetBodyInterface()
     this._tmpVec3 = new J.Vec3(0, 0, 0); this._tmpRVec3 = new J.RVec3(0, 0, 0); this._tmpQuat = new J.Quat(0, 0, 0, 1)
     this._bulkOutP = new J.RVec3(0, 0, 0); this._bulkOutR = new J.Quat(0, 0, 0, 1)
@@ -308,8 +311,9 @@ export class PhysicsWorld {
   get characters() { return this._charMgr.characters }
   wasmHeapBytes() {
     const J = this.Jolt
-    return { total: J._emscripten_bind_JoltInterface_sGetTotalMemory_0(), free: J._emscripten_bind_JoltInterface_sGetFreeMemory_0() }
+    return { total: J._emscripten_bind_JoltInterface_sGetTotalMemory_0(), free: J._emscripten_bind_JoltInterface_sGetFreeMemory_0(), worlds: liveWorlds }
   }
+  get liveWorldCount() { return liveWorlds }
   createStateRecorder() { return new this.Jolt.StateRecorderImpl() }
 
   saveExactState(recorder) {
@@ -617,7 +621,7 @@ export class PhysicsWorld {
     if (this._bulkOutR) { J.destroy(this._bulkOutR); this._bulkOutR = null }
     if (this._bulkOutLV) { J.destroy(this._bulkOutLV); this._bulkOutLV = null }
     if (this._bulkOutAV) { J.destroy(this._bulkOutAV); this._bulkOutAV = null }
-    if (this.jolt) { J.destroy(this.jolt); this.jolt = null }
+    if (this.jolt) { J.destroy(this.jolt); this.jolt = null; liveWorlds = Math.max(0, liveWorlds - 1) }
     this.physicsSystem = null; this.bodyInterface = null
   }
 }

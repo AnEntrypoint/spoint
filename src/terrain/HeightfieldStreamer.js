@@ -3,6 +3,7 @@ const NON_FINITE_HEIGHT_FALLBACK_M = -1000
 const FIELD_WASM_BUDGET_BYTES = 32 * 1024 * 1024
 const FIELD_WASM_BYTES_PER_SAMPLE = 4
 const WASM_RESERVE_FREE_BYTES = 64 * 1024 * 1024
+const WASM_RESERVE_MIN_PER_WORLD_BYTES = 8 * 1024 * 1024
 const yieldToLoop = () => new Promise(r => (typeof setImmediate === 'function' ? setImmediate(r) : setTimeout(r, 0)))
 
 export async function sampleTerrainGridChunked({ heightFn, N, spacing, cornerX, cornerZ, budgetMs = 2, isAborted = () => false }) {
@@ -64,6 +65,7 @@ export function createTerrainStreamer(opts = {}) {
   let N = Math.max(2, Math.round(extent / resolution)); if (N % 2 !== 0) N += 1
   const maxFields = Number.isInteger(opts.maxFields) && opts.maxFields > 0 ? opts.maxFields : Math.max(1, Math.floor(FIELD_WASM_BUDGET_BYTES / (N * N * FIELD_WASM_BYTES_PER_SAMPLE)))
   const fieldWasmBytes = N * N * FIELD_WASM_BYTES_PER_SAMPLE
+  const reserveFreeBytes = () => Math.max(WASM_RESERVE_MIN_PER_WORLD_BYTES, Math.round(WASM_RESERVE_FREE_BYTES / Math.max(1, physics.liveWorldCount ?? 1)))
   const spacing = extent / (N - 1)
   const half = extent / 2
   const fields = []
@@ -147,8 +149,9 @@ export function createTerrainStreamer(opts = {}) {
         break
       }
       const heap = typeof physics.wasmHeapBytes === 'function' ? physics.wasmHeapBytes() : null
-      if (heap && heap.free - fieldWasmBytes < WASM_RESERVE_FREE_BYTES) {
-        if (!capWarned) { console.error(`[terrain] streamer: refusing a new heightfield, the Jolt wasm heap has ${heap.free} of ${heap.total} B free and ${WASM_RESERVE_FREE_BYTES} B stay reserved for the rest of the world; ${fields.length} fields resident, ${need.uncovered} player(s) uncovered`); capWarned = true }
+      const reserve = reserveFreeBytes()
+      if (heap && heap.free - fieldWasmBytes < reserve) {
+        if (!capWarned) { console.error(`[terrain] streamer: refusing a new heightfield, the Jolt wasm heap has ${heap.free} of ${heap.total} B free shared by ${heap.worlds ?? 1} world(s) and ${reserve} B stay reserved for the rest of this world; ${fields.length} fields resident, ${need.uncovered} player(s) uncovered`); capWarned = true }
         break
       }
       capWarned = false
@@ -223,11 +226,32 @@ export function createTerrainStreamer(opts = {}) {
     return { installed: added.length, removed: replaced.length }
   }
 
+  async function coverPoints(points) {
+    const toLattice = p => (lattice ? lattice.toLattice(p[0], p[1]) : [p[0], p[1]])
+    let built = 0
+    for (const raw of points) {
+      if (!Array.isArray(raw) || !Number.isFinite(raw[0]) || !Number.isFinite(raw[1])) continue
+      const p = toLattice(raw)
+      if (fields.some(f => chebyshev(p, f.center) <= coverRadius)) continue
+      if (fields.length >= maxFields) retireUnowned(validCenters())
+      if (fields.length >= maxFields) break
+      const heap = typeof physics.wasmHeapBytes === 'function' ? physics.wasmHeapBytes() : null
+      if (heap && heap.free - fieldWasmBytes < reserveFreeBytes()) break
+      const f = await buildField(p[0], p[1])
+      if (!f || disposed) break
+      fields.push({ bodyId: f.bodyId, center: f.center })
+      rebuildCount++
+      built++
+    }
+    if (built) publishPrimary(validCenters())
+    return built
+  }
+
   function enqueue(work) {
     const run = queue.then(async () => {
-      if (disposed || !heightFn) return
+      if (disposed || !heightFn) return null
       busy = true
-      try { await work() } catch (e) { console.error('[terrain] streamer error:', e?.message || e) } finally { busy = false }
+      try { return await work() } catch (e) { console.error('[terrain] streamer error:', e?.message || e); return null } finally { busy = false }
     })
     queue = run
     return run
@@ -279,6 +303,7 @@ export function createTerrainStreamer(opts = {}) {
 
   return {
     start, stop, prepareFields, installPrepared, preparedSurfaceY, setLattice, placeAllFields,
+    cover: points => enqueue(() => coverPoints(points)),
     get lattice() { return lattice },
     get liveHeightFn() { return heightFn },
     get coverRadius() { return coverRadius },
