@@ -158,7 +158,12 @@ export function buildRenderSectionNodes() {
       run(ctx) {
         const hasTerrain = !!ctx.terrainBackdrop && !ctx.terrainBackdrop.drawsInScene
         const scale = (typeof window !== 'undefined') ? +window.__threeVdrsScale || 1.0 : 1.0
-        const useVdrs = RenderControls.get('threeVdrs') === true && !!ctx.threeVdrs && scale < 0.999
+        const vdrsRequested = RenderControls.get('threeVdrs') === true
+        if (vdrsRequested && !ctx.threeVdrs && ctx.threeVdrsUnsupported && !ctx.threeVdrsUnsupportedReported) {
+          ctx.threeVdrsUnsupportedReported = true
+          console.warn('[render-graph] ' + ctx.threeVdrsUnsupported)
+        }
+        const useVdrs = vdrsRequested && !!ctx.threeVdrs && scale < 0.999
         if (useVdrs) {
           ctx.threeVdrs.compute(scale)
           if (hasTerrain) ctx.renderer.autoClear = false

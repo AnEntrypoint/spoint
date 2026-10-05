@@ -245,7 +245,14 @@ export function createThreeVdrsController() {
   return { tick }
 }
 
+export const THREE_VDRS_WEBGPU_UNSUPPORTED = 'threeVdrs is unavailable on WebGPURenderer: its EASU/RCAS upscale and depth composite are GLSL ShaderMaterials, which WebGPURenderer cannot build, so the scene renders at full resolution instead'
+
 export function installThreeVdrs(ctx, renderer, scene, camera) {
+  if (renderer && renderer.isWebGPURenderer) {
+    ctx.threeVdrs = null
+    ctx.threeVdrsUnsupported = THREE_VDRS_WEBGPU_UNSUPPORTED
+    return null
+  }
   if (!ctx.threeVdrs) ctx.threeVdrs = new ThreeVdrs(renderer, scene, camera)
   if (typeof window !== 'undefined') window.__threeVdrsDebug = ctx.threeVdrs
   return ctx.threeVdrs
