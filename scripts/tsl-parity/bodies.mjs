@@ -13,6 +13,11 @@ export const inputBlockerHook = flags => "(()=>{" + flags +
 const signature = label => "JSON.stringify({frame:'" + label + "',t:new Date().toISOString(),cam:window.__app.cam.save(),ammo:" + ammoRead +
   ",veg:window.__veg.totalInstances,blocked:window.__witness.blockedInput,albedoOverride:window.__albedoOverride,reliefShade:window.__reliefShade===undefined?'default':window.__reliefShade,hazeMul:window.__hazeMul})"
 
+const inputCountExpression = label => "JSON.stringify({probe:'" + label + "',href:location.href,blocked:window.__witness?window.__witness.blockedInput:'no-witness'," +
+  "inputLog:window.__witness?window.__witness.inputLog:[],pageErrors:window.__witness?window.__witness.pageErrors:null})"
+
+const postNavExpression = () => inputCountExpression('postNavigate')
+
 export const settleExpression = minVeg => "(async()=>{const t0=performance.now();" +
   "while(performance.now()-t0<60000){if(window.__app&&window.__app.terrain&&window.__veg&&window.__timeOfDayApi&&window.__app.cam&&window.__rendererInfo)break;await new Promise(r=>setTimeout(r,300))}" +
   "if(!(window.__app&&window.__app.terrain&&window.__veg&&window.__timeOfDayApi&&window.__app.cam))return JSON.stringify({settle:false,reason:'world objects missing',app:!!window.__app,veg:!!window.__veg,msgs:window.__witness&&window.__witness.msgs});" +
@@ -47,6 +52,8 @@ export function bootBody({ session, url, minVeg, flags = '' }) {
     'cdp Emulation.setDeviceMetricsOverride', '{"width":1036,"height":647,"deviceScaleFactor":1.25,"mobile":false}',
     'cdp Page.addScriptToEvaluateOnNewDocument', JSON.stringify({ source: inputBlockerHook(flags) }),
     'cdp Page.navigate', JSON.stringify({ url }),
+    'cdp Input.setIgnoreInputEvents', '{"ignore":true}',
+    ...evaluate(postNavExpression()),
     ...evaluate(settleExpression(minVeg)).map((l, i) => i === 1 ? l.replace('"timeout":60000', '"timeout":130000') : l)
   ].join('\n')
 }
@@ -58,6 +65,8 @@ export function settleBody({ session, minVeg }) {
 export function captureBody({ session, prefix = '', withSky = true }) {
   const p = s => prefix + s
   const lines = ['sessionId=' + session]
+  lines.push('cdp Input.setIgnoreInputEvents', '{"ignore":true}')
+  lines.push(...evaluate(inputCountExpression('captureStart')))
   if (withSky) {
     lines.push(...evaluate(stepExpression("window.__app.cam.restore({yaw:1.0,pitch:0.35,zoomIndex:2})", 2500, p('skyPose'))))
     lines.push(...frame(p('sky-a'), SKY_CLIP), ...frame(p('sky-b'), SKY_CLIP), ...frame(p('skyFull-a'), FULL), ...frame(p('skyFull-b'), FULL))
@@ -89,6 +98,8 @@ export const LEFT_EDGE_STEPS = [
 
 export function leftEdgeBody({ session, extraGlobals = [] }) {
   const lines = ['sessionId=' + session]
+  lines.push('cdp Input.setIgnoreInputEvents', '{"ignore":true}')
+  lines.push(...evaluate(inputCountExpression('leftEdgeStart')))
   lines.push(...evaluate(stepExpression("window.__app.cam.restore({yaw:1.0,pitch:0,zoomIndex:2})", 2000, 'le-groundPose')))
   for (const [label, set] of LEFT_EDGE_STEPS) {
     const assign = hookState(set) + (set.haze0 ? 'window.__hazeMul=0;' : '')

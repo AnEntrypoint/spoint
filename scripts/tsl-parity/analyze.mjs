@@ -59,8 +59,10 @@ const camsOk = ['sky', 'skyFull', 'ground', 'grey', 'greyRelief1'].every(base =>
 gate('camera pose identical per pose across frames and renderers', camsOk, null)
 const ammo = new Set([...allSigs(tslCap), ...allSigs(legCap)].map(s => String(s.ammo)))
 gate('ammo signature identical across all frames', ammo.size === 1, { ammo: [...ammo] })
-const blocked = Math.max(...[...allSigs(tslCap), ...allSigs(legCap)].map(s => s.blocked || 0))
-gate('no input reached the page', blocked === 0, { blocked, tslInputLog: ts && ts.inputLog, legacyInputLog: ls && ls.inputLog })
+const probesOf = src => src.values.filter(v => v.probe).map(p => ({ probe: p.probe, href: p.href, blocked: Number(p.blocked) || 0 }))
+const allProbes = [...probesOf(tslBoot), ...probesOf(legBoot), ...probesOf(tslCap), ...probesOf(legCap)]
+const blocked = Math.max(0, ...[...allSigs(tslCap), ...allSigs(legCap)].map(s => s.blocked || 0), ...allProbes.map(p => p.blocked))
+gate('no input reached the page', blocked === 0, { blocked, probes: allProbes, tslInputLog: ts && ts.inputLog, legacyInputLog: ls && ls.inputLog })
 
 const hashRows = []
 for (const ev of [...tslBoot.events, ...legBoot.events].filter(e => e.event === 'Debugger.scriptParsed')) {
@@ -72,9 +74,28 @@ for (const ev of [...tslBoot.events, ...legBoot.events].filter(e => e.event === 
 }
 const uniqueHashes = Object.values(Object.fromEntries(hashRows.map(r => [r.file + r.executed, r])))
 gate('executed mapspinner bytes equal disk', uniqueHashes.length > 0 && uniqueHashes.every(r => r.match), { checked: uniqueHashes.length, mismatched: uniqueHashes.filter(r => !r.match).map(r => r.file) })
-const exceptions = [...tslBoot.events, ...legBoot.events].filter(e => e.event === 'Runtime.exceptionThrown').length
+const docStamp = s => { const m = String((s && s.href) || '').match(/[?&]v=([a-z]\d+)/); return m ? m[1] : null }
+const exceptionsOf = (boot, settle) => {
+  const stamp = docStamp(settle)
+  const list = boot.events.filter(e => e.event === 'Runtime.exceptionThrown')
+  const url = e => String(((e.params || {}).exceptionDetails || {}).url || '')
+  const mine = stamp ? list.filter(e => { const u = url(e); return u === '' || u.includes('v=' + stamp) }) : list
+  const foreign = list.filter(e => !mine.includes(e))
+  return { count: mine.length, mine: mine.map(e => ({ ...((e.params || {}).exceptionDetails || {}), url: url(e) })), foreign: foreign.map(e => ({ ...((e.params || {}).exceptionDetails || {}), url: url(e) })), docStamp: stamp }
+}
+const tslEx = exceptionsOf(tslBoot, ts), legEx = exceptionsOf(legBoot, ls)
+const exceptions = tslEx.count + legEx.count
 const w = s => (s && s.witness) || {}
-gate('no exceptions, page errors or console errors during boot', exceptions === 0 && !w(ts).pageErrors && !w(ls).pageErrors && !w(ts).consoleErrors && !w(ls).consoleErrors, { exceptions, tsl: w(ts).msgs, legacy: w(ls).msgs })
+gate('no exceptions, page errors or console errors during boot', exceptions === 0 && !w(ts).pageErrors && !w(ls).pageErrors && !w(ts).consoleErrors && !w(ls).consoleErrors, {
+  exceptions,
+  tslDoc: tslEx.docStamp,
+  legacyDoc: legEx.docStamp,
+  tslExceptions: tslEx.mine,
+  legacyExceptions: legEx.mine,
+  foreignExceptionsFromOtherNavigations: [...tslEx.foreign, ...legEx.foreign],
+  tsl: w(ts).msgs,
+  legacy: w(ls).msgs
+})
 
 const fullIdx = img => Array.from({ length: img.w * img.h }, (_, i) => i)
 function compare(base, maskRef, regionNames) {
