@@ -12,6 +12,7 @@ function textOf(entry) {
 }
 
 async function main() {
+  process.env.SPOINT_SKIP_PREWARM = process.env.SPOINT_SKIP_PREWARM || '1'
   process.env.WORLD = process.env.WORLD || 'tps-game'
   process.env.PORT = PORT
   process.env.SPOINT_NO_WATCH = '1'
