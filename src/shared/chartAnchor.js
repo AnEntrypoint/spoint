@@ -5,7 +5,7 @@ const QUARTER_TURN = Math.PI / 2
 const RAD = 180 / Math.PI
 const CHUNK_M_SAFETY = 1 + 1e-12
 
-export const CHART_ANCHORS_PER_FACE = 3
+export const CHART_ANCHORS_PER_FACE = 32
 export const CHART_REANCHOR_ANGLE_DEG = 28
 
 export function createChartAnchorLattice(radius, anchorsPerFace = CHART_ANCHORS_PER_FACE) {

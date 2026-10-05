@@ -365,7 +365,7 @@ async function main() {
   const seamWindowM = Number(args.seamWindow || 1500)
   const mode = String(args.mode || 'fixed')
   const reanchorAngleDeg = Number(args.reanchorAngle ?? 28)
-  const anchorsPerFace = Number(args.anchorsPerFace || 3)
+  const anchorsPerFace = Number(args.anchorsPerFace || CHART_ANCHORS_PER_FACE)
   const minimapRes = Number(args.minimapRes || 24)
   const minimapExtent = Number(args.minimapExtent || 384)
   const gridStride = Number(args.gridStride || 200)
