@@ -118,6 +118,7 @@ export function createWebGPUInstancedMesh(geometry, material, capacity, attribut
 
   return {
     mesh,
+    shadowMatrices,
     acquireId,
     releaseId,
     setMatrixAt,
@@ -139,7 +140,8 @@ export function createStreamingInstancer(scene, geometry, material, initialCapac
   const freeIds = new Set()
   for (let i = 0; i < capacity; i++) freeIds.add(i)
   let highWatermark = 0
-  const _matrixData = new Map()
+  const _matrixIds = new Set()
+  const _regrowMatrix = new THREE.Matrix4()
   const _attrData = new Map()
   const _visibleData = new Map()
   const _entityProxy = {
@@ -163,9 +165,10 @@ export function createStreamingInstancer(scene, geometry, material, initialCapac
     const oldFrustumCulled = oldMesh.frustumCulled
     const oldMatrixAutoUpdate = oldMesh.matrixAutoUpdate
     const oldVisible = oldMesh.visible
+    const oldMatrices = rec.shadowMatrices
     rec = createWebGPUInstancedMesh(geometry, material, newCapacity, attributeSchema)
-    for (const [id, m] of _matrixData) {
-      rec.setMatrixAt(id, m)
+    for (const id of _matrixIds) {
+      rec.setMatrixAt(id, _regrowMatrix.fromArray(oldMatrices, id * 16))
       const attrs = _attrData.get(id)
       if (attrs) for (const name in attrs) rec.setAttributeAt(id, name, attrs[name])
       if (_visibleData.get(id) === false) rec.setVisibleAt(id, false)
@@ -208,7 +211,7 @@ export function createStreamingInstancer(scene, geometry, material, initialCapac
         _streamM4.compose(_streamPos, _streamQuat, _streamScale)
         rec.setMatrixAt(id, _streamM4)
         if (id + 1 > rec.mesh.count) rec.mesh.count = id + 1
-        _matrixData.set(id, _streamM4.clone())
+        _matrixIds.add(id)
         _visibleData.set(id, true)
       }
     },
@@ -217,13 +220,13 @@ export function createStreamingInstancer(scene, geometry, material, initialCapac
       freeIds.add(id)
       while (highWatermark > 0 && freeIds.has(highWatermark - 1)) highWatermark--
       rec.mesh.count = highWatermark
-      _matrixData.delete(id)
+      _matrixIds.delete(id)
       _attrData.delete(id)
       _visibleData.delete(id)
     },
     setMatrixAt(id, matrix) {
       rec.setMatrixAt(id, matrix)
-      _matrixData.set(id, matrix.clone())
+      _matrixIds.add(id)
     },
     setUniformAt(id, name, value) {
       rec.setAttributeAt(id, name, value)
@@ -236,7 +239,7 @@ export function createStreamingInstancer(scene, geometry, material, initialCapac
       _visibleData.set(id, visible)
     },
     resizeBuffers(minCapacity) { if (minCapacity > capacity) _grow(minCapacity) },
-    dispose() { _matrixData.clear(); _attrData.clear(); _visibleData.clear() },
+    dispose() { _matrixIds.clear(); _attrData.clear(); _visibleData.clear() },
   }
   return adapter
 }

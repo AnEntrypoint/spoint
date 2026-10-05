@@ -6,6 +6,8 @@ import { SHADOW_CASTER_ONLY_LAYER } from './ShadowLayers.js'
 const CASCADE_SPLIT = 3.2
 const MAX_CASCADES = 3
 const SHADOW_REDRAW_CASTER_HEIGHT_M = 20
+const FAR_CASCADE_LATERAL_STEP_M = 1
+const DEPTH_STEP_DIVISOR = 16
 
 export function createShadowPipeline(sun, opts = {}) {
   const scene = opts.scene || sun.parent || null
@@ -35,6 +37,7 @@ export function createShadowPipeline(sun, opts = {}) {
     light.shadow.autoUpdate = false
     light.shadow.needsUpdate = true
     _cascades.push({
+      index: i,
       light,
       extent: baseExtent * Math.pow(CASCADE_SPLIT, i),
       _extentApplied: -1,
@@ -81,9 +84,12 @@ export function createShadowPipeline(sun, opts = {}) {
     _right.crossVectors(upRef, _lightDir).normalize()
     _up.crossVectors(_lightDir, _right).normalize()
     const cr = target.dot(_right), cu = target.dot(_up), cd = target.dot(_lightDir)
-    const sr = Math.round(cr / texel) * texel
-    const su = Math.round(cu / texel) * texel
-    _snapped.copy(_right).multiplyScalar(sr).addScaledVector(_up, su).addScaledVector(_lightDir, cd)
+    const lateralStep = c.index === 0 ? texel : texel * Math.max(1, Math.floor(FAR_CASCADE_LATERAL_STEP_M / texel))
+    const depthStep = c.extent / DEPTH_STEP_DIVISOR
+    const sr = Math.round(cr / lateralStep) * lateralStep
+    const su = Math.round(cu / lateralStep) * lateralStep
+    const sd = Math.round(cd / depthStep) * depthStep
+    _snapped.copy(_right).multiplyScalar(sr).addScaledVector(_up, su).addScaledVector(_lightDir, sd)
 
     const extentChanged = c.extent !== c._extentApplied
     let moved = false
