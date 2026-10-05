@@ -258,7 +258,9 @@ const HOST_CPU_PS1 = resolve(__dirname, 'perf-run-hostcpu.ps1')
 const HOST_CPU_CONTENDED_PCT = 90
 function parseHostCpu(out) {
   const all = /all=(\d+)/.exec(out), cores = /cores=(\d+)/.exec(out), top = /top=(.*)$/m.exec(out)
-  return { allPct: all ? Number(all[1]) : null, cores: cores ? Number(cores[1]) : null, topCores: top ? top[1].trim().split(',').filter(Boolean).map((t) => { const i = t.lastIndexOf(':'); return [t.slice(0, i), Number(t.slice(i + 1))] }) : [] }
+  const procsLine = /procs=(.*)$/m.exec(out)
+  const topProcs = procsLine ? procsLine[1].trim().split(';').filter(Boolean).map((r) => { const [pid, name, cores, ...cmd] = r.split('|'); return { pid: Number(pid), name, cores: Number(cores), cmd: cmd.join('|') } }) : []
+  return { topProcs, allPct: all ? Number(all[1]) : null, cores: cores ? Number(cores[1]) : null, topCores: top ? top[1].trim().split(',').filter(Boolean).map((t) => { const i = t.lastIndexOf(':'); return [t.slice(0, i), Number(t.slice(i + 1))] }) : [] }
 }
 function sampleHostCpuSync() {
   const r = spawnSync('powershell', ['-NoProfile', '-File', HOST_CPU_PS1], { encoding: 'utf8' })
@@ -778,6 +780,7 @@ async function main() {
         longtasks: rig.longtasks,
         startupLongtasks: rig.startupLongtasks || [],
         errors: rig.errors.slice(0, 40),
+        resourceFailures: performance.getEntriesByType('resource').filter((e) => e.responseStatus >= 400 && !/favicon/.test(e.name)).slice(0, 20).map((e) => e.responseStatus + ' ' + e.name),
         perf, shadow, veg,
         refreshHz: window.__vsync ? window.__vsync.refreshHz : null,
         rendererInfo: window.__app && window.__app.renderer ? { calls: window.__app.renderer.info.render.calls, drawCalls: window.__app.renderer.info.render.drawCalls, tris: window.__app.renderer.info.render.triangles, programs: window.__app.renderer.info.programs ? window.__app.renderer.info.programs.length : null } : null,
@@ -860,10 +863,13 @@ async function main() {
     const walkOk = !WALKER || (!(walkDone && walkDone.error) && travelled >= 30)
     const seqAdvanced = typeof walkSeqStart === 'number' && typeof walkSeqEnd === 'number' && walkSeqEnd > walkSeqStart
     const inputReached = !WALKER || navToInputSeqMs !== null || seqAdvanced || travelled >= 30
+    const APP_LOAD_ERROR = /Failed to resolve module specifier|AppLoader|Failed to fetch dynamically imported module|Cannot find module|module resolution|app load failed|failed to load app|Failed to load resource/i
+    const appLoadErrors = [...(inPage.errors || []), ...pageErrors].filter((e) => APP_LOAD_ERROR.test(e)).concat((inPage.resourceFailures || []).filter((e) => !/.(map)$/.test(e))).slice(0, 12)
+    const appLoadOk = appLoadErrors.length === 0
     const expectVendor = GPU === 'amd' ? 'amd' : (GPU === 'nvidia' ? 'nvidia' : null)
     const adapterOk = !expectVendor || !!(adapterInfo && adapterInfo.vendor === expectVendor)
     const gpuPassesOk = !GPU_PASSES || !!(gpuPassResult && gpuPassResult.passes && gpuPassResult.passes.length > 0)
-    const reachability = { sceneryBuiltMarked, vegTotalInstances: vegTotal, vegNonZero: vegTotal > 0, drawsNonZero: drawsMeasured, walkOk, travelledM: +travelled.toFixed(1), inputSequenceStart: walkSeqStart, inputSequenceEnd: walkSeqEnd, inputReachedGameMs: navToInputSeqMs, inputReached, gpuPassesOk, adapterVendor: adapterInfo ? adapterInfo.vendor : null, adapterOk, pass: adapterOk && sceneryBuiltMarked && vegTotal > 0 && drawsMeasured && walkOk && inputReached && gpuPassesOk }
+    const reachability = { sceneryBuiltMarked, vegTotalInstances: vegTotal, vegNonZero: vegTotal > 0, drawsNonZero: drawsMeasured, walkOk, travelledM: +travelled.toFixed(1), inputSequenceStart: walkSeqStart, inputSequenceEnd: walkSeqEnd, inputReachedGameMs: navToInputSeqMs, inputReached, gpuPassesOk, adapterVendor: adapterInfo ? adapterInfo.vendor : null, adapterOk, appLoadOk, appLoadErrors, pass: appLoadOk && adapterOk && sceneryBuiltMarked && vegTotal > 0 && drawsMeasured && walkOk && inputReached && gpuPassesOk }
 
     const vegSpanTotals = {}
     for (const sp of inPage.vegSpans || []) {
