@@ -1,3 +1,5 @@
+import { reexpressYawQuat } from '../shared/chartReexpress.js'
+
 const HISTORY_CAPACITY = 256
 const DEFAULT_TICK_RATE = 60
 const FUTURE_TOLERANCE_TICKS = 1
@@ -112,6 +114,20 @@ export class LagCompensator {
     if (!ring || ring.len < 2) return false
     const lastPos = ring.buf[(ring.head + ring.len - 1) % HISTORY_CAPACITY].position
     return Math.hypot(newPosition[0] - lastPos[0], newPosition[1] - lastPos[1], newPosition[2] - lastPos[2]) > threshold
+  }
+
+  applyChartTransfer(transfer) {
+    let samples = 0
+    for (const ring of this.playerHistory.values()) {
+      for (let i = 0; i < ring.len; i++) {
+        const s = ring.buf[(ring.head + i) % HISTORY_CAPACITY]
+        transfer.point(s.position, s.position)
+        transfer.vec(s.velocity, s.velocity)
+        reexpressYawQuat(transfer, s.rotation)
+        samples++
+      }
+    }
+    return samples
   }
 
   clearPlayerHistory(playerId) {

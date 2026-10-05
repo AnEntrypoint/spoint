@@ -189,6 +189,10 @@ export function defineShrinkingZone(spec = {}, appCtx = null) {
     get completed() { return _completed },
     get ringEntityId() { return _ringId },
 
+    onChartReanchor({ transfer }) {
+      transfer.point(center, center)
+    },
+
     isOutside(pos) {
       if (!_isVec3(pos)) return false
       const dx = pos[0] - center[0], dz = pos[2] - center[2]

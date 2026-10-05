@@ -36,6 +36,11 @@ export default {
       })
     },
 
+    onChartReanchor(ctx, { transfer }) {
+      transfer.point(ctx.state.home, ctx.state.home)
+      if (ctx.state.wanderTarget) transfer.point(ctx.state.wanderTarget, ctx.state.wanderTarget)
+    },
+
     onMessage(ctx, msg) {
       if (msg && msg.type === 'damage' && typeof msg.amount === 'number') ctx.state.health.damage(msg.amount, msg.shooterId ?? null)
     },

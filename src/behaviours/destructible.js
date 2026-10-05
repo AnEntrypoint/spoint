@@ -167,6 +167,10 @@ export function createDestructible(spec = {}, appCtx = null) {
     get debrisPoolSize() { return _poolAll.size },
     get debrisPoolFree() { return _poolFree.length },
 
+    onChartReanchor({ transfer }) {
+      transfer.point(_homePosition, _homePosition)
+    },
+
     get debrisLOD() { return [..._debrisTimers].map(([id, st]) => ({ id, age: st.age, remaining: st.remaining, lod: st.lod })) },
 
     damage(amount) {

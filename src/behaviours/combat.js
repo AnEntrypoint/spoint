@@ -302,6 +302,13 @@ export function defineCombat(spec = {}, ctx = null) {
     isRespawning(id) { return respawning.has(id) },
     buffOf(id) { return buffs.get(id) || null },
 
+    onChartReanchor({ transfer }) {
+      for (const sp of spawnPoints) transfer.point(sp, sp)
+      for (const pu of powerupState.values()) transfer.point(pu.position, pu.position)
+      rewindIndex = null
+      rewindTick = -1
+    },
+
     async setup() {
       await scoreboard.ready
       placePowerups()

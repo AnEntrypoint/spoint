@@ -328,6 +328,11 @@ export class AppContext {
     if (d) for (const fn of d) _runLogged('disposer', fn)
   }
 
+  _chartAware(api) {
+    if (typeof api.onChartReanchor === 'function') (this._chartAwareApis || (this._chartAwareApis = [])).push(api)
+    return api
+  }
+
   _teardownChildren() {
     const ids = this._state._childIds
     if (!ids) return
@@ -341,19 +346,19 @@ export class AppContext {
 
   defineBuffStack(spec) { return createBuffStack(spec, this) }
 
-  defineShrinkingZone(spec) { return defineShrinkingZone(spec, this) }
+  defineShrinkingZone(spec) { return this._chartAware(defineShrinkingZone(spec, this)) }
 
   defineHealth(spec) { return defineHealth(spec, this) }
 
-  defineCombat(spec = {}) { return defineCombat(spec, this) }
+  defineCombat(spec = {}) { return this._chartAware(defineCombat(spec, this)) }
 
   defineSteering(spec) { return defineSteering(spec, this) }
 
-  defineCheckpoint(spec) { return defineCheckpoint(spec, this) }
+  defineCheckpoint(spec) { return this._chartAware(defineCheckpoint(spec, this)) }
 
   definePickup(spec) { return definePickup(spec, this) }
 
-  defineDestructible(spec) { return createDestructible(spec, this) }
+  defineDestructible(spec) { return this._chartAware(createDestructible(spec, this)) }
 
   defineSoftbody(spec) { return createSoftbodyCloth(spec, this) }
 

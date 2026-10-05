@@ -54,6 +54,16 @@ export default {
       ctx.debug?.log?.(`playtest-bot spawned @ ${home.map(n => n.toFixed(1)).join(',')}`)
     },
 
+    onChartReanchor(ctx, { transfer }) {
+      const st = ctx.state
+      transfer.point(st.home, st.home)
+      transfer.point(st.lastPos, st.lastPos)
+      if (st.wanderTarget) transfer.point(st.wanderTarget, st.wanderTarget)
+      st.path = null
+      st.visited.clear()
+      st.weaponSpawnsCheckedAtTick = -Infinity
+    },
+
     update(ctx, dt) {
       const st = ctx.state
       st.tick++

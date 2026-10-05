@@ -124,13 +124,14 @@ export async function createServer(config = {}) {
   ctx.placedModelStorage = {
     persist(runtime) {
       const placed = []
+      const toBase = ctx.chartEpochLedger?.canonicalTransfer() ?? null
       const worldDefIds = new Set((ctx.currentWorldDef?.entities || []).map(e => e.id).filter(Boolean))
       for (const [id, entity] of runtime.entities) {
         if (worldDefIds.has(id)) continue
         const isEditorAuthored = id.startsWith('placed-') || entity._appName || entity.custom
         if (!isEditorAuthored) continue
         placed.push({
-          id, model: entity.model, position: [...entity.position], rotation: [...entity.rotation], scale: [...entity.scale],
+          id, model: entity.model, position: toBase && !entity.parent ? toBase.point(entity.position) : [...entity.position], rotation: toBase && !entity.parent ? toBase.quat(entity.rotation) : [...entity.rotation], scale: [...entity.scale],
           config: { collider: entity.custom?._collider || 'none' },
           app: entity._appName || undefined,
           custom: entity.custom || undefined,

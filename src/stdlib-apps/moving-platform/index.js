@@ -15,9 +15,14 @@ export default {
       ctx.state._start = [ctx.entity.position[0], ctx.entity.position[1], ctx.entity.position[2]]
       ctx.state._t = 0
     },
+    onChartReanchor(ctx, { transfer }) {
+      transfer.point(ctx.state._start, ctx.state._start)
+      const travel = ctx.state._offset ?? (Array.isArray(ctx.config?.offset) ? ctx.config.offset : [0, 3, 0])
+      ctx.state._offset = transfer.vec(travel)
+    },
     update(ctx, dt) {
       const c = ctx.config || {}
-      const offset = Array.isArray(c.offset) ? c.offset : [0, 3, 0]
+      const offset = ctx.state._offset ?? (Array.isArray(c.offset) ? c.offset : [0, 3, 0])
       const period = (typeof c.period === 'number' && c.period > 0) ? c.period : 4
       ctx.state._t += dt
       const phase = (ctx.state._t % period) / period

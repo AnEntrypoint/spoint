@@ -6,6 +6,7 @@ import { WebSocketTransport } from '../transport/WebSocketTransport.js'
 import { WebTransportServer } from '../transport/WebTransportServer.js'
 import { createUploadHandler } from './UploadHandler.js'
 import { setupTerrainStreaming } from '../terrain/TerrainPhysics.js'
+import { attachServerChartMigrators } from './chartState/index.js'
 import { restoreWorldSnapshot, saveWorldSnapshot, worldDefFingerprint } from './WorldPersistence.js'
 import {
   handleUploadModel, handleDebugLog, handleClientError, handleDebugServer,
@@ -75,7 +76,10 @@ export function createServerAPI(ctx) {
       if (_missingApps.size) console.error(`[loadWorld] world "${worldDef.name || '(unnamed)'}" references app(s) that failed to load: ${[..._missingApps].join(', ')} -- affected entities will have no server-side app logic`)
       try {
         const _tcfg = resolveTerrainConfig(worldDef)
-        if (_tcfg && _tcfg.enabled !== false) ctx._terrainStreamer = await setupTerrainStreaming({ physics, playerManager, terrain: _tcfg })
+        if (_tcfg && _tcfg.enabled !== false) {
+          ctx._terrainStreamer = await setupTerrainStreaming({ physics, playerManager, terrain: _tcfg })
+          if (ctx._terrainStreamer?.chartReanchor) attachServerChartMigrators(ctx, ctx._terrainStreamer.chartReanchor)
+        }
         const _worldId = appRuntime.worldName
         const _minimap = minimapDescriptor(_worldId, _tcfg)
         if (_minimap) {

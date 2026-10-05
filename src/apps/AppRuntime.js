@@ -168,7 +168,7 @@ export class AppRuntime {
     const entity = {
       id: entityId, model: config.model || null,
       position: [...spawnPos],
-      rotation: config.rotation || [0, 0, 0, 1],
+      rotation: Array.isArray(config.rotation) ? [...config.rotation] : (config.rotation || [0, 0, 0, 1]),
       scale: config.scale ? [...config.scale] : [1, 1, 1],
       velocity: [0, 0, 0], mass: 1, bodyType: config.bodyType || 'static', collider: null,
       parent: null, children: new Set(),

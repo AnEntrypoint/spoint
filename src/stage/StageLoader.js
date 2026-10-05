@@ -70,6 +70,10 @@ export class StageLoader {
     return stage
   }
 
+  allStages() {
+    return [...this._stages.values()]
+  }
+
   get stageCount() {
     return this._stages.size
   }

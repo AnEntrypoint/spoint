@@ -401,7 +401,7 @@ export function createEditorHandlers(ctx) {
       const rawName = (payload || {}).name
       const name = typeof rawName === 'string' ? rawName.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '') : ''
       if (!name) { connections.send(clientId, MSG.WORLD_SAVED, { ok: false, error: 'invalid world name (use a-z 0-9 -)' }); return }
-      const worldDef = serializeWorld(appRuntime, ctx.currentWorldDef)
+      const worldDef = serializeWorld(appRuntime, ctx.currentWorldDef, ctx.chartEpochLedger?.canonicalTransfer() ?? null)
       if (!isNode || !writeFileSync) {
         connections.send(clientId, MSG.WORLD_SAVED, { ok: true, name, def: worldDef, downloadOnly: true })
         return

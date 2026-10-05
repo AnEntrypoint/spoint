@@ -22,6 +22,7 @@ import { WorkerTransport, PeerTransport } from '../transport/WorkerTransport.js'
 import { createConnectionHandlers } from './ServerHandlers.js'
 import { createPeerSimSession } from '../netcode/PeerSimSession.js'
 import { setupTerrainStreaming, loadPlanetSampler, planetSamplerOptsOf } from '../terrain/TerrainPhysics.js'
+import { attachServerChartMigrators } from './chartState/index.js'
 import { allocateRingBuffer, TransformRingWriter } from '../transport/TransformRing.js'
 import { saveWorldSnapshot, restoreWorldSnapshot, worldDefFingerprint } from './WorldPersistence.js'
 import { isWorldName } from '../shared/worldName.js'
@@ -96,7 +97,7 @@ export async function init({ worldDef, worldName: selectedWorldName = null, apps
     snapshotSeq: 0, handlerState: { fn: null },
     onTick: (tick, dt) => { if (ctx.handlerState.fn) ctx.handlerState.fn(tick, dt); connections.flushAll() },
     setTickHandler: fn => { ctx.handlerState.fn = fn; ctx.tickHandlerFn = fn; ctx.serverTimeOfDay = fn?.serverTimeOfDay || null; ctx.serverWeather = fn?.serverWeather || null },
-    placedModelStorage: { persist: runtime => _persistPlaced(runtime, storage, worldDef) }
+    placedModelStorage: { persist: runtime => _persistPlaced(runtime, storage, worldDef, ctx.chartEpochLedger?.canonicalTransfer() ?? null) }
   }
   appRuntime.setPlacedModelStorage(ctx.placedModelStorage)
 
@@ -107,7 +108,10 @@ export async function init({ worldDef, worldName: selectedWorldName = null, apps
   if (_minimap) worldDef._minimap = _minimap
   if (_tcfg && _tcfg.enabled !== false) {
     setupTerrainStreaming({ physics, playerManager, terrain: _tcfg })
-      .then(s => { _terrainStreamer = s; ctx._terrainStreamer = s })
+      .then(s => {
+        _terrainStreamer = s; ctx._terrainStreamer = s
+        if (s?.chartReanchor) attachServerChartMigrators(ctx, s.chartReanchor)
+      })
       .catch(e => console.error('[terrain] heightfield install error:', e?.message || e))
   }
   const placed = await placedPromise || []
@@ -173,7 +177,7 @@ export async function init({ worldDef, worldName: selectedWorldName = null, apps
   return ctx
 }
 
-function _persistPlaced(runtime, storage, worldDef) {
+function _persistPlaced(runtime, storage, worldDef, toBase) {
   const placed = []
   const worldDefIds = new Set((worldDef?.entities || []).map(e => e.id).filter(Boolean))
   for (const [id, entity] of runtime.entities) {
@@ -181,7 +185,7 @@ function _persistPlaced(runtime, storage, worldDef) {
     const isEditorAuthored = id.startsWith('placed-') || entity._appName || entity.custom
     if (!isEditorAuthored) continue
     placed.push({
-      id, model: entity.model, position: [...entity.position], rotation: [...entity.rotation], scale: [...entity.scale],
+      id, model: entity.model, position: toBase && !entity.parent ? toBase.point(entity.position) : [...entity.position], rotation: toBase && !entity.parent ? toBase.quat(entity.rotation) : [...entity.rotation], scale: [...entity.scale],
       config: { collider: entity.custom?._collider || 'none' },
       app: entity._appName || undefined,
       custom: entity.custom || undefined,

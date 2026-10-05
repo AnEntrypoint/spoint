@@ -1,7 +1,24 @@
 import { canonicalJSON } from '../shared/canonicalJSON.js'
+
+import { snapshotChart, createChartTransfer } from '../shared/chartAnchor.js'
+
+import { sameChart, createReexpressPass } from '../shared/chartReexpress.js'
 import { createChecksumFold } from '../netcode/LockstepChecksum.js'
 
 export const WORLD_SNAPSHOT_FORMAT_VERSION = 1
+
+function reexpressSnapshotEntity(pass, state, body) {
+  pass.point(state.position); pass.rotation(state.rotation); pass.vector(state.velocity)
+  if (!body) return
+  pass.point(body.position); pass.rotation(body.rotation); pass.vector(body.velocity); pass.vector(body.angularVelocity)
+}
+
+function chartPassFromSnapshot(snap, physics) {
+  const frame = physics?._planetFrame
+  if (!snap.chart || !frame) return null
+  const live = snapshotChart(frame)
+  return sameChart(snap.chart, live) ? null : createReexpressPass(createChartTransfer(snap.chart, live))
+}
 const LEGACY_UNNAMED_WORLD = null
 
 function mapToEntries(m) { return m ? [...m.entries()] : [] }
@@ -42,6 +59,7 @@ export function buildWorldSnapshot(appRuntime, physics, worldName) {
   return {
     version: WORLD_SNAPSHOT_FORMAT_VERSION,
     world: worldName || null,
+    chart: physics?._planetFrame ? snapshotChart(physics._planetFrame) : null,
     tick: game.tick,
     elapsed: game.elapsed,
     savedAt: Date.now(),
@@ -83,11 +101,13 @@ export async function restoreWorldSnapshot(ctx) {
     console.warn(`[world-persistence] snapshot world mismatch (saved="${snap.world}" current="${worldName}") -- discarding, booting clean`)
     return { restored: false, reason: 'world-mismatch' }
   }
+  const chartPass = chartPassFromSnapshot(snap, physics)
   const entities = new Map()
   const bodyStateByLiveBodyId = new Map()
   let bodiesRestored = 0, bodiesSkippedNotFound = 0
   for (const e of snap.entities) {
     const { id, body, ...s } = e
+    if (chartPass) reexpressSnapshotEntity(chartPass, s, body)
     entities.set(id, s)
     if (body) {
       const live = appRuntime.entities.get(id)

@@ -12,6 +12,11 @@ export function defineCheckpoint(spec = {}, appCtx) {
     checkpointOf(pid) { return _cp.get(pid) || spawn },
     setCheckpoint(pid, pos) { if (Array.isArray(pos) && pos.length >= 3) _cp.set(pid, [pos[0], pos[1], pos[2]]) },
     reset() { _cp.clear(); _cpIndex.clear() },
+    onChartReanchor({ transfer }) {
+      transfer.point(spawn, spawn)
+      for (const c of cps) c.position = transfer.point(c.position)
+      for (const pos of _cp.values()) transfer.point(pos, pos)
+    },
     tick(_dt) {
       for (const player of appCtx.players.getAll()) {
         const pp = player.state?.position; if (!pp) continue

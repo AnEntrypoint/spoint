@@ -107,6 +107,9 @@ export default {
 
       ctx.state._courseBuilt = false
     },
+    onChartReanchor(ctx, { transfer }) {
+      for (const cp of [ctx.state.startCp, ctx.state.finishCp]) if (cp) cp.position = transfer.point(cp.position)
+    },
     update(ctx, dt) {
       if (!ctx.state._courseBuilt) {
         ctx.state._courseBuilt = true

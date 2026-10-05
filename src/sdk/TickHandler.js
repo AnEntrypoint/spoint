@@ -39,6 +39,10 @@ const STATIC_MOTION_IDLE_SECONDS = 1
 
 let _lastYaw = NaN, _lastSinHalf = 0, _lastCosHalf = 1
 
+function createSnapState() {
+  return { broadcastEntityMap: new Map(), staticEntityMap: new Map(), staticEntityIds: null, lastStaticEntries: null, staticByGroup: [], lastDynVersion: -1, prevDynCache: null, tombstoneLog: new TombstoneLog(), knownIds: null, playerLastTick: new Map(), cellEntityMaps: new Map(), cellLastTick: new Map(), playerCell: new Map() }
+}
+
 function accrueStepBudget(player, tickMs, stepsTaken) {
   const now = performance.now()
   const elapsedSteps = player.inputBudgetAt ? (now - player.inputBudgetAt) / tickMs : 1
@@ -383,7 +387,8 @@ export function createTickHandler(deps) {
     return s
   }
   const snapDeps = { connections, stageLoader, getRelevanceRadius, networkState, playerEntityMaps: new Map(), playerScratch, getPlayerScratch, getSnapshotHz: () => _lastSnapRate }
-  const snapState = { broadcastEntityMap: new Map(), staticEntityMap: new Map(), staticEntityIds: null, lastStaticEntries: null, staticByGroup: [], lastDynVersion: -1, prevDynCache: null, tombstoneLog: new TombstoneLog(), knownIds: null, playerLastTick: new Map(), cellEntityMaps: new Map(), cellLastTick: new Map(), playerCell: new Map() }
+  let snapState = createSnapState()
+  let forceKeyframe = false
   const playerIdleCounts = new Map(), playerAccumDt = new Map()
   const grid = new Map(), gridCells = new Map()
   const collisionTiles = createCollisionTileStreamer({ physics, physicsIntegration, connections, getNetcodeConfig: deps.getNetcodeConfig })
@@ -420,11 +425,29 @@ export function createTickHandler(deps) {
     return Math.min(maxInterval, Math.max(1, base * _stallInterval))
   }
 
+  function invalidateChartLocalSnapshotState() {
+    snapDeps.playerEntityMaps.clear()
+    playerScratch.clear()
+    snapState = createSnapState()
+    forceKeyframe = true
+    for (const player of playerManager.getConnectedPlayers()) collisionTiles.reset(player.id)
+  }
+
+  function stepChartReanchor() {
+    const service = physics._terrainStreamer?.chartReanchor
+    if (!service) return
+    const event = service.step()
+    if (!event) return
+    invalidateChartLocalSnapshotState()
+    deps.onChartReanchor?.(event)
+  }
+
   function simulateTick(tick, dt, players, explicitInputs = null) {
     processPlayerMovement(players, mvDeps, tick, dt, playerIdleCounts, playerAccumDt, explicitInputs)
     const cellSz = physicsIntegration.config.capsuleRadius * 8, minDist = physicsIntegration.config.capsuleRadius * 2
     applyPlayerCollisions(players, grid, gridCells, cellSz, minDist * minDist, minDist, dt, physicsIntegration)
     if (typeof physics.drainBodyQueue === 'function') physics.drainBodyQueue()
+    if (explicitInputs === null) stepChartReanchor()
     physics.step(dt)
     appRuntime.tick(tick, dt)
   }
@@ -452,7 +475,8 @@ export function createTickHandler(deps) {
     const t1 = t1pre, t2 = t1pre, t3 = t4
     if (players.length > 0 && tick % _snapshotInterval === 0) {
       snapshotSeq++
-      buildAndSendSnapshots(players, appRuntime, snapDeps, tick, snapshotSeq, snapshotSeq % KEYFRAME_INTERVAL === 0, snapState, serverNow)
+      buildAndSendSnapshots(players, appRuntime, snapDeps, tick, snapshotSeq, forceKeyframe || snapshotSeq % KEYFRAME_INTERVAL === 0, snapState, serverNow)
+      forceKeyframe = false
       const _snapCostMs = performance.now() - t4
       _snapCostEmaMs = _snapCostEmaMs === 0 ? _snapCostMs : (_snapCostEmaMs * (1 - SNAP_COST_EMA_ALPHA) + _snapCostMs * SNAP_COST_EMA_ALPHA)
     }

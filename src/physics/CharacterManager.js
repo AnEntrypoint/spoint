@@ -1,3 +1,5 @@
+import { clampTiltInducedUpward } from '../shared/chartReexpress.js'
+
 const LAYER_DYNAMIC = 1
 const FALLBACK_CAPSULE_HALF_HEIGHT = 0.9
 const MIN_CARRY_GROUND_SPEED_SQ = 1e-6
@@ -134,6 +136,31 @@ export class CharacterManager {
     const ch = this.characters.get(charId); if (!ch) return
     this._tmpRVec3.Set(position[0], position[1], position[2])
     ch.SetPosition(this._tmpRVec3)
+  }
+
+  applyChartTransfer(transfer) {
+    const p = [0, 0, 0], v = [0, 0, 0]
+    let groundedUpwardClamped = 0
+    for (const [id, ch] of this.characters) {
+      const cp = ch.GetPosition()
+      p[0] = cp.GetX(); p[1] = cp.GetY(); p[2] = cp.GetZ()
+      transfer.point(p, p)
+      this.setPosition(id, p)
+      const cv = ch.GetLinearVelocity()
+      v[0] = cv.GetX(); v[1] = cv.GetY(); v[2] = cv.GetZ()
+      transfer.vec(v, v)
+      if (this._onGroundAtLastUpdate.get(id) === true && clampTiltInducedUpward(transfer, v)) groundedUpwardClamped++
+      this.setVelocity(id, v)
+      const ground = this._groundNormals.get(id)
+      if (ground && ground[3]) {
+        const n = [ground[0], ground[1], ground[2]]
+        transfer.vec(n, n)
+        ground[0] = n[0]; ground[1] = n[1]; ground[2] = n[2]
+      }
+      const walls = this._walls.get(id)
+      if (walls) walls[0] = 0
+    }
+    return { characters: this.characters.size, groundedUpwardClamped }
   }
 
   _captureGroundNormal(charId, ch, onGround) {

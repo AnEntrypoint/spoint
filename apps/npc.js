@@ -21,6 +21,11 @@ export default {
     ctx.entity.custom._npcLoopType = loopType
   },
 
+  onChartReanchor(ctx, { transfer }) {
+    transfer.point(ctx.state._spawnPos, ctx.state._spawnPos)
+    if (ctx.state._wanderTarget) transfer.point(ctx.state._wanderTarget, ctx.state._wanderTarget)
+  },
+
   update(ctx, dt) {
     if (ctx.state._loopType === 'idle') {
       ctx.state._phase = (ctx.state._phase + dt * 0.5) % (Math.PI * 2)

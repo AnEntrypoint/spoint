@@ -11,11 +11,12 @@ function sanitizeFsError(e, clientRelativePath) {
 
 const WORLD_CONFIG_KEYS = ['port', 'tickRate', 'entityTickRate', 'gravity', 'relevanceRadius', 'physicsRadius', 'physicsBodyBudget', 'movement', 'player', 'scene', 'camera', 'animation', 'input', 'spawnPoint', 'spawnPoints', 'playerModel', 'trustedApps', 'placeableApps', 'terrain', 'netcode']
 
-function serializeEntity(e) {
+function serializeEntity(e, toBase = null) {
   const out = { id: e.id }
   if (e.model) out.model = e.model
-  out.position = [e.position[0], e.position[1], e.position[2]]
-  const r = e.rotation
+  const rebase = toBase && !e.parent
+  out.position = rebase ? toBase.point(e.position) : [e.position[0], e.position[1], e.position[2]]
+  const r = rebase && Array.isArray(e.rotation) ? toBase.quat(e.rotation) : e.rotation
   if (r && !(r[0] === 0 && r[1] === 0 && r[2] === 0 && r[3] === 1)) out.rotation = [r[0], r[1], r[2], r[3]]
   const s = e.scale
   if (s && !(s[0] === 1 && s[1] === 1 && s[2] === 1)) out.scale = [s[0], s[1], s[2]]
@@ -27,7 +28,7 @@ function serializeEntity(e) {
   return out
 }
 
-function serializeWorld(appRuntime, sourceWorldDef) {
+function serializeWorld(appRuntime, sourceWorldDef, toBase = null) {
   const def = {}
   const src = sourceWorldDef || {}
   for (const k of WORLD_CONFIG_KEYS) if (src[k] !== undefined) def[k] = src[k]
@@ -35,7 +36,7 @@ function serializeWorld(appRuntime, sourceWorldDef) {
   for (const e of appRuntime.entities.values()) {
     const hasNoAuthoredState = !e._appName && !e.model && !e.custom && !e._config && !e.parent
     if (hasNoAuthoredState) continue
-    entities.push(serializeEntity(e))
+    entities.push(serializeEntity(e, toBase))
   }
   def.entities = entities
   return def

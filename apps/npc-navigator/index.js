@@ -41,6 +41,13 @@ export default {
       ctx.entity.position = _avoid(ctx, pos, r.position, st.avoidanceRadius)
     },
 
+    onChartReanchor(ctx, { transfer }) {
+      const st = ctx.state
+      st.waypoints = st.waypoints.map(w => transfer.point(w))
+      if (st.targetPos) st.targetPos = transfer.point(st.targetPos)
+      st.lastPath = null
+    },
+
     onMessage(ctx, msg) {
       const st = ctx.state
       if (!msg || (msg.npcId != null && msg.npcId !== ctx.entity.id)) return
