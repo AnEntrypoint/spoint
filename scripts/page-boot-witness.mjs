@@ -19,12 +19,52 @@ const PROXY = flag('proxy', null)
 const WORLD = flag('world', 'tps-game')
 const HEADLESS = !has('headed')
 const GL = flag('gl', 'swiftshader')
+const GPU_VENDOR = flag('gpu', null)
 const SHOT = flag('screenshot', null)
 const ALLOW_ERRORS = has('allow-errors')
 const ALLOW_FAILED_REQUESTS = has('allow-failed-requests')
-const REQUIRE_GPU = has('require-gpu')
+const REQUIRE_GPU = flag('require-gpu') || (has('require-gpu') ? 'any' : null)
 
 const SOFTWARE_ADAPTER = /swiftshader|llvmpipe|softwarerasterizer|microsoft basic render|apple software renderer/i
+const VENDOR_ADAPTER = {
+  amd: /amd|radeon|rdna/i,
+  nvidia: /nvidia|geforce|rtx|quadro/i,
+  intel: /intel|\barc\b|iris|uhd graphics|hd graphics/i,
+}
+
+const LUID_POWERSHELL = `
+$live = @{}
+(Get-Counter '\\GPU Adapter Memory(*)\\Dedicated Usage').CounterSamples | ForEach-Object {
+  if ($_.InstanceName -match 'luid_0x([0-9a-f]+)_0x([0-9a-f]+)_') {
+    $high = [Convert]::ToInt64($matches[1], 16)
+    $low = [Convert]::ToInt64($matches[2], 16)
+    $live[[string]($high * 4294967296 + $low)] = "$high,$low"
+  }
+}
+Get-ChildItem HKLM:\\SOFTWARE\\Microsoft\\DirectX | ForEach-Object {
+  $p = Get-ItemProperty $_.PSPath
+  if ($p.Description -and $null -ne $p.AdapterLuid) {
+    $key = [string]$p.AdapterLuid
+    if ($live.ContainsKey($key)) { "$($p.Description)|$($live[$key])" }
+  }
+}
+`
+
+async function adapterLuidArgs(vendor) {
+  const { execFile } = await import('node:child_process')
+  const { promisify } = await import('node:util')
+  const execFileAsync = promisify(execFile)
+  const pattern = VENDOR_ADAPTER[vendor]
+  if (!pattern) throw new Error(`gpu=${vendor}: unknown vendor, expected one of ${Object.keys(VENDOR_ADAPTER).join(', ')}`)
+  const { stdout } = await execFileAsync('powershell', ['-NoProfile', '-NonInteractive', '-Command', LUID_POWERSHELL], { maxBuffer: 1 << 20 })
+  for (const line of stdout.split('\n')) {
+    const [description, luid] = line.split('|')
+    if (!description || !luid || /basic render/i.test(description)) continue
+    if (pattern.test(description)) return ['--use-angle=d3d11', `--use-adapter-luid=${luid.trim()}`]
+  }
+  const seen = stdout.split('\n').filter(l => l.includes('|')).map(l => l.split('|')[0].trim()).join(', ') || 'none'
+  throw new Error(`gpu=${vendor}: no live ${vendor} adapter found among: ${seen}`)
+}
 
 const GPU_PROBE = `(() => { try {
   const canvas = document.createElement('canvas')
@@ -63,7 +103,9 @@ async function main() {
   let browser
   const fail = (msg) => { console.error(`[page-boot-witness] RESULT: FAIL -- ${msg}`); process.exit(1) }
   try {
-    const args = GL === 'none' ? [] : ['--use-gl=' + GL, '--use-angle=' + GL, '--ignore-gpu-blocklist']
+    const args = GPU_VENDOR
+      ? await adapterLuidArgs(GPU_VENDOR)
+      : (GL === 'none' ? [] : ['--use-gl=' + GL, '--use-angle=' + GL, '--ignore-gpu-blocklist'])
     browser = await chromium.launch({ headless: HEADLESS, args })
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
     const consoleEntries = []
@@ -107,7 +149,10 @@ async function main() {
     const gpu = await page.evaluate(GPU_PROBE).catch(e => ({ renderer: null, webgpu: 'probe failed: ' + e.message, webgpuPresent: false }))
     const gpuSoftware = !gpu.webgpuPresent || !gpu.renderer || SOFTWARE_ADAPTER.test(gpu.renderer) || SOFTWARE_ADAPTER.test(gpu.webgpu)
     const gpuName = gpu.webgpuPresent ? gpu.webgpu : (gpu.renderer || 'none')
-    console.log(`[page-boot-witness] gpu adapter=${JSON.stringify(gpuName)} glRenderer=${JSON.stringify(gpu.renderer)} classification=${gpuSoftware ? 'SOFTWARE (swiftshader/llvmpipe or no webgpu adapter)' : 'DISCRETE/NAMED (' + gpuName + ')'}`)
+    const wanted = GPU_VENDOR || REQUIRE_GPU || 'any'
+    const gotVendor = Object.keys(VENDOR_ADAPTER).find(v => VENDOR_ADAPTER[v].test(gpuName) || VENDOR_ADAPTER[v].test(gpu.renderer || '')) || null
+    const gpuKind = gpuSoftware ? 'SOFTWARE (swiftshader/llvmpipe or no webgpu adapter)' : (gotVendor ? gotVendor.toUpperCase() : 'UNRECOGNISED ADAPTER')
+    console.log(`[page-boot-witness] gpu adapter=${JSON.stringify(gpuName)} glRenderer=${JSON.stringify(gpu.renderer)} classification=${gpuKind} wanted=${JSON.stringify(wanted || 'any')}`)
     if (SHOT) { await page.screenshot({ path: SHOT }); console.log(`[page-boot-witness] screenshot -> ${SHOT}`) }
 
     console.log(`[page-boot-witness] console entries=${consoleEntries.length} pageErrors=${pageErrors.length} failedRequests=${failedRequests.length}`)
@@ -131,7 +176,8 @@ async function main() {
     })
     const failures = []
     if (unreached.length) failures.push(unreached.join('; '))
-    if (REQUIRE_GPU && gpuSoftware) failures.push(`the arm needs a real GPU but the page has no WebGPU adapter and/or a software GL renderer (adapter=${JSON.stringify(gpuName)}, glRenderer=${JSON.stringify(gpu.renderer)})`)
+    if (REQUIRE_GPU && REQUIRE_GPU === 'any' && gpuSoftware) failures.push(`the arm needs a real GPU but the page has no WebGPU adapter and/or a software GL renderer (adapter=${JSON.stringify(gpuName)}, glRenderer=${JSON.stringify(gpu.renderer)})`)
+    if (REQUIRE_GPU && REQUIRE_GPU !== 'any' && (gpuSoftware || gotVendor !== REQUIRE_GPU)) failures.push(`the arm needs the ${REQUIRE_GPU} adapter but the page got ${JSON.stringify(gpuName)} / ${JSON.stringify(gpu.renderer)} (classed ${gpuKind})`)
     if (!ALLOW_ERRORS && pageErrors.length) failures.push(`${pageErrors.length} uncaught page error(s): ${String(pageErrors[0]).slice(0, 200)}`)
     if (!ALLOW_FAILED_REQUESTS && failedRequests.length) failures.push(`${failedRequests.length} failed request(s): ${failedRequests[0].text} ${failedRequests[0].url}`)
     if (failures.length) fail(failures.join('; '))
