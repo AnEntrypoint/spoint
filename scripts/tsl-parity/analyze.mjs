@@ -60,7 +60,7 @@ gate('camera pose identical per pose across frames and renderers', camsOk, null)
 const ammo = new Set([...allSigs(tslCap), ...allSigs(legCap)].map(s => String(s.ammo)))
 gate('ammo signature identical across all frames', ammo.size === 1, { ammo: [...ammo] })
 const blocked = Math.max(...[...allSigs(tslCap), ...allSigs(legCap)].map(s => s.blocked || 0))
-gate('no input reached the page', blocked === 0, { blocked })
+gate('no input reached the page', blocked === 0, { blocked, tslInputLog: ts && ts.inputLog, legacyInputLog: ls && ls.inputLog })
 
 const hashRows = []
 for (const ev of [...tslBoot.events, ...legBoot.events].filter(e => e.event === 'Debugger.scriptParsed')) {
