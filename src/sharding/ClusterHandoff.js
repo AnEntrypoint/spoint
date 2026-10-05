@@ -1,3 +1,4 @@
+import { MSG } from '../protocol/MessageTypes.js'
 import { snapshotChart, createChartTransfer } from '../shared/chartAnchor.js'
 import { createReexpressPass, clampTiltInducedUpward } from '../shared/chartReexpress.js'
 
@@ -58,8 +59,14 @@ export function applyAdmittedInputs(server, token, lastInput) {
   return id
 }
 
-export function releaseHandoffSource(server, playerId) {
+export function releaseHandoffSource(server, playerId, destination = null) {
   const client = server.connections.getClient(playerId)
-  if (client?.sessionToken) server.sessions.destroy(client.sessionToken)
+  const token = client?.sessionToken
+  if (destination?.url && destination?.sessionToken && client) {
+    server.connections.send(playerId, MSG.CLUSTER_HANDOFF, { url: destination.url, sessionToken: destination.sessionToken, clusterId: destination.clusterId ?? null })
+    if (token) server.sessions.destroy(token)
+    return
+  }
+  if (token) server.sessions.destroy(token)
   client?.transport?.close()
 }

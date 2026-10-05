@@ -82,6 +82,7 @@ export class BaseClient {
     if (msg.type === MSG.NOSTR_AUTH_CHALLENGE) { this._handleNostrAuthChallenge(msg.payload || {}); return }
     try {
       if (msg.type === MSG.CHART_REANCHOR) { this._chart.onBroadcast(msg.payload); return }
+      if (msg.type === MSG.CLUSTER_HANDOFF) { this._followClusterHandoff?.(msg.payload || {}); return }
       let payload = msg.payload || {}
       if (msg.type === MSG.TELEPORT_ACK) { payload = this._chart.admitAck(payload); if (!payload) return }
       const result = this._msgHandler.handleMessage(msg.type, payload, this._snapProc)

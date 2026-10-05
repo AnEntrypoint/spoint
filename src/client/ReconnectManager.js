@@ -40,6 +40,12 @@ export class ReconnectManager {
       catch (e) { console.error('[reconnect] send failed:', e?.message || e) }
     }
   }
+  beginMigration() {
+    if (this._state === 'destroyed') return
+    if (this._timer) { clearTimeout(this._timer); this._timer = null }
+    this._actor.send({ type: 'DISCONNECT' })
+    this._actor.send({ type: 'RETRY' })
+  }
   onConnected() {
     if (this._timer) { clearTimeout(this._timer); this._timer = null }
     const s = this._state

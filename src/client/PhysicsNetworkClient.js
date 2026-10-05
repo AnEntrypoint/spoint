@@ -110,6 +110,23 @@ export class PhysicsNetworkClient extends BaseClient {
     else if (result?.invalidate) this._reconnect.invalidateSession()
   }
 
+  async _followClusterHandoff(payload) {
+    const url = payload?.url, token = payload?.sessionToken
+    if (typeof url !== 'string' || typeof token !== 'string' || this._destroyed) return
+    this.config.url = url
+    this._reconnect.setSessionToken(token)
+    this._reconnect.beginMigration()
+    this._connGen++
+    this._migrationTrigger?.stop()
+    this._heartbeat.stop()
+    const oldTransport = this.transport, oldWs = this.ws
+    this.transport = null; this.ws = null; this.connected = false
+    if (oldTransport) { try { oldTransport.close() } catch (e) {} }
+    if (oldWs) { try { oldWs.close() } catch (e) {} }
+    this.callbacks.onDisconnect()
+    await this._doReconnect()
+  }
+
   _wtCacheRead(key) {
     if (this._wtCache.has(key)) return this._wtCache.get(key)
     let entry = null

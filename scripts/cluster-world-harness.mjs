@@ -19,8 +19,6 @@ const { loadWorldModule } = await import('../src/sdk/WorldLocator.js')
 const { createChartAnchorLattice, snapshotChart, createChartTransfer } = await import('../src/shared/chartAnchor.js')
 const { anchorBasis, tangentLocalToDir } = await import('../src/terrain/PlanetFrame.js')
 const { resolveClusterConfig } = await import('../src/shared/clusterConfig.js')
-const { pack } = await import('../src/protocol/msgpack.js')
-const { MSG } = await import('../src/protocol/MessageTypes.js')
 
 const log = message => console.error(`[cluster-harness ${(performance.now() / 1000).toFixed(1)}s] ${message}`)
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -233,16 +231,8 @@ async function scenarioHandoff() {
     log(`  exported pos=${exported.state.position.map(v => v.toFixed(2)).join(',')} vel=${exported.state.velocity.map(v => v.toFixed(2)).join(',')} onGround=${exported.state.onGround}`)
     log(`  admitted pos=${admitted.state.position.map(v => v.toFixed(2)).join(',')} vel=${admitted.state.velocity.map(v => v.toFixed(2)).join(',')} dirGapDeg=${dirGapDeg.toFixed(6)}`)
     const yawBefore = rec.heading.yaw
-    releaseHandoffSource(srcWorld.server, rec.localId)
-    rec.client.disconnect()
-    log(`  source released`)
-    const next = makeClient(dstWorld.url)
-    next.heading.walking = rec.heading.walking
-    next.heading.yaw = look.yaw
-    next.heading.pitch = look.pitch
-    await next.client.connect()
-    log(`  connected to ${event.to}`)
-    next.client.ws.send(pack({ type: MSG.RECONNECT, payload: { sessionToken: admitted.token } }))
+    releaseHandoffSource(srcWorld.server, rec.localId, { url: dstWorld.url, sessionToken: admitted.token, clusterId: dstWorld.clusterId })
+    log(`  source released, client follows CLUSTER_HANDOFF to ${dstWorld.url}`)
     await until(() => playerIdOfSession(dstWorld.server, admitted.token) !== null, 30000, 'handoff session joined')
     const localId = applyAdmittedInputs(dstWorld.server, admitted.token, admitted.lastInput)
     log(`  joined as ${localId}`)
@@ -257,7 +247,8 @@ async function scenarioHandoff() {
       if (s) log(`  probe${probe} onGround=${s.onGround} pos=${s.position.map(v => v.toFixed(1)).join(',')} vel=${s.velocity.map(v => v.toFixed(2)).join(',')} terrainY=${dstWorld.server.physics.terrainHeightAt(s.position[0], s.position[2]).toFixed(1)} anchorDist=${Math.hypot(s.position[0], s.position[2]).toFixed(0)} bodies=[${bodies}]`)
     }
     const stallMs = performance.now() - t0
-    rec.client = next.client; rec.heading = next.heading; rec.localId = localId; rec.cluster = event.to
+    rec.heading.yaw = look.yaw; rec.heading.pitch = look.pitch
+    rec.localId = localId; rec.cluster = event.to
     handoffs.push({
       player: event.playerId, from: event.from, to: event.to,
       transferGapM: hypot3(planetBefore, planetAdmitted), dirGapDeg: round(dirGapDeg, 6),
@@ -381,13 +372,7 @@ async function scenarioTilt() {
   const dirGapDeg = angleDegBetween(dirOfPlayer(worldA.server, exported.state.position), dirOfPlayer(worldB.server, admitted.state.position))
   const localShiftM = Math.hypot(admitted.state.position[0] - exported.state.position[0], admitted.state.position[2] - exported.state.position[2])
   const look = admitted.transfer.look(client.heading.yaw, client.heading.pitch)
-  releaseHandoffSource(worldA.server, client.client.playerId)
-  client.client.disconnect()
-  const next = makeClient(worldB.url)
-  next.heading.yaw = look.yaw
-  next.heading.pitch = look.pitch
-  await next.client.connect()
-  next.client.ws.send(pack({ type: MSG.RECONNECT, payload: { sessionToken: admitted.token } }))
+  releaseHandoffSource(worldA.server, client.client.playerId, { url: worldB.url, sessionToken: admitted.token, clusterId: 2 })
   await until(() => playerIdOfSession(worldB.server, admitted.token) !== null, 30000, 'tilt: session joined the destination world')
   const localId = applyAdmittedInputs(worldB.server, admitted.token, admitted.lastInput)
   let grounded = false
@@ -397,7 +382,7 @@ async function scenarioTilt() {
     if (s) log(`  tiltprobe${probe} onGround=${s.onGround} pos=${s.position.map(v => v.toFixed(1)).join(',')} terrainY=${worldB.server.physics.terrainHeightAt(s.position[0], s.position[2]).toFixed(1)}`)
   }
   const landed = worldB.server.playerManager.getPlayer(localId)?.state ?? null
-  next.client.disconnect()
+  client.client.disconnect()
   const out = {
     separationM, anchorTiltDeg: round(anchorTiltDeg, 4), transferTiltDeg: round(degOf(admitted.transfer.tiltRad), 4),
     planetGapM: hypot3(exported.state.position, toChartA.point(admitted.state.position)),

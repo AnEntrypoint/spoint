@@ -132,7 +132,9 @@ export const MSG = {
   COLLISION_CONFIG: 0xc4,
   COLLISION_TILE: 0xc5,
 
-  CHART_REANCHOR: 0xc6
+  CHART_REANCHOR: 0xc6,
+
+  CLUSTER_HANDOFF: 0xc7
 }
 
 const nameMap = new Map()
