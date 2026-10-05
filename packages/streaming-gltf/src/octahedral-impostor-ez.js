@@ -11,7 +11,7 @@ import {
   ATLAS_VERTEX, ATLAS_FRAGMENT, IMPOSTOR_PARAMS_VERTEX, IMPOSTOR_VERTEX,
   IMPOSTOR_PARAMS_FRAGMENT, IMPOSTOR_MAP_FRAGMENT, IMPOSTOR_NORMAL_FRAGMENT_BEGIN,
 } from './octahedral-impostor-shaders.js';
-import { makeCaptureMaterialTSL } from './octahedral-impostor-capture-tsl.js';
+import { makeImpostorCaptureMaterialTSL } from './octahedral-impostor-display-tsl.js';
 
 const _absolute = new Vector3();
 
@@ -176,7 +176,7 @@ export function renderAtlasCells(renderer, target, renderTarget, opts) {
   if (cellViewportOnTarget) { renderer.autoClear = false; renderTarget.scissorTest = true; }
 
   const captureFactory = opts.makeCaptureMaterial
-    || (renderer.isWebGPURenderer ? makeCaptureMaterialTSL : _makeCaptureMaterial)
+    || (renderer.isWebGPURenderer ? makeImpostorCaptureMaterialTSL : _makeCaptureMaterial)
   const captureMaterials = _overrideTargetMaterial(target, captureFactory)
   const onCell = typeof opts.onCell === 'function' ? opts.onCell
     : (typeof globalThis !== 'undefined' && typeof globalThis.__atlasCellProbe === 'function' ? globalThis.__atlasCellProbe : null);
