@@ -158,6 +158,8 @@ async function runParent() {
   const { dirToLocalXZ } = await import('../src/shared/relocation.js')
   const { waterlineLocalY } = await import('../src/terrain/PlanetFrame.js')
   const { PLAYER_LOD_FULL_COUNT } = await import('../src/netcode/SnapshotEncoder.js')
+  const { renderMetrics } = await import('../src/sdk/Metrics.js')
+  const phaseTotals = () => { const out = {}; const text = renderMetrics(); for (const m of text.matchAll(/spoint_tick_phase_ms_(sum|count)\{phase="(\w+)"[^}]*\} ([\d.e+-]+)/g)) (out[m[2]] ||= {})[m[1]] = Number(m[3]); const b = text.match(/spoint_snapshot_bytes_total ([\d.e+-]+)/); out.snapBytes = b ? Number(b[1]) : 0; return out }
   const { findHitSpatial, buildLiveIndex, resolveFireRequest } = await import('../src/netcode/Hitscan.js')
 
   const N = Number(args.n || 16)
@@ -353,6 +355,7 @@ async function runParent() {
     const sched0 = { ...server.tickSystem.schedulerStats }
     const mem0 = process.memoryUsage()
     const cpu0 = process.threadCpuUsage()
+    const phase0 = phaseTotals()
     const hf0 = ring?.rebuildCount ?? null
     const lc0 = { ...server.lagCompensator.getStats() }
     const logs0 = { hf: logLines.heightfield, overrun: logLines.overrun, dilation: logLines.dilation }
@@ -438,6 +441,8 @@ async function runParent() {
     server.tickSystem._onTickMeasured = origMeasured
     const mem1 = process.memoryUsage()
     const cpu1 = process.threadCpuUsage(cpu0)
+    const phase1 = phaseTotals()
+    const phaseAvg = Object.fromEntries(['total', 'mv', 'phys', 'snap'].map(k => [k, phase1[k] && phase0[k] ? round((phase1[k].sum - phase0[k].sum) / Math.max(1, phase1[k].count - phase0[k].count), 3) : null]))
     const sched1 = server.tickSystem.schedulerStats
     const metrics = server.tickSystem.getStats?.() ?? null
     const inKBps = reports.map(r => r.inBytes / 1024 / elapsedS), outKBps = reports.map(r => r.outBytes / 1024 / elapsedS)
@@ -461,6 +466,7 @@ async function runParent() {
       scenario: name, n: N, world: WORLD, service: SERVICE, durationS: round(elapsedS, 1), procs: PROCS, tickRate,
       connected: N - missingConnect, teleportsOk: teleports.filter(t => t.ok).length, teleportRefusals: refusals, teleportMs: summarize(teleports.filter(t => t.ok).map(t => t.ms)),
       anchorAngleDeg: summarize(poss.map(p => { const d = frame.localToDir(p[0], p[2], p[1]); return Math.acos(Math.max(-1, Math.min(1, vec.dot(d, frame.up)))) * 180 / Math.PI })),
+      tickPhaseAvgMs: phaseAvg, snapshotKBPerSServerWide: round((phase1.snapBytes - phase0.snapBytes) / 1024 / elapsedS, 1),
       serverMainThreadCpuMsPerTick: round((cpu1.user + cpu1.system) / 1000 / Math.max(1, ticks.length), 3), serverTickMs: summarize(ticks), tickIntervalMs: summarize(intervals), tickOver1BudgetPct: round(ticks.filter(t => t > 1000 / tickRate).length / Math.max(1, ticks.length) * 100, 2),
       eventLoopDelayMs: { mean: round(loop.mean / 1e6, 2), p99: round(loop.percentile(99) / 1e6, 2), max: round(loop.max / 1e6, 2) },
       scheduler: { lateMaxMs: round(server.tickSystem.schedulerStats.maxLateMs, 2), droppedMsDelta: round(sched1.droppedMs - (sched0.droppedMs || 0), 1), dilationFactor: server.tickSystem.dilationFactor },
@@ -471,7 +477,7 @@ async function runParent() {
       prediction: corr.length ? { clients: corr.length, correctionsPerAck: round(corr.reduce((s, r) => s + r.corrections, 0) / Math.max(1, corr.reduce((s, r) => s + r.acks, 0)), 4), correctionsTotal: corr.reduce((s, r) => s + r.corrections, 0), acksTotal: corr.reduce((s, r) => s + r.acks, 0), maxCorrectionM: round(Math.max(...corr.map(r => r.maxCorrectionM || 0)), 3), clientVsServerM: summarize(divergence) } : null,
       hitReg: { shots: shots.length, byDistance: ['<50', '50-200', '200-1000', '>1000'].map((label, i) => { const lo = [0, 50, 200, 1000][i], hi = [50, 200, 1000, 1e12][i]; const s = shots.filter(x => x.distM >= lo && x.distM < hi); return { label, n: s.length, hitTarget: s.filter(x => x.hitTarget).length, hitOther: s.filter(x => x.hitOther).length, rejected: s.filter(x => x.rejected).length } }), lagComp: { ...server.lagCompensator.getStats(), rewindsDelta: server.lagCompensator.getStats().rewinds - lc0.rewinds } },
       failures: { nonFiniteServerPositions: nonFinite, nonFiniteClientLocal: reports.filter(r => !r.localFinite).length, clientNanStates: reports.reduce((s, r) => s + r.nanStates, 0), clientErrors: reports.flatMap(r => r.errors).slice(0, 8), disconnected: reports.filter(r => !r.connected).length, groundMissing, logLines: { heightfieldBuilds: logLines.heightfield - logs0.hf, overrun: logLines.overrun - logs0.overrun, dilation: logLines.dilation - logs0.dilation, warn: logLines.warn, error: logLines.error, topOther: [...logLines.other.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5) } },
-      chart: { serverEpoch: frame.chartEpoch, epochsDuringRun: frame.chartEpoch - chartEpochs0, clientEpochsSeen: summarize(reports.map(r => r.epochs)), clientResyncs: reports.reduce((s, r) => s + (r.chart?.resyncRequests || 0), 0), clientHeldNow: reports.reduce((s, r) => s + (r.chart?.heldNow || 0), 0), reanchorCount: ring?.chartReanchor?.reanchorCount ?? 0, refusals: ring?.chartReanchor?.refusalCount ?? 0 },
+      chart: { serverEpoch: frame.chartEpoch, epochsDuringRun: frame.chartEpoch - chartEpochs0, clientEpochsSeen: summarize(reports.map(r => r.epochs)), clientResyncs: reports.reduce((s, r) => s + (r.chart?.resyncRequests || 0), 0), clientHeldNow: reports.reduce((s, r) => s + (r.chart?.heldNow || 0), 0), reanchorCount: ring?.chartReanchor?.reanchorCount ?? 0, refusals: ring?.chartReanchor?.refusalCount ?? 0, lastRefusal: ring?.chartReanchor?.lastRefusal?.reason ?? null },
       memory: { rssMB: [round(mem0.rss / 1048576, 1), round(mem1.rss / 1048576, 1)], heapMB: [round(mem0.heapUsed / 1048576, 1), round(mem1.heapUsed / 1048576, 1)], rssGrowthMBPerMin: round((mem1.rss - mem0.rss) / 1048576 / (elapsedS / 60), 1) },
       streaming: { heightfieldRebuilds: ring?.rebuildCount ?? null, heightfieldRebuildsDuringRun: (ring?.rebuildCount ?? 0) - (hf0 ?? 0), heightfieldBuildsPerS: round((logLines.heightfield - logs0.hf) / elapsedS, 3) }
     }

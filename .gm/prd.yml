@@ -767,3 +767,39 @@
   acceptance_criteria: Time-until-all-covered at 64 spread players and per-field wasm bytes measured before/after with the same ttg harness; coarse-field ground error versus the solver measured on the default world over 200 points; refine replaces the coarse body without a character fall; single-player fields byte-identical
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending
+- id: planet-snapshot-groups-by-load-not-headcount
+  title: Per-client snapshot rate halves at 64 players regardless of spread
+  body: 'TickHandler.buildAndSendSnapshots uses snapGroups = ceil(playerCount/50), a global head count, so 64 players receive 31-32 Hz snapshots (measured 26-32 Hz at n=64 in clustered, split10, split100, antipodal) against 61-64 Hz at n=16, even when the players are in separate regions and each snapshot is cheap (tick phase snap 1.1 ms at 16 players, 71 us per player-snapshot). Replace the head count with the measured per-player snapshot cost EMA against a fraction of the tick budget, with a 2 s damping so the group count does not flap (staticByGroup resets when it changes). Measure with scripts/planet-multiplayer-harness.mjs --n=64 clustered/spread-cap: snapshot Hz, main-thread CPU ms per tick (process.threadCpuUsage column), p99 tick, on 3 runs; do not regress n=16.'
+  acceptance_criteria: n=64 spread players receive >= 60 Hz snapshots while main-thread CPU per tick stays under 60 percent of the tick budget; a crowded 64-player cluster still groups; 3-run before/after numbers recorded; rollback-duel and lockstep-rts 0 desyncs.
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: planet-crowd-tier-snapshot-cost-superlinear
+  title: Per-viewer snapshot cost grows 2.7x from 16 to 64 players in one crowd
+  body: 'Measured per-player snapshot cost 71 us at n=16 and 190 us at n=64 clustered (tick phase snap 3.0 ms at 32 Hz). With more than 30 neighbours each viewer runs classifyPlayerTiers (allocates and sorts every neighbour) and buildCrowdDots (a Map of 25 m buckets over every dot player) in SnapshotEncoder.filterEncodedPlayersTiered; in a window CPU profile buildCrowdDots was 9 percent of the server main thread. Dots do not depend on the viewer except for membership: keep one per-snapshot bucket histogram of all players and subtract the viewer''s full/reduced/self members, partial-select the 30 nearest instead of sorting. Interest correctness must stay 0 missing (harness LOD-aware check).'
+  acceptance_criteria: n=64 clustered snapshot phase per snapshot pass measurably lower on 3 runs with identical per-client player/dot payloads (byte comparison on a fixed seed), harness interest 0 missing, rollback-duel and lockstep-rts 0 desyncs.
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: planet-collider-center-cap-silent-drop
+  title: Tree and rock collider streamers keep only the first 8 player clusters, silently
+  body: 'ColliderStreamer.clusterCenters picks centres in player iteration order and stops at maxCenters (default 8, vegetation.colliderMaxCenters), so with more than 8 spread clusters the later players get no tree or rock colliders and no log line (the heightfield streamer at least warns once). Which players are served depends on join order. Derive the cap from the byte budget like the heightfield cap (commit cccd8697 for fields), serve the players nearest to the most recently active first, and warn once with the dropped count. Evidence: harness spread-cap --n=24 with colliders on.'
+  acceptance_criteria: n=32 players in 16 separate clusters all get veg/rock colliders (count per cluster ring in the harness log) or a named once-per-change warning with the uncovered count; ring build cost per second recorded.
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: planet-surface-solve-nonconvergence-52km
+  title: 'No ground height at chart-local (-41605, 31959), 52 km from the anchor: players there fall and are pinned at the kill plane'
+  body: 'Harness spread-cap --n=64 (tps world, default anchor) logs ''[terrain] server physics terrain height: no ground height at chart-local (-41605, 31959)'' (guardedGroundHeight fallback NaN): the surface solve does not converge there (about 52 km, inside the 63.6 km chart radius and within the 64-eval cap quoted in terrain-solvesurfacey), so no heightfield can be built for a player placed near it; 4 of 22 dry players ended below the terrain, and every airborne player costs a failing 64-evaluation solve per tick in PhysicsIntegration._killPlaneY (physics phase 9.9 ms at n=64 spread versus 0.5 ms for grounded players). Reproduce with --scenario=spread-cap --n=64 --warm=40; find which dir maps there with relocation.dirToLocalXZ. Belongs to the terrain/solver lane; also decide whether the kill plane should place a pinned player instead of clamping to killY forever.'
+  acceptance_criteria: A player placed at that dir stands on a collider or the teleport is refused with a named reason; no per-tick failing solves for a pinned player; harness serverGround fellBelowTerrain5m = 0 at n=64 spread.
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: planet-roam-crowd-reanchor-refusals
+  title: A roaming crowd across a lattice boundary is refused 400 times in 20 s; edge and pole roams need dry placement
+  body: 'Harness --service=on --scenario=roam-corner --n=16: players placed 30 m before the chart-lattice cell boundary and sprinting forward; reanchorCount 1 (the placement), refusals 398 in 20 s, epochsDuringRun 0 (the crowd did not cross), corrections per ack 0.31 and client-server offset 0.37 m while sprinting. roam-edge and roam-pole placements are open ocean on this seed so all 16 swim (0.45 and 0.93 corrections per ack). The harness now reports chart.lastRefusal; read the per-tick refusal reasons (heightfields-not-ready, waiting-for-quiet-surface, cluster refusals) over the run and decide whether 16 crossing players converge. Architect-owned (re-anchor policy); the harness change needed is a dry-land roam placement (search along the feature for land, or change seed).'
+  acceptance_criteria: 16 and 64 players crossing a face edge, a corner and a pole with the service on all reach the new epoch with no player more than 1 m from the server, refusal reasons tallied per name, corrections per ack under 0.05.
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: planet-two-browser-region-witness
+  title: 'GPU-window witness: two real browsers in different planet regions on both GPUs'
+  body: 'Browser-only; do not run until the GPU lock is free. Plan: serve tps-game with SPOINT_NO_WATCH=1 and relevanceRadius 200; browser A at the anchor (?at=0,0), browser B 5 km away on dry land (window.__spoint.go({dir}) from a bookmark found with the harness walkableDir logic, slope under 20 deg, above waterline+2 m), then B 100 m from A. Record per browser on the RTX 3060 and the AMD GPU: remote player visible/absent in __scene at 5 km (must be absent) and at 100 m (must be present within 2 snapshots), fire from A at B at 100 m (hit event received on both, rewind ms), chat and APP_EVENT delivery, frame time p95, console errors, rendering of the remote player after B crosses 200 m (interest hysteresis, no pop at 200/230 m). Use ?v=<ts> cache buster, perf harness draw-call buckets for contamination.'
+  acceptance_criteria: Table of the above on both GPUs with screenshots from __scene readback, per the interest rule measured in recall project/planet-multiplayer-scenario-matrix-2026-10-05.
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
