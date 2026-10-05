@@ -174,14 +174,28 @@ async function scenarioHeap() {
   const { worldDef, serverConfig } = await baseWorld({ enabled: true })
   const { createClusterServerWorldFactory } = await import('../src/sharding/ClusterServerWorld.js')
   const factory = createClusterServerWorldFactory({ baseWorldDef: worldDef, serverConfig })
+  const wanted = Number(args.worlds ?? 8)
   const worlds = []
-  for (let i = 0; i < 12; i++) {
+  const perWorld = []
+  for (let i = 0; i < wanted; i++) {
     const dir = tangentLocalToDir(anchorBasis([Math.cos(i * 0.9), 0.3, Math.sin(i * 0.9)]), worldDef.terrain.radius, 0, 0)
-    worlds.push(await factory.createWorld(i + 1, { anchorDir: dir, spawnDirs: [dir] }))
-    console.error(`HEAPPROBE worlds=${worlds.length} rssMB=${(process.memoryUsage().rss / 1048576).toFixed(0)}`)
-    await sleep(1500)
+    let world = null
+    try { world = await factory.createWorld(i + 1, { anchorDir: dir, spawnDirs: [dir] }) } catch (e) { return { worlds: worlds.length, perWorld, abortedAt: i + 1, abortMessage: e?.message ?? String(e) } }
+    worlds.push(world)
+    const heap = world.server.physics.wasmHeapBytes()
+    const ticks0 = worlds.map(w => w.server.tickSystem.currentTick)
+    await sleep(2000)
+    const ticks1 = worlds.map(w => w.server.tickSystem.currentTick)
+    const row = {
+      world: worlds.length, rssMB: round(process.memoryUsage().rss / 1048576, 0),
+      wasmFreeMB: round(heap.free / 1048576, 1), wasmTotalMB: round(heap.total / 1048576, 1), wasmWorlds: heap.worlds,
+      ticksPerSecond: ticks1.map((t, k) => round((t - ticks0[k]) / 2, 1)),
+    }
+    perWorld.push(row)
+    console.error(`HEAPPROBE worlds=${row.world} rssMB=${row.rssMB} wasmFreeMB=${row.wasmFreeMB}/${row.wasmTotalMB} sharedBy=${row.wasmWorlds} ticksPerSecond=${row.ticksPerSecond.join(',')}`)
   }
-  return { worlds: worlds.length }
+  const heapCost = perWorld.map((r, i) => i === 0 ? null : round(perWorld[i - 1].wasmFreeMB - r.wasmFreeMB, 1)).slice(1)
+  return { worlds: worlds.length, perWorld, heapCostMBPerExtraWorld: heapCost, configuredCeiling: resolveClusterConfig({ enabled: true }, { radius: worldDef.terrain.radius, relevanceRadius: worldDef.relevanceRadius ?? 200 }).maxWorlds }
 }
 
 async function scenarioHandoff() {
