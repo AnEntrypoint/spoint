@@ -1,7 +1,7 @@
 export const DEFAULT_PATCH_MAX_LEVEL = 11
 
-const SURFACE_SOLVE_MAX_EVALS = 8
-const RENDER_F32_HALF_ULP_REL = 2 ** -24
+export const SURFACE_SOLVE_TOLERANCE_M = 1e-4
+const SURFACE_SOLVE_MAX_EVALS = 40
 
 const _norm = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l] }
 const _add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
@@ -62,7 +62,6 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
   let _e0 = east[0], _e1 = east[1], _e2 = east[2]
   let _n0 = north[0], _n1 = north[1], _n2 = north[2]
   let _u0 = up[0], _u1 = up[1], _u2 = up[2]
-  const _solveTolTimesR = radius * RENDER_F32_HALF_ULP_REL * radius
   function renderDirAt(x, renderY, z) {
     const t = radius + anchorHeight + renderY
     const ax = _u0 * t + _e0 * x + _n0 * z
@@ -78,18 +77,18 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
     const renderY = (y === undefined) ? renderYOnSphere(x * x + z * z, 0) : y - offsetY
     return renderDirAt(x, renderY, z)
   }
-  function solveSurfaceY(x, z, heightAtDir) {
-    const r2 = x * x + z * z, r = Math.sqrt(r2)
+  function solveSurfaceY(x, z, heightAtDir, toleranceM = SURFACE_SOLVE_TOLERANCE_M) {
+    const r2 = x * x + z * z
     let y = renderYOnSphere(r2, 0), yPrev = 0, gPrev = 0
     let belowSurface = -Infinity, aboveSurface = Infinity
-    let bestY = null, bestG = Infinity
+    let lastG = Infinity
     for (let k = 0; k < SURFACE_SOLVE_MAX_EVALS; k++) {
       const h = heightAtDir(renderDirAt(x, y, z))
       if (h == null || !Number.isFinite(h)) return null
       const yF = renderYOnSphere(r2, h)
       const g = yF - y
-      if (Math.abs(g) < bestG) { bestG = Math.abs(g); bestY = yF }
-      if (Math.abs(g) * r <= _solveTolTimesR) return yF
+      lastG = g
+      if (Math.abs(g) <= toleranceM) return yF
       if (g > 0) belowSurface = Math.max(belowSurface, y)
       else aboveSurface = Math.min(aboveSurface, y)
       let yNext = (k > 0 && g !== gPrev) ? y - g * (y - yPrev) / (g - gPrev) : yF
@@ -98,7 +97,7 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
       }
       yPrev = y; gPrev = g; y = yNext
     }
-    return bestY
+    throw new RangeError(`solveSurfaceY did not reach ${toleranceM} m in ${SURFACE_SOLVE_MAX_EVALS} evaluations at local (${x}, ${z}): residual ${lastG} m`)
   }
   function groundHeightLocal(x, z) {
     const y = solveSurfaceY(x, z, (d) => sampler.heightAt(d))

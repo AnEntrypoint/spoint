@@ -29,7 +29,7 @@ while (__R.sampleGroundMSync(f.up) == null && Date.now() - probeWaitStart < ${PR
 if (__R.sampleGroundMSync(f.up) == null) return { __error: 'GPU height probe never compiled within ${PROBE_READY_MS} ms' };
 const heights = new Array(${N * N});
 for (let iz = 0; iz < ${N}; iz++) for (let ix = 0; ix < ${N}; ix++) {
-  const y = f.solveSurfaceY(${center[0] - half} + ix * ${step}, ${center[1] - half} + iz * ${step}, (d) => __R.sampleGroundMSync(d));
+  const y = f.solveSurfaceY(${center[0] - half} + ix * ${step}, ${center[1] - half} + iz * ${step}, (d) => __R.sampleGroundMSync(d), 1e-3);
   heights[iz * ${N} + ix] = (y == null || !Number.isFinite(y)) ? null : +y.toFixed(4);
 }
 if (window.__renderer && window.__renderer.resetState) window.__renderer.resetState();
