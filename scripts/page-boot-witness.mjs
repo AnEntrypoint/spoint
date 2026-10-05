@@ -22,6 +22,21 @@ const GL = flag('gl', 'swiftshader')
 const SHOT = flag('screenshot', null)
 const ALLOW_ERRORS = has('allow-errors')
 const ALLOW_FAILED_REQUESTS = has('allow-failed-requests')
+const REQUIRE_GPU = has('require-gpu')
+
+const SOFTWARE_ADAPTER = /swiftshader|llvmpipe|softwarerasterizer|microsoft basic render|apple software renderer/i
+
+const GPU_PROBE = `(() => { try {
+  const canvas = document.createElement('canvas')
+  const gl = canvas.getContext('webgl2') || canvas.getContext('webgl')
+  const ext = gl && gl.getExtension('WEBGL_debug_renderer_info')
+  const renderer = gl ? String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) : null
+  let webgpu = 'unavailable'
+  if (typeof navigator !== 'undefined' && navigator.gpu && typeof navigator.gpu.requestAdapter === 'function') {
+    webgpu = navigator.gpu.requestAdapter().then(a => a ? ((a.info && (a.info.description || a.info.vendor)) || 'adapter-without-info') : null)
+  }
+  return Promise.resolve(webgpu).then(w => ({ renderer, webgpu: w === null || w === 'unavailable' ? String(w) : String(w), webgpuPresent: w !== null && w !== 'unavailable' }))
+} catch (e) { return { renderer: null, webgpu: 'probe-threw: ' + e.message, webgpuPresent: false } } })()`
 
 function textOf(entry) {
   const args = entry?.args || []
@@ -87,11 +102,17 @@ async function main() {
     const values = {}
     for (const expr of [...WAITS, ...REQUIRES]) values[expr] = await page.evaluate(`(() => { try { return (${expr}) } catch (e) { return 'threw: ' + e.message } })()`).catch(e => 'evaluate failed: ' + e.message)
     const marks = await page.evaluate(`performance.getEntriesByType('mark').map(m => ({ name: m.name, t: Math.round(m.startTime) }))`).catch(() => [])
+    const gpu = await page.evaluate(GPU_PROBE).catch(e => ({ renderer: null, webgpu: 'probe failed: ' + e.message, webgpuPresent: false }))
+    const gpuSoftware = !gpu.webgpuPresent || !gpu.renderer || SOFTWARE_ADAPTER.test(gpu.renderer) || SOFTWARE_ADAPTER.test(gpu.webgpu)
+    const gpuName = gpu.webgpuPresent ? gpu.webgpu : (gpu.renderer || 'none')
+    console.log(`[page-boot-witness] gpu adapter=${JSON.stringify(gpuName)} glRenderer=${JSON.stringify(gpu.renderer)} classification=${gpuSoftware ? 'SOFTWARE (swiftshader/llvmpipe or no webgpu adapter)' : 'DISCRETE/NAMED (' + gpuName + ')'}`)
     if (SHOT) { await page.screenshot({ path: SHOT }); console.log(`[page-boot-witness] screenshot -> ${SHOT}`) }
 
     console.log(`[page-boot-witness] console entries=${consoleEntries.length} pageErrors=${pageErrors.length} failedRequests=${failedRequests.length}`)
-    const warnErr = consoleEntries.filter(e => e.level === 'warning' || e.level === 'error' || e.level === 'exception' || e.level === 'warning')
-    for (const e of warnErr.slice(0, 20)) console.log(`  [${e.level}] ${e.text.slice(0, 240)}`)
+    const warnErr = has('console-all') ? consoleEntries : consoleEntries.filter(e => e.level === 'warning' || e.level === 'error' || e.level === 'exception')
+    const consoleLimit = Number(flag('console-limit', '20'))
+    const shown = consoleLimit === 0 ? warnErr : warnErr.slice(0, consoleLimit)
+    for (const e of shown) console.log(`  [${e.level}] ${e.text.slice(0, 240)}`)
     for (const e of pageErrors.slice(0, 10)) console.log(`  [pageerror] ${String(e).slice(0, 240)}`)
     for (const f of failedRequests.slice(0, 20)) console.log(`  [request] ${f.text} ${f.url}`)
     console.log('[page-boot-witness] values ' + JSON.stringify(values))
@@ -108,6 +129,7 @@ async function main() {
     })
     const failures = []
     if (unreached.length) failures.push(unreached.join('; '))
+    if (REQUIRE_GPU && gpuSoftware) failures.push(`the arm needs a real GPU but the page has no WebGPU adapter and/or a software GL renderer (adapter=${JSON.stringify(gpuName)}, glRenderer=${JSON.stringify(gpu.renderer)})`)
     if (!ALLOW_ERRORS && pageErrors.length) failures.push(`${pageErrors.length} uncaught page error(s): ${String(pageErrors[0]).slice(0, 200)}`)
     if (!ALLOW_FAILED_REQUESTS && failedRequests.length) failures.push(`${failedRequests.length} failed request(s): ${failedRequests[0].text} ${failedRequests[0].url}`)
     if (failures.length) fail(failures.join('; '))
