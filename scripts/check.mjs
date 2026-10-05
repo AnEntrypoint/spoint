@@ -106,6 +106,13 @@ async function main() {
     console.error('check: apps-manifest.json regeneration failed:', e.stderr || e.message)
     process.exit(1)
   }
+  try {
+    await execFileAsync(process.execPath, ['scripts/gen-sdk-typings.mjs', '--check'])
+  } catch (e) {
+    console.error('check: generated SDK typings drift:', (e.stderr || e.message || '').toString().trim())
+    process.exit(1)
+  }
+  console.log('check: generated SDK typings match src/apps/AppContext.js')
   const imports = await checkAppImports()
   if (imports.problems.length) {
     console.error(`check: ${imports.problems.length} app import/asset resolution problem(s):`)

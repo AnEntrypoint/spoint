@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -14,6 +14,20 @@ const SOURCE = join(ROOT, 'src/apps/AppContext.js')
 const HAND_MAINTAINED = join(ROOT, 'client/editor/sdk-typings.d.ts')
 const GENERATED_OUT = join(ROOT, 'client/editor/sdk-typings.generated.d.ts')
 const TSC_BIN = join(ROOT, 'node_modules/typescript/bin/tsc')
+const CHECK_ONLY = process.argv.includes('--check')
+
+function findEmittedDeclaration(root, fileName) {
+  const stack = [root]
+  while (stack.length) {
+    const dir = stack.pop()
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) stack.push(full)
+      else if (entry.name === fileName) return full
+    }
+  }
+  return null
+}
 
 function extractMemberNames(dtsText) {
   const names = new Set()
@@ -60,9 +74,9 @@ async function main() {
       console.warn((e.stdout || e.message || String(e)).trim())
     }
 
-    const emitted = join(tmp, 'src/apps/AppContext.d.ts')
-    if (!existsSync(emitted)) {
-      console.error(`[gen-sdk-typings] tsc did not emit ${emitted} -- aborting, see diagnostics above.`)
+    const emitted = findEmittedDeclaration(tmp, 'AppContext.d.ts')
+    if (!emitted) {
+      console.error(`[gen-sdk-typings] tsc emitted no AppContext.d.ts under ${tmp} -- aborting, see diagnostics above.`)
       process.exit(1)
     }
 
@@ -71,7 +85,33 @@ async function main() {
       `// Structural inference only (AppContext.js has no formal @param/@returns JSDoc blocks yet, so\n` +
       `// parameter/return types are mostly 'any') -- NOT a drop-in replacement for the hand-curated\n` +
       `// client/editor/sdk-typings.d.ts Monaco typings. Regenerate: npm run gen-typings.\n// DO NOT EDIT BY HAND.\n\n`
-    writeFileSync(GENERATED_OUT, header + generated, 'utf8')
+    const output = header + generated
+
+    if (CHECK_ONLY) {
+      const normalize = (t) => t.replace(/\r\n/g, '\n')
+      const committedRaw = existsSync(GENERATED_OUT) ? readFileSync(GENERATED_OUT, 'utf8') : null
+      const committed = committedRaw === null ? null : normalize(committedRaw)
+      if (committed === normalize(output)) {
+        console.log(`[gen-sdk-typings] ${GENERATED_OUT} is up to date (${generated.split('\n').length} lines)`)
+        return
+      }
+      const committedLines = (committed ?? '').split('\n')
+      const outputLines = output.split('\n')
+      console.error(`[gen-sdk-typings] STALE: ${GENERATED_OUT} does not match ${SOURCE}`)
+      console.error(`[gen-sdk-typings] committed ${committed === null ? '(missing)' : committedLines.length + ' lines'} vs generated ${outputLines.length} lines`)
+      let shown = 0
+      const limit = Math.max(committedLines.length, outputLines.length)
+      for (let i = 0; i < limit && shown < 40; i++) {
+        if (committedLines[i] !== outputLines[i]) {
+          console.error(`  line ${i + 1}\n    committed: ${committedLines[i] ?? '(eof)'}\n    generated: ${outputLines[i] ?? '(eof)'}`)
+          shown++
+        }
+      }
+      console.error('[gen-sdk-typings] fix: npm run gen-typings')
+      process.exit(1)
+    }
+
+    writeFileSync(GENERATED_OUT, output, 'utf8')
     console.log(`[gen-sdk-typings] wrote ${GENERATED_OUT} (${generated.split('\n').length} lines)`)
 
     if (existsSync(HAND_MAINTAINED)) {

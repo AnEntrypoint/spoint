@@ -67,7 +67,10 @@ export declare class AppContext {
         destroyVehicle: () => any;
     } | undefined;
     _configListeners: Set<any> | null | undefined;
+    _stores: Map<any, any> | undefined;
     _disposers: any[] | null | undefined;
+    _chartAwareApis: any[] | undefined;
+    _chartAwareWeak: any[] | undefined;
     constructor(entity: any, runtime: any);
     _admitsRegistration(kind: any): boolean;
     _buildEntityProxy(): {
@@ -199,6 +202,54 @@ export declare class AppContext {
         sendTo: (id: any, msg: any) => any;
     };
     get lagCompensator(): any;
+    get combat(): Readonly<{
+        DEFAULT_HITBOX: Readonly<{
+            centerHeight: 0.9;
+            radiusSq: 0.36;
+            height: 1.8;
+        }>;
+        normalizeShotDirection(d: any): number[] | null;
+        resolveFireRequest(lagComp: any, shooterId: any, shooterPosition: any, msg: any, hitbox?: Readonly<{
+            centerHeight: 0.9;
+            radiusSq: 0.36;
+            height: 1.8;
+        }>): {
+            origin: any;
+            viewTick: any;
+        };
+        resolveTargetPoint(target: any, lagComp: any, viewTick: any): {
+            tp: any;
+            rewound: any;
+        };
+        rayVsCapsule(origin: any, direction: any, range: any, tp: any, hitbox?: Readonly<{
+            centerHeight: 0.9;
+            radiusSq: 0.36;
+            height: 1.8;
+        }>): {
+            proj: any[];
+            dot: number;
+        } | null;
+        hitHeightRatio(proj: any, tp: any, hitbox?: Readonly<{
+            centerHeight: 0.9;
+            radiusSq: 0.36;
+            height: 1.8;
+        }>): number;
+        findHitLinear(players: any, shot: any): {
+            target: any;
+            tp: any;
+            rewound: any;
+            proj: any[];
+            dot: number;
+        } | null;
+        findHitSpatial(players: any, shot: any, liveIndex?: null): null;
+        buildLiveIndex: typeof import("../netcode/RewindSpatialIndex.js").buildLiveIndex;
+        recordHit: typeof import("../netcode/OutlierDetector.js").recordHit;
+    }>;
+    fallFloorY(x: any, z: any, depth: any): number;
+    pickSpawnPoint(spawnPoints: any, opts: any): any[];
+    persisted(key: any, initial: any, opts: any): any;
+    leaderboard(key: any, opts: any): any;
+    _store(id: any, create: any): any;
     get bus(): any;
     get eventLog(): any;
     get storage(): {
@@ -213,6 +264,10 @@ export declare class AppContext {
     onPlayerProximity(radius: any, callback: any): () => void;
     _registerDisposer(fn: any): void;
     _runDisposers(): void;
+    _chartAware(api: any): any;
+    _chartAwareWeakly(api: any): any;
+    _liveChartAwareApis(): any[];
+    _blockChartReanchor(reason: any): () => void;
     _teardownChildren(): void;
     defineGameFSM(spec: any): {
         readonly context: any;
@@ -238,19 +293,7 @@ export declare class AppContext {
         clearAll(): void;
         tick(dt: any): void;
     };
-    defineShrinkingZone(spec: any): {
-        readonly radius: any;
-        readonly center: any[];
-        readonly elapsed: number;
-        readonly phaseIndex: number;
-        readonly completed: boolean;
-        readonly ringEntityId: any;
-        isOutside(pos: any): boolean;
-        setCenter(pos: any): void;
-        tick(dt: any): void;
-        destroy(): void;
-        reset(): void;
-    };
+    defineShrinkingZone(spec: any): any;
     defineHealth(spec: any): {
         readonly hp: any;
         readonly max: any;
@@ -261,6 +304,121 @@ export declare class AppContext {
         kill(source?: null): void;
         respawn(hp: any): any;
         setMax(m: any): any;
+    };
+    defineCombat(spec?: {}): any;
+    defineFire(spec?: {}): {
+        readonly world: any;
+        readonly activeCount: any;
+        readonly stats: any;
+        readonly rollbackStats: {
+            rewinds: number;
+            resimTicks: number;
+            droppedRows: number;
+        };
+        readonly resyncStats: {
+            rows: number;
+            compared: number;
+            missed: number;
+            mismatches: number;
+            firstMismatch: null;
+            requestsReceived: number;
+            requestsSent: number;
+            adopted: number;
+        };
+        readonly needsResync: boolean;
+        readonly checksumHistory: [any, any][];
+        readonly simTick: any;
+        readonly names: string[];
+        readonly weather: {
+            step(simTick: any, out: any): any;
+            readonly rain: number;
+            readonly moisture: number;
+            readonly emittedRain: number;
+            readonly emittedMoisture: number;
+            markEmitted(r: any, m: any): void;
+        } | null;
+        readonly gameplay: {
+            tickDamage: (simTick: any, dt: any) => void;
+            smokeDepth: (origin: any, direction: any, distance: any) => number;
+            rayBlocked: (origin: any, direction: any, distance: any) => boolean;
+            blast: (position: any, radiusM: any, damage: any) => void;
+            isBurning: (id: any) => boolean;
+            readonly burningCount: number;
+        } | null;
+        igniteCell(face: any, I: any, J: any, source?: number): any;
+        ignite(position: any, source?: number): any;
+        igniteArea(position: any, radiusM: any, source?: number): any;
+        extinguishCell(face: any, I: any, J: any, radiusCells?: number): any;
+        extinguish(position: any, radiusMetres?: number): any;
+        explode(position: any, { radiusM, igniteRadiusM, damage, source }?: {
+            damage?: number | undefined;
+            igniteRadiusM?: number | undefined;
+            radiusM?: number | undefined;
+            source?: number | undefined;
+        }): any;
+        incendiaryHit({ radiusM }?: {
+            radiusM?: number | undefined;
+        }): (ctx: any, hit: any) => void;
+        setWind(vector: any): any;
+        setMoisture(value: any): any;
+        setRain(value: any): any;
+        stateAt(position: any): any;
+        stateAtLocal(x: any, z: any): any;
+        isTrunkCharred(trunkId: any): boolean;
+        stageMap(options: any): {
+            data: Uint8Array<ArrayBuffer>;
+            width: number;
+            height: number;
+            slotCapacity: number;
+            acquire: (face: any, ti: any, tj: any) => any;
+            release: (face: any, ti: any, tj: any) => boolean;
+            slotValueOfCell: (face: any, I: any, J: any) => number;
+            slotValueOfTrunk: (trunkId: any) => number;
+            texelOf: (value: any, out: any) => any;
+            sync: () => number;
+            stats: {
+                syncs: number;
+                tilesWritten: number;
+                bytesWritten: number;
+                resolves: number;
+            };
+            dirtySlots: Int32Array<ArrayBuffer>;
+            blockOrigin: (slot: any) => {
+                x: number;
+                y: number;
+            };
+            readonly watchedTiles: number;
+        };
+        isBurning(id: any): boolean;
+        smokeDepth(origin: any, direction: any, distance: any): number;
+        rayBlocked(origin: any, direction: any, distance: any): boolean;
+        applyRemote(payload: any): {
+            ok: boolean;
+            rejected: number;
+            reason: any;
+            rewound: number;
+            checksum: {
+                tick: any;
+                hash: any;
+            } | null;
+            adopted: {
+                tick: number;
+                hash: any;
+                bytes: number;
+            } | null;
+        };
+        checksum(): any;
+        keyframeMessage(): {
+            type: string;
+            k: any[];
+        };
+        requestResync(): {
+            type: string;
+            r: any[];
+        };
+        rewindTo(tick: any): any;
+        tick(dt: any): void;
+        destroy(): void;
     };
     defineSteering(spec: any): {
         step(from: any, target: any, dt: any, peers: any): {
@@ -275,38 +433,13 @@ export declare class AppContext {
             state: any;
         };
     };
-    defineCheckpoint(spec: any): {
-        checkpointOf(pid: any): any;
-        setCheckpoint(pid: any, pos: any): void;
-        reset(): void;
-        tick(_dt: any): void;
-    };
+    defineCheckpoint(spec: any): any;
     definePickup(spec: any): {
         readonly collected: boolean;
         reset(): void;
         tick(dt: any): void;
     };
-    defineDestructible(spec: any): {
-        readonly destroyed: boolean;
-        readonly damageTaken: number;
-        readonly health: any;
-        readonly debrisIds: any[];
-        readonly debrisPoolSize: number;
-        readonly debrisPoolFree: number;
-        readonly debrisLOD: {
-            id: any;
-            age: any;
-            remaining: any;
-            lod: any;
-        }[];
-        damage(amount: any): boolean;
-        impact(velocity: any): boolean;
-        destroy(): boolean;
-        respawn(): boolean;
-        reset(): void;
-        tick(dt: any): void;
-        drain: () => void;
-    };
+    defineDestructible(spec: any): any;
     defineSoftbody(spec: any): {
         readonly ready: boolean;
         readonly particleCount: number;
@@ -316,6 +449,9 @@ export declare class AppContext {
         publish: () => boolean;
         setPin: (col: any, row: any, pinned: any) => boolean;
         dispose: () => void;
+        onChartReanchor({ transfer }: {
+            transfer: any;
+        }): void;
     };
     defineFluid(spec: any): {
         readonly ready: boolean;
@@ -324,6 +460,9 @@ export declare class AppContext {
         positions: () => Float64Array<ArrayBuffer>;
         publish: () => boolean;
         dispose: () => void;
+        onChartReanchor({ transfer }: {
+            transfer: any;
+        }): void;
     };
     defineFluid3D(spec: any): {
         readonly ready: boolean;
@@ -408,32 +547,49 @@ export declare class AppContext {
         clearAll(): void;
         push(pid: any): void;
     };
-    definePath(points: any): {
-        length: any;
-        count: number;
-        pointAt: (distance: any) => any[];
-        progressAt: (pos: any) => number;
-        nearestIndex: (pos: any) => number;
-        segmentAt: (distance: any) => {
-            index: number;
-            t: number;
-        };
-        directionAt: (distance: any) => number[];
-    };
+    definePath(points: any): any;
     navmesh(worldName?: any): any;
+    _chartLocalNavmesh(navmesh: any): any;
     raycast(origin: any, direction: any, maxDistance?: number, excludeBodyId?: null): any;
     canSee(fromPos: any, toPos: any, opts?: {}): boolean;
     get terrainBodyId(): any;
     terrainHeightAt(x: any, z: any): any;
     terrainKindAt(x: any, z: any): any;
-    navCostAt(x: any, z: any): 0.5 | 1 | 3;
+    navCostAt(x: any, z: any): 0.5 | 1 | 2 | 3 | 8;
     seaLevelAt(x: any, z: any): number | null;
     get seaLevel(): number | null;
     get terrain(): {
         startStreaming: (tcfg: any) => Promise<{
             start: (fallbackCenter?: number[]) => Promise<void>;
             stop: () => void;
-            resculpt: () => Promise<void>;
+            prepareFields: ({ players, heightFn: preparedHeightFn, isAborted }: {
+                heightFn: any;
+                isAborted?: (() => boolean) | undefined;
+                players: any;
+            }) => Promise<{
+                fields: {
+                    cornerX: number;
+                    cornerZ: number;
+                    center: number[];
+                    N: number;
+                    samples: Float32Array<ArrayBuffer>;
+                    sampleMs: number;
+                }[];
+                primaryIndex: number;
+            } | null>;
+            installPrepared: (prepared: any) => {
+                installed: number;
+                removed: number;
+            };
+            preparedSurfaceY: (set: any, x: any, z: any) => any;
+            setLattice: (next: any) => void;
+            placeAllFields: () => void;
+            cover: (points: any) => Promise<any>;
+            readonly lattice: any;
+            readonly liveHeightFn: any;
+            readonly coverRadius: number;
+            readonly staleEpochDiscards: number;
+            resculpt: () => Promise<any>;
             readonly fields: {
                 bodyId: any;
                 center: any[];
