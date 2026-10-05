@@ -219,17 +219,35 @@ export class BrowserServer extends BaseClient {
     bridge.data.addEventListener('peer-closed', onClose)
   }
 
+  _forwardPeerMessage(peerId, data) {
+    const worker = this._worker
+    if (!worker) return
+    if (typeof data === 'string') return
+    if (data instanceof ArrayBuffer) {
+      worker.postMessage({ type: 'PEER_MESSAGE', peerId, data }, [data])
+      return
+    }
+    if (typeof data?.arrayBuffer === 'function') {
+      data.arrayBuffer().then(
+        buf => {
+          const live = this._worker
+          if (live) live.postMessage({ type: 'PEER_MESSAGE', peerId, data: buf }, [buf])
+        },
+        e => console.error(`[BrowserServer] peer ${peerId} frame unreadable: ${e?.message || e}`)
+      )
+      return
+    }
+    console.error(`[BrowserServer] peer ${peerId} sent a ${Object.prototype.toString.call(data)} frame; game frames are binary and control frames are strings`)
+  }
+
   attachWireweavePeer(peerId, dc) {
     if (!this._worker) return
     this._peerChannels.set(peerId, dc)
     this._worker.postMessage({ type: 'PEER_CONNECT', peerId })
-    dc.addEventListener('message', ({ data }) => {
-      const buf = data instanceof ArrayBuffer ? data : data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
-      this._worker.postMessage({ type: 'PEER_MESSAGE', peerId, data: buf }, [buf])
-    })
+    dc.addEventListener('message', ({ data }) => this._forwardPeerMessage(peerId, data))
     dc.addEventListener('close', () => {
       this._peerChannels.delete(peerId)
-      this._worker.postMessage({ type: 'PEER_DISCONNECT', peerId })
+      if (this._worker) this._worker.postMessage({ type: 'PEER_DISCONNECT', peerId })
     })
   }
 
@@ -241,13 +259,10 @@ export class BrowserServer extends BaseClient {
       channel.binaryType = 'arraybuffer'
       this._peerChannels.set(peerId, channel)
       this._worker.postMessage({ type: 'PEER_CONNECT', peerId })
-      channel.addEventListener('message', ({ data }) => {
-        const buf = data instanceof ArrayBuffer ? data : data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
-        this._worker.postMessage({ type: 'PEER_MESSAGE', peerId, data: buf }, [buf])
-      })
+      channel.addEventListener('message', ({ data }) => this._forwardPeerMessage(peerId, data))
       channel.addEventListener('close', () => {
         this._peerChannels.delete(peerId)
-        this._worker.postMessage({ type: 'PEER_DISCONNECT', peerId })
+        if (this._worker) this._worker.postMessage({ type: 'PEER_DISCONNECT', peerId })
         pc.close()
       })
     })

@@ -8,6 +8,7 @@ function flag(name, dflt = null) {
 
 const PORT = flag('port', '3130')
 const PROXY = flag('proxy', null)
+const PARAMS = flag('params', '')
 const GL = flag('gl', 'swiftshader')
 const READY_TIMEOUT_MS = Number(flag('timeout', '180000'))
 const SHOTS = Number(flag('shots', '10'))
@@ -71,9 +72,10 @@ async function main() {
     const a = await makeClient(browser, base, 'clientA')
     const b = await makeClient(browser, base, 'clientB')
 
+    const url = base + '/' + (PARAMS ? '?' + PARAMS : '')
     for (const c of [a, b]) {
-      console.log(`[arena-combat] navigating ${c.label} to ${base}/ ...`)
-      await c.page.goto(base + '/', { waitUntil: 'domcontentloaded' })
+      console.log(`[arena-combat] navigating ${c.label} to ${url} ...`)
+      await c.page.goto(url, { waitUntil: 'domcontentloaded' })
     }
 
     for (const c of [a, b]) {
@@ -93,7 +95,9 @@ async function main() {
       await a.page.mouse.click(centre.x, centre.y)
       await new Promise(r => setTimeout(r, 500))
     }
-    const before = await a.page.evaluate('(() => { const el = window.__app?.renderer?.domElement; return { lock: window.__app?.pointerLock || null, hud: (document.body.innerText || "").slice(0, 400) } })()').catch(() => null)
+    await new Promise(r => setTimeout(r, SETTLE_MS))
+    const readHud = (c) => c.page.evaluate('(() => ({ lock: window.__app?.pointerLock || null, hud: (document.body.innerText || "").slice(0, 400) }))()').catch(() => null)
+    const before = await readHud(a)
     console.log(`[arena-combat] clientA before=${JSON.stringify(before)}`)
 
     if (centre) {
@@ -108,8 +112,10 @@ async function main() {
     }
 
     await new Promise(r => setTimeout(r, SETTLE_MS))
-    const after = await a.page.evaluate('(() => { const el = window.__app?.renderer?.domElement; return { lock: window.__app?.pointerLock || null, hud: (document.body.innerText || "").slice(0, 400) } })()').catch(() => null)
+    const after = await readHud(a)
     console.log(`[arena-combat] clientA after=${JSON.stringify(after)}`)
+    const afterB = await readHud(b)
+    console.log(`[arena-combat] clientB after=${JSON.stringify(afterB)}`)
 
     await browser.close().catch(() => {})
     if (server) server.stop()
