@@ -10,12 +10,13 @@ const __dirname = import.meta.dirname || dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
 
 function parseArgs(argv) {
-  const out = { outFile: 'apps-manifest.json', apps: null, world: null, all: false, check: false }
+  const out = { outFile: 'apps-manifest.json', apps: null, world: null, all: false, check: false, ifChanged: false }
   for (const a of argv) {
     if (a.startsWith('--apps=')) out.apps = a.slice('--apps='.length).split(',').map(s => s.trim()).filter(Boolean)
     else if (a.startsWith('--world=')) out.world = a.slice('--world='.length)
     else if (a === '--all') out.all = true
     else if (a === '--check') out.check = true
+    else if (a === '--if-changed') out.ifChanged = true
     else if (!a.startsWith('--')) out.outFile = a
   }
   if (!out.apps && !out.world) out.all = true
@@ -112,7 +113,7 @@ async function resolveAppNamesFromWorld(worldName) {
 
 async function main() {
   const argv = process.argv.slice(2)
-  const { outFile, apps: explicitApps, world, all, check } = parseArgs(argv)
+  const { outFile, apps: explicitApps, world, all, check, ifChanged } = parseArgs(argv)
   const OUT = resolve(ROOT, outFile)
 
   let appNames
@@ -146,6 +147,7 @@ async function main() {
     return
   }
 
+  if (ifChanged && existsSync(OUT) && readFileSync(OUT, 'utf8') === jsonString) { log(`${outFile} unchanged (${apps.length} apps)`); return }
   writeFileSync(OUT, jsonString)
   log(`wrote ${apps.length} app(s) -> ${outFile} (${bytes} bytes)`)
   if (!apps.length) { console.error('[bundle-apps-manifest] ERROR: zero apps resolved -- aborting with non-zero exit'); process.exit(1) }

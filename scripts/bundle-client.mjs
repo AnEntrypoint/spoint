@@ -137,10 +137,6 @@ if (bundleFresh) {
 }
 
 const manifestOut = join(outdir, 'apps-manifest.json')
-if (IF_STALE && isFresh(resolve(ROOT, manifestOut), join(ROOT, 'apps'), new Set(['.js', '.mjs']))) {
-  console.log(`[bundle-client] ${manifestOut} is fresh -- skipping`)
-} else {
-  mkdirSync(resolve(ROOT, outdir), { recursive: true })
-  const r = spawnSync(process.execPath, [join(ROOT, 'scripts', 'bundle-apps-manifest.mjs'), resolve(ROOT, manifestOut), '--all'], { stdio: 'inherit' })
-  if (r.status !== 0) console.warn('[bundle-client] apps manifest generation failed (BrowserServer falls back to its live dependency walk)')
-}
+mkdirSync(resolve(ROOT, outdir), { recursive: true })
+const manifestBuild = spawnSync(process.execPath, [join(ROOT, 'scripts', 'bundle-apps-manifest.mjs'), resolve(ROOT, manifestOut), '--all', '--if-changed'], { stdio: 'inherit' })
+if (manifestBuild.status !== 0) console.warn('[bundle-client] apps manifest generation failed (BrowserServer falls back to its live dependency walk)')

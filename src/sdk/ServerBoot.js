@@ -53,9 +53,9 @@ export function buildStaticDirs(sdkRoot, project, appsDirs) {
       console.log(`[server] serving PREBUILT BUNDLE from dist/client/app.js (built ${new Date(bundleMtime).toISOString()})`)
       const manifestPath = join(bundleDir, 'apps-manifest.json')
       if (existsSync(manifestPath)) {
-        const appsMtime = appsDirs.reduce((max, d) => Math.max(max, collectWatchableFiles(d).reduce((m, f) => { try { return Math.max(m, statSync(f).mtimeMs) } catch { return m } }, 0)), 0)
+        const appsMtime = [...appsDirs, join(sdkRoot, 'src')].reduce((max, d) => Math.max(max, collectWatchableFiles(d).reduce((m, f) => { try { return Math.max(m, statSync(f).mtimeMs) } catch { return m } }, 0)), 0)
         if (statSync(manifestPath).mtimeMs < appsMtime) {
-          console.log('[server] dist/client/apps-manifest.json is STALE (apps/ edited after it was built) -- removing it, BrowserServer falls back to the live app walk')
+          console.log('[server] dist/client/apps-manifest.json is STALE (apps/ or src/ edited after it was built) -- removing it, BrowserServer falls back to the live app walk')
           try { unlinkSync(manifestPath) } catch (e) { console.warn('[server] could not remove stale apps-manifest.json:', e.message) }
         }
       }

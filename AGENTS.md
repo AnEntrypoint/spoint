@@ -49,6 +49,8 @@ session broke HEAD that way four times (`mapspinner/splat-weights`, `src/presets
 `AppContext.js` -> `AppGameplay.js`, `src/stdlib-apps/*` without its import rewrites).
 `.gm` pathspecs are honoured by the git verbs since 2026-10-02 -- see the caveat at the end of this file.
 
+`core.autocrlf=true` (Git for Windows system config) makes checkouts write CRLF while the index stays LF, so working-tree content hashes can differ from the index; `w/crlf` in `git ls-files --eol` is not a diff.
+
 ## Zero-comment sweep
 
 Names and structure carry meaning; rationale that code cannot carry lives in recall (slugs below),
