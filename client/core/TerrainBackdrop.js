@@ -37,6 +37,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   if (!isLegacyHash && !isTslTerrain) console.error(`[terrain] world terrain hashVersion ${terrainHashVersion} needs the TSL terrain (?webgpu=1); the legacy GLSL renderer draws hashVersion 1, so the visible ground will not match physics or placement`)
   let initMapspinnerPlanet, createHeightSampler, initMapspinnerPlanetWebGPU, initMapspinnerPlanetTSL
   performance.mark('terrain:start')
+  performance.mark('boot:backdrop:start')
   try {
     if (isTslTerrain) {
       ;({ initMapspinnerPlanetTSL } = await import('/node_modules/mapspinner/src/tsl/planet-tsl.js'))
@@ -47,6 +48,7 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
     }
     ;({ createHeightSampler } = await import('mapspinner/height-cpu'))
     performance.mark('terrain:modules')
+    performance.mark('boot:backdrop:modules-imported')
   } catch (e) {
     console.warn('[terrain] mapspinner import failed -> running without planet backdrop:', e?.message || e)
     return _createFallbackBackdrop()
@@ -75,8 +77,10 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   if (typeof window !== 'undefined' && window.__planetDepthBias === undefined) RenderControls.set('planetDepthBias', 0.000002)
   try {
     sampler = createHeightSampler({ radius, seed: cfg.seed, reliefScale: cfg.reliefScale, hashVersion: terrainHashVersion, carves: terrainCarvesOf(cfg) })
+    performance.mark('boot:backdrop:sampler-built')
     planet = await _initPlanet()
     performance.mark('terrain:planet-init')
+    performance.mark('boot:backdrop:planet-initialised')
     frame = createPlanetFrame({ sampler, anchorDir: cfg.anchorDir || [0, 1, 0], offsetY: cfg.offsetY || 0, reliefScale: cfg.reliefScale })
     if (cfg.gpuPatchCollider !== false && isLegacyHash) {
       try {
@@ -257,5 +261,6 @@ export async function createTerrainBackdrop(renderer, scene, cfg = {}) {
   function setOcclusionQueryBudget(n) { _terrainOcclusion.setMaxQueriesPerFrame(n) }
   function getOcclusionQueryBudget() { return _terrainOcclusion.getMaxQueriesPerFrame() }
   const sceneFarHint = () => (isTslTerrain && typeof planet.sceneFar === 'function') ? planet.sceneFar() : 0
+  performance.mark('boot:backdrop:returned')
   return { planet, frame, sampler, registerDebugGlobals, drawsInScene: isTslTerrain, renderPlanet, sceneFarHint, runOcclusionQueries, update, dispose, getOcclusionStats: () => _terrainOcclusion.getStats(), getOcclusionCandidateCount: () => _terrainOcclusion.getCandidateCount(), occlusionPredicateSnapshot, setOcclusionQueryBudget, getOcclusionQueryBudget, setSunLocal }
 }

@@ -86,10 +86,17 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
   const hpfSeed = opts.hpfSeed || 1337
   const lutJob = bakeAtmosphereLUTs()
   const hpfJob = runModuleWorkerJob(new URL('./hpf-bake-worker.js', import.meta.url), { seed: hpfSeed, res: hpfRes }, (d) => d.data)
-  const hpfData = (hpfJob && await hpfJob) || bakeHpfTexels(createAnchorField({ seed: hpfSeed }), hpfRes)
+  performance.mark('boot:backdrop:workers-started')
+  const hpfFromWorker = hpfJob ? await hpfJob : null
+  performance.mark('boot:backdrop:hpf-worker-' + (hpfFromWorker ? 'done' : 'failed'))
+  const hpfData = hpfFromWorker || bakeHpfTexels(createAnchorField({ seed: hpfSeed }), hpfRes)
+  performance.mark('boot:backdrop:hpf-ready')
   const hpfTexture = makeHpfTexture(hpfData, hpfRes)
   const geomorphLod = opts.geomorphLod !== false
-  const sky = createSkyTSL({ radius: R, luts: await lutJob })
+  const luts = await lutJob
+  performance.mark('boot:backdrop:luts-ready')
+  const sky = createSkyTSL({ radius: R, luts })
+  performance.mark('boot:backdrop:sky-built')
   if (opts.sky !== false) scene.backgroundNode = sky.node
   const terrainArgs = {
     sky, defRadius: R, reliefScale, hpfRes, hpfTexture, gridSize: GRID_SIZE, hashVersion, carves,
@@ -97,6 +104,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     beachShelfM: opts.beachShelfM != null ? opts.beachShelfM : SHAPE_UNIFORM_DEFAULTS.uBeachShelfM,
   }
   const { material, uniforms: u, lighting: initialLighting, makeHeightSpec, faceU, faceV, faceC, sculpt } = createTerrainMaterialTSL(terrainArgs)
+  performance.mark('boot:backdrop:terrain-material-built')
   let currentSculpt = sculpt
   let lighting = initialLighting
 
@@ -119,6 +127,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     currentSculpt = next.sculpt
     prev.dispose()
   }
+  performance.mark('boot:backdrop:mesh-and-water-added')
   hotSwapTerrainMaterial = swapTerrainMaterial
   registerTerrainMaterialAccept()
 

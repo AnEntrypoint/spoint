@@ -15,5 +15,9 @@ export function bakeAtmosphereLUTsSync() {
 export async function bakeAtmosphereLUTs() {
   const job = startLutBakeWorker()
   const off = job ? await job : null
-  return off || bakeAtmosphereLUTsSync()
+  if (off) { performance.mark('boot:backdrop:lut-worker-done'); return off }
+  performance.mark('boot:backdrop:lut-sync-bake-start')
+  const baked = bakeAtmosphereLUTsSync()
+  performance.mark('boot:backdrop:lut-sync-bake-done')
+  return baked
 }
