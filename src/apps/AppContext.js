@@ -8,6 +8,7 @@ import { createBuffStack } from '../behaviours/buffs.js'
 import { defineShrinkingZone } from '../behaviours/shrinking-zone.js'
 import { defineHealth } from '../behaviours/health.js'
 import { defineCombat } from '../behaviours/combat.js'
+import { defineFire } from '../behaviours/fire.js'
 import { defineSteering } from '../behaviours/steering.js'
 import { defineCheckpoint } from '../behaviours/checkpoint.js'
 import { definePickup } from '../behaviours/pickup.js'
@@ -379,6 +380,8 @@ export class AppContext {
   defineHealth(spec) { return defineHealth(spec, this) }
 
   defineCombat(spec = {}) { return this._chartAware(defineCombat(spec, this)) }
+
+  defineFire(spec = {}) { return defineFire(spec, this, () => this._runtime._physics?._planetFrame ?? null) }
 
   defineSteering(spec) { return defineSteering(spec, this) }
 

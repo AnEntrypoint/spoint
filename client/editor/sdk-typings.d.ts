@@ -22,6 +22,7 @@ interface AppCtx {
   defineGameFSM(spec: any): any
   defineBuffStack(spec: any): any
   defineShrinkingZone(spec: any): any
+  defineFire(spec?: any): any
   defineHealth(spec: any): any
   defineSteering(spec: any): any
   defineCheckpoint(spec: any): any

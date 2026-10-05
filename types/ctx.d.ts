@@ -456,6 +456,8 @@ export interface AppContext {
   defineHealth(spec: any): any;
   /** Engine shooter loop (src/behaviours/combat.js): spawn points, health, ammo and reload, fall-kill, respawn with invulnerability, powerups with buffs, persisted kill/death/damage stats and the lag-compensated hit path. Returns { config, spawnPoints, statsOf, ammoOf, isRespawning, buffOf, setup(), tick(dt), handle(msg), flush() } -- keep the handle out of ctx.state. */
   defineCombat(spec?: any): any;
+  /** Deterministic wildfire on a coarse planet-lattice cell grid (src/behaviours/fire.js): data-spec fuel classes, wind-biased spread with ember spotting, rain extinguish, regrowth, bounded active-cell budget. Only ignition/extinguish/wind/moisture/rain events travel the wire. Returns { ignite(position), igniteCell(face, I, J), extinguish(position, radiusM), setWind([x,y,z]), setMoisture(n), setRain(n), stateAt(position), applyRemote(msg), tick(dt), checksum(), rewindTo(tick), activeCount, stats }. Default off: nothing runs until an app calls it. */
+  defineFire(spec?: any): any;
   defineSteering(spec: any): any;
   defineCheckpoint(spec: any): any;
   definePickup(spec: any): any;
