@@ -326,7 +326,7 @@ export function createConnectionHandlers(ctx) {
       const _maxHealth = playerDefault(playerConfig, 'health')
       const health = (Number.isFinite(savedState.health) && savedState.health >= 0)
         ? Math.min(savedState.health, _maxHealth) : _maxHealth
-      const newId = playerManager.addPlayer(transport, { position: sp, health, velocity: _vec(savedState.velocity, 3), rotation: _vec(savedState.rotation, 4) })
+      const newId = playerManager.addPlayer(transport, { position: sp, health, velocity: _vec(savedState.velocity, 3), rotation: _vec(savedState.rotation, 4), name: typeof savedState.name === 'string' ? savedState.name : undefined })
       networkState.addPlayer(newId, { position: sp })
       physicsIntegration.addPlayerCollider(newId, playerDefault(playerConfig, 'capsuleRadius'))
       physicsIntegration.setPlayerPosition(newId, sp)

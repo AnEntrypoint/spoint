@@ -42,7 +42,7 @@ export async function admitPlayerHandoff(server, handoff) {
   if (lastInput) pass.look(lastInput)
   const streamer = server.physics?._terrainStreamer
   if (streamer?.cover) await streamer.cover([[state.position[0], state.position[2]]])
-  const token = server.sessions.create(null, state)
+  const token = server.sessions.create(null, { ...state, name: handoff.name })
   return { token, state, lastInput, transfer }
 }
 

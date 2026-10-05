@@ -253,8 +253,9 @@ async function scenarioHandoff() {
       yawChangeRad: round(look.yaw - yawBefore, 4), carriedLastInput: !!admitted.lastInput, stallMs: round(stallMs, 0),
       chartTiltDeg: round(degOf(admitted.transfer.tiltRad), 3), grounded,
       landedPos: dstWorld.server.playerManager.getPlayer(localId)?.state.position.map(v => round(v, 2)) ?? null,
+      nameExported: exported.name ?? null, nameLanded: dstWorld.server.playerManager.getPlayer(localId)?.name ?? null,
     })
-    log(`handoff ${event.playerId} ${event.from}->${event.to} gap ${handoffs.at(-1).transferGapM.toExponential(2)} m stall ${handoffs.at(-1).stallMs} ms`)
+    log(`handoff ${event.playerId} ${event.from}->${event.to} gap ${handoffs.at(-1).transferGapM.toExponential(2)} m stall ${handoffs.at(-1).stallMs} ms name ${handoffs.at(-1).nameExported} -> ${handoffs.at(-1).nameLanded}`)
   }
 
   const runtime = createClusterRuntime({ worldDef, serverConfig, onHandoff })
