@@ -59,7 +59,7 @@ async function main() {
     page.on('Runtime.exceptionThrown', p => consoleEntries.push({ level: 'exception', text: p?.exceptionDetails?.exception?.description || p?.exceptionDetails?.text || 'exception' }))
     await page.enableDomain('Network.enable')
     await page.enableDomain('Log.enable')
-    page.on('Network.loadingFailed', p => failedRequests.push({ url: p?.request?.url || p?.url, text: p?.errorText || 'failed' }))
+    page.on('Network.loadingFailed', p => failedRequests.push({ url: p?.requestId || 'unknown-request', text: p?.errorText || 'failed' }))
     page.on('Network.responseReceived', p => {
       const status = p?.response?.status || 0
       if (status >= 400) failedRequests.push({ url: p?.response?.url, text: 'HTTP ' + status })
