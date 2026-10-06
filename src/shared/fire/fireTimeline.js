@@ -11,12 +11,22 @@ export function createFireTimeline({ kernel, windowSteps = DEFAULT_WINDOW_STEPS,
   let simTick = 0
   let lastBoundary = 0
   let nextId = 1
+  let genesis = null
+  let genesisTick = -1
   const stats = { rewinds: 0, replayedTicks: 0, beyondWindow: 0, lateEvents: 0 }
 
   function oldestEntry() { return snapshots.values().next().value }
 
+  function dropEntry(t) {
+    const entry = snapshots.get(t)
+    if (entry === undefined) return
+    snapshots.delete(t)
+    if (entry.delta !== undefined) kernel.releaseDelta(entry.delta)
+  }
+
   function trimSnapshots() {
-    while (snapshots.size > windowSteps + 1) snapshots.delete(snapshots.keys().next().value)
+    while (snapshots.size > windowSteps + 1) { dropEntry(snapshots.keys().next().value); genesis = null; genesisTick = -1 }
+    if (genesis !== null) return
     pruneLog(snapshots.size > 0 ? oldestEntry().prev : simTick)
   }
 
@@ -38,7 +48,7 @@ export function createFireTimeline({ kernel, windowSteps = DEFAULT_WINDOW_STEPS,
     while (simTick < targetTick) {
       const t = simTick + 1
       if (keepSnapshots && kernel.atBoundary(t)) {
-        snapshots.set(t, { snap: kernel.snapshot(), prev: lastBoundary })
+        snapshots.set(t, { delta: kernel.takeDelta(), prev: lastBoundary })
         lastBoundary = t
         trimSnapshots()
       }
@@ -48,19 +58,35 @@ export function createFireTimeline({ kernel, windowSteps = DEFAULT_WINDOW_STEPS,
     }
   }
 
-  function snapshotAtOrAfter(tick) {
+  function latestAtOrBefore(tick) {
     let best = -1
-    for (const t of snapshots.keys()) if (t >= tick && (best < 0 || t < best)) best = t
+    for (const t of snapshots.keys()) if (t <= tick && t > best) best = t
+    if (best < 0 && genesis !== null && genesisTick <= tick) best = genesisTick
     return best
   }
 
+  function entryAt(boundaryTick) { return boundaryTick === genesisTick && genesis !== null ? genesis : snapshots.get(boundaryTick) }
+
+  function oldestPrev() { return genesis === null ? (snapshots.size > 0 ? oldestEntry().prev : -1) : genesis.prev }
+
+  function entryPendingAt(entry) { return entry.delta !== undefined ? entry.delta.pending : entry.snap.pending }
+
   function restoreEntry(boundaryTick) {
-    const { snap, prev } = snapshots.get(boundaryTick)
-    kernel.restore(snap)
-    const queued = new Set(snap.pending.map(e => e.id))
-    for (const ev of log) if (ev.tick > prev && !queued.has(ev.id)) kernel.queueEvent({ ...ev })
-    for (const t of [...snapshots.keys()]) if (t >= boundaryTick) snapshots.delete(t)
-    lastBoundary = prev
+    const entry = entryAt(boundaryTick)
+    const pending = entryPendingAt(entry)
+    const queued = new Set(pending.map(e => e.id))
+    if (entry.delta !== undefined) {
+      kernel.undoOpenStep()
+      const keys = [...snapshots.keys()]
+      for (let i = keys.length - 1; i >= 0; i--) {
+        if (keys[i] <= boundaryTick) break
+        kernel.undoDelta(snapshots.get(keys[i]).delta)
+      }
+      kernel.markRestored(pending)
+    } else kernel.restore(entry.snap)
+    for (const ev of log) if (ev.tick > entry.prev && !queued.has(ev.id)) kernel.queueEvent({ ...ev })
+    for (const t of [...snapshots.keys()]) if (t >= boundaryTick) dropEntry(t)
+    lastBoundary = entry.prev
     simTick = boundaryTick - 1
   }
 
@@ -78,9 +104,9 @@ export function createFireTimeline({ kernel, windowSteps = DEFAULT_WINDOW_STEPS,
     if (ev.tick > simTick) { addToLog(ev); kernel.queueEvent({ ...ev }); return { ok: true, rewound: false, id: ev.id } }
     stats.lateEvents++
     if (!keepSnapshots) return { ok: false, reason: 'rewind-disabled', id: ev.id }
-    const boundary = snapshotAtOrAfter(ev.tick)
-    if (boundary < 0) { addToLog(ev); kernel.queueEvent({ ...ev }); return { ok: true, rewound: false, id: ev.id } }
-    if (ev.tick <= oldestEntry().prev) { stats.beyondWindow++; return { ok: false, reason: 'beyond-window', id: ev.id } }
+    const boundary = latestAtOrBefore(ev.tick)
+    if (boundary < 0) { stats.beyondWindow++; return { ok: false, reason: 'beyond-window', id: ev.id } }
+    if (ev.tick <= oldestPrev()) { stats.beyondWindow++; return { ok: false, reason: 'beyond-window', id: ev.id } }
     addToLog(ev)
     const resumeAt = simTick
     restoreEntry(boundary)
@@ -90,11 +116,11 @@ export function createFireTimeline({ kernel, windowSteps = DEFAULT_WINDOW_STEPS,
 
   function rewindTo(tick, discardLater = false) {
     if (!keepSnapshots) return { ok: false, reason: 'rewind-disabled' }
-    let best = -1
-    for (const t of snapshots.keys()) if (t <= tick && t > best) best = t
+    const best = latestAtOrBefore(tick + 1)
     if (best < 0) return { ok: false, reason: 'beyond-window' }
-    if (discardLater) {
-      const kept = log.filter(e => e.tick <= tick)
+    if (discardLater !== false && discardLater !== undefined && discardLater !== 0) {
+      const reemitFrom = discardLater === true ? -Infinity : discardLater
+      const kept = log.filter(e => e.tick <= tick || (e.at !== undefined && e.at < reemitFrom))
       logIds.clear()
       for (const e of kept) logIds.add(e.id)
       log = kept
@@ -108,15 +134,21 @@ export function createFireTimeline({ kernel, windowSteps = DEFAULT_WINDOW_STEPS,
     if (simTick !== 0 || log.length !== 0 || snapshots.size !== 0) throw new Error('[fireTimeline] startAt only applies to an empty timeline')
     simTick = tick
     lastBoundary = tick
+    if (keepSnapshots) { genesis = { snap: kernel.snapshot(), prev: tick }; genesisTick = tick + 1 }
   }
 
   function adopt(snapshot, tick) {
     kernel.restore(snapshot)
-    snapshots.clear()
+    for (const t of [...snapshots.keys()]) dropEntry(t)
     logIds.clear()
     log = []
+    for (const ev of snapshot.pending) {
+      addToLog({ ...ev })
+      nextId = Math.max(nextId, ev.id + 1)
+    }
     simTick = tick
     lastBoundary = tick
+    if (keepSnapshots) { genesis = { snap: kernel.snapshot(), prev: tick }; genesisTick = tick + 1 }
   }
 
   return {
@@ -124,6 +156,7 @@ export function createFireTimeline({ kernel, windowSteps = DEFAULT_WINDOW_STEPS,
     checksum: () => kernel.checksum(),
     keyframe: () => ({ tick: simTick, snapshot: kernel.snapshot() }),
     get tick() { return simTick },
+    get startTick() { return genesis === null ? (oldestEntry() ? oldestEntry().prev : 0) : genesis.prev },
     get log() { return log },
     get stats() { return stats },
     get snapshotTicks() { return [...snapshots.keys()] },
