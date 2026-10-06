@@ -2,6 +2,7 @@
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createServer as createNetServer } from 'node:net'
+import { exitAfterQuiesce } from './lib/quiesce.mjs'
 
 process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = '1'
@@ -346,8 +347,6 @@ for (let tick = ticksToBurning + 1; tick <= ticksToBurning + 40 * FIRE_SPEC.step
 
 say('')
 say('== witness complete ==')
-if (failures.length > 0) {
-  for (const f of failures) console.error(`FAIL ${f}`)
-  process.exit(1)
-}
-process.exit(0)
+if (failures.length > 0) for (const f of failures) console.error(`FAIL ${f}`)
+const pendingHandles = await exitAfterQuiesce(failures.length ? 1 : 0)
+console.error(pendingHandles ? `teardown left ${pendingHandles} referenced handle(s), forcing exit` : 'teardown complete, no referenced handles left')

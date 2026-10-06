@@ -7,6 +7,7 @@ import { createServer as createNetServer } from 'node:net'
 import { monitorEventLoopDelay } from 'node:perf_hooks'
 import { Session } from 'node:inspector/promises'
 import { summarize, dist3 } from './lib/netcode-metrics.mjs'
+import { exitAfterQuiesce } from './lib/quiesce.mjs'
 
 process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = '1'
@@ -550,14 +551,9 @@ async function runParent() {
     originals.log(`| ${r.scenario} | ${r.n} | ${r.teleportsOk}/${r.n - r.teleportsOk} ${Object.keys(r.teleportRefusals).join(';').slice(0, 60)} | ${f(r.serverTickMs.p50)}/${f(r.serverTickMs.p99)}/${f(r.serverTickMs.max)} | ${f(r.serverMainThreadCpuMsPerTick, 3)} | ${r.eventLoopDelayMs.p99} | ${f(r.clientDownKBps.p50, 1)}/${f(r.clientDownKBps.max, 1)} | ${f(r.clientUpKBps.p50, 1)} | ${f(r.snapshotHz.p50, 1)} | ${r.interest.missing}/${r.interest.extra} of ${r.interest.expectedPairs} | ${f(r.distortion.maxAbsM)} | ${r.serverGround.grounded}/${r.serverGround.ofPlayers} | ${r.prediction ? r.prediction.correctionsPerAck : '-'} | ${hs(h[1])} / ${hs(h[2])} / ${hs(h[3])} | ${r.failures.nonFiniteServerPositions + r.failures.nonFiniteClientLocal + r.failures.clientNanStates} | ${f(r.streaming.heightfieldBuildsPerS, 3)} | ${r.memory.rssGrowthMBPerMin} |`)
   }
   const fatals = results.filter((r) => r.fatal)
-  if (fatals.length) {
-    console.error(`[planet-harness] ${fatals.length} of ${results.length} scenario(s) produced no data: ${fatals.map((r) => `${r.scenario} (${String(r.fatal).split('\n')[0].slice(0, 200)})`).join(', ')}`)
-    process.exit(1)
-  }
+  if (fatals.length) console.error(`[planet-harness] ${fatals.length} of ${results.length} scenario(s) produced no data: ${fatals.map((r) => `${r.scenario} (${String(r.fatal).split('\n')[0].slice(0, 200)})`).join(', ')}`)
   const noColliders = results.filter((r) => r.collidersEnabled && (!r.colliders || !r.colliders.trunk))
-  if (noColliders.length) {
-    console.error(`[planet-harness] ${noColliders.length} scenario(s) ran with vegetation.colliders on and ended with no trunk collider streamer: ${noColliders.map((r) => r.scenario).join(', ')}`)
-    process.exit(1)
-  }
-  process.exit(0)
+  if (noColliders.length) console.error(`[planet-harness] ${noColliders.length} scenario(s) ran with vegetation.colliders on and ended with no trunk collider streamer: ${noColliders.map((r) => r.scenario).join(', ')}`)
+  const pendingHandles = await exitAfterQuiesce(fatals.length || noColliders.length ? 1 : 0)
+  say(pendingHandles ? `teardown left ${pendingHandles} referenced handle(s), forcing exit` : 'teardown complete, no referenced handles left')
 }

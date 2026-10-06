@@ -2,6 +2,7 @@
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mulberry32 } from './lib/net-conditioner.mjs'
+import { exitAfterQuiesce } from './lib/quiesce.mjs'
 
 process.env.SPOINT_NO_WATCH = '1'
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -165,8 +166,6 @@ const failures = []
 out.push(await run('rollback'))
 out.push(await run('lockstep'))
 console.log(JSON.stringify(out))
-if (failures.length > 0) {
-  for (const f of failures) console.error(`FAIL ${f}`)
-  process.exit(1)
-}
-process.exit(0)
+if (failures.length > 0) for (const f of failures) console.error(`FAIL ${f}`)
+const pendingHandles = await exitAfterQuiesce(failures.length ? 1 : 0)
+console.error(pendingHandles ? `teardown left ${pendingHandles} referenced handle(s), forcing exit` : 'teardown complete, no referenced handles left')

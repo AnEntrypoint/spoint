@@ -32,6 +32,7 @@ const { chartAnchorKeyOfDir } = await import('../src/shared/chartAnchor.js')
 const { encodeInputPacket, DEFAULT_INPUT_SCHEMA } = await import('../src/protocol/InputCodec.js')
 const { chartWireStatsOf } = await import('../src/sdk/chartWire.js')
 const { decodeChart } = await import('../src/shared/chartWireCodec.js')
+const { exitAfterQuiesce } = await import('./lib/quiesce.mjs')
 
 const log = message => console.error(`[wire-harness ${(performance.now() / 1000).toFixed(1)}s] ${message}`)
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -513,8 +514,6 @@ if (!result || typeof result !== 'object' || Object.keys(result).length === 0) {
   process.exit(1)
 }
 const broken = (EXPECTATIONS[SCENARIO] ? EXPECTATIONS[SCENARIO](result) : []).filter(([ok]) => !ok).map(([, message]) => message)
-if (broken.length) {
-  for (const message of broken) console.error(`[wire-harness] FAIL: ${message}`)
-  process.exit(1)
-}
-process.exit(0)
+for (const message of broken) console.error(`[wire-harness] FAIL: ${message}`)
+const pendingHandles = await exitAfterQuiesce(broken.length ? 1 : 0)
+log(pendingHandles ? `teardown left ${pendingHandles} referenced handle(s), forcing exit` : 'teardown complete, no referenced handles left')
