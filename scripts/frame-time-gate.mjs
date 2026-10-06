@@ -4,12 +4,16 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { chromium } from './lib/cdp-browser.mjs'
 import { unreachedReasons } from './lib/witness-reachability.mjs'
+import { assertGpu, gpuArgs } from './lib/gpu-probe.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
 const BASELINE_PATH = join(ROOT, '.frame-time-baseline.json')
 const THRESHOLD = 1.10
 const UPDATE = process.argv.includes('--update-baseline')
+const ACCELERATED = process.argv.includes('--accelerated')
+const REQUIRE_ACCELERATED = process.argv.includes('--require-accelerated')
+const EXPECT_VENDOR = (process.argv.find(a => a.startsWith('--expect-vendor=')) || '').slice('--expect-vendor='.length) || null
 const PORT = process.env.PORT || '3099'
 const LOAD_TIMEOUT_MS = 480_000
 const CAPTURE_MS = 8000
@@ -89,7 +93,7 @@ async function measureRealFrameTimes() {
 
   let browser
   try {
-    browser = await chromium.launch({ headless: true, args: ['--use-gl=swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist'] })
+    browser = await chromium.launch({ headless: true, args: gpuArgs({ accelerated: ACCELERATED }) })
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
     const pageErrors = []
     page.on('pageerror', e => pageErrors.push(String(e)))
@@ -106,6 +110,9 @@ async function measureRealFrameTimes() {
       await new Promise(r => setTimeout(r, 100))
     }
     if (!ready) throw new Error(`loadingMachine never reached isReady within ${LOAD_TIMEOUT_MS}ms`)
+
+    const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED, expectVendor: EXPECT_VENDOR })
+    console.log(`[frame-time-gate] rasterizer=${gpu.rasterizer} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)
 
     console.log('[frame-time-gate] client ready, entering editor ...')
     await page.evaluate(() => { window.__app?.clientMachine?.send?.('TOGGLE_EDITOR') }).catch(() => {})
@@ -150,7 +157,7 @@ async function measureRealFrameTimes() {
 
     if (pageErrors.length > 0) throw new Error(`page threw ${pageErrors.length} uncaught error(s): ${pageErrors[0]}`)
 
-    return { staticResult, orbitResult }
+    return { staticResult, orbitResult, gpu }
   } finally {
     if (browser) await browser.close()
     server.stop()
@@ -171,6 +178,8 @@ async function main() {
   const staticStats = summarize(raw.staticResult.frameDeltas)
   const orbitStats = summarize(raw.orbitResult.frameDeltas)
   const metrics = {
+    rasterizer: raw.gpu.rasterizer,
+    gpu: raw.gpu.haystack || null,
     static: { ...staticStats, avgDrawCalls: avg(raw.staticResult.drawCalls), avgTriangles: avg(raw.staticResult.triangles) },
     orbit: { ...orbitStats, avgDrawCalls: avg(raw.orbitResult.drawCalls), avgTriangles: avg(raw.orbitResult.triangles) },
   }
@@ -198,6 +207,12 @@ async function main() {
   const baseline = readBaseline()
   if (!baseline) {
     console.error('[frame-time-gate] no baseline found. Run with --update-baseline to create one.')
+    process.exit(1)
+  }
+
+  const baseRasterizer = baseline.rasterizer || 'software'
+  if (baseRasterizer !== metrics.rasterizer) {
+    console.error(`[frame-time-gate] RASTERIZER MISMATCH: baseline was captured on ${baseRasterizer}, this run measured ${metrics.rasterizer} (${metrics.gpu || 'no gpu strings'}). Frame times are not comparable across rasterizer classes -- capture a baseline on ${metrics.rasterizer} with --update-baseline.`)
     process.exit(1)
   }
 

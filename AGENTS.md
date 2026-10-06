@@ -310,7 +310,8 @@ Full text in recall (`recall <slug>`); read the memo before changing the named c
   `tsl-parity-pxworld-camdist-fp32-asymmetry`.
 - Runtimes: `worker-module-no-importmap-bare-specifier`, `sdk-dual-runtime-process-guard`,
   `apps-cannot-import-client-modules`, `esbuild-import-specifier-iife-not-concat`,
-  `browserserver-snapshot-flush-settimeout-not-raf`.
+  `browserserver-snapshot-flush-settimeout-not-raf`,
+  `browser-witnesses-force-swiftshader-rasterizer-class`.
 - Apps: `app-motion-streams-all-bodytypes` (supersedes the old "moving apps must declare
   kinematic/dynamic"), `app-setup-sibling-entities-not-ready`,
   `inventory-client-payload-trust-boundary`, `component-schema-positional-wire`,
