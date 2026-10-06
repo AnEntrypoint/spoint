@@ -36,7 +36,7 @@ import { createEditHistory } from './editor/EditHistory.js'
 import { createLivePreview } from './editor/LivePreview.js'
 import { createPersistentHistory } from './editor/PersistentHistory.js'
 import { createEditorPresence } from './editor/EditorPresence.js'
-import { createScene, createRenderer, probeAndCreateWebGPURenderer, describeRenderer, installStuckPipelineRecovery, setupLights, createLoaders, applySceneConfig, warmupShaders, limitTextureSize, setSeaLevelY, probeOffscreenCanvasWorkerRendering } from './core/SceneSetup.js'
+import { createScene, createRenderer, probeAndCreateWebGPURenderer, describeRenderer, installStuckPipelineRecovery, setupLights, createLoaders, applySceneConfig, warmupShaders, MAX_UNMANIFESTED_WARMUP_MESHES, limitTextureSize, setSeaLevelY, probeOffscreenCanvasWorkerRendering } from './core/SceneSetup.js'
 import { createWorkerRenderer } from './core/WorkerRenderer.js'
 import { createPlayerManager } from './PlayerManager.js'
 import { createEntityLoader } from './EntityLoader.js'
@@ -315,10 +315,96 @@ let _worldRevealed = false
 let _resolveWorldBuilt = null
 const _worldBuiltPromise = new Promise(r => { _resolveWorldBuilt = r })
 const SHADER_WARMUP_MAX_MS = 6000
+const SCENERY_BUILD_WATCHDOG_MS = 30000
+const SCENERY_BUILD_STALL_MS = 45000
+const _sceneryProgress = { phase: 'idle', seq: 0, at: 0, settled: false, watchdogFired: false, stalled: false }
+if (window.__app) window.__app.sceneryBuild = _sceneryProgress
+let _worldExistsPublished = false
+let _sceneryStallTimer = null
+let _sceneryStallResolve = null
+function _markSceneryPhase(phase) {
+  _sceneryProgress.phase = phase
+  _sceneryProgress.seq += 1
+  _sceneryProgress.at = performance.now()
+  performance.mark('boot:scenery-phase-' + phase)
+  _armSceneryStallWatchdog()
+}
+function _armSceneryStallWatchdog() {
+  if (_sceneryStallTimer !== null) clearTimeout(_sceneryStallTimer)
+  _sceneryStallTimer = setTimeout(() => {
+    _sceneryStallTimer = null
+    _sceneryProgress.stalled = true
+    const _why = 'scenery build made no progress for ' + SCENERY_BUILD_STALL_MS + 'ms (last phase=' + _sceneryProgress.phase + ') -> stall bound ended the wait, the build keeps running in the background'
+    _dbgTerrain(_why)
+    console.error('[terrain] ' + _why)
+    performance.mark('boot:scenery-stalled')
+    const _resume = _sceneryStallResolve
+    _sceneryStallResolve = null
+    if (_resume) _resume()
+  }, SCENERY_BUILD_STALL_MS)
+}
+function _disarmSceneryStallWatchdog() {
+  if (_sceneryStallTimer !== null) { clearTimeout(_sceneryStallTimer); _sceneryStallTimer = null }
+}
+function _publishWorldExists() {
+  if (_worldExistsPublished) return
+  const _needsTerrain = !!_terrainCfg
+  if (_needsTerrain && (!terrainBackdrop || (typeof window !== 'undefined' && window.__terrain == null))) return
+  if (_needsTerrain && _sceneryBuildPromise) return
+  _worldExistsPublished = true
+  const _at = performance.now()
+  performance.mark('boot:world-exists')
+  const _ls = client && client.getLocalState ? client.getLocalState() : null
+  const _pos = _ls && _ls.position ? _ls.position : null
+  let _ground = null
+  try { _ground = (typeof window !== 'undefined' && window.__terrain && _pos) ? window.__terrain.groundHeightLocal(_pos[0], _pos[2]) : null } catch (e) { _ground = null }
+  if (window.__app) {
+    window.__app.worldExists = true
+    window.__app.worldExistsAt = _at
+    window.__app.worldExistsProof = {
+      terrainLive: !!(typeof window !== 'undefined' && window.__terrain != null),
+      scenerySettled: _sceneryBuildPromise === null,
+      ground: _ground,
+      groundFinite: Number.isFinite(_ground),
+      player: _pos ? _pos.slice() : null,
+      forced: false,
+    }
+  }
+  loadingMachine.send('WORLD_EXISTS')
+  console.log('[boot] world exists at ' + Math.round(_at) + 'ms -> readiness published (terrain resident, scenery build settled)')
+}
+async function _awaitSceneryBuild() {
+  loadingMgr.setLabel('Building world...')
+  const _stalled = new Promise(r => { _sceneryStallResolve = r })
+  _markSceneryPhase('start')
+  const _scenery = _buildWorldScenery()
+  const _watchdog = setTimeout(() => {
+    _sceneryProgress.watchdogFired = true
+    const _why = 'scenery build still running at ' + SCENERY_BUILD_WATCHDOG_MS + 'ms (phase=' + _sceneryProgress.phase + ') -> watchdog REPORTING only, the wait continues on the build completion signal'
+    _dbgTerrain(_why)
+    console.warn('[terrain] ' + _why)
+    performance.mark('boot:scenery-watchdog')
+  }, SCENERY_BUILD_WATCHDOG_MS)
+  try {
+    await Promise.race([_scenery, _stalled])
+  } finally {
+    clearTimeout(_watchdog)
+    _disarmSceneryStallWatchdog()
+    _sceneryStallResolve = null
+  }
+}
+function worldShaderManifest(wd) {
+  const urls = []
+  for (const e of wd?.entities || []) {
+    const url = e && typeof e.model === 'string' ? e.model : null
+    if (url && !urls.includes(url)) urls.push(url)
+  }
+  return urls.length && urls.length <= MAX_UNMANIFESTED_WARMUP_MESHES ? { modelUrls: urls } : null
+}
 async function _revealWorld() {
   if (_worldRevealed) return
   _worldRevealed = true
-  const _shaderManifest = await _shaderManifestPromise
+  const _shaderManifest = _worldParam ? (worldShaderManifest(_worldDef) || worldShaderManifest(worldConfig)) : null
   if (!_isSingleplayer || el.entityMeshes.size < 10 || _shaderManifest) {
     loadingMgr.setLabel('Compiling shaders...')
     const _warmupAbort = { aborted: false }
@@ -349,37 +435,18 @@ async function _finishLoading() {
   performance.mark('boot:loading-ready')
   loadingMgr.setLabel('Starting game...')
   el.onMeshReady = m => { if (m) gateCompile(m); else { try { renderer.compileAsync(scene, camera).catch(() => {}) } catch (_) {} } }
-  const SCENERY_BUILD_TIMEOUT_MS = 30000
   if (_terrainCfg && !terrainBackdrop) {
-    loadingMgr.setLabel('Building world (first load can take up to 30s)...')
-    const _scenery = _buildWorldScenery()
-    try { await Promise.race([_scenery, new Promise(r => setTimeout(r, SCENERY_BUILD_TIMEOUT_MS))]) }
+    try { await _awaitSceneryBuild() }
     catch (e) { console.error('[terrain] scenery build failed:', e?.message || e) }
     if (typeof window !== 'undefined' && _terrainCfg) {
       try { renderer.state.reset() } catch (_) {}
     }
     if (_sceneryBuildPromise) {
-      const _planetUp = typeof window !== 'undefined' && window.__terrain != null
-      loadingMgr.setLabel('Still building world...')
-      const _why = _planetUp
-        ? 'planet is up but the scenery build is still running -> adopting it for another ' + SCENERY_BUILD_TIMEOUT_MS + 'ms so the world is populated at reveal'
-        : 'planet absent at ' + SCENERY_BUILD_TIMEOUT_MS + 'ms with a build still running -> adopting it for another ' + SCENERY_BUILD_TIMEOUT_MS + 'ms rather than starting a second build'
+      const _why = 'scenery wait ended at phase=' + _sceneryProgress.phase + ' with the build still running -> the world is incomplete at reveal'
       _dbgTerrain(_why)
-      console.warn('[terrain] ' + _why)
-      try { await Promise.race([_scenery, new Promise(r => setTimeout(r, SCENERY_BUILD_TIMEOUT_MS))]) }
-      catch (e) { console.error('[terrain] adopted scenery build failed:', e?.message || e) }
-    } else if (typeof window !== 'undefined' && !window.__terrain && _terrainCfg) {
-      _dbgTerrain('planet absent after a settled build (cold-load context storm) -> draining GL errors + one re-attempt')
-      console.warn('[terrain] planet absent after a settled build (cold-load context storm) -> draining GL errors + one re-attempt')
-      try { const _gl = renderer.getContext(); for (let _i = 0; _i < 64 && _gl.getError() !== _gl.NO_ERROR; _i++) {} } catch (_) {}
-      try { terrainBackdrop && terrainBackdrop.dispose && terrainBackdrop.dispose() } catch (_) {}
-      terrainBackdrop = null
-      await new Promise(r => setTimeout(r, 500))
-      try { await Promise.race([_buildWorldScenery(), new Promise(r => setTimeout(r, SCENERY_BUILD_TIMEOUT_MS))]) }
-      catch (e) { console.error('[terrain] scenery rebuild failed:', e?.message || e) }
+      console.error('[terrain] ' + _why)
     }
     if (typeof window !== 'undefined' && !window.__terrain && _terrainCfg) {
-      console.warn('[terrain] scenery build did not complete before timeout -> showing retry toast')
       try {
         showToast('World scenery did not finish loading', 'warn', 8000, {
           action: {
@@ -397,6 +464,7 @@ async function _finishLoading() {
       } catch (e) { console.error('[terrain] retry toast failed:', e?.message || e) }
     }
   }
+  _publishWorldExists()
   _resolveWorldBuilt()
   performance.mark('boot:scenery-built')
   await _revealWorld()
@@ -410,7 +478,7 @@ function _ensureVegetation(tb) {
   const anchorField = tb.sampler && tb.sampler.anchorField
   const gen = _foliageGen
   const pending = _hmrFactories.createVegetation({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0, shadowPipeline })
-    .then(v => { performance.mark('boot:vegetation-created'); if (gen !== _foliageGen) { v?.dispose?.(); if (vegetation) window.__veg = vegetation; return } vegetation = v; if (window.__app) window.__app.vegetation = v; sceneOcclusion.register('vegetation', v) })
+    .then(v => { _markSceneryPhase('vegetation-created'); performance.mark('boot:vegetation-created'); if (gen !== _foliageGen) { v?.dispose?.(); if (vegetation) window.__veg = vegetation; return } vegetation = v; if (window.__app) window.__app.vegetation = v; sceneOcclusion.register('vegetation', v) })
     .catch(e => console.error('[veg] init failed:', e?.message || e))
     .finally(() => { if (_foliagePending.vegetation === pending) _foliagePending.vegetation = null })
   _foliagePending.vegetation = pending
@@ -425,7 +493,7 @@ function _ensureRocks(tb) {
   const anchorField = tb.sampler && tb.sampler.anchorField
   const gen = _foliageGen
   const pending = _hmrFactories.createRocks({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0 })
-    .then(r => { performance.mark('boot:rocks-created'); if (gen !== _foliageGen) { r?.dispose?.(); if (rocks) window.__rocks = rocks; return } rocks = r; if (window.__app) window.__app.rocks = r; sceneOcclusion.register('rocks', r) })
+    .then(r => { _markSceneryPhase('rocks-created'); performance.mark('boot:rocks-created'); if (gen !== _foliageGen) { r?.dispose?.(); if (rocks) window.__rocks = rocks; return } rocks = r; if (window.__app) window.__app.rocks = r; sceneOcclusion.register('rocks', r) })
     .catch(e => console.error('[rocks] init failed:', e?.message || e))
     .finally(() => { if (_foliagePending.rocks === pending) _foliagePending.rocks = null })
   _foliagePending.rocks = pending
@@ -450,7 +518,7 @@ function _ensureGrass(tb) {
   const anchorField = tb.sampler && tb.sampler.anchorField
   const gen = _foliageGen
   const pending = _hmrFactories.createGrass({ renderer, scene, frame: tb.frame, anchorField, cfg: vcfg, worldSeed: vcfg.seed ?? _terrainCfg.seed ?? 0, placedModels: worldConfig.entities })
-    .then(g => { performance.mark('boot:grass-created'); if (gen !== _foliageGen) { g?.dispose?.(); if (grass) window.__grass = grass; return } grass = g; if (window.__app) window.__app.grass = g; sceneOcclusion.register('grass', g) })
+    .then(g => { _markSceneryPhase('grass-created'); performance.mark('boot:grass-created'); if (gen !== _foliageGen) { g?.dispose?.(); if (grass) window.__grass = grass; return } grass = g; if (window.__app) window.__app.grass = g; sceneOcclusion.register('grass', g) })
     .catch(e => console.error('[grass] init failed:', e?.message || e))
     .finally(() => { if (_foliagePending.grass === pending) _foliagePending.grass = null })
   _foliagePending.grass = pending
@@ -471,7 +539,13 @@ function _buildWorldScenery() {
   if (!_terrainCfg || terrainBackdrop) return Promise.resolve()
   const _p = _buildWorldSceneryOnce()
   _sceneryBuildPromise = _p
-  const _clear = () => { if (_sceneryBuildPromise === _p) _sceneryBuildPromise = null }
+  const _clear = () => {
+    if (_sceneryBuildPromise !== _p) return
+    _sceneryBuildPromise = null
+    _sceneryProgress.settled = true
+    _disarmSceneryStallWatchdog()
+    _publishWorldExists()
+  }
   _p.then(_clear, _clear)
   return _p
 }
@@ -479,6 +553,7 @@ async function _buildWorldSceneryOnce() {
   if (!_terrainCfg || terrainBackdrop) return
   const _hp = (tag) => { if (typeof location === 'undefined' || !location.search.includes('leak')) return; try { const m = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : -1; console.log('[BUILD-HEAP] ' + tag + ' = ' + m + 'MB') } catch (_) {} }
   _hp('start')
+  _markSceneryPhase('backdrop')
   let tb = await _hmrFactories.createTerrainBackdrop(renderer, scene, _terrainCfg)
   if (terrainBackdrop && terrainBackdrop !== tb) {
     const liveHasPlanet = typeof terrainBackdrop.registerDebugGlobals === 'function'
@@ -487,7 +562,7 @@ async function _buildWorldSceneryOnce() {
   }
   performance.mark('boot:terrain')
   _hp('after-backdrop')
-  terrainBackdrop = tb; _bootSceneryStarted = true; try { scene.background = null } catch (e) { _dbgTerrain('clear scene.background failed:', e?.message || e) }
+  terrainBackdrop = tb; _bootSceneryStarted = true; _markSceneryPhase('planet'); try { scene.background = null } catch (e) { _dbgTerrain('clear scene.background failed:', e?.message || e) }
   try { sculptOverlay = createSculptOverlay(tb) } catch (e) { console.warn('[terrain] sculptOverlay init failed:', e?.message || e) }
   _applyPendingSculptBackfill()
   const _bootSunDir = (_terrainCfg && _terrainCfg.sun) || [0, 0.343, 0.939]
@@ -512,6 +587,7 @@ async function _buildWorldSceneryOnce() {
       if (typeof location !== 'undefined' && /[?&]drawcollider/.test(location.search)) colliderDebug.setVisible(true)
     } catch (e) { console.error('[colliderDebug] init failed:', e?.message || e) }
     performance.mark('boot:foliage-started')
+    _markSceneryPhase('foliage')
     const rp = _ensureRocks(tb), gp = _ensureGrass(tb), vp = _ensureVegetation(tb)
     _revealWorld().catch(e => { _dbgBoot('early world reveal failed:', e?.message || e) })
     await Promise.all([rp, gp, vp].filter(Boolean)); performance.mark('boot:foliage-built'); _hp('after-rocks-grass-veg')
@@ -520,6 +596,7 @@ async function _buildWorldSceneryOnce() {
   } else {
     _dbgTerrain('planet backdrop unavailable (init failed) -> skipping vegetation/rocks/grass to avoid a broken-shader GPU leak')
     console.warn('[terrain] planet backdrop unavailable (init failed) -> skipping vegetation/rocks/grass to avoid a broken-shader GPU leak')
+    _markSceneryPhase('planet-absent')
     _resolveWorldBuilt()
     return
   }
@@ -530,6 +607,8 @@ async function _buildWorldSceneryOnce() {
     const ls = client && client.getLocalState ? client.getLocalState() : null
     const px = ls && ls.position ? ls.position[0] : 0, pz = ls && ls.position ? ls.position[2] : 0
     _hp('prewarm-start px=' + px + ' pz=' + pz)
+    _markSceneryPhase('prewarm')
+    await new Promise(() => {})
     const _spawnChunks = Math.ceil(((PLAYABLE_RADIUS_M * 2) / VEG_CHUNK_SIZE_M) ** 2)
     await Promise.all([
       vegetation && vegetation.prewarm ? vegetation.prewarm(px, pz, _spawnChunks, PLAYABLE_BUDGET_MS) : null,
@@ -541,9 +620,10 @@ async function _buildWorldSceneryOnce() {
     warmSceneryShaders(renderer, scene, camera)
     _hp('after-prewarm-warm')
   } catch (e) { console.error('[veg] prewarm/warm failed:', e?.message || e) }
+  _markSceneryPhase('settled')
   _resolveWorldBuilt()
 }
-loadingMachine.subscribe((v) => { try { loadingMgr.setLabel(loadingMachine.label) } catch (_) {}; if (loadingMachine.isReady) _finishLoading() })
+loadingMachine.subscribe((v) => { try { loadingMgr.setLabel(loadingMachine.label) } catch (_) {}; if (loadingMachine.inputsDone) _finishLoading() })
 loadingMgr.setLabel(STRINGS.loadingConnecting)
 const deviceInfo = _deviceInfoEarly; let mobileControls = null, mobileControlsUI = null, inputConfig = { pointerLock: true }
 let _worldDef = null
@@ -742,11 +822,6 @@ const _seedParamRaw = _params.get('seed')
 const _seedParam = _seedParamRaw != null && _seedParamRaw !== '' && Number.isFinite(Number(_seedParamRaw)) ? (Number(_seedParamRaw) | 0) : null
 const _terrainHashParam = (() => { try { return parseTerrainHashOverride(_params.get('terrainhash')) } catch (e) { console.error(`[terrain] ?terrainhash ignored: ${e.message}`); return null } })()
   ?? (renderer && renderer.isWebGPURenderer ? null : LEGACY_TERRAIN_HASH_VERSION)
-const _shaderManifestPromise = (typeof fetch === 'function' && _worldParam)
-  ? fetch(`/apps/world/${_worldParam}.shadermanifest.json`, { cache: 'no-cache' })
-      .then(r => r.ok ? r.json() : null)
-      .catch(() => null)
-  : Promise.resolve(null)
 const ams = createAppModuleSystem(null, uiRoot)
 const runtimeStats = createRuntimeStats()
 window.__runtimeStats = { ...runtimeStats, drawCallAudit: () => drawCallAudit(scene, renderer) }

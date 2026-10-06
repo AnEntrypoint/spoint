@@ -311,11 +311,11 @@ export function applySceneConfig(s, scene, ambient, sun, studio, camera) {
   if (s.fov) { camera.fov = s.fov; camera.updateProjectionMatrix() }
 }
 
-const MAX_UNMANIFESTED_WARMUP_MESHES = 50
+export const MAX_UNMANIFESTED_WARMUP_MESHES = 50
 export async function warmupShaders(renderer, scene, camera, entityMeshes, playerMeshes, loadingMgr, abortSignal = null, manifest = null) {
   const _t0 = performance.now()
   const _record = (extra) => {
-    window.__lastShaderWarmup = { ts: Date.now(), wallMs: performance.now() - _t0, manifestDriven: !!(manifest && Array.isArray(manifest.modelUrls) && manifest.modelUrls.length), ...extra }
+    window.__lastShaderWarmup = { ts: Date.now(), wallMs: performance.now() - _t0, manifestDriven: !!(manifest && Array.isArray(manifest.modelUrls) && manifest.modelUrls.length), manifestUrls: manifestUrls ? [...manifestUrls] : null, ...extra }
   }
   const manifestUrls = manifest && Array.isArray(manifest.modelUrls) && manifest.modelUrls.length ? new Set(manifest.modelUrls) : null
   const allEntityMeshes = [...entityMeshes.values()]

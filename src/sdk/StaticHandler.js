@@ -224,7 +224,7 @@ export function createStaticHandler(dirs, opts = {}) {
         } else if (IMAGE_EXTENSIONS.has(ext)) {
           headers['Cache-Control'] = IMAGE_CACHE_CONTROL
         } else if (ext === '.json') {
-          headers['Cache-Control'] = fp.endsWith('.shadermanifest.json') ? 'no-cache, must-revalidate' : JSON_CACHE_CONTROL
+          headers['Cache-Control'] = JSON_CACHE_CONTROL
         }
 
         const wantsRange = !!req.headers['range'] && RANGE_EXTENSIONS.has(ext)
