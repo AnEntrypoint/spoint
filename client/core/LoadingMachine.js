@@ -8,6 +8,8 @@ const allDone = ({ context }) => STEPS.every((s) => context[s]) && context.entit
 
 const hasContent = ({ context }) => context.firstSnapshot && context.environment
 
+const worldExists = ({ context }) => context.world === true
+
 export const LOADING_FALLBACK_MS = 10000
 export const LOADING_HARD_MS = 45000
 
@@ -16,7 +18,7 @@ export const loadingMachine = createMachine({
   initial: 'loading',
   context: {
     assets: false, worldConfig: false, environment: false,
-    firstSnapshot: false, models: false, entityPending: 0,
+    firstSnapshot: false, models: false, entityPending: 0, world: false,
     label: STRINGS.loadingConnecting
   },
   states: {
@@ -33,6 +35,7 @@ export const loadingMachine = createMachine({
         MODELS_DONE: { actions: assign({ models: true }), target: 'checking' },
         SET_PENDING: { actions: assign({ entityPending: ({ event }) => event.count ?? 0 }), target: 'checking' },
         ENTITY_LOADED: { actions: assign({ entityPending: ({ context }) => Math.max(0, context.entityPending - 1) }), target: 'checking' },
+        WORLD_EXISTS: { actions: assign({ world: true }) },
         FORCE_READY: 'ready'
       }
     },
@@ -44,9 +47,19 @@ export const loadingMachine = createMachine({
       after: {
         [LOADING_FALLBACK_MS]: [{ guard: hasContent, target: 'ready' }, { target: 'loading' }],
         [LOADING_HARD_MS]: { target: 'ready' }
+      },
+      on: {
+        WORLD_EXISTS: { actions: assign({ world: true }) }
       }
     },
     ready: {
+      entry: assign({ label: () => STRINGS.loadingStartingGame }),
+      always: { guard: worldExists, target: 'worldReady' },
+      on: {
+        WORLD_EXISTS: { actions: assign({ world: true }) }
+      }
+    },
+    worldReady: {
       entry: assign({ label: () => STRINGS.loadingStartingGame }),
       type: 'final'
     }
@@ -62,11 +75,13 @@ export function createLoadingStateMachine() {
     get state() { return snap().value },
     get context() { return snap().context },
     get label() { return snap().context.label },
-    get isReady() { return snap().status === 'done' || snap().value === 'ready' },
+    get inputsDone() { return snap().matches('ready') || snap().matches('worldReady') },
+    get isReady() { return snap().status === 'done' || snap().value === 'worldReady' },
+    get isWorldReady() { return snap().status === 'done' || snap().value === 'worldReady' },
     get progress() {
       const c = snap().context
-      const done = STEPS.filter((s) => c[s]).length + (c.entityPending <= 0 ? 1 : 0)
-      return Math.min(1, done / (STEPS.length + 1))
+      const done = STEPS.filter((s) => c[s]).length + (c.entityPending <= 0 ? 1 : 0) + (c.world ? 1 : 0)
+      return Math.min(1, done / (STEPS.length + 2))
     },
     send: (type, extra) => actor.send(typeof type === 'string' ? { type, ...extra } : type),
     matches: (s) => snap().matches(s),

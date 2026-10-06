@@ -320,6 +320,7 @@ const SCENERY_BUILD_STALL_MS = 45000
 const _sceneryProgress = { phase: 'idle', seq: 0, at: 0, settled: false, watchdogFired: false, stalled: false }
 if (window.__app) window.__app.sceneryBuild = _sceneryProgress
 let _worldExistsPublished = false
+let _terrainBuildFailed = false
 let _sceneryStallTimer = null
 let _sceneryStallResolve = null
 function _markSceneryPhase(phase) {
@@ -348,9 +349,11 @@ function _disarmSceneryStallWatchdog() {
 }
 function _publishWorldExists() {
   if (_worldExistsPublished) return
-  const _needsTerrain = !!_terrainCfg
-  if (_needsTerrain && (!terrainBackdrop || (typeof window !== 'undefined' && window.__terrain == null))) return
-  if (_needsTerrain && _sceneryBuildPromise) return
+  const _needsTerrain = !!_terrainCfg && !_terrainBuildFailed
+  if (_needsTerrain) {
+    if (!terrainBackdrop || (typeof window !== 'undefined' && window.__terrain == null)) return
+    if (_sceneryBuildPromise && _sceneryProgress.settled !== true) return
+  }
   _worldExistsPublished = true
   const _at = performance.now()
   performance.mark('boot:world-exists')
@@ -363,15 +366,16 @@ function _publishWorldExists() {
     window.__app.worldExistsAt = _at
     window.__app.worldExistsProof = {
       terrainLive: !!(typeof window !== 'undefined' && window.__terrain != null),
-      scenerySettled: _sceneryBuildPromise === null,
+      scenerySettled: _sceneryBuildPromise === null || _sceneryProgress.settled === true,
       ground: _ground,
       groundFinite: Number.isFinite(_ground),
       player: _pos ? _pos.slice() : null,
-      forced: false,
+      forced: _terrainBuildFailed,
     }
   }
   loadingMachine.send('WORLD_EXISTS')
-  console.log('[boot] world exists at ' + Math.round(_at) + 'ms -> readiness published (terrain resident, scenery build settled)')
+  const _how = _terrainBuildFailed ? 'terrain build ended without a planet -> readiness published as a reported degradation' : 'terrain resident, scenery build settled'
+  console.log('[boot] world exists at ' + Math.round(_at) + 'ms -> readiness published (' + _how + ')')
 }
 async function _awaitSceneryBuild() {
   loadingMgr.setLabel('Building world...')
@@ -394,12 +398,16 @@ async function _awaitSceneryBuild() {
   }
 }
 function worldShaderManifest(wd) {
-  const urls = []
-  for (const e of wd?.entities || []) {
+  const entities = wd && Array.isArray(wd.entities) ? wd.entities : null
+  if (!entities) return null
+  const seen = new Set()
+  for (const e of entities) {
     const url = e && typeof e.model === 'string' ? e.model : null
-    if (url && !urls.includes(url)) urls.push(url)
+    if (!url || seen.has(url)) continue
+    seen.add(url)
+    if (seen.size > MAX_UNMANIFESTED_WARMUP_MESHES) return null
   }
-  return urls.length && urls.length <= MAX_UNMANIFESTED_WARMUP_MESHES ? { modelUrls: urls } : null
+  return seen.size ? { modelUrls: [...seen] } : null
 }
 async function _revealWorld() {
   if (_worldRevealed) return
@@ -437,7 +445,7 @@ async function _finishLoading() {
   el.onMeshReady = m => { if (m) gateCompile(m); else { try { renderer.compileAsync(scene, camera).catch(() => {}) } catch (_) {} } }
   if (_terrainCfg && !terrainBackdrop) {
     try { await _awaitSceneryBuild() }
-    catch (e) { console.error('[terrain] scenery build failed:', e?.message || e) }
+    catch (e) { _terrainBuildFailed = true; console.error('[terrain] scenery build failed:', e?.message || e) }
     if (typeof window !== 'undefined' && _terrainCfg) {
       try { renderer.state.reset() } catch (_) {}
     }
@@ -597,6 +605,8 @@ async function _buildWorldSceneryOnce() {
     _dbgTerrain('planet backdrop unavailable (init failed) -> skipping vegetation/rocks/grass to avoid a broken-shader GPU leak')
     console.warn('[terrain] planet backdrop unavailable (init failed) -> skipping vegetation/rocks/grass to avoid a broken-shader GPU leak')
     _markSceneryPhase('planet-absent')
+    _terrainBuildFailed = true
+    _publishWorldExists()
     _resolveWorldBuilt()
     return
   }
@@ -608,7 +618,6 @@ async function _buildWorldSceneryOnce() {
     const px = ls && ls.position ? ls.position[0] : 0, pz = ls && ls.position ? ls.position[2] : 0
     _hp('prewarm-start px=' + px + ' pz=' + pz)
     _markSceneryPhase('prewarm')
-    await new Promise(() => {})
     const _spawnChunks = Math.ceil(((PLAYABLE_RADIUS_M * 2) / VEG_CHUNK_SIZE_M) ** 2)
     await Promise.all([
       vegetation && vegetation.prewarm ? vegetation.prewarm(px, pz, _spawnChunks, PLAYABLE_BUDGET_MS) : null,
@@ -621,6 +630,9 @@ async function _buildWorldSceneryOnce() {
     _hp('after-prewarm-warm')
   } catch (e) { console.error('[veg] prewarm/warm failed:', e?.message || e) }
   _markSceneryPhase('settled')
+  _sceneryProgress.settled = true
+  _disarmSceneryStallWatchdog()
+  _publishWorldExists()
   _resolveWorldBuilt()
 }
 loadingMachine.subscribe((v) => { try { loadingMgr.setLabel(loadingMachine.label) } catch (_) {}; if (loadingMachine.inputsDone) _finishLoading() })
