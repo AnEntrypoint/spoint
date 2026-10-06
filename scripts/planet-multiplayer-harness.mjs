@@ -12,12 +12,21 @@ process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = '1'
 
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const args = Object.fromEntries(process.argv.slice(2).map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true'] }))
+const args = Object.fromEntries(process.argv.slice(2).flatMap(a => { const [k, v] = a.replace(/^--/, '').split('='); const val = v ?? 'true'; return [[k, val], [k.replace(/-([a-z])/g, (_, c) => c.toUpperCase()), val]] }))
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const round = (x, d = 3) => x == null || !Number.isFinite(x) ? x : Number(x.toFixed(d))
 const GOLDEN = 2.39996323
 const RELEVANCE_M = 200
 const HYSTERESIS_FACTOR = 1.15
+
+function colliderReport(ring) {
+  const one = s => s ? {
+    centers: s.centers.length, at: s.centers.map(([x, z]) => [round(x, 0), round(z, 0)]), perCenter: s.centerCounts.slice(), live: s.liveCount, dropped: s.droppedCenters,
+    builds: s.rebuildCount, epochAborts: s.staleEpochAborts, ringBuildMsPerS: round(s.ringBuildMsPerSecond, 3),
+    residentKB: round(s.residentBytes / 1024, 1), byteBudgetKB: round(s.byteBudget / 1024, 1)
+  } : null
+  return { trunk: one(ring?._trunkStreamer || null), rock: one(ring?._rockStreamer || null) }
+}
 
 if (args.child) await runChild()
 else await runParent()
@@ -198,7 +207,7 @@ async function runParent() {
     const reanchor = { enabled: SERVICE, anchorsPerFace: ANCHORS, hysteresisDeg: HYST }
     const terrain = WORLD === 'smooth'
       ? { ...loaded.terrain, bakedHeightfield: undefined, carves: [], vegetation: { enabled: false }, reliefScale: 0.0005, chartReanchor: reanchor }
-      : { ...loaded.terrain, chartReanchor: reanchor, ...(args.maxFields ? { physics: { ...(loaded.terrain.physics || {}), maxFields: Number(args.maxFields) }, vegetation: { ...loaded.terrain.vegetation, colliderMaxCenters: Number(args.maxFields) } } : {}) }
+      : { ...loaded.terrain, chartReanchor: reanchor, ...(args.maxFields ? { physics: { ...(loaded.terrain.physics || {}), maxFields: Number(args.maxFields) } } : {}), ...(args.maxCenters ? { vegetation: { ...loaded.terrain.vegetation, colliderMaxCenters: Number(args.maxCenters) } } : {}) }
     const entities = WORLD === 'smooth'
       ? [{ id: 'spawn-1', position: [0, 3, 0], app: 'spawn-point', config: { team: 'any' } }]
       : loaded.entities.filter(e => e.id !== 'env-sillos')
@@ -479,8 +488,11 @@ async function runParent() {
       failures: { nonFiniteServerPositions: nonFinite, nonFiniteClientLocal: reports.filter(r => !r.localFinite).length, clientNanStates: reports.reduce((s, r) => s + r.nanStates, 0), clientErrors: reports.flatMap(r => r.errors).slice(0, 8), disconnected: reports.filter(r => !r.connected).length, groundMissing, logLines: { heightfieldBuilds: logLines.heightfield - logs0.hf, overrun: logLines.overrun - logs0.overrun, dilation: logLines.dilation - logs0.dilation, warn: logLines.warn, error: logLines.error, topOther: [...logLines.other.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5) } },
       chart: { serverEpoch: frame.chartEpoch, epochsDuringRun: frame.chartEpoch - chartEpochs0, clientEpochsSeen: summarize(reports.map(r => r.epochs)), clientResyncs: reports.reduce((s, r) => s + (r.chart?.resyncRequests || 0), 0), clientHeldNow: reports.reduce((s, r) => s + (r.chart?.heldNow || 0), 0), reanchorCount: ring?.chartReanchor?.reanchorCount ?? 0, refusals: ring?.chartReanchor?.refusalCount ?? 0, lastRefusal: ring?.chartReanchor?.lastRefusal?.reason ?? null },
       memory: { rssMB: [round(mem0.rss / 1048576, 1), round(mem1.rss / 1048576, 1)], heapMB: [round(mem0.heapUsed / 1048576, 1), round(mem1.heapUsed / 1048576, 1)], rssGrowthMBPerMin: round((mem1.rss - mem0.rss) / 1048576 / (elapsedS / 60), 1) },
-      streaming: { heightfieldRebuilds: ring?.rebuildCount ?? null, heightfieldRebuildsDuringRun: (ring?.rebuildCount ?? 0) - (hf0 ?? 0), heightfieldBuildsPerS: round((logLines.heightfield - logs0.hf) / elapsedS, 3) }
+      streaming: { heightfieldRebuilds: ring?.rebuildCount ?? null, heightfieldRebuildsDuringRun: (ring?.rebuildCount ?? 0) - (hf0 ?? 0), heightfieldBuildsPerS: round((logLines.heightfield - logs0.hf) / elapsedS, 3) },
+      colliders: colliderReport(ring)
     }
+    const cl = result.colliders
+    for (const [kind, s] of Object.entries(cl)) if (s) say(`${kind} colliders: ${s.centers} cluster(s) served at ${JSON.stringify(s.at)}, per-cluster [${s.perCenter.join(',')}], live ${s.live}, dropped ${s.dropped}, ring build ${s.ringBuildMsPerS} ms/s over ${s.builds} rebuild(s) (+${s.epochAborts} epoch abort(s)), ${s.residentKB}/${s.byteBudgetKB} KB resident`)
     if (LATE_JOIN > 0) {
       const child = fork(fileURLToPath(import.meta.url), ['--child'], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'], execArgv: [] })
       child.on('message', m => child.emit('__' + m.t, m))

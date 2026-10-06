@@ -20,19 +20,35 @@ import { reanchoredSeaLevelXZ } from './ChartLocalPoint.js'
 
 const CENTER_SCALE_REFERENCE = 8
 const CENTER_SCALE_MAX = 8
+const DEFAULT_MAX_CENTERS = 192
 function centerScale(centerCount) {
   return Math.min(CENTER_SCALE_MAX, Math.max(1, Math.ceil(centerCount / CENTER_SCALE_REFERENCE)))
 }
 
+function orderCenters(centers, curCenters) {
+  if (!curCenters || curCenters.length === 0) return centers.slice()
+  return centers
+    .map((c, i) => {
+      let nearest = Infinity
+      for (const p of curCenters) { const dx = c[0] - p[0], dz = c[1] - p[1], d = dx * dx + dz * dz; if (d < nearest) nearest = d }
+      return { c, i, d: nearest }
+    })
+    .sort((a, b) => a.d - b.d || a.c[0] - b.c[0] || a.c[1] - b.c[1] || a.i - b.i)
+    .map(e => e.c)
+}
+
 function clusterCenters(centers, mergeRadius, maxCenters) {
   const picked = []
+  const dropped = []
+  const mergeRadiusSq = mergeRadius * mergeRadius
   for (const c of centers) {
-    let merged = false
-    for (const p of picked) { if (Math.hypot(c[0] - p[0], c[1] - p[1]) <= mergeRadius) { merged = true; break } }
-    if (!merged) picked.push(c)
-    if (picked.length >= maxCenters) break
+    let covered = false
+    for (const p of picked) { const dx = c[0] - p[0], dz = c[1] - p[1]; if (dx * dx + dz * dz <= mergeRadiusSq) { covered = true; break } }
+    if (covered) continue
+    if (picked.length < maxCenters) picked.push(c)
+    else dropped.push(c)
   }
-  return picked
+  return { picked, dropped }
 }
 
 function ringMoved(centers, curCenters, moveThreshold) {
@@ -73,8 +89,11 @@ export function createColliderStreamer(spec = {}) {
   const bodiesPerChunk = Number.isFinite(spec.bodiesPerChunk) && spec.bodiesPerChunk > 0 ? spec.bodiesPerChunk : 16
   const keepRadius = radius * KEEP_RADIUS_HYSTERESIS_FACTOR
   const mergeRadius = radius * 0.75
-  const maxCenters = Number.isFinite(spec.maxCenters) && spec.maxCenters > 0 ? spec.maxCenters : Number.POSITIVE_INFINITY
   const baseByteBudget = Number.isFinite(spec.byteBudget) && spec.byteBudget > 0 ? spec.byteBudget : baseCap * DEFAULT_BYTE_BUDGET_CAP_MULTIPLE * DEFAULT_BYTE_BUDGET_BYTES_PER_BODY
+  const maxCentersRaw = spec.maxCenters
+  const maxCentersExplicit = Number.isFinite(maxCentersRaw) && maxCentersRaw >= 1
+  if (maxCentersRaw !== undefined && !maxCentersExplicit) console.warn(`${logTag} colliderMaxCenters ${String(maxCentersRaw)} is not a finite number >= 1, so the ${DEFAULT_MAX_CENTERS} cluster default is used instead`)
+  const maxCenters = maxCentersExplicit ? Math.floor(maxCentersRaw) : DEFAULT_MAX_CENTERS
   let effectiveCap = baseCap
   let effectiveByteBudget = baseByteBudget
   const latticeSpec = spec.latticeSpec
@@ -102,6 +121,21 @@ export function createColliderStreamer(spec = {}) {
   let curCenter = null, rebuilding = false, disposed = false, _timer = null, rebuildCount = 0
   let curCenters = []
   let prewarmMs = 0
+  let ringBuildMsTotal = 0, ringBuildStartedAt = 0, lastCenterCounts = [], lastDroppedCount = 0, droppedWarned = 0
+
+  function warnDroppedCenters(dropped, total) {
+    lastDroppedCount = dropped
+    if (dropped === 0) { droppedWarned = 0; return }
+    if (dropped <= droppedWarned) return
+    droppedWarned = dropped
+    console.warn(`${logTag} ${dropped} of ${total} collider cluster(s) get no veg or rock colliders: maxCenters is ${maxCenters}${maxCentersExplicit ? ' (world config)' : ` (the ${DEFAULT_MAX_CENTERS} cluster default)`} and ${total} cluster(s) are in play, so the ${dropped} farthest from the served clusters are uncovered. Raise vegetation.colliderMaxCenters to cover them.`)
+  }
+
+  function pickCenters(raw) {
+    const { picked, dropped } = clusterCenters(orderCenters(raw, curCenters), mergeRadius, maxCenters)
+    warnDroppedCenters(dropped.length, raw.length)
+    return picked
+  }
 
   const _CHUNK_CACHE_CAP = 4096
   const _chunkCache = new Map()
@@ -174,7 +208,7 @@ export function createColliderStreamer(spec = {}) {
     const truncated = cands.length > desired.length
     const starved = []
     for (let i = 0; i < centers.length; i++) if (taken[i] === 0 && avail[i] > 0) starved.push(centers[i])
-    return { desired, keep, truncated, starved }
+    return { desired, keep, truncated, starved, counts: taken }
   }
   function classifyRing(cx, cz) { return classifyRings([[cx, cz]]) }
 
@@ -264,23 +298,27 @@ export function createColliderStreamer(spec = {}) {
 
   const ADD_BUDGET_MS = 2
   const epochOf = () => (frame && Number.isFinite(frame.chartEpoch) ? frame.chartEpoch : 0)
-  let staleEpochAborts = 0, reanchoredEpoch = -1, starvedWarned = false
+  let staleEpochAborts = 0, reanchoredEpoch = -1, starvedWarned = 0
   async function _rebuildMulti(centers, unbudgeted = false) {
     if (rebuilding || disposed || !frame || typeof physics?.addBody !== 'function') return
     if (!Array.isArray(centers) || centers.length === 0) return
     rebuilding = true
+    if (!ringBuildStartedAt) ringBuildStartedAt = _now()
+    const rbT0 = _now()
     const scale = centerScale(centers.length)
     effectiveCap = baseCap * scale
     effectiveByteBudget = baseByteBudget * scale
     _beginBudget(unbudgeted)
     const epochAtStart = epochOf()
     try {
-      const { desired, keep, truncated, starved } = classifyRings(centers)
-      if (truncated && starved.length && !starvedWarned) {
-        starvedWarned = true
+      const { desired, keep, truncated, starved, counts } = classifyRings(centers)
+      if (truncated && starved.length) {
+        if (starved.length > starvedWarned) {
+          starvedWarned = starved.length
         const named = starved.slice(0, 8).map(([x, z]) => `(${x.toFixed(0)}, ${z.toFixed(0)})`).join(', ')
         console.warn(`${logTag} ${starved.length} of ${centers.length} collider clusters got none of the colliders inside their radius: the body cap ${effectiveCap} (${baseCap} x ${scale} for ${centers.length} clusters) is shared by every cluster, so these chart-local centres have no collider: ${named}${starved.length > 8 ? ` and ${starved.length - 8} more` : ''}. Raise the collider cap or lower the collider radius.`)
-      }
+        }
+      } else if (starvedWarned !== 0) starvedWarned = 0
       const tp = _now()
       prewarmPools(desired)
       prewarmMs = _now() - tp
@@ -309,12 +347,12 @@ export function createColliderStreamer(spec = {}) {
         const evicted = evictOverBudget()
         if (evicted > 0) console.log(`${logTag} LRU evicted ${evicted} colliders over byte budget (${_residentBytes}/${effectiveByteBudget}B resident)`)
       }
-      if (!_deferred) { curCenters = centers; curCenter = centers[0] || null; rebuildCount++ }
+      if (!_deferred) { curCenters = centers; curCenter = centers[0] || null; lastCenterCounts = counts; rebuildCount++ }
       const trimmed = evictOverCap(centers)
       if (trimmed > 0) console.log(`${logTag} trimmed ${trimmed} collider(s) beyond the body cap: ${live.size}/${effectiveCap} resident for ${centers.length} center(s)`)
       setColliderIds(_liveIds)
     } catch (e) { console.error(logTag + ' collider rebuild error:', e?.message || e) }
-    finally { rebuilding = false }
+    finally { ringBuildMsTotal += _now() - rbT0; rebuilding = false }
     return _deferred
   }
   function _rebuild(cx, cz, unbudgeted = false) { return _rebuildMulti([[cx, cz]], unbudgeted) }
@@ -328,7 +366,7 @@ export function createColliderStreamer(spec = {}) {
     try {
       const raw = getCenters()
       if (raw.length && !rebuilding) {
-        const centers = clusterCenters(raw, mergeRadius, maxCenters)
+        const centers = pickCenters(raw)
         if (!curCenters.length || ringMoved(centers, curCenters, radius * rebuildAt)) {
           _rebuildMulti(centers).then(d => _scheduleNext(!!d)).catch(() => _scheduleNext(false))
           return
@@ -342,16 +380,15 @@ export function createColliderStreamer(spec = {}) {
     if (disposed) return
     const t0 = _now()
     const raw = getCenters()
-    const centers = raw.length ? clusterCenters(raw, mergeRadius, maxCenters) : [[0, 0]]
+    const centers = raw.length ? pickCenters(raw) : [[0, 0]]
     await _rebuildMulti(centers, true)
-    console.log(`${logTag} initial ring: ${live.size}/${effectiveCap} collider(s) over ${_chunkCache.size} chunk(s) for ${centers.length} center(s) (radius ${radius}m keep ${keepRadius.toFixed(1)}m) in ${(_now() - t0).toFixed(1)}ms (pool prewarm ${prewarmMs.toFixed(1)}ms)`)
+    console.log(`${logTag} initial ring: ${live.size}/${effectiveCap} collider(s) over ${_chunkCache.size} chunk(s) for ${centers.length} center(s) of maxCenters ${maxCenters}${maxCentersExplicit ? '' : ' (default)'}, dropped ${lastDroppedCount} (radius ${radius}m keep ${keepRadius.toFixed(1)}m) in ${(_now() - t0).toFixed(1)}ms (pool prewarm ${prewarmMs.toFixed(1)}ms)`)
     setColliderIds(_liveIds)
     _timer = setTimeout(_check, intervalMs)
   }
 
   function reanchor({ from, to, transfer, epoch }) {
     if (epoch === reanchoredEpoch) return 0
-    reanchoredEpoch = epoch
     if (typeof physics.drainBodyQueue === 'function') physics.drainBodyQueue()
     const position = [0, 0, 0], rotation = [0, 0, 0, 1]
     let moved = 0
@@ -365,6 +402,7 @@ export function createColliderStreamer(spec = {}) {
     curCenters = curCenters.map(([x, z]) => reanchoredSeaLevelXZ(from, to, x, z))
     curCenter = curCenters[0] || null
     _chunkCache.clear()
+    reanchoredEpoch = epoch
     return moved
   }
 
@@ -394,6 +432,10 @@ export function createColliderStreamer(spec = {}) {
     get center() { return curCenter },
     get centers() { return curCenters },
     get rebuildCount() { return rebuildCount },
+    get centerCounts() { return lastCenterCounts },
+    get droppedCenters() { return lastDroppedCount },
+    get ringBuildMs() { return ringBuildMsTotal },
+    get ringBuildMsPerSecond() { const secs = (_now() - ringBuildStartedAt) / 1000; return ringBuildStartedAt && secs > 0 ? ringBuildMsTotal / secs : 0 },
     get chunkCacheSize() { return _chunkCache.size },
     get cap() { return effectiveCap },
     get residentBytes() { return _residentBytes },
