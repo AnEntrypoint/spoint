@@ -66,11 +66,19 @@ function importClosure(entries) {
   return [...seen.keys()].sort()
 }
 
-async function shippedHeightfields() {
+function shippedHeightfields() {
   const dir = join(ROOT, 'apps', 'world')
   let names
-  try { names = readdirSync(dir) } catch { return [] }
-  return names.filter(n => n.endsWith('.hf')).sort().map(n => join('apps', 'world', n))
+  try {
+    names = readdirSync(dir)
+  } catch (e) {
+    return { files: [], error: `${normalize(dir)} is unreadable (${e?.message || e}), so no shipped .hf artifact was verified` }
+  }
+  const files = names.filter(n => n.endsWith('.hf')).sort().map(n => join('apps', 'world', n))
+  if (files.length === 0) {
+    return { files, error: `${normalize(dir)} holds no .hf artifact, so no shipped heightfield was verified` }
+  }
+  return { files, error: null }
 }
 
 async function main() {
@@ -97,7 +105,10 @@ async function main() {
     }
   }
   const { decodeHeightfield } = await import('mapspinner/heightfield-codec')
-  for (const rel of await shippedHeightfields()) {
+  const { files: heightfields, error: heightfieldError } = shippedHeightfields()
+  if (heightfieldError) problems.push(`  ${heightfieldError}`)
+  else console.log(`[check-cache-keys] verifying ${heightfields.length} shipped .hf artifact(s)`)
+  for (const rel of heightfields) {
     const buf = readFileSync(join(ROOT, rel))
     const header = decodeHeightfield(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength))
     if (!header) { problems.push(`  ${rel}: not a decodable .hf artifact`); continue }
