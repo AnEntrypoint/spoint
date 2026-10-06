@@ -49,12 +49,14 @@ async function tryAjv(schemas, payload) {
 
 function structuralCheck(payload) {
   const errors = [];
-  if (typeof payload.version !== 'number') errors.push('version: missing or not a number');
+  if (!Number.isInteger(payload.version)) errors.push(`version: must be an integer (got ${JSON.stringify(payload.version ?? null)})`);
   if (!['sibling-file', 'single-glb-range'].includes(payload.storage)) {
     errors.push(`storage: must be "sibling-file" or "single-glb-range" (got ${JSON.stringify(payload.storage)})`);
   }
   if (!Array.isArray(payload.meshes)) {
     errors.push('meshes: missing or not an array');
+  } else if (payload.meshes.length === 0) {
+    errors.push('meshes: empty -- the payload declares no LOD chain');
   } else {
     payload.meshes.forEach((m, i) => {
       if (typeof m.meshIndex !== 'number') errors.push(`meshes[${i}].meshIndex: missing`);
@@ -91,16 +93,20 @@ async function main() {
   }
 
   const schemas = await loadSchemas();
-  let result = await tryAjv(schemas, payload);
-  const mode = result ? 'ajv (draft-07)' : 'structural (ajv not installed)';
-  if (!result) result = structuralCheck(payload);
+  const result = await tryAjv(schemas, payload);
+  if (!result) {
+    console.error(`[validate] FAIL — ${input}: ajv is not installed, so the published EP_progressive_lod schema was never checked. Install ajv and re-run; the structural fallback alone is not a pass`);
+    process.exit(1);
+  }
+  const structural = structuralCheck(payload);
+  const errors = structural.errors.concat(result.errors.map((e) => `${e.instancePath || '/'} ${e.message}`));
 
-  if (result.ok) {
-    console.log(`[validate] OK — ${input} conforms to EP_progressive_lod [${mode}, storage=${payload.storage}]`);
+  if (errors.length === 0) {
+    console.log(`[validate] OK — ${input} conforms to EP_progressive_lod [ajv (draft-07) + structural, storage=${payload.storage}]`);
     process.exit(0);
   }
-  console.error(`[validate] FAIL — ${input} [${mode}]`);
-  for (const e of result.errors) console.error('  -', typeof e === 'string' ? e : `${e.instancePath || '/'} ${e.message}`);
+  console.error(`[validate] FAIL — ${input} [ajv (draft-07) + structural]`);
+  for (const e of errors) console.error('  -', e);
   process.exit(1);
 }
 
