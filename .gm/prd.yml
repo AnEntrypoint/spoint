@@ -105,12 +105,6 @@
   acceptance_criteria: 'on a real GPU window with chartReanchor enabled and the singleplayer worker: after a switch the vegetation and rock instance positions and the worker colliders agree with a fresh rebuild within 1 mm, the GPU-patch path either switches or names its refusal, the minimap player marker and terrain are continuous, placement id sets equal client vs server; numbers quoted, no console errors.'
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending
-- id: prediction-contact-beyond-150ms-unacked-window-needs-peer-forward-sim
-  subject: Contact with another player is mispredicted at 50 ms one way and above because the window gate (150 ms unacked) closes and prediction ignores the peer; extrapolating the peer linearly instead raises rendered offset
-  acceptance_criteria: Simulate the peer forward under the same push inside the prediction replay (its velocity decaying through the shared applyMovement friction path when it has no input, pushed by separationPush) so the predicted path does not move when a fresher peer snapshot arrives. Done when, with --hold=forward (contact regime) at 50/10/2 and 100/20/3 against the --peerSeparation=off control, corrections per ack fall below the control (0.726 and 0.546) AND rendered-offset p95 stays at or below the control (10.9 and 23.5 cm) AND pops per minute do not exceed the control (268 and 192); 30 Hz mispredict falls below 75%; clear-lane control unchanged; rollback-duel and lockstep-rts 0 desyncs.
-  blockedBy: none
-  session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  status: pending
 - id: chart-reanchor-transform-ring-replay-region-epoch
   title: TransformRing, replay recording and region handoff carry no chart epoch
   body: src/transport/TransformRing.js (writer at TickHandler.recordPlayerTick, reader in the main thread) writes per-tick positions with no epoch field; the slot written on the switch tick before stepChartReanchor stays in the old chart, so an interpolating reader sees one old-chart sample next to new-chart samples. src/netcode/ReplayRecorder.js / ReplayPlayer.js record and replay positions across epochs with no marker (the eventLog gets a chart_reanchor record only). src/sharding/RegionWorkerEntry.js hands players between regions in chart-local coordinates. Add an epoch to the ring header and the replay frames, rewrite or tag the switch-tick slot, and make region handoff transfer through the ledger (src/shared/chartEpochLedger.js transferToCurrent/transferFromCurrentTo).
@@ -225,12 +219,6 @@
   title: Browser client must consume onChartReanchoring / onChartReanchor / onChartResync
   body: 'The headless wire consumer (src/client/ChartEpochSync.js) is done; client/app.js passes none of the new BaseClient callbacks. Needed in the browser: in onChartReanchoring swap the terrain frame and call setPredictionGroundSurface with the new chart''s height function BEFORE the replay samples it; in onChartReanchor re-express camera/input yaw and pitch with transfer.look and rebase the floating origin from transfer.point; onChartResync must reposition the camera loudly. Also verify BrowserServer (singleplayer worker) and WireweaveJoinClient deliver CHART_REANCHOR (reliable, non-snapshot) in order with COLLISION_TILE and do not coalesce it away, and that dist/client/app.js carries the new modules. Complements chart-reanchor-browser-holders (placement caches, GPU patch fn, minimap).'
   acceptance_criteria: 'Browser walk across >= 3 epochs with chartReanchor enabled: PredictionEngine.stats.corrections unchanged across each epoch, camera and render position continuous (per-frame world step p95 within the no-epoch control), onChartResync never fires, numbers quoted; built bundle witnessed, not only source.'
-  session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  status: pending
-- id: solve-surface-warm-start-cost
-  title: solveSurfaceY costs 34% more evaluations than the old loose tolerance (2.23 -> 2.99 mean) in sweeps
-  body: Sweeps over neighbouring points (heightfield builds, minimap cells, collider fields) restart each solve from the sea-level guess. A neighbour's solved y is a much closer first guess. Add an optional yGuess argument to PlanetFrame.solveSurfaceY and pass the previous cell's y from the sweep callers (HeightfieldStreamer field build, MinimapBake, bake-heightfield CPU path).
-  acceptance_criteria: Mean evaluations per solve in a row-major sweep drops below the old 2.23 with outputs identical to within the 1e-4 m tolerance; ns per solve before/after and the setupTerrainStreaming coarse 20 ms and refine ~200 ms builds measured interleaved x10 with median and IQR; hashVersion 2 isolated-point results stay bit-identical
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending
 - id: cdp-witness-harness-delivers-input-to-page
@@ -481,12 +469,6 @@
   title: Move rain, snow and far-sheet particle motion to the GPU in the TSL path
   body: 'After 02a1feef36 the TSL weather still writes 1800 rain + 1800 snow-capable + 300 far instance matrices per frame via setTranslatedAt and uploads the dirty range (writeBuffer self 4.2 pct is shared with veg and others). The legacy GL path already does this on the GPU (WeatherGpu.js makeFieldGeometry + makeWeatherShared uniforms, NEAR_BOX/FAR_BOX windows, splashes sampled separately by rate). Port to TSL: instance position from a per-instance seed attribute, uTime, uCam and the box extents in the vertex stage; hits/splashes by sampling GroundNodeGrid at a bounded rate as _updateGpuFields does. Visual change (drops no longer vanish exactly at the ground) needs the frame-pair criterion in perf-after-arm-veg-cells-weather-grid. Needs the mapspinner/TSL agent''s lane clear for WeatherMaterialsTSL.js.'
   acceptance_criteria: Weather update CPU inclusive < 1 pct in a rain 0.6 walk arm; no per-particle setTranslatedAt; visual tolerance met; legacy path unchanged.
-  session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  status: pending
-- id: fire-s1d-incremental-hash-and-delta-snapshots
-  title: 'S1d fire perf: incremental state hash and dirty-tile delta snapshots (measured baselines are the problem)'
-  body: 'Measured on the shipped kernel: full checksum scans every touched tile: 0.14 ms at 118 tiles, 13 ms at 4050, 21 ms at 11429; a boundary snapshot copies every touched tile: 0.05 / 2.4 / 5.2 ms every 30 ticks, times a window of 4-8 snapshots (up to ~20 MB). Both are O(scars), not O(active), which breaks the worst-case rule for big burnt-out forests. Fix: keep an order-independent running hash updated on every cell write (sum of per-cell mix hashes, remove old/add new) so checksum() is O(1); snapshot only tiles whose dirty bit is set since the previous boundary (scarred tiles never change) and chain deltas, restore by replaying deltas from the oldest full copy. Witness: checksum equals the full-scan checksum at every tick of the witness scenario (11 determinism checks still pass), then re-run bench-rollback.mjs: checksum <= 0.05 ms and boundary snapshot O(active tiles) at 4050 and 11429 touched tiles.'
-  acceptance_criteria: Incremental hash bit-equal to full scan across the determinism suite; snapshot+checksum per boundary <= 0.3 ms at 11429 touched tiles with 15k active; restore equivalence witnessed; no per-cell allocation.
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending
 - id: fire-s1e-per-tile-reclaim-and-placement-fuel
@@ -960,12 +942,6 @@
   body: 'Found while bit-pattern auditing src/protocol/msgpack.js: pack({v:-0}) decodes to 0, so Object.is(-0, decoded) is false. Cause is not the float path - -0 >> 0 === -0 is true so msgpackr takes the integer branch and writes msgpack int 0, and MessagePack has no signed-zero representation. Pre-existing at useFloat32 3 and 0 alike (witnessed both). It is out of scope for the float32 fix but it is a real wire-exactness hole: any value that distinguishes -0 (a sign-carrying zero elevation, a 1/x reciprocal, an atan2 branch, a canonical-JSON or lockstep checksum that hashes bit patterns) flips silently. lockstep-checksum-canonical-float64-order means a checksum taken over bit patterns would disagree between a peer holding -0 and one holding 0.'
   acceptance_criteria: Decide between documenting -0 as not-wire-representable (and normalizing senders) or carrying the sign through a msgpack ext type; whichever is chosen, a witness packs -0 and +0 side by side and states the observed decoded values and whether Object.is holds, and a lockstep checksum over a payload containing -0 matches across two peers.
   status: pending
-- id: terrain-collider-initial-ring-cpu-at-many-clusters
-  title: The initial collider ring classifies every cluster unbudgeted, so a 64-player boot spends 9.4 s of CPU in one pass
-  body: 'MEASURED 2026-10-06 after landing terrain-collider-streamers-yield-and-center-cap, which made every player cluster get a ring instead of the first 8. start() calls _rebuildMulti(centers, true), so classification of all 64 rings (2717 chunks, cold chunk cache) and 2876 body adds run in one synchronous pass: process CPU for the initial ring went from 1.46 s (8 clusters) to 9.4 s (64 clusters) at 64 spread players, 1.58 s -> 2.84 s at 16, unchanged at 1. Steady rebuilds are budgeted and cheap by comparison (390 ms CPU, 272 ms wall at 64 players). The cost is inherent to covering every cluster, but paying it all inside boot is not: the chunk placement computation could be spread over the first few intervalMs ticks (players would have partial rings for the first second instead of the whole server stalling), or the chunk cache could be warmed from the heightfield streamer''s pass over the same area. Not measured, so nothing shipped.'
-  acceptance_criteria: Measure boot-to-first-ring per player at 16 and 64 spread players with the initial ring budgeted (deferring like a steady rebuild) against unbudgeted, reporting per-player time-to-first-collider and total initial-ring CPU. Ship the budgeted form only if no player's first collider lands later than it does today. Witness with the real streamer and a real PhysicsWorld; the byte budget and per-cluster quota must not change.
-  session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  status: pending
 - id: cluster-world-jolt-limits-right-sized
   title: Right-size the per-cluster-world Jolt reservation so more worlds fit per process
   body: |-
@@ -1171,18 +1147,6 @@
     So a follow switch costs roughly 2.3 s of solver CPU per field it has to recentre, in 2 ms slices, and the lattice frame evaluates the same planet over the same physical ground as the chart frame does. Not shipped: nothing here is a cost change, the measurement is the deliverable. The open question is whether a recentre can start from the resident field's samples re-expressed through the chart transfer (plus a residual solve over the cells the transfer moves most) instead of re-solving all 16384 cells, and whether the result stays inside the collider's own quantization bound (about range/30000, 2.1 mm on a 64 m range field).
   acceptance_criteria: Report per-field sample ms for a lattice recentre before and after seeding the new field from the resident field's samples re-expressed through createChartTransfer, on the same world and the same 6.166 deg tilt, with the per-cell residual against a full solve and the raycast difference over a 64x64 grid between the seeded build and the full solve. Ship the seeded form only if the raycast difference stays at or below the collider quantization bound (range/30000). If the residual is bounded but not small enough, say so and close with the measured residual instead.
   status: pending
-- id: sculpt-client-frame-ground-height-ignores-sculpt-delta
-  title: Client frame.groundHeightLocal ignores the sculpt height delta, so every client-side ground consumer reads un-sculpted ground
-  body: 'Server physics and the bake already honour sculpt (TerrainPhysics.js composes heightDelta.wrapHeightFn into the guarded terrain height source; EditorHandlers.js drives it from MSG.TERRAIN_SCULPT plus streamer.resculpt). The client did not: SculptOverlay pushed strokes only into the render override, so frame.groundHeightLocal stayed un-sculpted. Consumers: client/app.js predictionGroundSurface (prediction), Grass.js, Rocks.js, Vegetation.js placement, Weather.js ground grid, Relocation.js heightAt, camera.js altitude. The flatten brush also solved its target against un-sculpted ground while the server solved against sculpted.'
-  acceptance_criteria: 'Live page witness on the real in-page server: read frame.groundHeightLocal and the server collider height at one chart-local point, send a raise stroke through window.__app.sculptTerrain, and show the client frame height at that point moving with the collider (both change by more than 1 cm, and the gap between them does not grow) while a zero-stroke control keeps frame.groundHeightLocal === frame.cpuGroundHeightLocal. Zero comments.'
-  session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  status: pending
-- id: lockstep-directed-loss-freezes-peers-past-cut-tick
-  title: A single dead directional link freezes lockstep peers permanently
-  body: 'Witnessed on scripts/peer-profile-harness.mjs --world=lockstep-rts --profile=lockstep --peers=3 --deadLink=peer-c>peer-a --stallTicks=60 --duration=20000 (--deadLink added this pass): peer-a received nothing from peer-c, spent its 60 tick grace in connectingTicks, dropped c at cutTick 6, then simulated 0 ticks for the rest of a 20 s run (simTicks 0, stalls 540, driverHz 30). peer-c reached 3. peer-b, which could hear both, cut c at 6 and a at 3 and ran on alone at 29.4 Hz. has(peer,tick) returns true only for tick > cut, so a peer that never received the dropped peer inputs for ticks 1..cut can never advance past them, and the cut tick is max(reports) over survivors, which is exactly the range the starved peer is missing. A lower cut does not help because the survivors outrun the starved peer during its grace budget: by the time a drops c, b has already simulated past tick 6. Reachable whenever one direction of a pair is worse than the other (NAT, asymmetric routing, a peer that can send but not receive).'
-  acceptance_criteria: A --deadLink arm must end with every survivor simulating at the target rate after at most one stallTicks window, witnessed as simTicks per peer; state the before and after numbers and the cut ticks.
-  session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  status: pending
 - id: netcode-profile-downgrade-silent-for-remote-server-clients
   title: A peer-simulated world booted against a remote server still downgrades to authoritative in silence
   body: 'The gate that closes peer-simulated-world-boots-authoritative-silently-without-room sits at client/app.js:1235-1236 and reads _netcodeProfile, which is only non-null when the page itself loaded the world def. _worldDef is assigned at client/app.js:982 only under _runsInPageServer, and _runsInPageServer (client/app.js:189) is singleplayer or a host/join/room param. A client that opens a plain http://host/ against a server running apps/world/lockstep-rts.js therefore resolves no profile, never forms a roster and boots authoritative with no message at all, which is the case the row was filed about. Witnessed for the covered path: ?singleplayer&world=lockstep-rts logs the [netcode] warning and shows #netcode-profile-warning, and ?room=solo-<ts>&world=lockstep-rts throws the PeerRoster timeout, both on the live page.'
@@ -1195,12 +1159,6 @@
   acceptance_criteria: 'Two real clients in one room, both pointer-locked, with health sampled every shot: witness health reaching 0 and returning to 100 (respawnTime 1.5 s), and explain the Players count disagreement between the two clients.'
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending
-- id: netcode-rollback-conditioned-measurements
-  title: Measure the rollback profile the way the authoritative profile is measured
-  body: 'docs/netcode.md carries a full conditioned-link table for authoritative (0/50/100/150 ms added latency with jitter and loss: mispredict rate, correction magnitude and visibility, remote interpolation error, hit registration, bandwidth, tick stability) but the rollback section has no measurements of any kind, so the pluggable-profile claim in netcode-krunker-style-flexible is only half witnessed. scripts/peer-profile-harness.mjs already reports rollbacks, rollbacksPerS, avgDepth, maxDepth, unrecoverable, mispredictions, remoteCorrectionAvgCm, remoteCorrectionMaxCm, desyncs and checksumsCompared for --profile=rollback on apps/world/rollback-duel.js (inputDelayTicks 1, maxRollbackTicks 12, checksumIntervalTicks 30, tickRate 60).'
-  acceptance_criteria: rollback-duel at 0/0/0, 25/5/1, 50/10/2 and 100/20/3 with two real peers, reporting rollback rate and depth, mispredictions, remote correction magnitude, desyncs and sim rate, in the same table shape as the authoritative paragraph; docs/netcode.md updated with the numbers.
-  session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  status: pending
 - id: tsl-parity-geomorph-off-null-control-has-no-legacy-arm
   title: The TSL-vs-legacy geomorph-off null control exists for the TSL arm only, and neither geomorph boot has a settle body
   body: 'Every normal-path toggle the divergence hunt needs is already reachable from the page, so no new exposure is required: window.__texNrmK and window.__flatNormal are read per frame by BOTH renderers (legacy through gl-render.js:419 _g(n,d) which reads window[''__''+n] and coerces with +v, called at gl-render.js:1270 for uTexNrmK and :1300 for uFlatNormal; TSL through planet-tsl.js:258-259 in frame()), and window.__geomorphLod is read at planet-init through RenderControls.get (RenderControls.js:231 globalName=''__''+key, :237 reads window[globalName]) and passed as opts.geomorphLod by TerrainBackdrop.js:65 for TSL and :70 for legacy, landing in planet-tsl.js:95 and planet-orchestrator.js:25. bodies.mjs:88-101 already emits le-texNrmK0, le-flatNormal, le-texNrmK0FlatNormal and le-texNrmK0FlatNormalShadowOff for BOTH arms (build.mjs:28 tsl-left-edge and :32 legacy-left-edge), so the four discriminating arms are drivable today. The gap is the null control: build.mjs:33-34 defines only tsl-geomorph-off-boot and tsl-geomorph-off-capture, so a geomorph-off measurement exists for one renderer and there is no legacy twin to difference against, and neither geomorph boot runs settleBody, so its capture can be taken before the world has settled. Fix, on the scripts/tsl-parity owner''s surface (a6863b77c190b0512): add legacy-geomorph-off-boot with url(true,''g'') and the same flags string ''window.__geomorphLod=false;'' plus a legacy-geomorph-off-capture, and run settleBody for both geomorph arms. The flag lands through Page.addScriptToEvaluateOnNewDocument before Page.navigate (bodies.mjs:57-58), which is early enough for a construction-time opt. Witness already present: bodies.mjs:32 stamps geomorphLod:String(window.__geomorphLod) into the settle artifact, so a working arm reads "false" and an untoggled arm "undefined". Second, smaller trap in the same surface: the two arms coerce differently -- legacy accepts any value via +v while TSL requires Number.isFinite (planet-tsl.js:258), so an --extra=__texNrmK=false no-ops on the TSL arm and takes effect on legacy; every extra global must be a number.'
@@ -1210,5 +1168,558 @@
   title: No harness arm produces a slope contact at a stable tick rate, so prediction accuracy cannot be A/B measured
   body: 'scripts/netcode-conditioner-harness.mjs can only separate a prediction change on planet terrain (sandbox), because tps-game contacts are trimesh:floor and box:floor and stairs contacts are box:floor, i.e. every contact normal is +Y and characterStep.js:44 slopeRise is identically zero there. On sandbox the correction rate per ack tracks the server tick rate rather than the change: 3 baseline reps gave 0.2253 to 0.32553 and 3 fixed reps 0.2028 to 0.3497, with the within-arm spread across tick rates larger than any between-arm difference at matched rate, and errP95 bimodal at 11.67 and 20.42 cm across arms of both kinds. The box is also loaded, which the 36 to 60 Hz spread already shows.'
   acceptance_criteria: Add an arm that (a) puts a character on a real slope (planet terrain or a ramped trimesh) so byKind reports a contact whose normal is not +Y, and (b) pins the tick rate to within plus or minus 2 Hz across the A and B arms, e.g. by capping the server tick or by discarding reps outside the window. Show with two matched-rate reps that a known-inert change moves correction rate by less than the noise floor, then re-run the stored-ground-normal A/B (prediction-rebase-replay-uses-latest-ground-normal) on it and either ship it or leave it deleted with a number that separates.
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: minimap-hud-row-sweep-passes-no-y-guess
+  title: client/hud/MinimapHUD.js advances its terrain row sweep without a surface-solve guess
+  body: advanceTerrain (client/hud/MinimapHUD.js:145) calls sampleMinimapCell (src/shared/MinimapBiome.js:33) for every cell of the BUFFER_CELLS grid with no yGuess, so each solve starts at renderYOnSphere and pays about 3.12 height samples instead of about 2.23. sampleMinimapCell already forwards a guess and scripts/bake-minimap.mjs:108 already passes one; the HUD sweep is the remaining row-major caller that does not. scripts/bake-heightfield.mjs got the same treatment and its real N=257 bake went from 4627 ms to 3677 ms with 9 of 66049 cells differing by 1e-4 m. This one is a live client path on a per-frame deadline, so it needs its own measurement rather than the bake number.
+  acceptance_criteria: 'Carry a guess across the sweep in advanceTerrain: seed it from the previous cell in the row, reset it to NaN when the row wraps or when sampleMinimapCell throws or returns non-finite, and store it on the work item w because the scan is resumable across frames. Witness on the real HUD that the shaded minimap image is byte-identical or differs only at 4-dp rounding, and that the per-check cost drops; report evaluation counts per solve, since wall-clock on a loaded box is inflated by contention.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: cpu-plan-entity-bin-double-buffer-flip-on-change
+  title: 'Snapshot entity encode: double-buffer the 29-byte bin record and flip only when its bytes change'
+  subject: 'Stop re-allocating and re-hashing the snapshot entity bin record for every active dynamic entity every tick: pack into one of two reused buffers and flip only when the packed bytes actually differ, so unchanging entities skip the allocation, the FNV key build, the primeEntryDecode unpack and the computeFieldDelta byte scan.'
+  body: |-
+    TIER-0 parent: cpu-skip-and-replay-plan-browser. CPU-side, server tick path.
+
+    WHAT RECOMPUTES, PER TICK, PER ACTIVE DYNAMIC ENTITY
+    - src/netcode/SnapshotEncoder.js:420 refreshDynamicCache() -> fillEntityEnc(e, entry.enc) for every id in getActiveDynamicIds() (plus unmanaged and sleep-transition ids), unconditionally, every tick.
+    - src/netcode/SnapshotEncoder.js:136 packBinRecord(...) is called with no `into` argument, so src/netcode/SnapshotBinFormat.js:18 allocates a NEW Uint8Array(29) for every entity every tick. This is one allocation per active dynamic entity per tick, forever.
+    - src/netcode/SnapshotEncoder.js:136 also runs packQuat (src/netcode/SnapshotBinFormat.js:55: 4 abs, 3 compares, up to 4 round+clamp) and 11 byte writes.
+    - src/netcode/SnapshotEncoder.js:263 resolveKey() -> buildEntityKey() (src/netcode/SnapshotEncoder.js:234-242): FNV-1a over the model string, the 29 bin bytes, the bodyType string, the custStr string (a JSON string when custom is set) and one float32. _dirty is true for every refreshed entry (src/netcode/SnapshotEncoder.js:427), so this runs for every entity every tick.
+    - src/netcode/SnapshotEncoder.js:297 primeEntryDecode() -> unpackBinRecord() (src/netcode/SnapshotBinFormat.js:45): 10 field reads plus 7 object writes, once per non-env entity per tick via nearestViewerDist2 (src/netcode/SnapshotEncoder.js:307), called from applyEntry (src/netcode/SnapshotEncoder.js:335).
+    - src/netcode/SnapshotEncoder.js:198 computeFieldDelta(): its `a !== b` fast path and its 29-byte scan are reached only for entities whose key changed, so it is already gated -- but only because the key is a hash; it currently always falls through the byte scan for changed entities.
+
+    THE DEFECT THIS ALSO FIXES
+    Two identity memos in this file are dead today and a flip-on-change buffer makes them live:
+    - src/netcode/SnapshotEncoder.js:298 `if (entry._pBin === entry.enc[2]) return entry` can never hit, because fillEntityEnc replaces enc[2] with a freshly allocated buffer every tick. So primeEntryDecode re-unpacks every entity every tick even when it did not move.
+    - src/netcode/SnapshotEncoder.js:202 `let binChanged = a !== b` is always true for the same reason, so the 29-byte scan runs even when the two records are byte-identical.
+    The player path already uses exactly the flip trick this row proposes: src/netcode/SnapshotEncoder.js:48-49 `rec.flip ^= 1` with `rec.bins[rec.flip]`. Apply the same shape to entities, with the flip conditional on the bytes actually differing.
+
+    STABLE STRUCTURE (the captured graph)
+    The set of dynamic entities, the field schema of the 29-byte record (BIN_RECORD_BYTES, src/netcode/SnapshotBinFormat.js:4), the FNV key function, and the per-entry cache object.
+
+    CHANGING INPUTS
+    Entity position(3), rotation(4), velocity(3), scale(3), model, bodyType, custom.
+
+    INVALIDATION KEY AND WHY IT IS SAFE
+    The key is the packed bytes themselves, not an input hash. Each entry owns two reused Uint8Array(29) buffers. Each tick: pack into bins[flip^1] (src/netcode/SnapshotBinFormat.js:17 already accepts an `into` argument), compare the 29 bytes against bins[flip]; equal -> keep flip, reuse the cached key k, and enc[2] keeps its identity so both memos above hit; different -> commit the flip, set _dirty, recompute k. Because the skip is decided by comparing the actual output, there is no input-hash stale-output exposure for the CHANGE DETECTION itself.
+    The value that IS cached across ticks is the derived FNV key k, and that one does depend on the code that produces it. It must be invalidated by the version of the producing code, never by its inputs alone (deviation.build-cache-no-code-version-key). Concretely: add BAKE_INPUTS_SNAPSHOT_ENTITY_ENC = ['../netcode/SnapshotBinFormat.js','../netcode/SnapshotEncoder.js','../shared/fnv1a.js'] to src/static/BakeCodeVersion.js and export SNAPSHOT_ENTITY_ENC_CODE_VERSION = bakeCodeVersion(BAKE_INPUTS_SNAPSHOT_ENTITY_ENC), following the existing HEIGHTFIELD_BAKE_CODE_VERSION shape at src/static/BakeCodeVersion.js:78-108, and register the row in BAKE_TRANSFORMS (src/static/BakeCodeVersion.js:110-116) so scripts/check-cache-keys.mjs fails when the packing code changes. Store the version on each entry; on mismatch, drop k and force one repack. No human has to remember to bump anything -- the version is a content hash of the producing source.
+
+    WORST-CASE BOUND
+    Skipped work is bounded by the active dynamic entity count times a constant (1 pack, 1 29-byte compare, no allocation). The miss path is byte-for-byte today's behaviour. A false 'unchanged' verdict is impossible: the verdict is produced by comparing the packed bytes that would have been sent. The one way this can go wrong is a cached k surviving a change to packBinRecord/packQuat/buildEntityKey, which the code-version field above closes.
+
+    MEASUREMENT (integer work units, immune to timer inflation -- this box's zero-delta control arm is +/-10% and currently ~2.5x inflated, so nanosecond numbers are not admissible)
+    Deciding counter: over N ticks on a live server, (number of active dynamic entities whose 29-byte bin record is byte-identical to the previous tick) and (number of active dynamic entities). The first number is the count of (allocation + FNV key build + unpackBinRecord) units skippable per tick. Second counter: primeEntryDecode memo hits per tick, measured by wrapping SnapshotEncoder.refreshDynamicCache (a writable static class property) and counting entries where entry._pBin === entry.enc[2].
+  acceptance_criteria: 'Live server witness over >=300 ticks with >=4 connected players on apps/world/tps-game.js: report (a) active dynamic entities per tick, (b) byte-identical bin records per tick, (c) fraction (b)/(a). Pass requires (c) >= 0.20 AND, after the change, primeEntryDecode memo hits per tick equal to (b) within 1% AND zero Uint8Array(29) allocations per tick attributable to fillEntityEnc (verified by an allocation-count delta, not by a timer). Correctness: the decoded snapshot a real PhysicsNetworkClient receives must be byte-identical before and after the change over the same seeded tick range (compare decoded entity arrays field by field), and a moved entity must appear moved on the very next tick (inject a teleport and assert the client sees it that tick).'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: cpu-plan-static-collision-grid-skip-rebuild
+  title: Reuse the collision grid across ticks instead of re-bucketing every collision entity every tick
+  subject: 'Stop rebuilding the 4 m collision grid from scratch every tick: keep a static bucket map and re-bucket only entities whose transform actually changed, using the same 10-float change capture the static-motion tracker already uses.'
+  body: |-
+    TIER-0 parent: cpu-skip-and-replay-plan-browser. CPU-side, server tick path.
+
+    WHAT RECOMPUTES, PER TICK
+    src/apps/AppRuntimeTick.js:87 _tickCollisions() runs every tick (src/apps/AppRuntimeTick.js:25 and :45). With c.length >= _COL_GRID_THRESHOLD (100, src/apps/AppRuntimeTick.js:83) it takes src/apps/AppRuntimeTick.js:120 _tickCollisionsGrid(), which per tick:
+    - clears the grid Map (src/apps/AppRuntimeTick.js:121)
+    - for EVERY collision entity: floors two coordinates, forms a key, does _colGrid.get / _colGridCells.get, possibly allocates a cell array, and pushes the entity (src/apps/AppRuntimeTick.js:125-131)
+    - then re-walks every entity again for the 3x3 neighbourhood query (src/apps/AppRuntimeTick.js:132-148)
+    - plus a periodic prune pass over _colGridCells (src/apps/AppRuntimeTick.js:122-124)
+    The collision entity set is dominated by static world props whose transform never changes, so the bucketing result is identical tick after tick. Note the _colR radius recompute at src/apps/AppRuntimeTick.js:89 is already cached on the collider (src/apps/AppRuntimeTick.js:71-79) and is not part of this row.
+
+    STABLE STRUCTURE (the captured graph)
+    The cell grid topology (cell size _COL_CELL_SZ = 4, src/apps/AppRuntimeTick.js:84, key layout *65536), the static bucket map, and the membership of the collision entity set.
+
+    CHANGING INPUTS
+    Entity positions, and the membership of _collisionEntities.
+
+    INVALIDATION KEY
+    The project already owns the exact primitive needed: src/apps/AppRuntimeStaticMotion.js:4 captureTransform(xf, e) compares 10 floats (position 3, rotation 4, scale 3) and returns whether they changed, with the previous values held in a Float64Array(11) (src/apps/AppRuntimeStaticMotion.js:23). Reuse it per collision entity: the grid is reused when every collision entity's captureTransform returns false and the collision-set membership version is unchanged.
+    Membership version: _collisionEntities is mutated by register/deregister paths; add a HookedSet-backed version counter there (src/apps/AppRuntime.js:72 already shows the HookedSet pattern used for _movedStaticIds, so a hook that bumps a version is the established shape). A static entity that is deliberately moved is already tracked in _movedStaticIds (src/apps/AppRuntime.js:72, src/apps/AppRuntimeStaticMotion.js:18) and its transform change is caught by captureTransform anyway, so it does not need a second signal.
+    Because the skip is decided by comparing the actual transform values, there is no input-hash stale-output exposure for the change decision (deviation.build-cache-no-code-version-key). The one cached VALUE is the bucket map, which is derived from _COL_CELL_SZ and the key layout: fold the producing code's version into it by exporting a COLLISION_GRID_CODE_VERSION from src/static/BakeCodeVersion.js over ['../apps/AppRuntimeTick.js'] and registering it in BAKE_TRANSFORMS (src/static/BakeCodeVersion.js:110-116) so scripts/check-cache-keys.mjs fails if the grid layout changes while a bucket map could survive. Store the version with the map and drop the map on mismatch.
+
+    WORST-CASE BOUND
+    Skipped work is bounded by the collision entity count times a constant (10 float compares plus a version compare). The miss path is byte-for-byte today's full rebuild. A false 'unchanged' is impossible: captureTransform reads the live entity position, so a moved entity always invalidates. The failure mode to guard is only a membership change that does not bump the version -- hence the HookedSet hook rather than a hand-maintained counter.
+
+    MEASUREMENT (integer work units, immune to timer inflation -- this box's zero-delta control arm is +/-10% and currently ~2.5x inflated, so nanosecond numbers are not admissible)
+    Deciding counter: per tick, (a) collision entities re-bucketed (Map.get + key formation + array push each) and (b) how many of those had an unchanged transform. Skippable units per tick = (b). Also count cell-array allocations per tick. If (b)/(a) < 0.5 the delta is likely below this box's noise floor and the row should be closed as measured-not-worth-it rather than shipped.
+  acceptance_criteria: 'Live server witness on apps/world/tps-game.js over >=300 ticks with _collisionEntities.length >= 100 so the grid path is taken: report collision entities per tick, unchanged-transform collision entities per tick, and cell-array allocations per tick before and after. Pass requires unchanged-transform count >= 50% of collision entities AND, after the change, cell-array allocations per tick drop to 0 on ticks with no membership change and no transform change. Correctness: with GM_PROFILE=1, _lastCollisionMs must not regress beyond the run''s own zero-delta control arm, and a scripted pair of overlapping entities must still produce onCollision on both entities on the tick they overlap (witness the app event, not a log line).'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: cpu-plan-interactables-gate-on-press
+  title: Skip the interactable x player distance sweep on ticks where no player is pressing interact
+  subject: Gate _tickInteractables on a per-tick any-player-pressed-interact flag so the whole interactable x player distance sweep is skipped on ticks where no player is pressing the interact key.
+  body: |-
+    TIER-0 parent: cpu-skip-and-replay-plan-browser. CPU-side, server tick path.
+
+    WHAT RECOMPUTES, PER TICK
+    src/apps/AppRuntimeTick.js:187 _tickInteractables(), invoked every tick from src/apps/AppRuntimeTick.js:26 (and :48 in the profiled branch). It runs a full nested sweep: for every id in this._interactableIds (src/apps/AppRuntimeTick.js:194) and for every player in this.getPlayers() (src/apps/AppRuntimeTick.js:196) it reads both positions and does a squared-distance test (src/apps/AppRuntimeTick.js:198-199). That is E_interactable * P_players distance tests per tick, plus one getPlayers() array build per tick and one Map.get for the cooldown key per pair that passes (src/apps/AppRuntimeTick.js:200-201).
+    The interactable set is overwhelmingly static world props, so E is large and constant while the sweep result is almost always 'nothing happened'.
+
+    STABLE STRUCTURE (the captured graph)
+    The (interactable entity, player) pair graph, the per-pair cooldown table, and the radius test.
+
+    CHANGING INPUTS
+    Entity positions, player positions, and the per-player p.lastInput.interact bit.
+
+    INVALIDATION KEY
+    The whole subgraph's only observable effect is fireEvent(e.id,'onInteract',p) at src/apps/AppRuntimeTick.js:205, which is itself already gated on `if (p.lastInput?.interact && tick >= expiresAtTick)` at src/apps/AppRuntimeTick.js:203. Therefore: if no connected player has lastInput.interact truthy this tick, no distance test can produce any output, and the entire sweep is skipped. Key = one boolean computed once per tick from the player input state (a per-player input version already exists as PlayerState.inputSequence / lastInput, so the sweep can also be narrowed to only the players that pressed, which is the correct narrowing when at least one pressed: replace the inner `for (const p of players)` with an iteration over the pressing players only).
+    No cached VALUE is produced by this skip, so there is no cache and therefore no input-hash stale-output exposure (deviation.build-cache-no-code-version-key) and no code-version key to fold in. This is a pure prune, not a memo.
+
+    WORST-CASE BOUND
+    The skip is total and bounded: one pass over players reading one boolean each. The miss path is identical to today's behaviour. When at least one player pressed, the sweep runs for the pressing players only, which is a strict subset of today's work; correctness is preserved because a player who did not press can never satisfy src/apps/AppRuntimeTick.js:203. There is no path by which this skip returns a plausible wrong value: skipping produces no value at all, and the gating condition is the same condition the event itself already tests.
+
+    MEASUREMENT (integer work units, immune to timer inflation -- this box's zero-delta control arm is +/-10% and currently ~2.5x inflated, so nanosecond numbers are not admissible)
+    Deciding counter: per tick, (a) interactable x player distance tests performed today, (b) number of ticks out of N in which no connected player has lastInput.interact truthy. Skippable distance tests per tick = (a) * (b)/N.
+  acceptance_criteria: 'Live server witness with >=4 connected players on apps/world/tps-game.js over >=300 ticks: instrument a counter inside the distance test and report distance-tests-per-tick before and after. Pass requires: after the change, distance-tests-per-tick on ticks where no player pressed interact is exactly 0, and total distance tests over the run drop by at least 90%. Correctness: an entity the player is standing next to fires onInteract on the same tick the interact bit is observed set (witness by a real client sending interact and observing the app event that tick), and no onInteract fires for a player who did not press.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: cpu-plan-getsnapshot-transform-version-incremental
+  title: Make AppRuntime.getSnapshot() incremental and stop keying its cache on the tick counter
+  subject: getSnapshot() rebuilds every entity every tick because its cache key includes the strictly-increasing tick counter; drop tick from the key and rebuild only entities whose transform or identity actually changed, using the captureTransform compare the static-motion tracker already owns.
+  body: |-
+    TIER-0 parent: cpu-skip-and-replay-plan-browser. CPU-side, server tick path.
+
+    WHAT RECOMPUTES, AND THE TWO DEFECTS
+    (1) src/apps/AppRuntime.js:505 getSnapshot() caches on `this._snapshotCache._version === this._snapshotVersion && this._snapshotCache.tick === this.currentTick`. currentTick increments every tick, so the cache can only ever hit if getSnapshot() is called twice inside one tick. In practice it rebuilds the whole list every tick.
+    (2) Each rebuild runs src/apps/AppRuntime.js:502 _encodeEntity(id, e) for every entity, allocating one object plus four arrays (position, rotation, scale, velocity) per entity per tick.
+    Callers: src/sdk/TickHandler.js:368 (the no-relevance-radius broadcast path, per tick), src/sdk/ServerAPI.js:227, src/sdk/ServerHandlers.js:101 (join) and :342 (recovery), src/sharding/RegionWorkerEntry.js:149.
+
+    WHY _snapshotVersion IS NOT THE KEY (the hazard that makes this row more than a cache)
+    src/apps/AppRuntime.js:503 _markDirty(id) bumps _snapshotVersion, but it is called from exactly two places: src/apps/AppRuntime.js:466 (setParent) and src/apps/AppRuntime.js:749 (restoreGameState). Physics writes entity transforms in place (src/apps/AppRuntimePhysics.js:29-41 syncDynamicBody / setBodyPosition) and apps mutate e.position directly, and neither bumps _snapshotVersion. So keying a snapshot cache on _snapshotVersion ALONE would silently serve a stale snapshot of bodies that have moved. That is precisely the 'skip that returns a plausible wrong value' case, and it is why this row does not use _snapshotVersion as its invalidation key. (If desired, fixing _markDirty coverage is a separate concern; this row must not depend on it.)
+
+    STABLE STRUCTURE (the captured graph)
+    The entity set, the encoded-object schema (src/apps/AppRuntime.js:502), and the per-entity cached encoded object.
+
+    CHANGING INPUTS
+    Per entity: position(3), rotation(4), scale(3), velocity(3), model, bodyType, custom, parent.
+
+    INVALIDATION KEY
+    Self-checking, not an input hash. Per entity keep a Float64Array of the last encoded transform plus the last model / bodyType / custom reference. Each tick run the same comparison shape as src/apps/AppRuntimeStaticMotion.js:4 captureTransform (that function already exists and is already used for exactly this purpose on statics at src/apps/AppRuntimeStaticMotion.js:24), extended with velocity; reuse the cached encoded object when nothing changed, re-encode when something did. Membership changes (spawn/despawn) rebuild the array. Then drop `tick` from the cache key at src/apps/AppRuntime.js:505 and refresh only the `tick` field on the reused snapshot object.
+    The cached VALUE is an encoding of entity state, so it does depend on the code that produces it: export SNAPSHOT_ENCODE_CODE_VERSION from src/static/BakeCodeVersion.js over ['../apps/AppRuntime.js','../apps/AppRuntimeStaticMotion.js'] and register it in BAKE_TRANSFORMS (src/static/BakeCodeVersion.js:110-116) so scripts/check-cache-keys.mjs fails if _encodeEntity changes while a cached encoding could survive (deviation.build-cache-no-code-version-key). Store the version on the cache and drop it on mismatch.
+
+    KNOWN HAZARD TO RESOLVE IN IMPLEMENTATION
+    Today getSnapshot() hands out a fresh array each call; reusing one array across ticks means a caller that retains it across ticks would see later mutations. Enumerate the four call sites above and either copy-on-hand-out for retaining callers or document that the array is valid until the next tick. The acceptance witness below must cover the retaining-call case explicitly.
+
+    WORST-CASE BOUND
+    Skipped work is bounded by entity count times a constant (about 14 comparisons plus 10 stores). The miss path is today's full rebuild. A false 'unchanged' is impossible: the verdict compares the live transform values. The residual risk is the shared-array aliasing above, which is a shape change, not a staleness window.
+
+    MEASUREMENT (integer work units, immune to timer inflation -- this box's zero-delta control arm is +/-10% and currently ~2.5x inflated, so nanosecond numbers are not admissible)
+    Deciding counter: per tick, (a) _encodeEntity calls today (= entities.size) and (b) entities whose transform/identity actually changed since the previous build. Skippable units per tick = (a) - (b).
+  acceptance_criteria: 'Live server witness on apps/world/tps-game.js over >=300 ticks: report entities.size, _encodeEntity calls per tick before and after, and entities-with-changed-transform per tick. Pass requires _encodeEntity calls per tick to fall to at most (changed-per-tick + 1). Correctness, all four witnessed live: (i) a body moved by physics appears with its new position in getSnapshot() on the very next tick (not one tick late) -- this is the staleness test that would catch using _snapshotVersion; (ii) the join path src/sdk/ServerHandlers.js:101 returns a snapshot containing every entity; (iii) a caller that retains the returned array across a tick boundary sees a stable snapshot, or copies are handed out -- whichever the implementation chooses, witness it; (iv) decoded client snapshots byte-match the pre-change behaviour over the same seeded tick range.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: tsl-parity-pxworld-camdist-fp32-precision-asymmetry
+  title: TSL and legacy derive the terrain pixel scale from different position bases at fp32 ulp scale
+  body: |-
+    TSL terrain-material-tsl.js:166 derives pxWorld from the floating-origin-relative position: max(length(fwidth(vRelP)), 0.001). Legacy terrain.glsl:806 derives it from the absolute world position: max(length(fwidth(vWorld)), 0.001). The two agree in real arithmetic and disagree in fp32: at planet radius 6.36e6 m the ulp of vWorld is 0.5 m, while vRelP is a small number of metres from the render origin, so the same surface point quantises differently on the two arms before either computes a pixel scale.
+
+    Magnitude, measured against the band it feeds: texFarFade spans 0..10 m (terrain-defaults.js:49-50) and octFarFade 0.0015..0.015 m, so a 0.25 m quantisation of the input moves the fade factor k by a few percent. That is a contributor to the left-edge delta, not the carrier: the AMD left-edge ratio is 6.74 against an NV 2.38 and this term is present on both GPUs identically, so it cannot produce the GPU-dependent part of the gap. It is still the one difference in the ranked divergence list that no window toggle can blank, because it is inside the value both arms compute rather than in a term either arm can be asked to drop.
+
+    Consequence: every downstream LOD and normal-map fade decision inherits it, so a left-edge window that blanks texDn and the geometric normal will still show a residual floor that this term explains, and that floor must not be read as a third carrier.
+  acceptance_criteria: 'A witness that isolates the term rather than a window that guesses at it: either (a) a parity pair in which both arms compute pxWorld from the same position basis - fp64 in the shader, or a shared relative basis promoted identically on both - showing the left-edge and leftLower ratios before and after, or (b) a numeric bound stating the induced shift in k at the left-edge region and showing it is below that region''s measured noise floor. A row that only restates the ulp arithmetic without one of those two is not the acceptance evidence.'
+  status: pending
+- id: tsl-parity-pinned-server-stamps-process-start-not-window
+  title: 'Reopened: the pinned server''s /__identity sha is the enclosing repo''s HEAD at process start, not the snapshot''s pin, and it never changes per window'
+  body: |-
+    Reopened deliberately. This row was marked resolved on the grounds that scripts/tsl-parity/analyze.mjs (ca481eee) no longer trusts the boot stamp and derives the capture sha from pin.json instead. That resolution left the server's behaviour exactly as it was, which is what this row is about, so it was a hedge and it is reopened here.
+
+    The defect: GET /__identity (src/sdk/StaticHandler.js:107, stamped by src/sdk/ServerIdentity.js) reports sha = the git HEAD resolved once when the server process starts. A pinned snapshot directory has no .git of its own, so that resolution walks up to the enclosing repository and returns the repo's HEAD at process start. Observed directly: a server started with cwd C:\dev\spoint\.gm\pinned\b69c77545323 while the repo was at a318f025 reported sha=a318f025, and it kept reporting that value for every later window, including windows whose served bytes were a different pin. The endpoint therefore names neither the served content nor the window; it names whatever the tree happened to be when the process booted.
+
+    Why it still matters with the analyzer fixed: the analyzer's pin.json fallback makes the verdict correct, but every other consumer of /__identity - run drivers, cross-session bookkeeping, anyone who curls the endpoint to ask 'what is this server serving' - gets a sha that is wrong for the whole life of the process. A stamp that is only safe because the one tool that reads it has stopped believing it is a trap for the next reader.
+
+    Fix, scoped to the server: stamp per window, or rather per snapshot, which is what the window actually pins. scripts/pinned-snapshot.mjs materializes the snapshot; have it write the resolved pin sha into the snapshot directory (a pin.json or .pin-sha next to the served tree), and have ServerIdentity report that file's sha for the served root, falling back to the git resolution only when no such file exists. The value then describes the served bytes for the life of the server and cannot drift with the tree.
+  acceptance_criteria: Start the pinned snapshot server while the enclosing repository is at a HEAD that differs from the pin, then GET /__identity and show sha equal to the pin sha b69c775453232fcd9d734d0477c11d3d4675d2c6 and not to the repo HEAD; repeat the read after moving the repo to a third HEAD without restarting the server and show the value unchanged. Also show a server started from a directory with no pin marker still reports a sane git-derived sha, so the fallback path is exercised rather than assumed.
+  status: pending
+- id: cpu-plan-aoi-ring-cell-neighbours-capture
+  title: Cache the AOI 8-cell neighbour ring and its world centres per cell instead of recomputing them every snapshot pass
+  subject: computeRingRelevantIds recomputes 8 resolveCell calls and 8 cell-centre solves for every distinct player cell on every snapshot pass, because _ringCache and _spatialCache are cleared unconditionally; both are a pure function of the cell grid and almost never change.
+  body: |-
+    TIER-0 parent: cpu-skip-and-replay-plan-browser. CPU-side, server snapshot path.
+
+    WHAT RECOMPUTES
+    - src/sdk/TickHandler.js:255-257 clears _spatialCache, _ringCache and _cellShareCache at the top of every buildAndSendSnapshots pass, so every ring lookup is a guaranteed miss.
+    - src/sdk/TickHandlerAOI.js:31 computeRingRelevantIds(): for each distinct player cell it calls neighborCells (src/sdk/TickHandlerAOI.js:56) -> 8 x resolveCell (CubeSphereCells.js:72: up to 2 hops with string edge compares and one object allocation each) plus one array allocation; then per neighbour it runs _cellCenterWorld (src/sdk/TickHandlerAOI.js:45: 2 Math.tan, 1 Math.hypot, 9 multiplies, one array allocation), nearbyPlayerIdsHysteresis, and getRelevantDynamicIdsWithStarvation; plus 2 new Set() and one object per ring (src/sdk/TickHandlerAOI.js:67-69).
+    - collectStarved (src/spatial/Octree.js:167) walks all entities per viewer: O(N x viewers).
+    Work units per distinct player cell per snapshot pass: 8 resolveCell calls, 8 cell-centre solves, 8 array allocations, 2 Set allocations, 1 object allocation.
+
+    STABLE STRUCTURE (the captured graph)
+    The 8 neighbour cell keys and their _cellCenterWorld points. They are a pure function of (cellKey, cellsPerFace, planetRadius, relevanceRadius). They do not depend on which players occupy the cell. The cell grid is fixed for the life of the world.
+
+    CHANGING INPUTS
+    The set of player-cells present this pass; relevanceRadius; planetRadius; cellsPerFace; chart epoch.
+
+    INVALIDATION KEY
+    Per cellKey, cache (neighbourKeys[8], centres[8]).
+    key = fnv1a(SCHEMA_RING || fnv1aString(computeRingRelevantIds.toString() + _cellCenterWorld.toString() + neighborCells.toString() + resolveCell.toString()) || planetRadius || relevanceRadius || cellsPerFace || chartEpoch || cellKey)
+    The CODE term is mandatory: a cache keyed on inputs alone silently serves stale output forever when the transform code changes (deviation.build-cache-no-code-version-key). src/shared/fnv1a.js:24 fnv1aString already exists; hashing Function.prototype.toString() of the emitting functions means any edit to the producing code invalidates the artifact with no human bumping a number. SCHEMA_RING is a hand-bumped int covering the artifact's own shape. Store the key inside the cached artifact and compare on read; mismatch discards and recomputes, never serves. Fail closed: if toString() is unavailable or the read throws, treat as a permanent miss rather than a hit.
+    Also fold in chartEpoch -- chart re-anchor already bumps it, and a re-anchor changes the cell lattice.
+
+    WORST-CASE BOUND
+    Skipped path is 8 array reads. Miss path is today's code. Bounded by the distinct player-cell count. Failure mode if the key is wrong: a viewer is served AOI cells from the wrong cube face across a seam, so entities pop in and out at seams. That is visible and testable, and the key covers every input the computation reads, so a false hit requires planetRadius/relevanceRadius/cellsPerFace to change without going through the paths that rebuild the cache -- which the chartEpoch and radius terms close.
+
+    MEASUREMENT (integer work units, immune to timer inflation -- this box's zero-delta control arm is +/-10% and currently ~2.5x inflated, so nanosecond numbers are not admissible)
+    Deciding counter: per snapshot pass, (a) resolveCell calls, (b) _cellCenterWorld calls, (c) array/Set/object allocations inside computeRingRelevantIds, (d) distinct player cells. After the change, (a) and (b) must fall to 8 per NEW distinct cell only, i.e. to 0 per pass once the cells are populated. Re-measure with a zero-delta control arm in the same window.
+
+    RELATED FLAG (correctness, not perf)
+    _spatialCache entries hold relevantIds from getRelevantDynamicIdsWithStarvation, a per-tick dynamic query, yet the caches are cleared every pass at src/sdk/TickHandler.js:255-257. Confirm that clear cadence matches the staleness that query tolerates; if it does not, that is an AOI correctness bug upstream of this row and must be resolved first.
+  acceptance_criteria: 'Live multi-player server witness (needs stageLoader, spatial and a real player set) over >=300 snapshot ticks with >=8 players spread across >=4 distinct cells: report per pass (a) resolveCell calls, (b) _cellCenterWorld calls, (c) allocations inside computeRingRelevantIds. Pass requires (a) and (b) at 0 per pass after warmup (cells populated) and a zero-delta control arm in the same window showing the counters are not themselves drifting. Correctness: for every cell a player occupies during a scripted circumnavigation crossing every cube-face seam, the neighbour set served must be identical to a fresh neighborCells() computed without the cache, and no entity may pop in or out at a seam (compare the relevant id set per tick before and after).'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: cpu-plan-static-tile-index-int-span-key
+  title: Replace the StaticTileIndex 19-concat string tile key with an integer tile-span compare
+  subject: StaticTileIndex.update builds a ~70-character string key from 10 floats on every body touch and 55 percent of its cost is that string; key on the integer tile span instead and skip the forget plus re-add when the span is unchanged.
+  body: |-
+    TIER-0 parent: cpu-skip-and-replay-plan-browser. CPU-side, physics bookkeeping (not per-tick, but per body churn, and the churn is driven by the collider streamer).
+
+    WHAT RECOMPUTES
+    src/physics/StaticTileIndex.js:37 update(), called from src/physics/World.js:114 _addBody, :157 _repositionBody and :514 removeBody. Per body touched: 1 GetWorldSpaceBounds() call, 10 float getters, 19 string concatenations into a ~70-character key, 1 Map.get, 1 Map.set.
+    Measured in this survey pass against the real module: 5.539 microseconds per update on a body that did not change, of which 3.040 microseconds (55 percent) is the string key alone; 2 Map operations per update; 2000 bodies produce 3147 tiles.
+    The churn is not per-tick but is driven by the collider streamer: vegetation cap 384 (src/terrain/VegPhysics.js:41) recycles bodies through the park position on every evict/add, firing 2 update() calls per collider per 300 ms rebuild, and each one bumps t.version on every tile it touches, invalidating tile builds downstream.
+
+    STABLE STRUCTURE (the captured graph)
+    The body -> integer tile span (tx0, tx1, tz0, tz1).
+
+    CHANGING INPUTS
+    The body's world-space bounds and rotation (raw float64s, already read at src/physics/StaticTileIndex.js:35-36).
+
+    INVALIDATION KEY
+    Store the 4 integers instead of the string. Equality of the 4 integers implies an identical tile span, which implies no behavioural difference at all, so this key cannot produce a false hit -- the key IS the output. Formally:
+    key = fnv1a(SCHEMA_TILESPAN || fnv1aString(update.toString() + forget.toString()) || id || tileM || marginM || MAX_TILES_PER_BODY || COLUMN_HALF_Y_M || float64 bits of (minX,minY,minZ,maxX,maxY,maxZ,qx,qy,qz,qw))
+    fnv1aString already exists at src/shared/fnv1a.js:24. The CODE term is mandatory: a key derived from inputs alone silently serves stale output forever when the transform code changes (deviation.build-cache-no-code-version-key), and hashing Function.prototype.toString() of update() and forget() makes any edit auto-invalidate. Fail closed -- if toString() is missing or the read throws, treat as a permanent miss, never a hit.
+
+    WORST-CASE BOUND
+    Skipped path is a 4-integer compare. Miss path is the current forget() plus re-add. Worst realistic case: a body that genuinely moved pays one extra compare. There is no plausible-wrong mode: the compare is over exactly the value that determines tile membership, and the float64 bits are the same bits the bounds getters return.
+
+    MEASUREMENT (integer work units, immune to timer inflation -- this box's zero-delta control arm is +/-10% and currently ~2.5x inflated, so microsecond numbers must be re-taken with a control arm)
+    Deciding counter: per collider-streamer rebuild, (a) StaticTileIndex.update calls, (b) of those, the number whose integer tile span is unchanged from the stored span, (c) string concatenations performed. Skippable units = (b), and (c) must fall to 0.
+  acceptance_criteria: 'Real-module witness (no Jolt needed for the key path, but confirm against a real PhysicsWorld too): report update() calls per collider-streamer rebuild, unchanged-span updates, and string concatenations, before and after. Pass requires string concatenations in update() to reach 0 and unchanged-span updates to skip the forget+re-add entirely. Correctness: over a scripted sequence of 2000 body adds, 2000 repositions and 2000 removes, the resulting tile membership (body -> tile span) must be identical to the pre-change implementation, compared tile by tile; and a body moved across a tile boundary must appear in its new tile span on that same call. Re-measure the 5.539 us and 55 percent figures with a zero-delta control arm in the same window before quoting them as the win.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: cpu-plan-static-collision-pair-capture-and-replay
+  title: Capture the static-vs-static collision pair list and replay it instead of rebuilding and re-probing the grid every tick
+  subject: The static half of the collision grid is recomputed every tick -- binning every static entity into the 4 m grid and re-running the 3x3 probe -- but statics never move, so the pair list and its payloads are a captured artifact that can be replayed.
+  body: |-
+    TIER-0 parent: cpu-skip-and-replay-plan-browser. CPU-side, server tick path. This is the deeper form of cpu-plan-static-collision-grid-skip-rebuild (which only reuses the binning); this row also captures the pair list and the payload sequence.
+
+    WHAT RECOMPUTES, PER TICK
+    src/apps/AppRuntimeTick.js:87 _tickCollisions() runs every tick (src/apps/AppRuntimeTick.js:25 and :45). Above _COL_GRID_THRESHOLD = 100 (src/apps/AppRuntimeTick.js:83) it takes _tickCollisionsGrid (src/apps/AppRuntimeTick.js:120), which per tick clears the grid (src/apps/AppRuntimeTick.js:121), bins EVERY collision entity with a Map.get / Map.set and an array push (src/apps/AppRuntimeTick.js:125-131), then re-walks every entity for the 3x3 neighbourhood probe (src/apps/AppRuntimeTick.js:132-148), then runs the periodic prune (src/apps/AppRuntimeTick.js:122-124).
+    Measured in this survey pass with the real mixinTick, fireEvent sinked to a counter:
+      N=2000 entities / 8 movers: 21904 Map.get, 3808 Map.set, 3657 pair tests, 1 Map.clear per tick
+      N=20000 / 32 movers: 204672 Map.get, 9344 Map.set, 275292 pair tests
+      Phase cost, static-only vs movers-only, ms/tick: 500/8 -> 1.031 vs 0.020; 1000/8 -> 0.946 vs 0.002; 2000/8 -> 3.585 vs 0.002; 5000/32 -> 15.160 vs 0.004
+    The movers-only cost is two orders of magnitude smaller than the static cost, so roughly the whole phase is work whose answer never changes. (Caveat: the survey measured the discovery path with fireEvent sinked to a counter; dispatch cost is excluded from those ms figures, so re-measure end to end with a zero-delta control arm before quoting the win.)
+
+    STABLE STRUCTURE (the captured graph)
+    (a) the 4 m cell key of every bodyType === 'static' collision entity; (b) the complete static-vs-static candidate pair list from the 3x3 probe; (c) the ordered sequence of _collisionPayload results (src/apps/AppRuntimeTick.js:93) for the pairs that actually overlap.
+
+    CHANGING INPUTS
+    Positions and radii of the moving subset; membership of _collisionEntities; _COL_CELL_SZ; _COL_GRID_THRESHOLD.
+
+    INVALIDATION KEY
+    key = fnv1a(SCHEMA_COLCAP || fnv1aString(_tickCollisionsGrid.toString() + _colR.toString() + _collisionPayload.toString()) || _COL_CELL_SZ || _COL_GRID_THRESHOLD || collisionListVersion || seq over statics of (id, float64 pos[0..2], _cachedColR))
+    collisionListVersion is a version counter bumped by every site that changes the collision set or a static's transform: _rebuildCollisionList (src/apps/AppRuntime.js:342), the bodyType change path (src/apps/AppRuntime.js:372-374), setEntityPosition (src/apps/AppRuntime.js:241), setEntityVelocity, restoreGameState (src/apps/AppRuntime.js:740), and the chart re-anchor migrators. Do NOT reuse appRuntime._staticVersion -- it is bumped only by destroyEntity (src/apps/AppRuntime.js:349), not by setEntityPosition, so it is a false-hit hazard here. Use a HookedSet-backed counter (the pattern already exists at src/apps/AppRuntime.js:72 for _movedStaticIds) so membership changes cannot be missed by hand-maintained bookkeeping.
+    The CODE term is mandatory: a key derived from inputs alone silently serves stale output forever when the transform code changes (deviation.build-cache-no-code-version-key). fnv1aString already exists at src/shared/fnv1a.js:24; hashing Function.prototype.toString() of the emitting functions makes any edit auto-invalidate. Fail closed -- if toString() is unavailable or the read throws, treat as a permanent miss, never a hit.
+
+    THE HAZARD THAT SHAPES THIS ROW
+    onCollision here has no enter/exit edge: overlapping statics fire EVERY tick. So the artifact must replay the EVENT LIST, not merely 'which pairs exist'. A stale capture -- a static that moved without bumping collisionListVersion -- silently omits onCollision for that pair forever. That is a plausible-wrong omission, the worst class, and it is why the key is an exact function of the same positions and radii the live code reads, and why membership uses a hooked set rather than a manual counter.
+
+    WORST-CASE BOUND
+    Skipped path is bounded by the captured pair count K, computed once and fixed. Miss path is the current code, unmodified. A false hit is only possible through a missed mutation site, and it is detectable: the acceptance witness diffs the emitted event stream, capture on vs capture off, including forced mutations.
+
+    MEASUREMENT (integer work units, immune to timer inflation -- this box's zero-delta control arm is +/-10% and currently ~2.5x inflated, so ms numbers must be re-taken with a control arm)
+    Deciding counter: per tick, (a) Map.get, (b) Map.set, (c) pair tests, (d) cell-array allocations, inside _tickCollisionsGrid. After the change, on a tick with no membership change and no static transform change, (a)-(d) must fall to the moving-subset-only cost.
+  acceptance_criteria: 'Live witness: N >= 500 static collision entities, 8-32 moving entities, >=300 ticks. Report per tick (a) Map.get, (b) Map.set, (c) pair tests, (d) cell-array allocations, before and after. Pass requires (a) and (b) to drop by at least 90 percent and (d) to reach 0 on ticks with no membership or static-transform change. Correctness: run 1000 ticks capture-on and capture-off on the same seeded input and diff the emitted (entityId, event, payload) stream for exact equality; that diff must also be run after each of -- teleporting a static entity, adding an entity, removing an entity, and changing a collider size -- and must be identical in every case. Re-measure the ms figures with a zero-delta control arm in the same window.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: cpu-plan-static-tile-triangles-per-body-key
+  title: Cache per-body triangle extraction in StaticTileIndex.build so one changed body does not re-extract every body in the tile
+  subject: When one body in a tile changes, StaticTileIndex.build re-extracts the triangles of every body in that tile through Jolt; cache each body's triangle block under a per-body key so only the changed body is re-extracted.
+  body: |-
+    TIER-0 parent: cpu-skip-and-replay-plan-browser. CPU-side, physics bookkeeping. BLOCKED on a real Jolt harness -- see MEASUREMENT.
+
+    WHAT RECOMPUTES
+    src/physics/StaticTileIndex.js:60 build() (extract at :50, hash at :75, gate at :83). The gate at :83 is `t.builtVersion !== t.version || t.builtBig !== bigVersion`, which is correct at tile granularity, and bigVersion (:44/:28) correctly invalidates all tiles because every big body is appended to every tile (:65). The residual recompute: when ONE body in a tile changes, appendTriangles re-extracts EVERY body in the tile (src/physics/StaticTileIndex.js:68) -- a J.AABox allocation, a J.ShapeGetTriangles call and a Float32Array.slice() per body -- then re-concatenates the whole tile and re-runs fnv1aBytes over it (src/physics/StaticTileIndex.js:71-75).
+
+    STABLE STRUCTURE (the captured graph)
+    The per-body triangle block (a Float32Array).
+
+    CHANGING INPUTS
+    That body's world-space bounds key and rotation; its shape.
+
+    INVALIDATION KEY
+    perBodyKey = fnv1a(SCHEMA_TRIS || fnv1aString(appendTriangles.toString() + build.toString()) || bodyId || float64 bits of (bounds min/max, quat) || tileM || marginM || _bodyShapeKey)
+    _bodyShapeKey is src/physics/World.js:113. It MUST be folded in: the bounds-and-rotation key can stay constant while a compound or sculpted body's shape changes, which would otherwise serve stale geometry. Invalidate additionally on any setTerrainHeightSource or height-delta change.
+    The CODE term is mandatory: a key derived from inputs alone silently serves stale output forever when the transform code changes (deviation.build-cache-no-code-version-key). fnv1aString already exists at src/shared/fnv1a.js:24; hashing Function.prototype.toString() of appendTriangles and build makes any edit auto-invalidate. Fail closed -- if toString() is unavailable or the read throws, treat as a permanent miss, never a hit.
+    Store each body's Float32Array under this key; on a tile rebuild re-extract only the bodies whose key misses and re-concat. The tile hash is still recomputed from the concatenation, which is cheap relative to extraction.
+
+    WORST-CASE BOUND
+    Skipped path is bounded by the number of unchanged bodies in the tile. Miss path is today's extraction. Failure mode if the key is wrong: a body whose shape changed keeps its old triangles, so a client collision mirror silently serves stale geometry -- players collide with geometry that is no longer there. That is why _bodyShapeKey is in the key and why the acceptance witness must mutate a body's shape, not just its position.
+
+    MEASUREMENT (blocked)
+    UNMEASURED AS PROPOSED. Every path runs through Jolt wasm (J.AABox, J.ShapeGetTriangles, HEAPF32); a substitute would measure the harness, not the cost, so no number is claimed here. Deciding measurement, once a real PhysicsWorld harness exists: per tile rebuild, (a) bodies in the tile, (b) of those, bodies whose perBodyKey hit. Skippable units = (b), each worth one J.AABox + one ShapeGetTriangles + one Float32Array.slice(). Do NOT proceed on a predicted figure -- measure it, with a zero-delta control arm in the same window (this box's noise floor is +/-10 percent and is currently ~2.5x inflated).
+  acceptance_criteria: 'Prerequisite: a real PhysicsWorld Node harness that exercises src/physics/StaticTileIndex.js against real Jolt bodies (no substitute for J.AABox or ShapeGetTriangles). Then: build a tile with K >= 20 bodies, dirty exactly one, and report per rebuild (a) bodies in the tile, (b) perBodyKey hits, (c) J.AABox allocations, (d) ShapeGetTriangles calls, (e) Float32Array.slice() calls. Pass requires (c), (d) and (e) to fall to 1 each (the single dirty body) and the total bytes allocated per rebuild to drop proportionally. Correctness: the concatenated tile triangle buffer must be bit-identical to the pre-change implementation for the same tile state, and must be correct after each of -- moving a body within the tile, moving a body out of the tile, and changing a body''s SHAPE (the case the bounds key alone would miss).'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: bake-code-version-input-list-is-hand-maintained
+  title: Bake code versions are a hand-maintained file list, so a file outside it ships stale bytes with no diagnostic
+  body: 'src/static/BakeCodeVersion.js defines every bake cache key as bakeCodeVersion(BAKE_INPUTS_*), a hand-written array of relative paths whose contents are sha1-hashed (GLB_TRANSFORM, KTX2_EXTRACT, PROGRESSIVE_BAKE, MINIMAP_BAKE, HEIGHTFIELD_BAKE). The key is only as complete as that list. A file that changes baked output but is not named in the list does not move the version, so scripts/check-cache-keys.mjs reports nothing and every existing artifact keeps being served as valid forever: the same class as deviation.build-cache-no-code-version-key, which already shipped 10388 degenerate triangles from pre-fix bakes. Observed 2026-10-06: node scripts/check.mjs reported apps/world/tps-game.hf baked with height code version 1e14bb7bd0db while the tree baked 0e817b8c468a, so height-affecting code changed and the artifact was stale; another lane re-baked it, but only because a listed file happened to change. Fix: stop hand-maintaining the list and derive each transform closure by walking the import graph from its entry file (scripts/bake-heightfield.mjs, packages/streaming-gltf/tools/bake-cluster.mjs, scripts/bake-minimap.mjs, src/static/GLBTransformer.js, src/static/KTX2Extract.js), so any new import invalidates the cache without anyone remembering to edit an array. Filed from the fire lane; not to be fixed there.'
+  acceptance_criteria: 'HEIGHTFIELD_BAKE_CODE_VERSION, and each other transform version, changes when a file in the entry point import closure changes, with no edit to BakeCodeVersion.js: witnessed by adding a new import to scripts/bake-heightfield.mjs and by editing a file two hops away, each moving the version and each flagged by scripts/check-cache-keys.mjs. Every existing artifact still validates after the switch, with a one-time re-bake of anything whose version moves, and node scripts/check.mjs exits 0.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: gpu-plan-terrain-height-compute-cache
+  title: Terrain vertex stage evaluates the full height fractal five times per vertex; a compute pass writing height once per vertex into a storage buffer removes four of the five
+  body: |-
+    Parent row: gpu-optimization-plan-browser-webgpu. Bottleneck attacked: vertex-stage fractal math, not draw count and not fragment work.
+
+    EXACT SITES. packages/mapspinner/src/tsl/terrain-material-tsl.js:134-146 -- Loop({ start: int(0), end: u.fdTaps.add(u.loopBoundDelta), type: "int", condition: "<" }) with FD_TAPS = 5 (constant, line 15) calls spec.composeHeight(d) at line 139 five times per vertex to build the central-difference normal; the cross product at line 147 and the lit normal at lines 162-163 consume the result. The raw-WGSL twin does the identical thing at packages/mapspinner/src/webgpu/patch-grid-render.js:341-356. The instance payload is minimal (iOffset vec4 plus iFace float, makePatchGeometry at packages/mapspinner/src/tsl/planet-tsl.js:53-65) and the whole terrain is one instanced draw (mesh at planet-tsl.js:112, single drawIndexed at patch-grid-render.js:930, about 143 quads at spawn), so the vertex cost is almost entirely the five fractal evaluations rather than fetch or submission.
+
+    WHY THIS IS THE RIGHT TARGET. packages/mapspinner/AGENTS.md records the deck measurement "RUNTIME FPS is VERTEX-SHADER-bound (96% VS+raster at the deck, FS is a dead lever)". The AMD rdna-2 main scene context is 9.51 ms average (max 30.5) against a 1024x1024 shadow context at 0.099 ms (row gpu-main-pass-9.5ms-amd-no-subpass-attribution) -- comparable pixel counts, two orders of magnitude apart in cost, so ctx0 is dominated by shader math rather than fill. No measurement has yet split ctx0 into terrain, sky, water and vegetation, so the ceiling here is unknown.
+
+    CHANGE. An instanced compute pass over the live patch set (instanceCount quads x GRID_SIZE grid vertices, roughly 143 x 289 at spawn) that evaluates composeHeight once per vertex into a storage buffer, with the vertex stage reading its own and its four finite-difference neighbours out of that buffer. This is the one mechanism packages/mapspinner/AGENTS.md records as genuinely untried: it is distinct from the removed terrain-phase1/2/3 pipeline and from the THC height pool, because THC was MEASURED NET-NEGATIVE for a different reason (it moved cost from VS to FS by adding a per-pixel texture fetch), whereas this keeps the cost in the vertex stage and only removes duplicate evaluations of the same field at the same lattice site.
+
+    VALUE-PRESERVING AND PARITY. Read at exactly the same absLocal + (ox,oy)*step sites, so h0, the four w* taps and n0 are unchanged and no normal or lighting expression is edited. Two hazards to honour: (1) the finite-difference taps must remain inside ONE loop instance per the FXC / ANGLE d3d11 rule in packages/mapspinner/AGENTS.md -- never difference composeHeight across separate call sites, and keep the runtime bound u.loopBoundDelta, never a constant, so FXC cannot unroll the octave loop; (2) three.js WebGL2 backend has no storage buffers, so this is a WebGPU-only path and needs a guarded fallback to the current five-tap vertex stage or it breaks the automatic fallback. Because it is WebGPU-only it cannot regress the legacy GLSL parity arm directly, but it must not change the TSL arm either.
+
+    MEASUREMENT CLASS: needs a GPU window queued through C:/dev/train/tools/gpulock.mjs (timestamp queries on real adapters; no CI gate measures a real GPU -- scripts/frame-time-gate.mjs:92 and scripts/cold-load-gate.mjs:48 both launch SwiftShader). UNMEASURED: the 5x-to-1x reduction in fractal evaluations is an arithmetic fact about the code, not a measured speedup, and its effect on frame time is bounded by the terrain share of ctx0, which is not yet measured.
+  acceptance_criteria: 'GPU window via C:/dev/train/tools/gpulock.mjs, same walk pose, n>=3 same-bundle arms on BOTH the NVIDIA and AMD rdna-2 adapters, contamination buckets clean and adapter vendor recorded. (1) The ctx0 ablation in gpu-main-pass-9.5ms-amd-no-subpass-attribution must run first and report the terrain-off delta for ctx0, so this candidate ceiling is known before any code is written. (2) Before/after GPU frame p50/p95 and ctx0 ms. (3) A zero-delta control arm run in the same window whose measured delta sets the noise floor; PASS only if the improvement exceeds that control arm delta. (4) Bit parity: terrain height probe values and the shaded output at a fixed pose pixel-compare equal to the current build within the existing TSL/legacy parity tolerance. (5) The WebGL2-backend fallback arm renders with the five-tap vertex stage and no console error.'
+  status: pending
+- id: gpu-plan-sky-march-and-ap-unconditional
+  title: The sky background runs an 8-step Rayleigh/Mie march twice per pixel and the terrain runs an aerial-perspective march on every pixel, then mixes both away with a factor already computed
+  body: |-
+    Parent row: gpu-optimization-plan-browser-webgpu. Bottleneck attacked: per-pixel transcendental and LUT-fetch work that is computed and then discarded.
+
+    EXACT SITE 1 (sky). packages/mapspinner/src/tsl/sky-tsl.js:153-154 -- "const sky = marchSteps(camera, ray, sun, distToTop(r, mu))" and "const ground = marchSteps(camera, ray, sun, max(distToGround(r, mu), 1e-3))" are both executed unconditionally and then blended at line 156 by wSky = smoothstep(muTangent - ATM_HORIZON_BLEND_MU, muTangent + ATM_HORIZON_BLEND_MU, mu) (line 152), whose blend window is 0.012 wide, so it is 0 or 1 for essentially every background pixel. The sky background node only shades pixels where no geometry was drawn, so on nearly all of them the ground march is computed and thrown away. Each marchSteps (lines 117-139) is SKY_MARCH_STEPS = 8 (line 26) iterations of two exp() plus a transmittanceToSun LUT sample at line 133, so the discarded branch costs 8 LUT samples and about 16 exp per background pixel.
+
+    EXACT SITE 2 (terrain aerial perspective). packages/mapspinner/src/tsl/terrain-lighting-tsl.js:81-89 -- apGate = smoothstep(AP_GATE_KM[0], AP_GATE_KM[1], dKm) with AP_GATE_KM = [3.0, 120.0] is computed at line 81, "ap = sky.marchRadiance(...)" runs unconditionally at line 83, and line 89 then does mix(lit, hazed, apGate.mul(u.hazeMul)), discarding it entirely for any fragment nearer than 3 km. marchRadiance (sky-tsl.js:89-108) is four scattering/transmittance LUT fetches plus phase functions.
+
+    CHANGE. Guard each with the gate already computed: wrap the ground march in If(wSky less than 1.0) and wrap terrain-lighting-tsl.js:83-89 in If(apGate greater than 0.0), leaving every expression inside unchanged. Both are value-identical by construction because the discarded path is mix/select-ed out when the guard is false, so this does not alter the normal or the lighting arithmetic -- it is parity-safe in a way the other candidates on this list are not. Hazard: a non-uniform branch around a texture LUT fetch must keep the fetch at uniform control flow (the FXC / ANGLE d3d11 class); this codebase already solves the analogous problem for the terrain splat with .grad() at packages/mapspinner/src/tsl/surface-splat-tsl.js:47, so either hoist the fetches or select on the result rather than branching inside a march loop.
+
+    WHY IT CAN ONLY PAY OFF ON ONE OF THE TWO ADAPTERS. The AMD rdna-2 GPU frame is p50 10.6 ms / p95 19.2 / p99 23.13 with the main scene context at 9.51 ms average, so per-pixel work is the only GPU lever with room there. The NVIDIA adapter is CPU-bound (frame p50 13.86-13.88 ms against GPU p50 3.08-3.34 ms, project/tier0-cpu-gpu-profile-2026-10-05), so removing per-pixel GPU work cannot move the NVIDIA frame at all and this row must not be judged on NVIDIA numbers.
+
+    MEASUREMENT CLASS: needs a GPU window queued through C:/dev/train/tools/gpulock.mjs. UNMEASURED: no number exists for the sky or the aerial-perspective share of ctx0; if the ablation shows ctx0 is vertex-bound (candidate gpu-plan-terrain-height-compute-cache), this row ceiling is small and it should be closed as measured-and-negligible rather than implemented.
+  acceptance_criteria: 'GPU window via C:/dev/train/tools/gpulock.mjs, n>=3 same-bundle arms, both adapters, fixed walk pose. (a) Ceiling first: ctx0 ms with the sky background node removed and with marchRadiance forced to a constant, reported separately. (b) Before/after GPU frame p50/p95 and ctx0 ms with the two guards in place. (c) A zero-delta control arm in the same window defining the noise floor; PASS only if the measured delta exceeds it. (d) Fixed-pose pixel-compare against the unguarded build within the TSL/legacy parity tolerance, and the active TSL-vs-legacy terrain darkening investigation (rows tsl-terrain-grass-brighter-than-legacy-unexplained and tsl-terrain-grey-lighting-residual) re-run and still passing, since this row edits a file on the lighting path.'
+  status: pending
+- id: gpu-plan-webgpu-dynamic-resolution-three-scene
+  title: Dynamic resolution is unavailable on the WebGPU path for the THREE scene, and the only GPU-bound adapter may be shader-bound rather than fill-bound, so a resolution sweep must decide this before any code is written
+  body: |-
+    Parent row: gpu-optimization-plan-browser-webgpu. Bottleneck attacked: fill/raster cost on the one adapter where GPU work sets the frame.
+
+    EXACT SITES. client/core/ThreeVdrs.js:248 records THREE_VDRS_WEBGPU_UNSUPPORTED, so the FSR1 EASU + RCAS plus depth-composite path in that file (259 lines, auto controller TARGET 6.94 ms, MIN 0.5 / MAX 1.0 / STEP 0.1) never engages under WebGPURenderer. packages/mapspinner/src/webgpu/vdrs-composite.js (493 lines: BilinearUpscale, Fsr1Upscale, DepthWriteback, readBackDepthF32) already implements the upscale for the mapspinner WebGPU path, so the missing piece is the THREE-scene half only. client/core/SceneSetup.js:189-190 constructs the WebGPURenderer and 148-159 sets pixel ratio min(dpr, 2) desktop / min(dpr*0.5, 1) mobile -- that is a static ratio, not a dynamic one.
+
+    THE MEASURED FACTS THAT MOTIVATE AND ALSO THREATEN THIS CANDIDATE. AMD rdna-2 GPU frame p50 10.6 ms / p95 19.2 / p99 23.13 with the main scene pass at 9.51 ms average, against NVIDIA GPU p50 3.08-3.34 ms where the frame is CPU-bound at 13.86-13.88 ms (project/tier0-cpu-gpu-profile-2026-10-05). The measured canvas blit context is 0.039 ms NVIDIA / 0.181 ms AMD, so one extra upscale pass is cheap. But the same profile shows the 1024x1024 shadow context at 0.099 ms on AMD while the 1280x720 main pass is 9.51 ms -- similar pixel counts, roughly a hundredfold cost ratio -- which says ctx0 is dominated by per-pixel shader math, not by rasterizing pixels, and resolution scaling would then buy close to nothing. The deciding measurement is a sweep, not an implementation.
+
+    CONSTRAINTS. FSR1 EASU/RCAS is a plain full-screen fragment shader with no vendor extension, no compute and no CUDA, so it qualifies for both the NVIDIA and AMD rdna-2 devices in a browser. Vendor upscalers (DLSS, FSR3/4, XeSS) do not: they are not exposed to WebGPU in Chrome and are therefore out of scope for this plan. 1920x1080 and 1440p arms have never completed (both hung in the tier-0 run), so any sweep must start at or below 1280x720.
+
+    RISK TO MEASURE, NOT ASSUME. readBackDepthF32 in vdrs-composite.js is a GPU-to-CPU readback; if the depth writeback sits on the frame critical path it converts a GPU win into a stall. Time the composite with and without DepthWriteback.
+
+    MEASUREMENT CLASS: needs a GPU window queued through C:/dev/train/tools/gpulock.mjs for both the sweep and the implementation. UNMEASURED: no predicted delta is claimed here.
+  acceptance_criteria: 'GPU window via C:/dev/train/tools/gpulock.mjs. Step 1 decides whether to build it: fixed walk pose, render scale 1.0 / 0.75 / 0.5 / 0.35, n>=3 arms per scale, on AMD and NVIDIA, reporting ctx0 ms and GPU frame p50/p95 per scale plus a zero-delta control arm; if ctx0 ms is not proportional to pixel count beyond that control arm delta, close this row as measured-and-inapplicable with the table attached. Step 2 only if proportional: implement the WebGPU THREE-scene dynamic resolution, same arms, PASS on GPU frame p95 improving beyond the control arm delta, with a fixed-pose pixel-compare of the upscaled frame against the 1.0 reference within a stated tolerance, and with the DepthWriteback variant timed separately so a readback stall cannot hide inside the win.'
+  status: pending
+- id: gpu-plan-wire-gpu-instanced-slot-cull-and-hiz
+  title: 'The shipped GPU culling passes are not on the live vegetation path: instanced-slot-cull-tsl.js has zero importers and WebGpuHizTier is reached only through a caught dynamic import'
+  body: |-
+    Parent row: gpu-optimization-plan-browser-webgpu. Bottleneck attacked: CPU draw submission and per-instance CPU culling, which is the binding constraint on NVIDIA.
+
+    EXACT SITES. packages/streaming-gltf/src/instanced-slot-cull-tsl.js (TSL compute slot cull, CULL_SENTINEL = 1e7) has zero references anywhere in the tree -- it is shipped but unwired. packages/streaming-gltf/src/webgpu-hiz-tier.js (raw-WGSL hierarchical-Z buffer plus CULL_LOD plus IndirectStorageBufferAttribute indirect draw args, HZB_WORKGROUP_DIM 8, CULL_WORKGROUP_SIZE 64) is reached only from packages/streaming-gltf/src/model-pool.js:1806 through "await import('./webgpu-hiz-tier.js')" with a console.warn catch at line 1816, and its supported() gate requires backend.isWebGPUBackend. By contrast packages/streaming-gltf/src/batched-far-tier.js IS live (model-pool.js:1876, updateNow at 2014), so the tier machinery itself is proven. docs/webgpu-shader-audit.md:153 already classifies the HIZ tier as "Raw WGSL, port to TSL compute", i.e. shipped, not adopted, and not in the project TSL-only direction.
+
+    WHY IT MATTERS. The CPU side is the binding constraint on NVIDIA: frame p50 13.86-13.88 ms against GPU p50 3.08-3.34 ms, about 87.9 draws/frame and 924 WebGPU calls/frame, with WebGPULodInstancer.updateLOD at 6.7% CPU self, setMatrixAt 4.0% and GPUQueue.writeBuffer 4.2% (project/tier0-cpu-gpu-profile-2026-10-05). GPU-driven culling moves that into a compute pass and lets one indirect draw cover a whole LOD tier. There is also a second gap: packages/streaming-gltf/src/occlusion-query-tier.js is WebGL2-only and correctly fail-open, so on the WebGPU path there is currently no occlusion culling at all.
+
+    CHANGE. Port webgpu-hiz-tier.js to TSL compute per the audit own disposition, and route the live client/core/WebGPULodInstancer.js instance pools through the instanced slot cull so culling and LOD selection happen GPU-side, keeping the CPU path as the WebGL2-backend fallback.
+
+    CONSTRAINT THAT SHAPES IT. Multi-draw indirect is an experimental Chrome flag and is NOT available in a browser; one indirect draw per tier is the admissible shape, which is already what webgpu-hiz-tier.js emits. Must no-op on the WebGL2 backend.
+
+    MEASUREMENT CLASS: split. The primary metrics -- draws/frame, WebGPU calls/frame from the existing encoder hook, and updateLOD CPU self share -- are CPU-measurable without holding a GPU. The frame-time claim needs a GPU window queued through C:/dev/train/tools/gpulock.mjs. UNMEASURED: runVegetationScalePerfAB in client/core/WebGPUCullingHubIntegration.js is a proof-of-concept at 12000/30000 instances and is not the live path; its numbers are not evidence for live instance counts.
+
+    ADJACENT-ROW INTERACTION TO EXERCISE. This row edits the same surface as cpu-veg-lod-instancer-full-scan-per-move (CPU tier rescan) and veg-variation-doubles-draws-and-halves-fps (90 instancers from 15 species x 3 variants x branch+leaf). Whatever is built here must stay correct when variants are later merged into one instancer, and the merged-instancer change must be re-witnessed against it.
+  acceptance_criteria: 'CPU-measurable half, no GPU window needed: draws/frame and WebGPU calls/frame from the existing encoder hook plus updateLOD self share, live scene, before and after. GPU half via C:/dev/train/tools/gpulock.mjs: n>=3 same-bundle arms on both adapters, GPU frame p50/p95 and CPU main-thread share, with a zero-delta control arm in the same window and PASS only if the delta exceeds that control arm delta. Correctness: the visible-instance set at a fixed pose equals the CPU cull set (count and per-tier histogram identical), the WebGL2-fallback arm renders with the CPU cull and no console error, and the merged-variant instancer case from veg-variation-doubles-draws-and-halves-fps is re-witnessed against the new path.'
+  status: pending
+- id: gpu-plan-render-bundles-static-scene-subsets
+  title: 924 WebGPU calls per frame are re-recorded every frame for scene parts whose command structure never changes; render bundles would replay them
+  body: |-
+    Parent row: gpu-optimization-plan-browser-webgpu, which already names GPURenderBundle replay under Tier 2. Bottleneck attacked: CPU command recording and submission, the binding constraint on NVIDIA.
+
+    EXACT SITES. client/core/RenderGraph.js (273 lines) drives every node through renderer.render(scene, camera) and already carries single-writer enforcement, deadPasses(), unreadResources(), aliasHazards() and per-node CPU timing via setProfileHook -- it is the natural host for a bundle-replay node. The two candidate bundle contents are the terrain (one mesh, packages/mapspinner/src/tsl/planet-tsl.js:112, one instanced draw whose per-frame cost is uniform writes in frame() at lines 232-269 and instance buffer upload at 192-194) and the dense vegetation pools (client/core/WebGPULodInstancer.js, one InstancedMesh per LOD tier with dirty-range partial uploads).
+
+    WHY IT CAN ONLY PAY OFF ON ONE ADAPTER. NVIDIA frame p50 13.86 ms against GPU p50 3.08-3.34 ms: submission, not GPU work, sets that frame. AMD GPU frame p50 10.6 ms with p99 23.13 against a frame p99 of 34.8 ms, so AMD also carries a non-GPU tail, but the AMD GPU side is the larger term. Bundles reduce CPU recording; they do not reduce GPU work.
+
+    FIRST STEP IS A CAPABILITY CHECK, NOT CODE. three.js r185 WebGPURenderer does not publicly expose GPURenderBundle in any API this codebase uses; the only precedent for reaching the raw device is packages/streaming-gltf/src/webgpu-hiz-tier.js, which calls renderer.backend.device.createShaderModule / createComputePipeline directly. If three exposes no bundle path, the alternatives in order are (a) a three-level API if one exists, (b) a raw device path like the HIZ tier uses, which then needs its own WebGL2 no-op, or (c) close this row as unavailable and fall back to the cheaper redundant-bind-write reduction below.
+
+    CHEAPER SUBSET THAT SURVIVES EITHER WAY. Cut redundant bind-group and uniform writes by caching on a version stamp: planet-tsl.js frame() writes about twenty uniforms unconditionally every frame including several (albedoOverride, texNrmK, flatNormal, reliefShade, poolLo/Hi/Spec/Cover, wetness) that change only when a window knob or pool resolution changes, and WebGPULodInstancer maintains dirty ranges only for instance attributes, not for bind state.
+
+    CONSTRAINTS. Bundles are core WebGPU, available in Chrome on both adapters, no vendor extension. Bundles cannot contain commands whose resource bindings change, so the terrain uniform block must move to a dynamic-offset or a separate small bind group or the bundle is invalid.
+
+    MEASUREMENT CLASS: WebGPU calls/frame and draws/frame come from the existing encoder hook and are CPU-measurable without a GPU window, but the hook has only produced numbers on real-adapter sessions so far, so treat the count claim as needing a browser session either way; the frame-time claim needs a GPU window queued through C:/dev/train/tools/gpulock.mjs. UNMEASURED: no predicted delta.
+  acceptance_criteria: 'Step 1, CPU-only: a capability check against the installed three r185 reporting whether WebGPURenderer exposes any render-bundle path, with the file and symbol named. Step 2 if available: WebGPU calls/frame from the encoder hook before and after, live scene, plus GPU frame p50/p95 and CPU main-thread share over n>=3 same-bundle arms on both adapters via C:/dev/train/tools/gpulock.mjs, with a zero-delta control arm in the same window and PASS only if the delta exceeds that control arm delta. Fixed-pose pixel-compare unchanged within the TSL/legacy parity tolerance. Step 3 regardless of bundle availability: the redundant-uniform-write subset, witnessed by WebGPU calls/frame and by the per-node ms in window.__renderGraph stats.'
+  status: pending
+- id: gpu-plan-instance-transform-quantized-layout
+  title: Vegetation instance pools upload a full 16-float matrix per instance into a dirty-range buffer; a quantized per-instance transform cuts the bytes fourfold and the CPU compose with them
+  body: |-
+    Parent row: gpu-optimization-plan-browser-webgpu. Bottleneck attacked: per-instance CPU matrix composition and upload bytes; instance vertex-fetch bandwidth is a secondary, expected-negligible term.
+
+    EXACT SITES. client/core/WebGPULodInstancer.js:76 -- writeSlot does "mesh.instanceMatrix.array.set(rec.matrix, slot * 16)", a raw 16-float (64-byte) copy per instance straight into the InstancedMesh instanceMatrix array; markSlotDirty at line 24-33 then calls setDirtyRange(mesh.instanceMatrix, 16, n, newWindow) at line 29, so the upload is a contiguous floored window from dirtyLo to dirtyHi over the whole matrix array. build() at line 36 doubles capacity and copies "mesh.instanceMatrix.array.subarray(0, ids.length * 16)" (line 47). There are 90 instancers (15 species x 3 variants x branch+leaf) over roughly 4300 vegetation instances per instancer set, plus a shadow-only pool on SHADOW_CASTER_ONLY_LAYER (lines 56-59).
+
+    ATTRIBUTION CORRECTION (load-bearing, do not re-merge). The tier-0 profile figure "setMatrixAt 4.0% CPU self" belongs to the WEATHER particle streaming instancer, not to this vegetation path -- row cpu-weather-tick-11pct-inclusive states it as "the streaming-instancer matrix writes (setMatrixAt 4.0% + F 1.2% self)" under the weather tick at 11.1% inclusive. This row therefore claims only GPUQueue.writeBuffer at 4.2% self (which covers all buffer uploads, so this path share of it is unmeasured) and the allocation census at 190-201 MB/s, about 2.5-2.6 MB per frame. Do not cite setMatrixAt here.
+
+    CHANGE. Replace the 64-byte per-instance matrix with a quantized transform -- position as three f32 or three i16 in a local frame, uniform scale, and orientation as a smallest-three quaternion in four i16, or as a single yaw where the species allows it -- and compose the matrix in the vertex stage. Upload bytes per instance fall roughly fourfold and the CPU-side compose (rec.matrix is built by the caller) disappears from the write path.
+
+    SCOPE BOUNDARY. This is the data-layout half only. Sibling rows own the others: cpu-veg-lod-instancer-full-scan-per-move (the tier rescan), veg-variation-doubles-draws-and-halves-fps (90 instancers from 3 variants), veg-instancer-dirty-window-per-attribute-ranges (upload windowing), cpu-allocation-2.6mb-per-frame-unattributed (the allocation census). Do not re-litigate those here.
+
+    RISK. The vegetation wind displacement reads the instance matrix and client/core/Vegetation.js patches it through onBeforeCompile on the legacy path with a TSL wind path alongside, so the vertex-stage composition must reproduce instance-local orientation exactly or wind direction and impostor billboard orientation shift. Fix a pose and compare before trusting any number. This row does NOT touch the normal or the lighting arithmetic, so it is outside the active TSL-vs-legacy terrain darkening investigation.
+
+    MEASUREMENT CLASS: the primary metrics are CPU-measurable without a GPU window -- bytes uploaded per frame (encoder hook plus the dirty-range n x 16 sizes), writeBuffer CPU self share from the existing profile, and allocation MB/frame from the existing census. Only the frame-time claim needs a GPU window queued through C:/dev/train/tools/gpulock.mjs. UNMEASURED: no predicted delta; the GPU-side vertex-fetch saving is expected to be negligible at these instance counts and is not the reason to do this.
+  acceptance_criteria: 'CPU-measurable half first, no GPU window: bytes uploaded per frame (encoder hook plus the markSlotDirty window sizes), GPUQueue.writeBuffer self share, and allocation MB/frame, live scene, before and after, n>=3 runs. Frame-time claim via C:/dev/train/tools/gpulock.mjs on both adapters, n>=3 same-bundle arms with a zero-delta control arm in the same window, PASS only if the delta exceeds that control arm delta. Correctness: per-instance world transforms at a fixed pose match the 16-float matrix build within a stated tolerance, vegetation wind displacement direction and impostor orientation pixel-compare unchanged, and the per-tier visible-instance histogram is identical.'
+  status: pending
+- id: terrain-collider-initial-ring-per-cluster-batches
+  title: 'Build the initial collider ring in per-cluster batches: the boot is 96% placement generation and 94.7 ms of it per cluster'
+  body: 'MEASURED 2026-10-06 while resolving terrain-collider-initial-ring-cpu-at-many-clusters (harnesses data/planet-harness/ring-boot.mjs and ring-classify.mjs, real tps-game world module, real PhysicsWorld, real createTrunkColliderStreamer/createRockColliderStreamer, 1000 m player grid, radius 64 cap 384 trunk / radius 32 cap 128 rock). Budgeting the initial ring was measured and rejected (5x worse at 16 players, unfinished after 4001 passes / 200 s at 64 players) because COMPUTE_BUDGET_MS is 2.5 ms while a placement chunk costs 2.242 ms. The remaining lever is to keep each pass unbudgeted but narrow it to a batch of clusters. Costs measured: at 64 players the trunk initial ring is 6289.4 ms wall and placement generation for its 2705 ring chunks is 6063.4 ms (2.242 ms/chunk), i.e. 96% of the ring; rock is 1163 chunks, 1027.3 ms, 0.883 ms/chunk, all of its 944.6 ms ring. Body adds are the remainder (pool prewarm 43.3 ms trunk, 91.3 ms rock). So a cluster costs a measured 94.7 ms of placement work at 64 players and 2705/64 = 42.3 chunks. Today every one of the 25 players that gets a trunk collider waits for the whole ring: first collider min 7261.9 / max 7267.7 ms, one contiguous 7.26 s event-loop stall, then everybody is covered at once. Batching would give the first batch its colliders after one batch''s work and the last batch after roughly the same total as today.'
+  acceptance_criteria: 'Implement the initial ring as a sequence of cluster batches (unbudgeted within a batch, yield to the event loop between batches, first pass sized so a batch is about 8 clusters) and witness at 16 and 64 spread players with the real streamer and a real PhysicsWorld: per-player time-to-first-collider, total initial-ring CPU, and the event-loop stall per pass. Ship only if no player''s first collider lands later than it does today (16 players 3734 ms, 64 players 7276 ms) and if the final ring is the same set as today''s single pass (compare liveCount, per-cluster counts and a position hash: 1594 bodies, hash d9cf02ca at 64 players; 768, hash 77096680 at 16). The byte budget, the per-cluster quota and the cap must not change.'
+  status: pending
+- id: terrain-collider-deferred-rebuild-exceeds-body-cap
+  title: 'A deferred collider rebuild exceeds the body cap: desired is capped per pass, the quota resets per pass, and only the byte budget evicts'
+  body: 'MEASURED 2026-10-06 with data/planet-harness/ring-boot.mjs (arm=budgeted) on the real tps-game world module, a real PhysicsWorld and the real createTrunkColliderStreamer: 16 players on a 1000 m grid, radius 64, baseCap 384, centreScale 2 so effectiveCap 768. Running the initial ring as repeated budgeted passes (what _check does whenever chunkPlacements refuses chunks) ended with 983 live trunk colliders against a cap of 768, 28% over, and a different body set from the single unbudgeted pass (position hash 8c5b065d vs 77096680). Mechanism: classifyRings builds desired with a per-pass length limit of effectiveCap and a per-cluster quota of cap/centres, both of which reset every pass, while live keeps everything added by earlier passes; the only thing that removes bodies afterwards is the keep set (everything stayed inside keepRadius) and evictOverBudget, which fires on resident bytes alone - 263444 of 3145728 B here, so it never ran. Any deferred rebuild reaches this state: _rebuildMulti returns _deferred when MAX_NEW_CHUNKS_PER_PASS (64) or COMPUTE_BUDGET_MS (2.5) bites, which is reachable in steady state whenever more than 64 ring chunks are new, and then curCenters is not updated and removals are skipped, so the next pass adds a fresh batch on top. The body cap therefore bounds one pass, not the resident set.'
+  acceptance_criteria: 'Witness the overrun on a steady deferred rebuild (not just boot): clearChunkCache or move a cluster so more than 64 chunks are new, run _rebuildMulti until it stops deferring, and report liveCount against effectiveCap plus residentBytes against byteBudget. Fix so the resident set respects the cap - trim to effectiveCap (nearest-first, the same order desired already uses) whenever a pass leaves more bodies live than the cap, and evict on body count as well as bytes - then re-witness that liveCount <= cap in both the deferred and the single-pass case and that the resulting set matches the unbudgeted ring.'
+  status: pending
+- id: prediction-peer-separation-over-pushes-in-contact-regime
+  title: The client peer separation push makes prediction worse, not better, wherever it changes anything
+  body: 'docs/netcode.md:32 claims prediction applying separationPush against the other players snapshot positions took corrections per ack from 0.754 to 0.189 at 0/0/0. Measured today it does neither: with --world=arena --hold=forward --precise --duration=20000, 6 arms, corrections per ack are 0.737 push-on against 0.717 control at 0/0/0, 0.674 against 0.667 at 50/10/2 and 0.530 against 0.540 at 100/20/3 - equal within noise - while mispredict rate is 69.8 percent against 3.6 percent at 0/0/0 and 33.7 against 6.4 at 50/10/2, and mispredict err p95 is 10.79 cm against 1.67 cm and 11.71 against 2.67. The push is not neutral, it is harmful: the client predicts a separation the server does not reproduce at that magnitude, so the predicted path lands further from the server than the path that ignores other players entirely. Corrections per ack do not move because nearly every ack already exceeds RECONCILE_POS_EPS_M in both arms, so the rate saturates and hides the regression; err p95 and mispredict rate are the metrics that see it. Candidate causes to check first: _reseedPeerSim (PredictionEngine.js:344) resets every peer to its newest snapshot on every snapshot while the replay rebases from the older acked state, so live steps after a replay advance a peer that is one RTT ahead of the local rebased position; and the recorded entry.sep replays a push magnitude captured against a peer sim at a different phase.'
+  acceptance_criteria: 'Diagnose why the client push exceeds the server push, then make the push help or remove it. Concretely: instrument one 0/0/0 contact arm to print, per tick, the server separation delta for the pair and the client predicted sep, and find where they diverge. Then fix so that at 0/0/0, 50/10/2 and 100/20/3 corrections per ack fall below the --peerSeparation=off control and mispredict err p95 does not rise above it, with 30 Hz mispredict below 75 percent and the clear-lane control (--at=0,1.2,-95) unchanged. Re-measure on an idle box: the baseline above was taken under concurrent load and is a diagnosis, not a gate. If the honest outcome is that the push cannot be predicted well enough to help, remove it and rewrite docs/netcode.md:32 to say so.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: gpu-plan-terrain-fd-taps-five-to-three
+  title: Terrain normals use five finite-difference taps of the height fractal; a three-tap forward-difference stencil cuts the vertex fractal evaluations 40% but changes the normal, so it is gated behind the open TSL-vs-legacy darkening investigation
+  body: |-
+    Parent row: gpu-optimization-plan-browser-webgpu. Bottleneck attacked: the same vertex-stage fractal math as gpu-plan-terrain-height-compute-cache, by a cheaper and riskier route.
+
+    EXACT SITE. packages/mapspinner/src/tsl/terrain-material-tsl.js:15 (FD_TAPS = 5) driving the loop at lines 134-146, which evaluates spec.composeHeight five times per vertex -- the centre plus +/-step in each of the two patch-tangent directions -- and feeds the central difference to n0 at line 147. The raw-WGSL twin repeats it at packages/mapspinner/src/webgpu/patch-grid-render.js:341-356. Dropping to a forward-difference stencil (centre plus +step in each direction, three taps) removes two of the five evaluations, a 40% cut in the vertex stage fractal work.
+
+    WHY THIS IS THE RISKIER ROUTE. Unlike gpu-plan-terrain-height-compute-cache, this is NOT value-preserving: a forward difference is a one-sided derivative, so the resulting geometric normal is asymmetric and shifts by roughly half a grid step on any slope. That feeds vN (line 154), the lit normal at lines 162-163 and 178-179, material.normalNode at line 192, and every downstream gate keyed on slope -- rockSlope at line 165, and the whole surface splat in surface-splat-tsl.js. That is precisely the surface the two open rows tsl-terrain-grass-brighter-than-legacy-unexplained and tsl-terrain-grey-lighting-residual are investigating. DO NOT START THIS WHILE THOSE ARE OPEN; a normal change made during an unexplained darkening difference is uninterpretable.
+
+    CEILING IS POSE-DEPENDENT AND PROBABLY SMALL AT SPAWN. GRID_SIZE is 9 (packages/mapspinner/src/terrain-defaults.js:3) and the live patch set is on the order of 10^2 quads at spawn with growCapacity doubling from INITIAL_QUAD_CAPACITY 2048 (packages/mapspinner/src/tsl/planet-tsl.js:25, 199-206), so the vertex count -- and therefore this row value -- rises with altitude and view distance. Its ceiling at a high-altitude pose is unknown; at spawn it is likely small. This is the cheap fallback to gpu-plan-terrain-height-compute-cache, not the preferred route.
+
+    HAZARD TO HONOUR. Per the FXC / ANGLE d3d11 rule in packages/mapspinner/AGENTS.md, the taps must remain in ONE runtime-bounded loop (u.loopBoundDelta, never a constant) and composeHeight must never be differenced across separate call sites; recucing the tap count must not split the loop.
+
+    MEASUREMENT CLASS: needs a GPU window queued through C:/dev/train/tools/gpulock.mjs. UNMEASURED: no predicted delta.
+  acceptance_criteria: 'Precondition: tsl-terrain-grass-brighter-than-legacy-unexplained and tsl-terrain-grey-lighting-residual both closed. Then, GPU window via C:/dev/train/tools/gpulock.mjs, n>=3 same-bundle arms on both adapters at a spawn pose and at a high-altitude wide-view pose, with a zero-delta control arm in the same window and PASS only if GPU frame p50/p95 improves beyond that control arm delta. Visual gate is separate and binding: an oblique-sun fixed-pose A/B of the five-tap and three-tap stencils reviewed as images for normal asymmetry on slopes and at LOD seams, plus the TSL/legacy parity harness re-run clean.'
+  status: pending
+- id: cpu-plan-mapspinner-quad-replay-gate-tolerance
+  title: 'Fix the mapspinner per-frame quad replay gate: moveTol collapses to 1 m at deck altitude so the existing capture never hits'
+  subject: planet-orchestrator frame() rebuilds the entire quadtree leaf set every frame because its existing replay gate uses moveTol = min(250, max(1, (camDist-R)*5e-5)), which is 1.0 m at deck altitude -- the capture exists but is effectively always-miss exactly where the quad work is largest.
+  body: |-
+    TIER-0 parent: cpu-skip-and-replay-plan-browser. CPU-side, client per-frame.
+
+    WHAT RECOMPUTES, PER FRAME
+    packages/mapspinner/src/planet-orchestrator.js:142 frame(); the 6-face loop at :277-350. TSL twin: packages/mapspinner/src/tsl/planet-tsl.js:154 writeQuads / :215 quadsFor.
+    Per frame: qt.computeSplitDist (:194), hpf.sampleDir (:201-204), qt.setConfig (:210), render.cullMatrix (:254), extractFrustumPlanes (:262), then 6x (worldToFaceLocal -> qt.updateQuadtree :287 -> limb dot :298-312 -> quadOutsideFrustum :308/:313 -> pooled quad-object writes :344-348).
+    Measured this pass in node against the real quadtree.js + planet-orchestrator-cull.js + three, R=63600, fov 70 degrees, 1080p, splitFactor 0.28:
+      ground altitude: 556 leaves, 741 quadtree node visits, 556 quadOutsideFrustum calls, 7755 Math.tan, 4428 Math.sqrt, 562 Math.hypot (1 face kept by limb cull)
+      with a looser limb test across 6 faces: 3336 leaves, 4446 node visits, 46515 tan, 26513 sqrt, 3342 hypot
+      at 50 km: 112 leaves, 1539 tan
+    quadOutsideFrustum alone is 6 Math.tan + 9 Math.hypot per quad (planet-orchestrator-cull.js:38-39,50).
+
+    THE DEFECT
+    There is already a replay gate at packages/mapspinner/src/planet-orchestrator.js:149-166 (mirrored at packages/mapspinner/src/tsl/planet-tsl.js:218-225). Its tolerance is moveTol = min(250, max(1, (camDist - R) * 5e-5)), which at deck altitude (camDist - R small) collapses to the 1.0 m floor. So the gate is effectively always-miss precisely where the quad work is largest. This is not a missing capture -- it is a capture whose key is mis-tuned, which is the cheapest kind of win available.
+
+    STABLE STRUCTURE (the captured graph)
+    The quadtree topology decision chain: maxLevel, distFactor, splitDist, the FACE_FRAME tables, CULL_ELEV_FRAC, CULL_NDC_MARGIN, patch capacity -- all fixed until setConfig / resize / material hot-swap / growCapacity. Capture = the emitted leaf array (ox, oy, l, level, face) plus camDist/near/far.
+
+    CHANGING INPUTS
+    camWorldPos[3], camTarget[3] (forward), camUp, fovy, displayMode, surfElev, viewport w/h, window.__splitFactor / __maxLevel / __distFactor, lodRefPos, aimGroundPt.
+
+    INVALIDATION KEY
+    key = H(CODE) || STRUCT_EPOCH || Q(inputs)
+    - CODE = a hash of the UTF-8 bytes of the source files that implement the transform itself: quadtree.js, planet-orchestrator-cull.js, terrain-defaults.js, planet-orchestrator.js (and their TSL twins), computed at boot. NOT a hand-bumped constant -- a key over inputs only is exactly the burned class (deviation.build-cache-no-code-version-key), where a build-artifact cache keyed on its input hash served stale output forever after the transform code changed. Hashing the producing source means any edit auto-invalidates with no human remembering to bump anything.
+    - STRUCT_EPOCH = int bumped by setConfig / resize / material hot-swap / growCapacity.
+    - Q(inputs) = position quantized to 1 mm, forward dot to 1e-5, plus exact fovy, w, h, displayMode.
+    The new key must be a SUPERSET of the current one so a hit under it implies a hit under the old gate -- that makes the change monotone-safe.
+
+    DOWNSTREAM, IN THE SAME CAPTURE
+    packages/mapspinner/src/gl-render.js:1382 _sortLeavesFrontToBack (called at :1498) is gated by `(quads !== _instQuadsRef) || (_thc !== _lastThc)`, and because the quad producer hands it a NEW array every frame that gate is always true too. Key it on the quad producer's STRUCT_EPOCH rather than array identity, and when this row's capture hits, the sort skip is free. Implement as one artifact.
+
+    UNRESOLVED BEFORE IMPLEMENTING
+    planet-orchestrator.js:273-276 renders _pipelineQuads while :353-355 renders `quads` only when _pipelineQuads is null. If that is the real control flow, the freshly built list is never drawn on frames >= 2 and a cache would freeze a stale list. Resolve that control flow first.
+
+    WORST-CASE BOUND
+    Bounded: leaves <= patch capacity (hard grow at planet-tsl.js:185), node visits <= 4^depth clamped by maxLevel. Miss path is today's code, unmodified. Failure mode if the key is wrong: frozen terrain LOD -- immediately visible and not plausibly correct, so it fails loud rather than silently.
+
+    MEASUREMENT (integer work units, immune to timer inflation -- this box's zero-delta control arm is +/-10% and currently ~2.5x inflated, so the ms figures must be re-taken with a control arm)
+    Deciding counter: per frame, (a) quadtree node visits, (b) leaves emitted, (c) Math.tan calls, (d) quadOutsideFrustum calls, (e) capture hits vs misses over a scripted camera route.
+  acceptance_criteria: 'Node measurement against the real quadtree.js + planet-orchestrator-cull.js (no GPU needed for the counters) plus a browser witness of the live page: report per frame (a) quadtree node visits, (b) leaves, (c) Math.tan calls, (d) quadOutsideFrustum calls, (e) capture hit rate, over a scripted 120 s route at deck altitude and at 50 km. Pass requires capture hit rate >= 60% over the route AND (a)-(d) to drop by at least 50% summed over the route, measured with a zero-delta control arm in the SAME window (this box''s noise floor is +/-10% and is currently ~2.5x inflated, so a delta under that is unmeasurable-as-proposed). Correctness: the emitted leaf array must be element-for-element identical to the always-recompute build for the same camera poses, and a deliberate setConfig / resize must force a miss on the very next frame.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: cpu-plan-cluster-lod-mesh-cross-frame-capture
+  title: 'Give ClusterLodMesh a cross-frame skip: it has no capture at all, so every frame rebuilds LOD decisions and re-uploads instance groups even when nothing changed'
+  subject: packages/streaming-gltf/src/cluster-lod-mesh.js:105 rebuilds LOD decisions and re-uploads instance groups on every frame with no cross-frame skip, unlike its neighbours which at least have a keyed gate; the unchanging inputs are the mesh set and the LOD thresholds, and the only changing input is the viewer position, so a position-quantized key makes most frames a replay.
+  body: |-
+    TIER-0 parent: cpu-skip-and-replay-plan-browser. CPU-side, client per-frame. PARTIALLY BLOCKED on a GPU witness -- see MEASUREMENT.
+
+    WHAT RECOMPUTES
+    packages/streaming-gltf/src/cluster-lod-mesh.js:105. Per frame: LOD decision per cluster/mesh, instance-group assembly, and a group upload. There is no cross-frame skip at all -- this is a missing capture, not a mis-tuned one (contrast cpu-plan-mapspinner-quad-replay-gate-tolerance, where a gate exists but its tolerance collapses).
+
+    STABLE STRUCTURE (the captured graph)
+    The per-cluster LOD decision and the assembled instance groups. Fixed while the mesh set, the cluster set and the LOD thresholds are fixed.
+
+    CHANGING INPUTS
+    Viewer position; mesh/cluster set membership; LOD thresholds and distances; the streaming load state (a cluster whose mesh is not yet resident cannot be treated as decided).
+
+    INVALIDATION KEY
+    key = H(CODE) || MESHSET_EPOCH || LOD_CONFIG_EPOCH || LOAD_EPOCH || Q(viewerPos)
+    - CODE = a hash of the UTF-8 bytes of cluster-lod-mesh.js, computed at boot. A key over inputs only is the burned class (deviation.build-cache-no-code-version-key). Hashing the producing source makes any edit auto-invalidate.
+    - MESHSET_EPOCH bumps when a cluster or mesh is added or removed.
+    - LOD_CONFIG_EPOCH bumps when thresholds or distances change.
+    - LOAD_EPOCH is mandatory and easy to miss: a cluster whose mesh finishes streaming mid-frame has a different correct LOD decision than before it finished, so residency must be in the key or the capture serves a pre-load decision forever.
+    - Q(viewerPos) quantized to 1 mm so sub-millimetre drift does not force a miss every frame.
+
+    WORST-CASE BOUND
+    Skipped path is one key compare plus a replay of the recorded groups. Miss path is today's rebuild. Bounded by cluster count. Failure mode if LOAD_EPOCH is omitted: a cluster stays at a coarse LOD after its fine mesh lands -- visible as a pop that never resolves, which is why the acceptance witness must cross a streaming load boundary, not just hold still.
+
+    MEASUREMENT (partially blocked)
+    The CPU half (LOD decisions, group assembly) is measurable in node against the real module with integer counters: (a) LOD decisions computed, (b) groups assembled, (c) group uploads attempted. The upload half needs a real GPU/GL context; do NOT claim a win on the upload cost from a CPU-only measurement -- a substitute context measures the harness, not the driver. Take the CPU counters in node, and take the upload counter under a browser dispatch with `gpu.accelerated` confirmed true.
+  acceptance_criteria: 'Node witness against the real module: report per frame (a) LOD decisions computed, (b) groups assembled, (c) upload attempts, over a scripted 120 s route with the viewer both still and moving. Pass requires (a) and (b) to drop by at least 50 percent with a still viewer, with a zero-delta control arm in the SAME window (noise floor +/-10 percent, currently ~2.5x inflated). Then a browser witness with gpu.accelerated true confirming (c) drops to 0 on frames where the CPU key hits. Correctness: the rendered LOD assignment must match the always-recompute build for the same viewer positions, AND a cluster whose mesh completes streaming mid-route must adopt its finer LOD within one frame of completing (the LOAD_EPOCH case) -- witness that specifically, since it is the case a naive key misses.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: cpu-plan-player-tier-classify-capture
+  title: 'Cache classifyPlayerTiers per frame: the client recomputes every player''s distance, frustum dot and LOD tier on every frame it runs'
+  subject: client/core/PlayerLOD.js:26 classifyPlayerTiers is invoked from tick (:209), itself driven from client/app.js:2204, and on every invocation it re-sorts the tier chain, re-reads every player's position, recomputes a distance and a frustum dot per player and allocates a fresh result array; measured at 82 us/call with 200 players and 704 us/call with 1024, which is a meaningful slice of a 16 ms budget spent on values that only change when a player moves or the camera moves.
+  body: |-
+    TIER-0 parent: cpu-skip-and-replay-plan-browser. CPU-side, client per-frame, main thread.
+
+    WHAT RECOMPUTES
+    client/core/PlayerLOD.js:26 classifyPlayerTiers, called from :209 tick, driven by client/app.js:2204. Per invocation: sortTierChain, then per player a position read, a distance computation, a frustum dot, a tier assignment, and a fresh result array.
+    Measured this pass against the real module in node: 82 microseconds per call at n=200, 704 microseconds per call at n=1024. Cost grows with player count, so this is precisely the load where the frame budget is already tightest.
+    Note a same-named server function exists at src/netcode/SnapshotEncoder.js:89; that one is server-side and out of scope here. This row is the client one only.
+
+    STABLE STRUCTURE (the captured graph)
+    The tier assignment array: for each player id, its tier index.
+
+    CHANGING INPUTS
+    Every player's position, the camera position and forward vector, the tier thresholds and radii, the player-set membership and count.
+
+    INVALIDATION KEY
+    key = H(CODE) || TIER_CONFIG_EPOCH || MEMBERSHIP_VERSION || Q(camPos, camForward) || Q(each player position)
+    - CODE = a hash of the UTF-8 bytes of client/core/PlayerLOD.js itself, computed at boot. A key over inputs only is the burned class (deviation.build-cache-no-code-version-key): a build artifact keyed on its input hash serves stale output forever after the transform code changed. Hashing the producing source makes any edit auto-invalidate with no human bumping a number.
+    - TIER_CONFIG_EPOCH bumps when the tier chain, thresholds or radii change.
+    - MEMBERSHIP_VERSION bumps on join/leave/entity add/remove.
+    - Q = position quantized to 1 mm and forward to 1e-5, so sub-millimetre jitter from interpolation does not force a miss every frame. Quantization is the whole point: the raw values drift every frame by design, and a key over unquantized floats is guaranteed-always-miss -- the same defect as the mapspinner gate in cpu-plan-mapspinner-quad-replay-gate-tolerance.
+    Reuse the per-frame identity already maintained for client/app.js:2204 so the key cannot miss a camera change.
+
+    WORST-CASE BOUND
+    Skipped path is one key compare plus an array reuse. Miss path is today's classify. Bounded by player count, which is bounded. Failure mode if the key is wrong: a player is rendered at the wrong LOD tier -- visible, and it fails on the very next camera rotation, so it does not persist silently.
+
+    MEASUREMENT (integer work units, immune to timer inflation -- this box's zero-delta control arm is +/-10 percent and is currently ~2.5x inflated, so the microsecond figures must be re-taken with a control arm)
+    Deciding counter: per call, (a) player position reads, (b) distance computations, (c) frustum dots, (d) result-array allocations, (e) cache hits vs misses over a scripted 120 s route with the camera both still and rotating.
+  acceptance_criteria: 'Real-module witness in node (no GPU needed for the classify path) plus a browser witness of the live page: report per call (a) player position reads, (b) distance computations, (c) frustum dots, (d) result-array allocations, (e) hit rate, at n=200 and n=1024. Pass requires hit rate >= 50 percent with a still camera over the route and (a)-(d) to drop proportionally, measured with a zero-delta control arm in the SAME window. Correctness: the tier array must be element-for-element identical to the always-recompute classify for the same camera and player poses; a camera rotation of 1 degree must force a miss; and a player joining or leaving must force a miss on that same frame.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: apps-manifest-generated-at-repo-root-never-served
+  title: apps-manifest.json is generated at the repo root, but the dev server serves client/
+  body: 'postinstall now runs scripts/bundle-apps-manifest.mjs (7ab16e28), and that script resolves its default outFile against ROOT (scripts/bundle-apps-manifest.mjs:117, OUT = resolve(ROOT, outFile)), so it writes ./apps-manifest.json at the repo root. The browser fetches new URL(''apps-manifest.json'', _root) at client/BrowserServer.js:108, where _root is the client root (the same base used for src/sdk/WorkerEntry.js), and the dev server serves client/ at /, so the file postinstall generates is never served and the boot still 404s. Witnessed twice with scripts/page-boot-witness.mjs --world=tps-game --params=singleplayer --gl=none --port=3118: with only the root file present (451568 bytes, 68 apps, generated by node scripts/bundle-apps-manifest.mjs) the run reports HTTP 404 http://localhost:3118/apps-manifest.json among 3 failed requests; after copying those same bytes to client/apps-manifest.json the 404 is gone and only the two ERR_ABORTED entries remain. scripts/bundle-client.mjs:173 and src/sdk/ServerBoot.js:82 both expect the manifest beside the bundle (dist/client/apps-manifest.json), so the dev path and the bundle path disagree on where it lives. BrowserServer already falls back to the live app walk when the fetch is not ok, so today the only cost of the missing file is a 404 on every page load plus the manifest never being used in dev.'
+  acceptance_criteria: A boot on a tree whose manifest was produced by postinstall alone must report no failed request for apps-manifest.json, witnessed with scripts/page-boot-witness.mjs without --allow-failed-requests, and the same run must show the manifest actually resolving apps instead of BrowserServer falling back to the live app walk.
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: prediction-contact-beyond-150ms-unacked-window-needs-peer-forward-sim
+  title: Contact with another player is mispredicted at 50 ms one way and above because the 150 ms window gate closes and prediction ignores the peer
+  body: 'REOPENED after a retracted premise. I first reported that the 150 ms gate did not exist in code; that was wrong. git show HEAD:src/client/PredictionEngine.js has PEER_FRESH_WINDOW_S = 0.15 at line 23 and gates the push with it at line 228, (this._inputSeq - 1 - this._lastAckedSeq) * dt <= PEER_FRESH_WINDOW_S, and HEAD _separateFromPeers(dt, ticksPastSnapshot) extrapolates the peer linearly by its snapshot velocity times lead before separationPush, so docs/netcode.md:32 is accurate about the committed code. The error came from searching the working tree: another lane has an uncommitted change to this file (git diff --stat: 64 insertions, 13 deletions) that deletes PEER_FRESH_WINDOW_S and replaces the linear extrapolation with a real peer forward-sim, and every disk scan sees that instead of HEAD. That lane owns this surface now, so this row should be worked by them or handed back explicitly rather than by a second writer. The six contact-regime arms I ran (--world=arena --hold=forward --precise --duration=20000, push-on against --peerSeparation=off) measured that working-tree forward-sim, not HEAD: corrections per ack 0.737 against 0.717 at 0/0/0, 0.674 against 0.667 at 50/10/2, 0.530 against 0.540 at 100/20/3, with mispredict err p95 10.79 against 1.67 cm, 11.71 against 2.67 and 12.33 against 12.33. Those numbers are a measurement of the in-progress version and must be re-taken against a committed tree before anyone concludes the forward-sim does not help.'
+  acceptance_criteria: Simulate the peer forward under the same push inside the prediction replay (its velocity decaying through the shared applyMovement friction path when it has no input, pushed by separationPush) so the predicted path does not move when a fresher peer snapshot arrives. Done when, with --hold=forward (contact regime) at 50/10/2 and 100/20/3 against the --peerSeparation=off control, corrections per ack fall below the control (0.726 and 0.546) AND rendered-offset p95 stays at or below the control (10.9 and 23.5 cm) AND pops per minute do not exceed the control (268 and 192); 30 Hz mispredict falls below 75%; clear-lane control unchanged; rollback-duel and lockstep-rts 0 desyncs. Every arm must run against a committed tree with no concurrent lane editing src/client/PredictionEngine.js, and be repeated on an idle box.
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending
