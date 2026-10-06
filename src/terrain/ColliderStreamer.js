@@ -15,7 +15,7 @@ function estimateBodyBytes(a) {
 }
 
 import { yieldToLoop } from './loopYield.js'
-import { latticeFor, ringAroundLocal } from './PlacementChart.js'
+import { latticeFor, ringAroundLocal, chunkCentreLocal } from './PlacementChart.js'
 import { reanchoredSeaLevelXZ } from './ChartLocalPoint.js'
 
 const CENTER_SCALE_REFERENCE = 8
@@ -124,6 +124,10 @@ export function createColliderStreamer(spec = {}) {
   let curCenters = []
   let prewarmMs = 0
   let ringBuildMsTotal = 0, ringBuildStartedAt = 0, lastCenterCounts = [], lastDroppedCount = 0, droppedWarned = 0
+  let classifyMsTotal = 0, addMsTotal = 0, removeMsTotal = 0, lastStarved = []
+  let newChunkTotal = 0, tailMsTotal = 0, lastCands = 0
+  let ringMsTotal = 0, scanMsTotal = 0, ringFreshTotal = 0, lastChunkKeys = 0, computeMsTotal = 0
+  let scanLookupMsTotal = 0, scanBodyMsTotal = 0, examinedTotal = 0, nearTestsTotal = 0, lastExaminedCount = 0
 
   function warnDroppedCenters(dropped, total) {
     lastDroppedCount = dropped
@@ -150,7 +154,7 @@ export function createColliderStreamer(spec = {}) {
     if (_chunkCache.size >= _CHUNK_CACHE_CAP) { const oldest = _chunkCache.keys().next().value; _chunkCache.delete(oldest) }
     _chunkCache.set(k, v)
   }
-  const COMPUTE_BUDGET_MS = 2.5
+  const COMPUTE_BUDGET_MS = 8
   const MAX_NEW_CHUNKS_PER_PASS = 64
   const _EMPTY = Object.freeze([])
   let _budgetDeadline = 0, _newThisPass = 0, _deferred = false, _budgetOff = false
@@ -159,67 +163,200 @@ export function createColliderStreamer(spec = {}) {
     let v = _chunkCacheGet(k)
     if (v) return v
     if (!_budgetOff && (_newThisPass >= MAX_NEW_CHUNKS_PER_PASS || _now() >= _budgetDeadline)) { _deferred = true; return _EMPTY }
-    v = placementsFor(k, frame, anchorField, worldSeed); _chunkCacheSet(k, v); _newThisPass++
+    const _c0 = _now()
+    v = placementsFor(k, frame, anchorField, worldSeed); _chunkCacheSet(k, v); _newThisPass++; newChunkTotal++
+    computeMsTotal += _now() - _c0
     return v
   }
 
   const radiusSq = radius * radius, keepRadiusSq = keepRadius * keepRadius
+  const CENTER_QUANTUM_M = 4
+  const RING_CACHE_CAP = 512
+  const GRID_KEY_SPAN = 65536
+  const _ringCache = new Map()
+  function ringKeyOf(cx, cz) { return Math.round(cx / CENTER_QUANTUM_M) + '|' + Math.round(cz / CENTER_QUANTUM_M) }
+  function ringCacheGet(key) {
+    const v = _ringCache.get(key)
+    if (v !== undefined) { _ringCache.delete(key); _ringCache.set(key, v) }
+    return v
+  }
+  function ringCacheSet(key, v) {
+    if (_ringCache.size >= RING_CACHE_CAP) _ringCache.delete(_ringCache.keys().next().value)
+    _ringCache.set(key, v)
+  }
+  function clearRingCache() { _ringCache.clear() }
+  let _lattice = null
+  function latticeOf() { if (!_lattice) _lattice = latticeFor(frame, latticeSpec); return _lattice }
 
-  function _classifyOne(cx, cz, centerIndex, keepOut, candMap) {
-    const lattice = latticeFor(frame, latticeSpec)
-    const ring = ringAroundLocal(lattice, frame, cx, cz, keepRadius + lattice.chunkM)
-    for (let r = 0; r < ring.length; r++) {
-      const list = chunkPlacements(ring[r].key)
-      for (let i = 0; i < list.length; i++) {
-        const p = list[i]
-        if (excludePlacement !== null && excludePlacement(p[idField])) continue
-        const ddx = p.x - cx, ddz = p.z - cz
-        const d2 = ddx * ddx + ddz * ddz
-        if (d2 <= keepRadiusSq) {
-          const id = p[idField]
-          keepOut.add(id)
-          if (d2 <= radiusSq) {
-            const prev = candMap.get(id)
-            if (!prev || d2 < prev.d) candMap.set(id, { p, d: d2, c: centerIndex })
+  const _chunkCentre = [0, 0]
+  async function classifyRings(centers, unbudgeted) {
+    const lattice = latticeOf()
+    const keep = new Set()
+    const chunkKeys = []
+    const seenKeys = new Set()
+    const ringRadius = keepRadius + CENTER_QUANTUM_M + lattice.chunkM
+    const quota = Math.max(1, Math.ceil(effectiveCap / centers.length))
+    const buckets = new Array(centers.length)
+    for (let i = 0; i < centers.length; i++) buckets[i] = []
+    const avail = new Array(centers.length).fill(0)
+    const candP = [], candD = [], candC = []
+    const overflow = []
+    let candCount = 0
+    let deadline = _now() + CLASSIFY_BUDGET_MS
+    let workMs = 0, sliceAt = _now(), ringWork = 0, scanWork = 0, phase = 'ring'
+    let scanLookupMs = 0, scanBodyMs = 0, examinedHere = 0
+    markPhase('ring')
+    async function yieldNow() {
+      const d = _now() - sliceAt
+      workMs += d
+      if (phase === 'ring') ringWork += d
+      else scanWork += d
+      await yieldSlice()
+      sliceAt = _now()
+      deadline = sliceAt + CLASSIFY_BUDGET_MS
+      return !disposed
+    }
+    function closePhase() {
+      const d = _now() - sliceAt
+      workMs += d
+      if (phase === 'ring') ringWork += d
+      else scanWork += d
+      sliceAt = _now()
+    }
+    for (let i = 0; i < centers.length; i++) {
+      if (i > 0 && !unbudgeted && _now() >= deadline && !await yieldNow()) return null
+      const cx = centers[i][0], cz = centers[i][1]
+      const rk = ringKeyOf(cx, cz)
+      let keys = ringCacheGet(rk)
+      if (keys === undefined) {
+        const ring = ringAroundLocal(lattice, frame, cx, cz, ringRadius)
+        keys = new Array(ring.length)
+        for (let r = 0; r < ring.length; r++) keys[r] = ring[r].key
+        ringCacheSet(rk, keys)
+        ringFreshTotal++
+      }
+      for (let r = 0; r < keys.length; r++) {
+        const k = keys[r]
+        if (!seenKeys.has(k)) { seenKeys.add(k); chunkKeys.push(k) }
+      }
+    }
+    closePhase()
+    ringMsTotal += ringWork
+    phase = 'scan'
+    markPhase('scan')
+    lastChunkKeys = chunkKeys.length
+    const cellM = keepRadius + lattice.chunkM
+    const n = centers.length
+    const centX = new Float64Array(n), centZ = new Float64Array(n)
+    for (let i = 0; i < n; i++) { centX[i] = centers[i][0]; centZ[i] = centers[i][1] }
+    const grid = new Map()
+    for (let i = 0; i < n; i++) {
+      const gk = Math.floor(centX[i] / cellM) * GRID_KEY_SPAN + Math.floor(centZ[i] / cellM)
+      const arr = grid.get(gk)
+      if (arr) arr.push(i)
+      else grid.set(gk, [i])
+    }
+    const nearRadiusSq = (keepRadius + lattice.chunkM) * (keepRadius + lattice.chunkM)
+    const near = []
+    for (let ci = 0; ci < chunkKeys.length; ci++) {
+      if (!unbudgeted && _now() >= deadline && !await yieldNow()) return null
+      const cp0 = _now()
+      const list = chunkPlacements(chunkKeys[ci])
+      const cp1 = _now()
+      if (list.length !== 0) {
+      chunkCentreLocal(lattice, frame, chunkKeys[ci], _chunkCentre)
+      const qx = _chunkCentre[0], qz = _chunkCentre[1]
+      near.length = 0
+      const gx = Math.floor(qx / cellM), gz = Math.floor(qz / cellM)
+      for (let ox = -1; ox <= 1; ox++) {
+        for (let oz = -1; oz <= 1; oz++) {
+          const arr = grid.get((gx + ox) * GRID_KEY_SPAN + (gz + oz))
+          if (arr === undefined) continue
+          for (let a = 0; a < arr.length; a++) {
+            const i = arr[a]
+            const dx = qx - centX[i], dz = qz - centZ[i]
+            if (dx * dx + dz * dz <= nearRadiusSq) near.push(i)
           }
         }
       }
+      if (near.length === 0) { scanBodyMs += _now() - cp1; continue }
+      for (let k = 0; k < list.length; k++) {
+        examinedTotal++
+        examinedHere++
+        const p = list[k]
+        const id = p[idField]
+        if (excludePlacement !== null && excludePlacement(id)) continue
+        let bestC = -1, bestD = Infinity
+        for (let a = 0; a < near.length; a++) {
+          nearTestsTotal++
+          const i = near[a]
+          const dx = p.x - centX[i], dz = p.z - centZ[i]
+          const d2 = dx * dx + dz * dz
+          if (d2 > keepRadiusSq || d2 >= bestD) continue
+          bestD = d2
+          bestC = i
+        }
+        if (bestC < 0) continue
+        keep.add(id)
+        if (bestD > radiusSq) continue
+        candCount++
+        avail[bestC]++
+        const idx = candP.length
+        candP.push(p); candD.push(bestD); candC.push(bestC)
+        const b = buckets[bestC]
+        const full = b.length >= quota
+        if (full && candD[b[quota - 1]] <= bestD) { overflow.push(idx); continue }
+        let j = full ? quota - 1 : b.length
+        const displaced = full ? b[j] : -1
+        while (j > 0 && candD[b[j - 1]] > bestD) { b[j] = b[j - 1]; j-- }
+        b[j] = idx
+        if (displaced >= 0) overflow.push(displaced)
+      }
+      scanBodyMs += _now() - cp1
+      }
+      scanLookupMs += cp1 - cp0
     }
-  }
+    closePhase()
+    scanMsTotal += scanWork
+    scanLookupMsTotal += scanLookupMs
+    scanBodyMsTotal += scanBodyMs
+    phase = 'tail'
+    markPhase('tail')
 
-  function classifyRings(centers) {
-    const keep = new Set(), candMap = new Map()
-    for (let i = 0; i < centers.length; i++) _classifyOne(centers[i][0], centers[i][1], i, keep, candMap)
-    const cands = [...candMap.values()]
-    cands.sort((a, b) => a.d - b.d)
-    const avail = new Array(centers.length).fill(0)
-    for (const c of cands) avail[c.c]++
-    const quota = Math.max(1, Math.ceil(effectiveCap / centers.length))
+    const tt = _now()
     const taken = new Array(centers.length).fill(0)
-    const picked = new Array(cands.length).fill(false)
     const desired = []
-    for (let i = 0; i < cands.length && desired.length < effectiveCap; i++) {
-      const c = cands[i]
-      if (taken[c.c] < quota) { taken[c.c]++; picked[i] = true; desired.push(c) }
+    for (let round = 0; round < quota && desired.length < effectiveCap; round++) {
+      for (let i = 0; i < centers.length && desired.length < effectiveCap; i++) {
+        const idx = buckets[i][round]
+        if (idx === undefined) continue
+        taken[i]++
+        desired.push(idx)
+      }
     }
-    for (let i = 0; i < cands.length && desired.length < effectiveCap; i++) {
-      if (picked[i]) continue
-      taken[cands[i].c]++
-      desired.push(cands[i])
+    if (desired.length < effectiveCap && overflow.length > 0) {
+      overflow.sort((a, b) => candD[a] - candD[b])
+      for (let i = 0; i < overflow.length && desired.length < effectiveCap; i++) {
+        const idx = overflow[i]
+        taken[candC[idx]]++
+        desired.push(idx)
+      }
     }
-    const truncated = cands.length > desired.length
+    const truncated = candCount > desired.length
     const starved = []
     for (let i = 0; i < centers.length; i++) if (taken[i] === 0 && avail[i] > 0) starved.push(centers[i])
-    return { desired, keep, truncated, starved, counts: taken }
+    tailMsTotal += _now() - tt
+    lastCands = candCount
+    lastExaminedCount = examinedHere
+    return { desired, candP, keep, truncated, starved, counts: taken, workMs }
   }
-  function classifyRing(cx, cz) { return classifyRings([[cx, cz]]) }
 
   const _PENDING = -1
   const _useQueue = typeof physics.enqueueAdd === 'function' && typeof physics.enqueueRemove === 'function'
   const pendingTicket = new Map()
   let nextTicket = 0
   function scheduleAdd(p) {
-    const a = bodyArgs(p); if (!a) return
+    const a = bodyArgsTimed(p, 2); if (!a) return
     const placementId = p[idField]
     placedAt.set(placementId, [p.x, p.z])
     _touch(placementId, estimateBodyBytes(a))
@@ -285,35 +422,97 @@ export function createColliderStreamer(spec = {}) {
     return trimmed
   }
 
-  function prewarmPools(desired) {
+  let bodyArgsMsTotal = 0, bodyArgsCalls = 0, bodyArgsSlowCalls = 0
+  const bodyArgsSite = [0, 0, 0]
+  function bodyArgsTimed(p, site) {
+    const t0 = _now()
+    const a = bodyArgs(p)
+    const d = _now() - t0
+    bodyArgsMsTotal += d
+    bodyArgsCalls++
+    bodyArgsSite[site]++
+    if (d > 0.05) bodyArgsSlowCalls++
+    return a
+  }
+  async function prewarmPools(desired, candP, unbudgeted) {
+    prewarmDemand = 0
+    prewarmKeys = 0
     if (typeof physics.preallocatePool !== 'function') return
     const demand = new Map()
-    for (let i = 0; i < desired.length; i++) {
-      const a = bodyArgs(desired[i].p)
+    let deadline = _now() + ADD_BUDGET_MS
+    let room = effectiveCap - live.size
+    for (let i = 0; i < desired.length && room > 0; i++) {
+      if (i > 0 && !unbudgeted && _now() >= deadline) {
+        await yieldSlice()
+        deadline = _now() + ADD_BUDGET_MS
+      }
+      const p = candP[desired[i]]
+      if (live.has(p[idField])) continue
+      const a = bodyArgsTimed(p, 0)
       if (!a || !a.shapeKey) continue
+      prewarmDemand++
+      room--
       const d = demand.get(a.shapeKey)
       if (d) d.count++
       else demand.set(a.shapeKey, { count: 1, shape: a.shape, args: a.args })
     }
-    for (const [shapeKey, d] of demand) physics.preallocatePool(d.shape, d.args, shapeKey, d.count)
+    for (const [shapeKey, d] of demand) {
+      if (!unbudgeted && _now() >= deadline) {
+        await yieldSlice()
+        deadline = _now() + ADD_BUDGET_MS
+      }
+      prewarmKeys++
+      physics.preallocatePool(d.shape, d.args, shapeKey, d.count)
+    }
   }
 
   const ADD_BUDGET_MS = 2
+  const CLASSIFY_BUDGET_MS = 2
   const epochOf = () => (frame && Number.isFinite(frame.chartEpoch) ? frame.chartEpoch : 0)
   let staleEpochAborts = 0, reanchoredEpoch = -1, starvedWarned = 0
+  let sliceStart = 0, maxSliceMs = 0, lastSliceMaxMs = 0, slicePhase = 'idle', maxSlicePhase = 'idle', lastMaxSlicePhase = 'idle'
+  let workMsTotal = 0
+  let prewarmDemand = 0, prewarmKeys = 0
+  const workByPhase = new Map()
+  function beginSlice() { if (!sliceStart) { sliceStart = _now(); if (!_budgetOff) _budgetDeadline = sliceStart + COMPUTE_BUDGET_MS } }
+  function endSlice() {
+    if (!sliceStart) return
+    const d = _now() - sliceStart
+    sliceStart = 0
+    workMsTotal += d
+    workByPhase.set(slicePhase, (workByPhase.get(slicePhase) || 0) + d)
+    if (d > lastSliceMaxMs) { lastSliceMaxMs = d; lastMaxSlicePhase = slicePhase }
+    if (d > maxSliceMs) { maxSliceMs = d; maxSlicePhase = slicePhase }
+  }
+  async function yieldSlice() {
+    endSlice()
+    await yieldToLoop()
+    beginSlice()
+  }
+  function markPhase(name) {
+    endSlice()
+    slicePhase = name
+    beginSlice()
+  }
   async function _rebuildMulti(centers, unbudgeted = false) {
     if (rebuilding || disposed || !frame || typeof physics?.addBody !== 'function') return
     if (!Array.isArray(centers) || centers.length === 0) return
     rebuilding = true
     if (!ringBuildStartedAt) ringBuildStartedAt = _now()
     const rbT0 = _now()
+    lastSliceMaxMs = 0
+    beginSlice()
     const scale = centerScale(centers.length)
     effectiveCap = baseCap * scale
     effectiveByteBudget = baseByteBudget * scale
     _beginBudget(unbudgeted)
     const epochAtStart = epochOf()
     try {
-      const { desired, keep, truncated, starved, counts } = classifyRings(centers)
+      const classified = await classifyRings(centers, unbudgeted)
+      if (classified === null) return
+      const { desired, candP, keep, truncated, starved, counts } = classified
+      classifyMsTotal += classified.workMs
+      lastStarved = starved
       if (truncated && starved.length) {
         if (starved.length > starvedWarned) {
           starvedWarned = starved.length
@@ -322,39 +521,50 @@ export function createColliderStreamer(spec = {}) {
         }
       } else if (starvedWarned !== 0) starvedWarned = 0
       const tp = _now()
-      prewarmPools(desired)
+      markPhase('prewarm')
+      await prewarmPools(desired, candP, unbudgeted)
       prewarmMs = _now() - tp
       let addDeadline = _now() + ADD_BUDGET_MS
+      const ta = _now()
+      markPhase('add')
       for (let i = 0; i < desired.length; i++) {
         if (disposed) return
         if (epochOf() !== epochAtStart) { staleEpochAborts++; return true }
-        const { p } = desired[i]
-        if (!live.has(p[idField])) {
-          scheduleAdd(p)
-          if (!unbudgeted && _now() >= addDeadline) {
-            await yieldToLoop()
-            if (disposed) return
-            addDeadline = _now() + ADD_BUDGET_MS
-          }
-        } else {
-          _touch(p[idField], _lru.get(p[idField]) ?? estimateBodyBytes(bodyArgs(p)))
+        const p = candP[desired[i]]
+        if (live.has(p[idField])) {
+          _touch(p[idField], _lru.get(p[idField]) ?? estimateBodyBytes(bodyArgsTimed(p, 1)))
+          continue
+        }
+        if (live.size >= effectiveCap) continue
+        scheduleAdd(p)
+        if (!unbudgeted && _now() >= addDeadline) {
+          await yieldSlice()
+          if (disposed) return
+          addDeadline = _now() + ADD_BUDGET_MS
         }
       }
       if (epochOf() !== epochAtStart) { staleEpochAborts++; return true }
+      addMsTotal += _now() - ta
       if (!_deferred) {
+        const tr = _now()
+        markPhase('remove')
         for (const [placementId, bodyId] of [...live.entries()]) {
           if (keep.has(placementId)) continue
           scheduleRemove(placementId, bodyId)
         }
+        removeMsTotal += _now() - tr
+        markPhase('evict')
         const evicted = evictOverBudget()
         if (evicted > 0) console.log(`${logTag} LRU evicted ${evicted} colliders over byte budget (${_residentBytes}/${effectiveByteBudget}B resident)`)
       }
       if (!_deferred) { curCenters = centers; curCenter = centers[0] || null; lastCenterCounts = counts; rebuildCount++ }
+      markPhase('trim')
       const trimmed = evictOverCap(centers)
       if (trimmed > 0) console.log(`${logTag} trimmed ${trimmed} collider(s) beyond the body cap: ${live.size}/${effectiveCap} resident for ${centers.length} center(s)`)
+      markPhase('ids')
       setColliderIds(_liveIds)
     } catch (e) { console.error(logTag + ' collider rebuild error:', e?.message || e) }
-    finally { ringBuildMsTotal += _now() - rbT0; rebuilding = false }
+    finally { endSlice(); ringBuildMsTotal += _now() - rbT0; rebuilding = false }
     return _deferred
   }
   function _rebuild(cx, cz, unbudgeted = false) { return _rebuildMulti([[cx, cz]], unbudgeted) }
@@ -404,6 +614,7 @@ export function createColliderStreamer(spec = {}) {
     curCenters = curCenters.map(([x, z]) => reanchoredSeaLevelXZ(from, to, x, z))
     curCenter = curCenters[0] || null
     _chunkCache.clear()
+    clearRingCache()
     reanchoredEpoch = epoch
     return moved
   }
@@ -429,7 +640,7 @@ export function createColliderStreamer(spec = {}) {
     },
     get staleEpochAborts() { return staleEpochAborts },
     get isRebuilding() { return rebuilding },
-    stop() { disposed = true; if (_timer) clearTimeout(_timer); for (const id of live.values()) { if (id === _PENDING) continue; try { physics.removeBody(id) } catch (_) {} } live.clear(); placedAt.clear(); _liveIds.clear(); _lru.clear(); _residentBytes = 0 },
+    stop() { disposed = true; if (_timer) clearTimeout(_timer); for (const id of live.values()) { if (id === _PENDING) continue; try { physics.removeBody(id) } catch (_) {} } live.clear(); placedAt.clear(); _liveIds.clear(); _lru.clear(); _ringCache.clear(); _residentBytes = 0 },
     get liveCount() { return live.size },
     get center() { return curCenter },
     get centers() { return curCenters },
@@ -437,12 +648,44 @@ export function createColliderStreamer(spec = {}) {
     get centerCounts() { return lastCenterCounts },
     get droppedCenters() { return lastDroppedCount },
     get ringBuildMs() { return ringBuildMsTotal },
+    get classifyMs() { return classifyMsTotal },
+    get addMs() { return addMsTotal },
+    get removeMs() { return removeMsTotal },
+    get newChunks() { return newChunkTotal },
+    get tailMs() { return tailMsTotal },
+    get ringMs() { return ringMsTotal },
+    get scanMs() { return scanMsTotal },
+    get ringFresh() { return ringFreshTotal },
+    get chunkKeys() { return lastChunkKeys },
+    get computeMs() { return computeMsTotal },
+    get scanLookupMs() { return scanLookupMsTotal },
+    get scanBodyMs() { return scanBodyMsTotal },
+    get examined() { return examinedTotal },
+    get lastExamined() { return lastExaminedCount },
+    get nearTests() { return nearTestsTotal },
+    get cands() { return lastCands },
+    get maxSliceMs() { return maxSliceMs },
+    get maxSlicePhase() { return maxSlicePhase },
+    get lastMaxSliceMs() { return lastSliceMaxMs },
+    get lastMaxSlicePhase() { return lastMaxSlicePhase },
+    get prewarmMs() { return prewarmMs },
+    get workMs() { return workMsTotal },
+    get prewarmDemand() { return prewarmDemand },
+    get prewarmKeys() { return prewarmKeys },
+    get bodyArgsMs() { return bodyArgsMsTotal },
+    get bodyArgsCalls() { return bodyArgsCalls },
+    get bodyArgsSlowCalls() { return bodyArgsSlowCalls },
+    get bodyArgsPrewarm() { return bodyArgsSite[0] },
+    get bodyArgsTouch() { return bodyArgsSite[1] },
+    get bodyArgsAdd() { return bodyArgsSite[2] },
+    get starvedClusters() { return lastStarved },
     get ringBuildMsPerSecond() { const secs = (_now() - ringBuildStartedAt) / 1000; return ringBuildStartedAt && secs > 0 ? ringBuildMsTotal / secs : 0 },
     get chunkCacheSize() { return _chunkCache.size },
+    get ringCacheSize() { return _ringCache.size },
     get cap() { return effectiveCap },
     get residentBytes() { return _residentBytes },
     get byteBudget() { return effectiveByteBudget },
-    clearChunkCache() { _chunkCache.clear() },
+    clearChunkCache() { _chunkCache.clear(); clearRingCache() },
     _rebuild, _rebuildMulti, _live: live,
   }
 }
