@@ -218,7 +218,7 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
         radius: vcfg.colliderRadius || 64, cap: vcfg.colliderCap || 384, byteBudget: vcfg.colliderByteBudget, maxCenters: vcfg.colliderMaxCenters,
       })
       await trunkStreamer.start()
-    } catch (e) { console.error('[veg] trunk collider streamer failed:', e?.message || e) }
+    } catch (e) { throw new Error(`[veg] trunk collider streamer failed: ${e?.message || e}`, { cause: e }) }
   }
   streamer._trunkStreamer = trunkStreamer
   let rockStreamer = null
@@ -230,7 +230,7 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
         radius: vcfg.rockColliderRadius || 32, cap: vcfg.rockColliderCap || 128, byteBudget: vcfg.rockColliderByteBudget, maxCenters: vcfg.colliderMaxCenters,
       })
       await rockStreamer.start()
-    } catch (e) { console.error('[rocks] collider streamer failed:', e?.message || e) }
+    } catch (e) { throw new Error(`[rocks] rock collider streamer failed: ${e?.message || e}`, { cause: e }) }
   }
   streamer._rockStreamer = rockStreamer
   streamer.biomeOverride = biomeOverride

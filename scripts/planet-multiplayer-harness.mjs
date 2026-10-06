@@ -217,7 +217,7 @@ async function runParent() {
     const server = await createServer({ port, tickRate, appsDirs: [resolve(SDK_ROOT, 'apps'), resolve(SDK_ROOT, 'src/stdlib-apps')], sdkRoot: SDK_ROOT, gravity: worldDef.gravity, staticDirs: [], storageDir: resolve(workDir, 'data') })
     await server.loadWorld({ ...worldDef, tickRate })
     await server.start()
-    return { server, url: `ws://127.0.0.1:${port}/ws`, tickRate }
+    return { server, url: `ws://127.0.0.1:${port}/ws`, tickRate, collidersEnabled: terrain?.vegetation?.colliders === true }
   }
 
   const vec = {
@@ -303,7 +303,7 @@ async function runParent() {
   }
 
   async function runScenario(name) {
-    const { server, url, tickRate } = await bootServer(name)
+    const { server, url, tickRate, collidersEnabled } = await bootServer(name)
     const frame = server.physics._planetFrame
     const ring = server.physics._terrainStreamer
     say(`scenario=${name} n=${N} world=${WORLD} service=${SERVICE ? 'on' : 'off'} tickRate=${tickRate} radius=${frame.radius}`)
@@ -489,7 +489,7 @@ async function runParent() {
       chart: { serverEpoch: frame.chartEpoch, epochsDuringRun: frame.chartEpoch - chartEpochs0, clientEpochsSeen: summarize(reports.map(r => r.epochs)), clientResyncs: reports.reduce((s, r) => s + (r.chart?.resyncRequests || 0), 0), clientHeldNow: reports.reduce((s, r) => s + (r.chart?.heldNow || 0), 0), reanchorCount: ring?.chartReanchor?.reanchorCount ?? 0, refusals: ring?.chartReanchor?.refusalCount ?? 0, lastRefusal: ring?.chartReanchor?.lastRefusal?.reason ?? null },
       memory: { rssMB: [round(mem0.rss / 1048576, 1), round(mem1.rss / 1048576, 1)], heapMB: [round(mem0.heapUsed / 1048576, 1), round(mem1.heapUsed / 1048576, 1)], rssGrowthMBPerMin: round((mem1.rss - mem0.rss) / 1048576 / (elapsedS / 60), 1) },
       streaming: { heightfieldRebuilds: ring?.rebuildCount ?? null, heightfieldRebuildsDuringRun: (ring?.rebuildCount ?? 0) - (hf0 ?? 0), heightfieldBuildsPerS: round((logLines.heightfield - logs0.hf) / elapsedS, 3) },
-      colliders: colliderReport(ring)
+      colliders: colliderReport(ring), collidersEnabled
     }
     const cl = result.colliders
     for (const [kind, s] of Object.entries(cl)) if (s) say(`${kind} colliders: ${s.centers} cluster(s) served at ${JSON.stringify(s.at)}, per-cluster [${s.perCenter.join(',')}], live ${s.live}, dropped ${s.dropped}, ring build ${s.ringBuildMsPerS} ms/s over ${s.builds} rebuild(s) (+${s.epochAborts} epoch abort(s)), ${s.residentKB}/${s.byteBudgetKB} KB resident`)
@@ -552,6 +552,11 @@ async function runParent() {
   const fatals = results.filter((r) => r.fatal)
   if (fatals.length) {
     console.error(`[planet-harness] ${fatals.length} of ${results.length} scenario(s) produced no data: ${fatals.map((r) => r.scenario).join(', ')}`)
+    process.exit(1)
+  }
+  const noColliders = results.filter((r) => r.collidersEnabled && (!r.colliders || !r.colliders.trunk))
+  if (noColliders.length) {
+    console.error(`[planet-harness] ${noColliders.length} scenario(s) ran with vegetation.colliders on and ended with no trunk collider streamer: ${noColliders.map((r) => r.scenario).join(', ')}`)
     process.exit(1)
   }
   process.exit(0)
