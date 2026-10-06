@@ -46,6 +46,16 @@ under 30 KB: drain narrative into recall, never grow an audit log here.
   a pathspec matching nothing returns `pathspec_matches_nothing` and stages nothing.
 - `core.autocrlf=true` makes checkouts write CRLF while the index stays LF, so a working-tree hash
   can differ from the index; `w/crlf` in `git ls-files --eol` is not a diff.
+- `@spoint/ecs` is the repo's only `@spoint/*` specifier — `mapspinner` and `streaming-gltf` are
+  their own workspace names and are imported bare, so `@spoint/mapspinner` does not exist and is
+  imported nowhere. `node_modules/@spoint/ecs` is an npm-managed workspace link that has vanished
+  mid-session with no `npm install` running, after which every harness dies with `Cannot find
+  package '@spoint/ecs'` — an error that points at the import statement and so reads as a real
+  defect in whatever was just changed. `postinstall` and `npm run check` both restore it through
+  `scripts/ensure-workspace-links.mjs`; `npm run links` does it alone. Never fix it with
+  `npm install`, which rewrites `node_modules` under every concurrent lane. A harness that
+  resolved a workspace package from the wrong path executed different bytes, so a measurement
+  taken while a link was missing is not a property of the code under test.
 
 ## Zero-comment sweep
 

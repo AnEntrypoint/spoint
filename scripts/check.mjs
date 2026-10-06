@@ -3,6 +3,7 @@ import { join, extname } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { checkAppImports } from './check-app-imports.mjs'
+import { ensureWorkspaceLinks } from './ensure-workspace-links.mjs'
 
 const execFileAsync = promisify(execFile)
 
@@ -31,6 +32,12 @@ async function main() {
   for (const r of ROOTS) collect(r, files)
 
   const failures = []
+
+  const links = ensureWorkspaceLinks()
+  for (const name of links.created) console.log(`check: workspace link node_modules/${name} was missing and is now restored`)
+  for (const name of links.repaired) console.log(`check: workspace link node_modules/${name} pointed elsewhere and is now restored`)
+  for (const detail of links.failed) failures.push(`workspace link ${detail} -- run: node scripts/ensure-workspace-links.mjs`)
+
   const MAX_PARALLEL_CHECKS = 16
   let idx = 0
   async function worker() {
