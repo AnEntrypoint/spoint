@@ -51,6 +51,8 @@ under 30 KB: drain narrative into recall, never grow an audit log here.
   `check-cache-keys` gate names, and that gate prints the exact command to run. Both gates fail CI
   on the very commit that changed the source, which is three red pushes on 2026-10-06 (`4b8fc9cf`,
   `a318f025`, `61608226`) and each left main unusable for every lane until repaired.
+- `gm-spool-dispatch-filenames-are-session-prefixed`: a spool dispatch file must be named
+  `in/<verb>/<session-id>-<random8>.txt`; a plain numeric name is swept out without executing.
 - `core.autocrlf=true` makes checkouts write CRLF while the index stays LF, so a working-tree hash
   can differ from the index; `w/crlf` in `git ls-files --eol` is not a diff.
 - `@spoint/ecs` is the repo's only `@spoint/*` specifier — `mapspinner` and `streaming-gltf` are
@@ -63,6 +65,8 @@ under 30 KB: drain narrative into recall, never grow an audit log here.
   `npm install`, which rewrites `node_modules` under every concurrent lane. A harness that
   resolved a workspace package from the wrong path executed different bytes, so a measurement
   taken while a link was missing is not a property of the code under test.
+- `project/gpu-lock-run-spawns-node-never-a-shell`: `gpulock.mjs run <owner> bash ...` exits 127
+  here (spawn is shell:false); pass the node binary and a .mjs script, and confirm with `status`.
 
 ## Zero-comment sweep
 
@@ -118,6 +122,10 @@ block continuations, glob literals in `console.log`, `//` inside `http://`.
   `packages/streaming-gltf/src/cluster-lod-mesh.js`). A re-bakeable URL needs a real ETag;
   `immutable` without one serves stale pre-fix bytes. Verify rendering on live GPU data
   (`window.__scene`).
+- `project/node-process-exit-races-uv-async-send-2026-10-06`: `src\win\async.c, line 76` is
+  libuv 1.51.0's `uv_async_send` assert — a send to an already-closing `uv_async_t`, not a double
+  close; spoint owns none of the three `uv_async` handles a process has. Fires at `process.exit()`
+  with handles mid-close, so headless scripts must await `process._getActiveHandles()` reaching 0.
 - `project/debugging-playbook-live-gl-instrumentation-2026-07-10`: console-text disambiguation of
   same-code GL errors, draw-call stack capture, live GL state over JS-cache trust, pixel-sample
   toggle elimination for flicker, discrete-vs-noise classification before chasing.
@@ -127,6 +135,9 @@ block continuations, glob literals in `console.log`, `//` inside `http://`.
 - `project/page-boot-witness-needs-multiplayer-not-singleplayer`: a page witness that needs the
   server to act on a client message must pass `--params=multiplayer`; under `?singleplayer` the node
   server sees `players:0` throughout and the message is acked `ok:false`.
+- `witness-page-boot-fails-on-aborted-requests`: `page-boot-witness` fails an arm on any failed
+  request including `net::ERR_ABORTED` cancellations, so no arm passes without
+  `--allow-failed-requests`.
 
 ## Entry points
 
@@ -293,7 +304,8 @@ Full text in recall (`recall <slug>`); read the memo before changing the named c
   `mapspinner-snoise3-single-floor-fxc`, `mapspinner-unounroll-loop-bound`,
   `mapspinner-face-frame-tables-agree`, `mapspinner-hpf-inset-matched-triple`,
   `mapspinner-atm-lut-constants-mirror-glsl`, `mapspinner-scattering-lut-glsl-layer-mirror`,
-  `mapspinner-samplegroundm-one-call-stale`, `mapspinner-waterpass-discard-isolation`.
+  `mapspinner-samplegroundm-one-call-stale`, `mapspinner-waterpass-discard-isolation`,
+  `tsl-parity-pxworld-camdist-fp32-asymmetry`.
 - Runtimes: `worker-module-no-importmap-bare-specifier`, `sdk-dual-runtime-process-guard`,
   `apps-cannot-import-client-modules`, `esbuild-import-specifier-iife-not-concat`,
   `browserserver-snapshot-flush-settimeout-not-raf`.
@@ -339,7 +351,7 @@ Full text in recall (`recall <slug>`); read the memo before changing the named c
   `netcode-input-pipeline-exact-prediction-invariants`, `snapshot-timeline-remote-interpolation`,
   `tick-scheduler-and-snapshot-wire-v3`, `lag-compensation-view-tick-rewind`,
   `netcode-rollback-profile-exact-resim`, `netcode-lockstep-profile-agreed-drop-and-pacing`,
-  `prediction-wall-plane-hints-position-only`, `jolt-value-getters-are-static-temps-never-destroy`.
+  `prediction-wall-plane-hints-position-only`, `jolt-value-getters-are-static-temps-never-destroy`, `netcode-lockstep-drop-tail-margin-is-inputdelayticks`, `netcode-rollback-measurements-depth-not-rate`.
 - Perf/spawn 2026-09-30: `veg-instancedmesh2-lod-children-cull-and-empty-levels-2026-09-30`,
   `webgpu-dynamicdrawusage-reuploads-every-render`, `webgpu-vec3-attribute-padding-full-copy`,
   `tsl-webgpu-perf-parity-2026-09-30`, `webgpurenderer-impostor-atlas-orientation-and-normals`,
