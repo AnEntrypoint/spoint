@@ -149,6 +149,8 @@ async function run(profileName) {
   console.log(`-- ${profileName} for ${DURATION_MS} ms at ${LAT}/${JIT}/${LOSS}`)
   for (const pk of roster) console.log(`  ${pk}: ${JSON.stringify(perPeer[pk])}`)
   console.log(`  fire checksums compared on ${comparable.length} tick(s) up to tick ${settled}: ${mismatches} mismatch(es), first ${firstMismatch}, fire simTick skew on ${simTickLag} tick(s)`)
+  if (comparable.length === 0) failures.push(`${profileName}: no tick had a fire checksum on every peer, so no desync could be measured`)
+  if (mismatches > 0) failures.push(`${profileName}: ${mismatches} fire checksum mismatch(es) over ${comparable.length} comparable tick(s), first at tick ${firstMismatch}`)
   if (mismatches > 0) {
     const bad = ordered.find(([t]) => t === firstMismatch)
     console.log(`  rows at first mismatch: ${JSON.stringify(bad?.[1])}`)
@@ -159,7 +161,12 @@ async function run(profileName) {
 }
 
 const out = []
+const failures = []
 out.push(await run('rollback'))
 out.push(await run('lockstep'))
 console.log(JSON.stringify(out))
+if (failures.length > 0) {
+  for (const f of failures) console.error(`FAIL ${f}`)
+  process.exit(1)
+}
 process.exit(0)
