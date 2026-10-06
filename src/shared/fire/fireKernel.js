@@ -14,7 +14,8 @@ const TILE_CELL_SHIFT = 6
 const HALF_TILE_CELLS = TILE_CELLS >> 1
 const NBR_UNKNOWN = -2
 const NBR_NONE = -1
-const FACE_FREE = 255
+export const FACE_FREE = 255
+export const FACE_COUNT = 6
 const MAX_U16 = 65535
 const ORTHOGONAL_BASE_WEIGHT = 64
 const DIAGONAL_BASE_WEIGHT = 40
@@ -449,6 +450,12 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
         hashOfCell[g] = 0
       }
       tileCount = d.tileCount
+      let queued = 0
+      for (let i = 0; i < reclaimCount; i++) {
+        const q = reclaimQueue[i]
+        if (q < tileCount) reclaimQueue[queued++] = q
+      }
+      reclaimCount = queued
     }
     if (d.tileEpoch !== tileEpoch) {
       tileEpoch = d.tileEpoch
@@ -778,7 +785,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
   }
 
   function tryReclaim(t) {
-    if (tileFace[t] === FACE_FREE || tileListed[t] !== 0 || maskLo[t] !== 0 || maskHi[t] !== 0) return false
+    if (t >= tileCount || tileFace[t] === FACE_FREE || tileListed[t] !== 0 || maskLo[t] !== 0 || maskHi[t] !== 0) return false
     const base = t << TILE_CELL_SHIFT
     for (let i = 0; i < TILE_CELLS; i++) {
       const g = base + i
@@ -790,7 +797,11 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
 
   function releaseTile(t) {
     let slot = tileHash(tileFace[t], tileI[t], tileJ[t])
-    while (table[slot] !== t + 1) slot = (slot + 1) & (tableSize - 1)
+    let probes = 0
+    while (table[slot] !== t + 1) {
+      slot = (slot + 1) & (tableSize - 1)
+      if (++probes >= tableSize) throw new RangeError(`[fireKernel] releaseTile(${t}) at face ${tileFace[t]} tile ${tileI[t]},${tileJ[t]} holds no entry in the tile table; the reclaim queue carried a tile index the kernel no longer holds`)
+    }
     table[slot] = 0
     let scan = (slot + 1) & (tableSize - 1)
     while (table[scan] !== 0) {
@@ -874,6 +885,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     }
     hashOfCell.fill(0, 0, tileCount << TILE_CELL_SHIFT)
     dirtyCount = 0; hashCursor = 0; hashValid = true; hashSum = 0; hashXor = 0
+    reclaimCount = 0; reclaimGen++
     tileFace.fill(FACE_FREE)
     table.fill(0); tileNbr.fill(NBR_UNKNOWN); tileCount = 0; activeTileCount = 0; tileGeneration++; changeSerial++
     freeTop = 0; tileEpoch++; reclaimCount = 0; reclaimGen++
@@ -937,6 +949,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
   }
 
   function restore(s) {
+    const prevCells = tileCount << TILE_CELL_SHIFT
     tileCount = s.tileCount; activeCount = s.activeCount; activeTileCount = s.activeTileCount; scarCount = s.scarCount
     stepStart = s.stepStart; stepIndex = s.stepIndex; nextStepTick = s.nextStepTick; phase = s.phase; cursor = s.cursor; phaseEnd = s.phaseEnd; writePtr = s.writePtr
     quota = s.quota; stepInterval = s.stepInterval; moisture = s.moisture; rain = s.rain; eventSeq = s.eventSeq
@@ -954,6 +967,9 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     tileEpoch = 0
     changeSerial++; tileGeneration++
     for (let t = 0; t < tileCount; t++) tileSerial[t] = changeSerial
+    const cells = tileCount << TILE_CELL_SHIFT
+    if (cells !== prevCells) hashOfCell.fill(0, Math.min(cells, prevCells), Math.max(cells, prevCells))
+    reclaimCount = 0; reclaimGen++
     rebuildHash()
     if (undoMark !== null) { undoCount = 0; scarWriteCount = 0; undoGen++; capturePreStep() }
     stepOpen = false

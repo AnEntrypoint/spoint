@@ -1,4 +1,4 @@
-import { FIRE_EVENT, FIRE_STATE } from './fireKernel.js'
+import { FIRE_EVENT, FIRE_STATE, FACE_FREE, FACE_COUNT } from './fireKernel.js'
 
 const MAGIC = 0x46524b31
 const VERSION = 4
@@ -58,15 +58,21 @@ function createWriter(reserve = 1024) {
 
 function createReader(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const end = bytes.byteLength
   let at = 0
+  const need = n => {
+    if (at + n > end) throw new TypeError(`[fireKeyframe] keyframe carries ${end} B, which ends ${n} B short of the read at offset ${at}`)
+  }
   return {
-    u8() { const v = view.getUint8(at); at += 1; return v },
-    u32() { const v = view.getUint32(at, true); at += 4; return v },
-    i32() { const v = view.getInt32(at, true); at += 4; return v },
-    f64() { const v = view.getFloat64(at, true); at += 8; return v },
+    u8() { need(1); const v = view.getUint8(at); at += 1; return v },
+    u32() { need(4); const v = view.getUint32(at, true); at += 4; return v },
+    i32() { need(4); const v = view.getInt32(at, true); at += 4; return v },
+    f64() { need(8); const v = view.getFloat64(at, true); at += 8; return v },
     rest() { return bytes.subarray(at) },
-    advance(n) { at += n },
+    advance(n) { need(n); at += n },
     typed(Ctor, length) {
+      const span = length * Ctor.BYTES_PER_ELEMENT
+      if (!Number.isInteger(length) || length < 0 || span > end - at) throw new TypeError(`[fireKeyframe] keyframe declares ${length} ${Ctor.name} entries (${span} B) but carries ${end - at} B from offset ${at}`)
       const out = new Ctor(length)
       const dst = new Uint8Array(out.buffer, out.byteOffset, out.byteLength)
       dst.set(bytes.subarray(at, at + dst.byteLength))
@@ -328,11 +334,24 @@ export function decodeFireKeyframe(bytes) {
   for (let i = 0; i < pendingCount; i++) snapshot.pending.push(readEvent(r))
   const tileCount = snapshot.tileCount
   const cells = tileCount << TILE_CELL_SHIFT
+  if (cells > bytes.byteLength - r.at) throw new TypeError(`[fireKeyframe] keyframe declares ${tileCount} tiles (${cells} cells) but carries ${bytes.byteLength - r.at} B; the cls field alone needs ${cells} B`)
   const cls = r.typed(Uint8Array, cells)
   snapshot.cls = cls
+  const classCount = snapshot.classFuel.length
+  for (let c = 0; c < cells; c++) {
+    if (cls[c] >= classCount) throw new TypeError(`[fireKeyframe] keyframe cell ${c} carries fuel class ${cls[c]}, but the keyframe names ${classCount - 1} class(es)`)
+  }
+  if (snapshot.scarCount > cells) throw new TypeError(`[fireKeyframe] keyframe declares ${snapshot.scarCount} scar(s) over ${cells} cells, more than one scar per cell`)
   for (const [name, Ctor] of TILE_ARRAYS) {
     const length = r.u32()
+    const limit = name === 'activeTiles' ? (snapshot.activeTileCount ?? 0) : tileCount
+    if (length > limit) throw new TypeError(`[fireKeyframe] keyframe declares ${length} ${name} entries for a kernel of ${limit}`)
     snapshot[name] = length > 0 ? r.typed(Ctor, length) : new Ctor(0)
+  }
+  const faces = snapshot.tileFace
+  for (let t = 0; t < tileCount; t++) {
+    const f = faces[t]
+    if (f !== FACE_FREE && f >= FACE_COUNT) throw new TypeError(`[fireKeyframe] keyframe tile ${t} carries face ${f}, which is neither a cube face nor the free-tile sentinel`)
   }
   const declaredScars = r.u32()
   if (declaredScars !== snapshot.scarCount) throw new TypeError(`[fireKeyframe] keyframe declares ${declaredScars} scars, its scalars say ${snapshot.scarCount}`)
@@ -340,13 +359,19 @@ export function decodeFireKeyframe(bytes) {
   const rest = r.rest()
   let p = 0
   let prevStep = 0
-  for (let i = 0; i < snapshot.scarCount; i++) {
+  let entries = 0
+  const shortOf = what => new TypeError(`[fireKeyframe] keyframe carries ${rest.length} B of tile payload, which ends short of ${what} at offset ${p}`)
+  const varint = () => {
     let v = 0, shift = 0, byte = 0
-    do { byte = rest[p++]; v |= (byte & 0x7f) << shift; shift += 7 } while (byte >= 0x80)
-    scar[i * 2] = v >>> 0
-    v = 0; shift = 0
-    do { byte = rest[p++]; v |= (byte & 0x7f) << shift; shift += 7 } while (byte >= 0x80)
-    prevStep += v >>> 0
+    do {
+      if (p >= rest.length) throw shortOf(`the cell index of scar ${entries}`)
+      byte = rest[p++]; v |= (byte & 0x7f) << shift; shift += 7
+    } while (byte >= 0x80)
+    return v >>> 0
+  }
+  for (let i = 0; i < snapshot.scarCount; i++, entries++) {
+    scar[i * 2] = varint()
+    prevStep += varint()
     scar[i * 2 + 1] = prevStep
   }
   snapshot.scar = scar
@@ -354,14 +379,18 @@ export function decodeFireKeyframe(bytes) {
   const state = new Uint8Array(cells), fuel = new Uint16Array(cells), heat = new Uint16Array(cells), timer = new Uint16Array(cells)
   for (let t = 0; t < tileCount; t++) {
     const base = t << TILE_CELL_SHIFT
+    if (p + 8 > rest.length) throw shortOf(`the cell mask of tile ${t}`)
     const lo = rest[p] | (rest[p + 1] << 8) | (rest[p + 2] << 16) | (rest[p + 3] << 24)
     const hi = rest[p + 4] | (rest[p + 5] << 8) | (rest[p + 6] << 16) | (rest[p + 7] << 24)
     p += 8
     for (let i = 0; i < TILE_CELLS; i++) {
       const g = base + i
       if (i < 32 ? (lo & (1 << i)) === 0 : (hi & (1 << (i - 32))) === 0) { fuel[g] = classFuel[cls[g]]; continue }
+      if (p >= rest.length) throw shortOf(`the code of tile ${t} cell ${i}`)
       const code = rest[p++]
       if (code === CELL_SCAR) { state[g] = FIRE_STATE.BURNT; continue }
+      if (code !== CELL_FULL) throw new TypeError(`[fireKeyframe] keyframe tile ${t} cell ${i} carries cell code ${code}, which is neither the scar code nor the full-cell code`)
+      if (p + 7 > rest.length) throw shortOf(`the 7 B record of tile ${t} cell ${i}`)
       state[g] = rest[p++]
       fuel[g] = rest[p++] | (rest[p++] << 8)
       heat[g] = rest[p++] | (rest[p++] << 8)

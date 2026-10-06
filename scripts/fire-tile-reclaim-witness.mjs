@@ -2,7 +2,9 @@ import { createPlanetFrame } from '../src/terrain/PlanetFrame.js'
 import { VEG } from '../src/terrain/VegPlacement.js'
 import { latticeFor } from '../src/terrain/PlacementChart.js'
 import { createFireLattice } from '../src/shared/fire/fireLattice.js'
+import { createFireKernel, FIRE_EVENT } from '../src/shared/fire/fireKernel.js'
 import { defineFire } from '../src/behaviours/fire.js'
+import { encodeFireKeyframe, decodeFireKeyframe } from '../src/shared/fire/fireKeyframe.js'
 
 function say(line) { console.log(line) }
 
@@ -16,7 +18,7 @@ const FIRES = 20
 const REGROW_STEPS = 30
 const MAX_TILES = 4096
 
-function build(regrowSteps, windowSteps = 5) {
+function build(regrowSteps, windowSteps = 5, extra = null) {
   const sampler = {
     radius: 63600,
     heightAt(dir) { return 150 * Math.sin(dir[0] * 11) * Math.cos(dir[2] * 11) + 60 * Math.sin(dir[1] * 17 + dir[0] * 5) },
@@ -35,8 +37,9 @@ function build(regrowSteps, windowSteps = 5) {
   const fire = defineFire({
     stepTicks: 10, maxTiles: MAX_TILES, maxActiveCells: 262144, softActiveCells: 131072, windowSteps,
     regrowSteps, seed: 5, leadTicks: 4, checksumEverySteps: 1, rewind: true, role: 'authority',
+    ...(extra === null ? {} : extra),
   }, ctx, () => frame, () => null, () => null)
-  return { fire, kernel: fire.world.kernel, clock, half: Math.floor(lattice.cellsPerFace / 2), span: Math.floor(lattice.cellsPerFace / 6) }
+  return { fire, kernel: fire.world.kernel, clock, lattice, half: Math.floor(lattice.cellsPerFace / 2), span: Math.floor(lattice.cellsPerFace / 6) }
 }
 
 function runTo(clock, fire, t) { while (clock.tick < t) { clock.tick++; fire.tick(1 / 60) } }
@@ -212,5 +215,83 @@ say(`  ${a.length} vs ${b.length} step checksums, ${disagree} disagreement(s), f
 expect(a.length > 0 && a.length === b.length, `${a.length} vs ${b.length} step checksums sampled`)
 expect(new Set(a).size > 1, `all ${a.length} step checksums are identical, so the comparison cannot see a divergence`)
 expect(disagree === 0, `${disagree} of ${Math.min(a.length, b.length)} step checksums disagreed`)
+
+say('== 6. a rewind that drops tile slots leaves no reclaim pointing at a slot the kernel no longer holds ==')
+const host = build(REGROW_STEPS)
+const rawClasses = [
+  { igniteHeat: 0, burnRate: 0, heatOut: 0, fuel: 0, spotChance: 0, spotHeat: 0, smoke: 0, damage: 0 },
+  { igniteHeat: 90, burnRate: 1500, heatOut: 500, fuel: 3000, spotChance: 0, spotHeat: 0, smoke: 40, damage: 6 },
+]
+const at = ((host.half >> 3) << 3) + 7
+const bare = createFireKernel({
+  lattice: host.lattice, fuelClassAt: (face, I, J) => (((I >> 3) + (J >> 3)) & 1) === 0 ? 1 : 0,
+  classes: rawClasses, seed: 5, stepTicks: 10, maxTiles: MAX_TILES,
+  softActiveCells: 131072, maxActiveCells: 262144, regrowSteps: REGROW_STEPS, undo: true,
+})
+const empty = bare.takeDelta()
+bare.queueEvent({ kind: FIRE_EVENT.IGNITE, tick: 10, face: HOME_FACE, I: at, J: at, id: 1 })
+for (let t = 10; t <= 12; t++) bare.tick(t)
+const grown = bare.tileCount
+bare.undoDelta(empty)
+const dropped = bare.tileCount
+const resumeAt = performance.now()
+for (let t = 20; t <= 60; t++) bare.tick(t)
+const resumeMs = performance.now() - resumeAt
+say(`  ${grown} tile slot(s) grown from one ignition, ${dropped} after the rewind, ${resumeMs.toFixed(1)} ms to tick on from there: tileCount ${bare.tileCount}, live ${bare.liveTileCount}, active ${bare.activeCount}`)
+expect(grown > 0, `the fast-burning fire held ${grown} tile slot(s) before the rewind`)
+expect(dropped === 0, `the rewind left ${dropped} tile slot(s) live, so it never dropped one a reclaim was still pointing at`)
+expect(resumeMs < 5000, `40 ticks after the rewind took ${resumeMs.toFixed(1)} ms`)
+
+say('== 7. a tampered keyframe is rejected at the decode boundary instead of parsed into tiles ==')
+const kf = build(REGROW_STEPS)
+ignitePatch(kf.fire, kf.half, 0, 0)
+runTo(kf.clock, kf.fire, kf.clock.tick + 120)
+const wire = encodeFireKeyframe({ tick: kf.clock.tick, snapshot: kf.kernel.snapshot() })
+const HEADER_BYTES = 24
+const HASH_SEED = 0x811c9dc5, HASH_PRIME = 0x01000193
+function fnv1a(bytes) {
+  let h = HASH_SEED
+  for (let i = 0; i < bytes.length; i++) { h ^= bytes[i]; h = Math.imul(h, HASH_PRIME) }
+  return h >>> 0
+}
+function reseal(bytes) {
+  new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).setUint32(12, fnv1a(bytes.subarray(HEADER_BYTES)), true)
+  return bytes
+}
+const good = decodeFireKeyframe(wire)
+const sealed = decodeFireKeyframe(reseal(Uint8Array.from(wire)))
+say(`  ${wire.byteLength} B keyframe decodes to ${good.snapshot.tileCount} tile(s), and re-sealing its own checksum still decodes to ${sealed.snapshot.tileCount}`)
+expect(good.snapshot.tileCount > 0, `the encoded keyframe carries ${good.snapshot.tileCount} tile(s)`)
+expect(sealed.snapshot.tileCount === good.snapshot.tileCount, `re-sealing the checksum changed the decode from ${good.snapshot.tileCount} to ${sealed.snapshot.tileCount} tiles`)
+let rejected = 0, accepted = 0, crashed = 0
+const crashes = []
+for (const value of [0x7fffffff, 255, 6]) {
+  for (let off = 0; off + 4 <= wire.byteLength; off += 4) {
+    const copy = Uint8Array.from(wire)
+    new DataView(copy.buffer, copy.byteOffset, copy.byteLength).setUint32(off, value, true)
+    try {
+      decodeFireKeyframe(reseal(copy))
+      accepted++
+    } catch (e) {
+      const message = String(e && e.message)
+      if (message.startsWith('[fireKeyframe]')) rejected++
+      else { crashed++; if (crashes.length < 3) crashes.push(message) }
+    }
+  }
+}
+say(`  ${rejected + accepted + crashed} tampered keyframes (every 4-byte word resealed to 0x7fffffff, 255 and 6): ${rejected} rejected with a named fireKeyframe error, ${accepted} accepted, ${crashed} failing with anything else ${crashes.join(' | ')}`)
+expect(rejected > 0, `no tampered keyframe was rejected, so the decode boundary was never exercised`)
+expect(crashed === 0, `${crashed} tampered keyframe(s) failed with something other than a named fireKeyframe rejection: ${crashes.join(' | ')}`)
+const badFace = kf.kernel.snapshot()
+badFace.tileFace[0] = 6
+let faceReject = null
+try { decodeFireKeyframe(encodeFireKeyframe({ tick: kf.clock.tick, snapshot: badFace })) } catch (e) { faceReject = String(e && e.message) }
+say(`  a tile face of 6 (no cube face, not the free sentinel) is rejected: ${faceReject}`)
+expect(faceReject !== null, `a keyframe carrying cube face 6 decoded without complaint`)
+const sentinelFace = kf.kernel.snapshot()
+sentinelFace.tileFace[0] = 255
+const sentinel = decodeFireKeyframe(encodeFireKeyframe({ tick: kf.clock.tick, snapshot: sentinelFace }))
+say(`  the free-tile sentinel still decodes: ${sentinel.snapshot.tileCount} tile(s), face of tile 0 ${sentinel.snapshot.tileFace[0]}`)
+expect(sentinel.snapshot.tileFace[0] === 255, `the decoded free-tile sentinel reads ${sentinel.snapshot.tileFace[0]}`)
 
 if (failures > 0) { say(`${failures} check(s) failed`); process.exitCode = 1 }
