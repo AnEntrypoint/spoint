@@ -207,3 +207,4 @@ const finalKernel = fire.world.kernel
 say(`  tileCount after the windows ${finalKernel.tileCount}, active ${finalKernel.activeCount}`)
 
 if (failures > 0) { say(`${failures} check(s) failed`); process.exitCode = 1 }
+say(failures === 0 ? `RESULT: PASS -- snapshot + checksum per boundary ${(best.snapshotMs + best.checksumMs).toFixed(3)} ms over ${finalKernel.tileCount} tiles` : `RESULT: FAIL (${failures} check(s))`)

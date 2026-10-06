@@ -238,5 +238,7 @@ say('')
 say('== weather witness complete ==')
 if (failures.length > 0) {
   for (const f of failures) console.error(`FAIL ${f}`)
+  say(`RESULT: FAIL (${failures.length} check(s))`)
   process.exit(1)
 }
+say('RESULT: PASS -- wind, rain and moisture drive the fire and stay additive on the wire')

@@ -141,6 +141,15 @@ async function main() {
     for (const p of imports.problems) console.error(`  ${p}`)
     process.exit(1)
   }
+  try {
+    const { stdout } = await execFileAsync(process.execPath, ['scripts/fire-witness-gate.mjs'], { maxBuffer: 16 * 1024 * 1024 })
+    for (const line of stdout.split('\n')) if (line.trim()) console.log(`check: ${line}`)
+  } catch (e) {
+    const out = (e.stdout || '').toString()
+    for (const line of out.split('\n')) if (line.trim()) console.error(`check: ${line}`)
+    console.error('check: fire witnesses:', (e.stderr || e.message || '').toString().trim())
+    process.exit(1)
+  }
   console.log(`check: ${imports.appCount} apps resolve every import through the worker path, ${imports.assetCount} asset references exist`)
 }
 

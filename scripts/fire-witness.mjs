@@ -700,5 +700,7 @@ say('')
 say('== witness complete ==')
 if (failures.length > 0) {
   for (const f of failures) console.error(`FAIL ${f}`)
+  say(`RESULT: FAIL (${failures.length} check(s))`)
   process.exit(1)
 }
+say('RESULT: PASS -- authority and mirrors agree, keyframes adopt, tampered payloads are rejected at the wire boundary')

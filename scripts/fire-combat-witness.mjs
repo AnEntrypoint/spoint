@@ -246,5 +246,7 @@ say('')
 say('== combat witness complete ==')
 if (failures.length > 0) {
   for (const f of failures) console.error(`FAIL ${f}`)
+  say(`RESULT: FAIL (${failures.length} check(s))`)
   process.exit(1)
 }
+say('RESULT: PASS -- fire blocks shots, ignites on impact and stays behind config.fire.enabled')
