@@ -176,8 +176,21 @@ if (typeof window !== 'undefined') {
   })
 }
 
-const _legacyGlOptIn = typeof location !== 'undefined' && /[?&]legacygl=1\b/.test(location.search)
-const _webgpuOptIn = typeof location !== 'undefined' && !_legacyGlOptIn
+const _params = new URLSearchParams(location.search)
+const _hashQueryIdx = location.hash.indexOf('?')
+if (_hashQueryIdx >= 0) {
+  const _hashParams = new URLSearchParams(location.hash.slice(_hashQueryIdx + 1))
+  for (const [k, v] of _hashParams.entries()) {
+    if (!_params.has(k)) _params.append(k, v)
+  }
+}
+const _hasAnyMode = _params.has('singleplayer') || _params.has('wwjoin') || _params.has('room') || _params.has('multiplayer')
+const _isSingleplayer = _hasAnyMode ? _params.has('singleplayer') : true
+const _runsInPageServer = _isSingleplayer || _params.has('host') || !!_params.get('join') || !!_params.get('room')
+const _legacyGlRequested = _params.get('legacygl') === '1'
+const _legacyGlOptIn = _legacyGlRequested && _runsInPageServer
+if (_legacyGlRequested && !_runsInPageServer) console.warn('[renderer] ?legacygl=1 ignored: this client joins a remote server, whose world hashVersion it cannot pin, so the legacy GLSL renderer would draw a different ground than the server simulates')
+const _webgpuOptIn = !_legacyGlOptIn
 const _forceWebGLBackend = _webgpuOptIn && /[?&]forcewebgl=1\b/.test(location.search)
 try {
   if (_webgpuOptIn) {
@@ -709,21 +722,10 @@ function initAssets(url) { if (_assetsKicked) return; _assetsKicked = true; load
     loadingMgr.setLabel(STRINGS.loadingAnimations); animAssets=await loadAnimationLibrary(j.extensions?.VRM?'0':'1',null); assetsLoaded=true; loadingMachine.send('ASSETS_DONE')
   }).catch(err => { console.warn('[assets]',err?.message); assetsLoaded=true; loadingMachine.send('ASSETS_DONE') })
 }
-const _params = new URLSearchParams(location.search)
-const _hashQueryIdx = location.hash.indexOf('?')
-if (_hashQueryIdx >= 0) {
-  const _hashParams = new URLSearchParams(location.hash.slice(_hashQueryIdx + 1))
-  for (const [k, v] of _hashParams.entries()) {
-    if (!_params.has(k)) _params.append(k, v)
-  }
-}
 const _defaultWorldName = () => import('/apps/world/index.js').then(defaultWorldNameOf, e => { console.error('[world] no default world: /apps/world/index.js failed to load:', e?.message || e); return null })
-const _hasAnyMode = _params.has('singleplayer') || _params.has('wwjoin') || _params.has('room') || _params.has('multiplayer')
-const _isSingleplayer = _hasAnyMode ? _params.has('singleplayer') : true
 const _isHost = _params.has('host')
 const _joinOffer = _params.get('join')
 const _wwRoom = _params.get('room')
-const _runsInPageServer = _isSingleplayer || _isHost || !!_joinOffer || !!_wwRoom
 const _requestedWorld = _params.get('world') || null
 if (_requestedWorld && !isWorldName(_requestedWorld)) throw new TypeError(`?world must be a world file stem, got ${JSON.stringify(_requestedWorld)}`)
 const _worldParam = _requestedWorld || (_runsInPageServer ? await _defaultWorldName() : null)
