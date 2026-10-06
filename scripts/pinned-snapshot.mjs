@@ -34,6 +34,12 @@ if (extracted.status !== 0) {
   process.exit(1)
 }
 
+const missingAuditPaths = walkGlobs.filter((g) => !fs.existsSync(path.join(dir, g)))
+if (missingAuditPaths.length) {
+  console.error('pinned-snapshot: audit path(s) absent from the extracted snapshot: ' + missingAuditPaths.join(', '))
+  process.exit(1)
+}
+
 const liveNodeModules = path.join(repo, 'node_modules')
 const snapshotNodeModules = path.join(dir, 'node_modules')
 fs.mkdirSync(snapshotNodeModules, { recursive: true })
@@ -147,6 +153,11 @@ for (const glob of walkGlobs) {
   }
 }
 
+if (audit.length === 0) {
+  console.error('pinned-snapshot: audit matched no file under ' + walkGlobs.join(',') + ' -- an empty audit is not a pass')
+  process.exit(1)
+}
+
 const staleWorktreeFiles = []
 const porcelain = execFileSync('git', ['status', '--porcelain'], { cwd: repo, encoding: 'utf8' }).split('\n')
 for (const line of porcelain) {
@@ -172,3 +183,11 @@ const report = {
 
 fs.writeFileSync(path.join(dir, 'snapshot.json'), JSON.stringify(report, null, 1))
 console.log(JSON.stringify(report, null, 1))
+if (report.audit.mismatchedAgainstCommit.length) {
+  console.error('pinned-snapshot: ' + report.audit.mismatchedAgainstCommit.length + ' audited file(s) differ from or are absent at ' + sha + ': ' + report.audit.mismatchedAgainstCommit.slice(0, 10).join(', '))
+  process.exit(1)
+}
+if (report.audit.untrackedLeakedIntoSnapshot.length) {
+  console.error('pinned-snapshot: ' + report.audit.untrackedLeakedIntoSnapshot.length + ' untracked worktree file(s) leaked into the snapshot: ' + report.audit.untrackedLeakedIntoSnapshot.slice(0, 10).join(', '))
+  process.exit(1)
+}
