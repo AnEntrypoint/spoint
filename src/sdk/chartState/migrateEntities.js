@@ -163,7 +163,7 @@ function reseatSpatialIndexes(appRuntime) {
 function invalidateEntityDerivedState(appRuntime) {
   for (const id of appRuntime.entities.keys()) appRuntime._markDirty(id)
   appRuntime._staticVersion++
-  appRuntime._snapshotCache = null
+  appRuntime._snapshotEncCache.clear()
   appRuntime._staticXf.clear()
 }
 

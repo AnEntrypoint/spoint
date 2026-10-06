@@ -10,6 +10,8 @@ import { beginTeleportHold } from '../netcode/TeleportHold.js'
 import { equipCodeOf, EQUIP_UNARMED } from '../shared/equipment.js'
 import { BEHAVIOUR_FACTORIES, validateBehaviourSpec } from './AppBehaviours.js'
 const PLAYER_BEHAVIOUR_ENTITY_ID = 'players'
+const _UNIT_SCALE = [1, 1, 1]
+const _ZERO_VEL = [0, 0, 0]
 const SUPPORT_RAY_LENGTH_M = 60
 const UNCOVERED_GROUND_HOLD_MAX_MS = 20000
 import { mixinPhysics } from './AppRuntimePhysics.js'
@@ -17,6 +19,7 @@ import { mixinTick } from './AppRuntimeTick.js'
 import { mixinStaticMotion } from './AppRuntimeStaticMotion.js'
 import { installCustomVersion } from './CustomVersion.js'
 import { resolveCCD } from './AppPhysics.js'
+import { SNAPSHOT_ENCODE_CODE_VERSION } from '../shared/cacheCodeVersions.js'
 
 import { containedAssetPath, tagAppState, untagAppState, _existsSync, _resolve } from './AppRuntimeState.js'
 
@@ -74,7 +77,8 @@ export class AppRuntime {
     this._hotReload = new HotReloadQueue(this); this._eventBus = c.eventBus || new EventBus()
     this._appVersions = new Map()
     this._eventLog = c.eventLog||null; this._storage = c.storage||null; this._sdkRoot = c.sdkRoot||null; this.worldName = null
-    this._snapshotCache = null; this._snapshotVersion = 0; this._entityVersions = new Map()
+    this._snapshotVersion = 0; this._entityVersions = new Map()
+    this._snapshotEncCache = new Map(); this._snapshotEncVersion = null
     this._eventBus.on('*', ev => { if (!ev.channel.startsWith('system.')) this._log('bus_event', { channel:ev.channel, data:ev.data }, ev.meta) })
     this._eventBus.on('system.handover', ev => { const {targetEntityId,stateData}=ev.data||{}; if (targetEntityId) this.fireEvent(targetEntityId,'onHandover',ev.meta.sourceEntity,stateData) })
   }
@@ -502,7 +506,34 @@ export class AppRuntime {
   _encodeEntity(id, e) { const r=Array.isArray(e.rotation)?[...e.rotation]:[e.rotation.x||0,e.rotation.y||0,e.rotation.z||0,e.rotation.w||1]; return { id, model:e.model, position:[...e.position], rotation:r, scale:[...e.scale], velocity:[...(e.velocity||[0,0,0])], bodyType:e.bodyType, custom:e.custom||null, parent:e.parent||null } }
   _markDirty(id) { this._snapshotVersion++; const v = this._entityVersions.get(id) || 0; this._entityVersions.set(id, v + 1) }
   _snap(entities) { return { tick: this.currentTick, timestamp: Date.now(), entities } }
-  getSnapshot() { if (this._snapshotCache && this._snapshotCache._version === this._snapshotVersion && this._snapshotCache.tick === this.currentTick) return this._snapshotCache; const e=[]; for (const [id,en] of this.entities) e.push(this._encodeEntity(id,en)); this._snapshotCache = Object.assign(this._snap(e), { _version: this._snapshotVersion }); return this._snapshotCache }
+  getSnapshot() {
+    if (this._snapshotEncVersion !== SNAPSHOT_ENCODE_CODE_VERSION) { this._snapshotEncCache.clear(); this._snapshotEncVersion = SNAPSHOT_ENCODE_CODE_VERSION }
+    const cache = this._snapshotEncCache
+    const e = []
+    for (const [id, en] of this.entities) {
+      const enc = cache.get(id)
+      if (enc !== undefined && this._snapshotEncCurrent(enc, en)) { e.push(enc); continue }
+      const fresh = this._encodeEntity(id, en)
+      cache.set(id, fresh)
+      e.push(fresh)
+    }
+    if (cache.size > this.entities.size + 64) for (const id of cache.keys()) if (!this.entities.has(id)) cache.delete(id)
+    return this._snap(e)
+  }
+  _snapshotEncCurrent(enc, en) {
+    const p = en.position; if (!p) return false
+    const ep = enc.position
+    if (ep[0] !== p[0] || ep[1] !== p[1] || ep[2] !== p[2]) return false
+    const r = en.rotation, er = enc.rotation
+    if (Array.isArray(r)) { if (er[0] !== r[0] || er[1] !== r[1] || er[2] !== r[2] || er[3] !== r[3]) return false }
+    else if (r) { if (er[0] !== (r.x || 0) || er[1] !== (r.y || 0) || er[2] !== (r.z || 0) || er[3] !== (r.w || 1)) return false }
+    else if (er[0] !== 0 || er[1] !== 0 || er[2] !== 0 || er[3] !== 1) return false
+    const s = en.scale || _UNIT_SCALE, es = enc.scale
+    if (es[0] !== s[0] || es[1] !== s[1] || es[2] !== s[2]) return false
+    const v = en.velocity || _ZERO_VEL, ev = enc.velocity
+    if (ev[0] !== v[0] || ev[1] !== v[1] || ev[2] !== v[2]) return false
+    return enc.model === en.model && enc.bodyType === en.bodyType && enc.custom === (en.custom || null) && enc.parent === (en.parent || null)
+  }
   getStaticSnapshot() { const e=[]; for (const id of this._staticEntityIds) { const en=this.entities.get(id); if (en) e.push(this._encodeEntity(id,en)) } return this._snap(e) }
   getStaticCustomVersionSum() { return this._staticCustomSum }
 

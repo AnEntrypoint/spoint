@@ -262,6 +262,7 @@ runtime.tick = function (tickNum, dt) {
     if (M.ticks >= WARMUP) { resetCounters(); warmed = true; colXf.clear(); entXf.clear(); runStartMs = Date.now() }
     return
   }
+  if (suppress) return
   M.ticks++
   sampleCollision()
   sampleInteractables()
@@ -315,6 +316,8 @@ const shape = {
 const runStart = Date.now()
 while ((warmed ? M.ticks : 0) < TICKS && Date.now() - runStart < HOLD_CAP_MS) await sleep(50)
 const runMs = Date.now() - (runStartMs || runStart)
+const measuredTicks = M.ticks
+suppress = true
 
 let interactArm = 'skipped-no-interactable'
 if (runtime._interactableIds.size > 0) {
@@ -353,13 +356,41 @@ let overlapArm = 'skipped-too-few'
   }
 }
 
-const ticks = Math.max(1, M.ticks)
+let snapshotMembershipArm = 'skipped'
+{
+  const snap = runtime.getSnapshot()
+  snapshotMembershipArm = snap.entities.length === runtime.entities.size ? 'complete' : `${snap.entities.length} of ${runtime.entities.size}`
+}
+
+let retainArm = 'skipped'
+{
+  const held = runtime.getSnapshot()
+  const n = Math.min(5, held.entities.length)
+  const heldAt = held.entities.slice(0, n).map(s => [s.position[0], s.position[1], s.position[2]])
+  const liveAt = new Map()
+  for (const [id, e] of runtime.entities) if (e.position) liveAt.set(id, [e.position[0], e.position[1], e.position[2]])
+  await sleep(500)
+  let heldSame = true
+  for (let i = 0; i < n; i++) {
+    const s = held.entities[i]
+    if (s.position[0] !== heldAt[i][0] || s.position[1] !== heldAt[i][1] || s.position[2] !== heldAt[i][2]) heldSame = false
+  }
+  let liveChanged = 0
+  for (const [id, at] of liveAt) {
+    const e = runtime.entities.get(id)
+    if (e && e.position && (e.position[0] !== at[0] || e.position[1] !== at[1] || e.position[2] !== at[2])) liveChanged++
+  }
+  const tickAdvanced = runtime.getSnapshot().tick !== held.tick
+  retainArm = heldSame && tickAdvanced && liveChanged > 0 ? 'stable-and-live-moved' : `heldSame=${heldSame} tickAdvanced=${tickAdvanced} liveChanged=${liveChanged}`
+}
+
+const ticks = Math.max(1, measuredTicks)
 const out = {
   arm: ARM,
   ...shape,
-  ticks: M.ticks,
+  ticks: measuredTicks,
   runMs,
-  ticksPerSec: Number((M.ticks / (runMs / 1000)).toFixed(2)),
+  ticksPerSec: Number((measuredTicks / (runMs / 1000)).toFixed(2)),
   row1_activeDynPerTick: Number((M.binSamples / ticks).toFixed(2)),
   row1_binIdenticalPerTick: Number((M.binIdentical / ticks).toFixed(2)),
   row1_identicalFraction: Number((M.binIdentical / Math.max(1, M.binSamples)).toFixed(4)),
@@ -387,6 +418,8 @@ const out = {
   row4_interactMsPerTick: Number((M.interactMs / ticks).toFixed(5)),
   correctness_interactArm: interactArm,
   correctness_overlapArm: overlapArm,
+  correctness_snapshotMembership: snapshotMembershipArm,
+  correctness_retainArm: retainArm,
   clientErrors: M.clientErrors,
 }
 
