@@ -91,10 +91,17 @@ export function mixinTick(runtime) {
   runtime._colGridLen = -1
   runtime._colPruneTick = 0
   runtime._colGridVersion = null
+  runtime._colGridSerial = 0
+  runtime._colBumpSeq = 0
   runtime._lastColGridRebuckets = 0
 
   runtime._colCellKey = function(e) {
     return Math.floor(e.position[0] / _COL_CELL_SZ) * 65536 + Math.floor(e.position[2] / _COL_CELL_SZ)
+  }
+
+  runtime._colBumpCell = function(key) {
+    const cell = this._colBuckets.get(key)
+    if (cell) cell.serial = ++this._colBumpSeq
   }
 
   runtime._tickCollisions = function() {
@@ -139,26 +146,58 @@ export function mixinTick(runtime) {
     } else {
       this._refreshCollisionGrid(c)
     }
-    if ((++this._colPruneTick & 63) === 0 || this._colBuckets.size > c.length * 4) {
-      for (const [k, cell] of this._colBuckets) if (cell.length === 0) this._colBuckets.delete(k)
+    if ((++this._colPruneTick & 63) === 0 && this._colBuckets.size > c.length * 36) {
+      for (const [k, cell] of this._colBuckets) if (cell.list.length === 0) { this._colBuckets.delete(k); this._colGridSerial++ }
     }
     const buckets = this._colBuckets
+    const gridSerial = this._colGridSerial
     for (let i = 0; i < c.length; i++) {
       const a = c[i], ar = a._cachedColR, ax = a.position[0], ay = a.position[1], az = a.position[2]
       const acx = Math.floor(ax / _COL_CELL_SZ), acz = Math.floor(az / _COL_CELL_SZ)
+      const cache = a._colCache
+      if (cache !== undefined && cache.grid === gridSerial && cache.r === ar) {
+        const ccells = cache.cells, cserials = cache.serials, chits = cache.hits
+        let stale = false
+        for (let q = 0; q < 9; q++) {
+          if (ccells[q].serial !== cserials[q]) { stale = true; break }
+        }
+        if (!stale) {
+          for (let q = 0; q < chits.length; q++) {
+            const b = chits[q]
+            this.fireEvent(a.id, 'onCollision', this._collisionPayload(a, b))
+            this.fireEvent(b.id, 'onCollision', this._collisionPayload(b, a))
+          }
+          continue
+        }
+      }
+      const cells = cache === undefined ? new Array(9) : cache.cells
+      const serials = cache === undefined ? new Float64Array(9) : cache.serials
+      const hits = cache === undefined ? [] : cache.hits
+      hits.length = 0
+      let q = 0
       for (let ddx = -1; ddx <= 1; ddx++) for (let ddz = -1; ddz <= 1; ddz++) {
-        const cell = buckets.get((acx + ddx) * 65536 + (acz + ddz))
-        if (!cell || cell.length === 0) continue
-        for (const b of cell) {
+        const key = (acx + ddx) * 65536 + (acz + ddz)
+        let cell = buckets.get(key)
+        if (cell === undefined) { cell = { list: [], serial: ++this._colBumpSeq }; buckets.set(key, cell) }
+        cells[q] = cell
+        serials[q] = cell.serial
+        q++
+        if (cell.list.length === 0) continue
+        const members = cell.list
+        for (let m = 0; m < members.length; m++) {
+          const b = members[m]
           if (b.id <= a.id) continue
           const dx = b.position[0]-ax, dy = b.position[1]-ay, dz = b.position[2]-az
           const rr = ar + b._cachedColR
           if (dx*dx+dy*dy+dz*dz < rr*rr) {
             this.fireEvent(a.id, 'onCollision', this._collisionPayload(a, b))
             this.fireEvent(b.id, 'onCollision', this._collisionPayload(b, a))
+            hits.push(b)
           }
         }
       }
+      if (cache === undefined) a._colCache = { grid: gridSerial, r: ar, cells, serials, hits }
+      else { cache.grid = gridSerial; cache.r = ar }
     }
   }
 
@@ -169,14 +208,15 @@ export function mixinTick(runtime) {
       const e = c[i]
       const key = this._colCellKey(e)
       let cell = buckets.get(key)
-      if (!cell) { cell = []; buckets.set(key, cell) }
-      cell.push(e)
+      if (!cell) { cell = { list: [], serial: this._colBumpSeq }; buckets.set(key, cell) }
+      cell.list.push(e)
       keys.set(e.id, key)
       const xf = new Float64Array(11)
       captureTransform(xf, e)
       xfs.set(e.id, xf)
     }
     this._lastColGridRebuckets = c.length
+    this._colGridSerial++
   }
 
   runtime._refreshCollisionGrid = function(c) {
@@ -189,14 +229,16 @@ export function mixinTick(runtime) {
       if (!captureTransform(xf, e)) continue
       const next = this._colCellKey(e)
       const prev = keys.get(e.id)
+      this._colBumpCell(next)
       if (next === prev) continue
       if (prev !== undefined) {
+        this._colBumpCell(prev)
         const oldCell = buckets.get(prev)
-        if (oldCell) { const at = oldCell.indexOf(e); if (at >= 0) oldCell.splice(at, 1) }
+        if (oldCell) { const at = oldCell.list.indexOf(e); if (at >= 0) oldCell.list.splice(at, 1) }
       }
       let cell = buckets.get(next)
-      if (!cell) { cell = []; buckets.set(next, cell) }
-      cell.push(e)
+      if (!cell) { cell = { list: [], serial: this._colBumpSeq }; buckets.set(next, cell) }
+      cell.list.push(e)
       keys.set(e.id, next)
       rebuckets++
     }
