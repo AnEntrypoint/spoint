@@ -73,7 +73,12 @@ under 30 KB: drain narrative into recall, never grow an audit log here.
 Names and structure carry meaning; rationale that code cannot carry lives in recall, the commit
 message, or this file. Swept 2026-09-14 (`client/` `src/` `apps/` `scripts/`
 `packages/{mapspinner,streaming-gltf,ecs}/src`) and 2026-09-28 (`packages/*/examples/**`,
-`packages/*/scripts/**`, Rust). Kept on purpose — never re-flag: `@ts-*` / `eslint*` /
+`packages/*/scripts/**`, Rust) and 2026-10-06 (fire `src/shared/fire/**` + `src/behaviours/fire*.js` +
+`scripts/fire-*.mjs`; clusters `src/sharding/**` + `src/shared/cluster*`; re-anchor
+`src/terrain/ChartReanchorService.js` + `src/sdk/chartState/**` + `scripts/*{chart,cluster,collider}*.mjs`;
+`src/physics/**` collider/ring; `src/netcode/CollisionSystem.js` — **0 comments found**, nothing moved).
+Sweep method is recall `project/comment-sweep-grep-mode-comments-surface-2026-10-06` (gm `grep`
+`{"mode":"comments"}`, the sanctioned surface; verify the detector before trusting a zero). Kept on purpose — never re-flag: `@ts-*` / `eslint*` /
 `@vite-ignore` / `webpack*` / `/*! */` / `#__PURE__` / `sourceMappingURL`; comment-looking text
 inside string literals (embedded GLSL, `scripts/patch-deps.mjs`'s `// [spoint patch]` markers,
 generated headers); any `*.md`; `types/*.d.ts` JSDoc (the published app-SDK contract app authors
