@@ -135,9 +135,11 @@ block continuations, glob literals in `console.log`, `//` inside `http://`.
 - `project/page-boot-witness-needs-multiplayer-not-singleplayer`: a page witness that needs the
   server to act on a client message must pass `--params=multiplayer`; under `?singleplayer` the node
   server sees `players:0` throughout and the message is acked `ok:false`.
-- `witness-page-boot-fails-on-aborted-requests`: `page-boot-witness` fails an arm on any failed
-  request including `net::ERR_ABORTED` cancellations, so no arm passes without
+- `witness-page-boot-cancellations-are-not-failures`: `net::ERR_ABORTED` is a cancellation, printed
+  `[request-cancelled]`; only a real failure or `HTTP >= 400` fails an arm, so a booting page needs no
   `--allow-failed-requests`.
+- `world-shadermanifest-optional-probe-404`: `client/app.js:745` maps a non-ok
+  `/apps/world/<world>.shadermanifest.json` to `null`; only `deathrun` and `tps-game` ship one.
 
 ## Entry points
 

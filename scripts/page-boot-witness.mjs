@@ -25,6 +25,7 @@ const ALLOW_ERRORS = has('allow-errors')
 const ALLOW_CONSOLE_ERRORS = has('allow-console-errors')
 const ALLOWED_CONSOLE_ERROR_TEXTS = process.argv.filter(a => a.startsWith('--allow-console-error=')).map(a => a.slice('--allow-console-error='.length))
 const ALLOW_FAILED_REQUESTS = has('allow-failed-requests')
+const CANCELLED_REQUEST_ERROR_TEXTS = new Set(['net::ERR_ABORTED'])
 const REQUIRE_GPU = flag('require-gpu') || (has('require-gpu') ? 'any' : null)
 
 const SOFTWARE_ADAPTER = /swiftshader|llvmpipe|softwarerasterizer|microsoft basic render|apple software renderer/i
@@ -113,6 +114,7 @@ async function main() {
     const consoleEntries = []
     const pageErrors = []
     const failedRequests = []
+    const cancelledRequests = []
     page.on('pageerror', e => pageErrors.push(String(e)))
     page.on('Runtime.consoleAPICalled', p => consoleEntries.push({ level: p?.type || 'unknown', text: textOf(p) }))
     page.on('Runtime.exceptionThrown', p => consoleEntries.push({ level: 'exception', text: p?.exceptionDetails?.exception?.description || p?.exceptionDetails?.text || 'exception' }))
@@ -120,7 +122,8 @@ async function main() {
     await page.enableDomain('Log.enable')
     const requestUrls = new Map()
     page.on('Network.requestWillBeSent', p => { if (p?.requestId) requestUrls.set(p.requestId, p?.request?.url || 'unknown-request') })
-    page.on('Network.loadingFailed', p => failedRequests.push({ url: (p?.requestId && requestUrls.get(p.requestId)) || p?.requestId || 'unknown-request', text: p?.errorText || 'failed' }))
+    const recordFailedRequest = (bucket, p) => bucket.push({ url: (p?.requestId && requestUrls.get(p.requestId)) || p?.requestId || 'unknown-request', text: p?.errorText || 'failed' })
+    page.on('Network.loadingFailed', p => recordFailedRequest(CANCELLED_REQUEST_ERROR_TEXTS.has(p?.errorText) ? cancelledRequests : failedRequests, p))
     page.on('Network.responseReceived', p => {
       const status = p?.response?.status || 0
       if (status >= 400) failedRequests.push({ url: p?.response?.url, text: 'HTTP ' + status })
@@ -163,7 +166,7 @@ async function main() {
       ? []
       : consoleErrorEntries.filter(e => !ALLOWED_CONSOLE_ERROR_TEXTS.some(t => e.text.includes(t)))
     const levelCounts = consoleEntries.reduce((acc, e) => { acc[e.level] = (acc[e.level] || 0) + 1; return acc }, {})
-    console.log(`[page-boot-witness] console entries=${consoleEntries.length} levels=${JSON.stringify(levelCounts)} pageErrors=${pageErrors.length} failedRequests=${failedRequests.length} consoleErrors=${consoleErrorEntries.length} unallowedConsoleErrors=${unallowedConsoleErrors.length}`)
+    console.log(`[page-boot-witness] console entries=${consoleEntries.length} levels=${JSON.stringify(levelCounts)} pageErrors=${pageErrors.length} failedRequests=${failedRequests.length} cancelledRequests=${cancelledRequests.length} consoleErrors=${consoleErrorEntries.length} unallowedConsoleErrors=${unallowedConsoleErrors.length}`)
     const warnErr = has('console-all') ? consoleEntries : consoleEntries.filter(e => e.level === 'warning' || e.level === 'error' || e.level === 'exception')
     const consoleLimit = Number(flag('console-limit', '20'))
     const shown = consoleLimit === 0 ? warnErr : warnErr.slice(0, consoleLimit)
@@ -171,6 +174,7 @@ async function main() {
     for (const e of unallowedConsoleErrors) console.log(`  [unallowed-console-error] ${e.text.slice(0, 240)}`)
     for (const e of pageErrors.slice(0, 10)) console.log(`  [pageerror] ${String(e).slice(0, 240)}`)
     for (const f of failedRequests.slice(0, 20)) console.log(`  [request] ${f.text} ${f.url}`)
+    for (const f of cancelledRequests.slice(0, 20)) console.log(`  [request-cancelled] ${f.text} ${f.url}`)
     console.log('[page-boot-witness] values ' + JSON.stringify(values))
     console.log('[page-boot-witness] marks ' + JSON.stringify(marks))
 
