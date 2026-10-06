@@ -3,12 +3,16 @@ import { readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { chromium } from './lib/cdp-browser.mjs'
+import { assertGpu, gpuArgs } from './lib/gpu-probe.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
 const BASELINE_PATH = join(ROOT, '.cold-load-baseline.json')
 const THRESHOLD = 1.25
 const UPDATE = process.argv.includes('--update-baseline')
+const ACCELERATED = process.argv.includes('--accelerated')
+const REQUIRE_ACCELERATED = process.argv.includes('--require-accelerated')
+const EXPECT_VENDOR = (process.argv.find(a => a.startsWith('--expect-vendor=')) || '').slice('--expect-vendor='.length) || null
 const PORT = process.env.PORT || '3098'
 const LOAD_TIMEOUT_MS = 480_000
 
@@ -45,7 +49,7 @@ async function measureRealColdLoadMs() {
 
   let browser
   try {
-    browser = await chromium.launch({ headless: true, args: ['--use-gl=swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist'] })
+    browser = await chromium.launch({ headless: true, args: gpuArgs({ accelerated: ACCELERATED }) })
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } })
     const page = await ctx.newPage()
     const pageErrors = []
@@ -68,8 +72,11 @@ async function measureRealColdLoadMs() {
     if (!ready) throw new Error(`loadingMachine never reached isReady within ${LOAD_TIMEOUT_MS}ms -- real cold-load hang, not a timing regression`)
     if (pageErrors.length > 0) throw new Error(`page threw ${pageErrors.length} uncaught error(s) during cold load: ${pageErrors[0]}`)
 
+    const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED, expectVendor: EXPECT_VENDOR })
+    console.log(`[cold-load-gate] rasterizer=${gpu.rasterizer} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)
+
     console.log(`[cold-load-gate] real cold load: navigation -> loadingMachine.isReady in ${coldLoadMs}ms`)
-    return coldLoadMs
+    return { ms: coldLoadMs, gpu }
   } finally {
     if (browser) await browser.close()
     server.stop()
@@ -78,15 +85,16 @@ async function measureRealColdLoadMs() {
 
 async function main() {
   let ms
+  let gpu
   try {
-    ms = await measureRealColdLoadMs()
+    ({ ms, gpu } = await measureRealColdLoadMs())
   } catch (e) {
     console.error('[cold-load-gate] real-browser measurement FAILED:\n', e.stack || e.message)
     process.exit(1)
   }
 
   if (UPDATE) {
-    writeBaseline({ ms })
+    writeBaseline({ ms, rasterizer: gpu.rasterizer, gpu: gpu.haystack || null })
     console.log('[cold-load-gate] baseline updated. PASS')
     process.exit(0)
   }
@@ -101,8 +109,14 @@ async function main() {
     process.exit(1)
   }
 
+  const baseRasterizer = baseline.rasterizer || 'software'
+  if (baseRasterizer !== gpu.rasterizer) {
+    console.error(`[cold-load-gate] RASTERIZER MISMATCH: baseline was captured on ${baseRasterizer}, this run measured ${gpu.rasterizer} (${gpu.haystack || 'no gpu strings'}). Cold load is not comparable across rasterizer classes -- capture a baseline on ${gpu.rasterizer} with --update-baseline.`)
+    process.exit(1)
+  }
+
   const limit = baseline.ms * THRESHOLD
-  console.log(`[cold-load-gate] baseline=${baseline.ms}ms limit=${limit.toFixed(0)}ms (+25%) measured=${ms}ms`)
+  console.log(`[cold-load-gate] baseline=${baseline.ms}ms limit=${limit.toFixed(0)}ms (+25%) measured=${ms}ms rasterizer=${gpu.rasterizer}`)
 
   if (ms > limit) {
     console.error(`[cold-load-gate] REGRESSION: ${ms}ms > ${limit.toFixed(0)}ms (${((ms / baseline.ms - 1) * 100).toFixed(1)}% over baseline)`)

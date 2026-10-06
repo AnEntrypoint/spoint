@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import { spawnSync, spawn } from 'node:child_process'
 import { chromium } from './lib/cdp-browser.mjs'
 import { unreachedReasons } from './lib/witness-reachability.mjs'
+import { assertGpu, gpuArgs } from './lib/gpu-probe.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -47,6 +48,8 @@ const HEIGHT_PROBE = has('probe-heights')
 const HARD_TIMEOUT_MS = Number(flag('hard-timeout', '600000'))
 const REQUIRED_MARKS = String(flag('require-mark', 'boot:scenery-built')).split(',').map((s) => s.trim()).filter(Boolean)
 const REQUIRED_COUNTS = String(flag('require-count', 'draws,frames')).split(',').map((s) => s.trim()).filter(Boolean)
+const REQUIRE_ACCELERATED = has('require-accelerated')
+const EXPECT_VENDOR = flag('expect-vendor', null)
 let spawnedChromePid = null
 let witnessUnreached = []
 setTimeout(() => {
@@ -56,12 +59,15 @@ setTimeout(() => {
 }, HARD_TIMEOUT_MS).unref()
 const OUT_FILE = resolve(OUT_DIR, LABEL + '.json')
 
-const GPU_ARGS = {
-  nvidia: ['--use-gl=angle', '--use-angle=d3d11', '--ignore-gpu-blocklist'],
-  igpu: ['--use-gl=angle', '--use-angle=d3d11', '--ignore-gpu-blocklist', '--igpu-select'],
-  amd: ['--use-gl=angle', '--use-angle=d3d11', '--ignore-gpu-blocklist', '--use-adapter-luid=0,' + flag('adapter-luid', '')],
-  swiftshader: ['--use-gl=swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist'],
+const GPU_VENDOR_ARGS = {
+  nvidia: ['--use-gl=angle', '--use-angle=d3d11'],
+  igpu: ['--use-gl=angle', '--use-angle=d3d11', '--igpu-select'],
+  amd: ['--use-gl=angle', '--use-angle=d3d11', '--use-adapter-luid=0,' + flag('adapter-luid', '')],
 }
+const ACCELERATED = has('accelerated') || GPU !== 'swiftshader'
+const LAUNCH_ARGS = ACCELERATED
+  ? [...gpuArgs({ accelerated: true }), ...(GPU_VENDOR_ARGS[GPU] || GPU_VENDOR_ARGS.nvidia)]
+  : gpuArgs({ accelerated: false })
 
 const POS_SRC = `(() => {
   const W = window
@@ -380,7 +386,7 @@ async function main() {
     process.exit(0)
   }
 
-  const args = [...(GPU_ARGS[GPU] || GPU_ARGS.nvidia)]
+  const args = [...LAUNCH_ARGS]
   args.push('--enable-precise-memory-info')
   if (GPU === 'igpu') args.push('--disable-features=UseGpuPreferenceForGpuProcess')
   let browser
@@ -466,6 +472,9 @@ async function main() {
     const tRevealed = revealed.revealedAt ? revealed.revealedAt : null
     console.log(`[perf-run] nav->isReady=${tReady}ms  nav->overlayHidden(perf.now)=${tRevealed}ms  terrain=${revealed.terrain} veg=${revealed.veg} refreshHz=${revealed.refreshHz}`)
     if (revealed.error) console.log('[perf-run] reveal probe error: ' + revealed.error)
+
+    const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED, expectVendor: EXPECT_VENDOR }).catch((e) => ({ rasterizer: 'unknown', renderer: null, vendor: null, adapter: null, haystack: null, error: e.message }))
+    console.log(`[perf-run] rasterizer=${gpu.rasterizer}${gpu.error ? ' probeError=' + gpu.error : ''} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)
 
     let navToFirstMoveMs = null
     let navToInputSeqMs = null
@@ -917,6 +926,9 @@ async function main() {
       ts: new Date().toISOString(),
       backend: BACKEND,
       gpu: GPU,
+      rasterizer: gpu.rasterizer,
+      gpuHaystack: gpu.haystack || null,
+      gpuProbeError: gpu.error || null,
       seconds: SECONDS,
       walk: WALK,
       url,
@@ -1037,7 +1049,7 @@ async function main() {
     }
     writeFileSync(OUT_FILE, JSON.stringify(out, null, 2))
     console.log('\n[perf-run] === ' + LABEL + ' ===')
-    console.log(`  gpu=${GPU} backend=${BACKEND} walk=${WALK} ${SECONDS}s  travelled=${out.travelledM}m in ${track.length} samples`)
+    console.log(`  gpu=${GPU} rasterizer=${out.rasterizer} backend=${BACKEND} walk=${WALK} ${SECONDS}s  travelled=${out.travelledM}m in ${track.length} samples`)
     console.log(`  frames: n=${out.frames.count} min=${out.frames.minMs}ms p50=${out.frames.p50Ms}ms p95=${out.frames.p95Ms}ms p99=${out.frames.p99Ms}ms fps(p50)=${out.frames.fps}  refreshHz(inferred)=${revealed.refreshHz}`)
     console.log(`  draws/frame avg=${out.draws.avg} p95=${out.draws.p95} max=${out.draws.max} (source=${out.draws.source})  tris/frame avg=${out.trianglesPerFrame.avg} p95=${out.trianglesPerFrame.p95}`)
     console.log(`  three renderer.info draws/frame avg=${out.threeDrawCallsPerFrame.avg} p95=${out.threeDrawCallsPerFrame.p95} max=${out.threeDrawCallsPerFrame.max}  (three/api ratio=${out.drawsInstrument.ratioThreeOverApi})`)

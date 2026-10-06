@@ -2,6 +2,7 @@
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { chromium } from './lib/cdp-browser.mjs'
+import { assertGpu, gpuArgs } from './lib/gpu-probe.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -20,12 +21,13 @@ const PARAMS = flag('params', 'singleplayer')
 const TIMEOUT_MS = Number(flag('timeout', '240000'))
 const SETTLE_MS = Number(flag('settle', '6000'))
 const WORLD = flag('world', 'tps-game')
+const REQUIRE_ACCELERATED = has('require-accelerated')
+const EXPECT_VENDOR = flag('expect-vendor', null)
 const ALLOWED_CONSOLE_ERROR_TEXTS = process.argv.filter((a) => a.startsWith('--allow-console-error=')).map((a) => a.slice('--allow-console-error='.length))
 
-const GPU_ARGS = {
-  swiftshader: ['--use-gl=swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'],
-  nvidia: ['--use-gl=angle', '--use-angle=d3d11', '--ignore-gpu-blocklist'],
-}
+const ACCELERATED = has('accelerated') || GL === 'nvidia'
+const ANGLE_D3D11_ARGS = ['--use-gl=angle', '--use-angle=d3d11']
+const LAUNCH_ARGS = ACCELERATED ? [...gpuArgs({ accelerated: true }), ...ANGLE_D3D11_ARGS] : gpuArgs({ accelerated: false })
 
 const PROBE = `(() => {
   const W = window
@@ -138,7 +140,7 @@ async function main() {
 
   let browser
   try {
-    browser = await chromium.launch({ headless: true, args: GPU_ARGS[GL] || GPU_ARGS.swiftshader })
+    browser = await chromium.launch({ headless: true, args: LAUNCH_ARGS })
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
     const pageErrors = []
     const consoleEntries = []
@@ -164,6 +166,9 @@ async function main() {
       process.exit(1)
     }
     console.log(`[draw-instrument] ready @ ${Date.now() - t0}ms`)
+
+    const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED, expectVendor: EXPECT_VENDOR })
+    console.log(`[draw-instrument] rasterizer=${gpu.rasterizer} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)
 
     const built = `performance.getEntriesByType('mark').some(m => m.name === 'boot:scenery-built')`
     let scenery = false
@@ -204,7 +209,7 @@ async function main() {
     })()`)
 
     const s = out.samples
-    console.log(`[draw-instrument] renderer=${out.rendererKind} backend=${out.backendCtor} isWebGL=${out.backendIsWebGL} isWebGPU=${out.backendIsWebGPU} autoReset=${out.autoReset} hasDrawCallsField=${out.hasDrawCallsField} veg=${out.vegInstances} samples=${s.length}`)
+    console.log(`[draw-instrument] renderer=${out.rendererKind} rasterizer=${gpu.rasterizer} backend=${out.backendCtor} isWebGL=${out.backendIsWebGL} isWebGPU=${out.backendIsWebGPU} autoReset=${out.autoReset} hasDrawCallsField=${out.hasDrawCallsField} veg=${out.vegInstances} samples=${s.length}`)
     console.log('[draw-instrument] raw consecutive-frame samples:')
     for (let i = 0; i < s.length; i++) {
       const x = s[i]
@@ -250,10 +255,10 @@ async function main() {
     await browser.close().catch(() => {})
     server.stop()
     if (unallowedConsoleErrors.length) {
-      console.error(`[draw-instrument] RESULT: FAIL -- ${unallowedConsoleErrors.length} console error(s)/exception(s) the page caught and logged: ${unallowedConsoleErrors[0].text.slice(0, 200)}`)
+      console.error(`[draw-instrument] RESULT: FAIL -- ${unallowedConsoleErrors.length} console error(s)/exception(s) the page caught and logged: ${unallowedConsoleErrors[0].text.slice(0, 200)} (rasterizer=${gpu.rasterizer})`)
       process.exit(1)
     }
-    console.log('[draw-instrument] RESULT: PASS')
+    console.log(`[draw-instrument] RESULT: PASS rasterizer=${gpu.rasterizer}`)
     process.exit(0)
   } catch (e) {
     console.error('[draw-instrument] FAILED: ' + (e.stack || e.message))

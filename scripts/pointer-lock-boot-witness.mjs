@@ -1,10 +1,15 @@
 #!/usr/bin/env node
 import { chromium } from './lib/cdp-browser.mjs'
+import { assertGpu, gpuArgs } from './lib/gpu-probe.mjs'
 
 const PORT = process.env.PORT || '3117'
 const OBSERVE_MS = Number(process.env.OBSERVE_MS || 60000)
 const LOAD_TIMEOUT_MS = Number(process.env.LOAD_TIMEOUT_MS || 300000)
 const POINTER_LOCK_RE = /pointer\s*lock|pointerLock/i
+
+const ACCELERATED = process.argv.includes('--accelerated')
+const REQUIRE_ACCELERATED = process.argv.includes('--require-accelerated')
+const EXPECT_VENDOR = (process.argv.find(a => a.startsWith('--expect-vendor=')) || '').slice('--expect-vendor='.length) || null
 
 function textOf(entry) {
   const args = entry?.args || []
@@ -25,8 +30,9 @@ async function main() {
   let lockAfterClick = null
   let stateAfterClick = null
   let observedMs = 0
+  let rasterizer = 'unknown'
   try {
-    browser = await chromium.launch({ headless: true, args: ['--use-gl=swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist'] })
+    browser = await chromium.launch({ headless: true, args: gpuArgs({ accelerated: ACCELERATED }) })
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
     const consoleEvents = []
     const pageErrors = []
@@ -48,6 +54,10 @@ async function main() {
       await new Promise(r => setTimeout(r, 200))
     }
     console.log(`[pointer-lock-witness] loadingMachine.isReady=${ready}`)
+
+    const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED, expectVendor: EXPECT_VENDOR })
+    rasterizer = gpu.rasterizer
+    console.log(`[pointer-lock-witness] rasterizer=${gpu.rasterizer} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)
 
     const remaining = OBSERVE_MS - (Date.now() - start)
     if (remaining > 0) {
@@ -88,10 +98,10 @@ async function main() {
     if (pointerEvents.length) failures.push(`${pointerEvents.length} pointer-lock console event(s): ${pointerEvents[0].text.slice(0, 200)}`)
     if (!lockAfterClick) failures.push(`clicking the canvas did not lock the pointer (state=${JSON.stringify(stateAfterClick)})`)
     if (failures.length) {
-      console.error(`[pointer-lock-witness] RESULT: FAIL -- ${failures.join('; ')}`)
+      console.error(`[pointer-lock-witness] RESULT: FAIL -- ${failures.join('; ')} (rasterizer=${rasterizer})`)
       process.exit(1)
     }
-    console.log(`[pointer-lock-witness] RESULT: PASS -- zero pointer-lock console events over ${Math.round(OBSERVE_MS)}ms (observed ${Math.round(observedMs)}ms), click locked the pointer (state=${JSON.stringify(stateAfterClick)})`)
+    console.log(`[pointer-lock-witness] RESULT: PASS -- zero pointer-lock console events over ${Math.round(OBSERVE_MS)}ms (observed ${Math.round(observedMs)}ms), click locked the pointer (state=${JSON.stringify(stateAfterClick)}) rasterizer=${rasterizer}`)
     process.exit(0)
   } catch (e) {
     console.error('[pointer-lock-witness] run FAILED:', e.stack || e.message)
