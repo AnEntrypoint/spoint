@@ -68,10 +68,17 @@ async function bakeFromCpuSampler() {
   const sampler = await createHeightSampler({ radius: worldTerrain.radius, seed: worldTerrain.seed, reliefScale: worldTerrain.reliefScale, hashVersion, carves: terrainCarvesOf(worldTerrain) })
   const frame = createPlanetFrame({ sampler, anchorDir, offsetY: 0, reliefScale: worldTerrain.reliefScale })
   const heights = new Array(N * N)
+  const prevRowY = new Float64Array(N).fill(NaN)
   const t0 = Date.now()
-  for (let iz = 0; iz < N; iz++) for (let ix = 0; ix < N; ix++) {
-    const y = frame.groundHeightLocal(CENTER[0] - half + ix * step, CENTER[1] - half + iz * step)
-    heights[iz * N + ix] = (y == null || !Number.isFinite(y)) ? null : +y.toFixed(4)
+  for (let iz = 0; iz < N; iz++) {
+    let prevY = prevRowY[0]
+    for (let ix = 0; ix < N; ix++) {
+      const y = frame.groundHeightLocal(CENTER[0] - half + ix * step, CENTER[1] - half + iz * step, prevY)
+      const ok = y != null && Number.isFinite(y)
+      prevRowY[ix] = ok ? y : NaN
+      prevY = ok ? y : NaN
+      heights[iz * N + ix] = ok ? +y.toFixed(4) : null
+    }
   }
   console.error(`[bake] CPU height sampler: ${N * N} samples in ${Date.now() - t0}ms`)
   return { meta: { anchorDir, radius: worldTerrain.radius, anchorHeight: frame.anchorHeight, reliefScale: worldTerrain.reliefScale, chartEpoch: frame.chartEpoch ?? 0 }, heights, vendor: 'cpu-sampler' }
