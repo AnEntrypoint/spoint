@@ -16,6 +16,7 @@ export function createLockstepGameLoop({ tickSystem, transport, roster, localPee
   const opts = { ...LOCKSTEP_DEFAULTS, ...options }
   if (opts.inputDelayTicks < 1) throw new Error('[LockstepGameLoop] inputDelayTicks must be >= 1: tick t can only run once every peer input for t has arrived')
   if (opts.maxCatchUpTicks < 1) throw new Error('[LockstepGameLoop] maxCatchUpTicks must be >= 1')
+  if (opts.inputDelayTicks > INPUT_RETAIN_TICKS) throw new Error(`[LockstepGameLoop] inputDelayTicks (${opts.inputDelayTicks}) must be <= INPUT_RETAIN_TICKS (${INPUT_RETAIN_TICKS}): a peer can only simulate t once every peer has simulated t - inputDelayTicks, so two survivors are at most inputDelayTicks apart and a drop tail must still hold everything a slower survivor needs`)
 
   const inputs = new Map(roster.map(pk => [pk, new Map()]))
   const lastConfirmed = new Map(roster.map(pk => [pk, 0]))
@@ -70,7 +71,8 @@ export function createLockstepGameLoop({ tickSystem, transport, roster, localPee
 
   function tailOf(peer) {
     const out = []
-    for (const [t, inp] of inputs.get(peer)) if (t > simTick && t <= lastConfirmed.get(peer)) out.push([t, inp])
+    const floor = simTick - opts.inputDelayTicks
+    for (const [t, inp] of inputs.get(peer)) if (t > floor && t <= lastConfirmed.get(peer)) out.push([t, inp])
     return out
   }
 
