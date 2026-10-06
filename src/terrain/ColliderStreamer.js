@@ -53,13 +53,15 @@ function clusterCenters(centers, mergeRadius, maxCenters) {
 
 function ringMoved(centers, curCenters, moveThreshold) {
   if (curCenters.length !== centers.length) return true
+  const moveThresholdSq = moveThreshold * moveThreshold
   for (let i = 0; i < centers.length; i++) {
     let nearest = Infinity
     for (let j = 0; j < curCenters.length; j++) {
-      const d = Math.hypot(centers[i][0] - curCenters[j][0], centers[i][1] - curCenters[j][1])
+      const dx = centers[i][0] - curCenters[j][0], dz = centers[i][1] - curCenters[j][1]
+      const d = dx * dx + dz * dz
       if (d < nearest) nearest = d
     }
-    if (nearest > moveThreshold) return true
+    if (nearest > moveThresholdSq) return true
   }
   return false
 }
