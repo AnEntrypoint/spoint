@@ -64,7 +64,8 @@ function peerSummary(st, elapsedS) {
   const l = st.loop, c = st.corrections
   const base = { simTicks: l.simTick, simHz: +(l.simTick / elapsedS).toFixed(1), stalls: l.stalls, desyncs: l.desyncs, checksumsCompared: l.checksumsCompared, firstDesyncTick: l.firstDesyncTick }
   if (st.profile === 'lockstep') {
-    return { ...base, timeSyncYields: l.timeSyncYields, advantage: l.localAdvantage, catchUpTicks: l.catchUpTicks, maxStallRun: l.maxStallRun, inputLatencyMs: l.inputLatencyMs, drops: l.dropLog, evicted: l.evicted, ejections: l.voter?.ejectionsFired ?? 0, unattributedDesyncs: l.voter?.unattributedDesyncs ?? 0, lateInputsIgnored: l.lateInputsIgnored }
+    return { ...base, timeSyncYields: l.timeSyncYields, advantage: l.localAdvantage, catchUpTicks: l.catchUpTicks, maxStallRun: l.maxStallRun, inputLatencyMs: l.inputLatencyMs, drops: l.dropLog, evicted: l.evicted, ejections: l.voter?.ejectionsFired ?? 0, unattributedDesyncs: l.voter?.unattributedDesyncs ?? 0, lateInputsIgnored: l.lateInputsIgnored,
+      driverTicks: l.driverTicks, driverHz: +(l.driverTicks / elapsedS).toFixed(1), simPerDriver: +(l.simTick / Math.max(1, l.driverTicks)).toFixed(3), smoothedAdvantage: l.smoothedAdvantage, remoteAdvantageMax: l.remoteAdvantageMax, connectingTicks: l.connectingTicks }
   }
   return {
     ...base, timeSyncYields: l.timeSyncYields, advantage: l.localAdvantage,

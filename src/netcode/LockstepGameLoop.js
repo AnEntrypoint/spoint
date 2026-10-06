@@ -28,8 +28,8 @@ export function createLockstepGameLoop({ tickSystem, transport, roster, localPee
   const sampledAt = new Map()
   const latencyRing = []
   const latency = { count: 0, sumMs: 0, maxMs: 0 }
-  let simTick = 0, driverTicks = 0, stalledDriverTicks = 0, evicted = null, smoothedAdvantage = 0
-  const stats = { ticksSimulated: 0, stalls: 0, timeSyncYields: 0, catchUpTicks: 0, maxStallRun: 0, lateInputsIgnored: 0, futureInputsIgnored: 0 }
+  let simTick = 0, driverTicks = 0, yieldCursor = 0, stalledDriverTicks = 0, evicted = null, smoothedAdvantage = 0
+  const stats = { ticksSimulated: 0, stalls: 0, timeSyncYields: 0, catchUpTicks: 0, maxStallRun: 0, connectingTicks: 0, lateInputsIgnored: 0, futureInputsIgnored: 0 }
 
   function confirm(peer, tick, input) {
     const m = inputs.get(peer)
@@ -166,16 +166,32 @@ export function createLockstepGameLoop({ tickSystem, transport, roster, localPee
 
   function localAdvantage() { return simTick - (minRemoteNewest() - opts.inputDelayTicks) }
 
-  function shouldYieldForTimeSync() {
-    smoothedAdvantage += (localAdvantage() - smoothedAdvantage) * ADVANTAGE_SMOOTHING
+  function pendingPeers() {
+    return roster.filter(pk => pk !== localPeerId && !cuts.has(pk) && !dropping.has(pk) && !newestReceived.has(pk))
+  }
+
+  function remoteAdvantageMax() {
     let remoteMax = -Infinity
     for (const [pk, adv] of remoteAdvantage) if (!cuts.has(pk)) remoteMax = Math.max(remoteMax, adv)
+    return remoteMax
+  }
+
+  function shouldYieldForTimeSync() {
+    smoothedAdvantage += (localAdvantage() - smoothedAdvantage) * ADVANTAGE_SMOOTHING
+    const remoteMax = remoteAdvantageMax()
     if (remoteMax === -Infinity) return false
-    return smoothedAdvantage - remoteMax > TIME_SYNC_SLACK_TICKS && driverTicks % TIME_SYNC_YIELD_EVERY === 0
+    return smoothedAdvantage - remoteMax > TIME_SYNC_SLACK_TICKS && yieldCursor % TIME_SYNC_YIELD_EVERY === 0
   }
 
   function onDriverTick(driverTick, dt) {
+    const pending = pendingPeers()
+    if (pending.length) {
+      stats.connectingTicks++
+      if (stats.connectingTicks >= opts.stallTicks) for (const pk of pending) dropPeer(pk, 'no-first-input')
+      return
+    }
     driverTicks++
+    yieldCursor++
     if (evicted) { stats.stalls++; return }
     if (shouldYieldForTimeSync()) { driverTicks--; stats.timeSyncYields++; return }
     let advanced = 0
@@ -211,7 +227,7 @@ export function createLockstepGameLoop({ tickSystem, transport, roster, localPee
     getStats() {
       const v = voter ? voter.getStats() : null
       return {
-        ...stats, simTick, evicted, localAdvantage: localAdvantage(), remoteAdvantage: Object.fromEntries(remoteAdvantage),
+        ...stats, simTick, driverTicks, smoothedAdvantage: +smoothedAdvantage.toFixed(2), remoteAdvantageMax: remoteAdvantageMax(), evicted, localAdvantage: localAdvantage(), remoteAdvantage: Object.fromEntries(remoteAdvantage),
         waitingOn: ready(simTick + 1) ? [] : waitingOn(simTick + 1),
         lastConfirmed: Object.fromEntries(lastConfirmed), cuts: Object.fromEntries(cuts), dropping: [...dropping.keys()], dropLog: [...dropLog],
         inputLatencyMs: latencyStats(),
