@@ -1,6 +1,7 @@
 import { createServer as createNetServer } from 'node:net'
 import { createServer } from '../sdk/server.js'
 import { anchorBasis } from '../terrain/PlanetFrame.js'
+import { CLUSTER_SERVER_JOLT_LIMITS } from '../shared/clusterConfig.js'
 
 const SPAWN_ABOVE_GROUND_M = 3
 
@@ -25,7 +26,7 @@ export function createClusterServerWorldFactory({ baseWorldDef, serverConfig, ho
     const radius = baseWorldDef.terrain.radius
     const spawnPoints = (descriptor.spawnDirs || []).map(dir => chartLocalSpawnOf(descriptor.anchorDir, radius, dir))
     const worldDef = { ...baseWorldDef, terrain: { ...baseWorldDef.terrain, anchorDir: descriptor.anchorDir }, ...(spawnPoints.length ? { spawnPoint: spawnPoints[0], spawnPoints } : {}) }
-    const server = await createServer({ ...serverConfig, port, gravity: worldDef.gravity })
+    const server = await createServer({ ...serverConfig, port, gravity: worldDef.gravity, joltLimits: serverConfig.joltLimits ?? CLUSTER_SERVER_JOLT_LIMITS })
     await server.loadWorld({ ...worldDef, tickRate: serverConfig.tickRate })
     await server.start()
     return { clusterId, server, port, url: `ws://${host}:${port}/ws`, anchorDir: descriptor.anchorDir }

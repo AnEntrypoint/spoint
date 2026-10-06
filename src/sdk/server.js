@@ -12,6 +12,7 @@ import { NetworkState } from '../netcode/NetworkState.js'
 import { LagCompensator } from '../netcode/LagCompensator.js'
 import { PhysicsIntegration } from '../netcode/PhysicsIntegration.js'
 import { PhysicsWorld } from '../physics/World.js'
+import { resolveJoltLimits } from '../physics/joltLimits.js'
 import { AppRuntime } from '../apps/AppRuntime.js'
 import { AppLoader } from '../apps/AppLoader.js'
 import { StageLoader } from '../stage/StageLoader.js'
@@ -34,7 +35,7 @@ const PLACED_MODELS_PERSIST_DEBOUNCE_MS = 500
 
 export async function createServerDeps(config, tickRate) {
   const { gravity = [...DEFAULT_GRAVITY], playerConfig = {}, storageDir = './data', appsDirs = [], sdkRoot } = config
-  const physics = new PhysicsWorld({ gravity, crouchHalfHeight: playerConfig.crouchHalfHeight })
+  const physics = new PhysicsWorld({ gravity, crouchHalfHeight: playerConfig.crouchHalfHeight, joltLimits: resolveJoltLimits(config.joltLimits) })
   await physics.init()
   const emitter = new EventEmitter(), eventBus = new EventBus(), eventLog = new EventLog({ maxSize: 1000 })
   const storage = new FSAdapter(storageDir), tickSystem = new TickSystem(tickRate)

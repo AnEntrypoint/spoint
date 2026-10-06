@@ -52,14 +52,17 @@ async function quiesceLoop(timeoutMs) {
   return pending
 }
 
-async function baseWorld(clusters) {
+async function baseWorld(clusters, mode = 'bare') {
   const workDir = resolve(SDK_ROOT, 'data', 'cluster-harness', `work-${process.pid}`)
   await mkdir(resolve(workDir, 'data'), { recursive: true })
   process.chdir(workDir)
   const loaded = await loadWorldModule(resolve(SDK_ROOT, 'apps/world/tps-game.js'))
-  const worldDef = { ...loaded, entities: [{ id: 'spawn-1', position: [0, 3, 0], app: 'spawn-point', config: { team: 'any' } }], spawnPoint: [0, 3, 0], terrain: { ...loaded.terrain, bakedHeightfield: undefined, carves: [], vegetation: { enabled: false }, reliefScale: RELIEF, clusters } }
+  const full = mode === 'full'
+  const vegetation = full ? { ...loaded.terrain.vegetation, enabled: false, maxInstances: 0, rockMaxInstances: 0 } : { enabled: false }
+  const entities = full ? loaded.entities : [{ id: 'spawn-1', position: [0, 3, 0], app: 'spawn-point', config: { team: 'any' } }]
+  const worldDef = { ...loaded, entities, spawnPoint: [0, 3, 0], terrain: { ...loaded.terrain, bakedHeightfield: undefined, carves: [], vegetation, reliefScale: RELIEF, clusters } }
   const serverConfig = { tickRate: 60, appsDirs: [resolve(SDK_ROOT, 'apps'), resolve(SDK_ROOT, 'src/stdlib-apps')], sdkRoot: SDK_ROOT, staticDirs: [], storageDir: resolve(workDir, 'data') }
-  return { worldDef, serverConfig }
+  return { worldDef, serverConfig, loaded }
 }
 
 function makeClient(url) {
@@ -202,6 +205,163 @@ async function scenarioHeap() {
   }
   const heapCost = perWorld.map((r, i) => i === 0 ? null : round(perWorld[i - 1].wasmFreeMB - r.wasmFreeMB, 1)).slice(1)
   return { worlds: worlds.length, perWorld, heapCostMBPerExtraWorld: heapCost, configuredCeiling: resolveClusterConfig({ enabled: true }, { radius: worldDef.terrain.radius, relevanceRadius: worldDef.relevanceRadius ?? 200 }).maxWorlds }
+}
+
+async function scenarioCensus() {
+  const mode = args.mode === 'full' ? 'full' : 'bare'
+  const { worldDef, serverConfig } = await baseWorld({ enabled: true }, mode)
+  const { createClusterServerWorldFactory } = await import('../src/sharding/ClusterServerWorld.js')
+  const tcfg = worldDef.terrain
+  const config = resolveClusterConfig(tcfg.clusters, { radius: tcfg.radius, relevanceRadius: worldDef.relevanceRadius ?? 200 })
+  const factory = createClusterServerWorldFactory({ baseWorldDef: worldDef, serverConfig })
+  const R = tcfg.radius
+  const dir = tangentLocalToDir(anchorBasis([0.3, 0.7, 0.4]), R, 0, 0)
+  const world = await factory.createWorld(1, { anchorDir: dir, spawnDirs: [dir] })
+  const server = world.server
+  const physics = server.physics
+  const J = physics.Jolt
+
+  const listener = new J.ContactListenerJS()
+  let added = 0, persisted = 0
+  listener.OnContactValidate = () => J.ValidateResult_AcceptAllContactsForThisBodyPair
+  listener.OnContactAdded = () => { added++ }
+  listener.OnContactPersisted = () => { persisted++ }
+  listener.OnContactRemoved = () => {}
+  physics.physicsSystem.SetContactListener(listener)
+  const origStep = physics.step.bind(physics)
+  let pairsSinceSample = 0
+  physics.step = (dt, cs) => { added = 0; persisted = 0; origStep(dt, cs); pairsSinceSample = Math.max(pairsSinceSample, added + persisted) }
+
+  const veg = physics._terrainStreamer?._trunkStreamer ?? null
+  const rock = physics._terrainStreamer?._rockStreamer ?? null
+  const phases = []
+  const peak = { joltBodies: 0, trackedBodies: 0, characters: 0, contactPairs: 0, parkedBodies: 0, vegLive: 0, rockLive: 0 }
+  let sampler = null
+  const startSampling = label => {
+    pairsSinceSample = 0
+    const rows = []
+    sampler = setInterval(() => {
+      const joltBodies = physics.physicsSystem.GetNumBodies()
+      const row = {
+        joltBodies, trackedBodies: physics.bodies.size, characters: physics.characters.size,
+        contactPairs: pairsSinceSample, parkedBodies: [...physics._bodyPool.values()].reduce((a, f) => a + f.length, 0),
+        vegLive: veg?.liveCount ?? 0, rockLive: rock?.liveCount ?? 0,
+        wasmFreeMB: round(physics.wasmHeapBytes().free / 1048576, 2),
+      }
+      pairsSinceSample = 0
+      rows.push(row)
+      for (const k of Object.keys(peak)) peak[k] = Math.max(peak[k], row[k] ?? 0)
+    }, 20)
+    return () => {
+      clearInterval(sampler); sampler = null
+      const at = k => Math.max(0, ...rows.map(r => r[k] ?? 0))
+      phases.push({
+        label, samples: rows.length,
+        joltBodies: at('joltBodies'), trackedBodies: at('trackedBodies'), characters: at('characters'),
+        contactPairs: at('contactPairs'), parkedBodies: at('parkedBodies'),
+        vegLive: at('vegLive'), vegCap: veg?.cap ?? null, rockLive: at('rockLive'), rockCap: rock?.cap ?? null,
+        wasmFreeMB: round(Math.min(...rows.map(r => r.wasmFreeMB)), 2),
+      })
+    }
+  }
+
+  const playerCount = Math.max(1, Math.min(Number(args.players ?? 2), 8))
+  const clients = []
+  for (let i = 0; i < playerCount; i++) {
+    const c = makeClient(world.url)
+    await c.client.connect()
+    clients.push(c)
+  }
+  await until(() => clients.every(c => c.client.playerId && c.client.getLocalState()?.onGround), 60000, 'census clients grounded')
+
+  const stopBoot = startSampling('boot')
+  await sleep(3000)
+  stopBoot()
+
+  const localId = clients[0].client.playerId
+  const holdAt = async (x, z, holdMs = 2000) => {
+    const ground = server.physics.terrainHeightAt(x, z)
+    const y = (Number.isFinite(ground) ? ground : 0) + 40
+    const target = [x, y, z]
+    const deadline = performance.now() + holdMs
+    while (performance.now() < deadline) {
+      const st = server.playerManager.getPlayer(localId).state
+      st.position[0] = target[0]; st.position[1] = target[1]; st.position[2] = target[2]
+      st.velocity[0] = 0; st.velocity[1] = 0; st.velocity[2] = 0
+      server.physicsIntegration.setPlayerPosition(localId, target)
+      await sleep(50)
+    }
+    return target
+  }
+
+  const pos0 = server.playerManager.getPlayer(localId).state.position.slice()
+
+  const stopMove8 = startSampling('move-8m')
+  await holdAt(pos0[0] + 8, pos0[2])
+  await sleep(3000)
+  stopMove8()
+
+  const stopJump = startSampling('jump-5km')
+  await holdAt(5000, 0)
+  await sleep(6000)
+  const landed = server.playerManager.getPlayer(localId).state.position.slice()
+  log(`census: after holding at 5 km the player sits at ${landed.map(v => v.toFixed(1)).join(',')}`)
+  stopJump()
+
+  const centersFor = n => {
+    const out = []
+    const side = Math.ceil(Math.sqrt(n))
+    for (let i = 0; i < n; i++) out.push([(i % side) * 220 - side * 110, Math.floor(i / side) * 220 - side * 110])
+    return out
+  }
+  const terrainStreamer = physics._terrainStreamer ?? null
+  const centreSweep = []
+  for (const n of (args.centers ?? '8,16,32,64').split(',').map(Number)) {
+    const centres = centersFor(n)
+    const stop = startSampling(`centres-${n}`)
+    const t0 = performance.now()
+    if (terrainStreamer) await terrainStreamer.cover(centres)
+    if (veg) await veg._rebuildMulti(centres, true)
+    if (rock) await rock._rebuildMulti(centres, true)
+    await sleep(3000)
+    stop()
+    const row = phases.at(-1)
+    row.centres = n
+    row.terrainFields = terrainStreamer?.fields.length ?? null
+    row.rebuildMs = round(performance.now() - t0, 0)
+    centreSweep.push(row)
+  }
+
+  const dynamicBudget = Number(args.dynamics ?? worldDef.physicsBodyBudget ?? 512)
+  const stopDyn = startSampling(`dynamics-${dynamicBudget}`)
+  const dynamicIds = []
+  const spread = Math.ceil(Math.sqrt(dynamicBudget))
+  for (let i = 0; i < dynamicBudget; i++) {
+    const x = (i % spread) * 2.2 - spread * 1.1, z = Math.floor(i / spread) * 2.2 - spread * 1.1
+    const ground = physics.terrainHeightAt(x, z)
+    const id = physics.addBody('box', [0.3, 0.3, 0.3], [x, (Number.isFinite(ground) ? ground : 0) + 4 + (i % 60), z], 'dynamic', { mass: 4 })
+    if (id != null) dynamicIds.push(id)
+    if (i % 32 === 31) await sleep(150)
+  }
+  await sleep(7000)
+  stopDyn()
+  phases[phases.length - 1].dynamicBodies = dynamicIds.length
+
+  const out = {
+    cluster: {
+      radius: R, memberRadiusM: round(config.memberRadiusM, 1), linkM: config.linkM,
+      cellWorstDeg: round(config.cellWorstDeg, 3), maxWorlds: config.maxWorlds,
+    },
+    players: playerCount, mode,
+    vegBaseCap: worldDef.terrain.vegetation?.colliderCap ?? 384,
+    rockBaseCap: worldDef.terrain.vegetation?.rockColliderCap ?? 128,
+    terrainMaxFields: physics._terrainStreamer?.maxFields ?? null,
+    phases, centreSweep, peak,
+    joltLimitsUsed: physics.joltLimits ?? null,
+  }
+  for (const c of clients) c.client.disconnect()
+  await factory.destroyWorld(1, world)
+  return out
 }
 
 async function scenarioHandoff() {
@@ -408,7 +568,7 @@ async function scenarioTilt() {
   return out
 }
 
-const SCENARIOS = { manager: scenarioManager, hosting: scenarioHosting, heap: scenarioHeap, handoff: scenarioHandoff, tilt: scenarioTilt }
+const SCENARIOS = { manager: scenarioManager, hosting: scenarioHosting, heap: scenarioHeap, census: scenarioCensus, handoff: scenarioHandoff, tilt: scenarioTilt }
 const run = SCENARIOS[SCENARIO]
 if (!run) { console.error(`unknown scenario ${SCENARIO}; one of ${Object.keys(SCENARIOS).join(', ')}`); process.exit(2) }
 const result = await run()
