@@ -364,7 +364,7 @@ export function createTerrainStreamer(opts = {}) {
     get coverRadius() { return coverRadius },
     get staleEpochDiscards() { return staleEpochDiscards },
     resculpt: () => enqueue(rebuildAll),
-    get fields() { return fields.map(f => ({ bodyId: f.bodyId, center: [...f.center] })) },
+    get fields() { return fields.map(f => ({ bodyId: f.bodyId, center: lattice ? lattice.toChart(f.center[0], f.center[1]) : [...f.center] })) },
     get center() { return fields.length ? [...fields[0].center] : null },
     get bodyId() { return physics.getTerrainBodyId() },
     get rebuildCount() { return rebuildCount },
