@@ -10,7 +10,7 @@ const __dirname = import.meta.dirname || dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
 
 function parseArgs(argv) {
-  const out = { outFile: 'apps-manifest.json', apps: null, world: null, all: false, check: false, ifChanged: false }
+  const out = { outFile: 'client/apps-manifest.json', apps: null, world: null, all: false, check: false, ifChanged: false }
   for (const a of argv) {
     if (a.startsWith('--apps=')) out.apps = a.slice('--apps='.length).split(',').map(s => s.trim()).filter(Boolean)
     else if (a.startsWith('--world=')) out.world = a.slice('--world='.length)
