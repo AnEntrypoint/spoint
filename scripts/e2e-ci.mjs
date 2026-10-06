@@ -141,10 +141,10 @@ async function main() {
     check('divergence samples are all finite numbers', divergences.length === samples.length && divergences.every(Number.isFinite), JSON.stringify(divergences))
     const DIVERGENCE_CAP_M = 10
     check(`divergence stays under the ${DIVERGENCE_CAP_M}m sanity cap for every sample`, divergences.every(d => Math.abs(d) < DIVERGENCE_CAP_M), JSON.stringify(divergences))
-    const errorOffsets = samples.map(s => s.errorOffset).filter(Boolean)
-    check('errorOffset vectors are all finite (no NaN/Infinity reconciliation blowup)', errorOffsets.every(v => v.every(Number.isFinite)), JSON.stringify(errorOffsets))
+    const errorOffsets = samples.map(s => s.errorOffset).filter(v => Array.isArray(v))
+    check('errorOffset vectors are all finite (no NaN/Infinity reconciliation blowup)', errorOffsets.length === samples.length && errorOffsets.every(v => v.every(Number.isFinite)), JSON.stringify(errorOffsets))
     const ERROR_OFFSET_CAP_M = 10
-    check(`errorOffset magnitude stays under ${ERROR_OFFSET_CAP_M}m for every sample`, errorOffsets.every(v => Math.hypot(...v) < ERROR_OFFSET_CAP_M), JSON.stringify(errorOffsets.map(v => Math.hypot(...v))))
+    check(`errorOffset magnitude stays under ${ERROR_OFFSET_CAP_M}m for every sample`, errorOffsets.length === samples.length && errorOffsets.every(v => Math.hypot(...v) < ERROR_OFFSET_CAP_M), JSON.stringify(errorOffsets.map(v => Math.hypot(...v))))
 
     console.log('[e2e-ci] letting the session settle, then comparing cross-client position agreement...')
     let aOwnFinalPos = null, bViewOfAPos = null
