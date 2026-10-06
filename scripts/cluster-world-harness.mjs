@@ -22,6 +22,7 @@ const { resolveClusterConfig } = await import('../src/shared/clusterConfig.js')
 
 const log = message => console.error(`[cluster-harness ${(performance.now() / 1000).toFixed(1)}s] ${message}`)
 const sleep = ms => new Promise(r => setTimeout(r, ms))
+const referencedHandles = () => (process._getActiveHandles?.() ?? []).length
 const round = (x, d = 6) => x == null ? x : Number(x.toFixed(d))
 const hypot3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
 const degOf = rad => rad * 180 / Math.PI
@@ -42,6 +43,13 @@ async function until(cond, timeoutMs, label) {
     await sleep(20)
   }
   return performance.now() - t0
+}
+
+async function quiesceLoop(timeoutMs) {
+  const deadline = performance.now() + timeoutMs
+  let pending = referencedHandles()
+  while (pending && performance.now() < deadline) { await sleep(20); pending = referencedHandles() }
+  return pending
 }
 
 async function baseWorld(clusters) {
@@ -406,4 +414,6 @@ if (!run) { console.error(`unknown scenario ${SCENARIO}; one of ${Object.keys(SC
 const result = await run()
 console.log(`=====RESULT=====
 ${JSON.stringify({ scenario: SCENARIO, ...result }, null, 1)}`)
-process.exit(0)
+const pendingHandles = await quiesceLoop(Number(args.quiesceMs ?? 10000))
+log(pendingHandles ? `teardown left ${pendingHandles} referenced handle(s), forcing exit` : 'teardown complete, no referenced handles left')
+if (pendingHandles) process.exit(0)
