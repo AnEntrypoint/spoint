@@ -53,7 +53,11 @@ return {
 };
 `.trim()
 
-const out = await withGpuPage({ port: PORT, backend: BACKEND }, async (run) => run(sweep)).catch(e => { console.error('[parity] error:', e.message); process.exit(1) })
+const url = args.terrainhash
+  ? `http://localhost:${PORT}/?singleplayer&terrainhash=${args.terrainhash}${BACKEND === 'legacygl' ? '&legacygl=1' : ''}&nc=${Date.now()}`
+  : undefined
+
+const out = await withGpuPage({ port: PORT, backend: BACKEND, url }, async (run) => run(sweep)).catch(e => { console.error('[parity] error:', e.message); process.exit(1) })
 
 const gaps = out.rows.map(r => r.gap).filter(g => g != null)
 const meanGap = gaps.length ? +(gaps.reduce((a, b) => a + b, 0) / gaps.length).toFixed(3) : null
