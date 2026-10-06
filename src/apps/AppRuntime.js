@@ -11,6 +11,7 @@ import { equipCodeOf, EQUIP_UNARMED } from '../shared/equipment.js'
 import { BEHAVIOUR_FACTORIES, validateBehaviourSpec } from './AppBehaviours.js'
 const PLAYER_BEHAVIOUR_ENTITY_ID = 'players'
 const SUPPORT_RAY_LENGTH_M = 60
+const UNCOVERED_GROUND_HOLD_MAX_MS = 20000
 import { mixinPhysics } from './AppRuntimePhysics.js'
 import { mixinTick } from './AppRuntimeTick.js'
 import { mixinStaticMotion } from './AppRuntimeStaticMotion.js'
@@ -600,6 +601,10 @@ export class AppRuntime {
   broadcastToPlayers(m) { if (this._resimSuppressed) return; if (this._connections) this._connections.broadcast(MSG.APP_EVENT, m); else if (this._playerManager) this._playerManager.broadcast(m) }
   sendToPlayer(id, m) { if (this._resimSuppressed) return; if (this._connections) this._connections.send(id, MSG.APP_EVENT, m); else if (this._playerManager) this._playerManager.sendToPlayer(id, m) }
   setPlayerPosition(id, p) { if (!vecOK(p, 3)) return; this._physicsIntegration?.setPlayerPosition(id, p); if (this._playerManager) { const pl=this._playerManager.getPlayer(id); if (pl) { pl.state.position=[...p]; this._holdPlayerOverUnloadedGround(pl, p) } } }
+  _terrainCoversPosition(x, z) {
+    const streamer = this._physics?._terrainStreamer
+    return typeof streamer?.coversPosition === 'function' ? streamer.coversPosition(x, z) : true
+  }
   _holdPlayerOverUnloadedGround(player, p) {
     if (player.teleportHold) return
     const physics = this._physics
@@ -608,7 +613,28 @@ export class AppRuntime {
     if (!Number.isFinite(terrainY) || p[1] > terrainY + SUPPORT_RAY_LENGTH_M || p[1] < terrainY - SUPPORT_RAY_LENGTH_M) return
     const below = physics.raycast([p[0], p[1], p[2]], [0, -1, 0], SUPPORT_RAY_LENGTH_M)
     if (below && below.hit) return
-    beginTeleportHold(player, { onRelease: () => {} })
+    const covered = () => this._terrainCoversPosition(p[0], p[2])
+    const where = `chart-local (${p[0].toFixed(0)}, ${p[2].toFixed(0)})`
+    let warned = false
+    const options = {
+      probeGroundY: () => {
+        if (!covered()) {
+          if (!warned) {
+            warned = true
+            console.warn(`[terrain] holding player ${player.id} at ${where}: no heightfield collider covers it yet, so it stays held until its field lands`)
+          }
+          return null
+        }
+        const hit = physics.raycast([p[0], p[1], p[2]], [0, -1, 0], SUPPORT_RAY_LENGTH_M)
+        return hit && hit.hit && Number.isFinite(hit.position?.[1]) ? hit.position[1] : null
+      },
+      onRelease: ({ groundHit, heldMs }) => {
+        if (groundHit) return
+        console.warn(`[terrain] released player ${player.id} at ${where} after ${Math.round(heldMs)} ms with no ground under it: it falls to the kill plane (heightfield covers the point: ${covered()})`)
+      }
+    }
+    if (!covered()) options.maxMs = UNCOVERED_GROUND_HOLD_MAX_MS
+    beginTeleportHold(player, options)
   }
   setPlayerName(id, name) { if (typeof name !== 'string') return false; const pl = this._playerManager?.getPlayer(id); if (!pl) return false; pl.name = name.trim().slice(0, 32) || pl.name; return true }
   setEquipment(equipment) {
