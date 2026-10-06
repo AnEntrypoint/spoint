@@ -2,6 +2,7 @@ import { yieldToLoop } from './loopYield.js'
 
 const _now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
 const NON_FINITE_HEIGHT_FALLBACK_M = -1000
+const HEIGHT_SNAP_PER_METRE = 1000
 const FIELD_WASM_BUDGET_BYTES = 32 * 1024 * 1024
 const FIELD_WASM_BYTES_PER_SAMPLE = 4
 const WASM_RESERVE_FREE_BYTES = 64 * 1024 * 1024
@@ -27,7 +28,7 @@ export async function sampleTerrainGridChunked({ heightFn, N, spacing, cornerX, 
       const raw = heightFn(cornerX + x * spacing, wz, guess)
       let h = raw
       if (!Number.isFinite(h)) h = NON_FINITE_HEIGHT_FALLBACK_M
-      samples[k] = h
+      samples[k] = Math.round(h * HEIGHT_SNAP_PER_METRE) / HEIGHT_SNAP_PER_METRE + 0
       prev2 = prev
       prev = Number.isFinite(raw) ? raw : NaN
     }
