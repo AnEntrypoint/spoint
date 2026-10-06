@@ -188,6 +188,7 @@ async function main() {
       requiredCounts: WAITS,
     })
     const failures = []
+    if (consoleEntries.length === 0 && marks.length === 0) failures.push('the page produced neither a console entry nor a performance mark: an empty observation set witnesses nothing and is not a boot')
     if (unreached.length) failures.push(unreached.join('; '))
     if (REQUIRE_GPU && REQUIRE_GPU === 'any' && gpuSoftware) failures.push(`the arm needs a real GPU but the page has no WebGPU adapter and/or a software GL renderer (adapter=${JSON.stringify(gpuName)}, glRenderer=${JSON.stringify(gpu.renderer)})`)
     if (REQUIRE_GPU && REQUIRE_GPU !== 'any' && (gpuSoftware || gotVendor !== REQUIRE_GPU)) failures.push(`the arm needs the ${REQUIRE_GPU} adapter but the page got ${JSON.stringify(gpuName)} / ${JSON.stringify(gpu.renderer)} (classed ${gpuKind})`)
