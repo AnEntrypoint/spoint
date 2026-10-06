@@ -44,7 +44,10 @@ const pick = (...names) => names.map(load).find(Boolean) || null
 const tslBoot = load('tsl-boot'), legBoot = load('legacy-boot')
 const tslSettle = pick('tsl-settle', 'tsl-boot'), legSettle = pick('legacy-settle', 'legacy-boot')
 const tslCap = load('tsl-capture'), legCap = load('legacy-capture')
-if (!tslBoot || !legBoot || !tslCap || !legCap) { console.error('missing one of tsl-boot, legacy-boot, tsl-capture, legacy-capture in ' + args.dir); process.exit(2) }
+const missingArms = Object.entries({ 'tsl-boot': tslBoot, 'legacy-boot': legBoot, 'tsl-capture': tslCap, 'legacy-capture': legCap }).filter(([, v]) => !v).map(([k]) => k)
+const partial = missingArms.length > 0
+const eventsOf = src => (src && src.events) || []
+const sigsOf = cap => (cap ? Object.values(cap.frames).map(f => f.sig) : [])
 
 const headNow = execSync('git rev-parse HEAD', { cwd: repo, encoding: 'utf8' }).trim()
 
@@ -82,21 +85,20 @@ const gate = (name, pass, detail) => gates.push({ name, pass: !!pass, detail })
 
 const ts = settleOf(tslSettle), ls = settleOf(legSettle)
 gate('vegetation settled on both renderers', ts && ts.settle && ls && ls.settle, { tsl: ts && ts.veg, legacy: ls && ls.veg })
-const allSigs = cap => Object.values(cap.frames).map(f => f.sig)
-const vegs = new Set([...allSigs(tslCap), ...allSigs(legCap)].map(s => s.veg))
+const vegs = new Set([...sigsOf(tslCap), ...sigsOf(legCap)].map(s => s.veg))
 gate('vegetation equal and constant across every frame of both renderers', vegs.size === 1, { counts: [...vegs] })
 
 const camKey = s => JSON.stringify(s.cam)
 const camsOk = ['sky', 'skyFull', 'ground', 'grey', 'greyRelief1'].every(base => {
-  const keys = new Set([tslCap, legCap].flatMap(c => ['-a', '-b'].map(sfx => c.frames[base + sfx]).filter(Boolean).map(f => camKey(f.sig))))
+  const keys = new Set([tslCap, legCap].filter(Boolean).flatMap(c => ['-a', '-b'].map(sfx => c.frames[base + sfx]).filter(Boolean).map(f => camKey(f.sig))))
   return keys.size <= 1
 })
 gate('camera pose identical per pose across frames and renderers', camsOk, null)
-const ammo = new Set([...allSigs(tslCap), ...allSigs(legCap)].map(s => String(s.ammo)))
+const ammo = new Set([...sigsOf(tslCap), ...sigsOf(legCap)].map(s => String(s.ammo)))
 gate('ammo signature identical across all frames', ammo.size === 1, { ammo: [...ammo] })
-const probesOf = src => src.values.filter(v => v.probe).map(p => ({ probe: p.probe, href: p.href, blocked: Number(p.blocked) || 0 }))
+const probesOf = src => ((src && src.values) || []).filter(v => v.probe).map(p => ({ probe: p.probe, href: p.href, blocked: Number(p.blocked) || 0 }))
 const allProbes = [...probesOf(tslBoot), ...probesOf(legBoot), ...probesOf(tslCap), ...probesOf(legCap)]
-const blocked = Math.max(0, ...[...allSigs(tslCap), ...allSigs(legCap)].map(s => s.blocked || 0), ...allProbes.map(p => p.blocked))
+const blocked = Math.max(0, ...[...sigsOf(tslCap), ...sigsOf(legCap)].map(s => s.blocked || 0), ...allProbes.map(p => p.blocked))
 gate('no input reached the page', blocked === 0, { blocked, probes: allProbes, tslInputLog: ts && ts.inputLog, legacyInputLog: ls && ls.inputLog })
 
 function toCrlf(buf) {
@@ -113,7 +115,7 @@ function pinnedMapspinnerBytes(rel) {
 }
 
 const hashRows = []
-for (const ev of [...tslBoot.events, ...legBoot.events].filter(e => e.event === 'Debugger.scriptParsed')) {
+for (const ev of [...eventsOf(tslBoot), ...eventsOf(legBoot)].filter(e => e.event === 'Debugger.scriptParsed')) {
   const u = ev.params.url, m = u.match(/\/node_modules\/mapspinner\/(.+?)(\?|$)/)
   if (!m) continue
   const disk = path.join(repo, 'packages', 'mapspinner', m[1])
@@ -127,7 +129,7 @@ gate('executed mapspinner bytes equal disk', uniqueHashes.length > 0 && uniqueHa
 const docStamp = s => { const m = String((s && s.href) || '').match(/[?&]v=([a-z]\d+)/); return m ? m[1] : null }
 const exceptionsOf = (boot, settle) => {
   const stamp = docStamp(settle)
-  const list = boot.events.filter(e => e.event === 'Runtime.exceptionThrown')
+  const list = eventsOf(boot).filter(e => e.event === 'Runtime.exceptionThrown')
   const url = e => String(((e.params || {}).exceptionDetails || {}).url || '')
   const mine = stamp ? list.filter(e => { const u = url(e); return u === '' || u.includes('v=' + stamp) }) : list
   const foreign = list.filter(e => !mine.includes(e))
@@ -149,6 +151,7 @@ gate('no exceptions, page errors or console errors during boot', exceptions === 
 
 const fullIdx = img => Array.from({ length: img.w * img.h }, (_, i) => i)
 function compare(base, maskRef, regionNames) {
+  if (!tslCap || !legCap) return null
   const ta = tslCap.frames[base + '-a'], tb = tslCap.frames[base + '-b'], la = legCap.frames[base + '-a'], lb = legCap.frames[base + '-b']
   if (!ta || !la || !ta.img || !la.img) return null
   const masks = maskRef ? regionMasks(maskRef).masks : { clip: fullIdx(ta.img) }
@@ -162,8 +165,8 @@ function compare(base, maskRef, regionNames) {
   }
   return rows
 }
-const legSkyRef = legCap.frames['skyFull-a'] && legCap.frames['skyFull-a'].img
-const legGroundRef = legCap.frames['ground-a'] && legCap.frames['ground-a'].img
+const legSkyRef = legCap && legCap.frames['skyFull-a'] && legCap.frames['skyFull-a'].img
+const legGroundRef = legCap && legCap.frames['ground-a'] && legCap.frames['ground-a'].img
 const regions = ['sky', 'terrain', 'grass', 'water', 'leftLower', 'leftEdge', 'vegColumn']
 const sets = {
   skyClip: compare('sky', null),
@@ -174,6 +177,7 @@ const sets = {
 }
 const skyMad = sets.skyPose && sets.skyPose.sky && sets.skyPose.sky.meanAbs
 const groundSkyMad = sets.ground && sets.ground.sky && sets.ground.sky.meanAbs
+if (partial) gate('all four capture arms present', false, { missing: missingArms, analyzed: 'the arms that are present only; this verdict is not a pair' })
 gate('sky region TSL vs legacy within ' + SKY_GATE + ' (state settled)', skyMad != null && skyMad <= SKY_GATE && (groundSkyMad == null || groundSkyMad <= SKY_GATE), { skyPose: skyMad, groundPose: groundSkyMad })
 
 const guardRows = []
@@ -194,7 +198,7 @@ const out = {
   captureHeadShas: headShas,
   headMismatch,
   criterion: { K, floorMin: FLOOR_MIN, skyGate: SKY_GATE },
-  verdict: gates.every(g => g.pass) ? 'pair valid' : 'pair invalid',
+  verdict: partial ? 'pair incomplete' : (gates.every(g => g.pass) ? 'pair valid' : 'pair invalid'),
   gates,
   settle: { tsl: ts, legacy: ls },
   executedHashes: uniqueHashes,
@@ -234,6 +238,7 @@ if (leT && legGroundRef) {
 
 fs.writeFileSync(path.join(args.dir, 'analysis-' + args.gpu + '.json'), JSON.stringify(out, null, 1))
 console.log(args.gpu + ' ' + out.verdict + ' (HEAD ' + out.head.slice(0, 8) + ')')
+if (partial) console.log('INCOMPLETE: missing ' + missingArms.join(', ') + ' in ' + args.dir + ' -- the gates and region rows below cover only the arms that landed, so they are a diagnostic, not a pair verdict')
 if (!captureHead) console.log('HEAD UNKNOWN: no capture-time sha in ' + args.dir + ' -- this verdict names only the analyze-time HEAD ' + headNow.slice(0, 8) + ' and may attribute these frames to bytes that never rendered')
 else if (headShas.length > 1) console.log('HEAD DISAGREEMENT: capture-time sources disagree (' + headShas.map(s => s.slice(0, 8)).join(' vs ') + ') -- analyze-time HEAD ' + headNow.slice(0, 8))
 else if (headMismatch) console.log('HEAD MISMATCH: captured at ' + captureHead.sha.slice(0, 8) + ' (' + captureHead.source + '), analyzed at ' + headNow.slice(0, 8) + ' -- these frames were rendered by ' + captureHead.sha.slice(0, 8) + ', not by HEAD')
@@ -244,3 +249,4 @@ for (const [set, rows] of Object.entries(sets)) {
   if (!rows) { console.log(set + ': missing frames'); continue }
   for (const [k, v] of Object.entries(rows)) console.log([set, k, v.skipped ? 'skipped n=' + v.n : 'delta=' + v.delta.join(',') + ' meanAbs=' + v.meanAbs + ' floor=' + v.floor + ' ratio=' + v.ratio + ' ' + (v.pass ? 'PASS' : 'FAIL')].join(' '))
 }
+if (partial) process.exit(2)
