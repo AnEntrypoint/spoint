@@ -409,7 +409,13 @@ async function main() {
     console.log(`[netcode-harness] run latency=${cond.latencyMs}ms jitter=${cond.jitterMs}ms loss=${cond.lossPct}% predict=${predict} channel=${CHANNEL} snapHz=${SNAP_HZ || 'default'}`)
     results.push(await runOne(cond, predict, worldDef))
   }
-  const header = '| one-way ms/jitter/loss | predict | RTT | local in->visual p50/p95 ms | remote in->visual p50 ms | mispredict rate | mispredict p95 cm | local pops/min | max pop cm | remote eff. delay ms | interp jitter ms | interp interval ms | remote - server ms | extrap/held % | remote err@delay cm | remote err vs present cm | hit% (aim at view) | miss p50 cm | KB/s down/up | snap Hz | tick Hz / p99 interval ms | input starves/s |\n|' + '---|'.repeat(22)
+  const unmeasured = results.filter((r) => !(r.inputToVisual.onsets > 0 && r.snapshots.hz > 0 && Number.isFinite(r.ticks.hz)))
+  if (unmeasured.length) {
+    console.error(`[netcode-harness] ${unmeasured.length} of ${results.length} arm(s) measured nothing -- each needs onsets > 0, snapshot Hz > 0 and a finite tick Hz:`)
+    for (const r of unmeasured) console.error(`  ${r.cond.latencyMs}/${r.cond.jitterMs}/${r.cond.lossPct}% predict=${r.predict ? 'on' : 'off'}: onsets=${r.inputToVisual.onsets} snapHz=${r.snapshots.hz} tickHz=${r.ticks.hz}`)
+    process.exit(1)
+  }
+  const header ='| one-way ms/jitter/loss | predict | RTT | local in->visual p50/p95 ms | remote in->visual p50 ms | mispredict rate | mispredict p95 cm | local pops/min | max pop cm | remote eff. delay ms | interp jitter ms | interp interval ms | remote - server ms | extrap/held % | remote err@delay cm | remote err vs present cm | hit% (aim at view) | miss p50 cm | KB/s down/up | snap Hz | tick Hz / p99 interval ms | input starves/s |\n|' + '---|'.repeat(22)
   const table = [header, ...results.map(row)].join('\n')
   console.log('\n' + table + '\n')
   const outPath = resolve(OUT_DIR, `run-${Date.now()}.json`)
