@@ -45,6 +45,8 @@ const READY = () => {
     hasCamera: !!window.__camera,
     hasVeg: !!veg,
     vegInstances: (veg && veg.totalInstances) || 0,
+    vegLoads: (veg && veg.profile && veg.profile.loads) || 0,
+    vegMeshes: (veg && veg._meshes && veg._meshes.length) || 0,
     hasTerrain: !!window.__terrain,
     revealedAt: a.revealedAt || null,
     glHooks: window.__gmGlDrawCalls !== undefined,
@@ -179,9 +181,11 @@ const SCALING_RUN = (counts) => new Promise(async (res) => {
 async function waitReady(page) {
   const deadline = Date.now() + READY_TIMEOUT_MS
   let last = null
+  let nextLog = 0
   while (Date.now() < deadline) {
-    last = await page.evaluate(READY).catch(() => null)
+    last = await page.evaluate(READY).catch((e) => ({ evalError: String(e && e.message || e) }))
     if (last && last.hasScene && last.hasCamera && last.hasVeg && last.vegInstances > 0 && last.hasTerrain && last.revealedAt) return last
+    if (Date.now() >= nextLog) { nextLog = Date.now() + 30000; console.log('[veg-lod-browser] waiting: ' + JSON.stringify(last)) }
     await new Promise((r) => setTimeout(r, 2000))
   }
   throw new Error('page never became ready: ' + JSON.stringify(last))
@@ -193,6 +197,7 @@ async function main() {
   process.env.PORT = port
   process.env.WORLD = 'tps-game'
   process.env.SPOINT_NO_WATCH = '1'
+  if (!has('prewarm')) process.env.SPOINT_SKIP_PREWARM = '1'
   const { boot } = await import(pathToFileURL(resolve(ROOT, 'src', 'sdk', 'server.js')).href)
   const server = await boot()
   console.log('[veg-lod-browser] server up on ' + port)
@@ -249,13 +254,13 @@ async function main() {
     writeFileSync(outPath, JSON.stringify(payload, null, 2))
     console.log('json: ' + outPath)
   } finally {
-    await page.close().catch(() => {})
-    await browser.close().catch(() => {})
-    await server.stop().catch(() => {})
+    for (const step of [() => page.close(), () => browser.close(), () => server.stop()]) {
+      try { await Promise.resolve(step()).catch(() => {}) } catch (_) {}
+    }
   }
   if (failures.length) for (const f of failures) console.log('FAIL: ' + f)
   console.log('RESULT: ' + (failures.length ? 'FAIL' : 'PASS'))
   process.exit(failures.length ? 1 : 0)
 }
 
-main().catch((e) => { console.log('FAIL: ' + (e && e.message || e)); console.log('RESULT: FAIL'); process.exit(1) })
+main().catch((e) => { console.log('FAIL: ' + (e && e.message || e)); console.log((e && e.stack) || ''); console.log('RESULT: FAIL'); process.exit(1) })

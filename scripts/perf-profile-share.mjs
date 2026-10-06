@@ -36,24 +36,35 @@ function inclusiveMs(profile) {
   const parentOf = new Int32Array(nodes.length).fill(-1)
   for (let i = 0; i < nodes.length; i++) {
     const kids = nodes[i].children || []
-    for (const k of kids) parentOf[k] = i
+    for (const k of kids) if (k >= 0 && k < nodes.length && k !== i) parentOf[k] = i
   }
-  const totals = new Map()
+  const keyIds = new Map()
+  const nodeKey = new Int32Array(nodes.length)
+  const keyNames = []
+  for (let i = 0; i < nodes.length; i++) {
+    const key = frameOf(nodes[i])
+    let id = keyIds.get(key)
+    if (id === undefined) { id = keyNames.length; keyIds.set(key, id); keyNames.push(key) }
+    nodeKey[i] = id
+  }
+  const seenAt = new Int32Array(keyNames.length).fill(-1)
+  const totals = new Float64Array(keyNames.length)
   for (let s = 0; s < samples.length; s++) {
     const dt = deltas[s] > 0 ? deltas[s] : 0
     if (dt === 0) continue
     let n = samples[s]
-    const seenFrames = new Set()
-    while (n >= 0) {
-      const key = frameOf(nodes[n])
-      if (!seenFrames.has(key)) { seenFrames.add(key); totals.set(key, (totals.get(key) || 0) + dt) }
+    let steps = 0
+    while (n >= 0 && steps <= nodes.length) {
+      const id = nodeKey[n]
+      if (seenAt[id] !== s) { seenAt[id] = s; totals[id] += dt }
       n = parentOf[n]
+      steps++
     }
   }
-  const byFrame = new Map()
-  for (const [key, ms] of totals) byFrame.set(key, { fn: key, ms, hits: 0 })
-  const totalMs = (profile.timeDeltas || []).reduce((s, d) => s + (d > 0 ? d : 0), 0)
-  const rows = [...byFrame.values()].sort((a, b) => b.ms - a.ms)
+  const totalMs = deltas.reduce((s, d) => s + (d > 0 ? d : 0), 0)
+  const rows = []
+  for (let i = 0; i < keyNames.length; i++) if (totals[i] > 0) rows.push({ fn: keyNames[i], ms: totals[i] })
+  rows.sort((a, b) => b.ms - a.ms)
   return { rows, totalMs }
 }
 

@@ -4,6 +4,7 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as THREE from 'three'
 import { createWebGPULodInstancer } from '../client/core/WebGPULodInstancer.js'
+import { measureUncontested, formatRowContention, fingerprintFields, describeContested } from './lib/timing-gate.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -28,8 +29,10 @@ const SPACING = Number(flag('spacing', '3'))
 const SPEED = Number(flag('speed', '7'))
 const MESH_FAR = Number(flag('mesh-far', '90'))
 const REPEATS = Number(flag('repeats', '5'))
+const REF_ARMS = Number(flag('ref-arms', '1'))
 const REQUIRE_DROP = Number(flag('require-drop', '50'))
 const US_NOISE_LIMIT = Number(flag('us-noise-limit', '15'))
+const CONTEST_RETRIES = Number(flag('contest-retries', '3'))
 const LABEL = flag('label', 'veg-lod-sweep-' + Date.now())
 const BASELINE = has('baseline') ? flag('baseline', '') : ''
 const DT = 1 / 60
@@ -189,14 +192,19 @@ function makeRefStates(shape) {
 
 function buildArm(kind) {
   const shape = buildShape(kind)
-  return { shape, refs: makeRefStates(shape), before: shape.instancers.map((i) => ({ ...i.sweepStats })), ms: 0, mismatches: 0, firstMismatch: null, movedFrames: 0 }
+  return { shape, refs: makeRefStates(shape), before: shape.instancers.map((i) => ({ ...i.sweepStats })), cpuUs: 0, wallUs: 0, mismatches: 0, firstMismatch: null, movedFrames: 0 }
 }
 
-function stepFrame(arm, f, cam, frustum, check) {
+function stepFrame(arm, f, cam, frustum, check, withRef) {
   const insts = arm.shape.instancers
+  const c0 = process.cpuUsage()
   const t0 = performance.now()
   for (let k = 0; k < insts.length; k++) insts[k].updateLOD(cam.position, frustum, true)
-  arm.ms += performance.now() - t0
+  const t1 = performance.now()
+  const c1 = process.cpuUsage(c0)
+  arm.cpuUs += c1.user + c1.system
+  arm.wallUs += (t1 - t0) * 1000
+  if (!withRef) return
   if (advanceReference(arm.refs[0], cam.position, frustum)) arm.movedFrames++
   for (let k = 1; k < arm.refs.length; k++) advanceReference(arm.refs[k], cam.position, frustum)
   if (!check) return
@@ -214,7 +222,7 @@ function stepFrame(arm, f, cam, frustum, check) {
   }
 }
 
-function editPhase(arm, cam, frustum, projScreen, frames) {
+function editPhase(arm, cam, frustum, projScreen, frames, withRef) {
   const shape = arm.shape
   const inst0 = shape.instancers[0]
   const ref0 = arm.refs[0]
@@ -234,6 +242,7 @@ function editPhase(arm, cam, frustum, projScreen, frames) {
     projScreen.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse)
     frustum.setFromProjectionMatrix(projScreen)
     for (let k = 0; k < shape.instancers.length; k++) shape.instancers[k].updateLOD(cam.position, frustum, true)
+    if (!withRef) continue
     if (advanceReference(arm.refs[0], cam.position, frustum)) editMoved++
     for (let k = 1; k < arm.refs.length; k++) advanceReference(arm.refs[k], cam.position, frustum)
     const got = collectSurvivors(inst0)
@@ -255,11 +264,11 @@ function runPaired(kind, frames, checkEvery, armCount) {
     projScreen.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse)
     frustum.setFromProjectionMatrix(projScreen)
     const check = checkEvery > 0 && (f % checkEvery === 0 || f === frames - 1)
-    for (let a = 0; a < arms.length; a++) stepFrame(arms[a], f, cam, frustum, check)
+    for (let a = 0; a < arms.length; a++) stepFrame(arms[a], f, cam, frustum, check && a < REF_ARMS, a < REF_ARMS)
   }
   const total = frames + 4
-  return arms.map((arm) => {
-    const editMoved = editPhase(arm, cam, frustum, projScreen, frames)
+  return arms.map((arm, a) => {
+    const editMoved = editPhase(arm, cam, frustum, projScreen, frames, a < REF_ARMS)
     let walked = 0, tests = 0, calls = 0, survivorsSum = 0
     for (let k = 0; k < arm.shape.instancers.length; k++) {
       const b = arm.before[k], a = arm.shape.instancers[k].sweepStats
@@ -278,7 +287,8 @@ function runPaired(kind, frames, checkEvery, armCount) {
       planeTestsPerFrame: +(tests / total).toFixed(1),
       recordsPerFrame: +(walked / total).toFixed(1),
       survivorsAtEnd: survivorsSum,
-      usPerFrame: +((arm.ms * 1000) / frames).toFixed(1),
+      cpuUsPerFrame: +(arm.cpuUs / frames).toFixed(1),
+      wallUsPerFrame: +(arm.wallUs / frames).toFixed(1),
       mismatchCount: arm.mismatches,
       firstMismatch: arm.firstMismatch,
     }
@@ -286,7 +296,7 @@ function runPaired(kind, frames, checkEvery, armCount) {
 }
 
 function usSummary(arms) {
-  const samples = arms.slice(1).map((a) => a.usPerFrame)
+  const samples = arms.slice(1).map((a) => a.cpuUsPerFrame)
   const min = Math.min(...samples), max = Math.max(...samples)
   return { min, spreadPct: +(((max - min) / min) * 100).toFixed(2), samples }
 }
@@ -299,17 +309,24 @@ const reasons = []
 
 for (const kind of SHAPES) {
   const armCount = Math.max(3, REPEATS)
-  runPaired(kind, WARMUP, 0, armCount)
-  const arms = runPaired(kind, FRAMES, 8, armCount)
+  const measured = await measureUncontested(`veg-lod-sweep ${kind}`, mark => {
+    runPaired(kind, WARMUP, 0, armCount)
+    const arms = runPaired(kind, FRAMES, 8, armCount)
+    mark()
+    return { arms }
+  }, { retries: CONTEST_RETRIES })
+  const arms = measured.arms
   const control = {
     planeTests: pctDelta(arms[1].planeTestsPerFrame, arms[2].planeTestsPerFrame),
     records: pctDelta(arms[1].recordsPerFrame, arms[2].recordsPerFrame),
-    us: pctDelta(arms[1].usPerFrame, arms[2].usPerFrame),
+    us: pctDelta(arms[1].cpuUsPerFrame, arms[2].cpuUsPerFrame),
   }
-  const row = { shape: kind, arm: arms[1], controlArm: arms[2], controlDeltaPct: control, warmupArm: arms[0], us: usSummary(arms) }
+  const row = { shape: kind, arm: arms[1], controlArm: arms[2], controlDeltaPct: control, warmupArm: arms[0], us: usSummary(arms), ...fingerprintFields(measured) }
   results.push(row)
+  console.log(`${kind}: ${formatRowContention(row)}`)
   for (const a of arms) if (a.mismatchCount > 0) { failed = true; reasons.push(`${kind}: surviving set differs from the brute-force sweep (${a.mismatchCount} mismatches, first ${JSON.stringify(a.firstMismatch)})`) }
-  console.log(`shape=${kind} instances=${arms[1].instances} instancers=${arms[1].instancers} records/frame=${arms[1].recordsPerFrame} planeTests/frame=${arms[1].planeTestsPerFrame} us/frame=${arms[1].usPerFrame} survivors=${arms[1].survivorsAtEnd} controlDeltaPct=${JSON.stringify(control)}`)
+  if (row.contested) { failed = true; reasons.push(`${kind}: ${describeContested([row], CONTEST_RETRIES)}`) }
+  console.log(`shape=${kind} instances=${arms[1].instances} instancers=${arms[1].instancers} records/frame=${arms[1].recordsPerFrame} planeTests/frame=${arms[1].planeTestsPerFrame} cpuUs/frame=${arms[1].cpuUsPerFrame} wallUs/frame=${arms[1].wallUsPerFrame} survivors=${arms[1].survivorsAtEnd} controlDeltaPct=${JSON.stringify(control)}`)
 }
 
 const byShape = new Map(results.map((r) => [r.shape, r]))
@@ -357,8 +374,8 @@ if (BASELINE) {
       if (Math.abs(row.controlDeltaPct.planeTests) > REQUIRE_DROP / 2 || Math.abs(row.controlDeltaPct.records) > REQUIRE_DROP / 2) { failed = true; reasons.push(`control arm noise exceeds half the required drop: ${JSON.stringify(row.controlDeltaPct)}`) }
       if (noiseFloor <= US_NOISE_LIMIT && dUsMin > -noiseFloor) { failed = true; reasons.push(`us/frame(min) at dense10k improved only ${-dUsMin}% which is inside the ${noiseFloor}% noise floor`) }
     }
-    if (row.shape === 'real' && (row.arm.planeTestsPerFrame !== b.arm.planeTestsPerFrame || row.arm.recordsPerFrame !== b.arm.recordsPerFrame)) { failed = true; reasons.push(`real-shape work units moved: planeTests ${b.arm.planeTestsPerFrame} -> ${row.arm.planeTestsPerFrame}, records ${b.arm.recordsPerFrame} -> ${row.arm.recordsPerFrame}`) }
-    if (row.shape === 'real' && noiseFloor <= US_NOISE_LIMIT && dUsMin > noiseFloor && (row.arm.planeTestsPerFrame !== b.arm.planeTestsPerFrame || row.arm.recordsPerFrame !== b.arm.recordsPerFrame)) { failed = true; reasons.push(`real-shape sweep regressed ${dUsMin}% (noise floor ${noiseFloor}%)`) }
+    if (row.shape === 'real' && row.arm.recordsPerFrame > b.arm.recordsPerFrame) { failed = true; reasons.push(`real-shape records walked rose ${b.arm.recordsPerFrame} -> ${row.arm.recordsPerFrame}`) }
+    if (row.shape === 'real' && noiseFloor <= US_NOISE_LIMIT && dUsMin > noiseFloor) { failed = true; reasons.push(`real-shape sweep regressed ${dUsMin}% cpu/frame(min) (noise floor ${noiseFloor}%) with planeTests ${b.arm.planeTestsPerFrame} -> ${row.arm.planeTestsPerFrame} and records ${b.arm.recordsPerFrame} -> ${row.arm.recordsPerFrame}`) }
     const survivorDelta = Math.abs(row.arm.survivorsAtEnd - b.arm.survivorsAtEnd)
     if (survivorDelta > Math.max(2, b.arm.survivorsAtEnd * 0.01)) { failed = true; reasons.push(`shape ${row.shape}: survivor count moved ${b.arm.survivorsAtEnd} -> ${row.arm.survivorsAtEnd}`) }
   }

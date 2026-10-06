@@ -12,6 +12,7 @@ const MAX_CELLS = 4096
 const GRID_MIN_INSTANCES = 32
 const GRID_MIN_OCCUPANCY = 2
 const CELL_SIZE = 24
+const TARGET_CELL_OCCUPANCY = 4
 const CELL_OUT = 0, CELL_IN = 1, CELL_PART = 2
 const MODE_NOT_DRAWN = 0, MODE_UNIFORM = 1, MODE_MIXED = 2
 const SHADOW_NONE = 0, SHADOW_ALL = 1, SHADOW_MIXED = 2
@@ -287,7 +288,9 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     }
     if (live < GRID_MIN_INSTANCES) { grid.usable = false; grid.cells = 0; return }
     const spanX = Math.max(1, maxX - minX), spanZ = Math.max(1, maxZ - minZ)
-    let cellSize = CELL_SIZE
+    const densityCell = Math.sqrt((spanX * spanZ) / Math.max(1, live / TARGET_CELL_OCCUPANCY))
+    const cellCap = Math.max(CELL_SIZE, Math.min(spanX, spanZ) / 3)
+    let cellSize = Math.min(Math.max(CELL_SIZE, densityCell), cellCap)
     let nx = 0, nz = 0
     for (let i = 0; i < 12; i++) {
       nx = Math.floor(spanX / cellSize) + 1
