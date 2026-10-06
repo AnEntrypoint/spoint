@@ -21,6 +21,8 @@ import { reanchoredSeaLevelXZ } from './ChartLocalPoint.js'
 const CENTER_SCALE_REFERENCE = 8
 const CENTER_SCALE_MAX = 8
 const DEFAULT_MAX_CENTERS = 192
+const BOOT_CLUSTER_BATCH = 8
+const yieldToTimers = () => new Promise(r => setTimeout(r, 0))
 function centerScale(centerCount) {
   return Math.min(CENTER_SCALE_MAX, Math.max(1, Math.ceil(centerCount / CENTER_SCALE_REFERENCE)))
 }
@@ -189,19 +191,56 @@ export function createColliderStreamer(spec = {}) {
   function latticeOf() { if (!_lattice) _lattice = latticeFor(frame, latticeSpec); return _lattice }
 
   const _chunkCentre = [0, 0]
-  async function classifyRings(centers, unbudgeted) {
+  function newAccumulator(centerCount, quota) {
+    const buckets = new Array(centerCount)
+    for (let i = 0; i < centerCount; i++) buckets[i] = []
+    return {
+      quota, buckets,
+      avail: new Array(centerCount).fill(0),
+      keep: new Set(), chunkKeys: [], seenKeys: new Set(),
+      candP: [], candD: [], candC: [], overflow: [], candCount: 0, lastWorkMs: 0,
+    }
+  }
+  function gatherDesired(acc, centers) {
+    const tt = _now()
+    const taken = new Array(centers.length).fill(0)
+    const desired = []
+    for (let round = 0; round < acc.quota && desired.length < effectiveCap; round++) {
+      for (let i = 0; i < centers.length && desired.length < effectiveCap; i++) {
+        const idx = acc.buckets[i][round]
+        if (idx === undefined) continue
+        taken[i]++
+        desired.push(idx)
+      }
+    }
+    if (desired.length < effectiveCap && acc.overflow.length > 0) {
+      acc.overflow.sort((a, b) => acc.candD[a] - acc.candD[b])
+      for (let i = 0; i < acc.overflow.length && desired.length < effectiveCap; i++) {
+        const idx = acc.overflow[i]
+        taken[acc.candC[idx]]++
+        desired.push(idx)
+      }
+    }
+    const starved = []
+    for (let i = 0; i < centers.length; i++) if (taken[i] === 0 && acc.avail[i] > 0) starved.push(centers[i])
+    tailMsTotal += _now() - tt
+    lastCands = acc.candCount
+    return { desired, truncated: acc.candCount > desired.length, starved, counts: taken }
+  }
+  function batchDesired(acc, from, to) {
+    const desired = []
+    for (let i = from; i < to; i++) {
+      const b = acc.buckets[i]
+      for (let j = 0; j < b.length; j++) desired.push(b[j])
+    }
+    return desired
+  }
+  async function classifyRings(centers, unbudgeted, acc, ringFrom, ringTo) {
     const lattice = latticeOf()
-    const keep = new Set()
-    const chunkKeys = []
-    const seenKeys = new Set()
+    const { keep, chunkKeys, seenKeys, buckets, avail, candP, candD, candC, overflow } = acc
+    const quota = acc.quota
     const ringRadius = keepRadius + CENTER_QUANTUM_M + lattice.chunkM
-    const quota = Math.max(1, Math.ceil(effectiveCap / centers.length))
-    const buckets = new Array(centers.length)
-    for (let i = 0; i < centers.length; i++) buckets[i] = []
-    const avail = new Array(centers.length).fill(0)
-    const candP = [], candD = [], candC = []
-    const overflow = []
-    let candCount = 0
+    const scanFrom = chunkKeys.length
     let deadline = _now() + CLASSIFY_BUDGET_MS
     let workMs = 0, sliceAt = _now(), ringWork = 0, scanWork = 0, phase = 'ring'
     let scanLookupMs = 0, scanBodyMs = 0, examinedHere = 0
@@ -223,8 +262,8 @@ export function createColliderStreamer(spec = {}) {
       else scanWork += d
       sliceAt = _now()
     }
-    for (let i = 0; i < centers.length; i++) {
-      if (i > 0 && !unbudgeted && _now() >= deadline && !await yieldNow()) return null
+    for (let i = ringFrom; i < ringTo; i++) {
+      if (i > ringFrom && !unbudgeted && _now() >= deadline && !await yieldNow()) return null
       const cx = centers[i][0], cz = centers[i][1]
       const rk = ringKeyOf(cx, cz)
       let keys = ringCacheGet(rk)
@@ -244,7 +283,7 @@ export function createColliderStreamer(spec = {}) {
     ringMsTotal += ringWork
     phase = 'scan'
     markPhase('scan')
-    lastChunkKeys = chunkKeys.length
+    lastChunkKeys = chunkKeys.length - scanFrom
     const cellM = keepRadius + lattice.chunkM
     const n = centers.length
     const centX = new Float64Array(n), centZ = new Float64Array(n)
@@ -258,7 +297,7 @@ export function createColliderStreamer(spec = {}) {
     }
     const nearRadiusSq = (keepRadius + lattice.chunkM) * (keepRadius + lattice.chunkM)
     const near = []
-    for (let ci = 0; ci < chunkKeys.length; ci++) {
+    for (let ci = scanFrom; ci < chunkKeys.length; ci++) {
       if (!unbudgeted && _now() >= deadline && !await yieldNow()) return null
       const cp0 = _now()
       const list = chunkPlacements(chunkKeys[ci])
@@ -299,7 +338,7 @@ export function createColliderStreamer(spec = {}) {
         if (bestC < 0) continue
         keep.add(id)
         if (bestD > radiusSq) continue
-        candCount++
+        acc.candCount++
         avail[bestC]++
         const idx = candP.length
         candP.push(p); candD.push(bestD); candC.push(bestC)
@@ -320,35 +359,10 @@ export function createColliderStreamer(spec = {}) {
     scanMsTotal += scanWork
     scanLookupMsTotal += scanLookupMs
     scanBodyMsTotal += scanBodyMs
-    phase = 'tail'
     markPhase('tail')
-
-    const tt = _now()
-    const taken = new Array(centers.length).fill(0)
-    const desired = []
-    for (let round = 0; round < quota && desired.length < effectiveCap; round++) {
-      for (let i = 0; i < centers.length && desired.length < effectiveCap; i++) {
-        const idx = buckets[i][round]
-        if (idx === undefined) continue
-        taken[i]++
-        desired.push(idx)
-      }
-    }
-    if (desired.length < effectiveCap && overflow.length > 0) {
-      overflow.sort((a, b) => candD[a] - candD[b])
-      for (let i = 0; i < overflow.length && desired.length < effectiveCap; i++) {
-        const idx = overflow[i]
-        taken[candC[idx]]++
-        desired.push(idx)
-      }
-    }
-    const truncated = candCount > desired.length
-    const starved = []
-    for (let i = 0; i < centers.length; i++) if (taken[i] === 0 && avail[i] > 0) starved.push(centers[i])
-    tailMsTotal += _now() - tt
-    lastCands = candCount
     lastExaminedCount = examinedHere
-    return { desired, candP, keep, truncated, starved, counts: taken, workMs }
+    acc.lastWorkMs = workMs
+    return acc
   }
 
   const _PENDING = -1
@@ -399,8 +413,8 @@ export function createColliderStreamer(spec = {}) {
     return evicted
   }
 
-  function evictOverCap(centers) {
-    if (live.size <= effectiveCap) return 0
+  function evictOverCap(centers, target = effectiveCap, protect = null) {
+    if (live.size <= target) return 0
     const ranked = []
     for (const [placementId, bodyId] of live) {
       const at = placedAt.get(placementId)
@@ -415,7 +429,8 @@ export function createColliderStreamer(spec = {}) {
     }
     ranked.sort((a, b) => b.d - a.d)
     let trimmed = 0
-    for (let i = 0; i < ranked.length && live.size > effectiveCap; i++) {
+    for (let i = 0; i < ranked.length && live.size > target; i++) {
+      if (protect && protect.has(ranked[i].placementId)) continue
       scheduleRemove(ranked[i].placementId, ranked[i].bodyId)
       trimmed++
     }
@@ -434,13 +449,15 @@ export function createColliderStreamer(spec = {}) {
     if (d > 0.05) bodyArgsSlowCalls++
     return a
   }
-  async function prewarmPools(desired, candP, unbudgeted) {
+  async function prewarmPools(desired, candP, keep, unbudgeted) {
     prewarmDemand = 0
     prewarmKeys = 0
     if (typeof physics.preallocatePool !== 'function') return
     const demand = new Map()
     let deadline = _now() + ADD_BUDGET_MS
-    let room = effectiveCap - live.size
+    let survivors = 0
+    for (const placementId of live.keys()) if (keep.has(placementId)) survivors++
+    let room = Math.max(0, effectiveCap - survivors)
     for (let i = 0; i < desired.length && room > 0; i++) {
       if (i > 0 && !unbudgeted && _now() >= deadline) {
         await yieldSlice()
@@ -494,7 +511,7 @@ export function createColliderStreamer(spec = {}) {
     slicePhase = name
     beginSlice()
   }
-  async function _rebuildMulti(centers, unbudgeted = false) {
+  async function _rebuildMulti(centers, unbudgeted = false, opts = null) {
     if (rebuilding || disposed || !frame || typeof physics?.addBody !== 'function') return
     if (!Array.isArray(centers) || centers.length === 0) return
     rebuilding = true
@@ -507,11 +524,18 @@ export function createColliderStreamer(spec = {}) {
     effectiveByteBudget = baseByteBudget * scale
     _beginBudget(unbudgeted)
     const epochAtStart = epochOf()
+    const batched = opts !== null
+    const finalize = !batched || opts.finalize === true
+    const acc = batched ? opts.acc : newAccumulator(centers.length, Math.max(1, Math.ceil(effectiveCap / centers.length)))
+    const ringFrom = batched ? opts.ringFrom ?? 0 : 0
+    const ringTo = batched ? opts.ringTo ?? centers.length : centers.length
     try {
-      const classified = await classifyRings(centers, unbudgeted)
-      if (classified === null) return
-      const { desired, candP, keep, truncated, starved, counts } = classified
-      classifyMsTotal += classified.workMs
+      const classified = await classifyRings(centers, unbudgeted, acc, ringFrom, ringTo)
+      if (classified === null) return _deferred
+      const gathered = finalize ? gatherDesired(acc, centers) : null
+      const desired = finalize ? gathered.desired : batchDesired(acc, ringFrom, ringTo)
+      const { truncated, starved, counts } = finalize ? gathered : { truncated: false, starved: [], counts: null }
+      classifyMsTotal += acc.lastWorkMs
       lastStarved = starved
       if (truncated && starved.length) {
         if (starved.length > starvedWarned) {
@@ -520,9 +544,20 @@ export function createColliderStreamer(spec = {}) {
         console.warn(`${logTag} ${starved.length} of ${centers.length} collider clusters got none of the colliders inside their radius: the body cap ${effectiveCap} (${baseCap} x ${scale} for ${centers.length} clusters) is shared by every cluster, so these chart-local centres have no collider: ${named}${starved.length > 8 ? ` and ${starved.length - 8} more` : ''}. Raise the collider cap or lower the collider radius.`)
         }
       } else if (starvedWarned !== 0) starvedWarned = 0
+      if (!finalize) {
+        const roomForBatch = Math.max(0, effectiveCap - live.size)
+        if (desired.length > roomForBatch) desired.length = roomForBatch
+      }
+      const desiredIds = new Set()
+      for (let i = 0; i < desired.length; i++) desiredIds.add(acc.candP[desired[i]][idField])
+      const bootDrop = batched && finalize ? desiredIds : null
+      let missing = 0
+      for (const placementId of desiredIds) if (!live.has(placementId)) missing++
+      const roomTarget = effectiveCap - missing
+      if (live.size > roomTarget) evictOverCap(centers, roomTarget, desiredIds)
       const tp = _now()
       markPhase('prewarm')
-      await prewarmPools(desired, candP, unbudgeted)
+      await prewarmPools(desired, acc.candP, acc.keep, unbudgeted)
       prewarmMs = _now() - tp
       let addDeadline = _now() + ADD_BUDGET_MS
       const ta = _now()
@@ -530,12 +565,11 @@ export function createColliderStreamer(spec = {}) {
       for (let i = 0; i < desired.length; i++) {
         if (disposed) return
         if (epochOf() !== epochAtStart) { staleEpochAborts++; return true }
-        const p = candP[desired[i]]
+        const p = acc.candP[desired[i]]
         if (live.has(p[idField])) {
           _touch(p[idField], _lru.get(p[idField]) ?? estimateBodyBytes(bodyArgsTimed(p, 1)))
           continue
         }
-        if (live.size >= effectiveCap) continue
         scheduleAdd(p)
         if (!unbudgeted && _now() >= addDeadline) {
           await yieldSlice()
@@ -545,22 +579,26 @@ export function createColliderStreamer(spec = {}) {
       }
       if (epochOf() !== epochAtStart) { staleEpochAborts++; return true }
       addMsTotal += _now() - ta
-      if (!_deferred) {
+      if (finalize && !_deferred) {
         const tr = _now()
         markPhase('remove')
         for (const [placementId, bodyId] of [...live.entries()]) {
-          if (keep.has(placementId)) continue
+          if (bootDrop ? bootDrop.has(placementId) : acc.keep.has(placementId)) continue
           scheduleRemove(placementId, bodyId)
         }
         removeMsTotal += _now() - tr
+      }
+      if (!_deferred) {
         markPhase('evict')
         const evicted = evictOverBudget()
         if (evicted > 0) console.log(`${logTag} LRU evicted ${evicted} colliders over byte budget (${_residentBytes}/${effectiveByteBudget}B resident)`)
       }
-      if (!_deferred) { curCenters = centers; curCenter = centers[0] || null; lastCenterCounts = counts; rebuildCount++ }
-      markPhase('trim')
-      const trimmed = evictOverCap(centers)
-      if (trimmed > 0) console.log(`${logTag} trimmed ${trimmed} collider(s) beyond the body cap: ${live.size}/${effectiveCap} resident for ${centers.length} center(s)`)
+      if (finalize && !_deferred) { curCenters = centers; curCenter = centers[0] || null; lastCenterCounts = counts; rebuildCount++ }
+      if (finalize) {
+        markPhase('trim')
+        const trimmed = evictOverCap(centers)
+        if (trimmed > 0) console.log(`${logTag} trimmed ${trimmed} collider(s) beyond the body cap: ${live.size}/${effectiveCap} resident for ${centers.length} center(s)`)
+      }
       markPhase('ids')
       setColliderIds(_liveIds)
     } catch (e) { console.error(logTag + ' collider rebuild error:', e?.message || e) }
@@ -593,8 +631,17 @@ export function createColliderStreamer(spec = {}) {
     const t0 = _now()
     const raw = getCenters()
     const centers = raw.length ? pickCenters(raw) : [[0, 0]]
-    await _rebuildMulti(centers, true)
-    console.log(`${logTag} initial ring: ${live.size}/${effectiveCap} collider(s) over ${_chunkCache.size} chunk(s) for ${centers.length} center(s) of maxCenters ${maxCenters}${maxCentersExplicit ? '' : ' (default)'}, dropped ${lastDroppedCount} (radius ${radius}m keep ${keepRadius.toFixed(1)}m) in ${(_now() - t0).toFixed(1)}ms (pool prewarm ${prewarmMs.toFixed(1)}ms)`)
+    const quota = Math.max(1, Math.ceil((baseCap * centerScale(centers.length)) / centers.length))
+    const acc = newAccumulator(centers.length, quota)
+    let batches = 0
+    for (let from = 0; from < centers.length; from += BOOT_CLUSTER_BATCH) {
+      const to = Math.min(centers.length, from + BOOT_CLUSTER_BATCH)
+      await _rebuildMulti(centers, true, { acc, ringFrom: from, ringTo: to, finalize: to >= centers.length })
+      batches++
+      if (to < centers.length && !disposed) await yieldToTimers()
+    }
+    console.log(`${logTag} initial ring: ${live.size}/${effectiveCap} collider(s) over ${_chunkCache.size} chunk(s) for ${centers.length} center(s) of maxCenters ${maxCenters}${maxCentersExplicit ? '' : ' (default)'}, dropped ${lastDroppedCount} (radius ${radius}m keep ${keepRadius.toFixed(1)}m) in ${(_now() - t0).toFixed(1)}ms over ${batches} cluster batch(es) of ${BOOT_CLUSTER_BATCH} (pool prewarm ${prewarmMs.toFixed(1)}ms)`)
+    if (disposed) return
     setColliderIds(_liveIds)
     _timer = setTimeout(_check, intervalMs)
   }
