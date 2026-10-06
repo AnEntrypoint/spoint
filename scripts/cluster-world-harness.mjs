@@ -27,6 +27,9 @@ const round = (x, d = 6) => x == null ? x : Number(x.toFixed(d))
 const hypot3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
 const degOf = rad => rad * 180 / Math.PI
 
+const unproven = []
+const expect = (label, ok, evidence) => { if (!ok) unproven.push(`${label}: ${evidence}`); return ok }
+
 async function untilTrue(cond, timeoutMs) {
   const t0 = performance.now()
   while (!cond()) {
@@ -110,9 +113,16 @@ async function scenarioManager() {
     antipodal: { clusters: antipodalResult.clusters.length, rejected: antipodalResult.rejected },
     configErrors: ['cluster-link-below-relevance-ring', 'cluster-link-below-weapon-range', 'cluster-radius-exceeds-walkable-chart', 'cluster-worlds-exceed-wasm-heap-budget'].map((code, i) => {
       const spec = [{ enabled: true, linkM: 500 }, { enabled: true }, { enabled: true, memberRadiusM: 40000 }, { enabled: true, maxWorldsPerProcess: 9 }][i]
-      try { resolveClusterConfig(spec, { radius: tcfg.radius, relevanceRadius: 200, maxWeaponRangeM: i === 1 ? 5000 : 0 }); return { expected: code, got: null } } catch (e) { return { expected: code, got: e.code } }
+      let got = null
+      try { resolveClusterConfig(spec, { radius: tcfg.radius, relevanceRadius: 200, maxWeaponRangeM: i === 1 ? 5000 : 0 }) } catch (e) { got = e.code }
+      expect(`resolveClusterConfig refuses ${code}`, got === code, `got ${got ?? 'no throw at all'}`)
+      return { expected: code, got, fired: got === code }
     }),
-    flagOff: resolveClusterConfig({ enabled: false }, { radius: tcfg.radius }) === null && resolveClusterConfig(undefined, { radius: tcfg.radius }) === null,
+    flagOff: (() => {
+      const off = resolveClusterConfig({ enabled: false }, { radius: tcfg.radius }) === null && resolveClusterConfig(undefined, { radius: tcfg.radius }) === null
+      expect('resolveClusterConfig returns null when clusters are disabled or absent', off, 'it returned a config')
+      return off
+    })(),
   }
 }
 
@@ -154,18 +164,23 @@ async function scenarioHosting() {
     }
   }
   const rssAfterTwo = process.memoryUsage().rss / 1048576
+  const hostedBeforeExtras = runtime.host.hostedIds.length
+  const extraCount = Math.max(1, (runtime.host.stats.maxWorlds ?? 8) - hostedBeforeExtras + 1)
   const extra = []
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < extraCount; i++) {
     const dir = tangentLocalToDir(anchorBasis([Math.cos(i * 1.1), 0.2, Math.sin(i * 1.1)]), R, 0, 0)
     runtime.manager.setPlayerDir(`X${i}`, dir)
   }
   runtime.manager.step({ force: true })
   await runtime.coordinator.settle()
   const refusal = runtime.coordinator.refusals[0] ?? null
+  const refusalCodes = runtime.coordinator.refusals.map(r => r.code)
+  expect('host refuses once the world cap is reached', refusal?.code === 'cluster-world-capacity-exhausted', `${extraCount} extra clusters over ${hostedBeforeExtras} hosted, maxWorlds=${runtime.host.stats.maxWorlds}, refusals=${JSON.stringify(refusalCodes)}`)
+  expect('the capacity refusal is named by its own code', refusal ? refusal.message.startsWith('cluster-world-capacity-exhausted') : false, refusal ? refusal.message : 'no refusal was produced')
   const afterCap = { hosted: runtime.host.stats.hosted, maxWorlds: runtime.host.stats.maxWorlds, refused: runtime.host.stats.refused, refusals: runtime.coordinator.refusals.map(r => ({ code: r.code, clusterId: r.clusterId })), refusalIsNamed: refusal?.code === 'cluster-world-capacity-exhausted', capacityErrorIsClass: refusal ? refusal.message.startsWith('cluster-world-capacity-exhausted') : null }
   const rssAtCap = process.memoryUsage().rss / 1048576
   const hostedBefore = runtime.host.hostedIds.length
-  for (let i = 0; i < 5; i++) runtime.manager.removePlayer(`X${i}`)
+  for (let i = 0; i < extraCount; i++) runtime.manager.removePlayer(`X${i}`)
   runtime.manager.step({ force: true })
   await runtime.coordinator.settle()
   const hostedAfterRemoval = runtime.host.hostedIds.length
@@ -576,4 +591,9 @@ console.log(`=====RESULT=====
 ${JSON.stringify({ scenario: SCENARIO, ...result }, null, 1)}`)
 const pendingHandles = await quiesceLoop(Number(args.quiesceMs ?? 10000))
 log(pendingHandles ? `teardown left ${pendingHandles} referenced handle(s), forcing exit` : 'teardown complete, no referenced handles left')
+if (unproven.length) {
+  for (const f of unproven) console.error(`[cluster-harness] UNPROVEN: ${f}`)
+  console.error(`[cluster-harness] ${unproven.length} expected refusal(s) never fired, so this run verified nothing about them`)
+  process.exit(3)
+}
 if (pendingHandles) process.exit(0)
