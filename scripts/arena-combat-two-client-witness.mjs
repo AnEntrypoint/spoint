@@ -204,6 +204,13 @@ async function main() {
     console.log(`[arena-combat] clientA after=${JSON.stringify(after)}`)
     console.log(`[arena-combat] clientB after=${JSON.stringify(afterB)}`)
 
+    for (const c of [a, b]) {
+      const alive = await c.page.evaluate('1 + 1').catch(e => 'evaluate-threw: ' + (e?.message || e))
+      c.alive = alive === 2
+      if (!c.alive) failures.push(`${c.label} did not answer an evaluate after the settle window (${String(alive)}), so this arm's observations are not from a live page`)
+    }
+    console.log(`[arena-combat] liveness A=${a.alive} B=${b.alive}`)
+
     if (PROBE) {
       for (const c of [a, b]) {
         const r = await c.page.evaluate(PROBE).catch(e => 'probe-error: ' + (e?.message || e))
