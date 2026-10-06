@@ -218,7 +218,7 @@ async function main() {
       }
     }
 
-    if (!lockA && !lockB) failures.push('neither client acquired pointer lock, so no shot could have reached the game')
+    if (!lockA || !lockB) failures.push(`${lockA ? 'clientB' : lockB ? 'clientA' : 'neither client'} acquired pointer lock, so no shot could have reached the game from it`)
 
     await browser.close().catch(() => {})
     if (server) server.stop()
