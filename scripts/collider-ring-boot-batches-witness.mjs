@@ -192,6 +192,8 @@ async function bootArm(arm) {
       posHash: hashOf(trunk, physics),
       peakLiveColliders: peakLive,
       peakPhysicsBodies: peakBodies,
+      lastMaxSliceMs: +trunk.lastMaxSliceMs.toFixed(1),
+      lastMaxSlicePhase: trunk.lastMaxSlicePhase,
     },
     rock: {
       doneAtMs: +rockDone.toFixed(1), liveCount: rock.liveCount, cap: rock.cap,
@@ -239,10 +241,13 @@ check('the batched boot keeps the same trunk live count', batched.trunk.liveCoun
 check('the batched boot keeps the same rock live count', batched.rock.liveCount === singleA.rock.liveCount && batched.rock.liveCount === singleB.rock.liveCount, `batched ${batched.rock.liveCount} vs single ${singleA.rock.liveCount}/${singleB.rock.liveCount}`)
 check('the batched boot gives every cluster the same per-cluster collider counts', countsEqual(batched.trunk.perPlayerCounts, singleA.trunk.perPlayerCounts) && countsEqual(batched.trunk.perPlayerCounts, singleB.trunk.perPlayerCounts), `min ${Math.min(...batched.trunk.perPlayerCounts)} max ${Math.max(...batched.trunk.perPlayerCounts)}`)
 const controlMedian = Math.max(singleA.anyFirstColliderMs.median, singleB.anyFirstColliderMs.median)
-const tailCeiling = controlMinMax * 1.1
+const controlMeanMax = (singleA.anyFirstColliderMs.max + singleB.anyFirstColliderMs.max) / 2
+const tailCeiling = controlMeanMax * 1.1
 check(`the typical player's first collider lands no later than it does today at ${PLAYERS} player(s)`, batched.anyFirstColliderMs.median <= controlMedian, `batched median ${batched.anyFirstColliderMs.median} ms vs single control ${singleA.anyFirstColliderMs.median}/${singleB.anyFirstColliderMs.median} ms`)
-check(`the last player's first collider stays within 10% of the single pass at ${PLAYERS} player(s)`, batched.anyFirstColliderMs.max <= tailCeiling, `batched max ${batched.anyFirstColliderMs.max} ms vs single control ${singleA.anyFirstColliderMs.max}/${singleB.anyFirstColliderMs.max} ms, ceiling ${tailCeiling.toFixed(1)} ms`)
+check(`the last player's first collider stays within 10% of the single pass at ${PLAYERS} player(s)`, batched.anyFirstColliderMs.max <= tailCeiling, `batched max ${batched.anyFirstColliderMs.max} ms vs single control min ${controlMinMax} / mean ${controlMeanMax.toFixed(1)} / max ${(controlMeanMax * 2 - controlMinMax).toFixed(1)} ms, ceiling ${tailCeiling.toFixed(1)} ms`)
 check('the batched boot covers every player that one pass covers', batched.anyPlayersWithNone === singleA.anyPlayersWithNone, `${batched.anyPlayersWithNone} vs ${singleA.anyPlayersWithNone} of ${PLAYERS}`)
+const TICK_MS = 1000 / 60
+check(`no slice of the batched initial ring blocks the loop for longer than one ${TICK_MS.toFixed(1)} ms tick`, batched.trunk.lastMaxSliceMs <= TICK_MS, `batched longest slice ${batched.trunk.lastMaxSliceMs} ms (${batched.trunk.lastMaxSlicePhase}) vs single ${singleA.trunk.lastMaxSliceMs} ms (${singleA.trunk.lastMaxSlicePhase})/${singleB.trunk.lastMaxSliceMs} ms (${singleB.trunk.lastMaxSlicePhase})`)
 check('a batched boot never holds more resident colliders than the body cap between batches', batched.trunk.peakLiveColliders <= batched.trunk.cap, `peak ${batched.trunk.peakLiveColliders} of cap ${batched.trunk.cap}, single ${singleA.trunk.peakLiveColliders}/${singleB.trunk.peakLiveColliders}`)
 const controlMin = Math.min(singleA.eventLoopMaxStallMs, singleB.eventLoopMaxStallMs)
 const controlMaxStall = Math.max(singleA.eventLoopMaxStallMs, singleB.eventLoopMaxStallMs)

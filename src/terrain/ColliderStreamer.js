@@ -22,7 +22,6 @@ const CENTER_SCALE_REFERENCE = 8
 const CENTER_SCALE_MAX = 8
 const DEFAULT_MAX_CENTERS = 192
 const BOOT_CLUSTER_BATCH = 8
-const yieldToTimers = () => new Promise(r => setTimeout(r, 0))
 function centerScale(centerCount) {
   return Math.min(CENTER_SCALE_MAX, Math.max(1, Math.ceil(centerCount / CENTER_SCALE_REFERENCE)))
 }
@@ -235,7 +234,8 @@ export function createColliderStreamer(spec = {}) {
     }
     return desired
   }
-  async function classifyRings(centers, unbudgeted, acc, ringFrom, ringTo) {
+  async function classifyRings(centers, unbudgeted, acc, ringFrom, ringTo, yieldOnly = false) {
+    const budgeted = !unbudgeted || yieldOnly
     const lattice = latticeOf()
     const { keep, chunkKeys, seenKeys, buckets, avail, candP, candD, candC, overflow } = acc
     const quota = acc.quota
@@ -263,7 +263,7 @@ export function createColliderStreamer(spec = {}) {
       sliceAt = _now()
     }
     for (let i = ringFrom; i < ringTo; i++) {
-      if (i > ringFrom && !unbudgeted && _now() >= deadline && !await yieldNow()) return null
+      if (i > ringFrom && budgeted && _now() >= deadline && !await yieldNow()) return null
       const cx = centers[i][0], cz = centers[i][1]
       const rk = ringKeyOf(cx, cz)
       let keys = ringCacheGet(rk)
@@ -298,7 +298,7 @@ export function createColliderStreamer(spec = {}) {
     const nearRadiusSq = (keepRadius + lattice.chunkM) * (keepRadius + lattice.chunkM)
     const near = []
     for (let ci = scanFrom; ci < chunkKeys.length; ci++) {
-      if (!unbudgeted && _now() >= deadline && !await yieldNow()) return null
+      if (budgeted && _now() >= deadline && !await yieldNow()) return null
       const cp0 = _now()
       const list = chunkPlacements(chunkKeys[ci])
       const cp1 = _now()
@@ -530,7 +530,7 @@ export function createColliderStreamer(spec = {}) {
     const ringFrom = batched ? opts.ringFrom ?? 0 : 0
     const ringTo = batched ? opts.ringTo ?? centers.length : centers.length
     try {
-      const classified = await classifyRings(centers, unbudgeted, acc, ringFrom, ringTo)
+      const classified = await classifyRings(centers, unbudgeted, acc, ringFrom, ringTo, batched)
       if (classified === null) return _deferred
       const gathered = finalize ? gatherDesired(acc, centers) : null
       const desired = finalize ? gathered.desired : batchDesired(acc, ringFrom, ringTo)
@@ -557,7 +557,7 @@ export function createColliderStreamer(spec = {}) {
       if (live.size > roomTarget) evictOverCap(centers, roomTarget, desiredIds)
       const tp = _now()
       markPhase('prewarm')
-      await prewarmPools(desired, acc.candP, acc.keep, unbudgeted)
+      await prewarmPools(desired, acc.candP, acc.keep, unbudgeted && !batched)
       prewarmMs = _now() - tp
       let addDeadline = _now() + ADD_BUDGET_MS
       const ta = _now()
@@ -571,7 +571,7 @@ export function createColliderStreamer(spec = {}) {
           continue
         }
         scheduleAdd(p)
-        if (!unbudgeted && _now() >= addDeadline) {
+        if ((!unbudgeted || batched) && _now() >= addDeadline) {
           await yieldSlice()
           if (disposed) return
           addDeadline = _now() + ADD_BUDGET_MS
@@ -638,7 +638,7 @@ export function createColliderStreamer(spec = {}) {
       const to = Math.min(centers.length, from + BOOT_CLUSTER_BATCH)
       await _rebuildMulti(centers, true, { acc, ringFrom: from, ringTo: to, finalize: to >= centers.length })
       batches++
-      if (to < centers.length && !disposed) await yieldToTimers()
+      if (to < centers.length && !disposed) await yieldToLoop()
     }
     console.log(`${logTag} initial ring: ${live.size}/${effectiveCap} collider(s) over ${_chunkCache.size} chunk(s) for ${centers.length} center(s) of maxCenters ${maxCenters}${maxCentersExplicit ? '' : ' (default)'}, dropped ${lastDroppedCount} (radius ${radius}m keep ${keepRadius.toFixed(1)}m) in ${(_now() - t0).toFixed(1)}ms over ${batches} cluster batch(es) of ${BOOT_CLUSTER_BATCH} (pool prewarm ${prewarmMs.toFixed(1)}ms)`)
     if (disposed) return
