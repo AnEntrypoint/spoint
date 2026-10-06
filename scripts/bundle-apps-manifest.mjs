@@ -132,6 +132,10 @@ async function main() {
   const bytes = Buffer.byteLength(jsonString)
 
   if (check) {
+    if (failedCount) {
+      console.error(`[bundle-apps-manifest] ERROR: ${failedCount} of ${appNames.length} app(s) failed to resolve and were omitted from the manifest`)
+      process.exit(1)
+    }
     if (!existsSync(OUT)) {
       console.error(`[bundle-apps-manifest] ERROR: ${outFile} does not exist. Run 'npm run bundle-apps-manifest' to generate it.`)
       process.exit(1)
