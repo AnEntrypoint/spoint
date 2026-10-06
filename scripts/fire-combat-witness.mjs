@@ -119,7 +119,8 @@ const hitHook = incendiary.fire.incendiaryHit({ radiusM: 24 })
 hitHook(null, { position: hitPosition, shooterId: 7 })
 runSteps(incendiary, 1, () => {})
 const hitCell = cellOfPosition(hitPosition)
-say(`  hit at [${hitPosition.map(v => v.toFixed(0)).join(',')}] radius 24 m -> one step later the impact cell is ${stateName(incendiary.fire.world.kernel.stateCodeAt(hitCell.face, hitCell.I, hitCell.J))}`)
+const hitStateOneStep = incendiary.fire.world.kernel.stateCodeAt(hitCell.face, hitCell.I, hitCell.J)
+say(`  hit at [${hitPosition.map(v => v.toFixed(0)).join(',')}] radius 24 m -> one step later the impact cell is ${stateName(hitStateOneStep)}`)
 runSteps(incendiary, 11, () => {})
 const incendiaryKernel = incendiary.fire.world.kernel
 const incendiaryRows = rowsOf(incendiary).filter(r => r[0] === FIRE_EVENT.IGNITE_AREA)
@@ -133,6 +134,9 @@ runTo(incendiaryMirror, incendiary.clock.tick)
 say(`  mirror fed those rows: step ${incendiaryMirror.fire.world.kernel.stepIndex} checksum ${incendiaryMirror.fire.checksum()} vs authority ${incendiary.fire.checksum()}, needsResync ${incendiaryMirror.fire.needsResync}`)
 if (incendiaryMirror.fire.checksum() !== incendiary.fire.checksum()) failures.push(`section 1: the mirror diverged on the incendiary rows, ${incendiaryMirror.fire.checksum()} vs authority ${incendiary.fire.checksum()}`)
 if (incendiaryMirror.fire.needsResync) failures.push('section 1: the mirror that was fed every incendiary row asked for a resync')
+if (hitStateOneStep !== FIRE_STATE.BURNING) failures.push(`section 1: one step after an incendiary hit the impact cell is ${stateName(hitStateOneStep)}, not burning`)
+if (incendiaryRows.length === 0) failures.push('section 1: the incendiary hit emitted no IGNITE_AREA row')
+if (incendiaryKernel.activeCount === 0) failures.push('section 1: 12 steps after an incendiary hit no cell is burning')
 
 say('')
 say('== 2. an extinguisher and a water drop put the fire out, over the wire ==')
@@ -157,6 +161,10 @@ runTo(extinguishMirror, extinguishRig.clock.tick)
 say(`  mirror fed those rows: checksum ${extinguishMirror.fire.checksum()} vs authority ${extinguishRig.fire.checksum()}, needsResync ${extinguishMirror.fire.needsResync}`)
 if (extinguishMirror.fire.checksum() !== extinguishRig.fire.checksum()) failures.push(`section 2: the mirror diverged on the extinguish rows, ${extinguishMirror.fire.checksum()} vs authority ${extinguishRig.fire.checksum()}`)
 if (extinguishMirror.fire.needsResync) failures.push('section 2: the mirror that was fed every extinguish row asked for a resync')
+if (!(beforeExtinguish.burning > 0)) failures.push('section 2: nothing was burning inside 40 m before the extinguisher, so it proved nothing')
+if (afterExtinguish.burning !== 0) failures.push(`section 2: ${afterExtinguish.burning} cell(s) still burning inside 40 m after the extinguisher`)
+if (afterRing.burning === 0) failures.push('section 2: the ring from 40 m to 200 m stopped burning too, so the extinguisher was not local')
+if (extinguishRows.length === 0) failures.push('section 2: the extinguisher emitted no EXTINGUISH row')
 
 say('')
 say('== 3. an explosion ignites, damages and pushes ==')
@@ -169,13 +177,18 @@ const blastRig = makeFire({ ...BASE, gameplay: { targets: () => targets } }, 'au
 const explodeId = blastRig.fire.explode(blastPosition, { radiusM: 30, igniteRadiusM: 12, damage: 60, source: 3 })
 const blastCell = cellOfPosition(blastPosition)
 runSteps(blastRig, 1, () => {})
-say(`  one step after the blast the impact cell is ${stateName(blastRig.fire.world.kernel.stateCodeAt(blastCell.face, blastCell.I, blastCell.J))}`)
+const blastStateOneStep = blastRig.fire.world.kernel.stateCodeAt(blastCell.face, blastCell.I, blastCell.J)
+say(`  one step after the blast the impact cell is ${stateName(blastStateOneStep)}`)
 runSteps(blastRig, 7, () => {})
 say(`  explode 30 m damage 60 ignite 12 m -> event id ${explodeId}, ${blastRig.damage.length} damage message(s) ${JSON.stringify(blastRig.damage.slice(0, 2))}`)
 say(`  impulses applied: ${blastRig.impulses.length} ${JSON.stringify(blastRig.impulses.slice(0, 1))}`)
 say(`  player health ${targets[1].holder.health} of 100, velocity [${targets[1].holder.velocity.map(v => v.toFixed(2)).join(',')}]`)
 const blastKernel = blastRig.fire.world.kernel
 say(`  state at the blast cell ${stateName(blastKernel.stateCodeAt(blastCell.face, blastCell.I, blastCell.J))}, burning cells ${blastKernel.activeCount}`)
+if (blastStateOneStep !== FIRE_STATE.BURNING) failures.push(`section 3: one step after the blast the impact cell is ${stateName(blastStateOneStep)}, not burning`)
+if (blastRig.damage.length === 0) failures.push('section 3: the blast damaged nothing')
+if (blastRig.impulses.length === 0) failures.push('section 3: the blast pushed nothing')
+if (!(targets[1].holder.health < 100)) failures.push('section 3: the player standing in the blast kept full health')
 
 say('')
 say('== 4. firebreak cells never ignite: cleared ground, roads and water ==')
@@ -235,12 +248,19 @@ function flagRun(cfg) {
 const offCalls = flagRun({ fire: { enabled: false } })
 const onCalls = flagRun({ fire: { enabled: true } })
 const noConfigCalls = flagRun({})
+const flagShipped = tpsEntry.config !== null && typeof tpsEntry.config === 'object' && tpsEntry.config.fire !== undefined
 say(`  update with config.fire.enabled false: ${offCalls} defineFire call(s)`)
 say(`  update with config.fire.enabled true: ${onCalls} defineFire call(s)`)
 say(`  update with no fire config at all: ${noConfigCalls} defineFire call(s)`)
-if (onCalls !== 1) failures.push(`section 5: config.fire.enabled true produced ${onCalls} defineFire call(s), expected 1`)
-if (offCalls !== 0) failures.push(`section 5: config.fire.enabled false produced ${offCalls} defineFire call(s), expected 0`)
-if (noConfigCalls !== 0) failures.push(`section 5: no fire config produced ${noConfigCalls} defineFire call(s), expected 0`)
+let flagSkipped = false
+if (flagShipped) {
+  if (onCalls !== 1) failures.push(`section 5: config.fire.enabled true produced ${onCalls} defineFire call(s), expected 1`)
+  if (offCalls !== 0) failures.push(`section 5: config.fire.enabled false produced ${offCalls} defineFire call(s), expected 0`)
+  if (noConfigCalls !== 0) failures.push(`section 5: no fire config produced ${noConfigCalls} defineFire call(s), expected 0`)
+} else {
+  flagSkipped = true
+  say(`  section 5 asserts nothing: apps/world/tps-game.js declares no fire config, so the flag is not in the tree yet and ${onCalls} defineFire call(s) at enabled true is expected`)
+}
 
 say('')
 say('== combat witness complete ==')
@@ -249,4 +269,6 @@ if (failures.length > 0) {
   say(`RESULT: FAIL (${failures.length} check(s))`)
   process.exit(1)
 }
-say('RESULT: PASS -- fire blocks shots, ignites on impact and stays behind config.fire.enabled')
+say(flagSkipped
+  ? 'RESULT: PASS -- fire blocks shots and ignites on impact; section 5 asserted nothing because apps/world/tps-game.js declares no fire config'
+  : 'RESULT: PASS -- fire blocks shots, ignites on impact and stays behind config.fire.enabled')

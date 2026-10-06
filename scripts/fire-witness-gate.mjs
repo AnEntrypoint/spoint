@@ -11,6 +11,7 @@ const WITNESSES = [
   'fire-witness.mjs',
   'fire-peer-rollback-witness.mjs',
   'fire-weather-witness.mjs',
+  'fire-combat-witness.mjs',
   'fire-kernel-cost-witness.mjs',
   'fire-tile-reclaim-witness.mjs',
 ]
