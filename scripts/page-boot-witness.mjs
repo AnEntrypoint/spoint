@@ -22,6 +22,8 @@ const GL = flag('gl', 'swiftshader')
 const GPU_VENDOR = flag('gpu', null)
 const SHOT = flag('screenshot', null)
 const ALLOW_ERRORS = has('allow-errors')
+const ALLOW_CONSOLE_ERRORS = has('allow-console-errors')
+const ALLOWED_CONSOLE_ERROR_TEXTS = process.argv.filter(a => a.startsWith('--allow-console-error=')).map(a => a.slice('--allow-console-error='.length))
 const ALLOW_FAILED_REQUESTS = has('allow-failed-requests')
 const REQUIRE_GPU = flag('require-gpu') || (has('require-gpu') ? 'any' : null)
 
@@ -155,11 +157,18 @@ async function main() {
     console.log(`[page-boot-witness] gpu adapter=${JSON.stringify(gpuName)} glRenderer=${JSON.stringify(gpu.renderer)} classification=${gpuKind} wanted=${JSON.stringify(wanted || 'any')}`)
     if (SHOT) { await page.screenshot({ path: SHOT }); console.log(`[page-boot-witness] screenshot -> ${SHOT}`) }
 
-    console.log(`[page-boot-witness] console entries=${consoleEntries.length} pageErrors=${pageErrors.length} failedRequests=${failedRequests.length}`)
+    const consoleErrorLevels = new Set(['error', 'exception'])
+    const consoleErrorEntries = consoleEntries.filter(e => consoleErrorLevels.has(e.level))
+    const unallowedConsoleErrors = ALLOW_CONSOLE_ERRORS
+      ? []
+      : consoleErrorEntries.filter(e => !ALLOWED_CONSOLE_ERROR_TEXTS.some(t => e.text.includes(t)))
+    const levelCounts = consoleEntries.reduce((acc, e) => { acc[e.level] = (acc[e.level] || 0) + 1; return acc }, {})
+    console.log(`[page-boot-witness] console entries=${consoleEntries.length} levels=${JSON.stringify(levelCounts)} pageErrors=${pageErrors.length} failedRequests=${failedRequests.length} consoleErrors=${consoleErrorEntries.length} unallowedConsoleErrors=${unallowedConsoleErrors.length}`)
     const warnErr = has('console-all') ? consoleEntries : consoleEntries.filter(e => e.level === 'warning' || e.level === 'error' || e.level === 'exception')
     const consoleLimit = Number(flag('console-limit', '20'))
     const shown = consoleLimit === 0 ? warnErr : warnErr.slice(0, consoleLimit)
     for (const e of shown) console.log(`  [${e.level}] ${e.text.slice(0, 240)}`)
+    for (const e of unallowedConsoleErrors) console.log(`  [unallowed-console-error] ${e.text.slice(0, 240)}`)
     for (const e of pageErrors.slice(0, 10)) console.log(`  [pageerror] ${String(e).slice(0, 240)}`)
     for (const f of failedRequests.slice(0, 20)) console.log(`  [request] ${f.text} ${f.url}`)
     console.log('[page-boot-witness] values ' + JSON.stringify(values))
@@ -180,6 +189,7 @@ async function main() {
     if (REQUIRE_GPU && REQUIRE_GPU !== 'any' && (gpuSoftware || gotVendor !== REQUIRE_GPU)) failures.push(`the arm needs the ${REQUIRE_GPU} adapter but the page got ${JSON.stringify(gpuName)} / ${JSON.stringify(gpu.renderer)} (classed ${gpuKind})`)
     if (!ALLOW_ERRORS && pageErrors.length) failures.push(`${pageErrors.length} uncaught page error(s): ${String(pageErrors[0]).slice(0, 200)}`)
     if (!ALLOW_FAILED_REQUESTS && failedRequests.length) failures.push(`${failedRequests.length} failed request(s): ${failedRequests[0].text} ${failedRequests[0].url}`)
+    if (unallowedConsoleErrors.length) failures.push(`${unallowedConsoleErrors.length} console error(s)/exception(s) the page caught and logged instead of surfacing: ${unallowedConsoleErrors[0].text.slice(0, 200)}`)
     if (failures.length) fail(failures.join('; '))
     console.log(`[page-boot-witness] RESULT: PASS -- ${JSON.stringify(times)}`)
     process.exit(0)
