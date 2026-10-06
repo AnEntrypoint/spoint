@@ -69,15 +69,28 @@ function grabHead(dir) {
   } catch { return null }
 }
 
+function pinHead(dir) {
+  const f = path.join(dir, 'pin.json')
+  if (!fs.existsSync(f)) return null
+  try {
+    const p = JSON.parse(readText(f))
+    return typeof p.pin === 'string' && p.pin ? { sha: p.pin, source: 'pin.json' } : null
+  } catch { return null }
+}
+
 function probeHead(boot) {
   for (const v of (boot && boot.values) || []) if (v && typeof v.head === 'string' && v.head) return { sha: v.head, source: 'boot probe' }
   return null
 }
 
-const headSources = [grabHead(args.dir), manifestHead(args.manifest || path.join(args.dir, 'manifest.json')), probeHead(tslBoot), probeHead(legBoot)].filter(Boolean)
-const headShas = [...new Set(headSources.map(s => s.sha))]
-const captureHead = headSources[0] || null
+const windowHead = grabHead(args.dir) || manifestHead(args.manifest || path.join(args.dir, 'manifest.json'))
+const pin = pinHead(args.dir)
+const bootHeads = [probeHead(tslBoot), probeHead(legBoot)].filter(Boolean)
+const captureHead = pin || bootHeads[0] || windowHead || null
+const headShas = [...new Set(bootHeads.map(s => s.sha))]
 const headMismatch = captureHead ? captureHead.sha !== headNow : null
+const windowHeadMismatch = windowHead ? windowHead.sha !== headNow : null
+const stampStale = !!(pin && headShas.some(s => s !== pin.sha))
 
 const settleOf = s => s && s.values.filter(v => v.settle !== undefined).slice(-1)[0]
 const gates = []
@@ -196,6 +209,9 @@ const out = {
   captureHead: captureHead && captureHead.sha,
   captureHeadSource: captureHead && captureHead.source,
   captureHeadShas: headShas,
+  pin: pin && pin.sha,
+  windowHead: windowHead && windowHead.sha,
+  windowHeadSource: windowHead && windowHead.source,
   headMismatch,
   criterion: { K, floorMin: FLOOR_MIN, skyGate: SKY_GATE },
   verdict: partial ? 'pair incomplete' : (gates.every(g => g.pass) ? 'pair valid' : 'pair invalid'),
@@ -240,9 +256,11 @@ fs.writeFileSync(path.join(args.dir, 'analysis-' + args.gpu + '.json'), JSON.str
 console.log(args.gpu + ' ' + out.verdict + ' (HEAD ' + out.head.slice(0, 8) + ')')
 if (partial) console.log('INCOMPLETE: missing ' + missingArms.join(', ') + ' in ' + args.dir + ' -- the gates and region rows below cover only the arms that landed, so they are a diagnostic, not a pair verdict')
 if (!captureHead) console.log('HEAD UNKNOWN: no capture-time sha in ' + args.dir + ' -- this verdict names only the analyze-time HEAD ' + headNow.slice(0, 8) + ' and may attribute these frames to bytes that never rendered')
-else if (headShas.length > 1) console.log('HEAD DISAGREEMENT: capture-time sources disagree (' + headShas.map(s => s.slice(0, 8)).join(' vs ') + ') -- analyze-time HEAD ' + headNow.slice(0, 8))
-else if (headMismatch) console.log('HEAD MISMATCH: captured at ' + captureHead.sha.slice(0, 8) + ' (' + captureHead.source + '), analyzed at ' + headNow.slice(0, 8) + ' -- these frames were rendered by ' + captureHead.sha.slice(0, 8) + ', not by HEAD')
+else if (headShas.length > 1) console.log('ARM DRIFT: the tsl and legacy boots loaded different shas (' + headShas.map(s => s.slice(0, 8)).join(' vs ') + ') -- the two arms did not run the same bytes, so this is not a pair')
+else if (headMismatch) console.log('HEAD MISMATCH: both arms loaded ' + captureHead.sha.slice(0, 8) + ' (' + captureHead.source + '), analyzed at ' + headNow.slice(0, 8) + ' -- these frames were rendered by ' + captureHead.sha.slice(0, 8) + ', not by HEAD')
 else console.log('head ok: capture ' + captureHead.sha.slice(0, 8) + ' (' + captureHead.source + ') == analyze ' + headNow.slice(0, 8))
+if (windowHeadMismatch) console.log('window HEAD ' + windowHead.sha.slice(0, 8) + ' (' + windowHead.source + ') differs from analyze-time HEAD ' + headNow.slice(0, 8) + ' -- expected while other lanes commit during a window; provenance is what the arms loaded' + (captureHead ? ' (' + captureHead.sha.slice(0, 8) + ')' : ''))
+if (stampStale) console.log('SERVER STAMP STALE: the boots report ' + headShas.map(s => s.slice(0, 8)).join(', ') + ' but the served bytes are the snapshot of pin ' + pin.sha.slice(0, 8) + ' proven by the verify files -- a pinned server stamps its own process start, not each window')
 if (firstBlocked) console.log('INPUT CONTAMINATED: first blockedInput=' + firstBlocked.blocked + ' at ' + firstBlocked.arm + '/' + firstBlocked.at + ' -- re-navigate, do not capture through it')
 for (const g of gates) console.log((g.pass ? 'PASS ' : 'FAIL ') + g.name + (g.detail ? ' ' + JSON.stringify(g.detail).slice(0, 160) : ''))
 for (const [set, rows] of Object.entries(sets)) {
