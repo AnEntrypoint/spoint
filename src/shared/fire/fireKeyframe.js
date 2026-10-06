@@ -1,7 +1,7 @@
 import { FIRE_EVENT, FIRE_STATE } from './fireKernel.js'
 
 const MAGIC = 0x46524b31
-const VERSION = 3
+const VERSION = 4
 const HEADER_BYTES = 24
 const TILE_CELL_SHIFT = 6
 const TILE_CELLS = 1 << TILE_CELL_SHIFT
@@ -26,7 +26,7 @@ const SCALAR_U32 = ['tileCount', 'activeCount', 'activeTileCount', 'scarCount', 
 const STAT_FIELDS = ['steps', 'cellsVisited', 'ignitions', 'spots', 'deniedActivations', 'deniedTiles', 'slowSteps']
 const TILE_ARRAYS = [
   ['tileFace', Uint8Array], ['tileI', Int32Array], ['tileJ', Int32Array], ['maskLo', Uint32Array], ['maskHi', Uint32Array],
-  ['tileListed', Uint8Array], ['activeTiles', Int32Array],
+  ['tileListed', Uint8Array], ['interiorLo', Uint32Array], ['interiorHi', Uint32Array], ['activeTiles', Int32Array],
 ]
 
 function nowMs() { return typeof performance === 'object' && performance !== null ? performance.now() : Date.now() }

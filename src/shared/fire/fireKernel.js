@@ -14,6 +14,7 @@ const TILE_CELL_SHIFT = 6
 const HALF_TILE_CELLS = TILE_CELLS >> 1
 const NBR_UNKNOWN = -2
 const NBR_NONE = -1
+const FACE_FREE = 255
 const MAX_U16 = 65535
 const ORTHOGONAL_BASE_WEIGHT = 64
 const DIAGONAL_BASE_WEIGHT = 40
@@ -27,6 +28,7 @@ const MOISTURE_SHIFT = 7
 const SCAR_RING_PAD = 64
 const HASH_MASK = 0xffffff
 const UNDO_CELLS_INIT = 4096
+const UNDO_SCAR_WRITES_INIT = 1024
 const UNDO_POOL_MAX = 12
 
 function mix32(h) {
@@ -77,6 +79,10 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
   const maskLo = new Uint32Array(maxTiles), maskHi = new Uint32Array(maxTiles), tileListed = new Uint8Array(maxTiles)
   const interiorLo = new Uint32Array(maxTiles), interiorHi = new Uint32Array(maxTiles)
   const tileSerial = new Float64Array(maxTiles)
+  const freeTiles = new Int32Array(maxTiles)
+  const reclaimQueue = new Int32Array(maxTiles)
+  const reclaimMark = new Int32Array(maxTiles)
+  let freeTop = 0, tileEpoch = 0, reclaimCount = 0, reclaimGen = 1
   let changeSerial = 1, tileGeneration = 0
   const activeTiles = new Int32Array(maxTiles)
   let tableSize = 1
@@ -92,10 +98,13 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
   const undoPool = []
   let undoBuf = null
   let undoCount = 0, undoGen = 1
+  let scarWriteCount = 0
+  let stepStartedSinceDelta = false
   const preStep = {
     tileCount: 0, activeCount: 0, activeTileCount: 0, stepIndex: 0, stepStart: 0, nextStepTick: 0,
     phase: 0, cursor: 0, phaseEnd: 0, writePtr: 0, quota: 0, stepInterval: stepTicks,
     moisture: 0, rain: 0, wx: 0, wy: 0, wz: 0, eventSeq: 0, scarHead: 0, scarTail: 0, scarCount: 0,
+    tileEpoch: 0,
   }
   let stepStartStats = null
   let stepOpen = false
@@ -142,14 +151,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     }
   }
 
-  function createTile(face, ti, tj) {
-    if (tileCount >= maxTiles) { stats.deniedTiles++; return -1 }
-    const t = tileCount++
-    tileFace[t] = face; tileI[t] = ti; tileJ[t] = tj
-    maskLo[t] = 0; maskHi[t] = 0; tileListed[t] = 0; interiorLo[t] = 0; interiorHi[t] = 0; tileSerial[t] = ++changeSerial
-    let slot = tileHash(face, ti, tj)
-    while (table[slot] !== 0) slot = (slot + 1) & (tableSize - 1)
-    table[slot] = t + 1
+  function initTileCells(t, face, ti, tj) {
     const base = t << TILE_CELL_SHIFT
     const I0 = ti << TILE_SHIFT, J0 = tj << TILE_SHIFT
     for (let lj = 0; lj < TILE_SIZE; lj++) {
@@ -158,9 +160,32 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
         const I = I0 + li, J = J0 + lj
         const c = I < n && J < n ? fuelClassAt(face, I, J) : 0
         cls[g] = c; fuel[g] = fuelInit[c]; state[g] = UNBURNT; heat[g] = 0; timer[g] = 0
-        hashOfCell[g] = 0
+        clearCellHash(g)
       }
     }
+  }
+
+  function noteTileCells(t) {
+    const base = t << TILE_CELL_SHIFT
+    for (let i = 0; i < TILE_CELLS; i++) noteCell(base + i)
+  }
+
+  function createTile(face, ti, tj) {
+    let t = -1
+    if (freeTop > 0) t = freeTiles[--freeTop]
+    else if (tileCount < maxTiles) t = tileCount
+    if (t < 0) { stats.deniedTiles++; return -1 }
+    if (t >= tileCount) tileCount = t + 1
+    tileEpoch++
+    tileFace[t] = face; tileI[t] = ti; tileJ[t] = tj
+    maskLo[t] = 0; maskHi[t] = 0; tileListed[t] = 0; interiorLo[t] = 0; interiorHi[t] = 0; tileSerial[t] = ++changeSerial
+    tileNbr.fill(NBR_UNKNOWN, t * FIRE_DIR_COUNT, t * FIRE_DIR_COUNT + FIRE_DIR_COUNT)
+    let slot = tileHash(face, ti, tj)
+    while (table[slot] !== 0) slot = (slot + 1) & (tableSize - 1)
+    table[slot] = t + 1
+    if (undoMark !== null) noteTileCells(t)
+    initTileCells(t, face, ti, tj)
+    noteReclaim(t)
     return t
   }
 
@@ -229,12 +254,20 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     hashOfCell[g] = h
   }
 
+  function clearCellHash(g) {
+    const h = hashOfCell[g]
+    if (h === 0) return
+    hashSum = (hashSum - h) | 0
+    hashXor = (hashXor ^ h) >>> 0
+    hashOfCell[g] = 0
+  }
+
   function noteCell(g) {
     if (dirtyCount < cellCapacity) dirtyCells[dirtyCount++] = g
     else hashValid = false
     if (!undo || undoMark === null) return
     if (undoMark[g] === undoGen) return
-    if (undoCount === undoBuf.cells.length && !growDelta(undoBuf, undoCount + 1)) return
+    if (undoCount === undoBuf.cells.length && !growDelta(undoBuf, undoCount + 1, undoCount)) return
     undoMark[g] = undoGen
     const k = undoCount++
     undoBuf.cells[k] = g
@@ -275,31 +308,58 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
       cells: new Int32Array(cellCap), state: new Uint8Array(cellCap), fuel: new Uint16Array(cellCap),
       heat: new Uint16Array(cellCap), timer: new Uint16Array(cellCap),
       maskLo: new Uint32Array(maxTiles), maskHi: new Uint32Array(maxTiles), listed: new Uint8Array(maxTiles),
+      interiorLo: new Uint32Array(maxTiles), interiorHi: new Uint32Array(maxTiles),
       activeTiles: new Int32Array(maxTiles),
-      count: 0, tileCount: 0, activeCount: 0, activeTileCount: 0,
+      scarSlot: new Int32Array(UNDO_SCAR_WRITES_INIT), scarPrevCell: new Int32Array(UNDO_SCAR_WRITES_INIT), scarPrevStep: new Int32Array(UNDO_SCAR_WRITES_INIT),
+      face: new Uint8Array(maxTiles), tileI: new Int32Array(maxTiles), tileJ: new Int32Array(maxTiles),
+      count: 0, scarWrites: 0, tileCount: 0, activeCount: 0, activeTileCount: 0, tileEpoch: 0,
       stepIndex: 0, stepStart: 0, nextStepTick: 0, phase: 0, cursor: 0, phaseEnd: 0, writePtr: 0, quota: 0,
       stepInterval: stepTicks, moisture: 0, rain: 0, wx: 0, wy: 0, wz: 0, eventSeq: 0,
       scarHead: 0, scarTail: 0, scarCount: 0, stats: null, pending: [],
     }
   }
 
-  function growDelta(d, need) {
+  function growDelta(d, need, staged) {
     let cap = d.cells.length
     if (cap >= cellCapacity) return false
     while (cap < need) cap = cap * 2 > cellCapacity ? cellCapacity : cap * 2
-    const cells = new Int32Array(cap); cells.set(d.cells.subarray(0, d.count)); d.cells = cells
-    const st = new Uint8Array(cap); st.set(d.state.subarray(0, d.count)); d.state = st
-    const fu = new Uint16Array(cap); fu.set(d.fuel.subarray(0, d.count)); d.fuel = fu
-    const he = new Uint16Array(cap); he.set(d.heat.subarray(0, d.count)); d.heat = he
-    const ti = new Uint16Array(cap); ti.set(d.timer.subarray(0, d.count)); d.timer = ti
+    const cells = new Int32Array(cap); cells.set(d.cells.subarray(0, staged)); d.cells = cells
+    const st = new Uint8Array(cap); st.set(d.state.subarray(0, staged)); d.state = st
+    const fu = new Uint16Array(cap); fu.set(d.fuel.subarray(0, staged)); d.fuel = fu
+    const he = new Uint16Array(cap); he.set(d.heat.subarray(0, staged)); d.heat = he
+    const ti = new Uint16Array(cap); ti.set(d.timer.subarray(0, staged)); d.timer = ti
     return true
+  }
+
+  function growScarWrites(d, need, staged) {
+    let cap = d.scarSlot.length
+    if (cap >= scarRingSize) return false
+    while (cap < need) cap = cap * 2 > scarRingSize ? scarRingSize : cap * 2
+    const slot = new Int32Array(cap); slot.set(d.scarSlot.subarray(0, staged)); d.scarSlot = slot
+    const cell = new Int32Array(cap); cell.set(d.scarPrevCell.subarray(0, staged)); d.scarPrevCell = cell
+    const step = new Int32Array(cap); step.set(d.scarPrevStep.subarray(0, staged)); d.scarPrevStep = step
+    return true
+  }
+
+  function noteScarWrite(slot) {
+    const d = undoBuf
+    if (scarWriteCount === d.scarSlot.length && !growScarWrites(d, scarWriteCount + 1, scarWriteCount)) return
+    const k = scarWriteCount++
+    d.scarSlot[k] = slot
+    d.scarPrevCell[k] = scarRing[slot]
+    d.scarPrevStep[k] = scarAt[slot]
   }
 
   function captureStructure() {
     undoBuf.maskLo.set(maskLo.subarray(0, tileCount))
     undoBuf.maskHi.set(maskHi.subarray(0, tileCount))
     undoBuf.listed.set(tileListed.subarray(0, tileCount))
+    undoBuf.interiorLo.set(interiorLo.subarray(0, tileCount))
+    undoBuf.interiorHi.set(interiorHi.subarray(0, tileCount))
     undoBuf.activeTiles.set(activeTiles.subarray(0, activeTileCount))
+    undoBuf.face.set(tileFace.subarray(0, tileCount))
+    undoBuf.tileI.set(tileI.subarray(0, tileCount))
+    undoBuf.tileJ.set(tileJ.subarray(0, tileCount))
   }
 
   function capturePreStep() {
@@ -323,6 +383,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     s.scarHead = scarHead
     s.scarTail = scarTail
     s.scarCount = scarCount
+    s.tileEpoch = tileEpoch
     stepStartStats = { ...stats }
     if (undoMark !== null) captureStructure()
   }
@@ -330,13 +391,16 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
   function markStepStart() {
     capturePreStep()
     stepOpen = true
+    stepStartedSinceDelta = true
   }
 
   function takeDelta() {
     if (undoBuf === null) throw new TypeError('[fireKernel] takeDelta needs a kernel created with undo: true')
     const d = undoBuf
+    if (!stepStartedSinceDelta) capturePreStep()
     const s = preStep
     d.count = undoCount
+    d.scarWrites = scarWriteCount
     d.tileCount = s.tileCount
     d.activeCount = s.activeCount
     d.activeTileCount = s.activeTileCount
@@ -345,10 +409,11 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     d.stepInterval = s.stepInterval; d.moisture = s.moisture; d.rain = s.rain
     d.wx = s.wx; d.wy = s.wy; d.wz = s.wz; d.eventSeq = s.eventSeq
     d.scarHead = s.scarHead; d.scarTail = s.scarTail; d.scarCount = s.scarCount
+    d.tileEpoch = s.tileEpoch
     d.stats = stepStartStats === null ? { ...stats } : stepStartStats
     d.pending = pending.length === 0 ? NO_PENDING : pending.map(e => ({ ...e }))
     undoBuf = undoPool.length > 0 ? undoPool.pop() : newDelta(UNDO_CELLS_INIT)
-    undoCount = 0; undoGen++
+    undoCount = 0; scarWriteCount = 0; undoGen++; stepStartedSinceDelta = false
     return d
   }
 
@@ -366,17 +431,13 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
   function markRestored(events) {
     pending = events === undefined ? [] : events.map(e => ({ ...e }))
     stepOpen = false
+    tileNbr.fill(NBR_UNKNOWN)
     if (undoMark !== null) capturePreStep()
   }
 
   if (undoMark !== null) undoBuf = newDelta(UNDO_CELLS_INIT)
 
   function undoDelta(d) {
-    for (let k = 0; k < d.count; k++) {
-      const g = d.cells[k]
-      state[g] = d.state[k]; fuel[g] = d.fuel[k]; heat[g] = d.heat[k]; timer[g] = d.timer[k]
-      refreshCell(g)
-    }
     if (d.tileCount !== tileCount) {
       const from = (d.tileCount < tileCount ? d.tileCount : tileCount) << TILE_CELL_SHIFT
       const to = (d.tileCount < tileCount ? tileCount : d.tileCount) << TILE_CELL_SHIFT
@@ -388,17 +449,22 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
         hashOfCell[g] = 0
       }
       tileCount = d.tileCount
-      table.fill(0); tileNbr.fill(NBR_UNKNOWN)
-      for (let t = 0; t < tileCount; t++) {
-        let slot = tileHash(tileFace[t], tileI[t], tileJ[t])
-        while (table[slot] !== 0) slot = (slot + 1) & (tableSize - 1)
-        table[slot] = t + 1
-      }
+    }
+    if (d.tileEpoch !== tileEpoch) {
+      tileEpoch = d.tileEpoch
+      restoreTileStructure(d)
+    }
+    const liveCells = tileCount << TILE_CELL_SHIFT
+    for (let k = 0; k < d.count; k++) {
+      const g = d.cells[k]
+      if (g >= liveCells) { clearCellHash(g); continue }
+      state[g] = d.state[k]; fuel[g] = d.fuel[k]; heat[g] = d.heat[k]; timer[g] = d.timer[k]
+      refreshCell(g)
     }
     maskLo.set(d.maskLo.subarray(0, tileCount))
     maskHi.set(d.maskHi.subarray(0, tileCount))
     tileListed.set(d.listed.subarray(0, tileCount))
-    interiorLo.fill(0, 0, tileCount); interiorHi.fill(0, 0, tileCount)
+    interiorLo.set(d.interiorLo.subarray(0, tileCount)); interiorHi.set(d.interiorHi.subarray(0, tileCount))
     activeTiles.set(d.activeTiles.subarray(0, d.activeTileCount))
     activeCount = d.activeCount; activeTileCount = d.activeTileCount
     stepIndex = d.stepIndex; stepStart = d.stepStart; nextStepTick = d.nextStepTick
@@ -406,10 +472,15 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     stepInterval = d.stepInterval; moisture = d.moisture; rain = d.rain
     wind[0] = d.wx; wind[1] = d.wy; wind[2] = d.wz; rebuildWeights()
     eventSeq = d.eventSeq
+    for (let k = d.scarWrites - 1; k >= 0; k--) {
+      const slot = d.scarSlot[k]
+      scarRing[slot] = d.scarPrevCell[k]
+      scarAt[slot] = d.scarPrevStep[k]
+    }
     scarHead = d.scarHead; scarTail = d.scarTail; scarCount = d.scarCount
     Object.assign(stats, d.stats)
     pending = d.pending.map(e => ({ ...e }))
-    undoCount = 0; undoGen++
+    undoCount = 0; scarWriteCount = 0; undoGen++
     changeSerial++; tileGeneration++
   }
 
@@ -467,6 +538,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
 
   function scarPush(g, atStep) {
     if (scarCount >= scarRingSize) return
+    if (undoMark !== null) noteScarWrite(scarTail)
     scarRing[scarTail] = g; scarAt[scarTail] = atStep
     scarTail = scarTail + 1 === scarRingSize ? 0 : scarTail + 1
     scarCount++
@@ -497,6 +569,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
       fuel[g] = Math.floor(fuelInit[cls[g]] * regrowFuelFraction)
       touchTile(g)
       clearInteriorAround(g)
+      noteReclaim(g >> TILE_CELL_SHIFT)
     }
   }
 
@@ -679,7 +752,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
       const base = t << TILE_CELL_SHIFT
       settleMask(base, maskLo, t)
       settleMask(base + HALF_TILE_CELLS, maskHi, t)
-      if (maskLo[t] === 0 && maskHi[t] === 0) tileListed[t] = 0
+      if (maskLo[t] === 0 && maskHi[t] === 0) { tileListed[t] = 0; noteReclaim(t) }
       else activeTiles[writePtr++] = t
     }
     stats.cellsVisited += done
@@ -687,12 +760,112 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
       for (let i = cursor; i < activeTileCount; i++) activeTiles[writePtr++] = activeTiles[i]
       activeTileCount = writePtr
       phase = 0
+      sweepReclaim()
       if (activeCount === 0 && scarCount === 0) reclaimIdle()
+    }
+  }
+
+  function noteReclaim(t) {
+    if (reclaimMark[t] === reclaimGen) return
+    reclaimMark[t] = reclaimGen
+    reclaimQueue[reclaimCount++] = t
+  }
+
+  function sweepReclaim() {
+    for (let i = 0; i < reclaimCount; i++) tryReclaim(reclaimQueue[i])
+    reclaimCount = 0
+    reclaimGen++
+  }
+
+  function tryReclaim(t) {
+    if (tileFace[t] === FACE_FREE || tileListed[t] !== 0 || maskLo[t] !== 0 || maskHi[t] !== 0) return false
+    const base = t << TILE_CELL_SHIFT
+    for (let i = 0; i < TILE_CELLS; i++) {
+      const g = base + i
+      if (state[g] !== UNBURNT || heat[g] !== 0 || timer[g] !== 0 || fuel[g] !== fuelInit[cls[g]]) return false
+    }
+    releaseTile(t)
+    return true
+  }
+
+  function releaseTile(t) {
+    let slot = tileHash(tileFace[t], tileI[t], tileJ[t])
+    while (table[slot] !== t + 1) slot = (slot + 1) & (tableSize - 1)
+    table[slot] = 0
+    let scan = (slot + 1) & (tableSize - 1)
+    while (table[scan] !== 0) {
+      const u = table[scan] - 1
+      table[scan] = 0
+      let h = tileHash(tileFace[u], tileI[u], tileJ[u])
+      while (table[h] !== 0) h = (h + 1) & (tableSize - 1)
+      table[h] = u + 1
+      scan = (scan + 1) & (tableSize - 1)
+    }
+    for (let d = 0; d < FIRE_DIR_COUNT; d++) {
+      const idx = t * FIRE_DIR_COUNT + d
+      const nt = tileNbr[idx]
+      tileNbr[idx] = NBR_UNKNOWN
+      if (nt < 0) continue
+      const back = nt * FIRE_DIR_COUNT + dirIndex[(1 - FIRE_DIR_DJ[d]) * 3 + 1 - FIRE_DIR_DI[d]]
+      if (tileNbr[back] === t) tileNbr[back] = NBR_UNKNOWN
+    }
+    tileFace[t] = FACE_FREE
+    tileSerial[t] = ++changeSerial
+    tileListed[t] = 0
+    tileEpoch++
+    tileGeneration++
+    let high = tileCount
+    while (high > 0 && tileFace[high - 1] === FACE_FREE) high--
+    if (high !== tileCount) {
+      tileCount = high
+      let kept = 0
+      for (let i = 0; i < freeTop; i++) { const s = freeTiles[i]; if (s < high) freeTiles[kept++] = s }
+      freeTop = kept
+    }
+    if (t < high) freeTiles[freeTop++] = t
+  }
+
+  function quietTile(t) {
+    const base = t << TILE_CELL_SHIFT
+    for (let i = 0; i < TILE_CELLS; i++) {
+      const g = base + i
+      clearCellHash(g)
+      state[g] = UNBURNT; heat[g] = 0; timer[g] = 0; fuel[g] = fuelInit[cls[g]]
+    }
+  }
+
+  function restoreTileStructure(d) {
+    const count = d.tileCount
+    for (let t = 0; t < count; t++) {
+      const free = d.face[t] === FACE_FREE
+      const wasFree = tileFace[t] === FACE_FREE
+      if (free) {
+        if (!wasFree) quietTile(t)
+        continue
+      }
+      if (wasFree || d.face[t] !== tileFace[t] || d.tileI[t] !== tileI[t] || d.tileJ[t] !== tileJ[t]) initTileCells(t, d.face[t], d.tileI[t], d.tileJ[t])
+    }
+    tileFace.set(d.face.subarray(0, count))
+    tileI.set(d.tileI.subarray(0, count))
+    tileJ.set(d.tileJ.subarray(0, count))
+    rebuildTileIndex()
+  }
+
+  function rebuildTileIndex() {
+    freeTop = 0
+    table.fill(0)
+    tileNbr.fill(NBR_UNKNOWN)
+    for (let t = 0; t < tileCount; t++) {
+      if (tileFace[t] === FACE_FREE) { freeTiles[freeTop++] = t; continue }
+      let slot = tileHash(tileFace[t], tileI[t], tileJ[t])
+      while (table[slot] !== 0) slot = (slot + 1) & (tableSize - 1)
+      table[slot] = t + 1
     }
   }
 
   function reclaimIdle() {
     for (let t = 0; t < tileCount; t++) {
+      if (tileFace[t] === FACE_FREE) continue
       const base = t << TILE_CELL_SHIFT
       for (let i = 0; i < TILE_CELLS; i++) {
         const g = base + i
@@ -701,11 +874,15 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     }
     hashOfCell.fill(0, 0, tileCount << TILE_CELL_SHIFT)
     dirtyCount = 0; hashCursor = 0; hashValid = true; hashSum = 0; hashXor = 0
+    tileFace.fill(FACE_FREE)
     table.fill(0); tileNbr.fill(NBR_UNKNOWN); tileCount = 0; activeTileCount = 0; tileGeneration++; changeSerial++
+    freeTop = 0; tileEpoch++; reclaimCount = 0; reclaimGen++
   }
 
   function skipQuietStep(tickNumber) {
     if (activeCount !== 0 || scarCount !== 0 || (pending.length !== 0 && pending[0].tick <= tickNumber)) return false
+    sweepReclaim()
+    if (activeCount === 0 && scarCount === 0) reclaimIdle()
     nextStepTick = tickNumber + stepTicks
     return true
   }
@@ -754,6 +931,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
       state: state.slice(0, cells), cls: cls.slice(0, cells), fuel: fuel.slice(0, cells), heat: heat.slice(0, cells), timer: timer.slice(0, cells),
       tileFace: tileFace.slice(0, tileCount), tileI: tileI.slice(0, tileCount), tileJ: tileJ.slice(0, tileCount),
       maskLo: maskLo.slice(0, tileCount), maskHi: maskHi.slice(0, tileCount), tileListed: tileListed.slice(0, tileCount),
+      interiorLo: interiorLo.slice(0, tileCount), interiorHi: interiorHi.slice(0, tileCount),
       activeTiles: activeTiles.slice(0, activeTileCount), scar,
     }
   }
@@ -768,20 +946,16 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     state.set(s.state); cls.set(s.cls); fuel.set(s.fuel); heat.set(s.heat); timer.set(s.timer)
     tileFace.set(s.tileFace); tileI.set(s.tileI); tileJ.set(s.tileJ)
     maskLo.set(s.maskLo); maskHi.set(s.maskHi); tileListed.set(s.tileListed)
-    interiorLo.fill(0); interiorHi.fill(0)
+    interiorLo.set(s.interiorLo); interiorHi.set(s.interiorHi)
     activeTiles.set(s.activeTiles)
     scarHead = 0; scarTail = scarCount % scarRingSize
     for (let i = 0; i < scarCount; i++) { scarRing[i] = s.scar[i * 2]; scarAt[i] = s.scar[i * 2 + 1] }
-    table.fill(0); tileNbr.fill(NBR_UNKNOWN)
+    rebuildTileIndex()
+    tileEpoch = 0
     changeSerial++; tileGeneration++
-    for (let t = 0; t < tileCount; t++) {
-      tileSerial[t] = changeSerial
-      let slot = tileHash(tileFace[t], tileI[t], tileJ[t])
-      while (table[slot] !== 0) slot = (slot + 1) & (tableSize - 1)
-      table[slot] = t + 1
-    }
+    for (let t = 0; t < tileCount; t++) tileSerial[t] = changeSerial
     rebuildHash()
-    if (undoMark !== null) { undoCount = 0; undoGen++; capturePreStep() }
+    if (undoMark !== null) { undoCount = 0; scarWriteCount = 0; undoGen++; capturePreStep() }
     stepOpen = false
   }
 
@@ -818,6 +992,8 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     get activeCount() { return activeCount },
     get activeTileCount() { return activeTileCount },
     get tileCount() { return tileCount },
+    get liveTileCount() { return tileCount - freeTop },
+    get freeTileCount() { return freeTop },
     get scarCount() { return scarCount },
     get stepIndex() { return stepIndex },
     get stats() { return stats },

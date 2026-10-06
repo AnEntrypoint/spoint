@@ -6,6 +6,9 @@ import { defineFire } from '../src/behaviours/fire.js'
 
 function say(line) { console.log(line) }
 
+const gcNow = typeof globalThis.gc === 'function' ? globalThis.gc : null
+function heapUsed() { if (gcNow === null) return null; gcNow(); gcNow(); return process.memoryUsage().heapUsed }
+
 const HOME_FACE = 2
 const TARGET_TILES = Number(process.argv[2] ?? 11429)
 const IGNITE_SPACING = 24
@@ -92,7 +95,7 @@ function probeRewinds(window) {
   say(`  delta restore equivalence: ${stored.length - bad} of ${stored.length} rewinds bit-equal to the straight run, and replay reproduces it ${bad === 0 ? 'yes' : 'no'}`)
 }
 
-const DELTA_STRUCTURE_BYTES = 13 * 16384
+const DELTA_STRUCTURE_BYTES = 30 * 16384
 const deltaWindows = [measureDeltaWindow(200)]
 probeRewinds(deltaWindows[0])
 for (let w = 0; w < 2; w++) deltaWindows.push(measureDeltaWindow(200))
@@ -110,7 +113,7 @@ for (let b = 0; b < 3; b++) {
   kernel.releaseDelta(d)
 }
 say(`  takeDelta at a boundary: ${deltaCosts.map(c => `${c.ms.toFixed(3)} ms over ${c.cells} staged cell(s)`).join(', ')}`)
-say(`  a live delta costs ${(DELTA_STRUCTURE_BYTES / 1024).toFixed(0)} KiB of structure plus 11 B per staged cell, 9 of them live`)
+say(`  a live delta costs ${(DELTA_STRUCTURE_BYTES / 1024).toFixed(0)} KiB of structure (21 B of masks, interior marks and active listing plus 9 B of tile identity per tile) plus 11 B per staged cell, 9 of them live, and 12 B per scar-ring slot the step overwrote`)
 
 const drained = []
 for (let i = 0; i < 12; i++) drained.push(kernel.takeDelta())
@@ -121,9 +124,13 @@ for (let i = 0; i < 12; i++) if (i !== 5) kernel.releaseDelta(drained[i])
 kernel.releaseDelta(recycled)
 say(`  delta buffers are pooled, not reallocated per cell: a released buffer comes back ${drained[5] === reused}`)
 for (let i = 0; i < 30; i++) kernel.releaseDelta(kernel.takeDelta())
-const heapBefore = process.memoryUsage().heapUsed
+const heapBefore = heapUsed()
 for (let i = 0; i < 5000; i++) kernel.releaseDelta(kernel.takeDelta())
-say(`  5000 takeDelta+release cycles grew the heap by ${process.memoryUsage().heapUsed - heapBefore} B`)
+const warmedHeap = heapUsed()
+for (let i = 0; i < 5000; i++) kernel.releaseDelta(kernel.takeDelta())
+const steadyHeap = heapUsed()
+if (steadyHeap === null) say('  heap retained over 10000 takeDelta+release cycles is not sampled without --expose-gc')
+else say(`  heap retained: ${warmedHeap - heapBefore} B over the first 5000 takeDelta+release cycles and ${steadyHeap - warmedHeap} B over the next 5000, so the pool stops growing`)
 
 
 say('')
