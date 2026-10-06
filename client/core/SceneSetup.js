@@ -319,7 +319,7 @@ export async function warmupShaders(renderer, scene, camera, entityMeshes, playe
   }
   const manifestUrls = manifest && Array.isArray(manifest.modelUrls) && manifest.modelUrls.length ? new Set(manifest.modelUrls) : null
   const allEntityMeshes = [...entityMeshes.values()]
-  const manifestedMeshes = manifestUrls ? allEntityMeshes.filter(m => m.userData && manifestUrls.has(m.userData.modelUrl)) : []
+  const manifestedMeshes = manifestUrls ? allEntityMeshes.filter(m => m.userData && manifestUrls.has(m.userData.modelUrl)).slice(0, MAX_UNMANIFESTED_WARMUP_MESHES) : []
   const residentMeshes = manifestUrls ? allEntityMeshes.filter(m => !(m.userData && manifestUrls.has(m.userData.modelUrl))) : allEntityMeshes
   const cappedResident = residentMeshes.length > MAX_UNMANIFESTED_WARMUP_MESHES ? [] : residentMeshes
   if (residentMeshes.length > MAX_UNMANIFESTED_WARMUP_MESHES && !manifestUrls) { console.log('[shader] skipping warmup (too many meshes:', residentMeshes.length + ')'); _record({ skipped: true, reason: 'too-many-meshes', residentCount: residentMeshes.length, total: 0, manifestedCount: 0 }); return }
@@ -353,7 +353,7 @@ export async function warmupShaders(renderer, scene, camera, entityMeshes, playe
     localStorage.setItem('lastShaderWarmupKey', sceneKey)
     loadingMgr.reportProcessing(total, total)
     console.log('[shader] warmup done, meshes:', total, manifestUrls ? `(${manifestedMeshes.length} manifest-driven)` : '')
-    _record({ total, manifestedCount: manifestedMeshes.length, residentCount: cappedResident.length })
+    _record({ total, manifestedCount: manifestedMeshes.length, residentCount: cappedResident.length, manifestedUrls: manifestedMeshes.map(m => m.userData && m.userData.modelUrl).filter(Boolean), residentModelUrls: [...new Set(residentMeshes.map(m => m.userData && m.userData.modelUrl).filter(Boolean))] })
   } finally {
     for (const obj of culled) obj.frustumCulled = true
   }

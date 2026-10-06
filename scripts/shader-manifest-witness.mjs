@@ -31,7 +31,7 @@ const PROBE = `(() => {
   const warm = window.__lastShaderWarmup || null
   const client = (window.__app && window.__app.client) || null
   return {
-    warmup: warm ? { manifestDriven: !!warm.manifestDriven, manifestUrls: Array.isArray(warm.manifestUrls) ? warm.manifestUrls.slice().sort() : null, manifestedCount: warm.manifestedCount, residentCount: warm.residentCount, total: warm.total, skipped: !!warm.skipped, reason: warm.reason || null } : null,
+    warmup: warm ? { manifestDriven: !!warm.manifestDriven, manifestUrls: Array.isArray(warm.manifestUrls) ? warm.manifestUrls.slice().sort() : null, manifestedCount: warm.manifestedCount, residentCount: warm.residentCount, total: warm.total, skipped: !!warm.skipped, reason: warm.reason || null, manifestedUrls: [...new Set((warm.manifestedUrls || []).filter(Boolean))].sort(), residentModelUrls: [...new Set((warm.residentModelUrls || []).filter(Boolean))].sort() } : null,
     playerId: client ? client.playerId : null,
     connected: !!(client && client.connected),
     revealed: !!(window.__app && window.__app.revealedAt),
@@ -39,7 +39,7 @@ const PROBE = `(() => {
   }
 })()`
 
-const READY = `!!(window.__app && window.__app.client && window.__app.client.playerId != null && window.__lastShaderWarmup)`
+const READY = `!!(window.__app && window.__app.client && window.__app.client.playerId != null && (window.__lastShaderWarmup || window.__app.revealedAt))`
 
 async function main() {
   process.env.SPOINT_SKIP_PREWARM = process.env.SPOINT_SKIP_PREWARM || '1'
@@ -105,11 +105,14 @@ async function main() {
       expect(probe.warmup !== null, `world ${WORLD} declares a shader manifest but the shader warmup never recorded a run (window.__lastShaderWarmup is null): ${JSON.stringify(probe)}`)
       expect(probe.warmup && probe.warmup.manifestDriven === true, `world ${WORLD} declares a shader manifest but the warmup was not manifest-driven: ${JSON.stringify(probe.warmup)}`)
       expect(probe.warmup && JSON.stringify(probe.warmup.manifestUrls) === JSON.stringify(expectedModels), `the manifest the client derived ${JSON.stringify(probe.warmup && probe.warmup.manifestUrls)} is not the world's entity model urls ${JSON.stringify(expectedModels)}`)
+      expect(probe.warmup && probe.warmup.skipped === false, `world ${WORLD} declares a shader manifest but the warmup skipped the compile ${JSON.stringify(probe.warmup)}`)
+      const warmupUrls = probe.warmup ? [...probe.warmup.manifestedUrls, ...probe.warmup.residentModelUrls] : []
+      const eligible = expectedModels.filter(u => warmupUrls.includes(u))
+      expect(probe.warmup === null || JSON.stringify(probe.warmup.manifestedUrls) === JSON.stringify(eligible), `the meshes the manifest selected ${JSON.stringify(probe.warmup && probe.warmup.manifestedUrls)} are not the warmup-resident meshes whose url is in the manifest ${JSON.stringify(eligible)}: ${JSON.stringify(probe.warmup)}`)
+      expect(probe.warmup === null || eligible.length === 0 || probe.warmup.manifestedCount > 0, `${eligible.length} resident mesh(es) carry a manifest url yet the warmup manifested ${probe.warmup && probe.warmup.manifestedCount}: ${JSON.stringify(probe.warmup)}`)
     } else {
       expect(expectedModels.length === 0, `world ${WORLD} carries entity model urls ${JSON.stringify(expectedModels)}, so --expect=absent is the wrong arm for it`)
-      expect(probe.warmup !== null, `world ${WORLD} has no shader manifest but the shader warmup never recorded a run (window.__lastShaderWarmup is null): ${JSON.stringify(probe)}`)
-      expect(probe.warmup && probe.warmup.manifestDriven === false, `world ${WORLD} has no entity model urls yet the warmup was manifest-driven: ${JSON.stringify(probe.warmup)}`)
-      expect(probe.warmup && probe.warmup.manifestUrls === null, `world ${WORLD} has no entity model urls yet the warmup carried ${JSON.stringify(probe.warmup && probe.warmup.manifestUrls)}`)
+      expect(probe.warmup === null || (probe.warmup.manifestDriven === false && probe.warmup.manifestUrls === null), `world ${WORLD} has no entity model urls yet the warmup carried manifest ${JSON.stringify(probe.warmup && probe.warmup.manifestUrls)} (warmup null means it was skipped entirely, which is the expected singleplayer path at >= 10 entity meshes)`)
     }
 
     await browser.close().catch(() => {})
