@@ -103,6 +103,9 @@ export function createEditorHandlers(ctx) {
 
   const editOpLog = createEditOpLog()
 
+  let reseedInFlight = false
+  let reseedInFlightSeed = null
+
   const agentEditServer = createAgentEditServer()
 
   const prefabLibrary = new PrefabLibrary(isNode ? process.cwd() : '.')
@@ -443,33 +446,77 @@ export function createEditorHandlers(ctx) {
     [MSG.TERRAIN_RESEED]: (payload, clientId) => {
       const seed = Number.isFinite(payload?.seed) ? (payload.seed | 0) : null
       if (seed === null) { connections.send(clientId, MSG.TERRAIN_CONFIG, { ok: false, error: 'invalid seed' }); return }
-      const terrainEnt = [...appRuntime.entities.values()].find(e => e._appName === 'terrain' || e.app === 'terrain')
-      const wd = ctx.currentWorldDef
-      const reseededWd = wd ? withTerrainSeed(wd, seed) : null
-      const reseededCfg = resolveTerrainConfig(reseededWd)
-      const newCfg = reseededCfg || { ...((terrainEnt && terrainEnt.custom) || {}), seed }
-      if (wd && !reseededCfg) wd.terrain = newCfg
-      else if (wd) {
-        if (reseededWd.terrain) wd.terrain = reseededWd.terrain
-        if (Array.isArray(wd.entities)) reseededWd.entities.forEach((e, i) => { if (e !== wd.entities[i]) wd.entities[i] = e })
-      }
+      if (reseedInFlight) { connections.send(clientId, MSG.TERRAIN_CONFIG, { ok: false, error: `a terrain reseed is already running (seed ${reseedInFlightSeed})` }); return }
+      reseedInFlight = true
+      reseedInFlightSeed = seed
       ;(async () => {
         try {
-          if (ctx._terrainStreamer?.stop) ctx._terrainStreamer.stop()
-          if (ctx._terrainStreamer?._trunkStreamer?.stop) ctx._terrainStreamer._trunkStreamer.stop()
-          if (ctx._terrainStreamer?._rockStreamer?.stop) ctx._terrainStreamer._rockStreamer.stop()
-          const { setupTerrainStreaming } = await import('../terrain/TerrainPhysics.js')
-          ctx._terrainStreamer = await setupTerrainStreaming({ physics: ctx.physics, playerManager: ctx.playerManager, terrain: newCfg })
+          const { setupTerrainStreaming, stopTerrainStreaming } = await import('../terrain/TerrainPhysics.js')
+          const terrainEnt = [...appRuntime.entities.values()].find(e => e._appName === 'terrain' || e.app === 'terrain')
+          const wd = ctx.currentWorldDef
+          const previousCfg = resolveTerrainConfig(wd) || null
+          const terrainEntCfg = terrainEnt && terrainEnt.custom ? terrainEnt.custom : null
+          if (!previousCfg && !terrainEntCfg) {
+            connections.broadcast(MSG.TERRAIN_CONFIG, { ok: false, restored: true, error: 'this world has no terrain config to reseed: neither its world def nor its terrain entity carries one' })
+            return
+          }
+          const reseededWd = wd ? withTerrainSeed(wd, seed) : null
+          const reseededCfg = resolveTerrainConfig(reseededWd)
+          const newCfg = reseededCfg || { ...terrainEntCfg, seed }
           const worldId = appRuntime.worldName || wd?.name || (typeof process !== 'undefined' && process.env?.WORLD) || 'world'
-          const newMinimap = minimapDescriptor(worldId, newCfg)
-          if (wd) wd._minimap = newMinimap
-          connections.broadcast(MSG.TERRAIN_CONFIG, { ok: true, config: newCfg, minimap: newMinimap })
-          if (isNode && newCfg.enabled !== false && Number.isFinite(newCfg.seed)) {
-            _bakeMinimapIfMissing?.(worldId, newCfg, { force: true }).catch(e => console.error('[minimap] reseed re-bake failed:', e?.message || e))
+          const applyReseededWorldDef = () => {
+            if (!wd) return
+            if (!reseededCfg) wd.terrain = newCfg
+            else {
+              if (reseededWd.terrain) wd.terrain = reseededWd.terrain
+              if (Array.isArray(wd.entities)) reseededWd.entities.forEach((e, i) => { if (e !== wd.entities[i]) wd.entities[i] = e })
+            }
+          }
+          const previous = ctx._terrainStreamer
+          const carriedEdits = previous ? {
+            heightDeltaJSON: previous.heightDelta?.toJSON?.() ?? null,
+            biomeOverrideJSON: previous.biomeOverride?.toJSON?.() ?? null,
+            splineCarveJSON: previous.splineCarve?.toJSON?.() ?? null,
+            caveCarveJSON: previous.caveCarve?.toJSON?.() ?? null,
+          } : {}
+          const build = cfg => setupTerrainStreaming({ physics: ctx.physics, playerManager: ctx.playerManager, terrain: cfg, ...carriedEdits })
+          const replace = async cfg => {
+            stopTerrainStreaming(ctx.physics, ctx._terrainStreamer || ctx.physics?._terrainStreamer)
+            ctx._terrainStreamer = null
+            const built = await build(cfg)
+            if (!built) throw new Error(`the terrain built no collider streamer (seed ${cfg?.seed}); this world keeps the terrain it had before the reseed`)
+            ctx._terrainStreamer = built
+            return built
+          }
+          try {
+            await replace(newCfg)
+            applyReseededWorldDef()
+            const newMinimap = minimapDescriptor(worldId, newCfg)
+            if (wd) wd._minimap = newMinimap
+            connections.broadcast(MSG.TERRAIN_CONFIG, { ok: true, config: newCfg, minimap: newMinimap })
+            if (isNode && newCfg.enabled !== false && Number.isFinite(newCfg.seed)) {
+              _bakeMinimapIfMissing?.(worldId, newCfg, { force: true }).catch(e => console.error('[minimap] reseed re-bake failed:', e?.message || e))
+            }
+          } catch (e) {
+            console.error('[terrain] reseed failed:', e?.message || e)
+            let restored = false
+            if (!previousCfg) restored = true
+            else {
+              try { await replace(previousCfg); restored = true }
+              catch (restoreErr) {
+                console.error('[terrain] reseed rollback failed, this world now has no terrain colliders:', restoreErr?.message || restoreErr)
+                stopTerrainStreaming(ctx.physics, ctx._terrainStreamer)
+                ctx._terrainStreamer = null
+              }
+            }
+            connections.broadcast(MSG.TERRAIN_CONFIG, { ok: false, error: e?.message || String(e), restored })
           }
         } catch (e) {
-          console.error('[terrain] reseed failed:', e?.message || e)
-          connections.send(clientId, MSG.TERRAIN_CONFIG, { ok: false, error: e?.message || String(e) })
+          console.error('[terrain] reseed failed before it could touch the terrain:', e?.message || e)
+          connections.broadcast(MSG.TERRAIN_CONFIG, { ok: false, error: e?.message || String(e), restored: true })
+        } finally {
+          reseedInFlight = false
+          reseedInFlightSeed = null
         }
       })()
     },

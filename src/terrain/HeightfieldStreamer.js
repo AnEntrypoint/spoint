@@ -85,7 +85,7 @@ export function createTerrainStreamer(opts = {}) {
   const half = extent / 2
   const fields = []
   const getEpoch = typeof opts.getEpoch === 'function' ? opts.getEpoch : () => 0
-  let queue = Promise.resolve(), busy = false, disposed = false, _timer = null, rebuildCount = 0, capWarned = false, staleEpochDiscards = 0
+  let queue = Promise.resolve(), busy = false, disposed = false, _timer = null, rebuildCount = 0, capWarned = false, staleEpochDiscards = 0, lastError = null
   let lattice = null
 
   function validCenters() {
@@ -305,7 +305,7 @@ export function createTerrainStreamer(opts = {}) {
     const run = queue.then(async () => {
       if (disposed || !heightFn) return null
       busy = true
-      try { return await work() } catch (e) { console.error('[terrain] streamer error:', e?.message || e); return null } finally { busy = false }
+      try { return await work() } catch (e) { lastError = e; console.error('[terrain] streamer error:', e?.message || e); return null } finally { busy = false }
     })
     queue = run
     return run
@@ -328,10 +328,12 @@ export function createTerrainStreamer(opts = {}) {
   }
 
   async function start(fallbackCenter = [0, 0]) {
+    if (disposed) throw new Error('[terrain] heightfield streamer start() after stop(): a stopped streamer never builds again')
     const players = validCenters()
     const seed = players.length ? players[0] : fallbackCenter
     const coarseN = N >= 16 ? Math.round(N / 2) + (Math.round(N / 2) % 2) : 0
     let coarseBodyId = null
+    lastError = null
     await enqueue(async () => {
       const first = await buildField(seed[0], seed[1], coarseN || N)
       if (!first || disposed) return
@@ -344,6 +346,7 @@ export function createTerrainStreamer(opts = {}) {
         console.log(`[terrain] planet heightfield N=${N} extent=${extent}m spacing=${spacing.toFixed(2)}m built ${first.wallMs.toFixed(0)}ms(sample ${first.sampleMs.toFixed(0)}ms) id=${first.bodyId}`)
       }
     })
+    if (lastError && !fields.length) throw lastError
     if (coarseBodyId != null) enqueue(() => refineField(coarseBodyId, coarseN, seed[0], seed[1]))
     if (!disposed) _timer = setTimeout(tick, intervalMs)
   }
@@ -353,6 +356,7 @@ export function createTerrainStreamer(opts = {}) {
     if (_timer) clearTimeout(_timer)
     for (const f of fields) { try { physics.removeBody(f.bodyId) } catch (_) {} }
     fields.length = 0
+    try { physics.setTerrainBodyId(null) } catch (_) {}
   }
 
   return {

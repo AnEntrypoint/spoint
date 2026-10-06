@@ -141,6 +141,24 @@ async function createGpuPatchHeightFn({ frame, tcfg, offsetY }) {
   return createPatchHeightFn({ baker, frame, maxLevel: Number.isFinite(tcfg.maxLevel) ? tcfg.maxLevel : DEFAULT_PATCH_MAX_LEVEL, offsetY, fallbackFn: fractalGHL })
 }
 
+export function stopTerrainStreaming(physics, streamer) {
+  if (!streamer) return
+  const failures = []
+  const stopOne = (target, what) => {
+    if (!target || typeof target.stop !== 'function') return
+    try { target.stop() } catch (e) { failures.push(new Error(`[terrain] ${what} stop() failed: ${e?.message || e}`, { cause: e })) }
+  }
+  stopOne(streamer._trunkStreamer, 'trunk collider streamer')
+  stopOne(streamer._rockStreamer, 'rock collider streamer')
+  stopOne(streamer, 'heightfield streamer')
+  if (physics) {
+    if (typeof physics.setTerrainHeightSource === 'function') physics.setTerrainHeightSource(null, null, 0)
+    if (typeof physics.setTerrainBodyId === 'function') physics.setTerrainBodyId(null)
+    if (physics._terrainStreamer === streamer) physics._terrainStreamer = null
+  }
+  if (failures.length) throw failures.length === 1 ? failures[0] : new AggregateError(failures, '[terrain] stopping terrain streaming failed')
+}
+
 export async function setupTerrainStreaming({ physics, playerManager, worldDef = null, terrain = null, heightDeltaJSON = null, biomeOverrideJSON = null, splineCarveJSON = null, caveCarveJSON = null }) {
   const tcfg = terrain || (worldDef && worldDef.terrain) || null
   if (!tcfg || tcfg.enabled === false || !physics || typeof physics.addHeightField !== 'function') return null
@@ -204,14 +222,15 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
     if (gridRes !== tphys.resolution) console.log(`[terrain] collider grid resolution -> ${gridRes.toFixed(2)}m (clamped to finest display LOD spacing; was ${tphys.resolution})`)
   }
   const streamer = createTerrainStreamer({ physics, getCenters, heightFn, extent: tphys.extent || 510, resolution: gridRes, maxFields: tphys.maxFields, getEpoch: () => frame.chartEpoch })
-  await streamer.start(tcfg.center || [0, 0])
-  const offsetYNotFoldedIntoHeightFn = 0
-  physics.setTerrainHeightSource(guardedGroundHeight('server physics terrain height', heightFn, NaN), frame, offsetYNotFoldedIntoHeightFn)
-
-  let trunkStreamer = null
-  let rockStreamer = null
-  const vcfg = tcfg.vegetation || null
+  physics._terrainStreamer = streamer
   try {
+    await streamer.start(tcfg.center || [0, 0])
+    const offsetYNotFoldedIntoHeightFn = 0
+    physics.setTerrainHeightSource(guardedGroundHeight('server physics terrain height', heightFn, NaN), frame, offsetYNotFoldedIntoHeightFn)
+
+    let trunkStreamer = null
+    let rockStreamer = null
+    const vcfg = tcfg.vegetation || null
     if (vcfg && vcfg.colliders) {
       try {
         const { createTrunkColliderStreamer } = await import('./VegPhysics.js')
@@ -219,6 +238,7 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
           physics, getCenters, frame, anchorField: paintedAnchorField, worldSeed: tcfg.seed | 0,
           radius: vcfg.colliderRadius || 64, cap: vcfg.colliderCap || 384, byteBudget: vcfg.colliderByteBudget, maxCenters: vcfg.colliderMaxCenters,
         })
+        streamer._trunkStreamer = trunkStreamer
         await trunkStreamer.start()
       } catch (e) { throw new Error(`[veg] trunk collider streamer failed: ${e?.message || e}`, { cause: e }) }
     }
@@ -229,48 +249,45 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
           physics, getCenters, frame, anchorField: paintedAnchorField, worldSeed: tcfg.seed | 0,
           radius: vcfg.rockColliderRadius || 32, cap: vcfg.rockColliderCap || 128, byteBudget: vcfg.rockColliderByteBudget, maxCenters: vcfg.colliderMaxCenters,
         })
+        streamer._rockStreamer = rockStreamer
         await rockStreamer.start()
       } catch (e) { throw new Error(`[rocks] rock collider streamer failed: ${e?.message || e}`, { cause: e }) }
     }
+    streamer.biomeOverride = biomeOverride
+    streamer.splineCarve = splineCarve
+    streamer.caveCarve = caveCarve
+    streamer.repaintBiome = async function repaintBiome() {
+      if (trunkStreamer) { trunkStreamer.clearChunkCache(); await trunkStreamer._rebuildMulti((trunkStreamer.centers && trunkStreamer.centers.length) ? trunkStreamer.centers : getCenters(), true) }
+      if (rockStreamer) { rockStreamer.clearChunkCache(); await rockStreamer._rebuildMulti((rockStreamer.centers && rockStreamer.centers.length) ? rockStreamer.centers : getCenters(), true) }
+    }
+    streamer.heightDelta = heightDelta
+    streamer.chartReanchor = tcfg.chartReanchor?.enabled === true
+      ? createChartReanchorService({
+        frame, radius: tcfg.radius, anchorsPerFace: tcfg.chartReanchor.anchorsPerFace, hysteresisDeg: tcfg.chartReanchor.hysteresisDeg,
+        playerDirs: () => getCenters().map(([x, z]) => frame.localToDir(x, z)),
+      })
+      : null
+    if (streamer.chartReanchor) {
+      const terrainReanchor = createTerrainReanchor({
+        frame, sampler, offsetY, reliefScale: tcfg.reliefScale, physics, heightStreamer: streamer,
+        colliderStreamers: [trunkStreamer, rockStreamer].filter(Boolean),
+        getPlayers: getCenters,
+        blockers: [
+          () => physics._terrainHeightSource === 'gpu-patch' ? 'gpu-patch-height-function-is-bound-to-the-live-frame' : null,
+          () => heightDelta.cellCount > 0 ? 'height-delta-cells-are-chart-local' : null,
+          () => biomeOverride.cellCount > 0 ? 'biome-override-cells-are-chart-local' : null,
+          () => splineCarve.cellCount > 0 ? 'spline-carve-cells-are-chart-local' : null,
+          () => caveCarve.volumeCount > 0 ? 'cave-volumes-are-chart-local' : null,
+        ],
+      })
+      streamer.chartReanchor.addTerrainMigrator({ gate: terrainReanchor.gate, migrate: terrainReanchor.migrate })
+      streamer.terrainReanchor = terrainReanchor
+    }
+    streamer.baseHeightFn = baseHeightFn
   } catch (e) {
-    if (trunkStreamer?.stop) trunkStreamer.stop()
-    if (rockStreamer?.stop) rockStreamer.stop()
-    if (streamer.stop) streamer.stop()
+    try { stopTerrainStreaming(physics, streamer) }
+    catch (teardownErr) { console.error('[terrain] tearing down the terrain after a failed setup failed:', teardownErr?.message || teardownErr) }
     throw e
   }
-  streamer._trunkStreamer = trunkStreamer
-  streamer._rockStreamer = rockStreamer
-  streamer.biomeOverride = biomeOverride
-  streamer.splineCarve = splineCarve
-  streamer.caveCarve = caveCarve
-  streamer.repaintBiome = async function repaintBiome() {
-    if (trunkStreamer) { trunkStreamer.clearChunkCache(); await trunkStreamer._rebuildMulti((trunkStreamer.centers && trunkStreamer.centers.length) ? trunkStreamer.centers : getCenters(), true) }
-    if (rockStreamer) { rockStreamer.clearChunkCache(); await rockStreamer._rebuildMulti((rockStreamer.centers && rockStreamer.centers.length) ? rockStreamer.centers : getCenters(), true) }
-  }
-  streamer.heightDelta = heightDelta
-  streamer.chartReanchor = tcfg.chartReanchor?.enabled === true
-    ? createChartReanchorService({
-      frame, radius: tcfg.radius, anchorsPerFace: tcfg.chartReanchor.anchorsPerFace, hysteresisDeg: tcfg.chartReanchor.hysteresisDeg,
-      playerDirs: () => getCenters().map(([x, z]) => frame.localToDir(x, z)),
-    })
-    : null
-  if (streamer.chartReanchor) {
-    const terrainReanchor = createTerrainReanchor({
-      frame, sampler, offsetY, reliefScale: tcfg.reliefScale, physics, heightStreamer: streamer,
-      colliderStreamers: [trunkStreamer, rockStreamer].filter(Boolean),
-      getPlayers: getCenters,
-      blockers: [
-        () => physics._terrainHeightSource === 'gpu-patch' ? 'gpu-patch-height-function-is-bound-to-the-live-frame' : null,
-        () => heightDelta.cellCount > 0 ? 'height-delta-cells-are-chart-local' : null,
-        () => biomeOverride.cellCount > 0 ? 'biome-override-cells-are-chart-local' : null,
-        () => splineCarve.cellCount > 0 ? 'spline-carve-cells-are-chart-local' : null,
-        () => caveCarve.volumeCount > 0 ? 'cave-volumes-are-chart-local' : null,
-      ],
-    })
-    streamer.chartReanchor.addTerrainMigrator({ gate: terrainReanchor.gate, migrate: terrainReanchor.migrate })
-    streamer.terrainReanchor = terrainReanchor
-  }
-  streamer.baseHeightFn = baseHeightFn
-  physics._terrainStreamer = streamer
   return streamer
 }

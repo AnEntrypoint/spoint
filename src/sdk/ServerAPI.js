@@ -5,7 +5,7 @@ import { createStaticHandler } from './StaticHandler.js'
 import { WebSocketTransport } from '../transport/WebSocketTransport.js'
 import { WebTransportServer } from '../transport/WebTransportServer.js'
 import { createUploadHandler } from './UploadHandler.js'
-import { setupTerrainStreaming } from '../terrain/TerrainPhysics.js'
+import { setupTerrainStreaming, stopTerrainStreaming } from '../terrain/TerrainPhysics.js'
 import { attachServerChartMigrators } from './chartState/index.js'
 import { restoreWorldSnapshot, saveWorldSnapshot, worldDefFingerprint } from './WorldPersistence.js'
 import {
@@ -191,9 +191,9 @@ export function createServerAPI(ctx) {
       reloadManager.destroy()
       connections.destroy()
       sessions.destroyAll()
-      if (ctx._terrainStreamer?.stop) ctx._terrainStreamer.stop()
-      if (ctx._terrainStreamer?._trunkStreamer?.stop) ctx._terrainStreamer._trunkStreamer.stop()
-      if (ctx._terrainStreamer?._rockStreamer?.stop) ctx._terrainStreamer._rockStreamer.stop()
+      try { stopTerrainStreaming(physics, ctx._terrainStreamer || physics._terrainStreamer) }
+      catch (e) { console.error('[terrain] stopping terrain streaming during shutdown failed:', e?.message || e) }
+      ctx._terrainStreamer = null
       if (ctx.wtServer) ctx.wtServer.stop()
       if (ctx.wss) ctx.wss.close()
       if (ctx.httpServer) ctx.httpServer.close()
