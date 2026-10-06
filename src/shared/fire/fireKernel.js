@@ -7,7 +7,8 @@ const UNBURNT = 0
 const BURNING = 1
 const BURNT = 2
 const TILE_SHIFT = 3
-const TILE_SIZE = 1 << TILE_SHIFT
+export const TILE_AXIS_CELLS = 1 << TILE_SHIFT
+const TILE_SIZE = TILE_AXIS_CELLS
 const TILE_MASK = TILE_SIZE - 1
 const TILE_CELLS = TILE_SIZE * TILE_SIZE
 const TILE_CELL_SHIFT = 6
@@ -59,6 +60,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
   if (!(maxActiveCells >= softActiveCells)) throw new RangeError('[fireKernel] maxActiveCells must be at least softActiveCells')
 
   const n = lattice.cellsPerFace
+  if (!Number.isInteger(n) || n < 1) throw new RangeError(`[fireKernel] the lattice must span a positive integer number of cells per face, got ${n}`)
   const tilesPerAxis = Math.ceil(n / TILE_SIZE)
   const partialLastTile = n % TILE_SIZE !== 0
   const cellCapacity = maxTiles * TILE_CELLS
@@ -937,6 +939,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     const scar = new Int32Array(scarCount * 2)
     for (let i = 0, p = scarHead; i < scarCount; i++, p = p + 1 === scarRingSize ? 0 : p + 1) { scar[i * 2] = scarRing[p]; scar[i * 2 + 1] = scarAt[p] }
     return {
+      cellsPerFace: n,
       tileCount, activeCount, activeTileCount, scarCount, stepStart, stepIndex, nextStepTick, phase, cursor, phaseEnd, writePtr, quota, stepInterval, moisture, rain, eventSeq,
       wind: wind.slice(), pending: pending.map(e => ({ ...e })), stats: { ...stats },
       classFuel: fuelInit.slice(),

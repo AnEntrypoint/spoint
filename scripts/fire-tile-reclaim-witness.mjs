@@ -2,9 +2,10 @@ import { createPlanetFrame } from '../src/terrain/PlanetFrame.js'
 import { VEG } from '../src/terrain/VegPlacement.js'
 import { latticeFor } from '../src/terrain/PlacementChart.js'
 import { createFireLattice } from '../src/shared/fire/fireLattice.js'
-import { createFireKernel, FIRE_EVENT } from '../src/shared/fire/fireKernel.js'
+import { createFireKernel, FIRE_EVENT, TILE_AXIS_CELLS } from '../src/shared/fire/fireKernel.js'
 import { defineFire } from '../src/behaviours/fire.js'
-import { encodeFireKeyframe, decodeFireKeyframe } from '../src/shared/fire/fireKeyframe.js'
+import { encodeFireKeyframe, decodeFireKeyframe, keyframeToBase64 } from '../src/shared/fire/fireKeyframe.js'
+import { FIRE_WIRE_TYPE } from '../src/shared/fire/fireWire.js'
 
 function say(line) { console.log(line) }
 
@@ -18,13 +19,13 @@ const FIRES = 20
 const REGROW_STEPS = 30
 const MAX_TILES = 4096
 
-function build(regrowSteps, windowSteps = 5, extra = null) {
+function build(regrowSteps, windowSteps = 5, extra = null, cellDivisor = 2) {
   const sampler = {
     radius: 63600,
     heightAt(dir) { return 150 * Math.sin(dir[0] * 11) * Math.cos(dir[2] * 11) + 60 * Math.sin(dir[1] * 17 + dir[0] * 5) },
   }
   const frame = createPlanetFrame({ sampler, anchorDir: [0, 1, 0], offsetY: 0, reliefScale: 0.01 })
-  const lattice = createFireLattice(latticeFor(frame, VEG), 2)
+  const lattice = createFireLattice(latticeFor(frame, VEG), cellDivisor)
   const clock = { tick: 0 }
   const ctx = {
     time: { get tick() { return clock.tick }, get deltaTime() { return 1 / 60 }, get elapsed() { return clock.tick / 60 } },
@@ -36,6 +37,7 @@ function build(regrowSteps, windowSteps = 5, extra = null) {
   }
   const fire = defineFire({
     stepTicks: 10, maxTiles: MAX_TILES, maxActiveCells: 262144, softActiveCells: 131072, windowSteps,
+    cellsPerFireCell: cellDivisor,
     regrowSteps, seed: 5, leadTicks: 4, checksumEverySteps: 1, rewind: true, role: 'authority',
     ...(extra === null ? {} : extra),
   }, ctx, () => frame, () => null, () => null)
@@ -248,6 +250,7 @@ ignitePatch(kf.fire, kf.half, 0, 0)
 runTo(kf.clock, kf.fire, kf.clock.tick + 120)
 const wire = encodeFireKeyframe({ tick: kf.clock.tick, snapshot: kf.kernel.snapshot() })
 const HEADER_BYTES = 24
+const axisTiles = Math.ceil(kf.lattice.cellsPerFace / TILE_AXIS_CELLS)
 const HASH_SEED = 0x811c9dc5, HASH_PRIME = 0x01000193
 function fnv1a(bytes) {
   let h = HASH_SEED
@@ -263,15 +266,19 @@ const sealed = decodeFireKeyframe(reseal(Uint8Array.from(wire)))
 say(`  ${wire.byteLength} B keyframe decodes to ${good.snapshot.tileCount} tile(s), and re-sealing its own checksum still decodes to ${sealed.snapshot.tileCount}`)
 expect(good.snapshot.tileCount > 0, `the encoded keyframe carries ${good.snapshot.tileCount} tile(s)`)
 expect(sealed.snapshot.tileCount === good.snapshot.tileCount, `re-sealing the checksum changed the decode from ${good.snapshot.tileCount} to ${sealed.snapshot.tileCount} tiles`)
-let rejected = 0, accepted = 0, crashed = 0
+let rejected = 0, accepted = 0, crashed = 0, outOfLatticeAccepted = 0
 const crashes = []
 for (const value of [0x7fffffff, 255, 6]) {
-  for (let off = 0; off + 4 <= wire.byteLength; off += 4) {
+  const step = 4
+  for (let off = 0; off + 4 <= wire.byteLength; off += step) {
     const copy = Uint8Array.from(wire)
     new DataView(copy.buffer, copy.byteOffset, copy.byteLength).setUint32(off, value, true)
     try {
-      decodeFireKeyframe(reseal(copy))
+      const decoded = decodeFireKeyframe(reseal(copy))
       accepted++
+      for (let t = 0; t < decoded.snapshot.tileCount; t++) {
+        if (decoded.snapshot.tileI[t] < 0 || decoded.snapshot.tileI[t] >= axisTiles || decoded.snapshot.tileJ[t] < 0 || decoded.snapshot.tileJ[t] >= axisTiles) { outOfLatticeAccepted++; break }
+      }
     } catch (e) {
       const message = String(e && e.message)
       if (message.startsWith('[fireKeyframe]')) rejected++
@@ -279,9 +286,28 @@ for (const value of [0x7fffffff, 255, 6]) {
     }
   }
 }
-say(`  ${rejected + accepted + crashed} tampered keyframes (every 4-byte word resealed to 0x7fffffff, 255 and 6): ${rejected} rejected with a named fireKeyframe error, ${accepted} accepted, ${crashed} failing with anything else ${crashes.join(' | ')}`)
 expect(rejected > 0, `no tampered keyframe was rejected, so the decode boundary was never exercised`)
 expect(crashed === 0, `${crashed} tampered keyframe(s) failed with something other than a named fireKeyframe rejection: ${crashes.join(' | ')}`)
+expect(accepted > 0, `no tampered keyframe was accepted, so the decode bound rejected everything and proves nothing`)
+outOfLatticeAccepted = 0
+for (let off = 0; off + 4 <= wire.byteLength; off += 1) {
+  const copy = Uint8Array.from(wire)
+  new DataView(copy.buffer, copy.byteOffset, copy.byteLength).setUint32(off, axisTiles, true)
+  try {
+    const decoded = decodeFireKeyframe(reseal(copy))
+    accepted++
+    for (let t = 0; t < decoded.snapshot.tileCount; t++) {
+      if (decoded.snapshot.tileI[t] < 0 || decoded.snapshot.tileI[t] >= axisTiles || decoded.snapshot.tileJ[t] < 0 || decoded.snapshot.tileJ[t] >= axisTiles) { outOfLatticeAccepted++; break }
+    }
+  } catch (e) {
+    const message = String(e && e.message)
+    if (message.startsWith('[fireKeyframe]')) rejected++
+    else { crashed++; if (crashes.length < 3) crashes.push(message) }
+  }
+}
+expect(outOfLatticeAccepted === 0, `${outOfLatticeAccepted} accepted tampered keyframe(s) carry a tile outside the lattice`)
+say(`  ${rejected + accepted + crashed} tampered keyframes (every 4-byte word resealed to 0x7fffffff, 255 and 6, then every byte offset resealed to the out-of-lattice ${axisTiles}): ${rejected} rejected with a named fireKeyframe error, ${accepted} accepted, ${crashed} failing with anything else ${crashes.join(' | ')}`)
+say(`  of the ${accepted} accepted tampered keyframe(s), ${outOfLatticeAccepted} carry a tile whose I or J falls outside 0..${axisTiles - 1}`)
 const badFace = kf.kernel.snapshot()
 badFace.tileFace[0] = 6
 let faceReject = null
@@ -294,4 +320,53 @@ const sentinel = decodeFireKeyframe(encodeFireKeyframe({ tick: kf.clock.tick, sn
 say(`  the free-tile sentinel still decodes: ${sentinel.snapshot.tileCount} tile(s), face of tile 0 ${sentinel.snapshot.tileFace[0]}`)
 expect(sentinel.snapshot.tileFace[0] === 255, `the decoded free-tile sentinel reads ${sentinel.snapshot.tileFace[0]}`)
 
+say('== 8. a tile whose I or J lies outside the lattice is rejected at the decode boundary ==')
+const liveSnapshot = kf.kernel.snapshot()
+say(`  the real lattice spans ${kf.lattice.cellsPerFace} cells per face, ${axisTiles} tile(s) per axis; the real keyframe carries ${liveSnapshot.tileCount} tile(s), tile 0 at ${liveSnapshot.tileI[0]},${liveSnapshot.tileJ[0]}`)
+let latticeRejected = 0
+const rejectionSamples = []
+for (const field of ['tileI', 'tileJ']) {
+  for (const value of [axisTiles, axisTiles + 1, -1, 0x7fffffff]) {
+    const shifted = kf.kernel.snapshot()
+    shifted[field][0] = value
+    const encoded = encodeFireKeyframe({ tick: kf.clock.tick, snapshot: shifted })
+    let message = null
+    try { decodeFireKeyframe(encoded) } catch (e) { message = String(e && e.message) }
+    if (message === null) { expect(false, `a keyframe whose ${field}[0] is ${value} (${axisTiles} tile(s) per axis) decoded without complaint`); continue }
+    if (!message.startsWith('[fireKeyframe]')) { expect(false, `a keyframe whose ${field}[0] is ${value} was rejected with ${message}, not a named fireKeyframe error`); continue }
+    if (!message.includes(`tile 0`) || !message.includes(String(value))) expect(false, `the rejection of ${field}[0] ${value} names neither the tile nor the offending coordinate: ${message}`)
+    latticeRejected++
+    if (rejectionSamples.length < 2) rejectionSamples.push(message)
+  }
+}
+say(`  ${latticeRejected} of 8 out-of-lattice payload(s) rejected with a named fireKeyframe error`)
+for (const m of rejectionSamples) say(`    ${m}`)
+expect(latticeRejected === 8, `${latticeRejected} of 8 out-of-lattice payload(s) were rejected, so the tile bound does not cover every coordinate`)
+const stillGood = decodeFireKeyframe(encodeFireKeyframe({ tick: kf.clock.tick, snapshot: kf.kernel.snapshot() }))
+say(`  the in-lattice payload still decodes: ${stillGood.snapshot.tileCount} tile(s), tile 0 at ${stillGood.snapshot.tileI[0]},${stillGood.snapshot.tileJ[0]}`)
+expect(stillGood.snapshot.tileCount === kf.kernel.tileCount, `the in-lattice payload decoded to ${stillGood.snapshot.tileCount} tile(s) against a kernel of ${kf.kernel.tileCount}`)
+expect(stillGood.snapshot.tileI[0] === liveSnapshot.tileI[0] && stillGood.snapshot.tileJ[0] === liveSnapshot.tileJ[0], `the in-lattice payload decoded tile 0 to ${stillGood.snapshot.tileI[0]},${stillGood.snapshot.tileJ[0]} against ${liveSnapshot.tileI[0]},${liveSnapshot.tileJ[0]}`)
+
+say('')
+say('== 9. a keyframe encoded against a different lattice is refused by applyRemote ==')
+const foreign = build(REGROW_STEPS, 5, null, 4)
+ignitePatch(foreign.fire, foreign.half, 0, 0)
+runTo(foreign.clock, foreign.fire, foreign.clock.tick + 120)
+const foreignSnapshot = foreign.kernel.snapshot()
+const foreignB64 = keyframeToBase64(encodeFireKeyframe({ tick: foreign.clock.tick, snapshot: foreignSnapshot }))
+let foreignError = null
+try { kf.fire.applyRemote({ type: FIRE_WIRE_TYPE, k: [foreign.clock.tick, 0, foreignB64] }) } catch (e) { foreignError = String(e && e.message) }
+say(`  ${foreignSnapshot.tileCount} tile(s) from a ${foreign.lattice.cellsPerFace}-cell lattice, tile 0 at ${foreignSnapshot.tileI[0]},${foreignSnapshot.tileJ[0]}: ${foreignError ?? 'ADOPTED'}`)
+expect(foreign.lattice.cellsPerFace !== kf.lattice.cellsPerFace, `the second rig spans ${foreign.lattice.cellsPerFace} cells per face, the same as the first, so the cross-lattice case never arose`)
+expect(foreignSnapshot.tileCount > 0, `the foreign keyframe carries ${foreignSnapshot.tileCount} tile(s), so the cross-lattice case never exercised a tile`)
+expect(foreignError !== null, `applyRemote adopted a keyframe whose ${foreign.lattice.cellsPerFace} cells per face differ from this world's ${kf.lattice.cellsPerFace}`)
+expect(foreignError !== null && foreignError.startsWith('[fire]'), `the cross-lattice refusal reads ${foreignError}, not a named fire error`)
+expect(foreignError !== null && foreignError.includes(String(foreign.lattice.cellsPerFace)) && foreignError.includes(String(kf.lattice.cellsPerFace)), `the cross-lattice refusal names neither lattice extent: ${foreignError}`)
+const ownB64 = keyframeToBase64(encodeFireKeyframe({ tick: kf.clock.tick, snapshot: kf.kernel.snapshot() }))
+let ownError = null
+try { kf.fire.applyRemote({ type: FIRE_WIRE_TYPE, k: [kf.clock.tick, kf.kernel.checksum(), ownB64] }) } catch (e) { ownError = String(e && e.message) }
+say(`  the matching-lattice keyframe: ${ownError ?? `ADOPTED, checksum ${kf.kernel.checksum()}`}`)
+expect(ownError === null || !ownError.includes('cells per face'), `the matching-lattice keyframe was refused by the lattice check: ${ownError}`)
+
 if (failures > 0) { say(`${failures} check(s) failed`); process.exitCode = 1 }
+say(failures === 0 ? `RESULT: PASS -- ${latticeRejected}/8 out-of-lattice payload(s) rejected, 0 of ${accepted} accepted tampered keyframe(s) carry an out-of-lattice tile, ${foreignError === null ? 0 : 1}/1 cross-lattice payload(s) refused by applyRemote, the in-lattice payload still decodes` : `RESULT: FAIL (${failures} check(s))`)

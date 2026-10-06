@@ -309,6 +309,7 @@ export function defineFire(spec = {}, appCtx = null, frameOf = null, weatherOf =
         if (!Array.isArray(payload.k) || payload.k.length !== 3 || !Number.isSafeInteger(payload.k[0]) || typeof payload.k[1] !== 'number' || typeof payload.k[2] !== 'string') throw new TypeError(`[fire] malformed keyframe row ${JSON.stringify(payload.k)}`)
         const decoded = decodeFireKeyframe(keyframeFromBase64(payload.k[2]))
         if (decoded.tick !== payload.k[0]) throw new TypeError(`[fire] keyframe carries tick ${decoded.tick} but the message declares ${payload.k[0]}`)
+        if (decoded.snapshot.cellsPerFace !== lattice.cellsPerFace) throw new RangeError(`[fire] the keyframe at tick ${decoded.tick} spans ${decoded.snapshot.cellsPerFace} cells per face, this world's fire lattice spans ${lattice.cellsPerFace}`)
         timeline.adopt(decoded.snapshot, decoded.tick)
         for (const ev of decoded.log) timeline.submit(ev)
         const local = timeline.checksum()

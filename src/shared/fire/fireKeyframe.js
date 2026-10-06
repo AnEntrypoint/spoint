@@ -1,7 +1,7 @@
-import { FIRE_EVENT, FIRE_STATE, FACE_FREE, FACE_COUNT } from './fireKernel.js'
+import { FIRE_EVENT, FIRE_STATE, FACE_FREE, FACE_COUNT, TILE_AXIS_CELLS } from './fireKernel.js'
 
 const MAGIC = 0x46524b31
-const VERSION = 4
+const VERSION = 5
 const HEADER_BYTES = 24
 const TILE_CELL_SHIFT = 6
 const TILE_CELLS = 1 << TILE_CELL_SHIFT
@@ -22,7 +22,7 @@ const PHASE_B64 = 5
 const PHASE_DONE = 6
 const SLOT_FIELDS = ['face', 'I', 'J', 'source', 'radius', 'value', 'wx', 'wy', 'wz']
 const SCALAR_F64 = ['stepStart', 'nextStepTick']
-const SCALAR_U32 = ['tileCount', 'activeCount', 'activeTileCount', 'scarCount', 'stepIndex', 'phase', 'cursor', 'phaseEnd', 'writePtr', 'quota', 'stepInterval', 'moisture', 'rain', 'eventSeq']
+const SCALAR_U32 = ['cellsPerFace', 'tileCount', 'activeCount', 'activeTileCount', 'scarCount', 'stepIndex', 'phase', 'cursor', 'phaseEnd', 'writePtr', 'quota', 'stepInterval', 'moisture', 'rain', 'eventSeq']
 const STAT_FIELDS = ['steps', 'cellsVisited', 'ignitions', 'spots', 'deniedActivations', 'deniedTiles', 'slowSteps']
 const TILE_ARRAYS = [
   ['tileFace', Uint8Array], ['tileI', Int32Array], ['tileJ', Int32Array], ['maskLo', Uint32Array], ['maskHi', Uint32Array],
@@ -119,6 +119,9 @@ export function createKeyframeEncoder({ tick, snapshot, logOf = () => [] }) {
   const classFuel = snapshot.classFuel
   if (!classFuel) throw new TypeError('[fireKeyframe] the snapshot carries no classFuel; a keyframe needs the kernel fuel table')
   const tileCount = snapshot.tileCount ?? 0
+  const cellsPerFace = snapshot.cellsPerFace
+  if (!Number.isInteger(cellsPerFace) || cellsPerFace < 1) throw new TypeError(`[fireKeyframe] a keyframe needs a positive lattice extent to bound its tiles, got cellsPerFace ${snapshot.cellsPerFace}`)
+  const tilesPerAxis = Math.ceil(cellsPerFace / TILE_AXIS_CELLS)
   const cells = tileCount << TILE_CELL_SHIFT
   const cls = snapshot.cls
   if (!cls || cls.length < cells) throw new TypeError(`[fireKeyframe] the snapshot carries ${cls ? cls.length : 0} class entries for ${cells} cells`)
@@ -326,6 +329,9 @@ export function decodeFireKeyframe(bytes) {
   const tick = r.f64()
   const snapshot = { pending: [], stats: {} }
   for (const f of SCALAR_U32) snapshot[f] = r.u32()
+  const cellsPerFace = snapshot.cellsPerFace
+  if (!Number.isInteger(cellsPerFace) || cellsPerFace < 1) throw new TypeError(`[fireKeyframe] keyframe declares ${cellsPerFace} cells per face, which is not a lattice extent that can bound its tiles`)
+  const tilesPerAxis = Math.ceil(cellsPerFace / TILE_AXIS_CELLS)
   for (const f of SCALAR_F64) snapshot[f] = r.f64()
   snapshot.wind = new Int32Array([r.i32(), r.i32(), r.i32()])
   for (const f of STAT_FIELDS) snapshot.stats[f] = r.f64()
@@ -349,9 +355,14 @@ export function decodeFireKeyframe(bytes) {
     snapshot[name] = length > 0 ? r.typed(Ctor, length) : new Ctor(0)
   }
   const faces = snapshot.tileFace
+  const tileIs = snapshot.tileI
+  const tileJs = snapshot.tileJ
+  if (tileIs.length < tileCount || tileJs.length < tileCount) throw new TypeError(`[fireKeyframe] keyframe declares ${tileCount} tile(s) but carries ${tileIs.length} tile I and ${tileJs.length} tile J entries`)
   for (let t = 0; t < tileCount; t++) {
     const f = faces[t]
     if (f !== FACE_FREE && f >= FACE_COUNT) throw new TypeError(`[fireKeyframe] keyframe tile ${t} carries face ${f}, which is neither a cube face nor the free-tile sentinel`)
+    if (tileIs[t] < 0 || tileIs[t] >= tilesPerAxis) throw new TypeError(`[fireKeyframe] keyframe tile ${t} carries tile I ${tileIs[t]}, outside the ${tilesPerAxis} tile(s) per axis its ${cellsPerFace} cells per face span`)
+    if (tileJs[t] < 0 || tileJs[t] >= tilesPerAxis) throw new TypeError(`[fireKeyframe] keyframe tile ${t} carries tile J ${tileJs[t]}, outside the ${tilesPerAxis} tile(s) per axis its ${cellsPerFace} cells per face span`)
   }
   const declaredScars = r.u32()
   if (declaredScars !== snapshot.scarCount) throw new TypeError(`[fireKeyframe] keyframe declares ${declaredScars} scars, its scalars say ${snapshot.scarCount}`)
