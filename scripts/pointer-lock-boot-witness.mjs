@@ -95,6 +95,7 @@ async function main() {
     server.stop()
 
     const failures = []
+    if (observedMs <= 0) failures.push(`observed ${Math.round(observedMs)}ms of the ${Math.round(OBSERVE_MS)}ms window: the page consumed the whole budget before it was ready, so no console output was witnessed`)
     if (pointerEvents.length) failures.push(`${pointerEvents.length} pointer-lock console event(s): ${pointerEvents[0].text.slice(0, 200)}`)
     if (!lockAfterClick) failures.push(`clicking the canvas did not lock the pointer (state=${JSON.stringify(stateAfterClick)})`)
     if (failures.length) {
