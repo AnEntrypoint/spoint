@@ -563,7 +563,7 @@ export declare class AppContext {
             resculpt: () => Promise<any>;
             readonly fields: {
                 bodyId: any;
-                center: any[];
+                center: any;
             }[];
             readonly center: any[] | null;
             readonly bodyId: any;
