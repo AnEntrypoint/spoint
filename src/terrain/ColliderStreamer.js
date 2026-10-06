@@ -124,6 +124,12 @@ export function createColliderStreamer(spec = {}) {
   }
   let curCenter = null, rebuilding = false, disposed = false, _timer = null, rebuildCount = 0
   let rebuildFault = null
+  let rebuildWaiters = []
+  function wakeRebuildWaiters() {
+    const pending = rebuildWaiters
+    rebuildWaiters = []
+    for (const wake of pending) wake()
+  }
   function recordRebuildFault(e, phase, centers, resident) {
     rebuildFault = { error: e, phase, resident, cap: effectiveCap, centers }
     console.error(`${logTag} FATAL collider rebuild failed in phase ${phase} with ${resident}/${effectiveCap} collider(s) resident for ${centers} center(s), so the ring is partial and no further rebuild is scheduled:`, e)
@@ -405,15 +411,17 @@ export function createColliderStreamer(spec = {}) {
     live.delete(placementId)
     _liveIds.delete(bodyId)
   }
-  function evictOverBudget() {
+  async function evictOverBudget() {
     let evicted = 0
     if (_residentBytes <= effectiveByteBudget) return evicted
+    let deadline = _now() + ADD_BUDGET_MS
     for (const [placementId] of _lru) {
       if (_residentBytes <= effectiveByteBudget) break
       const bodyId = live.get(placementId)
       if (bodyId === undefined) { _untouch(placementId); continue }
       scheduleRemove(placementId, bodyId)
       evicted++
+      if (!_budgetOff && _now() >= deadline) { await yieldSlice(); deadline = _now() + ADD_BUDGET_MS }
     }
     return evicted
   }
@@ -432,7 +440,7 @@ export function createColliderStreamer(spec = {}) {
         if (d < nearest) nearest = d
       }
       ids.push(placementId); bodies.push(bodyId); dists.push(nearest)
-      if (ids.length % 256 === 0 && _now() >= deadline) { await yieldSlice(); deadline = _now() + ADD_BUDGET_MS }
+      if (!_budgetOff && _now() >= deadline) { await yieldSlice(); deadline = _now() + ADD_BUDGET_MS }
     }
     const order = new Array(ids.length)
     for (let i = 0; i < order.length; i++) order[i] = i
@@ -443,7 +451,7 @@ export function createColliderStreamer(spec = {}) {
       if (protect && protect.has(ids[j])) continue
       scheduleRemove(ids[j], bodies[j])
       trimmed++
-      if (trimmed % 64 === 0 && _now() >= deadline) { await yieldSlice(); deadline = _now() + ADD_BUDGET_MS }
+      if (!_budgetOff && _now() >= deadline) { await yieldSlice(); deadline = _now() + ADD_BUDGET_MS }
     }
     return trimmed
   }
@@ -502,11 +510,21 @@ export function createColliderStreamer(spec = {}) {
   let workMsTotal = 0
   let prewarmDemand = 0, prewarmKeys = 0
   const workByPhase = new Map()
-  function beginSlice() { if (!sliceStart) { sliceStart = _now(); if (!_budgetOff) _budgetDeadline = sliceStart + COMPUTE_BUDGET_MS } }
+  let sliceCpuStart = 0, maxSliceCpuMs = 0, lastSliceMaxCpuMs = 0, maxSliceCpuPhase = 'idle', lastMaxSliceCpuPhase = 'idle'
+  const cpuClock = typeof process !== 'undefined' && typeof process.cpuUsage === 'function'
+    ? () => { const u = process.cpuUsage(); return u.user + u.system }
+    : null
+  function beginSlice() { if (!sliceStart) { sliceStart = _now(); if (cpuClock) sliceCpuStart = cpuClock(); if (!_budgetOff) _budgetDeadline = sliceStart + COMPUTE_BUDGET_MS } }
   function endSlice() {
     if (!sliceStart) return
     const d = _now() - sliceStart
     sliceStart = 0
+    if (cpuClock) {
+      const c = (cpuClock() - sliceCpuStart) / 1000
+      sliceCpuStart = 0
+      if (c > lastSliceMaxCpuMs) { lastSliceMaxCpuMs = c; lastMaxSliceCpuPhase = slicePhase }
+      if (c > maxSliceCpuMs) { maxSliceCpuMs = c; maxSliceCpuPhase = slicePhase }
+    }
     workMsTotal += d
     workByPhase.set(slicePhase, (workByPhase.get(slicePhase) || 0) + d)
     if (d > lastSliceMaxMs) { lastSliceMaxMs = d; lastMaxSlicePhase = slicePhase }
@@ -546,12 +564,18 @@ export function createColliderStreamer(spec = {}) {
   }
   function clearSettled() { settledIds = null; settledFingerprint = 0 }
   async function _rebuildMulti(centers, unbudgeted = false, opts = null) {
-    if (rebuilding || disposed || !frame || typeof physics?.addBody !== 'function') return
+    if (disposed || !frame || typeof physics?.addBody !== 'function') return
+    if (rebuilding) {
+      if (!unbudgeted) return
+      await new Promise(r => rebuildWaiters.push(r))
+      if (disposed || !frame || typeof physics?.addBody !== 'function') return
+    }
     if (!Array.isArray(centers) || centers.length === 0) return
     rebuilding = true
     if (!ringBuildStartedAt) ringBuildStartedAt = _now()
     const rbT0 = _now()
     lastSliceMaxMs = 0
+    lastSliceMaxCpuMs = 0
     beginSlice()
     const scale = centerScale(centers.length)
     effectiveCap = baseCap * scale
@@ -601,17 +625,17 @@ export function createColliderStreamer(spec = {}) {
       for (let i = 0; i < desired.length; i++) {
         if (disposed) return
         if (epochOf() !== epochAtStart) { staleEpochAborts++; return true }
+        if (!_budgetOff && _now() >= addDeadline) {
+          await yieldSlice()
+          if (disposed) return
+          addDeadline = _now() + ADD_BUDGET_MS
+        }
         const p = acc.candP[desired[i]]
         if (live.has(p[idField])) {
           _touch(p[idField], _lru.get(p[idField]) ?? estimateBodyBytes(bodyArgsTimed(p, 1)))
           continue
         }
         scheduleAdd(p)
-        if (_now() >= addDeadline) {
-          await yieldSlice()
-          if (disposed) return
-          addDeadline = _now() + ADD_BUDGET_MS
-        }
       }
       if (epochOf() !== epochAtStart) { staleEpochAborts++; return true }
       addMsTotal += _now() - ta
@@ -628,7 +652,7 @@ export function createColliderStreamer(spec = {}) {
       }
       if (!_deferred) {
         markPhase('evict')
-        const evicted = evictOverBudget()
+        const evicted = await evictOverBudget()
         if (evicted > 0) console.log(`${logTag} LRU evicted ${evicted} colliders over byte budget (${_residentBytes}/${effectiveByteBudget}B resident)`)
       }
       if (finalize && !_deferred) { curCenters = centers; curCenter = centers[0] || null; lastCenterCounts = counts; rebuildCount++ }
@@ -645,7 +669,7 @@ export function createColliderStreamer(spec = {}) {
       clearSettled()
       throw e
     }
-    finally { endSlice(); ringBuildMsTotal += _now() - rbT0; rebuilding = false }
+    finally { endSlice(); ringBuildMsTotal += _now() - rbT0; rebuilding = false; wakeRebuildWaiters() }
     return _deferred
   }
   function _rebuild(cx, cz, unbudgeted = false) { return _rebuildMulti([[cx, cz]], unbudgeted) }
@@ -733,7 +757,7 @@ export function createColliderStreamer(spec = {}) {
     },
     get staleEpochAborts() { return staleEpochAborts },
     get isRebuilding() { return rebuilding },
-    stop() { disposed = true; if (_timer) clearTimeout(_timer); for (const id of live.values()) { if (id === _PENDING) continue; try { physics.removeBody(id, true) } catch (_) {} } live.clear(); placedAt.clear(); _liveIds.clear(); _lru.clear(); _ringCache.clear(); _residentBytes = 0 },
+    stop() { disposed = true; if (_timer) clearTimeout(_timer); wakeRebuildWaiters(); for (const id of live.values()) { if (id === _PENDING) continue; try { physics.removeBody(id, true) } catch (_) {} } live.clear(); placedAt.clear(); _liveIds.clear(); _lru.clear(); _ringCache.clear(); _residentBytes = 0 },
     get liveCount() { return live.size },
     get center() { return curCenter },
     get centers() { return curCenters },
@@ -761,6 +785,10 @@ export function createColliderStreamer(spec = {}) {
     get maxSlicePhase() { return maxSlicePhase },
     get lastMaxSliceMs() { return lastSliceMaxMs },
     get lastMaxSlicePhase() { return lastMaxSlicePhase },
+    get maxSliceCpuMs() { return maxSliceCpuMs },
+    get maxSliceCpuPhase() { return maxSliceCpuPhase },
+    get lastMaxSliceCpuMs() { return lastSliceMaxCpuMs },
+    get lastMaxSliceCpuPhase() { return lastMaxSliceCpuPhase },
     get prewarmMs() { return prewarmMs },
     get workMs() { return workMsTotal },
     get prewarmDemand() { return prewarmDemand },
