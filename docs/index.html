@@ -205,7 +205,7 @@ export default {
     { id: 'env', model: './apps/maps/mymap.glb', position: [0, 0, 0], scale: [1, 1, 1], bodyType: 'static' },
     { id: 'game', position: [0, 0, 0], app: 'tps-game' }
   ],
-  playerModel: './apps/tps-game/cleetus.vrm',
+  playerModel: '/assets/default-avatar.vrm',
   spawnPoint: [0, 2, 0]
 }
 </code>`<code>
@@ -995,7 +995,7 @@ export default {
     { id: 'tps-game', position: [0, 0, 0], app: 'tps-game' }
   ],
   spawnPoint: [0, 2, 0],
-  playerModel: './apps/tps-game/cleetus.vrm'
+  playerModel: '/assets/default-avatar.vrm'
 }
 </code>`<code>
 
@@ -2668,7 +2668,7 @@ npm test
   ],
   
   spawnPoint: [0, 2, 0],
-  playerModel: './apps/tps-game/cleetus.vrm',
+  playerModel: '/assets/default-avatar.vrm',
   trustedApps: ['terrain'],
   placeableApps: ['box-dynamic', 'destructible-box', ...]
 }

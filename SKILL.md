@@ -98,7 +98,7 @@ export default {
   },
   animation: { mixerTimeScale: 1.3, walkTimeScale: 2.0, sprintTimeScale: 0.56, fadeTime: 0.15 },
   entities: [{ id:'env', model:'./apps/my-app/env.glb', position:[0,0,0], app:'placed-model', config:{collider:'trimesh'}, custom:{_interior:true} }],
-  playerModel: './apps/tps-game/Cleetus.vrm',
+  playerModel: '/assets/default-avatar.vrm',
   spawnPoint: [0,2,0],
   // Optional: RTCIceServer[] overriding wireweave's bundled default public STUN/TURN list for the
   // P2P host/join voice+data bridge (?host / ?join / room links). Each entry is a real RTCIceServer:
