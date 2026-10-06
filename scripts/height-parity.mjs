@@ -51,10 +51,7 @@ return {
 };
 `.trim()
 
-const out = await withGpuPage({ port: PORT }, async (run) => {
-  const r = await run(sweep)
-  return r.result
-}).catch(e => { console.error('[parity] error:', e.message); process.exit(1) })
+const out = await withGpuPage({ port: PORT }, async (run) => run(sweep)).catch(e => { console.error('[parity] error:', e.message); process.exit(1) })
 
 const gaps = out.rows.map(r => r.gap).filter(g => g != null)
 const meanGap = gaps.length ? +(gaps.reduce((a, b) => a + b, 0) / gaps.length).toFixed(3) : null

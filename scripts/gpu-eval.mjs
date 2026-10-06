@@ -12,13 +12,15 @@ function parseArgs(argv) {
 }
 const args = parseArgs(process.argv.slice(2))
 const exprIn = args._.join(' ')
-if (!exprIn) { console.error("usage: node scripts/gpu-eval.mjs [--drain] [--angle d3d11|swiftshader] [--port N] [--shot f.png] '<js expr>'"); process.exit(2) }
+if (!exprIn) { console.error("usage: node scripts/gpu-eval.mjs [--drain] [--backend legacygl|webgpu] [--port N] [--shot f.png] '<js expr>'"); process.exit(2) }
 const expr = args.drain ? drainedSampleGroundMExpr(`(${exprIn})`) : exprIn
 
-const out = await withGpuPage({ port: Number(args.port || process.env.PORT || 8090), angle: args.angle || process.env.ANGLE || 'd3d11' }, async (evalIn, { screenshot, vendor }) => {
-  console.error(`[gpu-eval] renderer=${vendor}`)
+const backend = typeof args.backend === 'string' ? args.backend : 'legacygl'
+const out = await withGpuPage({ port: Number(args.port || process.env.PORT || 8090), backend, angle: typeof args.angle === 'string' ? args.angle : null }, async (evalIn, { screenshot, probeGpu }) => {
+  const gpu = await probeGpu()
+  console.error(`[gpu-eval] renderer=${gpu.renderer} vendor=${gpu.vendor} accelerated=${gpu.accelerated}`)
   if (args.shot) { await screenshot(args.shot); console.error(`[gpu-eval] wrote ${args.shot}`) }
   return evalIn(expr)
 }).catch(e => { console.error('[gpu-eval] error:', e.message); process.exit(1) })
 
-console.log(JSON.stringify(out.result, null, 2))
+console.log(JSON.stringify(out, null, 2))

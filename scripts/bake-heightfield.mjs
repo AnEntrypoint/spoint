@@ -85,7 +85,7 @@ async function bakeFromCpuSampler() {
 }
 
 const out = hashVersion === LEGACY_TERRAIN_HASH_VERSION
-  ? await withGpuPage({ port: PORT, url: WORLD ? `http://localhost:${PORT}/?singleplayer&world=${encodeURIComponent(WORLD)}&nc=${Date.now()}` : undefined }, async (run) => (await run(bakeHeightfieldScript({ N, half, step, center: CENTER }))).result)
+  ? await withGpuPage({ port: PORT, url: WORLD ? `http://localhost:${PORT}/?singleplayer&legacygl=1&world=${encodeURIComponent(WORLD)}&nc=${Date.now()}` : undefined }, async (run) => run(bakeHeightfieldScript({ N, half, step, center: CENTER })))
     .catch(e => { console.error('[bake] error:', e.message); process.exit(1) })
   : await bakeFromCpuSampler()
 
