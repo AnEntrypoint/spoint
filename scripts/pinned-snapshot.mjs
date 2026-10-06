@@ -52,6 +52,59 @@ for (const entry of fs.readdirSync(liveNodeModules, { withFileTypes: true })) {
   ;(pinnedPackages.includes(entry.name) ? redirected : linked).push(entry.name)
 }
 
+const materialized = []
+const htmlPath = path.join(dir, 'client/index.html')
+const importMapMatch = fs.existsSync(htmlPath)
+  ? fs.readFileSync(htmlPath, 'utf8').match(/<script[^>]*type="importmap"[^>]*>([\s\S]*?)<\/script>/)
+  : null
+if (importMapMatch) {
+  const needed = new Set()
+  for (const v of Object.values(JSON.parse(importMapMatch[1]).imports || {})) {
+    const m = typeof v === 'string' && v.match(/^\/node_modules\/(@[^/]+\/[^/]+|[^/]+)\//)
+    if (m) needed.add(m[1].startsWith('@') ? m[1].split('/')[0] : m[1])
+  }
+  const sizeOf = d => {
+    let b = 0
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name)
+      b += e.isDirectory() ? sizeOf(p) : fs.statSync(p).size
+    }
+    return b
+  }
+  const copyTree = (src, dst, rootSrc) => {
+    fs.mkdirSync(dst, { recursive: true })
+    for (const e of fs.readdirSync(src, { withFileTypes: true })) {
+      const s = path.join(src, e.name)
+      const d = path.join(dst, e.name)
+      if (e.isSymbolicLink()) {
+        const real = fs.realpathSync(s)
+        const rel = path.relative(repo, real)
+        const insideRepo = !path.isAbsolute(rel) && !rel.startsWith('..')
+        fs.symlinkSync(insideRepo ? path.join(dir, rel) : real, d, 'junction')
+      } else if (e.isDirectory()) {
+        if (e.name === 'node_modules' && src !== rootSrc) continue
+        copyTree(s, d, rootSrc)
+      } else fs.copyFileSync(s, d)
+    }
+  }
+  for (const top of [...needed].sort()) {
+    if (pinnedPackages.includes(top)) continue
+    const target = path.join(snapshotNodeModules, top)
+    let source = path.join(liveNodeModules, top)
+    if (fs.existsSync(source) && fs.lstatSync(source).isSymbolicLink()) {
+      const rel = path.relative(repo, fs.realpathSync(source))
+      if (!path.isAbsolute(rel) && !rel.startsWith('..')) source = path.join(dir, rel)
+    }
+    if (!fs.existsSync(source)) continue
+    if (fs.existsSync(target)) {
+      if (!fs.lstatSync(target).isSymbolicLink() && sizeOf(target) > 0) continue
+      fs.rmSync(target, { recursive: true, force: true })
+    }
+    copyTree(source, target, source)
+    materialized.push(top)
+  }
+}
+
 const sha256 = buf => crypto.createHash('sha256').update(buf).digest('hex')
 const normalize = buf => Buffer.from(buf.toString('utf8').replace(/\r\n/g, '\n'), 'utf8')
 
@@ -106,7 +159,7 @@ const report = {
   sha,
   dir,
   builtAt: new Date().toISOString(),
-  nodeModules: { linked: linked.length, redirected, fromSnapshotPackages: redirected.map(n => path.join(dir, 'packages', n)) },
+  nodeModules: { linked: linked.length, redirected, materialized, fromSnapshotPackages: redirected.map(n => path.join(dir, 'packages', n)) },
   audit: {
     files: audit.length,
     mismatchedAgainstCommit: audit.filter(a => !a.matchesCommitted).map(a => a.file),
