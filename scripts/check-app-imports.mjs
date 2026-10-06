@@ -69,6 +69,9 @@ function inspectManifestEntry(owner, file, source, deps, trail, problems) {
 }
 
 function checkAssets(problems) {
+  for (const d of ASSET_SCAN_ROOTS) {
+    if (!existsSync(d)) problems.push(`asset scan root "${rel(d)}": no such directory, so its asset references were never checked`)
+  }
   const files = [...ASSET_SCAN_ROOTS.flatMap(d => existsSync(d) ? sourceFiles(d) : []), ...ASSET_SCAN_FILES]
   let checked = 0
   for (const file of files) {
@@ -82,6 +85,7 @@ function checkAssets(problems) {
       if (![...relativeToFile, ...rooted].some(existsSync)) problems.push(`${rel(file)} references asset "${literal}": no such file under the file directory, the repo root or client/`)
     }
   }
+  if (checked === 0) problems.push(`0 asset literal(s) matched across ${files.length} file(s) -- an empty asset scan is not a pass`)
   return checked
 }
 
