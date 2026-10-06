@@ -86,6 +86,7 @@ export function createColliderStreamer(spec = {}) {
   const logTag = spec.logTag || '[collider]'
 
   const live = new Map()
+  const placedAt = new Map()
   const _liveIds = new Set()
   const _lru = new Map()
   let _residentBytes = 0
@@ -184,6 +185,7 @@ export function createColliderStreamer(spec = {}) {
   function scheduleAdd(p) {
     const a = bodyArgs(p); if (!a) return
     const placementId = p[idField]
+    placedAt.set(placementId, [p.x, p.z])
     _touch(placementId, estimateBodyBytes(a))
     if (_useQueue) {
       live.set(placementId, _PENDING)
@@ -192,8 +194,8 @@ export function createColliderStreamer(spec = {}) {
       physics.enqueueAdd(a.shape, a.args, a.position, 'static', { rotation: a.rotation, shapeKey: a.shapeKey }, (id) => {
         if (pendingTicket.get(placementId) !== ticket) { if (id != null) physics.removeBody(id); return }
         pendingTicket.delete(placementId)
-        if (disposed) { if (id != null) physics.removeBody(id); live.delete(placementId); _untouch(placementId); return }
-        if (id == null) { live.delete(placementId); _untouch(placementId); return }
+        if (disposed) { if (id != null) physics.removeBody(id); live.delete(placementId); placedAt.delete(placementId); _untouch(placementId); return }
+        if (id == null) { live.delete(placementId); placedAt.delete(placementId); _untouch(placementId); return }
         live.set(placementId, id)
         _liveIds.add(id)
         setColliderIds(_liveIds)
@@ -205,6 +207,7 @@ export function createColliderStreamer(spec = {}) {
   }
   function scheduleRemove(placementId, bodyId) {
     _untouch(placementId)
+    placedAt.delete(placementId)
     if (bodyId === _PENDING) { pendingTicket.delete(placementId); live.delete(placementId); return }
     if (_useQueue) physics.enqueueRemove(bodyId); else physics.removeBody(bodyId)
     live.delete(placementId)
@@ -221,6 +224,29 @@ export function createColliderStreamer(spec = {}) {
       evicted++
     }
     return evicted
+  }
+
+  function evictOverCap(centers) {
+    if (live.size <= effectiveCap) return 0
+    const ranked = []
+    for (const [placementId, bodyId] of live) {
+      const at = placedAt.get(placementId)
+      if (at === undefined) continue
+      let nearest = Infinity
+      for (let i = 0; i < centers.length; i++) {
+        const dx = at[0] - centers[i][0], dz = at[1] - centers[i][1]
+        const d = dx * dx + dz * dz
+        if (d < nearest) nearest = d
+      }
+      ranked.push({ placementId, bodyId, d: nearest })
+    }
+    ranked.sort((a, b) => b.d - a.d)
+    let trimmed = 0
+    for (let i = 0; i < ranked.length && live.size > effectiveCap; i++) {
+      scheduleRemove(ranked[i].placementId, ranked[i].bodyId)
+      trimmed++
+    }
+    return trimmed
   }
 
   function prewarmPools(desired) {
@@ -284,6 +310,8 @@ export function createColliderStreamer(spec = {}) {
         if (evicted > 0) console.log(`${logTag} LRU evicted ${evicted} colliders over byte budget (${_residentBytes}/${effectiveByteBudget}B resident)`)
       }
       if (!_deferred) { curCenters = centers; curCenter = centers[0] || null; rebuildCount++ }
+      const trimmed = evictOverCap(centers)
+      if (trimmed > 0) console.log(`${logTag} trimmed ${trimmed} collider(s) beyond the body cap: ${live.size}/${effectiveCap} resident for ${centers.length} center(s)`)
       setColliderIds(_liveIds)
     } catch (e) { console.error(logTag + ' collider rebuild error:', e?.message || e) }
     finally { rebuilding = false }
@@ -361,7 +389,7 @@ export function createColliderStreamer(spec = {}) {
     },
     get staleEpochAborts() { return staleEpochAborts },
     get isRebuilding() { return rebuilding },
-    stop() { disposed = true; if (_timer) clearTimeout(_timer); for (const id of live.values()) { if (id === _PENDING) continue; try { physics.removeBody(id) } catch (_) {} } live.clear(); _liveIds.clear(); _lru.clear(); _residentBytes = 0 },
+    stop() { disposed = true; if (_timer) clearTimeout(_timer); for (const id of live.values()) { if (id === _PENDING) continue; try { physics.removeBody(id) } catch (_) {} } live.clear(); placedAt.clear(); _liveIds.clear(); _lru.clear(); _residentBytes = 0 },
     get liveCount() { return live.size },
     get center() { return curCenter },
     get centers() { return curCenters },
