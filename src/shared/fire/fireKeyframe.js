@@ -392,7 +392,9 @@ export function decodeFireKeyframe(bytes) {
       if (code !== CELL_FULL) throw new TypeError(`[fireKeyframe] keyframe tile ${t} cell ${i} carries cell code ${code}, which is neither the scar code nor the full-cell code`)
       if (p + 7 > rest.length) throw shortOf(`the 7 B record of tile ${t} cell ${i}`)
       state[g] = rest[p++]
+      if (state[g] !== FIRE_STATE.UNBURNT && state[g] !== FIRE_STATE.BURNING && state[g] !== FIRE_STATE.BURNT) throw new TypeError(`[fireKeyframe] keyframe tile ${t} cell ${i} carries cell state ${state[g]}, which is none of unburnt, burning and burnt`)
       fuel[g] = rest[p++] | (rest[p++] << 8)
+      if (fuel[g] > classFuel[cls[g]]) throw new TypeError(`[fireKeyframe] keyframe tile ${t} cell ${i} carries fuel ${fuel[g]}, more than the ${classFuel[cls[g]]} its class ${cls[g]} holds`)
       heat[g] = rest[p++] | (rest[p++] << 8)
       timer[g] = rest[p++] | (rest[p++] << 8)
     }
