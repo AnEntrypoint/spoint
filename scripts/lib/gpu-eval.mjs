@@ -116,7 +116,13 @@ async function __sampleHeights(dirs) {
   }
   return out;
 }
-await __sampleHeights([__t.frame.localToDir(0, 0)]);
+try {
+  const __warm = await __sampleHeights([__t.frame.localToDir(0, 0)]);
+  if (!__warm.length) return { __error: 'gpu height sampler returned no height', backend: __backend };
+  if (!__warm.every(v => v != null && isFinite(v))) return { __error: 'gpu height sampler returned a non-finite height', backend: __backend, warm: String(__warm[0]) };
+} catch (e) {
+  return { __error: 'gpu height sampler failed on this backend (' + __backend + '): ' + ((e && e.message) || e) };
+}
 `.trim()
 
 export const GPU_PROBE_SCRIPT = `

@@ -48,13 +48,14 @@ const gl = document.createElement('canvas').getContext('webgl2');
 const ext = gl && gl.getExtension('WEBGL_debug_renderer_info');
 return {
   renderer: ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : '?',
-  backend: __backend, hashVersion: __t.frame.hashVersion,
+  backend: __backend, hashVersion: __t.frame.hashVersion, isTSL: !!(__t.planet && __t.planet.isTSL),
   n: N, extent: EXTENT, rows,
 };
 `.trim()
 
-const url = args.terrainhash
-  ? `http://localhost:${PORT}/?singleplayer&terrainhash=${args.terrainhash}${BACKEND === 'legacygl' ? '&legacygl=1' : ''}&nc=${Date.now()}`
+const EXTRA = typeof args.params === 'string' ? `&${args.params.replace(/^&/, '')}` : ''
+const url = (args.terrainhash || EXTRA)
+  ? `http://localhost:${PORT}/?singleplayer${args.terrainhash ? `&terrainhash=${args.terrainhash}` : ''}${BACKEND === 'legacygl' ? '&legacygl=1' : ''}${EXTRA}&nc=${Date.now()}`
   : undefined
 
 const out = await withGpuPage({ port: PORT, backend: BACKEND, url }, async (run) => run(sweep)).catch(e => { console.error('[parity] error:', e.message); process.exit(1) })

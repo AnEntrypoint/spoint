@@ -15,6 +15,10 @@ export function createHeightProbeTSL(renderer, { hpfTexture, params, hashVersion
     const kernel = Fn(() => { output.element(instanceIndex).assign(spec.composeHeight(input.element(instanceIndex).xyz)) })().compute(n)
     await renderer.computeAsync(kernel)
     const bytes = await renderer.getArrayBufferAsync(output.value)
-    return new Float32Array(bytes).slice(0, n)
+    const got = bytes ? bytes.byteLength : 0
+    if (got < n * 4) throw new Error(`probeHeights read back ${got} B for ${n} height(s), expected ${n * 4} B: this renderer ran no compute pass for the height kernel, so no GPU height can be probed on it (a WebGL2 backend has no compute shaders)`)
+    const out = new Float32Array(bytes).slice(0, n)
+    for (let i = 0; i < n; i++) if (!Number.isFinite(out[i])) throw new Error(`probeHeights produced a non-finite height at index ${i} of ${n}: the height kernel read back garbage, so no GPU height can be probed on this renderer`)
+    return out
   }
 }
