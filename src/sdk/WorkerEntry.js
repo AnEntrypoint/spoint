@@ -22,6 +22,7 @@ import { WorkerTransport, PeerTransport } from '../transport/WorkerTransport.js'
 import { createConnectionHandlers } from './ServerHandlers.js'
 import { createPeerSimSession } from '../netcode/PeerSimSession.js'
 import { setupTerrainStreaming, loadPlanetSampler, planetSamplerOptsOf } from '../terrain/TerrainPhysics.js'
+import { guardedGroundHeight } from '../terrain/PlanetFrame.js'
 import { attachServerChartMigrators } from './chartState/index.js'
 import { allocateRingBuffer, TransformRingWriter } from '../transport/TransformRing.js'
 import { saveWorldSnapshot, restoreWorldSnapshot, worldDefFingerprint } from './WorldPersistence.js'
@@ -274,7 +275,8 @@ if (hasWorkerPostMessage) {
       const workerPlayers = [..._ctx.playerManager.players.values()].map(p => ({ id: p.id, position: p.state && p.state.position ? [...p.state.position] : null }))
       const trunkStreamer = trs ? { liveCount: trs.liveCount, centers: trs.centers, rebuildCount: trs.rebuildCount } : null
       const frame = physics._planetFrame
-      const heightProbe = (data.probePoints || []).map(([x, z]) => ({ colliderFn: physics.terrainHeightAt(x, z), frame: frame ? frame.groundHeightLocal(x, z) : null }))
+      const frameGround = frame ? guardedGroundHeight('debug collider probe chart height', (x, z) => frame.groundHeightLocal(x, z), null) : null
+      const heightProbe = (data.probePoints || []).map(([x, z]) => ({ colliderFn: physics.terrainHeightAt(x, z), frame: frameGround ? frameGround(x, z) : null }))
       self.postMessage({ type: 'DEBUG_COLLIDER_RESULT', reqId: data.reqId, hits, rockBodies, rockStreamer, trunkStreamer, terrainFields, terrainBodyId: physics.getTerrainBodyId(), workerPlayers, rockIdCount: rockIds ? rockIds.size : null, heightProbe, heightSource: physics._terrainHeightSource })
       return
     }

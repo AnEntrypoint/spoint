@@ -1,4 +1,5 @@
 import { createPlacementLattice } from './PlacementLattice.js'
+import { guardedGroundHeight } from './PlanetFrame.js'
 
 const SURFACE_LATERAL_TOL_M = 1e-4
 const SURFACE_LATERAL_ACCEPT_M = 1e-2
@@ -52,6 +53,16 @@ export function chunkBoundsLocal(lattice, frame, key, placements) {
   return [minX, minZ, maxX, maxZ]
 }
 
+const _groundGuards = new WeakMap()
+function guardedGroundOf(frame) {
+  let guarded = _groundGuards.get(frame)
+  if (!guarded) {
+    guarded = guardedGroundHeight('placement chart surface solve', (x, z) => frame.groundHeightLocal(x, z), NaN)
+    _groundGuards.set(frame, guarded)
+  }
+  return guarded
+}
+
 export function surfaceAlongDir(frame, dx, dy, dz, rhoGuess, out) {
   const de = dotE(frame, dx, dy, dz), du = dotU(frame, dx, dy, dz), dn = dotN(frame, dx, dy, dz)
   const base = frame.radius + frame.anchorHeight - frame.offsetY
@@ -62,10 +73,11 @@ export function surfaceAlongDir(frame, dx, dy, dz, rhoGuess, out) {
     out[0] = r * de; out[1] = r * du - base; out[2] = r * dn
     return r
   }
+  const groundAt = guardedGroundOf(frame)
   let rho = rhoGuess, bestRho = NaN, bestLateral2 = Infinity
   for (let k = 0; k < SURFACE_MAX_ITERS; k++) {
     const x = rho * de, z = rho * dn
-    const y = frame.groundHeightLocal(x, z)
+    const y = groundAt(x, z)
     if (!Number.isFinite(y)) return NaN
     const t = base + y
     const along = t * du + x * de + z * dn

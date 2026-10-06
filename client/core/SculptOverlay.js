@@ -7,6 +7,8 @@ const BACKFILL_EXTENT_DEFAULT = 48
 export function createSculptOverlay(terrainBackdrop) {
   const heightDelta = createHeightDelta()
   let _lastExtent = 0
+  let _wrappedGround = null
+  let _baseGround = null
 
   function _render() {
     const p = terrainBackdrop?.planet
@@ -14,6 +16,27 @@ export function createSculptOverlay(terrainBackdrop) {
     return typeof p.setSculptOverride === 'function' ? p : (p.render || null)
   }
   function _frame() { return terrainBackdrop?.frame }
+
+  function _wrapFrameGround() {
+    const frame = _frame()
+    if (!frame || _wrappedGround) return
+    const base = frame.groundHeightLocal
+    if (typeof base !== 'function') return
+    _baseGround = base
+    _wrappedGround = (x, z, yGuess) => {
+      const baseY = base(x, z, yGuess)
+      return Number.isFinite(baseY) ? baseY + heightDelta.deltaAt(x, z) : baseY
+    }
+    frame.groundHeightLocal = _wrappedGround
+  }
+
+  function _unwrapFrameGround() {
+    const frame = _frame()
+    if (!frame || !_wrappedGround) return
+    frame.groundHeightLocal = _baseGround
+    _wrappedGround = null
+    _baseGround = null
+  }
 
   function _upload(centerX, centerZ, extent) {
     const render = _render(), frame = _frame()
@@ -48,10 +71,12 @@ export function createSculptOverlay(terrainBackdrop) {
       heightDelta.applyRaiseBrush(x, z, radius, brush === 'lower' ? -Math.abs(strength) : Math.abs(strength))
     }
     const extent = Math.max(radius * WINDOW_MARGIN, 4)
+    _wrapFrameGround()
     return _upload(x, z, extent)
   }
 
   function clear() {
+    _unwrapFrameGround()
     heightDelta.clear()
     const render = _render()
     if (render && typeof render.clearSculptOverride === 'function') render.clearSculptOverride()
@@ -68,6 +93,7 @@ export function createSculptOverlay(terrainBackdrop) {
       replayed++
     }
     if (replayed === 0) return { replayed: 0, uploaded: false }
+    _wrapFrameGround()
     const cx = Number.isFinite(centerX) ? centerX : 0
     const cz = Number.isFinite(centerZ) ? centerZ : 0
     const ext = Number.isFinite(extent) && extent > 0 ? extent : BACKFILL_EXTENT_DEFAULT
