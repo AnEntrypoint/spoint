@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs'
 const PINNED_VERSIONS = {
   '@three.ez/instanced-mesh': '0.3.16',
   'bvh.js': '0.0.13',
+  'msgpackr': '2.0.4',
   'three': '0.185.1'
 }
 
@@ -26,14 +27,28 @@ function checkPinnedVersion(pkgName) {
   }
 }
 
-function patch(relPath, marker, anchor, replacement, label) {
+function patch(relPath, marker, anchor, replacement, label, strict) {
   const file = new URL('../' + relPath, import.meta.url)
-  if (!existsSync(file)) { console.log(`[patch-deps] ${label}: not installed; skipping`); return }
+  const fatal = reason => {
+    console.error(`[patch-deps] FATAL: ${label}: ${reason}`)
+    console.error(`[patch-deps] ${label}: this patch is load-bearing for ${relPath}; refusing to leave an install without it applied.`)
+    console.error(`[patch-deps] ${label}: re-verify the anchor against the installed source, then update it in scripts/patch-deps.mjs.`)
+    process.exit(1)
+  }
+  if (!existsSync(file)) {
+    if (strict) fatal(`${relPath} is not installed`)
+    console.log(`[patch-deps] ${label}: not installed; skipping`)
+    return
+  }
   const pkgMatch = relPath.match(/^node_modules\/((?:@[^/]+\/)?[^/]+)\//)
   if (pkgMatch) checkPinnedVersion(pkgMatch[1])
   const src = readFileSync(file, 'utf8')
   if (src.includes(marker)) { console.log(`[patch-deps] ${label}: already present (published or patched); no-op`); return }
-  if (!src.includes(anchor)) { console.warn(`[patch-deps] ${label}: anchor not found -- upstream shape changed; skipping (verify the fix manually)`); return }
+  if (!src.includes(anchor)) {
+    if (strict) fatal(`anchor not found in ${relPath} -- upstream shape changed`)
+    console.warn(`[patch-deps] ${label}: anchor not found -- upstream shape changed; skipping (verify the fix manually)`)
+    return
+  }
   writeFileSync(file, src.replace(anchor, replacement), 'utf8')
   console.log(`[patch-deps] ${label}: injected`)
 }
@@ -178,4 +193,22 @@ patch(
       h.isIntersectedMargin(a.box, u, this._margin) && i(a, c);
     }, k) : this.bvh.frustumCullingLOD(t.elements, o, s, i, k);`,
   'three.ez BVH LOD cull skips trailing hidden LOD levels'
+)
+
+patch(
+  'node_modules/msgpackr/pack.js',
+  'value >>> 0 === value && !Object.is(value, -0)',
+  `\t\t\t\tif (value >>> 0 === value) {// positive integer, 32-bit or less`,
+  `\t\t\t\tif (value >>> 0 === value && !Object.is(value, -0)) {// positive integer, 32-bit or less`,
+  'msgpackr -0 escapes the positive fixint branch',
+  true
+)
+
+patch(
+  'node_modules/msgpackr/pack.js',
+  'value >> 0 === value && !Object.is(value, -0)',
+  `\t\t\t\t} else if (value >> 0 === value) { // negative integer`,
+  `\t\t\t\t} else if (value >> 0 === value && !Object.is(value, -0)) { // negative integer`,
+  'msgpackr -0 escapes the negative fixint branch',
+  true
 )
