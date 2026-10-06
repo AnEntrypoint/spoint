@@ -8,6 +8,7 @@ import { resolveTerrainConfig } from '../src/shared/terrainConfig.js'
 import { loadPlanetSampler, planetSamplerOptsOf } from '../src/terrain/TerrainPhysics.js'
 import { createPlanetFrame } from '../src/terrain/PlanetFrame.js'
 import { createCachedAnchorField } from '../src/terrain/ClimateCache.js'
+import { contentionWatch, contentionVerdict, formatContention } from './lib/host-contention.mjs'
 
 const SDK_ROOT = resolve(process.argv[2] || process.cwd())
 const WORK_DIR = resolve(SDK_ROOT, 'data', 'collider-ring-scale-witness')
@@ -109,6 +110,7 @@ async function main() {
     const base = lattice(n)
     const at = k => (moving ? base.map(([x, z]) => [x + k * stepM, z + k * stepM]) : base)
     centers = at(0)
+    const watch = contentionWatch()
     const coldT0 = performance.now()
     const trunkMs0 = trunk.ringBuildMs
     const rockMs0 = rock.ringBuildMs
@@ -206,9 +208,15 @@ async function main() {
       add: (trunk.addMs - phT0.trunkAdd) + (rock.addMs - phT0.rockAdd),
       remove: (trunk.removeMs - phT0.trunkRemove) + (rock.removeMs - phT0.rockRemove),
     }
+    const contention = contentionVerdict(watch)
     const row = {
       n,
       moving: !!moving,
+      spinMsBefore: contention.beforeMs,
+      spinMsAfter: contention.afterMs,
+      spinMsBest: contention.bestMs,
+      contentionSlowdown: contention.slowdown,
+      contested: contention.contested,
       clusters: trunk.centers.length,
       coldBuildMs: round(coldMs, 1),
       coldTrunkMs: round(coldTrunk, 1),
@@ -288,6 +296,8 @@ async function main() {
     }
     if (perRebuild.length) console.log(`[ring-scale]   per rebuild: ${perRebuild.join(' | ')}`)
     console.log(`[ring-scale] ${row.n} cluster(s)${row.moving ? ' moving' : ''}: ${row.trunkLive}+${row.rockLive} collider(s) of cap ${row.cap}, per-cluster ${row.perClusterMin}..${row.perClusterMax} (starved ${row.starvedClusters}/${row.rockStarvedClusters}), cold build ${row.coldBuildMs} ms, steady ${row.msPerRebuild} ms/rebuild wall = ${row.totalMsPerS} ms/s, of which ${row.workMsPerRebuild} ms/rebuild of uninterrupted work = ${row.workMsPerS} ms/s, ${row.msPerTick} ms/tick (classify ${row.classifyMsPerRebuild} / add ${row.addMsPerRebuild} / remove ${row.removeMsPerRebuild} ms per rebuild; ${row.ringFreshPerRebuild} fresh cluster ring(s) over ${row.newChunksPerRebuild} new chunk(s) per rebuild, ring ${row.ringMsPerRebuild} ms + scan ${row.scanMsPerRebuild} ms (chunk lookup ${row.lookupMsPerRebuild} ms of which ${row.computeMsPerRebuild} ms computing ${row.newChunksPerRebuild} new chunk(s), body ${row.bodyMsPerRebuild} ms over ${row.examinedPerRebuild} placement(s) x ${row.nearPerExamined} near test(s)), prewarm ${row.prewarmMsPerRebuild} ms over ${row.bodyArgsPerRebuild} bodyArgs call(s) (prewarm ${row.bodyArgsPrewarmPerRebuild} / touch ${row.bodyArgsTouchPerRebuild} / add ${row.bodyArgsAddPerRebuild}) costing ${row.bodyArgsMsPerRebuild} ms (${row.bodyArgsSlowPerRebuild} over 50 us) pre-creating ${row.prewarmDemandPerRebuild} body(s) across ${row.prewarmKeysPerRebuild} shape(s), over ${row.chunkKeysPerRebuild} chunk(s); ${row.cands} candidate(s), tail ${row.tailMsPerRebuild} ms), longest rebuild ${row.maxRebuildMs} ms of which the longest uninterrupted slice ${row.maxSliceMs} ms (${row.maxSlicePhase}), ${row.achievedHz} Hz, dilation<=${row.dilationMax}, loop p99 ${row.loopP99Ms}/max ${row.loopMaxMs} ms, gc ${row.gcMs} ms over ${row.gcCount} collection(s), cache ${row.chunkCache} chunk(s) + ${row.ringCache} cached cluster ring(s), ${row.residentKB}/${row.byteBudgetKB} KB resident, deferred ${row.deferred}`)
+    const line = { beforeMs: row.spinMsBefore, afterMs: row.spinMsAfter, bestMs: row.spinMsBest, slowdown: row.contentionSlowdown, contested: row.contested }
+    console.log(`[ring-scale] ${row.n} cluster(s)${row.moving ? ' moving' : ''}: ${formatContention(line)}`)
     if (perRebuild.length) console.log(`[ring-scale] per rebuild at ${n}: ${perRebuild.join(' | ')}`)
     return row
   }
@@ -315,6 +325,10 @@ async function main() {
   check(`no uninterrupted slice of a ring rebuild blocks the loop for longer than one tick (${tickMs} ms) at 192 walking clusters`, movingRow.maxSliceMs <= 1000 / TICK_RATE, `longest slice ${movingRow.maxSliceMs} ms`)
   check('colliders stay inside their byte budget at 192 clusters', worst.residentKB <= worst.byteBudgetKB, `${worst.residentKB}/${worst.byteBudgetKB} KB`)
   check('the cluster cap is not silently dropping clusters it serves', worst.droppedClusters === 0, `dropped ${worst.droppedClusters}`)
+
+  const contestedArms = rows.filter(r => r.contested)
+  check('every arm records a host contention fingerprint, so no ms figure from this run is quoted blind', rows.length > 0 && rows.every(r => Number.isFinite(r.spinMsBefore) && r.spinMsBefore > 0 && r.contentionSlowdown >= 1), rows.map(r => `${r.n}${r.moving ? 'm' : ''}:x${r.contentionSlowdown}`).join(' '))
+  if (contestedArms.length) console.log(`[ring-scale] ${contestedArms.length} of ${rows.length} arm(s) ran contested (${contestedArms.map(r => `${r.n}${r.moving ? ' moving' : ''} x${r.contentionSlowdown} of ${r.spinMsBest} ms`).join(', ')}): re-run alone before quoting their ms figures`)
 
   const bodies = typeof physics.getBodyCount === 'function' ? physics.getBodyCount() : null
   console.log(`[ring-scale] bodies resident at the end: ${bodies}`)
