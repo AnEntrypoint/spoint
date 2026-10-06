@@ -132,7 +132,7 @@ export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
 
   function beginRefresh(pose, terrain, sources) {
     const span = bufferSpan()
-    state.work = { cx: pose.x, cz: pose.z, span, row: 0, col: 0, phase: 0, frame: terrain.frame, anchorField: terrain.sampler && terrain.sampler.anchorField, progressive: !state.current || state.current.span !== span }
+    state.work = { cx: pose.x, cz: pose.z, span, row: 0, col: 0, phase: 0, rowGuess: NaN, frame: terrain.frame, anchorField: terrain.sampler && terrain.sampler.anchorField, progressive: !state.current || state.current.span !== span }
     scanner.begin(terrain.frame, state.work.anchorField, sources, worldSeedOf(sources, terrain), pose.x, pose.z, span / 2)
   }
 
@@ -151,17 +151,19 @@ export function createMinimapHUD(minimapMeta, getPose, getTerrain) {
       for (let i = w.col; i < end; i++) {
         const idx = w.row * BUFFER_CELLS + i
         try {
-          heights[idx] = sampleMinimapCell(w.frame, w.anchorField, left + (i + 0.5) * cellMeters, z, cellRgb)
+          heights[idx] = sampleMinimapCell(w.frame, w.anchorField, left + (i + 0.5) * cellMeters, z, cellRgb, w.rowGuess)
         } catch (e) {
           reportSampleFailure(e)
           heights[idx] = NaN
           cellRgb[0] = UNSAMPLED_RGB[0]; cellRgb[1] = UNSAMPLED_RGB[1]; cellRgb[2] = UNSAMPLED_RGB[2]; cellRgb[3] = 0
+          cellRgb[4] = NaN
         }
+        w.rowGuess = Number.isFinite(heights[idx]) && Number.isFinite(cellRgb[4]) ? cellRgb[4] : NaN
         land[idx] = cellRgb[3]
         biome[idx * 3] = cellRgb[0]; biome[idx * 3 + 1] = cellRgb[1]; biome[idx * 3 + 2] = cellRgb[2]
       }
       if (end < BUFFER_CELLS) w.col = end
-      else { w.col = 0; w.row++ }
+      else { w.col = 0; w.row++; w.rowGuess = NaN }
     }
     return w.row >= BUFFER_CELLS
   }
