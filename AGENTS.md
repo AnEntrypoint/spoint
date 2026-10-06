@@ -20,379 +20,121 @@ Skills encode environment-specific constraints that override general knowledge.
 
 --JULES STOPGAP DONT EDIT STOP--
 
-# AGENTS.md — Non-obvious Technical Caveats Index
+# AGENTS.md — Non-obvious Technical Caveats
 
-Slugs only; full text lives in the recall store (`.gm/memories/`; `recall <slug or topic>`; when the
-recall embedder is down, `grep` the slug under `.gm/memories/` — the md corpus is the same store).
-Add a caveat with `memorize-fire` (`project/<area>-<slug>: ...`) and append its slug. Keep this file
-under 30 KB: drain narrative into recall, never grow an audit log here.
+Fewest words per fact that still carry its number or constraint. Under 30 KB by compressing, never
+by dropping a live constraint.
 
 ## Working rules
 
-- `project/working-rule-every-opportunity-is-executed-or-filed-2026-10-05`: a restructuring or
-  optimization opportunity noticed while working is either executed in the same pass (small,
-  in-lane, with its before/after witness) or filed with `prd-add` (id, title, body,
-  acceptance_criteria) before the turn ends. A report that mentions one with no row id and no commit
-  sha is incomplete. Spawned agents carry this rule and list what they executed and filed. An
-  unmeasured speedup claim is still never executed.
-- Main-only, no branches (`gh-pages` is a deploy artifact). Commit only as `lanmower`
-  (`657315+lanmower@users.noreply.github.com`), never as an AI assistant, same in every submodule.
-- Always `git_commit`/`git_finalize` **with an explicit `paths` list**; never `git add` + bare
-  `git commit`, which commits the whole index (`0292ad7b` did exactly that). Never commit a file
-  that imports a file absent from the same commit — that broke HEAD four times
-  (`mapspinner/splat-weights`, `src/presets/*`, `AppContext.js` -> `AppGameplay.js`,
-  `src/stdlib-apps/*`). Read `committed`/`requested_paths`/`excluded` off the response. `.gm`
-  pathspecs are honoured (fixed 2026-10-02 in `AnEntrypoint/rs-plugkit` `6f98e47`/`30786b6`);
-  a pathspec matching nothing returns `pathspec_matches_nothing` and stages nothing.
-- Generated artifacts travel in the same commit as the source they are generated from. A commit
-  touching `src/apps/AppContext.js` must also carry `npm run gen-typings`'s
-  `client/editor/sdk-typings.generated.d.ts`, which is emitted from a detached worktree of HEAD and
-  so is gen(committed source); a commit changing height code must re-bake the `apps/world/*.hf` the
-  `check-cache-keys` gate names, and that gate prints the exact command to run. Both gates fail CI
-  on the very commit that changed the source, which is three red pushes on 2026-10-06 (`4b8fc9cf`,
-  `a318f025`, `61608226`) and each left main unusable for every lane until repaired.
-- `gm-spool-dispatch-filenames-are-session-prefixed`: a spool dispatch file must be named
-  `in/<verb>/<session-id>-<random8>.txt`; a plain numeric name is swept out without executing.
-- `core.autocrlf=true` makes checkouts write CRLF while the index stays LF, so a working-tree hash
-  can differ from the index; `w/crlf` in `git ls-files --eol` is not a diff.
-- `@spoint/ecs` is the repo's only `@spoint/*` specifier — `mapspinner` and `streaming-gltf` are
-  their own workspace names and are imported bare, so `@spoint/mapspinner` does not exist and is
-  imported nowhere. `node_modules/@spoint/ecs` is an npm-managed workspace link that has vanished
-  mid-session with no `npm install` running, after which every harness dies with `Cannot find
-  package '@spoint/ecs'` — an error that points at the import statement and so reads as a real
-  defect in whatever was just changed. `postinstall` and `npm run check` both restore it through
-  `scripts/ensure-workspace-links.mjs`; `npm run links` does it alone. Never fix it with
-  `npm install`, which rewrites `node_modules` under every concurrent lane. A harness that
-  resolved a workspace package from the wrong path executed different bytes, so a measurement
-  taken while a link was missing is not a property of the code under test.
-- `project/gpu-lock-run-spawns-node-never-a-shell`: `gpulock.mjs run <owner> bash ...` exits 127
-  here (spawn is shell:false); pass the node binary and a .mjs script, and confirm with `status`.
-- `project/bakecodeversion-input-list-must-exclude-the-pin-file`: a `BAKE_INPUTS_*` list in
-  `src/static/BakeCodeVersion.js` must not contain `src/shared/cacheCodeVersions.js` -- that file
-  holds the pin the list hashes to, so including it is self-referential and `check-cache-keys` can
-  never match. Exclude it with `PIN_REL` in `scripts/check-cache-keys.mjs` instead.
+- An opportunity noticed while working is executed in the same pass (with before/after witness) or filed with `prd-add` before the turn ends; a report naming one with no row id is incomplete. An unmeasured speedup claim is never executed.
+- Main-only, no branches (`gh-pages` is a deploy artifact). Commit only as `lanmower` (`657315+lanmower@users.noreply.github.com`).
+- Always `git_commit`/`git_finalize` **with an explicit `paths` list**; never `git add` + bare `git commit` (`0292ad7b` did that). Never commit a file importing a file absent from the same commit — that broke HEAD four times.
+- Generated artifacts travel with their source: touching `src/apps/AppContext.js` must carry `npm run gen-typings`'s `client/editor/sdk-typings.generated.d.ts`; a height-code change must re-bake the `apps/world/*.hf` `check-cache-keys` names (it prints the command). Both gates fail CI on the very commit that changed source — three red pushes 2026-10-06 (`4b8fc9cf`, `a318f025`, `61608226`).
+- Spool dispatch files are named `in/<verb>/<session-id>-<random8>.txt`; a numeric name is swept out unexecuted.
+- `core.autocrlf=true` writes CRLF in the tree while the index stays LF, so `w/crlf` in `git ls-files --eol` is not a diff. Green locally + red in CI on untouched files is line-ending or path case, not flake: `src/static/BakeCodeVersion.js` hashed raw bytes and produced a different digest per platform for `apps/world/tps-game.hf` (fixed by hashing LF-normalized text, `f88ebb286d`). Read `gh run view <id> --log-failed` before classifying any red.
+- A `BAKE_INPUTS_*` list in `src/static/BakeCodeVersion.js` must exclude `src/shared/cacheCodeVersions.js`, which holds the pin the list hashes to; including it makes `check-cache-keys` unmatchable.
+- `@spoint/ecs` is the only `@spoint/*` specifier. `node_modules/@spoint/ecs` is an npm workspace link that has vanished mid-session with no `npm install` running, after which every harness dies with `Cannot find package '@spoint/ecs'` — pointing at the import, so it reads as a defect in whatever just changed. `npm run links` restores it; never `npm install`, which rewrites `node_modules` under concurrent lanes.
+- `gpulock.mjs run <owner> bash ...` exits 127 (spawn is shell:false); pass the node binary and a .mjs script.
 
 ## Zero-comment sweep
 
-Names and structure carry meaning; rationale that code cannot carry lives in recall, the commit
-message, or this file. Swept 2026-09-14 (`client/` `src/` `apps/` `scripts/`
-`packages/{mapspinner,streaming-gltf,ecs}/src`) and 2026-09-28 (`packages/*/examples/**`,
-`packages/*/scripts/**`, Rust) and 2026-10-06 (fire `src/shared/fire/**` + `src/behaviours/fire*.js` +
-`scripts/fire-*.mjs`; clusters `src/sharding/**` + `src/shared/cluster*`; re-anchor
-`src/terrain/ChartReanchorService.js` + `src/sdk/chartState/**` + `scripts/*{chart,cluster,collider}*.mjs`;
-`src/physics/**` collider/ring; `src/netcode/CollisionSystem.js` — **0 comments found**, nothing moved).
-Sweep method is recall `project/comment-sweep-grep-mode-comments-surface-2026-10-06` (gm `grep`
-`{"mode":"comments"}`, the sanctioned surface; verify the detector before trusting a zero). Kept on purpose — never re-flag: `@ts-*` / `eslint*` /
-`@vite-ignore` / `webpack*` / `/*! */` / `#__PURE__` / `sourceMappingURL`; comment-looking text
-inside string literals (embedded GLSL, `scripts/patch-deps.mjs`'s `// [spoint patch]` markers,
-generated headers); any `*.md`; `types/*.d.ts` JSDoc (the published app-SDK contract app authors
-read as IntelliSense); Rust `///` on a `#[wasm_bindgen]` export that states an ABI fact
-(`pack_quat` bit layout, `unpack_quat` return order, `mul_quat` component order in
-`packages/spoint-core/src/lib.rs`). Vendored/generated, never edited: `client/vendor/`,
-`client/editor/wm/wm.css`, `packages/mapspinner/src/height-gen.js`, `*/basis/basis_transcoder.js`,
-`packages/streaming-gltf/src/draco-loader.js`, `client/editor/sdk-typings.generated.d.ts`.
-False positives: `*[Symbol.iterator]()` / `*entries()`, CSS `*` and `#id`, GLSL `#ifdef` and `*`
-block continuations, glob literals in `console.log`, `//` inside `http://`.
+Names and structure carry meaning; rationale lives in the commit message or this file. Swept 2026-09-14 (`client/` `src/` `apps/` `scripts/` `packages/{mapspinner,streaming-gltf,ecs}/src`), 2026-09-28 (`packages/*/examples/**`, `packages/*/scripts/**`, Rust), 2026-10-06 (fire, clusters, re-anchor, `src/physics/**` collider/ring, `src/netcode/CollisionSystem.js` — 0 comments). Method is gm `grep` `{"mode":"comments"}`; verify the detector before trusting a zero. Never re-flag: `@ts-*` / `eslint*` / `@vite-ignore` / `webpack*` / `/*! */` / `#__PURE__` / `sourceMappingURL`; comment-looking text inside string literals (embedded GLSL, `scripts/patch-deps.mjs`'s `// [spoint patch]`, generated headers); any `*.md`; `types/*.d.ts` JSDoc; Rust `///` on a `#[wasm_bindgen]` export stating an ABI fact (`pack_quat`, `unpack_quat`, `mul_quat` in `packages/spoint-core/src/lib.rs`). Vendored/generated, never edited: `client/vendor/`, `client/editor/wm/wm.css`, `packages/mapspinner/src/height-gen.js`, `*/basis/basis_transcoder.js`, `packages/streaming-gltf/src/draco-loader.js`, `client/editor/sdk-typings.generated.d.ts`. False positives: `*[Symbol.iterator]()`/`*entries()`, CSS `*` and `#id`, GLSL `#ifdef`, glob literals, `//` in `http://`.
 
 ## Repo boundaries
 
-- `project/anentrypoint-consumption-and-submodules`: AnEntrypoint publishes nothing to npm.
-  `design` is consumed as pinned CDN URLs in the importmaps of `client/index.html`,
-  `client/landing/index.html`, `client/editor/thebird-host.html`, `scripts/bundle-client.mjs`
-  (bare `anentrypoint-design` -> unpkg `1.0.34/dist/247420.{js,css}`; `game-editor-kit` -> jsdelivr
-  `gh/AnEntrypoint/design@<sha>`) — bump all four together. `wireweave` is an
-  optionalDependency `github:AnEntrypoint/wireweave`, remapped to
-  `/node_modules/wireweave/src/index.js`. `gm` is a global `npx gm-skill install`, not a spoint
-  dependency. `vendor/*` are editing-only submodules: never imported from `client/`, `scripts/`,
-  `src/`; edit on their own `main`, push there, then commit the gitlink. The importmaps also remap
-  `https://esm.sh/three@r128` to the local three (`project/importmap-esmsh-three-dedupe`); COEP
-  `require-corp` means every kit CDN must send CORP and the importmap must precede any module
-  load/preload. `nostr-tools` is injected from `client/vendor/nostr-tools.mjs`. No npm dependency on
-  the kit. Pin a wireweave SHA (no CI here tests its `main`). A fourth submodule needs a documented
-  runtime mechanism.
-- `project/gui-kit-architecture-2026-08-21`: every UI component is built in `AnEntrypoint/design`
-  (`src/components/game-editor-kit/`) and reaches spoint only through the pinned importmap; spoint
-  keeps backend only (`src/effects/DamageEffects.js`, `apps/hit-feedback`). Reject any
-  UI-rendering `*.js`/`*.html`/`*.css` under `client/` without the design-repo work: design first,
-  spoint integration next commit, verify on the live URL with `?v=<ts>`.
-- `/client-error` (`client/core/ErrorTelemetry.js`) and `/upload-model` (`client/editor/editor.js`)
-  are server routes (`src/sdk/ServerAPI.js`) absent on the static gh-pages host; both no-op behind
-  `.catch` (accepted 2026-08-03).
+- AnEntrypoint publishes nothing to npm. `design` is pinned CDN URLs in the importmaps of `client/index.html`, `client/landing/index.html`, `client/editor/thebird-host.html`, `scripts/bundle-client.mjs` (`anentrypoint-design` -> unpkg `1.0.34/dist/247420.{js,css}`; `game-editor-kit` -> jsdelivr `gh/AnEntrypoint/design@<sha>`) — bump all four together. `wireweave` is an optionalDependency remapped to `/node_modules/wireweave/src/index.js`; pin a SHA (no CI tests its `main`). `gm` is a global `npx gm-skill install`. `vendor/*` are editing-only submodules, never imported from `client/`/`scripts/`/`src/`; edit on their own `main`, push, then commit the gitlink. The importmaps also remap `https://esm.sh/three@r128` to local three; COEP `require-corp` means every kit CDN must send CORP and the importmap must precede any module load/preload.
+- Every UI component is built in `AnEntrypoint/design` (`src/components/game-editor-kit/`) and reaches spoint only via the pinned importmap; spoint keeps backend only (`src/effects/DamageEffects.js`, `apps/hit-feedback`).
+- `/client-error` (`client/core/ErrorTelemetry.js`) and `/upload-model` (`client/editor/editor.js`) are server routes absent on the static gh-pages host; both no-op behind `.catch`.
+- `scripts/bundle-client.mjs` output must stay `dist/client/app.js`, unhashed (the `dist/client` mount shadows `client/app.js` by same-name fallthrough). `streaming-gltf` model-pool/draco-loader/occlusion-query-tier/octahedral-impostor-ez[-tier] stay external: they resolve siblings via `new URL(.., import.meta.url)`.
 
 ## Debugging discipline
 
-- `project/degenerate-triangle-threshold-is-not-a-tunable-guess`,
-  `project/degenerate-triangle-third-copy-and-immutable-cache`: a bug that survives a threshold
-  change was not fixed — re-diagnose the mechanism. Exhaust structural fixes, then derive a
-  threshold from a measured discontinuity (`EPS_AREA=1e-4` sits in a verified histogram gap of
-  aim_sillos.glb). A fix correct at its own layer that fails end-to-end means another copy of the
-  same check exists (three did: `src/physics/ShapeBuilder.js`,
-  `packages/streaming-gltf/tools/bake-cluster.mjs`,
-  `packages/streaming-gltf/src/cluster-lod-mesh.js`). A re-bakeable URL needs a real ETag;
-  `immutable` without one serves stale pre-fix bytes. Verify rendering on live GPU data
-  (`window.__scene`).
-- `project/node-process-exit-races-uv-async-send-2026-10-06`: `src\win\async.c, line 76` is
-  libuv 1.51.0's `uv_async_send` assert — a send to an already-closing `uv_async_t`, not a double
-  close; spoint owns none of the three `uv_async` handles a process has. Fires at `process.exit()`
-  with handles mid-close, so headless scripts must await `process._getActiveHandles()` reaching 0.
-- `project/debugging-playbook-live-gl-instrumentation-2026-07-10`: console-text disambiguation of
-  same-code GL errors, draw-call stack capture, live GL state over JS-cache trust, pixel-sample
-  toggle elimination for flicker, discrete-vs-noise classification before chasing.
-  Underwater/waterline and grazing-altitude water cull:
-  `project/ground-depth-cut-is-underwater-ceiling-waterline-crossing` (`window.__tpOverride`,
-  `window.__passProbe`; an out-of-band `renderer.render` fakes a black void).
-- `project/page-boot-witness-needs-multiplayer-not-singleplayer`: a page witness that needs the
-  server to act on a client message must pass `--params=multiplayer`; under `?singleplayer` the node
-  server sees `players:0` throughout and the message is acked `ok:false`.
-- `witness-page-boot-cancellations-are-not-failures`: in `page-boot-witness` and
-  `arena-combat-two-client-witness`, `net::ERR_ABORTED` is a cancellation, printed `[request-cancelled]`; only a real failure or `HTTP >= 400` fails an arm, so a booting page needs no
-  `--allow-failed-requests`.
-- `world-shadermanifest-optional-probe-404`: `client/app.js:745` maps a non-ok
-  `/apps/world/<world>.shadermanifest.json` to `null`; only `deathrun` and `tps-game` ship one.
-- `project/loaded-box-timer-noise-floor-exceeds-37-percent`: on this shared box a ms-per-tick
-  counter is not a measurement -- two back-to-back arms of one build moved `_lastCollisionMs`
-  0.310 -> 0.423 ms/tick (+37%) while integer work-unit counters in the same runs moved under 1%.
-  Decide perf rows on counted work units and report the ms figure as unmeasured below ~40%. Load
-  also moves the measured quantity: the byte-identical fraction of packed entity bin records read
-  0.378 / 0.254 / 0.109 at 78 / 64 / 52 ticks/s, a starved tick loop giving every prop a larger dt.
+- A bug surviving a threshold change was not fixed — re-diagnose. A fix correct at its own layer that fails end-to-end means another copy of the same check exists (three did: `src/physics/ShapeBuilder.js`, `packages/streaming-gltf/tools/bake-cluster.mjs`, `packages/streaming-gltf/src/cluster-lod-mesh.js`). Derive a threshold from a measured discontinuity (`EPS_AREA=1e-4` sits in a verified histogram gap of aim_sillos.glb). A re-bakeable URL needs a real ETag; `immutable` without one serves stale pre-fix bytes.
+- `src\win\async.c, line 76` is libuv 1.51.0's `uv_async_send` assert — a send to an already-closing `uv_async_t`, not a double close. It fires at `process.exit()` with handles mid-close, so headless scripts must await `process._getActiveHandles()` reaching 0, and a green path can surface as exit 127.
+- Live-GL playbook: console-text disambiguation of same-code GL errors, draw-call stack capture, live GL state over JS-cache trust. Underwater/waterline cull: `window.__tpOverride`, `window.__passProbe`; an out-of-band `renderer.render` fakes a black void.
+- A page witness needing the server to act on a client message must pass `--params=multiplayer`; under `?singleplayer` the node server sees `players:0` and acks `ok:false`. `net::ERR_ABORTED` is a cancellation (`[request-cancelled]`); only a real failure or `HTTP >= 400` fails an arm.
+- `client/app.js:745` maps a non-ok `/apps/world/<world>.shadermanifest.json` to `null`; only `deathrun` and `tps-game` ship one, so every other world 404s on every boot while booting clean.
+- On this shared box a ms-per-tick counter is not a measurement: two arms of one build moved `_lastCollisionMs` 0.310 -> 0.423 (+37%) while integer work-unit counters moved under 1%. Decide perf rows on counted work units and report ms below ~40% as unmeasured.
+- `exec_js` dispatches are ephemeral isolated contexts: a server booted in one dispatch is dead by the next even when `global.*`-guarded. Boot AND probe a long-lived server inside one dispatch.
 
 ## Entry points
 
-- `ctx.defineGameFSM(spec)` `src/behaviours/game-fsm.js` (`fsm.tick(dt)` from `update`);
-  `client/core/ClientMachine.js` is xstate5 parallel and its loading fallback is `after:` 10 s
-  gated / 45 s hard stop; editor hierarchy messages REPARENT/DUPLICATE/SET_LABEL are 0x94-0x96;
-  mapspinner and streaming-gltf are in-repo npm workspaces under `packages/`, edited directly.
-- Engine behaviour primitives live in `src/behaviours/` (`apps/_lib/*` are one-release re-export
-  shims). `ctx.defineCombat(spec)` owns the shooter loop as `ctx.combat`
-  (`project/engine-apps-boundary-b5-b8-combat-behaviour-presets-2026-10-02`); `ctx.defineFire(spec)`
-  owns fire (below).
-- Default world is `apps/world/index.js` `defaultWorld`; worlds are validated
-  (`src/shared/worldResolve.js`), defaulted (`src/shared/worldDefaults.js`) and preset-expanded
-  (`presets: ['tps']`, `src/presets/`) in every runtime; default avatar
-  `client/assets/default-avatar.vrm` (CC0); TURN only via `SPOINT_ICE_SERVERS`. Static compression
-  cache is `.spoint-cache/static/`. See `project/engine-apps-boundary-b0-b1-2026-09-30` and
-  `project/engine-apps-boundary-b2-b4-world-registry-resolve-presets-2026-09-30`.
-- Test relocation: `window.__spoint` + `MSG.TELEPORT`
-  (`project/test-relocation-api-teleport-bookmarks-whensettled`).
+- `ctx.defineGameFSM(spec)` `src/behaviours/game-fsm.js`; `client/core/ClientMachine.js` is xstate5 parallel, loading fallback `after:` 10 s gated / 45 s hard stop; editor REPARENT/DUPLICATE/SET_LABEL are 0x94-0x96; mapspinner and streaming-gltf are in-repo workspaces under `packages/`.
+- Behaviour primitives live in `src/behaviours/` (`apps/_lib/*` are one-release re-export shims). `ctx.defineCombat(spec)` owns the shooter loop as `ctx.combat`; `ctx.defineFire(spec)` owns fire.
+- Default world `apps/world/index.js` `defaultWorld`; worlds validated (`src/shared/worldResolve.js`), defaulted (`src/shared/worldDefaults.js`), preset-expanded (`presets: ['tps']`); TURN only via `SPOINT_ICE_SERVERS`. Static compression cache `.spoint-cache/static/` (must not sit under `data/`, served at `/data/`).
+- Test relocation: `window.__spoint` + `MSG.TELEPORT`. `window.__spoint._drive` only mutates input while a walker from `walkTo`/`go` is active, so calling it directly moves nothing; inject movement with a real `KeyboardEvent('keydown',{code:'KeyW'})` on both `window` and `document`.
+- A client app's `ctx.state` is the ENTITY'S `custom` block (`client/AppModuleSystem.js:82`), not server app state, which never crosses the wire (`src/apps/AppRuntime.js:686`). So a server `ctx.state.<key>` publish is unreadable by the client and `ctx.state.<key> ?? literal` silently takes the literal forever. Own the value in a module both sides import (`apps/tps-game/shared.js` exports `COMBAT_CONFIG`), publish under `entity.custom`, or guard so a missing key is loud.
 
 ## Fire (`ctx.defineFire`, `src/behaviours/fire.js`)
 
-`project/fire-system-design-2026-10-05` is the design record (PRD row `fire-system-big-deal`,
-children `fire-s1..s6`); `project/fire-system-s2-s3-landed-2026-10-05` is its addendum and
-**corrects two statements in it — read both**. Landed S1 `ed278b8b`, S2 `966b09a7`, S3 `02a819b5`
-(plus `fd4f05a4`, `da264a92`), headless and **default off**: nothing runs until an app calls
-`ctx.defineFire`. Deterministic by construction: an integer-only, order-independent kernel
-(`src/shared/fire/fireKernel.js`) whose per-cell decisions come from `hash(seed, step, face, I, J)`
-— no float, no `Math.random`, no `Date.now` (never copy `destructible.js`'s use of either). Cells
-are 2x2 veg placement cells (8 m) on the placement cube-face lattice, keyed `(face,I,J)`, so burn
-state is chart independent; a trunk's cell is exact integer arithmetic from its `trunkId`. Step
-boundaries are absolute ticks, so peers that start ticking at different times still apply an event
-at the same step. Only ignition/extinguish/weather events cross the wire
-(`src/shared/fire/fireWire.js`), and `spec.role: 'mirror'` cannot originate events. Gameplay consumers:
-`ctx.navCostAt(x, z)` returns 8 over a burning cell and 2 over a charred one (steering divides speed
-by it, `src/behaviours/steering.js`), and players get `fire_burn` / `fire_burn_end` / `fire_death`
-payloads from `src/behaviours/fireGameplay.js`. tps-game wires all of it behind
-`config.fire.enabled`, shipped **false** (`apps/world/tps-game.js`); `apps/tps-game/server-app.js`
-builds the fire only when that flag is `true`, and its combat bridge passes `fire.rayBlocked` as
-`shotBlocked` and ignites on `onWorldHit`.
+Landed S1 `ed278b8b`, S2 `966b09a7`, S3 `02a819b5`, headless and **default off**: nothing runs until an app calls `ctx.defineFire`. Integer-only, order-independent kernel (`src/shared/fire/fireKernel.js`), per-cell decisions from `hash(seed, step, face, I, J)` — no float, no `Math.random`, no `Date.now` (never copy `destructible.js`). Cells are 2x2 veg placement cells (8 m) on the placement cube-face lattice, keyed `(face,I,J)`, so burn state is chart independent. Step boundaries are absolute ticks, so peers starting at different times apply an event at the same step. Only ignition/extinguish/weather cross the wire (`src/shared/fire/fireWire.js`); `spec.role: 'mirror'` cannot originate. `ctx.navCostAt(x,z)` returns 8 burning / 2 charred (steering divides speed by it). tps-game wires it behind `config.fire.enabled`, shipped **false**; its combat bridge passes `fire.rayBlocked` as `shotBlocked`.
 
-Wind and weather: `src/sdk/ServerWeather.js` carries an authoritative `[x,y,z]` integer wind clamped
-to +-16 on the WEATHER_SYNC payload — an **additive** field, so `WIRE_PROTOCOL_VERSION` stays 5 and
-an old payload without `wind` leaves the fire's `spec.wind` untouched. Time-varying wind comes from
-`src/shared/fire/fireWind.js`, a pure `hash(seed, step)` integer field with no float and no per-peer
-state, so peers that start ticking at different ticks read the same vector at the same step; a wind
-that must be authoritative arrives as a `FIRE_EVENT.WIND` event at an absolute step boundary.
-Rain/moisture/wind are emitted only on change (moisture with hysteresis) and `fire.weather` exposes
-the current rain byte, moisture and wind. Firebreaks (`src/behaviours/fireTerrain.js`) give cleared
-circles, terrain kinds, submerged and rock cells fuel class 0, so they can never ignite.
+Wind/weather: `src/sdk/ServerWeather.js` carries an authoritative `[x,y,z]` integer wind clamped to +-16 on WEATHER_SYNC — an **additive** field, so `WIRE_PROTOCOL_VERSION` stays 5. Time-varying wind comes from `src/shared/fire/fireWind.js`, a pure `hash(seed, step)` field with no per-peer state. Firebreaks (`src/behaviours/fireTerrain.js`): submerged and rock cells are fuel class 0 and can never ignite.
 
-Witnesses: `scripts/fire-witness.mjs` (kernel, wire, rollback, late join + sliced keyframe),
-`scripts/fire-peer-rollback-witness.mjs` (rollback/lockstep desync counts),
-`scripts/fire-weather-witness.mjs` (wind field, rain halt, additive WEATHER_SYNC),
-`scripts/fire-combat-witness.mjs` (incendiary, extinguish, explosion, firebreaks, tps-game flag).
-
-Open rows: `fire-s1d`/`fire-s1e` (kernel perf: incremental hash + dirty-tile snapshots, per-tile
-reclaim and placement fuel), `fire-s2b` (smoke occlusion, browser),
-`fire-s2c-veg-sway-wind-vector-client` (vegetation sway is still the scalar `window.__vegWind`, no
-direction), `fire-s3a` (client mirror + GPU), `fire-s4a-d`, `fire-s5a-d`, `fire-s6`.
+Witnesses: `scripts/fire-witness.mjs`, `fire-peer-rollback-witness.mjs`, `fire-weather-witness.mjs`, `fire-combat-witness.mjs`. Open rows: `fire-s1d`/`fire-s1e`, `fire-s2b`, `fire-s2c-veg-sway-wind-vector-client` (sway is still scalar `window.__vegWind`), `fire-s3a`, `fire-s4a-d`, `fire-s5a-d`, `fire-s6`.
 
 ## Planet-wide multiplayer (`src/shared/clusterAssignment.js`, `src/sharding/`)
 
-`project/planet-wide-multiplayer-architecture-2026-10-05`: dynamic **proximity clusters**, one
-existing server world per cluster, each cluster its own flat chart (ChartReanchorService follows the
-cluster centroid), several small worlds per worker process — never one process per player. The Jolt
-wasm heap is **fixed at 134217728 B (128 MiB)** and never grows: exceeding it raises
-`Aborted(OOM)` inside `new J.JoltInterface` (`src/physics/World.js:60`), killing every world in the
-process — it does not degrade. `1157976 B` of it is resident before any world exists and a
-co-located client collision mirror spends `11278387 B` (10.756 MiB) of the same heap; a world per
-player is unviable either way. A world's cost is ~98% **reservation, not content**:
-`10645288 + 33*mMaxBodies + 88*mMaxBodyPairs + 336*mMaxContactConstraints` bytes (coefficients in
-`src/physics/joltLimits.js`; a 2026-10-06 allocation sweep reproduced them at 88.00 / 33.02 /
-336.00 B). Content is negligible beside it — a static body 266 B, a dynamic body 392 B, a character
-416 B, a 65x65 heightfield 16 KB, a connected grounded player 2144 B. So the density lever is
-**`joltLimits`, not world count**, and `project/jolt-limits-right-sized-2026-10-06` pulled it for
-cluster worlds: `CLUSTER_SERVER_JOLT_LIMITS = 8192/8192/2048` goes through
-`src/sharding/ClusterServerWorld.js` into `PhysicsWorld`, marginal **11.799 MiB** (12372064 B
-derived, 11.7-11.8 MiB measured per extra world), `CLUSTER_HEAP_WORLD_CEILING` **5 -> 8**, and the
-harness witnessed 10 cluster worlds in one process at 60 Hz each with 9.4 MiB left where 7 used to
-abort. A full single world still passes no `joltLimits` and keeps the 10240/65536/10240 defaults;
-`serverConfig.joltLimits` overrides either. The three limits are **not** the same kind of cap:
-`maxContactConstraints` under its requirement drops contacts silently (replica: 512 dynamics rest at
-Y=-0.22 at 512, fall through to Y=-49 at 256), `maxBodies` under the population truncates silently,
-and **`maxBodyPairs` is a queue batch, not a cap** — a replica holding 5560 concurrent manifolds
-gives bit-identical trajectories at 8 and at 65536 — so it is an allocation knob only.
-`project/cluster-world-heap-budget-measured-2026-10-06` keeps the pre-right-sizing 19.301 MiB
-census and its mirror arithmetic. Assignment is pure and deterministic (positions only, order independent, hysteretic,
-antipodal-safe), run at 2-4 Hz rather than per tick: it is O(n^2) at 0.16 ms for 16 players and
-8.9 ms for 1024. Load is not the reason to partition — chart validity is: two players 100 km apart
-on one shared chart read 51.83 deg of slope. `resolveClusterConfig` refuses a link below the
-relevance ring or the longest weapon range, and a radius past `WALKABLE_CHART_LIMIT_DEG`. A
-chart-local point at or beyond the planet radius throws `ChartRangeError` instead of returning flat
-ground. Entry points: `src/sharding/ClusterManager.js`, `ClusterWorldHost.js`, `ClusterHandoff.js`
-(`exportPlayerHandoff`/`admitPlayerHandoff` over `createChartTransfer` + `createReexpressPass`).
-Entity partition across cluster worlds is the large unsolved piece. Landed default-off and unwired
-as of 2026-10-05 (`terrain.clusters.enabled !== true` returns null).
+Dynamic **proximity clusters**, one server world per cluster, each its own flat chart, several worlds per worker — never one process per player. The Jolt wasm heap is **fixed at 134217728 B (128 MiB)** and never grows; exceeding it raises `Aborted(OOM)` in `new J.JoltInterface` (`src/physics/World.js:60`), killing every world in the process. `1157976 B` is resident before any world; a co-located client collision mirror spends `11278387 B` (10.756 MiB) of the same heap. A world's cost is ~98% **reservation, not content**: `10645288 + 33*mMaxBodies + 88*mMaxBodyPairs + 336*mMaxContactConstraints` (`src/physics/joltLimits.js`). Content is negligible: static body 266 B, dynamic 392 B, character 416 B, 65x65 heightfield 16 KB, grounded player 2144 B. So the density lever is **`joltLimits`, not world count**: `CLUSTER_SERVER_JOLT_LIMITS = 8192/8192/2048` via `src/sharding/ClusterServerWorld.js`, marginal **11.799 MiB** (12372064 B; was 19.301 MiB), `CLUSTER_HEAP_WORLD_CEILING` **5 -> 8**; 10 cluster worlds ran in one process at 60 Hz with 9.4 MiB left where 7 aborted. A full single world passes no `joltLimits` and keeps 10240/65536/10240. Census at the largest allowed cluster: peak 3587 bodies, 329-516 manifolds.
+
+The three limits are not the same kind of cap and two fail SILENTLY (measured 2026-10-06, contradicting the earlier assumption that undersizing aborts): `maxContactConstraints` under requirement drops contacts with no signal (3072 statics + 512 dynamics rest at Y=-0.22 with 512 but fall to Y=-49 with 256 — no assert, no exception); `maxBodies` under population truncates silently; **`maxBodyPairs` is a queue batch, not a cap** — 5560 concurrent manifolds give bit-identical trajectories at 8 and at 65536 while still costing 88 B/slot. Only the wasm HEAP aborts. Size the first two from a measured peak with headroom and make overshoot loud.
+
+Assignment is pure and deterministic (positions only, order independent, hysteretic, antipodal-safe), run at 2-4 Hz: O(n^2) at 0.16 ms for 16 players, 8.9 ms for 1024. Load is not why we partition — chart validity is: two players 100 km apart on one chart read 51.83 deg of slope. `resolveClusterConfig` refuses a link below the relevance ring or the longest weapon range, and a radius past `WALKABLE_CHART_LIMIT_DEG`. A chart-local point at or beyond the planet radius throws `ChartRangeError` rather than returning flat ground. Entry points `src/sharding/ClusterManager.js`, `ClusterWorldHost.js`, `ClusterHandoff.js`. Entity partition across cluster worlds is the unsolved piece. Landed default-off and unwired (`terrain.clusters.enabled !== true` returns null).
 
 ## Chart re-anchor
 
-- `project/chart-reanchor-server-state-migrators-2026-10-05`,
-  `project/chart-reanchor-terrain-holders-2026-10-05`: every server-side chart-local holder with
-  file and mechanism, the grounded-velocity tilt clamp, the fault policy that stops the tick loop on
-  a half-migrated frame, the base-chart persistence rule. A new holder of chart-local state must
-  either be re-expressed in `src/sdk/chartState/` or expose `onChartReanchor` (apps:
-  `server.onChartReanchor(ctx, {transfer})`; behaviours made through
-  `ctx.defineCombat/Checkpoint/ShrinkingZone/Destructible` register through
-  `AppContext._chartAware`).
-- `project/chart-reanchor-wire-epoch-client-consumers-2026-10-05`: CHART_REANCHOR 0xc6, epoch on
-  snapshots/inputs/events/teleports, the client consumer, harness
-  `scripts/chart-reanchor-wire-harness.mjs`.
-  `project/msgpack-usefloat32-lossy-doubles-audit`: `src/protocol/msgpack.js` encodes with a Packr
-  at `useFloat32: NEVER` (float64 0xcb, bit-exact) and decodes with a **separate Unpackr at
-  `DECIMAL_ROUND`** — deliberately asymmetric. msgpackr applies 0xca decimal rounding only when
-  `useFloat32 > 2` (`node_modules/msgpackr/unpack.js:344`), so a decoder at NEVER returns the raw
-  widened float32 and silently disagrees with a pre-change peer that emitted 0xca (`0.1` ->
-  `0.10000000149011612`, `8.79` -> `8.789999961853027`, `123.456` -> `123.45600128173828`);
-  DECIMAL_ROUND reproduces old->old bit-for-bit (2509/2509 in-scope values). new->old needs nothing
-  — 0xcb reads exactly on either decoder — so no `WIRE_PROTOCOL_VERSION` bump and no
-  `SPOINTREPLAY_VERSION` bump, because old replay files now decode exactly as recorded. Real
-  snapshots are byte-identical under both settings (0 B; `Buffer.compare === 0` at 24p/200e and
-  8p/50e): positions travel as i32 centimetres and every other leaf is an int, a string or bytes, so
-  size cost appears only where a raw JS-number double actually crosses — +4 B per float, +80% at
-  2000 raw doubles. `useFloat32: 4` (DECIMAL_FIT) round-trips bit-exact on every corpus measured
-  (0/100000 2-dp, 0/20000 3-dp, 0/20000 toFixed(2), 0/20000 uniform random) but is still not
-  lossless in general: `8.790000000000001` -> `8.79`, 1 ulp, because its "is this an integer" guard
-  is evaluated in double arithmetic. Only NEVER is exact by construction.
-- Jolt recycles the tree nodes of removed bodies only in `physics.step`, so re-adding thousands of
-  bodies with no step between aborts the wasm.
-- `project/jolt-limits-right-sized-2026-10-06`: the resident-body census, the 8192/8192/2048 cluster
-  sizing and its margins, the 11.799 MiB re-measured marginal, the ceiling 5 -> 8 move, and the
-  per-limit cap semantics (`maxContactConstraints` and `maxBodies` truncate silently;
-  `maxBodyPairs` is an allocation-only queue batch).
-- `project/planet-chart-cell-keyed-vs-threshold-reanchor-and-runtime-slice-2026-10-05`: a flat chart
-  plus global gravity has an intrinsic tilt term — with one tangent chart at `anchorDir` and gravity
-  fixed at `[0,-18,0]` the surface tilts away from the chart's up axis by roughly theta at angle
-  theta from the anchor, so at 15 deg even constant-elevation ground reads as a 15 deg slope. Of 43
-  non-walkable circumnavigation crossings, 26 are genuine cliffs (up to 74.23 deg terrain), 17 are
-  this term (median excess 9.26 deg, max 17.31, floor -9.09 where the terrain's own slope cancels
-  part of it — a negative value is the signature, a stale-cache read cannot be negative). Fixed by
-  shrinking the chart: `CHART_ANCHORS_PER_FACE = 32` (`src/shared/chartAnchor.js`, shipped
-  `b6af3ff0`), cell-keyed, worst cell angle 2.26 deg. Never raise `MAX_SLOPE_DEG`, pinned to
-  `DEFAULT_MAX_SLOPE_ANGLE_RAD = 0.7854` in `src/physics/CharacterManager.js`.
-  `project/terrain-fine-field-height-error-is-the-chart-tilt-term`: that same term bounds every
-  field-interpolated ground answer. Measured on tps-game (radius 63600 m, 256 m field, 2.0157 m
-  spacing) against the exact solver at interior points — max error 0.2452 m at the anchor, 0.2619 m
-  at 1 km, 0.3708 m at 10 km and 4.0304 m at 60 km, against a `spacing * tan(distance / radius)`
-  prediction of 0 / 0.0317 / 0.3196 / 2.7798 m over a ~0.21 m solver floor. Halving the spacing
-  shrinks it by 0.47-0.65, not 0.25, so it is first order in spacing, not interpolation error, and
-  re-anchoring the chart on the same ground collapses 4.0304 m to 0.2084 m. Bound to assume: about
-  0.35 m max (0.16 m p95) anywhere inside a cell-keyed chart, growing as
-  `0.21 m + spacing * tan(distance / radius)` once the anchor is further away.
-  `streamer.chartReanchor` (`src/terrain/ChartReanchorService.js`, `tcfg.chartReanchor.enabled`,
-  default off) rotates the frame and runs every registered migrator; it throws only when stepped
-  with no migrator registered.
+- Chart-local server holders migrate through `src/sdk/chartState/` (`attachServerChartMigrators(ctx, service)`, called in `ServerAPI.loadWorld` and `WorkerEntry` after `setupTerrainStreaming`; default off). `TickHandler.simulateTick` calls `physics._terrainStreamer.chartReanchor.step()` after `drainBodyQueue` and before `physics.step`, never with explicitInputs, so rollback/lockstep resim never steps it; terrain migrators run first. A new holder must be re-expressed in `src/sdk/chartState/` or expose `onChartReanchor` (apps `server.onChartReanchor(ctx,{transfer})`; behaviours via `ctx.defineCombat/Checkpoint/ShrinkingZone/Destructible` register through `AppContext._chartAware`). `fluid3d` REFUSES via `AppContext._blockChartReanchor`: its wasm SPH3D takes only gravityY along its own Y and an axis-aligned box, so a rotated chart cannot be expressed without re-init. Persistence sinks stay in the BASE chart (`chartEpochLedger.js canonicalTransfer()`: null at base). FAULT POLICY: a migrator throwing after the frame rotated leaves a split frame, so `applyOnce` stops the tick loop, sets `ctx.chartReanchorFault`, logs FATAL and rethrows; epoch <= applied is a no-op, epoch != applied+1 throws. Grounded velocity carries exactly EXCEPT a grounded character whose transformed vy is a tilt artefact (`clampTiltInducedUpward`; accepted discontinuity 0.089 m/s at 1.06 deg).
+- A re-anchor is a change of basis, not a physical rotation: world position, velocity and forward are invariant. Carrying only the yaw breaks that — a forward vector horizontal in the old chart gains an up component up to `sin(angle(up_from,up_to))`, measured -39 deg for a 30 deg reanchor. `createChartTransfer` exposes `look(yaw,pitch) -> {yaw,pitch}` and NOT a yaw-only helper; carry the pair. The induced pitch is real: gravity is `-up` in chart-local coordinates.
+- CHART_REANCHOR is 0xc6; epoch u32 rides the snapshot header and input/fire/teleport messages; harness `scripts/chart-reanchor-wire-harness.mjs`. `src/protocol/msgpack.js` encodes with a Packr at `useFloat32: NEVER` (float64 0xcb, bit-exact) and decodes with a **separate Unpackr at `DECIMAL_ROUND`**, deliberately asymmetric: msgpackr applies 0xca decimal rounding only when `useFloat32 > 2` (`node_modules/msgpackr/unpack.js:344`), so a NEVER decoder returns the raw widened float32 and disagrees with a pre-change peer (`0.1` -> `0.10000000149011612`); DECIMAL_ROUND reproduces old->old bit-for-bit (2509/2509). new->old needs nothing — 0xcb reads exactly either way — so no `WIRE_PROTOCOL_VERSION` or `SPOINTREPLAY_VERSION` bump. Real snapshots are byte-identical under both settings since positions travel as i32 centimetres. `useFloat32: 4` (DECIMAL_FIT) is not lossless in general (`8.790000000000001` -> `8.79`). Only NEVER is exact by construction.
+- Jolt recycles removed bodies' tree nodes only in `physics.step`, so re-adding thousands of bodies with no step between aborts the wasm. Static migration with tiles on costs ~22 us per flip (~8 us without); a 16.7 ms tick holds ~1500 statics.
+- A flat chart plus global gravity has an intrinsic tilt term: with one tangent chart at `anchorDir` and gravity fixed at `[0,-18,0]` the surface tilts away from the chart's up axis by roughly theta at angle theta from the anchor, so at 15 deg constant-elevation ground reads as a 15 deg slope. Of 43 non-walkable circumnavigation crossings, 26 are genuine cliffs (up to 74.23 deg) and 17 are this term (median excess 9.26 deg, max 17.31, floor -9.09 — a negative value is the signature; a stale-cache read cannot be negative). Fixed by shrinking the chart: `CHART_ANCHORS_PER_FACE = 32` (`src/shared/chartAnchor.js`, `b6af3ff0`), cell-keyed, worst cell angle 2.26 deg. Never raise `MAX_SLOPE_DEG`, pinned to `DEFAULT_MAX_SLOPE_ANGLE_RAD = 0.7854` in `src/physics/CharacterManager.js`. The same term bounds every field-interpolated ground answer: on tps-game (radius 63600 m, 256 m field, 2.0157 m spacing) vs the exact solver, max error 0.2452 m at the anchor, 0.2619 at 1 km, 0.3708 at 10 km, 4.0304 at 60 km; halving spacing shrinks it 0.47-0.65, not 0.25, so it is first order in spacing; re-anchoring on the same ground collapses 4.0304 to 0.2084 m. Assume ~0.35 m max (0.16 m p95) inside a cell-keyed chart, growing as `0.21 m + spacing * tan(distance/radius)` once the anchor is farther away. `streamer.chartReanchor` (`src/terrain/ChartReanchorService.js`, `tcfg.chartReanchor.enabled`, default off) throws only when stepped with no migrator registered.
 
-## Code rationale index
+## Physics and Jolt
 
-Full text in recall (`recall <slug>`); read the memo before changing the named code.
+Full detail: recall `project/spoint-physics-and-jolt-detail-2026-10-06`. Load-bearing few: `BodyInterface.GetPosition` returns ONE shared temp, so two calls alias. `ShapeResult` is destroyed only AFTER `_addBody`. `removeConstraint` must not `J.destroy`; `removeBody` must first drop constraints referencing it or `Step` hangs. `src/apps/AppRuntimePhysics.js` must skip `e._vehicleId != null` in BOTH `_tickPhysicsLOD` and `_enforceBodyBudget` (budget re-sleep cut driven travel 112 m -> 6 m). `ctx.physics.addForce` is an impulse.
 
-- three: `three-shaderchunk-edit-needsupdate-noop`, `overridematerial-instancedmesh2-instanceindex`,
-  `instancedmesh2-addshadowlod-default-material`, `batchedmesh-array-material-never-draws`,
-  `shadowcostprobe-three-shadowmap-scope-gate`.
-- Model pool: `modelpool-shared-ktx2loader-singleton`, `modelpool-per-instance-geometry-shell`,
-  `modelpool-vram-one-way-ratchet`, `streaming-gltf-clusterlodmesh-array-material-seed-group`.
-- Spaces: `floating-origin-camera-set-not-translate`, `editor-render-vs-authoritative-positions`,
-  `floating-origin-snapshot-targets-to-render`, `hostnearfar-shared-depth-contract`.
-- mapspinner: `mapspinner-sampler-units-never-empty`, `mapspinner-shared-gl-context-state-hazards`,
-  `mapspinner-snoise3-single-floor-fxc`, `mapspinner-unounroll-loop-bound`,
-  `mapspinner-face-frame-tables-agree`, `mapspinner-hpf-inset-matched-triple`,
-  `mapspinner-atm-lut-constants-mirror-glsl`, `mapspinner-scattering-lut-glsl-layer-mirror`,
-  `mapspinner-samplegroundm-one-call-stale`, `mapspinner-waterpass-discard-isolation`,
-  `tsl-parity-pxworld-camdist-fp32-asymmetry`.
-- Runtimes: `worker-module-no-importmap-bare-specifier`, `sdk-dual-runtime-process-guard`,
-  `apps-cannot-import-client-modules`, `esbuild-import-specifier-iife-not-concat`,
-  `browserserver-snapshot-flush-settimeout-not-raf`,
-  `browser-witnesses-force-swiftshader-rasterizer-class`.
-- Apps: `app-motion-streams-all-bodytypes` (supersedes the old "moving apps must declare
-  kinematic/dynamic"), `app-setup-sibling-entities-not-ready`,
-  `inventory-client-payload-trust-boundary`, `component-schema-positional-wire`,
-  `componentpool-f64-for-epoch-and-config`, `destructible-pool-park-deactivate-and-hide`,
-  `app-physics-addforce-is-impulse`.
-- Physics (Jolt): `physics-jolt-shaperesult-destroy-after-addbody`,
-  `physics-jolt-getter-return-destroy-hazards`, `physics-jolt-vehicle-ownership-and-wake`,
-  `physics-lod-vehicle-chassis-exempt`.
-- Netcode/wire: `msgpack-wire-structures-snapshot-key-list`, `snapshot-entity-bin-fresh-buffer`,
-  `tickhandler-knownids-reset-only-on-keyframe`, `netcode-dt-determinism-source`,
-  `lockstep-checksum-canonical-float64-order`, `p2p-wireweave-ctrl-frame-prefixes`,
-  `baseclient-callback-allowlist`, `inputguard-sanitize-yaw-and-input-bucket`,
-  `predictionengine-collision-blind-wedge-drift-fix`.
-- Server/security: `server-http-auth-matrix`, `ses-evaluator-fails-closed-no-proxy-tier`,
-  `statichandler-path-containment`, `statichandler-coop-coep-require-corp`.
-- Terrain/assets: `terrain-collider-streamer-per-player-rings`,
-  `terrain-placement-parity-salt-and-prejitter-cell`, `glbktx2-meshopt-bufferview-ext-range`,
-  `rocks-visual-physics-seed-parity`,
-  `project/terrain-heightfield-collider-quantizes-over-min-max` (a Jolt field quantizes over its
-  own min/max: error about range/30000, and a 10 um nudge of an extreme cell moves the surface up
-  to range/5000 anywhere, which is why the sampler snaps to 1 mm and why `+ 0` after `Math.round`
-  is load-bearing),
-  `project/terrain-raycast-comparison-must-pin-resident-field-set`,
-  `project/terrain-fine-field-height-error-is-the-chart-tilt-term`,
-  `project/terrain-collider-initial-ring-is-placement-bound` (2.242 ms per ring chunk is 96% of the ring, so the 2.5 ms compute budget admits ~1 chunk/pass: budgeted boot 35.5 s vs 2.95 s; batch per cluster, 94.7 ms each),
-  `project/terrain-collider-deferred-rebuild-exceeds-body-cap` (the cap bounds one pass, not the resident set: at cap 768 an 8 m move left 865 and a 5 km jump 1178, even unbudgeted; fixed by an `evictOverCap` trim farthest-from-any-centre, 768 and over 0 on every path and the same body set as the single-pass ring).
-- Editor/UI/tooling: `kit-applydiff-child-crash-classes`, `hud-overlay-mount-outside-uiroot`,
-  `e2e-harness-multiplayer-param-and-no-watch`, `bundle-client-outfile-and-externals`.
+## Terrain and colliders
 
-## Topic catalogs in recall
+Full detail: recall `project/spoint-terrain-colliders-and-seams-detail-2026-10-06`. Load-bearing few: `solveSurfaceY` is absolute `1e-4` with a 64-eval cap and throws `SurfaceSolveError` (the old relative rule silently returned `bestY`, 17 km off at ~40 km), and the flat chart is valid only for r < 63.6 km. Terrain HEIGHT is seed-independent, so witness a seed change via `anchorField.sampleDir`. Re-bake `apps/world/tps-game.hf` on any terrain.glsl/anchorDir/radius/reliefScale/seed change. Do NOT budget the collider boot ring — it is placement-bound (2.242 ms/chunk) and budgeting it took boot 2.95 s -> 35.5 s.
 
-- `project/legacy-area-slug-catalog-part1-terrain-veg-physics-models`,
-  `project/legacy-area-slug-catalog-part2-app-deploy-editor-perf` (older names; most bodies were in
-  the retired rs-learn store, so the name plus `git log` on the named file is all that survives).
-- `project/code-rationale-slug-index-part1-render-assets-mapspinner`,
-  `project/code-rationale-slug-index-part2-netcode-server-apps-scripts` — every per-file rationale
-  slug moved out of source comments.
-- `project/spoint-core-rust-js-twins-byte-identical`.
-- Netcode (docs/netcode.md): `netcode-authoritative-path-defects`,
-  `netcode-input-pipeline-exact-prediction-invariants`, `snapshot-timeline-remote-interpolation`,
-  `tick-scheduler-and-snapshot-wire-v3`, `lag-compensation-view-tick-rewind`,
-  `netcode-rollback-profile-exact-resim`, `netcode-lockstep-profile-agreed-drop-and-pacing`,
-  `prediction-wall-plane-hints-position-only`, `jolt-value-getters-are-static-temps-never-destroy`, `netcode-lockstep-drop-tail-margin-is-inputdelayticks`, `netcode-rollback-measurements-depth-not-rate`.
-- Perf/spawn 2026-09-30: `veg-instancedmesh2-lod-children-cull-and-empty-levels-2026-09-30`,
-  `webgpu-dynamicdrawusage-reuploads-every-render`, `webgpu-vec3-attribute-padding-full-copy`,
-  `tsl-webgpu-perf-parity-2026-09-30`, `webgpurenderer-impostor-atlas-orientation-and-normals`,
-  `spawn-hold-until-static-colliders-and-floor-probe-2026-09-30`,
-  `veg-variation-perf-ab-and-remaining-costs-2026-09-30`,
-  `spawn-surface-standing-lifted-dropped-2026-09-30`,
-  `occlusion-query-tier-stuck-query-recycle-2026-09-30`,
-  `veg-variation-strengthened-metrics-and-witness-method-2026-09-30`, `dev-hmr-system-2026-09-30`,
-  `dev-hmr-batch2-2026-09-30`, `dev-hmr-batch3-2026-09-30`,
-  `prediction-collision-mirror-static-tiles-2026-09-30`, `patch-bake-worker-readback-off-main-thread`,
-  `local-player-step-trail-render-interpolation-and-jank-sources-2026-09-30`.
-- 2026-10-02: `grass-placement-painted-splat-weights`, `tsl-sculpt-override-r32f-2026-10-02`,
-  `tsl-default-renderer-and-hashversion2-flip-2026-10-02`,
-  `tsl-aerial-perspective-vs-legacy-measurement-2026-10-02`, `impostor-atlas-capture-tsl-2026-10-02`,
-  `tsl-import-names-check-against-installed-exports-2026-10-02`,
-  `terrain-legacy-gl-pipeline-cannot-do-v2-2026-10-02`, `perf-run-draws-counter-and-gate-buckets`,
-  `terrain-boot-coarse-then-refine-and-demand-sized-pools-2026-10-02`.
+## Netcode and wire
 
-Per-session narrative is drained; the durable lessons are the slugs above.
+- Replay/lockstep drift comes from dt, not Jolt (same-build Jolt is bit-exact; a 1e-6 relative dt error on one tick is 0.75 mm divergence, a 50-tick 10% dilation dip 25 cm). `LockstepTickSystem._computeDt` must stay `tickDuration/1000` (wall clock only paces cadence); `ReplayRecorder` records per-tick dt+collisionSteps and `ReplayPlayer` feeds those exact values.
+- Client-side prediction runs no collision, so `resimulate()` walks the local character into geometry it is already held against and drifts on every resim; the fix is a wedge flag gating the resim step when held against a surface, not a change to the correction threshold.
+- **Client peer separation is a win, not a regression.** `src/netcode/CollisionSystem.js applyPlayerCollisions` pushes overlap/2 per tick (a pair travels 6.000 m/s at 60 Hz). At 0/0/0: HEAD 0.1943 and 0.2049 corrections/ack vs a 0.7422 control — ~3.8x better. A figure near 0.74 is push-OFF regardless of the flag; the earlier "push made prediction worse" claim was push-on measured against a push-off baseline. Do not reintroduce it.
+- `src/protocol/msgpack.js` `WIRE_STRUCTURES[1]` must list exactly the keys, in order, of `TickHandler.js _packPayload` (seq,tick,serverTime,players,entities,removed,delta,dots; undefined-valued keys still count): msgpackr matches by the object's own key list, so one extra key silently falls back to map encoding on every snapshot (99 -> 174 bytes).
+- `pack()`/`unpack()` throw until the lazily imported Packr resolves; timer/interval senders must gate on `isPacked()` as well as socket-open.
+- Wire v3 player record is 8 fields in a 22-byte bin (35 bytes vs 51); recipient-only fields `[inputSequence, inputBuffer, groundNormal]` travel in the per-recipient `me` block, so snapshots pack per recipient. At 60 Hz: 8 players 18.5 KB/s, 16 players 34.9 KB/s per client. Over WebSocket, loss causes TCP head-of-line stalls the interpolation jitter must absorb (222 ms delay at 75/15/5% vs 120 ms for the unreliable-channel model). `HEARTBEAT_ACK` goes out via `ConnectionManager.sendNow` (unqueued).
+- Interest management exists but is unmeasured and off by default: `src/sdk/server.js:67` reads `ctx.currentWorldDef?.relevanceRadius || 0`, `ServerHandlers.js:85 playersInInterest` returns every player when it is not > 0, and no world in `apps/world` sets it — so every client receives every entity and player. The 3.6-6.7 KB/s figure in `docs/netcode.md` comes from the two-client harness with relevance off and says nothing about scaling.
+- Lockstep rate measured: 2 peers 28.8-29.4 Hz, 4 peers 26.6-27.0 Hz (refutes an earlier 24.2 Hz figure). Rollback rate is input-capped, so measure rollback by depth, not rate. `LockstepGameLoop.tailOf` must share from `simTick - inputDelayTicks`.
+- p2p wireweave: `HostMigration`/`SnapshotRelay`/`Lockstep*`/`RollbackInputTransport` send string `CTRL_PREFIX+JSON` frames (`wwmigrate`/`wwrelay`/`wwlockstep`/`wwrollback`/`wwdesync`) on the same data channel as binary msgpack; decoders must ignore other prefixes and unknown types. Ordering is per peer pair only.
+- Any new per-tick gameplay timer in `AppRuntime` must be tick-indexed, never `Date.now()` (`src/apps/AppRuntimeTick.js _interactCooldowns` stores `runtime.currentTick + ticks`): rollback resim replays ticks later in wall time, so a wall-clock expiry flips the decision and desyncs.
+- Raw ws clients in `scripts/perf-gate.mjs` and `scripts/verify-session.mjs` carry private `decodeFrame` copies that must mirror `ConnectionManager.js COALESCE_SENTINEL`/`frameCoalesced` and `BaseClient.js splitCoalesced`: `0xFF` then repeated `[uint32 LE length][msgpack payload]`. A plain `unpack()` of a coalesced frame throws "end of buffer not reached".
+
+## Rendering
+
+Full detail: recall `project/spoint-rendering-and-webgpu-detail-2026-10-06`. Load-bearing few: a `THREE.ShaderChunk` edit + `needsUpdate` is a silent no-op (the program cache key hashes shaderID/defines, not chunk text). An early return from InstancedMesh2's `onBeforeShadow` leaves `unpatchMaterial` unpaired and skips every remaining node of that frame forever — it fools measurement (draw calls collapse 162 -> 5), so always call the base hook and witness draw calls, not frame time. A `BatchedMesh` with an array material silently draws nothing. WebGPU terrain must target THREE's own `msaaTexture`, never `getCurrentTexture()`; omitted `landBias`/`hpfRes` defaults are the recurring GPU-vs-CPU height divergence.
+
+## Client and app runtime
+
+- HUD `applyDiff(uiRoot, hudVdom)` replaces uiRoot's children every frame, so imperative DOM overlays (lobby node, EmoteWheel, PauseMenu, SettingsMenu, MinimapHUD) must mount on `document.body`. App UI diffs into a dedicated uiRoot child.
+- Scenery build: `_buildWorldScenery` is a joinable wrapper (returns the in-flight promise) and boot adopts the running build for one more bounded window instead of restarting it — `Promise.race` does not cancel the loser, so the old code let a second `createTerrainBackdrop` run to completion. `SCENERY_BUILD_TIMEOUT_MS` bounds only the wait. Do not gate reveal on the planet alone: `PLAYABLE_BUDGET_MS=4000` prewarm populates the world and `streamRing` spends `LOAD_BUDGET_MS=2` per frame, so 4000 ms of prewarm is ~33 s. Vegetation creation never resolves on the SwiftShader witness path. Boot gaps on bundle `5133a3d0d11c036d`: foliage 5.8-7.6 s, `createTerrainBackdrop` 4.1 s WebGPU / 8.3 s legacy, nav->loading-ready 4.3 s.
+- `app.js animate()` returns early while `window.__warmupInFlight`; two interleaved `renderer.render` passes on one GL context let `ClusterLodMesh onBeforeRender` rewrite shared geometry.groups/index mid-pass.
+- Player mesh visibility has three owners (`gateCompile`, `tickPlayerAnimators`, the app), each keeping its own userData flag and unhiding only when the others are clear; raw `.visible` writes from two owners flash DOT-tier players visible.
+- Hot reload releases a ctx through `AppRuntime._releaseAppContext` (shared by `HotReloadQueue._execute` and `detachApp`). `update()` keeps running with a torn-down ctx unless `_updateList`/`_rebuildCollisionList` are rebuilt. A released bus scope refuses late `on`/`once`, and a setup's completion only clears `_pendingSetupIds` when `rt.contexts.get(eid)` is still its ctx. `ctx.onShutdown` and `ctx.time.*` are still not tied to the ctx.
+- Spawn: `holdSpawnUntilGrounded` (`src/sdk/Relocation.js:71`) has one caller, `_spawnJoiningPlayer`; it gates release on the heightfield via `terrainFieldMissingAt`/`coversPosition` (max `SPAWN_HOLD_MAX_MS=20000`), and returns false when `ctx._terrainStreamer` is missing so there is no hold at all. tps-game spawn Y is ground-validated with `heightHint = max(storedY, ctx.terrainHeightAt(x,z))` and a raycast from `heightHint+20` down 2000, falling back to `ctx.terrainHeightAt` and never the raw stale candidate (`898a28718f`).
+- App lifecycle traps: `AppRuntime.spawnEntity` attaches each app fire-and-forget, so inside `setup()` sibling world-def entities may not have run their own setup — collect tagged entities on the first `update()` tick. `broadcastMessage` iterates a copied `[...this.apps.keys()]`. `setResimSuppressed(true->false)` must flush `_flushDeferredPopulationOps` BEFORE `_flushDeferredCommitmentOps`. `apps/_lib/health.js` must return `_hp[slot]` re-read AFTER the callbacks and after `_refreshColumnsIfPoolGrew()` — callbacks re-enter the same instance and may swap the typed-array columns. `apps/_lib/checkpoint.js onCheckpoint` fires only when a player exceeds their highest reached index, so a restartable mode cannot use it for start/finish.
+- `src/sdk/server.js wireServerHandlers` must pass the same accessor keys to `createReloadHandlers` as to `createTickHandler`: `ReloadHandlers.reloadTickHandler` rebuilds via `createTickHandler({...deps})`, so a key missing from deps silently vanishes on the first hot-reload.
+- Singleplayer worker world identity comes from `INIT.worldName`, and the snapshot is one IDB key `world-snapshot` per origin, so switching worlds discards by world mismatch (`7d29891a8e`).
+
+## Measurement and witnessing
+
+Full detail: recall `project/spoint-measurement-and-witnessing-detail-2026-10-06`. Load-bearing few: several witnesses launch Chromium on SwiftShader with nothing saying so, so both timing gates and `.frame-time-baseline.json` were software numbers — `scripts/lib/gpu-probe.mjs assertGpu` after navigation. `perf-run.mjs` reports TWO frame-time instruments ~2x apart (`__rig` true cadence vs `__perf` including dispatch latency); name which one a claim uses. The panel is 144 Hz, so p50 27.7 and 13.9 ms are exact vsync divisors, not headroom. An A/B pair is comparable only if both arms serve the SAME bundle build stamp; record the bundle sha per arm. Gates pass silently (`undefined > x` is false, `||` defaults a missing field), so the proof a guard works is INJECTION: run it on deliberately broken input and confirm it fails. Never `taskkill /IM chrome.exe` — it kills other lanes' browsers.
+
+## Security
+
+- A HiddenSpawn second-stage loader was found and cleaned 2026-09-29 (`70cfe04f`): a `.env` plus 16 lines in `src/fluid/as-src/sph.ts`. Hunt markers: `aHR0c`, `atob(process.env`, `eval(`, `runOn folderOpen`, `task.allowAutomaticTasks`, `global['!']`, `_0x`, a `fonts/` directory of 1-line files.
+- `SESEvaluator` fails closed with no proxy tier; `StaticHandler` enforces path containment and COEP `require-corp`; `server-http-auth-matrix` holds the route/auth table.
 
 @.gm/next-step.md
