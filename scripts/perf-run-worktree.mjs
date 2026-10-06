@@ -68,8 +68,9 @@ try {
     const nested = join(ROOT, 'packages', pkg, 'node_modules')
     if (existsSync(nested) && existsSync(join(wt, 'packages', pkg)) && !existsSync(join(wt, 'packages', pkg, 'node_modules'))) linkDir(nested, join(wt, 'packages', pkg, 'node_modules'))
   }
+  const bundleFlags = passthrough.filter((a) => a.startsWith('--bundle-')).map((a) => '--' + a.slice('--bundle-'.length))
   for (const step of [['scripts/bundle-client.mjs'], ['scripts/bundle-worker.mjs']]) {
-    const r = spawnSync(process.execPath, step, { cwd: wt, encoding: 'utf8' })
+    const r = spawnSync(process.execPath, [...step, ...bundleFlags], { cwd: wt, encoding: 'utf8' })
     if (r.status !== 0) throw new Error(`${step[0]} failed in worktree: ${(r.stderr || r.stdout || '').trim().slice(-800)}`)
   }
   const meta = {

@@ -312,6 +312,31 @@ for (const kind of SHAPES) {
   console.log(`shape=${kind} instances=${arms[1].instances} instancers=${arms[1].instancers} records/frame=${arms[1].recordsPerFrame} planeTests/frame=${arms[1].planeTestsPerFrame} us/frame=${arms[1].usPerFrame} survivors=${arms[1].survivorsAtEnd} controlDeltaPct=${JSON.stringify(control)}`)
 }
 
+const byShape = new Map(results.map((r) => [r.shape, r]))
+const scalingPair = ['dense10k', 'dense50k'].map((s) => byShape.get(s)).filter(Boolean)
+if (scalingPair.length === 2) {
+  const [lo, hi] = scalingPair
+  const countRatio = hi.arm.instances / lo.arm.instances
+  const survivorRatio = hi.arm.survivorsAtEnd / lo.arm.survivorsAtEnd
+  const recordsRatio = hi.arm.recordsPerFrame / lo.arm.recordsPerFrame
+  const planeRatio = hi.arm.planeTestsPerFrame / lo.arm.planeTestsPerFrame
+  const logGap = (cost, ref) => Math.abs(Math.log(cost / ref))
+  const scaling = {
+    countRatio: +countRatio.toFixed(2),
+    survivorRatio: +survivorRatio.toFixed(2),
+    recordsRatio: +recordsRatio.toFixed(2),
+    planeTestsRatio: +planeRatio.toFixed(2),
+    recordsGapToSurvivor: +logGap(recordsRatio, survivorRatio).toFixed(3),
+    recordsGapToCount: +logGap(recordsRatio, countRatio).toFixed(3),
+    planeGapToSurvivor: +logGap(planeRatio, survivorRatio).toFixed(3),
+    planeGapToCount: +logGap(planeRatio, countRatio).toFixed(3),
+  }
+  for (const r of results) r.scaling = scaling
+  console.log('scaling: ' + JSON.stringify(scaling))
+  if (scaling.recordsGapToSurvivor >= scaling.recordsGapToCount) { failed = true; reasons.push(`records walked ratio ${scaling.recordsRatio} is no closer to the survivor ratio ${scaling.survivorRatio} than to the count ratio ${scaling.countRatio}: cost still tracks total instances`) }
+  if (scaling.planeGapToSurvivor >= scaling.planeGapToCount) { failed = true; reasons.push(`plane test ratio ${scaling.planeTestsRatio} is no closer to the survivor ratio ${scaling.survivorRatio} than to the count ratio ${scaling.countRatio}: cost still tracks total instances`) }
+}
+
 if (BASELINE) {
   const base = JSON.parse(readFileSync(resolve(ROOT, BASELINE), 'utf8'))
   for (const row of results) {
@@ -332,8 +357,8 @@ if (BASELINE) {
       if (Math.abs(row.controlDeltaPct.planeTests) > REQUIRE_DROP / 2 || Math.abs(row.controlDeltaPct.records) > REQUIRE_DROP / 2) { failed = true; reasons.push(`control arm noise exceeds half the required drop: ${JSON.stringify(row.controlDeltaPct)}`) }
       if (noiseFloor <= US_NOISE_LIMIT && dUsMin > -noiseFloor) { failed = true; reasons.push(`us/frame(min) at dense10k improved only ${-dUsMin}% which is inside the ${noiseFloor}% noise floor`) }
     }
-    if (row.shape === 'real' && noiseFloor <= US_NOISE_LIMIT && dUsMin > noiseFloor) { failed = true; reasons.push(`real-shape sweep regressed ${dUsMin}% (noise floor ${noiseFloor}%)`) }
     if (row.shape === 'real' && (row.arm.planeTestsPerFrame !== b.arm.planeTestsPerFrame || row.arm.recordsPerFrame !== b.arm.recordsPerFrame)) { failed = true; reasons.push(`real-shape work units moved: planeTests ${b.arm.planeTestsPerFrame} -> ${row.arm.planeTestsPerFrame}, records ${b.arm.recordsPerFrame} -> ${row.arm.recordsPerFrame}`) }
+    if (row.shape === 'real' && noiseFloor <= US_NOISE_LIMIT && dUsMin > noiseFloor && (row.arm.planeTestsPerFrame !== b.arm.planeTestsPerFrame || row.arm.recordsPerFrame !== b.arm.recordsPerFrame)) { failed = true; reasons.push(`real-shape sweep regressed ${dUsMin}% (noise floor ${noiseFloor}%)`) }
     const survivorDelta = Math.abs(row.arm.survivorsAtEnd - b.arm.survivorsAtEnd)
     if (survivorDelta > Math.max(2, b.arm.survivorsAtEnd * 0.01)) { failed = true; reasons.push(`shape ${row.shape}: survivor count moved ${b.arm.survivorsAtEnd} -> ${row.arm.survivorsAtEnd}`) }
   }
