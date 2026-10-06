@@ -21,6 +21,7 @@ const HALF = Math.floor(lattice.cellsPerFace / 2)
 const HOME_I = HALF
 const HOME_J = HALF
 
+const failures = []
 function say(line) { console.log(line) }
 
 function makeFire(spec, role) {
@@ -99,7 +100,12 @@ say(`  authority wind per step: ${fieldSamples.join(' | ')}`)
 runTo(fieldMirror, fieldAuthority.clock.tick)
 say(`  authority at tick ${fieldAuthority.clock.tick}: step ${fieldAuthority.fire.world.kernel.stepIndex} wind [${fieldAuthority.fire.wind.join(',')}] checksum ${fieldAuthority.fire.checksum()}`)
 say(`  second host, same spec, ticking from 0: step ${fieldMirror.fire.world.kernel.stepIndex} wind [${fieldMirror.fire.wind.join(',')}] checksum ${fieldMirror.fire.checksum()}`)
-say(`  every sampled component is an integer: ${fieldSamples.every(s => s.split('[')[1].split(']')[0].split(',').every(c => Number.isInteger(+c)))}`)
+if (fieldAuthority.fire.checksum() !== fieldMirror.fire.checksum()) failures.push(`section 2: two peers on the same wind field disagree, ${fieldAuthority.fire.checksum()} vs ${fieldMirror.fire.checksum()}`)
+if (fieldAuthority.fire.wind.join(',') !== fieldMirror.fire.wind.join(',')) failures.push(`section 2: wind [${fieldAuthority.fire.wind.join(',')}] vs [${fieldMirror.fire.wind.join(',')}] at the same step`)
+const integerOnly = fieldSamples.every(s => s.split('[')[1].split(']')[0].split(',').every(c => Number.isInteger(+c)))
+say(`  every sampled component is an integer: ${integerOnly}`)
+if (fieldSamples.length === 0) failures.push('section 2: no wind sample was taken')
+if (!integerOnly) failures.push('section 2: a sampled wind component is not an integer')
 
 say('')
 say('== 3. wind biases the front: downwind reach vs upwind reach ==')
@@ -111,6 +117,7 @@ for (const wind of [[12, 0, 0], [0, 0, 0]]) {
   const extent = frontExtent(kernel, rig.fire.wind)
   const ratio = extent.up === 0 ? Infinity : extent.down / extent.up
   say(`  wind [${wind.join(',')}] -> face wind [${extent.faceWind.join(',')}], ${extent.cells} scarred cells, downwind ${extent.down} cells, upwind ${extent.up} cells, ratio ${ratio === Infinity ? 'inf' : ratio.toFixed(2)}, step ${kernel.stepIndex}, checksum ${rig.fire.checksum()}`)
+  if (extent.cells === 0) failures.push(`section 3: wind [${wind.join(',')}] scarred no cell, so the front bias was never observed`)
 }
 
 say('')
@@ -159,6 +166,8 @@ const firstZeroIndex = afterRain.findIndex(s => s.endsWith(':+0'))
 say(`  rain ${weatherState.intensity} -> rain byte rows ${JSON.stringify(wireRainRows.slice(0, 2))} (${wireRainRows.length} row(s), ${wireRainRows.length > 0 ? pack({ type: FIRE_WIRE_TYPE, e: [wireRainRows[0]] }).byteLength : 0} B on the msgpack wire), new ignitions per step: ${afterRain.join(' ')}`)
 say(`  first step with no new ignition: ${firstZeroIndex < 0 ? 'none' : afterRain[firstZeroIndex]} (${firstZeroIndex + 1} step(s) after the rain event), active cells ${kernel.activeCount}`)
 say(`  mirror at the same tick: step ${mirror.fire.world.kernel.stepIndex} checksum ${mirror.fire.checksum()} vs authority ${authority.fire.checksum()}, needsResync ${mirror.fire.needsResync}`)
+if (mirror.fire.checksum() !== authority.fire.checksum()) failures.push(`section 4: the mirror diverged mid-rain, ${mirror.fire.checksum()} vs authority ${authority.fire.checksum()}`)
+if (mirror.fire.needsResync) failures.push('section 4: the mirror that was fed every row asked for a resync')
 weatherState.type = 'clear'
 weatherState.intensity = 0
 const afterClear = measure(6)
@@ -170,6 +179,8 @@ runTo(mirror, authority.clock.tick)
 const afterReignite = measure(6)
 say(`  a fresh ignition on unburnt fuel after the rain: ${afterReignite.join(' ')}`)
 say(`  mirror followed the whole weather run: checksum ${mirror.fire.checksum()} vs authority ${authority.fire.checksum()}, needsResync ${mirror.fire.needsResync}`)
+if (mirror.fire.checksum() !== authority.fire.checksum()) failures.push(`section 4: the mirror diverged over the weather run, ${mirror.fire.checksum()} vs authority ${authority.fire.checksum()}`)
+if (mirror.fire.needsResync) failures.push('section 4: the mirror that was fed every row ended the run needing a resync')
 
 say('')
 say('== 5. two peers that start ticking at different ticks agree at the same step with a varying wind field ==')
@@ -192,9 +203,14 @@ for (let t = 301; t <= 600; t++) {
 const lateKernel = lateAuthority.fire.world.kernel
 say(`  authority: tick ${lateAuthority.clock.tick} step ${lateKernel.stepIndex} wind [${lateAuthority.fire.wind.join(',')}] checksum ${lateAuthority.fire.checksum()}`)
 say(`  joiner that started ticking at tick 300 from the tick-${lateKeyframe.k[0]} keyframe (${JSON.stringify(lateAdopt.adopted)}): step ${lateJoiner.fire.world.kernel.stepIndex} wind [${lateJoiner.fire.wind.join(',')}] checksum ${lateJoiner.fire.checksum()}`)
+if (lateAuthority.fire.checksum() !== lateJoiner.fire.checksum()) failures.push(`section 5: a peer that started ticking at tick 300 disagrees at tick ${lateAuthority.clock.tick}, ${lateJoiner.fire.checksum()} vs authority ${lateAuthority.fire.checksum()}`)
+if (lateKernel.stepIndex !== lateJoiner.fire.world.kernel.stepIndex) failures.push(`section 5: step ${lateJoiner.fire.world.kernel.stepIndex} on the late joiner vs ${lateKernel.stepIndex} on the authority`)
+if (lateAuthority.fire.wind.join(',') !== lateJoiner.fire.wind.join(',')) failures.push(`section 5: wind [${lateJoiner.fire.wind.join(',')}] on the late joiner vs [${lateAuthority.fire.wind.join(',')}] on the authority`)
 const aExtent = frontExtent(lateKernel, lateAuthority.fire.wind)
 const jExtent = frontExtent(lateJoiner.fire.world.kernel, lateJoiner.fire.wind)
 say(`  front at the same step: authority downwind ${aExtent.down}/upwind ${aExtent.up} over ${aExtent.cells} cells, joiner downwind ${jExtent.down}/upwind ${jExtent.up} over ${jExtent.cells} cells`)
+if (aExtent.cells === 0 || jExtent.cells === 0) failures.push(`section 5: front extent sampled ${aExtent.cells} authority cell(s) and ${jExtent.cells} joiner cell(s)`)
+if (aExtent.down !== jExtent.down || aExtent.up !== jExtent.up || aExtent.cells !== jExtent.cells) failures.push(`section 5: front extent authority ${aExtent.down}/${aExtent.up} over ${aExtent.cells} vs joiner ${jExtent.down}/${jExtent.up} over ${jExtent.cells}`)
 const windRows = lateAuthority.broadcasts.filter(m => Array.isArray(m.e)).flatMap(m => m.e).filter(row => row[0] === FIRE_EVENT.WIND)
 say(`  wind events on the wire during that run: ${windRows.length} (a seed+step field needs none), weather events total ${lateAuthority.broadcasts.filter(m => Array.isArray(m.e)).flatMap(m => m.e).filter(row => row[0] === FIRE_EVENT.WIND || row[0] === FIRE_EVENT.RAIN || row[0] === FIRE_EVENT.MOISTURE).length}`)
 
@@ -220,3 +236,7 @@ say(`  WIRE_PROTOCOL_VERSION ${WIRE_PROTOCOL_VERSION} unchanged, WEATHER_SYNC 0x
 
 say('')
 say('== weather witness complete ==')
+if (failures.length > 0) {
+  for (const f of failures) console.error(`FAIL ${f}`)
+  process.exit(1)
+}
