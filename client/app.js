@@ -2697,6 +2697,10 @@ client.connect().then(async ()=>{
       if (_attached.has(pk)) return
       const dc = bridge.data.peers.get(pk)?.dc
       if (!dc || dc.readyState !== 'open') return
+      if (typeof client.attachWireweavePeer !== 'function') {
+        console.warn(`[ww] ${pk} not attached: the current client cannot host peers (migration or reconnect replaced it)`)
+        return
+      }
       _attached.add(pk)
       client.attachWireweavePeer(pk, dc)
     }
