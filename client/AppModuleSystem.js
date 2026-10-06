@@ -45,11 +45,29 @@ export function createAppModuleSystem(client, uiRoot) {
     }
   }
 
+  const MAX_ERROR_DETAIL_CHARS = 1200
+
+  function _eventLabelOf(arg) {
+    if (arg == null) return String(arg)
+    if (typeof arg !== 'object') return typeof arg
+    if (typeof arg.type === 'string') return arg.type
+    if (typeof arg.type === 'number') return `0x${arg.type.toString(16)}`
+    if (typeof arg.code === 'string') return arg.code
+    return typeof arg
+  }
+
+  function _oneLineErrorDetailOf(e) {
+    const detail = String(e?.stack ?? e?.message ?? e).replace(/\r?\n\s*/g, ' | ')
+    return detail.length > MAX_ERROR_DETAIL_CHARS
+      ? `${detail.slice(0, MAX_ERROR_DETAIL_CHARS)}...(+${detail.length - MAX_ERROR_DETAIL_CHARS} chars)`
+      : detail
+  }
+
   function createDispatcher(method, errorLabel) {
     return function(arg, engineCtx) {
       for (let i = 0; i < _appModuleList.length; i++) {
         const mod = _appModuleList[i]
-        if (mod[method]) try { mod[method](arg, _ctxFor(mod._appName, engineCtx)) } catch (e) { if (errorLabel) console.error(errorLabel, mod._appName, e.stack || e.message) }
+        if (mod[method]) try { mod[method](arg, _ctxFor(mod._appName, engineCtx)) } catch (e) { if (errorLabel) console.error(`${errorLabel} app=${mod._appName || '<unnamed-app>'} event=${_eventLabelOf(arg)} hook=${method}: ${_oneLineErrorDetailOf(e)}`) }
       }
     }
   }
