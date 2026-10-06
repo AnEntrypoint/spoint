@@ -20,6 +20,7 @@ const PARAMS = flag('params', 'singleplayer')
 const TIMEOUT_MS = Number(flag('timeout', '240000'))
 const SETTLE_MS = Number(flag('settle', '6000'))
 const WORLD = flag('world', 'tps-game')
+const ALLOWED_CONSOLE_ERROR_TEXTS = process.argv.filter((a) => a.startsWith('--allow-console-error=')).map((a) => a.slice('--allow-console-error='.length))
 
 const GPU_ARGS = {
   swiftshader: ['--use-gl=swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'],
@@ -140,7 +141,11 @@ async function main() {
     browser = await chromium.launch({ headless: true, args: GPU_ARGS[GL] || GPU_ARGS.swiftshader })
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
     const pageErrors = []
+    const consoleEntries = []
+    const textOfConsole = (p) => (p?.args || []).map((a) => (a?.value !== undefined ? String(a.value) : (a?.description || a?.unserializableValue || ''))).join(' ')
     page.on('pageerror', e => pageErrors.push(String(e)))
+    page.on('Runtime.consoleAPICalled', p => consoleEntries.push({ level: p?.type || 'unknown', text: textOfConsole(p) }))
+    page.on('Runtime.exceptionThrown', p => consoleEntries.push({ level: 'exception', text: p?.exceptionDetails?.exception?.description || p?.exceptionDetails?.text || 'exception' }))
     await page._send('Page.addScriptToEvaluateOnNewDocument', { source: PROBE })
     const query = BACKEND === 'webgpu' ? `${PARAMS}&webgpu=1` : PARAMS
     const url = `http://localhost:${PORT}/?${query}&world=${WORLD}&v=${Date.now()}`
@@ -236,9 +241,18 @@ async function main() {
     const first = s[0]
     const last = s[s.length - 1]
     console.log('[draw-instrument] ramp check: info.render.calls ' + first.infoRenderCalls + ' -> ' + last.infoRenderCalls + ' over ' + (s.length - 1) + ' frames (monotonic=' + (last.infoRenderCalls >= first.infoRenderCalls) + ')')
+    const consoleErrorEntries = consoleEntries.filter((e) => e.level === 'error' || e.level === 'exception')
+    const unallowedConsoleErrors = consoleErrorEntries.filter((e) => !ALLOWED_CONSOLE_ERROR_TEXTS.some((t) => e.text.includes(t)))
+    const consoleLevelCounts = consoleEntries.reduce((acc, e) => { acc[e.level] = (acc[e.level] || 0) + 1; return acc }, {})
+    console.log(`[draw-instrument] console entries=${consoleEntries.length} levels=${JSON.stringify(consoleLevelCounts)} consoleErrors=${consoleErrorEntries.length} unallowed=${unallowedConsoleErrors.length}`)
+    for (const e of unallowedConsoleErrors.slice(0, 10)) console.log(`  [console-error] ${e.text.slice(0, 240)}`)
     console.log('[draw-instrument] pageErrors=' + pageErrors.length + (pageErrors.length ? ' first=' + pageErrors[0].slice(0, 200) : ''))
     await browser.close().catch(() => {})
     server.stop()
+    if (unallowedConsoleErrors.length) {
+      console.error(`[draw-instrument] RESULT: FAIL -- ${unallowedConsoleErrors.length} console error(s)/exception(s) the page caught and logged: ${unallowedConsoleErrors[0].text.slice(0, 200)}`)
+      process.exit(1)
+    }
     console.log('[draw-instrument] RESULT: PASS')
     process.exit(0)
   } catch (e) {
