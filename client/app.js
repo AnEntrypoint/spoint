@@ -345,23 +345,25 @@ async function _finishLoading() {
     if (typeof window !== 'undefined' && _terrainCfg) {
       try { renderer.state.reset() } catch (_) {}
     }
-    if (typeof window !== 'undefined' && !window.__terrain && _terrainCfg) {
-      if (_sceneryBuildPromise) {
-        loadingMgr.setLabel('Still building world...')
-        _dbgTerrain('planet absent at ' + SCENERY_BUILD_TIMEOUT_MS + 'ms with a build still running -> adopting it for one more window')
-        console.warn('[terrain] planet absent at ' + SCENERY_BUILD_TIMEOUT_MS + 'ms and a scenery build is still running -> adopting it for another ' + SCENERY_BUILD_TIMEOUT_MS + 'ms rather than starting a second build')
-        try { await Promise.race([_scenery, new Promise(r => setTimeout(r, SCENERY_BUILD_TIMEOUT_MS))]) }
-        catch (e) { console.error('[terrain] adopted scenery build failed:', e?.message || e) }
-      } else {
-        _dbgTerrain('planet absent after a settled build (cold-load context storm) -> draining GL errors + one re-attempt')
-        console.warn('[terrain] planet absent after a settled build (cold-load context storm) -> draining GL errors + one re-attempt')
-        try { const _gl = renderer.getContext(); for (let _i = 0; _i < 64 && _gl.getError() !== _gl.NO_ERROR; _i++) {} } catch (_) {}
-        try { terrainBackdrop && terrainBackdrop.dispose && terrainBackdrop.dispose() } catch (_) {}
-        terrainBackdrop = null
-        await new Promise(r => setTimeout(r, 500))
-        try { await Promise.race([_buildWorldScenery(), new Promise(r => setTimeout(r, SCENERY_BUILD_TIMEOUT_MS))]) }
-        catch (e) { console.error('[terrain] scenery rebuild failed:', e?.message || e) }
-      }
+    if (_sceneryBuildPromise) {
+      const _planetUp = typeof window !== 'undefined' && window.__terrain != null
+      loadingMgr.setLabel('Still building world...')
+      const _why = _planetUp
+        ? 'planet is up but the scenery build is still running -> adopting it for another ' + SCENERY_BUILD_TIMEOUT_MS + 'ms so the world is populated at reveal'
+        : 'planet absent at ' + SCENERY_BUILD_TIMEOUT_MS + 'ms with a build still running -> adopting it for another ' + SCENERY_BUILD_TIMEOUT_MS + 'ms rather than starting a second build'
+      _dbgTerrain(_why)
+      console.warn('[terrain] ' + _why)
+      try { await Promise.race([_scenery, new Promise(r => setTimeout(r, SCENERY_BUILD_TIMEOUT_MS))]) }
+      catch (e) { console.error('[terrain] adopted scenery build failed:', e?.message || e) }
+    } else if (typeof window !== 'undefined' && !window.__terrain && _terrainCfg) {
+      _dbgTerrain('planet absent after a settled build (cold-load context storm) -> draining GL errors + one re-attempt')
+      console.warn('[terrain] planet absent after a settled build (cold-load context storm) -> draining GL errors + one re-attempt')
+      try { const _gl = renderer.getContext(); for (let _i = 0; _i < 64 && _gl.getError() !== _gl.NO_ERROR; _i++) {} } catch (_) {}
+      try { terrainBackdrop && terrainBackdrop.dispose && terrainBackdrop.dispose() } catch (_) {}
+      terrainBackdrop = null
+      await new Promise(r => setTimeout(r, 500))
+      try { await Promise.race([_buildWorldScenery(), new Promise(r => setTimeout(r, SCENERY_BUILD_TIMEOUT_MS))]) }
+      catch (e) { console.error('[terrain] scenery rebuild failed:', e?.message || e) }
     }
     if (typeof window !== 'undefined' && !window.__terrain && _terrainCfg) {
       console.warn('[terrain] scenery build did not complete before timeout -> showing retry toast')
