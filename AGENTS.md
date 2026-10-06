@@ -154,9 +154,27 @@ perf), `fire-s2b` (browser witness), `fire-s2c` (no wind field exists anywhere i
 `project/planet-wide-multiplayer-architecture-2026-10-05`: dynamic **proximity clusters**, one
 existing server world per cluster, each cluster its own flat chart (ChartReanchorService follows the
 cluster centroid), several small worlds per worker process — never one process per player. The Jolt
-wasm heap is **fixed at 128 MiB** and a default world takes about 21 MiB, so
-`CLUSTER_HEAP_WORLD_CEILING = 5` per process (`src/shared/clusterConfig.js`) and a world per player
-is unviable. Assignment is pure and deterministic (positions only, order independent, hysteretic,
+wasm heap is **fixed at 134217728 B (128 MiB)** and never grows: exceeding it raises
+`Aborted(OOM)` inside `new J.JoltInterface` (`src/physics/World.js:60`), killing every world in the
+process — it does not degrade. Measured 2026-10-06
+(`project/cluster-world-heap-budget-measured-2026-10-06`), replacing the old "about 21 MiB" prose
+that was never measured: a cluster server world costs a **constant 19.301 MiB marginal at every N**
+(20238432 B with a connected grounded player, 20236288 B empty — the first world costs the same as
+the sixth, so average and marginal agree, and the only one-time cost is the 1157976 B resident
+present before any world). So **6 is the most server worlds that fit at all** (11.09 MiB, 8.7%,
+left) and the 7th aborts. `CLUSTER_HEAP_WORLD_CEILING` is derived in `src/shared/clusterConfig.js`
+from `JOLT_WASM_HEAP_BYTES`, `JOLT_WORLD_MARGINAL_BYTES` and `CLUSTER_HEAP_RESERVE_FRACTION = 0.1`
+and comes out at **5** — one below the raw maximum, on purpose: a process that also runs client
+collision mirrors spends **10.756 MiB of the same heap each**, and 6 server worlds plus the 2
+mirrors the cluster harness co-locates measures 137.4 MiB and OOMs by 9.4 MiB (witnessed), while 5
+plus the same 2 mirrors measures 118.1 MiB and fits. A world per player is unviable either way.
+That cost is ~98% **reservation, not content**: `10645288 + 33*mMaxBodies + 88*mMaxBodyPairs +
+336*mMaxContactConstraints` bytes, validated within 0.03% at the defaults 10240/65536/10240 and at
+`MIRROR_JOLT_LIMITS`. Content is negligible beside it — a static body is 266 B, a dynamic body
+392 B, a character 416 B, a 65x65 heightfield 16 KB, a connected grounded player 2144 B. So the
+density lever is **`joltLimits`, not world count** (row
+`cluster-world-jolt-limits-right-sized`): `src/sdk/server.js:37` passes none, so every world
+reserves for 10240 bodies and 65536 body pairs. Assignment is pure and deterministic (positions only, order independent, hysteretic,
 antipodal-safe), run at 2-4 Hz rather than per tick: it is O(n^2) at 0.16 ms for 16 players and
 8.9 ms for 1024. Load is not the reason to partition — chart validity is: two players 100 km apart
 on one shared chart read 51.83 deg of slope. `resolveClusterConfig` refuses a link below the

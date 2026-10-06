@@ -4,7 +4,10 @@ import { CLUSTER_STAY_FACTOR, CLUSTER_JOIN_FACTOR } from './clusterAssignment.js
 
 export const CLUSTER_DEFAULT_LINK_M = 1000
 export const CLUSTER_DEFAULT_HZ = 2
-export const CLUSTER_HEAP_WORLD_CEILING = 5
+export const JOLT_WASM_HEAP_BYTES = 134217728
+export const JOLT_WORLD_MARGINAL_BYTES = 20238432
+export const CLUSTER_HEAP_RESERVE_FRACTION = 0.1
+export const CLUSTER_HEAP_WORLD_CEILING = Math.floor(JOLT_WASM_HEAP_BYTES * (1 - CLUSTER_HEAP_RESERVE_FRACTION) / JOLT_WORLD_MARGINAL_BYTES)
 export const CLUSTER_DEFAULT_IDLE_GRACE_MS = 5000
 export const CLUSTER_RELEVANCE_RING_CELLS = 3
 const MIN_HZ = 0.5, MAX_HZ = 10
@@ -33,7 +36,7 @@ export function resolveClusterConfig(spec, { radius, relevanceRadius = 200, maxW
   const hz = spec.hz ?? CLUSTER_DEFAULT_HZ
   if (!(hz >= MIN_HZ && hz <= MAX_HZ)) throw new ClusterConfigError('cluster-cadence-out-of-range', `hz ${hz} is outside ${MIN_HZ}..${MAX_HZ}`)
   const maxWorlds = spec.maxWorldsPerProcess ?? CLUSTER_HEAP_WORLD_CEILING
-  if (!Number.isInteger(maxWorlds) || maxWorlds < 1 || maxWorlds > CLUSTER_HEAP_WORLD_CEILING) throw new ClusterConfigError('cluster-worlds-exceed-wasm-heap-budget', `maxWorldsPerProcess ${maxWorlds} is outside 1..${CLUSTER_HEAP_WORLD_CEILING}: the Jolt wasm heap is fixed at 128 MiB and a default world takes about 21 MiB`)
+  if (!Number.isInteger(maxWorlds) || maxWorlds < 1 || maxWorlds > CLUSTER_HEAP_WORLD_CEILING) throw new ClusterConfigError('cluster-worlds-exceed-wasm-heap-budget', `maxWorldsPerProcess ${maxWorlds} is outside 1..${CLUSTER_HEAP_WORLD_CEILING}: the Jolt wasm heap is a fixed ${JOLT_WASM_HEAP_BYTES >> 20} MiB that never grows, and a cluster world measures ${(JOLT_WORLD_MARGINAL_BYTES / 1048576).toFixed(1)} MiB marginal at every N, so ${Math.floor(JOLT_WASM_HEAP_BYTES / JOLT_WORLD_MARGINAL_BYTES)} is the most that fits at all and ${CLUSTER_HEAP_WORLD_CEILING} is the most that fits behind a ${CLUSTER_HEAP_RESERVE_FRACTION * 100}% reserve; a process that also runs client collision mirrors spends 10.3 MiB of the same heap each, and going past the ceiling aborts the process with OOM rather than degrading`)
   return {
     radius, anchorsPerFace, lattice, cellWorstDeg, linkM, memberRadiusM, hz, maxWorlds,
     hysteresisDeg: spec.hysteresisDeg ?? CHART_REANCHOR_HYSTERESIS_DEG,
