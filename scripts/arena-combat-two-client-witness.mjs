@@ -24,6 +24,7 @@ const EXPECT_DAMAGE = has('expect-damage')
 const PROBE = flag('probe', null)
 
 const READY = 'window.__app && window.__app.loadingMachine && window.__app.loadingMachine.isReady'
+const CANCELLED_REQUEST_ERROR_TEXTS = new Set(['net::ERR_ABORTED'])
 
 function textOf(entry) {
   const args = entry?.args || []
@@ -36,16 +37,17 @@ async function makeClient(browser, base, label) {
   const consoleEntries = []
   const pageErrors = []
   const failedRequests = []
+  const cancelledRequests = []
   page.on('pageerror', e => pageErrors.push(String(e)))
   page.on('Runtime.consoleAPICalled', p => consoleEntries.push({ level: p?.type || 'unknown', text: textOf(p) }))
   page.on('Runtime.exceptionThrown', p => consoleEntries.push({ level: 'exception', text: p?.exceptionDetails?.exception?.description || p?.exceptionDetails?.text || 'exception' }))
   await page.enableDomain('Network.enable')
-  page.on('Network.loadingFailed', p => failedRequests.push({ url: p?.requestId || 'unknown-request', text: p?.errorText || 'failed' }))
+  page.on('Network.loadingFailed', p => (CANCELLED_REQUEST_ERROR_TEXTS.has(p?.errorText) ? cancelledRequests : failedRequests).push({ url: p?.requestId || 'unknown-request', text: p?.errorText || 'failed' }))
   page.on('Network.responseReceived', p => {
     const status = p?.response?.status || 0
     if (status >= 400) failedRequests.push({ url: p?.response?.url, text: 'HTTP ' + status })
   })
-  return { label, page, consoleEntries, pageErrors, failedRequests }
+  return { label, page, consoleEntries, pageErrors, failedRequests, cancelledRequests }
 }
 
 async function waitFor(page, expr, ms) {
@@ -216,10 +218,11 @@ async function main() {
 
     for (const c of [a, b]) {
       const errors = c.consoleEntries.filter(e => e.level === 'error' || e.level === 'exception')
-      console.log(`[arena-combat] ${c.label} consoleEntries=${c.consoleEntries.length} consoleErrors=${errors.length} pageErrors=${c.pageErrors.length} failedRequests=${c.failedRequests.length}`)
+      console.log(`[arena-combat] ${c.label} consoleEntries=${c.consoleEntries.length} consoleErrors=${errors.length} pageErrors=${c.pageErrors.length} failedRequests=${c.failedRequests.length} cancelledRequests=${c.cancelledRequests.length}`)
       for (const e of errors.slice(0, 10)) console.log(`  [${c.label}][${e.level}] ${e.text.slice(0, 1200)}`)
       for (const e of c.pageErrors.slice(0, 10)) console.log(`  [${c.label}][pageerror] ${String(e).slice(0, 240)}`)
       for (const f of c.failedRequests.slice(0, 10)) console.log(`  [${c.label}][request] ${f.text} ${f.url}`)
+      for (const f of c.cancelledRequests.slice(0, 10)) console.log(`  [${c.label}][request-cancelled] ${f.text} ${f.url}`)
       if (c.readyMs === null) failures.push(`${c.label} never reached world-ready`)
       if (c.pageErrors.length) failures.push(`${c.label} had ${c.pageErrors.length} uncaught page error(s): ${String(c.pageErrors[0]).slice(0, 200)}`)
       if (errors.length) failures.push(`${c.label} had ${errors.length} console error(s): ${errors[0].text.slice(0, 200)}`)
