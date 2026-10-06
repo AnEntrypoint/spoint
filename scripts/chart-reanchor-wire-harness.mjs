@@ -483,10 +483,38 @@ async function scenarioExpired() {
 const scenarios = { reorder: scenarioReorder, forced: () => scenarioWalk('forced'), natural: () => scenarioWalk('natural'), chain: () => scenarioWalk('chain'), inflight: scenarioInflight, join: scenarioJoin, missed: scenarioMissed, expired: scenarioExpired }
 const run = scenarios[SCENARIO]
 if (!run) { console.error(`unknown scenario ${SCENARIO}; one of ${Object.keys(scenarios).join(', ')}`); process.exit(2) }
+const EXPECTATIONS = {
+  expired: r => [
+    [r.requestFromExpiredEpoch1?.resync === true, 'requestFromExpiredEpoch1.resync !== true -- an epoch outside the retained window must force a hard resync'],
+    [r.requestFromExpiredEpoch1?.hasFrom === false, 'requestFromExpiredEpoch1.hasFrom !== false -- an expired epoch must not be re-expressed'],
+    [r.requestFromBaseEpoch0?.resync === false, 'requestFromBaseEpoch0.resync !== false -- the base epoch is always re-expressible'],
+    [r.requestFromRecent?.resync === false, 'requestFromRecent.resync !== false -- a retained epoch is re-expressible'],
+  ],
+  missed: r => [
+    [Number.isFinite(r.finalClientVsServerWorldM), `finalClientVsServerWorldM is ${JSON.stringify(r.finalClientVsServerWorldM ?? null)} -- the missed arm produced no convergence measurement`],
+    [r.droppedBroadcasts > 0, `droppedBroadcasts is ${JSON.stringify(r.droppedBroadcasts ?? null)} -- the drop path never ran, so the missed arm measured nothing`],
+  ],
+  reorder: r => [
+    [r.delayedBroadcasts > 0, `delayedBroadcasts is ${JSON.stringify(r.delayedBroadcasts ?? null)} -- the reorder delay path never ran, so the reorder arm measured nothing`],
+    [(r.switches || []).length > 0, 'no chart switch was recorded -- the reorder arm produced no switch data'],
+    [(r.switches || []).every(s => s.renderJumpM == null || Number.isFinite(s.renderJumpM)), 'a recorded switch carries a non-finite renderJumpM'],
+  ],
+}
+
 const result = await run()
 const text = JSON.stringify(result, null, 1)
 if (args.out) await writeFile(args.out, text)
 console.log('RESULT_JSON_BEGIN')
 console.log(text)
 console.log('RESULT_JSON_END')
+
+if (!result || typeof result !== 'object' || Object.keys(result).length === 0) {
+  console.error(`[wire-harness] FAIL: scenario ${SCENARIO} produced no result`)
+  process.exit(1)
+}
+const broken = (EXPECTATIONS[SCENARIO] ? EXPECTATIONS[SCENARIO](result) : []).filter(([ok]) => !ok).map(([, message]) => message)
+if (broken.length) {
+  for (const message of broken) console.error(`[wire-harness] FAIL: ${message}`)
+  process.exit(1)
+}
 process.exit(0)
