@@ -1,7 +1,7 @@
 const XF_IDLE = 10
 const XF_LEN = 11
 
-function captureTransform(xf, e) {
+export function captureTransform(xf, e) {
   const p = e.position, r = e.rotation, s = e.scale
   const p0 = p[0], p1 = p[1], p2 = p[2], r0 = r[0], r1 = r[1], r2 = r[2], r3 = r[3], s0 = s[0], s1 = s[1], s2 = s[2]
   const changed = xf[0] !== p0 || xf[1] !== p1 || xf[2] !== p2 || xf[3] !== r0 || xf[4] !== r1 || xf[5] !== r2 || xf[6] !== r3 || xf[7] !== s0 || xf[8] !== s1 || xf[9] !== s2

@@ -101,6 +101,31 @@ export const BAKE_INPUTS_HEIGHTFIELD_BAKE = [
   ...presetInputs(),
 ]
 
+export const BAKE_INPUTS_COLLISION_GRID = [
+  '../apps/AppRuntimeTick.js',
+  '../apps/AppRuntimeStaticMotion.js',
+]
+
+export const BAKE_INPUTS_SNAPSHOT_ENCODE = [
+  '../apps/AppRuntime.js',
+  '../apps/AppRuntimeStaticMotion.js',
+]
+
+export const BAKE_INPUTS_SNAPSHOT_ENTITY_ENC = [
+  '../netcode/SnapshotBinFormat.js',
+  '../netcode/SnapshotEncoder.js',
+  '../shared/fnv1a.js',
+  '../protocol/ComponentSchema.js',
+  '../shared/groundNormalWire.js',
+  '../shared/wallPlaneWire.js',
+]
+
+export const COLLISION_GRID_CODE_VERSION_SOURCE = bakeCodeVersion(BAKE_INPUTS_COLLISION_GRID)
+
+export const SNAPSHOT_ENCODE_CODE_VERSION_SOURCE = bakeCodeVersion(BAKE_INPUTS_SNAPSHOT_ENCODE)
+
+export const SNAPSHOT_ENTITY_ENC_CODE_VERSION_SOURCE = bakeCodeVersion(BAKE_INPUTS_SNAPSHOT_ENTITY_ENC)
+
 export const GLB_TRANSFORM_CODE_VERSION = bakeCodeVersion(BAKE_INPUTS_GLB_TRANSFORM)
 
 export const PROGRESSIVE_BAKE_CODE_VERSION = bakeCodeVersion(BAKE_INPUTS_PROGRESSIVE_BAKE)
@@ -116,5 +141,7 @@ export const BAKE_TRANSFORMS = [
   { name: 'KTX2_EXTRACT', entries: ['./KTX2Extract.js'], inputs: BAKE_INPUTS_KTX2_EXTRACT, version: KTX2_EXTRACT_CODE_VERSION },
   { name: 'PROGRESSIVE_BAKE', entries: ['../../packages/streaming-gltf/tools/bake-cluster.mjs'], inputs: BAKE_INPUTS_PROGRESSIVE_BAKE, version: PROGRESSIVE_BAKE_CODE_VERSION },
   { name: 'MINIMAP_BAKE', entries: ['../../scripts/bake-minimap.mjs'], inputs: BAKE_INPUTS_MINIMAP_BAKE, version: MINIMAP_BAKE_CODE_VERSION },
-  { name: 'HEIGHTFIELD_BAKE', entries: ['../../scripts/bake-heightfield.mjs'], inputs: BAKE_INPUTS_HEIGHTFIELD_BAKE, version: HEIGHTFIELD_BAKE_CODE_VERSION }
+  { name: 'HEIGHTFIELD_BAKE', entries: ['../../scripts/bake-heightfield.mjs'], inputs: BAKE_INPUTS_HEIGHTFIELD_BAKE, version: HEIGHTFIELD_BAKE_CODE_VERSION },
+  { name: 'COLLISION_GRID', entries: ['../apps/AppRuntimeTick.js'], inputs: BAKE_INPUTS_COLLISION_GRID, version: COLLISION_GRID_CODE_VERSION_SOURCE },
+  { name: 'SNAPSHOT_ENTITY_ENC', entries: ['../netcode/SnapshotEncoder.js'], inputs: BAKE_INPUTS_SNAPSHOT_ENTITY_ENC, version: SNAPSHOT_ENTITY_ENC_CODE_VERSION_SOURCE }
 ]

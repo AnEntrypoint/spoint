@@ -2,11 +2,12 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join, dirname, resolve, relative, extname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { BAKE_TRANSFORMS, HEIGHTFIELD_BAKE_CODE_VERSION } from '../src/static/BakeCodeVersion.js'
+import { BAKE_TRANSFORMS, HEIGHTFIELD_BAKE_CODE_VERSION, COLLISION_GRID_CODE_VERSION_SOURCE, SNAPSHOT_ENCODE_CODE_VERSION_SOURCE, SNAPSHOT_ENTITY_ENC_CODE_VERSION_SOURCE } from '../src/static/BakeCodeVersion.js'
 
 const ROOT = resolve(join(dirname(fileURLToPath(import.meta.url)), '..'))
 const BAKE_DIR = join(ROOT, 'src', 'static')
 const SELF_REL = 'src/static/BakeCodeVersion.js'
+const PIN_REL = 'src/shared/cacheCodeVersions.js'
 const WORKSPACE_PREFIX = { 'mapspinner': 'packages/mapspinner', 'streaming-gltf': 'packages/streaming-gltf', 'ecs': 'packages/ecs' }
 
 const SPEC_RE = /(?:^|[\s;}])(?:import|export)\s*(?:[\s\S]*?\sfrom\s*)?['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g
@@ -74,11 +75,21 @@ async function shippedHeightfields() {
 
 async function main() {
   const problems = []
+  const markers = await import('../src/shared/cacheCodeVersions.js')
+  const pinned = [
+    ['COLLISION_GRID_CODE_VERSION', markers.COLLISION_GRID_CODE_VERSION, COLLISION_GRID_CODE_VERSION_SOURCE],
+    ['SNAPSHOT_ENCODE_CODE_VERSION', markers.SNAPSHOT_ENCODE_CODE_VERSION, SNAPSHOT_ENCODE_CODE_VERSION_SOURCE],
+    ['SNAPSHOT_ENTITY_ENC_CODE_VERSION', markers.SNAPSHOT_ENTITY_ENC_CODE_VERSION, SNAPSHOT_ENTITY_ENC_CODE_VERSION_SOURCE],
+  ]
+  for (const [name, marker, source] of pinned) {
+    if (marker !== source) problems.push(`  ${name}: src/shared/cacheCodeVersions.js pins '${marker}' but its producing source hashes to '${source}' -- set ${name} = '${source}'`)
+    else console.log(`[check-cache-keys] ${name}: ${marker} matches its producing source`)
+  }
   for (const transform of BAKE_TRANSFORMS) {
     const entries = transform.entries.map(e => resolve(BAKE_DIR, e))
     const closure = importClosure(entries)
     const declared = new Set(transform.inputs.map(f => normalize(resolve(BAKE_DIR, f))))
-    const missing = closure.filter(f => f !== SELF_REL && !declared.has(f) && extname(f) !== '.json')
+    const missing = closure.filter(f => f !== SELF_REL && f !== PIN_REL && !declared.has(f) && extname(f) !== '.json')
     if (missing.length) {
       problems.push(`  ${transform.name}: ${missing.length} imported file(s) not in its code-version input list:\n    ${missing.join('\n    ')}`)
     } else {

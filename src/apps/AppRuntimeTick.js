@@ -1,3 +1,6 @@
+import { captureTransform } from './AppRuntimeStaticMotion.js'
+import { COLLISION_GRID_CODE_VERSION } from '../shared/cacheCodeVersions.js'
+
 const _PROFILE = typeof process !== 'undefined' && !!process.env?.GM_PROFILE
 const ENTITY_FALL_FLOOR_Y = -20
 const ENTITY_FALL_DEPTH_BELOW_TERRAIN_M = 20
@@ -78,11 +81,21 @@ export function mixinTick(runtime) {
     c._cachedRadius = r; return r
   }
 
-  const _colGrid = new Map()
-  const _colGridCells = new Map()
   const _COL_GRID_THRESHOLD = 100
   const _COL_CELL_SZ = 4
-  let _colPruneTick = 0
+
+  runtime._colBuckets = new Map()
+  runtime._colBucketKeys = new Map()
+  runtime._colXf = new Map()
+  runtime._colGridArray = null
+  runtime._colGridLen = -1
+  runtime._colPruneTick = 0
+  runtime._colGridVersion = null
+  runtime._lastColGridRebuckets = 0
+
+  runtime._colCellKey = function(e) {
+    return Math.floor(e.position[0] / _COL_CELL_SZ) * 65536 + Math.floor(e.position[2] / _COL_CELL_SZ)
+  }
 
   runtime._tickCollisions = function() {
     const c = this._collisionEntities; if (c.length === 0) return
@@ -118,23 +131,24 @@ export function mixinTick(runtime) {
   }
 
   runtime._tickCollisionsGrid = function(c) {
-    _colGrid.clear()
-    if ((++_colPruneTick & 63) === 0 || _colGridCells.size > c.length * 4) {
-      for (const k of _colGridCells.keys()) { if (!_colGrid.has(k)) _colGridCells.delete(k) }
+    if (this._colGridVersion !== COLLISION_GRID_CODE_VERSION || c !== this._colGridArray || c.length !== this._colGridLen) {
+      this._colGridVersion = COLLISION_GRID_CODE_VERSION
+      this._colGridArray = c
+      this._colGridLen = c.length
+      this._rebuildCollisionGrid(c)
+    } else {
+      this._refreshCollisionGrid(c)
     }
-    for (let i = 0; i < c.length; i++) {
-      const e = c[i]
-      const key = Math.floor(e.position[0] / _COL_CELL_SZ) * 65536 + Math.floor(e.position[2] / _COL_CELL_SZ)
-      let cell = _colGrid.get(key)
-      if (!cell) { cell = _colGridCells.get(key); if (!cell) { cell = []; _colGridCells.set(key, cell) } else { cell.length = 0 }; _colGrid.set(key, cell) }
-      cell.push(e)
+    if ((++this._colPruneTick & 63) === 0 || this._colBuckets.size > c.length * 4) {
+      for (const [k, cell] of this._colBuckets) if (cell.length === 0) this._colBuckets.delete(k)
     }
+    const buckets = this._colBuckets
     for (let i = 0; i < c.length; i++) {
       const a = c[i], ar = a._cachedColR, ax = a.position[0], ay = a.position[1], az = a.position[2]
       const acx = Math.floor(ax / _COL_CELL_SZ), acz = Math.floor(az / _COL_CELL_SZ)
       for (let ddx = -1; ddx <= 1; ddx++) for (let ddz = -1; ddz <= 1; ddz++) {
-        const cell = _colGrid.get((acx + ddx) * 65536 + (acz + ddz))
-        if (!cell) continue
+        const cell = buckets.get((acx + ddx) * 65536 + (acz + ddz))
+        if (!cell || cell.length === 0) continue
         for (const b of cell) {
           if (b.id <= a.id) continue
           const dx = b.position[0]-ax, dy = b.position[1]-ay, dz = b.position[2]-az
@@ -146,6 +160,47 @@ export function mixinTick(runtime) {
         }
       }
     }
+  }
+
+  runtime._rebuildCollisionGrid = function(c) {
+    const buckets = this._colBuckets, keys = this._colBucketKeys, xfs = this._colXf
+    buckets.clear(); keys.clear(); xfs.clear()
+    for (let i = 0; i < c.length; i++) {
+      const e = c[i]
+      const key = this._colCellKey(e)
+      let cell = buckets.get(key)
+      if (!cell) { cell = []; buckets.set(key, cell) }
+      cell.push(e)
+      keys.set(e.id, key)
+      const xf = new Float64Array(11)
+      captureTransform(xf, e)
+      xfs.set(e.id, xf)
+    }
+    this._lastColGridRebuckets = c.length
+  }
+
+  runtime._refreshCollisionGrid = function(c) {
+    const buckets = this._colBuckets, keys = this._colBucketKeys, xfs = this._colXf
+    let rebuckets = 0
+    for (let i = 0; i < c.length; i++) {
+      const e = c[i]
+      const xf = xfs.get(e.id)
+      if (!xf) { this._rebuildCollisionGrid(c); return }
+      if (!captureTransform(xf, e)) continue
+      const next = this._colCellKey(e)
+      const prev = keys.get(e.id)
+      if (next === prev) continue
+      if (prev !== undefined) {
+        const oldCell = buckets.get(prev)
+        if (oldCell) { const at = oldCell.indexOf(e); if (at >= 0) oldCell.splice(at, 1) }
+      }
+      let cell = buckets.get(next)
+      if (!cell) { cell = []; buckets.set(next, cell) }
+      cell.push(e)
+      keys.set(e.id, next)
+      rebuckets++
+    }
+    this._lastColGridRebuckets = rebuckets
   }
 
   runtime._entityFallFloorY = function(p) {
@@ -179,28 +234,38 @@ export function mixinTick(runtime) {
 
   let _interactPruneTick = 0
 
+  runtime._interactPressers = []
+  runtime._lastInteractTests = 0
+
   runtime._interactCooldownTicks = function(cooldownMs) {
     const dt = this.deltaTime > 0 ? this.deltaTime : (1 / 64)
     return Math.max(1, Math.round((cooldownMs / 1000) / dt))
   }
 
   runtime._tickInteractables = function() {
-    if (this._interactableIds.size === 0) return
+    if (this._interactableIds.size === 0) { this._lastInteractTests = 0; return }
     const tick = this.currentTick
     if ((++_interactPruneTick & 255) === 0 && this._interactCooldowns.size > 100) {
       for (const [k, v] of this._interactCooldowns) { if (tick - v > 2000) this._interactCooldowns.delete(k) }
     }
     const players = this.getPlayers()
+    const pressers = this._interactPressers
+    pressers.length = 0
+    for (let i = 0; i < players.length; i++) { if (players[i].lastInput?.interact) pressers.push(players[i]) }
+    if (pressers.length === 0) { this._lastInteractTests = 0; return }
+    let tests = 0
     for (const id of this._interactableIds) {
       const e = this.entities.get(id); if (!e || !e._interactable) continue
-      for (const p of players) {
+      for (let pi = 0; pi < pressers.length; pi++) {
+        const p = pressers[pi]
         const pp = p.state?.position; if (!pp) continue
+        tests++
         const dx = pp[0]-e.position[0], dy = pp[1]-e.position[1], dz = pp[2]-e.position[2]
         const ir = e._interactRadius; if (dx*dx+dy*dy+dz*dz > ir*ir) continue
         const key = e.id + ':' + p.id
         const expiresAtTick = this._interactCooldowns.get(key) || -Infinity
         const cooldown = e._interactCooldown ?? 500
-        if (p.lastInput?.interact && tick >= expiresAtTick) {
+        if (tick >= expiresAtTick) {
           this._interactCooldowns.set(key, tick + this._interactCooldownTicks(cooldown))
           this.fireEvent(e.id, 'onInteract', p)
           const bus = this._eventBus.scope ? this._eventBus : null
