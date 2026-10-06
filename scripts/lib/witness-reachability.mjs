@@ -22,7 +22,7 @@ export function unreachedReasons(state = {}) {
   }
   for (const name of state.requiredCounts || []) {
     const value = counts[name]
-    if (value == null || !Number.isFinite(value) || value < 0) reasons.push(`count "${name}" is ${JSON.stringify(value ?? null)} instead of a reached time in ms`)
+    if (value == null || !Number.isFinite(value) || value <= 0) reasons.push(`count "${name}" is ${JSON.stringify(value ?? null)} instead of a reached time in ms`)
   }
   return reasons
 }
