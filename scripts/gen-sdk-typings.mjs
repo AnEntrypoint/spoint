@@ -16,6 +16,7 @@ const GENERATED_OUT = join(ROOT, 'client/editor/sdk-typings.generated.d.ts')
 const TSC_BIN = join(ROOT, 'node_modules/typescript/bin/tsc')
 const CHECK_ONLY = process.argv.includes('--check')
 const FROM_HEAD = process.argv.includes('--from-head')
+const useHead = FROM_HEAD || CHECK_ONLY
 const SOURCE_REL = 'src/apps/AppContext.js'
 
 function headSourceText() {
@@ -77,7 +78,7 @@ async function main() {
   try {
     let tscTarget = SOURCE
     let emittedName = 'AppContext.d.ts'
-    if (FROM_HEAD) {
+    if (useHead) {
       probe = join(dirname(SOURCE), 'AppContext.headprobe.js')
       writeFileSync(probe, headSourceText())
       tscTarget = probe
@@ -121,10 +122,8 @@ async function main() {
       const normalize = (t) => t.replace(/\r\n/g, '\n')
       const committedRaw = existsSync(GENERATED_OUT) ? readFileSync(GENERATED_OUT, 'utf8') : null
       const committed = committedRaw === null ? null : normalize(committedRaw)
-      if (committed !== normalize(output) && sourceHasUncommittedChanges()) {
-        console.log(`[gen-sdk-typings] ${SOURCE_REL} has uncommitted changes and the checked-in artifact has to match the committed source, so no on-disk regeneration can satisfy both.`)
-        console.log(`[gen-sdk-typings] drift is judged by CI and by the commit that changes ${SOURCE_REL}; regenerate the artifact in that same commit.`)
-        return
+      if (sourceHasUncommittedChanges()) {
+        console.log(`[gen-sdk-typings] ${SOURCE_REL} has uncommitted changes; this gate judges the checked-in artifact against the committed source, so the working copy is not what was compared. Regenerate the artifact in the commit that changes ${SOURCE_REL}.`)
       }
       if (committed === normalize(output)) {
         console.log(`[gen-sdk-typings] ${GENERATED_OUT} is up to date (${generated.split('\n').length} lines)`)
@@ -132,7 +131,7 @@ async function main() {
       }
       const committedLines = (committed ?? '').split('\n')
       const outputLines = output.split('\n')
-      console.error(`[gen-sdk-typings] STALE: ${GENERATED_OUT} does not match ${SOURCE}`)
+      console.error(`[gen-sdk-typings] STALE: ${GENERATED_OUT} does not match the committed ${SOURCE_REL}`)
       console.error(`[gen-sdk-typings] committed ${committed === null ? '(missing)' : committedLines.length + ' lines'} vs generated ${outputLines.length} lines`)
       let shown = 0
       const limit = Math.max(committedLines.length, outputLines.length)
