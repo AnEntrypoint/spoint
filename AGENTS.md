@@ -44,6 +44,13 @@ under 30 KB: drain narrative into recall, never grow an audit log here.
   `src/stdlib-apps/*`). Read `committed`/`requested_paths`/`excluded` off the response. `.gm`
   pathspecs are honoured (fixed 2026-10-02 in `AnEntrypoint/rs-plugkit` `6f98e47`/`30786b6`);
   a pathspec matching nothing returns `pathspec_matches_nothing` and stages nothing.
+- Generated artifacts travel in the same commit as the source they are generated from. A commit
+  touching `src/apps/AppContext.js` must also carry `npm run gen-typings`'s
+  `client/editor/sdk-typings.generated.d.ts`, which is emitted from a detached worktree of HEAD and
+  so is gen(committed source); a commit changing height code must re-bake the `apps/world/*.hf` the
+  `check-cache-keys` gate names, and that gate prints the exact command to run. Both gates fail CI
+  on the very commit that changed the source, which is three red pushes on 2026-10-06 (`4b8fc9cf`,
+  `a318f025`, `61608226`) and each left main unusable for every lane until repaired.
 - `core.autocrlf=true` makes checkouts write CRLF while the index stays LF, so a working-tree hash
   can differ from the index; `w/crlf` in `git ls-files --eol` is not a diff.
 - `@spoint/ecs` is the repo's only `@spoint/*` specifier — `mapspinner` and `streaming-gltf` are
@@ -117,6 +124,14 @@ block continuations, glob literals in `console.log`, `//` inside `http://`.
   Underwater/waterline and grazing-altitude water cull:
   `project/ground-depth-cut-is-underwater-ceiling-waterline-crossing` (`window.__tpOverride`,
   `window.__passProbe`; an out-of-band `renderer.render` fakes a black void).
+- `project/page-boot-witness-needs-multiplayer-not-singleplayer`: give
+  `scripts/page-boot-witness.mjs` `--params=multiplayer` whenever the witness needs the server to
+  act on a client message (sculpt, biome paint, world config, entity edits). Under the default
+  `?singleplayer` the server runs in the browser worker and the node server the harness booted logs
+  `players:0` throughout, so the message reaches a server with no `ctx._terrainStreamer` and is
+  acked `ok:false`, while `window.__terrain`, `window.__app.engine` and the chart frame are all
+  still present — the shape of a product bug that is really a harness one. `window.__colliderProbe`
+  is installed only under singleplayer.
 
 ## Entry points
 
