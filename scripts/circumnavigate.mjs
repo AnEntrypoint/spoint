@@ -278,7 +278,7 @@ export function createChartWalker({ frame, sampler, anchorField, lattice, anchor
     let ringMaxOffsetM = 0
     for (const c of ring) {
       const cd = [0, 0, 0]
-      lattice.chunkCentreDir(c.key, cd)
+      lattice.chunkCentreDir(c, cd)
       ringMaxOffsetM = Math.max(ringMaxOffsetM, arcM(radius, dir, cd))
     }
     const out = {

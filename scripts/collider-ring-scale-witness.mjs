@@ -15,6 +15,7 @@ const CENTER_COUNTS = [24, 64, 128, 192]
 const MOVING_CENTERS = 192
 const CENTER_SPACING_M = 60
 const REBUILDS = 10
+const LAST_REBUILDS = 5
 const CADENCE_MS = 300
 const TICK_RATE = 64
 const RING_BUDGET_MS_PER_S = 100
@@ -146,6 +147,7 @@ async function main() {
       trunkNear: trunk.nearTests, rockNear: rock.nearTests,
       trunkCands: trunk.cands, rockCands: rock.cands,
       trunkWork: trunk.workMs, rockWork: rock.workMs,
+      trunkSettled: trunk.settledSkips, rockSettled: rock.settledSkips,
       trunkDemand: trunk.prewarmDemand, rockDemand: rock.prewarmDemand,
       trunkArgsPrewarm: trunk.bodyArgsPrewarm, rockArgsPrewarm: rock.bodyArgsPrewarm,
       trunkArgsTouch: trunk.bodyArgsTouch, rockArgsTouch: rock.bodyArgsTouch,
@@ -162,8 +164,10 @@ async function main() {
     let prewarmDemandSum = 0
     let prewarmKeysSum = 0
     let newSum = 0
+    let settledAtCut = null
     const perRebuild = []
     for (let k = 0; k < REBUILDS; k++) {
+      if (k === REBUILDS - LAST_REBUILDS) settledAtCut = trunk.settledSkips + rock.settledSkips
       centers = at(k)
       const slotStart = performance.now()
       if (await trunk._rebuildMulti(centers, false) === true) deferred++
@@ -174,7 +178,7 @@ async function main() {
       if (rock.lastMaxSliceMs >= maxSliceMs) maxSlicePhase = `${rock.lastMaxSlicePhase}`
       maxRebuildMs = Math.max(maxRebuildMs, performance.now() - slotStart)
       if (tickSystem) dilations.push(tickSystem.dilationFactor)
-      if (n === 192) perRebuild.push(`${trunk.lastExamined}+${rock.lastExamined} over ${trunk.chunkKeys}/${rock.chunkKeys} chunk(s), ${trunk.newChunks - prevNew} new`)
+      if (n === 192) perRebuild.push(`${trunk.lastExamined}+${rock.lastExamined} examined over ${trunk.chunkKeys}/${rock.chunkKeys} chunk(s), ${trunk.newChunks - prevNew} new trunk + ${rock.newChunks - prevNewRock} new rock, ${trunk.settledSkips}/${rock.settledSkips} settled`)
       newSum += (trunk.newChunks - prevNew) + (rock.newChunks - prevNewRock)
       prevNewRock = rock.newChunks
       prevNew = trunk.newChunks
@@ -217,6 +221,11 @@ async function main() {
       totalMsPerS: pct((trunkMs + rockMs) / elapsedS),
       msPerTick: round((trunkMs + rockMs) / Math.max(1, ticks), 3),
       workMsPerRebuild: round(((trunk.workMs - phT0.trunkWork) + (rock.workMs - phT0.rockWork)) / REBUILDS, 2),
+      settledSkips: (trunk.settledSkips - phT0.trunkSettled) + (rock.settledSkips - phT0.rockSettled),
+      trunkSettledSkips: trunk.settledSkips - phT0.trunkSettled,
+      rockSettledSkips: rock.settledSkips - phT0.rockSettled,
+      lastSkips: settledAtCut === null ? null : (trunk.settledSkips + rock.settledSkips) - settledAtCut,
+      settledMisses: { trunk: trunk.settledMisses, rock: rock.settledMisses },
       workMsPerS: pct(((trunk.workMs - phT0.trunkWork) + (rock.workMs - phT0.rockWork)) / elapsedS),
       wallMsPerS: pct((trunkMs + rockMs) / elapsedS),
       maxRebuildMs: round(maxRebuildMs, 2),
@@ -230,6 +239,10 @@ async function main() {
       byteBudgetKB: round((trunk.byteBudget + rock.byteBudget) / 1024, 1),
       chunkCache: trunk.chunkCacheSize + rock.chunkCacheSize,
       ringCache: trunk.ringCacheSize + rock.ringCacheSize,
+      trunkChunkCache: trunk.chunkCacheSize,
+      rockChunkCache: rock.chunkCacheSize,
+      trunkNewChunks: (trunk.newChunks - phT0.trunkNew) / REBUILDS,
+      rockNewChunks: (rock.newChunks - phT0.rockNew) / REBUILDS,
       perClusterMin: counts.length ? Math.min(...counts) : 0,
       perClusterMax: counts.length ? Math.max(...counts) : 0,
       rockPerClusterMin: rockCounts.length ? Math.min(...rockCounts) : 0,
@@ -275,6 +288,7 @@ async function main() {
     }
     if (perRebuild.length) console.log(`[ring-scale]   per rebuild: ${perRebuild.join(' | ')}`)
     console.log(`[ring-scale] ${row.n} cluster(s)${row.moving ? ' moving' : ''}: ${row.trunkLive}+${row.rockLive} collider(s) of cap ${row.cap}, per-cluster ${row.perClusterMin}..${row.perClusterMax} (starved ${row.starvedClusters}/${row.rockStarvedClusters}), cold build ${row.coldBuildMs} ms, steady ${row.msPerRebuild} ms/rebuild wall = ${row.totalMsPerS} ms/s, of which ${row.workMsPerRebuild} ms/rebuild of uninterrupted work = ${row.workMsPerS} ms/s, ${row.msPerTick} ms/tick (classify ${row.classifyMsPerRebuild} / add ${row.addMsPerRebuild} / remove ${row.removeMsPerRebuild} ms per rebuild; ${row.ringFreshPerRebuild} fresh cluster ring(s) over ${row.newChunksPerRebuild} new chunk(s) per rebuild, ring ${row.ringMsPerRebuild} ms + scan ${row.scanMsPerRebuild} ms (chunk lookup ${row.lookupMsPerRebuild} ms of which ${row.computeMsPerRebuild} ms computing ${row.newChunksPerRebuild} new chunk(s), body ${row.bodyMsPerRebuild} ms over ${row.examinedPerRebuild} placement(s) x ${row.nearPerExamined} near test(s)), prewarm ${row.prewarmMsPerRebuild} ms over ${row.bodyArgsPerRebuild} bodyArgs call(s) (prewarm ${row.bodyArgsPrewarmPerRebuild} / touch ${row.bodyArgsTouchPerRebuild} / add ${row.bodyArgsAddPerRebuild}) costing ${row.bodyArgsMsPerRebuild} ms (${row.bodyArgsSlowPerRebuild} over 50 us) pre-creating ${row.prewarmDemandPerRebuild} body(s) across ${row.prewarmKeysPerRebuild} shape(s), over ${row.chunkKeysPerRebuild} chunk(s); ${row.cands} candidate(s), tail ${row.tailMsPerRebuild} ms), longest rebuild ${row.maxRebuildMs} ms of which the longest uninterrupted slice ${row.maxSliceMs} ms (${row.maxSlicePhase}), ${row.achievedHz} Hz, dilation<=${row.dilationMax}, loop p99 ${row.loopP99Ms}/max ${row.loopMaxMs} ms, gc ${row.gcMs} ms over ${row.gcCount} collection(s), cache ${row.chunkCache} chunk(s) + ${row.ringCache} cached cluster ring(s), ${row.residentKB}/${row.byteBudgetKB} KB resident, deferred ${row.deferred}`)
+    if (perRebuild.length) console.log(`[ring-scale] per rebuild at ${n}: ${perRebuild.join(' | ')}`)
     return row
   }
 
@@ -291,6 +305,8 @@ async function main() {
   check('no cluster is starved by the shared cap at 192 clusters', worst.starvedClusters === 0 && worst.rockStarvedClusters === 0, `cap-starved ${worst.starvedClusters}/${worst.rockStarvedClusters}, clusters with nothing to place ${worst.emptyClusters}/${worst.rockEmptyClusters}`)
   check('no cluster is starved by the shared cap at 192 moving clusters', movingRow.starvedClusters === 0 && movingRow.rockStarvedClusters === 0, `cap-starved ${movingRow.starvedClusters}/${movingRow.rockStarvedClusters}, clusters with nothing to place ${movingRow.emptyClusters}/${movingRow.rockEmptyClusters}`)
   check(`sustained ring build CPU work stays inside ${RING_BUDGET_MS_PER_S} ms/s (${RING_BUDGET_MS_PER_TICK} ms of a ${TICK_RATE} Hz tick) at 128 clusters`, mid && mid.workMsPerS <= RING_BUDGET_MS_PER_S, `${mid?.workMsPerS} ms/s of work (${mid?.totalMsPerS} ms/s wall)`)
+  check(`every one of the last ${LAST_REBUILDS} rebuilds of a settled ring skips the rescan at 192 clusters`, worst.lastSkips === 2 * LAST_REBUILDS, `${worst.lastSkips} of ${2 * LAST_REBUILDS} settled rebuild(s) skipped, ${worst.workMsPerS} ms/s of work`)
+  check(`no rebuild of a walking ring skips the rescan at 192 moving clusters`, movingRow.lastSkips === 0, `${movingRow.lastSkips} of ${2 * LAST_REBUILDS} rebuild(s) skipped`)
   check(`sustained ring build CPU work stays inside ${RING_BUDGET_MS_PER_S} ms/s at 192 clusters`, worst.workMsPerS <= RING_BUDGET_MS_PER_S, `${worst.workMsPerS} ms/s of work (${worst.totalMsPerS} ms/s wall)`)
   check(`sustained ring build CPU work stays inside ${RING_BUDGET_MS_PER_S} ms/s at 192 clusters where every cluster walks ${round(movingStepM, 1)} m between rebuilds (one every ${movingCadenceMs} ms)`, movingRow.workMsPerS <= RING_BUDGET_MS_PER_S, `${movingRow.workMsPerS} ms/s of work (${movingRow.totalMsPerS} ms/s wall)`)
   check(`the tick loop keeps ${TICK_RATE} Hz while 192 clusters rebuild every ${CADENCE_MS} ms`, worst.achievedHz >= TICK_RATE * 0.95, `${worst.achievedHz} Hz`)

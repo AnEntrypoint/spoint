@@ -22,6 +22,7 @@ const CENTER_SCALE_REFERENCE = 8
 const CENTER_SCALE_MAX = 8
 const DEFAULT_MAX_CENTERS = 192
 const BOOT_CLUSTER_BATCH = 8
+const MAX_BOOT_BATCHES = 4
 function centerScale(centerCount) {
   return Math.min(CENTER_SCALE_MAX, Math.max(1, Math.ceil(centerCount / CENTER_SCALE_REFERENCE)))
 }
@@ -269,8 +270,7 @@ export function createColliderStreamer(spec = {}) {
       let keys = ringCacheGet(rk)
       if (keys === undefined) {
         const ring = ringAroundLocal(lattice, frame, cx, cz, ringRadius)
-        keys = new Array(ring.length)
-        for (let r = 0; r < ring.length; r++) keys[r] = ring[r].key
+        keys = ring.slice()
         ringCacheSet(rk, keys)
         ringFreshTotal++
       }
@@ -413,9 +413,10 @@ export function createColliderStreamer(spec = {}) {
     return evicted
   }
 
-  function evictOverCap(centers, target = effectiveCap, protect = null) {
+  async function evictOverCap(centers, target = effectiveCap, protect = null) {
     if (live.size <= target) return 0
-    const ranked = []
+    const ids = [], bodies = [], dists = []
+    let deadline = _now() + ADD_BUDGET_MS
     for (const [placementId, bodyId] of live) {
       const at = placedAt.get(placementId)
       if (at === undefined) continue
@@ -425,14 +426,19 @@ export function createColliderStreamer(spec = {}) {
         const d = dx * dx + dz * dz
         if (d < nearest) nearest = d
       }
-      ranked.push({ placementId, bodyId, d: nearest })
+      ids.push(placementId); bodies.push(bodyId); dists.push(nearest)
+      if (ids.length % 256 === 0 && _now() >= deadline) { await yieldSlice(); deadline = _now() + ADD_BUDGET_MS }
     }
-    ranked.sort((a, b) => b.d - a.d)
+    const order = new Array(ids.length)
+    for (let i = 0; i < order.length; i++) order[i] = i
+    order.sort((a, b) => dists[b] - dists[a] || ids[a] - ids[b])
     let trimmed = 0
-    for (let i = 0; i < ranked.length && live.size > target; i++) {
-      if (protect && protect.has(ranked[i].placementId)) continue
-      scheduleRemove(ranked[i].placementId, ranked[i].bodyId)
+    for (let i = 0; i < order.length && live.size > target; i++) {
+      const j = order[i]
+      if (protect && protect.has(ids[j])) continue
+      scheduleRemove(ids[j], bodies[j])
       trimmed++
+      if (trimmed % 64 === 0 && _now() >= deadline) { await yieldSlice(); deadline = _now() + ADD_BUDGET_MS }
     }
     return trimmed
   }
@@ -511,6 +517,29 @@ export function createColliderStreamer(spec = {}) {
     slicePhase = name
     beginSlice()
   }
+  const FNV_PRIME = 16777619
+  const SETTLE_QUANTUM_M = 1
+  const misses = { nullIds: 0, pending: 0, fingerprint: 0, size: 0, missing: 0 }
+  let settledFingerprint = 0, settledIds = null, settledSkips = 0
+  function centerFingerprint(centers) {
+    let h = 2166136261
+    for (let i = 0; i < centers.length; i++) {
+      h = Math.imul(h ^ Math.round(centers[i][0] / SETTLE_QUANTUM_M), FNV_PRIME) >>> 0
+      h = Math.imul(h ^ Math.round(centers[i][1] / SETTLE_QUANTUM_M), FNV_PRIME) >>> 0
+    }
+    h = Math.imul(h ^ effectiveCap, FNV_PRIME) >>> 0
+    h = Math.imul(h ^ epochOf(), FNV_PRIME) >>> 0
+    return h >>> 0
+  }
+  function settled(centers) {
+    if (settledIds === null) { misses.nullIds++; return false }
+    if (pendingTicket.size !== 0) { misses.pending++; return false }
+    if (settledFingerprint !== centerFingerprint(centers)) { misses.fingerprint++; return false }
+    if (live.size !== settledIds.size) { misses.size++; return false }
+    for (const placementId of live.keys()) if (!settledIds.has(placementId)) { misses.missing++; return false }
+    return true
+  }
+  function clearSettled() { settledIds = null; settledFingerprint = 0 }
   async function _rebuildMulti(centers, unbudgeted = false, opts = null) {
     if (rebuilding || disposed || !frame || typeof physics?.addBody !== 'function') return
     if (!Array.isArray(centers) || centers.length === 0) return
@@ -530,6 +559,7 @@ export function createColliderStreamer(spec = {}) {
     const ringFrom = batched ? opts.ringFrom ?? 0 : 0
     const ringTo = batched ? opts.ringTo ?? centers.length : centers.length
     try {
+      if (!batched && settled(centers)) { settledSkips++; markPhase('settled'); return false }
       const classified = await classifyRings(centers, unbudgeted, acc, ringFrom, ringTo, batched)
       if (classified === null) return _deferred
       const gathered = finalize ? gatherDesired(acc, centers) : null
@@ -554,7 +584,8 @@ export function createColliderStreamer(spec = {}) {
       let missing = 0
       for (const placementId of desiredIds) if (!live.has(placementId)) missing++
       const roomTarget = effectiveCap - missing
-      if (live.size > roomTarget) evictOverCap(centers, roomTarget, desiredIds)
+      markPhase('evict')
+      if (live.size > roomTarget) await evictOverCap(centers, roomTarget, desiredIds)
       const tp = _now()
       markPhase('prewarm')
       await prewarmPools(desired, acc.candP, acc.keep, unbudgeted && !batched)
@@ -571,7 +602,7 @@ export function createColliderStreamer(spec = {}) {
           continue
         }
         scheduleAdd(p)
-        if ((!unbudgeted || batched) && _now() >= addDeadline) {
+        if (_now() >= addDeadline) {
           await yieldSlice()
           if (disposed) return
           addDeadline = _now() + ADD_BUDGET_MS
@@ -582,9 +613,11 @@ export function createColliderStreamer(spec = {}) {
       if (finalize && !_deferred) {
         const tr = _now()
         markPhase('remove')
+        let removeDeadline = _now() + ADD_BUDGET_MS
         for (const [placementId, bodyId] of [...live.entries()]) {
           if (bootDrop ? bootDrop.has(placementId) : acc.keep.has(placementId)) continue
           scheduleRemove(placementId, bodyId)
+          if (_now() >= removeDeadline) { await yieldSlice(); removeDeadline = _now() + ADD_BUDGET_MS }
         }
         removeMsTotal += _now() - tr
       }
@@ -596,9 +629,10 @@ export function createColliderStreamer(spec = {}) {
       if (finalize && !_deferred) { curCenters = centers; curCenter = centers[0] || null; lastCenterCounts = counts; rebuildCount++ }
       if (finalize) {
         markPhase('trim')
-        const trimmed = evictOverCap(centers)
+        const trimmed = await evictOverCap(centers)
         if (trimmed > 0) console.log(`${logTag} trimmed ${trimmed} collider(s) beyond the body cap: ${live.size}/${effectiveCap} resident for ${centers.length} center(s)`)
       }
+      if (finalize && !_deferred) { settledFingerprint = centerFingerprint(centers); settledIds = new Set(live.keys()) }
       markPhase('ids')
       setColliderIds(_liveIds)
     } catch (e) { console.error(logTag + ' collider rebuild error:', e?.message || e) }
@@ -634,13 +668,14 @@ export function createColliderStreamer(spec = {}) {
     const quota = Math.max(1, Math.ceil((baseCap * centerScale(centers.length)) / centers.length))
     const acc = newAccumulator(centers.length, quota)
     let batches = 0
-    for (let from = 0; from < centers.length; from += BOOT_CLUSTER_BATCH) {
-      const to = Math.min(centers.length, from + BOOT_CLUSTER_BATCH)
+    const bootBatch = Math.max(BOOT_CLUSTER_BATCH, Math.ceil(centers.length / MAX_BOOT_BATCHES))
+    for (let from = 0; from < centers.length; from += bootBatch) {
+      const to = Math.min(centers.length, from + bootBatch)
       await _rebuildMulti(centers, true, { acc, ringFrom: from, ringTo: to, finalize: to >= centers.length })
       batches++
       if (to < centers.length && !disposed) await yieldToLoop()
     }
-    console.log(`${logTag} initial ring: ${live.size}/${effectiveCap} collider(s) over ${_chunkCache.size} chunk(s) for ${centers.length} center(s) of maxCenters ${maxCenters}${maxCentersExplicit ? '' : ' (default)'}, dropped ${lastDroppedCount} (radius ${radius}m keep ${keepRadius.toFixed(1)}m) in ${(_now() - t0).toFixed(1)}ms over ${batches} cluster batch(es) of ${BOOT_CLUSTER_BATCH} (pool prewarm ${prewarmMs.toFixed(1)}ms)`)
+    console.log(`${logTag} initial ring: ${live.size}/${effectiveCap} collider(s) over ${_chunkCache.size} chunk(s) for ${centers.length} center(s) of maxCenters ${maxCenters}${maxCentersExplicit ? '' : ' (default)'}, dropped ${lastDroppedCount} (radius ${radius}m keep ${keepRadius.toFixed(1)}m) in ${(_now() - t0).toFixed(1)}ms over ${batches} cluster batch(es) of ${bootBatch} (pool prewarm ${prewarmMs.toFixed(1)}ms)`)
     if (disposed) return
     setColliderIds(_liveIds)
     _timer = setTimeout(_check, intervalMs)
@@ -662,6 +697,7 @@ export function createColliderStreamer(spec = {}) {
     curCenter = curCenters[0] || null
     _chunkCache.clear()
     clearRingCache()
+    clearSettled()
     reanchoredEpoch = epoch
     return moved
   }
@@ -678,6 +714,7 @@ export function createColliderStreamer(spec = {}) {
     setExclude(fn) {
       if (fn !== null && typeof fn !== 'function') throw new TypeError(`${logTag} setExclude needs a function or null`)
       excludePlacement = fn
+      clearSettled()
     },
     sweepExcluded() {
       if (excludePlacement === null) return 0
@@ -725,6 +762,8 @@ export function createColliderStreamer(spec = {}) {
     get bodyArgsPrewarm() { return bodyArgsSite[0] },
     get bodyArgsTouch() { return bodyArgsSite[1] },
     get bodyArgsAdd() { return bodyArgsSite[2] },
+    get settledSkips() { return settledSkips },
+    get settledMisses() { return { ...misses } },
     get starvedClusters() { return lastStarved },
     get ringBuildMsPerSecond() { const secs = (_now() - ringBuildStartedAt) / 1000; return ringBuildStartedAt && secs > 0 ? ringBuildMsTotal / secs : 0 },
     get chunkCacheSize() { return _chunkCache.size },
@@ -732,7 +771,7 @@ export function createColliderStreamer(spec = {}) {
     get cap() { return effectiveCap },
     get residentBytes() { return _residentBytes },
     get byteBudget() { return effectiveByteBudget },
-    clearChunkCache() { _chunkCache.clear(); clearRingCache() },
+    clearChunkCache() { _chunkCache.clear(); clearRingCache(); clearSettled() },
     _rebuild, _rebuildMulti, _live: live,
   }
 }
