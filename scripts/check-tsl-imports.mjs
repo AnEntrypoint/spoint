@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readdirSync, statSync, readFileSync } from 'node:fs'
+import { readdirSync, statSync, readFileSync, existsSync } from 'node:fs'
 import { join, extname } from 'node:path'
 
 const ROOTS = ['src', 'client', 'apps', 'scripts', 'bin', 'packages/mapspinner/src', 'packages/streaming-gltf/src', 'packages/ecs/src']
@@ -78,7 +78,23 @@ function main() {
   const files = []
   for (const root of ROOTS) collect(root, files)
 
+  const missingRoots = ROOTS.filter((root) => !existsSync(root))
+  if (missingRoots.length) {
+    console.error(`check-tsl-imports: source root(s) absent: ${missingRoots.join(', ')}`)
+    process.exit(1)
+  }
+  if (files.length === 0) {
+    console.error('check-tsl-imports: 0 file(s) collected -- an empty scan is not a pass')
+    process.exit(1)
+  }
+
   const modules = MODULE_BUILDS.map(m => ({ spec: m.spec, exports: exportedNames(m.build) }))
+  for (const m of modules) {
+    if (m.exports.size === 0) {
+      console.error(`check-tsl-imports: ${m.spec} exposed 0 export(s) -- the export list it compares against is empty`)
+      process.exit(1)
+    }
+  }
   const bySpec = new Map(modules.map(m => [m.spec, m.exports]))
 
   const problems = []
@@ -106,6 +122,10 @@ function main() {
   }
 
   console.log(`check-tsl-imports: ${checkedNames} named import(s) from ${modules.map(m => m.spec).join(', ')} across ${checkedFiles} file(s) (three ${version()})`)
+  if (checkedNames === 0) {
+    console.error(`check-tsl-imports: 0 named import(s) checked across ${files.length} file(s) -- an empty scan is not a pass`)
+    process.exit(1)
+  }
   if (problems.length) {
     console.error(`check-tsl-imports: ${problems.length} named import(s) absent from the installed export list:`)
     for (const p of problems) console.error(`  ${p}`)
