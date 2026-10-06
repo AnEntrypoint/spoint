@@ -1,5 +1,5 @@
 export const FIELD_TYPES = Object.freeze({
-  u8: 'u8', u16: 'u16', i16: 'i16', f32: 'f32', bool: 'bool', string: 'string', enum: 'enum'
+  u8: 'u8', u16: 'u16', i16: 'i16', f32: 'f32', f64: 'f64', bool: 'bool', string: 'string', enum: 'enum'
 })
 
 const VARIABLE_BYTE_SIZE = null
@@ -8,6 +8,7 @@ function fieldByteSize(field) {
     case 'u8': case 'bool': case 'enum': return 1
     case 'u16': case 'i16': return 2
     case 'f32': return 4
+    case 'f64': return 8
     case 'string': return VARIABLE_BYTE_SIZE
     default: throw new TypeError('[ComponentSchema] unknown field type: ' + field.type)
   }
@@ -122,6 +123,7 @@ function _writeField(dv, off, field, value) {
     case 'u16': dv.setUint16(off, Math.max(0, Math.min(65535, Math.round(value))), true); return off + 2
     case 'i16': dv.setInt16(off, Math.max(-32768, Math.min(32767, Math.round(value))), true); return off + 2
     case 'f32': dv.setFloat32(off, value, true); return off + 4
+    case 'f64': dv.setFloat64(off, value, true); return off + 8
     default: throw new TypeError('[ComponentSchema] unknown field type: ' + field.type)
   }
 }
@@ -156,6 +158,7 @@ function _readField(dv, off, field) {
     case 'u16': return dv.getUint16(off, true)
     case 'i16': return dv.getInt16(off, true)
     case 'f32': return dv.getFloat32(off, true)
+    case 'f64': return dv.getFloat64(off, true)
     default: throw new TypeError('[ComponentSchema] unknown field type: ' + field.type)
   }
 }
