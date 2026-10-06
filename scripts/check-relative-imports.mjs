@@ -55,6 +55,16 @@ function main() {
   const files = []
   for (const root of ROOTS) collect(root, files)
 
+  const missingRoots = ROOTS.filter((root) => !existsSync(root))
+  if (missingRoots.length) {
+    console.error(`check-relative-imports: source root(s) absent: ${missingRoots.join(', ')}`)
+    process.exit(1)
+  }
+  if (files.length === 0) {
+    console.error('check-relative-imports: 0 file(s) collected -- an empty scan is not a pass')
+    process.exit(1)
+  }
+
   const problems = []
   let checked = 0
   for (const file of files) {
@@ -72,6 +82,10 @@ function main() {
   }
 
   console.log(`check-relative-imports: ${checked} relative specifier(s) in ${files.length} file(s)`)
+  if (checked === 0) {
+    console.error(`check-relative-imports: 0 relative specifier(s) in ${files.length} file(s) -- an empty scan is not a pass`)
+    process.exit(1)
+  }
   if (problems.length) {
     console.error(`check-relative-imports: ${problems.length} unresolvable relative import(s):`)
     for (const p of problems) console.error(`  ${p}`)
