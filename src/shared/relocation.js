@@ -37,7 +37,8 @@ export function dirToLocalXZ(frame, dir, heightAt) {
   if (!(l > 0)) return null
   const d = [dir[0] / l, dir[1] / l, dir[2] / l]
   if (!(dot(d, frame.up) > MIN_UP_DOT)) return null
-  const dirElevation = typeof frame.elevationAtDir === 'function' ? frame.elevationAtDir(d) : null
+  const seedReader = typeof frame.cpuElevationAtDir === 'function' ? frame.cpuElevationAtDir : frame.elevationAtDir
+  const dirElevation = typeof seedReader === 'function' ? seedReader(d) : null
   let elevation = Number.isFinite(dirElevation) ? dirElevation : frame.anchorHeight
   const de = dot(d, frame.east), dn = dot(d, frame.north)
   const seed = frame.radius + elevation

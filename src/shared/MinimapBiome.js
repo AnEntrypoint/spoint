@@ -1,4 +1,4 @@
-import { guardedGroundHeight } from '../terrain/PlanetFrame.js'
+import { elevationAtLocal, guardedGroundHeight } from '../terrain/PlanetFrame.js'
 
 const DEEP_OCEAN_BELOW_M = -200
 const BEACH_TOP_M = 8
@@ -37,7 +37,7 @@ export function sampleMinimapCell(frame, anchorField, x, z, out, yGuess) {
   out[4] = h
   if (!Number.isFinite(h)) { out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 0; return NaN }
   const dir = frame.localToDir(x, z, h)
-  const elevation = frame.elevationAtDir(dir)
+  const elevation = elevationAtLocal(frame, x, h, z)
   if (!Number.isFinite(elevation)) { out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 0; return NaN }
   const climate = anchorField && anchorField.sampleDir ? anchorField.sampleDir(dir) : NEUTRAL_CLIMATE
   const rgb = biomeColor(elevation, climate.temp || 0, climate.humidity || 0, 0)

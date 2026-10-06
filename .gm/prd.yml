@@ -1891,3 +1891,12 @@
   title: Route legacy-boot v1 CPU height consumers off the CPU sampler
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending
+- id: mapspinner-dead-jsops-createjsops
+  title: Remove dead createJsOps/JS_PRECISIONS from packages/mapspinner/src/tsl/ops-js.js
+  why: packages/mapspinner/src/tsl/ops-js.js exports JS_PRECISIONS and createJsOps with no callers anywhere in the repo; it is the float32/float64 ops variant that ops-jsgen.js replaced, so it is a second driftable copy of the same operator semantics sitting in the tree.
+  done_when: codesearch finds no caller of createJsOps or JS_PRECISIONS outside its own file; the dead export is deleted (or wired if a real caller is found); npm test and check-cache-keys pass; no other lane imports it.
+  blockedBy: ''
+  priority: 3
+  kind: housekeeping
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
