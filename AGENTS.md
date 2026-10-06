@@ -144,10 +144,29 @@ at the same step. Only ignition/extinguish/weather events cross the wire
 `ctx.navCostAt(x, z)` returns 8 over a burning cell and 2 over a charred one (steering divides speed
 by it, `src/behaviours/steering.js`), and players get `fire_burn` / `fire_burn_end` / `fire_death`
 payloads from `src/behaviours/fireGameplay.js`. tps-game wires all of it behind
-`config.fire.enabled`, shipped **false** (`apps/world/tps-game.js`). Open rows: `fire-s1b`
-(rollback/lockstep rewind hook), `fire-s1c` (late join keyframe), `fire-s1d`/`fire-s1e` (kernel
-perf), `fire-s2b` (browser witness), `fire-s2c` (no wind field exists anywhere in the sim yet),
-`fire-s2d`, `fire-s3a` (client mirror + GPU), `fire-s4a-d`, `fire-s5a-d`, `fire-s6`.
+`config.fire.enabled`, shipped **false** (`apps/world/tps-game.js`); `apps/tps-game/server-app.js`
+builds the fire only when that flag is `true`, and its combat bridge passes `fire.rayBlocked` as
+`shotBlocked` and ignites on `onWorldHit`.
+
+Wind and weather: `src/sdk/ServerWeather.js` carries an authoritative `[x,y,z]` integer wind clamped
+to +-16 on the WEATHER_SYNC payload — an **additive** field, so `WIRE_PROTOCOL_VERSION` stays 5 and
+an old payload without `wind` leaves the fire's `spec.wind` untouched. Time-varying wind comes from
+`src/shared/fire/fireWind.js`, a pure `hash(seed, step)` integer field with no float and no per-peer
+state, so peers that start ticking at different ticks read the same vector at the same step; a wind
+that must be authoritative arrives as a `FIRE_EVENT.WIND` event at an absolute step boundary.
+Rain/moisture/wind are emitted only on change (moisture with hysteresis) and `fire.weather` exposes
+the current rain byte, moisture and wind. Firebreaks (`src/behaviours/fireTerrain.js`) give cleared
+circles, terrain kinds, submerged and rock cells fuel class 0, so they can never ignite.
+
+Witnesses: `scripts/fire-witness.mjs` (kernel, wire, rollback, late join + sliced keyframe),
+`scripts/fire-peer-rollback-witness.mjs` (rollback/lockstep desync counts),
+`scripts/fire-weather-witness.mjs` (wind field, rain halt, additive WEATHER_SYNC),
+`scripts/fire-combat-witness.mjs` (incendiary, extinguish, explosion, firebreaks, tps-game flag).
+
+Open rows: `fire-s1d`/`fire-s1e` (kernel perf: incremental hash + dirty-tile snapshots, per-tile
+reclaim and placement fuel), `fire-s2b` (smoke occlusion, browser),
+`fire-s2c-veg-sway-wind-vector-client` (vegetation sway is still the scalar `window.__vegWind`, no
+direction), `fire-s3a` (client mirror + GPU), `fire-s4a-d`, `fire-s5a-d`, `fire-s6`.
 
 ## Planet-wide multiplayer (`src/shared/clusterAssignment.js`, `src/sharding/`)
 
