@@ -9,6 +9,9 @@ function say(line) { console.log(line) }
 const gcNow = typeof globalThis.gc === 'function' ? globalThis.gc : null
 function heapUsed() { if (gcNow === null) return null; gcNow(); gcNow(); return process.memoryUsage().heapUsed }
 
+let failures = 0
+function expect(ok, line) { if (!ok) { failures++; say(`  FAIL ${line}`) } }
+
 const HOME_FACE = 2
 const TARGET_TILES = Number(process.argv[2] ?? 11429)
 const IGNITE_SPACING = 24
@@ -93,6 +96,9 @@ function probeRewinds(window) {
     say(`  rewind to ${t}: ok ${r.ok}, checksum ${rewound} vs recorded ${window.recorded.get(t)}, replayed to ${endTick} ${replayed} vs ${window.recorded.get(endTick)} ${ok ? 'OK' : 'MISMATCH'}`)
   }
   say(`  delta restore equivalence: ${stored.length - bad} of ${stored.length} rewinds bit-equal to the straight run, and replay reproduces it ${bad === 0 ? 'yes' : 'no'}`)
+  expect(stored.length > 0, `no snapshot tick inside the measured window, so nothing was rewound`)
+  expect(new Set(window.recorded.values()).size > 1, `all ${window.recorded.size} recorded boundary checksums are identical, so a rewind comparison cannot see a change`)
+  expect(bad === 0, `${bad} of ${stored.length} rewinds diverged from the straight run`)
 }
 
 const DELTA_STRUCTURE_BYTES = 30 * 16384
@@ -113,6 +119,7 @@ for (let b = 0; b < 3; b++) {
   kernel.releaseDelta(d)
 }
 say(`  takeDelta at a boundary: ${deltaCosts.map(c => `${c.ms.toFixed(3)} ms over ${c.cells} staged cell(s)`).join(', ')}`)
+expect(deltaCosts.every(c => c.cells > 0), `takeDelta staged ${deltaCosts.map(c => c.cells).join('/')} cell(s); an empty delta makes every rewind above vacuous`)
 say(`  a live delta costs ${(DELTA_STRUCTURE_BYTES / 1024).toFixed(0)} KiB of structure (21 B of masks, interior marks and active listing plus 9 B of tile identity per tile) plus 11 B per staged cell, 9 of them live, and 12 B per scar-ring slot the step overwrote`)
 
 const drained = []
@@ -152,6 +159,9 @@ while (hashSamples < 30 && clock.tick < 40000) {
 }
 say(`  ${hashSamples} boundaries: incremental == post-restore full rebuild on ${hashSamples - hashMismatches}, checksum changed at every boundary on ${hashSamples - hashStalls}`)
 say(`  last checksum ${prevChecksum} over ${kernel.tileCount} tiles, ${kernel.activeCount} active cells, ${kernel.scarCount} scars`)
+expect(hashSamples === 30, `${hashSamples} of 30 boundaries sampled before the tick cap`)
+expect(hashMismatches === 0, `${hashMismatches} boundary(s) where the incremental hash disagreed with a full rebuild`)
+expect(hashStalls === 0, `${hashStalls} boundary(s) where the checksum did not change`)
 
 function measureWindow(ticks) {
   const start = clock.tick
@@ -195,3 +205,5 @@ say(`  snapshot + checksum per boundary ${(best.snapshotMs + best.checksumMs).to
 say('')
 const finalKernel = fire.world.kernel
 say(`  tileCount after the windows ${finalKernel.tileCount}, active ${finalKernel.activeCount}`)
+
+if (failures > 0) { say(`${failures} check(s) failed`); process.exitCode = 1 }

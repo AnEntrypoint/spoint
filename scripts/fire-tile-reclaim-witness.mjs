@@ -6,6 +6,9 @@ import { defineFire } from '../src/behaviours/fire.js'
 
 function say(line) { console.log(line) }
 
+let failures = 0
+function expect(ok, line) { if (!ok) { failures++; say(`  FAIL ${line}`) } }
+
 const HOME_FACE = 2
 const PATCH_REACH = 40
 const PATCH_SPACING = 40
@@ -51,18 +54,24 @@ function ignitePatch(fire, half, centreI, centreJ) {
 function drownAndRegrow(clock, fire, kernel, cap) {
   let ticks = 0
   let peak = kernel.tileCount
+  let freeSeen = kernel.freeTileCount
+  const note = () => {
+    if (kernel.tileCount > peak) peak = kernel.tileCount
+    if (kernel.freeTileCount > freeSeen) freeSeen = kernel.freeTileCount
+  }
   runTo(clock, fire, clock.tick + 200)
+  note()
   fire.setRain(255)
   while (kernel.activeCount > 0 && ticks++ < cap) {
     runTo(clock, fire, clock.tick + 1)
-    if (kernel.tileCount > peak) peak = kernel.tileCount
+    note()
   }
   fire.setRain(0)
   let regrowTicks = 0
-  while (kernel.scarCount > 0 && regrowTicks++ < cap) runTo(clock, fire, clock.tick + 1)
+  while (kernel.scarCount > 0 && regrowTicks++ < cap) { runTo(clock, fire, clock.tick + 1); note() }
   let settleTicks = 0
-  while (kernel.scarCount === 0 && kernel.liveTileCount > 0 && settleTicks++ < cap) runTo(clock, fire, clock.tick + 1)
-  return { ticks: ticks + regrowTicks + settleTicks + 200, burnTicks: ticks, regrowTicks, settleTicks, peak }
+  while (kernel.scarCount === 0 && kernel.liveTileCount > 0 && settleTicks++ < cap) { runTo(clock, fire, clock.tick + 1); note() }
+  return { ticks: ticks + regrowTicks + settleTicks + 200, burnTicks: ticks, regrowTicks, settleTicks, peak, freeSeen }
 }
 
 const gcNow = typeof globalThis.gc === 'function' ? globalThis.gc : null
@@ -72,6 +81,7 @@ say('== 1. per-tile reclamation: 20 successive fires return every tile slot ==')
 const { fire, kernel, clock, half, span } = build(REGROW_STEPS)
 const heapStart = heapUsed()
 let leaked = 0, worstWater = 0, ignited = 0, totalTicks = 0
+let withoutReclaim = 0, withoutTiles = 0
 const perFire = []
 for (let f = 0; f < FIRES; f++) {
   const centreI = ((f % 5) - 2) * span
@@ -83,12 +93,20 @@ for (let f = 0; f < FIRES; f++) {
   const live = kernel.liveTileCount
   if (live !== 0) leaked++
   if (w.peak > worstWater) worstWater = w.peak
+  if (w.freeSeen === 0) withoutReclaim++
+  if (w.peak === 0) withoutTiles++
   perFire.push(`${peak}->${live}`)
 }
 const heapEnd = heapUsed()
 say(`  ${FIRES} fires at disjoint patches, ${ignited} ignition point(s): tile slots before->after each fire ${perFire.join(' ')}`)
 say(`  fires that left a live tile behind: ${leaked}, high-water tile slots ${worstWater} of ${MAX_TILES}, deniedTiles ${kernel.stats.deniedTiles}`)
 say(`  ${totalTicks} ticks of burning, drowning, regrowing and settling, ${heapEnd === null ? 'heap not sampled without --expose-gc' : `heap delta ${heapEnd - heapStart} B`}, live ${kernel.liveTileCount} of ${kernel.tileCount} slots at the end`)
+expect(ignited === FIRES * 9, `${ignited} of ${FIRES * 9} ignition points accepted`)
+expect(withoutTiles === 0, `${withoutTiles} fire(s) never allocated a tile slot`)
+expect(withoutReclaim === 0, `${withoutReclaim} fire(s) never put a slot on the free list, so per-tile reclaim never ran and the 0 below would be the whole-field reset`)
+expect(leaked === 0, `${leaked} fire(s) left a live tile behind`)
+expect(worstWater > 0 && worstWater < MAX_TILES, `high-water tile slots ${worstWater} of ${MAX_TILES}`)
+expect(kernel.stats.deniedTiles === 0, `${kernel.stats.deniedTiles} tile allocation(s) denied`)
 
 say('== 2. slots are freed one tile at a time, while other tiles are still held ==')
 const two = build(REGROW_STEPS)
@@ -110,6 +128,8 @@ for (let s = 0; s < 8; s++) {
   say(`  +${(s + 1) * 150} ticks: live ${live}, free slots ${free}, scars ${two.kernel.scarCount}`)
 }
 say(`  checks where free slots and live tiles coexisted: ${sawSplit} of 8 (a whole-field reset would free them all at once)`)
+expect(beforeRain > 0, `the two patches held ${beforeRain} live tile(s) before the rain`)
+expect(sawSplit >= 1, `free slots and live tiles never coexisted (${sawSplit} of 8), which is what a whole-field reset looks like`)
 
 say('== 3. a tile held by a scar is not freed, and is freed the step the scar regrows ==')
 const held = build(1000000)
@@ -120,6 +140,10 @@ const freed = build(REGROW_STEPS)
 ignitePatch(freed.fire, freed.half, 0, 0)
 const fw = drownAndRegrow(freed.clock, freed.fire, freed.kernel, 3000)
 say(`  regrowSteps ${REGROW_STEPS}: ${freed.kernel.liveTileCount} live tile(s) and ${freed.kernel.scarCount} scar(s) after ${fw.ticks} ticks (freed as they regrew)`)
+expect(held.kernel.liveTileCount > 0 && held.kernel.scarCount > 0, `a scar that never regrows must hold its tile, got ${held.kernel.liveTileCount} live tile(s) and ${held.kernel.scarCount} scar(s)`)
+expect(hw.freeSeen === 0, `${hw.freeSeen} slot(s) reached the free list although no scar ever regrew`)
+expect(freed.kernel.liveTileCount === 0 && freed.kernel.scarCount === 0, `regrown scars must release every tile, got ${freed.kernel.liveTileCount} live tile(s) and ${freed.kernel.scarCount} scar(s)`)
+expect(fw.freeSeen > 0, `the regrowing fire released no slot to the free list`)
 
 say('== 4. rewind across a reclaim: a kernel that rewinds over reclaimed slots matches one that never did ==')
 const rw = build(REGROW_STEPS, 64)
@@ -151,6 +175,11 @@ for (const t of marks) {
   say(`  rewind to ${t} (${t < firstReclaim ? 'before' : 'after'} the first reclaim): ok ${r.ok}, checksum ${rewound} vs ${sums.get(t)}, replayed to ${endTick} ${replayed} vs ${sums.get(endTick)} ${ok ? 'OK' : 'MISMATCH'}`)
 }
 say(`  ${marks.length - bad} of ${marks.length} rewinds bit-equal to the straight run`)
+expect(sums.size > 1, `${sums.size} boundary checksums recorded`)
+expect(new Set(sums.values()).size > 1, `all ${sums.size} boundary checksums are identical, so a rewind comparison cannot see a change`)
+expect(maxFree > 0 && firstReclaim > 0, `${maxFree} slot(s) reclaimed, first at tick ${firstReclaim}`)
+expect(marks.length >= 2, `${marks.length} rewind mark(s), need at least one each side of the first reclaim`)
+expect(bad === 0, `${bad} of ${marks.length} rewinds diverged from the straight run`)
 
 say('== 5. determinism: two independent runs of the same scenario agree step for step ==')
 function scenarioChecksums() {
@@ -180,3 +209,8 @@ const b = scenarioChecksums()
 let disagree = 0
 for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) disagree++
 say(`  ${a.length} vs ${b.length} step checksums, ${disagree} disagreement(s), final ${a[a.length - 1]} vs ${b[b.length - 1]}`)
+expect(a.length > 0 && a.length === b.length, `${a.length} vs ${b.length} step checksums sampled`)
+expect(new Set(a).size > 1, `all ${a.length} step checksums are identical, so the comparison cannot see a divergence`)
+expect(disagree === 0, `${disagree} of ${Math.min(a.length, b.length)} step checksums disagreed`)
+
+if (failures > 0) { say(`${failures} check(s) failed`); process.exitCode = 1 }
