@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { join, dirname, resolve, relative, extname } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { join, dirname, resolve, relative, extname, sep } from 'node:path'
+import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { BAKE_TRANSFORMS, HEIGHTFIELD_BAKE_CODE_VERSION, COLLISION_GRID_CODE_VERSION_SOURCE, SNAPSHOT_ENCODE_CODE_VERSION_SOURCE, SNAPSHOT_ENTITY_ENC_CODE_VERSION_SOURCE } from '../src/static/BakeCodeVersion.js'
 
@@ -66,19 +67,36 @@ function importClosure(entries) {
   return [...seen.keys()].sort()
 }
 
-function shippedHeightfields() {
-  const dir = join(ROOT, 'apps', 'world')
-  let names
-  try {
-    names = readdirSync(dir)
-  } catch (e) {
-    return { files: [], error: `${normalize(dir)} is unreadable (${e?.message || e}), so no shipped .hf artifact was verified` }
-  }
-  const files = names.filter(n => n.endsWith('.hf')).sort().map(n => join('apps', 'world', n))
-  if (files.length === 0) {
-    return { files, error: `${normalize(dir)} holds no .hf artifact, so no shipped heightfield was verified` }
-  }
+const HEIGHTFIELD_EXT = '.hf'
+const TRACKED_LIST_MAX_BYTES = 64 * 1024 * 1024
+
+function trackedFiles() {
+  const listed = spawnSync('git', ['ls-files', '--cached', '-z'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    maxBuffer: TRACKED_LIST_MAX_BYTES,
+    windowsHide: true,
+  })
+  const why = listed.error
+    ? listed.error.message
+    : listed.status !== 0
+      ? `git exited ${listed.status}: ${(listed.stderr || '').trim()}`
+      : null
+  if (why) return { files: null, error: why }
+  const files = listed.stdout.split('\0').filter(Boolean).map(p => p.split('/').join(sep))
   return { files, error: null }
+}
+
+function shippedHeightfields() {
+  const { files, error } = trackedFiles()
+  if (error) {
+    return { files: [], error: `git ls-files could not list tracked files (${error}), so no shipped ${HEIGHTFIELD_EXT} artifact was verified` }
+  }
+  const heightfields = files.filter(p => p.endsWith(HEIGHTFIELD_EXT)).sort()
+  if (heightfields.length === 0) {
+    return { files: heightfields, error: `git ls-files tracks no ${HEIGHTFIELD_EXT} artifact, so no shipped heightfield was verified` }
+  }
+  return { files: heightfields, error: null }
 }
 
 async function main() {
