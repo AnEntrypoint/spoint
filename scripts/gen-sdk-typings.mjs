@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { execFile, execFileSync } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync, symlinkSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -15,27 +15,23 @@ const HAND_MAINTAINED = join(ROOT, 'client/editor/sdk-typings.d.ts')
 const GENERATED_OUT = join(ROOT, 'client/editor/sdk-typings.generated.d.ts')
 const TSC_BIN = join(ROOT, 'node_modules/typescript/bin/tsc')
 const CHECK_ONLY = process.argv.includes('--check')
-const FROM_HEAD = process.argv.includes('--from-head')
-const useHead = FROM_HEAD || CHECK_ONLY
 const SOURCE_REL = 'src/apps/AppContext.js'
+const SNAPSHOT_DIR = join(ROOT, '.gm', 'tmp', 'sdk-typings-head')
 
-function headSourceText() {
-  return execFileSync('git', ['show', `HEAD:${SOURCE_REL}`], {
-    cwd: ROOT,
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024
-  })
+function git(...args) {
+  return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
 }
 
-function sourceHasUncommittedChanges() {
-  const normalize = (t) => t.replace(/\r\n/g, '\n')
-  let head
-  try {
-    head = normalize(headSourceText())
-  } catch {
-    return false
-  }
-  return head !== normalize(readFileSync(SOURCE, 'utf8'))
+function materializeHeadSnapshot() {
+  discardHeadSnapshot()
+  git('worktree', 'add', '--detach', SNAPSHOT_DIR, 'HEAD')
+  symlinkSync(join(ROOT, 'node_modules'), join(SNAPSHOT_DIR, 'node_modules'), 'junction')
+  return join(SNAPSHOT_DIR, SOURCE_REL)
+}
+
+function discardHeadSnapshot() {
+  rmSync(SNAPSHOT_DIR, { recursive: true, force: true })
+  try { git('worktree', 'prune') } catch { }
 }
 
 function findEmittedDeclaration(root, fileName) {
@@ -74,16 +70,9 @@ async function main() {
   }
 
   const tmp = mkdtempSync(join(tmpdir(), 'sdk-typings-'))
-  let probe = null
   try {
-    let tscTarget = SOURCE
-    let emittedName = 'AppContext.d.ts'
-    if (useHead) {
-      probe = join(dirname(SOURCE), 'AppContext.headprobe.js')
-      writeFileSync(probe, headSourceText())
-      tscTarget = probe
-      emittedName = 'AppContext.headprobe.d.ts'
-    }
+    const tscTarget = materializeHeadSnapshot()
+    const emittedName = 'AppContext.d.ts'
     const args = [
       '--ignoreConfig',
       '--allowJs', '--declaration', '--emitDeclarationOnly',
@@ -122,9 +111,7 @@ async function main() {
       const normalize = (t) => t.replace(/\r\n/g, '\n')
       const committedRaw = existsSync(GENERATED_OUT) ? readFileSync(GENERATED_OUT, 'utf8') : null
       const committed = committedRaw === null ? null : normalize(committedRaw)
-      if (sourceHasUncommittedChanges()) {
-        console.log(`[gen-sdk-typings] ${SOURCE_REL} has uncommitted changes; this gate judges the checked-in artifact against the committed source, so the working copy is not what was compared. Regenerate the artifact in the commit that changes ${SOURCE_REL}.`)
-      }
+      console.log(`[gen-sdk-typings] generated from the committed tree at HEAD (${SNAPSHOT_DIR}), so uncommitted work is not reflected`)
       if (committed === normalize(output)) {
         console.log(`[gen-sdk-typings] ${GENERATED_OUT} is up to date (${generated.split('\n').length} lines)`)
         return
@@ -164,7 +151,7 @@ async function main() {
     }
   } finally {
     rmSync(tmp, { recursive: true, force: true })
-    if (probe) rmSync(probe, { force: true })
+    discardHeadSnapshot()
   }
 }
 

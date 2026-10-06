@@ -309,48 +309,16 @@ export declare class AppContext {
     defineFire(spec?: {}): {
         readonly world: any;
         readonly activeCount: any;
-        readonly wind: any;
         readonly stats: any;
-        readonly rollbackStats: {
-            rewinds: number;
-            resimTicks: number;
-            droppedRows: number;
-        };
-        readonly resyncStats: {
-            rows: number;
-            compared: number;
-            missed: number;
-            mismatches: number;
-            firstMismatch: null;
-            requestsReceived: number;
-            requestsSent: number;
-            adopted: number;
-            unanswered: number;
-        };
-        readonly needsResync: boolean;
-        readonly keyframeTick: any;
-        readonly keyframePending: boolean;
-        readonly keyframeStats: {
-            jobs: number;
-            slices: number;
-            ms: number;
-            worstSliceMs: number;
-            lastSliceMs: number;
-            dropped: number;
-            served: number;
-        };
-        readonly checksumHistory: [any, any][];
         readonly simTick: any;
         readonly names: string[];
         readonly weather: {
             step(simTick: any, out: any): any;
             readonly rain: number;
             readonly moisture: number;
-            readonly wind: number[];
             readonly emittedRain: number;
             readonly emittedMoisture: number;
-            readonly emittedWind: number[];
-            markEmitted(r: any, m: any, w: any): void;
+            markEmitted(r: any, m: any): void;
         } | null;
         readonly gameplay: {
             tickDamage: (simTick: any, dt: any) => void;
@@ -378,7 +346,6 @@ export declare class AppContext {
         setMoisture(value: any): any;
         setRain(value: any): any;
         stateAt(position: any): any;
-        stateAtLocal(x: any, z: any): any;
         isTrunkCharred(trunkId: any): boolean;
         stageMap(options: any): {
             data: Uint8Array<ArrayBuffer>;
@@ -416,18 +383,8 @@ export declare class AppContext {
                 tick: any;
                 hash: any;
             } | null;
-            adopted: {
-                tick: number;
-                hash: any;
-                bytes: number;
-            } | null;
         };
         checksum(): any;
-        keyframeMessage(): any;
-        requestResync(): {
-            type: string;
-            r: any[];
-        };
         rewindTo(tick: any): any;
         tick(dt: any): void;
         destroy(): void;
