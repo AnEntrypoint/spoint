@@ -19,16 +19,17 @@ export const WIRE_STRUCT_HASH = _computeStructHash()
 const _isNode = typeof process !== 'undefined' && process.versions?.node
 
 let _packr = null
+let _unpackr = null
 let _packrPromise = null
 
-function _makePackr(Packr) {
-  return new Packr({
-    useFloat32: 0,
+function _wireOptions(useFloat32) {
+  return {
+    useFloat32,
     bundleStrings: true,
     structures: WIRE_STRUCTURES.map(s => s.slice()),
     saveStructures: false,
     maxSharedStructures: WIRE_STRUCTURES.length
-  })
+  }
 }
 
 async function _ensurePackr() {
@@ -37,7 +38,11 @@ async function _ensurePackr() {
     _packrPromise = (_isNode || typeof globalThis.__SPOINT_EDGE_BUNDLED__ !== 'undefined'
       ? import('msgpackr')
       : import((() => '/node_modules/' + 'msgpackr/index.js')())
-    ).then(({ Packr }) => { _packr = _makePackr(Packr); return _packr })
+    ).then(({ Packr, Unpackr, NEVER, DECIMAL_ROUND }) => {
+      _packr = new Packr(_wireOptions(NEVER))
+      _unpackr = new Unpackr(_wireOptions(DECIMAL_ROUND))
+      return _packr
+    })
   }
   return _packrPromise
 }
@@ -48,8 +53,8 @@ export function pack(obj) {
 }
 
 export function unpack(buf) {
-  if (!_packr) throw new Error('[msgpack] unpack() called before Packr resolved -- await ensurePacked() once at boot, or move this call past first tick')
-  return _packr.unpack(buf)
+  if (!_unpackr) throw new Error('[msgpack] unpack() called before Packr resolved -- await ensurePacked() once at boot, or move this call past first tick')
+  return _unpackr.unpack(buf)
 }
 
 export function isPacked() {

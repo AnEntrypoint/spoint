@@ -198,12 +198,22 @@ as of 2026-10-05 (`terrain.clusters.enabled !== true` returns null).
 - `project/chart-reanchor-wire-epoch-client-consumers-2026-10-05`: CHART_REANCHOR 0xc6, epoch on
   snapshots/inputs/events/teleports, the client consumer, harness
   `scripts/chart-reanchor-wire-harness.mjs`.
-  `project/msgpack-usefloat32-lossy-doubles-audit`: `src/protocol/msgpack.js` builds Packr with
-  `useFloat32: 0`, so every non-integer travels as msgpack float64 (0xcb) and round-trips bit-exact.
-  `useFloat32: 4` (DECIMAL_FIT) is not enough — it silently drops 1 ulp on ~5% of short decimals
-  (`8.790000000000001` -> `8.79`) because its "is this an integer" guard runs in double arithmetic.
-  Integers and every byte-quantized field (player/entity bin records, ComponentSchema, InputCodec,
-  chartWireCodec) are unaffected, so the wire only grows where a raw JS-number float crosses it.
+  `project/msgpack-usefloat32-lossy-doubles-audit`: `src/protocol/msgpack.js` encodes with a Packr
+  at `useFloat32: NEVER` (float64 0xcb, bit-exact) and decodes with a **separate Unpackr at
+  `DECIMAL_ROUND`** — deliberately asymmetric. msgpackr applies 0xca decimal rounding only when
+  `useFloat32 > 2` (`node_modules/msgpackr/unpack.js:344`), so a decoder at NEVER returns the raw
+  widened float32 and silently disagrees with a pre-change peer that emitted 0xca (`0.1` ->
+  `0.10000000149011612`, `8.79` -> `8.789999961853027`, `123.456` -> `123.45600128173828`);
+  DECIMAL_ROUND reproduces old->old bit-for-bit (2509/2509 in-scope values). new->old needs nothing
+  — 0xcb reads exactly on either decoder — so no `WIRE_PROTOCOL_VERSION` bump and no
+  `SPOINTREPLAY_VERSION` bump, because old replay files now decode exactly as recorded. Real
+  snapshots are byte-identical under both settings (0 B; `Buffer.compare === 0` at 24p/200e and
+  8p/50e): positions travel as i32 centimetres and every other leaf is an int, a string or bytes, so
+  size cost appears only where a raw JS-number double actually crosses — +4 B per float, +80% at
+  2000 raw doubles. `useFloat32: 4` (DECIMAL_FIT) round-trips bit-exact on every corpus measured
+  (0/100000 2-dp, 0/20000 3-dp, 0/20000 toFixed(2), 0/20000 uniform random) but is still not
+  lossless in general: `8.790000000000001` -> `8.79`, 1 ulp, because its "is this an integer" guard
+  is evaluated in double arithmetic. Only NEVER is exact by construction.
 - Jolt recycles the tree nodes of removed bodies only in `physics.step`, so re-adding thousands of
   bodies with no step between aborts the wasm.
 - `project/planet-chart-cell-keyed-vs-threshold-reanchor-and-runtime-slice-2026-10-05`: a flat chart
