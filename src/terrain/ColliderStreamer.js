@@ -14,8 +14,15 @@ function estimateBodyBytes(a) {
   return _BODY_OVERHEAD_BYTES + n
 }
 
+import { yieldToLoop } from './loopYield.js'
 import { latticeFor, ringAroundLocal } from './PlacementChart.js'
 import { reanchoredSeaLevelXZ } from './ChartLocalPoint.js'
+
+const CENTER_SCALE_REFERENCE = 8
+const CENTER_SCALE_MAX = 8
+function centerScale(centerCount) {
+  return Math.min(CENTER_SCALE_MAX, Math.max(1, Math.ceil(centerCount / CENTER_SCALE_REFERENCE)))
+}
 
 function clusterCenters(centers, mergeRadius, maxCenters) {
   const picked = []
@@ -62,12 +69,14 @@ export function createColliderStreamer(spec = {}) {
   const radius = Number.isFinite(spec.radius) && spec.radius > 0 ? spec.radius : 64
   const intervalMs = Number.isFinite(spec.intervalMs) ? spec.intervalMs : 300
   const rebuildAt = Number.isFinite(spec.rebuildAt) ? spec.rebuildAt : 0.3
-  const cap = Number.isFinite(spec.cap) && spec.cap > 0 ? spec.cap : 128
+  const baseCap = Number.isFinite(spec.cap) && spec.cap > 0 ? spec.cap : 128
   const bodiesPerChunk = Number.isFinite(spec.bodiesPerChunk) && spec.bodiesPerChunk > 0 ? spec.bodiesPerChunk : 16
   const keepRadius = radius * KEEP_RADIUS_HYSTERESIS_FACTOR
   const mergeRadius = radius * 0.75
-  const maxCenters = Number.isFinite(spec.maxCenters) && spec.maxCenters > 0 ? spec.maxCenters : 8
-  const byteBudget = Number.isFinite(spec.byteBudget) && spec.byteBudget > 0 ? spec.byteBudget : cap * DEFAULT_BYTE_BUDGET_CAP_MULTIPLE * DEFAULT_BYTE_BUDGET_BYTES_PER_BODY
+  const maxCenters = Number.isFinite(spec.maxCenters) && spec.maxCenters > 0 ? spec.maxCenters : Number.POSITIVE_INFINITY
+  const baseByteBudget = Number.isFinite(spec.byteBudget) && spec.byteBudget > 0 ? spec.byteBudget : baseCap * DEFAULT_BYTE_BUDGET_CAP_MULTIPLE * DEFAULT_BYTE_BUDGET_BYTES_PER_BODY
+  let effectiveCap = baseCap
+  let effectiveByteBudget = baseByteBudget
   const latticeSpec = spec.latticeSpec
   const idField = spec.idField
   const placementsFor = spec.placementsFor
@@ -119,7 +128,7 @@ export function createColliderStreamer(spec = {}) {
 
   const radiusSq = radius * radius, keepRadiusSq = keepRadius * keepRadius
 
-  function _classifyOne(cx, cz, keepOut, candMap) {
+  function _classifyOne(cx, cz, centerIndex, keepOut, candMap) {
     const lattice = latticeFor(frame, latticeSpec)
     const ring = ringAroundLocal(lattice, frame, cx, cz, keepRadius + lattice.chunkM)
     for (let r = 0; r < ring.length; r++) {
@@ -134,7 +143,7 @@ export function createColliderStreamer(spec = {}) {
           keepOut.add(id)
           if (d2 <= radiusSq) {
             const prev = candMap.get(id)
-            if (!prev || d2 < prev.d) candMap.set(id, { p, d: d2 })
+            if (!prev || d2 < prev.d) candMap.set(id, { p, d: d2, c: centerIndex })
           }
         }
       }
@@ -143,11 +152,28 @@ export function createColliderStreamer(spec = {}) {
 
   function classifyRings(centers) {
     const keep = new Set(), candMap = new Map()
-    for (const [cx, cz] of centers) _classifyOne(cx, cz, keep, candMap)
+    for (let i = 0; i < centers.length; i++) _classifyOne(centers[i][0], centers[i][1], i, keep, candMap)
     const cands = [...candMap.values()]
     cands.sort((a, b) => a.d - b.d)
-    if (cands.length > cap) cands.length = cap
-    return { desired: cands, keep }
+    const avail = new Array(centers.length).fill(0)
+    for (const c of cands) avail[c.c]++
+    const quota = Math.max(1, Math.ceil(effectiveCap / centers.length))
+    const taken = new Array(centers.length).fill(0)
+    const picked = new Array(cands.length).fill(false)
+    const desired = []
+    for (let i = 0; i < cands.length && desired.length < effectiveCap; i++) {
+      const c = cands[i]
+      if (taken[c.c] < quota) { taken[c.c]++; picked[i] = true; desired.push(c) }
+    }
+    for (let i = 0; i < cands.length && desired.length < effectiveCap; i++) {
+      if (picked[i]) continue
+      taken[cands[i].c]++
+      desired.push(cands[i])
+    }
+    const truncated = cands.length > desired.length
+    const starved = []
+    for (let i = 0; i < centers.length; i++) if (taken[i] === 0 && avail[i] > 0) starved.push(centers[i])
+    return { desired, keep, truncated, starved }
   }
   function classifyRing(cx, cz) { return classifyRings([[cx, cz]]) }
 
@@ -186,9 +212,9 @@ export function createColliderStreamer(spec = {}) {
   }
   function evictOverBudget() {
     let evicted = 0
-    if (_residentBytes <= byteBudget) return evicted
+    if (_residentBytes <= effectiveByteBudget) return evicted
     for (const [placementId] of _lru) {
-      if (_residentBytes <= byteBudget) break
+      if (_residentBytes <= effectiveByteBudget) break
       const bodyId = live.get(placementId)
       if (bodyId === undefined) { _untouch(placementId); continue }
       scheduleRemove(placementId, bodyId)
@@ -212,15 +238,23 @@ export function createColliderStreamer(spec = {}) {
 
   const ADD_BUDGET_MS = 2
   const epochOf = () => (frame && Number.isFinite(frame.chartEpoch) ? frame.chartEpoch : 0)
-  let staleEpochAborts = 0, reanchoredEpoch = -1
+  let staleEpochAborts = 0, reanchoredEpoch = -1, starvedWarned = false
   async function _rebuildMulti(centers, unbudgeted = false) {
     if (rebuilding || disposed || !frame || typeof physics?.addBody !== 'function') return
     if (!Array.isArray(centers) || centers.length === 0) return
     rebuilding = true
+    const scale = centerScale(centers.length)
+    effectiveCap = baseCap * scale
+    effectiveByteBudget = baseByteBudget * scale
     _beginBudget(unbudgeted)
     const epochAtStart = epochOf()
     try {
-      const { desired, keep } = classifyRings(centers)
+      const { desired, keep, truncated, starved } = classifyRings(centers)
+      if (truncated && starved.length && !starvedWarned) {
+        starvedWarned = true
+        const named = starved.slice(0, 8).map(([x, z]) => `(${x.toFixed(0)}, ${z.toFixed(0)})`).join(', ')
+        console.warn(`${logTag} ${starved.length} of ${centers.length} collider clusters got none of the colliders inside their radius: the body cap ${effectiveCap} (${baseCap} x ${scale} for ${centers.length} clusters) is shared by every cluster, so these chart-local centres have no collider: ${named}${starved.length > 8 ? ` and ${starved.length - 8} more` : ''}. Raise the collider cap or lower the collider radius.`)
+      }
       const tp = _now()
       prewarmPools(desired)
       prewarmMs = _now() - tp
@@ -232,7 +266,7 @@ export function createColliderStreamer(spec = {}) {
         if (!live.has(p[idField])) {
           scheduleAdd(p)
           if (!unbudgeted && _now() >= addDeadline) {
-            await new Promise(r => setTimeout(r, 0))
+            await yieldToLoop()
             if (disposed) return
             addDeadline = _now() + ADD_BUDGET_MS
           }
@@ -247,7 +281,7 @@ export function createColliderStreamer(spec = {}) {
           scheduleRemove(placementId, bodyId)
         }
         const evicted = evictOverBudget()
-        if (evicted > 0) console.log(`${logTag} LRU evicted ${evicted} colliders over byte budget (${_residentBytes}/${byteBudget}B resident)`)
+        if (evicted > 0) console.log(`${logTag} LRU evicted ${evicted} colliders over byte budget (${_residentBytes}/${effectiveByteBudget}B resident)`)
       }
       if (!_deferred) { curCenters = centers; curCenter = centers[0] || null; rebuildCount++ }
       setColliderIds(_liveIds)
@@ -282,7 +316,7 @@ export function createColliderStreamer(spec = {}) {
     const raw = getCenters()
     const centers = raw.length ? clusterCenters(raw, mergeRadius, maxCenters) : [[0, 0]]
     await _rebuildMulti(centers, true)
-    console.log(`${logTag} initial ring: ${live.size}/${cap} collider(s) over ${_chunkCache.size} chunk(s) for ${centers.length} center(s) (radius ${radius}m keep ${keepRadius.toFixed(1)}m) in ${(_now() - t0).toFixed(1)}ms (pool prewarm ${prewarmMs.toFixed(1)}ms)`)
+    console.log(`${logTag} initial ring: ${live.size}/${effectiveCap} collider(s) over ${_chunkCache.size} chunk(s) for ${centers.length} center(s) (radius ${radius}m keep ${keepRadius.toFixed(1)}m) in ${(_now() - t0).toFixed(1)}ms (pool prewarm ${prewarmMs.toFixed(1)}ms)`)
     setColliderIds(_liveIds)
     _timer = setTimeout(_check, intervalMs)
   }
@@ -333,8 +367,9 @@ export function createColliderStreamer(spec = {}) {
     get centers() { return curCenters },
     get rebuildCount() { return rebuildCount },
     get chunkCacheSize() { return _chunkCache.size },
+    get cap() { return effectiveCap },
     get residentBytes() { return _residentBytes },
-    get byteBudget() { return byteBudget },
+    get byteBudget() { return effectiveByteBudget },
     clearChunkCache() { _chunkCache.clear() },
     _rebuild, _rebuildMulti, _live: live,
   }

@@ -1,10 +1,11 @@
+import { yieldToLoop } from './loopYield.js'
+
 const _now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now())
 const NON_FINITE_HEIGHT_FALLBACK_M = -1000
 const FIELD_WASM_BUDGET_BYTES = 32 * 1024 * 1024
 const FIELD_WASM_BYTES_PER_SAMPLE = 4
 const WASM_RESERVE_FREE_BYTES = 64 * 1024 * 1024
 const WASM_RESERVE_MIN_PER_WORLD_BYTES = 8 * 1024 * 1024
-const yieldToLoop = () => new Promise(r => (typeof setImmediate === 'function' ? setImmediate(r) : setTimeout(r, 0)))
 
 export async function sampleTerrainGridChunked({ heightFn, N, spacing, cornerX, cornerZ, budgetMs = 2, isAborted = () => false, seed = null }) {
   const samples = new Float32Array(N * N)
