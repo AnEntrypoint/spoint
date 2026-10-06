@@ -14,7 +14,7 @@ export function bakeCodeVersion(relFiles) {
   for (const rel of relFiles) {
     const p = resolvePath(_thisDir, rel)
     h.update(rel)
-    h.update(readFileSync(p))
+    h.update(readFileSync(p, 'utf8').replace(/\r\n/g, '\n'))
   }
   const version = h.digest('hex').slice(0, 12)
   _cache.set(cacheKey, version)
