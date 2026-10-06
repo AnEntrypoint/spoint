@@ -121,6 +121,10 @@ async function main() {
   clearInterval(logger)
   if (cheater) clearInterval(cheater)
   const honest = roster.filter(pk => pk !== KILL_PEER && pk !== CHEAT_PEER)
+  if (honest.length < 2) {
+    console.error(`[peer-profile-harness] ${honest.length} honest peer(s) to compare -- a single peer is compared against itself, so no divergence can be seen`)
+    process.exit(1)
+  }
   const ordered = [...tickLog.entries()].sort((a, b) => a[0] - b[0])
   const settleMargin = profileName === 'rollback' ? (worldDef.netcode?.rollback?.maxRollbackTicks ?? 12) + 2 : 0
   const settledTick = Math.min(...honest.map(pk => peers.get(pk).peerSession.loop.simTick)) - settleMargin
@@ -139,6 +143,10 @@ async function main() {
   }
   console.log(JSON.stringify({ world: WORLD, profile: profileName, peers: PEER_COUNT, cond: { latencyMs: LAT, jitterMs: JIT, lossPct: LOSS }, killed: KILL_PEER, cheater: CHEAT_PEER, ticksCompared: comparable.length, peerStats: summary, firstInputMismatchTick: firstInputMismatch?.[0] ?? null, firstStateMismatchTick: firstStateMismatch?.[0] ?? null }))
   for (const ctx of peers.values()) { ctx.tickSystem.stop(); ctx.physics.destroy() }
+  if (!(comparable.length > 0 && !firstInputMismatch && !firstStateMismatch)) {
+    console.error(`[peer-profile-harness] FAIL: ${comparable.length} tick(s) compared, firstInputMismatchTick=${firstInputMismatch?.[0] ?? null}, firstStateMismatchTick=${firstStateMismatch?.[0] ?? null}`)
+    process.exit(1)
+  }
   process.exit(0)
 }
 
