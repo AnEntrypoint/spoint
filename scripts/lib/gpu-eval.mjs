@@ -99,9 +99,24 @@ while (Date.now() - __t0 < READY_MS) {
 }
 if (!__t || !__t.frame) return { __error: 'terrain probe not ready', app: !!window.__app, terrain: !!window.__terrain };
 const __R = __t.planet && __t.planet.render;
-if (!__R || !__R.sampleGroundMSync) return { __error: 'no gpu height sampler on this backend', frame: true, isTSL: !!(__t.planet && __t.planet.isTSL), hasRender: !!__R, hasProbeHeights: typeof (__t.planet && __t.planet.probeHeights), legacyGlHint: 'the gpu height sampler lives on planet.render, which only the legacy GL boot builds' };
-__R.sampleGroundM(__t.frame.localToDir(0, 0));
-await new Promise(r => requestAnimationFrame(r));
+const __probeHeights = __t.planet && __t.planet.probeHeights;
+const __backend = __R && __R.sampleGroundMSync ? 'legacygl' : (typeof __probeHeights === 'function' ? 'webgpu' : null);
+if (!__backend) return { __error: 'no gpu height sampler on this backend', frame: true, isTSL: !!(__t.planet && __t.planet.isTSL), hasRender: !!__R, hasProbeHeights: typeof __probeHeights, legacyGlHint: 'height sampling needs planet.render.sampleGroundMSync (legacy GL boot) or planet.probeHeights (WebGPU/TSL boot)' };
+async function __sampleHeights(dirs) {
+  if (__backend === 'webgpu') return Array.from(await __probeHeights(dirs));
+  const out = [];
+  for (const d of dirs) {
+    let v = __R.sampleGroundMSync(d);
+    for (let k = 0; k < 8 && !(v != null && isFinite(v)); k++) {
+      __R.sampleGroundM(d);
+      await new Promise(r => requestAnimationFrame(r));
+      v = __R.sampleGroundMSync(d);
+    }
+    out.push(v);
+  }
+  return out;
+}
+await __sampleHeights([__t.frame.localToDir(0, 0)]);
 `.trim()
 
 export const GPU_PROBE_SCRIPT = `
@@ -124,7 +139,7 @@ export function terrainScript(userScript, { readyMs = 90000 } = {}) {
 }
 
 export const HEIGHT_SAMPLER_BACKENDS = ['legacygl', 'webgpu']
-export const HEIGHT_SAMPLER_ONLY_ON_LEGACY_GL = 'planet.render.sampleGroundM/Sync exists only on the legacy GL path; the WebGPU/TSL boot exposes planet.probeHeights instead, so height sampling must run with backend=legacygl'
+export const HEIGHT_SAMPLER_BACKEND_SHIM = 'the ready snippet exposes __sampleHeights(dirs) -> Promise<number[]> on both boots: planet.probeHeights on WebGPU/TSL, planet.render.sampleGroundM/Sync with an eight-frame harvest retry on legacy GL'
 
 export async function withGpuPage(opts, fn) {
   const {

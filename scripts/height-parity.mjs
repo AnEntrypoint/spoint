@@ -20,45 +20,47 @@ const EXTENT = Number(args.extent || 256)
 const PORT = Number(args.port || process.env.PORT || 8090)
 const TOL = args.tol != null ? Number(args.tol) : null
 
+const BACKEND = typeof args.backend === 'string' ? args.backend : 'legacygl'
+
 const sweep = `
 const N = ${N}, EXTENT = ${EXTENT};
 const half = EXTENT / 2, step = N > 1 ? EXTENT / (N - 1) : 0;
-const rows = [];
+const pts = [], dirs = [];
 for (let iz = 0; iz < N; iz++) for (let ix = 0; ix < N; ix++) {
   const x = Math.round(-half + ix * step), z = Math.round(-half + iz * step);
-  const dir = __t.frame.localToDir(x, z);
-  const cpu = __t.heightAt(dir);
-  let gpu = __R.sampleGroundMSync(dir);
-  for (let k = 0; k < 8 && !(gpu != null && isFinite(gpu)); k++) {
-    __R.sampleGroundM(dir);
-    await new Promise(r => requestAnimationFrame(r));
-    gpu = __R.sampleGroundMSync(dir);
-  }
+  pts.push([x, z]);
+  dirs.push(__t.frame.localToDir(x, z));
+}
+const gpus = await __sampleHeights(dirs);
+const rows = pts.map(([x, z], i) => {
+  const cpu = __t.heightAt(dirs[i]);
+  const gpu = gpus[i];
   const okc = typeof cpu === 'number' && isFinite(cpu);
   const okg = gpu != null && isFinite(gpu);
-  rows.push({
+  return {
     x, z,
     cpu: okc ? +cpu.toFixed(3) : null,
     gpu: okg ? +gpu.toFixed(3) : null,
     gap: (okc && okg) ? +Math.abs(gpu - cpu).toFixed(3) : null,
-  });
-}
+  };
+});
 const gl = document.createElement('canvas').getContext('webgl2');
 const ext = gl && gl.getExtension('WEBGL_debug_renderer_info');
 return {
   renderer: ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : '?',
+  backend: __backend, hashVersion: __t.frame.hashVersion,
   n: N, extent: EXTENT, rows,
 };
 `.trim()
 
-const out = await withGpuPage({ port: PORT }, async (run) => run(sweep)).catch(e => { console.error('[parity] error:', e.message); process.exit(1) })
+const out = await withGpuPage({ port: PORT, backend: BACKEND }, async (run) => run(sweep)).catch(e => { console.error('[parity] error:', e.message); process.exit(1) })
 
 const gaps = out.rows.map(r => r.gap).filter(g => g != null)
 const meanGap = gaps.length ? +(gaps.reduce((a, b) => a + b, 0) / gaps.length).toFixed(3) : null
 const maxGap = gaps.length ? +Math.max(...gaps).toFixed(3) : null
-const report = { renderer: out.renderer, n: out.n, extent: out.extent, samples: gaps.length, meanGap, maxGap, rows: out.rows }
+const report = { backend: out.backend, hashVersion: out.hashVersion, renderer: out.renderer, n: out.n, extent: out.extent, samples: gaps.length, meanGap, maxGap, rows: out.rows }
 
-console.error(`[parity] renderer=${out.renderer} samples=${gaps.length}/${out.rows.length}`)
+console.error(`[parity] backend=${out.backend} hashVersion=${out.hashVersion} renderer=${out.renderer} samples=${gaps.length}/${out.rows.length}`)
 console.log(JSON.stringify(report, null, 2))
 if (args.json) { fs.writeFileSync(args.json, JSON.stringify(report, null, 2)); console.error(`[parity] wrote ${args.json}`) }
 
