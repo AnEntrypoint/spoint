@@ -29,7 +29,7 @@
     "create-project": "node ./bin/create-project.js",
     "router-boot": "node ./bin/router-boot.js",
     "room-orchestrator-boot": "node ./bin/room-orchestrator-boot.js",
-    "postinstall": "node scripts/patch-deps.mjs && node scripts/ensure-workspace-links.mjs",
+    "postinstall": "node scripts/patch-deps.mjs && node scripts/ensure-workspace-links.mjs && node scripts/bundle-apps-manifest.mjs",
     "links": "node scripts/ensure-workspace-links.mjs",
     "build:client": "node scripts/bundle-client.mjs",
     "build:worker": "node scripts/bundle-worker.mjs",
