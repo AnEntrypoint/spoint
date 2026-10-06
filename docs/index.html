@@ -3685,10 +3685,12 @@ position over <code>durationMs</code>. Other exports: <code>ensureSharedKtx2Load
 Subpath exports: <code>streaming-gltf/model-pool</code>, <code>/draco-loader</code>,
 <code>/cluster-lod-mesh</code>, <code>/meshlet-codec</code>, <code>/occlusion-query-tier</code>, <code>/bake</code>.</p><p>Bake a source GLB to the cluster-LOD format:</p><p><pre><code class="language-sh">npm run bake -- path/to/source.glb path/to/out.cluster.glb
 npm run bake:corpus            # whole ../assets corpus -&gt; manifest.cluster.json</code></pre></p><p><h2>VRM support</h2></p><p>VRM avatars load through <code>@pixiv/three-vrm</code> v3 (a peer dependency). When a GLB
-carries the <code>VRMC_vrm</code> extension, the root <code>GLTFLoader</code> is registered with
+carries the <code>VRMC_vrm</code> extension (or the older 0.x <code>VRM</code> extension), the root <code>GLTFLoader</code> is registered with
 <code>VRMLoaderPlugin</code> and the parsed <code>gltf.userData.vrm</code> runtime is driven each frame
 by <code>pool.update()</code> — humanoid bones, spring bones, expressions, and look-at all
-animate.</p><p>Skinned primitives are not clustered. The baker writes discrete mesh LOD
+animate.</p><p>The shipped default avatar <code>/assets/default-avatar.vrm</code> is VRM 0.x and carries no
+animation clips, so it renders with its humanoid rig but plays nothing; point
+<code>playerModel</code> at a model that carries clips to see animation.</p><p>Skinned primitives are not clustered. The baker writes discrete mesh LOD
 siblings for them (ratios 0.4 and 0.15, under <code>lods/</code>, declared in
 <code>EP_progressive_lod</code> with no texture LODs). Siblings load <strong>without</strong> the VRM
 plugin, so MToon material setup runs once on the root only, and the pool swaps

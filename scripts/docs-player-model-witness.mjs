@@ -32,8 +32,13 @@ function expect(cond, msg) {
   return false
 }
 
+const CLIENT_ROOT = path.join(ROOT, 'client')
+const withoutQueryOf = p => p.split(/[?#]/)[0]
 const httpPathOf = p => (p.startsWith('./') ? '/' + p.slice(2) : p)
-const diskPathOf = p => path.join(ROOT, 'client', httpPathOf(p).replace(/^\/+/, ''))
+const diskPathOf = p => {
+  const resolved = path.resolve(CLIENT_ROOT, httpPathOf(withoutQueryOf(p)).replace(/^\/+/, ''))
+  return resolved === CLIENT_ROOT || resolved.startsWith(CLIENT_ROOT + path.sep) ? resolved : null
+}
 
 async function collectPlayerModels() {
   const byValue = new Map()
@@ -68,11 +73,13 @@ async function main() {
 
   const checked = []
   for (const value of values) {
-    const httpPath = httpPathOf(value)
+    const absolute = /^https?:\/\//i.test(value)
+    const httpPath = absolute ? value : httpPathOf(withoutQueryOf(value))
+    const disk = absolute ? null : diskPathOf(value)
     let diskOk = false
     let diskBytes = null
-    try { const st = await stat(diskPathOf(value)); diskOk = st.isFile(); diskBytes = st.size } catch (_) {}
-    checked.push({ value, httpPath, disk: diskPathOf(value), diskOk, diskBytes, sources: [...found.get(value)].sort() })
+    if (disk) { try { const st = await stat(disk); diskOk = st.isFile(); diskBytes = st.size } catch (_) {} }
+    checked.push({ value, httpPath, absolute, disk, diskOk, diskBytes, sources: [...found.get(value)].sort() })
   }
 
   process.env.SPOINT_SKIP_PREWARM = process.env.SPOINT_SKIP_PREWARM || '1'
@@ -86,7 +93,7 @@ async function main() {
 
   try {
     for (const row of checked) {
-      const url = base + row.httpPath
+      const url = row.absolute ? row.httpPath : base + row.httpPath
       let status = null
       let bytes = 0
       let magic = null
@@ -102,13 +109,16 @@ async function main() {
       row.status = status
       row.httpBytes = bytes
       row.magic = magic
-      row.diskMagic = await diskMagic(row.disk)
+      row.diskMagic = row.disk ? await diskMagic(row.disk) : null
       console.log(`${TAG} ${String(status)} ${String(bytes).padStart(9)}B magic=${magic} ${row.httpPath}   (docs: ${row.sources.join(', ')})`)
       expect(status === 200, `docs playerModel "${row.value}" resolves to ${row.httpPath} which answered HTTP ${status} on a real server (docs: ${row.sources.join(', ')})`)
       expect(bytes > 0, `docs playerModel "${row.value}" resolved ${row.httpPath} with an empty body`)
       expect(magic === 'glTF', `docs playerModel "${row.value}" resolved ${row.httpPath} whose first 4 bytes are ${JSON.stringify(magic)}, not the glTF/VRM container magic`)
-      expect(row.diskOk === true, `docs playerModel "${row.value}" has no committed file at ${row.disk}`)
-      expect(row.diskMagic === 'glTF', `docs playerModel "${row.value}" points at ${row.disk} whose first 4 bytes are ${JSON.stringify(row.diskMagic)}, not the glTF/VRM container magic`)
+      if (!row.absolute) {
+        expect(row.disk !== null, `docs playerModel "${row.value}" resolves outside the served client root ${CLIENT_ROOT}, so no committed file can back it`)
+        expect(row.diskOk === true, `docs playerModel "${row.value}" has no committed file at ${row.disk}`)
+        expect(row.diskMagic === 'glTF', `docs playerModel "${row.value}" points at ${row.disk} whose first 4 bytes are ${JSON.stringify(row.diskMagic)}, not the glTF/VRM container magic`)
+      }
     }
   } finally {
     try { server.stop() } catch (_) {}
