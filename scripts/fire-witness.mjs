@@ -79,6 +79,7 @@ function cellLocal(face, I, J) {
 function groundAt(x, z) { return terrainHeightAt(x, z) }
 
 const out = []
+const failures = []
 const say = (...parts) => { const line = parts.join(' '); out.push(line); console.log(line) }
 
 say('== fire headless witness ==')
@@ -145,6 +146,10 @@ say('== 2. authority determinism and authority/mirror parity over the wire ==')
     if (runA.fire.checksum() !== mirrorRig.fire.checksum()) mismatches++
   }
   say(`two independent authorities: ${compared} comparisons, ${mismatches} mismatches`)
+  if (compared === 0) failures.push('section 2: no authority/mirror checksum comparison was made')
+  if (mismatches > 0) failures.push(`section 2: ${mismatches} mismatch(es) over ${compared} comparisons between two authorities and the mirror`)
+  if (wireEvents === 0) failures.push('section 2: no fire event row reached the wire')
+  if (runA.fire.stats.ignitions === 0) failures.push('section 2: the authority never ignited a cell, so the parity run observed nothing')
   say(`authority fire checksum ${runA.fire.checksum()}, mirror checksum ${mirrorRig.fire.checksum()}`)
   say(`wire: ${wireEvents} event rows, ${wireBytes} B of JSON, active cells ${runA.fire.activeCount}, tiles ${runA.fire.world.kernel.tileCount}, ignitions ${runA.fire.stats.ignitions}`)
   say(`mirror timeline stats ${JSON.stringify(mirrorRig.fire.world.timeline.stats)}`)
@@ -203,6 +208,9 @@ say('== 4. firebreaks: road, water and cleared discs never ignite ==')
   }
   say(`${breakCells} firebreak cells (road or below sea level), ${fuelCells} open fuel cells`)
   say(`after the front crossed the road: ${burntBreak} firebreak cells burnt, ${burntFuel}/${fuelCells} open cells burnt`)
+  if (breakCells === 0 || fuelCells === 0) failures.push(`section 4: transect sampled ${breakCells} firebreak cell(s) and ${fuelCells} open fuel cell(s)`)
+  if (burntFuel === 0) failures.push(`section 4: the front never burnt any of the ${fuelCells} open fuel cells, so the firebreak check observed nothing`)
+  if (burntBreak > 0) failures.push(`section 4: ${burntBreak} firebreak cell(s) burnt`)
   say(`whole run: ${rig.fire.stats.ignitions} ignitions, ${rig.fire.activeCount} active`)
 }
 
@@ -412,7 +420,11 @@ say('== 9. rewind: a late event and repeated rollbacks replay to the straight-ru
   say(`straight run: ${marks.length} checkpoints over ${HORIZON} ticks, final checksum ${straight.fire.checksum()}, active ${straight.fire.activeCount}`)
   say(`ignition delivered late at sim tick 30 (inside the ${rewindSpec.windowSteps ?? 4}-step window): applyRemote ${JSON.stringify(lateApply)}`)
   say(`  late run (world created at tick ${lateStartTick}): ${lateCompared} checkpoints, ${lateMismatch} mismatch(es), timeline stats ${JSON.stringify(late.fire.world.timeline.stats)}`)
+  if (lateCompared === 0) failures.push('section 9: the late-event run made no checkpoint comparison')
+  if (lateMismatch > 0) failures.push(`section 9: late event run diverged from the straight run on ${lateMismatch} of ${lateCompared} checkpoints`)
   say(`  ${rollbacks} rollbacks (${refused} refused, beyond window): ${rollCompared} checkpoints, ${rollMismatch} mismatch(es), timeline stats ${JSON.stringify(rolled.fire.world.timeline.stats)}`)
+  if (rollCompared === 0) failures.push('section 9: the rollback run made no checkpoint comparison')
+  if (rollMismatch > 0) failures.push(`section 9: rollback run diverged from the straight run on ${rollMismatch} of ${rollCompared} checkpoints`)
   say(`  a peer that joins at tick ${JOIN_TICK} is beyond the window: applyRemote ${JSON.stringify(staleApply)}, checksum at ${JOIN_TICK + 100} ${stale.fire.checksum()} vs authority ${authorityAt(JOIN_TICK + 100)}`)
 }
 
@@ -686,3 +698,7 @@ say('== 11. late join: a mirror adopts the authority keyframe, a starved mirror 
 
 say('')
 say('== witness complete ==')
+if (failures.length > 0) {
+  for (const f of failures) console.error(`FAIL ${f}`)
+  process.exit(1)
+}
