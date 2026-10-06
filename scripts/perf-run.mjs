@@ -92,6 +92,9 @@ const INSTRUMENT = `(() => {
   W.__rigWgpuCount = 0
   W.__rigWgpuDraws = 0
   W.__rigWgpuOn = false
+  W.__rigThreeDraws = 0
+  W.__rigThreeTris = 0
+  W.__rigRenderCalls = 0
   const WGPU_DRAWF = new Set(['draw', 'drawIndexed', 'drawIndirect', 'drawIndexedIndirect'])
   const WGPU_PROTOS = ['GPUDevice', 'GPUQueue', 'GPUCommandEncoder', 'GPURenderPassEncoder', 'GPUComputePassEncoder', 'GPURenderBundleEncoder', 'GPUCanvasContext']
   const DRAWF = new Set(['drawElements', 'drawArrays', 'drawElementsInstanced', 'drawArraysInstanced', 'drawRangeElements', 'multiDrawElementsWEBGL', 'multiDrawArraysWEBGL'])
@@ -172,20 +175,31 @@ const INSTRUMENT = `(() => {
     }
   }
   for (let i = 0; i < WGPU_PROTOS.length; i++) if (W[WGPU_PROTOS[i]] && W[WGPU_PROTOS[i]].prototype) patchProto(W[WGPU_PROTOS[i]].prototype)
+  const hookRenderer = (renderer) => {
+    if (!renderer || renderer.__rigHooked) return
+    renderer.__rigHooked = true
+    const info = renderer.info
+    if (info) {
+      const origReset = info.reset
+      info.reset = function () {
+        W.__rigThreeDraws += info.render.drawCalls !== undefined ? info.render.drawCalls : info.render.calls
+        W.__rigThreeTris += info.render.triangles || 0
+        return origReset.apply(this, arguments)
+      }
+    }
+    const origRender = renderer.render
+    renderer.render = function () {
+      W.__rigRenderCalls++
+      return origRender.apply(this, arguments)
+    }
+  }
   let last = -1
-  let draws = 0
-  let tris = 0
-  let lastDraws = -1
-  let lastTris = -1
   function tick(now) {
     const dt = last < 0 ? 0 : now - last
     last = now
-    const info = W.__app && W.__app.renderer && W.__app.renderer.info
-    if (info) {
-      draws = info.render.drawCalls !== undefined ? info.render.drawCalls : info.render.calls
-      tris = info.render.triangles
-    }
-    if (rig.frames.length < 400000) rig.frames.push([+now.toFixed(2), +dt.toFixed(2), draws, W.__rigGlOn ? W.__rigGlCount : -1, W.__rigGlOn ? W.__rigGlDraws : -1, tris, W.__rigWgpuOn ? W.__rigWgpuCount : -1, W.__rigWgpuOn ? W.__rigWgpuDraws : -1])
+    const renderer = W.__app && W.__app.renderer
+    if (renderer) hookRenderer(renderer)
+    if (rig.frames.length < 400000) rig.frames.push([+now.toFixed(2), +dt.toFixed(2), W.__rigThreeDraws, W.__rigGlOn ? W.__rigGlCount : -1, W.__rigGlOn ? W.__rigGlDraws : -1, W.__rigThreeTris, W.__rigWgpuOn ? W.__rigWgpuCount : -1, W.__rigWgpuOn ? W.__rigWgpuDraws : -1, W.__rigRenderCalls])
     if (W.__rigHeapOn && performance.memory && rig.heapSamples < 400000) { rig.heapSamples++; W.__rigHeap.push(performance.memory.usedJSHeapSize) }
     requestAnimationFrame(tick)
   }
@@ -804,8 +818,15 @@ async function main() {
     })
 
     const deltas = inPage.frames.filter((f) => f[1] > 0).map((f) => f[1]).sort((a, b) => a - b)
-    const threeDraws = inPage.frames.filter((f) => f[2] >= 0).map((f) => f[2])
-    const tris = inPage.frames.filter((f) => f[5] >= 0).map((f) => f[5])
+    const frameDiffs = (idx) => {
+      const seq = inPage.frames.filter((f) => f[idx] >= 0).map((f) => f[idx])
+      const out = []
+      for (let i = 1; i < seq.length; i++) { const d = seq[i] - seq[i - 1]; if (d >= 0) out.push(d) }
+      return out
+    }
+    const threeDraws = frameDiffs(2)
+    const tris = frameDiffs(5)
+    const renderCalls = frameDiffs(8)
     const glFrames = inPage.frames.filter((f) => f[3] >= 0 && f[4] >= 0)
     const glPerFrame = []
     const glDrawPerFrame = []
@@ -860,6 +881,8 @@ async function main() {
       travelled += Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2])
     }
 
+    const out_drawsAvg = +(draws.reduce((a, b) => a + b, 0) / Math.max(1, draws.length)).toFixed(1)
+    const out_threeDrawsAvg = +(threeDraws.reduce((a, b) => a + b, 0) / Math.max(1, threeDraws.length)).toFixed(1)
     const sceneryBuiltMarked = inPage.marks.some((m) => m.name === 'boot:scenery-built')
     const vegTotal = inPage.veg ? inPage.veg.totalInstances : 0
     const drawsMeasured = draws.length > 0 && draws.some((d) => d > 0)
@@ -933,11 +956,28 @@ async function main() {
         p95: +percentile(draws.slice().sort((a, b) => a - b), 0.95).toFixed(0),
         max: Math.max(0, ...draws),
       },
-      threeInfoDrawCalls: {
+      threeDrawCallsPerFrame: {
+        instrument: 'three renderer.info, summed across every info.reset() in the frame',
         count: threeDraws.length,
         avg: +(threeDraws.reduce((a, b) => a + b, 0) / Math.max(1, threeDraws.length)).toFixed(1),
         p95: +percentile(threeDraws.slice().sort((a, b) => a - b), 0.95).toFixed(0),
         max: Math.max(0, ...threeDraws),
+      },
+      rendererRenderCallsPerFrame: {
+        instrument: 'renderer.render() invocations per frame -- NOT draws',
+        count: renderCalls.length,
+        avg: +(renderCalls.reduce((a, b) => a + b, 0) / Math.max(1, renderCalls.length)).toFixed(1),
+        p95: +percentile(renderCalls.slice().sort((a, b) => a - b), 0.95).toFixed(0),
+        max: Math.max(0, ...renderCalls),
+      },
+      drawsInstrument: {
+        authoritative: 'api-boundary draw hook',
+        authoritativeField: wgpuSawDraws ? 'wgpuDrawsPerFrame' : 'glDrawCallsPerFrame',
+        backend: BACKEND,
+        note: 'one unit = one draw submitted to the driver; every other draw figure in this project is a different quantity and is not comparable to it',
+        apiHookDraws: out_drawsAvg,
+        threeSideDraws: out_threeDrawsAvg,
+        ratioThreeOverApi: out_drawsAvg > 0 ? +(out_threeDrawsAvg / out_drawsAvg).toFixed(3) : null,
       },
       glCallsPerFrame: {
         windowFrames: glPerFrame.length,
@@ -1000,7 +1040,8 @@ async function main() {
     console.log(`  gpu=${GPU} backend=${BACKEND} walk=${WALK} ${SECONDS}s  travelled=${out.travelledM}m in ${track.length} samples`)
     console.log(`  frames: n=${out.frames.count} min=${out.frames.minMs}ms p50=${out.frames.p50Ms}ms p95=${out.frames.p95Ms}ms p99=${out.frames.p99Ms}ms fps(p50)=${out.frames.fps}  refreshHz(inferred)=${revealed.refreshHz}`)
     console.log(`  draws/frame avg=${out.draws.avg} p95=${out.draws.p95} max=${out.draws.max} (source=${out.draws.source})  tris/frame avg=${out.trianglesPerFrame.avg} p95=${out.trianglesPerFrame.p95}`)
-    console.log(`  three info.render.drawCalls/frame avg=${out.threeInfoDrawCalls.avg} p95=${out.threeInfoDrawCalls.p95} max=${out.threeInfoDrawCalls.max}`)
+    console.log(`  three renderer.info draws/frame avg=${out.threeDrawCallsPerFrame.avg} p95=${out.threeDrawCallsPerFrame.p95} max=${out.threeDrawCallsPerFrame.max}  (three/api ratio=${out.drawsInstrument.ratioThreeOverApi})`)
+    console.log(`  renderer.render() calls/frame avg=${out.rendererRenderCallsPerFrame.avg} p95=${out.rendererRenderCallsPerFrame.p95} max=${out.rendererRenderCallsPerFrame.max} -- scene renders, NOT draws`)
     console.log(`  GL calls/frame avg=${out.glCallsPerFrame.avg} p95=${out.glCallsPerFrame.p95} (n=${out.glCallsPerFrame.windowFrames})`)
     console.log(`  GL draw calls/frame avg=${out.glDrawCallsPerFrame.avg} p95=${out.glDrawCallsPerFrame.p95} max=${out.glDrawCallsPerFrame.max} (n=${out.glDrawCallsPerFrame.windowFrames})`)
     console.log(`  WebGPU calls/frame avg=${out.wgpuCallsPerFrame.avg} p95=${out.wgpuCallsPerFrame.p95} draws/frame avg=${out.wgpuDrawsPerFrame.avg} max=${out.wgpuDrawsPerFrame.max} (n=${out.wgpuCallsPerFrame.windowFrames})`)

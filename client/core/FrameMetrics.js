@@ -9,7 +9,7 @@ export function createPerfTracker() {
     get lastMs() { return lastMs },
     sample(ms, renderer, np, ne) {
       lastMs = ms; ring[idx] = ms; idx = (idx + 1) % N; if (count < N) count++
-      const ri = renderer.info.render; drawCalls = ri.calls; tris = ri.triangles; players = np; entities = ne
+      const ri = renderer.info.render; drawCalls = ri.drawCalls !== undefined ? ri.drawCalls : ri.calls; tris = ri.triangles; players = np; entities = ne
       if (_sessionSamples.length < 10000) _sessionSamples.push(ms)
       if (_HAS_HEAP) {
         const cur = performance.memory.usedJSHeapSize
@@ -44,7 +44,7 @@ export function createPerfTracker() {
       const sum = s.reduce((a, b) => a + b, 0)
       const pct = p => s[Math.min(s.length - 1, Math.floor(p * s.length))]
       return {
-        duration: +(s.length / 60).toFixed(1),
+        duration: +(sum / 1000).toFixed(1),
         samples: s.length,
         avgMs: +(sum / s.length).toFixed(3),
         fps: +(1000 / (sum / s.length)).toFixed(1),
