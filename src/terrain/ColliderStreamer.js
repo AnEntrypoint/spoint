@@ -123,6 +123,11 @@ export function createColliderStreamer(spec = {}) {
     if (b !== undefined) { _residentBytes -= b; _lru.delete(placementId) }
   }
   let curCenter = null, rebuilding = false, disposed = false, _timer = null, rebuildCount = 0
+  let rebuildFault = null
+  function recordRebuildFault(e, phase, centers, resident) {
+    rebuildFault = { error: e, phase, resident, cap: effectiveCap, centers }
+    console.error(`${logTag} FATAL collider rebuild failed in phase ${phase} with ${resident}/${effectiveCap} collider(s) resident for ${centers} center(s), so the ring is partial and no further rebuild is scheduled:`, e)
+  }
   let curCenters = []
   let prewarmMs = 0
   let ringBuildMsTotal = 0, ringBuildStartedAt = 0, lastCenterCounts = [], lastDroppedCount = 0, droppedWarned = 0
@@ -381,7 +386,7 @@ export function createColliderStreamer(spec = {}) {
       physics.enqueueAdd(a.shape, a.args, a.position, 'static', { rotation: a.rotation, shapeKey: a.shapeKey }, (id) => {
         if (pendingTicket.get(placementId) !== ticket) { if (id != null) physics.removeBody(id); return }
         pendingTicket.delete(placementId)
-        if (disposed) { if (id != null) physics.removeBody(id); live.delete(placementId); placedAt.delete(placementId); _untouch(placementId); return }
+        if (disposed) { if (id != null) physics.removeBody(id, true); live.delete(placementId); placedAt.delete(placementId); _untouch(placementId); return }
         if (id == null) { live.delete(placementId); placedAt.delete(placementId); _untouch(placementId); return }
         live.set(placementId, id)
         _liveIds.add(id)
@@ -635,7 +640,11 @@ export function createColliderStreamer(spec = {}) {
       if (finalize && !_deferred) { settledFingerprint = centerFingerprint(centers); settledIds = new Set(live.keys()) }
       markPhase('ids')
       setColliderIds(_liveIds)
-    } catch (e) { console.error(logTag + ' collider rebuild error:', e?.message || e) }
+    } catch (e) {
+      recordRebuildFault(e, slicePhase, centers.length, live.size)
+      clearSettled()
+      throw e
+    }
     finally { endSlice(); ringBuildMsTotal += _now() - rbT0; rebuilding = false }
     return _deferred
   }
@@ -652,7 +661,7 @@ export function createColliderStreamer(spec = {}) {
       if (raw.length && !rebuilding) {
         const centers = pickCenters(raw)
         if (!curCenters.length || ringMoved(centers, curCenters, radius * rebuildAt)) {
-          _rebuildMulti(centers).then(d => _scheduleNext(!!d)).catch(() => _scheduleNext(false))
+          _rebuildMulti(centers).then(d => _scheduleNext(!!d)).catch(() => { if (!disposed) console.error(`${logTag} periodic rebuild halted after the fault above; ${rebuildFault.resident} collider(s) still resident for ${rebuildFault.centers} center(s)`) })
           return
         }
       }
@@ -724,7 +733,7 @@ export function createColliderStreamer(spec = {}) {
     },
     get staleEpochAborts() { return staleEpochAborts },
     get isRebuilding() { return rebuilding },
-    stop() { disposed = true; if (_timer) clearTimeout(_timer); for (const id of live.values()) { if (id === _PENDING) continue; try { physics.removeBody(id) } catch (_) {} } live.clear(); placedAt.clear(); _liveIds.clear(); _lru.clear(); _ringCache.clear(); _residentBytes = 0 },
+    stop() { disposed = true; if (_timer) clearTimeout(_timer); for (const id of live.values()) { if (id === _PENDING) continue; try { physics.removeBody(id, true) } catch (_) {} } live.clear(); placedAt.clear(); _liveIds.clear(); _lru.clear(); _ringCache.clear(); _residentBytes = 0 },
     get liveCount() { return live.size },
     get center() { return curCenter },
     get centers() { return curCenters },
@@ -764,6 +773,7 @@ export function createColliderStreamer(spec = {}) {
     get bodyArgsAdd() { return bodyArgsSite[2] },
     get settledSkips() { return settledSkips },
     get settledMisses() { return { ...misses } },
+    get fault() { return rebuildFault },
     get starvedClusters() { return lastStarved },
     get ringBuildMsPerSecond() { const secs = (_now() - ringBuildStartedAt) / 1000; return ringBuildStartedAt && secs > 0 ? ringBuildMsTotal / secs : 0 },
     get chunkCacheSize() { return _chunkCache.size },

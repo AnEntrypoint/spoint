@@ -173,6 +173,11 @@ export function defineFire(spec = {}, appCtx = null, frameOf = null, weatherOf =
     }
   }
 
+  function refreshTrunks() {
+    const pending = trunkStreamer.refresh()
+    if (pending) pending.then(null, err => console.error('[fire] trunk collider refresh failed and the ring is left partial:', err?.message || err))
+  }
+
   function syncTrunks(kernel) {
     if (trunkStreamer === null) {
       const s = typeof trunkStreamerOf === 'function' ? trunkStreamerOf() : null
@@ -183,7 +188,7 @@ export function defineFire(spec = {}, appCtx = null, frameOf = null, weatherOf =
     if (kernel.changeSerial === trunkSerial) return
     trunkSerial = kernel.changeSerial
     trunkStreamer.sweepExcluded()
-    if (kernel.scarCount < trunkScars) trunkStreamer.refresh()
+    if (kernel.scarCount < trunkScars) refreshTrunks()
     trunkScars = kernel.scarCount
   }
 

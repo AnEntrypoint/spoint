@@ -87,7 +87,58 @@ check('a moving centre actually turns its collider set over instead of keeping t
 check('the live set never stays above the body cap after a rebuild', overCap.length === 0, overCap.length ? `${overCap.length} step(s) over cap, worst ${Math.max(...overCap.map(s => s.live))}` : `max live ${Math.max(...steps.map(s => s.live))} of cap ${trunk.cap}`)
 check('no step of the walk rebuilds without adding anything', noTurnover.length === 0, `${noTurnover.length} of ${movingSteps.length} step(s)`)
 
+const faulted = createTrunkColliderStreamer({
+  physics, getCenters: () => [[0, 0]], frame, anchorField, worldSeed: tcfg.seed | 0, intervalMs: 1e9,
+  radius: RADIUS, cap: CAP, maxCenters: 1,
+  excludePlacement: () => { throw new Error('injected classify failure') },
+})
+let faultThrew = false
+try {
+  await faulted._rebuildMulti([[0, 0]], true)
+} catch (e) {
+  faultThrew = true
+}
+const fault = faulted.fault
+let faultStartThrew = false
+try {
+  await faulted.start()
+} catch (e) {
+  faultStartThrew = true
+}
+check('a throwing rebuild rejects instead of leaving a partial ring and rescheduling', faultThrew, fault ? `phase ${fault.phase}, ${fault.resident}/${fault.cap} resident` : 'no fault recorded')
+check('the fault names the phase that threw and keeps the resident count', fault !== null && typeof fault.phase === 'string' && fault.phase !== 'idle' && Number.isInteger(fault.resident), fault ? JSON.stringify({ phase: fault.phase, resident: fault.resident, cap: fault.cap, centers: fault.centers }) : 'null')
+check('the faulted streamer exposes the error itself, not only a log line', fault !== null && fault.error instanceof Error, fault ? String(fault.error?.message) : 'null')
+check('booting a faulted streamer fails loudly instead of starting with an empty ring', faultStartThrew, faultStartThrew ? 'start() rejected' : 'start() resolved')
+check('a healthy streamer is untouched by the faulted one and still holds its ring', trunk.liveCount > 0 && trunk.fault === null, `live ${trunk.liveCount}, fault ${trunk.fault === null ? 'null' : 'set'}`)
+
+const resident = () => physics.physicsSystem.GetNumBodies()
+const newStreamer = () => createTrunkColliderStreamer({
+  physics, getCenters: () => [[0, 0]], frame, anchorField, worldSeed: tcfg.seed | 0, intervalMs: 1e9,
+  radius: RADIUS, cap: CAP, maxCenters: 1,
+})
+const drain = () => { if (typeof physics.drainBodyQueue === 'function') physics.drainBodyQueue() }
+
+const cycles = []
+for (let i = 0; i < 3; i++) {
+  const streamer = newStreamer()
+  const before = resident()
+  await streamer.start()
+  drain()
+  const started = resident()
+  streamer.stop()
+  drain()
+  cycles.push({ cycle: i, before, started, stopped: resident() })
+}
+const cycleTrace = cycles.map(c => `${c.before}->${c.started}->${c.stopped}`).join(' ')
+const keptSlots = cycles.filter(c => c.stopped >= c.started)
+const grewAcrossCycles = cycles[cycles.length - 1].stopped > cycles[0].before
+
+check('stopping a collider streamer frees its Jolt body slots instead of parking them', keptSlots.length === 0, `resident per cycle before->started->stopped: ${cycleTrace}`)
+check('three stop and restart cycles on one physics never grow the resident count, so a retry cannot exhaust maxBodies', !grewAcrossCycles, `${cycles[0].before} before the first cycle, ${cycles[cycles.length - 1].stopped} after the last`)
+check('the streamer that ran the walk still holds a full ring and can be stopped without a fault', trunk.fault === null, `live ${trunk.liveCount}`)
+
 trunk.stop()
+faulted.stop()
 console.log(`[turnover] ${failures === 0 ? 'RESULT: PASS' : `RESULT: FAIL (${failures})`}`)
 console.log(`[turnover] STEPS: ${JSON.stringify(steps)}`)
 process.exit(failures === 0 ? 0 : 1)

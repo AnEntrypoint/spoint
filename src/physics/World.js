@@ -590,6 +590,8 @@ export class PhysicsWorld {
     }
     if (this._dormant && this._dormant.has(id)) this._dormant.forget(id)
     else this.bodyInterface.RemoveBody(b.GetID())
+    const destroyedShapeKey = this._bodyShapeKey.get(id)
+    if (destroyedShapeKey) this._shapeCache.delete(destroyedShapeKey)
     this.bodyInterface.DestroyBody(b.GetID())
     this.bodies.delete(id); this.bodyMeta.delete(id); this.bodyIds.delete(id); this._bodyShapeKey.delete(id)
     this._staticTiles?.update(id)
