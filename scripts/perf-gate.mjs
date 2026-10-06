@@ -146,6 +146,7 @@ async function measureRealTickBudget() {
 
   console.log('[perf-gate] shutting server down ...')
   server.stop()
+  await new Promise(r => setTimeout(r, 500))
 
   if (samples.length === 0) throw new Error('no tick samples captured -- the tick loop did not run during the measurement window')
 
@@ -209,15 +210,11 @@ async function main() {
   const ABS_FLOOR_MS = 0.20
   const limit = baseMs * THRESHOLD
   const overRelative = metrics.p50Ms > limit
-  const overAbsolute = metrics.p50Ms > ABS_FLOOR_MS
-  console.log(`[perf-gate] baseline p50=${baseMs.toFixed(3)}ms limit=${limit.toFixed(3)}ms (+10%) measured p50=${metrics.p50Ms.toFixed(3)}ms abs_floor=${ABS_FLOOR_MS.toFixed(3)}ms budget=${metrics.tickBudgetMs.toFixed(3)}ms`)
+  console.log(`[perf-gate] baseline p50=${baseMs.toFixed(3)}ms limit=${limit.toFixed(3)}ms (+10%) measured p50=${metrics.p50Ms.toFixed(3)}ms abs_floor_ms=${ABS_FLOOR_MS.toFixed(3)}ms (informational) budget=${metrics.tickBudgetMs.toFixed(3)}ms`)
 
-  if (overRelative && overAbsolute) {
-    console.error(`[perf-gate] REGRESSION: ${metrics.p50Ms.toFixed(3)}ms > ${limit.toFixed(3)}ms (${((metrics.p50Ms / baseMs - 1) * 100).toFixed(1)}% over baseline) AND over the ${ABS_FLOOR_MS}ms absolute floor`)
-    process.exit(1)
-  }
   if (overRelative) {
-    console.log(`[perf-gate] relative threshold exceeded (${((metrics.p50Ms / baseMs - 1) * 100).toFixed(1)}% over baseline) but p50 ${metrics.p50Ms.toFixed(3)}ms is under the ${ABS_FLOOR_MS}ms absolute floor (${(100 * metrics.p50Ms / metrics.tickBudgetMs).toFixed(2)}% of budget) -- not a material regression`)
+    console.error(`[perf-gate] REGRESSION: ${metrics.p50Ms.toFixed(3)}ms > ${limit.toFixed(3)}ms (${((metrics.p50Ms / baseMs - 1) * 100).toFixed(1)}% over baseline) -- a relative regression fails the gate on its own; the ${ABS_FLOOR_MS.toFixed(3)}ms absolute floor is informational only`)
+    process.exit(1)
   }
 
   console.log('[perf-gate] PASS')
