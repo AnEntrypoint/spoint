@@ -16,6 +16,7 @@ const { loadWorldModule } = await import('../src/sdk/WorldLocator.js')
 const { createPlanetFrame } = await import('../src/terrain/PlanetFrame.js')
 
 const out = []
+const failures = []
 const say = (...parts) => { const line = parts.join(' '); out.push(line); console.log(line) }
 const fmt = v => (v == null || !Number.isFinite(Number(v)) ? String(v) : Number(v).toFixed(2))
 
@@ -229,6 +230,12 @@ async function runOnce({ enabled, weather, label }) {
 
 function report(r) {
   say(`-- ${r.label}`)
+  const wantsFire = r.label.includes('flag on')
+  if (wantsFire && r.defineFireCalls < 1) failures.push(`${r.label}: ${r.defineFireCalls} defineFire call(s), expected at least 1`)
+  if (wantsFire && !r.fireConstructed) failures.push(`${r.label}: no fire instance was constructed`)
+  if (wantsFire && r.peakActive === 0) failures.push(`${r.label}: peak active cells ${r.peakActive}, so the arm observed no fire`)
+  if (wantsFire && r.impact === null) failures.push(`${r.label}: the ground shot produced no world_hit impact`)
+  if (!wantsFire && (r.defineFireCalls !== 0 || r.fireConstructed)) failures.push(`${r.label}: ${r.defineFireCalls} defineFire call(s) and fireConstructed ${r.fireConstructed}, expected none with the flag off`)
   say(`  weather ${r.weather}; defineFire calls ${r.defineFireCalls}; fire instance constructed ${r.fireConstructed}`)
   say(`  combat spec keys: ${r.combatSpecKeys}`)
   say(`  first ground shot: impact ${JSON.stringify(r.impact?.map(v => +v.toFixed(2)))}, ${r.activeAfterShot} active cell(s), ${r.ignitionsAfterShot} ignition(s)`)
@@ -328,7 +335,9 @@ say('== navCostAt with and without fire (real AppContext, real defineFire) ==')
   const burningNs = timeIt((x, z) => ctx.navCostAt(x, z))
   const burningStateNs = timeIt((x, z) => fire.stateAtLocal(x, z))
   say(`ignited cell under the probe: stateAtLocal ${burningState} (BURNING=${FIRE_STATE.BURNING}) after ${ticksToBurning} tick(s) -> navCostAt ${burningCost} at ${burningNs.toFixed(1)} ns/call (stateAtLocal alone ${burningStateNs.toFixed(1)}), active ${fire.activeCount}`)
-  for (let tick = ticksToBurning + 1; tick <= ticksToBurning + 40 * FIRE_SPEC.stepTicks; tick++) { runtime.currentTick = tick; fire.tick(1 / 60) }
+  if (ticksToBurning < 0) failures.push('nav probe: the ignited cell never reached BURNING')
+if (burningState !== FIRE_STATE.BURNING) failures.push(`nav probe: stateAtLocal ${burningState} after ignition, expected BURNING ${FIRE_STATE.BURNING}`)
+for (let tick = ticksToBurning + 1; tick <= ticksToBurning + 40 * FIRE_SPEC.stepTicks; tick++) { runtime.currentTick = tick; fire.tick(1 / 60) }
   const charredState = fire.stateAtLocal(px, pz)
   const charredCost = ctx.navCostAt(px, pz)
   say(`after 40 fire steps: stateAtLocal ${charredState} (BURNT=${FIRE_STATE.BURNT}) -> navCostAt ${charredCost}; unburnt neighbour navCostAt ${ctx.navCostAt(px + 4000, pz)}`)
@@ -337,4 +346,8 @@ say('== navCostAt with and without fire (real AppContext, real defineFire) ==')
 
 say('')
 say('== witness complete ==')
+if (failures.length > 0) {
+  for (const f of failures) console.error(`FAIL ${f}`)
+  process.exit(1)
+}
 process.exit(0)
