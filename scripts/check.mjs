@@ -122,8 +122,8 @@ async function main() {
     process.exit(1)
   }
   try {
-    await execFileAsync(process.execPath, ['scripts/bundle-apps-manifest.mjs', '--if-changed'])
-    console.log('check: apps-manifest.json regenerated from current sources')
+    await execFileAsync(process.execPath, ['scripts/bundle-apps-manifest.mjs', '--check'])
+    console.log('check: apps-manifest.json is in sync with ./apps')
   } catch (e) {
     console.error('check: apps-manifest.json regeneration failed:', e.stderr || e.message)
     process.exit(1)
