@@ -1,4 +1,4 @@
-import { readdirSync, statSync, readFileSync } from 'node:fs'
+import { readdirSync, statSync, readFileSync, existsSync } from 'node:fs'
 import { join, extname } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
@@ -30,6 +30,16 @@ function collect(dir, out) {
 async function main() {
   const files = []
   for (const r of ROOTS) collect(r, files)
+
+  const missingRoots = ROOTS.filter((r) => !existsSync(r))
+  if (missingRoots.length) {
+    console.error(`check: source root(s) absent, so ${files.length} file(s) were scanned: ${missingRoots.join(', ')}`)
+    process.exit(1)
+  }
+  if (files.length === 0) {
+    console.error(`check: 0 source files collected from ${ROOTS.join(', ')} -- an empty parse scan is not a pass`)
+    process.exit(1)
+  }
 
   const failures = []
 
@@ -71,10 +81,14 @@ async function main() {
 
   const GUARDED = ['src/netcode/NetworkState.js', 'src/sdk/EditorHandlers.js', 'src/apps/AppContext.js']
   const guardFails = []
+  if (GUARDED.length === 0) guardFails.push('no write-boundary file is guarded -- the guardrail is vacuous')
   for (const rel of GUARDED) {
     const full = join(...rel.split('/'))
     let txt = ''
-    try { txt = readFileSync(full, 'utf8') } catch { continue }
+    try { txt = readFileSync(full, 'utf8') } catch (e) {
+      guardFails.push(`${rel}: unreadable (${e.message}) -- its NaN-poison guard was not verified`)
+      continue
+    }
     if (!/shared\/vecGuard/.test(txt)) {
       guardFails.push(`${rel}: accepts external transforms but no longer imports shared/vecGuard - NaN-poison guard removed`)
     }
