@@ -85,6 +85,7 @@ export class WireweaveJoinClient extends BaseClient {
         const onData = ({ detail }) => {
             if (detail.peerPubkey !== this._hostPubkey) return
             const data = detail.data
+            if (typeof data === 'string') return
             const buf = data instanceof ArrayBuffer ? data : data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength)
             this.onMessage(buf)
         }

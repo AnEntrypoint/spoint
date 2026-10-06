@@ -6,6 +6,10 @@ function flag(name, dflt = null) {
   return hit ? hit.slice(name.length + 3) : dflt
 }
 
+function has(name) {
+  return process.argv.includes(`--${name}`)
+}
+
 const PORT = flag('port', '3130')
 const PROXY = flag('proxy', null)
 const PARAMS = flag('params', '')
@@ -13,6 +17,11 @@ const GL = flag('gl', 'swiftshader')
 const READY_TIMEOUT_MS = Number(flag('timeout', '180000'))
 const SHOTS = Number(flag('shots', '10'))
 const SETTLE_MS = Number(flag('settle', '4000'))
+const PLAYABLE_TIMEOUT_MS = Number(flag('playable-timeout', '120000'))
+const EXPECT_PLAYERS = flag('expect-players', null)
+const SWEEP_PX = Number(flag('sweep', '0'))
+const EXPECT_DAMAGE = has('expect-damage')
+const PROBE = flag('probe', null)
 
 const READY = 'window.__app && window.__app.loadingMachine && window.__app.loadingMachine.isReady'
 
@@ -83,44 +92,128 @@ async function main() {
       console.log(`[arena-combat] ${c.label} ready=${c.readyMs === null ? 'UNREACHED' : c.readyMs + 'ms'}`)
     }
 
-    const centre = await a.page.evaluate(() => {
+    const centreOf = (page) => page.evaluate(() => {
       const el = window.__app?.renderer?.domElement
       if (!el) return null
       const r = el.getBoundingClientRect()
       return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }
     }).catch(() => null)
-    console.log(`[arena-combat] clientA canvas centre=${JSON.stringify(centre)}`)
-
-    if (centre) {
-      await a.page.mouse.click(centre.x, centre.y)
-      await new Promise(r => setTimeout(r, 500))
-    }
-    await new Promise(r => setTimeout(r, SETTLE_MS))
+    const hudText = (page) => page.evaluate('(document.body.innerText || "").slice(0, 400)').catch(() => '')
     const readHud = (c) => c.page.evaluate('(() => ({ lock: window.__app?.pointerLock || null, hud: (document.body.innerText || "").slice(0, 400) }))()').catch(() => null)
-    const before = await readHud(a)
-    console.log(`[arena-combat] clientA before=${JSON.stringify(before)}`)
-
-    if (centre) {
-      for (let i = 0; i < SHOTS; i++) {
-        await a.page.mouse.move(centre.x, centre.y)
-        await a.page.mouse.down()
-        await new Promise(r => setTimeout(r, 120))
-        await a.page.mouse.up()
-        await new Promise(r => setTimeout(r, 250))
-      }
-      console.log(`[arena-combat] clientA fired ${SHOTS} shot(s)`)
+    const locked = (page) => page.evaluate('!!document.pointerLockElement || window.__app?.pointerLock?.state === "locked"').catch(() => false)
+    const playersOf = (text) => {
+      const m = /Players:\s*(\d+)/.exec(text || '')
+      return m ? Number(m[1]) : null
     }
+
+    const failures = []
+    for (const c of [a, b]) c.centre = await centreOf(c.page)
+    console.log(`[arena-combat] canvas centre A=${JSON.stringify(a.centre)} B=${JSON.stringify(b.centre)}`)
+
+    const enterPlay = async (c) => {
+      const t0 = Date.now()
+      while (Date.now() - t0 < PLAYABLE_TIMEOUT_MS) {
+        const hud = await hudText(c.page)
+        const playable = hud.includes('Click to play') && !hud.includes('Building world') && !hud.includes('Starting game')
+        if (playable && c.centre) {
+          await c.page.mouse.click(c.centre.x, c.centre.y)
+          await new Promise(r => setTimeout(r, 700))
+          if (await locked(c.page)) return true
+        }
+        await new Promise(r => setTimeout(r, 500))
+      }
+      return false
+    }
+
+    const lockA = await enterPlay(a)
+    const lockB = await enterPlay(b)
+    console.log(`[arena-combat] pointer lock A=${lockA} B=${lockB}`)
+
+    let playersNote = 'not-checked'
+    if (EXPECT_PLAYERS !== null) {
+      const want = Number(EXPECT_PLAYERS)
+      const obs = {}
+      for (const c of [a, b]) {
+        const t0 = Date.now()
+        let seen = null
+        while (Date.now() - t0 < PLAYABLE_TIMEOUT_MS) {
+          seen = playersOf(await hudText(c.page))
+          if (seen !== null && seen >= want) break
+          await new Promise(r => setTimeout(r, 500))
+        }
+        obs[c.label] = { seen, ms: Date.now() - t0 }
+        if (seen === null || seen < want) failures.push(`${c.label} never observed Players >= ${want} (saw ${seen})`)
+      }
+      playersNote = `A=${obs.clientA.seen}@${obs.clientA.ms}ms B=${obs.clientB.seen}@${obs.clientB.ms}ms`
+    }
+    console.log(`[arena-combat] players ${playersNote}`)
+
+    await new Promise(r => setTimeout(r, SETTLE_MS))
+    const before = await readHud(a)
+    const beforeB = await readHud(b)
+    console.log(`[arena-combat] clientA before=${JSON.stringify(before)}`)
+    console.log(`[arena-combat] clientB before=${JSON.stringify(beforeB)}`)
+
+    const vitalsOf = (hud) => {
+      const m = /(\d+)\/(\d+)\s*\n\s*(\d+)/.exec(hud || '')
+      return m ? { ammo: Number(m[1]), mag: Number(m[2]), health: Number(m[3]) } : null
+    }
+    for (const c of [a, b]) c.vitals = []
+    const sample = async () => {
+      for (const c of [a, b]) {
+        const v = vitalsOf(await hudText(c.page))
+        if (v) c.vitals.push(v)
+      }
+    }
+
+    let firedA = 0, firedB = 0
+    for (let i = 0; i < SHOTS; i++) {
+      for (const c of [a, b]) {
+        if (!c.centre || !c.page) continue
+        const dx = SWEEP_PX ? Math.round(((i % 5) - 2) * (SWEEP_PX / 2)) : 0
+        await c.page.mouse.move(c.centre.x + dx, c.centre.y)
+        await c.page.mouse.down()
+        await new Promise(r => setTimeout(r, 120))
+        await c.page.mouse.up()
+        if (c === a) firedA++
+        else firedB++
+      }
+      await sample()
+      await new Promise(r => setTimeout(r, 250))
+    }
+    console.log(`[arena-combat] fired A=${firedA} B=${firedB} shot(s)`)
+
+    for (const c of [a, b]) {
+      const healths = c.vitals.map(v => v.health)
+      const ammos = c.vitals.map(v => v.ammo)
+      let respawns = 0
+      for (let i = 1; i < healths.length; i++) if (healths[i - 1] < 100 && healths[i] >= 100) respawns++
+      c.healthMin = healths.length ? Math.min(...healths) : null
+      c.ammoMin = ammos.length ? Math.min(...ammos) : null
+      c.respawns = respawns
+      c.healthSeq = healths.filter((h, i) => i === 0 || h !== healths[i - 1]).join('>')
+      console.log(`[arena-combat] ${c.label} healthMin=${c.healthMin} ammoMin=${c.ammoMin} respawns=${c.respawns} healthSeq=${c.healthSeq}`)
+    }
+    if (EXPECT_DAMAGE && (!a.healthMin || a.healthMin >= 100) && (!b.healthMin || b.healthMin >= 100)) failures.push(`neither client's health dropped below 100 across ${SHOTS} shot(s) each, so no cross-client hit registered`)
 
     await new Promise(r => setTimeout(r, SETTLE_MS))
     const after = await readHud(a)
-    console.log(`[arena-combat] clientA after=${JSON.stringify(after)}`)
     const afterB = await readHud(b)
+    console.log(`[arena-combat] clientA after=${JSON.stringify(after)}`)
     console.log(`[arena-combat] clientB after=${JSON.stringify(afterB)}`)
+
+    if (PROBE) {
+      for (const c of [a, b]) {
+        const r = await c.page.evaluate(PROBE).catch(e => 'probe-error: ' + (e?.message || e))
+        console.log(`[arena-combat] ${c.label} probe=${typeof r === 'string' ? r : JSON.stringify(r)}`)
+      }
+    }
+
+    if (!lockA && !lockB) failures.push('neither client acquired pointer lock, so no shot could have reached the game')
 
     await browser.close().catch(() => {})
     if (server) server.stop()
 
-    const failures = []
     for (const c of [a, b]) {
       const errors = c.consoleEntries.filter(e => e.level === 'error' || e.level === 'exception')
       console.log(`[arena-combat] ${c.label} consoleEntries=${c.consoleEntries.length} consoleErrors=${errors.length} pageErrors=${c.pageErrors.length} failedRequests=${c.failedRequests.length}`)
@@ -132,12 +225,13 @@ async function main() {
       if (errors.length) failures.push(`${c.label} had ${errors.length} console error(s): ${errors[0].text.slice(0, 200)}`)
     }
     if (before && after && before.hud === after.hud) failures.push('clientA HUD text was identical before and after firing, so no shot was observed to register')
+    if (beforeB && afterB && beforeB.hud === afterB.hud) failures.push('clientB HUD text was identical before and after firing, so no shot was observed to register')
 
     if (failures.length) {
       console.error(`[arena-combat] RESULT: FAIL -- ${failures.join('; ')}`)
       process.exit(1)
     }
-    console.log(`[arena-combat] RESULT: PASS -- both clients reached ready (${a.readyMs}ms / ${b.readyMs}ms), ${SHOTS} shot(s) fired, 0 page errors, 0 console errors`)
+    console.log(`[arena-combat] RESULT: PASS -- both clients reached ready (${a.readyMs}ms / ${b.readyMs}ms), pointer lock A=${lockA} B=${lockB}, ${firedA}/${firedB} shot(s) fired, players ${playersNote}, 0 page errors, 0 console errors`)
     process.exit(0)
   } catch (e) {
     console.error('[arena-combat] run FAILED:', e.stack || e.message)

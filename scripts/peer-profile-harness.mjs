@@ -21,6 +21,7 @@ for (const k of ['inputDelayTicks', 'maxRollbackTicks', 'checksumIntervalTicks',
 const PEER_COUNT = Number(args.peers || baseWorld.netcode?.peers || 2)
 const KILL_PEER = args.killPeer || null, KILL_AT_MS = Number(args.killAtMs || 0)
 const CHEAT_PEER = args.cheatPeer || null, CHEAT_AT_MS = Number(args.cheatAtMs || 0)
+const DEAD_LANES = new Set(String(args.deadLink || '').split(',').map(s => s.trim()).filter(Boolean))
 const worldDef = { ...baseWorld, netcode: { ...baseWorld.netcode, [profileName]: { ...(baseWorld.netcode?.[profileName] || {}), ...overrides } } }
 
 async function bootPeer(pubkey, roster, post) {
@@ -65,7 +66,7 @@ function peerSummary(st, elapsedS) {
   const base = { simTicks: l.simTick, simHz: +(l.simTick / elapsedS).toFixed(1), stalls: l.stalls, desyncs: l.desyncs, checksumsCompared: l.checksumsCompared, firstDesyncTick: l.firstDesyncTick }
   if (st.profile === 'lockstep') {
     return { ...base, timeSyncYields: l.timeSyncYields, advantage: l.localAdvantage, catchUpTicks: l.catchUpTicks, maxStallRun: l.maxStallRun, inputLatencyMs: l.inputLatencyMs, drops: l.dropLog, evicted: l.evicted, ejections: l.voter?.ejectionsFired ?? 0, unattributedDesyncs: l.voter?.unattributedDesyncs ?? 0, lateInputsIgnored: l.lateInputsIgnored,
-      driverTicks: l.driverTicks, driverHz: +(l.driverTicks / elapsedS).toFixed(1), simPerDriver: +(l.simTick / Math.max(1, l.driverTicks)).toFixed(3), smoothedAdvantage: l.smoothedAdvantage, remoteAdvantageMax: l.remoteAdvantageMax, connectingTicks: l.connectingTicks }
+      driverTicks: l.driverTicks, driverHz: +(l.driverTicks / elapsedS).toFixed(1), simPerDriver: +(l.simTick / Math.max(1, l.driverTicks)).toFixed(3), smoothedAdvantage: l.smoothedAdvantage, remoteAdvantageMax: l.remoteAdvantageMax, connectingTicks: l.connectingTicks, connectingTicksByPeer: l.connectingTicksByPeer }
   }
   return {
     ...base, timeSyncYields: l.timeSyncYields, advantage: l.localAdvantage,
@@ -84,7 +85,7 @@ async function main() {
   const postFor = from => msg => {
     if (msg.type !== 'BRIDGE_BROADCAST' || dead.has(from)) return
     for (const [pk, ctx] of peers) {
-      if (pk === from) continue
+      if (pk === from || DEAD_LANES.has(from + '>' + pk)) continue
       const lane = lanes.get(from + '>' + pk)
       const at = Math.max(lane.at, performance.now() + lane.delay())
       lane.at = at

@@ -25,6 +25,7 @@ export function createLockstepGameLoop({ tickSystem, transport, roster, localPee
   const used = new Map()
   const remoteAdvantage = new Map()
   const newestReceived = new Map()
+  const connectingTicks = new Map()
   const sampledAt = new Map()
   const latencyRing = []
   const latency = { count: 0, sumMs: 0, maxMs: 0 }
@@ -184,14 +185,18 @@ export function createLockstepGameLoop({ tickSystem, transport, roster, localPee
   }
 
   function onDriverTick(driverTick, dt) {
+    driverTicks++
+    yieldCursor++
     const pending = pendingPeers()
     if (pending.length) {
       stats.connectingTicks++
-      if (stats.connectingTicks >= opts.stallTicks) for (const pk of pending) dropPeer(pk, 'no-first-input')
+      for (const pk of pending) {
+        const waited = (connectingTicks.get(pk) ?? 0) + 1
+        connectingTicks.set(pk, waited)
+        if (waited >= opts.stallTicks) dropPeer(pk, 'no-first-input')
+      }
       return
     }
-    driverTicks++
-    yieldCursor++
     if (evicted) { stats.stalls++; return }
     if (shouldYieldForTimeSync()) { driverTicks--; stats.timeSyncYields++; return }
     let advanced = 0
@@ -227,7 +232,7 @@ export function createLockstepGameLoop({ tickSystem, transport, roster, localPee
     getStats() {
       const v = voter ? voter.getStats() : null
       return {
-        ...stats, simTick, driverTicks, smoothedAdvantage: +smoothedAdvantage.toFixed(2), remoteAdvantageMax: remoteAdvantageMax(), evicted, localAdvantage: localAdvantage(), remoteAdvantage: Object.fromEntries(remoteAdvantage),
+        ...stats, connectingTicksByPeer: Object.fromEntries(connectingTicks), simTick, driverTicks, smoothedAdvantage: +smoothedAdvantage.toFixed(2), remoteAdvantageMax: remoteAdvantageMax(), evicted, localAdvantage: localAdvantage(), remoteAdvantage: Object.fromEntries(remoteAdvantage),
         waitingOn: ready(simTick + 1) ? [] : waitingOn(simTick + 1),
         lastConfirmed: Object.fromEntries(lastConfirmed), cuts: Object.fromEntries(cuts), dropping: [...dropping.keys()], dropLog: [...dropLog],
         inputLatencyMs: latencyStats(),
