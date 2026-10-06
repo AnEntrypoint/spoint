@@ -22,7 +22,12 @@ export class ReplayPlayer {
     }
     const server = await this._createServer(config)
     this._server = server
-    await server.loadWorld(this._worldDef)
+    try {
+      await server.loadWorld(this._worldDef)
+    } catch (e) {
+      try { server.stop() } catch (stopErr) { console.error('[replay] stop after a failed world load failed:', stopErr?.message || stopErr) }
+      throw e
+    }
 
     const idMap = new Map()
     const fakeSocket = { send() {}, close() {} }

@@ -551,7 +551,7 @@ async function runParent() {
   }
   const fatals = results.filter((r) => r.fatal)
   if (fatals.length) {
-    console.error(`[planet-harness] ${fatals.length} of ${results.length} scenario(s) produced no data: ${fatals.map((r) => r.scenario).join(', ')}`)
+    console.error(`[planet-harness] ${fatals.length} of ${results.length} scenario(s) produced no data: ${fatals.map((r) => `${r.scenario} (${String(r.fatal).split('\n')[0].slice(0, 200)})`).join(', ')}`)
     process.exit(1)
   }
   const noColliders = results.filter((r) => r.collidersEnabled && (!r.colliders || !r.colliders.trunk))

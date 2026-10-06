@@ -47,11 +47,16 @@ export class RoomDirectory {
         ...opts.configOverrides,
       }
       const server = await createServer(config)
-      await server.loadWorld(worldDef, resolvedWorldName)
-      const info = await server.start()
-      const handle = { roomId, worldName: resolvedWorldName, port: info.port, server, bootedAt: Date.now() }
-      this.rooms.set(roomId, handle)
-      return handle
+      try {
+        await server.loadWorld(worldDef, resolvedWorldName)
+        const info = await server.start()
+        const handle = { roomId, worldName: resolvedWorldName, port: info.port, server, bootedAt: Date.now() }
+        this.rooms.set(roomId, handle)
+        return handle
+      } catch (e) {
+        try { server.stop() } catch (stopErr) { console.error(`[RoomDirectory] stop after a failed world load for room "${roomId}" failed:`, stopErr?.message || stopErr) }
+        throw e
+      }
     } finally {
       this._reservedPorts.delete(port)
     }

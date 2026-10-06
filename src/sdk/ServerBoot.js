@@ -163,7 +163,12 @@ export async function boot(overrides = {}) {
       .catch(e => console.error('[static] prewarm error:', e.message))
   })
   const server = await createServer(config)
-  await server.loadWorld(worldDef, worldName)
+  try {
+    await server.loadWorld(worldDef, worldName)
+  } catch (e) {
+    try { server.stop() } catch (stopErr) { console.error('[boot] stop after a failed world load failed:', stopErr?.message || stopErr) }
+    throw e
+  }
   if (server.runtime && typeof server.runtime.waitForPendingTrimeshBuilds === 'function') {
     const { waited, timedOut } = await server.runtime.waitForPendingTrimeshBuilds()
     if (waited > 0) console.log(`[boot] waited for ${waited} pending trimesh collider build(s)${timedOut ? ' (timed out, proceeding anyway)' : ''}`)

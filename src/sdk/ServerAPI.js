@@ -80,18 +80,20 @@ export function createServerAPI(ctx) {
       for (const e of worldDef.entities || []) { if (e.app && !_loadedSet.has(e.app)) _missingApps.add(e.app) }
       if (_missingApps.size) console.error(`[loadWorld] world "${worldDef.name || '(unnamed)'}" references app(s) that failed to load: ${[..._missingApps].join(', ')} -- affected entities will have no server-side app logic`)
       const _worldId = appRuntime.worldName
+      const _tcfg = resolveTerrainConfig(worldDef)
       try {
-        const _tcfg = resolveTerrainConfig(worldDef)
         if (_tcfg && _tcfg.enabled !== false) {
           ctx._terrainStreamer = await setupTerrainStreaming({ physics, playerManager, terrain: _tcfg })
           if (ctx._terrainStreamer?.chartReanchor) attachServerChartMigrators(ctx, ctx._terrainStreamer.chartReanchor)
         }
+      } catch (e) { throw new Error(`[terrain] world "${String(_worldId || worldDef.name || (Number.isFinite(worldDef.terrain?.seed) ? `terrain seed ${worldDef.terrain.seed}` : '(unnamed)')).replace(/\s+/g, ' ')}" has no terrain: ${e?.message || e}`, { cause: e }) }
+      try {
         const _minimap = minimapDescriptor(_worldId, _tcfg)
         if (_minimap) {
           worldDef._minimap = _minimap
           bakeMinimapIfMissing(_worldId, _tcfg).catch(e => console.error('[minimap] bake-if-missing failed:', e?.message || e))
         }
-      } catch (e) { throw new Error(`[terrain] setup failed for world "${worldDef.name || _worldId || (Number.isFinite(worldDef.terrain?.seed) ? `terrain seed ${worldDef.terrain.seed}` : '(unnamed)')}" and the world has no ground: ${e?.message || e}`, { cause: e }) }
+      } catch (e) { console.error('[minimap] descriptor failed, the world boots without a minimap:', e?.message || e) }
       const stage = stageLoader.loadFromDefinition('main', worldDef)
       try {
         const { readFile, access } = await import('node:fs/promises')

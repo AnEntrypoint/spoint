@@ -209,29 +209,36 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
   physics.setTerrainHeightSource(guardedGroundHeight('server physics terrain height', heightFn, NaN), frame, offsetYNotFoldedIntoHeightFn)
 
   let trunkStreamer = null
+  let rockStreamer = null
   const vcfg = tcfg.vegetation || null
-  if (vcfg && vcfg.colliders) {
-    try {
-      const { createTrunkColliderStreamer } = await import('./VegPhysics.js')
-      trunkStreamer = createTrunkColliderStreamer({
-        physics, getCenters, frame, anchorField: paintedAnchorField, worldSeed: tcfg.seed | 0,
-        radius: vcfg.colliderRadius || 64, cap: vcfg.colliderCap || 384, byteBudget: vcfg.colliderByteBudget, maxCenters: vcfg.colliderMaxCenters,
-      })
-      await trunkStreamer.start()
-    } catch (e) { throw new Error(`[veg] trunk collider streamer failed: ${e?.message || e}`, { cause: e }) }
+  try {
+    if (vcfg && vcfg.colliders) {
+      try {
+        const { createTrunkColliderStreamer } = await import('./VegPhysics.js')
+        trunkStreamer = createTrunkColliderStreamer({
+          physics, getCenters, frame, anchorField: paintedAnchorField, worldSeed: tcfg.seed | 0,
+          radius: vcfg.colliderRadius || 64, cap: vcfg.colliderCap || 384, byteBudget: vcfg.colliderByteBudget, maxCenters: vcfg.colliderMaxCenters,
+        })
+        await trunkStreamer.start()
+      } catch (e) { throw new Error(`[veg] trunk collider streamer failed: ${e?.message || e}`, { cause: e }) }
+    }
+    if (vcfg && vcfg.rockColliders) {
+      try {
+        const { createRockColliderStreamer } = await import('./RockPhysics.js')
+        rockStreamer = createRockColliderStreamer({
+          physics, getCenters, frame, anchorField: paintedAnchorField, worldSeed: tcfg.seed | 0,
+          radius: vcfg.rockColliderRadius || 32, cap: vcfg.rockColliderCap || 128, byteBudget: vcfg.rockColliderByteBudget, maxCenters: vcfg.colliderMaxCenters,
+        })
+        await rockStreamer.start()
+      } catch (e) { throw new Error(`[rocks] rock collider streamer failed: ${e?.message || e}`, { cause: e }) }
+    }
+  } catch (e) {
+    if (trunkStreamer?.stop) trunkStreamer.stop()
+    if (rockStreamer?.stop) rockStreamer.stop()
+    if (streamer.stop) streamer.stop()
+    throw e
   }
   streamer._trunkStreamer = trunkStreamer
-  let rockStreamer = null
-  if (vcfg && vcfg.rockColliders) {
-    try {
-      const { createRockColliderStreamer } = await import('./RockPhysics.js')
-      rockStreamer = createRockColliderStreamer({
-        physics, getCenters, frame, anchorField: paintedAnchorField, worldSeed: tcfg.seed | 0,
-        radius: vcfg.rockColliderRadius || 32, cap: vcfg.rockColliderCap || 128, byteBudget: vcfg.rockColliderByteBudget, maxCenters: vcfg.colliderMaxCenters,
-      })
-      await rockStreamer.start()
-    } catch (e) { throw new Error(`[rocks] rock collider streamer failed: ${e?.message || e}`, { cause: e }) }
-  }
   streamer._rockStreamer = rockStreamer
   streamer.biomeOverride = biomeOverride
   streamer.splineCarve = splineCarve

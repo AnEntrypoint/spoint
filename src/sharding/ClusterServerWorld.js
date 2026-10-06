@@ -27,8 +27,13 @@ export function createClusterServerWorldFactory({ baseWorldDef, serverConfig, ho
     const spawnPoints = (descriptor.spawnDirs || []).map(dir => chartLocalSpawnOf(descriptor.anchorDir, radius, dir))
     const worldDef = { ...baseWorldDef, terrain: { ...baseWorldDef.terrain, anchorDir: descriptor.anchorDir }, ...(spawnPoints.length ? { spawnPoint: spawnPoints[0], spawnPoints } : {}) }
     const server = await createServer({ ...serverConfig, port, gravity: worldDef.gravity, joltLimits: serverConfig.joltLimits ?? CLUSTER_SERVER_JOLT_LIMITS })
-    await server.loadWorld({ ...worldDef, tickRate: serverConfig.tickRate })
-    await server.start()
+    try {
+      await server.loadWorld({ ...worldDef, tickRate: serverConfig.tickRate })
+      await server.start()
+    } catch (e) {
+      try { server.stop() } catch (stopErr) { console.error(`[cluster] stop after a failed world load for cluster ${clusterId} failed:`, stopErr?.message || stopErr) }
+      throw e
+    }
     return { clusterId, server, port, url: `ws://${host}:${port}/ws`, anchorDir: descriptor.anchorDir }
   }
   async function destroyWorld(clusterId, world) {
