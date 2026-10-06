@@ -104,7 +104,7 @@ gate('vegetation equal and constant across every frame of both renderers', vegs.
 const camKey = s => JSON.stringify(s.cam)
 const camsOk = ['sky', 'skyFull', 'ground', 'grey', 'greyRelief1'].every(base => {
   const keys = new Set([tslCap, legCap].filter(Boolean).flatMap(c => ['-a', '-b'].map(sfx => c.frames[base + sfx]).filter(Boolean).map(f => camKey(f.sig))))
-  return keys.size <= 1
+  return keys.size === 1
 })
 gate('camera pose identical per pose across frames and renderers', camsOk, null)
 const ammo = new Set([...sigsOf(tslCap), ...sigsOf(legCap)].map(s => String(s.ammo)))
@@ -112,7 +112,7 @@ gate('ammo signature identical across all frames', ammo.size === 1, { ammo: [...
 const probesOf = src => ((src && src.values) || []).filter(v => v.probe).map(p => ({ probe: p.probe, href: p.href, blocked: Number(p.blocked) || 0 }))
 const allProbes = [...probesOf(tslBoot), ...probesOf(legBoot), ...probesOf(tslCap), ...probesOf(legCap)]
 const blocked = Math.max(0, ...[...sigsOf(tslCap), ...sigsOf(legCap)].map(s => s.blocked || 0), ...allProbes.map(p => p.blocked))
-gate('no input reached the page', blocked === 0, { blocked, probes: allProbes, tslInputLog: ts && ts.inputLog, legacyInputLog: ls && ls.inputLog })
+gate('no input reached the page', blocked === 0 && allProbes.length > 0, { blocked, probes: allProbes, tslInputLog: ts && ts.inputLog, legacyInputLog: ls && ls.inputLog })
 
 function toCrlf(buf) {
   return Buffer.from(buf.toString('utf8').replace(/\r\n/g, '\n').replace(/\n/g, '\r\n'), 'utf8')
@@ -151,7 +151,7 @@ const exceptionsOf = (boot, settle) => {
 const tslEx = exceptionsOf(tslBoot, ts), legEx = exceptionsOf(legBoot, ls)
 const exceptions = tslEx.count + legEx.count
 const w = s => (s && s.witness) || {}
-gate('no exceptions, page errors or console errors during boot', exceptions === 0 && !w(ts).pageErrors && !w(ls).pageErrors && !w(ts).consoleErrors && !w(ls).consoleErrors, {
+gate('no exceptions, page errors or console errors during boot', !!ts && !!ls && exceptions === 0 && !w(ts).pageErrors && !w(ls).pageErrors && !w(ts).consoleErrors && !w(ls).consoleErrors, {
   exceptions,
   tslDoc: tslEx.docStamp,
   legacyDoc: legEx.docStamp,
@@ -268,3 +268,4 @@ for (const [set, rows] of Object.entries(sets)) {
   for (const [k, v] of Object.entries(rows)) console.log([set, k, v.skipped ? 'skipped n=' + v.n : 'delta=' + v.delta.join(',') + ' meanAbs=' + v.meanAbs + ' floor=' + v.floor + ' ratio=' + v.ratio + ' ' + (v.pass ? 'PASS' : 'FAIL')].join(' '))
 }
 if (partial) process.exit(2)
+if (gates.some(g => !g.pass)) process.exit(3)
