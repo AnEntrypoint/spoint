@@ -124,7 +124,7 @@ async function main() {
     for (const c of [a, b]) {
       const errors = c.consoleEntries.filter(e => e.level === 'error' || e.level === 'exception')
       console.log(`[arena-combat] ${c.label} consoleEntries=${c.consoleEntries.length} consoleErrors=${errors.length} pageErrors=${c.pageErrors.length} failedRequests=${c.failedRequests.length}`)
-      for (const e of errors.slice(0, 10)) console.log(`  [${c.label}][${e.level}] ${e.text.slice(0, 240)}`)
+      for (const e of errors.slice(0, 10)) console.log(`  [${c.label}][${e.level}] ${e.text.slice(0, 1200)}`)
       for (const e of c.pageErrors.slice(0, 10)) console.log(`  [${c.label}][pageerror] ${String(e).slice(0, 240)}`)
       for (const f of c.failedRequests.slice(0, 10)) console.log(`  [${c.label}][request] ${f.text} ${f.url}`)
       if (c.readyMs === null) failures.push(`${c.label} never reached world-ready`)

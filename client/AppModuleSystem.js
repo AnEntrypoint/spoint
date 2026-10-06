@@ -49,7 +49,7 @@ export function createAppModuleSystem(client, uiRoot) {
     return function(arg, engineCtx) {
       for (let i = 0; i < _appModuleList.length; i++) {
         const mod = _appModuleList[i]
-        if (mod[method]) try { mod[method](arg, _ctxFor(mod._appName, engineCtx)) } catch (e) { if (errorLabel) console.error(errorLabel, e.message) }
+        if (mod[method]) try { mod[method](arg, _ctxFor(mod._appName, engineCtx)) } catch (e) { if (errorLabel) console.error(errorLabel, mod._appName, e.stack || e.message) }
       }
     }
   }
