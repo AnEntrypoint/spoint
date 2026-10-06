@@ -93,7 +93,7 @@ const out = {
   dir,
   checked: rows.length,
   failedRequests,
-  servedMatchesSnapshot: rows.every(r => r.servedMatchesSnapshot),
+  servedMatchesSnapshot: rows.length > 0 && rows.every(r => r.servedMatchesSnapshot),
   mismatched: rows.filter(r => !r.servedMatchesSnapshot).map(r => r.file),
   servedFromLiveTree: rows.filter(r => r.servedDiffersFromLiveTree === false).map(r => r.file),
   parsed: rows.filter(r => r.parse).length,
