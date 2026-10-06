@@ -38,6 +38,8 @@ export class PhysicsWorld {
     this._chartGuard = null; this._dormant = null
     this._constraints = new Map(); this._nextConstraintId = 0
     this._tmpVec3 = null; this._tmpRVec3 = null
+    this._peakBodies = 0; this._peakActiveBodies = 0
+    this._contactProbe = null; this._contactListener = null; this._contactLimitExceeded = null
     this._bulkOutP = null; this._bulkOutR = null; this._bulkOutLV = null; this._bulkOutAV = null
     this._rcScratch = null; this._vehWheelAxes = null
     this._charMgr = new CharacterManager(this.gravity, config.crouchHalfHeight || 0.45)
@@ -55,11 +57,15 @@ export class PhysicsWorld {
     settings.mObjectLayerPairFilter = objFilter; settings.mBroadPhaseLayerInterface = bpI
     settings.mObjectVsBroadPhaseLayerFilter = ovbp
     const lim = this.joltLimits
+    const settingsCap = Number.isFinite(settings.mMaxContactConstraints) && settings.mMaxContactConstraints > 0 ? settings.mMaxContactConstraints : null
+    const contactCap = lim ? lim.maxContactConstraints : settingsCap
     if (lim) { settings.mMaxBodies = lim.maxBodies; settings.mMaxBodyPairs = lim.maxBodyPairs; settings.mMaxContactConstraints = lim.maxContactConstraints }
     this._objFilter = objFilter; this._ovbp = ovbp
     this.jolt = new J.JoltInterface(settings); J.destroy(settings)
     liveWorlds++
     this.physicsSystem = this.jolt.GetPhysicsSystem(); this.bodyInterface = this.physicsSystem.GetBodyInterface()
+    if (contactCap) this._installContactDemandProbe(contactCap)
+    this._sampleBodyPeaks()
     this._tmpVec3 = new J.Vec3(0, 0, 0); this._tmpRVec3 = new J.RVec3(0, 0, 0); this._tmpQuat = new J.Quat(0, 0, 0, 1)
     this._bulkOutP = new J.RVec3(0, 0, 0); this._bulkOutR = new J.Quat(0, 0, 0, 1)
     this._bulkOutLV = new J.Vec3(0, 0, 0); this._bulkOutAV = new J.Vec3(0, 0, 0)
@@ -93,6 +99,11 @@ export class PhysicsWorld {
 
   _addBody(shape, position, motionType, layer, opts = {}) {
     const J = this.Jolt
+    const resident = this.physicsSystem.GetNumBodies()
+    const maxBodies = this._configuredMaxBodies()
+    if (maxBodies > 0 && resident >= maxBodies) {
+      throw new Error(`[physics] body limit reached: ${resident} of maxBodies ${maxBodies} bodies are resident and another was requested, so Jolt hands back an invalid body id that later crashes the wasm heap at teardown. Raise joltLimits.maxBodies above ${resident + 1} or lower the number of bodies this world streams in.`)
+    }
     const pos = new J.RVec3(position[0], position[1], position[2])
     const rot = opts.rotation ? new J.Quat(...opts.rotation) : new J.Quat(0, 0, 0, 1)
     const cs = new J.BodyCreationSettings(shape, pos, rot, motionType, layer)
@@ -105,14 +116,76 @@ export class PhysicsWorld {
     if (opts.angularDamping !== undefined) cs.mAngularDamping = opts.angularDamping
     if (opts.linearCast) cs.mMotionQuality = J.EMotionQuality_LinearCast
     const activate = motionType === J.EMotionType_Static ? J.EActivation_DontActivate : J.EActivation_Activate
-    const body = this.bodyInterface.CreateBody(cs); this.bodyInterface.AddBody(body.GetID(), activate)
+    const body = this.bodyInterface.CreateBody(cs)
+    const bodyID = body.GetID()
+    const id = bodyID.GetIndexAndSequenceNumber()
+    if (!id) {
+      J.destroy(cs)
+      throw new Error(`[physics] Jolt refused a body: ${resident} of maxBodies ${maxBodies} bodies are resident and the new body got no slot, so every body past the limit is silently dropped and crashes the wasm heap at teardown. Raise joltLimits.maxBodies above ${resident + 1}.`)
+    }
+    this.bodyInterface.AddBody(bodyID, activate)
     J.destroy(cs)
     this._createCount = (this._createCount | 0) + 1
-    const id = body.GetID().GetIndexAndSequenceNumber()
-    this.bodies.set(id, body); this.bodyMeta.set(id, opts.meta || {}); this.bodyIds.set(id, body.GetID())
+    this.bodies.set(id, body); this.bodyMeta.set(id, opts.meta || {}); this.bodyIds.set(id, bodyID)
     if (opts.shapeKey) this._bodyShapeKey.set(id, opts.shapeKey)
     this._staticTiles?.update(id)
+    this._sampleBodyPeaks()
     return id
+  }
+
+  _configuredMaxBodies() {
+    if (this.joltLimits && Number.isFinite(this.joltLimits.maxBodies)) return this.joltLimits.maxBodies
+    const fromJolt = this.physicsSystem?.GetMaxBodies?.()
+    return Number.isFinite(fromJolt) ? fromJolt : 0
+  }
+
+  _installContactDemandProbe(limit) {
+    const J = this.Jolt
+    if (!J.ContactListenerJS || !this.physicsSystem.SetContactListener) return
+    const probe = { live: 0, peak: 0, limit }
+    const listener = new J.ContactListenerJS()
+    listener.OnContactValidate = () => true
+    listener.OnContactAdded = () => {
+      probe.live++
+      if (probe.live > probe.peak) probe.peak = probe.live
+      if (probe.live > probe.limit && !this._contactLimitExceeded) {
+        this._contactLimitExceeded = { live: probe.live, limit: probe.limit, starved: probe.live - probe.limit }
+      }
+    }
+    listener.OnContactPersisted = () => {}
+    listener.OnContactRemoved = () => { probe.live-- }
+    this.physicsSystem.SetContactListener(listener)
+    this._contactListener = listener
+    this._contactProbe = probe
+  }
+
+  _sampleBodyPeaks() {
+    const ps = this.physicsSystem
+    if (!ps || !ps.GetNumBodies) return
+    const n = ps.GetNumBodies()
+    if (n > this._peakBodies) this._peakBodies = n
+    const active = ps.GetNumActiveBodies ? ps.GetNumActiveBodies() : 0
+    if (active > this._peakActiveBodies) this._peakActiveBodies = active
+  }
+
+  physicsStats() {
+    const ps = this.physicsSystem
+    return {
+      bodies: ps?.GetNumBodies?.() ?? 0,
+      activeBodies: ps?.GetNumActiveBodies?.() ?? 0,
+      maxBodies: this._configuredMaxBodies(),
+      peakBodies: this._peakBodies,
+      peakActiveBodies: this._peakActiveBodies,
+      contactManifolds: this._contactProbe
+        ? { live: this._contactProbe.live, peak: this._contactProbe.peak, limit: this._contactProbe.limit }
+        : null,
+    }
+  }
+
+  physicsStatsLine() {
+    const s = this.physicsStats()
+    const manifolds = s.contactManifolds ? `, contact manifolds ${s.contactManifolds.peak}/${s.contactManifolds.limit}` : ''
+    return `[physics] peak bodies ${s.peakBodies}/${s.maxBodies}, peak active ${s.peakActiveBodies}${manifolds}`
   }
 
   setChartFrameGuard(guard) { this._chartGuard = guard }
@@ -493,7 +566,15 @@ export class PhysicsWorld {
   getTerrainOffsetY() { return this._terrainOffsetY || 0 }
   terrainHeightAt(x, z) { return typeof this._terrainHeightAt === 'function' ? this._terrainHeightAt(x, z) + (this._terrainOffsetY || 0) : null }
 
-  step(dt, collisionSteps = 2) { if (this.jolt) this.jolt.Step(dt, collisionSteps) }
+  step(dt, collisionSteps = 2) {
+    if (!this.jolt) return
+    this.jolt.Step(dt, collisionSteps)
+    this._sampleBodyPeaks()
+    const over = this._contactLimitExceeded
+    if (over) {
+      throw new Error(`[physics] contact constraint limit exceeded: ${over.live} contact manifolds are live but maxContactConstraints is ${over.limit}, so ${over.starved} manifold(s) get no constraint and the bodies they held fall through. Raise joltLimits.maxContactConstraints above ${this._contactProbe.peak}.`)
+    }
+  }
 
   removeBody(id, force = false) {
     const b = this._getBody(id); if (!b) return
@@ -599,6 +680,7 @@ export class PhysicsWorld {
 
   destroy() {
     if (!this.Jolt) return
+    if (this._peakBodies > 0) console.log(this.physicsStatsLine())
     if (this._dormant) { this._dormant.destroy(); this._dormant = null }
     if (this._rcScratch) {
       const s = this._rcScratch, J = this.Jolt
@@ -621,6 +703,7 @@ export class PhysicsWorld {
     if (this._bulkOutR) { J.destroy(this._bulkOutR); this._bulkOutR = null }
     if (this._bulkOutLV) { J.destroy(this._bulkOutLV); this._bulkOutLV = null }
     if (this._bulkOutAV) { J.destroy(this._bulkOutAV); this._bulkOutAV = null }
+    if (this._contactListener) { J.destroy(this._contactListener); this._contactListener = null }
     if (this.jolt) { J.destroy(this.jolt); this.jolt = null; liveWorlds = Math.max(0, liveWorlds - 1) }
     this.physicsSystem = null; this.bodyInterface = null
   }
