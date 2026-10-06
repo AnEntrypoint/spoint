@@ -514,6 +514,15 @@ export function createColliderStreamer(spec = {}) {
   const cpuClock = typeof process !== 'undefined' && typeof process.cpuUsage === 'function'
     ? () => { const u = process.cpuUsage(); return u.user + u.system }
     : null
+  let lastYieldCount = 0
+  const slowSlices = []
+  const SLOW_SLICE_MS = 4
+  const r2 = (v) => Math.round(v * 100) / 100
+  function noteSlowSlice(d, c) {
+    if (d < SLOW_SLICE_MS && c < SLOW_SLICE_MS) return
+    slowSlices.push({ ms: r2(d), cpuMs: r2(c), phase: slicePhase })
+    if (slowSlices.length > 6) slowSlices.shift()
+  }
   function beginSlice() { if (!sliceStart) { sliceStart = _now(); if (cpuClock) sliceCpuStart = cpuClock(); if (!_budgetOff) _budgetDeadline = sliceStart + COMPUTE_BUDGET_MS } }
   function endSlice() {
     if (!sliceStart) return
@@ -524,7 +533,8 @@ export function createColliderStreamer(spec = {}) {
       sliceCpuStart = 0
       if (c > lastSliceMaxCpuMs) { lastSliceMaxCpuMs = c; lastMaxSliceCpuPhase = slicePhase }
       if (c > maxSliceCpuMs) { maxSliceCpuMs = c; maxSliceCpuPhase = slicePhase }
-    }
+      noteSlowSlice(d, c)
+    } else noteSlowSlice(d, d)
     workMsTotal += d
     workByPhase.set(slicePhase, (workByPhase.get(slicePhase) || 0) + d)
     if (d > lastSliceMaxMs) { lastSliceMaxMs = d; lastMaxSlicePhase = slicePhase }
@@ -532,6 +542,7 @@ export function createColliderStreamer(spec = {}) {
   }
   async function yieldSlice() {
     endSlice()
+    lastYieldCount++
     await yieldToLoop()
     beginSlice()
   }
@@ -576,6 +587,8 @@ export function createColliderStreamer(spec = {}) {
     const rbT0 = _now()
     lastSliceMaxMs = 0
     lastSliceMaxCpuMs = 0
+    lastYieldCount = 0
+    slowSlices.length = 0
     beginSlice()
     const scale = centerScale(centers.length)
     effectiveCap = baseCap * scale
@@ -789,6 +802,8 @@ export function createColliderStreamer(spec = {}) {
     get maxSliceCpuPhase() { return maxSliceCpuPhase },
     get lastMaxSliceCpuMs() { return lastSliceMaxCpuMs },
     get lastMaxSliceCpuPhase() { return lastMaxSliceCpuPhase },
+    get lastSlowSlices() { return slowSlices },
+    get lastYieldCount() { return lastYieldCount },
     get prewarmMs() { return prewarmMs },
     get workMs() { return workMsTotal },
     get prewarmDemand() { return prewarmDemand },

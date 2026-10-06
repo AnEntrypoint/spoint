@@ -31,7 +31,8 @@ export class PhysicsWorld {
     this.Jolt = null; this.jolt = null; this.physicsSystem = null; this.bodyInterface = null
     this.bodies = new Map(); this.bodyMeta = new Map(); this.bodyIds = new Map()
     this._objFilter = null; this._ovbp = null
-    this._shapeCache = new Map(); this._convexQueue = Promise.resolve()
+    this._shapeCache = new Map(); this._shapeRefs = new Map(); this._convexQueue = Promise.resolve()
+    this._shapeBuilds = 0; this._shapeReuses = 0
     this._trimeshCache = new Map(); this._trimeshInflight = new Map()
     this._bodyPool = new Map(); this._bodyShapeKey = new Map()
     this._bodyQueue = []
@@ -127,7 +128,7 @@ export class PhysicsWorld {
     J.destroy(cs)
     this._createCount = (this._createCount | 0) + 1
     this.bodies.set(id, body); this.bodyMeta.set(id, opts.meta || {}); this.bodyIds.set(id, bodyID)
-    if (opts.shapeKey) this._bodyShapeKey.set(id, opts.shapeKey)
+    if (opts.shapeKey) { this._bodyShapeKey.set(id, opts.shapeKey); this._shapeRefs.set(opts.shapeKey, (this._shapeRefs.get(opts.shapeKey) | 0) + 1) }
     this._staticTiles?.update(id)
     this._sampleBodyPeaks()
     return id
@@ -176,6 +177,10 @@ export class PhysicsWorld {
       maxBodies: this._configuredMaxBodies(),
       peakBodies: this._peakBodies,
       peakActiveBodies: this._peakActiveBodies,
+      shapeBuilds: this._shapeBuilds,
+      shapeReuses: this._shapeReuses,
+      shapesCached: this._shapeCache.size,
+      shapeRefs: this._shapeRefs.size,
       contactManifolds: this._contactProbe
         ? { live: this._contactProbe.live, peak: this._contactProbe.peak, limit: this._contactProbe.limit }
         : null,
@@ -248,24 +253,30 @@ export class PhysicsWorld {
     }
     if (shapeType === 'box') {
       const bk = opts.shapeKey || null
-      if (bk && this._shapeCache.has(bk)) shape = this._shapeCache.get(bk)
-      else { const cr = Math.min(0.05, Math.min(params[0], params[1], params[2]) * 0.1); const bv = new J.Vec3(params[0], params[1], params[2]); shape = new J.BoxShape(bv, cr, null); J.destroy(bv); if (bk) this._shapeCache.set(bk, shape) }
+      if (bk && this._shapeCache.has(bk)) { shape = this._shapeCache.get(bk); this._shapeReuses++ }
+      else { const cr = Math.min(0.05, Math.min(params[0], params[1], params[2]) * 0.1); const bv = new J.Vec3(params[0], params[1], params[2]); shape = new J.BoxShape(bv, cr, null); J.destroy(bv); if (bk) { this._shapeCache.set(bk, shape); this._shapeBuilds++ } }
     }
     else if (shapeType === 'sphere') shape = new J.SphereShape(params)
     else if (shapeType === 'capsule') {
       const ck = opts.shapeKey || null
-      if (ck && this._shapeCache.has(ck)) shape = this._shapeCache.get(ck)
-      else { shape = new J.CapsuleShape(params[1], params[0]); if (ck) this._shapeCache.set(ck, shape) }
+      if (ck && this._shapeCache.has(ck)) { shape = this._shapeCache.get(ck); this._shapeReuses++ }
+      else { shape = new J.CapsuleShape(params[1], params[0]); if (ck) { this._shapeCache.set(ck, shape); this._shapeBuilds++ } }
     }
     else if (shapeType === 'convex') {
-      const { shape: cvxShape, sr } = buildConvexShape(J, params, this._shapeCache, opts.shapeKey || null)
+      const ck = opts.shapeKey || null
+      const reused = !!(ck && this._shapeCache.has(ck))
+      const { shape: cvxShape, sr } = buildConvexShape(J, params, this._shapeCache, ck)
+      if (ck) { if (reused) this._shapeReuses++; else this._shapeBuilds++ }
       const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
       const id = this._addBody(cvxShape, position, mt, motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC, { ...opts, meta: { type: motionType, shape: shapeType } })
       if (sr) J.destroy(sr)
       return id
     }
     else if (shapeType === 'mesh') {
-      const { shape: meshShape, sr } = buildMeshShape(J, params, this._shapeCache, opts.shapeKey || null)
+      const mk = opts.shapeKey || null
+      const reused = !!(mk && this._shapeCache.has(mk))
+      const { shape: meshShape, sr } = buildMeshShape(J, params, this._shapeCache, mk)
+      if (mk) { if (reused) this._shapeReuses++; else this._shapeBuilds++ }
       const id = this._addBody(meshShape, position, J.EMotionType_Static, LAYER_STATIC, { ...opts, meta: { type: 'static', shape: shapeType } })
       if (sr) J.destroy(sr)
       return id
@@ -294,11 +305,13 @@ export class PhysicsWorld {
     const J = this.Jolt, cacheKey = opts.shapeKey || null
     const born = this._captureCreationFrame(position, opts.rotation)
     if (cacheKey && this._shapeCache.has(cacheKey)) {
+      this._shapeReuses++
       const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
       return Promise.resolve(this._addBody(this._shapeCache.get(cacheKey), position, mt, motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC, { ...opts, meta: { type: motionType, shape: 'convex' } }))
     }
     const result = this._convexQueue.then(() => {
       const { shape, sr } = buildConvexShape(J, params, this._shapeCache, cacheKey)
+      if (cacheKey && this._shapeCache.has(cacheKey)) this._shapeBuilds++
       const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
       const placed = this._resolveCreationFrame(born)
       const id = this._addBody(shape, placed.position, mt, motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC, { ...opts, ...(placed.rotation ? { rotation: placed.rotation } : {}), meta: { type: motionType, shape: 'convex' } })
@@ -591,7 +604,11 @@ export class PhysicsWorld {
     if (this._dormant && this._dormant.has(id)) this._dormant.forget(id)
     else this.bodyInterface.RemoveBody(b.GetID())
     const destroyedShapeKey = this._bodyShapeKey.get(id)
-    if (destroyedShapeKey) this._shapeCache.delete(destroyedShapeKey)
+    if (destroyedShapeKey) {
+      const refs = (this._shapeRefs.get(destroyedShapeKey) | 0) - 1
+      if (refs > 0) this._shapeRefs.set(destroyedShapeKey, refs)
+      else { this._shapeRefs.delete(destroyedShapeKey); this._shapeCache.delete(destroyedShapeKey) }
+    }
     this.bodyInterface.DestroyBody(b.GetID())
     this.bodies.delete(id); this.bodyMeta.delete(id); this.bodyIds.delete(id); this._bodyShapeKey.delete(id)
     this._staticTiles?.update(id)

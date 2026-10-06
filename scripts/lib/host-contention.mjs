@@ -27,16 +27,24 @@ export function spinMs(samples = SPIN_SAMPLES) {
 }
 
 export function contentionWatch() {
-  return { beforeMs: spinMs() }
+  return { beforeMs: spinMs(), midMs: null }
+}
+
+export function contentionMark(watch) {
+  const ms = spinMs()
+  if (watch.midMs === null || ms > watch.midMs) watch.midMs = ms
+  return ms
 }
 
 export function contentionVerdict(watch, threshold = CONTESTED_SLOWDOWN) {
   const afterMs = spinMs()
-  const mean = (watch.beforeMs + afterMs) / 2
-  const slowdown = round(mean / bestSpinMs, 2)
+  const peakMs = Math.max(watch.beforeMs, afterMs, watch.midMs === null ? 0 : watch.midMs)
+  const slowdown = round(peakMs / bestSpinMs, 2)
   return {
     beforeMs: watch.beforeMs,
+    midMs: watch.midMs,
     afterMs: round(afterMs, 2),
+    peakMs: round(peakMs, 2),
     bestMs: bestSpinMs,
     slowdown,
     contested: slowdown >= threshold,
@@ -44,8 +52,9 @@ export function contentionVerdict(watch, threshold = CONTESTED_SLOWDOWN) {
 }
 
 export function formatContention(c) {
+  const mid = c.midMs === null || c.midMs === undefined ? '' : `, mid ${c.midMs}`
   const verdict = c.contested
-    ? `CONTESTED (x${c.slowdown} of this run's cleanest ${c.bestMs} ms): this arm shared the box, so its ms figures are inflated -- re-run alone before quoting them`
+    ? `CONTESTED (x${c.slowdown} of this run's cleanest ${c.bestMs} ms): this arm shared the box, so its wall-clock figures are inflated -- re-run alone before quoting them`
     : `clean (x${c.slowdown} of this run's cleanest ${c.bestMs} ms)`
-  return `host contention ${c.beforeMs} -> ${c.afterMs} ms per fixed spin, ${verdict}`
+  return `host contention ${c.beforeMs} ->${mid} ${c.afterMs} ms per fixed spin, ${verdict}`
 }
