@@ -7,6 +7,7 @@ import { FIRE_EVENT } from '../src/shared/fire/fireKernel.js'
 import { FIRE_WIRE_TYPE } from '../src/shared/fire/fireWire.js'
 import { ensurePacked, pack } from '../src/protocol/msgpack.js'
 
+const failures = []
 function say(line) { console.log(line) }
 
 const HOME_FACE = 2
@@ -130,6 +131,8 @@ for (const m of incendiary.broadcasts) incendiaryMirror.fire.applyRemote(m)
 incendiaryCursor = incendiary.broadcasts.length
 runTo(incendiaryMirror, incendiary.clock.tick)
 say(`  mirror fed those rows: step ${incendiaryMirror.fire.world.kernel.stepIndex} checksum ${incendiaryMirror.fire.checksum()} vs authority ${incendiary.fire.checksum()}, needsResync ${incendiaryMirror.fire.needsResync}`)
+if (incendiaryMirror.fire.checksum() !== incendiary.fire.checksum()) failures.push(`section 1: the mirror diverged on the incendiary rows, ${incendiaryMirror.fire.checksum()} vs authority ${incendiary.fire.checksum()}`)
+if (incendiaryMirror.fire.needsResync) failures.push('section 1: the mirror that was fed every incendiary row asked for a resync')
 
 say('')
 say('== 2. an extinguisher and a water drop put the fire out, over the wire ==')
@@ -152,6 +155,8 @@ const extinguishMirror = makeFire(BASE, 'mirror')
 for (const m of extinguishRig.broadcasts) extinguishMirror.fire.applyRemote(m)
 runTo(extinguishMirror, extinguishRig.clock.tick)
 say(`  mirror fed those rows: checksum ${extinguishMirror.fire.checksum()} vs authority ${extinguishRig.fire.checksum()}, needsResync ${extinguishMirror.fire.needsResync}`)
+if (extinguishMirror.fire.checksum() !== extinguishRig.fire.checksum()) failures.push(`section 2: the mirror diverged on the extinguish rows, ${extinguishMirror.fire.checksum()} vs authority ${extinguishRig.fire.checksum()}`)
+if (extinguishMirror.fire.needsResync) failures.push('section 2: the mirror that was fed every extinguish row asked for a resync')
 
 say('')
 say('== 3. an explosion ignites, damages and pushes ==')
@@ -198,6 +203,9 @@ for (let dI = -80; dI <= 80; dI++) {
 say(`  ${breakKernel.stats.steps} steps, ${breakKernel.activeCount} burning cells, ${breakKernel.scarCount} scarred cells`)
 say(`  sampled ${breakCells} firebreak cell(s) (cleared circle, road, lake): ${breakIgnited} of them ever ignited`)
 say(`  sampled ${openCells} open cell(s) beside them: ${openIgnited} ignited, so the front did reach the breaks`)
+if (breakCells === 0) failures.push('section 4: no firebreak cell was sampled')
+if (openIgnited === 0) failures.push(`section 4: none of the ${openCells} open cell(s) ignited, so the firebreak check observed nothing`)
+if (breakIgnited > 0) failures.push(`section 4: ${breakIgnited} of ${breakCells} firebreak cell(s) ignited`)
 
 say('')
 say('== 5. tps-game ships the fire integration behind a flag that is off ==')
@@ -224,9 +232,19 @@ function flagRun(cfg) {
   tpsGameServer.update(ctx, 1 / 60)
   return calls.length
 }
-say(`  update with config.fire.enabled false: ${flagRun({ fire: { enabled: false } })} defineFire call(s)`)
-say(`  update with config.fire.enabled true: ${flagRun({ fire: { enabled: true } })} defineFire call(s)`)
-say(`  update with no fire config at all: ${flagRun({})} defineFire call(s)`)
+const offCalls = flagRun({ fire: { enabled: false } })
+const onCalls = flagRun({ fire: { enabled: true } })
+const noConfigCalls = flagRun({})
+say(`  update with config.fire.enabled false: ${offCalls} defineFire call(s)`)
+say(`  update with config.fire.enabled true: ${onCalls} defineFire call(s)`)
+say(`  update with no fire config at all: ${noConfigCalls} defineFire call(s)`)
+if (onCalls !== 1) failures.push(`section 5: config.fire.enabled true produced ${onCalls} defineFire call(s), expected 1`)
+if (offCalls !== 0) failures.push(`section 5: config.fire.enabled false produced ${offCalls} defineFire call(s), expected 0`)
+if (noConfigCalls !== 0) failures.push(`section 5: no fire config produced ${noConfigCalls} defineFire call(s), expected 0`)
 
 say('')
 say('== combat witness complete ==')
+if (failures.length > 0) {
+  for (const f of failures) console.error(`FAIL ${f}`)
+  process.exit(1)
+}
