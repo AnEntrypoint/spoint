@@ -52,6 +52,7 @@ const REQUIRE_ACCELERATED = has('require-accelerated')
 const EXPECT_VENDOR = flag('expect-vendor', null)
 let spawnedChromePid = null
 let witnessUnreached = []
+let reachabilityUnreached = []
 setTimeout(() => {
   console.log('[perf-run] HARD TIMEOUT after ' + HARD_TIMEOUT_MS + 'ms -- abandoning run')
   if (spawnedChromePid && process.platform === 'win32') spawnSync('taskkill', ['/PID', String(spawnedChromePid), '/T', '/F'], { stdio: 'ignore' })
@@ -907,6 +908,8 @@ async function main() {
     const gpuPassesOk = !GPU_PASSES || !!(gpuPassResult && gpuPassResult.passes && gpuPassResult.passes.length > 0)
     const reachability = { sceneryBuiltMarked, vegTotalInstances: vegTotal, vegNonZero: vegTotal > 0, drawsNonZero: drawsMeasured, walkOk, travelledM: +travelled.toFixed(1), inputSequenceStart: walkSeqStart, inputSequenceEnd: walkSeqEnd, inputReachedGameMs: navToInputSeqMs, inputReached, gpuPassesOk, adapterVendor: adapterInfo ? adapterInfo.vendor : null, adapterOk, appLoadOk, appLoadErrors, pass: appLoadOk && adapterOk && sceneryBuiltMarked && vegTotal > 0 && drawsMeasured && walkOk && inputReached && gpuPassesOk }
 
+      if (!reachability.pass) reachabilityUnreached = Object.entries(reachability).filter(([k, v]) => v !== true && (k.endsWith('Ok') || k.endsWith('NonZero') || k === 'sceneryBuiltMarked')).map(([k]) => k)
+
     witnessUnreached = unreachedReasons({
       marks: inPage.marks,
       requiredMarks: REQUIRED_MARKS,
@@ -1082,8 +1085,9 @@ async function main() {
     if (browser) await browser.close()
     server.stop()
   }
-  if (witnessUnreached.length) {
-    console.error(`[perf-run] RESULT: FAIL -- witness never reached the state it measured: ${witnessUnreached.join('; ')} (required marks: ${REQUIRED_MARKS.join(',') || 'none'}, required counts: ${REQUIRED_COUNTS.join(',') || 'none'})`)
+  const unreached = witnessUnreached.concat(reachabilityUnreached.map((k) => `reachability: ${k} is false`))
+  if (unreached.length) {
+    console.error(`[perf-run] RESULT: FAIL -- witness never reached the state it measured: ${unreached.join('; ')} (required marks: ${REQUIRED_MARKS.join(',') || 'none'}, required counts: ${REQUIRED_COUNTS.join(',') || 'none'})`)
     process.exit(4)
   }
   process.exit(0)
