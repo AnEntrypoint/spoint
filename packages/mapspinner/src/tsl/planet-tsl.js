@@ -257,6 +257,7 @@ export async function initMapspinnerPlanetTSL(renderer, scene, opts = {}) {
     u.albedoOverride.value.set(albedoOverride[0], albedoOverride[1], albedoOverride[2], albedoOverride[3])
     u.texNrmK.value = typeof window !== 'undefined' && Number.isFinite(window.__texNrmK) ? window.__texNrmK : TD.texNrmK
     u.flatNormal.value = typeof window !== 'undefined' && Number.isFinite(window.__flatNormal) ? window.__flatNormal : TD.flatNormal
+    u.fsCheap.value = typeof window !== 'undefined' && Number.isFinite(window.__fsCheap) ? window.__fsCheap : 0
     const pool = resolvePoolParams()
     u.poolLo.value.set(pool.lo[0], pool.lo[1], pool.lo[2], pool.lo[3])
     u.poolHi.value.set(pool.hi[0], pool.hi[1], pool.hi[2], pool.hi[3])

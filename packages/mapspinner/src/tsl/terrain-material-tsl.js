@@ -83,6 +83,7 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
     reliefShade: uniform(TD.reliefShade),
     texNrmK: uniform(TD.texNrmK),
     flatNormal: uniform(TD.flatNormal),
+    fsCheap: uniform(0),
     bcRock: uniform(new THREE.Vector3(...TD.bcRock)),
     albedoOverride: uniform(new THREE.Vector4(0, 0, 0, 0)),
     morphSplitDist: uniform(0),
@@ -160,7 +161,7 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
   })()
 
   const dir0 = normalize(vDir)
-  const n = select(u.flatNormal.greaterThan(0.5), dir0, normalize(mix(normalize(vN), dir0, NORMAL_TOWARD_UP)))
+  const n = select(u.flatNormal.greaterThan(0.5), dir0, normalize(mix(vN, dir0, NORMAL_TOWARD_UP)))
   const slope = float(1.0).sub(max(0.0, dot(n, dir0)))
   const rockSlope = clamp(slope, 0.0, 1.0)
   const pxWorld = max(length(fwidth(vRelP)), 0.001)
@@ -190,7 +191,8 @@ export function createTerrainMaterialTSL({ sky, defRadius, reliefScale, landBias
   material.positionNode = positionNode
   material.colorNode = colorNode
   material.normalNode = normalize(cameraViewMatrix.mul(vec4(toLocal(nLit), 0.0)).xyz)
-  material.outputNode = Fn(() => lighting.gradeOutput(output))()
+  const fsDbg = select(u.fsCheap.lessThan(1.5), n.mul(0.5).add(0.5), select(u.fsCheap.lessThan(2.5), texDnP.mul(4.0).add(0.5), vec3(length(texDnP).mul(8.0))))
+  material.outputNode = Fn(() => select(u.fsCheap.greaterThan(0.5), vec4(fsDbg, 1.0), lighting.gradeOutput(output)))()
   material.metalness = 0.0
   material.fog = false
   material.side = THREE.DoubleSide

@@ -780,7 +780,7 @@ void main() {
 #else
     vec3 n = (uFlatNormal > 0.5) ? uz : normalize(mix(vNrm, uz, 0.05));
 
-    if (uFsCheap > 0.5) { fragColor = vec4(n * 0.5 + 0.5, 1.0); return; }
+    if (uFsCheap > 0.5 && uFsCheap < 1.5) { fragColor = vec4(n * 0.5 + 0.5, 1.0); return; }
 
 
 #ifdef _DEBUGVIEW_
@@ -932,6 +932,10 @@ void main() {
       nLit = normalize(uz + (nLit - uz) * uReliefShade);
     }
     nLit = normalize(nLit + texDn);
+    if (uFsCheap > 1.5) {
+        if (uFsCheap < 2.5) { fragColor = vec4(texDn * 4.0 + 0.5, 1.0); return; }
+        fragColor = vec4(vec3(length(texDn) * 8.0), 1.0); return;
+    }
     vec3 nAtm   = nLit;
 #ifdef _DEBUGVIEW_
     if (displayMode == 1) { fragColor = vec4(nAtm * 0.5 + 0.5, 1.0); return; }
