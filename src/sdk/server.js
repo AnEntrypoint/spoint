@@ -26,12 +26,13 @@ import { createReloadHandlers } from './ReloadHandlers.js'
 import { createServerAPI } from './ServerAPI.js'
 import { createConnectionHandlers } from './ServerHandlers.js'
 import { saveWorldSnapshot } from './WorldPersistence.js'
-import { buildUniquePathList, collectWatchableFiles } from './ServerBoot.js'
+import { buildUniquePathList, collectWatchableFiles, ensureServedAppsManifest } from './ServerBoot.js'
 import { isDevHmrEnabled } from './DevHmr.js'
 import { registerAppModuleVersioning } from './DevAppModuleVersions.js'
 import { DEFAULT_TICK_RATE_HZ, DEFAULT_GRAVITY } from '../shared/worldDefaults.js'
 
 const PLACED_MODELS_PERSIST_DEBOUNCE_MS = 500
+const APPS_MANIFEST_REFRESH_DEBOUNCE_MS = 300
 
 export async function createServerDeps(config, tickRate) {
   const { gravity = [...DEFAULT_GRAVITY], playerConfig = {}, storageDir = './data', appsDirs = [], sdkRoot } = config
@@ -55,7 +56,16 @@ export async function createServerDeps(config, tickRate) {
     const trusted = !!_ctxRef.current?.currentWorldDef?.trustedApps?.includes(name) || undefined
     connections.broadcast(MSG.APP_MODULE, { app: name, code, trusted })
   }
-  appLoader._onTreeChangeCallback = () => connections.broadcast(MSG.FS_TREE_CHANGED, {})
+  let manifestRefreshTimer = null
+  appLoader._onTreeChangeCallback = () => {
+    connections.broadcast(MSG.FS_TREE_CHANGED, {})
+    clearTimeout(manifestRefreshTimer)
+    manifestRefreshTimer = setTimeout(() => {
+      manifestRefreshTimer = null
+      ensureServedAppsManifest(resolvedSdkRoot, appsDirs)
+    }, APPS_MANIFEST_REFRESH_DEBOUNCE_MS)
+    manifestRefreshTimer.unref?.()
+  }
   return { physics, emitter, eventBus, eventLog, storage, tickSystem, playerManager, networkState, lagCompensator, physicsIntegration, connections, sessions, inspector, reloadManager, appRuntime, appLoader, stageLoader, sdkRoot: resolvedSdkRoot, _ctxRef }
 }
 

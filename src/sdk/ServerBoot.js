@@ -1,6 +1,6 @@
 import { join, dirname, resolve, relative, extname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { existsSync, readdirSync, readFileSync, statSync, unlinkSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { prewarm, prewarmFiles } from '../static/GLBTransformer.js'
 import { prewarmCompression } from './StaticHandler.js'
 import { prewarmProgressive, ensureProgressive } from '../static/ProgressiveBake.js'
@@ -58,6 +58,27 @@ function newestMtimeOf(files, base) {
   }, 0)
 }
 
+function bundleState(sdkRoot) {
+  const bundleDir = join(sdkRoot, 'dist', 'client')
+  const bundlePath = join(bundleDir, 'app.js')
+  if (!existsSync(bundlePath)) return null
+  const bundleMtime = statSync(bundlePath).mtimeMs
+  const clientDir = join(sdkRoot, 'client')
+  const rawEntryPath = join(clientDir, 'app.js')
+  const watchableFiles = existsSync(clientDir) ? collectWatchableFiles(clientDir) : (existsSync(rawEntryPath) ? [rawEntryPath] : [])
+  const bundledInputs = stampInputFiles(join(bundleDir, 'app.bundlehash.json'), sdkRoot)
+  const rawMtime = Math.max(
+    newestMtimeOf(watchableFiles, ''),
+    newestMtimeOf(bundledInputs, '')
+  )
+  return { dir: bundleDir, bundleMtime, rawMtime, fresh: bundleMtime >= rawMtime }
+}
+
+export function staticClientRoot(sdkRoot) {
+  const bundle = bundleState(sdkRoot)
+  return bundle && bundle.fresh ? bundle.dir : join(sdkRoot, 'client')
+}
+
 export function buildStaticDirs(sdkRoot, project, appsDirs) {
   const dirs = [
     { prefix: '/src/', dir: join(sdkRoot, 'src') },
@@ -65,32 +86,12 @@ export function buildStaticDirs(sdkRoot, project, appsDirs) {
     { prefix: '/node_modules/', dir: join(sdkRoot, 'node_modules') },
     { prefix: '/data/', dir: resolve(project, 'data') }
   ]
-  const bundleDir = join(sdkRoot, 'dist', 'client')
-  const bundlePath = join(bundleDir, 'app.js')
-  const rawEntryPath = join(sdkRoot, 'client', 'app.js')
-  if (existsSync(bundlePath)) {
-    const bundleMtime = statSync(bundlePath).mtimeMs
-    const clientDir = join(sdkRoot, 'client')
-    const watchableFiles = existsSync(clientDir) ? collectWatchableFiles(clientDir) : (existsSync(rawEntryPath) ? [rawEntryPath] : [])
-    const bundledInputs = stampInputFiles(join(bundleDir, 'app.bundlehash.json'), sdkRoot)
-    const rawMtime = Math.max(
-      newestMtimeOf(watchableFiles, ''),
-      newestMtimeOf(bundledInputs, '')
-    )
-    if (bundleMtime >= rawMtime) {
-      console.log(`[server] serving PREBUILT BUNDLE from dist/client/app.js (built ${new Date(bundleMtime).toISOString()})`)
-      const manifestPath = join(bundleDir, 'apps-manifest.json')
-      if (existsSync(manifestPath)) {
-        const appsMtime = [...appsDirs, join(sdkRoot, 'src')].reduce((max, d) => Math.max(max, collectWatchableFiles(d).reduce((m, f) => { try { return Math.max(m, statSync(f).mtimeMs) } catch { return m } }, 0)), 0)
-        if (statSync(manifestPath).mtimeMs < appsMtime) {
-          console.log('[server] dist/client/apps-manifest.json is STALE (apps/ or src/ edited after it was built) -- removing it, BrowserServer falls back to the live app walk')
-          try { unlinkSync(manifestPath) } catch (e) { console.warn('[server] could not remove stale apps-manifest.json:', e.message) }
-        }
-      }
-      dirs.push({ prefix: '/', dir: bundleDir })
-    } else {
-      console.log(`[server] dist/client/app.js is STALE (built ${new Date(bundleMtime).toISOString()}, a bundled input edited ${new Date(rawMtime).toISOString()}) -- falling through to raw ESM`)
-    }
+  const bundle = bundleState(sdkRoot)
+  if (bundle && bundle.fresh) {
+    console.log(`[server] serving PREBUILT BUNDLE from dist/client/app.js (built ${new Date(bundle.bundleMtime).toISOString()})`)
+    dirs.push({ prefix: '/', dir: bundle.dir })
+  } else if (bundle) {
+    console.log(`[server] dist/client/app.js is STALE (built ${new Date(bundle.bundleMtime).toISOString()}, a bundled input edited ${new Date(bundle.rawMtime).toISOString()}) -- falling through to raw ESM`)
   } else {
     console.log('[server] serving raw ESM from client/ (no dist/client/app.js bundle present)')
   }
@@ -134,6 +135,23 @@ export function resolveAppsDirs(project, sdkRoot) {
   return buildUniquePathList(existsSync(localApps) ? [localApps, stdlibApps, sdkApps] : [stdlibApps, sdkApps])
 }
 
+export async function ensureServedAppsManifest(sdkRoot, appsDirs) {
+  const outFile = join(staticClientRoot(sdkRoot), 'apps-manifest.json')
+  try {
+    const { ensureAppsManifestFresh } = await import('../apps/appsManifest.js')
+    const result = await ensureAppsManifestFresh(outFile, appsDirs, {
+      log: msg => console.log(`[apps-manifest] ${msg}`),
+      warn: msg => console.warn(`[apps-manifest] ${msg}`),
+    })
+    const size = result.bytes === null ? 'unchanged' : `${result.bytes} bytes`
+    console.log(`[apps-manifest] ${result.status} ${relative(sdkRoot, outFile)} (${result.apps} app(s), ${result.filesRead} source file(s) fingerprinted, ${size}, ${result.ms}ms)`)
+    return result
+  } catch (e) {
+    console.warn(`[apps-manifest] could not refresh ${outFile}: ${e && e.message ? e.message : e} -- clients fall back to the live app walk`)
+    return null
+  }
+}
+
 export async function boot(overrides = {}) {
   const { ensurePacked } = await import('../protocol/msgpack.js')
   await ensurePacked
@@ -148,6 +166,7 @@ export async function boot(overrides = {}) {
   if (terrainHashOverride != null) console.log(`[boot] SPOINT_TERRAIN_HASH=${terrainHashOverride}: terrain hashVersion overridden in the world config`)
   const appsDirs = resolveAppsDirs(PROJECT, SDK_ROOT)
   console.debug(`[boot] loading from: ${appsDirs.join(', ')}`)
+  await ensureServedAppsManifest(SDK_ROOT, appsDirs)
   const config = {
     port: parseInt(process.env.PORT || String(worldDef.port || 3000), 10),
     tickRate: worldTickRate(worldDef), appsDirs, sdkRoot: SDK_ROOT,

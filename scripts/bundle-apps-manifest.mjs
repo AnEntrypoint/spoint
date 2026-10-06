@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { expandWorldPresets } from '../src/shared/worldPresets.js'
-import { localSpecifiers } from '../src/apps/appImports.js'
 import { findWorldFile, worldRoots } from '../src/sdk/WorldLocator.js'
+import { resolveAllAppNames, buildAppsManifest, manifestJson, appsManifestFingerprint } from '../src/apps/appsManifest.js'
 
 const __dirname = import.meta.dirname || dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
@@ -27,78 +27,6 @@ function log(msg) { console.log(`[bundle-apps-manifest] ${msg}`) }
 
 const APP_DIRS = [join(ROOT, 'apps'), join(ROOT, 'src', 'stdlib-apps')]
 
-function resolveAppEntry(name) {
-  for (const dir of APP_DIRS) {
-    const flat = join(dir, `${name}.js`)
-    if (existsSync(flat)) return flat
-    const folder = join(dir, name, 'index.js')
-    if (existsSync(folder)) return folder
-  }
-  return null
-}
-
-function resolveAllApps() {
-  const SKIP = new Set(['world', '_lib', 'maps', 'node_modules', '.git', '.gm'])
-  const names = new Set()
-  for (const appsDir of APP_DIRS) {
-    if (!existsSync(appsDir)) continue
-    const entries = readdirSync(appsDir, { withFileTypes: true })
-    for (const ent of entries) {
-      if (ent.name.startsWith('.') || SKIP.has(ent.name)) continue
-      if (ent.isDirectory()) {
-        if (existsSync(join(appsDir, ent.name, 'index.js'))) {
-          names.add(ent.name)
-        }
-      } else if (ent.isFile() && ent.name.endsWith('.js')) {
-        names.add(ent.name.slice(0, -3))
-      }
-    }
-  }
-  return [...names].sort()
-}
-
-function resolveRelativeDeps(source, baseFileUrl, seen) {
-  const out = {}
-  for (const spec of localSpecifiers(source)) {
-    const u = new URL(spec, baseFileUrl)
-    if (u.protocol !== 'file:') { out[spec] = null; continue }
-    if (seen.has(u.href)) { out[spec] = seen.get(u.href); continue }
-    const filePath = fileURLToPath(u)
-    if (!existsSync(filePath)) { out[spec] = null; continue }
-    const entry = { source: readFileSync(filePath, 'utf8'), deps: {} }
-    seen.set(u.href, entry)
-    entry.deps = resolveRelativeDeps(entry.source, u, seen)
-    out[spec] = entry
-  }
-  return out
-}
-
-async function appMetadata(entry) {
-  let mod = null
-  try { mod = await import(pathToFileURL(entry).href) } catch { }
-  const def = mod?.default
-  const category = pickString(mod?.category, def?.category) || 'General'
-  const description = pickString(mod?.description, def?.description) || null
-  const declaredPlaceable = [mod?.placeable, def?.placeable].find(v => typeof v === 'boolean')
-  const out = { category, placeable: declaredPlaceable !== false }
-  if (description) out.description = description
-  return out
-}
-
-function pickString(...values) {
-  for (const v of values) if (typeof v === 'string' && v.trim()) return v.trim()
-  return null
-}
-
-async function bundleApp(name) {
-  const entry = resolveAppEntry(name)
-  if (!entry) { log(`WARNING: app "${name}" not found under apps/ or src/stdlib-apps/ -- skipped`); return null }
-  const source = readFileSync(entry, 'utf8')
-  const baseUrl = pathToFileURL(entry)
-  const deps = resolveRelativeDeps(source, baseUrl, new Map())
-  return { name, source, deps, ...(await appMetadata(entry)) }
-}
-
 async function resolveAppNamesFromWorld(worldName) {
   const worldFile = findWorldFile(worldName, worldRoots(ROOT)) || join(ROOT, 'apps/world', `${worldName}.js`)
   if (!existsSync(worldFile)) throw new Error(`world module not found: ${worldFile}`)
@@ -119,17 +47,16 @@ async function main() {
   let appNames
   if (explicitApps) appNames = explicitApps
   else if (world) appNames = await resolveAppNamesFromWorld(world)
-  else appNames = resolveAllApps()
+  else appNames = resolveAllAppNames(APP_DIRS)
 
   log(`resolving ${appNames.length} app(s)${explicitApps ? ' (explicit --apps list)' : world ? ` from apps/world/${world}.js` : ' (all ./apps directories)'}: ${appNames.join(', ')}`)
 
-  const apps = (await Promise.all(appNames.map(bundleApp))).filter(Boolean)
-  const failedCount = appNames.length - apps.length
+  const { apps, failed } = await buildAppsManifest(APP_DIRS, { names: appNames, log })
+  const failedCount = failed.length
   if (failedCount) log(`WARNING: ${failedCount} app(s) failed to resolve and were omitted from the manifest`)
 
-  const manifest = { apps }
-  const jsonString = JSON.stringify(manifest, null, 2)
-  const bytes = Buffer.byteLength(jsonString)
+  const json = manifestJson(apps, appsManifestFingerprint(APP_DIRS, appNames).fingerprint)
+  const bytes = Buffer.byteLength(json)
 
   if (check) {
     if (failedCount) {
@@ -143,7 +70,7 @@ async function main() {
     const existing = readFileSync(OUT, 'utf8')
     let existingJson
     try { existingJson = JSON.stringify(JSON.parse(existing), null, 2) } catch { existingJson = '' }
-    if (existingJson !== jsonString) {
+    if (existingJson !== json) {
       console.error(`[bundle-apps-manifest] ERROR: ${outFile} is out of sync with ./apps. Run 'npm run bundle-apps-manifest' to update it.`)
       process.exit(1)
     }
@@ -151,11 +78,10 @@ async function main() {
     return
   }
 
-  if (ifChanged && existsSync(OUT) && readFileSync(OUT, 'utf8') === jsonString) { log(`${outFile} unchanged (${apps.length} apps)`); return }
-  writeFileSync(OUT, jsonString)
+  if (ifChanged && existsSync(OUT) && readFileSync(OUT, 'utf8') === json) { log(`${outFile} unchanged (${apps.length} apps)`); return }
+  writeFileSync(OUT, json)
   log(`wrote ${apps.length} app(s) -> ${outFile} (${bytes} bytes)`)
   if (!apps.length) { console.error('[bundle-apps-manifest] ERROR: zero apps resolved -- aborting with non-zero exit'); process.exit(1) }
 }
 
 main().catch(err => { console.error('[bundle-apps-manifest] FAILED:', err); process.exit(1) })
-
