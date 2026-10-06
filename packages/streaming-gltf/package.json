@@ -52,6 +52,7 @@
     "@gltf-transform/core": "^4.3.0",
     "@gltf-transform/extensions": "^4.3.0",
     "@gltf-transform/functions": "^4.4.1",
+    "ajv": "^8.20.0",
     "draco3dgltf": "^1.5.7",
     "meshoptimizer": "^1.1.1",
     "sharp": "^0.35.3",

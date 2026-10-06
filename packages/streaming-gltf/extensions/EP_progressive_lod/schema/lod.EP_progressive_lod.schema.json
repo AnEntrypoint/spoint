@@ -32,9 +32,14 @@
     "vertexCount": { "type": "integer", "minimum": 0 },
     "bytes": { "type": "integer", "minimum": 0 },
     "decodeAABB": {
-      "type": ["array", "null"],
-      "description": "Optional [min,max] AABB used to dequantize position attributes back to mesh-local space.",
-      "items": { "type": "array", "items": { "type": "number" } }
+      "type": ["object", "null"],
+      "description": "Optional {min,max} AABB used to dequantize position attributes back to mesh-local space.",
+      "properties": {
+        "min": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+        "max": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 }
+      },
+      "required": ["min", "max"],
+      "additionalProperties": false
     }
   },
   "required": ["ratio"],
