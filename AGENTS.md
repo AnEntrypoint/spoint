@@ -124,14 +124,9 @@ block continuations, glob literals in `console.log`, `//` inside `http://`.
   Underwater/waterline and grazing-altitude water cull:
   `project/ground-depth-cut-is-underwater-ceiling-waterline-crossing` (`window.__tpOverride`,
   `window.__passProbe`; an out-of-band `renderer.render` fakes a black void).
-- `project/page-boot-witness-needs-multiplayer-not-singleplayer`: give
-  `scripts/page-boot-witness.mjs` `--params=multiplayer` whenever the witness needs the server to
-  act on a client message (sculpt, biome paint, world config, entity edits). Under the default
-  `?singleplayer` the server runs in the browser worker and the node server the harness booted logs
-  `players:0` throughout, so the message reaches a server with no `ctx._terrainStreamer` and is
-  acked `ok:false`, while `window.__terrain`, `window.__app.engine` and the chart frame are all
-  still present — the shape of a product bug that is really a harness one. `window.__colliderProbe`
-  is installed only under singleplayer.
+- `project/page-boot-witness-needs-multiplayer-not-singleplayer`: a page witness that needs the
+  server to act on a client message must pass `--params=multiplayer`; under `?singleplayer` the node
+  server sees `players:0` throughout and the message is acked `ok:false`.
 
 ## Entry points
 
@@ -325,7 +320,9 @@ Full text in recall (`recall <slug>`); read the memo before changing the named c
   to range/5000 anywhere, which is why the sampler snaps to 1 mm and why `+ 0` after `Math.round`
   is load-bearing),
   `project/terrain-raycast-comparison-must-pin-resident-field-set`,
-  `project/terrain-fine-field-height-error-is-the-chart-tilt-term`.
+  `project/terrain-fine-field-height-error-is-the-chart-tilt-term`,
+  `project/terrain-collider-initial-ring-is-placement-bound` (2.242 ms per ring chunk is 96% of the ring, so the 2.5 ms compute budget admits ~1 chunk/pass: budgeted boot 35.5 s vs 2.95 s; batch per cluster, 94.7 ms each),
+  `project/terrain-collider-deferred-rebuild-exceeds-body-cap` (983 live against cap 768: the cap bounds one pass, not the resident set).
 - Editor/UI/tooling: `kit-applydiff-child-crash-classes`, `hud-overlay-mount-outside-uiroot`,
   `e2e-harness-multiplayer-param-and-no-watch`, `bundle-client-outfile-and-externals`.
 
