@@ -8,6 +8,15 @@ const LOD_REEVAL_MOVE_SQ = 0.5 * 0.5
 const NO_MESH_TIER = -1
 const SPAN_STRIDE = 7
 
+const MAX_CELLS = 512
+const GRID_MIN_INSTANCES = 32
+const GRID_MIN_OCCUPANCY = 2
+const CELL_SIZE_FLOOR = 4
+const CELL_OUT = 0, CELL_IN = 1, CELL_PART = 2
+const MODE_NOT_DRAWN = 0, MODE_UNIFORM = 1, MODE_MIXED = 2
+const SHADOW_NONE = 0, SHADOW_ALL = 1, SHADOW_MIXED = 2
+const APPLIED_INVALID = 255
+
 function createDensePool(scene, geometry, material, capacity, attributeSchema, props, shadowOnly) {
   const ids = []
   const slotOf = new Map()
@@ -116,7 +125,7 @@ function createDensePool(scene, geometry, material, capacity, attributeSchema, p
   function dispose() { scene.remove(mesh); mesh.dispose() }
 
   build(Math.max(1, capacity))
-  return { add, remove, setAttr, applyProps, dispose, get mesh() { return mesh }, get size() { return ids.length }, get capacity() { return cap } }
+  return { add, remove, setAttr, applyProps, dispose, get mesh() { return mesh }, get size() { return ids.length }, get capacity() { return cap }, get ids() { return ids } }
 }
 
 export function createWebGPULodInstancer(scene, levels, capacity, attributeSchema = {}, opts = {}) {
@@ -133,6 +142,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
   let liveCount = 0
 
   let meshFarSq = Infinity
+  const sweepStats = { updateCalls: 0, recordsWalked: 0, planeTests: 0, cellsTested: 0, cellsSkipped: 0 }
 
   function tierFor(dsq) {
     if (dsq >= meshFarSq) return NO_MESH_TIER
@@ -199,34 +209,264 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     if (rec.visible) { if (shadowWanted) shadow.add(id, rec); else shadow.remove(id) }
   }
 
+  const grid = {
+    dirty: true,
+    usable: false,
+    cells: 0,
+    order: new Int32Array(0),
+    start: new Int32Array(0),
+    cursor: new Int32Array(0),
+    counts: new Int32Array(0),
+    posMin: new Float32Array(0),
+    posMax: new Float32Array(0),
+    cenMin: new Float32Array(0),
+    cenMax: new Float32Array(0),
+    maxR: new Float32Array(0),
+    minR: new Float32Array(0),
+    state: new Uint8Array(0),
+    mask: new Uint8Array(0),
+    mode: new Uint8Array(0),
+    tier: new Int8Array(0),
+    shadowMode: new Uint8Array(0),
+    cellOf: new Int32Array(0),
+  }
+
+  function ensureGridCapacity(cells, live) {
+    if (grid.posMin.length < cells * 3) {
+      grid.posMin = new Float32Array(cells * 3)
+      grid.posMax = new Float32Array(cells * 3)
+      grid.cenMin = new Float32Array(cells * 3)
+      grid.cenMax = new Float32Array(cells * 3)
+      grid.maxR = new Float32Array(cells)
+      grid.minR = new Float32Array(cells)
+      grid.state = new Uint8Array(cells)
+      grid.mask = new Uint8Array(cells)
+      grid.mode = new Uint8Array(cells)
+      grid.tier = new Int8Array(cells)
+      grid.shadowMode = new Uint8Array(cells)
+    }
+    if (grid.start.length < cells + 1) {
+      grid.start = new Int32Array(cells + 1)
+      grid.cursor = new Int32Array(cells + 1)
+      grid.counts = new Int32Array(cells + 1)
+    }
+    if (grid.order.length < live) grid.order = new Int32Array(Math.max(live, 64))
+    if (grid.cellOf.length < recs.length) grid.cellOf = new Int32Array(Math.max(recs.length, grid.cellOf.length * 2, 64))
+  }
+
+  function rebuildGrid() {
+    grid.dirty = false
+    const n = recs.length
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity, live = 0
+    for (let id = 0; id < n; id++) {
+      if (recs[id] === null) continue
+      const o = id * SPAN_STRIDE
+      const x = spans[o], z = spans[o + 2]
+      if (x < minX) minX = x
+      if (x > maxX) maxX = x
+      if (z < minZ) minZ = z
+      if (z > maxZ) maxZ = z
+      live++
+    }
+    if (live < GRID_MIN_INSTANCES) { grid.usable = false; grid.cells = 0; return }
+    const spanX = Math.max(1, maxX - minX), spanZ = Math.max(1, maxZ - minZ)
+    let cellSize = Math.max(CELL_SIZE_FLOOR, Math.sqrt((spanX * spanZ) / MAX_CELLS))
+    let nx = 0, nz = 0
+    for (let i = 0; i < 12; i++) {
+      nx = Math.floor(spanX / cellSize) + 1
+      nz = Math.floor(spanZ / cellSize) + 1
+      if (nx * nz <= MAX_CELLS) break
+      cellSize *= 2
+    }
+    const cells = nx * nz
+    if (live / cells < GRID_MIN_OCCUPANCY) { grid.usable = false; grid.cells = 0; return }
+    ensureGridCapacity(cells, live)
+    const counts = grid.counts
+    counts.fill(0, 0, cells + 1)
+    for (let id = 0; id < n; id++) {
+      if (recs[id] === null) continue
+      const o = id * SPAN_STRIDE
+      const ix = Math.floor((spans[o] - minX) / cellSize)
+      const iz = Math.floor((spans[o + 2] - minZ) / cellSize)
+      const c = iz * nx + ix
+      grid.cellOf[id] = c
+      counts[c + 1]++
+    }
+    for (let c = 0; c < cells; c++) counts[c + 1] += counts[c]
+    grid.start.set(counts.subarray(0, cells + 1))
+    grid.cursor.set(grid.start.subarray(0, cells + 1))
+    const order = grid.order
+    for (let id = 0; id < n; id++) {
+      if (recs[id] === null) continue
+      order[grid.cursor[grid.cellOf[id]]++] = id
+    }
+    const posMin = grid.posMin, posMax = grid.posMax, cenMin = grid.cenMin, cenMax = grid.cenMax, maxR = grid.maxR, minR = grid.minR
+    for (let c = 0; c < cells; c++) {
+      const b = c * 3
+      posMin[b] = Infinity; posMin[b + 1] = Infinity; posMin[b + 2] = Infinity
+      posMax[b] = -Infinity; posMax[b + 1] = -Infinity; posMax[b + 2] = -Infinity
+      cenMin[b] = Infinity; cenMin[b + 1] = Infinity; cenMin[b + 2] = Infinity
+      cenMax[b] = -Infinity; cenMax[b + 1] = -Infinity; cenMax[b + 2] = -Infinity
+      maxR[c] = 0; minR[c] = Infinity
+    }
+    for (let i = 0; i < live; i++) {
+      const id = order[i], o = id * SPAN_STRIDE
+      const c = grid.cellOf[id], b = c * 3
+      const x = spans[o], y = spans[o + 1], z = spans[o + 2]
+      if (x < posMin[b]) posMin[b] = x
+      if (y < posMin[b + 1]) posMin[b + 1] = y
+      if (z < posMin[b + 2]) posMin[b + 2] = z
+      if (x > posMax[b]) posMax[b] = x
+      if (y > posMax[b + 1]) posMax[b + 1] = y
+      if (z > posMax[b + 2]) posMax[b + 2] = z
+      const cx = spans[o + 3], cy = spans[o + 4], cz = spans[o + 5]
+      if (cx < cenMin[b]) cenMin[b] = cx
+      if (cy < cenMin[b + 1]) cenMin[b + 1] = cy
+      if (cz < cenMin[b + 2]) cenMin[b + 2] = cz
+      if (cx > cenMax[b]) cenMax[b] = cx
+      if (cy > cenMax[b + 1]) cenMax[b + 1] = cy
+      if (cz > cenMax[b + 2]) cenMax[b + 2] = cz
+      if (spans[o + 6] > maxR[c]) maxR[c] = spans[o + 6]
+      if (spans[o + 6] < minR[c]) minR[c] = spans[o + 6]
+    }
+    grid.mode.fill(APPLIED_INVALID, 0, cells)
+    grid.cells = cells
+    grid.usable = true
+  }
+
+  function invalidateCellOf(id) {
+    if (!grid.usable || id >= grid.cellOf.length) return
+    const c = grid.cellOf[id]
+    if (c >= 0 && c < grid.cells) grid.mode[c] = APPLIED_INVALID
+  }
+
   function updateLOD(cameraPos, frustum, viewChanged) {
+    sweepStats.updateCalls++
     const ex = cameraPos.x - lodEyeX, ey = cameraPos.y - lodEyeY, ez = cameraPos.z - lodEyeZ
     const moved = lodStale || ex * ex + ey * ey + ez * ez >= LOD_REEVAL_MOVE_SQ
     if (!moved && !viewChanged) return
     if (moved) { lodEyeX = cameraPos.x; lodEyeY = cameraPos.y; lodEyeZ = cameraPos.z; lodStale = false }
     if (frustum) for (let p = 0, o = 0; p < 6; p++, o += 4) { const pl = frustum.planes[p]; planeBuf[o] = pl.normal.x; planeBuf[o + 1] = pl.normal.y; planeBuf[o + 2] = pl.normal.z; planeBuf[o + 3] = pl.constant }
-    for (let id = 0; id < recs.length; id++) {
-      const rec = recs[id]
-      if (rec === null) continue
-      const o = id * SPAN_STRIDE
-      let tier = rec.tier
-      if (moved) {
-        const dx = spans[o] - lodEyeX, dy = spans[o + 1] - lodEyeY, dz = spans[o + 2] - lodEyeZ
-        const dsq = dx * dx + dy * dy + dz * dz
-        tier = tierFor(dsq)
-        const shadowWanted = shadowDistSq >= 0 && dsq <= shadowDistSq
-        if (shadow && shadowWanted !== rec.shadowWanted) applyShadowWanted(id, rec, shadowWanted)
+    let walked = 0, planeTests = 0
+    if (grid.dirty) rebuildGrid()
+    if (grid.usable && frustum) {
+      const cells = grid.cells
+      const posMin = grid.posMin, posMax = grid.posMax
+      const cenMin = grid.cenMin, cenMax = grid.cenMax, maxR = grid.maxR, minR = grid.minR
+      for (let c = 0; c < cells; c++) {
+        const b = c * 3
+        const rMax = maxR[c], rMin = minR[c]
+        let mask = 0
+        let cellOut = false
+        for (let q = 0; q < 24; q += 4) {
+          planeTests++
+          const nx2 = planeBuf[q], ny2 = planeBuf[q + 1], nz2 = planeBuf[q + 2], pc = planeBuf[q + 3]
+          const fx2 = nx2 > 0 ? cenMax[b] : cenMin[b]
+          const fy2 = ny2 > 0 ? cenMax[b + 1] : cenMin[b + 1]
+          const fz2 = nz2 > 0 ? cenMax[b + 2] : cenMin[b + 2]
+          if (nx2 * fx2 + ny2 * fy2 + nz2 * fz2 + pc < -rMax) { cellOut = true; break }
+          const ax = nx2 > 0 ? cenMin[b] : cenMax[b]
+          const ay = ny2 > 0 ? cenMin[b + 1] : cenMax[b + 1]
+          const az = nz2 > 0 ? cenMin[b + 2] : cenMax[b + 2]
+          if (nx2 * ax + ny2 * ay + nz2 * az + pc < -rMin) mask |= 1 << (q >> 2)
+        }
+        if (cellOut) { grid.state[c] = CELL_OUT; grid.mask[c] = 63; continue }
+        grid.mask[c] = mask
+        grid.state[c] = mask === 0 ? CELL_IN : CELL_PART
       }
-      let culled = false
-      if (frustum && tier !== NO_MESH_TIER) {
-        const bx = spans[o + 3], by = spans[o + 4], bz = spans[o + 5], nr = -spans[o + 6]
-        for (let q = 0; q < 24; q += 4) if (planeBuf[q] * bx + planeBuf[q + 1] * by + planeBuf[q + 2] * bz + planeBuf[q + 3] < nr) { culled = true; break }
+      sweepStats.cellsTested += cells
+      for (let c = 0; c < cells; c++) {
+        const b = c * 3
+        const gx = Math.max(posMin[b] - lodEyeX, 0, lodEyeX - posMax[b])
+        const gy = Math.max(posMin[b + 1] - lodEyeY, 0, lodEyeY - posMax[b + 1])
+        const gz = Math.max(posMin[b + 2] - lodEyeZ, 0, lodEyeZ - posMax[b + 2])
+        const fx = Math.max(lodEyeX - posMin[b], posMax[b] - lodEyeX)
+        const fy = Math.max(lodEyeY - posMin[b + 1], posMax[b + 1] - lodEyeY)
+        const fz = Math.max(lodEyeZ - posMin[b + 2], posMax[b + 2] - lodEyeZ)
+        const dminSq = gx * gx + gy * gy + gz * gz
+        const dmaxSq = fx * fx + fy * fy + fz * fz
+        const tierNear = tierFor(dminSq)
+        const tierFar = tierFor(dmaxSq)
+        let shadowMode = SHADOW_NONE
+        if (shadowDistSq >= 0) shadowMode = dmaxSq <= shadowDistSq ? SHADOW_ALL : (dminSq > shadowDistSq ? SHADOW_NONE : SHADOW_MIXED)
+        const state = grid.state[c]
+        const out = state === CELL_OUT
+        let mode = MODE_MIXED, cellTier = tierNear
+        if (tierNear === NO_MESH_TIER || out) mode = MODE_NOT_DRAWN
+        else if (tierNear === tierFar && shadowMode !== SHADOW_MIXED) mode = state === CELL_IN ? MODE_UNIFORM : MODE_MIXED
+        if (mode !== MODE_MIXED && grid.mode[c] === mode && grid.tier[c] === cellTier && grid.shadowMode[c] === shadowMode) { sweepStats.cellsSkipped++; continue }
+        const s0 = grid.start[c], s1 = grid.start[c + 1]
+        const order = grid.order
+        const bulkShadow = shadow !== null && shadowMode !== SHADOW_MIXED
+        const bulkWant = shadowMode === SHADOW_ALL
+        if (mode === MODE_NOT_DRAWN) {
+          for (let i = s0; i < s1; i++) {
+            const id = order[i], rec = recs[id]
+            walked++
+            if (rec.tier !== NO_MESH_TIER || rec.viewCulled) placeInTier(id, rec, NO_MESH_TIER, false)
+            if (bulkShadow && rec.shadowWanted !== bulkWant) applyShadowWanted(id, rec, bulkWant)
+          }
+        } else if (mode === MODE_UNIFORM) {
+          for (let i = s0; i < s1; i++) {
+            const id = order[i], rec = recs[id]
+            walked++
+            if (rec.tier !== cellTier || rec.viewCulled) placeInTier(id, rec, cellTier, false)
+            if (bulkShadow && rec.shadowWanted !== bulkWant) applyShadowWanted(id, rec, bulkWant)
+          }
+        } else {
+          const mask = grid.mask[c]
+          for (let i = s0; i < s1; i++) {
+            const id = order[i], rec = recs[id]
+            walked++
+            const o = id * SPAN_STRIDE
+            const dx = spans[o] - lodEyeX, dy = spans[o + 1] - lodEyeY, dz = spans[o + 2] - lodEyeZ
+            const dsq = dx * dx + dy * dy + dz * dz
+            const tier = tierFor(dsq)
+            const shadowWanted = shadowDistSq >= 0 && dsq <= shadowDistSq
+            if (shadow && shadowWanted !== rec.shadowWanted) applyShadowWanted(id, rec, shadowWanted)
+            let culled = out
+            if (!culled && tier !== NO_MESH_TIER && mask !== 0) {
+              const cx2 = spans[o + 3], cy2 = spans[o + 4], cz2 = spans[o + 5], nr = -spans[o + 6]
+              for (let q = 0; q < 24; q += 4) {
+                if ((mask & (1 << (q >> 2))) === 0) continue
+                planeTests++
+                if (planeBuf[q] * cx2 + planeBuf[q + 1] * cy2 + planeBuf[q + 2] * cz2 + planeBuf[q + 3] < nr) { culled = true; break }
+              }
+            }
+            if (tier !== rec.tier || culled !== rec.viewCulled) placeInTier(id, rec, tier, culled)
+          }
+        }
+        grid.mode[c] = mode
+        grid.tier[c] = cellTier
+        grid.shadowMode[c] = shadowMode
       }
-      if (tier !== rec.tier || culled !== rec.viewCulled) placeInTier(id, rec, tier, culled)
+    } else {
+      for (let id = 0; id < recs.length; id++) {
+        const rec = recs[id]
+        if (rec === null) continue
+        walked++
+        const o = id * SPAN_STRIDE
+        let tier = rec.tier
+        if (moved) {
+          const dx = spans[o] - lodEyeX, dy = spans[o + 1] - lodEyeY, dz = spans[o + 2] - lodEyeZ
+          const dsq = dx * dx + dy * dy + dz * dz
+          tier = tierFor(dsq)
+          const shadowWanted = shadowDistSq >= 0 && dsq <= shadowDistSq
+          if (shadow && shadowWanted !== rec.shadowWanted) applyShadowWanted(id, rec, shadowWanted)
+        }
+        let culled = false
+        if (frustum && tier !== NO_MESH_TIER) {
+          const bx = spans[o + 3], by = spans[o + 4], bz = spans[o + 5], nr = -spans[o + 6]
+          for (let q = 0; q < 24; q += 4) { planeTests++; if (planeBuf[q] * bx + planeBuf[q + 1] * by + planeBuf[q + 2] * bz + planeBuf[q + 3] < nr) { culled = true; break } }
+        }
+        if (tier !== rec.tier || culled !== rec.viewCulled) placeInTier(id, rec, tier, culled)
+      }
     }
+    sweepStats.recordsWalked += walked
+    sweepStats.planeTests += planeTests
   }
 
-  return {
+  const api = {
     get capacity() { return tiers[0].capacity },
     get mesh() { return tiers[0].mesh },
     get geometry() { return tiers[0].mesh.geometry },
@@ -256,7 +496,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
         liveCount++
         tiers[0].add(id, rec)
       }
-      if (count > 0) lodStale = true
+      if (count > 0) { lodStale = true; grid.dirty = true }
     },
     removeInstances(id) {
       const rec = recs[id]
@@ -266,6 +506,8 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
       recs[id] = null
       liveCount--
       freeIds.push(id)
+      lodStale = true
+      grid.dirty = true
     },
     setUniformAt(id, name, value) {
       const rec = recs[id]
@@ -279,6 +521,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
       const rec = recs[id]
       if (!rec || rec.visible === visible) return
       rec.visible = visible
+      invalidateCellOf(id)
       if (visible) show(id, rec); else hide(id, rec)
     },
     resizeBuffers() {},
@@ -287,11 +530,17 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
       if (!(d > 0)) throw new RangeError(`WebGPULodInstancer.setMeshFarDistance: distance must be positive, got ${d}`)
       meshFarSq = d * d
       lodStale = true
+      if (grid.usable) grid.mode.fill(APPLIED_INVALID, 0, grid.cells)
     },
     get lodTierCount() { return tiers.length },
+    get sweepStats() { return sweepStats },
+    get tierIds() { return tiers.map(t => t.ids) },
+    get sweepGrid() { return { usable: grid.usable, cells: grid.cells, instances: liveCount } },
     get shadowActiveCount() { return shadow ? shadow.size : 0 },
     get tierMeshes() { return tiers.map(t => t.mesh) },
     get shadowMesh() { return shadow ? shadow.mesh : null },
-    dispose() { for (const p of pools) p.dispose(); recs.length = 0; liveFlags.fill(0); liveCount = 0; freeIds.length = 0 },
+    dispose() { for (const p of pools) p.dispose(); recs.length = 0; liveFlags.fill(0); liveCount = 0; freeIds.length = 0; grid.dirty = true; grid.usable = false; grid.cells = 0 },
   }
+  for (const p of pools) p.mesh.userData.lodInstancer = api
+  return api
 }
