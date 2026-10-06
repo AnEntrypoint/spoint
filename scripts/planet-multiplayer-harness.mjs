@@ -537,5 +537,10 @@ async function runParent() {
     const h = r.hitReg.byDistance, hs = x => `${x.hitTarget}/${x.n}`
     originals.log(`| ${r.scenario} | ${r.n} | ${r.teleportsOk}/${r.n - r.teleportsOk} ${Object.keys(r.teleportRefusals).join(';').slice(0, 60)} | ${f(r.serverTickMs.p50)}/${f(r.serverTickMs.p99)}/${f(r.serverTickMs.max)} | ${f(r.serverMainThreadCpuMsPerTick, 3)} | ${r.eventLoopDelayMs.p99} | ${f(r.clientDownKBps.p50, 1)}/${f(r.clientDownKBps.max, 1)} | ${f(r.clientUpKBps.p50, 1)} | ${f(r.snapshotHz.p50, 1)} | ${r.interest.missing}/${r.interest.extra} of ${r.interest.expectedPairs} | ${f(r.distortion.maxAbsM)} | ${r.serverGround.grounded}/${r.serverGround.ofPlayers} | ${r.prediction ? r.prediction.correctionsPerAck : '-'} | ${hs(h[1])} / ${hs(h[2])} / ${hs(h[3])} | ${r.failures.nonFiniteServerPositions + r.failures.nonFiniteClientLocal + r.failures.clientNanStates} | ${f(r.streaming.heightfieldBuildsPerS, 3)} | ${r.memory.rssGrowthMBPerMin} |`)
   }
+  const fatals = results.filter((r) => r.fatal)
+  if (fatals.length) {
+    console.error(`[planet-harness] ${fatals.length} of ${results.length} scenario(s) produced no data: ${fatals.map((r) => r.scenario).join(', ')}`)
+    process.exit(1)
+  }
   process.exit(0)
 }
