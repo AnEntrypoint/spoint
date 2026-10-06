@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import { execSync } from 'node:child_process'
+import { execSync, execFileSync } from 'node:child_process'
 import { decodePng, regionMasks, regionMean, regionMeanAbs } from './png.mjs'
 
 const K = 3, FLOOR_MIN = 1.0, SKY_GATE = 0.2
@@ -99,13 +99,28 @@ const allProbes = [...probesOf(tslBoot), ...probesOf(legBoot), ...probesOf(tslCa
 const blocked = Math.max(0, ...[...allSigs(tslCap), ...allSigs(legCap)].map(s => s.blocked || 0), ...allProbes.map(p => p.blocked))
 gate('no input reached the page', blocked === 0, { blocked, probes: allProbes, tslInputLog: ts && ts.inputLog, legacyInputLog: ls && ls.inputLog })
 
+function toCrlf(buf) {
+  return Buffer.from(buf.toString('utf8').replace(/\r\n/g, '\n').replace(/\n/g, '\r\n'), 'utf8')
+}
+
+function pinnedMapspinnerBytes(rel) {
+  if (!captureHead) return null
+  try {
+    return toCrlf(execFileSync('git', ['show', captureHead.sha + ':packages/mapspinner/' + rel], { cwd: repo, maxBuffer: 64 * 1024 * 1024 }))
+  } catch {
+    return null
+  }
+}
+
 const hashRows = []
 for (const ev of [...tslBoot.events, ...legBoot.events].filter(e => e.event === 'Debugger.scriptParsed')) {
   const u = ev.params.url, m = u.match(/\/node_modules\/mapspinner\/(.+?)(\?|$)/)
   if (!m) continue
   const disk = path.join(repo, 'packages', 'mapspinner', m[1])
-  const sha = fs.existsSync(disk) ? crypto.createHash('sha256').update(fs.readFileSync(disk)).digest('hex') : null
-  hashRows.push({ file: m[1], executed: ev.params.hash, disk: sha, match: sha === ev.params.hash })
+  const pinned = pinnedMapspinnerBytes(m[1])
+  const bytes = pinned || (fs.existsSync(disk) ? toCrlf(fs.readFileSync(disk)) : null)
+  const sha = bytes ? crypto.createHash('sha256').update(bytes).digest('hex') : null
+  hashRows.push({ file: m[1], executed: ev.params.hash, disk: sha, match: sha === ev.params.hash, side: pinned ? 'pinned ' + captureHead.sha : 'worktree' })
 }
 const uniqueHashes = Object.values(Object.fromEntries(hashRows.map(r => [r.file + r.executed, r])))
 gate('executed mapspinner bytes equal disk', uniqueHashes.length > 0 && uniqueHashes.every(r => r.match), { checked: uniqueHashes.length, mismatched: uniqueHashes.filter(r => !r.match).map(r => r.file) })
