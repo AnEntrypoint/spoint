@@ -80,18 +80,26 @@ export function createPlacementLattice(radius, chunkM, cellsPerChunk) {
   }
 
   const _dec = [0, 0, 0]
-  const CHUNK_DIR_CACHE_CAP = 16384
-  const _chunkDirs = new Map()
+  const _tmpDir = new Float64Array(3)
+  const DIR_CACHE_SLOTS = 16384
+  const DIR_CACHE_MASK = DIR_CACHE_SLOTS - 1
+  const _dirCacheKey = new Float64Array(DIR_CACHE_SLOTS).fill(-1)
+  const _dirCacheVal = new Float64Array(DIR_CACHE_SLOTS * 3)
   function chunkCentreDir(key, out) {
-    let d = _chunkDirs.get(key)
-    if (d === undefined) {
+    const h = Math.imul(key, 0x9e3779b1)
+    const slot = (h ^ (h >>> 15)) & DIR_CACHE_MASK
+    const at = slot * 3
+    if (_dirCacheKey[slot] !== key) {
+      _dirCacheKey[slot] = key
       decodeChunk(key, _dec)
-      d = new Float64Array(3)
-      cellDir(_dec[0], (_dec[1] + 0.5) * cellsPerChunk, (_dec[2] + 0.5) * cellsPerChunk, d)
-      if (_chunkDirs.size >= CHUNK_DIR_CACHE_CAP) _chunkDirs.delete(_chunkDirs.keys().next().value)
-      _chunkDirs.set(key, d)
+      cellDir(_dec[0], (_dec[1] + 0.5) * cellsPerChunk, (_dec[2] + 0.5) * cellsPerChunk, _tmpDir)
+      _dirCacheVal[at] = _tmpDir[0]
+      _dirCacheVal[at + 1] = _tmpDir[1]
+      _dirCacheVal[at + 2] = _tmpDir[2]
     }
-    out[0] = d[0]; out[1] = d[1]; out[2] = d[2]
+    out[0] = _dirCacheVal[at]
+    out[1] = _dirCacheVal[at + 1]
+    out[2] = _dirCacheVal[at + 2]
     return out
   }
 
