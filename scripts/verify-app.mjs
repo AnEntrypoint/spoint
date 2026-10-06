@@ -85,7 +85,7 @@ async function main() {
       'console.error=function(){window.__verifyConsoleErrors.push(Array.from(arguments).map(String).join(" "));' +
       'ce.apply(null,arguments)}})();' +
       'window.addEventListener("error",function(e){window.__verifyConsoleErrors.push("uncaught: "+e.message)})' })
-    const readConsoleErrors = () => page.evaluate(() => window.__verifyConsoleErrors || [])
+    const readConsoleErrors = () => page.evaluate(() => Array.isArray(window.__verifyConsoleErrors) ? window.__verifyConsoleErrors : null)
 
     const url = `${base}/?multiplayer&world=${WORLD_NAME}`
     console.log(`[verify-app] navigating client to ${url}`)
@@ -111,17 +111,17 @@ async function main() {
     }
     check('zero uncaught page errors in the browser client', pageErrors.length === 0, JSON.stringify(pageErrors).slice(0, 2000))
     const attributable = (errs) => errs.filter(l => APPS.some(a => l.includes(a) || l.includes(`[app-eval] ${a}:`) || l.includes(`[app-setup] ${a} `)))
-    check('zero console.error() calls attributable to the verified apps', attributable(consoleErrors1).length === 0, JSON.stringify(attributable(consoleErrors1)).slice(0, 2000))
+    check('zero console.error() calls attributable to the verified apps', Array.isArray(consoleErrors1) && attributable(consoleErrors1).length === 0, JSON.stringify(consoleErrors1).slice(0, 2000))
 
     await page.keyboard.down('KeyW')
     await new Promise(r => setTimeout(r, 1500))
     await page.keyboard.up('KeyW')
     await new Promise(r => setTimeout(r, 1000))
     const consoleErrors2 = await readConsoleErrors()
-    const ambient = consoleErrors2.length - attributable(consoleErrors2).length
+    const ambient = Array.isArray(consoleErrors2) ? consoleErrors2.length - attributable(consoleErrors2).length : 0
     if (ambient > 0) console.log(`  [note] ${ambient} ambient console.error() from UNRELATED pre-existing shipped apps (not failing this gate): ${JSON.stringify([...new Set(consoleErrors2.filter(l => !attributable([l]).length).map(l => String(l).split(String.fromCharCode(10))[0].slice(0, 90)))])}`)
     check('zero uncaught page errors after input drive', pageErrors.length === 0, JSON.stringify(pageErrors).slice(0, 2000))
-    check('zero console.error() calls attributable to the verified apps after input drive', attributable(consoleErrors2).length === 0, JSON.stringify(attributable(consoleErrors2)).slice(0, 2000))
+    check('zero console.error() calls attributable to the verified apps after input drive', Array.isArray(consoleErrors2) && attributable(consoleErrors2).length === 0, JSON.stringify(consoleErrors2).slice(0, 2000))
 
     console.error = origConsoleError
     const realServerErrors = serverErrors.filter(l =>
