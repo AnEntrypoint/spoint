@@ -43,6 +43,6 @@ for (const item of results) {
 }
 console.log('saved ' + name + ' <- ' + files[0].f + '  ok=' + (j.ok !== false) + '  items=' + results.length + '  bytes=' + fs.statSync(src).size + (headNow ? '  head=' + headNow.slice(0, 8) : ''))
 if (d.error) console.log('DISPATCH_ERROR ' + JSON.stringify(d.error).slice(0, 400))
-if (maxBlocked > 0) console.log('ABORT: blockedInput=' + maxBlocked + ' in ' + name + ' -- re-navigate and re-boot, do not capture through contaminated input')
+if (maxBlocked > 0) { console.log('ABORT: blockedInput=' + maxBlocked + ' in ' + name + ' -- re-navigate and re-boot, do not capture through contaminated input'); process.exit(3) }
 console.log('---')
 console.log(lines.join('\n'))
