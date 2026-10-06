@@ -5,10 +5,12 @@ import { dirname, join } from 'node:path'
 import { chromium } from './lib/cdp-browser.mjs'
 import { unreachedReasons } from './lib/witness-reachability.mjs'
 import { assertGpu, gpuArgs } from './lib/gpu-probe.mjs'
+import { baselineRefusals } from './lib/frame-time-baseline.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
-const BASELINE_PATH = join(ROOT, '.frame-time-baseline.json')
+const baselineArg = (process.argv.find(a => a.startsWith('--baseline=')) || '').slice('--baseline='.length)
+const BASELINE_PATH = baselineArg || join(ROOT, '.frame-time-baseline.json')
 const THRESHOLD = 1.10
 const UPDATE = process.argv.includes('--update-baseline')
 const ACCELERATED = process.argv.includes('--accelerated')
@@ -167,6 +169,20 @@ async function measureRealFrameTimes() {
 function avg(arr) { return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0 }
 
 async function main() {
+  const baseline = UPDATE ? null : readBaseline()
+  if (!UPDATE) {
+    if (!baseline) {
+      console.error(`[frame-time-gate] no baseline found at ${BASELINE_PATH}. Run with --update-baseline to create one.`)
+      process.exit(1)
+    }
+    const refusals = baselineRefusals(baseline)
+    if (refusals.length) {
+      console.error(`[frame-time-gate] BASELINE NOT ADMISSIBLE: ${refusals.join('; ')}`)
+      console.error('[frame-time-gate] frame times compare only between runs of the same rasterizer class with enough samples to support the percentiles -- capture a fresh baseline with --update-baseline.')
+      process.exit(1)
+    }
+  }
+
   let raw
   try {
     raw = await measureRealFrameTimes()
@@ -204,19 +220,13 @@ async function main() {
     process.exit(0)
   }
 
-  const baseline = readBaseline()
-  if (!baseline) {
-    console.error('[frame-time-gate] no baseline found. Run with --update-baseline to create one.')
+  const refusals = baselineRefusals(baseline, metrics)
+  if (refusals.length) {
+    console.error(`[frame-time-gate] BASELINE NOT ADMISSIBLE: ${refusals.join('; ')}`)
     process.exit(1)
   }
 
-  const baseRasterizer = baseline.rasterizer || 'software'
-  if (baseRasterizer !== metrics.rasterizer) {
-    console.error(`[frame-time-gate] RASTERIZER MISMATCH: baseline was captured on ${baseRasterizer}, this run measured ${metrics.rasterizer} (${metrics.gpu || 'no gpu strings'}). Frame times are not comparable across rasterizer classes -- capture a baseline on ${metrics.rasterizer} with --update-baseline.`)
-    process.exit(1)
-  }
-
-  const baseMs = baseline.orbit?.p50Ms
+  const baseMs = baseline.orbit.p50Ms
   if (baseMs == null) {
     console.error('[frame-time-gate] baseline missing orbit.p50Ms. Run with --update-baseline to refresh.')
     process.exit(1)
