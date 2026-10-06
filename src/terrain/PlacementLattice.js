@@ -80,9 +80,19 @@ export function createPlacementLattice(radius, chunkM, cellsPerChunk) {
   }
 
   const _dec = [0, 0, 0]
+  const CHUNK_DIR_CACHE_CAP = 16384
+  const _chunkDirs = new Map()
   function chunkCentreDir(key, out) {
-    decodeChunk(key, _dec)
-    return cellDir(_dec[0], (_dec[1] + 0.5) * cellsPerChunk, (_dec[2] + 0.5) * cellsPerChunk, out)
+    let d = _chunkDirs.get(key)
+    if (d === undefined) {
+      decodeChunk(key, _dec)
+      d = new Float64Array(3)
+      cellDir(_dec[0], (_dec[1] + 0.5) * cellsPerChunk, (_dec[2] + 0.5) * cellsPerChunk, d)
+      if (_chunkDirs.size >= CHUNK_DIR_CACHE_CAP) _chunkDirs.delete(_chunkDirs.keys().next().value)
+      _chunkDirs.set(key, d)
+    }
+    out[0] = d[0]; out[1] = d[1]; out[2] = d[2]
+    return out
   }
 
   function chunkCornerDir(key, cornerU, cornerV, out) {
@@ -94,25 +104,29 @@ export function createPlacementLattice(radius, chunkM, cellsPerChunk) {
   function hashRow(face, i) { return face * cellsPerFace + i }
 
   const _c = [0, 0, 0], _s = [0, 0, 0]
+  const _ringKeys = [], _ringChord = [], _ringOrder = []
   function ringAroundDir(dx, dy, dz, radiusM) {
     const face = cubeFaceOf(dx, dy, dz)
     faceAngles(face, dx, dy, dz, _a)
     const maxAngle = radiusM / radius
+    const maxChordSq = 4 * Math.sin(maxAngle / 2) ** 2
     const span = Math.ceil(maxAngle / (chunkAngle * MIN_AXIS_STRETCH)) + 1
     const fci = (_a[0] + FACE_EDGE_ANGLE) / chunkAngle, fcj = (_a[1] + FACE_EDGE_ANGLE) / chunkAngle
     const ci0 = Math.floor(fci), cj0 = Math.floor(fcj)
-    const seen = new Set(), out = []
+    _ringKeys.length = 0
+    _ringChord.length = 0
     const consider = (key) => {
-      if (seen.has(key)) return
-      seen.add(key)
       chunkCentreDir(key, _c)
-      const cosA = _c[0] * dx + _c[1] * dy + _c[2] * dz
-      const ang = Math.acos(cosA > 1 ? 1 : (cosA < -1 ? -1 : cosA))
-      if (ang <= maxAngle) out.push({ key, dist: ang * radius })
+      const ex = _c[0] - dx, ey = _c[1] - dy, ez = _c[2] - dz
+      const chordSq = ex * ex + ey * ey + ez * ez
+      if (chordSq > maxChordSq) return
+      _ringKeys.push(key)
+      _ringChord.push(chordSq)
     }
     if (ci0 - span >= 0 && cj0 - span >= 0 && ci0 + span < chunksPerFace && cj0 + span < chunksPerFace) {
       for (let di = -span; di <= span; di++) for (let dj = -span; dj <= span; dj++) consider(chunkKey(face, ci0 + di, cj0 + dj))
     } else {
+      const seen = new Set()
       const steps = span * RING_OVERSAMPLE_PER_CHUNK
       for (let si = -steps; si <= steps; si++) {
         for (let sj = -steps; sj <= steps; sj++) {
@@ -120,11 +134,19 @@ export function createPlacementLattice(radius, chunkM, cellsPerChunk) {
           const av = (fcj + sj / RING_OVERSAMPLE_PER_CHUNK) * chunkAngle - FACE_EDGE_ANGLE
           if (Math.abs(au) >= QUARTER_TURN * 0.99 || Math.abs(av) >= QUARTER_TURN * 0.99) continue
           dirOfFaceAngles(face, au, av, _s)
-          consider(chunkKeyOfDir(_s[0], _s[1], _s[2]))
+          const key = chunkKeyOfDir(_s[0], _s[1], _s[2])
+          if (seen.has(key)) continue
+          seen.add(key)
+          consider(key)
         }
       }
     }
-    out.sort((a, b) => a.dist - b.dist || a.key - b.key)
+    const n = _ringKeys.length
+    const order = new Array(n)
+    for (let i = 0; i < n; i++) order[i] = i
+    order.sort((a, b) => _ringChord[a] - _ringChord[b] || _ringKeys[a] - _ringKeys[b])
+    const out = new Array(n)
+    for (let i = 0; i < n; i++) out[i] = _ringKeys[order[i]]
     return out
   }
 
