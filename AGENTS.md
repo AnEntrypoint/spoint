@@ -255,6 +255,15 @@ as of 2026-10-05 (`terrain.clusters.enabled !== true` returns null).
   shrinking the chart: `CHART_ANCHORS_PER_FACE = 32` (`src/shared/chartAnchor.js`, shipped
   `b6af3ff0`), cell-keyed, worst cell angle 2.26 deg. Never raise `MAX_SLOPE_DEG`, pinned to
   `DEFAULT_MAX_SLOPE_ANGLE_RAD = 0.7854` in `src/physics/CharacterManager.js`.
+  `project/terrain-fine-field-height-error-is-the-chart-tilt-term`: that same term bounds every
+  field-interpolated ground answer. Measured on tps-game (radius 63600 m, 256 m field, 2.0157 m
+  spacing) against the exact solver at interior points — max error 0.2452 m at the anchor, 0.2619 m
+  at 1 km, 0.3708 m at 10 km and 4.0304 m at 60 km, against a `spacing * tan(distance / radius)`
+  prediction of 0 / 0.0317 / 0.3196 / 2.7798 m over a ~0.21 m solver floor. Halving the spacing
+  shrinks it by 0.47-0.65, not 0.25, so it is first order in spacing, not interpolation error, and
+  re-anchoring the chart on the same ground collapses 4.0304 m to 0.2084 m. Bound to assume: about
+  0.35 m max (0.16 m p95) anywhere inside a cell-keyed chart, growing as
+  `0.21 m + spacing * tan(distance / radius)` once the anchor is further away.
   `streamer.chartReanchor` (`src/terrain/ChartReanchorService.js`, `tcfg.chartReanchor.enabled`,
   default off) rotates the frame and runs every registered migrator; it throws only when stepped
   with no migrator registered.
@@ -300,7 +309,8 @@ Full text in recall (`recall <slug>`); read the memo before changing the named c
   own min/max: error about range/30000, and a 10 um nudge of an extreme cell moves the surface up
   to range/5000 anywhere, which is why the sampler snaps to 1 mm and why `+ 0` after `Math.round`
   is load-bearing),
-  `project/terrain-raycast-comparison-must-pin-resident-field-set`.
+  `project/terrain-raycast-comparison-must-pin-resident-field-set`,
+  `project/terrain-fine-field-height-error-is-the-chart-tilt-term`.
 - Editor/UI/tooling: `kit-applydiff-child-crash-classes`, `hud-overlay-mount-outside-uiroot`,
   `e2e-harness-multiplayer-param-and-no-watch`, `bundle-client-outfile-and-externals`.
 
