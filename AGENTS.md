@@ -295,7 +295,12 @@ Full text in recall (`recall <slug>`); read the memo before changing the named c
   `statichandler-path-containment`, `statichandler-coop-coep-require-corp`.
 - Terrain/assets: `terrain-collider-streamer-per-player-rings`,
   `terrain-placement-parity-salt-and-prejitter-cell`, `glbktx2-meshopt-bufferview-ext-range`,
-  `rocks-visual-physics-seed-parity`.
+  `rocks-visual-physics-seed-parity`,
+  `project/terrain-heightfield-collider-quantizes-over-min-max` (a Jolt field quantizes over its
+  own min/max: error about range/30000, and a 10 um nudge of an extreme cell moves the surface up
+  to range/5000 anywhere, which is why the sampler snaps to 1 mm and why `+ 0` after `Math.round`
+  is load-bearing),
+  `project/terrain-raycast-comparison-must-pin-resident-field-set`.
 - Editor/UI/tooling: `kit-applydiff-child-crash-classes`, `hud-overlay-mount-outside-uiroot`,
   `e2e-harness-multiplayer-param-and-no-watch`, `bundle-client-outfile-and-externals`.
 
