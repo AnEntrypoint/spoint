@@ -143,7 +143,9 @@ async function run(profileName) {
   const settled = Math.min(...roster.map(clockOf)) - 14
   const comparable = ordered.filter(([t, row]) => t <= settled && roster.every(pk => row[pk] && row[pk].checksum !== null))
   let mismatches = 0, firstMismatch = null, simTickLag = 0
+  const seenSums = new Set()
   for (const [t, row] of comparable) {
+    seenSums.add(row['peer-a'].checksum)
     if (row['peer-a'].checksum !== row['peer-b'].checksum) { mismatches++; if (firstMismatch === null) firstMismatch = t }
     if (row['peer-a'].simTick !== row['peer-b'].simTick) simTickLag++
   }
@@ -152,6 +154,7 @@ async function run(profileName) {
   console.log(`  fire checksums compared on ${comparable.length} tick(s) up to tick ${settled}: ${mismatches} mismatch(es), first ${firstMismatch}, fire simTick skew on ${simTickLag} tick(s)`)
   if (comparable.length === 0) failures.push(`${profileName}: no tick had a fire checksum on every peer, so no desync could be measured`)
   if (mismatches > 0) failures.push(`${profileName}: ${mismatches} fire checksum mismatch(es) over ${comparable.length} comparable tick(s), first at tick ${firstMismatch}`)
+  if (seenSums.size < 2) failures.push(`${profileName}: peer-a held one checksum (${[...seenSums][0]}) over ${comparable.length} comparable tick(s), so peer agreement proves nothing`)
   if (mismatches > 0) {
     const bad = ordered.find(([t]) => t === firstMismatch)
     console.log(`  rows at first mismatch: ${JSON.stringify(bad?.[1])}`)

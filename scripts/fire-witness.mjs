@@ -132,6 +132,7 @@ say('== 2. authority determinism and authority/mirror parity over the wire ==')
   runB.fire.igniteCell(HOME_FACE, HOME_I, HOME_J, 3)
   const mirrorRig = makeFire({ ...spec, role: 'mirror' })
   let mismatches = 0, compared = 0, wireEvents = 0, wireBytes = 0
+  const authoritySums = new Set()
   for (let block = 1; block <= 60; block++) {
     const target = block * TICKS_PER_STEP * 4
     runTo(runA, target)
@@ -142,6 +143,7 @@ say('== 2. authority determinism and authority/mirror parity over the wire ==')
     }
     runTo(mirrorRig, target)
     compared++
+    authoritySums.add(runA.fire.checksum())
     if (runA.fire.checksum() !== runB.fire.checksum()) mismatches++
     if (runA.fire.checksum() !== mirrorRig.fire.checksum()) mismatches++
   }
@@ -149,6 +151,7 @@ say('== 2. authority determinism and authority/mirror parity over the wire ==')
   if (compared === 0) failures.push('section 2: no authority/mirror checksum comparison was made')
   if (mismatches > 0) failures.push(`section 2: ${mismatches} mismatch(es) over ${compared} comparisons between two authorities and the mirror`)
   if (wireEvents === 0) failures.push('section 2: no fire event row reached the wire')
+  if (authoritySums.size < 2) failures.push(`section 2: the authority checksum held one value (${[...authoritySums][0]}) across ${compared} comparisons, so agreement proves nothing`)
   if (runA.fire.stats.ignitions === 0) failures.push('section 2: the authority never ignited a cell, so the parity run observed nothing')
   say(`authority fire checksum ${runA.fire.checksum()}, mirror checksum ${mirrorRig.fire.checksum()}`)
   say(`wire: ${wireEvents} event rows, ${wireBytes} B of JSON, active cells ${runA.fire.activeCount}, tiles ${runA.fire.world.kernel.tileCount}, ignitions ${runA.fire.stats.ignitions}`)
@@ -268,13 +271,21 @@ say('== 6. smoke: a flat shot is absorbed, a steep shot over the plume passes ==
   const flat = Math.hypot(dx, dz)
   say(`young fire after 14 steps: ${rig.fire.activeCount} active cells, shooter outside it firing ${flat.toFixed(0)} m at chart-local ${ox.toFixed(0)},${oz.toFixed(0)}`)
   const results = []
+  let deepest = 0, blockedSamples = 0, clearSamples = 0
   for (const climb of [0, 0.05, 0.1, 0.2, 0.4]) {
     const len = Math.hypot(dx, climb * flat, dz)
     const dir = [dx / len, climb * flat / len, dz / len]
     const depth = rig.fire.smokeDepth([ox, oy, oz], dir, flat)
-    results.push(`slope ${String(climb).padEnd(4)}: depth ${depth.toFixed(2)} blocked=${rig.fire.rayBlocked([ox, oy, oz], dir, flat)}`)
+    const blocked = rig.fire.rayBlocked([ox, oy, oz], dir, flat)
+    if (depth > deepest) deepest = depth
+    if (blocked) blockedSamples++
+    else clearSamples++
+    results.push(`slope ${String(climb).padEnd(4)}: depth ${depth.toFixed(2)} blocked=${blocked}`)
   }
   for (const r of results) say('  ' + r)
+  if (!(deepest > 0)) failures.push(`section 6: no ray through the burning fire saw any smoke (deepest depth ${deepest.toFixed(2)}), so the smoke query observed nothing`)
+  if (blockedSamples === 0) failures.push(`section 6: not one of the ${results.length} rays through the burning fire was blocked by smoke`)
+  if (clearSamples === 0) failures.push(`section 6: every one of the ${results.length} rays was blocked, so rayBlocked is not reading the smoke`)
   const t0 = process.hrtime.bigint()
   const dir = [dx / flat, 0, dz / flat]
   for (let i = 0; i < 1000; i++) rig.fire.smokeDepth([ox, oy, oz], dir, flat)
@@ -421,6 +432,7 @@ say('== 9. rewind: a late event and repeated rollbacks replay to the straight-ru
   say(`ignition delivered late at sim tick 30 (inside the ${rewindSpec.windowSteps ?? 4}-step window): applyRemote ${JSON.stringify(lateApply)}`)
   say(`  late run (world created at tick ${lateStartTick}): ${lateCompared} checkpoints, ${lateMismatch} mismatch(es), timeline stats ${JSON.stringify(late.fire.world.timeline.stats)}`)
   if (lateCompared === 0) failures.push('section 9: the late-event run made no checkpoint comparison')
+  if (new Set(marks.map(m => m[1])).size < 2) failures.push('section 9: every checkpoint of the straight run carries the same checksum, so replay agreement proves nothing')
   if (lateMismatch > 0) failures.push(`section 9: late event run diverged from the straight run on ${lateMismatch} of ${lateCompared} checkpoints`)
   say(`  ${rollbacks} rollbacks (${refused} refused, beyond window): ${rollCompared} checkpoints, ${rollMismatch} mismatch(es), timeline stats ${JSON.stringify(rolled.fire.world.timeline.stats)}`)
   if (rollCompared === 0) failures.push('section 9: the rollback run made no checkpoint comparison')
