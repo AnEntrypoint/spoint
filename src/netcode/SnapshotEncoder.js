@@ -7,6 +7,7 @@ import {
 import { FNV1A_32_OFFSET_BASIS, fnv1aStepString, fnv1aStepBytes, fnv1aStepFloat32 } from '../shared/fnv1a.js'
 import { packGroundNormal, unpackGroundNormal } from '../shared/groundNormalWire.js'
 import { packWallPlanes, unpackWallPlanes } from '../shared/wallPlaneWire.js'
+import { SNAPSHOT_ENTITY_ENC_CODE_VERSION } from '../shared/cacheCodeVersions.js'
 
 export { unpackBinRecord, packQuat, unpackQuat }
 
@@ -129,14 +130,50 @@ const FIELD_CUSTOM = 1 << 5
 const FIELD_SLEEP = 1 << 6
 const FIELD_MODEL = 1 << 7
 
-function fillEntityEnc(e, enc) {
+function packEntityBin(e, into) {
   const pos=e.position, rot=e.rotation, v=e.velocity||VEL_ZERO, s=e.scale||SCALE_ONE
   const px=pos[0],py=pos[1],pz=pos[2],rx=rot[0],ry=rot[1],rz=rot[2],rw=rot[3]
+  return packBinRecord(px,py,pz, packQuat(rx,ry,rz,rw), v[0]||0,v[1]||0,v[2]||0, s[0]||1,s[1]||1,s[2]||1, 0, into)
+}
+
+function writeEntityEncFields(e, enc) {
   enc[0]=e.id; enc[1]=e.model||''
-  enc[2]=packBinRecord(px,py,pz, packQuat(rx,ry,rz,rw), v[0]||0,v[1]||0,v[2]||0, s[0]||1,s[1]||1,s[2]||1, 0)
   enc[3]=e.bodyType||'static'; enc[4]=e.custom||null
   enc[5]=e._dynSleeping?1:0
   return enc
+}
+
+function fillEntityEnc(e, enc) {
+  enc[2]=packEntityBin(e)
+  return writeEntityEncFields(e, enc)
+}
+
+function binBytesEqual(a, b) {
+  for (let i = 0; i < BIN_RECORD_BYTES; i++) if (a[i] !== b[i]) return false
+  return true
+}
+
+function refreshEntryEnc(e, entry) {
+  const enc = entry.enc
+  let changed = entry.binVersion !== SNAPSHOT_ENTITY_ENC_CODE_VERSION
+  entry.binVersion = SNAPSHOT_ENTITY_ENC_CODE_VERSION
+  const cv = typeof e._customV === 'number' ? e._customV : null
+  if (cv !== null && cv !== entry._lastCustomV) changed = true
+  entry._lastCustomV = cv
+  if (enc[0] !== e.id) { enc[0] = e.id; changed = true }
+  const model = e.model || ''
+  if (enc[1] !== model) { enc[1] = model; changed = true }
+  const bodyType = e.bodyType || 'static'
+  if (enc[3] !== bodyType) { enc[3] = bodyType; changed = true }
+  const custom = e.custom || null
+  if (enc[4] !== custom) { enc[4] = custom; changed = true }
+  const sleeping = e._dynSleeping ? 1 : 0
+  if (enc[5] !== sleeping) { enc[5] = sleeping; changed = true }
+  const scratch = entry.bins[entry.flip ^ 1]
+  packEntityBin(e, scratch)
+  const live = enc[2]
+  if (!live || !binBytesEqual(live, scratch)) { enc[2] = scratch; entry.flip ^= 1; changed = true }
+  return changed
 }
 
 export class TombstoneLog {
@@ -271,10 +308,14 @@ function resolveKey(entry) {
 }
 
 function buildEntry(e, id, prevCache, sleeping, simulated) {
-  const enc = encodeEntity(e), cust = enc[4]
+  const bins = [new Uint8Array(BIN_RECORD_BYTES), new Uint8Array(BIN_RECORD_BYTES)]
+  const enc = new Array(6)
+  enc[2] = packEntityBin(e, bins[0])
+  writeEntityEncFields(e, enc)
+  const cust = enc[4]
   const prev = prevCache?.get(id)
   const custStr = resolveCustKey(e, cust, prev?.cust, prev?.custStr)
-  return { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: !!e.custom?._interior, sleeping: !!sleeping, _sleepJustSet: !!sleeping, simulated: !!simulated, _dirty: false, srcEntity: e, _lastCustomV: typeof e._customV === 'number' ? e._customV : null, _pBin: null, _pX: 0, _pY: 0, _pZ: 0, _pVelScore: 0 }
+  return { enc, k: buildEntityKey(enc, custStr), cust, custStr, isEnv: !!e.custom?._interior, sleeping: !!sleeping, _sleepJustSet: !!sleeping, simulated: !!simulated, _dirty: false, srcEntity: e, _lastCustomV: typeof e._customV === 'number' ? e._customV : null, _pBin: null, _pX: 0, _pY: 0, _pZ: 0, _pVelScore: 0, bins, flip: 0, binVersion: SNAPSHOT_ENTITY_ENC_CODE_VERSION }
 }
 
 const NEAR2 = 20 * 20
@@ -423,8 +464,8 @@ export class SnapshotEncoder {
       const e = entities.get(id); if (!e || e.bodyType === 'static') continue
       let entry = cache.get(id)
       if (entry) {
-        fillEntityEnc(e, entry.enc)
-        entry._dirty = true; entry.sleeping = false; entry.simulated = e.bodyType === 'dynamic'; entry.srcEntity = e
+        if (refreshEntryEnc(e, entry)) entry._dirty = true
+        entry.sleeping = false; entry.simulated = e.bodyType === 'dynamic'; entry.srcEntity = e
       } else {
         entry = buildEntry(e, id, null, false, e.bodyType === 'dynamic'); cache.set(id, entry)
       }
@@ -435,8 +476,8 @@ export class SnapshotEncoder {
         const e = entities.get(id); if (!e) continue
         let entry = cache.get(id)
         if (entry) {
-          fillEntityEnc(e, entry.enc)
-          entry._dirty = true; entry.sleeping = false; entry.simulated = false; entry.srcEntity = e
+          if (refreshEntryEnc(e, entry)) entry._dirty = true
+          entry.sleeping = false; entry.simulated = false; entry.srcEntity = e
         } else {
           entry = buildEntry(e, id, null, false, false); cache.set(id, entry)
         }
@@ -455,9 +496,8 @@ export class SnapshotEncoder {
           if (customChangedWhileAsleep) { entry._lastCustomV = cv; entry._dirty = true; entry.srcEntity = e }
           continue
         }
-        fillEntityEnc(e, entry.enc)
+        refreshEntryEnc(e, entry)
         entry._dirty = true; entry.sleeping = true; entry._sleepJustSet = true; entry.srcEntity = e
-        entry._lastCustomV = typeof e._customV === 'number' ? e._customV : null
         if (entry.isEnv) envIds.push(id)
       }
     }

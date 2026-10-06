@@ -36,6 +36,8 @@ const M = {
   entitySamples: 0,
   dynEntries: 0,
   binSamples: 0,
+  primeHits: 0,
+  primeSamples: 0,
   binIdentical: 0,
   binNewBuffers: 0,
   binByteMismatch: 0,
@@ -150,11 +152,22 @@ function sampleEntityBins(cache) {
   M.dynEntries = sampled
 }
 
+let lastDynCache = null
 const origRefresh = SnapshotEncoder.refreshDynamicCache
 SnapshotEncoder.refreshDynamicCache = function (cache, ...rest) {
+  lastDynCache = cache
   const r = origRefresh.call(this, cache, ...rest)
-  if (warmed) sampleEntityBins(cache)
+  if (warmed && !suppress) { sampleEntityBins(cache); samplePrimeMemos(cache) }
   return r
+}
+
+function samplePrimeMemos(cache) {
+  for (const [, entry] of cache) {
+    const enc = entry.enc
+    if (!enc) continue
+    M.primeSamples++
+    if (entry._pBin === enc[2]) M.primeHits++
+  }
 }
 
 const colXf = new Map()
@@ -356,6 +369,26 @@ let overlapArm = 'skipped-too-few'
   }
 }
 
+let movedEntityArm = 'skipped-no-dynamic'
+{
+  const id = [...runtime._activeDynamicIds][0]
+  const e = id !== undefined ? runtime.entities.get(id) : null
+  if (e) {
+    const target = [e.position[0] + 40, e.position[1], e.position[2] + 40]
+    if (e._physicsBodyId !== undefined && runtime._physics) runtime._physics.setBodyPosition(e._physicsBodyId, target)
+    e.position[0] = target[0]; e.position[1] = target[1]; e.position[2] = target[2]
+    let seen = false
+    for (let i = 0; i < 40 && !seen; i++) {
+      await sleep(25)
+      const entry = lastDynCache && lastDynCache.get(id)
+      if (!entry || !entry.enc || !entry.enc[2]) continue
+      unpackBinRecord(entry.enc[2], _binOut)
+      if (Math.abs(_binOut.px - target[0]) < 0.05 && Math.abs(_binOut.pz - target[2]) < 0.05) seen = true
+    }
+    movedEntityArm = seen ? 'seen-moved' : 'not-seen'
+  }
+}
+
 let snapshotMembershipArm = 'skipped'
 {
   const snap = runtime.getSnapshot()
@@ -396,6 +429,9 @@ const out = {
   row1_identicalFraction: Number((M.binIdentical / Math.max(1, M.binSamples)).toFixed(4)),
   row1_newBuffersPerTick: Number((M.binNewBuffers / ticks).toFixed(2)),
   row1_binByteMismatchTotal: M.binByteMismatch,
+  row1_newBuffersPerSample: Number((M.binNewBuffers / Math.max(1, M.binSamples)).toFixed(4)),
+  row1_primeHitsPerTick: Number((M.primeHits / ticks).toFixed(2)),
+  row1_primeHitFraction: Number((M.primeHits / Math.max(1, M.binIdentical)).toFixed(4)),
   row1_changedWithPosDiff: M.binPosDiff,
   row1_changedWithRotDiff: M.binRotDiff,
   row1_changedWithVelDiff: M.binVelDiff,
@@ -420,6 +456,7 @@ const out = {
   correctness_overlapArm: overlapArm,
   correctness_snapshotMembership: snapshotMembershipArm,
   correctness_retainArm: retainArm,
+  correctness_movedEntityArm: movedEntityArm,
   clientErrors: M.clientErrors,
 }
 
