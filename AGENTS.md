@@ -67,6 +67,10 @@ under 30 KB: drain narrative into recall, never grow an audit log here.
   taken while a link was missing is not a property of the code under test.
 - `project/gpu-lock-run-spawns-node-never-a-shell`: `gpulock.mjs run <owner> bash ...` exits 127
   here (spawn is shell:false); pass the node binary and a .mjs script, and confirm with `status`.
+- `project/bakecodeversion-input-list-must-exclude-the-pin-file`: a `BAKE_INPUTS_*` list in
+  `src/static/BakeCodeVersion.js` must not contain `src/shared/cacheCodeVersions.js` -- that file
+  holds the pin the list hashes to, so including it is self-referential and `check-cache-keys` can
+  never match. Exclude it with `PIN_REL` in `scripts/check-cache-keys.mjs` instead.
 
 ## Zero-comment sweep
 
@@ -145,6 +149,12 @@ block continuations, glob literals in `console.log`, `//` inside `http://`.
   `--allow-failed-requests`.
 - `world-shadermanifest-optional-probe-404`: `client/app.js:745` maps a non-ok
   `/apps/world/<world>.shadermanifest.json` to `null`; only `deathrun` and `tps-game` ship one.
+- `project/loaded-box-timer-noise-floor-exceeds-37-percent`: on this shared box a ms-per-tick
+  counter is not a measurement -- two back-to-back arms of one build moved `_lastCollisionMs`
+  0.310 -> 0.423 ms/tick (+37%) while integer work-unit counters in the same runs moved under 1%.
+  Decide perf rows on counted work units and report the ms figure as unmeasured below ~40%. Load
+  also moves the measured quantity: the byte-identical fraction of packed entity bin records read
+  0.378 / 0.254 / 0.109 at 78 / 64 / 52 ticks/s, a starved tick loop giving every prop a larger dt.
 
 ## Entry points
 

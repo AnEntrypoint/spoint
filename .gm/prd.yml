@@ -955,35 +955,6 @@
   body: 'Found while bit-pattern auditing src/protocol/msgpack.js: pack({v:-0}) decodes to 0, so Object.is(-0, decoded) is false. Cause is not the float path - -0 >> 0 === -0 is true so msgpackr takes the integer branch and writes msgpack int 0, and MessagePack has no signed-zero representation. Pre-existing at useFloat32 3 and 0 alike (witnessed both). It is out of scope for the float32 fix but it is a real wire-exactness hole: any value that distinguishes -0 (a sign-carrying zero elevation, a 1/x reciprocal, an atan2 branch, a canonical-JSON or lockstep checksum that hashes bit patterns) flips silently. lockstep-checksum-canonical-float64-order means a checksum taken over bit patterns would disagree between a peer holding -0 and one holding 0.'
   acceptance_criteria: Decide between documenting -0 as not-wire-representable (and normalizing senders) or carrying the sign through a msgpack ext type; whichever is chosen, a witness packs -0 and +0 side by side and states the observed decoded values and whether Object.is holds, and a lockstep checksum over a payload containing -0 matches across two peers.
   status: pending
-- id: cluster-world-jolt-limits-right-sized
-  title: Right-size the per-cluster-world Jolt reservation so more worlds fit per process
-  body: |-
-    Measured on 2026-10-06 (row cluster-worlds-per-process-budget-measured). The Jolt wasm heap is fixed at 134217728 bytes (128 MiB); it does not grow and exceeding it raises Aborted(OOM) inside `new J.JoltInterface` (src/physics/World.js:60), killing the whole process -- every cluster it hosts.
-
-    A world's marginal cost is almost entirely RESERVATION, not content. Measured model, validated to within 0.03% against both the default and the CollisionMirror limits:
-
-      bytes ~= 10645288 + 33*mMaxBodies + 88*mMaxBodyPairs + 336*mMaxContactConstraints
-
-    At the Jolt defaults (10240 / 65536 / 10240) that is 20191712 bytes = 19.256 MiB, split:
-      fixed floor            10.152 MiB (52.7%)
-      mMaxBodyPairs 65536     5.500 MiB (28.6%)
-      mMaxContactConstraints  3.282 MiB (17.0%)
-      mMaxBodies 10240        0.322 MiB (1.7%)
-    Content is negligible by comparison: a static box body is 266 B, a dynamic box body 392 B, a character controller 416 B, a 65x65 heightfield 16 KB. So 1000 terrain tiles cost ~0.25 MiB against a 19.256 MiB world.
-
-    Therefore the binding constraint on worlds-per-process is JoltSettings, not world content. Worked examples from the measured model, all fitting in 128 MiB:
-      (4096, 16384, 4096) -> 13549232 B = 12.922 MiB -> 9 worlds
-      (4096, 32768, 4096) -> 14991016 B = 14.297 MiB -> 8 worlds
-      (4096, 65536, 4096) -> 17874608 B = 17.047 MiB -> 7 worlds
-    against 6 worlds at the current defaults. Right-sizing the reservation is worth up to +50% worlds per process.
-
-    The formula above is what makes this row tractable rather than speculative. Before it existed, "how many worlds fit" could only be answered by instantiating worlds into a 128 MiB heap until one aborts -- a destructive search whose only failure signal is a killed process, and whose answer is a single number with no way to evaluate an alternative. With it, every candidate triple is costed and its ceiling derived in arithmetic before any world is created, so the search over (mMaxBodies, mMaxBodyPairs, mMaxContactConstraints) is cheap and total. What remains to measure is only the safe LOWER bound on mMaxBodies (the real body count), never the cost itself; and any limit chosen later re-derives CLUSTER_HEAP_WORLD_CEILING from the same formula instead of re-running the abort search. A candidate that the formula says does not fit must still be witnessed aborting rather than trusted, because the model is a fit to two points (the defaults and MIRROR_JOLT_LIMITS) and is only validated inside that range.
-
-    BLOCKER that must be resolved before shipping this: src/sdk/server.js:37 constructs `new PhysicsWorld({ gravity, crouchHalfHeight })` with no joltLimits, so every world -- cluster or not -- reserves for 10240 bodies and 65536 body pairs. The limits must be chosen from the MEASURED body count of a real production world INCLUDING vegetation colliders (trunks, rocks), because a mMaxBodies too low makes CreateBody fail at runtime rather than degrade. Vegetation was disabled in the measurement that produced this model, so the safe limit is not yet known. Do not pick a number by intuition.
-
-    Scope: thread joltLimits through to cluster worlds only (a single large non-cluster world must keep the defaults).
-  acceptance_criteria: measured body count for a production world with vegetation enabled; limits chosen from that count with stated headroom; N worlds instantiated and ticking at 60 Hz in the real cluster runtime at the new limits with wasm free memory witnessed at each N; the first N that does not fit still aborts with Aborted(OOM) and not silently; npm run check green; CLUSTER_HEAP_WORLD_CEILING re-derived from the new measured marginal
-  status: pending
 - id: perf-framemetrics-lastms-is-dispatch-latency
   title: Adaptive quality reads _perf.lastMs, which is rAF dispatch latency plus JS work, not the frame interval the DPR/VDRS controllers were tuned against
   body: 'client/app.js:2628 feeds _perf.sample(performance.now() - now) where now is the rAF timestamp argument, so the sample is rAF dispatch latency plus JS work: p50 13.45-14.7 ms against a true rAF interval of 6.95-13.84 ms on the same run (measured on D-metric-v2 and W-walk120). _perf.lastMs drives _adaptDpr, _adaptTerrainVdrs, _adaptThreeVdrs, _adaptFog and occlusionQueryBudget.reportFrameTime, so adaptive resolution and the occlusion query budget react to an inflated number. Split out of perf-framemetrics-session-instrument-lies, whose other two defects are fixed: exportSession duration is now derived from summed frame time (witnessed: 120 samples of 6.94 ms now report duration 0.8 s where samples/60 reported 2.0 s) and stats().drawCalls now reads render.drawCalls, falling back to render.calls only where three''s WebGLInfo has no drawCalls field (witnessed: 141 on a drawCalls info object, 158 on a calls-only one). This row is the behaviour half and it needs a real-GPU A/B, because the controllers compare against a 6.94 ms (144 Hz) budget and every SwiftShader arm runs at 5-6 Hz, where every controller saturates at its floor and the A/B cannot distinguish the two inputs.'
@@ -1175,140 +1146,6 @@
   title: client/hud/MinimapHUD.js advances its terrain row sweep without a surface-solve guess
   body: advanceTerrain (client/hud/MinimapHUD.js:145) calls sampleMinimapCell (src/shared/MinimapBiome.js:33) for every cell of the BUFFER_CELLS grid with no yGuess, so each solve starts at renderYOnSphere and pays about 3.12 height samples instead of about 2.23. sampleMinimapCell already forwards a guess and scripts/bake-minimap.mjs:108 already passes one; the HUD sweep is the remaining row-major caller that does not. scripts/bake-heightfield.mjs got the same treatment and its real N=257 bake went from 4627 ms to 3677 ms with 9 of 66049 cells differing by 1e-4 m. This one is a live client path on a per-frame deadline, so it needs its own measurement rather than the bake number.
   acceptance_criteria: 'Carry a guess across the sweep in advanceTerrain: seed it from the previous cell in the row, reset it to NaN when the row wraps or when sampleMinimapCell throws or returns non-finite, and store it on the work item w because the scan is resumable across frames. Witness on the real HUD that the shaded minimap image is byte-identical or differs only at 4-dp rounding, and that the per-check cost drops; report evaluation counts per solve, since wall-clock on a loaded box is inflated by contention.'
-  session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  status: pending
-- id: cpu-plan-entity-bin-double-buffer-flip-on-change
-  title: 'Snapshot entity encode: double-buffer the 29-byte bin record and flip only when its bytes change'
-  subject: 'Stop re-allocating and re-hashing the snapshot entity bin record for every active dynamic entity every tick: pack into one of two reused buffers and flip only when the packed bytes actually differ, so unchanging entities skip the allocation, the FNV key build, the primeEntryDecode unpack and the computeFieldDelta byte scan.'
-  body: |-
-    TIER-0 parent: cpu-skip-and-replay-plan-browser. CPU-side, server tick path.
-
-    WHAT RECOMPUTES, PER TICK, PER ACTIVE DYNAMIC ENTITY
-    - src/netcode/SnapshotEncoder.js:420 refreshDynamicCache() -> fillEntityEnc(e, entry.enc) for every id in getActiveDynamicIds() (plus unmanaged and sleep-transition ids), unconditionally, every tick.
-    - src/netcode/SnapshotEncoder.js:136 packBinRecord(...) is called with no `into` argument, so src/netcode/SnapshotBinFormat.js:18 allocates a NEW Uint8Array(29) for every entity every tick. This is one allocation per active dynamic entity per tick, forever.
-    - src/netcode/SnapshotEncoder.js:136 also runs packQuat (src/netcode/SnapshotBinFormat.js:55: 4 abs, 3 compares, up to 4 round+clamp) and 11 byte writes.
-    - src/netcode/SnapshotEncoder.js:263 resolveKey() -> buildEntityKey() (src/netcode/SnapshotEncoder.js:234-242): FNV-1a over the model string, the 29 bin bytes, the bodyType string, the custStr string (a JSON string when custom is set) and one float32. _dirty is true for every refreshed entry (src/netcode/SnapshotEncoder.js:427), so this runs for every entity every tick.
-    - src/netcode/SnapshotEncoder.js:297 primeEntryDecode() -> unpackBinRecord() (src/netcode/SnapshotBinFormat.js:45): 10 field reads plus 7 object writes, once per non-env entity per tick via nearestViewerDist2 (src/netcode/SnapshotEncoder.js:307), called from applyEntry (src/netcode/SnapshotEncoder.js:335).
-    - src/netcode/SnapshotEncoder.js:198 computeFieldDelta(): its `a !== b` fast path and its 29-byte scan are reached only for entities whose key changed, so it is already gated -- but only because the key is a hash; it currently always falls through the byte scan for changed entities.
-
-    THE DEFECT THIS ALSO FIXES
-    Two identity memos in this file are dead today and a flip-on-change buffer makes them live:
-    - src/netcode/SnapshotEncoder.js:298 `if (entry._pBin === entry.enc[2]) return entry` can never hit, because fillEntityEnc replaces enc[2] with a freshly allocated buffer every tick. So primeEntryDecode re-unpacks every entity every tick even when it did not move.
-    - src/netcode/SnapshotEncoder.js:202 `let binChanged = a !== b` is always true for the same reason, so the 29-byte scan runs even when the two records are byte-identical.
-    The player path already uses exactly the flip trick this row proposes: src/netcode/SnapshotEncoder.js:48-49 `rec.flip ^= 1` with `rec.bins[rec.flip]`. Apply the same shape to entities, with the flip conditional on the bytes actually differing.
-
-    STABLE STRUCTURE (the captured graph)
-    The set of dynamic entities, the field schema of the 29-byte record (BIN_RECORD_BYTES, src/netcode/SnapshotBinFormat.js:4), the FNV key function, and the per-entry cache object.
-
-    CHANGING INPUTS
-    Entity position(3), rotation(4), velocity(3), scale(3), model, bodyType, custom.
-
-    INVALIDATION KEY AND WHY IT IS SAFE
-    The key is the packed bytes themselves, not an input hash. Each entry owns two reused Uint8Array(29) buffers. Each tick: pack into bins[flip^1] (src/netcode/SnapshotBinFormat.js:17 already accepts an `into` argument), compare the 29 bytes against bins[flip]; equal -> keep flip, reuse the cached key k, and enc[2] keeps its identity so both memos above hit; different -> commit the flip, set _dirty, recompute k. Because the skip is decided by comparing the actual output, there is no input-hash stale-output exposure for the CHANGE DETECTION itself.
-    The value that IS cached across ticks is the derived FNV key k, and that one does depend on the code that produces it. It must be invalidated by the version of the producing code, never by its inputs alone (deviation.build-cache-no-code-version-key). Concretely: add BAKE_INPUTS_SNAPSHOT_ENTITY_ENC = ['../netcode/SnapshotBinFormat.js','../netcode/SnapshotEncoder.js','../shared/fnv1a.js'] to src/static/BakeCodeVersion.js and export SNAPSHOT_ENTITY_ENC_CODE_VERSION = bakeCodeVersion(BAKE_INPUTS_SNAPSHOT_ENTITY_ENC), following the existing HEIGHTFIELD_BAKE_CODE_VERSION shape at src/static/BakeCodeVersion.js:78-108, and register the row in BAKE_TRANSFORMS (src/static/BakeCodeVersion.js:110-116) so scripts/check-cache-keys.mjs fails when the packing code changes. Store the version on each entry; on mismatch, drop k and force one repack. No human has to remember to bump anything -- the version is a content hash of the producing source.
-
-    WORST-CASE BOUND
-    Skipped work is bounded by the active dynamic entity count times a constant (1 pack, 1 29-byte compare, no allocation). The miss path is byte-for-byte today's behaviour. A false 'unchanged' verdict is impossible: the verdict is produced by comparing the packed bytes that would have been sent. The one way this can go wrong is a cached k surviving a change to packBinRecord/packQuat/buildEntityKey, which the code-version field above closes.
-
-    MEASUREMENT (integer work units, immune to timer inflation -- this box's zero-delta control arm is +/-10% and currently ~2.5x inflated, so nanosecond numbers are not admissible)
-    Deciding counter: over N ticks on a live server, (number of active dynamic entities whose 29-byte bin record is byte-identical to the previous tick) and (number of active dynamic entities). The first number is the count of (allocation + FNV key build + unpackBinRecord) units skippable per tick. Second counter: primeEntryDecode memo hits per tick, measured by wrapping SnapshotEncoder.refreshDynamicCache (a writable static class property) and counting entries where entry._pBin === entry.enc[2].
-  acceptance_criteria: 'Live server witness over >=300 ticks with >=4 connected players on apps/world/tps-game.js: report (a) active dynamic entities per tick, (b) byte-identical bin records per tick, (c) fraction (b)/(a). Pass requires (c) >= 0.20 AND, after the change, primeEntryDecode memo hits per tick equal to (b) within 1% AND zero Uint8Array(29) allocations per tick attributable to fillEntityEnc (verified by an allocation-count delta, not by a timer). Correctness: the decoded snapshot a real PhysicsNetworkClient receives must be byte-identical before and after the change over the same seeded tick range (compare decoded entity arrays field by field), and a moved entity must appear moved on the very next tick (inject a teleport and assert the client sees it that tick).'
-  session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  status: pending
-- id: cpu-plan-static-collision-grid-skip-rebuild
-  title: Reuse the collision grid across ticks instead of re-bucketing every collision entity every tick
-  subject: 'Stop rebuilding the 4 m collision grid from scratch every tick: keep a static bucket map and re-bucket only entities whose transform actually changed, using the same 10-float change capture the static-motion tracker already uses.'
-  body: |-
-    TIER-0 parent: cpu-skip-and-replay-plan-browser. CPU-side, server tick path.
-
-    WHAT RECOMPUTES, PER TICK
-    src/apps/AppRuntimeTick.js:87 _tickCollisions() runs every tick (src/apps/AppRuntimeTick.js:25 and :45). With c.length >= _COL_GRID_THRESHOLD (100, src/apps/AppRuntimeTick.js:83) it takes src/apps/AppRuntimeTick.js:120 _tickCollisionsGrid(), which per tick:
-    - clears the grid Map (src/apps/AppRuntimeTick.js:121)
-    - for EVERY collision entity: floors two coordinates, forms a key, does _colGrid.get / _colGridCells.get, possibly allocates a cell array, and pushes the entity (src/apps/AppRuntimeTick.js:125-131)
-    - then re-walks every entity again for the 3x3 neighbourhood query (src/apps/AppRuntimeTick.js:132-148)
-    - plus a periodic prune pass over _colGridCells (src/apps/AppRuntimeTick.js:122-124)
-    The collision entity set is dominated by static world props whose transform never changes, so the bucketing result is identical tick after tick. Note the _colR radius recompute at src/apps/AppRuntimeTick.js:89 is already cached on the collider (src/apps/AppRuntimeTick.js:71-79) and is not part of this row.
-
-    STABLE STRUCTURE (the captured graph)
-    The cell grid topology (cell size _COL_CELL_SZ = 4, src/apps/AppRuntimeTick.js:84, key layout *65536), the static bucket map, and the membership of the collision entity set.
-
-    CHANGING INPUTS
-    Entity positions, and the membership of _collisionEntities.
-
-    INVALIDATION KEY
-    The project already owns the exact primitive needed: src/apps/AppRuntimeStaticMotion.js:4 captureTransform(xf, e) compares 10 floats (position 3, rotation 4, scale 3) and returns whether they changed, with the previous values held in a Float64Array(11) (src/apps/AppRuntimeStaticMotion.js:23). Reuse it per collision entity: the grid is reused when every collision entity's captureTransform returns false and the collision-set membership version is unchanged.
-    Membership version: _collisionEntities is mutated by register/deregister paths; add a HookedSet-backed version counter there (src/apps/AppRuntime.js:72 already shows the HookedSet pattern used for _movedStaticIds, so a hook that bumps a version is the established shape). A static entity that is deliberately moved is already tracked in _movedStaticIds (src/apps/AppRuntime.js:72, src/apps/AppRuntimeStaticMotion.js:18) and its transform change is caught by captureTransform anyway, so it does not need a second signal.
-    Because the skip is decided by comparing the actual transform values, there is no input-hash stale-output exposure for the change decision (deviation.build-cache-no-code-version-key). The one cached VALUE is the bucket map, which is derived from _COL_CELL_SZ and the key layout: fold the producing code's version into it by exporting a COLLISION_GRID_CODE_VERSION from src/static/BakeCodeVersion.js over ['../apps/AppRuntimeTick.js'] and registering it in BAKE_TRANSFORMS (src/static/BakeCodeVersion.js:110-116) so scripts/check-cache-keys.mjs fails if the grid layout changes while a bucket map could survive. Store the version with the map and drop the map on mismatch.
-
-    WORST-CASE BOUND
-    Skipped work is bounded by the collision entity count times a constant (10 float compares plus a version compare). The miss path is byte-for-byte today's full rebuild. A false 'unchanged' is impossible: captureTransform reads the live entity position, so a moved entity always invalidates. The failure mode to guard is only a membership change that does not bump the version -- hence the HookedSet hook rather than a hand-maintained counter.
-
-    MEASUREMENT (integer work units, immune to timer inflation -- this box's zero-delta control arm is +/-10% and currently ~2.5x inflated, so nanosecond numbers are not admissible)
-    Deciding counter: per tick, (a) collision entities re-bucketed (Map.get + key formation + array push each) and (b) how many of those had an unchanged transform. Skippable units per tick = (b). Also count cell-array allocations per tick. If (b)/(a) < 0.5 the delta is likely below this box's noise floor and the row should be closed as measured-not-worth-it rather than shipped.
-  acceptance_criteria: 'Live server witness on apps/world/tps-game.js over >=300 ticks with _collisionEntities.length >= 100 so the grid path is taken: report collision entities per tick, unchanged-transform collision entities per tick, and cell-array allocations per tick before and after. Pass requires unchanged-transform count >= 50% of collision entities AND, after the change, cell-array allocations per tick drop to 0 on ticks with no membership change and no transform change. Correctness: with GM_PROFILE=1, _lastCollisionMs must not regress beyond the run''s own zero-delta control arm, and a scripted pair of overlapping entities must still produce onCollision on both entities on the tick they overlap (witness the app event, not a log line).'
-  session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  status: pending
-- id: cpu-plan-interactables-gate-on-press
-  title: Skip the interactable x player distance sweep on ticks where no player is pressing interact
-  subject: Gate _tickInteractables on a per-tick any-player-pressed-interact flag so the whole interactable x player distance sweep is skipped on ticks where no player is pressing the interact key.
-  body: |-
-    TIER-0 parent: cpu-skip-and-replay-plan-browser. CPU-side, server tick path.
-
-    WHAT RECOMPUTES, PER TICK
-    src/apps/AppRuntimeTick.js:187 _tickInteractables(), invoked every tick from src/apps/AppRuntimeTick.js:26 (and :48 in the profiled branch). It runs a full nested sweep: for every id in this._interactableIds (src/apps/AppRuntimeTick.js:194) and for every player in this.getPlayers() (src/apps/AppRuntimeTick.js:196) it reads both positions and does a squared-distance test (src/apps/AppRuntimeTick.js:198-199). That is E_interactable * P_players distance tests per tick, plus one getPlayers() array build per tick and one Map.get for the cooldown key per pair that passes (src/apps/AppRuntimeTick.js:200-201).
-    The interactable set is overwhelmingly static world props, so E is large and constant while the sweep result is almost always 'nothing happened'.
-
-    STABLE STRUCTURE (the captured graph)
-    The (interactable entity, player) pair graph, the per-pair cooldown table, and the radius test.
-
-    CHANGING INPUTS
-    Entity positions, player positions, and the per-player p.lastInput.interact bit.
-
-    INVALIDATION KEY
-    The whole subgraph's only observable effect is fireEvent(e.id,'onInteract',p) at src/apps/AppRuntimeTick.js:205, which is itself already gated on `if (p.lastInput?.interact && tick >= expiresAtTick)` at src/apps/AppRuntimeTick.js:203. Therefore: if no connected player has lastInput.interact truthy this tick, no distance test can produce any output, and the entire sweep is skipped. Key = one boolean computed once per tick from the player input state (a per-player input version already exists as PlayerState.inputSequence / lastInput, so the sweep can also be narrowed to only the players that pressed, which is the correct narrowing when at least one pressed: replace the inner `for (const p of players)` with an iteration over the pressing players only).
-    No cached VALUE is produced by this skip, so there is no cache and therefore no input-hash stale-output exposure (deviation.build-cache-no-code-version-key) and no code-version key to fold in. This is a pure prune, not a memo.
-
-    WORST-CASE BOUND
-    The skip is total and bounded: one pass over players reading one boolean each. The miss path is identical to today's behaviour. When at least one player pressed, the sweep runs for the pressing players only, which is a strict subset of today's work; correctness is preserved because a player who did not press can never satisfy src/apps/AppRuntimeTick.js:203. There is no path by which this skip returns a plausible wrong value: skipping produces no value at all, and the gating condition is the same condition the event itself already tests.
-
-    MEASUREMENT (integer work units, immune to timer inflation -- this box's zero-delta control arm is +/-10% and currently ~2.5x inflated, so nanosecond numbers are not admissible)
-    Deciding counter: per tick, (a) interactable x player distance tests performed today, (b) number of ticks out of N in which no connected player has lastInput.interact truthy. Skippable distance tests per tick = (a) * (b)/N.
-  acceptance_criteria: 'Live server witness with >=4 connected players on apps/world/tps-game.js over >=300 ticks: instrument a counter inside the distance test and report distance-tests-per-tick before and after. Pass requires: after the change, distance-tests-per-tick on ticks where no player pressed interact is exactly 0, and total distance tests over the run drop by at least 90%. Correctness: an entity the player is standing next to fires onInteract on the same tick the interact bit is observed set (witness by a real client sending interact and observing the app event that tick), and no onInteract fires for a player who did not press.'
-  session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  status: pending
-- id: cpu-plan-getsnapshot-transform-version-incremental
-  title: Make AppRuntime.getSnapshot() incremental and stop keying its cache on the tick counter
-  subject: getSnapshot() rebuilds every entity every tick because its cache key includes the strictly-increasing tick counter; drop tick from the key and rebuild only entities whose transform or identity actually changed, using the captureTransform compare the static-motion tracker already owns.
-  body: |-
-    TIER-0 parent: cpu-skip-and-replay-plan-browser. CPU-side, server tick path.
-
-    WHAT RECOMPUTES, AND THE TWO DEFECTS
-    (1) src/apps/AppRuntime.js:505 getSnapshot() caches on `this._snapshotCache._version === this._snapshotVersion && this._snapshotCache.tick === this.currentTick`. currentTick increments every tick, so the cache can only ever hit if getSnapshot() is called twice inside one tick. In practice it rebuilds the whole list every tick.
-    (2) Each rebuild runs src/apps/AppRuntime.js:502 _encodeEntity(id, e) for every entity, allocating one object plus four arrays (position, rotation, scale, velocity) per entity per tick.
-    Callers: src/sdk/TickHandler.js:368 (the no-relevance-radius broadcast path, per tick), src/sdk/ServerAPI.js:227, src/sdk/ServerHandlers.js:101 (join) and :342 (recovery), src/sharding/RegionWorkerEntry.js:149.
-
-    WHY _snapshotVersion IS NOT THE KEY (the hazard that makes this row more than a cache)
-    src/apps/AppRuntime.js:503 _markDirty(id) bumps _snapshotVersion, but it is called from exactly two places: src/apps/AppRuntime.js:466 (setParent) and src/apps/AppRuntime.js:749 (restoreGameState). Physics writes entity transforms in place (src/apps/AppRuntimePhysics.js:29-41 syncDynamicBody / setBodyPosition) and apps mutate e.position directly, and neither bumps _snapshotVersion. So keying a snapshot cache on _snapshotVersion ALONE would silently serve a stale snapshot of bodies that have moved. That is precisely the 'skip that returns a plausible wrong value' case, and it is why this row does not use _snapshotVersion as its invalidation key. (If desired, fixing _markDirty coverage is a separate concern; this row must not depend on it.)
-
-    STABLE STRUCTURE (the captured graph)
-    The entity set, the encoded-object schema (src/apps/AppRuntime.js:502), and the per-entity cached encoded object.
-
-    CHANGING INPUTS
-    Per entity: position(3), rotation(4), scale(3), velocity(3), model, bodyType, custom, parent.
-
-    INVALIDATION KEY
-    Self-checking, not an input hash. Per entity keep a Float64Array of the last encoded transform plus the last model / bodyType / custom reference. Each tick run the same comparison shape as src/apps/AppRuntimeStaticMotion.js:4 captureTransform (that function already exists and is already used for exactly this purpose on statics at src/apps/AppRuntimeStaticMotion.js:24), extended with velocity; reuse the cached encoded object when nothing changed, re-encode when something did. Membership changes (spawn/despawn) rebuild the array. Then drop `tick` from the cache key at src/apps/AppRuntime.js:505 and refresh only the `tick` field on the reused snapshot object.
-    The cached VALUE is an encoding of entity state, so it does depend on the code that produces it: export SNAPSHOT_ENCODE_CODE_VERSION from src/static/BakeCodeVersion.js over ['../apps/AppRuntime.js','../apps/AppRuntimeStaticMotion.js'] and register it in BAKE_TRANSFORMS (src/static/BakeCodeVersion.js:110-116) so scripts/check-cache-keys.mjs fails if _encodeEntity changes while a cached encoding could survive (deviation.build-cache-no-code-version-key). Store the version on the cache and drop it on mismatch.
-
-    KNOWN HAZARD TO RESOLVE IN IMPLEMENTATION
-    Today getSnapshot() hands out a fresh array each call; reusing one array across ticks means a caller that retains it across ticks would see later mutations. Enumerate the four call sites above and either copy-on-hand-out for retaining callers or document that the array is valid until the next tick. The acceptance witness below must cover the retaining-call case explicitly.
-
-    WORST-CASE BOUND
-    Skipped work is bounded by entity count times a constant (about 14 comparisons plus 10 stores). The miss path is today's full rebuild. A false 'unchanged' is impossible: the verdict compares the live transform values. The residual risk is the shared-array aliasing above, which is a shape change, not a staleness window.
-
-    MEASUREMENT (integer work units, immune to timer inflation -- this box's zero-delta control arm is +/-10% and currently ~2.5x inflated, so nanosecond numbers are not admissible)
-    Deciding counter: per tick, (a) _encodeEntity calls today (= entities.size) and (b) entities whose transform/identity actually changed since the previous build. Skippable units per tick = (a) - (b).
-  acceptance_criteria: 'Live server witness on apps/world/tps-game.js over >=300 ticks: report entities.size, _encodeEntity calls per tick before and after, and entities-with-changed-transform per tick. Pass requires _encodeEntity calls per tick to fall to at most (changed-per-tick + 1). Correctness, all four witnessed live: (i) a body moved by physics appears with its new position in getSnapshot() on the very next tick (not one tick late) -- this is the staleness test that would catch using _snapshotVersion; (ii) the join path src/sdk/ServerHandlers.js:101 returns a snapshot containing every entity; (iii) a caller that retains the returned array across a tick boundary sees a stable snapshot, or copies are handed out -- whichever the implementation chooses, witness it; (iv) decoded client snapshots byte-match the pre-change behaviour over the same seeded tick range.'
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending
 - id: tsl-parity-pxworld-camdist-fp32-precision-asymmetry
@@ -1590,15 +1427,29 @@
   body: 'MEASURED 2026-10-06 while resolving terrain-collider-initial-ring-cpu-at-many-clusters (harnesses data/planet-harness/ring-boot.mjs and ring-classify.mjs, real tps-game world module, real PhysicsWorld, real createTrunkColliderStreamer/createRockColliderStreamer, 1000 m player grid, radius 64 cap 384 trunk / radius 32 cap 128 rock). Budgeting the initial ring was measured and rejected (5x worse at 16 players, unfinished after 4001 passes / 200 s at 64 players) because COMPUTE_BUDGET_MS is 2.5 ms while a placement chunk costs 2.242 ms. The remaining lever is to keep each pass unbudgeted but narrow it to a batch of clusters. Costs measured: at 64 players the trunk initial ring is 6289.4 ms wall and placement generation for its 2705 ring chunks is 6063.4 ms (2.242 ms/chunk), i.e. 96% of the ring; rock is 1163 chunks, 1027.3 ms, 0.883 ms/chunk, all of its 944.6 ms ring. Body adds are the remainder (pool prewarm 43.3 ms trunk, 91.3 ms rock). So a cluster costs a measured 94.7 ms of placement work at 64 players and 2705/64 = 42.3 chunks. Today every one of the 25 players that gets a trunk collider waits for the whole ring: first collider min 7261.9 / max 7267.7 ms, one contiguous 7.26 s event-loop stall, then everybody is covered at once. Batching would give the first batch its colliders after one batch''s work and the last batch after roughly the same total as today.'
   acceptance_criteria: 'Implement the initial ring as a sequence of cluster batches (unbudgeted within a batch, yield to the event loop between batches, first pass sized so a batch is about 8 clusters) and witness at 16 and 64 spread players with the real streamer and a real PhysicsWorld: per-player time-to-first-collider, total initial-ring CPU, and the event-loop stall per pass. Ship only if no player''s first collider lands later than it does today (16 players 3734 ms, 64 players 7276 ms) and if the final ring is the same set as today''s single pass (compare liveCount, per-cluster counts and a position hash: 1594 bodies, hash d9cf02ca at 64 players; 768, hash 77096680 at 16). The byte budget, the per-cluster quota and the cap must not change.'
   status: pending
-- id: terrain-collider-deferred-rebuild-exceeds-body-cap
-  title: 'A deferred collider rebuild exceeds the body cap: desired is capped per pass, the quota resets per pass, and only the byte budget evicts'
-  body: 'MEASURED 2026-10-06 with data/planet-harness/ring-boot.mjs (arm=budgeted) on the real tps-game world module, a real PhysicsWorld and the real createTrunkColliderStreamer: 16 players on a 1000 m grid, radius 64, baseCap 384, centreScale 2 so effectiveCap 768. Running the initial ring as repeated budgeted passes (what _check does whenever chunkPlacements refuses chunks) ended with 983 live trunk colliders against a cap of 768, 28% over, and a different body set from the single unbudgeted pass (position hash 8c5b065d vs 77096680). Mechanism: classifyRings builds desired with a per-pass length limit of effectiveCap and a per-cluster quota of cap/centres, both of which reset every pass, while live keeps everything added by earlier passes; the only thing that removes bodies afterwards is the keep set (everything stayed inside keepRadius) and evictOverBudget, which fires on resident bytes alone - 263444 of 3145728 B here, so it never ran. Any deferred rebuild reaches this state: _rebuildMulti returns _deferred when MAX_NEW_CHUNKS_PER_PASS (64) or COMPUTE_BUDGET_MS (2.5) bites, which is reachable in steady state whenever more than 64 ring chunks are new, and then curCenters is not updated and removals are skipped, so the next pass adds a fresh batch on top. The body cap therefore bounds one pass, not the resident set.'
-  acceptance_criteria: 'Witness the overrun on a steady deferred rebuild (not just boot): clearChunkCache or move a cluster so more than 64 chunks are new, run _rebuildMulti until it stops deferring, and report liveCount against effectiveCap plus residentBytes against byteBudget. Fix so the resident set respects the cap - trim to effectiveCap (nearest-first, the same order desired already uses) whenever a pass leaves more bodies live than the cap, and evict on body count as well as bytes - then re-witness that liveCount <= cap in both the deferred and the single-pass case and that the resulting set matches the unbudgeted ring.'
-  status: pending
-- id: prediction-peer-separation-over-pushes-in-contact-regime
-  title: The client peer separation push makes prediction worse, not better, wherever it changes anything
-  body: 'docs/netcode.md:32 claims prediction applying separationPush against the other players snapshot positions took corrections per ack from 0.754 to 0.189 at 0/0/0. Measured today it does neither: with --world=arena --hold=forward --precise --duration=20000, 6 arms, corrections per ack are 0.737 push-on against 0.717 control at 0/0/0, 0.674 against 0.667 at 50/10/2 and 0.530 against 0.540 at 100/20/3 - equal within noise - while mispredict rate is 69.8 percent against 3.6 percent at 0/0/0 and 33.7 against 6.4 at 50/10/2, and mispredict err p95 is 10.79 cm against 1.67 cm and 11.71 against 2.67. The push is not neutral, it is harmful: the client predicts a separation the server does not reproduce at that magnitude, so the predicted path lands further from the server than the path that ignores other players entirely. Corrections per ack do not move because nearly every ack already exceeds RECONCILE_POS_EPS_M in both arms, so the rate saturates and hides the regression; err p95 and mispredict rate are the metrics that see it. Candidate causes to check first: _reseedPeerSim (PredictionEngine.js:344) resets every peer to its newest snapshot on every snapshot while the replay rebases from the older acked state, so live steps after a replay advance a peer that is one RTT ahead of the local rebased position; and the recorded entry.sep replays a push magnitude captured against a peer sim at a different phase.'
-  acceptance_criteria: 'Diagnose why the client push exceeds the server push, then make the push help or remove it. Concretely: instrument one 0/0/0 contact arm to print, per tick, the server separation delta for the pair and the client predicted sep, and find where they diverge. Then fix so that at 0/0/0, 50/10/2 and 100/20/3 corrections per ack fall below the --peerSeparation=off control and mispredict err p95 does not rise above it, with 30 Hz mispredict below 75 percent and the clear-lane control (--at=0,1.2,-95) unchanged. Re-measure on an idle box: the baseline above was taken under concurrent load and is a diagnosis, not a gate. If the honest outcome is that the push cannot be predicted well enough to help, remove it and rewrite docs/netcode.md:32 to say so.'
+- acceptance_criteria: 'This row is REFUTED and should be closed on the strength of the corrected measurement below; do not act on its original premise. If anyone reopens the peer-separation question, the required first step is to reproduce the 0.1943-vs-0.7422 result at 0/0/0 on a quiet box, because that is the fact any new design has to explain. The surviving open item is separate and still real: the per-tick SERVER-side separation delta for the pair has never been captured (the harness emits only run-level aggregates), so no one has yet shown where client and server separation diverge tick by tick. That belongs on its own row, not this one.'
+  body: |-
+    MEASUREMENT CORRECTION -- the original premise of this row does not reproduce and is withdrawn.
+
+    The original body recorded: "with --world=arena --hold=forward --precise --duration=20000, 6 arms, corrections per ack are 0.737 push-on against 0.717 control at 0/0/0, 0.674 against 0.667 at 50/10/2 and 0.530 against 0.540 at 100/20/3", concluding the push makes prediction worse wherever it changes anything and that docs/netcode.md:32's claim of 0.754 -> 0.189 does not reproduce.
+
+    Re-measured 2026-10-06 with scripts/netcode-conditioner-harness.mjs --world=arena --hold=forward --precise --duration=20000 --predict=on (real server + real PhysicsNetworkClient, mock-free), three arms, same session, two replicates where shown:
+      corrections per ack  0/0/0:    HEAD 0.1943 / 0.2049   |  control (--peerSeparation=off) 0.7422
+                           50/10/2:  HEAD 0.5658 / 0.5695   |  control 0.6594
+                           100/20/3: HEAD 0.5370            |  control 0.5441
+      mispredict err p95 cm 0/0/0:   HEAD 1.563  |  control 1.667
+                            50/10/2: HEAD 2.667  |  control 2.667
+                            100/20/3: HEAD 12.333 | control 12.333
+
+    So the push is NOT worse than the control -- at 0/0/0 it is ~3.8x BETTER (0.1943 vs 0.7422), and that reproduces docs/netcode.md:32's documented 0.189. The documented claim is sound; this row's measurement was not.
+
+    Note that the original run's "push-on" figure (0.737) is essentially the CONTROL value now measured (0.7422), which is the signature of an arm in which peer separation was not actually active -- so the original comparison was push-off against push-off, which is why it showed no difference. Treat any future arm that reproduces ~0.74 as push-off regardless of the flag passed.
+
+    Per-tick mechanism, measured with a prototype hook on _separateFromPeers (--duration=8000, 0/0/0, real server+client): HEAD fires on 83.3% of fresh ticks with a median push of 1.61 cm/tick (p95 1.96, max 9.48).
+
+    SEPARATE FINDING from the same pass, filed as its own row prediction-peer-forward-sim-regresses-corrections-per-ack: replacing the freshness gate with a full per-peer forward simulation (recorded-sep replay, applyMovement-driven peer sim) is deterministic but regresses corrections per ack at every condition (0.7428/0.6878/0.5539 vs HEAD 0.1943/0.5658/0.5370) and regresses err p95 by 3.3-9.5 cm, because it fires less often (35.2% of ticks) but shoves 6.67 cm/tick median, ~4.1x harder than HEAD's 1.61. That change was reverted, not committed.
+  id: prediction-peer-separation-over-pushes-in-contact-regime
+  title: 'REFUTED: the peer separation push is ~3.8x BETTER than the control at 0/0/0 (0.1943 vs 0.7422); the original measurement was push-off vs push-off'
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending
 - id: gpu-plan-terrain-fd-taps-five-to-three
@@ -1857,5 +1708,95 @@
     MEASUREMENT (integer work units, immune to timer inflation -- this box's zero-delta control arm is +/-10% and currently ~2.5x inflated, so microsecond figures must be re-taken with a control arm)
     Deciding counters, per frame: (a) plane tests performed, (b) instance records walked, (c) updateLOD calls, (d) surviving instances. Compare against the brute-force loop for the same camera matrices.
   acceptance_criteria: 'Node witness against the real module at 10k and 50k instances (no GPU needed for the sweep counters) plus a browser witness on a loaded vegetation scene with gpu.accelerated confirmed true. Report per frame (a) plane tests, (b) records walked, (c) updateLOD calls, (d) survivors, with the camera both still and moving. Pass requires (a) and (b) to drop by at least 50 percent at 10k instances with a MOVING camera (the still case is already handled by the existing guard and proves nothing), with a zero-delta control arm in the SAME window. Correctness: for the same camera matrices the surviving instance id set must be IDENTICAL to the brute-force sweep, compared element by element, at both 10k and 50k; and after a vegetation placement edit the index must be rebuilt within one frame (witness a placement change, not just camera motion). Do NOT close this row on the 7-to-21-percent regression claim -- that attribution is unproven and browser-blocked.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: veg-lod-updatelod-linear-instance-scan
+  title: WebGPULodInstancer.updateLOD rescans every instance with no spatial index
+  body: 'Measured against the real module in node (createWebGPULodInstancer, 2 LOD levels, instances on a 3 m grid, 1080p frustum, 200 iterations): updateLOD costs 256.6 us at 1000 instances, 957.1 us at 10000, 11659 us at 50000 when viewChanged is true, and 0.1-0.6 us when the skip at client/core/WebGPULodInstancer.js:205 fires. viewChanged comes from client/core/Vegetation.js:692 (cull matrix inequality against the previous frame) and is true on essentially every frame of camera motion or rotation; Vegetation.updateVisibility calls updateLOD twice per mesh record (branch at :703, leaf at :704). The scan at client/core/WebGPULodInstancer.js:221-227 walks every record doing up to 6 plane tests against planeBuf with no spatial hierarchy, no grid and no BVH, so cost is linear in total instance count regardless of how many survive. At 10k instances that is ~1.9 ms per mesh record per frame; at 50k, ~23 ms. This is a structural cost, not a cache-key defect: when the frustum planes genuinely change the cull results genuinely change, so the full loop is legitimately required today -- which is also why it is not a capture-and-replay candidate. Fix direction: a spatial index over the placement lattice (uniform grid) or a budgeted per-frame slice over recs, so cost tracks surviving instances rather than total instances. Related: PRD row veg-cell-lod-updatelod-regressed-7-to-21pct (the 7->21 attribution is still unconfirmed and browser-blocked; this row''s measurement is the mechanism behind the shape of that report).'
+  acceptance_criteria: 'A browser witness on a loaded vegetation world measuring updateLOD wall time per frame during continuous camera rotation at a fixed instance count, before and after, with the same scene and the same box contention; cost after must scale with surviving instances rather than total instances, evidenced by two instance counts where the per-frame cost ratio tracks the survival ratio instead of the count ratio. No regression in visible LOD selection: the set of instances drawn per frame must match the unindexed implementation''s set at the same camera pose.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- acceptance_criteria: Every browser witness script under scripts/ that reports a timing, draw-count or visual comparison either runs accelerated and asserts it through assertGpu from scripts/lib/gpu-probe.mjs, or prints its rasterizer class in its result line, so no number can be read as a GPU number in silence. GitHub-hosted runners have no GPU, so the accelerated class is a documented local/manual gate (documented invocation plus --require-accelerated), NOT a GitHub Actions lane -- a lane that called itself accelerated while running on a hosted runner would reproduce the very defect this row removes. Software stays the CI class and keeps its own baseline; an accelerated baseline, when captured, is stored separately and never compared against it. No script launches Chromium with a swiftshader flag unless it names itself a software arm.
+  body: 'Eleven places in the repo force software rendering, and until scripts/lib/gpu-probe.mjs existed nothing could tell that a browser session was software-rendered, so any lane could report a ''GPU witness'' taken under SwiftShader. The four that are pure witnesses and force software unconditionally: scripts/cold-load-gate.mjs:48, scripts/e2e-ci.mjs:48, scripts/pointer-lock-boot-witness.mjs:29, scripts/verify-app.mjs:72 -- each launches chromium with [''--use-gl=swiftshader'',''--use-angle=swiftshader'',''--ignore-gpu-blocklist'']. Three more offer a swiftshader arm as one option among several and are honest about it: scripts/perf-run.mjs:63, scripts/draw-instrument-witness.mjs:26, packages/mapspinner/scripts/needle-ab.mjs:9. Both CI gates that measure time (scripts/frame-time-gate.mjs and scripts/cold-load-gate.mjs) therefore measure software rasterization only, and .frame-time-baseline.json was captured on that class -- so every frame-time regression number in this repo to date is a SwiftShader number. gpu-probe.mjs now supplies the missing primitive: probeGpu/assertGpu read WEBGL_debug_renderer_info unmasked renderer plus navigator.gpu adapter info and classify the session as accelerated|software|unknown, gpuArgs({accelerated}) supplies the launch args, and frame-time-gate.mjs already prints rasterizer= and refuses to compare a baseline across rasterizer classes. Witnessed on the software half: renderer ''ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)'', rasterizer=software; the accelerated half is still unwitnessed because the box GPU is contended. Remaining work is to thread assertGpu through the other witnesses and capture a separate accelerated baseline. Note the class of defect this prevents: a perf regression or a shader-parity difference that only exists on one real GPU is invisible when every gate renders in software, which is exactly how the AMD/NVIDIA terrain parity split stayed open.'
+  id: browser-witnesses-force-swiftshader-and-never-assert-rasterizer
+  title: Every browser witness runs under SwiftShader and none asserts its own rasterizer class
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: browser-witness-gl-flag-dynamic-swiftshader-arms
+  title: Three browser witnesses still build swiftshader launch flags from a --gl default instead of gpuArgs
+  body: 'scripts/lib/gpu-probe.mjs is now threaded through cold-load-gate, e2e-ci, pointer-lock-boot-witness, verify-app, perf-run and draw-instrument-witness, but three more witnesses decide their rasterizer with a flag default instead of the probe and print no rasterizer= line. scripts/arena-combat-two-client-witness.mjs:81 builds [''--use-gl='' + GL, ''--use-angle='' + GL, ''--ignore-gpu-blocklist''] from const GL = flag(''gl'',''swiftshader'') and never asserts the class it measured. scripts/page-boot-witness.mjs:111 builds the same expression (GL default ''swiftshader'') behind a GPU_VENDOR adapter-luid branch; it does classify with its own SOFTWARE_ADAPTER regex and prints classification=, so it is honest but not using the shared primitive and its launch args are not comparable with the other witnesses. packages/mapspinner/scripts/needle-ab.mjs:9 hardcodes [''--use-angle=swiftshader''] as one of three deliberate backends (d3d11/swiftshader/vulkan) and is an intentional A/B, so it should keep its own arms but could still log the class per arm. Acceptance: each of the three sources software launch args from gpuArgs (or ACCELERATED_ARGS) and prints a rasterizer=<class> line after reach-the-ready-state, with the default class unchanged for every script; needle-ab keeps its three backend arms and adds the line per arm.'
+  acceptance_criteria:
+  - grep -n 'use-angle' under scripts/ and packages/mapspinner/scripts/ returns no witness-side flag literal outside scripts/lib/gpu-probe.mjs
+  - arena-combat-two-client-witness.mjs prints rasterizer=<class> after both clients are ready and exits non-zero when --require-accelerated is passed on a software session
+  - page-boot-witness.mjs logs the gpu-probe class alongside its own classification= line for one booted page
+  - needle-ab.mjs logs the class per backend arm while still running all three
+  - every script's default rasterizer class is unchanged from before the change
+  session_id: spoint-browser-witness-rasterizer
+  status: pending
+- acceptance_criteria: 'The witness goes green on a real page through the real server AND is proven to be able to go red: a control arm in which pointer lock is deliberately prevented (e.g. the canvas click handler removed, or the lock request stubbed to reject) must FAIL the witness. A witness that passes only because it cannot observe the lock is worth nothing. Then, if lock genuinely fails in the CDP environment, the row is satisfied by naming the precise reason (which user-activation or permission condition headless Chrome requires that a CDP-synthesized click does not supply) and by supplying the alternative that does prove it, or by removing the assertion and recording explicitly that pointer lock is unwitnessed in CI.'
+  body: |-
+    MEASURED 2026-10-06, commit 892089f9 era, under the GPU lock, software rasterizer class (asserted: renderer `ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)`, rasterizer=software, which the script now prints correctly).
+
+    scripts/pointer-lock-boot-witness.mjs prints `RESULT: FAIL -- clicking the canvas did not lock the pointer (state=null)`, i.e. lockAfterClick=false, pointerLockState=null.
+
+    It is NOT a regression from the gpu-probe threading pass: the HEAD (pre-change) copy of the script was run as a control under the same conditions and produced the identical `lockAfterClick=false pointerLockState=null / RESULT: FAIL`. So the defect predates that commit and the conversion is exonerated.
+
+    Why this matters: pointer lock is the input mode the whole first-person game depends on. A witness that has never once observed a successful lock means pointer lock is currently UNWITNESSED -- the assertion is not protecting anything, and it is red only because it happens to check for a state it can never reach. Either the assertion can fire and the product is broken in this environment, or the assertion can never fire and CI is carrying a permanently-red witness nobody reads.
+
+    Leading hypothesis to test rather than assume: Chrome gates `Element.requestPointerLock()` on user activation, and a CDP `Input.dispatchMouseEvent` may not establish the same activation state as a real trusted click, so the lock request is rejected (or the pointerlockchange event never fires) regardless of the app's own correctness. If that is the cause, the witness needs a way to supply real activation (or the app's lock path needs to be exercised directly and its result read), not a loophole that makes the assertion pass.
+
+    Related rows: cdp-witness-harness-delivers-input-to-page, cdp-input-suppression-lost-across-navigate, cdp-nvidia-browser-recycled-between-dispatches.
+  id: pointer-lock-unwitnessed-cdp-click-never-locks
+  title: 'Pointer lock is unwitnessed: the boot witness never observes a successful lock and fails identically at HEAD'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: prediction-peer-forward-sim-regresses-corrections-per-ack
+  title: PredictionEngine peer forward-sim is deterministic but regresses corrections/ack vs peerSeparation=off and vs HEAD
+  body: |-
+    Witnessed 2026-10-06 with scripts/netcode-conditioner-harness.mjs --world=arena --hold=forward --precise --duration=20000 --predict=on --cond=<c> (real server + real PhysicsNetworkClient, mock-free). Three arms, same session, same tree otherwise.
+
+    corrections per ack (lower is better):
+      cond        HEAD(old heuristic)  change IN(fwd-sim)  control(--peerSeparation=off)
+      0/0/0       0.1943 / 0.2049      0.7428 / 0.7232     0.7422
+      50/10/2     0.5658 / 0.5695      0.6878 / 0.6822     0.6594
+      100/20/3    0.5370               0.5539              0.5441
+
+    mispredict err p95 (cm):
+      0/0/0     HEAD 1.563   IN 7.761 / 19.250   control 1.667
+      50/10/2   HEAD 2.667   IN 12.185 / 11.632  control 2.667
+      100/20/3  HEAD 12.333  IN 15.667           control 12.333
+
+    The change never falls below the control at any condition (deltas +0.0006, +0.0284, +0.0098 for run 1; replicates confirm) and regresses err p95 by 3.3-9.5 cm (up to ~4.7x at 0/0/0). It is also a large regression versus HEAD at 0/0/0 (0.1943 -> 0.7428). The 0.1943 HEAD figure reproduces docs/netcode.md:32's documented 0.189, so HEAD's push is a real win that the forward-sim destroys.
+
+    Per-tick mechanism (prototype hook on _separateFromPeers, --duration=8000, 0/0/0, real server+client):
+      HEAD:       fires on 83.3% of fresh ticks, push p50 1.61 cm/tick, p95 1.96 cm, max 9.48 cm; snapshot peer dist p50 0.968 m
+      change IN:  fires on 35.2% of fresh ticks, push p50 6.67 cm/tick, p95 6.74 cm, max 12.36 cm; snapshot peer dist p50 1.011 m, sim peer dist p50 0.927 m
+    The forward-sim fires less often but shoves ~4.1x harder per tick, which is what drives predicted position away from the server's authoritative path.
+
+    Separately PROVEN GOOD (keep this fact if the row is ever reopened): the resim replay path is exactly deterministic. Driving the real PredictionEngine module 120 ticks with separation active on every tick (separationDistM 0.8, max 0.2083 m/tick), a reconciliation resim with the recorded entry.sep replayed lands on the original predicted frame with drift 0 nm; forcing recompute instead (60 calls) diverges by 12.5 m. So entry.sep replay works and is load-bearing.
+
+    Also established: _step( has no callers outside src/client/PredictionEngine.js (5 hits, all in-file), and applyMovement(state, input, movement, dt, overrides=null) is exported from src/shared/movement.js and matches the call shape used. applyMovement does not integrate position or gravity -- the peer sim's manual position += velocity*dt is the entire integration.
+
+    NOT obtained: the per-tick SERVER separation delta for the pair versus the client predicted sep, which is what row prediction-peer-separation-over-pushes-in-contact-regime asks for. Blocker: the harness reports only run-level aggregates; per-tick server-side contact data needs either an edit to the tracked scripts/netcode-conditioner-harness.mjs (owned by another lane) or a mock-free per-tick driver duplicating it under data/. Only the client-side per-tick half (above) was witnessed.
+  acceptance_criteria: Reopen only with a measurement in which corrections per ack with the change applied fall BELOW the --peerSeparation=off control at 0/0/0, 50/10/2 and 100/20/3 (currently 0.7428 vs 0.7422, 0.6878 vs 0.6594, 0.5539 vs 0.5441, i.e. above at all three) AND mispredict err p95 does not regress against the control (currently 7.76 cm vs 1.67 cm at 0/0/0, 12.19 cm vs 2.67 cm at 50/10/2) AND corrections per ack do not regress against HEAD (currently 0.7428 vs 0.1943 at 0/0/0, 0.6878 vs 0.5658 at 50/10/2). Any new attempt must also carry the per-tick server-separation-vs-client-predicted-sep trace that row prediction-peer-separation-over-pushes-in-contact-regime asks for, run on the real server+client path.
+  status: pending
+  session_id: pe-decide
+- acceptance_criteria: 'Overshooting maxBodies or maxContactConstraints throws or halts with the exact counts in the message (requested vs limit vs configured), never silently truncating and never silently dropping contacts. The throw must name the remedy (raise serverConfig.joltLimits.maxBodies / maxContactConstraints, or lower the collider caps). Witnessed by the replica used to discover the behaviour: a scene sized past each limit must go red, and a scene within it must stay green and produce the same trajectories as today. Add the same assertion wherever a PhysicsWorld is constructed with limits. Also: log the peak resident body count and peak manifold count of a world on shutdown or on demand, so the sizing input is observable without a harness run. No behaviour change within limits.'
+  body: |-
+    MEASURED 2026-10-06, replica against a real PhysicsWorld -- this is a silent-degradation defect, the worst kind, because nothing signals it.
+
+    maxContactConstraints is a real cap and fails SILENTLY: a replica of 3072 statics plus 512 dynamics rests correctly at Y=-0.22 with maxContactConstraints 512, and falls through to Y=-49 with 256. No assert, no exception, no log -- bodies simply drop through the ground. In a game that reads as a player falling through the world with no error anywhere.
+
+    maxBodies is a real cap and fails by SILENT TRUNCATION: bodies past the limit are not created and nothing reports it.
+
+    (Found while right-sizing joltLimits per cluster world -- row cluster-world-jolt-limits-right-sized, now landed: marginal cost 19.301 MiB -> 11.799 MiB, CLUSTER_HEAP_WORLD_CEILING 5 -> 8, 10 worlds at 60 ticks/s witnessed with 9.4 MiB free where 7 used to abort. That change ADDS headroom rather than removing it -- 8192 bodies against a measured peak of 3587 -- so this row is not a regression report on it; it is the guard that makes any future sizing mistake loud.)
+
+    Why it matters now that the headroom is real: right-sizing is only safe because the peak is measured. The next person to lower these numbers to squeeze another world in gets a silently-falling-through-the-floor world, not an error. This project's standing rule is fail fast, loud and deterministic, and that a component returning a plausible-but-wrong value under a violated precondition converts one loud failure into an unbounded number of quiet ones -- this is exactly that shape.
+
+    By contrast maxBodyPairs is NOT a cap and needs no guard: 5560 concurrent manifolds produce bit-identical trajectories at maxBodyPairs 8 and at 65536. It is a queue batch and an allocation knob only. Do not assert on it.
+
+    Also unexercised by the census and worth bounding at the same time: rock colliders measured 0 resident bodies in tps-game at every centre count (its 1024 cap is sized from configuration, not observation), and terrain heightfields stayed at 2 of a 512 cap because the pass retires fields not covering real players and only 2 clients were connected.
+  id: jolt-limit-overshoot-fails-silently-not-loudly
+  title: Overshooting maxBodies or maxContactConstraints fails silently -- bodies truncate or fall through the world with no error
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending
