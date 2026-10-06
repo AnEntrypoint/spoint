@@ -8,7 +8,7 @@ import { createBuffStack } from '../behaviours/buffs.js'
 import { defineShrinkingZone } from '../behaviours/shrinking-zone.js'
 import { defineHealth } from '../behaviours/health.js'
 import { defineCombat } from '../behaviours/combat.js'
-import { defineFire } from '../behaviours/fire.js'
+import { defineFire, FIRE_STATE } from '../behaviours/fire.js'
 import { defineSteering } from '../behaviours/steering.js'
 import { defineCheckpoint } from '../behaviours/checkpoint.js'
 import { definePickup } from '../behaviours/pickup.js'
@@ -28,8 +28,11 @@ import { COMBAT_API, fallFloorY, pickSpawnPoint, persisted, leaderboard } from '
 
 const ENGINE_KEY_PREFIX_CHAR_CODE = 95
 const NAVMESH_FORMAT_VERSION = 1
+const NAV_COST_FIRE_BURNING = 8
+const NAV_COST_FIRE_CHARRED = 2
 const _navmeshesByRuntime = new WeakMap()
 const _chartNavmeshes = new WeakMap()
+const _fireNavByRuntime = new WeakMap()
 
 function _isNodeRuntime() { return typeof process !== 'undefined' && !!process.versions?.node }
 
@@ -383,8 +386,10 @@ export class AppContext {
 
   defineFire(spec = {}) {
     const runtime = this._runtime
-    const weatherOf = () => { const w = runtime.weatherSource; return w && w.isEnabled() ? { type: w.getType(), intensity: w.getIntensity() } : null }
-    return defineFire(spec, this, () => runtime._physics?._planetFrame ?? null, weatherOf, () => runtime._physics?._terrainStreamer?._trunkStreamer ?? null)
+    const weatherOf = () => { const w = runtime.weatherSource; return w && w.isEnabled() ? { type: w.getType(), intensity: w.getIntensity(), wind: w.getWind() } : null }
+    const fire = defineFire(spec, this, () => runtime._physics?._planetFrame ?? null, weatherOf, () => runtime._physics?._terrainStreamer?._trunkStreamer ?? null)
+    if (!_fireNavByRuntime.has(runtime)) _fireNavByRuntime.set(runtime, fire)
+    return fire
   }
 
   defineSteering(spec) { return defineSteering(spec, this) }
@@ -466,6 +471,12 @@ export class AppContext {
   }
 
   navCostAt(x, z) {
+    const fire = _fireNavByRuntime.get(this._runtime)
+    if (fire !== undefined) {
+      const state = fire.stateAtLocal(x, z)
+      if (state === FIRE_STATE.BURNING) return NAV_COST_FIRE_BURNING
+      if (state === FIRE_STATE.BURNT) return NAV_COST_FIRE_CHARRED
+    }
     const kind = this.terrainKindAt(x, z)
     if (kind === 'road') return 0.5
     if (kind === 'river') return 3

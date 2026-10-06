@@ -1,4 +1,5 @@
 import { FIRE_MAX_WIND_COMPONENT, FIRE_MAX_BYTE } from '../shared/fire/fireWire.js'
+import { createWindField } from '../shared/fire/fireWind.js'
 
 export const DEFAULT_FIRE = Object.freeze({
   stepTicks: 30,
@@ -11,6 +12,7 @@ export const DEFAULT_FIRE = Object.freeze({
   windowSteps: 4,
   leadTicks: 6,
   checksumEverySteps: 20,
+  keyframeSliceMs: 1,
 })
 
 export const DEFAULT_FIRE_CLASSES = Object.freeze({
@@ -42,6 +44,7 @@ const CONFIG_RULES = Object.freeze({
   windowSteps: { rule: 'an integer from 1 to 64', test: v => Number.isInteger(v) && v >= 1 && v <= 64 },
   leadTicks: { rule: 'an integer from 0 to 600', test: v => Number.isInteger(v) && v >= 0 && v <= 600 },
   checksumEverySteps: { rule: 'an integer of at least 1', test: v => Number.isInteger(v) && v >= 1 },
+  keyframeSliceMs: { rule: 'a number from 0.05 to 20', test: v => Number.isFinite(v) && v >= 0.05 && v <= 20 },
 })
 
 function describeValue(v) { return typeof v === 'number' ? String(v) : JSON.stringify(v) }
@@ -54,6 +57,17 @@ function rejectInvalidFields(values, rules, label) {
 }
 
 function isVec3(v) { return Array.isArray(v) && v.length === 3 && v.every(Number.isFinite) }
+
+function resolveWindField(f) {
+  if (f === undefined || f === null) return null
+  if (typeof f !== 'object' || Array.isArray(f)) throw new TypeError('[fire] spec.windField must be an object')
+  const amplitude = f.amplitude ?? 4
+  const periodSteps = f.periodSteps ?? 20
+  if (!(Number.isInteger(amplitude) && amplitude >= 1 && amplitude <= FIRE_MAX_WIND_COMPONENT)) throw new TypeError(`[fire] spec.windField.amplitude must be an integer from 1 to ${FIRE_MAX_WIND_COMPONENT}, got ${describeValue(amplitude)}`)
+  if (!(Number.isInteger(periodSteps) && periodSteps >= 1)) throw new TypeError(`[fire] spec.windField.periodSteps must be an integer of at least 1, got ${describeValue(periodSteps)}`)
+  if (f.seed !== undefined && !Number.isInteger(f.seed)) throw new TypeError(`[fire] spec.windField.seed must be an integer, got ${describeValue(f.seed)}`)
+  return createWindField({ seed: f.seed ?? 1, amplitude, periodSteps })
+}
 
 export function resolveFireSpec(spec) {
   if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) throw new TypeError('[fire] spec must be an object')
@@ -94,8 +108,9 @@ export function resolveFireSpec(spec) {
   const gameplay = resolveGameplay(spec.gameplay)
   const weather = resolveWeather(spec.weather)
   const firebreaks = resolveFirebreaks(spec.firebreaks)
+  const windField = resolveWindField(spec.windField)
   for (const k of ['onIgnite', 'onExtinguish']) if (spec[k] !== undefined && typeof spec[k] !== 'function') throw new TypeError(`[fire] spec.${k} must be a function`)
-  return { config, classes, names, fuelClassAt, seed: spec.seed ?? 1, wind: spec.wind ?? [0, 0, 0], moisture: spec.moisture ?? 0, rain: spec.rain ?? 0, radius: spec.radius ?? null, role: spec.role ?? 'authority', gameplay, weather, firebreaks, rewind: spec.rewind ?? (spec.role === 'mirror') }
+  return { config, classes, names, fuelClassAt, seed: spec.seed ?? 1, wind: spec.wind ?? [0, 0, 0], windField, moisture: spec.moisture ?? 0, rain: spec.rain ?? 0, radius: spec.radius ?? null, role: spec.role ?? 'authority', gameplay, weather, firebreaks, rewind: spec.rewind ?? (spec.role === 'mirror') }
 }
 
 export { describeValue, isVec3 }

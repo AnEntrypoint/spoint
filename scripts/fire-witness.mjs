@@ -6,6 +6,7 @@ import { createFireLattice } from '../src/shared/fire/fireLattice.js'
 import { FIRE_STATE } from '../src/shared/fire/fireKernel.js'
 import { burnMaskWindow } from '../src/shared/fire/fireStageMap.js'
 import { FIRE_WIRE_TYPE } from '../src/shared/fire/fireWire.js'
+import { createKeyframeEncoder, encodeFireKeyframe, decodeFireKeyframe, keyframeToBase64, keyframeFromBase64 } from '../src/shared/fire/fireKeyframe.js'
 
 const PLANET_RADIUS = 63600
 const ROAD_HALF_WIDTH_M = 60
@@ -361,6 +362,326 @@ say('== 8. charred trunks lose their colliders and get them back after regrowth 
   const endLive = live.size
   say(`${trunkIds.length} tracked trunks: live colliders ${startLive} -> ${midLive} at ${charredNow} charred -> ${endLive} at ${charredLater} charred`)
   say(`streamer saw ${probe.sweeps} sweepExcluded and ${probe.refreshes} refresh calls; regrowSteps ${spec.regrowSteps}`)
+}
+
+say('')
+say('== 9. rewind: a late event and repeated rollbacks replay to the straight-run checksum ==')
+{
+  const spec = { ...baseSpec, wind: [3, 0, 1] }
+  const rewindSpec = { ...spec, rewind: true }
+  const CHECK_EVERY = 40
+  const HORIZON = 1200
+  let seed = 12345
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff }
+
+  const straight = makeFire(spec, { role: 'authority' })
+  straight.fire.igniteCell(HOME_FACE, HOME_I, HOME_J, 3)
+  runTo(straight, 1)
+  const ignitionMsg = straight.broadcasts.find(m => m.e && m.e.length > 0)
+  const marks = []
+  for (let t = CHECK_EVERY; t <= HORIZON; t += CHECK_EVERY) { runTo(straight, t); marks.push([t, straight.fire.checksum()]) }
+
+  const late = makeFire(rewindSpec, { role: 'authority' })
+  const lateStartTick = late.fire.world.timeline.startTick
+  runTo(late, 30)
+  const lateApply = late.fire.applyRemote(ignitionMsg)
+  let lateMismatch = 0, lateCompared = 0
+  for (const [t, sum] of marks) { runTo(late, t); lateCompared++; if (late.fire.checksum() !== sum) lateMismatch++ }
+
+  const JOIN_TICK = 300
+  const stale = makeFire(rewindSpec, { role: 'authority' })
+  void stale.fire.world
+  runTo(stale, JOIN_TICK)
+  const staleApply = stale.fire.applyRemote(ignitionMsg)
+  const authorityAt = t => marks.find(m => m[0] === t)[1]
+  runTo(stale, JOIN_TICK + 100)
+  runTo(straight, JOIN_TICK + 100)
+
+  const rolled = makeFire(rewindSpec, { role: 'authority' })
+  rolled.fire.igniteCell(HOME_FACE, HOME_I, HOME_J, 3)
+  let rollbacks = 0, refused = 0, rollMismatch = 0, rollCompared = 0
+  for (const [t, sum] of marks) {
+    const back = Math.max(1, t - Math.floor(rnd() * 70) - 1)
+    const r = rolled.fire.rewindTo(back)
+    if (r.ok) { rollbacks++; rolled.clock.tick = back } else refused++
+    runTo(rolled, t)
+    rollCompared++
+    if (rolled.fire.checksum() !== sum) rollMismatch++
+  }
+
+  say(`straight run: ${marks.length} checkpoints over ${HORIZON} ticks, final checksum ${straight.fire.checksum()}, active ${straight.fire.activeCount}`)
+  say(`ignition delivered late at sim tick 30 (inside the ${rewindSpec.windowSteps ?? 4}-step window): applyRemote ${JSON.stringify(lateApply)}`)
+  say(`  late run (world created at tick ${lateStartTick}): ${lateCompared} checkpoints, ${lateMismatch} mismatch(es), timeline stats ${JSON.stringify(late.fire.world.timeline.stats)}`)
+  say(`  ${rollbacks} rollbacks (${refused} refused, beyond window): ${rollCompared} checkpoints, ${rollMismatch} mismatch(es), timeline stats ${JSON.stringify(rolled.fire.world.timeline.stats)}`)
+  say(`  a peer that joins at tick ${JOIN_TICK} is beyond the window: applyRemote ${JSON.stringify(staleApply)}, checksum at ${JOIN_TICK + 100} ${stale.fire.checksum()} vs authority ${authorityAt(JOIN_TICK + 100)}`)
+}
+
+say('')
+say('== 10. the rollback hook costs nothing per tick until a fire exists ==')
+{
+  const spec = { ...baseSpec, rewind: true }
+  const idle = makeFire(spec, {})
+  const N_IDLE = 200000
+  const N_BUSY = 2000
+  let idleBest = Infinity
+  for (let b = 0; b < 5; b++) {
+    const s = process.hrtime.bigint()
+    for (let i = 0; i < N_IDLE; i++) { idle.clock.tick++; idle.fire.tick(1 / 60) }
+    const ns = Number(process.hrtime.bigint() - s) / N_IDLE
+    if (ns < idleBest) idleBest = ns
+  }
+  const idleState = `simTick ${idle.fire.simTick}, active ${idle.fire.activeCount}, rewinds ${idle.fire.rollbackStats.rewinds}`
+  say(`defineFire with no world: ${idleBest.toFixed(1)} ns per fire.tick over ${N_IDLE} ticks (${idleState})`)
+
+  const busy = makeFire(spec, {})
+  busy.fire.igniteCell(HOME_FACE, HOME_I, HOME_J, 3)
+  runTo(busy, 40 * TICKS_PER_STEP)
+  const busyChecksumAt400 = busy.fire.checksum()
+  let busyBest = Infinity
+  const busyActive = busy.fire.activeCount
+  const busyTiles = busy.fire.world.kernel.snapshot().tileCount
+  for (let b = 0; b < 5; b++) {
+    const s = process.hrtime.bigint()
+    for (let i = 0; i < N_BUSY; i++) { busy.clock.tick++; busy.fire.tick(1 / 60) }
+    const ns = Number(process.hrtime.bigint() - s) / N_BUSY
+    if (ns < busyBest) busyBest = ns
+  }
+
+  const plain = makeFire({ ...baseSpec }, {})
+  plain.fire.igniteCell(HOME_FACE, HOME_I, HOME_J, 3)
+  runTo(plain, 40 * TICKS_PER_STEP)
+  const plainChecksumAt400 = plain.fire.checksum()
+  let plainBest = Infinity
+  for (let b = 0; b < 5; b++) {
+    const s = process.hrtime.bigint()
+    for (let i = 0; i < N_BUSY; i++) { plain.clock.tick++; plain.fire.tick(1 / 60) }
+    const ns = Number(process.hrtime.bigint() - s) / N_BUSY
+    if (ns < plainBest) plainBest = ns
+  }
+  say(`burning fire (${busyActive} active cells over ${busyTiles} tiles): ${plainBest.toFixed(1)} ns per fire.tick with no snapshots, ${busyBest.toFixed(1)} ns with a boundary snapshot every ${TICKS_PER_STEP} ticks (checksum at 400 ${plainChecksumAt400} vs ${busyChecksumAt400})`)
+  const rolledBusy = makeFire(spec, {})
+  rolledBusy.fire.igniteCell(HOME_FACE, HOME_I, HOME_J, 3)
+  runTo(rolledBusy, 40 * TICKS_PER_STEP)
+  const back = rolledBusy.clock.tick - 12
+  const r = rolledBusy.fire.rewindTo(back)
+  rolledBusy.clock.tick = back
+  runTo(rolledBusy, back + 12)
+  say(`rewound 12 ticks mid-burn at tick ${back}: ok=${r.ok}, checksum after replay ${rolledBusy.fire.checksum()} vs straight run ${busyChecksumAt400}, timeline ${JSON.stringify(rolledBusy.fire.world.timeline.stats)}`)
+}
+
+say('')
+say('== 11. late join: a mirror adopts the authority keyframe, a starved mirror detects divergence and resyncs ==')
+{
+  const spec = { ...baseSpec, wind: [3, 0, 1], rewind: true }
+  const JOIN_TICK = 300
+  const SECOND_IGNITION_TICK = 340
+  const HORIZON = 420
+  const AFTER = 480
+
+  const authority = makeFire(spec, { role: 'authority' })
+  authority.fire.igniteCell(HOME_FACE, HOME_I, HOME_J, 3)
+  runTo(authority, 150)
+  const earlyKeyframe = authority.fire.keyframeMessage()
+  runTo(authority, JOIN_TICK)
+  const staleIgnition = authority.broadcasts.find(m => m.e && m.e.length > 0)
+  const keyframe = authority.fire.keyframeMessage()
+  const keyframeStaleness = JOIN_TICK - keyframe.k[0]
+  const earlyStaleness = JOIN_TICK - earlyKeyframe.k[0]
+  const keyframeBytes = keyframeFromBase64(keyframe.k[2]).byteLength
+
+  let encodeBestMs = Infinity, decodeBestMs = Infinity, roundTripStable = true
+  for (let b = 0; b < 5; b++) {
+    let s = process.hrtime.bigint()
+    const bytes = encodeFireKeyframe({ tick: JOIN_TICK, snapshot: authority.fire.world.kernel.snapshot(), log: [] })
+    const text = keyframeToBase64(bytes)
+    const encodeMs = Number(process.hrtime.bigint() - s) / 1e6
+    if (encodeMs < encodeBestMs) encodeBestMs = encodeMs
+    s = process.hrtime.bigint()
+    const back = decodeFireKeyframe(keyframeFromBase64(text))
+    const decodeMs = Number(process.hrtime.bigint() - s) / 1e6
+    if (decodeMs < decodeBestMs) decodeBestMs = decodeMs
+    if (keyframeToBase64(encodeFireKeyframe(back)) !== text) roundTripStable = false
+  }
+
+  const joiner = makeFire({ ...spec, role: 'mirror' }, { role: 'mirror' })
+  joiner.clock.tick = JOIN_TICK
+  const staleApply = joiner.fire.applyRemote(staleIgnition)
+  const adopted = joiner.fire.applyRemote(keyframe)
+
+  const lateJoiner = makeFire({ ...spec, role: 'mirror' }, { role: 'mirror' })
+  lateJoiner.clock.tick = JOIN_TICK
+  const lateAdopted = lateJoiner.fire.applyRemote(earlyKeyframe)
+
+  const starved = makeFire({ ...spec, role: 'mirror' }, { role: 'mirror' })
+  starved.clock.tick = JOIN_TICK
+  starved.fire.applyRemote(keyframe)
+
+  const tampered = makeFire({ ...spec, role: 'mirror' }, { role: 'mirror' })
+  tampered.clock.tick = JOIN_TICK
+  tampered.fire.applyRemote(keyframe)
+  const tamperedSnapshot = tampered.fire.world.kernel.snapshot()
+  let touchedCell = -1
+  for (let i = 0; i < tamperedSnapshot.state.length; i++) if (tamperedSnapshot.state[i] !== 0) { touchedCell = i; break }
+  tamperedSnapshot.heat[touchedCell] = (tamperedSnapshot.heat[touchedCell] + 999) & 0xffff
+  tampered.fire.world.kernel.restore(tamperedSnapshot)
+  const tamperedAtJoin = tampered.fire.checksum()
+
+  let cursor = authority.broadcasts.length
+  let deliveredRows = 0, deliveredChecksums = 0
+  for (let t = JOIN_TICK + 1; t <= HORIZON; t++) {
+    runTo(authority, t)
+    if (t === SECOND_IGNITION_TICK) authority.fire.igniteCell(HOME_FACE, HOME_I + 40, HOME_J - 25, 5)
+    const fresh = authority.broadcasts.slice(cursor)
+    cursor = authority.broadcasts.length
+    for (const m of fresh) {
+      joiner.fire.applyRemote(m)
+      lateJoiner.fire.applyRemote(m)
+      if (m.e) deliveredRows++
+      if (m.c) { deliveredChecksums++; starved.fire.applyRemote(m); tampered.fire.applyRemote(m) }
+    }
+    runTo(joiner, t)
+    runTo(lateJoiner, t)
+    runTo(starved, t)
+    runTo(tampered, t)
+  }
+  const authorityAtHorizon = authority.fire.checksum()
+  const joinerAtHorizon = joiner.fire.checksum()
+  const lateJoinerAtHorizon = lateJoiner.fire.checksum()
+  const atHorizon = `simTick ${lateJoiner.fire.simTick} step ${lateJoiner.fire.world.kernel.stepIndex} active ${lateJoiner.fire.world.kernel.activeCount}`
+  const starvedAtHorizon = starved.fire.checksum()
+  const starvedNeedsResync = starved.fire.needsResync
+  const starvedDivergence = { ...starved.fire.resyncStats }
+  const tamperedAtHorizon = tampered.fire.checksum()
+  const tamperedNeedsResync = tampered.fire.needsResync
+  const tamperedDivergence = { ...tampered.fire.resyncStats }
+
+  const request = starved.fire.requestResync()
+  void authority.fire.applyRemote(request)
+  const resyncMsg = authority.broadcasts[authority.broadcasts.length - 1]
+  const starvedAdopt = starved.fire.applyRemote(resyncMsg)
+  void authority.fire.applyRemote(tampered.fire.requestResync())
+  const tamperedResyncMsg = authority.broadcasts[authority.broadcasts.length - 1]
+  const tamperedAdopt = tampered.fire.applyRemote(tamperedResyncMsg)
+
+  let cursor2 = authority.broadcasts.length
+  for (let t = HORIZON + 1; t <= AFTER; t++) {
+    runTo(authority, t)
+    const fresh = authority.broadcasts.slice(cursor2)
+    cursor2 = authority.broadcasts.length
+    for (const m of fresh) { joiner.fire.applyRemote(m); lateJoiner.fire.applyRemote(m); starved.fire.applyRemote(m); tampered.fire.applyRemote(m) }
+    runTo(joiner, t)
+    runTo(lateJoiner, t)
+    runTo(starved, t)
+    runTo(tampered, t)
+  }
+
+  const corrupt = keyframe.k[2].slice(0, 40) + (keyframe.k[2][40] === 'A' ? 'B' : 'A') + keyframe.k[2].slice(41)
+  let corruptError = 'accepted'
+  try { decodeFireKeyframe(keyframeFromBase64(corrupt)) } catch (err) { corruptError = err.message }
+  let shortError = 'accepted'
+  try { decodeFireKeyframe(new Uint8Array(8)) } catch (err) { shortError = err.message }
+  let wrongTypeError = 'accepted'
+  try { decodeFireKeyframe(keyframe.k[2]) } catch (err) { wrongTypeError = err.message }
+
+  const sizes = []
+  for (const horizon of [300, 1000, 3000, 6000]) {
+    const host = makeFire(spec, { role: 'authority' })
+    host.fire.igniteCell(HOME_FACE, HOME_I, HOME_J, 3)
+    runTo(host, horizon)
+    const kernel = host.fire.world.kernel
+    const snapshot = kernel.snapshot()
+    let bytes = null, encodeMs = Infinity, slices = 0, firstSliceMs = 0, worstSliceMs = Infinity
+    for (let b = 0; b < 3; b++) {
+      const encodeStart = process.hrtime.bigint()
+      const oneShot = createKeyframeEncoder({ tick: horizon, snapshot, logOf: () => [] }).finish()
+      const ms = Number(process.hrtime.bigint() - encodeStart) / 1e6
+      if (ms < encodeMs) { encodeMs = ms; bytes = oneShot }
+      const sliced = createKeyframeEncoder({ tick: horizon, snapshot, logOf: () => [] })
+      let n = 0, first = 0, worst = 0
+      while (!sliced.done) {
+        const s = process.hrtime.bigint()
+        sliced.advance(1)
+        const sliceMs = Number(process.hrtime.bigint() - s) / 1e6
+        if (n === 0) first = sliceMs
+        else if (sliceMs > worst) worst = sliceMs
+        n++
+      }
+      if (worst < worstSliceMs) { worstSliceMs = worst; firstSliceMs = first; slices = n }
+    }
+    const servedStart = process.hrtime.bigint()
+    const served = host.fire.keyframeMessage()
+    const serveMs = Number(process.hrtime.bigint() - servedStart) / 1e6
+    const cachedStart = process.hrtime.bigint()
+    host.fire.keyframeMessage()
+    const cachedMs = Number(process.hrtime.bigint() - cachedStart) / 1e6
+    const kf = { type: FIRE_WIRE_TYPE, k: [horizon, host.fire.checksum(), keyframeToBase64(bytes)] }
+    const mirror = makeFire({ ...spec, role: 'mirror' }, { role: 'mirror' })
+    mirror.clock.tick = horizon
+    let adoptBestMs = Infinity
+    let matched = true
+    for (let b = 0; b < 3; b++) {
+      const s = process.hrtime.bigint()
+      const r = mirror.fire.applyRemote(kf)
+      const ms = Number(process.hrtime.bigint() - s) / 1e6
+      if (ms < adoptBestMs) adoptBestMs = ms
+      if (r.adopted.hash !== kf.k[1]) matched = false
+    }
+    sizes.push({
+      tick: horizon, tiles: kernel.tileCount, scars: kernel.scarCount, active: kernel.activeCount,
+      bytes: bytes.byteLength, encodeMs: Number(encodeMs.toFixed(2)), slices, firstSliceMs: Number(firstSliceMs.toFixed(2)), worstSliceMs: Number(worstSliceMs.toFixed(2)),
+      servedTick: served === null ? null : served.k[0], serveMs: Number(serveMs.toFixed(2)), cachedMs: Number(cachedMs.toFixed(3)),
+      adoptMs: Number(adoptBestMs.toFixed(2)), matched,
+    })
+  }
+
+  const tickCosts = []
+  for (const sliceMs of [1, 20]) {
+    const host = makeFire({ ...spec, keyframeSliceMs: sliceMs }, { role: 'authority' })
+    host.fire.igniteCell(HOME_FACE, HOME_I, HOME_J, 3)
+    runTo(host, 3000)
+    const kernel = host.fire.world.kernel
+    const N = 400
+    let best = null
+    for (let w = 0; w < 3; w++) {
+      const before = host.fire.keyframeStats
+      let worstStep = 0, worstSlice = 0, sum = 0, steps = 0
+      for (let t = 0; t < N; t++) {
+        const stepBefore = kernel.stepIndex
+        const slicesBefore = host.fire.keyframeStats.slices
+        const s = process.hrtime.bigint()
+        host.clock.tick++
+        host.fire.tick(1 / 60)
+        const ms = Number(process.hrtime.bigint() - s) / 1e6
+        const after = host.fire.keyframeStats
+        if (after.slices > slicesBefore && after.lastSliceMs > worstSlice) worstSlice = after.lastSliceMs
+        if (kernel.stepIndex !== stepBefore) { steps++; if (ms > worstStep) worstStep = ms }
+        sum += ms
+      }
+      const now = host.fire.keyframeStats
+      const window = {
+        tiles: kernel.tileCount, steps, tickMs: Number(sum.toFixed(1)), worstStepMs: Number(worstStep.toFixed(2)),
+        jobs: now.jobs - before.jobs, slices: now.slices - before.slices,
+        encodeMs: Number((now.ms - before.ms).toFixed(1)), worstSliceMs: Number(worstSlice.toFixed(2)),
+      }
+      if (best === null || window.worstSliceMs < best.worstSliceMs) best = window
+    }
+    tickCosts.push({ sliceMs, ...best })
+  }
+
+  say(`keyframe at tick ${JOIN_TICK}: ${keyframeBytes} B (${keyframe.k[2].length} base64 chars), encode ${encodeBestMs.toFixed(2)} ms, decode ${decodeBestMs.toFixed(2)} ms, byte-identical re-encode ${roundTripStable}`)
+  say(`  the served keyframe lags the authority by ${keyframeStaleness} ticks (its tick ${keyframe.k[0]} at join tick ${JOIN_TICK})`)
+  say(`  joining at tick ${JOIN_TICK} without it: ${JSON.stringify(staleApply)}`)
+  say(`  adopting it: ${JSON.stringify(adopted.adopted)}, checksum ${adopted.adopted.hash} vs authority ${keyframe.k[1]}`)
+  say(`  a second joiner adopting the keyframe from tick ${earlyKeyframe.k[0]} (${earlyStaleness} ticks stale): ${JSON.stringify(lateAdopted.adopted)}, checksum ${lateAdopted.adopted.hash} vs authority ${earlyKeyframe.k[1]}`)
+  say(`  fed ${deliveredRows} event row(s) and ${deliveredChecksums} checksum row(s) to tick ${HORIZON}: joiner ${joinerAtHorizon} vs late joiner ${lateJoinerAtHorizon} vs authority ${authorityAtHorizon}, resync ${JSON.stringify(joiner.fire.resyncStats)}`)
+  say(`  late joiner caught up from tick ${earlyKeyframe.k[0]} to tick ${HORIZON}: ${atHorizon}`)
+  say(`  mirror starved of those rows: checksum ${starvedAtHorizon} vs authority ${authorityAtHorizon}, needsResync ${starvedNeedsResync}, resync ${JSON.stringify(starvedDivergence)}`)
+  say(`  mirror with cell ${touchedCell} heat tampered at tick ${JOIN_TICK} (checksum ${tamperedAtJoin}): checksum ${tamperedAtHorizon} vs authority ${authorityAtHorizon}, needsResync ${tamperedNeedsResync}, resync ${JSON.stringify(tamperedDivergence)}`)
+  say(`  requestResync ${JSON.stringify(request)} -> authority answered ${resyncMsg.k?.[0]}/${resyncMsg.k?.[1]}, adopted ${JSON.stringify(starvedAdopt.adopted)}; tampered adopted ${JSON.stringify(tamperedAdopt.adopted)}`)
+  say(`  after resync at tick ${AFTER}: starved ${starved.fire.checksum()} vs tampered ${tampered.fire.checksum()} vs joiner ${joiner.fire.checksum()} vs late joiner ${lateJoiner.fire.checksum()} vs authority ${authority.fire.checksum()}, needsResync ${starved.fire.needsResync}/${tampered.fire.needsResync}`)
+  say(`  rejected payloads: corrupt ${corruptError} | short ${shortError} | string ${wrongTypeError}`)
+  for (const s of sizes) say(`  keyframe at tick ${s.tick}: ${s.tiles} tiles, ${s.scars} scars, ${s.active} active, ${s.bytes} B, one-shot encode ${s.encodeMs} ms, sliced into ${s.slices} slices of 1 ms budget (first ${s.firstSliceMs} ms, worst later ${s.worstSliceMs} ms), served tick ${s.servedTick} encoded for the wire in ${s.serveMs} ms and re-served in ${s.cachedMs} ms, adopt ${s.adoptMs} ms, checksum matches authority ${s.matched}`)
+  for (const c of tickCosts) say(`  best of 3 windows of 400 authority ticks over ${c.tiles} tiles (${c.steps} step ticks, ${c.tickMs} ms of fire.tick in total, worst step tick ${c.worstStepMs} ms) with keyframeSliceMs ${c.sliceMs}: ${c.jobs} keyframe jobs took ${c.encodeMs} ms over ${c.slices} slices, worst slice ${c.worstSliceMs} ms`)
 }
 
 say('')

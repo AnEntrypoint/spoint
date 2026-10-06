@@ -42,11 +42,20 @@ export function createFireGameplay({ appCtx, gameplay, getWorld, cellOfPosition,
         const c = cellOfPosition(target.position)
         rate = kernel.damageAt(c.face, c.I, c.J)
       }
-      if (rate > 0) { hurt(target, rate * seconds); burning.set(target.id, statusTicks); continue }
+      if (rate > 0) {
+        const startedHere = !burning.has(target.id)
+        hurt(target, rate * seconds)
+        burning.set(target.id, statusTicks)
+        if (startedHere && !target.entity) appCtx.players.send(target.id, { type: 'fire_burn' })
+        continue
+      }
       const left = burning.get(target.id)
       if (left === undefined) continue
       hurt(target, gameplay.statusDamagePerSec * seconds)
-      if (left <= gameplay.damageEveryTicks) burning.delete(target.id); else burning.set(target.id, left - gameplay.damageEveryTicks)
+      if (left <= gameplay.damageEveryTicks) {
+        burning.delete(target.id)
+        if (!target.entity) appCtx.players.send(target.id, { type: 'fire_burn_end' })
+      } else burning.set(target.id, left - gameplay.damageEveryTicks)
     }
   }
 
