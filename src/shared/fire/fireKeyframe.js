@@ -28,6 +28,9 @@ const TILE_ARRAYS = [
   ['tileFace', Uint8Array], ['tileI', Int32Array], ['tileJ', Int32Array], ['maskLo', Uint32Array], ['maskHi', Uint32Array],
   ['tileListed', Uint8Array], ['interiorLo', Uint32Array], ['interiorHi', Uint32Array], ['activeTiles', Int32Array],
 ]
+const CELL_ARRAYS = [
+  ['cls', Uint8Array], ['state', Uint8Array], ['fuel', Uint16Array], ['heat', Uint16Array], ['timer', Uint16Array],
+]
 
 function nowMs() { return typeof performance === 'object' && performance !== null ? performance.now() : Date.now() }
 
@@ -435,4 +438,47 @@ export function keyframeFromBase64(text) {
   const out = new Uint8Array(raw.length)
   for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i)
   return out
+}
+
+function snapshotRejection(reason, detail) { return { ok: false, reason, detail } }
+
+function arrayFits(snapshot, name, Ctor, length) {
+  const arr = snapshot[name]
+  if (arr === null || arr === undefined || arr.length === undefined) return snapshotRejection(`no-${name}`, `[fireKeyframe] the snapshot carries no ${name} array, so a restore leaves all ${length} of its entries at whatever the kernel already held`)
+  if (arr.BYTES_PER_ELEMENT !== Ctor.BYTES_PER_ELEMENT) return snapshotRejection(`narrow-${name}`, `[fireKeyframe] the snapshot carries ${name} at ${arr.BYTES_PER_ELEMENT} byte(s) per element, which cannot hold the ${Ctor.name} a restore needs without truncating values`)
+  if (arr.length < length) return snapshotRejection(`short-${name}`, `[fireKeyframe] the snapshot carries ${arr.length} ${name} entries for ${length}, so a restore leaves the last ${length - arr.length} at whatever the kernel already held`)
+  return null
+}
+
+export function validateFireSnapshot(snapshot, { cellsPerFace = null, cellCapacity = Infinity } = {}) {
+  if (snapshot === null || typeof snapshot !== 'object') return snapshotRejection('not-a-snapshot', `[fireKeyframe] a restore needs a snapshot object, got ${snapshot}`)
+  const extent = snapshot.cellsPerFace
+  if (!Number.isInteger(extent) || extent < 1) return snapshotRejection('no-lattice', `[fireKeyframe] the snapshot carries cellsPerFace ${snapshot.cellsPerFace}, which is not a lattice extent that can bound its tiles`)
+  if (Number.isInteger(cellsPerFace) && cellsPerFace > 0 && extent !== cellsPerFace) return snapshotRejection('lattice-mismatch', `[fireKeyframe] the snapshot spans ${extent} cells per face, the kernel it is being restored into spans ${cellsPerFace}`)
+  const tileCount = snapshot.tileCount
+  if (!Number.isInteger(tileCount) || tileCount < 0) return snapshotRejection('tile-count', `[fireKeyframe] the snapshot carries tileCount ${snapshot.tileCount}, which is not a whole number of tiles`)
+  const cells = tileCount << TILE_CELL_SHIFT
+  if (cells > cellCapacity) return snapshotRejection('tile-overflow', `[fireKeyframe] the snapshot names ${tileCount} tile(s), ${cells} cells, past the ${cellCapacity} cells the kernel it is being restored into holds`)
+  const classFuel = snapshot.classFuel
+  if (classFuel === null || classFuel === undefined || classFuel.length < 1) return snapshotRejection('no-classFuel', `[fireKeyframe] the snapshot carries no classFuel table, so a restore cannot tell any cell how much fuel it holds`)
+  const activeTileCount = snapshot.activeTileCount
+  if (!Number.isInteger(activeTileCount) || activeTileCount < 0 || activeTileCount > tileCount) return snapshotRejection('active-tile-count', `[fireKeyframe] the snapshot carries activeTileCount ${snapshot.activeTileCount} over ${tileCount} tile(s)`)
+  if (!Number.isInteger(snapshot.activeCount) || snapshot.activeCount < 0 || snapshot.activeCount > cells) return snapshotRejection('active-count', `[fireKeyframe] the snapshot carries activeCount ${snapshot.activeCount} over ${cells} cells`)
+  const scarCount = snapshot.scarCount
+  if (!Number.isInteger(scarCount) || scarCount < 0 || scarCount > cells) return snapshotRejection('scar-count', `[fireKeyframe] the snapshot carries scarCount ${snapshot.scarCount} over ${cells} cells`)
+  const scar = snapshot.scar
+  const scarEntries = scar === null || scar === undefined ? 0 : scar.length
+  if (scarCount > 0 && scarEntries < scarCount * 2) return snapshotRejection('short-scar', `[fireKeyframe] the snapshot carries ${scarEntries} scar entries for ${scarCount} scar(s), so a restore leaves the last ${scarCount * 2 - scarEntries} at whatever the kernel already held`)
+  const wind = snapshot.wind
+  if (wind === null || wind === undefined || wind.length < 3) return snapshotRejection('no-wind', `[fireKeyframe] the snapshot carries no 3-component wind, so a restore cannot rebuild the spread weights`)
+  if (!Array.isArray(snapshot.pending)) return snapshotRejection('no-pending', `[fireKeyframe] the snapshot carries no pending event list, so a restore cannot re-queue the events the fire was holding`)
+  for (const [name, Ctor] of CELL_ARRAYS) {
+    const bad = arrayFits(snapshot, name, Ctor, cells)
+    if (bad !== null) return bad
+  }
+  for (const [name, Ctor] of TILE_ARRAYS) {
+    const bad = arrayFits(snapshot, name, Ctor, name === 'activeTiles' ? activeTileCount : tileCount)
+    if (bad !== null) return bad
+  }
+  return { ok: true }
 }

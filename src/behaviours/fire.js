@@ -319,7 +319,8 @@ export function defineFire(spec = {}, appCtx = null, frameOf = null, weatherOf =
         const decoded = decodeFireKeyframe(keyframeFromBase64(payload.k[2]))
         if (decoded.tick !== payload.k[0]) throw new TypeError(`[fire] keyframe carries tick ${decoded.tick} but the message declares ${payload.k[0]}`)
         if (decoded.snapshot.cellsPerFace !== lattice.cellsPerFace) throw new RangeError(`[fire] the keyframe at tick ${decoded.tick} spans ${decoded.snapshot.cellsPerFace} cells per face, this world's fire lattice spans ${lattice.cellsPerFace}`)
-        timeline.adopt(decoded.snapshot, decoded.tick)
+        const adoptedHere = timeline.adopt(decoded.snapshot, decoded.tick)
+        if (!adoptedHere.ok) throw new TypeError(`[fire] the keyframe at tick ${decoded.tick} decoded but was not adopted (${adoptedHere.reason}): ${adoptedHere.detail}`)
         for (const ev of decoded.log) timeline.submit(ev)
         const local = timeline.checksum()
         if (local !== payload.k[1]) throw new RangeError(`[fire] the keyframe at tick ${decoded.tick} checksums to ${local} here, the authority sent ${payload.k[1]}`)
@@ -388,7 +389,7 @@ export function defineFire(spec = {}, appCtx = null, frameOf = null, weatherOf =
         if (!resolved.rewind) throw new TypeError(`[fire] the simulation rewound to tick ${simTick} but this fire was defined without rewind; pass rewind: true to run under a rollback netcode profile`)
         const target = Math.max(simTick - 1, world.timeline.startTick)
         const r = world.timeline.rewindTo(target, simTick)
-        if (!r.ok) throw new RangeError(`[fire] the simulation rewound to tick ${simTick}, outside the ${config.windowSteps}-step rewind window (timeline at tick ${world.timeline.tick}, earliest restorable tick ${world.timeline.startTick})`)
+        if (!r.ok) throw new RangeError(`[fire] the simulation rewound to tick ${simTick} and the fire restore failed with ${r.reason}${r.detail === undefined ? '' : `: ${r.detail}`} (timeline at tick ${world.timeline.tick}, earliest restorable tick ${world.timeline.startTick}, ${config.windowSteps}-step rewind window)`)
         rollbackStats.rewinds++
       }
       if (resim) rollbackStats.resimTicks++

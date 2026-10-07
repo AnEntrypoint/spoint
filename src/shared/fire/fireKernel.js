@@ -1030,6 +1030,8 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     get activeCount() { return activeCount },
     get activeTileCount() { return activeTileCount },
     get tileCount() { return tileCount },
+    get cellCapacity() { return cellCapacity },
+    get cellsPerFace() { return n },
     get liveTileCount() { return tileCount - freeTop },
     get freeTileCount() { return freeTop },
     get scarCount() { return scarCount },
