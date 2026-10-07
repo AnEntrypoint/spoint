@@ -80,6 +80,9 @@ const inertInWindow = inert.filter(r => Math.abs(r.hz - TICK) <= TICK_WINDOW_HZ)
 
 const spread = rows => (rows.length ? Math.max(...rows.map(r => r.errP95Cm)) - Math.min(...rows.map(r => r.errP95Cm)) : NaN)
 const median = rows => { const v = rows.map(r => r.errP95Cm).filter(Number.isFinite).sort((a, b) => a - b); return v.length ? (v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2) : NaN }
+const pick = (rows, f) => rows.map(f).filter(Number.isFinite).sort((a, b) => a - b)
+const midOf = (rows, f) => { const v = pick(rows, f); return v.length ? (v.length % 2 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2) : NaN }
+const spanOf = (rows, f) => { const v = pick(rows, f); return v.length ? v[v.length - 1] - v[0] : NaN }
 
 const totalKindAcks = accepted.reduce((s, r) => s + r.kinds.acks, 0)
 const kindKeys = [...new Set(accepted.flatMap(r => r.kinds.keys))].sort()
@@ -87,6 +90,8 @@ const noiseFloorCm = spread(accepted)
 const inertMedianCm = median(inertInWindow)
 const armMedianCm = median(accepted)
 const inertDeltaCm = Math.abs(inertMedianCm - armMedianCm)
+const corrNoiseFloor = spanOf(accepted, r => r.corrPerAck)
+const inertCorrDelta = Math.abs(midOf(inertInWindow, r => r.corrPerAck) - midOf(accepted, r => r.corrPerAck))
 
 console.log(`\nworld "${WORLD}" at --tick=${TICK} (+-${TICK_WINDOW_HZ} Hz window), cond ${COND}, hold ${HOLD}`)
 console.log(`accepted ${accepted.length}/${REPS} rep(s) after ${attempt} attempt(s); discarded ${discarded.length}`)
@@ -96,12 +101,14 @@ console.log('|' + '---|'.repeat(8))
 for (const r of accepted) console.log(`| ${r.attempt} | ${fmt(r.hz, 1)} | ${r.kinds.acks} | ${r.kinds.keys.join('+') || '-'} | ${fmt(r.kinds.misRate)} | ${fmt(r.kinds.errP95Cm, 2)} | ${fmt(r.errP95Cm, 2)} | ${fmt(r.corrPerAck)} |`)
 console.log(`\nmatched-rate noise floor (spread of errP95 across accepted reps at the same tick rate): ${fmt(noiseFloorCm, 2)} cm`)
 console.log(`known-inert arm (--kinds=off changes instrumentation only): errP95 ${fmt(inertMedianCm, 2)} cm vs ${fmt(armMedianCm, 2)} cm, delta ${fmt(inertDeltaCm, 2)} cm over ${inertInWindow.length} in-window rep(s)`)
+console.log(`known-inert arm on correction rate: corr/ack ${fmt(midOf(inertInWindow, r => r.corrPerAck))} vs ${fmt(midOf(accepted, r => r.corrPerAck))}, delta ${fmt(inertCorrDelta)} against a ${fmt(corrNoiseFloor)} same-rate spread`)
 
 if (accepted.length === 0) failures.push(`no rep ran at ${TICK}+-${TICK_WINDOW_HZ} Hz after ${attempt} attempt(s), so the arm has no stable-tick-rate measurement`)
 if (totalKindAcks < MIN_KIND_ACKS) failures.push(`the "${WANT_KIND}" contact regime produced ${totalKindAcks} acked step(s) across ${accepted.length} rep(s), below the ${MIN_KIND_ACKS} needed to count as coverage (kind keys seen: ${kindKeys.join(', ') || 'none'})`)
 if (kindKeys.length === 0) failures.push(`no byKind key containing "${WANT_KIND}" was produced, so the world does not exercise the regime`)
 if (inertInWindow.length === 0) failures.push(`no --kinds=off rep landed inside the tick window, so the noise floor is undemonstrated`)
 else if (inertDeltaCm > Math.max(noiseFloorCm, 0.5)) failures.push(`a known-inert change moved errP95 by ${fmt(inertDeltaCm, 2)} cm, more than the ${fmt(Math.max(noiseFloorCm, 0.5), 2)} cm same-rate floor, so the tick window is not holding the arm stable`)
+  else if (inertCorrDelta > Math.max(corrNoiseFloor, 0.01)) failures.push(`a known-inert change moved correction rate by ${fmt(inertCorrDelta)}, more than the ${fmt(Math.max(corrNoiseFloor, 0.01))} same-rate spread, so the slope arm cannot separate a real change`)
 
 for (const f of outFiles) await rm(f, { force: true })
 if (failures.length) {
