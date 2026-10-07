@@ -407,6 +407,7 @@ export declare class AppContext {
         isBurning(id: any): boolean;
         smokeDepth(origin: any, direction: any, distance: any): number;
         rayBlocked(origin: any, direction: any, distance: any): boolean;
+        sightBlocked(from: any, to: any): boolean;
         applyRemote(payload: any): {
             ok: boolean;
             rejected: number;
