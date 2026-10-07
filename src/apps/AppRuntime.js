@@ -216,6 +216,8 @@ export class AppRuntime {
         .catch(e => {
           const err = colliderBuildError(`trimesh collider for entity ${entityId} model ${entity.model}`, e)
           console.error(`[AppRuntime] ${err.message}`)
+          entity.collider = null
+          entity._failedColliderType = 'trimesh'
           this._log('app_error', { label: `trimesh(${entity.model})`, message: err.message }, { sourceEntity: entityId })
           this._deferOrRun(() => {
             if (!this.entities.has(entityId)) return

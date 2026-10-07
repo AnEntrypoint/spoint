@@ -13,6 +13,7 @@ const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const REAL_MODEL = './apps/maps/aim_sillos.glb'
 const MISSING_MODEL = './apps/maps/definitely-not-a-model.glb'
 const INSIDE_EMPTY_MODEL = './.gm/scratch/witness-trigger-only.glb'
+const RETRY_MODEL = './.gm/scratch/witness-retry-model.glb'
 const OUTSIDE_ROOT_MODEL = resolve(tmpdir(), 'spoint-witness-outside-root.glb')
 const args = Object.fromEntries(process.argv.slice(2).map(a => {
   const eq = a.indexOf('=')
@@ -105,6 +106,15 @@ async function drainBuilds(timeoutMs = 30000) {
   await runtime.waitForPendingTrimeshBuilds(timeoutMs)
 }
 
+async function waitFor(matches, timeoutMs = 15000) {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (matches()) return true
+    await new Promise(r => setTimeout(r, 20))
+  }
+  return matches()
+}
+
 function describeCollider(entity) {
   if (!entity.collider) return 'none'
   return entity.collider.type === 'box'
@@ -130,6 +140,7 @@ async function armAppRuntimeAutoTrimesh(name, model) {
     arm: `appruntime.autoTrimesh.${name}`,
     model,
     collider: describeCollider(entity),
+    failedColliderType: entity._failedColliderType ?? null,
     bodyId: entity._physicsBodyId === undefined ? 'undefined' : String(entity._physicsBodyId),
     editorErrorCount: errors.length,
     boxFallback: errors.some(p => /box collider fallback/i.test(p.message || '')),
@@ -153,6 +164,7 @@ async function armPlaceModel(name, url) {
     model: url,
     entityId: entity?.id ?? null,
     collider: entity ? describeCollider(entity) : 'missing',
+    failedColliderType: entity?._failedColliderType ?? null,
     bodyId: !entity || entity._physicsBodyId === undefined ? 'undefined' : String(entity._physicsBodyId),
     editorErrorCount: errors.length,
     boxFallback: errors.some(p => /box collider fallback/i.test(p.message || '')),
@@ -168,9 +180,7 @@ async function armEditorRebuild(name, model, colliderType) {
   entity.model = model
   const before = editorErrors().length
   editor.handle(MSG.EDITOR_UPDATE, { entityId: entity.id, changes: { custom: { _collider: colliderType } } }, 1)
-  const tracked = snapshotPending()
-  await drainBuilds()
-  const rejected = await settleTracked(tracked)
+  await waitFor(() => entity._failedColliderType !== null || (entity._physicsBodyId !== undefined && entity._physicsBodyId !== builtBodyId))
   const errors = editorErrors().slice(before)
   return record({
     arm: `editor.rebuild.${name}`,
@@ -178,11 +188,62 @@ async function armEditorRebuild(name, model, colliderType) {
     requestedCollider: colliderType,
     bodyBefore: builtBodyId === undefined ? 'undefined' : String(builtBodyId),
     collider: describeCollider(entity),
+    failedColliderType: entity._failedColliderType ?? null,
     bodyId: entity._physicsBodyId === undefined ? 'undefined' : String(entity._physicsBodyId),
     editorErrorCount: errors.length,
     boxFallback: errors.some(p => /box collider fallback/i.test(p.message || '')),
     detail: errors.map(p => p.detail).find(Boolean) || null,
-    rejected: rejected[0] || null,
+  })
+}
+
+async function armEditorRebuildRetry() {
+  const path = resolve(SDK_ROOT, RETRY_MODEL)
+  const bytes = buildTriangleGlb('opaque')
+  writeFileSync(path, bytes)
+  const entity = runtime.spawnEntity('ed-retry', { model: RETRY_MODEL, position: [0, 10, 0], autoTrimesh: true })
+  await drainBuilds()
+  const firstBodyId = entity._physicsBodyId
+  unlinkSync(path)
+  editor.handle(MSG.EDITOR_UPDATE, { entityId: entity.id, changes: { scale: [2, 2, 2] } }, 1)
+  await waitFor(() => entity._failedColliderType === 'trimesh')
+  const failedBodyId = entity._physicsBodyId
+  const failedCollider = describeCollider(entity)
+  const failedType = entity._failedColliderType ?? null
+  writeFileSync(path, bytes)
+  editor.handle(MSG.EDITOR_UPDATE, { entityId: entity.id, changes: { scale: [3, 3, 3] } }, 1)
+  const recovered = await waitFor(() => entity._physicsBodyId !== undefined)
+  const retryRow = record({
+    arm: 'editor.rebuild.retryAfterFailure',
+    firstBodyId: firstBodyId === undefined ? 'undefined' : String(firstBodyId),
+    failedBodyId: failedBodyId === undefined ? 'undefined' : String(failedBodyId),
+    failedCollider,
+    failedColliderType: failedType,
+    retryBodyId: entity._physicsBodyId === undefined ? 'undefined' : String(entity._physicsBodyId),
+    retryCollider: describeCollider(entity),
+    recovered,
+  })
+  unlinkSync(path)
+  return retryRow
+}
+
+async function armPendingSetIsolation() {
+  await drainBuilds()
+  const spawned = runtime.spawnEntity('ed-pending-good', { model: REAL_MODEL, position: [0, 10, 0], autoTrimesh: true })
+  const worldLoadPending = runtime._pendingTrimeshBuilds.size
+  await drainBuilds()
+  await drainBuilds()
+  const editorEntity = runtime.spawnEntity('ed-pending-rebuild', { model: REAL_MODEL, position: [0, 20, 0], autoTrimesh: true })
+  await drainBuilds()
+  editor.handle(MSG.EDITOR_UPDATE, { entityId: editorEntity.id, changes: { scale: [2, 2, 2] } }, 1)
+  const editorRebuildPending = runtime._pendingTrimeshBuilds.size
+  const rebuildSettled = await waitFor(() => editorEntity._physicsBodyId !== undefined)
+  return record({
+    arm: 'editor.rebuild.pendingSetIsolation',
+    worldLoadPending,
+    editorRebuildPending,
+    rebuildSettled,
+    spawnedBodyId: spawned._physicsBodyId === undefined ? 'undefined' : String(spawned._physicsBodyId),
+    editorBodyId: editorEntity._physicsBodyId === undefined ? 'undefined' : String(editorEntity._physicsBodyId),
   })
 }
 
@@ -202,19 +263,30 @@ async function armStageLoader() {
     goodCollider: good ? describeCollider(good) : 'missing',
     goodBodyId: !good || good._physicsBodyId === undefined ? 'undefined' : String(good._physicsBodyId),
     badCollider: bad ? describeCollider(bad) : 'missing',
+    badFailedColliderType: bad?._failedColliderType ?? null,
     badBodyId: !bad || bad._physicsBodyId === undefined ? 'undefined' : String(bad._physicsBodyId),
   })
 }
 
+function glbFilesUnder(dir, acc = []) {
+  let entries = []
+  try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return acc }
+  for (const entry of entries) {
+    const full = resolve(dir, entry.name)
+    if (entry.isDirectory()) glbFilesUnder(full, acc)
+    else if (entry.name.endsWith('.glb')) acc.push(full)
+  }
+  return acc
+}
+
 async function armShippedAssetsAreNotEmpty() {
-  const dir = resolve(SDK_ROOT, 'apps/maps')
-  const files = readdirSync(dir).filter(f => f.endsWith('.glb')).sort()
+  const files = glbFilesUnder(resolve(SDK_ROOT, 'apps/maps')).sort()
   let minTriangles = Infinity
   let empties = 0
   const failuresSeen = []
   for (const f of files) {
     try {
-      const mesh = await extractAllMeshesFromGLBAsync(resolve(dir, f))
+      const mesh = await extractAllMeshesFromGLBAsync(f)
       minTriangles = Math.min(minTriangles, mesh.triangleCount)
       if (mesh.triangleCount === 0) empties++
     } catch (e) {
@@ -239,7 +311,8 @@ async function main() {
   expect(good.bodyId !== 'undefined', 'real model gets a trimesh body')
   expect(good.rejected === null, 'real model build does not reject')
 
-  expect(bad.collider === 'trimesh', 'missing model does not degrade to a box collider')
+  expect(bad.collider === 'none', 'missing model leaves no collider instead of a box')
+  expect(bad.failedColliderType === 'trimesh', 'missing model records the collider type it failed to build')
   expect(bad.bodyId === 'undefined', 'missing model gets no physics body')
   expect(!bad.boxFallback, 'missing model does not broadcast a box fallback')
   expect(/ENOENT|no such file/i.test(bad.detail || ''), 'missing model broadcasts its real cause')
@@ -247,13 +320,13 @@ async function main() {
   expect(/trimesh collider for entity probe-bad/.test(bad.rejected?.message || ''), 'propagated error names the entity')
 
   const emptyModel = await armAppRuntimeAutoTrimesh('probe-empty', INSIDE_EMPTY_MODEL)
-  expect(emptyModel.collider === 'trimesh', 'zero-collidable-geometry model does not degrade to a box')
+  expect(emptyModel.collider === 'none', 'zero-collidable-geometry model leaves no collider instead of a box')
   expect(emptyModel.bodyId === 'undefined', 'zero-collidable-geometry model gets no physics body')
   expect(emptyModel.rejected?.name === 'ColliderBuildError', 'zero-collidable-geometry model propagates ColliderBuildError')
   expect(/No valid mesh primitives/.test(emptyModel.rejected?.message || ''), 'zero-collidable-geometry model names its cause')
 
   const outsideRoot = await armAppRuntimeAutoTrimesh('probe-outside-root', OUTSIDE_ROOT_MODEL)
-  expect(outsideRoot.collider === 'trimesh', 'model outside the server root does not degrade to a box')
+  expect(outsideRoot.collider === 'none', 'model outside the server root leaves no collider instead of a box')
   expect(outsideRoot.bodyId === 'undefined', 'model outside the server root gets no physics body')
   expect(outsideRoot.rejected?.name === 'ColliderBuildError', 'model outside the server root propagates ColliderBuildError')
   expect(/no glbPath/.test(outsideRoot.rejected?.message || ''), 'model outside the server root names the rejection')
@@ -263,7 +336,7 @@ async function main() {
   expect(placeGood.bodyId !== 'undefined', 'PLACE_MODEL of a real model gets a body')
 
   const placeBad = await armPlaceModel('bad', MISSING_MODEL)
-  expect(placeBad.collider === 'trimesh', 'PLACE_MODEL of a missing model does not degrade to a box')
+  expect(placeBad.collider === 'none', 'PLACE_MODEL of a missing model leaves no collider instead of a box')
   expect(placeBad.bodyId === 'undefined', 'PLACE_MODEL of a missing model gets no physics body')
   expect(!placeBad.boxFallback, 'PLACE_MODEL of a missing model does not announce a box fallback')
 
@@ -272,22 +345,38 @@ async function main() {
   expect(edGood.bodyId !== 'undefined', 'editor trimesh rebuild of a real model gets a body')
 
   const edBadTrimesh = await armEditorRebuild('ed-bad-trimesh', MISSING_MODEL, 'trimesh')
-  expect(edBadTrimesh.collider === 'trimesh', 'editor trimesh failure keeps the trimesh descriptor')
+  expect(edBadTrimesh.collider === 'none', 'editor trimesh failure leaves no collider')
+  expect(edBadTrimesh.failedColliderType === 'trimesh', 'editor trimesh failure records trimesh as the failed type')
   expect(edBadTrimesh.bodyId === 'undefined', 'editor trimesh failure leaves no body')
   expect(/ENOENT|no such file/i.test(edBadTrimesh.detail || ''), 'editor trimesh failure reports its real cause')
-  expect(edBadTrimesh.rejected?.name === 'ColliderBuildError', 'editor trimesh failure propagates ColliderBuildError')
 
   const edBadConvex = await armEditorRebuild('ed-bad-convex', MISSING_MODEL, 'convex')
-  expect(edBadConvex.collider === 'convex', 'editor convex failure keeps the convex descriptor')
+  expect(edBadConvex.collider === 'none', 'editor convex failure leaves no collider')
+  expect(edBadConvex.failedColliderType === 'convex', 'editor convex failure records convex as the failed type')
   expect(edBadConvex.bodyId === 'undefined', 'editor convex failure leaves no body')
   expect(/ENOENT|no such file/i.test(edBadConvex.detail || ''), 'editor convex failure reports its real cause')
-  expect(edBadConvex.rejected?.name === 'ColliderBuildError', 'editor convex failure propagates ColliderBuildError')
 
   const stage = await armStageLoader()
   expect(stage.goodCollider === 'trimesh', 'stage-loaded world static with a real model keeps trimesh')
   expect(stage.goodBodyId !== 'undefined', 'stage-loaded world static with a real model gets a body')
-  expect(stage.badCollider === 'trimesh', 'stage-loaded world static with a missing model does not box')
+  expect(stage.badCollider === 'none', 'stage-loaded world static with a missing model leaves no collider')
+  expect(stage.badFailedColliderType === 'trimesh', 'stage-loaded world static records trimesh as the failed type')
   expect(stage.badBodyId === 'undefined', 'stage-loaded world static with a missing model gets no body')
+
+  const retry = await armEditorRebuildRetry()
+  expect(retry.firstBodyId !== 'undefined', 'retry arm starts from a real trimesh body')
+  expect(retry.failedBodyId === 'undefined', 'deleting the model file strips the body on rebuild')
+  expect(retry.failedCollider === 'none', 'a failed rebuild leaves no collider')
+  expect(retry.failedColliderType === 'trimesh', 'a failed rebuild records trimesh as the failed type')
+  expect(retry.recovered === true, 'restoring the model file rebuilds the collider on the next EDITOR_UPDATE')
+  expect(retry.retryBodyId !== 'undefined', 'the retried rebuild produces a real body')
+  expect(retry.retryCollider === 'trimesh', 'the retried rebuild restores the trimesh collider')
+
+  const pending = await armPendingSetIsolation()
+  expect(pending.worldLoadPending >= 1, 'a world-load trimesh build is still tracked as pending')
+  expect(pending.editorRebuildPending === 0, 'an editor rebuild does not gate spawn grounding via _pendingTrimeshBuilds')
+  expect(pending.rebuildSettled === true, 'the untracked editor rebuild still completes')
+  expect(pending.editorBodyId !== 'undefined', 'the untracked editor rebuild still produces a body')
 
   const assets = await armShippedAssetsAreNotEmpty()
   expect(assets.files > 0, 'shipped map assets scanned')

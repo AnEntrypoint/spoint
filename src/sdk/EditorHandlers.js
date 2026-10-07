@@ -129,10 +129,14 @@ export function createEditorHandlers(ctx) {
   ]
 
   function syncEntityCollider(entity, changes) {
-    if (!ctx.physics || entity._physicsBodyId === undefined) return
-    const isDynamic = entity.bodyType === 'dynamic'
+    if (!ctx.physics) return
     const colliderChanged = changes.custom && Object.prototype.hasOwnProperty.call(changes.custom, '_collider')
     const scaleChanged = !!changes.scale
+    if (entity._physicsBodyId === undefined) {
+      if (entity._failedColliderType && (colliderChanged || scaleChanged)) rebuildEntityCollider(entity)
+      return
+    }
+    const isDynamic = entity.bodyType === 'dynamic'
     if (colliderChanged || scaleChanged) { rebuildEntityCollider(entity); return }
     if (isDynamic) {
       if (changes.position) ctx.physics.setBodyPosition(entity._physicsBodyId, entity.position)
@@ -144,25 +148,29 @@ export function createEditorHandlers(ctx) {
 
   function rebuildEntityCollider(entity) {
     if (!ctx.physics) return
+    const requested = entity.custom?._collider
+    const type = COLLIDER_TYPES.has(requested) ? requested : (entity.collider?.type || entity._failedColliderType || 'box')
+    entity._failedColliderType = null
     if (entity._physicsBodyId !== undefined) {
       ctx.physics.removeBody(entity._physicsBodyId)
       appRuntime._physicsBodyToEntityId?.delete(entity._physicsBodyId)
       entity._physicsBodyId = undefined
     }
-    const requested = entity.custom?._collider
-    const type = COLLIDER_TYPES.has(requested) ? requested : (entity.collider?.type || 'box')
     if (type === 'none') { entity.collider = null; return }
     const finish = (bid) => { entity._physicsBodyId = bid; appRuntime._physicsBodyToEntityId?.set(bid, entity.id) }
     const toBox = () => { entity.collider = { type: 'box', size: [0.5, 0.5, 0.5] }; finish(ctx.physics.addBody('box', [0.5, 0.5, 0.5], entity.position, 'static', { rotation: entity.rotation })) }
+    const preventUnhandledRejection = (p) => { p.catch(() => {}) }
     const failColliderBuild = (what, cause) => {
       const err = colliderBuildError(what, cause)
       console.error(`[collider] ${err.message}`)
-      connections.broadcast(MSG.EDITOR_ERROR, { message: `collider build failed for ${entity.model}`, entityId: entity.id, detail: err.message })
+      entity.collider = null
+      entity._failedColliderType = type
+      connections?.broadcast?.(MSG.EDITOR_ERROR, { message: `collider build failed for ${entity.model}`, entityId: entity.id, detail: err.message })
       throw err
     }
     if (type === 'trimesh' && entity.model) {
       entity.collider = { type: 'trimesh', model: entity.model }
-      appRuntime.trackTrimeshBuild(
+      preventUnhandledRejection(
         ctx.physics.addStaticTrimeshAsync(appRuntime.resolveAssetPath(entity.model), 0, entity.position, entity.scale || [1, 1, 1], entity.rotation)
           .then(finish)
           .catch(e => failColliderBuild(`trimesh collider for entity ${entity.id} model ${entity.model}`, e))
@@ -172,7 +180,7 @@ export function createEditorHandlers(ctx) {
     if (type === 'convex' && entity.model) {
       const sc = entity.scale || [1, 1, 1]
       entity.collider = { type: 'convex', model: entity.model }
-      appRuntime.trackTrimeshBuild(
+      preventUnhandledRejection(
         import('../physics/GLBLoader.js').then(({ extractAllVerticesFromGLBAsync }) =>
           extractAllVerticesFromGLBAsync(appRuntime.resolveAssetPath(entity.model))
         ).then(mesh => {
