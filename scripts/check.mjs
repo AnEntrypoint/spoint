@@ -17,6 +17,7 @@ const NO_GPU_WITNESSES = [
   { file: 'physics-motion-recreate-witness.mjs' },
   { file: 'terrain-reseed-failure-witness.mjs' },
   { file: 'terrain-residency-seam-witness.mjs', must: /RESULT: PASS -- \d+ seam check\(s\) held over \d+ heightfield accessor read\(s\)/ },
+  { file: 'spawn-clearance-witness.mjs', must: /RESULT: PASS -- \d+ intersecting candidate\(s\) across \d+ blocker height\(s\), 0 called clear/ },
   { file: 'ep-progressive-lod-schema-witness.mjs' },
   { file: 'tps-game-player-movement-witness.mjs', must: /PASS: walked/ },
   { file: 'placement-climate-gate-witness.mjs', must: /CPU per chunk veg/ },
