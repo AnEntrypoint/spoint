@@ -9,6 +9,8 @@ const VOID_PROBE_DEPTH_M = 1.5
 
 const MAX_FOOTPRINT_INTRUSION_M = 0.15
 
+const MAX_AUTHORED_SURFACE_DELTA_M = 2
+
 const FOOTPRINT_RING_FRACTIONS = [0.5, 1]
 
 const FOOTPRINT_DIR_COUNT = 8
@@ -36,8 +38,14 @@ function capsuleRadiusM(hitbox) {
 
 function capsuleHeightM(hitbox) {
   if (Number.isFinite(hitbox?.height) && hitbox.height > 0) return hitbox.height
-  const centre = Number.isFinite(hitbox?.centerHeight) ? hitbox.centerHeight : DEFAULT_HITBOX.centerHeight
-  return 2 * centre
+  const derived = 2 * (Number.isFinite(hitbox?.centerHeight) ? hitbox.centerHeight : DEFAULT_HITBOX.centerHeight)
+  return derived > 0 ? derived : DEFAULT_HITBOX.height
+}
+
+function standingOffsetM(hitbox) {
+  if (Number.isFinite(hitbox?.centerHeight) && hitbox.centerHeight > 0) return hitbox.centerHeight
+  const derived = capsuleHeightM(hitbox) / 2
+  return derived > 0 ? derived : DEFAULT_HITBOX.centerHeight
 }
 
 function capsuleBottomRiseM(distanceM, radiusM) {
@@ -46,14 +54,21 @@ function capsuleBottomRiseM(distanceM, radiusM) {
   return radiusM - Math.sqrt(radiusM * radiusM - distanceM * distanceM)
 }
 
-function standingSurfaceM(ctx, sp, hitbox, radiusM) {
+function withinContactDisc(distanceM, radiusM) {
+  return distanceM < radiusM
+}
+
+function authoredSurfaceM(ctx, sp, hitbox, radiusM) {
   const terrainY = ctx.terrainHeightAt(sp[0], sp[2])
-  return spawnSurfaceY((origin, direction, length) => ctx.raycast(origin, direction, length), sp, {
-    standingOffset: hitbox.centerHeight,
+  const standingOffset = standingOffsetM(hitbox)
+  const poseY = Number.isFinite(terrainY) ? Math.max(sp[1], terrainY) : sp[1]
+  const feetY = spawnSurfaceY((origin, direction, length) => ctx.raycast(origin, direction, length), sp, {
+    standingOffset,
     headroom: RESPAWN_LIFT_M + capsuleHeightM(hitbox),
     terrainY,
     radius: radiusM,
   })
+  return { feetY, poseY, standingOffset }
 }
 
 function surfaceYOf(hit) {
@@ -78,7 +93,9 @@ export function footprintBlockers(ctx, sp, feetY, hitbox = DEFAULT_HITBOX) {
     const support = ctx.raycast([sampleX, topY - PROBE_SKIN_M, sampleZ], [0, -1, 0], probeLengthM)
     const supportY = surfaceYOf(support)
     if (supportY === null) {
-      blockers.push({ kind: 'void', x: sampleX, z: sampleZ, offsetM: distanceM, surfaceY: null, intrusionM: null })
+      if (withinContactDisc(distanceM, radiusM)) {
+        blockers.push({ kind: 'void', x: sampleX, z: sampleZ, offsetM: distanceM, surfaceY: null, intrusionM: null })
+      }
       continue
     }
     if (supportY > bottomY + MAX_FOOTPRINT_INTRUSION_M) {
@@ -88,11 +105,52 @@ export function footprintBlockers(ctx, sp, feetY, hitbox = DEFAULT_HITBOX) {
   return blockers
 }
 
-export function evaluateSpawnPoint(ctx, sp, hitbox = DEFAULT_HITBOX) {
+function playerOverlaps(ctx, sp, feetY, hitbox, exclude) {
+  const overlapDiameterM = 2 * capsuleRadiusM(hitbox)
+  const heightM = capsuleHeightM(hitbox)
+  const blockers = []
+  for (const player of ctx.players?.getAll?.() ?? []) {
+    if (!player.state || exclude(player)) continue
+    const occupied = player.state.position
+    const distanceM = Math.hypot(sp[0] - occupied[0], sp[2] - occupied[2])
+    if (distanceM >= overlapDiameterM) continue
+    if (Math.abs(occupied[1] - feetY) >= heightM) continue
+    blockers.push({
+      kind: 'player',
+      playerId: player.id,
+      x: occupied[0],
+      z: occupied[2],
+      offsetM: distanceM,
+      surfaceY: occupied[1],
+      intrusionM: overlapDiameterM - distanceM,
+    })
+  }
+  return blockers
+}
+
+export function evaluateSpawnPoint(ctx, sp, hitbox = DEFAULT_HITBOX, exclude = () => false) {
   const radiusM = capsuleRadiusM(hitbox)
-  const feetY = standingSurfaceM(ctx, sp, hitbox, radiusM)
-  if (feetY === null) return { sp, feetY: null, pose: [...sp], blockers: [{ kind: 'no-surface', x: sp[0], z: sp[2], offsetM: 0, surfaceY: null, intrusionM: null }] }
+  const { feetY, poseY, standingOffset } = authoredSurfaceM(ctx, sp, hitbox, radiusM)
+  if (feetY === null) {
+    return {
+      sp,
+      feetY: null,
+      pose: [...sp],
+      blockers: [{ kind: 'no-surface', x: sp[0], z: sp[2], offsetM: 0, surfaceY: null, intrusionM: null }],
+    }
+  }
+  const deltaM = feetY - sp[1]
+  const bandLowY = poseY - 2 * standingOffset
+  if (feetY < bandLowY || feetY > poseY || Math.abs(deltaM) > MAX_AUTHORED_SURFACE_DELTA_M) {
+    return {
+      sp,
+      feetY,
+      pose: [sp[0], feetY + RESPAWN_LIFT_M, sp[2]],
+      blockers: [{ kind: 'surface-mismatch', x: sp[0], z: sp[2], offsetM: 0, surfaceY: feetY, intrusionM: null, deltaM }],
+    }
+  }
   const blockers = footprintBlockers(ctx, sp, feetY, hitbox)
+  for (const overlap of playerOverlaps(ctx, sp, feetY, hitbox, exclude)) blockers.push(overlap)
   return { sp, feetY, pose: [sp[0], feetY + RESPAWN_LIFT_M, sp[2]], blockers }
 }
 
@@ -119,7 +177,7 @@ export function pickClearSpawnPose(ctx, spawnPoints, { exclude = () => false, mi
   const ordered = orderByPlayerDistance(ctx, usable, exclude, minSafeDistance)
   let leastBlocked = null
   for (const sp of ordered) {
-    const evaluated = evaluateSpawnPoint(ctx, sp, hitbox)
+    const evaluated = evaluateSpawnPoint(ctx, sp, hitbox, exclude)
     if (evaluated.blockers.length === 0) return evaluated.pose
     if (!leastBlocked || evaluated.blockers.length < leastBlocked.blockers.length) leastBlocked = evaluated
   }
