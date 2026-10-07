@@ -3,6 +3,7 @@ export const DEFAULT_PATCH_MAX_LEVEL = 11
 export const SURFACE_SOLVE_TOLERANCE_M = 1e-4
 const _reportedSolveFailures = new Set()
 const _stepDiscontinuities = { count: 0, maxJumpM: 0 }
+const _solveStats = { solves: 0, evaluations: 0 }
 const BRACKET_HALVING_WINDOW = 6
 const GROUND_MEMO_SLOTS = 4096
 const GROUND_MEMO_CELLS_PER_M = 4
@@ -10,6 +11,10 @@ const GROUND_MEMO_HASH_X = 73856093
 const GROUND_MEMO_HASH_Z = 19349663
 
 export function surfaceSolveStepDiscontinuities() { return { ..._stepDiscontinuities } }
+
+export function surfaceSolveStats() { return { ..._solveStats } }
+
+export function resetSurfaceSolveStats() { _solveStats.solves = 0; _solveStats.evaluations = 0 }
 
 export class SurfaceSolveError extends RangeError {
   constructor(x, z, toleranceM, evaluations, residualM) {
@@ -123,7 +128,9 @@ export function createPlanetFrame({ sampler, anchorDir = [0, 1, 0], offsetY = 0,
     let belowSurface = -Infinity, aboveSurface = Infinity
     let lastG = Infinity, gBelow = 0, gAbove = 0
     let checkpointK = -1, checkpointWidth = Infinity
+    _solveStats.solves++
     for (let k = 0; k < SURFACE_SOLVE_MAX_EVALS; k++) {
+      _solveStats.evaluations++
       const h = heightAtDir(renderDirAt(x, y, z))
       if (h == null || !Number.isFinite(h)) return null
       const yF = renderYOnSphere(r2, h)

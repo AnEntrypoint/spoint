@@ -141,6 +141,97 @@ async function createGpuPatchHeightFn({ frame, tcfg, offsetY }) {
   return createPatchHeightFn({ baker, frame, maxLevel: Number.isFinite(tcfg.maxLevel) ? tcfg.maxLevel : DEFAULT_PATCH_MAX_LEVEL, offsetY, fallbackFn: fractalGHL })
 }
 
+export const AIRBORNE_GROUND_REUSE_SAFETY = 8
+export const AIRBORNE_GROUND_RELEASE_MIN_M = 1
+export const AIRBORNE_GROUND_RELEASE_TICKS = 3
+export const AIRBORNE_GROUND_RELEASE_HZ = 60
+const AIRBORNE_GROUND_MIN_DESCENT_MPS = 0.5
+
+export function createAirborneGroundReuse({ heightFn, frame, playerManager }) {
+  const cache = new WeakMap()
+  const state = { served: 0, exact: 0, reused: 0, groundedServed: 0, groundedExact: 0, maxReuseM: 0, sumReuseM: 0, maxReuseRatio: 0, limitMinM: Infinity, limitMaxM: 0, verifySamples: 0, maxServedVsExactM: 0, sumServedVsExactM: 0, verifyExactSolves: 0, minAboveM: Infinity, maxRatioToDerived: 0 }
+  let enabled = true
+  let verifyReuse = false
+  let distanceOverrideM = null
+
+  function playerAt(x, z) {
+    const map = playerManager && playerManager.players
+    if (!map || typeof map.values !== 'function') return null
+    for (const p of map.values()) {
+      const s = p && p.state
+      if (!s || !s.position) continue
+      if (s.position[0] === x && s.position[2] === z) return p
+    }
+    return null
+  }
+
+  function releaseClearanceM(st) {
+    const descent = Number.isFinite(st.velocity[1]) ? Math.abs(st.velocity[1]) : 0
+    return Math.max(AIRBORNE_GROUND_RELEASE_MIN_M, descent * AIRBORNE_GROUND_RELEASE_TICKS / AIRBORNE_GROUND_RELEASE_HZ)
+  }
+
+  function derivedReuseM(st, groundY) {
+    const above = st.position[1] - groundY
+    if (!Number.isFinite(above) || above <= 0) return 0
+    const descent = Math.max(Math.abs(st.velocity[1]), AIRBORNE_GROUND_MIN_DESCENT_MPS)
+    const horizontal = Math.hypot(st.velocity[0], st.velocity[2])
+    return horizontal * (above / descent) / AIRBORNE_GROUND_REUSE_SAFETY
+  }
+
+  function solve(x, z) {
+    state.exact++
+    return heightFn(x, z)
+  }
+
+  function heightAt(x, z) {
+    state.served++
+    const p = enabled ? playerAt(x, z) : null
+    if (!p) return solve(x, z)
+    if (p.state.onGround) { state.groundedServed++; state.groundedExact++; return solve(x, z) }
+    const entry = cache.get(p)
+    if (entry && entry.epoch === frame.chartEpoch && Number.isFinite(entry.y)) {
+      const above = p.state.position[1] - entry.y
+      const derivedLimit = derivedReuseM(p.state, entry.y)
+      const limit = distanceOverrideM === null ? derivedLimit : distanceOverrideM
+      const moved = Math.hypot(x - entry.x, z - entry.z)
+      const clearance = distanceOverrideM === null ? releaseClearanceM(p.state) : 0
+      if (moved <= limit && above > clearance) {
+        state.reused++
+        state.sumReuseM += moved
+        const ratioToDerived = derivedLimit > 0 ? moved / derivedLimit : (moved > 0 ? Infinity : 0)
+        if (ratioToDerived > state.maxRatioToDerived) state.maxRatioToDerived = ratioToDerived
+        if (moved > state.maxReuseM) state.maxReuseM = moved
+        const ratio = limit > 0 ? moved / limit : (moved > 0 ? Infinity : 0)
+        if (ratio > state.maxReuseRatio) state.maxReuseRatio = ratio
+        if (limit < state.limitMinM) state.limitMinM = limit
+        if (limit > state.limitMaxM) state.limitMaxM = limit
+        if (Number.isFinite(above) && above < state.minAboveM) state.minAboveM = above
+        if (verifyReuse) {
+          const exactY = heightFn(x, z)
+          state.verifyExactSolves++
+          state.verifySamples++
+          const delta = Math.abs(entry.y - exactY)
+          state.sumServedVsExactM += delta
+          if (delta > state.maxServedVsExactM) state.maxServedVsExactM = delta
+        }
+        return entry.y
+      }
+    }
+    const y = solve(x, z)
+    cache.set(p, { x, z, y, epoch: frame.chartEpoch })
+    return y
+  }
+
+  return {
+    heightAt,
+    stats: () => ({ ...state }),
+    resetStats() { state.served = 0; state.exact = 0; state.reused = 0; state.groundedServed = 0; state.groundedExact = 0; state.maxReuseM = 0; state.sumReuseM = 0; state.maxReuseRatio = 0; state.limitMinM = Infinity; state.limitMaxM = 0; state.verifySamples = 0; state.maxServedVsExactM = 0; state.sumServedVsExactM = 0; state.verifyExactSolves = 0; state.minAboveM = Infinity; state.maxRatioToDerived = 0 },
+    setEnabled(v) { enabled = !!v },
+    setVerifyReuse(v) { verifyReuse = !!v },
+    setDistanceOverrideM(v) { distanceOverrideM = v },
+  }
+}
+
 export function stopTerrainStreaming(physics, streamer) {
   if (!streamer) return
   const failures = []
@@ -226,7 +317,9 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
   try {
     await streamer.start(tcfg.center || [0, 0])
     const offsetYNotFoldedIntoHeightFn = 0
-    physics.setTerrainHeightSource(guardedGroundHeight('server physics terrain height', heightFn, NaN), frame, offsetYNotFoldedIntoHeightFn)
+    const groundReuse = createAirborneGroundReuse({ heightFn: guardedGroundHeight('server physics terrain height', heightFn, NaN), frame, playerManager })
+    physics.groundSolveReuse = groundReuse
+    physics.setTerrainHeightSource(groundReuse.heightAt, frame, offsetYNotFoldedIntoHeightFn)
 
     let trunkStreamer = null
     let rockStreamer = null
