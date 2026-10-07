@@ -3,6 +3,12 @@ import { PLAYER_DEFAULTS } from '../shared/worldDefaults.js'
 
 const MAX_BUFFERED_INPUTS = 128
 
+const DELIVERED = 'delivered'
+const NO_TRANSPORT = 'no-transport'
+const PEER_NOT_OPEN = 'peer-not-open'
+const TRANSPORT_REFUSED = 'transport-refused'
+const SEND_THREW = 'send-threw'
+
 export class PlayerManager {
   constructor() {
     this.players = new Map()
@@ -11,6 +17,8 @@ export class PlayerManager {
     this._connectedCache = null
     this._connectedGen = 0
     this._cachedGen = -1
+    this.sendFailures = 0
+    this._loggedSendFailures = new Map()
   }
 
   addPlayer(socket, initialState = {}) {
@@ -43,6 +51,7 @@ export class PlayerManager {
   removePlayer(playerId) {
     this.players.delete(playerId)
     this.inputBuffers.delete(playerId)
+    this._loggedSendFailures.delete(playerId)
     this._connectedGen++
   }
 
@@ -114,35 +123,82 @@ export class PlayerManager {
     if (inputs) inputs.length = 0
   }
 
-  broadcast(message) {
-    const data = pack(message)
-    for (const player of this.getConnectedPlayers()) {
-      if (player.socket && player.socket.send) {
-        try { player.socket.send(data) } catch (e) {}
-      }
+  _encodeMessage(message) {
+    try {
+      return pack(message)
+    } catch (err) {
+      const detail = err && err.message ? err.message : String(err)
+      throw new Error(`[player-manager] encode-failed: ${detail}`)
     }
   }
 
-  broadcastBinary(buffer) {
-    for (const player of this.getConnectedPlayers()) {
-      if (player.socket && player.socket.send) {
-        try { player.socket.send(buffer) } catch (e) {}
-      }
+  _deliver(player, data) {
+    const transport = player && player.socket
+    if (!transport || typeof transport.send !== 'function') return NO_TRANSPORT
+    let accepted
+    try {
+      accepted = transport.send(data)
+    } catch (err) {
+      this._recordSendFailure(player, SEND_THREW, err && err.message)
+      return SEND_THREW
     }
+    if (accepted === false) {
+      const reason = transport.isOpen === false ? PEER_NOT_OPEN : TRANSPORT_REFUSED
+      this._recordSendFailure(player, reason, null)
+      if (reason === PEER_NOT_OPEN && player.connected) {
+        player.connected = false
+        this._connectedGen++
+      }
+      return reason
+    }
+    return DELIVERED
+  }
+
+  _recordSendFailure(player, reason, detail) {
+    this.sendFailures++
+    let logged = this._loggedSendFailures.get(player.id)
+    if (!logged) {
+      logged = new Set()
+      this._loggedSendFailures.set(player.id, logged)
+    }
+    if (logged.has(reason)) return
+    logged.add(reason)
+    const suffix = detail ? ' -- ' + detail : ''
+    console.error(`[player-manager] send to player ${player.id} did not deliver (${reason})${suffix}`)
+  }
+
+  broadcast(message) {
+    const data = this._encodeMessage(message)
+    return this._fanOut(data)
+  }
+
+  broadcastBinary(buffer) {
+    return this._fanOut(buffer)
+  }
+
+  _fanOut(data) {
+    const failed = []
+    let delivered = 0
+    let skipped = 0
+    for (const player of this.getConnectedPlayers()) {
+      const outcome = this._deliver(player, data)
+      if (outcome === DELIVERED) delivered++
+      else if (outcome === NO_TRANSPORT) skipped++
+      else failed.push({ playerId: player.id, reason: outcome })
+    }
+    return { delivered, failed, skipped }
   }
 
   sendToPlayer(playerId, message) {
     const player = this.players.get(playerId)
-    if (player && player.socket && player.socket.send) {
-      try { player.socket.send(pack(message)) } catch (e) {}
-    }
+    if (!player) return false
+    return this._deliver(player, this._encodeMessage(message)) === DELIVERED
   }
 
   sendBinaryToPlayer(playerId, buffer) {
     const player = this.players.get(playerId)
-    if (player && player.socket && player.socket.send) {
-      try { player.socket.send(buffer) } catch (e) {}
-    }
+    if (!player) return false
+    return this._deliver(player, buffer) === DELIVERED
   }
 
   snapshotState() {
