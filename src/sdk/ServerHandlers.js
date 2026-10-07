@@ -122,6 +122,16 @@ export function createConnectionHandlers(ctx) {
     return playerId
   }
 
+  const pendingMigrations = new Map()
+
+  function _abandonPendingMigration(playerId) {
+    const pending = pendingMigrations.get(playerId)
+    if (!pending) return
+    pendingMigrations.delete(playerId)
+    pending.transport.off('close', pending.onClose)
+    pending.transport.off('error', pending.onClose)
+  }
+
   function _handleMigrate(transport, msg) {
     const token = msg.payload?.sessionToken
     if (typeof token !== 'string' || token.length < 8) { try { transport.close() } catch (e) {} return }
@@ -134,13 +144,28 @@ export function createConnectionHandlers(ctx) {
       try { transport.close() } catch (e) {}
       return
     }
-    const oldTransportLeftOpenForClientToClose = client.transport
+    const oldTransport = client.transport
+    const isEditor = client.isEditor
+    const pending = { playerId, transport, oldTransport, token, isEditor, onClose: null }
+    pending.onClose = () => {
+      if (pendingMigrations.get(playerId) !== pending) return
+      pendingMigrations.delete(playerId)
+      if (oldTransport.isOpen === false) return
+      const restored = connections.addClient(playerId, oldTransport)
+      restored.sessionToken = token
+      restored.isEditor = isEditor
+    }
+    transport.on('close', pending.onClose)
+    transport.on('error', pending.onClose)
+    pendingMigrations.set(playerId, pending)
     connections.detachClient(playerId)
+    oldTransport.on('close', () => {
+      if (pendingMigrations.get(playerId) === pending) pendingMigrations.delete(playerId)
+    })
     const migratedClient = connections.addClient(playerId, transport)
     migratedClient.sessionToken = token
-    migratedClient.isEditor = client.isEditor
+    migratedClient.isEditor = isEditor
     connections.send(playerId, MSG.MIGRATE_ACK, { ok: true, playerId, tick: tickSystem.currentTick, structHash: WIRE_STRUCT_HASH })
-    void oldTransportLeftOpenForClientToClose
     emitter.emit('playerMigrate', { id: playerId })
   }
 
@@ -407,6 +432,7 @@ export function createConnectionHandlers(ctx) {
   }
 
   connections.on('disconnect', (clientId, reason) => {
+    _abandonPendingMigration(clientId)
     const client = connections.getClient(clientId)
     if (client?.sessionToken) { const p = playerManager.getPlayer(clientId); if (p) sessions.update(client.sessionToken, { state: p.state }); sessions.release(client.sessionToken) }
     appRuntime.broadcastMessage({ type: 'player_leave', playerId: clientId })

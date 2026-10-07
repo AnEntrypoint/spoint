@@ -187,6 +187,30 @@ async function main() {
     await sleep(500)
     const idsAfterFresh = snapshotIds(observer)
     check('arm D: the fresh player is in the snapshot', Array.isArray(idsAfterFresh) && idsAfterFresh.includes(hsF?.payload?.playerId), `ids=${JSON.stringify(idsAfterFresh)}`)
+
+    console.log('[transport-churn] arm F: the client abandons a migration the server already acked')
+    const beforeAbandonPlayers = (await serverState(port)).players
+    const m = await makeClient(url, 'm'); open.push(m)
+    const hsM = await waitFor(m, x => x.type === MSG.HANDSHAKE_ACK, 5000)
+    const idM = hsM?.payload?.playerId
+    const tokenM = hsM?.payload?.sessionToken
+    await sleep(500)
+    const beforeAbandon = await serverState(port)
+    check('arm F: the player to migrate is in the room', beforeAbandon.players === beforeAbandonPlayers + 1 && beforeAbandon.connections.clients.some(c => c.id === idM), `before=${beforeAbandonPlayers} joined=${beforeAbandon.players} id=${JSON.stringify(idM)}`)
+    const cand = await makeClient(url, 'cand'); open.push(cand)
+    cand.ws.send(pack({ type: MSG.MIGRATE, payload: { sessionToken: tokenM } }))
+    const mack = await waitFor(cand, x => x.type === MSG.MIGRATE_ACK, 5000)
+    check('arm F: MIGRATE is acked', !!mack?.payload?.ok, JSON.stringify(mack?.payload))
+    const snapsBeforeAbandon = m.msgs.filter(x => x.type === MSG.SNAPSHOT).length
+    closeClient(cand)
+    await sleep(1500)
+    const afterAbandon = await serverState(port)
+    const snapsAfterAbandon = m.msgs.filter(x => x.type === MSG.SNAPSHOT).length
+    console.log(`[transport-churn] arm F counts: players before=${beforeAbandon.players} after=${afterAbandon.players} id=${JSON.stringify(idM)} snapshots ${snapsBeforeAbandon} -> ${snapsAfterAbandon}`)
+    check('arm F: an abandoned candidate socket does not destroy the player', afterAbandon.players === beforeAbandon.players, `before=${beforeAbandon.players} after=${afterAbandon.players}`)
+    check('arm F: the original socket keeps receiving snapshots', snapsAfterAbandon > snapsBeforeAbandon, `before=${snapsBeforeAbandon} after=${snapsAfterAbandon}`)
+    const idsAfterAbandon = snapshotIds(observer)
+    check('arm F: the abandoned player is still in the snapshot', Array.isArray(idsAfterAbandon) && idsAfterAbandon.includes(idM), `id=${JSON.stringify(idM)} ids=${JSON.stringify(idsAfterAbandon)}`)
   } finally {
     for (const c of open) closeClient(c)
     await server.stop()

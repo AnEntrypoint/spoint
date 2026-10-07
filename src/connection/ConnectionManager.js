@@ -54,25 +54,29 @@ export class ConnectionManager extends EventEmitter {
     })
 
     transport.on('close', () => {
+      const current = this.clients.get(clientId)
+      if (current && current.transport !== transport) return
       if (this.clients.has(clientId)) this.emit('disconnect', clientId, 'closed')
       this.removeClient(clientId)
     })
 
     transport.on('error', (err) => {
       console.error(`[connection] transport error for ${clientId}:`, err.message)
+      const current = this.clients.get(clientId)
+      if (current && current.transport !== transport) return
       if (this.clients.has(clientId)) this.emit('disconnect', clientId, 'error')
       this.removeClient(clientId)
     })
 
     this.clients.set(clientId, client)
-    this._setupHeartbeat(clientId)
+    this._setupHeartbeat(clientId, transport)
     return client
   }
 
-  _setupHeartbeat(clientId) {
+  _setupHeartbeat(clientId, transport) {
     const check = () => {
       const client = this.clients.get(clientId)
-      if (!client) return
+      if (!client || (transport && client.transport !== transport)) return
       const age = Date.now() - client.lastHeartbeat
       if (age > this.heartbeatTimeout) {
         this.emit('disconnect', clientId, 'timeout')
