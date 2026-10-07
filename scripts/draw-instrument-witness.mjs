@@ -2,7 +2,8 @@
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { chromium } from './lib/cdp-browser.mjs'
-import { assertGpu, gpuLaunchArgs, gpuModeFlag, vendorGpuArgs } from './lib/gpu-probe.mjs'
+import { assertGpu, gpuLaunchArgs, gpuModeFlag } from './lib/gpu-probe.mjs'
+import { vendorPinArgs } from './lib/witness-gpu.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -25,7 +26,7 @@ const EXPECT_VENDOR = flag('expect-vendor', null)
 const ALLOWED_CONSOLE_ERROR_TEXTS = process.argv.filter((a) => a.startsWith('--allow-console-error=')).map((a) => a.slice('--allow-console-error='.length))
 
 const GPU_MODE = gpuModeFlag('gpu', 'software')
-const LAUNCH_ARGS = gpuLaunchArgs(GPU_MODE, GPU_MODE.accelerated ? vendorGpuArgs(GPU_MODE.vendor) : [])
+const LAUNCH_ARGS = gpuLaunchArgs(GPU_MODE, GPU_MODE.accelerated ? vendorPinArgs(GPU_MODE.vendor) : [])
 
 const PROBE = `(() => {
   const W = window

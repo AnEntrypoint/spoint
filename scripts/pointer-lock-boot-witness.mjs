@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { chromium } from './lib/cdp-browser.mjs'
-import { assertGpu, gpuLaunchArgs, gpuModeFlag } from './lib/gpu-probe.mjs'
+import { assertGpu, gpuModeFlag } from './lib/gpu-probe.mjs'
+import { vendorLaunchArgs, gpuArmTag } from './lib/witness-gpu.mjs'
 
 const PORT = process.env.PORT || '3117'
 const OBSERVE_MS = Number(process.env.OBSERVE_MS || 60000)
@@ -9,6 +10,7 @@ const POINTER_LOCK_RE = /pointer\s*lock|pointerLock/i
 
 const ACCELERATED = process.argv.includes('--accelerated')
 const GPU_MODE = gpuModeFlag('gpu', ACCELERATED ? 'accelerated' : 'software')
+const GPU_ARGS = vendorLaunchArgs(GPU_MODE)
 const REQUIRE_ACCELERATED = process.argv.includes('--require-accelerated')
 const EXPECT_VENDOR = (process.argv.find(a => a.startsWith('--expect-vendor=')) || '').slice('--expect-vendor='.length) || null
 
@@ -33,7 +35,7 @@ async function main() {
   let observedMs = 0
   let rasterizer = 'unknown'
   try {
-    browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(GPU_MODE) })
+    browser = await chromium.launch({ headless: true, args: GPU_ARGS })
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
     const consoleEvents = []
     const pageErrors = []
@@ -58,7 +60,7 @@ async function main() {
 
     const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED || GPU_MODE.accelerated, expectVendor: EXPECT_VENDOR || GPU_MODE.vendor })
     rasterizer = gpu.rasterizer
-    console.log(`[pointer-lock-witness] rasterizer=${gpu.rasterizer} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)
+    console.log(`[pointer-lock-witness] ${gpuArmTag(GPU_MODE, gpu.rasterizer)} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)
 
     const remaining = OBSERVE_MS - (Date.now() - start)
     if (remaining > 0) {
@@ -99,11 +101,12 @@ async function main() {
     if (observedMs <= 0) failures.push(`observed ${Math.round(observedMs)}ms of the ${Math.round(OBSERVE_MS)}ms window: the page consumed the whole budget before it was ready, so no console output was witnessed`)
     if (pointerEvents.length) failures.push(`${pointerEvents.length} pointer-lock console event(s): ${pointerEvents[0].text.slice(0, 200)}`)
     if (!lockAfterClick) failures.push(`clicking the canvas did not lock the pointer (state=${JSON.stringify(stateAfterClick)})`)
+    const arm = gpuArmTag(GPU_MODE, rasterizer)
     if (failures.length) {
-      console.error(`[pointer-lock-witness] RESULT: FAIL -- ${failures.join('; ')} (rasterizer=${rasterizer})`)
+      console.error(`[pointer-lock-witness] RESULT: FAIL -- ${failures.join('; ')} (${arm})`)
       process.exit(1)
     }
-    console.log(`[pointer-lock-witness] RESULT: PASS -- zero pointer-lock console events over ${Math.round(OBSERVE_MS)}ms (observed ${Math.round(observedMs)}ms), click locked the pointer (state=${JSON.stringify(stateAfterClick)}) rasterizer=${rasterizer}`)
+    console.log(`[pointer-lock-witness] RESULT: PASS -- zero pointer-lock console events over ${Math.round(OBSERVE_MS)}ms (observed ${Math.round(observedMs)}ms), click locked the pointer (state=${JSON.stringify(stateAfterClick)}) ${arm}`)
     process.exit(0)
   } catch (e) {
     console.error('[pointer-lock-witness] run FAILED:', e.stack || e.message)

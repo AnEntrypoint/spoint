@@ -3,7 +3,8 @@ import { readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { chromium } from './lib/cdp-browser.mjs'
-import { assertGpu, gpuLaunchArgs, gpuModeFlag } from './lib/gpu-probe.mjs'
+import { assertGpu, gpuModeFlag } from './lib/gpu-probe.mjs'
+import { vendorLaunchArgs, gpuArmTag } from './lib/witness-gpu.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
@@ -12,6 +13,7 @@ const THRESHOLD = 1.25
 const UPDATE = process.argv.includes('--update-baseline')
 const ACCELERATED = process.argv.includes('--accelerated')
 const GPU_MODE = gpuModeFlag('gpu', ACCELERATED ? 'accelerated' : 'software')
+const GPU_ARGS = vendorLaunchArgs(GPU_MODE)
 const REQUIRE_ACCELERATED = process.argv.includes('--require-accelerated')
 const EXPECT_VENDOR = (process.argv.find(a => a.startsWith('--expect-vendor=')) || '').slice('--expect-vendor='.length) || null
 const PORT = process.env.PORT || '3098'
@@ -50,7 +52,7 @@ async function measureRealColdLoadMs() {
 
   let browser
   try {
-    browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(GPU_MODE) })
+    browser = await chromium.launch({ headless: true, args: GPU_ARGS })
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } })
     const page = await ctx.newPage()
     const pageErrors = []
@@ -74,7 +76,7 @@ async function measureRealColdLoadMs() {
     if (pageErrors.length > 0) throw new Error(`page threw ${pageErrors.length} uncaught error(s) during cold load: ${pageErrors[0]}`)
 
     const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED || GPU_MODE.accelerated, expectVendor: EXPECT_VENDOR || GPU_MODE.vendor })
-    console.log(`[cold-load-gate] rasterizer=${gpu.rasterizer} gpuMode=${GPU_MODE.mode} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)
+    console.log(`[cold-load-gate] ${gpuArmTag(GPU_MODE, gpu.rasterizer)} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)
 
     console.log(`[cold-load-gate] real cold load: navigation -> loadingMachine.isReady in ${coldLoadMs}ms`)
     return { ms: coldLoadMs, gpu }
@@ -117,14 +119,14 @@ async function main() {
   }
 
   const limit = baseline.ms * THRESHOLD
-  console.log(`[cold-load-gate] baseline=${baseline.ms}ms limit=${limit.toFixed(0)}ms (+25%) measured=${ms}ms rasterizer=${gpu.rasterizer}`)
+  console.log(`[cold-load-gate] baseline=${baseline.ms}ms limit=${limit.toFixed(0)}ms (+25%) measured=${ms}ms ${gpuArmTag(GPU_MODE, gpu.rasterizer)}`)
 
   if (ms > limit) {
     console.error(`[cold-load-gate] REGRESSION: ${ms}ms > ${limit.toFixed(0)}ms (${((ms / baseline.ms - 1) * 100).toFixed(1)}% over baseline)`)
     process.exit(1)
   }
 
-  console.log('[cold-load-gate] PASS')
+  console.log(`[cold-load-gate] PASS ${gpuArmTag(GPU_MODE, gpu.rasterizer)}`)
   process.exit(0)
 }
 

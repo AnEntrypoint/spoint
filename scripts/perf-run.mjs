@@ -47,7 +47,7 @@ const RELOCATE = /(^|&)(at|bookmark)=/.test(EXTRA_QUERY)
 const HEIGHT_PROBE = has('probe-heights')
 const HARD_TIMEOUT_MS = Number(flag('hard-timeout', '600000'))
 const REQUIRED_MARKS = String(flag('require-mark', 'boot:scenery-built')).split(',').map((s) => s.trim()).filter(Boolean)
-const REQUIRED_COUNTS = String(flag('require-count', 'draws,frames')).split(',').map((s) => s.trim()).filter(Boolean)
+const REQUIRED_COUNTS = String(flag('require-count', 'draws,frames,veg')).split(',').map((s) => s.trim()).filter(Boolean)
 const REQUIRE_ACCELERATED = has('require-accelerated')
 const EXPECT_VENDOR = flag('expect-vendor', null)
 let spawnedChromePid = null
@@ -486,8 +486,10 @@ async function main() {
     console.log(`[perf-run] nav->isReady=${tReady}ms  nav->overlayHidden(perf.now)=${tRevealed}ms  terrain=${revealed.terrain} veg=${revealed.veg} refreshHz=${revealed.refreshHz}`)
     if (revealed.error) console.log('[perf-run] reveal probe error: ' + revealed.error)
 
-    const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED, expectVendor: EXPECT_VENDOR }).catch((e) => ({ rasterizer: 'unknown', renderer: null, vendor: null, adapter: null, haystack: null, error: e.message }))
-    console.log(`[perf-run] rasterizer=${gpu.rasterizer}${gpu.error ? ' probeError=' + gpu.error : ''} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)
+    const VENDOR_EXPECT = GPU === 'igpu' ? 'intel' : (GPU === 'amd' || GPU === 'nvidia' ? GPU : null)
+    const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED || ACCELERATED, expectVendor: EXPECT_VENDOR || VENDOR_EXPECT })
+      .catch((e) => { throw new Error(`gpu arm "${GPU}" launched with ${JSON.stringify(LAUNCH_ARGS)} but the session measured: ${e.message}`) })
+    console.log(`[perf-run] ${GPU === 'swiftshader' ? 'software arm' : 'accelerated arm'} gpu=${GPU} rasterizer=${gpu.rasterizer} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)
 
     let navToFirstMoveMs = null
     let navToInputSeqMs = null
@@ -924,8 +926,9 @@ async function main() {
     const expectVendor = GPU === 'amd' ? 'amd' : (GPU === 'nvidia' ? 'nvidia' : null)
     const adapterOk = !expectVendor || !!(adapterInfo && adapterInfo.vendor === expectVendor)
     const gpuPassesOk = !GPU_PASSES || !!(gpuPassResult && gpuPassResult.passes && gpuPassResult.passes.length > 0)
-    const vegSource = veg ? veg.source : 'none'
-    const reachability = { sceneryBuiltMarked, vegTotalInstances: vegTotal, vegSource, vegHasSource: !!(veg && veg.hasSource), vegNonZero: vegTotal > 0, drawsNonZero: drawsMeasured, walkOk, travelledM: +travelled.toFixed(1), inputSequenceStart: walkSeqStart, inputSequenceEnd: walkSeqEnd, inputReachedGameMs: navToInputSeqMs, inputReached, gpuPassesOk, adapterVendor: adapterInfo ? adapterInfo.vendor : null, adapterOk, appLoadOk, appLoadErrors, pass: appLoadOk && adapterOk && sceneryBuiltMarked && vegTotal > 0 && drawsMeasured && walkOk && inputReached && gpuPassesOk }
+    const vegSource = inPage.veg ? inPage.veg.source : 'none'
+    const vegHasSource = !!(inPage.veg && inPage.veg.hasSource)
+    const reachability = { sceneryBuiltMarked, vegTotalInstances: vegTotal, vegSource, vegSourceOk: vegHasSource, vegNonZero: vegTotal > 0, drawsNonZero: drawsMeasured, walkOk, travelledM: +travelled.toFixed(1), inputSequenceStart: walkSeqStart, inputSequenceEnd: walkSeqEnd, inputReachedGameMs: navToInputSeqMs, inputReached, gpuPassesOk, adapterVendor: adapterInfo ? adapterInfo.vendor : null, adapterOk, appLoadOk, appLoadErrors, pass: appLoadOk && adapterOk && sceneryBuiltMarked && vegHasSource && vegTotal > 0 && drawsMeasured && walkOk && inputReached && gpuPassesOk }
 
       if (!reachability.pass) reachabilityUnreached = Object.entries(reachability).filter(([k, v]) => v !== true && (k.endsWith('Ok') || k.endsWith('NonZero') || k === 'sceneryBuiltMarked')).map(([k]) => k)
 
@@ -950,7 +953,6 @@ async function main() {
       gpu: GPU,
       rasterizer: gpu.rasterizer,
       gpuHaystack: gpu.haystack || null,
-      gpuProbeError: gpu.error || null,
       seconds: SECONDS,
       walk: WALK,
       url,
@@ -1081,6 +1083,7 @@ async function main() {
     console.log(`  WebGPU calls/frame avg=${out.wgpuCallsPerFrame.avg} p95=${out.wgpuCallsPerFrame.p95} draws/frame avg=${out.wgpuDrawsPerFrame.avg} max=${out.wgpuDrawsPerFrame.max} (n=${out.wgpuCallsPerFrame.windowFrames})`)
     console.log(`  long tasks: 0-20s=${out.longTasks.first20s} (>100ms ${out.longTasks.first20sOver100}, max ${out.longTasks.first20sMaxMs}ms) | 0-60s=${out.longTasks.first60s} (>100ms ${out.longTasks.first60sOver100}, max ${out.longTasks.first60sMaxMs}ms)`)
     console.log(`  reachability: ${reachability.pass ? 'PASS' : 'FAIL'} ${JSON.stringify(reachability)}`)
+    console.log(`  veg gate: totalInstances=${vegTotal} source=${vegSource} hasSource=${vegHasSource} (0 or a missing instrument fails the run)`)
     console.log(`  witness state reached: ${witnessUnreached.length === 0 ? 'YES' : 'NO -- ' + witnessUnreached.join('; ')}`)
     console.log(`  errors: pageErrors=${out.pageErrors.length} consoleErrors=${out.consoleErrors.length}`)
   for (const e of out.pageErrors.slice(0, 6)) console.log('    pageerror: ' + e)

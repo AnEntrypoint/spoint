@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { chromium } from './lib/cdp-browser.mjs'
-import { gpuLaunchArgs, gpuModeFlag, probeGpu, rasterizerClass, vendorGpuArgs } from './lib/gpu-probe.mjs'
+import { gpuModeFlag, probeGpu, rasterizerClass, vendorGpuArgs } from './lib/gpu-probe.mjs'
+import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
 import { unreachedReasons } from './lib/witness-reachability.mjs'
 
 function flag(name, dflt = null) {
@@ -109,7 +110,7 @@ async function main() {
   try {
     const args = GPU_VENDOR
       ? await adapterLuidArgs(GPU_VENDOR)
-      : gpuLaunchArgs(GPU_MODE)
+      : vendorLaunchArgs(GPU_MODE)
     browser = await chromium.launch({ headless: HEADLESS, args })
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
     const consoleEntries = []

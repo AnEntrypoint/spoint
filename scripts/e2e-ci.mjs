@@ -3,7 +3,8 @@ import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { chromium } from './lib/cdp-browser.mjs'
-import { assertGpu, gpuLaunchArgs, gpuModeFlag } from './lib/gpu-probe.mjs'
+import { assertGpu, gpuModeFlag } from './lib/gpu-probe.mjs'
+import { vendorLaunchArgs, gpuArmTag } from './lib/witness-gpu.mjs'
 
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PORT = 20000 + Math.floor(Math.random() * 20000)
@@ -11,6 +12,7 @@ const OUT_DIR = resolve(SDK_ROOT, 'data', 'e2e-ci')
 
 const ACCELERATED = process.argv.includes('--accelerated')
 const GPU_MODE = gpuModeFlag('gpu', ACCELERATED ? 'accelerated' : 'software')
+const GPU_ARGS = vendorLaunchArgs(GPU_MODE)
 const REQUIRE_ACCELERATED = process.argv.includes('--require-accelerated')
 const EXPECT_VENDOR = (process.argv.find(a => a.startsWith('--expect-vendor=')) || '').slice('--expect-vendor='.length) || null
 
@@ -52,7 +54,7 @@ async function main() {
   let browser
   let rasterizer = 'unknown'
   try {
-    browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(GPU_MODE) })
+    browser = await chromium.launch({ headless: true, args: GPU_ARGS })
     const ctxA = await browser.newContext({ viewport: { width: 640, height: 480 } })
     const ctxB = await browser.newContext({ viewport: { width: 640, height: 480 } })
     const pageA = await ctxA.newPage()
@@ -80,7 +82,7 @@ async function main() {
 
     const gpu = await assertGpu(pageA, { requireAccelerated: REQUIRE_ACCELERATED || GPU_MODE.accelerated, expectVendor: EXPECT_VENDOR || GPU_MODE.vendor })
     rasterizer = gpu.rasterizer
-    console.log(`[e2e-ci] rasterizer=${gpu.rasterizer} gpuMode=${GPU_MODE.mode} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)
+    console.log(`[e2e-ci] ${gpuArmTag(GPU_MODE, gpu.rasterizer)} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)
 
     console.log('[e2e-ci] waiting for each client to see the OTHER player in its own snapshot stream...')
     async function waitForOtherPlayer(page, otherId, label) {
@@ -182,12 +184,13 @@ async function main() {
     server.stop()
   }
 
-  console.log(`\n[e2e-ci] ${PASS.length} passed, ${FAIL.length} failed rasterizer=${rasterizer}`)
+  const arm = gpuArmTag(GPU_MODE, rasterizer)
+  console.log(`\n[e2e-ci] ${PASS.length} passed, ${FAIL.length} failed ${arm}`)
   if (FAIL.length) {
-    console.log('[e2e-ci] RESULT: FAIL')
+    console.log(`[e2e-ci] RESULT: FAIL ${arm}`)
     process.exitCode = 1
   } else {
-    console.log('[e2e-ci] RESULT: PASS')
+    console.log(`[e2e-ci] RESULT: PASS ${arm}`)
     process.exitCode = 0
   }
 }

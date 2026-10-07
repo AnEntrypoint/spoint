@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { chromium } from './lib/cdp-browser.mjs'
-import { gpuLaunchArgs, gpuModeFlag, witnessGpu } from './lib/gpu-probe.mjs'
+import { gpuModeFlag, witnessGpu } from './lib/gpu-probe.mjs'
+import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
 
 function flag(name, dflt = null) {
   const hit = process.argv.find(a => a.startsWith(`--${name}=`))
@@ -15,6 +16,7 @@ const PORT = flag('port', '3130')
 const PROXY = flag('proxy', null)
 const PARAMS = flag('params', '')
 const GPU_MODE = gpuModeFlag()
+const REQUIRE_ACCELERATED = has('require-accelerated')
 const READY_TIMEOUT_MS = Number(flag('timeout', '180000'))
 const SHOTS = Number(flag('shots', '10'))
 const SETTLE_MS = Number(flag('settle', '4000'))
@@ -79,7 +81,7 @@ async function main() {
 
   let browser
   try {
-    const args = gpuLaunchArgs(GPU_MODE)
+    const args = vendorLaunchArgs(GPU_MODE)
     browser = await chromium.launch({ headless: true, args })
     const a = await makeClient(browser, base, 'clientA')
     const b = await makeClient(browser, base, 'clientB')
@@ -89,13 +91,14 @@ async function main() {
       console.log(`[arena-combat] navigating ${c.label} to ${url} ...`)
       await c.page.goto(url, { waitUntil: 'domcontentloaded' })
     }
-    const gpu = await witnessGpu(a.page, GPU_MODE)
-    console.log(`[arena-combat] rasterizer=${gpu.rasterizer} gpu=${gpu.haystack || 'none'} gpuMode=${GPU_MODE.mode}`)
-
     for (const c of [a, b]) {
       c.readyMs = await waitFor(c.page, READY, READY_TIMEOUT_MS)
       console.log(`[arena-combat] ${c.label} ready=${c.readyMs === null ? 'UNREACHED' : c.readyMs + 'ms'}`)
     }
+
+    const gpuMode = REQUIRE_ACCELERATED && GPU_MODE.software ? 'accelerated' : GPU_MODE
+    const gpu = await witnessGpu(a.page, gpuMode)
+    console.log(`[arena-combat] rasterizer=${gpu.rasterizer} gpu=${gpu.haystack || 'none'} gpuMode=${GPU_MODE.mode} requireAccelerated=${REQUIRE_ACCELERATED}`)
 
     const centreOf = (page) => page.evaluate(() => {
       const el = window.__app?.renderer?.domElement

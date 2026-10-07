@@ -3,7 +3,8 @@ import { writeFileSync, mkdirSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { chromium } from './lib/cdp-browser.mjs'
-import { assertGpu, gpuArgs, vendorGpuArgs } from './lib/gpu-probe.mjs'
+import { assertGpu, gpuArgs } from './lib/gpu-probe.mjs'
+import { vendorPinArgs } from './lib/witness-gpu.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -32,13 +33,7 @@ const [VIEW_W, VIEW_H] = String(flag('viewport', '1280x720')).split('x').map(Num
 const SCALING = !has('no-scaling')
 const SCALING_COUNTS = String(flag('scaling-counts', '10000,50000')).split(',').map(Number)
 
-let LAUNCH_VENDOR_ARGS
-try {
-  LAUNCH_VENDOR_ARGS = vendorGpuArgs(GPU)
-} catch (e) {
-  console.error('[veg-lod-browser] ' + e.message)
-  process.exit(2)
-}
+const LAUNCH_VENDOR_ARGS = vendorPinArgs(GPU)
 
 const READY = () => {
   const a = window.__app || {}

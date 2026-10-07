@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { chromium } from './lib/cdp-browser.mjs'
 import { exitAfterQuiesce } from './lib/quiesce.mjs'
-import { assertGpu, gpuArgs } from './lib/gpu-probe.mjs'
+import { assertGpu } from './lib/gpu-probe.mjs'
+import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
 
 process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = process.env.SPOINT_SKIP_PREWARM || '1'
@@ -234,7 +235,7 @@ async function main() {
 
   let browser
   try {
-    const launchArgs = gpuArgs({ accelerated: !WANT_SOFTWARE })
+    const launchArgs = vendorLaunchArgs({ mode: GPU_MODE })
     browser = await chromium.launch({ headless: true, args: launchArgs })
     const shooter = await makeClient(browser, 'shooter')
     const victim = await makeClient(browser, 'victim')
@@ -256,7 +257,8 @@ async function main() {
       if (c.firstRoom) console.log(`[arena-combat] ${c.label} first snapshot: self=${c.firstRoom.playerId} ids=${JSON.stringify(c.firstRoom.players.map(p => p.id))} includesSelf=${c.firstRoom.players.some(p => p.id === c.firstRoom.playerId)}`)
     }
 
-    const gpu = await assertGpu(shooter.page, { requireAccelerated: !WANT_SOFTWARE, expectVendor: args['expect-vendor'] || WANT_VENDOR }).catch(e => ({ rasterizer: 'probe-failed', haystack: e.message }))
+    const gpu = await assertGpu(shooter.page, { requireAccelerated: !WANT_SOFTWARE, expectVendor: args['expect-vendor'] || WANT_VENDOR })
+      .catch(e => { throw new Error(`gpu arm "${GPU_MODE}" launched with ${JSON.stringify(launchArgs)} but the session measured: ${e.message}`) })
     console.log(`[arena-combat] rasterizer=${gpu.rasterizer} gpu=${gpu.haystack || 'none'} gpuMode=${GPU_MODE} forceWebglBackend=${FORCE_WEBGL_BACKEND}`)
     check(gpu.rasterizer === (WANT_SOFTWARE ? 'software' : 'accelerated'), `the requested ${GPU_MODE} rasterizer was not the one measured: ${gpu.rasterizer} (${gpu.haystack || 'no renderer strings'})`)
     for (const c of clients) {

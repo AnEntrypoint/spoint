@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { chromium } from './lib/cdp-browser.mjs'
 import { unreachedReasons } from './lib/witness-reachability.mjs'
-import { assertGpu, gpuArgs, vendorGpuArgs } from './lib/gpu-probe.mjs'
+import { assertGpu, gpuArgs } from './lib/gpu-probe.mjs'
+import { vendorPinArgs } from './lib/witness-gpu.mjs'
 import { baselineRefusals } from './lib/frame-time-baseline.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -21,6 +22,7 @@ const PORT = process.env.PORT || '3099'
 const AT = (process.argv.find(a => a.startsWith('--at=')) || '').slice('--at='.length) || '-15,-12.5'
 const UNLOCK_RAF = process.env.SPOINT_UNLOCK_RAF !== '0'
 const UNLOCKED_RAF_ARGS = UNLOCK_RAF ? ['--disable-frame-rate-limit', '--disable-gpu-vsync'] : []
+const VENDOR_ARGS = VENDOR ? vendorPinArgs(VENDOR) : []
 const LOAD_TIMEOUT_MS = 480_000
 const READY_PROBE_STALL_LIMIT = 3
 const CAPTURE_MS = 8000
@@ -137,7 +139,7 @@ async function measureRealFrameTimes() {
 
   let browser
   try {
-    browser = await chromium.launch({ headless: true, args: [...gpuArgs({ accelerated: ACCELERATED }), ...(VENDOR ? vendorGpuArgs(VENDOR) : []), ...UNLOCKED_RAF_ARGS] })
+    browser = await chromium.launch({ headless: true, args: [...gpuArgs({ accelerated: ACCELERATED }), ...VENDOR_ARGS, ...UNLOCKED_RAF_ARGS] })
     if (!UNLOCK_RAF) console.log('[frame-time-gate] rAF is vsync-locked (SPOINT_UNLOCK_RAF=0), so frame times here carry the refresh divisor')
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
     const pageErrors = []

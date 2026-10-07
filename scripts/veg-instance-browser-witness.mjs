@@ -1,7 +1,8 @@
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { chromium } from './lib/cdp-browser.mjs'
-import { gpuArgs, vendorGpuArgs, assertGpu } from './lib/gpu-probe.mjs'
+import { gpuArgs, assertGpu } from './lib/gpu-probe.mjs'
+import { vendorPinArgs } from './lib/witness-gpu.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -24,13 +25,7 @@ const WALK_MS = Number(flag('walk', '0'))
 const ROUTE = String(flag('route', '-60,-12.5;-60,-60;0,-60'))
 const WALK_SPEED = Number(flag('walk-speed', '7'))
 const EXPECT_VENDOR = flag('expect-vendor', GPU)
-let LAUNCH_ARGS
-try {
-  LAUNCH_ARGS = [...gpuArgs({ accelerated: true }), ...vendorGpuArgs(GPU)]
-} catch (e) {
-  console.error('[veg-witness] ' + e.message)
-  process.exit(2)
-}
+const LAUNCH_ARGS = [...gpuArgs({ accelerated: true }), ...vendorPinArgs(GPU)]
 
 const port = String(20000 + Math.floor(Math.random() * 20000))
 process.env.WORLD = process.env.WORLD || 'tps-game'
