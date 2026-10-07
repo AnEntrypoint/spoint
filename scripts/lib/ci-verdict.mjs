@@ -79,8 +79,8 @@ function main() {
     console.log(`ci-verdict: ${shortSha(target)} has ${failures} failing job(s) -- red is this sha's own verdict`)
     process.exit(1)
   }
-  if (pending > 0) {
-    console.log(`ci-verdict: ${shortSha(target)} has ${pending} job(s) still running -- no verdict yet`)
+  if (pending > 0 || decided === 0) {
+    console.log(`ci-verdict: ${shortSha(target)} has ${decided} decided job(s) and ${pending} still running -- no verdict yet, and zero decisions is not success`)
     process.exit(3)
   }
   console.log(`ci-verdict: ${shortSha(target)} green on ${decided} decided job(s)`)
