@@ -27,6 +27,11 @@ function shortSha(sha) {
   return sha.slice(0, 12)
 }
 
+function expandRev(rev) {
+  const done = run('git', ['rev-parse', '--verify', `${rev}^{commit}`])
+  return done.status === 0 ? done.stdout.trim() : rev
+}
+
 function jobsOf(runId) {
   const got = gh(['run', 'view', String(runId), '--repo', REPO, '--json', 'jobs'])
   if (!got.ok) return []
@@ -34,7 +39,8 @@ function jobsOf(runId) {
 }
 
 function main() {
-  const target = process.argv[2] || headSha()
+  const given = process.argv[2]
+  const target = given ? expandRev(given) : headSha()
   if (!target) {
     console.error('ci-verdict: no sha given and HEAD is unavailable')
     process.exit(2)
@@ -66,7 +72,8 @@ function main() {
       console.log(`  ${note}  ${name.slice(0, 90)}`)
       if (conclusion === 'failure' || conclusion === 'cancelled' || conclusion === 'timed_out') {
         failures += 1
-        console.log(`    logs: gh api repos/${REPO}/actions/jobs/${job.databaseId}/logs`)
+        console.log(`    cause: node scripts/lib/ci-logs.mjs ${target} --tail=20`)
+        console.log(`    raw: gh api repos/${REPO}/actions/jobs/${job.databaseId}/logs`)
       } else if (status !== 'completed') {
         if (NO_RUNNER_JOB.test(name)) continue
         pending += 1
