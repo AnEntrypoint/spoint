@@ -1,8 +1,0 @@
-shape=dense2k instancers=1 instances=2800 visits/frame=773.9 records/frame=497 rebuildRecords/frame=276.9 rebuilds/frame=0.019 planeTests/frame=606.9 maxTeleportRecords=2291 survivors=212 controlDeltaPct={"planeTests":0,"records":0}
-veg-lod-stream real90 shared the box (x1.61 of its cleanest 11.8 ms per fixed spin); re-measuring it (attempt 2 of 6)
-veg-lod-stream real90 shared the box (x1.65 of its cleanest 11.8 ms per fixed spin); re-measuring it (attempt 3 of 6)
-shape=real90 instancers=90 instances=76230 visits/frame=16311.3 records/frame=3513.8 rebuildRecords/frame=12797.5 rebuilds/frame=5.197 planeTests/frame=2212.5 maxTeleportRecords=97 survivors=642 controlDeltaPct={"planeTests":0,"records":0}
-shape=dense2k vs baseline: visits -95.18% records -76.23% rebuildRecords -98.02% planeTests 28.96%
-shape=real90 vs baseline: visits -93.37% records 71.85% rebuildRecords -94.75% planeTests 1.09%
-RESULT: PASS
-json: C:\dev\spoint\data\perf-run\veg-lod-stream-after-f73df536.json

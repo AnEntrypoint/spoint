@@ -1,7 +1,0 @@
-[frame-time-gate] booting real server on port 3099 (world=tps-game) ...
-[boot] using world: tps-game (apps\world\tps-game.js)
-[boot] loading from: C:\dev\spoint\apps, C:\dev\spoint\src\stdlib-apps
-[apps-manifest] fresh dist\client\apps-manifest.json (68 app(s), 132 source file(s) fingerprinted, unchanged, 35ms)
-[apps-manifest] fresh world-scoped dist\client\worlds\tps-game\apps-manifest.json (26 of 68 app(s), unchanged, 3ms)
-[server] serving PREBUILT BUNDLE from dist/client/app.js (dist/client/app.js matches its stamp (cc8fbe3e8de3ae83))
-[server] dist/src/sdk/WorkerEntry.js is STALE (inputs-changed: stamped 4bb0435733e052ee vs inputs 8498167a087719ee, artifact d5354e7afbd23a88 vs d5354e7afbd23a88, built 1791396115138.6707 vs inputs 1791397436139.93) -- falling through to raw ESM worker
