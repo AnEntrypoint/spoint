@@ -114,6 +114,9 @@ async function main() {
       const eligible = expectedModels.filter(u => warmupUrls.includes(u))
       expect(probe.warmup === null || JSON.stringify(probe.warmup.manifestedUrls) === JSON.stringify(eligible), `the meshes the manifest selected ${JSON.stringify(probe.warmup && probe.warmup.manifestedUrls)} are not the warmup-resident meshes whose url is in the manifest ${JSON.stringify(eligible)}: ${JSON.stringify(probe.warmup)}`)
       expect(probe.warmup === null || eligible.length === 0 || probe.warmup.manifestedCount > 0, `${eligible.length} resident mesh(es) carry a manifest url yet the warmup manifested ${probe.warmup && probe.warmup.manifestedCount}: ${JSON.stringify(probe.warmup)}`)
+      const warmedUrls = probe.warmup ? [...(probe.warmup.manifestedUrls || []), ...(probe.warmup.residentModelUrls || [])] : []
+      const unwarmed = expectedModels.filter(u => !warmedUrls.includes(u))
+      expect(unwarmed.length === 0, `world ${WORLD} declares ${expectedModels.length} model url(s) and the manifest named ${JSON.stringify(probe.warmup && probe.warmup.manifestUrls)}, but ${unwarmed.length} were never warmed: ${JSON.stringify(unwarmed)} -- manifest-declared models that are not resident at reveal must be waited for or named as skipped, not dropped: ${JSON.stringify(probe.warmup)}`)
     } else {
       expect(expectedModels.length === 0, `world ${WORLD} carries entity model urls ${JSON.stringify(expectedModels)}, so --expect=absent is the wrong arm for it`)
       expect(probe.warmup === null || (probe.warmup.manifestDriven === false && probe.warmup.manifestUrls === null), `world ${WORLD} has no entity model urls yet the warmup carried manifest ${JSON.stringify(probe.warmup && probe.warmup.manifestUrls)} (warmup null means it was skipped entirely, which is the expected singleplayer path at >= 10 entity meshes)`)
