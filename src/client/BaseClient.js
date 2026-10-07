@@ -14,6 +14,7 @@ const JITTER_EMA_ALPHA = 0.05
 const INPUT_DEPTH_EMA_ALPHA = 0.1
 const INPUT_RATE_GAIN = 0.02
 const INPUT_RATE_MAX_ADJUST = 0.04
+const MAX_PREDICTION_LEAD_STEPS = 16
 
 const COALESCE_SENTINEL = 0xff
 const LEN_PREFIX_BYTES = 4
@@ -172,7 +173,7 @@ export class BaseClient {
     const q = quantizeInput(schema, input)
     let entries
     if (this.config.predictionEnabled && predEngine) {
-      predEngine.addInput(q, stepAt, periodMs)
+      if (predEngine.predictionLeadSteps() < MAX_PREDICTION_LEAD_STEPS) predEngine.addInput(q, stepAt, periodMs)
       entries = predEngine.getUnackedInputs(REDUNDANT_INPUT_RECORDS)
     } else {
       const sequence = this._plainInputSeq++
@@ -180,6 +181,7 @@ export class BaseClient {
       if (this._plainInputs.length > REDUNDANT_INPUT_RECORDS) this._plainInputs.shift()
       entries = this._plainInputs
     }
+    if (!entries || entries.length === 0) return
     this.send(MSG.INPUT, encodeInputPacket(schema, entries, this._chart.epoch ?? 0))
   }
 

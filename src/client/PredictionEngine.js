@@ -211,6 +211,8 @@ export class PredictionEngine {
 
   getUnackedInputs(max = 4) { return this.inputHistory.last(max) }
 
+  predictionLeadSteps() { return this._hasServerState ? this._inputSeq - 1 - this._lastAckedSeq : 0 }
+
   predictedAt(sequence) {
     const i = this.inputHistory.indexOf(sequence)
     return i < 0 ? null : this.inputHistory.at(i)
