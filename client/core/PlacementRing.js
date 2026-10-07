@@ -19,7 +19,11 @@ export function createPlacementRing(frame, spec, ringRadiusM) {
 
   function keysAround(focusKey) {
     const a = centre(focusKey)
-    return ringAroundLocal(lattice, frame, a[0], a[1], ringRadiusM + lattice.chunkM).map(r => r.key)
+    const keys = ringAroundLocal(lattice, frame, a[0], a[1], ringRadiusM + lattice.chunkM)
+    for (let i = 0; i < keys.length; i++) {
+      if (!Number.isFinite(keys[i])) throw new Error(`placement ring: chunk key at ${i} of ${keys.length} is ${keys[i]}, not a numeric chunk key`)
+    }
+    return keys
   }
 
   function distSqFrom(key, ax, az) { const c = centre(key); const dx = c[0] - ax, dz = c[1] - az; return dx * dx + dz * dz }
