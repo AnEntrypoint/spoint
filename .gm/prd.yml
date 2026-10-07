@@ -1726,3 +1726,48 @@
   exit: walkSeqStart/walkSeqEnd read window.__app.sentInputCount (or an equivalent real client observable) and a witness shows inputSequenceStart/End non-null with seqAdvanced true on a walking world and false on a frozen one.
   surface: scripts/perf-run.mjs
   status: pending
+- id: player-manager-swallow-socket-send-failures
+  title: PlayerManager drops socket send failures in four empty catch blocks
+  kind: bug
+  severity: P1
+  why: 'src/netcode/PlayerManager.js:121,129,137,144 wrap player.socket.send in try/catch with an EMPTY catch, so a failed snapshot/input/entity push is indistinguishable from a successful one: no counter, no log, no disconnect, no retry. A peer on a dead or backpressured transport then silently stops receiving world state while the server believes it is being fed, which presents to the user as a frozen remote player or a silent desync with nothing in the log to trace.'
+  evidence: Four sites, each `try { player.socket.send(...) } catch (e) {}`. Found by an exhaustive short-circuit sweep that also confirmed no metric or disconnect path exists downstream.
+  exit: Each send failure is counted and surfaced (named counter plus a log line naming the player and the failure), and a witness shows a forced send failure being counted rather than swallowed. A transport that keeps failing is torn down rather than fed forever.
+  surface: src/netcode/PlayerManager.js
+  status: pending
+- id: perf-run-inputreached-is-trivially-true
+  title: perf-run inputReached is true whenever the walker travelled 30 m, so it asserts nothing about input
+  kind: bug
+  severity: P2
+  why: scripts/perf-run.mjs:936 computes `const inputReached = !WALKER || navToInputSeqMs !== null || seqAdvanced || travelled >= 30`. Every term is 'something happened', not a measurement, and `travelled >= 30` alone makes the whole expression true on any successful walk regardless of whether synthetic input ever reached the game. No consumer was found for `inputReached`, so it is a boolean that is always green and never read -- the same silent-pass class as the structurally-null observable it replaced.
+  evidence: 'Found by the repo-wide short-circuit sweep; exhaustive codesearch found no consumer of `inputReached`. Sibling defects in the same file: :282, :733, :760 all `return { ok: true }` unconditionally after kicking off work without awaiting it.'
+  exit: 'inputReached derives from a real observable (window.__app.sentInput movement bit + sentInputCount advance) or is deleted; a witness shows it false when no movement key is held. The three unconditional `{ ok: true }` returns report the state they actually awaited.'
+  surface: scripts/perf-run.mjs
+  status: pending
+- id: apps-manifest-fast-path-witness-window-filter-is-vacuous
+  title: apps-manifest fast-path witness admits every event when a bound is missing
+  kind: bug
+  severity: P2
+  why: 'scripts/apps-manifest-fast-path-witness.mjs:75 filters events with `(created === null || e.t0 >= created) && (initAt === null || e.t0 <= initAt)`, so a missing bound admits every event instead of none -- the window the witness is supposed to be checking simply is not checked when either timestamp is absent. :114 has the same shape: `(start === null || end === null) ? null : ...` and that null then flows into an assertion, where a null can pass.'
+  evidence: Found by the repo-wide short-circuit sweep. The same file's scope assertions were tightened in 137c4e47/a6e524bc; these two were not covered.
+  exit: A missing bound makes the witness fail loudly (or narrows to no events) rather than admit everything, and a witness run with a deliberately absent timestamp proves it.
+  surface: scripts/apps-manifest-fast-path-witness.mjs
+  status: pending
+- id: fire-timeline-restore-reports-unconditional-ok
+  title: 'fireTimeline restoreEntry path returns { ok: true } unconditionally'
+  kind: bug
+  severity: P2
+  why: 'src/shared/fire/fireTimeline.js:130 returns `{ ok: true }` unconditionally after restoreEntry + replayThrough, so a rewind that replayed nothing, or replayed to the wrong tick, reports success to every caller. Fire''s rollback correctness is otherwise strictly witnessed, so an unconditional success shape here is the one place a silent divergence can enter the timeline.'
+  evidence: 'Found by the repo-wide short-circuit sweep. Sibling: src/terrain/TerrainPhysics.js:131 `catch (_) { return null }` in readBakedHeightField swallows every failure and callers read null as ''no artifact''.'
+  exit: The return reports what was actually replayed (target tick reached, entries applied) and a witness shows it false for a rewind that could not reach its target.
+  surface: src/shared/fire/fireTimeline.js
+  status: pending
+- id: terrainphysics-readbakedheightfield-swallows-every-failure
+  title: TerrainPhysics readBakedHeightField catches every failure and returns null, which callers read as 'no artifact'
+  kind: bug
+  severity: P1
+  why: 'src/terrain/TerrainPhysics.js:131 `catch (_) { return null }` swallows every failure: a corrupt, truncated, io-erroring or version-mismatched baked heightfield is indistinguishable from one that was never baked. Callers then proceed as if there is simply no artifact, so a terrain collider silently goes missing (or falls back to an unbaked path) with nothing in the log naming the read that failed.'
+  evidence: Found by the repo-wide short-circuit sweep. Same class as src/shared/fire/fireTimeline.js:130 and src/sdk/TickHandler.js:521 `try { deps.onAutoSave?.() } catch (_) {}`.
+  exit: The failure is named and surfaced (which path failed and why), and a witness shows a deliberately corrupt .hf producing a loud named failure instead of a silent null.
+  surface: src/terrain/TerrainPhysics.js
+  status: pending
