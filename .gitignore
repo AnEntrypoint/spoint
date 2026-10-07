@@ -64,3 +64,5 @@ data/*.glb
 data/*.tmp.*
 data/*/
 !data/prefabs/
+
+.gpu-lock/
