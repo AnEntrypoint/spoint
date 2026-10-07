@@ -2176,8 +2176,12 @@ if (typeof window !== 'undefined' && window.__app) {
     entityLeakReport: { get: () => el.getEntityLeakReport ? el.getEntityLeakReport() : null, configurable: true },
     limitTextureSize: { get: () => limitTextureSize, configurable: true },
     worldConfig: { get: () => worldConfig, configurable: true },
+    sentInput: { get: () => _sentInput, configurable: true },
+    sentInputCount: { get: () => _sentInputCount, configurable: true },
   })
 }
+let _sentInput = null
+let _sentInputCount = 0
 const _EDIT_OFF_KEYS = ['forward','backward','left','right','jump','sprint','crouch','shoot','aim','reload','interact']
 function clearEditingInput(input, frozenYaw, frozenPitch) {
   const out = { ...input }
@@ -2205,6 +2209,7 @@ function startInputLoop() {
     const local=pm.playerStates.get(client.playerId); if (local?.health<lastHealth) { inputHandler.pulse('left',0.8,200); inputHandler.pulse('right',0.8,200) }; if (local) lastHealth=local.health
     if (!_editing) { _frozenLookYaw = input.yaw; _frozenLookPitch = input.pitch }
     const sendInput = (_editing || _frozenInput) ? clearEditingInput(input, input.yaw, input.pitch) : input
+    _sentInput = sendInput; _sentInputCount++
     ams.dispatchInput(sendInput,engineCtx); client.sendInput(sendInput, stepAt, periodMs)
   } })
   inputLoopId.start()
