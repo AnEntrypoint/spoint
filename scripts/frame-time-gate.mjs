@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { chromium } from './lib/cdp-browser.mjs'
@@ -7,6 +8,7 @@ import { unreachedReasons } from './lib/witness-reachability.mjs'
 import { assertGpu, gpuArgs, gpuModeOf } from './lib/gpu-probe.mjs'
 import { vendorPinArgs } from './lib/witness-gpu.mjs'
 import { baselineRefusals } from './lib/frame-time-baseline.mjs'
+import { contentionWatch, contentionMark, contentionVerdict, formatContention } from './lib/host-contention.mjs'
 import {
   assertServedClientRoot, clientRootTag, rebuildIfRequested, CLIENT_ROOT_BUNDLE,
 } from './lib/served-client-root.mjs'
@@ -31,8 +33,24 @@ const VENDOR_ARGS = VENDOR ? vendorPinArgs(VENDOR) : []
 const LOAD_TIMEOUT_MS = 480_000
 const READY_PROBE_STALL_LIMIT = 3
 const CAPTURE_MS = Number((process.argv.find(a => a.startsWith('--capture-ms=')) || '').slice('--capture-ms='.length)) || 8000
+const CAPTURE_TIMEOUT_MS = CAPTURE_MS * 6 + 60_000
 const VEGETATION_FLOOR = 1000
 const VEGETATION_WAIT_MS = Number((process.argv.find(a => a.startsWith('--veg-wait-ms=')) || '').slice('--veg-wait-ms='.length)) || 420_000
+const SETTLE_POLL_MS = 3000
+const SETTLE_STABLE_POLLS = 3
+const SETTLE_PROBE_MS = 2000
+const SETTLE_WORST_FRAME_FACTOR = 4
+const SETTLE_MIN_PROBE_SAMPLES = 40
+const SETTLE_SLOW_PROBE_LIMIT = 3
+const SETTLE_BUDGET_MS = Number((process.argv.find(a => a.startsWith('--settle-budget-ms=')) || '').slice('--settle-budget-ms='.length)) || 240_000
+
+function gitHeadSha() {
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8', windowsHide: true }).trim()
+  } catch {
+    return null
+  }
+}
 
 function readBaseline() {
   if (!existsSync(BASELINE_PATH)) return null
@@ -66,6 +84,13 @@ function evaluateOrThrow(page, fn, ms) {
   return Promise.race([
     Promise.resolve(page.evaluate(fn)),
     new Promise((_, reject) => setTimeout(() => reject(new Error(`page.evaluate did not answer within ${ms}ms -- the page main thread is blocked`)), ms)),
+  ])
+}
+
+function withTimeout(promise, label, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} did not answer within ${ms}ms -- the page stopped presenting frames, so this run cannot measure it`)), ms)),
   ])
 }
 
@@ -117,7 +142,61 @@ async function waitForVegetationFloor(page) {
   return count === null ? 0 : count
 }
 
-async function capturePose(page) {
+async function frameProbe(page, ms) {
+  const deltas = await page.evaluate((probeMs) => new Promise((resolve) => {
+    const frameDeltas = []
+    let last = performance.now()
+    let first = true
+    const t0 = performance.now()
+    function tick(now) {
+      const dt = now - last
+      last = now
+      if (!first) frameDeltas.push(dt)
+      first = false
+      if (now - t0 < probeMs) requestAnimationFrame(tick)
+      else resolve(frameDeltas)
+    }
+    requestAnimationFrame(tick)
+  }), ms)
+  if (!Array.isArray(deltas) || deltas.length === 0) return null
+  const sorted = deltas.slice().sort((a, b) => a - b)
+  return { samples: sorted.length, p50Ms: percentile(sorted, 0.5), worstMs: sorted[sorted.length - 1] }
+}
+
+async function settleAtPose(page, label) {
+  const started = Date.now()
+  let previous = null
+  let stablePolls = 0
+  let slowProbes = 0
+  while (Date.now() - started < SETTLE_BUDGET_MS) {
+    await new Promise(r => setTimeout(r, SETTLE_POLL_MS))
+    const count = await vegetationCount(page)
+    if (count === null) { previous = null; stablePolls = 0; continue }
+    stablePolls = count === previous ? stablePolls + 1 : 0
+    previous = count
+    if (stablePolls < SETTLE_STABLE_POLLS) continue
+    const probe = await frameProbe(page, SETTLE_PROBE_MS).catch(() => null)
+    if (probe && probe.samples >= SETTLE_MIN_PROBE_SAMPLES && probe.worstMs <= probe.p50Ms * SETTLE_WORST_FRAME_FACTOR) {
+      console.log(`[frame-time-gate] ${label}: settled at ${count} vegetation instance(s) after ${((Date.now() - started) / 1000).toFixed(0)}s (probe p50=${probe.p50Ms.toFixed(2)}ms worst=${probe.worstMs.toFixed(2)}ms over ${probe.samples} frame(s))`)
+      return count
+    }
+    if (probe && probe.samples < SETTLE_MIN_PROBE_SAMPLES) {
+      slowProbes++
+      console.log(`[frame-time-gate] ${label}: a ${SETTLE_PROBE_MS}ms probe presented only ${probe.samples} frame(s), under the ${SETTLE_MIN_PROBE_SAMPLES} a ${SETTLE_PROBE_MS}ms window needs to hold a frame budget this gate can compare, so this box is not presenting frames fast enough to measure (${slowProbes} of ${SETTLE_SLOW_PROBE_LIMIT} such probe(s))`)
+      if (slowProbes >= SETTLE_SLOW_PROBE_LIMIT) {
+        throw new Error(`${label} presented fewer than ${SETTLE_MIN_PROBE_SAMPLES} frames per ${SETTLE_PROBE_MS}ms on ${slowProbes} consecutive probes while vegetation held at ${count} instance(s) -- this box is not presenting frames fast enough to measure, so no arm is admitted`)
+      }
+    } else {
+      slowProbes = 0
+      if (probe) {
+        console.log(`[frame-time-gate] ${label}: vegetation held at ${count} but a ${SETTLE_PROBE_MS}ms probe hit a ${probe.worstMs.toFixed(2)}ms frame against p50 ${probe.p50Ms.toFixed(2)}ms, so streaming is still stalling frames`)
+      }
+    }
+  }
+  throw new Error(`${label} never settled inside the ${(SETTLE_BUDGET_MS / 1000).toFixed(0)}s budget (last vegetation count ${previous}) -- the page never reached a frame rate this gate can measure, so no arm is admitted`)
+}
+
+async function moveToStaticPose(page) {
   const eye = await page.evaluate(() => {
     const s = window.__spoint && window.__spoint.where ? window.__spoint.where() : null
     const p = (s && s.position) || (window.__app && window.__app.client && window.__app.client.getLocalState ? window.__app.client.getLocalState().position : null) || [0, 0, 0]
@@ -129,8 +208,10 @@ async function capturePose(page) {
     cam.setEditCameraPosition(p[0] + 50, 10, p[2] + 50)
     cam.editLook(600, -200)
   }, eye)
+}
 
-  const result = await page.evaluate((captureMs) => new Promise((resolve) => {
+async function capturePose(page) {
+  return page.evaluate((captureMs) => new Promise((resolve) => {
     const frameDeltas = []
     const counters = []
     let last = performance.now()
@@ -154,8 +235,6 @@ async function capturePose(page) {
     }
     requestAnimationFrame(tick)
   }), CAPTURE_MS)
-
-  return result
 }
 
 async function measureRealFrameTimes() {
@@ -246,13 +325,22 @@ async function measureRealFrameTimes() {
     console.log('[frame-time-gate] waiting for the renderer to actually draw before measuring ...')
     await waitForRendererFrames(page)
     console.log(`[frame-time-gate] rasterizer class=${GPU_MODE.mode} -- ${GPU_MODE.software ? 'software rasterizer, so these frame times are CPU raster cost on this machine and are not accelerated GPU frame cost' : 'accelerated rasterizer'}`)
-    await waitForVegetationFloor(page)
+    const floorCount = await waitForVegetationFloor(page)
+    if (!(floorCount >= VEGETATION_FLOOR)) {
+      throw new Error(`vegetation stands at ${floorCount} instance(s), under the ${VEGETATION_FLOOR} floor -- an empty-vegetation scene is a different workload than the baseline records, so no arm is admitted`)
+    }
 
-    console.log('[frame-time-gate] capturing static pose (8s) ...')
-    const staticResult = await capturePose(page)
+    await moveToStaticPose(page)
+    await settleAtPose(page, 'static pose')
+    const watch = contentionWatch()
+    console.log(`[frame-time-gate] capturing static pose (${CAPTURE_MS}ms) ...`)
+    const staticResult = await withTimeout(capturePose(page), `the ${CAPTURE_MS}ms static capture`, CAPTURE_TIMEOUT_MS)
+    contentionMark(watch)
 
-    console.log('[frame-time-gate] capturing orbit pose (8s, r=8) ...')
-    const orbitResult = await page.evaluate((captureMs) => new Promise((resolve) => {
+    await settleAtPose(page, 'orbit pose')
+    contentionMark(watch)
+    console.log(`[frame-time-gate] capturing orbit pose (${CAPTURE_MS}ms, r=8) ...`)
+    const orbitResult = await withTimeout(page.evaluate((captureMs) => new Promise((resolve) => {
       const frameDeltas = []
       const counters = []
       let last = performance.now()
@@ -283,14 +371,14 @@ async function measureRealFrameTimes() {
         else resolve({ frameDeltas, counters })
       }
       requestAnimationFrame(tick)
-    }), CAPTURE_MS)
+    }), CAPTURE_MS), `the ${CAPTURE_MS}ms orbit capture`, CAPTURE_TIMEOUT_MS)
 
     const vegInstances = await evaluateOrThrow(page, () => (window.__vegProfile && window.__vegProfile.totalInstances) || 0, 15000).catch(() => 0)
     console.log(`[frame-time-gate] vegetation instances resident during the capture: ${vegInstances}`)
 
     if (pageErrors.length > 0) throw new Error(`page threw ${pageErrors.length} uncaught error(s): ${pageErrors[0]}`)
 
-    return { staticResult, orbitResult, gpu, vegInstances }
+    return { staticResult, orbitResult, gpu, vegInstances, watch }
   } finally {
     if (browser) await browser.close()
     server.stop()
@@ -341,6 +429,9 @@ async function main() {
     process.exit(1)
   }
 
+  const contention = contentionVerdict(raw.watch)
+  console.log(`[frame-time-gate] ${formatContention(contention)}`)
+
   const staticStats = summarize(raw.staticResult.frameDeltas)
   const orbitStats = summarize(raw.orbitResult.frameDeltas)
   const staticRates = counterRates(raw.staticResult.counters)
@@ -348,6 +439,7 @@ async function main() {
   console.log(`[frame-time-gate] counter probe: first=${JSON.stringify(raw.orbitResult.counters[0])} last=${JSON.stringify(raw.orbitResult.counters[raw.orbitResult.counters.length - 1])} samples=${raw.orbitResult.counters.length}`)
   const metrics = {
     rasterizer: raw.gpu.rasterizer,
+    headSha: gitHeadSha(),
     vendor: (raw.gpu.adapter && raw.gpu.adapter.vendor) || VENDOR || null,
     gpu: raw.gpu.haystack || null,
     vegInstances: raw.vegInstances,
@@ -383,6 +475,14 @@ async function main() {
   }
 
   if (UPDATE) {
+    const refusals = baselineRefusals(metrics)
+    if (contention.contested) {
+      refusals.push(`host contention ${contention.peakMs} ms is x${contention.slowdown} of this run's cleanest ${contention.bestMs} ms, so these frame times measure a shared box`)
+    }
+    if (refusals.length) {
+      console.error(`[frame-time-gate] REFUSING to capture an inadmissible baseline: ${refusals.join('; ')}`)
+      process.exit(1)
+    }
     writeBaseline(metrics)
     console.log('[frame-time-gate] baseline updated. PASS')
     process.exit(0)
@@ -393,6 +493,13 @@ async function main() {
     console.error(`[frame-time-gate] BASELINE NOT ADMISSIBLE: ${refusals.join('; ')}`)
     process.exit(1)
   }
+
+  if (contention.contested) {
+    console.error(`[frame-time-gate] RESULT: FAIL -- ${formatContention(contention)}, so this run's orbit p50 ${metrics.orbit.p50Ms.toFixed(2)}ms measures a shared box and cannot be compared against the baseline -- re-run it alone`)
+    process.exit(1)
+  }
+
+  console.log(`[frame-time-gate] baseline captured at ${baseline.headSha || 'an unrecorded commit'} with ${baseline.vegInstances} vegetation instance(s); this run is at ${metrics.headSha || 'an unrecorded commit'} with ${metrics.vegInstances}`)
 
   const baseMs = baseline.orbit.p50Ms
   if (baseMs == null) {

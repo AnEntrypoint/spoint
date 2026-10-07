@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -20,10 +24,26 @@ jobs:
       - run: node scripts/apps-manifest-fresh-witness.mjs
       - run: npm test
 
+  frame-time-coverage:
+    name: frame-time gate -- ${{ vars.CI_GPU_RUNNER_ONLINE == 'true' && 'accelerated nvidia and amd arms run below on the self-hosted gpu runner' || 'SKIPPED, no self-hosted gpu runner is online, so no accelerated frame time was measured on this commit' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: state which accelerated arms measured this commit
+        run: |
+          if [ "${{ vars.CI_GPU_RUNNER_ONLINE }}" = "true" ]; then
+            echo "### frame-time gate: MEASURED" >> "$GITHUB_STEP_SUMMARY"
+            echo "The nvidia and amd accelerated arms run in the frame-time job on the self-hosted gpu runner." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### frame-time gate: NOT MEASURED" >> "$GITHUB_STEP_SUMMARY"
+            echo "The frame-time job is skipped because no runner labelled [self-hosted, Windows, gpu] is online, so no accelerated p50 frame time was measured on this commit." >> "$GITHUB_STEP_SUMMARY"
+            echo "Set the repository variable CI_GPU_RUNNER_ONLINE=true once such a runner is registered; until then this gate is enforced only by running it on a machine with the adapters pinned." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   frame-time:
-    name: frame-time gate -- accelerated nvidia arm. GitHub-hosted runners expose no GPU, so this job runs on a self-hosted Windows runner labelled gpu; the software rasterizer cannot reach this gate's floor (measured 0.3 fps, 3 samples per 8s capture, 297 vegetation instances)
+    name: frame-time gate -- accelerated nvidia and amd arms. A vendor pin needs Windows because adapterLuidFor reads the DirectX registry, so this job runs on a self-hosted Windows runner labelled gpu; the software rasterizer cannot reach this gate's floor (measured 0.3 fps, 3 samples per 8s capture, 297 vegetation instances)
     runs-on: [self-hosted, Windows, gpu]
-    timeout-minutes: 30
+    if: vars.CI_GPU_RUNNER_ONLINE == 'true'
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -34,3 +54,5 @@ jobs:
       - run: npm run build:bundles
       - name: compare orbit p50 against .frame-time-baseline.nvidia.json
         run: node scripts/frame-time-gate.mjs --gpu=nvidia --require-accelerated --baseline=.frame-time-baseline.nvidia.json
+      - name: compare orbit p50 against .frame-time-baseline.amd.json
+        run: node scripts/frame-time-gate.mjs --gpu=amd --require-accelerated --baseline=.frame-time-baseline.amd.json

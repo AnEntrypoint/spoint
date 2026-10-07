@@ -1,0 +1,25 @@
+{
+  "rasterizer": "accelerated",
+  "headSha": "003fafdf943bd56c09ccada17c7b3add261d3627",
+  "vendor": "amd",
+  "gpu": "amd rdna-2 | amd",
+  "vegInstances": 5207,
+  "static": {
+    "p50Ms": 21.360000000000582,
+    "p95Ms": 34.82999999999447,
+    "onePercentLowMs": 47.33666666666492,
+    "fps": 46.81647940074779,
+    "sampleCount": 373,
+    "avgDrawCalls": 2.0536193029490617,
+    "avgTriangles": 311273.3101604278
+  },
+  "orbit": {
+    "p50Ms": 24.084999999999127,
+    "p95Ms": 38.00999999999476,
+    "onePercentLowMs": 49.77666666666482,
+    "fps": 41.519618019515725,
+    "sampleCount": 333,
+    "avgDrawCalls": 2.078078078078078,
+    "avgTriangles": 317989.0928143713
+  }
+}
