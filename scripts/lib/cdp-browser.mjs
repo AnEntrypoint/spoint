@@ -346,7 +346,13 @@ class Connection {
       const page = this._pages.get(sid)
       if (page) {
         const d = m.params?.exceptionDetails
-        page._emitPageError(new Error(d?.exception?.description || d?.text || 'page error'))
+        const frames = (d?.stackTrace?.callFrames || [])
+          .slice(0, 10)
+          .map((f) => `    at ${f.functionName || '(anonymous)'} (${f.url}:${f.lineNumber + 1}:${f.columnNumber + 1})`)
+        const head = d?.exception?.description || d?.text || 'page error'
+        const err = new Error(frames.length ? `${head}\n${frames.join('\n')}` : head)
+        err.exceptionDetails = d
+        page._emitPageError(err)
       }
     }
   }

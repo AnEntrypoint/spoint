@@ -150,6 +150,18 @@ async function main() {
     console.error('check: fire witnesses:', (e.stderr || e.message || '').toString().trim())
     process.exit(1)
   }
+  const gpuArms = (process.env.SPOINT_GPU_WITNESS || '').split(',').map((s) => s.trim()).filter(Boolean)
+  for (const gpu of gpuArms) {
+    const keep = (line) => /^(\[veg-witness\]|RESULT:|  \[(PASS|FAIL)\])/.test(line)
+    try {
+      const { stdout } = await execFileAsync(process.execPath, ['scripts/veg-instance-browser-witness.mjs', `--gpu=${gpu}`, '--at=-15,-12.5', '--settle=15000', '--walk=45000'], { maxBuffer: 16 * 1024 * 1024 })
+      for (const line of stdout.split('\n')) if (keep(line)) console.log(`check: ${line}`)
+    } catch (e) {
+      for (const line of ((e && e.stdout) || '').toString().split('\n')) if (keep(line)) console.error(`check: ${line}`)
+      console.error(`check: vegetation browser witness on ${gpu}:`, (e.stderr || e.message || '').toString().trim())
+      process.exit(1)
+    }
+  }
   console.log(`check: ${imports.appCount} apps resolve every import through the worker path, ${imports.assetCount} asset references exist`)
 }
 

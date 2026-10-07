@@ -212,3 +212,30 @@ patch(
   'msgpackr -0 escapes the negative fixint branch',
   true
 )
+
+patch(
+  'node_modules/three/build/three.webgpu.js',
+  '\n\t\t\tdevice.popErrorScope().catch( () => null ).then( ( err ) => {',
+  '\n\t\t\tdevice.popErrorScope().then( ( err ) => {',
+  '\n\t\t\tdevice.popErrorScope().catch( () => null ).then( ( err ) => {',
+  'three webgpu render pipeline validation scope rejects when its device is destroyed first',
+  true
+)
+
+patch(
+  'node_modules/three/build/three.webgpu.js',
+  '\n\t\tdevice.popErrorScope().catch( () => null ).then( ( err ) => {',
+  '\n\t\tdevice.popErrorScope().then( ( err ) => {',
+  '\n\t\tdevice.popErrorScope().catch( () => null ).then( ( err ) => {',
+  'three webgpu compute pipeline validation scope rejects when its device is destroyed first',
+  true
+)
+
+patch(
+  'node_modules/three/build/three.webgpu.js',
+  '\t\t\t\t\tconst errorScope = await device.popErrorScope().catch( () => null );',
+  '\t\t\t\t\tconst errorScope = await device.popErrorScope();',
+  '\t\t\t\t\tconst errorScope = await device.popErrorScope().catch( () => null );',
+  'three webgpu async render pipeline validation scope rejects when its device is destroyed first',
+  true
+)
