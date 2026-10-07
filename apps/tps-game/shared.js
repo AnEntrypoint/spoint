@@ -32,7 +32,6 @@ export const FIRE_SPEC = {
     forest: { fuel: 45000, burnRate: 2500, igniteHeat: 600, heatOut: 1200, spotChance: 120, spotHeat: 700, smoke: 160, damage: 16 },
   },
   gameplay: { damageEveryTicks: 15, statusDamagePerSec: 6, burnStatusSeconds: 4, smokeBlockDepth: 1, smokeHeightM: 30, eyeHeightM: 1.6, explosionImpulse: 12 },
-  weather: { rainPerIntensity: 200, snowRainFraction: 0.25, wetPerStep: 8, dryPerStep: 1, maxMoisture: 200, hysteresis: 8 },
   firebreaks: { kinds: ['road', 'river'], water: true },
 }
 const PREDICT_RANGE_M = 1000

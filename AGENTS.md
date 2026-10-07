@@ -66,6 +66,7 @@ One line per fact. Rules, thresholds and file:line stay here; numbers, scenarios
 ## Fire (`ctx.defineFire`)
 
 - Integer-only kernel `fireKernel.js`: decisions from `hash(seed, step, face, I, J)`, no float / `Math.random` / `Date.now`. Cells are 2x2 veg placement cells (8 m); step boundaries are absolute ticks.
+- Rain smothers, it does not eat fuel: a rain-suppressed cell still burns its own `burnRate` but pushes no heat and spots nothing (`fireKernel.js burnCell`), so rain slows and shrinks a front instead of zeroing `fuel` (which made an ignition burn out inside its own step and left rain 0.6 unable to sustain any fire at all). `rainPerIntensity` (default 255) maps intensity 0..1 to the roll byte and the roll scales with step length; a per-world `weather` block that pins it overrides the default.
 - `ctx.navCostAt(x,z)` = 8 burning / 2 charred; `canSee` is smoke-gated via `_fireNavByRuntime` at depth >= `smokeBlockDepth`.
 - Wind = weather vector (BASE) + `hash(seed, step)` gust (`fireWind.js`), clamped to +-16 per axis; `snapshot().wind` carries the BASE only.
 - Per-cell initial fuel is not recomputable in the kernel (`classify()`, `VegPlacement.js:170-234`); any per-tile array added to `snapshot()`/`restore()` must join `TILE_ARRAYS` (`fireKeyframe.js`) with a VERSION bump (now 6).
@@ -139,7 +140,8 @@ One line per fact. Rules, thresholds and file:line stay here; numbers, scenarios
 
 - HUD `applyDiff(uiRoot, hudVdom)` replaces uiRoot's children every frame, so imperative DOM overlays (lobby, EmoteWheel, PauseMenu, SettingsMenu, MinimapHUD) mount on `document.body`.
 - Scenery: `_buildWorldScenery` is a joinable wrapper; boot adopts the running build (`Promise.race` does not cancel the loser). The adopt branch must not be gated on `window.__terrain`.
-- `app.js animate()` returns early while `window.__warmupInFlight`; two interleaved `renderer.render` passes on one GL context let `ClusterLodMesh onBeforeRender` rewrite shared geometry.groups/index mid-pass.
+- `app.js animate()` returns early while `window.__warmupInFlight`; model-pool and streaming loads are pumped from the frame jobs there, so never park a wait inside the warmup — it starves the very load it waits for (a residence wait moved in front of the flag cut reveal from 17975 ms to 6636 ms). Two interleaved `renderer.render` passes on one GL context let `ClusterLodMesh onBeforeRender` rewrite shared geometry.groups/index mid-pass.
+- The client `WORLD_DEF` from `sendWorldDefAndModules` has `entities` STRIPPED and carries `_modelUrls` instead: client code deriving world-entity facts must read `_modelUrls`.
 - Hot reload releases a ctx via `AppRuntime._releaseAppContext`; `update()` keeps running with a torn-down ctx unless `_updateList`/`_rebuildCollisionList` are rebuilt.
 - `AppRuntime._attachApp` does `apps.set` BEFORE awaiting `setup()`; `spawnEntity` attaches apps fire-and-forget, so collect tagged entities on the first `update()` tick.
 - Spawn: `holdSpawnUntilGrounded` (`src/sdk/Relocation.js:71`) gates release on `terrainFieldMissingAt`/`coversPosition` (max `SPAWN_HOLD_MAX_MS=20000`).
