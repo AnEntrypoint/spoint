@@ -32,10 +32,23 @@ function check(label, cond, detail) {
   else { FAIL.push(label); console.log(`  [FAIL] ${label}${detail ? ' -- ' + detail : ''}`) }
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
+const gcKinds = new Map()
 let gcMs = 0, gcCount = 0
 const gcObserver = new PerformanceObserver(list => {
-  for (const e of list.getEntries()) if (e.entryType === 'gc') { gcMs += e.duration; gcCount++ }
+  for (const e of list.getEntries()) {
+    if (e.entryType !== 'gc') continue
+    gcMs += e.duration
+    gcCount++
+    const kind = e.detail && typeof e.detail.kind === 'number' ? e.detail.kind : 0
+    const row = gcKinds.get(kind)
+    if (row) { row.count++; row.ms += e.duration }
+    else gcKinds.set(kind, { count: 1, ms: e.duration })
+  }
 })
+function gcKind(kind) {
+  const row = gcKinds.get(kind)
+  return row ? row : { count: 0, ms: 0 }
+}
 const round = (v, n = 2) => Math.round(v * 10 ** n) / 10 ** n
 const pct = v => round(v, 2)
 
@@ -136,6 +149,7 @@ async function main() {
     loop.enable()
     gcMs = 0
     gcCount = 0
+    gcKinds.clear()
     gcObserver.observe({ entryTypes: ['gc'] })
     const wT0 = performance.now()
     const cpuT0 = process.cpuUsage()
@@ -224,6 +238,10 @@ async function main() {
     gcObserver.disconnect()
     const gcTotalMs = gcMs
     const gcTotalCount = gcCount
+    const gcScavenges = gcKind(1).count
+    const gcMarkSweeps = gcKind(2).count
+    const gcMarkSweepTotalMs = gcKind(2).ms
+    const gcBreakdown = [...gcKinds.entries()].map(([k, v]) => `${k}:${v.count}/${round(v.ms, 1)}ms`).join(' ')
     const ticks = (tickSystem?.currentTick ?? 0) - tick0
     const trunkMs = trunk.ringBuildMs - msT0
     const rockMs = rock.ringBuildMs - msR0
@@ -335,6 +353,10 @@ async function main() {
       loopMaxMs: round(loop.max / 1e6, 2),
       gcMs: round(gcTotalMs, 1),
       gcCount: gcTotalCount,
+      gcScavengesPerRebuild: round(gcScavenges / REBUILDS, 2),
+      gcMarkSweepPerRebuild: round(gcMarkSweeps / REBUILDS, 2),
+      gcMarkSweepMs: round(gcMarkSweepTotalMs, 1),
+      gcBreakdown,
       elapsedS: round(elapsedS, 1),
     }
     if (perRebuild.length) console.log(`[ring-scale]   per rebuild: ${perRebuild.join(' | ')}`)
