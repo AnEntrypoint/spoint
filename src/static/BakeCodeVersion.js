@@ -108,7 +108,7 @@ export const BAKE_INPUTS_COLLISION_GRID = [
 
 export const BAKE_INPUTS_SNAPSHOT_ENCODE = [
   '../apps/AppRuntime.js',
-  '../apps/AppRuntimeStaticMotion.js',
+  '../apps/EcsEntityMap.js',
 ]
 
 export const BAKE_INPUTS_SNAPSHOT_ENTITY_ENC = [
@@ -143,5 +143,6 @@ export const BAKE_TRANSFORMS = [
   { name: 'MINIMAP_BAKE', entries: ['../../scripts/bake-minimap.mjs'], inputs: BAKE_INPUTS_MINIMAP_BAKE, version: MINIMAP_BAKE_CODE_VERSION },
   { name: 'HEIGHTFIELD_BAKE', entries: ['../../scripts/bake-heightfield.mjs'], inputs: BAKE_INPUTS_HEIGHTFIELD_BAKE, version: HEIGHTFIELD_BAKE_CODE_VERSION },
   { name: 'COLLISION_GRID', entries: ['../apps/AppRuntimeTick.js'], inputs: BAKE_INPUTS_COLLISION_GRID, version: COLLISION_GRID_CODE_VERSION_SOURCE },
+  { name: 'SNAPSHOT_ENCODE', entries: ['../apps/EcsEntityMap.js'], inputs: BAKE_INPUTS_SNAPSHOT_ENCODE, version: SNAPSHOT_ENCODE_CODE_VERSION_SOURCE },
   { name: 'SNAPSHOT_ENTITY_ENC', entries: ['../netcode/SnapshotEncoder.js'], inputs: BAKE_INPUTS_SNAPSHOT_ENTITY_ENC, version: SNAPSHOT_ENTITY_ENC_CODE_VERSION_SOURCE }
 ]
