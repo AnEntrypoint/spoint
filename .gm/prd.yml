@@ -1771,3 +1771,21 @@
   exit: The failure is named and surfaced (which path failed and why), and a witness shows a deliberately corrupt .hf producing a loud named failure instead of a silent null.
   surface: src/terrain/TerrainPhysics.js
   status: pending
+- id: fire-rain-coupling-nullifies-fire-at-shipped-intensity
+  title: 'Rain byte coupling makes fire non-viable at the shipped tps-game intensity (0.6): ignition dies in one step and the feature silently no-ops'
+  kind: bug
+  severity: P0
+  why: 'src/behaviours/fireWeather.js rainByteOf scales weather intensity to a byte with rainPerIntensity 200 (DEFAULT_FIRE_WEATHER, fireSpec.js:148), so tps-game''s shipped rain 0.6 becomes rain byte 120. src/shared/fire/fireKernel.js:700-703 then rolls (h & 255) < rain on every burning cell EVERY fire step and on a hit sets fuel[g] = 0, which settleMask turns into BURNT (fireKernel.js:743-749). At 120/255 that is a 47% chance per burning cell per step of losing all its fuel, so a fresh ignition has an expected life of ~2 steps and never establishes a front. Measured on the real tps-game world by scripts/fire-tps-game-witness.mjs: with the shipped weather (rain 0.6) the arm reads ''first ground shot: 0 active cell(s), 1 ignition(s)'', ''peak active cells 0'', ''fire_burn 1, fire_burn_end 1'', fire damage 0.00; the same world with clear weather reads 9 active cells after the shot, peak 236, a burning band of 124 cells spanning 310.7 m, 37.97 fire damage and a fire-blocked LOS (crossedBurning 7, blocked true). So enabling fire in the world players actually load produces nothing at all, with no warning anywhere: the config is accepted, defineFire constructs, the wire carries fire_burn rows, and the only evidence is a cell that burns out in the same step. Rain should suppress spread and shorten burns, not make ignition impossible at a moderate intensity, and a world whose weather makes fire impossible must say so instead of looking broken.'
+  evidence: 'node scripts/fire-tps-game-witness.mjs -> EXIT=1 with ''FAIL flag on, weather as shipped (rain 0.6): peak active cells 0, so the arm observed no fire''; the same run''s clear-weather arm passes its fire measurements. Mechanism read in src/behaviours/fireWeather.js:5-11 and src/shared/fire/fireKernel.js:695-706,743-749,755.'
+  exit: A rain sweep (0, 0.1 ... 1.0) witnesses peak active cells, ignitions, burn duration and front extent per intensity on a real kernel, and the shipped intensity sustains a front (or the engine names the reason fire cannot burn here instead of emitting a fire_burn that dies in the same step).
+  surface: src/behaviours/fireWeather.js,src/shared/fire/fireKernel.js,scripts/fire-tps-game-witness.mjs
+  status: pending
+- id: fire-tps-game-witness-not-in-fire-gate-and-currently-red
+  title: scripts/fire-tps-game-witness.mjs is the only fire witness covering the real tps-game world and it is not in the fire gate, where it is currently red
+  kind: bug
+  severity: P1
+  why: 'scripts/fire-witness-gate.mjs WITNESSES lists 8 witnesses and fire-tps-game-witness.mjs is not one of them, so npm run check and npm test never run it. It currently exits 1 (rain-0.6 arm: peak active cells 0), so the only witness exercising fire on the world players actually load has been silently red and invisible. Once the rain coupling row is fixed the witness must be added to the gate so the fix stays proven.'
+  evidence: 'scripts/fire-witness-gate.mjs:11-20 witness list; node scripts/fire-tps-game-witness.mjs -> ''== witness complete == FAIL flag on, weather as shipped (rain 0.6): peak active cells 0'' EXIT=1.'
+  exit: fire-tps-game-witness.mjs is listed in scripts/fire-witness-gate.mjs WITNESSES and the gate prints PASS for it (exit 0 and RESULT:).
+  surface: scripts/fire-witness-gate.mjs,scripts/fire-tps-game-witness.mjs
+  status: pending
