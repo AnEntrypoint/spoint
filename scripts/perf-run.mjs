@@ -33,6 +33,8 @@ const WALK = !has('no-walk')
 const LEG_MS = Number(flag('leg', '10000'))
 const INPUT_WAIT_MS = Number(flag('input-wait', '60000'))
 const EXTRA_QUERY = flag('extra', '')
+const WORLD = String(flag('world', 'tps-game'))
+const ROOM_MODE = String(flag('room', 'singleplayer'))
 const ROUTE = flag('walk-route', '')
 const WALK_SPEED = Number(flag('walk-speed', '7'))
 const WALKER = ROUTE.length > 0
@@ -434,8 +436,8 @@ async function main() {
       return r.cands[0]
     }
 
-    const query = BACKEND === 'webgpu' ? '?singleplayer&webgpu=1' : '?singleplayer'
-    const url = `http://localhost:${port}/${query}&world=tps-game&v=${Date.now()}${EXTRA_QUERY ? '&' + EXTRA_QUERY : ''}`
+    const query = BACKEND === 'webgpu' ? `?${ROOM_MODE}&webgpu=1` : `?${ROOM_MODE}`
+    const url = `http://localhost:${port}/${query}&world=${WORLD}&v=${Date.now()}${EXTRA_QUERY ? '&' + EXTRA_QUERY : ''}`
     console.log(`[perf-run] navigating ${url}`)
     const tNav = Date.now()
     await page._send('Profiler.enable').catch(() => {})
@@ -494,6 +496,18 @@ async function main() {
     let navToFirstMoveMs = null
     let navToInputSeqMs = null
     let navToInputProbeStart = null
+    let sent0 = null
+    let sentSeen = null
+    let sentEnd = null
+    const LEG_MOVE_BIT = { KeyW: 'forward', KeyS: 'backward', KeyA: 'left', KeyD: 'right' }
+    const sentOf = () => page.evaluate(() => {
+      const a = window.__app || {}
+      const i = a.sentInput || null
+      return {
+        count: typeof a.sentInputCount === 'number' ? a.sentInputCount : null,
+        move: i ? { forward: !!i.forward, backward: !!i.backward, left: !!i.left, right: !!i.right } : null,
+      }
+    }).catch(() => null)
     {
       await page._send('Page.bringToFront').catch(() => {})
       await page.evaluate(() => {
@@ -502,7 +516,7 @@ async function main() {
         sp.__rigDriveWrapped = true
         const d = sp._drive
         sp._drive = function (input, cam) {
-          window.__rigLastInput = { forward: !!input.forward, back: !!input.back, left: !!input.left, right: !!input.right, jump: !!input.jump }
+          window.__rigLastInput = { forward: !!input.forward, backward: !!input.backward, left: !!input.left, right: !!input.right, jump: !!input.jump }
           return d.apply(this, arguments)
         }
       }).catch(() => {})
@@ -514,7 +528,7 @@ async function main() {
       const tInput = Date.now()
       navToInputProbeStart = tInput - tNav
       console.log(`[perf-run] input probe start: nav+${navToInputProbeStart}ms (overlayHidden at ${tRevealed}ms perf.now, so ${navToInputProbeStart - Math.round(tRevealed)}ms of that is harness overhead)`)
-      const probeLegs = ['KeyW', 'KeyD', 'KeyS', 'KeyA']
+      const probeLegs = String(flag('probe-legs', 'KeyW,KeyD,KeyS,KeyA')).split(',')
       let probeIdx = 0
       let probeDown = null
       let maxD = 0
@@ -522,12 +536,7 @@ async function main() {
       let sawVelocity = null
       let probeDumpAt = 0
       let probeDumps = 0
-      const seqOf = () => page.evaluate(() => {
-        const s = (window.__client && window.__client.getLocalState) ? window.__client.getLocalState() : null
-        const i = window.__rigLastInput
-        return { seq: s ? s.inputSequence : null, input: i || null }
-      }).catch(() => null)
-      const seq0 = await seqOf()
+      sent0 = await sentOf()
       const moved = await (async () => {
         while (Date.now() - tInput < INPUT_WAIT_EFFECTIVE_MS) {
           if (probeDown === null || Date.now() - probeDown > 1800) {
@@ -538,9 +547,13 @@ async function main() {
           }
           const p = await readPos()
           if (navToInputSeqMs === null) {
-            const s = await seqOf()
-            if (s && s.seq != null && seq0 && s.seq !== seq0.seq) navToInputSeqMs = Date.now() - tNav
-            else if (s && s.input && (s.input.forward || s.input.back || s.input.left || s.input.right) && (!seq0 || !seq0.input)) navToInputSeqMs = Date.now() - tNav
+            const leg = probeLegs[probeIdx % probeLegs.length]
+            const bit = LEG_MOVE_BIT[leg]
+            const s = await sentOf()
+            if (bit && s && s.move && s.move[bit] && s.count != null && sent0 && sent0.count != null && s.count > sent0.count) {
+              navToInputSeqMs = Date.now() - tNav
+              sentSeen = { leg, bit, steps: s.count - sent0.count, move: s.move }
+            }
           }
           if (p0 && p) {
             const d = Math.hypot(p[1][0] - p0[1][0], p[1][1] - p0[1][1], p[1][2] - p0[1][2])
@@ -576,6 +589,7 @@ async function main() {
         return false
       })()
       if (probeDown !== null) await page.keyboard.up(probeLegs[probeIdx % probeLegs.length]).catch(() => {})
+      sentEnd = await sentOf()
       navToFirstMoveMs = moved ? Date.now() - tNav : null
       if (!moved) {
         console.log(`[perf-run] input probe: NO movement, maxDelta=${maxD.toFixed(3)}m over ${Date.now() - tInput}ms`)
@@ -599,8 +613,8 @@ async function main() {
         console.log('[perf-run] input diag: ' + JSON.stringify(st))
       }
     }
-    console.log(`[perf-run] nav->inputAccepted(first real movement)=${navToFirstMoveMs}ms  nav->inputReachedGame=${navToInputSeqMs}ms`)
-    if (!WALKER && navToInputSeqMs === null) console.log('[perf-run] ASSERT FAILED: synthetic keys never reached the app input bucket (nav->inputReachedGame=null) -- this arm measured a standing player')
+    console.log(`[perf-run] nav->inputAccepted(first real movement)=${navToFirstMoveMs}ms  nav->inputReachedGame=${navToInputSeqMs}ms  sentInputCount=${sent0 && sent0.count}->${sentEnd && sentEnd.count}  sentMovement=${JSON.stringify(sentSeen)}`)
+    if (!WALKER && navToInputSeqMs === null) console.log(`[perf-run] ASSERT FAILED: no synthetic movement key reached the app input bucket (nav->inputReachedGame=null, sentInputCount ${sent0 && sent0.count}->${sentEnd && sentEnd.count}, lastMove=${JSON.stringify(sentEnd && sentEnd.move)}) -- this arm measured a standing player`)
 
     const gpuTimer = setInterval(() => gpuSamples.push({ t: Date.now() - tNav, ...sampleGpu() }), 5000)
     const hostCpuTimer = setInterval(() => sampleHostCpuAsync(hostCpuDuring, tNav), 10000)
@@ -928,7 +942,7 @@ async function main() {
     const gpuPassesOk = !GPU_PASSES || !!(gpuPassResult && gpuPassResult.passes && gpuPassResult.passes.length > 0)
     const vegSource = inPage.veg ? inPage.veg.source : 'none'
     const vegHasSource = !!(inPage.veg && inPage.veg.hasSource)
-    const reachability = { sceneryBuiltMarked, vegTotalInstances: vegTotal, vegSource, vegSourceOk: vegHasSource, vegNonZero: vegTotal > 0, drawsNonZero: drawsMeasured, walkOk, travelledM: +travelled.toFixed(1), inputSequenceStart: walkSeqStart, inputSequenceEnd: walkSeqEnd, inputReachedGameMs: navToInputSeqMs, inputReached, gpuPassesOk, adapterVendor: adapterInfo ? adapterInfo.vendor : null, adapterOk, appLoadOk, appLoadErrors, pass: appLoadOk && adapterOk && sceneryBuiltMarked && vegHasSource && vegTotal > 0 && drawsMeasured && walkOk && inputReached && gpuPassesOk }
+    const reachability = { sceneryBuiltMarked, vegTotalInstances: vegTotal, vegSource, vegSourceOk: vegHasSource, vegNonZero: vegTotal > 0, drawsNonZero: drawsMeasured, walkOk, travelledM: +travelled.toFixed(1), inputSequenceStart: walkSeqStart, inputSequenceEnd: walkSeqEnd, inputReachedGameMs: navToInputSeqMs, inputReachedGameSteps: sentSeen ? sentSeen.steps : null, inputReachedGamePayload: sentSeen ? sentSeen.move : null, inputReached, gpuPassesOk, adapterVendor: adapterInfo ? adapterInfo.vendor : null, adapterOk, appLoadOk, appLoadErrors, pass: appLoadOk && adapterOk && sceneryBuiltMarked && vegHasSource && vegTotal > 0 && drawsMeasured && walkOk && inputReached && gpuPassesOk }
 
       if (!reachability.pass) reachabilityUnreached = Object.entries(reachability).filter(([k, v]) => v !== true && (k.endsWith('Ok') || k.endsWith('NonZero') || k === 'sceneryBuiltMarked')).map(([k]) => k)
 
