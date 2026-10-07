@@ -1459,14 +1459,6 @@
   obligation_kind: resource-bound
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending
-- id: cpu-time-perf-gates-across-witnesses
-  title: Decide every sustained-cost perf gate on CPU time inside the measured calls, not wall time
-  why: 'scripts/collider-ring-scale-witness.mjs proved the class on this box: one arm''s wall-clock work read 70.27, 119.32 and 139.03 ms/s across three attempts at one commit while CPU time spent inside the rebuild calls (process.cpuUsage deltas around each call) read 62.87 and 63.75 ms/s on the two least-contested ones -- a 2x wall swing against 1.5% CPU agreement. A fixed-spin throughput probe called the loaded runs ''clean'' because throughput survives timeslicing while scheduling latency does not (event-loop p50 was 15.6 ms at the same moment the spin read 11 ms), and a whole-window CPU figure carries a 22-46 ms/s tick-loop and GC floor even when every rebuild is settled, so it is not attributable either. Every other witness that gates on wall-clock ms/s or ms-per-tick (collider-ring-boot-batches-witness.mjs, fire-kernel-cost-witness.mjs, collider-turnover-witness.mjs, veg-lod sweep witness) can report a regression or a win that is really another process.'
-  acceptance: Each named witness reports a CPU-time figure measured around the calls under test and gates on it, keeps the wall figure as a diagnostic beside a contention fingerprint from scripts/lib/host-contention.mjs, and fails loudly as inconclusive when no uncontested sample is obtained; mutation-checked by injecting a deliberate slowdown and watching the CPU gate fail where the wall gate was flaky.
-  obligation_kind: resource-bound
-  supplies: contention-immune perf verdicts
-  session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  status: pending
 - id: shader-manifest-frozen-at-first-reveal
   title: _revealWorld() freezes the derived shader manifest at whichever call wins, so an early reveal made before WORLD_DEF lands skips warmup
   body: Found by adversarial review of 92488e39cf (multi-file diff sweep). _revealWorld() (client/app.js:404) sets _worldRevealed = true on entry and returns early on every later call, and it computes _shaderManifest once from worldShaderManifest(_worldDef) || worldShaderManifest(worldConfig) (app.js:407). _revealWorld() is called fire-and-forget at app.js:592 as soon as the planet backdrop exists, and awaited later at app.js:470. If the local world module import left _worldDef null (app.js:1059 `if (_wmod?.default)`) and the server WORLD_DEF that assigns worldConfig (app.js:1144) has not arrived before that early reveal, both sources are empty, the frozen manifest is null, and the later fully-informed call returns at the guard -- so a singleplayer world with >= 10 entity meshes skips warmupShaders entirely (app.js:408 gate). Same hole for a host-migration or hot-reload reassignment of worldConfig. PRE-EXISTING at HEAD (the old awaited fetch assigned to the same local and was frozen the same way), not introduced by the derivation change; no shipped world hits it today (max 30 entities) and the interleaving could not be forced live -- the forced-interleaving browser arm stalled in server boot under current machine contention (28 node + 4 chrome processes from concurrent lanes).
@@ -1485,13 +1477,6 @@
   title: Re-baseline .cold-load-baseline.json for the world-ready isReady and restore a resolvable gate world
   why: 'cold-load-gate.mjs measures navigation -> loadingMachine.isReady against .cold-load-baseline.json (54552ms, THRESHOLD 1.25). The boot-readiness fix (bbaca3e43f) changed isReady to mean terrain resident + scenery settled, so the gate now measures a strictly larger quantity and the stored baseline is stale by construction. It is currently unreachable anyway: the gate''s WORLD=e2e-ci-arena exists in no apps/world, apps/ or src/stdlib-apps/ directory, so the gate cannot boot and is in no CI job or npm script.'
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  status: pending
-- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
-  id: collider-ring-cpu-gate-evict-scan
-  title: Attack evict/scan/body-add/GC in the collider ring, not placement compute
-  why: The 100 ms/s CPU gate in scripts/collider-ring-scale-witness.mjs stayed at 90.15/66.08 -> 92.34/78.56 ms/s across the placement climate-gate win, because placement compute is only ~17% of it (22 of 126.6 ms per rebuild at 192 moving clusters). The gate is the binding constraint, so the next measured win has to come from evict, scan, body add and GC.
-  evidence: 'interleaved A/B at 192 moving clusters: computeMsPerRebuild 28.9/26.05 -> 22.02/21.06 while cpuMsPerS 90.15/66.08 -> 92.34/78.56 (ranges overlap).'
-  kind: perf
   status: pending
 - session_id: f73df536-0f66-49a1-8888-2a064d23416a
   id: veg-painted-surface-browser-arm
@@ -1513,42 +1498,6 @@
   why: 'vendor/gm is on main at 3c98cfa ("security: remove HiddenSpawn campaign residue") while spoint pins 024c48c8; that clone has 381 commits not in origin/main and origin/main has 219 not in it (AnEntrypoint/gm was recreated after the AV quarantine), so the gitlink cannot be committed without either a force-push that destroys 219 remote commits or a merge that reconciles the two histories.'
   acceptance: Reconcile vendor/gm with origin/main (merge or rebase, never a force-push), confirm the HiddenSpawn cleanup commit is present on the pushed main, then commit the advanced gitlink in spoint so git status --porcelain is clean.
   id: vendor-gm-gitlink-is-one-commit-ahead-and-its-upstream-history-h
-  status: pending
-- session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  id: collider-ring-scale-witness-and-boot-batches-witness-are-red
-  title: 'collider-ring-scale-witness (85s) and collider-ring-boot-batches-witness both print RESULT: FAIL'
-  body: 'Measured 2026-10-07: `node scripts/collider-ring-scale-witness.mjs` runs 84.9s, exits 1, prints `[ring-scale] RESULT: FAIL`. `node scripts/collider-ring-boot-batches-witness.mjs` runs 11.3s, exits 1, prints `[boot-batches] RESULT: FAIL (1)`. Neither is referenced by scripts/check.mjs, scripts/fire-witness-gate.mjs, package.json or .github/workflows/ci.yml, so nothing noticed.'
-  acceptance_criteria:
-  - both are diagnosed and green, or the rot is named and the script deleted
-  status: pending
-- session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  id: fire-tile-reclaim-witness-fails-the-gate-on-a-contended-box
-  title: 'npm run check is red at HEAD: fire-tile-reclaim-witness fails a wall-clock contention assertion'
-  body: 'Measured 2026-10-07 in C:/dev/spoint. `npm run check` exits 1. fire-witness-gate runs 8 witnesses; fire-weather (0.3s), fire-combat (0.3s), fire-wind-coupling (0.3s), fire-smoke-los (2.6s), fire-kernel-cost (14.2s) and fire-witness (19.0s) all print RESULT: PASS, then fire-tile-reclaim-witness.mjs runs 51.2s, exits 1 and prints `RESULT: FAIL (1 check(s))`. The failing check is `FAIL [fire-tile-reclaim] resume after a rewind contested on all 3 of the 3 attempt(s) it was allowed (x1.7, x1.75, x1.36), so its wall figures measure the box: re-run alone`. Re-running `node scripts/fire-tile-reclaim-witness.mjs` alone reproduces it (exit 1, same line). This is a wall-clock contention assertion, not a correctness one, so the gate is red or green depending on what else the machine is doing; it is the same failure class as frame-time-gate''s vsync caveat. The gate stops at the first failing witness after 87.9s of 8.'
-  acceptance_criteria:
-  - fire-tile-reclaim-witness separates its correctness assertions from its wall-clock figures and fails only on the former
-  - '`npm run check` exits 0 on an idle box and on a box running a second full check concurrently'
-  status: pending
-- session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  id: check-cache-keys-scope-witness-contradicts-itself-once-the-widening-is-committed
-  title: check-cache-keys-scope-witness asserts two opposite exits from byte-identical gate code
-  body: 'scripts/check-cache-keys-scope-witness.mjs copies ROOT''s scripts/check-cache-keys.mjs over a HEAD worktree copy and then asserts `before.exit === 0` (HEAD gate) and `after.exit !== 0` (widened gate) on the same tree state. git_diff of scripts/check-cache-keys.mjs against HEAD is empty (2026-10-07: only scripts/check.mjs shows 83 insertions), so before and after execute byte-identical code on byte-identical state and must produce the same exit; the two assertions cannot both hold. The witness was only meaningful while the widening was uncommitted. It also creates and force-removes a git worktree, which is not safe to add to the gate.'
-  acceptance_criteria:
-  - the witness is reworked to inject the widening itself instead of assuming an uncommitted diff, or deleted
-  status: pending
-- session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  id: placement-climate-gate-witness-asserts-a-timing-ordering
-  title: placement-climate-gate-witness fails on a timing ordering, so it cannot join the gate
-  body: 'scripts/placement-climate-gate-witness.mjs ends with `noRegression = vegEarlyUs <= vegLateUs && rockEarlyUs <= rockLateUs` and folds that into its exit code. Measured 1.5s RESULT: PASS with veg 513.0 vs 674.2 us/chunk and rock 215.4 vs 376.0 us/chunk (best of 3), i.e. a 30-75% margin on a micro-benchmark. Its deterministic half (climate identical, digest match) is gate-worthy; the wall-clock half would make check.mjs red on a loaded or slower runner for a reason unrelated to correctness.'
-  acceptance_criteria:
-  - the identical/digest assertions are split from the us/chunk comparison so only the deterministic half gates, or the timing half is printed as information only
-  status: pending
-- session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  id: edge-collider-draco-witness-strips-tracked-glb-files-in-place
-  title: edge-collider-draco-witness decompresses tracked apps/tps-game/*.glb in place, so it can never run in the gate
-  body: scripts/edge-collider-draco-witness.mjs runs scripts/prep-edge-collider-assets.mjs <dir> with no --check, which rewrites apps/tps-game/cleetus.glb and apps/tps-game/schwust.glb in the working tree, and it never restores them. Wiring it into npm run check would leave the tree dirty on every run and would race the app-import/asset checks that follow.
-  acceptance_criteria:
-  - the witness bakes into a temp dir and leaves apps/ byte-identical, or is deleted
   status: pending
 - session_id: f73df536-0f66-49a1-8888-2a064d23416a
   id: clean-6-remainder-live-browser-witness-of-the-running-app
@@ -1586,14 +1535,6 @@
   id: frame-time-gate-software-arm-unreachable
   subject: 'The software (SwiftShader) arm of scripts/frame-time-gate.mjs cannot produce an admissible measurement, so it must not be wired as a pass/fail CI gate. Measured 2026-10-07 on Windows SwiftShader (ANGLE Vulkan 1.3.0 SwiftShader Device Subzero, webgpu=none): static p50=3381.83ms, orbit p50=3530.84ms at 0.3 fps, 3 frame samples per 8s capture against the gate MIN_SAMPLES_FOR_ONE_PERCENT_LOW=200 floor, and 297 vegetation instances against the VEGETATION_FLOOR=1000, so the run exits 1 with RESULT: FAIL (witness never reached the state it measured); world boot alone took 376s. A software baseline is additionally not portable: GitHub-hosted runner CPU models are unpinned and SwiftShader is a CPU rasterizer, so cross-runner frame times vary far beyond the gate 1.10 threshold and the gate would flap. Do not lower VEGETATION_FLOOR or the sample floor to make this pass.'
   status: pending
-- session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  id: browser-witnesses-load-a-stale-dist-bundle-and-only-warn
-  title: Browser witnesses can silently run against a stale dist bundle; the server only warns
-  body: |-
-    Measured 2026-10-07 on this box, in a browser witness log: `[server] dist/client/app.js is STALE (built 2026-10-07T12:29:11.716Z, a bundled input edited 2026-10-07T12:52:24.166Z) -- falling through to raw ESM` and the same for `dist/src/sdk/WorkerEntry.js` (built 12:29:31.951Z, input edited 12:54:14.336Z). So a page under witness is served either an old bundle or the raw-ESM fallback, and NOTHING fails: the server prints a warning line and the run proceeds. Every frame-time, draw-count, boot-time and vegetation number taken in that state describes bytes that are not the tree, which is exactly the `deviation.build-cache-no-code-version-key` class in a new place -- here the cache is the dist bundle and the invalidation is a human remembering `npm run build:client` (AGENTS.md already requires it before ring-change and veg witnesses, which proves it is easy to forget).
-
-    Fix direction: make the served bundle's staleness a HARD failure for any browser witness (and for the dev server in witness mode) rather than a console line -- the server already computes the comparison, so expose it (a header, an endpoint, or a non-zero exit/throw on serve) and have `scripts/lib/cdp-browser.mjs`-driven witnesses assert freshness after navigation, alongside the existing GPU renderer assertion. Cross-check: witness arms launched by parallel agent sessions are the ones that keep editing bundled inputs, so this will keep recurring.
-  status: pending
 - id: perf-run-seqadvanced-and-walkseq-read-a-client-field-that-is-always-undefined
   title: perf-run seqAdvanced and walkSeqStart/walkSeqEnd read getLocalState().inputSequence, which is always undefined on the client
   kind: bug
@@ -1602,15 +1543,6 @@
   evidence: getLocalState().inputSequence undefined on every sample; the field is server-authored and has zero matches under client/. Reported by the perf-run fix agent after landing 1d34eecb1b. No external consumer of inputSequenceStart/inputSequenceEnd was found.
   exit: walkSeqStart/walkSeqEnd read window.__app.sentInputCount (or an equivalent real client observable) and a witness shows inputSequenceStart/End non-null with seqAdvanced true on a walking world and false on a frozen one.
   surface: scripts/perf-run.mjs
-  status: pending
-- id: player-manager-swallow-socket-send-failures
-  title: PlayerManager drops socket send failures in four empty catch blocks
-  kind: bug
-  severity: P1
-  why: 'src/netcode/PlayerManager.js:121,129,137,144 wrap player.socket.send in try/catch with an EMPTY catch, so a failed snapshot/input/entity push is indistinguishable from a successful one: no counter, no log, no disconnect, no retry. A peer on a dead or backpressured transport then silently stops receiving world state while the server believes it is being fed, which presents to the user as a frozen remote player or a silent desync with nothing in the log to trace.'
-  evidence: Four sites, each `try { player.socket.send(...) } catch (e) {}`. Found by an exhaustive short-circuit sweep that also confirmed no metric or disconnect path exists downstream.
-  exit: Each send failure is counted and surfaced (named counter plus a log line naming the player and the failure), and a witness shows a forced send failure being counted rather than swallowed. A transport that keeps failing is torn down rather than fed forever.
-  surface: src/netcode/PlayerManager.js
   status: pending
 - id: perf-run-inputreached-is-trivially-true
   title: perf-run inputReached is true whenever the walker travelled 30 m, so it asserts nothing about input
@@ -1629,10 +1561,6 @@
   evidence: Found by the repo-wide short-circuit sweep. The same file's scope assertions were tightened in 137c4e47/a6e524bc; these two were not covered.
   exit: A missing bound makes the witness fail loudly (or narrows to no events) rather than admit everything, and a witness run with a deliberately absent timestamp proves it.
   surface: scripts/apps-manifest-fast-path-witness.mjs
-  status: pending
-- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
-  id: worker-bundle-staleness-is-unobservable-and-unenforced
-  subject: ServerBoot decides the WORKER entry (dist/src/sdk/WorkerEntry.js) from the same freshness check and the same log-only fallthrough, and every run still logs "dist/src/sdk/WorkerEntry.js is STALE ... falling through to raw ESM worker". The client-entry fix (X-Spoint-Client-Root + X-Spoint-Entry-Sha256, scripts/lib/served-client-root.mjs) covers /app.js only, so a witness that measures worker-driven work (terrain, physics, veg placement) can still be measuring raw ESM worker code and call it the bundle. Extend the marker to the worker entry and give the perf-class witnesses a worker-root assertion with the same require/rebuild semantics.
   status: pending
 - SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
   id: amd-frame-time-baseline
@@ -1671,12 +1599,984 @@
   why: 'Found by adversarial review. Two thresholds (0.08 grass, 0.5 sand) are invented inside the witness rather than read from the painted-surface definition the placement code itself uses. Observed today: 849 of 7680 cells qualify, so the `bareCellsAll > 0` floor at line 99 holds and the witness passes. But if the painter shifts so no cell qualifies, the witness goes red while placement is entirely healthy -- a witness that fails for a reason unrelated to what it claims to measure. Fix: derive the classification from the same source the placement code uses, or assert the thresholds against a stated constant and name them; if the definition genuinely lives in the witness, say so and make the numbers named constants with the derivation recorded. Related open row veg-painted-surface-browser-arm covers the browser arm on both GPUs.'
   severity: low
   status: pending
-- session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  id: editorhandlers-no-rebuild-after-failed-collider-build
-  subject: 'src/sdk/EditorHandlers.js syncEntityCollider (line 123) returns early when entity._physicsBodyId is undefined, so once a trimesh/convex collider build fails (and the 0.5 m box fallback is gone, leaving no body) no later EDITOR_UPDATE can ever rebuild that entity collider: a scale change or a _collider change is silently dropped and the entity stays bodyless until it is re-placed. Witnessed after the box-fallback removal (collider-build-failure-witness.mjs: ed-bad-trimesh ends with collider trimesh and bodyId undefined). Fix: let syncEntityCollider rebuild when a body is missing but the entity has a model and the requested collider is trimesh or convex, without inventing bodies for entities that deliberately have none (custom._collider === none, or no model). Witness with the same script: after a failed build, setting a real model and sending EDITOR_UPDATE with a scale change must produce a trimesh body.'
-  status: pending
 - SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   id: placement-slope-taps-equivalent-cut
   subject: 'Cut the height evals radialSlopeAt spends without changing any placement digest. Measured headroom: radialSlopeAt accounts for roughly 28-38% of placement height evals (veg 37.10, rock 22.87, grass 444.97 per 32 m chunk at hashVersion 2, radius 63600). The obvious shape -- a 2-tap forward difference reusing rho -- is REFUTED on 2026-10-07 and must not be retried blind: it cuts those evals to 23.15 / 15.05 / 319.73 but moves |grad| by mean 0.0777 max 1.05 against veg SLOPE_MAX 0.6, flips 4.92% of veg and 2.36% of grass gate decisions and changes every placement digest. Any candidate must hold veg c2ab90c4, rock 319ecc02 and grass f69a904a exactly over a 120-chunk sweep. Shapes worth measuring instead: hoisting the four taps into one shared evaluation so the per-tap overhead (the Math.hypot renormalise and the surfaceAlongDir call) is paid once; skipping the slope gate entirely for cells the earlier climate and soil gates already reject; or shrinking the number of cells that reach the slope rather than the cost per cell.'
+  status: pending
+- id: snapshot-encode-input-list-unchecked-and-underdeclared
+  subject: 'SNAPSHOT_ENCODE is the only code-versioned transform absent from BAKE_TRANSFORMS in src/static/BakeCodeVersion.js, so scripts/check-cache-keys.mjs never checks its input list against the real import closure. Its declared list is 2 files (src/apps/AppRuntime.js, src/apps/AppRuntimeStaticMotion.js) against 99 files AppRuntime.js transitively imports, so 96 are undeclared. Consequence: SNAPSHOT_ENCODE_CODE_VERSION does not move when any of those 96 changes, and src/apps/AppRuntime.js:516 gates _snapshotEncCache on exactly that constant, so a hot reload after editing one of them serves stale snapshot encodings instead of clearing the cache. Declaring all 96 mechanically is the wrong fix: the pin would then move on nearly every commit and npm run check would go red on each one. The fix is to derive BAKE_INPUTS_SNAPSHOT_ENCODE from the modules the snapshot-encode path actually reads (candidates: src/netcode/SnapshotBinFormat.js, src/protocol/ComponentSchema.js, src/apps/AppRuntimeState.js, src/shared/canonicalJSON.js, src/shared/fnv1a.js, plus whatever the encode call site touches), then add SNAPSHOT_ENCODE to BAKE_TRANSFORMS so the closure check keeps it honest thereafter. Blocked while the collider-fallback lane owns src/apps/AppRuntime.js and src/shared/cacheCodeVersions.js.'
+  acceptance_criteria: SNAPSHOT_ENCODE appears in BAKE_TRANSFORMS and scripts/check-cache-keys.mjs reports all N imported file(s) declared for it; BAKE_INPUTS_SNAPSHOT_ENCODE is proved by mutation to track the snapshot-encode data path (editing a file it reads moves SNAPSHOT_ENCODE_CODE_VERSION_SOURCE, editing a file it does not read leaves the version unchanged); npm run check passes with no pin bump after an unrelated engine commit; removing one genuinely-used file from the list makes the closure check fail loudly, witnessed by execution
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-kernel-cost-no-cost-gate
+  title: fire-kernel-cost-witness measures cost but asserts nothing about it
+  why: 'scripts/fire-kernel-cost-witness.mjs prints boundary/quiet tick ms, checksum/snapshot/restore ms and ''snapshot + checksum per boundary'' (lines 202-204, 210) but every expect() at lines 99-101, 122, 162-164 is about rewind equivalence, non-empty deltas and hash equality -- none mentions a cost figure. Proven by mutation: a copy of the witness with a 40 ms burn wrapper injected around kernel.snapshot/kernel.restore moved ''kernel.snapshot()'' from 13.320 ms to 50.288 ms and ''snapshot + checksum per boundary'' from 12.153 ms to 50.298 ms and still printed RESULT: PASS. The only gate in npm run check that names fire kernel cost has no cost bound, so a 4x slowdown of snapshot/restore ships green.'
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-rain-coupling-stale-pin
+  title: fire-rain-coupling-witness sweeps a hardcoded rainPerIntensity 200 that nothing pins
+  why: 'scripts/fire-rain-coupling-witness.mjs line 23 declares TPS_GAME_PINNED_PER_INTENSITY = 200, line 232 announces ''rainPerIntensity 200 (pinned by the tps-game FIRE_SPEC)'' and section 7 (lines 231-246) sweeps that literal. apps/tps-game/shared.js FIRE_SPEC has no rainPerIntensity and no weather block, and a repo grep finds no rainPerIntensity under apps/. Proven by mutation: inserting rainPerIntensity: 40 into the FIRE_SPEC in apps/tps-game/shared.js left the witness RESULT: PASS, including section 7, so the shipped world can change rain coupling without the gate noticing.'
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: check-noverdict-witness
+  title: 'check.mjs gpu-free arm accepts a witness that printed no RESULT: line'
+  why: 'scripts/check.mjs lines 212-223 build witnessFailures from killed / exit code / verdict FAIL / empty stdout / missing must-match, but not from verdict===null. Line 223 then logs ''no RESULT: line, so exit 0 is the verdict''. Six of the ten NO_GPU_WITNESSES entries (msgpack-negative-zero, lattice-ring-bound, veg-painted-surface, physics-body-pool, physics-motion-recreate, terrain-reseed-failure) carry no must: pattern, so a witness that stops printing its verdict line still passes the arm on exit 0. Contrast scripts/fire-witness-gate.mjs:81 which does push ''printed no RESULT: line'' as a failure.'
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: apps-manifest-fast-path-vacuous-filter
+  title: 'Apps manifest fast-path witness: --max-walk default 0 disables cap'
+  why: scripts/apps-manifest-fast-path-witness.mjs:21,259 gate the walk cap behind --max-walk, which defaults to 0, so the cap is never checked and the witness fails to bound an unbounded-manifest-walk regression. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: unwired-witnesses-never-run
+  title: About 25 scripts/*-witness.mjs files are referenced by no runner, so their assertions can never fail in CI
+  why: 'A gm grep for -witness\\.mjs across tracked files finds only scripts/check.mjs, scripts/fire-witness-gate.mjs and .github/workflows/ci.yml referencing witness files. Everything else under scripts/ that ends in -witness.mjs is unwired: airborne-ground-solve-throttle, apps-manifest-fast-path, arena-combat-kill-respawn, arena-combat-two-client, boot-failure-leak, bundle-freshness, check-cache-keys-scope, collider-build-failure, collider-ring-boot-batches, collider-ring-scale, collider-turnover, cpu-skip, docs-player-model, draw-instrument, edge-collider-draco, page-boot, placement-climate-gate, player-manager-send-failure, pointer-lock-boot, prediction-drift, shader-manifest, static-collision-cpu, terrain-residency-seam, transport-churn, veg-lod-browser, veg-lod-sweep, weather-ground-sample. Each is a gate that cannot fire because nothing dispatches it.'
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-tile-reclaim-load-flaky-ceiling
+  title: fire-tile-reclaim-witness per-1k CPU ceiling flips red under box load with no code change
+  why: 'scripts/fire-tile-reclaim-witness.mjs lines 304-305 assert RECLAIM_CPU_PER_1K_CELL_CHECKS_MS = 0.25 against per1kCellChecks for the one-patch and three-patch regimes. Unmutated and idle-box it measures 0.1309 / 0.0969 (~1.9x headroom). Proven by load: with 8 concurrent node CPU burners and no source change at all, the same witness measured 0.2659 ms per 1k cell check(s) and printed ''FAIL one patch reclaims at 0.2659 ms per 1k cell check(s) against a 0.25 ms ceiling'' / RESULT: FAIL. A full scripts/check.mjs run on this loaded box also reported fire-tile-reclaim-witness exit 1 and fire-witness ''stopped at the first failing witness''. The threshold is invented inside the witness and turns red with no defect, and because fire-witness-gate exits at the first failure it hides every fire witness after it.'
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-witness-s5-print-only
+  title: fire-witness.mjs s5 prints the extinguish wire row and active-cell drop but asserts neither
+  why: 'scripts/fire-witness.mjs lines 220-257 (section 5, ''explosion, incendiary hit and extinguish on the wire'') say() the emitted wire rows and the post-extinguish active-cell count and push nothing to failures. Proven by mutation: src/behaviours/fire.js:238 extinguishCell changed to ''return 0'' moved the printed row from ''extinguish emitted [[1,906,...]]'' to ''[]'' and active cells from 1535 to 1868, and the witness still printed RESULT: PASS and exited 0 both before and after.'
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-witness-s8-print-only
+  title: fire-witness.mjs s8 prints sweepExcluded collider drops but never asserts a drop happened
+  why: 'scripts/fire-witness.mjs lines 349-384 (section 8, ''charred trunks lose their colliders and get them back'') prints live collider counts and the sweepExcluded count and pushes nothing to failures. Proven by mutation: src/behaviours/fire.js:190 ''if (...) trunkStreamer.sweepExcluded()'' gated to ''if (false)'' moved the printed count from ''2493 sweepExcluded'' to ''0 sweepExcluded'' (colliders never removed at all) and the witness still printed RESULT: PASS and exited 0.'
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-witness-s3-print-only
+  title: fire-witness.mjs s3 rain/moisture section has zero failures.push, so it bounds nothing
+  why: 'scripts/fire-witness.mjs lines 162-186 (section 3, ''rain extinguishes and moisture raises the ignition threshold'') print dryIgnitions, the 5-row rain table and moist.fire.stats.ignitions and contain no failures.push at all, so the whole rain claim is unbounded. Unproven by mutation (mutating rain needs src/shared/fire/fireKernel.js, which another lane has dirty); structural: zero assertions in the section.'
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-witness-s7-print-only
+  title: fire-witness.mjs s7 stage-map section has zero failures.push, so it bounds nothing
+  why: 'scripts/fire-witness.mjs lines 309-346 (section 7, ''stage map: tile-granular upload and trunk slot values'') print watchedTiles, peakTiles/peakBytes, youngLit and slotValue-to-texel mapping and contain no failures.push at all. Unproven by mutation; structural: zero assertions in the section.'
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-witness-s11-print-only
+  title: fire-witness.mjs s11 prints divergence and resync but asserts neither, so a blind mirror passes
+  why: 'scripts/fire-witness.mjs lines 501-713 (section 11, ''late join / starved mirror detects divergence and resyncs'') prints needsResync, resyncStats.mismatches and the corrupt/short/wrong-type rejection strings and pushes nothing to failures. Proven by mutation: src/behaviours/fire.js:169 ''if (local !== hash)'' changed to ''if (false && local !== hash)'' left the starved mirror printing ''checksum 2174255671 vs authority 517466180, needsResync false'' with mismatches dropping 2 -> 0, and the witness still printed RESULT: PASS and exited 0.'
+  severity: HIGH
+  status: pending
+- session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  id: host-contention-cannot-see-gpu-side-contention
+  title: scripts/lib/host-contention.mjs measures CPU contention only, so a GPU-contended box passes the contention gate and its frame times get cited as real
+  body: 'Measured on this box 2026-10-07: with the AMD iGPU pinned and the same browser args, a blank page in a second browser ran 56.8 fps (p50 17.60ms, 95 and 113 rAF samples per 2000ms, 0 longtasks, CDP TaskDuration busy fraction 0.02) at the same moment the real app page ran 2.5 fps (p50 392.76ms). The CPU-spin fingerprint in scripts/lib/host-contention.mjs saw no contention in either case, because it only detects CPU-side contention; the GPU-side contention that produced the 22x slowdown is invisible to it. Consequence: frame-time captures can be contaminated while the gate''s contention verdict reports clean, and the only defense today is the settle rule (a 2000ms probe must present at least 40 frames). Fix on the owning surface (scripts/lib/host-contention.mjs): add a GPU-side contention signal -- for example a blank-page or trivial-scene control browser measured in the same window as the capture, with the capture refused when the control''s frame rate is far below its own clean baseline -- so a shared-GPU box is named before its numbers are recorded. Witness: scripts/.amd-fps-diag.mjs output in .amd-fps-diag.log (CONTROL blank page vs APP full vegetation probes).'
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-witness-stale-apply
+  title: fire-witness.mjs prints staleApply and the stale-vs-authority checksum without asserting the joiner was refused
+  why: scripts/fire-witness.mjs line 441 prints staleApply plus the stale checksum against the authority checksum and pushes nothing to failures, so a late joiner beyond the rewind window that is silently accepted passes. Unproven by mutation.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-witness-matched-counter
+  title: fire-witness.mjs 'checksum matches authority' is accumulated into sizes[].matched and never gated
+  why: scripts/fire-witness.mjs lines 655 and 711 compute 'matched = r.adopted.hash !== kf.k[1]' and print 'checksum matches authority true', but matched never reaches failures. Unproven by mutation; also suspected self-referential (both sides derive from the same kernel.snapshot()), so the comparison would be near-tautological even if it were asserted.
+  severity: MEDIUM
+  status: pending
+- session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  id: frame-time-baseline-carries-no-contention-fingerprint
+  title: The .frame-time-baseline.*.json artifact records p50 and vegetation count but no measure of how contended the box was at capture time, so a cited number cannot be audited after the fact
+  body: 'scripts/frame-time-gate.mjs refuses an --update-baseline capture when contentionVerdict flags the run as contested, and it records headSha and vegInstances in the JSON, but the artifact keeps no fingerprint of box state at capture time: not the chrome.exe process count, not the blank-page control frame rate, not the contention verdict itself. A baseline p50 is then cited later with no way to tell whether it came from a quiet box or a shared one. On this box the same code and the same bundle produced static p50 21.10ms (97 frames per 2000ms) and 417ms (7 frames per 2000ms) within minutes, so the fingerprint is the difference between a number worth citing and one to discard. Fix on the owning surface (scripts/frame-time-gate.mjs, scripts/lib/frame-time-baseline.mjs): record the contention verdict, the chrome process count and a blank-page control p50 into the baseline JSON at capture time, and refuse a verify run whose fingerprint is far worse than the one recorded alongside the baseline. Related row: timing-figures-carry-no-host-contention-fingerprint.'
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-witness-rewind-checksum-compare
+  title: fire-witness.mjs prints the rewind:true vs plain checksum pair at tick 400 and never compares them
+  why: scripts/fire-witness.mjs line 486 prints plainChecksumAt400 and busyChecksumAt400 side by side with no comparison, so a rewind-enabled run that diverges from a plain run passes. Unproven by mutation.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-witness-smoke-threshold
+  title: fire-witness.mjs blockedSamples/clearSamples hinge on witness-invented smoke geometry and a single clear sample
+  why: scripts/fire-witness.mjs lines 262 and 275 fix smokeBlockDepth 1, smokeHeightM 30, eyeHeightM 1.6 and the slope set [0, 0.05, 0.1, 0.2, 0.4]; the gate needs at least one blocked AND at least one clear sample and exactly ONE configuration (slope 0.4, depth 0.00) supplies the clear side. Any drift in smoke geometry makes all five blocked and turns the witness red with no defect. Unproven by mutation.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-combat-blind-window
+  title: 'fire-combat-witness.mjs firebreak arm is one-sided: a fire that stopped burning 21560 of 21561 open cells still passes'
+  why: scripts/fire-combat-witness.mjs line 220 bounds 'firebreaks never ignite' at exactly 0 with 'breakIgnited > 0', but the opposite side is only 'openIgnited === 0' -- a floor of 1 out of 21561 sampled open cells against a baseline of 10283. Unproven by mutation (needs a global ignition throttle in src/shared/fire/fireKernel.js, which another lane has dirty).
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-peer-rollback-print-only
+  title: fire-peer-rollback-witness asserts nothing about rollbacks; its baseline already shows rollbacks null and 0 of everything
+  why: 'scripts/fire-peer-rollback-witness.mjs lines 117-138 and 153 print every quantity the witness is named for -- rollbacks, maxRollbackDepth, desyncs, fireRewinds, fireResimTicks, fireDroppedRows, timelineRewinds, timelineReplayedTicks, timelineBeyondWindow -- and push none of them to failures. The observed baseline on BOTH profiles is ''rollbacks'':null, ''maxRollbackDepth'':null, ''fireRewinds'':0, ''fireResimTicks'':0, ''timelineRewinds'':0, ''timelineReplayedTicks'':0, ''timelineBeyondWindow'':0 with RESULT: PASS, so nothing rolls back and nothing complains. Unproven by mutation.'
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-peer-rollback-checksum-compare
+  title: fire-peer-rollback-witness prints per-peer end-state checksums that disagree and still reports PASS
+  why: 'scripts/fire-peer-rollback-witness.mjs lines 143 and 153 define the compared window as ''settled = min(simTicks) - 14'' and print each peer''s end-state checksum at 153 without comparing them; a recorded run printed peer-a 148456912 vs peer-b 3042949717 while reporting RESULT: PASS. Line 145/150/154 accumulate simTickLag and print ''fire simTick skew on N tick(s)'' without pushing it. Unproven by mutation.'
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-tps-game-blocked-print-only
+  title: fire-tps-game-witness prints 'fire blocks shots' and asserts nothing; rayBlocked returning false still passes
+  why: 'scripts/fire-tps-game-witness.mjs lines 180-225 and 284-286 print blocked, clearShot, throughFireHits and aroundFireHits and push none of them to failures. Proven by mutation: src/behaviours/fire.js:300 rayBlocked changed to ''return false'' moved the printed row from ''{"crossedBurning":8,"depth":4.984,"blocked":true}'' to ''"blocked":false'' and the witness still printed RESULT: PASS and exited 0.'
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-tps-game-damage-print-only
+  title: fire-tps-game-witness prints fire damage 0.00 and 0 burn deaths and still reports PASS
+  why: 'scripts/fire-tps-game-witness.mjs lines 227-244 and 281-282 print fireDamage, minHealth, burnDeaths, burnRows, burnEndRows, deathRows, fireWireRows, fireTypes and burnSamples and push none of them to failures; the shipped arm already prints ''fire damage 0.00'' and ''fire_death 0'' alongside RESULT: PASS. Unproven by mutation.'
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-tps-game-hold-window
+  title: fire-tps-game-witness peakActive is decided by a 9000 ms wall-clock sampling window
+  why: scripts/fire-tps-game-witness.mjs line 274 derives peakActive from how much simulation fits inside HOLD_MS = 9000 ms of Date.now() sampling (line 174); on a loaded runner the fire may not spread far enough inside the window and 'peakActive === 0' turns the witness red with no defect. Unproven by mutation (the 9 s window was not load-tested to failure).
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-tps-game-ns-gate
+  title: fire-tps-game-witness 'addedNs > 100' gate flips on box noise; a zero-observable-change edit moved it 12.7 ns to 594.3 ns
+  why: 'scripts/fire-tps-game-witness.mjs line 369 asserts ''addedNs > 100'' on a min-of-7 process.hrtime.bigint() delta of (noFireNs - baselineNs). Proven by mutation: inserting ''for (let q=0;q<400;q++) x += 0'' before ''return 1'' in src/apps/AppContext.js navCostAt -- an edit with zero observable behaviour change, the function still returns 1 / 0.5 / 3 / 8 / 2 -- moved the measured cost from 12.7 ns/call to 594.3 ns/call and turned RESULT: PASS exit 0 into RESULT: FAIL exit 1. A 12-way CPU contention run moved the same figure 12.7 -> 17.4 ns, so the gate is within 8x of ambient noise.'
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: check-cache-keys-json-exempt
+  title: check-cache-keys.mjs 'whole import closure' silently exempts every .json and every bare/third-party specifier
+  why: scripts/check-cache-keys.mjs line 118 skips a file when '!declared.has(f) && extname(f) !== .json', and resolveSpecifier() returns null for any specifier outside node:/the workspace prefix, so line 58 'if (!target) continue' drops every third-party import and line 63 drops anything under node_modules. The advertised 'whole import closure' is only the first-party non-JSON part. Unproven by mutation; read-proven against BakeCodeVersion.js and a live run.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-tps-game-null-los
+  title: fire-tps-game-witness prints null blocked/clearShot whenever the fire band has fewer than 2 cells and never asserts
+  why: scripts/fire-tps-game-witness.mjs lines 185, 205 and 219 leave blocked and clearShot at null whenever cells.length < 2; the nulls are printed and never asserted, so an unformed fire band yields two null line-of-sight readings with no complaint. Unproven by mutation.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: check-relative-imports-dead-comparator
+  title: check-relative-imports.mjs reports 'all N named relative imports name an export that exists' after checking zero of them
+  why: 'scripts/check-relative-imports.mjs line 156 prints namedChecked, which is fed by counting NAMED_IMPORT_RE matches over EVERY ''import {..} from ..'' including node:/bare specifiers, while namedImportProblems() only actually resolves relative ones (line 56). Proven by mutation: line 56 ''if (!spec.startsWith(''.'') || spec.includes(''${'')) continue'' changed to ''if (true) continue'' kills 100% of the named-export checking (0 names verified) and the check still printed ''all 1786 named relative import(s) name an export that exists'' and exited 0. This runs inside scripts/check.mjs in the CI ''check'' job.'
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: check-cache-keys-empty-set-vacuity
+  title: check-cache-keys.mjs declares 'N bake transforms declare their whole import closure' with no non-empty guard
+  why: 'scripts/check-cache-keys.mjs lines 115-122 have no ''closure.length > 0'' guard. Proven by mutation: line 115 ''const entries = transform.entries.map(...)'' changed to ''const entries = []'' produced ''all 0 imported file(s) declared'' seven times and still printed ''7 bake transforms declare their whole import closure'' with exit 0. Runs inside scripts/check.mjs in the CI ''check'' job.'
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: tps-game-player-movement-wallclock
+  title: tps-game-player-movement-witness floors are absolute over an 8000 ms wall-clock window, so a slow box goes red with a healthy player
+  why: 'scripts/tps-game-player-movement-witness.mjs lines 32-33, 96-102 and 116-117 accumulate path and ticks over HOLD_MS = 8000 ms of wall clock with no per-tick normalization, and apply absolute floors MIN_PATH_M = 15 and MIN_TICKS = 300. Proven by mutation: running with --hold-ms=2500 -- identical to the same box running 3.2x slower, with no code change -- moved the verdict from PASS exit 0 (path 35.552 m, ticks 529) to FAIL exit 1 (''path 11.460m < 15m; ticks 182 < 300''). Healthy player, healthy server, red. Margin on this box is only 2.4x on path and 1.8x on ticks.'
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: perf-gate-cpu-quantum-zero
+  title: perf-gate.mjs tickCpu instrumentation reads 0 on a fast box and hard-fails; it only produces a number on a slow one
+  why: 'scripts/perf-gate.mjs lines 143-154 and 245-250 instrument each tick with process.cpuUsage(). The measured quantum on this box is 16000 us: a 1e6-iteration spin reads 16000 while 8e5 and 2000 both read exactly 0. A healthy tick costs about 0.08 ms, roughly 200x under the quantum, so tickCpu.user/system receive only zeros, cpuMsPerTick is 0, and line 245 hard-fails with ''the window captured no CPU time inside the tick calls''. The gate fails on a fast box and produces a number only when the box is loaded enough for ticks to trip whole 15.6 ms quanta. Proven with a scratch script (since deleted); no mutation needed, the instrument is the defect. perf-gate is invoked by no running CI job.'
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: perf-gate-baseline-no-cpu-field
+  title: perf-gate.mjs CPU-per-tick regression comparison never runs because .perf-baseline.json has no cpuMsPerTick
+  why: scripts/perf-gate.mjs lines 277-286 branch on a cpuMsPerTick value in .perf-baseline.json, but that file contains only avgMs, p50Ms, p95Ms and tickRate, so the branch is false and lines 284-285 only log 'the relative decision rests on wall p50 alone'. The decision therefore falls to wall p50 = 0.0829 ms with a +10% limit, i.e. 0.0083 ms of headroom. Unproven by mutation (line 245 preempts the comparison); read-proven from both files.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: perf-gate-with-clients-vacuous
+  title: perf-gate.mjs with-clients arm disconnects every client, prints NaN, and swallows the failure
+  why: 'scripts/perf-gate.mjs line 70 sends a raw ''{ input, sequence }'' object instead of encodeInputPacket, so the server disconnects each client with ''sent a pre-v5 object input payload; disconnecting (protocol mismatch)''. The arm then measures an idle server and prints ''with-clients(N=4, informational): avgSnapMs=NaNms, 0 packs, NaN bytes/pack''; the thrown failure is swallowed at line 189 with a console.warn and ''withClients = null'', and none of it reaches any failure list. PERF_GATE_CLIENTS=0 makes the arm vanish with no failure either. Observed live, no mutation needed.'
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: frame-time-gate-orbit-coverage-dead
+  title: frame-time-gate.mjs orbitCoverage gate is unsatisfiable on the default WebGPU backend
+  why: 'scripts/frame-time-gate.mjs lines 454-457 compute orbitCoverage = static.avgTriangles > 0 ? orbit.avgTriangles / static.avgTriangles : 0 and push to unreached when it is below 0.5. Lines 442-446 deliberately drop ''triangles'' from requiredCounts on WebGPU because info.render.triangles reads 0 there, and WebGPU is the default renderer, so both numerator and denominator are 0, orbitCoverage is 0, and the gate pushes unreached and exits 1 unconditionally -- self-contradicting with line 444. Unproven by mutation (needs a page; no browser was launched on this box).'
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: frame-time-gate-static-arm-uncaught
+  title: frame-time-gate.mjs captures the whole static arm and compares only orbit p50 against the baseline
+  why: scripts/frame-time-gate.mjs lines 423-439 capture the static arm (p50, p95, 1% low, fps, avgDrawCalls, avgTriangles) and it is admitted by baselineRefusals and by scripts/check-frame-time-baselines.mjs line 66, which requires static.p50Ms > 0 -- but only orbit.p50Ms is ever compared against the baseline, so a static-arm regression of any size passes. Unproven by mutation (browser).
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: check-relative-imports-export-star-blind-window
+  title: check-relative-imports.mjs silently skips 13 of 1210 relative named imports whose target uses 'export * from' or module.exports
+  why: 'scripts/check-relative-imports.mjs line 42 exportedNames() returns null for any file containing ''export * from'' or ''module.exports'', and line 60 ''if (!names) continue'' drops the import with no counter and no warning. Measured with a scratch script (since deleted): 13 of 1210 relative named imports across 8 distinct target files are never checked, while the summary still claims ''all N named relative import(s) name an export that exists''. No mutation needed; quantified directly.'
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: veg-painted-surface-invented-threshold
+  title: veg-painted-surface-witness defines 'bare painted sand' with two witness-invented constants that nothing in src/terrain sets
+  why: 'scripts/veg-painted-surface-witness.mjs line 72 ''const bare = s.grass < 0.08 && s.sand > 0.5'' defines the entire class that the witness''s checks exist to police; neither 0.08 nor 0.5 appears in src/terrain. Proven by mutation: ''s.grass < 0.08'' changed to ''s.grass < 0.0'' -- no code under test touched -- moved the verdict from PASS exit 0 to FAIL exit 1 (''the sample contains bare painted sand for the placement test to reject (0 of 7680 sampled cell(s))'') while ''no vegetation on bare painted sand'' went vacuously green at 0 of 0. Sweeping the threshold to 0.03/0.05/0.06/0.07 all PASS (849/821/724/678 cells), so it is stable today but the red is threshold-only.'
+  severity: MEDIUM
+  status: pending
+- id: appphysics-addconvexfrommodel-untracked-crashes-server
+  subject: 'src/apps/AppPhysics.js:146 addConvexFromModelAsync throws ColliderBuildError but is the only throwing collider API with no AppRuntime.trackTrimeshBuild wrapper (addTrimeshCollider at :113 is wrapped). Its promise escapes through addColliderFromConfig (:186) into app setup(), and both callers discard it: src/stdlib-apps/prop-static/index.js:4 and src/stdlib-apps/destructible-debris/index.js:14. _safeCall attaches a catch only when setup RETURNS the promise, and neither does, and there is no process.on(''unhandledRejection'') anywhere in src/, so a prop-static entity whose model cannot be extracted crashes the server at world load instead of reporting the build failure. Fix: wrap it the way addTrimeshCollider is wrapped, or make both stdlib callers return the promise. Witness: boot a real server on a world with a prop-static entity pointing at a missing model and show the process stays up, logs the [physics] convex collider failure and serves clients.'
+  status: pending
+- id: relocation-pending-trimesh-builds-ignores-proximity
+  subject: 'src/sdk/Relocation.js:86-88 staticCollidersPendingNear returns true whenever AppRuntime._pendingTrimeshBuilds.size > 0, ignoring the spawn point entirely, unlike the _pendingTrimeshEntities branch directly below it which filters by SPAWN_STATIC_WAIT_RADIUS. One pending static collider build anywhere in the world therefore makes holdSpawnUntilGrounded''s probe return null for every candidate, so rankSpawnPointsByWalkingRoom scores them all -1, falls back to scored.slice(0,1) and spawns with no ground snap, and every joining player is held up to SPAWN_HOLD_MAX_MS 20000 ms. src/sdk/chartState/index.js:13 reads the same set globally to refuse any chart re-anchor. Fix: record each pending build''s position alongside its promise and filter by distance the way _pendingTrimeshEntities is filtered. Witness: boot a real server, start one long static collider build far from the spawn ring, join a client and show it is grounded and spawned without being held.'
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: veg-lod-sweep-dead-comparator
+  title: veg-lod-sweep-witness confines its brute-force reference check to the arm whose numbers are discarded
+  why: 'scripts/veg-lod-sweep-witness.mjs line 267 calls stepFrame(arms[a], f, cam, frustum, check && a < REF_ARMS, a < REF_ARMS) with REF_ARMS = Number(flag(''ref-arms'',''1'')) at line 32, so withRef/check are true only for arms[0]. But line 324 reports arm: arms[1], controlArm: arms[2], warmupArm: arms[0], and every scaling ratio at lines 336-339 is built from arms[1]; stepFrame:207 returns before the reference work when !withRef, so arm.mismatches (lines 215, 219) can only ever move on the arm whose costs are thrown away. Proven by mutation: a scratch copy (scripts/.audit-vls.mjs, since deleted) instrumented which arm indices ever receive check === true -- RESULT: PASS before and after, with the audit printing ''arms ever reference-checked: [0] (reported arm=1 controlArm=2 warmupArm=0)''. Real file sha 4ac553a3... verified identical afterwards. HIGH because it is the only unwired witness carrying an independently written brute-force reference for a hot sweep, and it is pure Node with no browser/GPU/server. Also lines 215/219 arm.mismatches++ and 208/246 arm.movedFrames++/editMoved++ are unreachable for arms >= 1, and line 357 ''if (BASELINE)'' is a vacuous filter (line 37 has(''baseline'')) that removes the whole regression arm at 372-380.'
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: weather-ground-sample-unconditional-exit
+  title: weather-ground-sample-witness exits 0 unconditionally, so its verdict is a constant
+  why: scripts/weather-ground-sample-witness.mjs line 246 is a bare 'process.exit(0)' -- a dead comparator, since the only failure paths are boot/GPU liveness throws at lines 132, 137 and 138. Line 155 'page.keyboard.down(KeyW).catch(() => {})' swallows failure so a stationary player passes silently and line 212 playerMovedM is never asserted; lines 44 and 50 (st.inWeather / st.updates) stay 0 if the app never calls window.__weather.update and lines 200/201 still report. Unwired and browser-gated, so unproven by mutation on this box.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: planet-multiplayer-harness-predict-nan
+  title: 'planet-multiplayer-harness: a bare --predict silently disables prediction because Number(''true'') is NaN'
+  why: 'scripts/planet-multiplayer-harness.mjs line 185 ''PREDICT_N = Number(args.predict ?? N)'' -- passing a bare --predict yields Number(''true'') = NaN, so every client silently gets predict: false and prediction: null. The flag that is supposed to turn prediction on is the one that turns it off. Also line 557 noColliders depends on line 223 ''collidersEnabled: terrain?.vegetation?.colliders === true'', which is false for --world=smooth and false unless the world sets it, so the only collider gate never fires in the default run (dead comparator); line 407 interest.missingBeyond / extraWithinCell are declared, never incremented and never printed (counter never incremented). Unproven by mutation.'
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: cluster-world-harness-veg-vacuous
+  title: cluster-world-harness default 'bare' mode measures zero vegetation colliders and still prints rows; an OOM at the 128 MB heap becomes report data
+  why: 'scripts/cluster-world-harness.mjs lines 339/340 ''if (veg) await veg._rebuildMulti(...)'' where veg = physics._terrainStreamer?._trunkStreamer ?? null (line 250) and the default mode = ''bare'' (line 226) disables vegetation, so the default census measures zero vegetation colliders and still prints rows with vegCap: null. Real assertions exist only in the manager/hosting scenarios (lines 118, 178); census/handoff/tilt/heap are report-only, including line 207 where a Jolt Aborted(OOM) at the fixed 128 MB heap becomes report data with exit 0. Line 99 assignmentEvents is incremented and never read. Unproven by mutation.'
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: veg-lod-browser-wall-clock
+  title: veg-lod-browser-witness decides pass/fail on a wall-clock cost ratio and lets the code under test define its own survivor target
+  why: scripts/veg-lod-browser-witness.mjs lines 326/331 compute costRatio = b.msPerFrame / a.msPerFrame from performance.now() (line 219) and decide the scaling arm on it. Line 308 'cameraMovedM > 1' and line 130 'countBefore * 0.1' are thresholds invented inside the witness, and line 322 reads the survivor ratio off inst.tierIds -- the code under test defines its own cost target, so the comparison is self-referential. Line 72 gridUsable is computed and never asserted. The substantive core (lines 294, 311, 341) is real. Unproven by mutation (browser; none launched on this box).
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: lockstep-cheat-harness-threshold
+  title: lockstep-cheat-harness cheat-window split is invented and its sole-accusation check can pass as 0 === 0
+  why: 'scripts/lockstep-cheat-harness.mjs has real assertions at lines 88-90 (the flagged cheater is caught, is always the sole offender, no honest peer is falsely accused, every pre-cheat tick verified and every post-cheat tick desynced), so it is the cheapest high-value wire-up in the unwired set -- forks lockstep-cheat-peer.mjs children, no browser, no GPU, no server, no flags. But line 83 is satisfied vacuously as 0 === 0 if no tick >= 50 exists (saved only by the hardcoded line 10 totalTicks = 90), the 45/50 cheat-window split (lines 70/71) is a threshold invented inside the witness rather than tied to when the peer actually starts cheating, and line 74 ''totalTicksRun: totalTicks'' reports the input constant and is never observed from the children (counter never incremented). Unproven by mutation.'
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: netcode-conditioner-blind-window
+  title: netcode-conditioner-harness never requires an onset to resolve, and --wallHints=off disables the mechanism under test while still reporting mispredict numbers
+  why: scripts/netcode-conditioner-harness.mjs line 477 requires only that each arm measured something (onsets > 0 && snapshots.hz > 0 && finite(ticks.hz)) and exits 1 at 481 otherwise; it never requires any onset to resolve, so the headline input-to-visual latency can be entirely null and the gate passes (blind window). Line 22 leaves precise ticking off by default and lines 217/218 --wallHints=off disables the mechanism under test while the run still reports mispredict numbers (vacuous filter). Every quality metric is unbounded. Unproven by mutation.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: boot-failure-leak-verdict-not-a-decision
+  title: 'boot-failure-leak-witness cannot fail on a leak: only bootError sets the exit code, and it prints no RESULT: PASS/FAIL at all'
+  why: 'scripts/boot-failure-leak-witness.mjs prints RESULT postBootLogLines / RESULT bootError / RESULT started on port / RESULT activeHandles (lines 32-41) and sets process.exitCode = bootError ? 1 : 0 at line 42 -- so the only condition that fails it is a boot error. postBootLogLines, activeHandles and timers are printed and never bounded. Proven by running it: exit 0 with ''RESULT postBootLogLines 1'', ''RESULT bootError: none'', ''RESULT started on port 60585'', ''RESULT activeHandles 345 timers 2 ...'' -- 345 live handles and 2 live timers, unbounded. Because none of its lines match /^RESULT:\s+(PASS|FAIL)/, even if it were added to check.mjs NO_GPU_VERDICT_RE would see verdict null and, with no must: pattern, pass. Unwired today.'
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: veg-lod-stream-flag-gated-arm
+  title: veg-lod-stream-witness hides its whole 17-line regression arm behind a BASELINE flag that defaults off
+  why: 'scripts/veg-lod-stream-witness.mjs line 40 ''const BASELINE = has(baseline) ? flag(baseline, '''') : '''''' defaults to the empty string, so the 17 lines at 404-420 -- the visits/records/rebuildRecords/planeTests drop requirements, the control-arm noise ceiling and the survivor-count bound -- never run. Same class as veg-lod-sweep-witness.mjs:357 (row veg-lod-sweep-dead-comparator). Lower severity than the sweep because the stream witness does carry real assertions outside the gate (lines 396-400: mismatchCount, teleportMismatches, recycleMismatches), so only the regression arm is dead, not the correctness arm. Unwired.'
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: arena-combat-kill-respawn-bare-flag-nan
+  title: 'arena-combat-kill-respawn-witness: a bare --timeout/--room-timeout/--kill-timeout/--respawn-timeout yields NaN, and every NaN comparison is false'
+  why: 'scripts/arena-combat-kill-respawn-witness.mjs line 12 parses argv as ''v ?? true'', so a bare flag arrives as the string ''true''; lines 18-29 then do Number(args.X || default), and ''true'' is truthy so the default never applies: Number(''true'') = NaN. Proven arithmetically: Number(''true'' || 900000) === NaN, and ''elapsed(1e9) > NaN'' is false, so a wait bounded by a bare --timeout can never time out -- the guard is silently removed rather than defaulted. Browser+gated file, so not run; the parse is a code fact.'
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: planet-multiplayer-harness-no-decision
+  title: 'planet-multiplayer-harness has no pass/fail decision anywhere: no exit(1), no exitCode=1, no failures.push, no RESULT line'
+  why: 'A gm grep of scripts/planet-multiplayer-harness.mjs for exit(1)|exitCode|failures.push|failed = true|RESULT returns exactly one line -- 319, the waitFor helper''s ''child exitCode='' string -- so the file never decides pass or fail. Line 159 process.exit(0) is the clean-shutdown path in the ''close'' message handler, not a verdict. The only way it can end non-zero is an unhandled rejection from that waitFor promise, which surfaces as a stack trace rather than a named failure. Unwired. Related row: planet-multiplayer-harness-predict-nan.'
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: netcode-conditioner-bare-flag-nan
+  title: 'netcode-conditioner-harness: a bare --duration/--fps/--slopeDeg/--bots yields NaN instead of the documented default'
+  why: 'scripts/netcode-conditioner-harness.mjs line 21 parses argv as ''v ?? true'', so a bare flag is the string ''true'', and lines 23, 51, 81 and 82 do Number(args.X || default): Number(''true'') = NaN. Proven arithmetically: Number(''true'' || 20000), Number(''true'' || 60) and Number(''true'' || 25) are all NaN, and a comparison against NaN is always false, so any bound fed by a bare flag is silently removed. Distinct from row netcode-conditioner-blind-window (which is about onsets never needing to resolve).'
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: cluster-world-harness-verdict-not-a-decision
+  title: cluster-world-harness prints a RESULT banner with no decision; its only failure path is a connect failure
+  why: 'A gm grep of scripts/cluster-world-harness.mjs for RESULT|exit(1)|exitCode|failed = true|failures.push returns exactly two lines: 588 ''process.exit(1)'' inside ''connect failed'' and 595 ''console.log(`=====RESULT====='' -- a data dump with no pass/fail. So every census, handoff, tilt and heap finding is report-only, including line 207 where a Jolt Aborted(OOM) at the fixed 128 MB heap becomes report data with exit 0. Extends row cluster-world-harness-veg-vacuous, which covers the default ''bare'' mode measuring zero vegetation colliders. Unwired.'
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  title: prewarmPools makes a full Jolt body budget fatal, and a second 192-cluster ring sweep peaks past it
+  body: 'At 192 clusters a second sweep of the collider ring peaks past the world Jolt body budget of 10240, and prewarmPools preallocates through PhysicsWorld.addBody, which throws when the budget is full; ColliderStreamer._rebuildMulti turns that into a FATAL and rethrows, so the whole ring rebuild dies and no further rebuild is scheduled. The crash is reachable in scripts/collider-ring-scale-witness.mjs whenever the 192-cluster arm is measured twice in one world, which the old contested re-measure did. The prewarm is a speculative optimization and should degrade to creating bodies on demand when the world is full instead of aborting the ring. A related finding: the collider body pool in src/physics/World.js _bodyPool has no upper bound, so pooled reserve bodies can consume the budget the live ring needs.'
+  id: prewarmpools-makes-a-full-jolt-body-budget-fatal-and-a-second-19
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: cpu-skip-witness-vacuous
+  title: cpu-skip-witness asserts nothing and exits 0 unconditionally
+  why: scripts/cpu-skip-witness.mjs:465 and :469 run process.exit(0) with no assertion on any row1_*..row4_* or correctness_* value, so every regression those rows were meant to bound (skip-path correctness, bin-vs-entity divergence, interact cost) passes unconditionally. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: cpu-skip-witness-vacuous-filter
+  title: cpu-skip-witness interact/overlap/moved arms vacuous at default N=0
+  why: scripts/cpu-skip-witness.mjs:337-338, :358 and :376 gate the interact, overlap and moved-entity arms on N_BUTTONS/N_BOXES/N_DYNS, all defaulting to 0 (lines 18-20, populated at :304), so a default run exercises none of them and the gate fails to bound any regression in interact dispatch, overlap pairing or moving-entity rebinning. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: draw-instrument-witness-vacuous
+  title: draw-instrument-witness never asserts draws advanced or field exists
+  why: scripts/draw-instrument-witness.mjs:220-251 and :267 print samples, deltas and averages and exit 0 on page-ready plus no console error, asserting neither that the draw counters advanced nor that the instrumented field exists on this backend, so a regression that zeroes draw instrumentation or renames the field passes. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: page-boot-witness-require-gpu-arm-off
+  title: 'page-boot-witness: --require-gpu arm is off by default'
+  why: page-boot-witness.mjs:34,220,221 reads --require-gpu through flag() with a null default, so the GPU-requirement assertion never runs unless the caller opts in; the gate therefore fails to bound boot correctness on any machine that has no accelerator — static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: draw-instrument-witness-dead-comparator
+  title: draw-instrument-witness monotonic comparator on cumulative calls is dead
+  why: scripts/draw-instrument-witness.mjs:254 computes monotonic as last>=first on cumulative info.render.calls, which is true by construction for any non-reset counter, and prints it rather than asserting it, so the gate fails to bound a counter that stalls or resets mid-run. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: draw-instrument-witness-vacuous-filter
+  title: draw-instrument-witness assertGpu lets SwiftShader pass as accelerated
+  why: scripts/draw-instrument-witness.mjs:27, :28, :31 and :176 reach assertGpu (gpu-probe.mjs:87) with REQUIRE_ACCELERATED false, gpuModeFlag defaulting to 'software' and expect-vendor null, so its only hard check is disabled and a SwiftShader software rasterizer satisfies the gate, failing to bound any GPU-only draw regression. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: page-boot-witness-client-root-want-null
+  title: 'page-boot-witness: client-root want check never fires (null default)'
+  why: page-boot-witness.mjs:35 passes a null client-root want, so served-client-root.mjs:93 is never reached and a wrong-root serve still reports pass; the gate therefore fails to bound that the served bundle came from the expected client root — static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: page-boot-witness-vacuous-gpu-check
+  title: 'page-boot-witness: GPU acceleration/vendor check is vacuous by default'
+  why: page-boot-witness.mjs:26,183,184 gates on a gpuModeFlag whose default is 'software' (gpu-probe.mjs:108), so accelerated-vendor is never asserted and a software-rasterizer run still reports pass; the gate therefore fails to bound whether the boot arm ran on real GPU hardware at all — static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: draw-instrument-witness-counter-never-inc
+  title: draw-instrument-witness threeDrawsPerFrame can read 0 with PASS
+  why: scripts/draw-instrument-witness.mjs:96, :97 and :206 increment __dpThreeDraws/__dpThreeTris only inside info.reset (:95) while the autoReset path (206/218) is never asserted, so threeDrawsPerFrame reads 0 on a WebGPU backend with no info.reset and the gate still reports PASS, failing to bound a draw-instrumentation regression. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: cpu-skip-witness-vacuous-filter-l188
+  title: cpu-skip-witness colGridPath arm unreachable without --boxes/--dyns
+  why: scripts/cpu-skip-witness.mjs:188 gates colGridPath on _collisionEntities >= 100, unreachable without --boxes/--dyns, and :450 reports it anyway, so the gate fails to bound any regression on the collision-grid code path that only activates at population. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: cpu-skip-witness-counter-never-inc
+  title: cpu-skip-witness row4_idleTickFraction constant 1.0000, no interact sent
+  why: scripts/cpu-skip-witness.mjs:243, :241 and :299 drive an input loop that never sends `interact`, so pressed stays 0 and row4_idleTickFraction (:454) is pinned at 1.0000 regardless of the code under test, failing to bound a regression that makes every tick spend interact work. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: placement-climate-gate-witness-dead-comparator
+  title: 'placement-climate-gate-witness: dead comparator, both branches identical'
+  why: 'placement-climate-gate-witness.mjs:52 selects `field === directionOnly ? frame : frame`, so the two arms are the same value and the comparison cannot discriminate anything; the gate therefore fails to bound the climate-direction claim it is written to check — static read, not mutation-proven.'
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: page-boot-witness-status-or-zero-blind
+  title: 'page-boot-witness: `status || 0` can never trip the >= 400 check'
+  why: page-boot-witness.mjs:143-144 coerces a missing status to 0 before comparing against 400, so a failed or unstatused response satisfies the guard and the witness reports pass; the gate therefore fails to bound HTTP-level boot failure — static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: cpu-skip-witness-invented-threshold
+  title: cpu-skip-witness thresholds invented witness-locally, not derived
+  why: scripts/cpu-skip-witness.mjs:145, :388 and :128 set a 0.02 m bin-vs-entity tolerance, a 0.05 m moved-entity tolerance and a 29-byte compare window, all witness-local constants with no derivation from engine tolerances, so the gate fails to bound a divergence smaller than an arbitrary hand-picked number. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: player-manager-send-failure-witness-encode-failed-naming-skipped
+  title: 'player-manager-send-failure-witness: /encode-failed/ check skipped on false return'
+  why: player-manager-send-failure-witness.mjs:127 only matches /encode-failed/ when sendToPlayer throws, so a sendToPlayer that returns false instead skips the naming check entirely and reports pass; the gate therefore fails to bound that failures are named at all — static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: page-boot-witness-require-expressions-unasserted
+  title: 'page-boot-witness: --require expressions are printed, never asserted'
+  why: page-boot-witness.mjs:173,205 evaluates the --require expressions and logs the result without pushing a failure, so any value passes; the gate therefore fails to bound the caller-supplied boot invariants it advertises — static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: collider-ring-boot-batches-witness-blind-window
+  title: collider-ring-boot-batches peakLiveColliders over cap unreachable
+  why: scripts/collider-ring-boot-batches-witness.mjs:267 checks peakLiveColliders <= cap, but evictOverCap runs at every finalize (ColliderStreamer.js:681, cap getter :832), so the over-cap branch is unreachable and the gate fails to bound a live-collider cap regression. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: placement-climate-gate-witness-self-referential
+  title: 'placement-climate-gate-witness: both sides come from the same placement source'
+  why: placement-climate-gate-witness.mjs:51-52,97 derives both the expected and observed sides from the same placementsForChunk/RockChunk, so a regression in that shared source moves both sides together and still reports pass; the gate therefore fails to bound a common-mode placement-climate regression — static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: page-boot-witness-required-marks-empty
+  title: 'page-boot-witness: requiredMarks empty unless --require-mark is passed'
+  why: page-boot-witness.mjs:213 builds requiredMarks only from --require-mark, so with no flag the mark loop iterates nothing and a page missing its boot mark reports pass; the gate therefore fails to bound that boot instrumentation ran at all — static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: player-manager-send-failure-witness-ws-global-never-installed
+  title: 'player-manager-send-failure-witness: ws imported but globalThis.WebSocket never set'
+  why: player-manager-send-failure-witness.mjs:2 imports ws without installing globalThis.WebSocket while PhysicsNetworkClient.js:43 uses bare `new WebSocket`, so the arm can fail entirely with '0 clients joined' regardless of the logic under test; the gate therefore fails to bound send-failure handling on any run — static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: cpu-skip-witness-counter-never-inc-l245
+  title: cpu-skip-witness distanceTestsPerTick and rebucketsPerTick constant 0
+  why: scripts/cpu-skip-witness.mjs:245 and :202 read _lastInteractTests and _lastColGridRebuckets, which are 0 under default flags (AppRuntimeTick.js:288 and :297), so row4_distanceTestsPerTick and row3_rebucketsPerTick are constant 0 and the gate fails to bound a regression in interact test volume or collision-grid rebucketing. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: cpu-skip-witness-wall-clock
+  title: cpu-skip-witness wall-clock rows reported, never asserted
+  why: scripts/cpu-skip-witness.mjs:427, :428, :452 and :456 report runMs, ticksPerSec, colMsPerTick and interactMsPerTick as wall-clock-derived rows that nothing asserts against, so the gate fails to bound a throughput or per-tick cost regression on a loaded or throttled runner. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: collider-ring-boot-batches-witness-counter-never-inc
+  title: collider-ring-boot-batches peakPhysicsBodies never increments
+  why: scripts/collider-ring-boot-batches-witness.mjs:114, :116, :118 and :245 increment peakBodies only inside an _addBody wrapper while the streamer adds bodies through enqueueAdd (ColliderStreamer.js:381 and :394), so peakPhysicsBodies reads 0 or negative and is logged but never asserted, failing to bound a physics-body population regression. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: pointer-lock-boot-witness-page-errors-logged-only
+  title: 'pointer-lock-boot-witness: pageErrors logged but never pushed to failures'
+  why: pointer-lock-boot-witness.mjs:99 records pageErrors without adding them to the failure list, so a throwing pointer-lock path still reports pass; the gate therefore fails to bound that the pointer-lock boot path runs without an uncaught page error — static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: collider-ring-boot-batches-witness-vacuous-filter
+  title: collider-ring-boot-batches pinned baseline absent unless 16 or 64 players
+  why: scripts/collider-ring-boot-batches-witness.mjs:282 resolves PIN from BASELINE[PLAYERS], which is undefined unless PLAYERS is 16 or 64, so the pinned live-collider and hash comparison at :283 (declared at :24 and :11) is silently absent for every other player count and fails to bound a ring-content regression there. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: pointer-lock-boot-witness-assertgpu-flags-off
+  title: 'pointer-lock-boot-witness: assertGpu requireAccelerated/expectVendor off by default'
+  why: pointer-lock-boot-witness.mjs:12-13,65 leaves requireAccelerated false and expectVendor null unless --accelerated is passed, so the GPU assertion is skipped and any adapter reports pass; the gate therefore fails to bound the vendor/acceleration contract it names — static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: collider-ring-boot-batches-witness-wall-clock
+  title: collider-ring-boot-batches wall-clock rows reported, never asserted
+  why: scripts/collider-ring-boot-batches-witness.mjs:261, :262, :266, :271, :273, :279 and :280 report median/max first-collider ms, slice ms against TICK_MS, stall ms, CPU ms and a contention window without asserting any of them, so the gate fails to bound a streaming-stall or boot-batch cost regression on a loaded runner. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: collider-ring-boot-batches-witness-invented-threshold
+  title: collider-ring-boot-batches thresholds invented, TICK_MS hardcoded
+  why: scripts/collider-ring-boot-batches-witness.mjs:17/:278, :260, :264 and :20-23 impose a 1.25x CPU ceiling and a 1.1x tail ceiling against a hardcoded TICK_MS of 1000/60 that never reads worldDef.tickRate, plus pinned maxFirstMs/live/hash baselines, so the gate fails to bound a stall on a world whose real tick period differs. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: pointer-lock-boot-witness-observe-ms-wallclock
+  title: 'pointer-lock-boot-witness: pass depends on load finishing inside OBSERVE_MS'
+  why: pointer-lock-boot-witness.mjs:69,105 makes the verdict a race against the OBSERVE_MS window (env, 60000) rather than a state check, so an identical-correct slow boot flips pass to fail; the gate therefore fails to bound pointer-lock behaviour rather than machine speed — static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: prediction-drift-witness-divergence-instrument-zero
+  title: 'prediction-drift-witness: `?? 0` lets permanently-zero divergence satisfy caps and decay'
+  why: prediction-drift-witness.mjs:140-141,176 coalesces missing divergence samples to 0, so an instrument that never reports still satisfies every cap and the decay check and the arm reports pass; the gate therefore fails to bound real client-leads-server drift — static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: collider-turnover-witness-blind-window
+  title: collider-turnover-witness claims non-saturated set asserting only >0
+  why: scripts/collider-turnover-witness.mjs:85 claims the ring is not a saturated set carried from an old centre but asserts only worstInRadius > 0, so the gate fails to bound a regression where rings stop turning over and keep stale centres. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: prediction-drift-witness-travel-crosscheck-unasserted
+  title: 'prediction-drift-witness: serverTravel/clientTravel cross-check printed only'
+  why: prediction-drift-witness.mjs:154,181 computes serverTravel and clientTravel (the independent check that the server actually applied movement) but never asserts them, so a server applying nothing still reports pass; the gate therefore fails to bound that movement was applied on both sides — static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: collider-turnover-witness-blind-window-l87
+  title: collider-turnover-witness live over cap unreachable by evictOverCap
+  why: scripts/collider-turnover-witness.mjs:87 and :77 test live > cap, unreachable because evictOverCap runs at every finalize (ColliderStreamer.js:681, cap getter :832), so the gate fails to bound a live-collider overflow regression. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: veg-lod-browser-witness-wall-clock-gate
+  title: veg-lod-browser-witness:326 classifies LOD sweep cost by wall-clock ms
+  why: veg-lod-browser-witness.mjs:326 computes costRatio as b.msPerFrame / a.msPerFrame and classifies the whole sweep on elapsed milliseconds, so the gate bounds scheduler noise and thermal drift rather than LOD cost, and cannot catch a regression that raises real work while frame time happens to hold. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: edge-collider-draco-witness-self-referential
+  title: edge-collider-draco-witness verdict is self-referential with predicate
+  why: scripts/edge-collider-draco-witness.mjs:110 and :129 decide the stripped verdict with detectDraco from glb-processor.js, the same predicate prep-edge-collider-assets.mjs:23 uses to decide whether to strip, so a bug in detectDraco is confirmed by itself and the gate fails to bound a Draco-detection regression. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: veg-lod-sweep-witness-vacuous-filter-l267
+  title: veg-lod-sweep-witness:267 starves the brute-force oracle on arms 1 and 2
+  why: veg-lod-sweep-witness.mjs:267 guards the oracle comparison with check && a < REF_ARMS while REF_ARMS defaults to 1 at :32, so arms 1 and 2 never reach the brute-force cross-check and a wrong LOD selection there passes unrefuted. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: prediction-drift-witness-warmfps-unasserted
+  title: 'prediction-drift-witness: warmFps never gates the run'
+  why: prediction-drift-witness.mjs:110-119 accumulates warmFps but never asserts it, so a 2 fps client proceeds straight into drift measurement and reports pass; the gate therefore fails to bound that the measured client was actually running at a usable tick rate — static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: prediction-drift-witness-server-tick-lever-off
+  title: 'prediction-drift-witness: --server-tick lever defaults to 0 (off)'
+  why: prediction-drift-witness.mjs:19,81 defaults --server-tick to 0, so the only lever that reaches the peak-unacked and divergence caps is inactive and the run reports pass unconditionally; the gate therefore fails to bound drift under the tick rate it claims to cover — static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: prediction-drift-witness-invented-thresholds
+  title: 'prediction-drift-witness: 24 / 3 m / 0.5 m caps are not derived from netcode'
+  why: prediction-drift-witness.mjs:151-153 classifies on 24 unacked, 3 m divergence and 0.5 m settle tolerance with no derivation from the netcode's own buffers (INPUT_STEP_BANK 16, INPUT_RETAIN_TICKS 240, maxRollbackTicks 12), so the arm reports pass against numbers no component guarantees; the gate therefore fails to bound drift at the real limits — static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: shader-manifest-witness-dead-comparator-empty-every
+  title: 'shader-manifest-witness: `[].every(...)` is trivially true'
+  why: shader-manifest-witness.mjs:110 runs `.every` over a list that line 109 forces to length 0, so the assertion is vacuously true and cannot fail on any input; the gate therefore fails to bound shader-manifest eligibility at all — static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: prediction-drift-witness-self-referential
+  title: 'prediction-drift-witness: unacked and divergence read off the prediction engine itself'
+  why: prediction-drift-witness.mjs:57 takes both unacked and divergence from the prediction engine's own fields, so the measurement is validated by the component under test and any engine-side misreport is self-consistent; the gate therefore fails to bound drift against an independent observer — static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: veg-lod-sweep-witness-threshold-invented
+  title: veg-lod-sweep-witness:33 invents REQUIRE_DROP 50 and US_NOISE_LIMIT 15
+  why: veg-lod-sweep-witness.mjs:33 sets REQUIRE_DROP 50 and :34 sets US_NOISE_LIMIT 15 with no derivation from measured noise, so the LOD sweep passes or fails against the witness author's chosen numbers rather than against observed variance. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: veg-lod-sweep-witness-vacuous-filter-l357
+  title: veg-lod-sweep-witness:357 skips every REQUIRE_DROP assertion
+  why: veg-lod-sweep-witness.mjs:357 wraps the drop assertions in if (BASELINE) with BASELINE defaulting to empty string at :37, so every REQUIRE_DROP assertion is skipped on a default run and the sweep cannot bound a LOD that stops dropping instances. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: veg-lod-browser-witness-counter-never-read
+  title: veg-lod-browser-witness:301 collects 'still' phase but never asserts it
+  why: veg-lod-browser-witness.mjs:301 accumulates a 'still' phase measurement that is never read by any assertion, so the arm pays for the sample and then ignores it and cannot bound instability while the camera is stationary. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: veg-lod-browser-witness-dead-comparator
+  title: veg-lod-browser-witness:311 dead upper-bound comparator
+  why: veg-lod-browser-witness.mjs:311 compares moving.recordsPerFrame <= shape.instances, whose upper side is unreachable by construction, so the comparator can never fail upward and a sweep that inflates records per frame is unbounded. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: collider-build-failure-witness-blind-window
+  title: collider-build-failure-witness minTriangles computed but never asserted
+  why: scripts/collider-build-failure-witness.mjs:212, :218, :228 and :294 compute minTriangles over shipped assets but assert only empties === 0, so a regression that degrades every trimesh to one or two triangles passes and the gate fails to bound collider-fidelity loss. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: veg-lod-browser-witness-threshold-invented
+  title: veg-lod-browser-witness:331 invents costGapToSurvivor comparator
+  why: veg-lod-browser-witness.mjs:331 gates on costGapToSurvivor >= costGapToCount using a distance-to-nearest-survivor comparator invented inside the witness with no derivation, so any regression smaller than the invented gap passes and the arm proves only that the author's chosen number held. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: airborne-ground-solve-throttle-dead-comparator
+  title: 'Airborne ground-solve witness: grounded comparator is 0 === 0'
+  why: scripts/airborne-ground-solve-throttle-witness.mjs:512 compares groundedServed against groundedExact, but :513 forces no player onto the ground so both sides are 0; the dead comparator therefore fails to bound a regression where the reuse path serves a grounded state diverging from an exact solve. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: airborne-ground-solve-throttle-dead-comparator-l400
+  title: 'Airborne ground-solve witness: Infinity reduction satisfies the 5x gate'
+  why: scripts/airborne-ground-solve-throttle-witness.mjs:400 yields reduction=Infinity whenever the after-median is 0, which trivially satisfies the >=5 assertion at :495; the gate therefore fails to bound a real regression in ground-solve cost reduction. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: shader-manifest-witness-expect-absent-default
+  title: 'shader-manifest-witness: manifest arm never runs (--expect defaults to ''absent'')'
+  why: shader-manifest-witness.mjs:19 defaults --expect to 'absent', so lines 111-123 (the manifest assertions at 114,115,116,119,120,123) are unreachable and every run reports pass; the gate therefore fails to bound shader-manifest content on any default invocation — static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: weather-ground-sample-witness-no-gate
+  title: weather-ground-sample-witness:246 exits 0 unconditionally with no failures array
+  why: weather-ground-sample-witness.mjs:246 ends in an unconditional process.exit(0) and the script defines no failures array at all, so no observed weather or ground sample can ever fail the arm and it bounds nothing. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: shader-manifest-witness-eligible-self-referential
+  title: 'shader-manifest-witness: eligible derived from the measured urls, empty short-circuits true'
+  why: shader-manifest-witness.mjs:118-120 computes `eligible` from the same urls it then inspects, and an empty eligible short-circuits the check to true, so a manifest that exposes nothing validates itself; the gate therefore fails to bound manifest coverage independently — static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: weather-ground-sample-witness-log-only-check
+  title: weather-ground-sample-witness:168 WARNs on wrong armed.type, asserts nothing
+  why: weather-ground-sample-witness.mjs:168 prints a WARN when armed.type !== WEATHER and asserts nothing, so a run armed with the wrong weather type still exits green and the arm cannot bound weather sampling correctness. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: weather-ground-sample-witness-counter-never-asserted
+  title: weather-ground-sample-witness:44 reports st.inWeather/updates/frames/consoleErrs ungated
+  why: weather-ground-sample-witness.mjs:44 reports st.inWeather, st.updates, __frames and consoleErrs to the log without any comparison, so zero weather updates or a flood of console errors is reported but never fails the arm. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: airborne-ground-solve-throttle-blind-window
+  title: 'Airborne ground-solve witness: reuse counters collapse to 0 <= 1'
+  why: scripts/airborne-ground-solve-throttle-witness.mjs:501,510,511 all reduce to `0 <= 1` when groundSolveReuse is absent, so the witness passes on a build that never instruments reuse at all; the gate fails to bound the regression where the throttle silently stops reporting reuse. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: shader-manifest-witness-null-warmup-satisfies
+  title: 'shader-manifest-witness: null warmup satisfies the absent arm unaided'
+  why: shader-manifest-witness.mjs:126 lets a null warmup state satisfy the 'absent' arm, so a run where warmup never produced anything still reports pass; the gate therefore fails to bound that the absent case was observed rather than merely unmeasured — static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: terrain-residency-seam-witness-quant-bound-unasserted
+  title: 'terrain-residency-seam-witness: predictedQuantBoundM computed, never asserted'
+  why: terrain-residency-seam-witness.mjs:150 computes predictedQuantBoundM without comparing it to seamMaxDiffM, so the derived quantization budget never constrains the measured seam and the run reports pass; the gate therefore fails to bound seam error against the quantization bound it derives — static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: static-collision-cpu-witness-self-referential-target-l784
+  title: static-collision-cpu-witness:784 neighborCells compared against itself
+  why: static-collision-cpu-witness.mjs:784 compares neighborCells against itself and reports the mismatch counter without gating on it, so a neighbour-cell disagreement is printed and then accepted. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: airborne-ground-solve-throttle-wall-clock
+  title: 'Airborne ground-solve witness: ms/tick is wall clock, not work units'
+  why: scripts/airborne-ground-solve-throttle-witness.mjs:496 decides on physics ms per tick (A < B), which measures box load rather than a counted work unit, so the gate fails to bound the regression under contention and goes flaky instead of failing. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: terrain-residency-seam-witness-per-field-error-unasserted
+  title: 'terrain-residency-seam-witness: maxErrA/maxErrB accumulated but never gated'
+  why: terrain-residency-seam-witness.mjs:126-127,147-148 accumulates maxErrA and maxErrB while only maxErrVsExactBoth is asserted, so per-field error of up to a metre passes; the gate therefore fails to bound error on either heights field individually — static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: terrain-residency-seam-witness-self-referential
+  title: 'terrain-residency-seam-witness: reference height is the same groundHeightLocal that fed the collider'
+  why: terrain-residency-seam-witness.mjs:42,124 takes the reference height from the same PlanetFrame.groundHeightLocal that produced the collider under test, so a biased sampler shifts both sides together and reports pass; the gate therefore fails to bound seam error against an independent height source — static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: terrain-residency-seam-witness-too-wide-bracket-passes
+  title: 'terrain-residency-seam-witness: only too-narrow can fail, too-wide always passes'
+  why: terrain-residency-seam-witness.mjs:154-155 brackets the seam only from below, so a seam wider than the bound (which is where quantization precision is actually lost) always reports pass; the gate therefore fails to bound the precision-losing direction of the residency seam — static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: transport-churn-witness-reconnected-id-unchecked
+  title: 'transport-churn-witness: no reconnectedId === idC assertion'
+  why: transport-churn-witness.mjs:151-152 never asserts that the id after RECONNECT equals idC, so a RECONNECT that mints a fresh player id satisfies both rows and reports pass; the gate therefore fails to bound identity preservation across churn — static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: static-collision-cpu-witness-vacuous-filter-l18
+  title: static-collision-cpu-witness:18 default 'server' mode has zero expect() calls
+  why: static-collision-cpu-witness.mjs:18 defaults MODE to 'server', which routes to runServer, a path containing zero expect() calls, so the default invocation of the static collision witness asserts nothing at all. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: cluster-world-harness-counter-never-asserted-l111
+  title: cluster-world-harness:111 computes assignmentsRun vs expectedAssignments, never compares
+  why: cluster-world-harness.mjs:111 computes assignmentsRun alongside expectedAssignments and never compares them, so a run that performs the wrong number of cluster assignments is reported and accepted. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: netcode-conditioner-harness-vacuous-filter
+  title: netcode-conditioner-harness:399 disables hitscan on the tps route by default
+  why: netcode-conditioner-harness.mjs:399 guards hitscan on (args.route !== 'tps' || args.shoot === 'on'), so the tps route runs with shooting off unless explicitly enabled and the hit-registration buckets under test collect nothing. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: netcode-conditioner-harness-threshold-invented
+  title: netcode-conditioner-harness:14 invents FEET_OFFSET/HITBOX/onset thresholds
+  why: netcode-conditioner-harness.mjs:14 fixes FEET_OFFSET 0.91, HITBOX 0.9x0.6, MOVE_ONSET_M 0.03, MISPREDICT_M 0.02 and RESPAWN_JUMP_M 3 with no derivation, so onset and misprediction verdicts track the author's chosen constants instead of measured player geometry. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: static-collision-cpu-witness-self-referential-target-l451
+  title: static-collision-cpu-witness:451 compares cached stream against same _tickCollisions path
+  why: static-collision-cpu-witness.mjs:451 compares the cached stream against the forced-uncached stream produced by the same _tickCollisions path, so both sides share the code under test and a wrong collision result is self-consistent and passes. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: apps-manifest-fast-path-self-referential
+  title: 'Apps manifest fast-path witness: declaredApps from boot''s own fn'
+  why: scripts/apps-manifest-fast-path-witness.mjs:177 (with :189,190) derives declaredApps from worldAppNames, the same function ServerBoot.js:166 uses, so the comparison is self-consistent by construction and the gate fails to bound a manifest/boot divergence regression. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: airborne-ground-solve-throttle-self-referential
+  title: 'Airborne ground-solve witness: reuse verdicts read from reuse.stats()'
+  why: scripts/airborne-ground-solve-throttle-witness.mjs:251,377 (feeding :499,505,512) source every reuse-limit verdict from reuse.stats(), the module under test, so the gate fails to bound a regression in the throttle itself. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: static-collision-cpu-witness-vacuous-filter-l33
+  title: static-collision-cpu-witness:33 WALK_STEP_M||0 nulls the march at :596
+  why: static-collision-cpu-witness.mjs:33 defaults WALK_STEP_M via ||0 so the walk march at :596 is skipped by default, and :35 SPREAD_M, :36 BUTTONS, :37 BOXES and :31 MICRO_JITTER are the same shape, so the default run exercises a degenerate subset and cannot bound static collision behaviour over a real walk. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: apps-manifest-fast-path-vacuous-filter-l247
+  title: 'Apps manifest fast-path witness: --require-app default null skips check'
+  why: scripts/apps-manifest-fast-path-witness.mjs:23,247 gate the required-app assertion behind --require-app, which defaults to null, so an app missing from the manifest is never detected and the gate fails to bound that regression. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: airborne-ground-solve-throttle-invented-threshold
+  title: 'Airborne ground-solve witness: 5x reduction literal invented in-witness'
+  why: scripts/airborne-ground-solve-throttle-witness.mjs:495 defines the 5x reduction threshold inside the witness instead of deriving it from the engine, so the gate fails to bound a regression against the reduction the shipped code actually promises. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: cluster-world-harness-counter-never-asserted-l98
+  title: cluster-world-harness:98 accumulates assignmentEvents absent from output
+  why: cluster-world-harness.mjs:98 accumulates assignmentEvents that never appears in the output block at :110-126 and is never gated, so cluster assignment churn is measured and then discarded. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: planet-multiplayer-harness-no-gate
+  title: planet-multiplayer-harness:557 verdict is 'did not crash' only
+  why: planet-multiplayer-harness.mjs:557 filters only on fatal and missing-colliders lines, so the run's verdict is that nothing crashed and no correctness property of planet-wide multiplayer is bounded. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: apps-manifest-fast-path-blind-window
+  title: 'Apps manifest fast-path witness: only manifestStatus[0] asserted'
+  why: scripts/apps-manifest-fast-path-witness.mjs:254 asserts only manifestStatus[0], so a 404 on any later manifest entry is invisible and the gate fails to bound a partial-serve regression. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: planet-multiplayer-harness-vacuous-filter
+  title: planet-multiplayer-harness:186 SHOOTERS default 0 empties every hitReg bucket
+  why: planet-multiplayer-harness.mjs:186 defaults SHOOTERS to 0, which flows to shooter:false at :327 and then continue at :135, so every hitReg bucket reports n:0 on a default run and the harness bounds no hit registration at all. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: cluster-world-harness-real-assertion
+  title: cluster-world-harness:118 only manager/hosting arms assert anything
+  why: cluster-world-harness.mjs:118 asserts resolveClusterConfig refusal only on the manager and hosting arms, while the heap, census, handoff and tilt arms assert nothing, so four of the run's arms can regress silently and still exit green. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: apps-manifest-fast-path-vacuous-filter-l260
+  title: 'Apps manifest fast-path witness: --max-phase-ms default 0 never fires'
+  why: scripts/apps-manifest-fast-path-witness.mjs:22,260 gate the per-phase millisecond gate behind --max-phase-ms, which defaults to 0, so it never fires and the witness fails to bound a slow-boot-phase regression. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: netcode-conditioner-harness-no-gate
+  title: netcode-conditioner-harness:477 checks instrumentation liveness only
+  why: netcode-conditioner-harness.mjs:477 gates only on onsets>0 && hz>0 && isFinite(hz), which proves the instrument incremented rather than that netcode behaved correctly, so a harness that measures the wrong thing at a plausible rate passes. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: transport-churn-witness-badack-silence-accepted
+  title: 'transport-churn-witness: `!badAck` accepts silence as a refusal'
+  why: transport-churn-witness.mjs:176 treats the absence of a bad ack as a successful refusal, so a server that silently ignores a bogus MIGRATE still reports pass; the gate therefore fails to bound that bogus migration is actually rejected — static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: arena-combat-kill-respawn-dead-comparator
+  title: 'Kill/respawn witness: respawn.health >= 100 guaranteed by break'
+  why: scripts/arena-combat-kill-respawn-witness.mjs:427 asserts respawn.health >= 100, already guaranteed by the :407 break condition, so the comparator is dead and the gate fails to bound a partial-health respawn regression. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: planet-multiplayer-harness-threshold-invented
+  title: planet-multiplayer-harness:19 invents GOLDEN/RELEVANCE_M/HYSTERESIS, :278 maxSlope 20
+  why: planet-multiplayer-harness.mjs:19 fixes GOLDEN 2.39996323, RELEVANCE_M 200 and HYSTERESIS_FACTOR 1.15, and :278 fixes maxSlope 20, none derived from measurement, so cluster relevance and walkability verdicts track the author's constants. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: arena-combat-kill-respawn-dead-comparator-l16
+  title: 'Kill/respawn witness: WANT_VENDOR null under ?: precedence'
+  why: 'scripts/arena-combat-kill-respawn-witness.mjs:16 leaves WANT_VENDOR null for both software and accelerated renderers because of ?: precedence, so the vendor is never asserted and the gate fails to bound a wrong-GPU run. Static read, not mutation-proven.'
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: apps-manifest-fast-path-counter-never-asserted
+  title: 'Apps manifest fast-path witness: initAppCount printed, never compared'
+  why: scripts/apps-manifest-fast-path-witness.mjs:104,250 print initAppCount but never assert it against served.appCount, so the gate fails to bound a regression where the fast path serves fewer apps than it initialised. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: chart-reanchor-wire-harness-self-referential-target
+  title: chart-reanchor-wire-harness:332 oracle uses the SUT's own transferToCurrent
+  why: chart-reanchor-wire-harness.mjs:332 derives expected from ledger.transferToCurrent(...).look(...), the same transform the system under test uses (:343/:344 for shots), so a wrong chart transform is reproduced by its own oracle and agrees with itself. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: chart-reanchor-wire-harness-vacuous-filter
+  title: chart-reanchor-wire-harness:12 default 'forced' scenario has no EXPECTATIONS entry
+  why: chart-reanchor-wire-harness.mjs:12 defaults SCENARIO to 'forced', which has no EXPECTATIONS entry, so broken stays empty at :521 and the harness exits 0 at :523 without checking any re-anchor outcome. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: chart-reanchor-wire-harness-blind-window
+  title: chart-reanchor-wire-harness:506 checks renderJumpM for finiteness only
+  why: chart-reanchor-wire-harness.mjs:506 tests renderJumpM only for finiteness with no upper bound, so a 4 km visual jump across a re-anchor passes and the arm bounds no perceptual discontinuity. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: peer-profile-harness-self-referential-target
+  title: peer-profile-harness:132 consensus oracle with no ground truth
+  why: peer-profile-harness.mjs:132 compares honest[0] against itself inside some(), a consensus check among peers with no independent ground truth, so all peers agreeing on a wrong profile passes. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: arena-combat-kill-respawn-vacuous-filter
+  title: 'Kill/respawn witness: combat assertions skipped on null patch name'
+  why: scripts/arena-combat-kill-respawn-witness.mjs:416 reaches combat only through a 'combat'-named behaviour patch, and a null patch silently skips :421-423 so only :415 fires; the gate fails to bound a kill/respawn regression hidden behind that skip. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: peer-profile-harness-vacuous-filter-l135
+  title: peer-profile-harness:135 honest.every() empties when info.snapshot is null
+  why: peer-profile-harness.mjs:135 builds honest.every(pk => row[pk].players) which is vacuously empty when info.snapshot is null, so firstStateMismatch stays permanently undefined and the peer state comparison never runs. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: chart-reanchor-wire-harness-never-asserted
+  title: chart-reanchor-wire-harness:334 yawErr/pitchErr and :346 originErr reported, ungated
+  why: chart-reanchor-wire-harness.mjs:334 computes yawErr/pitchErr and :346 computes originErr/directionErr, reporting both without gating, so orientation and origin error after a re-anchor can be arbitrarily large and still pass. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: arena-combat-kill-respawn-self-referential
+  title: 'Kill/respawn witness: spawn/respawn state read from module under test'
+  why: scripts/arena-combat-kill-respawn-witness.mjs:406,423,436 source spawnPoints, isRespawning and funKill from the module under test, so the gate fails to bound a regression where that module reports a state the game never entered. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: airborne-ground-solve-throttle-vacuous-filter
+  title: 'Airborne ground-solve witness: --inject default ''none'' disables override'
+  why: scripts/airborne-ground-solve-throttle-witness.mjs:24,265,266 gate the zero/infinite override behind --inject, which defaults to 'none', so the override never fires and the witness never bounds an off-nominal inject regression. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: peer-profile-harness-blind-window
+  title: peer-profile-harness:146 comparable.length > 0 with no floor on ticksCompared
+  why: peer-profile-harness.mjs:146 gates on comparable.length > 0, which a single compared tick satisfies, so there is no floor on ticksCompared and a run that compares one tick reports a full peer-profile verdict. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: arena-combat-kill-respawn-invented-threshold
+  title: 'Kill/respawn witness: SPAWN_TOLERANCE_M 1.5 invented in-witness'
+  why: scripts/arena-combat-kill-respawn-witness.mjs:25,406,428 classify the respawn position with a SPAWN_TOLERANCE_M of 1.5 defined in the witness itself, so the gate fails to bound a regression against the shipped spawn contract. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: arena-combat-two-client-vacuous-filter
+  title: 'Two-client arena witness: --expect-damage off by default'
+  why: scripts/arena-combat-two-client-witness.mjs:27,210 gate every gameplay assertion behind --expect-damage, which is off by default, so the witness runs zero damage assertions and the gate fails to bound a combat regression. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: peer-profile-harness-vacuous-filter-l103
+  title: peer-profile-harness:103 KILL_PEER/CHEAT_PEER null, DEAD_LANES empty by default
+  why: peer-profile-harness.mjs:103 depends on KILL_PEER (:22) and CHEAT_PEER (:23) defaulting to null with DEAD_LANES (:24) defaulting to empty, so the peer-kill and cheat-detection arms are never exercised on a default run. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: arena-combat-two-client-counter-never-incremented
+  title: 'Two-client arena witness: firedA/firedB bumped unconditionally'
+  why: scripts/arena-combat-two-client-witness.mjs:182,191,192,255 increment firedA/firedB unconditionally and only print them, so a run where no shot ever fired still looks armed and the gate fails to bound a firing-path regression. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: arena-combat-two-client-dead-comparator
+  title: 'Two-client arena witness: !healthMin true for null and for 0'
+  why: scripts/arena-combat-two-client-witness.mjs:210 treats !healthMin as damaged, which is true for null as well as 0, so a client with no vitals at all counts as damaged and the gate fails to bound a missing-vitals regression. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: arena-combat-two-client-vacuous-filter-l186
+  title: 'Two-client arena witness: --sweep default 0 fires every shot dead-centre'
+  why: scripts/arena-combat-two-client-witness.mjs:26,186 gate yaw sweep behind --sweep, which defaults to 0, so every shot is dead-centre and the gate fails to bound an off-axis aim regression. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: arena-combat-two-client-blind-window
+  title: 'Two-client arena witness: ''HUD changed'' accepts unrelated mutation'
+  why: scripts/arena-combat-two-client-witness.mjs:248 accepts any HUD mutation as evidence of a hit, so an unrelated HUD update satisfies it and the gate fails to bound a damage-feedback regression. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: arena-combat-two-client-self-referential
+  title: 'Two-client arena witness: pointer lock from app''s own state'
+  why: scripts/arena-combat-two-client-witness.mjs:116 accepts pointer lock from the app's own pointerLock.state, so the gate fails to bound a regression where the browser never granted lock but the app reports it. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: bundle-freshness-vacuous-filter
+  title: 'Bundle freshness witness: all three flags default false'
+  why: scripts/bundle-freshness-witness.mjs:11-13 default all three mode flags to false, so only the baseline arm ever runs and the gate fails to bound a stale-bundle regression on the flagged arms. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: bundle-freshness-blind-window
+  title: 'Bundle freshness witness: ''no-bundle'' outcome accepted as pass'
+  why: scripts/bundle-freshness-witness.mjs:133,137 accept a 'no-bundle' outcome, so the witness passes with no bundle present at all and the gate fails to bound a regression where the bundle silently stops being emitted. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: check-cache-keys-scope-blind-window
+  title: 'Cache-key scope witness: narrow-vs-widened count never asserted'
+  why: scripts/check-cache-keys-scope-witness.mjs:118-122 (with :32-36) only print verifiedCount, never asserting that the widened key set produced a different artifact count than the narrow one, so the gate fails to bound a scope-widening regression. Static read, not mutation-proven.
+  severity: HIGH
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: check-cache-keys-scope-self-referential
+  title: 'Cache-key scope witness: trusts gate''s own ''matches this tree'' string'
+  why: scripts/check-cache-keys-scope-witness.mjs:145-150 trust the gate's own 'matches this tree' verdict string as evidence, so the gate fails to bound a regression where that verdict is emitted for a tree it did not actually match. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: bundle-freshness-blind-window-l177
+  title: 'Bundle freshness witness: fresh===''stale'' asserted without reason'
+  why: scripts/bundle-freshness-witness.mjs:154,177 assert fresh === 'stale' but never the reason field, so a stale verdict for the wrong cause satisfies it and the gate fails to bound a mis-attributed freshness regression. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: bundle-freshness-stub-fallback
+  title: 'Bundle freshness witness: missingProbe stub stands in for absent API'
+  why: scripts/bundle-freshness-witness.mjs:78-80 substitute missingProbe for an absent freshness API and only print it, so the witness passes without exercising the real API and the gate fails to bound a freshness-API regression. Static read, not mutation-proven.
+  severity: MEDIUM
+  status: pending
+- id: boot-failure-leak-witness-prints-no-verdict
+  subject: boot-failure-leak-witness.mjs measures a boot handle leak but never decides it, so it exits 0 whatever it finds
+  why: 'Live run at HEAD f091a0c7 printed four RESULT lines and exited 0: `RESULT postBootLogLines 1`, `RESULT bootError: none`, `RESULT started on port 56803`, `RESULT activeHandles 345` followed by the handle census (many Socket and FSEvent entries). The file contains no PASS and no FAIL literal, no process.exit(1) and no throw, so no caller and no gate can distinguish a clean boot from a leaking one -- the 345 leaked handles are reported as data and the run still looks green. Found by scripts/lib/witness-audit.mjs (verdict-not-a-decision) and then confirmed by executing the witness. Fix is to assert the measurement: the witness must compare postBootLogLines and activeHandles against an explicit bound and exit non-zero with a FAIL line when exceeded, and the assertion must be reachable in the default invocation (no flag-gated arm).'
+  severity: HIGH
+  surface: scripts/boot-failure-leak-witness.mjs
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: preallocatepool-never-trims-resident-bodies
+  subject: World.preallocatePool grows each shapeKey pool to peak demand and never trims, so resident bodies are a monotone high-water mark against a fixed 10240 cap
+  why: 'Measured on collider-ring-scale-witness (commit 003fafdf): resident bodies climbed boot 266 -> 24 centres 1820 -> 64:5500 -> 128:6663 -> 192 settled 7572 -> 192 moving 10227, then the next add threw `[physics] body limit reached: 10240 of maxBodies 10240`. Stacking five arms on one world measured the union of every arm pool, because a pool that grows to demand is never reduced, so peak usage permanently occupies budget instead of returning it. A 192-centre walking ring on a fresh world is 9625 of 10240, i.e. 94% of one server world budget with 615 bodies of margin. Consequence for planet-wide multiplayer: a long-running world that sees many distinct shapeKeys (more models, more scales) accumulates pool high-water marks it can never give back, and a world can hit the body cap from pool residue alone rather than from live colliders. Options to evaluate: trim pools below a residency threshold on a timer or when a world goes idle, cap pool growth per shapeKey, or make the body budget account for pool residue explicitly so the cap is not silently consumed. Do not raise DEFAULT_MAX_CENTERS or the cap as the fix -- that spends the remaining 615 bodies on the symptom.'
+  severity: HIGH
+  surface: src/physics/World.js
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending

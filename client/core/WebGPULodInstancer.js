@@ -11,6 +11,8 @@ const SPAN_STRIDE = 7
 const MAX_CELLS = 4096
 const GRID_MIN_INSTANCES = 32
 const GRID_MIN_OCCUPANCY = 2
+const GRID_MIN_PENDING_REBUILD = 64
+const GRID_PENDING_REBUILD_DIV = 8
 const CELL_SIZE = 24
 const TARGET_CELL_OCCUPANCY = 4
 const CELL_OUT = 0, CELL_IN = 1, CELL_PART = 2
@@ -144,7 +146,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
 
   let meshFarSq = Infinity
   let meshFarDist = Infinity
-  const sweepStats = { updateCalls: 0, recordsWalked: 0, planeTests: 0, cellsTested: 0, cellsSkipped: 0 }
+  const sweepStats = { updateCalls: 0, recordsWalked: 0, planeTests: 0, cellsTested: 0, cellsSkipped: 0, rebuilds: 0, rebuildRecords: 0 }
 
   function tierFor(dsq) {
     if (dsq >= meshFarSq) return NO_MESH_TIER
@@ -244,6 +246,29 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     spanX: 0,
     spanZ: 0,
     maxRadiusAll: 0,
+    pending: new Int32Array(0),
+    pendingCount: 0,
+    builtLive: 0,
+    removedSinceBuild: 0,
+  }
+
+  function ensurePendingCapacity(n) {
+    if (grid.pending.length >= n) return
+    const cap = Math.max(n, grid.pending.length * 2, 64)
+    const next = new Int32Array(cap)
+    next.set(grid.pending)
+    grid.pending = next
+  }
+
+  function enqueuePending(id) {
+    ensurePendingCapacity(grid.pendingCount + 1)
+    grid.pending[grid.pendingCount++] = id
+  }
+
+  function gridNeedsRebuild() {
+    if (grid.dirty) return true
+    const cap = Math.max(GRID_MIN_PENDING_REBUILD, grid.builtLive / GRID_PENDING_REBUILD_DIV)
+    return grid.pendingCount >= cap || grid.removedSinceBuild >= cap
   }
 
   function ensureGridCapacity(cells, live) {
@@ -269,15 +294,22 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
       grid.nextActive = new Int32Array(cells)
     }
     if (grid.order.length < live) grid.order = new Int32Array(Math.max(live, 64))
-    if (grid.cellOf.length < recs.length) grid.cellOf = new Int32Array(Math.max(recs.length, grid.cellOf.length * 2, 64))
+    if (grid.cellOf.length < recs.length) {
+      grid.cellOf = new Int32Array(Math.max(recs.length, grid.cellOf.length * 2, 64))
+      grid.cellOf.fill(-1)
+    }
   }
 
   function rebuildGrid() {
     grid.dirty = false
+    grid.pendingCount = 0
+    grid.removedSinceBuild = 0
+    sweepStats.rebuilds++
     const n = recs.length
     let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity, live = 0
     for (let id = 0; id < n; id++) {
       if (recs[id] === null) continue
+      sweepStats.rebuildRecords++
       const o = id * SPAN_STRIDE
       const x = spans[o], z = spans[o + 2]
       if (x < minX) minX = x
@@ -286,7 +318,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
       if (z > maxZ) maxZ = z
       live++
     }
-    if (live < GRID_MIN_INSTANCES) { grid.usable = false; grid.cells = 0; return }
+    if (live < GRID_MIN_INSTANCES) { grid.builtLive = live; grid.usable = false; grid.cells = 0; return }
     const spanX = Math.max(1, maxX - minX), spanZ = Math.max(1, maxZ - minZ)
     const densityCell = Math.sqrt((spanX * spanZ) / Math.max(1, live / TARGET_CELL_OCCUPANCY))
     const cellCap = Math.max(CELL_SIZE, Math.min(spanX, spanZ) / 3)
@@ -299,12 +331,15 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
       cellSize *= 2
     }
     const cells = nx * nz
-    if (live / cells < GRID_MIN_OCCUPANCY) { grid.usable = false; grid.cells = 0; return }
+    if (live / cells < GRID_MIN_OCCUPANCY) { grid.builtLive = live; grid.usable = false; grid.cells = 0; return }
     ensureGridCapacity(cells, live)
+    grid.builtLive = live
     const counts = grid.counts
     counts.fill(0, 0, cells + 1)
+    grid.cellOf.fill(-1, 0, n)
     for (let id = 0; id < n; id++) {
       if (recs[id] === null) continue
+      sweepStats.rebuildRecords++
       const o = id * SPAN_STRIDE
       const ix = Math.floor((spans[o] - minX) / cellSize)
       const iz = Math.floor((spans[o + 2] - minZ) / cellSize)
@@ -318,6 +353,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     const order = grid.order
     for (let id = 0; id < n; id++) {
       if (recs[id] === null) continue
+      sweepStats.rebuildRecords++
       order[grid.cursor[grid.cellOf[id]]++] = id
     }
     const posMin = grid.posMin, posMax = grid.posMax, cenMin = grid.cenMin, cenMax = grid.cenMax, maxR = grid.maxR, minR = grid.minR
@@ -330,6 +366,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
       maxR[c] = 0; minR[c] = Infinity
     }
     for (let i = 0; i < live; i++) {
+      sweepStats.rebuildRecords++
       const id = order[i], o = id * SPAN_STRIDE
       const c = grid.cellOf[id], b = c * 3
       const x = spans[o], y = spans[o + 1], z = spans[o + 2]
@@ -364,6 +401,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     grid.usable = true
     let radiusAll = 0
     for (let i = 0; i < live; i++) {
+      sweepStats.rebuildRecords++
       const o = order[i] * SPAN_STRIDE
       if (spans[o + 6] > radiusAll) radiusAll = spans[o + 6]
     }
@@ -371,6 +409,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     for (let id = 0; id < n; id++) {
       const rec = recs[id]
       if (rec === null) continue
+      sweepStats.rebuildRecords++
       if (rec.tier !== NO_MESH_TIER || rec.viewCulled) placeInTier(id, rec, NO_MESH_TIER, false)
       if (shadow && rec.shadowWanted) applyShadowWanted(id, rec, false)
     }
@@ -382,15 +421,41 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     if (c >= 0 && c < grid.cells) grid.mode[c] = APPLIED_INVALID
   }
 
+  let walked = 0, planeTests = 0
+
+  function sweepPendingInstances() {
+    for (let i = 0; i < grid.pendingCount; i++) {
+      const id = grid.pending[i], rec = recs[id]
+      walked++
+      if (rec === null) continue
+      const o = id * SPAN_STRIDE
+      const dx = spans[o] - lodEyeX, dy = spans[o + 1] - lodEyeY, dz = spans[o + 2] - lodEyeZ
+      const dsq = dx * dx + dy * dy + dz * dz
+      const tier = tierFor(dsq)
+      const shadowWanted = shadowDistSq >= 0 && dsq <= shadowDistSq
+      if (shadow && shadowWanted !== rec.shadowWanted) applyShadowWanted(id, rec, shadowWanted)
+      let culled = false
+      if (tier !== NO_MESH_TIER) {
+        const cx = spans[o + 3], cy = spans[o + 4], cz = spans[o + 5], nr = -spans[o + 6]
+        for (let q = 0; q < 24; q += 4) {
+          planeTests++
+          if (planeBuf[q] * cx + planeBuf[q + 1] * cy + planeBuf[q + 2] * cz + planeBuf[q + 3] < nr) { culled = true; break }
+        }
+      }
+      if (tier !== rec.tier || culled !== rec.viewCulled) placeInTier(id, rec, tier, culled)
+    }
+  }
+
   function updateLOD(cameraPos, frustum, viewChanged) {
     sweepStats.updateCalls++
+    walked = 0
+    planeTests = 0
     const ex = cameraPos.x - lodEyeX, ey = cameraPos.y - lodEyeY, ez = cameraPos.z - lodEyeZ
     const moved = lodStale || ex * ex + ey * ey + ez * ez >= LOD_REEVAL_MOVE_SQ
     if (!moved && !viewChanged) return
     if (moved) { lodEyeX = cameraPos.x; lodEyeY = cameraPos.y; lodEyeZ = cameraPos.z; lodStale = false }
     if (frustum) for (let p = 0, o = 0; p < 6; p++, o += 4) { const pl = frustum.planes[p]; planeBuf[o] = pl.normal.x; planeBuf[o + 1] = pl.normal.y; planeBuf[o + 2] = pl.normal.z; planeBuf[o + 3] = pl.constant }
-    let walked = 0, planeTests = 0
-    if (grid.dirty) rebuildGrid()
+    if (gridNeedsRebuild()) rebuildGrid()
     if (grid.usable && frustum) {
       const posMin = grid.posMin, posMax = grid.posMax
       const cenMin = grid.cenMin, cenMax = grid.cenMax, maxR = grid.maxR, minR = grid.minR
@@ -449,14 +514,18 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
           const bulkWant = shadowMode === SHADOW_ALL
           if (mode === MODE_NOT_DRAWN) {
             for (let i = s0; i < s1; i++) {
-              const id = order[i], rec = recs[id]
+              const id = order[i]
+              if (grid.cellOf[id] !== c) continue
+              const rec = recs[id]
               walked++
               if (rec.tier !== NO_MESH_TIER || rec.viewCulled) placeInTier(id, rec, NO_MESH_TIER, false)
               if (bulkShadow && rec.shadowWanted !== bulkWant) applyShadowWanted(id, rec, bulkWant)
             }
           } else if (mode === MODE_UNIFORM) {
             for (let i = s0; i < s1; i++) {
-              const id = order[i], rec = recs[id]
+              const id = order[i]
+              if (grid.cellOf[id] !== c) continue
+              const rec = recs[id]
               walked++
               if (rec.tier !== cellTier || rec.viewCulled) placeInTier(id, rec, cellTier, false)
               if (bulkShadow && rec.shadowWanted !== bulkWant) applyShadowWanted(id, rec, bulkWant)
@@ -464,7 +533,9 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
           } else {
             const cmask = grid.mask[c]
             for (let i = s0; i < s1; i++) {
-              const id = order[i], rec = recs[id]
+              const id = order[i]
+              if (grid.cellOf[id] !== c) continue
+              const rec = recs[id]
               walked++
               const o = id * SPAN_STRIDE
               const dx = spans[o] - lodEyeX, dy = spans[o + 1] - lodEyeY, dz = spans[o + 2] - lodEyeZ
@@ -492,12 +563,15 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
         }
       }
       sweepStats.cellsTested += nextCount
+      sweepPendingInstances()
       const order = grid.order
       for (let k = 0; k < grid.activeCount; k++) {
         const c = grid.active[k]
         if (grid.stamp[c] === now) continue
         for (let i = grid.start[c], e = grid.start[c + 1]; i < e; i++) {
-          const id = order[i], rec = recs[id]
+          const id = order[i]
+          if (grid.cellOf[id] !== c) continue
+          const rec = recs[id]
           walked++
           if (rec.tier !== NO_MESH_TIER || rec.viewCulled) placeInTier(id, rec, NO_MESH_TIER, false)
           if (shadow && rec.shadowWanted) applyShadowWanted(id, rec, false)
@@ -564,8 +638,9 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
         storeSpan(id, rec)
         liveCount++
         tiers[0].add(id, rec)
+        enqueuePending(id)
       }
-      if (count > 0) { lodStale = true; grid.dirty = true }
+      if (count > 0) lodStale = true
     },
     removeInstances(id) {
       const rec = recs[id]
@@ -576,7 +651,8 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
       liveCount--
       freeIds.push(id)
       lodStale = true
-      grid.dirty = true
+      if (id < grid.cellOf.length) grid.cellOf[id] = -1
+      grid.removedSinceBuild++
     },
     setUniformAt(id, name, value) {
       const rec = recs[id]
@@ -605,11 +681,11 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     get lodTierCount() { return tiers.length },
     get sweepStats() { return sweepStats },
     get tierIds() { return tiers.map(t => t.ids) },
-    get sweepGrid() { return { usable: grid.usable, cells: grid.cells, instances: liveCount, reachCells: grid.activeCount } },
+    get sweepGrid() { return { usable: grid.usable, cells: grid.cells, instances: liveCount, reachCells: grid.activeCount, pending: grid.pendingCount, builtLive: grid.builtLive } },
     get shadowActiveCount() { return shadow ? shadow.size : 0 },
     get tierMeshes() { return tiers.map(t => t.mesh) },
     get shadowMesh() { return shadow ? shadow.mesh : null },
-    dispose() { for (const p of pools) p.dispose(); recs.length = 0; liveFlags.fill(0); liveCount = 0; freeIds.length = 0; grid.dirty = true; grid.usable = false; grid.cells = 0 },
+    dispose() { for (const p of pools) p.dispose(); recs.length = 0; liveFlags.fill(0); liveCount = 0; freeIds.length = 0; grid.dirty = true; grid.usable = false; grid.cells = 0; grid.pendingCount = 0; grid.removedSinceBuild = 0; grid.builtLive = 0 },
   }
   for (const p of pools) p.mesh.userData.lodInstancer = api
   return api

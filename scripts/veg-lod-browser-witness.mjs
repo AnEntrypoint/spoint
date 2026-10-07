@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { writeFileSync, mkdirSync } from 'node:fs'
+import { writeFileSync, mkdirSync, readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { chromium } from './lib/cdp-browser.mjs'
@@ -34,6 +35,10 @@ const VEG_WALK_MS = Number(flag('veg-walk', '240000'))
 const EXTRA = flag('extra', 'at=200,0')
 const [VIEW_W, VIEW_H] = String(flag('viewport', '1280x720')).split('x').map(Number)
 const SCALING = !has('no-scaling')
+const ORACLE = !has('no-oracle')
+const ORACLE_INSTANCES = Number(flag('oracle-instances', '2000'))
+const ORACLE_FRAMES = Number(flag('oracle-frames', '40'))
+const ORACLE_SURVIVORS = Number(flag('oracle-survivors', '0'))
 const SCALING_COUNTS = String(flag('scaling-counts', '10000,50000')).split(',').map(Number)
 
 const LAUNCH_VENDOR_ARGS = vendorPinArgs(GPU)
@@ -233,6 +238,95 @@ const SCALING_RUN = (counts) => new Promise(async (res) => {
   res(out)
 })
 
+const ORACLE_RUN = (opts) => {
+  const THREE = window.__app && window.__app.THREE
+  const { instances: N, spacing: S, frames: F, speed: V, distances, hysteresis, meshFar, shadowDistance } = opts
+  if (!THREE) return Promise.resolve({ error: 'no THREE on window.__app' })
+  return (async () => {
+    const src = await (await fetch('/core/WebGPULodInstancer.js')).text()
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(src))
+    const moduleSha = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 16)
+    const mod = await import('/core/WebGPULodInstancer.js')
+    const base = new THREE.BoxGeometry(6, 12, 6)
+    base.translate(0, 6, 0)
+    base.computeBoundingSphere()
+    const shared = base.boundingSphere.clone()
+    const levels = distances.map((d, i) => {
+      const g = new THREE.BoxGeometry(6 - i * 1.5, 12 - i * 3, 6 - i * 1.5)
+      g.translate(0, 6, 0)
+      g.boundingSphere = shared.clone()
+      return { geometry: g, material: new THREE.MeshStandardMaterial(), distance: d }
+    })
+    const shadowGeo = new THREE.BoxGeometry(1.5, 3, 1.5)
+    shadowGeo.translate(0, 6, 0)
+    shadowGeo.boundingSphere = shared.clone()
+    const scene = new THREE.Scene()
+    const inst = mod.createWebGPULodInstancer(scene, levels, N, { windPhase: 'float', tint: 'vec3' }, {
+      hysteresis, shadowGeometry: shadowGeo, shadowMaterial: levels[0].material, shadowDistance,
+    })
+    inst.setMeshFarDistance(meshFar)
+    const side = Math.max(1, Math.ceil(Math.sqrt(N)))
+    const half = (side - 1) * S * 0.5
+    const pos = new Map()
+    inst.addInstances(N, (p) => {
+      const x = (p.id % side) * S - half
+      const z = Math.floor(p.id / side) * S - half
+      p.position.set(x, 0, z)
+      pos.set(p.id, [x, 0, z])
+    })
+    const cam = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 1000)
+    const frustum = new THREE.Frustum()
+    const projScreen = new THREE.Matrix4()
+    const tsq = distances.map((d) => { const t = d - d * hysteresis; return t * t })
+    const mfsq = meshFar * meshFar
+    const tierFor = (dsq) => {
+      if (dsq >= mfsq) return -1
+      for (let i = tsq.length - 1; i > 0; i--) if (dsq >= tsq[i]) return i
+      return 0
+    }
+    const bcx = shared.center.x, bcy = shared.center.y, bcz = shared.center.z, rad = shared.radius
+    let mismatches = 0, firstMismatch = null, survivorsLast = 0
+    for (let f = 0; f < F; f++) {
+      const travelled = V * (1 / 60) * f
+      cam.position.set(-0.35 * (half * 2) + Math.cos(Math.PI / 4) * travelled, 1.7, -0.35 * (half * 2) + Math.sin(Math.PI / 4) * travelled)
+      cam.rotation.set(0, Math.PI / 4 + 0.35 * Math.sin(f * 0.05), 0)
+      cam.updateMatrixWorld(true)
+      cam.updateProjectionMatrix()
+      projScreen.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse)
+      frustum.setFromProjectionMatrix(projScreen)
+      inst.updateLOD(cam.position, frustum, true)
+      const want = []
+      for (const [id, p] of pos) {
+        const dx = p[0] - cam.position.x, dy = p[1] - cam.position.y, dz = p[2] - cam.position.z
+        const tier = tierFor(dx * dx + dy * dy + dz * dz)
+        let culled = false
+        if (tier !== -1) {
+          const ox = p[0] + bcx, oy = p[1] + bcy, oz = p[2] + bcz
+          for (let q = 0; q < 6; q++) {
+            const pl = frustum.planes[q]
+            if (pl.normal.x * ox + pl.normal.y * oy + pl.normal.z * oz + pl.constant < -rad) { culled = true; break }
+          }
+        }
+        if (tier !== -1 && !culled) want.push(id * 8 + tier)
+      }
+      want.sort((a, b) => a - b)
+      const got = []
+      for (let t = 0; t < inst.tierIds.length; t++) for (const id of inst.tierIds[t]) got.push(id * 8 + t)
+      got.sort((a, b) => a - b)
+      survivorsLast = got.length
+      if (got.length !== want.length || got.some((v, i) => v !== want[i])) {
+        mismatches++
+        if (!firstMismatch) {
+          const i = got.findIndex((v, j) => v !== want[j])
+          firstMismatch = { frame: f, index: i, got: got[i], want: want[i], gotLen: got.length, wantLen: want.length }
+        }
+      }
+    }
+    inst.dispose()
+    return { moduleSha, frames: F, mismatches, firstMismatch, survivorsLast }
+  })()
+}
+
 async function waitReady(page) {
   const deadline = Date.now() + READY_TIMEOUT_MS
   let last = null
@@ -310,6 +404,22 @@ async function main() {
     if (!(moving.recordsPerFrame > 0)) failures.push('moving phase recorded zero records walked: updateLOD did not sweep')
     if (!(moving.recordsPerFrame <= shape.instances)) failures.push(`records walked per frame ${moving.recordsPerFrame} exceeds total instances ${shape.instances}`)
 
+    let oracle = null
+    if (ORACLE) {
+      oracle = await page.evaluate(ORACLE_RUN, {
+        instances: ORACLE_INSTANCES, spacing: 3, frames: ORACLE_FRAMES, speed: 40,
+        distances: [0, 14, 35], hysteresis: 0.12, meshFar: 90, shadowDistance: 35,
+      }).catch((e) => ({ error: String(e && e.message || e) }))
+      console.log('[veg-lod-browser] oracle: ' + JSON.stringify(oracle))
+      if (oracle.error) failures.push('in-page tier-equivalence phase failed: ' + oracle.error)
+      else {
+        const diskSha = createHash('sha256').update(readFileSync(resolve(ROOT, 'client', 'core', 'WebGPULodInstancer.js'))).digest('hex').slice(0, 16)
+        if (oracle.moduleSha !== diskSha) failures.push(`in-page tier-equivalence ran module sha ${oracle.moduleSha} but client/core/WebGPULodInstancer.js on disk is ${diskSha}: the page did not exercise this checkout's LOD code`)
+        if (oracle.mismatches > 0) failures.push(`in-page tier-equivalence: ${oracle.mismatches} of ${oracle.frames} poses classified differently from the brute-force per-instance sweep (first ${JSON.stringify(oracle.firstMismatch)})`)
+        if (ORACLE_SURVIVORS > 0 && oracle.survivorsLast !== ORACLE_SURVIVORS) failures.push(`in-page tier-equivalence: ${oracle.survivorsLast} survivors at the final pose, expected ${ORACLE_SURVIVORS} from the reference build: the same pose no longer selects the same instances`)
+      }
+    }
+
     let scaling = null
     let scalingCost = null
     if (SCALING) {
@@ -341,7 +451,7 @@ async function main() {
       if (edit.gridInstancesAfter !== edit.countAfter) failures.push(`one frame after an edit that left ${edit.countAfter} instances the index still describes ${edit.gridInstancesAfter}: not rebuilt within one frame`)
     }
 
-    const payload = { label: LABEL, url, gpu: { rasterizer: gpu.rasterizer, renderer: gpu.renderer, adapter: gpu.adapter }, ready, shape, still, moving, scaling, scalingCost, edit, failures }
+    const payload = { label: LABEL, url, gpu: { rasterizer: gpu.rasterizer, renderer: gpu.renderer, adapter: gpu.adapter }, ready, shape, still, moving, oracle, scaling, scalingCost, edit, failures }
     const outPath = resolve(OUT_DIR, LABEL + '.json')
     writeFileSync(outPath, JSON.stringify(payload, null, 2))
     console.log('json: ' + outPath)

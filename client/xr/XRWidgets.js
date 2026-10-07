@@ -178,3 +178,5 @@ export function createXRWidgets(renderer, scene, camera, vrSettings) {
 
   return { initWristUI, updateWristUI, toggleSettings, updateSettingsPanel, initTeleport, updateTeleportArc, updateFade, updateVignette, get isTeleporting() { return isTeleporting }, get settingsVisible() { return vrSettingsPanel?.visible || false } }
 }
+
+export const __freshnessProbe = 1

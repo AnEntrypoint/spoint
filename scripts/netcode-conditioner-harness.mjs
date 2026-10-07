@@ -5,6 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { createServer as createNetServer } from 'node:net'
 import { createPreciseScheduler, ConditionedTransport, mulberry32 } from './lib/net-conditioner.mjs'
 import { summarize, stdev, dist3, createTruthTrack, effectiveDelay, detectPops, fmt } from './lib/netcode-metrics.mjs'
+import { parseArgs, numArg, strArg } from './lib/witness-args.mjs'
 
 process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = '1'
@@ -18,10 +19,10 @@ const MOVE_ONSET_M = 0.03
 const MISPREDICT_M = 0.02
 const RESPAWN_JUMP_M = 3
 
-const args = Object.fromEntries(process.argv.slice(2).map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true'] }))
-if (args.precise === 'true') process.env.SPOINT_PRECISE_TICKS = '1'
-const DURATION_MS = Number(args.duration || 20000)
-const WORLD = args.world || 'arena'
+const args = parseArgs(process.argv.slice(2))
+if (args.precise === true || args.precise === 'true') process.env.SPOINT_PRECISE_TICKS = '1'
+const DURATION_MS = numArg(args.duration, 20000)
+const WORLD = strArg(args.world, 'arena')
 const HARNESS_ARENA = {
   name: 'netcode-harness-arena', tickRate: 60, gravity: [0, -9.81, 0], placeableApps: ['box-static'], spawnPoints: [[0, 3, 0], [0, 3, 8]],
   entities: [{ id: 'floor', app: 'box-static', position: [0, -1, 0], config: { hx: 100, hy: 1, hz: 100 } }]
@@ -46,6 +47,28 @@ const HARNESS_CORNER = {
   harness: { shooterAt: [8, 1.2, 10], script: [[700, {}], [4000, { right: true, backward: true }], [700, {}]] }
 }
 const STAIR_STEPS = 8, STAIR_RISE = 0.2, STAIR_RUN = 0.5
+const SLOPE_HALF_DEPTH_M = 1
+const SLOPE_HALF_WIDTH_M = 200
+const SLOPE_DEG = numArg(args.slopeDeg, 25)
+
+function slopeTiltQuat(deg) {
+  const a = -deg * Math.PI / 360
+  return [Math.sin(a), 0, 0, Math.cos(a)]
+}
+
+function slopeSurfaceY(deg, z) {
+  const a = -deg * Math.PI / 180
+  const y0 = -SLOPE_HALF_DEPTH_M + SLOPE_HALF_DEPTH_M * Math.cos(a)
+  const z0 = SLOPE_HALF_DEPTH_M * Math.sin(a)
+  return y0 - Math.tan(a) * (z - z0)
+}
+
+const HARNESS_SLOPE = {
+  ...HARNESS_ARENA, name: 'netcode-harness-slope',
+  entities: [{ id: 'slope', app: 'box-static', position: [0, -SLOPE_HALF_DEPTH_M, 0], rotation: slopeTiltQuat(SLOPE_DEG), config: { hx: SLOPE_HALF_WIDTH_M, hy: SLOPE_HALF_DEPTH_M, hz: SLOPE_HALF_WIDTH_M } }],
+  spawnPoints: [[0, slopeSurfaceY(SLOPE_DEG, 0) + 3, 0], [0, slopeSurfaceY(SLOPE_DEG, 8) + 3, 8]],
+  harness: { shooterAt: [0, slopeSurfaceY(SLOPE_DEG, 8) + 1.2, 8] }
+}
 const HARNESS_STAIRS = {
   ...HARNESS_ARENA, name: 'netcode-harness-stairs',
   entities: [
@@ -55,18 +78,23 @@ const HARNESS_STAIRS = {
   ],
   harness: { shooterAt: [8, 1.2, 4], script: [[700, {}], [2500, { forward: true }], [700, {}], [2500, { backward: true }], [700, {}]] }
 }
-const INLINE_WORLDS = { arena: HARNESS_ARENA, wall: HARNESS_WALL, 'wall-end': HARNESS_WALL_END, corner: HARNESS_CORNER, stairs: HARNESS_STAIRS }
-const FPS = Number(args.fps || 60)
-const BOTS = Number(args.bots || 0)
-const CHANNEL = args.channel || 'ws'
-const TICK_OVERRIDE = args.tick ? Number(args.tick) : null
-const SNAP_HZ = args.snapHz ? Number(args.snapHz) : null
-const AT = args.at ? args.at.split(',').map(Number) : null
-const HOLD = args.hold ? Object.fromEntries(args.hold.split(',').map(k => [k, true])) : null
-const PREDICT_MODES = (args.predict || 'off,on').split(',').map(s => s === 'on')
-const CONDITIONS = args.cond
-  ? args.cond.split(';').map(c => { const [l, j, p] = c.split('/').map(Number); return { latencyMs: l, jitterMs: j, lossPct: p } })
-  : [{ latencyMs: 0, jitterMs: 0, lossPct: 0 }, { latencyMs: 25, jitterMs: 5, lossPct: 1 }, { latencyMs: 50, jitterMs: 10, lossPct: 2 }, { latencyMs: 75, jitterMs: 15, lossPct: 5 }]
+const INLINE_WORLDS = { arena: HARNESS_ARENA, wall: HARNESS_WALL, 'wall-end': HARNESS_WALL_END, corner: HARNESS_CORNER, stairs: HARNESS_STAIRS, slope: HARNESS_SLOPE }
+const FPS = numArg(args.fps, 60)
+const BOTS = numArg(args.bots, 0)
+const CHANNEL = strArg(args.channel, 'ws')
+const TICK_OVERRIDE = numArg(args.tick, null)
+const SNAP_HZ = numArg(args.snapHz, null)
+const RELEVANCE_M = numArg(args.relevance, 0)
+const OUT_PATH_ARG = strArg(args.out, '') ? resolve(process.cwd(), args.out) : ''
+const AT_PARTS = typeof args.at === 'string' ? args.at.split(',').map(Number).filter(Number.isFinite) : []
+const AT = AT_PARTS.length === 3 ? AT_PARTS : null
+const HOLD = typeof args.hold === 'string' ? Object.fromEntries(args.hold.split(',').map(k => [k, true])) : null
+const PREDICT_MODES = (typeof args.predict === 'string' ? args.predict.split(',') : ['off', 'on']).map(s => s === 'on')
+const DEFAULT_CONDITIONS = [{ latencyMs: 0, jitterMs: 0, lossPct: 0 }, { latencyMs: 25, jitterMs: 5, lossPct: 1 }, { latencyMs: 50, jitterMs: 10, lossPct: 2 }, { latencyMs: 75, jitterMs: 15, lossPct: 5 }]
+const PARSED_CONDITIONS = typeof args.cond === 'string'
+  ? args.cond.split(';').map(c => { const [l, j, p] = c.split('/').map(Number); return { latencyMs: l, jitterMs: j, lossPct: p } }).filter(c => Number.isFinite(c.latencyMs) && Number.isFinite(c.jitterMs) && Number.isFinite(c.lossPct))
+  : []
+const CONDITIONS = PARSED_CONDITIONS.length ? PARSED_CONDITIONS : DEFAULT_CONDITIONS
 
 const { createServer } = await import('../src/sdk/server.js')
 const { PhysicsNetworkClient } = await import('../src/client/PhysicsNetworkClient.js')
@@ -196,11 +224,46 @@ function instrumentPrediction(h, rec, seqKinds) {
   if (args.peerSeparation === 'off') { pe._peers = null; pe.setPeers = () => {} }
   const onSnap = pe.onServerSnapshot.bind(pe)
   let lastAck = -1
+  rec.steps = 0
+  rec.sepSteps = 0
+  rec.sepPushM = []
+  rec.peerMinDistM = []
+  rec.horizonTicks = []
+  rec.stepLeadTicks = []
+  const step = pe._step.bind(pe)
+  pe._step = (input, seq, gn) => {
+    rec.steps++
+    if (rec.stepLeadTicks.length < 20000) rec.stepLeadTicks.push(pe._inputSeq - 1 - pe._lastAckedSeq)
+    return step(input, seq, gn)
+  }
+  const sep = pe._separateFromPeers.bind(pe)
+  pe._separateFromPeers = (dt, tps) => {
+    rec.sepSteps++
+    const ls = pe.localState, peers = pe._peers
+    let nearest = Infinity
+    if (ls && peers && rec.peerMinDistM.length < 20000) {
+      const p = ls.position
+      for (const [pid, peer] of peers) {
+        if (pid === pe.localPlayerId || !Array.isArray(peer.position)) continue
+        const d = Math.hypot(peer.position[0] - p[0], peer.position[2] - p[2])
+        if (d < nearest) nearest = d
+      }
+    }
+    if (rec.sepPushM.length < 20000 && ls) {
+      const p = ls.position, x0 = p[0], z0 = p[2]
+      const r = sep(dt, tps)
+      rec.sepPushM.push(Math.hypot(p[0] - x0, p[2] - z0))
+      if (Number.isFinite(nearest)) rec.peerMinDistM.push(nearest)
+      return r
+    }
+    return sep(dt, tps)
+  }
   pe.onServerSnapshot = (snap, tick) => {
     const sp = snap.players?.[0]
     const before = pe.stats.corrections
     if (sp && sp.inputSequence > lastAck) {
       lastAck = sp.inputSequence
+      rec.horizonTicks.push(pe.predictionLeadSteps())
       const pred = pe.predictedAt(sp.inputSequence)
       if (pred) {
         const e = dist3(sp.position, pred.position)
@@ -278,7 +341,7 @@ async function runOne(cond, predict, worldDef) {
   bots.forEach((b, i) => place(b, [20 + 4 * i, 1.2, -20]))
   const rec = { mispredict: [], correctionJumpM: [], corrections: 0, worst: [], byKind: {}, lastKindSeq: 0 }
   const seqKinds = new Map(), routeLeg = { k: -1, target: null, visited: new Set(), pushStart: 0 }
-  if (args.route === 'tps') server.tickSystem.onTick(() => {
+  if (args.kinds !== 'off') server.tickSystem.onTick(() => {
     const p = server.playerManager.getPlayer(mover.client.playerId)
     if (!p || p.ackSequence == null) return
     const kinds = contactKinds(server, p.id)
@@ -296,7 +359,7 @@ async function runOne(cond, predict, worldDef) {
   mover.client.startInputLoop(() => {
     const now = performance.now()
     if (!meterBase && now >= runStart) meterBase = all.map(h => ({ inBytes: h.meter.inBytes, outBytes: h.meter.outBytes, inMsgs: h.meter.inMsgs, snap: h.meter.byType.SNAPSHOT || 0 }))
-    instrumentPrediction(mover, rec, args.route === 'tps' ? seqKinds : null)
+    instrumentPrediction(mover, rec, args.kinds !== 'off' ? seqKinds : null)
     const inp = now < runStart ? { yaw: 0, pitch: 0 } : HOLD ? { yaw: 0, pitch: 0, ...HOLD } : args.route === 'tps' ? routeInput(server, mover.client.playerId, now - runStart, routeLeg) : moverInputAt(now - runStart, worldDef.harness?.script)
     const dir = wishDir(inp)
     if (dir && !wishDir(lastMoverInput) && now >= runStart) {
@@ -306,7 +369,7 @@ async function runOne(cond, predict, worldDef) {
     lastMoverInput = inp
     return inp
   })
-  shooter.client.startInputLoop(() => { instrumentPrediction(shooter, shooterRec); return { yaw: 0, pitch: 0 } })
+  shooter.client.startInputLoop(() => { if (args.kinds !== 'off') instrumentPrediction(shooter, shooterRec, null); return { yaw: 0, pitch: 0 } })
   bots.forEach((b, i) => b.client.startInputLoop(() => { if (botRng() < 0.03) botInputs[i] = { forward: botRng() < 0.6, left: botRng() < 0.3, right: botRng() < 0.3, yaw: botRng() * 6.28, pitch: 0 }; return botInputs[i] }))
   const stopInput = () => all.forEach(h => h.client.stopInputLoop())
   const stopFrames = scheduler.every(1000 / FPS, now => {
@@ -368,6 +431,11 @@ async function runOne(cond, predict, worldDef) {
       localMs: summarize(onsets.map(o => o.local)), remoteMs: summarize(onsets.map(o => o.remote)), serverMs: summarize(onsets.map(o => o.server)), onsets: onsets.length
     },
     mispredict: predict ? { rate: rec.mispredict.filter(e => e > MISPREDICT_M).length / Math.max(1, rec.mispredict.length), errM: summarize(rec.mispredict), correctionsApplied: rec.corrections, correctionRate: rec.corrections / Math.max(1, rec.mispredict.length), correctionJumpM: summarize(rec.correctionJumpM), shooterCorrections: shooterRec.corrections, worst: rec.worst, byKind: Object.fromEntries(Object.entries(rec.byKind).map(([k, b]) => [k, { acks: b.acks, misRate: b.mis / b.acks, errM: summarize(b.errs), vErrM: summarize(b.vErrs), samples: b.samples }])), respawns: rec.respawns || 0 } : null,
+    peerSeparation: predict ? {
+      steps: rec.steps, sepSteps: rec.sepSteps, sepFiredFrac: rec.sepSteps / Math.max(1, rec.steps),
+      sepPushM: summarize(rec.sepPushM), peerMinDistM: summarize(rec.peerMinDistM),
+      horizonTicks: summarize(rec.horizonTicks), stepLeadTicks: summarize(rec.stepLeadTicks)
+    } : null,
     routeSpan: localFrames.length ? [0, 1, 2].map(k => [Math.min(...localFrames.map(f => f.p[k])), Math.max(...localFrames.map(f => f.p[k]))]) : null,
     drawn: { renderOffsetM: summarize(renderOffset), jerkM: summarize(drawnJerk), jerkOver2cm: drawnJerk.filter(j => j > 0.02).length / Math.max(1, elapsedS) },
     mirror: (() => { const pe = mover.client._msgHandler.getPredEngine(); return pe?.collisionMirrorStats ? pe.collisionMirrorStats() : null })(),
@@ -405,6 +473,7 @@ async function main() {
   process.chdir(workDir)
   const worldDef = INLINE_WORLDS[WORLD] || await (await import('../src/sdk/WorldLocator.js')).loadWorldModule(resolve(SDK_ROOT, 'apps/world', WORLD + '.js'))
   if (SNAP_HZ) worldDef.netcode = { ...(worldDef.netcode || {}), snapshotRate: SNAP_HZ }
+  if (RELEVANCE_M > 0) worldDef.relevanceRadius = RELEVANCE_M
   if (args.snapAdaptive === 'off') worldDef.netcode = { ...(worldDef.netcode || {}), adaptiveSnapshotRate: false }
   const results = []
   for (const cond of CONDITIONS) for (const predict of PREDICT_MODES) {
@@ -420,7 +489,7 @@ async function main() {
   const header ='| one-way ms/jitter/loss | predict | RTT | local in->visual p50/p95 ms | remote in->visual p50 ms | mispredict rate | mispredict p95 cm | local pops/min | max pop cm | remote eff. delay ms | interp jitter ms | interp interval ms | remote - server ms | extrap/held % | remote err@delay cm | remote err vs present cm | hit% (aim at view) | miss p50 cm | KB/s down/up | snap Hz | tick Hz / p99 interval ms | input starves/s |\n|' + '---|'.repeat(22)
   const table = [header, ...results.map(row)].join('\n')
   console.log('\n' + table + '\n')
-  const outPath = resolve(OUT_DIR, `run-${Date.now()}.json`)
+  const outPath = OUT_PATH_ARG || resolve(OUT_DIR, `run-${Date.now()}.json`)
   await writeFile(outPath, JSON.stringify({ world: WORLD, channel: CHANNEL, fps: FPS, results, table }, null, 2))
   console.log(`[netcode-harness] wrote ${outPath}`)
   process.exit(0)

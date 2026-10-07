@@ -1167,6 +1167,7 @@ let client; const _clientConfig = {
   onEntityAdded: (id,s) => el.loadEntityModel(id,s,entityAppMap,firstSnapshotEntityPending,onFirstEntityLoaded,_scheduleFitShadow,_loadingFinished),
   onEntityRemoved: id => el.removeEntity(id),
   onWorldDef: wd => {
+    _nameRemoteNetcodeProfile(wd)
     if (_worldLoaded) { try { el.dispose() } catch (e) { _dbgEditor('EntityLoader dispose failed on world reload:', e?.message || e) } try { modelPool.dispose() } catch (e) { _dbgEditor('modelPool dispose failed on world reload:', e?.message || e) } }
     _worldLoaded = true
     loadingMgr.setLabel('Syncing with server...'); worldConfig=wd; _equipment=worldEquipment(wd); _rebuildMobileControls(wd)
@@ -1333,6 +1334,13 @@ function _warnNetcodeProfileDowngraded(profile, worldName) {
     el.textContent = msg
     document.body.appendChild(el)
   } catch (_) { }
+}
+function _nameRemoteNetcodeProfile(serverWorldDef) {
+  if (_worldDef || _wwRoom || !serverWorldDef) return
+  let profile = null
+  try { profile = resolveNetcodeProfile(serverWorldDef) } catch (_) { return }
+  if (!profile?.peerSimulated) return
+  _warnNetcodeProfileDowngraded(profile, serverWorldDef.name || 'remote')
 }
 let _preboundBridge = null
 const _netcodeProfile = _worldDef ? resolveNetcodeProfile(_worldDef) : null
