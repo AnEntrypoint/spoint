@@ -11,6 +11,11 @@ const ONLY = args.only || 'all'
 const GRID = Number(args.grid ?? 40)
 const CELLS = args.cells ? String(args.cells).split(',').map(Number) : [114, 115]
 
+const SHARED_SAMPLE_MAX_DIFF_M = 1e-6
+const SEAM_MAX_DIFF_M = 0.05
+const EXACT_MAX_ERR_M = 1
+const SHAPE_BRACKET_TOLERANCE_M = 1e-3
+
 const out = []
 const log = (...a) => { const s = a.map(v => typeof v === 'string' ? v : JSON.stringify(v)).join(' '); out.push(s); process.stdout.write(s + '\n') }
 const fail = []
@@ -63,7 +68,11 @@ function heightFieldShapeOf(bodyId) {
   try {
     if (typeof J.castObject === 'function' && J.HeightFieldShape) {
       const hf = J.castObject(shape, J.HeightFieldShape)
-      if (hf) return { min: hf.get_mMinHeightValue?.() ?? null, max: hf.get_mMaxHeightValue?.() ?? null, scale: hf.get_mHeightQuantizationScale?.() ?? null }
+      if (hf) return {
+        min: hf.GetMinHeightValue?.() ?? null,
+        max: hf.GetMaxHeightValue?.() ?? null,
+        sampleCount: hf.GetSampleCount?.() ?? null,
+      }
     }
   } catch (_) { }
   return null
@@ -141,6 +150,16 @@ async function seamProbe(cellsOffset) {
     predictedQuantBoundM: +((qStepA + qStepB) / 2).toFixed(6),
   }
   log('SEAM', JSON.stringify(rec))
+  const shapeCoversRange = f => f.jolt !== null
+    && f.jolt.min <= f.min + SHAPE_BRACKET_TOLERANCE_M
+    && f.jolt.max >= f.max - SHAPE_BRACKET_TOLERANCE_M
+    && f.jolt.sampleCount === N
+  expect(`seam-${cellsOffset}-measured`, rec.points > 0, rec.points)
+  expect(`seam-${cellsOffset}-shared-samples-agree`, rec.sharedSampleMaxDiffM <= SHARED_SAMPLE_MAX_DIFF_M, rec.sharedSampleMaxDiffM)
+  expect(`seam-${cellsOffset}-continuous`, rec.seamMaxDiffM <= SEAM_MAX_DIFF_M, rec.seamMaxDiffM)
+  expect(`seam-${cellsOffset}-shape-readable`, rec.fieldA.jolt !== null && rec.fieldB.jolt !== null, [rec.fieldA.jolt, rec.fieldB.jolt])
+  expect(`seam-${cellsOffset}-shape-covers-range`, shapeCoversRange(rec.fieldA) && shapeCoversRange(rec.fieldB), [rec.fieldA.jolt, rec.fieldB.jolt])
+  expect(`seam-${cellsOffset}-collider-matches-surface`, rec.maxErrVsExactBoth <= EXACT_MAX_ERR_M, rec.maxErrVsExactBoth)
   physics.removeBody(A.bodyId); physics.removeBody(B.bodyId)
   return rec
 }
@@ -153,5 +172,6 @@ if (ONLY === 'all' || ONLY === 'seam') {
 }
 
 physics.destroy()
-if (fail.length) { log('FAILED', JSON.stringify(fail)); process.exit(1) }
+if (fail.length) { log('FAILED', JSON.stringify(fail)); log(`RESULT: FAIL -- ${fail.length} check(s): ${fail.join('; ')}`); process.exit(1) }
+log('RESULT: PASS -- every seam check held')
 process.exit(0)
