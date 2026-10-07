@@ -36,7 +36,7 @@ import { createEditHistory } from './editor/EditHistory.js'
 import { createLivePreview } from './editor/LivePreview.js'
 import { createPersistentHistory } from './editor/PersistentHistory.js'
 import { createEditorPresence } from './editor/EditorPresence.js'
-import { createScene, createRenderer, probeAndCreateWebGPURenderer, describeRenderer, installStuckPipelineRecovery, setupLights, createLoaders, applySceneConfig, warmupShaders, MAX_UNMANIFESTED_WARMUP_MESHES, limitTextureSize, setSeaLevelY, probeOffscreenCanvasWorkerRendering } from './core/SceneSetup.js'
+import { createScene, createRenderer, probeAndCreateWebGPURenderer, describeRenderer, installStuckPipelineRecovery, setupLights, createLoaders, applySceneConfig, warmupShaders, waitForManifestResidence, MAX_UNMANIFESTED_WARMUP_MESHES, limitTextureSize, setSeaLevelY, probeOffscreenCanvasWorkerRendering } from './core/SceneSetup.js'
 import { createWorkerRenderer } from './core/WorkerRenderer.js'
 import { createPlayerManager } from './PlayerManager.js'
 import { createEntityLoader } from './EntityLoader.js'
@@ -312,6 +312,7 @@ const loadingMachine = createLoadingStateMachine()
 if (window.__app) window.__app.loadingMachine = loadingMachine
 let _loadingFinished = false
 let _worldRevealed = false
+let _revealedManifestKey = ''
 let _resolveWorldBuilt = null
 const _worldBuiltPromise = new Promise(r => { _resolveWorldBuilt = r })
 const SHADER_WARMUP_MAX_MS = 6000
@@ -398,29 +399,43 @@ async function _awaitSceneryBuild() {
   }
 }
 function worldShaderManifest(wd) {
-  const entities = wd && Array.isArray(wd.entities) ? wd.entities : null
-  if (!entities) return null
+  const declared = Array.isArray(wd && wd._modelUrls)
+    ? wd._modelUrls
+    : (wd && Array.isArray(wd.entities) ? wd.entities.map(e => e && e.model) : null)
+  if (!declared) return null
   const seen = new Set()
-  for (const e of entities) {
-    const url = e && typeof e.model === 'string' ? e.model : null
-    if (!url || seen.has(url)) continue
+  for (const url of declared) {
+    if (typeof url !== 'string' || !url || seen.has(url)) continue
     seen.add(url)
     if (seen.size > MAX_UNMANIFESTED_WARMUP_MESHES) return null
   }
   return seen.size ? { modelUrls: [...seen] } : null
 }
+function _shaderManifestKey(manifest) {
+  return manifest && Array.isArray(manifest.modelUrls) ? manifest.modelUrls.slice().sort().join(' ') : ''
+}
+async function _warmWorldShaders(manifest) {
+  if (!(!_isSingleplayer || el.entityMeshes.size < 10 || manifest)) return
+  const _residence = manifest ? await waitForManifestResidence(el.entityMeshes, manifest) : null
+  loadingMgr.setLabel('Compiling shaders...')
+  const _warmupAbort = { aborted: false }
+  window.__warmupInFlight = true
+  try {
+    await Promise.race([warmupShaders(renderer, scene, camera, el.entityMeshes, pm.playerMeshes, loadingMgr, _warmupAbort, manifest, _residence), new Promise(r => setTimeout(r, SHADER_WARMUP_MAX_MS)).then(() => { _warmupAbort.aborted = true })])
+  } catch (_) { _warmupAbort.aborted = true } finally { window.__warmupInFlight = false }
+}
 async function _revealWorld() {
-  if (_worldRevealed) return
-  _worldRevealed = true
   const _shaderManifest = _worldParam ? (worldShaderManifest(_worldDef) || worldShaderManifest(worldConfig)) : null
-  if (!_isSingleplayer || el.entityMeshes.size < 10 || _shaderManifest) {
-    loadingMgr.setLabel('Compiling shaders...')
-    const _warmupAbort = { aborted: false }
-    window.__warmupInFlight = true
-    try {
-      await Promise.race([warmupShaders(renderer, scene, camera, el.entityMeshes, pm.playerMeshes, loadingMgr, _warmupAbort, _shaderManifest), new Promise(r => setTimeout(r, SHADER_WARMUP_MAX_MS)).then(() => { _warmupAbort.aborted = true })])
-    } catch (_) { _warmupAbort.aborted = true } finally { window.__warmupInFlight = false }
+  const _manifestKey = _shaderManifestKey(_shaderManifest)
+  if (_worldRevealed) {
+    if (_manifestKey === _revealedManifestKey) return
+    _revealedManifestKey = _manifestKey
+    await _warmWorldShaders(_shaderManifest)
+    return
   }
+  _worldRevealed = true
+  _revealedManifestKey = _manifestKey
+  await _warmWorldShaders(_shaderManifest)
   loadingMgr.setLabel('Compiling shaders...')
   await whenProgramsReady(renderer, SHADER_WARMUP_MAX_MS)
   performance.mark('boot:shaders-warm')
@@ -1175,6 +1190,7 @@ let client; const _clientConfig = {
     if (typeof window !== 'undefined') window.__minimapMeta = wd._minimap || null
     if (wd.camera) cam.applyConfig(wd.camera)
     if (wd.input) { inputConfig={pointerLock:true,...wd.input}; if (!inputConfig.pointerLock) clickPrompt.style.display='none' }
+    if (_worldRevealed) _revealWorld().catch(e => { _dbgBoot('post-reveal shader warmup failed:', e?.message || e) })
   },
   onAppModule: async d => await ams.loadAppModule(d,engineCtx), onAssetUpdate: ()=>{},
   onTerrainConfig: payload => {

@@ -205,11 +205,33 @@ function _webgpuAdapterLabel(device) {
   return [info.vendor, info.architecture, info.description].filter(Boolean).join(' ') || null
 }
 
+function _unmaskedGlVendor(gl) {
+  if (!gl) return null
+  const ext = gl.getExtension('WEBGL_debug_renderer_info')
+  return gl.getParameter(ext ? ext.UNMASKED_VENDOR_WEBGL : gl.VENDOR)
+}
+
+function _webgpuAdapterVendor(device) {
+  const info = device && device.adapterInfo
+  return (info && info.vendor) || null
+}
+
 export function describeRenderer(renderer) {
-  if (!renderer.isWebGPURenderer) return { class: 'WebGLRenderer', backend: 'webgl2-legacy', glRenderer: _unmaskedGlRenderer(renderer.getContext()) }
+  if (!renderer.isWebGPURenderer) {
+    const gl = renderer.getContext()
+    return { class: 'WebGLRenderer', backend: 'webgl2-legacy', glRenderer: _unmaskedGlRenderer(gl), glVendor: _unmaskedGlVendor(gl) }
+  }
   const backend = renderer.backend
-  if (backend.isWebGLBackend) return { class: 'WebGPURenderer', backend: 'webgl2', glRenderer: _unmaskedGlRenderer(backend.gl) }
-  return { class: 'WebGPURenderer', backend: 'webgpu', glRenderer: _webgpuAdapterLabel(backend.device) }
+  if (backend.isWebGLBackend) {
+    return { class: 'WebGPURenderer', backend: 'webgl2', glRenderer: _unmaskedGlRenderer(backend.gl), glVendor: _unmaskedGlVendor(backend.gl) }
+  }
+  const device = backend.device
+  return {
+    class: 'WebGPURenderer',
+    backend: 'webgpu',
+    glRenderer: _webgpuAdapterLabel(device),
+    glVendor: _webgpuAdapterVendor(device),
+  }
 }
 
 const STUCK_PIPELINE_ERROR_THRESHOLD = 3
@@ -312,12 +334,57 @@ export function applySceneConfig(s, scene, ambient, sun, studio, camera) {
 }
 
 export const MAX_UNMANIFESTED_WARMUP_MESHES = 50
-export async function warmupShaders(renderer, scene, camera, entityMeshes, playerMeshes, loadingMgr, abortSignal = null, manifest = null) {
-  const _t0 = performance.now()
-  const _record = (extra) => {
-    window.__lastShaderWarmup = { ts: Date.now(), wallMs: performance.now() - _t0, manifestDriven: !!(manifest && Array.isArray(manifest.modelUrls) && manifest.modelUrls.length), manifestUrls: manifestUrls ? [...manifestUrls] : null, ...extra }
+export const MANIFEST_RESIDENCE_WAIT_MS = 10000
+export const MANIFEST_RESIDENCE_POLL_MS = 50
+export const MANIFEST_RESIDENCE_MAX_POLLS = Math.ceil(MANIFEST_RESIDENCE_WAIT_MS / MANIFEST_RESIDENCE_POLL_MS)
+
+function _manifestUnresolvedUrls(entityMeshes, manifestUrls) {
+  const resident = new Set()
+  for (const mesh of entityMeshes.values()) {
+    const url = mesh && mesh.userData ? mesh.userData.modelUrl : null
+    if (url && manifestUrls.has(url)) resident.add(url)
   }
+  return [...manifestUrls].filter(u => !resident.has(u))
+}
+
+async function _awaitManifestResidence(entityMeshes, manifestUrls, waitMs, isAborted) {
+  const startedAt = performance.now()
+  const deadline = startedAt + waitMs
+  const maxPolls = Math.max(1, Math.min(MANIFEST_RESIDENCE_MAX_POLLS, Math.ceil(waitMs / MANIFEST_RESIDENCE_POLL_MS)))
+  for (let poll = 0; poll <= maxPolls; poll++) {
+    const unresolved = _manifestUnresolvedUrls(entityMeshes, manifestUrls)
+    const waitedMs = performance.now() - startedAt
+    if (unresolved.length === 0) return { unresolved, waitedMs, polls: poll, aborted: false }
+    if (isAborted()) return { unresolved, waitedMs, polls: poll, aborted: true }
+    if (waitedMs >= waitMs || performance.now() >= deadline) return { unresolved, waitedMs, polls: poll, aborted: false }
+    await new Promise(r => setTimeout(r, MANIFEST_RESIDENCE_POLL_MS))
+  }
+  return { unresolved: _manifestUnresolvedUrls(entityMeshes, manifestUrls), waitedMs: performance.now() - startedAt, polls: maxPolls, aborted: false }
+}
+
+export async function waitForManifestResidence(entityMeshes, manifest, waitMs = MANIFEST_RESIDENCE_WAIT_MS) {
   const manifestUrls = manifest && Array.isArray(manifest.modelUrls) && manifest.modelUrls.length ? new Set(manifest.modelUrls) : null
+  if (!manifestUrls) return { unresolved: [], waitedMs: 0, polls: 0, aborted: false }
+  return _awaitManifestResidence(entityMeshes, manifestUrls, waitMs, () => false)
+}
+
+export async function warmupShaders(renderer, scene, camera, entityMeshes, playerMeshes, loadingMgr, abortSignal = null, manifest = null, residence = null) {
+  const _t0 = performance.now()
+  const manifestUrls = manifest && Array.isArray(manifest.modelUrls) && manifest.modelUrls.length ? new Set(manifest.modelUrls) : null
+  let _residence = residence || { unresolved: [], waitedMs: 0, polls: 0, aborted: false }
+  const _record = (extra) => {
+    window.__lastShaderWarmup = {
+      ts: Date.now(),
+      wallMs: performance.now() - _t0,
+      manifestDriven: !!manifestUrls,
+      manifestUrls: manifestUrls ? [...manifestUrls] : null,
+      manifestResidenceWaitMs: Math.round(_residence.waitedMs),
+      manifestUnresolvedUrls: _residence.unresolved.length ? _residence.unresolved.slice() : null,
+      manifestUnresolvedReason: _residence.unresolved.length ? (_residence.aborted ? 'residence-wait-aborted' : 'residence-deadline-exceeded') : null,
+      ...extra,
+    }
+  }
+  if (manifestUrls && !residence) _residence = await _awaitManifestResidence(entityMeshes, manifestUrls, MANIFEST_RESIDENCE_WAIT_MS, () => !!abortSignal?.aborted)
   const allEntityMeshes = [...entityMeshes.values()]
   const manifestedMeshes = manifestUrls ? allEntityMeshes.filter(m => m.userData && manifestUrls.has(m.userData.modelUrl)).slice(0, MAX_UNMANIFESTED_WARMUP_MESHES) : []
   const residentMeshes = manifestUrls ? allEntityMeshes.filter(m => !(m.userData && manifestUrls.has(m.userData.modelUrl))) : allEntityMeshes

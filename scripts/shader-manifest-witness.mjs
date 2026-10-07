@@ -35,7 +35,7 @@ const PROBE = `(() => {
   const warm = window.__lastShaderWarmup || null
   const client = (window.__app && window.__app.client) || null
   return {
-    warmup: warm ? { manifestDriven: !!warm.manifestDriven, manifestUrls: Array.isArray(warm.manifestUrls) ? warm.manifestUrls.slice().sort() : null, manifestedCount: warm.manifestedCount, residentCount: warm.residentCount, total: warm.total, skipped: !!warm.skipped, reason: warm.reason || null, manifestedUrls: [...new Set((warm.manifestedUrls || []).filter(Boolean))].sort(), residentModelUrls: [...new Set((warm.residentModelUrls || []).filter(Boolean))].sort() } : null,
+    warmup: warm ? { manifestDriven: !!warm.manifestDriven, manifestUrls: Array.isArray(warm.manifestUrls) ? warm.manifestUrls.slice().sort() : null, manifestedCount: warm.manifestedCount, residentCount: warm.residentCount, total: warm.total, skipped: !!warm.skipped, reason: warm.reason || null, manifestedUrls: [...new Set((warm.manifestedUrls || []).filter(Boolean))].sort(), residentModelUrls: [...new Set((warm.residentModelUrls || []).filter(Boolean))].sort(), residenceWaitMs: warm.manifestResidenceWaitMs ?? null, unresolvedUrls: Array.isArray(warm.manifestUnresolvedUrls) ? warm.manifestUnresolvedUrls.slice().sort() : null, unresolvedReason: warm.manifestUnresolvedReason || null } : null,
     playerId: client ? client.playerId : null,
     connected: !!(client && client.connected),
     revealed: !!(window.__app && window.__app.revealedAt),
