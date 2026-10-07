@@ -11,7 +11,7 @@ const GROUND_Y = 40
 const EYE_HEIGHT_M = 1.6
 const SMOKE_HEIGHT_M = 30
 const BLOCK_DEPTH = 1
-const SAMPLE_CAP_HEADROOM = 8
+const EXPECTED_SAMPLE_CAP = 512
 const HOME_FACE = 2
 
 const sampler = {
@@ -283,8 +283,10 @@ say('== 4b. the same rule on a ray that crosses a cube-face boundary, where the 
     say(`  ${(best / 1000).toFixed(2)} us per query (best of 5 x 200) is an observation, not a gate`)
     if (!(nearCount > 0 && midCount > 0 && farCount > 0)) failures.push(`section 4b: the cross-face path read ${nearCount}/${midCount}/${farCount} cell(s) over the three ranges, so the sample count was never measured`)
     if (midCount < nearCount) failures.push(`section 4b: the sample count fell from ${nearCount} to ${midCount} as the ray grew 10x, so the counts are not tracking the sampled path`)
-    if (farCount > midCount) failures.push(`section 4b: the sample count grew from ${midCount} to ${farCount} when the ray grew another 10x, so the sample cap is not holding`)
-    if (farCount * SAMPLE_CAP_HEADROOM > uncapped) failures.push(`section 4b: a ${(farShot.distance / 1000).toFixed(0)} km cross-face query sampled ${farCount} cell(s), within ${SAMPLE_CAP_HEADROOM}x of the ${uncapped} step(s) an uncapped half-cell walk would take`)
+    if (nearCount >= EXPECTED_SAMPLE_CAP) failures.push(`section 4b: the shortest ray already sampled ${nearCount} cell(s), so no range short enough to sit under the ${EXPECTED_SAMPLE_CAP} cap is exercised and the cap cannot be seen holding`)
+    if (midCount !== EXPECTED_SAMPLE_CAP) failures.push(`section 4b: a ray ten times longer sampled ${midCount} cell(s), where a walk that saturates stops at exactly ${EXPECTED_SAMPLE_CAP}`)
+    if (farCount !== EXPECTED_SAMPLE_CAP) failures.push(`section 4b: the full ${(farShot.distance / 1000).toFixed(0)} km ray sampled ${farCount} cell(s), where a walk that saturates stops at exactly ${EXPECTED_SAMPLE_CAP}`)
+    if (!(farCount < uncapped)) failures.push(`section 4b: the full ray sampled ${farCount} cell(s) against ${uncapped} half-cell step(s), so nothing capped the walk`)
   }
 }
 

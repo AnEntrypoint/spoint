@@ -22,6 +22,7 @@ const WITNESSES = [
 ]
 
 const VERDICT_RE = /^RESULT:\s+(PASS|FAIL)(?![A-Za-z0-9_])/
+const OOM_RE = /heap out of memory|Allocation failed|Committing semi space/i
 
 function verdictOf(stdout) {
   let failing = null
@@ -75,7 +76,7 @@ async function main() {
     console.log(`fire-witness: ${name} ${(run.ms / 1000).toFixed(1)} s, exit ${run.code}, ${run.line ?? 'no RESULT: line'}`)
     echo(name, run)
     const failures = []
-    if (run.code !== 0) failures.push(`${name} exited ${run.code}`)
+    if (run.code !== 0) failures.push(OOM_RE.test(run.stderr) ? `${name} died of memory exhaustion before printing a verdict, so its later sections never ran` : `${name} exited ${run.code}`)
     if (run.killed) failures.push(`${name} ran past the ${WITNESS_TIMEOUT_MS / 1000} s cap and was killed`)
     if (run.verdict === null) failures.push(`${name} printed no RESULT: line`)
     else if (run.verdict === 'FAIL') failures.push(`${name} reported ${run.line}`)
