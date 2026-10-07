@@ -25,6 +25,7 @@ export function createModelExclusionField(entities) {
     if (!baseField || typeof baseField.climateAtLocal !== 'function') return baseField
     return {
       ...baseField,
+      climateUsesLocalXZ: true,
       climateAtLocal(x, z, dir) {
         const base = baseField.climateAtLocal(x, z, dir)
         if (!blockedAt(x, z)) return base

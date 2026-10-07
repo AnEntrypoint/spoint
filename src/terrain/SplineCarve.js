@@ -226,6 +226,7 @@ export function createSplineCarveLayer() {
     if (!baseField || typeof baseField.climateAtLocal !== 'function') return baseField
     return {
       ...baseField,
+      get climateUsesLocalXZ() { return cells.size > 0 || baseField.climateUsesLocalXZ === true },
       climateAtLocal(x, z, dir) {
         const base = baseField.climateAtLocal(x, z, dir)
         const kind = kindAt(x, z)

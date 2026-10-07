@@ -81,25 +81,46 @@ const PATCH = 112
 const CLUSTER_SCALE = 224
 const MAX_CLUSTER_STRENGTH = 0.6
 
-export function classify(frame, anchorField, cell) {
-  const rho = surfaceOfCell(frame, cell)
-  if (!Number.isFinite(rho)) return null
-  const x = cell.at[0], groundY = cell.at[1], z = cell.at[2]
-  const elev = rho - frame.radius
-  if (!(elev > ROCK.WATER_MARGIN * reliefMarginScaleOf(frame))) return null
+const _rockClimate = { erosion: 0.3, humidity: 0.5, temp: 0.5 }
 
-  const clim = climateAt(anchorField, x, z, cell.dir)
+function readClimate(clim, out) {
   const erosion = clim && Number.isFinite(clim.erosion) ? clim.erosion : 0.3
   const humidity = clim && Number.isFinite(clim.humidity) ? clim.humidity : 0.5
-  if (clim && Number.isFinite(clim.seaBias) && clim.seaBias < ROCK.SEA_REJECT) return null
-  if (clim && clim.blocked) return null
+  if (clim && Number.isFinite(clim.seaBias) && clim.seaBias < ROCK.SEA_REJECT) return false
+  if (clim && clim.blocked) return false
+  out.erosion = erosion
+  out.humidity = humidity
+  out.temp = clim && Number.isFinite(clim.temp) ? clim.temp : 0.5
+  return true
+}
 
-  const elevNorm = Math.max(0, Math.min(1, elev / VEG.TREELINE))
+export function classify(frame, anchorField, cell) {
+  const climateBeforeSolve = anchorField.climateUsesLocalXZ !== true
+  let climateRead = false
+  if (climateBeforeSolve) {
+    if (!readClimate(climateAt(anchorField, cell.xz[0], cell.xz[1], cell.dir), _rockClimate)) return null
+    climateRead = true
+  }
+
   const cellHash = hash3(0x70c | 0, cell.row, cell.j)
   const patch = 0.25 + 1.5 * seaNoise(0x70c1, cell.sea, PATCH)
   const cluster = seaNoise(0x70c2, cell.sea, CLUSTER_SCALE)
   const coin = rand(cellHash, K_COIN)
   const clusterBoostUpperBoundOverAllSlopes = 1 + MAX_CLUSTER_STRENGTH * Math.max(0, cluster - 0.5)
+  if (climateRead) {
+    const ceilingOverAllElevations = Math.max(ROCK.FLOOR, Math.min(1, rockDensity(_rockClimate.erosion, 1, _rockClimate.humidity, 1) * patch * clusterBoostUpperBoundOverAllSlopes)) * cell.area
+    if (coin >= ceilingOverAllElevations) return null
+  }
+
+  const rho = surfaceOfCell(frame, cell)
+  if (!Number.isFinite(rho)) return null
+  const x = cell.at[0], groundY = cell.at[1], z = cell.at[2]
+  const elev = rho - frame.radius
+  if (!(elev > ROCK.WATER_MARGIN * reliefMarginScaleOf(frame))) return null
+  if (!climateRead && !readClimate(climateAt(anchorField, x, z, cell.dir), _rockClimate)) return null
+  const erosion = _rockClimate.erosion, humidity = _rockClimate.humidity
+
+  const elevNorm = Math.max(0, Math.min(1, elev / VEG.TREELINE))
   const ceiling = Math.max(ROCK.FLOOR, Math.min(1, rockDensity(erosion, 1, humidity, elevNorm) * patch * clusterBoostUpperBoundOverAllSlopes)) * cell.area
   if (coin >= ceiling) return null
 
@@ -109,7 +130,7 @@ export function classify(frame, anchorField, cell) {
   const dHdx = slope[0], dHdz = slope[1]
   const grad = Math.hypot(dHdx, dHdz)
   const slopeRatio = grad / (grad + 1)
-  const temp = clim && Number.isFinite(clim.temp) ? clim.temp : 0.5
+  const temp = _rockClimate.temp
   const paintedRock = paintedWeightsFor(frame.hashVersion)(cell.dir, elev, paintedSlopeOf(dHdx, dHdz), temp, humidity).rock
 
   let nx = -dHdx, ny = 1, nz = -dHdz

@@ -1,5 +1,5 @@
 import {
-  latticeFor, surfaceAlongDir, tangentFrame, tangentFrameQuat, quatMulF32, radialSlopeAt, climateAt, valueNoise3,
+  latticeFor, surfaceAlongDir, tangentFrame, tangentFrameQuat, quatMulF32, radialSlopeAt, climateAt, valueNoise3, seaLocalXZ,
 } from './PlacementChart.js'
 import { paintedWeightsFor, paintedSlopeOf } from './PaintedWeights.js'
 
@@ -143,8 +143,24 @@ export function baseDensity(temp, humidity, erosion = 0) {
 
 const BASE_DENSITY_CEILING = baseDensity(1, 1, 0)
 
+const _vegClimate = { temp: 0.5, humidity: 0.5, base: 0 }
+
+function readClimate(clim, groveMul, coin, out) {
+  const temp = clim && Number.isFinite(clim.temp) ? clim.temp : 0.5
+  const humidity = clim && Number.isFinite(clim.humidity) ? clim.humidity : 0.5
+  const erosion = clim && Number.isFinite(clim.erosion) ? clim.erosion : 0.3
+  if (clim && Number.isFinite(clim.seaBias) && clim.seaBias < VEG.SEA_REJECT) return false
+  if (clim && clim.blocked) return false
+  const base = baseDensity(temp, humidity, erosion) * groveMul
+  if (coin >= base) return false
+  out.temp = temp
+  out.humidity = humidity
+  out.base = base
+  return true
+}
+
 export function createPlacementCell(frame) {
-  return { dir: [0, 0, 0], sea: [0, 0, 0], at: [0, 0, 0], row: 0, j: 0, id: 0, area: 1, rho: frame.radius + frame.anchorHeight }
+  return { dir: [0, 0, 0], sea: [0, 0, 0], at: [0, 0, 0], xz: [0, 0], row: 0, j: 0, id: 0, area: 1, rho: frame.radius + frame.anchorHeight }
 }
 
 export function placementCellAt(frame, lattice, dec, gx, gz, prejitterSeed, jitterOverCell, kJx, kJz, cell) {
@@ -154,6 +170,7 @@ export function placementCellAt(frame, lattice, dec, gx, gz, prejitterSeed, jitt
   const d = lattice.cellDir(dec[0], i + 0.5 + (rand(h, kJx) * 2 - 1) * jitterOverCell, j + 0.5 + (rand(h, kJz) * 2 - 1) * jitterOverCell, cell.dir)
   const r = frame.radius
   cell.sea[0] = d[0] * r; cell.sea[1] = d[1] * r; cell.sea[2] = d[2] * r
+  seaLocalXZ(frame, d, cell.xz)
   cell.row = row; cell.j = j
   cell.id = lattice.cellId(dec[0], i, j)
   cell.area = lattice.cellAreaOverTarget(i + 0.5, j + 0.5)
@@ -176,27 +193,24 @@ export function classify(frame, anchorField, cell) {
   const coin = rand(cellHash, K_COIN)
   if (coin >= BASE_DENSITY_CEILING * groveMul) return null
 
+  const climateBeforeSolve = anchorField.climateUsesLocalXZ !== true
+  if (climateBeforeSolve && !readClimate(climateAt(anchorField, cell.xz[0], cell.xz[1], cell.dir), groveMul, coin, _vegClimate)) return null
+
   const rho = surfaceOfCell(frame, cell)
   if (!Number.isFinite(rho)) return null
   const x = cell.at[0], groundY = cell.at[1], z = cell.at[2]
-  const clim = climateAt(anchorField, x, z, cell.dir)
-  const temp = clim && Number.isFinite(clim.temp) ? clim.temp : 0.5
-  const humidity = clim && Number.isFinite(clim.humidity) ? clim.humidity : 0.5
-  const erosion = clim && Number.isFinite(clim.erosion) ? clim.erosion : 0.3
-  if (clim && Number.isFinite(clim.seaBias) && clim.seaBias < VEG.SEA_REJECT) return null
-  if (clim && clim.blocked) return null
-  const base = baseDensity(temp, humidity, erosion) * groveMul
-  if (coin >= base) return null
-
+  if (!climateBeforeSolve && !readClimate(climateAt(anchorField, x, z, cell.dir), groveMul, coin, _vegClimate)) return null
+  const temp = _vegClimate.temp, humidity = _vegClimate.humidity, base = _vegClimate.base
   const elev = rho - frame.radius
   const reliefMarginScale = reliefMarginScaleOf(frame)
   const treeline = VEG.TREELINE * reliefMarginScale
   const treelineMul = elev > treeline ? 1 - (elev - treeline) / (VEG.TREELINE_FADE * reliefMarginScale) : 1
+  const soilMul = renderedSoilWeight(elev) * treelineMul
+  if (soilMul <= 0) return null
   const tf = tangentFrame(frame, cell.dir[0], cell.dir[1], cell.dir[2])
   const slope = radialSlopeAt(frame, tf, rho, VEG.SLOPE_D)
   if (!slope) return null
   if (Math.hypot(slope[0], slope[1]) > VEG.SLOPE_MAX) return null
-  const soilMul = renderedSoilWeight(elev) * treelineMul
   const painted = paintedWeightsFor(frame.hashVersion)(cell.dir, elev, paintedSlopeOf(slope[0], slope[1]), temp, humidity)
   const densityMul = soilMul * painted.grass
   if (densityMul <= 0 || coin >= base * densityMul) return null

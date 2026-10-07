@@ -19,6 +19,7 @@ export function createCachedAnchorField(anchorField, frame) {
   }
 
   return {
+    climateUsesLocalXZ: false,
     climateAtLocal(x, z, dir) {
       return atDir(dir || frame.localToDir(x, z))
     },

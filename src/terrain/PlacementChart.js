@@ -161,16 +161,29 @@ export function climateAt(anchorField, x, z, d) {
   return anchorField.climateAtLocal ? anchorField.climateAtLocal(x, z, d) : anchorField.sampleDir(d)
 }
 
+export function seaLocalXZ(frame, dir, out) {
+  out[0] = frame.radius * dotE(frame, dir[0], dir[1], dir[2])
+  out[1] = frame.radius * dotN(frame, dir[0], dir[1], dir[2])
+  return out
+}
+
 export function valueNoise3(hash, seed, px, py, pz, cellM) {
   const fx = px / cellM, fy = py / cellM, fz = pz / cellM
   const ix = Math.floor(fx), iy = Math.floor(fy), iz = Math.floor(fz)
   let tx = fx - ix, ty = fy - iy, tz = fz - iz
   tx = tx * tx * (3 - 2 * tx); ty = ty * ty * (3 - 2 * ty); tz = tz * tz * (3 - 2 * tz)
-  const c = (ox, oy, oz) => hash(hash(seed, ix + ox, iy + oy), iz + oz, 0) / 4294967296
-  const x00 = c(0, 0, 0) + (c(1, 0, 0) - c(0, 0, 0)) * tx
-  const x10 = c(0, 1, 0) + (c(1, 1, 0) - c(0, 1, 0)) * tx
-  const x01 = c(0, 0, 1) + (c(1, 0, 1) - c(0, 0, 1)) * tx
-  const x11 = c(0, 1, 1) + (c(1, 1, 1) - c(0, 1, 1)) * tx
+  const c000 = hash(hash(seed, ix, iy), iz, 0) / 4294967296
+  const c100 = hash(hash(seed, ix + 1, iy), iz, 0) / 4294967296
+  const c010 = hash(hash(seed, ix, iy + 1), iz, 0) / 4294967296
+  const c110 = hash(hash(seed, ix + 1, iy + 1), iz, 0) / 4294967296
+  const c001 = hash(hash(seed, ix, iy), iz + 1, 0) / 4294967296
+  const c101 = hash(hash(seed, ix + 1, iy), iz + 1, 0) / 4294967296
+  const c011 = hash(hash(seed, ix, iy + 1), iz + 1, 0) / 4294967296
+  const c111 = hash(hash(seed, ix + 1, iy + 1), iz + 1, 0) / 4294967296
+  const x00 = c000 + (c100 - c000) * tx
+  const x10 = c010 + (c110 - c010) * tx
+  const x01 = c001 + (c101 - c001) * tx
+  const x11 = c011 + (c111 - c011) * tx
   const y0 = x00 + (x10 - x00) * ty, y1 = x01 + (x11 - x01) * ty
   return y0 + (y1 - y0) * tz
 }
