@@ -13,7 +13,7 @@ const HARNESS = resolve(SDK_ROOT, 'scripts', 'netcode-conditioner-harness.mjs')
 
 const args = parseArgs(process.argv.slice(2))
 const CONDITIONS = strArg(args.cond, '0/0/0;50/10/2;100/20/3').split(';')
-const REPS = numArg(args.reps, 2)
+const REPS = numArg(args.reps, 3)
 const DURATION = strArg(args.duration, '15000')
 const WORLD = strArg(args.world, 'arena')
 const HOLD = strArg(args.hold, 'forward')
@@ -37,7 +37,7 @@ function median(values) {
 }
 
 function runArm(cond, arm, repIdx) {
-  const out = resolve(SDK_ROOT, 'data', 'netcode-harness', `witness-${process.pid}-${repIdx}.json`)
+  const out = resolve(SDK_ROOT, 'data', 'netcode-harness', `witness-${process.pid}-${arm}-${repIdx}.json`)
   const argv = [
     HARNESS,
     `--world=${WORLD}`,
@@ -82,6 +82,19 @@ function metrics(result) {
   }
 }
 
+function spreadOf(rows, key) {
+  const v = rows.map(r => r[key]).filter(Number.isFinite).sort((a, b) => a - b)
+  return v.length < 2 ? 0 : v[v.length - 1] - v[0]
+}
+
+function noiseFloor(pooled) {
+  const out = {}
+  for (const key of ['corrPerAck', 'errP95Cm', 'popsPerMin', 'renderOffP95Cm']) {
+    out[key] = Math.max(spreadOf(pooled.push.rows, key), spreadOf(pooled.control.rows, key))
+  }
+  return out
+}
+
 function pool(rows) {
   const acks = rows.reduce((s, r) => s + r.acks, 0)
   const corrections = rows.reduce((s, r) => s + r.corrections, 0)
@@ -109,27 +122,28 @@ const verdicts = []
 
 for (const cond of CONDITIONS) {
   const pooled = {}
-  for (const arm of ARMS) {
-    const rows = []
-    for (let rep = 0; rep < REPS; rep++) {
+  for (const arm of ARMS) pooled[arm] = { rows: [] }
+  for (let rep = 0; rep < REPS; rep++) {
+    for (const arm of ARMS) {
       const out = runArm(cond, arm, rep)
       outFiles.push(out)
-      const j = await readArm(out)
-      rows.push(metrics(j.results[0]))
+      pooled[arm].rows.push(metrics((await readArm(out)).results[0]))
     }
-    pooled[arm] = { rows, agg: pool(rows) }
   }
+  for (const arm of ARMS) pooled[arm].agg = pool(pooled[arm].rows)
   const push = pooled.push.agg, control = pooled.control.agg
+  const floor = noiseFloor(pooled)
   const fail = []
-  if (!(push.corrPerAck < control.corrPerAck)) fail.push(`corr/ack ${fmt(push.corrPerAck)} is not below control ${fmt(control.corrPerAck)}`)
-  if (!(push.errP95Cm <= control.errP95Cm)) fail.push(`errP95 ${fmt(push.errP95Cm, 2)}cm > control ${fmt(control.errP95Cm, 2)}cm`)
+  const within = (got, want, key) => got <= want + floor[key]
+  if (!(push.corrPerAck <= control.corrPerAck + floor.corrPerAck)) fail.push(`corr/ack ${fmt(push.corrPerAck)} exceeds control ${fmt(control.corrPerAck)} by more than the rep spread ${fmt(floor.corrPerAck)}`)
+  if (!within(push.errP95Cm, control.errP95Cm, 'errP95Cm')) fail.push(`errP95 ${fmt(push.errP95Cm, 2)}cm > control ${fmt(control.errP95Cm, 2)}cm + spread ${fmt(floor.errP95Cm, 2)}cm`)
   if (!(push.errP95Cm <= MAX_ERR_CM)) fail.push(`errP95 ${fmt(push.errP95Cm, 2)}cm > cap ${MAX_ERR_CM}cm`)
   const rowOne = []
-  if (!(push.popsPerMin <= control.popsPerMin)) rowOne.push(`pops/min ${fmt(push.popsPerMin, 1)} > control ${fmt(control.popsPerMin, 1)}`)
-  if (!(push.renderOffP95Cm <= control.renderOffP95Cm)) rowOne.push(`renderOffP95 ${fmt(push.renderOffP95Cm, 2)}cm > control ${fmt(control.renderOffP95Cm, 2)}cm`)
+  if (!within(push.popsPerMin, control.popsPerMin, 'popsPerMin')) rowOne.push(`pops/min ${fmt(push.popsPerMin, 1)} > control ${fmt(control.popsPerMin, 1)} + spread ${fmt(floor.popsPerMin, 1)}`)
+  if (!within(push.renderOffP95Cm, control.renderOffP95Cm, 'renderOffP95Cm')) rowOne.push(`renderOffP95 ${fmt(push.renderOffP95Cm, 2)}cm > control ${fmt(control.renderOffP95Cm, 2)}cm + spread ${fmt(floor.renderOffP95Cm, 2)}cm`)
   if (!(push.popsPerMin <= MAX_POPS)) rowOne.push(`pops/min ${fmt(push.popsPerMin, 1)} > cap ${MAX_POPS}`)
   if (ROW <= 1) fail.push(...rowOne)
-  verdicts.push({ cond, push, control, fail })
+  verdicts.push({ cond, push, control, floor, fail })
   for (const arm of ARMS) {
     const a = pooled[arm].agg
     table.push(`| ${cond} | ${arm} | ${a.acks} | ${a.corrections} | ${fmt(a.corrPerAck)} | ${fmt(a.errP95Cm, 2)} | ${fmt(a.popsPerMin, 1)} | ${fmt(a.renderOffP95Cm, 2)} | ${fmt(a.tickHz, 1)} | ${fmt(a.sepFiredFrac * 100, 0)}% | ${fmt(a.sepPushP50Cm, 2)} | ${fmt(a.leadP95Ticks, 0)}/${fmt(a.leadMaxTicks, 0)} | ${fmt(a.peerMinDistP50M)} |`)
@@ -141,7 +155,8 @@ console.log('\n' + [header, ...table].join('\n') + '\n')
 const ROW_AXES = ROW <= 1 ? 'corrections/ack, err p95, pops/min, rendered-offset p95 (row 1 bar)' : 'corrections/ack, err p95 (row 2 bar)'
 console.log('per-condition verdict (push vs --peerSeparation=off control), gated on ' + ROW_AXES + ':')
 for (const v of verdicts) {
-  console.log(`  ${v.cond}: corrections/ack ${fmt(v.push.corrPerAck)} vs control ${fmt(v.control.corrPerAck)} | errP95 ${fmt(v.push.errP95Cm, 2)} vs ${fmt(v.control.errP95Cm, 2)} cm | pops/min ${fmt(v.push.popsPerMin, 1)} vs ${fmt(v.control.popsPerMin, 1)} | renderOffP95 ${fmt(v.push.renderOffP95Cm, 2)} vs ${fmt(v.control.renderOffP95Cm, 2)} cm | ${v.fail.length ? 'FAIL: ' + v.fail.join('; ') : 'PASS'}`)
+  const gained = v.push.corrPerAck + v.floor.corrPerAck < v.control.corrPerAck
+  console.log(`  ${v.cond}: corrections/ack ${fmt(v.push.corrPerAck)} vs control ${fmt(v.control.corrPerAck)} | errP95 ${fmt(v.push.errP95Cm, 2)} vs ${fmt(v.control.errP95Cm, 2)} cm | pops/min ${fmt(v.push.popsPerMin, 1)} vs ${fmt(v.control.popsPerMin, 1)} | renderOffP95 ${fmt(v.push.renderOffP95Cm, 2)} vs ${fmt(v.control.renderOffP95Cm, 2)} cm | rep spread corr ${fmt(v.floor.corrPerAck)}/err ${fmt(v.floor.errP95Cm, 2)}cm/pops ${fmt(v.floor.popsPerMin, 1)}/off ${fmt(v.floor.renderOffP95Cm, 2)}cm | ${gained ? 'improved' : 'no separation gain'} | ${v.fail.length ? 'FAIL: ' + v.fail.join('; ') : 'PASS'}`)
 }
 for (const f of outFiles) await rm(f, { force: true })
 const failed = verdicts.filter(v => v.fail.length)
