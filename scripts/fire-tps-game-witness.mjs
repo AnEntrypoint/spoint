@@ -345,9 +345,13 @@ say('== navCostAt with and without fire (real AppContext, real defineFire) ==')
   const floorNs = timeIt(() => 0)
   const noFireNs = timeIt((x, z) => ctx.navCostAt(x, z))
   const baselineNs = timeIt(baseline)
+  const noFireCost = ctx.navCostAt(px, pz)
+  const addedNs = noFireNs - baselineNs
   say(`harness floor (empty closure) ${floorNs.toFixed(1)} ns/call`)
-  say(`no fire registered: navCostAt ${ctx.navCostAt(px, pz)} at ${noFireNs.toFixed(1)} ns/call; the old body alone ${baselineNs.toFixed(1)} ns/call`)
-  say(`  added cost when no fire exists: ${(noFireNs - baselineNs).toFixed(1)} ns/call (budget 100 ns; harness floor ${floorNs.toFixed(1)})`)
+  say(`no fire registered: navCostAt ${noFireCost} at ${noFireNs.toFixed(1)} ns/call; the old body alone ${baselineNs.toFixed(1)} ns/call`)
+  say(`  added cost when no fire exists: ${addedNs.toFixed(1)} ns/call (budget 100 ns; harness floor ${floorNs.toFixed(1)})`)
+  if (noFireCost !== 1) failures.push(`nav probe: navCostAt ${noFireCost} with no fire registered, expected the terrain-only cost 1`)
+  if (addedNs > 100) failures.push(`nav probe: registering fire costs ${addedNs.toFixed(1)} ns/call when nothing burns, over the 100 ns budget`)
 
   const fire = ctx.defineFire(FIRE_SPEC)
   const idleNs = timeIt((x, z) => ctx.navCostAt(x, z))
@@ -372,7 +376,12 @@ if (burningState !== FIRE_STATE.BURNING) failures.push(`nav probe: stateAtLocal 
 for (let tick = ticksToBurning + 1; tick <= ticksToBurning + 40 * FIRE_SPEC.stepTicks; tick++) { runtime.currentTick = tick; fire.tick(1 / 60) }
   const charredState = fire.stateAtLocal(px, pz)
   const charredCost = ctx.navCostAt(px, pz)
-  say(`after 40 fire steps: stateAtLocal ${charredState} (BURNT=${FIRE_STATE.BURNT}) -> navCostAt ${charredCost}; unburnt neighbour navCostAt ${ctx.navCostAt(px + 4000, pz)}`)
+  const unburntCost = ctx.navCostAt(px + 4000, pz)
+  say(`after 40 fire steps: stateAtLocal ${charredState} (BURNT=${FIRE_STATE.BURNT}) -> navCostAt ${charredCost}; unburnt neighbour navCostAt ${unburntCost}`)
+  if (burningCost !== 8) failures.push(`nav probe: navCostAt ${burningCost} over a BURNING cell, expected 8`)
+  if (charredState !== FIRE_STATE.BURNT) failures.push(`nav probe: stateAtLocal ${charredState} after 40 fire steps, expected BURNT ${FIRE_STATE.BURNT}`)
+  if (charredCost !== 2) failures.push(`nav probe: navCostAt ${charredCost} over a BURNT cell, expected 2`)
+  if (unburntCost !== 1) failures.push(`nav probe: navCostAt ${unburntCost} four kilometre(s) from the burn, expected the terrain-only cost 1`)
   say(`fire cell ${lattice.cellM.toFixed(2)} m; probe at chart-local ${px.toFixed(0)},${pz.toFixed(0)}`)
 }
 
