@@ -13,6 +13,19 @@ export function angleBackendArgs(backend) {
 export async function probeGpu(page) {
   return page.evaluate(async () => {
     const markers = /swiftshader|llvmpipe|softwarerasterizer|basic render|mesa offscreen|subzero/i
+    const ri = window.__rendererInfo
+    if (ri && typeof ri.glRenderer === 'string' && ri.glRenderer && typeof ri.glVendor === 'string' && ri.glVendor) {
+      const parts = [ri.glRenderer, ri.glVendor, ri.glUnmaskedRenderer].filter(Boolean)
+      const haystack = parts.join(' | ')
+      return {
+        accelerated: !markers.test(haystack),
+        renderer: ri.glRenderer,
+        vendor: ri.glVendor,
+        adapter: ri.adapter ?? null,
+        haystack,
+        source: 'rendererInfo',
+      }
+    }
     let renderer = null
     let vendor = null
     try {
