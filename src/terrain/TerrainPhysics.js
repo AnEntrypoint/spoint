@@ -94,12 +94,11 @@ export async function loadBakedHeightField(url, hashVersion, tcfg, frame) {
     return null
   }
   const bakeCode = await heightfieldBakeCodeVersion()
-  const unverifiable = bakeCode === null
-  if (unverifiable ? !artifact.codeVersion : artifact.codeVersion !== bakeCode) {
-    const why = unverifiable
-      ? 'it carries no height code version and this runtime has no filesystem to rehash the bake sources into one'
-      : `baked with height code version ${artifact.codeVersion ?? '(none)'}, this tree bakes ${bakeCode}: the height-generation code changed under it`
-    console.warn(`[terrain] ignoring baked heightfield ${url}: ${why} -> exact CPU height`)
+  if (bakeCode !== null && artifact.codeVersion !== bakeCode) {
+    throw bakedFieldError(url, `stale bake: stamped with height code version ${JSON.stringify(artifact.codeVersion ?? null)}, this tree bakes ${bakeCode}: the height-generating code changed under the artifact, re-bake it`)
+  }
+  if (bakeCode === null && !artifact.codeVersion) {
+    console.warn(`[terrain] ignoring baked heightfield ${url}: it carries no height code version and this runtime has no filesystem to rehash the bake sources into one -> exact CPU height`)
     return null
   }
   const mismatch = bakedTerrainMismatch(artifact, tcfg, frame)
@@ -112,23 +111,86 @@ export async function loadBakedHeightField(url, hashVersion, tcfg, frame) {
   return field
 }
 
-async function readBakedHeightField(url) {
-  try {
-    const _isNode = typeof process !== 'undefined' && process.versions?.node
-    if (/\.hf$/i.test(url)) {
-      const _hfSpec = _isNode ? 'mapspinner/heightfield-codec' : ('/node_modules/' + 'mapspinner/src/heightfield-codec.js')
-      const { decodeHeightfield } = await import(_hfSpec)
-      let buf
-      if (_isNode) { const fs = await import('node:fs'); buf = fs.readFileSync(url.replace(/^\//, '')); buf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) }
-      else { const r = await fetch(url); if (!r.ok) return null; buf = await r.arrayBuffer() }
-      return decodeHeightfield(buf)
+const HF_MAGIC = 0x48464d31
+const HF_HEADER_BYTES = 8
+const HF_SUPPORTED_BITS = [8, 16]
+
+function bakedFieldError(url, why, cause) {
+  return new Error(`[baked-heightfield] ${url}: ${why}`, cause ? { cause } : undefined)
+}
+
+async function readBakedBytes(url, isNode) {
+  if (isNode) {
+    const fs = await import('node:fs')
+    let raw
+    try { raw = fs.readFileSync(url.replace(/^\//, '')) }
+    catch (e) {
+      if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) return null
+      throw bakedFieldError(url, `cannot be read: ${e?.message || e}`, e)
     }
-    let json
-    if (_isNode) { const fs = await import('node:fs'); json = JSON.parse(fs.readFileSync(url.replace(/^\//, ''), 'utf8')) }
-    else { const r = await fetch(url); if (!r.ok) return null; json = await r.json() }
-    if (!json || !json.N || !(Array.isArray(json.heights) || (json.sectors && Array.isArray(json.q)))) return null
-    return json
-  } catch (_) { return null }
+    return raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength)
+  }
+  let res
+  try { res = await fetch(url) }
+  catch (e) { throw bakedFieldError(url, `cannot be read: ${e?.message || e}`, e) }
+  if (!res.ok) {
+    if (res.status === 404) return null
+    throw bakedFieldError(url, `cannot be read: HTTP ${res.status}${res.statusText ? ' ' + res.statusText : ''}`)
+  }
+  return res.arrayBuffer()
+}
+
+function decodedHeightfieldOrThrow(url, buf, decodeHeightfield) {
+  if (!buf || buf.byteLength < HF_HEADER_BYTES) throw bakedFieldError(url, `truncated: ${buf ? buf.byteLength : 0} bytes, a heightfield header alone is ${HF_HEADER_BYTES} bytes`)
+  const dv = new DataView(buf)
+  const magic = dv.getUint32(0, true)
+  if (magic !== HF_MAGIC) throw bakedFieldError(url, `not a heightfield: bytes 0..3 are 0x${magic.toString(16).padStart(8, '0')}, expected magic 0x${HF_MAGIC.toString(16)}`)
+  const hlen = dv.getUint32(4, true)
+  if (!(hlen > 0) || HF_HEADER_BYTES + hlen > buf.byteLength) throw bakedFieldError(url, `malformed: the header-length field says ${hlen} bytes, the file is ${buf.byteLength} bytes`)
+  let header
+  try { header = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, HF_HEADER_BYTES, hlen))) }
+  catch (e) { throw bakedFieldError(url, `unreadable header: ${e?.message || e}`, e) }
+  const N = header?.N
+  const sectors = header?.sectors
+  if (!Number.isInteger(N) || N < 2) throw bakedFieldError(url, `malformed header: N is ${JSON.stringify(N ?? null)}, expected an integer >= 2`)
+  const gridS = sectors?.gridS
+  if (!sectors || !Number.isInteger(gridS) || gridS < 1 || !Number.isInteger(sectors.nodesPerSector)) throw bakedFieldError(url, `malformed header: sectors is ${JSON.stringify(sectors ?? null)}, expected integer gridS >= 1 and nodesPerSector`)
+  const bits = sectors.bits || 8
+  if (!HF_SUPPORTED_BITS.includes(bits)) throw bakedFieldError(url, `malformed header: sectors.bits is ${JSON.stringify(sectors.bits ?? null)}, expected ${HF_SUPPORTED_BITS.join(' or ')}`)
+  const expected = HF_HEADER_BYTES + hlen + 8 * gridS * gridS + (bits === 16 ? 2 : 1) * N * N
+  if (buf.byteLength !== expected) throw bakedFieldError(url, `${buf.byteLength < expected ? 'truncated' : 'longer than declared'}: the file is ${buf.byteLength} bytes, but N=${N} with sectors.gridS=${gridS} at ${bits}-bit samples is exactly ${expected} bytes`)
+  let artifact
+  try { artifact = decodeHeightfield(buf) }
+  catch (e) { throw bakedFieldError(url, `decode failed: ${e?.message || e}`, e) }
+  if (!artifact) throw bakedFieldError(url, `decode produced no artifact from ${buf.byteLength} bytes that carry a valid header`)
+  return artifact
+}
+
+function bakedJsonOrThrow(url, json) {
+  if (!json || typeof json !== 'object') throw bakedFieldError(url, `malformed: expected a JSON object, got ${JSON.stringify(json)}`)
+  const N = json.N
+  const heights = json.heights
+  const q = json.sectors ? json.sectors.q : undefined
+  if (!(N > 0)) throw bakedFieldError(url, `malformed: N is ${JSON.stringify(N ?? null)}, expected a positive sample count`)
+  if (!Array.isArray(heights) && !Array.isArray(q)) throw bakedFieldError(url, `malformed: no height samples, expected an array at heights${json.sectors === undefined ? '' : ' or at sectors.q'}`)
+  if (Array.isArray(heights) && heights.length !== N * N) throw bakedFieldError(url, `sample count mismatch: N=${N} declares ${N * N} heights, the array holds ${heights.length}`)
+  if (Array.isArray(q) && q.length !== N * N) throw bakedFieldError(url, `sample count mismatch: N=${N} declares ${N * N} quantized samples, sectors.q holds ${q.length}`)
+  return json
+}
+
+async function readBakedHeightField(url) {
+  const isNode = typeof process !== 'undefined' && process.versions?.node
+  const bytes = await readBakedBytes(url, isNode)
+  if (bytes === null) return null
+  if (/\.hf$/i.test(url)) {
+    const hfSpec = isNode ? 'mapspinner/heightfield-codec' : ('/node_modules/' + 'mapspinner/src/heightfield-codec.js')
+    const { decodeHeightfield } = await import(hfSpec)
+    return decodedHeightfieldOrThrow(url, bytes, decodeHeightfield)
+  }
+  let json
+  try { json = JSON.parse(new TextDecoder().decode(bytes)) }
+  catch (e) { throw bakedFieldError(url, `not valid JSON: ${e?.message || e}`, e) }
+  return bakedJsonOrThrow(url, json)
 }
 
 async function createGpuPatchHeightFn({ frame, tcfg, offsetY }) {
@@ -272,7 +334,7 @@ export async function setupTerrainStreaming({ physics, playerManager, worldDef =
     : gpuPatchLegacyOnly
       ? `the GLSL patch baker draws only hashVersion ${LEGACY_TERRAIN_HASH_VERSION} and this world resolves to hashVersion ${hashVersion}, which carries an integer hash and a carve term the legacy GLSL terrain has no code for`
       : (gpuPatch ? null : 'the GPU patch bake produced no height function')
-  const baked = gpuPatch ? null : await loadBakedHeightField(tcfg.bakedHeightfield, hashVersion, tcfg, frame).catch(() => null)
+  const baked = gpuPatch ? null : await loadBakedHeightField(tcfg.bakedHeightfield, hashVersion, tcfg, frame)
   const bakedAnchorDir = baked ? frame.anchorDir : null
   const bakedFrameIsCurrent = () => frame.up[0] === bakedAnchorDir[0] && frame.up[1] === bakedAnchorDir[1] && frame.up[2] === bakedAnchorDir[2]
   const baseHeightFn = gpuPatch
