@@ -72,9 +72,9 @@ Fewest words per fact. Deep detail: `project/*` recall memos.
 ## Fire (`ctx.defineFire`, `src/behaviours/fire.js`)
 
 - Integer-only kernel `src/shared/fire/fireKernel.js`; decisions from `hash(seed, step, face, I, J)`; no float, `Math.random` or `Date.now`. Cells are 2x2 veg placement cells (8 m); step boundaries are absolute ticks.
-- `ctx.navCostAt(x,z)` returns 8 burning / 2 charred.
+- `ctx.navCostAt(x,z)` returns 8 burning / 2 charred. `fire.sightBlocked` and `ctx.canSee` cost 4-10 us per ray; `canSee` is gated by smoke through `_fireNavByRuntime` at depth >= smokeBlockDepth (`eyeHeightM` 1.6).
 - Fire wind: the weather vector is the base and the `hash(seed, step)` field (`src/shared/fire/fireWind.js`) is the gust, summed into one vector clamped to +-16 per axis.
-- Per-cell initial fuel is not recomputable in the integer kernel (`classify()`, `src/terrain/VegPlacement.js:170-234`). Any per-tile array added to `snapshot()`/`restore()` must join `TILE_ARRAYS` (`fireKeyframe.js`) with a VERSION bump.
+- Per-cell initial fuel is not recomputable in the integer kernel (`classify()`, `src/terrain/VegPlacement.js:170-234`). Any per-tile array added to `snapshot()`/`restore()` must join `TILE_ARRAYS` (`fireKeyframe.js`) with a VERSION bump (now 6); a mirror on 5 diverges.
 - A tampered keyframe is rejected at DECODE with a named `[fireKeyframe]` error; every read is bounds-checked. `G` is the ignition step mod 256, not an age; `slot = slot*64 + (J&7)*8 + (I&7)`; IGNITE_AREA is kind 5, radius <= 8 cells.
 
 ## Planet-wide multiplayer (`src/shared/clusterAssignment.js`)
@@ -193,7 +193,9 @@ Fewest words per fact. Deep detail: `project/*` recall memos.
 
 ## Measurement and witnessing
 
-- Witnesses can launch Chromium on SwiftShader silently, so timing gates and `.frame-time-baseline.json` were software numbers; `scripts/lib/gpu-probe.mjs assertGpu` after navigation — and assert the REQUESTED adapter.
+- Witnesses can launch Chromium on SwiftShader silently, so timing gates were software numbers; `scripts/lib/gpu-probe.mjs assertGpu` after navigation — and assert the REQUESTED adapter. The AMD adapter LUID is per-boot (62340 today): `adapterLuidFor('amd')` reads it from the DirectX registry each run, and `--use-adapter-luid=0,<luid>` with a stale value silently runs the NVIDIA arm.
+- `scripts/frame-time-gate.mjs` writes a PER-VENDOR baseline (`.frame-time-baseline.<vendor>.json` per `--expect-vendor=`); `frame-time-baseline.mjs baselineRefusals` rejects one captured on another adapter vendor. rAF is vsync-locked unless Chromium is launched with `--disable-frame-rate-limit --disable-gpu-vsync`, so a locked p50 is a refresh divisor (144/1 = 6.94 ms static, 60/1 = 16.67 orbit, on ONE page) not work; unlocked static was 18.25 ms.
+- On the WebGPU backend `renderer.info.render.triangles` and `.drawCalls` read 0 and only `info.render.calls` moves, so a reached-triangles arm can never pass there: the gate exempts it only when the backend reports isWebGPU, requiring draw calls, frames and `window.__vegProfile.totalInstances`, plus orbit triangles >= 50% of static so the orbit arm cannot measure an empty view. Its camera is posed off the live player (player + 50,10,+50) at `?at=-15,-12.5`, or it frames empty ground while vegetation streams elsewhere.
 - A ms-per-tick counter is not a measurement: two arms of one build moved `_lastCollisionMs` 0.310 -> 0.423 (+37%) while work-unit counters moved under 1%; decide perf rows on counted work units.
 - Wall clock vs CPU: a wall-clock ms/s gate on a shared box measures the box — the same ring-scale arm read 147.78 and 73.55 ms/s with every work counter identical.
 - A counter the code never increments is a silent pass: `physics.getBodyCount` and `collectMs`/`collectCount` did not exist, so two gates compared `null` and passed every run.
