@@ -116,13 +116,15 @@ async function main() {
   const inertStatic = world.addBody('box', he, [200, 20, 0], 'static')
   const inertMotion = world.setBodyMotionType(inertStatic, 'dynamic')
   for (let i = 0; i < 60; i++) world.step(1 / 60, 1)
-  const inertY = world.getBodyPosition(inertStatic)[1]
-  const inertType = motionTypeName(world, inertStatic)
-  const inertMeta = world.bodyMeta.get(inertStatic)?.type
+  const inertY = inertMotion === false ? null : world.getBodyPosition(inertMotion)[1]
+  const inertType = inertMotion === false ? 'n/a' : motionTypeName(world, inertMotion)
+  const inertMeta = inertMotion === false ? 'n/a' : world.bodyMeta.get(inertMotion)?.type
   record(
-    'a-body-created-static-reports-failure-instead-of-becoming-inert-dynamic',
-    inertMotion === false && Math.abs(inertY - 20) < 1e-6 && inertType === 'static' && inertMeta === 'static',
-    `returned=${inertMotion} motionType=${inertType} meta=${inertMeta} yAfter1s=${inertY.toFixed(6)}`
+    'a-body-created-static-is-recreated-so-it-actually-falls',
+    inertMotion !== false && inertMotion !== inertStatic && !world.bodies.has(inertStatic)
+      && inertType === 'dynamic' && inertMeta === 'dynamic'
+      && inertY !== null && Math.abs(inertY - 11) < 0.5,
+    `returned=${inertMotion} oldStillLive=${world.bodies.has(inertStatic)} motionType=${inertType} meta=${inertMeta} yAfter1s=${inertY === null ? 'n/a' : inertY.toFixed(6)}`
   )
 
   const liveDynamic = world.addBody('box', he, [240, 20, 0], 'dynamic', { mass: 6 })
@@ -136,7 +138,7 @@ async function main() {
   const kinematicMeta = world.bodyMeta.get(liveDynamic)?.type
   record(
     'a-live-dynamic-body-can-become-kinematic-in-place',
-    kinematicOk === true && kinematicType === 'kinematic' && kinematicMeta === 'kinematic' && Math.abs(kinematicY - beforeKinematicY) < 1e-6,
+    kinematicOk === liveDynamic && kinematicType === 'kinematic' && kinematicMeta === 'kinematic' && Math.abs(kinematicY - beforeKinematicY) < 1e-6,
     `returned=${kinematicOk} motionType=${kinematicType} meta=${kinematicMeta} y=${beforeKinematicY.toFixed(4)}->${kinematicY.toFixed(4)}`
   )
 

@@ -1,4 +1,18 @@
+import { resolveCCD } from './AppPhysics.js'
+
 export function mixinPhysics(runtime) {
+  runtime._rebindTierBodyId = function(e, tier) {
+    const previousId = e._physicsBodyId
+    if (tier === 'kinematic' && e._bodyDef.motionType === 'dynamic') {
+      this._physics.setBodyVelocity(previousId, [0, 0, 0])
+      if (typeof this._physics.setBodyMotionType !== 'function') return
+      this._adoptBodyId(e, previousId, this._physics.setBodyMotionType(previousId, 'kinematic'))
+    } else if (tier === 'physical' && e._bodyDef.motionType === 'dynamic') {
+      if (typeof this._physics.setBodyMotionType !== 'function') return
+      this._adoptBodyId(e, previousId, this._physics.setBodyMotionType(previousId, 'dynamic'))
+    }
+  }
+
   runtime._registerPhysicsCallbacks = function() {
     this._physics.onBodyActivated = (physicsBodyId) => {
       const entityId = this._physicsBodyToEntityId.get(physicsBodyId)
@@ -99,13 +113,7 @@ export function mixinPhysics(runtime) {
           this._suspendedEntityIds.add(entityId)
         }
       } else if (tier !== e._bodyTier && e._bodyActive && e._physicsBodyId !== undefined) {
-        const d = e._bodyDef
-        if (tier === 'kinematic' && d.motionType === 'dynamic') {
-          this._physics.setBodyVelocity(e._physicsBodyId, [0, 0, 0])
-          if (typeof this._physics.setBodyMotionType === 'function') this._physics.setBodyMotionType(e._physicsBodyId, 'kinematic')
-        } else if (tier === 'physical' && d.motionType === 'dynamic') {
-          if (typeof this._physics.setBodyMotionType === 'function') this._physics.setBodyMotionType(e._physicsBodyId, 'dynamic')
-        }
+        this._rebindTierBodyId(e, tier)
         e._bodyTier = tier
       }
     }
@@ -141,19 +149,35 @@ export function mixinPhysics(runtime) {
     return true
   }
 
+  runtime._adoptBodyId = function(ent, previousId, liveId) {
+    if (liveId === false || liveId === previousId) return
+    if (this._physicsBodyToEntityId.get(previousId) === ent.id) this._physicsBodyToEntityId.delete(previousId)
+    this._physicsBodyToEntityId.set(liveId, ent.id)
+    this._sleepingDynamicIds?.delete(ent.id)
+    this._suspendedEntityIds?.delete(ent.id)
+    ent._bodyActive = true
+    ent._physicsBodyId = liveId
+  }
+
   runtime.setEntityMotionType = function(entityId, motionType) {
     const e = this.entities.get(entityId)
     if (!e || e._physicsBodyId === undefined || !this._physics || typeof this._physics.setBodyMotionType !== 'function') return false
     if (motionType !== 'dynamic' && motionType !== 'kinematic' && motionType !== 'static') return false
     if (motionType !== 'dynamic') this._physics.setBodyVelocity?.(e._physicsBodyId, [0, 0, 0])
-    const ok = this._physics.setBodyMotionType(e._physicsBodyId, motionType)
-    if (ok) {
-      e.bodyType = motionType
-      if (e._bodyDef) e._bodyDef.motionType = motionType
-      if (motionType === 'static') this._activeDynamicIds?.delete(entityId)
-      else this._activeDynamicIds?.add(entityId)
-    }
-    return ok
+    const previousId = e._physicsBodyId
+    const liveId = this._physics.setBodyMotionType(previousId, motionType, {
+      mass: e.mass,
+      linearDamping: e._linearDamping,
+      angularDamping: e._angularDamping,
+      linearCast: resolveCCD(e, motionType),
+    })
+    if (liveId === false) return false
+    e.bodyType = motionType
+    if (e._bodyDef) e._bodyDef.motionType = motionType
+    if (liveId !== previousId) this._adoptBodyId(e, previousId, liveId)
+    if (motionType === 'static') this._activeDynamicIds?.delete(entityId)
+    else this._activeDynamicIds?.add(entityId)
+    return true
   }
   runtime.isEntityAtRest = function(entityId, eps = 0.05) {
     const e = this.entities.get(entityId)

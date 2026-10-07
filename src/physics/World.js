@@ -127,7 +127,9 @@ export class PhysicsWorld {
     this.bodyInterface.AddBody(bodyID, activate)
     J.destroy(cs)
     this._createCount = (this._createCount | 0) + 1
-    this.bodies.set(id, body); this.bodyMeta.set(id, opts.meta || {}); this.bodyIds.set(id, bodyID)
+    const meta = opts.meta || {}
+    if (opts.mass !== undefined) meta.mass = opts.mass
+    this.bodies.set(id, body); this.bodyMeta.set(id, meta); this.bodyIds.set(id, bodyID)
     if (opts.shapeKey) { this._bodyShapeKey.set(id, opts.shapeKey); this._shapeRefs.set(opts.shapeKey, (this._shapeRefs.get(opts.shapeKey) | 0) + 1) }
     this._staticTiles?.update(id)
     this._sampleBodyPeaks()
@@ -299,7 +301,8 @@ export class PhysicsWorld {
     if (this.bodyInterface.SetMotionQuality) {
       this.bodyInterface.SetMotionQuality(b.GetID(), opts.linearCast ? J.EMotionQuality_LinearCast : J.EMotionQuality_Discrete)
     }
-    this.bodyMeta.set(id, { type: motionType, shape: shapeType })
+    const carriedMass = opts.mass ?? this.bodyMeta.get(id)?.mass
+    this.bodyMeta.set(id, carriedMass === undefined ? { type: motionType, shape: shapeType } : { type: motionType, shape: shapeType, mass: carriedMass })
     return true
   }
 
@@ -502,25 +505,88 @@ export class PhysicsWorld {
   setBodyRestitution(id, r) { const b = this._getBody(id); if (!b || !this.bodyInterface.SetRestitution) return false; this.bodyInterface.SetRestitution(b.GetID(), r); return true }
   setBodyPosition(id, p) { const b = this._getBody(id); if (!b) return; this._tmpRVec3.Set(p[0],p[1],p[2]); this.bodyInterface.SetPosition(b.GetID(), this._tmpRVec3, this.Jolt.EActivation_Activate); this._staticTiles?.update(id) }
   setBodyTransform(id, position, rotation) { this._repositionBody(id, position, rotation, null) }
-  setBodyMotionType(id, motionType) {
+  setBodyMotionType(id, motionType, opts = {}) {
     const b = this._getBody(id); if (!b || !this.bodyInterface.SetMotionType) return false
     const J = this.Jolt
     const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
     const gid = b.GetID()
+    const previousMt = b.GetMotionType()
     const simulates = mt !== J.EMotionType_Static
     this.bodyInterface.SetMotionType(gid, mt, simulates ? J.EActivation_Activate : J.EActivation_DontActivate)
-    if (simulates) {
-      this.bodyInterface.ActivateBody(gid)
-      if (!b.IsActive()) {
-        this.bodyInterface.SetMotionType(gid, J.EMotionType_Static, J.EActivation_DontActivate)
-        this._staticTiles?.update(id)
-        return false
-      }
+    if (simulates) this.bodyInterface.ActivateBody(gid)
+    if (!simulates || b.IsActive()) {
+      this._staticTiles?.update(id)
+      const meta = this.bodyMeta.get(id)
+      if (meta) meta.type = motionType
+      return id
     }
+    this.bodyInterface.SetMotionType(gid, previousMt, J.EActivation_DontActivate)
     this._staticTiles?.update(id)
-    const meta = this.bodyMeta.get(id)
-    if (meta) meta.type = motionType
+    const recreated = this.recreateBodyWithMotionType(id, mt, motionType, opts)
+    return recreated === null ? false : recreated
+  }
+
+  recreateBodyWithMotionType(id, joltMotionType, motionTypeName, opts = {}) {
+    const b = this._getBody(id)
+    if (!b || !this._bodyCanBeRecreated(id, joltMotionType)) return null
+    const J = this.Jolt
+    const shape = b.GetShape()
+    if (!shape) return null
+    const gid = b.GetID()
+    const meta = this.bodyMeta.get(id) || {}
+    const mass = opts.mass ?? meta.mass
+    const createOpts = {
+      rotation: this.getBodyRotation(id),
+      meta: { ...meta, type: motionTypeName },
+      friction: b.GetFriction(),
+      restitution: b.GetRestitution(),
+      linearCast: this.bodyInterface.GetMotionQuality?.(gid) === J.EMotionQuality_LinearCast,
+      gravityFactor: this.bodyInterface.GetGravityFactor?.(gid),
+    }
+    const shapeKey = this._bodyShapeKey.get(id)
+    if (shapeKey) createOpts.shapeKey = shapeKey
+    if (mass !== undefined) createOpts.mass = mass
+    if (opts.linearDamping !== undefined) createOpts.linearDamping = opts.linearDamping
+    if (opts.angularDamping !== undefined) createOpts.angularDamping = opts.angularDamping
+    let nextId = null
+    try {
+      nextId = this._addBody(shape, this.getBodyPosition(id), joltMotionType, joltMotionType === J.EMotionType_Static ? LAYER_STATIC : LAYER_DYNAMIC, createOpts)
+    } catch (e) {
+      console.warn(`[physics] body ${id} could not be recreated as ${motionTypeName}: ${e?.message || e}`)
+      return null
+    }
+    const created = this._getBody(nextId)
+    const simulates = joltMotionType !== J.EMotionType_Static
+    if (!created || (simulates && !created.IsActive())) {
+      if (created) this.removeBody(nextId, true)
+      return null
+    }
+    if (!b.IsStatic()) {
+      const lv = this.getBodyVelocity(id), av = this.getBodyAngularVelocity(id)
+      if (lv[0] !== 0 || lv[1] !== 0 || lv[2] !== 0) this.setBodyVelocity(nextId, lv)
+      if (av[0] !== 0 || av[1] !== 0 || av[2] !== 0) this.setBodyAngularVelocity(nextId, av)
+    }
+    this.removeBody(id, true)
+    this._rebindRecreatedBodyId(id, nextId)
+    return nextId
+  }
+
+  _bodyCanBeRecreated(id, joltMotionType) {
+    const J = this.Jolt
+    for (const entry of this._constraints.values()) if (entry.bodyA === id || entry.bodyB === id) return false
+    if (this._vehicles) for (const v of this._vehicles.values()) if (v.chassisBodyId === id) return false
+    if (joltMotionType !== J.EMotionType_Static) {
+      const shape = this.bodyMeta.get(id)?.shape
+      if (shape === 'trimesh' || shape === 'mesh' || shape === 'heightfield') return false
+    }
     return true
+  }
+
+  _rebindRecreatedBodyId(oldId, newId) {
+    if (oldId === newId) return
+    if (this._trunkColliderIds?.delete(oldId)) this._trunkColliderIds.add(newId)
+    if (this._rockColliderIds?.delete(oldId)) this._rockColliderIds.add(newId)
+    if (this._terrainBodyId === oldId) this._terrainBodyId = newId
   }
   deactivateBody(id) {
     const b = this._getBody(id); if (!b || !this.bodyInterface.DeactivateBody) return false

@@ -242,14 +242,20 @@ export function buildPhysicsAPI(ent, runtime) {
       if (motionType !== 'dynamic' && motionType !== 'kinematic' && motionType !== 'static') return false
       if (typeof runtime._physics.setBodyMotionType !== 'function') return false
       if (motionType !== 'dynamic') runtime._physics.setBodyVelocity?.(ent._physicsBodyId, [0, 0, 0])
-      const ok = runtime._physics.setBodyMotionType(ent._physicsBodyId, motionType)
-      if (ok) {
-        ent.bodyType = motionType
-        if (ent._bodyDef) ent._bodyDef.motionType = motionType
-        if (motionType === 'static') runtime._activeDynamicIds?.delete(ent.id)
-        else runtime._activeDynamicIds?.add(ent.id)
-      }
-      return ok
+      const previousId = ent._physicsBodyId
+      const liveId = runtime._physics.setBodyMotionType(previousId, motionType, {
+        mass: ent.mass,
+        linearDamping: ent._linearDamping,
+        angularDamping: ent._angularDamping,
+        linearCast: resolveCCD(ent, motionType),
+      })
+      if (liveId === false) return false
+      ent.bodyType = motionType
+      if (ent._bodyDef) ent._bodyDef.motionType = motionType
+      if (liveId !== previousId) runtime._adoptBodyId?.(ent, previousId, liveId)
+      if (motionType === 'static') runtime._activeDynamicIds?.delete(ent.id)
+      else runtime._activeDynamicIds?.add(ent.id)
+      return true
     },
     getMotionType: () => ent.bodyType || 'static',
     getBodyId: () => (ent._physicsBodyId !== undefined ? ent._physicsBodyId : null),
