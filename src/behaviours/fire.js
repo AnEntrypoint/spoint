@@ -299,6 +299,15 @@ export function defineFire(spec = {}, appCtx = null, frameOf = null, weatherOf =
     smokeDepth(origin, direction, distance) { return gameplay ? gameplay.smokeDepth(origin, direction, distance) : 0 },
     rayBlocked(origin, direction, distance) { return gameplay ? gameplay.rayBlocked(origin, direction, distance) : false },
 
+    sightBlocked(from, to) {
+      if (!gameplay || !isVec3(from) || !isVec3(to)) return false
+      const dx = to[0] - from[0], dy = to[1] - from[1], dz = to[2] - from[2]
+      const distance = Math.sqrt(dx * dx + dy * dy + dz * dz)
+      if (!(distance > 0)) return false
+      const direction = [dx / distance, dy / distance, dz / distance]
+      return gameplay.rayBlocked(from, direction, distance)
+    },
+
     applyRemote(payload) {
       if (!payload || payload.type !== FIRE_WIRE_TYPE) throw new TypeError(`[fire] remote payload must be a { type: '${FIRE_WIRE_TYPE}' } message`)
       const { lattice, timeline } = ensureWorld()

@@ -1,8 +1,8 @@
-import { FIRE_EVENT } from './fireKernel.js'
+import { FIRE_EVENT, FIRE_MAX_WIND_COMPONENT } from './fireKernel.js'
 
 export const FIRE_WIRE_TYPE = 'fire'
 export const FIRE_MAX_EXTINGUISH_RADIUS_CELLS = 16
-export const FIRE_MAX_WIND_COMPONENT = 16
+export { FIRE_MAX_WIND_COMPONENT }
 export const FIRE_MAX_BYTE = 255
 export const FIRE_MAX_IGNITE_RADIUS_CELLS = 8
 export const FIRE_SEQ_RANGE = 4096

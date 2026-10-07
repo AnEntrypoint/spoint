@@ -2,6 +2,7 @@ import { FIRE_DIR_COUNT, FIRE_DIR_DI, FIRE_DIR_DJ } from './fireLattice.js'
 
 export const FIRE_STATE = Object.freeze({ UNBURNT: 0, BURNING: 1, BURNT: 2 })
 export const FIRE_EVENT = Object.freeze({ IGNITE: 0, EXTINGUISH: 1, WIND: 2, MOISTURE: 3, RAIN: 4, IGNITE_AREA: 5 })
+export const FIRE_MAX_WIND_COMPONENT = 16
 
 const UNBURNT = 0
 const BURNING = 1
@@ -116,6 +117,8 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
   let stepStart = 0, stepIndex = 0, nextStepTick = 0, phase = 0, cursor = 0, phaseEnd = 0, writePtr = 0, quota = 0, stepInterval = stepTicks
   let moisture = 0, rain = 0
   const wind = new Int32Array(3)
+  const gust = new Int32Array(3)
+  const effWind = new Int32Array(3)
   const faceWind = new Int32Array(lattice.faceCount * 2)
   const weights = new Int32Array(lattice.faceCount * FIRE_DIR_COUNT)
   const stats = { steps: 0, cellsVisited: 0, ignitions: 0, spots: 0, deniedActivations: 0, deniedTiles: 0, slowSteps: 0 }
@@ -126,9 +129,17 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
   const dirIndex = new Int8Array(9)
   for (let d = 0; d < FIRE_DIR_COUNT; d++) dirIndex[(FIRE_DIR_DJ[d] + 1) * 3 + FIRE_DIR_DI[d] + 1] = d
 
+  function composeWind() {
+    if (windAt !== null) windAt(stepIndex, gust)
+    for (let i = 0; i < 3; i++) {
+      const v = wind[i] + gust[i]
+      effWind[i] = v < -FIRE_MAX_WIND_COMPONENT ? -FIRE_MAX_WIND_COMPONENT : v > FIRE_MAX_WIND_COMPONENT ? FIRE_MAX_WIND_COMPONENT : v
+    }
+  }
+
   function rebuildWeights() {
     for (let f = 0; f < lattice.faceCount; f++) {
-      lattice.windInFaceAxes(f, wind[0], wind[1], wind[2], walkedWind)
+      lattice.windInFaceAxes(f, effWind[0], effWind[1], effWind[2], walkedWind)
       faceWind[f * 2] = walkedWind[0]; faceWind[f * 2 + 1] = walkedWind[1]
       for (let d = 0; d < FIRE_DIR_COUNT; d++) {
         const di = FIRE_DIR_DI[d], dj = FIRE_DIR_DJ[d]
@@ -209,12 +220,11 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
 
   function neighbourTile(t, dx, dy) {
     const idx = t * FIRE_DIR_COUNT + dirIndex[(dy + 1) * 3 + dx + 1]
-    let nt = tileNbr[idx]
-    if (nt === NBR_UNKNOWN) {
-      const ti = tileI[t] + dx, tj = tileJ[t] + dy
-      nt = (ti < 0 || tj < 0 || ti >= tilesPerAxis || tj >= tilesPerAxis) ? NBR_NONE : tileOf(tileFace[t], ti, tj)
-      if (nt >= 0) tileNbr[idx] = nt
-    }
+    const cached = tileNbr[idx]
+    if (cached >= 0 && tileFace[cached] === tileFace[t] && tileI[cached] === tileI[t] + dx && tileJ[cached] === tileJ[t] + dy) return cached
+    const ti = tileI[t] + dx, tj = tileJ[t] + dy
+    const nt = (ti < 0 || tj < 0 || ti >= tilesPerAxis || tj >= tilesPerAxis) ? NBR_NONE : tileOf(tileFace[t], ti, tj)
+    tileNbr[idx] = nt >= 0 ? nt : NBR_UNKNOWN
     return nt
   }
 
@@ -479,7 +489,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     stepIndex = d.stepIndex; stepStart = d.stepStart; nextStepTick = d.nextStepTick
     phase = d.phase; cursor = d.cursor; phaseEnd = d.phaseEnd; writePtr = d.writePtr; quota = d.quota
     stepInterval = d.stepInterval; moisture = d.moisture; rain = d.rain
-    wind[0] = d.wx; wind[1] = d.wy; wind[2] = d.wz; rebuildWeights()
+    wind[0] = d.wx; wind[1] = d.wy; wind[2] = d.wz; composeWind(); rebuildWeights()
     eventSeq = d.eventSeq
     for (let k = d.scarWrites - 1; k >= 0; k--) {
       const slot = d.scarSlot[k]
@@ -586,7 +596,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     switch (ev.kind) {
       case FIRE_EVENT.IGNITE: ignite(ev.face, ev.I, ev.J); break
       case FIRE_EVENT.EXTINGUISH: extinguish(ev.face, ev.I, ev.J, ev.radius); break
-      case FIRE_EVENT.WIND: wind[0] = ev.wx; wind[1] = ev.wy; wind[2] = ev.wz; rebuildWeights(); break
+      case FIRE_EVENT.WIND: wind[0] = ev.wx; wind[1] = ev.wy; wind[2] = ev.wz; composeWind(); rebuildWeights(); break
       case FIRE_EVENT.MOISTURE: moisture = ev.value; break
       case FIRE_EVENT.RAIN: rain = ev.value; break
       case FIRE_EVENT.IGNITE_AREA: igniteArea(ev.face, ev.I, ev.J, ev.radius); break
@@ -607,7 +617,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     while (consumed < pending.length && pending[consumed].tick <= tickNumber) applyEvent(pending[consumed++])
     if (consumed > 0) pending = pending.slice(consumed)
     stepIndex++
-    if (windAt !== null) { windAt(stepIndex, wind); rebuildWeights() }
+    composeWind(); rebuildWeights()
     stats.steps++
     const slow = activeCount > softActiveCells
     stepInterval = slow ? stepTicks * 2 : stepTicks
@@ -929,7 +939,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     if (hashValid) flushHash(); else rebuildHash()
     const sum = hashSum, mixed = hashXor
     let h = mix32(sum ^ Math.imul(mixed, 0x27d4eb2f))
-    h = mix32(h ^ stepIndex); h = mix32(h ^ (moisture | (rain << 8))); h = mix32(h ^ wind[0] ^ (wind[1] << 8) ^ (wind[2] << 16))
+    h = mix32(h ^ stepIndex); h = mix32(h ^ (moisture | (rain << 8))); h = mix32(h ^ effWind[0] ^ (effWind[1] << 8) ^ (effWind[2] << 16))
     h = mix32(h ^ Math.imul(activeCount, 0x165667b1)); h = mix32(h ^ Math.imul(scarCount, 0x9e3779b1))
     return h >>> 0
   }
@@ -956,7 +966,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     tileCount = s.tileCount; activeCount = s.activeCount; activeTileCount = s.activeTileCount; scarCount = s.scarCount
     stepStart = s.stepStart; stepIndex = s.stepIndex; nextStepTick = s.nextStepTick; phase = s.phase; cursor = s.cursor; phaseEnd = s.phaseEnd; writePtr = s.writePtr
     quota = s.quota; stepInterval = s.stepInterval; moisture = s.moisture; rain = s.rain; eventSeq = s.eventSeq
-    wind.set(s.wind); rebuildWeights()
+    wind.set(s.wind); composeWind(); rebuildWeights()
     pending = s.pending.map(e => ({ ...e }))
     Object.assign(stats, s.stats)
     state.set(s.state); cls.set(s.cls); fuel.set(s.fuel); heat.set(s.heat); timer.set(s.timer)
@@ -1016,7 +1026,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     get scarCount() { return scarCount },
     get stepIndex() { return stepIndex },
     get stats() { return stats },
-    get wind() { return [wind[0], wind[1], wind[2]] },
+    get wind() { return [effWind[0], effWind[1], effWind[2]] },
     get memoryBytes() { return state.byteLength + cls.byteLength + fuel.byteLength + heat.byteLength + timer.byteLength + scarRing.byteLength + scarAt.byteLength + tileNbr.byteLength + table.byteLength + maskLo.byteLength * 2 + activeTiles.byteLength },
   }
 }

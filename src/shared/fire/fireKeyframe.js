@@ -1,7 +1,7 @@
 import { FIRE_EVENT, FIRE_STATE, FACE_FREE, FACE_COUNT, TILE_AXIS_CELLS } from './fireKernel.js'
 
 const MAGIC = 0x46524b31
-const VERSION = 5
+const VERSION = 6
 const HEADER_BYTES = 24
 const TILE_CELL_SHIFT = 6
 const TILE_CELLS = 1 << TILE_CELL_SHIFT

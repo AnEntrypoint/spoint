@@ -454,10 +454,13 @@ export class AppContext {
     if (opts.maxDistance != null && dist > opts.maxDistance) return false
     const dir = [dx / dist, dy / dist, dz / dist]
     const r = this.raycast(fromPos, dir, dist, opts.excludeBodyId ?? null)
-    if (!r || !r.hit) return true
-    const tol = opts.tolerance != null ? opts.tolerance : DEFAULT_LOS_TARGET_COLLIDER_TOLERANCE_M
-    if (opts.targetEntityId != null && r.entityId === opts.targetEntityId) return true
-    return r.distance >= dist - tol
+    if (r && r.hit) {
+      const tol = opts.tolerance != null ? opts.tolerance : DEFAULT_LOS_TARGET_COLLIDER_TOLERANCE_M
+      if (!(opts.targetEntityId != null && r.entityId === opts.targetEntityId) && r.distance < dist - tol) return false
+    }
+    const fire = _fireNavByRuntime.get(this._runtime)
+    if (fire !== undefined && fire.sightBlocked(fromPos, toPos)) return false
+    return true
   }
 
   get terrainBodyId() { return this._runtime._physics?.getTerrainBodyId() ?? null }
