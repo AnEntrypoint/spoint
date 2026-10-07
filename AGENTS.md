@@ -57,6 +57,7 @@ Fewest words per fact; numbers and scenarios live in the `project/*` memo tier.
 ## Entry points
 
 - `ctx.defineGameFSM(spec)` `src/behaviours/game-fsm.js`; `ClientMachine.js` is xstate5 parallel, fallback `after:` 10 s gated / 45 s hard stop; editor REPARENT/DUPLICATE/SET_LABEL are 0x94-0x96.
+- `ctx.defineFire(spec)` `src/behaviours/fire.js` (wired at `AppContext.js:387`, default off, integer kernel in `src/shared/fire/`); design recall slug `project/fire-system-design-2026-10-05`.
 - Default world `apps/world/index.js` `defaultWorld`; validated `worldResolve.js`, defaulted `worldDefaults.js` (tick 60, spawn [0,5,0], `DEFAULT_PLAYER_MODEL` `/assets/default-avatar.vrm`).
 - Test relocation: `window.__spoint` + `MSG.TELEPORT` (0xc2 / TELEPORT_ACK 0xc3, `src/sdk/Relocation.js`; no `EDITOR_TOKEN` = any client, `relocation:false` disables, >87 deg from the anchor refuses).
 - A client app's `ctx.state` is the entity's `custom` block (`AppModuleSystem.js:82`), not server app state (`AppRuntime.js:686`): `ctx.state.<key> ?? literal` takes the literal forever. `engine.cam` is the camera CONTROLLER (`client/core/camera.js createCameraController`, `yaw`/`pitch`/`punch`/`setMode`) with no `position`, so `engine.cam.position` throws on every event; read `engine.client.getLocalState().position` (`apps/tps-game/client-app.js`).
