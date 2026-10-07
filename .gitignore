@@ -6,6 +6,9 @@ node_modules/
 .spoint-cache/
 .gm/*
 !.gm/memories/
+!.gm/disciplines/
+.gm/disciplines/*/
+!.gm/disciplines/project/
 data/nostr-identity.json
 .agentplug-kv/
 .agents/
