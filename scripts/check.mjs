@@ -24,6 +24,7 @@ const NO_GPU_WITNESSES = [
   { file: 'collider-turnover-witness.mjs', must: /resident per cycle before->started->stopped/ },
   { file: 'cpu-skip-witness.mjs', must: /row2_encodePerSnapshotCall/ },
   { file: 'netcode-profile-downgrade-witness.mjs', must: /carries netcode\.profile/ },
+  { file: 'planet-multiplayer-harness.mjs', args: ['--n=8'], must: /RESULT: PASS -- \d+ of \d+ check\(s\) passed/ },
   { file: 'lib/witness-audit.mjs', args: ['--gate'], must: /RESULT: PASS \d+ file\(s\) scanned/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
