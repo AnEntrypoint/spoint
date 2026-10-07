@@ -13,6 +13,13 @@ const FALLBACK_STANDING_OFFSET = 1.4
 const SPAWN_STATIC_WAIT_RADIUS = 256
 const SPAWN_HOLD_MAX_MS = 20000
 const SPAWN_HOLD_MOVED_EPS = 0.01
+const SPAWN_WALKABLE_CLEARANCE_M = 6
+const SPAWN_CLEARANCE_PROBE_M = 30
+const SPAWN_CLEARANCE_DIRS = (() => {
+  const dirs = []
+  for (let i = 0; i < 8; i++) dirs.push([Math.cos((i * Math.PI) / 4), Math.sin((i * Math.PI) / 4)])
+  return dirs
+})()
 
 function terrainY(physics, x, z) {
   const y = typeof physics?.terrainHeightAt === 'function' ? physics.terrainHeightAt(x, z) : null
@@ -43,6 +50,32 @@ export function probeSpawnGroundY(ctx, sp) {
     terrainY: terrainY(physics, sp[0], sp[2]),
     radius: ctx.physicsIntegration?.config?.capsuleRadius || 0,
   })
+}
+
+export function spawnClearanceM(ctx, x, y, z) {
+  const physics = ctx.physics
+  if (!physics || typeof physics.raycast !== 'function') return SPAWN_CLEARANCE_PROBE_M
+  let min = SPAWN_CLEARANCE_PROBE_M
+  for (const [dx, dz] of SPAWN_CLEARANCE_DIRS) {
+    const r = physics.raycast([x, y, z], [dx, 0, dz], SPAWN_CLEARANCE_PROBE_M)
+    if (r && r.hit && r.distance < min) min = r.distance
+  }
+  return min
+}
+
+export function rankSpawnPointsByWalkingRoom(ctx, candidates) {
+  if (!Array.isArray(candidates) || candidates.length < 2) return candidates
+  const scored = candidates.map(sp => {
+    const groundY = probeSpawnGroundY(ctx, sp)
+    if (groundY === null) return { sp, clearance: -1 }
+    const standingY = ctx.physicsIntegration?.standingCentreY?.(groundY)
+    if (!Number.isFinite(standingY)) return { sp, clearance: -1 }
+    return { sp, clearance: spawnClearanceM(ctx, sp[0], standingY, sp[2]) }
+  })
+  scored.sort((a, b) => b.clearance - a.clearance)
+  const walkable = scored.filter(s => s.clearance >= SPAWN_WALKABLE_CLEARANCE_M)
+  const pool = walkable.length > 0 ? walkable : scored.slice(0, 1)
+  return pool.map(s => s.sp)
 }
 
 export function groundSnapSpawnPoint(ctx, sp) {

@@ -7,7 +7,7 @@ import { isInputRateLimited, clearInputBucket } from '../netcode/InputGuard.js'
 import { createInputSchema, decodeInputPacket, DEFAULT_INPUT_SCHEMA } from '../protocol/InputCodec.js'
 import { clearOutlierWindow } from '../netcode/OutlierDetector.js'
 import { createNostrAuthServer } from './NostrAuthServer.js'
-import { groundSnapSpawnPoint, holdSpawnUntilGrounded } from './Relocation.js'
+import { groundSnapSpawnPoint, holdSpawnUntilGrounded, rankSpawnPointsByWalkingRoom } from './Relocation.js'
 import { playerDefault } from '../shared/worldDefaults.js'
 import { chartHandshakeFields, currentChartEpoch, resolveEpochTransfer, reexpressInputEntries, reexpressShot, createChartResyncReply, chartWireStatsOf } from './chartWire.js'
 
@@ -71,7 +71,8 @@ export function createConnectionHandlers(ctx) {
     const spawnPoints = ctx.worldSpawnPoints || [ctx.worldSpawnPoint]
     const rejoin = (transport.type === 'peer' && transport._peerId && ctx.pendingRejoinState?.get(transport._peerId))
       || (transport.type === 'worker' && ctx.localRejoinState) || null
-    const sp = rejoin ? [...rejoin.position] : [...spawnPoints[Math.floor(Math.random() * spawnPoints.length)]]
+    const pool = rejoin ? null : rankSpawnPointsByWalkingRoom(ctx, spawnPoints)
+    const sp = rejoin ? [...rejoin.position] : [...pool[Math.floor(Math.random() * pool.length)]]
     const playerConfig = ctx.currentWorldDef?.player || {}
     const playerId = playerManager.addPlayer(transport, { position: sp, health: rejoin?.health ?? playerConfig.health, rotation: rejoin?.rotation })
     networkState.addPlayer(playerId, { position: sp })
