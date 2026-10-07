@@ -10,6 +10,8 @@ process.env.WORLD = process.env.WORLD || 'arena-combat'
 const args = Object.fromEntries(process.argv.slice(2).map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true'] }))
 const PORT = args.port || '3137'
 const GPU_MODE = args.gpu || 'accelerated'
+const WANT_SOFTWARE = GPU_MODE === 'software' || GPU_MODE === 'swiftshader' || GPU_MODE === 'none'
+const WANT_VENDOR = WANT_SOFTWARE || GPU_MODE === 'accelerated' ? null : GPU_MODE
 const FORCE_WEBGL_BACKEND = args['force-webgl'] === 'true'
 const READY_TIMEOUT_MS = Number(args.timeout || 900000)
 const ROOM_TIMEOUT_MS = Number(args['room-timeout'] || 600000)
@@ -232,7 +234,7 @@ async function main() {
 
   let browser
   try {
-    const launchArgs = gpuArgs({ accelerated: GPU_MODE === 'accelerated' })
+    const launchArgs = gpuArgs({ accelerated: !WANT_SOFTWARE })
     browser = await chromium.launch({ headless: true, args: launchArgs })
     const shooter = await makeClient(browser, 'shooter')
     const victim = await makeClient(browser, 'victim')
@@ -254,9 +256,9 @@ async function main() {
       if (c.firstRoom) console.log(`[arena-combat] ${c.label} first snapshot: self=${c.firstRoom.playerId} ids=${JSON.stringify(c.firstRoom.players.map(p => p.id))} includesSelf=${c.firstRoom.players.some(p => p.id === c.firstRoom.playerId)}`)
     }
 
-    const gpu = await assertGpu(shooter.page, { requireAccelerated: GPU_MODE === 'accelerated', expectVendor: args['expect-vendor'] }).catch(e => ({ rasterizer: 'probe-failed', haystack: e.message }))
+    const gpu = await assertGpu(shooter.page, { requireAccelerated: !WANT_SOFTWARE, expectVendor: args['expect-vendor'] || WANT_VENDOR }).catch(e => ({ rasterizer: 'probe-failed', haystack: e.message }))
     console.log(`[arena-combat] rasterizer=${gpu.rasterizer} gpu=${gpu.haystack || 'none'} gpuMode=${GPU_MODE} forceWebglBackend=${FORCE_WEBGL_BACKEND}`)
-    check(gpu.rasterizer === (GPU_MODE === 'accelerated' ? 'accelerated' : 'software'), `the requested ${GPU_MODE} rasterizer was not the one measured: ${gpu.rasterizer} (${gpu.haystack || 'no renderer strings'})`)
+    check(gpu.rasterizer === (WANT_SOFTWARE ? 'software' : 'accelerated'), `the requested ${GPU_MODE} rasterizer was not the one measured: ${gpu.rasterizer} (${gpu.haystack || 'no renderer strings'})`)
     for (const c of clients) {
       c.rendererInfo = await c.page.evaluate(() => window.__rendererInfo || null).catch(() => null)
       console.log(`[arena-combat] ${c.label} renderer=${JSON.stringify(c.rendererInfo)}`)
