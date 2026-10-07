@@ -2,7 +2,7 @@
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { chromium } from './lib/cdp-browser.mjs'
-import { assertGpu, gpuArgs } from './lib/gpu-probe.mjs'
+import { assertGpu, gpuLaunchArgs, gpuModeFlag } from './lib/gpu-probe.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -14,7 +14,6 @@ function flag(name, dflt = null) {
 const has = (name) => process.argv.includes(`--${name}`)
 
 const PORT = flag('port', '3137')
-const GL = flag('gl', 'swiftshader')
 const BACKEND = flag('backend', 'webgl')
 const FRAMES = Number(flag('frames', '10'))
 const PARAMS = flag('params', 'singleplayer')
@@ -25,9 +24,9 @@ const REQUIRE_ACCELERATED = has('require-accelerated')
 const EXPECT_VENDOR = flag('expect-vendor', null)
 const ALLOWED_CONSOLE_ERROR_TEXTS = process.argv.filter((a) => a.startsWith('--allow-console-error=')).map((a) => a.slice('--allow-console-error='.length))
 
-const ACCELERATED = has('accelerated') || GL === 'nvidia'
+const GPU_MODE = gpuModeFlag('gpu', 'software')
 const ANGLE_D3D11_ARGS = ['--use-gl=angle', '--use-angle=d3d11']
-const LAUNCH_ARGS = ACCELERATED ? [...gpuArgs({ accelerated: true }), ...ANGLE_D3D11_ARGS] : gpuArgs({ accelerated: false })
+const LAUNCH_ARGS = gpuLaunchArgs(GPU_MODE, GPU_MODE.accelerated ? ANGLE_D3D11_ARGS : [])
 
 const PROBE = `(() => {
   const W = window
@@ -167,8 +166,8 @@ async function main() {
     }
     console.log(`[draw-instrument] ready @ ${Date.now() - t0}ms`)
 
-    const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED, expectVendor: EXPECT_VENDOR })
-    console.log(`[draw-instrument] rasterizer=${gpu.rasterizer} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)
+    const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED || GPU_MODE.accelerated, expectVendor: EXPECT_VENDOR || GPU_MODE.vendor })
+    console.log(`[draw-instrument] rasterizer=${gpu.rasterizer} gpuMode=${GPU_MODE.mode} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)
 
     const built = `performance.getEntriesByType('mark').some(m => m.name === 'boot:scenery-built')`
     let scenery = false

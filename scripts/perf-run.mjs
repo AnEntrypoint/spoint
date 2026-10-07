@@ -61,18 +61,25 @@ setTimeout(() => {
 const OUT_FILE = resolve(OUT_DIR, LABEL + '.json')
 
 const AMD_LUID = flag('adapter-luid', null) || adapterLuidFor('amd')
-if (GPU === 'amd' && !AMD_LUID) {
-  console.error('[perf-run] --gpu=amd needs an AMD adapter LUID; none of ' + JSON.stringify(directxAdapters()) + ' matches /amd/. Pass --adapter-luid=<decimal>.')
-  process.exit(2)
-}
+const INTEL_LUID = flag('intel-adapter-luid', null) || adapterLuidFor('intel')
 const GPU_VENDOR_ARGS = {
   nvidia: ['--use-gl=angle', '--use-angle=d3d11'],
-  igpu: ['--use-gl=angle', '--use-angle=d3d11', '--igpu-select'],
   amd: ['--use-gl=angle', '--use-angle=d3d11', '--use-adapter-luid=0,' + AMD_LUID],
+  igpu: ['--use-gl=angle', '--use-angle=d3d11', '--use-adapter-luid=0,' + INTEL_LUID],
+}
+for (const [vendor, luid] of [['amd', AMD_LUID], ['igpu', INTEL_LUID]]) {
+  if (GPU === vendor && !luid) {
+    console.error('[perf-run] --gpu=' + vendor + ' needs an adapter LUID; none of ' + JSON.stringify(directxAdapters()) + ' matches. Pass ' + (vendor === 'amd' ? '--adapter-luid=<decimal>' : '--intel-adapter-luid=<decimal>') + '.')
+    process.exit(2)
+  }
 }
 const ACCELERATED = has('accelerated') || GPU !== 'swiftshader'
+if (ACCELERATED && !GPU_VENDOR_ARGS[GPU]) {
+  console.error('[perf-run] --gpu=' + GPU + ' is not a known vendor arm; expected one of ' + Object.keys(GPU_VENDOR_ARGS).join(', ') + ' or swiftshader.')
+  process.exit(2)
+}
 const LAUNCH_ARGS = ACCELERATED
-  ? [...gpuArgs({ accelerated: true }), ...(GPU_VENDOR_ARGS[GPU] || GPU_VENDOR_ARGS.nvidia)]
+  ? [...gpuArgs({ accelerated: true }), ...GPU_VENDOR_ARGS[GPU]]
   : gpuArgs({ accelerated: false })
 
 const POS_SRC = `(() => {

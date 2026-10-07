@@ -2,6 +2,7 @@
 import path from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import { chromium } from './lib/cdp-browser.mjs'
+import { gpuLaunchArgs, gpuModeFlag, witnessGpu } from './lib/gpu-probe.mjs'
 import { expandWorldPresets } from '../src/shared/worldPresets.js'
 
 const argv = process.argv.slice(2)
@@ -16,6 +17,7 @@ const PARAMS = flag('params', 'singleplayer')
 const EXPECT = flag('expect', 'absent')
 const TIMEOUT_MS = Number(flag('timeout', '240000'))
 const SETTLE_MS = Number(flag('settle', '3000'))
+const GPU_MODE = gpuModeFlag()
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const TAG = '[shader-manifest]'
@@ -60,7 +62,7 @@ async function main() {
   const requests = []
   let browser = null
   try {
-    browser = await chromium.launch({ headless: true, args: ['--use-gl=swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist'] })
+    browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(GPU_MODE) })
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
     const pageErrors = []
     page.on('pageerror', e => pageErrors.push(String(e)))
@@ -68,9 +70,11 @@ async function main() {
     page.on('Network.requestWillBeSent', p => requests.push({ url: p.request?.url || '', type: p.type || null }))
     page.on('Network.responseReceived', p => responses.push({ url: p.response?.url || '', status: p.response?.status ?? null, mime: p.response?.mimeType || null, type: p.type || null }))
     page.on('Network.loadingFailed', p => responses.push({ url: p.requestId || '', status: 'failed', mime: null, type: p.type || null, failedText: p.errorText || null }))
-    const url = `${base}/?${PARAMS}`
+    const url = `${base}/?${PARAMS}${/(^|&)world=/.test(PARAMS) ? '' : `&world=${WORLD}`}`
     console.log(`${TAG} navigating to ${url}`)
     await page.goto(url, { waitUntil: 'domcontentloaded' })
+    const gpu = await witnessGpu(page, GPU_MODE)
+    console.log(`${TAG} rasterizer=${gpu.rasterizer} gpu=${gpu.haystack || 'none'} gpuMode=${GPU_MODE.mode}`)
 
     const t0 = Date.now()
     let ready = false

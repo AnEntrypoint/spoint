@@ -2,6 +2,7 @@
 import fs from 'node:fs'
 import { join } from 'node:path'
 import { chromium } from './lib/cdp-browser.mjs'
+import { gpuLaunchArgs, gpuModeFlag, witnessGpu } from './lib/gpu-probe.mjs'
 
 const argv = process.argv.slice(2)
 function flag(name, dflt = null) {
@@ -19,6 +20,7 @@ const MAX_PHASE_MS = Number(flag('max-phase-ms', '0'))
 const REQUIRE_APP = flag('require-app', null)
 const SETTLE_MS = Number(flag('settle', '1500'))
 const NO_MANIFEST = argv.includes('--no-manifest')
+const GPU_MODE = gpuModeFlag()
 const ROOT = join(process.cwd())
 
 const TAG = '[apps-manifest-fast-path]'
@@ -171,7 +173,7 @@ async function main() {
 
   let browser = null
   try {
-    browser = await chromium.launch({ headless: true, args: ['--use-gl=swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist'] })
+    browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(GPU_MODE) })
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
     const pageErrors = []
     const consoleLines = []
@@ -182,9 +184,11 @@ async function main() {
       consoleLines.push(`${p?.type || 'log'}: ${t}`)
     })
     await page._send('Page.addScriptToEvaluateOnNewDocument', { source: PROBE_PATCH })
-    const url = `${base}/?${PARAMS}`
+    const url = `${base}/?${PARAMS}${/(^|&)world=/.test(PARAMS) ? '' : `&world=${WORLD}`}`
     console.log(`${TAG} navigating to ${url}`)
     await page.goto(url, { waitUntil: 'domcontentloaded' })
+    const gpu = await witnessGpu(page, GPU_MODE)
+    console.log(`${TAG} rasterizer=${gpu.rasterizer} gpu=${gpu.haystack || 'none'} gpuMode=${GPU_MODE.mode}`)
 
     const t0 = Date.now()
     let ready = false

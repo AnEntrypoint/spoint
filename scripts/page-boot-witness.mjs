@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { chromium } from './lib/cdp-browser.mjs'
+import { gpuLaunchArgs, gpuModeFlag } from './lib/gpu-probe.mjs'
 import { unreachedReasons } from './lib/witness-reachability.mjs'
 
 function flag(name, dflt = null) {
@@ -18,7 +19,7 @@ const OBSERVE_MS = Number(flag('observe', '0'))
 const PROXY = flag('proxy', null)
 const WORLD = flag('world', 'tps-game')
 const HEADLESS = !has('headed')
-const GL = flag('gl', 'swiftshader')
+const GPU_MODE = gpuModeFlag()
 const GPU_VENDOR = flag('gpu', null)
 const SHOT = flag('screenshot', null)
 const ALLOW_ERRORS = has('allow-errors')
@@ -108,7 +109,7 @@ async function main() {
   try {
     const args = GPU_VENDOR
       ? await adapterLuidArgs(GPU_VENDOR)
-      : (GL === 'none' ? [] : ['--use-gl=' + GL, '--use-angle=' + GL, '--ignore-gpu-blocklist'])
+      : gpuLaunchArgs(GPU_MODE)
     browser = await chromium.launch({ headless: HEADLESS, args })
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
     const consoleEntries = []
@@ -157,7 +158,12 @@ async function main() {
     const wanted = GPU_VENDOR || REQUIRE_GPU || 'any'
     const gotVendor = Object.keys(VENDOR_ADAPTER).find(v => VENDOR_ADAPTER[v].test(gpuName) || VENDOR_ADAPTER[v].test(gpu.renderer || '')) || null
     const gpuKind = gpuSoftware ? 'SOFTWARE (swiftshader/llvmpipe or no webgpu adapter)' : (gotVendor ? gotVendor.toUpperCase() : 'UNRECOGNISED ADAPTER')
-    console.log(`[page-boot-witness] gpu adapter=${JSON.stringify(gpuName)} glRenderer=${JSON.stringify(gpu.renderer)} classification=${gpuKind} wanted=${JSON.stringify(wanted || 'any')}`)
+    console.log(`[page-boot-witness] gpu adapter=${JSON.stringify(gpuName)} glRenderer=${JSON.stringify(gpu.renderer)} classification=${gpuKind} wanted=${JSON.stringify(wanted || 'any')} gpuMode=${GPU_MODE.mode}`)
+    if (GPU_MODE.accelerated && gpuSoftware) fail(`gpuMode=${GPU_MODE.mode} demands an accelerated rasterizer but the page measured ${gpuKind} (${gpuName})`)
+    if (GPU_MODE.vendor) {
+      const wantVendor = VENDOR_ADAPTER[GPU_MODE.vendor] || new RegExp(GPU_MODE.vendor, 'i')
+      if (!wantVendor.test(`${gpuName} ${gpu.renderer || ''}`)) fail(`gpuMode=${GPU_MODE.mode} demands a ${GPU_MODE.vendor} adapter but the page measured ${gpuName} / ${gpu.renderer}`)
+    }
     if (SHOT) { await page.screenshot({ path: SHOT }); console.log(`[page-boot-witness] screenshot -> ${SHOT}`) }
 
     const consoleErrorLevels = new Set(['error', 'exception'])

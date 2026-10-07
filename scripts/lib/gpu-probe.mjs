@@ -74,6 +74,31 @@ export function gpuArgs({ accelerated = false } = {}) {
   return accelerated ? ACCELERATED_ARGS : SOFTWARE_ARGS
 }
 
+const SOFTWARE_MODES = new Set(['software', 'swiftshader', 'none'])
+
+export function gpuModeOf(mode) {
+  const raw = typeof mode === 'string' ? mode : (mode && mode.mode) || 'software'
+  const software = SOFTWARE_MODES.has(raw)
+  return { mode: raw, software, accelerated: !software, vendor: software || raw === 'accelerated' ? null : raw }
+}
+
+export function gpuModeFlag(name = 'gpu', dflt = 'software') {
+  const modern = process.argv.find((a) => a.startsWith(`--${name}=`))
+  const legacy = process.argv.find((a) => a.startsWith('--gl='))
+  const value = modern ? modern.slice(name.length + 3) : legacy ? legacy.slice(5) : dflt
+  return gpuModeOf(value)
+}
+
+export function gpuLaunchArgs(mode, extra = []) {
+  return [...gpuArgs({ accelerated: gpuModeOf(mode).accelerated }), ...extra]
+}
+
+export async function witnessGpu(page, mode) {
+  const want = gpuModeOf(mode)
+  const gpu = await assertGpu(page, { requireAccelerated: want.accelerated, expectVendor: want.vendor })
+  return { ...gpu, mode: want.mode, software: want.software }
+}
+
 const DIRECTX_KEY = 'HKLM\\SOFTWARE\\Microsoft\\DirectX'
 
 export function directxAdapters() {
