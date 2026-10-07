@@ -16,9 +16,18 @@ const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const args = Object.fromEntries(process.argv.slice(2).flatMap(a => { const [k, v] = a.replace(/^--/, '').split('='); const val = v ?? 'true'; return [[k, val], [k.replace(/-([a-z])/g, (_, c) => c.toUpperCase()), val]] }))
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const round = (x, d = 3) => x == null || !Number.isFinite(x) ? x : Number(x.toFixed(d))
+const rawError = console.error.bind(console)
 const GOLDEN = 2.39996323
 const RELEVANCE_M = 200
 const HYSTERESIS_FACTOR = 1.15
+
+function numFlag(name, fallback) {
+  const raw = args[name]
+  if (raw === undefined) return fallback
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed)) throw new Error(`--${name} takes a number, got "${raw}"`)
+  return parsed
+}
 
 function colliderReport(ring) {
   const one = s => s ? {
@@ -29,10 +38,20 @@ function colliderReport(ring) {
   return { trunk: one(ring?._trunkStreamer || null), rock: one(ring?._rockStreamer || null) }
 }
 
-if (args.child) await runChild()
-else await runParent()
+try {
+  if (args.child) await runChild()
+  else await runParent()
+} catch (e) {
+  rawError('[planet-harness] RESULT: FAIL (uncaught)')
+  rawError(e?.stack || String(e))
+  process.exit(1)
+}
 
 async function runChild() {
+  if (typeof globalThis.WebSocket !== 'function') {
+    const { WebSocket } = await import('ws')
+    globalThis.WebSocket = WebSocket
+  }
   const { PhysicsNetworkClient } = await import('../src/client/PhysicsNetworkClient.js')
   const { unpack } = await import('../src/protocol/msgpack.js')
   const { MSG } = await import('../src/protocol/MessageTypes.js')
@@ -174,31 +193,121 @@ async function runParent() {
   const phaseTotals = () => { const out = {}; const text = renderMetrics(); for (const m of text.matchAll(/spoint_tick_phase_ms_(sum|count)\{phase="(\w+)"[^}]*\} ([\d.e+-]+)/g)) (out[m[2]] ||= {})[m[1]] = Number(m[3]); const b = text.match(/spoint_snapshot_bytes_total ([\d.e+-]+)/); out.snapBytes = b ? Number(b[1]) : 0; return out }
   const { findHitSpatial, buildLiveIndex, resolveFireRequest } = await import('../src/netcode/Hitscan.js')
 
-  const N = Number(args.n || 16)
-  const PROCS = Math.max(1, Math.min(Number(args.procs || 4), N))
-  const DURATION_S = Number(args.duration || 15)
-  const WARM_S = Number(args.warm || 4)
+  const N = numFlag('n', 16)
+  if (!(N >= 1)) throw new Error(`--n must be at least 1 player, got ${N}`)
+  const PROCS = Math.max(1, Math.min(numFlag('procs', 4), N))
+  const DURATION_S = numFlag('duration', 15)
+  if (!(DURATION_S > 0)) throw new Error(`--duration must be a positive number of seconds, got ${DURATION_S}`)
+  const WARM_S = numFlag('warm', 4)
   const WORLD = args.world || 'tps'
   const SERVICE = args.service === 'on'
-  const ANCHORS = Number(args.anchors || 32)
-  const HYST = Number(args.hyst ?? 0.75)
-  const PREDICT_N = Number(args.predict ?? N)
-  const SHOOTERS = Number(args.shooters ?? 0)
-  const LATE_JOIN = Number(args.lateJoin || 0)
+  const ANCHORS = numFlag('anchors', 32)
+  const HYST = numFlag('hyst', 0.75)
+  const PREDICT_N = numFlag('predict', N)
+  const SHOOTERS = numFlag('shooters', 0)
+  const LATE_JOIN = numFlag('lateJoin', 0)
   const scenarios = (args.scenario || 'clustered').split(',')
   const results = []
   const outDir = resolve(SDK_ROOT, 'data', 'planet-harness')
   await mkdir(outDir, { recursive: true })
-  const logLines = { heightfield: 0, overrun: 0, dilation: 0, warn: 0, error: 0, other: new Map() }
+  const logLines = { heightfield: 0, overrun: 0, dilation: 0, deprecation: 0, warn: 0, error: 0, other: new Map() }
   const originals = { log: console.log, warn: console.warn, error: console.error }
   const tally = (kind, line) => {
     if (/\[terrain\] heightfield #/.test(line)) logLines.heightfield++
     else if (/overran budget/.test(line)) logLines.overrun++
     else if (/tick-dilation/.test(line)) logLines.dilation++
+    else if (/^\(node:\d+\)\s+\[DEP\d+\]/.test(line)) logLines.deprecation++
     else if (kind !== 'log') { logLines[kind]++; const key = line.slice(0, 90); logLines.other.set(key, (logLines.other.get(key) || 0) + 1) }
   }
   for (const kind of ['log', 'warn', 'error']) console[kind] = (...a) => { tally(kind, a.map(String).join(' ')); if (args.verbose) originals[kind](...a) }
   const say = (...a) => originals.log('[planet-harness]', ...a)
+
+  const failures = []
+  let checkCount = 0
+  const show = v => {
+    if (v == null) return String(v)
+    if (typeof v === 'number') return Number.isFinite(v) ? String(round(v, 3)) : String(v)
+    if (Array.isArray(v)) return `[${v.map(show).join(', ')}]`
+    if (typeof v === 'object') return JSON.stringify(v)
+    return String(v)
+  }
+  function expect(name, got, predicate) {
+    checkCount++
+    if (predicate(got)) { originals.log(`  [PASS] ${name} -- ${show(got)}`); return true }
+    const row = `${name} -- measured ${show(got)}`
+    failures.push(row)
+    originals.log(`  [FAIL] ${row}`)
+    return false
+  }
+
+  function auditScenario(r) {
+    const tag = `[${r.scenario}]`
+    const budgetMs = 1000 / r.tickRate
+    const overrunCeiling = Math.max(1, Math.ceil(r.serverTickMs.n * 0.01))
+    expect(`${tag} every client connected`, r.connected, v => v === N)
+    expect(`${tag} every teleport landed`, r.teleportsOk, v => v === N)
+    expect(`${tag} no teleport was refused`, Object.keys(r.teleportRefusals).length, v => v === 0)
+    expect(`${tag} every placement found dry walkable ground`, r.unplaceableOnDryWalkableGround, v => v === 0)
+    expect(`${tag} no player was dropped from the server`, r.serverGround.ofPlayers, v => v === N)
+    expect(`${tag} every player stands on the terrain`, r.serverGround.grounded, v => v === r.serverGround.ofPlayers)
+    expect(`${tag} no player fell through the terrain`, r.serverGround.fellBelowTerrain5m, v => v === 0)
+    expect(`${tag} no player was launched off the surface`, r.serverGround.aboveTerrainM.max, v => v != null && v < 50)
+    expect(`${tag} terrain covers every player`, r.failures.groundMissing, v => v === 0)
+    expect(`${tag} no server position went non-finite`, r.failures.nonFiniteServerPositions, v => v === 0)
+    expect(`${tag} no client local state went non-finite`, r.failures.nonFiniteClientLocal, v => v === 0)
+    expect(`${tag} no client accepted a non-finite player state`, r.failures.clientNanStates, v => v === 0)
+    expect(`${tag} no client reported a message error`, r.failures.clientErrors.length, v => v === 0)
+    expect(`${tag} no client disconnected`, r.failures.disconnected, v => v === 0)
+    expect(`${tag} nothing wrote a warning`, r.failures.logLines.warn, v => v === 0)
+    expect(`${tag} nothing wrote an error`, r.failures.logLines.error, v => v === 0)
+    expect(`${tag} no tick dilated`, r.scheduler.dilationFactor, v => v != null && v <= 1.05)
+    expect(`${tag} the tick instrument counted ticks`, r.serverTickMs.n, v => v > 0)
+    expect(`${tag} the server holds its configured tick period`, r.tickIntervalMs.p50, v => v != null && v <= budgetMs * 1.5)
+    expect(`${tag} under 10% of ticks exceed their budget`, r.tickOver1BudgetPct, v => v < 10)
+    expect(`${tag} at most 1% of ticks overrun twice their budget`, r.failures.logLines.overrun, v => v <= overrunCeiling)
+    expect(`${tag} no tick dilation was logged`, r.failures.logLines.dilation, v => v === 0)
+    expect(`${tag} the event loop never stalled a quarter second`, r.eventLoopDelayMs.p99, v => v < 250)
+    expect(`${tag} a tick's own phases fit inside its budget`, r.tickPhaseAvgMs.total, v => v != null && v < budgetMs)
+    expect(`${tag} main-thread CPU per tick stays under four budgets`, r.serverMainThreadCpuMsPerTick, v => v > 0 && v < budgetMs * 4)
+    expect(`${tag} every client received snapshots at the tick rate`, r.snapshotHz.p50, v => v != null && v > r.tickRate * 0.5 && v < r.tickRate * 1.5)
+    expect(`${tag} every client received snapshot bytes`, r.clientDownKBps.p50, v => v != null && v > 0)
+    expect(`${tag} snapshots dominate the downlink`, r.downBytesByTypeTotalKB.SNAPSHOT ?? 0, v => v > 0)
+    expect(`${tag} every client saw a player in its first snapshot`, r.joinSnapshotPlayers.max, v => v != null && v >= 1)
+    expect(`${tag} the interest instrument counted viewer pairs`, r.interest.expectedPairs, v => v > 0)
+    expect(`${tag} every player inside the relevance radius was delivered`, r.interest.missing, v => v === 0)
+    expect(`${tag} no player beyond the hysteresis radius was delivered`, r.interest.extra, v => v === 0)
+    expect(`${tag} every client sees itself`, r.interest.selfMissing, v => v === 0)
+    expect(`${tag} the distortion instrument counted pairs`, r.distortion.pairs, v => v > 0)
+    expect(`${tag} chart-local distance matches world distance`, r.distortion.maxAbsM, v => v != null && v < 5)
+    expect(`${tag} every player stays inside the chart`, r.anchorAngleDeg.max, v => v != null && v < 45)
+    expect(`${tag} no client saw a chart epoch the server never bumped`, r.chart.clientEpochsSeen.max, v => (v ?? 0) <= r.chart.epochsDuringRun)
+    expect(`${tag} no client asked for a chart resync`, r.chart.clientResyncs, v => v === 0)
+    expect(`${tag} the chart re-anchor refused nothing`, r.chart.refusals, v => v === 0)
+    expect(`${tag} the trunk collider ring served every cluster`, r.colliders.trunk?.centers ?? 0, v => v > 0)
+    expect(`${tag} the trunk collider ring dropped no cluster`, r.colliders.trunk?.dropped ?? 0, v => v === 0)
+    expect(`${tag} the rock collider ring dropped no cluster`, r.colliders.rock?.dropped ?? 0, v => v === 0)
+    expect(`${tag} trunk colliders stay inside their byte budget`, [r.colliders.trunk?.residentKB ?? null, r.colliders.trunk?.byteBudgetKB ?? null], v => v[0] != null && v[1] != null && v[0] <= v[1])
+    expect(`${tag} rock colliders stay inside their byte budget`, [r.colliders.rock?.residentKB ?? null, r.colliders.rock?.byteBudgetKB ?? null], v => v[0] != null && v[1] != null && v[0] <= v[1])
+    expect(`${tag} the heightfield streamer was instrumented`, r.streaming.heightfieldRebuilds, v => Number.isFinite(v))
+    expect(`${tag} resident memory growth stays under 400 MB/min`, r.memory.rssGrowthMBPerMin, v => Number.isFinite(v) && v < 400)
+    expect(`${tag} the heap is still allocated at the end`, r.memory.heapMB[1], v => v > 0)
+    if (PREDICT_N > 0) {
+      expect(`${tag} prediction was measured`, r.prediction, v => v != null)
+      if (r.prediction) {
+        expect(`${tag} prediction clients were acked`, r.prediction.acksTotal, v => v > 0)
+        expect(`${tag} no client drifted 3 m from the server`, r.prediction.clientVsServerM.max, v => v != null && v < 3)
+        expect(`${tag} at most half of acks correct the client`, r.prediction.correctionsPerAck, v => v <= 0.5)
+      }
+    }
+    if (SHOOTERS > 0) {
+      expect(`${tag} shooters fired`, r.hitReg.shots, v => v > 0)
+      expect(`${tag} lag compensation rejected no shot`, r.hitReg.byDistance.reduce((s, b) => s + b.rejected, 0), v => v === 0)
+    }
+    if (LATE_JOIN > 0) {
+      expect(`${tag} every late joiner connected`, r.lateJoin?.clients ?? 0, v => v === LATE_JOIN)
+      expect(`${tag} late joiners saw players in their first snapshot`, r.lateJoin?.playersInFirstSnapshot?.max ?? 0, v => v >= 1)
+    }
+  }
 
   const freePort = () => new Promise((res, rej) => { const s = createNetServer(); s.once('error', rej); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)) }) })
 
@@ -210,11 +319,11 @@ async function runParent() {
     const reanchor = { enabled: SERVICE, anchorsPerFace: ANCHORS, hysteresisDeg: HYST }
     const terrain = WORLD === 'smooth'
       ? { ...loaded.terrain, bakedHeightfield: undefined, carves: [], vegetation: { enabled: false }, reliefScale: 0.0005, chartReanchor: reanchor }
-      : { ...loaded.terrain, chartReanchor: reanchor, ...(args.maxFields ? { physics: { ...(loaded.terrain.physics || {}), maxFields: Number(args.maxFields) } } : {}), ...(args.maxCenters ? { vegetation: { ...loaded.terrain.vegetation, colliderMaxCenters: Number(args.maxCenters) } } : {}) }
+      : { ...loaded.terrain, chartReanchor: reanchor, ...(args.maxFields ? { physics: { ...(loaded.terrain.physics || {}), maxFields: numFlag('maxFields', 0) } } : {}), ...(args.maxCenters ? { vegetation: { ...loaded.terrain.vegetation, colliderMaxCenters: numFlag('maxCenters', 0) } } : {}) }
     const entities = WORLD === 'smooth'
       ? [{ id: 'spawn-1', position: [0, 3, 0], app: 'spawn-point', config: { team: 'any' } }]
       : loaded.entities.filter(e => e.id !== 'env-sillos')
-    const worldDef = { ...loaded, entities, terrain, ...(WORLD === 'smooth' ? { spawnPoint: [0, 3, 0] } : {}), ...(args.snapHz ? { netcode: { ...(loaded.netcode || {}), snapshotRate: Number(args.snapHz) } } : {}) }
+    const worldDef = { ...loaded, entities, terrain, ...(WORLD === 'smooth' ? { spawnPoint: [0, 3, 0] } : {}), ...(args.snapHz ? { netcode: { ...(loaded.netcode || {}), snapshotRate: numFlag('snapHz', loaded.tickRate || 64) } } : {}) }
     const port = await freePort()
     const tickRate = worldDef.tickRate || 64
     const server = await createServer({ port, tickRate, appsDirs: [resolve(SDK_ROOT, 'apps'), resolve(SDK_ROOT, 'src/stdlib-apps')], sdkRoot: SDK_ROOT, gravity: worldDef.gravity, staticDirs: [], storageDir: resolve(workDir, 'data') })
@@ -275,7 +384,7 @@ async function runParent() {
 
   let unplaceable = 0
   const wetDirs = new Set()
-  const WALKABLE_MAX_SLOPE_DEG = Number(args.maxSlope || 20)
+  const WALKABLE_MAX_SLOPE_DEG = numFlag('maxSlope', 20)
   function slopeDegAt(server, x, z) {
     const h = (a, b) => server.physics.terrainHeightAt(a, b), d = 3
     const gx = (h(x + d, z) - h(x - d, z)) / (2 * d), gz = (h(x, z + d) - h(x, z - d)) / (2 * d)
@@ -488,7 +597,7 @@ async function runParent() {
       interest, distortion, joinSnapshotPlayers: summarize(reports.map(r => r.firstVisible)),
       prediction: corr.length ? { clients: corr.length, correctionsPerAck: round(corr.reduce((s, r) => s + r.corrections, 0) / Math.max(1, corr.reduce((s, r) => s + r.acks, 0)), 4), correctionsTotal: corr.reduce((s, r) => s + r.corrections, 0), acksTotal: corr.reduce((s, r) => s + r.acks, 0), maxCorrectionM: round(Math.max(...corr.map(r => r.maxCorrectionM || 0)), 3), clientVsServerM: summarize(divergence) } : null,
       hitReg: { shots: shots.length, byDistance: ['<50', '50-200', '200-1000', '>1000'].map((label, i) => { const lo = [0, 50, 200, 1000][i], hi = [50, 200, 1000, 1e12][i]; const s = shots.filter(x => x.distM >= lo && x.distM < hi); return { label, n: s.length, hitTarget: s.filter(x => x.hitTarget).length, hitOther: s.filter(x => x.hitOther).length, rejected: s.filter(x => x.rejected).length } }), lagComp: { ...server.lagCompensator.getStats(), rewindsDelta: server.lagCompensator.getStats().rewinds - lc0.rewinds } },
-      failures: { nonFiniteServerPositions: nonFinite, nonFiniteClientLocal: reports.filter(r => !r.localFinite).length, clientNanStates: reports.reduce((s, r) => s + r.nanStates, 0), clientErrors: reports.flatMap(r => r.errors).slice(0, 8), disconnected: reports.filter(r => !r.connected).length, groundMissing, logLines: { heightfieldBuilds: logLines.heightfield - logs0.hf, overrun: logLines.overrun - logs0.overrun, dilation: logLines.dilation - logs0.dilation, warn: logLines.warn, error: logLines.error, topOther: [...logLines.other.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5) } },
+      failures: { nonFiniteServerPositions: nonFinite, nonFiniteClientLocal: reports.filter(r => !r.localFinite).length, clientNanStates: reports.reduce((s, r) => s + r.nanStates, 0), clientErrors: reports.flatMap(r => r.errors).slice(0, 8), disconnected: reports.filter(r => !r.connected).length, groundMissing, logLines: { heightfieldBuilds: logLines.heightfield - logs0.hf, overrun: logLines.overrun - logs0.overrun, dilation: logLines.dilation - logs0.dilation, nodeDeprecations: logLines.deprecation, warn: logLines.warn, error: logLines.error, topOther: [...logLines.other.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5) } },
       chart: { serverEpoch: frame.chartEpoch, epochsDuringRun: frame.chartEpoch - chartEpochs0, clientEpochsSeen: summarize(reports.map(r => r.epochs)), clientResyncs: reports.reduce((s, r) => s + (r.chart?.resyncRequests || 0), 0), clientHeldNow: reports.reduce((s, r) => s + (r.chart?.heldNow || 0), 0), reanchorCount: ring?.chartReanchor?.reanchorCount ?? 0, refusals: ring?.chartReanchor?.refusalCount ?? 0, lastRefusal: ring?.chartReanchor?.lastRefusal?.reason ?? null },
       memory: { rssMB: [round(mem0.rss / 1048576, 1), round(mem1.rss / 1048576, 1)], heapMB: [round(mem0.heapUsed / 1048576, 1), round(mem1.heapUsed / 1048576, 1)], rssGrowthMBPerMin: round((mem1.rss - mem0.rss) / 1048576 / (elapsedS / 60), 1) },
       streaming: { heightfieldRebuilds: ring?.rebuildCount ?? null, heightfieldRebuildsDuringRun: (ring?.rebuildCount ?? 0) - (hf0 ?? 0), heightfieldBuildsPerS: round((logLines.heightfield - logs0.hf) / elapsedS, 3) },
@@ -553,9 +662,14 @@ async function runParent() {
     originals.log(`| ${r.scenario} | ${r.n} | ${r.teleportsOk}/${r.n - r.teleportsOk} ${Object.keys(r.teleportRefusals).join(';').slice(0, 60)} | ${f(r.serverTickMs.p50)}/${f(r.serverTickMs.p99)}/${f(r.serverTickMs.max)} | ${f(r.serverMainThreadCpuMsPerTick, 3)} | ${r.eventLoopDelayMs.p99} | ${f(r.clientDownKBps.p50, 1)}/${f(r.clientDownKBps.max, 1)} | ${f(r.clientUpKBps.p50, 1)} | ${f(r.snapshotHz.p50, 1)} | ${r.interest.missing}/${r.interest.extra} of ${r.interest.expectedPairs} | ${f(r.distortion.maxAbsM)} | ${r.serverGround.grounded}/${r.serverGround.ofPlayers} | ${r.prediction ? r.prediction.correctionsPerAck : '-'} | ${hs(h[1])} / ${hs(h[2])} / ${hs(h[3])} | ${r.failures.nonFiniteServerPositions + r.failures.nonFiniteClientLocal + r.failures.clientNanStates} | ${f(r.streaming.heightfieldBuildsPerS, 3)} | ${r.memory.rssGrowthMBPerMin} |`)
   }
   const fatals = results.filter((r) => r.fatal)
-  if (fatals.length) console.error(`[planet-harness] ${fatals.length} of ${results.length} scenario(s) produced no data: ${fatals.map((r) => `${r.scenario} (${String(r.fatal).split('\n')[0].slice(0, 200)})`).join(', ')}`)
   const noColliders = results.filter((r) => r.collidersEnabled && (!r.colliders || !r.colliders.trunk))
-  if (noColliders.length) console.error(`[planet-harness] ${noColliders.length} scenario(s) ran with vegetation.colliders on and ended with no trunk collider streamer: ${noColliders.map((r) => r.scenario).join(', ')}`)
-  const pendingHandles = await exitAfterQuiesce(fatals.length || noColliders.length ? 1 : 0)
+  for (const r of results) if (!r.fatal) auditScenario(r)
+  expect('every scenario produced data', fatals.length, v => v === 0)
+  expect('no scenario ran with colliders on and no trunk streamer', noColliders.length, v => v === 0)
+  expect('every scenario asked for was measured', results.length, v => v === scenarios.length)
+  for (const row of failures) originals.error(`FAIL ${row}`)
+  originals.log(`[planet-harness] RESULT: ${failures.length ? 'FAIL' : 'PASS'} -- ${checkCount - failures.length} of ${checkCount} check(s) passed across ${results.length} scenario(s)`)
+  process.exitCode = failures.length ? 1 : 0
+  const pendingHandles = await exitAfterQuiesce(failures.length ? 1 : 0)
   say(pendingHandles ? `teardown left ${pendingHandles} referenced handle(s), forcing exit` : 'teardown complete, no referenced handles left')
 }
