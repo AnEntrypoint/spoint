@@ -436,6 +436,7 @@ say('== 9. rewind: a late event and repeated rollbacks replay to the straight-ru
   if (lateMismatch > 0) failures.push(`section 9: late event run diverged from the straight run on ${lateMismatch} of ${lateCompared} checkpoints`)
   say(`  ${rollbacks} rollbacks (${refused} refused, beyond window): ${rollCompared} checkpoints, ${rollMismatch} mismatch(es), timeline stats ${JSON.stringify(rolled.fire.world.timeline.stats)}`)
   if (rollCompared === 0) failures.push('section 9: the rollback run made no checkpoint comparison')
+  if (rollbacks === 0) failures.push(`section 9: every one of the ${marks.length} rewinds was refused, so no rollback was ever replayed`)
   if (rollMismatch > 0) failures.push(`section 9: rollback run diverged from the straight run on ${rollMismatch} of ${rollCompared} checkpoints`)
   say(`  a peer that joins at tick ${JOIN_TICK} is beyond the window: applyRemote ${JSON.stringify(staleApply)}, checksum at ${JOIN_TICK + 100} ${stale.fire.checksum()} vs authority ${authorityAt(JOIN_TICK + 100)}`)
 }
@@ -490,7 +491,10 @@ say('== 10. the rollback hook costs nothing per tick until a fire exists ==')
   const r = rolledBusy.fire.rewindTo(back)
   rolledBusy.clock.tick = back
   runTo(rolledBusy, back + 12)
-  say(`rewound 12 ticks mid-burn at tick ${back}: ok=${r.ok}, checksum after replay ${rolledBusy.fire.checksum()} vs straight run ${busyChecksumAt400}, timeline ${JSON.stringify(rolledBusy.fire.world.timeline.stats)}`)
+  const rolledBackChecksum = rolledBusy.fire.checksum()
+  say(`rewound 12 ticks mid-burn at tick ${back}: ok=${r.ok}, checksum after replay ${rolledBackChecksum} vs straight run ${busyChecksumAt400}, timeline ${JSON.stringify(rolledBusy.fire.world.timeline.stats)}`)
+  if (r.ok !== true) failures.push(`section 10: rewinding 12 ticks mid-burn reported ok=${r.ok} instead of ok=true`)
+  if (rolledBackChecksum !== busyChecksumAt400) failures.push(`section 10: replaying the 12 rewound ticks reached checksum ${rolledBackChecksum} against the straight run's ${busyChecksumAt400}`)
 }
 
 say('')
