@@ -123,7 +123,7 @@ export async function createRocks(opts = {}) {
   const placementRing = createPlacementRing(frame, ROCK, ringRadius)
   let _occCands = null
   let curSuper = null, totalInstances = 0
-  const profile = { totalInstances: 0, visibleInstances: 0, drawCalls: 0, updateMs: 0, loads: 0, unloads: 0, types: ROCK.TYPES, buildErrors: buildErr, batched: true }
+  const profile = { totalInstances: 0, visibleInstances: 0, drawCalls: 0, updateMs: 0, loads: 0, unloads: 0, types: ROCK.TYPES, buildErrors: buildErr, batched: true, prewarmMs: 0, prewarmWorkMs: 0, prewarmChunks: 0 }
 
   function loadChunk(key) {
     if (loaded.has(key)) return true
@@ -269,19 +269,29 @@ export async function createRocks(opts = {}) {
     if (typeof window !== 'undefined' && window.__rocks && window.__rocks._bm === bm) delete window.__rocks
   }
 
-  const _yieldFrame = () => new Promise(r => (typeof requestAnimationFrame !== 'undefined') ? requestAnimationFrame(() => r()) : setTimeout(r, 0))
+  const _yieldSlice = () => new Promise(r => setTimeout(r, 0))
+  const PREWARM_SLICE_MS = 24
   async function prewarm(px, pz, budgetMs = 60000) {
     if (!Number.isFinite(px) || !Number.isFinite(pz)) return 0
     const t0 = (typeof performance !== 'undefined') ? performance.now() : 0
     const ring = placementRing.ringAt(px, pz, placementRing.focusKeyAt(px, pz))
     let n = 0
+    let workMs = 0
+    let sliceMs = 0
     for (const key of ring) {
       if (totalInstances >= MAX_INSTANCES) break
-      if (((typeof performance !== 'undefined') ? performance.now() : 0) - t0 > budgetMs) break
+      if (workMs >= budgetMs) break
       if (placementRing.distSqFromFocus(key) > ringRadiusSq || loaded.has(key)) continue
+      const _c0 = (typeof performance !== 'undefined') ? performance.now() : 0
       if (loadChunk(key)) n++
-      if (n % 8 === 0) await _yieldFrame()
+      const _c1 = (typeof performance !== 'undefined') ? performance.now() : 0
+      workMs += _c1 - _c0
+      sliceMs += _c1 - _c0
+      if (sliceMs >= PREWARM_SLICE_MS) { sliceMs = 0; await _yieldSlice() }
     }
+    profile.prewarmChunks = n
+    profile.prewarmWorkMs = workMs
+    profile.prewarmMs = ((typeof performance !== 'undefined') ? performance.now() : 0) - t0
     return n
   }
 

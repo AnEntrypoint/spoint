@@ -348,10 +348,13 @@ export async function createVegetation(opts = {}) {
   let _occCands = null
   let curSuper = null
   let totalInstances = 0
-  const profile = { totalInstances: 0, visibleInstances: 0, drawCalls: 0, updateMs: 0, loads: 0, unloads: 0, bvhRebuilds: 0, species: speciesList.length, buildErrors: buildErr, impostors: meshes.filter(m => m.impostor).length }
+  const profile = { totalInstances: 0, visibleInstances: 0, drawCalls: 0, updateMs: 0, loads: 0, unloads: 0, bvhRebuilds: 0, species: speciesList.length, buildErrors: buildErr, impostors: meshes.filter(m => m.impostor).length, loadChunkMs: 0, loadChunkCalls: 0, prewarmMs: 0, prewarmChunks: 0, prewarmYieldMs: 0, prewarmWorkMs: 0, prewarmDeferred: 0 }
+
+  const _nowMs = () => (typeof performance !== 'undefined') ? performance.now() : 0
 
   function loadChunk(key, px, pz) {
     if (loaded.has(key)) return true
+    const _lcT0 = _nowMs()
     const entries = []
     let list
     exactFrame.beginChunk()
@@ -360,6 +363,7 @@ export async function createVegetation(opts = {}) {
       deferredChunks.add(key)
       const c = placementRing.centre(key)
       exactFrame.prefetchChunk(c[0], c[1])
+      profile.loadChunkMs += _nowMs() - _lcT0; profile.loadChunkCalls++
       return false
     }
     deferredChunks.delete(key)
@@ -430,6 +434,7 @@ export async function createVegetation(opts = {}) {
     loaded.set(key, { entries, aabbMin: _aabbMin, aabbMax: _aabbMax, occluded: false })
     _occCands = null
     profile.loads++
+    profile.loadChunkMs += _nowMs() - _lcT0; profile.loadChunkCalls++
     return true
   }
 
@@ -502,21 +507,40 @@ export async function createVegetation(opts = {}) {
     return didLoad || didDrop
   }
 
-  const _yieldFrame = () => new Promise(r => (typeof requestAnimationFrame !== 'undefined') ? requestAnimationFrame(() => r()) : setTimeout(r, 0))
-  const PREWARM_BATCH = 2
-  async function prewarm(px, pz, maxChunks = 64, budgetMs = 4000) {
+  const _yieldSlice = () => new Promise(r => setTimeout(r, 0))
+  const PREWARM_SLICE_MS = 24
+  async function prewarm(px, pz, minChunks = 64, budgetMs = 4000) {
     if (!Number.isFinite(px) || !Number.isFinite(pz)) return 0
-    const t0 = (typeof performance !== 'undefined') ? performance.now() : 0
+    const t0 = _nowMs()
     const ring = placementRing.ringAt(px, pz, placementRing.focusKeyAt(px, pz))
     let n = 0
+    let yieldMs = 0
+    let deferred = 0
+    let workMs = 0
+    let sliceMs = 0
     for (const key of ring) {
-      if (n >= maxChunks || totalInstances >= MAX_INSTANCES) break
-      if (((typeof performance !== 'undefined') ? performance.now() : 0) - t0 > budgetMs) break
+      if (totalInstances >= MAX_INSTANCES) break
+      if (n >= minChunks && workMs >= budgetMs) break
       if (placementRing.distSqFromFocus(key) > ringRadiusSq || loaded.has(key)) continue
+      const _c0 = _nowMs()
       if (loadChunk(key, px, pz)) n++
-      if (n % PREWARM_BATCH === 0) await _yieldFrame()
+      else deferred++
+      const _c1 = _nowMs()
+      workMs += _c1 - _c0
+      sliceMs += _c1 - _c0
+      if (sliceMs >= PREWARM_SLICE_MS) {
+        sliceMs = 0
+        const _y0 = _nowMs()
+        await _yieldSlice()
+        yieldMs += _nowMs() - _y0
+      }
     }
     if (totalInstances > 0 && !bvhBuilt) ensureBVH()
+    profile.prewarmMs = _nowMs() - t0
+    profile.prewarmWorkMs = workMs
+    profile.prewarmYieldMs = yieldMs
+    profile.prewarmChunks = n
+    profile.prewarmDeferred = deferred
     return n
   }
 
