@@ -9,6 +9,7 @@ process.env.SPOINT_SKIP_PREWARM = '1'
 
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const HOLD_MS = Number(process.argv[2] || 9000)
+const JOIN_TIMEOUT_MS = 20000
 
 const { createServer } = await import('../src/sdk/server.js')
 const { PhysicsNetworkClient } = await import('../src/client/PhysicsNetworkClient.js')
@@ -31,6 +32,23 @@ async function until(fn, ms, label) {
   say(`  !! timed out waiting for ${label}`)
   return false
 }
+
+async function stopArm(clients, server) {
+  for (const c of clients) { try { c.stopInputLoop?.(); c.disconnect?.() } catch {} }
+  try { server.tickSystem?.stop?.() } catch {}
+  try { await server.stop?.() } catch {}
+}
+
+process.on('uncaughtException', e => {
+  console.error(`FAIL witness harness: uncaughtException ${e?.stack?.split('\n')[0] ?? e}`)
+  console.log('RESULT: FAIL (uncaught exception, see the FAIL line above for the cause)')
+  process.exit(1)
+})
+process.on('unhandledRejection', e => {
+  console.error(`FAIL witness harness: unhandledRejection ${e?.stack?.split('\n')[0] ?? e}`)
+  console.log('RESULT: FAIL (unhandled rejection, see the FAIL line above for the cause)')
+  process.exit(1)
+})
 
 const spies = { defineFireCalls: 0, fire: null, combatSpecKeys: null }
 const origDefineFire = AppContext.prototype.defineFire
@@ -78,8 +96,13 @@ async function runOnce({ enabled, weather, label }) {
   const url = `ws://127.0.0.1:${port}/ws`
   const clients = [0, 1].map(() => new PhysicsNetworkClient({ url, predictionEnabled: false, smoothInterpolation: false, webTransport: { enabled: false } }))
   await Promise.all(clients.map(c => c.connect()))
-  await until(() => server.playerManager.getConnectedPlayers().length === 2, 20000, 'two players to join')
+  const joined = await until(() => server.playerManager.getConnectedPlayers().length === 2, JOIN_TIMEOUT_MS, 'two players to join')
   const players = server.playerManager.getConnectedPlayers()
+  if (!joined || players.length < 2) {
+    failures.push(`${label}: only ${players.length} of 2 client(s) joined the server within ${JOIN_TIMEOUT_MS / 1000} s, so this arm observed no shot, no fire and no damage`)
+    await stopArm(clients, server)
+    return null
+  }
   const shooterId = players[0].id, victimId = players[1].id
   clients[0].startInputLoop(() => ({ yaw: 0, pitch: 0 }))
   clients[1].startInputLoop(() => ({ yaw: 0, pitch: 0 }))
@@ -210,9 +233,7 @@ async function runOnce({ enabled, weather, label }) {
   const fireTypes = Object.keys(types).filter(k => k.startsWith('fire')).sort()
   const otherTypes = Object.keys(types).filter(k => !k.startsWith('fire')).sort()
 
-  for (const c of clients) { try { c.stopInputLoop?.(); c.disconnect?.() } catch {} }
-  try { server.tickSystem?.stop?.() } catch {}
-  try { await server.stop?.() } catch {}
+  await stopArm(clients, server)
 
   return {
     label, enabled, weather: weather ? weather.type + '@' + weather.intensity : 'as shipped',
@@ -230,6 +251,7 @@ async function runOnce({ enabled, weather, label }) {
 }
 
 function report(r) {
+  if (!r) return
   say(`-- ${r.label}`)
   const wantsFire = r.label.includes('flag on')
   if (wantsFire && r.defineFireCalls < 1) failures.push(`${r.label}: ${r.defineFireCalls} defineFire call(s), expected at least 1`)
@@ -250,20 +272,27 @@ function report(r) {
   say(`  non-fire payload types: ${JSON.stringify(r.otherTypes)}`)
 }
 
+async function runArm(opts) {
+  try { return await runOnce(opts) } catch (e) {
+    failures.push(`${opts.label}: threw ${e?.stack?.split('\n')[0] ?? e}`)
+    return null
+  }
+}
+
 const NAV_ONLY = process.argv.slice(2).includes('nav')
 let shippedArm = null
 say('== fire tps-game integration witness (real server, real clients, real tps-game world) ==')
 if (!NAV_ONLY) {
-const off = await runOnce({ enabled: false, label: 'flag off (exactly as shipped in apps/world/tps-game.js)' })
+const off = await runArm({ enabled: false, label: 'flag off (exactly as shipped in apps/world/tps-game.js)' })
 say('')
 report(off)
 say('')
-const onRain = await runOnce({ enabled: true, label: 'flag on, weather as shipped (rain 0.6)' })
+const onRain = await runArm({ enabled: true, label: 'flag on, weather as shipped (rain 0.6)' })
 say('')
 report(onRain)
 say('')
 shippedArm = onRain
-const onClear = await runOnce({ enabled: true, weather: { serverAuthoritative: true, type: 'clear', intensity: 0, particleCount: 0 }, label: 'flag on, weather clear' })
+const onClear = await runArm({ enabled: true, weather: { serverAuthoritative: true, type: 'clear', intensity: 0, particleCount: 0 }, label: 'flag on, weather clear' })
 say('')
 report(onClear)
 }
