@@ -26,6 +26,7 @@ const GPU = flag('gpu', 'nvidia')
 const STILL_SECONDS = Number(flag('still', '4'))
 const MOVE_SECONDS = Number(flag('move', '8'))
 const READY_TIMEOUT_MS = Number(flag('ready-timeout', '300000'))
+const VEG_WALK_MS = Number(flag('veg-walk', '240000'))
 const EXTRA = flag('extra', 'at=200,0')
 const [VIEW_W, VIEW_H] = String(flag('viewport', '1280x720')).split('x').map(Number)
 const SCALING = !has('no-scaling')
@@ -117,6 +118,57 @@ const KEY = ({ code, down }) => {
   return true
 }
 
+const EDIT = () => new Promise((res) => {
+  const insts = window.__vegLodInstancers || []
+  const cam = window.__camera
+  if (!insts.length) return res({ error: 'no instancers collected' })
+  if (!cam) return res({ error: 'no camera in the page' })
+  const inst = insts[0]
+  const countBefore = inst.count
+  const gridInstancesBefore = inst.sweepGrid.instances
+  const survivorsBefore = inst.tierIds.reduce((s, t) => s + t.length, 0)
+  const n = Math.max(1, Math.floor(countBefore * 0.1))
+  for (let i = 0; i < n; i++) inst.removeInstances(i)
+  inst.addInstances(n, (p) => p.position.set(4000 + (p.id % 20) * 3, 0, 4000 + Math.floor(p.id / 20) * 3))
+  const a = cam.projectionMatrix.elements, b = cam.matrixWorldInverse.elements
+  const me = new Float64Array(16)
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+    let s = 0
+    for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k]
+    me[c * 4 + r] = s
+  }
+  const plane = (x, y, z, w) => {
+    const len = Math.hypot(x, y, z) || 1
+    return { normal: { x: x / len, y: y / len, z: z / len }, constant: w / len }
+  }
+  const frustum = {
+    planes: [
+      plane(me[3] - me[0], me[7] - me[4], me[11] - me[8], me[15] - me[12]),
+      plane(me[3] + me[0], me[7] + me[4], me[11] + me[8], me[15] + me[12]),
+      plane(me[3] + me[1], me[7] + me[5], me[11] + me[9], me[15] + me[13]),
+      plane(me[3] - me[1], me[7] - me[5], me[11] - me[9], me[15] - me[13]),
+      plane(me[3] - me[2], me[7] - me[6], me[11] - me[10], me[15] - me[14]),
+      plane(me[3] + me[2], me[7] + me[6], me[11] + me[10], me[15] + me[14]),
+    ],
+  }
+  const before = { ...inst.sweepStats }
+  inst.updateLOD(cam.position, frustum, true)
+  const after = { ...inst.sweepStats }
+  res({
+    instancer: 0,
+    countBefore,
+    countAfter: inst.count,
+    edited: n,
+    rebuildFrameRecords: after.recordsWalked - before.recordsWalked,
+    rebuildFramePlaneTests: after.planeTests - before.planeTests,
+    gridInstancesBefore,
+    gridInstancesAfter: inst.sweepGrid.instances,
+    gridUsableAfter: !!inst.sweepGrid.usable,
+    survivorsBefore,
+    survivorsAfter: inst.tierIds.reduce((s, t) => s + t.length, 0),
+  })
+})
+
 const SCALING_RUN = (counts) => new Promise(async (res) => {
   let THREE = window.__app && window.__app.THREE
   if (!THREE) THREE = await import('three')
@@ -151,6 +203,7 @@ const SCALING_RUN = (counts) => new Promise(async (res) => {
     inst.addInstances(n, (p) => p.position.set((p.id % side) * 3 - half, 0, Math.floor(p.id / side) * 3 - half))
     const before = { ...inst.sweepStats }
     let frames = 0
+    const t0 = performance.now()
     for (let f = 0; f < 240; f++) {
       const travelled = 7 * (1 / 60) * f
       cam.position.set(-0.35 * (half * 2) + Math.cos(Math.PI / 4) * travelled, 1.7, -0.35 * (half * 2) + Math.sin(Math.PI / 4) * travelled)
@@ -163,11 +216,13 @@ const SCALING_RUN = (counts) => new Promise(async (res) => {
       frames++
     }
     const after = { ...inst.sweepStats }
+    const ms = performance.now() - t0
     let survivors = 0
     for (const t of inst.tierIds) survivors += t.length
     out.push({
       instances: n,
       frames,
+      msPerFrame: +(ms / frames).toFixed(3),
       planeTestsPerFrame: +((after.planeTests - before.planeTests) / frames).toFixed(1),
       recordsPerFrame: +((after.recordsWalked - before.recordsWalked) / frames).toFixed(1),
       survivors,
@@ -184,11 +239,26 @@ async function waitReady(page) {
   let nextLog = 0
   while (Date.now() < deadline) {
     last = await page.evaluate(READY).catch((e) => ({ evalError: String(e && e.message || e) }))
-    if (last && last.hasScene && last.hasCamera && last.hasVeg && last.vegInstances > 0 && last.hasTerrain && last.revealedAt) return last
+    if (last && last.hasScene && last.hasCamera && last.hasTerrain && last.revealedAt) return last
     if (Date.now() >= nextLog) { nextLog = Date.now() + 30000; console.log('[veg-lod-browser] waiting: ' + JSON.stringify(last)) }
     await new Promise((r) => setTimeout(r, 2000))
   }
   throw new Error('page never became ready: ' + JSON.stringify(last))
+}
+
+async function walkUntilVegetation(page, budgetMs) {
+  const deadline = Date.now() + budgetMs
+  let last = null
+  let nextLog = 0
+  await page.evaluate(KEY, { code: 'KeyW', down: true })
+  while (Date.now() < deadline) {
+    last = await page.evaluate(READY).catch((e) => ({ evalError: String(e && e.message || e) }))
+    if (last && last.vegInstances > 0) break
+    if (Date.now() >= nextLog) { nextLog = Date.now() + 15000; console.log('[veg-lod-browser] walking for vegetation: ' + JSON.stringify(last)) }
+    await new Promise((r) => setTimeout(r, 2000))
+  }
+  await page.evaluate(KEY, { code: 'KeyW', down: false })
+  return last
 }
 
 async function main() {
@@ -216,6 +286,10 @@ async function main() {
     console.log('[veg-lod-browser] ready: ' + JSON.stringify(ready))
     if (ready.glHooks) failures.push('gm GL draw-hook wrappers are installed in the page (__gmGlDrawCalls present): draw-call counts and timings are inflated')
 
+    const walked = await walkUntilVegetation(page, VEG_WALK_MS)
+    console.log('[veg-lod-browser] after walk: ' + JSON.stringify(walked))
+    if (!(walked && walked.vegInstances > 0)) failures.push(`world vegetation never populated (vegInstances=${walked && walked.vegInstances}): the page is not a loaded vegetation scene`)
+
     const shape = await page.evaluate(COLLECT)
     console.log('[veg-lod-browser] instancers: ' + JSON.stringify(shape))
     if (shape.instancers === 0) failures.push('no LOD instancers found in the live scene graph')
@@ -234,6 +308,7 @@ async function main() {
     if (!(moving.recordsPerFrame <= shape.instances)) failures.push(`records walked per frame ${moving.recordsPerFrame} exceeds total instances ${shape.instances}`)
 
     let scaling = null
+    let scalingCost = null
     if (SCALING) {
       scaling = await page.evaluate(SCALING_RUN, SCALING_COUNTS).catch((e) => ({ error: String(e && e.message || e) }))
       console.log('[veg-lod-browser] scaling: ' + JSON.stringify(scaling))
@@ -245,11 +320,25 @@ async function main() {
           const recordsRatio = b.recordsPerFrame / a.recordsPerFrame
           console.log(`[veg-lod-browser] ratios: counts ${countRatio.toFixed(2)} survivors ${survivorRatio.toFixed(2)} records ${recordsRatio.toFixed(2)}`)
           if (recordsRatio > countRatio) failures.push(`records walked grew faster than instance count (${recordsRatio.toFixed(2)} vs ${countRatio.toFixed(2)}): cost is not decoupled from total instances`)
+          const costRatio = b.msPerFrame / a.msPerFrame
+          const costGapToSurvivor = Math.abs(Math.log(costRatio / survivorRatio))
+          const costGapToCount = Math.abs(Math.log(costRatio / countRatio))
+          console.log(`[veg-lod-browser] cost ratios: counts ${countRatio.toFixed(2)} survivors ${survivorRatio.toFixed(2)} ms/frame ${costRatio.toFixed(2)} (gap to survivors ${costGapToSurvivor.toFixed(3)}, gap to count ${costGapToCount.toFixed(3)})`)
+          scalingCost = { countRatio, survivorRatio, costRatio: +costRatio.toFixed(2), costGapToSurvivor: +costGapToSurvivor.toFixed(3), costGapToCount: +costGapToCount.toFixed(3) }
+          if (costGapToSurvivor >= costGapToCount) failures.push(`updateLOD ms/frame ratio ${costRatio.toFixed(2)} is no closer to the survivor ratio ${survivorRatio.toFixed(2)} than to the count ratio ${countRatio.toFixed(2)}: cost still tracks total instances`)
         }
       } else failures.push('in-page scaling phase failed: ' + JSON.stringify(scaling))
     }
 
-    const payload = { label: LABEL, url, gpu: { rasterizer: gpu.rasterizer, renderer: gpu.renderer, adapter: gpu.adapter }, ready, shape, still, moving, scaling, failures }
+    const edit = await page.evaluate(EDIT).catch((e) => ({ error: String(e && e.message || e) }))
+    console.log('[veg-lod-browser] placement-edit: ' + JSON.stringify(edit))
+    if (edit.error) failures.push('placement-edit phase failed: ' + edit.error)
+    else {
+      if (!(edit.rebuildFrameRecords > 0)) failures.push(`the single frame after a placement edit walked ${edit.rebuildFrameRecords} records: the sweep did not run`)
+      if (edit.gridInstancesAfter !== edit.countAfter) failures.push(`one frame after an edit that left ${edit.countAfter} instances the index still describes ${edit.gridInstancesAfter}: not rebuilt within one frame`)
+    }
+
+    const payload = { label: LABEL, url, gpu: { rasterizer: gpu.rasterizer, renderer: gpu.renderer, adapter: gpu.adapter }, ready, shape, still, moving, scaling, scalingCost, edit, failures }
     const outPath = resolve(OUT_DIR, LABEL + '.json')
     writeFileSync(outPath, JSON.stringify(payload, null, 2))
     console.log('json: ' + outPath)
