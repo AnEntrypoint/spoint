@@ -253,7 +253,10 @@ async function cmdAbFs(args) {
 
 async function cmdGlslCheck() {
   const r = await withHeadless(async (evalIn) => {
-    const probe = await evalIn('(window.__planetOrch && window.__planetOrch.render && window.__planetOrch.render.sampleGroundM)? window.__planetOrch.render.sampleGroundM([0,1,0]) : "no-probe"')
+    const probe = await waitFor(async () => {
+      const h = await evalIn('(()=>{ const o=window.__planetOrch, p=o&&o.render&&o.render.sampleGroundMSync; if(!p) return null; const h=p([0,1,0]); return (h!=null&&isFinite(h))?h:null; })()').catch(() => null)
+      return (h != null && Number.isFinite(Number(h))) ? { h: Number(h) } : null
+    }, Number(process.env.LAB_GLSL_PROBE_TIMEOUT_MS) || 60000, 1000).then((v) => (v ? v.h : null)).catch(() => null)
     const pageErr = await evalIn('window.__pageErr || null')
     return { compiled: pageErr === null, probe, pageErr }
   })
