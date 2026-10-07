@@ -11,6 +11,8 @@ const MAX_TRACKED_CONNECTION_DEGRADATION_MS = 10000
 const INPUT_HISTORY_FLOOR = 257
 const WEDGE_POS_EPS_SQ = 1e-8
 const WEDGE_VEL_EPS_SQ = 1e-6
+const WEDGE_TRAVEL_MIN_M = 0.05
+const WEDGE_ACHIEVED_FRAC = 0.5
 const RECONCILE_POS_EPS_M = 0.015
 const SURFACE_MATCH_M = 0.25
 const SURFACE_OFFSET_ALPHA = 0.2
@@ -96,6 +98,7 @@ export class PredictionEngine {
     this._enableKnockbackPreservation = true
     this.stats = { acks: 0, corrections: 0, lastCorrectionM: 0, maxCorrectionM: 0, chartReanchors: 0, chartReplayShiftM: 0, chartReplayInputs: 0, chartReplayBase: 'none' }
     this._lastAckedPrediction = makeEntry()
+    this._stalledNoPlane = false
     this.walls = []
     this._env = { gravityY: this.gravityY, ground: null, wedged: false, groundNormal: null, walls: null, wallExtentM: WALL_EXTENT_BASE_M, collider: null }
     this._mirror = null
@@ -308,15 +311,21 @@ export class PredictionEngine {
     this._rememberWalls(serverPlayer)
     const sv = this.lastServerState
     const dx = sv.position[0] - prevX, dy = sv.position[1] - prevY, dz = sv.position[2] - prevZ
-    this.horizontallyWedged = sv.onGround && (dx * dx + dz * dz) < WEDGE_POS_EPS_SQ && (sv.velocity[0] ** 2 + sv.velocity[2] ** 2) > WEDGE_VEL_EPS_SQ
-    this.verticallyBlocked = !sv.onGround && dy * dy < WEDGE_POS_EPS_SQ && sv.velocity[1] < -Math.sqrt(WEDGE_VEL_EPS_SQ)
-    this._calibrateSurface(sv)
     const ackedSeq = serverPlayer.inputSequence ?? -1
     const firstContact = !this._hasServerState
     this._hasServerState = true
-    if (ackedSeq <= this._lastAckedSeq && !firstContact) return
     const ackIdx = this.inputHistory.indexOf(ackedSeq)
     const predicted = ackIdx >= 0 ? this.inputHistory.at(ackIdx) : null
+    const travelM = Math.hypot(dx, dz)
+    if (firstContact || ackedSeq > this._lastAckedSeq) {
+      const ackedTicks = firstContact ? 1 : ackedSeq - this._lastAckedSeq
+      const commandedM = Math.hypot(sv.velocity[0], sv.velocity[2]) * (this.tickDuration / 1000) * ackedTicks
+      this._stalledNoPlane = this.walls.length === 0 && commandedM > WEDGE_TRAVEL_MIN_M && travelM < commandedM * WEDGE_ACHIEVED_FRAC
+    }
+    this.horizontallyWedged = (sv.onGround && (dx * dx + dz * dz) < WEDGE_POS_EPS_SQ && (sv.velocity[0] ** 2 + sv.velocity[2] ** 2) > WEDGE_VEL_EPS_SQ) || this._stalledNoPlane
+    this.verticallyBlocked = !sv.onGround && dy * dy < WEDGE_POS_EPS_SQ && sv.velocity[1] < -Math.sqrt(WEDGE_VEL_EPS_SQ)
+    this._calibrateSurface(sv)
+    if (ackedSeq <= this._lastAckedSeq && !firstContact) return
     if (ackedSeq > this._lastAckedSeq) this._lastAckedSeq = ackedSeq
     if (predicted) copyAckedEntry(this._lastAckedPrediction, predicted, MOVE_STATE_KEYS)
     this.stats.acks++

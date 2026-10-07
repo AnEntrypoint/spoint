@@ -119,7 +119,7 @@ One line per fact; numbers/scenarios/derivations in memo tier: `mem-0b6d4c2f9e1a
 
 ## Netcode and wire
 
-- Prediction runs no collision, so `resimulate()` walks local character into geometry held against; fix = wedge flag gating resim step when held. Replay/lockstep drift comes from dt, not Jolt.
+- Prediction runs no collision: `PredictionEngine.js:325` gates the resim on `horizontallyWedged`, latched by a no-plane stall or a stop while commanding. Replay/lockstep drift comes from dt.
 - `msgpack.js` `WIRE_STRUCTURES[1]` lists exactly keys, in order, of `TickHandler.js _packPayload` (seq,tick,serverTime,players,entities,removed,delta,dots). msgpackr 2.0.4 writes -0 as `0x00`; `patch-deps.mjs` excludes -0 from both integer tests.
 - `PhysicsNetworkClient.connect()` REJECTS, named `TransportConnectError` (`err.reason`: `websocket-unavailable`|`websocket-error`|`websocket-closed-before-open`|`connect-superseded`), not `connected:false` + no socket; retry belongs in caller (`_doReconnect`), never in fake success.
 - Wire v3 player record: 8 fields in 22-byte bin; recipient-only `[inputSequence, inputBuffer, groundNormal]` ride per-recipient `me` block, so snapshots pack per recipient. `getSnapshot()` keys on `_version === _snapshotVersion` alone (tick gone).
