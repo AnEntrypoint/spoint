@@ -317,16 +317,20 @@ export class PhysicsWorld {
 
   preallocatePool(shapeType, params, shapeKey, count) {
     if (!this.bodyInterface || !shapeKey || !(count > 0)) return 0
-    let free = this._bodyPool.get(shapeKey); if (!free) this._bodyPool.set(shapeKey, free = [])
-    const need = count - free.length
+    let reserved = this._bodyPool.get(shapeKey)
+    const need = count - (reserved ? reserved.length : 0)
     if (need <= 0) return 0
+    if (reserved) this._bodyPool.delete(shapeKey)
     const ids = []
     for (let i = 0; i < need; i++) {
       const id = this.addBody(shapeType, params, _PARK_POS, 'static', { shapeKey })
       if (id == null) break
       ids.push(id)
     }
+    if (ids.length === 0) { if (reserved) this._bodyPool.set(shapeKey, reserved); return 0 }
+    const free = reserved || []
     for (const id of ids) { this._repositionBody(id, _PARK_POS, null); free.push(id) }
+    this._bodyPool.set(shapeKey, free)
     return ids.length
   }
 
