@@ -1,24 +1,36 @@
 {
   "rasterizer": "accelerated",
+  "headSha": "76059b48b782cf93661ef023da6d680ed2d6a4e0",
   "vendor": "nvidia",
-  "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Laptop GPU (0x00002520) Direct3D11 vs_5_0 ps_5_0, D3D11) | Google Inc. (NVIDIA) | nvidia",
-  "vegInstances": 4679,
+  "gpu": "nvidia ampere | nvidia",
+  "vegInstances": 5207,
+  "fingerprint": {
+    "gpuControlIterations": 8192,
+    "gpuControlBeforeP50Ms": 31.5,
+    "gpuControlAfterP50Ms": 31.899999998509884,
+    "gpuControlBeforeMsPerK": 3.84521484375,
+    "gpuControlAfterMsPerK": 3.894042968568101,
+    "gpuControlSpread": 1.0126984126511074,
+    "cpuContested": false,
+    "cpuSlowdown": 1.22,
+    "chromeProcessCount": 24
+  },
   "static": {
-    "p50Ms": 10.80000000000291,
-    "p95Ms": 13.130000000001019,
-    "onePercentLowMs": 35.22142857142795,
-    "fps": 92.59259259256764,
-    "sampleCount": 784,
-    "avgDrawCalls": 2.017857142857143,
-    "avgTriangles": 277940.7464968153
+    "p50Ms": 8.979999999995925,
+    "p95Ms": 10.360000000000582,
+    "onePercentLowMs": 24.00562499999978,
+    "fps": 111.35857461029552,
+    "sampleCount": 890,
+    "avgDrawCalls": 2.020224719101124,
+    "avgTriangles": 312715.48484848486
   },
   "orbit": {
-    "p50Ms": 11.330000000001746,
-    "p95Ms": 13.505000000001019,
-    "onePercentLowMs": 32.053333333333285,
-    "fps": 88.2612533097834,
-    "sampleCount": 698,
-    "avgDrawCalls": 2.020057306590258,
-    "avgTriangles": 284826.61087267526
+    "p50Ms": 9.025000000001455,
+    "p95Ms": 11.305000000000291,
+    "onePercentLowMs": 23.988749999999527,
+    "fps": 110.80332409970512,
+    "sampleCount": 881,
+    "avgDrawCalls": 2.0272417707150967,
+    "avgTriangles": 323503.57823129254
   }
 }
