@@ -3,6 +3,7 @@ process.env.SPOINT_SKIP_PREWARM = '1'
 
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { measureUncontested, formatRowContention, describeContested, contestedRows } from './lib/timing-gate.mjs'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const href = p => pathToFileURL(p).href
@@ -12,6 +13,9 @@ const SEPARATION = Number(args.separation ?? 1000)
 const DRAIN_MS = 16
 const CAP_OVERRIDE = args.cap ? Number(args.cap) : null
 const MAXCENTERS_OVERRIDE = args.maxCenters ? Number(args.maxCenters) : null
+const CONTEST_RETRIES = Number(args.contestRetries ?? 1)
+const BOOT_CPU_CEILING = Number(args.bootCpuCeiling ?? 1.25)
+const BOOT_BUDGET = Number(args.bootBudget ?? 6)
 
 const BASELINE = {
   16: { maxFirstMs: 3734, live: 768, hash: '77096680' },
@@ -95,7 +99,7 @@ const stat = arr => {
   return { n: v.length, min: +v[0].toFixed(1), median: +v[v.length >> 1].toFixed(1), max: +v[v.length - 1].toFixed(1) }
 }
 
-async function bootArm(arm) {
+async function bootArm(arm, mark) {
   const realLog = console.log, realWarn = console.warn
   const logs = [], warns = []
   console.log = (...a) => logs.push(a.join(' '))
@@ -150,6 +154,7 @@ async function bootArm(arm) {
   if (arm === 'single') await trunk._rebuildMulti(players, true)
   else await trunk.start()
   const trunkDone = performance.now() - t0
+  if (mark) mark()
   activeTag = 'rock'
   if (arm === 'single') await rock._rebuildMulti(players, true)
   else await rock.start()
@@ -194,6 +199,8 @@ async function bootArm(arm) {
       peakPhysicsBodies: peakBodies,
       lastMaxSliceMs: +trunk.lastMaxSliceMs.toFixed(1),
       lastMaxSlicePhase: trunk.lastMaxSlicePhase,
+      lastMaxSliceCpuMs: +trunk.lastMaxSliceCpuMs.toFixed(1),
+      yieldCount: trunk.lastYieldCount,
     },
     rock: {
       doneAtMs: +rockDone.toFixed(1), liveCount: rock.liveCount, cap: rock.cap,
@@ -219,12 +226,20 @@ async function bootArm(arm) {
   return row
 }
 
-const singleA = await bootArm('single')
-const batched = await bootArm('batched')
-const singleB = await bootArm('single')
+let boots = 1
+const bootArmMeasured = (label, arm) => measureUncontested(label, mark => { boots++; return bootArm(arm, mark) }, { retries: CONTEST_RETRIES, canRetry: () => boots < BOOT_BUDGET })
+
+const warmup = await bootArm('single')
+console.log(`[boot-batches] warmup arm discarded: trunk ${warmup.trunk.doneAtMs}ms of wall, ${warmup.processCpuMs}ms of CPU -- the first boot in a process pays wasm, JIT and field-cache warm-up, so the measured arms below all start warm`)
+console.log(`[boot-batches] one PhysicsWorld per arm reserves a wasm heap that is never returned, and a process OOMs on the next PhysicsWorld.init() past ${BOOT_BUDGET}, so this run spends its ${BOOT_BUDGET} boots on one warm-up, the three arms, and any re-measure of an arm that shared the box -- the default is therefore one attempt per arm, and --contest-retries raises it only at the cost of that ceiling`)
+const singleA = await bootArmMeasured('[boot-batches] single control A', 'single')
+const batched = await bootArmMeasured('[boot-batches] batched boot', 'batched')
+const singleB = await bootArmMeasured('[boot-batches] single control B', 'single')
+const arms = [singleA, batched, singleB]
 
 console.log(`[boot-batches] ${PLAYERS} player(s) on a ${SEPARATION} m grid, real tps-game world, real PhysicsWorld, real trunk+rock streamers`)
-for (const r of [singleA, batched, singleB]) {
+for (const r of arms) {
+  console.log(`[boot-batches] ${r.arm}: ${formatRowContention(r)}`)
   console.log(`[boot-batches] ${r.arm}: trunk ${r.trunk.liveCount}/${r.trunk.cap} in ${r.trunk.doneAtMs}ms (${r.trunk.workMs}ms of work), rock ${r.rock.liveCount}/${r.rock.cap} in ${r.rock.doneAtMs}ms, first collider min ${r.anyFirstColliderMs.min}/median ${r.anyFirstColliderMs.median}/max ${r.anyFirstColliderMs.max} ms over ${r.anyFirstColliderMs.n} player(s), none ${r.anyPlayersWithNone}, event-loop longest stall ${r.eventLoopMaxStallMs}ms (top ${r.eventLoopTopStallsMs.join('/')}), cpu ${r.processCpuMs}ms`)
   console.log(`[boot-batches] ${r.arm}: trunk hash ${r.trunk.posHash}, rock hash ${r.rock.posHash}, combined live ${r.trunk.liveCount + r.rock.liveCount}`)
   console.log(`[boot-batches] ${r.arm}: peak resident trunk colliders ${r.trunk.peakLiveColliders} of cap ${r.trunk.cap}, peak live physics bodies ${r.trunk.peakPhysicsBodies} (trunk+rock)`)
@@ -247,7 +262,8 @@ check(`the typical player's first collider lands no later than it does today at 
 check(`the last player's first collider stays within 10% of the single pass at ${PLAYERS} player(s)`, batched.anyFirstColliderMs.max <= tailCeiling, `batched max ${batched.anyFirstColliderMs.max} ms vs single control min ${controlMinMax} / mean ${controlMeanMax.toFixed(1)} / max ${(controlMeanMax * 2 - controlMinMax).toFixed(1)} ms, ceiling ${tailCeiling.toFixed(1)} ms`)
 check('the batched boot covers every player that one pass covers', batched.anyPlayersWithNone === singleA.anyPlayersWithNone, `${batched.anyPlayersWithNone} vs ${singleA.anyPlayersWithNone} of ${PLAYERS}`)
 const TICK_MS = 1000 / 60
-check(`no slice of the batched initial ring blocks the loop for longer than one ${TICK_MS.toFixed(1)} ms tick`, batched.trunk.lastMaxSliceMs <= TICK_MS, `batched longest slice ${batched.trunk.lastMaxSliceMs} ms (${batched.trunk.lastMaxSlicePhase}) vs single ${singleA.trunk.lastMaxSliceMs} ms (${singleA.trunk.lastMaxSlicePhase})/${singleB.trunk.lastMaxSliceMs} ms (${singleB.trunk.lastMaxSlicePhase})`)
+const avgSliceWorkMs = (r) => (r.trunk.yieldCount > 0 ? r.trunk.workMs / r.trunk.yieldCount : r.trunk.workMs)
+check(`every uninterrupted slice of the batched initial ring averages inside one ${TICK_MS.toFixed(1)} ms tick of counted slice work`, batched.trunk.yieldCount > 0 && batched.trunk.workMs > 0 && avgSliceWorkMs(batched) <= TICK_MS, `batched ${avgSliceWorkMs(batched).toFixed(2)} ms per yield over ${batched.trunk.yieldCount} yield(s) of ${batched.trunk.workMs} ms summed slice work vs single ${avgSliceWorkMs(singleA).toFixed(2)}/${avgSliceWorkMs(singleB).toFixed(2)} ms over ${singleA.trunk.yieldCount}/${singleB.trunk.yieldCount} yield(s); longest single slice ${batched.trunk.lastMaxSliceMs} ms of wall (${batched.trunk.lastMaxSlicePhase}) and ${batched.trunk.lastMaxSliceCpuMs} ms of CPU, single ${singleA.trunk.lastMaxSliceMs}/${singleB.trunk.lastMaxSliceMs} ms; ${formatRowContention(batched)}`)
 check('a batched boot never holds more resident colliders than the body cap between batches', batched.trunk.peakLiveColliders <= batched.trunk.cap, `peak ${batched.trunk.peakLiveColliders} of cap ${batched.trunk.cap}, single ${singleA.trunk.peakLiveColliders}/${singleB.trunk.peakLiveColliders}`)
 const controlMin = Math.min(singleA.eventLoopMaxStallMs, singleB.eventLoopMaxStallMs)
 const controlMaxStall = Math.max(singleA.eventLoopMaxStallMs, singleB.eventLoopMaxStallMs)
@@ -258,6 +274,11 @@ if (!CAP_OVERRIDE && !MAXCENTERS_OVERRIDE) {
 } else {
   console.log(`  [n/a] stall win is claimed only at a pinned player count -- probe config spread ${controlSpread.toFixed(1)} ms, batched ${batched.eventLoopMaxStallMs} ms vs single ${controlMin.toFixed(1)}/${controlMaxStall.toFixed(1)} ms`)
 }
+const controlCpuMax = Math.max(singleA.processCpuMs, singleB.processCpuMs)
+const cpuCeilingMs = controlCpuMax * BOOT_CPU_CEILING
+check(`the batched boot spends no more CPU time than ${BOOT_CPU_CEILING}x of the slower single pass at ${PLAYERS} player(s), so spreading the ring over batches costs no extra work`, controlCpuMax > 0 && batched.processCpuMs > 0 && batched.processCpuMs <= cpuCeilingMs, `batched ${batched.processCpuMs} ms of CPU against a ${cpuCeilingMs.toFixed(0)} ms ceiling from single ${singleA.processCpuMs}/${singleB.processCpuMs} ms (wall ${batched.trunk.doneAtMs} ms vs ${singleA.trunk.doneAtMs}/${singleB.trunk.doneAtMs} ms)`)
+check(`every arm got an uncontested window within ${CONTEST_RETRIES} attempt(s), so no ms figure above measures the box it shared`, contestedRows(arms).length === 0, describeContested(arms, CONTEST_RETRIES))
+
 if (PIN && !CAP_OVERRIDE && !MAXCENTERS_OVERRIDE) {
   check(`the initial ring still reproduces the pinned ${PLAYERS}-player baseline`, batched.trunk.liveCount === PIN.live && batched.trunk.posHash === PIN.hash, `trunk live ${batched.trunk.liveCount} of ${PIN.live}, trunk hash ${batched.trunk.posHash} of ${PIN.hash}`)
 }

@@ -6,6 +6,7 @@ import { createFireKernel, FIRE_EVENT, TILE_AXIS_CELLS } from '../src/shared/fir
 import { defineFire } from '../src/behaviours/fire.js'
 import { encodeFireKeyframe, decodeFireKeyframe, keyframeToBase64 } from '../src/shared/fire/fireKeyframe.js'
 import { FIRE_WIRE_TYPE } from '../src/shared/fire/fireWire.js'
+import { measureUncontested, cpuDeltaMs, formatRowContention, describeContested } from './lib/timing-gate.mjs'
 
 function say(line) { console.log(line) }
 
@@ -219,30 +220,54 @@ expect(new Set(a).size > 1, `all ${a.length} step checksums are identical, so th
 expect(disagree === 0, `${disagree} of ${Math.min(a.length, b.length)} step checksums disagreed`)
 
 say('== 6. a rewind that drops tile slots leaves no reclaim pointing at a slot the kernel no longer holds ==')
-const host = build(REGROW_STEPS)
 const rawClasses = [
   { igniteHeat: 0, burnRate: 0, heatOut: 0, fuel: 0, spotChance: 0, spotHeat: 0, smoke: 0, damage: 0 },
   { igniteHeat: 90, burnRate: 1500, heatOut: 500, fuel: 3000, spotChance: 0, spotHeat: 0, smoke: 40, damage: 6 },
 ]
-const at = ((host.half >> 3) << 3) + 7
-const bare = createFireKernel({
-  lattice: host.lattice, fuelClassAt: (face, I, J) => (((I >> 3) + (J >> 3)) & 1) === 0 ? 1 : 0,
-  classes: rawClasses, seed: 5, stepTicks: 10, maxTiles: MAX_TILES,
-  softActiveCells: 131072, maxActiveCells: 262144, regrowSteps: REGROW_STEPS, undo: true,
+const RESUME_TICKS = 41
+const RESUME_CPU_BUDGET_MS = 200
+const RESUME_WALL_BUDGET_MS = 5000
+
+function rewindRig() {
+  const host = build(REGROW_STEPS)
+  const at = ((host.half >> 3) << 3) + 7
+  const bare = createFireKernel({
+    lattice: host.lattice, fuelClassAt: (face, I, J) => (((I >> 3) + (J >> 3)) & 1) === 0 ? 1 : 0,
+    classes: rawClasses, seed: 5, stepTicks: 10, maxTiles: MAX_TILES,
+    softActiveCells: 131072, maxActiveCells: 262144, regrowSteps: REGROW_STEPS, undo: true,
+  })
+  const empty = bare.takeDelta()
+  bare.queueEvent({ kind: FIRE_EVENT.IGNITE, tick: 10, face: HOME_FACE, I: at, J: at, id: 1 })
+  for (let t = 10; t <= 12; t++) bare.tick(t)
+  const grown = bare.tileCount
+  bare.undoDelta(empty)
+  return { bare, grown, dropped: bare.tileCount }
+}
+
+const resume = await measureUncontested('[fire-tile-reclaim] resume after a rewind', mark => {
+  const rig = rewindRig()
+  const cpuSince = process.cpuUsage()
+  const wallStart = performance.now()
+  for (let t = 20; t <= 60; t++) rig.bare.tick(t)
+  const wallMs = performance.now() - wallStart
+  const cpuMs = cpuDeltaMs(cpuSince)
+  if (mark) mark()
+  return {
+    grown: rig.grown,
+    dropped: rig.dropped,
+    ticks: RESUME_TICKS,
+    wallMs: +wallMs.toFixed(1),
+    cpuMs: +cpuMs.toFixed(1),
+    tileCount: rig.bare.tileCount, live: rig.bare.liveTileCount, active: rig.bare.activeCount,
+  }
 })
-const empty = bare.takeDelta()
-bare.queueEvent({ kind: FIRE_EVENT.IGNITE, tick: 10, face: HOME_FACE, I: at, J: at, id: 1 })
-for (let t = 10; t <= 12; t++) bare.tick(t)
-const grown = bare.tileCount
-bare.undoDelta(empty)
-const dropped = bare.tileCount
-const resumeAt = performance.now()
-for (let t = 20; t <= 60; t++) bare.tick(t)
-const resumeMs = performance.now() - resumeAt
-say(`  ${grown} tile slot(s) grown from one ignition, ${dropped} after the rewind, ${resumeMs.toFixed(1)} ms to tick on from there: tileCount ${bare.tileCount}, live ${bare.liveTileCount}, active ${bare.activeCount}`)
-expect(grown > 0, `the fast-burning fire held ${grown} tile slot(s) before the rewind`)
-expect(dropped === 0, `the rewind left ${dropped} tile slot(s) live, so it never dropped one a reclaim was still pointing at`)
-expect(resumeMs < 5000, `40 ticks after the rewind took ${resumeMs.toFixed(1)} ms`)
+say(`  ${resume.grown} tile slot(s) grown from one ignition, ${resume.dropped} after the rewind, ${resume.wallMs} ms of wall and ${resume.cpuMs} ms of CPU inside the tick calls to tick ${resume.ticks} tick(s) on from there: tileCount ${resume.tileCount}, live ${resume.live}, active ${resume.active}`)
+say(`  ${formatRowContention(resume)}`)
+expect(resume.grown > 0, `the fast-burning fire held ${resume.grown} tile slot(s) before the rewind`)
+expect(resume.dropped === 0, `the rewind left ${resume.dropped} tile slot(s) live, so it never dropped one a reclaim was still pointing at`)
+expect(Number.isFinite(resume.cpuMs) && resume.cpuMs < RESUME_CPU_BUDGET_MS, `${resume.ticks} ticks after the rewind burned ${resume.cpuMs} ms of CPU (${resume.wallMs} ms of wall) against a ${RESUME_CPU_BUDGET_MS} ms budget, so a reclaim left spinning costs more CPU than the tick`)
+expect(Number.isFinite(resume.wallMs) && resume.wallMs < RESUME_WALL_BUDGET_MS, `${resume.ticks} ticks after the rewind took ${resume.wallMs} ms of wall against a ${RESUME_WALL_BUDGET_MS} ms budget, which catches a regression too short for the ${RESUME_CPU_BUDGET_MS} ms CPU budget to resolve`)
+expect(!resume.contested, describeContested([resume]) || `the resume measurement got a clean window in ${resume.attempts} attempt(s)`)
 
 say('== 7. a tampered keyframe is rejected at the decode boundary instead of parsed into tiles ==')
 const kf = build(REGROW_STEPS)
@@ -369,4 +394,4 @@ say(`  the matching-lattice keyframe: ${ownError ?? `ADOPTED, checksum ${kf.kern
 expect(ownError === null || !ownError.includes('cells per face'), `the matching-lattice keyframe was refused by the lattice check: ${ownError}`)
 
 if (failures > 0) { say(`${failures} check(s) failed`); process.exitCode = 1 }
-say(failures === 0 ? `RESULT: PASS -- ${latticeRejected}/8 out-of-lattice payload(s) rejected, 0 of ${accepted} accepted tampered keyframe(s) carry an out-of-lattice tile, ${foreignError === null ? 0 : 1}/1 cross-lattice payload(s) refused by applyRemote, the in-lattice payload still decodes` : `RESULT: FAIL (${failures} check(s))`)
+say(failures === 0 ? `RESULT: PASS -- ${latticeRejected}/8 out-of-lattice payload(s) rejected, 0 of ${accepted} accepted tampered keyframe(s) carry an out-of-lattice tile, ${foreignError === null ? 0 : 1}/1 cross-lattice payload(s) refused by applyRemote, the in-lattice payload still decodes, ${resume.ticks} tick(s) after a rewind cost ${resume.cpuMs} ms of CPU (${resume.wallMs} ms of wall)` : `RESULT: FAIL (${failures} check(s))`)
