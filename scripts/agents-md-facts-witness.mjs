@@ -119,7 +119,19 @@ for (const d of inDeps) console.log(`  note dependency   AGENTS.md:${d.line}  ${
 for (const d of moved) console.log(`  note moved        AGENTS.md:${d.line}  ${d.token} -> ${d.at}`)
 console.log(`  checked ${pathClaims} path claim(s), ${lineClaims} line claim(s) and ${shaClaims} sha-like token(s)`)
 
-const failures = missing.length + pastEof.length
+const CI_WORKFLOW = '.github/workflows/ci.yml'
+const ciClaims = []
+const ciText = tracked.has(CI_WORKFLOW) ? readFileSync(join(REPO, CI_WORKFLOW), 'utf8') : ''
+if (ciText === '') {
+  ciClaims.push(`${CI_WORKFLOW} is absent from the tracked tree, so no CI claim can be checked`)
+} else {
+  if (!/group:[^\n]*github\.sha/.test(ciText)) ciClaims.push('the concurrency group is no longer per-sha')
+  if (!/node-version:\s*20\b/.test(ciText)) ciClaims.push('CI no longer pins node-version 20')
+  if (!/if:\s*vars\.CI_GPU_RUNNER_ONLINE/.test(ciText)) ciClaims.push('the frame-time job lost its CI_GPU_RUNNER_ONLINE guard')
+}
+for (const d of ciClaims) console.log(`  FAIL ci claim     ${CI_WORKFLOW} contradicts AGENTS.md: ${d}`)
+
+const failures = missing.length + pastEof.length + ciClaims.length
 if (failures > 0) {
   console.log(`RESULT: FAIL -- ${failures} AGENTS.md claim(s) resolve to nothing in this repo`)
   process.exit(1)
