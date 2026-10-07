@@ -1,6 +1,8 @@
 import { defineHeightSpec, OCTAVE_ROTATION_COS, OCTAVE_ROTATION_SIN } from './height-spec.js'
 
 const isVec = Array.isArray
+const INLINE_MAX_BODY_STMTS = 32
+const isPlainOperand = (v) => /^-?[A-Za-z_$][\w$]*$/.test(v) || /^-?[\d.]+$/.test(v)
 
 function literal(n) {
   if (!Number.isFinite(n)) throw new RangeError(`jsgen: non-finite literal ${n}`)
@@ -12,6 +14,8 @@ function createCodegen(params) {
   let tempId = 0
   let block = []
   const functions = new Map()
+  const generating = new Set()
+  let probeNested = null
   const scalar = (v) => (typeof v === 'number' ? literal(v) : v)
   const bind = (expr) => { const name = `t${tempId++}`; block.push(`const ${name}=${expr};`); return name }
   const lanes = (a, b) => (isVec(a) ? a.length : isVec(b) ? b.length : 0)
@@ -70,14 +74,26 @@ function createCodegen(params) {
     },
     fn: (name, inputs, type, impl) => {
       if (type !== 'float' || inputs.length !== 1 || inputs[0][1] !== 'vec3') throw new TypeError(`jsgen: fn ${name} must be (vec3) -> float`)
+      if (probeNested) probeNested.push(name)
+      const args = ['a', 'b', 'c'].map((s) => `${name}_${s}`)
+      if (generating.has(name)) return (p) => bind(`${name}(${p.map(scalar).join(',')})`)
+      generating.add(name)
+      const outerNested = probeNested
+      const nested = []
+      probeNested = nested
+      const { result: probeResult, body: probeBody } = withBlock(() => impl(args))
+      probeNested = outerNested
+      generating.delete(name)
+      const leafBody = nested.length === 0 && probeBody.length <= INLINE_MAX_BODY_STMTS
       return (p) => {
-        if (!functions.has(name)) {
-          functions.set(name, null)
-          const args = ['a', 'b', 'c'].map((s) => `${name}_${s}`)
-          const { result, body } = withBlock(() => impl(args))
-          functions.set(name, `function ${name}(${args.join(',')}){${body.join('')}return ${scalar(result)};}`)
+        if (!leafBody) {
+          if (!functions.has(name)) functions.set(name, `function ${name}(${args.join(',')}){${probeBody.join('')}return ${scalar(probeResult)};}`)
+          return bind(`${name}(${p.map(scalar).join(',')})`)
         }
-        return bind(`${name}(${p.join(',')})`)
+        const callArgs = p.map((v) => (isPlainOperand(v) ? v : bind(scalar(v))))
+        const { result, body } = withBlock(() => impl(callArgs))
+        for (let i = 0; i < body.length; i++) block.push(body[i])
+        return isPlainOperand(result) ? result : bind(scalar(result))
       }
     },
   }
