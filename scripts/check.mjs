@@ -7,6 +7,22 @@ import { ensureWorkspaceLinks } from './ensure-workspace-links.mjs'
 
 const execFileAsync = promisify(execFile)
 
+const NO_GPU_WITNESSES = [
+  { file: 'msgpack-negative-zero-witness.mjs' },
+  { file: 'app-event-dispatch-error-witness.mjs', must: /\[PASS\]/ },
+  { file: 'lattice-dir-cache-witness.mjs', must: /mismatch\(es\)/ },
+  { file: 'lattice-ring-bound-witness.mjs' },
+  { file: 'veg-painted-surface-witness.mjs' },
+  { file: 'physics-body-pool-witness.mjs' },
+  { file: 'physics-motion-recreate-witness.mjs' },
+  { file: 'terrain-reseed-failure-witness.mjs' },
+  { file: 'ep-progressive-lod-schema-witness.mjs' },
+]
+const NO_GPU_WITNESS_TIMEOUT_MS = 120000
+const NO_GPU_WITNESS_GPU_SURFACE = /cdp-browser|gpu-probe|gpu-eval|witnessGpu|gpuLaunchArgs|use-angle|adapter-luid|WebGLRenderer|WebGPURenderer/
+const NO_GPU_VERDICT_RE = /^(?:\[[^\]]*\]\s*)?RESULT:\s+(PASS|FAIL)(?![A-Za-z0-9_])/
+const NO_GPU_WITNESS_ECHO_LINES = 6
+
 const ROOTS = ['src', 'client', 'apps', 'scripts', 'bin']
 const SKIP_DIRS = new Set(['basis', 'draco', 'maps'])
 const SKIP_VENDORED_FILE = /(\.min\.js$|basis_transcoder|draco_decoder|jolt-physics)/
@@ -22,6 +38,25 @@ function collect(out) {
     out.push(rel)
   }
   return out
+}
+
+function noGpuVerdict(stdout) {
+  let failing = null
+  let passing = null
+  for (const line of stdout.split('\n')) {
+    const m = NO_GPU_VERDICT_RE.exec(line.trim())
+    if (m === null) continue
+    if (m[1] === 'FAIL') { if (failing === null) failing = line.trim() }
+    else if (passing === null) passing = line.trim()
+  }
+  if (failing !== null) return { verdict: 'FAIL', line: failing }
+  if (passing !== null) return { verdict: 'PASS', line: passing }
+  return { verdict: null, line: null }
+}
+
+function tailLines(text, count) {
+  const lines = text.split('\n').map((l) => l.trimEnd()).filter((l) => l.trim() !== '')
+  return lines.slice(Math.max(0, lines.length - count))
 }
 
 async function main() {
@@ -139,6 +174,54 @@ async function main() {
     for (const p of imports.problems) console.error(`  ${p}`)
     process.exit(1)
   }
+  if (NO_GPU_WITNESSES.length === 0) {
+    console.error('check: no gpu-free witness is listed, so the gpu-free witness arm proves nothing')
+    process.exit(1)
+  }
+  let noGpuMs = 0
+  for (const spec of NO_GPU_WITNESSES) {
+    const rel = join('scripts', spec.file)
+    let source = ''
+    try {
+      source = readFileSync(rel, 'utf8')
+    } catch (e) {
+      console.error(`check: gpu-free witness ${spec.file} is unreadable (${e.message}), so its assertions never ran`)
+      process.exit(1)
+    }
+    const gpuHit = NO_GPU_WITNESS_GPU_SURFACE.exec(source)
+    if (gpuHit !== null) {
+      console.error(`check: gpu-free witness ${spec.file} reaches the "${gpuHit[0]}" surface, so it cannot run where CI has no GPU -- move it behind SPOINT_GPU_WITNESS`)
+      process.exit(1)
+    }
+    const started = Date.now()
+    let stdout = ''
+    let code = 0
+    let killed = false
+    try {
+      const done = await execFileAsync(process.execPath, [rel], { maxBuffer: 16 * 1024 * 1024, timeout: NO_GPU_WITNESS_TIMEOUT_MS })
+      stdout = done.stdout
+    } catch (e) {
+      stdout = (e && e.stdout) || ''
+      code = Number.isInteger(e.code) ? e.code : 1
+      killed = e.killed === true
+    }
+    const ms = Date.now() - started
+    noGpuMs += ms
+    const verdict = noGpuVerdict(stdout)
+    const witnessFailures = []
+    if (killed) witnessFailures.push(`ran past the ${NO_GPU_WITNESS_TIMEOUT_MS / 1000} s cap and was killed`)
+    if (code !== 0) witnessFailures.push(`exited ${code}`)
+    if (verdict.verdict === 'FAIL') witnessFailures.push(`reported ${verdict.line}`)
+    if (stdout.trim() === '') witnessFailures.push('printed nothing, so silence cannot be told apart from a witness that never asserted')
+    if (spec.must && !spec.must.test(stdout)) witnessFailures.push(`printed no line matching ${spec.must}, so its assertions never ran`)
+    if (witnessFailures.length > 0) {
+      console.error(`check: gpu-free witness ${spec.file}: ${witnessFailures.join('; ')}`)
+      for (const line of tailLines(stdout, NO_GPU_WITNESS_ECHO_LINES)) console.error(`  ${spec.file} out ${line}`)
+      process.exit(1)
+    }
+    console.log(`check: gpu-free witness ${spec.file} ${(ms / 1000).toFixed(1)} s, exit 0, ${verdict.line ?? 'no RESULT: line, so exit 0 is the verdict'}`)
+  }
+  console.log(`check: ${NO_GPU_WITNESSES.length} gpu-free witness(es) ran in ${(noGpuMs / 1000).toFixed(1)} s with no GPU required`)
   try {
     const { stdout } = await execFileAsync(process.execPath, ['scripts/fire-witness-gate.mjs'], { maxBuffer: 16 * 1024 * 1024 })
     for (const line of stdout.split('\n')) if (line.trim()) console.log(`check: ${line}`)
