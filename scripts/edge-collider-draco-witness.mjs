@@ -1,8 +1,7 @@
 #!/usr/bin/env node
-import { readFileSync, statSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { readFileSync, statSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { spawnSync, execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { NodeIO } from '@gltf-transform/core'
@@ -86,6 +85,15 @@ async function measure(absPath) {
   return { vertices, triangles, materials, primitives, textures }
 }
 
+async function encodeDraco(absPath) {
+  const io = await getIO()
+  const doc = await io.readBinary(new Uint8Array(readFileSync(absPath)))
+  doc.createExtension(KHRDracoMeshCompression)
+    .setRequired(true)
+    .setEncoderOptions({ method: KHRDracoMeshCompression.EncoderMethod.EDGEBREAKER })
+  writeFileSync(absPath, await io.writeBinary(doc))
+}
+
 function runPrep(args) {
   const res = spawnSync(process.execPath, [prepScript, ...args], { cwd: repoRoot, encoding: 'utf8' })
   const out = `${res.stdout || ''}${res.stderr || ''}`.trim()
@@ -93,25 +101,36 @@ function runPrep(args) {
   return res.status
 }
 
-const DRACO_FIXTURE_REV = '82f1fa13^'
+const SCRATCH_REL = 'scripts/.scratch_edge-collider-draco'
+const scratch = path.resolve(repoRoot, SCRATCH_REL)
 
 async function main() {
   const argv = process.argv.slice(2).filter((a) => !a.startsWith('--'))
   const relTargets = argv.length ? argv : ['apps/tps-game/cleetus.glb', 'apps/tps-game/schwust.glb']
   const targets = relTargets.map((rel) => ({ rel, abs: path.resolve(repoRoot, rel) }))
 
-  const scratch = mkdtempSync(path.join(tmpdir(), 'edge-collider-draco-'))
+  rmSync(scratch, { recursive: true, force: true })
+  mkdirSync(scratch, { recursive: true })
+  let ignored = false
+  try {
+    execFileSync('git', ['check-ignore', '-q', SCRATCH_REL], { cwd: repoRoot })
+    ignored = true
+  } catch (e) {
+    ignored = false
+  }
+  expect(ignored, `the scratch directory ${SCRATCH_REL} is itself ignored, so a strip run can never dirty the tree even if it is interrupted`)
   try {
     const before = []
     for (const { rel, abs } of targets) {
-      const bytes = execFileSync('git', ['show', `${DRACO_FIXTURE_REV}:${rel.replace(/\\/g, '/')}`], { cwd: repoRoot, maxBuffer: 128 * 1024 * 1024 })
       const scratchAbs = path.join(scratch, path.basename(rel))
-      writeFileSync(scratchAbs, bytes)
+      writeFileSync(scratchAbs, readFileSync(abs))
+      await encodeDraco(scratchAbs)
+      const bytes = readFileSync(scratchAbs)
       if (!detectDraco(bytes)) {
-        expect(false, `${DRACO_FIXTURE_REV}:${rel} is the Draco-compressed fixture this witness decompresses, but it carries no KHR_draco_mesh_compression`)
+        expect(false, `${rel.replace(/\\/g, '/')} could not be Draco-compressed into the scratch fixture, so this witness has no compressed input to decompress`)
         continue
       }
-      before.push({ rel, abs, size: bytes.length, scratchAbs, metrics: await measure(scratchAbs) })
+      before.push({ rel, size: bytes.length, scratchAbs, metrics: await measure(scratchAbs) })
     }
 
     const redStatus = runPrep(['--check', scratch])
@@ -173,10 +192,20 @@ async function main() {
 
     const dirty = execFileSync('git', ['status', '--porcelain', '--', 'apps'], { cwd: repoRoot, encoding: 'utf8' }).trim()
     expect(dirty === '', `the strip rewrites only the scratch copy, so the tracked tree stays clean: git status --porcelain -- apps reads "${dirty}"`)
-    console.log(`[edge-collider-draco-witness] ${rewritten} of ${before.length} GLB(s) rewritten under ${scratch}, 0 byte(s) written into the tracked tree`)
+    let trackedDiff = ''
+    try {
+      execFileSync('git', ['diff', '--exit-code', '--', ...relTargets], { cwd: repoRoot, encoding: 'utf8' })
+    } catch (e) {
+      trackedDiff = `${e.stdout || ''}${e.stderr || ''}`.trim()
+    }
+    expect(trackedDiff === '', `git diff on the tracked GLB(s) is empty after a run: ${trackedDiff || 'clean'}`)
+    console.log(`[edge-collider-draco-witness] ${rewritten} of ${before.length} GLB(s) rewritten under ${SCRATCH_REL}, 0 byte(s) written into the tracked tree`)
   } finally {
     rmSync(scratch, { recursive: true, force: true })
   }
+  let scratchLeft = true
+  try { scratchLeft = statSync(scratch).isDirectory() } catch (e) { scratchLeft = false }
+  expect(!scratchLeft, `the scratch directory is deleted at the end of the run, so a gate can run this witness repeatedly`)
 
   console.log(`[edge-collider-draco-witness] RESULT: ${failures === 0 ? 'PASS' : 'FAIL'} (${failures} failure(s))`)
   process.exitCode = failures === 0 ? 0 : 1

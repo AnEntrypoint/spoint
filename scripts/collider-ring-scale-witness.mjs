@@ -25,6 +25,7 @@ const SETTLED_SCAN_RATIO = 4
 const CPU_QUANTUM_MS = 15.6
 const WALK_SPEED_MPS = 7
 const REBUILD_AT = 0.3
+const WORLD_BODY_LIMIT = 10240
 
 const PASS = []
 const FAIL = []
@@ -439,15 +440,9 @@ async function main() {
   if (stillContested.length) console.log(`[ring-scale] ${stillContested.length} of ${rows.length} arm(s) never got a clean window (${stillContested.map(r => `${r.n}${r.moving ? ' moving' : ''} x${r.contentionSlowdown} of ${r.spinMsBest} ms over ${r.attempts} attempt(s)`).join(', ')}): every budget verdict above is uninterrupted work over a counted unit, so a shared window moves the wall figures only`)
 
 
-  const stats = typeof physics.physicsStats === 'function' ? physics.physicsStats() : null
-  const bodies = stats ? stats.bodies : null
-  const peakBodies = stats ? stats.peakBodies : null
-  console.log(`[ring-scale] bodies resident at the end: ${bodies} (peak ${peakBodies} of ${stats?.maxBodies})`)
-  check('collider bodies stay inside a full world Jolt body limit of 10240', peakBodies != null && peakBodies < 10240, `${bodies} resident, ${peakBodies} peak of ${stats?.maxBodies}`)
+  check(`a settled ladder of ${CENTER_COUNTS.join('/')} clusters keeps one full world inside its Jolt body limit of ${WORLD_BODY_LIMIT}`, settledPeak.peakBodies != null && settledPeak.peakBodies < WORLD_BODY_LIMIT, `${settledPeak.bodies} resident, ${settledPeak.peakBodies} peak of ${settledPeak.maxBodies} on the settled world`)
+  check(`a walking ${MOVING_CENTERS}-cluster ring keeps one full world inside its Jolt body limit of ${WORLD_BODY_LIMIT}`, walkingPeak.peakBodies != null && walkingPeak.peakBodies < WORLD_BODY_LIMIT, `${walkingPeak.bodies} resident, ${walkingPeak.peakBodies} peak of ${walkingPeak.maxBodies} on the walking world`)
 
-  trunk.stop()
-  rock.stop()
-  server.stop()
   console.log(`\n[ring-scale] ${PASS.length} passed, ${FAIL.length} failed`)
   console.log(`[ring-scale] RESULT: ${FAIL.length ? 'FAIL' : 'PASS'}`)
   console.log(`[ring-scale] ROWS: ${JSON.stringify(rows)}`)
@@ -457,5 +452,5 @@ async function main() {
 main().catch(e => {
   console.error('[ring-scale] RESULT: FAIL (uncaught)')
   console.error(e?.stack || e)
-  process.exitCode = 1
+  process.exit(1)
 })
