@@ -10,23 +10,35 @@ process.env.SPOINT_SKIP_PREWARM = process.env.SPOINT_SKIP_PREWARM || '1'
 process.env.WORLD = process.env.WORLD || 'arena-combat'
 
 const args = Object.fromEntries(process.argv.slice(2).map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true'] }))
+const numberFlag = (name, fallback) => {
+  const raw = args[name]
+  if (raw === undefined) return fallback
+  const parsed = Number(raw)
+  if (raw === undefined || raw.trim() === '' || !Number.isFinite(parsed)) {
+    console.error(`[arena-combat] --${name} needs a number but got ${JSON.stringify(raw)}: pass --${name}=<number> (default ${fallback}) or omit it`)
+    process.exit(2)
+  }
+  return parsed
+}
+
 const PORT = args.port || '3137'
 const GPU_MODE = args.gpu || 'accelerated'
 const WANT_SOFTWARE = GPU_MODE === 'software' || GPU_MODE === 'swiftshader' || GPU_MODE === 'none'
 const WANT_VENDOR = WANT_SOFTWARE || GPU_MODE === 'accelerated' ? null : GPU_MODE
 const FORCE_WEBGL_BACKEND = args['force-webgl'] === 'true'
-const READY_TIMEOUT_MS = Number(args.timeout || 900000)
-const ROOM_TIMEOUT_MS = Number(args['room-timeout'] || 600000)
-const KILL_TIMEOUT_MS = Number(args['kill-timeout'] || 300000)
-const RESPAWN_TIMEOUT_MS = Number(args['respawn-timeout'] || 120000)
-const SEPARATE_MS = Number(args['separate-ms'] || 1600)
+const READY_TIMEOUT_MS = numberFlag('timeout', 900000)
+const ROOM_TIMEOUT_MS = numberFlag('room-timeout', 600000)
+const KILL_TIMEOUT_MS = numberFlag('kill-timeout', 300000)
+const RESPAWN_TIMEOUT_MS = numberFlag('respawn-timeout', 120000)
+const SEPARATE_MS = numberFlag('separate-ms', 1600)
 const USE_OBSERVER = args.clients !== '2'
-const EXPECTED_PLAYERS = Number(args['expected-players'] || (USE_OBSERVER ? 3 : 2))
-const SPAWN_TOLERANCE_M = Number(args['spawn-tolerance'] || 1.5)
-const VIEW_W = Number(args['view-width'] || 320)
-const VIEW_H = Number(args['view-height'] || 180)
-const TELEPORT_OFFSET_M = Number(args['teleport-offset'] || 6)
-const RELEVANCE_RADIUS_M = Number(args['relevance-radius'] || 200)
+const EXPECTED_PLAYERS = numberFlag('expected-players', USE_OBSERVER ? 3 : 2)
+const SPAWN_TOLERANCE_M = numberFlag('spawn-tolerance', 1.5)
+const VIEW_W = numberFlag('view-width', 320)
+const VIEW_H = numberFlag('view-height', 180)
+const TELEPORT_OFFSET_M = numberFlag('teleport-offset', 6)
+const RELEVANCE_RADIUS_M = numberFlag('relevance-radius', 200)
+const EVAL_STALL_MS = numberFlag('eval-stall', 180000)
 const CACHE_BUSTER = String(Date.now())
 
 const failures = []
@@ -90,7 +102,6 @@ async function makeClient(browser, label) {
   return { label, page, consoleEntries, pageErrors, failedRequests, cancelledRequests, webSockets }
 }
 
-const EVAL_STALL_MS = Number(args['eval-stall'] || 180000)
 const EVAL_STALL_LIMIT = 3
 
 async function evaluateOrThrow(page, fn, ms) {

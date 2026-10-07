@@ -27,8 +27,14 @@ const round = (x, d = 6) => x == null ? x : Number(x.toFixed(d))
 const hypot3 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2])
 const degOf = rad => rad * 180 / Math.PI
 
-const unproven = []
-const expect = (label, ok, evidence) => { if (!ok) unproven.push(`${label}: ${evidence}`); return ok }
+const failures = []
+const measurements = []
+const expect = (name, got, predicate) => {
+  measurements.push(name)
+  if (predicate(got)) return true
+  failures.push(`${name}: got ${JSON.stringify(got ?? null)}`)
+  return false
+}
 
 async function untilTrue(cond, timeoutMs) {
   const t0 = performance.now()
@@ -107,7 +113,7 @@ async function scenarioManager() {
   const antipodal = createClusterManager({ config, now: () => 0 })
   antipodal.setPlayerDir('n', [0, 1, 0]); antipodal.setPlayerDir('s', [0, -1, 0]); antipodal.setPlayerDir('bad', [0, 0, 0])
   const antipodalResult = antipodal.step({ force: true })
-  return {
+  const out = {
     callsPerSecond: callHz, simulatedSeconds: seconds, configuredHz: config.hz, assignmentsRun: manager.stats.steps, expectedAssignments: config.hz * seconds,
     stats: manager.stats, worstMemberAngleFromAnchorDeg: round(worst, 3), analyticBoundDeg: round(bound, 3),
     antipodal: { clusters: antipodalResult.clusters.length, rejected: antipodalResult.rejected },
@@ -115,15 +121,19 @@ async function scenarioManager() {
       const spec = [{ enabled: true, linkM: 500 }, { enabled: true }, { enabled: true, memberRadiusM: 40000 }, { enabled: true, maxWorldsPerProcess: 9 }][i]
       let got = null
       try { resolveClusterConfig(spec, { radius: tcfg.radius, relevanceRadius: 200, maxWeaponRangeM: i === 1 ? 5000 : 0 }) } catch (e) { got = e.code }
-      expect(`resolveClusterConfig refuses ${code}`, got === code, `got ${got ?? 'no throw at all'}`)
-      return { expected: code, got, fired: got === code }
+      return { expected: code, got, fired: expect(`resolveClusterConfig refuses ${code}`, got, g => g === code) }
     }),
     flagOff: (() => {
       const off = resolveClusterConfig({ enabled: false }, { radius: tcfg.radius }) === null && resolveClusterConfig(undefined, { radius: tcfg.radius }) === null
-      expect('resolveClusterConfig returns null when clusters are disabled or absent', off, 'it returned a config')
+      expect('resolveClusterConfig returns null when clusters are disabled or absent', off, v => v === true)
       return off
     })(),
   }
+  expect('the manager runs one assignment step per configured hz-second', out.assignmentsRun, n => n === out.expectedAssignments)
+  expect('no member sits further from its cluster anchor than the analytic bound', out.worstMemberAngleFromAnchorDeg, d => d <= out.analyticBoundDeg)
+  expect('two antipodal players stay in two separate clusters', out.antipodal.clusters, n => n === 2)
+  expect('a zero direction is rejected instead of being assigned a cluster', (out.antipodal.rejected ?? []).map(r => r.id), ids => ids.includes('bad'))
+  return out
 }
 
 async function scenarioHosting() {
@@ -175,9 +185,9 @@ async function scenarioHosting() {
   await runtime.coordinator.settle()
   const refusal = runtime.coordinator.refusals[0] ?? null
   const refusalCodes = runtime.coordinator.refusals.map(r => r.code)
-  expect('host refuses once the world cap is reached', refusal?.code === 'cluster-world-capacity-exhausted', `${extraCount} extra clusters over ${hostedBeforeExtras} hosted, maxWorlds=${runtime.host.stats.maxWorlds}, refusals=${JSON.stringify(refusalCodes)}`)
-  expect('the capacity refusal is named by its own code', refusal ? refusal.message.startsWith('cluster-world-capacity-exhausted') : false, refusal ? refusal.message : 'no refusal was produced')
-  const afterCap = { hosted: runtime.host.stats.hosted, maxWorlds: runtime.host.stats.maxWorlds, refused: runtime.host.stats.refused, refusals: runtime.coordinator.refusals.map(r => ({ code: r.code, clusterId: r.clusterId })), refusalIsNamed: refusal?.code === 'cluster-world-capacity-exhausted', capacityErrorIsClass: refusal ? refusal.message.startsWith('cluster-world-capacity-exhausted') : null }
+  const refusalIsNamed = expect(`host refuses once the world cap is reached (${extraCount} extra cluster(s) over ${hostedBeforeExtras} hosted, maxWorlds=${runtime.host.stats.maxWorlds}, refusals=${JSON.stringify(refusalCodes)})`, refusal?.code, code => code === 'cluster-world-capacity-exhausted')
+  const capacityErrorIsClass = expect('the capacity refusal is named by its own code', refusal?.message, message => typeof message === 'string' && message.startsWith('cluster-world-capacity-exhausted'))
+  const afterCap = { hosted: runtime.host.stats.hosted, maxWorlds: runtime.host.stats.maxWorlds, refused: runtime.host.stats.refused, refusals: runtime.coordinator.refusals.map(r => ({ code: r.code, clusterId: r.clusterId })), refusalIsNamed, capacityErrorIsClass }
   const rssAtCap = process.memoryUsage().rss / 1048576
   const hostedBefore = runtime.host.hostedIds.length
   for (let i = 0; i < extraCount; i++) runtime.manager.removePlayer(`X${i}`)
@@ -189,6 +199,14 @@ async function scenarioHosting() {
   await runtime.coordinator.settle()
   const dormancy = { hostedBeforeRemoval: hostedBefore, hostedRightAfterRemoval: hostedAfterRemoval, hostedAfterGrace: runtime.host.hostedIds.length, destroyed: runtime.host.stats.destroyed, stillHostsRealPlayers: [ids.A, ids.B].every(id => runtime.host.has(id)) }
   for (const id of ['A', 'B']) clients[id].client.disconnect()
+  for (const [id, row] of Object.entries(report)) {
+    expect(`${id} stands on a heightfield collider within 2 m of the terrain surface`, row.colliderGapM, gap => gap !== null && gap.shape === 'heightfield' && Math.abs(gap.gapM) < 2)
+    expect(`${id} is rendered into its own client's world view`, row.clientSeesPlayers, n => n >= 1)
+    expect(`${id} is hosted alone in its own cluster world`, row.playersInWorld, n => n === 1)
+  }
+  expect('the host fills every world slot it was configured for', afterCap.hosted, n => n === afterCap.maxWorlds)
+  expect('idle clusters are destroyed once the grace window elapses', dormancy.hostedAfterGrace, n => n < dormancy.hostedBeforeRemoval)
+  expect('clusters still holding a real player survive dormancy', dormancy.stillHostsRealPlayers, v => v === true)
   const out = { createTwoWorldsMs: round(createMs, 0), clusters: ids, report, rssMB: { before: round(rss0, 0), afterTwoWorlds: round(rssAfterTwo, 0), atCap: round(rssAtCap, 0), perWorld: round((rssAtCap - rss0) / afterCap.hosted, 1) }, afterCap, dormancy, hostStats: runtime.host.stats }
   for (const id of runtime.host.hostedIds) await runtime.host.destroy(id)
   return out
@@ -219,7 +237,12 @@ async function scenarioHeap() {
     console.error(`HEAPPROBE worlds=${row.world} rssMB=${row.rssMB} wasmFreeMB=${row.wasmFreeMB}/${row.wasmTotalMB} sharedBy=${row.wasmWorlds} ticksPerSecond=${row.ticksPerSecond.join(',')}`)
   }
   const heapCost = perWorld.map((r, i) => i === 0 ? null : round(perWorld[i - 1].wasmFreeMB - r.wasmFreeMB, 1)).slice(1)
-  return { worlds: worlds.length, perWorld, heapCostMBPerExtraWorld: heapCost, configuredCeiling: resolveClusterConfig({ enabled: true }, { radius: worldDef.terrain.radius, relevanceRadius: worldDef.relevanceRadius ?? 200 }).maxWorlds }
+  const out = { worlds: worlds.length, perWorld, heapCostMBPerExtraWorld: heapCost, configuredCeiling: resolveClusterConfig({ enabled: true }, { radius: worldDef.terrain.radius, relevanceRadius: worldDef.relevanceRadius ?? 200 }).maxWorlds }
+  expect('every requested cluster world fits in the fixed wasm heap', out.worlds, n => n > 0 && n === wanted)
+  expect('the configured world ceiling covers every world hosted here', out.configuredCeiling, n => out.worlds > 0 && n >= out.worlds)
+  expect('no world drains the shared wasm heap dry', out.perWorld.map(r => r.wasmFreeMB), free => free.length > 0 && free.every(mb => mb > 0))
+  expect('every hosted world keeps ticking at its configured rate', out.perWorld.flatMap(r => r.ticksPerSecond), rates => rates.length > 0 && rates.every(rate => rate >= 45))
+  return out
 }
 
 async function scenarioCensus() {
@@ -374,6 +397,10 @@ async function scenarioCensus() {
     phases, centreSweep, peak,
     joltLimitsUsed: physics.joltLimits ?? null,
   }
+  expect('every census client is tracked as a character in the world', out.peak.characters, n => n === playerCount)
+  expect('the dynamic body budget is fully admitted', phases.at(-1).dynamicBodies, n => n === dynamicBudget)
+  expect('live jolt bodies stay inside the configured body limit', out.peak.joltBodies, n => out.joltLimitsUsed != null && n <= out.joltLimitsUsed.maxBodies)
+  for (const phase of phases) expect(`phase ${phase.label} keeps vegetation and rock colliders inside their caps`, phase, r => (r.vegCap == null ? r.vegLive === 0 : r.vegLive <= r.vegCap) && (r.rockCap == null ? r.rockLive === 0 : r.rockLive <= r.rockCap))
   for (const c of clients) c.client.disconnect()
   await factory.destroyWorld(1, world)
   return out
@@ -519,6 +546,16 @@ async function scenarioHandoff() {
     moverPlanetSpeedMps: { p50: round(speeds[Math.floor(speeds.length * 0.5)], 3), p95: round(speeds[Math.floor(speeds.length * 0.95)], 3), max: round(speeds.at(-1), 3), samples: speeds.length },
     moverGapsAcrossHandoff: gaps,
   }
+  expect('both players complete a cluster handoff', out.handoffs.length, n => n >= 2)
+  expect('the mover speed instrument sampled real movement', out.moverPlanetSpeedMps.samples, n => n > 0)
+  expect('the two players converge before their clusters merge', out.separationM.min, m => m < out.separationM.initial)
+  for (const h of out.handoffs) {
+    expect(`handoff ${h.player} ${h.from}->${h.to} preserves the planet-space position`, h.transferGapM, m => m < 0.001)
+    expect(`handoff ${h.player} ${h.from}->${h.to} preserves the planet-space direction`, h.dirGapDeg, d => d < 0.05)
+    expect(`handoff ${h.player} ${h.from}->${h.to} preserves velocity`, [h.speedBeforeMps, h.speedAdmittedMps], ([before, admitted]) => Math.abs(before - admitted) < 0.05)
+    expect(`handoff ${h.player} ${h.from}->${h.to} lands the player grounded`, h.grounded, v => v === true)
+    expect(`handoff ${h.player} ${h.from}->${h.to} carries the last input and the player name`, [h.carriedLastInput, h.nameExported, h.nameLanded], ([carried, from, to]) => carried === true && from === to)
+  }
   for (const r of tracked.values()) r.client.disconnect()
   for (const id of runtime.host.hostedIds) await runtime.host.destroy(id)
   return out
@@ -578,6 +615,10 @@ async function scenarioTilt() {
     yawBefore: round(client.heading.yaw, 4), yawAdmitted: round(look.yaw, 4),
     landedPos: landed ? landed.position.map(v => round(v, 2)) : null,
   }
+  expect('the transfer preserves the planet-space position', out.planetGapM, m => m < 0.001)
+  expect('the transfer preserves the planet-space direction', out.dirGapDeg, d => d < 0.05)
+  expect('the transfer preserves velocity', [out.speedBeforeMps, out.speedAdmittedMps], ([before, admitted]) => Math.abs(before - admitted) < 0.05)
+  expect('the handed-off player lands grounded in the destination world', out.grounded, v => v === true)
   await factory.destroyWorld(1, worldA)
   await factory.destroyWorld(2, worldB)
   return out
@@ -591,14 +632,13 @@ async function connectOrFail(client) {
 const SCENARIOS = { manager: scenarioManager, hosting: scenarioHosting, heap: scenarioHeap, census: scenarioCensus, handoff: scenarioHandoff, tilt: scenarioTilt }
 const run = SCENARIOS[SCENARIO]
 if (!run) { console.error(`unknown scenario ${SCENARIO}; one of ${Object.keys(SCENARIOS).join(', ')}`); process.exit(2) }
-const result = await run()
+const result = await run().catch(e => { failures.push(`scenario ${SCENARIO} threw before it could report anything: ${e?.message ?? e}`); return null })
 console.log(`=====RESULT=====
 ${JSON.stringify({ scenario: SCENARIO, ...result }, null, 1)}`)
 const pendingHandles = await quiesceLoop(Number(args.quiesceMs ?? 10000))
 log(pendingHandles ? `teardown left ${pendingHandles} referenced handle(s), forcing exit` : 'teardown complete, no referenced handles left')
-if (unproven.length) {
-  for (const f of unproven) console.error(`[cluster-harness] UNPROVEN: ${f}`)
-  console.error(`[cluster-harness] ${unproven.length} expected refusal(s) never fired, so this run verified nothing about them`)
-  process.exit(3)
-}
-if (pendingHandles) process.exit(0)
+if (measurements.length === 0) failures.push(`scenario ${SCENARIO} checked no measurement, so its exit code says nothing about how the cluster world behaved`)
+for (const f of failures) console.error(`[cluster-harness] FAIL ${f}`)
+console.log(`[cluster-harness] RESULT: ${failures.length ? 'FAIL' : 'PASS'} -- ${measurements.length - failures.length} of ${measurements.length} measurement(s) held`)
+if (pendingHandles) process.exit(failures.length ? 1 : 0)
+process.exitCode = failures.length ? 1 : 0
