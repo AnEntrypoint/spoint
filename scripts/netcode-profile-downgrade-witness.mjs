@@ -5,11 +5,10 @@ import { fileURLToPath } from 'node:url'
 import { writeFileSync } from 'node:fs'
 import { parseArgs, numArg, strArg } from './lib/witness-args.mjs'
 
-process.env.SPOINT_NO_WATCH = '1'
-process.env.SPOINT_SKIP_PREWARM = '1'
-
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const args = parseArgs(process.argv.slice(2))
+const DEV = args.dev === true || args.dev === 'true'
+if (!DEV) process.env.SPOINT_NO_WATCH = '1'
 const WORLD = strArg(args.world, 'lockstep-rts')
 const EXPECTED_PROFILE = strArg(args.profile, 'lockstep')
 const HOLD_MS = numArg(args.holdMs, 0)
@@ -23,8 +22,9 @@ const say = (...parts) => console.log(parts.join(' '))
 
 const port = await freePort()
 const tickRate = 60
-const { createServer } = await import('../src/sdk/server.js')
-const server = await createServer({ port, tickRate, appsDirs: [resolve(SDK_ROOT, 'apps'), resolve(SDK_ROOT, 'src/stdlib-apps')], sdkRoot: SDK_ROOT, staticDirs: [{ prefix: '/', dir: resolve(SDK_ROOT, 'dist/client') }], storageDir: resolve(process.cwd(), 'data') })
+const { createServer, buildStaticDirs } = await import('../src/sdk/server.js')
+const APPS_DIRS = [resolve(SDK_ROOT, 'apps'), resolve(SDK_ROOT, 'src/stdlib-apps')]
+const server = await createServer({ port, tickRate, appsDirs: APPS_DIRS, sdkRoot: SDK_ROOT, staticDirs: buildStaticDirs(SDK_ROOT, process.cwd(), APPS_DIRS), storageDir: resolve(process.cwd(), 'data') })
 const worldDef = await (await import('../src/sdk/WorldLocator.js')).loadWorldModule(resolve(SDK_ROOT, 'apps/world', WORLD + '.js'))
 await server.loadWorld({ ...worldDef, tickRate })
 await server.start()
@@ -53,11 +53,11 @@ say(`  WORLD_DEF: name=${wd?.name ?? 'none'} netcode.profile=${wd?.netcode?.prof
 if (!wd) failures.push(`the server sent no MSG.WORLD_DEF to a real client within 15 s, so nothing on the wire carries the declared profile`)
 else {
   if (wd.name !== WORLD) failures.push(`WORLD_DEF carries name "${wd.name}", expected "${WORLD}"`)
-  if (wd.netcode?.profile !== EXPECTED_PROFILE) failures.push(`WORLD_DEF carries netcode.profile "${wd.netcode?.profile ?? 'none'}", expected "${EXPECTED_PROFILE}"`)
+  if ((wd.netcode?.profile ?? 'none') !== EXPECTED_PROFILE) failures.push(`WORLD_DEF carries netcode.profile "${wd.netcode?.profile ?? 'none'}", expected "${EXPECTED_PROFILE}"`)
   if (Array.isArray(wd.entities)) failures.push(`WORLD_DEF still carries ${wd.entities.length} entity/entities, so the join payload is not the stripped one`)
 }
 
-const pageUrl = `http://127.0.0.1:${port}/?connect=127.0.0.1:${port}`
+const pageUrl = `http://127.0.0.1:${port}/?connect=127.0.0.1:${port}&multiplayer=1`
 say(`  remote page: ${pageUrl}`)
 if (URL_OUT) writeFileSync(URL_OUT, pageUrl)
 

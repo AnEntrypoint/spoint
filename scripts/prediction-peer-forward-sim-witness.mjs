@@ -128,7 +128,7 @@ for (const cond of CONDITIONS) {
   if (!(push.popsPerMin <= control.popsPerMin)) rowOne.push(`pops/min ${fmt(push.popsPerMin, 1)} > control ${fmt(control.popsPerMin, 1)}`)
   if (!(push.renderOffP95Cm <= control.renderOffP95Cm)) rowOne.push(`renderOffP95 ${fmt(push.renderOffP95Cm, 2)}cm > control ${fmt(control.renderOffP95Cm, 2)}cm`)
   if (!(push.popsPerMin <= MAX_POPS)) rowOne.push(`pops/min ${fmt(push.popsPerMin, 1)} > cap ${MAX_POPS}`)
-  if (ROW >= 1) fail.push(...rowOne)
+  if (ROW <= 1) fail.push(...rowOne)
   verdicts.push({ cond, push, control, fail })
   for (const arm of ARMS) {
     const a = pooled[arm].agg
@@ -138,7 +138,7 @@ for (const cond of CONDITIONS) {
 
 const header = '| one-way ms/jitter/loss | arm | acks | corrections | corrections per ack | err p95 cm | pops/min | render offset p95 cm | tick Hz | sep fired % | sep push p50 cm | lead ticks p95/max | peer dist p50 m |\n|' + '---|'.repeat(13)
 console.log('\n' + [header, ...table].join('\n') + '\n')
-const ROW_AXES = ROW >= 1 ? 'corrections/ack, err p95, pops/min, rendered-offset p95 (row 1 bar)' : 'corrections/ack, err p95 (row 2 bar)'
+const ROW_AXES = ROW <= 1 ? 'corrections/ack, err p95, pops/min, rendered-offset p95 (row 1 bar)' : 'corrections/ack, err p95 (row 2 bar)'
 console.log('per-condition verdict (push vs --peerSeparation=off control), gated on ' + ROW_AXES + ':')
 for (const v of verdicts) {
   console.log(`  ${v.cond}: corrections/ack ${fmt(v.push.corrPerAck)} vs control ${fmt(v.control.corrPerAck)} | errP95 ${fmt(v.push.errP95Cm, 2)} vs ${fmt(v.control.errP95Cm, 2)} cm | pops/min ${fmt(v.push.popsPerMin, 1)} vs ${fmt(v.control.popsPerMin, 1)} | renderOffP95 ${fmt(v.push.renderOffP95Cm, 2)} vs ${fmt(v.control.renderOffP95Cm, 2)} cm | ${v.fail.length ? 'FAIL: ' + v.fail.join('; ') : 'PASS'}`)
