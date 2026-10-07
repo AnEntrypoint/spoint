@@ -731,12 +731,6 @@
   title: 'AMD body timings measured: boot 125 s and still unsettled, capture 166 s — an AMD pair needs ~10 min of dispatch time'
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending
-- id: airborne-ground-solve-throttle-instead-of-warm-start
-  title: 'Airborne ground solve: cut solves per tick, not evaluations per solve'
-  body: 'airborne-player-ground-solve-moving-cost asks for both ''per-solve evaluations at 52 km below 5'' and ''outputs within 1e-4 m of the current solver''. Those two are not simultaneously satisfiable. A warm start does drop 52 km evaluations from 7.99 to 3.64 (measured, 0.11 m/tick walk at r=52000), but at 52-60 km chart-local the chart-vertical line crosses the terrain more than once (3 roots within 0.2 m at the 52 km outlier, 7 within 16 m at 60 km), so the warm solve legitimately returns a different intersection than the cold solve: 1 sample in 1200 differs at 52 km (max 6.2e-4 m, isolated worst 0.3249 m) and 10 in 1200 at 60 km (max 2.05e-2 m). The cold solver is well-conditioned at those points (a 1 um nudge moves it 8.6e-5 m), so this is branch selection, not noise, and being exact requires following the cold trajectory, which costs exactly the cold evaluations. The shipped warm start is therefore opt-in per sweep caller only (field build, minimap bake) and the moving player is deliberately unwarmed. The remaining lever for the airborne case is the one the row body already lists: caller-side throttling. An airborne player does not need a fresh ground solve every tick - the ground is not being used for support while airborne, so the caller can reuse the last known ground height and re-solve only on a distance or state threshold. Measure: solves per tick per airborne player before/after at 64 players, and the physics-phase ms before/after interleaved x10 with median and IQR. Verify the reused height still satisfies the row''s own tolerance by re-solving on landing and comparing.'
-  acceptance_criteria: With 64 players sprinting airborne at 52 km, the number of ground solves issued per player per tick is measured before and after (interleaved x10, median and IQR) and drops by at least 5x; the physics phase ms is measured before and after in the same run; on landing the first re-solved ground height is within 1e-4 m of an unthrottled solve at the same position; no player is ever supported by a ground height older than the throttle distance threshold allows, and the threshold is derived from measured player speed rather than guessed.
-  session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  status: pending
 - id: fire-s2e-hud-cue-client
   title: 'S2e follow-on: client HUD cue for fire_burn / fire_burn_end / fire_death payloads'
   body: 'src/behaviours/fireGameplay.js already sends { type: ''fire_burn'' } when a player starts burning, { type: ''fire_burn_end'' } when the burn status ends and { type: ''fire_death'' } on a fire death (all three witnessed server-side in scripts/fire-tps-game-witness.mjs). Nothing renders them. The cue itself (screen-edge vignette / status pip) must be built as a component in AnEntrypoint/design and reach spoint only through the pinned importmap (project/gui-kit-architecture-2026-08-21); client/app.js and client/hud/PauseMenu.js are currently owned by another lane, so this row must not hand-edit them. Needs a GPU window for the browser witness.'
@@ -1491,13 +1485,6 @@
   body: src/terrain/ColliderStreamer.js caches the chunk-key ring per centre under ringKeyOf(cx,cz) at CENTER_QUANTUM_M=4 with RING_CACHE_CAP=512. scripts/collider-ring-scale-witness.mjs measures 345.6 fresh cluster rings per rebuild in the 192-walking-centre arm (ring 14-15 ms of ~47 ms/rebuild), i.e. the cache is nearly useless exactly when centres move. A coarser quantum (the ring radius already adds CENTER_QUANTUM_M of slack), a lattice-cell-keyed ring, or a cap sized to the served centre count are the candidate fixes; each must be witnessed, not argued.
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending
-- id: fire-witness-rain-arm-ignites-nothing
-  acceptance: 'Decide which it is with a real run: sweep rain intensity 0.0-0.6 through the same ignition and report peak active cells per intensity, then either land moisture/rain constants that let a modest rain slow rather than prevent ignition, or correct the arm''s premise and pin the intensity at which ignition stops. Witness exits 0 on both arms.'
-  blockedBy: the uncommitted FIRE_SPEC in apps/tps-game/shared.js and config.fire.enabled in apps/world/tps-game.js must be committed before the witness is reproducible from HEAD
-  title: 'fire-tps-game-witness rain arm ignites nothing: peak active cells 0 at the shipped rain 0.6'
-  why: 'scripts/fire-tps-game-witness.mjs ends EXIT 1 on ''flag on, weather as shipped (rain 0.6)'': peak active cells 0, so that arm observed no fire at all, while the clear-weather arm on the same run lit 268 active cells over a 310.7 m band. Either shipped rain suppresses ignition outright at FIRE_SPEC.weather (rainPerIntensity 200, wetPerStep 8, maxMoisture 200) or the arm''s premise is wrong; neither is decided, and the witness cannot close while one arm never sees fire.'
-  session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  status: pending
 - id: boot-terrain-backdrop-slow-both-backends
   supplies:
   - boot-foliage-build-owns-6-to-8s
@@ -1627,13 +1614,6 @@
   acceptance_criteria:
   - fire-tile-reclaim-witness separates its correctness assertions from its wall-clock figures and fails only on the former
   - '`npm run check` exits 0 on an idle box and on a box running a second full check concurrently'
-  status: pending
-- session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  id: terrain-residency-seam-witness-asserts-nothing
-  title: terrain-residency-seam-witness defines expect() and never calls it, so it can only exit 0
-  body: 'scripts/terrain-residency-seam-witness.mjs defines `const fail = []` and `const expect = (name, ok, detail) => {...; if (!ok) fail.push(name)}` but calls expect() zero times; it only logs SEAM/SEAM_WORST JSON and then `process.exit(fail.length ? 1 : 0)`, so fail is always empty. Measured 2.9s exit 0. It is therefore un-wireable into scripts/check.mjs: wiring it would add a green line that cannot go red.'
-  acceptance_criteria:
-  - the witness asserts the seam bounds it prints (sharedSampleMaxDiffM, seamMaxDiffM, maxErrVsExact*) against named tolerances, or it is renamed to a probe and dropped from witness naming
   status: pending
 - session_id: f73df536-0f66-49a1-8888-2a064d23416a
   id: check-cache-keys-scope-witness-contradicts-itself-once-the-widening-is-committed
@@ -1766,4 +1746,10 @@
 - SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
   id: worker-bundle-staleness-is-unobservable-and-unenforced
   subject: ServerBoot decides the WORKER entry (dist/src/sdk/WorkerEntry.js) from the same freshness check and the same log-only fallthrough, and every run still logs "dist/src/sdk/WorkerEntry.js is STALE ... falling through to raw ESM worker". The client-entry fix (X-Spoint-Client-Root + X-Spoint-Entry-Sha256, scripts/lib/served-client-root.mjs) covers /app.js only, so a witness that measures worker-driven work (terrain, physics, veg placement) can still be measuring raw ESM worker code and call it the bundle. Extend the marker to the worker entry and give the perf-class witnesses a worker-root assertion with the same require/rebuild semantics.
+  status: pending
+- id: tps-respawn-clearance-probe-misses-blockers-below-capsule-centre
+  title: 'Combat respawn clearance accepts a blocked spawn: threshold is the capsule radius and the probe samples capsule-centre height only'
+  body: 'Measured 2026-10-07 in apps/tps-game AppGameplay.js:63-68. The respawn-clearance test accepts a candidate spawn when the nearest blocker is farther than a threshold equal to the CAPSULE RADIUS (~0.28 m), so a 2.36 m dead end satisfies it and the player respawns wedged. Worse, the clearance probe samples height at CAPSULE-CENTRE height only: any blocker whose top sits between the capsule bottom and the capsule centre is invisible to the probe, so a low wall, a step, a rock lip or a terrain overhang reads as clear. Neither failure mode is detectable from the current code because nothing measures post-respawn mobility. Evidence to re-derive: the frozen tps-game player (position pinned, velocity nonzero) is consistent with spawning held against geometry. Fix shape: make clearance a capsule sweep (bottom-to-top segment, not a centre point) against the real collider set, and derive the threshold from the distance the player must be able to travel in one input step (measured speed x tick dt) rather than from the capsule radius. Witness: respawn N candidates in the shipped tps-game arena, and for each assert the player actually accumulates path length under held forward input within one respawn-invuln window; a candidate that cannot move is a rejected candidate.'
+  acceptance_criteria: A deliberately blocked candidate (blocker inside the capsule radius, or a blocker top between capsule bottom and capsule centre) is REJECTED by the shipped code, witnessed live. Every accepted candidate is followed by a measured >0 accumulated path length under held forward input in the same run. Threshold is derived from measured player speed x tick dt and printed by the witness, not a literal.
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending
