@@ -97,6 +97,14 @@ function _persistPrefabs() {
   } catch (e) { console.error('[prefab] persist error:', e.message) }
 }
 
+function colliderBuildError(what, cause) {
+  const detail = cause && cause.message ? cause.message : String(cause)
+  const err = new Error(`[physics] ${what} failed: ${detail}`)
+  err.name = 'ColliderBuildError'
+  err.cause = cause
+  return err
+}
+
 export function createEditorHandlers(ctx) {
   const { connections, appRuntime } = ctx
   _loadPrefabsFromDisk()
@@ -146,23 +154,34 @@ export function createEditorHandlers(ctx) {
     if (type === 'none') { entity.collider = null; return }
     const finish = (bid) => { entity._physicsBodyId = bid; appRuntime._physicsBodyToEntityId?.set(bid, entity.id) }
     const toBox = () => { entity.collider = { type: 'box', size: [0.5, 0.5, 0.5] }; finish(ctx.physics.addBody('box', [0.5, 0.5, 0.5], entity.position, 'static', { rotation: entity.rotation })) }
+    const failColliderBuild = (what, cause) => {
+      const err = colliderBuildError(what, cause)
+      console.error(`[collider] ${err.message}`)
+      connections.broadcast(MSG.EDITOR_ERROR, { message: `collider build failed for ${entity.model}`, entityId: entity.id, detail: err.message })
+      throw err
+    }
     if (type === 'trimesh' && entity.model) {
       entity.collider = { type: 'trimesh', model: entity.model }
-      ctx.physics.addStaticTrimeshAsync(appRuntime.resolveAssetPath(entity.model), 0, entity.position, entity.scale || [1, 1, 1], entity.rotation)
-        .then(finish)
-        .catch(e => { console.error(`[collider] trimesh rebuild failed for ${entity.model}, falling back to box:`, e.message); toBox() })
+      appRuntime.trackTrimeshBuild(
+        ctx.physics.addStaticTrimeshAsync(appRuntime.resolveAssetPath(entity.model), 0, entity.position, entity.scale || [1, 1, 1], entity.rotation)
+          .then(finish)
+          .catch(e => failColliderBuild(`trimesh collider for entity ${entity.id} model ${entity.model}`, e))
+      )
       return
     }
     if (type === 'convex' && entity.model) {
       const sc = entity.scale || [1, 1, 1]
-      import('../physics/GLBLoader.js').then(({ extractAllVerticesFromGLBAsync }) =>
-        extractAllVerticesFromGLBAsync(appRuntime.resolveAssetPath(entity.model))
-      ).then(mesh => {
-        const raw = mesh.vertices
-        const points = (sc[0] === 1 && sc[1] === 1 && sc[2] === 1) ? Array.from(raw) : Array.from(raw).map((v, i) => v * sc[i % 3])
-        entity.collider = { type: 'convex', points }
-        finish(ctx.physics.addBody('convex', points, entity.position, 'static', { rotation: entity.rotation }))
-      }).catch(e => { console.error(`[collider] convex rebuild failed for ${entity.model}, falling back to box:`, e.message); toBox() })
+      entity.collider = { type: 'convex', model: entity.model }
+      appRuntime.trackTrimeshBuild(
+        import('../physics/GLBLoader.js').then(({ extractAllVerticesFromGLBAsync }) =>
+          extractAllVerticesFromGLBAsync(appRuntime.resolveAssetPath(entity.model))
+        ).then(mesh => {
+          const raw = mesh.vertices
+          const points = (sc[0] === 1 && sc[1] === 1 && sc[2] === 1) ? Array.from(raw) : Array.from(raw).map((v, i) => v * sc[i % 3])
+          entity.collider = { type: 'convex', points }
+          finish(ctx.physics.addBody('convex', points, entity.position, 'static', { rotation: entity.rotation }))
+        }).catch(e => failColliderBuild(`convex collider for entity ${entity.id} model ${entity.model}`, e))
+      )
       return
     }
     if (type === 'sphere') { entity.collider = { type: 'sphere', radius: 0.5 }; finish(ctx.physics.addBody('sphere', 0.5, entity.position, 'static', { rotation: entity.rotation })); return }

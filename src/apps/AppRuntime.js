@@ -30,6 +30,14 @@ class HookedSet extends Set {
   clear() { if (this.size > 0) { const ids = [...this]; super.clear(); for (const v of ids) this._onChange(v, false) } }
 }
 
+function colliderBuildError(what, cause) {
+  const detail = cause && cause.message ? cause.message : String(cause)
+  const err = new Error(`[physics] ${what} failed: ${detail}`)
+  err.name = 'ColliderBuildError'
+  err.cause = cause
+  return err
+}
+
 export class AppRuntime {
   constructor(c = {}) {
     this._equipment = []
@@ -206,16 +214,14 @@ export class AppRuntime {
       const settled = this._physics.addStaticTrimeshAsync(this.resolveAssetPath(entity.model), 0, entity.position || [0,0,0], entity.scale || [1,1,1], entity.rotation || [0,0,0,1])
         .then(id => { this._deferOrRun(() => { if (this.entities.has(entityId)) { entity._physicsBodyId = id; this._physicsBodyToEntityId?.set(id, entityId) } }) })
         .catch(e => {
-          console.error(`[AppRuntime] trimesh failed for ${entity.model}, falling back to box:`, e.message)
-          this._log('app_error', { label: `trimesh(${entity.model})`, message: e.message }, { sourceEntity: entityId })
+          const err = colliderBuildError(`trimesh collider for entity ${entityId} model ${entity.model}`, e)
+          console.error(`[AppRuntime] ${err.message}`)
+          this._log('app_error', { label: `trimesh(${entity.model})`, message: err.message }, { sourceEntity: entityId })
           this._deferOrRun(() => {
             if (!this.entities.has(entityId)) return
-            entity.collider = { type: 'box', size: [0.5, 0.5, 0.5] }
-            const bid = this._physics.addBody('box', [0.5, 0.5, 0.5], entity.position, 'static', { rotation: entity.rotation })
-            entity._physicsBodyId = bid
-            this._physicsBodyToEntityId?.set(bid, entityId)
-            this._connections?.broadcast?.(MSG.EDITOR_ERROR, { message: `PLACE_MODEL: trimesh build failed for ${entity.model}, using box collider fallback`, entityId, detail: e.message })
+            this._connections?.broadcast?.(MSG.EDITOR_ERROR, { message: `PLACE_MODEL: trimesh build failed for ${entity.model}`, entityId, detail: err.message })
           })
+          throw err
         })
       this.trackTrimeshBuild(settled)
     }
