@@ -163,7 +163,10 @@ export function createWeather(opts = {}) {
   const snowX = new Float32Array(MAX_PARTICLES), snowY = new Float32Array(MAX_PARTICLES), snowZ = new Float32Array(MAX_PARTICLES)
   const snowSpeed = new Float32Array(MAX_PARTICLES), snowPhase = new Float32Array(MAX_PARTICLES), snowFreqJ = new Float32Array(MAX_PARTICLES)
   const snowGH = new Float64Array(MAX_PARTICLES)
+  const snowGHX = new Float32Array(MAX_PARTICLES), snowGHZ = new Float32Array(MAX_PARTICLES)
   const SNOW_GROUND_RESAMPLE_BAND_M = 2.0
+  const SNOW_GROUND_RESAMPLE_DRIFT_M = 0.1
+  const SNOW_GROUND_RESAMPLE_DRIFT_SQ = SNOW_GROUND_RESAMPLE_DRIFT_M * SNOW_GROUND_RESAMPLE_DRIFT_M
   let _snowIdsAdded = false
 
   const farX = new Float32Array(MAX_FAR), farY = new Float32Array(MAX_FAR), farZ = new Float32Array(MAX_FAR)
@@ -201,7 +204,10 @@ export function createWeather(opts = {}) {
     }
   }
 
+  let _groundSamples = 0
+
   function _groundHeight(x, z) {
+    _groundSamples++
     if (!frame || typeof frame.groundHeightLocal !== 'function') return NO_TERRAIN_GROUND_Y
     if (!Number.isFinite(_ghCanaryX)) {
       _ghCanaryX = x; _ghCanaryZ = z; _ghCanaryVal = _exactGround(x, z); _ghCanaryAt = performance.now()
@@ -234,7 +240,18 @@ export function createWeather(opts = {}) {
     snowSpeed[i] = SNOW_FALL_SPEED * (0.7 + Math.random() * 0.6)
     snowPhase[i] = Math.random() * Math.PI * 2
     snowFreqJ[i] = 0.75 + Math.random() * 0.5
+    _sampleSnowGround(i)
+  }
+
+  function _sampleSnowGround(i) {
     snowGH[i] = _groundHeight(snowX[i], snowZ[i])
+    snowGHX[i] = snowX[i]
+    snowGHZ[i] = snowZ[i]
+  }
+
+  function _refreshSnowGroundInBand(i) {
+    const sdx = snowX[i] - snowGHX[i], sdz = snowZ[i] - snowGHZ[i]
+    if (sdx * sdx + sdz * sdz > SNOW_GROUND_RESAMPLE_DRIFT_SQ) _sampleSnowGround(i)
   }
 
   function _respawnFar(i, cx, cy, cz, speedBase) {
@@ -433,9 +450,9 @@ export function createWeather(opts = {}) {
           const ang = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * BOX_RADIUS
           snowX[i] = cx + Math.cos(ang) * r
           snowZ[i] = cz + Math.sin(ang) * r
-          snowGH[i] = _groundHeight(snowX[i], snowZ[i])
+          _sampleSnowGround(i)
         }
-        if (snowY[i] <= snowGH[i] + SNOW_GROUND_RESAMPLE_BAND_M) snowGH[i] = _groundHeight(snowX[i], snowZ[i])
+        if (snowY[i] <= snowGH[i] + SNOW_GROUND_RESAMPLE_BAND_M) _refreshSnowGroundInBand(i)
         const gh = snowGH[i]
         const hitGround = Number.isFinite(gh) && gh > -1e5 && snowY[i] <= gh + groundClearance
         if (hitGround || snowY[i] < cy - BOX_HEIGHT * 0.6) {
@@ -502,6 +519,7 @@ export function createWeather(opts = {}) {
     update, dispose, setType, getType, setIntensity, getIntensity, getSnowAccumulationAt, getWetness,
     _im: im, _imSplash: imSplash, _imSnow: imSnow, _imFar: imFar, _snowAccum: snowAccum,
     get activeCount() { return Math.round(MAX_PARTICLES * intensity) },
+    get groundSampleCount() { return _groundSamples },
     get maxParticles() { return MAX_PARTICLES },
     get farActiveCount() { return Math.round(MAX_FAR * intensity) },
     get maxFarParticles() { return MAX_FAR },
