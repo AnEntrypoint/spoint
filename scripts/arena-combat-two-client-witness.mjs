@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { chromium } from './lib/cdp-browser.mjs'
-import { gpuModeFlag, witnessGpu } from './lib/gpu-probe.mjs'
+import { gpuModeFlag, probeGpu, rasterizerClass, witnessGpu } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
 
 function flag(name, dflt = null) {
@@ -97,8 +97,10 @@ async function main() {
     }
 
     const gpuMode = REQUIRE_ACCELERATED && GPU_MODE.software ? 'accelerated' : GPU_MODE
-    const gpu = await witnessGpu(a.page, gpuMode)
+    const probed = await probeGpu(a.page).catch(() => null)
+    const gpu = await witnessGpu(a.page, gpuMode).catch(e => ({ rasterizer: probed ? rasterizerClass(probed) : 'unmeasured', haystack: e.message, error: e }))
     console.log(`[arena-combat] rasterizer=${gpu.rasterizer} gpu=${gpu.haystack || 'none'} gpuMode=${GPU_MODE.mode} requireAccelerated=${REQUIRE_ACCELERATED}`)
+    if (gpu.error) throw gpu.error
 
     const centreOf = (page) => page.evaluate(() => {
       const el = window.__app?.renderer?.domElement
