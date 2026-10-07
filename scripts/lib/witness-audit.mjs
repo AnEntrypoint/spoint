@@ -74,6 +74,15 @@ function quotedDefaultOf(rhs) {
 
 const HIGH_CHECKS = [
   {
+    id: 'no-verdict-emitted',
+    why: 'emits no RESULT, PASS, FAIL or non-zero exit, so a gate that treats exit 0 as the verdict can never see a failure',
+    find(text) {
+      if (has(text, /RESULT/) || has(text, /\bPASS\b/) || has(text, /\bFAIL\b/) || has(text, /process\.exit\(\s*[1-9]/)) return []
+      return [{ line: 1, text: 'no RESULT, PASS, FAIL or non-zero exit anywhere in the file' }]
+    },
+    witnessesOnly: true,
+  },
+  {
     id: 'verdict-cannot-fail',
     why: 'prints PASS with no FAIL literal, no non-zero exit and no throw, so the verdict is a constant',
     find(text) {
@@ -207,8 +216,10 @@ const LOW_CHECKS = [
 
 function audit(file, checks) {
   const text = readFileSync(file, 'utf8')
+  const isWitness = DEFAULT_NAME_FILTER.test(basename(file))
   const rows = []
   for (const check of checks) {
+    if (check.witnessesOnly && !isWitness) continue
     for (const hit of check.find(text)) rows.push({ check: check.id, why: check.why, ...hit })
   }
   return rows
