@@ -43,8 +43,9 @@ process.stdout.write(`captured lines: ${_captured.length}\n`)
 for (const line of _captured) process.stdout.write(`--- captured verbatim ---\n${line}\n--- end ---\n`)
 
 let _failures = 0
+let _passes = 0
 function expect(name, ok, detail) {
-  if (ok) process.stdout.write(`[PASS] ${name}\n`)
+  if (ok) { _passes++; process.stdout.write(`[PASS] ${name}\n`) }
   else { _failures++; process.stdout.write(`[FAIL] ${name}${detail ? ` -- ${detail}` : ''}\n`) }
 }
 
@@ -59,4 +60,5 @@ expect('log names the event', line.includes('arena_hit'), line)
 expect('log carries a stack frame at the throwing handler', line.includes('throwFromArenaCombatHandler'), line)
 expect('log stays on one line', !line.includes('\n'), line)
 
+process.stdout.write(`RESULT: ${_failures === 0 ? 'PASS' : 'FAIL'} -- ${_passes} of ${_passes + _failures} check(s) passed\n`)
 process.exit(_failures ? 1 : 0)
