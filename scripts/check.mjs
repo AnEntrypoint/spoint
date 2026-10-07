@@ -17,6 +17,7 @@ const NO_GPU_WITNESSES = [
   { file: 'physics-motion-recreate-witness.mjs' },
   { file: 'terrain-reseed-failure-witness.mjs' },
   { file: 'ep-progressive-lod-schema-witness.mjs' },
+  { file: 'tps-game-player-movement-witness.mjs', must: /PASS: walked/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const NO_GPU_WITNESS_GPU_SURFACE = /cdp-browser|gpu-probe|gpu-eval|witnessGpu|gpuLaunchArgs|use-angle|adapter-luid|WebGLRenderer|WebGPURenderer/
