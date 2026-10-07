@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { chromium } from './lib/cdp-browser.mjs'
 import { assertGpu } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
+import { exitAfterQuiesce } from './lib/quiesce.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -26,6 +27,28 @@ const WORLD = String(flag('world', 'tps-game'))
 const GPU = String(flag('gpu', 'nvidia'))
 const WALK = !ARGS.has('no-walk')
 const SNOW_ACCUM = !ARGS.has('no-snow-accum')
+
+const MIN_WINDOW_SECONDS = 5
+const MIN_GROUND_HEIGHT_CALLS_PER_SEC = 1
+const MIN_WEATHER_SHARE_PCT = 0.1
+const MIN_WEATHER_UPDATES_PER_SEC = 1
+const MIN_WEATHER_MS_PER_SEC = 0.01
+const MIN_GROUND_SAMPLES_PER_SEC = 1
+const MIN_SAMPLES_PER_UPDATE = 0.5
+const MIN_FRAMES_PER_SEC = 5
+const MIN_PLAYER_MOVED_M = 0.25
+const MAX_CONSOLE_ERRS = 0
+
+const failures = []
+const measurements = []
+function expect(name, got, predicate) {
+  measurements.push(name)
+  let ok = false
+  try { ok = Boolean(predicate(got)) } catch { ok = false }
+  if (!ok) failures.push(`${name}=${JSON.stringify(got)}`)
+  return got
+}
+const finite = (v) => Number.isFinite(v)
 
 function armCounters() {
   const t = window.__terrain
@@ -165,7 +188,7 @@ async function main() {
     const armed = await page.evaluate(armCounters)
     console.log('[weather-gh] armed: ' + JSON.stringify(armed))
     if (!armed || !armed.ok) throw new Error('arm failed: ' + JSON.stringify(armed))
-    if (armed.type !== WEATHER) console.log(`[weather-gh] WARN weather type is ${armed.type}, wanted ${WEATHER}`)
+    expect('armedType', armed.type, (v) => v === WEATHER)
 
     await page._send('Profiler.enable').catch(() => {})
     await page._send('Profiler.setSamplingInterval', { interval: 1000 }).catch(() => {})
@@ -191,31 +214,35 @@ async function main() {
 
     const secs = (read.elapsedMs || 1) / 1000
     const per = (n) => Math.round((n / secs) * 100) / 100
-    const report = {
+    const context = {
       weather: WEATHER, gpu: GPU, renderer: gpu.renderer, world: WORLD, walk: WALK,
-      windowSeconds: Math.round(secs * 100) / 100,
-      groundHeightLocal_callsPerSec_total: per(read.total),
-      groundHeightLocal_callsPerSec_weather: per(read.inWeather),
-      groundHeightLocal_callsPerSec_other: per(read.total - read.inWeather),
-      weatherSharePct: read.total ? Math.round((read.inWeather / read.total) * 10000) / 100 : null,
-      weatherUpdate_callsPerSec: per(read.updates),
-      weatherUpdate_msPerSec: Math.round((read.weatherMs / secs) * 100) / 100,
-      weather_groundSampleCount_total: read.groundSampleCount,
-      weather_groundSampleCount_start: read.gh0,
-      weather_groundSamplesPerSec: (read.groundSampleCount != null && read.gh0 != null) ? Math.round(((read.groundSampleCount - read.gh0) / secs) * 100) / 100 : null,
-      framesPerSec: Math.round(((framesEnd - framesArm) / secs) * 100) / 100,
-      samplesPerUpdate: read.updates ? Math.round(((read.groundSampleCount - read.gh0) / read.updates) * 100) / 100 : null,
+      gpuAccelerated: gpu.accelerated, gpuRasterizer: gpu.rasterizer,
       snowAccum: SNOW_ACCUM,
       ghDeviation: dev,
-      consoleErrs: consoleErrs,
       consoleTop: Object.entries(consoleTally).sort((a, b) => b[1] - a[1]).slice(0, 6),
-      playerMovedM: (posArm && read.pos) ? Math.round(Math.hypot(read.pos[0] - posArm[0], read.pos[1] - posArm[1], read.pos[2] - posArm[2]) * 100) / 100 : null,
       posArm: posArm, posEnd: read.pos,
-      particles: read.particles,
-      activeCount: read.activeCount,
-      type: read.type,
-      intensity: read.intensity,
     }
+    const report = {
+      windowSeconds: expect('windowSeconds', Math.round(secs * 100) / 100, (v) => v >= MIN_WINDOW_SECONDS),
+      groundHeightLocal_callsPerSec_total: expect('groundHeightLocal_callsPerSec_total', per(read.total), (v) => v >= MIN_GROUND_HEIGHT_CALLS_PER_SEC),
+      groundHeightLocal_callsPerSec_weather: expect('groundHeightLocal_callsPerSec_weather', per(read.inWeather), (v) => v > 0),
+      groundHeightLocal_callsPerSec_other: expect('groundHeightLocal_callsPerSec_other', per(read.total - read.inWeather), finite),
+      weatherSharePct: expect('weatherSharePct', read.total ? Math.round((read.inWeather / read.total) * 10000) / 100 : null, (v) => v !== null && v >= MIN_WEATHER_SHARE_PCT),
+      weatherUpdate_callsPerSec: expect('weatherUpdate_callsPerSec', per(read.updates), (v) => v >= MIN_WEATHER_UPDATES_PER_SEC),
+      weatherUpdate_msPerSec: expect('weatherUpdate_msPerSec', Math.round((read.weatherMs / secs) * 100) / 100, (v) => v >= MIN_WEATHER_MS_PER_SEC),
+      weather_groundSampleCount_total: expect('weather_groundSampleCount_total', read.groundSampleCount, (v) => Number.isFinite(v) && v > 0),
+      weather_groundSampleCount_start: expect('weather_groundSampleCount_start', read.gh0, (v) => Number.isFinite(v) && v >= 0),
+      weather_groundSamplesPerSec: expect('weather_groundSamplesPerSec', (read.groundSampleCount != null && read.gh0 != null) ? Math.round(((read.groundSampleCount - read.gh0) / secs) * 100) / 100 : null, (v) => Number.isFinite(v) && v >= MIN_GROUND_SAMPLES_PER_SEC),
+      framesPerSec: expect('framesPerSec', Math.round(((framesEnd - framesArm) / secs) * 100) / 100, (v) => v >= MIN_FRAMES_PER_SEC),
+      samplesPerUpdate: expect('samplesPerUpdate', read.updates ? Math.round(((read.groundSampleCount - read.gh0) / read.updates) * 100) / 100 : null, (v) => Number.isFinite(v) && v >= MIN_SAMPLES_PER_UPDATE),
+      consoleErrs: expect('consoleErrs', consoleErrs, (v) => Number.isFinite(v) && v <= MAX_CONSOLE_ERRS),
+      playerMovedM: expect('playerMovedM', (posArm && read.pos) ? Math.round(Math.hypot(read.pos[0] - posArm[0], read.pos[1] - posArm[1], read.pos[2] - posArm[2]) * 100) / 100 : null, WALK ? (v) => Number.isFinite(v) && v >= MIN_PLAYER_MOVED_M : (v) => Number.isFinite(v) && v >= 0),
+      particles: expect('particles', read.particles, (v) => Number.isFinite(v) && v > 0),
+      activeCount: expect('activeCount', read.activeCount, (v) => Number.isFinite(v) && v > 0),
+      type: expect('type', read.type, (v) => v === WEATHER),
+      intensity: expect('intensity', read.intensity, (v) => Number.isFinite(v) && v > 0),
+    }
+    report.profileCaptured = expect('profileCaptured', profile !== null, (v) => v === true)
     if (profile) {
       const byId = new Map()
       for (const n of profile.nodes) byId.set(n.id, n)
@@ -232,18 +259,32 @@ async function main() {
       }
       const rows = [...self.entries()].map(([k, us]) => ({ key: k, msPerSec: Math.round((us / 1000 / secs) * 1000) / 1000, pct: Math.round((us / totalUs) * 10000) / 100 }))
       rows.sort((a, b) => b.msPerSec - a.msPerSec)
-      report.profileTotalMsPerSec = Math.round((totalUs / 1000 / secs) * 100) / 100
-      report.topSelfMsPerSec = rows.slice(0, 12)
-      report.groundRowsMsPerSec = rows.filter((r) => /groundHeightLocal|heightFn|_patchHeightOrNull|node|heightAt|Weather|_respawn|_groundHeight|solveSurfaceY/.test(r.key)).slice(0, 12)
+      const groundRows = rows.filter((r) => /groundHeightLocal|heightFn|_patchHeightOrNull|node|heightAt|Weather|_respawn|_groundHeight|solveSurfaceY/.test(r.key))
+      report.profileSamples = expect('profileSamples', samples.length, (v) => v > 0)
+      report.profileTotalMsPerSec = expect('profileTotalMsPerSec', Math.round((totalUs / 1000 / secs) * 100) / 100, (v) => v > 0)
+      report.profileGroundRowsMsPerSec = expect('profileGroundRowsMsPerSec', Math.round(groundRows.reduce((a, r) => a + r.msPerSec, 0) * 1000) / 1000, (v) => v > 0)
+      context.topSelfMsPerSec = rows.slice(0, 12)
+      context.groundRowsMsPerSec = groundRows.slice(0, 12)
     }
-    console.log('[weather-gh] RESULT ' + JSON.stringify(report, null, 2))
+    console.log('[weather-gh] context ' + JSON.stringify(context, null, 2))
+    console.log('[weather-gh] measurements ' + JSON.stringify(report, null, 2))
+    for (const f of failures) console.log(`FAIL: ${f}`)
+    if (failures.length) console.log(`RESULT: FAIL (${failures.length} of ${measurements.length} measurement(s))`)
+    else console.log('RESULT: PASS')
+    process.exitCode = failures.length ? 1 : 0
   } finally {
     const cpid = browser.pid
     await browser.close().catch(() => {})
     if (cpid) { try { process.kill(cpid, 'SIGKILL') } catch (e) {} }
     try { server.stop() } catch (e) {}
   }
-  process.exit(0)
+  await exitAfterQuiesce(process.exitCode ?? 0)
 }
 
-main().catch((e) => { console.error('[weather-gh] FAILED: ' + (e && e.stack || e)); process.exit(1) })
+main().catch((e) => {
+  console.error('[weather-gh] threw: ' + String((e && e.stack) || e))
+  failures.push('arm threw before it could decide: ' + String((e && e.message) || e))
+  for (const f of failures) console.log(`FAIL: ${f}`)
+  console.log(`RESULT: FAIL (${failures.length} of ${Math.max(measurements.length, failures.length)} measurement(s))`)
+  exitAfterQuiesce(1)
+})
