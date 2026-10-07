@@ -251,6 +251,7 @@ function report(r) {
 }
 
 const NAV_ONLY = process.argv.slice(2).includes('nav')
+let shippedArm = null
 say('== fire tps-game integration witness (real server, real clients, real tps-game world) ==')
 if (!NAV_ONLY) {
 const off = await runOnce({ enabled: false, label: 'flag off (exactly as shipped in apps/world/tps-game.js)' })
@@ -261,6 +262,7 @@ const onRain = await runOnce({ enabled: true, label: 'flag on, weather as shippe
 say('')
 report(onRain)
 say('')
+shippedArm = onRain
 const onClear = await runOnce({ enabled: true, weather: { serverAuthoritative: true, type: 'clear', intensity: 0, particleCount: 0 }, label: 'flag on, weather clear' })
 say('')
 report(onClear)
@@ -348,5 +350,7 @@ for (let tick = ticksToBurning + 1; tick <= ticksToBurning + 40 * FIRE_SPEC.step
 say('')
 say('== witness complete ==')
 if (failures.length > 0) for (const f of failures) console.error(`FAIL ${f}`)
+const shippedSummary = shippedArm ? `${shippedArm.peakActive} peak active cell(s), ${shippedArm.ignitionsAfterShot} ignition(s) from one ground shot, ${fmt(shippedArm.fireDamage)} fire damage, ${shippedArm.bandCells} cell(s) over ${fmt(shippedArm.bandLengthM)} m` : 'nav cost arm only'
+say(failures.length > 0 ? `RESULT: FAIL (${failures.length} check(s))` : `RESULT: PASS -- the shipped tps-game world carried real fire under rain 0.6: ${shippedSummary}`)
 const pendingHandles = await exitAfterQuiesce(failures.length ? 1 : 0)
 console.error(pendingHandles ? `teardown left ${pendingHandles} referenced handle(s), forcing exit` : 'teardown complete, no referenced handles left')

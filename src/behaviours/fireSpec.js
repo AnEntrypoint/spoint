@@ -145,7 +145,7 @@ const WEATHER_RULES = Object.freeze({
   maxMoisture: { rule: 'an integer from 0 to 255', test: v => Number.isInteger(v) && v >= 0 && v <= 255 },
   hysteresis: { rule: 'an integer from 1 to 255', test: v => Number.isInteger(v) && v >= 1 && v <= 255 },
 })
-export const DEFAULT_FIRE_WEATHER = Object.freeze({ rainPerIntensity: 200, snowRainFraction: 0.25, wetPerStep: 8, dryPerStep: 1, maxMoisture: 200, hysteresis: 8 })
+export const DEFAULT_FIRE_WEATHER = Object.freeze({ rainPerIntensity: 255, snowRainFraction: 0.25, wetPerStep: 8, dryPerStep: 1, maxMoisture: 200, hysteresis: 8 })
 
 function resolveWeather(w) {
   if (w === undefined) return null

@@ -28,6 +28,7 @@ const SPOT_MIN_CELLS = 2
 const SPOT_SPAN_CELLS = 4
 const COOL_SHIFT = 2
 const MOISTURE_SHIFT = 7
+const RAIN_CEILING = 255
 const SCAR_RING_PAD = 64
 const HASH_MASK = 0xffffff
 const UNDO_CELLS_INIT = 4096
@@ -115,7 +116,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
 
   let tileCount = 0, activeCount = 0, activeTileCount = 0, scarHead = 0, scarTail = 0, scarCount = 0
   let stepStart = 0, stepIndex = 0, nextStepTick = 0, phase = 0, cursor = 0, phaseEnd = 0, writePtr = 0, quota = 0, stepInterval = stepTicks
-  let moisture = 0, rain = 0
+  let moisture = 0, rain = 0, rainRoll = 0
   const wind = new Int32Array(3)
   const gust = new Int32Array(3)
   const effWind = new Int32Array(3)
@@ -135,6 +136,10 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
       const v = wind[i] + gust[i]
       effWind[i] = v < -FIRE_MAX_WIND_COMPONENT ? -FIRE_MAX_WIND_COMPONENT : v > FIRE_MAX_WIND_COMPONENT ? FIRE_MAX_WIND_COMPONENT : v
     }
+  }
+
+  function syncRainRoll() {
+    rainRoll = rain === 0 ? 0 : Math.min(RAIN_CEILING, rain * ((stepInterval / stepTicks) | 0))
   }
 
   function rebuildWeights() {
@@ -451,6 +456,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
   if (undoMark !== null) undoBuf = newDelta(UNDO_CELLS_INIT)
 
   function undoDelta(d) {
+    if (d.tileCount !== tileCount || d.tileEpoch !== tileEpoch) hashValid = false
     if (d.tileCount !== tileCount) {
       const from = (d.tileCount < tileCount ? d.tileCount : tileCount) << TILE_CELL_SHIFT
       const to = (d.tileCount < tileCount ? tileCount : d.tileCount) << TILE_CELL_SHIFT
@@ -489,6 +495,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     stepIndex = d.stepIndex; stepStart = d.stepStart; nextStepTick = d.nextStepTick
     phase = d.phase; cursor = d.cursor; phaseEnd = d.phaseEnd; writePtr = d.writePtr; quota = d.quota
     stepInterval = d.stepInterval; moisture = d.moisture; rain = d.rain
+    syncRainRoll()
     wind[0] = d.wx; wind[1] = d.wy; wind[2] = d.wz; composeWind(); rebuildWeights()
     eventSeq = d.eventSeq
     for (let k = d.scarWrites - 1; k >= 0; k--) {
@@ -622,6 +629,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     const slow = activeCount > softActiveCells
     stepInterval = slow ? stepTicks * 2 : stepTicks
     if (slow) stats.slowSteps++
+    syncRainRoll()
     stepStart = tickNumber
     nextStepTick = tickNumber + stepInterval
     regrow()
@@ -697,10 +705,10 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     const f = fuel[g]
     noteCell(g)
     fuel[g] = f > burnRate[c] ? f - burnRate[c] : 0
-    if (rain !== 0) {
+    if (rainRoll !== 0) {
       const t = g >> TILE_CELL_SHIFT
       const h = cellHash(seed, stepIndex, tileFace[t], (tileI[t] << TILE_SHIFT) + (g & TILE_MASK), (tileJ[t] << TILE_SHIFT) + ((g >> TILE_SHIFT) & TILE_MASK))
-      if ((h & 255) < rain) { fuel[g] = 0; noteCell(g); return }
+      if ((h & RAIN_CEILING) < rainRoll) return
     }
     if (isInterior(g)) { if (spotChance[c] !== 0) pushSpot(g) } else pushFrom(g)
   }
@@ -967,6 +975,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     stepStart = s.stepStart; stepIndex = s.stepIndex; nextStepTick = s.nextStepTick; phase = s.phase; cursor = s.cursor; phaseEnd = s.phaseEnd; writePtr = s.writePtr
     quota = s.quota; stepInterval = s.stepInterval; moisture = s.moisture; rain = s.rain; eventSeq = s.eventSeq
     wind.set(s.wind); composeWind(); rebuildWeights()
+    syncRainRoll()
     pending = s.pending.map(e => ({ ...e }))
     Object.assign(stats, s.stats)
     state.set(s.state); cls.set(s.cls); fuel.set(s.fuel); heat.set(s.heat); timer.set(s.timer)

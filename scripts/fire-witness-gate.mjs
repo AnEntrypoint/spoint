@@ -17,6 +17,8 @@ const WITNESSES = [
   'fire-witness.mjs',
   'fire-tile-reclaim-witness.mjs',
   'fire-peer-rollback-witness.mjs',
+  'fire-rain-coupling-witness.mjs',
+  'fire-tps-game-witness.mjs',
 ]
 
 const VERDICT_RE = /^RESULT:\s+(PASS|FAIL)(?![A-Za-z0-9_])/
