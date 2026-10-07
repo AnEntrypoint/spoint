@@ -49,3 +49,15 @@ data/perf-run/
 .smoke*.log
 *.tmp
 prof/
+data/*.log
+data/*.err
+data/*.out
+data/*.json
+data/*.mjs
+data/*.js
+data/*.txt
+data/*.png
+data/*.glb
+data/*.tmp.*
+data/*/
+!data/prefabs/
