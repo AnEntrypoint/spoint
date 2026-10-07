@@ -671,21 +671,42 @@ export async function createVegetation(opts = {}) {
     _profAccum += dt
     if (_profAccum >= 0.25) {
       _profAccum = 0
-      let vis = 0, impostorInst = 0, meshInst = 0, vegDraws = 0
+      let vis = 0, impostorInst = 0, meshInst = 0, branchMeshInst = 0, vegDraws = 0
+      const bandTotals = []
       const countDraws = (im) => {
         const lod = im.LODinfo && im.LODinfo.render
         const lc = lod && lod.count
         if (lc && lc.length) { let n = 0; for (let i = 0; i < lc.length; i++) if ((lc[i] || 0) > 0 && lod.levels[i].object.visible) n++; return n }
         return (im.count || 0) > 0 ? 1 : 0
       }
+      const tierSplit = (im, impLevel) => {
+        const lod = im.LODinfo && im.LODinfo.render
+        const lc = lod && lod.count
+        const bands = []
+        let mesh = 0, impostor = 0
+        if (lc && lc.length) {
+          const last = impLevel ? lc.length - 1 : -1
+          for (let i = 0; i < lc.length; i++) {
+            const n = lc[i] || 0
+            if (i === last) { if (lod.levels[i].object.visible) impostor += n; continue }
+            mesh += n
+            bands.push(n)
+          }
+          return { mesh, impostor, bands }
+        }
+        const tiers = im.tierIds || []
+        for (let i = 0; i < tiers.length; i++) { const n = tiers[i].length; mesh += n; bands.push(n) }
+        return { mesh, impostor, bands }
+      }
       for (const rec of meshes) {
         vis += (rec.branch.count || 0)
-        const c = rec.branch.LODinfo && rec.branch.LODinfo.render && rec.branch.LODinfo.render.count
-        if (c && c.length) {
-          const farLevelDraws = rec.branch.LODinfo.render.levels[c.length - 1].object.visible
-          if (farLevelDraws) impostorInst += c[c.length - 1] || 0
-          for (let i = 0; i < c.length - 1; i++) meshInst += c[i] || 0
-        }
+        const impLevel = !isWebGPU && (rec.impTile != null || !!rec.impMat)
+        const bs = tierSplit(rec.branch, impLevel)
+        const ls = tierSplit(rec.leaf, impLevel)
+        meshInst += bs.mesh + ls.mesh
+        branchMeshInst += bs.mesh
+        impostorInst += bs.impostor + ls.impostor
+        for (let i = 0; i < bs.bands.length; i++) bandTotals[i] = (bandTotals[i] || 0) + bs.bands[i] + (ls.bands[i] || 0)
         vegDraws += countDraws(rec.branch) + countDraws(rec.leaf)
       }
       let sharedImpInst = 0, sharedImpDraws = 0
@@ -694,7 +715,7 @@ export async function createVegetation(opts = {}) {
         const lc = m.LODinfo && m.LODinfo.render && m.LODinfo.render.count
         if (lc && lc.length) { for (let i = 0; i < lc.length; i++) { if ((lc[i] || 0) > 0) sharedImpDraws++ } sharedImpInst = lc[lc.length - 1] || 0 }
         else if ((m.count || 0) > 0) { sharedImpDraws = 1; sharedImpInst = m.count }
-        impostorInst += sharedImpInst
+        impostorInst += Math.max(0, sharedImpInst - branchMeshInst)
         vegDraws += sharedImpDraws
       }
       profile.totalInstances = totalInstances
@@ -705,6 +726,7 @@ export async function createVegetation(opts = {}) {
       profile.sharedImpostorDrawCalls = sharedImpDraws
       profile.sharedImpostorCount = sharedImpostor ? (sharedImpostor.count || 0) : 0
       profile.meshInstances = meshInst
+      profile.meshTierInstances = bandTotals
       profile.vegDrawCalls = vegDraws
       try { profile.drawCalls = renderer.info.render.calls } catch (_) {}
       if (typeof window !== 'undefined') window.__vegProfile = profile
