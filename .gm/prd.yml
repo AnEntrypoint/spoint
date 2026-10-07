@@ -1649,15 +1649,6 @@
 
     Fix direction: make the served bundle's staleness a HARD failure for any browser witness (and for the dev server in witness mode) rather than a console line -- the server already computes the comparison, so expose it (a header, an endpoint, or a non-zero exit/throw on serve) and have `scripts/lib/cdp-browser.mjs`-driven witnesses assert freshness after navigation, alongside the existing GPU renderer assertion. Cross-check: witness arms launched by parallel agent sessions are the ones that keep editing bundled inputs, so this will keep recurring.
   status: pending
-- id: tps-game-player-cannot-move-zero-active-bodies
-  title: 'tps-game player cannot move at all: server reports peak active bodies 0'
-  kind: bug
-  severity: P0
-  why: 'The flagship world is unplayable. A 10.17 s KeyW hold on e2e-ci-arena walks 65.390 m, but on tps-game the player never moves: z stays frozen at -10.140115737915039 for the entire hold while the server prints `[physics] peak bodies 146/10240, peak active 0, contact manifolds 0/10240`. Zero active bodies means nothing in that world is being simulated, so no input, no amount of prediction tuning and no relocation fix can produce movement. It reproduces identically under ?multiplayer, so it is not the singleplayer worker.'
-  evidence: '[cdp-input] hold=10.17s accumulated=65.390m on world=e2e-ci-arena vs tps-game frozen at z=-10.140115737915039, vel [.., 0, 7], `[physics] peak bodies 146/10240, peak active 0, contact manifolds 0/10240`. Files: apps/world/tps-game.js, src/physics/* (AppRuntimePhysics.js _tickPhysicsLOD / _enforceBodyBudget), src/sdk/ServerBoot.js.'
-  exit: A browser or headless witness on tps-game showing the local player walking a measured accumulated path length (not net displacement) with peak active bodies > 0.
-  surface: apps/world/tps-game.js, src/physics, src/sdk
-  status: pending
 - id: perf-run-seqadvanced-and-walkseq-read-a-client-field-that-is-always-undefined
   title: perf-run seqAdvanced and walkSeqStart/walkSeqEnd read getLocalState().inputSequence, which is always undefined on the client
   kind: bug
