@@ -3,6 +3,11 @@ import { fileURLToPath } from 'node:url'
 import { createServer as createNetServer } from 'node:net'
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 
+if (typeof globalThis.WebSocket !== 'function') {
+  const { WebSocket } = await import('ws')
+  globalThis.WebSocket = WebSocket
+}
+
 process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = '1'
 if (!process.env.GM_PROFILE) process.env.GM_PROFILE = '1'

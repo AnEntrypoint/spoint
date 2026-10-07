@@ -4,6 +4,11 @@ import { fileURLToPath } from 'node:url'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { createServer as createNetServer } from 'node:net'
 
+if (typeof globalThis.WebSocket !== 'function') {
+  const { WebSocket } = await import('ws')
+  globalThis.WebSocket = WebSocket
+}
+
 process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = '1'
 

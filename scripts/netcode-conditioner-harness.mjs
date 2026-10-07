@@ -7,6 +7,11 @@ import { createPreciseScheduler, ConditionedTransport, mulberry32 } from './lib/
 import { summarize, stdev, dist3, createTruthTrack, effectiveDelay, detectPops, fmt } from './lib/netcode-metrics.mjs'
 import { parseArgs, numArg, strArg } from './lib/witness-args.mjs'
 
+if (typeof globalThis.WebSocket !== 'function') {
+  const { WebSocket } = await import('ws')
+  globalThis.WebSocket = WebSocket
+}
+
 process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = '1'
 

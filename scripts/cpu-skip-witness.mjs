@@ -52,6 +52,10 @@ function expect(name, got, predicate) {
   return got
 }
 
+if (typeof globalThis.WebSocket !== 'function') {
+  const { WebSocket } = await import('ws')
+  globalThis.WebSocket = WebSocket
+}
 const { createServer } = await import('../src/sdk/server.js')
 const { PhysicsNetworkClient } = await import('../src/client/PhysicsNetworkClient.js')
 const { loadWorldModule } = await import('../src/sdk/WorldLocator.js')

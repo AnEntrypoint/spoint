@@ -132,6 +132,17 @@ const HIGH_CHECKS = [
     witnessesOnly: true,
   },
   {
+    id: 'ws-polyfill-missing',
+    why: 'reaches a ws:// URL from Node without a globalThis.WebSocket assignment, so on a runner whose Node has no global WebSocket every client fails to connect and the arm exits before it measures anything',
+    find(text) {
+      if (!has(text, /ws:\/\//)) return []
+      if (has(text, /globalThis\.WebSocket\s*=/)) return []
+      if (has(text, /from\s+['"]ws['"]/) || has(text, /import\(\s*['"]ws['"]\s*\)/)) return []
+      return evidence(text, /['"`]ws:\/\/[^'"`]*['"`]/g)
+    },
+    witnessesOnly: true,
+  },
+  {
     id: 'bare-flag-parses-to-true',
     why: 'a bare flag parses to the string "true", so Number() of that flag yields NaN and silently disables the mechanism',
     find(text) {
