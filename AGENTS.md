@@ -104,6 +104,7 @@ One line per fact. Rules, thresholds and file:line stay here; numbers, scenarios
 ## Terrain and colliders
 
 - `solveSurfaceY` tolerance is absolute `1e-4` (`SURFACE_SOLVE_TOLERANCE_M`, `PlanetFrame.js:3`), 64-eval cap, throws `SurfaceSolveError`; past 63.6 km it returns `-(R+anchorHeight)` with NO throw.
+- A baked heightfield is now FAIL-LOUD (`896f3351`, `src/terrain/TerrainPhysics.js`): absent falls back to CPU silently, but unreadable / truncated / bad-magic / unreadable-header / longer-than-declared / stale-code-version each throw a named `[baked-heightfield]` error naming the file, expected and actual. `hashVersion` and `terrainKey`/`chartEpoch` mismatch still warn-and-fall-back: those mean the artifact covers DIFFERENT terrain (a legitimate state, e.g. editor `TERRAIN_RESEED`), not damaged bytes.
 - No terrain is FATAL: `ServerAPI.loadWorld` rethrows `[terrain] world "<id>" has no terrain`; every caller stops the server it created first.
 - Two height backends; `gpu-eval.mjs` exposes `__sampleHeights(dirs)`. v2 is the parity backend; carves (`terrainCarvesOf`) are v2-only. On a hashVersion 1 boot the frame ground is the GPU patch collider while `frame.elevationAtDir` is still the CPU sampler. Numbers: `mem-1c7e5d3a0f2b9846-2315`.
 - `elevationAtLocal(frame,x,y,z)` is exactly `|p|-radius`; app-facing `ctx.terrainHeightAt` is NOT that. v1 CPU consumers: `MinimapBiome.js`, `relocation.js`, `PlacementChart.js`.
