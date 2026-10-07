@@ -103,6 +103,8 @@ export function gpuLaunchArgs(mode, extra = []) {
   return [...gpuArgs({ accelerated: gpuModeOf(mode).accelerated }), ...extra]
 }
 
+const ANGLE_D3D11_ARGS = ['--use-gl=angle', '--use-angle=d3d11']
+
 const VENDOR_ADAPTER_PATTERNS = {
   nvidia: 'nvidia|geforce|quadro|rtx',
   amd: 'amd|radeon',
@@ -111,7 +113,7 @@ const VENDOR_ADAPTER_PATTERNS = {
 }
 
 export function vendorGpuArgs(vendor, luids = {}) {
-  const base = ['--use-gl=angle', '--use-angle=d3d11']
+  const base = ANGLE_D3D11_ARGS
   if (!vendor || vendor === 'accelerated' || vendor === 'software' || vendor === 'swiftshader') return base
   const luid = luids[vendor] || adapterLuidFor(VENDOR_ADAPTER_PATTERNS[vendor] || vendor)
   if (!luid) throw new Error(`gpu-probe: no DirectX adapter matches vendor "${vendor}" -- pass an explicit adapter LUID`)
@@ -126,6 +128,8 @@ export async function witnessGpu(page, mode) {
 
 const DIRECTX_KEY = 'HKLM\\SOFTWARE\\Microsoft\\DirectX'
 
+const ADAPTER_FIELDS = 'AdapterLuid|Description|LastSeen|VendorId|DeviceId'
+
 export function directxAdapters() {
   if (process.platform !== 'win32') return []
   const out = execFileSync('reg', ['query', DIRECTX_KEY, '/s'], { encoding: 'utf8', windowsHide: true })
@@ -133,18 +137,53 @@ export function directxAdapters() {
   let current = null
   for (const line of out.split(/\r?\n/)) {
     if (/^HKEY_/.test(line)) { current = {}; continue }
-    const m = /^\s+(AdapterLuid|Description)\s+REG_\w+\s+(.*)$/.exec(line)
+    const m = new RegExp(`^\\s+(${ADAPTER_FIELDS})\\s+REG_\\w+\\s+(.*)$`).exec(line)
     if (!m || !current) continue
-    if (m[1] === 'AdapterLuid') current.luid = parseInt(m[2].trim(), 16)
-    else { current.description = m[2].trim(); adapters.push(current) }
+    const raw = m[2].trim()
+    if (m[1] === 'Description') { current.description = raw; adapters.push(current) }
+    else if (m[1] === 'AdapterLuid') current.luid = parseInt(raw, 16)
+    else if (m[1] === 'LastSeen') current.lastSeen = parseInt(raw, 16)
+    else if (m[1] === 'VendorId') current.vendorId = parseInt(raw, 16)
+    else if (m[1] === 'DeviceId') current.deviceId = parseInt(raw, 16)
   }
   return adapters.filter((a) => Number.isFinite(a.luid) && a.description)
 }
 
-export function adapterLuidFor(pattern) {
+export function luidCandidatesFor(pattern) {
   const re = new RegExp(pattern, 'i')
-  const hit = directxAdapters().find((a) => re.test(a.description))
+  return directxAdapters()
+    .filter((a) => re.test(a.description))
+    .sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0) || b.luid - a.luid)
+}
+
+export function adapterLuidFor(pattern) {
+  const hit = luidCandidatesFor(pattern)[0]
   return hit ? String(hit.luid) : null
+}
+
+export async function verifyVendorLuid(pattern, luids = null) {
+  const { chromium } = await import('./cdp-browser.mjs')
+  const candidates = luids && luids.length
+    ? luids.map(String)
+    : luidCandidatesFor(pattern).map((a) => String(a.luid))
+  const re = new RegExp(pattern, 'i')
+  const results = []
+  for (const luid of candidates) {
+    const browser = await chromium.launch({ args: [...ANGLE_D3D11_ARGS, `--use-adapter-luid=0,${luid}`] })
+    try {
+      const page = await browser.newPage({ viewport: { width: 400, height: 300 } })
+      const probe = await probeGpu(page)
+      results.push({
+        luid,
+        rasterizer: rasterizerClass(probe),
+        renderer: probe.renderer,
+        vendorMatches: re.test(probe.haystack || ''),
+      })
+    } finally {
+      await browser.close()
+    }
+  }
+  return results
 }
 
 function flagValue(name) {
@@ -154,6 +193,14 @@ function flagValue(name) {
 
 async function main() {
   const { chromium } = await import('./cdp-browser.mjs')
+  const verifyVendor = flagValue('verify-luid')
+  if (verifyVendor) {
+    const pattern = VENDOR_ADAPTER_PATTERNS[verifyVendor] || verifyVendor
+    const only = flagValue('luids')
+    const results = await verifyVendorLuid(pattern, only ? only.split(',') : null)
+    console.log(JSON.stringify({ vendor: verifyVendor, pattern, results }, null, 2))
+    return
+  }
   const url = flagValue('url')
   const accelerated = process.argv.includes('--accelerated')
   const browser = await chromium.launch({ args: gpuArgs({ accelerated }) })
