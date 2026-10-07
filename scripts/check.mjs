@@ -22,6 +22,7 @@ const NO_GPU_WITNESSES = [
   { file: 'check-cache-keys-scope-witness.mjs', must: /verifying 2 artifact\(s\) of the 2 tracked/ },
   { file: 'edge-collider-draco-witness.mjs', must: /0 byte\(s\) written into the tracked tree/ },
   { file: 'collider-turnover-witness.mjs', must: /resident per cycle before->started->stopped/ },
+  { file: 'netcode-profile-downgrade-witness.mjs', must: /carries netcode\.profile/ },
   { file: 'lib/witness-audit.mjs', args: ['--gate'], must: /RESULT: PASS \d+ file\(s\) scanned/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
