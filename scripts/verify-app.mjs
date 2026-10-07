@@ -5,6 +5,7 @@ import { writeFileSync, rmSync } from 'node:fs'
 import { chromium } from './lib/cdp-browser.mjs'
 import { assertGpu, gpuModeFlag } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs, gpuArmTag } from './lib/witness-gpu.mjs'
+import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
 
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PORT = 20000 + Math.floor(Math.random() * 20000)
@@ -93,6 +94,8 @@ async function main() {
     const url = `${base}/?multiplayer&world=${WORLD_NAME}`
     console.log(`[verify-app] navigating client to ${url}`)
     await page.goto(url, { waitUntil: 'domcontentloaded' })
+    const servedRoot = await assertServedClientRoot(page, { label: 'verify-app' })
+    console.log(`[verify-app] served ${clientRootTag(servedRoot)} (functional arm: either path is admitted, the label is what makes two reports comparable)`)
     const playerId = await waitForEval(page, () => window.__client?.connected && window.__client?.playerId, undefined, { label: 'client connect', timeoutMs: 120000 })
     check('headless client connected with a playerId', !!playerId, `playerId=${JSON.stringify(playerId)}`)
 

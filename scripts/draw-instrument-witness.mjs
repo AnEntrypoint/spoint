@@ -4,6 +4,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { chromium } from './lib/cdp-browser.mjs'
 import { assertGpu, gpuLaunchArgs, gpuModeFlag } from './lib/gpu-probe.mjs'
 import { vendorPinArgs } from './lib/witness-gpu.mjs'
+import {
+  assertServedClientRoot, clientRootTag, rebuildIfRequested, CLIENT_ROOT_BUNDLE,
+} from './lib/served-client-root.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -134,6 +137,7 @@ async function main() {
   process.env.PORT = PORT
   process.env.SPOINT_NO_WATCH = '1'
   console.log(`[draw-instrument] booting real server on ${PORT} (world=${process.env.WORLD}) ...`)
+  rebuildIfRequested('draw-instrument')
   const { boot } = await import(pathToFileURL(resolve(ROOT, 'src', 'sdk', 'server.js')).href)
   const server = await boot()
 
@@ -165,6 +169,9 @@ async function main() {
       process.exit(1)
     }
     console.log(`[draw-instrument] ready @ ${Date.now() - t0}ms`)
+
+    const servedRoot = await assertServedClientRoot(page, { want: CLIENT_ROOT_BUNDLE, label: 'draw-instrument' })
+    console.log(`[draw-instrument] served ${clientRootTag(servedRoot)} required=${CLIENT_ROOT_BUNDLE}`)
 
     const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED || GPU_MODE.accelerated, expectVendor: EXPECT_VENDOR || GPU_MODE.vendor })
     console.log(`[draw-instrument] rasterizer=${gpu.rasterizer} gpuMode=${GPU_MODE.mode} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)

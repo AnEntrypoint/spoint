@@ -5,6 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { chromium } from './lib/cdp-browser.mjs'
 import { assertGpu, gpuModeFlag } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs, gpuArmTag } from './lib/witness-gpu.mjs'
+import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
 
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PORT = 20000 + Math.floor(Math.random() * 20000)
@@ -79,6 +80,9 @@ async function main() {
     check('client B connected with a playerId', !!playerIdB, `playerIdB=${JSON.stringify(playerIdB)}`)
     check('client A and B got DIFFERENT playerIds', playerIdA !== playerIdB, `A=${playerIdA} B=${playerIdB}`)
     console.log(`[e2e-ci] playerIdA=${playerIdA} playerIdB=${playerIdB}`)
+
+    const servedRootA = await assertServedClientRoot(pageA, { label: 'e2e-ci' })
+    console.log(`[e2e-ci] served ${clientRootTag(servedRootA)} (functional arm: either path is admitted, the label is what makes two reports comparable)`)
 
     const gpu = await assertGpu(pageA, { requireAccelerated: REQUIRE_ACCELERATED || GPU_MODE.accelerated, expectVendor: EXPECT_VENDOR || GPU_MODE.vendor })
     rasterizer = gpu.rasterizer

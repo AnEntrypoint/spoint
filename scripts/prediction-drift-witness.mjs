@@ -2,6 +2,7 @@
 import { chromium } from './lib/cdp-browser.mjs'
 import { gpuModeFlag, witnessGpu } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs, gpuArmTag } from './lib/witness-gpu.mjs'
+import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
 
 const PORT = 20000 + Math.floor(Math.random() * 20000)
 const GPU_MODE = gpuModeFlag('gpu', 'accelerated')
@@ -95,6 +96,8 @@ async function main() {
     watchPage('B', pageB)
     const url = `http://localhost:${PORT}/?multiplayer&world=${WORLD}&predict=1`
     await Promise.all([pageA.goto(url, { waitUntil: 'domcontentloaded' }), pageB.goto(url, { waitUntil: 'domcontentloaded' })])
+    const servedRoot = await assertServedClientRoot(pageA, { label: 'prediction-drift' })
+    console.log(`[prediction-drift] served ${clientRootTag(servedRoot)} (functional arm: either path is admitted, the label is what makes two reports comparable)`)
     const idA = await waitFor(pageA, () => window.__client?.connected && window.__client?.playerId, undefined, { label: 'A connect' })
     const idB = await waitFor(pageB, () => window.__client?.connected && window.__client?.playerId, undefined, { label: 'B connect' })
     const gpu = await witnessGpu(pageA, GPU_MODE)

@@ -7,6 +7,9 @@ import { unreachedReasons } from './lib/witness-reachability.mjs'
 import { assertGpu, gpuArgs, gpuModeOf } from './lib/gpu-probe.mjs'
 import { vendorPinArgs } from './lib/witness-gpu.mjs'
 import { baselineRefusals } from './lib/frame-time-baseline.mjs'
+import {
+  assertServedClientRoot, clientRootTag, rebuildIfRequested, CLIENT_ROOT_BUNDLE,
+} from './lib/served-client-root.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
@@ -162,6 +165,7 @@ async function measureRealFrameTimes() {
   process.env.SPOINT_NO_WATCH = '1'
 
   console.log(`[frame-time-gate] booting real server on port ${PORT} (world=${process.env.WORLD}) ...`)
+  rebuildIfRequested('frame-time-gate')
   const { boot } = await import('../src/sdk/server.js')
   const server = await boot()
   console.log('[frame-time-gate] server up.')
@@ -177,6 +181,9 @@ async function measureRealFrameTimes() {
     const url = `http://localhost:${PORT}/?singleplayer&world=${process.env.WORLD}&at=${encodeURIComponent(AT)}`
     console.log(`[frame-time-gate] navigating to ${url} ...`)
     await page.goto(url, { waitUntil: 'domcontentloaded' })
+
+    const servedRoot = await assertServedClientRoot(page, { want: CLIENT_ROOT_BUNDLE, label: 'frame-time-gate' })
+    console.log(`[frame-time-gate] served ${clientRootTag(servedRoot)} required=${CLIENT_ROOT_BUNDLE}`)
 
     const start = Date.now()
     let ready = false

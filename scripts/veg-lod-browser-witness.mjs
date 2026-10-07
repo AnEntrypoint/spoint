@@ -5,6 +5,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { chromium } from './lib/cdp-browser.mjs'
 import { assertGpu, gpuArgs } from './lib/gpu-probe.mjs'
 import { vendorPinArgs } from './lib/witness-gpu.mjs'
+import {
+  assertServedClientRoot, clientRootTag, rebuildIfRequested, CLIENT_ROOT_BUNDLE,
+} from './lib/served-client-root.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -265,6 +268,7 @@ async function main() {
   process.env.WORLD = 'tps-game'
   process.env.SPOINT_NO_WATCH = '1'
   if (!has('prewarm')) process.env.SPOINT_SKIP_PREWARM = '1'
+  rebuildIfRequested('veg-lod-browser')
   const { boot } = await import(pathToFileURL(resolve(ROOT, 'src', 'sdk', 'server.js')).href)
   const server = await boot()
   console.log('[veg-lod-browser] server up on ' + port)
@@ -277,6 +281,8 @@ async function main() {
     const url = `http://localhost:${port}/?singleplayer&webgpu=1&world=tps-game&${EXTRA}&v=${Date.now()}`
     console.log('[veg-lod-browser] navigating ' + url)
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 })
+    const servedRoot = await assertServedClientRoot(page, { want: CLIENT_ROOT_BUNDLE, label: 'veg-lod-browser' })
+    console.log('[veg-lod-browser] served ' + clientRootTag(servedRoot) + ' required=' + CLIENT_ROOT_BUNDLE)
     const gpu = await assertGpu(page, { requireAccelerated: true, expectVendor: GPU })
     console.log('[veg-lod-browser] gpu: ' + JSON.stringify({ rasterizer: gpu.rasterizer, renderer: gpu.renderer, adapter: gpu.adapter }))
     const ready = await waitReady(page)

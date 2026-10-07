@@ -4,7 +4,7 @@ import { chromium } from './lib/cdp-browser.mjs'
 import { gpuArgs, assertGpu } from './lib/gpu-probe.mjs'
 import { vendorPinArgs } from './lib/witness-gpu.mjs'
 import {
-  assertServedClientRoot, clientRootTag, rebuildClientBundle, CLIENT_ROOT_BUNDLE,
+  assertServedClientRoot, clientRootTag, rebuildIfRequested, CLIENT_ROOT_BUNDLE,
 } from './lib/served-client-root.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -35,6 +35,7 @@ process.env.WORLD = process.env.WORLD || 'tps-game'
 process.env.PORT = port
 process.env.SPOINT_NO_WATCH = '1'
 
+rebuildIfRequested('veg-witness')
 const { boot } = await import(pathToFileURL(resolve(ROOT, 'src', 'sdk', 'server.js')).href)
 const server = await boot()
 console.log('[veg-witness] server on ' + port)

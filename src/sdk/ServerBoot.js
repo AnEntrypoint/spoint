@@ -59,6 +59,9 @@ function newestMtimeOf(files, base) {
   }, 0)
 }
 
+export const CLIENT_ROOT_BUNDLE = 'bundle'
+export const CLIENT_ROOT_RAW = 'raw-esm'
+
 function bundleState(sdkRoot) {
   const bundleDir = join(sdkRoot, 'dist', 'client')
   const bundlePath = join(bundleDir, 'app.js')
@@ -75,9 +78,21 @@ function bundleState(sdkRoot) {
   return { dir: bundleDir, bundleMtime, rawMtime, fresh: bundleMtime >= rawMtime }
 }
 
-export function staticClientRoot(sdkRoot) {
+export function clientRootState(sdkRoot) {
   const bundle = bundleState(sdkRoot)
-  return bundle && bundle.fresh ? bundle.dir : join(sdkRoot, 'client')
+  if (bundle && bundle.fresh) {
+    return { kind: CLIENT_ROOT_BUNDLE, dir: bundle.dir, bundleMtime: bundle.bundleMtime, rawMtime: bundle.rawMtime }
+  }
+  return {
+    kind: CLIENT_ROOT_RAW,
+    dir: join(sdkRoot, 'client'),
+    bundleMtime: bundle ? bundle.bundleMtime : null,
+    rawMtime: bundle ? bundle.rawMtime : null,
+  }
+}
+
+export function staticClientRoot(sdkRoot) {
+  return clientRootState(sdkRoot).dir
 }
 
 export function buildStaticDirs(sdkRoot, project, appsDirs) {
@@ -87,12 +102,12 @@ export function buildStaticDirs(sdkRoot, project, appsDirs) {
     { prefix: '/node_modules/', dir: join(sdkRoot, 'node_modules') },
     { prefix: '/data/', dir: resolve(project, 'data') }
   ]
-  const bundle = bundleState(sdkRoot)
-  if (bundle && bundle.fresh) {
-    console.log(`[server] serving PREBUILT BUNDLE from dist/client/app.js (built ${new Date(bundle.bundleMtime).toISOString()})`)
-    dirs.push({ prefix: '/', dir: bundle.dir })
-  } else if (bundle) {
-    console.log(`[server] dist/client/app.js is STALE (built ${new Date(bundle.bundleMtime).toISOString()}, a bundled input edited ${new Date(bundle.rawMtime).toISOString()}) -- falling through to raw ESM`)
+  const root = clientRootState(sdkRoot)
+  if (root.kind === CLIENT_ROOT_BUNDLE) {
+    console.log(`[server] serving PREBUILT BUNDLE from dist/client/app.js (built ${new Date(root.bundleMtime).toISOString()})`)
+    dirs.push({ prefix: '/', dir: root.dir, clientRoot: CLIENT_ROOT_BUNDLE })
+  } else if (root.bundleMtime !== null) {
+    console.log(`[server] dist/client/app.js is STALE (built ${new Date(root.bundleMtime).toISOString()}, a bundled input edited ${new Date(root.rawMtime).toISOString()}) -- falling through to raw ESM`)
   } else {
     console.log('[server] serving raw ESM from client/ (no dist/client/app.js bundle present)')
   }
@@ -113,7 +128,7 @@ export function buildStaticDirs(sdkRoot, project, appsDirs) {
       console.log(`[server] dist/src/sdk/WorkerEntry.js is STALE (built ${new Date(wbMtime).toISOString()}, a bundled src/ or packages/ input edited ${new Date(srcMtime).toISOString()}) -- falling through to raw ESM worker`)
     }
   }
-  dirs.push({ prefix: '/', dir: join(sdkRoot, 'client') })
+  dirs.push({ prefix: '/', dir: join(sdkRoot, 'client'), clientRoot: CLIENT_ROOT_RAW })
   return dirs
 }
 

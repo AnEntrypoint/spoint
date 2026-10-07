@@ -2,6 +2,7 @@
 import { chromium } from './lib/cdp-browser.mjs'
 import { gpuModeFlag, probeGpu, rasterizerClass, witnessGpu } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
+import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
 
 function flag(name, dflt = null) {
   const hit = process.argv.find(a => a.startsWith(`--${name}=`))
@@ -93,6 +94,8 @@ async function main() {
     }
     for (const c of [a, b]) {
       c.readyMs = await waitFor(c.page, READY, READY_TIMEOUT_MS)
+      const servedRoot = await assertServedClientRoot(c.page, { label: 'arena-combat-two-client' })
+      console.log(`[arena-combat] ${c.label} served ${clientRootTag(servedRoot)} (functional arm: either path is admitted, the label is what makes two reports comparable)`)
       console.log(`[arena-combat] ${c.label} ready=${c.readyMs === null ? 'UNREACHED' : c.readyMs + 'ms'}`)
     }
 

@@ -3,6 +3,9 @@ import path from 'node:path'
 import { chromium } from '../lib/cdp-browser.mjs'
 import { assertGpu, gpuArgs } from '../lib/gpu-probe.mjs'
 import { decodePng, regionMasks, regionMean, regionMeanAbs } from './png.mjs'
+import {
+  assertServedClientRoot, clientRootTag, CLIENT_ROOT_BUNDLE,
+} from '../lib/served-client-root.mjs'
 
 const arg = (k, d) => { const h = process.argv.find(a => a.startsWith('--' + k + '=')); return h ? h.slice(k.length + 3) : d }
 
@@ -75,6 +78,8 @@ async function runArm(browser, { legacy, tag, gpuProbe }) {
   const report = { url, frames: {}, sigs: {} }
   try {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 })
+    const servedRoot = await assertServedClientRoot(page, { want: CLIENT_ROOT_BUNDLE, label: tag })
+    log(`[${tag}] served ${clientRootTag(servedRoot)} required=${CLIENT_ROOT_BUNDLE}`)
     const gp = await assertGpu(page, ACCELERATED ? { requireAccelerated: true, expectVendor: 'nvidia' } : {})
     report.rasterizer = gp.rasterizer
     report.renderer = gp.renderer

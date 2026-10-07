@@ -1,5 +1,6 @@
 import { existsSync, statSync, realpathSync } from 'node:fs'
-import { join, extname, resolve, sep } from 'node:path'
+import { createHash } from 'node:crypto'
+import { join, extname, resolve, sep, dirname } from 'node:path'
 import { getTransformedAsync, getTransformedHashAsync } from '../static/GLBTransformer.js'
 import { getProgressive, resolveBakedFile } from '../static/ProgressiveBake.js'
 import { getKtx2Extracted, resolveKtx2File } from '../static/KTX2Extract.js'
@@ -39,9 +40,14 @@ const IMAGE_CACHE_CONTROL = 'public, max-age=300'
 const JSON_CACHE_CONTROL = 'public, max-age=60'
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.webp', '.ktx2', '.svg', '.ico'])
 
+const CLIENT_ROOT_HEADER = 'X-Spoint-Client-Root'
+const CLIENT_ENTRY_SHA_HEADER = 'X-Spoint-Entry-Sha256'
+
 function _notModifiedHeaders(headers) {
   const h = { 'ETag': headers['ETag'] }
   if (headers['Cache-Control']) h['Cache-Control'] = headers['Cache-Control']
+  if (headers[CLIENT_ROOT_HEADER]) h[CLIENT_ROOT_HEADER] = headers[CLIENT_ROOT_HEADER]
+  if (headers[CLIENT_ENTRY_SHA_HEADER]) h[CLIENT_ENTRY_SHA_HEADER] = headers[CLIENT_ENTRY_SHA_HEADER]
   return h
 }
 
@@ -187,7 +193,7 @@ export function createStaticHandler(dirs, opts = {}) {
         return
       }
     }
-    for (const { prefix, dir } of dirs) {
+    for (const { prefix, dir, clientRoot } of dirs) {
       if (!url.startsWith(prefix)) continue
       const relative = url === prefix ? '/index.html' : url.slice(prefix.length)
       const fp = join(dir, relative)
@@ -258,6 +264,12 @@ export function createStaticHandler(dirs, opts = {}) {
 
         const encoding = wantsRange ? null : negotiateEncoding(req)
         const { content, encoding: usedEncoding, mtime, raw } = await getCached(fp, ext, encoding)
+        if (clientRoot) {
+          headers[CLIENT_ROOT_HEADER] = clientRoot
+          if ((ext === '.js' || ext === '.mjs' || ext === '.html') && dirname(fp) === resolve(dir)) {
+            headers[CLIENT_ENTRY_SHA_HEADER] = createHash('sha256').update(raw).digest('hex')
+          }
+        }
         if (usedEncoding) headers['Content-Encoding'] = usedEncoding
         if (GZIP_EXTENSIONS.has(ext)) headers['Vary'] = 'Accept-Encoding'
         if (ext === '.glb' || ext === '.vrm' || ext === '.gltf' || isRevalidatable || CONTENT_HASHED_EXTENSIONS.has(ext) || HASH_ETAG_EXTENSIONS.has(ext)) {

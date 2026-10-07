@@ -3,6 +3,9 @@ import { chromium } from './lib/cdp-browser.mjs'
 import { gpuModeFlag, probeGpu, rasterizerClass, vendorGpuArgs } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
 import { unreachedReasons } from './lib/witness-reachability.mjs'
+import {
+  assertServedClientRoot, clientRootTag, rebuildClientBundle, CLIENT_ROOT_BUNDLE, CLIENT_ROOT_RAW,
+} from './lib/served-client-root.mjs'
 
 function flag(name, dflt = null) {
   const hit = process.argv.find(a => a.startsWith(`--${name}=`))
@@ -29,6 +32,12 @@ const ALLOWED_CONSOLE_ERROR_TEXTS = process.argv.filter(a => a.startsWith('--all
 const ALLOW_FAILED_REQUESTS = has('allow-failed-requests')
 const CANCELLED_REQUEST_ERROR_TEXTS = new Set(['net::ERR_ABORTED'])
 const REQUIRE_GPU = flag('require-gpu') || (has('require-gpu') ? 'any' : null)
+const REQUIRE_CLIENT_ROOT = flag('require-client-root', null)
+const REBUILD_BUNDLE = has('rebuild-bundle')
+if (REQUIRE_CLIENT_ROOT && REQUIRE_CLIENT_ROOT !== CLIENT_ROOT_BUNDLE && REQUIRE_CLIENT_ROOT !== CLIENT_ROOT_RAW) {
+  console.error(`[page-boot-witness] RESULT: FAIL -- --require-client-root=${REQUIRE_CLIENT_ROOT} is not one of ${CLIENT_ROOT_BUNDLE}, ${CLIENT_ROOT_RAW}`)
+  process.exit(1)
+}
 
 const SOFTWARE_ADAPTER = /swiftshader|llvmpipe|softwarerasterizer|microsoft basic render|apple software renderer/i
 const VENDOR_ADAPTER = {
@@ -80,7 +89,7 @@ const GPU_PROBE = `(() => { try {
   if (typeof navigator !== 'undefined' && navigator.gpu && typeof navigator.gpu.requestAdapter === 'function') {
     webgpu = navigator.gpu.requestAdapter().then(a => a ? ((a.info && (a.info.description || a.info.vendor)) || 'adapter-without-info') : null)
   }
-  return Promise.resolve(webgpu).then(w => ({ renderer, webgpu: w === null || w === 'unavailable' ? String(w) : String(w), webgpuPresent: w !== null && w !== 'unavailable' }))
+  return Promise.resolve(webgpu).then(w => ({ renderer, webgpu: String(w), webgpuPresent: w !== null && w !== 'unavailable' }))
 } catch (e) { return { renderer: null, webgpu: 'probe-threw: ' + e.message, webgpuPresent: false } } })()`
 
 function textOf(entry) {
@@ -96,6 +105,10 @@ async function main() {
   let server = null
   let base = PROXY
   if (!base) {
+    if (REBUILD_BUNDLE) {
+      console.log('[page-boot-witness] --rebuild-bundle: running scripts/bundle-client.mjs before boot ...')
+      rebuildClientBundle()
+    }
     console.log(`[page-boot-witness] booting real server on port ${PORT} (world=${process.env.WORLD}) ...`)
     const { boot } = await import('../src/sdk/server.js')
     server = await boot()
@@ -135,6 +148,11 @@ async function main() {
     const url = `${base}/?${PARAMS}`
     console.log(`[page-boot-witness] navigating to ${url} ...`)
     await page.goto(url, { waitUntil: 'domcontentloaded' })
+
+    const servedRoot = await assertServedClientRoot(page, { want: REQUIRE_CLIENT_ROOT, label: 'page-boot-witness' }).catch(e => e)
+    if (servedRoot instanceof Error) fail(servedRoot.message)
+    console.log(`[page-boot-witness] served ${clientRootTag(servedRoot)} required=${JSON.stringify(REQUIRE_CLIENT_ROOT)}`)
+
     const t0 = Date.now()
 
     const times = {}
@@ -148,6 +166,7 @@ async function main() {
       times[expr] = ok ? Date.now() - t0 : null
       console.log(`[page-boot-witness] wait ${ok ? 'reached' : 'UNREACHED'} ${JSON.stringify(expr)} @ ${JSON.stringify(times[expr])}ms`)
     }
+
     if (OBSERVE_MS > 0) await page.waitForTimeout(OBSERVE_MS)
 
     const values = {}

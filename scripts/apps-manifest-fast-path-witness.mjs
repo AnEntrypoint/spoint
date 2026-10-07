@@ -5,6 +5,7 @@ import { chromium } from './lib/cdp-browser.mjs'
 import { gpuLaunchArgs, gpuModeFlag, witnessGpu } from './lib/gpu-probe.mjs'
 import { worldAppNames } from '../src/apps/appsManifest.js'
 import { locateWorld, loadWorldModule } from '../src/sdk/WorldLocator.js'
+import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
 
 const argv = process.argv.slice(2)
 function flag(name, dflt = null) {
@@ -210,6 +211,8 @@ async function main() {
     const url = `${base}/?${PARAMS}${/(^|&)world=/.test(PARAMS) ? '' : `&world=${WORLD}`}`
     console.log(`${TAG} navigating to ${url}`)
     await page.goto(url, { waitUntil: 'domcontentloaded' })
+    const servedRoot = await assertServedClientRoot(page, { label: 'apps-manifest-fast-path' })
+    console.log(`${TAG} served ${clientRootTag(servedRoot)} (functional arm: either path is admitted, the label is what makes two reports comparable)`)
     const gpu = await witnessGpu(page, GPU_MODE)
     console.log(`${TAG} rasterizer=${gpu.rasterizer} gpu=${gpu.haystack || 'none'} gpuMode=${GPU_MODE.mode}`)
 

@@ -2,6 +2,7 @@
 import { chromium } from './lib/cdp-browser.mjs'
 import { assertGpu, gpuModeFlag } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs, gpuArmTag } from './lib/witness-gpu.mjs'
+import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
 
 const PORT = process.env.PORT || '3117'
 const OBSERVE_MS = Number(process.env.OBSERVE_MS || 60000)
@@ -57,6 +58,9 @@ async function main() {
       await new Promise(r => setTimeout(r, 200))
     }
     console.log(`[pointer-lock-witness] loadingMachine.isReady=${ready}`)
+
+    const servedRoot = await assertServedClientRoot(page, { label: 'pointer-lock-witness' })
+    console.log(`[pointer-lock-witness] served ${clientRootTag(servedRoot)} (functional arm: either path is admitted, the label is what makes two reports comparable)`)
 
     const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED || GPU_MODE.accelerated, expectVendor: EXPECT_VENDOR || GPU_MODE.vendor })
     rasterizer = gpu.rasterizer

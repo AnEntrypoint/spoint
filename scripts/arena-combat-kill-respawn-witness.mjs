@@ -3,6 +3,7 @@ import { chromium } from './lib/cdp-browser.mjs'
 import { exitAfterQuiesce } from './lib/quiesce.mjs'
 import { assertGpu } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs } from './lib/witness-gpu.mjs'
+import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
 
 process.env.SPOINT_NO_WATCH = '1'
 process.env.SPOINT_SKIP_PREWARM = process.env.SPOINT_SKIP_PREWARM || '1'
@@ -249,6 +250,8 @@ async function main() {
       console.log(`[arena-combat] navigating ${c.label} to ${url} ...`)
       await c.page.goto(url, { waitUntil: 'domcontentloaded' })
       c.readyMs = await waitFor(c.page, c.label, CONNECTED, READY_TIMEOUT_MS)
+      const servedRoot = await assertServedClientRoot(c.page, { label: 'arena-combat' })
+      console.log(`[arena-combat] ${c.label} served ${clientRootTag(servedRoot)} (functional arm: either path is admitted, the label is what makes two reports comparable)`)
       console.log(`[arena-combat] ${c.label} connected=${c.readyMs === null ? 'UNREACHED' : c.readyMs + 'ms'}`)
       if (c.readyMs === null) failures.push(`${c.label} never reached connected-and-ready within ${READY_TIMEOUT_MS}ms`)
       c.playable = await c.page.evaluate(`!!(${PLAYABLE})`).catch(() => false)

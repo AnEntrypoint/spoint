@@ -5,6 +5,9 @@ import { dirname, join } from 'node:path'
 import { chromium } from './lib/cdp-browser.mjs'
 import { assertGpu, gpuModeFlag } from './lib/gpu-probe.mjs'
 import { vendorLaunchArgs, gpuArmTag } from './lib/witness-gpu.mjs'
+import {
+  assertServedClientRoot, clientRootTag, rebuildIfRequested, CLIENT_ROOT_BUNDLE,
+} from './lib/served-client-root.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
@@ -46,6 +49,7 @@ async function measureRealColdLoadMs() {
   process.env.SPOINT_NO_WATCH = '1'
 
   console.log(`[cold-load-gate] booting real server on port ${PORT} (world=e2e-ci-arena, prewarm+watchers skipped) ...`)
+  rebuildIfRequested('cold-load-gate')
   const { boot } = await import('../src/sdk/server.js')
   const server = await boot()
   console.log('[cold-load-gate] server up.')
@@ -74,6 +78,9 @@ async function measureRealColdLoadMs() {
 
     if (!ready) throw new Error(`loadingMachine never reached isReady within ${LOAD_TIMEOUT_MS}ms -- real cold-load hang, not a timing regression`)
     if (pageErrors.length > 0) throw new Error(`page threw ${pageErrors.length} uncaught error(s) during cold load: ${pageErrors[0]}`)
+
+    const servedRoot = await assertServedClientRoot(page, { want: CLIENT_ROOT_BUNDLE, label: 'cold-load-gate' })
+    console.log(`[cold-load-gate] served ${clientRootTag(servedRoot)} required=${CLIENT_ROOT_BUNDLE}`)
 
     const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED || GPU_MODE.accelerated, expectVendor: EXPECT_VENDOR || GPU_MODE.vendor })
     console.log(`[cold-load-gate] ${gpuArmTag(GPU_MODE, gpu.rasterizer)} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)

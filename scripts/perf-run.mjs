@@ -7,6 +7,9 @@ import { spawnSync, spawn } from 'node:child_process'
 import { chromium } from './lib/cdp-browser.mjs'
 import { unreachedReasons } from './lib/witness-reachability.mjs'
 import { assertGpu, gpuArgs, adapterLuidFor, directxAdapters, vendorGpuArgs } from './lib/gpu-probe.mjs'
+import {
+  assertServedClientRoot, clientRootTag, rebuildIfRequested, CLIENT_ROOT_BUNDLE,
+} from './lib/served-client-root.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -388,6 +391,7 @@ async function main() {
   console.log(`[perf-run] idle probe before: gpu3d=${idleBefore.gpu3d} trainChrome=${idleBefore.train}`)
 
   console.log(`[perf-run] booting real server on ${port} (world=${process.env.WORLD}) ...`)
+  rebuildIfRequested('perf-run')
   if (SERVE_ROOT !== ROOT) process.chdir(SERVE_ROOT)
   const { boot } = await import(pathToFileURL(resolve(SERVE_ROOT, 'src', 'sdk', 'server.js')).href)
   const server = await boot()
@@ -443,6 +447,8 @@ async function main() {
     await page._send('Profiler.enable').catch(() => {})
     await page._send('Performance.enable').catch(() => {})
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 })
+    const servedRoot = await assertServedClientRoot(page, { want: CLIENT_ROOT_BUNDLE, label: 'perf-run' })
+    console.log(`[perf-run] served ${clientRootTag(servedRoot)} required=${CLIENT_ROOT_BUNDLE}`)
 
     let readyAt = null
     const readyStart = Date.now()
