@@ -8,17 +8,49 @@ process.env.SPOINT_SKIP_PREWARM = '1'
 if (!process.env.GM_PROFILE) process.env.GM_PROFILE = '1'
 
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const args = Object.fromEntries(process.argv.slice(2).map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true'] }))
+const args = Object.fromEntries(process.argv.slice(2).map(a => {
+  const body = a.replace(/^--/, '')
+  const eq = body.indexOf('=')
+  if (eq < 0) return [body, 'true']
+  return [body.slice(0, eq), body.slice(eq + 1)]
+}))
+
+function numericFlag(name, fallback) {
+  const raw = args[name]
+  if (raw === undefined) return fallback
+  const n = raw.trim() === '' ? NaN : Number(raw)
+  if (!Number.isFinite(n)) {
+    console.error(`[cpu-skip] --${name} must be a number, got "${raw}"`)
+    process.exit(2)
+  }
+  return n
+}
+
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 const ARM = args.arm || 'run'
-const PLAYERS = Number(args.players || 4)
-const TICKS = Number(args.ticks || 400)
-const WARMUP = Number(args.warmup || 0)
-const HOLD_CAP_MS = Number(args.holdCapMs || 180000)
-const N_BUTTONS = Number(args.buttons || 0)
-const N_BOXES = Number(args.boxes || 0)
-const N_DYNS = Number(args.dyns || 0)
-const SETTLE_MS = Number(args.settleMs || 4000)
+const PLAYERS = numericFlag('players', 4)
+const TICKS = numericFlag('ticks', 400)
+const WARMUP = numericFlag('warmup', 0)
+const HOLD_CAP_MS = numericFlag('holdCapMs', 180000)
+const N_BUTTONS = numericFlag('buttons', 24)
+const N_BOXES = numericFlag('boxes', 16)
+const N_DYNS = numericFlag('dyns', 12)
+const SETTLE_MS = numericFlag('settleMs', 4000)
+
+const MAX_ENCODED_FRACTION_OF_ENTITIES = 0.9
+const MAX_REBUCKET_FRACTION_OF_COLLIDERS = 0.25
+const MAX_NEW_BUFFER_FRACTION_OF_SAMPLES = 0.5
+const MIN_UNCHANGED_FRACTION_OF_COLLIDERS = 0.5
+const MIN_TICKS_PER_SEC = 5
+
+const failures = []
+const finite = v => Number.isFinite(v)
+function expect(name, got, predicate) {
+  let ok = false
+  try { ok = Boolean(predicate(got)) } catch { ok = false }
+  if (!ok) failures.push(`${name}=${JSON.stringify(got)}`)
+  return got
+}
 
 const { createServer } = await import('../src/sdk/server.js')
 const { PhysicsNetworkClient } = await import('../src/client/PhysicsNetworkClient.js')
@@ -299,6 +331,11 @@ while (server.playerManager.getConnectedPlayers().length < PLAYERS && Date.now()
 for (let i = 0; i < clients.length; i++) clients[i].startInputLoop(() => ({ forward: false, sprint: false, yaw: i, pitch: 0 }))
 await sleep(1500)
 
+let interactableIdsBeforePopulate = 0
+let dynamicEntityIdsBeforePopulate = 0
+let collisionEntitiesBeforePopulate = 0
+let entitiesBeforePopulate = 0
+
 function populate(count, appName, extra) {
   if (count <= 0) return
   const spawn = worldDef.spawnPoint || [0, 2, 0]
@@ -313,6 +350,11 @@ function populate(count, appName, extra) {
   }
 }
 
+entitiesBeforePopulate = runtime.entities.size
+interactableIdsBeforePopulate = runtime._interactableIds.size
+dynamicEntityIdsBeforePopulate = runtime._dynamicEntityIds.size
+collisionEntitiesBeforePopulate = runtime._collisionEntities.length
+
 populate(N_BUTTONS, 'button', { config: { radius: 3 } })
 populate(N_BOXES, 'destructible-box', { config: { hx: 0.3, hy: 0.3, hz: 0.3 } })
 populate(N_DYNS, 'prop-dynamic', { bodyType: 'dynamic' })
@@ -320,16 +362,32 @@ if (N_BUTTONS + N_BOXES + N_DYNS > 0) await sleep(SETTLE_MS)
 
 const shape = {
   arm: ARM,
-  players: server.playerManager.getConnectedPlayers().length,
-  entities: runtime.entities.size,
-  activeDynamicIds: runtime._activeDynamicIds.size,
-  collisionEntities: runtime._collisionEntities.length,
-  interactableIds: runtime._interactableIds.size,
+  players: expect('players', server.playerManager.getConnectedPlayers().length, v => v === PLAYERS),
+  entities: expect('entities', runtime.entities.size, v => v >= entitiesBeforePopulate + N_BUTTONS + N_BOXES + N_DYNS),
+  dynamicEntityIds: expect('dynamicEntityIds', runtime._dynamicEntityIds.size, v => v >= dynamicEntityIdsBeforePopulate + N_DYNS),
+  activeDynamicIds: expect('activeDynamicIds', runtime._activeDynamicIds.size, v => v > 0),
+  collisionEntities: expect('collisionEntities', runtime._collisionEntities.length, v => v >= Math.max(2, collisionEntitiesBeforePopulate + N_BOXES)),
+  interactableIds: expect('interactableIds', runtime._interactableIds.size, v => v >= interactableIdsBeforePopulate + N_BUTTONS),
   tickRate: worldDef.tickRate || 60,
 }
 
+const instruments = {
+  lastInteractTests: expect('instrument.lastInteractTests', typeof runtime._lastInteractTests === 'number', v => v === true),
+  lastColGridRebuckets: expect('instrument.lastColGridRebuckets', typeof runtime._lastColGridRebuckets === 'number', v => v === true),
+  lastCollisionMs: expect('instrument.lastCollisionMs', typeof runtime._lastCollisionMs === 'number', v => v === true),
+  lastInteractMs: expect('instrument.lastInteractMs', typeof runtime._lastInteractMs === 'number', v => v === true),
+}
+
+if (WARMUP > 0) {
+  const warmDeadline = Date.now() + HOLD_CAP_MS
+  while (!warmed && Date.now() < warmDeadline) await sleep(50)
+}
+resetCounters()
+colXf.clear()
+entXf.clear()
 const runStart = Date.now()
-while ((warmed ? M.ticks : 0) < TICKS && Date.now() - runStart < HOLD_CAP_MS) await sleep(50)
+runStartMs = runStart
+while (M.ticks < TICKS && Date.now() - runStart < HOLD_CAP_MS) await sleep(50)
 const runMs = Date.now() - (runStartMs || runStart)
 const measuredTicks = M.ticks
 suppress = true
@@ -373,14 +431,15 @@ let overlapArm = 'skipped-too-few'
 
 let movedEntityArm = 'skipped-no-dynamic'
 {
-  const id = [...runtime._activeDynamicIds][0]
+  const id = [...runtime._activeDynamicIds][0] ?? [...runtime._dynamicEntityIds][0]
   const e = id !== undefined ? runtime.entities.get(id) : null
   if (e) {
     const target = [e.position[0] + 40, e.position[1], e.position[2] + 40]
-    if (e._physicsBodyId !== undefined && runtime._physics) runtime._physics.setBodyPosition(e._physicsBodyId, target)
-    e.position[0] = target[0]; e.position[1] = target[1]; e.position[2] = target[2]
     let seen = false
     for (let i = 0; i < 40 && !seen; i++) {
+      runtime._activeDynamicIds.add(id)
+      if (e._physicsBodyId !== undefined && runtime._physics) runtime._physics.setBodyPosition(e._physicsBodyId, target)
+      e.position[0] = target[0]; e.position[1] = target[1]; e.position[2] = target[2]
       await sleep(25)
       const entry = lastDynCache && lastDynCache.get(id)
       if (!entry || !entry.enc || !entry.enc[2]) continue
@@ -404,7 +463,16 @@ let retainArm = 'skipped'
   const heldAt = held.entities.slice(0, n).map(s => [s.position[0], s.position[1], s.position[2]])
   const liveAt = new Map()
   for (const [id, e] of runtime.entities) if (e.position) liveAt.set(id, [e.position[0], e.position[1], e.position[2]])
-  await sleep(500)
+  let mover = null
+  for (const id of runtime._staticEntityIds) {
+    const e = runtime.entities.get(id)
+    if (e && e.position) { mover = e; break }
+  }
+  if (!mover) for (const [, e] of runtime.entities) if (e.position && e._physicsBodyId === undefined) { mover = e; break }
+  for (let i = 0; i < 10; i++) {
+    await sleep(50)
+    if (mover) { mover.position[0] += 0.25; mover.position[2] += 0.25 }
+  }
   let heldSame = true
   for (let i = 0; i < n; i++) {
     const s = held.entities[i]
@@ -420,50 +488,68 @@ let retainArm = 'skipped'
 }
 
 const ticks = Math.max(1, measuredTicks)
+const rate = (n, digits) => Number((n / ticks).toFixed(digits))
+const entitiesPerSnapshotCall = Number((M.entitySamples / Math.max(1, M.getSnapshotCalls)).toFixed(2))
+const encodePerSnapshotCall = Number((M.encodeInSnapshot / Math.max(1, M.getSnapshotCalls)).toFixed(2))
+const colEntitiesPerTick = rate(M.colSamples, 2)
+const colUnchangedFraction = Number((M.colUnchanged / Math.max(1, M.colSamples)).toFixed(4))
+const rebucketsPerTick = rate(M.colRebuckets, 2)
+const newBuffersPerSample = Number((M.binNewBuffers / Math.max(1, M.binSamples)).toFixed(4))
+
 const out = {
   arm: ARM,
   ...shape,
-  ticks: measuredTicks,
-  runMs,
-  ticksPerSec: Number((measuredTicks / (runMs / 1000)).toFixed(2)),
-  row1_activeDynPerTick: Number((M.binSamples / ticks).toFixed(2)),
-  row1_binIdenticalPerTick: Number((M.binIdentical / ticks).toFixed(2)),
-  row1_identicalFraction: Number((M.binIdentical / Math.max(1, M.binSamples)).toFixed(4)),
-  row1_newBuffersPerTick: Number((M.binNewBuffers / ticks).toFixed(2)),
-  row1_binByteMismatchTotal: M.binByteMismatch,
-  row1_newBuffersPerSample: Number((M.binNewBuffers / Math.max(1, M.binSamples)).toFixed(4)),
-  row1_primeHitsPerTick: Number((M.primeHits / ticks).toFixed(2)),
-  row1_primeHitFraction: Number((M.primeHits / Math.max(1, M.binIdentical)).toFixed(4)),
-  row1_changedWithPosDiff: M.binPosDiff,
-  row1_changedWithRotDiff: M.binRotDiff,
-  row1_changedWithVelDiff: M.binVelDiff,
-  row2_encodeEntityPerTick: Number((M.encodeEntityCalls / ticks).toFixed(2)),
-  row2_getSnapshotCallsPerTick: Number((M.getSnapshotCalls / ticks).toFixed(3)),
-  row2_encodePerSnapshotCall: Number((M.encodeInSnapshot / Math.max(1, M.getSnapshotCalls)).toFixed(2)),
-  row2_entitiesChangedPerTick: Number((M.entityChanged / ticks).toFixed(2)),
-  row2_entitiesSampledPerTick: Number((M.entitySamples / ticks).toFixed(2)),
-  row2_snapshotStaleTotal: M.snapshotStale,
-  row2_snapshotChecks: M.snapshotChecks,
-  row3_colEntitiesPerTick: Number((M.colSamples / ticks).toFixed(2)),
-  row3_colUnchangedPerTick: Number((M.colUnchanged / ticks).toFixed(2)),
-  row3_unchangedFraction: Number((M.colUnchanged / Math.max(1, M.colSamples)).toFixed(4)),
-  row3_gridPathTicks: M.colGridPath,
-  row3_rebucketsPerTick: Number((M.colRebuckets / ticks).toFixed(2)),
-  row3_colMsPerTick: Number((M.colMs / ticks).toFixed(5)),
-  row4_interactPairsPerTick: Number((M.interactPairs / ticks).toFixed(2)),
-  row4_idleTickFraction: Number((M.interactIdleTicks / Math.max(1, M.interactTicks)).toFixed(4)),
-  row4_distanceTestsPerTick: Number((M.interactTests / ticks).toFixed(2)),
-  row4_interactMsPerTick: Number((M.interactMs / ticks).toFixed(5)),
-  correctness_interactArm: interactArm,
-  correctness_overlapArm: overlapArm,
-  correctness_snapshotMembership: snapshotMembershipArm,
-  correctness_retainArm: retainArm,
-  correctness_movedEntityArm: movedEntityArm,
-  clientErrors: M.clientErrors,
+  ...instruments,
+  ticks: expect('ticks', measuredTicks, v => v >= TICKS),
+  runMs: expect('runMs', runMs, v => v > 0),
+  ticksPerSec: expect('ticksPerSec', Number((measuredTicks / (runMs / 1000)).toFixed(2)), v => Number.isFinite(v) && v >= MIN_TICKS_PER_SEC),
+  row1_activeDynPerTick: expect('row1_activeDynPerTick', rate(M.binSamples, 2), v => v > 0),
+  row1_binIdenticalPerTick: expect('row1_binIdenticalPerTick', rate(M.binIdentical, 2), finite),
+  row1_identicalFraction: expect('row1_identicalFraction', Number((M.binIdentical / Math.max(1, M.binSamples)).toFixed(4)), finite),
+  row1_newBuffersPerTick: expect('row1_newBuffersPerTick', rate(M.binNewBuffers, 2), finite),
+  row1_binByteMismatchTotal: expect('row1_binByteMismatchTotal', M.binByteMismatch, v => v === 0),
+  row1_newBuffersPerSample: expect('row1_newBuffersPerSample', newBuffersPerSample, v => Number.isFinite(v) && v <= MAX_NEW_BUFFER_FRACTION_OF_SAMPLES),
+  row1_primeHitsPerTick: expect('row1_primeHitsPerTick', rate(M.primeHits, 2), finite),
+  row1_primeHitFraction: expect('row1_primeHitFraction', Number((M.primeHits / Math.max(1, M.binIdentical)).toFixed(4)), finite),
+  row1_changedWithPosDiff: expect('row1_changedWithPosDiff', M.binPosDiff, finite),
+  row1_changedWithRotDiff: expect('row1_changedWithRotDiff', M.binRotDiff, finite),
+  row1_changedWithVelDiff: expect('row1_changedWithVelDiff', M.binVelDiff, finite),
+  row2_entitiesPerSnapshotCall: expect('row2_entitiesPerSnapshotCall', entitiesPerSnapshotCall, v => v > 0),
+  row2_encodeEntityPerTick: expect('row2_encodeEntityPerTick', rate(M.encodeEntityCalls, 2), finite),
+  row2_getSnapshotCallsPerTick: expect('row2_getSnapshotCallsPerTick', rate(M.getSnapshotCalls, 3), v => v > 0),
+  row2_encodePerSnapshotCall: expect('row2_encodePerSnapshotCall', encodePerSnapshotCall, v => Number.isFinite(v) && v <= entitiesPerSnapshotCall * MAX_ENCODED_FRACTION_OF_ENTITIES),
+  row2_entitiesChangedPerTick: expect('row2_entitiesChangedPerTick', rate(M.entityChanged, 2), finite),
+  row2_entitiesSampledPerTick: expect('row2_entitiesSampledPerTick', rate(M.entitySamples, 2), v => v > 0),
+  row2_snapshotStaleTotal: expect('row2_snapshotStaleTotal', M.snapshotStale, v => v === 0),
+  row2_snapshotChecks: expect('row2_snapshotChecks', M.snapshotChecks, v => v > 0),
+  row3_colEntitiesPerTick: expect('row3_colEntitiesPerTick', colEntitiesPerTick, v => v > 0),
+  row3_colUnchangedPerTick: expect('row3_colUnchangedPerTick', rate(M.colUnchanged, 2), finite),
+  row3_unchangedFraction: expect('row3_unchangedFraction', colUnchangedFraction, v => v >= MIN_UNCHANGED_FRACTION_OF_COLLIDERS),
+  row3_gridPathTicks: expect('row3_gridPathTicks', M.colGridPath, finite),
+  row3_rebucketsPerTick: expect('row3_rebucketsPerTick', rebucketsPerTick, v => Number.isFinite(v) && v <= colEntitiesPerTick * MAX_REBUCKET_FRACTION_OF_COLLIDERS),
+  row3_colMsPerTick: expect('row3_colMsPerTick', rate(M.colMs, 5), finite),
+  row4_interactPairsPerTick: expect('row4_interactPairsPerTick', rate(M.interactPairs, 2), v => v > 0),
+  row4_idleTickFraction: expect('row4_idleTickFraction', Number((M.interactIdleTicks / Math.max(1, M.interactTicks)).toFixed(4)), v => v === 1),
+  row4_distanceTestsPerTick: expect('row4_distanceTestsPerTick', rate(M.interactTests, 2), v => v === 0),
+  row4_interactMsPerTick: expect('row4_interactMsPerTick', rate(M.interactMs, 5), finite),
+  correctness_interactArm: expect('correctness_interactArm', interactArm, v => v === 'fired'),
+  correctness_overlapArm: expect('correctness_overlapArm', overlapArm, v => v === 'fired'),
+  correctness_snapshotMembership: expect('correctness_snapshotMembership', snapshotMembershipArm, v => v === 'complete'),
+  correctness_retainArm: expect('correctness_retainArm', retainArm, v => v === 'stable-and-live-moved'),
+  correctness_movedEntityArm: expect('correctness_movedEntityArm', movedEntityArm, v => v === 'seen-moved'),
+  clientErrors: expect('clientErrors', M.clientErrors, v => v === 0),
 }
 
 console.log(JSON.stringify(out, null, 2))
+for (const f of failures) console.log(`FAIL: ${f}`)
+if (failures.length) console.log(`RESULT: FAIL (${failures.length} of ${Object.keys(out).length} measurement(s))`)
+else console.log('RESULT: PASS')
+process.exitCode = failures.length ? 1 : 0
 
 for (const c of clients) { try { c.close?.() } catch {} }
 try { await server.stop?.() } catch {}
-process.exit(0)
+
+const drainDeadline = Date.now() + 2000
+const activeHandles = () => (typeof process._getActiveHandles === 'function' ? process._getActiveHandles().length : 0)
+while (Date.now() < drainDeadline && activeHandles() > 0) await sleep(25)
+process.exit(process.exitCode)
