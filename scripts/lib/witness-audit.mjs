@@ -1,4 +1,5 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { join, resolve, dirname, relative, extname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -235,9 +236,19 @@ const LOW_CHECKS = [
   },
 ]
 
-function audit(file, checks) {
-  const text = readFileSync(file, 'utf8')
-  const isWitness = DEFAULT_NAME_FILTER.test(basename(file))
+function gitTrackedScripts() {
+  const done = spawnSync('git', ['ls-files', '--', 'scripts'], { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true })
+  if (done.status !== 0) return null
+  return done.stdout.split('\n').map(s => s.trim()).filter(s => /\.(?:mjs|js)$/.test(s))
+}
+
+function committedText(rel) {
+  const done = spawnSync('git', ['show', `HEAD:${rel}`], { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true })
+  return done.status === 0 ? done.stdout : null
+}
+
+function audit(text, name, checks) {
+  const isWitness = DEFAULT_NAME_FILTER.test(name)
   const rows = []
   for (const check of checks) {
     if (check.witnessesOnly && !isWitness) continue
@@ -246,22 +257,47 @@ function audit(file, checks) {
   return rows
 }
 
+function auditFile(file, checks) {
+  return audit(readFileSync(file, 'utf8'), basename(file), checks)
+}
+
 function main() {
-  const argv = process.argv.slice(2).filter(a => !a.startsWith('--'))
-  const showLow = process.argv.includes('--all')
-  const allFiles = process.argv.includes('--all-files')
-  let files = argv.length > 0 ? argv.map(p => resolve(p)) : walk(TARGET_DIR)
-  if (argv.length === 0 && !allFiles) files = files.filter(f => DEFAULT_NAME_FILTER.test(basename(f)))
+  const argvAll = process.argv.slice(2)
+  const argv = argvAll.filter(a => !a.startsWith('--'))
+  const showLow = argvAll.includes('--all')
+  const allFiles = argvAll.includes('--all-files')
+  const committed = (argvAll.includes('--gate') || argvAll.includes('--write-baseline'))
+    ? !argvAll.includes('--worktree')
+    : argvAll.includes('--committed')
   const report = []
-  for (const file of files) {
-    let stat
-    try { stat = statSync(file) } catch { continue }
-    if (!stat.isFile()) continue
-    report.push({
-      file: relative(REPO_ROOT, file).replace(/\\/g, '/'),
-      high: audit(file, HIGH_CHECKS),
-      low: audit(file, LOW_CHECKS),
-    })
+  if (committed) {
+    const tracked = gitTrackedScripts()
+    if (tracked === null) {
+      console.log('RESULT: FAIL witness-audit cannot list tracked files under scripts, so committed content was not audited')
+      process.exit(1)
+    }
+    for (const rel of tracked) {
+      if (rel.split('/')[1] !== undefined && SKIP_DIRS.has(rel.split('/')[1])) continue
+      if (rel.split('/').some(seg => seg.startsWith('.') && seg !== '.')) continue
+      if (!allFiles && !DEFAULT_NAME_FILTER.test(rel)) continue
+      const text = committedText(rel)
+      if (text === null) {
+        console.log(`RESULT: FAIL witness-audit cannot read HEAD:${rel}, so committed content was not fully audited`)
+        process.exit(1)
+      }
+      report.push({ file: rel, high: audit(text, rel, HIGH_CHECKS), low: audit(text, rel, LOW_CHECKS) })
+    }
+  } else {
+    let files = argv.length > 0 ? argv.map(p => resolve(p)) : walk(TARGET_DIR)
+    if (argv.length === 0 && !allFiles) files = files.filter(f => DEFAULT_NAME_FILTER.test(basename(f)))
+    for (const file of files) {
+      let stat
+      try { stat = statSync(file) } catch { continue }
+      if (!stat.isFile()) continue
+      const text = readFileSync(file, 'utf8')
+      const name = relative(REPO_ROOT, file).replace(/\\/g, '/')
+      report.push({ file: name, high: audit(text, name, HIGH_CHECKS), low: audit(text, name, LOW_CHECKS) })
+    }
   }
   report.sort((a, b) => b.high.length - a.high.length)
   let total = 0
