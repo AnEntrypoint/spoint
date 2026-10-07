@@ -29,11 +29,15 @@ for (let i = 0; i < 200000; i++) {
 console.log(`chunkCentreDir vs uncached chunkCornerDir: ${checked} key(s), ${bad} mismatch(es)`)
 
 let ringBad = 0
+let ringKeys = 0
+let ringCalls = 0
 for (let i = 0; i < 200; i++) {
   const d = frame.localToDir((r01() - 0.5) * 40000, (r01() - 0.5) * 40000)
   const ring = lattice.ringAroundDir(d[0], d[1], d[2], 74)
+  ringCalls++
   const seen = new Set()
   for (const key of ring) {
+    ringKeys++
     if (seen.has(key)) ringBad++
     seen.add(key)
     lattice.chunkCentreDir(key, a)
@@ -43,5 +47,17 @@ for (let i = 0; i < 200; i++) {
     if (chord > 2 * Math.sin((74 / frame.radius) / 2) + 1e-12) ringBad++
   }
 }
-console.log(`ring key/unit-radius/chord violations: ${ringBad}`)
-process.exit(bad === 0 && ringBad === 0 ? 0 : 1)
+console.log(`ring key/unit-radius/chord violations: ${ringBad} over ${ringKeys} key(s) in ${ringCalls} ring(s)`)
+
+const failures = []
+if (checked === 0) failures.push(`no chunk key was compared, so the centre/corner agreement proved nothing`)
+if (ringKeys === 0) failures.push(`ringAroundDir returned no key across ${ringCalls} ring(s), so the ring invariants proved nothing`)
+if (bad !== 0) failures.push(`${bad} chunkCentreDir/chunkCornerDir mismatch(es) over ${checked} key(s)`)
+if (ringBad !== 0) failures.push(`${ringBad} ring key/unit-radius/chord violation(s) over ${ringKeys} key(s)`)
+if (failures.length > 0) {
+  for (const f of failures) console.error(`FAIL ${f}`)
+  console.log(`RESULT: FAIL (${failures.length} check(s))`)
+  process.exit(1)
+}
+console.log(`RESULT: PASS -- ${checked} chunk key(s) agree and ${ringKeys} ring key(s) across ${ringCalls} ring(s) hold the unit-radius and chord bounds`)
+process.exit(0)
