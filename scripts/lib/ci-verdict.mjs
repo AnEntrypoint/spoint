@@ -58,10 +58,15 @@ function main() {
   let failures = 0
   let pending = 0
   let decided = 0
+  let cancelled = 0
   for (const entry of runs) {
     const jobs = jobsOf(entry.databaseId)
     console.log(`run ${entry.databaseId}  ${shortSha(entry.headSha ?? target)}  status=${entry.status ?? '?'} conclusion=${entry.conclusion ?? '(none)'}`)
     console.log(`  https://github.com/${REPO}/actions/runs/${entry.databaseId}`)
+    if (entry.conclusion === 'cancelled' && jobs.length === 0) {
+      cancelled += 1
+      console.log(`    no verdict: this run was cancelled while still pending, so no job ever started and nothing here is evidence about ${shortSha(target)} -- re-run it or push again`)
+    }
     for (const job of jobs) {
       const name = job.name ?? 'unnamed'
       const conclusion = job.conclusion || ''
@@ -70,10 +75,13 @@ function main() {
       if (NO_RUNNER_JOB.test(name) && status === 'queued') note = 'queued forever -- no self-hosted GPU runner is online, so this is never a verdict on this sha'
       else if (status !== 'completed') note = `${status} -- not yet a verdict`
       console.log(`  ${note}  ${name.slice(0, 90)}`)
-      if (conclusion === 'failure' || conclusion === 'cancelled' || conclusion === 'timed_out') {
+      if (conclusion === 'failure' || conclusion === 'timed_out') {
         failures += 1
         console.log(`    cause: node scripts/lib/ci-logs.mjs ${target} --tail=20`)
         console.log(`    raw: gh api repos/${REPO}/actions/jobs/${job.databaseId}/logs`)
+      } else if (conclusion === 'cancelled') {
+        cancelled += 1
+        console.log(`    no verdict: a cancelled job never decided this sha, so nothing here is evidence about it -- re-run it or push again`)
       } else if (status !== 'completed') {
         if (NO_RUNNER_JOB.test(name)) continue
         pending += 1
@@ -85,6 +93,10 @@ function main() {
   if (failures > 0) {
     console.log(`ci-verdict: ${shortSha(target)} has ${failures} failing job(s) -- red is this sha's own verdict`)
     process.exit(1)
+  }
+  if (cancelled > 0) {
+    console.log(`ci-verdict: ${shortSha(target)} has ${cancelled} cancelled job(s) and ${decided} decided -- a cancellation is not a verdict, so this sha is undecided`)
+    process.exit(3)
   }
   if (pending > 0 || decided === 0) {
     console.log(`ci-verdict: ${shortSha(target)} has ${decided} decided job(s) and ${pending} still running -- no verdict yet, and zero decisions is not success`)
