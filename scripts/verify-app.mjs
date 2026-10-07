@@ -3,7 +3,7 @@ import { resolve, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { writeFileSync, rmSync } from 'node:fs'
 import { chromium } from './lib/cdp-browser.mjs'
-import { assertGpu, gpuArgs } from './lib/gpu-probe.mjs'
+import { assertGpu, gpuLaunchArgs, gpuModeFlag } from './lib/gpu-probe.mjs'
 
 const SDK_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const PORT = 20000 + Math.floor(Math.random() * 20000)
@@ -16,6 +16,7 @@ const APPS = argNames.length > 0
   : ['agent-simple-demo', 'agent-physics-demo', 'agent-interactive-demo', 'agent-spawner-demo', 'agent-fsm-demo']
 
 const ACCELERATED = process.argv.includes('--accelerated')
+const GPU_MODE = gpuModeFlag('gpu', ACCELERATED ? 'accelerated' : 'software')
 const REQUIRE_ACCELERATED = process.argv.includes('--require-accelerated')
 const EXPECT_VENDOR = (process.argv.find(a => a.startsWith('--expect-vendor=')) || '').slice('--expect-vendor='.length) || null
 
@@ -75,7 +76,7 @@ async function main() {
         `live=[${Array.from(liveIds).slice(0, 20).join(',')}]`)
     }
 
-    browser = await chromium.launch({ headless: true, args: gpuArgs({ accelerated: ACCELERATED }) })
+    browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(GPU_MODE) })
     const context = await browser.newContext({ viewport: { width: 640, height: 480 } })
     const page = await context.newPage()
     const pageErrors = []
@@ -93,7 +94,7 @@ async function main() {
     const playerId = await waitForEval(page, () => window.__client?.connected && window.__client?.playerId, undefined, { label: 'client connect', timeoutMs: 120000 })
     check('headless client connected with a playerId', !!playerId, `playerId=${JSON.stringify(playerId)}`)
 
-    const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED, expectVendor: EXPECT_VENDOR })
+    const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED || GPU_MODE.accelerated, expectVendor: EXPECT_VENDOR || GPU_MODE.vendor })
     rasterizer = gpu.rasterizer
     console.log(`[verify-app] rasterizer=${gpu.rasterizer} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)
 

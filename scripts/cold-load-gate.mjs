@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { chromium } from './lib/cdp-browser.mjs'
-import { assertGpu, gpuArgs } from './lib/gpu-probe.mjs'
+import { assertGpu, gpuLaunchArgs, gpuModeFlag } from './lib/gpu-probe.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
@@ -11,6 +11,7 @@ const BASELINE_PATH = join(ROOT, '.cold-load-baseline.json')
 const THRESHOLD = 1.25
 const UPDATE = process.argv.includes('--update-baseline')
 const ACCELERATED = process.argv.includes('--accelerated')
+const GPU_MODE = gpuModeFlag('gpu', ACCELERATED ? 'accelerated' : 'software')
 const REQUIRE_ACCELERATED = process.argv.includes('--require-accelerated')
 const EXPECT_VENDOR = (process.argv.find(a => a.startsWith('--expect-vendor=')) || '').slice('--expect-vendor='.length) || null
 const PORT = process.env.PORT || '3098'
@@ -49,7 +50,7 @@ async function measureRealColdLoadMs() {
 
   let browser
   try {
-    browser = await chromium.launch({ headless: true, args: gpuArgs({ accelerated: ACCELERATED }) })
+    browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(GPU_MODE) })
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } })
     const page = await ctx.newPage()
     const pageErrors = []
@@ -72,8 +73,8 @@ async function measureRealColdLoadMs() {
     if (!ready) throw new Error(`loadingMachine never reached isReady within ${LOAD_TIMEOUT_MS}ms -- real cold-load hang, not a timing regression`)
     if (pageErrors.length > 0) throw new Error(`page threw ${pageErrors.length} uncaught error(s) during cold load: ${pageErrors[0]}`)
 
-    const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED, expectVendor: EXPECT_VENDOR })
-    console.log(`[cold-load-gate] rasterizer=${gpu.rasterizer} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)
+    const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED || GPU_MODE.accelerated, expectVendor: EXPECT_VENDOR || GPU_MODE.vendor })
+    console.log(`[cold-load-gate] rasterizer=${gpu.rasterizer} gpuMode=${GPU_MODE.mode} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)
 
     console.log(`[cold-load-gate] real cold load: navigation -> loadingMachine.isReady in ${coldLoadMs}ms`)
     return { ms: coldLoadMs, gpu }

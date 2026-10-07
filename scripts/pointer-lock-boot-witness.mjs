@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { chromium } from './lib/cdp-browser.mjs'
-import { assertGpu, gpuArgs } from './lib/gpu-probe.mjs'
+import { assertGpu, gpuLaunchArgs, gpuModeFlag } from './lib/gpu-probe.mjs'
 
 const PORT = process.env.PORT || '3117'
 const OBSERVE_MS = Number(process.env.OBSERVE_MS || 60000)
@@ -8,6 +8,7 @@ const LOAD_TIMEOUT_MS = Number(process.env.LOAD_TIMEOUT_MS || 300000)
 const POINTER_LOCK_RE = /pointer\s*lock|pointerLock/i
 
 const ACCELERATED = process.argv.includes('--accelerated')
+const GPU_MODE = gpuModeFlag('gpu', ACCELERATED ? 'accelerated' : 'software')
 const REQUIRE_ACCELERATED = process.argv.includes('--require-accelerated')
 const EXPECT_VENDOR = (process.argv.find(a => a.startsWith('--expect-vendor=')) || '').slice('--expect-vendor='.length) || null
 
@@ -32,7 +33,7 @@ async function main() {
   let observedMs = 0
   let rasterizer = 'unknown'
   try {
-    browser = await chromium.launch({ headless: true, args: gpuArgs({ accelerated: ACCELERATED }) })
+    browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(GPU_MODE) })
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
     const consoleEvents = []
     const pageErrors = []
@@ -55,7 +56,7 @@ async function main() {
     }
     console.log(`[pointer-lock-witness] loadingMachine.isReady=${ready}`)
 
-    const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED, expectVendor: EXPECT_VENDOR })
+    const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED || GPU_MODE.accelerated, expectVendor: EXPECT_VENDOR || GPU_MODE.vendor })
     rasterizer = gpu.rasterizer
     console.log(`[pointer-lock-witness] rasterizer=${gpu.rasterizer} renderer=${gpu.renderer || 'none'} webgpu=${gpu.adapter ? (gpu.adapter.description || gpu.adapter.vendor || 'yes') : 'none'}`)
 
