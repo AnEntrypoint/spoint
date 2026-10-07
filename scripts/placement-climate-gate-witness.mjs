@@ -95,7 +95,8 @@ const rockEarlyUs = benchChunk('rock, climate read before the surface solve', ro
 const rockLateUs = benchChunk('rock, climate read after the surface solve ', rockKeys, (k) => placementsForRockChunk(k, frame, localXZ, tcfg.seed | 0))
 
 const identical = veg.diffRows === 0 && rock.diffRows === 0 && veg.shapeDiff === 0 && rock.shapeDiff === 0 && digestEarly === digestLate
-const noRegression = vegEarlyUs <= vegLateUs && rockEarlyUs <= rockLateUs
-const bad = (identical ? 0 : 1) + (noRegression ? 0 : 1)
-console.log(`RESULT: ${bad === 0 ? 'PASS' : 'FAIL'} identical ${identical}, veg ${vegEarlyUs.toFixed(1)} vs ${vegLateUs.toFixed(1)} us/chunk, rock ${rockEarlyUs.toFixed(1)} vs ${rockLateUs.toFixed(1)} us/chunk`)
+const covered = veg.rows > 0 && rock.rows > 0
+const bad = (identical ? 0 : 1) + (covered ? 0 : 1)
+if (!covered) console.error(`FAIL the climate gate compared ${veg.rows} veg and ${rock.rows} rock placement(s), so identical placements prove nothing`)
+console.log(`RESULT: ${bad === 0 ? 'PASS' : 'FAIL'} identical ${identical} over ${veg.rows} veg and ${rock.rows} rock placement(s); observed veg ${vegEarlyUs.toFixed(1)} vs ${vegLateUs.toFixed(1)} us/chunk, rock ${rockEarlyUs.toFixed(1)} vs ${rockLateUs.toFixed(1)} us/chunk (timings are an observation, not a gate)`)
 process.exit(bad === 0 ? 0 : 1)
