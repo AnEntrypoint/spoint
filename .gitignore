@@ -69,3 +69,5 @@ data/*/
 .*.log
 .pd-url.txt
 .v-*.txt
+scripts/.*
+.ci-*.txt
