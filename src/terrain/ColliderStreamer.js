@@ -432,7 +432,6 @@ export function createColliderStreamer(spec = {}) {
   }
 
   async function evictOverCap(centers, target = effectiveCap, protect = null) {
-    return 0
     if (live.size <= target) return 0
     const ids = [], bodies = [], dists = []
     let deadline = _now() + ADD_BUDGET_MS
