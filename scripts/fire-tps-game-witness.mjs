@@ -22,17 +22,16 @@ const failures = []
 const say = (...parts) => { const line = parts.join(' '); out.push(line); console.log(line) }
 const fmt = v => (v == null || !Number.isFinite(Number(v)) ? String(v) : Number(v).toFixed(2))
 
+if (typeof globalThis.WebSocket !== 'function') {
+  const { WebSocket } = await import('ws')
+  globalThis.WebSocket = WebSocket
+  say(`node ${process.versions.node} has no global WebSocket, so the clients use the ws package the server already speaks`)
+}
+
 function freePort() {
   return new Promise((res, rej) => { const s = createNetServer(); s.once('error', rej); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)) }) })
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms))
-async function until(fn, ms, label) {
-  const t0 = Date.now()
-  while (Date.now() - t0 < ms) { if (fn()) return true; await sleep(25) }
-  say(`  !! timed out waiting for ${label}`)
-  return false
-}
-
 async function stopArm(clients, server) {
   for (const c of clients) { try { c.stopInputLoop?.(); c.disconnect?.() } catch {} }
   try { server.tickSystem?.stop?.() } catch {}
@@ -95,14 +94,25 @@ async function runOnce({ enabled, weather, label }) {
   await server.start()
   const url = `ws://127.0.0.1:${port}/ws`
   const clients = [0, 1].map(() => new PhysicsNetworkClient({ url, predictionEnabled: false, smoothInterpolation: false, webTransport: { enabled: false } }))
-  await Promise.all(clients.map(c => c.connect()))
-  const joined = await until(() => server.playerManager.getConnectedPlayers().length === 2, JOIN_TIMEOUT_MS, 'two players to join')
+  const isOpen = c => c.connected === true && c.ws != null && c.ws.readyState === 1
+  const isConnecting = c => c.ws != null && c.ws.readyState === 0
+  const deadline = Date.now() + JOIN_TIMEOUT_MS
+  let joined = false
+  while (Date.now() < deadline) {
+    for (const c of clients) if (!isOpen(c) && !isConnecting(c)) await c.connect()
+    if (server.playerManager.getConnectedPlayers().length === 2) { joined = true; break }
+    await sleep(250)
+  }
+  if (!joined) say(`  !! timed out waiting for two players to join at ${url}`)
   const players = server.playerManager.getConnectedPlayers()
   if (!joined || players.length < 2) {
-    failures.push(`${label}: only ${players.length} of 2 client(s) joined the server within ${JOIN_TIMEOUT_MS / 1000} s, so this arm observed no shot, no fire and no damage`)
+    const sockets = server.connections.getAllStats().activeConnections
+    const transports = clients.map((c, i) => `client ${i} connected=${c.connected} readyState=${c.ws ? c.ws.readyState : 'no socket'}`).join(', ')
+    failures.push(`${label}: only ${players.length} of 2 client(s) joined the server within ${JOIN_TIMEOUT_MS / 1000} s at ${url}, where ${sockets} socket(s) were accepted (${transports}), so this arm observed no shot, no fire and no damage`)
     await stopArm(clients, server)
     return null
   }
+  say(`  ${label}: ${server.connections.getAllStats().activeConnections} socket(s) accepted for ${clients.length} client(s)`)
   const shooterId = players[0].id, victimId = players[1].id
   clients[0].startInputLoop(() => ({ yaw: 0, pitch: 0 }))
   clients[1].startInputLoop(() => ({ yaw: 0, pitch: 0 }))
