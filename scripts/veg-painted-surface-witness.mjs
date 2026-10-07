@@ -58,6 +58,7 @@ function dump() {
   const rows = []
   const tally = { grass: 0, rock: 0, sand: 0, snow: 0 }
   let snowDominant = 0, bareSand = 0, bushes = 0, bushOnSnow = 0
+  let cellsSampled = 0, snowCellsAll = 0, bareCellsAll = 0
   for (const key of vegKeys) {
     const dec = vegLattice.decodeChunk(key, [0, 0, 0])
     const seed = (tcfg.seed | 0) ^ 0x7eed
@@ -66,19 +67,23 @@ function dump() {
       for (let gx = 0; gx < VEG.GRID; gx++) {
         placementCellAt(frame, vegLattice, dec, gx, gz, seed, VEG.JITTER / VEG.CELL, 0, 1, cell)
         const p = classify(frame, field, cell)
-        if (!p) continue
-        rows.push(flattenVeg(p))
         const s = surfaceOf(frame, cell, surface)
         const snow = s.snow > s.grass && s.snow > s.rock && s.snow > s.sand
+        const bare = s.grass < 0.08 && s.sand > 0.5
+        cellsSampled++
+        if (snow) snowCellsAll++
+        if (bare) bareCellsAll++
+        if (!p) continue
+        rows.push(flattenVeg(p))
         if (snow) { snowDominant++; tally.snow++ } else if (s.sand > s.grass && s.sand > s.rock) tally.sand++
         else if (s.rock > s.grass) tally.rock++
         else tally.grass++
-        if (s.grass < 0.08 && s.sand > 0.5) bareSand++
+        if (bare) bareSand++
         if (SPECIES[p.species].startsWith('Bush')) { bushes++; if (snow) bushOnSnow++ }
       }
     }
   }
-  return { rows, tally, snowDominant, bareSand, bushes, bushOnSnow }
+  return { rows, tally, snowDominant, bareSand, bushes, bushOnSnow, cellsSampled, snowCellsAll, bareCellsAll }
 }
 
 const first = dump()
@@ -90,8 +95,10 @@ let grassCount = 0
 for (const k of grassKeys) grassCount += placementsForGrassChunk(k, frame, field, tcfg.seed | 0).length
 
 const checks = [
-  ['no vegetation on a snow-dominant painted surface', first.snowDominant === 0, `placed ${first.snowDominant}`],
-  ['no vegetation on bare painted sand', first.bareSand === 0, `placed ${first.bareSand}`],
+  ['the sample contains snow-dominant cells for the placement test to reject', first.snowCellsAll > 0, `${first.snowCellsAll} of ${first.cellsSampled} sampled cell(s)`],
+  ['the sample contains bare painted sand for the placement test to reject', first.bareCellsAll > 0, `${first.bareCellsAll} of ${first.cellsSampled} sampled cell(s)`],
+  ['no vegetation on a snow-dominant painted surface', first.snowDominant === 0, `placed on ${first.snowDominant} of ${first.snowCellsAll}`],
+  ['no vegetation on bare painted sand', first.bareSand === 0, `placed on ${first.bareSand} of ${first.bareCellsAll}`],
   ['placement is deterministic across runs', digestA === digestB, `digest ${digestA} vs ${digestB}`],
   ['grass still places where vegetation does', grassCount > 0, `grass ${grassCount}`],
   ['bushes still place somewhere', first.bushes > 0, `bushes ${first.bushes}`],
@@ -102,5 +109,5 @@ for (const [name, ok, detail] of checks) {
   console.log(`  [${ok ? 'PASS' : 'FAIL'}] ${name} (${detail})`)
 }
 console.log(`veg ${first.rows.length} placement(s) over ${vegKeys.length} chunk(s): grass ${first.tally.grass} rock ${first.tally.rock} sand ${first.tally.sand} snow ${first.tally.snow}; bushes ${first.bushes} of which on snow ${first.bushOnSnow}; grass placements ${grassCount}; digest ${digestA}`)
-console.log(`RESULT: ${failed === 0 ? 'PASS' : 'FAIL'} snow ${first.snowDominant} bareSand ${first.bareSand} determinism ${digestA === digestB}`)
+console.log(`RESULT: ${failed === 0 ? 'PASS' : 'FAIL'} -- ${first.rows.length} placement(s) over ${first.cellsSampled} cell(s), of which ${first.snowCellsAll} snow-dominant carrying ${first.snowDominant} and ${first.bareCellsAll} bare-sand carrying ${first.bareSand}; determinism ${digestA === digestB}`)
 process.exit(failed === 0 ? 0 : 1)
