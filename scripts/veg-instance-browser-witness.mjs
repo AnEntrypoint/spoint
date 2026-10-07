@@ -3,6 +3,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { chromium } from './lib/cdp-browser.mjs'
 import { gpuArgs, assertGpu } from './lib/gpu-probe.mjs'
 import { vendorPinArgs } from './lib/witness-gpu.mjs'
+import {
+  assertServedClientRoot, clientRootTag, rebuildClientBundle, CLIENT_ROOT_BUNDLE,
+} from './lib/served-client-root.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -77,6 +80,9 @@ try {
   const url = `http://localhost:${port}/?singleplayer&world=tps-game&at=${encodeURIComponent(AT)}&v=${Date.now()}`
   console.log('[veg-witness] ' + url)
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 120000 })
+
+  const servedRoot = await assertServedClientRoot(page, { want: CLIENT_ROOT_BUNDLE, label: 'veg-witness' })
+  console.log(`[veg-witness] served ${clientRootTag(servedRoot)} required=${CLIENT_ROOT_BUNDLE}`)
 
   const t0 = Date.now()
   let revealedAt = null
@@ -161,7 +167,7 @@ try {
   const checks = [
     ['vegetation has instances after the player stands on open ground', final.vegTotal > 0, `vegTotal=${final.vegTotal} peak=${peak}`],
     ['vegetation issues draw calls', final.vegDraws > 0 || final.vegImpostor > 0, `vegDraws=${final.vegDraws} impostor=${final.vegImpostor}`],
-    ['grass has instances', final.grassTotal === null || final.grassTotal > 0, `grassTotal=${final.grassTotal}`],
+    ['grass has instances', final.grassTotal > 0, `grassTotal=${final.grassTotal}`],
   ]
 
   if (WALK_MS > 0) {
