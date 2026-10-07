@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readdirSync, statSync, readFileSync, existsSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { join, extname, dirname, resolve, sep } from 'node:path'
 
 const ROOTS = ['src', 'client', 'apps', 'scripts', 'bin', 'packages/mapspinner/src', 'packages/streaming-gltf/src', 'packages/ecs/src']
@@ -87,6 +88,17 @@ function collect(dir, out) {
   return out
 }
 
+function trackedSourceFiles() {
+  let stdout
+  try {
+    stdout = execFileSync('git', ['ls-files', '--', ...ROOTS], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+  } catch (e) {
+    console.error(`check-relative-imports: git ls-files failed, so which file(s) are committed is unknown: ${e.message}`)
+    process.exit(1)
+  }
+  return new Set(stdout.split('\n').filter(Boolean))
+}
+
 function lineOf(text, index) {
   let line = 1
   for (let i = 0; i < index; i++) if (text[i] === '\n') line++
@@ -109,23 +121,26 @@ function resolves(target) {
 }
 
 function main() {
+  const tracked = trackedSourceFiles()
   const files = []
   for (const root of ROOTS) collect(root, files)
+  const scanned = files.filter((f) => tracked.has(f.split(sep).join('/')))
+  const skipped = files.length - scanned.length
 
   const missingRoots = ROOTS.filter((root) => !existsSync(root))
   if (missingRoots.length) {
     console.error(`check-relative-imports: source root(s) absent: ${missingRoots.join(', ')}`)
     process.exit(1)
   }
-  if (files.length === 0) {
-    console.error('check-relative-imports: 0 file(s) collected -- an empty scan is not a pass')
+  if (scanned.length === 0) {
+    console.error(`check-relative-imports: 0 tracked file(s) collected (${skipped} untracked) -- an empty scan is not a pass`)
     process.exit(1)
   }
 
   const problems = []
   let checked = 0
   let namedChecked = 0
-  for (const file of files) {
+  for (const file of scanned) {
     let text
     try { text = readFileSync(file, 'utf8') } catch { continue }
     for (const { spec, index } of specifiers(text)) {
@@ -142,9 +157,9 @@ function main() {
     problems.push(...namedProblems)
   }
 
-  console.log(`check-relative-imports: ${checked} relative specifier(s) in ${files.length} file(s)`)
+  console.log(`check-relative-imports: ${checked} relative specifier(s) in ${scanned.length} tracked file(s) (${skipped} untracked file(s) not scanned)`)
   if (checked === 0) {
-    console.error(`check-relative-imports: 0 relative specifier(s) in ${files.length} file(s) -- an empty scan is not a pass`)
+    console.error(`check-relative-imports: 0 relative specifier(s) in ${scanned.length} tracked file(s) -- an empty scan is not a pass`)
     process.exit(1)
   }
   if (namedChecked === 0) {
