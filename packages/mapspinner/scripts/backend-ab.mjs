@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
+import { angleBackendArgs } from '../../../scripts/lib/gpu-probe.mjs';
 
 const CHROME = ['C:/Program Files/Google/Chrome/Application/chrome.exe',
                 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe'].find(p => fs.existsSync(p));
@@ -8,7 +9,7 @@ const havePose = [dx, dy, dz].every(Number.isFinite);
 
 const CFG = [
   { name: 'd3d11',  port: 9231, args: [] },
-  { name: 'vulkan', port: 9232, args: ['--use-angle=vulkan'] },
+  { name: 'vulkan', port: 9232, args: angleBackendArgs('vulkan') },
 ];
 
 async function cdp(port) {

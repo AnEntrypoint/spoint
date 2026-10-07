@@ -7,6 +7,10 @@ export const ACCELERATED_ARGS = ['--ignore-gpu-blocklist', '--enable-gpu-rasteri
 
 const SOFTWARE_MARKERS = /swiftshader|llvmpipe|softwarerasterizer|basic render|mesa offscreen|subzero/i
 
+export function angleBackendArgs(backend) {
+  return ['--use-gl=angle', `--use-angle=${backend}`]
+}
+
 export async function probeGpu(page) {
   return page.evaluate(async () => {
     const markers = /swiftshader|llvmpipe|softwarerasterizer|basic render|mesa offscreen|subzero/i
@@ -53,6 +57,13 @@ export async function probeGpu(page) {
   })
 }
 
+export { SOFTWARE_MARKERS }
+
+export function rasterizerOf(...parts) {
+  const haystack = parts.filter(Boolean).join(' | ')
+  return rasterizerClass({ haystack, accelerated: haystack.length > 0 && !SOFTWARE_MARKERS.test(haystack) })
+}
+
 export function rasterizerClass(probe) {
   if (!probe || !probe.haystack) return 'unknown'
   return probe.accelerated ? 'accelerated' : 'software'
@@ -91,6 +102,21 @@ export function gpuModeFlag(name = 'gpu', dflt = 'software') {
 
 export function gpuLaunchArgs(mode, extra = []) {
   return [...gpuArgs({ accelerated: gpuModeOf(mode).accelerated }), ...extra]
+}
+
+const VENDOR_ADAPTER_PATTERNS = {
+  nvidia: 'nvidia|geforce|quadro|rtx',
+  amd: 'amd|radeon',
+  intel: 'intel|arc|iris|uhd',
+  igpu: 'intel|arc|iris|uhd',
+}
+
+export function vendorGpuArgs(vendor, luids = {}) {
+  const base = ['--use-gl=angle', '--use-angle=d3d11']
+  if (!vendor || vendor === 'accelerated' || vendor === 'software' || vendor === 'swiftshader') return base
+  const luid = luids[vendor] || adapterLuidFor(VENDOR_ADAPTER_PATTERNS[vendor] || vendor)
+  if (!luid) throw new Error(`gpu-probe: no DirectX adapter matches vendor "${vendor}" -- pass an explicit adapter LUID`)
+  return [...base, `--use-adapter-luid=0,${luid}`]
 }
 
 export async function witnessGpu(page, mode) {

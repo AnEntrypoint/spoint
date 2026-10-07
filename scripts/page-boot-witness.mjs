@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { chromium } from './lib/cdp-browser.mjs'
-import { gpuLaunchArgs, gpuModeFlag } from './lib/gpu-probe.mjs'
+import { gpuLaunchArgs, gpuModeFlag, probeGpu, rasterizerClass, vendorGpuArgs } from './lib/gpu-probe.mjs'
 import { unreachedReasons } from './lib/witness-reachability.mjs'
 
 function flag(name, dflt = null) {
@@ -64,7 +64,7 @@ async function adapterLuidArgs(vendor) {
   for (const line of stdout.split('\n')) {
     const [description, luid] = line.split('|')
     if (!description || !luid || /basic render/i.test(description)) continue
-    if (pattern.test(description)) return ['--use-angle=d3d11', `--use-adapter-luid=${luid.trim()}`]
+    if (pattern.test(description)) return vendorGpuArgs(vendor, { [vendor]: luid.trim() })
   }
   const seen = stdout.split('\n').filter(l => l.includes('|')).map(l => l.split('|')[0].trim()).join(', ') || 'none'
   throw new Error(`gpu=${vendor}: no live ${vendor} adapter found among: ${seen}`)
@@ -158,7 +158,8 @@ async function main() {
     const wanted = GPU_VENDOR || REQUIRE_GPU || 'any'
     const gotVendor = Object.keys(VENDOR_ADAPTER).find(v => VENDOR_ADAPTER[v].test(gpuName) || VENDOR_ADAPTER[v].test(gpu.renderer || '')) || null
     const gpuKind = gpuSoftware ? 'SOFTWARE (swiftshader/llvmpipe or no webgpu adapter)' : (gotVendor ? gotVendor.toUpperCase() : 'UNRECOGNISED ADAPTER')
-    console.log(`[page-boot-witness] gpu adapter=${JSON.stringify(gpuName)} glRenderer=${JSON.stringify(gpu.renderer)} classification=${gpuKind} wanted=${JSON.stringify(wanted || 'any')} gpuMode=${GPU_MODE.mode}`)
+    const gpuProbeClass = await probeGpu(page).then(rasterizerClass).catch(() => 'unknown')
+    console.log(`[page-boot-witness] gpu adapter=${JSON.stringify(gpuName)} glRenderer=${JSON.stringify(gpu.renderer)} classification=${gpuKind} rasterizer=${gpuProbeClass} wanted=${JSON.stringify(wanted || 'any')} gpuMode=${GPU_MODE.mode}`)
     if (GPU_MODE.accelerated && gpuSoftware) fail(`gpuMode=${GPU_MODE.mode} demands an accelerated rasterizer but the page measured ${gpuKind} (${gpuName})`)
     if (GPU_MODE.vendor) {
       const wantVendor = VENDOR_ADAPTER[GPU_MODE.vendor] || new RegExp(GPU_MODE.vendor, 'i')

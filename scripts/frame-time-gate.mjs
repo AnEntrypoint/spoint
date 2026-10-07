@@ -4,17 +4,12 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { chromium } from './lib/cdp-browser.mjs'
 import { unreachedReasons } from './lib/witness-reachability.mjs'
-import { assertGpu, gpuArgs, adapterLuidFor } from './lib/gpu-probe.mjs'
+import { assertGpu, gpuArgs, vendorGpuArgs } from './lib/gpu-probe.mjs'
 import { baselineRefusals } from './lib/frame-time-baseline.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
 const baselineArg = (process.argv.find(a => a.startsWith('--baseline=')) || '').slice('--baseline='.length)
-const AMD_LUID = adapterLuidFor('amd')
-const VENDOR_ARGS = {
-  nvidia: ['--use-gl=angle', '--use-angle=d3d11'],
-  amd: ['--use-gl=angle', '--use-angle=d3d11', '--use-adapter-luid=0,' + AMD_LUID],
-}
 const VENDOR = (process.argv.find(a => a.startsWith('--expect-vendor=')) || '').slice('--expect-vendor='.length) || process.env.SPOINT_GPU || ''
 const BASELINE_PATH = baselineArg || join(ROOT, VENDOR ? `.frame-time-baseline.${VENDOR}.json` : '.frame-time-baseline.json')
 const THRESHOLD = 1.10
@@ -142,7 +137,7 @@ async function measureRealFrameTimes() {
 
   let browser
   try {
-    browser = await chromium.launch({ headless: true, args: [...gpuArgs({ accelerated: ACCELERATED }), ...(VENDOR_ARGS[VENDOR] || []), ...UNLOCKED_RAF_ARGS] })
+    browser = await chromium.launch({ headless: true, args: [...gpuArgs({ accelerated: ACCELERATED }), ...(VENDOR ? vendorGpuArgs(VENDOR) : []), ...UNLOCKED_RAF_ARGS] })
     if (!UNLOCK_RAF) console.log('[frame-time-gate] rAF is vsync-locked (SPOINT_UNLOCK_RAF=0), so frame times here carry the refresh divisor')
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
     const pageErrors = []

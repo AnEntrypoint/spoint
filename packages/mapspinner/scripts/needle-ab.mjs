@@ -1,13 +1,15 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
 
+import { angleBackendArgs, rasterizerOf } from '../../../scripts/lib/gpu-probe.mjs';
+
 const CHROME = ['C:/Program Files/Google/Chrome/Application/chrome.exe',
                 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe'].find(p => fs.existsSync(p));
 const PORT = 8084;
 const ALL = [
   { name: 'd3d11',       port: 9241, args: [] },
-  { name: 'swiftshader', port: 9242, args: ['--use-angle=swiftshader'] },
-  { name: 'vulkan',      port: 9243, args: ['--use-angle=vulkan'] },
+  { name: 'swiftshader', port: 9242, args: angleBackendArgs('swiftshader') },
+  { name: 'vulkan',      port: 9243, args: angleBackendArgs('vulkan') },
 ];
 const CFG = process.env.BACKENDS ? ALL.filter(b => process.env.BACKENDS.split(',').includes(b.name)) : ALL;
 
@@ -79,7 +81,7 @@ for (const b of CFG) {
     await new Promise(r => setTimeout(r, 2500));
     const c = await cdp(b.port);
     const out = await c.evalIn(BAKE_EXPR);
-    console.log(b.name, JSON.stringify(out));
+    console.log(b.name, 'rasterizer=' + rasterizerOf(out.renderer), JSON.stringify(out));
     c.ws.close();
   } catch (e) { console.log(b.name, 'ERR', String(e).slice(0, 300)); }
   ch.kill();

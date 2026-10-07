@@ -3,7 +3,7 @@ import { writeFileSync, mkdirSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { chromium } from './lib/cdp-browser.mjs'
-import { assertGpu, gpuArgs } from './lib/gpu-probe.mjs'
+import { assertGpu, gpuArgs, vendorGpuArgs } from './lib/gpu-probe.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -32,10 +32,12 @@ const [VIEW_W, VIEW_H] = String(flag('viewport', '1280x720')).split('x').map(Num
 const SCALING = !has('no-scaling')
 const SCALING_COUNTS = String(flag('scaling-counts', '10000,50000')).split(',').map(Number)
 
-const GPU_VENDOR_ARGS = {
-  nvidia: ['--use-gl=angle', '--use-angle=d3d11'],
-  amd: ['--use-gl=angle', '--use-angle=d3d11'],
-  intel: ['--use-gl=angle', '--use-angle=d3d11'],
+let LAUNCH_VENDOR_ARGS
+try {
+  LAUNCH_VENDOR_ARGS = vendorGpuArgs(GPU)
+} catch (e) {
+  console.error('[veg-lod-browser] ' + e.message)
+  process.exit(2)
 }
 
 const READY = () => {
@@ -272,7 +274,7 @@ async function main() {
   const server = await boot()
   console.log('[veg-lod-browser] server up on ' + port)
 
-  const args = [...gpuArgs({ accelerated: true }), ...(GPU_VENDOR_ARGS[GPU] || GPU_VENDOR_ARGS.nvidia)]
+  const args = [...gpuArgs({ accelerated: true }), ...LAUNCH_VENDOR_ARGS]
   const browser = await chromium.launch({ headless: true, args })
   const page = await browser.newPage({ viewport: { width: VIEW_W, height: VIEW_H } })
   const failures = []

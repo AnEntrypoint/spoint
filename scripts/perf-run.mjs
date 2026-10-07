@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto'
 import { spawnSync, spawn } from 'node:child_process'
 import { chromium } from './lib/cdp-browser.mjs'
 import { unreachedReasons } from './lib/witness-reachability.mjs'
-import { assertGpu, gpuArgs, adapterLuidFor, directxAdapters } from './lib/gpu-probe.mjs'
+import { assertGpu, gpuArgs, adapterLuidFor, directxAdapters, vendorGpuArgs } from './lib/gpu-probe.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -60,26 +60,26 @@ setTimeout(() => {
 }, HARD_TIMEOUT_MS).unref()
 const OUT_FILE = resolve(OUT_DIR, LABEL + '.json')
 
-const AMD_LUID = flag('adapter-luid', null) || adapterLuidFor('amd')
-const INTEL_LUID = flag('intel-adapter-luid', null) || adapterLuidFor('intel')
-const GPU_VENDOR_ARGS = {
-  nvidia: ['--use-gl=angle', '--use-angle=d3d11'],
-  amd: ['--use-gl=angle', '--use-angle=d3d11', '--use-adapter-luid=0,' + AMD_LUID],
-  igpu: ['--use-gl=angle', '--use-angle=d3d11', '--use-adapter-luid=0,' + INTEL_LUID],
-}
-for (const [vendor, luid] of [['amd', AMD_LUID], ['igpu', INTEL_LUID]]) {
-  if (GPU === vendor && !luid) {
-    console.error('[perf-run] --gpu=' + vendor + ' needs an adapter LUID; none of ' + JSON.stringify(directxAdapters()) + ' matches. Pass ' + (vendor === 'amd' ? '--adapter-luid=<decimal>' : '--intel-adapter-luid=<decimal>') + '.')
+const LUID_OVERRIDES = { amd: flag('adapter-luid', null), intel: flag('intel-adapter-luid', null) }
+const VENDOR_OF_ARM = { igpu: 'intel' }
+for (const [arm, vendor] of Object.entries(VENDOR_OF_ARM)) {
+  if (GPU === arm && !(LUID_OVERRIDES[vendor] || adapterLuidFor(vendor))) {
+    console.error('[perf-run] --gpu=' + arm + ' needs an adapter LUID; none of ' + JSON.stringify(directxAdapters()) + ' matches. Pass --' + (vendor === 'amd' ? '' : 'intel-') + 'adapter-luid=<decimal>.')
     process.exit(2)
   }
 }
 const ACCELERATED = has('accelerated') || GPU !== 'swiftshader'
-if (ACCELERATED && !GPU_VENDOR_ARGS[GPU]) {
-  console.error('[perf-run] --gpu=' + GPU + ' is not a known vendor arm; expected one of ' + Object.keys(GPU_VENDOR_ARGS).join(', ') + ' or swiftshader.')
-  process.exit(2)
+let VENDOR_ARGS
+if (ACCELERATED) {
+  try {
+    VENDOR_ARGS = vendorGpuArgs(VENDOR_OF_ARM[GPU] || GPU, LUID_OVERRIDES)
+  } catch (e) {
+    console.error('[perf-run] ' + e.message + '; adapters seen: ' + JSON.stringify(directxAdapters()))
+    process.exit(2)
+  }
 }
 const LAUNCH_ARGS = ACCELERATED
-  ? [...gpuArgs({ accelerated: true }), ...GPU_VENDOR_ARGS[GPU]]
+  ? [...gpuArgs({ accelerated: true }), ...VENDOR_ARGS]
   : gpuArgs({ accelerated: false })
 
 const POS_SRC = `(() => {

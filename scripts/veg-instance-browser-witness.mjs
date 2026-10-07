@@ -1,7 +1,7 @@
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { chromium } from './lib/cdp-browser.mjs'
-import { gpuArgs, adapterLuidFor, assertGpu } from './lib/gpu-probe.mjs'
+import { gpuArgs, vendorGpuArgs, assertGpu } from './lib/gpu-probe.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -24,14 +24,12 @@ const WALK_MS = Number(flag('walk', '0'))
 const ROUTE = String(flag('route', '-60,-12.5;-60,-60;0,-60'))
 const WALK_SPEED = Number(flag('walk-speed', '7'))
 const EXPECT_VENDOR = flag('expect-vendor', GPU)
-const AMD_LUID = adapterLuidFor('amd')
-if (GPU === 'amd' && !AMD_LUID) {
-  console.error('[veg-witness] no AMD adapter LUID resolvable; pass --gpu=nvidia or check the DirectX registry')
+let LAUNCH_ARGS
+try {
+  LAUNCH_ARGS = [...gpuArgs({ accelerated: true }), ...vendorGpuArgs(GPU)]
+} catch (e) {
+  console.error('[veg-witness] ' + e.message)
   process.exit(2)
-}
-const VENDOR_ARGS = {
-  nvidia: ['--use-gl=angle', '--use-angle=d3d11'],
-  amd: ['--use-gl=angle', '--use-angle=d3d11', '--use-adapter-luid=0,' + AMD_LUID],
 }
 
 const port = String(20000 + Math.floor(Math.random() * 20000))
@@ -77,7 +75,7 @@ const readStream = (page) => page.evaluate(() => {
 let browser
 let failed = 0
 try {
-  browser = await chromium.launch({ args: [...gpuArgs({ accelerated: true }), ...(VENDOR_ARGS[GPU] || VENDOR_ARGS.nvidia)] })
+  browser = await chromium.launch({ args: LAUNCH_ARGS })
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
   const errors = []
   page.on('pageerror', (e) => errors.push(String((e && e.stack) || (e && e.message) || e)))
