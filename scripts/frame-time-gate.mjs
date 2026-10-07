@@ -7,6 +7,10 @@ import { chromium } from './lib/cdp-browser.mjs'
 import { unreachedReasons } from './lib/witness-reachability.mjs'
 import { assertGpu, gpuArgs, gpuModeOf } from './lib/gpu-probe.mjs'
 import { vendorPinArgs } from './lib/witness-gpu.mjs'
+import {
+  gpuControlArgs, gpuControlCalibrate, gpuControlProbe, gpuControlRate, gpuControlSpread,
+  gpuControlSensitive, GPU_CONTROL_SENSITIVE_P50_MS, GPU_CONTROL_SPREAD_FACTOR,
+} from './lib/perf-gpu-control.mjs'
 import { baselineRefusals } from './lib/frame-time-baseline.mjs'
 import { contentionWatch, contentionMark, contentionVerdict, formatContention } from './lib/host-contention.mjs'
 import {
@@ -42,7 +46,20 @@ const SETTLE_PROBE_MS = 2000
 const SETTLE_WORST_FRAME_FACTOR = 4
 const SETTLE_MIN_PROBE_SAMPLES = 40
 const SETTLE_SLOW_PROBE_LIMIT = 3
+const GPU_FINGERPRINT_TOLERANCE = 1.25
+const GPU_CONTROL_INSTABILITY_FACTOR = 1.5
+const GPU_CONTROL_ARGS = gpuControlArgs({ accelerated: ACCELERATED, vendorArgs: VENDOR_ARGS, unlockedRafArgs: UNLOCKED_RAF_ARGS })
 const SETTLE_BUDGET_MS = Number((process.argv.find(a => a.startsWith('--settle-budget-ms=')) || '').slice('--settle-budget-ms='.length)) || 240_000
+
+function chromeProcessCount() {
+  if (process.platform !== 'win32') return null
+  try {
+    const out = execFileSync('tasklist', ['/FI', 'IMAGENAME eq chrome.exe', '/NH'], { encoding: 'utf8', windowsHide: true })
+    return out.split('\n').filter((line) => line.toLowerCase().includes('chrome.exe')).length
+  } catch {
+    return null
+  }
+}
 
 function gitHeadSha() {
   try {
@@ -196,6 +213,72 @@ async function settleAtPose(page, label) {
   throw new Error(`${label} never settled inside the ${(SETTLE_BUDGET_MS / 1000).toFixed(0)}s budget (last vegetation count ${previous}) -- the page never reached a frame rate this gate can measure, so no arm is admitted`)
 }
 
+async function measureGpuControl(label, iterations) {
+  const probe = iterations
+    ? await gpuControlProbe({ iterations, args: GPU_CONTROL_ARGS, tag: 'gate' }).catch((e) => {
+      console.log(`[frame-time-gate] gpu control ${label} unavailable: ${e.message}`)
+      return null
+    })
+    : await gpuControlCalibrate({ args: GPU_CONTROL_ARGS, tag: 'gate' })
+  if (!probe) {
+    console.log(`[frame-time-gate] gpu control ${label}: measured no adapter cadence, so this run carries no evidence the adapter was idle`)
+    return null
+  }
+  console.log(`[frame-time-gate] gpu control ${label}: ${probe.p50Ms.toFixed(2)}ms per ${probe.iterations}-iteration quantum over ${probe.samples} sample(s), ${gpuControlRate(probe).toFixed(2)}ms per 1000 iteration(s), worst ${probe.worstMs.toFixed(2)}ms`)
+  if (!gpuControlSensitive(probe)) {
+    console.log(`[frame-time-gate] gpu control ${label}: ${probe.p50Ms.toFixed(2)}ms is under the ${GPU_CONTROL_SENSITIVE_P50_MS}ms a control page needs before its cadence can move with adapter load, so this probe cannot see contention`)
+  }
+  return probe
+}
+
+function formatGpuControl(gpuControl) {
+  const parts = []
+  for (const key of ['before', 'after']) {
+    const probe = gpuControl && gpuControl[key]
+    if (probe) parts.push(`${key} ${probe.p50Ms.toFixed(2)}ms`)
+  }
+  return parts.length ? parts.join(', ') : 'no cadence'
+}
+
+function gpuContentionRefusals(gpuControl) {
+  const before = gpuControl && gpuControl.before
+  const after = gpuControl && gpuControl.after
+  if (!before || !after) {
+    return ['the GPU control probe produced no adapter cadence, so this run carries no evidence the adapter was idle while it measured']
+  }
+  if (!gpuControlSensitive(before) || !gpuControlSensitive(after)) {
+    return [`the GPU control page never exceeded ${GPU_CONTROL_SENSITIVE_P50_MS}ms per quantum (${formatGpuControl(gpuControl)}), so its cadence cannot move with adapter load and this run cannot tell a shared adapter from an idle one`]
+  }
+  const reasons = []
+  for (const [key, probe] of [['before the app booted', before], ['after the app closed', after]]) {
+    if (probe.worstMs > probe.p50Ms * GPU_CONTROL_INSTABILITY_FACTOR) {
+      reasons.push(`the GPU control page hit a ${probe.worstMs.toFixed(2)}ms quantum against its own p50 of ${probe.p50Ms.toFixed(2)}ms ${key} (over x${GPU_CONTROL_INSTABILITY_FACTOR}), so another process was taking the adapter while this run measured`)
+    }
+  }
+  const spread = gpuControlSpread(before, after)
+  if (spread != null && spread > GPU_CONTROL_SPREAD_FACTOR) {
+    reasons.push(`the adapter's own cost moved from ${gpuControlRate(before).toFixed(2)}ms to ${gpuControlRate(after).toFixed(2)}ms per 1000 control iterations across this run (x${spread.toFixed(2)}, over x${GPU_CONTROL_SPREAD_FACTOR}), so this run shared its adapter`)
+  }
+  return reasons
+}
+
+function fingerprintRefusals(base, run) {
+  if (!base) return []
+  const reasons = []
+  if (base.cpuContested === false && run.cpuContested === true) {
+    reasons.push(`the baseline was captured while the CPU-spin probe read clean, this run reads CPU contested (x${run.cpuSlowdown})`)
+  }
+  for (const [key, when] of [['gpuControlBeforeMsPerK', 'before the app booted'], ['gpuControlAfterMsPerK', 'after the app closed']]) {
+    const baseRate = base[key]
+    const runRate = run[key]
+    if (baseRate == null || runRate == null) continue
+    if (runRate > baseRate * GPU_FINGERPRINT_TOLERANCE) {
+      reasons.push(`the GPU control page cost ${runRate.toFixed(2)}ms per 1000 iterations ${when} against the baseline's ${baseRate.toFixed(2)}ms (over x${GPU_FINGERPRINT_TOLERANCE}), so this run's adapter is busier than the box the baseline came from`)
+    }
+  }
+  return reasons
+}
+
 async function moveToStaticPose(page) {
   const eye = await page.evaluate(() => {
     const s = window.__spoint && window.__spoint.where ? window.__spoint.where() : null
@@ -244,13 +327,15 @@ async function measureRealFrameTimes() {
   process.env.SPOINT_NO_WATCH = '1'
 
   console.log(`[frame-time-gate] booting real server on port ${PORT} (world=${process.env.WORLD}) ...`)
+  const controlBefore = await measureGpuControl('before the app boots')
   rebuildIfRequested('frame-time-gate')
   const { boot } = await import('../src/sdk/server.js')
-  const server = await boot()
-  console.log('[frame-time-gate] server up.')
-
+  let server = null
   let browser
   try {
+    server = await boot()
+    console.log('[frame-time-gate] server up.')
+
     browser = await chromium.launch({ headless: true, args: [...gpuArgs({ accelerated: ACCELERATED }), ...VENDOR_ARGS, ...UNLOCKED_RAF_ARGS] })
     if (!UNLOCK_RAF) console.log('[frame-time-gate] rAF is vsync-locked (SPOINT_UNLOCK_RAF=0), so frame times here carry the refresh divisor')
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
@@ -378,10 +463,14 @@ async function measureRealFrameTimes() {
 
     if (pageErrors.length > 0) throw new Error(`page threw ${pageErrors.length} uncaught error(s): ${pageErrors[0]}`)
 
-    return { staticResult, orbitResult, gpu, vegInstances, watch }
+    await browser.close()
+    browser = null
+    const controlAfter = await measureGpuControl('after the app browser closed', controlBefore ? controlBefore.iterations : null)
+
+    return { staticResult, orbitResult, gpu, vegInstances, watch, gpuControl: { before: controlBefore, after: controlAfter } }
   } finally {
-    if (browser) await browser.close()
-    server.stop()
+    if (browser) await browser.close().catch(() => {})
+    if (server) server.stop()
   }
 }
 
@@ -437,15 +526,30 @@ async function main() {
   const staticRates = counterRates(raw.staticResult.counters)
   const orbitRates = counterRates(raw.orbitResult.counters)
   console.log(`[frame-time-gate] counter probe: first=${JSON.stringify(raw.orbitResult.counters[0])} last=${JSON.stringify(raw.orbitResult.counters[raw.orbitResult.counters.length - 1])} samples=${raw.orbitResult.counters.length}`)
+  const gpuRefusals = gpuContentionRefusals(raw.gpuControl)
   const metrics = {
     rasterizer: raw.gpu.rasterizer,
     headSha: gitHeadSha(),
     vendor: (raw.gpu.adapter && raw.gpu.adapter.vendor) || VENDOR || null,
     gpu: raw.gpu.haystack || null,
     vegInstances: raw.vegInstances,
+    fingerprint: {
+      gpuControlIterations: (raw.gpuControl && raw.gpuControl.before && raw.gpuControl.before.iterations) || null,
+      gpuControlBeforeP50Ms: (raw.gpuControl && raw.gpuControl.before && raw.gpuControl.before.p50Ms) || null,
+      gpuControlAfterP50Ms: (raw.gpuControl && raw.gpuControl.after && raw.gpuControl.after.p50Ms) || null,
+      gpuControlBeforeMsPerK: gpuControlRate(raw.gpuControl && raw.gpuControl.before),
+      gpuControlAfterMsPerK: gpuControlRate(raw.gpuControl && raw.gpuControl.after),
+      gpuControlSpread: gpuControlSpread(raw.gpuControl && raw.gpuControl.before, raw.gpuControl && raw.gpuControl.after),
+      cpuContested: contention.contested,
+      cpuSlowdown: contention.slowdown == null ? null : contention.slowdown,
+      chromeProcessCount: chromeProcessCount(),
+    },
     static: { ...staticStats, avgDrawCalls: staticRates.drawCalls, avgTriangles: staticRates.triangles },
     orbit: { ...orbitStats, avgDrawCalls: orbitRates.drawCalls, avgTriangles: orbitRates.triangles },
   }
+
+  const gpuSpread = metrics.fingerprint.gpuControlSpread
+  console.log(`[frame-time-gate] adapter fingerprint: control ${(metrics.fingerprint.gpuControlBeforeMsPerK || 0).toFixed(2)}ms per 1000 iteration(s) before the app booted, ${(metrics.fingerprint.gpuControlAfterMsPerK || 0).toFixed(2)}ms after it closed (spread x${gpuSpread == null ? 0 : gpuSpread.toFixed(2)}, bar x${GPU_CONTROL_SPREAD_FACTOR}), ${metrics.fingerprint.chromeProcessCount == null ? 'chrome process count unknown' : `${metrics.fingerprint.chromeProcessCount} chrome.exe process(es)`}, cpu contested ${contention.contested}`)
 
   console.log(`[frame-time-gate] static  p50=${metrics.static.p50Ms.toFixed(2)}ms p95=${metrics.static.p95Ms.toFixed(2)}ms 1%low=${metrics.static.onePercentLowMs.toFixed(2)}ms fps=${metrics.static.fps.toFixed(1)} draws=${metrics.static.avgDrawCalls.toFixed(0)} tris=${metrics.static.avgTriangles.toFixed(0)}`)
   console.log(`[frame-time-gate] orbit   p50=${metrics.orbit.p50Ms.toFixed(2)}ms p95=${metrics.orbit.p95Ms.toFixed(2)}ms 1%low=${metrics.orbit.onePercentLowMs.toFixed(2)}ms fps=${metrics.orbit.fps.toFixed(1)} draws=${metrics.orbit.avgDrawCalls.toFixed(0)} tris=${metrics.orbit.avgTriangles.toFixed(0)}`)
@@ -479,6 +583,7 @@ async function main() {
     if (contention.contested) {
       refusals.push(`host contention ${contention.peakMs} ms is x${contention.slowdown} of this run's cleanest ${contention.bestMs} ms, so these frame times measure a shared box`)
     }
+    refusals.push(...gpuRefusals)
     if (refusals.length) {
       console.error(`[frame-time-gate] REFUSING to capture an inadmissible baseline: ${refusals.join('; ')}`)
       process.exit(1)
@@ -491,6 +596,13 @@ async function main() {
   const refusals = baselineRefusals(baseline, metrics)
   if (refusals.length) {
     console.error(`[frame-time-gate] BASELINE NOT ADMISSIBLE: ${refusals.join('; ')}`)
+    process.exit(1)
+  }
+
+  refusals.push(...gpuRefusals)
+  refusals.push(...fingerprintRefusals(baseline.fingerprint, metrics.fingerprint))
+  if (refusals.length) {
+    console.error(`[frame-time-gate] RESULT: FAIL -- this run's box does not match the box the baseline was captured on: ${refusals.join('; ')}`)
     process.exit(1)
   }
 
