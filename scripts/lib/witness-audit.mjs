@@ -132,6 +132,23 @@ const HIGH_CHECKS = [
     witnessesOnly: true,
   },
   {
+    id: 'verdict-array-never-appended',
+    why: 'the exit code is decided by an array length but nothing ever appends to that array, so the verdict is a constant zero',
+    find(text) {
+      const rows = []
+      for (const m of text.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*\[\s*\]/g)) {
+        const name = m[1]
+        const escaped = name.replace(/\$/g, '\\$')
+        if (!new RegExp(`process\\.exitCode\\s*=\\s*${escaped}\\.length`).test(text)) continue
+        if (new RegExp(`\\b${escaped}\\s*\\.\\s*push\\s*\\(`).test(text)) continue
+        rows.push({ line: lineOf(text, m.index), text: `${m[0].trim()} -- no ${name}.push( anywhere` })
+        if (rows.length >= MAX_EVIDENCE_PER_CHECK) break
+      }
+      return rows
+    },
+    witnessesOnly: true,
+  },
+  {
     id: 'ws-polyfill-missing',
     why: 'reaches a ws:// URL from Node without a globalThis.WebSocket assignment, so on a runner whose Node has no global WebSocket every client fails to connect and the arm exits before it measures anything',
     find(text) {
