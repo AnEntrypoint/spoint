@@ -66,3 +66,6 @@ data/*/
 !data/prefabs/
 
 .gpu-lock/
+.check-*.log
+.pd-url.txt
+.v-*.txt
