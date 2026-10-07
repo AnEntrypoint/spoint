@@ -212,6 +212,8 @@ export function classify(frame, anchorField, cell) {
   if (!slope) return null
   if (Math.hypot(slope[0], slope[1]) > VEG.SLOPE_MAX) return null
   const painted = paintedWeightsFor(frame.hashVersion)(cell.dir, elev, paintedSlopeOf(slope[0], slope[1]), temp, humidity)
+  const snowCoverDominates = painted.snow > painted.grass && painted.snow > painted.rock && painted.snow > painted.sand
+  if (snowCoverDominates) return null
   const densityMul = soilMul * painted.grass
   if (densityMul <= 0 || coin >= base * densityMul) return null
 
