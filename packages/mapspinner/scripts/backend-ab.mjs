@@ -41,6 +41,23 @@ async function cdp(port) {
   return { evalIn, send, sessionId, ws };
 }
 
+const BROWSER_CLOSE_GRACE_MS = 1500;
+const ORCH_READY_TIMEOUT_MS = 6 * 60 * 1000;
+
+async function closeBrowser(port) {
+  let ver = null;
+  try { ver = await fetch(`http://localhost:${port}/json/version`).then((r) => r.json()); } catch { return false; }
+  let ws = null;
+  try {
+    ws = new WebSocket(ver.webSocketDebuggerUrl);
+    await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+    ws.send(JSON.stringify({ id: 1, method: 'Browser.close' }));
+    await new Promise((r) => setTimeout(r, BROWSER_CLOSE_GRACE_MS));
+    return true;
+  } catch { return false; }
+  finally { try { ws.close(); } catch {} }
+}
+
 const POSE = havePose
   ? `const u0=[${dx},${dy},${dz}];const l0=Math.hypot(...u0);const land={u:[u0[0]/l0,u0[1]/l0,u0[2]/l0]};`
   : `let land=null;for(let i=0;i<3000&&!land;i++){const y=1-2*(i+0.5)/3000,rr=Math.sqrt(Math.max(0,1-y*y)),t=i*2.399963229;
@@ -48,10 +65,15 @@ const POSE = havePose
 
 async function measure(cfg) {
   const c = await cdp(cfg.port);
-  const gpu = await assertLiveBackend(c.evalIn, cfg.launch, cfg.name);
-  for (;;) { const st = await c.evalIn(`window.__planetOrchStatus||'init'`).catch(() => 'nav');
-    if (st === 'ready') break; await new Promise(r => setTimeout(r, 5000)); }
-  const out = await c.evalIn(`(async()=>{
+  try {
+    const gpu = await assertLiveBackend(c.evalIn, cfg.launch, cfg.name);
+    const readyBy = Date.now() + ORCH_READY_TIMEOUT_MS;
+    for (;;) { const st = await c.evalIn(`window.__planetOrchStatus||'init'`).catch(() => 'nav');
+      if (st === 'ready') break;
+      if (st === 'error') throw new Error(`${cfg.name}: orch reported error`);
+      if (Date.now() > readyBy) throw new Error(`${cfg.name}: orch not ready within ${ORCH_READY_TIMEOUT_MS} ms (last "${st}")`);
+      await new Promise(r => setTimeout(r, 5000)); }
+    const out = await c.evalIn(`(async()=>{
     const d=window.__diag; await d.probeWarm();
     const sg=window.__planetOrch.render.sampleGroundM;
     ${POSE}
@@ -65,20 +87,37 @@ async function measure(cfg) {
     const mean=s/n,sd=Math.sqrt(Math.max(0,s2/n-mean*mean));
     return {gpu:(window.__gpuRenderer||'').slice(0,70),lumMean:+mean.toFixed(1),lumSD:+sd.toFixed(2),greyFrac:+(grey/n).toFixed(3)};
   })()`);
-  const shot = await c.send('Page.captureScreenshot', { format: 'png' }, c.sessionId);
-  fs.writeFileSync(`.gm/ab-${cfg.name}.png`, Buffer.from(shot.data, 'base64'));
-  c.ws.close();
-  return { ...out, backend: gpu.backend, rasterizer: gpu.rasterizer, renderer: gpu.renderer };
+    const shot = await c.send('Page.captureScreenshot', { format: 'png' }, c.sessionId);
+    fs.writeFileSync(`.gm/ab-${cfg.name}.png`, Buffer.from(shot.data, 'base64'));
+    return { ...out, backend: gpu.backend, rasterizer: gpu.rasterizer, renderer: gpu.renderer };
+  } finally {
+    try { c.ws.close(); } catch {}
+    await closeBrowser(cfg.port);
+  }
 }
 
+const children = [];
 for (const cfg of CFG) {
-  spawn(CHROME, [`--user-data-dir=${process.cwd()}/.gm/tmp/ab-${cfg.name}`, `--remote-debugging-port=${cfg.port}`,
+  children.push(spawn(CHROME, [`--user-data-dir=${process.cwd()}/.gm/tmp/ab-${cfg.name}`, `--remote-debugging-port=${cfg.port}`,
     '--no-first-run', '--no-default-browser-check', ...cfg.launch.args, 'http://localhost:8080/planet.html'],
-    { detached: true, stdio: 'ignore' }).unref();
+    { detached: true, stdio: 'ignore' }).unref());
 }
 await new Promise(r => setTimeout(r, 8000));
 const results = {};
-for (const cfg of CFG) results[cfg.name] = await measure(cfg);
+const failures = [];
+try {
+  for (const cfg of CFG) {
+    try { results[cfg.name] = await measure(cfg); }
+    catch (e) { failures.push(`${cfg.name}: ${String((e && e.message) || e).slice(0, 300)}`); }
+  }
+} finally {
+  for (const cfg of CFG) await closeBrowser(cfg.port);
+  for (const ch of children) { try { ch.kill(); } catch {} }
+}
+if (failures.length) {
+  console.error(`backend-ab: ${failures.length} arm(s) failed -- ${failures.join(' | ')}`);
+  process.exit(1);
+}
 const dSD = Math.abs(results.d3d11.lumSD - results.vulkan.lumSD);
 const dGrey = Math.abs(results.d3d11.greyFrac - results.vulkan.greyFrac);
 console.log(JSON.stringify({ ...results,
