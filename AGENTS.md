@@ -24,7 +24,7 @@ One line per fact; numbers/scenarios/derivations in memo tier: `mem-0b6d4c2f9e1a
 
 ## Working rules
 
-- Commit as lanmower, main-only, `git_commit` explicit `paths` (`0292ad7b`); pathless `git_finalize` sweeps another lane's edit (`830db61a`, `src/terrain/ColliderStreamer.js:435`). Co-author trailers one-way (`auto-declaudeify.yml`).
+- Commit as lanmower, main-only, `git_commit` explicit `paths` (`0292ad7b`); pathless `git_finalize` sweeps another lane's edit (`830db61a`, `src/terrain/ColliderStreamer.js:435`). Co-author trailers one-way; no workflow in this tree strips them (the `auto-declaudeify` workflow lives only in other refs' history, not on main).
 - `git_commit` fails while `.git/index.lock` exists; foreign stalled git holds it 20+ min — confirm via `Get-CimInstance Win32_Process` cmdlines; 0-byte lock + no spoint git alive = removable.
 - Generated artifacts ship with source: `AppContext.js` -> `sdk-typings.generated.d.ts`; height-code change re-bakes `apps/world/*.hf`.
 - `BAKE_TRANSFORMS` entry = narrowest module transform reads + what that path reads, not import closure; mutation proves it. `SNAPSHOT_ENCODE`: entries `[EcsEntityMap.js]`, inputs `AppRuntime.js`+`EcsEntityMap.js` (`d6e2eb93`).
