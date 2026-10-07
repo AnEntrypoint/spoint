@@ -1,70 +1,22 @@
 #!/usr/bin/env node
-import { existsSync, statSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
-import { join, dirname, extname, resolve, relative } from 'node:path'
+import { existsSync, statSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { join, dirname, resolve, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createHash } from 'node:crypto'
+import { bundleInputHash, fileSha256, workerHashSpec } from '../src/sdk/bundleFreshness.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const flags = new Set(process.argv.slice(2).filter(a => a.startsWith('--')))
 const positional = process.argv.slice(2).filter(a => !a.startsWith('--'))
 const IF_STALE = flags.has('--if-stale')
-const SKIP_DIRS = new Set(['node_modules', '.git', '.gm', 'dist'])
-const GRAPH_EXTS = new Set(['.js', '.mjs'])
 
 const entry = positional[0] || 'src/sdk/WorkerEntry.js'
 const outfile = positional[1] || 'dist/src/sdk/WorkerEntry.js'
 const BASE = positional[2] || ''
 const hashOut = join(dirname(outfile), 'WorkerEntry.bundlehash.json')
-const SELF_SOURCE = fileURLToPath(import.meta.url)
-
-function packageSrcDirs() {
-  const out = []
-  try {
-    for (const e of readdirSync(join(ROOT, 'packages'), { withFileTypes: true })) {
-      if (e.isDirectory()) out.push(join('packages', e.name, 'src'))
-    }
-  } catch {}
-  return out
-}
-const GRAPH_DIRS = ['src', ...packageSrcDirs()]
-
-function collectInputs(dir, rel = '', out = []) {
-  let entries
-  try { entries = readdirSync(join(dir, rel), { withFileTypes: true }) } catch { return out }
-  for (const e of entries) {
-    const child = rel ? join(rel, e.name) : e.name
-    if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) collectInputs(join(dir, e.name), child, out); continue }
-    if (!GRAPH_EXTS.has(extname(e.name))) continue
-    out.push(child)
-  }
-  return out
-}
-
-function relInputs(dirRel) {
-  return collectInputs(join(ROOT, dirRel)).map(r => `${dirRel}/${r}`.replace(/\\/g, '/')).sort()
-}
-
-function inGraphDirs(rel) {
-  return GRAPH_DIRS.some(d => rel === d || rel.startsWith(d + '/'))
-}
+const HASH_SPEC = workerHashSpec(ROOT)
 
 function hashInputs(recorded) {
-  const h = createHash('sha256')
-  h.update(readFileSync(SELF_SOURCE))
-  for (const dir of GRAPH_DIRS) {
-    for (const rel of relInputs(dir)) {
-      h.update(rel)
-      h.update(readFileSync(join(ROOT, rel)))
-    }
-  }
-  for (const rel of (recorded || []).slice().sort()) {
-    if (inGraphDirs(rel)) continue
-    const abs = join(ROOT, rel)
-    if (!existsSync(abs)) return `missing-input:${rel}`
-    h.update(rel)
-    h.update(readFileSync(abs))
-  }
-  return h.digest('hex')
+  return bundleInputHash(ROOT, HASH_SPEC, recorded)
 }
 
 function readStamp() {
@@ -89,7 +41,9 @@ if (flags.has('--check')) {
   process.exit(0)
 }
 
-if (IF_STALE && existsSync(join(ROOT, outfile)) && stamp?.hash === WANT_HASH && statSync(join(ROOT, outfile)).mtimeMs >= newestRecordedMtime(stamp?.inputs)) {
+const artifactPath = resolve(ROOT, outfile)
+const artifactMatchesStamp = existsSync(artifactPath) && typeof stamp?.outputSha === 'string' && stamp.outputSha === fileSha256(artifactPath)
+if (IF_STALE && artifactMatchesStamp && stamp?.hash === WANT_HASH && statSync(artifactPath).mtimeMs >= newestRecordedMtime(stamp?.inputs)) {
   console.log(`[bundle-worker] ${outfile} is fresh (newer than every bundled input) -- skipping`)
   process.exit(0)
 }
@@ -147,6 +101,7 @@ const graphInputs = Object.keys(result?.metafile?.inputs || {})
   .filter(p => p && !p.startsWith('..'))
   .sort()
 WANT_HASH = hashInputs(graphInputs)
+const outputSha = fileSha256(artifactPath)
 mkdirSync(dirname(resolve(ROOT, hashOut)), { recursive: true })
-writeFileSync(resolve(ROOT, hashOut), JSON.stringify({ hash: WANT_HASH, builtAt: new Date().toISOString(), watchDirs: GRAPH_DIRS, inputs: graphInputs }) + '\n')
-console.log(`[bundle-worker] stamped ${hashOut} ${WANT_HASH.slice(0, 16)} (${graphInputs.length} bundled inputs)`)
+writeFileSync(resolve(ROOT, hashOut), JSON.stringify({ hash: WANT_HASH, builtAt: new Date().toISOString(), outputSha, outputBytes: statSync(artifactPath).size, watchDirs: HASH_SPEC.contentDirs.map(d => d.dir), inputs: graphInputs }) + '\n')
+console.log(`[bundle-worker] stamped ${hashOut} ${WANT_HASH.slice(0, 16)} (${graphInputs.length} bundled inputs, artifact ${outputSha.slice(0, 16)})`)

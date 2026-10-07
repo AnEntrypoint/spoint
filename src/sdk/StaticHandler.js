@@ -42,12 +42,35 @@ const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.webp', '.ktx2', '.svg', '.ic
 
 const CLIENT_ROOT_HEADER = 'X-Spoint-Client-Root'
 const CLIENT_ENTRY_SHA_HEADER = 'X-Spoint-Entry-Sha256'
+const CLIENT_FRESH_HEADER = 'X-Spoint-Client-Fresh'
+const CLIENT_REASON_HEADER = 'X-Spoint-Client-Reason'
+const WORKER_ROOT_HEADER = 'X-Spoint-Worker-Root'
+const WORKER_FRESH_HEADER = 'X-Spoint-Worker-Fresh'
+const WORKER_REASON_HEADER = 'X-Spoint-Worker-Reason'
+const FRESHNESS_HEADERS = [CLIENT_ROOT_HEADER, CLIENT_ENTRY_SHA_HEADER, CLIENT_FRESH_HEADER, CLIENT_REASON_HEADER, WORKER_ROOT_HEADER, WORKER_FRESH_HEADER, WORKER_REASON_HEADER]
+
+function rootVerdict(state) {
+  if (!state) return null
+  if (!state.present) return 'no-bundle'
+  return state.fresh ? 'fresh' : 'stale'
+}
+
+function applyFreshnessHeaders(headers, clientFreshness, workerFreshness) {
+  if (clientFreshness) {
+    headers[CLIENT_FRESH_HEADER] = rootVerdict(clientFreshness)
+    headers[CLIENT_REASON_HEADER] = clientFreshness.reason
+  }
+  if (workerFreshness) {
+    headers[WORKER_ROOT_HEADER] = workerFreshness.fresh ? 'bundle' : 'raw-esm'
+    headers[WORKER_FRESH_HEADER] = rootVerdict(workerFreshness)
+    headers[WORKER_REASON_HEADER] = workerFreshness.reason
+  }
+}
 
 function _notModifiedHeaders(headers) {
   const h = { 'ETag': headers['ETag'] }
   if (headers['Cache-Control']) h['Cache-Control'] = headers['Cache-Control']
-  if (headers[CLIENT_ROOT_HEADER]) h[CLIENT_ROOT_HEADER] = headers[CLIENT_ROOT_HEADER]
-  if (headers[CLIENT_ENTRY_SHA_HEADER]) h[CLIENT_ENTRY_SHA_HEADER] = headers[CLIENT_ENTRY_SHA_HEADER]
+  for (const name of FRESHNESS_HEADERS) if (headers[name]) h[name] = headers[name]
   return h
 }
 
@@ -193,7 +216,7 @@ export function createStaticHandler(dirs, opts = {}) {
         return
       }
     }
-    for (const { prefix, dir, clientRoot } of dirs) {
+    for (const { prefix, dir, clientRoot, clientFreshness, workerFreshness } of dirs) {
       if (!url.startsWith(prefix)) continue
       const relative = url === prefix ? '/index.html' : url.slice(prefix.length)
       const fp = join(dir, relative)
@@ -207,6 +230,7 @@ export function createStaticHandler(dirs, opts = {}) {
         if (!isNodeModulesLink && realFp !== baseResolved && !realFp.startsWith(baseResolved + sep)) continue
         const ext = extname(fp)
         const headers = { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' }
+        applyFreshnessHeaders(headers, clientFreshness, workerFreshness)
         const isRevalidatable = ext === '.js' || ext === '.mjs' || ext === '.html' || ext === '.css' || CONTENT_HASHED_EXTENSIONS.has(ext)
 
         const skipEarlyHints = req.headers['x-spoint-edge-proxy'] === '1'

@@ -1,35 +1,15 @@
 #!/usr/bin/env node
-import { existsSync, statSync, readdirSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { join, dirname, extname, resolve, relative } from 'node:path'
+import { existsSync, statSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join, dirname, resolve, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { bundleInputHash, clientHashSpec, fileSha256 } from '../src/sdk/bundleFreshness.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const flags = new Set(process.argv.slice(2).filter(a => a.startsWith('--')))
 const positional = process.argv.slice(2).filter(a => !a.startsWith('--'))
 const IF_STALE = flags.has('--if-stale')
 const MINIFY = !flags.has('--no-minify')
-
-const SKIP_DIRS = new Set(['node_modules', '.git', '.gm', 'dist', '.glb-cache', '.progressive-cache'])
-function newestMtime(dir, exts, out = { max: 0 }) {
-  let entries
-  try { entries = readdirSync(dir, { withFileTypes: true }) } catch { return out.max }
-  for (const e of entries) {
-    if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) newestMtime(join(dir, e.name), exts, out); continue }
-    if (!exts.has(extname(e.name))) continue
-    try { out.max = Math.max(out.max, statSync(join(dir, e.name)).mtimeMs) } catch {}
-  }
-  return out.max
-}
-function isFresh(outPath, extraPaths = []) {
-  if (!existsSync(outPath)) return false
-  const outMtime = statSync(outPath).mtimeMs
-  for (const p of extraPaths) {
-    try { if (statSync(p).mtimeMs > outMtime) return false } catch {}
-  }
-  return outMtime >= newestMtime(join(ROOT, 'client'), CLIENT_EXTS)
-}
 
 const entry = positional[0] || 'client/app.js'
 const outfile = positional[1] || 'dist/client/app.js'
@@ -63,53 +43,11 @@ const externalPlugin = {
 }
 
 const outdir = dirname(outfile)
-const CLIENT_EXTS = new Set(['.js', '.mjs', '.css'])
-const GRAPH_EXTS = new Set(['.js', '.mjs'])
 const hashOut = join(outdir, 'app.bundlehash.json')
-const SELF_SOURCE = fileURLToPath(import.meta.url)
-const GRAPH_DIRS = ['src']
-
-function collectInputs(dir, rel = '', out = [], exts = CLIENT_EXTS) {
-  let entries
-  try { entries = readdirSync(join(dir, rel), { withFileTypes: true }) } catch { return out }
-  for (const e of entries) {
-    const child = rel ? join(rel, e.name) : e.name
-    if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) collectInputs(dir, child, out, exts); continue }
-    if (!exts.has(extname(e.name))) continue
-    out.push(child)
-  }
-  return out
-}
-
-function relInputs(dirRel, exts) {
-  return collectInputs(join(ROOT, dirRel), '', [], exts)
-    .map(r => `${dirRel}/${r}`.replace(/\\/g, '/'))
-    .sort()
-}
-
-function outsideClient(recorded) {
-  return (recorded || []).filter(p => !p.startsWith('client/')).sort()
-}
+const HASH_SPEC = clientHashSpec()
 
 function hashInputs(recorded) {
-  const h = createHash('sha256')
-  h.update(readFileSync(SELF_SOURCE))
-  for (const rel of relInputs('client', CLIENT_EXTS)) {
-    h.update(rel)
-    h.update(readFileSync(join(ROOT, rel)))
-  }
-  for (const rel of outsideClient(recorded)) {
-    const abs = join(ROOT, rel)
-    if (!existsSync(abs)) return `missing-input:${rel}`
-    h.update(rel)
-    h.update(readFileSync(abs))
-  }
-  for (const dir of GRAPH_DIRS) for (const rel of relInputs(dir, GRAPH_EXTS)) h.update(rel)
-  return h.digest('hex')
-}
-
-function recordedInputPaths(recorded) {
-  return outsideClient(recorded).map(p => join(ROOT, p)).filter(existsSync)
+  return bundleInputHash(ROOT, HASH_SPEC, recorded)
 }
 
 function readStamp() {
@@ -128,9 +66,11 @@ if (flags.has('--check')) {
   process.exit(0)
 }
 
-const bundleFresh = IF_STALE && stamp?.hash === WANT_HASH && isFresh(resolve(ROOT, outfile), recordedInputPaths(stamp?.inputs))
+const artifactPath = resolve(ROOT, outfile)
+const artifactMatchesStamp = existsSync(artifactPath) && typeof stamp?.outputSha === 'string' && stamp.outputSha === fileSha256(artifactPath)
+const bundleFresh = IF_STALE && artifactMatchesStamp && stamp?.hash === WANT_HASH
 if (bundleFresh) {
-  console.log(`[bundle-client] ${outfile} is fresh (newer than every bundled input) -- skipping`)
+  console.log(`[bundle-client] ${outfile} is fresh (stamp matches the current inputs and artifact) -- skipping`)
 } else {
   let build
   try { ({ build } = await import('esbuild')) } catch (e) {
@@ -166,8 +106,9 @@ if (bundleFresh) {
     .filter(p => p && !p.startsWith('..'))
     .sort()
   WANT_HASH = hashInputs(graphInputs)
-  writeFileSync(resolve(ROOT, hashOut), JSON.stringify({ hash: WANT_HASH, builtAt: new Date().toISOString(), inputs: graphInputs }) + '\n')
-  console.log(`[bundle-client] stamped ${hashOut} ${WANT_HASH.slice(0, 16)} (${graphInputs.length} bundled inputs)`)
+  const outputSha = fileSha256(artifactPath)
+  writeFileSync(resolve(ROOT, hashOut), JSON.stringify({ hash: WANT_HASH, builtAt: new Date().toISOString(), outputSha, outputBytes: statSync(artifactPath).size, inputs: graphInputs }) + '\n')
+  console.log(`[bundle-client] stamped ${hashOut} ${WANT_HASH.slice(0, 16)} (${graphInputs.length} bundled inputs, artifact ${outputSha.slice(0, 16)})`)
 }
 
 const manifestOut = join(outdir, 'apps-manifest.json')

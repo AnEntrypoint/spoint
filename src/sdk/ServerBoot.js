@@ -1,8 +1,9 @@
 import { join, dirname, resolve, relative, extname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { prewarm, prewarmFiles } from '../static/GLBTransformer.js'
 import { prewarmCompression } from './StaticHandler.js'
+import { clientBundleDir, clientBundleState, describeBundleState, workerBundleDir, workerBundleState } from './bundleFreshness.js'
 import { prewarmProgressive, ensureProgressive } from '../static/ProgressiveBake.js'
 import { createServer } from './server.js'
 import { logServerIdentity } from './ServerIdentity.js'
@@ -35,100 +36,71 @@ export function collectWatchableFiles(dir, out = []) {
   return out
 }
 
-function bundleStamp(stampPath) {
-  try { return JSON.parse(readFileSync(stampPath, 'utf8')) } catch { return null }
-}
-
-function stampInputFiles(stampPath, sdkRoot) {
-  const stamp = bundleStamp(stampPath)
-  const files = []
-  const seen = new Set()
-  for (const dir of Array.isArray(stamp?.watchDirs) ? stamp.watchDirs : []) {
-    for (const f of collectWatchableFiles(join(sdkRoot, dir))) if (!seen.has(f)) { seen.add(f); files.push(f) }
-  }
-  for (const rel of Array.isArray(stamp?.inputs) ? stamp.inputs : []) {
-    const abs = join(sdkRoot, rel)
-    if (!seen.has(abs) && existsSync(abs)) { seen.add(abs); files.push(abs) }
-  }
-  return files
-}
-
-function newestMtimeOf(files, base) {
-  return files.reduce((max, f) => {
-    try { return Math.max(max, statSync(base ? join(base, f) : f).mtimeMs) } catch { return max }
-  }, 0)
-}
-
 export const CLIENT_ROOT_BUNDLE = 'bundle'
 export const CLIENT_ROOT_RAW = 'raw-esm'
 
-function bundleState(sdkRoot) {
-  const bundleDir = join(sdkRoot, 'dist', 'client')
-  const bundlePath = join(bundleDir, 'app.js')
-  if (!existsSync(bundlePath)) return null
-  const bundleMtime = statSync(bundlePath).mtimeMs
-  const clientDir = join(sdkRoot, 'client')
-  const rawEntryPath = join(clientDir, 'app.js')
-  const watchableFiles = existsSync(clientDir) ? collectWatchableFiles(clientDir) : (existsSync(rawEntryPath) ? [rawEntryPath] : [])
-  const bundledInputs = stampInputFiles(join(bundleDir, 'app.bundlehash.json'), sdkRoot)
-  const rawMtime = Math.max(
-    newestMtimeOf(watchableFiles, ''),
-    newestMtimeOf(bundledInputs, '')
-  )
-  return { dir: bundleDir, bundleMtime, rawMtime, fresh: bundleMtime >= rawMtime }
+export function clientBundleFreshness(sdkRoot) {
+  return clientBundleState(sdkRoot)
+}
+
+export function workerBundleFreshness(sdkRoot) {
+  return workerBundleState(sdkRoot)
 }
 
 export function clientRootState(sdkRoot) {
-  const bundle = bundleState(sdkRoot)
-  if (bundle && bundle.fresh) {
-    return { kind: CLIENT_ROOT_BUNDLE, dir: bundle.dir, bundleMtime: bundle.bundleMtime, rawMtime: bundle.rawMtime }
-  }
-  return {
-    kind: CLIENT_ROOT_RAW,
-    dir: join(sdkRoot, 'client'),
-    bundleMtime: bundle ? bundle.bundleMtime : null,
-    rawMtime: bundle ? bundle.rawMtime : null,
-  }
+  const state = clientBundleState(sdkRoot)
+  if (state.fresh) return { kind: CLIENT_ROOT_BUNDLE, dir: clientBundleDir(sdkRoot), state }
+  return { kind: CLIENT_ROOT_RAW, dir: join(sdkRoot, 'client'), state }
 }
 
 export function staticClientRoot(sdkRoot) {
   return clientRootState(sdkRoot).dir
 }
 
+function strictBundleEnv() {
+  const value = process.env.SPOINT_STRICT_BUNDLE
+  return value === '1' || value === 'true'
+}
+
+function assertBundleFreshness(states) {
+  if (!strictBundleEnv()) return
+  for (const state of states) {
+    if (!state.present || state.fresh) continue
+    const why = `[boot] FATAL: ${describeBundleState(state)} -- SPOINT_STRICT_BUNDLE refuses to boot rather than serve, or silently fall back from, an artifact that does not match the current sources`
+    console.error(why)
+    throw Object.assign(new Error(why), { spointStaleBundle: true, reason: state.reason })
+  }
+}
+
 export function buildStaticDirs(sdkRoot, project, appsDirs) {
+  const client = clientBundleState(sdkRoot)
+  const worker = workerBundleState(sdkRoot)
   const dirs = [
     { prefix: '/src/', dir: join(sdkRoot, 'src') },
     ...appsDirs.map(dir => ({ prefix: '/apps/', dir })),
     { prefix: '/node_modules/', dir: join(sdkRoot, 'node_modules') },
     { prefix: '/data/', dir: resolve(project, 'data') }
   ]
-  const root = clientRootState(sdkRoot)
-  if (root.kind === CLIENT_ROOT_BUNDLE) {
-    console.log(`[server] serving PREBUILT BUNDLE from dist/client/app.js (built ${new Date(root.bundleMtime).toISOString()})`)
-    dirs.push({ prefix: '/', dir: root.dir, clientRoot: CLIENT_ROOT_BUNDLE })
-  } else if (root.bundleMtime !== null) {
-    console.log(`[server] dist/client/app.js is STALE (built ${new Date(root.bundleMtime).toISOString()}, a bundled input edited ${new Date(root.rawMtime).toISOString()}) -- falling through to raw ESM`)
+  if (client.fresh) {
+    console.log(`[server] serving PREBUILT BUNDLE from ${client.artifact} (${describeBundleState(client)})`)
+    dirs.push({ prefix: '/', dir: clientBundleDir(sdkRoot), clientRoot: CLIENT_ROOT_BUNDLE })
+  } else if (client.present) {
+    console.log(`[server] ${describeBundleState(client)} -- falling through to raw ESM`)
   } else {
-    console.log('[server] serving raw ESM from client/ (no dist/client/app.js bundle present)')
+    console.log(`[server] serving raw ESM from client/ (${describeBundleState(client)})`)
   }
-  const workerBundleDir = join(sdkRoot, 'dist', 'src')
-  const workerBundlePath = join(workerBundleDir, 'sdk', 'WorkerEntry.js')
-  if (existsSync(workerBundlePath)) {
-    const wbMtime = statSync(workerBundlePath).mtimeMs
-    const srcDir = join(sdkRoot, 'src')
-    const workerInputs = stampInputFiles(join(workerBundleDir, 'sdk', 'WorkerEntry.bundlehash.json'), sdkRoot)
-    const srcMtime = Math.max(
-      newestMtimeOf(collectWatchableFiles(srcDir), ''),
-      newestMtimeOf(workerInputs, '')
-    )
-    if (wbMtime >= srcMtime) {
-      console.log(`[server] serving PREBUILT WORKER BUNDLE from dist/src/sdk/WorkerEntry.js (built ${new Date(wbMtime).toISOString()})`)
-      dirs.unshift({ prefix: '/src/', dir: workerBundleDir })
-    } else {
-      console.log(`[server] dist/src/sdk/WorkerEntry.js is STALE (built ${new Date(wbMtime).toISOString()}, a bundled src/ or packages/ input edited ${new Date(srcMtime).toISOString()}) -- falling through to raw ESM worker`)
-    }
+  if (worker.present && worker.fresh) {
+    console.log(`[server] serving PREBUILT WORKER BUNDLE from ${worker.artifact} (${describeBundleState(worker)})`)
+    dirs.unshift({ prefix: '/src/', dir: workerBundleDir(sdkRoot) })
+  } else if (worker.present) {
+    console.log(`[server] ${describeBundleState(worker)} -- falling through to raw ESM worker`)
   }
   dirs.push({ prefix: '/', dir: join(sdkRoot, 'client'), clientRoot: CLIENT_ROOT_RAW })
+  for (const entry of dirs) {
+    entry.clientFreshness = client
+    entry.workerFreshness = worker
+  }
+  assertBundleFreshness([client, worker])
   return dirs
 }
 
