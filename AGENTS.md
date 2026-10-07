@@ -105,7 +105,8 @@ Fewest words per fact. Deep detail: `project/*` recall memos.
 - `src/apps/AppRuntimePhysics.js` skips `e._vehicleId != null` in BOTH `_tickPhysicsLOD` and `_enforceBodyBudget`. `HeightFieldShape` quantizes over its own min/max.
 - Heightfield samples snap to 1 mm with a deliberate `+ 0`: `Math.round` of a sample in (-0.5 mm, 0) yields -0, and -0 and +0 are different bits in a `Float32Array`.
 - `removeBody` on a shapeKey-pooled DYNAMIC body must `DeactivateBody` and zero linear+angular velocity; pool revive must activate and zero both.
-- `physics.setBodyMotionType` returns the NEW live body id on success or `false`, never the old id: a Jolt body created static cannot be made to simulate by `SetMotionType`.
+- `physics.setBodyMotionType` returns the NEW live body id on success or `false`, never the old id: a Jolt body created static cannot be made to simulate by `SetMotionType`, so it is recreated and the old one removed FORCED.
+- Recreation must CREATE the new body BEFORE destroying the old one (destroy-first frees a cached shape the new body still points at and aborts the wasm with `null function or function signature mismatch`), and puts it on `LAYER_DYNAMIC`, never the old layer. `IsActive()` is the only discriminator: `GetMotionProperties()` is non-null even on a static-created body.
 - `src/physics/VehiclePhysics.js`: never `J.destroy` `v.constraint`/`v.tester` after `RemoveConstraint` and never destroy `get_mTracks()` copies after `set_mTracks`; `mDifferentials` defaults empty = zero wheel torque.
 - `apps/_lib/softbody.js`: EVERY particle body needs a massed collider, pinned or not; each cloth owns its own `RAPIER.World`, never shared with Jolt.
 - EDITOR_UPDATE must call `syncEntityCollider` AFTER `appRuntime.changeBodyType` (which removes the body and synthesizes a default box `_bodyDef`, clobbering `custom._collider`).
