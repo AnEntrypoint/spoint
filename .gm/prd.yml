@@ -1587,20 +1587,6 @@
   id: vendor-gm-gitlink-is-one-commit-ahead-and-its-upstream-history-h
   status: pending
 - session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  cwd: C:\dev\spoint
-  title: AMD iGPU loses the GPU context during tps-game boot, after which Chrome blocks every new context on the page
-  body: |-
-    Witnessed 2026-10-07 with scripts/.amd-gpu-diag.mjs (AMD Radeon(TM) Graphics, LUID 62340, --use-gl=angle --use-angle=d3d11 --use-adapter-luid=0,62340):
-
-    - about:blank in the same browser: webgl2 context OK, UNMASKED_RENDERER_WEBGL = 'ANGLE (AMD, AMD Radeon(TM) Graphics (0x00001681) Direct3D11 vs_5_0 ps_5_0, D3D11)'.
-    - After navigating to http://localhost:3099/?singleplayer&world=tps-game&at=-15,-12.5 (and to the same URL with &legacygl=1), a fresh canvas.getContext('webgl2') fails with creationError 'Web page caused context loss and was blocked', navigator.gpu.requestAdapter() returns null, and from then on page.evaluate stops answering (probe stalls 30 s+), so every AMD arm hangs instead of failing.
-    - The app's own renderer is constructed (rendererCtor WebGLRenderer, info.render.calls 6) before the loss, so the loss happens during boot, not at first paint. This is the cause behind the 'no renderer strings exposed' gpu-probe failures and the wedged runs 4-13 of scripts/frame-time-gate.mjs on AMD; AMD run 3 of the same script did complete earlier in the day, so it is a race, not a hard block.
-    - The legacy GL arm also logs '[minimap] baked tps-game.1337.h1.minimap.png ... in 60909ms', so a boot-time bake runs for a minute on this box.
-
-    Fix direction: a GPU submission or a synchronous GPU wait long enough to trip the Windows TDR / Chrome GPU watchdog loses the device on the integrated adapter while the RTX 3060 completes it. Bound every boot-time GPU submission and readback wait (terrain/environment/minimap bakes, getBufferSubData-after-fence waits) to well under the 2 s TDR window and resume across frames, then re-witness the AMD arm. Until then the AMD frame-time baseline cannot be captured and the gate fails loudly there.
-  id: amd-igpu-loses-the-gpu-context-during-tps-game-boot-after-which
-  status: pending
-- session_id: f73df536-0f66-49a1-8888-2a064d23416a
   id: collider-ring-scale-witness-and-boot-batches-witness-are-red
   title: 'collider-ring-scale-witness (85s) and collider-ring-boot-batches-witness both print RESULT: FAIL'
   body: 'Measured 2026-10-07: `node scripts/collider-ring-scale-witness.mjs` runs 84.9s, exits 1, prints `[ring-scale] RESULT: FAIL`. `node scripts/collider-ring-boot-batches-witness.mjs` runs 11.3s, exits 1, prints `[boot-batches] RESULT: FAIL (1)`. Neither is referenced by scripts/check.mjs, scripts/fire-witness-gate.mjs, package.json or .github/workflows/ci.yml, so nothing noticed.'
@@ -1752,4 +1738,8 @@
   body: 'Measured 2026-10-07 in apps/tps-game AppGameplay.js:63-68. The respawn-clearance test accepts a candidate spawn when the nearest blocker is farther than a threshold equal to the CAPSULE RADIUS (~0.28 m), so a 2.36 m dead end satisfies it and the player respawns wedged. Worse, the clearance probe samples height at CAPSULE-CENTRE height only: any blocker whose top sits between the capsule bottom and the capsule centre is invisible to the probe, so a low wall, a step, a rock lip or a terrain overhang reads as clear. Neither failure mode is detectable from the current code because nothing measures post-respawn mobility. Evidence to re-derive: the frozen tps-game player (position pinned, velocity nonzero) is consistent with spawning held against geometry. Fix shape: make clearance a capsule sweep (bottom-to-top segment, not a centre point) against the real collider set, and derive the threshold from the distance the player must be able to travel in one input step (measured speed x tick dt) rather than from the capsule radius. Witness: respawn N candidates in the shipped tps-game arena, and for each assert the player actually accumulates path length under held forward input within one respawn-invuln window; a candidate that cannot move is a rejected candidate.'
   acceptance_criteria: A deliberately blocked candidate (blocker inside the capsule radius, or a blocker top between capsule bottom and capsule centre) is REJECTED by the shipped code, witnessed live. Every accepted candidate is followed by a measured >0 accumulated path length under held forward input in the same run. Threshold is derived from measured player speed x tick dt and printed by the witness, not a literal.
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
+  id: amd-frame-time-baseline
+  subject: 'Record .frame-time-baseline.amd.json so frame-time-gate can run on the AMD iGPU: only .frame-time-baseline.nvidia.json exists, so frame-time-gate refuses AMD with ''no baseline found''. Now that assertGpu on the live AMD page costs 59-419 ms instead of 10.6 s, an AMD baseline can be captured with --update-baseline --expect-vendor=amd; AMD boots the scene 3/3 at 67-68 draw calls, so the capture is reachable.'
   status: pending
