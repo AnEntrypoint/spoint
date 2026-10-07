@@ -54,7 +54,7 @@ export declare class AppContext {
         tiltFromUpright: () => number;
         setFriction: (f: any) => boolean;
         setRestitution: (r: any) => boolean;
-        setMotionType: (motionType: any) => any;
+        setMotionType: (motionType: any) => boolean;
         getMotionType: () => any;
         getBodyId: () => any;
         createVehicle: (wheelDefs: any, opts: any) => any;
@@ -128,7 +128,7 @@ export declare class AppContext {
         tiltFromUpright: () => number;
         setFriction: (f: any) => boolean;
         setRestitution: (r: any) => boolean;
-        setMotionType: (motionType: any) => any;
+        setMotionType: (motionType: any) => boolean;
         getMotionType: () => any;
         getBodyId: () => any;
         createVehicle: (wheelDefs: any, opts: any) => any;
