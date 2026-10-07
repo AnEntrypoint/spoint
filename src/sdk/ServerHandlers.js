@@ -12,6 +12,7 @@ import { playerDefault } from '../shared/worldDefaults.js'
 import { chartHandshakeFields, currentChartEpoch, resolveEpochTransfer, reexpressInputEntries, reexpressShot, createChartResyncReply, chartWireStatsOf } from './chartWire.js'
 
 const MAX_TRACKED_RTT_MS = 10000
+const PROBE_SOCKET_IDLE_CLOSE_MS = 10000
 const SERVER_ONLY_APP_EVENT_TYPES = new Set(['player_join', 'player_leave', 'player_teleport', 'damage'])
 
 const CHART_WARN_INTERVAL_MS = 1000
@@ -144,6 +145,11 @@ export function createConnectionHandlers(ctx) {
   }
 
   function onClientConnect(transport) {
+    if (transport.probeOnly) {
+      const idleClose = setTimeout(() => { try { transport.close() } catch {} }, PROBE_SOCKET_IDLE_CLOSE_MS)
+      transport.on('close', () => clearTimeout(idleClose))
+      return
+    }
     let joined = false
     let authPending = false
 
@@ -187,24 +193,38 @@ export function createConnectionHandlers(ctx) {
     }
     transport.on('message', peek)
 
+    let closed = false
+    transport.on('close', () => { closed = true })
+    transport.on('error', () => { closed = true })
+
     const _MIGRATE_PEEK_GRACE_FLOOR_MS = 50
     const _MIGRATE_PEEK_GRACE_CEIL_MS = 1500
     const _dilation = tickSystem?.dilationFactor
     const _migratePeekGraceMs = (typeof _dilation === 'number' && _dilation > 0 && _dilation < 1)
       ? Math.min(_MIGRATE_PEEK_GRACE_CEIL_MS, Math.round(_MIGRATE_PEEK_GRACE_FLOOR_MS / _dilation))
       : _MIGRATE_PEEK_GRACE_FLOOR_MS
-    setTimeout(() => {
-      if (!joined && !authPending) {
+    const peekGraceTimer = setTimeout(() => {
+      if (!joined && !authPending && !closed && transport.isOpen !== false) {
         transport.off('message', peek)
         _joinNewPlayer(transport)
       }
     }, _migratePeekGraceMs)
+    transport.on('close', () => clearTimeout(peekGraceTimer))
   }
 
   function _replayFirstMessage(playerId, data) {
     let msg
     try { msg = unpack(data) } catch (e) { return }
     connections.emit('message', playerId, msg)
+  }
+
+  function rejectSession(clientId) {
+    connections.send(clientId, MSG.DISCONNECT_REASON, { code: DISCONNECT_REASONS.INVALID_SESSION })
+    connections.flushAll()
+    const client = connections.getClient(clientId)
+    const transport = client?.transport
+    if (transport && transport.isOpen !== false) { try { transport.close() } catch {} }
+    else { connections.emit('disconnect', clientId, 'invalid-session'); connections.removeClient(clientId) }
   }
 
   function rejectInputPacket(clientId, reason, payload) {
@@ -281,20 +301,16 @@ export function createConnectionHandlers(ctx) {
     }
     if (msg.type === MSG.RECONNECT) {
       const _token = msg.payload?.sessionToken
-      if (typeof _token !== 'string' || _token.length < 8) {
-        connections.send(clientId, MSG.DISCONNECT_REASON, { code: DISCONNECT_REASONS.INVALID_SESSION })
-        return
-      }
-      const session = sessions.get(_token)
+      const session = (typeof _token === 'string' && _token.length >= 8) ? sessions.get(_token) : null
       if (!session) {
-        connections.send(clientId, MSG.DISCONNECT_REASON, { code: DISCONNECT_REASONS.INVALID_SESSION })
+        rejectSession(clientId)
         return
       }
       const oldId = session.playerId
       const savedState = session.state || {}
       const client = connections.getClient(clientId)
       const transport = client?.transport
-      if (!transport) return
+      if (!transport) { rejectSession(clientId); return }
       const playerConfig = ctx.currentWorldDef?.player || {}
       let sp = savedState.position
       if (!Array.isArray(sp) || sp.length !== 3 || sp.some(x => !Number.isFinite(x))) sp = groundSnapSpawnPoint(ctx, [...ctx.worldSpawnPoint])

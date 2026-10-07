@@ -166,9 +166,12 @@ export const tpsGameClient = {
         engine.client.recordKnockback?.([payload.dir[0], 0, payload.dir[2]], payload.knockback, tps.lastHitTime)
       }
     }
-    if (payload.type === 'hit' && tps && payload.shooter !== engine.playerId && payload.target !== engine.playerId && payload.pos && engine.cam) {
-      const cp = engine.cam.position, d = Math.hypot(payload.pos[0] - cp.x, payload.pos[2] - cp.z)
-      if (d < 60) tps.juice?.tone(140, 0.04, Math.max(0.04, 0.16 * (1 - d / 60)), 85)
+    if (payload.type === 'hit' && tps && payload.shooter !== engine.playerId && payload.target !== engine.playerId && payload.pos) {
+      const listener = engine.client?.getLocalState?.()
+      if (listener?.position) {
+        const d = Math.hypot(payload.pos[0] - listener.position[0], payload.pos[2] - listener.position[2])
+        if (d < 60) tps.juice?.tone(140, 0.04, Math.max(0.04, 0.16 * (1 - d / 60)), 85)
+      }
     }
     if (payload.type === 'world_hit' && engine.decals && payload.pos) engine.decals.spawnDecal(payload.pos, payload.normal)
     if (payload.type === 'aimpunch' && engine.cam?.punch) engine.cam.punch(payload.intensity || 0.3)

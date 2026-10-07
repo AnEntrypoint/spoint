@@ -107,7 +107,16 @@ export class PhysicsNetworkClient extends BaseClient {
   _handleSessionTokens(type, result) {
     if (type === MSG.HANDSHAKE_ACK && result?.sessionToken) this._reconnect.setSessionToken(result.sessionToken)
     else if (type === MSG.RECONNECT_ACK && result?.sessionToken) this._reconnect.setSessionToken(result.sessionToken)
-    else if (result?.invalidate) this._reconnect.invalidateSession()
+    else if (result?.invalidate) this._dropSessionAndReconnect()
+  }
+
+  _dropSessionAndReconnect() {
+    this._reconnect.invalidateSession()
+    const transport = this.transport
+    const ws = this.ws
+    if (transport) { try { transport.close() } catch (e) {} }
+    if (ws && ws !== transport) { try { ws.close() } catch (e) {} }
+    setTimeout(() => { if (!this._destroyed && !this._isOpen()) this._reconnect.onDisconnected(() => this._doReconnect()) }, 0)
   }
 
   async _followClusterHandoff(payload) {
