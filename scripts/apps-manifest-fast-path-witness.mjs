@@ -3,6 +3,8 @@ import fs from 'node:fs'
 import { join } from 'node:path'
 import { chromium } from './lib/cdp-browser.mjs'
 import { gpuLaunchArgs, gpuModeFlag, witnessGpu } from './lib/gpu-probe.mjs'
+import { worldAppNames } from '../src/apps/appsManifest.js'
+import { locateWorld, loadWorldModule } from '../src/sdk/WorldLocator.js'
 
 const argv = process.argv.slice(2)
 function flag(name, dflt = null) {
@@ -118,8 +120,16 @@ const PROBE = `(() => {
 
 const READY = `!!(window.__app && window.__app.client && window.__app.client.playerId != null && (window.__workerLog && window.__workerLog.initAt !== null))`
 
+function manifestCandidates() {
+  const roots = [join(ROOT, 'dist', 'client'), join(ROOT, 'client')]
+  return [
+    ...roots.map(r => join(r, 'apps-manifest.json')),
+    ...roots.map(r => join(r, 'worlds', WORLD, 'apps-manifest.json')),
+  ]
+}
+
 async function servedManifest(base) {
-  const candidates = [join(ROOT, 'dist', 'client', 'apps-manifest.json'), join(ROOT, 'client', 'apps-manifest.json')]
+  const candidates = manifestCandidates()
   let status = null
   let bytes = null
   let appNames = null
@@ -135,11 +145,11 @@ async function servedManifest(base) {
   const files = candidates.map(p => {
     try { return { path: p.replace(ROOT, '.'), bytes: fs.statSync(p).size } } catch (_) { return { path: p.replace(ROOT, '.'), bytes: null } }
   })
-  return { status, bytes, appCount: appNames ? appNames.length : null, hasRequiredApp: REQUIRE_APP ? (appNames || []).includes(REQUIRE_APP) : null, matches: files.filter(f => f.bytes === bytes).map(f => f.path), files }
+  return { status, bytes, appCount: appNames ? appNames.length : null, appNames, hasRequiredApp: REQUIRE_APP ? (appNames || []).includes(REQUIRE_APP) : null, matches: files.filter(f => f.bytes === bytes).map(f => f.path), files }
 }
 
 async function dropServedManifest() {
-  const candidates = [join(ROOT, 'dist', 'client', 'apps-manifest.json'), join(ROOT, 'client', 'apps-manifest.json')]
+  const candidates = manifestCandidates()
   const removed = []
   for (const p of candidates) {
     for (const suffix of ['', '.br', '.gz', '.br.meta', '.gz.meta']) {
@@ -160,10 +170,23 @@ async function main() {
 
   console.log(`${TAG} booting real server on port ${PORT} (world=${process.env.WORLD}) ...`)
   const { boot } = await import('../src/sdk/server.js')
+
+  const { path: worldPath } = await locateWorld({ project: ROOT, sdkRoot: ROOT, name: WORLD })
+  const worldDef = (await loadWorldModule(worldPath)) || {}
+  const declaredApps = worldAppNames(worldDef)
+  console.log(`${TAG} world ${WORLD} declares ${declaredApps.length} app(s): ${declaredApps.join(', ')}`)
+
   const server = await boot()
   const base = `http://localhost:${PORT}`
   const served = await servedManifest(base)
   console.log(`${TAG} served manifest: ${JSON.stringify(served)}`)
+  const servedAppNames = Array.isArray(served.appNames) ? served.appNames : null
+  const undeclared = servedAppNames ? servedAppNames.filter(n => !declaredApps.includes(n)) : null
+  const missing = servedAppNames ? declaredApps.filter(n => !servedAppNames.includes(n)) : null
+  console.log(`${TAG} served manifest scope: ${served.appCount} app(s) / ${served.bytes} bytes, world declares ${declaredApps.length}; undeclared=${JSON.stringify(undeclared)} missing=${JSON.stringify(missing)}`)
+  expect(servedAppNames !== null, `the served apps-manifest is unparseable, so no scope claim is witnessed (status=${served.status} bytes=${served.bytes})`)
+  expect(missing && missing.length === 0, `the served apps-manifest is missing ${missing ? missing.length : '?'} app(s) world "${WORLD}" declares: ${JSON.stringify(missing)} -- the browser falls back to /apps/<name>/index.js and drops them with a silent 404 at spawn`)
+  expect(undeclared && undeclared.length === 0, `the served apps-manifest carries ${undeclared ? undeclared.length : '?'} app(s) world "${WORLD}" does not declare: ${JSON.stringify(undeclared)} -- the boot downloads sources it never resolves`)
   if (NO_MANIFEST) {
     const removed = await dropServedManifest()
     const afterDrop = await servedManifest(base)

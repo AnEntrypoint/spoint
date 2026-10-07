@@ -8,6 +8,7 @@ import { createServer } from './server.js'
 import { logServerIdentity } from './ServerIdentity.js'
 import { createServerPresence } from './ServerPresence.js'
 import { parseTerrainHashOverride, withTerrainHashVersion } from '../shared/terrainConfig.js'
+import { worldAppNames } from '../apps/appsManifest.js'
 import { locateWorld, loadWorldModule } from './WorldLocator.js'
 import { worldTickRate, worldPlayerModel } from '../shared/worldDefaults.js'
 
@@ -135,19 +136,28 @@ export function resolveAppsDirs(project, sdkRoot) {
   return buildUniquePathList(existsSync(localApps) ? [localApps, stdlibApps, sdkApps] : [stdlibApps, sdkApps])
 }
 
-export async function ensureServedAppsManifest(sdkRoot, appsDirs) {
+export function worldScopedManifestFile(sdkRoot, worldName) {
+  return join(staticClientRoot(sdkRoot), 'worlds', worldName || 'default', 'apps-manifest.json')
+}
+
+export async function ensureServedAppsManifest(sdkRoot, appsDirs, { worldName = null, scopeNames = null, log = () => {}, warn = () => {} } = {}) {
   const outFile = join(staticClientRoot(sdkRoot), 'apps-manifest.json')
   try {
-    const { ensureAppsManifestFresh } = await import('../apps/appsManifest.js')
-    const result = await ensureAppsManifestFresh(outFile, appsDirs, {
-      log: msg => console.log(`[apps-manifest] ${msg}`),
-      warn: msg => console.warn(`[apps-manifest] ${msg}`),
-    })
-    const size = result.bytes === null ? 'unchanged' : `${result.bytes} bytes`
-    console.log(`[apps-manifest] ${result.status} ${relative(sdkRoot, outFile)} (${result.apps} app(s), ${result.filesRead} source file(s) fingerprinted, ${size}, ${result.ms}ms)`)
-    return result
+    const { ensureAppsManifestFresh, ensureScopedAppsManifest } = await import('../apps/appsManifest.js')
+    const all = await ensureAppsManifestFresh(outFile, appsDirs, { log, warn })
+    const size = all.bytes === null ? 'unchanged' : `${all.bytes} bytes`
+    log(`${all.status} ${relative(sdkRoot, outFile)} (${all.apps} app(s), ${all.filesRead} source file(s) fingerprinted, ${size}, ${all.ms}ms)`)
+    if (!scopeNames || scopeNames.length === 0) {
+      log(`world "${worldName || 'default'}" declares no apps -- serving the all-apps manifest`)
+      return { all, scoped: null }
+    }
+    const scopedFile = worldScopedManifestFile(sdkRoot, worldName)
+    const scoped = await ensureScopedAppsManifest(scopedFile, { names: scopeNames, allApps: all.entries, allFingerprint: all.fingerprint })
+    const scopedSize = scoped.bytes === null ? 'unchanged' : `${scoped.bytes} bytes`
+    log(`${scoped.status} world-scoped ${relative(sdkRoot, scopedFile)} (${scoped.apps} of ${all.apps} app(s), ${scopedSize}, ${scoped.ms}ms)`)
+    return { all, scoped }
   } catch (e) {
-    console.warn(`[apps-manifest] could not refresh ${outFile}: ${e && e.message ? e.message : e} -- clients fall back to the live app walk`)
+    warn(`could not refresh ${outFile}: ${e && e.message ? e.message : e} -- clients fall back to the live app walk`)
     return null
   }
 }
@@ -166,13 +176,27 @@ export async function boot(overrides = {}) {
   if (terrainHashOverride != null) console.log(`[boot] SPOINT_TERRAIN_HASH=${terrainHashOverride}: terrain hashVersion overridden in the world config`)
   const appsDirs = resolveAppsDirs(PROJECT, SDK_ROOT)
   console.debug(`[boot] loading from: ${appsDirs.join(', ')}`)
-  await ensureServedAppsManifest(SDK_ROOT, appsDirs)
+  const worldScopeNames = worldAppNames(worldDef)
+  const servedManifest = await ensureServedAppsManifest(SDK_ROOT, appsDirs, {
+    worldName,
+    scopeNames: worldScopeNames,
+    log: msg => console.log(`[apps-manifest] ${msg}`),
+    warn: msg => console.warn(`[apps-manifest] ${msg}`),
+  })
+  const worldScopedManifest = servedManifest?.scoped || null
+  if (worldScopedManifest && worldScopedManifest.missing.length) {
+    const why = `[apps-manifest] FATAL: world "${worldName}" declares app(s) that resolve to no app under ${appsDirs.join(', ')}: ${worldScopedManifest.missing.join(', ')} -- serving the world-scoped manifest without them drops them from the boot with a silent 404 in the browser instead of this error`
+    console.error(why)
+    throw new Error(why)
+  }
   const config = {
     port: parseInt(process.env.PORT || String(worldDef.port || 3000), 10),
     tickRate: worldTickRate(worldDef), appsDirs, sdkRoot: SDK_ROOT,
     gravity: worldDef.gravity, movement: worldDef.movement, playerConfig: worldDef.player,
     physicsRadius: worldDef.physicsRadius || 0, physicsBodyBudget: worldDef.physicsBodyBudget || 0, entityTickRate: worldDef.entityTickRate,
-    staticDirs: buildStaticDirs(SDK_ROOT, PROJECT, appsDirs),
+    staticDirs: worldScopedManifest
+      ? [{ prefix: '/', dir: dirname(worldScopedManifest.outFile) }, ...buildStaticDirs(SDK_ROOT, PROJECT, appsDirs)]
+      : buildStaticDirs(SDK_ROOT, PROJECT, appsDirs),
     worldName, worldPath, worldLocatedByDefault: !process.env.WORLD,
     ...overrides
   }

@@ -17,6 +17,19 @@ export function resolveAppEntry(name, dirs) {
   return null
 }
 
+export function worldAppNames(worldDef) {
+  const names = new Set()
+  for (const e of Array.isArray(worldDef?.entities) ? worldDef.entities : []) {
+    if (e && typeof e.app === 'string' && e.app) names.add(e.app)
+  }
+  for (const list of [worldDef?.placeableApps, worldDef?.trustedApps]) {
+    for (const n of Array.isArray(list) ? list : []) {
+      if (typeof n === 'string' && n) names.add(n)
+    }
+  }
+  return [...names].sort()
+}
+
 export function resolveAllAppNames(dirs) {
   const names = new Set()
   for (const dir of dirs) {
@@ -137,6 +150,38 @@ export function manifestJson(apps, fingerprint) {
   return JSON.stringify({ version: MANIFEST_VERSION, fingerprint, apps }, null, 2)
 }
 
+export function scopedFingerprint(allFingerprint, names) {
+  return createHash('sha256').update(`scoped\v${MANIFEST_VERSION}\n${allFingerprint}\n${names.join('\n')}`).digest('hex')
+}
+
+export async function ensureScopedAppsManifest(outFile, { names, allApps, allFingerprint }) {
+  const startedAt = Date.now()
+  const byName = new Map((allApps || []).filter(a => a && a.name).map(a => [a.name, a]))
+  const apps = names.filter(n => byName.has(n)).map(n => byName.get(n))
+  const missing = names.filter(n => !byName.has(n))
+  const fingerprint = scopedFingerprint(allFingerprint, names)
+  let current = null
+  try { current = JSON.parse(readFileSync(outFile, 'utf8')) } catch { current = null }
+  const currentApps = Array.isArray(current?.apps) ? current.apps : null
+  if (currentApps && currentApps.length === apps.length && current.fingerprint === fingerprint) {
+    return { status: 'fresh', apps: apps.length, missing, bytes: null, ms: Date.now() - startedAt, fingerprint, outFile }
+  }
+  const json = manifestJson(apps, fingerprint)
+  mkdirSync(dirname(outFile), { recursive: true })
+  const stagedFile = `${outFile}.${process.pid}.tmp`
+  writeFileSync(stagedFile, json)
+  renameSync(stagedFile, outFile)
+  return {
+    status: currentApps ? 'refreshed' : 'written',
+    apps: apps.length,
+    missing,
+    bytes: Buffer.byteLength(json),
+    ms: Date.now() - startedAt,
+    fingerprint,
+    outFile,
+  }
+}
+
 export async function ensureAppsManifestFresh(outFile, dirs, { log = () => {}, warn = () => {} } = {}) {
   const startedAt = Date.now()
   const { fingerprint, filesRead, names } = appsManifestFingerprint(dirs)
@@ -144,7 +189,7 @@ export async function ensureAppsManifestFresh(outFile, dirs, { log = () => {}, w
   try { current = JSON.parse(readFileSync(outFile, 'utf8')) } catch { current = null }
   const currentApps = Array.isArray(current?.apps) ? current.apps : null
   if (currentApps && currentApps.length === names.length && current.fingerprint === fingerprint) {
-    return { status: 'fresh', apps: currentApps.length, filesRead, ms: Date.now() - startedAt, fingerprint, bytes: null }
+    return { status: 'fresh', apps: currentApps.length, entries: currentApps, filesRead, ms: Date.now() - startedAt, fingerprint, bytes: null }
   }
   const { apps, failed } = await buildAppsManifest(dirs, { names, log })
   const json = manifestJson(apps, fingerprint)
@@ -156,6 +201,7 @@ export async function ensureAppsManifestFresh(outFile, dirs, { log = () => {}, w
   return {
     status: currentApps ? 'refreshed' : 'written',
     apps: apps.length,
+    entries: apps,
     failed,
     filesRead,
     bytes: Buffer.byteLength(json),
