@@ -240,16 +240,14 @@ export class PhysicsWorld {
     const sk = opts.shapeKey || null
     if (sk) {
       const free = this._bodyPool.get(sk)
-      if (free && free.length) {
+      while (free && free.length) {
         const id = free.pop()
-        const isDynamic = motionType === 'dynamic'
-        this._repositionBody(id, position, opts.rotation, isDynamic ? true : null)
-        if (isDynamic) {
-          this.setBodyVelocity(id, [0, 0, 0])
-          this.setBodyAngularVelocity(id, [0, 0, 0])
-        }
+        if (!this.bodies.has(id)) continue
+        if (this.bodyMeta.get(id)?.type !== motionType) { this.removeBody(id, true); continue }
+        this._revivePooledBody(id, position, motionType, shapeType, opts)
         return id
       }
+      if (free && free.length === 0) this._bodyPool.delete(sk)
     }
     if (shapeType === 'box') {
       const bk = opts.shapeKey || null
@@ -284,6 +282,34 @@ export class PhysicsWorld {
     else return null
     const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
     return this._addBody(shape, position, mt, motionType === 'static' ? LAYER_STATIC : LAYER_DYNAMIC, { ...opts, meta: { type: motionType, shape: shapeType } })
+  }
+
+  _revivePooledBody(id, position, motionType, shapeType, opts = {}) {
+    const J = this.Jolt
+    const b = this._getBody(id); if (!b) return false
+    const isStatic = motionType !== 'dynamic' && motionType !== 'kinematic'
+    this._repositionBody(id, position, opts.rotation, isStatic ? false : true)
+    this.setBodyVelocity(id, [0, 0, 0])
+    this.setBodyAngularVelocity(id, [0, 0, 0])
+    if (opts.mass) this.setBodyMass(id, opts.mass)
+    if (opts.friction !== undefined) this.setBodyFriction(id, opts.friction)
+    if (opts.restitution !== undefined) this.setBodyRestitution(id, opts.restitution)
+    if (opts.gravityFactor !== undefined) this.setBodyGravityFactor(id, opts.gravityFactor)
+    if (opts.linearDamping !== undefined || opts.angularDamping !== undefined) this._setBodyDamping(id, opts)
+    if (this.bodyInterface.SetMotionQuality) {
+      this.bodyInterface.SetMotionQuality(b.GetID(), opts.linearCast ? J.EMotionQuality_LinearCast : J.EMotionQuality_Discrete)
+    }
+    this.bodyMeta.set(id, { type: motionType, shape: shapeType })
+    return true
+  }
+
+  _setBodyDamping(id, opts) {
+    const b = this._getBody(id); if (!b || !b.GetMotionProperties) return false
+    const mp = b.GetMotionProperties()
+    if (!mp) return false
+    if (opts.linearDamping !== undefined && typeof mp.SetLinearDamping === 'function') mp.SetLinearDamping(opts.linearDamping)
+    if (opts.angularDamping !== undefined && typeof mp.SetAngularDamping === 'function') mp.SetAngularDamping(opts.angularDamping)
+    return true
   }
 
   preallocatePool(shapeType, params, shapeKey, count) {
@@ -494,6 +520,14 @@ export class PhysicsWorld {
   addForce(id, f) { const b = this._getBody(id); if (!b) return; this._tmpVec3.Set(f[0],f[1],f[2]); this.bodyInterface.AddForce(b.GetID(), this._tmpVec3) }
   addImpulse(id, im, worldPoint) { const b = this._getBody(id); if (!b) return; this._tmpVec3.Set(im[0],im[1],im[2]); if (worldPoint) { this._tmpRVec3.Set(worldPoint[0],worldPoint[1],worldPoint[2]); this.bodyInterface.AddImpulse(b.GetID(), this._tmpVec3, this._tmpRVec3) } else this.bodyInterface.AddImpulse(b.GetID(), this._tmpVec3) }
   setBodyGravityFactor(id, f) { const b = this._getBody(id); if (!b || typeof f !== 'number' || !Number.isFinite(f)) return; this.bodyInterface.SetGravityFactor(b.GetID(), f) }
+  setBodyMass(id, mass) {
+    const b = this._getBody(id)
+    if (!b || !Number.isFinite(mass) || mass <= 0 || !b.GetMotionProperties) return false
+    const mp = b.GetMotionProperties()
+    if (!mp || typeof mp.ScaleToMass !== 'function') return false
+    mp.ScaleToMass(mass)
+    return true
+  }
 
   addConstraint(bodyIdA, bodyIdB, opts = {}) {
     if (!this.physicsSystem) return null
@@ -605,6 +639,12 @@ export class PhysicsWorld {
     else this.bodyInterface.RemoveBody(b.GetID())
     const destroyedShapeKey = this._bodyShapeKey.get(id)
     if (destroyedShapeKey) {
+      const pooled = this._bodyPool.get(destroyedShapeKey)
+      if (pooled) {
+        const at = pooled.indexOf(id)
+        if (at >= 0) pooled.splice(at, 1)
+        if (pooled.length === 0) this._bodyPool.delete(destroyedShapeKey)
+      }
       const refs = (this._shapeRefs.get(destroyedShapeKey) | 0) - 1
       if (refs > 0) this._shapeRefs.set(destroyedShapeKey, refs)
       else { this._shapeRefs.delete(destroyedShapeKey); this._shapeCache.delete(destroyedShapeKey) }
