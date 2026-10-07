@@ -18,6 +18,7 @@ interface AppCtx {
   raycast(origin: [number, number, number], direction: [number, number, number], maxDistance?: number, excludeBodyId?: any): { hit: boolean, position?: [number, number, number], normal?: [number, number, number], entityId?: string }
   canSee(fromPos: [number, number, number], toPos: [number, number, number], opts?: any): boolean
   terrainHeightAt(x: number, z: number): number
+  navCostAt(x: number, z: number): 0.5 | 1 | 2 | 3 | 8
 
   defineGameFSM(spec: any): any
   defineBuffStack(spec: any): any
