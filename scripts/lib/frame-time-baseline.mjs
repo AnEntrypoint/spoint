@@ -32,6 +32,10 @@ export function baselineRefusals(baseline, metrics = null) {
     reasons.push(`baseline was captured on ${rasterizer}, this run measured ${metrics.rasterizer} (${metrics.gpu || 'no gpu strings exposed'})`)
   }
 
+  if (metrics && baseline.vendor && metrics.vendor && baseline.vendor !== metrics.vendor) {
+    reasons.push(`baseline was captured on a ${baseline.vendor} GPU, this run measured ${metrics.vendor} -- frame times from two different adapters are not comparable`)
+  }
+
   for (const arm of GATED_ARMS) {
     const entry = baseline[arm]
     if (entry == null) {

@@ -1,0 +1,24 @@
+{
+  "rasterizer": "accelerated",
+  "vendor": "nvidia",
+  "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Laptop GPU (0x00002520) Direct3D11 vs_5_0 ps_5_0, D3D11) | Google Inc. (NVIDIA) | nvidia",
+  "vegInstances": 4679,
+  "static": {
+    "p50Ms": 10.80000000000291,
+    "p95Ms": 13.130000000001019,
+    "onePercentLowMs": 35.22142857142795,
+    "fps": 92.59259259256764,
+    "sampleCount": 784,
+    "avgDrawCalls": 2.017857142857143,
+    "avgTriangles": 277940.7464968153
+  },
+  "orbit": {
+    "p50Ms": 11.330000000001746,
+    "p95Ms": 13.505000000001019,
+    "onePercentLowMs": 32.053333333333285,
+    "fps": 88.2612533097834,
+    "sampleCount": 698,
+    "avgDrawCalls": 2.020057306590258,
+    "avgTriangles": 284826.61087267526
+  }
+}
