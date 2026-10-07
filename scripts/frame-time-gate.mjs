@@ -9,7 +9,7 @@ import { assertGpu, gpuArgs, gpuModeOf } from './lib/gpu-probe.mjs'
 import { vendorPinArgs } from './lib/witness-gpu.mjs'
 import {
   gpuControlArgs, gpuControlCalibrate, gpuControlProbe, gpuControlRate, gpuControlSpread,
-  gpuControlSensitive, GPU_CONTROL_SENSITIVE_P50_MS, GPU_CONTROL_SPREAD_FACTOR,
+  gpuControlSensitive, GPU_CONTROL_MIN_P50_MS, GPU_CONTROL_SPREAD_FACTOR,
 } from './lib/perf-gpu-control.mjs'
 import { baselineRefusals } from './lib/frame-time-baseline.mjs'
 import { contentionWatch, contentionMark, contentionVerdict, formatContention } from './lib/host-contention.mjs'
@@ -26,6 +26,7 @@ const VENDOR = (process.argv.find(a => a.startsWith('--expect-vendor=')) || '').
 const BASELINE_PATH = baselineArg || join(ROOT, VENDOR ? `.frame-time-baseline.${VENDOR}.json` : '.frame-time-baseline.json')
 const THRESHOLD = 1.10
 const UPDATE = process.argv.includes('--update-baseline')
+const ACCEPT_SLOWER = (process.argv.find(a => a.startsWith('--accept-slower=')) || '').slice('--accept-slower='.length)
 const ACCELERATED = GPU_MODE.accelerated
 const REQUIRE_ACCELERATED = process.argv.includes('--require-accelerated')
 const EXPECT_VENDOR = VENDOR || null
@@ -226,7 +227,7 @@ async function measureGpuControl(label, iterations) {
   }
   console.log(`[frame-time-gate] gpu control ${label}: ${probe.p50Ms.toFixed(2)}ms per ${probe.iterations}-iteration quantum over ${probe.samples} sample(s), ${gpuControlRate(probe).toFixed(2)}ms per 1000 iteration(s), worst ${probe.worstMs.toFixed(2)}ms`)
   if (!gpuControlSensitive(probe)) {
-    console.log(`[frame-time-gate] gpu control ${label}: ${probe.p50Ms.toFixed(2)}ms is under the ${GPU_CONTROL_SENSITIVE_P50_MS}ms a control page needs before its cadence can move with adapter load, so this probe cannot see contention`)
+    console.log(`[frame-time-gate] gpu control ${label}: ${probe.p50Ms.toFixed(2)}ms is under the ${GPU_CONTROL_MIN_P50_MS}ms a control page needs before its cadence can move with adapter load, so this probe cannot see contention`)
   }
   return probe
 }
@@ -243,13 +244,14 @@ function formatGpuControl(gpuControl) {
 function gpuContentionRefusals(gpuControl) {
   const before = gpuControl && gpuControl.before
   const after = gpuControl && gpuControl.after
+  const reasons = []
   if (!before || !after) {
-    return ['the GPU control probe produced no adapter cadence, so this run carries no evidence the adapter was idle while it measured']
+    reasons.push('the GPU control probe produced no adapter cadence, so this run carries no evidence the adapter was idle while it measured')
+    return reasons
   }
   if (!gpuControlSensitive(before) || !gpuControlSensitive(after)) {
-    return [`the GPU control page never exceeded ${GPU_CONTROL_SENSITIVE_P50_MS}ms per quantum (${formatGpuControl(gpuControl)}), so its cadence cannot move with adapter load and this run cannot tell a shared adapter from an idle one`]
+    reasons.push(`the GPU control page never reached ${GPU_CONTROL_MIN_P50_MS}ms per quantum (${formatGpuControl(gpuControl)}), so a fixed overhead could dominate its cost and this run cannot tell a shared adapter from an idle one`)
   }
-  const reasons = []
   for (const [key, probe] of [['before the app booted', before], ['after the app closed', after]]) {
     if (probe.worstMs > probe.p50Ms * GPU_CONTROL_INSTABILITY_FACTOR) {
       reasons.push(`the GPU control page hit a ${probe.worstMs.toFixed(2)}ms quantum against its own p50 of ${probe.p50Ms.toFixed(2)}ms ${key} (over x${GPU_CONTROL_INSTABILITY_FACTOR}), so another process was taking the adapter while this run measured`)
@@ -465,7 +467,7 @@ async function measureRealFrameTimes() {
 
     await browser.close()
     browser = null
-    const controlAfter = await measureGpuControl('after the app browser closed', controlBefore ? controlBefore.iterations : null)
+    const controlAfter = await measureGpuControl('after the app browser closed')
 
     return { staticResult, orbitResult, gpu, vegInstances, watch, gpuControl: { before: controlBefore, after: controlAfter } }
   } finally {
@@ -548,6 +550,7 @@ async function main() {
     orbit: { ...orbitStats, avgDrawCalls: orbitRates.drawCalls, avgTriangles: orbitRates.triangles },
   }
 
+  const previousBaseline = UPDATE ? readBaseline() : null
   const gpuSpread = metrics.fingerprint.gpuControlSpread
   console.log(`[frame-time-gate] adapter fingerprint: control ${(metrics.fingerprint.gpuControlBeforeMsPerK || 0).toFixed(2)}ms per 1000 iteration(s) before the app booted, ${(metrics.fingerprint.gpuControlAfterMsPerK || 0).toFixed(2)}ms after it closed (spread x${gpuSpread == null ? 0 : gpuSpread.toFixed(2)}, bar x${GPU_CONTROL_SPREAD_FACTOR}), ${metrics.fingerprint.chromeProcessCount == null ? 'chrome process count unknown' : `${metrics.fingerprint.chromeProcessCount} chrome.exe process(es)`}, cpu contested ${contention.contested}`)
 
@@ -584,10 +587,15 @@ async function main() {
       refusals.push(`host contention ${contention.peakMs} ms is x${contention.slowdown} of this run's cleanest ${contention.bestMs} ms, so these frame times measure a shared box`)
     }
     refusals.push(...gpuRefusals)
+    const previousOrbitP50Ms = previousBaseline && previousBaseline.orbit ? previousBaseline.orbit.p50Ms : null
+    if (previousOrbitP50Ms != null && metrics.orbit.p50Ms > previousOrbitP50Ms * THRESHOLD && !ACCEPT_SLOWER) {
+      refusals.push(`this capture's orbit p50 ${metrics.orbit.p50Ms.toFixed(2)}ms is over the x${THRESHOLD} band above the ${previousOrbitP50Ms.toFixed(2)}ms baseline it would replace (limit ${(previousOrbitP50Ms * THRESHOLD).toFixed(2)}ms) -- a baseline may not be captured slower than the one it replaces, so re-run on a quiet box, or name the landed change that made the world slower with --accept-slower=<reason>`)
+    }
     if (refusals.length) {
       console.error(`[frame-time-gate] REFUSING to capture an inadmissible baseline: ${refusals.join('; ')}`)
       process.exit(1)
     }
+    if (ACCEPT_SLOWER) metrics.acceptedSlower = { reason: ACCEPT_SLOWER, previousOrbitP50Ms }
     writeBaseline(metrics)
     console.log('[frame-time-gate] baseline updated. PASS')
     process.exit(0)

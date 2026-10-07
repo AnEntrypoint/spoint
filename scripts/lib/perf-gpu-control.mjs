@@ -6,7 +6,8 @@ import { chromium } from './cdp-browser.mjs'
 import { gpuArgs } from './gpu-probe.mjs'
 
 export const GPU_CONTROL_PROBE_MS = 2000
-export const GPU_CONTROL_SENSITIVE_P50_MS = 25
+export const GPU_CONTROL_SENSITIVE_P50_MS = 30
+export const GPU_CONTROL_MIN_P50_MS = 20
 export const GPU_CONTROL_SPREAD_FACTOR = 1.25
 
 const WIDTH = 1280
@@ -176,7 +177,7 @@ export function gpuControlArgs({ accelerated, vendorArgs = [], unlockedRafArgs =
 }
 
 export function gpuControlSensitive(probe) {
-  return !!probe && probe.p50Ms >= GPU_CONTROL_SENSITIVE_P50_MS
+  return !!probe && probe.p50Ms >= GPU_CONTROL_MIN_P50_MS
 }
 
 export function gpuControlRate(probe) {
