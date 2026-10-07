@@ -38,9 +38,12 @@ const BOXES = Number(args.boxes || 0)
 const COL_COUNT_MAP = args.colCountMap !== '0'
 
 const failures = []
-function expect(cond, label) {
-  if (!cond) failures.push(label)
-  return cond
+const finite = v => Number.isFinite(v)
+function expect(name, got, predicate) {
+  let ok = false
+  try { ok = Boolean(predicate(got)) } catch { ok = false }
+  if (!ok) failures.push(`${name}=${JSON.stringify(got)}`)
+  return got
 }
 
 function freePort() {
@@ -89,7 +92,7 @@ async function runMicro() {
   for (let i = 0; i < 400; i++) placed.push(world.addStaticBox([0.6, 0.6, 0.6], spread(i, 400), [0, 0, 0, 1]))
 
   const index = world.enableStaticTiles()
-  expect(!!index, 'static tile index created on a real PhysicsWorld')
+  expect('microStaticTileIndexCreated', !!index, v => v === true)
 
   let updateCalls = 0
   let updateLive = 0
@@ -313,7 +316,7 @@ async function runMicro() {
   out.tileGetUsPerCall = clean.build
 
   out.sequence = {}
-  for (const [k, v] of Object.entries(seq)) out.sequence[k] = { label: v.label, tiles: v.tiles, hash: v.hash, vertsTotal: v.vertsTotal, membershipHash: v.membershipHash }
+  for (const [k, v] of Object.entries(seq)) out.sequence[k] = v ? { label: v.label, tiles: v.tiles, hash: v.hash, vertsTotal: v.vertsTotal, membershipHash: v.membershipHash } : null
 
   out.microMembershipSamples = {}
   for (const key of ['afterBuild', 'afterMoves', 'afterMoveAcrossTile', 'afterJitter']) {
@@ -448,7 +451,7 @@ async function runCollisionFixture() {
   const uncachedParts = runPass(COL_TICKS, true, null)
   const streamCached = hashFloats(cachedParts)
   const streamUncached = hashFloats(uncachedParts)
-  expect(streamCached === streamUncached, `cached event stream identical to forced-uncached over ${COL_TICKS} ticks`)
+  expect('colEventStreamCachedEqualsUncached', streamCached === streamUncached, v => v === true)
 
   const MUT_TICKS = 64
   function mutPhase(label, before) {
@@ -457,7 +460,7 @@ async function runCollisionFixture() {
     restoreHomes()
     const b = runPass(MUT_TICKS, true, before)
     const ha = hashFloats(a), hb = hashFloats(b)
-    expect(ha === hb, `cached event stream identical under ${label}`)
+    expect(`colEventStreamCachedEqualsUncachedUnder:${label}`, ha === hb, v => v === true)
     return ha >>> 0
   }
 
@@ -789,15 +792,15 @@ async function runServer() {
   const out = {
     arm: ARM,
     mode: 'server',
-    players: server.playerManager.getConnectedPlayers().length,
-    entities: runtime.entities.size,
-    collisionEntities: runtime._collisionEntities.length,
-    ticks: measuredTicks,
-    tilesEnabled,
+    players: expect('players', server.playerManager.getConnectedPlayers().length, v => v === PLAYERS),
+    entities: expect('entities', runtime.entities.size, v => v > 0),
+    collisionEntities: expect('collisionEntities', runtime._collisionEntities.length, v => v >= BOXES),
+    ticks: expect('ticks', measuredTicks, v => v >= TICKS),
+    tilesEnabled: expect('tilesEnabled', tilesEnabled, v => v === true),
     tileUpdateCallsPerTick: Number((tileMetrics.updateCalls / measuredTicks).toFixed(3)),
-    tileUpdateLivePerTick: Number((tileMetrics.updateLive / measuredTicks).toFixed(3)),
+    tileUpdateLivePerTick: expect('tileUpdateLivePerTick', Number((tileMetrics.updateLive / measuredTicks).toFixed(3)), v => v > 0),
     tileUnchangedSpanPerTick: Number((tileMetrics.unchangedSpan / measuredTicks).toFixed(3)),
-    tileUnchangedSpanFraction: Number((tileMetrics.unchangedSpan / Math.max(1, tileMetrics.updateLive)).toFixed(4)),
+    tileUnchangedSpanFraction: expect('tileUnchangedSpanFraction', Number((tileMetrics.unchangedSpan / Math.max(1, tileMetrics.updateLive)).toFixed(4)), v => Number.isFinite(v) && v >= 0 && v <= 1),
     tileStringConcatsPerTick: Number((tileMetrics.concats / measuredTicks).toFixed(3)),
     tileUpdateMsPerTick: Number((tileMetrics.updateMs / measuredTicks).toFixed(5)),
     tileBuildsPerTick: Number((tileBuilds / measuredTicks).toFixed(4)),
@@ -809,12 +812,12 @@ async function runServer() {
     colMapSetPerTick: Number((colMetrics.mapSet / measuredTicks).toFixed(2)),
     colNewArraysPerTick: Number((colMetrics.newArrays / measuredTicks).toFixed(2)),
     colRebucketsPerTick: Number((rebucketSum / measuredTicks).toFixed(3)),
-    colMsPerTick: Number((colMs / measuredTicks).toFixed(5)),
+    colMsPerTick: expect('colMsPerTick', Number((colMs / measuredTicks).toFixed(5)), finite),
     syncMsPerTick: Number((syncMs / measuredTicks).toFixed(5)),
     spatialMsPerTick: Number((spatialMs / measuredTicks).toFixed(5)),
     interactMsPerTick: Number((interactMs / measuredTicks).toFixed(5)),
     respawnMsPerTick: Number((respawnMs / measuredTicks).toFixed(5)),
-    tickMsPerTick: Number(((Date.now() - runStart) / measuredTicks).toFixed(5)),
+    tickMsPerTick: expect('tickMsPerTick', Number(((Date.now() - runStart) / measuredTicks).toFixed(5)), v => Number.isFinite(v) && v > 0),
     colEventsPerTick: Number((collisionEvents / measuredTicks).toFixed(3)),
     colEventStreamHash: hashFloats(eventHashParts.slice(0, 20000)),
     colEventStreamSamples: eventHashParts.length,
@@ -831,10 +834,10 @@ async function runServer() {
     aoiCenterUsPerCallMedian: Number(centerSamples[3].toFixed(5)),
     aoiRingUsPerCompute: Number((neighSamples[0] + 8 * centerSamples[0]).toFixed(5)),
     aoiRingUsPerTick: Number((ringComputes / measuredTicks * (neighSamples[0] + 8 * centerSamples[0])).toFixed(5)),
-    aoiNeighborFreshMismatch: neighborFreshMismatch,
+    aoiNeighborFreshMismatch: expect('aoiNeighborFreshMismatch', neighborFreshMismatch, v => v === 0),
     aoiRingCostMsPerPass: Number(((ringComputes / Math.max(1, snapshotPasses)) * (neighSamples[0] + 8 * centerSamples[0]) / 1000).toFixed(6)),
     aoiRingCostMsPerTick: Number(((ringComputes / measuredTicks) * (neighSamples[0] + 8 * centerSamples[0]) / 1000).toFixed(6)),
-    tileCount: index ? index.tileCount : 0,
+    tileCount: expect('tileCount', index ? index.tileCount : 0, v => v > 0),
   }
 
   for (const c of clients) { try { c.close?.() } catch {} }
@@ -855,7 +858,7 @@ if (EXPECT) {
   const ref = JSON.parse(readFileSync(EXPECT, 'utf8'))
   for (const key of Object.keys(ref)) {
     const a = JSON.stringify(ref[key]), b = JSON.stringify(out[key])
-    expect(a === b, `field ${key} differs from ${EXPECT}: expected ${a} got ${b}`)
+    expect(`field ${key} vs ${EXPECT} want ${a}`, b, v => v === a)
   }
 }
 
