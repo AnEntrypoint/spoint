@@ -11,6 +11,7 @@ const GROUND_Y = 40
 const EYE_HEIGHT_M = 1.6
 const SMOKE_HEIGHT_M = 30
 const BLOCK_DEPTH = 1
+const SAMPLE_CAP_HEADROOM = 8
 const HOME_FACE = 2
 
 const sampler = {
@@ -104,6 +105,23 @@ function plumeLengthM(climbPerMetre, rangeM) {
   if (!(climbPerMetre > 1e-6)) return EYE_HEIGHT_M <= SMOKE_HEIGHT_M ? rangeM : 0
   const exit = (SMOKE_HEIGHT_M - EYE_HEIGHT_M) / climbPerMetre
   return Math.min(rangeM, exit)
+}
+
+function countSamples(fire, fn) {
+  const kernel = fire.world?.kernel
+  if (!kernel) { fn(); return 0 }
+  const own = Object.prototype.hasOwnProperty.call(kernel, 'smokeAt')
+  const previous = kernel.smokeAt
+  const real = previous.bind(kernel)
+  let samples = 0
+  kernel.smokeAt = (...args) => { samples++; return real(...args) }
+  try {
+    fn()
+  } finally {
+    if (own) kernel.smokeAt = previous
+    else delete kernel.smokeAt
+  }
+  return samples
 }
 
 say('== fire smoke line-of-sight witness ==')
@@ -250,6 +268,10 @@ say('== 4b. the same rule on a ray that crosses a cube-face boundary, where the 
     lattice.walk(HOME_FACE, HALF, HALF, -9000, 0, far)
     const farTo = pointAt(far.face, far.I, far.J, EYE_HEIGHT_M)
     const farShot = shot(eyeFrom, farTo)
+    const nearCount = countSamples(rig.fire, () => rig.fire.smokeDepth(eyeFrom, farShot.direction, farShot.distance / 100))
+    const midCount = countSamples(rig.fire, () => rig.fire.smokeDepth(eyeFrom, farShot.direction, farShot.distance / 10))
+    const farCount = countSamples(rig.fire, () => rig.fire.smokeDepth(eyeFrom, farShot.direction, farShot.distance))
+    const uncapped = Math.ceil(farShot.distance / (lattice.cellM * 0.5))
     let best = Infinity
     for (let k = 0; k < 5; k++) {
       const t = process.hrtime.bigint()
@@ -257,8 +279,12 @@ say('== 4b. the same rule on a ray that crosses a cube-face boundary, where the 
       const ns = Number(process.hrtime.bigint() - t) / 200
       if (ns < best) best = ns
     }
-    say(`  a ${(farShot.distance / 1000).toFixed(0)} km ray that crosses a boundary: ${(best / 1000).toFixed(2)} us per query (best of 5 x 200), the sample count is capped`)
-    if (!(best / 1000 < 200)) failures.push(`section 4b: a ${(farShot.distance / 1000).toFixed(0)} km cross-face query cost ${(best / 1000).toFixed(2)} us, so the sample cap is not holding`)
+    say(`  a ${(farShot.distance / 1000).toFixed(0)} km ray that crosses a boundary samples ${nearCount}/${midCount}/${farCount} cell(s) at a hundredth, a tenth and the full range, against ${uncapped} half-cell step(s) for an uncapped walk`)
+    say(`  ${(best / 1000).toFixed(2)} us per query (best of 5 x 200) is an observation, not a gate`)
+    if (!(nearCount > 0 && midCount > 0 && farCount > 0)) failures.push(`section 4b: the cross-face path read ${nearCount}/${midCount}/${farCount} cell(s) over the three ranges, so the sample count was never measured`)
+    if (midCount < nearCount) failures.push(`section 4b: the sample count fell from ${nearCount} to ${midCount} as the ray grew 10x, so the counts are not tracking the sampled path`)
+    if (farCount > midCount) failures.push(`section 4b: the sample count grew from ${midCount} to ${farCount} when the ray grew another 10x, so the sample cap is not holding`)
+    if (farCount * SAMPLE_CAP_HEADROOM > uncapped) failures.push(`section 4b: a ${(farShot.distance / 1000).toFixed(0)} km cross-face query sampled ${farCount} cell(s), within ${SAMPLE_CAP_HEADROOM}x of the ${uncapped} step(s) an uncapped half-cell walk would take`)
   }
 }
 
@@ -342,19 +368,25 @@ say('== 7. the same query is bit-identical when repeated, and one query costs th
     say(`  ${label.padEnd(38)}: ${(best / 1000).toFixed(2)} us per query (best of ${batches} x ${per})`)
     return best
   }
-  const busyDepth = measure('smokeDepth through the burning front', () => burning.fire.smokeDepth(eyeFrom, flatShot.direction, flatShot.distance))
-  const quietDepth = measure('smokeDepth with nothing burning', () => quiet.fire.smokeDepth(eyeFrom, flatShot.direction, flatShot.distance))
-  const busyRay = measure('rayBlocked through the burning front', () => burning.fire.rayBlocked(eyeFrom, flatShot.direction, flatShot.distance))
-  const busySegment = measure('sightBlocked through the burning front', () => burning.fire.sightBlocked(eyeFrom, eyeTo))
+  measure('smokeDepth through the burning front', () => burning.fire.smokeDepth(eyeFrom, flatShot.direction, flatShot.distance))
+  measure('smokeDepth with nothing burning', () => quiet.fire.smokeDepth(eyeFrom, flatShot.direction, flatShot.distance))
+  measure('rayBlocked through the burning front', () => burning.fire.rayBlocked(eyeFrom, flatShot.direction, flatShot.distance))
+  measure('sightBlocked through the burning front', () => burning.fire.sightBlocked(eyeFrom, eyeTo))
   const appRig = makeApp(BASE)
   runApp(appRig, 1)
   appRig.fire.igniteCell(HOME_FACE, HALF, HALF, 3)
   runApp(appRig, 14 * TICKS_PER_STEP)
   const appBlocked = appRig.ctx.canSee(eyeFrom, eyeTo)
-  const canSeeBusy = measure('AppContext.canSee across the front', () => appRig.ctx.canSee(eyeFrom, eyeTo), 5, 500)
+  measure('AppContext.canSee across the front', () => appRig.ctx.canSee(eyeFrom, eyeTo), 5, 500)
   say(`  canSee across the front reports ${appBlocked} (smoke alone, no geometry in the way)`)
-  if (busyDepth <= quietDepth) failures.push(`section 7: a busy smoke query (${busyDepth} ns) cost no more than a quiet one (${quietDepth} ns), so the measurement saw nothing`)
-  if (!(busySegment > 0) || !(canSeeBusy > 0)) failures.push('section 7: a sightline query measured zero cost')
+  const busySamples = countSamples(burning.fire, () => burning.fire.smokeDepth(eyeFrom, flatShot.direction, flatShot.distance))
+  const quietSamples = countSamples(quiet.fire, () => quiet.fire.smokeDepth(eyeFrom, flatShot.direction, flatShot.distance))
+  say(`  the busy query read ${busySamples} cell(s) and the quiet one ${quietSamples} (timings above are an observation, not a gate)`)
+  if (busySamples === 0 || quietSamples !== 0) failures.push(`section 7: a smoke query sampled ${busySamples} cell(s) over the burning front and ${quietSamples} over a quiet world, so the measurement saw nothing`)
+  const segmentSamples = countSamples(burning.fire, () => burning.fire.sightBlocked(eyeFrom, eyeTo))
+  const canSeeSamples = countSamples(appRig.fire, () => appRig.ctx.canSee(eyeFrom, eyeTo))
+  say(`  sightBlocked read ${segmentSamples} cell(s) and canSee ${canSeeSamples} (timings above are an observation, not a gate)`)
+  if (segmentSamples === 0 || canSeeSamples === 0) failures.push(`section 7: sightBlocked sampled ${segmentSamples} cell(s) and canSee ${canSeeSamples} over the burning front, so the sightline gate read no smoke`)
 }
 
 say('')
