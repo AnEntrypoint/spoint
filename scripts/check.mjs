@@ -1,6 +1,6 @@
-import { readdirSync, statSync, readFileSync, existsSync } from 'node:fs'
-import { join, extname } from 'node:path'
-import { execFile } from 'node:child_process'
+import { readFileSync, existsSync } from 'node:fs'
+import { extname, join } from 'node:path'
+import { execFile, execFileSync } from 'node:child_process'
 import { promisify } from 'node:util'
 import { checkAppImports } from './check-app-imports.mjs'
 import { ensureWorkspaceLinks } from './ensure-workspace-links.mjs'
@@ -8,28 +8,25 @@ import { ensureWorkspaceLinks } from './ensure-workspace-links.mjs'
 const execFileAsync = promisify(execFile)
 
 const ROOTS = ['src', 'client', 'apps', 'scripts', 'bin']
-const SKIP_DIRS = new Set(['node_modules', '.git', '.gm', 'basis', 'draco', 'maps'])
+const SKIP_DIRS = new Set(['basis', 'draco', 'maps'])
 const SKIP_VENDORED_FILE = /(\.min\.js$|basis_transcoder|draco_decoder|jolt-physics)/
 
-function collect(dir, out) {
-  let entries
-  try { entries = readdirSync(dir) } catch { return out }
-  for (const name of entries) {
-    const full = join(dir, name)
-    let st
-    try { st = statSync(full) } catch { continue }
-    if (st.isDirectory()) {
-      if (!SKIP_DIRS.has(name)) collect(full, out)
-    } else if ((extname(name) === '.js' || extname(name) === '.mjs') && !SKIP_VENDORED_FILE.test(full)) {
-      out.push(full)
-    }
+function collect(out) {
+  const raw = execFileSync('git', ['ls-files', '-z', '--cached', '--', ...ROOTS], { maxBuffer: 64 * 1024 * 1024 })
+  for (const rel of raw.toString('utf8').split('\0')) {
+    if (!rel) continue
+    const ext = extname(rel)
+    if (ext !== '.js' && ext !== '.mjs') continue
+    if (SKIP_VENDORED_FILE.test(rel)) continue
+    if (rel.split(/[\\/]/).some((seg) => SKIP_DIRS.has(seg))) continue
+    out.push(rel)
   }
   return out
 }
 
 async function main() {
   const files = []
-  for (const r of ROOTS) collect(r, files)
+  collect(files)
 
   const missingRoots = ROOTS.filter((r) => !existsSync(r))
   if (missingRoots.length) {
@@ -37,9 +34,10 @@ async function main() {
     process.exit(1)
   }
   if (files.length === 0) {
-    console.error(`check: 0 source files collected from ${ROOTS.join(', ')} -- an empty parse scan is not a pass`)
+    console.error(`check: 0 tracked source files collected from ${ROOTS.join(', ')} -- an empty parse scan is not a pass`)
     process.exit(1)
   }
+  console.log(`check: parsing ${files.length} git-tracked source file(s) under ${ROOTS.join(', ')} (untracked scratch is not scanned)`)
 
   const failures = []
 
@@ -148,6 +146,13 @@ async function main() {
     const out = (e.stdout || '').toString()
     for (const line of out.split('\n')) if (line.trim()) console.error(`check: ${line}`)
     console.error('check: fire witnesses:', (e.stderr || e.message || '').toString().trim())
+    process.exit(1)
+  }
+  try {
+    const { stdout } = await execFileAsync(process.execPath, ['scripts/check-frame-time-baselines.mjs'])
+    for (const line of stdout.split('\n')) if (line.trim()) console.log(line)
+  } catch (e) {
+    console.error('check: frame-time baselines:', (e.stderr || e.stdout || e.message || '').toString().trim())
     process.exit(1)
   }
   const gpuArms = (process.env.SPOINT_GPU_WITNESS || '').split(',').map((s) => s.trim()).filter(Boolean)

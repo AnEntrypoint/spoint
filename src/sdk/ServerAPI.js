@@ -250,8 +250,10 @@ export function createServerAPI(ctx) {
 }
 
 function attachWSHandlers(ctx) {
-  ctx.wss.on('connection', (socket) => {
-    ctx.onClientConnect(new WebSocketTransport(socket))
+  ctx.wss.on('connection', (socket, req) => {
+    const transport = new WebSocketTransport(socket)
+    if (req && /(?:^|[?&])probe=1(?:&|$)/.test(req.url || '')) transport.probeOnly = true
+    ctx.onClientConnect(transport)
   })
   if (ctx.config.webTransport) {
     const wtp = ctx.config.webTransport.port || 4433

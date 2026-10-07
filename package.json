@@ -42,6 +42,7 @@
     "perf-gate": "node scripts/perf-gate.mjs",
     "bundle-size-gate": "node scripts/bundle-size-gate.mjs",
     "cold-load-gate": "node scripts/cold-load-gate.mjs",
+    "frame-time-gate": "node scripts/frame-time-gate.mjs",
     "check": "node scripts/check.mjs",
     "gen-typings": "node scripts/gen-sdk-typings.mjs",
     "check:sdk-types": "node scripts/check-sdk-types.mjs",

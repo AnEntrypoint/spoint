@@ -162,7 +162,7 @@ export function createServerBrowser({ namespace = 'spoint', relays = null } = {}
       if (cached && Date.now() - cached.ts < PING_REFRESH_MS) continue
       pingByHostPort.set(key, { ms: cached?.ms ?? null, ts: Date.now(), pending: true })
       const proto = r.port === 443 ? 'wss:' : 'ws:'
-      pingWs(`${proto}//${r.host}:${r.port}/ws`).then(ms => {
+      pingWs(`${proto}//${r.host}:${r.port}/ws?probe=1`).then(ms => {
         pingByHostPort.set(key, { ms, ts: Date.now(), pending: false })
         if (!disposed) render()
       })

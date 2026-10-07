@@ -36,11 +36,16 @@ export async function probeGpu(page) {
         }
       }
     } catch (_) {}
-    const parts = [renderer, vendor, adapter && adapter.vendor, adapter && adapter.description].filter(Boolean)
+    let pageRenderer = null
+    try {
+      const ri = window.__rendererInfo
+      if (ri && typeof ri.glRenderer === 'string' && ri.glRenderer) pageRenderer = ri.glRenderer
+    } catch (_) {}
+    const parts = [renderer, vendor, pageRenderer, adapter && adapter.vendor, adapter && adapter.description].filter(Boolean)
     const haystack = parts.join(' | ')
     return {
       accelerated: parts.length > 0 && !markers.test(haystack),
-      renderer,
+      renderer: renderer || pageRenderer,
       vendor,
       adapter,
       haystack,
