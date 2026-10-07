@@ -100,10 +100,12 @@ async function runChild() {
   process.on('message', async m => {
     if (m.t === 'connect') {
       for (const s of m.clients) clients.set(s.idx, makeClient(s, m.url))
-      await Promise.all([...clients.values()].map(r => r.client.connect()))
+      let connectError = null
+      await Promise.all([...clients.values()].map(r => r.client.connect().catch(e => { connectError = e })))
+      if (connectError) console.error(`[planet-mp] client connect failed: ${connectError.name}: ${connectError.message}`)
       const t0 = performance.now()
       while ([...clients.values()].some(r => r.client.playerId == null) && performance.now() - t0 < 30000) await sleep(20)
-      send({ t: 'connected', ids: [...clients.values()].map(r => [r.spec.idx, r.client.playerId]) })
+      send({ t: 'connected', ids: [...clients.values()].map(r => [r.spec.idx, r.client.playerId]), error: connectError ? `${connectError.name}: ${connectError.message}` : null })
     } else if (m.t === 'teleport') {
       const todo = m.targets.filter(x => clients.has(x.idx))
       const results = []

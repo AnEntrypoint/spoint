@@ -31,6 +31,14 @@ const WT_NEGATIVE_TTL_MS = 600000
 const WT_CACHE_PREFIX = 'spoint.wt.'
 const WT_ANNOUNCED_FAILURES = new Set()
 
+function transportConnectError(reason, url, detail) {
+  const err = new Error(`[transport] connect to ${url} failed: ${reason}${detail ? ` (${detail})` : ''}`)
+  err.name = 'TransportConnectError'
+  err.reason = reason
+  err.url = url
+  return err
+}
+
 function createWebSocketConnection(url, onOpen, onMessage, onClose) {
   const ws = new WebSocket(url)
   ws.binaryType = 'arraybuffer'
@@ -227,14 +235,34 @@ export class PhysicsNetworkClient extends BaseClient {
       return
     }
     this._transportType = 'websocket'
-    return new Promise(resolve => {
+    await this._connectWebSocket(gen)
+  }
+
+  _connectWebSocket(gen) {
+    return new Promise((resolve, reject) => {
       let settled = false
+      const fail = (reason, detail) => {
+        if (settled) return
+        settled = true
+        reject(transportConnectError(reason, this.config.url, detail))
+      }
+      const drop = () => { try { ws.close() } catch (e) {} }
+      let ws
       try {
-        this.ws = createWebSocketConnection(this.config.url, () => { settled = true; this._onOpen(resolve, gen) }, () => {}, () => this._onClose(gen))
-        this._wireWebSocketMessages(this.ws, gen)
-        const ws = this.ws
-        ws.onerror = () => { if (gen !== this._connGen) return; if (!settled) { settled = true; resolve() } }
-      } catch (e) { resolve() }
+        ws = createWebSocketConnection(this.config.url, () => {}, () => {}, () => {})
+      } catch (e) { fail('websocket-unavailable', e && e.message); return }
+      this.ws = ws
+      ws.onopen = () => {
+        if (settled) { drop(); return }
+        if (gen !== this._connGen) { drop(); fail('connect-superseded'); return }
+        settled = true
+        ws.onclose = () => this._onClose(gen)
+        this._onOpen(null, gen)
+        resolve()
+      }
+      ws.onerror = event => { if (!settled) fail('websocket-error', event && event.message) }
+      ws.onclose = event => { if (!settled) fail('websocket-closed-before-open', event ? `close code ${event.code}` : null) }
+      this._wireWebSocketMessages(ws, gen)
     })
   }
 
@@ -278,7 +306,8 @@ export class PhysicsNetworkClient extends BaseClient {
     }
     if (!candidate) {
       if (kind === 'webtransport') return 'unsupported'
-      candidate = await this._openWebSocketCandidate()
+      try { candidate = await this._openWebSocketCandidate() }
+      catch (e) { return 'failed' }
       if (!candidate) return 'failed'
     }
     if (gen !== this._connGen) { try { candidate.close() } catch (e) {} return 'failed' }
@@ -290,17 +319,17 @@ export class PhysicsNetworkClient extends BaseClient {
   }
 
   _openWebSocketCandidate() {
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
       try {
         const ws = new WebSocket(this.config.url)
         ws.binaryType = 'arraybuffer'
         const t = new WebSocketClientTransport(ws)
         if (t.isOpen) { resolve(t); return }
         const onOpen = () => { ws.removeEventListener('error', onError); resolve(t) }
-        const onError = () => { ws.removeEventListener('open', onOpen); resolve(null) }
+        const onError = event => { ws.removeEventListener('open', onOpen); try { ws.close() } catch (e) {} reject(transportConnectError('websocket-candidate-error', this.config.url, event && event.message)) }
         ws.addEventListener('open', onOpen, { once: true })
         ws.addEventListener('error', onError, { once: true })
-      } catch (e) { resolve(null) }
+      } catch (e) { reject(transportConnectError('websocket-candidate-unavailable', this.config.url, e && e.message)) }
     })
   }
 

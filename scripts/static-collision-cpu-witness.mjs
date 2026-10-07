@@ -584,7 +584,9 @@ async function runServer() {
 
   const clients = []
   for (let i = 0; i < PLAYERS; i++) clients.push(new PhysicsNetworkClient({ url, predictionEnabled: false, smoothInterpolation: false, webTransport: { enabled: false } }))
-  await Promise.all(clients.map(c => c.connect()))
+  const connectFailures = []
+  await Promise.all(clients.map(c => c.connect().catch(e => connectFailures.push(e))))
+  if (connectFailures.length) { console.error(`[static-collision] ${connectFailures.length} of ${clients.length} client(s) failed to connect to ${url}: ${connectFailures[0].name}: ${connectFailures[0].message}`); process.exit(1) }
   const tJoin = Date.now()
   while (server.playerManager.getConnectedPlayers().length < PLAYERS && Date.now() - tJoin < 30000) await sleep(50)
   for (let i = 0; i < clients.length; i++) clients[i].startInputLoop(() => ({ forward: true, sprint: false, yaw: i, pitch: 0 }))

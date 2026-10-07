@@ -143,7 +143,7 @@ async function scenarioHosting() {
   for (const id of ['A', 'B']) {
     const world = runtime.host.worldOf(ids[id])
     clients[id] = makeClient(world.url)
-    await clients[id].client.connect()
+    await connectOrFail(clients[id].client)
   }
   await until(() => ['A', 'B'].every(id => clients[id].client.playerId && clients[id].client.getLocalState()?.onGround), 60000, 'both clients grounded')
   await until(() => ['A', 'B'].every(id => { const s = runtime.host.worldOf(ids[id]).server; const p = s.playerManager.getPlayer(clients[id].client.playerId)?.state.position; return p && Math.abs(p[1] - s.physics.terrainHeightAt(p[0], p[2])) < 2 }), 90000, 'both players standing on the collider')
@@ -284,7 +284,7 @@ async function scenarioCensus() {
   const clients = []
   for (let i = 0; i < playerCount; i++) {
     const c = makeClient(world.url)
-    await c.client.connect()
+    await connectOrFail(c.client)
     clients.push(c)
   }
   await until(() => clients.every(c => c.client.playerId && c.client.getLocalState()?.onGround), 60000, 'census clients grounded')
@@ -464,7 +464,7 @@ async function scenarioHandoff() {
     const world = runtime.host.worldOf(cluster)
     if (!baseChart) baseChart = chartOf(world)
     const c = makeClient(world.url)
-    await c.client.connect()
+    await connectOrFail(c.client)
     tracked.set(id, { client: c.client, heading: c.heading, cluster, localId: null })
   }
   await until(() => [...tracked.values()].every(r => r.client.playerId), 30000, 'clients joined')
@@ -544,7 +544,7 @@ async function scenarioTilt() {
   const toChartA = createChartTransfer(chartB, chartA)
   const anchorTiltDeg = angleDegBetween(worldA.server.physics._planetFrame.anchorDir, worldB.server.physics._planetFrame.anchorDir)
   const client = makeClient(worldA.url)
-  await client.client.connect()
+  await connectOrFail(client.client)
   await until(() => client.client.playerId && client.client.getLocalState()?.onGround, 60000, 'tilt: player grounded in the source world')
   client.heading.walking = true
   await sleep(2500)
@@ -581,6 +581,11 @@ async function scenarioTilt() {
   await factory.destroyWorld(1, worldA)
   await factory.destroyWorld(2, worldB)
   return out
+}
+
+async function connectOrFail(client) {
+  try { await client.connect() }
+  catch (e) { console.error(`[cluster-harness] connect failed: ${e.name}: ${e.message}`); process.exit(1) }
 }
 
 const SCENARIOS = { manager: scenarioManager, hosting: scenarioHosting, heap: scenarioHeap, census: scenarioCensus, handoff: scenarioHandoff, tilt: scenarioTilt }

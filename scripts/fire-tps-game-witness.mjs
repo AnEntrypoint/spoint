@@ -98,8 +98,12 @@ async function runOnce({ enabled, weather, label }) {
   const isConnecting = c => c.ws != null && c.ws.readyState === 0
   const deadline = Date.now() + JOIN_TIMEOUT_MS
   let joined = false
+  let connectError = null
   while (Date.now() < deadline) {
-    for (const c of clients) if (!isOpen(c) && !isConnecting(c)) await c.connect()
+    for (const c of clients) {
+      if (isOpen(c) || isConnecting(c)) continue
+      try { await c.connect() } catch (e) { connectError = e }
+    }
     if (server.playerManager.getConnectedPlayers().length === 2) { joined = true; break }
     await sleep(250)
   }
@@ -108,7 +112,8 @@ async function runOnce({ enabled, weather, label }) {
   if (!joined || players.length < 2) {
     const sockets = server.connections.getAllStats().activeConnections
     const transports = clients.map((c, i) => `client ${i} connected=${c.connected} readyState=${c.ws ? c.ws.readyState : 'no socket'}`).join(', ')
-    failures.push(`${label}: only ${players.length} of 2 client(s) joined the server within ${JOIN_TIMEOUT_MS / 1000} s at ${url}, where ${sockets} socket(s) were accepted (${transports}), so this arm observed no shot, no fire and no damage`)
+    const why = connectError ? `; the last connect() rejected with: ${connectError.name}: ${connectError.message}` : ''
+    failures.push(`${label}: only ${players.length} of 2 client(s) joined the server within ${JOIN_TIMEOUT_MS / 1000} s at ${url}, where ${sockets} socket(s) were accepted (${transports}), so this arm observed no shot, no fire and no damage${why}`)
     await stopArm(clients, server)
     return null
   }

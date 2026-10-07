@@ -5,7 +5,15 @@ import { extractMeshWithMeshopt } from './MeshoptDecompressor.js'
 export const SKIP_MATS = new Set(['aaatrigger', '{invisible', 'playerclip', 'clip', 'nodraw', 'trigger', 'sky', 'toolsclip', 'toolsplayerclip', 'toolsnodraw', 'toolsskybox', 'toolstrigger'])
 
 let _readFileSync = null
-try { if (typeof process !== 'undefined' && process.versions?.node) { const m = await import('node:fs'); _readFileSync = m.readFileSync } } catch {}
+let _fileUrlToPath = null
+try { if (typeof process !== 'undefined' && process.versions?.node) { const fsmod = await import('node:fs'); const urlmod = await import('node:url'); _readFileSync = fsmod.readFileSync; _fileUrlToPath = urlmod.fileURLToPath } } catch {}
+
+const URL_SCHEME_RE = /^([A-Za-z][A-Za-z0-9+\-.]+):/
+
+function urlSchemeOf(pathOrUrl) {
+  const m = URL_SCHEME_RE.exec(pathOrUrl)
+  return m ? m[1].toLowerCase() : null
+}
 
 function readGLBSync(filepath) {
   if (!filepath) throw new Error('GLBLoader: no filepath given (resolveAssetPath rejected or returned an empty path)')
@@ -20,8 +28,11 @@ function readGLBSync(filepath) {
 
 async function readGLBAsync(pathOrUrl) {
   if (!pathOrUrl) throw new Error('GLBLoader: no path given (resolveAssetPath rejected or returned an empty path)')
-  if (_readFileSync && !pathOrUrl.startsWith('http') && !pathOrUrl.startsWith('/')) {
-    return readGLBSync(pathOrUrl)
+  const scheme = urlSchemeOf(pathOrUrl)
+  const fromDisk = scheme === null ? !!_readFileSync : scheme === 'file'
+  if (fromDisk) {
+    if (!_readFileSync) throw new Error(`GLBLoader: '${pathOrUrl}' carries no url scheme and this runtime has no filesystem to read it from`)
+    return readGLBSync(scheme === 'file' ? _fileUrlToPath(pathOrUrl) : pathOrUrl)
   }
   const res = await fetch(pathOrUrl)
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${pathOrUrl}`)

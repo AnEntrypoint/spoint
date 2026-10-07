@@ -291,7 +291,9 @@ for (let i = 0; i < PLAYERS; i++) {
   c.onMessageError = () => { M.clientErrors++ }
   clients.push(c)
 }
-await Promise.all(clients.map(c => c.connect()))
+const connectFailures = []
+await Promise.all(clients.map(c => c.connect().catch(e => connectFailures.push(e))))
+if (connectFailures.length) { console.error(`[cpu-skip] ${connectFailures.length} of ${clients.length} client(s) failed to connect to ${url}: ${connectFailures[0].name}: ${connectFailures[0].message}`); process.exit(1) }
 const t0 = Date.now()
 while (server.playerManager.getConnectedPlayers().length < PLAYERS && Date.now() - t0 < 30000) await sleep(50)
 for (let i = 0; i < clients.length; i++) clients[i].startInputLoop(() => ({ forward: false, sprint: false, yaw: i, pitch: 0 }))

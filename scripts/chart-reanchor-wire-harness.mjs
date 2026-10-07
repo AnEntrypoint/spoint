@@ -284,7 +284,7 @@ async function scenarioWalk(name) {
   const { server, url } = await bootServer()
   baseChart = ledgerOf(server)?.base ?? null
   const mover = makeClient({ url, aware: AWARE, server })
-  await mover.client.connect()
+  await connectOrFail(mover.client)
   startInput(mover)
   await settle(server, mover)
   if (name === 'natural') {
@@ -315,7 +315,7 @@ async function scenarioInflight() {
   const { server, url } = await bootServer()
   baseChart = ledgerOf(server)?.base ?? null
   const mover = makeClient({ url, aware: true, server })
-  await mover.client.connect()
+  await connectOrFail(mover.client)
   startInput(mover)
   await settle(server, mover)
   await walkUntilEpochs(server, mover, 2)
@@ -354,13 +354,13 @@ async function scenarioJoin() {
   const { server, url } = await bootServer()
   baseChart = ledgerOf(server)?.base ?? null
   const mover = makeClient({ url, aware: true, server })
-  await mover.client.connect()
+  await connectOrFail(mover.client)
   startInput(mover)
   await settle(server, mover)
   await walkUntilEpochs(server, mover, TARGET_EPOCHS)
   const epochAtJoin = serverEpoch(server)
   const joiner = makeClient({ url, aware: true, server })
-  await joiner.client.connect()
+  await connectOrFail(joiner.client)
   startInput(joiner)
   await until(() => joiner.client.playerId && joiner.client._msgHandler.getPredEngine()?.stats.acks > 10, 20000, 'joiner acks')
   const joinerEpochAtAck = joiner.client._chart.epoch
@@ -391,7 +391,7 @@ async function scenarioMissed() {
   const { server, url } = await bootServer()
   baseChart = ledgerOf(server)?.base ?? null
   const mover = makeClient({ url, aware: true, server })
-  await mover.client.connect()
+  await connectOrFail(mover.client)
   startInput(mover)
   await settle(server, mover)
   mover.drop = true
@@ -432,7 +432,7 @@ async function scenarioReorder() {
   const { server, url } = await bootServer()
   baseChart = ledgerOf(server)?.base ?? null
   const mover = makeClient({ url, aware: true, server })
-  await mover.client.connect()
+  await connectOrFail(mover.client)
   startInput(mover)
   await mover.client.requestTeleport('to', { x: 300, z: 300 })
   await settle(server, mover)
@@ -479,6 +479,11 @@ async function scenarioExpired() {
   const base = createChartResyncReply(ctx, 0)
   const recent = createChartResyncReply(ctx, retained.currentEpoch - 1)
   return { scenario: 'expired', currentEpoch: retained.currentEpoch, requestFromExpiredEpoch1: { resync: old.resync === true, hasFrom: !!old.from, to: old.to.e }, requestFromBaseEpoch0: { resync: base.resync === true, from: base.from?.e, to: base.to.e }, requestFromRecent: { resync: recent.resync === true, from: recent.from?.e, to: recent.to.e }, wire: ctx.chartWireStats }
+}
+
+async function connectOrFail(client) {
+  try { await client.connect() }
+  catch (e) { console.error(`[chart-reanchor] connect failed: ${e.name}: ${e.message}`); process.exit(1) }
 }
 
 const scenarios = { reorder: scenarioReorder, forced: () => scenarioWalk('forced'), natural: () => scenarioWalk('natural'), chain: () => scenarioWalk('chain'), inflight: scenarioInflight, join: scenarioJoin, missed: scenarioMissed, expired: scenarioExpired }

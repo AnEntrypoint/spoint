@@ -33,14 +33,12 @@ function scaledShapeKey(model, scale) {
   return `${model}|${scale[0]},${scale[1]},${scale[2]}`
 }
 
-function fallbackBox(ent, runtime, mt) {
-  ent.collider = { type: 'box', size: [0.5, 0.5, 0.5] }
-  const ccd = resolveCCD(ent, mt)
-  if (mt === 'dynamic') ent._bodyDef = { shapeType: 'box', params: [0.5, 0.5, 0.5], motionType: mt, opts: { mass: ent.mass, linearCast: ccd } }
-  if (runtime._physics) {
-    const bid = runtime._physics.addBody('box', [0.5, 0.5, 0.5], ent.position, mt, { rotation: ent.rotation, mass: ent.mass, linearCast: ccd })
-    registerBody(ent, runtime, bid, mt)
-  }
+function colliderFailure(what, cause) {
+  const detail = cause && cause.message ? cause.message : String(cause)
+  const err = new Error(`[physics] ${what} failed: ${detail}`)
+  err.name = 'ColliderBuildError'
+  err.cause = cause
+  return err
 }
 
 async function _addTrimeshColliderImpl(ent, runtime) {
@@ -52,15 +50,9 @@ async function _addTrimeshColliderImpl(ent, runtime) {
       const bid = await runtime._physics.addStaticTrimeshAsync(runtime.resolveAssetPath(ent.model), 0, ent.position, sc, ent.rotation || [0, 0, 0, 1])
       if (bid != null) { const deferOrRun = runtime._deferOrRun ? runtime._deferOrRun.bind(runtime) : (fn => fn()); deferOrRun(() => { if (!runtime.entities?.has?.(ent.id)) return; registerBody(ent, runtime, bid, 'static') }) }
     } catch (err) {
-      console.warn(`[physics] ${ent.model}: trimesh build failed (${err.message}), using box fallback`)
-      runtime._debug?.warn?.(`[physics] ${ent.model}: trimesh build failed (${err.message}), using box fallback`)
       runtime._log?.('app_error', { label: `addTrimeshCollider(${ent.model})`, message: err.message }, { sourceEntity: ent.id })
-      const deferOrRun = runtime._deferOrRun ? runtime._deferOrRun.bind(runtime) : (fn => fn())
-      deferOrRun(() => {
-        if (!runtime.entities?.has?.(ent.id)) return
-        fallbackBox(ent, runtime, 'static')
-        runtime._connections?.broadcast?.(MSG.EDITOR_ERROR, { message: `PLACE_MODEL: trimesh build failed for ${ent.model}, using box collider fallback`, entityId: ent.id, detail: err.message })
-      })
+      runtime._connections?.broadcast?.(MSG.EDITOR_ERROR, { message: `addTrimeshCollider: trimesh build failed for ${ent.model}`, entityId: ent.id, detail: err.message })
+      throw colliderFailure(`trimesh collider for entity ${ent.id} model ${ent.model}`, err)
     }
   } else if (runtime._pendingTrimeshEntities) {
     runtime._pendingTrimeshEntities.set(ent.id, ent)
@@ -148,12 +140,7 @@ export function buildPhysicsAPI(ent, runtime) {
           registerBody(ent, runtime, bid, mt)
         }
       } catch (err) {
-        if (err.message.includes('Draco-compressed') || err.message.includes('Meshopt-compressed')) {
-          runtime._debug?.warn(`[physics] ${err.message.includes('Draco') ? 'Draco' : 'Meshopt'} mesh detected - use addConvexFromModelAsync()/addTrimeshCollider() for physics or box/sphere/capsule for trigger`)
-          fallbackBox(ent, runtime, motionType(ent))
-        } else {
-          throw err
-        }
+        throw colliderFailure(`convex hull from model ${ent.model}`, err)
       }
     },
     addConvexFromModelAsync: async (meshIndex = -1, shapeKeyOverride) => {
@@ -165,9 +152,7 @@ export function buildPhysicsAPI(ent, runtime) {
           ? await extractMeshFromGLBAsync(runtime.resolveAssetPath(ent.model), meshIndex)
           : await extractAllVerticesFromGLBAsync(runtime.resolveAssetPath(ent.model))
       } catch (err) {
-        console.warn(`[physics] ${ent.model}: mesh extraction failed (${err.message}), using box fallback`)
-        fallbackBox(ent, runtime, mt)
-        return
+        throw colliderFailure(`mesh extraction from model ${ent.model}`, err)
       }
       const sc = ent.scale || [1, 1, 1]
       const raw = mesh.vertices
@@ -181,8 +166,7 @@ export function buildPhysicsAPI(ent, runtime) {
           const bid = await runtime._physics.addConvexBodyAsync(points, ent.position, mt, { rotation: ent.rotation, mass: ent.mass, shapeKey, linearCast: ccd })
           registerBody(ent, runtime, bid, mt)
         } catch (err) {
-          console.warn(`[physics] ${ent.model}: convex shape build failed (${err.message}), using box fallback`)
-          fallbackBox(ent, runtime, mt)
+          throw colliderFailure(`convex shape build for model ${ent.model}`, err)
         }
       }
     },

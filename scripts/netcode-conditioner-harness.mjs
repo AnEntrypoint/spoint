@@ -268,7 +268,9 @@ async function runOne(cond, predict, worldDef) {
     const rewindTicks = viewTick == null ? 0 : lc.latestTick - viewTick
     shots.push({ hit: !!found, missM, rewindMs: rewindTicks * 1000 / lc.tickRate, victimBehindLiveM: dist3(resolved.tp, target.state.position), shooterViewErrM: pl.viewErrM, rejected: viewTick == null })
   })
-  await Promise.all(all.map(h => h.client.connect()))
+  const connectFailures = []
+  await Promise.all(all.map(h => h.client.connect().catch(e => connectFailures.push(e))))
+  if (connectFailures.length) { console.error(`[netcode] ${connectFailures.length} of ${all.length} client(s) failed to connect: ${connectFailures[0].name}: ${connectFailures[0].message}`); process.exit(1) }
   const t0 = performance.now()
   while (!all.every(h => h.client.playerId) && performance.now() - t0 < 10000) await new Promise(r => setTimeout(r, 20))
   const place = (h, pos) => { const p = server.playerManager.getPlayer(h.client.playerId); if (!p) return; p.state.position[0] = pos[0]; p.state.position[1] = pos[1]; p.state.position[2] = pos[2]; server.physicsIntegration.setPlayerPosition(p.id, pos) }
