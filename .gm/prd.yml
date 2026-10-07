@@ -1487,31 +1487,10 @@
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending
 - SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
-  id: placement-composeheight-hot
-  title: Cut composeHeight cost inside the placement height sampler
-  why: A CPU profile of 3x(300 veg + 300 rock chunk(s)) attributes 56.5% inclusive and 13.1% self to composeHeight (packages/mapspinner/src/height-gen.js, generated from terrain.glsl), with surfaceAlongDir at 79.2% of veg placement time. The climate-gate reorder already removed 30% of chunk cost; the remaining per-cell cost is this sampler, not the lattice.
-  evidence: 'node --cpu-prof over scripts/placement-cpuprof-run.mjs, 944 samples / 1475.0 ms: composeHeight 834.0 ms inclusive, msSnoise3 493.3 ms, elevationAtDir 507.4 ms.'
-  kind: perf
-  status: pending
-- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
   id: collider-ring-cpu-gate-evict-scan
   title: Attack evict/scan/body-add/GC in the collider ring, not placement compute
   why: The 100 ms/s CPU gate in scripts/collider-ring-scale-witness.mjs stayed at 90.15/66.08 -> 92.34/78.56 ms/s across the placement climate-gate win, because placement compute is only ~17% of it (22 of 126.6 ms per rebuild at 192 moving clusters). The gate is the binding constraint, so the next measured win has to come from evict, scan, body add and GC.
   evidence: 'interleaved A/B at 192 moving clusters: computeMsPerRebuild 28.9/26.05 -> 22.02/21.06 while cpuMsPerS 90.15/66.08 -> 92.34/78.56 (ranges overlap).'
-  kind: perf
-  status: pending
-- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
-  id: placement-radialslope-forward-difference
-  title: Evaluate a forward difference for radialSlopeAt
-  why: radialSlopeAt spends 4 centred height evaluations per cell that reaches it, about 13 of the 41 remaining veg height evals per chunk. A forward difference would halve that but changes slope values, so it is output-changing and must be measured against a placement digest before it ships.
-  evidence: 'per-chunk counters: veg 77.07 -> 41.06 height evals after the climate gate; only 3.27 of 64 veg cells ever reach radialSlopeAt.'
-  kind: perf
-  status: pending
-- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
-  id: rock-climate-cache-cold-cost
-  title: Warm the rock climate sector cache before the classify sweep
-  why: Rock placement gained only 4-17% from the climate gate because the early climate call lands on a cold 8 m sector cache, adding 5-8 climate calls per chunk (7.12 -> 16.08 per chunk) and eating most of the win.
-  evidence: 'scripts/placement-cost-probe.mjs, 2 cycles: rock 224/212 -> 210/204 us per chunk, evals 26.44 -> 16.82 but climate calls 7.12 -> 16.08.'
   kind: perf
   status: pending
 - session_id: f73df536-0f66-49a1-8888-2a064d23416a
@@ -1659,18 +1638,6 @@
   id: amd-frame-time-baseline
   subject: 'Record .frame-time-baseline.amd.json so frame-time-gate can run on the AMD iGPU: only .frame-time-baseline.nvidia.json exists, so frame-time-gate refuses AMD with ''no baseline found''. Now that assertGpu on the live AMD page costs 59-419 ms instead of 10.6 s, an AMD baseline can be captured with --update-baseline --expect-vendor=amd; AMD boots the scene 3/3 at 67-68 draw calls, so the capture is reachable.'
   status: pending
-- id: serverapi-loadworld-says-has-no-terrain-for-a-damaged-bake
-  title: ServerAPI.loadWorld reports 'has no terrain' for a damaged or stale bake, so the operator chases the wrong cause
-  body: 'Since 896f3351 a damaged or stale baked heightfield throws a precise, named [baked-heightfield] error (absent / EISDIR / truncated / bad magic / unreadable header / longer-than-declared / stale bake), but ServerAPI.loadWorld rethrows all of them wrapped as `[terrain] world "<id>" has no terrain: ...`. That prefix is accurate for the absent case and actively misleading for every other one: an operator reading ''has no terrain'' looks for a missing world or a missing config, when the real cause is a corrupt or stale artifact sitting right there on disk. The specific [baked-heightfield] text is preserved after the prefix, so the information is not lost, but the headline names the wrong failure. Fix in src/sdk/ServerAPI.js: choose the message by cause (no terrain configured / no baked artifact / damaged artifact / stale artifact), keeping the single fatal rethrow and the existing ''every caller stops the server it created first'' contract.'
-  acceptance_criteria: A deliberately truncated .hf, a bad-magic .hf and a mis-stamped .hf each produce a top-level message that names the real cause, witnessed on a real createServer()+loadWorld() boot; the absent-artifact case still reads as absent; every caller still stops the server it created.
-  session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  status: pending
-- id: veg-lod-tier-sends-every-instance-to-impostors-at-reveal
-  title: 'Vegetation LOD puts every instance in the farthest impostor tier at reveal: meshInstances 0 while impostorInstances 5073'
-  body: 'Observed 2026-10-07 at reveal on a real accelerated boot (tps-game at=-15,-12.5, built bundle, adapter asserted), both before and after 45b67de9bc, so it is not a side effect of the prewarm change. The veg profile reports meshInstances: 0 with impostorInstances: 5073 and vegDrawCalls: 73, even though roughly 76 instances should fall inside the 83 m mesh distance and therefore be drawn as real meshes. Every instance sits in the farthest LOD tier. That is either a tier-distance bug (the 83 m mesh distance never applied), a tier-assignment bug (the nearest tier is never populated), or an instrument bug (the counter reads the wrong field) -- distinguish those three first with a direct probe of the tier arrays at a known camera-to-instance distance, because fixing an instrument would be a no-op on the real rendering. Visual consequence if real: near vegetation is impostor billboards instead of meshes, so close-up trees and bushes lose their geometry and their silhouette. Witness shape: pose the camera at a known distance from a known instance and assert which tier it lands in, for distances spanning the tier boundaries, on both GPUs.'
-  acceptance_criteria: At a camera-to-instance distance inside the mesh tier, the instance is counted in meshInstances and drawn as a mesh, witnessed on both GPUs with the adapter asserted; the tier boundary distances are printed by the witness. If the counters are merely misread, the instrument is fixed and the real tier distribution is reported instead.
-  session_id: f73df536-0f66-49a1-8888-2a064d23416a
-  status: pending
 - id: amd-veg-prewarm-loses-4-of-6-4-seconds-to-yield-waits
   title: AMD vegetation prewarm spends 4109 of 6407 ms in yield waits; the work-sliced prewarm overshoots the +2 s boot bound on AMD
   body: 'Measured 2026-10-07 on the built bundle with the adapter asserted, tps-game at=-15,-12.5. The work-sliced prewarm (45b67de9bc, PREWARM_SLICE_MS = 24, macrotask yield) costs NVIDIA 2601 ms wall with 1042 ms of actual work -- faster than the 3509 ms wall-clock prewarm it replaced. On AMD it costs 6407 ms wall with only 2281 ms of work, about 2.4 s SLOWER than the ~4000 ms pre-fix AMD prewarm, which is just over the +2 s bound the pop-in row allowed. The whole difference is waiting, not compute: AMD''s rAF period is 49.99 ms versus NVIDIA''s, and 4109 ms of AMD''s 6407 ms is yield waits. So the slice size that is right for NVIDIA is wrong for AMD. Two admissible fixes, in order of preference: (1) size PREWARM_SLICE_MS per vendor from a measured frame period instead of a fixed 24 ms -- AMD''s frame is ~3x NVIDIA''s, so a larger slice is the same fraction of a frame; (2) move placement off the main thread entirely, which removes the yield dependency rather than tuning it. Do not fix it by lowering the AMD coverage or by reintroducing a chunk cap -- that is the bug that was just fixed. Measure: AMD prewarm wall and work ms before/after, and veg coverage at reveal must stay above 80%.'
@@ -1692,11 +1659,24 @@
   acceptance_criteria: For each shipped tps-game spawn point the witness prints accumulated path length under held forward input within one spawn-invuln window and it is >0; a deliberately wedged candidate prints ~0 and is rejected by the shipped probe; the intrusion threshold is either derived from measured speed x tick dt and printed, or its geometric derivation is printed.
   surface: apps/tps-game/respawn-clearance.js
   status: pending
-- SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
-  id: editorhandlers-tobox-fallback-hides-collider-failure
-  subject: 'src/sdk/EditorHandlers.js toBox() (line 148) still catches the trimesh build failure at line 153 and the convex build failure at line 165 and substitutes a 0.5 m box, so the editor user sees a placed model with wrong geometry and no reason. Fix: surface the real error to the editor (reject or EDITOR_ERROR with the cause) instead of boxing, and witness from the live editor path that a missing model reports its ENOENT rather than a silently-boxed entity. Witnessed baseline: src/apps/AppPhysics.js now throws ColliderBuildError for the same condition.'
+- session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  id: fire-tps-game-witness-addedns-wall-clock-budget
+  title: fire-tps-game-witness.mjs:369 gates on `addedNs > 100`, a wall-clock budget around a closure, while its siblings in the same block are counted
+  why: 'Found by adversarial review of the witness-audit commits. scripts/fire-tps-game-witness.mjs:369 compares performance.now() deltas (addedNs) against 100 ms. On this shared box a wall-clock gate measures the box, not the code -- the same ring-scale arm read 147.78 and 73.55 ms/s with every work counter identical, and the AMD iGPU page measured 76.4 fps and 2.5 fps minutes apart on identical code. This arm is also the slowest in the fire gate (72 s) and the only one needing two real clients, so it is the most exposed to contention. The neighbouring assertions in the same block (navCostAt === 1 / 8 / 2 / 1) are counted units and sound. Fix: decide this measurement on a counted work unit (cells burned, nav-cost transitions, entities touched) and keep the wall-clock number as a printed observation only, or drop the assertion and say so.'
+  severity: medium
+  status: pending
+- session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  id: veg-painted-surface-witness-invents-its-own-thresholds
+  title: veg-painted-surface-witness.mjs:72 defines `const bare = s.grass < 0.08 && s.sand > 0.5` inside the witness, so a painter change can turn a witness red with no placement defect
+  why: 'Found by adversarial review. Two thresholds (0.08 grass, 0.5 sand) are invented inside the witness rather than read from the painted-surface definition the placement code itself uses. Observed today: 849 of 7680 cells qualify, so the `bareCellsAll > 0` floor at line 99 holds and the witness passes. But if the painter shifts so no cell qualifies, the witness goes red while placement is entirely healthy -- a witness that fails for a reason unrelated to what it claims to measure. Fix: derive the classification from the same source the placement code uses, or assert the thresholds against a stated constant and name them; if the definition genuinely lives in the witness, say so and make the numbers named constants with the derivation recorded. Related open row veg-painted-surface-browser-arm covers the browser arm on both GPUs.'
+  severity: low
+  status: pending
+- session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  id: editorhandlers-no-rebuild-after-failed-collider-build
+  subject: 'src/sdk/EditorHandlers.js syncEntityCollider (line 123) returns early when entity._physicsBodyId is undefined, so once a trimesh/convex collider build fails (and the 0.5 m box fallback is gone, leaving no body) no later EDITOR_UPDATE can ever rebuild that entity collider: a scale change or a _collider change is silently dropped and the entity stays bodyless until it is re-placed. Witnessed after the box-fallback removal (collider-build-failure-witness.mjs: ed-bad-trimesh ends with collider trimesh and bodyId undefined). Fix: let syncEntityCollider rebuild when a body is missing but the entity has a model and the requested collider is trimesh or convex, without inventing bodies for entities that deliberately have none (custom._collider === none, or no model). Witness with the same script: after a failed build, setting a real model and sending EDITOR_UPDATE with a scale change must produce a trimesh body.'
   status: pending
 - SESSION_ID: f73df536-0f66-49a1-8888-2a064d23416a
-  id: appruntime-autotrimesh-box-fallback-hides-collider-failure
-  subject: 'src/apps/AppRuntime.js config.autoTrimesh branch (lines 204-220) still degrades a failed trimesh/convex build to a 0.5 m box collider, so a model that failed to load silently ships the wrong geometry. src/apps/AppPhysics.js now throws ColliderBuildError for the same condition, so the two paths disagree. Fix: propagate the named error (or log + EDITOR_ERROR broadcast with no box), and witness with a real booted server that a missing model yields no body and no box collider while a real model still builds. Witnessed baseline: GLBLoader now reads scheme-less and POSIX-absolute paths from disk, so this branch no longer hides the fetch failure that used to reach it.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  id: placement-slope-taps-equivalent-cut
+  subject: 'Cut the height evals radialSlopeAt spends without changing any placement digest. Measured headroom: radialSlopeAt accounts for roughly 28-38% of placement height evals (veg 37.10, rock 22.87, grass 444.97 per 32 m chunk at hashVersion 2, radius 63600). The obvious shape -- a 2-tap forward difference reusing rho -- is REFUTED on 2026-10-07 and must not be retried blind: it cuts those evals to 23.15 / 15.05 / 319.73 but moves |grad| by mean 0.0777 max 1.05 against veg SLOPE_MAX 0.6, flips 4.92% of veg and 2.36% of grass gate decisions and changes every placement digest. Any candidate must hold veg c2ab90c4, rock 319ecc02 and grass f69a904a exactly over a 120-chunk sweep. Shapes worth measuring instead: hoisting the four taps into one shared evaluation so the per-tap overhead (the Math.hypot renormalise and the surfaceAlongDir call) is paid once; skipping the slope gate entirely for cells the earlier climate and soil gates already reject; or shrinking the number of cells that reach the slope rather than the cost per cell.'
   status: pending
