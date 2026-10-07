@@ -67,5 +67,6 @@ data/*/
 
 .gpu-lock/
 .check-*.log
+.lane-*.log
 .pd-url.txt
 .v-*.txt
