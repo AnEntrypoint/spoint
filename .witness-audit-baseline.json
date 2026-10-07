@@ -1,18 +1,8 @@
 {
   "known": {
-    "scripts/boot-failure-leak-witness.mjs": {
-      "verdict-not-a-decision": 3
-    },
-    "scripts/cluster-world-harness.mjs": {
-      "verdict-not-a-decision": 1,
-      "tail-exit-always-zero": 1
-    },
     "scripts/planet-multiplayer-harness.mjs": {
       "no-verdict-emitted": 1,
       "bare-exit-zero": 1
-    },
-    "scripts/cpu-skip-witness.mjs": {
-      "tail-exit-always-zero": 1
     },
     "scripts/veg-lod-stream-witness.mjs": {
       "flag-gated-arm": 1
