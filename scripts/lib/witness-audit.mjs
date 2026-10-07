@@ -11,6 +11,7 @@ const BOOLISH_DEFAULT = /^(true|false|on|off|yes|no|bare|full|all|none|auto|pred
 const MODE_GATED_NAME = /(BASELINE|CONTROL|REF|REFERENCE|VERBOSE|DEBUG|DUMP|STRICT|CHECK)/i
 const COUNTER_NAME = /(?:count|Count|total|Total|num|Num|hits|Hits|sum|Sum|ticks|Ticks|samples|Samples|frames|Frames|calls|Calls)$/
 const DEFAULT_NAME_FILTER = /(witness|harness|gate)/i
+const TAIL_EXIT_WINDOW_LINES = 40
 
 function walk(dir) {
   const out = []
@@ -108,6 +109,25 @@ const HIGH_CHECKS = [
       if (has(text, /\bFAIL\b/) || has(text, /process\.exit\(\s*[1-9]/)) return []
       return evidence(text, /.*process\.exit\(\s*0\s*\).*/g)
     },
+  },
+  {
+    id: 'tail-exit-always-zero',
+    why: 'ends in an unconditional process.exit(0) with no PASS/FAIL vocabulary and no exitCode assignment, so any non-zero exit elsewhere is a setup bail rather than a verdict on the measurement',
+    find(text) {
+      if (has(text, /\bPASS\b/) || has(text, /\bFAIL\b/)) return []
+      if (has(text, /process\.exitCode\s*=/)) return []
+      const lines = text.split('\n')
+      const rows = []
+      for (const m of text.matchAll(/process\.exit\(\s*0\s*\)/g)) {
+        const line = lineOf(text, m.index)
+        if (lines.length - line > TAIL_EXIT_WINDOW_LINES) continue
+        if (/process\.exit\(\s*[1-9]/.test(lines.slice(line - 1).join('\n'))) continue
+        rows.push({ line, text: `${m[0].trim()} on line ${line} of ${lines.length} -- no measured value can change it` })
+        if (rows.length >= MAX_EVIDENCE_PER_CHECK) break
+      }
+      return rows
+    },
+    witnessesOnly: true,
   },
   {
     id: 'bare-flag-parses-to-true',
