@@ -44,6 +44,7 @@
     "cold-load-gate": "node scripts/cold-load-gate.mjs",
     "frame-time-gate": "node scripts/frame-time-gate.mjs",
     "check": "node scripts/check.mjs",
+ "check:scratch": "node scripts/check-scratch.mjs",
     "gen-typings": "node scripts/gen-sdk-typings.mjs",
     "check:sdk-types": "node scripts/check-sdk-types.mjs",
     "test": "node scripts/check.mjs",
