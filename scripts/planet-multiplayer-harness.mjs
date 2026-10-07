@@ -21,6 +21,28 @@ const GOLDEN = 2.39996323
 const RELEVANCE_M = 200
 const HYSTERESIS_FACTOR = 1.15
 
+const liveChildren = new Set()
+const liveServers = new Set()
+
+function cpuSample(since) {
+  return typeof process.threadCpuUsage === 'function'
+    ? { usage: process.threadCpuUsage(since), scope: 'main-thread' }
+    : { usage: process.cpuUsage(since), scope: 'process-wide' }
+}
+
+function stopLiveChildren() {
+  for (const c of liveChildren) {
+    try { c.send({ t: 'close' }) } catch {}
+    try { c.kill() } catch {}
+  }
+  liveChildren.clear()
+}
+
+function stopLiveServers() {
+  for (const s of liveServers) { try { s.stop() } catch {} }
+  liveServers.clear()
+}
+
 function numFlag(name, fallback) {
   const raw = args[name]
   if (raw === undefined) return fallback
@@ -327,6 +349,7 @@ async function runParent() {
     const port = await freePort()
     const tickRate = worldDef.tickRate || 64
     const server = await createServer({ port, tickRate, appsDirs: [resolve(SDK_ROOT, 'apps'), resolve(SDK_ROOT, 'src/stdlib-apps')], sdkRoot: SDK_ROOT, gravity: worldDef.gravity, staticDirs: [], storageDir: resolve(workDir, 'data') })
+    liveServers.add(server)
     await server.loadWorld({ ...worldDef, tickRate })
     await server.start()
     return { server, url: `ws://127.0.0.1:${port}/ws`, tickRate, collidersEnabled: terrain?.vegetation?.colliders === true }
@@ -430,6 +453,8 @@ async function runParent() {
       const child = fork(fileURLToPath(import.meta.url), ['--child', ...(args.mirror === 'on' ? ['--mirror=on'] : []), ...(args.trace ? ['--trace=1'] : [])], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'], execArgv: [] })
       child.on('message', m => child.emit('__' + m.t, m))
       child.setMaxListeners(100)
+      child.on('exit', () => liveChildren.delete(child))
+      liveChildren.add(child)
       children.push(child)
     }
     await Promise.all(children.map(c => waitFor(c, 'ready')))
@@ -475,7 +500,7 @@ async function runParent() {
     if (profiler) { profiler.connect(); await profiler.post('Profiler.enable'); await profiler.post('Profiler.start') }
     const sched0 = { ...server.tickSystem.schedulerStats }
     const mem0 = process.memoryUsage()
-    const cpu0 = process.threadCpuUsage()
+    const cpu0 = cpuSample()
     const phase0 = phaseTotals()
     const hf0 = ring?.rebuildCount ?? null
     const lc0 = { ...server.lagCompensator.getStats() }
@@ -561,7 +586,7 @@ async function runParent() {
     if (profiler) { const { profile } = await profiler.post('Profiler.stop'); await writeFile(args.profile, JSON.stringify(profile)); profiler.disconnect() }
     server.tickSystem._onTickMeasured = origMeasured
     const mem1 = process.memoryUsage()
-    const cpu1 = process.threadCpuUsage(cpu0)
+    const cpu1 = cpuSample(cpu0.usage)
     const phase1 = phaseTotals()
     const phaseAvg = Object.fromEntries(['total', 'mv', 'phys', 'snap'].map(k => [k, phase1[k] && phase0[k] ? round((phase1[k].sum - phase0[k].sum) / Math.max(1, phase1[k].count - phase0[k].count), 3) : null]))
     const sched1 = server.tickSystem.schedulerStats
@@ -588,7 +613,7 @@ async function runParent() {
       connected: N - missingConnect, teleportsOk: teleports.filter(t => t.ok).length, teleportRefusals: refusals, teleportMs: summarize(teleports.filter(t => t.ok).map(t => t.ms)),
       anchorAngleDeg: summarize(poss.map(p => { const d = frame.localToDir(p[0], p[2], p[1]); return Math.acos(Math.max(-1, Math.min(1, vec.dot(d, frame.up)))) * 180 / Math.PI })),
       tickPhaseAvgMs: phaseAvg, snapshotKBPerSServerWide: round((phase1.snapBytes - phase0.snapBytes) / 1024 / elapsedS, 1),
-      serverMainThreadCpuMsPerTick: round((cpu1.user + cpu1.system) / 1000 / Math.max(1, ticks.length), 3), serverTickMs: summarize(ticks), tickIntervalMs: summarize(intervals), tickOver1BudgetPct: round(ticks.filter(t => t > 1000 / tickRate).length / Math.max(1, ticks.length) * 100, 2),
+      serverMainThreadCpuMsPerTick: round((cpu1.usage.user + cpu1.usage.system) / 1000 / Math.max(1, ticks.length), 3), serverCpuScope: cpu1.scope, serverTickMs: summarize(ticks), tickIntervalMs: summarize(intervals), tickOver1BudgetPct: round(ticks.filter(t => t > 1000 / tickRate).length / Math.max(1, ticks.length) * 100, 2),
       eventLoopDelayMs: { mean: round(loop.mean / 1e6, 2), p99: round(loop.percentile(99) / 1e6, 2), max: round(loop.max / 1e6, 2) },
       scheduler: { lateMaxMs: round(server.tickSystem.schedulerStats.maxLateMs, 2), droppedMsDelta: round(sched1.droppedMs - (sched0.droppedMs || 0), 1), dilationFactor: server.tickSystem.dilationFactor },
       clientDownKBps: summarize(inKBps), clientUpKBps: summarize(outKBps), snapshotHz: summarize(snapHz), downBytesByTypeTotalKB: Object.fromEntries(Object.entries(byTypeTotal).map(([k, v]) => [k, round(v / 1024, 1)]).sort((a, b) => b[1] - a[1]).slice(0, 6)),
@@ -608,6 +633,8 @@ async function runParent() {
     if (LATE_JOIN > 0) {
       const child = fork(fileURLToPath(import.meta.url), ['--child'], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'], execArgv: [] })
       child.on('message', m => child.emit('__' + m.t, m))
+      child.on('exit', () => liveChildren.delete(child))
+      liveChildren.add(child)
       await waitFor(child, 'ready')
       const joined = waitFor(child, 'connected')
       child.send({ t: 'connect', url, clients: Array.from({ length: LATE_JOIN }, (_, i) => ({ idx: 1000 + i, predict: false, shooter: false, yaw: 0 })) })
@@ -619,8 +646,8 @@ async function runParent() {
     }
     children.forEach(c => c.send({ t: 'close' }))
     await sleep(300)
-    for (const c of children) { try { c.kill() } catch {} }
-    try { server.stop() } catch {}
+    stopLiveChildren()
+    stopLiveServers()
     await sleep(500)
     return result
   }
@@ -645,9 +672,10 @@ async function runParent() {
     await sleep(2000)
   }
 
+  say(`cpu sample scope: ${cpuSample().scope}`)
   for (const s of scenarios) {
     try { results.push(await runScenario(s)) }
-    catch (e) { say(`scenario ${s} FATAL`, e?.stack || e); results.push({ scenario: s, n: N, fatal: String(e?.stack || e) }) }
+    catch (e) { say(`scenario ${s} FATAL`, e?.stack || e); stopLiveChildren(); stopLiveServers(); results.push({ scenario: s, n: N, fatal: String(e?.stack || e) }) }
   }
   const text = JSON.stringify({ args, results }, (k, v) => v instanceof Map ? [...v] : v, 1)
   const out = args.out || resolve(outDir, `run-${Date.now()}.json`)
