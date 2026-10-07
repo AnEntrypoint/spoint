@@ -1,8 +1,0 @@
----
-key: mem-ec8c7d5e890bb0cd-1565
-ns: default
-created: 1790695227030
-updated: 1790695227030
----
-
-project/placement-keys-cube-face-lattice: veg/grass/rock placement is keyed on a chart-independent equal-angle cube-face lattice (src/terrain/PlacementLattice.js: face 0-5 by max |component|, chunksPerFace=ceil((pi/2)R/CHUNK), cell=(face,i,j), chunk key=(face*C+ci)*C+cj, cellId=(face*N+i)*N+j is trunkId/rockId, hash rows face*N+i). Cells are <= the nominal metre size everywhere (stretch 0.707..1), so accept probability is multiplied by cellAreaOverTarget (J=sec^2u sec^2v/L^3, 0.707..1) to keep density per m^2. PlacementChart.js holds the chart glue: surfaceAlongDir (object sits where the rendered surface meets the radial ray; exact radial path when frame.groundHeightLocal===frame.cpuGroundHeightLocal, else fixed-point on the vertical-line ghl to 0.1 mm lateral), tangentFrame (PlanetFrame east/north formula evaluated at the object dir, so at the anchor it equals the chart basis), radial slope from 4 tangent-offset surface solves, 3D value noise at the sea-level point for grove/patch/season/rock patch+cluster, climateAt passing dir so ClimateCache keys 8 m cube cells. Orientation = tangentFrameQuat x intrinsic lean/normal, so trees/rocks are radial-upright and world orientation is chart-independent; grass stays chart-Y upright with yaw += tangent heading. Client streamers use client/core/PlacementRing.js (numeric keys, ringAroundDir oversamples extended face coords near face edges); ColliderStreamer takes latticeSpec. Local positions are Math.fround, so cross-chart position parity is limited by f32 ULP of |local| (1 mm half-ULP above 16 km).
