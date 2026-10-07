@@ -66,11 +66,11 @@ function measureDeltaWindow(ticks) {
   const recorded = new Map()
   const startTiles = kernel.tileCount
   const startActive = kernel.activeCount
-  let boundaryTicks = 0, checksumMs = 0, quietMs = 0
+  let boundaryTicks = 0, checksumMs = 0
   let lastStep = kernel.stepIndex
   for (let i = 0; i < ticks; i++) {
     runTo(clock.tick + 1)
-    if (kernel.stepIndex === lastStep) { quietMs += 0; continue }
+    if (kernel.stepIndex === lastStep) continue
     lastStep = kernel.stepIndex
     boundaryTicks++
     const t0 = performance.now()
