@@ -1,6 +1,5 @@
 import { pathToFileURL } from 'node:url'
 import { execFileSync } from 'node:child_process'
-import { chromium } from './cdp-browser.mjs'
 
 export const SOFTWARE_ARGS = ['--use-gl=swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader']
 export const ACCELERATED_ARGS = ['--ignore-gpu-blocklist', '--enable-gpu-rasterization']
@@ -154,6 +153,7 @@ function flagValue(name) {
 }
 
 async function main() {
+  const { chromium } = await import('./cdp-browser.mjs')
   const url = flagValue('url')
   const accelerated = process.argv.includes('--accelerated')
   const browser = await chromium.launch({ args: gpuArgs({ accelerated }) })

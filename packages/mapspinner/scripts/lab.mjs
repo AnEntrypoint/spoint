@@ -6,6 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 import WebSocket from 'ws'
+import { angleBackendArgs } from '../../../scripts/lib/gpu-probe.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const OUT_DIR = path.join(ROOT, 'lab-out')
@@ -125,7 +126,7 @@ async function withHeadless(fn) {
       await waitFor(serverUp, 15000)
     }
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'mapspinner-lab-'))
-    const cr = spawn(chrome, ['--headless=new', '--use-angle=' + (process.env.LAB_ANGLE || 'swiftshader'), '--use-gl=angle',
+    const cr = spawn(chrome, ['--headless=new', ...angleBackendArgs(process.env.LAB_ANGLE || 'swiftshader'),
       '--disable-gpu-sandbox', '--no-sandbox', '--remote-debugging-port=0',
       '--user-data-dir=' + profile, 'about:blank'], { stdio: 'ignore' })
     procs.push(cr)
