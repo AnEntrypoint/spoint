@@ -52,6 +52,7 @@ One line per fact. Rules, thresholds and file:line stay here; numbers, scenarios
 - `window.__spoint._drive` is `Relocation.js drive()`, called by `app.js` each input step; wrapping it is the sanctioned way to OBSERVE input.
 - One `gl.getError()` code covers distinct bugs (1282 = feedback-loop, sampler-type-mismatch AND insufficient-buffer-size), so read the driver's own console string off a cache-disabled reload.
 - Troubleshooting (`scripts/lib/`): `head-vs-worktree.mjs <paths>` committed-vs-in-flight, `agent-report.mjs <task-id>` a huge transcript, `gm-dispatch.mjs <verb> [body]` when MCP is detached, `witness-audit.mjs` dead gates, `ci-verdict.mjs <sha>` per-sha CI (0 green / 1 red / 2 none / 3 pending).
+- `witness-audit.mjs --gate` runs as a gpu-free arm of `npm run check`: it compares per-file per-check finding counts against committed `.witness-audit-baseline.json` and fails on any check id absent from it or any count above it, so a witness that cannot fail cannot land unnoticed. `--write-baseline` re-records it after a fix; a count that drops prints stale-baseline without failing, and the baseline is a floor to ratchet down, not an allowance.
 
 ## Entry points
 
