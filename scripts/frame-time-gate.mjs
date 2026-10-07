@@ -24,7 +24,8 @@ const REQUIRE_ACCELERATED = process.argv.includes('--require-accelerated')
 const EXPECT_VENDOR = VENDOR || null
 const PORT = process.env.PORT || '3099'
 const AT = (process.argv.find(a => a.startsWith('--at=')) || '').slice('--at='.length) || '-15,-12.5'
-const UNLOCKED_RAF_ARGS = ['--disable-frame-rate-limit', '--disable-gpu-vsync']
+const UNLOCK_RAF = process.env.SPOINT_UNLOCK_RAF !== '0'
+const UNLOCKED_RAF_ARGS = UNLOCK_RAF ? ['--disable-frame-rate-limit', '--disable-gpu-vsync'] : []
 const LOAD_TIMEOUT_MS = 480_000
 const READY_PROBE_STALL_LIMIT = 3
 const CAPTURE_MS = 8000
@@ -142,6 +143,7 @@ async function measureRealFrameTimes() {
   let browser
   try {
     browser = await chromium.launch({ headless: true, args: [...gpuArgs({ accelerated: ACCELERATED }), ...(VENDOR_ARGS[VENDOR] || []), ...UNLOCKED_RAF_ARGS] })
+    if (!UNLOCK_RAF) console.log('[frame-time-gate] rAF is vsync-locked (SPOINT_UNLOCK_RAF=0), so frame times here carry the refresh divisor')
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
     const pageErrors = []
     page.on('pageerror', e => pageErrors.push(String(e)))

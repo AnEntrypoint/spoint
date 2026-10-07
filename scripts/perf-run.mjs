@@ -806,7 +806,13 @@ async function main() {
       const rig = window.__rig || { frames: [], longtasks: [], errors: [] }
       const perf = window.__perf ? window.__perf.exportSession() : null
       const shadow = window.__shadowCost ? window.__shadowCost.stats() : null
-      const veg = window.__veg ? { totalInstances: (window.__veg.profile && window.__veg.profile.totalInstances) || 0, meshes: (window.__veg.meshes || []).length } : null
+      const veg = (() => {
+        const v = window.__veg || null
+        const p = window.__vegProfile || null
+        const total = (v && v.profile && v.profile.totalInstances) || (p && p.totalInstances) || (v && v.instanceCount) || 0
+        const meshes = v && v.meshes ? v.meshes.length : (p && p.meshes ? p.meshes.length : null)
+        return { totalInstances: total, meshes, source: (v && v.profile) ? 'window.__veg.profile' : (p ? 'window.__vegProfile' : (v ? 'window.__veg.instanceCount' : 'none')), hasSource: !!(v || p) }
+      })()
       return {
         frames: rig.frames.slice(-30000),
         frameTotal: rig.frames.length,
@@ -911,7 +917,8 @@ async function main() {
     const expectVendor = GPU === 'amd' ? 'amd' : (GPU === 'nvidia' ? 'nvidia' : null)
     const adapterOk = !expectVendor || !!(adapterInfo && adapterInfo.vendor === expectVendor)
     const gpuPassesOk = !GPU_PASSES || !!(gpuPassResult && gpuPassResult.passes && gpuPassResult.passes.length > 0)
-    const reachability = { sceneryBuiltMarked, vegTotalInstances: vegTotal, vegNonZero: vegTotal > 0, drawsNonZero: drawsMeasured, walkOk, travelledM: +travelled.toFixed(1), inputSequenceStart: walkSeqStart, inputSequenceEnd: walkSeqEnd, inputReachedGameMs: navToInputSeqMs, inputReached, gpuPassesOk, adapterVendor: adapterInfo ? adapterInfo.vendor : null, adapterOk, appLoadOk, appLoadErrors, pass: appLoadOk && adapterOk && sceneryBuiltMarked && vegTotal > 0 && drawsMeasured && walkOk && inputReached && gpuPassesOk }
+    const vegSource = veg ? veg.source : 'none'
+    const reachability = { sceneryBuiltMarked, vegTotalInstances: vegTotal, vegSource, vegHasSource: !!(veg && veg.hasSource), vegNonZero: vegTotal > 0, drawsNonZero: drawsMeasured, walkOk, travelledM: +travelled.toFixed(1), inputSequenceStart: walkSeqStart, inputSequenceEnd: walkSeqEnd, inputReachedGameMs: navToInputSeqMs, inputReached, gpuPassesOk, adapterVendor: adapterInfo ? adapterInfo.vendor : null, adapterOk, appLoadOk, appLoadErrors, pass: appLoadOk && adapterOk && sceneryBuiltMarked && vegTotal > 0 && drawsMeasured && walkOk && inputReached && gpuPassesOk }
 
       if (!reachability.pass) reachabilityUnreached = Object.entries(reachability).filter(([k, v]) => v !== true && (k.endsWith('Ok') || k.endsWith('NonZero') || k === 'sceneryBuiltMarked')).map(([k]) => k)
 
