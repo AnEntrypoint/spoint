@@ -19,6 +19,22 @@ export const COMBAT_CONFIG = {
 }
 
 export const POWERUP_RESPAWN_MS = 15000
+export const FIRE_SPEC = {
+  radius: 63600,
+  role: 'authority',
+  stepTicks: 30,
+  seed: 1337,
+  leadTicks: 6,
+  regrowSteps: 1200,
+  classes: {
+    grass: { fuel: 3000, burnRate: 1500, igniteHeat: 90, heatOut: 500, spotChance: 0, spotHeat: 0, smoke: 40, damage: 6 },
+    shrub: { fuel: 12000, burnRate: 2000, igniteHeat: 170, heatOut: 800, spotChance: 40, spotHeat: 400, smoke: 90, damage: 10 },
+    forest: { fuel: 45000, burnRate: 2500, igniteHeat: 600, heatOut: 1200, spotChance: 120, spotHeat: 700, smoke: 160, damage: 16 },
+  },
+  gameplay: { damageEveryTicks: 15, statusDamagePerSec: 6, burnStatusSeconds: 4, smokeBlockDepth: 1, smokeHeightM: 30, eyeHeightM: 1.6, explosionImpulse: 12 },
+  weather: { rainPerIntensity: 200, snowRainFraction: 0.25, wetPerStep: 8, dryPerStep: 1, maxMoisture: 200, hysteresis: 8 },
+  firebreaks: { kinds: ['road', 'river'], water: true },
+}
 const PREDICT_RANGE_M = 1000
 const DEFAULT_HEADSHOT_ZONE = 0.7
 

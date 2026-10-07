@@ -1,7 +1,8 @@
 import { collectSpawnPoints } from '../../src/stdlib-apps/spawn-point/index.js'
-import { POWERUP_DEFS, POWERUP_RESPAWN_MS, EMOTE_CLIPS, COMBAT_CONFIG } from './shared.js'
+import { POWERUP_DEFS, POWERUP_RESPAWN_MS, EMOTE_CLIPS, COMBAT_CONFIG, FIRE_SPEC } from './shared.js'
 
 const EMOTE_RATE_LIMIT_MS = 800
+const MAX_IGNITION_SOURCE = 255
 
 const COMBAT_SPEC = {
   config: COMBAT_CONFIG,
@@ -11,12 +12,35 @@ const COMBAT_SPEC = {
 }
 
 const _combats = new WeakMap()
+const _fires = new WeakMap()
+
+function fireOf(ctx) {
+  let fire = _fires.get(ctx)
+  if (fire !== undefined) return fire
+  const cfg = ctx.config?.fire
+  fire = null
+  if (cfg && cfg.enabled === true) {
+    const tuning = { ...cfg }
+    delete tuning.enabled
+    fire = ctx.defineFire({ ...FIRE_SPEC, ...tuning })
+  }
+  _fires.set(ctx, fire)
+  return fire
+}
 
 function combatOf(ctx) {
   let combat = _combats.get(ctx)
   if (combat) return combat
   const placed = collectSpawnPoints(ctx)
-  combat = ctx.defineCombat(placed.length > 0 ? { ...COMBAT_SPEC, spawnPoints: placed } : COMBAT_SPEC)
+  const fire = fireOf(ctx)
+  const spec = fire
+    ? {
+      ...COMBAT_SPEC,
+      shotBlocked: (c, origin, direction, distance) => fire.rayBlocked(origin, direction, distance),
+      onWorldHit: (c, { shooterId, position }) => fire.ignite(position, shooterId & MAX_IGNITION_SOURCE),
+    }
+    : COMBAT_SPEC
+  combat = ctx.defineCombat(placed.length > 0 ? { ...spec, spawnPoints: placed } : spec)
   _combats.set(ctx, combat)
   return combat
 }
@@ -33,6 +57,8 @@ export const tpsGameServer = {
 
   update(ctx, dt) {
     combatOf(ctx).tick(dt)
+    const fire = fireOf(ctx)
+    if (fire) fire.tick(dt)
   },
 
   onMessage(ctx, msg) {
