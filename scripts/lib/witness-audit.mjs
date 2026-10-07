@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve, dirname, relative, extname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -12,6 +12,7 @@ const MODE_GATED_NAME = /(BASELINE|CONTROL|REF|REFERENCE|VERBOSE|DEBUG|DUMP|STRI
 const COUNTER_NAME = /(?:count|Count|total|Total|num|Num|hits|Hits|sum|Sum|ticks|Ticks|samples|Samples|frames|Frames|calls|Calls)$/
 const DEFAULT_NAME_FILTER = /(witness|harness|gate)/i
 const TAIL_EXIT_WINDOW_LINES = 40
+const BASELINE_FILE = '.witness-audit-baseline.json'
 
 function walk(dir) {
   const out = []
@@ -257,7 +258,7 @@ function main() {
     try { stat = statSync(file) } catch { continue }
     if (!stat.isFile()) continue
     report.push({
-      file: relative(REPO_ROOT, file),
+      file: relative(REPO_ROOT, file).replace(/\\/g, '/'),
       high: audit(file, HIGH_CHECKS),
       low: audit(file, LOW_CHECKS),
     })
@@ -279,7 +280,46 @@ function main() {
   } else if (lowOnly.length > 0) {
     console.log(`witness-audit: ${lowOnly.length} file(s) hold empty-catch findings only -- pass --all for their lines`)
   }
+  if (process.argv.includes('--write-baseline')) {
+    const known = {}
+    for (const entry of report) {
+      if (entry.high.length === 0) continue
+      const counts = {}
+      for (const row of entry.high) counts[row.check] = (counts[row.check] ?? 0) + 1
+      known[entry.file] = counts
+    }
+    writeFileSync(join(REPO_ROOT, BASELINE_FILE), `${JSON.stringify({ known }, null, 2)}\n`, 'utf8')
+    console.log(`witness-audit: wrote ${BASELINE_FILE} with ${Object.keys(known).length} known file(s)`)
+    return
+  }
   console.log(`witness-audit: ${report.length} file(s) scanned, ${total} high-signal finding(s)`)
+  if (!process.argv.includes('--gate')) return
+  const baselinePath = join(REPO_ROOT, BASELINE_FILE)
+  let baseline = {}
+  try { baseline = JSON.parse(readFileSync(baselinePath, 'utf8')).known ?? {} }
+  catch (e) {
+    console.log(`RESULT: FAIL witness-audit baseline ${BASELINE_FILE} is unreadable (${e.message}), so no dead gate can be told apart from a known one`)
+    process.exit(1)
+  }
+  const regressions = []
+  const improved = []
+  for (const entry of report) {
+    const current = {}
+    for (const row of entry.high) current[row.check] = (current[row.check] ?? 0) + 1
+    const known = baseline[entry.file] ?? {}
+    for (const id of new Set([...Object.keys(current), ...Object.keys(known)])) {
+      const now = current[id] ?? 0
+      const was = known[id] ?? 0
+      if (now > was) regressions.push(`${entry.file} [${id}] ${was} -> ${now}`)
+      else if (now < was) improved.push(`${entry.file} [${id}] ${was} -> ${now}`)
+    }
+  }
+  if (regressions.length > 0) {
+    console.log(`RESULT: FAIL ${regressions.length} new dead gate(s): ${regressions.join('; ')}`)
+    process.exit(1)
+  }
+  for (const line of improved) console.log(`witness-audit: below baseline, so ${BASELINE_FILE} is stale and over-states it: ${line}`)
+  console.log(`RESULT: PASS ${report.length} file(s) scanned, ${total} high-signal finding(s), ${regressions.length} new dead gate(s)`)
 }
 
 main()
