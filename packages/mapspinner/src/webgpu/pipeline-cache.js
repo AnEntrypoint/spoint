@@ -54,6 +54,7 @@ export class MapspinnerPipelineCache {
     this.device = device
     this._pipelines = new Map()
     this._modules = new Map()
+    this.droppedScopes = 0
   }
 
   _shaderModule(code, label) {
@@ -109,11 +110,17 @@ export class MapspinnerPipelineCache {
     this.device.pushErrorScope('validation')
     const pipeline = this.device.createRenderPipeline(descriptor)
     this._pipelines.set(cacheKey, pipeline)
-    this.device.popErrorScope().then(err => {
-      if (!err) return
-      if (this._pipelines.get(cacheKey) === pipeline) this._pipelines.delete(cacheKey)
-      if (typeof console !== 'undefined') console.error(`mapspinner pipeline-cache: createRenderPipeline failed (${descriptor.label}): ${err.message}`)
-    })
+    this.device.popErrorScope().then(
+      (err) => {
+        if (!err) return
+        if (this._pipelines.get(cacheKey) === pipeline) this._pipelines.delete(cacheKey)
+        if (typeof console !== 'undefined') console.error(`mapspinner pipeline-cache: createRenderPipeline failed (${descriptor.label}): ${err.message}`)
+      },
+      (dropped) => {
+        this.droppedScopes++
+        if (typeof console !== 'undefined') console.warn(`mapspinner pipeline-cache: validation scope for ${descriptor.label} was discarded with its device: ${dropped && dropped.message}`)
+      },
+    )
     return pipeline
   }
 

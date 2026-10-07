@@ -130,6 +130,6 @@ try {
   console.log(`RESULT: ${failed === 0 ? 'PASS' : 'FAIL'} vegTotal=${final.vegTotal} peak=${peak} grass=${final.grassTotal} gpu=${gpu.renderer}`)
 } finally {
   if (browser) await browser.close().catch(() => {})
-  await server.stop().catch(() => {})
+  if (server && typeof server.stop === 'function') { try { await server.stop() } catch (_) {} }
 }
 process.exit(failed === 0 ? 0 : 1)
