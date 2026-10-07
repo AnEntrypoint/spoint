@@ -1,12 +1,31 @@
 #!/usr/bin/env node
 import { chromium } from './lib/cdp-browser.mjs'
-import { gpuLaunchArgs, gpuModeFlag, witnessGpu } from './lib/gpu-probe.mjs'
+import { gpuModeFlag, witnessGpu } from './lib/gpu-probe.mjs'
+import { vendorLaunchArgs, gpuArmTag } from './lib/witness-gpu.mjs'
 
 const PORT = 20000 + Math.floor(Math.random() * 20000)
 const GPU_MODE = gpuModeFlag('gpu', 'accelerated')
-const HOLD_MS = Number((process.argv.find(a => a.startsWith('--hold-ms=')) || '').slice(10) || 3000)
-const SETTLE_MS = Number((process.argv.find(a => a.startsWith('--settle-ms=')) || '').slice(12) || 5000)
-const WORLD = (process.argv.find(a => a.startsWith('--world=')) || '').slice(8) || 'e2e-ci-arena'
+const GPU_ARGS = vendorLaunchArgs(GPU_MODE)
+
+function flagValue(name) {
+  const hit = process.argv.find(a => a.startsWith(`--${name}=`))
+  return hit ? hit.slice(name.length + 3) : ''
+}
+
+const HOLD_MS = Number(flagValue('hold-ms') || 3000)
+const SETTLE_MS = Number(flagValue('settle-ms') || 5000)
+const WORLD = flagValue('world') || 'e2e-ci-arena'
+const SERVER_TICK = Number(flagValue('server-tick') || 0)
+
+const pageLogs = new Map()
+
+function watchPage(label, page) {
+  const lines = []
+  pageLogs.set(label, lines)
+  page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') lines.push(`${m.type()}: ${m.text()}`.slice(0, 300)) })
+  page.on('pageerror', (e) => lines.push(`pageerror: ${e?.message || e}`))
+  page.on('requestfailed', (r) => lines.push(`requestfailed: ${r.url()} ${r.failure()?.errorText || ''}`))
+}
 
 async function waitFor(page, fn, arg, { timeoutMs = 60000, intervalMs = 200, label = 'condition' } = {}) {
   const start = Date.now()
@@ -58,26 +77,33 @@ async function main() {
   console.log(`[prediction-drift] booting server on ${PORT} world=${WORLD}`)
   const { boot } = await import('../src/sdk/server.js')
   const server = await boot()
+  if (SERVER_TICK > 0) {
+    const advertised = server.tickSystem?.tickRate ?? null
+    server.tickSystem?.setTickRate?.(SERVER_TICK)
+    console.log(`[prediction-drift] server loop forced to ${SERVER_TICK} Hz while it keeps advertising ${advertised} Hz, so clients send faster than it consumes`)
+  }
 
   let browser
   let exitCode = 0
   try {
-    browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(GPU_MODE) })
+    browser = await chromium.launch({ headless: true, args: GPU_ARGS })
     const ctxA = await browser.newContext({ viewport: { width: 800, height: 600 } })
     const ctxB = await browser.newContext({ viewport: { width: 640, height: 480 } })
     const pageA = await ctxA.newPage()
     const pageB = await ctxB.newPage()
+    watchPage('A', pageA)
+    watchPage('B', pageB)
     const url = `http://localhost:${PORT}/?multiplayer&world=${WORLD}&predict=1`
     await Promise.all([pageA.goto(url, { waitUntil: 'domcontentloaded' }), pageB.goto(url, { waitUntil: 'domcontentloaded' })])
     const idA = await waitFor(pageA, () => window.__client?.connected && window.__client?.playerId, undefined, { label: 'A connect' })
     const idB = await waitFor(pageB, () => window.__client?.connected && window.__client?.playerId, undefined, { label: 'B connect' })
     const gpu = await witnessGpu(pageA, GPU_MODE)
-    console.log(`[prediction-drift] rasterizer=${gpu.rasterizer} gpuMode=${GPU_MODE.mode} idA=${idA} idB=${idB}`)
+    console.log(`[prediction-drift] ${gpuArmTag(GPU_MODE, gpu.rasterizer)} idA=${idA} idB=${idB}`)
     await waitFor(pageA, (id) => window.__client?.state?.players?.some(p => p.id === id), idB, { label: 'A sees B' })
     await waitFor(pageB, (id) => window.__client?.state?.players?.some(p => p.id === id), idA, { label: 'B sees A' })
     await waitFor(pageA, () => { const s = window.__client?.getLocalState?.(); return s?.onGround === true }, undefined, { label: 'A onGround', timeoutMs: 20000 }).catch(() => console.warn('[prediction-drift] A never reported onGround'))
 
-    const WARMUP_FPS = Number((process.argv.find(a => a.startsWith('--warmup-fps=')) || '').slice(13) || 30)
+    const WARMUP_FPS = Number(flagValue('warmup-fps') || 30)
     let warmFps = 0
     const warmStart = Date.now()
     while (Date.now() - warmStart < 180000) {
@@ -119,8 +145,9 @@ async function main() {
     const clientTravel = Math.hypot(released.local[0] - start.local[0], released.local[2] - start.local[2])
     const serverTravelAtRelease = Math.hypot(released.server[0] - start.server[0], released.server[2] - start.server[2])
     const frameRate = (released.frames - start.frames) / holdSec
-    const UNACKED_CAP = Number((process.argv.find(a => a.startsWith('--unacked-cap=')) || '').slice(15) || 24)
-    const DIVERGENCE_CAP_M = Number((process.argv.find(a => a.startsWith('--divergence-cap=')) || '').slice(18) || 3)
+    const UNACKED_CAP = Number(flagValue('unacked-cap') || 24)
+    const DIVERGENCE_CAP_M = Number(flagValue('divergence-cap') || 3)
+    const SETTLE_TOL_M = Number(flagValue('settle-tol') || 0.5)
     console.log(`[prediction-drift] hold=${holdSec.toFixed(2)}s clientTravel=${clientTravel.toFixed(3)}m serverTravel=${serverTravelAtRelease.toFixed(3)}m ratio=${(serverTravelAtRelease / clientTravel).toFixed(3)}`)
     console.log(`[prediction-drift] inputsSent=${released.inputSeq - start.inputSeq} (${((released.inputSeq - start.inputSeq) / holdSec).toFixed(1)}/s) serverTps=${serverTps === null ? 'null' : serverTps.toFixed(1)} unacked=${released.unacked} historyLen=${released.historyLen}`)
 
@@ -142,17 +169,18 @@ async function main() {
     console.log(`[prediction-drift] final clientTravel=${clientTravelFinal.toFixed(3)}m serverTravel=${serverTravelFinal.toFixed(3)}m B-view-of-A=${JSON.stringify(bView)}`)
     console.log(`[prediction-drift] residual divergence after ${SETTLE_MS}ms of no input = ${residualDivergence === null ? 'null' : residualDivergence.toFixed(4)}m`)
     const lastDivs = trail.slice(-5).map(s => s.div)
-    const decayed = lastDivs.length === 5 && lastDivs.every(d => d !== null && d < 0.5)
+    const decayed = lastDivs.length === 5 && lastDivs.every(d => d !== null && d < SETTLE_TOL_M)
     const boundedLead = peakUnacked <= UNACKED_CAP && peakDivergence <= DIVERGENCE_CAP_M && lastUnacked <= UNACKED_CAP
     console.log(`[prediction-drift] peak unacked during the hold = ${peakUnacked} (cap ${UNACKED_CAP}), peak divergence = ${peakDivergence.toFixed(3)}m (cap ${DIVERGENCE_CAP_M}m), unacked at release = ${lastUnacked}`)
     const pass = decayed && boundedLead
-    console.log(`[prediction-drift] RESULT: ${pass ? 'PASS' : 'FAIL'} (settled below 0.5m: ${JSON.stringify(lastDivs)}; lead bounded: ${boundedLead})`)
+    console.log(`[prediction-drift] RESULT: ${pass ? 'PASS' : 'FAIL'} ${gpuArmTag(GPU_MODE, gpu.rasterizer)} (settled below ${SETTLE_TOL_M}m: ${JSON.stringify(lastDivs)}; lead bounded: ${boundedLead})`)
     if (!pass) exitCode = 1
     console.log(`[prediction-drift] DIAGNOSIS serverAppliedFraction=${(serverTravelFinal / clientTravelFinal).toFixed(3)} serverTps=${serverTps === null ? 'null' : serverTps.toFixed(1)} clientFramesPerSec=${frameRate.toFixed(2)}`)
     await ctxA.close()
     await ctxB.close()
   } catch (err) {
     console.error(err?.stack || err)
+    for (const [label, lines] of pageLogs) console.error(`[prediction-drift] ${label} console tail:\n${lines.slice(-25).join('\n')}`)
     exitCode = 1
   } finally {
     if (browser) await browser.close().catch(() => {})
