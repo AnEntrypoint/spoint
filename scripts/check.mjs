@@ -24,18 +24,20 @@ const NO_GPU_WITNESSES = [
   { file: 'collider-turnover-witness.mjs', must: /resident per cycle before->started->stopped/ },
   { file: 'cpu-skip-witness.mjs', must: /row2_encodePerSnapshotCall/ },
   { file: 'netcode-profile-downgrade-witness.mjs', must: /carries netcode\.profile/ },
-  { file: 'planet-multiplayer-harness.mjs', args: ['--n=8'], must: /RESULT: PASS -- \d+ of \d+ check\(s\) passed/ },
   { file: 'lib/witness-audit.mjs', args: ['--gate'], must: /RESULT: PASS \d+ file\(s\) scanned/ },
 ]
 const NO_GPU_WITNESS_TIMEOUT_MS = 120000
 const SLOW_WITNESS_TIMEOUT_MS = 600000
 const SLOW_NO_GPU_WITNESSES = [
+  { file: 'planet-multiplayer-harness.mjs', args: ['--n=8'], must: /RESULT: PASS -- \d+ of \d+ check\(s\) passed/ },
   { file: 'collider-ring-scale-witness.mjs', must: /ms of uninterrupted work per 1000 placement\(s\) the ring scan examines/ },
   { file: 'collider-ring-boot-batches-witness.mjs', must: /ms per 1k operation\(s\) over \d+ operation\(s\)/ },
 ]
 const NO_GPU_WITNESS_GPU_SURFACE = /cdp-browser|gpu-probe|gpu-eval|witnessGpu|gpuLaunchArgs|use-angle|adapter-luid|WebGLRenderer|WebGPURenderer/
 const NO_GPU_VERDICT_RE = /^(?:\[[^\]]*\]\s*)?RESULT:\s+(PASS|FAIL)(?![A-Za-z0-9_])/
 const NO_GPU_WITNESS_ECHO_LINES = 6
+const NO_GPU_WITNESS_FAIL_ECHO_LINES = 20
+const NO_GPU_WITNESS_CAUSE_RE = /RESULT: FAIL|\[FAIL\]|^FAIL |FATAL|Error:|AssertionError|error TS\d+|npm ERR!/i
 
 const ROOTS = ['src', 'client', 'apps', 'scripts', 'bin']
 const SKIP_DIRS = new Set(['basis', 'draco', 'maps'])
@@ -71,6 +73,28 @@ function noGpuVerdict(stdout) {
 function tailLines(text, count) {
   const lines = text.split('\n').map((l) => l.trimEnd()).filter((l) => l.trim() !== '')
   return lines.slice(Math.max(0, lines.length - count))
+}
+
+function echoLines(text, limit) {
+  const all = text.split('\n').map((l) => l.trimEnd()).filter((l) => l.trim() !== '')
+  const picked = []
+  const shown = new Set()
+  for (const line of all) {
+    if (!NO_GPU_WITNESS_CAUSE_RE.test(line)) continue
+    const key = line.trim()
+    if (shown.has(key)) continue
+    shown.add(key)
+    picked.push(key)
+    if (picked.length >= limit) break
+  }
+  for (const line of tailLines(text, limit)) {
+    const key = line.trim()
+    if (key === '' || shown.has(key)) continue
+    shown.add(key)
+    picked.push(key)
+    if (picked.length >= limit) break
+  }
+  return picked
 }
 
 async function main() {
@@ -233,7 +257,7 @@ async function main() {
       if (spec.must && !spec.must.test(stdout)) witnessFailures.push(`printed no line matching ${spec.must}, so its assertions never ran`)
       if (witnessFailures.length > 0) {
         console.error(`check: gpu-free witness ${spec.file}: ${witnessFailures.join('; ')}`)
-        for (const line of tailLines(`${stdout}\n${stderr}`, NO_GPU_WITNESS_ECHO_LINES)) console.error(`  ${spec.file} out ${line}`)
+        for (const line of echoLines(`${stdout}\n${stderr}`, NO_GPU_WITNESS_FAIL_ECHO_LINES)) console.error(`  ${spec.file} out ${line}`)
         process.exit(1)
       }
       console.log(`check: gpu-free witness ${spec.file} ${(ms / 1000).toFixed(1)} s, exit 0, ${verdict.line ?? 'no RESULT: line, so exit 0 is the verdict'}`)

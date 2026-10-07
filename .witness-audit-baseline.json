@@ -5,9 +5,6 @@
     },
     "scripts/veg-lod-sweep-witness.mjs": {
       "flag-gated-arm": 1
-    },
-    "scripts/weather-ground-sample-witness.mjs": {
-      "verdict-not-a-decision": 1
     }
   }
 }

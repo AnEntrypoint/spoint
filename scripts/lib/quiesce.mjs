@@ -11,5 +11,6 @@ export async function exitAfterQuiesce(code = 0, timeoutMs = 10000) {
   }
   if (pending > 0) process.exit(code)
   process.exitCode = code
+  setTimeout(() => process.exit(code), 2000).unref()
   return pending
 }
