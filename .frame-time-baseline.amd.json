@@ -1,25 +1,36 @@
 {
   "rasterizer": "accelerated",
-  "headSha": "003fafdf943bd56c09ccada17c7b3add261d3627",
+  "headSha": "ee756369f93219e7baaecc16b3f78912490d42f9",
   "vendor": "amd",
   "gpu": "amd rdna-2 | amd",
   "vegInstances": 5207,
+  "fingerprint": {
+    "gpuControlIterations": 3072,
+    "gpuControlBeforeP50Ms": 35.599999994039536,
+    "gpuControlAfterP50Ms": 34.100000001490116,
+    "gpuControlBeforeMsPerK": 11.588541664726412,
+    "gpuControlAfterMsPerK": 11.10026041715173,
+    "gpuControlSpread": 1.0439882695743072,
+    "cpuContested": false,
+    "cpuSlowdown": 1.14,
+    "chromeProcessCount": 16
+  },
   "static": {
-    "p50Ms": 21.360000000000582,
-    "p95Ms": 34.82999999999447,
-    "onePercentLowMs": 47.33666666666492,
-    "fps": 46.81647940074779,
-    "sampleCount": 373,
-    "avgDrawCalls": 2.0536193029490617,
-    "avgTriangles": 311273.3101604278
+    "p50Ms": 19.645000000004075,
+    "p95Ms": 35.375,
+    "onePercentLowMs": 37.84875000000102,
+    "fps": 50.90353779586626,
+    "sampleCount": 410,
+    "avgDrawCalls": 2.0439024390243903,
+    "avgTriangles": 312927.59854014596
   },
   "orbit": {
-    "p50Ms": 24.084999999999127,
-    "p95Ms": 38.00999999999476,
-    "onePercentLowMs": 49.77666666666482,
-    "fps": 41.519618019515725,
-    "sampleCount": 333,
-    "avgDrawCalls": 2.078078078078078,
-    "avgTriangles": 317989.0928143713
+    "p50Ms": 18.385000000002037,
+    "p95Ms": 35.3949999999968,
+    "onePercentLowMs": 53.05500000000029,
+    "fps": 54.39216752786996,
+    "sampleCount": 436,
+    "avgDrawCalls": 2.055045871559633,
+    "avgTriangles": 321460.01372997713
   }
 }
