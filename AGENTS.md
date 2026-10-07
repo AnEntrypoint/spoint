@@ -28,11 +28,11 @@ One line per fact. Rules, thresholds and file:line stay here; numbers, scenarios
 
 - Main-only branch; commit only as lanmower (`git_commit` explicit `paths`, never `git add` + bare commit, `0292ad7b`). AI co-author trailers are one-way (`auto-declaudeify.yml`).
 - Generated artifacts travel with source: `AppContext.js` -> `sdk-typings.generated.d.ts` (that gate regenerates from committed HEAD); a height-code change re-bakes `apps/world/*.hf`.
-- `core.autocrlf=true`: tree CRLF, index LF; `w/crlf` in `git ls-files --eol` is not a diff.
+- `core.autocrlf=true`: tree CRLF, index LF; `w/crlf` in `git ls-files --eol` is not a diff. A file whose DISK copy drifted to CRLF while its blob is LF shows as a whole-file rewrite in `git_diff` — normalize it first (that hid a real 95-line change in `TerrainPhysics.js`).
 - `@spoint/ecs` is the only `@spoint/*` specifier; its link vanishes mid-session and kills every harness — `npm run links` restores it, never `npm install`.
 - `gpulock.mjs run <owner> bash ...` exits 127 — pass the node binary + a `.mjs` script. It returns 0 even when the witness failed: grep the log for `RESULT:`.
 - Never `git worktree remove` a `scripts/worktree-setup.mjs` worktree (its node_modules junction deletes main `node_modules/.bin`); use `scripts/worktree-teardown.mjs`.
-- gm spool: `in/<verb>/<session_id>-<random8>.txt`, `.txt` or swept unexecuted; never reuse a suffix. codesearch reads the WORKING tree, so another lane's edit can hide a committed constant. Comment sweep: gm `grep` `{"mode":"comments","refresh":true}`; `glob` matches FILENAMES.
+- gm spool: `in/<verb>/<session_id>-<random8>.txt`, `.txt` or swept unexecuted; never reuse a suffix. codesearch reads the WORKING tree, so another lane's edit can hide a committed constant. Comment sweep: gm `codesearch` `{"comments_only":true,"no_ignore":true}` — the `refresh` field AGENTS.md used to name is REJECTED by the verb; `glob` matches FILENAMES.
 - `npm run check` (gpu-free arm -> `fire-witness-gate.mjs` -> `check-frame-time-baselines` -> opt-in `SPOINT_GPU_WITNESS` veg arm) parses only tracked `src,client,apps,scripts,bin` and refuses browser/GPU witnesses by name; a witness must exit 0 AND print `RESULT: PASS`.
 - Ship an opportunity noticed in the same pass (before/after witness) or `prd-add` it. Unmeasured speedups never ship.
 
