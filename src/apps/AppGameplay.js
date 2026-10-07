@@ -15,6 +15,23 @@ const SPAWN_CLEARANCE_DIRS = (() => {
   for (let i = 0; i < 8; i++) dirs.push([Math.cos((i * Math.PI) / 4), Math.sin((i * Math.PI) / 4)])
   return dirs
 })()
+const PROBE_SKIN_M = 0.02
+const VOID_PROBE_DEPTH_M = 1.5
+export const MAX_FOOTPRINT_INTRUSION_M = 0.15
+const FOOTPRINT_RING_FRACTIONS = [0.5, 1]
+const FOOTPRINT_DIR_COUNT = 8
+const FALLBACK_CAPSULE_RADIUS_M = 0.6
+const FOOTPRINT_OFFSETS = (() => {
+  const offsets = [[0, 0]]
+  for (const fraction of FOOTPRINT_RING_FRACTIONS) {
+    for (let i = 0; i < FOOTPRINT_DIR_COUNT; i++) {
+      const angle = (i * 2 * Math.PI) / FOOTPRINT_DIR_COUNT
+      offsets.push([Math.cos(angle) * fraction, Math.sin(angle) * fraction])
+    }
+  }
+  return offsets
+})()
+const CLEARANCE_PROBE_RISE_FRACTIONS = [0.08, 0.25, 0.5]
 
 export const COMBAT_API = Object.freeze({ ...hitscan, recordHit })
 
@@ -33,13 +50,95 @@ function spawnSurfaceOf(ctx, sp, hitbox) {
   return surfaceY !== null ? surfaceY : Number.isFinite(terrainY) ? terrainY : null
 }
 
-function horizontalClearanceM(ctx, x, y, z, probeM) {
-  let min = probeM
-  for (const [dx, dz] of SPAWN_CLEARANCE_DIRS) {
-    const r = ctx.raycast([x, y, z], [dx, 0, dz], probeM)
-    if (r && r.hit && r.distance < min) min = r.distance
+export function capsuleRadiusM(hitbox) {
+  return Number.isFinite(hitbox?.radiusSq) && hitbox.radiusSq > 0
+    ? Math.sqrt(hitbox.radiusSq)
+    : FALLBACK_CAPSULE_RADIUS_M
+}
+
+export function capsuleHeightM(hitbox) {
+  if (Number.isFinite(hitbox?.height) && hitbox.height > 0) return hitbox.height
+  const derived = 2 * (Number.isFinite(hitbox?.centerHeight) ? hitbox.centerHeight : hitscan.DEFAULT_HITBOX.centerHeight)
+  return derived > 0 ? derived : hitscan.DEFAULT_HITBOX.height
+}
+
+function capsuleBottomRiseM(distanceM, radiusM) {
+  if (!(distanceM > 0)) return 0
+  if (distanceM >= radiusM) return radiusM
+  return radiusM - Math.sqrt(radiusM * radiusM - distanceM * distanceM)
+}
+
+function capsuleRadiusAtRiseM(riseM, radiusM, heightM) {
+  const cylinderTopM = heightM - radiusM
+  if (!(cylinderTopM > radiusM)) return radiusM
+  if (riseM >= radiusM && riseM <= cylinderTopM) return radiusM
+  const sphereCentreM = riseM < radiusM ? radiusM : cylinderTopM
+  const gapM = Math.abs(riseM - sphereCentreM)
+  const innerM = radiusM * radiusM - gapM * gapM
+  return innerM > 0 ? Math.sqrt(innerM) : 0
+}
+
+function withinContactDisc(distanceM, radiusM) {
+  return distanceM < radiusM
+}
+
+function surfaceYOf(hit) {
+  return hit && hit.hit && Number.isFinite(hit.position?.[1]) ? hit.position[1] : null
+}
+
+export function footprintBlockers(ctx, sp, feetY, hitbox = hitscan.DEFAULT_HITBOX) {
+  const radiusM = capsuleRadiusM(hitbox)
+  const heightM = capsuleHeightM(hitbox)
+  const blockers = []
+  for (const [unitX, unitZ] of FOOTPRINT_OFFSETS) {
+    const offsetX = unitX * radiusM
+    const offsetZ = unitZ * radiusM
+    const distanceM = Math.hypot(offsetX, offsetZ)
+    const riseM = capsuleBottomRiseM(distanceM, radiusM)
+    const bottomY = feetY + riseM
+    const topY = feetY + heightM - riseM
+    const sampleX = sp[0] + offsetX
+    const sampleZ = sp[2] + offsetZ
+    const probeLengthM = topY - bottomY + VOID_PROBE_DEPTH_M
+    if (!(probeLengthM > 0)) continue
+    const support = ctx.raycast([sampleX, topY - PROBE_SKIN_M, sampleZ], [0, -1, 0], probeLengthM)
+    const supportY = surfaceYOf(support)
+    if (supportY === null) {
+      if (withinContactDisc(distanceM, radiusM)) {
+        blockers.push({ kind: 'void', x: sampleX, z: sampleZ, offsetM: distanceM, surfaceY: null, intrusionM: null })
+      }
+      continue
+    }
+    if (supportY > bottomY + MAX_FOOTPRINT_INTRUSION_M) {
+      blockers.push({ kind: 'intruding', x: sampleX, z: sampleZ, offsetM: distanceM, surfaceY: supportY, intrusionM: supportY - bottomY })
+    }
   }
-  return min
+  return blockers
+}
+
+function clearanceProbeRisesM(radiusM, heightM, centreM) {
+  const rises = CLEARANCE_PROBE_RISE_FRACTIONS.map(fraction => radiusM * fraction)
+  rises.push(radiusM, centreM, Math.max(radiusM, heightM - radiusM))
+  const unique = []
+  for (const riseM of rises) if (!unique.some(seen => Math.abs(seen - riseM) < 1e-6)) unique.push(riseM)
+  return unique.sort((a, b) => a - b)
+}
+
+function clearanceMarginM(ctx, x, feetY, z, hitbox, probeM) {
+  const radiusM = capsuleRadiusM(hitbox)
+  const heightM = capsuleHeightM(hitbox)
+  const centreM = Number.isFinite(hitbox?.centerHeight) && hitbox.centerHeight > 0 ? hitbox.centerHeight : heightM / 2
+  let marginM = probeM
+  for (const riseM of clearanceProbeRisesM(radiusM, heightM, centreM)) {
+    const neededM = capsuleRadiusAtRiseM(riseM, radiusM, heightM)
+    if (!(neededM > 0)) continue
+    const y = feetY + riseM
+    for (const [dx, dz] of SPAWN_CLEARANCE_DIRS) {
+      const r = ctx.raycast([x, y, z], [dx, 0, dz], probeM)
+      if (r && r.hit && r.distance - neededM < marginM) marginM = r.distance - neededM
+    }
+  }
+  return marginM
 }
 
 function spawnPlacement(ctx, sp, hitbox, clearanceNeeded) {
@@ -48,7 +147,8 @@ function spawnPlacement(ctx, sp, hitbox, clearanceNeeded) {
   const probeM = Math.max(SPAWN_CLEARANCE_PROBE_M, clearanceNeeded)
   return {
     pose: [sp[0], surfaceY + SPAWN_GROUND_CLEARANCE_M, sp[2]],
-    clearance: horizontalClearanceM(ctx, sp[0], surfaceY + hitbox.centerHeight, sp[2], probeM)
+    clearance: clearanceMarginM(ctx, sp[0], surfaceY, sp[2], hitbox, probeM),
+    blockers: footprintBlockers(ctx, sp, surfaceY, hitbox)
   }
 }
 
@@ -65,7 +165,7 @@ export function pickSpawnPoint(ctx, spawnPoints, { exclude = () => false, minSaf
   for (const sp of [...candidates, LAST_RESORT_SPAWN]) {
     const placed = spawnPlacement(ctx, sp, hitbox, clearanceNeeded)
     if (!placed) continue
-    if (placed.clearance >= clearanceNeeded) return placed.pose
+    if (placed.blockers.length === 0 && placed.clearance >= 0) return placed.pose
     if (!roomiest || placed.clearance > roomiest.clearance) roomiest = placed
   }
   return roomiest ? roomiest.pose : candidates[0] ? [...candidates[0]] : [...LAST_RESORT_SPAWN]
