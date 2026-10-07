@@ -47,6 +47,23 @@ function has(text, re) {
   return re.test(text)
 }
 
+function catchBlocks(text) {
+  const blocks = []
+  const re = /catch\s*(?:\([^)]*\))?\s*\{/g
+  for (let m = re.exec(text); m !== null; m = re.exec(text)) {
+    let depth = 1
+    let i = m.index + m[0].length
+    while (i < text.length && depth > 0) {
+      const c = text[i]
+      if (c === '{') depth += 1
+      else if (c === '}') depth -= 1
+      i += 1
+    }
+    blocks.push({ line: lineOf(text, m.index), body: text.slice(m.index + m[0].length, i - 1) })
+  }
+  return blocks
+}
+
 function quotedDefaultOf(rhs) {
   const coalesce = /(?:[?][?]|\|\|)\s*'([^']*)'/.exec(rhs)
   if (coalesce) return coalesce[1]
@@ -163,6 +180,20 @@ const HIGH_CHECKS = [
 ]
 
 const LOW_CHECKS = [
+  {
+    id: 'swallowed-error',
+    why: 'catch block records the error but never rethrows or exits non-zero, so a fatal becomes report data if nothing else decides the verdict',
+    find(text) {
+      const rows = []
+      for (const block of catchBlocks(text)) {
+        if (/throw|process\.exit\(|process\.exitCode|reject\(/.test(block.body)) continue
+        if (!/console\.|\bpush\(|report|failures|\+=/.test(block.body)) continue
+        rows.push({ line: block.line, text: block.body.trim().slice(0, 120) })
+        if (rows.length >= MAX_EVIDENCE_PER_CHECK) break
+      }
+      return rows
+    },
+  },
   {
     id: 'empty-catch',
     why: 'swallows an error with no handler body, so a failure in the measured path is invisible',
