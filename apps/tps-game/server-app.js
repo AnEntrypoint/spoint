@@ -1,5 +1,6 @@
 import { collectSpawnPoints } from '../../src/stdlib-apps/spawn-point/index.js'
 import { POWERUP_DEFS, POWERUP_RESPAWN_MS, EMOTE_CLIPS, COMBAT_CONFIG, FIRE_SPEC } from './shared.js'
+import { pickClearSpawnPose } from './respawn-clearance.js'
 
 const EMOTE_RATE_LIMIT_MS = 800
 const MAX_IGNITION_SOURCE = 255
@@ -47,6 +48,7 @@ function combatOf(ctx) {
 
 export const tpsGameServer = {
   async setup(ctx) {
+    ctx.pickSpawnPoint = (spawnPoints, opts) => pickClearSpawnPose(ctx, spawnPoints, opts)
     ctx.state.map = 'schwust'
     ctx.state.mode = 'ffa'
     ctx.state.lastEmoteAt = new Map()
