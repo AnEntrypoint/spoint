@@ -1,0 +1,33 @@
+[turnover] real tps-game world, real PhysicsWorld, real trunk streamer, radius 64 m cap 8, centre walks 30 m per rebuild
+[turnover] in-radius colliders per step: 8 15 20 12 15 17 20 18 19
+[turnover] newly added / retained per step: 8/0 7/8 7/13 4/11 6/11 7/11 7/13 7/13 6/13
+[turnover] live per step: 8 15 20 15 17 18 20 20 19 (cap 8)
+  [PASS] every step of a 30 m walk keeps colliders inside the 64 m radius, not a saturated set from an old centre -- worst 12 of cap 8
+  [PASS] a moving centre actually turns its collider set over instead of keeping the old ones -- worst newly added 4
+  [FAIL] the live set never stays above the body cap after a rebuild -- 8 step(s) over cap, worst 20
+  [PASS] no step of the walk rebuilds without adding anything -- 0 of 8 step(s)
+[veg] FATAL collider rebuild failed in phase scan with 0/8 collider(s) resident for 1 center(s), so the ring is partial and no further rebuild is scheduled: Error: injected classify failure
+    at excludePlacement (file:///C:/dev/spoint/scripts/collider-turnover-witness.mjs:93:35)
+    at classifyRings (file:///C:/dev/spoint/src/terrain/ColliderStreamer.js:338:42)
+    at Object._rebuildMulti (file:///C:/dev/spoint/src/terrain/ColliderStreamer.js:614:32)
+    at file:///C:/dev/spoint/scripts/collider-turnover-witness.mjs:97:17
+[veg] FATAL collider rebuild failed in phase scan with 0/8 collider(s) resident for 1 center(s), so the ring is partial and no further rebuild is scheduled: Error: injected classify failure
+    at excludePlacement (file:///C:/dev/spoint/scripts/collider-turnover-witness.mjs:93:35)
+    at classifyRings (file:///C:/dev/spoint/src/terrain/ColliderStreamer.js:338:42)
+    at _rebuildMulti (file:///C:/dev/spoint/src/terrain/ColliderStreamer.js:614:32)
+    at Object.start (file:///C:/dev/spoint/src/terrain/ColliderStreamer.js:729:13)
+    at file:///C:/dev/spoint/scripts/collider-turnover-witness.mjs:104:17
+  [PASS] a throwing rebuild rejects instead of leaving a partial ring and rescheduling -- phase scan, 0/8 resident
+  [PASS] the fault names the phase that threw and keeps the resident count -- {"phase":"scan","resident":0,"cap":8,"centers":1}
+  [PASS] the faulted streamer exposes the error itself, not only a log line -- injected classify failure
+  [PASS] booting a faulted streamer fails loudly instead of starting with an empty ring -- start() rejected
+  [PASS] a healthy streamer is untouched by the faulted one and still holds its ring -- live 19, fault null
+[veg] initial ring: 8/8 collider(s) over 47 chunk(s) for 1 center(s) of maxCenters 1, dropped 0 (radius 64m keep 70.4m) in 11.2ms over 1 cluster batch(es) of 8 (pool prewarm 0.3ms)
+[veg] initial ring: 8/8 collider(s) over 47 chunk(s) for 1 center(s) of maxCenters 1, dropped 0 (radius 64m keep 70.4m) in 10.9ms over 1 cluster batch(es) of 8 (pool prewarm 0.2ms)
+[veg] initial ring: 8/8 collider(s) over 47 chunk(s) for 1 center(s) of maxCenters 1, dropped 0 (radius 64m keep 70.4m) in 10.0ms over 1 cluster batch(es) of 8 (pool prewarm 0.2ms)
+  [PASS] stopping a collider streamer frees its Jolt body slots instead of parking them -- resident per cycle before->started->stopped: 54->58->50 50->62->54 54->70->62
+  [FAIL] three stop and restart cycles on one physics never grow the resident count, so a retry cannot exhaust maxBodies -- 54 before the first cycle, 62 after the last
+  [PASS] the streamer that ran the walk still holds a full ring and can be stopped without a fault -- live 19
+[turnover] RESULT: FAIL (2)
+[turnover] STEPS: [{"step":0,"centre":0,"live":8,"inRadius":8,"newlyAdded":8,"retained":0},{"step":1,"centre":30,"live":15,"inRadius":15,"newlyAdded":7,"retained":8},{"step":2,"centre":60,"live":20,"inRadius":20,"newlyAdded":7,"retained":13},{"step":3,"centre":90,"live":15,"inRadius":12,"newlyAdded":4,"retained":11},{"step":4,"centre":120,"live":17,"inRadius":15,"newlyAdded":6,"retained":11},{"step":5,"centre":150,"live":18,"inRadius":17,"newlyAdded":7,"retained":11},{"step":6,"centre":180,"live":20,"inRadius":20,"newlyAdded":7,"retained":13},{"step":7,"centre":210,"live":20,"inRadius":18,"newlyAdded":7,"retained":13},{"step":8,"centre":240,"live":19,"inRadius":19,"newlyAdded":6,"retained":13}]
+EXIT=1

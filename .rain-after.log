@@ -1,0 +1,161 @@
+[boot] using world: tps-game (apps\world\tps-game.js)
+[boot] loading from: C:\dev\spoint\apps, C:\dev\spoint\src\stdlib-apps
+[apps-manifest] fresh dist\client\apps-manifest.json (68 app(s), 130 source file(s) fingerprinted, unchanged, 39ms)
+[apps-manifest] fresh world-scoped dist\client\worlds\tps-game\apps-manifest.json (26 of 68 app(s), unchanged, 1ms)
+[server] serving PREBUILT BUNDLE from dist/client/app.js (built 2026-10-07T14:53:43.948Z)
+[server] dist/src/sdk/WorkerEntry.js is STALE (built 2026-10-07T12:29:31.951Z, a bundled src/ or packages/ input edited 2026-10-07T14:49:04.364Z) -- falling through to raw ESM worker
+[static] precompressed 4491 asset(s)
+(node:22388) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[terrain] collider using BAKED heightfield (hashVersion 2, N=257, extent=256m, spacing 100cm, height code 44ca24c0ef7b) instead of the GPU patch bake: the GLSL patch baker draws only hashVersion 1 and this world resolves to hashVersion 2, which carries an integer hash and a carve term the legacy GLSL terrain has no code for
+[terrain] planet heightfield COARSE N=64 extent=256m built 15ms id=8388608 -> refining to N=128 off the boot path
+[terrain] planet heightfield refined N=64 -> N=128 spacing=2.02m in 25ms(sample 24ms) id=8388609
+[veg] initial ring: 66/384 collider(s) over 47 chunk(s) for 1 center(s) of maxCenters 192 (default), dropped 0 (radius 64m keep 70.4m) in 47.1ms over 1 cluster batch(es) of 8 (pool prewarm 3.0ms)
+[rocks] initial ring: 0/128 collider(s) over 20 chunk(s) for 1 center(s) of maxCenters 192 (default), dropped 0 (radius 32m keep 35.2m) in 8.2ms over 1 cluster batch(es) of 8 (pool prewarm 0.0ms)
+   0.00s [terrain] [terrain] config registered (streamer owned by engine boot order)
+[trimesh] dropped 23 degenerate (zero-area) triangle(s) from C:\dev\spoint\apps\maps\aim_sillos.glb
+[combat] 4 spawn point(s), 37 saved record(s)
+[placed-model] loaded 4 saved entities
+[world-persistence] restored snapshot: tick=19200 entities=11 bodies=0
+[progressive] awaiting 1 environment bake(s) before serving
+[server] EDITOR_TOKEN is not set and this server binds 0.0.0.0 (all interfaces, not loopback-only) -- editor auth and non-loopback debug/upload endpoints are OPEN to any network peer that can reach this host. Set EDITOR_TOKEN before exposing this server beyond localhost.
+[server] http://localhost:22222 @ 64 TPS
+[identity] pid=22388 sha=34865076 root=C:\dev\spoint cwd=C:\dev\spoint
+[identity] mapspinner@0.1.264 -> C:\dev\spoint\packages\mapspinner
+[identity] streaming-gltf@2.0.22 -> C:\dev\spoint\packages\streaming-gltf
+[identity] GET /__identity returns this as JSON
+[weather-gh] server up on 22222 world=tps-game
+[weather-gh] navigating http://127.0.0.1:22222/?multiplayer&world=tps-game&v=1791385033037
+[weather-gh] boot t+0s {"terrain":false,"weather":false,"revealedAt":0,"connected":false}
+[weather-gh] boot t+15s {"terrain":false,"weather":false,"revealedAt":0,"connected":false}
+[weather-gh] boot t+31s {"terrain":false,"weather":false,"revealedAt":0,"connected":true}
+[weather-gh] boot t+47s {"terrain":true,"weather":true,"revealedAt":0,"connected":true}
+[weather-gh] boot ok in 48s
+[weather-gh] gpu=nvidia accelerated=true rasterizer=accelerated renderer=nvidia ampere
+[weather-gh] forcing weather type=rain intensity=1
+[weather-gh] armed: {"ok":true,"patchOverride":false,"particles":3000,"type":"rain"}
+[weather-gh] raw: {"elapsedMs":40629,"total":74558,"inWeather":157,"updates":507,"weatherMs":187.51,"particles":3000,"activeCount":3000,"type":"rain","intensity":1,"groundSampleCount":50230,"gh0":18152,"pos":[-24.979999542236328,9.398358345031738,-5.818713188171387]}
+[weather-gh] RESULT {
+  "weather": "rain",
+  "gpu": "nvidia",
+  "renderer": "nvidia ampere",
+  "world": "tps-game",
+  "walk": true,
+  "windowSeconds": 40.63,
+  "groundHeightLocal_callsPerSec_total": 1835.09,
+  "groundHeightLocal_callsPerSec_weather": 3.86,
+  "groundHeightLocal_callsPerSec_other": 1831.23,
+  "weatherSharePct": 0.21,
+  "weatherUpdate_callsPerSec": 12.48,
+  "weatherUpdate_msPerSec": 4.62,
+  "weather_groundSampleCount_total": 50230,
+  "weather_groundSampleCount_start": 18152,
+  "weather_groundSamplesPerSec": 789.53,
+  "framesPerSec": 12.48,
+  "samplesPerUpdate": 63.27,
+  "snowAccum": false,
+  "ghDeviation": null,
+  "consoleErrs": 0,
+  "consoleTop": [],
+  "playerMovedM": 0,
+  "posArm": [
+    -24.979999542236328,
+    9.398358345031738,
+    -5.818713188171387
+  ],
+  "posEnd": [
+    -24.979999542236328,
+    9.398358345031738,
+    -5.818713188171387
+  ],
+  "particles": 3000,
+  "activeCount": 3000,
+  "type": "rain",
+  "intensity": 1,
+  "profileTotalMsPerSec": 998.19,
+  "topSelfMsPerSec": [
+    {
+      "key": "(idle) @ :0",
+      "msPerSec": 778.045,
+      "pct": 77.95
+    },
+    {
+      "key": "(program) @ :0",
+      "msPerSec": 36.68,
+      "pct": 3.67
+    },
+    {
+      "key": "msSnoise3 @ :3",
+      "msPerSec": 17.535,
+      "pct": 1.76
+    },
+    {
+      "key": "msH3i @ :4",
+      "msPerSec": 15.562,
+      "pct": 1.56
+    },
+    {
+      "key": "composeHeight @ :5",
+      "msPerSec": 10.425,
+      "pct": 1.04
+    },
+    {
+      "key": "writeBuffer @ :0",
+      "msPerSec": 6.023,
+      "pct": 0.6
+    },
+    {
+      "key": "updateMatrixWorld @ three.core.js:12900",
+      "msPerSec": 5.085,
+      "pct": 0.51
+    },
+    {
+      "key": "_renderObjectDirect @ three.webgpu.js:62871",
+      "msPerSec": 4.598,
+      "pct": 0.46
+    },
+    {
+      "key": "update @ three.webgpu.js:63592",
+      "msPerSec": 3.547,
+      "pct": 0.36
+    },
+    {
+      "key": "setFromPoints @ three.core.js:15824",
+      "msPerSec": 3.429,
+      "pct": 0.34
+    },
+    {
+      "key": "getGamepads @ :0",
+      "msPerSec": 3.171,
+      "pct": 0.32
+    },
+    {
+      "key": "_projectObject @ three.webgpu.js:62261",
+      "msPerSec": 3.085,
+      "pct": 0.31
+    }
+  ],
+  "groundRowsMsPerSec": [
+    {
+      "key": "solveSurfaceY @ PlanetFrame.js:124",
+      "msPerSec": 1.087,
+      "pct": 0.11
+    },
+    {
+      "key": "groundHeightLocal @ PlanetFrame.js:169",
+      "msPerSec": 0.434,
+      "pct": 0.04
+    },
+    {
+      "key": "f.groundHeightLocal @ :13",
+      "msPerSec": 0.039,
+      "pct": 0
+    },
+    {
+      "key": "groundHeightLocal @ app.js:1162",
+      "msPerSec": 0.038,
+      "pct": 0
+    }
+  ]
+}
+[physics] peak bodies 174/10240, peak active 0, contact manifolds 0/10240

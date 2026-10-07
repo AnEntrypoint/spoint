@@ -1,0 +1,94 @@
+(node:25724) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[loadWorld] adopted worldDef.player capsule config into physicsIntegration (createServer() was called without config.playerConfig): radius=0.28 halfHeight=0.63
+[terrain] ignoring baked heightfield /apps/world/tps-game.hf: baked with height code version 0e004c2d0e3c, this tree bakes 44ca24c0ef7b: the height-generation code changed under it -> exact CPU height
+[terrain] collider using EXACT CPU height (no baked artifact covers the spawn): the GLSL patch baker draws only hashVersion 1 and this world resolves to hashVersion 2, which carries an integer hash and a carve term the legacy GLSL terrain has no code for
+[terrain] planet heightfield COARSE N=64 extent=256m built 126ms id=8388608 -> refining to N=128 off the boot path
+   0.00s [terrain] [terrain] config registered (streamer owned by engine boot order)
+[placed-model] loaded 4 saved entities
+[terrain] planet heightfield refined N=64 -> N=128 spacing=2.02m in 423ms(sample 415ms) id=8388609
+[terrain] heightfield #1 at (51999,1) for 4 player(s) N=128 reused=0/16384 892ms(sample 890ms) id=16777216 fields=2
+[physics] peak bodies 2/10240, peak active 0, contact manifolds 0/10240
+{
+  "arm": "none",
+  "world": "tps-game",
+  "players": 4,
+  "chartLocalRadiusM": 51985,
+  "dropM": 120,
+  "ticksPerArm": 30,
+  "reps": 1,
+  "throttleInstalled": true,
+  "beforeSolvesPerPlayerTick": {
+    "median": 0,
+    "iqr": 0,
+    "q1": 0,
+    "q3": 0
+  },
+  "afterSolvesPerPlayerTick": {
+    "median": 0,
+    "iqr": 0,
+    "q1": 0,
+    "q3": 0
+  },
+  "solvesReductionX": 0,
+  "beforePhysicsMsPerTick": {
+    "median": 0,
+    "iqr": 0,
+    "q1": 0,
+    "q3": 0
+  },
+  "afterPhysicsMsPerTick": {
+    "median": 0,
+    "iqr": 0,
+    "q1": 0,
+    "q3": 0
+  },
+  "measuredSpeedMps": {
+    "median": 0,
+    "iqr": 0
+  },
+  "measuredPathPerPlayerM": {
+    "median": 0
+  },
+  "reuseDivisor": 8,
+  "maxAirborneReuseM": {
+    "median": 0,
+    "max": 0
+  },
+  "reuseBoundM": 0,
+  "airborneReuseFraction": 0,
+  "groundedExactSolves": 0,
+  "killPlaneCallsBefore": 0,
+  "killPlaneSolvesBefore": 0,
+  "killPlaneCallsAfter": 0,
+  "killPlaneSolvesAfter": 0,
+  "updateCalls": 484,
+  "killPlaneCallsTotal": 468,
+  "totalTicks": 123,
+  "playerBodies": 4,
+  "diagBefore": {
+    "armUpdateCalls": 0,
+    "onGroundSum": 0,
+    "heightAboveGroundM": 120.044
+  },
+  "diagAfter": {
+    "armUpdateCalls": 0,
+    "onGroundSum": 0,
+    "heightAboveGroundM": 119.994
+  },
+  "landingSamples": 4,
+  "landingDiffM": {
+    "median": 0,
+    "max": 0
+  },
+  "landingStaleDeltaM": {
+    "median": 0.000016,
+    "max": 0.000016
+  },
+  "groundedSamplesDuringArms": 0,
+  "tickRate": 64
+}
+FAIL: solves per player per tick drop at least 5x: before median 0 after median 0 (0x)
+FAIL: physics phase ms per tick drops: before median 0 after median 0
+FAIL: physics phase measured: 0 ms/tick
+RESULT: FAIL

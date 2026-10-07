@@ -1,0 +1,20 @@
+▲ [WARNING] The glob pattern import("./hud/Chat.js?hr=*") did not match any files [empty-glob]
+
+    client/app.js:1269:15:
+      1269 │         import('./hud/Chat.js?hr=' + (payload.timestamp || Date....
+           ╵                ~~~~~~~~~~~~~~~~~~~
+
+1 warning
+
+  dist\client\ez-tree.es-AFA3XRFR.js   3.8mb
+  dist\client\app.js                   1.1mb
+  dist\client\chunk-WRG2FGJI.js       48.1kb
+  dist\client\XRSystem-P7ELQKSK.js    15.4kb
+  dist\client\chunk-ZTRHXE5B.js        9.5kb
+  ...and 29 more output files...
+
+Done in 235ms
+[bundle-client] wrote dist/client
+[bundle-client] stamped dist\client\app.bundlehash.json cc8fbe3e8de3ae83 (207 bundled inputs, artifact dcfc5dca6e58ef41)
+[bundle-apps-manifest] resolving 68 app(s) (all ./apps directories): agent-fsm-demo, agent-interactive-demo, agent-physics-demo, agent-simple-demo, agent-spawner-demo, box-buoyant, box-dynamic, box-static, button, capture-zone, character-animator, character-controller, checkpoint-marker, collectible, combat-bot, deathrun, destructible-box, destructible-debris, ecs-demo, editor-apps, editor-events, editor-hierarchy, editor-inspector, example-progression, final-boss, fire-duel, fluid-source, fluid3d-source, fsm-arena, goblin, gold-coin, hit-feedback, item-pickup, lockstep-rts, matrix-construct-room, mini-boss, moving-platform, npc, npc-navigator, pickup, placed-model, playtest-bot, prop-dynamic, prop-static, respawn-zone, rpg-tutorial, rts-unit, shrinking-zone, shrinking-zone-ring, softbody-cloth, spawn-point, tank, terrain, tower, tps-game, trigger-volume, tutorial, tutorial-boss, tutorial-herb, tutorial-marker, tutorial-npc, tutorial-rat, tutorial-rpg, tutorial-rpg-world, unmanaged-ball-test, vehicle, waypoint, weapon-spawn
+[bundle-apps-manifest] C:\dev\spoint\dist\client\apps-manifest.json unchanged (68 apps)

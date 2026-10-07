@@ -1,0 +1,106 @@
+== fire tps-game integration witness (real server, real clients, real tps-game world) ==
+(node:23224) [DEP0152] DeprecationWarning: Custom PerformanceEntry accessors are deprecated. Please use the detail property.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[loadWorld] adopted worldDef.player capsule config into physicsIntegration (createServer() was called without config.playerConfig): radius=0.28 halfHeight=0.63
+[terrain] collider using BAKED heightfield (hashVersion 2, N=257, extent=256m, spacing 100cm, height code 44ca24c0ef7b) instead of the GPU patch bake: the GLSL patch baker draws only hashVersion 1 and this world resolves to hashVersion 2, which carries an integer hash and a carve term the legacy GLSL terrain has no code for
+[terrain] planet heightfield COARSE N=64 extent=256m built 15ms id=8388608 -> refining to N=128 off the boot path
+[terrain] planet heightfield refined N=64 -> N=128 spacing=2.02m in 29ms(sample 27ms) id=8388609
+[veg] initial ring: 66/384 collider(s) over 47 chunk(s) for 1 center(s) of maxCenters 192 (default), dropped 0 (radius 64m keep 70.4m) in 60.2ms over 1 cluster batch(es) of 8 (pool prewarm 3.7ms)
+[rocks] initial ring: 0/128 collider(s) over 20 chunk(s) for 1 center(s) of maxCenters 192 (default), dropped 0 (radius 32m keep 35.2m) in 11.1ms over 1 cluster batch(es) of 8 (pool prewarm 0.0ms)
+   0.00s [terrain] [terrain] config registered (streamer owned by engine boot order)
+[trimesh] dropped 23 degenerate (zero-area) triangle(s) from C:\dev\spoint\apps\maps\aim_sillos.glb
+[combat] 4 spawn point(s), 2 saved record(s)
+[placed-model] loaded 4 saved entities
+[terrain] heightfield #1 at (134,-45) for 1 player(s) N=128 reused=6510/16384 171ms(sample 169ms) id=8388834 fields=2
+[physics] peak bodies 227/10240, peak active 0, contact manifolds 0/10240
+
+-- flag off (exactly as shipped in apps/world/tps-game.js)
+  weather as shipped; defineFire calls 0; fire instance constructed false
+  combat spec keys: config,powerupRespawnMs,powerups,scoreboardKey,spawnPoints
+  first ground shot: impact [-24.4,8.39,-45], -1 active cell(s), -1 ignition(s)
+  peak active cells 0; burning band 0 cell(s) spanning 0 m
+  victim health 100.00 -> min 100.00 over 7 s on freshly burning cells (0 rescans, fire damage 0.00, fire_death 0)
+  broadcast rows 261: fire wire rows 0, fire_burn 0, fire_burn_end 0, fire_death 0
+  fire-typed payload types: []
+  LOS through the burning band:  null
+  LOS rotated 90 deg, same span: null
+  aimed shots that landed: through the fire null, around the fire null
+  non-fire payload types: ["113","114","137","16","180","193","196","197","2","aimpunch","buff_applied","rain","world_hit"]
+
+[loadWorld] adopted worldDef.player capsule config into physicsIntegration (createServer() was called without config.playerConfig): radius=0.28 halfHeight=0.63
+[terrain] collider using BAKED heightfield (hashVersion 2, N=257, extent=256m, spacing 100cm, height code 44ca24c0ef7b) instead of the GPU patch bake: the GLSL patch baker draws only hashVersion 1 and this world resolves to hashVersion 2, which carries an integer hash and a carve term the legacy GLSL terrain has no code for
+[terrain] planet heightfield COARSE N=64 extent=256m built 11ms id=8388608 -> refining to N=128 off the boot path
+[terrain] planet heightfield refined N=64 -> N=128 spacing=2.02m in 28ms(sample 26ms) id=8388609
+[veg] initial ring: 66/384 collider(s) over 47 chunk(s) for 1 center(s) of maxCenters 192 (default), dropped 0 (radius 64m keep 70.4m) in 57.2ms over 1 cluster batch(es) of 8 (pool prewarm 1.4ms)
+[rocks] initial ring: 0/128 collider(s) over 20 chunk(s) for 1 center(s) of maxCenters 192 (default), dropped 0 (radius 32m keep 35.2m) in 11.6ms over 1 cluster batch(es) of 8 (pool prewarm 0.0ms)
+   0.00s [terrain] [terrain] config registered (streamer owned by engine boot order)
+[trimesh] dropped 23 degenerate (zero-area) triangle(s) from C:\dev\spoint\apps\maps\aim_sillos.glb
+[combat] 4 spawn point(s), 2 saved record(s)
+[placed-model] loaded 4 saved entities
+[terrain] heightfield #1 at (134,-45) for 1 player(s) N=128 reused=6510/16384 257ms(sample 255ms) id=8388834 fields=2
+[terrain] heightfield #2 at (-215,-3) for 1 player(s) N=128 reused=2646/16384 283ms(sample 281ms) id=8389328 fields=3
+[terrain] heightfield #3 at (-124,386) for 1 player(s) N=128 reused=0/16384 397ms(sample 396ms) id=8389430 fields=3
+[terrain] heightfield #4 at (-80,-140) for 1 player(s) N=128 reused=3660/16384 202ms(sample 200ms) id=8389442 fields=3
+[terrain] heightfield #5 at (39,51) for 1 player(s) N=128 reused=2413/16384 134ms(sample 132ms) id=16778038 fields=3
+[terrain] heightfield #6 at (47,51) for 1 player(s) N=128 reused=2145/16384 98ms(sample 96ms) id=25166646 fields=3
+[terrain] heightfield #7 at (-104,-140) for 1 player(s) N=128 reused=6129/16384 163ms(sample 162ms) id=16778050 fields=3
+[physics] peak bodies 835/10240, peak active 0, contact manifolds 0/10240
+
+-- flag on, weather as shipped (rain 0.6)
+  weather as shipped; defineFire calls 1; fire instance constructed true
+  combat spec keys: config,onWorldHit,powerupRespawnMs,powerups,scoreboardKey,shotBlocked,spawnPoints
+  first ground shot: impact [-24.03,8.39,-45], 9 active cell(s), 5 ignition(s)
+  peak active cells 236; burning band 114 cell(s) spanning 320.2 m
+  victim health 56.09 -> min 13.91 over 7 s on freshly burning cells (13 rescans, fire damage 42.19, fire_death 0)
+  broadcast rows 541: fire wire rows 21, fire_burn 4, fire_burn_end 4, fire_death 0
+  fire-typed payload types: ["fire","fire_burn","fire_burn_end"]
+  LOS through the burning band:  {"crossedBurning":8,"distanceM":401.1,"depth":4.984,"blocked":true}
+  LOS rotated 90 deg, same span: {"crossedBurning":0,"distanceM":403,"depth":0,"blocked":false}
+  aimed shots that landed: through the fire 0, around the fire 1
+  non-fire payload types: ["113","114","137","16","180","193","196","197","2","aimpunch","hit","rain","world_hit"]
+
+[loadWorld] adopted worldDef.player capsule config into physicsIntegration (createServer() was called without config.playerConfig): radius=0.28 halfHeight=0.63
+[terrain] collider using BAKED heightfield (hashVersion 2, N=257, extent=256m, spacing 100cm, height code 44ca24c0ef7b) instead of the GPU patch bake: the GLSL patch baker draws only hashVersion 1 and this world resolves to hashVersion 2, which carries an integer hash and a carve term the legacy GLSL terrain has no code for
+[terrain] planet heightfield COARSE N=64 extent=256m built 4ms id=8388608 -> refining to N=128 off the boot path
+[terrain] planet heightfield refined N=64 -> N=128 spacing=2.02m in 18ms(sample 16ms) id=8388609
+[veg] initial ring: 66/384 collider(s) over 47 chunk(s) for 1 center(s) of maxCenters 192 (default), dropped 0 (radius 64m keep 70.4m) in 35.6ms over 1 cluster batch(es) of 8 (pool prewarm 1.2ms)
+[rocks] initial ring: 0/128 collider(s) over 20 chunk(s) for 1 center(s) of maxCenters 192 (default), dropped 0 (radius 32m keep 35.2m) in 12.1ms over 1 cluster batch(es) of 8 (pool prewarm 0.0ms)
+   0.00s [terrain] [terrain] config registered (streamer owned by engine boot order)
+[trimesh] dropped 23 degenerate (zero-area) triangle(s) from C:\dev\spoint\apps\maps\aim_sillos.glb
+[combat] 4 spawn point(s), 2 saved record(s)
+[placed-model] loaded 4 saved entities
+[terrain] heightfield #1 at (134,-45) for 1 player(s) N=128 reused=6510/16384 409ms(sample 407ms) id=8388834 fields=2
+[terrain] heightfield #2 at (-215,-3) for 1 player(s) N=128 reused=2646/16384 273ms(sample 271ms) id=8389327 fields=3
+[terrain] heightfield #3 at (-124,386) for 1 player(s) N=128 reused=0/16384 457ms(sample 455ms) id=8389442 fields=3
+[terrain] heightfield #4 at (-80,-140) for 1 player(s) N=128 reused=3660/16384 295ms(sample 293ms) id=8389454 fields=3
+[terrain] heightfield #5 at (39,51) for 1 player(s) N=128 reused=2413/16384 149ms(sample 147ms) id=8389458 fields=3
+[terrain] heightfield #6 at (-104,-140) for 1 player(s) N=128 reused=6195/16384 293ms(sample 291ms) id=16778062 fields=3
+[physics] peak bodies 851/10240, peak active 0, contact manifolds 0/10240
+
+-- flag on, weather clear
+  weather clear@0; defineFire calls 1; fire instance constructed true
+  combat spec keys: config,onWorldHit,powerupRespawnMs,powerups,scoreboardKey,shotBlocked,spawnPoints
+  first ground shot: impact [-24.03,8.39,-45], 9 active cell(s), 5 ignition(s)
+  peak active cells 236; burning band 114 cell(s) spanning 320.2 m
+  victim health 56.09 -> min 13.91 over 7 s on freshly burning cells (13 rescans, fire damage 42.19, fire_death 0)
+  broadcast rows 527: fire wire rows 21, fire_burn 4, fire_burn_end 4, fire_death 0
+  fire-typed payload types: ["fire","fire_burn","fire_burn_end"]
+  LOS through the burning band:  {"crossedBurning":8,"distanceM":401.1,"depth":4.984,"blocked":true}
+  LOS rotated 90 deg, same span: {"crossedBurning":0,"distanceM":403,"depth":0,"blocked":false}
+  aimed shots that landed: through the fire 0, around the fire 1
+  non-fire payload types: ["113","114","137","16","180","193","196","197","2","aimpunch","clear","hit","world_hit"]
+
+== navCostAt with and without fire (real AppContext, real defineFire) ==
+harness floor (empty closure) 5.0 ns/call
+no fire registered: navCostAt 1 at 40.0 ns/call; the old body alone 23.4 ns/call
+  added cost when no fire exists: 16.5 ns/call (budget 100 ns; harness floor 5.0)
+fire registered, nothing burning: navCostAt 1 at 65.3 ns/call
+  breakdown: fire.stateAtLocal 44.7 ns/call, frame.localToDir alone 134.0 ns/call
+ignited cell under the probe: stateAtLocal 1 (BURNING=1) after 30 tick(s) -> navCostAt 8 at 389.1 ns/call (stateAtLocal alone 354.0), active 9
+after 40 fire steps: stateAtLocal 2 (BURNT=2) -> navCostAt 2; unburnt neighbour navCostAt 1
+fire cell 8.00 m; probe at chart-local -4,-4
+
+== witness complete ==
+RESULT: PASS -- the shipped tps-game world carried real fire under rain 0.6: 236 peak active cell(s), 5 ignition(s) from one ground shot, 42.19 fire damage, 114 cell(s) over 320.20 m
+teardown complete, no referenced handles left
+EXIT=0

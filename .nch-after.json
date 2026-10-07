@@ -1,0 +1,315 @@
+{
+  "world": "arena",
+  "channel": "ws",
+  "fps": 60,
+  "results": [
+    {
+      "cond": {
+        "latencyMs": 0,
+        "jitterMs": 0,
+        "lossPct": 0
+      },
+      "predict": false,
+      "channel": "ws",
+      "tickRate": 60,
+      "fps": 60,
+      "bots": 0,
+      "durationS": 20.0098683,
+      "rttMs": 23.477573666721582,
+      "inputToVisual": {
+        "localMs": {
+          "n": 10,
+          "mean": 403.3293100000007,
+          "p50": 240.52700000000004,
+          "p95": 981.7393000000011,
+          "p99": 981.7393000000011,
+          "max": 981.7393000000011
+        },
+        "remoteMs": {
+          "n": 11,
+          "mean": 190.41077272727307,
+          "p50": 115.90450000000055,
+          "p95": 742.0542000000023,
+          "p99": 742.0542000000023,
+          "max": 742.0542000000023
+        },
+        "serverMs": {
+          "n": 10,
+          "mean": 331.3830200000005,
+          "p50": 192.39230000000043,
+          "p95": 747.2456000000002,
+          "p99": 747.2456000000002,
+          "max": 747.2456000000002
+        },
+        "onsets": 14
+      },
+      "mispredict": null,
+      "peerSeparation": null,
+      "routeSpan": [
+        [
+          -6.5799960901139105,
+          0
+        ],
+        [
+          1.2,
+          2.9499700635159227
+        ],
+        [
+          -2.5493704401396196,
+          0.8615788415075186
+        ]
+      ],
+      "drawn": {
+        "renderOffsetM": {
+          "n": 733,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0
+        },
+        "jerkM": {
+          "n": 731,
+          "mean": 0.017319625251227867,
+          "p50": 0.0031450456681883063,
+          "p95": 0.052224689884918234,
+          "p99": 0.24408747072162684,
+          "max": 1.2700816581763157
+        },
+        "jerkOver2cm": 6.396843701365091
+      },
+      "mirror": {
+        "tiles": 15,
+        "builtTiles": 0,
+        "triangles": 0,
+        "builds": 0,
+        "buildMs": 0,
+        "maxBuildMs": 0,
+        "swaps": 0,
+        "mirroredSteps": 0,
+        "stepMs": 0,
+        "uncoveredSteps": 0,
+        "bytes": 6480,
+        "ready": true,
+        "stepMsAvg": 0
+      },
+      "serverInput": {
+        "starves": 3,
+        "catchUps": 110,
+        "depth": 2,
+        "starvesPerS": 0.1499260242507443
+      },
+      "inputRateAdjust": -0.014947611184874728,
+      "localVisual": {
+        "pops": 0,
+        "maxBackM": 0,
+        "popsPerMin": 0,
+        "meshBehindPredictedM": {
+          "n": 733,
+          "mean": 0.037527090804813173,
+          "p50": 0.028322673369826256,
+          "p95": 0.0928929311696054,
+          "p99": 0.2429336276879183,
+          "max": 0.9685366630727645
+        },
+        "vsServerPresent": {
+          "n": 733,
+          "mean": 0.06294286277501118,
+          "p50": 0.04262271355894789,
+          "p95": 0.1352726925421459,
+          "p99": 0.6157159483855632,
+          "max": 1.5289511206078858
+        }
+      },
+      "remoteInterp": {
+        "delayMs": 32,
+        "errAtDelay": {
+          "n": 733,
+          "mean": 0.19248878083040216,
+          "p50": 0.01045145450228254,
+          "p95": 0.725794899746148,
+          "p99": 1.2130991739224954,
+          "max": 1.3221225079473553
+        },
+        "errVsPresent": {
+          "n": 733,
+          "mean": 0.19664212324854652,
+          "p50": 0.03205931074499395,
+          "p95": 0.7137877433906674,
+          "p99": 1.1477165869012016,
+          "max": 1.2203352469261337
+        }
+      },
+      "interpolation": {
+        "targetDelayMs": {
+          "n": 733,
+          "mean": 169.63679740759756,
+          "p50": 50.418366666666316,
+          "p95": 400,
+          "p99": 400,
+          "max": 400
+        },
+        "jitterMs": {
+          "n": 733,
+          "mean": 481.4310075034113,
+          "p50": 25.418366666666316,
+          "p95": 2624.7993333333334,
+          "p99": 2627.3203000000003,
+          "max": 2635.0701333333336
+        },
+        "intervalMs": {
+          "n": 733,
+          "mean": 18.625626271793738,
+          "p50": 16.66666688362985,
+          "p95": 31.692048496363725,
+          "p99": 32.548311883793765,
+          "max": 32.76105269661899
+        },
+        "ahead": {
+          "n": 733,
+          "mean": 1.3465211459754434,
+          "p50": 2,
+          "p95": 3,
+          "p99": 5,
+          "max": 6
+        },
+        "final": {
+          "extrapolatedSamples": 48,
+          "heldSamples": 236,
+          "resyncs": 7,
+          "samples": 822,
+          "delayMs": 30.2251666666671,
+          "jitterMs": 5.225166666667064,
+          "intervalMs": 16.66666666666669,
+          "buffered": 3,
+          "ahead": 2,
+          "renderMs": 17025.00234658838
+        }
+      },
+      "remotePath": {
+        "afterServerMs": {
+          "n": 10,
+          "mean": -122.07218000000003,
+          "p50": -44.556400000000394,
+          "p95": 72.88220000000001,
+          "p99": 72.88220000000001,
+          "max": 72.88220000000001
+        }
+      },
+      "interpExtrapPct": 0.058394160583941604,
+      "interpHeldPct": 0.2871046228710462,
+      "remotePops": {
+        "pops": 0,
+        "maxBackM": 0
+      },
+      "hitReg": {
+        "shots": 78,
+        "hitRate": 0.9615384615384616,
+        "missM": {
+          "n": 78,
+          "mean": 0.1687377797085196,
+          "p50": 0.04472365395922044,
+          "p95": 0.5628069904826818,
+          "p99": 1.0258668556830692,
+          "max": 1.0258668556830692
+        },
+        "shooterViewVsPresentM": {
+          "n": 78,
+          "mean": 0.2734643538267894,
+          "p50": 0.055331775665288935,
+          "p95": 0.7638300184968868,
+          "p99": 1.1868996821453295,
+          "max": 1.1868996821453295
+        },
+        "rewindMs": {
+          "n": 78,
+          "mean": 21.619709345648506,
+          "p50": 22.757768666224365,
+          "p95": 95.40704055584115,
+          "p99": 138.07776922510112,
+          "max": 138.07776922510112
+        },
+        "victimBehindLiveM": {
+          "n": 78,
+          "mean": 0.014961162057150767,
+          "p50": 0,
+          "p95": 0.04717606870291453,
+          "p99": 0.3062212304527603,
+          "max": 0.3062212304527603
+        },
+        "rejectedViewTicks": 34,
+        "lagCompStats": {
+          "trackedPlayers": 2,
+          "totalSamples": 124,
+          "rewinds": 88,
+          "clamped": 0,
+          "rejected": 34,
+          "rateLimited": 0,
+          "maxRewindTicks": 8.284666153506066,
+          "maxRewindMs": 138.07776922510112
+        }
+      },
+      "bandwidth": {
+        "downKBps": 4.651562271276918,
+        "upKBps": 3.1140884620415017,
+        "downMsgsPerS": 44.777905909555635,
+        "snapshotBytesAvg": 104.73117033603708,
+        "shooterDownKBps": 4.510616191187025,
+        "moverDownBytesByType": {
+          "HANDSHAKE_ACK": 145,
+          "WORLD_DEF": 163,
+          "APP_MODULE": 184595,
+          "SCENE_GRAPH": 115,
+          "SNAPSHOT": 99762,
+          "COLLISION_CONFIG": 212,
+          "COLLISION_TILE": 6885,
+          "PEER_RTT_TABLE": 711,
+          "HEARTBEAT_ACK": 1045,
+          "TICK_DILATION": 344
+        }
+      },
+      "snapshots": {
+        "hz": 43.12871964279745,
+        "gapMs": {
+          "n": 862,
+          "mean": 23.18752041763341,
+          "p50": 15.630899999998292,
+          "p95": 55.00460000000021,
+          "p99": 227.84479999999894,
+          "max": 1715.0869000000002
+        },
+        "gapStdevMs": 77.15596476348601
+      },
+      "ticks": {
+        "hz": 47.36207216649216,
+        "intervalMs": {
+          "n": 1023,
+          "mean": 21.113941055718477,
+          "p50": 16.467099999999846,
+          "p95": 48.17669999999998,
+          "p99": 165.50090000000273,
+          "max": 1037.0907000000007
+        },
+        "intervalStdevMs": 51.08872649603234,
+        "burstFrac": 0.14858260019550343
+      },
+      "conditioner": {
+        "mover": {
+          "inbound": {
+            "sent": 996,
+            "dropped": 0,
+            "retransmitted": 0,
+            "delivered": 995
+          },
+          "outbound": {
+            "sent": 1146,
+            "dropped": 0,
+            "retransmitted": 0,
+            "delivered": 1145
+          }
+        }
+      }
+    }
+  ],
+  "table": "| one-way ms/jitter/loss | predict | RTT | local in->visual p50/p95 ms | remote in->visual p50 ms | mispredict rate | mispredict p95 cm | local pops/min | max pop cm | remote eff. delay ms | interp jitter ms | interp interval ms | remote - server ms | extrap/held % | remote err@delay cm | remote err vs present cm | hit% (aim at view) | miss p50 cm | KB/s down/up | snap Hz | tick Hz / p99 interval ms | input starves/s |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n| 0/0/0% | off | 23 | 241/982 | 116 | - | - | 0 | 0.0 | 32 | 481 | 19 | -45 | 6/29% | 19.2 | 20 | 96% | 4 | 4.7/3.1 | 43.1 | 47.4 p99 165.5 | 0.1 |"
+}

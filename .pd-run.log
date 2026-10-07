@@ -1,0 +1,6 @@
+[boot] using world: lockstep-rts (apps\world\lockstep-rts.js)
+[boot] loading from: C:\dev\spoint\apps, C:\dev\spoint\src\stdlib-apps
+[apps-manifest] fresh dist\client\apps-manifest.json (68 app(s), 132 source file(s) fingerprinted, unchanged, 52ms)
+[apps-manifest] fresh world-scoped dist\client\worlds\lockstep-rts\apps-manifest.json (3 of 68 app(s), unchanged, 22ms)
+[server] serving PREBUILT BUNDLE from dist/client/app.js (dist/client/app.js matches its stamp (cc8fbe3e8de3ae83))
+[server] serving PREBUILT WORKER BUNDLE from dist/src/sdk/WorkerEntry.js (dist/src/sdk/WorkerEntry.js matches its stamp (4bb0435733e052ee))

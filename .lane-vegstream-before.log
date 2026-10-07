@@ -1,0 +1,4 @@
+shape=dense2k instancers=1 instances=2800 visits/frame=16064.8 records/frame=2090.5 rebuildRecords/frame=13974.3 rebuilds/frame=0.966 planeTests/frame=470.6 maxTeleportRecords=2243 survivors=212 controlDeltaPct={"planeTests":0,"records":0}
+shape=real90 instancers=90 instances=76230 visits/frame=245922.5 records/frame=2044.7 rebuildRecords/frame=243877.8 rebuilds/frame=86.543 planeTests/frame=2188.7 maxTeleportRecords=66 survivors=642 controlDeltaPct={"planeTests":0,"records":0}
+RESULT: PASS
+json: C:\dev\spoint\data\perf-run\veg-lod-stream-before-f73df536.json
