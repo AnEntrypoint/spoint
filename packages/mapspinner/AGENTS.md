@@ -203,16 +203,23 @@ byte-sync-drift class stays dead). It composes the REAL surfaces, no parallel re
   node, no GPU: `node scripts/lab.mjs heightmap [--res N] [--center lat,lon] [--span deg]
   [--radius m] [--hillshade] [--out f.png]` -> grayscale PNG (no-dep, node zlib) + min/max/relief/
   landFrac stats. `npm run lab:heightmap`.
-- GLSL build/validate = headless Chromium with --use-angle=swiftshader (GPU-free software WebGL2,
+- GLSL build/validate = headless Chromium with `LAB_ANGLE=swiftshader` (GPU-free software WebGL2,
   self-launches chrome + the dev server, tears both down): `glsl-check` asserts terrain.glsl COMPILES
   + reports the GL backend; `parity [--n N] [--tol m]` sweeps CPU heightAt vs the GPU _PROBE_
   sampleGroundM (the standing parity gate for shader height edits); `build` = gen-height + glsl-check.
 BACKEND CHOICE (user 'pick the best option' 2026-06-18): SwiftShader = portable, CI-able,
 deterministic = the default. It CANNOT witness the ANGLE/FXC mis-translation class (a different GLSL
-translator) -- for the FXC witness run chrome with --use-angle=d3d11 on a Windows runner (CHROME +
+translator) -- for the FXC witness run with `LAB_ANGLE=d3d11` on a Windows runner (CHROME +
 PAGE_URL env overrides). The GPU-free core (heightmap + src/lab.test.js) runs ANYWHERE; the headless
 half needs a chrome (auto-detected) + degrades cleanly when absent. Surfaced the coastal scale-
 variance finding (scale-coastal-absolute-width: uBeachShelfM absolute width breaks exact 1/100 scale).
+- Backend/GPU selection lives in `scripts/backend-guard.mjs` alone -- no launch path hand-writes
+  `--use-angle=`/`--use-adapter-luid=`. Knobs: `LAB_ANGLE`/`LAB_GPU`/`LAB_GPU_LUID`/
+  `LAB_GLSL_PROBE_TIMEOUT_MS` (lab.mjs), `GPU_VENDOR`/`GPU_LUID` (needle-ab, backend-ab),
+  `VERIFY_ANGLE`/`VERIFY_GPU` (verify.mjs), and `dev-chrome.cmd <backend>` exits 1 on an unknown
+  one. Adapter LUIDs here: nvidia 1503521746, amd 62340, NO Intel adapter -- a request it cannot
+  honour exits non-zero naming what it could not satisfy instead of running on whatever Chrome
+  picked. `backend-ab`/`needle-ab` assert each arm's live rasterizer before measuring.
 
 ## The efficient terrain-debug loop (USE THIS, never restart-and-eyeball)
 

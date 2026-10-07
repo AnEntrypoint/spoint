@@ -35,7 +35,7 @@ Fewest words per fact; numbers and scenarios live in the `project/*` memo tier.
 - `gpulock.mjs run <owner> bash ...` exits 127 — pass the node binary + a `.mjs` script. It returns 0 even when the witness failed: grep the run's log for `RESULT:`. `gpulock status` `held:false, stale:true` = lock free, stale holder never resumed.
 - Never `git worktree remove` a `scripts/worktree-setup.mjs` worktree (its node_modules junction makes git delete main `node_modules/.bin`); use `node scripts/worktree-teardown.mjs <path>`.
 - gm spool files `in/<verb>/<session_id>-<random8>.txt`, and the extension must be `.txt`: a `.json` in-file is swept without executing (no out file, no `dispatch.end` in `.watcher.log`). Never reuse a counter/suffix (returns a stale payload). codesearch sees the WORKING tree, so another lane's edit can hide a committed constant. Comment sweep: gm `grep` `{"mode":"comments","refresh":true}`; `exhaustive:false` = 200-match cap; `glob` matches FILENAMES.
-- `npm run check` parses only tracked files under `src,client,apps,scripts,bin`; it ends in `fire-witness-gate.mjs` (exit 0 AND `RESULT: PASS`, 600 s cap) and `check-frame-time-baselines` (vendor baselines only).
+- `npm run check` parses only tracked files under `src,client,apps,scripts,bin`: a 9-witness gpu-free arm (~30 s), then `fire-witness-gate.mjs` (exit 0 AND `RESULT: PASS`, 600 s cap), then `check-frame-time-baselines` (vendor baselines only), then the opt-in `SPOINT_GPU_WITNESS` veg arm; it refuses browser/GPU witnesses by name. Which witnesses belong there: `mem-0b6d4c2f9e1a8735-1204`.
 - Ship an opportunity noticed in the same pass (before/after witness) or `prd-add` it. Unmeasured speedups never ship.
 
 ## Repo boundaries
