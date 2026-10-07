@@ -209,6 +209,7 @@ async function main() {
       }
       const started = Date.now()
       let stdout = ''
+      let stderr = ''
       let code = 0
       let killed = false
       try {
@@ -216,6 +217,7 @@ async function main() {
         stdout = done.stdout
       } catch (e) {
         stdout = (e && e.stdout) || ''
+        stderr = (e && e.stderr) || ''
         code = Number.isInteger(e.code) ? e.code : 1
         killed = e.killed === true
       }
@@ -230,7 +232,7 @@ async function main() {
       if (spec.must && !spec.must.test(stdout)) witnessFailures.push(`printed no line matching ${spec.must}, so its assertions never ran`)
       if (witnessFailures.length > 0) {
         console.error(`check: gpu-free witness ${spec.file}: ${witnessFailures.join('; ')}`)
-        for (const line of tailLines(stdout, NO_GPU_WITNESS_ECHO_LINES)) console.error(`  ${spec.file} out ${line}`)
+        for (const line of tailLines(`${stdout}\n${stderr}`, NO_GPU_WITNESS_ECHO_LINES)) console.error(`  ${spec.file} out ${line}`)
         process.exit(1)
       }
       console.log(`check: gpu-free witness ${spec.file} ${(ms / 1000).toFixed(1)} s, exit 0, ${verdict.line ?? 'no RESULT: line, so exit 0 is the verdict'}`)
