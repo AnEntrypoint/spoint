@@ -123,6 +123,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
   const faceWind = new Int32Array(lattice.faceCount * 2)
   const weights = new Int32Array(lattice.faceCount * FIRE_DIR_COUNT)
   const stats = { steps: 0, cellsVisited: 0, ignitions: 0, spots: 0, deniedActivations: 0, deniedTiles: 0, slowSteps: 0 }
+  const reclaimCounters = { queued: 0, scanned: 0, cellChecks: 0, released: 0 }
   let pending = []
   let eventSeq = 0
   const walked = { face: 0, I: 0, J: 0 }
@@ -796,6 +797,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     if (reclaimMark[t] === reclaimGen) return
     reclaimMark[t] = reclaimGen
     reclaimQueue[reclaimCount++] = t
+    reclaimCounters.queued++
   }
 
   function sweepReclaim() {
@@ -806,8 +808,10 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
 
   function tryReclaim(t) {
     if (t >= tileCount || tileFace[t] === FACE_FREE || tileListed[t] !== 0 || maskLo[t] !== 0 || maskHi[t] !== 0) return false
+    reclaimCounters.scanned++
     const base = t << TILE_CELL_SHIFT
     for (let i = 0; i < TILE_CELLS; i++) {
+      reclaimCounters.cellChecks++
       const g = base + i
       if (state[g] !== UNBURNT || heat[g] !== 0 || timer[g] !== 0 || fuel[g] !== fuelInit[cls[g]]) return false
     }
@@ -845,6 +849,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     tileListed[t] = 0
     tileEpoch++
     tileGeneration++
+    reclaimCounters.released++
     let high = tileCount
     while (high > 0 && tileFace[high - 1] === FACE_FREE) high--
     if (high !== tileCount) {
@@ -1037,6 +1042,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     get scarCount() { return scarCount },
     get stepIndex() { return stepIndex },
     get stats() { return stats },
+    get reclaimCounters() { return reclaimCounters },
     get wind() { return [effWind[0], effWind[1], effWind[2]] },
     get memoryBytes() { return state.byteLength + cls.byteLength + fuel.byteLength + heat.byteLength + timer.byteLength + scarRing.byteLength + scarAt.byteLength + tileNbr.byteLength + table.byteLength + maskLo.byteLength * 2 + activeTiles.byteLength },
   }

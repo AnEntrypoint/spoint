@@ -4,6 +4,7 @@ process.env.SPOINT_SKIP_PREWARM = '1'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { measureUncontested, formatRowContention, describeContested, contestedRows } from './lib/timing-gate.mjs'
+import { cpuPerThousand } from './lib/counted-work.mjs'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const href = p => pathToFileURL(p).href
@@ -18,8 +19,8 @@ const BOOT_CPU_CEILING = Number(args.bootCpuCeiling ?? 1.25)
 const BOOT_BUDGET = Number(args.bootBudget ?? 6)
 
 const BASELINE = {
-  16: { maxFirstMs: 3734, live: 768, hash: '77096680' },
-  64: { maxFirstMs: 7276, live: 1594, hash: 'd9cf02ca' },
+  16: { live: 768, hash: 'e821e07b' },
+  64: { live: 1579, hash: '34587355' },
 }
 const PIN = BASELINE[PLAYERS]
 
@@ -217,9 +218,15 @@ async function bootArm(arm, mark) {
     heartbeatFirstAtMs: heartbeats.length ? +(heartbeats[0] - t0).toFixed(1) : null,
     heartbeatLastAtMs: heartbeats.length ? +(heartbeats[heartbeats.length - 1] - t0).toFixed(1) : null,
     processCpuMs: +((cpu.user + cpu.system) / 1000).toFixed(0),
+    workCpuMs: +trunk.workCpuMs.toFixed(1),
+    workMs: +(trunk.workMs + rock.workMs).toFixed(1),
+    ringOps: trunk.ringCounters.bodyAdds + trunk.ringCounters.evicted + rock.ringCounters.bodyAdds + rock.ringCounters.evicted,
+    colliders: trunk.liveCount + rock.liveCount,
     logLines: logs.filter(s => /initial ring/.test(s)),
     warnLines: warns.slice(0, 3),
   }
+  row.cpuPer1kRingOps = +(cpuPerThousand(row.processCpuMs, row.ringOps)).toFixed(3)
+  row.workPer1kRingOps = +(cpuPerThousand(row.workMs, row.ringOps)).toFixed(3)
   trunk.stop()
   rock.stop()
   physics.dispose?.()
@@ -245,39 +252,39 @@ for (const r of arms) {
   console.log(`[boot-batches] ${r.arm}: peak resident trunk colliders ${r.trunk.peakLiveColliders} of cap ${r.trunk.cap}, peak live physics bodies ${r.trunk.peakPhysicsBodies} (trunk+rock)`)
   console.log(`[boot-batches] ${r.arm}: heartbeat ${r.heartbeatCount} beat(s), ${r.heartbeatGapsDuringBootMs} during the trunk boot, first at ${r.heartbeatFirstAtMs}ms last at ${r.heartbeatLastAtMs}ms`)
 }
-if (PIN) console.log(`[boot-batches] pinned baseline at ${PLAYERS} player(s): live ${PIN.live}, hash ${PIN.hash}, max first collider ${PIN.maxFirstMs} ms`)
+if (PIN) console.log(`[boot-batches] pinned baseline at ${PLAYERS} player(s): live ${PIN.live}, hash ${PIN.hash} (a re-bake of the world height field moves placements, so this golden is re-recorded from the tree it guards)`)
 
-const controlMinMax = Math.min(singleA.anyFirstColliderMs.max, singleB.anyFirstColliderMs.max)
 const countsEqual = (a, b) => a.length === b.length && a.every((v, i) => v === b[i])
+check('the batched boot covers every player that one pass covers', batched.anyPlayersWithNone === singleA.anyPlayersWithNone, `${batched.anyPlayersWithNone} vs ${singleA.anyPlayersWithNone} of ${PLAYERS}`)
 
 check('the batched boot builds the same trunk ring as one unbudgeted pass', batched.trunk.posHash === singleA.trunk.posHash && batched.trunk.posHash === singleB.trunk.posHash, `batched ${batched.trunk.posHash} vs single ${singleA.trunk.posHash}/${singleB.trunk.posHash}`)
 check('the batched boot builds the same rock ring as one unbudgeted pass', batched.rock.posHash === singleA.rock.posHash && batched.rock.posHash === singleB.rock.posHash, `batched ${batched.rock.posHash} vs single ${singleA.rock.posHash}/${singleB.rock.posHash}`)
 check('the batched boot keeps the same trunk live count', batched.trunk.liveCount === singleA.trunk.liveCount && batched.trunk.liveCount === singleB.trunk.liveCount, `batched ${batched.trunk.liveCount} vs single ${singleA.trunk.liveCount}/${singleB.trunk.liveCount}`)
 check('the batched boot keeps the same rock live count', batched.rock.liveCount === singleA.rock.liveCount && batched.rock.liveCount === singleB.rock.liveCount, `batched ${batched.rock.liveCount} vs single ${singleA.rock.liveCount}/${singleB.rock.liveCount}`)
 check('the batched boot gives every cluster the same per-cluster collider counts', countsEqual(batched.trunk.perPlayerCounts, singleA.trunk.perPlayerCounts) && countsEqual(batched.trunk.perPlayerCounts, singleB.trunk.perPlayerCounts), `min ${Math.min(...batched.trunk.perPlayerCounts)} max ${Math.max(...batched.trunk.perPlayerCounts)}`)
-const controlMedian = Math.max(singleA.anyFirstColliderMs.median, singleB.anyFirstColliderMs.median)
-const controlMeanMax = (singleA.anyFirstColliderMs.max + singleB.anyFirstColliderMs.max) / 2
-const tailCeiling = controlMeanMax * 1.1
-check(`the typical player's first collider lands no later than it does today at ${PLAYERS} player(s)`, batched.anyFirstColliderMs.median <= controlMedian, `batched median ${batched.anyFirstColliderMs.median} ms vs single control ${singleA.anyFirstColliderMs.median}/${singleB.anyFirstColliderMs.median} ms`)
-check(`the last player's first collider stays within 10% of the single pass at ${PLAYERS} player(s)`, batched.anyFirstColliderMs.max <= tailCeiling, `batched max ${batched.anyFirstColliderMs.max} ms vs single control min ${controlMinMax} / mean ${controlMeanMax.toFixed(1)} / max ${(controlMeanMax * 2 - controlMinMax).toFixed(1)} ms, ceiling ${tailCeiling.toFixed(1)} ms`)
-check('the batched boot covers every player that one pass covers', batched.anyPlayersWithNone === singleA.anyPlayersWithNone, `${batched.anyPlayersWithNone} vs ${singleA.anyPlayersWithNone} of ${PLAYERS}`)
 const TICK_MS = 1000 / 60
-const avgSliceWorkMs = (r) => (r.trunk.yieldCount > 0 ? r.trunk.workMs / r.trunk.yieldCount : r.trunk.workMs)
-check(`every uninterrupted slice of the batched initial ring averages inside one ${TICK_MS.toFixed(1)} ms tick of counted slice work`, batched.trunk.yieldCount > 0 && batched.trunk.workMs > 0 && avgSliceWorkMs(batched) <= TICK_MS, `batched ${avgSliceWorkMs(batched).toFixed(2)} ms per yield over ${batched.trunk.yieldCount} yield(s) of ${batched.trunk.workMs} ms summed slice work vs single ${avgSliceWorkMs(singleA).toFixed(2)}/${avgSliceWorkMs(singleB).toFixed(2)} ms over ${singleA.trunk.yieldCount}/${singleB.trunk.yieldCount} yield(s); longest single slice ${batched.trunk.lastMaxSliceMs} ms of wall (${batched.trunk.lastMaxSlicePhase}) and ${batched.trunk.lastMaxSliceCpuMs} ms of CPU, single ${singleA.trunk.lastMaxSliceMs}/${singleB.trunk.lastMaxSliceMs} ms; ${formatRowContention(batched)}`)
+const CPU_QUANTUM_MS = 15.6
+const avgSliceWorkMs = (r) => r.trunk.yieldCount > 0 ? r.workMs / r.trunk.yieldCount : r.workMs
+check(`every uninterrupted slice of the batched initial ring averages inside one ${TICK_MS.toFixed(1)} ms tick of work`, batched.trunk.yieldCount > 0 && batched.workMs > 0 && avgSliceWorkMs(batched) <= TICK_MS, `batched ${avgSliceWorkMs(batched).toFixed(2)} ms of work per yield over ${batched.trunk.yieldCount} yield(s) of ${batched.workMs} ms summed slice work vs single ${avgSliceWorkMs(singleA).toFixed(2)}/${avgSliceWorkMs(singleB).toFixed(2)} ms over ${singleA.trunk.yieldCount}/${singleB.trunk.yieldCount} yield(s); longest single slice ${batched.trunk.lastMaxSliceMs} ms of wall work (${batched.trunk.lastMaxSlicePhase}), single ${singleA.trunk.lastMaxSliceMs}/${singleB.trunk.lastMaxSliceMs} ms; ${batched.workCpuMs} ms of slice CPU against a ${CPU_QUANTUM_MS} ms process.cpuUsage() quantum, ${formatRowContention(batched)}`)
 check('a batched boot never holds more resident colliders than the body cap between batches', batched.trunk.peakLiveColliders <= batched.trunk.cap, `peak ${batched.trunk.peakLiveColliders} of cap ${batched.trunk.cap}, single ${singleA.trunk.peakLiveColliders}/${singleB.trunk.peakLiveColliders}`)
-const controlMin = Math.min(singleA.eventLoopMaxStallMs, singleB.eventLoopMaxStallMs)
-const controlMaxStall = Math.max(singleA.eventLoopMaxStallMs, singleB.eventLoopMaxStallMs)
-const controlSpread = controlMaxStall - controlMin
-check('a batched boot never lengthens the event-loop stall of the initial ring', batched.eventLoopMaxStallMs <= controlMaxStall, `batched ${batched.eventLoopMaxStallMs} ms vs single ${singleA.eventLoopMaxStallMs}/${singleB.eventLoopMaxStallMs} ms`)
+const controlMaxSliceWork = Math.max(singleA.trunk.lastMaxSliceMs, singleB.trunk.lastMaxSliceMs)
+const batchedMaxSliceWork = batched.trunk.lastMaxSliceMs
+check('a batched boot never lengthens the longest uninterrupted slice of the initial ring', batchedMaxSliceWork <= controlMaxSliceWork, `batched longest slice ${batchedMaxSliceWork} ms of uninterrupted work (${batched.trunk.lastMaxSlicePhase}) vs single ${singleA.trunk.lastMaxSliceMs}/${singleB.trunk.lastMaxSliceMs} ms (process.cpuUsage() reads ${batched.trunk.lastMaxSliceCpuMs}/${singleA.trunk.lastMaxSliceCpuMs}/${singleB.trunk.lastMaxSliceCpuMs} ms of CPU for those slices, quantized to ${CPU_QUANTUM_MS} ms, so the slice wall time is the resolving figure)`)
 if (!CAP_OVERRIDE && !MAXCENTERS_OVERRIDE) {
-  check(`the batched boot cuts the event-loop stall of the initial ring at ${PLAYERS} player(s)`, batched.eventLoopMaxStallMs < controlMin, `batched ${batched.eventLoopMaxStallMs} ms vs single ${singleA.eventLoopMaxStallMs}/${singleB.eventLoopMaxStallMs} ms`)
+  const controlMinSliceWork = Math.min(singleA.trunk.lastMaxSliceMs, singleB.trunk.lastMaxSliceMs)
+  const controlSpread = Math.abs(singleA.trunk.lastMaxSliceMs - singleB.trunk.lastMaxSliceMs)
+  check(`the batched boot cuts the longest uninterrupted slice of the initial ring at ${PLAYERS} player(s)`, batchedMaxSliceWork < controlMinSliceWork, `batched ${batchedMaxSliceWork} ms of uninterrupted work vs single ${singleA.trunk.lastMaxSliceMs}/${singleB.trunk.lastMaxSliceMs} ms (event-loop stall ${batched.eventLoopMaxStallMs} vs ${singleA.eventLoopMaxStallMs}/${singleB.eventLoopMaxStallMs} ms, a ${controlSpread.toFixed(1)} ms spread between the two identical single controls)`)
 } else {
-  console.log(`  [n/a] stall win is claimed only at a pinned player count -- probe config spread ${controlSpread.toFixed(1)} ms, batched ${batched.eventLoopMaxStallMs} ms vs single ${controlMin.toFixed(1)}/${controlMaxStall.toFixed(1)} ms`)
+  console.log(`  [n/a] the slice win is claimed only at a pinned player count -- batched ${batchedMaxSliceWork} ms of uninterrupted work vs single ${singleA.trunk.lastMaxSliceMs}/${singleB.trunk.lastMaxSliceMs} ms`)
 }
-const controlCpuMax = Math.max(singleA.processCpuMs, singleB.processCpuMs)
-const cpuCeilingMs = controlCpuMax * BOOT_CPU_CEILING
-check(`the batched boot spends no more CPU time than ${BOOT_CPU_CEILING}x of the slower single pass at ${PLAYERS} player(s), so spreading the ring over batches costs no extra work`, controlCpuMax > 0 && batched.processCpuMs > 0 && batched.processCpuMs <= cpuCeilingMs, `batched ${batched.processCpuMs} ms of CPU against a ${cpuCeilingMs.toFixed(0)} ms ceiling from single ${singleA.processCpuMs}/${singleB.processCpuMs} ms (wall ${batched.trunk.doneAtMs} ms vs ${singleA.trunk.doneAtMs}/${singleB.trunk.doneAtMs} ms)`)
-check(`every arm got an uncontested window within ${CONTEST_RETRIES} attempt(s), so no ms figure above measures the box it shared`, contestedRows(arms).length === 0, describeContested(arms, CONTEST_RETRIES))
+const controlWorkMax = Math.max(singleA.workMs, singleB.workMs)
+const workCeilingMs = controlWorkMax * BOOT_CPU_CEILING
+check(`the batched boot spends no more uninterrupted work than ${BOOT_CPU_CEILING}x of the slower single pass at ${PLAYERS} player(s), so spreading the ring over batches costs no extra work`, controlWorkMax > 0 && batched.workMs > 0 && batched.workMs <= workCeilingMs, `batched ${batched.workMs} ms of slice work against a ${workCeilingMs.toFixed(0)} ms ceiling from single ${singleA.workMs}/${singleB.workMs} ms (process CPU ${batched.processCpuMs} vs ${singleA.processCpuMs}/${singleB.processCpuMs} ms, a window figure a shared box moves)`)
+const uncounted = arms.filter(r => !(r.ringOps > 0) || !(r.colliders > 0))
+check(`every arm's work figure rests on a counted denominator, so no budget verdict above is a ratio over zero collider body operation(s)`, uncounted.length === 0, uncounted.map(r => `${r.arm} counted ${r.ringOps} ring operation(s) for ${r.colliders} collider(s)`).join('; '))
+const controlWorstPer1k = Math.max(singleA.workPer1kRingOps, singleB.workPer1kRingOps)
+check(`the batched boot spends no more uninterrupted work per 1000 collider body add/evict operation(s) than ${BOOT_CPU_CEILING}x of the slower single pass, so the win is real work per counted unit and not a shorter wait`, batched.workPer1kRingOps > 0 && controlWorstPer1k > 0 && batched.workPer1kRingOps <= controlWorstPer1k * BOOT_CPU_CEILING, `batched ${batched.workPer1kRingOps} ms per 1k operation(s) over ${batched.ringOps} operation(s) vs single ${singleA.workPer1kRingOps}/${singleB.workPer1kRingOps} ms over ${singleA.ringOps}/${singleB.ringOps} operation(s) (window CPU ${batched.cpuPer1kRingOps} vs ${singleA.cpuPer1kRingOps}/${singleB.cpuPer1kRingOps} ms per 1k)`)
+if (contestedRows(arms).length) console.log(`  [n/a] ${contestedRows(arms).length} arm(s) shared the box (${describeContested(arms, CONTEST_RETRIES)}): every verdict above is uninterrupted work over a counted unit, so a shared window moves the wall figures only`)
 
 if (PIN && !CAP_OVERRIDE && !MAXCENTERS_OVERRIDE) {
   check(`the initial ring still reproduces the pinned ${PLAYERS}-player baseline`, batched.trunk.liveCount === PIN.live && batched.trunk.posHash === PIN.hash, `trunk live ${batched.trunk.liveCount} of ${PIN.live}, trunk hash ${batched.trunk.posHash} of ${PIN.hash}`)

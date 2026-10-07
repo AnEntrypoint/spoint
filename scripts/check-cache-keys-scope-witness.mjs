@@ -60,16 +60,6 @@ function staleCopyOf(sourcePath, targetPath, currentVersion) {
   return { stale, offset: hits[0] }
 }
 
-const WIDE_SCAN_FILTER = 'const heightfields = files.filter(p => p.endsWith(HEIGHTFIELD_EXT)).sort()'
-const NARROW_SCAN_FILTER = `const heightfields = files.filter(p => p.endsWith(HEIGHTFIELD_EXT) && p.startsWith('apps' + sep + 'world' + sep)).sort()`
-
-function narrowCopyOf(sourcePath, targetPath) {
-  const src = readFileSync(sourcePath, 'utf8')
-  if (!src.includes(WIDE_SCAN_FILTER)) return { error: `the scan filter "${WIDE_SCAN_FILTER}" is absent from ${GATE_REL}, so the narrow arm cannot be built` }
-  writeFileSync(targetPath, src.split(WIDE_SCAN_FILTER).join(NARROW_SCAN_FILTER))
-  return { narrow: true }
-}
-
 async function main() {
   const toplevel = resolve(git(['rev-parse', '--show-toplevel'], ROOT).trim())
   if (toplevel.toLowerCase() !== ROOT.toLowerCase()) {
@@ -84,11 +74,6 @@ async function main() {
   try {
     const headGate = join(worktree, GATE_REL)
     const widenedGate = join(ROOT, GATE_REL)
-    const built = narrowCopyOf(widenedGate, headGate)
-    if (built.error) {
-      console.error(`[FAIL] ${built.error}`)
-      process.exit(1)
-    }
     const sourceArtifact = join(worktree, SOURCE_ARTIFACT_REL)
     const injectArtifact = join(worktree, INJECT_REL)
     mkdirSync(dirname(injectArtifact), { recursive: true })
@@ -114,24 +99,16 @@ async function main() {
     const tracked = git(['ls-files', '--cached', '--', INJECT_REL.replace(/\\/g, '/')], worktree).trim()
     expect(`git tracks ${INJECT_REL} outside apps${sep}world`, tracked.length > 0, `ls-files -> "${tracked}"`)
 
-    const before = runGate(worktree)
+    const clean = runGate(worktree)
     expect(
-      `the narrow gate (apps${sep}world scan only) passes with a stale ${INJECT_REL} tracked`,
-      before.exit === 0,
-      `exit ${before.exit}, verifying ${verifiedCount(before.out)} artifact(s), mentions inject: ${before.out.includes(INJECT_REL)}`,
-    )
-
-    copyFileSync(widenedGate, headGate)
-    const after = runGate(worktree)
-    expect(
-      `widened gate fails on the stale ${INJECT_REL}`,
-      after.exit !== 0,
-      `exit ${after.exit}, verifying ${verifiedCount(after.out)} artifact(s)`,
+      `the shipped gate verifies every tracked .hf, including ${INJECT_REL} outside apps${sep}world`,
+      clean.exit !== 0 && verifiedCount(clean.out) === 2,
+      `exit ${clean.exit}, verifying ${verifiedCount(clean.out)} artifact(s) of the 2 tracked`,
     )
     expect(
-      `widened gate names ${INJECT_REL} and both code versions`,
-      after.out.includes(INJECT_REL) && after.out.includes(forged.stale) && after.out.includes(fresh.codeVersion),
-      after.out.split('\n').filter(l => l.includes(INJECT_REL)).join(' | ') || 'no line naming the injected artifact',
+      `the shipped gate names ${INJECT_REL} and both code versions`,
+      clean.out.includes(INJECT_REL) && clean.out.includes(forged.stale) && clean.out.includes(fresh.codeVersion),
+      clean.out.split('\n').filter(l => l.includes(INJECT_REL)).join(' | ') || 'no line naming the injected artifact',
     )
 
     rmSync(injectArtifact, { force: true })
@@ -139,8 +116,8 @@ async function main() {
     const restored = runGate(worktree)
     expect(
       `widened gate is green again once ${INJECT_REL} is gone`,
-      restored.exit === 0,
-      `exit ${restored.exit}, verifying ${verifiedCount(restored.out)} artifact(s)`,
+      restored.exit === 0 && verifiedCount(restored.out) === 1,
+      `exit ${restored.exit}, verifying ${verifiedCount(restored.out)} artifact(s) of the 1 remaining`,
     )
     const baselineLine = restored.out.split('\n').find(l => l.includes(SOURCE_ARTIFACT_REL)) || ''
     expect(

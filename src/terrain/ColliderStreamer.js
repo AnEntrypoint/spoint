@@ -377,6 +377,7 @@ export function createColliderStreamer(spec = {}) {
   }
 
   const _PENDING = -1
+  const ringCounters = { evictScanned: 0, evicted: 0, bodyAdds: 0, bodyRemoves: 0 }
   const _useQueue = typeof physics.enqueueAdd === 'function' && typeof physics.enqueueRemove === 'function'
   const pendingTicket = new Map()
   let nextTicket = 0
@@ -385,6 +386,7 @@ export function createColliderStreamer(spec = {}) {
     const placementId = p[idField]
     placedAt.set(placementId, [p.x, p.z])
     _touch(placementId, estimateBodyBytes(a))
+    ringCounters.bodyAdds++
     if (_useQueue) {
       live.set(placementId, _PENDING)
       const ticket = ++nextTicket
@@ -406,6 +408,7 @@ export function createColliderStreamer(spec = {}) {
   function scheduleRemove(placementId, bodyId) {
     _untouch(placementId)
     placedAt.delete(placementId)
+    ringCounters.bodyRemoves++
     if (bodyId === _PENDING) { pendingTicket.delete(placementId); live.delete(placementId); return }
     if (_useQueue) physics.enqueueRemove(bodyId); else physics.removeBody(bodyId)
     live.delete(placementId)
@@ -417,9 +420,11 @@ export function createColliderStreamer(spec = {}) {
     let deadline = _now() + ADD_BUDGET_MS
     for (const [placementId] of _lru) {
       if (_residentBytes <= effectiveByteBudget) break
+      ringCounters.evictScanned++
       const bodyId = live.get(placementId)
       if (bodyId === undefined) { _untouch(placementId); continue }
       scheduleRemove(placementId, bodyId)
+      ringCounters.evicted++
       evicted++
       if (!_budgetOff && _now() >= deadline) { await yieldSlice(); deadline = _now() + ADD_BUDGET_MS }
     }
@@ -431,6 +436,7 @@ export function createColliderStreamer(spec = {}) {
     const ids = [], bodies = [], dists = []
     let deadline = _now() + ADD_BUDGET_MS
     for (const [placementId, bodyId] of live) {
+      ringCounters.evictScanned++
       const at = placedAt.get(placementId)
       if (at === undefined) continue
       let nearest = Infinity
@@ -450,6 +456,7 @@ export function createColliderStreamer(spec = {}) {
       const j = order[i]
       if (protect && protect.has(ids[j])) continue
       scheduleRemove(ids[j], bodies[j])
+      ringCounters.evicted++
       trimmed++
       if (!_budgetOff && _now() >= deadline) { await yieldSlice(); deadline = _now() + ADD_BUDGET_MS }
     }
@@ -507,7 +514,7 @@ export function createColliderStreamer(spec = {}) {
   const epochOf = () => (frame && Number.isFinite(frame.chartEpoch) ? frame.chartEpoch : 0)
   let staleEpochAborts = 0, reanchoredEpoch = -1, starvedWarned = 0
   let sliceStart = 0, maxSliceMs = 0, lastSliceMaxMs = 0, slicePhase = 'idle', maxSlicePhase = 'idle', lastMaxSlicePhase = 'idle'
-  let workMsTotal = 0
+  let workMsTotal = 0, workCpuMsTotal = 0
   let prewarmDemand = 0, prewarmKeys = 0
   const workByPhase = new Map()
   let sliceCpuStart = 0, maxSliceCpuMs = 0, lastSliceMaxCpuMs = 0, maxSliceCpuPhase = 'idle', lastMaxSliceCpuPhase = 'idle'
@@ -531,6 +538,7 @@ export function createColliderStreamer(spec = {}) {
     if (cpuClock) {
       const c = (cpuClock() - sliceCpuStart) / 1000
       sliceCpuStart = 0
+      workCpuMsTotal += c
       if (c > lastSliceMaxCpuMs) { lastSliceMaxCpuMs = c; lastMaxSliceCpuPhase = slicePhase }
       if (c > maxSliceCpuMs) { maxSliceCpuMs = c; maxSliceCpuPhase = slicePhase }
       noteSlowSlice(d, c)
@@ -772,6 +780,7 @@ export function createColliderStreamer(spec = {}) {
     get isRebuilding() { return rebuilding },
     stop() { disposed = true; if (_timer) clearTimeout(_timer); wakeRebuildWaiters(); for (const id of live.values()) { if (id === _PENDING) continue; try { physics.removeBody(id, true) } catch (_) {} } live.clear(); placedAt.clear(); _liveIds.clear(); _lru.clear(); _ringCache.clear(); _residentBytes = 0 },
     get liveCount() { return live.size },
+    get ringCounters() { return ringCounters },
     get center() { return curCenter },
     get centers() { return curCenters },
     get rebuildCount() { return rebuildCount },
@@ -806,6 +815,7 @@ export function createColliderStreamer(spec = {}) {
     get lastYieldCount() { return lastYieldCount },
     get prewarmMs() { return prewarmMs },
     get workMs() { return workMsTotal },
+    get workCpuMs() { return workCpuMsTotal },
     get prewarmDemand() { return prewarmDemand },
     get prewarmKeys() { return prewarmKeys },
     get bodyArgsMs() { return bodyArgsMsTotal },

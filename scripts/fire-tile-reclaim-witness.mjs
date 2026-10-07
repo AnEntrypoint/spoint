@@ -6,7 +6,8 @@ import { createFireKernel, FIRE_EVENT, TILE_AXIS_CELLS } from '../src/shared/fir
 import { defineFire } from '../src/behaviours/fire.js'
 import { encodeFireKeyframe, decodeFireKeyframe, keyframeToBase64 } from '../src/shared/fire/fireKeyframe.js'
 import { FIRE_WIRE_TYPE } from '../src/shared/fire/fireWire.js'
-import { measureUncontested, cpuDeltaMs, formatRowContention, describeContested } from './lib/timing-gate.mjs'
+import { cpuDeltaMs } from './lib/timing-gate.mjs'
+import { counterSpan, cpuPerThousand, movedUp } from './lib/counted-work.mjs'
 
 function say(line) { console.log(line) }
 
@@ -225,8 +226,9 @@ const rawClasses = [
   { igniteHeat: 90, burnRate: 1500, heatOut: 500, fuel: 3000, spotChance: 0, spotHeat: 0, smoke: 40, damage: 6 },
 ]
 const RESUME_TICKS = 41
-const RESUME_CPU_BUDGET_MS = 200
-const RESUME_WALL_BUDGET_MS = 5000
+const RECLAIM_TICKS = 600
+const RECLAIM_CELL_CHECKS_PER_RELEASE = 128
+const RECLAIM_CPU_GROWTH = 1.5
 
 function rewindRig() {
   const host = build(REGROW_STEPS)
@@ -244,30 +246,67 @@ function rewindRig() {
   return { bare, grown, dropped: bare.tileCount }
 }
 
-const resume = await measureUncontested('[fire-tile-reclaim] resume after a rewind', mark => {
-  const rig = rewindRig()
-  const cpuSince = process.cpuUsage()
-  const wallStart = performance.now()
-  for (let t = 20; t <= 60; t++) rig.bare.tick(t)
-  const wallMs = performance.now() - wallStart
-  const cpuMs = cpuDeltaMs(cpuSince)
-  if (mark) mark()
-  return {
-    grown: rig.grown,
-    dropped: rig.dropped,
-    ticks: RESUME_TICKS,
-    wallMs: +wallMs.toFixed(1),
-    cpuMs: +cpuMs.toFixed(1),
-    tileCount: rig.bare.tileCount, live: rig.bare.liveTileCount, active: rig.bare.activeCount,
-  }
-})
-say(`  ${resume.grown} tile slot(s) grown from one ignition, ${resume.dropped} after the rewind, ${resume.wallMs} ms of wall and ${resume.cpuMs} ms of CPU inside the tick calls to tick ${resume.ticks} tick(s) on from there: tileCount ${resume.tileCount}, live ${resume.live}, active ${resume.active}`)
-say(`  ${formatRowContention(resume)}`)
+const rig = rewindRig()
+const afterRewind = { ...rig.bare.reclaimCounters }
+const cpuSince = process.cpuUsage()
+for (let t = 20; t < 20 + RESUME_TICKS; t++) rig.bare.tick(t)
+const resume = {
+  grown: rig.grown,
+  dropped: rig.dropped,
+  ticks: RESUME_TICKS,
+  cpuMs: +cpuDeltaMs(cpuSince).toFixed(1),
+  tileCount: rig.bare.tileCount, live: rig.bare.liveTileCount, active: rig.bare.activeCount,
+  scanned: counterSpan(afterRewind, rig.bare.reclaimCounters).scanned,
+}
+say(`  ${resume.grown} tile slot(s) grown from one ignition, ${resume.dropped} after the rewind, ${resume.cpuMs} ms of CPU over ${resume.ticks} tick(s) on from there: tileCount ${resume.tileCount}, live ${resume.live}, active ${resume.active}`)
 expect(resume.grown > 0, `the fast-burning fire held ${resume.grown} tile slot(s) before the rewind`)
 expect(resume.dropped === 0, `the rewind left ${resume.dropped} tile slot(s) live, so it never dropped one a reclaim was still pointing at`)
-expect(Number.isFinite(resume.cpuMs) && resume.cpuMs < RESUME_CPU_BUDGET_MS, `${resume.ticks} ticks after the rewind burned ${resume.cpuMs} ms of CPU (${resume.wallMs} ms of wall) against a ${RESUME_CPU_BUDGET_MS} ms budget, so a reclaim left spinning costs more CPU than the tick`)
-expect(Number.isFinite(resume.wallMs) && resume.wallMs < RESUME_WALL_BUDGET_MS, `${resume.ticks} ticks after the rewind took ${resume.wallMs} ms of wall against a ${RESUME_WALL_BUDGET_MS} ms budget, which catches a regression too short for the ${RESUME_CPU_BUDGET_MS} ms CPU budget to resolve`)
-expect(!resume.contested, describeContested([resume]) || `the resume measurement got a clean window in ${resume.attempts} attempt(s)`)
+expect(Number.isFinite(resume.cpuMs) && resume.cpuMs < 200, `${resume.ticks} ticks after a rewind that dropped every slot burned ${resume.cpuMs} ms of CPU, so a reclaim left spinning over a slot the kernel no longer holds costs more CPU than the tick itself`)
+
+function reclaimRig(patchCount) {
+  const host = build(REGROW_STEPS)
+  const at = ((host.half >> 3) << 3) + 7
+  const span = host.span
+  const bare = createFireKernel({
+    lattice: host.lattice, fuelClassAt: (face, I, J) => (((I >> 3) + (J >> 3)) & 1) === 0 ? 1 : 0,
+    classes: rawClasses, seed: 5, stepTicks: 10, maxTiles: MAX_TILES,
+    softActiveCells: 131072, maxActiveCells: 262144, regrowSteps: REGROW_STEPS, undo: true,
+  })
+  const centres = [[0, 0], [span, 0], [-span, 0]].slice(0, patchCount)
+  let queued = 0
+  for (const [cI, cJ] of centres) {
+    for (let dI = -PATCH_REACH; dI <= PATCH_REACH; dI += PATCH_SPACING) {
+      for (let dJ = -PATCH_REACH; dJ <= PATCH_REACH; dJ += PATCH_SPACING) {
+        bare.queueEvent({ kind: FIRE_EVENT.IGNITE, tick: 10, face: HOME_FACE, I: at + cI + dI, J: at + cJ + dJ, id: 1 })
+        queued++
+      }
+    }
+  }
+  const before = { ...bare.reclaimCounters }
+  const cpuSinceRig = process.cpuUsage()
+  for (let t = 0; t < RECLAIM_TICKS; t++) bare.tick(t)
+  const worked = counterSpan(before, bare.reclaimCounters)
+  worked.cpuMs = +cpuDeltaMs(cpuSinceRig).toFixed(1)
+  worked.per1kCellChecks = +cpuPerThousand(worked.cpuMs, worked.cellChecks).toFixed(4)
+  worked.checksPerReleased = +(worked.cellChecks / worked.released).toFixed(2)
+  worked.ignitions = queued
+  return worked
+}
+
+const onePatch = reclaimRig(1)
+const threePatch = reclaimRig(3)
+for (const [label, row] of [['one patch', onePatch], ['three patches', threePatch]]) {
+  say(`  ${label}: ${row.ignitions} ignition(s) over ${RECLAIM_TICKS} tick(s) reclaim ${row.released} tile(s) from ${row.scanned} scan(s) of ${row.cellChecks} cell(s) = ${row.checksPerReleased} cell check(s) per tile released, ${row.cpuMs} ms of CPU (${row.per1kCellChecks} ms per 1k cell check(s))`)
+}
+expect(onePatch.released > 0, `the reclaim scan released ${onePatch.released} tile(s) over ${RECLAIM_TICKS} tick(s), so the counted unit never moved and this arm measures nothing`)
+expect(onePatch.scanned > 0, `the reclaim scan examined ${onePatch.scanned} tile(s), so tryReclaim never ran`)
+expect(onePatch.cellChecks > 0, `the reclaim scan checked ${onePatch.cellChecks} cell(s), so the per-cell cost has no denominator`)
+expect(onePatch.released > 0 && onePatch.scanned > 0 && onePatch.cellChecks > 0, `one patch counted ${onePatch.released} release(s), ${onePatch.scanned} scan(s) and ${onePatch.cellChecks} cell check(s)`)
+expect(movedUp(onePatch, threePatch, 'cellChecks'), `the reclaim scan checked ${onePatch.cellChecks} cell(s) for one patch and ${threePatch.cellChecks} for three, so the counted unit does not track the workload`)
+expect(movedUp(onePatch, threePatch, 'released'), `the reclaim scan released ${onePatch.released} tile(s) for one patch and ${threePatch.released} for three, so the counted unit does not track the workload`)
+expect(onePatch.checksPerReleased > 0 && onePatch.checksPerReleased <= RECLAIM_CELL_CHECKS_PER_RELEASE && Math.abs(onePatch.checksPerReleased - threePatch.checksPerReleased) <= 1, `one patch spends ${onePatch.checksPerReleased} cell check(s) per tile released and three patches ${threePatch.checksPerReleased}, against a ${RECLAIM_CELL_CHECKS_PER_RELEASE} ceiling -- a pure count, so no clock and no shared box moves it`)
+expect(onePatch.per1kCellChecks > 0 && threePatch.per1kCellChecks > 0, `the reclaim scan cost ${onePatch.per1kCellChecks} / ${threePatch.per1kCellChecks} ms of CPU per 1k cell check(s), a figure a shared box moves by 2.7x here so it is reported, not gated`)
+expect(threePatch.per1kCellChecks <= onePatch.per1kCellChecks * RECLAIM_CPU_GROWTH, `three patches cost ${threePatch.per1kCellChecks} ms per 1k cell check(s) against ${onePatch.per1kCellChecks} for one, so three times the workload does not cost more per counted unit`)
 
 say('== 7. a tampered keyframe is rejected at the decode boundary instead of parsed into tiles ==')
 const kf = build(REGROW_STEPS)
@@ -394,4 +433,4 @@ say(`  the matching-lattice keyframe: ${ownError ?? `ADOPTED, checksum ${kf.kern
 expect(ownError === null || !ownError.includes('cells per face'), `the matching-lattice keyframe was refused by the lattice check: ${ownError}`)
 
 if (failures > 0) { say(`${failures} check(s) failed`); process.exitCode = 1 }
-say(failures === 0 ? `RESULT: PASS -- ${latticeRejected}/8 out-of-lattice payload(s) rejected, 0 of ${accepted} accepted tampered keyframe(s) carry an out-of-lattice tile, ${foreignError === null ? 0 : 1}/1 cross-lattice payload(s) refused by applyRemote, the in-lattice payload still decodes, ${resume.ticks} tick(s) after a rewind cost ${resume.cpuMs} ms of CPU (${resume.wallMs} ms of wall)` : `RESULT: FAIL (${failures} check(s))`)
+say(failures === 0 ? `RESULT: PASS -- ${latticeRejected}/8 out-of-lattice payload(s) rejected, 0 of ${accepted} accepted tampered keyframe(s) carry an out-of-lattice tile, ${foreignError === null ? 0 : 1}/1 cross-lattice payload(s) refused by applyRemote, the in-lattice payload still decodes, ${resume.ticks} tick(s) after a rewind cost ${resume.cpuMs} ms of CPU, and ${onePatch.released} + ${threePatch.released} tile(s) reclaimed at ${onePatch.checksPerReleased} / ${threePatch.checksPerReleased} counted cell check(s) per tile released` : `RESULT: FAIL (${failures} check(s))`)

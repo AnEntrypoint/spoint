@@ -49,7 +49,7 @@ const flattenRock = (p) => [r6(p.x), r6(p.y), r6(p.z), p.type, r6(p.scale), r6(p
 function dump(field) {
   const out = { veg: [], rock: [] }
   for (const k of vegKeys) out.veg.push(placementsForChunk(k, frame, field, tcfg.seed | 0).map(flattenVeg))
-  for (const k of rockKeys) out.rock.push(placementsForRockChunk(k, field === directionOnly ? frame : frame, field, tcfg.seed | 0).map(flattenRock))
+  for (const k of rockKeys) out.rock.push(placementsForRockChunk(k, frame, field, tcfg.seed | 0).map(flattenRock))
   return out
 }
 
@@ -77,26 +77,40 @@ const digestEarly = fnv1aString(JSON.stringify(early)).toString(16)
 const digestLate = fnv1aString(JSON.stringify(late)).toString(16)
 console.log(`digest: direction-only ${digestEarly}, local-XZ ${digestLate}`)
 
+const PLACEMENT_CPU_US_PER_CHUNK = 1000
+
 function benchChunk(label, keys, run) {
-  let best = Infinity
+  let cpuUs = 0
+  let units = 0
   for (let attempt = 0; attempt < REPS; attempt++) {
-    const t0 = process.hrtime.bigint()
-    for (const k of keys) run(k)
-    const us = Number(process.hrtime.bigint() - t0) / 1000 / keys.length
-    if (us < best) best = us
+    const cpu = process.cpuUsage()
+    for (const k of keys) units += run(k).length
+    const delta = process.cpuUsage(cpu)
+    cpuUs += delta.user + delta.system
   }
-  console.log(`${label}: ${best.toFixed(1)} us/chunk (best of ${REPS}, ${keys.length} chunk(s))`)
-  return best
+  const usPerChunk = cpuUs / (keys.length * REPS)
+  const placementsPerPass = units / REPS
+  console.log(`${label}: ${usPerChunk.toFixed(1)} us of CPU per chunk over ${placementsPerPass} placement(s) per pass in ${keys.length} chunk(s) (mean of ${REPS})`)
+  return { label, usPerChunk, usPerPlacement: usPerChunk * keys.length / Math.max(1, placementsPerPass), units: placementsPerPass, chunks: keys.length }
 }
 
-const vegEarlyUs = benchChunk('veg, climate read before the surface solve', vegKeys, (k) => placementsForChunk(k, frame, directionOnly, tcfg.seed | 0))
-const vegLateUs = benchChunk('veg, climate read after the surface solve ', vegKeys, (k) => placementsForChunk(k, frame, localXZ, tcfg.seed | 0))
-const rockEarlyUs = benchChunk('rock, climate read before the surface solve', rockKeys, (k) => placementsForRockChunk(k, frame, directionOnly, tcfg.seed | 0))
-const rockLateUs = benchChunk('rock, climate read after the surface solve ', rockKeys, (k) => placementsForRockChunk(k, frame, localXZ, tcfg.seed | 0))
+const vegEarly = benchChunk('veg, climate read before the surface solve', vegKeys, (k) => placementsForChunk(k, frame, directionOnly, tcfg.seed | 0))
+const vegLate = benchChunk('veg, climate read after the surface solve ', vegKeys, (k) => placementsForChunk(k, frame, localXZ, tcfg.seed | 0))
+const rockEarly = benchChunk('rock, climate read before the surface solve', rockKeys, (k) => placementsForRockChunk(k, frame, directionOnly, tcfg.seed | 0))
+const rockLate = benchChunk('rock, climate read after the surface solve ', rockKeys, (k) => placementsForRockChunk(k, frame, localXZ, tcfg.seed | 0))
+const quarterVeg = benchChunk('veg, a quarter of the chunks as the counted-unit control', vegKeys.slice(0, Math.floor(CHUNK_COUNT / 4)), (k) => placementsForChunk(k, frame, directionOnly, tcfg.seed | 0))
+
+const arms = [vegEarly, vegLate, rockEarly, rockLate]
+const uncounted = arms.filter(a => !(a.units > 0))
+const overBudget = arms.filter(a => !(a.usPerChunk > 0) || a.usPerChunk > PLACEMENT_CPU_US_PER_CHUNK)
 
 const identical = veg.diffRows === 0 && rock.diffRows === 0 && veg.shapeDiff === 0 && rock.shapeDiff === 0 && digestEarly === digestLate
 const covered = veg.rows > 0 && rock.rows > 0
-const bad = (identical ? 0 : 1) + (covered ? 0 : 1)
+const counted = uncounted.length === 0 && overBudget.length === 0 && quarterVeg.units > 0 && quarterVeg.units < vegEarly.units
+const bad = (identical ? 0 : 1) + (covered ? 0 : 1) + (counted ? 0 : 1)
 if (!covered) console.error(`FAIL the climate gate compared ${veg.rows} veg and ${rock.rows} rock placement(s), so identical placements prove nothing`)
-console.log(`RESULT: ${bad === 0 ? 'PASS' : 'FAIL'} identical ${identical} over ${veg.rows} veg and ${rock.rows} rock placement(s); observed veg ${vegEarlyUs.toFixed(1)} vs ${vegLateUs.toFixed(1)} us/chunk, rock ${rockEarlyUs.toFixed(1)} vs ${rockLateUs.toFixed(1)} us/chunk (timings are an observation, not a gate)`)
+if (uncounted.length) console.error(`FAIL ${uncounted.map(a => a.label.trim()).join(', ')} counted 0 placement(s), so its CPU figure is a ratio over zero`)
+if (overBudget.length) console.error(`FAIL ${overBudget.map(a => `${a.label.trim()} ${a.usPerChunk.toFixed(1)}`).join(', ')} exceed ${PLACEMENT_CPU_US_PER_CHUNK} us of CPU per chunk`)
+if (!(quarterVeg.units > 0 && quarterVeg.units < vegEarly.units)) console.error(`FAIL the quarter-chunk control counted ${quarterVeg.units} placement(s) against ${vegEarly.units} for the full sweep, so the counted unit does not track the workload`)
+console.log(`RESULT: ${bad === 0 ? 'PASS' : 'FAIL'} identical ${identical} over ${veg.rows} veg and ${rock.rows} rock placement(s); CPU per chunk veg ${vegEarly.usPerChunk.toFixed(1)}/${vegLate.usPerChunk.toFixed(1)} us, rock ${rockEarly.usPerChunk.toFixed(1)}/${rockLate.usPerChunk.toFixed(1)} us over ${vegEarly.units}/${vegLate.units}/${rockEarly.units}/${rockLate.units} placement(s) (quarter-chunk control ${quarterVeg.units} of ${vegEarly.units})`)
 process.exit(bad === 0 ? 0 : 1)
