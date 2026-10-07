@@ -11,6 +11,8 @@ const ECHO_TAIL_LINES = 8
 const WITNESSES = [
   'fire-weather-witness.mjs',
   'fire-combat-witness.mjs',
+  'fire-wind-coupling-witness.mjs',
+  'fire-smoke-los-witness.mjs',
   'fire-kernel-cost-witness.mjs',
   'fire-witness.mjs',
   'fire-tile-reclaim-witness.mjs',
