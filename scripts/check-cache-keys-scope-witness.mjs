@@ -60,6 +60,16 @@ function staleCopyOf(sourcePath, targetPath, currentVersion) {
   return { stale, offset: hits[0] }
 }
 
+const WIDE_SCAN_FILTER = 'const heightfields = files.filter(p => p.endsWith(HEIGHTFIELD_EXT)).sort()'
+const NARROW_SCAN_FILTER = `const heightfields = files.filter(p => p.endsWith(HEIGHTFIELD_EXT) && p.startsWith('apps' + sep + 'world' + sep)).sort()`
+
+function narrowCopyOf(sourcePath, targetPath) {
+  const src = readFileSync(sourcePath, 'utf8')
+  if (!src.includes(WIDE_SCAN_FILTER)) return { error: `the scan filter "${WIDE_SCAN_FILTER}" is absent from ${GATE_REL}, so the narrow arm cannot be built` }
+  writeFileSync(targetPath, src.split(WIDE_SCAN_FILTER).join(NARROW_SCAN_FILTER))
+  return { narrow: true }
+}
+
 async function main() {
   const toplevel = resolve(git(['rev-parse', '--show-toplevel'], ROOT).trim())
   if (toplevel.toLowerCase() !== ROOT.toLowerCase()) {
@@ -74,6 +84,11 @@ async function main() {
   try {
     const headGate = join(worktree, GATE_REL)
     const widenedGate = join(ROOT, GATE_REL)
+    const built = narrowCopyOf(widenedGate, headGate)
+    if (built.error) {
+      console.error(`[FAIL] ${built.error}`)
+      process.exit(1)
+    }
     const sourceArtifact = join(worktree, SOURCE_ARTIFACT_REL)
     const injectArtifact = join(worktree, INJECT_REL)
     mkdirSync(dirname(injectArtifact), { recursive: true })
@@ -101,7 +116,7 @@ async function main() {
 
     const before = runGate(worktree)
     expect(
-      `HEAD gate (apps${sep}world scan only) passes with a stale ${INJECT_REL} tracked`,
+      `the narrow gate (apps${sep}world scan only) passes with a stale ${INJECT_REL} tracked`,
       before.exit === 0,
       `exit ${before.exit}, verifying ${verifiedCount(before.out)} artifact(s), mentions inject: ${before.out.includes(INJECT_REL)}`,
     )
