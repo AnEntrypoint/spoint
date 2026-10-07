@@ -1,4 +1,5 @@
 import { pathToFileURL } from 'node:url'
+import { execFileSync } from 'node:child_process'
 import { chromium } from './cdp-browser.mjs'
 
 export const SOFTWARE_ARGS = ['--use-gl=swiftshader', '--use-angle=swiftshader', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader']
@@ -66,6 +67,29 @@ export async function assertGpu(page, opts = {}) {
 
 export function gpuArgs({ accelerated = false } = {}) {
   return accelerated ? ACCELERATED_ARGS : SOFTWARE_ARGS
+}
+
+const DIRECTX_KEY = 'HKLM\\SOFTWARE\\Microsoft\\DirectX'
+
+export function directxAdapters() {
+  if (process.platform !== 'win32') return []
+  const out = execFileSync('reg', ['query', DIRECTX_KEY, '/s'], { encoding: 'utf8', windowsHide: true })
+  const adapters = []
+  let current = null
+  for (const line of out.split(/\r?\n/)) {
+    if (/^HKEY_/.test(line)) { current = {}; continue }
+    const m = /^\s+(AdapterLuid|Description)\s+REG_\w+\s+(.*)$/.exec(line)
+    if (!m || !current) continue
+    if (m[1] === 'AdapterLuid') current.luid = parseInt(m[2].trim(), 16)
+    else { current.description = m[2].trim(); adapters.push(current) }
+  }
+  return adapters.filter((a) => Number.isFinite(a.luid) && a.description)
+}
+
+export function adapterLuidFor(pattern) {
+  const re = new RegExp(pattern, 'i')
+  const hit = directxAdapters().find((a) => re.test(a.description))
+  return hit ? String(hit.luid) : null
 }
 
 function flagValue(name) {

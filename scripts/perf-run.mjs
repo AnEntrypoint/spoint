@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto'
 import { spawnSync, spawn } from 'node:child_process'
 import { chromium } from './lib/cdp-browser.mjs'
 import { unreachedReasons } from './lib/witness-reachability.mjs'
-import { assertGpu, gpuArgs } from './lib/gpu-probe.mjs'
+import { assertGpu, gpuArgs, adapterLuidFor, directxAdapters } from './lib/gpu-probe.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(__dirname, '..')
@@ -60,10 +60,15 @@ setTimeout(() => {
 }, HARD_TIMEOUT_MS).unref()
 const OUT_FILE = resolve(OUT_DIR, LABEL + '.json')
 
+const AMD_LUID = flag('adapter-luid', null) || adapterLuidFor('amd')
+if (GPU === 'amd' && !AMD_LUID) {
+  console.error('[perf-run] --gpu=amd needs an AMD adapter LUID; none of ' + JSON.stringify(directxAdapters()) + ' matches /amd/. Pass --adapter-luid=<decimal>.')
+  process.exit(2)
+}
 const GPU_VENDOR_ARGS = {
   nvidia: ['--use-gl=angle', '--use-angle=d3d11'],
   igpu: ['--use-gl=angle', '--use-angle=d3d11', '--igpu-select'],
-  amd: ['--use-gl=angle', '--use-angle=d3d11', '--use-adapter-luid=0,' + flag('adapter-luid', '')],
+  amd: ['--use-gl=angle', '--use-angle=d3d11', '--use-adapter-luid=0,' + AMD_LUID],
 }
 const ACCELERATED = has('accelerated') || GPU !== 'swiftshader'
 const LAUNCH_ARGS = ACCELERATED
@@ -451,7 +456,7 @@ async function main() {
       revealedAt: (window.__app && window.__app.revealedAt) || 0,
       ready: !!(window.__app && window.__app.loadingMachine && window.__app.loadingMachine.isReady),
       terrain: !!window.__terrain,
-      veg: window.__veg ? (window.__veg.totalInstances || 0) : 0,
+      veg: window.__veg ? ((window.__veg.profile && window.__veg.profile.totalInstances) || 0) : 0,
       players: (window.__app && window.__app.client && window.__app.client.state && window.__app.client.state.players.length) || 0,
       refreshHz: window.__vsync ? window.__vsync.refreshHz : null,
       marks: (() => {
@@ -544,7 +549,7 @@ async function main() {
                 vel: s ? s.velocity : null,
                 onGround: s ? s.onGround : null,
                 seq: s ? s.inputSequence : null,
-                veg: window.__veg ? (window.__veg.instanceCount ?? window.__veg.count ?? null) : null,
+                veg: window.__veg ? ((window.__veg.profile && window.__veg.profile.totalInstances) ?? window.__veg.instanceCount ?? window.__veg.count ?? null) : null,
                 pos: s ? s.position : null,
               }
             }).catch((e) => ({ error: e.message }))
@@ -801,7 +806,7 @@ async function main() {
       const rig = window.__rig || { frames: [], longtasks: [], errors: [] }
       const perf = window.__perf ? window.__perf.exportSession() : null
       const shadow = window.__shadowCost ? window.__shadowCost.stats() : null
-      const veg = window.__veg ? { totalInstances: window.__veg.totalInstances, meshes: (window.__veg.meshes || []).length } : null
+      const veg = window.__veg ? { totalInstances: (window.__veg.profile && window.__veg.profile.totalInstances) || 0, meshes: (window.__veg.meshes || []).length } : null
       return {
         frames: rig.frames.slice(-30000),
         frameTotal: rig.frames.length,
