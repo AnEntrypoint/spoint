@@ -19,3 +19,18 @@ jobs:
       - run: npm run bundle-apps-manifest
       - run: node scripts/apps-manifest-fresh-witness.mjs
       - run: npm test
+
+  frame-time:
+    name: frame-time gate -- accelerated nvidia arm. GitHub-hosted runners expose no GPU, so this job runs on a self-hosted Windows runner labelled gpu; the software rasterizer cannot reach this gate's floor (measured 0.3 fps, 3 samples per 8s capture, 297 vegetation instances)
+    runs-on: [self-hosted, Windows, gpu]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm run bundle-apps-manifest
+      - run: npm run build:bundles
+      - name: compare orbit p50 against .frame-time-baseline.nvidia.json
+        run: node scripts/frame-time-gate.mjs --gpu=nvidia --require-accelerated --baseline=.frame-time-baseline.nvidia.json

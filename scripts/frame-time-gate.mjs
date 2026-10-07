@@ -4,18 +4,20 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { chromium } from './lib/cdp-browser.mjs'
 import { unreachedReasons } from './lib/witness-reachability.mjs'
-import { assertGpu, gpuArgs } from './lib/gpu-probe.mjs'
+import { assertGpu, gpuArgs, gpuModeOf } from './lib/gpu-probe.mjs'
 import { vendorPinArgs } from './lib/witness-gpu.mjs'
 import { baselineRefusals } from './lib/frame-time-baseline.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(__dirname, '..')
 const baselineArg = (process.argv.find(a => a.startsWith('--baseline=')) || '').slice('--baseline='.length)
-const VENDOR = (process.argv.find(a => a.startsWith('--expect-vendor=')) || '').slice('--expect-vendor='.length) || process.env.SPOINT_GPU || ''
+const GPU_FLAG = (process.argv.find(a => a.startsWith('--gpu=')) || '').slice('--gpu='.length)
+const GPU_MODE = gpuModeOf(GPU_FLAG || (process.argv.includes('--accelerated') ? 'accelerated' : 'software'))
+const VENDOR = (process.argv.find(a => a.startsWith('--expect-vendor=')) || '').slice('--expect-vendor='.length) || GPU_MODE.vendor || process.env.SPOINT_GPU || ''
 const BASELINE_PATH = baselineArg || join(ROOT, VENDOR ? `.frame-time-baseline.${VENDOR}.json` : '.frame-time-baseline.json')
 const THRESHOLD = 1.10
 const UPDATE = process.argv.includes('--update-baseline')
-const ACCELERATED = process.argv.includes('--accelerated')
+const ACCELERATED = GPU_MODE.accelerated
 const REQUIRE_ACCELERATED = process.argv.includes('--require-accelerated')
 const EXPECT_VENDOR = VENDOR || null
 const PORT = process.env.PORT || '3099'
@@ -25,7 +27,9 @@ const UNLOCKED_RAF_ARGS = UNLOCK_RAF ? ['--disable-frame-rate-limit', '--disable
 const VENDOR_ARGS = VENDOR ? vendorPinArgs(VENDOR) : []
 const LOAD_TIMEOUT_MS = 480_000
 const READY_PROBE_STALL_LIMIT = 3
-const CAPTURE_MS = 8000
+const CAPTURE_MS = Number((process.argv.find(a => a.startsWith('--capture-ms=')) || '').slice('--capture-ms='.length)) || 8000
+const VEGETATION_FLOOR = 1000
+const VEGETATION_WAIT_MS = Number((process.argv.find(a => a.startsWith('--veg-wait-ms=')) || '').slice('--veg-wait-ms='.length)) || 420_000
 
 function readBaseline() {
   if (!existsSync(BASELINE_PATH)) return null
@@ -83,6 +87,31 @@ async function waitForRendererFrames(page, { minFrames = 5, timeoutMs = 180000 }
     await new Promise(r => setTimeout(r, 500))
   }
   throw new Error(`renderer.info.render.calls never advanced by ${minFrames} within ${timeoutMs}ms -- last sample ${JSON.stringify(lastSeen)} (app.js animate() returns early while window.__warmupInFlight is set, so a stalled warmup measures an empty frame)`)
+}
+
+async function vegetationCount(page) {
+  return evaluateOrThrow(page, () => (window.__vegProfile && window.__vegProfile.totalInstances) || 0, 15000).catch(() => null)
+}
+
+async function waitForVegetationFloor(page) {
+  const t0 = Date.now()
+  let count = await vegetationCount(page)
+  let logged = -1
+  while (Date.now() - t0 < VEGETATION_WAIT_MS) {
+    if (count !== null && count >= VEGETATION_FLOOR) {
+      console.log(`[frame-time-gate] vegetation floor met: ${count} instance(s) >= ${VEGETATION_FLOOR} after ${((Date.now() - t0) / 1000).toFixed(0)}s`)
+      return count
+    }
+    const waited = Math.floor((Date.now() - t0) / 30000)
+    if (count !== null && waited > logged) {
+      logged = waited
+      console.log(`[frame-time-gate] vegetation still filling: ${count} of ${VEGETATION_FLOOR} instance(s) after ${((Date.now() - t0) / 1000).toFixed(0)}s of a ${(VEGETATION_WAIT_MS / 1000).toFixed(0)}s budget`)
+    }
+    await new Promise(r => setTimeout(r, 2000))
+    count = await vegetationCount(page)
+  }
+  console.log(`[frame-time-gate] vegetation floor NOT met: ${count} of ${VEGETATION_FLOOR} instance(s) after the full ${(VEGETATION_WAIT_MS / 1000).toFixed(0)}s budget`)
+  return count === null ? 0 : count
 }
 
 async function capturePose(page) {
@@ -209,6 +238,8 @@ async function measureRealFrameTimes() {
 
     console.log('[frame-time-gate] waiting for the renderer to actually draw before measuring ...')
     await waitForRendererFrames(page)
+    console.log(`[frame-time-gate] rasterizer class=${GPU_MODE.mode} -- ${GPU_MODE.software ? 'software rasterizer, so these frame times are CPU raster cost on this machine and are not accelerated GPU frame cost' : 'accelerated rasterizer'}`)
+    await waitForVegetationFloor(page)
 
     console.log('[frame-time-gate] capturing static pose (8s) ...')
     const staticResult = await capturePose(page)
