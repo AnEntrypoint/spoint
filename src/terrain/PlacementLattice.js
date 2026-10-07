@@ -1,8 +1,7 @@
 const QUARTER_TURN = Math.PI / 2
 const FACE_EDGE_ANGLE = Math.PI / 4
 const FACE_COUNT = 6
-const RING_OVERSAMPLE_PER_CHUNK = 3
-const MIN_AXIS_STRETCH = Math.SQRT1_2
+const MIN_AXIS_STRETCH = 0.66
 
 const FACE_BASIS = new Float64Array([
   1, 0, 0, 0, 0, -1, 0, 1, 0,
@@ -111,16 +110,13 @@ export function createPlacementLattice(radius, chunkM, cellsPerChunk) {
   function cellId(face, i, j) { return (face * cellsPerFace + i) * cellsPerFace + j }
   function hashRow(face, i) { return face * cellsPerFace + i }
 
-  const _c = [0, 0, 0], _s = [0, 0, 0]
+  const _c = [0, 0, 0]
   const _ringKeys = [], _ringChord = [], _ringOrder = []
   function ringAroundDir(dx, dy, dz, radiusM) {
-    const face = cubeFaceOf(dx, dy, dz)
-    faceAngles(face, dx, dy, dz, _a)
     const maxAngle = radiusM / radius
     const maxChordSq = 4 * Math.sin(maxAngle / 2) ** 2
-    const span = Math.ceil(maxAngle / (chunkAngle * MIN_AXIS_STRETCH)) + 1
-    const fci = (_a[0] + FACE_EDGE_ANGLE) / chunkAngle, fcj = (_a[1] + FACE_EDGE_ANGLE) / chunkAngle
-    const ci0 = Math.floor(fci), cj0 = Math.floor(fcj)
+    const reach = maxAngle / (chunkAngle * MIN_AXIS_STRETCH)
+    const reachTan = Math.tan(FACE_EDGE_ANGLE + reach * chunkAngle)
     _ringKeys.length = 0
     _ringChord.length = 0
     const consider = (key) => {
@@ -131,22 +127,29 @@ export function createPlacementLattice(radius, chunkM, cellsPerChunk) {
       _ringKeys.push(key)
       _ringChord.push(chordSq)
     }
-    if (ci0 - span >= 0 && cj0 - span >= 0 && ci0 + span < chunksPerFace && cj0 + span < chunksPerFace) {
-      for (let di = -span; di <= span; di++) for (let dj = -span; dj <= span; dj++) consider(chunkKey(face, ci0 + di, cj0 + dj))
-    } else {
-      const seen = new Set()
-      const steps = span * RING_OVERSAMPLE_PER_CHUNK
-      for (let si = -steps; si <= steps; si++) {
-        for (let sj = -steps; sj <= steps; sj++) {
-          const au = (fci + si / RING_OVERSAMPLE_PER_CHUNK) * chunkAngle - FACE_EDGE_ANGLE
-          const av = (fcj + sj / RING_OVERSAMPLE_PER_CHUNK) * chunkAngle - FACE_EDGE_ANGLE
-          if (Math.abs(au) >= QUARTER_TURN * 0.99 || Math.abs(av) >= QUARTER_TURN * 0.99) continue
-          dirOfFaceAngles(face, au, av, _s)
-          const key = chunkKeyOfDir(_s[0], _s[1], _s[2])
-          if (seen.has(key)) continue
-          seen.add(key)
-          consider(key)
-        }
+    for (let face = 0; face < FACE_COUNT; face++) {
+      const b = face * 9
+      const dn = dx * FACE_BASIS[b] + dy * FACE_BASIS[b + 1] + dz * FACE_BASIS[b + 2]
+      if (dn <= 0) continue
+      const du = dx * FACE_BASIS[b + 3] + dy * FACE_BASIS[b + 4] + dz * FACE_BASIS[b + 5]
+      const duLimit = dn * reachTan
+      if (du > duLimit || du < -duLimit) continue
+      const dv = dx * FACE_BASIS[b + 6] + dy * FACE_BASIS[b + 7] + dz * FACE_BASIS[b + 8]
+      if (dv > duLimit || dv < -duLimit) continue
+      faceAngles(face, dx, dy, dz, _a)
+      const fci = (_a[0] + FACE_EDGE_ANGLE) / chunkAngle - 0.5
+      const fcj = (_a[1] + FACE_EDGE_ANGLE) / chunkAngle - 0.5
+      const i0 = Math.max(0, Math.ceil(fci - reach))
+      const i1 = Math.min(chunksPerFace - 1, Math.floor(fci + reach))
+      if (i0 > i1) continue
+      for (let ci = i0; ci <= i1; ci++) {
+        const off = ci - fci
+        const rest = reach * reach - off * off
+        if (rest <= 0) continue
+        const half = Math.sqrt(rest)
+        const j0 = Math.max(0, Math.ceil(fcj - half))
+        const j1 = Math.min(chunksPerFace - 1, Math.floor(fcj + half))
+        for (let cj = j0; cj <= j1; cj++) consider(chunkKey(face, ci, cj))
       }
     }
     const n = _ringKeys.length
