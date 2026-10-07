@@ -2510,3 +2510,13 @@
   kind: defect
   area: scripts/planet-multiplayer-harness.mjs
   status: pending
+- id: veg-lod-rebuild-walk-doubled-per-species
+  title: Share the vegetation LOD uniform-grid rebuild walk between the branch and leaf instancers of one tree species
+  body: 'Measured: rebuildRecords is ~76% of remaining instance visits (12797.5 of 16311.3). Vegetation.js feeds both instancers identical level distances, LOD_HYS, _treeBox and _treeSph, yet each keeps its own uniform-grid index and reruns the full rebuild walk, so the same cells are classified twice per frame. Share one classification per species: needs a slot->id map or an id-alignment assertion because order/cellOf hold per-instancer ids. Gate on counted instance visits per frame (not wall clock) before and after, on BOTH GPUs, with a placement-identical control so LOD tiers must not move.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: amd-orbit-p50-double-nvidia
+  title: Root-cause the AMD orbit arm costing 2x NVIDIA p50 and close the gap or name the adapter-bound term
+  body: 'Committed baselines at 76059b48 with 5207 veg on both: AMD static 19.65 / orbit 18.39 ms p50 against NVIDIA 8.98 / 9.03 ms. The GPU control rate held 11.0-12.1 ms per 1000 iterations, inside the x1.25 bar, and a verify FAIL naming CPU contested x1.53-x2.72 was a shared box, so this is not contention. Split the AMD frame by counted work units (draws, instances, triangles, LOD rebuild visits, terrain patches) against the NVIDIA one to find which term is 2x, then fix or, if it is genuinely adapter-bound, record it in the per-vendor baseline with the measured term named.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
