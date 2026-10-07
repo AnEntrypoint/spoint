@@ -1,16 +1,21 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
 
-import { angleBackendArgs, rasterizerOf } from '../../../scripts/lib/gpu-probe.mjs';
+import { resolveLaunchArgs, assertLiveBackend } from './backend-guard.mjs';
 
 const CHROME = ['C:/Program Files/Google/Chrome/Application/chrome.exe',
                 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe'].find(p => fs.existsSync(p));
 const PORT = 8084;
+function gpuLuids() {
+  const vendor = process.env.GPU_VENDOR;
+  const luid = process.env.GPU_LUID;
+  return vendor && luid ? { [String(vendor).toLowerCase()]: luid } : {};
+}
 const ALL = [
-  { name: 'd3d11',       port: 9241, args: [] },
-  { name: 'swiftshader', port: 9242, args: angleBackendArgs('swiftshader') },
-  { name: 'vulkan',      port: 9243, args: angleBackendArgs('vulkan') },
-];
+  { name: 'd3d11',       port: 9241 },
+  { name: 'swiftshader', port: 9242 },
+  { name: 'vulkan',      port: 9243 },
+].map((b) => ({ ...b, launch: resolveLaunchArgs(b.name, process.env.GPU_VENDOR || null, gpuLuids()) }));
 const CFG = process.env.BACKENDS ? ALL.filter(b => process.env.BACKENDS.split(',').includes(b.name)) : ALL;
 
 const server = spawn(process.execPath, ['server.js'], { env: { ...process.env, PORT: String(PORT) }, stdio: 'ignore' });
@@ -73,17 +78,24 @@ const BAKE_EXPR = `(async () => {
   return { renderer: glInfo, nOutliers: out.length, outliers: out.slice(0, 10) };
 })()`;
 
+const failures = [];
 for (const b of CFG) {
   const prof = `${process.env.TEMP || '/tmp'}/needle-ab-${b.name}-${Date.now()}`;
   const ch = spawn(CHROME, ['--headless=new', `--remote-debugging-port=${b.port}`, `--user-data-dir=${prof}`,
-    '--no-first-run', '--no-default-browser-check', '--disable-gpu-sandbox', ...b.args, 'about:blank'], { stdio: 'ignore' });
+    '--no-first-run', '--no-default-browser-check', '--disable-gpu-sandbox', ...b.launch.args, 'about:blank'], { stdio: 'ignore' });
   try {
     await new Promise(r => setTimeout(r, 2500));
     const c = await cdp(b.port);
+    const gpu = await assertLiveBackend(c.evalIn, b.launch, b.name);
     const out = await c.evalIn(BAKE_EXPR);
-    console.log(b.name, 'rasterizer=' + rasterizerOf(out.renderer), JSON.stringify(out));
+    console.log(b.name, 'backend=' + gpu.backend, 'rasterizer=' + gpu.rasterizer,
+      'renderer=' + JSON.stringify(gpu.renderer), JSON.stringify(out));
     c.ws.close();
-  } catch (e) { console.log(b.name, 'ERR', String(e).slice(0, 300)); }
+  } catch (e) { failures.push(b.name + ': ' + String(e.message || e).slice(0, 300)); console.log(b.name, 'ERR', String(e).slice(0, 300)); }
   ch.kill();
 }
 server.kill();
+if (failures.length) {
+  console.error(`needle-ab: ${failures.length} arm(s) did not honour the requested backend/adapter -- ${failures.join(' | ')}`);
+  process.exit(1);
+}

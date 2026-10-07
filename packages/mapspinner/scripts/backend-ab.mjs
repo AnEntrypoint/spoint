@@ -1,16 +1,22 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
-import { angleBackendArgs } from '../../../scripts/lib/gpu-probe.mjs';
+import { resolveLaunchArgs, assertLiveBackend } from './backend-guard.mjs';
 
 const CHROME = ['C:/Program Files/Google/Chrome/Application/chrome.exe',
                 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe'].find(p => fs.existsSync(p));
 const [dx, dy, dz, altKm] = process.argv.slice(2).map(Number);
 const havePose = [dx, dy, dz].every(Number.isFinite);
 
+function gpuLuids() {
+  const vendor = process.env.GPU_VENDOR;
+  const luid = process.env.GPU_LUID;
+  return vendor && luid ? { [String(vendor).toLowerCase()]: luid } : {};
+}
+
 const CFG = [
-  { name: 'd3d11',  port: 9231, args: [] },
-  { name: 'vulkan', port: 9232, args: angleBackendArgs('vulkan') },
-];
+  { name: 'd3d11',  port: 9231 },
+  { name: 'vulkan', port: 9232 },
+].map((b) => ({ ...b, launch: resolveLaunchArgs(b.name, process.env.GPU_VENDOR || null, gpuLuids()) }));
 
 async function cdp(port) {
   const ver = await (await fetch(`http://localhost:${port}/json/version`)).json();
@@ -40,8 +46,9 @@ const POSE = havePose
   : `let land=null;for(let i=0;i<3000&&!land;i++){const y=1-2*(i+0.5)/3000,rr=Math.sqrt(Math.max(0,1-y*y)),t=i*2.399963229;
        const u=[Math.cos(t)*rr,y,Math.sin(t)*rr];const h=sg(u);if(h>200&&h<900&&Math.abs(y)<0.5)land={u,h};}`;
 
-async function measure(name, port) {
-  const c = await cdp(port);
+async function measure(cfg) {
+  const c = await cdp(cfg.port);
+  const gpu = await assertLiveBackend(c.evalIn, cfg.launch, cfg.name);
   for (;;) { const st = await c.evalIn(`window.__planetOrchStatus||'init'`).catch(() => 'nav');
     if (st === 'ready') break; await new Promise(r => setTimeout(r, 5000)); }
   const out = await c.evalIn(`(async()=>{
@@ -59,19 +66,19 @@ async function measure(name, port) {
     return {gpu:(window.__gpuRenderer||'').slice(0,70),lumMean:+mean.toFixed(1),lumSD:+sd.toFixed(2),greyFrac:+(grey/n).toFixed(3)};
   })()`);
   const shot = await c.send('Page.captureScreenshot', { format: 'png' }, c.sessionId);
-  fs.writeFileSync(`.gm/ab-${name}.png`, Buffer.from(shot.data, 'base64'));
+  fs.writeFileSync(`.gm/ab-${cfg.name}.png`, Buffer.from(shot.data, 'base64'));
   c.ws.close();
-  return out;
+  return { ...out, backend: gpu.backend, rasterizer: gpu.rasterizer, renderer: gpu.renderer };
 }
 
 for (const cfg of CFG) {
   spawn(CHROME, [`--user-data-dir=${process.cwd()}/.gm/tmp/ab-${cfg.name}`, `--remote-debugging-port=${cfg.port}`,
-    '--no-first-run', '--no-default-browser-check', ...cfg.args, 'http://localhost:8080/planet.html'],
+    '--no-first-run', '--no-default-browser-check', ...cfg.launch.args, 'http://localhost:8080/planet.html'],
     { detached: true, stdio: 'ignore' }).unref();
 }
 await new Promise(r => setTimeout(r, 8000));
 const results = {};
-for (const cfg of CFG) results[cfg.name] = await measure(cfg.name, cfg.port);
+for (const cfg of CFG) results[cfg.name] = await measure(cfg);
 const dSD = Math.abs(results.d3d11.lumSD - results.vulkan.lumSD);
 const dGrey = Math.abs(results.d3d11.greyFrac - results.vulkan.greyFrac);
 console.log(JSON.stringify({ ...results,

@@ -13,10 +13,12 @@ rem Usage: scripts\dev-chrome.cmd [gl|d3d11]   (default: vulkan)
 rem A persistent profile keeps driver/browser caches warm across runs.
 
 set BACKEND=vulkan
-if /i "%1"=="gl"    set BACKEND=gl
-if /i "%1"=="d3d11" set BACKEND=d3d11
+if not "%~1"=="" set BACKEND=%~1
 
 set CHROME="C:\Program Files\Google\Chrome\Application\chrome.exe"
 if not exist %CHROME% set CHROME="C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
 
-%CHROME% --user-data-dir="%~dp0..\.gm\tmp\chrome-dev-%BACKEND%" --use-angle=%BACKEND% --remote-debugging-port=9222 --no-first-run --no-default-browser-check http://localhost:8080/
+node "%~dp0backend-guard.mjs" %BACKEND% > "%TEMP%\mapspinner-dev-chrome-args.txt" || exit /b 1
+set /p ANGLE_ARGS=<"%TEMP%\mapspinner-dev-chrome-args.txt"
+
+%CHROME% --user-data-dir="%~dp0..\.gm\tmp\chrome-dev-%BACKEND%" %ANGLE_ARGS% --remote-debugging-port=9222 --no-first-run --no-default-browser-check http://localhost:8080/

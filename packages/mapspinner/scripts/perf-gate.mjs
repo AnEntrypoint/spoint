@@ -47,7 +47,7 @@ async function runGlslCheck() {
     console.error(`[perf-gate] glsl-check probe is not a finite number (got ${JSON.stringify(parsed.probe)}); shader compiled but did not run.`);
     process.exit(1);
   }
-  console.log(`[perf-gate] compiled=true probe=${parsed.probe} vendor=${parsed.vendor}`);
+  console.log(`[perf-gate] compiled=true probe=${parsed.probe} backend=${parsed.backend} rasterizer=${parsed.rasterizer} renderer=${parsed.renderer}`);
   return glslCheckMs;
 }
 

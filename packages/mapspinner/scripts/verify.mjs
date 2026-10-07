@@ -1,6 +1,10 @@
+import { assertLiveBackend } from './backend-guard.mjs';
+
 const CDP_HTTP = process.env.CDP_URL || 'http://localhost:9222';
 const PAGE_URL = process.env.PAGE_URL || 'http://localhost:8080/planet.html';
 const probe = process.argv[2] || 'verifyAll';
+const expectBackend = process.env.VERIFY_ANGLE || null;
+const expectVendor = process.env.VERIFY_GPU || null;
 
 const ver = await (await fetch(CDP_HTTP + '/json/version')).json();
 const ws = new WebSocket(ver.webSocketDebuggerUrl);
@@ -30,6 +34,15 @@ const evalIn = async (expression, awaitPromise = true) => {
 const ORCH_READY_TIMEOUT_MS = 8 * 60 * 1000;
 const deadline = Date.now() + ORCH_READY_TIMEOUT_MS;
 const closeTarget = () => send('Target.closeTarget', { targetId }).catch(() => {});
+
+let gpu;
+try {
+  gpu = await assertLiveBackend(evalIn, { backend: expectBackend, vendor: expectVendor }, 'verify.mjs session');
+} catch (e) {
+  console.log(JSON.stringify({ pass: false, err: String(e.message || e) }, null, 1));
+  await closeTarget();
+  process.exit(1);
+}
 process.on('SIGINT', async () => { await closeTarget(); process.exit(130); });
 process.on('SIGTERM', async () => { await closeTarget(); process.exit(143); });
 for (;;) {
@@ -48,5 +61,7 @@ try { verdict = await evalIn(`(async()=>{ const r = await (${expr}); return r; }
 catch (e) { verdict = { pass: false, err: String(e.message || e).slice(0, 500) }; }
 
 await closeTarget();
-console.log(JSON.stringify(verdict, null, 1));
+const gpuReport = { backend: gpu.backend, rasterizer: gpu.rasterizer, renderer: gpu.renderer };
+if (verdict && typeof verdict === 'object') console.log(JSON.stringify({ ...verdict, ...gpuReport }, null, 1));
+else { console.log(JSON.stringify(verdict, null, 1)); console.log(JSON.stringify(gpuReport, null, 1)); }
 process.exit(verdict && (verdict.pass || verdict.ok) ? 0 : 1);

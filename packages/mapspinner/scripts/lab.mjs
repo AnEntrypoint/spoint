@@ -6,7 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 import WebSocket from 'ws'
-import { angleBackendArgs } from '../../../scripts/lib/gpu-probe.mjs'
+import { resolveLaunchArgs, assertLiveBackend } from './backend-guard.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const OUT_DIR = path.join(ROOT, 'lab-out')
@@ -115,9 +115,16 @@ function waitFor(fn, ms, every = 200) {
 }
 async function serverUp() { try { const r = await fetch('http://localhost:8080/planet.html', { method: 'HEAD' }); return r.ok || r.status === 200 } catch { return false } }
 
+function labLuids() {
+  const vendor = process.env.LAB_GPU
+  const luid = process.env.LAB_GPU_LUID
+  return vendor && luid ? { [String(vendor).toLowerCase()]: luid } : {}
+}
+
 async function withHeadless(fn) {
   const chrome = findChrome()
   if (!chrome) return { ok: false, err: 'no chromium found (set CHROME=/path/to/chrome); CPU heightmap/parity still work GPU-free' }
+  const launch = resolveLaunchArgs(process.env.LAB_ANGLE || 'swiftshader', process.env.LAB_GPU || null, labLuids())
   const procs = []
   try {
     if (!(await serverUp())) {
@@ -126,7 +133,7 @@ async function withHeadless(fn) {
       await waitFor(serverUp, 15000)
     }
     const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'mapspinner-lab-'))
-    const cr = spawn(chrome, ['--headless=new', ...angleBackendArgs(process.env.LAB_ANGLE || 'swiftshader'),
+    const cr = spawn(chrome, ['--headless=new', ...launch.args,
       '--disable-gpu-sandbox', '--no-sandbox', '--remote-debugging-port=0',
       '--user-data-dir=' + profile, 'about:blank'], { stdio: 'ignore' })
     procs.push(cr)
@@ -148,7 +155,7 @@ async function withHeadless(fn) {
       if (r.exceptionDetails) throw new Error(r.exceptionDetails.text)
       return r.result.value
     }
-    const vendor = await evalIn('(()=>{const c=document.createElement("canvas");const gl=c.getContext("webgl2");const e=gl&&gl.getExtension("WEBGL_debug_renderer_info");return gl&&e?gl.getParameter(e.UNMASKED_RENDERER_WEBGL):(gl?"webgl2":"no-webgl2");})()').catch(() => '?')
+    const gpu = await assertLiveBackend(evalIn, launch, 'lab.mjs headless session')
     const orchDeadline = Date.now() + (Number(process.env.LAB_ORCH_TIMEOUT_MS) || 8 * 60 * 1000)
     let st = 'init', pageErr = null
     while (Date.now() < orchDeadline) {
@@ -160,20 +167,26 @@ async function withHeadless(fn) {
     if (st !== 'ready') {
       try { ws.close() } catch {}
       return { ok: false, reason: pageErr ? 'page-error' : (st === 'error' ? 'orch-error' : 'orch-not-ready'),
-        status: st, pageErr, vendor,
-        note: 'SwiftShader software cold-compile of the full terrain shader is slow (minutes); raise LAB_ORCH_TIMEOUT_MS, or use a GPU/Windows chrome with --use-angle=d3d11 (CHROME env) for a fast compile-check.' }
+        status: st, pageErr, ...gpu,
+        note: 'SwiftShader software cold-compile of the full terrain shader is slow (minutes); raise LAB_ORCH_TIMEOUT_MS, or set LAB_ANGLE=d3d11 (plus CHROME env) for a fast compile-check.' }
     }
     const result = await fn(evalIn, screenshot)
     try { ws.close() } catch {}
-    return { ok: true, vendor, ...result }
+    return { ok: true, ...gpu, ...result }
   } finally {
     for (const p of procs) { try { p.kill() } catch {} }
   }
 }
 
+function applyBackendArgs(args) {
+  if (args.d3d11) process.env.LAB_ANGLE = 'd3d11'
+  if (args.angle) process.env.LAB_ANGLE = String(args.angle)
+  if (args.gpu) process.env.LAB_GPU = String(args.gpu)
+}
+
 async function cmdShot(args) {
   ensureOutDir()
-  if (args.d3d11) process.env.LAB_ANGLE = 'd3d11'
+  applyBackendArgs(args)
   const out = args.out ? path.resolve(String(args.out)) : path.join(OUT_DIR, 'shot.png')
   const altKm = num(args.alt, 4.0)
   const pitch = num(args.pitch, 0.4)
@@ -197,7 +210,7 @@ async function cmdShot(args) {
 }
 
 async function cmdAbFs(args) {
-  if (args.d3d11) process.env.LAB_ANGLE = 'd3d11'
+  applyBackendArgs(args)
   ensureOutDir()
   const tmp = path.join(OUT_DIR, '_abfs.png')
   const hashFile = () => { const b = fs.readFileSync(tmp); let s = 0; for (let i = 0; i < b.length; i++) s = (s * 16777619 ^ b[i]) >>> 0; return (s >>> 0) + ':' + b.length }
@@ -240,10 +253,9 @@ async function cmdAbFs(args) {
 
 async function cmdGlslCheck() {
   const r = await withHeadless(async (evalIn) => {
-    const vendor = await evalIn('(()=>{ const c=document.createElement("canvas"); const gl=c.getContext("webgl2"); const e=gl&&gl.getExtension("WEBGL_debug_renderer_info"); return gl&&e?gl.getParameter(e.UNMASKED_RENDERER_WEBGL):(gl?"webgl2-no-dbg":"no-webgl2"); })()')
     const probe = await evalIn('(window.__planetOrch && window.__planetOrch.render && window.__planetOrch.render.sampleGroundM)? window.__planetOrch.render.sampleGroundM([0,1,0]) : "no-probe"')
     const pageErr = await evalIn('window.__pageErr || null')
-    return { compiled: pageErr === null, vendor, probe, pageErr }
+    return { compiled: pageErr === null, probe, pageErr }
   })
   console.log(JSON.stringify(r, null, 1))
   return r.ok && r.compiled ? 0 : 1
@@ -266,7 +278,7 @@ async function cmdParity(args) {
       const v = await evalIn(`(()=>{ const o=window.__planetOrch, p=o&&o.render&&o.render.sampleGroundM; if(!p) return null; const h=p([0,1,0]); return (h!=null && isFinite(h))? h : null; })()`).catch(() => null)
       return v != null
     }, Number(process.env.LAB_PROBE_TIMEOUT_MS) || 4 * 60 * 1000, 2000).then(() => true).catch(() => false)
-    if (!warm) return { samples: 0, note: 'sampleGroundM probe never warmed (lazy program compile too slow on SwiftShader; try --use-angle=d3d11 / a GPU chrome, or raise LAB_PROBE_TIMEOUT_MS)' }
+    if (!warm) return { samples: 0, note: 'sampleGroundM probe never warmed (lazy program compile too slow on SwiftShader; set LAB_ANGLE=d3d11 for a GPU chrome, or raise LAB_PROBE_TIMEOUT_MS)' }
     const gpu = await evalIn(`(()=>{
       const p = window.__planetOrch.render.sampleGroundMSync;
       const out = [];
@@ -304,17 +316,23 @@ function cmdHelp() {
                  CPU heightAt vs GPU _PROBE_ sampleGroundM divergence sweep (the parity gate). Exits
                  non-zero when maxAbsM exceeds --tol (a real CI-failing gate); pass --soft to report
                  only (exit 0 whenever the sweep ran, regardless of withinTol -- old behavior).
-  shot [--alt km=4] [--pitch 0..1=0.4] [--dir x,y,z] [--d3d11] [--out f.png]
+  shot [--alt km=4] [--pitch 0..1=0.4] [--dir x,y,z] [--d3d11] [--angle B] [--gpu V] [--out f.png]
                  Headless RENDER of the terrain over land at an oblique pitch (parkAboveGround: ground
                  fills the frame) -> PNG to inspect. --d3d11 = real AMD/FXC backend (else SwiftShader).
+                 --angle B = any ANGLE backend name; --gpu V = pin a DirectX adapter by vendor.
   ab-fs [--d3d11] [--alt km=4]
                  A/B every FS material/color/biome lever (window.__* + __gen.state.biome): perturb each,
                  render, hash the framebuffer vs baseline -> reports any lever with NO pixel effect (dead).
                  Needs LAND in frame (run warm; changedCount high = good frame).
   help
 
-Backend: CPU heights = pure node (no GPU). GLSL = headless Chromium --use-angle=swiftshader
-(GPU-free). For the ANGLE/FXC witness, run chrome with --use-angle=d3d11 on Windows instead.`)
+Backend: CPU heights = pure node (no GPU). GLSL = headless Chromium whose ANGLE backend is pinned
+through scripts/backend-guard.mjs -> scripts/lib/gpu-probe.mjs, never by a hand-written flag
+literal. LAB_ANGLE selects the backend (default swiftshader = GPU-free software WebGL2);
+LAB_GPU=nvidia|amd|intel pins a DirectX adapter by LUID and exits non-zero naming the vendor when
+no matching adapter exists, so an arm never silently renders on whichever GPU Chrome picked.
+Every command reports backend+rasterizer+renderer probed from the LIVE session, never the request.
+The ANGLE/FXC witness is LAB_ANGLE=d3d11 on Windows.`)
   return 0
 }
 
