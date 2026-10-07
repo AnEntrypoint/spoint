@@ -87,11 +87,27 @@ function release() {
   }
 }
 
-function startHeartbeat() {
+function startHeartbeat(owner) {
+  let lost = false
   const timer = setInterval(() => {
+    if (lost) return
     const record = readOwner()
-    if (!record || record.pid !== process.pid) return
-    writeOwner({ ...record, heartbeatAt: nowMs() })
+    if (!record || record.pid !== process.pid) {
+      lost = true
+      clearInterval(timer)
+      console.error(`gpulock: ${owner} no longer holds the GPU lock, so this arm is not exclusive and its numbers are contended`)
+      return
+    }
+    try {
+      writeOwner({ ...record, heartbeatAt: nowMs() })
+    } catch {
+      try { mkdirSync(LOCK_DIR) } catch {}
+      try {
+        writeOwner({ ...record, heartbeatAt: nowMs() })
+      } catch (e) {
+        console.error(`gpulock: heartbeat could not refresh the lock (${e?.code || e}), so another acquirer may take over at the ${currentTtl} ms ttl`)
+      }
+    }
   }, HEARTBEAT_MS)
   timer.unref?.()
   return timer
@@ -120,7 +136,7 @@ async function runMode(argv) {
   const attempt = await acquire(owner, waitMs)
   if (attempt.tookOverFrom) console.log(`gpulock: ${owner} took the GPU lock from ${attempt.tookOverFrom}`)
   else console.log(`gpulock: ${owner} holds the GPU lock`)
-  const timer = startHeartbeat()
+  const timer = startHeartbeat(owner)
   let released = false
   const drop = () => { if (released) return; released = true; clearInterval(timer); release() }
   process.on('exit', drop)
