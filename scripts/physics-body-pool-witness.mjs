@@ -113,6 +113,40 @@ async function main() {
     `firstMass=${massOf(world, freshA)} secondMass=${massOf(world, freshB)}`
   )
 
+  const inertStatic = world.addBody('box', he, [200, 20, 0], 'static')
+  const inertMotion = world.setBodyMotionType(inertStatic, 'dynamic')
+  for (let i = 0; i < 60; i++) world.step(1 / 60, 1)
+  const inertY = world.getBodyPosition(inertStatic)[1]
+  const inertType = motionTypeName(world, inertStatic)
+  const inertMeta = world.bodyMeta.get(inertStatic)?.type
+  record(
+    'a-body-created-static-reports-failure-instead-of-becoming-inert-dynamic',
+    inertMotion === false && Math.abs(inertY - 20) < 1e-6 && inertType === 'static' && inertMeta === 'static',
+    `returned=${inertMotion} motionType=${inertType} meta=${inertMeta} yAfter1s=${inertY.toFixed(6)}`
+  )
+
+  const liveDynamic = world.addBody('box', he, [240, 20, 0], 'dynamic', { mass: 6 })
+  for (let i = 0; i < 30; i++) world.step(1 / 60, 1)
+  const beforeKinematicY = world.getBodyPosition(liveDynamic)[1]
+  world.setBodyVelocity(liveDynamic, [0, 0, 0])
+  const kinematicOk = world.setBodyMotionType(liveDynamic, 'kinematic')
+  for (let i = 0; i < 60; i++) world.step(1 / 60, 1)
+  const kinematicY = world.getBodyPosition(liveDynamic)[1]
+  const kinematicType = motionTypeName(world, liveDynamic)
+  const kinematicMeta = world.bodyMeta.get(liveDynamic)?.type
+  record(
+    'a-live-dynamic-body-can-become-kinematic-in-place',
+    kinematicOk === true && kinematicType === 'kinematic' && kinematicMeta === 'kinematic' && Math.abs(kinematicY - beforeKinematicY) < 1e-6,
+    `returned=${kinematicOk} motionType=${kinematicType} meta=${kinematicMeta} y=${beforeKinematicY.toFixed(4)}->${kinematicY.toFixed(4)}`
+  )
+
+  const staticMass = world.addBody('box', he, [280, 20, 0], 'static')
+  record(
+    'setBodyMass-refuses-a-body-that-cannot-simulate',
+    world.setBodyMass(staticMass, 4) === false && world.setBodyMass(liveDynamic, 9) === true && Math.abs(massOf(world, liveDynamic) - 9) < 1e-3,
+    `staticReturned=${world.setBodyMass(staticMass, 4)} kinematicMass=${massOf(world, liveDynamic)}`
+  )
+
   const stats = world.physicsStats()
   console.log('STATS ' + JSON.stringify(stats))
   console.log('LIVE_WORLDS ' + livePhysicsWorldCount())

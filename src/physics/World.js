@@ -506,8 +506,20 @@ export class PhysicsWorld {
     const b = this._getBody(id); if (!b || !this.bodyInterface.SetMotionType) return false
     const J = this.Jolt
     const mt = motionType === 'dynamic' ? J.EMotionType_Dynamic : motionType === 'kinematic' ? J.EMotionType_Kinematic : J.EMotionType_Static
-    this.bodyInterface.SetMotionType(b.GetID(), mt, J.EActivation_DontActivate)
+    const gid = b.GetID()
+    const simulates = mt !== J.EMotionType_Static
+    this.bodyInterface.SetMotionType(gid, mt, simulates ? J.EActivation_Activate : J.EActivation_DontActivate)
+    if (simulates) {
+      this.bodyInterface.ActivateBody(gid)
+      if (!b.IsActive()) {
+        this.bodyInterface.SetMotionType(gid, J.EMotionType_Static, J.EActivation_DontActivate)
+        this._staticTiles?.update(id)
+        return false
+      }
+    }
     this._staticTiles?.update(id)
+    const meta = this.bodyMeta.get(id)
+    if (meta) meta.type = motionType
     return true
   }
   deactivateBody(id) {
@@ -523,6 +535,7 @@ export class PhysicsWorld {
   setBodyMass(id, mass) {
     const b = this._getBody(id)
     if (!b || !Number.isFinite(mass) || mass <= 0 || !b.GetMotionProperties) return false
+    if (b.IsStatic && b.IsStatic()) return false
     const mp = b.GetMotionProperties()
     if (!mp || typeof mp.ScaleToMass !== 'function') return false
     mp.ScaleToMass(mass)
