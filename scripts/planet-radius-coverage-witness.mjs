@@ -255,6 +255,25 @@ async function armLive() {
   expect(flat.raw.cellCentreSolves > 0, 'live arm: the AOI ring actually ran', `${flat.raw.cellCentreSolves} cell-centre solve(s) and ${flat.raw.cellComputes} cell compute(s) over ${flat.ticks} tick(s)`)
   expect(flat.raw.neighbourCellsCalls === 0, 'live arm: the cube-sphere neighbour branch never executes', `neighbourCellsCalls = ${flat.raw.neighbourCellsCalls} over ${flat.ticks} tick(s) with planetRadius ${livePlanetRadius}`)
 
+  expect(flat.raw.cellBaseHits > 0, 'cell base cache: a live run serves cached cell base sets instead of recomputing every cell every tick', `${flat.raw.cellBaseHits} hit(s) against ${flat.raw.cellBaseComputes} compute(s) over ${flat.ticks} tick(s), ${flatCentres.length} cell(s) per tick`)
+
+  let baseChecks = 0, baseMismatch = 0
+  for (const [, c] of _spatialCache) {
+    if (!c.baseRelevantIds) continue
+    const cached = new Set(c.baseRelevantIds)
+    const fresh = new Set(stage.getRelevantEntitiesHorizontal(c.cellViewerPos, relevanceRadius))
+    baseChecks++
+    let same = cached.size === fresh.size
+    if (same) { for (const id of cached) if (!fresh.has(id)) { same = false; break } }
+    if (!same) baseMismatch++
+  }
+  expect(baseChecks > 0 && baseMismatch === 0, 'cell base cache: every served cell base set equals a fresh recompute, so a cache hit is never a stale set', `${baseChecks - baseMismatch}/${baseChecks} served cell base set(s) matched a fresh recompute at the same cell centre`)
+
+  aoi.invalidateAoiCellBaseCache()
+  aoi.resetAoiRingWork()
+  const resumed = await window('flat-resumed', 6)
+  expect(resumed.raw.cellBaseHits > 0, 'cell base cache: invalidation drops the cached sets but leaves the cache enabled, so the next window hits again', `after invalidateAoiCellBaseCache(): ${resumed.raw.cellBaseHits} hit(s) and ${resumed.raw.cellBaseComputes} compute(s) over ${resumed.ticks} tick(s)`)
+
   const flatYs = flatCentres.map(c => c.y)
   expect(flatCentres.length > 0 && Math.max(...flatYs.map(Math.abs)) === 0, 'flat path: every cell-centre query origin sits at y = 0', `${flatCentres.length} cell centre(s), max |y| = ${flatCentres.length ? Math.max(...flatYs.map(Math.abs)) : 'n/a'}`)
 
@@ -311,6 +330,25 @@ async function armLive() {
     aoi.invalidateAoiCellBaseCache()
 
     expect(servedByLiveRing === true, 'flat path: the live ring puts an entity more than relevanceRadius above the cell-centre plane into a cell base set', `probe entity ${probeEntity.id} at y = ${highY} shows up in ${servedByLiveRing ? 'a' : 'no'} cell base set over ${highWindow.ticks} tick(s) and ${highWindowCells} cell(s) (${highWindow.raw.cellBaseComputes} base compute(s))`)
+
+    const awayX = probeCentre[0] + relevanceRadius * 10
+    place(awayX, 0, probeCentre[2])
+    aoi.invalidateAoiCellBaseCache()
+    aoi.resetAoiRingWork()
+    const awayWindow = await window('flat-away', 5)
+    let servedAway = false
+    for (const [, c] of _spatialCache) if (c.baseRelevantIds && c.baseRelevantIds.includes(probeEntity.id)) servedAway = true
+    expect(servedAway === false, 'cell base cache: an entity moved out of every cell disc drops out of the base sets, so a hit is not a set pinned at first computation', `probe entity ${probeEntity.id} at x = ${Number(awayX.toFixed(1))} shows up in ${servedAway ? 'a' : 'no'} cell base set over ${awayWindow.ticks} tick(s)`)
+
+    place(probeCentre[0], 0, probeCentre[2])
+    aoi.invalidateAoiCellBaseCache()
+    aoi.resetAoiRingWork()
+    const enterWindow = await window('flat-enter', 5)
+    let servedEntered = false
+    for (const [, c] of _spatialCache) if (c.baseRelevantIds && c.baseRelevantIds.includes(probeEntity.id)) servedEntered = true
+    expect(servedEntered === true, 'cell base cache: an entity that enters a cell mid-run appears in that cell base set', `probe entity ${probeEntity.id} moved back onto the cell centre shows up in ${servedEntered ? 'a' : 'no'} cell base set over ${enterWindow.ticks} tick(s)`)
+    place(home[0], home[1], home[2])
+    aoi.invalidateAoiCellBaseCache()
   } else {
     expect(false, 'flat path: a stage entity and a non-empty cell centre were available to probe the y = 0 blind spot', `probeEntity ${probeEntity ? probeEntity.id : 'none'}, probeCentre ${probeCentre ? JSON.stringify(probeCentre) : 'none'}`)
   }

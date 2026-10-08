@@ -78,9 +78,13 @@ export async function installAoiCodeEpoch() {
 }
 
 export function invalidateAoiCellBaseCache() {
-  _aoiCodeEpoch = ''
   _aoiCellBaseEpoch = ''
   _cellBaseCache.clear()
+}
+
+export function disableAoiCellBaseCache() {
+  _aoiCodeEpoch = ''
+  invalidateAoiCellBaseCache()
 }
 
 export function setAoiCellBaseEpoch(relevanceRadius, planetRadius, appRuntime) {
@@ -137,12 +141,12 @@ function computeRingRelevantIds(cellKey, cellFace, cellCx, cellCy, cellsPerFace,
   let ring = _ringCache.get(cellKey)
   if (ring) { aoiRingWork.ringHits++; return ring }
   aoiRingWork.ringComputes++
-  const relSet = new Set(), nearSet = new Set()
+  const relSet = new Set()
   const addCell = (face, cx, cy, key) => {
     let c = _spatialCache.get(key)
     if (!c) {
       aoiRingWork.cellComputes++
-      aoiRingWork.statefulQueries += 2
+      aoiRingWork.statefulQueries += 1
       const base = readCellBase(key)
       let cvp, baseRelevantIds
       if (base) { cvp = base.cellViewerPos; baseRelevantIds = base.baseRelevantIds; aoiRingWork.cellBaseHits++ }
@@ -154,7 +158,6 @@ function computeRingRelevantIds(cellKey, cellFace, cellCx, cellCy, cellsPerFace,
         storeCellBase(key, cvp, baseRelevantIds)
       }
       c = {
-        nearbyPlayerIds: appRuntime.nearbyPlayerIdsHysteresis(cvp, relevanceRadius, key),
         relevantIds: appRuntime.getRelevantDynamicIdsWithStarvation(cvp, relevanceRadius, key, 300, baseRelevantIds),
         cellViewerPos: cvp,
         baseRelevantIds,
@@ -162,7 +165,6 @@ function computeRingRelevantIds(cellKey, cellFace, cellCx, cellCy, cellsPerFace,
       _spatialCache.set(key, c)
     } else aoiRingWork.cellHits++
     for (const id of c.relevantIds) relSet.add(id)
-    for (const id of c.nearbyPlayerIds) nearSet.add(id)
   }
   if (planetRadius > 0) {
     aoiRingWork.neighbourCellsCalls++
@@ -177,7 +179,7 @@ function computeRingRelevantIds(cellKey, cellFace, cellCx, cellCy, cellsPerFace,
       }
     }
   }
-  ring = { relevantIds: relSet, nearbyPlayerIds: nearSet }
+  ring = { relevantIds: relSet }
   _ringCache.set(cellKey, ring)
   return ring
 }

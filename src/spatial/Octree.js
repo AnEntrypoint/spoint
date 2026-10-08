@@ -130,51 +130,7 @@ export class SpatialIndex {
     return results
   }
 
-  nearbyHysteresis(position, radius, queryKey, hysteresisFactor = 1.15, out) {
-    if (!this._hystSets) this._hystSets = new Map()
-    let pair = this._hystSets.get(queryKey)
-    if (!pair) { pair = { a: null, b: new Set() }; this._hystSets.set(queryKey, pair) }
-    const prevSet = pair.a
-    const results = out || []
-    if (out) results.length = 0
-    const cx = position[0], cy = position[1], cz = position[2]
-    const r2 = radius * radius
-    const outerRadius = radius * hysteresisFactor
-    const outerR2 = outerRadius * outerRadius
-    const minCx = cellCoord(cx - outerRadius), maxCx = cellCoord(cx + outerRadius)
-    const minCz = cellCoord(cz - outerRadius), maxCz = cellCoord(cz + outerRadius)
-    const nextSet = pair.b; nextSet.clear()
-    for (let gx = minCx; gx <= maxCx; gx++) {
-      for (let gz = minCz; gz <= maxCz; gz++) {
-        const bucket = this._cells.get(cellKey(gx, gz))
-        if (!bucket) continue
-        for (let i = 0; i < bucket.length; i++) {
-          const id = bucket[i]
-          const p = this._entities.get(id)
-          if (!p) continue
-          const dx = p[0] - cx, dy = p[1] - cy, dz = p[2] - cz
-          const d2 = dx * dx + dy * dy + dz * dz
-          if (d2 <= r2 || (d2 <= outerR2 && prevSet && prevSet.has(id))) {
-            results.push(id)
-            nextSet.add(id)
-          }
-        }
-      }
-    }
-    pair.b = prevSet || new Set(); pair.a = nextSet
-    return results
-  }
-
-  clearHysteresisKey(queryKey) {
-    if (this._hystSets) this._hystSets.delete(queryKey)
-  }
-
   pruneIdleKeys(liveKeys) {
-    if (this._hystSets) {
-      for (const [key, pair] of this._hystSets) {
-        if (!liveKeys.has(key) && (!pair.a || pair.a.size === 0)) this._hystSets.delete(key)
-      }
-    }
     if (this._starveTicks) {
       for (const [key, v] of this._starveTicks) {
         if (!liveKeys.has(key) && v.zero.size === 0) this._starveTicks.delete(key)

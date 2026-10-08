@@ -582,7 +582,6 @@ export class AppRuntime {
     return o
   }
   nearbyPlayerIds(pos, r) { return this._playerIndex.nearby(pos, r) }
-  nearbyPlayerIdsHysteresis(pos, r, viewerKey) { return this._playerIndex.nearbyHysteresis(pos, r, viewerKey) }
 
   registerProximityWatch(entityId, radius, callback) {
     if (typeof radius !== 'number' || !Number.isFinite(radius) || radius < 0) throw new TypeError('[AppRuntime] registerProximityWatch: radius must be a non-negative finite number')

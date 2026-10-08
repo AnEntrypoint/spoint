@@ -158,7 +158,7 @@ async function runAoiRingArm() {
 
   const rows = []
   for (let rep = 0; rep < AOI_REPS; rep++) {
-    aoi.invalidateAoiCellBaseCache()
+    aoi.disableAoiCellBaseCache()
     const off = await window(`rep${rep}-cache-off`)
     await aoi.installAoiCodeEpoch()
     const cold = await window(`rep${rep}-cache-on-cold`, 24)

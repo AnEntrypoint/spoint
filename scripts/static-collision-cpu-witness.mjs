@@ -711,8 +711,8 @@ async function runServer() {
   const aoiSpatialCells = []
   let ringComputes = 0
   const appRuntime = runtime
-  const origNearby = appRuntime.nearbyPlayerIdsHysteresis?.bind(appRuntime)
-  if (origNearby) appRuntime.nearbyPlayerIdsHysteresis = function (...a) { ringComputes++; return origNearby(...a) }
+  const origNearby = appRuntime.getRelevantDynamicIdsWithStarvation?.bind(appRuntime)
+  if (origNearby) appRuntime.getRelevantDynamicIdsWithStarvation = function (...a) { ringComputes++; return origNearby(...a) }
   let servedCalls = 0
   const origNearbyPlain = appRuntime.nearbyPlayerIds?.bind(appRuntime)
   if (origNearbyPlain) appRuntime.nearbyPlayerIds = function (...a) { servedCalls++; return origNearbyPlain(...a) }
