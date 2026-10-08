@@ -1,11 +1,19 @@
 import { SpatialIndex } from '../spatial/Octree.js'
 
+function resolvedPlanetRadius(stageName, declared) {
+  if (declared == null || declared === 0) return 0
+  if (!(Number.isFinite(declared) && declared > 0)) {
+    throw new TypeError(`[stage] stage "${stageName}" got planetRadius ${JSON.stringify(declared)}: a stage is flat with no radius or planet-centred with a positive finite radius resolved from enabled clusters, and every other value silently picks the cube-sphere cell lattice it cannot serve`)
+  }
+  return declared
+}
+
 export class Stage {
   constructor(name, config = {}) {
     this.name = name
     this.entityIds = new Set()
     this.spatial = new SpatialIndex({ relevanceRadius: config.relevanceRadius || 200 })
-    this.spatial.planetRadius = config.planetRadius || 0
+    this.spatial.planetRadius = resolvedPlanetRadius(name, config.planetRadius)
     this.gravity = config.gravity || null
     this.spawnPoint = config.spawnPoint || null
     this.playerModel = config.playerModel || null
@@ -48,6 +56,10 @@ export class Stage {
 
   getRelevantEntities(position, radius) {
     return this.spatial.nearby(position, radius || this.spatial.relevanceRadius)
+  }
+
+  getRelevantEntitiesHorizontal(position, radius) {
+    return this.spatial.nearbyHorizontal(position, radius || this.spatial.relevanceRadius)
   }
 
 

@@ -1,10 +1,23 @@
 import { Stage } from './Stage.js'
 import { worldPlayerModel } from '../shared/worldDefaults.js'
+import { resolveTerrainConfig } from '../shared/terrainConfig.js'
+import { resolveClusterConfig } from '../shared/clusterConfig.js'
 
 function vecOK(v, n) {
   if (!Array.isArray(v) || v.length !== n) return false
   for (let i = 0; i < n; i++) if (!Number.isFinite(v[i])) return false
   return true
+}
+
+function stagePlanetRadius(worldDef) {
+  const tcfg = resolveTerrainConfig(worldDef)
+  const clusterConfig = tcfg
+    ? resolveClusterConfig(tcfg.clusters, { radius: tcfg.radius, relevanceRadius: worldDef.relevanceRadius || 200, maxWeaponRangeM: worldDef.maxWeaponRangeM ?? 0 })
+    : null
+  if (clusterConfig) return clusterConfig.radius
+  const declared = worldDef.planetRadius
+  if (declared == null || declared === 0) return 0
+  throw new TypeError(`[stage] world "${worldDef.name ?? '(unnamed)'}" declares planetRadius ${JSON.stringify(declared)} without enabled clusters: the cube-sphere cell lattice moves every cell query origin onto the sphere while players stay at chart-local distances, so the ring serves nothing and raises nothing -- the radius has to be the one resolveClusterConfig resolves`)
 }
 
 export class StageLoader {
@@ -17,7 +30,7 @@ export class StageLoader {
   loadFromDefinition(name, worldDef) {
     const stage = new Stage(name, {
       relevanceRadius: worldDef.relevanceRadius || 200,
-      planetRadius: worldDef.planetRadius || 0,
+      planetRadius: stagePlanetRadius(worldDef),
       gravity: worldDef.gravity,
       spawnPoint: worldDef.spawnPoint,
       playerModel: worldPlayerModel(worldDef)
@@ -92,5 +105,10 @@ export class StageLoader {
   getRelevantEntities(position, radius) {
     if (!this._activeStage) return []
     return this._activeStage.getRelevantEntities(position, radius)
+  }
+
+  getRelevantEntitiesHorizontal(position, radius) {
+    if (!this._activeStage) return []
+    return this._activeStage.getRelevantEntitiesHorizontal(position, radius)
   }
 }

@@ -30,6 +30,7 @@ function checkSlices(w) {
     if (w.terrain.radius !== undefined && !(isNum(w.terrain.radius) && w.terrain.radius > 0)) return reject('terrain.radius', 'must be a positive finite number')
     if (w.terrain.carves !== undefined && !Array.isArray(w.terrain.carves)) return reject('terrain.carves', 'must be an array')
   }
+  if (w.planetRadius !== undefined && !(isNum(w.planetRadius) && w.planetRadius > 0)) return reject('planetRadius', 'must be a positive finite number: the AOI cell lattice is flat unless this radius is the one resolveClusterConfig resolves from enabled clusters, and a zero, negative or non-finite radius silently serves flat cells under a planet')
   if (w.iceServers !== undefined) {
     if (!Array.isArray(w.iceServers)) return reject('iceServers', 'must be an array of RTCIceServer objects')
     const bad = w.iceServers.findIndex(s => !isObj(s) || !(typeof s.urls === 'string' || (Array.isArray(s.urls) && s.urls.every(u => typeof u === 'string'))))

@@ -127,6 +127,12 @@ function solveCellViewer(face, cx, cy, planetRadius, relevanceRadius) {
   return [(cx + 0.5) * relevanceRadius, 0, (cy + 0.5) * relevanceRadius]
 }
 
+function cellBaseIds(appRuntime, cvp, planetRadius, relevanceRadius) {
+  const stageLoader = appRuntime?._stageLoader
+  if (planetRadius <= 0 && stageLoader) return stageLoader.getRelevantEntitiesHorizontal(cvp, relevanceRadius)
+  return appRuntime.relevantEntities(cvp, relevanceRadius)
+}
+
 function computeRingRelevantIds(cellKey, cellFace, cellCx, cellCy, cellsPerFace, planetRadius, relevanceRadius, appRuntime) {
   let ring = _ringCache.get(cellKey)
   if (ring) { aoiRingWork.ringHits++; return ring }
@@ -144,7 +150,7 @@ function computeRingRelevantIds(cellKey, cellFace, cellCx, cellCy, cellsPerFace,
         aoiRingWork.cellBaseComputes++
         aoiRingWork.cellCentreSolves++
         cvp = solveCellViewer(face, cx, cy, planetRadius, relevanceRadius)
-        baseRelevantIds = appRuntime.relevantEntities(cvp, relevanceRadius)
+        baseRelevantIds = cellBaseIds(appRuntime, cvp, planetRadius, relevanceRadius)
         storeCellBase(key, cvp, baseRelevantIds)
       }
       c = {

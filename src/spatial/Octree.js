@@ -108,6 +108,28 @@ export class SpatialIndex {
     return results
   }
 
+  nearbyHorizontal(position, radius) {
+    const results = []
+    const cx = position[0], cz = position[2]
+    const r2 = radius * radius
+    const minCx = cellCoord(cx - radius), maxCx = cellCoord(cx + radius)
+    const minCz = cellCoord(cz - radius), maxCz = cellCoord(cz + radius)
+    for (let gx = minCx; gx <= maxCx; gx++) {
+      for (let gz = minCz; gz <= maxCz; gz++) {
+        const bucket = this._cells.get(cellKey(gx, gz))
+        if (!bucket) continue
+        for (let i = 0; i < bucket.length; i++) {
+          const id = bucket[i]
+          const p = this._entities.get(id)
+          if (!p) continue
+          const dx = p[0] - cx, dz = p[2] - cz
+          if (dx * dx + dz * dz <= r2) results.push(id)
+        }
+      }
+    }
+    return results
+  }
+
   nearbyHysteresis(position, radius, queryKey, hysteresisFactor = 1.15, out) {
     if (!this._hystSets) this._hystSets = new Map()
     let pair = this._hystSets.get(queryKey)
