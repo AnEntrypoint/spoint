@@ -1,36 +1,36 @@
 {
   "rasterizer": "accelerated",
-  "headSha": "76059b48b782cf93661ef023da6d680ed2d6a4e0",
+  "headSha": "f2f780245790103368abb9f12187e42fe6bcfecf",
   "vendor": "nvidia",
   "gpu": "nvidia ampere | nvidia",
   "vegInstances": 5207,
   "fingerprint": {
     "gpuControlIterations": 8192,
-    "gpuControlBeforeP50Ms": 31.5,
-    "gpuControlAfterP50Ms": 31.899999998509884,
-    "gpuControlBeforeMsPerK": 3.84521484375,
-    "gpuControlAfterMsPerK": 3.894042968568101,
-    "gpuControlSpread": 1.0126984126511074,
+    "gpuControlBeforeP50Ms": 25.300000000745058,
+    "gpuControlAfterP50Ms": 29.199999999254942,
+    "gpuControlBeforeMsPerK": 3.0883789063409495,
+    "gpuControlAfterMsPerK": 3.5644531249090505,
+    "gpuControlSpread": 1.154150197565021,
     "cpuContested": false,
-    "cpuSlowdown": 1.22,
-    "chromeProcessCount": 24
+    "cpuSlowdown": 1.16,
+    "chromeProcessCount": 28
   },
   "static": {
-    "p50Ms": 8.979999999995925,
-    "p95Ms": 10.360000000000582,
-    "onePercentLowMs": 24.00562499999978,
-    "fps": 111.35857461029552,
-    "sampleCount": 890,
-    "avgDrawCalls": 2.020224719101124,
-    "avgTriangles": 312715.48484848486
+    "p50Ms": 4.639999999999418,
+    "p95Ms": 5.899999999994179,
+    "onePercentLowMs": 7.005294117647281,
+    "fps": 215.51724137933738,
+    "sampleCount": 1729,
+    "avgDrawCalls": 2.0104106419895893,
+    "avgTriangles": 309189.5456647399
   },
   "orbit": {
-    "p50Ms": 9.025000000001455,
-    "p95Ms": 11.305000000000291,
-    "onePercentLowMs": 23.988749999999527,
-    "fps": 110.80332409970512,
-    "sampleCount": 881,
-    "avgDrawCalls": 2.0272417707150967,
-    "avgTriangles": 323503.57823129254
+    "p50Ms": 5.775000000001455,
+    "p95Ms": 7.745000000002619,
+    "onePercentLowMs": 11.328076923077997,
+    "fps": 173.16017316012952,
+    "sampleCount": 1348,
+    "avgDrawCalls": 2.0178041543026706,
+    "avgTriangles": 319234.9377316531
   }
 }
