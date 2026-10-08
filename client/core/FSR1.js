@@ -211,8 +211,11 @@ export function buildFSR1Nodes() {
 }
 
 function _dprIsDownscaled() {
-  if (typeof window === 'undefined' || !window.__dpr) return false
-  return window.__dpr.scale < 0.999
+  if (typeof window === 'undefined') return false
+  const dpr = RenderControls.get('dpr')
+  if (dpr == null) return false
+  const scale = typeof dpr === 'object' ? +dpr.scale : +dpr / (window.devicePixelRatio || 1)
+  return Number.isFinite(scale) && scale < 0.999
 }
 
 export function installFSR1(ctx, renderer) {

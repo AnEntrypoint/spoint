@@ -230,7 +230,7 @@ export function createThreeVdrsController() {
   const WIN = 45
   const MIN = 0.5, MAX = 1.0, STEP = 0.1
   function tick(ms) {
-    if (typeof window === 'undefined' || !window.__threeVdrsAuto || window.__threeVdrsOff) return
+    if (typeof window === 'undefined' || !RenderControls.get('threeVdrsAuto') || RenderControls.get('threeVdrsOff')) return
     acc += ms; n++
     if (n < WIN) return
     const avg = acc / n; acc = 0; n = 0

@@ -1,3 +1,5 @@
+import { RenderControls } from './RenderControls.js'
+
 const _HAS_HEAP = typeof performance !== 'undefined' && !!performance.memory
 export function createPerfTracker() {
   const N = 240, ring = new Float32Array(N), sortBuf = new Float32Array(N)
@@ -129,7 +131,7 @@ export function createDprController() {
   const LOWER_ABOVE_BUDGET = 1.15, RAISE_BELOW_BUDGET = 0.80
   const MIN = 0.40, MAX = 1.0, STEP = 0.08
   function tick(renderer, ms) {
-    if (typeof window === 'undefined' || !window.__dprAuto || window.__dprOff) return
+    if (typeof window === 'undefined' || !RenderControls.get('dprAuto') || RenderControls.get('dprOff')) return
     acc += ms; n++
     if (n < FRAMES_PER_WINDOW) return
     const avg = acc / n; acc = 0; n = 0
@@ -149,7 +151,7 @@ export function createTerrainVdrsController() {
   const LOWER_ABOVE_BUDGET = 1.15, RAISE_BELOW_BUDGET = 0.80
   const MIN = 0.5, MAX = 1.0, STEP = 0.1
   function tick(ms) {
-    if (typeof window === 'undefined' || !window.__vdrsAuto || window.__vdrsOff) return
+    if (typeof window === 'undefined' || !RenderControls.get('vdrsAuto') || RenderControls.get('vdrsOff')) return
     acc += ms; n++
     if (n < FRAMES_PER_WINDOW) return
     const avg = acc / n; acc = 0; n = 0

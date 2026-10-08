@@ -157,7 +157,7 @@ export function buildRenderSectionNodes() {
       required: true,
       run(ctx) {
         const hasTerrain = !!ctx.terrainBackdrop && !ctx.terrainBackdrop.drawsInScene
-        const scale = (typeof window !== 'undefined') ? +window.__threeVdrsScale || 1.0 : 1.0
+        const scale = +RenderControls.get('threeVdrsScale') || 1.0
         const vdrsRequested = RenderControls.get('threeVdrs') === true
         if (vdrsRequested && !ctx.threeVdrs && ctx.threeVdrsUnsupported && !ctx.threeVdrsUnsupportedReported) {
           ctx.threeVdrsUnsupportedReported = true
