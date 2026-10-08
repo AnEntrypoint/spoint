@@ -172,7 +172,7 @@ export async function createVegetation(opts = {}) {
           { geometry: leafGeo0, material: sp.leafMat, distance: 0 },
           { geometry: l1, material: sp.leafMat, distance: D1 },
           { geometry: l2, material: sp.leafMat, distance: D2 },
-        ], INIT_CAP, VEG_ATTRIBUTE_SCHEMA, { hysteresis: LOD_HYS })
+        ], INIT_CAP, VEG_ATTRIBUTE_SCHEMA, { hysteresis: LOD_HYS, host: branch })
         bootSpan('instancers', label, _t); _t = performance.now()
         try {
           if (!_buildImpostor) throw new Error('veg-bisect: impostor disabled (?veg=branch)')

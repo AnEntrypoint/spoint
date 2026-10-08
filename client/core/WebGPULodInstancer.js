@@ -143,10 +143,16 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
   const recs = []
   const freeIds = []
   let liveCount = 0
+  const host = opts.host || null
+  const satellites = []
+  const slotMaps = { idOfSlot: new Int32Array(0), slotOfId: new Int32Array(0) }
+  let addSlotIds = new Int32Array(0)
+  let addSlotCount = 0
+  let addSlotCursor = 0
 
   let meshFarSq = Infinity
   let meshFarDist = Infinity
-  const sweepStats = { updateCalls: 0, recordsWalked: 0, planeTests: 0, cellsTested: 0, cellsSkipped: 0, rebuilds: 0, rebuildRecords: 0 }
+  const sweepStats = { updateCalls: 0, recordsWalked: 0, planeTests: 0, cellsTested: 0, cellsSkipped: 0, rebuilds: 0, rebuildRecords: 0, mirrored: 0 }
 
   function tierFor(dsq) {
     if (dsq >= meshFarSq) return NO_MESH_TIER
@@ -181,6 +187,105 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
   if (!baseGeometry.boundingSphere) baseGeometry.computeBoundingSphere()
   const levelBounds = baseGeometry.boundingSphere
 
+  function ensureSlotMap(slot, id) {
+    if (slotMaps.idOfSlot.length <= slot) {
+      const grown = new Int32Array(Math.max(slot + 1, slotMaps.idOfSlot.length * 2, 64))
+      grown.fill(-1); grown.set(slotMaps.idOfSlot); slotMaps.idOfSlot = grown
+    }
+    if (slotMaps.slotOfId.length <= id) {
+      const grown = new Int32Array(Math.max(id + 1, slotMaps.slotOfId.length * 2, 64))
+      grown.fill(-1); grown.set(slotMaps.slotOfId); slotMaps.slotOfId = grown
+    }
+  }
+
+  function bindSlot(slot, id) {
+    ensureSlotMap(slot, id)
+    const displaced = slotMaps.idOfSlot[slot]
+    if (displaced >= 0) slotMaps.slotOfId[displaced] = -1
+    slotMaps.idOfSlot[slot] = id
+    slotMaps.slotOfId[id] = slot
+  }
+
+  function unbindSlot(id) {
+    if (id >= slotMaps.slotOfId.length) return
+    const slot = slotMaps.slotOfId[id]
+    if (slot < 0) return
+    slotMaps.slotOfId[id] = -1
+    if (slotMaps.idOfSlot[slot] === id) slotMaps.idOfSlot[slot] = -1
+  }
+
+  function unbindHostSlot(slot) {
+    if (slot < 0 || slot >= slotMaps.idOfSlot.length) return
+    const bound = slotMaps.idOfSlot[slot]
+    slotMaps.idOfSlot[slot] = -1
+    if (bound >= 0 && bound < slotMaps.slotOfId.length && slotMaps.slotOfId[bound] === slot) slotMaps.slotOfId[bound] = -1
+  }
+
+  const seedScratch = { tier: NO_MESH_TIER, culled: false, visible: true, shadowWanted: false }
+
+  function seedFromHost(slot, id) {
+    host.lodPair.decisionOf(slot, seedScratch)
+    const rec = recs[id]
+    if (rec.tier === seedScratch.tier && rec.visible === seedScratch.visible && rec.viewCulled === seedScratch.culled) return
+    removeFromTier(rec.tier, id)
+    rec.visible = seedScratch.visible
+    rec.viewCulled = seedScratch.culled
+    rec.shadowWanted = seedScratch.shadowWanted
+    rec.tier = seedScratch.tier
+    if (rec.visible) show(id, rec)
+  }
+
+  function applyMeshFar(d) {
+    meshFarSq = d * d
+    meshFarDist = d
+    lodStale = true
+  }
+
+  function slotId(slot) {
+    if (slot < 0 || slot >= slotMaps.idOfSlot.length) return -1
+    const id = slotMaps.idOfSlot[slot]
+    if (id < 0) return -1
+    const rec = recs[id]
+    return rec === null || rec === undefined ? -1 : id
+  }
+
+  function mirrorTier(slot, tier, culled) {
+    const id = slotId(slot)
+    if (id < 0) return
+    sweepStats.mirrored++
+    placeInTier(id, recs[id], tier, culled)
+  }
+
+  function mirrorShadow(slot, shadowWanted) {
+    if (shadow === null) return
+    const id = slotId(slot)
+    if (id < 0) return
+    sweepStats.mirrored++
+    applyShadowWanted(id, recs[id], shadowWanted)
+  }
+
+  function mirrorVisibility(slot, visible) {
+    const id = slotId(slot)
+    if (id < 0) return
+    const rec = recs[id]
+    if (rec.visible === visible) return
+    sweepStats.mirrored++
+    rec.visible = visible
+    if (visible) show(id, rec); else hide(id, rec)
+  }
+
+  function beginAddSlots(count) {
+    if (satellites.length > 0 && addSlotCursor !== addSlotCount) throw new Error(`WebGPULodInstancer: a previous host add left ${addSlotCount - addSlotCursor} of ${addSlotCount} slot(s) unconsumed, so those instance(s) have no satellite`)
+    if (addSlotIds.length < count) addSlotIds = new Int32Array(Math.max(count, addSlotIds.length * 2, 64))
+    addSlotCount = count
+    addSlotCursor = 0
+  }
+
+  function takeAddSlot() {
+    if (addSlotCursor >= addSlotCount) throw new Error(`WebGPULodInstancer: satellite consumed ${addSlotCursor} of ${addSlotCount} host slot(s), so its add is not paired`)
+    return addSlotIds[addSlotCursor++]
+  }
+
   function placeInTier(id, rec, tier, culled) {
     const wasDrawn = inView(rec) && rec.tier !== NO_MESH_TIER
     const nowDrawn = rec.visible && !culled && tier !== NO_MESH_TIER
@@ -188,6 +293,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     const addNow = nowDrawn && (!wasDrawn || tier !== rec.tier)
     rec.tier = tier; rec.viewCulled = culled
     if (addNow) tiers[tier].add(id, rec)
+    for (let s = 0; s < satellites.length; s++) satellites[s].mirrorTier(id, tier, culled)
   }
 
   const planeBuf = new Float64Array(24)
@@ -208,9 +314,24 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     liveFlags[id] = 1
   }
 
+  function allocRec(cb) {
+    const id = freeIds.length ? freeIds.pop() : recs.length
+    _pos.set(0, 0, 0); _quat.identity(); _scale.set(1, 1, 1)
+    proxy.id = id
+    cb(proxy)
+    _m4.compose(_pos, _quat, _scale)
+    const rec = { matrix: Float32Array.from(_m4.elements), attrs: {}, tier: 0, shadowWanted: false, visible: true, viewCulled: false, bounds: new THREE.Sphere().copy(levelBounds).applyMatrix4(_m4) }
+    recs[id] = rec
+    storeSpan(id, rec)
+    liveCount++
+    tiers[0].add(id, rec)
+    return id
+  }
+
   function applyShadowWanted(id, rec, shadowWanted) {
     rec.shadowWanted = shadowWanted
     if (rec.visible) { if (shadowWanted) shadow.add(id, rec); else shadow.remove(id) }
+    for (let s = 0; s < satellites.length; s++) satellites[s].mirrorShadow(id, shadowWanted)
   }
 
   const grid = {
@@ -448,6 +569,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
 
   function updateLOD(cameraPos, frustum, viewChanged) {
     sweepStats.updateCalls++
+    if (host !== null) return
     walked = 0
     planeTests = 0
     const ex = cameraPos.x - lodEyeX, ey = cameraPos.y - lodEyeY, ez = cameraPos.z - lodEyeZ
@@ -627,18 +749,20 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
     set matrixAutoUpdate(v) { props.matrixAutoUpdate = v; for (const p of pools) p.applyProps() },
     updateMatrix() { for (const p of pools) p.mesh.updateMatrix() },
     addInstances(count, cb) {
-      for (let i = 0; i < count; i++) {
-        const id = freeIds.length ? freeIds.pop() : recs.length
-        _pos.set(0, 0, 0); _quat.identity(); _scale.set(1, 1, 1)
-        proxy.id = id
-        cb(proxy)
-        _m4.compose(_pos, _quat, _scale)
-        const rec = { matrix: Float32Array.from(_m4.elements), attrs: {}, tier: 0, shadowWanted: false, visible: true, viewCulled: false, bounds: new THREE.Sphere().copy(levelBounds).applyMatrix4(_m4) }
-        recs[id] = rec
-        storeSpan(id, rec)
-        liveCount++
-        tiers[0].add(id, rec)
-        enqueuePending(id)
+      if (host !== null) {
+        for (let i = 0; i < count; i++) {
+          const slot = host.lodPair.takeAddSlot()
+          const id = allocRec(cb)
+          bindSlot(slot, id)
+          seedFromHost(slot, id)
+        }
+      } else {
+        beginAddSlots(count)
+        for (let i = 0; i < count; i++) {
+          const id = allocRec(cb)
+          addSlotIds[i] = id
+          enqueuePending(id)
+        }
       }
       if (count > 0) lodStale = true
     },
@@ -651,6 +775,8 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
       liveCount--
       freeIds.push(id)
       lodStale = true
+      if (host !== null) unbindSlot(id)
+      for (let s = 0; s < satellites.length; s++) satellites[s].unbindHostSlot(id)
       if (id < grid.cellOf.length) grid.cellOf[id] = -1
       grid.removedSinceBuild++
     },
@@ -668,6 +794,7 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
       rec.visible = visible
       invalidateCellOf(id)
       if (visible) show(id, rec); else hide(id, rec)
+      for (let s = 0; s < satellites.length; s++) satellites[s].mirrorVisibility(id, visible)
     },
     resizeBuffers() {},
     updateLOD,
@@ -676,16 +803,48 @@ export function createWebGPULodInstancer(scene, levels, capacity, attributeSchem
       meshFarSq = d * d
       meshFarDist = d
       lodStale = true
+      for (let s = 0; s < satellites.length; s++) satellites[s].applyMeshFar(d)
       if (grid.usable) grid.mode.fill(APPLIED_INVALID, 0, grid.cells)
     },
     get lodTierCount() { return tiers.length },
+    lodPair: {
+      beginAddSlots,
+      takeAddSlot,
+      thresholdsSq,
+      get meshFarDist() { return meshFarDist },
+      decisionOf(id, out) {
+        const rec = id >= 0 ? recs[id] : null
+        if (!rec) { out.tier = NO_MESH_TIER; out.culled = false; out.visible = false; out.shadowWanted = false; return }
+        out.tier = rec.tier
+        out.culled = rec.viewCulled
+        out.visible = rec.visible
+        out.shadowWanted = rec.shadowWanted
+      },
+      attach(satellite) { satellites.push(satellite) },
+      detach(satellite) {
+        const at = satellites.indexOf(satellite)
+        if (at >= 0) satellites.splice(at, 1)
+      },
+    },
     get sweepStats() { return sweepStats },
     get tierIds() { return tiers.map(t => t.ids) },
     get sweepGrid() { return { usable: grid.usable, cells: grid.cells, instances: liveCount, reachCells: grid.activeCount, pending: grid.pendingCount, builtLive: grid.builtLive } },
     get shadowActiveCount() { return shadow ? shadow.size : 0 },
     get tierMeshes() { return tiers.map(t => t.mesh) },
     get shadowMesh() { return shadow ? shadow.mesh : null },
-    dispose() { for (const p of pools) p.dispose(); recs.length = 0; liveFlags.fill(0); liveCount = 0; freeIds.length = 0; grid.dirty = true; grid.usable = false; grid.cells = 0; grid.pendingCount = 0; grid.removedSinceBuild = 0; grid.builtLive = 0 },
+    dispose() { if (api.disposeSatellite) api.disposeSatellite(); for (const p of pools) p.dispose(); recs.length = 0; liveFlags.fill(0); liveCount = 0; freeIds.length = 0; grid.dirty = true; grid.usable = false; grid.cells = 0; grid.pendingCount = 0; grid.removedSinceBuild = 0; grid.builtLive = 0 },
+  }
+  if (host !== null) {
+    if (host.lodTierCount !== tiers.length) throw new Error(`WebGPULodInstancer: satellite has ${tiers.length} LOD tier(s) but its host has ${host.lodTierCount}`)
+    const hostThresholds = host.lodPair.thresholdsSq
+    if (hostThresholds.length !== thresholdsSq.length) throw new Error(`WebGPULodInstancer: satellite has ${thresholdsSq.length} LOD threshold(s) but its host has ${hostThresholds.length}`)
+    for (let i = 0; i < thresholdsSq.length; i++) {
+      if (hostThresholds[i] !== thresholdsSq[i]) throw new Error(`WebGPULodInstancer: satellite LOD threshold ${i} is ${thresholdsSq[i]} but its host's is ${hostThresholds[i]}`)
+    }
+    const selfAsSatellite = { mirrorTier, mirrorShadow, mirrorVisibility, unbindHostSlot, applyMeshFar }
+    host.lodPair.attach(selfAsSatellite)
+    selfAsSatellite.applyMeshFar(host.lodPair.meshFarDist)
+    api.disposeSatellite = () => host.lodPair.detach(selfAsSatellite)
   }
   for (const p of pools) p.mesh.userData.lodInstancer = api
   return api
