@@ -450,7 +450,7 @@ async function runParent() {
     const children = []
     const pending = new Map()
     const visLatest = new Map()
-    const waitFor = (child, type, ms = 120000) => new Promise((res, rej) => { const t = setTimeout(() => rej(new Error('timeout waiting for child ' + type + ' (child exitCode=' + child.exitCode + ')')), ms); child.once('__' + type, m => { clearTimeout(t); res(m) }); child.once('exit', () => { clearTimeout(t); rej(new Error('child exited waiting for ' + type)) }) })
+    const waitFor = (child, type, ms = 120000) => new Promise((res, rej) => { const t = setTimeout(() => rej(new Error('timeout waiting for child ' + type + ' (child exitCode=' + child.exitCode + ')')), ms); child.once('__' + type, m => { clearTimeout(t); res(m) }); child.once('exit', (code, signal) => { clearTimeout(t); rej(new Error('child exited waiting for ' + type + ' (exitCode=' + code + ', signal=' + signal + ')')) }) })
     for (let c = 0; c < PROCS; c++) {
       const child = fork(fileURLToPath(import.meta.url), ['--child', ...(args.mirror === 'on' ? ['--mirror=on'] : []), ...(args.trace ? ['--trace=1'] : [])], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'], execArgv: [] })
       child.on('message', m => child.emit('__' + m.t, m))
