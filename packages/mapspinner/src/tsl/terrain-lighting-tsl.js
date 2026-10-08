@@ -1,7 +1,7 @@
 import * as THREE from 'three/webgpu'
 import {
   float, vec3, vec4, uniform, normalize, dot, max, clamp, mix, smoothstep, pow, length, select, luminance,
-  normalView, diffuseColor,
+  normalView, diffuseColor, If,
 } from 'three/tsl'
 import { TERRAIN_DEFAULTS as TD } from '../terrain-defaults.js'
 import { displayReferredToSceneLinear } from './display-referred-tsl.js'
@@ -79,13 +79,19 @@ export function createLegacyTerrainLighting({ sky, planetNormal, up, wetPool, vi
     const lit = outputNode.rgb
     const dKm = length(relAtm)
     const apGate = smoothstep(AP_GATE_KM[0], AP_GATE_KM[1], dKm)
-    const ray = relAtm.div(max(dKm, 1e-4))
-    const ap = sky.marchRadiance(sky.uniforms.camAtm, ray, u.sunPlanet, max(dKm, 1e-3))
-    const apInscat = max(ap.radiance, u.skyFill.mul(vec3(...SKY_HAZE_TINT)).mul(vec3(1.0).sub(ap.trans)))
+    const apTrans = vec3(1.0).toVar()
+    const apRad = vec3(0.0).toVar()
+    If(apGate.greaterThan(0.0), () => {
+      const ray = relAtm.div(max(dKm, 1e-4))
+      const ap = sky.marchRadiance(sky.uniforms.camAtm, ray, u.sunPlanet, max(dKm, 1e-3))
+      apTrans.assign(ap.trans)
+      apRad.assign(ap.radiance)
+    })
+    const apInscat = max(apRad, u.skyFill.mul(vec3(...SKY_HAZE_TINT)).mul(vec3(1.0).sub(apTrans)))
     const nwSun = dot(up, u.sunPlanet)
     const graze = smoothstep(0.55, 1.0, float(1.0).sub(nwSun.abs()))
     const glow = u.terminatorGlow.mul(graze.mul(graze)).mul(smoothstep(-0.02, 0.18, nwSun)).mul(apGate)
-    const hazed = lit.mul(ap.trans).add(apInscat).add(vec3(...TERMINATOR_TINT).mul(glow))
+    const hazed = lit.mul(apTrans).add(apInscat).add(vec3(...TERMINATOR_TINT).mul(glow))
     const color = mix(lit, hazed, apGate.mul(u.hazeMul))
     const dayShade = mix(u.nightFloor, 1.0, smoothstep(u.termWidth.negate(), u.termWidth, nwSun))
     const c = color.mul(dayShade).add(vec3(...NIGHT_FILL).mul(u.nightLights).mul(float(1.0).sub(dayShade))).mul(u.exposure)
