@@ -247,9 +247,18 @@ const GPU_PASS_ARM_SRC = `(() => {
     }
     return origUid(ctx)
   }
+  const abName = (/[?&]gpuab=([^&]*)/.exec(typeof location !== 'undefined' ? location.search : '') || [])[1]
+  const abPhaseMs = Number((/[?&]gpuabms=(\d+)/.exec(typeof location !== 'undefined' ? location.search : '') || [])[1] || 5000)
+  const AB_SETTLE_MS = 700
+  let abOn = false
+  let abFlipAt = -Infinity
+  if (abName) { window[abName] = abOn; setInterval(() => { abOn = !abOn; window[abName] = abOn; abFlipAt = Date.now() }, abPhaseMs) }
   const tally = new Map()
   const perFrameTotals = []
+  const abFrameTotals = { on: [], off: [] }
   const drain = async () => {
+    const settle = abName ? (Date.now() - abFlipAt >= AB_SETTLE_MS) : true
+    const tag = abName ? (abOn ? 'on' : 'off') : ''
     for (const type of ['render', 'compute']) {
       try { await r.resolveTimestampsAsync(type) } catch (_) { continue }
       const pool = b.timestampQueryPool && b.timestampQueryPool[type]
@@ -257,15 +266,37 @@ const GPU_PASS_ARM_SRC = `(() => {
       const byFrame = new Map()
       for (const [uid, ms] of pool.timestamps) {
         const parts = uid.split(':')
-        const key = type + ':' + parts[2]
+        const key = type + ':' + parts[2] + (tag ? ':' + tag : '')
         if (type === 'render') { const fr = parts[3]; byFrame.set(fr, (byFrame.get(fr) || 0) + ms) }
-        const t = tally.get(key) || { n: 0, sum: 0, max: 0 }
+        const t = tally.get(key) || { n: 0, sum: 0, max: 0, vals: [] }
         t.n++; t.sum += ms; if (ms > t.max) t.max = ms
+        if (t.vals.length < 60000) t.vals.push(ms)
         tally.set(key, t)
       }
       pool.timestamps.clear()
-      if (type === 'render') { const frames = [...byFrame.keys()].sort((a, c) => Number(a.slice(1)) - Number(c.slice(1))); frames.pop(); for (const fr of frames) if (perFrameTotals.length < 100000) perFrameTotals.push(+byFrame.get(fr).toFixed(4)) }
+      if (type !== 'render' || !settle) continue
+      const frames = [...byFrame.keys()].sort((a, c) => Number(a.slice(1)) - Number(c.slice(1)))
+      frames.pop()
+      for (const fr of frames) {
+        const v = +byFrame.get(fr).toFixed(4)
+        if (perFrameTotals.length < 100000) perFrameTotals.push(v)
+        if (tag && abFrameTotals[tag].length < 100000) abFrameTotals[tag].push(v)
+      }
     }
+  }
+  const hideSpec = /[?&]gpuhide=([^&]*)/.exec(typeof location !== 'undefined' ? location.search : '')
+  const hidden = []
+  if (hideSpec) {
+    const want = hideSpec[1].split(',').filter(Boolean)
+    const planet = window.__terrain && window.__terrain.planet
+    const scene = planet && planet.mesh ? planet.mesh.parent : null
+    if (want.includes('terrain') && planet && planet.mesh) { planet.mesh.visible = false; hidden.push('terrain') }
+    if (want.includes('water') && planet && planet.water && planet.water.mesh) { planet.water.mesh.visible = false; hidden.push('water') }
+    if (want.includes('sky') && scene) {
+      try { Object.defineProperty(scene, 'backgroundNode', { configurable: true, get: () => null, set: () => {} }); hidden.push('sky') }
+      catch (e) { hidden.push('sky-failed:' + (e && e.message || e)) }
+    }
+    for (const w of want) if (!hidden.some(h => h === w)) hidden.push('missed:' + w)
   }
   const iv = setInterval(drain, 250)
   window.__rigPassStop = async () => {
@@ -275,12 +306,17 @@ const GPU_PASS_ARM_SRC = `(() => {
     for (const [key, t] of tally) {
       const id = key.split(':')[1]
       const m = meta.get(id) || meta.get(Number(id)) || {}
-      passes.push({ type: key.split(':')[0], ctx: id, ...m, samples: t.n, avgMs: +(t.sum / t.n).toFixed(4), maxMs: +t.max.toFixed(3), totalMs: +t.sum.toFixed(2) })
+      const sv = t.vals.slice().sort((a, c) => a - c)
+      const q = (p) => sv.length ? +sv[Math.min(sv.length - 1, Math.floor(p * sv.length))].toFixed(4) : null
+      const abTag = key.split(':')[2] || null
+      passes.push({ type: key.split(':')[0], ctx: id, abTag, ...m, samples: t.n, avgMs: +(t.sum / t.n).toFixed(4), p50Ms: q(0.5), p95Ms: q(0.95), maxMs: +t.max.toFixed(3), totalMs: +t.sum.toFixed(2) })
     }
     passes.sort((a, c) => c.totalMs - a.totalMs)
     perFrameTotals.sort((a, c) => a - c)
     const pc = (p) => perFrameTotals.length ? perFrameTotals[Math.min(perFrameTotals.length - 1, Math.floor(p * perFrameTotals.length))] : null
-    return { hasFeature, canvas: r.domElement ? r.domElement.width + 'x' + r.domElement.height : null, frameGpuMs: { n: perFrameTotals.length, p50: pc(0.5), p95: pc(0.95), p99: pc(0.99) }, passes }
+    const abPc = (arr, p) => { if (!arr.length) return null; arr.sort((a, c) => a - c); return arr[Math.min(arr.length - 1, Math.floor(p * arr.length))] }
+    const abOut = abName ? { global: abName, phaseMs: abPhaseMs, on: { n: abFrameTotals.on.length, p50: abPc(abFrameTotals.on, 0.5) }, off: { n: abFrameTotals.off.length, p50: abPc(abFrameTotals.off, 0.5) } } : null
+    return { hasFeature, hidden, ab: abOut, canvas: r.domElement ? r.domElement.width + 'x' + r.domElement.height : null, frameGpuMs: { n: perFrameTotals.length, p50: pc(0.5), p95: pc(0.95), p99: pc(0.99) }, passes }
   }
   return { ok: true, hasFeature }
 })()`
@@ -1117,7 +1153,7 @@ async function main() {
     console.log(`  main thread ms: ${JSON.stringify(out.mainThreadMs)}`)
     console.log(`  host cpu: peak=${out.hostCpu.peakAllPct}% contentionSensitive=${out.hostCpu.contentionSensitive} before=${JSON.stringify(out.hostCpu.before)} after=${JSON.stringify(out.hostCpu.after)} samples=${out.hostCpu.during.length}`)
     console.log(`  heap: ${JSON.stringify(out.heapStats)}  gcSelfMs(profile)=${out.cpuProfile.gcSelfMs}`)
-    if (out.gpuPasses) { console.log(`  gpu frame ms: ${JSON.stringify(out.gpuPasses.frameGpuMs)} canvas=${out.gpuPasses.canvas}`); for (const p of (out.gpuPasses.passes || []).slice(0, 14)) console.log(`    gpu pass ${p.type} ctx${p.ctx} target=${p.target} scene=${p.scene} cam=${p.camera} shadowCam=${p.shadowCamera} avg=${p.avgMs}ms n=${p.samples} total=${p.totalMs}ms`) }
+    if (out.gpuPasses) { console.log(`  gpu frame ms: ${JSON.stringify(out.gpuPasses.frameGpuMs)} canvas=${out.gpuPasses.canvas}`); for (const p of (out.gpuPasses.passes || []).slice(0, 14)) console.log(`    gpu pass ${p.type} ctx${p.ctx} target=${p.target} scene=${p.scene} cam=${p.camera} shadowCam=${p.shadowCamera} p50=${p.p50Ms}ms avg=${p.avgMs}ms p95=${p.p95Ms}ms n=${p.samples} total=${p.totalMs}ms`) }
     console.log(`  cpu profile total=${out.cpuProfile.totalMs}ms`)
     for (const r of out.cpuProfile.topInclusive.slice(0, 30)) console.log(`    incl ${r.pct.toFixed(2)}%  ${r.ms}ms  ${r.fn}`)
     for (const r of out.cpuProfile.top.slice(0, 20)) console.log(`    ${r.pct.toFixed(2)}%  ${r.ms}ms  ${r.fn}`)
