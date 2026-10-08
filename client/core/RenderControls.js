@@ -8,7 +8,7 @@ const CONTROLS = [
 
   { key: 'vdrsScale', group: 'resolution', type: 'number', default: null,
     doc: 'Viewport dynamic-resolution scale in (0,1] for mapspinner terrain. null => use the world default. Lower = cheaper terrain, softer edges.' },
-  { key: 'dprAuto', group: 'resolution', type: 'boolean', default: true,
+  { key: 'dprAuto', group: 'resolution', type: 'boolean', default: false,
     doc: 'Auto device-pixel-ratio adaptation: lower render resolution under sustained frame-time pressure, raise it back when headroom returns.' },
   { key: 'dprOff', group: 'resolution', type: 'boolean', default: false,
     doc: 'Force DPR auto-adaptation off (pin the current pixel ratio).' },
