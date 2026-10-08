@@ -12,7 +12,7 @@ const INPUT_HISTORY_FLOOR = 257
 const WEDGE_POS_EPS_SQ = 1e-8
 const WEDGE_VEL_EPS_SQ = 1e-6
 const WEDGE_TRAVEL_MIN_M = 0.05
-const WEDGE_ACHIEVED_FRAC = 0.5
+const WEDGE_LOST_FRAC = 0.2
 const RECONCILE_POS_EPS_M = 0.015
 const SURFACE_MATCH_M = 0.25
 const SURFACE_OFFSET_ALPHA = 0.2
@@ -98,9 +98,10 @@ export class PredictionEngine {
     this._enableKnockbackPreservation = true
     this.stats = { acks: 0, corrections: 0, lastCorrectionM: 0, maxCorrectionM: 0, chartReanchors: 0, chartReplayShiftM: 0, chartReplayInputs: 0, chartReplayBase: 'none' }
     this._lastAckedPrediction = makeEntry()
-    this._stalledNoPlane = false
+    this.wedgeNormal = [0, 0]
+    this._clearHorizontalBlock()
     this.walls = []
-    this._env = { gravityY: this.gravityY, ground: null, wedged: false, groundNormal: null, walls: null, wallExtentM: WALL_EXTENT_BASE_M, collider: null }
+    this._env = { gravityY: this.gravityY, ground: null, wedged: false, groundNormal: null, walls: null, wallExtentM: WALL_EXTENT_BASE_M, collider: null, wedgeNormal: this.wedgeNormal }
     this._mirror = null
     this._trail = createStepTrail()
     this._trailPos = [0, 0, 0]
@@ -162,6 +163,51 @@ export class PredictionEngine {
     return Math.max(INPUT_HISTORY_FLOOR, Math.ceil(MAX_TRACKED_CONNECTION_DEGRADATION_MS / this.tickDuration))
   }
 
+  maxAckAdvanceTicks() { return this.inputHistory.capacity }
+
+  _clearHorizontalBlock() {
+    this.horizontallyWedged = false
+    this._blockedByServer = false
+    this.wedgeNormal[0] = 0
+    this.wedgeNormal[1] = 0
+  }
+
+  _setBlockNormal(nx, nz) {
+    const len = Math.hypot(nx, nz)
+    if (!(len > 1e-9)) return false
+    this.wedgeNormal[0] = nx / len
+    this.wedgeNormal[1] = nz / len
+    return true
+  }
+
+  _updateServerBlock(dx, dz, ackedTicks) {
+    this._blockedByServer = false
+    const history = this.inputHistory
+    const to = this._lastAckedSeq + ackedTicks
+    const start = history.indexOf(this._lastAckedSeq + 1)
+    if (start < 0) return
+    const dtStep = (this.tickDuration * this.dilation) / 1000
+    let cx = 0, cz = 0, n = 0
+    for (let i = start; i < history.length; i++) {
+      const e = history.at(i)
+      if (e.sequence > to) break
+      cx += e.velocity[0]; cz += e.velocity[2]; n++
+    }
+    if (!n) return
+    cx *= dtStep; cz *= dtStep
+    const commandedM = Math.hypot(cx, cz)
+    if (commandedM <= WEDGE_TRAVEL_MIN_M) return
+    let bx = cx - dx, bz = cz - dz
+    const travelM = Math.hypot(dx, dz)
+    if (travelM > 1e-9) {
+      const ux = dx / travelM, uz = dz / travelM
+      const along = bx * ux + bz * uz
+      bx -= ux * along; bz -= uz * along
+    }
+    if (Math.hypot(bx, bz) <= commandedM * WEDGE_LOST_FRAC) return
+    this._blockedByServer = this._setBlockNormal(-bx, -bz)
+  }
+
   init(playerId, initialState = {}) {
     this.localPlayerId = playerId
     const pos = initialState.position || [0, 0, 0]
@@ -173,7 +219,7 @@ export class PredictionEngine {
     this._renderState = { id: playerId, position: [...pos], rotation: [...rot], velocity: [...vel], onGround: true, health }
     this.reconciliationEngine.reset()
     this._pendingKnockback = null
-    this.horizontallyWedged = false
+    this._clearHorizontalBlock()
     this.walls.length = 0
     this._hasServerState = false
     this._trail.reset()
@@ -191,7 +237,7 @@ export class PredictionEngine {
     this._lastAckedSeq = this._inputSeq - 1
     this.reconciliationEngine.reset()
     this._pendingKnockback = null
-    this.horizontallyWedged = false
+    this._clearHorizontalBlock()
     this.walls.length = 0
     this._teleportTick = tick ?? -1
     this._trail.reset()
@@ -223,7 +269,7 @@ export class PredictionEngine {
 
   _step(input, seq, groundNormal) {
     const env = this._env
-    env.gravityY = this.gravityY; env.ground = this._ground; env.wedged = this.horizontallyWedged; env.groundNormal = groundNormal || this.lastServerState?.groundNormal || null; env.walls = this.walls
+    env.gravityY = this.gravityY; env.ground = this._ground; env.wedged = this.horizontallyWedged; env.groundNormal = groundNormal || this.lastServerState?.groundNormal || null; env.walls = this.walls; env.wedgeNormal = this.wedgeNormal
     const dt = (this.tickDuration * this.dilation) / 1000, v = this.localState.velocity
     env.wallExtentM = WALL_EXTENT_BASE_M + Math.hypot(v[0], v[2]) * (this.inputHistory.length + 1) * dt
     const m = this._mirror
@@ -314,18 +360,26 @@ export class PredictionEngine {
     const ackedSeq = serverPlayer.inputSequence ?? -1
     const firstContact = !this._hasServerState
     this._hasServerState = true
+    const ackedTicks = firstContact ? 1 : ackedSeq - this._lastAckedSeq
+    const ackUsable = firstContact || (ackedTicks > 0 && ackedTicks <= this.maxAckAdvanceTicks())
+    this.horizontallyWedged = false
+    this.wedgeNormal[0] = 0
+    this.wedgeNormal[1] = 0
+    if (ackUsable && !firstContact) this._updateServerBlock(dx, dz, ackedTicks)
     const ackIdx = this.inputHistory.indexOf(ackedSeq)
     const predicted = ackIdx >= 0 ? this.inputHistory.at(ackIdx) : null
-    const travelM = Math.hypot(dx, dz)
-    if (firstContact || ackedSeq > this._lastAckedSeq) {
-      const ackedTicks = firstContact ? 1 : ackedSeq - this._lastAckedSeq
-      const commandedM = Math.hypot(sv.velocity[0], sv.velocity[2]) * (this.tickDuration / 1000) * ackedTicks
-      this._stalledNoPlane = this.walls.length === 0 && commandedM > WEDGE_TRAVEL_MIN_M && travelM < commandedM * WEDGE_ACHIEVED_FRAC
+    if (sv.onGround) {
+      if (this._blockedByServer) this.horizontallyWedged = true
+      else {
+        const commandedH = Math.hypot(sv.velocity[0], sv.velocity[2])
+        const stoppedWhileCommanding = (dx * dx + dz * dz) < WEDGE_POS_EPS_SQ && commandedH * commandedH > WEDGE_VEL_EPS_SQ
+        if (stoppedWhileCommanding) this.horizontallyWedged = this._setBlockNormal(-sv.velocity[0], -sv.velocity[2])
+      }
     }
-    this.horizontallyWedged = (sv.onGround && (dx * dx + dz * dz) < WEDGE_POS_EPS_SQ && (sv.velocity[0] ** 2 + sv.velocity[2] ** 2) > WEDGE_VEL_EPS_SQ) || this._stalledNoPlane
     this.verticallyBlocked = !sv.onGround && dy * dy < WEDGE_POS_EPS_SQ && sv.velocity[1] < -Math.sqrt(WEDGE_VEL_EPS_SQ)
     this._calibrateSurface(sv)
     if (ackedSeq <= this._lastAckedSeq && !firstContact) return
+    if (!ackUsable) return
     if (ackedSeq > this._lastAckedSeq) this._lastAckedSeq = ackedSeq
     if (predicted) copyAckedEntry(this._lastAckedPrediction, predicted, MOVE_STATE_KEYS)
     this.stats.acks++
@@ -377,6 +431,7 @@ export class PredictionEngine {
     reexpressMotionState(pass, this._renderState)
     reexpressMotionState(pass, this._lastAckedPrediction)
     for (const e of this.inputHistory) { reexpressMotionState(pass, e); if (e.hasNormal) pass.vector(e.normal); pass.look(e.data) }
+    this._clearHorizontalBlock()
     this.walls.length = 0
     const offset = this.reconciliationEngine.errorOffset
     transfer.vec(offset, offset)
@@ -414,7 +469,7 @@ export class PredictionEngine {
     this._hasServerState = false
     this.reconciliationEngine.reset()
     this._trail.reset()
-    this.horizontallyWedged = false
+    this._clearHorizontalBlock()
     this.verticallyBlocked = false
     this.walls.length = 0
   }

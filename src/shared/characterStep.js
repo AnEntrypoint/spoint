@@ -36,7 +36,14 @@ export function predictCharacterStep(state, input, movement, dt, env) {
   const v = state.velocity, p = state.position
   const vy = verticalVelocity(v[1], wasGrounded, env.gravityY, dt)
   v[1] = vy
-  const dx = env.wedged ? 0 : v[0] * dt, dz = env.wedged ? 0 : v[2] * dt
+  let mx = v[0], mz = v[2]
+  if (env.wedged) {
+    const nx = env.wedgeNormal ? env.wedgeNormal[0] : 0
+    const nz = env.wedgeNormal ? env.wedgeNormal[1] : 0
+    const into = mx * nx + mz * nz
+    if (into < 0) { mx -= nx * into; mz -= nz * into }
+  }
+  const dx = mx * dt, dz = mz * dt
   p[0] += dx; p[2] += dz
   p[1] += vy * dt
   if (env.walls) slideAlongWalls(p, env.walls, env.wallExtentM)
