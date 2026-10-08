@@ -134,7 +134,9 @@ const ALL_FILES = [...new Set([...TRACKED, ...DOCS])]
   .filter((p) => !BINARY_EXT.test(p))
   .filter((p) => { try { return statSync(join(ROOT, p)).size <= MAX_FILE_BYTES; } catch { return false; } });
 const DOC_SET = new Set(DOCS);
+const SELF_PATH = 'scripts/lib/verify-doc-claims.mjs';
 const SEARCHABLE = ALL_FILES.filter((p) => !DOC_SET.has(p)
+  && p !== SELF_PATH
   && !CODE_EXCLUDE_PREFIX.some((x) => p.startsWith(x))
   && !SEARCH_EXTS_SKIP.test(p));
 
