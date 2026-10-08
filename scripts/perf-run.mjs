@@ -36,6 +36,8 @@ const WALK = !has('no-walk')
 const LEG_MS = Number(flag('leg', '10000'))
 const INPUT_WAIT_MS = Number(flag('input-wait', '60000'))
 const EXTRA_QUERY = flag('extra', '')
+const KNOB_SPEC = String(flag('knob', (/[?&]knob=([^&]*)/.exec('&' + EXTRA_QUERY) || [])[1] || ''))
+const KNOB_QUERY = KNOB_SPEC && !/[?&]knob=/.test('&' + EXTRA_QUERY) ? '&knob=' + encodeURIComponent(KNOB_SPEC) : ''
 const WORLD = String(flag('world', 'tps-game'))
 const ROOM_MODE = String(flag('room', 'singleplayer'))
 const ROUTE = flag('walk-route', '')
@@ -56,6 +58,7 @@ const REQUIRED_COUNTS = String(flag('require-count', 'draws,frames,veg')).split(
 const REQUIRE_ACCELERATED = has('require-accelerated')
 const EXPECT_VENDOR = flag('expect-vendor', null)
 let spawnedChromePid = null
+let knobApplied = null
 let witnessUnreached = []
 let reachabilityUnreached = []
 setTimeout(() => {
@@ -232,6 +235,29 @@ const INSTRUMENT = `(() => {
   requestAnimationFrame(tick)
 })()`
 
+const knobApplySrc = (knobs) => `(() => {
+  const W = window
+  const want = ${JSON.stringify(knobs)}
+  let registry = null
+  const apply = () => {
+    const applied = []
+    for (const k of want) {
+      const ok = registry.set(k.key, k.value)
+      applied.push({ key: k.key, global: '__' + k.key, type: k.type, value: k.value, setReturned: ok, readback: W['__' + k.key] })
+    }
+    W.__rigKnobs = applied
+  }
+  Object.defineProperty(W, '__renderControls', {
+    configurable: true,
+    get: () => registry,
+    set: (v) => {
+      registry = v
+      if (registry && typeof registry.set === 'function') apply()
+      else W.__rigKnobsError = 'window.__renderControls assigned without a set() function'
+    },
+  })
+})()`
+
 const GPU_PASS_ARM_SRC = `(() => {
   const r = window.__app && window.__app.renderer
   if (!r || !r.backend) return { error: 'no renderer' }
@@ -405,8 +431,47 @@ function shortUrl(u) {
   return i < 0 ? s : s.slice(i + 1)
 }
 
+async function resolveKnobSpec(spec) {
+  const pairs = String(spec || '').split(',').filter(Boolean)
+  if (!pairs.length) return []
+  const registryPath = resolve(SERVE_ROOT, 'client', 'core', 'RenderControls.js')
+  if (!existsSync(registryPath)) throw new Error('[perf-run] --knob resolves keys against the render-controls registry at ' + registryPath + '; that file is absent')
+  const mod = await import(pathToFileURL(registryPath).href)
+  const byKey = new Map(((mod.RenderControls && mod.RenderControls.controls) || []).map((c) => [c.key, c]))
+  const knobs = []
+  const rejected = []
+  for (const pair of pairs) {
+    const eq = pair.indexOf('=')
+    const key = (eq > 0 ? pair.slice(0, eq) : pair).trim()
+    const raw = eq > 0 ? pair.slice(eq + 1).trim() : ''
+    const entry = byKey.get(key)
+    if (!entry) { rejected.push(`"${key}" is not in the RenderControls registry (${byKey.size} keys registered)`); continue }
+    if (eq < 0) { rejected.push(`"${key}" carries no =<value>`); continue }
+    let value
+    if (entry.type === 'boolean') {
+      if (/^(true|1|on|yes)$/i.test(raw)) value = true
+      else if (/^(false|0|off|no)$/i.test(raw)) value = false
+      else { rejected.push(`"${key}=${raw}" is not a boolean (registry type ${entry.type}): expected true/false/1/0/on/off/yes/no`); continue }
+    } else if (entry.type === 'number') {
+      const n = Number(raw)
+      if (raw === '' || !Number.isFinite(n)) { rejected.push(`"${key}=${raw}" is not a finite number (registry type ${entry.type})`); continue }
+      if (typeof entry.min === 'number' && n < entry.min) { rejected.push(`"${key}=${raw}" is below the declared min ${entry.min}`); continue }
+      if (typeof entry.max === 'number' && n > entry.max) { rejected.push(`"${key}=${raw}" is above the declared max ${entry.max}`); continue }
+      value = n
+    } else {
+      rejected.push(`"${key}=${raw}" has registry type ${entry.type}; --knob sets boolean and number knobs only`)
+      continue
+    }
+    knobs.push({ key, type: entry.type, value, default: entry.default })
+  }
+  if (rejected.length) throw new Error('[perf-run] --knob rejected ' + rejected.length + ' of ' + pairs.length + ' knob(s): ' + rejected.join('; '))
+  return knobs
+}
+
 async function main() {
   mkdirSync(OUT_DIR, { recursive: true })
+  const KNOBS = await resolveKnobSpec(KNOB_SPEC)
+  if (KNOBS.length) console.log('[perf-run] knobs resolved: ' + KNOBS.map((k) => '__' + k.key + '=' + JSON.stringify(k.value) + ' [' + k.type + ', default ' + JSON.stringify(k.default) + ']').join('  '))
   for (let attempt = 0; attempt < 6; attempt++) {
     try { writeFileSync(GPU_PROBE_PS1, GPU_PROBE_SRC); break } catch (e) {
       if (e && e.code !== 'EBUSY') throw e
@@ -456,6 +521,7 @@ async function main() {
     const pageErrors = []
     page.on('pageerror', (e) => pageErrors.push(String(e && e.message || e)))
     await page._send('Page.addScriptToEvaluateOnNewDocument', { source: INSTRUMENT })
+    if (KNOBS.length) await page._send('Page.addScriptToEvaluateOnNewDocument', { source: knobApplySrc(KNOBS) })
     const _cdpTimeoutMs = Number(flag('cdp-timeout', '25000'))
     const _rawEval = page.evaluate.bind(page)
     page.evaluate = (...a) => Promise.race([_rawEval(...a), new Promise((_, rej) => setTimeout(() => rej(new Error('cdp evaluate timeout')), _cdpTimeoutMs))])
@@ -477,7 +543,7 @@ async function main() {
     }
 
     const query = BACKEND === 'webgpu' ? `?${ROOM_MODE}&webgpu=1` : `?${ROOM_MODE}`
-    const url = `http://localhost:${port}/${query}&world=${WORLD}&v=${Date.now()}${EXTRA_QUERY ? '&' + EXTRA_QUERY : ''}`
+    const url = `http://localhost:${port}/${query}&world=${WORLD}&v=${Date.now()}${EXTRA_QUERY ? '&' + EXTRA_QUERY : ''}${KNOB_QUERY}`
     console.log(`[perf-run] navigating ${url}`)
     const tNav = Date.now()
     await page._send('Profiler.enable').catch(() => {})
@@ -529,6 +595,14 @@ async function main() {
     const tRevealed = revealed.revealedAt ? revealed.revealedAt : null
     console.log(`[perf-run] nav->isReady=${tReady}ms  nav->overlayHidden(perf.now)=${tRevealed}ms  terrain=${revealed.terrain} veg=${revealed.veg} refreshHz=${revealed.refreshHz}`)
     if (revealed.error) console.log('[perf-run] reveal probe error: ' + revealed.error)
+    if (KNOBS.length) {
+      const knobState = await page.evaluate(() => ({ knobs: window.__rigKnobs || null, error: window.__rigKnobsError || null })).catch((e) => ({ error: e.message }))
+      if (!Array.isArray(knobState.knobs)) throw new Error('[perf-run] --knob never applied in the page: ' + JSON.stringify(knobState))
+      knobApplied = knobState.knobs
+      const notLanded = knobApplied.filter((k) => k.setReturned !== true || k.readback !== k.value)
+      if (notLanded.length) throw new Error('[perf-run] --knob values did not land through RenderControls.set: ' + JSON.stringify(notLanded))
+      console.log('[perf-run] knobs applied: ' + knobApplied.map((k) => k.global + '=' + JSON.stringify(k.readback)).join('  '))
+    }
 
     const VENDOR_EXPECT = GPU === 'igpu' ? 'intel' : (GPU === 'amd' || GPU === 'nvidia' ? GPU : null)
     const gpu = await assertGpu(page, { requireAccelerated: REQUIRE_ACCELERATED || ACCELERATED, expectVendor: EXPECT_VENDOR || VENDOR_EXPECT })
@@ -1012,6 +1086,7 @@ async function main() {
       seconds: SECONDS,
       walk: WALK,
       url,
+      knobs: knobApplied,
       viewport: VIEW_W + 'x' + VIEW_H + '@1',
       idleBefore,
       gpuSamples,
