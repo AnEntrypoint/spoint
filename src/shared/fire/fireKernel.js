@@ -83,6 +83,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
   const tileNbr = new Int32Array(maxTiles * FIRE_DIR_COUNT).fill(NBR_UNKNOWN)
   const maskLo = new Uint32Array(maxTiles), maskHi = new Uint32Array(maxTiles), tileListed = new Uint8Array(maxTiles)
   const interiorLo = new Uint32Array(maxTiles), interiorHi = new Uint32Array(maxTiles)
+  let interiorFold = 0
   const tileSerial = new Float64Array(maxTiles)
   const freeTiles = new Int32Array(maxTiles)
   const reclaimQueue = new Int32Array(maxTiles)
@@ -197,8 +198,9 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     if (t < 0) { stats.deniedTiles++; return -1 }
     if (t >= tileCount) tileCount = t + 1
     tileEpoch++
+    clearInteriorTile(t)
     tileFace[t] = face; tileI[t] = ti; tileJ[t] = tj
-    maskLo[t] = 0; maskHi[t] = 0; tileListed[t] = 0; interiorLo[t] = 0; interiorHi[t] = 0; tileSerial[t] = ++changeSerial
+    maskLo[t] = 0; maskHi[t] = 0; tileListed[t] = 0; tileSerial[t] = ++changeSerial
     tileNbr.fill(NBR_UNKNOWN, t * FIRE_DIR_COUNT, t * FIRE_DIR_COUNT + FIRE_DIR_COUNT)
     let slot = tileHash(face, ti, tj)
     while (table[slot] !== 0) slot = (slot + 1) & (tableSize - 1)
@@ -490,7 +492,9 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     maskLo.set(d.maskLo.subarray(0, tileCount))
     maskHi.set(d.maskHi.subarray(0, tileCount))
     tileListed.set(d.listed.subarray(0, tileCount))
+    interiorLo.fill(0); interiorHi.fill(0)
     interiorLo.set(d.interiorLo.subarray(0, tileCount)); interiorHi.set(d.interiorHi.subarray(0, tileCount))
+    interiorFold = interiorFoldOver(tileCount)
     activeTiles.set(d.activeTiles.subarray(0, d.activeTileCount))
     activeCount = d.activeCount; activeTileCount = d.activeTileCount
     stepIndex = d.stepIndex; stepStart = d.stepStart; nextStepTick = d.nextStepTick
@@ -573,15 +577,15 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
 
   function clearInteriorAround(g) {
     const t = g >> TILE_CELL_SHIFT
-    interiorLo[t] = 0; interiorHi[t] = 0
+    clearInteriorTile(t)
     const face = tileFace[t], ti = tileI[t], tj = tileJ[t]
     for (let dy = -1; dy <= 1; dy++) {
       for (let dx = -1; dx <= 1; dx++) {
         if (dx === 0 && dy === 0) continue
         const ni = ti + dx, nj = tj + dy
-        if (ni < 0 || nj < 0 || ni >= tilesPerAxis || nj >= tilesPerAxis) { interiorLo.fill(0, 0, tileCount); interiorHi.fill(0, 0, tileCount); return }
+        if (ni < 0 || nj < 0 || ni >= tilesPerAxis || nj >= tilesPerAxis) { clearInteriorAll(); return }
         const nt = findTile(face, ni, nj)
-        if (nt >= 0) { interiorLo[nt] = 0; interiorHi[nt] = 0 }
+        if (nt >= 0) clearInteriorTile(nt)
       }
     }
   }
@@ -638,9 +642,33 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     quota = Math.ceil(phaseEnd / (stepInterval >> 1)) + 1
   }
 
+  function tileInteriorMix(t) {
+    return mix32(interiorLo[t] ^ Math.imul(interiorHi[t] + 1, 0x85ebca6b) ^ Math.imul(tileFace[t] + 1, 0x9e3779b1) ^ Math.imul(tileI[t] + 1, 0xc2b2ae35) ^ Math.imul(tileJ[t] + 1, 0x27d4eb2f))
+  }
+
+  function interiorFoldOver(count) {
+    let f = 0
+    for (let t = 0; t < count; t++) if (interiorLo[t] !== 0 || interiorHi[t] !== 0) f ^= tileInteriorMix(t)
+    return f | 0
+  }
+
+  function clearInteriorTile(t) {
+    if (interiorLo[t] === 0 && interiorHi[t] === 0) return
+    interiorFold ^= tileInteriorMix(t)
+    interiorLo[t] = 0; interiorHi[t] = 0
+  }
+
+  function clearInteriorAll() {
+    interiorFold = 0
+    interiorLo.fill(0, 0, tileCount); interiorHi.fill(0, 0, tileCount)
+  }
+
   function markInterior(g) {
     const bit = g & (TILE_CELLS - 1), t = g >> TILE_CELL_SHIFT
+    if (bit < HALF_TILE_CELLS ? (interiorLo[t] & (1 << bit)) !== 0 : (interiorHi[t] & (1 << (bit - HALF_TILE_CELLS))) !== 0) return
+    if (interiorLo[t] !== 0 || interiorHi[t] !== 0) interiorFold ^= tileInteriorMix(t)
     if (bit < HALF_TILE_CELLS) interiorLo[t] |= 1 << bit; else interiorHi[t] |= 1 << (bit - HALF_TILE_CELLS)
+    interiorFold ^= tileInteriorMix(t)
   }
 
   function isInterior(g) {
@@ -844,6 +872,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
       const back = nt * FIRE_DIR_COUNT + dirIndex[(1 - FIRE_DIR_DJ[d]) * 3 + 1 - FIRE_DIR_DI[d]]
       if (tileNbr[back] === t) tileNbr[back] = NBR_UNKNOWN
     }
+    clearInteriorTile(t)
     tileFace[t] = FACE_FREE
     tileSerial[t] = ++changeSerial
     tileListed[t] = 0
@@ -853,6 +882,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     let high = tileCount
     while (high > 0 && tileFace[high - 1] === FACE_FREE) high--
     if (high !== tileCount) {
+      for (let i = high; i < tileCount; i++) clearInteriorTile(i)
       tileCount = high
       let kept = 0
       for (let i = 0; i < freeTop; i++) { const s = freeTiles[i]; if (s < high) freeTiles[kept++] = s }
@@ -862,6 +892,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
   }
 
   function quietTile(t) {
+    clearInteriorTile(t)
     const base = t << TILE_CELL_SHIFT
     for (let i = 0; i < TILE_CELLS; i++) {
       const g = base + i
@@ -910,6 +941,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     }
     hashOfCell.fill(0, 0, tileCount << TILE_CELL_SHIFT)
     dirtyCount = 0; hashCursor = 0; hashValid = true; hashSum = 0; hashXor = 0
+    clearInteriorAll()
     reclaimCount = 0; reclaimGen++
     tileFace.fill(FACE_FREE)
     table.fill(0); tileNbr.fill(NBR_UNKNOWN); tileCount = 0; activeTileCount = 0; tileGeneration++; changeSerial++
@@ -954,7 +986,7 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     let h = mix32(sum ^ Math.imul(mixed, 0x27d4eb2f))
     h = mix32(h ^ stepIndex); h = mix32(h ^ (moisture | (rain << 8))); h = mix32(h ^ effWind[0] ^ (effWind[1] << 8) ^ (effWind[2] << 16))
     h = mix32(h ^ Math.imul(activeCount, 0x165667b1)); h = mix32(h ^ Math.imul(scarCount, 0x9e3779b1))
-    return h >>> 0
+    return mix32(h ^ interiorFold) >>> 0
   }
 
   function snapshot() {
@@ -986,7 +1018,9 @@ export function createFireKernel({ lattice, fuelClassAt, classes, seed = 1, step
     state.set(s.state); cls.set(s.cls); fuel.set(s.fuel); heat.set(s.heat); timer.set(s.timer)
     tileFace.set(s.tileFace); tileI.set(s.tileI); tileJ.set(s.tileJ)
     maskLo.set(s.maskLo); maskHi.set(s.maskHi); tileListed.set(s.tileListed)
+    interiorLo.fill(0); interiorHi.fill(0)
     interiorLo.set(s.interiorLo); interiorHi.set(s.interiorHi)
+    interiorFold = interiorFoldOver(tileCount)
     activeTiles.set(s.activeTiles)
     scarHead = 0; scarTail = scarCount % scarRingSize
     for (let i = 0; i < scarCount; i++) { scarRing[i] = s.scar[i * 2]; scarAt[i] = s.scar[i * 2 + 1] }

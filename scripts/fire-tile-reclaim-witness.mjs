@@ -411,8 +411,63 @@ say(`  the in-lattice payload still decodes: ${stillGood.snapshot.tileCount} til
 expect(stillGood.snapshot.tileCount === kf.kernel.tileCount, `the in-lattice payload decoded to ${stillGood.snapshot.tileCount} tile(s) against a kernel of ${kf.kernel.tileCount}`)
 expect(stillGood.snapshot.tileI[0] === liveSnapshot.tileI[0] && stillGood.snapshot.tileJ[0] === liveSnapshot.tileJ[0], `the in-lattice payload decoded tile 0 to ${stillGood.snapshot.tileI[0]},${stillGood.snapshot.tileJ[0]} against ${liveSnapshot.tileI[0]},${liveSnapshot.tileJ[0]}`)
 
+say('== 9. the per-cell interior bitmaps are inside the kernel checksum ==')
+const ic = build(REGROW_STEPS)
+ignitePatch(ic.fire, ic.half, 0, 0)
+runTo(ic.clock, ic.fire, ic.clock.tick + 150)
+const icSnap = ic.kernel.snapshot()
+let markedTiles = 0, markedBits = 0
+for (let t = 0; t < icSnap.tileCount; t++) {
+  const lo = icSnap.interiorLo[t], hi = icSnap.interiorHi[t]
+  if (lo === 0 && hi === 0) continue
+  markedTiles++
+  for (let b = 0; b < 32; b++) {
+    if ((lo & (1 << b)) !== 0) markedBits++
+    if ((hi & (1 << b)) !== 0) markedBits++
+  }
+}
+say(`  ${icSnap.tileCount} tile(s) at tick ${ic.clock.tick} with ${icSnap.activeCount} active cell(s): ${markedTiles} tile(s) carry ${markedBits} interior mark(s)`)
+expect(markedTiles > 0, `no tile carries an interior mark, so zeroing the bitmaps cannot change any checksum and this section measures nothing`)
+expect(icSnap.activeCount > 0, `the fire holds ${icSnap.activeCount} active cell(s), so the interior marks are being read by a live front`)
+
+function restoreWith(mutate) {
+  const s = { ...icSnap, interiorLo: Uint32Array.from(icSnap.interiorLo), interiorHi: Uint32Array.from(icSnap.interiorHi) }
+  mutate(s)
+  ic.kernel.restore(s)
+  return ic.kernel.checksum()
+}
+const faithful = restoreWith(() => {})
+const smothered = restoreWith(s => { s.interiorLo.fill(0); s.interiorHi.fill(0) })
+const faithfulAgain = restoreWith(() => {})
+say(`  restoring the snapshot as it stands: ${faithful}, then ${faithfulAgain}; with every interior mark zeroed: ${smothered}`)
+expect(faithful === faithfulAgain, `restoring the same snapshot twice checksummed to ${faithful} then ${faithfulAgain}, so the checksum is not a function of the restored state`)
+expect(smothered !== faithful, `a restore that loses every interior mark still checksums to ${smothered}, the same as the faithful ${faithful}, so a peer that drops the bitmaps is not detected at the moment it drops them`)
+
+let tileTried = 0, tileCaught = 0
+for (let t = 0; t < icSnap.tileCount && tileTried < 8; t++) {
+  if (icSnap.interiorLo[t] === 0 && icSnap.interiorHi[t] === 0) continue
+  tileTried++
+  const got = restoreWith(s => { s.interiorLo[t] = 0; s.interiorHi[t] = 0 })
+  if (got !== faithful) tileCaught++
+}
+say(`  zeroing the marks of one tile at a time: ${tileCaught} of ${tileTried} tile(s) changed the checksum`)
+expect(tileCaught === tileTried, `${tileTried - tileCaught} of ${tileTried} single-tile zeroing(s) left the checksum at ${faithful}, so the fold is not per tile`)
+
+let bitTried = 0, bitCaught = 0
+for (let t = 0; t < icSnap.tileCount && bitTried < 8; t++) {
+  const lo = icSnap.interiorLo[t], hi = icSnap.interiorHi[t]
+  const low = lo === 0 ? 0 : lo & -lo
+  const bit = low !== 0 ? Math.round(Math.log2(low)) : hi === 0 ? -1 : 32 + Math.round(Math.log2(hi & -hi))
+  if (bit < 0) continue
+  bitTried++
+  const got = restoreWith(s => { if (bit < 32) s.interiorLo[t] &= ~(1 << bit); else s.interiorHi[t] &= ~(1 << (bit - 32)) })
+  if (got !== faithful) bitCaught++
+}
+say(`  clearing one cell's interior mark at a time: ${bitCaught} of ${bitTried} mark(s) changed the checksum`)
+expect(bitCaught === bitTried, `${bitTried - bitCaught} of ${bitTried} single-mark clearing(s) left the checksum at ${faithful}, so the fold does not resolve to a cell`)
+
 say('')
-say('== 9. a keyframe encoded against a different lattice is refused by applyRemote ==')
+say('== 10. a keyframe encoded against a different lattice is refused by applyRemote ==')
 const foreign = build(REGROW_STEPS, 5, null, 4)
 ignitePatch(foreign.fire, foreign.half, 0, 0)
 runTo(foreign.clock, foreign.fire, foreign.clock.tick + 120)
@@ -433,4 +488,4 @@ say(`  the matching-lattice keyframe: ${ownError ?? `ADOPTED, checksum ${kf.kern
 expect(ownError === null || !ownError.includes('cells per face'), `the matching-lattice keyframe was refused by the lattice check: ${ownError}`)
 
 if (failures > 0) { say(`${failures} check(s) failed`); process.exitCode = 1 }
-say(failures === 0 ? `RESULT: PASS -- ${latticeRejected}/8 out-of-lattice payload(s) rejected, 0 of ${accepted} accepted tampered keyframe(s) carry an out-of-lattice tile, ${foreignError === null ? 0 : 1}/1 cross-lattice payload(s) refused by applyRemote, the in-lattice payload still decodes, ${resume.ticks} tick(s) after a rewind cost ${resume.cpuMs} ms of CPU, and ${onePatch.released} + ${threePatch.released} tile(s) reclaimed at ${onePatch.checksPerReleased} / ${threePatch.checksPerReleased} counted cell check(s) per tile released` : `RESULT: FAIL (${failures} check(s))`)
+say(failures === 0 ? `RESULT: PASS -- ${latticeRejected}/8 out-of-lattice payload(s) rejected, 0 of ${accepted} accepted tampered keyframe(s) carry an out-of-lattice tile, ${foreignError === null ? 0 : 1}/1 cross-lattice payload(s) refused by applyRemote, the in-lattice payload still decodes, ${resume.ticks} tick(s) after a rewind cost ${resume.cpuMs} ms of CPU, and ${onePatch.released} + ${threePatch.released} tile(s) reclaimed at ${onePatch.checksPerReleased} / ${threePatch.checksPerReleased} counted cell check(s) per tile released, ${tileCaught}/${tileTried} single-tile and ${bitCaught}/${bitTried} single-mark interior zeroing(s) moved the checksum off ${faithful}, and a restore that loses every interior mark reads ${smothered} against ${faithful}` : `RESULT: FAIL (${failures} check(s))`)
