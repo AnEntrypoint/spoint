@@ -1,7 +1,7 @@
 import WebSocket from 'ws'
 import { createServer as createNetServer } from 'node:net'
 import { resolve } from 'node:path'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, rm } from 'node:fs/promises'
 import { createServer as createSpointServer } from '../src/sdk/server.js'
 import { loadWorldModule } from '../src/sdk/WorldLocator.js'
 import { MSG } from '../src/protocol/MessageTypes.js'
@@ -74,6 +74,7 @@ async function waitFor(client, predicate, label) {
 async function main() {
   await ensurePacked
   process.env.EDITOR_TOKEN = EDITOR_TOKEN
+  await rm(WORK_DIR, { recursive: true, force: true })
   await mkdir(resolve(WORK_DIR, 'data'), { recursive: true })
   process.chdir(WORK_DIR)
 
