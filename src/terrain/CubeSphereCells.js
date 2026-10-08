@@ -79,7 +79,7 @@ export function resolveCell(face, cx, cy, cellsPerFace) {
       const which = xEdge === 'hi' ? 'u+' : 'u-'
       const t = Math.max(0, Math.min(cellsPerFace - 1, y))
       const r = _stepAcrossEdge(f, which, t, cellsPerFace)
-      f = r.face; x = r.cx
+      f = r.face; x = r.cx; y = r.cy
       continue
     }
     if (yEdge !== null) {
@@ -133,7 +133,7 @@ export function verifyCubeSphereAdjacency() {
     if (r.cx < 0 || r.cx >= cellsPerFace || r.cy < 0 || r.cy >= cellsPerFace) {
       throw new Error(`corner case out of range: ${JSON.stringify(r)}`)
     }
-    if (![0, 2, 4].includes(r.face)) throw new Error(`corner case landed on unexpected face ${r.face}`)
+    if (![0, 2, 5].includes(r.face)) throw new Error(`corner case landed on unexpected face ${r.face}`)
   }
   {
     const { face, cx, cy } = worldToCell(0, 0, R, R, cellSize)

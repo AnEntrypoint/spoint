@@ -5,13 +5,12 @@ import { currentChartEpoch, createChartReanchorMessage } from './chartWire.js'
 import { createCollisionTileStreamer } from '../netcode/CollisionTileStreamer.js'
 import { applyMovement as _applyMovement, DEFAULT_MOVEMENT as _DEFAULT_MOVEMENT } from '../shared/movement.js'
 import { applyPlayerCollisions } from '../netcode/CollisionSystem.js'
-import { worldToCell, packCellKey } from '../terrain/CubeSphereCells.js'
 import { createServerTimeOfDay } from './ServerTimeOfDay.js'
 import { createServerWeather } from './ServerWeather.js'
 import { enforceMovementEnvelope } from '../netcode/InputGuard.js'
 import { stepTeleportHold } from '../netcode/TeleportHold.js'
 import { recordSnapshotBytes, recordTickPhase } from './Metrics.js'
-import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, getPlayerPriorityIds, clearPlayerPriorityAccumulator, setAoiCellBaseEpoch, invalidateAoiCellBaseCache, _spatialCache, _ringCache } from './TickHandlerAOI.js'
+import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, resolvePlayerCell, getPlayerPriorityIds, clearPlayerPriorityAccumulator, setAoiCellBaseEpoch, invalidateAoiCellBaseCache, _spatialCache, _ringCache } from './TickHandlerAOI.js'
 export { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, getPlayerPriorityIds } from './TickHandlerAOI.js'
 
 const INPUT_BUFFER_CATCHUP_DEPTH = 8
@@ -170,16 +169,6 @@ function packSnapshot(seq, encoded, me, chartEpoch) {
   const buf = pack(_packWrapper)
   recordSnapshotBytes(buf.length)
   return buf
-}
-
-function resolvePlayerCell(viewerPos, planetRadius, relevanceRadius) {
-  if (planetRadius > 0) {
-    const c = worldToCell(viewerPos[0], viewerPos[1], viewerPos[2], planetRadius, relevanceRadius)
-    const cellsPerFace = Math.ceil((2 * planetRadius) / relevanceRadius)
-    return { cellKey: packCellKey(c.face, c.cx, c.cy, cellsPerFace), cellFace: c.face, cellCx: c.cx, cellCy: c.cy, cellsPerFace }
-  }
-  const cx = Math.floor(viewerPos[0] / relevanceRadius), cz = Math.floor(viewerPos[2] / relevanceRadius)
-  return { cellKey: (cx * 65536 + cz) | 0, cellFace: -1, cellCx: cx, cellCy: cz, cellsPerFace: 0 }
 }
 
 function restoreTrimmedBaselines(sent, kept, staticCount, entityMap, prevMap) {

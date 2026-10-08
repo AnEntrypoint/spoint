@@ -1,5 +1,5 @@
 import { unpackBinRecord, primeEntryDecode } from '../netcode/SnapshotEncoder.js'
-import { neighborCells, packCellKey } from '../terrain/CubeSphereCells.js'
+import { neighborCells, packCellKey, resolveCell, worldToCell } from '../terrain/CubeSphereCells.js'
 
 const PRIORITY_ENTITY_BUDGET = 64
 const PRIORITY_DECAY = 0.02
@@ -119,7 +119,18 @@ function storeCellBase(key, cellViewerPos, baseRelevantIds) {
   }
 }
 
-function solveCellViewer(face, cx, cy, planetRadius, relevanceRadius) {
+export function resolvePlayerCell(viewerPos, planetRadius, relevanceRadius) {
+  if (planetRadius > 0) {
+    const c = worldToCell(viewerPos[0], viewerPos[1], viewerPos[2], planetRadius, relevanceRadius)
+    const cellsPerFace = Math.ceil((2 * planetRadius) / relevanceRadius)
+    const r = resolveCell(c.face, c.cx, c.cy, cellsPerFace)
+    return { cellKey: packCellKey(r.face, r.cx, r.cy, cellsPerFace), cellFace: r.face, cellCx: r.cx, cellCy: r.cy, cellsPerFace }
+  }
+  const cx = Math.floor(viewerPos[0] / relevanceRadius), cz = Math.floor(viewerPos[2] / relevanceRadius)
+  return { cellKey: (cx * 65536 + cz) | 0, cellFace: -1, cellCx: cx, cellCy: cz, cellsPerFace: 0 }
+}
+
+export function solveCellViewer(face, cx, cy, planetRadius, relevanceRadius) {
   if (planetRadius > 0) {
     const ATAN_K = Math.PI / 4.0
     const foX = (cx + 0.5) * relevanceRadius - planetRadius
