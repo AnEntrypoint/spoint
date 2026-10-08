@@ -2520,3 +2520,200 @@
   body: 'Committed baselines at 76059b48 with 5207 veg on both: AMD static 19.65 / orbit 18.39 ms p50 against NVIDIA 8.98 / 9.03 ms. The GPU control rate held 11.0-12.1 ms per 1000 iterations, inside the x1.25 bar, and a verify FAIL naming CPU contested x1.53-x2.72 was a shared box, so this is not contention. Split the AMD frame by counted work units (draws, instances, triangles, LOD rebuild visits, terrain patches) against the NVIDIA one to find which term is 2x, then fix or, if it is genuinely adapter-bound, record it in the per-vendor baseline with the measured term named.'
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending
+- title: 'prediction-peer-forward-sim-witness cannot fail: its thresholds default to Infinity'
+  detail: 'scripts/prediction-peer-forward-sim-witness.mjs takes --maxErrCm and --maxPops but defaults both to Infinity (line 21-22), so with default args the witness measures forward-sim error and correction pops and then passes unconditionally. It is also unreferenced by check.mjs, fire-witness-gate.mjs, package.json and ci.yml, so it never runs either. Fix: derive real bounds from a measured baseline run and pin them as the defaults, then wire it into the gpu-free arm (it needs ~270 s at default cond/reps so args must be reduced or it goes in the slow list).'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  id: prediction-peer-forward-sim-witness-cannot-fail-its-thresholds-d
+  status: pending
+- title: Eleven GPU/browser witnesses have no runner, so they never gate anything
+  detail: scripts/ apps-manifest-fast-path, arena-combat-kill-respawn, arena-combat-two-client, draw-instrument, page-boot, pointer-lock-boot, prediction-drift, shader-manifest, tsl-parity/left-edge, veg-lod-browser and weather-ground-sample all reach cdp-browser, so check.mjs refuses them by name and no CI runner exists to run them. Every one is currently a witness that never executes. Blocked on registering a self-hosted Windows GPU runner and setting CI_GPU_RUNNER_ONLINE, which needs user approval. Once that exists, wire them behind SPOINT_GPU_WITNESS and record baselines per vendor.
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  id: eleven-gpu-browser-witnesses-have-no-runner-so-they-never-gate-a
+  status: pending
+- title: Mutation-test every gated witness to prove it can actually fail
+  detail: 'A static source scan for assertion calls is NOT a reliable discriminator: it flagged collider-build-failure, veg-lod-stream, veg-lod-sweep and agents-md-facts as having no assertions and never printing RESULT: PASS, yet all four print RESULT: PASS and exit 0 when actually run (witnesses build the RESULT string dynamically, or collect in a failures array, so regex over source misses them). The only sound test is mutation: for each of the 33 witnesses now listed in check.mjs NO_GPU_WITNESSES plus SLOW_NO_GPU_WITNESSES plus the fire-witness-gate set, break the single behaviour it guards and confirm the witness exits non-zero. Start with the ones with no known mutation test: physics-body-pool, physics-motion-recreate, airborne-ground-solve-throttle, docs-player-model, netcode-slope-contact, boot-failure-leak, player-manager-send-failure, static-collision-cpu, relevance-radius, veg-lod-stream, veg-lod-sweep, collider-build-failure. Known-good already: agents-md-facts (mutation-tested), terrain-residency-seam (mutation-tested), spawn-clearance, prediction-wedge.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  id: mutation-test-every-gated-witness-to-prove-it-can-actually-fail
+  status: pending
+- id: cpu-plan-static-collision-pair-capture-and-replay
+  title: Capture the static-vs-static collision pair list and replay its event stream instead of rebuilding it every tick
+  body: |
+    TIER-0 parent: cpu-skip-and-replay-plan-browser. Server, per tick, measurable in node.
+
+    WHAT RECOMPUTES
+    The static-vs-static collision pair list is rebuilt every tick: Map.get per candidate plus a pair test per survivor. A static body that never moved re-derives the same pairs forever.
+
+    STABLE STRUCTURE
+    The pair list itself. Fixed while no static is added, removed or moved and the broadphase parameters are fixed.
+
+    CHANGING INPUTS
+    Static add/remove/move; broadphase cell size and parameters; mover set.
+
+    INVALIDATION KEY
+    key = H(CODE) || STRUCT_EPOCH || Q(broadphaseParams)
+    CODE = hash of the UTF-8 bytes of the source files implementing the pair build, computed at boot, never a hand-bumped constant (deviation.build-cache-no-code-version-key). STRUCT_EPOCH bumps on any static add/remove/move.
+
+    WORST-CASE BOUND
+    Replay is O(pairs) reads; rebuild is O(candidates). Bound the replayed list by the pair cap already enforced, and bound STRUCT_EPOCH invalidation to one rebuild per tick regardless of how many statics changed in it, so a mass edit cannot cost more than one full rebuild.
+
+    MEASUREMENT (baseline already taken, do not re-take)
+    2026-10-05, N=2000 statics / 8 movers: 21904 Map.get and 3657 pair tests per tick. Static-only 3.585 ms/tick vs movers-only 0.002 ms/tick. scripts/static-collision-cpu-witness.mjs already measures this in the gpu-free gate.
+  acceptance_criteria: 'Integer work units, not wall-clock: Map.get per tick and pair tests per tick must each drop by at least 50 percent on a static-only world, with a zero-delta control arm in the SAME window (box noise floor +/-10 percent, currently ~2.5x inflated). Correctness: an invalidation witness -- add, move and remove a static and show the replayed pair list changes on that same tick, because a skip that misses an invalidation is a silent staleness bug.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: cpu-plan-static-collision-grid-skip-rebuild
+  title: Reuse the 4 m collision grid across ticks instead of re-bucketing every collision entity every tick
+  body: |
+    TIER-0 parent: cpu-skip-and-replay-plan-browser. Server, per tick, measurable in node.
+
+    WHAT RECOMPUTES
+    The 4 m broadphase collision grid is rebuilt every tick: every collision entity is re-bucketed even when it has not moved.
+
+    STABLE STRUCTURE
+    The bucket assignment of every static entity. Fixed while the entity has not moved and the cell size is fixed.
+
+    CHANGING INPUTS
+    Entity add/remove/move; cell size; world bounds.
+
+    INVALIDATION KEY
+    key = H(CODE) || GRID_EPOCH || Q(cellSize, bounds)
+    CODE = hash of the UTF-8 bytes of the source files implementing bucketing, computed at boot (deviation.build-cache-no-code-version-key). GRID_EPOCH bumps on add/remove/move or on a cell-size change. A per-entity dirty bit is cheaper than an epoch for the common case of one moved mover: prefer per-entity rebucket over a whole-grid epoch bump.
+
+    WORST-CASE BOUND
+    Rebuild cost is O(entities); incremental cost is O(moved entities). Bound the incremental pass by the moved-entity count, and make a whole-grid epoch bump cost exactly one rebuild per tick so a mass teleport cannot cost more than the current behaviour.
+
+    MEASUREMENT
+    Integer work units: bucket insert calls per tick and entities visited per tick, with a zero-delta control arm in the SAME window (box noise floor +/-10 percent, currently ~2.5x inflated). scripts/static-collision-cpu-witness.mjs already runs in the gpu-free gate and is the place to add the counters.
+  acceptance_criteria: 'Bucket insert calls per tick drop by at least 50 percent on a world whose entities are static, with a zero-delta control arm in the SAME window. Correctness: an invalidation witness -- move one entity and show its cell assignment updates on that same tick, and change the cell size and show the whole grid re-buckets on that same tick.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: cpu-plan-aoi-ring-cell-neighbours-capture
+  title: Cache the AOI 8-cell neighbour ring and cell centres per cell instead of re-solving them every pass
+  body: |
+    TIER-0 parent: cpu-skip-and-replay-plan-browser. Server, per tick, measurable in node.
+
+    WHAT RECOMPUTES
+    Per distinct player cell per pass: 8 resolveCell calls plus 8 cell-centre solves to derive the neighbour ring. The caches holding them are cleared unconditionally at TickHandler.js:255-257, so nothing is ever reused across passes even when no player moved to a new cell.
+
+    STABLE STRUCTURE
+    The neighbour ring (8 cell ids) and the centre of each cell. Fixed while the cell grid parameters and the cell identity are fixed.
+
+    CHANGING INPUTS
+    Player cell membership; cell size; grid bounds.
+
+    INVALIDATION KEY
+    key = H(CODE) || GRID_EPOCH || cellId
+    CODE = hash of the UTF-8 bytes of the source files implementing resolveCell and the centre solve, computed at boot (deviation.build-cache-no-code-version-key). GRID_EPOCH bumps when cell size or bounds change. Cache is keyed per cellId, so a player moving between cells hits a different key rather than invalidating the whole map.
+
+    WORST-CASE BOUND
+    Bound the cache by the number of distinct cells actually visited, evicting least-recently-used, so a player sweeping the whole world cannot grow it without bound. The current unconditional clear at TickHandler.js:255-257 must become a conditional clear on GRID_EPOCH change only.
+
+    MEASUREMENT
+    Integer work units: resolveCell calls per pass and centre solves per pass, with a zero-delta control arm in the SAME window (box noise floor +/-10 percent, currently ~2.5x inflated).
+  acceptance_criteria: 'resolveCell calls per pass and cell-centre solves per pass each drop by at least 50 percent with players holding still, with a zero-delta control arm in the SAME window. Correctness: an invalidation witness -- change the cell size and show the cached ring and centres are discarded on that same pass, and walk a player into a new cell and show that cell ring is computed and then reused.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: cpu-plan-getsnapshot-transform-version-incremental
+  title: Make getSnapshot incremental and stop keying its cache on the tick counter
+  body: |
+    TIER-0 parent: cpu-skip-and-replay-plan-browser. Server, per tick, measurable in node.
+
+    WHAT RECOMPUTES
+    getSnapshot rebuilds its output every call. Its cache is keyed on the tick counter, so the key changes every tick by construction and the cache can never hit: this is a cache that is present but structurally incapable of hitting.
+
+    STABLE STRUCTURE
+    The per-entity transform snapshot records. Fixed while an entity transform is unchanged.
+
+    CHANGING INPUTS
+    Entity transform values; entity add/remove; chart epoch.
+
+    INVALIDATION KEY
+    key = H(CODE) || TRANSFORM_VERSION(entity) || CHART_EPOCH
+    Replace the tick counter with a per-entity transform version that increments only when that transform actually changes. CODE = hash of the UTF-8 bytes of the source files implementing the snapshot build, computed at boot (deviation.build-cache-no-code-version-key). AGENTS.md notes getSnapshot() already keys on _version === _snapshotVersion alone with the tick gone, so this row is about making the remaining rebuild incremental rather than whole.
+
+    WORST-CASE BOUND
+    Rebuild cost is O(entities); incremental cost is O(changed entities). Bound the incremental pass by the changed-entity count and make a chart re-anchor cost exactly one whole rebuild.
+
+    MEASUREMENT
+    Integer work units: entity records rewritten per snapshot call and bytes copied per call, with a zero-delta control arm in the SAME window (box noise floor +/-10 percent, currently ~2.5x inflated). scripts/cpu-skip-witness.mjs already prints row2_encodePerSnapshotCall in the gpu-free gate and is the place to add the counters.
+  acceptance_criteria: 'Entity records rewritten per snapshot call drop by at least 50 percent on a tick where few entities moved, with a zero-delta control arm in the SAME window. Correctness: an invalidation witness -- move one entity and show its record is rewritten on that same call, and force a chart re-anchor and show the whole snapshot rebuilds on that same call.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: cpu-plan-entity-bin-double-buffer-flip-on-change
+  title: Flip the 29-byte entity bin record only when its bytes actually change
+  body: |
+    TIER-0 parent: cpu-skip-and-replay-plan-browser. Server, per tick, measurable in node.
+
+    WHAT RECOMPUTES
+    The 29-byte entity bin record is written every tick regardless of whether any of its bytes differ from the previous tick.
+
+    STABLE STRUCTURE
+    The encoded bin record. Fixed while the encoded bytes are equal to the previous encoding.
+
+    CHANGING INPUTS
+    Any field the record encodes (transform, flags, ids); chart epoch.
+
+    INVALIDATION KEY
+    key = H(CODE) || RECORD_EPOCH(entity)
+    RECORD_EPOCH increments only when a byte-compare against the previous encoding differs. CODE = hash of the UTF-8 bytes of the source files implementing the encoding, computed at boot (deviation.build-cache-no-code-version-key).
+
+    WORST-CASE BOUND
+    The byte-compare is O(29) per entity, so the skip costs 29 bytes of compare to avoid 29 bytes of write plus any downstream re-encode: state the measured crossover and keep the compare only if the write is measurably more expensive. Bound total compare work by entity count times 29 bytes per tick.
+
+    MEASUREMENT
+    Integer work units: bin records written per tick and bytes written per tick, with a zero-delta control arm in the SAME window (box noise floor +/-10 percent, currently ~2.5x inflated).
+  acceptance_criteria: 'Bin records written per tick drop by at least 50 percent on a tick where most entities are idle, with a zero-delta control arm in the SAME window. Correctness: an invalidation witness -- change one encoded field of one entity and show exactly that record is rewritten on that same tick, and confirm no consumer observes a stale record for an entity whose bytes did change.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: cpu-plan-interactables-gate-on-press
+  title: Skip the interactable x player sweep on ticks where no player is pressing interact
+  body: |
+    TIER-0 parent: cpu-skip-and-replay-plan-browser. Server, per tick, measurable in node.
+
+    WHAT RECOMPUTES
+    The interactable x player sweep runs every tick and is O(interactables x players), even on ticks where no player is pressing the interact key, in which case no interaction can possibly begin.
+
+    STABLE STRUCTURE
+    The empty result of the sweep on a tick where no input is pressed. Fixed while no player presses interact.
+
+    CHANGING INPUTS
+    Per-player interact button state; interactable add/remove/move; interaction range.
+
+    INVALIDATION KEY
+    key = H(CODE) || PRESS_EPOCH || Q(interactableSetVersion)
+    PRESS_EPOCH increments when any players interact button transitions. CODE = hash of the UTF-8 bytes of the source files implementing the sweep, computed at boot (deviation.build-cache-no-code-version-key).
+
+    WORST-CASE BOUND
+    Gate the whole sweep on a single boolean OR over player interact states, so the skipped tick costs O(players) to decide rather than O(interactables x players). Bound the sweep that does run by the interactable count.
+
+    MEASUREMENT
+    Integer work units: sweep pair tests per tick, with a zero-delta control arm in the SAME window (box noise floor +/-10 percent, currently ~2.5x inflated).
+  acceptance_criteria: 'Sweep pair tests per tick fall to zero on ticks where no player is pressing interact, with a zero-delta control arm in the SAME window. Correctness: an invalidation witness -- press interact on one player standing next to an interactable and show the interaction becomes available on that same tick, and release and re-press to show it is re-evaluated rather than latched.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: cpu-plan-static-tile-index-int-span-key
+  title: Replace the 19-concatenation string tile key in StaticTileIndex with an integer tile-span compare
+  body: |
+    TIER-0 parent: cpu-skip-and-replay-plan-browser. Physics bookkeeping, per body touch. BLOCKED on a real Jolt harness for the end-to-end number; the microbenchmark below is already taken and is harness-free.
+
+    WHAT RECOMPUTES
+    StaticTileIndex.update builds a tile key by concatenating 19 values into a string on every update, then compares strings. Measured: 5.539 us per update, of which 3.040 us (55 percent) is the string build and compare alone.
+
+    STABLE STRUCTURE
+    The integer tile span a body occupies. Fixed while the body bounds and the tile size are fixed.
+
+    CHANGING INPUTS
+    Body bounds; tile size; body add/remove.
+
+    INVALIDATION KEY
+    key = H(CODE) || TILE_SIZE_EPOCH || bodyBoundsVersion
+    CODE = hash of the UTF-8 bytes of the source files implementing the key, computed at boot (deviation.build-cache-no-code-version-key).
+
+    WORST-CASE BOUND
+    Integer compare is O(1) with no allocation; the string path allocates per update. Bound allocations per update to zero on the new path and assert it with a counter, because allocation is the cost being removed.
+
+    MEASUREMENT
+    Microbenchmark already taken, do not re-take it: 5.539 us/update total, 3.040 us of it the string. Integer work units: allocations per update and microseconds per update, with a zero-delta control arm in the SAME window (box noise floor +/-10 percent, currently ~2.5x inflated).
+  acceptance_criteria: 'Allocations per StaticTileIndex.update fall to zero and microseconds per update drop by at least 40 percent against the 5.539 us baseline, with a zero-delta control arm in the SAME window. Correctness: a Jolt-harness witness that a body crossing a tile boundary is re-indexed on that same update and that containment queries still return exactly the same body set as the string key path.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
