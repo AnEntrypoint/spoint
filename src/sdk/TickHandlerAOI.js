@@ -28,31 +28,138 @@ function _cellCenterWorld(face, wx, wy, R, dist) {
   return [(dx / len) * dist, (dy / len) * dist, (dz / len) * dist]
 }
 
+const AOI_CELL_BASE_MAX = 512
+
+const aoiRingWork = {
+  ringComputes: 0,
+  ringHits: 0,
+  cellComputes: 0,
+  cellHits: 0,
+  cellCentreSolves: 0,
+  neighbourCellsCalls: 0,
+  cellBaseComputes: 0,
+  cellBaseHits: 0,
+  statefulQueries: 0,
+  evictions: 0,
+  epochDrops: 0,
+}
+
+export function resetAoiRingWork() {
+  for (const key of Object.keys(aoiRingWork)) aoiRingWork[key] = 0
+}
+
+export { aoiRingWork }
+
+const _cellBaseCache = new Map()
+let _aoiCodeEpoch = ''
+let _aoiCellBaseEpoch = ''
+
+export function aoiCodeEpoch() {
+  return _aoiCodeEpoch
+}
+
+export function aoiCellBaseEpoch() {
+  return _aoiCellBaseEpoch
+}
+
+export function aoiCellBaseCacheSize() {
+  return _cellBaseCache.size
+}
+
+export async function installAoiCodeEpoch() {
+  const fs = await import((() => 'node:' + 'fs')())
+  const crypto = await import((() => 'node:' + 'crypto')())
+  const sources = ['./TickHandlerAOI.js', '../terrain/CubeSphereCells.js', '../spatial/Octree.js', '../apps/AppRuntime.js', '../stage/Stage.js']
+  const digest = crypto.createHash('sha256')
+  for (const rel of sources) digest.update(fs.readFileSync(new URL(rel, import.meta.url)))
+  const epoch = digest.digest('hex').slice(0, 16)
+  if (_aoiCodeEpoch !== epoch) { _aoiCodeEpoch = epoch; _cellBaseCache.clear() }
+  return epoch
+}
+
+export function invalidateAoiCellBaseCache() {
+  _aoiCodeEpoch = ''
+  _aoiCellBaseEpoch = ''
+  _cellBaseCache.clear()
+}
+
+export function setAoiCellBaseEpoch(relevanceRadius, planetRadius, appRuntime) {
+  const spatial = appRuntime?._stageLoader?._activeStage?.spatial
+  const mutations = spatial ? spatial.mutations : null
+  _aoiCellBaseEpoch = (_aoiCodeEpoch && mutations !== null)
+    ? `${_aoiCodeEpoch}|${mutations}|${relevanceRadius}|${planetRadius}`
+    : ''
+  if (_aoiCellBaseEpoch === '') {
+    aoiRingWork.epochDrops += _cellBaseCache.size
+    _cellBaseCache.clear()
+  }
+}
+
+function readCellBase(key) {
+  if (_aoiCellBaseEpoch === '') return null
+  const hit = _cellBaseCache.get(key)
+  if (!hit) return null
+  if (hit.epoch !== _aoiCellBaseEpoch) { _cellBaseCache.delete(key); aoiRingWork.epochDrops++; return null }
+  _cellBaseCache.delete(key)
+  _cellBaseCache.set(key, hit)
+  return hit
+}
+
+function storeCellBase(key, cellViewerPos, baseRelevantIds) {
+  if (_aoiCellBaseEpoch === '') return
+  _cellBaseCache.set(key, { epoch: _aoiCellBaseEpoch, cellViewerPos, baseRelevantIds })
+  if (_cellBaseCache.size > AOI_CELL_BASE_MAX) {
+    const oldest = _cellBaseCache.keys().next().value
+    _cellBaseCache.delete(oldest)
+    aoiRingWork.evictions++
+  }
+}
+
+function solveCellViewer(face, cx, cy, planetRadius, relevanceRadius) {
+  if (planetRadius > 0) {
+    const ATAN_K = Math.PI / 4.0
+    const foX = (cx + 0.5) * relevanceRadius - planetRadius
+    const foY = (cy + 0.5) * relevanceRadius - planetRadius
+    const wx = planetRadius * Math.tan((foX / planetRadius) * ATAN_K)
+    const wy = planetRadius * Math.tan((foY / planetRadius) * ATAN_K)
+    return _cellCenterWorld(face, wx, wy, planetRadius, planetRadius)
+  }
+  return [(cx + 0.5) * relevanceRadius, 0, (cy + 0.5) * relevanceRadius]
+}
+
 function computeRingRelevantIds(cellKey, cellFace, cellCx, cellCy, cellsPerFace, planetRadius, relevanceRadius, appRuntime) {
   let ring = _ringCache.get(cellKey)
-  if (ring) return ring
+  if (ring) { aoiRingWork.ringHits++; return ring }
+  aoiRingWork.ringComputes++
   const relSet = new Set(), nearSet = new Set()
   const addCell = (face, cx, cy, key) => {
     let c = _spatialCache.get(key)
     if (!c) {
-      let cvp
-      if (planetRadius > 0) {
-        const ATAN_K = Math.PI / 4.0
-        const foX = (cx + 0.5) * relevanceRadius - planetRadius
-        const foY = (cy + 0.5) * relevanceRadius - planetRadius
-        const wx = planetRadius * Math.tan((foX / planetRadius) * ATAN_K)
-        const wy = planetRadius * Math.tan((foY / planetRadius) * ATAN_K)
-        cvp = _cellCenterWorld(face, wx, wy, planetRadius, planetRadius)
-      } else {
-        cvp = [(cx + 0.5) * relevanceRadius, 0, (cy + 0.5) * relevanceRadius]
+      aoiRingWork.cellComputes++
+      aoiRingWork.statefulQueries += 2
+      const base = readCellBase(key)
+      let cvp, baseRelevantIds
+      if (base) { cvp = base.cellViewerPos; baseRelevantIds = base.baseRelevantIds; aoiRingWork.cellBaseHits++ }
+      else {
+        aoiRingWork.cellBaseComputes++
+        aoiRingWork.cellCentreSolves++
+        cvp = solveCellViewer(face, cx, cy, planetRadius, relevanceRadius)
+        baseRelevantIds = appRuntime.relevantEntities(cvp, relevanceRadius)
+        storeCellBase(key, cvp, baseRelevantIds)
       }
-      c = { nearbyPlayerIds: appRuntime.nearbyPlayerIdsHysteresis(cvp, relevanceRadius, key), relevantIds: appRuntime.getRelevantDynamicIdsWithStarvation(cvp, relevanceRadius, key), cellViewerPos: cvp }
+      c = {
+        nearbyPlayerIds: appRuntime.nearbyPlayerIdsHysteresis(cvp, relevanceRadius, key),
+        relevantIds: appRuntime.getRelevantDynamicIdsWithStarvation(cvp, relevanceRadius, key, 300, baseRelevantIds),
+        cellViewerPos: cvp,
+        baseRelevantIds,
+      }
       _spatialCache.set(key, c)
-    }
+    } else aoiRingWork.cellHits++
     for (const id of c.relevantIds) relSet.add(id)
     for (const id of c.nearbyPlayerIds) nearSet.add(id)
   }
   if (planetRadius > 0) {
+    aoiRingWork.neighbourCellsCalls++
     const neighbors = neighborCells(cellFace, cellCx, cellCy, cellsPerFace)
     for (const n of neighbors) addCell(n.face, n.cx, n.cy, packCellKey(n.face, n.cx, n.cy, cellsPerFace))
   } else {

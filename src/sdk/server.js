@@ -17,6 +17,7 @@ import { AppRuntime } from '../apps/AppRuntime.js'
 import { AppLoader } from '../apps/AppLoader.js'
 import { StageLoader } from '../stage/StageLoader.js'
 import { createTickHandler } from './TickHandler.js'
+import { installAoiCodeEpoch } from './TickHandlerAOI.js'
 import { EventEmitter } from '../protocol/EventEmitter.js'
 import { EventBus } from '../apps/EventBus.js'
 import { EventLog } from '../netcode/EventLog.js'
@@ -123,6 +124,7 @@ export function wireServerHandlers(ctx) {
 
 export async function createServer(config = {}) {
   if (isDevHmrEnabled()) registerAppModuleVersioning(config.appsDirs)
+  await installAoiCodeEpoch()
   const port = config.port || 3000, tickRate = config.tickRate || DEFAULT_TICK_RATE_HZ
   const movement = config.movement || {}, staticDirs = config.staticDirs || []
   const deps = await createServerDeps(config, tickRate)

@@ -559,8 +559,8 @@ export class AppRuntime {
   getSnapshotForPlayer(pos, r, skipStatic=false) { const e=[], rel=new Set(this.relevantEntities(pos,r)); for (const id of (skipStatic?this._dynamicEntityIds:this.entities.keys())) { const en=this.entities.get(id); if (en&&(rel.has(id)||en.custom?._interior)) e.push(this._encodeEntity(id,en)) } return this._snap(e) }
   getDynamicEntitiesRaw() { const o=[]; for (const id of this._activeDynamicIds) { const e=this.entities.get(id); if (e) o.push({ id, model:e.model, position:e.position, rotation:e.rotation, velocity:e.velocity, bodyType:e.bodyType, custom:e.custom, _isEnv:!!e.custom?._interior, _sleeping:false }) } for (const id of this.getUnmanagedDynamicIds()) { const e=this.entities.get(id); if (e) o.push({ id, model:e.model, position:e.position, rotation:e.rotation, velocity:e.velocity, bodyType:e.bodyType, custom:e.custom, _isEnv:!!e.custom?._interior, _sleeping:false }) } for (const id of this._sleepingDynamicIds) o.push({ id, _sleeping:true }); for (const id of this._suspendedEntityIds) o.push({ id, _sleeping:true }); return o }
   getRelevantDynamicIds(pos, r) { return this.relevantEntities(pos, r) }
-  getRelevantDynamicIdsWithStarvation(pos, r, viewerKey, maxTicksStarved = 300) {
-    const ids = this.relevantEntities(pos, r)
+  getRelevantDynamicIdsWithStarvation(pos, r, viewerKey, maxTicksStarved = 300, baseIds = null) {
+    const ids = baseIds || this.relevantEntities(pos, r)
     const spatial = this._stageLoader?._activeStage?.spatial
     if (!spatial || !viewerKey) return ids
     for (const id of ids) spatial.markSeen(id, viewerKey)

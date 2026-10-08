@@ -11,7 +11,7 @@ import { createServerWeather } from './ServerWeather.js'
 import { enforceMovementEnvelope } from '../netcode/InputGuard.js'
 import { stepTeleportHold } from '../netcode/TeleportHold.js'
 import { recordSnapshotBytes, recordTickPhase } from './Metrics.js'
-import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, getPlayerPriorityIds, clearPlayerPriorityAccumulator, _spatialCache, _ringCache } from './TickHandlerAOI.js'
+import { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, computeRingRelevantIds, getPlayerPriorityIds, clearPlayerPriorityAccumulator, setAoiCellBaseEpoch, invalidateAoiCellBaseCache, _spatialCache, _ringCache } from './TickHandlerAOI.js'
 export { PRIORITY_ENTITY_BUDGET, PRIORITY_DECAY, BANDWIDTH_BUDGET_BYTES_PER_TICK, trimEntitiesToBudget, estimateEntityBytes, getPlayerPriorityIds } from './TickHandlerAOI.js'
 
 const INPUT_BUFFER_CATCHUP_DEPTH = 8
@@ -255,6 +255,7 @@ function buildAndSendSnapshots(players, appRuntime, deps, tick, snapshotSeq, isK
     _spatialCache.clear()
     _ringCache.clear()
     _cellShareCache.clear()
+    setAoiCellBaseEpoch(relevanceRadius, planetRadius, appRuntime)
     let dynCache = null
     let unmanagedIds = null
     const served = selectServedPlayers(players, snapGroups, curGroup, false)
@@ -437,6 +438,7 @@ export function createTickHandler(deps) {
   }
 
   function invalidateChartLocalSnapshotState() {
+    invalidateAoiCellBaseCache()
     snapDeps.playerEntityMaps.clear()
     playerScratch.clear()
     snapState = createSnapState()

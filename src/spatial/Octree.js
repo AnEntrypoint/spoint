@@ -17,6 +17,11 @@ export class SpatialIndex {
     this._idCell = new Map()
     this._entities = new Map()
     this._relevanceRadius = config.relevanceRadius || 200
+    this._mutations = 0
+  }
+
+  get mutations() {
+    return this._mutations
   }
 
   insert(id, position) {
@@ -30,6 +35,7 @@ export class SpatialIndex {
     if (!bucket) { bucket = []; this._cells.set(key, bucket) }
     bucket.push(id)
     this._idCell.set(id, key)
+    this._mutations++
     const n = this._entities.size
     if (n >= 256 && (n & (n - 1)) === 0) { try { console.warn('[SpatialIndex] size=' + n) } catch (_) {} }
   }
@@ -49,6 +55,7 @@ export class SpatialIndex {
     }
     this._idCell.delete(id)
     this._entities.delete(id)
+    this._mutations++
   }
 
   update(id, position) {
@@ -62,6 +69,7 @@ export class SpatialIndex {
       const oldKey = this._idCell.get(id)
       if (newKey === oldKey) {
         existing[0] = px; existing[1] = position[1]; existing[2] = pz
+        this._mutations++
         return
       }
     }
@@ -213,6 +221,7 @@ export class SpatialIndex {
     this._cells.clear()
     this._idCell.clear()
     this._entities.clear()
+    this._mutations++
   }
 
   rebuild() {
@@ -223,6 +232,7 @@ export class SpatialIndex {
     for (const [id, point] of entries) {
       this.insert(id, point)
     }
+    this._mutations++
   }
 
   reseat(positionOf) {
@@ -238,6 +248,7 @@ export class SpatialIndex {
       bucket.push(id)
       this._idCell.set(id, key)
     }
+    this._mutations++
   }
 
   get relevanceRadius() {
