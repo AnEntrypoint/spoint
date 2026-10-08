@@ -2717,3 +2717,29 @@
   acceptance_criteria: 'Allocations per StaticTileIndex.update fall to zero and microseconds per update drop by at least 40 percent against the 5.539 us baseline, with a zero-delta control arm in the SAME window. Correctness: a Jolt-harness witness that a body crossing a tile boundary is re-indexed on that same update and that containment queries still return exactly the same body set as the string key path.'
   session_id: f73df536-0f66-49a1-8888-2a064d23416a
   status: pending
+- id: veg-lod-browser-witness-insts0-may-now-be-a-satellite
+  title: veg-lod-browser-witness picks insts[0] from scene.traverse, which after the shared-walk change can be a satellite instancer
+  body: |
+    Follows fd942a27, which made a species leaf instancer a SATELLITE of its branch (opts.host). A satellite keeps no uniform grid, its updateLOD returns immediately, and tier/shadow/visibility are mirrored from the host through a host-id to own-id slot map.
+
+    EXPOSURE 1 (latent breakage)
+    scripts/veg-lod-browser-witness.mjs takes insts[0] from scene.traverse and treats it as a host instancer. That holds only while no pool has grown: pool capacity growth does scene.remove then scene.add, which APPENDS, and with INIT_CAP 2048 against 30000 max instances a grown branch pool can land behind an un-grown leaf pool. insts[0] is then a satellite, whose addInstances throws not paired. Select the host explicitly (a satellite knows its host, or filter on the pairing) rather than by traversal order.
+
+    EXPOSURE 2 (stale calibrated floors)
+    The witness SAMPLE phase sums recordsWalked and planeTests over EVERY instancer. With one walk per species instead of two, those per-frame totals now measure half the population and gridUsable halves. The :404-405 assertions survive; any calibrated floor in that witness does not, and a halved count could read as an improvement rather than as the intended change. Re-derive its floors against the post-change population.
+
+    Neither is gated in CI today (this is a browser witness and the accelerated arms have no runner), so both are invisible until someone runs it on a GPU.
+  acceptance_criteria: 'Run scripts/veg-lod-browser-witness.mjs on both GPUs and show it reaches its own RESULT: PASS after the fix. Prove exposure 1 by forcing a pool capacity growth in the page and showing insts[0] is still a host, or showing the pre-fix path throws not paired. Prove exposure 2 by re-deriving the SAMPLE floors against the post-change per-frame counts and showing the witness still discriminates: break the sharing and show it fails.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
+- id: rocks-prewarm-minchunks-floor
+  title: Give Rocks.prewarm the minChunks floor so its slice budget cannot end prewarm before a minimum chunk count
+  body: |
+    Follows the Vegetation.prewarm budgeting work. client/core/Rocks.js:272-296 already has PREWARM_SLICE_MS = 24 and the macrotask yield, so the slice and yield delta from Vegetation is already closed. The one remaining difference is the minChunks floor: Vegetation breaks only when BOTH n >= minChunks AND workMs >= budgetMs, so the budget cannot end prewarm before a minimum chunk count has been placed. Rocks breaks on the budget alone.
+
+    This is roughly a one line change, but no witness exercises rock prewarm slicing, so shipping it as a drive-by would land an unwitnessed change. The witness has to come with it.
+
+    AGENTS.md already records the general rule: Rocks.prewarm needs the same slices, and minChunks is a floor not a cap.
+  acceptance_criteria: 'A witness that exercises Rocks.prewarm with a budget small enough to bite, counting chunks placed per slice and the longest macrotask block, before and after the change in the same window with a zero-delta control arm. Pass requires: no single slice block exceeds PREWARM_SLICE_MS plus a stated tolerance, and prewarm still reaches at least minChunks chunks. Integer work units, not wall-clock.'
+  session_id: f73df536-0f66-49a1-8888-2a064d23416a
+  status: pending
