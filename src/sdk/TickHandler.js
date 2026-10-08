@@ -179,7 +179,7 @@ function resolvePlayerCell(viewerPos, planetRadius, relevanceRadius) {
     return { cellKey: packCellKey(c.face, c.cx, c.cy, cellsPerFace), cellFace: c.face, cellCx: c.cx, cellCy: c.cy, cellsPerFace }
   }
   const cx = Math.floor(viewerPos[0] / relevanceRadius), cz = Math.floor(viewerPos[2] / relevanceRadius)
-  return { cellKey: (cx * 65536 + cz) | 0, cellFace: -1, cellCx: 0, cellCy: 0, cellsPerFace: 0 }
+  return { cellKey: (cx * 65536 + cz) | 0, cellFace: -1, cellCx: cx, cellCy: cz, cellsPerFace: 0 }
 }
 
 function restoreTrimmedBaselines(sent, kept, staticCount, entityMap, prevMap) {

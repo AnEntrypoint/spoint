@@ -27,7 +27,7 @@ const AT = strArg(args.at, '0,1.2,-95')
 const AOI_PLAYERS = numArg(args.aoiPlayers, 8)
 const AOI_TICKS = numArg(args.aoiTicks, 60)
 const AOI_REPS = numArg(args.aoiReps, 2)
-const AOI_SPREAD_M = numArg(args.aoiSpread, 260)
+const AOI_SPREAD_M = numArg(args.aoiSpread, 900)
 const AOI_CELL_BASE_MAX = 512
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -201,6 +201,38 @@ async function runAoiRingArm() {
       const restoredMove = await window('entity-restored', 24)
       probes.restoreMove = { ticks: restoredMove.ticks, mismatch: restoredMove.raw.mismatch, centreSolves: restoredMove.raw.cellCentreSolves }
     }
+
+    const R = stageSpatial.relevanceRadius
+    const entPos = new Map()
+    for (const id of stage.entityIds) { const p = stageSpatial.getPosition(id); if (p) entPos.set(id, p) }
+    const cellXZ = (x, z) => [Math.floor(x / R), Math.floor(z / R)]
+    const keyOf = (cx, cz) => (cx * 65536 + cz) | 0
+    const ringSignatures = new Set()
+    const perPlayerRings = []
+    let farLeaks = 0
+    let ownCellChecked = 0
+    let ownCellMissing = 0
+    for (const p of server.playerManager.getConnectedPlayers()) {
+      const pos = p.state.position
+      const [cx, cz] = cellXZ(pos[0], pos[2])
+      const ring = _ringCache.get(keyOf(cx, cz))
+      if (!ring) { perPlayerRings.push({ cell: `${cx}|${cz}`, ring: null }); continue }
+      const ids = ring.relevantIds
+      ringSignatures.add([...ids].sort().join(','))
+      for (const id of ids) {
+        const ep = entPos.get(id)
+        if (!ep) continue
+        if (Math.hypot(ep[0] - pos[0], ep[2] - pos[2]) > 3.5 * R) farLeaks++
+      }
+      for (const [id, ep] of entPos) {
+        const [ex, ez] = cellXZ(ep[0], ep[2])
+        if (ex !== cx || ez !== cz) continue
+        ownCellChecked++
+        if (!ids.has(id)) ownCellMissing++
+      }
+      perPlayerRings.push({ cell: `${cx}|${cz}`, ringSize: ids.size })
+    }
+    probes.divergence = { distinctRings: ringSignatures.size, farLeaks, ownCellChecked, ownCellMissing, perPlayerRings, entities: entPos.size, radius: R }
   }
 
   const observerAt = tickSystem.callbacks.indexOf(observe)
@@ -357,13 +389,25 @@ if (aoiArm) {
   if (!probes.move) failures.push('aoi ring arm: entity-move invalidation probe did not run')
   else if (probes.move.centreSolves < 8 || probes.move.epochDrops < 8) failures.push(`aoi ring arm: after an entity moved 6 m, only ${probes.move.centreSolves} cell centre(s) were re-solved and ${probes.move.epochDrops} cache entr(y/ies) dropped (need >= 8 each), so entity motion is served stale base sets`)
 
+  if (!probes.divergence) failures.push('aoi ring arm: per-player ring divergence probe did not run')
+  else {
+    const dv = probes.divergence
+    if (aoiArm.distinctPlayerCells < 2) failures.push(`aoi ring arm: ${aoiArm.players} player(s) occupy only ${aoiArm.distinctPlayerCells} distinct relevance cell(s), so per-player ring divergence cannot be measured`)
+    else if (dv.distinctRings < 2) failures.push(`aoi ring arm: ${aoiArm.players} player(s) across ${aoiArm.distinctPlayerCells} relevance cell(s) were all served the same relevant id set (${dv.perPlayerRings.map(r => `${r.cell}:${r.ringSize}`).join(' ')}), so the ring is still anchored at the origin instead of each player's own cell`)
+    if (dv.farLeaks > 0) failures.push(`aoi ring arm: ${dv.farLeaks} served id(s) sit farther than 3.5 x ${dv.radius} m from the player they were served to, which no ring built around that player's own cell can legitimately reach`)
+    if (dv.ownCellChecked === 0) failures.push('aoi ring arm: no player had a stage entity inside their own relevance cell, so own-cell coverage is unmeasured')
+    else if (dv.ownCellMissing > 0) failures.push(`aoi ring arm: ${dv.ownCellMissing} of ${dv.ownCellChecked} stage entit(y/ies) inside a player's own relevance cell were missing from that player's ring`)
+  }
+
   const cut = rows.length && perTick(rows[0].off, 'cellCentreSolves') > 0
     ? (1 - perTick(rows[0].warm, 'cellCentreSolves') / perTick(rows[0].off, 'cellCentreSolves')) * 100
     : NaN
   console.log(`\ncell-centre solves/tick ${fmt(perTick(rows[0].off, 'cellCentreSolves'), 2)} -> ${fmt(perTick(rows[0].warm, 'cellCentreSolves'), 2)} (${fmt(cut, 1)}% cut), control arm rep-to-rep spread ${controlSpread}`)
   console.log(`stateful queries/tick held at ${fmt(perTick(rows[0].off, 'statefulQueries'), 2)} -> ${fmt(perTick(rows[0].warm, 'statefulQueries'), 2)}, equivalence ${baseChecks - baseMismatch}/${baseChecks} cached base set(s) matched a fresh recompute, cache peak ${maxCellBaseCache}/${AOI_CELL_BASE_MAX}`)
   console.log(`invalidation: radius change re-solved ${probes.radius ? probes.radius.centreSolves : '-'} centre(s) and dropped ${probes.radius ? probes.radius.epochDrops : '-'} entr(y/ies); entity move re-solved ${probes.move ? probes.move.centreSolves : '-'} centre(s) and dropped ${probes.move ? probes.move.epochDrops : '-'} entr(y/ies)`)
-  console.log(`OBSERVATION: ${aoiArm.players} player(s) occupy ${aoiArm.distinctPlayerCells} distinct relevance cell(s) while flat-mode resolvePlayerCell pins cellCx/cellCy to 0, so all of them share one ring`)
+  const dv = probes.divergence
+  console.log(`per-player ring: ${aoiArm.distinctPlayerCells} player cell(s) -> ${dv ? dv.distinctRings : '-'} distinct relevant id set(s) [${dv ? dv.perPlayerRings.map(r => `${r.cell}=${r.ringSize === null ? 'none' : r.ringSize}`).join(' ') : '-'}], own-cell entities served ${dv ? dv.ownCellChecked - dv.ownCellMissing : '-'}/${dv ? dv.ownCellChecked : '-'}, ids beyond 3.5r of their player ${dv ? dv.farLeaks : '-'}`)
+  console.log(`OBSERVATION: ${aoiArm.players} player(s) occupy ${aoiArm.distinctPlayerCells} distinct relevance cell(s), spread ${AOI_SPREAD_M} m against relevance ${aoiArm.relevanceRadius} m`)
 }
 
 for (const f of outFiles) await rm(f, { force: true })
