@@ -82,7 +82,7 @@ export async function createGrass(opts = {}) {
   const placementRing = createPlacementRing(frame, GRASS, ringRadius)
   let _occCands = null
   let totalInstances = 0
-  const profile = { totalInstances: 0, loads: 0, unloads: 0, updateMs: 0, grassDrawCalls: 2, ringScans: 0, cullMs: 0, chunksCulled: 0 }
+  const profile = { totalInstances: 0, loads: 0, unloads: 0, updateMs: 0, grassDrawCalls: 2, ringScans: 0, cullMs: 0, chunksCulled: 0, prewarmMs: 0, prewarmWorkMs: 0, prewarmChunks: 0 }
   const _frustum = new THREE.Frustum(), _projMat = new THREE.Matrix4(), _cullBox = new THREE.Box3()
 
   function commitChunk(key, list, px, pz) {
@@ -377,19 +377,30 @@ export async function createGrass(opts = {}) {
     if (typeof window !== 'undefined' && window.__grass && window.__grass._im === im) delete window.__grass
   }
 
-  const _yieldFrame = () => new Promise(r => (typeof requestAnimationFrame !== 'undefined') ? requestAnimationFrame(() => r()) : setTimeout(r, 0))
+  const _nowMs = () => (typeof performance !== 'undefined') ? performance.now() : 0
+  const _yieldSlice = () => new Promise(r => setTimeout(r, 0))
+  const PREWARM_SLICE_MS = 24
   async function prewarm(px, pz, budgetMs = 60000) {
     if (!Number.isFinite(px) || !Number.isFinite(pz)) return 0
-    const t0 = (typeof performance !== 'undefined') ? performance.now() : 0
+    const t0 = _nowMs()
     const ring = placementRing.ringAt(px, pz, placementRing.focusKeyAt(px, pz))
     let n = 0
+    let workMs = 0
+    let sliceMs = 0
     for (const key of ring) {
       if (totalInstances >= MAX_INSTANCES) break
-      if (((typeof performance !== 'undefined') ? performance.now() : 0) - t0 > budgetMs) break
+      if (workMs >= budgetMs) break
       if (placementRing.distSqFromFocus(key) > ringRadiusSq || loaded.has(key) || deferredChunks.has(key)) continue
+      const _c0 = _nowMs()
       loadChunk(key, px, pz); if (!deferredChunks.has(key)) n++
-      if (n % 8 === 0) await _yieldFrame()
+      const _c1 = _nowMs()
+      workMs += _c1 - _c0
+      sliceMs += _c1 - _c0
+      if (sliceMs >= PREWARM_SLICE_MS) { sliceMs = 0; await _yieldSlice() }
     }
+    profile.prewarmChunks = n
+    profile.prewarmWorkMs = workMs
+    profile.prewarmMs = _nowMs() - t0
     return n
   }
 
