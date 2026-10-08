@@ -251,6 +251,7 @@ export async function createVegetation(opts = {}) {
       branch.renderOrder = VEG_MESH_OPAQUE_DRAW_ORDER; leaf.renderOrder = VEG_MESH_OPAQUE_DRAW_ORDER
       meshes.push({ name, variant, branch, leaf, count: 0, impostor, impMat: impMatRef, impDims })
     } catch (e) { buildErr++; console.error('[veg] species build failed:', name, e?.message || e) }
+    if (opts.onProgress) opts.onProgress(i + 1, buildList.length)
     const _now = (typeof performance !== 'undefined') ? performance.now() : 0
     if (_now - _buildT0 > BUILD_SLICE_BUDGET_MS) {
       const _yieldT = performance.now()
