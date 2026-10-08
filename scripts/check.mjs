@@ -26,6 +26,7 @@ const NO_GPU_WITNESSES = [
   { file: 'transport-churn-witness.mjs', must: /\[transport-churn\] RESULT: PASS/ },
   { file: 'veg-lod-stream-witness.mjs', must: /RESULT: PASS/ },
   { file: 'veg-lod-sweep-witness.mjs', must: /RESULT: PASS/ },
+  { file: 'veg-lod-pair-witness.mjs', must: /ratio shared\/control: \{"recordsWalked":0\.5\d+,"cellsTested":0\.5\d+,"planeTests":0\.5\d+,"rebuilds":0\.5,"rebuildRecords":0\.5\}/ },
   { file: 'relevance-radius-witness.mjs', args: ['--counts=8', '--reps=1', '--duration=3000'], must: /RESULT: PASS/ },
   { file: 'ep-progressive-lod-schema-witness.mjs' },
   { file: 'tps-game-player-movement-witness.mjs', must: /PASS: walked/ },
