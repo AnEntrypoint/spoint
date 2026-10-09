@@ -369,42 +369,92 @@ class Connection {
   close() { try { this._ws.close() } catch (_) {} }
 }
 
+const PROFILE_DIR_PREFIX = 'spoint-cdp-'
+const PROFILE_DIR_NAME = /^spoint-cdp-[A-Za-z0-9]{6}$/
+const STALE_PROFILE_MIN_AGE_MS = 60000
+
+function listProcessCommandLines() {
+  const r = process.platform === 'win32'
+    ? spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | ForEach-Object { $_.CommandLine }'], { encoding: 'utf8' })
+    : spawnSync('ps', ['-eo', 'args='], { encoding: 'utf8' })
+  return r.status === 0 ? r.stdout : null
+}
+
+export function sweepStaleProfiles() {
+  const commandLines = listProcessCommandLines()
+  if (commandLines === null) return 0
+  const tmp = os.tmpdir()
+  let removed = 0
+  for (const name of fs.readdirSync(tmp)) {
+    if (!PROFILE_DIR_NAME.test(name)) continue
+    const dir = path.join(tmp, name)
+    let stat
+    try { stat = fs.statSync(dir) } catch (_) { continue }
+    if (!stat.isDirectory() || Date.now() - stat.mtimeMs < STALE_PROFILE_MIN_AGE_MS) continue
+    if (commandLines.includes(name)) continue
+    try { fs.rmSync(dir, { recursive: true, force: true }); removed++ } catch (_) {}
+  }
+  return removed
+}
+
+function killProcessTree(proc) {
+  if (!proc || !proc.pid) return
+  if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(proc.pid), '/T', '/F'], { stdio: 'ignore' })
+  try { proc.kill() } catch (_) {}
+}
+
+async function removeProfileDir(dir) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); return } catch (_) {}
+    await wait(200)
+  }
+}
+
 export async function launch(opts = {}) {
   const chrome = findChrome()
   if (!chrome) {
     throw new Error('no chromium/chrome binary found. Set CHROME=/path/to/chrome (this repo does not depend on playwright).')
   }
-  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spoint-cdp-'))
-  const args = [
-    '--headless=new',
-    '--remote-debugging-port=0',
-    '--user-data-dir=' + profileDir,
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--disable-gpu-sandbox',
-    '--no-sandbox',
-    ...(opts.args || []),
-    'about:blank',
-  ]
-  const proc = spawn(chrome, args, { stdio: 'ignore' })
-  const portFile = path.join(profileDir, 'DevToolsActivePort')
-  const dport = await waitFor(
-    () => (fs.existsSync(portFile) ? Number(fs.readFileSync(portFile, 'utf8').split('\n')[0]) : null),
-    CDP_PORT_TIMEOUT_MS, 100,
-  ).catch(() => {
-    try { proc.kill() } catch (_) {}
-    throw new Error(
-      `chrome did not expose a CDP port within ${CDP_PORT_TIMEOUT_MS}ms ` +
-      `(binary: ${chrome}). Raise CDP_PORT_TIMEOUT_MS if this is a slow/cold machine.`,
-    )
-  })
-  const ver = await (await fetch(`http://127.0.0.1:${dport}/json/version`)).json()
-  const WS = await resolveWebSocket()
-  const ws = new WS(ver.webSocketDebuggerUrl)
-  await new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error('CDP websocket failed to open')) })
-  const conn = new Connection(ws)
-  await conn.send('Target.setDiscoverTargets', { discover: true }).catch(() => {})
-  return new Browser(conn, proc, profileDir)
+  sweepStaleProfiles()
+  const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), PROFILE_DIR_PREFIX))
+  let proc = null
+  let ws = null
+  try {
+    const args = [
+      '--remote-debugging-port=0',
+      '--user-data-dir=' + profileDir,
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--disable-gpu-sandbox',
+      '--no-sandbox',
+      ...(opts.args || []),
+      'about:blank',
+    ]
+    proc = spawn(chrome, args, { stdio: 'ignore' })
+    const portFile = path.join(profileDir, 'DevToolsActivePort')
+    const dport = await waitFor(
+      () => (fs.existsSync(portFile) ? Number(fs.readFileSync(portFile, 'utf8').split('\n')[0]) : null),
+      CDP_PORT_TIMEOUT_MS, 100,
+    ).catch(() => {
+      throw new Error(
+        `chrome did not expose a CDP port within ${CDP_PORT_TIMEOUT_MS}ms ` +
+        `(binary: ${chrome}). Raise CDP_PORT_TIMEOUT_MS if this is a slow/cold machine.`,
+      )
+    })
+    const ver = await (await fetch(`http://127.0.0.1:${dport}/json/version`)).json()
+    const WS = await resolveWebSocket()
+    ws = new WS(ver.webSocketDebuggerUrl)
+    await new Promise((res, rej) => { ws.onopen = res; ws.onerror = () => rej(new Error('CDP websocket failed to open')) })
+    const conn = new Connection(ws)
+    await conn.send('Target.setDiscoverTargets', { discover: true }).catch(() => {})
+    return new Browser(conn, proc, profileDir)
+  } catch (err) {
+    try { ws && ws.close() } catch (_) {}
+    killProcessTree(proc)
+    await wait(150)
+    await removeProfileDir(profileDir)
+    throw err
+  }
 }
 
 export const chromium = { launch }
