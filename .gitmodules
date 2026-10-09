@@ -1,9 +1,12 @@
 [submodule "vendor/design"]
 	path = vendor/design
 	url = https://github.com/AnEntrypoint/design.git
+	branch = main
 [submodule "vendor/wireweave"]
 	path = vendor/wireweave
 	url = https://github.com/AnEntrypoint/wireweave.git
+	branch = main
 [submodule "vendor/gm"]
 	path = vendor/gm
 	url = https://github.com/AnEntrypoint/gm.git
+	branch = main
