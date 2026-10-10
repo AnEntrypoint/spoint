@@ -24,7 +24,7 @@ export default {
         },
       }, ctx)
       ctx.state._pickup = build(c)
-      ctx.onConfigChange?.((cfg) => { ctx.state._pickup = build(cfg) })
+      ctx.onConfigChange?.((cfg) => { ctx.state._pickup = build(cfg || {}) })
     },
     update(ctx, dt) {
       ctx.state._pickup?.tick(dt)

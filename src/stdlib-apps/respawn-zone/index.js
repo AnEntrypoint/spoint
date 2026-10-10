@@ -19,7 +19,7 @@ export default {
         onRespawn: (c2, playerId) => c2.bus.emit(cfg.channel || 'respawn', { by: playerId, source: c2.entity.id }),
       }, ctx)
       ctx.state._cp = build(c)
-      ctx.onConfigChange?.((cfg) => { ctx.state._cp = build(cfg) })
+      ctx.onConfigChange?.((cfg) => { ctx.state._cp = build(cfg || {}) })
     },
     update(ctx, dt) {
       ctx.state._cp?.tick(dt)
