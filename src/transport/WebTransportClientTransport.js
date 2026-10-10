@@ -96,10 +96,10 @@ export class WebTransportClientTransport extends TransportWrapper {
     try {
       if (!this.datagramWriter) this.datagramWriter = this.session.datagrams.writable.getWriter()
       this.datagramWriter.write(data).catch(() => { if (!this._closed) this._handleClose() })
-      return true
+      return 'datagram'
     } catch (e) {
       this.datagramWriter = null
-      return this.send(data)
+      return this.send(data) ? 'reliable' : false
     }
   }
 
