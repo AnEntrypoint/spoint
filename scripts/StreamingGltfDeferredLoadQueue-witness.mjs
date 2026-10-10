@@ -306,6 +306,62 @@ claim('a synchronous throw from ensureMeshLod is handled like a rejection: queue
   expectEqual(asset.calls.join(','), '0:0,1:0', 'ensureMeshLod calls');
 });
 
+async function withManualTimers(run) {
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
+  const timers = [];
+  globalThis.setTimeout = (fn, ms) => {
+    const handle = { fn: fn, ms: ms, cleared: false };
+    timers.push(handle);
+    return handle;
+  };
+  globalThis.clearTimeout = (handle) => {
+    if (handle) handle.cleared = true;
+  };
+  try {
+    await run(timers);
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+    globalThis.clearTimeout = realClearTimeout;
+  }
+}
+
+function expectHeapOrder(queue, what) {
+  const pending = queue._pending;
+  for (let index = 1; index < pending.length; index += 1) {
+    const parent = Math.floor((index - 1) / 2);
+    expectTrue(pending[parent].priority >= pending[index].priority, what + ': slot ' + index + ' outranks its parent ' + parent);
+  }
+}
+
+claim('a non-root request removed through its timeout path leaves a heap in priority order: the remaining requests dispatch in priority order', async (api) => {
+  const priorities = [50, 80, 30, 95, 10, 70, 60, 20, 90, 40, 5, 85, 75, 15, 65];
+  const top = Math.max(...priorities);
+  for (const victim of priorities.filter((priority) => priority !== top)) {
+    await withManualTimers(async (timers) => {
+      const queue = new api.DeferredLoadQueue(1, 50, 5000);
+      const blocker = makeAsset('asset://heap-timeout-blocker', true);
+      const subject = makeAsset('asset://heap-timeout', false);
+      queue.queueLoad(blocker, 0, 0, 0);
+      priorities.forEach((priority) => {
+        queue.queueLoad(subject, priority, 0, priority);
+      });
+      expectTrue(Math.floor(Math.log2(queue._pending.length)) >= 3, 'heap is at least three levels deep before removing ' + victim);
+      expectEqual(queue.getStats().queued, priorities.length, 'queued before removing ' + victim);
+      expectHeapOrder(queue, 'heap before removing ' + victim);
+      const handle = timers[1 + priorities.indexOf(victim)];
+      expectEqual(handle.cleared, false, 'timeout armed for ' + victim);
+      handle.fn();
+      expectEqual(queue.getStats().queued, priorities.length - 1, 'queued after the timeout of ' + victim);
+      expectEqual(queue.getStats().dropped, 1, 'dropped after the timeout of ' + victim);
+      expectHeapOrder(queue, 'heap after the timeout of ' + victim);
+      await releaseAll(blocker);
+      const expected = priorities.filter((priority) => priority !== victim).sort((a, b) => b - a).join(',');
+      expectEqual(dispatchedIndices(subject), expected, 'dispatch order after the timeout of ' + victim);
+    });
+  }
+});
+
 pin('streaming-gltf-dlq-heap-splice-dispatch-order (fixed): eight pending requests dispatch in priority order 100,60,50,45,40,10,9,8', async (api) => {
   const queue = new api.DeferredLoadQueue(1, 50, 5000);
   const blocker = makeAsset('asset://pin-heap-blocker', true);
