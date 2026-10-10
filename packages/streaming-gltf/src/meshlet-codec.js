@@ -226,7 +226,7 @@ export function buildClusterLodExtra(result, coarseIndexAccessor = -1, materialB
     coarseIndexCount: result.indexCoarse.length,
     clusters: result.clusters.map((c) => ({
       aabb: c.aabb.map(_round),
-      sphere: [_round(c.sphere[3])],
+      sphere: c.sphere.map(_round),
       lods: c.lods.map((l) => [l.offset, l.count, l.stream]),
     })),
   };
@@ -274,7 +274,7 @@ export function parseClusterLod(extras) {
           (c.aabb[0] + c.aabb[3]) * 0.5,
           (c.aabb[1] + c.aabb[4]) * 0.5,
           (c.aabb[2] + c.aabb[5]) * 0.5,
-          c.sphere[0],
+          Math.hypot(c.aabb[3] - c.aabb[0], c.aabb[4] - c.aabb[1], c.aabb[5] - c.aabb[2]) * 0.5,
         ];
     return {
       aabb: c.aabb,
