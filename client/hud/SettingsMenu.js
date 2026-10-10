@@ -161,9 +161,13 @@ export function createSettingsMenu({ getCam = () => null, getRenderer = () => nu
   function _applySfxVolume(v) { values.sfxVolume = v; _persist(); AudioMixer.setVolume('sfx', v) }
   function _applyMusicVolume(v) { values.musicVolume = v; _persist(); AudioMixer.setVolume('music', v) }
   function _applyQualityPreset(name) { values.qualityPreset = name; _persist(); QualityPresets.setPreset(name, { renderer: getRenderer() }) }
+  function _publishDpr(v) {
+    if (typeof window !== 'undefined') { window.__dprAuto = v; window.__dprOff = !v }
+  }
+
   function _applyDprAuto(v) {
     values.dprAuto = v; _persist()
-    if (typeof window !== 'undefined') { window.__dprAuto = v; window.__dprOff = !v }
+    _publishDpr(v)
   }
 
   function applyAllOnLoad() {
@@ -172,7 +176,7 @@ export function createSettingsMenu({ getCam = () => null, getRenderer = () => nu
     AudioMixer.setVolume('master', values.masterVolume)
     AudioMixer.setVolume('sfx', values.sfxVolume)
     AudioMixer.setVolume('music', values.musicVolume)
-    if (typeof window !== 'undefined') { window.__dprAuto = values.dprAuto; window.__dprOff = !values.dprAuto }
+    _publishDpr(values.dprAuto)
   }
 
   function _buildCacheSection() {
