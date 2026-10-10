@@ -44,22 +44,24 @@ export function createSquashStretch(mesh, opts = {}) {
 
   function _now() { return typeof performance !== 'undefined' ? performance.now() : Date.now() }
 
+  function _trigger(impactSpeed, nowMs) {
+    const speed = Number.isFinite(impactSpeed) && impactSpeed > 0 ? impactSpeed : 0
+    if (speed <= 0) return
+    _impactSpeed = speed
+    _impactAtMs = Number.isFinite(nowMs) ? nowMs : _now()
+    _active = true
+  }
+
   return {
     get active() { return _active },
 
-    trigger(impactSpeed, nowMs) {
-      const speed = Number.isFinite(impactSpeed) && impactSpeed > 0 ? impactSpeed : 0
-      if (speed <= 0) return
-      _impactSpeed = speed
-      _impactAtMs = Number.isFinite(nowMs) ? nowMs : _now()
-      _active = true
-    },
+    trigger: _trigger,
 
     onVelocity(velocity, nowMs) {
       const vx = velocity?.[0] || 0, vy = velocity?.[1] || 0, vz = velocity?.[2] || 0
       const speed = Math.sqrt(vx * vx + vy * vy + vz * vz)
       const speedDrop = _lastSpeed - speed
-      if (speedDrop > impactThreshold) this.trigger(speedDrop, nowMs)
+      if (speedDrop > impactThreshold) _trigger(speedDrop, nowMs)
       _lastSpeed = speed
     },
 
