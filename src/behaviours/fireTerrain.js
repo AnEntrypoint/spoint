@@ -1,6 +1,7 @@
 export function createFirebreakFuel({ baseClassAt, breaks, frame, lattice, terrain }) {
   const centre = [0, 0, 0]
   const R = frame.radius
+  if (!(Number.isFinite(R) && R > 0)) throw new TypeError(`[fire] firebreaks need a planet radius: frame.radius must be a positive finite number, got ${String(R)}`)
   const heightAt = breaks.heightAt ?? terrain.heightAt
   const seaLevelAt = breaks.seaLevelAt ?? terrain.seaLevelAt
   const kindAt = breaks.kindAt ?? terrain.kindAt
