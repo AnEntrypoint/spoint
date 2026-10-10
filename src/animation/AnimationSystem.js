@@ -128,10 +128,10 @@ export class AnimationSystem {
   }
 
   update(dt, motionState = {}) {
-    this.mixer.update(dt)
-
     if (this.controller) {
       this.controller.update(dt, motionState)
+    } else {
+      this.mixer.update(dt)
     }
 
     if (this.options.enableIK) {
