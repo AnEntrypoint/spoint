@@ -52,6 +52,7 @@
  (global $src/fluid/as-src/sph3d/gridOriginX (mut f64) (f64.const 0))
  (global $src/fluid/as-src/sph3d/gridOriginY (mut f64) (f64.const 0))
  (global $src/fluid/as-src/sph3d/gridOriginZ (mut f64) (f64.const 0))
+ (global $src/fluid/as-src/sph3d/gridCellSize (mut f64) (f64.const 1))
  (global $~lib/rt/__rtti_base i32 (i32.const 7504))
  (memory $0 1)
  (data $0 (i32.const 1036) ",")
@@ -1319,223 +1320,7 @@
  (func $~lib/rt/stub/__collect
  )
  (func $src/fluid/as-src/sph3d/step (param $0 f64)
-  (local $1 i32)
-  (local $2 i32)
-  (local $3 f64)
-  (local $4 f64)
-  (local $5 f64)
-  (local $6 i32)
-  global.get $src/fluid/as-src/sph3d/boundMinX
-  global.set $src/fluid/as-src/sph3d/gridOriginX
-  global.get $src/fluid/as-src/sph3d/boundMinY
-  global.set $src/fluid/as-src/sph3d/gridOriginY
-  global.get $src/fluid/as-src/sph3d/boundMinZ
-  global.set $src/fluid/as-src/sph3d/gridOriginZ
-  loop $for-loop|0
-   local.get $1
-   i32.const 32768
-   i32.lt_s
-   if
-    global.get $src/fluid/as-src/sph3d/cellCount
-    local.get $1
-    i32.const 0
-    call $~lib/staticarray/StaticArray<i32>#__set
-    local.get $1
-    i32.const 1
-    i32.add
-    local.set $1
-    br $for-loop|0
-   end
-  end
-  i32.const 0
-  local.set $1
-  loop $for-loop|1
-   local.get $1
-   global.get $src/fluid/as-src/sph3d/particleCount
-   i32.lt_s
-   if
-    global.get $src/fluid/as-src/sph3d/posX
-    local.get $1
-    call $~lib/staticarray/StaticArray<f64>#__get
-    local.set $3
-    global.get $src/fluid/as-src/sph3d/posY
-    local.get $1
-    call $~lib/staticarray/StaticArray<f64>#__get
-    local.set $4
-    global.get $src/fluid/as-src/sph3d/posZ
-    local.get $1
-    call $~lib/staticarray/StaticArray<f64>#__get
-    local.set $5
-    global.get $src/fluid/as-src/sph3d/particleCell
-    local.get $1
-    block $__inlined_func$src/fluid/as-src/sph3d/clampCell$10 (result i32)
-     i32.const 0
-     local.get $3
-     global.get $src/fluid/as-src/sph3d/gridOriginX
-     f64.sub
-     global.get $src/fluid/as-src/sph3d/h
-     f64.div
-     f64.floor
-     i32.trunc_sat_f64_s
-     local.tee $6
-     i32.const 0
-     i32.lt_s
-     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$10
-     drop
-     i32.const 31
-     local.get $6
-     i32.const 32
-     i32.ge_s
-     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$10
-     drop
-     local.get $6
-    end
-    block $__inlined_func$src/fluid/as-src/sph3d/clampCell$11 (result i32)
-     i32.const 0
-     local.get $4
-     global.get $src/fluid/as-src/sph3d/gridOriginY
-     f64.sub
-     global.get $src/fluid/as-src/sph3d/h
-     f64.div
-     f64.floor
-     i32.trunc_sat_f64_s
-     local.tee $6
-     i32.const 0
-     i32.lt_s
-     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$11
-     drop
-     i32.const 31
-     local.get $6
-     i32.const 32
-     i32.ge_s
-     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$11
-     drop
-     local.get $6
-    end
-    block $__inlined_func$src/fluid/as-src/sph3d/clampCell$12 (result i32)
-     i32.const 0
-     local.get $5
-     global.get $src/fluid/as-src/sph3d/gridOriginZ
-     f64.sub
-     global.get $src/fluid/as-src/sph3d/h
-     f64.div
-     f64.floor
-     i32.trunc_sat_f64_s
-     local.tee $6
-     i32.const 0
-     i32.lt_s
-     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$12
-     drop
-     i32.const 31
-     local.get $6
-     i32.const 32
-     i32.ge_s
-     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$12
-     drop
-     local.get $6
-    end
-    i32.const 5
-    i32.shl
-    i32.add
-    i32.const 5
-    i32.shl
-    i32.add
-    local.tee $6
-    call $~lib/staticarray/StaticArray<i32>#__set
-    global.get $src/fluid/as-src/sph3d/cellCount
-    local.get $6
-    global.get $src/fluid/as-src/sph3d/cellCount
-    local.get $6
-    call $~lib/staticarray/StaticArray<i32>#__get
-    i32.const 1
-    i32.add
-    call $~lib/staticarray/StaticArray<i32>#__set
-    local.get $1
-    i32.const 1
-    i32.add
-    local.set $1
-    br $for-loop|1
-   end
-  end
-  i32.const 0
-  local.set $1
-  loop $for-loop|2
-   local.get $1
-   i32.const 32768
-   i32.lt_s
-   if
-    global.get $src/fluid/as-src/sph3d/cellStart
-    local.get $1
-    local.get $2
-    call $~lib/staticarray/StaticArray<i32>#__set
-    global.get $src/fluid/as-src/sph3d/cellCount
-    local.get $1
-    call $~lib/staticarray/StaticArray<i32>#__get
-    local.get $2
-    i32.add
-    local.set $2
-    local.get $1
-    i32.const 1
-    i32.add
-    local.set $1
-    br $for-loop|2
-   end
-  end
-  i32.const 32768
-  call $~lib/staticarray/StaticArray<i32>#constructor
-  local.set $2
-  i32.const 0
-  local.set $1
-  loop $for-loop|3
-   local.get $1
-   i32.const 32768
-   i32.lt_s
-   if
-    local.get $2
-    local.get $1
-    global.get $src/fluid/as-src/sph3d/cellStart
-    local.get $1
-    call $~lib/staticarray/StaticArray<i32>#__get
-    call $~lib/staticarray/StaticArray<i32>#__set
-    local.get $1
-    i32.const 1
-    i32.add
-    local.set $1
-    br $for-loop|3
-   end
-  end
-  i32.const 0
-  local.set $1
-  loop $for-loop|4
-   local.get $1
-   global.get $src/fluid/as-src/sph3d/particleCount
-   i32.lt_s
-   if
-    global.get $src/fluid/as-src/sph3d/particleCell
-    local.get $1
-    call $~lib/staticarray/StaticArray<i32>#__get
-    local.set $6
-    global.get $src/fluid/as-src/sph3d/sortedIdx
-    local.get $2
-    local.get $6
-    call $~lib/staticarray/StaticArray<i32>#__get
-    local.get $1
-    call $~lib/staticarray/StaticArray<i32>#__set
-    local.get $2
-    local.get $6
-    local.get $2
-    local.get $6
-    call $~lib/staticarray/StaticArray<i32>#__get
-    i32.const 1
-    i32.add
-    call $~lib/staticarray/StaticArray<i32>#__set
-    local.get $1
-    i32.const 1
-    i32.add
-    local.set $1
-    br $for-loop|4
-   end
-  end
+  call $src/fluid/as-src/sph3d/buildGrid
   call $src/fluid/as-src/sph3d/computeDensityPressure
   call $src/fluid/as-src/sph3d/computeForces
   local.get $0
@@ -1969,6 +1754,22 @@
   local.get $12
   global.set $src/fluid/as-src/sph3d/boundaryDamping
   call $src/fluid/as-src/sph3d/recomputeKernelConstants
+  global.get $src/fluid/as-src/sph3d/h
+  global.get $src/fluid/as-src/sph3d/boundMaxX
+  global.get $src/fluid/as-src/sph3d/boundMinX
+  f64.sub
+  global.get $src/fluid/as-src/sph3d/boundMaxY
+  global.get $src/fluid/as-src/sph3d/boundMinY
+  f64.sub
+  global.get $src/fluid/as-src/sph3d/boundMaxZ
+  global.get $src/fluid/as-src/sph3d/boundMinZ
+  f64.sub
+  f64.max
+  f64.max
+  f64.const 0.03125
+  f64.mul
+  f64.max
+  global.set $src/fluid/as-src/sph3d/gridCellSize
  )
  (func $src/fluid/as-src/sph3d/computeForces
   (local $0 f64)
@@ -2002,35 +1803,80 @@
    global.get $src/fluid/as-src/sph3d/particleCount
    i32.lt_s
    if
-    global.get $src/fluid/as-src/sph3d/posX
-    local.get $1
-    call $~lib/staticarray/StaticArray<f64>#__get
-    global.get $src/fluid/as-src/sph3d/gridOriginX
-    f64.sub
-    global.get $src/fluid/as-src/sph3d/h
-    f64.div
-    f64.floor
-    i32.trunc_sat_f64_s
+    block $__inlined_func$src/fluid/as-src/sph3d/clampCell$11 (result i32)
+     i32.const 0
+     global.get $src/fluid/as-src/sph3d/posX
+     local.get $1
+     call $~lib/staticarray/StaticArray<f64>#__get
+     global.get $src/fluid/as-src/sph3d/gridOriginX
+     f64.sub
+     global.get $src/fluid/as-src/sph3d/gridCellSize
+     f64.div
+     f64.floor
+     i32.trunc_sat_f64_s
+     local.tee $2
+     i32.const 0
+     i32.lt_s
+     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$11
+     drop
+     i32.const 31
+     local.get $2
+     i32.const 32
+     i32.ge_s
+     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$11
+     drop
+     local.get $2
+    end
     local.set $16
-    global.get $src/fluid/as-src/sph3d/posY
-    local.get $1
-    call $~lib/staticarray/StaticArray<f64>#__get
-    global.get $src/fluid/as-src/sph3d/gridOriginY
-    f64.sub
-    global.get $src/fluid/as-src/sph3d/h
-    f64.div
-    f64.floor
-    i32.trunc_sat_f64_s
+    block $__inlined_func$src/fluid/as-src/sph3d/clampCell$110 (result i32)
+     i32.const 0
+     global.get $src/fluid/as-src/sph3d/posY
+     local.get $1
+     call $~lib/staticarray/StaticArray<f64>#__get
+     global.get $src/fluid/as-src/sph3d/gridOriginY
+     f64.sub
+     global.get $src/fluid/as-src/sph3d/gridCellSize
+     f64.div
+     f64.floor
+     i32.trunc_sat_f64_s
+     local.tee $2
+     i32.const 0
+     i32.lt_s
+     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$110
+     drop
+     i32.const 31
+     local.get $2
+     i32.const 32
+     i32.ge_s
+     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$110
+     drop
+     local.get $2
+    end
     local.set $17
-    global.get $src/fluid/as-src/sph3d/posZ
-    local.get $1
-    call $~lib/staticarray/StaticArray<f64>#__get
-    global.get $src/fluid/as-src/sph3d/gridOriginZ
-    f64.sub
-    global.get $src/fluid/as-src/sph3d/h
-    f64.div
-    f64.floor
-    i32.trunc_sat_f64_s
+    block $__inlined_func$src/fluid/as-src/sph3d/clampCell$112 (result i32)
+     i32.const 0
+     global.get $src/fluid/as-src/sph3d/posZ
+     local.get $1
+     call $~lib/staticarray/StaticArray<f64>#__get
+     global.get $src/fluid/as-src/sph3d/gridOriginZ
+     f64.sub
+     global.get $src/fluid/as-src/sph3d/gridCellSize
+     f64.div
+     f64.floor
+     i32.trunc_sat_f64_s
+     local.tee $2
+     i32.const 0
+     i32.lt_s
+     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$112
+     drop
+     i32.const 31
+     local.get $2
+     i32.const 32
+     i32.ge_s
+     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$112
+     drop
+     local.get $2
+    end
     local.set $18
     f64.const 0
     local.set $6
@@ -2181,6 +2027,7 @@
                  call $~lib/staticarray/StaticArray<f64>#__get
                  local.set $24
                  global.get $src/fluid/as-src/sph3d/spikyGradCoef
+                 f64.neg
                  global.get $src/fluid/as-src/sph3d/h
                  local.get $21
                  f64.sqrt
@@ -2359,39 +2206,84 @@
   (local $12 i32)
   (local $13 f64)
   loop $for-loop|0
-   local.get $1
+   local.get $2
    global.get $src/fluid/as-src/sph3d/particleCount
    i32.lt_s
    if
-    global.get $src/fluid/as-src/sph3d/posX
-    local.get $1
-    call $~lib/staticarray/StaticArray<f64>#__get
-    global.get $src/fluid/as-src/sph3d/gridOriginX
-    f64.sub
-    global.get $src/fluid/as-src/sph3d/h
-    f64.div
-    f64.floor
-    i32.trunc_sat_f64_s
+    block $__inlined_func$src/fluid/as-src/sph3d/clampCell$11 (result i32)
+     i32.const 0
+     global.get $src/fluid/as-src/sph3d/posX
+     local.get $2
+     call $~lib/staticarray/StaticArray<f64>#__get
+     global.get $src/fluid/as-src/sph3d/gridOriginX
+     f64.sub
+     global.get $src/fluid/as-src/sph3d/gridCellSize
+     f64.div
+     f64.floor
+     i32.trunc_sat_f64_s
+     local.tee $1
+     i32.const 0
+     i32.lt_s
+     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$11
+     drop
+     i32.const 31
+     local.get $1
+     i32.const 32
+     i32.ge_s
+     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$11
+     drop
+     local.get $1
+    end
     local.set $8
-    global.get $src/fluid/as-src/sph3d/posY
-    local.get $1
-    call $~lib/staticarray/StaticArray<f64>#__get
-    global.get $src/fluid/as-src/sph3d/gridOriginY
-    f64.sub
-    global.get $src/fluid/as-src/sph3d/h
-    f64.div
-    f64.floor
-    i32.trunc_sat_f64_s
+    block $__inlined_func$src/fluid/as-src/sph3d/clampCell$110 (result i32)
+     i32.const 0
+     global.get $src/fluid/as-src/sph3d/posY
+     local.get $2
+     call $~lib/staticarray/StaticArray<f64>#__get
+     global.get $src/fluid/as-src/sph3d/gridOriginY
+     f64.sub
+     global.get $src/fluid/as-src/sph3d/gridCellSize
+     f64.div
+     f64.floor
+     i32.trunc_sat_f64_s
+     local.tee $1
+     i32.const 0
+     i32.lt_s
+     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$110
+     drop
+     i32.const 31
+     local.get $1
+     i32.const 32
+     i32.ge_s
+     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$110
+     drop
+     local.get $1
+    end
     local.set $9
-    global.get $src/fluid/as-src/sph3d/posZ
-    local.get $1
-    call $~lib/staticarray/StaticArray<f64>#__get
-    global.get $src/fluid/as-src/sph3d/gridOriginZ
-    f64.sub
-    global.get $src/fluid/as-src/sph3d/h
-    f64.div
-    f64.floor
-    i32.trunc_sat_f64_s
+    block $__inlined_func$src/fluid/as-src/sph3d/clampCell$112 (result i32)
+     i32.const 0
+     global.get $src/fluid/as-src/sph3d/posZ
+     local.get $2
+     call $~lib/staticarray/StaticArray<f64>#__get
+     global.get $src/fluid/as-src/sph3d/gridOriginZ
+     f64.sub
+     global.get $src/fluid/as-src/sph3d/gridCellSize
+     f64.div
+     f64.floor
+     i32.trunc_sat_f64_s
+     local.tee $1
+     i32.const 0
+     i32.lt_s
+     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$112
+     drop
+     i32.const 31
+     local.get $1
+     i32.const 32
+     i32.ge_s
+     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$112
+     drop
+     local.get $1
+    end
     local.set $10
     f64.const 0
     local.set $0
@@ -2443,10 +2335,10 @@
             local.get $5
             local.get $8
             i32.add
-            local.tee $2
+            local.tee $1
             i32.const 0
             i32.lt_s
-            local.get $2
+            local.get $1
             i32.const 32
             i32.ge_s
             i32.or
@@ -2460,28 +2352,28 @@
              i32.add
              i32.const 5
              i32.shl
-             local.get $2
+             local.get $1
              i32.add
              local.tee $11
              call $~lib/staticarray/StaticArray<i32>#__get
-             local.set $2
+             local.set $1
              global.get $src/fluid/as-src/sph3d/cellCount
              local.get $11
              call $~lib/staticarray/StaticArray<i32>#__get
-             local.get $2
+             local.get $1
              i32.add
              local.set $12
              loop $for-loop|4
-              local.get $2
+              local.get $1
               local.get $12
               i32.lt_s
               if
                global.get $src/fluid/as-src/sph3d/sortedIdx
-               local.get $2
+               local.get $1
                call $~lib/staticarray/StaticArray<i32>#__get
                local.set $11
                global.get $src/fluid/as-src/sph3d/posX
-               local.get $1
+               local.get $2
                call $~lib/staticarray/StaticArray<f64>#__get
                global.get $src/fluid/as-src/sph3d/posX
                local.get $11
@@ -2491,7 +2383,7 @@
                local.get $13
                f64.mul
                global.get $src/fluid/as-src/sph3d/posY
-               local.get $1
+               local.get $2
                call $~lib/staticarray/StaticArray<f64>#__get
                global.get $src/fluid/as-src/sph3d/posY
                local.get $11
@@ -2502,7 +2394,7 @@
                f64.mul
                f64.add
                global.get $src/fluid/as-src/sph3d/posZ
-               local.get $1
+               local.get $2
                call $~lib/staticarray/StaticArray<f64>#__get
                global.get $src/fluid/as-src/sph3d/posZ
                local.get $11
@@ -2532,10 +2424,10 @@
                 f64.add
                 local.set $0
                end
-               local.get $2
+               local.get $1
                i32.const 1
                i32.add
-               local.set $2
+               local.set $1
                br $for-loop|4
               end
              end
@@ -2564,11 +2456,11 @@
      end
     end
     global.get $src/fluid/as-src/sph3d/density
-    local.get $1
+    local.get $2
     local.get $0
     call $~lib/staticarray/StaticArray<f64>#__set
     global.get $src/fluid/as-src/sph3d/pressure
-    local.get $1
+    local.get $2
     global.get $src/fluid/as-src/sph3d/gasConstant
     local.get $0
     global.get $src/fluid/as-src/sph3d/restDensity
@@ -2581,11 +2473,230 @@
     f64.gt
     select
     call $~lib/staticarray/StaticArray<f64>#__set
-    local.get $1
+    local.get $2
     i32.const 1
     i32.add
-    local.set $1
+    local.set $2
     br $for-loop|0
+   end
+  end
+ )
+ (func $src/fluid/as-src/sph3d/buildGrid
+  (local $0 i32)
+  (local $1 i32)
+  (local $2 f64)
+  (local $3 f64)
+  (local $4 f64)
+  (local $5 i32)
+  global.get $src/fluid/as-src/sph3d/boundMinX
+  global.set $src/fluid/as-src/sph3d/gridOriginX
+  global.get $src/fluid/as-src/sph3d/boundMinY
+  global.set $src/fluid/as-src/sph3d/gridOriginY
+  global.get $src/fluid/as-src/sph3d/boundMinZ
+  global.set $src/fluid/as-src/sph3d/gridOriginZ
+  loop $for-loop|0
+   local.get $0
+   i32.const 32768
+   i32.lt_s
+   if
+    global.get $src/fluid/as-src/sph3d/cellCount
+    local.get $0
+    i32.const 0
+    call $~lib/staticarray/StaticArray<i32>#__set
+    local.get $0
+    i32.const 1
+    i32.add
+    local.set $0
+    br $for-loop|0
+   end
+  end
+  i32.const 0
+  local.set $0
+  loop $for-loop|1
+   local.get $0
+   global.get $src/fluid/as-src/sph3d/particleCount
+   i32.lt_s
+   if
+    global.get $src/fluid/as-src/sph3d/posX
+    local.get $0
+    call $~lib/staticarray/StaticArray<f64>#__get
+    local.set $2
+    global.get $src/fluid/as-src/sph3d/posY
+    local.get $0
+    call $~lib/staticarray/StaticArray<f64>#__get
+    local.set $3
+    global.get $src/fluid/as-src/sph3d/posZ
+    local.get $0
+    call $~lib/staticarray/StaticArray<f64>#__get
+    local.set $4
+    global.get $src/fluid/as-src/sph3d/particleCell
+    local.get $0
+    block $__inlined_func$src/fluid/as-src/sph3d/clampCell$11 (result i32)
+     i32.const 0
+     local.get $2
+     global.get $src/fluid/as-src/sph3d/gridOriginX
+     f64.sub
+     global.get $src/fluid/as-src/sph3d/gridCellSize
+     f64.div
+     f64.floor
+     i32.trunc_sat_f64_s
+     local.tee $5
+     i32.const 0
+     i32.lt_s
+     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$11
+     drop
+     i32.const 31
+     local.get $5
+     i32.const 32
+     i32.ge_s
+     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$11
+     drop
+     local.get $5
+    end
+    block $__inlined_func$src/fluid/as-src/sph3d/clampCell$110 (result i32)
+     i32.const 0
+     local.get $3
+     global.get $src/fluid/as-src/sph3d/gridOriginY
+     f64.sub
+     global.get $src/fluid/as-src/sph3d/gridCellSize
+     f64.div
+     f64.floor
+     i32.trunc_sat_f64_s
+     local.tee $5
+     i32.const 0
+     i32.lt_s
+     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$110
+     drop
+     i32.const 31
+     local.get $5
+     i32.const 32
+     i32.ge_s
+     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$110
+     drop
+     local.get $5
+    end
+    block $__inlined_func$src/fluid/as-src/sph3d/clampCell$112 (result i32)
+     i32.const 0
+     local.get $4
+     global.get $src/fluid/as-src/sph3d/gridOriginZ
+     f64.sub
+     global.get $src/fluid/as-src/sph3d/gridCellSize
+     f64.div
+     f64.floor
+     i32.trunc_sat_f64_s
+     local.tee $5
+     i32.const 0
+     i32.lt_s
+     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$112
+     drop
+     i32.const 31
+     local.get $5
+     i32.const 32
+     i32.ge_s
+     br_if $__inlined_func$src/fluid/as-src/sph3d/clampCell$112
+     drop
+     local.get $5
+    end
+    i32.const 5
+    i32.shl
+    i32.add
+    i32.const 5
+    i32.shl
+    i32.add
+    local.tee $5
+    call $~lib/staticarray/StaticArray<i32>#__set
+    global.get $src/fluid/as-src/sph3d/cellCount
+    local.get $5
+    global.get $src/fluid/as-src/sph3d/cellCount
+    local.get $5
+    call $~lib/staticarray/StaticArray<i32>#__get
+    i32.const 1
+    i32.add
+    call $~lib/staticarray/StaticArray<i32>#__set
+    local.get $0
+    i32.const 1
+    i32.add
+    local.set $0
+    br $for-loop|1
+   end
+  end
+  i32.const 0
+  local.set $0
+  loop $for-loop|2
+   local.get $0
+   i32.const 32768
+   i32.lt_s
+   if
+    global.get $src/fluid/as-src/sph3d/cellStart
+    local.get $0
+    local.get $1
+    call $~lib/staticarray/StaticArray<i32>#__set
+    global.get $src/fluid/as-src/sph3d/cellCount
+    local.get $0
+    call $~lib/staticarray/StaticArray<i32>#__get
+    local.get $1
+    i32.add
+    local.set $1
+    local.get $0
+    i32.const 1
+    i32.add
+    local.set $0
+    br $for-loop|2
+   end
+  end
+  i32.const 32768
+  call $~lib/staticarray/StaticArray<i32>#constructor
+  local.set $1
+  i32.const 0
+  local.set $0
+  loop $for-loop|3
+   local.get $0
+   i32.const 32768
+   i32.lt_s
+   if
+    local.get $1
+    local.get $0
+    global.get $src/fluid/as-src/sph3d/cellStart
+    local.get $0
+    call $~lib/staticarray/StaticArray<i32>#__get
+    call $~lib/staticarray/StaticArray<i32>#__set
+    local.get $0
+    i32.const 1
+    i32.add
+    local.set $0
+    br $for-loop|3
+   end
+  end
+  i32.const 0
+  local.set $0
+  loop $for-loop|4
+   local.get $0
+   global.get $src/fluid/as-src/sph3d/particleCount
+   i32.lt_s
+   if
+    global.get $src/fluid/as-src/sph3d/particleCell
+    local.get $0
+    call $~lib/staticarray/StaticArray<i32>#__get
+    local.set $5
+    global.get $src/fluid/as-src/sph3d/sortedIdx
+    local.get $1
+    local.get $5
+    call $~lib/staticarray/StaticArray<i32>#__get
+    local.get $0
+    call $~lib/staticarray/StaticArray<i32>#__set
+    local.get $1
+    local.get $5
+    local.get $1
+    local.get $5
+    call $~lib/staticarray/StaticArray<i32>#__get
+    i32.const 1
+    i32.add
+    call $~lib/staticarray/StaticArray<i32>#__set
+    local.get $0
+    i32.const 1
+    i32.add
+    local.set $0
+    br $for-loop|4
    end
   end
  )

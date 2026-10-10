@@ -51,6 +51,7 @@ let particleCell: StaticArray<i32> = new StaticArray<i32>(MAX_PARTICLES)
 let gridOriginX: f64 = 0.0
 let gridOriginY: f64 = 0.0
 let gridOriginZ: f64 = 0.0
+let gridCellSize: f64 = 1.0
 
 function clampCell(c: i32): i32 {
   if (c < 0) return 0
@@ -58,10 +59,19 @@ function clampCell(c: i32): i32 {
   return c
 }
 
+function cellCoordOf(p: f64, origin: f64): i32 {
+  return clampCell(i32(Math.floor((p - origin) / gridCellSize)))
+}
+
+function recomputeGridCellSize(): void {
+  const span = Math.max(boundMaxX - boundMinX, Math.max(boundMaxY - boundMinY, boundMaxZ - boundMinZ))
+  gridCellSize = Math.max(h, span / f64(GRID_DIM))
+}
+
 function cellIndexOf(px: f64, py: f64, pz: f64): i32 {
-  const cx = clampCell(i32(Math.floor((px - gridOriginX) / h)))
-  const cy = clampCell(i32(Math.floor((py - gridOriginY) / h)))
-  const cz = clampCell(i32(Math.floor((pz - gridOriginZ) / h)))
+  const cx = cellCoordOf(px, gridOriginX)
+  const cy = cellCoordOf(py, gridOriginY)
+  const cz = cellCoordOf(pz, gridOriginZ)
   return (cz * GRID_DIM + cy) * GRID_DIM + cx
 }
 
@@ -92,9 +102,9 @@ function buildGrid(): void {
 
 function computeDensityPressure(): void {
   for (let i: i32 = 0; i < particleCount; i++) {
-    const cx = i32(Math.floor((posX[i] - gridOriginX) / h))
-    const cy = i32(Math.floor((posY[i] - gridOriginY) / h))
-    const cz = i32(Math.floor((posZ[i] - gridOriginZ) / h))
+    const cx = cellCoordOf(posX[i], gridOriginX)
+    const cy = cellCoordOf(posY[i], gridOriginY)
+    const cz = cellCoordOf(posZ[i], gridOriginZ)
     let sum: f64 = 0.0
     for (let oz: i32 = -1; oz <= 1; oz++) {
       const nz = cz + oz
@@ -130,9 +140,9 @@ function computeDensityPressure(): void {
 
 function computeForces(): void {
   for (let i: i32 = 0; i < particleCount; i++) {
-    const cx = i32(Math.floor((posX[i] - gridOriginX) / h))
-    const cy = i32(Math.floor((posY[i] - gridOriginY) / h))
-    const cz = i32(Math.floor((posZ[i] - gridOriginZ) / h))
+    const cx = cellCoordOf(posX[i], gridOriginX)
+    const cy = cellCoordOf(posY[i], gridOriginY)
+    const cz = cellCoordOf(posZ[i], gridOriginZ)
     let fPressX: f64 = 0.0
     let fPressY: f64 = 0.0
     let fPressZ: f64 = 0.0
@@ -162,7 +172,7 @@ function computeForces(): void {
             if (r2 < h2 && r2 > 1.0e-12) {
               const r = Math.sqrt(r2)
               const rhoJ = density[j]
-              const spiky = spikyGradCoef * (h - r) * (h - r)
+              const spiky = -spikyGradCoef * (h - r) * (h - r)
               const pTerm = (pressure[i] + pressure[j]) / (2.0 * rhoJ)
               const fp = -particleMass * pTerm * spiky
               fPressX += fp * (dx / r)
@@ -248,6 +258,7 @@ export function configure(
   boundMaxZ = maxZ
   boundaryDamping = dampingIn
   recomputeKernelConstants()
+  recomputeGridCellSize()
 }
 
 export function reset(): void {
