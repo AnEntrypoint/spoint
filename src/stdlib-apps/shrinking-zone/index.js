@@ -21,7 +21,7 @@ export default {
         showRing: true,
       })
       ctx.state.zone = build(c)
-      ctx.onConfigChange?.((cfg) => { ctx.state.zone = build(cfg) })
+      ctx.onConfigChange?.((cfg) => { ctx.state.zone = build(cfg || {}) })
     },
     update(ctx, dt) { ctx.state.zone?.tick(dt) },
   },
