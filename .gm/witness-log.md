@@ -4670,3 +4670,17 @@ RESULT gm-bash-raw-body-truncates-near-8kb resolved 1791666902454-500-c898ea11b0
 FAILURE-scale wait verb dispatch_orphaned claim_age_ms=111218 sweeping_pid=22232 read-only-verb-re-dispatched 1791667025
 tick 70 done a2c6f1939ea3481ea live=19 launch orch-main-r125 row=popper-n-r116-2 1791667025
 tick 71 live=20 ceiling=20 floor=10 shortfall=0 launchable=163 advertised=0 (no free slot) 1791667130
+ROW gm-wait-dispatch-orphaned-claim-reaped-after-60s filed dispatch=1791667246897-500-a552582c703bfd51
+tick 72 live=20 ceiling=20 floor=10 shortfall=0 launchable=161 advertised=0 (no free slot) 1791667251
+
+RESULT gm-config-refresh-degraded-live-verify witness arm=scratch-read-shared-handle exit=0 RESULT: PASS degraded=true on config-sync-now+config_resolve+instruction (reason=207 chars) then degraded=false after the blocking handle was removed dispatch=1791666483853-8-5681009e1421e5b3 ts=2026-10-10T21:22:00Z session=orch-main-r107-w1
+RESULT r10-apps-manifest-fast-path resolved sha=65a055ef8550a47a25fbf91551807fc7609c0314 next=outcome-keep49-relocation-pending-trimesh-builds-ignores-proximity
+RESULT gm-codesearch-poisoned-store-w565 resolved 1791666060916-2-d7dd143f655420fc sha=ada170e5 (agentplug v0.1.267; CI run 38087234537 check pending, frame-time-gate SKIPPED no GPU runner)
+tick 73 done a52753723df419aca done ae40c8e3539db54dc live=18 launch orch-main-r126 row=gm-witness-log-clobber launch orch-main-r127 row=POPPER-r106-2-veg 1791667380
+RESULT gm-codeinsight-outline-partial-deploy-witness resolved 1791667380590-500-afec4e2c1e8a9023 sha=2d23742b41c867c7cc7dea274246aae3b26fa423 (exit=0 RESULT: PASS output_sha256=8e43181d8cf3a20e0f6013bad8a10ad33e407b207d1e1a4d19d800f2d4d43a8b ts=2026-10-10T21:23:00Z plugkit v0.1.1566 source_sha=b679a69d056d394d2358e7868b70d35e2f1eeeb0; CI run 38087141835 success on 09c368e; closes gm-codeinsight-outline-refused-incomplete-index)
+RESULT gm-exec-argv-code-limit-fails-to-spawn resolved 1791666977435-500-4f3259fd87440fb5 sha=0beb855b3a2ef3aead5ed0f5bb76dd9f83485cd3
+tick 74 done a0e6d05119c9a9c11 live=19 launch orch-main-r128 row=gm-wait-dispatch-orphaned-claim-reaped-after-60s 1791667520
+HOP src/transport findings=10 rows=10 next=LAMPORT src/transport (r116 chain)
+tick 75 done a223d33faa9824a99 live=19 launch orch-main-r129 hop LAMPORT src/transport 1791667570
+RESULT gm-codeinsight-outline-refused-incomplete-index resolved 1791667560981-500-74db670de3641cd7 sha=2d23742b41c867c7cc7dea274246aae3b26fa423 (exit=0 RESULT: PASS output_sha256=198ebb9415db255e6b047b918e4a33856105d5c96fd0cf299f2e9a80cebec013 ts=2026-10-10T21:25:57.038Z plugkit v0.1.1566 source_sha=b679a69d056d394d2358e7868b70d35e2f1eeeb0)
+- 2026-10-10T21:26:18.213Z | worker-renderer-live-window-witness | exit=0 | RESULT: window.__workerRenderer.test(2000) on a live headless Chrome page with a real OffscreenRenderWorker => {"ok":true,"state":"live","measurable":true,"framesReported":6,"firstFrameDelayMs":0,"lastFrameAgeMs":188,"elapsedMs":2013,"error":null} | dispatch=1791667295822-500-dc5311f1e9bc8664
