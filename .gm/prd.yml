@@ -36,3 +36,81 @@
   session_id: orch-main-r201
   status: completed
   witness: 'scan_deps re-run by session orch-main-r201-sub1 on src/transport/NetworkSimTransport.js: filesScanned 1327, failCount 0, blockedCount 0, symlinkEscapeCount 0, warnCount 3 (minified-vendor ratio warnings only). Acceptance (failCount 0 and blockedCount 0, witnessed from another session) met.'
+- id: KISS-n-r209-1
+  subject: 'client/xr: the one-way teleport fade is a 4-state xstate machine read as a string'
+  description: 'KISS / client/xr. XRWidgets.js:2 is the file only non-three import and pulls createMachine/createActor from /node_modules/xstate/dist/xstate.esm.js STATICALLY; :12-21 declares fadeMachine with four states and four transitions, zero guards, zero actions and no context; :29 starts an actor; :178-181 read _fadeActor.getSnapshot().value only to compare it against three string literals. The machine is a string-valued phase variable reached through a dependency, and because the import is static it drags xstate into the browser bundle on every load while every other client module imports xstate dynamically behind an _isNode guard. EVIDENCE exec_js dispatch 1791674671727-500-b00b6b86a408ac01 over the real module source with a stubbed xstate: states=4, guards=0, actions=0, context={}, start=idle, after START=fadeIn -- every field matched the values written before the dispatch. FIX: one phase variable (or a single numeric timer) and delete the import. Node-only row: client/xr/XRWidgets.js is dirty under another lane this session; not resolved by this hop.'
+  notes: 'witness: exec_js 1791674671727-500-b00b6b86a408ac01 (live, exact match); codesearch literal client/xr fadeMachine 1791674449159 (2 occurrences: definition :12, actor :28). node-only row; not resolved by this hop.'
+  status: pending
+  session_id: orch-main-r209
+- id: KISS-n-r209-2
+  subject: 'client/xr: an aborted teleport is dropped by the fade machine - DONE is accepted only in fadeOut'
+  description: 'KISS / client/xr. XRWidgets.js:124-128 endTeleport(aborted) sends DONE only when aborted, and DONE is listed only on fadeOut (:19), so an abort raised during fadeIn or delay lands in no state: the screen still fades to full black and back by itself, and teleportPending is already null so no later event can stop it. The only caller passing true is the missing-reference-space path at :119; cancelTeleport, wired for the same case, has zero call sites tree-wide (codesearch 1791674199237). It is the transition table that makes this possible: a phase string set to idle directly cannot swallow an event. EVIDENCE exec_js dispatch 1791674671727-500-b00b6b86a408ac01: after START then DONE the snapshot value is still fadeIn, exactly as written before the dispatch. FIX: on abort set the phase to idle and fadeOpacity to 0 in one place; no event is needed.'
+  notes: 'witness: exec_js 1791674671727-500-b00b6b86a408ac01 (live, exact match); codesearch literal cancelTeleport tree-wide 1791674199237 (0 occurrences outside this file). node-only row; not resolved by this hop.'
+  status: pending
+  session_id: orch-main-r209
+- id: KISS-n-r209-3
+  subject: 'client/xr: XRControls ships a dead public surface - placeAtCamera, getPlacementInfo and options.scale have no reader'
+  description: 'KISS / client/xr. XRControls.js:71 placeAtCamera() and :99 getPlacementInfo() are public methods with zero call sites anywhere in the tree; :6 puts scale: 1 into this.options and nothing on the surface reads it (it is not a WebXR feature: it is never sent to a session and never applied to a mesh). Three knobs shaped like API on a class whose live path is createReticle/start/update/placeAnchor. EVIDENCE codesearch literal tree-wide placeAtCamera dispatch 1791674306401 (1 occurrence: the definition), getPlacementInfo dispatch 1791674241210 (definition plus prd text only), scoped literal scale over client/xr dispatch 1791674334255 (exhaustive:true, 1 occurrence: the default at :6); exec_js 1791674670580 over the real class shows scaleOption=1 and no read. FIX: delete all three. setInitialFPSPosition (:76) is dead too, but DRY-n-r200-3 already names it for its 1.6 literal; this row carries the dead-surface half of that finding so the two do not duplicate.'
+  notes: 'witness: codesearch literal 1791674306401, 1791674241210, 1791674334255 (all exhaustive:true); exec_js 1791674670580-500-28dc34af9f8cff1. Merges the dead-surface half of DRY-n-r200-3. node-only row; not resolved by this hop.'
+  status: pending
+  session_id: orch-main-r209
+- id: KISS-n-r209-4
+  subject: 'client/xr: reticleVisible mirrors this.reticle.visible by hand and the two disagree during placement'
+  description: 'KISS / client/xr. XRControls.js:12 declares this.reticleVisible and :60/:63 keep it in step with this.reticle.visible manually; :66 placeAnchor() gates on the flag rather than on the mesh, so one fact has two holders and the gate can be satisfied by a reticle that is not being shown. EVIDENCE exec_js dispatch 1791674700932-500-ca0dd4cbb6a92743 over the real class with a stub renderer, printing the flag BEFORE the call: pre reticleVisible=true meshVisible=false, post placeAnchor=true anchorPlaced=true reticleVisible=false -- an anchor was placed from a reticle marked visible while its mesh was not, matching the values written before the dispatch. FIX: gate on this.reticle?.visible and delete the flag.'
+  notes: 'witness: exec_js 1791674700932-500-ca0dd4cbb6a92743 (live, exact match; an earlier read taken after placeAnchor is superseded by this ordering). node-only row; not resolved by this hop.'
+  status: pending
+  session_id: orch-main-r209
+- id: KISS-n-r209-5
+  subject: 'client/xr: detected planes build meshes that are never parented, so plane detection is invisible by construction'
+  description: 'KISS / client/xr. XRControls.js:50-53 onPlanesDetected creates a mesh per plane, stores it in this.planes and pushes it into planeMeshes; no mesh is ever added to a scene, so the entire visualisation is inert whatever the hardware reports. EVIDENCE exec_js dispatch 1791674670580-500-28dc34af9f8cff1 over the real class fed a synthetic planesdetected event: planeMeshes=2 planes=2 planeDetected=true parents=[null,null]. MERGES HUGHES-n-r163-4 (planeMeshes has zero readers): that row asks for the field to be deleted or derived; this row records that deleting it is only half the fix, because the meshes are also unparented -- either parent them on create or drop the visualisation and keep this.planes alone.'
+  notes: 'witness: exec_js 1791674670580-500-28dc34af9f8cff1 (live, exact match). Merges HUGHES-n-r163-4. node-only row; not resolved by this hop.'
+  status: pending
+  session_id: orch-main-r209
+- id: KISS-n-r209-6
+  subject: 'client/xr: update() throttles on the absolute clock with now % 66 < 16 and now % 100 < 16'
+  description: 'KISS / client/xr. XRSystem.js:151 gates the wrist-UI refresh on (now % 66 < 16) and :155 gates updateControllerVisibility on (now % 100 < 16). now is not a frame counter: client/app.js:2586 calls xrSystem?.update(ctx.res.frameDt, local, ctx.now), a millisecond clock, so both are modulo samples of wall time whose firing count per second tracks the frame rate instead of expressing a rate. EVIDENCE exec_js dispatch 1791674660915-500-e4bb063fa0da389c stepping the real expressions over 1000 ms at four frame rates: 30fps modulo66=15 modulo100=8, 60fps modulo66=16 modulo100=6, 120fps modulo66=30 modulo100=16, 144fps modulo66=32 modulo100=24, against a dt accumulator holding 15/15/15/14. The claim under test (the refresh rate scales with frame rate, so the wrist UI and controller visibility update at whatever rate the device happens to run) is confirmed; the pre-declared expectation missed by one at 60 and 144 fps from float stepping, and the observed numbers above are the record. FIX: accumulate dt and refresh when it crosses the interval.'
+  notes: 'witness: exec_js 1791674660915-500-e4bb063fa0da389c (live); codesearch literal xrSystem scoped to client/app.js 1791674734849 (exhaustive:true, 7 lines) pins now = ctx.now at :2586. node-only row; not resolved by this hop.'
+  status: pending
+  session_id: orch-main-r209
+- id: KISS-n-r209-7
+  subject: 'client/xr: computeParabolicArc keeps an unreachable guard and hardcodes the hit height to y=0'
+  description: 'KISS / client/xr. XRWidgets.js:137 wraps every write in if (idx < positions.length) while positions is allocated at :101 as exactly ARC_SEGMENTS*3 floats and idx advances by 3 per iteration, so the guard is false zero times -- it is dead. :140 then builds the hit point with a hardcoded y of 0, so the marker placed at :172 and the offset applied at :121 ignore the ground: a controller at eye height 1.7 m always targets y=0. EVIDENCE exec_js dispatch 1791674669487-500-a46be5f73abd0130 over the real function body with two synthetic arcs: guardFalse=0, idx=60, len=60, hit={x:..,y:0,z:..,valid:true} both times, exactly as written before the dispatch. FIX: drop the guard; take the hit y from the solved parabola or from a raycast against the scene, and let the marker sit on the surface it hit.'
+  notes: 'witness: exec_js 1791674669487-500-a46be5f73abd0130 (live, exact match). node-only row; not resolved by this hop.'
+  status: pending
+  session_id: orch-main-r209
+- id: KISS-n-r209-8
+  subject: 'client/xr: alias bindings and a duplicated handsDetected flag carry state the objects already own'
+  description: 'KISS / client/xr. XRWidgets.js:25 keeps wristUI, wristUICanvas and wristUIContext as three bindings to one object fields (:43, read at :48/:49/:59); :68/:96 keep vrSettingsPanel.visible in step with vrSettingsPanel.mesh.visible by hand; and handsDetected exists twice -- XRSystem.js:21/:75/:156 and XRWidgets.js:31/:147/:151 -- where the second copy is only a restatement of the argument passed in. EVIDENCE codesearch literal client/xr, exhaustive:true: wristUI dispatch 1791674770189 (7 lines, 16 occurrences, every canvas/ctx read going through the aliases), handsDetected dispatch 1791674774853 (8 occurrences across both files, two independent declarations). FIX: read wristUI.canvas/.ctx directly, drop the visible field and test mesh.visible, delete the widgets copy of handsDetected. MERGES OWNERSHIP-n-r192-4, whose no-single-writer finding on vrSettings is the same one-fact-two-holders shape on an adjacent object.'
+  notes: 'witness: codesearch literal 1791674770189, 1791674774853 (both exhaustive:true). Merges OWNERSHIP-n-r192-4. node-only row; not resolved by this hop.'
+  status: pending
+  session_id: orch-main-r209
+- id: KISS-n-r209-9
+  subject: 'client/xr: _tmp1/_tmp2 scratch vectors are cloned at every use, so the scratch buys nothing'
+  description: 'KISS / client/xr. XRWidgets.js:32 allocates _tmp1/_tmp2 as scratch, but both use sites copy out of them anyway: :157 origin = _tmp1.clone(); direction = _tmp2.clone().multiplyScalar(-1), and :165 origin = _tmp1.clone(); direction = _tmp2.clone(). The values are then held across updateTeleportArc and handed to computeParabolicArc, so the shared temporaries cannot be reused in any case -- two allocations per frame dressed up as zero. EVIDENCE codesearch literal client/xr clone() dispatch 1791674780005 (exhaustive:true, 4 occurrences, all on those two lines). FIX: write into pre-allocated origin/direction vectors and keep them, or delete _tmp1/_tmp2 and allocate at the use site; do not keep both.'
+  notes: 'witness: codesearch literal 1791674780005 (exhaustive:true). node-only row; not resolved by this hop.'
+  status: pending
+  session_id: orch-main-r209
+- id: KISS-n-r209-10
+  subject: 'client/xr: __freshnessProbe is a committed witness marker with no reader'
+  description: 'KISS / client/xr. XRWidgets.js:203 exports const __freshnessProbe = 1. Nothing in the tree reads it: the only other occurrences of the string are scripts/bundle-freshness-witness.mjs:155 and :174, which APPEND that exact line to a scratch-root copy of a client input (:146 makeScratchRoot) or to a dist artifact so the freshness check sees a changed input. The witness writes the marker; it never reads the committed one, so a marker whose only purpose is to mutate a temporary copy ships in source and rides every bundle. EVIDENCE codesearch literal __freshnessProbe dispatch 1791674219166 (3 occurrences: the export plus the two witness append sites). FIX: delete the export; nothing depends on it.'
+  notes: 'witness: codesearch literal 1791674219166; scripts/bundle-freshness-witness.mjs:145-181 read directly (scratch-root append path). node-only row; not resolved by this hop.'
+  status: pending
+  session_id: orch-main-r209
+- id: OWNERSHIP-n-r192-4-blocker-orch-main-r205
+  subject: 'OWNERSHIP-n-r192-4 delivery blocked: another lane owns client/xr/XRSystem.js and client/xr/XRWidgets.js'
+  description: |-
+    Row OWNERSHIP-n-r192-4 is edited and witnessed (exec_js 1791674814805-500-92154be86237c053 RESULT: PASS; independent replay by session orch-main-r205-sub1 1791674908662-500-557a1b99223b85d RESULT: PASS; regression scripts/xr-teleport-sequence-witness.mjs 1791674835661-500-ac8834c83f263d7b RESULT: PASS; state/res 1791675012019-500-d7a492ff12e485f RESULT: PASS) but it cannot be delivered path-scoped yet.
+
+    Cause: the working-tree diff of BOTH files the row edits now also carries another lane's uncommitted hunks (git_diff 1791675034101-500-3a1b4e345693df6f over paths client/xr/XRSystem.js, client/xr/XRWidgets.js):
+    - client/xr/XRSystem.js: `import { createRayLine } from './XRRayLine.js'` added; `createLaserPointer()` deleted and replaced by createRayLine calls; controller/hand model capture changed to named consts; `controllerModels, controllerGrips, handModels` replaced by getControllerModel/getControllerGrip/getHandModel.
+    - client/xr/XRWidgets.js: `import { createRayLine } from './XRRayLine.js'` and `import { XR_IDENTITY_ROTATION } from './xrSpace.js'` added; initTeleport builds the arc via createRayLine; moveTeleport offsets with XR_IDENTITY_ROTATION.
+
+    These hunks belong to the client/xr lane (hop `hop:KISS:client/xr`, live session orch-main-r209; DRY-n-r200-* rows also read this directory). They are not part of OWNERSHIP-n-r192-4, whose hunks are only: `const vrSettings` -> `let vrSettings`; the new `setVRSettings(patch)`; cycleSmooth/cycleSnap/the shoot branch routing through it; `get vrSettings() { return Object.freeze({ ...vrSettings }) }`; XRWidgets taking `initialSettings` and copying it; `setSettings(next)`; `settings.*` reads in updateSettingsPanel/updateTeleportArc/updateVignette.
+
+    Why not commit anyway: `git_finalize {paths:[client/xr/XRSystem.js, client/xr/XRWidgets.js]}` would (a) sweep another lane's edit, and (b) land a tree whose XRSystem.js/XRWidgets.js import './XRRayLine.js' and './xrSpace.js' while those files are still untracked, so the published build would not resolve and CI `check` would fail on someone else's work.
+
+    Resolution: wait for the client/xr lane to commit its hunks (including XRRayLine.js and xrSpace.js), then re-read the scoped diff; when it contains only this row's hunks, deliver path-scoped with git_finalize {message, paths:[client/xr/XRSystem.js, client/xr/XRWidgets.js]}, git_push {rev:"HEAD"}, ci-status {sha}. If the client/xr lane commits the two files WITH this row's hunks included, the row is delivered by that commit: cite its sha instead, with the same witness evidence.
+
+    Not a deferral: the change is complete and witnessed; only the publish step is gated on another writer.
+  session_id: orch-main-r205
+  status: pending
