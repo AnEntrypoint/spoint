@@ -3,7 +3,7 @@ export function shouldSwapMaterials(deviceInfo) {
 }
 
 export function shouldStripNormalMaps(deviceInfo) {
-  return !!deviceInfo && deviceInfo.gpuTier === 'low' && deviceInfo.isMobile === true;
+  return !!deviceInfo && deviceInfo.gpuTier === 'low' && !!deviceInfo.isMobile;
 }
 
 const _copyKeys = [
