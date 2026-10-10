@@ -86,6 +86,7 @@ import { createWeather } from './core/Weather.js'
 import { setWetness as _setWetnessTint } from './core/WetnessTint.js'
 import { installShadowCostProbe } from './core/ShadowCostProbe.js'
 import { createPerfTracker, createDprController, createTerrainVdrsController, createFogController, createVsyncMonitor } from './core/FrameMetrics.js'
+import { createQualityGovernor } from './core/QualityGovernor.js'
 import { installThreeVdrs, createThreeVdrsController } from './core/ThreeVdrs.js'
 import { createCullingHub } from './core/CullingHub.js'
 import { installPlayerLOD, installPlayerLODDebug, TIER_DOT, TIER_REDUCED } from './core/PlayerLOD.js'
@@ -2186,10 +2187,12 @@ const _terrainVdrs = createTerrainVdrsController()
 const _threeVdrs = createThreeVdrsController()
 const _fog = createFogController()
 const _vsync = createVsyncMonitor()
+const _quality = createQualityGovernor()
 function _adaptDpr(renderer, ms) { _dpr.tick(renderer, ms) }
 function _adaptTerrainVdrs(ms) { _terrainVdrs.tick(ms) }
 function _adaptThreeVdrs(ms) { _threeVdrs.tick(ms) }
 function _adaptFog(scene, ms) { _fog.tick(scene, ms) }
+function _adaptQuality(ms) { _quality.tick(ms) }
 if (typeof window !== 'undefined' && window.__app) {
   Object.defineProperties(window.__app, {
     cam: { get: () => cam, configurable: true },
@@ -2750,6 +2753,7 @@ function animate(ts) {
   _adaptTerrainVdrs(_perf.lastMs)
   _adaptThreeVdrs(_perf.lastMs)
   _adaptFog(scene, _perf.lastMs)
+  _adaptQuality(_perf.lastMs)
   _vsync.tick(ts || now, _perf.lastMs)
   if (window.__devToolsUpdate) window.__devToolsUpdate()
   if (_showStats) { const frameMs = _perf.lastMs; _profileSum += frameMs; if (++_profileFrames >= 120) { console.log(`[frame-profile] fps:${fpsDisplay} avg:${(_profileSum / _profileFrames).toFixed(2)}ms players:${pm.playerMeshes.size} entities:${el.entityMeshes.size}`); _profileFrames = 0; _profileSum = 0 } }
