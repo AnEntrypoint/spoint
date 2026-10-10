@@ -37,7 +37,7 @@ import { createLivePreview } from './editor/LivePreview.js'
 import { createPersistentHistory } from './editor/PersistentHistory.js'
 import { createEditorPresence } from './editor/EditorPresence.js'
 import { createScene, createRenderer, probeAndCreateWebGPURenderer, describeRenderer, installStuckPipelineRecovery, setupLights, createLoaders, applySceneConfig, warmupShaders, waitForManifestResidence, MAX_UNMANIFESTED_WARMUP_MESHES, limitTextureSize, setSeaLevelY, probeOffscreenCanvasWorkerRendering } from './core/SceneSetup.js'
-import { createWorkerRenderer } from './core/WorkerRenderer.js'
+import { createWorkerRenderer, classifyWorkerFrameWindow } from './core/WorkerRenderer.js'
 import { createPlayerManager } from './PlayerManager.js'
 import { createEntityLoader } from './EntityLoader.js'
 import { createModelPool } from './ModelPoolAdapter.js'
@@ -280,16 +280,23 @@ if (typeof window !== 'undefined') {
       const canvas = document.createElement('canvas')
       canvas.width = 320; canvas.height = 180
       const frames = []
-      const started = Date.now()
-      const instance = createWorkerRenderer(canvas, { readyTimeoutMs: 5000, onStats: (s) => frames.push(s) })
+      const instance = createWorkerRenderer(canvas, { readyTimeoutMs: 5000, onStats: (s) => frames.push({ ...s, at: Date.now() }) })
       await instance.start()
+      const waitStartMs = Date.now()
       await new Promise(r => setTimeout(r, durationMs))
+      const waitEndMs = Date.now()
       instance.stop()
+      const pageVisible = !(typeof document !== 'undefined' && document.visibilityState !== 'visible')
+      const verdict = classifyWorkerFrameWindow(frames, waitStartMs, waitEndMs, pageVisible)
       return {
-        ok: frames.length > 0,
-        framesReported: frames.length,
+        ok: verdict.ok,
+        state: verdict.state,
+        measurable: verdict.measurable,
+        framesReported: verdict.framesReported,
+        firstFrameDelayMs: verdict.firstFrameDelayMs,
+        lastFrameAgeMs: verdict.lastFrameAgeMs,
         lastStats: frames[frames.length - 1] || null,
-        elapsedMs: Date.now() - started,
+        elapsedMs: waitEndMs - waitStartMs,
         error: instance.getLastError()
       }
     }

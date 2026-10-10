@@ -1,4 +1,32 @@
 const TERMINATE_AFTER_STOP_REQUEST_MS = 250
+const WORKER_FRAME_LIVE_BOUND_MS = 1000
+
+export function classifyWorkerFrameWindow(frames, waitStartMs, waitEndMs, pageVisible) {
+  const arrivals = []
+  for (const frame of frames || []) {
+    const at = Number(frame && frame.at)
+    if (Number.isFinite(at)) arrivals.push(at)
+  }
+  arrivals.sort((a, b) => a - b)
+
+  const firstFrameDelayMs = arrivals.length ? arrivals[0] - waitStartMs : null
+  const lastFrameAgeMs = arrivals.length ? waitEndMs - arrivals[arrivals.length - 1] : null
+  const withinLiveBound = (ms) => ms !== null && ms >= -WORKER_FRAME_LIVE_BOUND_MS && ms <= WORKER_FRAME_LIVE_BOUND_MS
+  const live = withinLiveBound(firstFrameDelayMs) && withinLiveBound(lastFrameAgeMs)
+  const state = !pageVisible
+    ? 'hidden'
+    : (arrivals.length === 0 ? 'no-frames' : (live ? 'live' : 'throttled'))
+
+  return {
+    ok: state === 'live',
+    state,
+    measurable: state !== 'hidden',
+    framesReported: arrivals.length,
+    firstFrameDelayMs,
+    lastFrameAgeMs,
+    liveBoundMs: WORKER_FRAME_LIVE_BOUND_MS
+  }
+}
 
 export function createWorkerRenderer(canvasEl, opts = {}) {
   if (!canvasEl || typeof canvasEl.transferControlToOffscreen !== 'function') {
