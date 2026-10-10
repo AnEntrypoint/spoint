@@ -386,7 +386,7 @@ if (leftHand) {
 blendTree.addClip(walkClip, 0)      // threshold 0 m/s
 blendTree.addClip(runClip, 5)       // threshold 5 m/s
 blendTree.addClip(sprintClip, 10)   // threshold 10 m/s</p><p>blendTree.setParameter(3.5) // Blend between walk and run
-const weights = blendTree.getWeights() // [0.7, 0.3, 0]</code></pre></p><p><h3>2D Blend (Direction)</h3></p><p><pre><code class="language-javascript">import { BlendTree2D } from 'src/animation/BlendTree.js'</p><p>const blendTree = new BlendTree2D()
+const weights = blendTree.getWeights() // [0.3, 0.7, 0]</code></pre></p><p><h3>2D Blend (Direction)</h3></p><p><pre><code class="language-javascript">import { BlendTree2D } from 'src/animation/BlendTree.js'</p><p>const blendTree = new BlendTree2D()
 blendTree.addClip(idleClip, 0, 0)           // center
 blendTree.addClip(walkForwardClip, 0, 1)    // forward
 blendTree.addClip(walkBackwardClip, 0, -1)  // backward

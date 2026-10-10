@@ -172,7 +172,7 @@ blendTree.addClip(runClip, 5)       // threshold 5 m/s
 blendTree.addClip(sprintClip, 10)   // threshold 10 m/s
 
 blendTree.setParameter(3.5) // Blend between walk and run
-const weights = blendTree.getWeights() // [0.7, 0.3, 0]
+const weights = blendTree.getWeights() // [0.3, 0.7, 0]
 ```
 
 ### 2D Blend (Direction)
