@@ -106,11 +106,11 @@ export function defineAudio(spec = {}) {
     }
   }
 
-  function _updatePositional(key) {
+  function _applyPositional(key) {
     const state = _positional.get(key)
     if (!state) return
     const el = _els.get(key)
-    if (!el || el.paused || el.ended) return
+    if (!el) return
     const listener = _listenerPos()
     const distGain = listener ? _distanceGain(listener, state.position) : 1
     const occluded = listener ? !_hasLineOfSight(listener, state.position) : false
@@ -124,6 +124,12 @@ export function defineAudio(spec = {}) {
       graph.filter.frequency.value = cur + (targetHz - cur) * LOWPASS_LERP
       graph.gain.gain.value = clamp01(targetVolume, graph.gain.gain.value)
     }
+  }
+
+  function _updatePositional(key) {
+    const el = _els.get(key)
+    if (!el || el.paused || el.ended) return
+    _applyPositional(key)
   }
 
   function _stopPositional(key) {
@@ -155,7 +161,7 @@ export function defineAudio(spec = {}) {
           state.position = position
           state.perCallVolume = volume
         }
-        _updatePositional(key)
+        _applyPositional(key)
       } else if (_positional.has(key)) {
         _stopPositional(key)
         el.volume = effectiveVolume(volume)
