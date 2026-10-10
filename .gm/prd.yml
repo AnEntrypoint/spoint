@@ -26,3 +26,13 @@
     UNBLOCK WHEN: client/xr/XRControls.js is clean under git_status scoped to that path, or HUGHES-n-r163-4 has landed its hunk. Then apply the fix, re-witness from another session, and close OWNERSHIP-n-r192-2 with prd-resolve citing witness_dispatch_id; a self-witness is refused.
 
     scan_deps 1791673860425-500-5073a0731f690a46: filesScanned 1327, blockedCount 0, failCount 0, warnCount 3 (basis_transcoder.js x2, draco-loader.js -- pre-existing vendored minified assets, not touched by this row).
+- id: LAMPORT-n-r129-1-scandeps-orch-main-r201
+  SESSION_ID: orch-main-r201
+  title: 'scan_deps at LAMPORT-n-r129-1 SPECIFY: src/transport/NetworkSimTransport.js'
+  severity: LOW
+  surface: src/transport
+  subject: 'scan_deps witness on src/transport/NetworkSimTransport.js: filesScanned 1327, failCount 0, blockedCount 0, symlinkEscapeCount 0, warnCount 3 (minified-vendor ratio warnings only: client/basis/basis_transcoder.js, packages/streaming-gltf/src/basis/basis_transcoder.js, packages/streaming-gltf/src/draco-loader.js). No blocked or failing import stands in the way of the LAMPORT-n-r129-1 send-index change.'
+  acceptance: A scan_deps re-run reports failCount 0 and blockedCount 0 over the file the row edits, witnessed from a session other than the one that made the edit.
+  session_id: orch-main-r201
+  status: completed
+  witness: 'scan_deps re-run by session orch-main-r201-sub1 on src/transport/NetworkSimTransport.js: filesScanned 1327, failCount 0, blockedCount 0, symlinkEscapeCount 0, warnCount 3 (minified-vendor ratio warnings only). Acceptance (failCount 0 and blockedCount 0, witnessed from another session) met.'

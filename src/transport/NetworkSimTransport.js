@@ -114,6 +114,10 @@ export class NetworkSimTransport extends TransportWrapper {
   _stats = { inboundSent: 0, inboundDropped: 0, inboundDelivered: 0, inboundReordered: 0,
              outboundSent: 0, outboundDropped: 0, outboundDelivered: 0, outboundReordered: 0 }
 
+  _sendIndex = { inbound: 0, outbound: 0 }
+
+  _lastDeliveredIndex = { inbound: 0, outbound: 0 }
+
   _drawDelay(p) {
     const jitter = p.jitterMs > 0 ? (Math.random() * 2 - 1) * p.jitterMs : 0
     return Math.max(0, p.latencyMs + jitter)
@@ -122,23 +126,25 @@ export class NetworkSimTransport extends TransportWrapper {
   _schedule(direction, p, deliver, undelivered) {
     const stats = this._stats
     stats[`${direction}Sent`]++
+    const sendIndex = ++this._sendIndex[direction]
     if (p.lossPct > 0 && Math.random() * 100 < p.lossPct) {
       stats[`${direction}Dropped`]++
       return
     }
     const delay = this._drawDelay(p)
-    const entry = { deliver, undelivered }
+    const entry = { sendIndex, deliver, undelivered }
     const queue = this._pendingQueue[direction]
     queue.push(entry)
 
     if (p.reorderPct > 0 && queue.length >= 2 && Math.random() * 100 < p.reorderPct) {
       const prev = queue[queue.length - 2]
-      const swapped = { deliver: prev.deliver, undelivered: prev.undelivered }
+      const swapped = { sendIndex: prev.sendIndex, deliver: prev.deliver, undelivered: prev.undelivered }
+      prev.sendIndex = entry.sendIndex
       prev.deliver = entry.deliver
       prev.undelivered = entry.undelivered
+      entry.sendIndex = swapped.sendIndex
       entry.deliver = swapped.deliver
       entry.undelivered = swapped.undelivered
-      stats[`${direction}Reordered`]++
     }
 
     const timer = setTimeout(() => {
@@ -146,7 +152,10 @@ export class NetworkSimTransport extends TransportWrapper {
       const idx = queue.indexOf(entry)
       if (idx >= 0) queue.splice(idx, 1)
       if (this._closed) return
-      const accepted = entry.deliver()
+      const deliveredIndex = entry.sendIndex
+      if (deliveredIndex < this._lastDeliveredIndex[direction]) stats[`${direction}Reordered`]++
+      if (deliveredIndex > this._lastDeliveredIndex[direction]) this._lastDeliveredIndex[direction] = deliveredIndex
+      const accepted = entry.deliver(deliveredIndex)
       if (accepted === false && entry.undelivered !== undefined) {
         this.emit('undelivered', entry.undelivered)
         return
@@ -157,7 +166,7 @@ export class NetworkSimTransport extends TransportWrapper {
   }
 
   _scheduleInbound(data) {
-    this._schedule('inbound', this.profile.inbound, () => this.emit('message', data))
+    this._schedule('inbound', this.profile.inbound, (sendIndex) => this.emit('message', data, { sendIndex }))
   }
 
   send(data, mt) {
