@@ -122,7 +122,7 @@ export function createProgressionSystem(config = {}) {
         level: snap.level || 1,
         totalXp: snap.totalXp || 0,
         lastLevelUpTick: snap.lastLevelUpTick || 0,
-        levelUpEvents: snap.levelUpEvents || []
+        levelUpEvents: Array.isArray(snap.levelUpEvents) ? snap.levelUpEvents.map(event => ({ ...event })) : []
       })
     }
   }
@@ -135,7 +135,7 @@ export function createProgressionSystem(config = {}) {
         level: s.level,
         totalXp: s.totalXp,
         lastLevelUpTick: s.lastLevelUpTick,
-        levelUpEvents: s.levelUpEvents
+        levelUpEvents: s.levelUpEvents.map(event => ({ ...event }))
       }))
     }
   }
