@@ -71,6 +71,9 @@ export function collapseFanTriangles(clusters, pos, streamIndex, streamBase) {
       if (!Number.isFinite(base)) {
         throw new RangeError(`collapseFanTriangles: cluster ${ci} lod stream=${lod.stream} has no streamBase entry`);
       }
+      if (!Number.isFinite(lod.offset) || !Number.isFinite(lod.count)) {
+        throw new RangeError(`collapseFanTriangles: cluster ${ci} lod stream=${lod.stream} has non-finite offset=${lod.offset} or count=${lod.count}`);
+      }
       const start = base + lod.offset;
       const end = start + lod.count;
       if (!index || end > index.length) {
