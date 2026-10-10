@@ -20,7 +20,8 @@ const fadeMachine = createMachine({
   }
 })
 
-export function createXRWidgets(renderer, scene, camera, vrSettings) {
+export function createXRWidgets(renderer, scene, camera, initialSettings) {
+  let settings = { ...initialSettings }
   let wristUI = null, wristUICanvas = null, wristUIContext = null
   let vrSettingsPanel = null
   let teleportArc = null, teleportMarker = null, teleportPending = null, teleportTimer = 0
@@ -67,6 +68,11 @@ export function createXRWidgets(renderer, scene, camera, vrSettings) {
     return { mesh, canvas, ctx, texture, visible: false }
   }
 
+  function setSettings(next) {
+    settings = { ...next }
+    updateSettingsPanel()
+  }
+
   function updateSettingsPanel() {
     if (!vrSettingsPanel) return
     const ctx = vrSettingsPanel.ctx, canvas = vrSettingsPanel.canvas
@@ -74,12 +80,12 @@ export function createXRWidgets(renderer, scene, camera, vrSettings) {
     ctx.strokeStyle = '#00ffff'; ctx.lineWidth = 4; ctx.strokeRect(10, 10, canvas.width - 20, canvas.height - 20)
     ctx.font = 'bold 32px sans-serif'; ctx.fillStyle = '#00ffff'; ctx.textAlign = 'center'; ctx.fillText('VR SETTINGS', 256, 50)
     ctx.font = '24px sans-serif'; ctx.textAlign = 'left'; ctx.fillStyle = '#ffffff'
-    ctx.fillText(`Snap Turn: ${vrSettings.snapTurnAngle}deg`, 40, 120); ctx.fillText('[B/Y] to cycle', 280, 120)
-    ctx.fillText(`Smooth Turn: ${vrSettings.smoothTurnSpeed === 0 ? 'OFF' : vrSettings.smoothTurnSpeed.toFixed(1)}`, 40, 180); ctx.fillText('[X/A] to cycle', 280, 180)
-    ctx.fillText(`Vignette: ${vrSettings.vignetteEnabled ? 'ON' : 'OFF'}`, 40, 240); ctx.fillText('[Grip] to toggle', 280, 240)
-    ctx.fillText(`Height: ${vrSettings.playerHeight.toFixed(2)}m`, 40, 300); ctx.fillText('[Menu] adjust', 280, 300)
-    ctx.fillStyle = vrSettings.teleportEnabled ? '#00ff00' : '#ff0000'
-    ctx.fillText(`Teleport: ${vrSettings.teleportEnabled ? 'ON' : 'OFF'}`, 40, 360)
+    ctx.fillText(`Snap Turn: ${settings.snapTurnAngle}deg`, 40, 120); ctx.fillText('[B/Y] to cycle', 280, 120)
+    ctx.fillText(`Smooth Turn: ${settings.smoothTurnSpeed === 0 ? 'OFF' : settings.smoothTurnSpeed.toFixed(1)}`, 40, 180); ctx.fillText('[X/A] to cycle', 280, 180)
+    ctx.fillText(`Vignette: ${settings.vignetteEnabled ? 'ON' : 'OFF'}`, 40, 240); ctx.fillText('[Grip] to toggle', 280, 240)
+    ctx.fillText(`Height: ${settings.playerHeight.toFixed(2)}m`, 40, 300); ctx.fillText('[Menu] adjust', 280, 300)
+    ctx.fillStyle = settings.teleportEnabled ? '#00ff00' : '#ff0000'
+    ctx.fillText(`Teleport: ${settings.teleportEnabled ? 'ON' : 'OFF'}`, 40, 360)
     ctx.fillStyle = '#ffffff'; ctx.fillText('[Trigger] toggle', 280, 360)
     ctx.fillStyle = '#888888'; ctx.font = '20px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('Press [Menu] button to close', 256, 480)
     vrSettingsPanel.texture.needsUpdate = true
@@ -92,7 +98,6 @@ export function createXRWidgets(renderer, scene, camera, vrSettings) {
   }
 
   function initTeleport() {
-    renderer.xr.addEventListener('sessionend', () => endTeleport(true))
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(ARC_SEGMENTS * 3), 3))
     teleportArc = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.6 }))
     teleportArc.name = 'teleportArc'; teleportArc.visible = false; scene.add(teleportArc)
@@ -110,7 +115,7 @@ export function createXRWidgets(renderer, scene, camera, vrSettings) {
   function moveTeleport() {
     const pending = teleportPending
     if (!pending) return
-    const base = renderer.xr.getReferenceSpace()
+    const base = renderer.xr.isPresenting ? renderer.xr.getReferenceSpace() : null
     if (!base) { endTeleport(true); return }
     teleportTimer = setTimeout(() => endTeleport(false), TELEPORT_SETTLE_MS)
     renderer.xr.setReferenceSpace(base.getOffsetReferenceSpace(new XRRigidTransform({ x: -pending.pt.x, y: -pending.pt.y, z: -pending.pt.z }, { x: 0, y: 0, z: 0, w: 1 })))
@@ -140,7 +145,7 @@ export function createXRWidgets(renderer, scene, camera, vrSettings) {
 
   function updateTeleportArc(handsDetectedNow, handModels) {
     handsDetected = handsDetectedNow
-    if (!renderer.xr.isPresenting || !teleportArc || !vrSettings.teleportEnabled) { if (teleportArc) teleportArc.visible = false; if (teleportMarker) teleportMarker.visible = false; return }
+    if (!renderer.xr.isPresenting || !teleportArc || !settings.teleportEnabled) { if (teleportArc) teleportArc.visible = false; if (teleportMarker) teleportMarker.visible = false; return }
     const session = renderer.xr.getSession(); if (!session) return
     let origin = null, direction = null, triggerTeleport = false
     if (handsDetected) {
@@ -178,7 +183,7 @@ export function createXRWidgets(renderer, scene, camera, vrSettings) {
   }
 
   function updateVignette(dt, isMoving) {
-    if (!vrSettings.vignetteEnabled) { if (vignetteMesh) vignetteMesh.visible = false; return }
+    if (!settings.vignetteEnabled) { if (vignetteMesh) vignetteMesh.visible = false; return }
     if (!vignetteMesh) {
       const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = 512
       const ctx = canvas.getContext('2d'), g = ctx.createRadialGradient(256, 256, 100, 256, 256, 400)
@@ -192,7 +197,7 @@ export function createXRWidgets(renderer, scene, camera, vrSettings) {
     vignetteMesh.material.opacity = vignetteOpacity; vignetteMesh.visible = vignetteOpacity > 0.01
   }
 
-  return { initWristUI, updateWristUI, toggleSettings, updateSettingsPanel, initTeleport, updateTeleportArc, updateFade, updateVignette, get isTeleporting() { return teleportPending !== null }, get settingsVisible() { return vrSettingsPanel?.visible || false } }
+  return { initWristUI, updateWristUI, toggleSettings, setSettings, updateSettingsPanel, initTeleport, updateTeleportArc, updateFade, updateVignette, get isTeleporting() { return teleportPending !== null }, get settingsVisible() { return vrSettingsPanel?.visible || false } }
 }
 
 export const __freshnessProbe = 1
