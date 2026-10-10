@@ -1,7 +1,5 @@
 import { rayOpticalDepth, sampledOpticalDepth } from '../shared/fire/fireQueries.js'
 
-const FALLBACK_TICK_RATE = 60
-
 export function createFireGameplay({ appCtx, gameplay, getWorld, cellOfPosition, frameOf }) {
   const burning = new Map()
   const scratch = { face: 0, I: 0, J: 0 }
@@ -28,12 +26,13 @@ export function createFireGameplay({ appCtx, gameplay, getWorld, cellOfPosition,
   }
 
   function tickDamage(simTick, dt) {
+    if (!(dt > 0) || !Number.isFinite(dt)) throw new RangeError(`[fire] tickDamage needs the authority tick period in seconds, a positive finite number, got ${dt}`)
     accumulatedSeconds += dt
     if (simTick % gameplay.damageEveryTicks !== 0) return
     const seconds = accumulatedSeconds
     accumulatedSeconds = 0
     const world = getWorld()
-    const statusTicks = Math.ceil(gameplay.burnStatusSeconds * FALLBACK_TICK_RATE)
+    const statusTicks = Math.ceil(gameplay.burnStatusSeconds / dt)
     if (!world || (world.kernel.activeCount === 0 && burning.size === 0)) return
     const { kernel } = world
     for (const target of targetsOf()) {
