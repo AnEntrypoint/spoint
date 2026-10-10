@@ -16,7 +16,15 @@ export class TransportWrapper extends EventEmitter {
   constructor() {
     super()
     this.type = 'base'
-    this.ready = false
+    this._ready = false
+  }
+
+  get ready() {
+    return this._ready
+  }
+
+  set ready(open) {
+    this._ready = Boolean(open)
   }
 
   get isOpen() {
