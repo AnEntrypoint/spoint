@@ -98,12 +98,16 @@ export class AnimationSystem {
   }
 
   initializeController(options = {}) {
-    if (!this.controller) {
-      this.controller = createAnimationController(this.blender, {
-        ...this.options,
-        ...options,
-      })
+    if (this.controller) {
+      if (Object.keys(options).length > 0) {
+        throw new Error('[AnimationSystem] controller already initialized; options apply only to the first initializeController call')
+      }
+      return this.controller
     }
+    this.controller = createAnimationController(this.blender, {
+      ...this.options,
+      ...options,
+    })
     return this.controller
   }
 
@@ -131,7 +135,7 @@ export class AnimationSystem {
     if (this.controller) {
       this.controller.update(dt, motionState)
     } else {
-      this.mixer.update(dt)
+      this.blender.updateBlend(dt)
     }
 
     if (this.options.enableIK) {
@@ -153,6 +157,9 @@ export class AnimationSystem {
   }
 
   enableIK(chainName) {
+    if (!this.options.enableIK) {
+      throw new Error('[AnimationSystem] enableIK(chain) needs IK: construct the system with enableIK: true')
+    }
     const chain = this.ikRig.getChain(chainName)
     if (chain) chain.enable()
     return this

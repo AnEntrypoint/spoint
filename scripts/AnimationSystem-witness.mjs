@@ -149,7 +149,7 @@ function runStaticGate(modulePath, closure) {
 
 function runApiChecks(mod, sib) {
   const { AnimationSystem } = mod
-  const { BlendTree1D } = sib.blend
+  const { BlendTree1D, AnimationBlender } = sib.blend
   const { TwoBoneIKSolver, FootIKSolver } = sib.ik
 
   check('A1', 'named exports', ['AnimationSystem', 'default'], Object.keys(mod).sort())
@@ -240,7 +240,12 @@ function runApiChecks(mod, sib) {
   const blended = new AnimationSystem(new THREE.Group(), { clips: [idleClip, walkClip] })
   blended.setBlendTree(blendTree)
   blended.update(0.1)
-  check('CHAR-BT', 'limitation: the stored blend tree is never applied, so clip weights stay at 1 across update', [1, 1], [blended.blender.actions.get('Idle').weight, blended.blender.actions.get('Walk').weight], ' analytic=[0.75,0.25]')
+  check('BT1', 'after update(0.1) the stored blend tree sets the clip weights to the tree weights 0.75 and 0.25', [0.75, 0.25], [blended.blender.actions.get('Idle').weight, blended.blender.actions.get('Walk').weight])
+
+  const bareBlender = new AnimationBlender(new THREE.AnimationMixer(new THREE.Group()), [idleClip, walkClip])
+  bareBlender.setBlendTree(blendTree)
+  bareBlender.updateBlend(0.1)
+  check('BT2', 'AnimationBlender.updateBlend evaluates a stored blend tree: the clip actions carry the tree weights 0.75 and 0.25', [0.75, 0.25], [bareBlender.actions.get('Idle').getEffectiveWeight(), bareBlender.actions.get('Walk').getEffectiveWeight()])
 
   const timer = new AnimationSystem(new THREE.Group())
   const timerReturns = timer.update(0.25) === timer
@@ -249,8 +254,14 @@ function runApiChecks(mod, sib) {
   const controlled = new AnimationSystem(new THREE.Group(), { clips: [idleClip] })
   const controller = controlled.initializeController()
   check('P9', 'initializeController builds a controller with the default config', [true, 1.5, 'Idle'], [typeof controller.update === 'function', controller.config.walkSpeed, controller.config.idleClip])
-  const second = controlled.initializeController({ walkSpeed: 9 })
-  check('CHAR-INIT', 'limitation: a second initializeController call returns the first controller and ignores its options', [true, 1.5], [second === controller, controller.config.walkSpeed], ' analytic=walkSpeed 9')
+  let secondOutcome = 'silent'
+  try {
+    controlled.initializeController({ walkSpeed: 9 })
+  } catch {
+    secondOutcome = 'threw'
+  }
+  if (secondOutcome === 'silent' && controller.config.walkSpeed === 9) secondOutcome = 'applied'
+  check('CFG1', 'a second initializeController(options) either applies its options or throws, never silently ignores them', true, secondOutcome !== 'silent', ` outcome=${secondOutcome}`)
 
   const doubled = new AnimationSystem(new THREE.Group(), { clips: [idleClip] })
   doubled.initializeController()
@@ -258,8 +269,14 @@ function runApiChecks(mod, sib) {
   check('P10', 'with a controller, update(dt) advances mixer time by dt exactly once', 0.25, doubled.mixer.time)
 
   const ikOff = new AnimationSystem(buildHumanoid().model, { enableIK: false })
-  const ikOffReturns = ikOff.enableIK('rightArm') === ikOff
-  check('CHAR-IK', 'limitation: enableIK:false builds no chains, so enableIK(chain) is a silent no-op', [0, true], [ikOff.ikRig.chains.size, ikOffReturns])
+  let ikOutcome = 'silent'
+  try {
+    ikOff.enableIK('rightArm')
+  } catch {
+    ikOutcome = 'threw'
+  }
+  if (ikOutcome === 'silent' && ikOff.ikRig.chains.size > 0) ikOutcome = 'built'
+  check('CFG2', 'enableIK(chain) on a system built with enableIK:false either builds the chain or throws, never silently no-ops', true, ikOutcome !== 'silent', ` outcome=${ikOutcome} chains=${ikOff.ikRig.chains.size}`)
 
   const rig = buildHumanoid({ feet: false })
   const armSystem = new AnimationSystem(rig.model)

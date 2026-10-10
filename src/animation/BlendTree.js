@@ -229,8 +229,22 @@ export class AnimationBlender {
   }
 
   updateBlend(dt = 0) {
+    if (this.blendTree) this._applyBlendTree(this.blendTree)
     this.mixer.update(dt)
     return this
+  }
+
+  _applyBlendTree(tree) {
+    const weights = tree.getWeights()
+    tree.clips.forEach((entry, index) => {
+      if (!entry || !entry.clip) {
+        throw new Error('[AnimationBlender] blend tree entries must be added with addClip(clip, ...)')
+      }
+      const action = this.mixer.clipAction(entry.clip)
+      action.weight = weights[index]
+      if (!action.enabled) action.reset()
+      action.play()
+    })
   }
 
   setPlaybackSpeed(speed) {
