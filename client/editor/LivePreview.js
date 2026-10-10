@@ -17,6 +17,7 @@ function createLivePreview({ getSelectedEntity, getMesh, onChange, onRevert }) {
   }
 
   function _selectEntity(entity) {
+    if (!_enabled) return
     if (!entity) {
       _previewStates.clear()
       return
@@ -27,6 +28,7 @@ function createLivePreview({ getSelectedEntity, getMesh, onChange, onRevert }) {
   }
 
   function reset() {
+    if (!_enabled) return false
     const entity = getSelectedEntity()
     if (!entity) return false
     const mesh = getMesh(entity.id)
@@ -52,12 +54,18 @@ function createLivePreview({ getSelectedEntity, getMesh, onChange, onRevert }) {
     return _enabled
   }
 
+  function setEnabled(value) {
+    _enabled = !!value
+    return _enabled
+  }
+
   return {
     selectEntity: _selectEntity,
     reset,
     toggle,
+    setEnabled,
     get enabled() { return _enabled },
-    set enabled(v) { _enabled = !!v }
+    set enabled(v) { setEnabled(v) }
   }
 }
 
