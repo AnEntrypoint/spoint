@@ -10,6 +10,7 @@ export class WebTransportClientTransport extends TransportWrapper {
     this.ready = false
     this.reliableWriter = null
     this.reliableReader = null
+    this.datagramWriter = null
     this._closed = false
   }
 
@@ -93,10 +94,11 @@ export class WebTransportClientTransport extends TransportWrapper {
   sendUnreliable(data) {
     if (!this.isOpen) return false
     try {
-      const writer = this.session.datagrams.writable.getWriter()
-      writer.write(data).then(() => writer.releaseLock(), () => { try { writer.releaseLock() } catch (_) {} })
+      if (!this.datagramWriter) this.datagramWriter = this.session.datagrams.writable.getWriter()
+      this.datagramWriter.write(data).catch(() => { if (!this._closed) this._handleClose() })
       return true
     } catch (e) {
+      this.datagramWriter = null
       return this.send(data)
     }
   }
@@ -104,6 +106,11 @@ export class WebTransportClientTransport extends TransportWrapper {
   close() {
     super.close()
     this._closed = true
+    if (this.datagramWriter) {
+      const writer = this.datagramWriter
+      this.datagramWriter = null
+      try { writer.releaseLock() } catch (e) {}
+    }
     try { this.session.close() } catch (e) {}
   }
 }
