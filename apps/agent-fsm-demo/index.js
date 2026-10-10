@@ -25,6 +25,7 @@ export default {
               fsm.context.round++
               ctx.debug?.log?.(`FSM: round ${fsm.context.round} active`)
             },
+            on: { ROUND_OVER: 'roundEnd' },
             after: { 60000: 'roundEnd' }
           },
           roundEnd: {
@@ -57,7 +58,9 @@ export default {
         ctx.debug?.log?.('Player joined, attempting to start FSM')
         ctx.state.fsm?.send?.('START')
       }
-      ctx.debug?.log?.('TODO: Handle other FSM transitions (e.g., ROUND_OVER, RESTART)')
+      if (msg?.type === 'ROUND_OVER') {
+        ctx.state.fsm?.send?.('ROUND_OVER')
+      }
     },
 
     teardown(ctx) {
