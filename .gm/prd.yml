@@ -30786,14 +30786,18 @@
   subject: module apps/world/_fixtures/sillos-terrain-only.js has no node witness in scripts/
   acceptance: 'a node witness under scripts/ that drives the module and prints RESULT: PASS exit 0 on the honest tree and RESULT: FAIL exit 1 on a scratch mutant of it'
   severity: MEDIUM
-  status: completed
+  status: pending
   session_id: spoint-orch-b186-w396
   witness: 'RESULT: PASS exit 0, 15 of 15 claims, honest tree: .gm/witness-out/sillos-terrain-only-honest-20261010T055134Z.txt:23 (witness scripts/sillos-terrain-only-witness.mjs, new file, sha256 f64db053bf8bb7269517481ef1f4f8f24b5ffeb7ea189e0764ab47489e321b92). Module apps/world/_fixtures/sillos-terrain-only.js:3 is export default sillosTerrainWorld({ port: 3003 }) over apps/world/_shared/sillos-terrain.js; module sha256 40ab89018ed78e1afd7137140d388324dc6b9eba26149bba7291764f3e507a38, unchanged across all runs. Node-only gate: codesearch literal, one term per call, nine terms (window, document, navigator, WebGL, WebGPU, GPUDevice, WebSocket, Worker, fetch() over the module and its only relative import, 0 hits each (dispatches 1791611078865-500-ec3e8f812cfda1dd through 1791611206552-500-1902f351d1118646 and 1791611177346-500-666564781e58a211 through 1791611206552-500-1902f351d1118646). Replay dispatch 1791611516737-500-f517bb49ea0f5d4 PASS exit 0, identical output sha256 7d78d565c222de44034af6a8bd914dda4443f1adb3b1dbae2d2d2376a69e2f94. Create-only guard dispatch 1791611523675-500-288a65c7735c19d5 exit 2, honest output untouched. Missing module path dispatch 1791611528415-500-b3e0edd3e1b15c10 FAIL exit 1, PROBLEM module path does not exist, output sha256 c808c46fab4998ba82f1ac45f107bb957c56d9c36ca2ae9e0561cacd92e6df86. Scratch mutant dispatch 1791611541506-500-93fd30bdc52c769a (vegetation injected into a scratch copy, copy deleted in the same dispatch, scratch_removed=true) FAIL exit 1, failed C11 C13 C14, output sha256 3f5bbb04ad93e867b3b159f9cb12ec532856739bd589ffec0dec1cc570712aea. Witness log lines 3445 3449 3450 3451 in .gm/witness-log.md. Stage receipts: SPECIFY row at prd.yml last block; PROVE preconditions module exists and imports under node, invariants exact comparisons and create-only wx output, postconditions honest PASS, mutant FAIL, missing path FAIL; EMIT the witness; STATE replay identical; CONC writes only its own --out and one log line per run, runs sequential; SEC inputs are one optional module path and one --out path, no network, no eval, module read-only; RES missing path and import-failure branches; DECIDE mutant and missing path discriminate, honest passes. Assumption: witness not wired into npm run check (scripts/check.mjs out of scope); the file stays untracked until the lane commits it. Successor: witness-gap-sillos-terrain (node-only gate passed on apps/world/_shared/sillos-terrain.js).'
-  witness_binding:
+  previous_witness_binding:
     exit_code: 0
     output_sha256: 7d78d565c222de44034af6a8bd914dda4443f1adb3b1dbae2d2d2376a69e2f94
     output_path: .gm/witness-out/sillos-terrain-only-honest-20261010T055134Z.txt
     ts: 2026-10-10T05:51:34.515Z
+  reverify_reasons:
+  - module .gm/prd.yml changed after this row was witnessed
+  reverify_changed_paths:
+  - .gm/prd.yml
 - id: witness-gap-sillos-terrain-rocks-only
   subject: module apps/world/_fixtures/sillos-terrain-rocks-only.js has no node witness in scripts/
   acceptance: 'a node witness under scripts/ that drives the module and prints RESULT: PASS exit 0 on the honest tree and RESULT: FAIL exit 1 on a scratch mutant of it'
@@ -30841,14 +30845,18 @@
   subject: module apps/agent-fsm-demo/index.js has no node witness in scripts/
   acceptance: 'a node witness under scripts/ that drives the module and prints RESULT: PASS exit 0 on the honest tree and RESULT: FAIL exit 1 on a scratch mutant of it'
   severity: MEDIUM
-  status: completed
+  status: pending
   session_id: spoint-orch-b186-w396
   witness: 'Stage receipts. NODE-ONLY GATE: codesearch literal over apps/agent-fsm-demo/index.js for window, document, navigator, WebGL, WebGPU, GPUDevice, WebSocket, Worker, fetch(, require(, import( gave 0 hits each (dispatch ids 1791591023582-500-471e4b3bc9d4de21, 1791591029829-500-8f06f2a28f350148, 1791591034474-500-5b425366927ec1a3, 1791591042464-500-ed50c8bbe0478267, 1791591047601-500-56028e21c6e7c4b4, 1791591053712-500-bfdea016c4e27ba6, 1791591060749-500-f6678221cfff830d, 1791591064880-500-ed94241fba19cc2e, 1791591071319-500-f487edd05e3136dd, 1791591077062-500-d239ebec788432af, 1791591081037-500-7078ca7759415462). The module has no import statements, so no relative imports exist to scan; no browser or GPU hit to judge. SPECIFY: row read at prd.yml line 30323. Mutables: M1 does defineGameFSM run the module entry hooks: NO (src/behaviours/game-fsm.js:82 reads enter only; instrument dispatch 1791591261670-500-ad2ff00cb1955e3: after START state countdown, after 5.3 s state active round 0, module logs empty), filed as agent-fsm-demo-entry-hook-key-never-runs; M2 ESM import: root package.json type module, so the module imports directly; M3 driver scope: the witness checks the module own contract with stubs (no engine, no real timers), so it passes on the honest tree as the acceptance requires. PROVE: preconditions module exists and imports under node; invariants every claim is an exact comparison, create-only --out; postconditions honest PASS exit 0 18 of 18, mutant FAIL exit 1, missing path FAIL exit 1. EMIT: scripts/agent-fsm-demo-index-witness.mjs (18 claims F01-F18; file sha256 b34550d07c01960276050e25c2cbcac44122ed969889fb26a390a7bc3fe6d4a5). Honest run 1791591374450-500-22903d82b43798e0 PASS exit 0 18 of 18. Mutant (scratch copy with START guard length >= 1 changed to >= 2, scratch copy deleted in the same dispatch) run 1791591377761-500-ccb56c39ae916e79 FAIL exit 1, only F06 failed (expected [false,true,true] got [false,false,true]). Missing path run 1791591381372-500-75df4a08f7c420e8 FAIL exit 1 with PROBLEM module path does not exist. STATE: replay 1791591404824-500-f57d11a910352df8 PASS exit 0 with claim lines identical to the original; a duplicate --out run in the same dispatch was refused create-only and the original output sha is unchanged. CONC: the witness writes only its own --out file with flag wx and appends one line per run to .gm/witness-log.md. SEC: input is one module path and one operator-given out path; no network, no eval, no child process; module read-only. RES: import failure (syntax-broken scratch copy, deleted in the same dispatch) 1791591406286-500-8c21b3ebc0b6edbb FAIL exit 1 with PROBLEM module import failed. DECIDE: adversarial probes discriminate (mutant and broken copy FAIL, missing path FAIL, honest PASS); module sha256 df15127951e6784e5f7b940d62fac86eaa1cf059972eafcd5527c84c2f448a2e unchanged, mtime 2026-09-29, not touched by this row; no scratch leftovers (dispatch 1791591500620-500-f33864a86846e132); 6 witness-log lines appended. COMPLETE: row resolved on the honest-run output.'
-  witness_binding:
+  previous_witness_binding:
     exit_code: 0
     output_sha256: dd316343ea8db01526589633a793148c9d5cde1aec7cbf37d791ef9ea85d4a20
     output_path: .gm/witness-out/agent-fsm-demo-index-honest-20261010T001614Z.txt
     ts: 2026-10-10T00:16:14.409Z
+  reverify_reasons:
+  - module .gm/prd.yml changed after this row was witnessed
+  reverify_changed_paths:
+  - .gm/prd.yml
 - id: witness-gap-agent-interactive-demo-index
   subject: module apps/agent-interactive-demo/index.js has no node witness in scripts/
   acceptance: 'a node witness under scripts/ that drives the module and prints RESULT: PASS exit 0 on the honest tree and RESULT: FAIL exit 1 on a scratch mutant of it'
@@ -30945,14 +30953,18 @@
   subject: module apps/example-progression/index.js has no node witness in scripts/
   acceptance: 'a node witness under scripts/ that drives the module and prints RESULT: PASS exit 0 on the honest tree and RESULT: FAIL exit 1 on a scratch mutant of it'
   severity: MEDIUM
-  status: completed
+  status: pending
   session_id: spoint-orch-b186-w396
   witness: 'Witness scripts/example-progression-index-witness.mjs (untracked, ASCII, 10126 bytes, no comments, 27 checks) drives apps/example-progression/index.js by import (--module seam). SPECIFY: row read at prd.yml (pending), acceptance restated. Node-only gate: codesearch literal x11 tokens x3 scopes (module, apps/_lib/progression.js, src/game), exhaustive, closure 6 files, 0 hits in closure; out-of-closure hit src/game/PROGRESSION.md:1 markdown heading, not imported; positive control defineProgression 2 hits. PROVE: live probes dispatch 1791591217238-500-f0cd64d351ddec53 (defects: attack TypeError, onInput ReferenceError) and 1791591515732-500-91856c1df1e13bdc (real getProgress and getAbilityInfo shapes match the module reads). EMIT: honest dispatch 1791591332727-500-d4f55dd0d8ee82f5 exit 0 RESULT PASS 27/27. STATE: replay stdout-only dispatch 1791591357575-500-151c851418e03a64 exit 0 byte-identical sha f8838ccd; create-only refusal dispatch 1791591473593-500-c88a645ddcbd1911 exit 1, honest file unchanged. CONC: sequential runs, one appendFileSync line per run, 6 log lines. SEC: no network, eval or child_process tokens; out confined to .gm/witness-out/. RES: scratch mutant (takeDamage clamp removed, copy deleted in the same dispatch) dispatch 1791591357575-500-151c851418e03a64 exit 1 RESULT FAIL, only take-damage.clamps-health-at-zero actual=-400 expected=0 (out cb15dad4); missing module path same dispatch exit 1 RESULT FAIL (out aa32d867); syntax-broken scratch module dispatch 1791591473593-500-c88a645ddcbd1911 exit 1 RESULT FAIL, scratch deleted. DECIDE: mutant FAIL isolated to the mutated check; scope is the honest working surface only: attack and onInput digit/e paths throw and are excluded, filed as rows example-progression-attack-throws-abilitytree-typeerror (HIGH) and example-progression-client-oninput-ctx-unbound (MEDIUM). Order-dependent: gain-xp small must run before large (shared lib state for ent-1). Residual: a log-append I/O failure after an out write leaves the out file reading PASS with exit 1, not reproduced. Successor: none pending in the list (all three completed at check time).'
-  witness_binding:
+  previous_witness_binding:
     exit_code: 0
     output_sha256: f8838ccd31c54723597cf4088f08d4c2c9d1fb6a9288b9e5b70a054840ec7b5a
     output_path: .gm/witness-out/witness-gap-example-progression-index-honest-20261010T001532Z.txt
     ts: 2026-10-10T00:15:32.697Z
+  reverify_reasons:
+  - module .gm/prd.yml changed after this row was witnessed
+  reverify_changed_paths:
+  - .gm/prd.yml
 - id: witness-gap-final-boss-index
   subject: module apps/final-boss/index.js has no node witness in scripts/
   acceptance: 'a node witness under scripts/ that drives the module and prints RESULT: PASS exit 0 on the honest tree and RESULT: FAIL exit 1 on a scratch mutant of it'
@@ -31927,14 +31939,18 @@
   subject: 'IKSolver FootIKSolver world-space height fix (src/animation/IKSolver.js) and the X3 witness re-expression (scripts/IKSolver-witness.mjs, untracked) are not committed, pushed or CI-checked: DECIDE push/CI stage not run by row resolver spoint-orch-b186-w476'
   acceptance: 'Commit with explicit paths src/animation/IKSolver.js and scripts/IKSolver-witness.mjs as lanmower on main (paths-scoped git_commit), git_push rev HEAD, watch the CI check and frame-time-coverage jobs; rerun scripts/IKSolver-witness.mjs on the committed tree and require RESULT: PASS exit 0 (pre-commit PASS: dispatch 1791589244017-500-1a72a0a29f8bc97f, output .gm/witness-out/IKSolver-witness-fixed-20261009T234043Z.txt, sha256 89af9833620b37364e6f30a340ce66abfc8e77ec6ba6a02c2e2bc1a93173ce86); append the commit sha to .gm/witness-log.md'
   severity: HIGH
-  status: completed
+  status: pending
   session_id: spoint-orch-b186-w476
   witness: 'Commit fdbcc2682f88998cd366855f85ec91d0b5d7898d (author lanmower, no trailer lines), paths src/animation/IKSolver.js and scripts/IKSolver-witness.mjs only, git_commit dispatch 1791618852863-500-fb6e7858414ef9b0. Push: git_push rev HEAD dispatch 1791618893276-500-d42b541fb59d707b, e1e351f0..fdbcc268 HEAD->main. CI run 38036061004 on fdbcc268: status completed, conclusion success. Jobs: check success (completed 2026-10-10T08:01:01Z); frame-time-coverage success (its name reports no self-hosted gpu runner, as expected); frame-time skipped (no GPU runner, expected). Committed-tree witness: node scripts/IKSolver-witness.mjs --out=.gm/witness-out/IKSolver-witness-committed-fdbcc268-20261010T075649Z.txt, exit 0, RESULT: PASS, checks=43 correct=42 characterized=1 failed=0, module_sha256 6aab953d904caac1a6c4fdf21298db60b4b5e4a7b9f8c01a3bb7ff67fcd4441e, out_sha256 167e3c57762b9f2cc029cda19863ab8c78225dccf7cb9de2a5df49370ec2bbed, dispatch 1791619009938-500-28f756325a37d1a2. Witness log: 2026-10-10T07:56:49Z IKSolver-witness run=committed-tree commit=fdbcc268 (plus pre-commit line 07:53:52Z and delivery line in .gm/witness-log.md). Stages: SPECIFY row read at prd.yml line 31810 (pending). PROVE pre: scoped git_status showed only IKSolver fix hunks (TwoBone helper and solve from w492, FootIK height from w476), no index lock, no foreign hunk. EMIT: commit, push, CI, witness. STATE: main advanced e1e351f0 to fdbcc268; witness out files create-only; witness log append-only; foreign staged deletion of .gm/instructions/entry.md and .agentplug* left untouched. CONC: path-scoped commit excluded foreign dirt; push was a fast-forward, no rebase. SEC: no secrets; witness static gates S1 and S3 pass. RES: one wait poll timed out and was resumed by resume_task, no re-dispatch; no failed job. DECIDE: the row''s cited pre-commit output (2026-10-09T23:40Z, 8 characterized) is from an earlier witness revision, so the committed-tree rerun is the witness of record; the one remaining characterized check is CHAR-L1 (parentless root never rotated). The same commit carries the TwoBone hunk of witness-finding-IKSolver-two-bone-geometry-blocker-spoint-orch-b186-w492, whose push and CI leg it satisfies; that row stays pending for its own resolution. Parent witness-finding-IKSolver-foot-space is already completed, untouched. COMPLETE: this resolution.'
-  witness_binding:
+  previous_witness_binding:
     exit_code: 0
     output_sha256: 167e3c57762b9f2cc029cda19863ab8c78225dccf7cb9de2a5df49370ec2bbed
     output_path: .gm/witness-out/IKSolver-witness-committed-fdbcc268-20261010T075649Z.txt
     ts: 2026-10-10T07:56:49Z
+  reverify_reasons:
+  - module .gm/prd.yml changed after this row was witnessed
+  reverify_changed_paths:
+  - .gm/prd.yml
 - id: bin-template-arena-fps-floor-config-collider-stale
   subject: 'static trace, not live-verified: bin/project-templates/arena-fps/apps/floor/index.js onConfigChange (width, depth, thickness) updates custom.sx/sy/sz for the visual only; the static box collider is added once in setup and is never re-added; syncEntityCollider rebuilds only on a _collider, motion or scale change (src/sdk/EditorHandlers.js:163-165), and _fireConfigChange (EditorHandlers.js:290) calls only the module listener'
   acceptance: 'a live editor witness (or a node witness driving the editor path, if one exists) shows that after an inspector width, depth or thickness change the physics box half-extents equal [sx/2, sy/2, sz/2] of the new custom values; the fix is a collider rebuild on those keys in the module listener or a syncEntityCollider rebuild path; the witness prints RESULT: PASS exit 0 on the honest tree and RESULT: FAIL exit 1 on a scratch mutant of it. Not covered by witness-gap-BinTemplateArenaFpsFloor (scripts/bin-template-arena-fps-floor-witness.mjs), which asserts the visual listener update only. Check the sibling floor templates (deathrun, battle-royale) for the same pattern.'
@@ -32471,17 +32487,21 @@
   subject: 'whole-tree codesearch literal returns exhaustive:true and the hint ''the text is absent'' for text present in .gm/prd.yml: the gm_state_dir rule excludes 547 .gm/ state files from the default scan, while the same query with path .gm/prd.yml finds it at line 29118'
   acceptance: a whole-tree codesearch literal for witness-gap-AppBehaviours (cwd C:/dev/spoint) reports the match at .gm/prd.yml:29118, or lists .gm/prd.yml under excluded_by_rule with exhaustive:false and no absence hint. Fix surface is c:\dev\gm (codesearch scan rules). A live whole-tree run after the fix cites its dispatch id.
   severity: MEDIUM
-  status: completed
+  status: pending
   session_id: spoint-orch-b186-w555
   witness: .gm/prd.yml:29175 and .gm/prd.yml:32237 -- the row's own query, a whole-tree codesearch literal for witness-gap-AppBehaviours (cwd C:/dev/spoint, dispatch 1791618200946-500-4864b3314a92ca8d, live gm 0.1.1488), reports the match in .gm/prd.yml with exhaustive true and no absence hint; untracked gm runtime state is named in unsearched_gm_state.
-  witness_binding:
+  commit_sha: 222b55aa73c612b773a9589d1d922308519bbb01
+  commit_comment: 'codesearch: whole-tree literal reports the .gm/prd.yml match (rs-plugkit 222b55aa73)'
+  resolution: 'Same defect as gm-codesearch-exhaustive-hides-gm-state, closed with its own live witness (the line moved from 29118 as prd.yml grew). Fixed by rs-plugkit 222b55aa73: tracked .gm files are in scope for unscoped literal and regex scans.'
+  previous_witness_binding:
     exit_code: 0
     output_sha256: aff1b6df221e89ca20ce2bb4cc29213dabdf9d64816992a906b91c46e9868346
     output_path: .gm/witness/spoint-orch-b186-gmfix6/item1-dup-whole-tree-appbehaviours.json
     ts: 2026-10-10T07:43:20.946Z
-  commit_comment: 'codesearch: whole-tree literal reports the .gm/prd.yml match (rs-plugkit 222b55aa73)'
-  resolution: 'Same defect as gm-codesearch-exhaustive-hides-gm-state, closed with its own live witness (the line moved from 29118 as prd.yml grew). Fixed by rs-plugkit 222b55aa73: tracked .gm files are in scope for unscoped literal and regex scans.'
-  commit_sha: 222b55aa73c612b773a9589d1d922308519bbb01
+  reverify_reasons:
+  - module .gm/prd.yml changed after this row was witnessed
+  reverify_changed_paths:
+  - .gm/prd.yml
 - id: gm-codesearch-admission-starvation-under-pool-load
   subject: codesearch cheap admission gate (limit 3 of 4 plugin slots) failed one dispatch after a 20 s wait with error dispatch_starved_waiting_for_admission and executed:false, because 3 other codesearch dispatches held the admitted slots; the re-dispatch succeeded
   acceptance: under the same pool load, a codesearch dispatch is queued and completes without a manual re-dispatch, or the refusal reports a wait budget longer than 20 s. Fix surface is c:\dev\gm (cheap admission gate). A live run during pool load cites its dispatch id.
@@ -36320,3 +36340,19 @@
   text: 'Found by the receipt-sha audit (witness-receipt-sha-audit-spoint-orch-b186-1070, receipt 1791633558314-500-de408d7a8403dd6d): the two clean-run mismatches are receipt-verdict-missing for these rows. Their receipts exist but carry no PASS or FAIL token, so the logged result cannot be confirmed. Heartbeat: write .gm/pool/<session>.live with session, row and start lines, delete it on finish.'
   witness: '1791634533741-500-b5ee64ae3dcb7a45 node scripts/lib/witness-audit.mjs --receipts --row=<id> run for each of the two rows (session spoint-orch-b186-rewit-1102, 2026-10-10T12:16Z): each row checked=1 dispatch=1 mismatches=0, so receipt-verdict-missing is 0 for both; full clean run dispatch 1791634521946-500-8c20d5af0aee0436: completed=376 checked=342 mismatches=0. New create-only receipts: .gm/witness-out/name-scan-split-form-rewit-1102-1791634391632-500-e40efb9a2d399ee2.txt and .gm/witness-out/r22-prd-resolve-rewit-1102-1791634396641-500-f2427309a7ed3332.txt, each ending with its RESULT PASS line'
   resolution: 'Both witness rows re-witnessed live on the current build and closed by prd-resolve citing their new dispatch ids: gm-name-scan-misses-split-path-arguments-spoint-orch-b186-0930 by dispatch 1791634391632-500-e40efb9a2d399ee2, gm-prd-resolve-witness-ledger-and-status-spoint-orch-b186-r22 by dispatch 1791634447036-500-e55fa27eb649393b citing probe dispatch 1791634396641-500-f2427309a7ed3332. The r22 closure resolves the real row rather than a scratch row, which is the same prd-resolve path (status supplied, spool or ledger dispatch id); recorded as a stated assumption. Old receipts are unedited and the audit is not loosened. Witness log has one line per run. Floor gate did not refuse (count_of_record 2 observed at closure time; recorded for the orchestrator).'
+- id: gm-pool-admit-node-prd-rows-not-only-witness-gaps-spoint-orch-b186-1090-blocker-spoint-orch-b186-gmadmit-1090
+  subject: 'Blocker for gm-pool-admit-node-prd-rows-not-only-witness-gaps-spoint-orch-b186-1090: the live witness cannot run on the released build while the runner sideload pins gm'
+  acceptance: 'Parent row closes when: (1) the runner loads an rs-plugkit build containing 9af83832f6 (gm pin 9d9e6f6f9b), so loaded_plugin_versions.gm is a release semver or the sideload is cleared by its owner; (2) pool-observe with body {"live":2,"held":2} on C:/dev/spoint shows slots.candidates in candidate order, launch carrying the first advertised ids of that list, launch count >= shortfall (8), sufficient true, launch_filters only beyond_refill, and no not_witness_gap or witness_gap block; (3) that dispatch id is witnessed in .gm/witness-log.md and the parent is prd-resolved with witness_dispatch_id. Clearing the sideload is an owner decision: another lane is testing against the sideloaded gm.wasm written 12:03-12:05Z.'
+  severity: HIGH
+  surface: c:/dev/gm
+  status: pending
+  text: 'Evidence 2026-10-10 12:13-12:18Z: pool-observe {live:2,held:2} dispatch 1791634403596-500-dcc2d178089a3e5d refused with advertised=0 and launch_filters not_witness_gap. rs-plugkit 9af83832f6 (native-check and release publish success) and gm 9d9e6f6f9b (doc-drift success) are pushed. The runner status loaded_plugin_versions.gm reads local-dev-sideload-remote-moved-default; gm.version was written 12:04:57Z and gm.wasm 12:03:15Z by a sideloading lane; gm.local-dev-sideload.json makes the release bridge skip upgrades (agentplug-runner download.rs writes the marker, gm-mcp release-bridge.js reconcileGuest skips on it). Behaviour change to review when the new build loads: witness-gap rows are no longer gated by browser or GPU globals in their module (two-gate rule), so such a row is a node-first candidate; only dirty_target and live_writer gate launches.'
+  session_id: spoint-orch-b186-gmadmit-1090
+- session_id: spoint-orch-b186-rewit-1102
+  id: gm-commit-prd-yml-path-scoped-sweeps-lane-rows-and-reopens-witness-rows-spoint-orch-b186-rewit-1102
+  subject: a path-scoped git_commit of .gm/prd.yml carries every lane's uncommitted prd rows, and the commit gate reopens rows whose witness names prd.yml
+  acceptance: 'A git_commit whose paths name .gm/prd.yml commits only the prd rows that the committing session changed, or refuses and names the foreign rows; prd_reopened lists only rows whose witness module changed in that same commit. Witness: on the live build, the stat of the next commit that names .gm/prd.yml shows only the rows of that session, and its prd_reopened list holds no row whose witness does not name a file in that commit.'
+  severity: MEDIUM
+  status: pending
+  surface: C:/dev/gm (git_commit prd_reopened gate and prd.yml staging); C:/dev/spoint .gm/prd.yml
+  text: 'Found by spoint-orch-b186-rewit-1102 closing gm-audit-clean-run-re-witness-r22-0930-spoint-orch-b186-1102. Commit a64261ba1c (pushed 60120965..a64261ba) with explicit paths .gm/prd.yml, .gm/witness-log.md and two new receipts: git_commit reported prd_reopened for witness-gap-sillos-terrain-only, witness-gap-agent-fsm-demo-index, witness-gap-example-progression-index, witness-finding-IKSolver-foot-space-commit-push-spoint-orch-b186-w476 and gm-codesearch-whole-tree-literal-hides-gm-state, each with reason module .gm/prd.yml changed after this row was witnessed. git_show --stat: 4 files changed, .gm/prd.yml 37046 lines (35334 insertions, 1742 deletions), so the path-scoped commit carried every lane''s uncommitted prd rows, not this session''s two closures. The excluded_but_dirty_warning calls prd.yml runtime state, not tracked-by-design, yet the explicit path committed it.'
