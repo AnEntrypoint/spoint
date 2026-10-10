@@ -10,6 +10,7 @@ export default {
     ctx.state._wanderTarget = null
     ctx.state._wanderTimer = 0
     ctx.state._speed = speed
+    ctx.state._wanderRadius = wanderRadius
     ctx.state._loopType = loopType
 
     ctx.physics.setMotionType('kinematic')
@@ -58,7 +59,8 @@ export default {
         const step = Math.min(speed * dt, dist)
         ctx.entity.position[0] += (dx / dist) * step
         ctx.entity.position[2] += (dz / dist) * step
-        ctx.entity.rotation = [0, Math.atan2(dx, dz), 0]
+        const halfYaw = Math.atan2(dx, dz) / 2
+        ctx.entity.rotation = [0, Math.sin(halfYaw), 0, Math.cos(halfYaw)]
       } else {
         ctx.state._wanderTarget = null
       }
