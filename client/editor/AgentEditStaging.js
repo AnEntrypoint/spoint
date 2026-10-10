@@ -122,6 +122,7 @@ export function createAgentEditStaging({ getSource, saveSource } = {}) {
     if (!force) {
       const conflict = await hasConflict(appName, file)
       if (conflict === true) return { ok: false, conflict: true, error: 'disk content changed since this edit was staged' }
+      if (conflict !== false) return { ok: false, undetermined: true, error: 'disk content could not be read, so this edit cannot be committed without force' }
     }
     if (!saveSource) return { ok: false, error: 'no saveSource wired' }
     try {
