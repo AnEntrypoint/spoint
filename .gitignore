@@ -71,3 +71,12 @@ data/*/
 .v-*.txt
 scripts/.*
 .ci-*.txt
+
+# audit trail: witness receipts, witness log and pool log are tracked;
+# binary plugin copies under witness-out are not (they are not evidence text)
+!.gm/witness-log.md
+!.gm/witness-out/
+.gm/witness-out/**/*.wasm
+!.gm/pool/
+.gm/pool/*
+!.gm/pool/pool.log
