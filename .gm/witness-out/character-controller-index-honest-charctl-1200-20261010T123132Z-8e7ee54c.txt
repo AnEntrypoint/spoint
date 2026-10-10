@@ -1,0 +1,38 @@
+witness: scripts/character-controller-index-witness.mjs
+row: witness-gap-character-controller-index
+run: honest-charctl-1200
+module: C:\dev\spoint\apps\character-controller\index.js
+module_sha256: dff66eb03e607199e83f851677d2b0a8feabe87c27decd09642d126c3ac47d6e
+stubbed_surfaces: ctx.raycast(origin,direction,maxDistance,excludeBodyId) returns {hit,distance,body,bodyId,normal,position,entityId} (AppContext.raycast shape); ctx.physics.getBodyId, ctx.physics.addColliderFromConfig; ctx.entity {id,custom,position,velocity} as getters and setters only; ctx.players {getById,getAll} with no respawn; ctx.bus.emit; ctx.time.elapsed; ctx.config; engine.THREE = three namespace; engine.cam {setPosition,setTarget} with no lookAt; engine.playerId; engine.client.state.players entries {id,position,rotation,velocity} with no custom or state
+committed_api_absent: ctx.entity.state, ctx.entity.playerId, ctx.players.respawn, engine.audio, player.custom, player.state (the module reads these; the committed AppContext and client do not provide them)
+ts: 2026-10-10T12:31:32.326Z
+PASS shape.hooks ok
+PASS editor.props.keys-types-defaults ok
+PASS editor.props.ranges ok
+PASS setup.collider-uses-config-height ok
+PASS setup.defaults ok
+PASS setup.config-overrides ok
+PASS setup.custom-block-created-and-preserved ok
+PASS update.noop-without-controller ok
+PASS update.noop-for-unknown-player ok
+FAIL update.idle-when-grounded-and-still expected [0.2] got []
+FAIL update.forward-accel-clamped-by-frame-factor threw Cannot read properties of undefined (reading 'payload')
+FAIL update.diagonal-speed-is-normalised threw Cannot read properties of undefined (reading 'payload')
+FAIL update.airborne-air-control-halves-target-speed threw Cannot read properties of undefined (reading 'payload')
+FAIL update.jump-impulse-coyote-latch-and-rearm threw Cannot read properties of undefined (reading 'payload')
+PASS update.coyote-window-closes-after-30ms ok
+FAIL update.fall-damage-beyond-15m-threshold expected 97 got 100
+PASS update.fall-within-threshold-is-free ok
+FAIL update.lethal-fall-respawns-player expected 0 got 2
+FAIL update.fall-speed-clamped-at-minus-100 expected -100 got 0
+FAIL update.onMessage-footstep-only expected [{"type":"player:footstep","payload":{"playerId":"p1","position":[7,0,9]}}] got [{"type":"player:footstep","payload":{}}]
+PASS client.setup-defaults ok
+PASS client.noop-without-controller-player-or-custom ok
+FAIL client.fps-eye-and-look-target threw Cannot read properties of undefined (reading 'length')
+FAIL client.yaw-spring-step-drives-look-target threw Cannot read properties of undefined (reading '0')
+FAIL client.pitch-clamped-both-ways expected ~1.5707963267948966 got 0
+FAIL client.tps-camera-when-player-mode-is-tps threw Cannot read properties of undefined (reading 'length')
+FAIL client.jump-tone-from-random-draw expected [[900,0.08,0.15]] got []
+FAIL client.footstep-tone-from-random-draw expected [[450,0.05,0.08]] got []
+PASS client.other-events-and-missing-audio-are-silent ok
+RESULT: FAIL -- 14 of 29 checks
