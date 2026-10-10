@@ -19,7 +19,7 @@ export function createLayerRegistry({ setLocked, setHidden, isLocked, isHidden, 
   }
 
   function renameLayer(oldName, newName) {
-    if (oldName === DEFAULT_LAYER || !_layers.has(oldName) || !newName || _layers.has(newName)) return false
+    if (oldName === DEFAULT_LAYER || !_layers.has(oldName) || !newName || typeof newName !== 'string' || _layers.has(newName)) return false
     const state = _layers.get(oldName)
     _layers.delete(oldName)
     _layers.set(newName, state)
