@@ -1,5 +1,6 @@
 const TERMINATE_AFTER_STOP_REQUEST_MS = 250
 const WORKER_FRAME_LIVE_BOUND_MS = 1000
+const WORKER_STOP_CONFIRM_TIMEOUT_MS = 1000
 
 export function classifyWorkerFrameWindow(frames, waitStartMs, waitEndMs, pageVisible) {
   const arrivals = []
@@ -28,6 +29,33 @@ export function classifyWorkerFrameWindow(frames, waitStartMs, waitEndMs, pageVi
   }
 }
 
+export function classifyWorkerRuntimeState(input) {
+  const src = input || {}
+  const liveBoundMs = Number.isFinite(src.liveBoundMs) ? src.liveBoundMs : WORKER_FRAME_LIVE_BOUND_MS
+  const nowMs = Number(src.nowMs)
+  const pageVisible = src.pageVisible !== false
+  const refMs = Number.isFinite(src.lastFrameMs)
+    ? src.lastFrameMs
+    : (Number.isFinite(src.readyMs) ? src.readyMs : null)
+  const ageMs = refMs === null ? null : nowMs - refMs
+
+  let state
+  if (src.stopped === true) state = 'stopped'
+  else if (src.hasError === true) state = 'error'
+  else if (src.stopRequested === true) state = 'stopping'
+  else if (src.started !== true) state = 'idle'
+  else if (!pageVisible) state = 'hidden'
+  else state = (ageMs === null || ageMs < 0 || ageMs <= liveBoundMs) ? 'live' : 'stalled'
+
+  return {
+    running: state === 'live' || state === 'hidden',
+    state,
+    ageMs,
+    stale: state === 'stalled' || state === 'error' || state === 'stopped',
+    liveBoundMs
+  }
+}
+
 export function createWorkerRenderer(canvasEl, opts = {}) {
   if (!canvasEl || typeof canvasEl.transferControlToOffscreen !== 'function') {
     throw new Error('createWorkerRenderer: canvas does not support transferControlToOffscreen')
@@ -38,12 +66,41 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
   let started = false
   let lastStats = null
   let lastError = null
+  let readyAtMs = null
+  let lastFrameAtMs = null
+  let stopRequestedAtMs = null
+  let stoppedAtMs = null
+  let stoppedMessage = null
+  const stopWaiters = []
   const onStats = opts.onStats || null
   const onError = opts.onError || null
+  const onStopped = opts.onStopped || null
+
+  function nowMs() {
+    return (typeof performance !== 'undefined' && typeof performance.now === 'function') ? performance.now() : Date.now()
+  }
+  function pageVisible() {
+    return typeof document === 'undefined' ? true : document.hidden !== true
+  }
+  function runtimeState() {
+    return classifyWorkerRuntimeState({
+      started,
+      stopRequested: stopRequestedAtMs !== null,
+      stopped: stoppedAtMs !== null,
+      hasError: lastError !== null,
+      readyMs: readyAtMs,
+      lastFrameMs: lastFrameAtMs,
+      nowMs: nowMs(),
+      pageVisible: pageVisible()
+    })
+  }
 
   function start() {
     if (started) return Promise.resolve()
     return new Promise((resolve, reject) => {
+      stopRequestedAtMs = null
+      stoppedAtMs = null
+      stoppedMessage = null
       try {
         const workerUrl = new URL('../workers/OffscreenRenderWorker.js', import.meta.url)
         worker = new Worker(workerUrl, { type: 'module' })
@@ -61,10 +118,18 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
       worker.onmessage = (e) => {
         const msg = e.data || {}
         if (msg.type === 'ready') {
-          if (!settled) { settled = true; clearTimeout(timer); started = true; resolve() }
+          if (!settled) { settled = true; clearTimeout(timer); readyAtMs = nowMs(); started = true; resolve() }
         } else if (msg.type === 'frame') {
           lastStats = msg
+          lastFrameAtMs = nowMs()
           if (onStats) onStats(msg)
+        } else if (msg.type === 'stopped') {
+          stoppedAtMs = nowMs()
+          stoppedMessage = msg
+          started = false
+          if (onStopped) onStopped(msg)
+          const waiters = stopWaiters.splice(0, stopWaiters.length)
+          for (const waiter of waiters) waiter(msg)
         } else if (msg.type === 'error') {
           lastError = msg
           if (onError) onError(msg)
@@ -93,15 +158,42 @@ export function createWorkerRenderer(canvasEl, opts = {}) {
   }
 
   function stop() {
-    if (!worker) return
+    if (!worker) return Promise.resolve({ ok: false, reason: 'no-worker', ms: 0, message: null })
+    stopRequestedAtMs = nowMs()
     try { worker.postMessage({ type: 'stop' }) } catch (_) {}
     setTimeout(() => { if (worker) { worker.terminate(); worker = null } }, TERMINATE_AFTER_STOP_REQUEST_MS)
     started = false
+    return awaitStopped()
   }
 
-  function getStats() { return lastStats }
-  function getLastError() { return lastError }
-  function isRunning() { return started }
+  function awaitStopped(timeoutMs) {
+    if (stoppedAtMs !== null) {
+      return Promise.resolve({ ok: true, reason: 'stopped', ms: 0, message: stoppedMessage })
+    }
+    const budget = Number.isFinite(timeoutMs) && timeoutMs >= 0 ? timeoutMs : WORKER_STOP_CONFIRM_TIMEOUT_MS
+    const requestedAtMs = stopRequestedAtMs === null ? nowMs() : stopRequestedAtMs
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        const at = stopWaiters.indexOf(waiter)
+        if (at >= 0) stopWaiters.splice(at, 1)
+        resolve({ ok: false, reason: 'stop-timeout', ms: nowMs() - requestedAtMs, message: null })
+      }, budget)
+      const waiter = (msg) => {
+        clearTimeout(timer)
+        resolve({ ok: true, reason: 'stopped', ms: nowMs() - requestedAtMs, message: msg || null })
+      }
+      stopWaiters.push(waiter)
+    })
+  }
 
-  return { start, resize, stop, getStats, getLastError, isRunning }
+  function getStats() {
+    const state = runtimeState()
+    if (!lastStats) return { frame: null, ageMs: state.ageMs, stale: state.stale, state: state.state }
+    return { ...lastStats, ageMs: state.ageMs, stale: state.stale, state: state.state }
+  }
+  function getLastError() { return lastError }
+  function getState() { return runtimeState() }
+  function isRunning() { return runtimeState().running }
+
+  return { start, resize, stop, getStats, getLastError, isRunning, getState, awaitStopped }
 }
