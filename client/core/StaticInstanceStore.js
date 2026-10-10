@@ -121,6 +121,11 @@ export function createStaticInstanceStore(opts = {}) {
   }
 
   const _worldSphere = new THREE.Sphere()
+  const _localProbe = new THREE.Vector3()
+  function _localUnitsPerWorldUnit(ray) {
+    _localProbe.copy(ray.origin).add(ray.direction).applyMatrix4(_tmpInvMat4)
+    return _localProbe.distanceTo(_tmpRay.origin) / ray.direction.length()
+  }
   function raycastFirst(ray, near = 0, far = Infinity) {
     let best = null, bestDist = far
     for (let slot = 0; slot < _count; slot++) {
@@ -140,11 +145,15 @@ export function createStaticInstanceStore(opts = {}) {
       }
       _tmpInvMat4.copy(_tmpMat4).invert()
       _tmpRay.copy(ray).applyMatrix4(_tmpInvMat4)
-      const hit = bucket.bvh.raycastFirst(_tmpRay, THREE.DoubleSide, near, far)
-      if (hit && hit.distance < bestDist) {
+      const localPerWorld = _localUnitsPerWorldUnit(ray)
+      const hit = bucket.bvh.raycastFirst(_tmpRay, THREE.DoubleSide, near * localPerWorld, bestDist * localPerWorld)
+      if (hit) {
         hit.point.applyMatrix4(_tmpMat4)
-        hit.distance = ray.origin.distanceTo(hit.point)
-        if (hit.distance < bestDist) { bestDist = hit.distance; best = { ...hit, entityId: _slotToEntity.get(slot), slot } }
+        const worldDist = ray.origin.distanceTo(hit.point)
+        if (worldDist < bestDist) {
+          bestDist = worldDist
+          best = { ...hit, distance: worldDist, entityId: _slotToEntity.get(slot), slot }
+        }
       }
     }
     return best
