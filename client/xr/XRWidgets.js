@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { createMachine, createActor } from '/node_modules/xstate/dist/xstate.esm.js'
+import { createRayLine } from './XRRayLine.js'
 
 const FADE_SPEED = 5
 const FADE_DELAY_S = 0.05
@@ -28,8 +29,17 @@ export function createXRWidgets(renderer, scene, camera, initialSettings) {
   let fadeQuad = null, fadeOpacity = 0, fadeDelayElapsed = 0
   const _fadeActor = createActor(fadeMachine); _fadeActor.start()
   let vignetteMesh = null, vignetteOpacity = 0, vignetteTargetOpacity = 0
-  let handsDetected = false
   const _tmp1 = new THREE.Vector3(), _tmp2 = new THREE.Vector3()
+
+  function createScreenQuad({ renderOrder, z, material }) {
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material)
+    quad.renderOrder = renderOrder; quad.position.z = z; camera.add(quad)
+    return quad
+  }
+
+  function setQuadOpacity(quad, opacity) {
+    quad.material.opacity = opacity; quad.visible = opacity > 0.01
+  }
 
   function createWristUI() {
     const canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 128
@@ -98,9 +108,8 @@ export function createXRWidgets(renderer, scene, camera, initialSettings) {
   }
 
   function initTeleport() {
-    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(ARC_SEGMENTS * 3), 3))
-    teleportArc = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.6 }))
-    teleportArc.name = 'teleportArc'; teleportArc.visible = false; scene.add(teleportArc)
+    teleportArc = createRayLine({ color: 0x00ffff, opacity: 0.6, name: 'teleportArc', segments: ARC_SEGMENTS })
+    teleportArc.visible = false; scene.add(teleportArc)
     teleportMarker = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.4, 32), new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.5, side: THREE.DoubleSide }))
     teleportMarker.name = 'teleportMarker'; teleportMarker.rotation.x = -Math.PI / 2; teleportMarker.visible = false; scene.add(teleportMarker)
   }
@@ -143,8 +152,7 @@ export function createXRWidgets(renderer, scene, camera, initialSettings) {
     teleportArc.geometry.attributes.position.needsUpdate = true; teleportArc.visible = true; return hit
   }
 
-  function updateTeleportArc(handsDetectedNow, handModels) {
-    handsDetected = handsDetectedNow
+  function updateTeleportArc(handsDetected, handModels) {
     if (!renderer.xr.isPresenting || !teleportArc || !settings.teleportEnabled) { if (teleportArc) teleportArc.visible = false; if (teleportMarker) teleportMarker.visible = false; return }
     const session = renderer.xr.getSession(); if (!session) return
     let origin = null, direction = null, triggerTeleport = false
@@ -174,12 +182,12 @@ export function createXRWidgets(renderer, scene, camera, initialSettings) {
   }
 
   function updateFade(dt) {
-    if (!fadeQuad) { const q = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, depthTest: false, depthWrite: false })); q.renderOrder = 9999; fadeQuad = q; camera.add(fadeQuad); fadeQuad.position.z = -0.1 }
+    if (!fadeQuad) fadeQuad = createScreenQuad({ renderOrder: 9999, z: -0.1, material: new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0, depthTest: false, depthWrite: false }) })
     const fs = _fadeActor.getSnapshot().value
     if (fs === 'fadeIn') { fadeOpacity += FADE_SPEED * dt; if (fadeOpacity >= 1) { fadeOpacity = 1; fadeDelayElapsed = 0; _fadeActor.send({ type: 'FULL' }) } }
     else if (fs === 'delay') { fadeDelayElapsed += dt; if (fadeDelayElapsed >= FADE_DELAY_S) { fadeDelayElapsed = 0; _fadeActor.send({ type: 'RESUME' }) } }
     else if (fs === 'fadeOut') { fadeOpacity -= FADE_SPEED * dt; if (fadeOpacity <= 0) { fadeOpacity = 0; _fadeActor.send({ type: 'DONE' }) } }
-    fadeQuad.material.opacity = fadeOpacity; fadeQuad.visible = fadeOpacity > 0.01
+    setQuadOpacity(fadeQuad, fadeOpacity)
   }
 
   function updateVignette(dt, isMoving) {
@@ -189,12 +197,11 @@ export function createXRWidgets(renderer, scene, camera, initialSettings) {
       const ctx = canvas.getContext('2d'), g = ctx.createRadialGradient(256, 256, 100, 256, 256, 400)
       g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.5, 'rgba(0,0,0,0.3)'); g.addColorStop(1, 'rgba(0,0,0,0.8)')
       ctx.fillStyle = g; ctx.fillRect(0, 0, 512, 512)
-      vignetteMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, opacity: 0, depthTest: false, depthWrite: false }))
-      vignetteMesh.renderOrder = 9998; camera.add(vignetteMesh); vignetteMesh.position.z = -0.15
+      vignetteMesh = createScreenQuad({ renderOrder: 9998, z: -0.15, material: new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true, opacity: 0, depthTest: false, depthWrite: false }) })
     }
     vignetteTargetOpacity = isMoving ? 0.6 : 0
     vignetteOpacity += (vignetteTargetOpacity - vignetteOpacity) * 5 * dt
-    vignetteMesh.material.opacity = vignetteOpacity; vignetteMesh.visible = vignetteOpacity > 0.01
+    setQuadOpacity(vignetteMesh, vignetteOpacity)
   }
 
   return { initWristUI, updateWristUI, toggleSettings, setSettings, updateSettingsPanel, initTeleport, updateTeleportArc, updateFade, updateVignette, get isTeleporting() { return teleportPending !== null }, get settingsVisible() { return vrSettingsPanel?.visible || false } }

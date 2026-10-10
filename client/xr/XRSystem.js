@@ -1,9 +1,10 @@
-import * as THREE from 'three'
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js'
 import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js'
 import { VRButton } from 'three/addons/webxr/VRButton.js'
 import { XRControls, createXRButton } from './XRControls.js'
 import { createXRWidgets } from './XRWidgets.js'
+import { isXRSessionSupported } from './xrSessionSupport.js'
+import { createRayLine } from './XRRayLine.js'
 import { readHudStats } from '../hud/HudStats.js'
 
 const SMOOTH_TURN_SPEEDS = [0, 1.5, 3.0, 4.5]
@@ -22,40 +23,42 @@ export function createXRSystem(renderer, scene, camera) {
   let xrBaseReferenceSpace = null
   let xrRebaseTimer = 0
   let arEnabled = false, arButton = null
+  let arPriorState = null
   let settingsTriggerCooldown = false, settingsSnapCooldown = false, settingsSmoothCooldown = false
-  const vrSettings = { snapTurnAngle: 30, smoothTurnSpeed: 2.0, vignetteEnabled: false, playerHeight: 1.6, teleportEnabled: false }
+  let vrSettings = { snapTurnAngle: 30, smoothTurnSpeed: 2.0, vignetteEnabled: false, playerHeight: 1.6, teleportEnabled: false }
   const widgets = createXRWidgets(renderer, scene, camera, vrSettings)
+
+  function setVRSettings(patch) {
+    vrSettings = { ...vrSettings, ...patch }
+    widgets.setSettings(vrSettings)
+  }
 
   const xrControls = new XRControls({ placementMode: true, planeDetection: true })
   const arReticle = xrControls.createReticle()
   scene.add(arReticle)
 
   async function initVRButton() {
-    if (navigator.xr && await navigator.xr.isSessionSupported('immersive-vr')) {
+    if (await isXRSessionSupported('immersive-vr')) {
       document.body.appendChild(VRButton.createButton(renderer, { optionalFeatures: ['hand-tracking'] }))
     }
-  }
-
-  function createLaserPointer() {
-    const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -5)])
-    const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 }))
-    l.name = 'laserPointer'; return l
   }
 
   function setup() {
     for (const h of [0, 1]) {
       const ctrl = renderer.xr.getController(h)
       const grip = renderer.xr.getControllerGrip(h)
-      ctrl.add(createLaserPointer())
-      grip.add(controllerModelFactory.createControllerModel(grip)); controllerModels.set(h, grip.children[0])
+      ctrl.add(createRayLine({ length: 5, color: 0xffffff, opacity: 0.6, name: 'laserPointer' }))
+      const controllerModel = controllerModelFactory.createControllerModel(grip)
+      grip.add(controllerModel); controllerModels.set(h, controllerModel)
       controllerGrips.set(h, grip); scene.add(ctrl); scene.add(grip); ctrl.visible = false; grip.visible = false
     }
     widgets.initTeleport()
     for (const h of [0, 1]) {
       const hand = renderer.xr.getHand(h)
-      hand.add(handModelFactory.createHandModel(hand)); handModels.set(h, { hand, model: hand.children[0] })
-      const ray = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -2)]), new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.5 }))
-      ray.name = 'handRay'; hand.add(ray)
+      const handModel = handModelFactory.createHandModel(hand)
+      hand.add(handModel); handModels.set(h, { hand, model: handModel })
+      const ray = createRayLine({ length: 2, color: 0x00ffff, opacity: 0.5, name: 'handRay' })
+      hand.add(ray)
       if (h === 0) widgets.initWristUI(hand)
       scene.add(hand); hand.visible = false
     }
@@ -104,27 +107,35 @@ export function createXRSystem(renderer, scene, camera) {
   async function initAR() {
     const supported = await xrControls.init(renderer); if (!supported) return
     arButton = await createXRButton(renderer,
-      async () => { const ok = await xrControls.start(); if (ok) { arEnabled = true; scene.background = null; renderer.domElement.style.display = 'none' }; return ok },
-      async () => { await xrControls.end(); arEnabled = false; scene.background = new THREE.Color(0x87ceeb); renderer.domElement.style.display = 'block'; if (arButton) { arButton.textContent = 'Enter XR'; arButton.classList.remove('xr-exit'); arButton.classList.add('btn-primary') } }
+      async () => {
+        const ok = await xrControls.start()
+        if (ok) { arEnabled = true; arPriorState = { background: scene.background, canvasDisplay: renderer.domElement.style.display }; scene.background = null; renderer.domElement.style.display = 'none' }
+        return ok
+      },
+      async () => {
+        await xrControls.end(); arEnabled = false
+        if (arPriorState) { scene.background = arPriorState.background; renderer.domElement.style.display = arPriorState.canvasDisplay; arPriorState = null }
+        if (arButton) { arButton.textContent = 'Enter XR'; arButton.classList.remove('xr-exit'); arButton.classList.add('btn-primary') }
+      }
     )
     if (arButton) document.body.appendChild(arButton)
   }
 
   function cycleSmooth(inputHandler) {
     const i = SMOOTH_TURN_SPEEDS.indexOf(vrSettings.smoothTurnSpeed)
-    vrSettings.smoothTurnSpeed = SMOOTH_TURN_SPEEDS[(i + 1) % SMOOTH_TURN_SPEEDS.length]
-    inputHandler?.setSmoothTurnSpeed(vrSettings.smoothTurnSpeed); widgets.updateSettingsPanel()
+    setVRSettings({ smoothTurnSpeed: SMOOTH_TURN_SPEEDS[(i + 1) % SMOOTH_TURN_SPEEDS.length] })
+    inputHandler?.setSmoothTurnSpeed(vrSettings.smoothTurnSpeed)
   }
 
   function cycleSnap(inputHandler) {
     const i = SNAP_TURN_ANGLES.indexOf(vrSettings.snapTurnAngle)
-    vrSettings.snapTurnAngle = SNAP_TURN_ANGLES[(i + 1) % SNAP_TURN_ANGLES.length]
-    inputHandler?.setSnapTurnAngle(vrSettings.snapTurnAngle); widgets.updateSettingsPanel()
+    setVRSettings({ snapTurnAngle: SNAP_TURN_ANGLES[(i + 1) % SNAP_TURN_ANGLES.length] })
+    inputHandler?.setSnapTurnAngle(vrSettings.snapTurnAngle)
   }
 
   function handleSettingsInput(input, inputHandler) {
     if (!widgets.settingsVisible) { settingsTriggerCooldown = false; settingsSmoothCooldown = false; settingsSnapCooldown = false; return }
-    if (input.shoot && !settingsTriggerCooldown) { vrSettings.teleportEnabled = !vrSettings.teleportEnabled; settingsTriggerCooldown = true; widgets.updateSettingsPanel() }
+    if (input.shoot && !settingsTriggerCooldown) { setVRSettings({ teleportEnabled: !vrSettings.teleportEnabled }); settingsTriggerCooldown = true }
     if (input.sprint && !settingsSmoothCooldown) { cycleSmooth(inputHandler); settingsSmoothCooldown = true }
     if (input.reload && !settingsSnapCooldown) { cycleSnap(inputHandler); settingsSnapCooldown = true }
     if (!input.shoot) settingsTriggerCooldown = false
@@ -156,12 +167,14 @@ export function createXRSystem(renderer, scene, camera) {
   initVRButton()
 
   return {
-    setup, initAR, setupSessionListeners, update, syncVRPosition, handleSettingsInput,
+    setup, initAR, setupSessionListeners, update, syncVRPosition, handleSettingsInput, setVRSettings,
     toggleSettings: widgets.toggleSettings,
     get isPresenting() { return renderer.xr.isPresenting },
-    get vrSettings() { return vrSettings },
+    get vrSettings() { return Object.freeze({ ...vrSettings }) },
     get xrControls() { return xrControls },
     get arEnabled() { return arEnabled },
-    controllerModels, controllerGrips, handModels
+    getControllerModel: (h) => controllerModels.get(h),
+    getControllerGrip: (h) => controllerGrips.get(h),
+    getHandModel: (h) => handModels.get(h)
   }
 }
