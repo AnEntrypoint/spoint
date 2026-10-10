@@ -37,17 +37,19 @@ export class SkeletonUtils {
       'leftFoot': ['LeftFoot', 'footL', 'armature|foot.l'],
       'rightFoot': ['RightFoot', 'footR', 'armature|foot.r'],
     }
-    const candidates = nameMap[humanoidName] || [humanoidName]
-    for (const bone of skeleton.bones) {
-      if (candidates.includes(bone.name)) return bone
+    const candidates = Object.hasOwn(nameMap, humanoidName) ? nameMap[humanoidName] : [humanoidName]
+    for (const candidate of candidates) {
+      const bone = skeleton.bones.find((b) => b.name === candidate)
+      if (bone) return bone
     }
     return null
   }
 
   static getRootBone(skeleton) {
-    const hips = this.findBoneByHumanoidName(skeleton, 'hips')
+    if (!skeleton || !skeleton.bones) return null
+    const hips = SkeletonUtils.findBoneByHumanoidName(skeleton, 'hips')
     if (hips) return hips
-    if (skeleton.bones && skeleton.bones.length > 0) return skeleton.bones[0]
+    if (skeleton.bones.length > 0) return skeleton.bones[0]
     return null
   }
 
@@ -78,9 +80,7 @@ export class SkeletonUtils {
   }
 
   static interpolateQuaternion(q1, q2, t) {
-    const result = new THREE.Quaternion()
-    THREE.Quaternion.slerpFlat(result, 0, q1, 0, q2, 0, t)
-    return result
+    return new THREE.Quaternion().copy(q1).slerp(q2, t)
   }
 
   static interpolateVector3(v1, v2, t) {
@@ -114,7 +114,7 @@ export class SkeletonUtils {
     if (!skeleton || !skeleton.bones) return offset
     const stride = 4
     for (const bone of skeleton.bones) {
-      this.packQuaternion(bone.quaternion, buffer, offset)
+      SkeletonUtils.packQuaternion(bone.quaternion, buffer, offset)
       offset += stride
     }
     return offset
@@ -124,8 +124,8 @@ export class SkeletonUtils {
     if (!skeleton || !skeleton.bones) return offset
     const stride = 4
     for (const bone of skeleton.bones) {
-      this.unpackQuaternion(buffer, offset)
-      bone.quaternion.copy(this.unpackQuaternion(buffer, offset))
+      SkeletonUtils.unpackQuaternion(buffer, offset)
+      bone.quaternion.copy(SkeletonUtils.unpackQuaternion(buffer, offset))
       offset += stride
     }
     return offset
