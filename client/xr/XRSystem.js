@@ -20,6 +20,7 @@ export function createXRSystem(renderer, scene, camera) {
   const handModelFactory = new XRHandModelFactory()
   let handsDetected = false
   let xrBaseReferenceSpace = null
+  let xrRebaseTimer = 0
   let arEnabled = false, arButton = null
   let settingsTriggerCooldown = false, settingsSnapCooldown = false, settingsSmoothCooldown = false
   const vrSettings = { snapTurnAngle: 30, smoothTurnSpeed: 2.0, vignetteEnabled: false, playerHeight: 1.6, teleportEnabled: false }
@@ -80,7 +81,10 @@ export function createXRSystem(renderer, scene, camera) {
         try { renderer.xr.setFoveation(FIXED_FOVEATION_LEVEL) } catch (_) {}
       }
       if (camRef?.inputHandler) camRef.inputHandler.vrYaw = camRef.yaw
-      setTimeout(() => {
+      clearTimeout(xrRebaseTimer)
+      xrRebaseTimer = setTimeout(() => {
+        xrRebaseTimer = 0
+        if (!renderer.xr.isPresenting) return
         xrBaseReferenceSpace = renderer.xr.getReferenceSpace()
         if (!xrBaseReferenceSpace) return
         const local = getPlayerState(getPlayerId())
@@ -92,7 +96,9 @@ export function createXRSystem(renderer, scene, camera) {
         }
       }, 100)
     })
-    renderer.xr.addEventListener('sessionend', () => { xrBaseReferenceSpace = null })
+    renderer.xr.addEventListener('sessionend', () => {
+      clearTimeout(xrRebaseTimer); xrRebaseTimer = 0; xrBaseReferenceSpace = null
+    })
   }
 
   async function initAR() {
