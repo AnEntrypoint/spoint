@@ -6,6 +6,7 @@ import { WebTransportTransport } from './WebTransportTransport.js'
 
 let Http3Server = null
 let nativeAvailable = false
+let nativeAttachError = null
 
 try {
   const require = createRequire(import.meta.url)
@@ -15,8 +16,12 @@ try {
     const mod = await import('@fails-components/webtransport')
     Http3Server = mod.Http3Server
     nativeAvailable = true
+  } else {
+    nativeAttachError = new Error(`native binary missing at ${nativePath}`)
   }
-} catch (e) {}
+} catch (e) {
+  nativeAttachError = e
+}
 
 const READ_ERROR_LIMIT = 8
 const READ_ERROR_BACKOFF_BASE_MS = 10
@@ -36,8 +41,8 @@ export class WebTransportServer extends EventEmitter {
 
   async start() {
     if (!nativeAvailable || !Http3Server) {
-      console.log('[webtransport] Native binary not available, skipping')
-      return false
+      const nativeAttachReason = nativeAttachError ? nativeAttachError.message : 'quiche native binary unresolved'
+      throw new Error(`[webtransport] native attach failed: ${nativeAttachReason}`)
     }
     if (!this.cert || !this.key) {
       console.log('[webtransport] TLS cert/key not provided, skipping')
@@ -58,7 +63,7 @@ export class WebTransportServer extends EventEmitter {
       })
       this.server.startServer()
       this.running = true
-      this._acceptSessions()
+      this._acceptSessions().catch((e) => this.emit('error', e))
       return true
     } catch (e) {
       console.error('[webtransport] Failed to start:', e.message)
@@ -73,6 +78,7 @@ export class WebTransportServer extends EventEmitter {
       reader = sessionStream.getReader()
     } catch (e) {
       console.error('[webtransport] Session accept failed:', e.message)
+      this.emit('error', e)
       return
     }
     let consecutiveReadErrors = 0
@@ -100,9 +106,15 @@ export class WebTransportServer extends EventEmitter {
 
   stop() {
     this.running = false
-    if (this.server) {
-      try { this.server.destroy() } catch (e) {}
-      this.server = null
+    if (!this.server) return true
+    const server = this.server
+    this.server = null
+    try {
+      server.destroy()
+      return true
+    } catch (e) {
+      console.error('[webtransport] Failed to destroy server:', e.message)
+      return false
     }
   }
 }
