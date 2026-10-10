@@ -1,4 +1,4 @@
-import { renderDeferringUnreadyPrograms } from './ProgramReadiness.js'
+import { renderDeferringUnreadyPrograms, runWarmPasses } from './ProgramReadiness.js'
 
 const PLACEMENT_INTERVAL_MS = 250
 const MIN_TICK_GAP_MS = 40
@@ -20,9 +20,8 @@ export function resolveCameraPose(camera, out) {
 }
 
 export function warmSceneryShaders(renderer, scene, camera) {
-  if (!renderer || !scene || !camera) return 0
-  try { renderDeferringUnreadyPrograms(renderer, scene, camera); renderDeferringUnreadyPrograms(renderer, scene, camera) } catch (_) {}
-  return 2
+  if (!renderer || !scene || !camera) return runWarmPasses(null, 0)
+  return runWarmPasses(() => renderDeferringUnreadyPrograms(renderer, scene, camera), 2)
 }
 
 export function createPlacementScheduler(getHandles) {

@@ -14,6 +14,7 @@ import { MAX_BENDERS, MAX_DECALS, UNUSED_BENDER_SLOT_XZ, makeWind, makeGrassMate
 import { makeClumpGeo } from './GrassClump.js'
 import { makeGrassMaterialTSL, syncGrassMaterialTSL } from './GrassTSL.js'
 import { createStreamingInstancer } from './WebGPUInstancing.js'
+import { runWarmPasses } from './ProgramReadiness.js'
 
 const GRASS_ATTRIBUTE_SCHEMA = { windPhase: 'float', tint: 'float', instShadow: 'float' }
 
@@ -330,7 +331,10 @@ export async function createGrass(opts = {}) {
     if (grassNodes) syncGrassMaterialTSL(grassNodes, wind)
   }
 
-  function warmShaders(camera) { if (!camera) return 0; try { renderer.render(scene, camera); renderer.render(scene, camera) } catch (_) {} return 1 }
+  function warmShaders(camera) {
+    if (!camera) return runWarmPasses(null, 0)
+    return runWarmPasses(() => renderer.render(scene, camera), 2)
+  }
 
   function getOcclusionCandidates() {
     if (_occCands) return _occCands

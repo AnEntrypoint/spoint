@@ -9,6 +9,7 @@ import { createCachedAnchorField } from '/src/terrain/ClimateCache.js'
 import { createBiomeOverride } from '/src/terrain/BiomeOverride.js'
 import { dbg } from './debug-log.js'
 import { makeRocksMaterialTSL } from './RocksTSL.js'
+import { runWarmPasses } from './ProgramReadiness.js'
 
 const _dbgRocks = dbg('rocks')
 const _occBoxGeo = new THREE.BoxGeometry(1, 1, 1)
@@ -255,9 +256,8 @@ export async function createRocks(opts = {}) {
   }
 
   function warmShaders(camera) {
-    if (!camera) return 0
-    try { renderer.render(scene, camera); renderer.render(scene, camera) } catch (_) {}
-    return 1
+    if (!camera) return runWarmPasses(null, 0)
+    return runWarmPasses(() => renderer.render(scene, camera), 2)
   }
 
   function dispose() {

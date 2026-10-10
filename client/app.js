@@ -642,7 +642,9 @@ async function _buildWorldSceneryOnce() {
     ])
     _hp('after-veg-rocks-grass-prewarm')
     performance.mark('boot:foliage-prewarmed')
-    warmSceneryShaders(renderer, scene, camera)
+    const _warmShaders = warmSceneryShaders(renderer, scene, camera)
+    if (typeof window !== 'undefined') window.__warmSceneryShaders = _warmShaders
+    if (_warmShaders.failed > 0) console.error('[veg] shader warm failed on', _warmShaders.failed, 'of', _warmShaders.attempted, 'passes:', _warmShaders.error && _warmShaders.error.message ? _warmShaders.error.message : _warmShaders.error)
     _hp('after-prewarm-warm')
   } catch (e) { console.error('[veg] prewarm/warm failed:', e?.message || e) }
   _markSceneryPhase('settled')

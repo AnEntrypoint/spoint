@@ -7,6 +7,21 @@ export function renderDeferringUnreadyPrograms(renderer, scene, camera) {
   try { renderer.render(scene, camera) } finally { renderer.deferUnreadyPrograms = prev }
 }
 
+export function runWarmPasses(renderPass, passes = 2) {
+  const attempted = Math.max(0, passes | 0)
+  let succeeded = 0
+  let error = null
+  for (let i = 0; i < attempted; i++) {
+    try {
+      renderPass()
+      succeeded++
+    } catch (e) {
+      if (!error) error = e instanceof Error ? e : new Error(String(e))
+    }
+  }
+  return { attempted, succeeded, failed: attempted - succeeded, error }
+}
+
 export function pendingProgramCount(renderer) {
   const programs = renderer.info && renderer.info.programs
   if (!programs) return 0
