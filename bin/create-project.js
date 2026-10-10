@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, readFileSync, writeFileSync, cpSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync, cpSync } from 'node:fs'
 import { resolve, join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readFileSync as readFileSyncRaw } from 'node:fs'
@@ -36,12 +36,23 @@ Examples:
 `)
 }
 
+function fail(message) {
+  console.error(`Error: ${message}`)
+  process.exit(1)
+}
+
 function readSpointVersion() {
+  const pkgPath = join(__dirname, '..', 'package.json')
+  let pkg
   try {
-    const pkgPath = join(__dirname, '..', 'package.json')
-    const pkg = JSON.parse(readFileSyncRaw(pkgPath, 'utf8'))
-    return pkg.version || '0.1.0'
-  } catch { return '0.1.0' }
+    pkg = JSON.parse(readFileSyncRaw(pkgPath, 'utf8'))
+  } catch (error) {
+    fail(`cannot read the engine package.json at '${pkgPath}' (${error.message})`)
+  }
+  if (typeof pkg?.version !== 'string' || pkg.version === '') {
+    fail(`the engine package.json at '${pkgPath}' has no version field`)
+  }
+  return pkg.version
 }
 
 export function createProject(name, template = 'sandbox') {
@@ -59,17 +70,30 @@ export function createProject(name, template = 'sandbox') {
     console.error(`Error: '${dest}' already exists`)
     process.exit(1)
   }
-  mkdirSync(dest, { recursive: true })
-  cpSync(templateAppsDir(template), join(dest, 'apps'), { recursive: true })
-
   const version = readSpointVersion()
-  const pkgTemplate = readFileSyncRaw(join(TEMPLATE_DIR, 'package.json.template'), 'utf8')
-  writeFileSync(join(dest, 'package.json'), pkgTemplate.replace('__PROJECT_NAME__', name).replace('__SPOINT_VERSION__', version))
+  try {
+    mkdirSync(dest)
+  } catch (error) {
+    fail(`cannot create '${dest}' (${error.message})`)
+  }
+  try {
+    cpSync(templateAppsDir(template), join(dest, 'apps'), { recursive: true })
 
-  const readmeTemplate = readFileSyncRaw(join(TEMPLATE_DIR, 'README.md.template'), 'utf8')
-  writeFileSync(join(dest, 'README.md'), readmeTemplate.replaceAll('__PROJECT_NAME__', name))
+    const pkgTemplate = readFileSyncRaw(join(TEMPLATE_DIR, 'package.json.template'), 'utf8')
+    writeFileSync(join(dest, 'package.json'), pkgTemplate.replace('__PROJECT_NAME__', name).replace('__SPOINT_VERSION__', version))
 
-  writeFileSync(join(dest, '.gitignore'), readFileSyncRaw(join(TEMPLATE_DIR, 'gitignore.template'), 'utf8'))
+    const readmeTemplate = readFileSyncRaw(join(TEMPLATE_DIR, 'README.md.template'), 'utf8')
+    writeFileSync(join(dest, 'README.md'), readmeTemplate.replaceAll('__PROJECT_NAME__', name))
+
+    writeFileSync(join(dest, '.gitignore'), readFileSyncRaw(join(TEMPLATE_DIR, 'gitignore.template'), 'utf8'))
+  } catch (error) {
+    try {
+      rmSync(dest, { recursive: true, force: true })
+    } catch (cleanupError) {
+      fail(`cannot scaffold '${name}' from template '${template}' (${error.message}), and cannot remove the partial directory '${dest}' (${cleanupError.message})`)
+    }
+    fail(`cannot scaffold '${name}' from template '${template}' (${error.message}); removed the partial directory '${dest}'`)
+  }
 
   console.log(`[ok] Created ${name}/`)
   console.log(`  Template: ${template}`)
@@ -82,24 +106,47 @@ export function createProject(name, template = 'sandbox') {
 function parseArgs(argv) {
   const args = { name: null, template: 'sandbox' }
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === '--template' && argv[i + 1]) {
+    const arg = argv[i]
+    if (arg === '--template') {
+      const value = argv[i + 1]
+      if (!value || value.startsWith('--')) {
+        fail(`--template needs a value: one of ${TEMPLATES.join(', ')}`)
+      }
       args.template = argv[++i]
-    } else if (!argv[i].startsWith('--')) {
-      args.name = argv[i]
+    } else if (arg.startsWith('--')) {
+      fail(`unknown option '${arg}' (see --help)`)
+    } else if (args.name === null) {
+      args.name = arg
+    } else {
+      fail(`unexpected extra argument '${arg}': give exactly one project name`)
     }
   }
   return args
 }
 
-const argv = process.argv.slice(2)
-if (argv.includes('--help') || argv.length === 0) {
-  showHelp()
-  process.exit(argv.length === 0 ? 1 : 0)
+function main(argv) {
+  if (argv.includes('--help') || argv.length === 0) {
+    showHelp()
+    process.exit(argv.length === 0 ? 1 : 0)
+  }
+  const args = parseArgs(argv)
+  if (!args.name) {
+    console.error('Error: project name required')
+    showHelp()
+    process.exit(1)
+  }
+  createProject(args.name, args.template)
 }
-const args = parseArgs(argv)
-if (!args.name) {
-  console.error('Error: project name required')
-  showHelp()
-  process.exit(1)
-}
-createProject(args.name, args.template)
+
+const isEntryPoint = (() => {
+  const entry = process.argv[1]
+  if (!entry) return false
+  const self = fileURLToPath(import.meta.url)
+  try {
+    return realpathSync.native(entry) === realpathSync.native(self)
+  } catch {
+    return resolve(entry) === resolve(self)
+  }
+})()
+
+if (isEntryPoint) main(process.argv.slice(2))
