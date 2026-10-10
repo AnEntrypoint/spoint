@@ -3,7 +3,6 @@ import fs from 'node:fs'
 import { join } from 'node:path'
 import { chromium } from './lib/cdp-browser.mjs'
 import { gpuLaunchArgs, gpuModeFlag, witnessGpu } from './lib/gpu-probe.mjs'
-import { worldAppNames } from '../src/apps/appsManifest.js'
 import { locateWorld, loadWorldModule } from '../src/sdk/WorldLocator.js'
 import { assertServedClientRoot, clientRootTag } from './lib/served-client-root.mjs'
 
@@ -73,8 +72,9 @@ const PROBE = `(() => {
   const wl = window.__workerLog || {}
   const created = wl.created === undefined ? null : wl.created
   const initAt = wl.initAt === undefined ? null : wl.initAt
-  const inWindow = e => (created === null || e.t0 >= created) && (initAt === null || e.t0 <= initAt)
-  const res = log.filter(inWindow)
+  const windowBounded = created !== null && initAt !== null
+  const inWindow = e => e.t0 >= created && e.t0 <= initAt
+  const res = windowBounded ? log.filter(inWindow) : []
   const isManifest = u => /apps-manifest\\.json(\\?|$)/.test(u)
   const isAppSource = u => /\\/apps\\/.*\\.js(\\?|$)/.test(u)
   const isDepSource = u => /\\/(src|stdlib-apps)\\/.*\\.js(\\?|$)/.test(u)
@@ -94,6 +94,7 @@ const PROBE = `(() => {
   const spanEnd = found.length ? Math.max.apply(null, found.map(e => e.responseEnd)) : null
   const client = (window.__app && window.__app.client) || null
   return {
+    windowBounded: windowBounded,
     resolutionSpanMs: spanFromFetches,
     resolutionBytes: bytesFromFetches,
     resourceTimingMatched: found.length,
@@ -120,6 +121,17 @@ const PROBE = `(() => {
 })()`
 
 const READY = `!!(window.__app && window.__app.client && window.__app.client.playerId != null && (window.__workerLog && window.__workerLog.initAt !== null))`
+
+function declaredAppNames(worldDef) {
+  const names = new Set()
+  for (const e of Array.isArray(worldDef.entities) ? worldDef.entities : []) {
+    if (e && typeof e.app === 'string' && e.app) names.add(e.app)
+  }
+  for (const list of [worldDef.placeableApps, worldDef.trustedApps]) {
+    for (const n of Array.isArray(list) ? list : []) if (typeof n === 'string' && n) names.add(n)
+  }
+  return [...names].sort()
+}
 
 function manifestCandidates() {
   const roots = [join(ROOT, 'dist', 'client'), join(ROOT, 'client')]
@@ -174,7 +186,7 @@ async function main() {
 
   const { path: worldPath } = await locateWorld({ project: ROOT, sdkRoot: ROOT, name: WORLD })
   const worldDef = (await loadWorldModule(worldPath)) || {}
-  const declaredApps = worldAppNames(worldDef)
+  const declaredApps = declaredAppNames(worldDef)
   console.log(`${TAG} world ${WORLD} declares ${declaredApps.length} app(s): ${declaredApps.join(', ')}`)
 
   const server = await boot()
@@ -197,7 +209,7 @@ async function main() {
 
   let browser = null
   try {
-    browser = await chromium.launch({ headless: true, args: gpuLaunchArgs(GPU_MODE) })
+    browser = await chromium.launch({ headless: false, args: gpuLaunchArgs(GPU_MODE) })
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } })
     const pageErrors = []
     const consoleLines = []
@@ -242,6 +254,7 @@ async function main() {
     console.log(`${TAG} probe ${JSON.stringify(probe)}`)
 
     expect(probe && probe.patchInstalled === true, `the probe never installed in the page, so the observation set is empty and witnesses nothing (probe=${JSON.stringify(probe)})`)
+    expect(probe && probe.windowBounded === true, `the worker creation or INIT timestamp is absent, so the observation window is unbounded and no fetch can be attributed to boot (probe=${JSON.stringify(probe)})`)
     expect(ready === true, `the page never finished app resolution and boot (worker INIT never observed): ${JSON.stringify(probe)}`)
     console.log(`${TAG} served manifest contains require-app ${REQUIRE_APP}: ${served.hasRequiredApp} (appCount=${served.appCount})`)
     if (REQUIRE_APP) expect(served.hasRequiredApp === true, `the manifest the server served does not contain the current app tree entry "${REQUIRE_APP}" (status=${served.status} appCount=${served.appCount}) -- the fast path would be serving stale app sources`)
@@ -253,6 +266,7 @@ async function main() {
         expect(probe.manifestFetches >= 1, `expected the manifest fast path but apps-manifest.json was never fetched (probe=${JSON.stringify(probe)})`)
         expect(probe.manifestStatus[0] === 200, `apps-manifest.json did not resolve 200: ${JSON.stringify(probe.manifestStatus)}`)
         expect(probe.walkFetches === 0, `expected zero live-walk fetches but the boot walked the app tree ${probe.walkFetches} time(s): ${JSON.stringify(probe.walkUrls)}`)
+        expect(probe.initAppCount === served.appCount, `the worker initialised ${probe.initAppCount} app(s) but the served manifest lists ${served.appCount} -- the fast path dropped apps it should have served`)
       } else if (EXPECT === 'miss') {
         expect(probe.walkFetches > 0, `expected the live app walk but the boot performed zero app-tree fetches (probe=${JSON.stringify(probe)})`)
       }
