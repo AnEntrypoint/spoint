@@ -59,16 +59,10 @@ export async function setup(scene, world, appCtx) {
     animationSystem.setIKTarget(chainName, position, poleVector)
   }
 
-  let lastFrameTime = Date.now()
-
   function tick(dt) {
-    if (!animationSystem) return
+    if (!animationSystem || !Number.isFinite(dt)) return
 
-    const now = Date.now()
-    const elapsed = (now - lastFrameTime) / 1000
-    lastFrameTime = now
-
-    animationSystem.update(elapsed)
+    animationSystem.update(dt)
   }
 
   function dispose() {
