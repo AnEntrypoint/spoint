@@ -181,7 +181,7 @@ export default {
       })
     },
 
-    onInput(input) {
+    onInput(input, ctx) {
       if (!input.keys) return
       for (let i = 1; i <= 9; i++) {
         if (input.keys[String(i)]) {
