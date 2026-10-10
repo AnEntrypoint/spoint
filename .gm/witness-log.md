@@ -177,3 +177,24 @@ RESULT ILLEGAL-n-r177-4 blocked next=mapspinner-gl-render-has-no-dispose (not in
 RESULT BOHM-JACOPINI-n-r166-2-scandeps-orch-main-r182 resolved f48a9c960e3e48f3b69096875320a850de26ce56 next=BOHM-JACOPINI-n-r166-2
 RESULT LAMPORT-n-r129-3 resolved c7bfb61af75b2c3d1bace6932b9bc6c4cd0e1988 next=LAMPORT-n-r129-4
 tick 124 live=20 ceiling=20 floor=10 shortfall=0 done=3 launch orch-main-r201 row=LAMPORT-n-r129-1 launch orch-main-r202 row=OWNERSHIP-n-r192-1 launch orch-main-r203 row=OWNERSHIP-n-r192-2 1791673568
+RESULT BOHM-JACOPINI-n-r166-1 resolved 04f09e6f0c878fa7d7bf23c3413077472b53defb next=BOHM-JACOPINI-n-r166-5
+RESULT DBC-n-r134-4 resolved cb0b06c261299a24d307ea4faa825d7d92f66adb next=planet-wrap-seamless
+tick 125 live=20 ceiling=20 floor=10 shortfall=0 done=2 launch orch-main-r204 row=OWNERSHIP-n-r192-3 launch orch-main-r205 row=OWNERSHIP-n-r192-4 1791673672
+scripts/cache-revalidation-sweep-halting-witness.mjs | exit=0 | RESULT: PASS | CHECKS 30 FAILS 0 | 2026-10-10T23:07:29Z | dispatch 1791673569888-500-b501d90fc6a2c077 (verifier session orch-main-r194-w1, editing session orch-main-r194)
+scripts/cache-revalidation-sweep-halting-witness.mjs | exit=0 | RESULT: PASS | CHECKS 30 FAILS 0 | 2026-10-10T23:09:00Z | dispatch 1791673666439-500-e7033ca88f9cdde6 (verifier session orch-main-r194-w1, blob ce9a3e0a: re-run after the catch-binding follow-up edit)
+RESULT ILLEGAL-n-r177-7 resolved 9bde6e66346d86dbcaa584d7bec534ccc092301c next=ILLEGAL-n-r177-8
+tick 126 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r206 row=OWNERSHIP-n-r192-5 1791673774
+HOP apps/tps-game MILNER 4 violations witness=1791673527312-500-e20eabede5c27825 next=ILLEGAL apps/tps-game
+tick 127 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r207 hop=ILLEGAL apps/tps-game 1791673896
+- 2026-10-10T23:11:42.483Z | DBC-n-r152-1-c4-orch-main-r173 | precondition-check: git_status scripts/lib/net-conditioner.mjs | exit 0 | RESULT: BLOCKED (file dirty, gate "work it when clean" unmet) | dispatch 1791673719696-500-4097e135ac8b6fd3
+
+ILLEGAL-n-r177-5 | fsbrowse-save-base | exit=0 | RESULT: PASS | 2026-10-10T23:12:16.708Z | dispatch=1791673856033-500-60770e87a40e6860 | live import of client/editor/EditorFsBrowse.js under a resolution adapter for the anentrypoint-design importmap specifier; fsSaveBase(null)=null, fsSaveBase({mtimeMs:undefined})={mtimeMs:null}, fsSaveBase({mtimeMs:1700000000000})={mtimeMs:1700000000000}; component drive: Ctrl+S with nothing loaded -> onSave 0 calls, onGetSource 2; loaded with revision -> onSave("a.js","code",{mtimeMs:1700000000000}); loaded unversioned -> onSave("a.js","code",{mtimeMs:null})
+ILLEGAL-n-r177-6 | client/editor/EditorFsBrowse.js: _loading/_unavailable/_tree collapsed to one tagged _state (loading|unavailable|ready), open-file path cannot skip unavailable | exit 0 | RESULT: PASS -- 15 check(s) | 2026-10-10T23:13:03.989Z | dispatch 1791673685970-500-acf3289d758a363f (session orch-main-r187-w1)
+RESULT DBC-n-r152-1-c4-orch-main-r173 blocked next=chart-reanchor-client-relocation-bookmarks-transfer
+tick 128 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r208 hop=ILLEGAL src/transport (unscanned surface, traversal) 1791673984
+HOP client/xr DRY 11 violations witness=1791673540386-500-66c3813fc6c7cfe5 next=KISS client/xr
+tick 129 live=20 ceiling=20 floor=10 shortfall=0 done=1 launch orch-main-r209 hop=KISS client/xr 1791674001
+OWNERSHIP-n-r192-2 click-ownership fix-shape witness exec_js exit=0 RESULT: PASS current after2 onStart:2/onEnd:1 (after1 1/0) == expected; single-owner after2 onStart:1/onEnd:1 (after1 1/0) == expected 2026-10-10T23:12:27Z 1791673947305-500-475585c7d885e10c
+1791673824322-500-ca99e51e665844b9 wm-window-state live chrome exit=0 RESULT: PASS illegalBoth=false states=normal,minimized,maximized,minimized,normal,maximized,minimized ts=2026-10-10T23:13:37Z session=orch-main-r196-w row=ILLEGAL-n-r177-2 sha=968d07435a89d68f7618c35a6b8900da16a31f3c
+OWNERSHIP-n-r192-3 | exec_js (real extracted setupSessionListeners source, fake renderer.xr + controllable timer registry) | exit=0 | RESULT: PASS | 14/14 fields match (A_armed_timers=1 A_timers_after_end=0 A_handle=0 A_getReferenceSpace=0 A_setReferenceSpace=0 A_cameraSets=0 A_base=null B_getReferenceSpace=1 B_setReferenceSpace=1 B_cameraSets=[[10,6.6,-3]] B_base_notnull=true B_handle_after_fire=0 C_armed_timers=1 C_setReferenceSpace=1) | module=client/xr/XRSystem.js | 2026-10-10T23:16:16Z | dispatch=1791673976679-500-9c392f5eaf2a6d2e | session=orch-main-r204-w1
+2026-10-10T23:14:01.386Z | NetworkSimTransport-witness | exit 0 | RESULT: PASS | module src/transport/NetworkSimTransport.js | claims 35/35 | out - | sha256 -

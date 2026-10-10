@@ -4,3 +4,25 @@
   title: AGENTS.md:185 and docs/measurement-figures.md:80 still name the deleted window.__dprAuto write
   detail: 'DRY-n-r141-1 deleted _publishDpr from client/hud/SettingsMenu.js, so neither window.__dprAuto nor window.__dprOff is written or read anywhere. The two doc lines that describe the old state are still on disk and are now false: AGENTS.md:185 ends ''`window.__dprAuto` is written by `client/hud/SettingsMenu.js`, read by nothing'' (the write is gone), and docs/measurement-figures.md:80 is a [REFUTED] entry citing client/hud/SettingsMenu.js:166 and :175 as the two write sites (both lines no longer exist; the file is 304 lines and its dprAuto site is now line 269''s _checkbox binding). Neither file was edited by this run because both carry large foreign uncommitted diffs from other lanes (AGENTS.md ~51KB, docs/measurement-figures.md and scripts/lib/verify-doc-claims.mjs also dirty), and a paths-scoped commit would sweep them. scripts/lib/verify-doc-claims.mjs now carries the true fact in EXPECTED_NO_READER[''__dprAuto''], so the verifier stays green meanwhile. Do this in the lane that owns those docs.'
   session_id: orch-main-r195
+- id: OWNERSHIP-n-r192-2-blocker-orch-main-r203
+  subject: 'BLOCKER (file held) OWNERSHIP-n-r192-2: client/xr/XRControls.js holds a foreign uncommitted hunk owned by pending row HUGHES-n-r163-4; the fix is validated and ready to apply once the file is clean'
+  status: pending
+  session_id: orch-main-r203
+  blockedBy: client/xr/XRControls.js is dirty with a hunk owned by pending row HUGHES-n-r163-4 (session orch-main-r163); git_diff 1791673689939-500-67f4af6f7acd3723 shows the hunk at lines 40-53. The row is also listed as held in .gm/pool/held-rows.json at ts 1791673790520, alongside hop:DRY:client/xr. A path-scoped git_finalize would sweep that foreign hunk, so no edit was made.
+  depends_on:
+  - OWNERSHIP-n-r192-2
+  - HUGHES-n-r163-4
+  description: |-
+    EMIT could not run. SPECIFY, PROVE and DECIDE did.
+
+    SPECIFY -- cited lines verified live: client/xr/XRControls.js:125 is btn.addEventListener('click', ...) and :130 is btn.onclick = onEnd, inside createXRButton at :118-133 (fs_read 1791673668684-500-f91b4eb59bc35447). codesearch 1791673851933-500-a9d701e836aad4e (literal, ar-button) finds exactly one creator, btn.id='ar-button' at :122, and no second writer. codeinsight 1791673940568-500-351b7013f2f0381d (index complete:true) finds one caller: initAR at client/xr/XRSystem.js:104-111.
+
+    PROVE -- the defect was re-derived independently of the row's own witness. exec_js 1791673947305-500-475585c7d885e10c, harness modelling real DOM dispatch semantics (listener list snapshotted at dispatch start, onclick as a single IDL slot). Expectation recorded before dispatch: current shape after1 {onStart:1,onEnd:0} and after2 {onStart:2,onEnd:1}; single-owner shape after1 {onStart:1,onEnd:0} and after2 {onStart:1,onEnd:1}. Observed equals expected exactly, reproduced verbatim as {"current":{"after1":{"onStart":1,"onEnd":0},"after2":{"onStart":2,"onEnd":1}},"fixed":{"after1":{"onStart":1,"onEnd":0},"after2":{"onStart":1,"onEnd":1}}}. Logged as one line in .gm/witness-log.md.
+
+    FIX READY, validated by that same witness. Replace XRControls.js:125-131 with ONE click listener that switches on renderer.xr.isPresenting -- the live owner of that state, already read at client/xr/XRSystem.js:65 and client/app.js:2230 -- calling onStart when not presenting and onEnd when presenting, and delete the line btn.onclick = onEnd so no second owner of one click exists. Constraints: do not introduce a local active flag, because that would be a second holder of state renderer.xr already owns; do not move text or class management, because the onEnd callback at XRSystem.js:108 already reverts textContent and xr-exit, so changing it here would create a new split owner. The removed behaviour is not lost: onEnd is still invoked on the second click, once.
+
+    RE-WITNESS GATE: the same harness must report onStart:1/onEnd:1 after two clicks and onStart:1/onEnd:0 after the first.
+
+    UNBLOCK WHEN: client/xr/XRControls.js is clean under git_status scoped to that path, or HUGHES-n-r163-4 has landed its hunk. Then apply the fix, re-witness from another session, and close OWNERSHIP-n-r192-2 with prd-resolve citing witness_dispatch_id; a self-witness is refused.
+
+    scan_deps 1791673860425-500-5073a0731f690a46: filesScanned 1327, blockedCount 0, failCount 0, warnCount 3 (basis_transcoder.js x2, draco-loader.js -- pre-existing vendored minified assets, not touched by this row).
