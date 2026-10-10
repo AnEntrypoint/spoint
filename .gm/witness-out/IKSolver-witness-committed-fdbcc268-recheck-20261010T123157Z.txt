@@ -1,0 +1,52 @@
+witness=IKSolver-witness
+ts=2026-10-10T12:31:58.078Z
+module=C:\dev\spoint\src\animation\IKSolver.js
+module_sha256=6aab953d904caac1a6c4fdf21298db60b4b5e4a7b9f8c01a3bb7ff67fcd4441e
+three_revision=185
+node=v24.15.0
+check O1 PASS output path is new (create-only) expected=absent got=absent
+check S1 PASS node-only gate: no browser, GPU, worker, fetch, require or dynamic import token expected=[] got=[]
+check S2 PASS no Math.random or Date in module, so no seed is needed expected=[] got=[]
+check S3 PASS only static import is the bare three package expected=[three] got=[three]
+check L1 PASS module imports without error expected=loaded got=loaded
+check A1 PASS named exports expected=[FootIKSolver,IKChain,IKRig,TwoBoneIKSolver,default] got=[FootIKSolver,IKChain,IKRig,TwoBoneIKSolver,default]
+check A2 PASS default export keys expected=[FootIKSolver,IKChain,IKRig,TwoBoneIKSolver] got=[FootIKSolver,IKChain,IKRig,TwoBoneIKSolver]
+check A3 PASS default export holds the same class references expected=[true,true,true,true] got=[true,true,true,true]
+check B1 PASS defaults: target, poleVector, enabled, weight, tolerance, useWorldSpace expected=[[0.000000,0.000000,0.000000],[1.000000,0.000000,0.000000],true,1.000000,0.001000,true] got=[[0.000000,0.000000,0.000000],[1.000000,0.000000,0.000000],true,1.000000,0.001000,true]
+check B2 PASS options override tolerance and useWorldSpace expected=[0.500000,false] got=[0.500000,false]
+check B3 PASS setTarget copies its argument and returns the solver expected=[true,[1.000000,2.000000,3.000000]] got=[true,[1.000000,2.000000,3.000000]]
+check B4 PASS setPoleVector normalises its argument and returns the solver expected=[true,[0.000000,0.600000,0.800000]] got=[true,[0.000000,0.600000,0.800000]]
+check B5 PASS solve returns the solver expected=true got=true
+check B6 PASS disabled solver leaves both bone rotations unchanged expected=[[0.000000,0.000000,0.000000,1.000000],[0.000000,0.000000,0.000000,1.000000]] got=[[0.000000,0.000000,0.000000,1.000000],[0.000000,0.000000,0.000000,1.000000]]
+check B7 PASS target at the root, under tolerance, leaves rotations unchanged expected=[0.000000,0.000000,0.000000,1.000000] got=[0.000000,0.000000,0.000000,1.000000]
+check CHAR-L1 PASS limitation: a root with no parent is never rotated by solve expected=[0.000000,0.000000,0.000000,1.000000] got=[0.000000,0.000000,0.000000,1.000000] analytic=rotated
+check C1 PASS flat layout: rootLength and middleLength equal the bone lengths expected=[1.000000,1.000000] got=[1.000000,1.000000]
+check C2 PASS hierarchical unit rig: rootLength equals 1 when the root sits at the parent origin expected=1.000000 got=1.000000
+check X1a PASS hierarchical unit rig: middleLength equals 1 expected=1.000000 got=1.000000
+check X1b PASS offset rig: rootLength equals 0.5 expected=0.500000 got=0.500000
+check X1c PASS offset rig: middleLength equals 0.5 expected=0.500000 got=0.500000
+check X2a PASS reach (1,1,0): middle world position equals (1,0,0) expected=[1.000000,0.000000,0.000000] got=[1.000000,0.000000,0.000000]
+check X2b PASS reach (1,1,0): end world position equals (1,1,0) expected=[1.000000,1.000000,0.000000] got=[1.000000,1.000000,0.000000]
+check X2c PASS reach (0,1.5,0): middle world position equals (0.661438,0.75,0) expected=[0.661438,0.750000,0.000000] got=[0.661438,0.750000,0.000000]
+check X2d PASS reach (0,1.5,0): end world position equals (0,1.5,0) expected=[0.000000,1.500000,0.000000] got=[0.000000,1.500000,0.000000]
+check G1 PASS unreachable target (10,0,0) clamps to full extension: middle at (1,0,0) expected=[1.000000,0.000000,0.000000] got=[1.000000,0.000000,0.000000]
+check G2 PASS unreachable target (10,0,0) clamps to full extension: end at (2,0,0) expected=[2.000000,0.000000,0.000000] got=[2.000000,0.000000,0.000000]
+check E1 PASS ray starts half its length above the foot, points down, has rayDistance length expected=[[0.000000,2.500000,0.000000],[0.000000,-1.000000,0.000000],4.000000] got=[[0.000000,2.500000,0.000000],[0.000000,-1.000000,0.000000],4.000000]
+check E2 PASS full weight moves the foot to the hit height and returns the solver expected=[0.300000,true] got=[0.300000,true]
+check E3 PASS weight scales the height correction expected=0.400000 got=0.400000
+check E4 PASS no hit leaves the foot unchanged expected=0.500000 got=0.500000
+check E5 PASS disabled foot solver casts no ray and leaves the foot unchanged expected=[0.000000,0.500000] got=[0.000000,0.500000]
+check E6 PASS default rayDistance is 10 expected=10.000000 got=10.000000
+check X3a PASS foot under a parent at y=10, hit world y=10.3: local y is 0.3 expected=0.300000 got=0.300000
+check X3b PASS same foot: world y is 10.3 expected=10.300000 got=10.300000
+check F1 PASS chain calls solve on each valid solver in insertion order expected=[A,B] got=[A,B]
+check F2 PASS addSolver returns the chain and the name is kept expected=[true,leg] got=[true,leg]
+check F3 PASS disabled chain calls no solver expected=0.000000 got=0.000000
+check F4 PASS enable and disable return the chain expected=[true,true] got=[true,true]
+check R1 PASS createChain returns an IKChain registered by name; unknown names are undefined expected=[true,arm,true,undefined] got=[true,arm,true,undefined]
+check R2 PASS update solves every chain while enabled expected=1.000000 got=1.000000
+check R3 PASS disabled rig does not solve chains expected=1.000000 got=1.000000
+check R4 PASS enable and disable return the rig expected=[true,true] got=[true,true]
+summary checks=43 correct=42 characterized=1 failed=0
+characterized_ids=CHAR-L1
+RESULT: PASS
